@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "flat-type-hierarchy",
+        "value": "*",
+        "files": [
+          "client/index.html"
+        ],
+        "createdAt": "2026-10-09T08:56:05.128Z",
+        "reason": "compact game HUD/overlay with many small chrome elements (control buttons, category tabs, tool buttons, panel body text); sizes intentionally clustered 12-16px for visual consistency across button-like controls rather than editorial content hierarchy. The one genuine heading/body inversion (.econ-heading) was fixed separately (13px -> 16px)."
+      }
+    ]
+  }
+}

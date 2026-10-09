@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>colony2d</title>
+    <style>
+      html, body { margin: 0; padding: 0; background: #111; overflow: hidden; }
+      #app { width: 100vw; height: 100vh; }
+
+      #control-buttons {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        display: flex;
+        gap: 8px;
+        z-index: 12;
+        font-family: system-ui, sans-serif;
+      }
+
+      .control-btn {
+        padding: 8px 14px;
+        background: rgba(42, 42, 42, 0.9);
+        color: #fff;
+        border: 1px solid #555;
+        border-radius: 4px;
+        font-size: 13px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .control-btn:hover {
+        border-color: #888;
+      }
+
+      #build-panel-toggle {
+        position: fixed;
+        top: 50%;
+        right: 0;
+        transform: translateY(-50%);
+        background: rgba(42, 42, 42, 0.9);
+        color: #fff;
+        border: 1px solid #555;
+        border-right: none;
+        border-radius: 4px 0 0 4px;
+        padding: 12px 8px;
+        cursor: pointer;
+        user-select: none;
+        z-index: 11;
+        font-family: system-ui, sans-serif;
+        font-size: 13px;
+        writing-mode: vertical-rl;
+        transition: right 0.2s ease;
+      }
+
+      #build-panel-toggle.panel-open {
+        right: 310px;
+      }
+
+      #build-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        height: 100vh;
+        width: 310px;
+        background: rgba(20, 20, 20, 0.95);
+        border-left: 1px solid #555;
+        z-index: 10;
+        font-family: system-ui, sans-serif;
+        transition: transform 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        padding: 60px 18px 20px;
+        box-sizing: border-box;
+      }
+
+      #build-panel.collapsed {
+        transform: translateX(100%);
+      }
+
+      #build-requirements {
+        color: #ddd;
+        font-size: 15px;
+        line-height: 1.5;
+        margin-bottom: 16px;
+        min-height: 48px;
+        border-bottom: 1px solid #444;
+        padding-bottom: 14px;
+      }
+
+      #toolbar {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        overflow-y: auto;
+      }
+
+      .tool-btn {
+        padding: 12px 16px;
+        background: rgba(42, 42, 42, 0.9);
+        color: #fff;
+        border: 1px solid #555;
+        border-radius: 6px;
+        font-size: 16px;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+        text-align: left;
+      }
+
+      .tool-btn:hover {
+        border-color: #888;
+      }
+
+      .tool-btn.selected {
+        background: #4a90d9;
+        border-color: #fff;
+      }
+
+      #build-category-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+
+      .category-tab {
+        padding: 6px 10px;
+        background: rgba(255, 255, 255, 0.06);
+        color: #ccc;
+        border: 1px solid #555;
+        border-radius: 12px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .category-tab:hover {
+        border-color: #888;
+        color: #fff;
+      }
+
+      .category-tab.selected {
+        background: #4a90d9;
+        border-color: #fff;
+        color: #fff;
+      }
+
+      /* Colony panel: single left-side menu holding everything that used to be split between
+         the floating canvas HUD (wood/iron/rock/gold/pop/time/happiness/army) and this panel
+         (goods stockpile + Market/Gold Shop). The stat block is a pinned header; goods scroll
+         below it. */
+      #economy-panel-toggle {
+        position: fixed;
+        top: 50%;
+        left: 0;
+        transform: translateY(-50%);
+        background: rgba(42, 42, 42, 0.9);
+        color: #fff;
+        border: 1px solid #555;
+        border-left: none;
+        border-radius: 0 4px 4px 0;
+        padding: 12px 8px;
+        cursor: pointer;
+        user-select: none;
+        z-index: 11;
+        font-family: system-ui, sans-serif;
+        font-size: 13px;
+        writing-mode: vertical-rl;
+        transition: left 0.2s ease;
+      }
+
+      #economy-panel-toggle.panel-open {
+        left: 260px;
+      }
+
+      #economy-panel {
+        position: fixed;
+        top: 12px;
+        left: 0;
+        max-height: calc(100vh - 24px);
+        width: 260px;
+        background: rgba(20, 20, 20, 0.95);
+        border: 1px solid #555;
+        border-left: none;
+        border-radius: 0 6px 6px 0;
+        z-index: 10;
+        font-family: system-ui, sans-serif;
+        color: #ddd;
+        font-size: 14px;
+        transition: transform 0.2s ease;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #economy-panel.collapsed {
+        transform: translateX(-100%);
+      }
+
+      #colony-stats {
+        padding: 12px 14px 10px;
+        border-bottom: 1px solid #444;
+        flex: none;
+      }
+
+      #colony-stats .econ-row {
+        line-height: 1.5;
+      }
+
+      #stat-time {
+        font-weight: 600;
+      }
+
+      #stat-happiness {
+        font-weight: 600;
+        color: #7ddc7d;
+      }
+
+      #stat-army {
+        margin-top: 8px;
+        font-size: 12.5px;
+        color: #bbb;
+        line-height: 1.5;
+      }
+
+      #stat-selected {
+        margin-top: 4px;
+        font-size: 12.5px;
+        color: #00e5ff;
+        line-height: 1.5;
+      }
+
+      #stat-selected[hidden] {
+        display: none;
+      }
+
+      #goods-scroll {
+        overflow-y: auto;
+        padding: 10px 14px 14px;
+      }
+
+      .econ-heading {
+        color: #fff;
+        font-size: 16px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin: 10px 0 6px;
+      }
+
+      .econ-heading:first-child {
+        margin-top: 0;
+      }
+
+      .econ-row {
+        display: flex;
+        justify-content: space-between;
+        line-height: 1.6;
+      }
+
+      .econ-row span:last-child {
+        color: #fff;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .econ-section {
+        border-top: 1px solid #444;
+        margin-top: 12px;
+        padding-top: 4px;
+      }
+
+      .econ-section[hidden] {
+        display: none;
+      }
+
+      .econ-btns {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .econ-btn {
+        padding: 6px 10px;
+        background: rgba(42, 42, 42, 0.9);
+        color: #fff;
+        border: 1px solid #555;
+        border-radius: 4px;
+        font-size: 13px;
+        cursor: pointer;
+        user-select: none;
+        text-align: left;
+      }
+
+      .econ-btn:hover:not(:disabled) {
+        border-color: #888;
+      }
+
+      .econ-btn:disabled {
+        color: #777;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="control-buttons">
+      <button id="pause-btn" class="control-btn">Pause</button>
+      <button id="restart-btn" class="control-btn">Restart</button>
+    </div>
+    <div id="build-panel-toggle">Build</div>
+    <div id="build-panel" class="collapsed">
+      <div id="build-category-tabs"></div>
+      <div id="build-requirements">Select a tool to see its cost.</div>
+      <div id="toolbar"></div>
+    </div>
+    <div id="economy-panel-toggle" class="panel-open">Colony</div>
+    <div id="economy-panel">
+      <div id="colony-stats">
+        <div class="econ-row"><span>Wood</span><span id="stat-wood">0</span></div>
+        <div class="econ-row"><span>Iron</span><span id="stat-iron">0</span></div>
+        <div class="econ-row"><span>Rock</span><span id="stat-rock">0</span></div>
+        <div class="econ-row"><span>Gold</span><span id="stat-gold">0</span></div>
+        <div class="econ-row"><span>Pop</span><span id="stat-pop">0/0</span></div>
+        <div class="econ-row"><span id="stat-time">Day</span><span id="stat-happiness">Happiness: 100%</span></div>
+        <div id="stat-army">Knights 0  Archers 0  Militia 0  Bishops 0</div>
+        <div id="stat-selected" hidden></div>
+      </div>
+      <div id="goods-scroll">
+        <div id="goods-list"></div>
+        <div id="market-section" class="econ-section" hidden>
+          <div class="econ-heading">Market</div>
+          <div id="market-btns" class="econ-btns"></div>
+        </div>
+        <div id="gold-shop-section" class="econ-section" hidden>
+          <div class="econ-heading">Gold Shop</div>
+          <div id="gold-shop-btns" class="econ-btns"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

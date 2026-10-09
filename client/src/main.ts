@@ -1,0 +1,1774 @@
+import {
+  Application,
+  Assets,
+  Container,
+  defaultFilterVert,
+  Filter,
+  GlProgram,
+  Graphics,
+  Sprite,
+  Text,
+  Texture,
+} from "pixi.js";
+import type {
+  ServerMessage,
+  PlayerSnapshot,
+  ColonistSnapshot,
+  ColonistKind,
+  MobSnapshot,
+  MobKind,
+  AttackEffect,
+} from "./protocol";
+import { Biome, TileType } from "./protocol";
+
+const SERVER_URL = "ws://localhost:8080";
+
+type ToolCategory = "combat" | "farming" | "industry" | "civic" | "trade";
+
+interface ToolDef {
+  tile: TileType;
+  label: string;
+  key: string;
+  cost: string;
+  category: ToolCategory;
+}
+
+// Break has no category of its own — it's pinned so it's always visible regardless of
+// which category tab is active (see refreshToolbarVisibility).
+const TOOL_CATEGORIES: { key: ToolCategory; label: string }[] = [
+  { key: "farming", label: "Farming" },
+  { key: "combat", label: "Combat" },
+  { key: "industry", label: "Industry" },
+  { key: "civic", label: "Civic" },
+  { key: "trade", label: "Trade" },
+];
+
+const TOOLS: ToolDef[] = [
+  { tile: TileType.Wall, label: "Wood Wall", key: "1", cost: "1 wood", category: "combat" },
+  { tile: TileType.StoneWall, label: "Stone Wall", key: "2", cost: "1 rock", category: "combat" },
+  { tile: TileType.LumberjackPost, label: "Lumberjack", key: "3", cost: "Free (upgradeable)", category: "farming" },
+  { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: "Free, needs adjacent Barn", category: "farming" },
+  { tile: TileType.KnightPost, label: "Hall of the Sworn", key: "5", cost: "10 iron + 5 rock (upgradeable)", category: "combat" },
+  { tile: TileType.ArcherPost, label: "Archery Range", key: "6", cost: "10 wood (on Wall = Tower, upgradeable)", category: "combat" },
+  { tile: TileType.IronMinePost, label: "Iron Mine", key: "7", cost: "Free, needs ore or adjacent mine (upgradeable)", category: "industry" },
+  { tile: TileType.RockMinePost, label: "Quarry", key: "8", cost: "Free, needs ore or adjacent mine (upgradeable)", category: "industry" },
+  { tile: TileType.Empty, label: "Demolish", key: "9", cost: "", category: "farming" },
+  { tile: TileType.House, label: "Cottage", key: "h", cost: "10 wood", category: "civic" },
+  { tile: TileType.BarnPost, label: "Barn", key: "b", cost: "15 wood (upgradeable)", category: "farming" },
+  { tile: TileType.ChurchPost, label: "Church", key: "c", cost: "15 wood (upgradeable)", category: "civic" },
+  // w/a/s/d are movement keys, so the farm hotkeys avoid them.
+  { tile: TileType.Pasture, label: "Pasture (Meat)", key: "p", cost: "Free (upgradeable)", category: "farming" },
+  { tile: TileType.Orchard, label: "Orchard (Fruit)", key: "o", cost: "Free (upgradeable)", category: "farming" },
+  { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: "Free (upgradeable)", category: "farming" },
+  { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: "Free (upgradeable)", category: "farming" },
+  {
+    tile: TileType.TailorShop,
+    label: "Tailor Shop",
+    key: "t",
+    cost: "10 wood + 5 iron (upgradeable). Crafts 1 Wool + 1 Cotton → 1 Clothes",
+    category: "industry",
+  },
+  {
+    tile: TileType.Blacksmith,
+    label: "Blacksmith",
+    key: "k",
+    cost: "10 wood + 5 iron (upgradeable). Crafts 1 Iron + 1 Wood → 1 Tools",
+    category: "industry",
+  },
+  {
+    tile: TileType.LuxuryWorkshop,
+    label: "Jeweler's Workshop",
+    key: "l",
+    cost: "10 wood + 5 iron (upgradeable). Crafts 1 Rock + 1 Fruit → 1 Luxury Item",
+    category: "industry",
+  },
+  { tile: TileType.Market, label: "Bazaar", key: "m", cost: "15 wood", category: "trade" },
+  { tile: TileType.GoldShop, label: "Trading Post", key: "g", cost: "15 wood", category: "trade" },
+  {
+    tile: TileType.Brewery,
+    label: "Brewery",
+    key: "r",
+    cost: "10 wood + 5 iron (upgradeable). Brews 2 Grain → 1 Alcohol",
+    category: "industry",
+  },
+  {
+    tile: TileType.Tavern,
+    label: "Tavern",
+    key: "v",
+    cost: "20 wood + 10 rock (upgradeable). Sells 1 Alcohol → 10 Gold. Raises happiness within 6 tiles",
+    category: "trade",
+  },
+  { tile: TileType.MilitiaPost, label: "Militia Camp", key: "j", cost: "5 wood + 5 iron (upgradeable)", category: "combat" },
+  {
+    tile: TileType.WardStone,
+    label: "Ward Stone",
+    key: "u",
+    cost: "20 wood + 10 tools. Its Bishop keeps the Unbroken Watch: nothing within 12 tiles can be targeted by monsters while he stands vigil",
+    category: "civic",
+  },
+];
+
+const COLONIST_COLORS: Record<string, number> = {
+  lumberjack: 0xd4a04c,
+  farmer: 0x8fbf4d,
+  knight: 0x7f8fa6,
+  archer: 0x5fa8d3,
+  ironMiner: 0xb8b8c8,
+  rockMiner: 0x8d7b68,
+  bishop: 0xf0e6d2,
+  farmhand: 0xf28c38,
+  artisan: 0xb36be0,
+  militia: 0xc9a27a,
+  spearman: 0xa86a3c,
+  pikeman: 0x7a3f1e,
+};
+
+// Only military units take part in selection / commands / task forces.
+const COMMANDABLE_KINDS = new Set<string>(["knight", "archer", "bishop", "militia", "spearman", "pikeman"]);
+// Workers who vanish into their building/plot while on the job, instead of standing visibly on
+// top of it. Guards/militia/bishop stay visible — you want to see your garrison standing watch.
+const WORKER_KINDS = new Set<string>(["lumberjack", "farmer", "ironMiner", "rockMiner", "farmhand", "artisan"]);
+const AT_POST_HIDE_RADIUS_PX = 6;
+// Buildings whose garrison (knights/archers with matching postX/postY) can be click-selected.
+const GARRISON_TILES = new Set<number>([
+  TileType.KnightPost,
+  TileType.CastleLevel2,
+  TileType.CastleLevel3,
+  TileType.ArcherPost,
+  TileType.ArcherTower,
+  TileType.MilitiaPost,
+  TileType.MilitiaCamp2,
+  TileType.MilitiaCamp3,
+]);
+const SELECTION_COLOR = 0x00e5ff;
+const DRAG_THRESHOLD_PX = 6;
+const UNIT_HIT_RADIUS = 10;
+
+// Formation rank for a group move order, front to back (0 = closest to the destination, i.e.
+// leads the march). "artillery" has no matching colonist kind yet, but the slot is reserved for
+// a future siege unit so the ordering doesn't need revisiting when one is added.
+const FORMATION_RANK: Record<string, number> = {
+  knight: 0,
+  militia: 0,
+  spearman: 0,
+  pikeman: 0,
+  archer: 1,
+  bishop: 2,
+  artillery: 3,
+};
+// Max units per row within a rank's block before wrapping to a row behind it (Age of Empires'
+// box formation uses a similarly tight, roughly-square block per unit type rather than one
+// long line).
+const FORMATION_MAX_ROW_WIDTH = 5;
+// Slot spacing (both across a row and between rows), in tiles. A unit's visible footprint is
+// ~23-28px wide and ~31px tall (26.5px body + the HP bar 18px above center), so at 1.0 (32px) rows
+// touched edge-to-edge and diagonal facings (22.6px x/y offsets) overlapped; 1.25 leaves a visible
+// gap at every facing.
+const FORMATION_SPACING_TILES = 1.25;
+// Per-unit move orders go out one at a time, units already closest to their own slot first, this
+// far apart; the step shrinks for big groups so the last unit never waits more than the max spread.
+// Measured with server/formation-test.mjs (stacked-sprite time on 90/180-degree turns), this beat
+// both sending everything at once and sending whole ranks front-first.
+const FORMATION_DISPATCH_STEP_MS = 80;
+const FORMATION_DISPATCH_MAX_SPREAD_MS = 800;
+// Destination marker for a formation move: stays until every unit has stopped walking (arrived, or
+// peeled off to fight), then fades. Hard cap in case a unit never settles.
+const FORMATION_MARKER_MIN_MS = 700;
+const FORMATION_MARKER_MAX_MS = 60000;
+const FORMATION_MARKER_FADE_MS = 400;
+// Minimum click-to-target radius; bigger kinds get half their rendered sprite size instead
+// (see mobHitRadius) so trolls/ogres are clickable anywhere on their body.
+const MOB_HIT_RADIUS = 12;
+
+// Per-kind mob size: radius scales roughly with toughness so size alone reads as a threat cue.
+// Drives the sprite's rendered size (radius * MOB_SPRITE_SIZE_PER_RADIUS along the texture's
+// longer side) and, if a texture is missing, the fallback colored circle.
+const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
+  goblin: { color: 0xa4c639, radius: 7 },
+  wolf: { color: 0x8a8a8a, radius: 7.5 },
+  goblinCrossbow: { color: 0x6b8e23, radius: 7 },
+  orc: { color: 0x3d7a2a, radius: 9.5 },
+  skeleton: { color: 0xe8e0c8, radius: 9.5 },
+  armoredOrc: { color: 0x4a5a3a, radius: 11 },
+  darkShaman: { color: 0x4b1f6b, radius: 8 },
+  giantSpider: { color: 0x1e1a1e, radius: 8.5 },
+  troll: { color: 0x3b4a2a, radius: 13 },
+  ogre: { color: 0x8b5a2b, radius: 15 },
+  // TODO: replace with dedicated bandit art once sourced (currently the militia colonist sprite,
+  // see MOB_SPRITE_URL_OVERRIDES). Same size as orc, which its stats sit closest to.
+  bandit: { color: 0x7a4a2a, radius: 9.5 },
+};
+const MOB_KINDS = Object.keys(MOB_VISUALS) as MobKind[];
+// Mob kinds whose texture isn't /sprites/<kind>.png.
+const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
+  // TODO: replace with dedicated bandit art once sourced. Reuses the militia colonist sprite; the
+  // load list is de-duplicated, so this is the same Texture object as the militia colonist's.
+  bandit: "/sprites/militia.png",
+};
+// Same ratio colonists use: their r=8 fallback circle maps to the 28px COLONIST_SPRITE_HEIGHT.
+// Goblin (r7) -> ~24px, ogre (r15) -> ~52px.
+const MOB_SPRITE_SIZE_PER_RADIUS = 3.5;
+
+function mobHitRadius(kind: MobKind): number {
+  const radius = (MOB_VISUALS[kind] ?? MOB_VISUALS.goblin).radius;
+  return Math.max(MOB_HIT_RADIUS, (radius * MOB_SPRITE_SIZE_PER_RADIUS) / 2);
+}
+
+// Sprite art per tile type. TownCenter (hand-drawn in drawTile) and Empty (bare floor) are
+// deliberately absent.
+const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
+  [TileType.Wall]: "woodWall",
+  [TileType.StoneWall]: "stoneWall",
+  [TileType.KnightPost]: "barracks",
+  [TileType.CastleLevel2]: "castleLv2",
+  [TileType.CastleLevel3]: "castleLv3",
+  [TileType.ArcherPost]: "archeryRange",
+  [TileType.ArcherTower]: "archerTower",
+  [TileType.MilitiaPost]: "militiaCamp",
+  [TileType.MilitiaCamp2]: "militiaCamp2",
+  [TileType.MilitiaCamp3]: "militiaCamp3",
+  [TileType.House]: "cottage",
+  [TileType.BigHouse]: "bigCottage",
+  [TileType.HouseLevel2]: "cottageLv2",
+  [TileType.ChurchPost]: "church",
+  [TileType.LumberjackPost]: "lumberjackPost",
+  [TileType.FarmPlot]: "farmPlot",
+  [TileType.BarnPost]: "barn",
+  [TileType.Pasture]: "pasture",
+  [TileType.Orchard]: "orchard",
+  [TileType.WoolFarm]: "sheepPasture",
+  [TileType.CottonFarm]: "hempField",
+  [TileType.IronMinePost]: "ironMine",
+  [TileType.RockMinePost]: "quarry",
+  [TileType.TailorShop]: "tailorShop",
+  [TileType.Blacksmith]: "blacksmith",
+  [TileType.LuxuryWorkshop]: "jewelersWorkshop",
+  [TileType.Brewery]: "brewery",
+  [TileType.Market]: "bazaar",
+  [TileType.GoldShop]: "tradingPost",
+  [TileType.Tavern]: "tavern",
+  [TileType.Tree]: "tree",
+  [TileType.Rock]: "rock",
+  [TileType.IronOre]: "ironOre",
+  [TileType.Water]: "waterTile",
+  [TileType.RuinWall1]: "ruinWall1",
+  [TileType.RuinWall2]: "ruinWall2",
+  [TileType.RuinArch]: "stoneArch",
+  [TileType.RuinStatue]: "statue",
+  [TileType.RuinRubble]: "rubble",
+  [TileType.PropCampfire]: "campfire",
+  [TileType.PropCart]: "cart",
+  [TileType.PropBarrel]: "barrel",
+  [TileType.PropCrate]: "crate",
+  [TileType.PropFence]: "fence",
+  // Saint Wren's Abbey: assembled from existing art (no dedicated Abbey architecture sourced yet).
+  [TileType.AbbeyHall]: "church",
+  [TileType.PropCross]: "cross",
+  [TileType.PropLanternPost]: "lanternPost",
+  // TODO: replace with dedicated Ward Stone art once sourced (see SPRITES.md part 8).
+  [TileType.WardStone]: "cross",
+};
+// Ground-like tile art that should cover its tile exactly (flush, no overhang into neighbors)
+// instead of the bottom-anchored max-box fit buildings use, and always sit under other tile art.
+const TILE_SPRITE_FILL_TILE = new Set<number>([TileType.Water]);
+// Extra scale on top of the max-box fit for small world-gen props, so a barrel or crate doesn't
+// render the same size as a cottage. Unlisted tiles use 1 (unchanged).
+const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
+  [TileType.RuinStatue]: 0.7,
+  [TileType.RuinRubble]: 0.75,
+  [TileType.PropCampfire]: 0.8,
+  [TileType.PropBarrel]: 0.6,
+  [TileType.PropCrate]: 0.65,
+  [TileType.PropFence]: 0.85,
+  // Bigger than a player-built Church (same art) so the Abbey's hall reads as the complex's anchor.
+  [TileType.AbbeyHall]: 1.5,
+  [TileType.PropCross]: 0.6,
+  [TileType.PropLanternPost]: 0.65,
+  [TileType.WardStone]: 0.75,
+};
+// Tile sprites fit a box this many tiles wide/tall (aspect preserved), bottom-center anchored
+// on the tile's bottom edge so tall art (towers, castles, trees) rises into the row above.
+const TILE_SPRITE_MAX_WIDTH_TILES = 1.4;
+const TILE_SPRITE_MAX_HEIGHT_TILES = 2;
+
+interface EntityVisual {
+  sprite: Container;
+  hpBar: Graphics;
+  // "This is me" ground ring, only present on the local player's entry.
+  marker?: Graphics;
+}
+
+const COLONIST_KINDS: ColonistKind[] = [
+  "lumberjack",
+  "farmer",
+  "knight",
+  "archer",
+  "ironMiner",
+  "rockMiner",
+  "bishop",
+  "farmhand",
+  "artisan",
+  "militia",
+  "spearman",
+  "pikeman",
+];
+// Rendered heights (px); width follows each texture's aspect ratio.
+const COLONIST_SPRITE_HEIGHT = 28;
+// Mounted knight on a horse, plus banner — should read as clearly bigger than a foot soldier,
+// not just a little taller. 64 keeps the rider's own body close to colonist scale while the
+// horse (and banner) make the whole thing noticeably larger, same uniform-scale texture either way.
+const PLAYER_SPRITE_HEIGHT = 64;
+
+// Cosmetic nature scatter on Plains floor tiles: roughly 1 in NATURE_DECOR_ONE_IN eligible tiles
+// gets one of these, chosen by a stable hash of the tile position (no server involvement).
+const NATURE_DECOR_ONE_IN = 16;
+const NATURE_DECOR: { url: string; height: number }[] = [
+  { url: "/sprites/tallGrass.png", height: 16 },
+  { url: "/sprites/flowers1.png", height: 12 },
+  { url: "/sprites/bush3.png", height: 18 },
+];
+
+// Stable pseudo-random in [0, 1) from tile coordinates (+ salt for independent rolls).
+function tileHash01(tx: number, ty: number, salt: number): number {
+  let h = Math.imul(tx, 374761393) ^ Math.imul(ty, 668265263) ^ Math.imul(salt, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+// Recolors the blue banner/barding of the player sprite to uTargetHue (0..1), keeping the
+// source saturation/value so shading survives. Low-saturation pixels (armor, horse) are untouched.
+// Written in PixiJS v8's filter GLSL convention (same as ColorMatrixFilter): no #version,
+// `in`/`out vec4 finalColor`/`texture()`; GlProgram adds the version/WebGL1 shims itself.
+const PLAYER_RECOLOR_FRAG = `in vec2 vTextureCoord;
+
+out vec4 finalColor;
+
+uniform sampler2D uTexture;
+uniform float uTargetHue;
+
+vec3 rgb2hsv(vec3 c) {
+    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+vec3 hsv2rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+void main()
+{
+    vec4 color = texture(uTexture, vTextureCoord);
+    if (color.a > 0.0001) {
+        vec3 unmult = color.rgb / color.a;
+        vec3 hsv = rgb2hsv(unmult);
+        float hueDeg = hsv.x * 360.0;
+        float refHue = 221.7;
+        float hueDist = min(abs(hueDeg - refHue), 360.0 - abs(hueDeg - refHue));
+        float satGate = smoothstep(0.15, 0.3, hsv.y);
+        // == smoothstep(30.0, 15.0, hueDist); GLSL leaves reversed edges undefined.
+        float hueGate = 1.0 - smoothstep(15.0, 30.0, hueDist);
+        float mixAmt = satGate * hueGate;
+        vec3 recolored = hsv2rgb(vec3(uTargetHue, hsv.y, hsv.z));
+        vec3 finalRgb = mix(unmult, recolored, mixAmt);
+        color.rgb = finalRgb * color.a;
+    }
+    finalColor = color;
+}
+`;
+
+// HSV hue of a 0xRRGGBB color, normalized to 0..1.
+function hexToHue(hex: number): number {
+  const r = ((hex >> 16) & 0xff) / 255;
+  const g = ((hex >> 8) & 0xff) / 255;
+  const b = (hex & 0xff) / 255;
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (d === 0) return 0;
+  let h: number;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  h /= 6;
+  return h < 0 ? h + 1 : h;
+}
+
+async function main() {
+  const app = new Application();
+  await app.init({ background: "#1a1a1a", resizeTo: window });
+  document.getElementById("app")!.appendChild(app.canvas);
+
+  const colonistUrls = COLONIST_KINDS.map((kind) => `/sprites/${kind}.png`);
+  const mobUrls = MOB_KINDS.map((kind) => MOB_SPRITE_URL_OVERRIDES[kind] ?? `/sprites/${kind}.png`);
+  const tileSpriteEntries = Object.entries(TILE_SPRITE_FILES).map(
+    ([tile, file]) => [Number(tile), `/sprites/${file}.png`] as const
+  );
+  // Extra variants not tied 1:1 to a TileType: extra Iron Ore looks and two grass-floor
+  // textures, picked per-tile-position for visual variety instead of one fixed art per type.
+  const EXTRA_URLS = [
+    "/sprites/ironOre2.png",
+    "/sprites/ironOre3.png",
+    "/sprites/grassFloor1.png",
+    "/sprites/grassFloor2.png",
+    "/sprites/hillsFloor.png",
+    "/sprites/swampFloor.png",
+    ...NATURE_DECOR.map((d) => d.url),
+  ];
+  // Walk/attack animation frames, sourced so far only for knight and archer; every other kind
+  // keeps its single static pose (see ANIM_FRAMES below).
+  const ANIM_URLS = [
+    ...[0, 1, 2, 3].map((i) => `/sprites/knightWalk${i}.png`),
+    ...[0, 1, 2, 3].map((i) => `/sprites/knightAttack${i}.png`),
+    ...[0, 1, 2, 3].map((i) => `/sprites/archerWalk${i}.png`),
+    ...[0, 1, 2, 3, 4, 5].map((i) => `/sprites/archerAttack${i}.png`),
+  ];
+  // De-duplicated: some kinds share one image (bandit reuses militia.png), and each URL should be
+  // requested once and resolve to one shared Texture.
+  const loadedTextures = await Assets.load<Texture>(
+    Array.from(
+      new Set([
+        ...colonistUrls,
+        "/sprites/player.png",
+        ...mobUrls,
+        ...tileSpriteEntries.map(([, url]) => url),
+        ...EXTRA_URLS,
+        ...ANIM_URLS,
+      ])
+    )
+  );
+  for (const texture of Object.values(loadedTextures)) texture.source.scaleMode = "nearest";
+  const COLONIST_TEXTURES = Object.fromEntries(
+    COLONIST_KINDS.map((kind, i) => [kind, loadedTextures[colonistUrls[i]]])
+  ) as Record<ColonistKind, Texture>;
+  const PLAYER_TEXTURE = loadedTextures["/sprites/player.png"];
+  const MOB_TEXTURES = Object.fromEntries(
+    MOB_KINDS.map((kind, i) => [kind, loadedTextures[mobUrls[i]]])
+  ) as Record<MobKind, Texture>;
+  // Keyed by TileType value; only types with sourced art have an entry.
+  const TILE_TEXTURES = new Map<number, Texture>(
+    tileSpriteEntries.map(([tile, url]) => [tile, loadedTextures[url]])
+  );
+  // Building tiers were generated as separate images and don't necessarily share proportions —
+  // a busier/larger-canvas upgrade art can end up box-fit SMALLER than the tier before it, which
+  // reads as the building shrinking when it upgrades. Force each tier's rendered height to be at
+  // least as tall as the previous tier's (exceeding the normal max-box cap if it has to), so
+  // upgrades only ever look the same size or bigger, never smaller.
+  const TILE_TIER_FAMILIES: TileType[][] = [
+    [TileType.House, TileType.BigHouse, TileType.HouseLevel2],
+    [TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3],
+    [TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3],
+  ];
+  const TILE_MIN_RENDER_HEIGHT = new Map<number, number>();
+  for (const family of TILE_TIER_FAMILIES) {
+    let runningMinHeight = 0;
+    for (const tile of family) {
+      const texture = TILE_TEXTURES.get(tile);
+      if (!texture) continue;
+      // tileSize isn't assigned yet this early in setup (it's only ever 32 regardless, set from
+      // the same default `let tileSize = 32` declared below), so use the literal here.
+      const naturalScale = Math.min(
+        (32 * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width,
+        (32 * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height
+      );
+      const renderHeight = Math.max(naturalScale * texture.height, runningMinHeight);
+      TILE_MIN_RENDER_HEIGHT.set(tile, renderHeight);
+      runningMinHeight = renderHeight;
+    }
+  }
+  const IRON_ORE_VARIANTS = [
+    TILE_TEXTURES.get(TileType.IronOre)!,
+    loadedTextures["/sprites/ironOre2.png"],
+    loadedTextures["/sprites/ironOre3.png"],
+  ];
+  const GRASS_FLOOR_VARIANTS = [
+    loadedTextures["/sprites/grassFloor1.png"],
+    loadedTextures["/sprites/grassFloor2.png"],
+  ];
+  const HILLS_FLOOR_TEXTURE = loadedTextures["/sprites/hillsFloor.png"];
+  const SWAMP_FLOOR_TEXTURE = loadedTextures["/sprites/swampFloor.png"];
+  const NATURE_DECOR_TEXTURES = NATURE_DECOR.map((d) => ({ texture: loadedTextures[d.url], height: d.height }));
+  // Walk/attack frame sequences per colonist kind. Only kinds with sourced animation art have an
+  // entry; everything else falls back to its single static pose in upsertColonist.
+  const ANIM_FRAMES: Partial<Record<ColonistKind, { walk: Texture[]; attack: Texture[] }>> = {
+    knight: {
+      walk: [0, 1, 2, 3].map((i) => loadedTextures[`/sprites/knightWalk${i}.png`]),
+      attack: [0, 1, 2, 3].map((i) => loadedTextures[`/sprites/knightAttack${i}.png`]),
+    },
+    archer: {
+      walk: [0, 1, 2, 3].map((i) => loadedTextures[`/sprites/archerWalk${i}.png`]),
+      attack: [0, 1, 2, 3, 4, 5].map((i) => loadedTextures[`/sprites/archerAttack${i}.png`]),
+    },
+  };
+  // Ticks (snapshots, ~20/s) each animation frame holds before advancing.
+  const ANIM_TICKS_PER_FRAME = 4;
+  interface ColonistAnimState {
+    mode: "walk" | "attack" | null;
+    frame: number;
+    ticksInFrame: number;
+  }
+  const colonistAnim = new Map<string, ColonistAnimState>();
+  // Shared (stateless) program; each player sprite gets its own Filter + uniforms.
+  // highp: the HSV helpers' 1e-10 epsilon underflows to 0 at mediump on some GPUs -> NaN on greys.
+  const playerRecolorProgram = GlProgram.from({
+    vertex: defaultFilterVert,
+    fragment: PLAYER_RECOLOR_FRAG,
+    name: "player-recolor-filter",
+    preferredFragmentPrecision: "highp",
+  });
+
+  const buildRequirementsEl = document.getElementById("build-requirements")!;
+  const buildPanel = document.getElementById("build-panel")!;
+  const buildPanelToggle = document.getElementById("build-panel-toggle")!;
+  buildPanelToggle.addEventListener("click", () => {
+    buildPanel.classList.toggle("collapsed");
+    buildPanelToggle.classList.toggle("panel-open", !buildPanel.classList.contains("collapsed"));
+    buildPanelToggle.blur();
+  });
+
+  const worldLayer = new Container();
+  app.stage.addChild(worldLayer);
+
+  let myId: string | null = null;
+  let tileSize = 32;
+  let worldTilesX = 25;
+  let worldTilesY = 25;
+  let tiles: number[] = [];
+  // Biome per tile from `welcome`; static for the life of a world.
+  let biomes: number[] = [];
+
+  const playerSprites = new Map<string, EntityVisual>();
+  const colonistSprites = new Map<string, EntityVisual>();
+  const mobSprites = new Map<string, EntityVisual>();
+
+  // Grass floor art, one Sprite per tile, alternating two textures for visual variety. Bottom of
+  // the stack: everything else (Town Center, buildings, entities) draws over it.
+  const floorSpriteLayer = new Container();
+  worldLayer.addChild(floorSpriteLayer);
+  const floorSprites: Sprite[] = [];
+
+  // Cosmetic nature scatter (tall grass / flowers / bushes), keyed by tile index: over the floor,
+  // under Town Center / buildings / entities. Hidden whenever its tile isn't Empty.
+  const decorSpriteLayer = new Container();
+  worldLayer.addChild(decorSpriteLayer);
+  const decorSprites = new Map<number, Sprite>();
+
+  const gridGraphics = new Graphics();
+  worldLayer.addChild(gridGraphics);
+
+  // Building/environment art, one Sprite per occupied tile (keyed by tile index). Sits over the
+  // floor/Town Center vector art and under the night overlay and every entity layer.
+  const tileSpriteLayer = new Container();
+  tileSpriteLayer.sortableChildren = true;
+  worldLayer.addChild(tileSpriteLayer);
+  const tileSprites = new Map<number, Sprite>();
+
+  const nightOverlay = new Graphics();
+  nightOverlay.alpha = 0;
+  worldLayer.addChild(nightOverlay);
+
+  const townCenterHpBar = new Graphics();
+  worldLayer.addChild(townCenterHpBar);
+
+  const cursorHighlight = new Graphics();
+
+  // World-space overlays: parented to worldLayer so they follow the camera automatically.
+  const selectionRings = new Graphics();
+  const dragBox = new Graphics();
+
+  function drawTile(gfx: Graphics, x: number, y: number, tile: number) {
+    const px = x * tileSize;
+    const py = y * tileSize;
+    const cx = px + tileSize / 2;
+
+    // Floor itself is real grass-texture sprites in floorSpriteLayer (see setFloorSprites);
+    // gridGraphics now only draws Town Center, on top of that floor.
+    switch (tile) {
+      case TileType.TownCenter: {
+        // Grand stone keep: wider than a tile, flanking towers, crenellations.
+        gfx.rect(px - 3, py + 12, tileSize + 6, tileSize - 12).fill(0x7a7468);
+        gfx.rect(px - 5, py + 4, 9, tileSize - 4).fill(0x635d52);
+        gfx.rect(px + tileSize - 4, py + 4, 9, tileSize - 4).fill(0x635d52);
+        for (const bx of [px - 5, px + 1, px + 7, px + 13, px + 19, px + tileSize - 4, px + tileSize]) {
+          gfx.rect(bx, py + 6, 5, 6).fill(0x4f4a40);
+        }
+        gfx.rect(cx - 5, py + tileSize - 14, 10, 12).fill(0x241f18);
+        gfx.circle(cx, py + tileSize - 9, 1.6).fill(0xd4af37);
+        // Big, unmistakable banner, towering well above the keep.
+        gfx.rect(cx - 2, py - 26, 3, 32).fill(0x3a2410);
+        gfx
+          .poly([cx + 1, py - 26, cx + 1, py - 4, cx + 20, py - 9, cx + 20, py - 21])
+          .fill(0xc0392b);
+        gfx
+          .poly([cx + 1, py - 21, cx + 1, py - 9, cx + 20, py - 15])
+          .fill(0xf1c40f);
+        gfx.circle(cx, py - 26, 2.4).fill(0xf1c40f);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  // Single source of truth for tileSpriteLayer: shows `tile`'s art at (tx, ty), or clears the
+  // slot back to bare floor if it has none (Empty, TownCenter, anything unmapped).
+  function setTileSprite(tx: number, ty: number, tile: number) {
+    const index = ty * worldTilesX + tx;
+    const texture =
+      tile === TileType.IronOre
+        ? IRON_ORE_VARIANTS[(tx * 7 + ty * 13) % IRON_ORE_VARIANTS.length]
+        : TILE_TEXTURES.get(tile);
+    let sprite = tileSprites.get(index);
+    if (!texture) {
+      if (sprite) {
+        sprite.destroy();
+        tileSprites.delete(index);
+      }
+      return;
+    }
+    if (sprite) {
+      sprite.texture = texture;
+    } else {
+      sprite = new Sprite(texture);
+      sprite.anchor.set(0.5, 1);
+      tileSpriteLayer.addChild(sprite);
+      tileSprites.set(index, sprite);
+    }
+    const fillTile = TILE_SPRITE_FILL_TILE.has(tile);
+    const naturalScale = fillTile
+      ? Math.max(tileSize / texture.width, tileSize / texture.height)
+      : Math.min(
+          (tileSize * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width,
+          (tileSize * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height
+        ) * (TILE_SPRITE_SIZE_FACTOR[tile as TileType] ?? 1);
+    const minHeight = TILE_MIN_RENDER_HEIGHT.get(tile);
+    const scale = minHeight ? Math.max(naturalScale, minHeight / texture.height) : naturalScale;
+    sprite.scale.set(scale);
+    sprite.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize);
+    // Row-major index: lower rows draw in front of the rows above them; x breaks ties. Flush
+    // ground-like tiles (water) go under all other tile art.
+    sprite.zIndex = fillTile ? -1 : index;
+  }
+
+  // Town Center only now; the floor is real sprites (setFloorSprites) and everything else is in
+  // tileSpriteLayer.
+  function redrawGridGraphics() {
+    gridGraphics.clear();
+    for (let x = 0; x < worldTilesX; x++) {
+      for (let y = 0; y < worldTilesY; y++) {
+        const tile = tiles[y * worldTilesX + x] ?? TileType.Empty;
+        drawTile(gridGraphics, x, y, tile);
+      }
+    }
+  }
+
+  // Floor never changes per-tile, so this only needs to run on a full map (re)load, not per edit.
+  function setFloorSprites() {
+    for (const s of floorSprites) s.destroy();
+    floorSprites.length = 0;
+    for (let x = 0; x < worldTilesX; x++) {
+      for (let y = 0; y < worldTilesY; y++) {
+        const biome = biomes[y * worldTilesX + x] ?? Biome.Plains;
+        const texture =
+          biome === Biome.Hills
+            ? HILLS_FLOOR_TEXTURE
+            : biome === Biome.Swamp
+            ? SWAMP_FLOOR_TEXTURE
+            : GRASS_FLOOR_VARIANTS[(x + y) % GRASS_FLOOR_VARIANTS.length];
+        const sprite = new Sprite(texture);
+        sprite.anchor.set(0, 0);
+        sprite.width = tileSize;
+        sprite.height = tileSize;
+        sprite.position.set(x * tileSize, y * tileSize);
+        floorSpriteLayer.addChild(sprite);
+        floorSprites.push(sprite);
+      }
+    }
+  }
+
+  // Like the floor, only rebuilt on a full map (re)load; per-tile edits just toggle visibility
+  // (setTileLocal) so a decoration never shows through a building, water, ruin or prop.
+  function setDecorSprites() {
+    for (const s of decorSprites.values()) s.destroy();
+    decorSprites.clear();
+    for (let x = 0; x < worldTilesX; x++) {
+      for (let y = 0; y < worldTilesY; y++) {
+        const index = y * worldTilesX + x;
+        if ((biomes[index] ?? Biome.Plains) !== Biome.Plains) continue;
+        if (tileHash01(x, y, 1) * NATURE_DECOR_ONE_IN >= 1) continue;
+        const variant = NATURE_DECOR_TEXTURES[Math.floor(tileHash01(x, y, 2) * NATURE_DECOR_TEXTURES.length)];
+        const sprite = new Sprite(variant.texture);
+        sprite.anchor.set(0.5, 1);
+        sprite.scale.set(variant.height / variant.texture.height);
+        // Small stable offset inside the tile so the scatter doesn't sit on a visible grid.
+        const offsetX = (tileHash01(x, y, 3) - 0.5) * tileSize * 0.4;
+        const offsetY = (tileHash01(x, y, 4) - 0.5) * tileSize * 0.3;
+        sprite.position.set(x * tileSize + tileSize / 2 + offsetX, (y + 0.85) * tileSize + offsetY);
+        sprite.visible = (tiles[index] ?? TileType.Empty) === TileType.Empty;
+        decorSpriteLayer.addChild(sprite);
+        decorSprites.set(index, sprite);
+      }
+    }
+  }
+
+  // Full-map path (welcome, incl. restart).
+  function redrawGrid() {
+    setFloorSprites();
+    setDecorSprites();
+    redrawGridGraphics();
+    for (let x = 0; x < worldTilesX; x++) {
+      for (let y = 0; y < worldTilesY; y++) {
+        setTileSprite(x, y, tiles[y * worldTilesX + x] ?? TileType.Empty);
+      }
+    }
+    // Drop slots past the end of the map in case a new welcome shrank it.
+    for (const [index, sprite] of tileSprites) {
+      if (index >= worldTilesX * worldTilesY) {
+        sprite.destroy();
+        tileSprites.delete(index);
+      }
+    }
+    nightOverlay.clear();
+    nightOverlay.rect(0, 0, worldTilesX * tileSize, worldTilesY * tileSize).fill(0x0a0a2a);
+  }
+
+  function setTileLocal(tx: number, ty: number, tile: number) {
+    const index = ty * worldTilesX + tx;
+    const prev = tiles[index];
+    tiles[index] = tile;
+    setTileSprite(tx, ty, tile);
+    const decor = decorSprites.get(index);
+    if (decor) decor.visible = tile === TileType.Empty;
+    // gridGraphics only varies with Town Center placement now (the floor is static).
+    if (prev === TileType.TownCenter || tile === TileType.TownCenter) redrawGridGraphics();
+  }
+
+  function drawHpBar(bar: Graphics, hp: number, maxHp: number) {
+    const width = 24;
+    const height = 4;
+    const ratio = Math.max(0, Math.min(1, hp / maxHp));
+    bar.clear();
+    bar.rect(-width / 2, 0, width, height).fill(0x550000);
+    bar.rect(-width / 2, 0, width * ratio, height).fill(0x3bd16f);
+  }
+
+  function ensureVisual(
+    map: Map<string, EntityVisual>,
+    id: string,
+    create: () => Container
+  ): EntityVisual {
+    let entry = map.get(id);
+    if (!entry) {
+      const sprite = create();
+      const hpBar = new Graphics();
+      worldLayer.addChild(sprite);
+      worldLayer.addChild(hpBar);
+      entry = { sprite, hpBar };
+      map.set(id, entry);
+    }
+    return entry;
+  }
+
+  function destroyVisual(map: Map<string, EntityVisual>, id: string) {
+    const entry = map.get(id);
+    if (entry) {
+      entry.sprite.destroy();
+      entry.hpBar.destroy();
+      entry.marker?.destroy();
+      map.delete(id);
+    }
+  }
+
+  function pruneMissing(map: Map<string, EntityVisual>, seenIds: Set<string>) {
+    for (const id of Array.from(map.keys())) {
+      if (!seenIds.has(id)) destroyVisual(map, id);
+    }
+  }
+
+  function upsertPlayer(p: PlayerSnapshot) {
+    const entry = ensureVisual(playerSprites, p.id, () => {
+      const sprite = new Sprite(PLAYER_TEXTURE);
+      sprite.anchor.set(0.5);
+      sprite.scale.set(PLAYER_SPRITE_HEIGHT / PLAYER_TEXTURE.height);
+      // One Filter per sprite: uniforms live on the Filter instance, so sharing one would
+      // force every player to the same hue.
+      sprite.filters = [
+        new Filter({
+          glProgram: playerRecolorProgram,
+          resources: {
+            recolorUniforms: { uTargetHue: { value: hexToHue(p.color), type: "f32" } },
+          },
+        }),
+      ];
+      return sprite;
+    });
+    if (p.id === myId && !entry.marker) {
+      const marker = new Graphics().ellipse(0, 0, 14, 5).stroke({ width: 2, color: 0xffffff });
+      // Under the sprite so it reads as a ground ring.
+      worldLayer.addChildAt(marker, worldLayer.getChildIndex(entry.sprite));
+      entry.marker = marker;
+    }
+    entry.sprite.position.set(p.x, p.y);
+    entry.marker?.position.set(p.x, p.y + PLAYER_SPRITE_HEIGHT * 0.4);
+    // Just above the (taller) sprite's top edge instead of the old fixed -20.
+    entry.hpBar.position.set(p.x, p.y - PLAYER_SPRITE_HEIGHT / 2 - 4);
+    drawHpBar(entry.hpBar, p.hp, p.maxHp);
+  }
+
+  function syncPlayers(snapshot: PlayerSnapshot[]) {
+    pruneMissing(playerSprites, new Set(snapshot.map((p) => p.id)));
+    for (const p of snapshot) upsertPlayer(p);
+  }
+
+  function upsertColonist(c: ColonistSnapshot) {
+    const entry = ensureVisual(colonistSprites, c.id, () => {
+      const texture = COLONIST_TEXTURES[c.kind];
+      if (!texture) return new Graphics().circle(0, 0, 8).fill(COLONIST_COLORS[c.kind] ?? 0xffffff);
+      const sprite = new Sprite(texture);
+      sprite.anchor.set(0.5);
+      sprite.scale.set(COLONIST_SPRITE_HEIGHT / texture.height);
+      return sprite;
+    });
+    entry.sprite.position.set(c.x, c.y);
+    entry.hpBar.position.set(c.x, c.y - 18);
+    drawHpBar(entry.hpBar, c.hp, c.maxHp);
+
+    if (WORKER_KINDS.has(c.kind)) {
+      const postCenterX = c.postX * tileSize + tileSize / 2;
+      const postCenterY = c.postY * tileSize + tileSize / 2;
+      const atPost = Math.hypot(c.x - postCenterX, c.y - postCenterY) <= AT_POST_HIDE_RADIUS_PX;
+      entry.sprite.visible = !atPost;
+      entry.hpBar.visible = !atPost;
+    }
+
+    const frames = ANIM_FRAMES[c.kind];
+    if (frames && entry.sprite instanceof Sprite) {
+      // "engaging"/"returning" = walking toward a target or rally point; "attacking" = in range
+      // and striking; everything else (idle, mining, farming, ...) keeps the static base pose.
+      const mode: "walk" | "attack" | null =
+        c.state === "attacking" ? "attack" : c.state === "engaging" || c.state === "returning" ? "walk" : null;
+      let anim = colonistAnim.get(c.id);
+      if (!anim) {
+        anim = { mode: null, frame: 0, ticksInFrame: 0 };
+        colonistAnim.set(c.id, anim);
+      }
+      if (mode !== anim.mode) {
+        anim.mode = mode;
+        anim.frame = 0;
+        anim.ticksInFrame = 0;
+      }
+      if (mode) {
+        const sequence = mode === "walk" ? frames.walk : frames.attack;
+        anim.ticksInFrame++;
+        if (anim.ticksInFrame >= ANIM_TICKS_PER_FRAME) {
+          anim.ticksInFrame = 0;
+          anim.frame = (anim.frame + 1) % sequence.length;
+        }
+        entry.sprite.texture = sequence[anim.frame];
+      } else {
+        entry.sprite.texture = COLONIST_TEXTURES[c.kind];
+      }
+      // Each animation frame was generated as its own image and can differ slightly in raw
+      // pixel size from the base pose; re-derive scale from THIS frame's own texture every time
+      // so the on-screen size stays fixed at COLONIST_SPRITE_HEIGHT instead of growing/shrinking
+      // as frames cycle.
+      entry.sprite.scale.set(COLONIST_SPRITE_HEIGHT / entry.sprite.texture.height);
+    }
+  }
+
+  function syncColonists(snapshot: ColonistSnapshot[]) {
+    const seenIds = new Set(snapshot.map((c) => c.id));
+    pruneMissing(colonistSprites, seenIds);
+    for (const id of Array.from(colonistAnim.keys())) {
+      if (!seenIds.has(id)) colonistAnim.delete(id);
+    }
+    for (const c of snapshot) upsertColonist(c);
+  }
+
+  function upsertMob(m: MobSnapshot) {
+    const visual = MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin;
+    const texture = MOB_TEXTURES[m.kind];
+    // Longer side, not height, so wide kinds (wolf, spider) don't balloon horizontally.
+    const scale = texture
+      ? (visual.radius * MOB_SPRITE_SIZE_PER_RADIUS) / Math.max(texture.width, texture.height)
+      : 0;
+    const entry = ensureVisual(mobSprites, m.id, () => {
+      if (!texture) {
+        // Dark outline keeps the green-toned kinds readable against the green grass floor.
+        return new Graphics()
+          .circle(0, 0, visual.radius)
+          .fill(visual.color)
+          .stroke({ width: 1.5, color: 0x1a0d0a });
+      }
+      const sprite = new Sprite(texture);
+      sprite.anchor.set(0.5);
+      sprite.scale.set(scale);
+      return sprite;
+    });
+    entry.sprite.position.set(m.x, m.y);
+    // Bar just above the sprite's top edge, matching the player's "height / 2 + 4" convention.
+    const topOffset = texture ? (texture.height * scale) / 2 + 4 : visual.radius + 9;
+    entry.hpBar.position.set(m.x, m.y - topOffset);
+    drawHpBar(entry.hpBar, m.hp, m.maxHp);
+  }
+
+  function syncMobs(snapshot: MobSnapshot[]) {
+    pruneMissing(mobSprites, new Set(snapshot.map((m) => m.id)));
+    for (const m of snapshot) upsertMob(m);
+  }
+
+  interface ActiveEffect {
+    gfx: Graphics;
+    expiresAt: number;
+  }
+  const activeEffects: ActiveEffect[] = [];
+
+  function spawnEffect(e: AttackEffect) {
+    const gfx = new Graphics();
+    gfx.moveTo(e.fromX, e.fromY).lineTo(e.toX, e.toY).stroke({ width: 2, color: 0xffe066 });
+    worldLayer.addChild(gfx);
+    activeEffects.push({ gfx, expiresAt: performance.now() + 150 });
+  }
+
+  app.ticker.add(() => {
+    const now = performance.now();
+    for (let i = activeEffects.length - 1; i >= 0; i--) {
+      if (activeEffects[i].expiresAt <= now) {
+        activeEffects[i].gfx.destroy();
+        activeEffects.splice(i, 1);
+      }
+    }
+  });
+
+  app.ticker.add(() => {
+    if (!myId) return;
+    const mine = playerSprites.get(myId);
+    if (!mine) return;
+    worldLayer.position.set(
+      app.screen.width / 2 - mine.sprite.position.x,
+      app.screen.height / 2 - mine.sprite.position.y
+    );
+  });
+
+  // Core stats (wood/iron/rock/gold/pop/time/happiness/army/selected) used to live here as a
+  // floating canvas HUD; they're now DOM elements pinned to the top of #economy-panel, merged
+  // into the same single menu as the goods/market panel. See the DOM refs set up below.
+
+  const pausedBanner = new Text({
+    text: "PAUSED",
+    style: { fill: 0xffffff, fontSize: 48, fontWeight: "bold" },
+  });
+  pausedBanner.anchor.set(0.5);
+  pausedBanner.visible = false;
+  app.stage.addChild(pausedBanner);
+
+  app.ticker.add(() => {
+    pausedBanner.position.set(app.screen.width / 2, app.screen.height / 2);
+  });
+
+  // ---- Economy panel (DOM): goods stockpile + Market / Gold Shop, left side ----
+  // The canvas HUD keeps the core numbers (wood/iron/rock/gold/pop/time); everything else lives here.
+
+  type GoodKey = "grain" | "meat" | "fruit" | "wool" | "cotton" | "clothes" | "tools" | "luxuryItems" | "alcohol";
+  const GOODS_GROUPS: { heading: string; goods: { key: GoodKey; label: string }[] }[] = [
+    {
+      heading: "Food",
+      goods: [
+        { key: "grain", label: "Grain" },
+        { key: "meat", label: "Meat" },
+        { key: "fruit", label: "Fruit" },
+      ],
+    },
+    {
+      heading: "Materials",
+      goods: [
+        { key: "wool", label: "Wool" },
+        { key: "cotton", label: "Cotton" },
+      ],
+    },
+    {
+      heading: "Crafted",
+      goods: [
+        { key: "clothes", label: "Clothes" },
+        { key: "tools", label: "Tools" },
+        { key: "luxuryItems", label: "Luxury Items" },
+        { key: "alcohol", label: "Alcohol" },
+      ],
+    },
+  ];
+
+  const economyPanel = document.getElementById("economy-panel")!;
+  const economyPanelToggle = document.getElementById("economy-panel-toggle")!;
+  economyPanelToggle.addEventListener("click", () => {
+    economyPanel.classList.toggle("collapsed");
+    economyPanelToggle.classList.toggle("panel-open", !economyPanel.classList.contains("collapsed"));
+    economyPanelToggle.blur();
+  });
+
+  // Core colony stats, pinned at the top of the same single menu as the goods/market panel.
+  const statWoodEl = document.getElementById("stat-wood")!;
+  const statIronEl = document.getElementById("stat-iron")!;
+  const statRockEl = document.getElementById("stat-rock")!;
+  const statGoldEl = document.getElementById("stat-gold")!;
+  const statPopEl = document.getElementById("stat-pop")!;
+  const statTimeEl = document.getElementById("stat-time")!;
+  const statHappinessEl = document.getElementById("stat-happiness")! as HTMLElement;
+  const statArmyEl = document.getElementById("stat-army")!;
+  const statSelectedEl = document.getElementById("stat-selected")!;
+
+  const goodsValueEls = new Map<GoodKey, HTMLSpanElement>();
+  const goodsListEl = document.getElementById("goods-list")!;
+  for (const group of GOODS_GROUPS) {
+    const heading = document.createElement("div");
+    heading.className = "econ-heading";
+    heading.textContent = group.heading;
+    goodsListEl.appendChild(heading);
+    for (const good of group.goods) {
+      const row = document.createElement("div");
+      row.className = "econ-row";
+      const label = document.createElement("span");
+      label.textContent = good.label;
+      const value = document.createElement("span");
+      value.textContent = "0";
+      row.append(label, value);
+      goodsListEl.appendChild(row);
+      goodsValueEls.set(good.key, value);
+    }
+  }
+
+  // Mirrors the server's EXCHANGE_RATES / GOLD_SHOP_PRICES; the server re-validates every request.
+  type BaseResource = "wood" | "iron" | "rock";
+  type ShopItem = "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock";
+  const RESOURCE_LABEL: Record<string, string> = {
+    wood: "Wood",
+    iron: "Iron",
+    rock: "Rock",
+    tools: "Tools",
+    clothes: "Clothes",
+    luxuryItems: "Luxury Item",
+  };
+  const MARKET_TRADES: { from: BaseResource; to: BaseResource; give: number; get: number }[] = [
+    { from: "wood", to: "iron", give: 3, get: 1 },
+    { from: "wood", to: "rock", give: 3, get: 1 },
+    { from: "iron", to: "wood", give: 3, get: 1 },
+    { from: "iron", to: "rock", give: 2, get: 1 },
+    { from: "rock", to: "wood", give: 3, get: 1 },
+    { from: "rock", to: "iron", give: 2, get: 1 },
+  ];
+  const GOLD_SHOP_ITEMS: { item: ShopItem; cost: number; amount: number }[] = [
+    { item: "tools", cost: 10, amount: 1 },
+    { item: "clothes", cost: 8, amount: 1 },
+    { item: "luxuryItems", cost: 20, amount: 1 },
+    { item: "wood", cost: 5, amount: 5 },
+    { item: "iron", cost: 8, amount: 5 },
+    { item: "rock", cost: 8, amount: 5 },
+  ];
+
+  const marketSection = document.getElementById("market-section")!;
+  const goldShopSection = document.getElementById("gold-shop-section")!;
+  const marketButtons: { btn: HTMLButtonElement; from: BaseResource; give: number }[] = [];
+  const goldShopButtons: { btn: HTMLButtonElement; cost: number }[] = [];
+
+  function sendMessage(msg: object) {
+    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
+  }
+
+  function makeEconButton(container: HTMLElement, text: string, onClick: () => void): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.className = "econ-btn";
+    btn.textContent = text;
+    btn.addEventListener("click", () => {
+      onClick();
+      // Never keep focus: Space is the attack key and would re-trigger a focused button.
+      btn.blur();
+    });
+    container.appendChild(btn);
+    return btn;
+  }
+
+  const marketBtnsEl = document.getElementById("market-btns")!;
+  for (const trade of MARKET_TRADES) {
+    const btn = makeEconButton(
+      marketBtnsEl,
+      `${trade.give} ${RESOURCE_LABEL[trade.from]} → ${trade.get} ${RESOURCE_LABEL[trade.to]}`,
+      () => sendMessage({ type: "exchangeResource", from: trade.from, to: trade.to })
+    );
+    marketButtons.push({ btn, from: trade.from, give: trade.give });
+  }
+
+  const goldShopBtnsEl = document.getElementById("gold-shop-btns")!;
+  for (const offer of GOLD_SHOP_ITEMS) {
+    const btn = makeEconButton(
+      goldShopBtnsEl,
+      `${offer.amount} ${RESOURCE_LABEL[offer.item]} — ${offer.cost} gold`,
+      () => sendMessage({ type: "buyWithGold", item: offer.item })
+    );
+    goldShopButtons.push({ btn, cost: offer.cost });
+  }
+
+  function refreshEconomyPanel(snap: Extract<ServerMessage, { type: "snapshot" }>) {
+    for (const [key, el] of goodsValueEls) el.textContent = String(snap[key]);
+    // Sections stay hidden (not greyed out) until their building exists.
+    marketSection.hidden = !snap.marketBuilt;
+    goldShopSection.hidden = !snap.goldShopBuilt;
+    for (const { btn, from, give } of marketButtons) btn.disabled = snap[from] < give;
+    for (const { btn, cost } of goldShopButtons) btn.disabled = snap.gold < cost;
+  }
+
+  // ---- Toolbar (real DOM elements, not canvas-drawn) ----
+
+  let currentTool: TileType = TileType.Wall;
+  const toolButtonEls = new Map<TileType, HTMLButtonElement>();
+  let activeCategory: ToolCategory = TOOL_CATEGORIES[0].key;
+  const categoryTabEls = new Map<ToolCategory, HTMLButtonElement>();
+
+  function setupToolbar() {
+    const container = document.getElementById("toolbar")!;
+    for (const tool of TOOLS) {
+      const btn = document.createElement("button");
+      btn.className = "tool-btn";
+      btn.textContent = `${tool.label} (${tool.key})`;
+      btn.addEventListener("click", () => {
+        selectTool(tool.tile);
+        btn.blur();
+      });
+      container.appendChild(btn);
+      toolButtonEls.set(tool.tile, btn);
+    }
+    refreshToolbarSelection();
+  }
+
+  function setupCategoryTabs() {
+    const container = document.getElementById("build-category-tabs")!;
+    for (const cat of TOOL_CATEGORIES) {
+      const btn = document.createElement("button");
+      btn.className = "category-tab";
+      btn.textContent = cat.label;
+      btn.addEventListener("click", () => {
+        activeCategory = cat.key;
+        refreshToolbarVisibility();
+        refreshCategoryTabSelection();
+        btn.blur();
+      });
+      container.appendChild(btn);
+      categoryTabEls.set(cat.key, btn);
+    }
+    refreshCategoryTabSelection();
+  }
+
+  function refreshCategoryTabSelection() {
+    for (const [key, btn] of categoryTabEls) {
+      btn.classList.toggle("selected", key === activeCategory);
+    }
+  }
+
+  // Break is pinned and always shown, regardless of the active category tab.
+  function refreshToolbarVisibility() {
+    for (const tool of TOOLS) {
+      const btn = toolButtonEls.get(tool.tile);
+      if (!btn) continue;
+      const visible = tool.tile === TileType.Empty || tool.category === activeCategory;
+      btn.style.display = visible ? "" : "none";
+    }
+  }
+
+  function refreshToolbarSelection() {
+    for (const [tile, btn] of toolButtonEls) {
+      btn.classList.toggle("selected", tile === currentTool);
+    }
+  }
+
+  function selectTool(tile: TileType) {
+    currentTool = tile;
+    refreshToolbarSelection();
+    const def = TOOLS.find((t) => t.tile === tile);
+    buildRequirementsEl.textContent = def && def.cost ? def.cost : "No requirements.";
+  }
+
+  setupToolbar();
+  setupCategoryTabs();
+  refreshToolbarVisibility();
+  selectTool(currentTool);
+
+  // ---- Unit selection (client-local; task forces are server-synced) ----
+
+  let latestColonists: ColonistSnapshot[] = [];
+  let latestMobs: MobSnapshot[] = [];
+  let latestTaskForces: Record<string, string[]> = {};
+  let selectedIds = new Set<string>();
+
+  // Mirrors the server's isCommandable: of the bishops, only a Church's takes orders — a Ward
+  // Stone's must hold his post, and Saint Wren's Abbey clergy (posted at an AbbeyHall) aren't ours.
+  function isCommandable(c: ColonistSnapshot): boolean {
+    if (!COMMANDABLE_KINDS.has(c.kind)) return false;
+    return c.kind !== "bishop" || tiles[c.postY * worldTilesX + c.postX] === TileType.ChurchPost;
+  }
+
+  function redrawSelectionRings() {
+    selectionRings.clear();
+    for (const c of latestColonists) {
+      if (!selectedIds.has(c.id)) continue;
+      selectionRings.circle(c.x, c.y, 12).stroke({ width: 2, color: SELECTION_COLOR });
+    }
+  }
+
+  function refreshSelectionHud() {
+    statSelectedEl.hidden = selectedIds.size === 0;
+    statSelectedEl.textContent = `Selected: ${selectedIds.size}`;
+  }
+
+  function setSelection(ids: Iterable<string>) {
+    selectedIds = new Set(ids);
+    redrawSelectionRings();
+    refreshSelectionHud();
+  }
+
+  function findNearest<T extends { x: number; y: number }>(
+    list: T[],
+    x: number,
+    y: number,
+    radius: number
+  ): T | null {
+    let best: T | null = null;
+    let bestDist = radius * radius;
+    for (const item of list) {
+      const d = (item.x - x) ** 2 + (item.y - y) ** 2;
+      if (d <= bestDist) {
+        best = item;
+        bestDist = d;
+      }
+    }
+    return best;
+  }
+
+  interface FormationPlan {
+    targets: Map<string, { x: number; y: number }>;
+    // Unit facing (current centroid -> destination); the front row is centered on the destination.
+    fx: number;
+    fy: number;
+    frontHalfWidth: number;
+  }
+
+  // Spreads a group move order into per-unit destinations: melee in front (closest to the
+  // clicked point), archers behind them, healers behind that, with a reserved rear rank for a
+  // future artillery-type unit. Units within a rank sit side by side, perpendicular to the
+  // direction of travel. A single unit just goes straight to the clicked point.
+  // Recomputed from scratch on every order from the units' live positions (no remembered squad).
+  function computeFormationTargets(
+    units: ColonistSnapshot[],
+    destX: number,
+    destY: number
+  ): FormationPlan {
+    const result = new Map<string, { x: number; y: number }>();
+    if (units.length <= 1) {
+      for (const u of units) result.set(u.id, { x: destX, y: destY });
+      return { targets: result, fx: 1, fy: 0, frontHalfWidth: 0 };
+    }
+    const spacing = tileSize * FORMATION_SPACING_TILES;
+
+    let cx = 0;
+    let cy = 0;
+    for (const u of units) {
+      cx += u.x;
+      cy += u.y;
+    }
+    cx /= units.length;
+    cy /= units.length;
+
+    let fx = destX - cx;
+    let fy = destY - cy;
+    const flen = Math.hypot(fx, fy);
+    if (flen < 1) {
+      fx = 1;
+      fy = 0;
+    } else {
+      fx /= flen;
+      fy /= flen;
+    }
+    const px = -fy;
+    const py = fx;
+
+    const ranks = new Map<number, ColonistSnapshot[]>();
+    for (const u of units) {
+      const rank = FORMATION_RANK[u.kind] ?? FORMATION_RANK.bishop;
+      const bucket = ranks.get(rank);
+      if (bucket) bucket.push(u);
+      else ranks.set(rank, [u]);
+    }
+
+    // Age of Empires-style box formation: each rank fills its own tight rectangular block (up
+    // to FORMATION_MAX_ROW_WIDTH units per row, wrapping to further rows behind), rather than
+    // one long single-file line — so a 10-pikeman front rank reads as a 5x2 block, not a row
+    // ten units wide. Ranks stack front-to-back by how many rows the ranks ahead actually used.
+    const sortedRanks = Array.from(ranks.keys()).sort((a, b) => a - b);
+    let depthRows = 0;
+    let frontHalfWidth = 0;
+    for (const rank of sortedRanks) {
+      const members = ranks.get(rank)!;
+      // Hand out slots in the same spatial order units already stand in, so nobody walks across
+      // a squadmate: the units furthest along the facing take the rank's front row, and within a
+      // row, left-to-right (along p) maps to left-to-right. Assigning by array order instead sent
+      // e.g. the leftmost unit to the rightmost slot, and mirrored every row on a turn.
+      members.sort((a, b) => b.x * fx + b.y * fy - (a.x * fx + a.y * fy));
+      const n = members.length;
+      const cols = Math.min(FORMATION_MAX_ROW_WIDTH, n);
+      const rowCount = Math.ceil(n / cols);
+      if (depthRows === 0) frontHalfWidth = ((cols - 1) / 2) * spacing;
+      for (let row = 0; row < rowCount; row++) {
+        const rowMembers = members
+          .slice(row * cols, row * cols + cols)
+          .sort((a, b) => a.x * px + a.y * py - (b.x * px + b.y * py));
+        const rowN = rowMembers.length;
+        const depth = (depthRows + row) * spacing;
+        rowMembers.forEach((u, i) => {
+          const lateral = (i - (rowN - 1) / 2) * spacing;
+          result.set(u.id, {
+            x: destX - depth * fx + lateral * px,
+            y: destY - depth * fy + lateral * py,
+          });
+        });
+      }
+      depthRows += rowCount;
+    }
+    return { targets: result, fx, fy, frontHalfWidth };
+  }
+
+  // Newest order number per unit. A rank's delayed commandMove is dropped for any unit that has
+  // since been given another order (move or attack), so the tail of a staggered formation order
+  // can never overwrite a quick re-order — while orders to other units are left alone.
+  let orderCounter = 0;
+  const unitOrder = new Map<string, number>();
+  function stampOrder(ids: string[]): number {
+    orderCounter++;
+    for (const id of ids) unitOrder.set(id, orderCounter);
+    return orderCounter;
+  }
+
+  // Ground marker at a formation's destination: a ring per slot, a line across the front row and
+  // a chevron off its middle pointing the way the block will face. Drawn once per order; only its
+  // alpha changes afterwards (see the ticker below).
+  const formationMarker = new Graphics();
+  let formationMarkerState: {
+    ids: string[];
+    shownAt: number;
+    settleAfter: number;
+    fadeFrom: number | null;
+  } | null = null;
+
+  function hideFormationMarker() {
+    formationMarker.clear();
+    formationMarkerState = null;
+  }
+
+  function showFormationMarker(plan: FormationPlan, destX: number, destY: number, dispatchMs: number) {
+    const { fx, fy } = plan;
+    const px = -fy;
+    const py = fx;
+    formationMarker.clear();
+    formationMarker.alpha = 1;
+    for (const pos of plan.targets.values()) {
+      formationMarker.circle(pos.x, pos.y, 4).stroke({ width: 1.5, color: SELECTION_COLOR, alpha: 0.6 });
+    }
+    // Front edge sits half a slot ahead of the front row's centers.
+    const edgeX = destX + fx * tileSize * FORMATION_SPACING_TILES * 0.5;
+    const edgeY = destY + fy * tileSize * FORMATION_SPACING_TILES * 0.5;
+    const half = plan.frontHalfWidth + 10;
+    formationMarker
+      .moveTo(edgeX - px * half, edgeY - py * half)
+      .lineTo(edgeX + px * half, edgeY + py * half)
+      .stroke({ width: 3, color: SELECTION_COLOR, alpha: 0.85 });
+    const at = (along: number, across: number) => [edgeX + fx * along + px * across, edgeY + fy * along + py * across];
+    formationMarker
+      .poly([...at(16, 0), ...at(2, 11), ...at(7, 0), ...at(2, -11)])
+      .fill(SELECTION_COLOR)
+      .stroke({ width: 1.5, color: 0x0a1a24 });
+    const now = performance.now();
+    formationMarkerState = {
+      ids: Array.from(plan.targets.keys()),
+      shownAt: now,
+      // Units only start walking once their (staggered) order reaches the server, so "everyone has
+      // stopped" means nothing until the last rank's order has had a couple of ticks to land.
+      settleAfter: now + Math.max(FORMATION_MARKER_MIN_MS, dispatchMs + 250),
+      fadeFrom: null,
+    };
+  }
+
+  app.ticker.add(() => {
+    const s = formationMarkerState;
+    if (!s) return;
+    const now = performance.now();
+    if (s.fadeFrom === null) {
+      const ids = new Set(s.ids);
+      // Settled = not walking to its slot any more: arrived (idle) or busy fighting/healing.
+      const stillMarching = latestColonists.some((c) => ids.has(c.id) && c.state === "returning");
+      if ((now >= s.settleAfter && !stillMarching) || now - s.shownAt > FORMATION_MARKER_MAX_MS) {
+        s.fadeFrom = now;
+      }
+    }
+    if (s.fadeFrom !== null) {
+      const t = (now - s.fadeFrom) / FORMATION_MARKER_FADE_MS;
+      if (t >= 1) hideFormationMarker();
+      else formationMarker.alpha = 1 - t;
+    }
+  });
+
+  function dispatchFormationMove(units: ColonistSnapshot[], destX: number, destY: number, order: number) {
+    const plan = computeFormationTargets(units, destX, destY);
+    const distToSlot = (u: ColonistSnapshot) => {
+      const slot = plan.targets.get(u.id)!;
+      return Math.hypot(slot.x - u.x, slot.y - u.y);
+    };
+    const queue = units.slice().sort((a, b) => distToSlot(a) - distToSlot(b));
+    const step = Math.min(FORMATION_DISPATCH_STEP_MS, FORMATION_DISPATCH_MAX_SPREAD_MS / (queue.length - 1));
+    queue.forEach((u, i) => {
+      const send = () => {
+        if (unitOrder.get(u.id) !== order) return;
+        const pos = plan.targets.get(u.id)!;
+        sendMessage({ type: "commandMove", unitIds: [u.id], x: pos.x, y: pos.y });
+      };
+      if (i === 0) send();
+      else setTimeout(send, i * step);
+    });
+    showFormationMarker(plan, destX, destY, (queue.length - 1) * step);
+  }
+
+  // ---- Networking ----
+
+  const socket = new WebSocket(SERVER_URL);
+
+  const pauseBtn = document.getElementById("pause-btn") as HTMLButtonElement;
+  const restartBtn = document.getElementById("restart-btn") as HTMLButtonElement;
+
+  pauseBtn.addEventListener("click", () => {
+    if (socket.readyState === socket.OPEN) {
+      socket.send(JSON.stringify({ type: "pause" }));
+    }
+    pauseBtn.blur();
+  });
+
+  restartBtn.addEventListener("click", () => {
+    restartBtn.blur();
+    if (!window.confirm("Restart the world for everyone connected?")) return;
+    if (socket.readyState === socket.OPEN) {
+      socket.send(JSON.stringify({ type: "restart" }));
+    }
+  });
+
+  socket.addEventListener("message", (event) => {
+    const message: ServerMessage = JSON.parse(event.data);
+    if (message.type === "welcome") {
+      myId = message.id;
+      tileSize = message.tileSize;
+      worldTilesX = message.worldTilesX;
+      worldTilesY = message.worldTilesY;
+      tiles = message.tiles;
+      biomes = message.biomes;
+      redrawGrid();
+      const tcx = Math.floor(worldTilesX / 2) * tileSize + tileSize / 2;
+      const tcy = Math.floor(worldTilesY / 2) * tileSize + tileSize / 2;
+      townCenterHpBar.position.set(tcx, tcy - 24);
+      worldLayer.addChild(cursorHighlight);
+      worldLayer.addChild(formationMarker);
+      worldLayer.addChild(selectionRings);
+      worldLayer.addChild(dragBox);
+    } else if (message.type === "snapshot") {
+      syncPlayers(message.players);
+      syncColonists(message.colonists);
+      syncMobs(message.mobs);
+      latestColonists = message.colonists;
+      latestMobs = message.mobs;
+      latestTaskForces = message.taskForces;
+      const counts = { knight: 0, archer: 0, militia: 0, bishop: 0 };
+      const alive = new Set<string>();
+      for (const c of message.colonists) {
+        if (!isCommandable(c)) continue;
+        if (c.kind === "knight" || c.kind === "archer" || c.kind === "bishop") {
+          counts[c.kind]++;
+        } else if (c.kind === "militia" || c.kind === "spearman" || c.kind === "pikeman") {
+          counts.militia++;
+        }
+        alive.add(c.id);
+      }
+      statArmyEl.textContent = `Knights ${counts.knight}  Archers ${counts.archer}  Militia ${counts.militia}  Bishops ${counts.bishop}`;
+      // Drop dead units from the selection so the count and commands stay accurate.
+      const stillSelected = Array.from(selectedIds).filter((id) => alive.has(id));
+      if (stillSelected.length !== selectedIds.size) {
+        setSelection(stillSelected);
+      } else {
+        redrawSelectionRings();
+      }
+      statWoodEl.textContent = `${message.wood}`;
+      statIronEl.textContent = `${message.iron}`;
+      statRockEl.textContent = `${message.rock}`;
+      statGoldEl.textContent = `${message.gold}`;
+      refreshEconomyPanel(message);
+      statPopEl.textContent = `${message.population}/${message.populationCap}`;
+      statTimeEl.textContent = message.isNight ? "Night" : "Day";
+      statHappinessEl.textContent = `Happiness: ${message.happiness}%`;
+      // Thresholds mirror the server's desertion (35) and mutiny (15) lines.
+      statHappinessEl.style.color =
+        message.happiness < 15 ? "#ff5c5c" : message.happiness < 35 ? "#ffb347" : "#7ddc7d";
+      pausedBanner.visible = message.isPaused;
+      pauseBtn.textContent = message.isPaused ? "Resume" : "Pause";
+      nightOverlay.alpha = message.isNight ? 0.35 : 0;
+      townCenterHpBar.visible = message.townCenterHp > 0;
+      drawHpBar(townCenterHpBar, message.townCenterHp, message.townCenterMaxHp);
+      for (const effect of message.effects) spawnEffect(effect);
+    } else if (message.type === "tileUpdate") {
+      setTileLocal(message.tileX, message.tileY, message.tile);
+    }
+  });
+
+  const keys = new Set<string>();
+  window.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+    keys.add(key);
+    // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool.
+    if (e.ctrlKey || e.altKey) return;
+    const match = TOOLS.find((t) => t.key === key);
+    if (match) {
+      if (match.tile !== TileType.Empty && match.category !== activeCategory) {
+        activeCategory = match.category;
+        refreshToolbarVisibility();
+        refreshCategoryTabSelection();
+      }
+      selectTool(match.tile);
+    }
+  });
+  window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      setSelection([]);
+      cancelLeftPress();
+      return;
+    }
+    // e.code is layout/modifier independent (Alt+1 can produce other e.key values on some OSes).
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    if (!digit || !(e.ctrlKey || e.altKey)) return;
+    e.preventDefault();
+    if (e.repeat) return;
+    const slot = Number(digit[1]);
+    if (e.ctrlKey) {
+      if (selectedIds.size === 0) return;
+      if (socket.readyState === socket.OPEN) {
+        socket.send(
+          JSON.stringify({ type: "assignTaskForce", slot, unitIds: Array.from(selectedIds) })
+        );
+      }
+    } else {
+      setSelection(latestTaskForces[String(slot)] ?? []);
+    }
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === " " && !e.repeat) {
+      e.preventDefault();
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify({ type: "attack" }));
+      }
+    }
+  });
+
+  function currentInput(): { dx: number; dy: number } {
+    let dx = 0;
+    let dy = 0;
+    if (keys.has("w") || keys.has("arrowup")) dy -= 1;
+    if (keys.has("s") || keys.has("arrowdown")) dy += 1;
+    if (keys.has("a") || keys.has("arrowleft")) dx -= 1;
+    if (keys.has("d") || keys.has("arrowright")) dx += 1;
+    return { dx, dy };
+  }
+
+  setInterval(() => {
+    if (socket.readyState !== socket.OPEN) return;
+    const { dx, dy } = currentInput();
+    socket.send(JSON.stringify({ type: "input", dx, dy }));
+  }, 50);
+
+  function pointerTile(clickX: number, clickY: number): { tileX: number; tileY: number } | null {
+    const tileX = Math.floor(clickX / tileSize);
+    const tileY = Math.floor(clickY / tileSize);
+    if (tileX < 0 || tileY < 0 || tileX >= worldTilesX || tileY >= worldTilesY) return null;
+    return { tileX, tileY };
+  }
+
+  app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // Left button is resolved on pointerup (it may become a drag-select); other buttons act on down.
+  interface LeftPress {
+    pointerId: number;
+    screenX: number;
+    screenY: number;
+    worldX: number;
+    worldY: number;
+    dragging: boolean;
+  }
+  let leftPress: LeftPress | null = null;
+
+  function cancelLeftPress() {
+    if (leftPress && app.canvas.hasPointerCapture(leftPress.pointerId)) {
+      app.canvas.releasePointerCapture(leftPress.pointerId);
+    }
+    leftPress = null;
+    dragBox.clear();
+  }
+
+  app.canvas.addEventListener("pointerdown", (e) => {
+    const rect = app.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left - worldLayer.position.x;
+    const y = e.clientY - rect.top - worldLayer.position.y;
+    if (e.button === 0) {
+      leftPress = {
+        pointerId: e.pointerId,
+        screenX: e.clientX,
+        screenY: e.clientY,
+        worldX: x,
+        worldY: y,
+        dragging: false,
+      };
+      app.canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (e.button === 2 && selectedIds.size > 0) {
+      if (socket.readyState !== socket.OPEN) return;
+      // latestColonists is replaced wholesale on every snapshot (20/s), so this is the units' live
+      // positions at the moment of the order — a redirect mid-march re-faces from where they are.
+      const units = latestColonists.filter((c) => selectedIds.has(c.id));
+      const unitIds = units.map((u) => u.id);
+      const order = stampOrder(unitIds);
+      hideFormationMarker();
+      const mob = findNearest(
+        latestMobs.filter((m) => (m.x - x) ** 2 + (m.y - y) ** 2 <= mobHitRadius(m.kind) ** 2),
+        x,
+        y,
+        Infinity
+      );
+      if (mob) {
+        socket.send(JSON.stringify({ type: "commandAttack", unitIds, mobId: mob.id }));
+      } else if (units.length > 1) {
+        dispatchFormationMove(units, x, y, order);
+      } else {
+        socket.send(JSON.stringify({ type: "commandMove", unitIds, x, y }));
+      }
+      return;
+    }
+    const tile = pointerTile(x, y);
+    if (!tile) return;
+    if (socket.readyState !== socket.OPEN) return;
+    const value = e.button === 2 ? currentTool : TileType.Empty;
+    socket.send(
+      JSON.stringify({ type: "setTile", tileX: tile.tileX, tileY: tile.tileY, tile: value })
+    );
+  });
+
+  app.canvas.addEventListener("pointerup", (e) => {
+    if (e.button !== 0 || !leftPress || e.pointerId !== leftPress.pointerId) return;
+    const press = leftPress;
+    cancelLeftPress();
+    const rect = app.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left - worldLayer.position.x;
+    const y = e.clientY - rect.top - worldLayer.position.y;
+
+    if (press.dragging) {
+      const minX = Math.min(press.worldX, x);
+      const maxX = Math.max(press.worldX, x);
+      const minY = Math.min(press.worldY, y);
+      const maxY = Math.max(press.worldY, y);
+      setSelection(
+        latestColonists
+          .filter(
+            (c) =>
+              isCommandable(c) &&
+              c.x >= minX &&
+              c.x <= maxX &&
+              c.y >= minY &&
+              c.y <= maxY
+          )
+          .map((c) => c.id)
+      );
+      return;
+    }
+
+    const unit = findNearest(
+      latestColonists.filter(isCommandable),
+      x,
+      y,
+      UNIT_HIT_RADIUS
+    );
+    if (unit) {
+      setSelection([unit.id]);
+      return;
+    }
+
+    const tile = pointerTile(x, y);
+    if (tile && GARRISON_TILES.has(tiles[tile.tileY * worldTilesX + tile.tileX])) {
+      setSelection(
+        latestColonists
+          .filter(
+            (c) =>
+              (c.kind === "knight" ||
+                c.kind === "archer" ||
+                c.kind === "militia" ||
+                c.kind === "spearman" ||
+                c.kind === "pikeman") &&
+              c.postX === tile.tileX &&
+              c.postY === tile.tileY
+          )
+          .map((c) => c.id)
+      );
+      return;
+    }
+
+    // Nothing selectable under the cursor: original left-click behaviour (break tile).
+    setSelection([]);
+    if (!tile) return;
+    if (socket.readyState !== socket.OPEN) return;
+    socket.send(
+      JSON.stringify({ type: "setTile", tileX: tile.tileX, tileY: tile.tileY, tile: TileType.Empty })
+    );
+  });
+
+  app.canvas.addEventListener("pointercancel", (e) => {
+    if (leftPress && e.pointerId === leftPress.pointerId) cancelLeftPress();
+  });
+
+  app.canvas.addEventListener("pointermove", (e) => {
+    const rect = app.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left - worldLayer.position.x;
+    const y = e.clientY - rect.top - worldLayer.position.y;
+    if (leftPress && e.pointerId === leftPress.pointerId) {
+      if (
+        !leftPress.dragging &&
+        Math.hypot(e.clientX - leftPress.screenX, e.clientY - leftPress.screenY) > DRAG_THRESHOLD_PX
+      ) {
+        leftPress.dragging = true;
+      }
+      if (leftPress.dragging) {
+        dragBox.clear();
+        dragBox
+          .rect(
+            Math.min(leftPress.worldX, x),
+            Math.min(leftPress.worldY, y),
+            Math.abs(x - leftPress.worldX),
+            Math.abs(y - leftPress.worldY)
+          )
+          .fill({ color: SELECTION_COLOR, alpha: 0.12 })
+          .stroke({ width: 1.5, color: SELECTION_COLOR });
+      }
+    }
+    cursorHighlight.clear();
+    const tile = pointerTile(x, y);
+    if (!tile) return;
+    cursorHighlight
+      .rect(tile.tileX * tileSize, tile.tileY * tileSize, tileSize, tileSize)
+      .stroke({ width: 2, color: 0xffffff, alpha: 0.6 });
+  });
+}
+
+main();
