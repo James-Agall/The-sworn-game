@@ -48,6 +48,9 @@ under Outstanding.
 
 **Placeholder reuse:** Ward Stone renders cross until its own art exists (part 8).
 
+**No art yet (code-drawn placeholder):** Half-Latch (monster, spawns when a Ward Stone's ward
+lapses) renders as a small near-black circle with a faint grey edge (part 10).
+
 **Animations (walk + attack cycle, combined per-unit image):** knight, archer.
 
 ---
@@ -132,6 +135,12 @@ Once the static pose exists, prompt a walk+attack cycle for it the same way as s
 ### 9. Saint Wren's Abbey — dedicated architecture (optional; currently assembled from existing art)
 
 > Pixel art building tile sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. The main church of a small, old monastic abbey: a long weathered grey-stone nave with a steep slate roof, a squat square bell tower at one end with an open belfry and a single bell, narrow arched windows, a heavy wooden door under a round arch, moss and lichen on the lower courses. Older, plainer and more fortress-like than the existing Church sprite — a working house of a cloistered order, not a village chapel. Single static building, slight 3/4 top-down angle, centered in frame, transparent background, no ground shadow. Match the exact art style, outline weight and color palette of the existing Church sprite you already made for me, but noticeably larger (roughly twice its footprint). Clean PNG with transparency.
+
+### 10. Half-Latch — new monster art (static pose; currently a code-drawn dark circle, no sprite)
+
+> Pixel art monster sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated dark-fantasy palette. A Half-Latch: a minor demon that is barely more than a shadow in the exact shape of whatever gap let it through. Not a humanoid and not a beast — an indistinct, upright, wisp-like silhouette shaped like a narrow sliver of darkness, as if a door left off the latch or a crack between two stones had peeled away and started moving on its own: one straight hard edge down one side, the other side ragged and fraying, the bottom trailing off into a few curls of smoke instead of feet. Mostly flat near-black body, cel-shaded with only one or two very dark charcoal and cold slate-blue tones so it still reads against its own thick black outline, a faint cold grey rim highlight along the hard edge, and at most two tiny dim pale pinpoints of light high up to suggest it is looking at you. No limbs, no claws, no teeth, no armor or clothing. Should read as a small, furtive nuisance rather than a frightening threat. Single static pose, slight 3/4 angle, centered in frame, transparent background, no ground shadow. Match the same canvas scale and outline weight as the existing 10-monster roster sheet you made for me, but noticeably smaller than the Goblin (it is the weakest thing on that sheet). Clean PNG with transparency.
+
+Once the static pose exists, prompt a walk+attack cycle for it the same way as section 3 (a drifting/gliding walk like the Dark Shaman's, and a short lunge-and-recoil attack).
 
 ---
 

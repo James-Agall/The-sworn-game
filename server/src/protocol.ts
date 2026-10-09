@@ -138,6 +138,11 @@ export type ColonistKind =
   | "spearman"
   | "pikeman";
 
+// Combat stance for guard-tier units (knight/archer/militia line): how far they aggro, how far they
+// chase from their rally point, and how tight a formation they hold. Every colonist carries one
+// (default "normal"); it has no effect on bishops or civilians.
+export type Stance = "defensive" | "normal" | "aggressive";
+
 export interface ColonistSnapshot {
   id: string;
   kind: ColonistKind;
@@ -148,6 +153,7 @@ export interface ColonistSnapshot {
   maxHp: number;
   postX: number;
   postY: number;
+  stance: Stance;
 }
 
 export type MobKind =
@@ -161,7 +167,8 @@ export type MobKind =
   | "giantSpider"
   | "troll"
   | "ogre"
-  | "bandit";
+  | "bandit"
+  | "halfLatch";
 
 export interface MobSnapshot {
   id: string;
@@ -188,6 +195,7 @@ export type ClientMessage =
   | { type: "restart" }
   | { type: "commandMove"; unitIds: string[]; x: number; y: number }
   | { type: "commandAttack"; unitIds: string[]; mobId: string }
+  | { type: "commandStance"; unitIds: string[]; stance: Stance }
   | { type: "assignTaskForce"; slot: number; unitIds: string[] }
   | { type: "exchangeResource"; from: "wood" | "iron" | "rock"; to: "wood" | "iron" | "rock" }
   | { type: "buyWithGold"; item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock" };

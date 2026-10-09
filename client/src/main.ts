@@ -18,6 +18,7 @@ import type {
   MobSnapshot,
   MobKind,
   AttackEffect,
+  Stance,
 } from "./protocol";
 import { Biome, TileType } from "./protocol";
 
@@ -160,11 +161,19 @@ const FORMATION_RANK: Record<string, number> = {
 // box formation uses a similarly tight, roughly-square block per unit type rather than one
 // long line).
 const FORMATION_MAX_ROW_WIDTH = 5;
-// Slot spacing (both across a row and between rows), in tiles. A unit's visible footprint is
-// ~23-28px wide and ~31px tall (26.5px body + the HP bar 18px above center), so at 1.0 (32px) rows
-// touched edge-to-edge and diagonal facings (22.6px x/y offsets) overlapped; 1.25 leaves a visible
-// gap at every facing.
-const FORMATION_SPACING_TILES = 1.25;
+// Slot spacing (both across a row and between rows), in tiles, by the group's stance. A unit's
+// visible footprint is ~23-28px wide and ~31px tall (26.5px body + the HP bar 18px above center), so
+// at 1.0 (32px) rows touched edge-to-edge and diagonal facings (22.6px x/y offsets) overlapped; 1.25
+// leaves a visible gap at every facing. Defensive deliberately packs tighter than that (a shield-wall
+// look, sprites may touch on diagonals); Aggressive spreads out.
+const FORMATION_SPACING_TILES: Record<Stance, number> = {
+  defensive: 0.9,
+  normal: 1.25,
+  aggressive: 1.5,
+};
+// Stance hotkeys. 'c' (the AoE-style third key) is the Church build tool, so aggressive is 'e'.
+const STANCE_HOTKEYS: Record<string, Stance> = { z: "defensive", x: "normal", e: "aggressive" };
+const STANCE_LABEL: Record<Stance, string> = { defensive: "Defensive", normal: "Normal", aggressive: "Aggressive" };
 // Per-unit move orders go out one at a time, units already closest to their own slot first, this
 // far apart; the step shrinks for big groups so the last unit never waits more than the max spread.
 // Measured with server/formation-test.mjs (stacked-sprite time on 90/180-degree turns), this beat
@@ -183,7 +192,8 @@ const MOB_HIT_RADIUS = 12;
 // Per-kind mob size: radius scales roughly with toughness so size alone reads as a threat cue.
 // Drives the sprite's rendered size (radius * MOB_SPRITE_SIZE_PER_RADIUS along the texture's
 // longer side) and, if a texture is missing, the fallback colored circle.
-const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
+// `outline` overrides the fallback circle's default dark outline (only used by kinds with no art).
+const MOB_VISUALS: Record<MobKind, { color: number; radius: number; outline?: number }> = {
   goblin: { color: 0xa4c639, radius: 7 },
   wolf: { color: 0x8a8a8a, radius: 7.5 },
   goblinCrossbow: { color: 0x6b8e23, radius: 7 },
@@ -197,8 +207,15 @@ const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
   // TODO: replace with dedicated bandit art once sourced (currently the militia colonist sprite,
   // see MOB_SPRITE_URL_OVERRIDES). Same size as orc, which its stats sit closest to.
   bandit: { color: 0x7a4a2a, radius: 9.5 },
+  // TODO: replace with dedicated Half-Latch art once sourced (see SPRITES.md part 10). Until then
+  // it has no texture at all (MOB_KINDS_WITHOUT_ART) and draws as this fallback circle: near-black
+  // with a faint grey edge, smaller than a goblin — "barely more than a shadow".
+  halfLatch: { color: 0x0e0e12, radius: 5.5, outline: 0x55555c },
 };
-const MOB_KINDS = Object.keys(MOB_VISUALS) as MobKind[];
+// Kinds with no sourced art yet: never requested from /sprites/, so upsertMob gets no texture and
+// draws the MOB_VISUALS fallback circle instead.
+const MOB_KINDS_WITHOUT_ART = new Set<MobKind>(["halfLatch"]);
+const MOB_KINDS = (Object.keys(MOB_VISUALS) as MobKind[]).filter((kind) => !MOB_KINDS_WITHOUT_ART.has(kind));
 // Mob kinds whose texture isn't /sprites/<kind>.png.
 const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
   // TODO: replace with dedicated bandit art once sourced. Reuses the militia colonist sprite; the
@@ -449,7 +466,7 @@ async function main() {
   const PLAYER_TEXTURE = loadedTextures["/sprites/player.png"];
   const MOB_TEXTURES = Object.fromEntries(
     MOB_KINDS.map((kind, i) => [kind, loadedTextures[mobUrls[i]]])
-  ) as Record<MobKind, Texture>;
+  ) as Partial<Record<MobKind, Texture>>;
   // Keyed by TileType value; only types with sourced art have an entry.
   const TILE_TEXTURES = new Map<number, Texture>(
     tileSpriteEntries.map(([tile, url]) => [tile, loadedTextures[url]])
@@ -903,7 +920,7 @@ async function main() {
         return new Graphics()
           .circle(0, 0, visual.radius)
           .fill(visual.color)
-          .stroke({ width: 1.5, color: 0x1a0d0a });
+          .stroke({ width: 1.5, color: visual.outline ?? 0x1a0d0a });
       }
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5);
@@ -1217,9 +1234,18 @@ async function main() {
     }
   }
 
+  // Stance is only meaningful for guard-tier units, so bishops are left out of the readout (and of
+  // the formation-spacing vote in groupStance).
   function refreshSelectionHud() {
     statSelectedEl.hidden = selectedIds.size === 0;
-    statSelectedEl.textContent = `Selected: ${selectedIds.size}`;
+    const stances = new Set(
+      latestColonists.filter((c) => selectedIds.has(c.id) && c.kind !== "bishop").map((c) => c.stance)
+    );
+    const stance =
+      stances.size === 0 ? "" : stances.size === 1 ? STANCE_LABEL[[...stances][0]] : "Mixed";
+    statSelectedEl.textContent = stance
+      ? `Selected: ${selectedIds.size} · ${stance} (Z/X/E)`
+      : `Selected: ${selectedIds.size}`;
   }
 
   function setSelection(ids: Iterable<string>) {
@@ -1248,6 +1274,7 @@ async function main() {
 
   interface FormationPlan {
     targets: Map<string, { x: number; y: number }>;
+    spacing: number;
     // Unit facing (current centroid -> destination); the front row is centered on the destination.
     fx: number;
     fy: number;
@@ -1258,6 +1285,16 @@ async function main() {
   // clicked point), archers behind them, healers behind that, with a reserved rear rank for a
   // future artillery-type unit. Units within a rank sit side by side, perpendicular to the
   // direction of travel. A single unit just goes straight to the clicked point.
+  // One spacing per block (mixing per-unit spacing would break the grid): the most common stance
+  // among the group's guard-tier units; a tie for most common, or no guard units at all, is "normal".
+  function groupStance(units: ColonistSnapshot[]): Stance {
+    const counts: Record<Stance, number> = { defensive: 0, normal: 0, aggressive: 0 };
+    for (const u of units) if (u.kind !== "bishop") counts[u.stance]++;
+    const top = Math.max(counts.defensive, counts.normal, counts.aggressive);
+    const leaders = (Object.keys(counts) as Stance[]).filter((st) => counts[st] === top);
+    return leaders.length === 1 ? leaders[0] : "normal";
+  }
+
   // Recomputed from scratch on every order from the units' live positions (no remembered squad).
   function computeFormationTargets(
     units: ColonistSnapshot[],
@@ -1265,11 +1302,11 @@ async function main() {
     destY: number
   ): FormationPlan {
     const result = new Map<string, { x: number; y: number }>();
+    const spacing = tileSize * FORMATION_SPACING_TILES[groupStance(units)];
     if (units.length <= 1) {
       for (const u of units) result.set(u.id, { x: destX, y: destY });
-      return { targets: result, fx: 1, fy: 0, frontHalfWidth: 0 };
+      return { targets: result, spacing, fx: 1, fy: 0, frontHalfWidth: 0 };
     }
-    const spacing = tileSize * FORMATION_SPACING_TILES;
 
     let cx = 0;
     let cy = 0;
@@ -1335,7 +1372,7 @@ async function main() {
       }
       depthRows += rowCount;
     }
-    return { targets: result, fx, fy, frontHalfWidth };
+    return { targets: result, spacing, fx, fy, frontHalfWidth };
   }
 
   // Newest order number per unit. A rank's delayed commandMove is dropped for any unit that has
@@ -1375,8 +1412,8 @@ async function main() {
       formationMarker.circle(pos.x, pos.y, 4).stroke({ width: 1.5, color: SELECTION_COLOR, alpha: 0.6 });
     }
     // Front edge sits half a slot ahead of the front row's centers.
-    const edgeX = destX + fx * tileSize * FORMATION_SPACING_TILES * 0.5;
-    const edgeY = destY + fy * tileSize * FORMATION_SPACING_TILES * 0.5;
+    const edgeX = destX + fx * plan.spacing * 0.5;
+    const edgeY = destY + fy * plan.spacing * 0.5;
     const half = plan.frontHalfWidth + 10;
     formationMarker
       .moveTo(edgeX - px * half, edgeY - py * half)
@@ -1501,6 +1538,8 @@ async function main() {
         setSelection(stillSelected);
       } else {
         redrawSelectionRings();
+        // Stance changes arrive by snapshot, not through setSelection.
+        refreshSelectionHud();
       }
       statWoodEl.textContent = `${message.wood}`;
       statIronEl.textContent = `${message.iron}`;
@@ -1546,6 +1585,11 @@ async function main() {
     if (e.key === "Escape") {
       setSelection([]);
       cancelLeftPress();
+      return;
+    }
+    const stance = STANCE_HOTKEYS[e.key.toLowerCase()];
+    if (stance && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat) {
+      if (selectedIds.size > 0) sendMessage({ type: "commandStance", unitIds: Array.from(selectedIds), stance });
       return;
     }
     // e.code is layout/modifier independent (Alt+1 can produce other e.key values on some OSes).

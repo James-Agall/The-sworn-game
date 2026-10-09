@@ -9,6 +9,7 @@ import {
   MobSnapshot,
   MobKind,
   AttackEffect,
+  Stance,
   TileType,
   Biome,
   isSolidTile,
@@ -77,6 +78,9 @@ interface Colonist {
   // a diagonal formation can share one tile). See returnToRally.
   rallyX: number;
   rallyY: number;
+
+  // Only read by updateGuardColonist (see STANCE_ALERT_RANGE_TILES / STANCE_CHASE_LEASH_TILES).
+  stance: Stance;
 
   poisonTicksRemaining: number;
   poisonDamagePerTick: number;
@@ -423,6 +427,20 @@ function isNightNow(): boolean {
 }
 
 const GUARD_ALERT_RANGE_TILES = 7;
+// Per-stance combat tuning for guard-tier units. Alert range: how close (from the unit) a mob must be
+// before it's picked up as a target; "normal" is the original flat GUARD_ALERT_RANGE_TILES, so a unit
+// nobody touches behaves as before. Chase leash: how far from its own rally point (rallyX/rallyY) a
+// unit will go while closing on an out-of-range target before giving up and walking home.
+const STANCE_ALERT_RANGE_TILES: Record<Stance, number> = {
+  defensive: 3,
+  normal: GUARD_ALERT_RANGE_TILES,
+  aggressive: 12,
+};
+const STANCE_CHASE_LEASH_TILES: Record<Stance, number> = {
+  defensive: 2,
+  normal: 10,
+  aggressive: 20,
+};
 // Nothing within this many tiles of an active ward source (a staffed Ward Stone, or Saint Wren's
 // Abbey, which is always warded) can be chosen as a mob target. See activeWardSources.
 const WARD_RADIUS_TILES = 12;
@@ -600,10 +618,22 @@ const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
     unlockDay: Number.POSITIVE_INFINITY,
     weight: 0,
   },
+  // Half-Latch: the minor demon that slips through when a Ward Stone's ward lapses (see
+  // checkWardStoneLapses). Deliberately a nuisance, not a threat. Same exclusion/backstop as bandit.
+  halfLatch: {
+    maxHp: 12,
+    damage: 3,
+    speed: 90,
+    range: TILE_SIZE * 0.8,
+    melee: true,
+    unlockDay: Number.POSITIVE_INFINITY,
+    weight: 0,
+  },
 };
 
-// Kinds that only ever come from world-gen POI sites, never from the random night spawner.
-const NIGHT_WAVE_EXCLUDED_KINDS = new Set<MobKind>(["bandit"]);
+// Kinds that never come from the random night spawner: bandits only from world-gen POI sites,
+// Half-Latches only from a lapsing Ward Stone.
+const NIGHT_WAVE_EXCLUDED_KINDS = new Set<MobKind>(["bandit", "halfLatch"]);
 
 const TROLL_REGEN_DELAY_TICKS = TICK_RATE * 4;
 const TROLL_REGEN_PER_TICK = 1;
@@ -1009,6 +1039,7 @@ function spawnColonistForPost(
     rallyTileY: ty,
     rallyX: tx * TILE_SIZE + TILE_SIZE / 2,
     rallyY: ty * TILE_SIZE + TILE_SIZE / 2,
+    stance: "normal",
     poisonTicksRemaining: 0,
     poisonDamagePerTick: 0,
   };
@@ -1688,11 +1719,17 @@ function getMobById(id: string): Mob | undefined {
   return mobs.get(id);
 }
 
-function findNearestMobInRange(fromX: number, fromY: number, maxRangeTiles: number): Mob | null {
+function findNearestMobInRange(
+  fromX: number,
+  fromY: number,
+  maxRangeTiles: number,
+  isEligible?: (mob: Mob) => boolean
+): Mob | null {
   let best: Mob | null = null;
   let bestDist = Infinity;
   const maxRangePx = maxRangeTiles * TILE_SIZE;
   for (const mob of mobs.values()) {
+    if (isEligible && !isEligible(mob)) continue;
     const d = Math.hypot(mob.x - fromX, mob.y - fromY);
     if (d <= maxRangePx && d < bestDist) {
       best = mob;
@@ -1778,6 +1815,17 @@ function handleCommandAttack(unitIds: string[], mobId: string) {
     c.targetMobId = mobId;
     c.path = [];
     c.repathCooldown = 0;
+  }
+}
+
+const STANCES: Stance[] = ["defensive", "normal", "aggressive"];
+
+function handleCommandStance(unitIds: string[], stance: Stance) {
+  if (!STANCES.includes(stance)) return;
+  for (const id of unitIds) {
+    const c = colonists.get(id);
+    if (!c || !isCommandable(c)) continue;
+    c.stance = stance;
   }
 }
 
@@ -1944,7 +1992,16 @@ function updateGuardColonist(c: Colonist, dt: number) {
     if (c.repathCooldown > 0) {
       c.repathCooldown--;
     } else {
-      const found = findNearestMobInRange(c.x, c.y, GUARD_ALERT_RANGE_TILES);
+      // Skip anything the chase leash wouldn't let this unit reach (further from its rally point than
+      // leash + attack range): it would only walk out to the leash, give up, and come back to
+      // re-acquire the same mob, forever, e.g. against a dormant POI guardian that never moves.
+      const reachPx = STANCE_CHASE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range;
+      const found = findNearestMobInRange(
+        c.x,
+        c.y,
+        STANCE_ALERT_RANGE_TILES[c.stance],
+        (m) => Math.hypot(m.x - c.rallyX, m.y - c.rallyY) <= reachPx
+      );
       if (found) {
         c.targetMobId = found.id;
         target = found;
@@ -1982,6 +2039,17 @@ function updateGuardColonist(c: Colonist, dt: number) {
   } else {
     if (stats.speed === 0) {
       c.state = "idle";
+      return;
+    }
+    // Chase leash: only checked while closing on an out-of-range target (an exchange already in
+    // attack range above is never interrupted). Past the leash, drop the target and head home this
+    // tick; the repath cooldown holds off the next scan for a beat so the unit actually turns back
+    // instead of re-acquiring the same target next tick and jittering on the leash edge.
+    if (Math.hypot(c.x - c.rallyX, c.y - c.rallyY) > STANCE_CHASE_LEASH_TILES[c.stance] * TILE_SIZE) {
+      c.targetMobId = null;
+      c.path = [];
+      c.repathCooldown = MOB_REPATH_TICKS;
+      returnToRally(c, dt, stats.speed);
       return;
     }
     c.state = "engaging";
@@ -2128,6 +2196,61 @@ function isWarded(px: number, py: number, sources: TileCoord[]): boolean {
     const center = tileToPixelCenter(s);
     return Math.hypot(px - center.x, py - center.y) <= radiusPx;
   });
+}
+
+// Ward Stones (resourceKey) whose ward was up at the end of the previous tick. Only Ward Stones:
+// the Abbey's ward never lapses, so it is never tracked and never lets a Half-Latch through.
+const wardStonesActiveLastTick = new Set<string>();
+
+// Once per tick: any Ward Stone whose ward was up last tick and is down now has just lapsed, and a
+// Half-Latch slips through at the stone. A stone that stays lapsed tick after tick triggers nothing
+// more; it only re-arms once its post is refilled and the ward stands again. A stone that was
+// demolished (no longer a WardStone tile) was removed, not left to lapse, so it spawns nothing.
+function checkWardStoneLapses() {
+  const activeNow = new Set<string>();
+  for (const s of activeWardSources()) {
+    if (tiles[tileIndex(s.x, s.y)] === TileType.WardStone) activeNow.add(resourceKey(s.x, s.y));
+  }
+  for (const key of wardStonesActiveLastTick) {
+    if (activeNow.has(key)) continue;
+    const [tx, ty] = key.split(",").map(Number);
+    if (tiles[tileIndex(tx, ty)] === TileType.WardStone) spawnHalfLatch({ x: tx, y: ty });
+  }
+  wardStonesActiveLastTick.clear();
+  for (const key of activeNow) wardStonesActiveLastTick.add(key);
+}
+
+// Same Mob shape as spawnMob/spawnGuardian, but no siteId: never dormant, it seeks a target via
+// pickMobTarget on its very first updateMob.
+function spawnHalfLatch(tile: TileCoord) {
+  const config = MOB_KIND_CONFIG.halfLatch;
+  const center = tileToPixelCenter(tile);
+  const mob: Mob = {
+    id: randomUUID(),
+    kind: "halfLatch",
+    x: center.x,
+    y: center.y,
+    hp: config.maxHp,
+    maxHp: config.maxHp,
+    path: [],
+    repathCooldown: 0,
+    targetType: null,
+    targetId: null,
+    attackCooldownTicks: 0,
+    damage: config.damage,
+    speed: config.speed,
+    range: config.range,
+    melee: config.melee,
+    lastDamagedTick: 0,
+    healCooldownTicks: 0,
+    isDeserter: false,
+    deserterActive: false,
+    deserterSinceTick: 0,
+    siteId: null,
+    siteKind: null,
+    guardianActive: false,
+  };
+  mobs.set(mob.id, mob);
 }
 
 function updateColonist(c: Colonist, dt: number) {
@@ -2870,6 +2993,7 @@ function resetWorld() {
   buildingLevel.clear();
   reservedResourceTiles.clear();
   taskForces.clear();
+  wardStonesActiveLastTick.clear();
   pendingEffects = [];
 
   Object.assign(stock, initialStock());
@@ -2950,6 +3074,8 @@ wss.on("connection", (socket) => {
       handleCommandMove(message.unitIds, message.x, message.y);
     } else if (message.type === "commandAttack") {
       handleCommandAttack(message.unitIds, message.mobId);
+    } else if (message.type === "commandStance") {
+      handleCommandStance(message.unitIds, message.stance);
     } else if (message.type === "assignTaskForce") {
       handleAssignTaskForce(message.slot, message.unitIds);
     } else if (message.type === "exchangeResource") {
@@ -3372,6 +3498,10 @@ setInterval(() => {
       updateMob(mob, dt);
     }
 
+    // After colonists and mobs have moved/fought this tick, so a bishop killed by a mob (or by
+    // poison) this tick is caught on the same tick his ward lapses.
+    checkWardStoneLapses();
+
     updateFarmPlots();
     processRespawnQueue();
   }
@@ -3399,6 +3529,7 @@ setInterval(() => {
       maxHp: c.maxHp,
       postX: c.postX,
       postY: c.postY,
+      stance: c.stance,
     })),
     mobs: Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,

@@ -24,8 +24,8 @@ const result = (ok, msg) => {
 };
 const info = (msg) => console.log(`info [${el()}] ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const T = { Empty: 0, KnightPost: 5, ArcherPost: 6, Church: 20, MilitiaPost: 32 };
-const SOLID = new Set([1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]);
+const T = { Empty: 0, KnightPost: 5, ArcherPost: 6, Church: 20, MilitiaPost: 32, AbbeyHall: 46 };
+const SOLID = new Set([1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
 const TILE = 32;
 const PLAYER_ATTACK_RANGE = TILE * 1.3;
 const COMMANDABLE = new Set(["knight", "archer", "bishop", "militia", "spearman", "pikeman"]);
@@ -313,7 +313,9 @@ const defend = setInterval(() => {
   a.send({ type: "restart" });
   await waitFor(a, () => a.welcomes > w0, 3000);
   await sleep(300);
-  result(a.snap.colonists.length === 0 && !a.snap.isNight, `restart: fresh day-0 world, colonists=${a.snap.colonists.length}`);
+  // Saint Wren's Abbey's 3 resident clergy (posted at its AbbeyHall) exist in every fresh world.
+  const ours = a.snap.colonists.filter((k) => a.tileAt(k.postX, k.postY) !== T.AbbeyHall);
+  result(ours.length === 0 && !a.snap.isNight, `restart: fresh day-0 world, colonists=${ours.length} (+${a.snap.colonists.length - ours.length} Abbey clergy)`);
 }
 
 // Setup
@@ -332,7 +334,8 @@ const builds = [
 ];
 for (const [x, y, tile, name] of builds) result(await placeExpectAt(a, x, y, tile), `placed ${name} at (${x},${y})`);
 await sleep(500);
-const group = a.snap.colonists.filter((k) => COMMANDABLE.has(k.kind));
+// Client isCommandable mirror: a bishop only takes orders when posted at a Church.
+const group = a.snap.colonists.filter((k) => COMMANDABLE.has(k.kind) && (k.kind !== "bishop" || a.tileAt(k.postX, k.postY) === T.Church));
 const ids = group.map((k) => k.id);
 const kindCounts = group.reduce((m, k) => ((m[k.kind] = (m[k.kind] ?? 0) + 1), m), {});
 result(group.length === 6 && kindCounts.knight === 1 && kindCounts.militia === 2 && kindCounts.archer === 2 && kindCounts.bishop === 1,
