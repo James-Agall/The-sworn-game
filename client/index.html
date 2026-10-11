@@ -213,6 +213,42 @@
         font-weight: 600;
       }
 
+      .time-row {
+        align-items: center;
+        margin: 2px 0;
+      }
+
+      .time-cell {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      #sundial {
+        width: 30px;
+        height: 30px;
+        flex: none;
+        --dial-face: #ecd38a;
+        --dial-rim: #a8761f;
+        --dial-tick: #7a5414;
+        --dial-shadow: #3b2a0e;
+        --dial-night: rgba(30, 32, 70, 0.35);
+      }
+
+      #sundial.night {
+        --dial-face: #4b5670;
+        --dial-rim: #9aa6c2;
+        --dial-tick: #c3cce0;
+        --dial-shadow: #e6ecfa;
+        --dial-night: rgba(10, 12, 40, 0.45);
+      }
+
+      #sundial .face { fill: var(--dial-face); stroke: var(--dial-rim); stroke-width: 2; transition: fill 0.6s ease, stroke 0.6s ease; }
+      #sundial .night-arc { fill: var(--dial-night); }
+      #sundial .tick { stroke: var(--dial-tick); stroke-width: 1.2; stroke-linecap: round; }
+      #sundial .shadow { stroke: var(--dial-shadow); stroke-width: 2.4; stroke-linecap: round; }
+      #sundial .gnomon { fill: var(--dial-rim); }
+
       #stat-happiness {
         font-weight: 600;
         color: #7ddc7d;
@@ -323,7 +359,21 @@
         <div class="econ-row"><span>Rock</span><span id="stat-rock">0</span></div>
         <div class="econ-row"><span>Gold</span><span id="stat-gold">0</span></div>
         <div class="econ-row"><span>Pop</span><span id="stat-pop">0/0</span></div>
-        <div class="econ-row"><span id="stat-time">Day</span><span id="stat-happiness">Happiness: 100%</span></div>
+        <div class="econ-row time-row">
+          <span class="time-cell">
+            <svg id="sundial" viewBox="-18 -18 36 36" aria-hidden="true">
+              <circle class="face" r="16" />
+              <path id="sundial-night-arc" class="night-arc" />
+              <line class="tick" x1="0" y1="-15" x2="0" y2="-11" />
+              <line class="tick" x1="15" y1="0" x2="11" y2="0" />
+              <line class="tick" x1="0" y1="15" x2="0" y2="11" />
+              <line class="tick" x1="-15" y1="0" x2="-11" y2="0" />
+              <g id="sundial-hand"><line class="shadow" x1="0" y1="0" x2="0" y2="-12" /></g>
+              <circle class="gnomon" r="2.6" />
+            </svg>
+            <span id="stat-time">Day</span>
+          </span>
+          <span id="stat-happiness">Happiness: 100%</span></div>
         <div id="stat-army">Knights 0  Archers 0  Militia 0  Bishops 0</div>
         <div id="stat-selected" hidden></div>
       </div>

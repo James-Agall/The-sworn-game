@@ -26,6 +26,19 @@ the banner/barding).
 **Monsters (static pose, 10):** goblin, wolf, goblinCrossbow, orc, skeleton, armoredOrc,
 giantSpider, darkShaman, troll, ogre.
 
+**Bandit (Encampment guardian):** three purely cosmetic looks for the one `bandit` MobKind, picked
+per mob client-side by a stable hash of its id (`MOB_VARIANT_URLS` in `client/src/main.ts`), each
+with walk + attack frames:
+- Masked axe bandit: `bandit.png` (static/idle), `banditWalk0-3`, `banditAttack0-2`.
+- Hooded clubman: `banditClubmanWalk0-4`, `banditClubmanAttack0-3` (idle = first walk frame).
+- Hooded archer: `banditArcherWalk0-3`, `banditArcherAttack0-2`. The source sheet was inconsistent
+  (Walk0-1 hold a club, Attack1 is a spear throw), so the game only plays the bow frames: walk =
+  Walk2 + Attack0, attack = Attack0 → Walk3 (arrow loosed) → Attack2. Walk0-1 and Attack1 are kept
+  on disk but unused.
+
+**Half-Latch (static pose, 5 variants):** `halfLatch0-4.png`: the same wisp-like shadow sliver in
+five tints (charcoal, slate blue, violet, green, grey), picked per mob by a stable id hash.
+
 **Buildings (30, all tiers):** woodWall, stoneWall, barracks, castleLv2, castleLv3, archeryRange,
 archerTower, militiaCamp, militiaCamp2, militiaCamp3, cottage, bigCottage, cottageLv2, church,
 lumberjackPost, farmPlot, barn, pasture, orchard, sheepPasture, hempField, ironMine, quarry,
@@ -42,59 +55,33 @@ gravestone, gravestone2.
 
 **Decorative nature scatter:** tallGrass, flowers1, bush3.
 
-**Saint Wren's Abbey (world-gen landmark, no dedicated art yet):** assembled entirely from art
-above — the hall is church (rendered 1.5x), plus statue, fence, cross, lanternPost. See part 9
-under Outstanding.
+**Saint Wren's Abbey (world-gen landmark):** the hall is the dedicated `abbeyHall.png` (long stone
+nave + bell tower, rendered at 2x the box fit), surrounded by existing statue, fence, cross,
+lanternPost props.
 
 **Placeholder reuse:** Ward Stone renders cross until its own art exists (part 8).
 
-**No art yet (code-drawn placeholder):** Half-Latch (monster, spawns when a Ward Stone's ward
-lapses) renders as a small near-black circle with a faint grey edge (part 10).
-
-**Animations (walk + attack cycle, combined per-unit image):** knight, archer.
+**Animations (one PNG per frame, `<kind><Cycle><n>.png`), all 12 colonist kinds:**
+- Soldiers, walk + attack: knight (4 + 4), archer (4 + 6), militia, spearman, pikeman (4 + 3 each).
+- Workers, walk + work cycle (4 + 3 each): lumberjack (`Chop`), farmer (`Harvest`), ironMiner and
+  rockMiner (`Mine`), bishop (`Heal`), farmhand (`Tend`), artisan (`Craft`).
+- Every row from this batch was normalized at extraction onto one shared canvas per row (feet on
+  the bottom edge, centered on the body's mass centroid). The client renders each set at one
+  constant scale with feet-pinned anchors, so bodies don't resize as weapons swing out.
+- Source fixes: pikemanWalk1/3 had no pike in the source sheet, so frame 3's pike was grafted on.
+  The neutral source frame (pike in the other hand) was dropped, and the cycle is ping-ponged.
+  pikemanAttack2 still shows a stray second pike from the source.
 
 ---
 
 ## Outstanding — with ready-to-use prompts
 
-### 1. Remaining soldier animations (walk + attack cycle, one image each)
-
-**Militia**
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Character: light brown leather tunic, no helmet, holding a simple wooden club. Match the exact art style, outline weight, color palette, and character scale/proportions of the Knight and Archer walk/attack cycle sprite sheets you already made for me. In one image: Row 1 "Walk Cycle" — 4 equally-spaced frames, same scale and camera angle (slight 3/4 angle facing forward) in every frame, frame 1 the neutral standing pose, frames 2-4 a natural walk cycle with legs stepping and a slight body bob. Row 2 "Attack Cycle" — 3 frames, wind-up (club raised back), strike (club swung forward), recovery. Transparent background, no ground shadow, clean PNG.
-
-**Spearman**
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Character: leather armor reinforced with iron plates, open-face helmet, holding a spear. Match the exact art style, outline weight, color palette, and character scale/proportions of the Knight and Archer walk/attack cycle sprite sheets you already made for me. In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle in every frame, frame 1 neutral standing, frames 2-4 natural walk cycle. Row 2 "Attack Cycle" — 3 frames: spear drawn back for a thrust, spear thrust fully forward, recovery. Transparent background, no ground shadow, clean PNG.
-
-**Pikeman**
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Character: full iron plate armor, helmet with a small plume, holding a long pike taller than the character. Match the exact art style, outline weight, color palette, and character scale/proportions of the Knight and Archer walk/attack cycle sprite sheets you already made for me. In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle in every frame, frame 1 neutral standing, frames 2-4 natural walk cycle. Row 2 "Attack Cycle" — 3 frames: pike drawn back for a thrust, pike thrust fully forward, recovery. Transparent background, no ground shadow, clean PNG.
-
-### 2. Civilian/worker animations (walk + work-action cycle, one image each)
-
-**Lumberjack**
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, outline weight, color palette, and character scale of the existing Lumberjack sprite you already made for me (rolled-sleeve brown tunic, suspenders, axe). In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle in every frame, frame 1 neutral standing, frames 2-4 natural walk cycle. Row 2 "Chop Cycle" — 3 frames: axe raised overhead, axe swung down into a tree, recovery. Transparent background, clean PNG.
-
-**Farmer**
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, outline weight, color palette, and character scale of the existing Farmer sprite you already made for me (straw hat, green tunic, sickle). In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle in every frame. Row 2 "Harvest Cycle" — 3 frames: sickle raised, sickle swung through crops, recovery. Transparent background, clean PNG.
-
-**Iron Miner**
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, outline weight, color palette, and character scale of the existing Iron Miner sprite you already made for me (mining helmet with lamp, pickaxe). In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle in every frame. Row 2 "Mine Cycle" — 3 frames: pickaxe raised, pickaxe swung into rock, recovery. Transparent background, clean PNG.
-
-**Rock Miner**
-> Same as Iron Miner above, but match the existing Rock Miner sprite instead (cooler grey-toned mining gear).
-
-**Bishop**
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, outline weight, color palette, and character scale of the existing Bishop sprite you already made for me (cream and gold-trimmed robe, staff). In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle in every frame. Row 2 "Heal Cycle" — 3 frames: staff raised, a glowing pulse released from the staff tip, recovery. Transparent background, clean PNG.
-
-**Farmhand**
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, outline weight, color palette, and character scale of the existing Farmhand sprite you already made for me (wide-brim hat, basket). In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle in every frame. Row 2 "Tend Cycle" — 3 frames: bending to gather, holding up a gathered item, standing back up. Transparent background, clean PNG.
-
-**Artisan**
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, outline weight, color palette, and character scale of the existing Artisan sprite you already made for me (dark purple apron, hammer). In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle in every frame. Row 2 "Craft Cycle" — 3 frames: hammer raised, hammer struck down on a workbench, recovery. Transparent background, clean PNG.
-
 ### 3. Monster animations (walk + attack cycle, one image each)
 
-Same combined-block pattern as the soldiers above, each referencing its own already-made static
-sprite for consistency. Template (shown for Goblin, repeat per kind):
+Same combined-block pattern as the colonist walk/attack sheets (one image per kind, walk row +
+attack row), each referencing its own already-made static sprite for consistency. Once sourced, wire
+it up like the bandit variants (`MOB_VARIANT_URLS` in `client/src/main.ts`), which already infer
+walk/attack client-side. Template (shown for Goblin, repeat per kind):
 
 **Goblin**
 > Pixel art monster animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated dark-fantasy palette. Match the exact art style, outline weight, color palette, and creature scale of the existing Goblin sprite you already made for me (small, scrawny, sickly green skin, ragged brown loincloth, rusty dagger). In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle in every frame, a menacing scuttling gait. Row 2 "Attack Cycle" — 3 frames: dagger raised, dagger stabbed forward, recovery. Transparent background, clean PNG.
@@ -109,12 +96,6 @@ Repeat with the same structure for:
 - **Dark Shaman** — float/glide walk + staff cast
 - **Troll** — lumbering walk + club smash
 - **Ogre** — heavy lumbering walk + huge club smash
-
-### 4. Bandit — new dedicated art (static pose; currently a placeholder reusing militia.png)
-
-> Pixel art character sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated dark palette. A rough bandit/raider: ragged dark leather, a cloth bandana or hood covering most of the face, holding a crude hand axe or curved dagger. Should read as clearly hostile and distinct from the friendly Militia unit (different silhouette, darker/dirtier color palette, no insignia or banner colors). Single static pose facing forward/slight 3/4 angle, centered in frame, transparent background, no ground shadow. Match the same canvas scale and outline weight as the existing 10-monster roster sheet you made for me. Clean PNG with transparency.
-
-Once the static pose exists, prompt a walk+attack cycle for it the same way as section 3.
 
 ### 5. UI resource icons (one batched sheet)
 
@@ -131,16 +112,6 @@ Once the static pose exists, prompt a walk+attack cycle for it the same way as s
 ### 8. Ward Stone — new dedicated building art (currently a placeholder reusing cross.png)
 
 > Pixel art building tile sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. A Ward Stone: a single waist-to-shoulder-height standing stone marker, a squat tapering grey obelisk on a small square plinth, its faces carved with rows of small runic ward-script and a simple sunburst/vigil-flame sigil at the top, the carved grooves faintly glowing pale gold. A few melted candle stubs and a little scattered wax at its base, as if someone has kept watch beside it for a long time. Should read as consecrated and protective, not pagan or menacing — clearly kin to the existing Church and cross art. Single static object, slight 3/4 top-down angle, centered in frame, transparent background, no ground shadow. Match the exact art style, outline weight, color palette and building scale of the existing Church and cross sprites you already made for me (smaller than the Church, a little taller than the cross). Clean PNG with transparency.
-
-### 9. Saint Wren's Abbey — dedicated architecture (optional; currently assembled from existing art)
-
-> Pixel art building tile sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. The main church of a small, old monastic abbey: a long weathered grey-stone nave with a steep slate roof, a squat square bell tower at one end with an open belfry and a single bell, narrow arched windows, a heavy wooden door under a round arch, moss and lichen on the lower courses. Older, plainer and more fortress-like than the existing Church sprite — a working house of a cloistered order, not a village chapel. Single static building, slight 3/4 top-down angle, centered in frame, transparent background, no ground shadow. Match the exact art style, outline weight and color palette of the existing Church sprite you already made for me, but noticeably larger (roughly twice its footprint). Clean PNG with transparency.
-
-### 10. Half-Latch — new monster art (static pose; currently a code-drawn dark circle, no sprite)
-
-> Pixel art monster sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated dark-fantasy palette. A Half-Latch: a minor demon that is barely more than a shadow in the exact shape of whatever gap let it through. Not a humanoid and not a beast — an indistinct, upright, wisp-like silhouette shaped like a narrow sliver of darkness, as if a door left off the latch or a crack between two stones had peeled away and started moving on its own: one straight hard edge down one side, the other side ragged and fraying, the bottom trailing off into a few curls of smoke instead of feet. Mostly flat near-black body, cel-shaded with only one or two very dark charcoal and cold slate-blue tones so it still reads against its own thick black outline, a faint cold grey rim highlight along the hard edge, and at most two tiny dim pale pinpoints of light high up to suggest it is looking at you. No limbs, no claws, no teeth, no armor or clothing. Should read as a small, furtive nuisance rather than a frightening threat. Single static pose, slight 3/4 angle, centered in frame, transparent background, no ground shadow. Match the same canvas scale and outline weight as the existing 10-monster roster sheet you made for me, but noticeably smaller than the Goblin (it is the weakest thing on that sheet). Clean PNG with transparency.
-
-Once the static pose exists, prompt a walk+attack cycle for it the same way as section 3 (a drifting/gliding walk like the Dark Shaman's, and a short lunge-and-recoil attack).
 
 ---
 

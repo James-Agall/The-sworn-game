@@ -118,8 +118,8 @@ if (ONLY.has("a") || ONLY.has("b")) {
   // Stand at spawn and swing every 300ms (server cooldown 0.5s) so melee mobs near us die and
   // free up MOB_MAX_COUNT slots for new spawns; ranged mobs stay out of our 1.3-tile reach.
   const swing = setInterval(() => a.send({ type: "attack" }), 300);
-  const cycleSec = (30 + 20);
-  const totalSec = (NIGHTS - 1) * cycleSec + 30 + 20 + 8;
+  const cycleSec = (60 + 40);
+  const totalSec = (NIGHTS - 1) * cycleSec + 60 + 40 + 8;
   console.log(`[${el()}] observing ${NIGHTS} night(s), ~${totalSec}s ...`);
   const deadline = Date.now() + totalSec * 1000;
   while (Date.now() < deadline && nightsSeen <= NIGHTS) {

@@ -192,8 +192,7 @@ const MOB_HIT_RADIUS = 12;
 // Per-kind mob size: radius scales roughly with toughness so size alone reads as a threat cue.
 // Drives the sprite's rendered size (radius * MOB_SPRITE_SIZE_PER_RADIUS along the texture's
 // longer side) and, if a texture is missing, the fallback colored circle.
-// `outline` overrides the fallback circle's default dark outline (only used by kinds with no art).
-const MOB_VISUALS: Record<MobKind, { color: number; radius: number; outline?: number }> = {
+const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
   goblin: { color: 0xa4c639, radius: 7 },
   wolf: { color: 0x8a8a8a, radius: 7.5 },
   goblinCrossbow: { color: 0x6b8e23, radius: 7 },
@@ -204,24 +203,74 @@ const MOB_VISUALS: Record<MobKind, { color: number; radius: number; outline?: nu
   giantSpider: { color: 0x1e1a1e, radius: 8.5 },
   troll: { color: 0x3b4a2a, radius: 13 },
   ogre: { color: 0x8b5a2b, radius: 15 },
-  // TODO: replace with dedicated bandit art once sourced (currently the militia colonist sprite,
-  // see MOB_SPRITE_URL_OVERRIDES). Same size as orc, which its stats sit closest to.
+  // Same size as orc, which its stats sit closest to.
   bandit: { color: 0x7a4a2a, radius: 9.5 },
-  // TODO: replace with dedicated Half-Latch art once sourced (see SPRITES.md part 10). Until then
-  // it has no texture at all (MOB_KINDS_WITHOUT_ART) and draws as this fallback circle: near-black
-  // with a faint grey edge, smaller than a goblin — "barely more than a shadow".
-  halfLatch: { color: 0x0e0e12, radius: 5.5, outline: 0x55555c },
+  // Smaller than a goblin — "barely more than a shadow".
+  halfLatch: { color: 0x0e0e12, radius: 5.5 },
 };
-// Kinds with no sourced art yet: never requested from /sprites/, so upsertMob gets no texture and
-// draws the MOB_VISUALS fallback circle instead.
-const MOB_KINDS_WITHOUT_ART = new Set<MobKind>(["halfLatch"]);
-const MOB_KINDS = (Object.keys(MOB_VISUALS) as MobKind[]).filter((kind) => !MOB_KINDS_WITHOUT_ART.has(kind));
+const MOB_KINDS = Object.keys(MOB_VISUALS) as MobKind[];
 // Mob kinds whose texture isn't /sprites/<kind>.png.
 const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
-  // TODO: replace with dedicated bandit art once sourced. Reuses the militia colonist sprite; the
-  // load list is de-duplicated, so this is the same Texture object as the militia colonist's.
-  bandit: "/sprites/militia.png",
+  halfLatch: "/sprites/halfLatch0.png",
 };
+
+const frameUrls = (name: string, count: number) =>
+  Array.from({ length: count }, (_, i) => `/sprites/${name}${i}.png`);
+
+// Walk + action (attack, or the worker's chop/mine/heal/... cycle) frame URLs per colonist kind.
+// Each row was normalized at extraction onto one shared canvas with the feet on the bottom edge.
+const COLONIST_ANIM_URLS: Record<ColonistKind, { walk: string[]; action: string[] }> = {
+  knight: { walk: frameUrls("knightWalk", 4), action: frameUrls("knightAttack", 4) },
+  archer: { walk: frameUrls("archerWalk", 4), action: frameUrls("archerAttack", 6) },
+  militia: { walk: frameUrls("militiaWalk", 4), action: frameUrls("militiaAttack", 3) },
+  spearman: { walk: frameUrls("spearmanWalk", 4), action: frameUrls("spearmanAttack", 3) },
+  pikeman: { walk: frameUrls("pikemanWalk", 4), action: frameUrls("pikemanAttack", 3) },
+  lumberjack: { walk: frameUrls("lumberjackWalk", 4), action: frameUrls("lumberjackChop", 3) },
+  farmer: { walk: frameUrls("farmerWalk", 4), action: frameUrls("farmerHarvest", 3) },
+  ironMiner: { walk: frameUrls("ironMinerWalk", 4), action: frameUrls("ironMinerMine", 3) },
+  rockMiner: { walk: frameUrls("rockMinerWalk", 4), action: frameUrls("rockMinerMine", 3) },
+  bishop: { walk: frameUrls("bishopWalk", 4), action: frameUrls("bishopHeal", 3) },
+  farmhand: { walk: frameUrls("farmhandWalk", 4), action: frameUrls("farmhandTend", 3) },
+  artisan: { walk: frameUrls("artisanWalk", 4), action: frameUrls("artisanCraft", 3) },
+};
+// Server colonist states that play the action cycle / the walk cycle. Any other state walks only
+// while the colonist is actually moving (e.g. civilians sheltering), else shows the static pose.
+const COLONIST_ACTION_STATES = new Set(["attacking", "gathering", "mining", "farming", "crafting", "healing"]);
+const COLONIST_WALK_STATES = new Set(["engaging", "returning", "toResource", "toPost", "approaching"]);
+
+// Purely cosmetic per-instance looks: each mob of these kinds picks one variant by a stable hash
+// of its id. `idle` is the standing pose (defaults to the first walk frame).
+interface MobVariantUrls {
+  idle?: string;
+  walk?: string[];
+  action?: string[];
+}
+const MOB_VARIANT_URLS: Partial<Record<MobKind, MobVariantUrls[]>> = {
+  bandit: [
+    { idle: "/sprites/bandit.png", walk: frameUrls("banditWalk", 4), action: frameUrls("banditAttack", 3) },
+    { walk: frameUrls("banditClubmanWalk", 5), action: frameUrls("banditClubmanAttack", 4) },
+    // The source sheet's "archer walk" row starts with two club-holding frames and its attack row
+    // has a spear-throw in the middle, so this only uses its bow-holding frames.
+    {
+      walk: ["/sprites/banditArcherWalk2.png", "/sprites/banditArcherAttack0.png"],
+      action: [
+        "/sprites/banditArcherAttack0.png",
+        "/sprites/banditArcherWalk3.png",
+        "/sprites/banditArcherAttack2.png",
+      ],
+    },
+  ],
+  halfLatch: frameUrls("halfLatch", 5).map((idle) => ({ idle })),
+};
+// A stationary mob within this distance of a colonist/player plays its attack cycle (mob snapshots
+// carry no state, so this is inferred client-side).
+const MOB_ATTACK_ANIM_RANGE_PX = 40;
+
+function stableHash(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
 // Same ratio colonists use: their r=8 fallback circle maps to the 28px COLONIST_SPRITE_HEIGHT.
 // Goblin (r7) -> ~24px, ogre (r15) -> ~52px.
 const MOB_SPRITE_SIZE_PER_RADIUS = 3.5;
@@ -278,8 +327,7 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.PropBarrel]: "barrel",
   [TileType.PropCrate]: "crate",
   [TileType.PropFence]: "fence",
-  // Saint Wren's Abbey: assembled from existing art (no dedicated Abbey architecture sourced yet).
-  [TileType.AbbeyHall]: "church",
+  [TileType.AbbeyHall]: "abbeyHall",
   [TileType.PropCross]: "cross",
   [TileType.PropLanternPost]: "lanternPost",
   // TODO: replace with dedicated Ward Stone art once sourced (see SPRITES.md part 8).
@@ -297,8 +345,9 @@ const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
   [TileType.PropBarrel]: 0.6,
   [TileType.PropCrate]: 0.65,
   [TileType.PropFence]: 0.85,
-  // Bigger than a player-built Church (same art) so the Abbey's hall reads as the complex's anchor.
-  [TileType.AbbeyHall]: 1.5,
+  // The wide abbey art is width-capped by the box fit; 2x makes it ~2.8 tiles wide (it sits between
+  // lantern posts two tiles either side), roughly twice a player-built Church's footprint.
+  [TileType.AbbeyHall]: 2,
   [TileType.PropCross]: 0.6,
   [TileType.PropLanternPost]: 0.65,
   [TileType.WardStone]: 0.75,
@@ -437,16 +486,14 @@ async function main() {
     "/sprites/swampFloor.png",
     ...NATURE_DECOR.map((d) => d.url),
   ];
-  // Walk/attack animation frames, sourced so far only for knight and archer; every other kind
-  // keeps its single static pose (see ANIM_FRAMES below).
   const ANIM_URLS = [
-    ...[0, 1, 2, 3].map((i) => `/sprites/knightWalk${i}.png`),
-    ...[0, 1, 2, 3].map((i) => `/sprites/knightAttack${i}.png`),
-    ...[0, 1, 2, 3].map((i) => `/sprites/archerWalk${i}.png`),
-    ...[0, 1, 2, 3, 4, 5].map((i) => `/sprites/archerAttack${i}.png`),
+    ...Object.values(COLONIST_ANIM_URLS).flatMap((a) => [...a.walk, ...a.action]),
+    ...Object.values(MOB_VARIANT_URLS).flatMap((variants) =>
+      variants.flatMap((v) => [...(v.idle ? [v.idle] : []), ...(v.walk ?? []), ...(v.action ?? [])])
+    ),
   ];
-  // De-duplicated: some kinds share one image (bandit reuses militia.png), and each URL should be
-  // requested once and resolve to one shared Texture.
+  // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
+  // and each URL should be requested once and resolve to one shared Texture.
   const loadedTextures = await Assets.load<Texture>(
     Array.from(
       new Set([
@@ -510,26 +557,76 @@ async function main() {
   const HILLS_FLOOR_TEXTURE = loadedTextures["/sprites/hillsFloor.png"];
   const SWAMP_FLOOR_TEXTURE = loadedTextures["/sprites/swampFloor.png"];
   const NATURE_DECOR_TEXTURES = NATURE_DECOR.map((d) => ({ texture: loadedTextures[d.url], height: d.height }));
-  // Walk/attack frame sequences per colonist kind. Only kinds with sourced animation art have an
-  // entry; everything else falls back to its single static pose in upsertColonist.
-  const ANIM_FRAMES: Partial<Record<ColonistKind, { walk: Texture[]; attack: Texture[] }>> = {
-    knight: {
-      walk: [0, 1, 2, 3].map((i) => loadedTextures[`/sprites/knightWalk${i}.png`]),
-      attack: [0, 1, 2, 3].map((i) => loadedTextures[`/sprites/knightAttack${i}.png`]),
-    },
-    archer: {
-      walk: [0, 1, 2, 3].map((i) => loadedTextures[`/sprites/archerWalk${i}.png`]),
-      attack: [0, 1, 2, 3, 4, 5].map((i) => loadedTextures[`/sprites/archerAttack${i}.png`]),
-    },
-  };
+  // Frames within one set come from one source sheet, so they share a pixel scale: one constant
+  // `scale` per set (sized from the first walk frame) keeps the body the same size while weapons
+  // swing out, instead of re-fitting every frame's canvas to a fixed height.
+  interface AnimSet {
+    walk: Texture[];
+    action: Texture[];
+    scale: number;
+    refHeight: number;
+  }
+  function buildAnimSet(urls: { walk: string[]; action: string[] }, renderHeight: number): AnimSet {
+    const walk = urls.walk.map((u) => loadedTextures[u]);
+    const refHeight = walk[0].height;
+    return { walk, action: urls.action.map((u) => loadedTextures[u]), scale: renderHeight / refHeight, refHeight };
+  }
+  // Feet sit on each frame's bottom edge; pin them to where the first walk frame's feet land when
+  // that frame is center-anchored, so switching between rows of different heights doesn't hop.
+  function showAnimFrame(sprite: Sprite, set: AnimSet, texture: Texture) {
+    sprite.texture = texture;
+    sprite.scale.set(set.scale);
+    sprite.anchor.set(0.5, 1 - set.refHeight / (2 * texture.height));
+  }
+  const COLONIST_ANIMS = Object.fromEntries(
+    Object.entries(COLONIST_ANIM_URLS).map(([kind, urls]) => [kind, buildAnimSet(urls, COLONIST_SPRITE_HEIGHT)])
+  ) as Record<ColonistKind, AnimSet>;
+  interface MobVariant {
+    idle: Texture;
+    idleScale: number;
+    anim: AnimSet | null;
+  }
+  const MOB_VARIANTS = Object.fromEntries(
+    Object.entries(MOB_VARIANT_URLS).map(([kind, variants]) => {
+      const size = MOB_VISUALS[kind as MobKind].radius * MOB_SPRITE_SIZE_PER_RADIUS;
+      return [
+        kind,
+        variants.map((v): MobVariant => {
+          const anim = v.walk && v.action ? buildAnimSet({ walk: v.walk, action: v.action }, size) : null;
+          const idle = v.idle ? loadedTextures[v.idle] : anim!.walk[0];
+          const idleScale = v.idle ? size / Math.max(idle.width, idle.height) : anim!.scale;
+          return { idle, idleScale, anim };
+        }),
+      ];
+    })
+  ) as Partial<Record<MobKind, MobVariant[]>>;
   // Ticks (snapshots, ~20/s) each animation frame holds before advancing.
   const ANIM_TICKS_PER_FRAME = 4;
-  interface ColonistAnimState {
-    mode: "walk" | "attack" | null;
+  interface AnimState {
+    mode: "walk" | "action" | null;
     frame: number;
     ticksInFrame: number;
+    lastX: number;
+    lastY: number;
   }
-  const colonistAnim = new Map<string, ColonistAnimState>();
+  // Advances `anim` one snapshot tick; returns the frame to show, or null for the static pose.
+  function stepAnim(anim: AnimState, set: AnimSet, mode: "walk" | "action" | null): Texture | null {
+    if (mode !== anim.mode) {
+      anim.mode = mode;
+      anim.frame = 0;
+      anim.ticksInFrame = 0;
+    }
+    if (!mode) return null;
+    const sequence = mode === "walk" ? set.walk : set.action;
+    anim.ticksInFrame++;
+    if (anim.ticksInFrame >= ANIM_TICKS_PER_FRAME) {
+      anim.ticksInFrame = 0;
+      anim.frame = (anim.frame + 1) % sequence.length;
+    }
+    return sequence[anim.frame];
+  }
+  const colonistAnim = new Map<string, AnimState>();
+  const mobAnim = new Map<string, AnimState>();
   // Shared (stateless) program; each player sprite gets its own Filter + uniforms.
   // highp: the HSV helpers' 1e-10 epsilon underflows to 0 at mediump on some GPUs -> NaN on greys.
   const playerRecolorProgram = GlProgram.from({
@@ -548,7 +645,9 @@ async function main() {
     buildPanelToggle.blur();
   });
 
+  const ZOOM = 1.3;
   const worldLayer = new Container();
+  worldLayer.scale.set(ZOOM);
   app.stage.addChild(worldLayer);
 
   let myId: string | null = null;
@@ -863,38 +962,30 @@ async function main() {
       entry.hpBar.visible = !atPost;
     }
 
-    const frames = ANIM_FRAMES[c.kind];
-    if (frames && entry.sprite instanceof Sprite) {
-      // "engaging"/"returning" = walking toward a target or rally point; "attacking" = in range
-      // and striking; everything else (idle, mining, farming, ...) keeps the static base pose.
-      const mode: "walk" | "attack" | null =
-        c.state === "attacking" ? "attack" : c.state === "engaging" || c.state === "returning" ? "walk" : null;
+    const set = COLONIST_ANIMS[c.kind];
+    if (set && entry.sprite instanceof Sprite) {
       let anim = colonistAnim.get(c.id);
       if (!anim) {
-        anim = { mode: null, frame: 0, ticksInFrame: 0 };
+        anim = { mode: null, frame: 0, ticksInFrame: 0, lastX: c.x, lastY: c.y };
         colonistAnim.set(c.id, anim);
       }
-      if (mode !== anim.mode) {
-        anim.mode = mode;
-        anim.frame = 0;
-        anim.ticksInFrame = 0;
-      }
-      if (mode) {
-        const sequence = mode === "walk" ? frames.walk : frames.attack;
-        anim.ticksInFrame++;
-        if (anim.ticksInFrame >= ANIM_TICKS_PER_FRAME) {
-          anim.ticksInFrame = 0;
-          anim.frame = (anim.frame + 1) % sequence.length;
-        }
-        entry.sprite.texture = sequence[anim.frame];
+      const moved = Math.hypot(c.x - anim.lastX, c.y - anim.lastY) > 0.5;
+      anim.lastX = c.x;
+      anim.lastY = c.y;
+      const mode = COLONIST_ACTION_STATES.has(c.state)
+        ? "action"
+        : COLONIST_WALK_STATES.has(c.state) || moved
+          ? "walk"
+          : null;
+      const frame = stepAnim(anim, set, mode);
+      if (frame) {
+        showAnimFrame(entry.sprite, set, frame);
       } else {
-        entry.sprite.texture = COLONIST_TEXTURES[c.kind];
+        const texture = COLONIST_TEXTURES[c.kind];
+        entry.sprite.texture = texture;
+        entry.sprite.anchor.set(0.5);
+        entry.sprite.scale.set(COLONIST_SPRITE_HEIGHT / texture.height);
       }
-      // Each animation frame was generated as its own image and can differ slightly in raw
-      // pixel size from the base pose; re-derive scale from THIS frame's own texture every time
-      // so the on-screen size stays fixed at COLONIST_SPRITE_HEIGHT instead of growing/shrinking
-      // as frames cycle.
-      entry.sprite.scale.set(COLONIST_SPRITE_HEIGHT / entry.sprite.texture.height);
     }
   }
 
@@ -907,7 +998,22 @@ async function main() {
     for (const c of snapshot) upsertColonist(c);
   }
 
+  function nearestFriendlyDistance(x: number, y: number): number {
+    let best = Infinity;
+    for (const map of [colonistSprites, playerSprites]) {
+      for (const { sprite } of map.values()) {
+        best = Math.min(best, Math.hypot(sprite.position.x - x, sprite.position.y - y));
+      }
+    }
+    return best;
+  }
+
   function upsertMob(m: MobSnapshot) {
+    const variants = MOB_VARIANTS[m.kind];
+    if (variants) {
+      upsertVariantMob(m, variants[stableHash(m.id) % variants.length]);
+      return;
+    }
     const visual = MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin;
     const texture = MOB_TEXTURES[m.kind];
     // Longer side, not height, so wide kinds (wolf, spider) don't balloon horizontally.
@@ -920,7 +1026,7 @@ async function main() {
         return new Graphics()
           .circle(0, 0, visual.radius)
           .fill(visual.color)
-          .stroke({ width: 1.5, color: visual.outline ?? 0x1a0d0a });
+          .stroke({ width: 1.5, color: 0x1a0d0a });
       }
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5);
@@ -934,8 +1040,48 @@ async function main() {
     drawHpBar(entry.hpBar, m.hp, m.maxHp);
   }
 
+  function upsertVariantMob(m: MobSnapshot, variant: MobVariant) {
+    const entry = ensureVisual(mobSprites, m.id, () => {
+      const sprite = new Sprite(variant.idle);
+      sprite.anchor.set(0.5);
+      sprite.scale.set(variant.idleScale);
+      return sprite;
+    });
+    entry.sprite.position.set(m.x, m.y);
+    entry.hpBar.position.set(m.x, m.y - (variant.idle.height * variant.idleScale) / 2 - 4);
+    drawHpBar(entry.hpBar, m.hp, m.maxHp);
+
+    const set = variant.anim;
+    if (!set || !(entry.sprite instanceof Sprite)) return;
+    let anim = mobAnim.get(m.id);
+    if (!anim) {
+      anim = { mode: null, frame: 0, ticksInFrame: 0, lastX: m.x, lastY: m.y };
+      mobAnim.set(m.id, anim);
+    }
+    const moved = Math.hypot(m.x - anim.lastX, m.y - anim.lastY) > 0.5;
+    anim.lastX = m.x;
+    anim.lastY = m.y;
+    const mode = moved
+      ? "walk"
+      : nearestFriendlyDistance(m.x, m.y) <= MOB_ATTACK_ANIM_RANGE_PX
+        ? "action"
+        : null;
+    const frame = stepAnim(anim, set, mode);
+    if (frame) {
+      showAnimFrame(entry.sprite, set, frame);
+    } else {
+      entry.sprite.texture = variant.idle;
+      entry.sprite.anchor.set(0.5);
+      entry.sprite.scale.set(variant.idleScale);
+    }
+  }
+
   function syncMobs(snapshot: MobSnapshot[]) {
-    pruneMissing(mobSprites, new Set(snapshot.map((m) => m.id)));
+    const seenIds = new Set(snapshot.map((m) => m.id));
+    pruneMissing(mobSprites, seenIds);
+    for (const id of Array.from(mobAnim.keys())) {
+      if (!seenIds.has(id)) mobAnim.delete(id);
+    }
     for (const m of snapshot) upsertMob(m);
   }
 
@@ -967,8 +1113,8 @@ async function main() {
     const mine = playerSprites.get(myId);
     if (!mine) return;
     worldLayer.position.set(
-      app.screen.width / 2 - mine.sprite.position.x,
-      app.screen.height / 2 - mine.sprite.position.y
+      app.screen.width / 2 - mine.sprite.position.x * ZOOM,
+      app.screen.height / 2 - mine.sprite.position.y * ZOOM
     );
   });
 
@@ -1034,6 +1180,10 @@ async function main() {
   const statGoldEl = document.getElementById("stat-gold")!;
   const statPopEl = document.getElementById("stat-pop")!;
   const statTimeEl = document.getElementById("stat-time")!;
+  const sundialEl = document.getElementById("sundial")!;
+  const sundialHandEl = document.getElementById("sundial-hand")!;
+  const sundialNightArcEl = document.getElementById("sundial-night-arc")!;
+  let sundialDayFraction = -1;
   const statHappinessEl = document.getElementById("stat-happiness")! as HTMLElement;
   const statArmyEl = document.getElementById("stat-army")!;
   const statSelectedEl = document.getElementById("stat-selected")!;
@@ -1548,6 +1698,19 @@ async function main() {
       refreshEconomyPanel(message);
       statPopEl.textContent = `${message.population}/${message.populationCap}`;
       statTimeEl.textContent = message.isNight ? "Night" : "Day";
+      sundialEl.classList.toggle("night", message.isNight);
+      sundialHandEl.setAttribute("transform", `rotate(${message.cycleProgress * 360})`);
+      if (message.dayFraction !== sundialDayFraction) {
+        sundialDayFraction = message.dayFraction;
+        // Pie slice over the night part of the cycle; 0 (dawn) is at 12 o'clock, clockwise.
+        const a = sundialDayFraction * 2 * Math.PI;
+        const r = 15;
+        const largeArc = 1 - sundialDayFraction > 0.5 ? 1 : 0;
+        sundialNightArcEl.setAttribute(
+          "d",
+          `M0 0 L${r * Math.sin(a)} ${-r * Math.cos(a)} A${r} ${r} 0 ${largeArc} 1 0 ${-r} Z`
+        );
+      }
       statHappinessEl.textContent = `Happiness: ${message.happiness}%`;
       // Thresholds mirror the server's desertion (35) and mutiny (15) lines.
       statHappinessEl.style.color =
@@ -1665,8 +1828,8 @@ async function main() {
 
   app.canvas.addEventListener("pointerdown", (e) => {
     const rect = app.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left - worldLayer.position.x;
-    const y = e.clientY - rect.top - worldLayer.position.y;
+    const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
+    const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
     if (e.button === 0) {
       leftPress = {
         pointerId: e.pointerId,
@@ -1716,8 +1879,8 @@ async function main() {
     const press = leftPress;
     cancelLeftPress();
     const rect = app.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left - worldLayer.position.x;
-    const y = e.clientY - rect.top - worldLayer.position.y;
+    const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
+    const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
 
     if (press.dragging) {
       const minX = Math.min(press.worldX, x);
@@ -1784,8 +1947,8 @@ async function main() {
 
   app.canvas.addEventListener("pointermove", (e) => {
     const rect = app.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left - worldLayer.position.x;
-    const y = e.clientY - rect.top - worldLayer.position.y;
+    const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
+    const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
     if (leftPress && e.pointerId === leftPress.pointerId) {
       if (
         !leftPress.dragging &&

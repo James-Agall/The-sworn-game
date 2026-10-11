@@ -1,7 +1,7 @@
 export const TICK_RATE = 20;
 export const TILE_SIZE = 32;
-export const WORLD_TILES_X = 80;
-export const WORLD_TILES_Y = 80;
+// Server-side default; the live size is overridable (COLONY_WORLD_SIZE) and sent in `welcome`.
+export const DEFAULT_WORLD_TILES = 160;
 export const PLAYER_SPEED = 150;
 export const PLAYER_HALF_SIZE = 10;
 export const PLAYER_MAX_HP = 100;
@@ -232,6 +232,9 @@ export type ServerMessage =
       marketBuilt: boolean;
       goldShopBuilt: boolean;
       isNight: boolean;
+      // 0-1 through the full day+night cycle; 0 = dawn, night starts at dayFraction.
+      cycleProgress: number;
+      dayFraction: number;
       isPaused: boolean;
       effects: AttackEffect[];
       townCenterHp: number;

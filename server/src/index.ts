@@ -15,12 +15,18 @@ import {
   isSolidTile,
   TICK_RATE,
   TILE_SIZE,
-  WORLD_TILES_X,
-  WORLD_TILES_Y,
+  DEFAULT_WORLD_TILES,
   PLAYER_SPEED,
   PLAYER_HALF_SIZE,
   PLAYER_MAX_HP,
 } from "./protocol.js";
+
+// The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
+const WORLD_TILES_X = Number.parseInt(process.env.COLONY_WORLD_SIZE ?? "", 10) || DEFAULT_WORLD_TILES;
+const WORLD_TILES_Y = WORLD_TILES_X;
+// World-gen counts below were tuned on 80x80; scale them by area so bigger maps keep the same density.
+const WORLD_AREA_SCALE = (WORLD_TILES_X * WORLD_TILES_Y) / (80 * 80);
+const scaledCount = (n: number) => Math.round(n * WORLD_AREA_SCALE);
 
 interface Player {
   id: string;
@@ -297,16 +303,16 @@ function tileOccupiedByEntity(tx: number, ty: number): boolean {
 tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
 
 // Tuned for the 80x80 map (4x the old 40x40 counts of 24/14/16, keeping per-tile density).
-const TREE_COUNT = 96;
-const IRON_ORE_COUNT = 56;
-const ROCK_COUNT = 64;
+const TREE_COUNT = scaledCount(96);
+const IRON_ORE_COUNT = scaledCount(56);
+const ROCK_COUNT = scaledCount(64);
 
 function scatterResourceTiles(tileType: TileType, count: number) {
   const spawnTx = Math.floor(WORLD_TILES_X / 2);
   const spawnTy = Math.floor(WORLD_TILES_Y / 2);
   let placed = 0;
   let attempts = 0;
-  while (placed < count && attempts < 1000) {
+  while (placed < count && attempts < scaledCount(1000)) {
     attempts++;
     const tx = Math.floor(Math.random() * WORLD_TILES_X);
     const ty = Math.floor(Math.random() * WORLD_TILES_Y);
@@ -418,8 +424,8 @@ function releaseResourceReservation(c: Colonist) {
   }
 }
 
-const DAY_TICKS = TICK_RATE * 30;
-const NIGHT_TICKS = TICK_RATE * 20;
+const DAY_TICKS = TICK_RATE * 60;
+const NIGHT_TICKS = TICK_RATE * 40;
 let cycleTick = 0;
 function isNightNow(): boolean {
   const t = cycleTick % (DAY_TICKS + NIGHT_TICKS);
@@ -703,7 +709,7 @@ const CHURCH_HEAL_BONUS_PER_STEP = 0.1;
 const TREE_RESPAWN_INTERVAL_TICKS = TICK_RATE * 8;
 // Regrowth cap, scaled 4x with TREE_COUNT for the 80x80 map (at the old 50 the 96 starting
 // trees would sit above the cap and natural regrowth would never run).
-const MAX_TREES = 200;
+const MAX_TREES = scaledCount(200);
 let treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
 
 const LUMBERJACK_TREE_RADIUS = 2;
@@ -2566,7 +2572,7 @@ const SPAWN_CLEAR_RADIUS_TILES = 15;
 // max(SPAWN_CLEAR_RADIUS_TILES, radius + BIOME_EDGE_JITTER_TILES + this).
 const SPAWN_PLAINS_RADIUS_TILES = 6;
 
-const BIOME_SEEDS_PER_KIND = 5;
+const BIOME_SEEDS_PER_KIND = scaledCount(5);
 // Plains is meant to be the majority biome (the default colony-building terrain), with Hills and
 // Swamp as scattered regional pockets. 14-18 made Hills+Swamp cover ~70% of the map instead;
 // 10-13 brings Plains back to roughly half, per the executor's own simulation.
@@ -2576,18 +2582,18 @@ const BIOME_SEED_MIN_SPACING = 12;
 const BIOME_EDGE_JITTER_TILES = 3;
 const BIOME_NOISE_CELL_TILES = 4;
 
-const POND_COUNT_MIN = 8;
-const POND_COUNT_MAX = 12;
+const POND_COUNT_MIN = scaledCount(8);
+const POND_COUNT_MAX = scaledCount(12);
 const POND_RADIUS_MIN = 2;
 const POND_RADIUS_MAX = 4;
 const POND_EDGE_JITTER_TILES = 1;
 const POND_NOISE_CELL_TILES = 2;
 const POND_MIN_SPACING = 12;
 
-const RUIN_SITE_COUNT_MIN = 6;
-const RUIN_SITE_COUNT_MAX = 10;
-const ENCAMPMENT_SITE_COUNT_MIN = 6;
-const ENCAMPMENT_SITE_COUNT_MAX = 10;
+const RUIN_SITE_COUNT_MIN = scaledCount(6);
+const RUIN_SITE_COUNT_MAX = scaledCount(10);
+const ENCAMPMENT_SITE_COUNT_MIN = scaledCount(6);
+const ENCAMPMENT_SITE_COUNT_MAX = scaledCount(10);
 const POI_SITE_MIN_SPACING = 10;
 // Every tile within this Chebyshev radius of a site's center must be Empty before the site is placed.
 const POI_SITE_FOOTPRINT_RADIUS = 2;
@@ -3556,6 +3562,8 @@ setInterval(() => {
     marketBuilt,
     goldShopBuilt,
     isNight: night,
+    cycleProgress: (cycleTick % (DAY_TICKS + NIGHT_TICKS)) / (DAY_TICKS + NIGHT_TICKS),
+    dayFraction: DAY_TICKS / (DAY_TICKS + NIGHT_TICKS),
     isPaused,
     effects: pendingEffects,
     townCenterHp,
