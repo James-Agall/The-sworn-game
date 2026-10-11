@@ -20,7 +20,7 @@ import type {
   AttackEffect,
   Stance,
 } from "./protocol";
-import { Biome, TileType } from "./protocol";
+import { Biome, TILE_SIZE, TileType } from "./protocol";
 
 const SERVER_URL = "ws://localhost:8080";
 
@@ -203,8 +203,10 @@ const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
   giantSpider: { color: 0x1e1a1e, radius: 8.5 },
   troll: { color: 0x3b4a2a, radius: 13 },
   ogre: { color: 0x8b5a2b, radius: 15 },
-  // Same size as orc, which its stats sit closest to.
-  bandit: { color: 0x7a4a2a, radius: 9.5 },
+  banditClubman: { color: 0x6b4a2a, radius: 9 },
+  banditArcher: { color: 0x5a5a3a, radius: 9 },
+  // ~1.45x a regular bandit's footprint so the mini-boss reads as a step up at a glance.
+  banditElite: { color: 0x7a2a2a, radius: 13 },
   // Smaller than a goblin — "barely more than a shadow".
   halfLatch: { color: 0x0e0e12, radius: 5.5 },
 };
@@ -212,6 +214,9 @@ const MOB_KINDS = Object.keys(MOB_VISUALS) as MobKind[];
 // Mob kinds whose texture isn't /sprites/<kind>.png.
 const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
   halfLatch: "/sprites/halfLatch0.png",
+  banditClubman: "/sprites/banditClubmanWalk0.png",
+  banditArcher: "/sprites/banditArcherWalk2.png",
+  banditElite: "/sprites/bandit.png",
 };
 
 const frameUrls = (name: string, count: number) =>
@@ -238,19 +243,18 @@ const COLONIST_ANIM_URLS: Record<ColonistKind, { walk: string[]; action: string[
 const COLONIST_ACTION_STATES = new Set(["attacking", "gathering", "mining", "farming", "crafting", "healing"]);
 const COLONIST_WALK_STATES = new Set(["engaging", "returning", "toResource", "toPost", "approaching"]);
 
-// Purely cosmetic per-instance looks: each mob of these kinds picks one variant by a stable hash
-// of its id. `idle` is the standing pose (defaults to the first walk frame).
+// Animated and/or multi-look mob kinds. A kind with several entries picks one per mob by a stable
+// hash of its id. `idle` is the standing pose (defaults to the first walk frame).
 interface MobVariantUrls {
   idle?: string;
   walk?: string[];
   action?: string[];
 }
 const MOB_VARIANT_URLS: Partial<Record<MobKind, MobVariantUrls[]>> = {
-  bandit: [
-    { idle: "/sprites/bandit.png", walk: frameUrls("banditWalk", 4), action: frameUrls("banditAttack", 3) },
-    { walk: frameUrls("banditClubmanWalk", 5), action: frameUrls("banditClubmanAttack", 4) },
-    // The source sheet's "archer walk" row starts with two club-holding frames and its attack row
-    // has a spear-throw in the middle, so this only uses its bow-holding frames.
+  banditClubman: [{ walk: frameUrls("banditClubmanWalk", 5), action: frameUrls("banditClubmanAttack", 4) }],
+  // The source sheet's "archer walk" row starts with two club-holding frames and its attack row
+  // has a spear-throw in the middle, so this only uses its bow-holding frames.
+  banditArcher: [
     {
       walk: ["/sprites/banditArcherWalk2.png", "/sprites/banditArcherAttack0.png"],
       action: [
@@ -260,11 +264,18 @@ const MOB_VARIANT_URLS: Partial<Record<MobKind, MobVariantUrls[]>> = {
       ],
     },
   ],
+  banditElite: [
+    { idle: "/sprites/bandit.png", walk: frameUrls("banditWalk", 4), action: frameUrls("banditAttack", 3) },
+  ],
   halfLatch: frameUrls("halfLatch", 5).map((idle) => ({ idle })),
 };
 // A stationary mob within this distance of a colonist/player plays its attack cycle (mob snapshots
 // carry no state, so this is inferred client-side).
 const MOB_ATTACK_ANIM_RANGE_PX = 40;
+// Ranged kinds stand off at their server attack range (banditArcher: TILE_SIZE * 4), plus slack.
+const MOB_ATTACK_ANIM_RANGE_OVERRIDES_PX: Partial<Record<MobKind, number>> = {
+  banditArcher: TILE_SIZE * 4 + 16,
+};
 
 function stableHash(id: string): number {
   let h = 2166136261;
@@ -298,7 +309,7 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.HouseLevel2]: "cottageLv2",
   [TileType.ChurchPost]: "church",
   [TileType.LumberjackPost]: "lumberjackPost",
-  [TileType.FarmPlot]: "farmPlot",
+  [TileType.FarmPlot]: "farmPlotGrowing",
   [TileType.BarnPost]: "barn",
   [TileType.Pasture]: "pasture",
   [TileType.Orchard]: "orchard",
@@ -330,8 +341,15 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.AbbeyHall]: "abbeyHall",
   [TileType.PropCross]: "cross",
   [TileType.PropLanternPost]: "lanternPost",
-  // TODO: replace with dedicated Ward Stone art once sourced (see SPRITES.md part 8).
-  [TileType.WardStone]: "cross",
+  [TileType.WardStone]: "wardStone",
+};
+// Mature-crop art, swapped in for the FarmPlot texture while the server reports a plot as ready.
+const FARM_PLOT_READY_URL = "/sprites/farmPlotReady.png";
+const FX_URLS = {
+  slash: "/sprites/fx-slash.png",
+  spark: "/sprites/fx-spark.png",
+  poof: "/sprites/fx-poof.png",
+  arrow: "/sprites/fx-arrow.png",
 };
 // Ground-like tile art that should cover its tile exactly (flush, no overhang into neighbors)
 // instead of the bottom-anchored max-box fit buildings use, and always sit under other tile art.
@@ -485,6 +503,8 @@ async function main() {
     "/sprites/hillsFloor.png",
     "/sprites/swampFloor.png",
     ...NATURE_DECOR.map((d) => d.url),
+    FARM_PLOT_READY_URL,
+    ...Object.values(FX_URLS),
   ];
   const ANIM_URLS = [
     ...Object.values(COLONIST_ANIM_URLS).flatMap((a) => [...a.walk, ...a.action]),
@@ -557,6 +577,13 @@ async function main() {
   const HILLS_FLOOR_TEXTURE = loadedTextures["/sprites/hillsFloor.png"];
   const SWAMP_FLOOR_TEXTURE = loadedTextures["/sprites/swampFloor.png"];
   const NATURE_DECOR_TEXTURES = NATURE_DECOR.map((d) => ({ texture: loadedTextures[d.url], height: d.height }));
+  const FARM_PLOT_READY_TEXTURE = loadedTextures[FARM_PLOT_READY_URL];
+  const FX_TEXTURES = {
+    slash: loadedTextures[FX_URLS.slash],
+    spark: loadedTextures[FX_URLS.spark],
+    poof: loadedTextures[FX_URLS.poof],
+    arrow: loadedTextures[FX_URLS.arrow],
+  };
   // Frames within one set come from one source sheet, so they share a pixel scale: one constant
   // `scale` per set (sized from the first walk frame) keeps the body the same size while weapons
   // swing out, instead of re-fitting every frame's canvas to a fixed height.
@@ -683,6 +710,19 @@ async function main() {
   tileSpriteLayer.sortableChildren = true;
   worldLayer.addChild(tileSpriteLayer);
   const tileSprites = new Map<number, Sprite>();
+  // A welcome (join or world restart) wipes every entity at once; that isn't a mass death.
+  let suppressDeathPoofs = true;
+  let readyFarmPlots = new Set<number>();
+
+  function syncReadyFarmPlots(indices: number[]) {
+    const next = new Set(indices);
+    const changed = [...readyFarmPlots].filter((i) => !next.has(i)).concat(indices.filter((i) => !readyFarmPlots.has(i)));
+    readyFarmPlots = next;
+    for (const index of changed) {
+      if (tiles[index] !== TileType.FarmPlot) continue;
+      setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), TileType.FarmPlot);
+    }
+  }
 
   const nightOverlay = new Graphics();
   nightOverlay.alpha = 0;
@@ -738,7 +778,9 @@ async function main() {
     const texture =
       tile === TileType.IronOre
         ? IRON_ORE_VARIANTS[(tx * 7 + ty * 13) % IRON_ORE_VARIANTS.length]
-        : TILE_TEXTURES.get(tile);
+        : tile === TileType.FarmPlot && readyFarmPlots.has(index)
+          ? FARM_PLOT_READY_TEXTURE
+          : TILE_TEXTURES.get(tile);
     let sprite = tileSprites.get(index);
     if (!texture) {
       if (sprite) {
@@ -900,9 +942,13 @@ async function main() {
     }
   }
 
-  function pruneMissing(map: Map<string, EntityVisual>, seenIds: Set<string>) {
-    for (const id of Array.from(map.keys())) {
-      if (!seenIds.has(id)) destroyVisual(map, id);
+  function pruneMissing(map: Map<string, EntityVisual>, seenIds: Set<string>, poofOnRemove = false) {
+    for (const [id, entry] of Array.from(map)) {
+      if (seenIds.has(id)) continue;
+      if (poofOnRemove && !suppressDeathPoofs && entry.sprite.visible) {
+        spawnDeathPoof(entry.sprite.position.x, entry.sprite.position.y);
+      }
+      destroyVisual(map, id);
     }
   }
 
@@ -991,7 +1037,7 @@ async function main() {
 
   function syncColonists(snapshot: ColonistSnapshot[]) {
     const seenIds = new Set(snapshot.map((c) => c.id));
-    pruneMissing(colonistSprites, seenIds);
+    pruneMissing(colonistSprites, seenIds, true);
     for (const id of Array.from(colonistAnim.keys())) {
       if (!seenIds.has(id)) colonistAnim.delete(id);
     }
@@ -1063,7 +1109,7 @@ async function main() {
     anim.lastY = m.y;
     const mode = moved
       ? "walk"
-      : nearestFriendlyDistance(m.x, m.y) <= MOB_ATTACK_ANIM_RANGE_PX
+      : nearestFriendlyDistance(m.x, m.y) <= (MOB_ATTACK_ANIM_RANGE_OVERRIDES_PX[m.kind] ?? MOB_ATTACK_ANIM_RANGE_PX)
         ? "action"
         : null;
     const frame = stepAnim(anim, set, mode);
@@ -1078,32 +1124,102 @@ async function main() {
 
   function syncMobs(snapshot: MobSnapshot[]) {
     const seenIds = new Set(snapshot.map((m) => m.id));
-    pruneMissing(mobSprites, seenIds);
+    pruneMissing(mobSprites, seenIds, true);
     for (const id of Array.from(mobAnim.keys())) {
       if (!seenIds.has(id)) mobAnim.delete(id);
     }
     for (const m of snapshot) upsertMob(m);
   }
 
+  // Client-only, short-lived combat VFX. `update` gets progress 0..1 each frame; `onEnd` can chain
+  // a follow-up effect (an arrow's impact spark).
   interface ActiveEffect {
-    gfx: Graphics;
-    expiresAt: number;
+    sprite: Sprite;
+    startedAt: number;
+    durationMs: number;
+    update: (sprite: Sprite, t: number) => void;
+    onEnd?: () => void;
   }
   const activeEffects: ActiveEffect[] = [];
+  // Rendered size (px, longest side) of each effect sprite in world space.
+  const FX_SIZE = { slash: 22, spark: 14, poof: 30, arrow: 18, shamanBolt: 12 };
+  const SHAMAN_BOLT_TINT = 0xb98cff;
+  const PROJECTILE_PX_PER_MS = 0.5;
+
+  function addFx(
+    texture: Texture,
+    size: number,
+    x: number,
+    y: number,
+    durationMs: number,
+    update: ActiveEffect["update"],
+    onEnd?: () => void
+  ): Sprite {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    sprite.scale.set(size / Math.max(texture.width, texture.height));
+    sprite.position.set(x, y);
+    worldLayer.addChild(sprite);
+    activeEffects.push({ sprite, startedAt: performance.now(), durationMs, update, onEnd });
+    return sprite;
+  }
+
+  function fadeOut(sprite: Sprite, t: number) {
+    sprite.alpha = 1 - t * t;
+  }
+
+  function spawnImpactSpark(x: number, y: number, tint = 0xffffff) {
+    const spark = addFx(FX_TEXTURES.spark, FX_SIZE.spark, x, y, 140, fadeOut);
+    spark.tint = tint;
+  }
+
+  function spawnDeathPoof(x: number, y: number) {
+    const base = FX_SIZE.poof / Math.max(FX_TEXTURES.poof.width, FX_TEXTURES.poof.height);
+    addFx(FX_TEXTURES.poof, FX_SIZE.poof, x, y, 420, (s, t) => {
+      s.scale.set(base * (0.7 + 0.5 * t));
+      s.y = y - 6 * t;
+      s.alpha = 1 - t;
+    });
+  }
 
   function spawnEffect(e: AttackEffect) {
-    const gfx = new Graphics();
-    gfx.moveTo(e.fromX, e.fromY).lineTo(e.toX, e.toY).stroke({ width: 2, color: 0xffe066 });
-    worldLayer.addChild(gfx);
-    activeEffects.push({ gfx, expiresAt: performance.now() + 150 });
+    const angle = Math.atan2(e.toY - e.fromY, e.toX - e.fromX);
+    if (e.melee) {
+      const slash = addFx(FX_TEXTURES.slash, FX_SIZE.slash, e.toX, e.toY, 160, fadeOut);
+      slash.rotation = angle;
+      return;
+    }
+    // Ranged attacks don't carry the attacker's kind; a Dark Shaman standing at the origin casts a
+    // purple bolt instead of an arrow.
+    const isShaman = latestMobs.some(
+      (m) => m.kind === "darkShaman" && Math.abs(m.x - e.fromX) < 2 && Math.abs(m.y - e.fromY) < 2
+    );
+    const distance = Math.hypot(e.toX - e.fromX, e.toY - e.fromY);
+    const durationMs = Math.min(260, Math.max(60, distance / PROJECTILE_PX_PER_MS));
+    const tint = isShaman ? SHAMAN_BOLT_TINT : 0xffffff;
+    const projectile = addFx(
+      isShaman ? FX_TEXTURES.spark : FX_TEXTURES.arrow,
+      isShaman ? FX_SIZE.shamanBolt : FX_SIZE.arrow,
+      e.fromX,
+      e.fromY,
+      durationMs,
+      (s, t) => s.position.set(e.fromX + (e.toX - e.fromX) * t, e.fromY + (e.toY - e.fromY) * t),
+      () => spawnImpactSpark(e.toX, e.toY, tint)
+    );
+    projectile.rotation = angle;
+    projectile.tint = tint;
   }
 
   app.ticker.add(() => {
     const now = performance.now();
     for (let i = activeEffects.length - 1; i >= 0; i--) {
-      if (activeEffects[i].expiresAt <= now) {
-        activeEffects[i].gfx.destroy();
+      const fx = activeEffects[i];
+      const t = Math.min(1, (now - fx.startedAt) / fx.durationMs);
+      fx.update(fx.sprite, t);
+      if (t >= 1) {
+        fx.sprite.destroy();
         activeEffects.splice(i, 1);
+        fx.onEnd?.();
       }
     }
   });
@@ -1199,7 +1315,12 @@ async function main() {
       const row = document.createElement("div");
       row.className = "econ-row";
       const label = document.createElement("span");
-      label.textContent = good.label;
+      label.className = "econ-label";
+      const icon = document.createElement("img");
+      icon.className = "econ-icon";
+      icon.src = `/sprites/icon-${good.key}.png`;
+      icon.alt = "";
+      label.append(icon, good.label);
       const value = document.createElement("span");
       value.textContent = "0";
       row.append(label, value);
@@ -1655,6 +1776,8 @@ async function main() {
       worldTilesY = message.worldTilesY;
       tiles = message.tiles;
       biomes = message.biomes;
+      suppressDeathPoofs = true;
+      readyFarmPlots = new Set();
       redrawGrid();
       const tcx = Math.floor(worldTilesX / 2) * tileSize + tileSize / 2;
       const tcy = Math.floor(worldTilesY / 2) * tileSize + tileSize / 2;
@@ -1667,6 +1790,8 @@ async function main() {
       syncPlayers(message.players);
       syncColonists(message.colonists);
       syncMobs(message.mobs);
+      suppressDeathPoofs = false;
+      syncReadyFarmPlots(message.readyFarmPlots);
       latestColonists = message.colonists;
       latestMobs = message.mobs;
       latestTaskForces = message.taskForces;

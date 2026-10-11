@@ -258,9 +258,12 @@ if (ONLY.has("A")) {
   const ruinKinds = new Set(ruins.flatMap((s) => s.mobs.map((m) => m.kind)));
   result([...ruinKinds].every((k) => ["skeleton", "darkShaman", "orc"].includes(k)), `ruin guardian kinds ⊆ {skeleton, darkShaman, orc}: {${[...ruinKinds].join(", ")}}`);
   const encKinds = new Set(encs.flatMap((s) => s.mobs.map((m) => m.kind)));
-  result(encKinds.size === 1 && encKinds.has("bandit"), `encampment guardian kinds are all bandit: {${[...encKinds].join(", ")}}`);
-  const bandits = a.snap.mobs.filter((m) => m.kind === "bandit");
-  result(bandits.every((m) => m.maxHp === 40 && m.hp === 40), `bandit maxHp=40 (${bandits.length} bandits)`);
+  const BANDIT_MAX_HP = { banditClubman: 30, banditArcher: 25, banditElite: 70 };
+  result([...encKinds].every((k) => k in BANDIT_MAX_HP), `encampment guardian kinds ⊆ {banditClubman, banditArcher, banditElite}: {${[...encKinds].join(", ")}}`);
+  result(encKinds.size >= 2, `encampments field a mix of bandit kinds (${encKinds.size} distinct)`);
+  const bandits = a.snap.mobs.filter((m) => m.kind in BANDIT_MAX_HP);
+  const banditCounts = Object.fromEntries(Object.keys(BANDIT_MAX_HP).map((k) => [k, bandits.filter((m) => m.kind === k).length]));
+  result(bandits.every((m) => m.maxHp === BANDIT_MAX_HP[m.kind] && m.hp === m.maxHp), `bandit maxHp matches kind (clubman 30 / archer 25 / elite 70): ${JSON.stringify(banditCounts)}`);
   result(sites.flatMap((s) => s.mobs).every((m) => m.dTiles <= 2 * Math.SQRT2 + 0.01), `every guardian stands within its site's 5x5 footprint`);
   const allMobTilesWalkable = a.snap.mobs.every((m) => walkable(tileOf(m).x, tileOf(m).y));
   result(allMobTilesWalkable, `every guardian stands on a walkable tile`);

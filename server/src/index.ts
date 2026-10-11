@@ -613,19 +613,38 @@ const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
   darkShaman: { maxHp: 25, damage: 12, speed: 70, range: TILE_SIZE * 5, melee: false, unlockDay: 7, weight: 2 },
   troll: { maxHp: 120, damage: 16, speed: 65, range: TILE_SIZE * 0.8, melee: true, unlockDay: 10, weight: 2 },
   ogre: { maxHp: 220, damage: 28, speed: 50, range: TILE_SIZE * 0.8, melee: true, unlockDay: 12, weight: 1 },
-  // Encampment guardian only. Excluded by name from the night-wave pool (NIGHT_WAVE_EXCLUDED_KINDS);
-  // unlockDay/weight are additionally set unreachable/zero as a backstop.
-  bandit: {
-    maxHp: 40,
-    damage: 9,
-    speed: 80,
+  // Encampment guardians only (see ENCAMPMENT_GUARDIAN_WEIGHTS). Excluded by name from the
+  // night-wave pool (NIGHT_WAVE_EXCLUDED_KINDS); unlockDay/weight are additionally set
+  // unreachable/zero as a backstop.
+  banditClubman: {
+    maxHp: 30,
+    damage: 7,
+    speed: 85,
+    range: TILE_SIZE * 0.8,
+    melee: true,
+    unlockDay: Number.POSITIVE_INFINITY,
+    weight: 0,
+  },
+  banditArcher: {
+    maxHp: 25,
+    damage: 8,
+    speed: 75,
+    range: TILE_SIZE * 4,
+    melee: false,
+    unlockDay: Number.POSITIVE_INFINITY,
+    weight: 0,
+  },
+  banditElite: {
+    maxHp: 70,
+    damage: 14,
+    speed: 70,
     range: TILE_SIZE * 0.8,
     melee: true,
     unlockDay: Number.POSITIVE_INFINITY,
     weight: 0,
   },
   // Half-Latch: the minor demon that slips through when a Ward Stone's ward lapses (see
-  // checkWardStoneLapses). Deliberately a nuisance, not a threat. Same exclusion/backstop as bandit.
+  // checkWardStoneLapses). Deliberately a nuisance, not a threat. Same exclusion/backstop as bandits.
   halfLatch: {
     maxHp: 12,
     damage: 3,
@@ -639,7 +658,12 @@ const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
 
 // Kinds that never come from the random night spawner: bandits only from world-gen POI sites,
 // Half-Latches only from a lapsing Ward Stone.
-const NIGHT_WAVE_EXCLUDED_KINDS = new Set<MobKind>(["bandit", "halfLatch"]);
+const NIGHT_WAVE_EXCLUDED_KINDS = new Set<MobKind>([
+  "banditClubman",
+  "banditArcher",
+  "banditElite",
+  "halfLatch",
+]);
 
 const TROLL_REGEN_DELAY_TICKS = TICK_RATE * 4;
 const TROLL_REGEN_PER_TICK = 1;
@@ -1521,6 +1545,16 @@ function isBarnStaffed(bx: number, by: number): boolean {
   return false;
 }
 
+function readyFarmPlotIndices(): number[] {
+  const ready: number[] = [];
+  for (const [plotKey, plot] of farmPlots) {
+    if (plot.state !== "harvesting") continue;
+    const [plotX, plotY] = plotKey.split(",").map(Number);
+    ready.push(tileIndex(plotX, plotY));
+  }
+  return ready;
+}
+
 function updateFarmPlots() {
   for (const [plotKey, plot] of farmPlots) {
     if (tiles[tileIndex(plot.barnX, plot.barnY)] !== TileType.BarnPost) continue;
@@ -1910,10 +1944,16 @@ function handlePlayerAttack(attacker: Player) {
   if (!bestType || !bestId) return;
   if (bestType === "player") {
     const target = players.get(bestId);
-    if (target) damagePlayer(target, PLAYER_ATTACK_DAMAGE);
+    if (target) {
+      pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
+      damagePlayer(target, PLAYER_ATTACK_DAMAGE);
+    }
   } else {
     const target = mobs.get(bestId);
-    if (target) damageMob(target, PLAYER_ATTACK_DAMAGE);
+    if (target) {
+      pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
+      damageMob(target, PLAYER_ATTACK_DAMAGE);
+    }
   }
 }
 
@@ -2035,9 +2075,7 @@ function updateGuardColonist(c: Colonist, dt: number) {
     } else {
       damageMob(target, stats.damage);
       c.attackCooldownTicks = stats.cooldown;
-      if (!stats.melee) {
-        pendingEffects.push({ fromX: c.x, fromY: c.y, toX: target.x, toY: target.y });
-      }
+      pendingEffects.push({ fromX: c.x, fromY: c.y, toX: target.x, toY: target.y, melee: stats.melee });
       if (target.hp <= 0) {
         c.targetMobId = null;
       }
@@ -2518,9 +2556,7 @@ function updateMob(mob: Mob, dt: number) {
       mob.attackCooldownTicks--;
     } else {
       mob.attackCooldownTicks = MOB_ATTACK_COOLDOWN_TICKS;
-      if (!mob.melee) {
-        pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: targetPos.x, toY: targetPos.y });
-      }
+      pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: targetPos.x, toY: targetPos.y, melee: mob.melee });
       if (mob.targetType === "colonist" && mob.targetId) {
         const c = colonists.get(mob.targetId);
         if (c) {
@@ -2608,6 +2644,12 @@ const RUIN_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] = [
   { kind: "skeleton", weight: 3 },
   { kind: "darkShaman", weight: 1 },
   { kind: "orc", weight: 1 },
+];
+// Clubman is the rank-and-file guard, Archer the support, Elite a rare mini-boss.
+const ENCAMPMENT_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] = [
+  { kind: "banditClubman", weight: 5 },
+  { kind: "banditArcher", weight: 3 },
+  { kind: "banditElite", weight: 1 },
 ];
 
 // Saint Wren's Abbey: exactly one per world, a 9x9 walled complex, north at the top. H is the hall
@@ -2842,14 +2884,22 @@ function spawnGuardian(kind: MobKind, tile: TileCoord, siteId: string, siteKind:
   mobs.set(mob.id, mob);
 }
 
-function pickRuinGuardianKind(): MobKind {
-  const total = RUIN_GUARDIAN_WEIGHTS.reduce((sum, w) => sum + w.weight, 0);
+function pickWeightedGuardianKind(weights: { kind: MobKind; weight: number }[]): MobKind {
+  const total = weights.reduce((sum, w) => sum + w.weight, 0);
   let roll = Math.random() * total;
-  for (const w of RUIN_GUARDIAN_WEIGHTS) {
+  for (const w of weights) {
     roll -= w.weight;
     if (roll < 0) return w.kind;
   }
-  return RUIN_GUARDIAN_WEIGHTS[0].kind;
+  return weights[0].kind;
+}
+
+function pickRuinGuardianKind(): MobKind {
+  return pickWeightedGuardianKind(RUIN_GUARDIAN_WEIGHTS);
+}
+
+function pickEncampmentGuardianKind(): MobKind {
+  return pickWeightedGuardianKind(ENCAMPMENT_GUARDIAN_WEIGHTS);
 }
 
 // One POI site: a centerpiece decoration tile, 0-3 extra decorations on its 8 neighbors, and a
@@ -2881,7 +2931,7 @@ function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord) {
   }
   const guardianCount = siteKind === "ruin" ? randInt(2, 3) : randInt(2, 4);
   for (const spot of shuffled(guardianSpots).slice(0, guardianCount)) {
-    spawnGuardian(siteKind === "ruin" ? pickRuinGuardianKind() : "bandit", spot, siteId, siteKind);
+    spawnGuardian(siteKind === "ruin" ? pickRuinGuardianKind() : pickEncampmentGuardianKind(), spot, siteId, siteKind);
   }
 }
 
@@ -3571,6 +3621,7 @@ setInterval(() => {
     population: civilianPopulationUsed(),
     populationCap: populationCap(),
     taskForces: taskForcesForSnapshot(),
+    readyFarmPlots: readyFarmPlotIndices(),
   };
   pendingEffects = [];
 

@@ -167,7 +167,9 @@ export type MobKind =
   | "giantSpider"
   | "troll"
   | "ogre"
-  | "bandit"
+  | "banditClubman"
+  | "banditArcher"
+  | "banditElite"
   | "halfLatch";
 
 export interface MobSnapshot {
@@ -184,6 +186,8 @@ export interface AttackEffect {
   fromY: number;
   toX: number;
   toY: number;
+  // Visual-only: melee hits flash at the target; ranged ones fly from attacker to target.
+  melee?: boolean;
 }
 
 export type ClientMessage =
@@ -242,6 +246,8 @@ export type ServerMessage =
       population: number;
       populationCap: number;
       taskForces: Record<string, string[]>;
+      // Tile indices (y * worldTilesX + x) of Farm Plots whose crop is mature and being harvested.
+      readyFarmPlots: number[];
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType };
 

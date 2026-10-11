@@ -26,12 +26,14 @@ the banner/barding).
 **Monsters (static pose, 10):** goblin, wolf, goblinCrossbow, orc, skeleton, armoredOrc,
 giantSpider, darkShaman, troll, ogre.
 
-**Bandit (Encampment guardian):** three purely cosmetic looks for the one `bandit` MobKind, picked
-per mob client-side by a stable hash of its id (`MOB_VARIANT_URLS` in `client/src/main.ts`), each
-with walk + attack frames:
-- Masked axe bandit: `bandit.png` (static/idle), `banditWalk0-3`, `banditAttack0-2`.
-- Hooded clubman: `banditClubmanWalk0-4`, `banditClubmanAttack0-3` (idle = first walk frame).
-- Hooded archer: `banditArcherWalk0-3`, `banditArcherAttack0-2`. The source sheet was inconsistent
+**Bandits (Encampment guardians, 3 MobKinds):** each kind has one fixed look with walk + attack
+frames (`MOB_VARIANT_URLS` in `client/src/main.ts`). Encampments pick among them 5:3:1
+(`ENCAMPMENT_GUARDIAN_WEIGHTS` in `server/src/index.ts`):
+- `banditClubman` (melee, the rank-and-file guard), hooded clubman: `banditClubmanWalk0-4`,
+  `banditClubmanAttack0-3` (idle = first walk frame).
+- `banditElite` (melee mini-boss, rendered ~1.45x a regular bandit), masked axe bandit:
+  `bandit.png` (static/idle), `banditWalk0-3`, `banditAttack0-2`.
+- `banditArcher` (ranged, fires arrows), hooded archer: `banditArcherWalk0-3`, `banditArcherAttack0-2`. The source sheet was inconsistent
   (Walk0-1 hold a club, Attack1 is a spear throw), so the game only plays the bow frames: walk =
   Walk2 + Attack0, attack = Attack0 → Walk3 (arrow loosed) → Attack2. Walk0-1 and Attack1 are kept
   on disk but unused.
@@ -59,7 +61,37 @@ gravestone, gravestone2.
 nave + bell tower, rendered at 2x the box fit), surrounded by existing statue, fence, cross,
 lanternPost props.
 
-**Placeholder reuse:** Ward Stone renders cross until its own art exists (part 8).
+**Ward Stone:** dedicated `wardStone.png` (carved grey obelisk with a gold sunburst, rune grooves
+and candle stubs at the base). Keeps the existing 0.75 size factor, which renders it ~44px tall:
+smaller than the Church (~53px), a little taller than the cross prop (~38px).
+
+**Farm Plot growth states:** `farmPlotGrowing.png` (sprouts in tilled rows) and `farmPlotReady.png`
+(mature golden wheat), driven by real server state. Each snapshot carries `readyFarmPlots` (the tile
+indices of plots in the server's `"harvesting"` state), and the client swaps the tile texture
+whenever a plot enters or leaves that set. With a staffed Barn, a plot shows sprouts for ~8s, then
+ripe wheat for the ~2s harvest. A plot whose Barn is unstaffed or missing freezes on whichever art
+it was showing. The original `farmPlot.png` is still on disk but no longer referenced.
+
+**UI resource icons (13):** `icon-wood`, `icon-iron`, `icon-rock`, `icon-gold`, `icon-grain`,
+`icon-meat`, `icon-fruit`, `icon-wool`, `icon-cotton`, `icon-clothes`, `icon-tools`,
+`icon-luxuryItems`, `icon-alcohol`. They are shown at 15px (`.econ-icon`) before each label in
+the Colony panel: the core-stats rows in `client/index.html` and the goods rows that
+`GOODS_GROUPS` builds in `main.ts`. The Market / Gold Shop buttons still use text only.
+
+**Combat effects (4):** `fx-slash`, `fx-spark`, `fx-poof`, `fx-arrow`, all client-side and
+visual-only (the `activeEffects` system in `main.ts`):
+- Melee hits (knight/militia line, melee mobs, and the player's own attack) flash a slash rotated
+  along the attack direction at the target for 160ms. `AttackEffect` gained an optional `melee`
+  flag, and the server now emits an effect for melee hits too. Before this, only ranged attacks
+  produced one.
+- Ranged attacks (archers, archer towers, goblin crossbowmen, bandit archers) fire an arrow that
+  flies from attacker to target (60-260ms depending on distance) and ends in a small spark. A Dark
+  Shaman instead fires a purple-tinted spark "bolt", detected client-side by matching the effect's
+  origin to a darkShaman mob's position, since effects don't carry the attacker's kind.
+- A grey poof (420ms, swelling, drifting up, fading) plays wherever a visible mob or colonist
+  disappears from the snapshot. That also covers non-death removals, such as a worker dismissed
+  when their post is demolished. It doesn't play for workers hidden inside their post, or for the
+  mass wipe on a welcome/restart.
 
 **Animations (one PNG per frame, `<kind><Cycle><n>.png`), all 12 colonist kinds:**
 - Soldiers, walk + attack: knight (4 + 4), archer (4 + 6), militia, spearman, pikeman (4 + 3 each).
@@ -80,7 +112,7 @@ lanternPost props.
 
 Same combined-block pattern as the colonist walk/attack sheets (one image per kind, walk row +
 attack row), each referencing its own already-made static sprite for consistency. Once sourced, wire
-it up like the bandit variants (`MOB_VARIANT_URLS` in `client/src/main.ts`), which already infer
+it up like the bandits (`MOB_VARIANT_URLS` in `client/src/main.ts`), which already infer
 walk/attack client-side. Template (shown for Goblin, repeat per kind):
 
 **Goblin**
@@ -96,24 +128,6 @@ Repeat with the same structure for:
 - **Dark Shaman** — float/glide walk + staff cast
 - **Troll** — lumbering walk + club smash
 - **Ogre** — heavy lumbering walk + huge club smash
-
-### 5. UI resource icons (one batched sheet)
-
-> Pixel art icon set, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, small and simple enough to read clearly at 16-20px display size. One icon each for: a wood log, an iron ingot, a rock/stone chunk, a gold coin, a wheat sheaf (grain), a cut of meat, a piece of fruit, a wool tuft, a cotton boll, a folded cloth (clothes), a hammer/wrench (tools), a gem (luxury items), a foaming mug (alcohol). Arrange as a clean grid, each icon on its own transparent square, consistent scale and outline weight across all of them. Clean PNG with transparency.
-
-### 6. Combat effects (one batched sheet)
-
-> Pixel art game effect sprite sheet, chunky 16-bit retro style, thick black outline where appropriate, bright saturated colors (effects should pop against the muted character/terrain palette). Include: a melee slash arc (a curved white/yellow swipe), an impact spark/hit flash (a small burst of light), a death poof (a dissipating grey cloud), and a simple arrow in flight (brown shaft, grey head, white fletching) viewed side-on. Each on its own transparent square, consistent scale. Clean PNG with transparency.
-
-### 7. Farm Plot growth states (one batched sheet, 2 frames)
-
-> Pixel art top-down/angled farm plot tile, chunky 16-bit retro style, thick black outline, matching the exact style and scale of the existing Farm Plot tile sprite you already made for me. Two versions side by side: "Growing" — tilled soil with small green sprouts just emerging in rows, and "Ready to Harvest" — the same plot with full, mature crop rows ready to cut. Transparent background, clean PNG.
-
-### 8. Ward Stone — new dedicated building art (currently a placeholder reusing cross.png)
-
-> Pixel art building tile sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. A Ward Stone: a single waist-to-shoulder-height standing stone marker, a squat tapering grey obelisk on a small square plinth, its faces carved with rows of small runic ward-script and a simple sunburst/vigil-flame sigil at the top, the carved grooves faintly glowing pale gold. A few melted candle stubs and a little scattered wax at its base, as if someone has kept watch beside it for a long time. Should read as consecrated and protective, not pagan or menacing — clearly kin to the existing Church and cross art. Single static object, slight 3/4 top-down angle, centered in frame, transparent background, no ground shadow. Match the exact art style, outline weight, color palette and building scale of the existing Church and cross sprites you already made for me (smaller than the Church, a little taller than the cross). Clean PNG with transparency.
-
----
 
 ## Notes on process
 

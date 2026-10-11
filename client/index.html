@@ -296,6 +296,19 @@
         line-height: 1.6;
       }
 
+      .econ-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .econ-icon {
+        width: 15px;
+        height: 15px;
+        object-fit: contain;
+        flex: none;
+      }
+
       .econ-row span:last-child {
         color: #fff;
         font-variant-numeric: tabular-nums;
@@ -354,10 +367,10 @@
     <div id="economy-panel-toggle" class="panel-open">Colony</div>
     <div id="economy-panel">
       <div id="colony-stats">
-        <div class="econ-row"><span>Wood</span><span id="stat-wood">0</span></div>
-        <div class="econ-row"><span>Iron</span><span id="stat-iron">0</span></div>
-        <div class="econ-row"><span>Rock</span><span id="stat-rock">0</span></div>
-        <div class="econ-row"><span>Gold</span><span id="stat-gold">0</span></div>
+        <div class="econ-row"><span class="econ-label"><img class="econ-icon" src="/sprites/icon-wood.png" alt="" />Wood</span><span id="stat-wood">0</span></div>
+        <div class="econ-row"><span class="econ-label"><img class="econ-icon" src="/sprites/icon-iron.png" alt="" />Iron</span><span id="stat-iron">0</span></div>
+        <div class="econ-row"><span class="econ-label"><img class="econ-icon" src="/sprites/icon-rock.png" alt="" />Rock</span><span id="stat-rock">0</span></div>
+        <div class="econ-row"><span class="econ-label"><img class="econ-icon" src="/sprites/icon-gold.png" alt="" />Gold</span><span id="stat-gold">0</span></div>
         <div class="econ-row"><span>Pop</span><span id="stat-pop">0/0</span></div>
         <div class="econ-row time-row">
           <span class="time-cell">
