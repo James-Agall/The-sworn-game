@@ -52,8 +52,12 @@ marshFloor, lavaFloor, voidFloor.
 
 **Ruins decoration props:** bridge, stoneArch, ruinWall1, ruinWall2, statue, rubble.
 
-**Encampment decoration props:** campfire, cart, barrel, crate, fence, cross, lanternPost, banner,
-gravestone, gravestone2.
+**Encampment decoration props:** campfire, cart, barrel, crate, fence, cross, lanternPost, banner.
+
+**Gravestones (transient death markers):** `gravestone.png` and `gravestone2.png`, no longer
+unused: every colonist death drops one (random variant) at the death spot, rendered ~20px tall
+(`GRAVESTONE_HEIGHT`) in the ground decoration layer under units. Driven by the snapshot's
+`gravestones` list; the server clears them all at the next dawn.
 
 **Decorative nature scatter:** tallGrass, flowers1, bush3.
 

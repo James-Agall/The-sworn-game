@@ -190,6 +190,15 @@ export interface AttackEffect {
   melee?: boolean;
 }
 
+// A transient marker where a colonist died; the server drops every one at the next dawn.
+export interface GravestoneSnapshot {
+  x: number;
+  y: number;
+  variant: 0 | 1;
+}
+
+export type GameEventCategory = "night" | "dawn" | "upgrade" | "death" | "ward" | "deserter";
+
 export type ClientMessage =
   | { type: "join"; name?: string }
   | { type: "input"; dx: number; dy: number }
@@ -248,8 +257,11 @@ export type ServerMessage =
       taskForces: Record<string, string[]>;
       // Tile indices (y * worldTilesX + x) of Farm Plots whose crop is mature and being harvested.
       readyFarmPlots: number[];
+      gravestones: GravestoneSnapshot[];
     }
-  | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType };
+  | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
+  // One-off notification for the event feed (not continuous state).
+  | { type: "event"; category: GameEventCategory; text: string };
 
 export interface PlayerSnapshot {
   id: string;

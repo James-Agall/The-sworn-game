@@ -19,6 +19,8 @@ import type {
   MobKind,
   AttackEffect,
   Stance,
+  GravestoneSnapshot,
+  GameEventCategory,
 } from "./protocol";
 import { Biome, TILE_SIZE, TileType } from "./protocol";
 
@@ -355,6 +357,10 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
 };
 // Mature-crop art, swapped in for the FarmPlot texture while the server reports a plot as ready.
 const FARM_PLOT_READY_URL = "/sprites/farmPlotReady.png";
+// Indexed by GravestoneSnapshot.variant.
+const GRAVESTONE_URLS = ["/sprites/gravestone.png", "/sprites/gravestone2.png"];
+// Rendered height in px: a little shorter than a colonist so it reads as a ground marker.
+const GRAVESTONE_HEIGHT = 20;
 const FX_URLS = {
   slash: "/sprites/fx-slash.png",
   spark: "/sprites/fx-spark.png",
@@ -514,6 +520,7 @@ async function main() {
     "/sprites/swampFloor.png",
     ...NATURE_DECOR.map((d) => d.url),
     FARM_PLOT_READY_URL,
+    ...GRAVESTONE_URLS,
     ...Object.values(FX_URLS),
   ];
   const ANIM_URLS = [
@@ -588,6 +595,7 @@ async function main() {
   const SWAMP_FLOOR_TEXTURE = loadedTextures["/sprites/swampFloor.png"];
   const NATURE_DECOR_TEXTURES = NATURE_DECOR.map((d) => ({ texture: loadedTextures[d.url], height: d.height }));
   const FARM_PLOT_READY_TEXTURE = loadedTextures[FARM_PLOT_READY_URL];
+  const GRAVESTONE_TEXTURES = GRAVESTONE_URLS.map((url) => loadedTextures[url]);
   const FX_TEXTURES = {
     slash: loadedTextures[FX_URLS.slash],
     spark: loadedTextures[FX_URLS.spark],
@@ -757,6 +765,30 @@ async function main() {
   const decorSpriteLayer = new Container();
   worldLayer.addChild(decorSpriteLayer);
   const decorSprites = new Map<number, Sprite>();
+  // Also in decorSpriteLayer (over the floor, under buildings and every unit), keyed by position +
+  // variant since the server sends no id.
+  const gravestoneSprites = new Map<string, Sprite>();
+
+  function syncGravestones(snapshot: GravestoneSnapshot[]) {
+    const seen = new Set<string>();
+    for (const g of snapshot) {
+      const key = `${g.x},${g.y},${g.variant}`;
+      seen.add(key);
+      if (gravestoneSprites.has(key)) continue;
+      const texture = GRAVESTONE_TEXTURES[g.variant];
+      const sprite = new Sprite(texture);
+      sprite.anchor.set(0.5, 1);
+      sprite.scale.set(GRAVESTONE_HEIGHT / texture.height);
+      sprite.position.set(g.x, g.y + GRAVESTONE_HEIGHT / 2);
+      decorSpriteLayer.addChild(sprite);
+      gravestoneSprites.set(key, sprite);
+    }
+    for (const [key, sprite] of Array.from(gravestoneSprites)) {
+      if (seen.has(key)) continue;
+      sprite.destroy();
+      gravestoneSprites.delete(key);
+    }
+  }
 
   const gridGraphics = new Graphics();
   worldLayer.addChild(gridGraphics);
@@ -1840,6 +1872,32 @@ async function main() {
     }
   });
 
+  const eventFeedEl = document.getElementById("event-feed")!;
+  const TOAST_SHOW_MS = 5000;
+  const TOAST_FADE_MS = 600;
+  const TOAST_DROP_MS = 200;
+  const MAX_TOASTS = 5;
+
+  function removeToast(toast: HTMLElement, cls: "fading" | "dropped", fadeMs: number) {
+    if (toast.classList.contains("dropped") || toast.classList.contains("fading")) return;
+    toast.classList.add(cls);
+    window.setTimeout(() => toast.remove(), fadeMs);
+  }
+
+  // Newest on top. Past MAX_TOASTS the oldest still-live toast is dropped with a quick fade, so a
+  // burst (a whole garrison dying at once) shows its latest few rather than flooding the screen.
+  function pushEventToast(category: GameEventCategory, text: string) {
+    const toast = document.createElement("div");
+    toast.className = `event-toast event-${category}`;
+    toast.textContent = text;
+    eventFeedEl.prepend(toast);
+    const live = Array.from(eventFeedEl.children).filter(
+      (el) => !el.classList.contains("dropped") && !el.classList.contains("fading")
+    ) as HTMLElement[];
+    for (const old of live.slice(MAX_TOASTS)) removeToast(old, "dropped", TOAST_DROP_MS);
+    window.setTimeout(() => removeToast(toast, "fading", TOAST_FADE_MS), TOAST_SHOW_MS);
+  }
+
   socket.addEventListener("message", (event) => {
     const message: ServerMessage = JSON.parse(event.data);
     if (message.type === "welcome") {
@@ -1867,6 +1925,7 @@ async function main() {
       syncMobs(message.mobs);
       suppressDeathPoofs = false;
       syncReadyFarmPlots(message.readyFarmPlots);
+      syncGravestones(message.gravestones);
       latestColonists = message.colonists;
       latestMobs = message.mobs;
       latestTaskForces = message.taskForces;
@@ -1923,6 +1982,8 @@ async function main() {
       for (const effect of message.effects) spawnEffect(effect);
     } else if (message.type === "tileUpdate") {
       setTileLocal(message.tileX, message.tileY, message.tile);
+    } else if (message.type === "event") {
+      pushEventToast(message.category, message.text);
     }
   });
 

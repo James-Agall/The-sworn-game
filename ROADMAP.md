@@ -190,6 +190,9 @@ reasonable first pass, not something confirmed with you — flag if they feel wr
   cycle progress; swaps to a moon/star look at night.
 
 ### Phase 2 — Combat feedback & notifications
+**Landed 2026-10-12.** Gravestones are wired (snapshot `gravestones`, cleared at dawn) and the
+`event` feed is live for nightfall, dawn, tier upgrades, colonist deaths, ward lapses and deserter
+waves. Milestone and boss-sighted events wait for Phase 5 (TODO in `server/src/index.ts`).
 - **Gravestones.** `gravestone.png`/`gravestone2.png` already exist in `client/public/sprites/`
   but are unused — wire them up now. On a colonist/soldier death, drop one (random variant) as a
   transient decor entity (not a tile, so it doesn't collide with buildable-tile logic) at the

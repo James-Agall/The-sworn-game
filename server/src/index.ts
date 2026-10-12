@@ -10,6 +10,8 @@ import {
   MobKind,
   AttackEffect,
   Stance,
+  GameEventCategory,
+  GravestoneSnapshot,
   TileType,
   Biome,
   isSolidTile,
@@ -1188,6 +1190,33 @@ function upgradeMilitiaAt(tx: number, ty: number, level: number) {
   }
 }
 
+// Event-feed names for tier upgrades, matching the client's build-panel labels.
+const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
+  [TileType.House]: "Cottage",
+  [TileType.KnightPost]: "Hall of the Sworn",
+  [TileType.MilitiaPost]: "Militia Camp",
+  [TileType.ArcherPost]: "Archery Range",
+  [TileType.ArcherTower]: "Archer Tower",
+  [TileType.IronMinePost]: "Iron Mine",
+  [TileType.RockMinePost]: "Quarry",
+  [TileType.LumberjackPost]: "Lumberjack",
+  [TileType.BarnPost]: "Barn",
+  [TileType.ChurchPost]: "Church",
+  [TileType.Pasture]: "Pasture",
+  [TileType.Orchard]: "Orchard",
+  [TileType.WoolFarm]: "Sheep Pasture",
+  [TileType.CottonFarm]: "Hemp Field",
+  [TileType.TailorShop]: "Tailor Shop",
+  [TileType.Blacksmith]: "Blacksmith",
+  [TileType.LuxuryWorkshop]: "Jeweler's Workshop",
+  [TileType.Brewery]: "Brewery",
+  [TileType.Tavern]: "Tavern",
+};
+
+function announceUpgrade(baseType: TileType, level: number) {
+  broadcastEvent("upgrade", `${UPGRADE_NAMES[baseType] ?? "A building"} upgraded to level ${level}`);
+}
+
 function tryLevelUpAdjacent(tx: number, ty: number, matchTypes: TileType[]): TileCoord | null {
   for (const mt of matchTypes) {
     const found = adjacentTilesOfType(tx, ty, mt);
@@ -1196,6 +1225,7 @@ function tryLevelUpAdjacent(tx: number, ty: number, matchTypes: TileType[]): Til
       const currentLevel = getBuildingLevel(n.x, n.y);
       if (currentLevel < 3) {
         buildingLevel.set(resourceKey(n.x, n.y), currentLevel + 1);
+        announceUpgrade(mt, currentLevel + 1);
         return n;
       }
     }
@@ -1223,6 +1253,7 @@ function resolveHousePlacement(tx: number, ty: number) {
       stock.luxuryItems -= 1;
       tiles[tileIndex(n.x, n.y)] = TileType.HouseLevel2;
       broadcastTileUpdate(n.x, n.y, TileType.HouseLevel2);
+      announceUpgrade(TileType.House, 3);
       return;
     }
   }
@@ -1236,6 +1267,7 @@ function resolveHousePlacement(tx: number, ty: number) {
       stock.clothes -= 2;
       tiles[tileIndex(n.x, n.y)] = TileType.BigHouse;
       broadcastTileUpdate(n.x, n.y, TileType.BigHouse);
+      announceUpgrade(TileType.House, 2);
       return;
     }
   }
@@ -1250,6 +1282,7 @@ function resolveKnightPlacement(tx: number, ty: number) {
     tiles[tileIndex(n.x, n.y)] = TileType.CastleLevel3;
     broadcastTileUpdate(n.x, n.y, TileType.CastleLevel3);
     upgradeKnightAt(n.x, n.y, 3);
+    announceUpgrade(TileType.KnightPost, 3);
     return;
   }
   const knightNeighbors = adjacentTilesOfType(tx, ty, TileType.KnightPost);
@@ -1258,6 +1291,7 @@ function resolveKnightPlacement(tx: number, ty: number) {
     tiles[tileIndex(n.x, n.y)] = TileType.CastleLevel2;
     broadcastTileUpdate(n.x, n.y, TileType.CastleLevel2);
     upgradeKnightAt(n.x, n.y, 2);
+    announceUpgrade(TileType.KnightPost, 2);
     return;
   }
   tiles[tileIndex(tx, ty)] = TileType.KnightPost;
@@ -1272,6 +1306,7 @@ function resolveMilitiaPlacement(tx: number, ty: number) {
     tiles[tileIndex(n.x, n.y)] = TileType.MilitiaCamp3;
     broadcastTileUpdate(n.x, n.y, TileType.MilitiaCamp3);
     upgradeMilitiaAt(n.x, n.y, 3);
+    announceUpgrade(TileType.MilitiaPost, 3);
     return;
   }
   const militiaNeighbors = adjacentTilesOfType(tx, ty, TileType.MilitiaPost);
@@ -1280,6 +1315,7 @@ function resolveMilitiaPlacement(tx: number, ty: number) {
     tiles[tileIndex(n.x, n.y)] = TileType.MilitiaCamp2;
     broadcastTileUpdate(n.x, n.y, TileType.MilitiaCamp2);
     upgradeMilitiaAt(n.x, n.y, 2);
+    announceUpgrade(TileType.MilitiaPost, 2);
     return;
   }
   tiles[tileIndex(tx, ty)] = TileType.MilitiaPost;
@@ -1300,6 +1336,7 @@ function resolveArcherPlacement(tx: number, ty: number, wallType: TileType | nul
       const neighborIsTower =
         (tiles[tileIndex(archerNeighbor.x, archerNeighbor.y)] as TileType) === TileType.ArcherTower;
       upgradeArcherAt(archerNeighbor.x, archerNeighbor.y, newLevel, neighborIsTower);
+      announceUpgrade(neighborIsTower ? TileType.ArcherTower : TileType.ArcherPost, newLevel);
       return;
     }
   }
@@ -1328,6 +1365,7 @@ function resolveMinePlacement(
     const currentLevel = getBuildingLevel(mineNeighbor.x, mineNeighbor.y);
     if (currentLevel < 3) {
       buildingLevel.set(resourceKey(mineNeighbor.x, mineNeighbor.y), currentLevel + 1);
+      announceUpgrade(mineType, currentLevel + 1);
       spawnColonistForPost(mineNeighbor.x, mineNeighbor.y, minerKind);
       return;
     }
@@ -1813,9 +1851,21 @@ function damagePlayer(player: Player, amount: number) {
   }
 }
 
+// Wiped wholesale at each dawn (before that dawn's starvation deaths add new ones), so every entry
+// was placed since the most recent dawn and lasts until the next one.
+const gravestones: GravestoneSnapshot[] = [];
+
+function colonistDeathText(c: Colonist): string {
+  if (isWardPriest(c)) return "The Ward Priest has died";
+  const name = c.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
+  return `${/^[aeiou]/.test(name) ? "An" : "A"} ${name} has died`;
+}
+
 function damageColonist(colonist: Colonist, amount: number) {
   colonist.hp -= amount;
   if (colonist.hp <= 0) {
+    gravestones.push({ x: colonist.x, y: colonist.y, variant: Math.random() < 0.5 ? 0 : 1 });
+    broadcastEvent("death", colonistDeathText(colonist));
     releaseResourceReservation(colonist);
     if (!isWardPriest(colonist)) queueRespawn(colonist);
     colonists.delete(colonist.id);
@@ -2375,7 +2425,10 @@ function checkWardStoneLapses() {
   for (const key of wardStonesActiveLastTick) {
     if (activeNow.has(key)) continue;
     const [tx, ty] = key.split(",").map(Number);
-    if (tiles[tileIndex(tx, ty)] === TileType.WardStone) spawnHalfLatch({ x: tx, y: ty });
+    if (tiles[tileIndex(tx, ty)] === TileType.WardStone) {
+      spawnHalfLatch({ x: tx, y: ty });
+      broadcastEvent("ward", "A Ward Stone's ward has lapsed — something slipped through");
+    }
   }
   wardStonesActiveLastTick.clear();
   for (const key of activeNow) wardStonesActiveLastTick.add(key);
@@ -3141,6 +3194,19 @@ function broadcastTileUpdate(tx: number, ty: number, tile: TileType) {
   }
 }
 
+function broadcastEvent(category: GameEventCategory, text: string) {
+  const event: ServerMessage = { type: "event", category, text };
+  const payload = JSON.stringify(event);
+  for (const p of players.values()) {
+    if (p.socket.readyState === p.socket.OPEN) {
+      p.socket.send(payload);
+    }
+  }
+}
+
+// TODO: Phase 5 — broadcastEvent("milestone", ...) once the short-term goal system exists, and a
+// boss/mini-boss "sighted" event once the Castle Ruin boss lands.
+
 const wss = new WebSocketServer({ port: 8080 });
 console.log("colony2d server listening on ws://localhost:8080");
 
@@ -3173,6 +3239,7 @@ function resetWorld() {
   taskForces.clear();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
+  gravestones.length = 0;
   wardPriestId = null;
   wardPriestTendTicks = 0;
   wardPriestRespawnTicks = -1;
@@ -3602,6 +3669,8 @@ setInterval(() => {
     const nightNow = isNightNow();
 
     if (!nightNow && wasNight) {
+      gravestones.length = 0;
+      broadcastEvent("dawn", "Dawn breaks — the colony survived the night");
       applyDailyFoodConsumption();
       applyMoraleCheck();
     }
@@ -3611,8 +3680,10 @@ setInterval(() => {
         (m) => m.isDeserter && !m.deserterActive && cycleTick - m.deserterSinceTick >= DESERTER_ACTIVATION_TICKS
       );
       suppressMobSpawnTonight = eligibleDeserters.length > 0 && Math.random() < DESERTER_WAVE_CHANCE;
+      broadcastEvent("night", "Night falls");
       if (suppressMobSpawnTonight) {
         for (const m of eligibleDeserters) m.deserterActive = true;
+        broadcastEvent("deserter", `The deserters have turned on the colony (${eligibleDeserters.length})`);
       }
     }
     wasNight = nightNow;
@@ -3751,6 +3822,7 @@ setInterval(() => {
     populationCap: populationCap(),
     taskForces: taskForcesForSnapshot(),
     readyFarmPlots: readyFarmPlotIndices(),
+    gravestones,
   };
   pendingEffects = [];
 

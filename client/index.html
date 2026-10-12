@@ -350,6 +350,43 @@
         color: #777;
         cursor: default;
       }
+      /* Event feed: toasts stacked under the top edge, newest on top. Never takes clicks. */
+      #event-feed {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        z-index: 12;
+        pointer-events: none;
+        font-family: system-ui, sans-serif;
+      }
+
+      .event-toast {
+        padding: 6px 12px;
+        background: rgba(20, 20, 20, 0.95);
+        color: #ddd;
+        border: 1px solid #555;
+        border-left: 3px solid #888;
+        border-radius: 4px;
+        font-size: 13px;
+        white-space: nowrap;
+        opacity: 1;
+        transition: opacity 0.6s ease;
+      }
+
+      .event-toast.fading { opacity: 0; }
+      .event-toast.dropped { opacity: 0; transition-duration: 0.2s; }
+
+      .event-toast.event-night { border-left-color: #9aa6c2; }
+      .event-toast.event-dawn { border-left-color: #ecd38a; }
+      .event-toast.event-upgrade { border-left-color: #7ddc7d; }
+      .event-toast.event-death { border-left-color: #ff5c5c; }
+      .event-toast.event-ward { border-left-color: #b98cff; }
+      .event-toast.event-deserter { border-left-color: #ffb347; }
     </style>
   </head>
   <body>
@@ -358,6 +395,7 @@
       <button id="pause-btn" class="control-btn">Pause</button>
       <button id="restart-btn" class="control-btn">Restart</button>
     </div>
+    <div id="event-feed" aria-live="polite"></div>
     <div id="build-panel-toggle">Build</div>
     <div id="build-panel" class="collapsed">
       <div id="build-category-tabs"></div>
