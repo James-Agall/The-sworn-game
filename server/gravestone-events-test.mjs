@@ -6,9 +6,9 @@
 //      "night" event, and every flip back to day by a "dawn" event. No night/dawn event arrives
 //      without a flip.
 //   C) Gravestones, checked on every snapshot for the whole run:
-//      - each "death" event is matched by exactly one new gravestone in that tick's snapshot, and a
-//        gravestone never appears without a death; each new one sits where a now-vanished colonist
-//        stood in the previous snapshot (<= 8px), with variant 0 or 1.
+//      - each "death" event is matched by exactly one new colonist gravestone in that tick's
+//        snapshot; every new gravestone sits where a now-vanished colonist (or, for a monster's
+//        stone, mob) stood in the previous snapshot (<= 8px), with variant 0 or 1.
 //      - a gravestone never disappears except on a dawn snapshot, and on a dawn snapshot every
 //        gravestone from before it is gone (deaths in the dawn tick itself may add new ones).
 //   D) The first gravestone persists across many snapshots and is gone right after the next dawn.
@@ -109,15 +109,22 @@ a.listeners.push((s, prev, evs) => {
   const added = s.gravestones.filter((g) => !prevKeys.has(gKey(g)));
   const removed = prev.gravestones.filter((g) => !curKeys.has(gKey(g)));
   stats.gravestonesAdded += added.length;
-  if (added.length !== deathEvs.length) {
-    stats.deathMismatch.push(`added=${added.length} deathEvents=${deathEvs.length} (${deathEvs.map((e) => e.text).join("; ")})`);
-  }
   const curIds = new Set(s.colonists.map((c) => c.id));
   const vanished = prev.colonists.filter((c) => !curIds.has(c.id));
+  const curMobIds = new Set(s.mobs.map((m) => m.id));
+  const vanishedMobs = prev.mobs.filter((m) => !curMobIds.has(m.id));
+  // A gravestone drops for any death: colonist stones must pair 1:1 with "death" events, and a
+  // stone near a vanished mob (and not a vanished colonist) is a monster's.
+  const colonistStones = [];
   for (const g of added) {
     if (g.variant !== 0 && g.variant !== 1) stats.badVariant.push(gKey(g));
-    const near = vanished.some((c) => dist(c, g) <= 8);
-    if (!near) stats.badPlacement.push(`${gKey(g)} vanished=${vanished.map((c) => `${c.kind}@${c.x.toFixed(0)},${c.y.toFixed(0)}`).join(" ")}`);
+    if (vanished.some((c) => dist(c, g) <= 8)) colonistStones.push(g);
+    else if (!vanishedMobs.some((m) => dist(m, g) <= 8)) {
+      stats.badPlacement.push(`${gKey(g)} vanished=${vanished.map((c) => `${c.kind}@${c.x.toFixed(0)},${c.y.toFixed(0)}`).join(" ")}`);
+    }
+  }
+  if (colonistStones.length !== deathEvs.length) {
+    stats.deathMismatch.push(`colonistStones=${colonistStones.length} deathEvents=${deathEvs.length} (${deathEvs.map((e) => e.text).join("; ")})`);
   }
   if (removed.length > 0 && !dawnFlip) stats.badRemoval.push(`${removed.length} removed outside dawn`);
   if (dawnFlip && removed.length !== prev.gravestones.length) stats.dawnLeftovers.push(`${prev.gravestones.length - removed.length} survived dawn`);

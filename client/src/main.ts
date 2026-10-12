@@ -22,7 +22,7 @@ import type {
   GravestoneSnapshot,
   GameEventCategory,
 } from "./protocol";
-import { Biome, TILE_SIZE, TileType } from "./protocol";
+import { Biome, TILE_SIZE, TileType, VISION_RADIUS_COLONIST, VISION_RADIUS_PLAYER } from "./protocol";
 
 const SERVER_URL = "ws://localhost:8080";
 
@@ -1338,6 +1338,204 @@ async function main() {
     );
   });
 
+  // ---- Fog-of-war minimap (DOM canvas, bottom-right; the main view is never fogged) ----
+  // Static layer: one pixel per tile in an offscreen canvas, rebuilt whole only on `welcome` and
+  // patched per tile on tileUpdate / explored. Each snapshot just blits it and draws the live dots
+  // and camera rect on top, so nothing repaints the whole map per frame.
+  const minimapEl = document.getElementById("minimap") as HTMLCanvasElement;
+  minimapEl.addEventListener("contextmenu", (e) => e.preventDefault());
+  const minimapCtx = minimapEl.getContext("2d")!;
+  const minimapStatic = document.createElement("canvas");
+  const minimapStaticCtx = minimapStatic.getContext("2d")!;
+  let minimapImage: ImageData | null = null;
+  let minimapStaticDirty = false;
+  let explored = new Uint8Array(0);
+  const MINIMAP_TARGET_CSS_PX = 180;
+  // Both integers, so tile -> pixel stays exact: CSS px per tile, and backing px per CSS px.
+  let minimapCssPerTile = 1;
+  let minimapDpr = 1;
+
+  const MINIMAP_UNEXPLORED = 0x140d07;
+  const MINIMAP_BIOME: Record<number, number> = {
+    [Biome.Plains]: 0x6b7a3c,
+    [Biome.Hills]: 0x8a7650,
+    [Biome.Swamp]: 0x4c5a44,
+  };
+  const MINIMAP_WATER = 0x3d5f73;
+  const MINIMAP_TREE = 0x3c5428;
+  const MINIMAP_ROCK = 0x8d8a80;
+  const MINIMAP_IRON = 0x7d5644;
+  const MINIMAP_WALL = 0xb8ad98;
+  const MINIMAP_BUILDING = 0xe0b468;
+  const MINIMAP_RUIN = 0xa0322a;
+  const MINIMAP_CAMP = 0xd2731a;
+  const MINIMAP_ABBEY = 0xf0e6cc;
+  const MINIMAP_RUIN_TILES = new Set<number>([
+    TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble,
+  ]);
+  const MINIMAP_CAMP_TILES = new Set<number>([
+    TileType.PropCampfire, TileType.PropCart, TileType.PropBarrel, TileType.PropCrate, TileType.PropFence,
+  ]);
+  const MINIMAP_ABBEY_TILES = new Set<number>([TileType.AbbeyHall, TileType.PropCross, TileType.PropLanternPost]);
+
+  function minimapTileColor(index: number): number {
+    if (!explored[index]) return MINIMAP_UNEXPLORED;
+    const tile = tiles[index] ?? TileType.Empty;
+    switch (tile) {
+      case TileType.Empty:
+        return MINIMAP_BIOME[biomes[index] ?? Biome.Plains] ?? MINIMAP_BIOME[Biome.Plains];
+      case TileType.Water:
+        return MINIMAP_WATER;
+      case TileType.Tree:
+        return MINIMAP_TREE;
+      case TileType.Rock:
+        return MINIMAP_ROCK;
+      case TileType.IronOre:
+        return MINIMAP_IRON;
+      case TileType.Wall:
+      case TileType.StoneWall:
+        return MINIMAP_WALL;
+    }
+    if (MINIMAP_RUIN_TILES.has(tile)) return MINIMAP_RUIN;
+    if (MINIMAP_CAMP_TILES.has(tile)) return MINIMAP_CAMP;
+    if (MINIMAP_ABBEY_TILES.has(tile)) return MINIMAP_ABBEY;
+    // Every other tile is something the colony built (the Town Center also gets its own marker).
+    return MINIMAP_BUILDING;
+  }
+
+  function paintMinimapTile(index: number) {
+    if (!minimapImage) return;
+    const color = minimapTileColor(index);
+    const o = index * 4;
+    minimapImage.data[o] = color >> 16;
+    minimapImage.data[o + 1] = (color >> 8) & 0xff;
+    minimapImage.data[o + 2] = color & 0xff;
+    minimapImage.data[o + 3] = 255;
+    minimapStaticDirty = true;
+  }
+
+  // `welcome` (join or restart): unpack the bitset and rebuild the whole static layer once.
+  function resetMinimap(packedExplored: string) {
+    const count = worldTilesX * worldTilesY;
+    const bytes = atob(packedExplored);
+    explored = new Uint8Array(count);
+    for (let i = 0; i < count; i++) explored[i] = (bytes.charCodeAt(i >> 3) >> (i & 7)) & 1;
+    minimapCssPerTile = Math.max(1, Math.round(MINIMAP_TARGET_CSS_PX / Math.max(worldTilesX, worldTilesY)));
+    minimapDpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
+    const scale = minimapCssPerTile * minimapDpr;
+    minimapEl.width = worldTilesX * scale;
+    minimapEl.height = worldTilesY * scale;
+    minimapEl.style.width = `${worldTilesX * minimapCssPerTile}px`;
+    minimapEl.style.height = `${worldTilesY * minimapCssPerTile}px`;
+    minimapStatic.width = worldTilesX;
+    minimapStatic.height = worldTilesY;
+    minimapImage = minimapStaticCtx.createImageData(worldTilesX, worldTilesY);
+    for (let i = 0; i < count; i++) paintMinimapTile(i);
+  }
+
+  function markExplored(indices: number[]) {
+    for (const i of indices) {
+      if (i < 0 || i >= explored.length || explored[i]) continue;
+      explored[i] = 1;
+      paintMinimapTile(i);
+    }
+  }
+
+  function cssColor(color: number): string {
+    return `#${color.toString(16).padStart(6, "0")}`;
+  }
+
+  function drawMinimap(players: PlayerSnapshot[], colonists: ColonistSnapshot[], mobs: MobSnapshot[]) {
+    if (!minimapImage) return;
+    if (minimapStaticDirty) {
+      minimapStaticCtx.putImageData(minimapImage, 0, 0);
+      minimapStaticDirty = false;
+    }
+    const ctx = minimapCtx;
+    const s = minimapCssPerTile * minimapDpr; // backing px per tile
+    const u = minimapDpr; // backing px per CSS px
+    const toMap = (worldPx: number) => (worldPx / tileSize) * s;
+    const tileOf = (worldPx: number) => Math.floor(worldPx / tileSize);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(minimapStatic, 0, 0, worldTilesX * s, worldTilesY * s);
+
+    const tcX = Math.floor(worldTilesX / 2);
+    const tcY = Math.floor(worldTilesY / 2);
+    if (tiles[tcY * worldTilesX + tcX] === TileType.TownCenter) {
+      const size = 7 * u;
+      const cx = (tcX + 0.5) * s;
+      const cy = (tcY + 0.5) * s;
+      ctx.fillStyle = "#2e1a0c";
+      ctx.fillRect(cx - size / 2 - u, cy - size / 2 - u, size + 2 * u, size + 2 * u);
+      ctx.fillStyle = "#7a1f1a";
+      ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
+      ctx.fillStyle = "#f1c40f";
+      ctx.fillRect(cx - 1.5 * u, cy - 1.5 * u, 3 * u, 3 * u);
+    }
+
+    // Live view right now: players and the colony's own colonists (not the Abbey's clergy), with
+    // the server's vision radii. Mobs outside it aren't drawn, even on explored ground.
+    const sources: Array<{ x: number; y: number; r2: number }> = [];
+    for (const p of players) {
+      sources.push({ x: tileOf(p.x), y: tileOf(p.y), r2: VISION_RADIUS_PLAYER * VISION_RADIUS_PLAYER });
+    }
+    for (const c of colonists) {
+      if (tiles[c.postY * worldTilesX + c.postX] === TileType.AbbeyHall) continue;
+      sources.push({ x: tileOf(c.x), y: tileOf(c.y), r2: VISION_RADIUS_COLONIST * VISION_RADIUS_COLONIST });
+    }
+
+    ctx.fillStyle = "#f3da98";
+    for (const c of colonists) {
+      if (!explored[tileOf(c.y) * worldTilesX + tileOf(c.x)]) continue;
+      ctx.fillRect(Math.round(toMap(c.x) - u), Math.round(toMap(c.y) - u), 2 * u, 2 * u);
+    }
+
+    for (const m of mobs) {
+      const mx = tileOf(m.x);
+      const my = tileOf(m.y);
+      const seen = sources.some((src) => (src.x - mx) ** 2 + (src.y - my) ** 2 <= src.r2);
+      if (!seen) continue;
+      const x = Math.round(toMap(m.x) - 1.5 * u);
+      const y = Math.round(toMap(m.y) - 1.5 * u);
+      ctx.fillStyle = "#1a0505";
+      ctx.fillRect(x - u, y - u, 5 * u, 5 * u);
+      ctx.fillStyle = "#ff3b2a";
+      ctx.fillRect(x, y, 3 * u, 3 * u);
+    }
+
+    for (const p of players) {
+      if (p.id === myId) continue;
+      ctx.beginPath();
+      ctx.arc(toMap(p.x), toMap(p.y), 3 * u, 0, Math.PI * 2);
+      ctx.fillStyle = cssColor(p.color);
+      ctx.fill();
+      ctx.lineWidth = u;
+      ctx.strokeStyle = "#1a0f06";
+      ctx.stroke();
+    }
+
+    const me = players.find((p) => p.id === myId);
+    if (me) {
+      ctx.beginPath();
+      ctx.arc(toMap(me.x), toMap(me.y), 4 * u, 0, Math.PI * 2);
+      ctx.lineWidth = 3.5 * u;
+      ctx.strokeStyle = "#1a0f06";
+      ctx.stroke();
+      ctx.lineWidth = 1.75 * u;
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke();
+    }
+
+    // Main camera viewport (worldLayer is scaled by ZOOM and offset to follow the player).
+    const viewX = toMap(-worldLayer.position.x / ZOOM);
+    const viewY = toMap(-worldLayer.position.y / ZOOM);
+    const viewW = toMap(app.screen.width / ZOOM);
+    const viewH = toMap(app.screen.height / ZOOM);
+    ctx.lineWidth = u;
+    ctx.strokeStyle = "rgba(251, 236, 200, 0.85)";
+    ctx.strokeRect(Math.round(viewX) + u / 2, Math.round(viewY) + u / 2, Math.round(viewW) - u, Math.round(viewH) - u);
+  }
+
   // Core stats (wood/iron/rock/gold/pop/time/happiness/army/selected) used to live here as a
   // floating canvas HUD; they're now DOM elements pinned to the top of #economy-panel, merged
   // into the same single menu as the goods/market panel. See the DOM refs set up below.
@@ -1357,7 +1555,20 @@ async function main() {
   // ---- Economy panel (DOM): goods stockpile + Market / Gold Shop, left side ----
   // The canvas HUD keeps the core numbers (wood/iron/rock/gold/pop/time); everything else lives here.
 
-  type GoodKey = "grain" | "meat" | "fruit" | "wool" | "cotton" | "clothes" | "tools" | "luxuryItems" | "alcohol";
+  type GoodKey =
+    | "wood"
+    | "iron"
+    | "rock"
+    | "gold"
+    | "grain"
+    | "meat"
+    | "fruit"
+    | "wool"
+    | "cotton"
+    | "clothes"
+    | "tools"
+    | "luxuryItems"
+    | "alcohol";
   const GOODS_GROUPS: { heading: string; goods: { key: GoodKey; label: string }[] }[] = [
     {
       heading: "Food",
@@ -1370,6 +1581,10 @@ async function main() {
     {
       heading: "Materials",
       goods: [
+        { key: "wood", label: "Wood" },
+        { key: "iron", label: "Iron" },
+        { key: "rock", label: "Rock" },
+        { key: "gold", label: "Gold" },
         { key: "wool", label: "Wool" },
         { key: "cotton", label: "Cotton" },
       ],
@@ -1394,10 +1609,6 @@ async function main() {
   });
 
   // Core colony stats, pinned at the top of the same single menu as the goods/market panel.
-  const statWoodEl = document.getElementById("stat-wood")!;
-  const statIronEl = document.getElementById("stat-iron")!;
-  const statRockEl = document.getElementById("stat-rock")!;
-  const statGoldEl = document.getElementById("stat-gold")!;
   const statPopEl = document.getElementById("stat-pop")!;
   const statTimeEl = document.getElementById("stat-time")!;
   const sundialEl = document.getElementById("sundial")!;
@@ -1907,6 +2118,7 @@ async function main() {
       worldTilesY = message.worldTilesY;
       tiles = message.tiles;
       biomes = message.biomes;
+      resetMinimap(message.explored);
       suppressDeathPoofs = true;
       readyFarmPlots = new Set();
       redrawGrid();
@@ -1950,10 +2162,6 @@ async function main() {
         // Stance changes arrive by snapshot, not through setSelection.
         refreshSelectionHud();
       }
-      statWoodEl.textContent = `${message.wood}`;
-      statIronEl.textContent = `${message.iron}`;
-      statRockEl.textContent = `${message.rock}`;
-      statGoldEl.textContent = `${message.gold}`;
       refreshEconomyPanel(message);
       statPopEl.textContent = `${message.population}/${message.populationCap}`;
       statTimeEl.textContent = message.isNight ? "Night" : "Day";
@@ -1981,10 +2189,14 @@ async function main() {
       townCenterHpBar.visible = message.townCenterHp > 0;
       drawHpBar(townCenterHpBar, message.townCenterHp, message.townCenterMaxHp);
       for (const effect of message.effects) spawnEffect(effect);
+      drawMinimap(message.players, message.colonists, message.mobs);
     } else if (message.type === "tileUpdate") {
       setTileLocal(message.tileX, message.tileY, message.tile);
+      paintMinimapTile(message.tileY * worldTilesX + message.tileX);
     } else if (message.type === "event") {
       pushEventToast(message.category, message.text);
+    } else if (message.type === "explored") {
+      markExplored(message.tiles);
     }
   });
 

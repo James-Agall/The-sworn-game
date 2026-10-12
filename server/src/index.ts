@@ -21,6 +21,10 @@ import {
   PLAYER_SPEED,
   PLAYER_HALF_SIZE,
   PLAYER_MAX_HP,
+  VISION_RADIUS_PLAYER,
+  VISION_RADIUS_COLONIST,
+  VISION_RADIUS_BUILDING,
+  VISION_RADIUS_START,
 } from "./protocol.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
@@ -1830,11 +1834,16 @@ function activateGuardianSite(siteId: string) {
   }
 }
 
+// Wiped wholesale at each dawn (before that dawn's starvation deaths add new ones), so every entry
+// was placed since the most recent dawn and lasts until the next one.
+const gravestones: GravestoneSnapshot[] = [];
+
 function damageMob(mob: Mob, amount: number) {
   if (isDormantGuardian(mob)) activateGuardianSite(mob.siteId!);
   mob.hp -= amount;
   mob.lastDamagedTick = cycleTick;
   if (mob.hp <= 0) {
+    gravestones.push({ x: mob.x, y: mob.y, variant: Math.random() < 0.5 ? 0 : 1 });
     mobs.delete(mob.id);
     stock.gold += goldForKill(mob);
   }
@@ -1850,10 +1859,6 @@ function damagePlayer(player: Player, amount: number) {
     player.y = spawn.y;
   }
 }
-
-// Wiped wholesale at each dawn (before that dawn's starvation deaths add new ones), so every entry
-// was placed since the most recent dawn and lasts until the next one.
-const gravestones: GravestoneSnapshot[] = [];
 
 function colonistDeathText(c: Colonist): string {
   if (isWardPriest(c)) return "The Ward Priest has died";
@@ -3154,6 +3159,103 @@ function placeAbbey(placedSites: TileCoord[]) {
   }
 }
 
+// ---- Fog of war (minimap only) ----
+// Explored tiles, shared by every player and kept for the life of the world. Sources only reveal
+// when their tile changes (or a building lands), stamping a precomputed circle; nothing ever scans
+// the whole map per tick.
+const explored = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y);
+// Newly explored tile indices awaiting the next batched `explored` broadcast.
+let pendingExplored: number[] = [];
+const EXPLORED_FLUSH_TICKS = 5; // 4 Hz at TICK_RATE 20
+let exploredFlushCountdown = EXPLORED_FLUSH_TICKS;
+// Tile index each player/colonist last revealed from. Replaced on world reset so everyone re-stamps.
+let visionTile = new WeakMap<object, number>();
+
+function circleOffsets(radius: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      if (dx * dx + dy * dy <= radius * radius) out.push([dx, dy]);
+    }
+  }
+  return out;
+}
+const PLAYER_VISION_OFFSETS = circleOffsets(VISION_RADIUS_PLAYER);
+const COLONIST_VISION_OFFSETS = circleOffsets(VISION_RADIUS_COLONIST);
+const BUILDING_VISION_OFFSETS = circleOffsets(VISION_RADIUS_BUILDING);
+const START_VISION_OFFSETS = circleOffsets(VISION_RADIUS_START);
+
+// Player-built structures that see (walls don't), plus the Town Center. Natural terrain, POI
+// props and the Abbey never do.
+const VISION_BUILDING_TILES = new Set<TileType>([
+  TileType.TownCenter,
+  TileType.House, TileType.BigHouse, TileType.HouseLevel2, TileType.BarnPost, TileType.LumberjackPost,
+  TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3, TileType.ArcherPost,
+  TileType.ArcherTower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost, TileType.Pasture,
+  TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop, TileType.Blacksmith,
+  TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern,
+  TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
+]);
+
+function revealAround(tx: number, ty: number, offsets: Array<[number, number]>) {
+  for (const [dx, dy] of offsets) {
+    const x = tx + dx;
+    const y = ty + dy;
+    if (x < 0 || y < 0 || x >= WORLD_TILES_X || y >= WORLD_TILES_Y) continue;
+    const index = y * WORLD_TILES_X + x;
+    if (explored[index]) continue;
+    explored[index] = 1;
+    pendingExplored.push(index);
+  }
+}
+
+function revealFrom(source: object, px: number, py: number, offsets: Array<[number, number]>) {
+  const tx = Math.floor(px / TILE_SIZE);
+  const ty = Math.floor(py / TILE_SIZE);
+  const index = ty * WORLD_TILES_X + tx;
+  if (visionTile.get(source) === index) return;
+  visionTile.set(source, index);
+  revealAround(tx, ty, offsets);
+}
+
+function updateVision() {
+  for (const p of players.values()) revealFrom(p, p.x, p.y, PLAYER_VISION_OFFSETS);
+  // The Abbey's clergy are world-gen residents, not the colony's eyes.
+  for (const c of colonists.values()) {
+    if (!isAbbeyClergy(c)) revealFrom(c, c.x, c.y, COLONIST_VISION_OFFSETS);
+  }
+}
+
+function resetExplored() {
+  explored.fill(0);
+  visionTile = new WeakMap();
+  revealAround(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y, START_VISION_OFFSETS);
+  // The fresh world reaches clients whole, in `welcome`.
+  pendingExplored = [];
+}
+
+function packExplored(): string {
+  const bytes = new Uint8Array(Math.ceil(explored.length / 8));
+  for (let i = 0; i < explored.length; i++) {
+    if (explored[i]) bytes[i >> 3] |= 1 << (i & 7);
+  }
+  return Buffer.from(bytes).toString("base64");
+}
+
+function flushExplored() {
+  if (--exploredFlushCountdown > 0) return;
+  exploredFlushCountdown = EXPLORED_FLUSH_TICKS;
+  if (pendingExplored.length === 0) return;
+  const message: ServerMessage = { type: "explored", tiles: pendingExplored };
+  pendingExplored = [];
+  const payload = JSON.stringify(message);
+  for (const p of players.values()) {
+    if (p.socket.readyState === p.socket.OPEN) {
+      p.socket.send(payload);
+    }
+  }
+}
+
 // Full world regeneration (boot + restart). Callers must clear `mobs` and `colonists` first: this
 // spawns the new world's POI guardians and Abbey clergy into them. Order: biomes (own layer) ->
 // ponds -> Abbey -> resources -> POI sites, each step only ever writing onto Empty tiles, so nothing
@@ -3173,6 +3275,7 @@ function generateWorld() {
   scatterResourceTiles(TileType.Rock, ROCK_COUNT);
   generatePoiSites("ruin", randInt(RUIN_SITE_COUNT_MIN, RUIN_SITE_COUNT_MAX), placedSites);
   generatePoiSites("encampment", randInt(ENCAMPMENT_SITE_COUNT_MIN, ENCAMPMENT_SITE_COUNT_MAX), placedSites);
+  resetExplored();
 }
 
 generateWorld();
@@ -3185,6 +3288,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function broadcastTileUpdate(tx: number, ty: number, tile: TileType) {
+  if (VISION_BUILDING_TILES.has(tile)) revealAround(tx, ty, BUILDING_VISION_OFFSETS);
   const update: ServerMessage = { type: "tileUpdate", tileX: tx, tileY: ty, tile };
   const payload = JSON.stringify(update);
   for (const p of players.values()) {
@@ -3207,8 +3311,10 @@ function broadcastEvent(category: GameEventCategory, text: string) {
 // TODO: Phase 5 — broadcastEvent("milestone", ...) once the short-term goal system exists, and a
 // boss/mini-boss "sighted" event once the Castle Ruin boss lands.
 
-const wss = new WebSocketServer({ port: 8080 });
-console.log("colony2d server listening on ws://localhost:8080");
+// PORT lets a scripted test run a private server without touching the shared :8080 world.
+const PORT = Number.parseInt(process.env.PORT ?? "", 10) || 8080;
+const wss = new WebSocketServer({ port: PORT });
+console.log(`colony2d server listening on ws://localhost:${PORT}`);
 
 function sendWelcome(player: Player) {
   const welcome: ServerMessage = {
@@ -3219,6 +3325,7 @@ function sendWelcome(player: Player) {
     worldTilesY: WORLD_TILES_Y,
     tiles: Array.from(tiles),
     biomes: Array.from(biomes),
+    explored: packExplored(),
   };
   player.socket.send(JSON.stringify(welcome));
 }
@@ -3761,6 +3868,10 @@ setInterval(() => {
     processRespawnQueue();
     updateWardPriestPresence();
   }
+
+  // Outside the pause gate so a player joining mid-pause still gets their surroundings.
+  updateVision();
+  flushExplored();
 
   const night = isNightNow();
   pruneTaskForces();

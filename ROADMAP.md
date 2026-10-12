@@ -210,6 +210,13 @@ waves. Milestone and boss-sighted events wait for Phase 5 (TODO in `server/src/i
   buttons and HUD chrome follow if it reads well.
 
 ### Phase 4 — Fog of war minimap
+**Landed 2026-10-12.** Server-authoritative explored set shared by all players (cleared on restart).
+Radii are `VISION_RADIUS_*` in `protocol.ts`: players 10, colonists 6 (not the Abbey's clergy),
+placed buildings 5 (walls don't count), start area 12 around the Town Center. `welcome.explored`
+carries a base64 bitset; new tiles arrive as a batched `explored` message (4 Hz, only when
+non-empty). The minimap sits bottom-right (it slides left of the Build panel when that opens) and
+shows mobs only within a player's/colonist's live vision radius. The main view isn't fogged.
+Test: `server/minimap-fog-test.mjs`.
 - Explored-tile tracking (radius around players/colonists/buildings, persists once seen — not
   live line-of-sight, this is co-op not competitive), small corner minimap canvas: dimmed
   unexplored, terrain-tinted explored, live dots for players/colonists/mobs/buildings in current

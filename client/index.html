@@ -49,6 +49,8 @@
         --paper-edge: inset 0 1px 0 rgba(255, 236, 180, 0.45);
         /* Rolled scroll rod: a shaded cylinder in the reference's brass-brown tones. */
         --rod: linear-gradient(90deg, var(--wood-dark) 0%, var(--rod-mid) 22%, var(--rod-light) 48%, var(--rod-mid) 72%, var(--wood) 92%, var(--wood-dark) 100%);
+        /* The same rod lying horizontally. */
+        --rod-h: linear-gradient(180deg, var(--wood-dark) 0%, var(--rod-mid) 22%, var(--rod-light) 48%, var(--rod-mid) 72%, var(--wood) 92%, var(--wood-dark) 100%);
       }
 
       html, body { margin: 0; padding: 0; background: #111; overflow: hidden; }
@@ -486,6 +488,51 @@
       .event-toast.event-death { border-left-color: var(--mood-bad); }
       .event-toast.event-ward { border-left-color: #5b2d8a; }
       .event-toast.event-deserter { border-left-color: #c26a00; }
+
+      /* Fog-of-war minimap: a small unrolled map, rods top and bottom. Bottom-right, and it steps
+         left of the Build panel while that's open (same 0.2s slide), so neither panel covers it. */
+      #minimap-frame {
+        position: fixed;
+        right: 12px;
+        bottom: 16px;
+        z-index: 9;
+        padding: 10px 8px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        transition: right 0.2s ease;
+        line-height: 0;
+      }
+
+      #build-panel:not(.collapsed) ~ #minimap-frame {
+        right: 322px;
+      }
+
+      #minimap-frame::before,
+      #minimap-frame::after {
+        content: "";
+        position: absolute;
+        left: -5px;
+        right: -5px;
+        height: 8px;
+        background: var(--rod-h);
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+        pointer-events: none;
+      }
+
+      #minimap-frame::before { top: -4px; }
+      #minimap-frame::after { bottom: -4px; }
+
+      #minimap {
+        display: block;
+        image-rendering: pixelated;
+        border: 1px solid var(--wood-dark);
+        box-shadow: 0 0 0 1px rgba(255, 236, 180, 0.35);
+        background: #140d07;
+      }
     </style>
   </head>
   <body>
@@ -501,13 +548,10 @@
       <div id="build-requirements">Select a tool to see its cost.</div>
       <div id="toolbar"></div>
     </div>
+    <div id="minimap-frame"><canvas id="minimap" width="160" height="160" aria-label="Minimap"></canvas></div>
     <div id="economy-panel-toggle" class="panel-open">Colony</div>
     <div id="economy-panel">
       <div id="colony-stats">
-        <div class="econ-row"><span class="econ-label"><img class="econ-icon" src="/sprites/icon-wood.png" alt="" />Wood</span><span id="stat-wood">0</span></div>
-        <div class="econ-row"><span class="econ-label"><img class="econ-icon" src="/sprites/icon-iron.png" alt="" />Iron</span><span id="stat-iron">0</span></div>
-        <div class="econ-row"><span class="econ-label"><img class="econ-icon" src="/sprites/icon-rock.png" alt="" />Rock</span><span id="stat-rock">0</span></div>
-        <div class="econ-row"><span class="econ-label"><img class="econ-icon" src="/sprites/icon-gold.png" alt="" />Gold</span><span id="stat-gold">0</span></div>
         <div class="econ-row"><span>Pop</span><span id="stat-pop">0/0</span></div>
         <div class="econ-row time-row">
           <span class="time-cell">

@@ -6,6 +6,16 @@ export const PLAYER_SPEED = 150;
 export const PLAYER_HALF_SIZE = 10;
 export const PLAYER_MAX_HP = 100;
 
+// Fog-of-war vision radii, in tiles (minimap only; the main view is never fogged). A tile within
+// one of these of a source's tile becomes "explored" for good (server-authoritative, shared by all
+// players). The client reuses PLAYER/COLONIST to decide which mobs are in live view right now.
+export const VISION_RADIUS_PLAYER = 10;
+export const VISION_RADIUS_COLONIST = 6;
+// Placed buildings (walls excluded) and the Town Center.
+export const VISION_RADIUS_BUILDING = 5;
+// Revealed around the Town Center when a world is generated, so the minimap isn't blank at t=0.
+export const VISION_RADIUS_START = 12;
+
 export enum TileType {
   Empty = 0,
   Wall = 1,
@@ -222,6 +232,8 @@ export type ServerMessage =
       worldTilesY: number;
       tiles: number[];
       biomes: number[];
+      // Explored-tile bitset, base64: bit (i & 7) of byte (i >> 3) is tile index i (y * worldTilesX + x).
+      explored: string;
     }
   | {
       type: "snapshot";
@@ -261,7 +273,9 @@ export type ServerMessage =
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).
-  | { type: "event"; category: GameEventCategory; text: string };
+  | { type: "event"; category: GameEventCategory; text: string }
+  // Tile indices newly explored since the last one (batched a few times a second, never empty).
+  | { type: "explored"; tiles: number[] };
 
 export interface PlayerSnapshot {
   id: string;
