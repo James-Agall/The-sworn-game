@@ -4,6 +4,53 @@
     <meta charset="UTF-8" />
     <title>colony2d</title>
     <style>
+      /* Parchment skin. Colors sampled from the scroll reference (center #f3d170, mid #e1a74b,
+         edges #b37130, rods #c19048); the base is pulled a little lighter/less saturated than the
+         raw center so ink text keeps AA contrast even over the mottled, vignetted edges.
+         The paper texture is two static SVG feTurbulence tiles used as background images (rasterized
+         once and cached), never a live `filter:` on the panels. */
+      :root {
+        --ink: #2b1a0c;
+        --ink-soft: #4a2f17;
+        --ink-faint: #5e4326;
+        --parch-light: #f3da98;
+        --parch-mid: #e4bb6c;
+        --parch-dark: #c99450;
+        --parch-burn: #5e3214;
+        --wood: #5a3418;
+        --wood-dark: #2e1a0c;
+        --rod-light: #e0b468;
+        --rod-mid: #a8742f;
+        --seal: #7a1f1a;
+        --seal-dark: #4a0f0b;
+        --seal-ink: #fbecc8;
+        --sel-ink: #063f4a;
+        --mood-good: #1f5216;
+        --mood-warn: #6b3600;
+        --mood-bad: #8a1414;
+        --font-serif: "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+        --font-sans: system-ui, sans-serif;
+
+        --paper-mottle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='m' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.022' numOctaves='4' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.25 0 0 0 0 0.07 1.9 0 0 0 -0.82'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23m)'/%3E%3C/svg%3E");
+        --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.16 0 0 0 0 0.04 2.6 0 0 0 -1.45'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+        --paper:
+          var(--paper-grain),
+          var(--paper-mottle),
+          radial-gradient(ellipse farthest-corner at 50% 45%, transparent 50%, rgba(94, 50, 20, 0.45) 100%),
+          radial-gradient(ellipse at 50% 30%, rgba(255, 244, 205, 0.55), transparent 65%);
+        /* Burnt edges as background layers (stacked over --paper), sized for panels vs small chips. */
+        --burn-lg:
+          linear-gradient(90deg, rgba(94, 50, 20, 0.45), transparent 22px, transparent calc(100% - 22px), rgba(94, 50, 20, 0.45)),
+          linear-gradient(180deg, rgba(94, 50, 20, 0.45), transparent 22px, transparent calc(100% - 22px), rgba(94, 50, 20, 0.45));
+        --burn-sm:
+          linear-gradient(90deg, rgba(94, 50, 20, 0.35), transparent 7px, transparent calc(100% - 7px), rgba(94, 50, 20, 0.35)),
+          linear-gradient(180deg, rgba(94, 50, 20, 0.35), transparent 6px, transparent calc(100% - 6px), rgba(94, 50, 20, 0.35));
+        /* Faint light bevel along the top inner edge. */
+        --paper-edge: inset 0 1px 0 rgba(255, 236, 180, 0.45);
+        /* Rolled scroll rod: a shaded cylinder in the reference's brass-brown tones. */
+        --rod: linear-gradient(90deg, var(--wood-dark) 0%, var(--rod-mid) 22%, var(--rod-light) 48%, var(--rod-mid) 72%, var(--wood) 92%, var(--wood-dark) 100%);
+      }
+
       html, body { margin: 0; padding: 0; background: #111; overflow: hidden; }
       #app { width: 100vw; height: 100vh; }
 
@@ -14,22 +61,35 @@
         display: flex;
         gap: 8px;
         z-index: 12;
-        font-family: system-ui, sans-serif;
+        font-family: var(--font-serif);
+      }
+
+      .control-btn,
+      #build-panel-toggle,
+      #economy-panel-toggle {
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        color: var(--ink);
+        border: 1px solid var(--wood-dark);
+        box-shadow: var(--paper-edge), 0 2px 6px rgba(0, 0, 0, 0.5);
+        font-family: var(--font-serif);
+        font-weight: 600;
+        letter-spacing: 0.04em;
       }
 
       .control-btn {
         padding: 8px 14px;
-        background: rgba(42, 42, 42, 0.9);
-        color: #fff;
-        border: 1px solid #555;
         border-radius: 4px;
         font-size: 13px;
         cursor: pointer;
         user-select: none;
       }
 
-      .control-btn:hover {
-        border-color: #888;
+      .control-btn:hover,
+      #build-panel-toggle:hover,
+      #economy-panel-toggle:hover {
+        background-color: var(--parch-light);
+        border-color: var(--wood);
       }
 
       #build-panel-toggle {
@@ -37,16 +97,12 @@
         top: 50%;
         right: 0;
         transform: translateY(-50%);
-        background: rgba(42, 42, 42, 0.9);
-        color: #fff;
-        border: 1px solid #555;
         border-right: none;
         border-radius: 4px 0 0 4px;
         padding: 12px 8px;
         cursor: pointer;
         user-select: none;
         z-index: 11;
-        font-family: system-ui, sans-serif;
         font-size: 13px;
         writing-mode: vertical-rl;
         transition: right 0.2s ease;
@@ -62,15 +118,30 @@
         right: 0;
         height: 100vh;
         width: 310px;
-        background: rgba(20, 20, 20, 0.95);
-        border-left: 1px solid #555;
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        box-shadow: var(--paper-edge), -4px 0 14px rgba(0, 0, 0, 0.55);
+        color: var(--ink);
         z-index: 10;
-        font-family: system-ui, sans-serif;
+        font-family: var(--font-serif);
         transition: transform 0.2s ease;
         display: flex;
         flex-direction: column;
-        padding: 60px 18px 20px;
+        /* Extra left padding clears the scroll rod drawn by ::before. */
+        padding: 60px 18px 20px 30px;
         box-sizing: border-box;
+      }
+
+      #build-panel::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 12px;
+        background: var(--rod);
+        box-shadow: 2px 0 5px rgba(0, 0, 0, 0.35);
+        pointer-events: none;
       }
 
       #build-panel.collapsed {
@@ -78,12 +149,12 @@
       }
 
       #build-requirements {
-        color: #ddd;
+        color: var(--ink);
         font-size: 15px;
         line-height: 1.5;
         margin-bottom: 16px;
         min-height: 48px;
-        border-bottom: 1px solid #444;
+        border-bottom: 3px double rgba(90, 52, 24, 0.55);
         padding-bottom: 14px;
       }
 
@@ -92,28 +163,52 @@
         flex-direction: column;
         gap: 10px;
         overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--wood) transparent;
+      }
+
+      .tool-btn,
+      .econ-btn,
+      .category-tab {
+        background-color: rgba(255, 244, 214, 0.45);
+        color: var(--ink);
+        border: 1px solid rgba(74, 42, 20, 0.6);
+        box-shadow: inset 0 1px 0 rgba(255, 250, 230, 0.6), 0 1px 2px rgba(60, 30, 10, 0.25);
+        font-family: var(--font-serif);
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .tool-btn:hover,
+      .econ-btn:hover:not(:disabled),
+      .category-tab:hover {
+        background-color: rgba(255, 248, 226, 0.8);
+        border-color: var(--wood-dark);
+      }
+
+      .tool-btn:focus-visible,
+      .econ-btn:focus-visible,
+      .category-tab:focus-visible,
+      .control-btn:focus-visible {
+        outline: 2px solid var(--seal);
+        outline-offset: 2px;
+      }
+
+      /* Wax-seal red marks the active tab / tool. */
+      .tool-btn.selected,
+      .category-tab.selected {
+        background-color: var(--seal);
+        color: var(--seal-ink);
+        border-color: var(--seal-dark);
+        box-shadow: inset 0 1px 0 rgba(255, 200, 180, 0.25), inset 0 -2px 5px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(60, 30, 10, 0.35);
       }
 
       .tool-btn {
         padding: 12px 16px;
-        background: rgba(42, 42, 42, 0.9);
-        color: #fff;
-        border: 1px solid #555;
-        border-radius: 6px;
+        border-radius: 4px;
         font-size: 16px;
-        cursor: pointer;
-        user-select: none;
         white-space: nowrap;
         text-align: left;
-      }
-
-      .tool-btn:hover {
-        border-color: #888;
-      }
-
-      .tool-btn.selected {
-        background: #4a90d9;
-        border-color: #fff;
       }
 
       #build-category-tabs {
@@ -125,26 +220,11 @@
 
       .category-tab {
         padding: 6px 10px;
-        background: rgba(255, 255, 255, 0.06);
-        color: #ccc;
-        border: 1px solid #555;
-        border-radius: 12px;
+        border-radius: 3px;
         font-size: 12px;
+        font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.03em;
-        cursor: pointer;
-        user-select: none;
-      }
-
-      .category-tab:hover {
-        border-color: #888;
-        color: #fff;
-      }
-
-      .category-tab.selected {
-        background: #4a90d9;
-        border-color: #fff;
-        color: #fff;
+        letter-spacing: 0.06em;
       }
 
       /* Colony panel: single left-side menu holding everything that used to be split between
@@ -156,16 +236,12 @@
         top: 50%;
         left: 0;
         transform: translateY(-50%);
-        background: rgba(42, 42, 42, 0.9);
-        color: #fff;
-        border: 1px solid #555;
         border-left: none;
         border-radius: 0 4px 4px 0;
         padding: 12px 8px;
         cursor: pointer;
         user-select: none;
         z-index: 11;
-        font-family: system-ui, sans-serif;
         font-size: 13px;
         writing-mode: vertical-rl;
         transition: left 0.2s ease;
@@ -181,18 +257,35 @@
         left: 0;
         max-height: calc(100vh - 24px);
         width: 260px;
-        background: rgba(20, 20, 20, 0.95);
-        border: 1px solid #555;
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
         border-left: none;
         border-radius: 0 6px 6px 0;
+        box-shadow: var(--paper-edge), 4px 0 14px rgba(0, 0, 0, 0.55);
         z-index: 10;
-        font-family: system-ui, sans-serif;
-        color: #ddd;
+        font-family: var(--font-serif);
+        color: var(--ink);
         font-size: 14px;
         transition: transform 0.2s ease;
         box-sizing: border-box;
         display: flex;
         flex-direction: column;
+        /* Right padding clears the scroll rod drawn by ::after. */
+        padding-right: 12px;
+      }
+
+      #economy-panel::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        width: 12px;
+        background: var(--rod);
+        border-radius: 0 5px 5px 0;
+        box-shadow: -2px 0 5px rgba(0, 0, 0, 0.35);
+        pointer-events: none;
       }
 
       #economy-panel.collapsed {
@@ -201,7 +294,7 @@
 
       #colony-stats {
         padding: 12px 14px 10px;
-        border-bottom: 1px solid #444;
+        border-bottom: 3px double rgba(90, 52, 24, 0.55);
         flex: none;
       }
 
@@ -249,22 +342,24 @@
       #sundial .shadow { stroke: var(--dial-shadow); stroke-width: 2.4; stroke-linecap: round; }
       #sundial .gnomon { fill: var(--dial-rim); }
 
+      /* main.ts overrides this inline with var(--mood-good|warn|bad) by happiness threshold. */
       #stat-happiness {
         font-weight: 600;
-        color: #7ddc7d;
+        color: var(--mood-good);
       }
 
       #stat-army {
         margin-top: 8px;
         font-size: 12.5px;
-        color: #bbb;
+        color: var(--ink-soft);
         line-height: 1.5;
       }
 
       #stat-selected {
         margin-top: 4px;
         font-size: 12.5px;
-        color: #00e5ff;
+        font-weight: 600;
+        color: var(--sel-ink);
         line-height: 1.5;
       }
 
@@ -275,15 +370,19 @@
       #goods-scroll {
         overflow-y: auto;
         padding: 10px 14px 14px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--wood) transparent;
       }
 
       .econ-heading {
-        color: #fff;
+        color: var(--ink);
         font-size: 16px;
-        font-weight: 600;
+        font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.08em;
         margin: 10px 0 6px;
+        padding-bottom: 2px;
+        border-bottom: 1px solid rgba(90, 52, 24, 0.45);
       }
 
       .econ-heading:first-child {
@@ -309,13 +408,16 @@
         flex: none;
       }
 
+      /* Counts stay in the sans face: lining, tabular figures line up; Georgia's old-style ones don't. */
       .econ-row span:last-child {
-        color: #fff;
+        color: var(--ink);
+        font-family: var(--font-sans);
+        font-weight: 600;
         font-variant-numeric: tabular-nums;
       }
 
       .econ-section {
-        border-top: 1px solid #444;
+        border-top: 3px double rgba(90, 52, 24, 0.55);
         margin-top: 12px;
         padding-top: 4px;
       }
@@ -332,22 +434,16 @@
 
       .econ-btn {
         padding: 6px 10px;
-        background: rgba(42, 42, 42, 0.9);
-        color: #fff;
-        border: 1px solid #555;
         border-radius: 4px;
         font-size: 13px;
-        cursor: pointer;
-        user-select: none;
         text-align: left;
       }
 
-      .econ-btn:hover:not(:disabled) {
-        border-color: #888;
-      }
-
       .econ-btn:disabled {
-        color: #777;
+        background-color: rgba(255, 244, 214, 0.2);
+        color: var(--ink-faint);
+        border-color: rgba(74, 42, 20, 0.35);
+        box-shadow: none;
         cursor: default;
       }
       /* Event feed: toasts stacked under the top edge, newest on top. Never takes clicks. */
@@ -362,16 +458,18 @@
         gap: 6px;
         z-index: 12;
         pointer-events: none;
-        font-family: system-ui, sans-serif;
+        font-family: var(--font-serif);
       }
 
       .event-toast {
         padding: 6px 12px;
-        background: rgba(20, 20, 20, 0.95);
-        color: #ddd;
-        border: 1px solid #555;
-        border-left: 3px solid #888;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        color: var(--ink);
+        border: 1px solid var(--wood-dark);
+        border-left: 3px solid #6b5f55;
         border-radius: 4px;
+        box-shadow: var(--paper-edge), 0 2px 6px rgba(0, 0, 0, 0.5);
         font-size: 13px;
         white-space: nowrap;
         opacity: 1;
@@ -381,12 +479,13 @@
       .event-toast.fading { opacity: 0; }
       .event-toast.dropped { opacity: 0; transition-duration: 0.2s; }
 
-      .event-toast.event-night { border-left-color: #9aa6c2; }
-      .event-toast.event-dawn { border-left-color: #ecd38a; }
-      .event-toast.event-upgrade { border-left-color: #7ddc7d; }
-      .event-toast.event-death { border-left-color: #ff5c5c; }
-      .event-toast.event-ward { border-left-color: #b98cff; }
-      .event-toast.event-deserter { border-left-color: #ffb347; }
+      /* Category accents, deepened from the old dark-theme hues so they still read on parchment. */
+      .event-toast.event-night { border-left-color: #34416a; }
+      .event-toast.event-dawn { border-left-color: #b07d12; }
+      .event-toast.event-upgrade { border-left-color: var(--mood-good); }
+      .event-toast.event-death { border-left-color: var(--mood-bad); }
+      .event-toast.event-ward { border-left-color: #5b2d8a; }
+      .event-toast.event-deserter { border-left-color: #c26a00; }
     </style>
   </head>
   <body>

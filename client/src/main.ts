@@ -1971,9 +1971,10 @@ async function main() {
         );
       }
       statHappinessEl.textContent = `Happiness: ${message.happiness}%`;
-      // Thresholds mirror the server's desertion (35) and mutiny (15) lines.
+      // Thresholds mirror the server's desertion (35) and mutiny (15) lines. Colors are the
+      // parchment-contrast tokens in index.html's :root.
       statHappinessEl.style.color =
-        message.happiness < 15 ? "#ff5c5c" : message.happiness < 35 ? "#ffb347" : "#7ddc7d";
+        message.happiness < 15 ? "var(--mood-bad)" : message.happiness < 35 ? "var(--mood-warn)" : "var(--mood-good)";
       pausedBanner.visible = message.isPaused;
       pauseBtn.textContent = message.isPaused ? "Resume" : "Pause";
       nightOverlay.alpha = message.isNight ? 0.35 : 0;
