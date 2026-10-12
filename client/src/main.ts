@@ -280,13 +280,34 @@ const MOB_VARIANT_URLS: Partial<Record<MobKind, MobVariantUrls[]>> = {
     { idle: "/sprites/bandit.png", walk: frameUrls("banditWalk", 4), action: frameUrls("banditAttack", 3) },
   ],
   halfLatch: frameUrls("halfLatch", 5).map((idle) => ({ idle })),
+  // The monster roster: one look each, 4 walk + 3 attack frames, idle = walk frame 0. The static
+  // /sprites/<kind>.png stays as the fallback texture only.
+  goblin: [{ walk: frameUrls("goblinWalk", 4), action: frameUrls("goblinAttack", 3) }],
+  wolf: [{ walk: frameUrls("wolfWalk", 4), action: frameUrls("wolfAttack", 3) }],
+  goblinCrossbow: [{ walk: frameUrls("goblinCrossbowWalk", 4), action: frameUrls("goblinCrossbowAttack", 3) }],
+  orc: [{ walk: frameUrls("orcWalk", 4), action: frameUrls("orcAttack", 3) }],
+  skeleton: [{ walk: frameUrls("skeletonWalk", 4), action: frameUrls("skeletonAttack", 3) }],
+  armoredOrc: [{ walk: frameUrls("armoredOrcWalk", 4), action: frameUrls("armoredOrcAttack", 3) }],
+  giantSpider: [{ walk: frameUrls("giantSpiderWalk", 4), action: frameUrls("giantSpiderAttack", 3) }],
+  darkShaman: [{ walk: frameUrls("darkShamanWalk", 4), action: frameUrls("darkShamanAttack", 3) }],
+  troll: [{ walk: frameUrls("trollWalk", 4), action: frameUrls("trollAttack", 3) }],
+  ogre: [{ walk: frameUrls("ogreWalk", 4), action: frameUrls("ogreAttack", 3) }],
 };
+// Wide, low kinds whose anim set is sized by the first walk frame's longer side (its width), like
+// the static mob textures (upsertMob), so they don't balloon horizontally. Every other animated
+// kind fits by height: a walk canvas is widened symmetrically around the body's centroid to fit
+// each frame's weapon reach, so its width overstates an upright body and a longer-side fit would
+// shrink orcs/crossbowmen ~15% below their static size.
+const MOB_ANIM_FIT_LONGER_SIDE = new Set<MobKind>(["wolf", "giantSpider"]);
 // A stationary mob within this distance of a colonist/player plays its attack cycle (mob snapshots
 // carry no state, so this is inferred client-side).
 const MOB_ATTACK_ANIM_RANGE_PX = 40;
-// Ranged kinds stand off at their server attack range (banditArcher: TILE_SIZE * 4), plus slack.
+// Ranged kinds stand off at their server attack range (banditArcher/goblinCrossbow: TILE_SIZE * 4,
+// darkShaman: TILE_SIZE * 5), plus slack.
 const MOB_ATTACK_ANIM_RANGE_OVERRIDES_PX: Partial<Record<MobKind, number>> = {
   banditArcher: TILE_SIZE * 4 + 16,
+  goblinCrossbow: TILE_SIZE * 4 + 16,
+  darkShaman: TILE_SIZE * 5 + 16,
 };
 
 function stableHash(id: string): number {
@@ -303,9 +324,9 @@ function mobHitRadius(kind: MobKind): number {
   return Math.max(MOB_HIT_RADIUS, (radius * MOB_SPRITE_SIZE_PER_RADIUS) / 2);
 }
 
-// Sprite art per tile type. TownCenter (hand-drawn in drawTile) and Empty (bare floor) are
-// deliberately absent.
+// Sprite art per tile type. Empty (bare floor) is deliberately absent.
 const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
+  [TileType.TownCenter]: "townCenter",
   [TileType.Wall]: "woodWall",
   [TileType.StoneWall]: "stoneWall",
   [TileType.KnightPost]: "barracks",
@@ -390,6 +411,11 @@ const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
 // on the tile's bottom edge so tall art (towers, castles, trees) rises into the row above.
 const TILE_SPRITE_MAX_WIDTH_TILES = 1.4;
 const TILE_SPRITE_MAX_HEIGHT_TILES = 2;
+// The Town Center art is a whole plaza-with-buildings scene on its own ground patch, so it skips the
+// box fit: a fixed 3.5-tile width (~2.25 tiles tall) reads as the colony's centerpiece, and the
+// anchor is the patch's center (its isometric diamond's midpoint), pinned on the tile's center.
+const TOWN_CENTER_WIDTH_TILES = 3.5;
+const TOWN_CENTER_ANCHOR = { x: 0.51, y: 0.67 };
 
 interface EntityVisual {
   sprite: Container;
@@ -611,10 +637,16 @@ async function main() {
     scale: number;
     refHeight: number;
   }
-  function buildAnimSet(urls: { walk: string[]; action: string[] }, renderHeight: number): AnimSet {
+  // `renderSize` is the first walk frame's rendered height, or its longer side with `fitLongerSide`.
+  function buildAnimSet(
+    urls: { walk: string[]; action: string[] },
+    renderSize: number,
+    fitLongerSide = false
+  ): AnimSet {
     const walk = urls.walk.map((u) => loadedTextures[u]);
     const refHeight = walk[0].height;
-    return { walk, action: urls.action.map((u) => loadedTextures[u]), scale: renderHeight / refHeight, refHeight };
+    const refSize = fitLongerSide ? Math.max(walk[0].width, refHeight) : refHeight;
+    return { walk, action: urls.action.map((u) => loadedTextures[u]), scale: renderSize / refSize, refHeight };
   }
   // Feet sit on each frame's bottom edge; pin them to where the first walk frame's feet land when
   // that frame is center-anchored, so switching between rows of different heights doesn't hop.
@@ -681,7 +713,10 @@ async function main() {
       return [
         kind,
         variants.map((v): MobVariant => {
-          const anim = v.walk && v.action ? buildAnimSet({ walk: v.walk, action: v.action }, size) : null;
+          const anim =
+            v.walk && v.action
+              ? buildAnimSet({ walk: v.walk, action: v.action }, size, MOB_ANIM_FIT_LONGER_SIDE.has(kind as MobKind))
+              : null;
           const idle = v.idle ? loadedTextures[v.idle] : anim!.walk[0];
           const idleScale = v.idle ? size / Math.max(idle.width, idle.height) : anim!.scale;
           return { idle, idleScale, anim };
@@ -790,11 +825,8 @@ async function main() {
     }
   }
 
-  const gridGraphics = new Graphics();
-  worldLayer.addChild(gridGraphics);
-
-  // Building/environment art, one Sprite per occupied tile (keyed by tile index). Sits over the
-  // floor/Town Center vector art and under the night overlay and every entity layer.
+  // Building/environment art (Town Center included), one Sprite per occupied tile (keyed by tile
+  // index). Sits over the floor and under the night overlay and every entity layer.
   const tileSpriteLayer = new Container();
   tileSpriteLayer.sortableChildren = true;
   worldLayer.addChild(tileSpriteLayer);
@@ -826,42 +858,8 @@ async function main() {
   const selectionRings = new Graphics();
   const dragBox = new Graphics();
 
-  function drawTile(gfx: Graphics, x: number, y: number, tile: number) {
-    const px = x * tileSize;
-    const py = y * tileSize;
-    const cx = px + tileSize / 2;
-
-    // Floor itself is real grass-texture sprites in floorSpriteLayer (see setFloorSprites);
-    // gridGraphics now only draws Town Center, on top of that floor.
-    switch (tile) {
-      case TileType.TownCenter: {
-        // Grand stone keep: wider than a tile, flanking towers, crenellations.
-        gfx.rect(px - 3, py + 12, tileSize + 6, tileSize - 12).fill(0x7a7468);
-        gfx.rect(px - 5, py + 4, 9, tileSize - 4).fill(0x635d52);
-        gfx.rect(px + tileSize - 4, py + 4, 9, tileSize - 4).fill(0x635d52);
-        for (const bx of [px - 5, px + 1, px + 7, px + 13, px + 19, px + tileSize - 4, px + tileSize]) {
-          gfx.rect(bx, py + 6, 5, 6).fill(0x4f4a40);
-        }
-        gfx.rect(cx - 5, py + tileSize - 14, 10, 12).fill(0x241f18);
-        gfx.circle(cx, py + tileSize - 9, 1.6).fill(0xd4af37);
-        // Big, unmistakable banner, towering well above the keep.
-        gfx.rect(cx - 2, py - 26, 3, 32).fill(0x3a2410);
-        gfx
-          .poly([cx + 1, py - 26, cx + 1, py - 4, cx + 20, py - 9, cx + 20, py - 21])
-          .fill(0xc0392b);
-        gfx
-          .poly([cx + 1, py - 21, cx + 1, py - 9, cx + 20, py - 15])
-          .fill(0xf1c40f);
-        gfx.circle(cx, py - 26, 2.4).fill(0xf1c40f);
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
   // Single source of truth for tileSpriteLayer: shows `tile`'s art at (tx, ty), or clears the
-  // slot back to bare floor if it has none (Empty, TownCenter, anything unmapped).
+  // slot back to bare floor if it has none (Empty, anything unmapped).
   function setTileSprite(tx: number, ty: number, tile: number) {
     const index = ty * worldTilesX + tx;
     const texture =
@@ -882,10 +880,17 @@ async function main() {
       sprite.texture = texture;
     } else {
       sprite = new Sprite(texture);
-      sprite.anchor.set(0.5, 1);
       tileSpriteLayer.addChild(sprite);
       tileSprites.set(index, sprite);
     }
+    if (tile === TileType.TownCenter) {
+      sprite.anchor.set(TOWN_CENTER_ANCHOR.x, TOWN_CENTER_ANCHOR.y);
+      sprite.scale.set((tileSize * TOWN_CENTER_WIDTH_TILES) / texture.width);
+      sprite.position.set(tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2);
+      sprite.zIndex = index;
+      return;
+    }
+    sprite.anchor.set(0.5, 1);
     const fillTile = TILE_SPRITE_FILL_TILE.has(tile);
     const naturalScale = fillTile
       ? Math.max(tileSize / texture.width, tileSize / texture.height)
@@ -900,18 +905,6 @@ async function main() {
     // Row-major index: lower rows draw in front of the rows above them; x breaks ties. Flush
     // ground-like tiles (water) go under all other tile art.
     sprite.zIndex = fillTile ? -1 : index;
-  }
-
-  // Town Center only now; the floor is real sprites (setFloorSprites) and everything else is in
-  // tileSpriteLayer.
-  function redrawGridGraphics() {
-    gridGraphics.clear();
-    for (let x = 0; x < worldTilesX; x++) {
-      for (let y = 0; y < worldTilesY; y++) {
-        const tile = tiles[y * worldTilesX + x] ?? TileType.Empty;
-        drawTile(gridGraphics, x, y, tile);
-      }
-    }
   }
 
   // Floor never changes per-tile, so this only needs to run on a full map (re)load, not per edit.
@@ -967,7 +960,6 @@ async function main() {
   function redrawGrid() {
     setFloorSprites();
     setDecorSprites();
-    redrawGridGraphics();
     for (let x = 0; x < worldTilesX; x++) {
       for (let y = 0; y < worldTilesY; y++) {
         setTileSprite(x, y, tiles[y * worldTilesX + x] ?? TileType.Empty);
@@ -986,13 +978,10 @@ async function main() {
 
   function setTileLocal(tx: number, ty: number, tile: number) {
     const index = ty * worldTilesX + tx;
-    const prev = tiles[index];
     tiles[index] = tile;
     setTileSprite(tx, ty, tile);
     const decor = decorSprites.get(index);
     if (decor) decor.visible = tile === TileType.Empty;
-    // gridGraphics only varies with Town Center placement now (the floor is static).
-    if (prev === TileType.TownCenter || tile === TileType.TownCenter) redrawGridGraphics();
   }
 
   function drawHpBar(bar: Graphics, hp: number, maxHp: number) {
@@ -2126,7 +2115,11 @@ async function main() {
         x: Math.floor(worldTilesX / 2) * tileSize + tileSize / 2,
         y: Math.floor(worldTilesY / 2) * tileSize + tileSize / 2,
       };
-      townCenterHpBar.position.set(townCenterPx.x, townCenterPx.y - 24);
+      // Just above the Town Center art's top edge (its flag), which rises well above the tile.
+      const tcTexture = TILE_TEXTURES.get(TileType.TownCenter)!;
+      const tcArtAbove =
+        ((tileSize * TOWN_CENTER_WIDTH_TILES) / tcTexture.width) * tcTexture.height * TOWN_CENTER_ANCHOR.y;
+      townCenterHpBar.position.set(townCenterPx.x, townCenterPx.y - tcArtAbove - 6);
       worldLayer.addChild(cursorHighlight);
       worldLayer.addChild(formationMarker);
       worldLayer.addChild(selectionRings);

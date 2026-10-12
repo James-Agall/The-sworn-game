@@ -23,8 +23,30 @@ farmhand, artisan, militia, spearman, pikeman.
 **Player:** player.png (mounted knight on horse, recolored per-player via a hue-shift shader on
 the banner/barding).
 
-**Monsters (static pose, 10):** goblin, wolf, goblinCrossbow, orc, skeleton, armoredOrc,
-giantSpider, darkShaman, troll, ogre.
+**Monsters (10 kinds, walk + attack animated):** goblin, wolf, goblinCrossbow, orc, skeleton,
+armoredOrc, giantSpider, darkShaman, troll, ogre. Each kind has `<kind>Walk0-3` + `<kind>Attack0-2`
+(70 PNGs), wired as a one-look entry in `MOB_VARIANT_URLS` in `client/src/main.ts`, so they use the
+bandits' client-side walk/attack inference. The static `<kind>.png` files stay on disk as the
+fallback texture only.
+- Sources (in `art-sources/`): `Pixel Art Monster Sprite Sheets.png` (goblin, wolf, crossbowman,
+  orc), `Pixel Fantasy Monster Animation Sprite Sheet.png` (skeleton, armoured orc, giant spider,
+  dark shaman), `Pixel Art Troll and Ogre Cycles.png` (troll, ogre). All three sheets are drawn
+  facing right, so no frames were mirrored.
+- Extraction: the first sheet carries a real silhouette alpha, which was used directly. The other two
+  are opaque, so their dark vignette backgrounds were flood-filled away from the border, stopping at
+  the black outline. Outline gaps that leaked into dark-shaded interiors were re-filled. Label pills
+  and the grid divider lines were dropped. Detached frame parts stay with their frame: the
+  crossbow bolt, the troll and ogre debris, and the Dark Shaman's orb glow. Each row is normalized
+  onto one shared canvas with the same convention as the colonist sets: feet on the bottom edge,
+  centered on the mass centroid.
+- Ranged kinds play their attack cycle at stand-off range (`MOB_ATTACK_ANIM_RANGE_OVERRIDES_PX`).
+  That is goblinCrossbow at `TILE_SIZE * 4 + 16` and darkShaman at `TILE_SIZE * 5 + 16`, each
+  matching its server range plus slack, like banditArcher.
+- Scale: the set's size is still `radius * MOB_SPRITE_SIZE_PER_RADIUS`. Wolf and giantSpider
+  (`MOB_ANIM_FIT_LONGER_SIDE`) fit it along the first walk frame's longer side, as the static
+  textures did, so they don't balloon horizontally. Every other kind fits it by height, because a
+  walk canvas is widened around the centroid for weapon reach. Rendered body heights land within
+  0.93-1.00x of the old static art, from goblin ~23px up to ogre ~51px.
 
 **Bandits (Encampment guardians, 3 MobKinds):** each kind has one fixed look with walk + attack
 frames (`MOB_VARIANT_URLS` in `client/src/main.ts`). Encampments pick among them 5:3:1
@@ -60,6 +82,26 @@ unused: every colonist, soldier or monster death drops one (random variant) at t
 `gravestones` list; the server clears them all at the next dawn.
 
 **Decorative nature scatter:** tallGrass, flowers1, bush3.
+
+**Town Center:** dedicated `townCenter.png`, a plaza scene with a ring of timber buildings,
+a central statue fountain, market stalls and its own cobble/grass ground patch. It is cut from
+`art-sources/Isometric Medieval Landmark Collection.png`. It replaces the old procedural
+`drawTile()`/`gridGraphics` keep, and that layer was deleted. It skips the building box fit: it
+renders 3.5 tiles wide (`TOWN_CENTER_WIDTH_TILES`, 112x72px), and the anchor
+(`TOWN_CENTER_ANCHOR`, 0.51/0.67) puts the patch's diamond center, the statue, on the tile center.
+The HP bar sits just above the art's flag, about 54px above the tile center (it used to be 24px).
+
+**Sourced but not wired (design calls pending):**
+- `castleKeep.png` (same landmark sheet): a walled castle with four towers and a gatehouse ramp.
+  A possible Castle Lv3 look, but it would replace `castleLv3.png` and needs its own size/anchor
+  like the Town Center. Its ground patch touches the right edge of the source image.
+- `abbeyGrounds.png` (same sheet): the abbey with its fenced graveyard, trees and statues as one
+  scene. It would duplicate the props world-gen already places around `abbeyHall.png`, so using it
+  means retiring those props for a single multi-tile landmark sprite.
+- `gateWood.png` / `gateStone.png` (`art-sources/Wooden and Stone Medieval Gates.png`): a palisade
+  gate with two watchtowers, and a stone gatehouse with a portcullis. They need a new buildable
+  gate tile type with its own rules (passable for colonists/units, blocking for mobs?) in the
+  server and both `protocol.ts` copies.
 
 **Saint Wren's Abbey (world-gen landmark):** the hall is the dedicated `abbeyHall.png` (long stone
 nave + bell tower, rendered at 2x the box fit), surrounded by existing statue, fence, cross,
@@ -121,27 +163,6 @@ visual-only (the `activeEffects` system in `main.ts`):
 
 ## Outstanding — with ready-to-use prompts
 
-### 3. Monster animations (walk + attack cycle, one image each)
-
-Same combined-block pattern as the colonist walk/attack sheets (one image per kind, walk row +
-attack row), each referencing its own already-made static sprite for consistency. Once sourced, wire
-it up like the bandits (`MOB_VARIANT_URLS` in `client/src/main.ts`), which already infer
-walk/attack client-side. Template (shown for Goblin, repeat per kind):
-
-**Goblin**
-> Pixel art monster animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated dark-fantasy palette. Match the exact art style, outline weight, color palette, and creature scale of the existing Goblin sprite you already made for me (small, scrawny, sickly green skin, ragged brown loincloth, rusty dagger). In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle in every frame, a menacing scuttling gait. Row 2 "Attack Cycle" — 3 frames: dagger raised, dagger stabbed forward, recovery. Transparent background, clean PNG.
-
-Repeat with the same structure for:
-- **Wolf** — 4-legged lunging walk, bite attack
-- **Goblin Crossbowman** — walk + draw/aim/fire
-- **Orc** — walk + axe swing
-- **Skeleton** — shambling walk + sword swing
-- **Armoured Orc** — heavy walk + mace swing
-- **Giant Spider** — 8-legged skitter + fang lunge
-- **Dark Shaman** — float/glide walk + staff cast
-- **Troll** — lumbering walk + club smash
-- **Ogre** — heavy lumbering walk + huge club smash
-
 ### 11. Blood splatter (ground decal, one batched sheet)
 
 For the combat-feedback plan (`ROADMAP.md` §7 Phase 2): a persistent ground stain at a hit/death
@@ -157,19 +178,91 @@ stamp one (random variant, slight random rotation) into the floor/decor layer at
 (reuse the melee-hit `AttackEffect` the combat-VFX work already added) and/or a death location,
 and clear it at the same day-cycle boundary a future Gravestone feature would use.
 
-### 12. Town Center — new dedicated building art (currently hand-drawn, not a sprite)
+---
 
-The Town Center is the one building left entirely without sourced art — it's drawn procedurally in
-`drawTile()`/`gridGraphics` in `client/src/main.ts` (a grey stone keep wider than one tile, two
-flanking towers, a crenellated roofline, a door, and a tall red-and-gold banner towering well above
-the roof — see that function for the exact current shapes/colors if useful as a reference for what
-to match or deliberately improve on).
+## New requests (2026-10-12 batch) — for upcoming phases and polish
 
-> Pixel art building tile sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette matching the existing building roster (see Barracks, Castle Lv2/3, Church for reference). The colony's Town Center: a grand stone keep, noticeably wider than a single building tile, with two flanking corner towers, a crenellated roofline, a heavy wooden door at ground level, and — most importantly — a single tall banner pole rising well above the roofline flying a large, unmistakable red-and-gold banner, clearly the tallest and most prominent silhouette in the building roster so it reads instantly as the colony's seat from across the map. Single static building, slight 3/4 top-down angle, centered in frame, transparent background, no ground shadow. Clean PNG with transparency.
+Each prompt follows the file's convention: chunky 16-bit pixel art, thick black outline, flat
+cel-shaded color, transparent background, one generation per block, and an explicit **scale line**
+anchoring size to an existing sprite. Grouped by the feature they unlock.
 
-Once sourced, extract as `townCenter.png`, add `TileType.TownCenter` to `TILE_SPRITE_FILES` in
-`main.ts`, and remove the `TileType.TownCenter` case from `drawTile()`/`gridGraphics` (along with
-the now-dead "gridGraphics only draws Town Center" comments it leaves behind).
+### Combat feedback & world life
+
+### 13. Player (mounted knight) walk + attack cycle
+
+`player.png` is a single static pose; the player is the only unit that still glides without animating.
+The blue banner and horse barding are recolored per player by a hue-shift shader, so keep those parts
+a flat saturated blue and everything else (armor, horse, tack) neutral.
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, outline weight, color palette and rider-plus-horse proportions of the existing player.png (armored knight on a grey horse carrying a tall blue banner). **Scale: identical to player.png (the whole mounted figure, banner included, is about 64px tall on screen, roughly 2.3x the height of a foot soldier); keep the horse and rider the same size in every frame.** In one image: Row 1 "Walk Cycle" — 4 frames, same scale and 3/4 camera angle facing right in every frame, horse in a steady walk with a slight rider bob and the banner swaying. Row 2 "Attack Cycle" — 3 frames: lance or sword raised and wound back, strike forward, recovery. Keep the banner flat saturated blue. Transparent background, feet/hooves on the bottom edge of a shared canvas, clean PNG.
+
+### 14. Ward Priest — dedicated sprite + walk/tend cycle
+
+The Ward Priest currently reuses the Church bishop art, so the two are indistinguishable.
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. A wandering ward-keeper priest, clearly distinct from the existing Bishop sprite (which wears a tall cream-and-gold mitre): plain undyed grey-and-ash robes with a deep hood, a rope belt, a hand lantern with a warm candle glow in one hand and a short iron-shod staff in the other, a few pale wax drips on the sleeve. Humble and weathered, not ceremonial. Match the art style, outline weight and palette of the existing Bishop and Farmhand sprites. **Scale: same body height as the existing colonist sprites (Bishop, Farmer) — about 28px tall on screen; lantern and staff may extend slightly beyond that.** In one image: Row 1 "Walk Cycle" — 4 frames, same scale and camera angle facing right, lantern swinging slightly. Row 2 "Tend Cycle" — 3 frames: kneeling or bending to the stone with the lantern lowered, raising the lantern so its light flares, standing back up. Transparent background, feet on the bottom edge of a shared canvas, clean PNG.
+
+### 15. Ogre Warlord — Castle Ruin boss (static + walk + attack + slam)
+
+For Phase 5's boss: "a bigger version of our most powerful mob." Needs its own look, not just an upscaled Ogre.
+> Pixel art monster animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated dark-fantasy palette. A towering ogre warlord, a clear escalation of the existing Ogre sprite (same pinkish-brown skin, bald head, tusks, heavy build): add a jagged iron crown fused into the skull, rusted shoulder plates and a studded iron belt, red war-paint streaks across the face and chest, a tattered dark banner strapped to its back, and a huge spiked iron-and-stone maul. Should read instantly as "the boss". Match the existing Ogre's art style, outline weight and palette. **Scale: the same drawing style as the Ogre, but 1.6x larger in every dimension (the Ogre is about 51px tall on screen, so the Warlord is about 82px tall); keep it identical in size in every frame.** In one image: Row 1 "Walk Cycle" — 4 frames, facing right, a slow heavy stomp. Row 2 "Attack Cycle" — 3 frames: maul raised overhead, slammed down with debris, recovery. Row 3 "Roar" — 3 frames: head back, chest out, a shockwave ring, settle. Plus one centered static idle pose. Transparent background, feet on the bottom edge of a shared canvas, clean PNG.
+
+### 16. Hunger-mark sigils (6 icons + 6 ground auras)
+
+For Phase 6's Hunger-marked elites (`my_novel/lore/bestiary.md`). Each mark needs a small glyph shown above the monster plus a faint aura ring decal drawn on the ground under it.
+> Pixel art icon set, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, small and simple enough to read at 14-18px display size. Six sinister sigils, each a distinct silhouette and a distinct glowing color so they can be told apart at a glance: **Gorrath** (destruction) — a jagged red-black flame with a shattered blade through it; **Nemri** (trespass) — a hollow doorway with a keyhole, cold teal; **Rux** (false authority) — a smiling theatre mask under a broken crown, sickly yellow; **Morvain** (concealment) — a half-veiled eye that is mostly smoke, violet; **Gunne** (what is lost) — an empty cradle or a single falling tear, pale blue-grey; **Vhorrun** (the unclosed debt) — a loose chain looped around itself, never joined, dull bone-white. Arrange as a clean grid, each on its own transparent square, consistent outline weight. **Scale: each glyph about 18x18px, the same icon scale as the resource icons (icon-wood etc.).** Then a second row of six matching ground-aura ring decals: a flat elliptical glowing ring in the same color with faint matching rune ticks, semi-transparent, drawn as if lying on the ground, each about 56x28px (about 2x as wide as a Troll). Clean PNG with transparency.
+
+### 17. Castle Ruin — large ruined castle POI (Phase 5 objective)
+
+> Pixel art isometric building sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated dark palette. A collapsed, overgrown ruin of the same grand castle shown in the existing Castle Keep sprite: the central keep with a broken, half-fallen top and exposed floors, two of the corner towers toppled into rubble, cracked curtain walls with big breaches, a sagging gatehouse with a torn dark banner, ivy and weeds on the stone, scattered stone blocks and bone piles in the courtyard, a faint cold green-grey glow in the windows suggesting something lives inside. Dark, menacing, clearly the same architecture as the intact Keep but long abandoned. Include its own ground patch, like the other landmark sprites. Match the exact style, outline weight, color palette and lighting of the existing Castle Keep and Town Center landmark sprites. **Scale: about the same footprint as the Castle Keep landmark (roughly 4-5 tiles wide on screen, far larger than a normal Ruin prop, which is about one tile).** Single static scene, transparent background, clean PNG.
+
+### 18. Gate open / closed / damaged states (for the unwired `gateWood` / `gateStone`)
+
+Only needed once Gates exist as a buildable.
+> Pixel art isometric building sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art, proportions and palette of the existing gateWood and gateStone sprites. For EACH of the two gates provide three states, laid out as two rows (wood on top, stone below) with columns "Closed", "Open", "Damaged": Closed = as in the existing sprite; Open = the same gate with the wooden doors swung fully open (or the stone portcullis raised), path clearly visible through it; Damaged = closed but splintered/cracked, a door hanging from one hinge or the portcullis bent, scorch marks. **Scale: identical to the existing gateWood and gateStone sprites in every state (same canvas size and ground patch), so the states can be swapped in place without the building appearing to move.** Transparent background, clean PNG.
+
+### Polish, animation and UI
+
+### 19. Fire and light flicker (campfire, lantern post, torch)
+
+> Pixel art animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, warm saturated flame colors. Match the exact art and scale of the existing campfire.png and lanternPost.png sprites. Three rows, each 4 frames of a looping flicker, same canvas and camera angle in every frame so only the flame/glow changes: Row 1 the campfire (ring of stones, flames licking up and shifting), Row 2 the lantern post (lantern flame wavering, a faint glow), Row 3 a wall torch (a new small prop: iron bracket with a flaming torch, the same style) for gates and castle walls. **Scale: campfire and lantern post identical to their existing sprites (about one tile wide on screen); the torch about 12x24px.** Transparent background, clean PNG.
+
+### 20. Water ripple (4-frame tile loop)
+
+> Pixel art tile animation, chunky 16-bit retro style, flat cel-shaded coloring. Match the exact style and size of the existing waterTile.png (a flat top-down/angled water tile). Four frames of a seamless looping ripple: subtle lighter-blue highlight lines and a few tiny sparkles shifting position each frame, base color unchanged, edges identical in every frame so adjacent tiles never show seams. **Scale: each frame exactly the same canvas size as waterTile.png (one tile).** Arranged in a single row, clean PNG.
+
+### 21. Event toast icons (6)
+
+For the Phase 2 notification feed, one small icon per event category.
+> Pixel art icon set, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, readable at 16px. Same style, outline weight and polish as the existing resource icons (icon-wood, icon-gold, icon-tools). Six icons: **night** — a crescent moon with a star; **dawn** — a low sun rising over a horizon line; **upgrade** — a hammer over an upward arrow; **death** — a small gravestone with a cross; **ward** — a standing stone with a glowing rune; **deserter** — a torn banner dragged on the ground. Each on its own transparent square, consistent scale. **Scale: each icon about 16x16px, the same as the existing resource icons.** Clean PNG with transparency.
+
+### 22. Stance and order icons (3 stances + 3 cursors)
+
+For the stance HUD line (Defensive / Normal / Aggressive, keys Z / X / E) and command cursors.
+> Pixel art icon set, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, readable at 16px, matching the existing resource icons. Row 1, three stance icons: **Defensive** — a heater shield; **Normal** — a plain sword point-up; **Aggressive** — two crossed swords with a small flame. Row 2, three cursor icons about 24px: **Move** — a boot print / chevron arrow; **Attack** — a sword with a small red target ring; **Rally** — a small blue pennant on a pole. **Scale: stance icons 16x16px (same as the resource icons); cursors 24x24px.** Each on its own transparent square. Clean PNG with transparency.
+
+### 23. Ambient wildlife (deer, crow, frog)
+
+Small non-hostile decoration that makes the map feel alive; wanders, never attacks.
+> Pixel art animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted natural palette matching the grass and swamp floor tiles. Three creatures, each with a short loop, all facing right and sharing one canvas per row with feet on the bottom edge: a **deer** (4-frame walk, plus 2-frame head-down graze), a **crow** (4-frame flap), a **frog** (a 3-frame hop). Match the existing monster roster's outline weight and desaturated palette, but friendlier and calm. **Scale: the deer about 22px long, comparable to the Wolf (about 24px wide on screen); the crow about 8px; the frog about 6px.** Transparent background, clean PNG.
+
+### 24. Wound overlays (for the future visual-health system)
+
+For the "bleed and armor deteriorates with health" feature: drawn over any unit sprite as health drops.
+> Pixel art overlay decal sheet, chunky 16-bit retro style, flat cel-shaded coloring, transparent background. Three escalating wound overlays sized to sit on a small humanoid unit sprite: **Light** — two or three small dark-red scratches and a few drops; **Bleeding** — a dark-red stain across the torso with drips running down; **Heavy** — a large dark-red stain, torn cloth edges and several spatters. Semi-transparent in the middle, crisp dark edges, no outline around the whole square. **Scale: each overlay 28x28px, the same height as a colonist sprite (28px), so it can be centered directly on a unit; also provide a 2x larger version of each (56x56px) for big monsters like the Troll and Ogre.** Clean PNG with transparency.
+
+### 25. Battered-armor variants (Knight, Pikeman, Armoured Orc — static)
+
+Also for visual health: the armored units show dents and missing plates at low health.
+> Pixel art character sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring. Three static pose pairs, each a "Pristine" next to a "Battered" version: the **Knight** (grey plate, helm, round shield, sword), the **Pikeman** (full plate with red plume, long pike) and the **Armoured Orc** (spiked iron plate, spiked mace). The Battered version keeps the exact same pose, proportions and palette but shows dented, scratched and cracked plates, a missing shoulder plate or a snapped plume, and scuffs of dirt and dried blood. Match the exact style, outline weight and palette of the existing sprites for each. **Scale: identical to the existing Knight, Pikeman and Armoured Orc sprites (the colonists about 28px tall on screen, the Armoured Orc about 36px); the Battered version must have the same canvas size and body position as its Pristine twin so the two can be swapped in place.** Transparent background, clean PNG.
+
+### 26. Gameplay VFX sheet 2 (build, upgrade, heal, poison, ward)
+
+Extends the combat-effects sheet (`fx-slash/spark/poof/arrow`) to the systems that landed since.
+> Pixel art game effect sprite sheet, chunky 16-bit retro style, bright saturated colors that pop against the muted terrain, thick black outline where appropriate. Match the style, outline weight and polish of the existing fx-slash, fx-spark and fx-poof sprites. Each effect as a short animation, 4 frames in a row, same canvas size per effect: **Build** — a puff of tan dust with a few flying wood chips; **Upgrade** — a gold ring of sparkles rising and fading with a small arrow; **Heal** — a soft green-white pulse ring with rising plus signs; **Poison** — a sickly green cloud with bubbles drifting up; **Ward pulse** — a pale gold ring expanding outward with faint rune marks (for a Ward Stone being tended); **Ward lapse** — the same ring flickering, cracking and fading to grey. **Scale: Build/Upgrade/Heal/Poison about 32x32px (one tile, like fx-poof); the Ward pulse and Ward lapse rings about 96x48px, wide enough to read as a flat expanding ring around a stone.** Transparent background, clean PNG.
+
+### 27. Road and path tiles (autotile set) + cobble plaza
+
+For roads between buildings and to blend with the new Town Center plaza art.
+> Pixel art ground tile set, chunky 16-bit retro style, flat cel-shaded coloring, matching the exact style, size and palette of the existing dirtFloor.png, grassFloor1.png and sandFloor.png tiles. A dirt road autotile set with grass-blended edges: straight (horizontal and vertical), four corners, four T-junctions, a four-way cross, four dead-ends and a single isolated patch (14 tiles), plus one cobblestone plaza tile with a worn-stone pattern and a matching cobble straight road. All tiles seamless and with matching edge pixels so any neighbors connect cleanly. **Scale: every tile exactly the same size as the existing floor tiles (one tile).** Arranged in a clean labeled grid, transparent corners where the grass shows through, clean PNG.
 
 ## Notes on process
 
