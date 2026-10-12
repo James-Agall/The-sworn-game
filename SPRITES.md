@@ -103,6 +103,15 @@ visual-only (the `activeEffects` system in `main.ts`):
 - Source fixes: pikemanWalk1/3 had no pike in the source sheet, so frame 3's pike was grafted on.
   The neutral source frame (pike in the other hand) was dropped, and the cycle is ping-ponged.
   pikemanAttack2 still shows a stray second pike from the source.
+- Militia/Spearman/Pikeman share one scale (derived from Militia's own un-inflated walk canvas,
+  not each kind's own) since Pikeman/Spearman's raised polearm otherwise inflates their walk
+  canvas height and under-scales their body.
+- Idle (standing still) reuses each set's own walk-frame 0, not a separate static pose texture —
+  using the independently-extracted static PNG there caused a visible size pop on every
+  idle<->walk/action transition.
+- All art is drawn facing right. Every unit, mob, and the player flip horizontally (`applyFacing`
+  in `main.ts`) based on net horizontal movement direction, with a small dead zone so vertical-only
+  movement doesn't snap back to a default facing.
 
 ---
 
@@ -128,6 +137,35 @@ Repeat with the same structure for:
 - **Dark Shaman** — float/glide walk + staff cast
 - **Troll** — lumbering walk + club smash
 - **Ogre** — heavy lumbering walk + huge club smash
+
+### 11. Blood splatter (ground decal, one batched sheet)
+
+For the combat-feedback plan (`ROADMAP.md` §7 Phase 2): a persistent ground stain at a hit/death
+location, distinct from the existing `fx-*` effects (which are all short-lived and attached to the
+attacker/target/death point, not left behind on the ground). Meant to be stamped onto the floor
+layer and cleared the same way a future Gravestone would be (next day-cycle boundary), not faded
+out in milliseconds like `fx-poof`.
+
+> Pixel art ground decal sprite sheet, chunky 16-bit retro style, thick black outline where the splatter's edge is crisp, flat cel-shaded coloring, dark saturated red. Four variants of a blood splatter stain, each a different size and spray shape (a small spatter of a few drops, a medium splash with a few trailing droplets, a larger irregular pool, and an asymmetric directional spray as if flung sideways), each viewed top-down/angled to sit flat on the ground like the existing Farm Plot or floor tiles. Each on its own transparent square, consistent canvas scale across all four so any one can be picked at random. No outline around the whole square, only around the stain's own silhouette. Clean PNG with transparency.
+
+Once sourced, extract the 4 variants (e.g. `bloodSplatter0-3.png`) and wire into `client/src/main.ts`:
+stamp one (random variant, slight random rotation) into the floor/decor layer at a hit location
+(reuse the melee-hit `AttackEffect` the combat-VFX work already added) and/or a death location,
+and clear it at the same day-cycle boundary a future Gravestone feature would use.
+
+### 12. Town Center — new dedicated building art (currently hand-drawn, not a sprite)
+
+The Town Center is the one building left entirely without sourced art — it's drawn procedurally in
+`drawTile()`/`gridGraphics` in `client/src/main.ts` (a grey stone keep wider than one tile, two
+flanking towers, a crenellated roofline, a door, and a tall red-and-gold banner towering well above
+the roof — see that function for the exact current shapes/colors if useful as a reference for what
+to match or deliberately improve on).
+
+> Pixel art building tile sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette matching the existing building roster (see Barracks, Castle Lv2/3, Church for reference). The colony's Town Center: a grand stone keep, noticeably wider than a single building tile, with two flanking corner towers, a crenellated roofline, a heavy wooden door at ground level, and — most importantly — a single tall banner pole rising well above the roofline flying a large, unmistakable red-and-gold banner, clearly the tallest and most prominent silhouette in the building roster so it reads instantly as the colony's seat from across the map. Single static building, slight 3/4 top-down angle, centered in frame, transparent background, no ground shadow. Clean PNG with transparency.
+
+Once sourced, extract as `townCenter.png`, add `TileType.TownCenter` to `TILE_SPRITE_FILES` in
+`main.ts`, and remove the `TileType.TownCenter` case from `drawTile()`/`gridGraphics` (along with
+the now-dead "gridGraphics only draws Town Center" comments it leaves behind).
 
 ## Notes on process
 

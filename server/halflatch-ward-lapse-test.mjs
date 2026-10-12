@@ -1,19 +1,22 @@
 // Scripted test: Half-Latch, the minor demon that slips through when a Ward Stone's ward lapses.
-//   A) Setup: 2 Blacksmiths make 10 tools (then demolished), a Brewery burns the colony's grain, and
-//      a Ward Stone goes up next to the player / Town Center. Its bishop is "warding" by the stone.
-//   B) Ward up (isWarded true around it): while the bishop holds his post, night mobs find nothing to
+//   A) Setup: 2 Blacksmiths make 10 tools (then demolished), a Brewery burns the colony's grain, a
+//      Church goes up (Ward Stones require one) and a Ward Stone next to the player / Town Center.
+//      The Ward Priest walks over from the Church and is "warding" by the stone; with only one stone
+//      he re-tends it every 10s (WARD_TEND_TICKS), and the ward stands after his first tending.
+//   B) Ward up (isWarded true around it): while the priest keeps it tended, night mobs find nothing to
 //      target, so the player never takes damage and the Town Center is never hit. No halfLatch exists.
-//   C) Lapse, live: a Ward Stone bishop can't be hurt by mobs (pickMobTarget only picks guards/militia,
+//   C) Lapse, live: the Ward Priest can't be hurt by mobs (pickMobTarget only picks guards/militia,
 //      and he's warded anyway), so the only live death is starvation. Once food runs out he takes 10
-//      damage every dawn (25 hp -> dies on the 3rd starving dawn). In the exact snapshot (tick) his
-//      colonist disappears, exactly one halfLatch appears, at the stone's tile center, with the
-//      MOB_KIND_CONFIG stats (12 hp).
-//   D) Stays lapsed (no food -> the respawn queue can't refill the post) for 15s: still exactly one
-//      halfLatch id ever seen, never a second. The halfLatch is immediately active (moves off the stone
-//      toward a target on its own).
+//      damage every dawn (25 hp -> dies on the 3rd starving dawn). His death doesn't drop the ward at
+//      once: the stone stays warded until WARD_GRACE_TICKS (1200) after his last completed tending,
+//      i.e. 1000-1201 ticks after his death. Then exactly one halfLatch appears, at the stone's tile
+//      center, with the MOB_KIND_CONFIG stats (12 hp).
+//   D) Stays lapsed (no food -> his respawn can't be paid for) for 15s: still exactly one halfLatch
+//      id ever seen, never a second. The halfLatch is immediately active (moves off the stone toward a
+//      target on its own).
 //   E) Night-wave exclusion: no mob other than that one lapse spawn was ever a halfLatch, across every
 //      night observed during the run.
-// Sends "restart" first, which resets the world for every connected client. Runs ~4-6 minutes.
+// Sends "restart" first, which resets the world for every connected client. Runs ~9-12 minutes.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -29,7 +32,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TILE = 32;
 
 // Mirrors of protocol.ts values used here.
-const T = { Empty: 0, Blacksmith: 26, Brewery: 30, WardStone: 49 };
+const T = { Empty: 0, ChurchPost: 20, Blacksmith: 26, Brewery: 30, WardStone: 49 };
+const WARD_TEND_TICKS = 200;
+const WARD_GRACE_TICKS = 1200;
 
 function connect() {
   const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: null, listeners: [] };
@@ -110,8 +115,9 @@ const smiths = [];
 for (const t of reach) if (smiths.length < 2 && !smiths.some((s) => adj4(s, t))) smiths.push(t);
 const brewery = reach.find((t) => !smiths.some((s) => same(s, t)));
 const stone = reach.find((t) => !smiths.some((s) => same(s, t)) && !(brewery && same(brewery, t)));
-if (smiths.length < 2 || !brewery || !stone) {
-  result(false, `A: not enough free tiles in reach (smiths=${smiths.length}, brewery=${!!brewery}, stone=${!!stone})`);
+const church = reach.find((t) => !smiths.some((s) => same(s, t)) && !(brewery && same(brewery, t)) && !(stone && (same(stone, t) || adj4(stone, t))));
+if (smiths.length < 2 || !brewery || !stone || !church) {
+  result(false, `A: not enough free tiles in reach (smiths=${smiths.length}, brewery=${!!brewery}, stone=${!!stone}, church=${!!church})`);
   process.exit(1);
 }
 
@@ -129,17 +135,21 @@ await sleep(400);
 info(`A: tools=${a.snap.tools} wood=${a.snap.wood} food=${food()}; smiths demolished`);
 
 let halfLatchBeforeStone = [...firstSeen.values()].filter((e) => e.kind === "halfLatch").length;
+a.send({ type: "setTile", tileX: church.x, tileY: church.y, tile: T.ChurchPost });
+await sleep(300);
 a.send({ type: "setTile", tileX: stone.x, tileY: stone.y, tile: T.WardStone });
 await sleep(600);
 const warder = a.snap.colonists.find((k) => k.postX === stone.x && k.postY === stone.y);
-result(tileAt(stone.x, stone.y) === T.WardStone && warder?.kind === "bishop",
-  `A: Ward Stone at (${stone.x},${stone.y}) with a ${warder?.kind} posted there (tools ${a.snap.tools}, wood ${a.snap.wood})`);
+result(tileAt(church.x, church.y) === T.ChurchPost && tileAt(stone.x, stone.y) === T.WardStone && warder?.kind === "bishop",
+  `A: Church at (${church.x},${church.y}), Ward Stone at (${stone.x},${stone.y}) with the Ward Priest (${warder?.kind}) bound for it (tools ${a.snap.tools}, wood ${a.snap.wood})`);
 if (!warder) process.exit(1);
-await sleep(500);
 {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline && a.snap.colonists.find((k) => k.id === warder.id)?.state !== "warding") await sleep(50);
   const w = a.snap.colonists.find((k) => k.id === warder.id);
   result(w?.state === "warding" && dist(w, center(stone)) <= TILE * 1.5,
-    `A: bishop state "${w?.state}", ${(dist(w, center(stone)) / TILE).toFixed(2)} tiles from the stone (<= 1.5 = GARRISON_LOITER_PX -> ward active)`);
+    `A: priest state "${w?.state}", ${(dist(w, center(stone)) / TILE).toFixed(2)} tiles from the stone (<= 1.5 = GARRISON_LOITER_PX); ward stands after ${WARD_TEND_TICKS} ticks of tending`);
+  await sleep(11000);
 }
 info(`A: Town Center ${(dist(center(stone), center({ x: Math.floor(W() / 2), y: Math.floor(H() / 2) })) / TILE).toFixed(1)} and player ${(dist(center(stone), a.me()) / TILE).toFixed(1)} tiles from the stone (ward radius 12)`);
 
@@ -150,10 +160,10 @@ let tcHpAtLapse = null;
 let nightMobsWhileWarded = new Set();
 let wardUpNightSnaps = 0;
 let halfLatchSnapsBeforeLapse = 0;
-let lapse = null; // { snapIndex, snap, prevHadWarder }
+let death = null; // { snapIndex, snap, prevWarderHp }
 let lastWarderHp = warder.hp;
 a.listeners.push((s, prev) => {
-  if (lapse) return;
+  if (death) return;
   const w = s.colonists.find((k) => k.id === warder.id);
   if (w) {
     lastWarderHp = w.hp;
@@ -166,12 +176,12 @@ a.listeners.push((s, prev) => {
     tcHpAtLapse = s.townCenterHp;
     return;
   }
-  lapse = { snapIndex, snap: s, prevWarderHp: lastWarderHp };
+  death = { snapIndex, snap: s, prevWarderHp: lastWarderHp };
 });
 
-const drainDeadline = Date.now() + 8 * 60000;
+const drainDeadline = Date.now() + 12 * 60000;
 let lastLog = 0;
-while (!lapse && Date.now() < drainDeadline) {
+while (!death && Date.now() < drainDeadline) {
   if (Date.now() - lastLog > 15000) {
     lastLog = Date.now();
     const w = a.snap.colonists.find((k) => k.id === warder.id);
@@ -179,9 +189,30 @@ while (!lapse && Date.now() < drainDeadline) {
   }
   await sleep(200);
 }
-if (!lapse) {
-  result(false, `C: bishop never died within 8 minutes (food=${food()})`);
+if (!death) {
+  result(false, `C: priest never died within 12 minutes (food=${food()})`);
   process.exit(1);
+}
+result(!death.snap.mobs.some((m) => m.kind === "halfLatch"),
+  `C: priest starved (last hp ${death.prevWarderHp}, food ${food(death.snap)}); the ward does NOT lapse on his death tick (no halfLatch yet)`);
+const hlSeenAtDeath = [...firstSeen.values()].filter((e) => e.kind === "halfLatch").length;
+let lapse = null;
+a.listeners.push((s) => {
+  if (lapse || !s.mobs.some((m) => m.kind === "halfLatch")) return;
+  lapse = { snapIndex, snap: s };
+});
+{
+  const deadline = Date.now() + 90000;
+  while (!lapse && Date.now() < deadline) await sleep(100);
+}
+if (!lapse) {
+  result(false, `C: no halfLatch within 90s of the priest's death`);
+  process.exit(1);
+}
+{
+  const after = lapse.snapIndex - death.snapIndex;
+  result(hlSeenAtDeath === 0 && after >= WARD_GRACE_TICKS - WARD_TEND_TICKS - 3 && after <= WARD_GRACE_TICKS + 3,
+    `C: ward lapsed ${after} ticks after his death (grace: ${WARD_GRACE_TICKS} ticks from his last completed ${WARD_TEND_TICKS}-tick tending -> expect ${WARD_GRACE_TICKS - WARD_TEND_TICKS}..${WARD_GRACE_TICKS + 1})`);
 }
 
 result(wardUpNightSnaps > 0 && nightMobsWhileWarded.size >= 2 && minPlayerHpWardUp === 100 && tcHpAtLapse === tcHpWardUp0,
@@ -193,7 +224,7 @@ const ls = lapse.snap;
 const hlAtLapse = ls.mobs.filter((m) => m.kind === "halfLatch");
 const sc = center(stone);
 result(hlAtLapse.length === 1,
-  `C: bishop gone (starved, last hp ${lapse.prevWarderHp}, food ${food(ls)}) and the SAME snapshot/tick has exactly ${hlAtLapse.length} halfLatch`);
+  `C: the lapse snapshot/tick has exactly ${hlAtLapse.length} halfLatch`);
 if (hlAtLapse.length === 1) {
   const hl = hlAtLapse[0];
   result(hl.x === sc.x && hl.y === sc.y && hl.hp === 12 && hl.maxHp === 12,

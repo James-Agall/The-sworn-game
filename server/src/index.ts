@@ -958,7 +958,8 @@ function isValidPostTile(kind: ColonistKind, t: TileType): boolean {
   if (kind === "ironMiner") return t === TileType.IronMinePost;
   if (kind === "rockMiner") return t === TileType.RockMinePost;
   // Not AbbeyHall: Abbey clergy are world-gen residents and never go through the respawn queue.
-  if (kind === "bishop") return t === TileType.ChurchPost || t === TileType.WardStone;
+  // Not WardStone: the Ward Priest respawns through updateWardPriestPresence instead.
+  if (kind === "bishop") return t === TileType.ChurchPost;
   if (kind === "farmhand") return FARM_PRODUCE_BY_TILE[t] !== undefined;
   if (kind === "artisan") return CRAFT_RECIPES[t] !== undefined;
   return false;
@@ -1017,6 +1018,7 @@ function placementNeedsNewWorkerSlot(tile: TileType, tx: number, ty: number): bo
   if (tile === TileType.LumberjackPost) return findUpgradeTargetFor(tx, ty, TileType.LumberjackPost) === null;
   if (tile === TileType.BarnPost) return findUpgradeTargetFor(tx, ty, TileType.BarnPost) === null;
   if (tile === TileType.ChurchPost) return findUpgradeTargetFor(tx, ty, TileType.ChurchPost) === null;
+  if (tile === TileType.WardStone) return wardPriestId === null;
   if (FARM_PRODUCE_BY_TILE[tile] !== undefined || CRAFT_RECIPES[tile] !== undefined) {
     return findUpgradeTargetFor(tx, ty, tile) === null;
   }
@@ -1815,17 +1817,19 @@ function damageColonist(colonist: Colonist, amount: number) {
   colonist.hp -= amount;
   if (colonist.hp <= 0) {
     releaseResourceReservation(colonist);
-    queueRespawn(colonist);
+    if (!isWardPriest(colonist)) queueRespawn(colonist);
     colonists.delete(colonist.id);
   }
 }
 
 const COMMANDABLE_KINDS: ColonistKind[] = ["knight", "archer", "bishop", "militia", "spearman", "pikeman"];
 
-// Only a Church's bishop takes orders: a Ward Stone's bishop must hold his post for the ward to
-// stand, and the Abbey's clergy aren't the colony's at all. Mirrored by the client's isCommandable.
+// Only a Church's bishop takes orders: the Ward Priest must keep his rounds for the wards to stand,
+// and the Abbey's clergy aren't the colony's at all. Mirrored by the client's isCommandable (which
+// sees the Ward Priest's post as a Ward Stone).
 function isCommandable(c: Colonist): boolean {
   if (!COMMANDABLE_KINDS.includes(c.kind)) return false;
+  if (isWardPriest(c)) return false;
   return c.kind !== "bishop" || tiles[tileIndex(c.postX, c.postY)] === TileType.ChurchPost;
 }
 
@@ -2213,23 +2217,136 @@ function updateBishopColonist(c: Colonist, dt: number) {
   }
 }
 
-// A Ward Stone's bishop keeps the Unbroken Watch: no healing, just holds his place by the stone
-// (returnToRally's garrison loiter; his rally is always the stone since he can't be commanded).
-function updateWardingBishop(c: Colonist, dt: number) {
-  returnToRally(c, dt, BISHOP_SPEED);
-  if (c.state === "idle") c.state = "warding";
+// One Ward Priest per colony tends every Ward Stone in turn. He is a "bishop" colonist spawned at a
+// Church, but his postX/postY always names the Ward Stone he is heading to or tending, so he reads
+// as a (non-commandable) Ward Stone bishop everywhere the post tile is consulted, client included.
+const WARD_TEND_TICKS = TICK_RATE * 10;
+const WARD_GRACE_TICKS = TICK_RATE * 60;
+let wardPriestId: string | null = null;
+let wardPriestTendTicks = 0;
+// -1: no respawn pending. Otherwise counts down like a respawnQueue entry, then costs food.
+let wardPriestRespawnTicks = -1;
+// resourceKey -> cycleTick at which the priest last finished tending that stone. A stone with no
+// entry has never been tended and is not warded.
+const wardStoneLastTended = new Map<string, number>();
+
+function isWardPriest(c: Colonist): boolean {
+  return c.id === wardPriestId;
 }
 
-// Every position currently under a ward: the Abbey (always) plus each Ward Stone whose bishop is
-// alive and stationed at it. A dead bishop is already gone from `colonists`, so the stone's ward
-// lapses the same tick and stays down until the respawn queue refills the post.
+function tilesOfType(type: TileType): TileCoord[] {
+  const found: TileCoord[] = [];
+  for (let i = 0; i < tiles.length; i++) {
+    if (tiles[i] === type) found.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+  }
+  return found;
+}
+
+// Least-recently tended first (never-tended counts as oldest), nearest breaks ties.
+function nextWardStoneFor(c: Colonist, stones: TileCoord[], skip: TileCoord | null = null): TileCoord | null {
+  let best: TileCoord | null = null;
+  let bestTended = Infinity;
+  let bestDist = Infinity;
+  for (const s of stones) {
+    if (skip && s.x === skip.x && s.y === skip.y) continue;
+    const tended = wardStoneLastTended.get(resourceKey(s.x, s.y)) ?? -Infinity;
+    const center = tileToPixelCenter(s);
+    const d = Math.hypot(c.x - center.x, c.y - center.y);
+    if (tended < bestTended || (tended === bestTended && d < bestDist)) {
+      best = s;
+      bestTended = tended;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+function assignWardPriestTarget(c: Colonist, stone: TileCoord) {
+  c.postX = stone.x;
+  c.postY = stone.y;
+  c.rallyTileX = stone.x;
+  c.rallyTileY = stone.y;
+  const center = tileToPixelCenter(stone);
+  c.rallyX = center.x;
+  c.rallyY = center.y;
+  c.path = [];
+  wardPriestTendTicks = 0;
+}
+
+// Once per tick: forget tend records of demolished stones, then keep exactly one Ward Priest alive
+// while a Church and at least one Ward Stone exist (dismissed otherwise). A first priest, or one
+// re-summoned after a dismissal, appears at once; one that died waits RESPAWN_DELAY_TICKS and pays
+// RESPAWN_FOOD_COST, matching processRespawnQueue.
+function updateWardPriestPresence() {
+  for (const key of wardStoneLastTended.keys()) {
+    const [tx, ty] = key.split(",").map(Number);
+    if (tiles[tileIndex(tx, ty)] !== TileType.WardStone) wardStoneLastTended.delete(key);
+  }
+  const stones = tilesOfType(TileType.WardStone);
+  const church = tilesOfType(TileType.ChurchPost)[0] ?? null;
+  const priest = wardPriestId ? colonists.get(wardPriestId) : undefined;
+  if (wardPriestId && !priest) {
+    wardPriestId = null;
+    wardPriestRespawnTicks = RESPAWN_DELAY_TICKS;
+  }
+  if (priest && (stones.length === 0 || !church)) {
+    colonists.delete(priest.id);
+    wardPriestId = null;
+    return;
+  }
+  if (priest || stones.length === 0 || !church) return;
+  if (civilianPopulationUsed() >= populationCap()) return;
+  if (wardPriestRespawnTicks > 0) {
+    wardPriestRespawnTicks--;
+    return;
+  }
+  if (wardPriestRespawnTicks === 0 && !trySpendFood(RESPAWN_FOOD_COST)) return;
+  const spawned = spawnColonistForPost(church.x, church.y, "bishop");
+  wardPriestId = spawned.id;
+  wardPriestRespawnTicks = -1;
+  assignWardPriestTarget(spawned, nextWardStoneFor(spawned, stones)!);
+}
+
+function updateWardPriest(c: Colonist, dt: number) {
+  if (tiles[tileIndex(c.postX, c.postY)] !== TileType.WardStone) {
+    const next = nextWardStoneFor(c, tilesOfType(TileType.WardStone));
+    if (!next) {
+      c.state = "idle";
+      return;
+    }
+    assignWardPriestTarget(c, next);
+  }
+  const post = tileToPixelCenter({ x: c.postX, y: c.postY });
+  if (Math.hypot(c.x - post.x, c.y - post.y) > GARRISON_LOITER_PX) {
+    returnToRally(c, dt, BISHOP_SPEED);
+    if (c.state === "returning") {
+      c.state = "patrolling";
+    } else if (c.state === "idle") {
+      // No path to this stone (walled in): try another rather than stalling here forever.
+      const other = nextWardStoneFor(c, tilesOfType(TileType.WardStone), { x: c.postX, y: c.postY });
+      if (other) assignWardPriestTarget(c, other);
+    }
+    return;
+  }
+  c.path = [];
+  c.state = "warding";
+  wardPriestTendTicks++;
+  if (wardPriestTendTicks < WARD_TEND_TICKS) return;
+  wardStoneLastTended.set(resourceKey(c.postX, c.postY), cycleTick);
+  const next = nextWardStoneFor(c, tilesOfType(TileType.WardStone));
+  if (!next) return;
+  if (next.x !== c.postX || next.y !== c.postY) c.state = "patrolling";
+  assignWardPriestTarget(c, next);
+}
+
+// Every position currently under a ward: the Abbey (always) plus each Ward Stone the Ward Priest
+// finished tending within the last WARD_GRACE_TICKS.
 function activeWardSources(): TileCoord[] {
   const sources: TileCoord[] = abbeyCenter ? [abbeyCenter] : [];
-  for (const c of colonists.values()) {
-    if (c.kind !== "bishop" || tiles[tileIndex(c.postX, c.postY)] !== TileType.WardStone) continue;
-    const post = tileToPixelCenter({ x: c.postX, y: c.postY });
-    if (Math.hypot(c.x - post.x, c.y - post.y) > GARRISON_LOITER_PX) continue;
-    sources.push({ x: c.postX, y: c.postY });
+  for (const [key, tended] of wardStoneLastTended) {
+    if (cycleTick - tended > WARD_GRACE_TICKS) continue;
+    const [tx, ty] = key.split(",").map(Number);
+    if (tiles[tileIndex(tx, ty)] === TileType.WardStone) sources.push({ x: tx, y: ty });
   }
   return sources;
 }
@@ -2248,7 +2365,7 @@ const wardStonesActiveLastTick = new Set<string>();
 
 // Once per tick: any Ward Stone whose ward was up last tick and is down now has just lapsed, and a
 // Half-Latch slips through at the stone. A stone that stays lapsed tick after tick triggers nothing
-// more; it only re-arms once its post is refilled and the ward stands again. A stone that was
+// more; it only re-arms once the Ward Priest tends it again. A stone that was
 // demolished (no longer a WardStone tile) was removed, not left to lapse, so it spawns nothing.
 function checkWardStoneLapses() {
   const activeNow = new Set<string>();
@@ -2362,7 +2479,7 @@ function updateColonist(c: Colonist, dt: number) {
       updateGuardColonist(c, dt);
       break;
     case "bishop":
-      if (tiles[tileIndex(c.postX, c.postY)] === TileType.WardStone) updateWardingBishop(c, dt);
+      if (isWardPriest(c)) updateWardPriest(c, dt);
       else updateBishopColonist(c, dt);
       break;
   }
@@ -3050,6 +3167,10 @@ function resetWorld() {
   reservedResourceTiles.clear();
   taskForces.clear();
   wardStonesActiveLastTick.clear();
+  wardStoneLastTended.clear();
+  wardPriestId = null;
+  wardPriestTendTicks = 0;
+  wardPriestRespawnTicks = -1;
   pendingEffects = [];
 
   Object.assign(stock, initialStock());
@@ -3237,7 +3358,8 @@ function handleSetTile(player: Player, tx: number, ty: number, tile: TileType) {
 
   if (tile === TileType.Empty) {
     if (!BREAKABLE_TILES.includes(current)) return;
-    if (!NO_COLONIST_TILES.includes(current)) {
+    // A Ward Stone has no colonist of its own; the Ward Priest merely targets it, and retargets.
+    if (!NO_COLONIST_TILES.includes(current) && current !== TileType.WardStone) {
       removeColonistForPost(tx, ty);
     }
     buildingLevel.delete(resourceKey(tx, ty));
@@ -3288,6 +3410,9 @@ function handleSetTile(player: Player, tx: number, ty: number, tile: TileType) {
     if (adjacentTilesOfType(tx, ty, TileType.BarnPost).length === 0) return;
   } else if (tile === TileType.ArcherPost) {
     if (current !== TileType.Empty && !WALL_TILES.includes(current)) return;
+  } else if (tile === TileType.WardStone) {
+    if (current !== TileType.Empty) return;
+    if (tilesOfType(TileType.ChurchPost).length === 0) return;
   } else {
     if (current !== TileType.Empty) return;
   }
@@ -3407,7 +3532,7 @@ function handleSetTile(player: Player, tx: number, ty: number, tile: TileType) {
   if (tile === TileType.WardStone) {
     tiles[tileIndex(tx, ty)] = tile;
     broadcastTileUpdate(tx, ty, tile);
-    spawnColonistForPost(tx, ty, "bishop");
+    if (wardPriestId === null && wardPriestRespawnTicks < 0) updateWardPriestPresence();
     return;
   }
   if (tile === TileType.Pasture) {
@@ -3554,12 +3679,11 @@ setInterval(() => {
       updateMob(mob, dt);
     }
 
-    // After colonists and mobs have moved/fought this tick, so a bishop killed by a mob (or by
-    // poison) this tick is caught on the same tick his ward lapses.
     checkWardStoneLapses();
 
     updateFarmPlots();
     processRespawnQueue();
+    updateWardPriestPresence();
   }
 
   const night = isNightNow();

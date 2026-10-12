@@ -129,7 +129,17 @@ const COMMANDABLE_KINDS = new Set<string>(["knight", "archer", "bishop", "militi
 // Workers who vanish into their building/plot while on the job, instead of standing visibly on
 // top of it. Guards/militia/bishop stay visible — you want to see your garrison standing watch.
 const WORKER_KINDS = new Set<string>(["lumberjack", "farmer", "ironMiner", "rockMiner", "farmhand", "artisan"]);
+// Archer is the one garrison kind that also hides at its post: an Archer Tower reads as the
+// archer firing from inside it, not standing beside it, unlike Barracks/Militia Camp where the
+// garrison visibly stands watch outside.
+const HIDE_AT_POST_KINDS = new Set<string>([...WORKER_KINDS, "archer"]);
 const AT_POST_HIDE_RADIUS_PX = 6;
+// Archers loiter within GARRISON_LOITER_PX (1.5 tiles) of their post server-side, not pinned to
+// its exact center like a stationary worker, so the tight worker radius above would almost never
+// match and the archer would stay visible nearly all the time. Match that loiter radius instead,
+// so the archer reads as "inside the tower" for its whole idle/patrol range and only reappears
+// once actually rallied or chasing beyond it.
+const ARCHER_HIDE_RADIUS_PX = 48;
 // Buildings whose garrison (knights/archers with matching postX/postY) can be click-selected.
 const GARRISON_TILES = new Set<number>([
   TileType.KnightPost,
@@ -240,8 +250,8 @@ const COLONIST_ANIM_URLS: Record<ColonistKind, { walk: string[]; action: string[
 };
 // Server colonist states that play the action cycle / the walk cycle. Any other state walks only
 // while the colonist is actually moving (e.g. civilians sheltering), else shows the static pose.
-const COLONIST_ACTION_STATES = new Set(["attacking", "gathering", "mining", "farming", "crafting", "healing"]);
-const COLONIST_WALK_STATES = new Set(["engaging", "returning", "toResource", "toPost", "approaching"]);
+const COLONIST_ACTION_STATES = new Set(["attacking", "gathering", "mining", "farming", "crafting", "healing", "warding"]);
+const COLONIST_WALK_STATES = new Set(["engaging", "returning", "toResource", "toPost", "approaching", "patrolling"]);
 
 // Animated and/or multi-look mob kinds. A kind with several entries picks one per mob by a stable
 // hash of its id. `idle` is the standing pose (defaults to the first walk frame).
@@ -605,9 +615,53 @@ async function main() {
     sprite.scale.set(set.scale);
     sprite.anchor.set(0.5, 1 - set.refHeight / (2 * texture.height));
   }
+  // All art is drawn facing right; flip horizontally (negate scale.x, since every sprite is
+  // center-anchored) when net horizontal movement is leftward. Tracked per entity id in one of
+  // three category maps (colonist/mob/player ids aren't guaranteed disjoint, so a single shared
+  // map risks one category's prune deleting another's live entry), independent of any animation
+  // state so it applies equally to animated and single-pose sprites. A small dead zone (the same
+  // >0.5px threshold used for walk-vs-idle elsewhere) avoids flicker from sub-pixel jitter while
+  // genuinely stationary; moving purely vertically keeps the last facing instead of snapping back
+  // to a default.
+  type FacingMap = Map<string, { lastX: number; facingRight: boolean }>;
+  const colonistFacing: FacingMap = new Map();
+  const mobFacing: FacingMap = new Map();
+  const playerFacing: FacingMap = new Map();
+  function getFacing(map: FacingMap, id: string, x: number): boolean {
+    const prev = map.get(id);
+    if (!prev) {
+      map.set(id, { lastX: x, facingRight: true });
+      return true;
+    }
+    const dx = x - prev.lastX;
+    prev.lastX = x;
+    if (Math.abs(dx) > 0.5) prev.facingRight = dx > 0;
+    return prev.facingRight;
+  }
+  function applyFacing(sprite: Sprite, facingRight: boolean) {
+    sprite.scale.x = Math.abs(sprite.scale.x) * (facingRight ? 1 : -1);
+  }
+  function pruneFacing(map: FacingMap, seenIds: Set<string>) {
+    for (const id of Array.from(map.keys())) {
+      if (!seenIds.has(id)) map.delete(id);
+    }
+  }
   const COLONIST_ANIMS = Object.fromEntries(
     Object.entries(COLONIST_ANIM_URLS).map(([kind, urls]) => [kind, buildAnimSet(urls, COLONIST_SPRITE_HEIGHT)])
   ) as Record<ColonistKind, AnimSet>;
+  // Militia/Spearman/Pikeman were generated together on one shared sheet at one consistent body
+  // scale, but Spearman/Pikeman's raised polearm pushes their own walk canvas well past their
+  // actual body height (Pikeman's canvas is 254px tall - genuine pike art, not padding - versus
+  // ~180px for Militia, who holds nothing overhead). Deriving `scale` from each kind's own canvas
+  // height (buildAnimSet's normal behavior) under-scales those two kinds' bodies badly. Reuse
+  // Militia's canvas height - the only un-inflated reference in the trio - for all three, so their
+  // bodies render at a consistent size and the polearms are free to extend further above that
+  // without shrinking the character holding them. `refHeight` (used for the feet-anchor math
+  // across rows) is left untouched; only `scale` changes.
+  const militiaRefHeight = COLONIST_ANIMS.militia.refHeight;
+  for (const kind of ["militia", "spearman", "pikeman"] as ColonistKind[]) {
+    COLONIST_ANIMS[kind].scale = COLONIST_SPRITE_HEIGHT / militiaRefHeight;
+  }
   interface MobVariant {
     idle: Texture;
     idleScale: number;
@@ -980,10 +1034,13 @@ async function main() {
     // Just above the (taller) sprite's top edge instead of the old fixed -20.
     entry.hpBar.position.set(p.x, p.y - PLAYER_SPRITE_HEIGHT / 2 - 4);
     drawHpBar(entry.hpBar, p.hp, p.maxHp);
+    if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(playerFacing, p.id, p.x));
   }
 
   function syncPlayers(snapshot: PlayerSnapshot[]) {
-    pruneMissing(playerSprites, new Set(snapshot.map((p) => p.id)));
+    const seenIds = new Set(snapshot.map((p) => p.id));
+    pruneMissing(playerSprites, seenIds);
+    pruneFacing(playerFacing, seenIds);
     for (const p of snapshot) upsertPlayer(p);
   }
 
@@ -1000,10 +1057,11 @@ async function main() {
     entry.hpBar.position.set(c.x, c.y - 18);
     drawHpBar(entry.hpBar, c.hp, c.maxHp);
 
-    if (WORKER_KINDS.has(c.kind)) {
+    if (HIDE_AT_POST_KINDS.has(c.kind)) {
       const postCenterX = c.postX * tileSize + tileSize / 2;
       const postCenterY = c.postY * tileSize + tileSize / 2;
-      const atPost = Math.hypot(c.x - postCenterX, c.y - postCenterY) <= AT_POST_HIDE_RADIUS_PX;
+      const hideRadius = c.kind === "archer" ? ARCHER_HIDE_RADIUS_PX : AT_POST_HIDE_RADIUS_PX;
+      const atPost = Math.hypot(c.x - postCenterX, c.y - postCenterY) <= hideRadius;
       entry.sprite.visible = !atPost;
       entry.hpBar.visible = !atPost;
     }
@@ -1024,15 +1082,13 @@ async function main() {
           ? "walk"
           : null;
       const frame = stepAnim(anim, set, mode);
-      if (frame) {
-        showAnimFrame(entry.sprite, set, frame);
-      } else {
-        const texture = COLONIST_TEXTURES[c.kind];
-        entry.sprite.texture = texture;
-        entry.sprite.anchor.set(0.5);
-        entry.sprite.scale.set(COLONIST_SPRITE_HEIGHT / texture.height);
-      }
+      // Idle pose = the walk cycle's own first frame, not the kind's separate static PNG: that
+      // image was extracted independently and doesn't share the walk sheet's body-to-canvas
+      // ratio, so using it here made units visibly pop in size on every idle<->walk/action
+      // transition (i.e. every time they started or stopped moving).
+      showAnimFrame(entry.sprite, set, frame ?? set.walk[0]);
     }
+    if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
   }
 
   function syncColonists(snapshot: ColonistSnapshot[]) {
@@ -1041,6 +1097,7 @@ async function main() {
     for (const id of Array.from(colonistAnim.keys())) {
       if (!seenIds.has(id)) colonistAnim.delete(id);
     }
+    pruneFacing(colonistFacing, seenIds);
     for (const c of snapshot) upsertColonist(c);
   }
 
@@ -1084,6 +1141,7 @@ async function main() {
     const topOffset = texture ? (texture.height * scale) / 2 + 4 : visual.radius + 9;
     entry.hpBar.position.set(m.x, m.y - topOffset);
     drawHpBar(entry.hpBar, m.hp, m.maxHp);
+    if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(mobFacing, m.id, m.x));
   }
 
   function upsertVariantMob(m: MobSnapshot, variant: MobVariant) {
@@ -1096,9 +1154,12 @@ async function main() {
     entry.sprite.position.set(m.x, m.y);
     entry.hpBar.position.set(m.x, m.y - (variant.idle.height * variant.idleScale) / 2 - 4);
     drawHpBar(entry.hpBar, m.hp, m.maxHp);
+    const sprite = entry.sprite instanceof Sprite ? entry.sprite : null;
+    const facingRight = sprite ? getFacing(mobFacing, m.id, m.x) : true;
+    if (sprite) applyFacing(sprite, facingRight);
 
     const set = variant.anim;
-    if (!set || !(entry.sprite instanceof Sprite)) return;
+    if (!set || !sprite) return;
     let anim = mobAnim.get(m.id);
     if (!anim) {
       anim = { mode: null, frame: 0, ticksInFrame: 0, lastX: m.x, lastY: m.y };
@@ -1113,13 +1174,12 @@ async function main() {
         ? "action"
         : null;
     const frame = stepAnim(anim, set, mode);
-    if (frame) {
-      showAnimFrame(entry.sprite, set, frame);
-    } else {
-      entry.sprite.texture = variant.idle;
-      entry.sprite.anchor.set(0.5);
-      entry.sprite.scale.set(variant.idleScale);
-    }
+    // Same fix as the colonist idle fallback above: use the walk cycle's own first frame instead
+    // of `variant.idle` (a separately-extracted static texture) so idle<->animated transitions
+    // don't pop in size.
+    showAnimFrame(sprite, set, frame ?? set.walk[0]);
+    // showAnimFrame resets scale.x to a positive magnitude, so re-apply the flip after it.
+    applyFacing(sprite, facingRight);
   }
 
   function syncMobs(snapshot: MobSnapshot[]) {
@@ -1128,6 +1188,7 @@ async function main() {
     for (const id of Array.from(mobAnim.keys())) {
       if (!seenIds.has(id)) mobAnim.delete(id);
     }
+    pruneFacing(mobFacing, seenIds);
     for (const m of snapshot) upsertMob(m);
   }
 
@@ -1490,8 +1551,9 @@ async function main() {
   let latestTaskForces: Record<string, string[]> = {};
   let selectedIds = new Set<string>();
 
-  // Mirrors the server's isCommandable: of the bishops, only a Church's takes orders — a Ward
-  // Stone's must hold his post, and Saint Wren's Abbey clergy (posted at an AbbeyHall) aren't ours.
+  // Mirrors the server's isCommandable: of the bishops, only a Church's takes orders — the Ward
+  // Priest (whose post is always the Ward Stone he's bound for) keeps his rounds, and Saint Wren's
+  // Abbey clergy (posted at an AbbeyHall) aren't ours.
   function isCommandable(c: ColonistSnapshot): boolean {
     if (!COMMANDABLE_KINDS.has(c.kind)) return false;
     return c.kind !== "bishop" || tiles[c.postY * worldTilesX + c.postX] === TileType.ChurchPost;

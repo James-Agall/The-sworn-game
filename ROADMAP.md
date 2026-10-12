@@ -73,6 +73,11 @@ for whatever round was running, or waiting on a decision):
 - **A knight/archer/militia respawn that lands the same tick as a tier upgrade can overshoot by
   one unit** (the upgrade tops the garrison up to its new target count, then the queued respawn
   adds one more). Edge case, low impact.
+- **`abbey-ward-test.mjs` section B is flaky**, surfaced while verifying the Ward Priest rework
+  (2026-10-12): night mobs sometimes head for the player instead of the Town Center even though
+  only the Abbey's always-on ward is in play (no Ward Stones placed), which that section didn't
+  touch or change. Not investigated yet; may be a pre-existing mob-targeting race, not a Ward
+  Priest regression - the player took no damage either run.
 
 ## 3. Balance concerns worth a deliberate pass (not bugs — design choices that haven't been
 stress-tested)

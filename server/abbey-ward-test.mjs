@@ -7,11 +7,14 @@
 //   B) the Abbey's permanent ward, live: walk the player inside it and wait for night. With no
 //      guards built, an unwarded player is always every mob's first pick; mobs heading for the Town
 //      Center instead (and never hurting the player) shows the player was skipped as warded.
-//   C) Ward Stone: rejected without 10 tools; 4 Blacksmiths make tools, then a Ward Stone costs
-//      exactly 20 wood + 10 tools, spawns a bishop (+1 population) in state "warding" who ignores
-//      move orders. At night, with the player and Town Center both inside its ward, night mobs find
-//      nothing to target and stand still at their spawn; TC/player untouched.
-//   D) demolishing that Ward Stone (removes its bishop) lapses the ward: the same mobs start moving.
+//   C) Ward Stone: a Church goes up first (Ward Stones require one); the stone is rejected without
+//      10 tools; 3 Blacksmiths make tools, then a Ward Stone costs exactly 20 wood + 10 tools and
+//      summons the colony's Ward Priest (a bishop, +1 population) at the Church, who walks to the
+//      stone, tends it ("warding") and ignores move orders. Once he has tended it for 10s the ward
+//      stands: at night, with the player and Town Center both inside it, night mobs find nothing
+//      to target and stand still; TC/player untouched.
+//   D) demolishing that Ward Stone (the last one, so the priest is dismissed) lapses the ward: the
+//      same mobs start moving. See ward-priest-patrol-test.mjs for patrol/grace-period coverage.
 // Each section starts with a "restart" (except A's boot-world check). Resets the world for every
 // connected client. Select sections with ONLY=A,B,C (C includes D). Needs a fresh server for A's
 // boot-world check to mean "before any player action".
@@ -299,28 +302,34 @@ if (ONLY.has("C")) {
     reach.push(t);
   }
   const adj4 = (p, q) => Math.abs(p.x - q.x) + Math.abs(p.y - q.y) === 1;
+  const sameT = (p, q) => p.x === q.x && p.y === q.y;
   // Blacksmiths must not be 4-adjacent to each other (that would level one up instead of adding a
-  // second worker). Keep one more reach tile free for the Ward Stone.
+  // second worker). 3, not 4: the Church's 15 wood has to fit in the 80 starting wood too.
   const smiths = [];
   for (const t of reach) {
-    if (smiths.length < 4 && !smiths.some((s) => adj4(s, t))) smiths.push(t);
+    if (smiths.length < 3 && !smiths.some((s) => adj4(s, t))) smiths.push(t);
   }
-  const stone = reach.find((t) => !smiths.some((s) => s.x === t.x && s.y === t.y));
-  if (smiths.length < 4 || !stone) {
-    result(false, `C: not enough free tiles in reach (smiths=${smiths.length}, stone=${!!stone})`);
+  const rest = reach.filter((t) => !smiths.some((s) => sameT(s, t)));
+  const stone = rest[0];
+  const church = rest.find((t) => stone && !sameT(t, stone) && !adj4(t, stone));
+  if (smiths.length < 3 || !stone || !church) {
+    result(false, `C: not enough free tiles in reach (smiths=${smiths.length}, stone=${!!stone}, church=${!!church})`);
   } else {
+    a.send({ type: "setTile", tileX: church.x, tileY: church.y, tile: T.ChurchPost });
+    await sleep(400);
+    result(tileAt(church.x, church.y) === T.ChurchPost, `C: Church placed at (${church.x},${church.y}); wood=${a.snap.wood}`);
     // Rejected without tools.
     const w0 = a.snap.wood;
     const tools0 = a.snap.tools;
     a.send({ type: "setTile", tileX: stone.x, tileY: stone.y, tile: T.WardStone });
     await sleep(400);
-    result(tileAt(stone.x, stone.y) === T.Empty && a.snap.wood === w0 && a.snap.colonists.filter((k) => k.kind === "bishop").length === 3,
-      `C: Ward Stone with tools=${tools0} (<10) and wood=${w0} is rejected: tile ${tileAt(stone.x, stone.y)}, wood ${a.snap.wood}, bishops ${a.snap.colonists.filter((k) => k.kind === "bishop").length} (3 = Abbey clergy only)`);
+    result(tileAt(stone.x, stone.y) === T.Empty && a.snap.wood === w0 && a.snap.colonists.filter((k) => k.kind === "bishop").length === 4,
+      `C: Ward Stone with tools=${tools0} (<10) and wood=${w0} is rejected: tile ${tileAt(stone.x, stone.y)}, wood ${a.snap.wood}, bishops ${a.snap.colonists.filter((k) => k.kind === "bishop").length} (3 Abbey clergy + the Church's)`);
 
     for (const t of smiths) a.send({ type: "setTile", tileX: t.x, tileY: t.y, tile: T.Blacksmith });
     await sleep(400);
-    result(smiths.every((t) => tileAt(t.x, t.y) === T.Blacksmith), `C: 4 Blacksmiths placed at ${smiths.map((t) => `(${t.x},${t.y})`).join(" ")}; wood=${a.snap.wood} iron=${a.snap.iron}`);
-    const deadline = Date.now() + 28000;
+    result(smiths.every((t) => tileAt(t.x, t.y) === T.Blacksmith), `C: 3 Blacksmiths placed at ${smiths.map((t) => `(${t.x},${t.y})`).join(" ")}; wood=${a.snap.wood} iron=${a.snap.iron}`);
+    const deadline = Date.now() + 40000;
     while (a.snap.tools < 10 && Date.now() < deadline) await sleep(200);
     info(`C: tools=${a.snap.tools} wood=${a.snap.wood} isNight=${a.snap.isNight}`);
     for (const t of smiths) a.send({ type: "setTile", tileX: t.x, tileY: t.y, tile: T.Empty });
@@ -328,16 +337,21 @@ if (ONLY.has("C")) {
 
     const before = { wood: a.snap.wood, tools: a.snap.tools, pop: a.snap.population };
     a.send({ type: "setTile", tileX: stone.x, tileY: stone.y, tile: T.WardStone });
-    await sleep(500);
+    await a.nextSnap();
+    await a.nextSnap();
     const warder = a.snap.colonists.find((k) => k.postX === stone.x && k.postY === stone.y);
     result(tileAt(stone.x, stone.y) === T.WardStone && a.snap.wood === before.wood - 20 && a.snap.tools === before.tools - 10,
       `C: Ward Stone placed at (${stone.x},${stone.y}); wood ${before.wood}->${a.snap.wood} (-20), tools ${before.tools}->${a.snap.tools} (-10)`);
-    result(warder?.kind === "bishop" && a.snap.population === before.pop + 1,
-      `C: it spawned a ${warder?.kind} posted there (population ${before.pop}->${a.snap.population}, +1 like a Church's bishop)`);
-    await sleep(500);
+    result(warder?.kind === "bishop" && a.snap.population === before.pop + 1 && dist(warder, center(church)) <= TILE * 1.6,
+      `C: it summoned a Ward Priest (${warder?.kind}, post = the stone) ${warder ? (dist(warder, center(church)) / TILE).toFixed(2) : "?"} tiles from the Church (population ${before.pop}->${a.snap.population}, +1)`);
+    {
+      const deadline2 = Date.now() + 15000;
+      while (Date.now() < deadline2 && a.snap.colonists.find((k) => k.id === warder?.id)?.state !== "warding") await sleep(50);
+    }
     const w1 = a.snap.colonists.find((k) => k.id === warder?.id);
+    const wardingSince = Date.now();
     result(w1?.state === "warding" && dist(w1, center(stone)) <= TILE * 1.5,
-      `C: the Ward Stone bishop is in state "${w1?.state}", ${(dist(w1, center(stone)) / TILE).toFixed(2)} tiles from the stone; client isCommandable=${w1 && isCommandable(w1)}`);
+      `C: the Ward Priest walked over and is in state "${w1?.state}", ${(dist(w1, center(stone)) / TILE).toFixed(2)} tiles from the stone; client isCommandable=${w1 && isCommandable(w1)}`);
     const wPos = { x: w1.x, y: w1.y };
     a.send({ type: "commandMove", unitIds: [w1.id], x: center(TC()).x + TILE * 6, y: center(TC()).y });
     await sleep(1500);
@@ -348,6 +362,8 @@ if (ONLY.has("C")) {
     const dMe = dist(center(stone), a.me()) / TILE;
     info(`C: Town Center ${dTc.toFixed(1)} and player ${dMe.toFixed(1)} tiles from the stone (radius ${WARD_RADIUS_TILES}); no guards exist`);
 
+    // The ward only stands once he has finished his first 10s tending (200 ticks), plus margin.
+    await sleep(Math.max(0, 11000 - (Date.now() - wardingSince)));
     // Night: every possible target (player, Town Center) is warded, so night mobs pick nothing.
     const seen = new Map();
     let minPlayerHp = 100;
@@ -376,7 +392,7 @@ if (ONLY.has("C")) {
     a.send({ type: "setTile", tileX: stone.x, tileY: stone.y, tile: T.Empty });
     await sleep(500);
     result(tileAt(stone.x, stone.y) === T.Empty && !a.snap.colonists.some((k) => k.id === w1.id),
-      `D: Ward Stone demolished: tile ${tileAt(stone.x, stone.y)}, its bishop removed=${!a.snap.colonists.some((k) => k.id === w1.id)}`);
+      `D: Ward Stone demolished: tile ${tileAt(stone.x, stone.y)}, Ward Priest dismissed (no stones left)=${!a.snap.colonists.some((k) => k.id === w1.id)}`);
     await sleep(3500);
     const moved = a.snap.mobs.filter((m) => lapseStart.has(m.id) && dist(m, lapseStart.get(m.id)) > TILE);
     result(lapseStart.size >= 1 && moved.length === lapseStart.size,
