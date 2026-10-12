@@ -735,6 +735,9 @@ async function main() {
   let tileSize = 32;
   let worldTilesX = 25;
   let worldTilesY = 25;
+  // Pixel center of the Town Center tile, set once from `welcome` - same formula as the server's
+  // own TOWN_CENTER_TILE (always dead center of the map).
+  let townCenterPx = { x: 0, y: 0 };
   let tiles: number[] = [];
   // Biome per tile from `welcome`; static for the life of a world.
   let biomes: number[] = [];
@@ -1044,7 +1047,7 @@ async function main() {
     for (const p of snapshot) upsertPlayer(p);
   }
 
-  function upsertColonist(c: ColonistSnapshot) {
+  function upsertColonist(c: ColonistSnapshot, isNight: boolean) {
     const entry = ensureVisual(colonistSprites, c.id, () => {
       const texture = COLONIST_TEXTURES[c.kind];
       if (!texture) return new Graphics().circle(0, 0, 8).fill(COLONIST_COLORS[c.kind] ?? 0xffffff);
@@ -1057,14 +1060,22 @@ async function main() {
     entry.hpBar.position.set(c.x, c.y - 18);
     drawHpBar(entry.hpBar, c.hp, c.maxHp);
 
+    let hidden = false;
     if (HIDE_AT_POST_KINDS.has(c.kind)) {
       const postCenterX = c.postX * tileSize + tileSize / 2;
       const postCenterY = c.postY * tileSize + tileSize / 2;
       const hideRadius = c.kind === "archer" ? ARCHER_HIDE_RADIUS_PX : AT_POST_HIDE_RADIUS_PX;
-      const atPost = Math.hypot(c.x - postCenterX, c.y - postCenterY) <= hideRadius;
-      entry.sprite.visible = !atPost;
-      entry.hpBar.visible = !atPost;
+      if (Math.hypot(c.x - postCenterX, c.y - postCenterY) <= hideRadius) hidden = true;
     }
+    // Civilians shelter at the Town Center at night (server: updateShelteringCivilian, same
+    // TILE_SIZE*1.5 arrival radius) - once they've actually arrived, they should read as having
+    // gone inside it, the same way a worker disappears into its own post above, not stand
+    // visibly idling next to the flag all night.
+    if (WORKER_KINDS.has(c.kind) && isNight) {
+      if (Math.hypot(c.x - townCenterPx.x, c.y - townCenterPx.y) <= tileSize * 1.5) hidden = true;
+    }
+    entry.sprite.visible = !hidden;
+    entry.hpBar.visible = !hidden;
 
     const set = COLONIST_ANIMS[c.kind];
     if (set && entry.sprite instanceof Sprite) {
@@ -1091,14 +1102,14 @@ async function main() {
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
   }
 
-  function syncColonists(snapshot: ColonistSnapshot[]) {
+  function syncColonists(snapshot: ColonistSnapshot[], isNight: boolean) {
     const seenIds = new Set(snapshot.map((c) => c.id));
     pruneMissing(colonistSprites, seenIds, true);
     for (const id of Array.from(colonistAnim.keys())) {
       if (!seenIds.has(id)) colonistAnim.delete(id);
     }
     pruneFacing(colonistFacing, seenIds);
-    for (const c of snapshot) upsertColonist(c);
+    for (const c of snapshot) upsertColonist(c, isNight);
   }
 
   function nearestFriendlyDistance(x: number, y: number): number {
@@ -1841,16 +1852,18 @@ async function main() {
       suppressDeathPoofs = true;
       readyFarmPlots = new Set();
       redrawGrid();
-      const tcx = Math.floor(worldTilesX / 2) * tileSize + tileSize / 2;
-      const tcy = Math.floor(worldTilesY / 2) * tileSize + tileSize / 2;
-      townCenterHpBar.position.set(tcx, tcy - 24);
+      townCenterPx = {
+        x: Math.floor(worldTilesX / 2) * tileSize + tileSize / 2,
+        y: Math.floor(worldTilesY / 2) * tileSize + tileSize / 2,
+      };
+      townCenterHpBar.position.set(townCenterPx.x, townCenterPx.y - 24);
       worldLayer.addChild(cursorHighlight);
       worldLayer.addChild(formationMarker);
       worldLayer.addChild(selectionRings);
       worldLayer.addChild(dragBox);
     } else if (message.type === "snapshot") {
       syncPlayers(message.players);
-      syncColonists(message.colonists);
+      syncColonists(message.colonists, message.isNight);
       syncMobs(message.mobs);
       suppressDeathPoofs = false;
       syncReadyFarmPlots(message.readyFarmPlots);

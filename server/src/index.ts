@@ -2434,8 +2434,13 @@ function updateColonist(c: Colonist, dt: number) {
         releaseResourceReservation(c);
         c.targetResourceX = -1;
         c.targetResourceY = -1;
-        c.state = "idle";
       }
+      // Always reset display state to "idle" when sheltering starts, stationary or not: this
+      // field drives the client's walk-vs-action animation choice, and a stationary worker's
+      // leftover work state (e.g. "mining") is in COLONIST_ACTION_STATES, so leaving it set
+      // made them play their static work pose the whole walk home instead of a walk animation -
+      // looked exactly like they weren't actually heading to the Town Center.
+      c.state = "idle";
       c.path = [];
     } else if (!night && c.sheltering) {
       c.sheltering = false;
