@@ -77,6 +77,10 @@ interface Colonist {
   repathCooldown: number;
 
   sheltering: boolean;
+  // Night shelter: a house tile, or the Town Center when homeTileX < 0. Reset each dawn.
+  shelterAssigned: boolean;
+  homeTileX: number;
+  homeTileY: number;
 
   castleLevel: number;
   isTower: boolean;
@@ -904,17 +908,64 @@ function depositGatheredResource(kind: ColonistKind) {
   else if (kind === "rockMiner") stock.rock += 1;
 }
 
+// Industrial cluster synergy: +5% productivity for every other industrial building within 5 tiles
+// (Chebyshev distance), stacking. Applied as a speed multiplier on the building's work cycle.
+const INDUSTRIAL_SYNERGY_RADIUS = 5;
+const INDUSTRIAL_SYNERGY_PER_BUILDING = 0.05;
+const INDUSTRIAL_TILES: TileType[] = [
+  TileType.LumberjackPost,
+  TileType.BarnPost,
+  TileType.IronMinePost,
+  TileType.RockMinePost,
+  TileType.Pasture,
+  TileType.Orchard,
+  TileType.WoolFarm,
+  TileType.CottonFarm,
+  TileType.TailorShop,
+  TileType.Blacksmith,
+  TileType.LuxuryWorkshop,
+  TileType.Brewery,
+];
+
+function industrialSynergyMultiplier(tx: number, ty: number): number {
+  if (!INDUSTRIAL_TILES.includes(tiles[tileIndex(tx, ty)] as TileType)) return 1;
+  let others = 0;
+  for (let y = ty - INDUSTRIAL_SYNERGY_RADIUS; y <= ty + INDUSTRIAL_SYNERGY_RADIUS; y++) {
+    for (let x = tx - INDUSTRIAL_SYNERGY_RADIUS; x <= tx + INDUSTRIAL_SYNERGY_RADIUS; x++) {
+      if ((x === tx && y === ty) || !inBounds(x, y)) continue;
+      if (INDUSTRIAL_TILES.includes(tiles[tileIndex(x, y)] as TileType)) others++;
+    }
+  }
+  return 1 + others * INDUSTRIAL_SYNERGY_PER_BUILDING;
+}
+
+// Army cluster synergy: +5% unit damage per adjacent (incl. diagonal) army building, and +5% per adjacent Blacksmith.
+const ARMY_SYNERGY_PER_NEIGHBOUR = 0.05;
+
+function armyDamageMultiplier(tx: number, ty: number): number {
+  let bonus = 0;
+  for (const [dx, dy] of NEIGHBOURS_8) {
+    const nx = tx + dx;
+    const ny = ty + dy;
+    if (!inBounds(nx, ny)) continue;
+    const t = tiles[tileIndex(nx, ny)] as TileType;
+    if (isMilitaryTile(t) || t === TileType.Blacksmith) bonus += ARMY_SYNERGY_PER_NEIGHBOUR;
+  }
+  return 1 + bonus;
+}
+
 function effectiveChopTicks(tx: number, ty: number): number {
   const level = getBuildingLevel(tx, ty);
   return Math.max(
     1,
-    Math.round((CHOP_TICKS * (1 - levelBonus(level)) * biomeProductionFactor(tx, ty)) / happinessSpeedMultiplier())
+    Math.round((CHOP_TICKS * (1 - levelBonus(level)) * biomeProductionFactor(tx, ty)) /
+        (happinessSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
   );
 }
 
 function effectiveCraftTicks(tx: number, ty: number): number {
   const level = getBuildingLevel(tx, ty);
-  return Math.max(1, Math.round((CRAFT_TICKS * (1 - levelBonus(level))) / happinessSpeedMultiplier()));
+  return Math.max(1, Math.round((CRAFT_TICKS * (1 - levelBonus(level))) / (happinessSpeedMultiplier() * industrialSynergyMultiplier(tx, ty))));
 }
 
 const FARM_PRODUCE_BY_TILE: Partial<Record<TileType, "meat" | "fruit" | "wool" | "cotton">> = {
@@ -1003,6 +1054,34 @@ function civilianPopulationUsed(): number {
 
 const TOWN_CENTER_BASE_POPULATION = 10;
 
+// Synergy bonuses count all eight surrounding tiles (diagonals too), so buildings can be packed
+// into solid blocks. Spawn-space checks still use the four orthogonal tiles units actually spawn on.
+const NEIGHBOURS_8: ReadonlyArray<readonly [number, number]> = [
+  [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
+];
+
+function isHouseTile(t: TileType): boolean {
+  return t === TileType.House || t === TileType.BigHouse || t === TileType.HouseLevel2;
+}
+
+function isMilitaryTile(t: TileType): boolean {
+  return (
+    t === TileType.KnightPost ||
+    t === TileType.CastleLevel2 ||
+    t === TileType.CastleLevel3 ||
+    t === TileType.ArcherPost ||
+    t === TileType.ArcherTower ||
+    t === TileType.MilitiaPost ||
+    t === TileType.MilitiaCamp2 ||
+    t === TileType.MilitiaCamp3
+  );
+}
+
+// Buildings that gain from standing next to houses: workplaces and unit buildings.
+function isSynergyBuilding(t: TileType): boolean {
+  return POPULATION_GATED_TILES.includes(t) || isMilitaryTile(t);
+}
+
 function populationCap(): number {
   let cap = townCenterDestroyed ? 0 : TOWN_CENTER_BASE_POPULATION;
   for (let i = 0; i < tiles.length; i++) {
@@ -1011,13 +1090,36 @@ function populationCap(): number {
     else if (t === TileType.BigHouse) cap += 3;
     else if (t === TileType.HouseLevel2) cap += 5;
   }
-  return cap;
+  return cap + neighbourhoodPopulationBonus();
 }
 
+// Neighbourhood synergy: +1 population for every adjacent (8-neighbour) pair of (house, house) or
+// (house, any other staffed/unit building). Houses clustered with workplaces and barracks grow
+// the colony faster, so neighbourhoods are worth building.
+function neighbourhoodPopulationBonus(): number {
+  let bonus = 0;
+  for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
+    for (let tx = 0; tx < WORLD_TILES_X; tx++) {
+      if (!isHouseTile(tiles[tileIndex(tx, ty)] as TileType)) continue;
+      for (const [dx, dy] of NEIGHBOURS_8) {
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (!inBounds(nx, ny)) continue;
+        const n = tiles[tileIndex(nx, ny)] as TileType;
+        if (isSynergyBuilding(n)) bonus++;
+        // House-house pairs are seen from both ends; count each once (the "later" tile in scan order).
+        else if (isHouseTile(n) && (dy > 0 || (dy === 0 && dx > 0))) bonus++;
+      }
+    }
+  }
+  return bonus;
+}
+
+
+// Upgrades happen by placing the same building on top of an existing one, not next to it.
 function findUpgradeTargetFor(tx: number, ty: number, type: TileType): TileCoord | null {
-  const found = adjacentTilesOfType(tx, ty, type)[0];
-  if (!found) return null;
-  return getBuildingLevel(found.x, found.y) < 3 ? found : null;
+  if (tiles[tileIndex(tx, ty)] !== type) return null;
+  return getBuildingLevel(tx, ty) < 3 ? { x: tx, y: ty } : null;
 }
 
 function placementNeedsNewWorkerSlot(tile: TileType, tx: number, ty: number): boolean {
@@ -1069,6 +1171,9 @@ function spawnColonistForPost(
     targetMobId: null,
     repathCooldown: 0,
     sheltering: false,
+    shelterAssigned: false,
+    homeTileX: -1,
+    homeTileY: -1,
     castleLevel,
     isTower,
     healTargetType: null,
@@ -1221,80 +1326,66 @@ function announceUpgrade(baseType: TileType, level: number) {
   broadcastEvent("upgrade", `${UPGRADE_NAMES[baseType] ?? "A building"} upgraded to level ${level}`);
 }
 
-function tryLevelUpAdjacent(tx: number, ty: number, matchTypes: TileType[]): TileCoord | null {
-  for (const mt of matchTypes) {
-    const found = adjacentTilesOfType(tx, ty, mt);
-    if (found.length > 0) {
-      const n = found[0];
-      const currentLevel = getBuildingLevel(n.x, n.y);
-      if (currentLevel < 3) {
-        buildingLevel.set(resourceKey(n.x, n.y), currentLevel + 1);
-        announceUpgrade(mt, currentLevel + 1);
-        return n;
-      }
-    }
+function tryLevelUpInPlace(tx: number, ty: number, matchTypes: TileType[]): TileCoord | null {
+  const current = tiles[tileIndex(tx, ty)] as TileType;
+  if (!matchTypes.includes(current)) return null;
+  const currentLevel = getBuildingLevel(tx, ty);
+  if (currentLevel >= 3) return null;
+  buildingLevel.set(resourceKey(tx, ty), currentLevel + 1);
+  announceUpgrade(current, currentLevel + 1);
+  return { x: tx, y: ty };
+}
+
+function canAffordHouseUpgrade(current: TileType): boolean {
+  if (current === TileType.BigHouse) {
+    return (
+      stock.grain >= 2 && stock.meat >= 2 && stock.fruit >= 2 && stock.clothes >= 3 && stock.tools >= 2 && stock.luxuryItems >= 1
+    );
   }
-  return null;
+  return stock.grain >= 1 && stock.meat >= 1 && stock.fruit >= 1 && stock.clothes >= 2;
 }
 
 function resolveHousePlacement(tx: number, ty: number) {
-  const bigNeighbors = adjacentTilesOfType(tx, ty, TileType.BigHouse);
-  if (bigNeighbors.length > 0) {
-    const n = bigNeighbors[0];
-    if (
-      stock.grain >= 2 &&
-      stock.meat >= 2 &&
-      stock.fruit >= 2 &&
-      stock.clothes >= 3 &&
-      stock.tools >= 2 &&
-      stock.luxuryItems >= 1
-    ) {
-      stock.grain -= 2;
-      stock.meat -= 2;
-      stock.fruit -= 2;
-      stock.clothes -= 3;
-      stock.tools -= 2;
-      stock.luxuryItems -= 1;
-      tiles[tileIndex(n.x, n.y)] = TileType.HouseLevel2;
-      broadcastTileUpdate(n.x, n.y, TileType.HouseLevel2);
-      announceUpgrade(TileType.House, 3);
-      return;
-    }
+  const current = tiles[tileIndex(tx, ty)] as TileType;
+  if (current === TileType.BigHouse) {
+    stock.grain -= 2;
+    stock.meat -= 2;
+    stock.fruit -= 2;
+    stock.clothes -= 3;
+    stock.tools -= 2;
+    stock.luxuryItems -= 1;
+    tiles[tileIndex(tx, ty)] = TileType.HouseLevel2;
+    broadcastTileUpdate(tx, ty, TileType.HouseLevel2);
+    announceUpgrade(TileType.House, 3);
+    return;
   }
-  const houseNeighbors = adjacentTilesOfType(tx, ty, TileType.House);
-  if (houseNeighbors.length > 0) {
-    const n = houseNeighbors[0];
-    if (stock.grain >= 1 && stock.meat >= 1 && stock.fruit >= 1 && stock.clothes >= 2) {
-      stock.grain -= 1;
-      stock.meat -= 1;
-      stock.fruit -= 1;
-      stock.clothes -= 2;
-      tiles[tileIndex(n.x, n.y)] = TileType.BigHouse;
-      broadcastTileUpdate(n.x, n.y, TileType.BigHouse);
-      announceUpgrade(TileType.House, 2);
-      return;
-    }
+  if (current === TileType.House) {
+    stock.grain -= 1;
+    stock.meat -= 1;
+    stock.fruit -= 1;
+    stock.clothes -= 2;
+    tiles[tileIndex(tx, ty)] = TileType.BigHouse;
+    broadcastTileUpdate(tx, ty, TileType.BigHouse);
+    announceUpgrade(TileType.House, 2);
+    return;
   }
   tiles[tileIndex(tx, ty)] = TileType.House;
   broadcastTileUpdate(tx, ty, TileType.House);
 }
 
 function resolveKnightPlacement(tx: number, ty: number) {
-  const lvl2Neighbors = adjacentTilesOfType(tx, ty, TileType.CastleLevel2);
-  if (lvl2Neighbors.length > 0) {
-    const n = lvl2Neighbors[0];
-    tiles[tileIndex(n.x, n.y)] = TileType.CastleLevel3;
-    broadcastTileUpdate(n.x, n.y, TileType.CastleLevel3);
-    upgradeKnightAt(n.x, n.y, 3);
+  const current = tiles[tileIndex(tx, ty)] as TileType;
+  if (current === TileType.CastleLevel2) {
+    tiles[tileIndex(tx, ty)] = TileType.CastleLevel3;
+    broadcastTileUpdate(tx, ty, TileType.CastleLevel3);
+    upgradeKnightAt(tx, ty, 3);
     announceUpgrade(TileType.KnightPost, 3);
     return;
   }
-  const knightNeighbors = adjacentTilesOfType(tx, ty, TileType.KnightPost);
-  if (knightNeighbors.length > 0) {
-    const n = knightNeighbors[0];
-    tiles[tileIndex(n.x, n.y)] = TileType.CastleLevel2;
-    broadcastTileUpdate(n.x, n.y, TileType.CastleLevel2);
-    upgradeKnightAt(n.x, n.y, 2);
+  if (current === TileType.KnightPost) {
+    tiles[tileIndex(tx, ty)] = TileType.CastleLevel2;
+    broadcastTileUpdate(tx, ty, TileType.CastleLevel2);
+    upgradeKnightAt(tx, ty, 2);
     announceUpgrade(TileType.KnightPost, 2);
     return;
   }
@@ -1304,21 +1395,18 @@ function resolveKnightPlacement(tx: number, ty: number) {
 }
 
 function resolveMilitiaPlacement(tx: number, ty: number) {
-  const lvl2Neighbors = adjacentTilesOfType(tx, ty, TileType.MilitiaCamp2);
-  if (lvl2Neighbors.length > 0) {
-    const n = lvl2Neighbors[0];
-    tiles[tileIndex(n.x, n.y)] = TileType.MilitiaCamp3;
-    broadcastTileUpdate(n.x, n.y, TileType.MilitiaCamp3);
-    upgradeMilitiaAt(n.x, n.y, 3);
+  const current = tiles[tileIndex(tx, ty)] as TileType;
+  if (current === TileType.MilitiaCamp2) {
+    tiles[tileIndex(tx, ty)] = TileType.MilitiaCamp3;
+    broadcastTileUpdate(tx, ty, TileType.MilitiaCamp3);
+    upgradeMilitiaAt(tx, ty, 3);
     announceUpgrade(TileType.MilitiaPost, 3);
     return;
   }
-  const militiaNeighbors = adjacentTilesOfType(tx, ty, TileType.MilitiaPost);
-  if (militiaNeighbors.length > 0) {
-    const n = militiaNeighbors[0];
-    tiles[tileIndex(n.x, n.y)] = TileType.MilitiaCamp2;
-    broadcastTileUpdate(n.x, n.y, TileType.MilitiaCamp2);
-    upgradeMilitiaAt(n.x, n.y, 2);
+  if (current === TileType.MilitiaPost) {
+    tiles[tileIndex(tx, ty)] = TileType.MilitiaCamp2;
+    broadcastTileUpdate(tx, ty, TileType.MilitiaCamp2);
+    upgradeMilitiaAt(tx, ty, 2);
     announceUpgrade(TileType.MilitiaPost, 2);
     return;
   }
@@ -1329,20 +1417,14 @@ function resolveMilitiaPlacement(tx: number, ty: number) {
 }
 
 function resolveArcherPlacement(tx: number, ty: number, wallType: TileType | null) {
-  const archerNeighbor =
-    adjacentTilesOfType(tx, ty, TileType.ArcherPost)[0] ??
-    adjacentTilesOfType(tx, ty, TileType.ArcherTower)[0];
-  if (archerNeighbor) {
-    const currentLevel = getBuildingLevel(archerNeighbor.x, archerNeighbor.y);
-    if (currentLevel < 3) {
-      const newLevel = currentLevel + 1;
-      buildingLevel.set(resourceKey(archerNeighbor.x, archerNeighbor.y), newLevel);
-      const neighborIsTower =
-        (tiles[tileIndex(archerNeighbor.x, archerNeighbor.y)] as TileType) === TileType.ArcherTower;
-      upgradeArcherAt(archerNeighbor.x, archerNeighbor.y, newLevel, neighborIsTower);
-      announceUpgrade(neighborIsTower ? TileType.ArcherTower : TileType.ArcherPost, newLevel);
-      return;
-    }
+  const here = tiles[tileIndex(tx, ty)] as TileType;
+  if (here === TileType.ArcherPost || here === TileType.ArcherTower) {
+    const newLevel = getBuildingLevel(tx, ty) + 1;
+    buildingLevel.set(resourceKey(tx, ty), newLevel);
+    const isTower = here === TileType.ArcherTower;
+    upgradeArcherAt(tx, ty, newLevel, isTower);
+    announceUpgrade(here, newLevel);
+    return;
   }
   if (wallType !== null) {
     tiles[tileIndex(tx, ty)] = TileType.ArcherTower;
@@ -1364,15 +1446,12 @@ function resolveMinePlacement(
   minerKind: "ironMiner" | "rockMiner"
 ) {
   const current = tiles[tileIndex(tx, ty)] as TileType;
-  const mineNeighbor = adjacentTilesOfType(tx, ty, mineType)[0];
-  if (mineNeighbor) {
-    const currentLevel = getBuildingLevel(mineNeighbor.x, mineNeighbor.y);
-    if (currentLevel < 3) {
-      buildingLevel.set(resourceKey(mineNeighbor.x, mineNeighbor.y), currentLevel + 1);
-      announceUpgrade(mineType, currentLevel + 1);
-      spawnColonistForPost(mineNeighbor.x, mineNeighbor.y, minerKind);
-      return;
-    }
+  if (current === mineType) {
+    const currentLevel = getBuildingLevel(tx, ty);
+    buildingLevel.set(resourceKey(tx, ty), currentLevel + 1);
+    announceUpgrade(mineType, currentLevel + 1);
+    spawnColonistForPost(tx, ty, minerKind);
+    return;
   }
   tiles[tileIndex(tx, ty)] = mineType;
   broadcastTileUpdate(tx, ty, mineType);
@@ -1381,7 +1460,7 @@ function resolveMinePlacement(
 }
 
 function resolveLumberjackPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.LumberjackPost]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.LumberjackPost]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.LumberjackPost;
   broadcastTileUpdate(tx, ty, TileType.LumberjackPost);
@@ -1389,7 +1468,7 @@ function resolveLumberjackPlacement(tx: number, ty: number) {
 }
 
 function resolveBarnPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.BarnPost]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.BarnPost]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.BarnPost;
   broadcastTileUpdate(tx, ty, TileType.BarnPost);
@@ -1397,7 +1476,7 @@ function resolveBarnPlacement(tx: number, ty: number) {
 }
 
 function resolveChurchPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.ChurchPost]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.ChurchPost]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.ChurchPost;
   broadcastTileUpdate(tx, ty, TileType.ChurchPost);
@@ -1405,7 +1484,7 @@ function resolveChurchPlacement(tx: number, ty: number) {
 }
 
 function resolvePasturePlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.Pasture]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Pasture]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.Pasture;
   broadcastTileUpdate(tx, ty, TileType.Pasture);
@@ -1413,7 +1492,7 @@ function resolvePasturePlacement(tx: number, ty: number) {
 }
 
 function resolveOrchardPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.Orchard]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Orchard]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.Orchard;
   broadcastTileUpdate(tx, ty, TileType.Orchard);
@@ -1421,7 +1500,7 @@ function resolveOrchardPlacement(tx: number, ty: number) {
 }
 
 function resolveWoolFarmPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.WoolFarm]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.WoolFarm]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.WoolFarm;
   broadcastTileUpdate(tx, ty, TileType.WoolFarm);
@@ -1429,7 +1508,7 @@ function resolveWoolFarmPlacement(tx: number, ty: number) {
 }
 
 function resolveCottonFarmPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.CottonFarm]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.CottonFarm]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.CottonFarm;
   broadcastTileUpdate(tx, ty, TileType.CottonFarm);
@@ -1437,7 +1516,7 @@ function resolveCottonFarmPlacement(tx: number, ty: number) {
 }
 
 function resolveTailorShopPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.TailorShop]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.TailorShop]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.TailorShop;
   broadcastTileUpdate(tx, ty, TileType.TailorShop);
@@ -1445,7 +1524,7 @@ function resolveTailorShopPlacement(tx: number, ty: number) {
 }
 
 function resolveBlacksmithPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.Blacksmith]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Blacksmith]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.Blacksmith;
   broadcastTileUpdate(tx, ty, TileType.Blacksmith);
@@ -1453,7 +1532,7 @@ function resolveBlacksmithPlacement(tx: number, ty: number) {
 }
 
 function resolveLuxuryWorkshopPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.LuxuryWorkshop]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.LuxuryWorkshop]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.LuxuryWorkshop;
   broadcastTileUpdate(tx, ty, TileType.LuxuryWorkshop);
@@ -1461,7 +1540,7 @@ function resolveLuxuryWorkshopPlacement(tx: number, ty: number) {
 }
 
 function resolveBreweryPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.Brewery]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Brewery]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.Brewery;
   broadcastTileUpdate(tx, ty, TileType.Brewery);
@@ -1469,7 +1548,7 @@ function resolveBreweryPlacement(tx: number, ty: number) {
 }
 
 function resolveTavernPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpAdjacent(tx, ty, [TileType.Tavern]);
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Tavern]);
   if (upgraded) return;
   tiles[tileIndex(tx, ty)] = TileType.Tavern;
   broadcastTileUpdate(tx, ty, TileType.Tavern);
@@ -1612,7 +1691,7 @@ function updateFarmPlots() {
         stock.grain += FARM_YIELD_PER_HARVEST;
         plot.growTicksRemaining = Math.max(
           1,
-          Math.round((FARM_GROW_TICKS * (1 - bonus) * biomeFactor) / happinessSpeedMultiplier())
+          Math.round((FARM_GROW_TICKS * (1 - bonus) * biomeFactor) / (happinessSpeedMultiplier() * industrialSynergyMultiplier(plot.barnX, plot.barnY)))
         );
         plot.state = "growing";
       }
@@ -1622,7 +1701,7 @@ function updateFarmPlots() {
         plot.state = "harvesting";
         plot.harvestTicksRemaining = Math.max(
           1,
-          Math.round((FARM_HARVEST_TICKS * (1 - bonus) * biomeFactor) / happinessSpeedMultiplier())
+          Math.round((FARM_HARVEST_TICKS * (1 - bonus) * biomeFactor) / (happinessSpeedMultiplier() * industrialSynergyMultiplier(plot.barnX, plot.barnY)))
         );
       }
     }
@@ -1757,15 +1836,71 @@ function updateGathererColonist(c: Colonist, dt: number) {
   }
 }
 
+function houseCapacity(t: TileType): number {
+  return t === TileType.HouseLevel2 ? 5 : t === TileType.BigHouse ? 3 : t === TileType.House ? 1 : 0;
+}
+
+function houseOccupancy(tx: number, ty: number): number {
+  let n = 0;
+  for (const o of colonists.values()) {
+    if (o.shelterAssigned && o.homeTileX === tx && o.homeTileY === ty) n++;
+  }
+  return n;
+}
+
+// Each civilian sleeps in the nearest house with a free bed; anyone left over (or with no house
+// at all) uses the Town Center. Beds are a house's tier capacity (1 / 3 / 5).
+function assignShelter(c: Colonist) {
+  c.shelterAssigned = true;
+  c.homeTileX = -1;
+  c.homeTileY = -1;
+  let bestD = Infinity;
+  for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
+    for (let tx = 0; tx < WORLD_TILES_X; tx++) {
+      const cap = houseCapacity(tiles[tileIndex(tx, ty)] as TileType);
+      if (cap === 0) continue;
+      const center = tileToPixelCenter({ x: tx, y: ty });
+      const d = Math.hypot(c.x - center.x, c.y - center.y);
+      if (d >= bestD) continue;
+      if (houseOccupancy(tx, ty) >= cap) continue;
+      bestD = d;
+      c.homeTileX = tx;
+      c.homeTileY = ty;
+    }
+  }
+}
+
+function shelterTileFor(c: Colonist): TileCoord {
+  return c.homeTileX >= 0 ? { x: c.homeTileX, y: c.homeTileY } : TOWN_CENTER_TILE;
+}
+
+function isAtShelter(c: Colonist): boolean {
+  if (!c.sheltering || !c.shelterAssigned) return false;
+  const center = tileToPixelCenter(shelterTileFor(c));
+  return Math.hypot(c.x - center.x, c.y - center.y) <= TILE_SIZE * 1.5;
+}
+
 function updateShelteringCivilian(c: Colonist, dt: number) {
-  const center = tileToPixelCenter(TOWN_CENTER_TILE);
+  // (Re)assign on first night tick, and if the house was demolished or replaced mid-night.
+  if (!c.shelterAssigned || (c.homeTileX >= 0 && houseCapacity(tiles[tileIndex(c.homeTileX, c.homeTileY)] as TileType) === 0)) {
+    assignShelter(c);
+    c.path = [];
+  }
+  const target = shelterTileFor(c);
+  const center = tileToPixelCenter(target);
   const dist = Math.hypot(c.x - center.x, c.y - center.y);
   if (dist > TILE_SIZE * 1.5) {
     if (c.path.length === 0) {
-      const approach = findAdjacentWalkable(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y);
+      const approach = findAdjacentWalkable(target.x, target.y);
       const start = tileOfPixel(c.x, c.y);
       const path = approach ? findPath(start, approach) : null;
       c.path = path ?? [];
+      if (c.path.length === 0 && c.homeTileX >= 0) {
+        // Can't reach the house: fall back to the Town Center.
+        c.homeTileX = -1;
+        c.homeTileY = -1;
+        return;
+      }
     }
     advanceAlongPath(c, dt, COLONIST_SPEED);
   }
@@ -2132,7 +2267,7 @@ function updateGuardColonist(c: Colonist, dt: number) {
     if (c.attackCooldownTicks > 0) {
       c.attackCooldownTicks--;
     } else {
-      damageMob(target, stats.damage);
+      damageMob(target, stats.damage * armyDamageMultiplier(c.postX, c.postY));
       c.attackCooldownTicks = stats.cooldown;
       pendingEffects.push({ fromX: c.x, fromY: c.y, toX: target.x, toY: target.y, melee: stats.melee });
       if (target.hp <= 0) {
@@ -2502,6 +2637,9 @@ function updateColonist(c: Colonist, dt: number) {
       c.path = [];
     } else if (!night && c.sheltering) {
       c.sheltering = false;
+      c.shelterAssigned = false;
+      c.homeTileX = -1;
+      c.homeTileY = -1;
       c.path = [];
     }
     if (c.sheltering) {
@@ -3525,7 +3663,116 @@ const POPULATION_GATED_TILES = [
 ];
 const CRAFT_BUILDING_TILES = [TileType.TailorShop, TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Brewery];
 
+const IN_PLACE_UPGRADE_TILES: TileType[] = [
+  TileType.LumberjackPost,
+  TileType.BarnPost,
+  TileType.ChurchPost,
+  TileType.Pasture,
+  TileType.Orchard,
+  TileType.WoolFarm,
+  TileType.CottonFarm,
+  TileType.TailorShop,
+  TileType.Blacksmith,
+  TileType.LuxuryWorkshop,
+  TileType.Brewery,
+  TileType.Tavern,
+  TileType.IronMinePost,
+  TileType.RockMinePost,
+];
+
+// True when placing `tile` on the existing `current` building upgrades it in place.
+function isInPlaceUpgrade(tile: TileType, current: TileType, tx: number, ty: number): boolean {
+  if (tile === TileType.House) {
+    return (current === TileType.House || current === TileType.BigHouse) && canAffordHouseUpgrade(current);
+  }
+  if (tile === TileType.KnightPost) return current === TileType.KnightPost || current === TileType.CastleLevel2;
+  if (tile === TileType.MilitiaPost) return current === TileType.MilitiaPost || current === TileType.MilitiaCamp2;
+  if (tile === TileType.ArcherPost) {
+    return (current === TileType.ArcherPost || current === TileType.ArcherTower) && getBuildingLevel(tx, ty) < 3;
+  }
+  return tile === current && IN_PLACE_UPGRADE_TILES.includes(tile) && getBuildingLevel(tx, ty) < 3;
+}
+
+// Extra guards from living next to houses: +1 per adjacent house, diagonals included (at most 7,
+// since placement always keeps one orthogonal tile free for the units to spawn onto).
+function adjacentHouseCount(tx: number, ty: number): number {
+  let n = 0;
+  for (const [dx, dy] of NEIGHBOURS_8) {
+    const nx = tx + dx;
+    const ny = ty + dy;
+    if (inBounds(nx, ny) && isHouseTile(tiles[tileIndex(nx, ny)] as TileType)) n++;
+  }
+  return n;
+}
+
+// Top up one unit building to its tier headcount plus its house bonus. Never removes units.
+function syncGuardBonusAt(tx: number, ty: number) {
+  const t = tiles[tileIndex(tx, ty)] as TileType;
+  if (!isMilitaryTile(t)) return;
+  let kind: ColonistKind;
+  let level: number;
+  let base: number;
+  let isTower = false;
+  if (t === TileType.KnightPost || t === TileType.CastleLevel2 || t === TileType.CastleLevel3) {
+    kind = "knight";
+    level = t === TileType.KnightPost ? 1 : t === TileType.CastleLevel2 ? 2 : 3;
+    base = guardCountForLevel(level);
+  } else if (t === TileType.ArcherPost || t === TileType.ArcherTower) {
+    kind = "archer";
+    level = getBuildingLevel(tx, ty);
+    isTower = t === TileType.ArcherTower;
+    base = guardCountForLevel(level);
+  } else {
+    level = t === TileType.MilitiaPost ? 1 : t === TileType.MilitiaCamp2 ? 2 : 3;
+    kind = militiaKindForLevel(level);
+    base = militiaCountForLevel(level);
+  }
+  const target = base + adjacentHouseCount(tx, ty);
+  let have = 0;
+  for (const c of colonists.values()) {
+    if (c.postX === tx && c.postY === ty && (c.kind === kind || (kind !== "knight" && kind !== "archer" && isMilitiaLineKind(c.kind)))) have++;
+  }
+  for (const q of respawnQueue) if (q.tx === tx && q.ty === ty) have++;
+  for (let i = have; i < target; i++) spawnColonistForPost(tx, ty, kind, level, isTower);
+}
+
+function syncGuardBonusesAround(tx: number, ty: number) {
+  syncGuardBonusAt(tx, ty);
+  for (const [dx, dy] of NEIGHBOURS_8) {
+    if (inBounds(tx + dx, ty + dy)) syncGuardBonusAt(tx + dx, ty + dy);
+  }
+}
+
+function walkableNeighbourCount(tx: number, ty: number, ignoreX: number, ignoreY: number): number {
+  let n = 0;
+  for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
+    if (nx === ignoreX && ny === ignoreY) continue;
+    if (isWalkableTile(nx, ny)) n++;
+  }
+  return n;
+}
+
+// A unit building must keep at least one open neighbouring tile for its units to spawn onto.
+// Refuse any solid placement that would seal one in (or a unit building with no open side).
+function sealsInSpawner(tx: number, ty: number, tile: TileType): boolean {
+  if (!isSolidTile(tile)) return false;
+  if (isMilitaryTile(tile) && walkableNeighbourCount(tx, ty, -1, -1) === 0) return true;
+  for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
+    if (!inBounds(nx, ny) || !isMilitaryTile(tiles[tileIndex(nx, ny)] as TileType)) continue;
+    if (walkableNeighbourCount(nx, ny, tx, ty) === 0) return true;
+  }
+  return false;
+}
+
 function handleSetTile(player: Player, tx: number, ty: number, tile: TileType) {
+  if (!inBounds(tx, ty)) return;
+  if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
+  if (tile !== TileType.Empty && !isSolidTile(tiles[tileIndex(tx, ty)] as TileType) && sealsInSpawner(tx, ty, tile)) return;
+  handleSetTileInner(player, tx, ty, tile);
+  syncGuardBonusesAround(tx, ty);
+}
+
+function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileType) {
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
 
@@ -3574,16 +3821,14 @@ function handleSetTile(player: Player, tx: number, ty: number, tile: TileType) {
     return;
   }
 
-  if (tile === TileType.IronMinePost) {
-    const onOre = current === TileType.IronOre;
-    const adjacentToMine =
-      !onOre && current === TileType.Empty && adjacentTilesOfType(tx, ty, TileType.IronMinePost).length > 0;
-    if (!onOre && !adjacentToMine) return;
+  const upgradeInPlace = isInPlaceUpgrade(tile, current, tx, ty);
+
+  if (upgradeInPlace) {
+    // Placing on top of an existing building upgrades it; nothing else to validate here.
+  } else if (tile === TileType.IronMinePost) {
+    if (current !== TileType.IronOre) return;
   } else if (tile === TileType.RockMinePost) {
-    const onOre = current === TileType.Rock;
-    const adjacentToMine =
-      !onOre && current === TileType.Empty && adjacentTilesOfType(tx, ty, TileType.RockMinePost).length > 0;
-    if (!onOre && !adjacentToMine) return;
+    if (current !== TileType.Rock) return;
   } else if (tile === TileType.FarmPlot) {
     if (current !== TileType.Empty) return;
     if (adjacentTilesOfType(tx, ty, TileType.BarnPost).length === 0) return;
@@ -3619,7 +3864,7 @@ function handleSetTile(player: Player, tx: number, ty: number, tile: TileType) {
   )
     return;
 
-  if (tile !== TileType.FarmPlot) {
+  if (tile !== TileType.FarmPlot && !upgradeInPlace) {
     for (const other of players.values()) {
       const otherTile = tileOfPixel(other.x, other.y);
       if (otherTile.x === tx && otherTile.y === ty) return;
@@ -3897,6 +4142,7 @@ setInterval(() => {
       postX: c.postX,
       postY: c.postY,
       stance: c.stance,
+      sheltered: isAtShelter(c),
     })),
     mobs: Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,

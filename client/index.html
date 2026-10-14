@@ -478,6 +478,23 @@
         transition: opacity 0.6s ease;
       }
 
+      .event-toast {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .event-icon {
+        width: 18px;
+        height: 18px;
+        object-fit: contain;
+        flex: none;
+      }
+
+      #stat-selected .econ-icon {
+        vertical-align: -3px;
+      }
+
       .event-toast.fading { opacity: 0; }
       .event-toast.dropped { opacity: 0; transition-duration: 0.2s; }
 
@@ -533,13 +550,129 @@
         box-shadow: 0 0 0 1px rgba(255, 236, 180, 0.35);
         background: #140d07;
       }
+
+      /* Bottom-centre command bar: shown while soldiers are selected. Same stances as Z / X / E. */
+      #command-bar {
+        position: fixed;
+        left: 50%;
+        bottom: 16px;
+        transform: translateX(-50%);
+        z-index: 9;
+        display: flex;
+        gap: 8px;
+        padding: 8px 10px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+      }
+      #command-bar[hidden] { display: none; }
+      .cmd-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        min-width: 72px;
+        padding: 6px 8px 4px;
+        background: rgba(255, 236, 180, 0.25);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        font: inherit;
+        font-size: 11px;
+        color: inherit;
+        cursor: pointer;
+      }
+      .cmd-btn img { width: 28px; height: 28px; image-rendering: pixelated; }
+      .cmd-btn kbd { font-size: 10px; opacity: 0.7; }
+      .cmd-btn:hover { background: rgba(255, 236, 180, 0.55); }
+      .cmd-btn.active { background: rgba(120, 70, 20, 0.35); box-shadow: inset 0 0 0 2px var(--wood-dark); }
+
+      /* Main menu: full-screen title over the (not yet started) game. */
+      #main-menu {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(ellipse at 50% 40%, #3a2a18 0%, #120b05 80%);
+        font-family: var(--font-serif);
+      }
+      #main-menu[hidden] { display: none; }
+      .menu-scroll {
+        width: min(360px, calc(100vw - 32px));
+        padding: 28px 28px 24px;
+        text-align: center;
+        color: var(--ink);
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 8px 28px rgba(0, 0, 0, 0.7);
+      }
+      .menu-title { margin: 0; font-size: 34px; letter-spacing: 1px; }
+      .menu-sub { margin: 2px 0 22px; font-size: 13px; color: var(--ink-faint); font-style: italic; }
+      .menu-btn {
+        display: block;
+        width: 100%;
+        margin: 10px 0 0;
+        padding: 11px 14px;
+        font: inherit;
+        font-size: 17px;
+        color: var(--seal-ink);
+        background: linear-gradient(180deg, var(--seal), var(--seal-dark));
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      .menu-btn:hover { filter: brightness(1.2); }
+      .menu-btn.secondary { color: var(--ink); background: rgba(255, 236, 180, 0.35); }
+      .menu-btn.secondary:hover { background: rgba(255, 236, 180, 0.7); filter: none; }
+      .menu-panel[hidden] { display: none; }
+      .menu-setting {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 4px;
+        font-size: 15px;
+        border-bottom: 1px solid rgba(90, 52, 24, 0.35);
+        text-align: left;
+      }
+      .menu-setting input { width: 18px; height: 18px; accent-color: var(--seal); }
+      .menu-note { margin: 16px 0 0; font-size: 14px; }
+      body.hide-minimap #minimap-frame { display: none; }
+      body.hide-events #event-feed { display: none; }
     </style>
   </head>
   <body>
     <div id="app"></div>
+    <div id="main-menu">
+      <div class="menu-scroll">
+        <h1 class="menu-title">The Sworn Game</h1>
+        <p class="menu-sub">A colony at the edge of the Hunger</p>
+        <div id="menu-main" class="menu-panel">
+          <button id="menu-start" class="menu-btn">Start</button>
+          <button id="menu-settings" class="menu-btn secondary">Settings</button>
+          <button id="menu-exit" class="menu-btn secondary">Exit</button>
+          <p id="menu-bye" class="menu-note" hidden>Thanks for playing. You can close this tab now.</p>
+        </div>
+        <div id="menu-settings-panel" class="menu-panel" hidden>
+          <label class="menu-setting"><span>Show minimap</span><input type="checkbox" id="set-minimap" checked /></label>
+          <label class="menu-setting"><span>Show event notifications</span><input type="checkbox" id="set-events" checked /></label>
+          <button id="menu-back" class="menu-btn secondary">Back</button>
+        </div>
+      </div>
+    </div>
+    <div id="command-bar" hidden>
+      <button class="cmd-btn" data-stance="defensive" title="Defensive (Z)"><img src="/sprites/icon-stance-defensive.png" alt="" />Defensive<kbd>Z</kbd></button>
+      <button class="cmd-btn" data-stance="normal" title="Normal (X)"><img src="/sprites/icon-stance-normal.png" alt="" />Normal<kbd>X</kbd></button>
+      <button class="cmd-btn" data-stance="aggressive" title="Aggressive (E)"><img src="/sprites/icon-stance-aggressive.png" alt="" />Aggressive<kbd>E</kbd></button>
+    </div>
     <div id="control-buttons">
       <button id="pause-btn" class="control-btn">Pause</button>
       <button id="restart-btn" class="control-btn">Restart</button>
+      <button id="menu-btn" class="control-btn">Menu</button>
     </div>
     <div id="event-feed" aria-live="polite"></div>
     <div id="build-panel-toggle">Build</div>

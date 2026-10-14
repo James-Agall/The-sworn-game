@@ -258,5 +258,20 @@ Categories: UI clicks/placement, chop/mine, combat hit/death, night-falling stin
 jingle, ambient day/night loop. Implementation: a client-side `SoundManager` over the Web Audio
 API, preloaded short clips, triggered off the Phase 2 event feed plus local UI actions.
 
+### Art batch — landed 2026-10-14 (client-only, uncommitted)
+Seven new source sheets, wired client-side. The server and `protocol.ts` are unchanged. Details are
+in `SPRITES.md`.
+- **Player animation:** the mounted knight now walks, and plays a lance thrust on Space or when a
+  melee effect starts at a player. The per-player hue shader still applies.
+- **Icons:** each event toast shows a per-category icon, and the stance HUD line shows the stance icon.
+- **Loops:** campfire, lantern post and water tiles animate on one shared clock.
+- **Blood (Phase 2 combat feedback):** some melee hits and every death leave a ground stain. Stains
+  are capped at 80 and cleared at dawn with the gravestones.
+- **Ambient wildlife:** deer, crows and frogs wander client-side with no gameplay effect.
+- **Staged, not wired:** the Castle Ruin (Phase 5), the six gate states (gate passability is still
+  undecided), the wall torch loop, the move/attack/rally order icons, `playerIdle`, and rough wound
+  decals. Visual health stays deferred: the wound sheet came back as pre-baked units rather than
+  usable decals.
+
 Execution order above is my default sequencing (foundation first since map/zoom/clock touch
 everything downstream); say the word if you want a different item first.

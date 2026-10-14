@@ -164,6 +164,8 @@ export interface ColonistSnapshot {
   postX: number;
   postY: number;
   stance: Stance;
+  // True once a civilian has reached its night shelter (a house, or the Town Center) and should be drawn "inside".
+  sheltered: boolean;
 }
 
 export type MobKind =

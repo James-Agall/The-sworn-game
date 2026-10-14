@@ -53,10 +53,10 @@ const TOOLS: ToolDef[] = [
   { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: "Free, needs adjacent Barn", category: "farming" },
   { tile: TileType.KnightPost, label: "Hall of the Sworn", key: "5", cost: "10 iron + 5 rock (upgradeable)", category: "combat" },
   { tile: TileType.ArcherPost, label: "Archery Range", key: "6", cost: "10 wood (on Wall = Tower, upgradeable)", category: "combat" },
-  { tile: TileType.IronMinePost, label: "Iron Mine", key: "7", cost: "Free, needs ore or adjacent mine (upgradeable)", category: "industry" },
-  { tile: TileType.RockMinePost, label: "Quarry", key: "8", cost: "Free, needs ore or adjacent mine (upgradeable)", category: "industry" },
+  { tile: TileType.IronMinePost, label: "Iron Mine", key: "7", cost: "Free, on ore; place on a mine to upgrade", category: "industry" },
+  { tile: TileType.RockMinePost, label: "Quarry", key: "8", cost: "Free, on ore; place on a mine to upgrade", category: "industry" },
   { tile: TileType.Empty, label: "Demolish", key: "9", cost: "", category: "farming" },
-  { tile: TileType.House, label: "Cottage", key: "h", cost: "10 wood", category: "civic" },
+  { tile: TileType.House, label: "Cottage", key: "h", cost: "10 wood (+1 pop per adjacent house or workplace; upgrade by placing on it)", category: "civic" },
   { tile: TileType.BarnPost, label: "Barn", key: "b", cost: "15 wood (upgradeable)", category: "farming" },
   { tile: TileType.ChurchPost, label: "Church", key: "c", cost: "15 wood (upgradeable)", category: "civic" },
   // w/a/s/d are movement keys, so the farm hotkeys avoid them.
@@ -250,6 +250,11 @@ const COLONIST_ANIM_URLS: Record<ColonistKind, { walk: string[]; action: string[
   farmhand: { walk: frameUrls("farmhandWalk", 4), action: frameUrls("farmhandTend", 3) },
   artisan: { walk: frameUrls("artisanWalk", 4), action: frameUrls("artisanCraft", 3) },
 };
+// Player (mounted knight): walk + 2-frame lance attack, idle = walk frame 0. The walk row carries
+// the banner, the attack row doesn't; both canvases are centered on the horse's body (not the
+// banner/lance), so the feet-pinned swap between rows doesn't hop. playerIdle.png (the banner-only
+// standing frame) is staged on disk but unused, per the idle = walk-frame-0 convention.
+const PLAYER_ANIM_URLS = { walk: frameUrls("playerWalk", 4), action: frameUrls("playerAttack", 2) };
 // Server colonist states that play the action cycle / the walk cycle. Any other state walks only
 // while the colonist is actually moving (e.g. civilians sheltering), else shows the static pose.
 const COLONIST_ACTION_STATES = new Set(["attacking", "gathering", "mining", "farming", "crafting", "healing", "warding"]);
@@ -376,12 +381,43 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.PropLanternPost]: "lanternPost",
   [TileType.WardStone]: "wardStone",
 };
+// Looping tile animations (client-side, cosmetic). All frames of a loop share one canvas, so the
+// box-fit scale setTileSprite computes from frame 0 stays valid for every frame. One shared clock
+// drives them all (see the ticker in main); `phased` loops offset each tile by a stable hash so
+// neighbouring campfires don't flicker in lockstep, while water stays in sync across tiles.
+const TILE_ANIM: Partial<Record<TileType, { urls: string[]; frameMs: number; phased: boolean }>> = {
+  [TileType.PropCampfire]: { urls: frameUrls("campfire", 4), frameMs: 140, phased: true },
+  [TileType.PropLanternPost]: { urls: frameUrls("lanternPost", 4), frameMs: 200, phased: true },
+  [TileType.Water]: { urls: frameUrls("waterTile", 4), frameMs: 450, phased: false },
+};
 // Mature-crop art, swapped in for the FarmPlot texture while the server reports a plot as ready.
 const FARM_PLOT_READY_URL = "/sprites/farmPlotReady.png";
 // Indexed by GravestoneSnapshot.variant.
 const GRAVESTONE_URLS = ["/sprites/gravestone.png", "/sprites/gravestone2.png"];
 // Rendered height in px: a little shorter than a colonist so it reads as a ground marker.
 const GRAVESTONE_HEIGHT = 20;
+// Ambient wildlife (client-only, cosmetic: never sent to or known by the server, no collision, no
+// interaction). Each client rolls its own critters on every welcome, so two players won't see the
+// same deer. `size` is the rendered canvas width in px; counts scale with the eligible terrain area
+// (one critter per `tilesPer` eligible tiles) and are capped.
+const WILDLIFE = {
+  deer: { walk: frameUrls("deerWalk", 4), graze: frameUrls("deerGraze", 2), size: 26, tilesPer: 700, max: 24 },
+  crow: { frames: frameUrls("crow", 4), size: 12, tilesPer: 1400, max: 14 },
+  frog: { frames: frameUrls("frog", 3), size: 9, tilesPer: 60, max: 16 },
+};
+// Ground blood splatters (client-side, cosmetic). Variants 0/1/3 (small blob, medium splash, streak)
+// mark melee hits; 2/4/5 (large splash, pool, faded pool) mark deaths. Rendered size is the longer
+// side in px.
+const BLOOD_URLS = frameUrls("bloodSplatter", 6);
+const BLOOD_HIT_VARIANTS = [0, 1, 3];
+const BLOOD_DEATH_VARIANTS = [2, 4, 5];
+const BLOOD_HIT_SIZE = 12;
+const BLOOD_DEATH_SIZE = 22;
+// Only some melee hits leave a stain, so a long brawl doesn't carpet the ground in one spot.
+const BLOOD_HIT_CHANCE = 0.35;
+const BLOOD_ALPHA = 0.6;
+// Oldest stain is removed past this many; they're all cleared at dawn like the gravestones.
+const BLOOD_MAX = 80;
 const FX_URLS = {
   slash: "/sprites/fx-slash.png",
   spark: "/sprites/fx-spark.png",
@@ -443,7 +479,9 @@ const COLONIST_SPRITE_HEIGHT = 28;
 // Mounted knight on a horse, plus banner — should read as clearly bigger than a foot soldier,
 // not just a little taller. 64 keeps the rider's own body close to colonist scale while the
 // horse (and banner) make the whole thing noticeably larger, same uniform-scale texture either way.
-const PLAYER_SPRITE_HEIGHT = 64;
+// 68 for the animated set: its walk frames carry a taller banner than player.png did, and 68 keeps
+// the horse and rider at the old on-screen size (~40px wide).
+const PLAYER_SPRITE_HEIGHT = 68;
 
 // Cosmetic nature scatter on Plains floor tiles: roughly 1 in NATURE_DECOR_ONE_IN eligible tiles
 // gets one of these, chosen by a stable hash of the tile position (no server involvement).
@@ -547,10 +585,18 @@ async function main() {
     ...NATURE_DECOR.map((d) => d.url),
     FARM_PLOT_READY_URL,
     ...GRAVESTONE_URLS,
+    ...BLOOD_URLS,
+    ...WILDLIFE.deer.walk,
+    ...WILDLIFE.deer.graze,
+    ...WILDLIFE.crow.frames,
+    ...WILDLIFE.frog.frames,
     ...Object.values(FX_URLS),
+    ...Object.values(TILE_ANIM).flatMap((a) => a!.urls),
   ];
   const ANIM_URLS = [
     ...Object.values(COLONIST_ANIM_URLS).flatMap((a) => [...a.walk, ...a.action]),
+    ...PLAYER_ANIM_URLS.walk,
+    ...PLAYER_ANIM_URLS.action,
     ...Object.values(MOB_VARIANT_URLS).flatMap((variants) =>
       variants.flatMap((v) => [...(v.idle ? [v.idle] : []), ...(v.walk ?? []), ...(v.action ?? [])])
     ),
@@ -621,7 +667,14 @@ async function main() {
   const SWAMP_FLOOR_TEXTURE = loadedTextures["/sprites/swampFloor.png"];
   const NATURE_DECOR_TEXTURES = NATURE_DECOR.map((d) => ({ texture: loadedTextures[d.url], height: d.height }));
   const FARM_PLOT_READY_TEXTURE = loadedTextures[FARM_PLOT_READY_URL];
+  const TILE_ANIM_TEXTURES = new Map<number, { frames: Texture[]; frameMs: number; phased: boolean }>(
+    Object.entries(TILE_ANIM).map(([tile, a]) => [
+      Number(tile),
+      { frames: a!.urls.map((u) => loadedTextures[u]), frameMs: a!.frameMs, phased: a!.phased },
+    ])
+  );
   const GRAVESTONE_TEXTURES = GRAVESTONE_URLS.map((url) => loadedTextures[url]);
+  const BLOOD_TEXTURES = BLOOD_URLS.map((url) => loadedTextures[url]);
   const FX_TEXTURES = {
     slash: loadedTextures[FX_URLS.slash],
     spark: loadedTextures[FX_URLS.spark],
@@ -751,6 +804,23 @@ async function main() {
   }
   const colonistAnim = new Map<string, AnimState>();
   const mobAnim = new Map<string, AnimState>();
+  // Null (static player.png fallback) if any player frame failed to load.
+  const PLAYER_ANIM: AnimSet | null = [...PLAYER_ANIM_URLS.walk, ...PLAYER_ANIM_URLS.action].every(
+    (u) => loadedTextures[u]
+  )
+    ? buildAnimSet(PLAYER_ANIM_URLS, PLAYER_SPRITE_HEIGHT)
+    : null;
+  // The lance thrust plays once per attack (each frame held ANIM_TICKS_PER_FRAME snapshots).
+  const PLAYER_ATTACK_ANIM_TICKS = PLAYER_ANIM_URLS.action.length * ANIM_TICKS_PER_FRAME;
+  const playerAnim = new Map<string, AnimState & { attackTicks: number }>();
+  function triggerPlayerAttackAnim(id: string) {
+    const anim = playerAnim.get(id);
+    // Local keypress and the server's hit effect both trigger it; don't restart a thrust that's
+    // still on its first frame.
+    if (!anim || anim.attackTicks > PLAYER_ATTACK_ANIM_TICKS - ANIM_TICKS_PER_FRAME) return;
+    anim.attackTicks = PLAYER_ATTACK_ANIM_TICKS;
+    anim.mode = null; // restart the thrust from frame 0 even mid-swing
+  }
   // Shared (stateless) program; each player sprite gets its own Filter + uniforms.
   // highp: the HSV helpers' 1e-10 epsilon underflows to 0 at mediump on some GPUs -> NaN on greys.
   const playerRecolorProgram = GlProgram.from({
@@ -804,12 +874,36 @@ async function main() {
   // variant since the server sends no id.
   const gravestoneSprites = new Map<string, Sprite>();
 
+  // Blood stains: in decorSpriteLayer's bottom slot (under nature scatter and gravestones), oldest
+  // first. A death stain is stamped whenever a new gravestone appears (the server drops one for
+  // every death), except for the stones already standing when we join.
+  const bloodSprites: Sprite[] = [];
+  let bloodOnNewGravestones = false;
+  function stampBlood(x: number, y: number, variants: number[], size: number) {
+    const texture = BLOOD_TEXTURES[variants[Math.floor(Math.random() * variants.length)]];
+    if (!texture) return;
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    const scale = size / Math.max(texture.width, texture.height);
+    sprite.scale.set(Math.random() < 0.5 ? -scale : scale, scale);
+    sprite.position.set(x + (Math.random() - 0.5) * 6, y + 6 + (Math.random() - 0.5) * 4);
+    sprite.alpha = BLOOD_ALPHA;
+    decorSpriteLayer.addChildAt(sprite, 0);
+    bloodSprites.push(sprite);
+    if (bloodSprites.length > BLOOD_MAX) bloodSprites.shift()!.destroy();
+  }
+  function clearBlood() {
+    for (const sprite of bloodSprites) sprite.destroy();
+    bloodSprites.length = 0;
+  }
+
   function syncGravestones(snapshot: GravestoneSnapshot[]) {
     const seen = new Set<string>();
     for (const g of snapshot) {
       const key = `${g.x},${g.y},${g.variant}`;
       seen.add(key);
       if (gravestoneSprites.has(key)) continue;
+      if (bloodOnNewGravestones) stampBlood(g.x, g.y, BLOOD_DEATH_VARIANTS, BLOOD_DEATH_SIZE);
       const texture = GRAVESTONE_TEXTURES[g.variant];
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5, 1);
@@ -818,6 +912,7 @@ async function main() {
       decorSpriteLayer.addChild(sprite);
       gravestoneSprites.set(key, sprite);
     }
+    bloodOnNewGravestones = true;
     for (const [key, sprite] of Array.from(gravestoneSprites)) {
       if (seen.has(key)) continue;
       sprite.destroy();
@@ -831,6 +926,14 @@ async function main() {
   tileSpriteLayer.sortableChildren = true;
   worldLayer.addChild(tileSpriteLayer);
   const tileSprites = new Map<number, Sprite>();
+  // Tile index -> tile type, for slots currently showing a looping TILE_ANIM.
+  const animatedTiles = new Map<number, number>();
+  function tileAnimTexture(index: number, tile: number, now: number): Texture | undefined {
+    const anim = TILE_ANIM_TEXTURES.get(tile);
+    if (!anim) return undefined;
+    const phase = anim.phased ? stableHash(String(index)) : 0;
+    return anim.frames[(Math.floor(now / anim.frameMs) + phase) % anim.frames.length];
+  }
   // A welcome (join or world restart) wipes every entity at once; that isn't a mass death.
   let suppressDeathPoofs = true;
   let readyFarmPlots = new Set<number>();
@@ -867,7 +970,9 @@ async function main() {
         ? IRON_ORE_VARIANTS[(tx * 7 + ty * 13) % IRON_ORE_VARIANTS.length]
         : tile === TileType.FarmPlot && readyFarmPlots.has(index)
           ? FARM_PLOT_READY_TEXTURE
-          : TILE_TEXTURES.get(tile);
+          : (tileAnimTexture(index, tile, performance.now()) ?? TILE_TEXTURES.get(tile));
+    if (TILE_ANIM_TEXTURES.has(tile)) animatedTiles.set(index, tile);
+    else animatedTiles.delete(index);
     let sprite = tileSprites.get(index);
     if (!texture) {
       if (sprite) {
@@ -956,6 +1061,163 @@ async function main() {
     }
   }
 
+  // ---- Ambient wildlife (see WILDLIFE) ----
+  // Deer wander between nearby Plains tiles and graze; frogs sit and hop around swamp and water
+  // edges; crows perch anywhere and flap off to a new perch. Each critter only ever targets a tile
+  // that's Empty right now, so it doesn't stroll into a building that already exists; one ticker
+  // moves all of them and one shared clock picks their animation frames.
+  type CritterKind = keyof typeof WILDLIFE;
+  interface Critter {
+    kind: CritterKind;
+    sprite: Sprite;
+    homeX: number;
+    homeY: number;
+    x: number;
+    y: number;
+    fromX: number;
+    fromY: number;
+    toX: number;
+    toY: number;
+    moving: boolean;
+    moveMs: number;
+    elapsedMs: number;
+    restMs: number;
+    phase: number;
+  }
+  const WILDLIFE_TEXTURES = {
+    deerWalk: WILDLIFE.deer.walk.map((u) => loadedTextures[u]),
+    deerGraze: WILDLIFE.deer.graze.map((u) => loadedTextures[u]),
+    crow: WILDLIFE.crow.frames.map((u) => loadedTextures[u]),
+    frog: WILDLIFE.frog.frames.map((u) => loadedTextures[u]),
+  };
+  const critters: Critter[] = [];
+  const tileAt = (tx: number, ty: number) =>
+    tx < 0 || ty < 0 || tx >= worldTilesX || ty >= worldTilesY ? -1 : (tiles[ty * worldTilesX + tx] ?? TileType.Empty);
+  function nearWater(tx: number, ty: number): boolean {
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) if (tileAt(tx + dx, ty + dy) === TileType.Water) return true;
+    return false;
+  }
+  function critterTileOk(kind: CritterKind, tx: number, ty: number): boolean {
+    if (tileAt(tx, ty) !== TileType.Empty) return false;
+    const biome = biomes[ty * worldTilesX + tx] ?? Biome.Plains;
+    if (kind === "deer") return biome === Biome.Plains;
+    if (kind === "frog") return biome === Biome.Swamp || nearWater(tx, ty);
+    return true;
+  }
+  // A random eligible tile within `radius` tiles of (cx, cy), or null after a few misses.
+  function pickCritterSpot(kind: CritterKind, cx: number, cy: number, radius: number): { x: number; y: number } | null {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const tx = Math.floor(cx / tileSize + (Math.random() * 2 - 1) * radius);
+      const ty = Math.floor(cy / tileSize + (Math.random() * 2 - 1) * radius);
+      if (!critterTileOk(kind, tx, ty)) continue;
+      return { x: (tx + 0.2 + Math.random() * 0.6) * tileSize, y: (ty + 0.3 + Math.random() * 0.6) * tileSize };
+    }
+    return null;
+  }
+  const critterZ = (x: number, y: number) =>
+    Math.floor(y / tileSize) * worldTilesX + Math.floor(x / tileSize) + 0.5;
+  function spawnWildlife() {
+    for (const c of critters) c.sprite.destroy();
+    critters.length = 0;
+    const eligible: Record<CritterKind, number[]> = { deer: [], crow: [], frog: [] };
+    for (let ty = 0; ty < worldTilesY; ty++) {
+      for (let tx = 0; tx < worldTilesX; tx++) {
+        for (const kind of ["deer", "crow", "frog"] as CritterKind[]) {
+          if (critterTileOk(kind, tx, ty)) eligible[kind].push(ty * worldTilesX + tx);
+        }
+      }
+    }
+    for (const kind of ["deer", "crow", "frog"] as CritterKind[]) {
+      const spots = eligible[kind];
+      const def = WILDLIFE[kind];
+      const count = Math.min(def.max, Math.floor(spots.length / def.tilesPer));
+      const textures = kind === "deer" ? WILDLIFE_TEXTURES.deerWalk : WILDLIFE_TEXTURES[kind];
+      if (!textures.every(Boolean)) continue;
+      for (let i = 0; i < count; i++) {
+        const index = spots[Math.floor(Math.random() * spots.length)];
+        const x = ((index % worldTilesX) + 0.5) * tileSize;
+        const y = (Math.floor(index / worldTilesX) + 0.7) * tileSize;
+        const sprite = new Sprite(textures[0]);
+        sprite.anchor.set(0.5, 1);
+        sprite.scale.set(def.size / textures[0].width);
+        sprite.position.set(x, y);
+        // Depth-sorted among the tile art like a prop on the tile it stands on (see setTileSprite's
+        // row-major zIndex), so a deer behind a cottage is hidden by it. Updated only on a tile change.
+        sprite.zIndex = critterZ(x, y);
+        tileSpriteLayer.addChild(sprite);
+        critters.push({
+          kind, sprite, homeX: x, homeY: y, x, y, fromX: x, fromY: y, toX: x, toY: y,
+          moving: false, moveMs: 0, elapsedMs: 0, restMs: Math.random() * 6000, phase: Math.floor(Math.random() * 4),
+        });
+      }
+    }
+  }
+  // Wander radius (tiles) around home, travel speed (px/s) and rest range (ms) per kind.
+  const CRITTER_MOVE = {
+    deer: { radius: 4, speed: 16, restMin: 2500, restMax: 8000 },
+    crow: { radius: 7, speed: 70, restMin: 4000, restMax: 14000 },
+    frog: { radius: 2, speed: 40, restMin: 1500, restMax: 6000 },
+  };
+  const CRITTER_FRAME_MS = 160;
+  app.ticker.add((ticker) => {
+    if (critters.length === 0) return;
+    const dt = ticker.deltaMS;
+    const clock = Math.floor(performance.now() / CRITTER_FRAME_MS);
+    for (const c of critters) {
+      const move = CRITTER_MOVE[c.kind];
+      if (!c.moving) {
+        c.restMs -= dt;
+        if (c.restMs <= 0) {
+          const spot = pickCritterSpot(c.kind, c.homeX, c.homeY, move.radius);
+          if (spot) {
+            c.fromX = c.x;
+            c.fromY = c.y;
+            c.toX = spot.x;
+            c.toY = spot.y;
+            c.moveMs = Math.max(250, (Math.hypot(spot.x - c.x, spot.y - c.y) / move.speed) * 1000);
+            c.elapsedMs = 0;
+            c.moving = true;
+          } else {
+            c.restMs = move.restMin;
+          }
+        }
+      } else {
+        c.elapsedMs += dt;
+        const t = Math.min(1, c.elapsedMs / c.moveMs);
+        c.x = c.fromX + (c.toX - c.fromX) * t;
+        c.y = c.fromY + (c.toY - c.fromY) * t;
+        if (Math.abs(c.toX - c.fromX) > 0.5) {
+          c.sprite.scale.x = Math.abs(c.sprite.scale.x) * (c.toX > c.fromX ? 1 : -1);
+        }
+        if (t >= 1) {
+          c.moving = false;
+          c.restMs = move.restMin + Math.random() * (move.restMax - move.restMin);
+        }
+      }
+      // Crows fly and frogs hop: lift the sprite along an arc while moving (purely visual).
+      const t = c.moving ? Math.min(1, c.elapsedMs / c.moveMs) : 0;
+      const lift = c.kind === "crow" ? Math.sin(Math.PI * t) * 14 : c.kind === "frog" ? Math.sin(Math.PI * t) * 5 : 0;
+      c.sprite.position.set(c.x, c.y - lift);
+      // A crow in flight passes over everything on the ground.
+      const z = c.kind === "crow" && c.moving ? Number.MAX_SAFE_INTEGER : critterZ(c.x, c.y);
+      if (z !== c.sprite.zIndex) c.sprite.zIndex = z;
+      const f = clock + c.phase;
+      if (c.kind === "deer") {
+        // Walking: 4-frame cycle. Resting: alternate slowly between the two graze frames.
+        c.sprite.texture = c.moving
+          ? WILDLIFE_TEXTURES.deerWalk[f % 4]
+          : WILDLIFE_TEXTURES.deerGraze[Math.floor(f / 4) % 2];
+      } else if (c.kind === "crow") {
+        // Perched: frame 0. Flying: flap through frames 1-3.
+        c.sprite.texture = c.moving ? WILDLIFE_TEXTURES.crow[1 + (f % 3)] : WILDLIFE_TEXTURES.crow[0];
+      } else {
+        // Sit (0), leap (1) mid-hop, land (2) at the very end.
+        c.sprite.texture = WILDLIFE_TEXTURES.frog[!c.moving ? 0 : t < 0.85 ? 1 : 2];
+      }
+    }
+  });
+
   // Full-map path (welcome, incl. restart).
   function redrawGrid() {
     setFloorSprites();
@@ -970,10 +1232,12 @@ async function main() {
       if (index >= worldTilesX * worldTilesY) {
         sprite.destroy();
         tileSprites.delete(index);
+        animatedTiles.delete(index);
       }
     }
     nightOverlay.clear();
     nightOverlay.rect(0, 0, worldTilesX * tileSize, worldTilesY * tileSize).fill(0x0a0a2a);
+    spawnWildlife();
   }
 
   function setTileLocal(tx: number, ty: number, tile: number) {
@@ -1058,13 +1322,32 @@ async function main() {
     // Just above the (taller) sprite's top edge instead of the old fixed -20.
     entry.hpBar.position.set(p.x, p.y - PLAYER_SPRITE_HEIGHT / 2 - 4);
     drawHpBar(entry.hpBar, p.hp, p.maxHp);
-    if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(playerFacing, p.id, p.x));
+    if (!(entry.sprite instanceof Sprite)) return;
+    const facingRight = getFacing(playerFacing, p.id, p.x);
+    if (PLAYER_ANIM) {
+      let anim = playerAnim.get(p.id);
+      if (!anim) {
+        anim = { mode: null, frame: 0, ticksInFrame: 0, lastX: p.x, lastY: p.y, attackTicks: 0 };
+        playerAnim.set(p.id, anim);
+      }
+      const moved = Math.hypot(p.x - anim.lastX, p.y - anim.lastY) > 0.5;
+      anim.lastX = p.x;
+      anim.lastY = p.y;
+      const mode = anim.attackTicks > 0 ? "action" : moved ? "walk" : null;
+      if (anim.attackTicks > 0) anim.attackTicks--;
+      // The recolor Filter stays on the sprite; swapping its texture keeps the per-player hue.
+      showAnimFrame(entry.sprite, PLAYER_ANIM, stepAnim(anim, PLAYER_ANIM, mode) ?? PLAYER_ANIM.walk[0]);
+    }
+    applyFacing(entry.sprite, facingRight);
   }
 
   function syncPlayers(snapshot: PlayerSnapshot[]) {
     const seenIds = new Set(snapshot.map((p) => p.id));
     pruneMissing(playerSprites, seenIds);
     pruneFacing(playerFacing, seenIds);
+    for (const id of Array.from(playerAnim.keys())) {
+      if (!seenIds.has(id)) playerAnim.delete(id);
+    }
     for (const p of snapshot) upsertPlayer(p);
   }
 
@@ -1088,13 +1371,11 @@ async function main() {
       const hideRadius = c.kind === "archer" ? ARCHER_HIDE_RADIUS_PX : AT_POST_HIDE_RADIUS_PX;
       if (Math.hypot(c.x - postCenterX, c.y - postCenterY) <= hideRadius) hidden = true;
     }
-    // Civilians shelter at the Town Center at night (server: updateShelteringCivilian, same
-    // TILE_SIZE*1.5 arrival radius) - once they've actually arrived, they should read as having
+    // Civilians shelter in a house (or the Town Center) at night; the server sets `sheltered` once
+    // they've arrived (updateShelteringCivilian, TILE_SIZE*1.5 radius) - once they've actually arrived, they should read as having
     // gone inside it, the same way a worker disappears into its own post above, not stand
     // visibly idling next to the flag all night.
-    if (WORKER_KINDS.has(c.kind) && isNight) {
-      if (Math.hypot(c.x - townCenterPx.x, c.y - townCenterPx.y) <= tileSize * 1.5) hidden = true;
-    }
+    if (WORKER_KINDS.has(c.kind) && isNight && c.sheltered) hidden = true;
     entry.sprite.visible = !hidden;
     entry.hpBar.visible = !hidden;
 
@@ -1278,6 +1559,13 @@ async function main() {
   function spawnEffect(e: AttackEffect) {
     const angle = Math.atan2(e.toY - e.fromY, e.toX - e.fromX);
     if (e.melee) {
+      // Effects don't carry the attacker; a player standing at the origin plays its lance thrust.
+      for (const [id, { sprite }] of playerSprites) {
+        if (Math.abs(sprite.position.x - e.fromX) < 2 && Math.abs(sprite.position.y - e.fromY) < 2) {
+          triggerPlayerAttackAnim(id);
+        }
+      }
+      if (Math.random() < BLOOD_HIT_CHANCE) stampBlood(e.toX, e.toY, BLOOD_HIT_VARIANTS, BLOOD_HIT_SIZE);
       const slash = addFx(FX_TEXTURES.slash, FX_SIZE.slash, e.toX, e.toY, 160, fadeOut);
       slash.rotation = angle;
       return;
@@ -1314,6 +1602,22 @@ async function main() {
         activeEffects.splice(i, 1);
         fx.onEnd?.();
       }
+    }
+  });
+
+  // Shared clock for every looping tile (fire flicker, water ripple): one pass over the animated
+  // slots, and only on a frame boundary of the fastest loop, not per sprite or per render frame.
+  let lastTileAnimStep = -1;
+  const tileAnimStepMs = Math.min(...Array.from(TILE_ANIM_TEXTURES.values(), (a) => a.frameMs));
+  app.ticker.add(() => {
+    const now = performance.now();
+    const step = Math.floor(now / tileAnimStepMs);
+    if (step === lastTileAnimStep) return;
+    lastTileAnimStep = step;
+    for (const [index, tile] of animatedTiles) {
+      const sprite = tileSprites.get(index);
+      const texture = tileAnimTexture(index, tile, now);
+      if (sprite && texture && sprite.texture !== texture) sprite.texture = texture;
     }
   });
 
@@ -1817,12 +2121,35 @@ async function main() {
     const stances = new Set(
       latestColonists.filter((c) => selectedIds.has(c.id) && c.kind !== "bishop").map((c) => c.stance)
     );
-    const stance =
-      stances.size === 0 ? "" : stances.size === 1 ? STANCE_LABEL[[...stances][0]] : "Mixed";
-    statSelectedEl.textContent = stance
-      ? `Selected: ${selectedIds.size} · ${stance} (Z/X/E)`
-      : `Selected: ${selectedIds.size}`;
+    const single = stances.size === 1 ? [...stances][0] : null;
+    commandBarEl.hidden = stances.size === 0;
+    for (const b of Array.from(commandBarEl.querySelectorAll<HTMLElement>(".cmd-btn"))) {
+      b.classList.toggle("active", b.dataset.stance === single);
+    }
+    const stance = stances.size === 0 ? "" : single ? STANCE_LABEL[single] : "Mixed";
+    const text = stance ? `Selected: ${selectedIds.size} · ${stance} (Z/X/E)` : `Selected: ${selectedIds.size}`;
+    // Called every snapshot; only touch the DOM when the line actually changes.
+    if (text === lastSelectionHudText) return;
+    lastSelectionHudText = text;
+    if (!single) {
+      statSelectedEl.textContent = text;
+      return;
+    }
+    const icon = document.createElement("img");
+    icon.className = "econ-icon";
+    icon.src = `/sprites/icon-stance-${single}.png`;
+    icon.alt = "";
+    statSelectedEl.replaceChildren(`Selected: ${selectedIds.size} · `, icon, ` ${stance} (Z/X/E)`);
   }
+  let lastSelectionHudText = "";
+
+  const commandBarEl = document.getElementById("command-bar")!;
+  commandBarEl.addEventListener("click", (e) => {
+    const stance = (e.target as HTMLElement).closest<HTMLElement>(".cmd-btn")?.dataset.stance as Stance | undefined;
+    if (stance && selectedIds.size > 0) sendMessage({ type: "commandStance", unitIds: Array.from(selectedIds), stance });
+  });
+  // Keep a click on the bar from starting a map selection drag / deselecting.
+  commandBarEl.addEventListener("pointerdown", (e) => e.stopPropagation());
 
   function setSelection(ids: Iterable<string>) {
     selectedIds = new Set(ids);
@@ -2089,7 +2416,11 @@ async function main() {
   function pushEventToast(category: GameEventCategory, text: string) {
     const toast = document.createElement("div");
     toast.className = `event-toast event-${category}`;
-    toast.textContent = text;
+    const icon = document.createElement("img");
+    icon.className = "event-icon";
+    icon.src = `/sprites/icon-event-${category}.png`;
+    icon.alt = "";
+    toast.append(icon, text);
     eventFeedEl.prepend(toast);
     const live = Array.from(eventFeedEl.children).filter(
       (el) => !el.classList.contains("dropped") && !el.classList.contains("fading")
@@ -2098,6 +2429,7 @@ async function main() {
     window.setTimeout(() => removeToast(toast, "fading", TOAST_FADE_MS), TOAST_SHOW_MS);
   }
 
+  let wasNight = false;
   socket.addEventListener("message", (event) => {
     const message: ServerMessage = JSON.parse(event.data);
     if (message.type === "welcome") {
@@ -2109,6 +2441,8 @@ async function main() {
       biomes = message.biomes;
       resetMinimap(message.explored);
       suppressDeathPoofs = true;
+      bloodOnNewGravestones = false;
+      clearBlood();
       readyFarmPlots = new Set();
       redrawGrid();
       townCenterPx = {
@@ -2130,6 +2464,9 @@ async function main() {
       syncMobs(message.mobs);
       suppressDeathPoofs = false;
       syncReadyFarmPlots(message.readyFarmPlots);
+      // Dawn wipes the blood, the same boundary at which the server clears the gravestones.
+      if (wasNight && !message.isNight) clearBlood();
+      wasNight = message.isNight;
       syncGravestones(message.gravestones);
       latestColonists = message.colonists;
       latestMobs = message.mobs;
@@ -2245,6 +2582,8 @@ async function main() {
       e.preventDefault();
       if (socket.readyState === socket.OPEN) {
         socket.send(JSON.stringify({ type: "attack" }));
+        // Immediate feedback even when the swing hits nothing (no server effect then).
+        if (myId) triggerPlayerAttackAnim(myId);
       }
     }
   });
@@ -2445,4 +2784,63 @@ async function main() {
   });
 }
 
-main();
+// Main menu: the game (and its server connection) only starts once Start is pressed. Settings are
+// client-only display prefs kept in localStorage. "Menu" in-game just reloads back to this screen.
+function setupMainMenu() {
+  const menu = document.getElementById("main-menu")!;
+  const mainPanel = document.getElementById("menu-main")!;
+  const settingsPanel = document.getElementById("menu-settings-panel")!;
+  const minimapBox = document.getElementById("set-minimap") as HTMLInputElement;
+  const eventsBox = document.getElementById("set-events") as HTMLInputElement;
+
+  const load = (key: string): boolean => {
+    try {
+      return localStorage.getItem(key) !== "off";
+    } catch {
+      return true;
+    }
+  };
+  const save = (key: string, on: boolean) => {
+    try {
+      localStorage.setItem(key, on ? "on" : "off");
+    } catch {
+      /* private mode: setting just won't persist */
+    }
+  };
+  const apply = () => {
+    document.body.classList.toggle("hide-minimap", !minimapBox.checked);
+    document.body.classList.toggle("hide-events", !eventsBox.checked);
+  };
+  minimapBox.checked = load("sworn.minimap");
+  eventsBox.checked = load("sworn.events");
+  apply();
+  minimapBox.addEventListener("change", () => {
+    save("sworn.minimap", minimapBox.checked);
+    apply();
+  });
+  eventsBox.addEventListener("change", () => {
+    save("sworn.events", eventsBox.checked);
+    apply();
+  });
+
+  document.getElementById("menu-start")!.addEventListener("click", () => {
+    menu.hidden = true;
+    void main();
+  });
+  document.getElementById("menu-settings")!.addEventListener("click", () => {
+    mainPanel.hidden = true;
+    settingsPanel.hidden = false;
+  });
+  document.getElementById("menu-back")!.addEventListener("click", () => {
+    settingsPanel.hidden = true;
+    mainPanel.hidden = false;
+  });
+  document.getElementById("menu-exit")!.addEventListener("click", () => {
+    // Browsers only let a script close a tab it opened; otherwise show a goodbye line.
+    window.close();
+    document.getElementById("menu-bye")!.hidden = false;
+  });
+  document.getElementById("menu-btn")!.addEventListener("click", () => location.reload());
+}
+
+setupMainMenu();
