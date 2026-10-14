@@ -25,7 +25,7 @@ const result = (ok, msg) => {
 const info = (msg) => console.log(`info [${el()}] ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T = { Empty: 0, KnightPost: 5, ArcherPost: 6, Church: 20, MilitiaPost: 32, AbbeyHall: 46 };
-const SOLID = new Set([1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
+const SOLID = new Set([1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 54, 55]);
 const TILE = 32;
 const PLAYER_ATTACK_RANGE = TILE * 1.3;
 const COMMANDABLE = new Set(["knight", "archer", "bishop", "militia", "spearman", "pikeman"]);

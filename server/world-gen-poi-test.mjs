@@ -2,8 +2,9 @@
 //   A) static world-gen checks on a fresh world (restart): size, biome mix + Plains spawn area,
 //      water, ruin/encampment sites with their dormant guardians (kinds, counts, placement), and
 //      that every guardian stays put (dormant) for a few seconds.
-//   B) Plains farming bonus: Pasture placed next to spawn (always Plains) produces meat every
-//      round(CHOP_TICKS * 0.8 / happinessMult) ticks.
+//   B) Plains farming bonus: a Pasture placed next to spawn (always Plains) gets a tending cycle of
+//      round(FARMHAND_CYCLE_TICKS * 0.8 / happinessMult) ticks, and delivers its batch of meat when that
+//      runs out (paused + testHook fastForward: the cycle is 3 days of daylight). Needs COLONY_TEST_HOOKS=1.
 //   C) Swamp speed penalty: walk the player to a swamp tile and measure per-tick displacement
 //      (150px/s * 0.75 / 20 = 5.625px) vs. on Plains (7.5px).
 //   D) Hills mining bonus: walk to an Iron Ore / Rock tile on Hills, place a mine on it, measure
@@ -39,18 +40,21 @@ const RUIN_CENTER = new Set([T.RuinWall1, T.RuinWall2, T.RuinArch]);
 const RUIN_EXTRA = new Set([T.RuinStatue, T.RuinRubble]);
 const ENC_EXTRA = new Set([T.PropCart, T.PropBarrel, T.PropCrate, T.PropFence]);
 const BIOME = { Plains: 0, Hills: 1, Swamp: 2 };
-// Mirror of protocol.ts isSolidTile: every TileType except Empty (0) and FarmPlot (4).
+// Mirror of protocol.ts isSolidTile: every TileType except Empty (0), FarmPlot (4), berry bushes (52/53) and
+// mushroom patches (56/57).
 const SOLID = new Set([1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-  26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
+  26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 54, 55]);
 
 function connect() {
-  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: null, listeners: [] };
+  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: null, listeners: [], hooks: [] };
   c.ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
     if (m.type === "welcome") {
       c.welcome = m;
       c.tiles = m.tiles.slice();
       c.welcomes++;
+    } else if (m.type === "testHookResult") {
+      c.hooks.push(m);
     } else if (m.type === "tileUpdate") {
       if (c.tiles) c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX] = m.tile;
     } else if (m.type === "snapshot") {
@@ -60,6 +64,16 @@ function connect() {
     }
   });
   c.send = (m) => c.ws.send(JSON.stringify(m));
+  c.hook = async (op, args = {}) => {
+    const before = c.hooks.length;
+    c.send({ type: "testHook", op, ...args });
+    const deadline = Date.now() + 60000;
+    while (c.hooks.length === before) {
+      if (Date.now() > deadline) throw new Error(`no testHookResult for ${op}: is COLONY_TEST_HOOKS=1 set?`);
+      await sleep(5);
+    }
+    return c.hooks[c.hooks.length - 1];
+  };
   c.me = (s = c.snap) => s.players.find((p) => p.id === c.welcome.id);
   c.ready = async () => {
     await new Promise((r) => c.ws.on("open", r));
@@ -287,12 +301,34 @@ if (ONLY.has("B")) {
   if (!placed) {
     result(false, "B: no empty Plains tile next to spawn for a Pasture");
   } else {
+    // Freeze real time first, so the cycle the farmhand is given on placement is read untouched.
+    a.send({ type: "pause" });
+    while (!a.snap.isPaused) await sleep(10);
+    await a.hook("setRaids", { enabled: false });
     a.send({ type: "setTile", tileX: placed.x, tileY: placed.y, tile: T.Pasture });
     await sleep(300);
     result(tileAt(placed.x, placed.y) === T.Pasture, `B: Pasture placed on Plains at (${placed.x},${placed.y})`);
-    const intervals = await measureIntervals("meat", 3, 15000);
-    const ok = intervals.length >= 2 && intervals.every((iv) => iv.interval === Math.max(1, Math.round((CHOP_TICKS * 0.8) / happinessMult(iv.happiness))));
-    result(ok, `B: Plains Pasture meat interval == round(40*0.8/happinessMult): ${intervals.map((iv) => `${iv.interval}t (h=${iv.happiness}, plains-expect=${Math.round(32 / happinessMult(iv.happiness))}, no-bonus=${Math.round(40 / happinessMult(iv.happiness))})`).join("; ")}`);
+    const st = await a.hook("farmState");
+    const fh = st.farmhands.find((f) => f.postX === placed.x && f.postY === placed.y);
+    const K = st.constants;
+    const plainsExpect = Math.max(1, Math.round((K.FARMHAND_CYCLE_TICKS * 0.8) / happinessMult(st.happiness)));
+    const noBonus = Math.max(1, Math.round(K.FARMHAND_CYCLE_TICKS / happinessMult(st.happiness)));
+    result(fh && fh.cycleTicksRemaining === plainsExpect && plainsExpect !== noBonus,
+      `B: Plains Pasture cycle ${fh?.cycleTicksRemaining}t == round(${K.FARMHAND_CYCLE_TICKS}*0.8/happinessMult(${st.happiness})) = ${plainsExpect}t (no-bonus would be ${noBonus}t)`);
+    // Tending only advances by day, so run whole days until the batch lands.
+    const meat0 = a.snap.meat;
+    let delivered = false;
+    for (let i = 0; i < 12 && !delivered; i++) {
+      await a.hook("fastForward", { ticks: 1000 });
+      const now = (await a.hook("farmState")).farmhands.find((f) => f.id === fh.id);
+      await a.nextSnap();
+      delivered = a.snap.meat > meat0;
+      if (delivered) result(a.snap.meat - meat0 === K.FARMHAND_YIELD_PER_CYCLE.meat, `B: the cycle delivered +${a.snap.meat - meat0} meat in one batch (expected +${K.FARMHAND_YIELD_PER_CYCLE.meat}); next cycle ${now.cycleTicksRemaining}t`);
+    }
+    if (!delivered) result(false, `B: no meat after 6 game days`);
+    a.send({ type: "pause" });
+    while (a.snap.isPaused) await sleep(10);
+    await a.hook("setRaids", { enabled: true });
   }
 }
 

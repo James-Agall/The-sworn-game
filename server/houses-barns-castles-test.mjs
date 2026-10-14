@@ -1,6 +1,6 @@
 // Scripted test: houses/population cap, barns + farm plots, mine clustering, knight castle leveling,
 // archer towers, plus a spawn-movement sanity check. Needs a FRESH server (starting stock wood 80 / iron 60 /
-// rock 60 / grain 40, no structures built yet) with no other players connected; run it with COLONY_WORLD_SIZE=80.
+// rock 60 / grain 60, no structures built yet) with no other players connected; run it with COLONY_WORLD_SIZE=80.
 // The Town Center alone gives a population cap of 10 (plus +1 per house/house or house/workplace neighbour pair),
 // so the population-gating phase fills the cap with Lumberjack Posts at a separate site.
 // Saint Wren's Abbey clergy (world-gen bishops posted at the AbbeyHall) are not the colony's: they are
@@ -25,12 +25,13 @@ const T = {
 const ABBEY_HALL = 46;
 // Every tile type the server treats as solid (protocol.ts isSolidTile): 1..49 except FarmPlot (4),
 // which includes world-gen water, ruins, encampment props, the Abbey and Ward Stones.
-const SOLID = new Set(Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4));
+// + 50/51 (Hunter's/Forager's Hut) and 54/55 (fruit tree, ripe/picked); berry bushes and mushrooms are walkable.
+const SOLID = new Set([...Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4), 50, 51, 54, 55]);
 const TILE = 32;
 const REACH = TILE * 2.5;
 
 function connect() {
-  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, firstSnap: null, tiles: [], tileUpdates: [], snaps: [] };
+  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, firstSnap: null, tiles: [], tileUpdates: [], snaps: [], hooks: [] };
   c.ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
     if (m.type === "welcome") {
@@ -52,12 +53,28 @@ function connect() {
       }
       c.snap = m;
       if (c.recordSnaps) c.snaps.push(m);
+    } else if (m.type === "testHookResult") {
+      c.hooks.push(m);
     } else if (m.type === "tileUpdate") {
       c.tileUpdates.push({ ...m, prev: c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX], at: Date.now() });
       c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX] = m.tile;
     }
   });
   c.send = (m) => c.ws.send(JSON.stringify(m));
+  c.hook = async (op, args = {}) => {
+    const before = c.hooks.length;
+    c.send({ type: "testHook", op, ...args });
+    const deadline = Date.now() + 60000;
+    while (c.hooks.length === before) {
+      if (Date.now() > deadline) throw new Error(`no testHookResult for ${op}: is COLONY_TEST_HOOKS=1 set?`);
+      await sleep(5);
+    }
+    return c.hooks[c.hooks.length - 1];
+  };
+  c.setPaused = async (paused) => {
+    if (c.snap.isPaused !== paused) c.send({ type: "pause" });
+    while (c.snap.isPaused !== paused) await sleep(10);
+  };
   c.me = () => c.snap.players.find((p) => p.id === c.welcome.id);
   c.meTile = () => ({ x: Math.floor(c.me().x / TILE), y: Math.floor(c.me().y / TILE) });
   c.W = () => c.welcome.worldTilesX;
@@ -578,43 +595,56 @@ let sixth = null;
     const rd = await act(a, Fdiag.x, Fdiag.y, T.FarmPlot, 600);
     result(rd.filter((u) => u.tileX === Fdiag.x && u.tileY === Fdiag.y).length === 0,
       `(d) Farm Plot at (${Fdiag.x},${Fdiag.y}), only DIAGONAL to the Barn: rejected`);
-    a.snaps = [];
-    a.recordSnaps = true;
+    // Slow farming: the world is paused before planting and moved on with testHook fastForward, so the
+    // plot's 3-day grow and its harvest are checked tick-exactly (raids off while days are skipped).
+    await a.setPaused(true);
+    await a.hook("setRaids", { enabled: false });
+    // Skipped days still eat at every dawn: a deep grain store keeps the colony from starving meanwhile,
+    // and the real stock is put back afterwards.
+    const keepGrain = (await a.hook("setStock", { stock: {} })).stock.grain;
+    await a.hook("setStock", { stock: { grain: 5000 } });
     const pf = await placeExpectAt(a, Fadj.x, Fadj.y, T.FarmPlot, Fadj.x, Fadj.y, T.FarmPlot);
-    const placedAt = Date.now();
     result(pf.hit.length === 1 && pf.hit[0].tile === T.FarmPlot, `(d) Farm Plot adjacent to Barn at (${Fadj.x},${Fadj.y}) accepted (tile 4)`);
     result(kinds(a, "farmer").length === farmers0 + 1, `(d) Farm Plot spawned no colonist (farmers still ${kinds(a, "farmer").length})`);
-    // The snapshot's food field is retired: a plot yields 1 grain (FARM_YIELD_PER_HARVEST) per harvest. The
-    // first grow phase is the flat FARM_GROW_TICKS (160); the harvest phase is scaled by the plot's biome
-    // (Plains -20%), happiness speed and the Barn's industrial synergy.
-    const hm = 0.5 + 0.5 * (a.snap.happiness / 100);
+    // The first grow phase is the flat FARM_GROW_TICKS (3 days); the harvest phase is scaled by the plot's
+    // biome (Plains -20%), happiness speed and the Barn's industrial synergy; a harvest yields
+    // FARM_YIELD_PER_HARVEST grain at once.
+    const plotKey = `${Fadj.x},${Fadj.y}`;
+    let fst = await a.hook("farmState");
+    let plot = fst.plots.find((q) => q.key === plotKey);
+    const K = fst.constants;
+    result(plot?.state === "sown" && plot.growTicksRemaining === K.FARM_GROW_TICKS,
+      `(d) new plot sown with the flat ${K.FARM_GROW_TICKS}t grow (state=${plot?.state}, remaining=${plot?.growTicksRemaining})`);
+    await a.hook("fastForward", { ticks: plot.growTicksRemaining });
+    fst = await a.hook("farmState");
+    plot = fst.plots.find((q) => q.key === plotKey);
+    const hm = 0.5 + 0.5 * (fst.happiness / 100);
     const plotBiome = biomeAt(a, Fadj.x, Fadj.y) === 0 ? 0.8 : 1;
-    const harvestT = Math.max(1, Math.round((40 * plotBiome) / (hm * industrialSynergy(a, B.x, B.y))));
-    const first = (160 + harvestT) / 20;
-    while (Date.now() - placedAt < Math.max(12500, (first + 1.5) * 1000)) await sleep(200);
-    a.recordSnaps = false;
-    const deltas = [];
-    for (let i = 1; i < a.snaps.length; i++) {
-      const d = a.snaps[i].grain - a.snaps[i - 1].grain;
-      if (d !== 0) deltas.push({ d, t: +((a.snaps[i].at - placedAt) / 1000).toFixed(2), night: a.snaps[i].isNight });
-    }
-    const plus = deltas.filter((x) => x.d > 0);
-    result(plus.length === 1 && plus[0].d === 1 && Math.abs(plus[0].t - first) < 1,
-      `(d) grain increases after planting: ${JSON.stringify(plus)} (expected exactly one +1 harvest at ~${first.toFixed(2)}s = 160-tick grow + ${harvestT}-tick harvest)`);
-    // Freeze check: break the Barn, food must stop growing from this plot.
+    const harvestT = Math.max(1, Math.round((K.FARM_HARVEST_TICKS * plotBiome) / (hm * industrialSynergy(a, B.x, B.y))));
+    result(plot.state === "harvesting" && plot.harvestTicksRemaining === harvestT,
+      `(d) ripe after exactly ${K.FARM_GROW_TICKS}t; harvest phase ${plot.harvestTicksRemaining}t (expected ${harvestT}t)`);
+    await a.hook("fastForward", { ticks: plot.harvestTicksRemaining - 1 });
+    const g0 = (await a.hook("setStock", { stock: {} })).stock.grain;
+    await a.hook("fastForward", { ticks: 1 });
+    const g1 = (await a.hook("setStock", { stock: {} })).stock.grain;
+    result(g1 - g0 === K.FARM_YIELD_PER_HARVEST, `(d) the harvest's last tick adds +${g1 - g0} grain (expected +${K.FARM_YIELD_PER_HARVEST})`);
+    await a.setPaused(false);
+    // Freeze check: break the Barn, the plot must stop growing.
     await ensureAt(a, s);
     const bb = await act(a, B.x, B.y, T.Empty);
     await sleep(150);
     result(bb.some((u) => u.tileX === B.x && u.tileY === B.y && u.tile === T.Empty) && kinds(a, "farmer").length === farmers0 &&
       a.tileAt(Fadj.x, Fadj.y) === T.FarmPlot,
       `(d) broke Barn: farmer removed (farmers=${kinds(a, "farmer").length}), Farm Plot still present (tile=${a.tileAt(Fadj.x, Fadj.y)})`);
-    a.snaps = [];
-    a.recordSnaps = true;
-    await sleep(11000);
-    a.recordSnaps = false;
-    const frozenPlus = [];
-    for (let i = 1; i < a.snaps.length; i++) if (a.snaps[i].grain - a.snaps[i - 1].grain > 0) frozenPlus.push(a.snaps[i].grain - a.snaps[i - 1].grain);
-    result(frozenPlus.length === 0, `(d) plot frozen with no Barn: grain increases over 11s = ${JSON.stringify(frozenPlus)} (expected none)`);
+    await a.setPaused(true);
+    const frozen0 = (await a.hook("farmState")).plots.find((q) => q.key === plotKey);
+    await a.hook("fastForward", { ticks: K.FARM_GROW_TICKS + K.FARM_HARVEST_TICKS });
+    const frozen1 = (await a.hook("farmState")).plots.find((q) => q.key === plotKey);
+    result(frozen0.state === frozen1.state && frozen0.growTicksRemaining === frozen1.growTicksRemaining,
+      `(d) plot frozen with no Barn over a whole grow: ${frozen0.state} ${frozen0.growTicksRemaining}t -> ${frozen1.state} ${frozen1.growTicksRemaining}t`);
+    await a.hook("setStock", { stock: { grain: keepGrain } });
+    await a.hook("setRaids", { enabled: true });
+    await a.setPaused(false);
     await ensureAt(a, s);
     const bf = await act(a, Fadj.x, Fadj.y, T.Empty);
     result(bf.some((u) => u.tileX === Fadj.x && u.tileY === Fadj.y && u.tile === T.Empty), `(d) Farm Plot breakable -> Empty`);

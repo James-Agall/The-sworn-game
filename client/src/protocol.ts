@@ -71,6 +71,17 @@ export enum TileType {
   PropLanternPost = 48,
   // Player-built: staffed by a warding Bishop, suppresses mob targeting nearby while he's present.
   WardStone = 49,
+  // Player-built food huts: a hunter (wild game -> meat) / a forager (wild plants -> fruit) per level.
+  HunterHut = 50,
+  ForagerHut = 51,
+  // World-gen wild forage the server tracks; each has a ripe and a picked (regrowing) state.
+  // Bushes and mushrooms are walkable, fruit trees are solid like ordinary trees.
+  BerryBush = 52,
+  BerryBushPicked = 53,
+  FruitTree = 54,
+  FruitTreePicked = 55,
+  MushroomPatch = 56,
+  MushroomPatchPicked = 57,
 }
 
 // Ground biome per tile, a separate layer from TileType (sent once in `welcome`, never changes
@@ -130,7 +141,11 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.AbbeyHall ||
     tile === TileType.PropCross ||
     tile === TileType.PropLanternPost ||
-    tile === TileType.WardStone
+    tile === TileType.WardStone ||
+    tile === TileType.HunterHut ||
+    tile === TileType.ForagerHut ||
+    tile === TileType.FruitTree ||
+    tile === TileType.FruitTreePicked
   );
 }
 
@@ -146,7 +161,9 @@ export type ColonistKind =
   | "artisan"
   | "militia"
   | "spearman"
-  | "pikeman";
+  | "pikeman"
+  | "hunter"
+  | "forager";
 
 // Combat stance for guard-tier units (knight/archer/militia line): how far they aggro, how far they
 // chase from their rally point, and how tight a formation they hold. Every colonist carries one
@@ -209,10 +226,24 @@ export interface GravestoneSnapshot {
   variant: 0 | 1;
 }
 
+// Huntable wild game (server entities, unarmed and non-hostile; a hunted boar may charge its hunter).
+export type WildlifeKind = "deer" | "rabbit" | "boar" | "pheasant";
+// Index = the kind code in the snapshot's flattened `wildlife` list.
+export const WILDLIFE_KINDS: WildlifeKind[] = ["deer", "rabbit", "boar", "pheasant"];
+// `wildlife` is flattened, WILDLIFE_SNAPSHOT_STRIDE numbers per animal:
+// [id, kind code, x (px, rounded), y (px, rounded), state code (WildlifeState below)].
+export const WILDLIFE_SNAPSHOT_STRIDE = 5;
+export enum WildlifeState {
+  Idle = 0,
+  Walk = 1,
+  Flee = 2,
+  Charge = 3,
+}
+
 // Night-mob tuning chosen on the main menu (server applies the multipliers; see DIFFICULTY_* there).
 export type Difficulty = "easy" | "normal" | "hard";
 
-export type GameEventCategory = "night" | "dawn" | "upgrade" | "death" | "ward" | "deserter";
+export type GameEventCategory = "night" | "dawn" | "upgrade" | "death" | "ward" | "deserter" | "raid";
 
 export type ClientMessage =
   | { type: "join"; name?: string }
@@ -279,6 +310,10 @@ export type ServerMessage =
       taskForces: Record<string, string[]>;
       // Tile indices (y * worldTilesX + x) of Farm Plots whose crop is mature and being harvested.
       readyFarmPlots: number[];
+      // Farm Plots freshly sown (bare soil) and resting fallow; any other plot is growing.
+      sownFarmPlots: number[];
+      fallowFarmPlots: number[];
+      wildlife: number[];
       gravestones: GravestoneSnapshot[];
       difficulty: Difficulty;
     }

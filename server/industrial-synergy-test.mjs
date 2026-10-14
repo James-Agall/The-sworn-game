@@ -1,16 +1,17 @@
 // Scripted test: industrial cluster synergy (industrialSynergyMultiplier). Every OTHER industrial building
 // within Chebyshev radius 5 of a building speeds its work cycle up by +5% (stacking): cycle ticks are
-// divided by (1 + 0.05 * n). Measured deterministically on a Barn's farm plot: the plot's grow and harvest
-// phases are timed to the exact tick from snapshots (readyFarmPlots + cycleProgress), and each phase length
-// is compared with the server formula round(base * biome / (happinessMult * synergyMult)) using the
-// happiness the snapshot reports for the tick the phase started on. Phases:
+// divided by (1 + 0.05 * n). Measured deterministically on a Barn's farm plot: since slow farming (3-day
+// grow) the world is paused and fast-forwarded (testHook fastForward) to each re-sowing and each ripening,
+// and the phase lengths the server just set (testHook farmState: growTicksTotal / harvestTicksRemaining)
+// are compared with the server formula round(base * biome / (happinessMult * synergyMult)) using the
+// happiness in force on that tick. Phases:
 //   0: Barn alone (n=0)
 //   1: + Lumberjack at Chebyshev distance 6 (must NOT count, n stays 0)
 //   2: + Lumberjack at Chebyshev distance 5 (counts, n=1)
 //   3: + 2 Lumberjacks at distance 2 (n=3)
 // Each measured length must equal the prediction for the real n and differ from the prediction for the
 // wrong n (e.g. phase 1 vs n=1), so a pass is exact, not statistical.
-// Needs a fresh server with no other players; run with COLONY_WORLD_SIZE=80.
+// Needs a fresh server with no other players and COLONY_TEST_HOOKS=1; run with COLONY_WORLD_SIZE=80.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -27,16 +28,16 @@ const T = {
   Empty: 0, Lumberjack: 3, FarmPlot: 4, KnightPost: 5, BarnPost: 16,
 };
 // Server INDUSTRIAL_TILES: Lumberjack, Barn, IronMine, RockMine, Pasture, Orchard, WoolFarm, CottonFarm,
-// TailorShop, Blacksmith, LuxuryWorkshop, Brewery.
-const INDUSTRIAL = new Set([3, 16, 9, 10, 21, 22, 23, 24, 25, 26, 27, 30]);
+// TailorShop, Blacksmith, LuxuryWorkshop, Brewery, HunterHut, ForagerHut.
+const INDUSTRIAL = new Set([3, 16, 9, 10, 21, 22, 23, 24, 25, 26, 27, 30, 50, 51]);
 const TILE = 32;
 const PLAINS = 0;
-const FARM_GROW_TICKS = 160; // TICK_RATE * 8
+const FARM_GROW_TICKS = 6000; // 3 game days (FARM_GROW_DAYS * (DAY + NIGHT) ticks)
 const FARM_HARVEST_TICKS = 40; // TICK_RATE * 2
 const CYCLE_TICKS = 2000; // (DAY 60s + NIGHT 40s) * 20 ticks/s
 
 function connect() {
-  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, tiles: [], tileUpdates: [], ticks: [] };
+  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, tiles: [], tileUpdates: [], ticks: [], hooks: [] };
   let wraps = 0, lastMod = -1;
   c.ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
@@ -50,12 +51,28 @@ function connect() {
       m.tick = wraps * CYCLE_TICKS + mod;
       c.snap = m;
       if (c.plotIdx !== undefined) c.ticks.push({ tick: m.tick, ready: m.readyFarmPlots.includes(c.plotIdx), happiness: m.happiness });
+    } else if (m.type === "testHookResult") {
+      c.hooks.push(m);
     } else if (m.type === "tileUpdate") {
       c.tileUpdates.push({ ...m, at: Date.now() });
       c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX] = m.tile;
     }
   });
   c.send = (m) => c.ws.send(JSON.stringify(m));
+  c.hook = async (op, args = {}) => {
+    const before = c.hooks.length;
+    c.send({ type: "testHook", op, ...args });
+    const deadline = Date.now() + 60000;
+    while (c.hooks.length === before) {
+      if (Date.now() > deadline) throw new Error(`no testHookResult for ${op}: is COLONY_TEST_HOOKS=1 set?`);
+      await sleep(5);
+    }
+    return c.hooks[c.hooks.length - 1];
+  };
+  c.setPaused = async (paused) => {
+    if (c.snap.isPaused !== paused) c.send({ type: "pause" });
+    while (c.snap.isPaused !== paused) await sleep(10);
+  };
   c.me = () => c.snap.players.find((p) => p.id === c.welcome.id);
   c.meTile = () => ({ x: Math.floor(c.me().x / TILE), y: Math.floor(c.me().y / TILE) });
   c.W = () => c.welcome.worldTilesX;
@@ -195,42 +212,37 @@ function industrialWithin5(c, bx, by) {
   return n;
 }
 
-// Wait for the first grow phase that STARTS after `afterTick` to complete, plus the harvest phase after
-// it. Returns {growStart, grow, harvest, hGrow, hHarvest} from the recorded per-tick history.
-async function measureCycle(c, afterTick, timeoutMs = 90000) {
-  const since = Date.now();
-  while (Date.now() - since < timeoutMs) {
-    const tk = c.ticks;
-    // find a ready->notReady edge after afterTick
-    let gs = -1;
-    for (let i = 1; i < tk.length; i++) if (tk[i].tick > afterTick && tk[i - 1].ready && !tk[i].ready) { gs = i; break; }
-    if (gs >= 0) {
-      let ge = -1;
-      for (let i = gs + 1; i < tk.length; i++) if (tk[i].ready) { ge = i; break; }
-      if (ge >= 0) {
-        let he = -1;
-        for (let i = ge + 1; i < tk.length; i++) if (!tk[i].ready) { he = i; break; }
-        if (he >= 0) {
-          let gaps = 0;
-          for (let i = gs; i <= he; i++) if (tk[i].tick - tk[i - 1].tick !== 1) gaps++;
-          return {
-            growStart: tk[gs].tick,
-            grow: tk[ge].tick - tk[gs].tick,
-            harvest: tk[he].tick - tk[ge].tick,
-            hGrow: tk[gs].happiness,
-            hHarvest: tk[ge].happiness,
-            gaps,
-          };
-        }
-      }
-    }
-    await sleep(200);
+// Paused, fast-forwards the plot through its current harvest to the next re-sowing and then to ripeness,
+// reading the phase lengths the server set on each of those ticks (and the happiness in force then).
+// Returns {grow, harvest, hGrow, hHarvest}.
+async function measureCycle(c) {
+  const key = `${P.x},${P.y}`;
+  const plot = async () => {
+    const st = await c.hook("farmState");
+    return { st, p: st.plots.find((q) => q.key === key) };
+  };
+  await c.setPaused(true);
+  let { st, p } = await plot();
+  if (p.state !== "harvesting") {
+    await c.hook("fastForward", { ticks: p.growTicksRemaining });
+    ({ st, p } = await plot());
   }
-  return null;
+  await c.hook("fastForward", { ticks: p.harvestTicksRemaining });
+  ({ st, p } = await plot());
+  const grow = p.state === "sown" ? p.growTicksTotal : -1;
+  const hGrow = st.happiness;
+  await c.hook("fastForward", { ticks: p.growTicksRemaining });
+  ({ st, p } = await plot());
+  const harvest = p.state === "harvesting" ? p.harvestTicksRemaining : -1;
+  const hHarvest = st.happiness;
+  await c.setPaused(false);
+  return { grow, harvest, hGrow, hHarvest };
 }
 
 const a = connect();
 await a.ready();
+// Fast-forwarding days would otherwise pull in raid waves.
+await a.hook("setRaids", { enabled: false });
 info(`connected; wood=${a.snap.wood} iron=${a.snap.iron} rock=${a.snap.rock} cap=${a.snap.populationCap} tick=${a.snap.tick}`);
 
 // Layout relative to the standing tile s. Barn B, its plot P (west of B), Near1/Near2 at Chebyshev 2,
@@ -259,20 +271,15 @@ result(await placeExpect(a, K.x, K.y, T.KnightPost), `Knight Post (mob bait, not
 await sleep(300);
 info(`farmer present: ${a.snap.colonists.some((k) => k.kind === "farmer" && k.postX === B.x && k.postY === B.y)}`);
 
-async function phase(label, others, wrongOthers, afterTick) {
+async function phase(label, others, wrongOthers) {
   const nActual = industrialWithin5(a, B.x, B.y);
   result(nActual === others, `${label}: industrial buildings within Chebyshev 5 of the Barn (client count) = ${nActual} (expected ${others})`);
-  const m = await measureCycle(a, afterTick);
-  if (!m) {
-    result(false, `${label}: no complete grow+harvest cycle observed`);
-    return null;
-  }
+  const m = await measureCycle(a);
   const eG = expectedTicks(FARM_GROW_TICKS, biomeFactor, m.hGrow, others);
   const eH = expectedTicks(FARM_HARVEST_TICKS, biomeFactor, m.hHarvest, others);
   const wG = expectedTicks(FARM_GROW_TICKS, biomeFactor, m.hGrow, wrongOthers);
   const wH = expectedTicks(FARM_HARVEST_TICKS, biomeFactor, m.hHarvest, wrongOthers);
-  info(`${label}: grow started tick ${m.growStart}; happiness ${m.hGrow}/${m.hHarvest}; tick gaps=${m.gaps}`);
-  result(m.gaps === 0, `${label}: snapshot ticks contiguous over the measured cycle (gaps=${m.gaps})`);
+  info(`${label}: happiness ${m.hGrow}/${m.hHarvest}`);
   result(m.grow === eG && m.harvest === eH,
     `${label}: grow ${m.grow} ticks (expected ${eG} for n=${others}, x${(1 + others * 0.05).toFixed(2)}), harvest ${m.harvest} ticks (expected ${eH})`);
   result(m.grow !== wG,
@@ -281,23 +288,23 @@ async function phase(label, others, wrongOthers, afterTick) {
 }
 
 // Phase 0: Barn alone. Skip the very first grow (it starts at the unscaled FARM_GROW_TICKS).
-const m0 = await phase("(0) Barn alone", 0, 1, a.snap.tick);
+const m0 = await phase("(0) Barn alone", 0, 1);
 
 // Phase 1: + Lumberjack at Chebyshev distance 6 (does not count).
 result(await ensureAt(a, s2), `walked to second standing tile (${s2.x},${s2.y})`);
 result(await placeExpect(a, far6.x, far6.y, T.Lumberjack), `Lumberjack placed at (${far6.x},${far6.y}), Chebyshev ${Math.max(Math.abs(far6.x - B.x), Math.abs(far6.y - B.y))} from the Barn`);
-const m1 = await phase("(1) + Lumberjack 6 tiles away", 0, 1, a.snap.tick);
+const m1 = await phase("(1) + Lumberjack 6 tiles away", 0, 1);
 
 // Phase 2: + Lumberjack at Chebyshev distance 5 (counts).
 result(await placeExpect(a, far5.x, far5.y, T.Lumberjack), `Lumberjack placed at (${far5.x},${far5.y}), Chebyshev ${Math.max(Math.abs(far5.x - B.x), Math.abs(far5.y - B.y))} from the Barn`);
-const m2 = await phase("(2) + Lumberjack 5 tiles away", 1, 0, a.snap.tick);
+const m2 = await phase("(2) + Lumberjack 5 tiles away", 1, 0);
 
 // Phase 3: + 2 Lumberjacks close by (stacking to n=3).
 result(await ensureAt(a, s), `walked back to (${s.x},${s.y})`);
 let placedNear = 0;
 for (const p of near) if (await placeExpect(a, p.x, p.y, T.Lumberjack)) placedNear++;
 result(placedNear === 2, `2 Lumberjacks placed at Chebyshev 2 (${placedNear})`);
-const m3 = await phase("(3) + 2 Lumberjacks 2 tiles away", 3, 2, a.snap.tick);
+const m3 = await phase("(3) + 2 Lumberjacks 2 tiles away", 3, 2);
 
 // Cross-phase sanity: same happiness -> strictly shorter cycles as n grows.
 if (m0 && m3 && m0.hGrow === m3.hGrow) result(m3.grow < m0.grow, `(x) same happiness ${m0.hGrow}: grow n=0 ${m0.grow} > n=3 ${m3.grow}`);

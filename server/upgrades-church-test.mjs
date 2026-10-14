@@ -1,6 +1,6 @@
 // Scripted test: lumberjack/farm rebalance, generic 3-tier building upgrades (lumberjack, iron mine,
 // archer), Church + Bishop healer, and Church population gating.
-// Needs a FRESH server (starting stock wood 80 / iron 60 / rock 60 / grain 40, no structures built yet) with no
+// Needs a FRESH server (starting stock wood 80 / iron 60 / rock 60 / grain 60, no structures built yet) with no
 // other players connected; run it with COLONY_WORLD_SIZE=80.
 // Church gating first: the Town Center alone gives a population cap of 10, so the cap is filled with free
 // Lumberjack Posts at a separate site, the Church is refused, then the fillers are broken again.
@@ -26,12 +26,13 @@ const T = {
 const ABBEY_HALL = 46;
 // Every tile type the server treats as solid (protocol.ts isSolidTile): 1..49 except FarmPlot (4),
 // which includes world-gen water, ruins, encampment props, the Abbey and Ward Stones.
-const SOLID = new Set(Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4));
+// + 50/51 (Hunter's/Forager's Hut) and 54/55 (fruit tree, ripe/picked); berry bushes and mushrooms are walkable.
+const SOLID = new Set([...Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4), 50, 51, 54, 55]);
 const TILE = 32;
 const REACH = TILE * 2.5;
 
 function connect() {
-  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, firstSnap: null, tiles: [], tileUpdates: [], snaps: [] };
+  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, firstSnap: null, tiles: [], tileUpdates: [], snaps: [], hooks: [] };
   c.ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
     if (m.type === "welcome") {
@@ -52,12 +53,28 @@ function connect() {
       if (c.snap && c.snap.isNight && !m.isNight) c.lastDawn = Date.now();
       c.snap = m;
       if (c.recordSnaps) c.snaps.push(m);
+    } else if (m.type === "testHookResult") {
+      c.hooks.push(m);
     } else if (m.type === "tileUpdate") {
       c.tileUpdates.push({ ...m, prev: c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX], at: Date.now() });
       c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX] = m.tile;
     }
   });
   c.send = (m) => c.ws.send(JSON.stringify(m));
+  c.hook = async (op, args = {}) => {
+    const before = c.hooks.length;
+    c.send({ type: "testHook", op, ...args });
+    const deadline = Date.now() + 60000;
+    while (c.hooks.length === before) {
+      if (Date.now() > deadline) throw new Error(`no testHookResult for ${op}: is COLONY_TEST_HOOKS=1 set?`);
+      await sleep(5);
+    }
+    return c.hooks[c.hooks.length - 1];
+  };
+  c.setPaused = async (paused) => {
+    if (c.snap.isPaused !== paused) c.send({ type: "pause" });
+    while (c.snap.isPaused !== paused) await sleep(10);
+  };
   c.me = () => c.snap.players.find((p) => p.id === c.welcome.id);
   c.meTile = () => ({ x: Math.floor(c.me().x / TILE), y: Math.floor(c.me().y / TILE) });
   c.W = () => c.welcome.worldTilesX;
@@ -681,35 +698,49 @@ let b = null;
     const pb = await placeExpectAt(a, B.x, B.y, T.Barn, B.x, B.y);
     await sleep(150);
     result(pb.hit.length === 1 && kinds(a, "farmer").length === 1, `(g) Barn placed; farmers=${kinds(a, "farmer").length}; pop=${a.snap.population}/${a.snap.populationCap}`);
-    a.snaps = [];
-    a.recordSnaps = true;
+    // Slow farming: paused before planting and moved on with testHook fastForward (raids off while days
+    // are skipped). A harvest yields FARM_YIELD_PER_HARVEST grain at once; the first grow phase is the flat
+    // FARM_GROW_TICKS (3 days), every later grow + harvest phase is scaled by the plot's biome (Plains
+    // -20%), happiness speed and the Barn's industrial synergy.
+    await a.setPaused(true);
+    await a.hook("setRaids", { enabled: false });
+    // Skipped days still eat at every dawn: a deep grain store keeps the colony from starving meanwhile,
+    // and the real stock is put back afterwards.
+    const keepGrain = (await a.hook("setStock", { stock: {} })).stock.grain;
+    await a.hook("setStock", { stock: { grain: 5000 } });
     const pf = await placeExpectAt(a, Fp.x, Fp.y, T.FarmPlot, Fp.x, Fp.y);
-    const placedAt = Date.now();
     result(pf.hit.length === 1, `(g) Farm Plot placed next to the Barn`);
-    while (Date.now() - placedAt < 32000) await sleep(200);
-    a.recordSnaps = false;
-    // The snapshot's food field is retired: farms produce grain. A plot yields 1 grain per harvest; its first
-    // grow phase is the flat FARM_GROW_TICKS (160), every later grow + harvest phase is scaled by the plot's
-    // biome (Plains -20%), happiness speed and the Barn's industrial synergy.
-    const deltas = [];
-    for (let i = 1; i < a.snaps.length; i++) {
-      const d = a.snaps[i].grain - a.snaps[i - 1].grain;
-      if (d !== 0) deltas.push({ d, t: +((a.snaps[i].at - placedAt) / 1000).toFixed(2), night: a.snaps[i].isNight });
-    }
-    const plus = deltas.filter((x) => x.d > 0);
-    const farmerMissing = a.snaps.filter((m) => !m.colonists.some((k) => k.kind === "farmer")).length;
-    const span = (a.snaps[a.snaps.length - 1].at - a.snaps[0].at) / 1000;
-    info(`(g) diagnostics: ${a.snaps.length} snapshots over ${span.toFixed(1)}s (${(a.snaps.length / span).toFixed(1)}/s, expected 20/s); snapshots with no farmer: ${farmerMissing}`);
-    const hm = 0.5 + 0.5 * (a.snaps[0].happiness / 100);
+    const plotKey = `${Fp.x},${Fp.y}`;
+    const plotNow = async () => {
+      const st = await a.hook("farmState");
+      return { st, p: st.plots.find((q) => q.key === plotKey) };
+    };
+    const grain = async () => (await a.hook("setStock", { stock: {} })).stock.grain;
     const bf = biomeAt(a, Fp.x, Fp.y) === 0 ? 0.8 : 1;
     const syn = industrialSynergy(a, B.x, B.y);
-    const harvestT = Math.max(1, Math.round((40 * bf) / (hm * syn)));
-    const growT = Math.max(1, Math.round((160 * bf) / (hm * syn)));
-    const first = (160 + harvestT) / 20, cycle = (growT + harvestT) / 20;
-    const nExpected = 1 + Math.floor((32 - first) / cycle);
-    result(plus.length >= 2 && Math.abs(plus.length - nExpected) <= 1 && plus.every((x) => x.d === 1) &&
-      Math.abs(plus[0].t - first) < 1 && Math.abs(plus[1].t - plus[0].t - cycle) < 0.75,
-      `(g) grain increases in 32s after planting: ${JSON.stringify(plus)} (expected ~${nExpected} single +1 harvests, first at ~${first.toFixed(2)}s then every ~${cycle.toFixed(2)}s; happiness ${a.snaps[0].happiness}, biome x${bf}, synergy x${syn})`);
+    const scaled = (base, h) => Math.max(1, Math.round((base * bf) / ((0.5 + 0.5 * (h / 100)) * syn)));
+    let { st, p } = await plotNow();
+    const K = st.constants;
+    result(p.growTicksTotal === K.FARM_GROW_TICKS, `(g) first grow is the flat ${K.FARM_GROW_TICKS}t (got ${p.growTicksTotal})`);
+    const harvests = [];
+    for (let n = 0; n < 2; n++) {
+      await a.hook("fastForward", { ticks: p.growTicksRemaining });
+      ({ st, p } = await plotNow());
+      const eH = scaled(K.FARM_HARVEST_TICKS, st.happiness);
+      await a.hook("fastForward", { ticks: p.harvestTicksRemaining - 1 });
+      const g0 = await grain();
+      await a.hook("fastForward", { ticks: 1 });
+      const g1 = await grain();
+      const harvestT = p.harvestTicksRemaining;
+      ({ st, p } = await plotNow());
+      harvests.push({ d: g1 - g0, harvestT, eH, grow: p.growTicksTotal, eG: scaled(K.FARM_GROW_TICKS, st.happiness), h: st.happiness });
+    }
+    info(`(g) harvests: ${JSON.stringify(harvests)}`);
+    result(harvests.every((x) => x.d === K.FARM_YIELD_PER_HARVEST && x.harvestT === x.eH && x.grow === x.eG),
+      `(g) two harvests of +${K.FARM_YIELD_PER_HARVEST} grain each, with scaled harvest and re-sow times (biome x${bf}, synergy x${syn})`);
+    await a.hook("setStock", { stock: { grain: keepGrain } });
+    await a.hook("setRaids", { enabled: true });
+    await a.setPaused(false);
 
     // Population report only (the full-cap Church gate is checked in (f) at the start).
     info(`(f) pop now ${a.snap.population}/${a.snap.populationCap}, wood=${a.snap.wood}`);

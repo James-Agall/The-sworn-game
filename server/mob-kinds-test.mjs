@@ -28,17 +28,22 @@ const TICK_RATE = 20;
 
 // Mirror of server MOB_KIND_CONFIG (range in tiles here).
 const CONFIG = {
-  goblin: { maxHp: 18, damage: 4, speed: 95, range: 0.8, melee: true, unlockDay: 0, weight: 10 },
-  wolf: { maxHp: 22, damage: 6, speed: 130, range: 0.8, melee: true, unlockDay: 0, weight: 6 },
-  goblinCrossbow: { maxHp: 16, damage: 6, speed: 80, range: 4, melee: false, unlockDay: 1, weight: 4 },
-  orc: { maxHp: 45, damage: 10, speed: 75, range: 0.8, melee: true, unlockDay: 3, weight: 5 },
-  skeleton: { maxHp: 50, damage: 8, speed: 60, range: 0.8, melee: true, unlockDay: 4, weight: 4 },
-  armoredOrc: { maxHp: 80, damage: 14, speed: 55, range: 0.8, melee: true, unlockDay: 6, weight: 3 },
-  giantSpider: { maxHp: 35, damage: 7, speed: 115, range: 0.8, melee: true, unlockDay: 6, weight: 3 },
-  darkShaman: { maxHp: 25, damage: 12, speed: 70, range: 5, melee: false, unlockDay: 7, weight: 2 },
-  troll: { maxHp: 120, damage: 16, speed: 65, range: 0.8, melee: true, unlockDay: 10, weight: 2 },
-  ogre: { maxHp: 220, damage: 28, speed: 50, range: 0.8, melee: true, unlockDay: 12, weight: 1 },
+  goblin: { maxHp: 18, damage: 4, speed: 95, range: 0.8, melee: true, unlockDay: 0 },
+  wolf: { maxHp: 22, damage: 6, speed: 130, range: 0.8, melee: true, unlockDay: 0 },
+  goblinCrossbow: { maxHp: 16, damage: 6, speed: 80, range: 4, melee: false, unlockDay: 1 },
+  orc: { maxHp: 45, damage: 10, speed: 75, range: 0.8, melee: true, unlockDay: 3 },
+  skeleton: { maxHp: 50, damage: 8, speed: 60, range: 0.8, melee: true, unlockDay: 4 },
+  armoredOrc: { maxHp: 80, damage: 14, speed: 55, range: 0.8, melee: true, unlockDay: 6 },
+  giantSpider: { maxHp: 35, damage: 7, speed: 115, range: 0.8, melee: true, unlockDay: 6 },
+  darkShaman: { maxHp: 25, damage: 12, speed: 70, range: 5, melee: false, unlockDay: 7 },
+  troll: { maxHp: 120, damage: 16, speed: 65, range: 0.8, melee: true, unlockDay: 10 },
+  ogre: { maxHp: 220, damage: 28, speed: 50, range: 0.8, melee: true, unlockDay: 12 },
+  // Bandit band raid faction (also encampment guardians, excluded below as world-gen mobs).
+  banditClubman: { maxHp: 30, damage: 7, speed: 85, range: 0.8, melee: true, unlockDay: 0 },
+  banditArcher: { maxHp: 25, damage: 8, speed: 75, range: 4, melee: false, unlockDay: 0 },
+  banditElite: { maxHp: 70, damage: 14, speed: 70, range: 0.8, melee: true, unlockDay: 3 },
 };
+const DAY0_KINDS = new Set(["goblin", "wolf", "banditClubman", "banditArcher"]);
 
 function connect() {
   const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, listeners: [] };
@@ -67,7 +72,9 @@ await a.ready();
 
 // ---------------------------------------------------------------- (a) + (b)
 if (ONLY.has("a") || ONLY.has("b")) {
-  a.send({ type: "restart" });
+  // Normal difficulty: maxHp checks below are against the unscaled config (a bare restart would keep
+  // whatever difficulty a previous test left the server on).
+  a.send({ type: "restart", difficulty: "normal" });
   await sleep(300);
   if (a.snap.isPaused) a.send({ type: "pause" });
   // A fresh world now starts with dormant ruin/encampment guardians (world-gen, not night spawns);
@@ -93,7 +100,8 @@ if (ONLY.has("a") || ONLY.has("b")) {
     for (const m of s.mobs) {
       if (worldGenMobIds.has(m.id)) continue;
       if (!seen.has(m.id)) {
-        // Spawned while the current dayIndex = nightIndex (mobs only spawn at night).
+        // Spawned while the current dayIndex = nightIndex (raids spawn at the day's midpoint, and
+        // nightIndex only advances at dawn).
         seen.set(m.id, { kind: m.kind, day: nightIndex, maxHp: m.maxHp });
         const byKind = kindsByDay.get(nightIndex) ?? new Map();
         byKind.set(m.kind, (byKind.get(m.kind) ?? 0) + 1);
@@ -108,15 +116,15 @@ if (ONLY.has("a") || ONLY.has("b")) {
     for (const e of s.effects) {
       const shooter = s.mobs.find((m) => Math.abs(m.x - e.fromX) < 0.01 && Math.abs(m.y - e.fromY) < 0.01);
       if (!shooter) continue;
-      if (CONFIG[shooter.kind].melee) meleeEffects++;
+      if (CONFIG[shooter.kind].melee && !e.melee) meleeEffects++;
       const me = a.me(s);
       const toMe = me && Math.abs(me.x - e.toX) < 1 && Math.abs(me.y - e.toY) < 1;
       rangedShots.push({ kind: shooter.kind, d: Math.hypot(e.toX - e.fromX, e.toY - e.fromY), toMe });
     }
   });
 
-  // Stand at spawn and swing every 300ms (server cooldown 0.5s) so melee mobs near us die and
-  // free up MOB_MAX_COUNT slots for new spawns; ranged mobs stay out of our 1.3-tile reach.
+  // Stand at spawn and swing every 300ms (server cooldown 0.5s) so melee mobs near us die; ranged
+  // mobs stay out of our 1.3-tile reach.
   const swing = setInterval(() => a.send({ type: "attack" }), 300);
   const cycleSec = (60 + 40);
   const totalSec = (NIGHTS - 1) * cycleSec + 60 + 40 + 8;
@@ -136,14 +144,16 @@ if (ONLY.has("a") || ONLY.has("b")) {
     const badGate = [...seen.values()].filter((m) => CONFIG[m.kind] === undefined || CONFIG[m.kind].unlockDay > m.day);
     result(badGate.length === 0, `day-gating: no mob spawned before its unlock day${badGate.length ? " — violators: " + badGate.map((m) => `${m.kind}@day${m.day}`).join(", ") : ""}`);
     const day0 = kindsByDay.get(0) ?? new Map();
-    result([...day0.keys()].every((k) => k === "goblin" || k === "wolf"), `day 0 only goblin/wolf: {${[...day0.keys()].join(", ")}}`);
+    result([...day0.keys()].every((k) => DAY0_KINDS.has(k)), `day 0 only ${[...DAY0_KINDS].join("/")}: {${[...day0.keys()].join(", ")}}`);
     const distinct = new Set([...seen.values()].map((m) => m.kind));
     result(distinct.size >= 2, `multiple distinct kinds seen: {${[...distinct].join(", ")}}`);
     const badHp = [...seen.values()].filter((m) => CONFIG[m.kind] && m.maxHp !== CONFIG[m.kind].maxHp);
     result(badHp.length === 0, `every spawned mob's maxHp matches its kind's config${badHp.length ? " — mismatches: " + badHp.map((m) => `${m.kind}:${m.maxHp}`).join(", ") : ""}`);
+    // Raid groups march at their slowest member's pace and loiter at half speed, so a kind may never
+    // reach full speed in the window: check it never exceeds it.
     for (const [kind, step] of maxStep) {
       const expected = CONFIG[kind].speed / TICK_RATE;
-      result(Math.abs(step - expected) < 0.05, `${kind} max per-tick step ${step.toFixed(2)}px ≈ speed/TICK_RATE = ${expected.toFixed(2)}px`);
+      result(step <= expected + 0.05, `${kind} max per-tick step ${step.toFixed(2)}px <= speed/TICK_RATE = ${expected.toFixed(2)}px`);
     }
     const crossbowsByDay1Plus = [...seen.values()].filter((m) => m.kind === "goblinCrossbow").length;
     console.log(`[${el()}] goblinCrossbow spawns (eligible from day 1): ${crossbowsByDay1Plus}`);

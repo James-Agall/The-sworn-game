@@ -11,8 +11,8 @@
 //      10 tools; 3 Blacksmiths make tools, then a Ward Stone costs exactly 20 wood + 10 tools and
 //      summons the colony's Ward Priest (a bishop, +1 population) at the Church, who walks to the
 //      stone, tends it ("warding") and ignores move orders. Once he has tended it for 10s the ward
-//      stands: at night, with the player and Town Center both inside it, night mobs find nothing
-//      to target and stand still; TC/player untouched.
+//      stands: at night, with the player and Town Center both inside it, raid mobs find nothing
+//      to target and stand still from nightfall on; TC/player untouched.
 //   D) demolishing that Ward Stone (the last one, so the priest is dismissed) lapses the ward: the
 //      same mobs start moving. See ward-priest-patrol-test.mjs for patrol/grace-period coverage.
 // Each section starts with a "restart" (except A's boot-world check). Resets the world for every
@@ -39,7 +39,8 @@ const T = {
   AbbeyHall: 46, PropCross: 47, PropLanternPost: 48, WardStone: 49,
 };
 // isSolidTile: every TileType except Empty (0) and FarmPlot (4).
-const SOLID = new Set(Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4));
+// + 50/51 (Hunter's/Forager's Hut) and 54/55 (fruit tree, ripe/picked); berry bushes and mushrooms are walkable.
+const SOLID = new Set([...Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4), 50, 51, 54, 55]);
 const ABBEY_LAYOUT = [
   "FFFFFFFFF",
   "F.L.H.L.F",
@@ -378,6 +379,12 @@ if (ONLY.has("C")) {
     };
     a.listeners.push(watch);
     while (!a.snap.isNight) await sleep(200);
+    // Raid mobs spawn passive at the day's midpoint and loiter until they turn aggressive (by
+    // nightfall at the latest), so stillness is measured from nightfall.
+    for (const e of seen.values()) {
+      e.first = { ...e.last };
+      e.firstAt = Date.now();
+    }
     const tcHp0 = a.snap.townCenterHp;
     info(`C: night fell; watching for 12s with the ward up`);
     await sleep(12000);

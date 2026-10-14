@@ -2,13 +2,13 @@
 //   a) welcome + snapshot echo the active difficulty; the first setDifficulty claims it, a second
 //      client's later one is ignored; restart{difficulty} claims it outright; a bare restart reopens
 //      the claim for the next setDifficulty.
-//   b) Hard multipliers on night-wave mobs: every mob that appears at night (not present during the
-//      day, i.e. not a POI guardian) has maxHp = round(config maxHp * 1.3); the first hit a night mob
-//      lands on the player is round(config damage * 1.35); the active night-mob count never exceeds
-//      round(8 * 1.35) = 11 on day 0.
+//   b) Hard multipliers on raid-wave mobs: every mob that appears after the restart (i.e. not a POI
+//      guardian) has maxHp = round(config maxHp * 1.3); the first hit a raid mob lands on the player
+//      is round(config damage * 1.35); the day-0 raid (spawned at once at the day midpoint) is
+//      round(5 * 1.35) = 7 mobs.
 // Sends "restart": run it against a PRIVATE server, e.g.
 //   COLONY_WORLD_SIZE=80 PORT=8097 npx tsx src/index.ts &   then   PORT=8097 node difficulty-test.mjs
-// Takes ~1.5-2 min (the first night starts 60 s after a restart).
+// Takes ~1.5-2 min (the raid spawns 30 s and night falls 60 s after a restart).
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -22,10 +22,16 @@ const result = (ok, msg) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Mirror of server DIFFICULTY_HARD and the day-0 night kinds in MOB_KIND_CONFIG.
+// Mirror of server DIFFICULTY_HARD, the day-0 raid kinds in MOB_KIND_CONFIG/RAID_FACTIONS and
+// RAID_BASE_SIZE.
 const HARD = { mobDamage: 1.35, mobHp: 1.3, spawnCount: 1.35 };
-const DAY0 = { goblin: { maxHp: 18, damage: 4 }, wolf: { maxHp: 22, damage: 6 } };
-const BASE_NIGHT_CAP = 8;
+const DAY0 = {
+  goblin: { maxHp: 18, damage: 4 },
+  wolf: { maxHp: 22, damage: 6 },
+  banditClubman: { maxHp: 30, damage: 7 },
+  banditArcher: { maxHp: 25, damage: 8 },
+};
+const RAID_BASE_SIZE = 5;
 
 function client(label) {
   const c = { label, ws: new WebSocket(URL), welcomes: [], snap: null, snapCount: 0 };
@@ -107,36 +113,37 @@ a.send({ type: "setDifficulty", difficulty: "easy" });
 await a.nextSnaps();
 result(a.snap.difficulty === "easy", `solo first-day player can re-pick: ${a.snap.difficulty}`);
 
-// ---- b) Hard multipliers on night mobs ----
+// ---- b) Hard multipliers on raid mobs ----
 wa = a.welcomes.length;
 a.send({ type: "restart", difficulty: "hard" });
 await a.nextWelcome(wa + 1);
 await a.nextSnaps(3);
 result(a.snap.difficulty === "hard", "world restarted on hard");
 
-const dayMobIds = new Set();
-while (!a.snap.isNight) {
-  for (const m of a.snap.mobs) dayMobIds.add(m.id);
-  await a.nextSnaps(1);
-}
-console.log(`[${el()}] night fell; ${dayMobIds.size} day-time (guardian) mobs excluded`);
+// Everything present right after the restart is a world-gen guardian; the raid appears at the day
+// midpoint (cycleProgress = 0.5 * dayFraction).
+const dayMobIds = new Set(a.snap.mobs.map((m) => m.id));
+while (a.snap.cycleProgress < a.snap.dayFraction / 2) await a.nextSnaps(1);
+await a.nextSnaps(3);
+const raidCount = a.snap.mobs.filter((m) => !dayMobIds.has(m.id)).length;
+const expectedRaid = Math.max(1, Math.round(RAID_BASE_SIZE * HARD.spawnCount));
+result(raidCount === expectedRaid, `day-0 raid at the day midpoint = ${raidCount} mobs (expected round(${RAID_BASE_SIZE} x ${HARD.spawnCount}) = ${expectedRaid})`);
+while (!a.snap.isNight) await a.nextSnaps(1);
+console.log(`[${el()}] night fell; ${dayMobIds.size} world-gen (guardian) mobs excluded`);
 
 const expectedHp = (kind) => Math.max(1, Math.round(DAY0[kind].maxHp * HARD.mobHp));
 const expectedDmg = Object.fromEntries(
   Object.entries(DAY0).map(([k, v]) => [k, Math.max(1, Math.round(v.damage * HARD.mobDamage))])
 );
-const cap = Math.round(BASE_NIGHT_CAP * HARD.spawnCount);
 const checked = new Set();
 let hpOk = 0;
 let hpBad = [];
-let maxNightMobs = 0;
 let hitSeen = null;
 let lastHp = a.snap.players.find((p) => p.id === a.id()).hp;
 const nightStart = Date.now();
 while (Date.now() - nightStart < 38000 && a.snap.isNight) {
   const s = await a.nextSnaps(1);
   const nightMobs = s.mobs.filter((m) => !dayMobIds.has(m.id));
-  maxNightMobs = Math.max(maxNightMobs, nightMobs.length);
   for (const m of nightMobs) {
     if (checked.has(m.id)) continue;
     checked.add(m.id);
@@ -154,18 +161,21 @@ while (Date.now() - nightStart < 38000 && a.snap.isNight) {
   }
   if (me.hp < lastHp && !hitSeen) {
     const drop = lastHp - me.hp;
-    // Attribute the hit to the nearest night mob within melee reach.
-    const near = nightMobs.filter((m) => Math.hypot(m.x - me.x, m.y - me.y) < 48);
-    if (near.length === 1 && DAY0[near[0].kind]) hitSeen = { kind: near[0].kind, drop };
+    // Attribute the hit only when exactly one raid mob could have landed it: in melee reach, or a
+    // bandit archer within its 4-tile range.
+    const could = nightMobs.filter((m) => {
+      const d = Math.hypot(m.x - me.x, m.y - me.y);
+      return d < 48 || (m.kind === "banditArcher" && d < 32 * 4.5);
+    });
+    if (could.length === 1 && DAY0[could[0].kind]) hitSeen = { kind: could[0].kind, drop };
   }
   lastHp = me.hp;
   if (hitSeen && checked.size >= 4) break;
 }
 a.send({ type: "input", dx: 0, dy: 0 });
 
-result(checked.size > 0, `night mobs spawned (${checked.size})`);
-result(hpBad.length === 0 && hpOk > 0, `night mob maxHp scaled x${HARD.mobHp} (${hpOk} ok${hpBad.length ? "; " + hpBad.join(", ") : ""})`);
-result(maxNightMobs <= cap, `active night mobs ${maxNightMobs} <= hard cap ${cap}`);
+result(checked.size > 0, `raid mobs seen at night (${checked.size})`);
+result(hpBad.length === 0 && hpOk > 0, `raid mob maxHp scaled x${HARD.mobHp} (${hpOk} ok${hpBad.length ? "; " + hpBad.join(", ") : ""})`);
 if (hitSeen) {
   result(
     hitSeen.drop === expectedDmg[hitSeen.kind],

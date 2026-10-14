@@ -10,7 +10,7 @@
 //   D: lumberjacks for wood over day 1, then Barn+plot (grain), 4 farms, Tailor (clothes), House -> BigHouse upgrade
 //      with exact goods deduction.
 //   Final: restart clears everything.
-// Current-server notes: restart stock is wood 80 / iron 60 / rock 60 / grain 40; the Town Center alone gives a
+// Current-server notes: restart stock is wood 80 / iron 60 / rock 60 / grain 60; the Town Center alone gives a
 // population cap of 10 (+ houses + neighbourhood pairs), so "full population" is reached with filler Lumberjack
 // Posts at a separate site; gold per kill scales with the mob (goldForKill). Saint Wren's Abbey clergy
 // (world-gen bishops posted at the AbbeyHall) are not the colony's: they are filtered out of every snapshot's
@@ -37,14 +37,15 @@ const T = {
 const ABBEY_HALL = 46;
 // Every tile type the server treats as solid (protocol.ts isSolidTile): 1..49 except FarmPlot (4),
 // which includes world-gen water, ruins, encampment props, the Abbey and Ward Stones.
-const SOLID = new Set(Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4));
+// + 50/51 (Hunter's/Forager's Hut) and 54/55 (fruit tree, ripe/picked); berry bushes and mushrooms are walkable.
+const SOLID = new Set([...Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4), 50, 51, 54, 55]);
 const TILE = 32;
 const PLAYER_ATTACK_RANGE = TILE * 1.3;
 const RES_KEYS = ["wood", "iron", "rock", "grain", "meat", "fruit", "wool", "cotton", "clothes", "tools", "luxuryItems", "gold"];
-const RESET_VALUES = { wood: 80, iron: 60, rock: 60, grain: 40, meat: 0, fruit: 0, wool: 0, cotton: 0, clothes: 0, tools: 0, luxuryItems: 0, gold: 0 };
+const RESET_VALUES = { wood: 80, iron: 60, rock: 60, grain: 60, meat: 0, fruit: 0, wool: 0, cotton: 0, clothes: 0, tools: 0, luxuryItems: 0, gold: 0 };
 
 function connect() {
-  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: [], tileUpdates: [], events: [], onSnap: null };
+  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: [], tileUpdates: [], events: [], onSnap: null, hooks: [] };
   c.ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
     if (m.type === "welcome") {
@@ -59,6 +60,8 @@ function connect() {
       const prev = c.snap;
       c.snap = m;
       if (c.onSnap && prev) c.onSnap(prev, m);
+    } else if (m.type === "testHookResult") {
+      c.hooks.push(m);
     } else if (m.type === "event") {
       c.events.push({ ...m, at: Date.now() });
     } else if (m.type === "tileUpdate") {
@@ -67,6 +70,20 @@ function connect() {
     }
   });
   c.send = (m) => c.ws.send(JSON.stringify(m));
+  c.hook = async (op, args = {}) => {
+    const before = c.hooks.length;
+    c.send({ type: "testHook", op, ...args });
+    const deadline = Date.now() + 60000;
+    while (c.hooks.length === before) {
+      if (Date.now() > deadline) throw new Error(`no testHookResult for ${op}: is COLONY_TEST_HOOKS=1 set?`);
+      await sleep(5);
+    }
+    return c.hooks[c.hooks.length - 1];
+  };
+  c.setPaused = async (paused) => {
+    if (c.snap.isPaused !== paused) c.send({ type: "pause" });
+    while (c.snap.isPaused !== paused) await sleep(10);
+  };
   c.me = () => c.snap.players.find((p) => p.id === c.welcome.id);
   c.meTile = () => ({ x: Math.floor(c.me().x / TILE), y: Math.floor(c.me().y / TILE) });
   c.W = () => c.welcome.worldTilesX;
@@ -79,6 +96,38 @@ function connect() {
     while (!c.welcome || !c.snap) await sleep(20);
   };
   return c;
+}
+
+// Slow farming: animal farms deliver one big batch per 3 days of tending, so waiting in real time is out.
+// Pauses the world and fast-forwards it in `chunk`-tick steps (testHook fastForward, raids off) until
+// pred(stock) holds or maxTicks ran. Every dawn in between still eats, so a large grain float is added
+// for the run and taken back off afterwards (real harvests and consumption are kept). onChunk(stock)
+// sees the stock after every step.
+const GRAIN_FLOAT = 100000;
+// Raid setting fastForwardUntil restores afterwards (phase D keeps raids off for its whole run).
+let raidsWanted = true;
+async function fastForwardUntil(c, pred, maxTicks, onChunk = null, chunk = 200) {
+  await c.setPaused(true);
+  await c.hook("setRaids", { enabled: false });
+  const stockNow = async () => (await c.hook("setStock", { stock: {} })).stock;
+  await c.hook("setStock", { stock: { grain: (await stockNow()).grain + GRAIN_FLOAT } });
+  let ok = false;
+  let ran = 0;
+  while (ran < maxTicks) {
+    await c.hook("fastForward", { ticks: chunk });
+    ran += chunk;
+    const st = await stockNow();
+    if (onChunk) onChunk(st);
+    if (pred(st)) {
+      ok = true;
+      break;
+    }
+  }
+  await c.hook("setStock", { stock: { grain: Math.max(0, (await stockNow()).grain - GRAIN_FLOAT) } });
+  await c.hook("setRaids", { enabled: raidsWanted });
+  await c.setPaused(false);
+  await sleep(150);
+  return { ok, ran };
 }
 
 function bfs(c) {
@@ -218,7 +267,7 @@ async function gotoSite(c, label) {
 }
 
 // ---- server formulas replicated client-side (server/src/index.ts) ----
-const INDUSTRIAL = new Set([T.Lumberjack, T.Barn, T.IronMine, T.RockMine, 21, 22, 23, 24, 25, 26, 27, 30]);
+const INDUSTRIAL = new Set([T.Lumberjack, T.Barn, T.IronMine, T.RockMine, 21, 22, 23, 24, 25, 26, 27, 30, 50, 51]);
 // industrialSynergyMultiplier: +5% per other industrial building within 5 tiles (Chebyshev).
 function industrialSynergy(c, x, y) {
   let n = 0;
@@ -399,14 +448,29 @@ await restartAndCheck(a, "(A0)");
       result(rr.hit[0]?.tile === f.tile && fh.length === 1 && onPost,
         `(a/b) ${f.name} placed -> ${fh.length} farmhand at its post, standing on post tile=${!!onPost}, state=${fh[0]?.state}`);
     }
-    const allProduced = await waitFor(a, (sn) => farms.every((f) => sn[f.res] >= 1), 8000);
-    for (const f of farms) {
-      const fc = firstChange[f.res];
-      const dt = fc ? ((fc.at - placedAt[f.res]) / 1000).toFixed(2) : "n/a";
-      result(!!fc && fc.from === 0 && fc.to === 1, `(a/b) ${f.name} -> ${f.res} first increment ${fc?.from}->${fc?.to} after ${dt}s (CHOP_TICKS=2s)`);
-    }
-    result(allProduced, `(a/b) all four farm resources produced: ${farms.map((f) => `${f.res}=${a.snap[f.res]}`).join(" ")}`);
+    // Nothing lands early: the produce comes as one batch at the end of each 3-day tending cycle.
+    await sleep(3000);
+    result(farms.every((f) => firstChange[f.res] === undefined && a.snap[f.res] === 0),
+      `(a/b) no produce in the first seconds (slow farming: ${farms.map((f) => `${f.res}=${a.snap[f.res]}`).join(" ")})`);
     a.onSnap = null;
+    const firstBatch = {};
+    const ff = await fastForwardUntil(a, (st) => farms.every((f) => st[f.res] >= 1), 10 * 2000, (st) => {
+      for (const f of farms) if (firstBatch[f.res] === undefined && st[f.res] > 0) firstBatch[f.res] = st[f.res];
+    });
+    info(`(a/b) fast-forwarded ${ff.ran} ticks (${(ff.ran / 2000).toFixed(1)} days) to the first batches: ${JSON.stringify(firstBatch)}`);
+    for (const f of farms) {
+      result(firstBatch[f.res] === 90, `(a/b) ${f.name} -> ${f.res} first delivery 0 -> ${firstBatch[f.res]} in one batch (FARMHAND_YIELD_PER_CYCLE = 90)`);
+    }
+    result(ff.ok, `(a/b) all four farm resources produced: ${farms.map((f) => `${f.res}=${a.snap[f.res]}`).join(" ")}`);
+    // If that ended at night, skip to the next dawn; the farmhands then walk back from their shelter.
+    if (a.snap.isNight) {
+      await a.setPaused(true);
+      const rs = await a.hook("raidState");
+      const cycle = rs.dayTicks + rs.nightTicks;
+      await a.hook("fastForward", { ticks: cycle - (rs.cycleTick % cycle) + 1 });
+      await a.setPaused(false);
+    }
+    await waitFor(a, () => kinds(a, "farmhand").every((k) => k.state === "farming"), 15000);
     const states = kinds(a, "farmhand").map((k) => k.state);
     result(states.length === 4 && states.every((st) => st === "farming"), `(a/b) farmhand states: ${states.join(",")}`);
     result(a.snap.population === 4 && a.snap.populationCap === expectedCap(a),
@@ -644,12 +708,20 @@ await restartAndCheck(a, "(D0)");
     info(`(D) H3=(${H3.x},${H3.y}) F2=(${F2.x},${F2.y}) pop ${a.snap.population}/${a.snap.populationCap}`);
     await placeExpectAt(a, F1.x, F1.y, T.Pasture);
     await placeExpectAt(a, F2.x, F2.y, T.Orchard);
-    await waitFor(a, (sn) => sn.meat >= 2 && sn.fruit >= 2, 60000);
+    // A skipped day's raid would otherwise turn up in real time mid-phase (passive raiders marching on
+    // the colony after the fast-forward); this phase is about goods, so raids stay off until it ends.
+    raidsWanted = false;
+    const ffMF = await fastForwardUntil(a, (st) => st.meat >= 2 && st.fruit >= 2, 10 * 2000);
+    info(`(D) fast-forwarded ${ffMF.ran} ticks for meat/fruit: meat=${a.snap.meat} fruit=${a.snap.fruit}`);
+    await ensureAt(a, s);
     await placeExpectAt(a, F1.x, F1.y, T.Empty);
     await placeExpectAt(a, F2.x, F2.y, T.Empty);
     await placeExpectAt(a, F1.x, F1.y, T.WoolFarm);
     await placeExpectAt(a, F2.x, F2.y, T.CottonFarm);
-    await waitFor(a, (sn) => sn.wool >= 2 && sn.cotton >= 2, 60000);
+    const ffWC = await fastForwardUntil(a, (st) => st.wool >= 2 && st.cotton >= 2, 10 * 2000);
+    info(`(D) fast-forwarded ${ffWC.ran} ticks for wool/hemp: wool=${a.snap.wool} cotton=${a.snap.cotton}`);
+    // Fast-forwarding moves everyone along (the player too, if a walk was cut short): get back in reach.
+    await ensureAt(a, s);
     await placeExpectAt(a, F1.x, F1.y, T.Empty);
     await placeExpectAt(a, F2.x, F2.y, T.Empty);
     const wool0 = a.snap.wool, cotton0 = a.snap.cotton;
@@ -678,6 +750,8 @@ await restartAndCheck(a, "(D0)");
       `(d-after) deductions: grain ${b.grain}->${nAfter.grain} (-1), meat ${b.meat}->${nAfter.meat} (-1), fruit ${b.fruit}->${nAfter.fruit} (-1), clothes ${b.clothes}->${nAfter.clothes} (-2), wood ${b.wood}->${nAfter.wood} (-10 flat House cost)`);
     a.send({ type: "pause" });
     await waitFor(a, (sn) => !sn.isPaused, 2000);
+    raidsWanted = true;
+    await a.hook("setRaids", { enabled: true });
     // Leave a farmhand alive for the final reset check.
     await placeExpectAt(a, F2.x, F2.y, T.Pasture);
     await sleep(200);

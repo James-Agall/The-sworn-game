@@ -12,7 +12,8 @@
 //            civilian sits at a house while a nearer house still has a free bed; then H3 is demolished
 //            mid-night and its occupant must re-shelter at the TC (all other beds are taken).
 //   Dawn 2:  sheltered goes false for everyone.
-// Takes ~3.5 minutes. Needs a fresh server with no other players; run with COLONY_WORLD_SIZE=80.
+// Takes ~3.5 minutes. Needs a fresh server with no other players and COLONY_TEST_HOOKS=1 (setStock); run
+// with COLONY_WORLD_SIZE=80.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -34,7 +35,7 @@ const CIVILIAN = new Set(["lumberjack", "farmer", "ironMiner", "rockMiner", "far
 const TILE = 32;
 
 function connect() {
-  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, tiles: [], tileUpdates: [], onSnap: null };
+  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, tiles: [], tileUpdates: [], onSnap: null, hooks: [] };
   c.ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
     if (m.type === "welcome") {
@@ -44,12 +45,24 @@ function connect() {
       const prev = c.snap;
       c.snap = m;
       if (c.onSnap) c.onSnap(prev, m);
+    } else if (m.type === "testHookResult") {
+      c.hooks.push(m);
     } else if (m.type === "tileUpdate") {
       c.tileUpdates.push({ ...m, at: Date.now() });
       c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX] = m.tile;
     }
   });
   c.send = (m) => c.ws.send(JSON.stringify(m));
+  c.hook = async (op, args = {}) => {
+    const before = c.hooks.length;
+    c.send({ type: "testHook", op, ...args });
+    const deadline = Date.now() + 60000;
+    while (c.hooks.length === before) {
+      if (Date.now() > deadline) throw new Error(`no testHookResult for ${op}: is COLONY_TEST_HOOKS=1 set?`);
+      await sleep(5);
+    }
+    return c.hooks[c.hooks.length - 1];
+  };
   c.me = () => c.snap.players.find((p) => p.id === c.welcome.id);
   c.meTile = () => ({ x: Math.floor(c.me().x / TILE), y: Math.floor(c.me().y / TILE) });
   c.W = () => c.welcome.worldTilesX;
@@ -269,6 +282,15 @@ const houses = [H1, H2, H3];
 for (const h of [H2, H3, H1]) {
   while (a.snap.wood < 10 && !a.snap.isNight) await sleep(250);
   result(await placeExpect(a, h.x, h.y, T.House), `House placed at (${h.x},${h.y}) (wood now ${a.snap.wood})`);
+}
+// Slow farming: the day-1 farms only deliver after 3 days of tending, so the goods the two house upgrades
+// need are granted directly (testHook setStock; this test is about shelter, not production). Extra fruit
+// because the Luxury Workshop keeps eating it.
+{
+  const st = (await a.hook("setStock", { stock: {} })).stock;
+  await a.hook("setStock", {
+    stock: { grain: st.grain + 10, meat: st.meat + 10, fruit: st.fruit + 40, clothes: st.clothes + 5, tools: st.tools + 2, luxuryItems: st.luxuryItems + 1 },
+  });
 }
 // Upgrade H1 as far as the goods allow before night (leave ~6s of day so the result settles).
 const dayLeft = () => !a.snap.isNight && a.snap.cycleProgress < a.snap.dayFraction - 0.03;

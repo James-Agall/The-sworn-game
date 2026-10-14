@@ -9,7 +9,7 @@
 //      lumberjack earns wood for a Tavern; Tavern raises happiness via coverage; Tavern converts 1 alcohol -> 10 gold.
 //   C: grain burned to 0 -> happiness < 35 -> at dawn soldiers desert into dormant 80hp mobs (not deletions).
 //   Final: restart clears alcohol / militia line / deserters.
-// Current-server notes: restart stock is wood 80 / iron 60 / rock 60 / grain 40; craft cycles also speed up 5% per
+// Current-server notes: restart stock is wood 80 / iron 60 / rock 60 / grain 60; craft cycles also speed up 5% per
 // other industrial building within 5 tiles; a unit building gets +1 unit per adjacent house (incl. diagonals).
 // Saint Wren's Abbey clergy (world-gen bishops posted at the AbbeyHall) are not the colony's: they are filtered
 // out of every snapshot's `colonists` (kept in `clergy`), exactly as the server's population and happiness do.
@@ -36,7 +36,8 @@ const T = {
 const ABBEY_HALL = 46;
 // Every tile type the server treats as solid (protocol.ts isSolidTile): 1..49 except FarmPlot (4),
 // which includes world-gen water, ruins, encampment props, the Abbey and Ward Stones.
-const SOLID = new Set(Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4));
+// + 50/51 (Hunter's/Forager's Hut) and 54/55 (fruit tree, ripe/picked); berry bushes and mushrooms are walkable.
+const SOLID = new Set([...Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4), 50, 51, 54, 55]);
 const INDUSTRIAL = new Set([3, 16, 9, 10, 21, 22, 23, 24, 25, 26, 27, 30]);
 const TILE = 32;
 const PLAYER_ATTACK_RANGE = TILE * 1.3;
@@ -421,7 +422,7 @@ await restart(a, "(C0)");
   if (s) {
     const P = (dx, dy) => ({ x: s.x + dx, y: s.y + dy });
     await placeExpectAt(a, ...Object.values(P(-2, 0)), T.House);
-    // Restart grain is 40 now: three Breweries burn it to 0 well before the first dawn (food variety -> 0, so
+    // Restart grain is 60 now: three Breweries burn it to 0 well before the first dawn (food variety -> 0, so
     // happiness = scenery only = 30 < 35).
     await placeExpectAt(a, ...Object.values(P(0, -2)), T.Brewery);
     await placeExpectAt(a, ...Object.values(P(-1, -2)), T.Brewery);

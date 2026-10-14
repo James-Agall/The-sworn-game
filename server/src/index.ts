@@ -13,6 +13,9 @@ import {
   GameEventCategory,
   GravestoneSnapshot,
   Difficulty,
+  WildlifeKind,
+  WILDLIFE_KINDS,
+  WildlifeState,
   TileType,
   Biome,
   isSolidTile,
@@ -101,6 +104,11 @@ interface Colonist {
 
   poisonTicksRemaining: number;
   poisonDamagePerTick: number;
+
+  // Hunter: the animal it is stalking/shooting (reserved via Wildlife.reservedBy). Hunter/forager:
+  // the meat/fruit carried back to the hut, deposited on arrival.
+  targetWildlifeId: number | null;
+  carryAmount: number;
 }
 
 type MobTargetType = "colonist" | "player" | "townCenter";
@@ -132,6 +140,10 @@ interface Mob {
   siteId: string | null;
   siteKind: "ruin" | "encampment" | null;
   guardianActive: boolean;
+  // Raid-wave group (see raidGroups). While groupId is set the mob is driven by updateRaidGroups,
+  // not by updateMob's per-mob targeting; passive is true until its group turns aggressive.
+  groupId: string | null;
+  passive: boolean;
 }
 
 interface RespawnRequest {
@@ -141,12 +153,19 @@ interface RespawnRequest {
   ticksRemaining: number;
 }
 
+// "sown" and "growing" are one grow timer (sown = its first FARM_SOWN_FRACTION, for the client art);
+// "harvesting" is the ripe crop being cut; "fallow" is the rest after FARM_HARVESTS_BEFORE_FALLOW
+// harvests. See updateFarmPlots.
 interface FarmPlotState {
   barnX: number;
   barnY: number;
   growTicksRemaining: number;
+  // Length of the current grow phase, so the sown -> growing split can be told apart.
+  growTicksTotal: number;
   harvestTicksRemaining: number;
-  state: "growing" | "harvesting";
+  harvestsSinceFallow: number;
+  fallowTicksRemaining: number;
+  state: "sown" | "growing" | "harvesting" | "fallow";
 }
 
 const players = new Map<string, Player>();
@@ -162,7 +181,9 @@ const biomes = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y).fill(Biome.Plains);
 const STARTING_WOOD = 80;
 const STARTING_IRON = 60;
 const STARTING_ROCK = 60;
-const STARTING_GRAIN = 40;
+// 60 (was 40): fields and animal farms now take ~3 days to deliver their first batch, so the
+// opening stock has to carry a ~20-consumer colony through 3 dawns (see FARM_* / FARMHAND_*).
+const STARTING_GRAIN = 60;
 
 type ResourceKey =
   | "wood" | "iron" | "rock"
@@ -428,6 +449,11 @@ function resourceKey(tx: number, ty: number): string {
 }
 
 function releaseResourceReservation(c: Colonist) {
+  if (c.targetWildlifeId !== null) {
+    const animal = wildlife.get(c.targetWildlifeId);
+    if (animal && animal.reservedBy === c.id) animal.reservedBy = null;
+    c.targetWildlifeId = null;
+  }
   if (c.targetResourceX < 0 || c.targetResourceY < 0) return;
   const key = resourceKey(c.targetResourceX, c.targetResourceY);
   if (reservedResourceTiles.get(key) === c.id) {
@@ -583,16 +609,6 @@ const MOB_DAMAGE = 5;
 const MOB_ATTACK_COOLDOWN_TICKS = TICK_RATE;
 const MOB_ATTACK_RANGE = TILE_SIZE * 0.8;
 const MOB_REPATH_TICKS = TICK_RATE;
-const MOB_SPAWN_INTERVAL_TICKS = TICK_RATE * 3;
-const MOB_MAX_COUNT = 8;
-// The night-wave cap grows over time so later nights stay a real threat instead of plateauing at
-// the same 8 forever, capped so it never gets absurd.
-const MOB_MAX_COUNT_GROWTH_INTERVAL_DAYS = 2;
-const MOB_MAX_COUNT_CAP = 24;
-function currentMobMaxCount(): number {
-  const dayIndex = Math.floor(cycleTick / (DAY_TICKS + NIGHT_TICKS));
-  return Math.min(MOB_MAX_COUNT_CAP, MOB_MAX_COUNT + Math.floor(dayIndex / MOB_MAX_COUNT_GROWTH_INTERVAL_DAYS));
-}
 // Flat per-kill gold regardless of monster tier made an Ogre pay the same as a Goblin. Scale off
 // the mob's own current maxHp/damage instead of a lookup table, so this also naturally covers
 // deserted-colonist mobs (whose stats already reflect how dangerous they were in service).
@@ -601,10 +617,9 @@ const GOLD_PER_KILL_MIN = 3;
 function goldForKill(mob: Mob): number {
   return Math.max(GOLD_PER_KILL_MIN, Math.round((mob.maxHp + mob.damage * 2) / GOLD_PER_KILL_BASE_DIVISOR));
 }
-let mobSpawnCooldown = MOB_SPAWN_INTERVAL_TICKS;
 
-// Difficulty (chosen on the client's main menu). Scales NIGHT-WAVE mobs only (spawnMob and the
-// night spawn cap); POI guardians, deserters and the Half-Latch are untouched.
+// Difficulty (chosen on the client's main menu). Scales RAID-WAVE mobs only (createRaidMob and the
+// raid size); POI guardians, deserters and the Half-Latch are untouched.
 interface DifficultyTuning {
   mobDamage: number;
   mobHp: number;
@@ -633,9 +648,6 @@ function handleSetDifficulty(value: unknown) {
   difficulty = value;
   difficultyClaimed = true;
 }
-function nightMobMaxCount(): number {
-  return Math.max(1, Math.round(currentMobMaxCount() * DIFFICULTY_TUNING[difficulty].spawnCount));
-}
 
 interface MobKindConfig {
   maxHp: number;
@@ -644,52 +656,27 @@ interface MobKindConfig {
   range: number; // in pixels, already multiplied by TILE_SIZE
   melee: boolean;
   unlockDay: number;
-  weight: number;
 }
 
 const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
-  goblin: { maxHp: 18, damage: 4, speed: 95, range: TILE_SIZE * 0.8, melee: true, unlockDay: 0, weight: 10 },
-  wolf: { maxHp: 22, damage: 6, speed: 130, range: TILE_SIZE * 0.8, melee: true, unlockDay: 0, weight: 6 },
-  goblinCrossbow: { maxHp: 16, damage: 6, speed: 80, range: TILE_SIZE * 4, melee: false, unlockDay: 1, weight: 4 },
-  orc: { maxHp: 45, damage: 10, speed: 75, range: TILE_SIZE * 0.8, melee: true, unlockDay: 3, weight: 5 },
-  skeleton: { maxHp: 50, damage: 8, speed: 60, range: TILE_SIZE * 0.8, melee: true, unlockDay: 4, weight: 4 },
-  armoredOrc: { maxHp: 80, damage: 14, speed: 55, range: TILE_SIZE * 0.8, melee: true, unlockDay: 6, weight: 3 },
-  giantSpider: { maxHp: 35, damage: 7, speed: 115, range: TILE_SIZE * 0.8, melee: true, unlockDay: 6, weight: 3 },
-  darkShaman: { maxHp: 25, damage: 12, speed: 70, range: TILE_SIZE * 5, melee: false, unlockDay: 7, weight: 2 },
-  troll: { maxHp: 120, damage: 16, speed: 65, range: TILE_SIZE * 0.8, melee: true, unlockDay: 10, weight: 2 },
-  ogre: { maxHp: 220, damage: 28, speed: 50, range: TILE_SIZE * 0.8, melee: true, unlockDay: 12, weight: 1 },
-  // Encampment guardians only (see ENCAMPMENT_GUARDIAN_WEIGHTS). Excluded by name from the
-  // night-wave pool (NIGHT_WAVE_EXCLUDED_KINDS); unlockDay/weight are additionally set
-  // unreachable/zero as a backstop.
-  banditClubman: {
-    maxHp: 30,
-    damage: 7,
-    speed: 85,
-    range: TILE_SIZE * 0.8,
-    melee: true,
-    unlockDay: Number.POSITIVE_INFINITY,
-    weight: 0,
-  },
-  banditArcher: {
-    maxHp: 25,
-    damage: 8,
-    speed: 75,
-    range: TILE_SIZE * 4,
-    melee: false,
-    unlockDay: Number.POSITIVE_INFINITY,
-    weight: 0,
-  },
-  banditElite: {
-    maxHp: 70,
-    damage: 14,
-    speed: 70,
-    range: TILE_SIZE * 0.8,
-    melee: true,
-    unlockDay: Number.POSITIVE_INFINITY,
-    weight: 0,
-  },
+  goblin: { maxHp: 18, damage: 4, speed: 95, range: TILE_SIZE * 0.8, melee: true, unlockDay: 0 },
+  wolf: { maxHp: 22, damage: 6, speed: 130, range: TILE_SIZE * 0.8, melee: true, unlockDay: 0 },
+  goblinCrossbow: { maxHp: 16, damage: 6, speed: 80, range: TILE_SIZE * 4, melee: false, unlockDay: 1 },
+  orc: { maxHp: 45, damage: 10, speed: 75, range: TILE_SIZE * 0.8, melee: true, unlockDay: 3 },
+  skeleton: { maxHp: 50, damage: 8, speed: 60, range: TILE_SIZE * 0.8, melee: true, unlockDay: 4 },
+  armoredOrc: { maxHp: 80, damage: 14, speed: 55, range: TILE_SIZE * 0.8, melee: true, unlockDay: 6 },
+  giantSpider: { maxHp: 35, damage: 7, speed: 115, range: TILE_SIZE * 0.8, melee: true, unlockDay: 6 },
+  darkShaman: { maxHp: 25, damage: 12, speed: 70, range: TILE_SIZE * 5, melee: false, unlockDay: 7 },
+  troll: { maxHp: 120, damage: 16, speed: 65, range: TILE_SIZE * 0.8, melee: true, unlockDay: 10 },
+  ogre: { maxHp: 220, damage: 28, speed: 50, range: TILE_SIZE * 0.8, melee: true, unlockDay: 12 },
+  // Bandits: encampment guardians (ENCAMPMENT_GUARDIAN_WEIGHTS, unaffected by unlockDay) and,
+  // since raid waves, the Bandit band faction (RAID_FACTIONS).
+  banditClubman: { maxHp: 30, damage: 7, speed: 85, range: TILE_SIZE * 0.8, melee: true, unlockDay: 0 },
+  banditArcher: { maxHp: 25, damage: 8, speed: 75, range: TILE_SIZE * 4, melee: false, unlockDay: 0 },
+  banditElite: { maxHp: 70, damage: 14, speed: 70, range: TILE_SIZE * 0.8, melee: true, unlockDay: 3 },
   // Half-Latch: the minor demon that slips through when a Ward Stone's ward lapses (see
-  // checkWardStoneLapses). Deliberately a nuisance, not a threat. Same exclusion/backstop as bandits.
+  // checkWardStoneLapses). Deliberately a nuisance, not a threat. In no raid faction; unlockDay is
+  // unreachable as a backstop.
   halfLatch: {
     maxHp: 12,
     damage: 3,
@@ -697,18 +684,76 @@ const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
     range: TILE_SIZE * 0.8,
     melee: true,
     unlockDay: Number.POSITIVE_INFINITY,
-    weight: 0,
   },
 };
 
-// Kinds that never come from the random night spawner: bandits only from world-gen POI sites,
-// Half-Latches only from a lapsing Ward Stone.
-const NIGHT_WAVE_EXCLUDED_KINDS = new Set<MobKind>([
-  "banditClubman",
-  "banditArcher",
-  "banditElite",
-  "halfLatch",
-]);
+// ---- Raid waves: tuning ----
+// Halfway through each day the whole of tonight's raid spawns at once at the map edge, in passive
+// groups (see spawnRaid / updateRaidGroups). Raid size = RAID_BASE_SIZE + RAID_SIZE_PER_DAY * dayIndex,
+// times the difficulty spawnCount (rounded, min 1). No cap.
+const RAID_BASE_SIZE = 5;
+const RAID_SIZE_PER_DAY = 2;
+// The horde (one big group) takes this share of the raid, rolled uniformly in [MIN, MAX] and rounded
+// up, so it is always at least half. The rest split into random groups of GROUP_SIZE_MIN..MAX.
+const RAID_HORDE_SHARE_MIN = 0.5;
+const RAID_HORDE_SHARE_MAX = 0.7;
+const RAID_GROUP_SIZE_MIN = 2;
+const RAID_GROUP_SIZE_MAX = 6;
+
+// Factions: each raid group is built from ONE faction. A faction is eligible on a day when at least
+// one of its `core` kinds is unlocked (MOB_KIND_CONFIG unlockDay), and is picked with weight = the
+// number of its unlocked core kinds. Inside a group, kinds are picked by `weight` among the faction's
+// unlocked entries (core or not). Non-core entries are heavies/supplements: they never make a
+// faction eligible by themselves (so goblins alone don't unlock the Dark host on day 0).
+type RaidFactionId = "wolfPack" | "banditBand" | "greenskinWarband" | "darkHost";
+interface RaidFactionEntry {
+  kind: MobKind;
+  weight: number;
+  core: boolean;
+}
+const RAID_FACTIONS: Record<RaidFactionId, RaidFactionEntry[]> = {
+  wolfPack: [{ kind: "wolf", weight: 1, core: true }],
+  // On a deserter night the eligible deserters are the raid's core and only this faction fills
+  // the rest of the raid (see spawnRaid).
+  banditBand: [
+    { kind: "banditClubman", weight: 5, core: true },
+    { kind: "banditArcher", weight: 3, core: true },
+    { kind: "banditElite", weight: 1, core: true },
+  ],
+  greenskinWarband: [
+    { kind: "goblin", weight: 10, core: true },
+    { kind: "goblinCrossbow", weight: 4, core: true },
+    { kind: "orc", weight: 5, core: true },
+    { kind: "armoredOrc", weight: 3, core: true },
+    { kind: "troll", weight: 1, core: false },
+    { kind: "ogre", weight: 1, core: false },
+  ],
+  darkHost: [
+    { kind: "skeleton", weight: 4, core: true },
+    { kind: "giantSpider", weight: 3, core: true },
+    { kind: "darkShaman", weight: 2, core: true },
+    { kind: "troll", weight: 1, core: false },
+    { kind: "ogre", weight: 1, core: false },
+    { kind: "goblin", weight: 1, core: false },
+    { kind: "orc", weight: 1, core: false },
+  ],
+};
+
+// Day-phase tick (within the cycle) at which the raid spawns: the midpoint of the day.
+const RAID_SPAWN_CYCLE_TICK = Math.floor(DAY_TICKS / 2);
+// Raiders spawn on walkable tiles within this many tiles of the map border.
+const RAID_EDGE_BAND_TILES = 3;
+// Passive raiders wander one tile at a time, never more than this far (Chebyshev) from their spawn.
+const RAID_LOITER_RADIUS_TILES = 3;
+const RAID_LOITER_CHANCE_PER_TICK = 1 / (TICK_RATE * 3);
+// A marching group breaks up into normal per-mob targeting once its leader is this close to the
+// colony (Town Center) or to any targetable guard/player.
+const RAID_ENGAGE_RANGE_TILES = 8;
+// Followers may move this much faster than the group pace to catch up with their formation slot.
+const RAID_FOLLOWER_CATCHUP = 1.25;
+// Formation slots: golden-angle spiral, slot i at radius RAID_FORMATION_SPACING_TILES * sqrt(i).
+const RAID_FORMATION_SPACING_TILES = 0.7;
+const RAID_MARCH_REPATH_TICKS = TICK_RATE * 2;
 
 const TROLL_REGEN_DELAY_TICKS = TICK_RATE * 4;
 const TROLL_REGEN_PER_TICK = 1;
@@ -720,8 +765,9 @@ const DARK_SHAMAN_HEAL_COOLDOWN_TICKS = TICK_RATE * 3;
 
 const DESERTER_ACTIVATION_DAYS = 10;
 const DESERTER_ACTIVATION_TICKS = DESERTER_ACTIVATION_DAYS * (DAY_TICKS + NIGHT_TICKS);
+// Rolled at each midday raid spawn when eligible deserters exist: on success they become the core of
+// tonight's raid (see spawnRaid).
 const DESERTER_WAVE_CHANCE = 0.25;
-let suppressMobSpawnTonight = false;
 
 let colonyHappiness = 100;
 
@@ -736,10 +782,40 @@ const COLONIST_SPEED = 100;
 const CHOP_TICKS = TICK_RATE * 2;
 const CRAFT_TICKS = TICK_RATE * 4;
 const IDLE_RETRY_TICKS = TICK_RATE;
-const FARM_GROW_TICKS = TICK_RATE * 8;
-const FARM_HARVEST_TICKS = TICK_RATE * 2;
-const FARM_YIELD_PER_HARVEST = 1;
 const LUMBERJACK_WOOD_PER_TRIP = 3;
+
+// ---- Slow farming: every farm number lives here. One game day = DAY_TICKS + NIGHT_TICKS (100 s). ----
+const GAME_DAY_TICKS = DAY_TICKS + NIGHT_TICKS;
+// Grain field (Farm Plot next to a staffed Barn): sown -> growing -> ripe (the short harvest phase)
+// -> +FARM_YIELD_PER_HARVEST grain -> sown again. Plots grow day and night. Every
+// FARM_HARVESTS_BEFORE_FALLOW harvests the field rests FALLOW for FARM_FALLOW_TICKS, then re-sows itself
+// (once its Barn is staffed). Grow and harvest are scaled by the Barn's level, the plot's biome,
+// happiness and the Barn's industrial synergy; fallow is a flat rest.
+const FARM_GROW_DAYS = 3;
+const FARM_GROW_TICKS = FARM_GROW_DAYS * GAME_DAY_TICKS;
+// The first third of the grow phase reads as freshly sown soil (snapshot sownFarmPlots).
+const FARM_SOWN_FRACTION = 1 / 3;
+const FARM_HARVEST_TICKS = TICK_RATE * 2;
+const FARM_HARVESTS_BEFORE_FALLOW = 5;
+const FARM_FALLOW_DAYS = 3;
+const FARM_FALLOW_TICKS = FARM_FALLOW_DAYS * GAME_DAY_TICKS;
+// The old 8 s grow + 2 s harvest gave 1 grain per 10 s = 10 grain per plot per game day. A full field
+// rotation is now 5 x 3 grow days + 3 fallow days = 18 days, so 36 per harvest keeps the long-run
+// average at 5 * 36 / 18 = 10 grain per plot-day (12 per active grow-day).
+const FARM_YIELD_PER_HARVEST = 36;
+// Pasture / Orchard / Sheep Pasture / Hemp Field: the farmhand tends all day as before (works only by
+// day, shelters at night), but the produce lands once per cycle of FARMHAND_CYCLE_DAYS days of tending.
+// The old rate was 1 unit per CHOP_TICKS (2 s) of tending = DAY_TICKS / CHOP_TICKS = 30 a day, so a
+// 3-day cycle yields 3 * 30 = 90 (same average rate, delivered in one batch). The cycle length is scaled
+// by the building's level, biome, happiness and industrial synergy exactly like the old unit timer.
+const FARMHAND_CYCLE_DAYS = 3;
+const FARMHAND_CYCLE_TICKS = FARMHAND_CYCLE_DAYS * DAY_TICKS;
+const FARMHAND_YIELD_PER_CYCLE: Record<"meat" | "fruit" | "wool" | "cotton", number> = {
+  meat: 90,
+  fruit: 90,
+  wool: 90,
+  cotton: 90,
+};
 
 const FOOD_PER_COLONIST_PER_DAY = 1;
 const STARVATION_DAMAGE = 10;
@@ -762,6 +838,7 @@ const TAVERN_ROCK_COST = 10;
 const MILITIA_WOOD_COST = 5;
 const MILITIA_IRON_COST = 5;
 const WARD_STONE_WOOD_COST = 20;
+const FOOD_HUT_WOOD_COST = 15;
 const WARD_STONE_TOOLS_COST = 10;
 
 const PLAYER_ATTACK_DAMAGE = 15;
@@ -860,6 +937,8 @@ const POST_TILE_TYPES = [
   TileType.MilitiaCamp2,
   TileType.MilitiaCamp3,
   TileType.WardStone,
+  TileType.HunterHut,
+  TileType.ForagerHut,
 ];
 
 function isAdjacentToPlayerOrPost(tx: number, ty: number): boolean {
@@ -960,6 +1039,8 @@ const INDUSTRIAL_TILES: TileType[] = [
   TileType.Blacksmith,
   TileType.LuxuryWorkshop,
   TileType.Brewery,
+  TileType.HunterHut,
+  TileType.ForagerHut,
 ];
 
 function industrialSynergyMultiplier(tx: number, ty: number): number {
@@ -994,6 +1075,16 @@ function effectiveChopTicks(tx: number, ty: number): number {
   return Math.max(
     1,
     Math.round((CHOP_TICKS * (1 - levelBonus(level)) * biomeProductionFactor(tx, ty)) /
+        (happinessSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
+  );
+}
+
+// Same multipliers as effectiveChopTicks, on the farmhand's multi-day cycle.
+function effectiveFarmhandCycleTicks(tx: number, ty: number): number {
+  const level = getBuildingLevel(tx, ty);
+  return Math.max(
+    1,
+    Math.round((FARMHAND_CYCLE_TICKS * (1 - levelBonus(level)) * biomeProductionFactor(tx, ty)) /
         (happinessSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
   );
 }
@@ -1054,6 +1145,8 @@ function isValidPostTile(kind: ColonistKind, t: TileType): boolean {
   if (kind === "bishop") return t === TileType.ChurchPost;
   if (kind === "farmhand") return FARM_PRODUCE_BY_TILE[t] !== undefined;
   if (kind === "artisan") return CRAFT_RECIPES[t] !== undefined;
+  if (kind === "hunter") return t === TileType.HunterHut;
+  if (kind === "forager") return t === TileType.ForagerHut;
   return false;
 }
 
@@ -1064,7 +1157,9 @@ function isCivilianKind(kind: ColonistKind): boolean {
     kind === "ironMiner" ||
     kind === "rockMiner" ||
     kind === "farmhand" ||
-    kind === "artisan"
+    kind === "artisan" ||
+    kind === "hunter" ||
+    kind === "forager"
   );
 }
 
@@ -1192,7 +1287,9 @@ function spawnColonistForPost(
     path: [],
     targetResourceX: -1,
     targetResourceY: -1,
-    chopTicksRemaining: stationary
+    chopTicksRemaining: kind === "farmhand"
+      ? effectiveFarmhandCycleTicks(tx, ty)
+      : stationary
       ? effectiveChopTicks(tx, ty)
       : kind === "artisan"
       ? effectiveCraftTicks(tx, ty)
@@ -1220,6 +1317,8 @@ function spawnColonistForPost(
     stance: "normal",
     poisonTicksRemaining: 0,
     poisonDamagePerTick: 0,
+    targetWildlifeId: null,
+    carryAmount: 0,
   };
   colonists.set(colonist.id, colonist);
   return colonist;
@@ -1355,6 +1454,8 @@ const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
   [TileType.LuxuryWorkshop]: "Jeweler's Workshop",
   [TileType.Brewery]: "Brewery",
   [TileType.Tavern]: "Tavern",
+  [TileType.HunterHut]: "Hunter's Hut",
+  [TileType.ForagerHut]: "Forager's Hut",
 };
 
 function announceUpgrade(baseType: TileType, level: number) {
@@ -1590,6 +1691,22 @@ function resolveTavernPlacement(tx: number, ty: number) {
   spawnColonistForPost(tx, ty, "artisan");
 }
 
+// Hunter's Hut / Forager's Hut: like a mine, every level adds one more worker (so each placement,
+// upgrades included, needs a free population slot).
+function resolveFoodHutPlacement(tx: number, ty: number, hutType: TileType, kind: "hunter" | "forager") {
+  const current = tiles[tileIndex(tx, ty)] as TileType;
+  if (current === hutType) {
+    const currentLevel = getBuildingLevel(tx, ty);
+    buildingLevel.set(resourceKey(tx, ty), currentLevel + 1);
+    announceUpgrade(hutType, currentLevel + 1);
+    spawnColonistForPost(tx, ty, kind);
+    return;
+  }
+  tiles[tileIndex(tx, ty)] = hutType;
+  broadcastTileUpdate(tx, ty, hutType);
+  spawnColonistForPost(tx, ty, kind);
+}
+
 function processRespawnQueue() {
   for (let i = respawnQueue.length - 1; i >= 0; i--) {
     const req = respawnQueue[i];
@@ -1684,6 +1801,8 @@ function desertColonist(c: Colonist) {
     siteId: null,
     siteKind: null,
     guardianActive: false,
+    groupId: null,
+    passive: false,
   };
   mobs.set(mob.id, mob);
   colonists.delete(c.id);
@@ -1708,41 +1827,82 @@ function isBarnStaffed(bx: number, by: number): boolean {
   return false;
 }
 
-function readyFarmPlotIndices(): number[] {
-  const ready: number[] = [];
+function farmPlotIndices(state: FarmPlotState["state"]): number[] {
+  const result: number[] = [];
   for (const [plotKey, plot] of farmPlots) {
-    if (plot.state !== "harvesting") continue;
+    if (plot.state !== state) continue;
     const [plotX, plotY] = plotKey.split(",").map(Number);
-    ready.push(tileIndex(plotX, plotY));
+    result.push(tileIndex(plotX, plotY));
   }
-  return ready;
+  return result;
+}
+
+// Grow / harvest phase length for a plot, scaled by its Barn's level and synergy, its own biome and
+// colony happiness (fallow is never scaled).
+function effectiveFarmPlotTicks(base: number, plotX: number, plotY: number, plot: FarmPlotState): number {
+  const bonus = levelBonus(getBuildingLevel(plot.barnX, plot.barnY));
+  return Math.max(
+    1,
+    Math.round(
+      (base * (1 - bonus) * biomeProductionFactor(plotX, plotY)) /
+        (happinessSpeedMultiplier() * industrialSynergyMultiplier(plot.barnX, plot.barnY))
+    )
+  );
+}
+
+function sowFarmPlot(plot: FarmPlotState, ticks: number) {
+  plot.state = "sown";
+  plot.growTicksRemaining = ticks;
+  plot.growTicksTotal = ticks;
+}
+
+function newFarmPlot(barnX: number, barnY: number): FarmPlotState {
+  const plot: FarmPlotState = {
+    barnX,
+    barnY,
+    growTicksRemaining: 0,
+    growTicksTotal: 0,
+    harvestTicksRemaining: 0,
+    harvestsSinceFallow: 0,
+    fallowTicksRemaining: 0,
+    state: "sown",
+  };
+  // The first sowing is the flat FARM_GROW_TICKS (as before: the plot's multipliers apply from the
+  // second cycle on).
+  sowFarmPlot(plot, FARM_GROW_TICKS);
+  return plot;
 }
 
 function updateFarmPlots() {
   for (const [plotKey, plot] of farmPlots) {
+    // A resting field recovers on its own; only re-sowing it needs the farmer.
+    if (plot.state === "fallow" && plot.fallowTicksRemaining > 0) plot.fallowTicksRemaining--;
     if (tiles[tileIndex(plot.barnX, plot.barnY)] !== TileType.BarnPost) continue;
     if (!isBarnStaffed(plot.barnX, plot.barnY)) continue;
-    const bonus = levelBonus(getBuildingLevel(plot.barnX, plot.barnY));
     const [plotX, plotY] = plotKey.split(",").map(Number);
-    const biomeFactor = biomeProductionFactor(plotX, plotY);
-    if (plot.state === "harvesting") {
+    if (plot.state === "fallow") {
+      if (plot.fallowTicksRemaining <= 0) sowFarmPlot(plot, effectiveFarmPlotTicks(FARM_GROW_TICKS, plotX, plotY, plot));
+    } else if (plot.state === "harvesting") {
       plot.harvestTicksRemaining--;
       if (plot.harvestTicksRemaining <= 0) {
         stock.grain += FARM_YIELD_PER_HARVEST;
-        plot.growTicksRemaining = Math.max(
-          1,
-          Math.round((FARM_GROW_TICKS * (1 - bonus) * biomeFactor) / (happinessSpeedMultiplier() * industrialSynergyMultiplier(plot.barnX, plot.barnY)))
-        );
-        plot.state = "growing";
+        plot.harvestsSinceFallow++;
+        if (plot.harvestsSinceFallow >= FARM_HARVESTS_BEFORE_FALLOW) {
+          plot.harvestsSinceFallow = 0;
+          plot.state = "fallow";
+          plot.fallowTicksRemaining = FARM_FALLOW_TICKS;
+        } else {
+          sowFarmPlot(plot, effectiveFarmPlotTicks(FARM_GROW_TICKS, plotX, plotY, plot));
+        }
       }
     } else {
       plot.growTicksRemaining--;
+      if (plot.state === "sown" && plot.growTicksRemaining <= plot.growTicksTotal * (1 - FARM_SOWN_FRACTION)) {
+        plot.state = "growing";
+      }
       if (plot.growTicksRemaining <= 0) {
         plot.state = "harvesting";
-        plot.harvestTicksRemaining = Math.max(
-          1,
-          Math.round((FARM_HARVEST_TICKS * (1 - bonus) * biomeFactor) / (happinessSpeedMultiplier() * industrialSynergyMultiplier(plot.barnX, plot.barnY)))
-        );
+        plot.harvestTicksRemaining = effectiveFarmPlotTicks(FARM_HARVEST_TICKS, plotX, plotY, plot);
       }
     }
   }
@@ -1785,14 +1945,16 @@ function updateStationaryMiner(c: Colonist, dt: number) {
   }
 }
 
+// chopTicksRemaining counts down the current FARMHAND_CYCLE_TICKS cycle, one tick per tick of tending
+// (daytime only: farmhands shelter at night), and the whole batch lands when it runs out.
 function updateFarmhand(c: Colonist) {
   const resource = FARM_PRODUCE_BY_TILE[tiles[tileIndex(c.postX, c.postY)] as TileType];
   if (!resource) return;
   c.state = "farming";
   c.chopTicksRemaining--;
   if (c.chopTicksRemaining <= 0) {
-    stock[resource] += 1;
-    c.chopTicksRemaining = effectiveChopTicks(c.postX, c.postY);
+    stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource];
+    c.chopTicksRemaining = effectiveFarmhandCycleTicks(c.postX, c.postY);
   }
 }
 
@@ -1872,6 +2034,650 @@ function updateGathererColonist(c: Colonist, dt: number) {
     default: {
       c.state = "idle";
       break;
+    }
+  }
+}
+
+// ---- Hunting & foraging: Hunter's Hut / Forager's Hut workers, wild game, wild forage ----
+// Every tunable lives here. Hunters and foragers are civilians: they only work by day and shelter in
+// houses at night like everyone else (updateColonist). Their hut's level adds workers (one per level,
+// see resolveFoodHutPlacement) and, with happiness and industrial synergy, speeds their work timers.
+
+// Hunters: find the nearest unreserved living game within HUNTER_WORK_RADIUS_TILES of the hut, close to
+// bow range, shoot until it dies, pick up the carcass and carry it home (meat lands on arrival).
+const HUNTER_WORK_RADIUS_TILES = 25;
+// Give up a chase once the quarry is this far from the hut (it can flee past the work radius).
+const HUNTER_CHASE_LEASH_TILES = HUNTER_WORK_RADIUS_TILES + 5;
+const HUNTER_BOW_RANGE = TILE_SIZE * 4;
+const HUNTER_ARROW_DAMAGE = 10;
+const HUNTER_SHOT_COOLDOWN_TICKS = Math.round(TICK_RATE * 1.2);
+const HUNTER_REPATH_TICKS = TICK_RATE;
+// How many of the nearest candidates (game or forage) get a path check before the worker waits.
+const FOOD_WORKER_ROUTE_CANDIDATES = 6;
+const FOOD_WORKER_IDLE_RETRY_TICKS = TICK_RATE * 2;
+
+// Foragers: nearest RIPE forage within FORAGER_WORK_RADIUS_TILES of the hut, pick for FORAGE_TICKS, carry
+// the fruit home. A picked plant regrows to ripe after FORAGE_REGROW_TICKS (day and night).
+const FORAGER_WORK_RADIUS_TILES = 25;
+const FORAGE_TICKS = TICK_RATE * 3;
+const FORAGE_REGROW_TICKS = DAY_TICKS + NIGHT_TICKS;
+
+// Wild forage scatter (counts tuned for 80x80, scaled by area like the other world-gen counts).
+// Berry bushes on Plains, fruit trees on Plains, mushrooms next to trees (any biome) or in Swamp.
+const BERRY_BUSH_COUNT = scaledCount(24);
+const FRUIT_TREE_COUNT = scaledCount(12);
+const MUSHROOM_PATCH_COUNT = scaledCount(10);
+// Nothing wild grows this close to the Town Center (keeps the start area buildable).
+const FORAGE_MIN_TOWN_CENTER_DIST_TILES = 5;
+const FORAGE_RIPE_TO_PICKED: Partial<Record<TileType, TileType>> = {
+  [TileType.BerryBush]: TileType.BerryBushPicked,
+  [TileType.FruitTree]: TileType.FruitTreePicked,
+  [TileType.MushroomPatch]: TileType.MushroomPatchPicked,
+};
+const FORAGE_PICKED_TO_RIPE: Partial<Record<TileType, TileType>> = {
+  [TileType.BerryBushPicked]: TileType.BerryBush,
+  [TileType.FruitTreePicked]: TileType.FruitTree,
+  [TileType.MushroomPatchPicked]: TileType.MushroomPatch,
+};
+// Fruit carried home per plant picked.
+const FORAGE_FRUIT_YIELD: Partial<Record<TileType, number>> = {
+  [TileType.BerryBush]: 3,
+  [TileType.FruitTree]: 5,
+  [TileType.MushroomPatch]: 2,
+};
+const FORAGE_TILES: TileType[] = [
+  TileType.BerryBush,
+  TileType.BerryBushPicked,
+  TileType.FruitTree,
+  TileType.FruitTreePicked,
+  TileType.MushroomPatch,
+  TileType.MushroomPatchPicked,
+];
+// Tile index -> ticks until that picked plant is ripe again.
+const forageRegrow = new Map<number, number>();
+
+// Wild game. Counts per 80x80 (scaled by area): every kind starts at its cap, and the population is
+// topped back up by WILDLIFE_RESPAWN_PER_DAY animals a day (the kind furthest below its cap first,
+// never above the caps).
+interface WildlifeConfig {
+  maxHp: number;
+  // px/s while wandering / fleeing.
+  speed: number;
+  fleeSpeed: number;
+  // Meat delivered when the carcass reaches the hut (or straight away when a player kills it).
+  meat: number;
+  cap: number;
+}
+const WILDLIFE_CONFIG: Record<WildlifeKind, WildlifeConfig> = {
+  deer: { maxHp: 18, speed: 28, fleeSpeed: 115, meat: 6, cap: scaledCount(6) },
+  rabbit: { maxHp: 6, speed: 30, fleeSpeed: 125, meat: 2, cap: scaledCount(8) },
+  boar: { maxHp: 30, speed: 24, fleeSpeed: 100, meat: 8, cap: scaledCount(3) },
+  pheasant: { maxHp: 6, speed: 22, fleeSpeed: 120, meat: 2, cap: scaledCount(4) },
+};
+// 4 a day on 80x80 (16 on 160x160): a map's sustainable hunt is about this many animals a day.
+const WILDLIFE_RESPAWN_PER_DAY = Math.max(1, scaledCount(4));
+const WILDLIFE_RESPAWN_INTERVAL_TICKS = Math.round((DAY_TICKS + NIGHT_TICKS) / WILDLIFE_RESPAWN_PER_DAY);
+// Game never spawns this close to the Town Center (nor within WILDLIFE_PLAYER_CLEARANCE_TILES of a
+// player, for respawns), so the colony's surroundings aren't a petting zoo.
+const WILDLIFE_MIN_TOWN_CENTER_DIST_TILES = 10;
+const WILDLIFE_PLAYER_CLEARANCE_TILES = 8;
+// Wandering: short walks to a random walkable spot within this radius of home, with rests between.
+const WILDLIFE_WANDER_RADIUS_TILES = 5;
+const WILDLIFE_REST_MIN_TICKS = TICK_RATE * 2;
+const WILDLIFE_REST_MAX_TICKS = TICK_RATE * 8;
+// Any damage makes an animal bolt directly away from the attacker for this long; it then settles
+// wherever it ended up (its new home).
+const WILDLIFE_FLEE_TICKS = TICK_RATE * 4;
+// A boar shot by a hunter charges him instead of fleeing, for at most BOAR_CHARGE_TICKS, then flees.
+const BOAR_CHARGE_TICKS = TICK_RATE * 6;
+const BOAR_CHARGE_SPEED = 95;
+const BOAR_DAMAGE = 4;
+const BOAR_ATTACK_RANGE = TILE_SIZE * 0.8;
+const BOAR_ATTACK_COOLDOWN_TICKS = TICK_RATE;
+
+type WildlifeMode = "idle" | "walk" | "flee" | "charge";
+interface Wildlife {
+  id: number;
+  kind: WildlifeKind;
+  x: number;
+  y: number;
+  hp: number;
+  homeX: number;
+  homeY: number;
+  mode: WildlifeMode;
+  targetX: number;
+  targetY: number;
+  restTicks: number;
+  // flee / charge time left.
+  modeTicks: number;
+  fleeDirX: number;
+  fleeDirY: number;
+  // Colonist id of the hunter chasing it (one hunter per animal), and of the hunter a boar charges.
+  reservedBy: string | null;
+  chargeTargetId: string | null;
+  attackCooldownTicks: number;
+}
+const wildlife = new Map<number, Wildlife>();
+let nextWildlifeId = 1;
+let wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
+// testHook "setWildlifeRespawn" {enabled:false}: no new game appears (hunting tests control every animal).
+let testWildlifeRespawnDisabled = false;
+
+const WILDLIFE_STATE_CODE: Record<WildlifeMode, WildlifeState> = {
+  idle: WildlifeState.Idle,
+  walk: WildlifeState.Walk,
+  flee: WildlifeState.Flee,
+  charge: WildlifeState.Charge,
+};
+
+function wildlifeForSnapshot(): number[] {
+  const out: number[] = [];
+  for (const a of wildlife.values()) {
+    out.push(a.id, WILDLIFE_KINDS.indexOf(a.kind), Math.round(a.x), Math.round(a.y), WILDLIFE_STATE_CODE[a.mode]);
+  }
+  return out;
+}
+
+function hasTreeNear(tx: number, ty: number, radius: number): boolean {
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      if (inBounds(tx + dx, ty + dy) && tiles[tileIndex(tx + dx, ty + dy)] === TileType.Tree) return true;
+    }
+  }
+  return false;
+}
+
+// Deer and rabbits on Plains; boar on Plains/Hills with a tree within 2 tiles (forest edges); pheasant
+// on Plains/Hills. Always an Empty tile.
+function wildlifeTileOk(kind: WildlifeKind, tx: number, ty: number): boolean {
+  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Empty) return false;
+  if (isInAbbeyGrounds(tx, ty)) return false;
+  if (Math.hypot(tx - TOWN_CENTER_TILE.x, ty - TOWN_CENTER_TILE.y) < WILDLIFE_MIN_TOWN_CENTER_DIST_TILES) return false;
+  const biome = biomeAt(tx, ty);
+  if (kind === "deer" || kind === "rabbit") return biome === Biome.Plains;
+  if (kind === "boar") return biome !== Biome.Swamp && hasTreeNear(tx, ty, 2);
+  return biome !== Biome.Swamp;
+}
+
+function spawnWildlifeAt(kind: WildlifeKind, tx: number, ty: number): Wildlife {
+  const center = tileToPixelCenter({ x: tx, y: ty });
+  const animal: Wildlife = {
+    id: nextWildlifeId++,
+    kind,
+    x: center.x,
+    y: center.y,
+    hp: WILDLIFE_CONFIG[kind].maxHp,
+    homeX: center.x,
+    homeY: center.y,
+    mode: "idle",
+    targetX: center.x,
+    targetY: center.y,
+    restTicks: randInt(0, WILDLIFE_REST_MAX_TICKS),
+    modeTicks: 0,
+    fleeDirX: 0,
+    fleeDirY: 0,
+    reservedBy: null,
+    chargeTargetId: null,
+    attackCooldownTicks: 0,
+  };
+  wildlife.set(animal.id, animal);
+  return animal;
+}
+
+// Rejection-samples a spawn tile for `kind`; null if none found (crowded map).
+function pickWildlifeSpawnTile(kind: WildlifeKind, avoidPlayers: boolean): TileCoord | null {
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const tx = Math.floor(Math.random() * WORLD_TILES_X);
+    const ty = Math.floor(Math.random() * WORLD_TILES_Y);
+    if (!wildlifeTileOk(kind, tx, ty)) continue;
+    if (avoidPlayers) {
+      const center = tileToPixelCenter({ x: tx, y: ty });
+      let tooClose = false;
+      for (const p of players.values()) {
+        if (Math.hypot(p.x - center.x, p.y - center.y) < WILDLIFE_PLAYER_CLEARANCE_TILES * TILE_SIZE) tooClose = true;
+      }
+      if (tooClose) continue;
+    }
+    return { x: tx, y: ty };
+  }
+  return null;
+}
+
+function spawnInitialWildlife() {
+  wildlife.clear();
+  nextWildlifeId = 1;
+  wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
+  for (const kind of WILDLIFE_KINDS) {
+    for (let i = 0; i < WILDLIFE_CONFIG[kind].cap; i++) {
+      const tile = pickWildlifeSpawnTile(kind, false);
+      if (tile) spawnWildlifeAt(kind, tile.x, tile.y);
+    }
+  }
+}
+
+// One animal every WILDLIFE_RESPAWN_INTERVAL_TICKS, of the kind furthest below its cap (by ratio).
+function updateWildlifeRespawn() {
+  if (testWildlifeRespawnDisabled) return;
+  if (wildlifeRespawnCooldown > 0) {
+    wildlifeRespawnCooldown--;
+    return;
+  }
+  wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
+  const counts: Record<WildlifeKind, number> = { deer: 0, rabbit: 0, boar: 0, pheasant: 0 };
+  for (const a of wildlife.values()) counts[a.kind]++;
+  let best: WildlifeKind | null = null;
+  let bestRatio = 1;
+  for (const kind of WILDLIFE_KINDS) {
+    const cap = WILDLIFE_CONFIG[kind].cap;
+    if (cap <= 0) continue;
+    const ratio = counts[kind] / cap;
+    if (ratio < bestRatio) {
+      bestRatio = ratio;
+      best = kind;
+    }
+  }
+  if (!best) return;
+  const tile = pickWildlifeSpawnTile(best, true);
+  if (tile) spawnWildlifeAt(best, tile.x, tile.y);
+}
+
+function isWalkablePixel(px: number, py: number): boolean {
+  const t = tileOfPixel(px, py);
+  return isWalkableTile(t.x, t.y);
+}
+
+// Straight-line step toward (tx, ty), never onto a solid tile (slides along one axis if blocked).
+// Returns false when it couldn't move at all. Wildlife never pathfinds: it only takes short hops.
+function stepWildlife(a: Wildlife, dirX: number, dirY: number, speed: number, dt: number): boolean {
+  const len = Math.hypot(dirX, dirY);
+  if (len === 0) return false;
+  const step = speed * biomeSpeedMultiplier(a.x, a.y) * dt;
+  const nx = a.x + (dirX / len) * step;
+  const ny = a.y + (dirY / len) * step;
+  const clampX = clamp(nx, TILE_SIZE / 2, worldWidth - TILE_SIZE / 2);
+  const clampY = clamp(ny, TILE_SIZE / 2, worldHeight - TILE_SIZE / 2);
+  if (isWalkablePixel(clampX, clampY)) {
+    a.x = clampX;
+    a.y = clampY;
+    return true;
+  }
+  if (isWalkablePixel(clampX, a.y)) {
+    a.x = clampX;
+    return true;
+  }
+  if (isWalkablePixel(a.x, clampY)) {
+    a.y = clampY;
+    return true;
+  }
+  return false;
+}
+
+function startWildlifeFlee(a: Wildlife, fromX: number, fromY: number) {
+  let dx = a.x - fromX;
+  let dy = a.y - fromY;
+  if (Math.hypot(dx, dy) < 1) {
+    const angle = Math.random() * Math.PI * 2;
+    dx = Math.cos(angle);
+    dy = Math.sin(angle);
+  }
+  a.mode = "flee";
+  a.modeTicks = WILDLIFE_FLEE_TICKS;
+  a.fleeDirX = dx;
+  a.fleeDirY = dy;
+  a.chargeTargetId = null;
+}
+
+// Damage from anything (hunter arrow, player lance, test hook). Returns true if it killed the animal.
+// A boar hit by a hunter charges him; everything else (and a boar hit by anyone else) flees.
+function damageWildlife(a: Wildlife, amount: number, fromX: number, fromY: number, hunterId: string | null): boolean {
+  a.hp -= amount;
+  if (a.hp <= 0) {
+    wildlife.delete(a.id);
+    return true;
+  }
+  if (a.kind === "boar" && hunterId !== null && a.mode !== "charge" && colonists.has(hunterId)) {
+    a.mode = "charge";
+    a.modeTicks = BOAR_CHARGE_TICKS;
+    a.chargeTargetId = hunterId;
+  } else if (a.mode !== "charge") {
+    startWildlifeFlee(a, fromX, fromY);
+  }
+  return false;
+}
+
+function updateWildlife(dt: number) {
+  for (const a of wildlife.values()) {
+    const config = WILDLIFE_CONFIG[a.kind];
+    if (a.attackCooldownTicks > 0) a.attackCooldownTicks--;
+    // Something was built on top of it (placement only checks players/colonists): step off.
+    const here = tileOfPixel(a.x, a.y);
+    if (!isWalkableTile(here.x, here.y)) {
+      const out = findAdjacentWalkable(here.x, here.y);
+      if (out) {
+        const center = tileToPixelCenter(out);
+        a.x = a.homeX = a.targetX = center.x;
+        a.y = a.homeY = a.targetY = center.y;
+      }
+    }
+    if (a.mode === "flee") {
+      if (!stepWildlife(a, a.fleeDirX, a.fleeDirY, config.fleeSpeed, dt)) {
+        // Cornered: bolt off at a new random angle.
+        const angle = Math.random() * Math.PI * 2;
+        a.fleeDirX = Math.cos(angle);
+        a.fleeDirY = Math.sin(angle);
+      }
+      if (--a.modeTicks <= 0) {
+        a.mode = "idle";
+        a.homeX = a.x;
+        a.homeY = a.y;
+        a.restTicks = randInt(WILDLIFE_REST_MIN_TICKS, WILDLIFE_REST_MAX_TICKS);
+      }
+      continue;
+    }
+    if (a.mode === "charge") {
+      const target = a.chargeTargetId ? colonists.get(a.chargeTargetId) : undefined;
+      if (!target || --a.modeTicks <= 0) {
+        startWildlifeFlee(a, target?.x ?? a.x, target?.y ?? a.y);
+        continue;
+      }
+      const dist = Math.hypot(target.x - a.x, target.y - a.y);
+      if (dist <= BOAR_ATTACK_RANGE) {
+        if (a.attackCooldownTicks <= 0) {
+          a.attackCooldownTicks = BOAR_ATTACK_COOLDOWN_TICKS;
+          pendingEffects.push({ fromX: a.x, fromY: a.y, toX: target.x, toY: target.y, melee: true });
+          damageColonist(target, BOAR_DAMAGE);
+        }
+      } else {
+        stepWildlife(a, target.x - a.x, target.y - a.y, BOAR_CHARGE_SPEED, dt);
+      }
+      continue;
+    }
+    if (a.mode === "walk") {
+      const dist = Math.hypot(a.targetX - a.x, a.targetY - a.y);
+      const step = config.speed * dt;
+      if (dist <= step || !stepWildlife(a, a.targetX - a.x, a.targetY - a.y, config.speed, dt)) {
+        if (dist <= step) {
+          a.x = a.targetX;
+          a.y = a.targetY;
+        }
+        a.mode = "idle";
+        a.restTicks = randInt(WILDLIFE_REST_MIN_TICKS, WILDLIFE_REST_MAX_TICKS);
+      }
+      continue;
+    }
+    if (--a.restTicks > 0) continue;
+    const home = tileOfPixel(a.homeX, a.homeY);
+    const tx = home.x + randInt(-WILDLIFE_WANDER_RADIUS_TILES, WILDLIFE_WANDER_RADIUS_TILES);
+    const ty = home.y + randInt(-WILDLIFE_WANDER_RADIUS_TILES, WILDLIFE_WANDER_RADIUS_TILES);
+    if (isWalkableTile(tx, ty)) {
+      a.targetX = tx * TILE_SIZE + TILE_SIZE * (0.25 + Math.random() * 0.5);
+      a.targetY = ty * TILE_SIZE + TILE_SIZE * (0.25 + Math.random() * 0.5);
+      a.mode = "walk";
+    } else {
+      a.restTicks = WILDLIFE_REST_MIN_TICKS;
+    }
+  }
+}
+
+function scatterForage(tile: TileType, count: number, isValid: (tx: number, ty: number) => boolean) {
+  let placed = 0;
+  for (let attempts = 0; placed < count && attempts < scaledCount(2000); attempts++) {
+    const tx = Math.floor(Math.random() * WORLD_TILES_X);
+    const ty = Math.floor(Math.random() * WORLD_TILES_Y);
+    if (tiles[tileIndex(tx, ty)] !== TileType.Empty) continue;
+    if (isInAbbeyGrounds(tx, ty)) continue;
+    if (Math.hypot(tx - TOWN_CENTER_TILE.x, ty - TOWN_CENTER_TILE.y) < FORAGE_MIN_TOWN_CENTER_DIST_TILES) continue;
+    if (!isValid(tx, ty)) continue;
+    tiles[tileIndex(tx, ty)] = tile;
+    placed++;
+  }
+}
+
+function generateForage() {
+  forageRegrow.clear();
+  scatterForage(TileType.BerryBush, BERRY_BUSH_COUNT, (tx, ty) => biomeAt(tx, ty) === Biome.Plains);
+  scatterForage(TileType.FruitTree, FRUIT_TREE_COUNT, (tx, ty) => biomeAt(tx, ty) === Biome.Plains);
+  scatterForage(
+    TileType.MushroomPatch,
+    MUSHROOM_PATCH_COUNT,
+    (tx, ty) => biomeAt(tx, ty) === Biome.Swamp || hasTreeNear(tx, ty, 1)
+  );
+}
+
+// Picked plants count down to ripe; an entry whose tile was cleared (demolished) is dropped.
+function updateForageRegrow() {
+  for (const [index, ticks] of forageRegrow) {
+    const tile = tiles[index] as TileType;
+    const ripe = FORAGE_PICKED_TO_RIPE[tile];
+    if (ripe === undefined) {
+      forageRegrow.delete(index);
+      continue;
+    }
+    if (ticks > 1) {
+      forageRegrow.set(index, ticks - 1);
+      continue;
+    }
+    forageRegrow.delete(index);
+    tiles[index] = ripe;
+    broadcastTileUpdate(index % WORLD_TILES_X, Math.floor(index / WORLD_TILES_X), ripe);
+  }
+}
+
+// Hunter/forager work timers: hut level, happiness and industrial synergy (no biome factor).
+function effectiveFoodHutTicks(base: number, tx: number, ty: number): number {
+  const level = getBuildingLevel(tx, ty);
+  return Math.max(
+    1,
+    Math.round((base * (1 - levelBonus(level))) / (happinessSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
+  );
+}
+
+function hutDistanceTiles(c: Colonist, px: number, py: number): number {
+  const hut = tileToPixelCenter({ x: c.postX, y: c.postY });
+  return Math.hypot(px - hut.x, py - hut.y) / TILE_SIZE;
+}
+
+// Path home to the hut's doorstep; the worker deposits when it arrives (state "carrying").
+function startCarryingHome(c: Colonist) {
+  const approach = findAdjacentWalkable(c.postX, c.postY);
+  const path = approach ? findPath(tileOfPixel(c.x, c.y), approach) : null;
+  c.path = path ?? [];
+  c.state = "carrying";
+}
+
+function depositCarried(c: Colonist, resource: "meat" | "fruit") {
+  stock[resource] += c.carryAmount;
+  c.carryAmount = 0;
+  c.state = "idle";
+}
+
+function planHunt(c: Colonist): { animal: Wildlife; path: TileCoord[] } | null {
+  const candidates: { animal: Wildlife; d: number }[] = [];
+  for (const a of wildlife.values()) {
+    if (a.reservedBy !== null && a.reservedBy !== c.id) continue;
+    if (hutDistanceTiles(c, a.x, a.y) > HUNTER_WORK_RADIUS_TILES) continue;
+    candidates.push({ animal: a, d: Math.hypot(a.x - c.x, a.y - c.y) });
+  }
+  candidates.sort((p, q) => p.d - q.d);
+  const start = tileOfPixel(c.x, c.y);
+  for (const { animal } of candidates.slice(0, FOOD_WORKER_ROUTE_CANDIDATES)) {
+    const path = findPath(start, tileOfPixel(animal.x, animal.y));
+    if (path) return { animal, path };
+  }
+  return null;
+}
+
+// States: idle -> stalking (walk to bow range) -> hunting (shoot) -> collecting (walk to the carcass)
+// -> carrying (walk home, deposit meat) -> idle. A carcass load survives the night (carried home at
+// dawn); the reservation on a live animal doesn't (released when the hunter goes to shelter).
+function updateHunter(c: Colonist, dt: number) {
+  switch (c.state) {
+    case "stalking":
+    case "hunting": {
+      const animal = c.targetWildlifeId !== null ? wildlife.get(c.targetWildlifeId) : undefined;
+      if (!animal || hutDistanceTiles(c, animal.x, animal.y) > HUNTER_CHASE_LEASH_TILES) {
+        releaseResourceReservation(c);
+        c.path = [];
+        c.state = "idle";
+        c.idleCooldown = 0;
+        return;
+      }
+      if (c.attackCooldownTicks > 0) c.attackCooldownTicks--;
+      const dist = Math.hypot(animal.x - c.x, animal.y - c.y);
+      if (dist > HUNTER_BOW_RANGE) {
+        c.state = "stalking";
+        if (c.repathCooldown > 0) c.repathCooldown--;
+        if (c.path.length === 0 || c.repathCooldown <= 0) {
+          c.path = findPath(tileOfPixel(c.x, c.y), tileOfPixel(animal.x, animal.y)) ?? [];
+          c.repathCooldown = HUNTER_REPATH_TICKS;
+        }
+        advanceAlongPath(c, dt, COLONIST_SPEED);
+        return;
+      }
+      c.state = "hunting";
+      c.path = [];
+      if (c.attackCooldownTicks > 0) return;
+      c.attackCooldownTicks = effectiveFoodHutTicks(HUNTER_SHOT_COOLDOWN_TICKS, c.postX, c.postY);
+      pendingEffects.push({ fromX: c.x, fromY: c.y, toX: animal.x, toY: animal.y });
+      const carcass = { x: animal.x, y: animal.y };
+      if (damageWildlife(animal, HUNTER_ARROW_DAMAGE, c.x, c.y, c.id)) {
+        c.targetWildlifeId = null;
+        c.carryAmount += WILDLIFE_CONFIG[animal.kind].meat;
+        c.path = findPath(tileOfPixel(c.x, c.y), tileOfPixel(carcass.x, carcass.y)) ?? [];
+        c.state = "collecting";
+      }
+      return;
+    }
+    case "collecting":
+      advanceAlongPath(c, dt, COLONIST_SPEED);
+      if (c.path.length === 0) startCarryingHome(c);
+      return;
+    case "carrying":
+      advanceAlongPath(c, dt, COLONIST_SPEED);
+      if (c.path.length === 0) depositCarried(c, "meat");
+      return;
+    default: {
+      // "idle" (and anything left over from sheltering).
+      c.state = "idle";
+      if (c.carryAmount > 0) {
+        startCarryingHome(c);
+        return;
+      }
+      if (c.idleCooldown > 0) {
+        c.idleCooldown--;
+        return;
+      }
+      const plan = planHunt(c);
+      if (!plan) {
+        c.idleCooldown = FOOD_WORKER_IDLE_RETRY_TICKS;
+        return;
+      }
+      plan.animal.reservedBy = c.id;
+      c.targetWildlifeId = plan.animal.id;
+      c.path = plan.path;
+      c.repathCooldown = HUNTER_REPATH_TICKS;
+      c.state = "stalking";
+    }
+  }
+}
+
+// Approach tile for a forage plant: walkable ones (bush, mushrooms) are stood on, a fruit tree from
+// beside it.
+function forageApproach(tx: number, ty: number): TileCoord | null {
+  return isWalkableTile(tx, ty) ? { x: tx, y: ty } : findAdjacentWalkable(tx, ty);
+}
+
+function planForage(c: Colonist): { tx: number; ty: number; path: TileCoord[] } | null {
+  const hut = { x: c.postX, y: c.postY };
+  const r = FORAGER_WORK_RADIUS_TILES;
+  const candidates: { tx: number; ty: number; d: number }[] = [];
+  for (let ty = Math.max(0, hut.y - r); ty <= Math.min(WORLD_TILES_Y - 1, hut.y + r); ty++) {
+    for (let tx = Math.max(0, hut.x - r); tx <= Math.min(WORLD_TILES_X - 1, hut.x + r); tx++) {
+      if (FORAGE_RIPE_TO_PICKED[tiles[tileIndex(tx, ty)] as TileType] === undefined) continue;
+      if (Math.hypot(tx - hut.x, ty - hut.y) > r) continue;
+      if (reservedResourceTiles.has(resourceKey(tx, ty))) continue;
+      candidates.push({ tx, ty, d: (tx + 0.5 - c.x / TILE_SIZE) ** 2 + (ty + 0.5 - c.y / TILE_SIZE) ** 2 });
+    }
+  }
+  candidates.sort((p, q) => p.d - q.d);
+  const start = tileOfPixel(c.x, c.y);
+  for (const cand of candidates.slice(0, FOOD_WORKER_ROUTE_CANDIDATES)) {
+    const approach = forageApproach(cand.tx, cand.ty);
+    if (!approach) continue;
+    const path = findPath(start, approach);
+    if (path) return { tx: cand.tx, ty: cand.ty, path };
+  }
+  return null;
+}
+
+// States: idle -> toForage (walk) -> foraging (pick for FORAGE_TICKS) -> carrying (walk home, deposit
+// fruit) -> idle. The target plant is reserved in reservedResourceTiles like a lumberjack's tree.
+function updateForager(c: Colonist, dt: number) {
+  const targetRipe = () =>
+    c.targetResourceX >= 0 &&
+    FORAGE_RIPE_TO_PICKED[tiles[tileIndex(c.targetResourceX, c.targetResourceY)] as TileType] !== undefined;
+  switch (c.state) {
+    case "toForage":
+      if (!targetRipe()) {
+        releaseResourceReservation(c);
+        c.targetResourceX = -1;
+        c.targetResourceY = -1;
+        c.path = [];
+        c.state = "idle";
+        return;
+      }
+      advanceAlongPath(c, dt, COLONIST_SPEED);
+      if (c.path.length === 0) {
+        c.state = "foraging";
+        c.chopTicksRemaining = effectiveFoodHutTicks(FORAGE_TICKS, c.postX, c.postY);
+      }
+      return;
+    case "foraging": {
+      if (!targetRipe()) {
+        releaseResourceReservation(c);
+        c.targetResourceX = -1;
+        c.targetResourceY = -1;
+        c.state = "idle";
+        return;
+      }
+      if (--c.chopTicksRemaining > 0) return;
+      const index = tileIndex(c.targetResourceX, c.targetResourceY);
+      const ripe = tiles[index] as TileType;
+      const picked = FORAGE_RIPE_TO_PICKED[ripe]!;
+      tiles[index] = picked;
+      broadcastTileUpdate(c.targetResourceX, c.targetResourceY, picked);
+      forageRegrow.set(index, FORAGE_REGROW_TICKS);
+      c.carryAmount += FORAGE_FRUIT_YIELD[ripe] ?? 0;
+      releaseResourceReservation(c);
+      c.targetResourceX = -1;
+      c.targetResourceY = -1;
+      startCarryingHome(c);
+      return;
+    }
+    case "carrying":
+      advanceAlongPath(c, dt, COLONIST_SPEED);
+      if (c.path.length === 0) depositCarried(c, "fruit");
+      return;
+    default: {
+      c.state = "idle";
+      if (c.carryAmount > 0) {
+        startCarryingHome(c);
+        return;
+      }
+      if (c.idleCooldown > 0) {
+        c.idleCooldown--;
+        return;
+      }
+      const plan = planForage(c);
+      if (!plan) {
+        c.idleCooldown = FOOD_WORKER_IDLE_RETRY_TICKS;
+        return;
+      }
+      reservedResourceTiles.set(resourceKey(plan.tx, plan.ty), c.id);
+      c.targetResourceX = plan.tx;
+      c.targetResourceY = plan.ty;
+      c.path = plan.path;
+      c.state = "toForage";
     }
   }
 }
@@ -2015,6 +2821,11 @@ const gravestones: GravestoneSnapshot[] = [];
 
 function damageMob(mob: Mob, amount: number) {
   if (isDormantGuardian(mob)) activateGuardianSite(mob.siteId!);
+  // Hitting any member of a raid group (passive or marching) turns the whole group on its attackers.
+  if (mob.groupId !== null) {
+    const group = raidGroups.get(mob.groupId);
+    if (group) engageRaidGroup(group);
+  }
   mob.hp -= amount;
   mob.lastDamagedTick = cycleTick;
   if (mob.hp <= 0) {
@@ -2173,6 +2984,22 @@ function handlePlayerAttack(attacker: Player) {
       bestType = "mob";
       bestId = m.id;
     }
+  }
+
+  let bestAnimal: Wildlife | null = null;
+  for (const a of wildlife.values()) {
+    const d = Math.hypot(a.x - attacker.x, a.y - attacker.y);
+    if (d <= PLAYER_ATTACK_RANGE && d < bestDist) {
+      bestDist = d;
+      bestAnimal = a;
+    }
+  }
+  if (bestAnimal) {
+    // A player's kill is dressed on the spot: the meat goes straight to the stockpile.
+    pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: bestAnimal.x, toY: bestAnimal.y, melee: true });
+    const meat = WILDLIFE_CONFIG[bestAnimal.kind].meat;
+    if (damageWildlife(bestAnimal, PLAYER_ATTACK_DAMAGE, attacker.x, attacker.y, null)) stock.meat += meat;
+    return;
   }
 
   if (!bestType || !bestId) return;
@@ -2614,7 +3441,7 @@ function checkWardStoneLapses() {
   for (const key of activeNow) wardStonesActiveLastTick.add(key);
 }
 
-// Same Mob shape as spawnMob/spawnGuardian, but no siteId: never dormant, it seeks a target via
+// Same Mob shape as createRaidMob/spawnGuardian, but no siteId: never dormant, it seeks a target via
 // pickMobTarget on its very first updateMob.
 function spawnHalfLatch(tile: TileCoord) {
   const config = MOB_KIND_CONFIG.halfLatch;
@@ -2643,6 +3470,8 @@ function spawnHalfLatch(tile: TileCoord) {
     siteId: null,
     siteKind: null,
     guardianActive: false,
+    groupId: null,
+    passive: false,
   };
   mobs.set(mob.id, mob);
 }
@@ -2712,6 +3541,12 @@ function updateColonist(c: Colonist, dt: number) {
       break;
     case "farmer":
       break;
+    case "hunter":
+      updateHunter(c, dt);
+      break;
+    case "forager":
+      updateForager(c, dt);
+      break;
     case "knight":
     case "archer":
     case "militia":
@@ -2726,49 +3561,145 @@ function updateColonist(c: Colonist, dt: number) {
   }
 }
 
-function randomEdgeTile(): TileCoord {
-  const side = Math.floor(Math.random() * 4);
-  if (side === 0) return { x: Math.floor(Math.random() * WORLD_TILES_X), y: 0 };
-  if (side === 1) return { x: Math.floor(Math.random() * WORLD_TILES_X), y: WORLD_TILES_Y - 1 };
-  if (side === 2) return { x: 0, y: Math.floor(Math.random() * WORLD_TILES_Y) };
-  return { x: WORLD_TILES_X - 1, y: Math.floor(Math.random() * WORLD_TILES_Y) };
+// ---- Raid waves ----
+// spawnRaid runs once per day at the day's midpoint and puts the whole of tonight's raid on the map
+// in passive groups. updateRaidGroups then drives every grouped mob (updateMob skips them):
+//   passive  - loiter near their spawn; turn aggressive at the group's aggroTick (uniform between
+//              spawn and nightfall), at nightfall at the latest, or as soon as any member is damaged.
+//   marching - the group walks to the colony together: the slowest member leads along one shared
+//              path at its own speed, the rest hold formation slots around it. Once the leader is
+//              within RAID_ENGAGE_RANGE_TILES of the colony or a target, the group dissolves and each
+//              member falls back to updateMob's normal per-mob targeting (as does a damaged group).
+
+type RaidEdge = "north" | "south" | "east" | "west";
+type RaidGroupState = "passive" | "marching";
+interface RaidGroup {
+  id: string;
+  faction: RaidFactionId;
+  isHorde: boolean;
+  // Edge its fresh mobs spawned on; null for a group of deserters only (they are never edge-spawned).
+  edge: RaidEdge | null;
+  memberIds: string[];
+  // Loiter centre (spawn tile) per edge-spawned member; deserters stand still instead.
+  homes: Map<string, TileCoord>;
+  aggroTick: number;
+  state: RaidGroupState;
+  leaderId: string | null;
+  // Formation offset (pixels from the leader) per follower, set when the march starts.
+  offsets: Map<string, { x: number; y: number }>;
+  repathCooldown: number;
+}
+const raidGroups = new Map<string, RaidGroup>();
+// Day index whose raid has already spawned, so the midday check fires once per day.
+let raidSpawnedForDay = -1;
+
+function raidSizeForDay(dayIndex: number): number {
+  const base = RAID_BASE_SIZE + RAID_SIZE_PER_DAY * dayIndex;
+  return Math.max(1, Math.round(base * DIFFICULTY_TUNING[difficulty].spawnCount));
 }
 
-function activeMobCount(): number {
-  let count = 0;
-  for (const m of mobs.values()) {
-    if (isDormantGuardian(m)) continue;
-    if (!m.isDeserter || m.deserterActive) count++;
-  }
-  return count;
+function isRaidEdgeTile(tx: number, ty: number): boolean {
+  return Math.min(tx, ty, WORLD_TILES_X - 1 - tx, WORLD_TILES_Y - 1 - ty) < RAID_EDGE_BAND_TILES;
 }
 
-function pickMobKindForSpawn(dayIndex: number): MobKind {
-  const eligible = (Object.keys(MOB_KIND_CONFIG) as MobKind[]).filter(
-    (k) => !NIGHT_WAVE_EXCLUDED_KINDS.has(k) && MOB_KIND_CONFIG[k].unlockDay <= dayIndex
-  );
-  const totalWeight = eligible.reduce((sum, k) => sum + MOB_KIND_CONFIG[k].weight, 0);
-  let roll = Math.random() * totalWeight;
-  for (const k of eligible) {
-    roll -= MOB_KIND_CONFIG[k].weight;
-    if (roll < 0) return k;
-  }
-  return eligible[eligible.length - 1];
-}
-
-function spawnMob() {
-  let spot: TileCoord | null = null;
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const candidate = randomEdgeTile();
-    if (isWalkableTile(candidate.x, candidate.y)) {
-      spot = candidate;
-      break;
+function randomRaidAnchor(): { tile: TileCoord; edge: RaidEdge } | null {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const side = Math.floor(Math.random() * 4);
+    const along = Math.floor(Math.random() * (side < 2 ? WORLD_TILES_X : WORLD_TILES_Y));
+    const tile =
+      side === 0 ? { x: along, y: 0 }
+      : side === 1 ? { x: along, y: WORLD_TILES_Y - 1 }
+      : side === 2 ? { x: 0, y: along }
+      : { x: WORLD_TILES_X - 1, y: along };
+    if (isWalkableTile(tile.x, tile.y)) {
+      const edge: RaidEdge = side === 0 ? "north" : side === 1 ? "south" : side === 2 ? "west" : "east";
+      return { tile, edge };
     }
   }
-  if (!spot) return;
-  const center = tileToPixelCenter(spot);
-  const dayIndex = Math.floor(cycleTick / (DAY_TICKS + NIGHT_TICKS));
-  const kind = pickMobKindForSpawn(dayIndex);
+  return null;
+}
+
+// `count` walkable edge-band tiles nearest the anchor (breadth-first), skipping tiles in `occupied`
+// (and claiming the ones returned). Stacks on the tiles found only if there aren't enough free ones.
+function clusterRaidTiles(anchor: TileCoord, count: number, occupied: Set<number>): TileCoord[] {
+  const result: TileCoord[] = [];
+  const seen = new Set<number>([tileIndex(anchor.x, anchor.y)]);
+  const queue: TileCoord[] = [anchor];
+  const searchLimit = count * 8 + 64;
+  for (let head = 0; head < queue.length && result.length < count && head < searchLimit; head++) {
+    const t = queue[head];
+    const idx = tileIndex(t.x, t.y);
+    if (!occupied.has(idx)) {
+      occupied.add(idx);
+      result.push(t);
+    }
+    const neighbors = [
+      { x: t.x + 1, y: t.y },
+      { x: t.x - 1, y: t.y },
+      { x: t.x, y: t.y + 1 },
+      { x: t.x, y: t.y - 1 },
+    ];
+    for (const n of neighbors) {
+      if (!isWalkableTile(n.x, n.y) || !isRaidEdgeTile(n.x, n.y)) continue;
+      const k = tileIndex(n.x, n.y);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      queue.push(n);
+    }
+  }
+  const pool = result.length > 0 ? result.slice() : [anchor];
+  for (let i = 0; result.length < count; i++) result.push(pool[i % pool.length]);
+  return result;
+}
+
+function isRaidKindUnlocked(kind: MobKind, dayIndex: number): boolean {
+  return MOB_KIND_CONFIG[kind].unlockDay <= dayIndex;
+}
+
+function pickRaidFaction(dayIndex: number): RaidFactionId {
+  const weighted = (Object.keys(RAID_FACTIONS) as RaidFactionId[])
+    .map((f) => ({ f, w: RAID_FACTIONS[f].filter((e) => e.core && isRaidKindUnlocked(e.kind, dayIndex)).length }))
+    .filter((x) => x.w > 0);
+  let roll = Math.random() * weighted.reduce((sum, x) => sum + x.w, 0);
+  for (const x of weighted) {
+    roll -= x.w;
+    if (roll < 0) return x.f;
+  }
+  return weighted[weighted.length - 1].f;
+}
+
+function pickRaidFactionKind(faction: RaidFactionId, dayIndex: number): MobKind {
+  const eligible = RAID_FACTIONS[faction].filter((e) => isRaidKindUnlocked(e.kind, dayIndex));
+  let roll = Math.random() * eligible.reduce((sum, e) => sum + e.weight, 0);
+  for (const e of eligible) {
+    roll -= e.weight;
+    if (roll < 0) return e.kind;
+  }
+  return eligible[eligible.length - 1].kind;
+}
+
+// Group sizes for a raid of `total`: the horde first, then random groups of
+// RAID_GROUP_SIZE_MIN..MAX (a lone leftover mob joins the horde instead of standing alone).
+function splitRaidGroups(total: number, hordeSize: number): number[] {
+  const sizes = [hordeSize];
+  let rest = total - hordeSize;
+  while (rest > 0) {
+    if (rest < RAID_GROUP_SIZE_MIN) {
+      sizes[0] += rest;
+      break;
+    }
+    let size = Math.min(rest, randInt(RAID_GROUP_SIZE_MIN, RAID_GROUP_SIZE_MAX));
+    if (rest - size > 0 && rest - size < RAID_GROUP_SIZE_MIN) {
+      size = size < RAID_GROUP_SIZE_MAX ? size + 1 : size - 1;
+    }
+    sizes.push(size);
+    rest -= size;
+  }
+  return sizes;
+}
+
+function createRaidMob(kind: MobKind, tile: TileCoord, groupId: string): Mob {
+  const center = tileToPixelCenter(tile);
   const config = MOB_KIND_CONFIG[kind];
   const tuning = DIFFICULTY_TUNING[difficulty];
   const maxHp = Math.max(1, Math.round(config.maxHp * tuning.mobHp));
@@ -2796,8 +3727,284 @@ function spawnMob() {
     siteId: null,
     siteKind: null,
     guardianActive: false,
+    groupId,
+    passive: true,
   };
   mobs.set(mob.id, mob);
+  return mob;
+}
+
+// On a deserter night (DESERTER_WAVE_CHANCE, once deserters have waited DESERTER_ACTIVATION_DAYS)
+// every eligible deserter joins the horde where it stands, and fresh Bandit-band mobs fill the raid up
+// to its normal size (none if the deserters alone already reach it).
+function spawnRaid(dayIndex: number) {
+  const nightfallTick = dayIndex * (DAY_TICKS + NIGHT_TICKS) + DAY_TICKS;
+  const total = raidSizeForDay(dayIndex);
+  const eligibleDeserters = Array.from(mobs.values()).filter(
+    (m) =>
+      m.isDeserter &&
+      !m.deserterActive &&
+      m.groupId === null &&
+      cycleTick - m.deserterSinceTick >= DESERTER_ACTIVATION_TICKS
+  );
+  const deserterRoll = testForceDeserterRoll ?? Math.random() < DESERTER_WAVE_CHANCE;
+  const deserters = eligibleDeserters.length > 0 && deserterRoll ? eligibleDeserters : [];
+  const combined = Math.max(total, deserters.length);
+  const hordeShare = randRange(RAID_HORDE_SHARE_MIN, RAID_HORDE_SHARE_MAX);
+  const hordeSize = Math.max(deserters.length, Math.min(combined, Math.ceil(combined * hordeShare)));
+  const sizes = splitRaidGroups(combined, hordeSize);
+
+  const occupied = new Set<number>();
+  for (const m of mobs.values()) {
+    const t = tileOfPixel(m.x, m.y);
+    occupied.add(tileIndex(t.x, t.y));
+  }
+
+  let announceEdge: RaidEdge | null = null;
+  sizes.forEach((size, i) => {
+    const isHorde = i === 0;
+    const group: RaidGroup = {
+      id: randomUUID(),
+      faction: deserters.length > 0 ? "banditBand" : pickRaidFaction(dayIndex),
+      isHorde,
+      edge: null,
+      memberIds: [],
+      homes: new Map(),
+      aggroTick: testHoldRaidAggro
+        ? nightfallTick
+        : cycleTick + Math.floor(Math.random() * Math.max(1, nightfallTick - cycleTick)),
+      state: "passive",
+      leaderId: null,
+      offsets: new Map(),
+      repathCooldown: 0,
+    };
+    let freshCount = size;
+    if (isHorde) {
+      for (const d of deserters) {
+        d.groupId = group.id;
+        d.passive = true;
+        d.path = [];
+        group.memberIds.push(d.id);
+      }
+      freshCount -= deserters.length;
+    }
+    const anchor = freshCount > 0 ? randomRaidAnchor() : null;
+    if (anchor) {
+      group.edge = anchor.edge;
+      for (const tile of clusterRaidTiles(anchor.tile, freshCount, occupied)) {
+        const mob = createRaidMob(pickRaidFactionKind(group.faction, dayIndex), tile, group.id);
+        group.memberIds.push(mob.id);
+        group.homes.set(mob.id, tile);
+      }
+      if (announceEdge === null) announceEdge = anchor.edge;
+    }
+    if (group.memberIds.length > 0) raidGroups.set(group.id, group);
+  });
+  if (announceEdge) broadcastEvent("raid", `Raiders gather at the ${announceEdge} edge`);
+}
+
+// Returns true when `m` was a still-dormant deserter (so the caller can announce the turn).
+function releaseRaidMob(m: Mob): boolean {
+  const turnedDeserter = m.isDeserter && !m.deserterActive;
+  m.groupId = null;
+  m.passive = false;
+  m.path = [];
+  m.targetType = null;
+  m.targetId = null;
+  // Staggered so a whole horde breaking up doesn't pathfind on the same tick.
+  m.repathCooldown = Math.floor(Math.random() * MOB_REPATH_TICKS);
+  if (m.isDeserter) m.deserterActive = true;
+  return turnedDeserter;
+}
+
+function announceDeserterTurn(count: number) {
+  if (count > 0) broadcastEvent("deserter", `The deserters have turned on the colony (${count})`);
+}
+
+function raidGroupMembers(group: RaidGroup): Mob[] {
+  const members: Mob[] = [];
+  for (const id of group.memberIds) {
+    const m = mobs.get(id);
+    if (m && m.groupId === group.id) members.push(m);
+  }
+  if (members.length !== group.memberIds.length) group.memberIds = members.map((m) => m.id);
+  return members;
+}
+
+// Dissolves the group: every member switches to normal per-mob targeting right away.
+function engageRaidGroup(group: RaidGroup) {
+  let turned = 0;
+  for (const m of raidGroupMembers(group)) if (releaseRaidMob(m)) turned++;
+  raidGroups.delete(group.id);
+  announceDeserterTurn(turned);
+}
+
+// Slowest member leads (so the group moves at its pace); the rest get golden-angle spiral slots.
+function assignRaidLeader(group: RaidGroup): Mob | null {
+  const members = raidGroupMembers(group);
+  if (members.length === 0) return null;
+  const leader = members.reduce((slowest, m) => (m.speed < slowest.speed ? m : slowest));
+  group.leaderId = leader.id;
+  group.repathCooldown = 0;
+  group.offsets.clear();
+  let slot = 1;
+  for (const m of members) {
+    if (m === leader) continue;
+    const r = RAID_FORMATION_SPACING_TILES * TILE_SIZE * Math.sqrt(slot);
+    const a = slot * 2.399963;
+    group.offsets.set(m.id, { x: r * Math.cos(a), y: r * Math.sin(a) });
+    slot++;
+  }
+  return leader;
+}
+
+function startRaidGroupMarch(group: RaidGroup) {
+  group.state = "marching";
+  // Deserters are already inside the colony: they turn on it from where they stand.
+  let turned = 0;
+  for (const m of raidGroupMembers(group)) {
+    if (m.isDeserter) {
+      if (releaseRaidMob(m)) turned++;
+    } else {
+      m.passive = false;
+      m.path = [];
+    }
+  }
+  announceDeserterTurn(turned);
+  if (raidGroupMembers(group).length === 0) {
+    raidGroups.delete(group.id);
+    return;
+  }
+  if (group.isHorde) broadcastEvent("raid", "The horde marches on the colony");
+  assignRaidLeader(group);
+}
+
+function loiterRaidMob(group: RaidGroup, m: Mob, members: Mob[], dt: number) {
+  if (m.isDeserter) return;
+  if (m.path.length > 0) {
+    advanceAlongPath(m, dt, m.speed * 0.5);
+    return;
+  }
+  if (Math.random() >= RAID_LOITER_CHANCE_PER_TICK) return;
+  const home = group.homes.get(m.id);
+  if (!home) return;
+  const here = tileOfPixel(m.x, m.y);
+  const dir = Math.floor(Math.random() * 4);
+  const n = {
+    x: here.x + (dir === 0 ? 1 : dir === 1 ? -1 : 0),
+    y: here.y + (dir === 2 ? 1 : dir === 3 ? -1 : 0),
+  };
+  if (!isWalkableTile(n.x, n.y)) return;
+  if (Math.max(Math.abs(n.x - home.x), Math.abs(n.y - home.y)) > RAID_LOITER_RADIUS_TILES) return;
+  // Keep to one mob per tile: skip a tile a groupmate stands on or is stepping to.
+  for (const other of members) {
+    if (other === m) continue;
+    const t = other.path.length > 0 ? other.path[0] : tileOfPixel(other.x, other.y);
+    if (t.x === n.x && t.y === n.y) return;
+  }
+  m.path = [n];
+}
+
+// Where a marching group heads: the Town Center while it stands unwarded, otherwise whatever the
+// leader would target on its own. null (nothing targetable, e.g. all warded) means hold position.
+function raidMarchGoal(leader: Mob): { x: number; y: number } | null {
+  const tc = resolveTargetPosition("townCenter", null);
+  if (tc && !isWarded(tc.x, tc.y, activeWardSources())) return tc;
+  const picked = pickMobTarget(leader);
+  return picked ? resolveTargetPosition(picked.type, picked.id) : null;
+}
+
+function raidGroupShouldEngage(leader: Mob, goal: { x: number; y: number }): boolean {
+  const range = RAID_ENGAGE_RANGE_TILES * TILE_SIZE;
+  if (Math.hypot(goal.x - leader.x, goal.y - leader.y) <= range) return true;
+  const wards = activeWardSources();
+  for (const c of colonists.values()) {
+    if (!isGuardOrMilitiaKind(c.kind)) continue;
+    if (Math.hypot(c.x - leader.x, c.y - leader.y) <= range && !isWarded(c.x, c.y, wards)) return true;
+  }
+  for (const p of players.values()) {
+    if (Math.hypot(p.x - leader.x, p.y - leader.y) <= range && !isWarded(p.x, p.y, wards)) return true;
+  }
+  return false;
+}
+
+// Straight-line step toward (tx, ty); false (and no move) if the step would enter a solid tile.
+function stepRaidMobToward(m: Mob, tx: number, ty: number, speed: number, dt: number): boolean {
+  const dx = tx - m.x;
+  const dy = ty - m.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 1) return true;
+  const step = Math.min(d, speed * biomeSpeedMultiplier(m.x, m.y) * dt);
+  const nx = m.x + (dx / d) * step;
+  const ny = m.y + (dy / d) * step;
+  if (!isWalkableTile(Math.floor(nx / TILE_SIZE), Math.floor(ny / TILE_SIZE))) return false;
+  m.x = nx;
+  m.y = ny;
+  return true;
+}
+
+// Followers don't pathfind while they can walk straight to their slot (or the leader); only a
+// follower blocked both ways gets a short path to the leader, rate-limited by MOB_REPATH_TICKS.
+function moveRaidFollower(m: Mob, leader: Mob, offset: { x: number; y: number }, pace: number, dt: number) {
+  const speed = Math.min(m.speed, pace * RAID_FOLLOWER_CATCHUP);
+  if (m.path.length > 0) {
+    advanceAlongPath(m, dt, speed);
+    return;
+  }
+  if (m.repathCooldown > 0) m.repathCooldown--;
+  if (stepRaidMobToward(m, leader.x + offset.x, leader.y + offset.y, speed, dt)) return;
+  if (stepRaidMobToward(m, leader.x, leader.y, speed, dt)) return;
+  if (m.repathCooldown <= 0) {
+    m.path = findPath(tileOfPixel(m.x, m.y), tileOfPixel(leader.x, leader.y)) ?? [];
+    m.repathCooldown = MOB_REPATH_TICKS;
+  }
+}
+
+function marchRaidGroup(group: RaidGroup, dt: number) {
+  let leader = group.leaderId ? mobs.get(group.leaderId) : undefined;
+  if (!leader || leader.groupId !== group.id) leader = assignRaidLeader(group) ?? undefined;
+  if (!leader) return;
+  const goal = raidMarchGoal(leader);
+  if (!goal) return;
+  if (raidGroupShouldEngage(leader, goal)) {
+    engageRaidGroup(group);
+    return;
+  }
+  if (group.repathCooldown > 0) group.repathCooldown--;
+  // One shared path per group. No route (e.g. a walled-in colony) holds the group where it is and
+  // retries every RAID_MARCH_REPATH_TICKS, rather than every member searching the map every second.
+  if (leader.path.length === 0 && group.repathCooldown <= 0) {
+    leader.path = findPath(tileOfPixel(leader.x, leader.y), tileOfPixel(goal.x, goal.y)) ?? [];
+    group.repathCooldown = RAID_MARCH_REPATH_TICKS;
+  }
+  const pace = leader.speed;
+  advanceAlongPath(leader, dt, pace);
+  for (const m of raidGroupMembers(group)) {
+    if (m === leader) continue;
+    const offset = group.offsets.get(m.id);
+    if (offset) moveRaidFollower(m, leader, offset, pace, dt);
+    else stepRaidMobToward(m, leader.x, leader.y, Math.min(m.speed, pace * RAID_FOLLOWER_CATCHUP), dt);
+  }
+}
+
+function updateRaidGroups(dt: number) {
+  const night = isNightNow();
+  for (const group of raidGroups.values()) {
+    const members = raidGroupMembers(group);
+    if (members.length === 0) {
+      raidGroups.delete(group.id);
+      continue;
+    }
+    if (group.state === "passive") {
+      if (cycleTick < group.aggroTick && !night) {
+        for (const m of members) loiterRaidMob(group, m, members, dt);
+        continue;
+      }
+      startRaidGroupMarch(group);
+      if (!raidGroups.has(group.id)) continue;
+    }
+    marchRaidGroup(group, dt);
+  }
 }
 
 // Candidates under an active ward are skipped. If that leaves nothing, returns null and updateMob
@@ -2890,6 +4097,9 @@ function updateMob(mob: Mob, dt: number) {
       mob.healCooldownTicks = DARK_SHAMAN_HEAL_COOLDOWN_TICKS;
     }
   }
+
+  // Raid-group members are moved by updateRaidGroups until their group breaks up.
+  if (mob.groupId !== null) return;
 
   let targetPos = mob.targetType ? resolveTargetPosition(mob.targetType, mob.targetId) : null;
   // A target that has since moved under (or been covered by) an active ward is dropped and re-picked.
@@ -3240,6 +4450,8 @@ function spawnGuardian(kind: MobKind, tile: TileCoord, siteId: string, siteKind:
     siteId,
     siteKind,
     guardianActive: false,
+    groupId: null,
+    passive: false,
   };
   mobs.set(mob.id, mob);
 }
@@ -3375,6 +4587,7 @@ const VISION_BUILDING_TILES = new Set<TileType>([
   TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop, TileType.Blacksmith,
   TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern,
   TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
+  TileType.HunterHut, TileType.ForagerHut,
 ]);
 
 function revealAround(tx: number, ty: number, offsets: Array<[number, number]>) {
@@ -3438,7 +4651,7 @@ function flushExplored() {
 
 // Full world regeneration (boot + restart). Callers must clear `mobs` and `colonists` first: this
 // spawns the new world's POI guardians and Abbey clergy into them. Order: biomes (own layer) ->
-// ponds -> Abbey -> resources -> POI sites, each step only ever writing onto Empty tiles, so nothing
+// ponds -> Abbey -> resources -> wild forage -> POI sites -> wild game, each step only ever writing onto Empty tiles, so nothing
 // lands on top of anything placed before it.
 function generateWorld() {
   tiles.fill(TileType.Empty);
@@ -3453,8 +4666,10 @@ function generateWorld() {
   scatterResourceTiles(TileType.Tree, TREE_COUNT);
   scatterResourceTiles(TileType.IronOre, IRON_ORE_COUNT);
   scatterResourceTiles(TileType.Rock, ROCK_COUNT);
+  generateForage();
   generatePoiSites("ruin", randInt(RUIN_SITE_COUNT_MIN, RUIN_SITE_COUNT_MAX), placedSites);
   generatePoiSites("encampment", randInt(ENCAMPMENT_SITE_COUNT_MIN, ENCAMPMENT_SITE_COUNT_MAX), placedSites);
+  spawnInitialWildlife();
   resetExplored();
 }
 
@@ -3490,6 +4705,189 @@ function broadcastEvent(category: GameEventCategory, text: string) {
 
 // TODO: Phase 5 — broadcastEvent("milestone", ...) once the short-term goal system exists, and a
 // boss/mini-boss "sighted" event once the Castle Ruin boss lands.
+
+// COLONY_TEST_HOOKS=1 enables the "testHook" client message for scripted tests (server/*.mjs):
+// time travel, raid-state dumps, direct mob damage and tick timing. Off by default: never needed
+// by (or reachable from) the real client.
+const TEST_HOOKS = process.env.COLONY_TEST_HOOKS === "1";
+// Overrides spawnRaid's DESERTER_WAVE_CHANCE roll when set (testHook "forceDeserterRoll").
+let testForceDeserterRoll: boolean | null = null;
+// When true, spawnRaid gives every group aggroTick = nightfall (testHook "holdRaidAggro"), so a test
+// can inspect passive groups without a random early aggro racing it.
+let testHoldRaidAggro = false;
+// testHook "setRaids" {enabled:false} skips the midday raid spawn of every day that passes while it is
+// off (economy tests fast-forward days).
+let testRaidsDisabled = false;
+const tickDurationsMs: number[] = [];
+const TICK_DURATION_SAMPLES = 400;
+
+function handleTestHook(player: Player, msg: Record<string, unknown>) {
+  const reply = (data: Record<string, unknown>) =>
+    player.socket.send(JSON.stringify({ type: "testHookResult", op: msg.op, ...data }));
+  if (msg.op === "setCycleTick" && typeof msg.tick === "number") {
+    cycleTick = Math.max(0, Math.floor(msg.tick));
+    wasNight = isNightNow();
+    reply({ cycleTick });
+  } else if (msg.op === "raidState") {
+    reply({
+      cycleTick,
+      dayTicks: DAY_TICKS,
+      nightTicks: NIGHT_TICKS,
+      worldTiles: WORLD_TILES_X,
+      groups: Array.from(raidGroups.values()).map((g) => ({
+        id: g.id,
+        faction: g.faction,
+        isHorde: g.isHorde,
+        edge: g.edge,
+        state: g.state,
+        aggroTick: g.aggroTick,
+        leaderId: g.leaderId,
+        memberIds: g.memberIds,
+      })),
+      mobs: Array.from(mobs.values()).map((m) => ({
+        id: m.id,
+        kind: m.kind,
+        x: m.x,
+        y: m.y,
+        groupId: m.groupId,
+        passive: m.passive,
+        isDeserter: m.isDeserter,
+        deserterActive: m.deserterActive,
+        siteId: m.siteId,
+        targetType: m.targetType,
+      })),
+      factions: RAID_FACTIONS,
+      unlockDays: Object.fromEntries(Object.entries(MOB_KIND_CONFIG).map(([k, c]) => [k, c.unlockDay])),
+    });
+  } else if (msg.op === "damageMob" && typeof msg.mobId === "string" && typeof msg.amount === "number") {
+    const mob = mobs.get(msg.mobId);
+    if (mob) damageMob(mob, msg.amount);
+    reply({ found: !!mob });
+  } else if (msg.op === "forceDeserterRoll") {
+    testForceDeserterRoll = typeof msg.value === "boolean" ? msg.value : null;
+    reply({ value: testForceDeserterRoll });
+  } else if (msg.op === "holdRaidAggro") {
+    testHoldRaidAggro = msg.value === true;
+    reply({ value: testHoldRaidAggro });
+  } else if (msg.op === "addDeserters" && typeof msg.count === "number") {
+    // Dormant deserters near the Town Center, already past DESERTER_ACTIVATION_DAYS.
+    const ids: string[] = [];
+    for (let i = 0; i < msg.count; i++) {
+      const tile = findAdjacentWalkable(TOWN_CENTER_TILE.x + 2 + (i % 4), TOWN_CENTER_TILE.y + 2 + Math.floor(i / 4)) ?? TOWN_CENTER_TILE;
+      const mob = createRaidMob("goblin", tile, "");
+      Object.assign(mob, {
+        groupId: null,
+        passive: false,
+        isDeserter: true,
+        deserterSinceTick: cycleTick - DESERTER_ACTIVATION_TICKS,
+      });
+      ids.push(mob.id);
+    }
+    reply({ ids });
+  } else if (msg.op === "fastForward" && typeof msg.ticks === "number") {
+    // Runs whole simulation ticks back to back (no snapshots in between), up to 200000 per call.
+    const n = Math.max(0, Math.min(200000, Math.floor(msg.ticks)));
+    for (let i = 0; i < n; i++) stepSimulation();
+    pendingEffects = [];
+    reply({ cycleTick });
+  } else if (msg.op === "setRaids") {
+    testRaidsDisabled = msg.enabled === false;
+    reply({ enabled: !testRaidsDisabled });
+  } else if (msg.op === "setStock" && msg.stock && typeof msg.stock === "object") {
+    for (const [key, value] of Object.entries(msg.stock as Record<string, unknown>)) {
+      if (key in stock && typeof value === "number") stock[key as ResourceKey] = value;
+    }
+    reply({ stock: { ...stock } });
+  } else if (msg.op === "farmState") {
+    reply({
+      plots: Array.from(farmPlots, ([key, p]) => ({ key, ...p })),
+      farmhands: Array.from(colonists.values())
+        .filter((c) => c.kind === "farmhand")
+        .map((c) => ({ id: c.id, postX: c.postX, postY: c.postY, cycleTicksRemaining: c.chopTicksRemaining, state: c.state })),
+      constants: {
+        FARM_GROW_TICKS,
+        FARM_HARVEST_TICKS,
+        FARM_SOWN_FRACTION,
+        FARM_HARVESTS_BEFORE_FALLOW,
+        FARM_FALLOW_TICKS,
+        FARM_YIELD_PER_HARVEST,
+        FARMHAND_CYCLE_TICKS,
+        FARMHAND_YIELD_PER_CYCLE,
+        DAY_TICKS,
+        NIGHT_TICKS,
+      },
+      happiness: colonyHappiness,
+    });
+  } else if (msg.op === "wildlifeState") {
+    reply({
+      animals: Array.from(wildlife.values()).map((a) => ({ ...a })),
+      config: WILDLIFE_CONFIG,
+      forage: {
+        ripe: tiles.reduce((n, t) => n + (FORAGE_RIPE_TO_PICKED[t as TileType] !== undefined ? 1 : 0), 0),
+        picked: tiles.reduce((n, t) => n + (FORAGE_PICKED_TO_RIPE[t as TileType] !== undefined ? 1 : 0), 0),
+        regrow: Array.from(forageRegrow, ([index, ticks]) => ({ index, ticks })),
+        yields: FORAGE_FRUIT_YIELD,
+        regrowTicks: FORAGE_REGROW_TICKS,
+      },
+      colonists: Array.from(colonists.values())
+        .filter((c) => c.kind === "hunter" || c.kind === "forager")
+        .map((c) => ({
+          id: c.id,
+          kind: c.kind,
+          x: c.x,
+          y: c.y,
+          state: c.state,
+          postX: c.postX,
+          postY: c.postY,
+          targetWildlifeId: c.targetWildlifeId,
+          targetResourceX: c.targetResourceX,
+          targetResourceY: c.targetResourceY,
+          carryAmount: c.carryAmount,
+          sheltering: c.sheltering,
+        })),
+      cycleTick,
+    });
+  } else if (msg.op === "spawnWildlife" && typeof msg.kind === "string" && typeof msg.tx === "number" && typeof msg.ty === "number") {
+    const kind = msg.kind as WildlifeKind;
+    if (!WILDLIFE_KINDS.includes(kind) || !inBounds(msg.tx, msg.ty)) {
+      reply({ id: null });
+    } else {
+      reply({ id: spawnWildlifeAt(kind, msg.tx, msg.ty).id });
+    }
+  } else if (msg.op === "setWildlifeRespawn") {
+    testWildlifeRespawnDisabled = msg.enabled === false;
+    reply({ enabled: !testWildlifeRespawnDisabled });
+  } else if (msg.op === "clearWildlife") {
+    for (const c of colonists.values()) if (c.targetWildlifeId !== null) releaseResourceReservation(c);
+    wildlife.clear();
+    reply({ cleared: true });
+  } else if (msg.op === "damageWildlife" && typeof msg.id === "number" && typeof msg.amount === "number") {
+    const a = wildlife.get(msg.id);
+    const fromX = typeof msg.fromX === "number" ? msg.fromX : a?.x ?? 0;
+    const fromY = typeof msg.fromY === "number" ? msg.fromY : a?.y ?? 0;
+    const killed = a ? damageWildlife(a, msg.amount, fromX, fromY, null) : false;
+    reply({ found: !!a, killed });
+  } else if (msg.op === "setTileRaw" && typeof msg.tx === "number" && typeof msg.ty === "number" && typeof msg.tile === "number") {
+    // World editing for tests (forage plants next to a hut, clearing obstacles). No placement rules.
+    if (inBounds(msg.tx, msg.ty)) {
+      tiles[tileIndex(msg.tx, msg.ty)] = msg.tile;
+      broadcastTileUpdate(msg.tx, msg.ty, msg.tile as TileType);
+    }
+    reply({ tile: tiles[tileIndex(msg.tx, msg.ty)] });
+  } else if (msg.op === "tickStats") {
+    const sorted = tickDurationsMs.slice().sort((p, q) => p - q);
+    const avg = sorted.reduce((sum, v) => sum + v, 0) / Math.max(1, sorted.length);
+    reply({
+      samples: sorted.length,
+      avgMs: avg,
+      p95Ms: sorted[Math.floor(sorted.length * 0.95)] ?? 0,
+      maxMs: sorted[sorted.length - 1] ?? 0,
+      mobs: mobs.size,
+      groups: raidGroups.size,
+    });
+    if (msg.reset) tickDurationsMs.length = 0;
+  }
+}
 
 // PORT lets a scripted test run a private server without touching the shared :8080 world.
 const PORT = Number.parseInt(process.env.PORT ?? "", 10) || 8080;
@@ -3543,14 +4941,14 @@ function resetWorld(nextDifficulty?: unknown) {
   marketBuilt = false;
   goldShopBuilt = false;
   colonyHappiness = 100;
-  suppressMobSpawnTonight = false;
 
   townCenterHp = TOWN_CENTER_MAX_HP;
   townCenterDestroyed = false;
 
   cycleTick = 0;
   wasNight = false;
-  mobSpawnCooldown = MOB_SPAWN_INTERVAL_TICKS;
+  raidGroups.clear();
+  raidSpawnedForDay = -1;
   treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
   lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
   isPaused = false;
@@ -3598,6 +4996,11 @@ wss.on("connection", (socket) => {
     try {
       message = JSON.parse(raw.toString());
     } catch {
+      return;
+    }
+
+    if (TEST_HOOKS && (message as { type: string }).type === "testHook") {
+      handleTestHook(player, message as unknown as Record<string, unknown>);
       return;
     }
 
@@ -3661,6 +5064,8 @@ const PLACEABLE_TILES = [
   TileType.Tavern,
   TileType.MilitiaPost,
   TileType.WardStone,
+  TileType.HunterHut,
+  TileType.ForagerHut,
 ];
 const BREAKABLE_TILES = [
   TileType.Wall,
@@ -3694,6 +5099,10 @@ const BREAKABLE_TILES = [
   TileType.MilitiaCamp2,
   TileType.MilitiaCamp3,
   TileType.WardStone,
+  TileType.HunterHut,
+  TileType.ForagerHut,
+  // Wild forage can be cleared like any other obstacle (it simply stops being food).
+  ...FORAGE_TILES,
 ];
 const POPULATION_GATED_TILES = [
   TileType.LumberjackPost,
@@ -3711,6 +5120,8 @@ const POPULATION_GATED_TILES = [
   TileType.Brewery,
   TileType.Tavern,
   TileType.WardStone,
+  TileType.HunterHut,
+  TileType.ForagerHut,
 ];
 const CRAFT_BUILDING_TILES = [TileType.TailorShop, TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Brewery];
 
@@ -3729,6 +5140,8 @@ const IN_PLACE_UPGRADE_TILES: TileType[] = [
   TileType.Tavern,
   TileType.IronMinePost,
   TileType.RockMinePost,
+  TileType.HunterHut,
+  TileType.ForagerHut,
 ];
 
 // True when placing `tile` on the existing `current` building upgrades it in place.
@@ -3908,6 +5321,7 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
   if ((tile === TileType.Market || tile === TileType.GoldShop) && stock.wood < SHOP_WOOD_COST) return;
   if (tile === TileType.Tavern && (stock.wood < TAVERN_WOOD_COST || stock.rock < TAVERN_ROCK_COST)) return;
   if (tile === TileType.MilitiaPost && (stock.wood < MILITIA_WOOD_COST || stock.iron < MILITIA_IRON_COST)) return;
+  if ((tile === TileType.HunterHut || tile === TileType.ForagerHut) && stock.wood < FOOD_HUT_WOOD_COST) return;
   if (
     POPULATION_GATED_TILES.includes(tile) &&
     placementNeedsNewWorkerSlot(tile, tx, ty) &&
@@ -3953,6 +5367,7 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
     stock.wood -= MILITIA_WOOD_COST;
     stock.iron -= MILITIA_IRON_COST;
   }
+  if (tile === TileType.HunterHut || tile === TileType.ForagerHut) stock.wood -= FOOD_HUT_WOOD_COST;
 
   if (tile === TileType.House) {
     resolveHousePlacement(tx, ty);
@@ -3983,13 +5398,7 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
     tiles[tileIndex(tx, ty)] = tile;
     broadcastTileUpdate(tx, ty, tile);
     const barn = adjacentTilesOfType(tx, ty, TileType.BarnPost)[0];
-    farmPlots.set(resourceKey(tx, ty), {
-      barnX: barn.x,
-      barnY: barn.y,
-      growTicksRemaining: FARM_GROW_TICKS,
-      harvestTicksRemaining: 0,
-      state: "growing",
-    });
+    farmPlots.set(resourceKey(tx, ty), newFarmPlot(barn.x, barn.y));
     return;
   }
   if (tile === TileType.BarnPost) {
@@ -4046,6 +5455,14 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
     resolveTavernPlacement(tx, ty);
     return;
   }
+  if (tile === TileType.HunterHut) {
+    resolveFoodHutPlacement(tx, ty, TileType.HunterHut, "hunter");
+    return;
+  }
+  if (tile === TileType.ForagerHut) {
+    resolveFoodHutPlacement(tx, ty, TileType.ForagerHut, "forager");
+    return;
+  }
   if (tile === TileType.Market) {
     tiles[tileIndex(tx, ty)] = tile;
     broadcastTileUpdate(tx, ty, tile);
@@ -4066,104 +5483,96 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
 const dt = 1 / TICK_RATE;
 let wasNight = false;
 
-setInterval(() => {
-  if (!isPaused) {
-    cycleTick++;
-    const nightNow = isNightNow();
+// One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
+function stepSimulation() {
+  cycleTick++;
+  const nightNow = isNightNow();
 
-    if (!nightNow && wasNight) {
-      gravestones.length = 0;
-      broadcastEvent("dawn", "Dawn breaks — the colony survived the night");
-      applyDailyFoodConsumption();
-      applyMoraleCheck();
-    }
-
-    if (nightNow && !wasNight) {
-      const eligibleDeserters = Array.from(mobs.values()).filter(
-        (m) => m.isDeserter && !m.deserterActive && cycleTick - m.deserterSinceTick >= DESERTER_ACTIVATION_TICKS
-      );
-      suppressMobSpawnTonight = eligibleDeserters.length > 0 && Math.random() < DESERTER_WAVE_CHANCE;
-      broadcastEvent("night", "Night falls");
-      if (suppressMobSpawnTonight) {
-        for (const m of eligibleDeserters) m.deserterActive = true;
-        broadcastEvent("deserter", `The deserters have turned on the colony (${eligibleDeserters.length})`);
-      }
-    }
-    wasNight = nightNow;
-
-    colonyHappiness = computeColonyHappiness();
-
-    if (nightNow) {
-      if (!suppressMobSpawnTonight) {
-        if (mobSpawnCooldown > 0) {
-          mobSpawnCooldown--;
-        } else if (activeMobCount() < nightMobMaxCount()) {
-          spawnMob();
-          mobSpawnCooldown = MOB_SPAWN_INTERVAL_TICKS;
-        }
-      }
-    } else {
-      mobSpawnCooldown = Math.min(mobSpawnCooldown, MOB_SPAWN_INTERVAL_TICKS);
-    }
-
-    if (treeRespawnCooldown > 0) {
-      treeRespawnCooldown--;
-    } else {
-      tryGrowTree();
-      treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
-    }
-
-    if (lumberjackTreeGrowCooldown > 0) {
-      lumberjackTreeGrowCooldown--;
-    } else {
-      tryGrowTreesNearLumberjackPosts();
-      lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
-    }
-
-    for (const player of players.values()) {
-      if (player.attackCooldownTicks > 0) player.attackCooldownTicks--;
-      if (player.poisonTicksRemaining > 0) {
-        player.poisonTicksRemaining--;
-        if (player.poisonTicksRemaining % TICK_RATE === 0) {
-          damagePlayer(player, player.poisonDamagePerTick);
-        }
-      }
-
-      const { dx, dy } = player.input;
-      const length = Math.hypot(dx, dy) || 1;
-      const normDx = dx / length;
-      const normDy = dy / length;
-      const playerSpeed = PLAYER_SPEED * biomeSpeedMultiplier(player.x, player.y);
-
-      const nextX = clamp(
-        player.x + normDx * playerSpeed * dt,
-        PLAYER_HALF_SIZE,
-        worldWidth - PLAYER_HALF_SIZE
-      );
-      if (!collidesAt(nextX, player.y)) player.x = nextX;
-
-      const nextY = clamp(
-        player.y + normDy * playerSpeed * dt,
-        PLAYER_HALF_SIZE,
-        worldHeight - PLAYER_HALF_SIZE
-      );
-      if (!collidesAt(player.x, nextY)) player.y = nextY;
-    }
-
-    for (const colonist of colonists.values()) {
-      updateColonist(colonist, dt);
-    }
-
-    for (const mob of mobs.values()) {
-      updateMob(mob, dt);
-    }
-
-    checkWardStoneLapses();
-
-    updateFarmPlots();
-    processRespawnQueue();
-    updateWardPriestPresence();
+  if (!nightNow && wasNight) {
+    gravestones.length = 0;
+    broadcastEvent("dawn", "Dawn breaks — the colony survived the night");
+    applyDailyFoodConsumption();
+    applyMoraleCheck();
   }
+
+  if (nightNow && !wasNight) broadcastEvent("night", "Night falls");
+  wasNight = nightNow;
+
+  colonyHappiness = computeColonyHappiness();
+
+  const dayIndex = Math.floor(cycleTick / (DAY_TICKS + NIGHT_TICKS));
+  if (!nightNow && cycleTick % (DAY_TICKS + NIGHT_TICKS) >= RAID_SPAWN_CYCLE_TICK && raidSpawnedForDay !== dayIndex) {
+    raidSpawnedForDay = dayIndex;
+    // With raids switched off by a test the day's raid is skipped for good, not deferred to re-enabling.
+    if (!testRaidsDisabled) spawnRaid(dayIndex);
+  }
+
+  if (treeRespawnCooldown > 0) {
+    treeRespawnCooldown--;
+  } else {
+    tryGrowTree();
+    treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
+  }
+
+  if (lumberjackTreeGrowCooldown > 0) {
+    lumberjackTreeGrowCooldown--;
+  } else {
+    tryGrowTreesNearLumberjackPosts();
+    lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
+  }
+
+  for (const player of players.values()) {
+    if (player.attackCooldownTicks > 0) player.attackCooldownTicks--;
+    if (player.poisonTicksRemaining > 0) {
+      player.poisonTicksRemaining--;
+      if (player.poisonTicksRemaining % TICK_RATE === 0) {
+        damagePlayer(player, player.poisonDamagePerTick);
+      }
+    }
+
+    const { dx, dy } = player.input;
+    const length = Math.hypot(dx, dy) || 1;
+    const normDx = dx / length;
+    const normDy = dy / length;
+    const playerSpeed = PLAYER_SPEED * biomeSpeedMultiplier(player.x, player.y);
+
+    const nextX = clamp(
+      player.x + normDx * playerSpeed * dt,
+      PLAYER_HALF_SIZE,
+      worldWidth - PLAYER_HALF_SIZE
+    );
+    if (!collidesAt(nextX, player.y)) player.x = nextX;
+
+    const nextY = clamp(
+      player.y + normDy * playerSpeed * dt,
+      PLAYER_HALF_SIZE,
+      worldHeight - PLAYER_HALF_SIZE
+    );
+    if (!collidesAt(player.x, nextY)) player.y = nextY;
+  }
+
+  for (const colonist of colonists.values()) {
+    updateColonist(colonist, dt);
+  }
+
+  updateRaidGroups(dt);
+  for (const mob of mobs.values()) {
+    updateMob(mob, dt);
+  }
+  updateWildlife(dt);
+  updateWildlifeRespawn();
+
+  checkWardStoneLapses();
+
+  updateFarmPlots();
+  updateForageRegrow();
+  processRespawnQueue();
+  updateWardPriestPresence();
+}
+
+setInterval(() => {
+  const tickStart = TEST_HOOKS ? performance.now() : 0;
+  if (!isPaused) stepSimulation();
 
   // Outside the pause gate so a player joining mid-pause still gets their surroundings.
   updateVision();
@@ -4229,7 +5638,10 @@ setInterval(() => {
     population: civilianPopulationUsed(),
     populationCap: populationCap(),
     taskForces: taskForcesForSnapshot(),
-    readyFarmPlots: readyFarmPlotIndices(),
+    readyFarmPlots: farmPlotIndices("harvesting"),
+    sownFarmPlots: farmPlotIndices("sown"),
+    fallowFarmPlots: farmPlotIndices("fallow"),
+    wildlife: wildlifeForSnapshot(),
     gravestones,
     difficulty,
   };
@@ -4240,5 +5652,9 @@ setInterval(() => {
     if (player.socket.readyState === player.socket.OPEN) {
       player.socket.send(payload);
     }
+  }
+  if (TEST_HOOKS) {
+    tickDurationsMs.push(performance.now() - tickStart);
+    if (tickDurationsMs.length > TICK_DURATION_SAMPLES) tickDurationsMs.shift();
   }
 }, 1000 / TICK_RATE);

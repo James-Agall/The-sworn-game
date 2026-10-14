@@ -22,8 +22,19 @@ import type {
   GravestoneSnapshot,
   GameEventCategory,
   Difficulty,
+  WildlifeKind,
 } from "./protocol";
-import { Biome, PLAYER_SPEED, TILE_SIZE, TileType, VISION_RADIUS_COLONIST, VISION_RADIUS_PLAYER } from "./protocol";
+import {
+  Biome,
+  PLAYER_SPEED,
+  TILE_SIZE,
+  TileType,
+  VISION_RADIUS_COLONIST,
+  VISION_RADIUS_PLAYER,
+  WILDLIFE_KINDS,
+  WILDLIFE_SNAPSHOT_STRIDE,
+  WildlifeState,
+} from "./protocol";
 import { SOUND_SILENT_RADIUS_TILES, SoundManager, proximityGain } from "./sound";
 
 const SERVER_URL = "ws://localhost:8080";
@@ -66,6 +77,20 @@ const TOOLS: ToolDef[] = [
   { tile: TileType.Orchard, label: "Orchard (Fruit)", key: "o", cost: "Free (upgradeable)", category: "farming" },
   { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: "Free (upgradeable)", category: "farming" },
   { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: "Free (upgradeable)", category: "farming" },
+  {
+    tile: TileType.HunterHut,
+    label: "Hunter's Hut",
+    key: "q",
+    cost: "15 wood (place on it to upgrade: +1 hunter per level). Hunts wild game for meat by day",
+    category: "farming",
+  },
+  {
+    tile: TileType.ForagerHut,
+    label: "Forager's Hut",
+    key: "y",
+    cost: "15 wood (place on it to upgrade: +1 forager per level). Picks wild berries, fruit and mushrooms by day",
+    category: "farming",
+  },
   {
     tile: TileType.TailorShop,
     label: "Tailor Shop",
@@ -126,13 +151,24 @@ const COLONIST_COLORS: Record<string, number> = {
   militia: 0xc9a27a,
   spearman: 0xa86a3c,
   pikeman: 0x7a3f1e,
+  hunter: 0x6b7d3a,
+  forager: 0xc9a46a,
 };
 
 // Only military units take part in selection / commands / task forces.
 const COMMANDABLE_KINDS = new Set<string>(["knight", "archer", "bishop", "militia", "spearman", "pikeman"]);
 // Workers who vanish into their building/plot while on the job, instead of standing visibly on
 // top of it. Guards/militia/bishop stay visible — you want to see your garrison standing watch.
-const WORKER_KINDS = new Set<string>(["lumberjack", "farmer", "ironMiner", "rockMiner", "farmhand", "artisan"]);
+const WORKER_KINDS = new Set<string>([
+  "lumberjack",
+  "farmer",
+  "ironMiner",
+  "rockMiner",
+  "farmhand",
+  "artisan",
+  "hunter",
+  "forager",
+]);
 // Archer is the one garrison kind that also hides at its post: an Archer Tower reads as the
 // archer firing from inside it, not standing beside it, unlike Barracks/Militia Camp where the
 // garrison visibly stands watch outside.
@@ -251,6 +287,25 @@ const COLONIST_ANIM_URLS: Record<ColonistKind, { walk: string[]; action: string[
   bishop: { walk: frameUrls("bishopWalk", 4), action: frameUrls("bishopHeal", 3) },
   farmhand: { walk: frameUrls("farmhandWalk", 4), action: frameUrls("farmhandTend", 3) },
   artisan: { walk: frameUrls("artisanWalk", 4), action: frameUrls("artisanCraft", 3) },
+  // Stand-ins until SPRITES.md #28/#29 land (see COLONIST_OPTIONAL_ANIM_URLS): the hunter borrows the
+  // archer's bow cycle, the forager the farmhand's, each tinted (COLONIST_STANDIN_TINT).
+  hunter: { walk: frameUrls("archerWalk", 4), action: frameUrls("archerAttack", 6) },
+  forager: { walk: frameUrls("farmhandWalk", 4), action: frameUrls("farmhandTend", 3) },
+};
+// Dedicated art for kinds still on stand-ins. Loaded separately and optionally (loadOptionalTextures):
+// when every frame of a set loads it replaces the stand-in set and its tint; missing files are fine.
+const COLONIST_OPTIONAL_ANIM_URLS: Partial<Record<ColonistKind, { walk: string[]; action: string[] }>> = {
+  hunter: { walk: frameUrls("hunterWalk", 4), action: frameUrls("hunterHunt", 3) },
+  forager: { walk: frameUrls("foragerWalk", 4), action: frameUrls("foragerForage", 3) },
+};
+const COLONIST_STANDIN_TINT: Partial<Record<ColonistKind, number>> = {
+  hunter: 0xb5d39a,
+  forager: 0xffd9a8,
+};
+// Static (fallback) pose per kind when it isn't /sprites/<kind>.png.
+const COLONIST_STATIC_URL_OVERRIDES: Partial<Record<ColonistKind, string>> = {
+  hunter: "/sprites/archer.png",
+  forager: "/sprites/farmhand.png",
 };
 // Player (mounted knight): walk + 2-frame lance attack, idle = walk frame 0. The walk row carries
 // the banner, the attack row doesn't; both canvases are centered on the horse's body (not the
@@ -259,8 +314,31 @@ const COLONIST_ANIM_URLS: Record<ColonistKind, { walk: string[]; action: string[
 const PLAYER_ANIM_URLS = { walk: frameUrls("playerWalk", 4), action: frameUrls("playerAttack", 2) };
 // Server colonist states that play the action cycle / the walk cycle. Any other state walks only
 // while the colonist is actually moving (e.g. civilians sheltering), else shows the static pose.
-const COLONIST_ACTION_STATES = new Set(["attacking", "gathering", "mining", "farming", "crafting", "healing", "warding"]);
-const COLONIST_WALK_STATES = new Set(["engaging", "returning", "toResource", "toPost", "approaching", "patrolling"]);
+const COLONIST_ACTION_STATES = new Set([
+  "attacking",
+  "gathering",
+  "mining",
+  "farming",
+  "crafting",
+  "healing",
+  "warding",
+  "hunting",
+  "foraging",
+]);
+const COLONIST_WALK_STATES = new Set([
+  "engaging",
+  "returning",
+  "toResource",
+  "toPost",
+  "approaching",
+  "patrolling",
+  "stalking",
+  "collecting",
+  "carrying",
+  "toForage",
+]);
+// Hunter/forager states that count as "working" in the Colony panel (out on the job, not idle at the hut).
+const FOOD_WORKER_BUSY_STATES = new Set(["stalking", "hunting", "collecting", "carrying", "toForage", "foraging"]);
 
 // Animated and/or multi-look mob kinds. A kind with several entries picks one per mob by a stable
 // hash of its id. `idle` is the standing pose (defaults to the first walk frame).
@@ -382,6 +460,38 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.PropCross]: "cross",
   [TileType.PropLanternPost]: "lanternPost",
   [TileType.WardStone]: "wardStone",
+  // Stand-in art (tinted, see TILE_STANDIN_TINT) until the real sprites in TILE_OPTIONAL_ART land.
+  [TileType.HunterHut]: "lumberjackPost",
+  [TileType.ForagerHut]: "orchard",
+  [TileType.BerryBush]: "bush3",
+  [TileType.BerryBushPicked]: "bush3",
+  [TileType.FruitTree]: "tree",
+  [TileType.FruitTreePicked]: "tree",
+  [TileType.MushroomPatch]: "flowers1",
+  [TileType.MushroomPatchPicked]: "tallGrass",
+};
+// Dedicated art per tile (SPRITES.md #30-#32), loaded optionally: a file that exists replaces the
+// TILE_SPRITE_FILES stand-in above and drops its tint; a missing one keeps the stand-in.
+const TILE_OPTIONAL_ART: Partial<Record<TileType, string>> = {
+  [TileType.HunterHut]: "hunterHut",
+  [TileType.ForagerHut]: "foragerHut",
+  [TileType.BerryBush]: "berryBushRipe",
+  [TileType.BerryBushPicked]: "berryBushPicked",
+  [TileType.FruitTree]: "appleTreeRipe",
+  [TileType.FruitTreePicked]: "appleTreePicked",
+  [TileType.MushroomPatch]: "mushroomRipe",
+  [TileType.MushroomPatchPicked]: "mushroomPicked",
+};
+// Multiplicative tints that tell a stand-in apart from the building/prop whose art it borrows.
+const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
+  [TileType.HunterHut]: 0xa8c08a,
+  [TileType.ForagerHut]: 0xf0c890,
+  [TileType.BerryBush]: 0xff9a9a,
+  [TileType.BerryBushPicked]: 0x8a9478,
+  [TileType.FruitTree]: 0xffc890,
+  [TileType.FruitTreePicked]: 0x9a9a84,
+  [TileType.MushroomPatch]: 0xd8a080,
+  [TileType.MushroomPatchPicked]: 0x8a8a70,
 };
 // Looping tile animations (client-side, cosmetic). All frames of a loop share one canvas, so the
 // box-fit scale setTileSprite computes from frame 0 stays valid for every frame. One shared clock
@@ -392,21 +502,47 @@ const TILE_ANIM: Partial<Record<TileType, { urls: string[]; frameMs: number; pha
   [TileType.PropLanternPost]: { urls: frameUrls("lanternPost", 4), frameMs: 200, phased: true },
   [TileType.Water]: { urls: frameUrls("waterTile", 4), frameMs: 450, phased: false },
 };
-// Mature-crop art, swapped in for the FarmPlot texture while the server reports a plot as ready.
+// Farm Plot art per server state (snapshot readyFarmPlots / sownFarmPlots / fallowFarmPlots; any other
+// plot is growing = the TILE_SPRITE_FILES farmPlotGrowing art). Sown and fallow use the bare
+// farmPlot.png until their own art (SPRITES.md #34) lands under the optional names below; fallow is
+// tinted paler meanwhile so a resting field reads differently from a freshly sown one.
 const FARM_PLOT_READY_URL = "/sprites/farmPlotReady.png";
+const FARM_PLOT_BARE_URL = "/sprites/farmPlot.png";
+const FARM_PLOT_OPTIONAL_URLS = { sown: "/sprites/farmPlotSown.png", fallow: "/sprites/farmPlotFallow.png" };
+const FARM_PLOT_FALLOW_STANDIN_TINT = 0xe8e0a0;
 // Indexed by GravestoneSnapshot.variant.
 const GRAVESTONE_URLS = ["/sprites/gravestone.png", "/sprites/gravestone2.png"];
 // Rendered height in px: a little shorter than a colonist so it reads as a ground marker.
 const GRAVESTONE_HEIGHT = 20;
-// Ambient wildlife (client-only, cosmetic: never sent to or known by the server, no collision, no
-// interaction). Each client rolls its own critters on every welcome, so two players won't see the
-// same deer. `size` is the rendered canvas width in px; counts scale with the eligible terrain area
-// (one critter per `tilesPer` eligible tiles) and are capped.
+// Ambient critters (client-only, cosmetic: never sent to or known by the server, no collision, no
+// interaction). Each client rolls its own on every welcome, so two players won't see the same crow.
+// `size` is the rendered canvas width in px; counts scale with the eligible terrain area (one critter
+// per `tilesPer` eligible tiles) and are capped. Deer used to live here too; they are now real server
+// game (see WILDLIFE_ART).
 const WILDLIFE = {
-  deer: { walk: frameUrls("deerWalk", 4), graze: frameUrls("deerGraze", 2), size: 26, tilesPer: 700, max: 24 },
   crow: { frames: frameUrls("crow", 4), size: 12, tilesPer: 1400, max: 14 },
   frog: { frames: frameUrls("frog", 3), size: 9, tilesPer: 60, max: 16 },
 };
+// Huntable server wildlife (snapshot `wildlife`). Only the deer has art so far; rabbit, boar and
+// pheasant borrow the deer frames, scaled (`size` = rendered width, px) and tinted, until their own
+// frames (SPRITES.md #33) land under WILDLIFE_OPTIONAL_URLS. `walk` plays while walking, `idle` (graze)
+// while standing, and the faster `run` (deer: optional deerRun) while fleeing or charging.
+const DEER_WALK_URLS = frameUrls("deerWalk", 4);
+const DEER_GRAZE_URLS = frameUrls("deerGraze", 2);
+const WILDLIFE_ART: Record<WildlifeKind, { size: number; tint: number }> = {
+  deer: { size: 26, tint: 0xffffff },
+  rabbit: { size: 12, tint: 0xd8c4a8 },
+  boar: { size: 24, tint: 0x6e4c38 },
+  pheasant: { size: 11, tint: 0xd07a3c },
+};
+const WILDLIFE_OPTIONAL_URLS: Record<WildlifeKind, { walk: string[]; idle: string[]; run: string[] }> = {
+  deer: { walk: [], idle: [], run: frameUrls("deerRun", 4) },
+  rabbit: { walk: frameUrls("rabbitWalk", 4), idle: frameUrls("rabbitIdle", 2), run: [] },
+  boar: { walk: frameUrls("boarWalk", 4), idle: frameUrls("boarGraze", 2), run: [] },
+  pheasant: { walk: frameUrls("pheasantWalk", 4), idle: [], run: frameUrls("pheasantFlap", 3) },
+};
+const WILDLIFE_FRAME_MS = 160;
+const WILDLIFE_RUN_FRAME_MS = 90;
 // Ground blood splatters (client-side, cosmetic). Variants 0/1/3 (small blob, medium splash, streak)
 // mark melee hits; 2/4/5 (large splash, pool, faded pool) mark deaths. Rendered size is the longer
 // side in px.
@@ -444,6 +580,10 @@ const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
   [TileType.PropCross]: 0.6,
   [TileType.PropLanternPost]: 0.65,
   [TileType.WardStone]: 0.75,
+  [TileType.BerryBush]: 0.55,
+  [TileType.BerryBushPicked]: 0.5,
+  [TileType.MushroomPatch]: 0.45,
+  [TileType.MushroomPatchPicked]: 0.45,
 };
 // Tile sprites fit a box this many tiles wide/tall (aspect preserved), bottom-center anchored
 // on the tile's bottom edge so tall art (towers, castles, trees) rises into the row above.
@@ -475,6 +615,8 @@ const COLONIST_KINDS: ColonistKind[] = [
   "militia",
   "spearman",
   "pikeman",
+  "hunter",
+  "forager",
 ];
 // Rendered heights (px); width follows each texture's aspect ratio.
 const COLONIST_SPRITE_HEIGHT = 28;
@@ -611,6 +753,7 @@ function workSoundKey(c: ColonistSnapshot): string | null {
     case "mining":
       return "mine_pick";
     case "farming":
+    case "foraging":
       return "farm_work";
     case "crafting":
       return "craft_hammer";
@@ -626,7 +769,7 @@ async function main() {
   await app.init({ background: "#1a1a1a", resizeTo: window });
   document.getElementById("app")!.appendChild(app.canvas);
 
-  const colonistUrls = COLONIST_KINDS.map((kind) => `/sprites/${kind}.png`);
+  const colonistUrls = COLONIST_KINDS.map((kind) => COLONIST_STATIC_URL_OVERRIDES[kind] ?? `/sprites/${kind}.png`);
   const mobUrls = MOB_KINDS.map((kind) => MOB_SPRITE_URL_OVERRIDES[kind] ?? `/sprites/${kind}.png`);
   const tileSpriteEntries = Object.entries(TILE_SPRITE_FILES).map(
     ([tile, file]) => [Number(tile), `/sprites/${file}.png`] as const
@@ -642,10 +785,11 @@ async function main() {
     "/sprites/swampFloor.png",
     ...NATURE_DECOR.map((d) => d.url),
     FARM_PLOT_READY_URL,
+    FARM_PLOT_BARE_URL,
     ...GRAVESTONE_URLS,
     ...BLOOD_URLS,
-    ...WILDLIFE.deer.walk,
-    ...WILDLIFE.deer.graze,
+    ...DEER_WALK_URLS,
+    ...DEER_GRAZE_URLS,
     ...WILDLIFE.crow.frames,
     ...WILDLIFE.frog.frames,
     ...Object.values(FX_URLS),
@@ -659,6 +803,31 @@ async function main() {
       variants.flatMap((v) => [...(v.idle ? [v.idle] : []), ...(v.walk ?? []), ...(v.action ?? [])])
     ),
   ];
+  // Art that may not exist yet (stand-ins cover it). Loaded one by one so a missing file can't fail
+  // the main load below, which throws on any missing URL.
+  async function loadOptionalTextures(urls: string[]): Promise<Record<string, Texture>> {
+    const out: Record<string, Texture> = {};
+    await Promise.all(
+      urls.map(async (url) => {
+        try {
+          const texture = await Assets.load<Texture>(url);
+          if (texture) {
+            texture.source.scaleMode = "nearest";
+            out[url] = texture;
+          }
+        } catch {
+          // Not delivered yet: keep the stand-in.
+        }
+      })
+    );
+    return out;
+  }
+  const optionalTexturesPromise = loadOptionalTextures([
+    ...Object.values(COLONIST_OPTIONAL_ANIM_URLS).flatMap((a) => [...a!.walk, ...a!.action]),
+    ...Object.values(TILE_OPTIONAL_ART).map((name) => `/sprites/${name}.png`),
+    ...Object.values(FARM_PLOT_OPTIONAL_URLS),
+    ...Object.values(WILDLIFE_OPTIONAL_URLS).flatMap((a) => [...a.walk, ...a.idle, ...a.run]),
+  ]);
   // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
   // and each URL should be requested once and resolve to one shared Texture.
   const loadedTextures = await Assets.load<Texture>(
@@ -674,6 +843,7 @@ async function main() {
     )
   );
   for (const texture of Object.values(loadedTextures)) texture.source.scaleMode = "nearest";
+  const optionalTextures = await optionalTexturesPromise;
   const COLONIST_TEXTURES = Object.fromEntries(
     COLONIST_KINDS.map((kind, i) => [kind, loadedTextures[colonistUrls[i]]])
   ) as Record<ColonistKind, Texture>;
@@ -685,6 +855,13 @@ async function main() {
   const TILE_TEXTURES = new Map<number, Texture>(
     tileSpriteEntries.map(([tile, url]) => [tile, loadedTextures[url]])
   );
+  const TILE_TINT = new Map<number, number>(Object.entries(TILE_STANDIN_TINT).map(([tile, tint]) => [Number(tile), tint!]));
+  for (const [tile, name] of Object.entries(TILE_OPTIONAL_ART)) {
+    const texture = optionalTextures[`/sprites/${name}.png`];
+    if (!texture) continue;
+    TILE_TEXTURES.set(Number(tile), texture);
+    TILE_TINT.delete(Number(tile));
+  }
   // Building tiers were generated as separate images and don't necessarily share proportions —
   // a busier/larger-canvas upgrade art can end up box-fit SMALLER than the tier before it, which
   // reads as the building shrinking when it upgrades. Force each tier's rendered height to be at
@@ -725,6 +902,9 @@ async function main() {
   const SWAMP_FLOOR_TEXTURE = loadedTextures["/sprites/swampFloor.png"];
   const NATURE_DECOR_TEXTURES = NATURE_DECOR.map((d) => ({ texture: loadedTextures[d.url], height: d.height }));
   const FARM_PLOT_READY_TEXTURE = loadedTextures[FARM_PLOT_READY_URL];
+  const FARM_PLOT_SOWN_TEXTURE = optionalTextures[FARM_PLOT_OPTIONAL_URLS.sown] ?? loadedTextures[FARM_PLOT_BARE_URL];
+  const FARM_PLOT_FALLOW_TEXTURE = optionalTextures[FARM_PLOT_OPTIONAL_URLS.fallow] ?? loadedTextures[FARM_PLOT_BARE_URL];
+  const FARM_PLOT_FALLOW_TINT = optionalTextures[FARM_PLOT_OPTIONAL_URLS.fallow] ? 0xffffff : FARM_PLOT_FALLOW_STANDIN_TINT;
   const TILE_ANIM_TEXTURES = new Map<number, { frames: Texture[]; frameMs: number; phased: boolean }>(
     Object.entries(TILE_ANIM).map(([tile, a]) => [
       Number(tile),
@@ -800,6 +980,20 @@ async function main() {
   const COLONIST_ANIMS = Object.fromEntries(
     Object.entries(COLONIST_ANIM_URLS).map(([kind, urls]) => [kind, buildAnimSet(urls, COLONIST_SPRITE_HEIGHT)])
   ) as Record<ColonistKind, AnimSet>;
+  // Tint per kind while it still renders a stand-in set (cleared below when its own art loaded).
+  const COLONIST_TINT = new Map<string, number>(Object.entries(COLONIST_STANDIN_TINT).map(([k, t]) => [k, t!]));
+  for (const [kind, urls] of Object.entries(COLONIST_OPTIONAL_ANIM_URLS)) {
+    if (![...urls!.walk, ...urls!.action].every((u) => optionalTextures[u])) continue;
+    const walk = urls!.walk.map((u) => optionalTextures[u]);
+    const action = urls!.action.map((u) => optionalTextures[u]);
+    COLONIST_ANIMS[kind as ColonistKind] = {
+      walk,
+      action,
+      scale: COLONIST_SPRITE_HEIGHT / walk[0].height,
+      refHeight: walk[0].height,
+    };
+    COLONIST_TINT.delete(kind);
+  }
   // Militia/Spearman/Pikeman were generated together on one shared sheet at one consistent body
   // scale, but Spearman/Pikeman's raised polearm pushes their own walk canvas well past their
   // actual body height (Pikeman's canvas is 254px tall - genuine pike art, not padding - versus
@@ -994,19 +1188,28 @@ async function main() {
   }
   // A welcome (join or world restart) wipes every entity at once; that isn't a mass death.
   let suppressDeathPoofs = true;
-  let readyFarmPlots = new Set<number>();
+  // Tile index -> server farm state for plots not simply growing (see FARM_PLOT_* above).
+  type FarmPlotArtState = "ready" | "sown" | "fallow";
+  let farmPlotStates = new Map<number, FarmPlotArtState>();
   // True from a welcome until its first snapshot has been applied: state diffs then are a world
   // load, not events, so they make no sound.
   let soundSuppressed = true;
 
-  function syncReadyFarmPlots(indices: number[]) {
-    const next = new Set(indices);
-    const changed = [...readyFarmPlots].filter((i) => !next.has(i)).concat(indices.filter((i) => !readyFarmPlots.has(i)));
-    readyFarmPlots = next;
+  function syncFarmPlotStates(ready: number[], sown: number[], fallow: number[]) {
+    const next = new Map<number, FarmPlotArtState>();
+    for (const i of ready) next.set(i, "ready");
+    for (const i of sown) next.set(i, "sown");
+    for (const i of fallow) next.set(i, "fallow");
+    const changed: number[] = [];
+    for (const [i, state] of farmPlotStates) if (next.get(i) !== state) changed.push(i);
+    for (const i of next.keys()) if (!farmPlotStates.has(i)) changed.push(i);
+    const prev = farmPlotStates;
+    farmPlotStates = next;
     for (const index of changed) {
       if (tiles[index] !== TileType.FarmPlot) continue;
       // Ripe or harvested. Not on the first snapshot after a welcome (that's every ready plot at once).
-      if (!soundSuppressed) {
+      const ripeChanged = (prev.get(index) === "ready") !== (next.get(index) === "ready");
+      if (!soundSuppressed && ripeChanged) {
         sound.play("farm_work", {
           x: (index % worldTilesX) * tileSize + tileSize / 2,
           y: Math.floor(index / worldTilesX) * tileSize + tileSize / 2,
@@ -1033,12 +1236,17 @@ async function main() {
   // slot back to bare floor if it has none (Empty, anything unmapped).
   function setTileSprite(tx: number, ty: number, tile: number) {
     const index = ty * worldTilesX + tx;
+    const farmState = tile === TileType.FarmPlot ? farmPlotStates.get(index) : undefined;
     const texture =
       tile === TileType.IronOre
         ? IRON_ORE_VARIANTS[(tx * 7 + ty * 13) % IRON_ORE_VARIANTS.length]
-        : tile === TileType.FarmPlot && readyFarmPlots.has(index)
+        : farmState === "ready"
           ? FARM_PLOT_READY_TEXTURE
-          : (tileAnimTexture(index, tile, performance.now()) ?? TILE_TEXTURES.get(tile));
+          : farmState === "sown"
+            ? FARM_PLOT_SOWN_TEXTURE
+            : farmState === "fallow"
+              ? FARM_PLOT_FALLOW_TEXTURE
+              : (tileAnimTexture(index, tile, performance.now()) ?? TILE_TEXTURES.get(tile));
     if (TILE_ANIM_TEXTURES.has(tile)) animatedTiles.set(index, tile);
     else animatedTiles.delete(index);
     let sprite = tileSprites.get(index);
@@ -1056,6 +1264,7 @@ async function main() {
       tileSpriteLayer.addChild(sprite);
       tileSprites.set(index, sprite);
     }
+    sprite.tint = farmState === "fallow" ? FARM_PLOT_FALLOW_TINT : (TILE_TINT.get(tile) ?? 0xffffff);
     if (tile === TileType.TownCenter) {
       sprite.anchor.set(TOWN_CENTER_ANCHOR.x, TOWN_CENTER_ANCHOR.y);
       sprite.scale.set((tileSize * TOWN_CENTER_WIDTH_TILES) / texture.width);
@@ -1129,9 +1338,8 @@ async function main() {
     }
   }
 
-  // ---- Ambient wildlife (see WILDLIFE) ----
-  // Deer wander between nearby Plains tiles and graze; frogs sit and hop around swamp and water
-  // edges; crows perch anywhere and flap off to a new perch. Each critter only ever targets a tile
+  // ---- Ambient critters (see WILDLIFE) ----
+  // Frogs sit and hop around swamp and water edges; crows perch anywhere and flap off to a new perch. Each critter only ever targets a tile
   // that's Empty right now, so it doesn't stroll into a building that already exists; one ticker
   // moves all of them and one shared clock picks their animation frames.
   type CritterKind = keyof typeof WILDLIFE;
@@ -1153,8 +1361,6 @@ async function main() {
     phase: number;
   }
   const WILDLIFE_TEXTURES = {
-    deerWalk: WILDLIFE.deer.walk.map((u) => loadedTextures[u]),
-    deerGraze: WILDLIFE.deer.graze.map((u) => loadedTextures[u]),
     crow: WILDLIFE.crow.frames.map((u) => loadedTextures[u]),
     frog: WILDLIFE.frog.frames.map((u) => loadedTextures[u]),
   };
@@ -1169,7 +1375,6 @@ async function main() {
   function critterTileOk(kind: CritterKind, tx: number, ty: number): boolean {
     if (tileAt(tx, ty) !== TileType.Empty) return false;
     const biome = biomes[ty * worldTilesX + tx] ?? Biome.Plains;
-    if (kind === "deer") return biome === Biome.Plains;
     if (kind === "frog") return biome === Biome.Swamp || nearWater(tx, ty);
     return true;
   }
@@ -1188,19 +1393,19 @@ async function main() {
   function spawnWildlife() {
     for (const c of critters) c.sprite.destroy();
     critters.length = 0;
-    const eligible: Record<CritterKind, number[]> = { deer: [], crow: [], frog: [] };
+    const eligible: Record<CritterKind, number[]> = { crow: [], frog: [] };
     for (let ty = 0; ty < worldTilesY; ty++) {
       for (let tx = 0; tx < worldTilesX; tx++) {
-        for (const kind of ["deer", "crow", "frog"] as CritterKind[]) {
+        for (const kind of ["crow", "frog"] as CritterKind[]) {
           if (critterTileOk(kind, tx, ty)) eligible[kind].push(ty * worldTilesX + tx);
         }
       }
     }
-    for (const kind of ["deer", "crow", "frog"] as CritterKind[]) {
+    for (const kind of ["crow", "frog"] as CritterKind[]) {
       const spots = eligible[kind];
       const def = WILDLIFE[kind];
       const count = Math.min(def.max, Math.floor(spots.length / def.tilesPer));
-      const textures = kind === "deer" ? WILDLIFE_TEXTURES.deerWalk : WILDLIFE_TEXTURES[kind];
+      const textures = WILDLIFE_TEXTURES[kind];
       if (!textures.every(Boolean)) continue;
       for (let i = 0; i < count; i++) {
         const index = spots[Math.floor(Math.random() * spots.length)];
@@ -1211,7 +1416,7 @@ async function main() {
         sprite.scale.set(def.size / textures[0].width);
         sprite.position.set(x, y);
         // Depth-sorted among the tile art like a prop on the tile it stands on (see setTileSprite's
-        // row-major zIndex), so a deer behind a cottage is hidden by it. Updated only on a tile change.
+        // row-major zIndex), so a frog behind a cottage is hidden by it. Updated only on a tile change.
         sprite.zIndex = critterZ(x, y);
         tileSpriteLayer.addChild(sprite);
         critters.push({
@@ -1223,7 +1428,6 @@ async function main() {
   }
   // Wander radius (tiles) around home, travel speed (px/s) and rest range (ms) per kind.
   const CRITTER_MOVE = {
-    deer: { radius: 4, speed: 16, restMin: 2500, restMax: 8000 },
     crow: { radius: 7, speed: 70, restMin: 4000, restMax: 14000 },
     frog: { radius: 2, speed: 40, restMin: 1500, restMax: 6000 },
   };
@@ -1271,12 +1475,7 @@ async function main() {
       const z = c.kind === "crow" && c.moving ? Number.MAX_SAFE_INTEGER : critterZ(c.x, c.y);
       if (z !== c.sprite.zIndex) c.sprite.zIndex = z;
       const f = clock + c.phase;
-      if (c.kind === "deer") {
-        // Walking: 4-frame cycle. Resting: alternate slowly between the two graze frames.
-        c.sprite.texture = c.moving
-          ? WILDLIFE_TEXTURES.deerWalk[f % 4]
-          : WILDLIFE_TEXTURES.deerGraze[Math.floor(f / 4) % 2];
-      } else if (c.kind === "crow") {
+      if (c.kind === "crow") {
         // Perched: frame 0. Flying: flap through frames 1-3.
         c.sprite.texture = c.moving ? WILDLIFE_TEXTURES.crow[1 + (f % 3)] : WILDLIFE_TEXTURES.crow[0];
       } else {
@@ -1285,6 +1484,81 @@ async function main() {
       }
     }
   });
+
+  // ---- Server wildlife (huntable game; see WILDLIFE_ART) ----
+  interface WildlifeSet {
+    walk: Texture[];
+    idle: Texture[];
+    run: Texture[];
+    tint: number;
+  }
+  const deerWalkTextures = DEER_WALK_URLS.map((u) => loadedTextures[u]);
+  const deerGrazeTextures = DEER_GRAZE_URLS.map((u) => loadedTextures[u]);
+  const loadedAll = (urls: string[]) => urls.length > 0 && urls.every((u) => optionalTextures[u]);
+  const WILDLIFE_SETS = Object.fromEntries(
+    WILDLIFE_KINDS.map((kind) => {
+      const opt = WILDLIFE_OPTIONAL_URLS[kind];
+      const ownWalk = loadedAll(opt.walk);
+      const walk = ownWalk ? opt.walk.map((u) => optionalTextures[u]) : deerWalkTextures;
+      const idle = loadedAll(opt.idle)
+        ? opt.idle.map((u) => optionalTextures[u])
+        : ownWalk
+          ? [walk[0]]
+          : deerGrazeTextures;
+      const run = loadedAll(opt.run) ? opt.run.map((u) => optionalTextures[u]) : walk;
+      // Stand-in deer frames are tinted per kind; a kind's own art is drawn as is.
+      const tint = ownWalk || kind === "deer" ? 0xffffff : WILDLIFE_ART[kind].tint;
+      return [kind, { walk, idle, run, tint }];
+    })
+  ) as Record<WildlifeKind, WildlifeSet>;
+  const wildlifeSprites = new Map<number, { sprite: Sprite; kind: WildlifeKind; lastX: number; phase: number }>();
+  // `flat` is the snapshot's flattened list (WILDLIFE_SNAPSHOT_STRIDE numbers per animal). An animal
+  // that disappears was killed (nothing else removes one), so it leaves a small blood stain.
+  function syncWildlife(flat: number[]) {
+    const seen = new Set<number>();
+    const now = performance.now();
+    for (let i = 0; i + WILDLIFE_SNAPSHOT_STRIDE <= flat.length; i += WILDLIFE_SNAPSHOT_STRIDE) {
+      const id = flat[i];
+      const kind = WILDLIFE_KINDS[flat[i + 1]] ?? "deer";
+      const x = flat[i + 2];
+      const y = flat[i + 3];
+      const state = flat[i + 4] as WildlifeState;
+      seen.add(id);
+      const set = WILDLIFE_SETS[kind];
+      let entry = wildlifeSprites.get(id);
+      if (!entry) {
+        const sprite = new Sprite(set.walk[0]);
+        sprite.anchor.set(0.5, 1);
+        sprite.scale.set(WILDLIFE_ART[kind].size / set.walk[0].width);
+        sprite.tint = set.tint;
+        tileSpriteLayer.addChild(sprite);
+        entry = { sprite, kind, lastX: x, phase: Math.floor(Math.random() * 4) };
+        wildlifeSprites.set(id, entry);
+      }
+      const { sprite } = entry;
+      // Feet a little below the server position (the tile-centre point), like the old critters.
+      sprite.position.set(x, y + tileSize * 0.2);
+      const z = critterZ(x, y);
+      if (z !== sprite.zIndex) sprite.zIndex = z;
+      const running = state === WildlifeState.Flee || state === WildlifeState.Charge;
+      const frames = running ? set.run : state === WildlifeState.Walk ? set.walk : set.idle;
+      const frameMs = running ? WILDLIFE_RUN_FRAME_MS : state === WildlifeState.Walk ? WILDLIFE_FRAME_MS : WILDLIFE_FRAME_MS * 4;
+      sprite.texture = frames[(Math.floor(now / frameMs) + entry.phase) % frames.length];
+      const scale = WILDLIFE_ART[kind].size / set.walk[0].width;
+      if (Math.abs(x - entry.lastX) > 0.5) sprite.scale.x = x > entry.lastX ? scale : -scale;
+      entry.lastX = x;
+    }
+    for (const [id, entry] of Array.from(wildlifeSprites)) {
+      if (seen.has(id)) continue;
+      stampBlood(entry.sprite.position.x, entry.sprite.position.y - tileSize * 0.2, BLOOD_HIT_VARIANTS, BLOOD_HIT_SIZE);
+      entry.sprite.destroy();
+      wildlifeSprites.delete(id);
+    }
+  }
+  function clearWildlifeSprites() {
+    for (const entry of wildlifeSprites.values()) entry.sprite.destroy();
+    wildlifeSprites.clear();
+  }
 
   // Full-map path (welcome, incl. restart).
   function redrawGrid() {
@@ -1316,10 +1590,15 @@ async function main() {
     if (decor) decor.visible = tile === TileType.Empty;
   }
 
+  // Last ratio drawn per bar: every snapshot (20/s) upserts every entity, and with raid waves that can
+  // be hundreds of mobs, so only rebuild a bar's geometry when its fill actually changed.
+  const hpBarRatio = new WeakMap<Graphics, number>();
   function drawHpBar(bar: Graphics, hp: number, maxHp: number) {
     const width = 24;
     const height = 4;
     const ratio = Math.max(0, Math.min(1, hp / maxHp));
+    if (hpBarRatio.get(bar) === ratio) return;
+    hpBarRatio.set(bar, ratio);
     bar.clear();
     bar.rect(-width / 2, 0, width, height).fill(0x550000);
     bar.rect(-width / 2, 0, width * ratio, height).fill(0x3bd16f);
@@ -1474,6 +1753,7 @@ async function main() {
       // ratio, so using it here made units visibly pop in size on every idle<->walk/action
       // transition (i.e. every time they started or stopped moving).
       showAnimFrame(entry.sprite, set, frame ?? set.walk[0]);
+      entry.sprite.tint = COLONIST_TINT.get(c.kind) ?? 0xffffff;
     }
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
   }
@@ -1760,7 +2040,15 @@ async function main() {
       case TileType.Water:
         return MINIMAP_WATER;
       case TileType.Tree:
+      case TileType.FruitTree:
+      case TileType.FruitTreePicked:
         return MINIMAP_TREE;
+      // Bushes and mushroom patches are ground cover: drawn as the biome under them.
+      case TileType.BerryBush:
+      case TileType.BerryBushPicked:
+      case TileType.MushroomPatch:
+      case TileType.MushroomPatchPicked:
+        return MINIMAP_BIOME[biomes[index] ?? Biome.Plains] ?? MINIMAP_BIOME[Biome.Plains];
       case TileType.Rock:
         return MINIMAP_ROCK;
       case TileType.IronOre:
@@ -2007,6 +2295,9 @@ async function main() {
         return "Materials";
       case "artisan":
         return "Crafted";
+      case "hunter":
+      case "forager":
+        return "Food";
       case "farmhand": {
         const t = tileAt(c.postX, c.postY);
         return t === TileType.WoolFarm || t === TileType.CottonFarm ? "Materials" : "Food";
@@ -2026,6 +2317,10 @@ async function main() {
         return "iron";
       case "rockMiner":
         return "rock";
+      case "hunter":
+        return "meat";
+      case "forager":
+        return "fruit";
       case "farmhand": {
         const t = tileAt(c.postX, c.postY);
         return t === TileType.Orchard ? "fruit" : t === TileType.WoolFarm ? "wool" : t === TileType.CottonFarm ? "cotton" : "meat";
@@ -2048,6 +2343,13 @@ async function main() {
         return null;
     }
   }
+  // Barn farmers have no work animation of their own (the plots grow while the barn is staffed), so by
+  // day they count as working; hunters and foragers count while they're out on a job.
+  function isWorkerBusy(c: { kind: string; state: string }, isNight: boolean): boolean {
+    if (COLONIST_ACTION_STATES.has(c.state)) return true;
+    if (c.kind === "farmer") return !isNight;
+    return (c.kind === "hunter" || c.kind === "forager") && FOOD_WORKER_BUSY_STATES.has(c.state);
+  }
   function refreshWorkerCounts(colonists: { kind: string; state: string; postX: number; postY: number }[], isNight: boolean) {
     const working: Record<string, number> = { Food: 0, Materials: 0, Crafted: 0 };
     const total: Record<string, number> = { Food: 0, Materials: 0, Crafted: 0 };
@@ -2055,9 +2357,7 @@ async function main() {
       const group = workerGroup(c);
       if (!group) continue;
       total[group]++;
-      // Barn farmers have no work animation of their own (the plots grow while the barn is staffed),
-      // so by day they count as working.
-      if (COLONIST_ACTION_STATES.has(c.state) || (c.kind === "farmer" && !isNight)) working[group]++;
+      if (isWorkerBusy(c, isNight)) working[group]++;
     }
     for (const [group, el] of workerCountEls) el.textContent = ` ${working[group]}/${total[group]} working`;
     const resWorking = new Map<GoodKey, number>();
@@ -2066,7 +2366,7 @@ async function main() {
       const res = workerResource(c);
       if (!res) continue;
       resTotal.set(res, (resTotal.get(res) ?? 0) + 1);
-      if (COLONIST_ACTION_STATES.has(c.state) || (c.kind === "farmer" && !isNight)) {
+      if (isWorkerBusy(c, isNight)) {
         resWorking.set(res, (resWorking.get(res) ?? 0) + 1);
       }
     }
@@ -2717,7 +3017,8 @@ async function main() {
     toast.className = `event-toast event-${category}`;
     const icon = document.createElement("img");
     icon.className = "event-icon";
-    icon.src = `/sprites/icon-event-${category}.png`;
+    // "raid" has no art of its own; it borrows the deserter icon.
+    icon.src = `/sprites/icon-event-${category === "raid" ? "deserter" : category}.png`;
     icon.alt = "";
     toast.append(icon, text);
     eventFeedEl.prepend(toast);
@@ -2746,7 +3047,8 @@ async function main() {
       resetSoundState();
       bloodOnNewGravestones = false;
       clearBlood();
-      readyFarmPlots = new Set();
+      farmPlotStates = new Map();
+      clearWildlifeSprites();
       redrawGrid();
       townCenterPx = {
         x: Math.floor(worldTilesX / 2) * tileSize + tileSize / 2,
@@ -2766,7 +3068,8 @@ async function main() {
       syncColonists(message.colonists, message.isNight);
       syncMobs(message.mobs);
       suppressDeathPoofs = false;
-      syncReadyFarmPlots(message.readyFarmPlots);
+      syncFarmPlotStates(message.readyFarmPlots, message.sownFarmPlots, message.fallowFarmPlots);
+      syncWildlife(message.wildlife);
       // Dawn wipes the blood, the same boundary at which the server clears the gravestones.
       if (wasNight && !message.isNight) clearBlood();
       wasNight = message.isNight;

@@ -24,10 +24,12 @@ move/attack orders, task forces, Age-of-Empires-style box formations.
 **Happiness:** colony-wide 0-100 score from food variety + scenery (tree density) + tavern
 coverage, multiplies all production speed, drives desertion (<35, 15% nightly chance per soldier)
 and mutiny (<15, whole garrison deserts). Deserters become a dormant hostile mob at the spot they
-deserted, aggroing into a coordinated night-wave attack after 10 days if still alive.
+deserted. After 10 days, a deserter night (25% roll per day) makes them the core of that night's
+raid, with fresh bandits filling it up (see "Raid waves" in §7).
 
-**Monsters:** 10 kinds (Goblin → ... → Ogre), day-gated weighted night spawning, 3 special
-mechanics (Troll regen, Giant Spider poison, Dark Shaman heals nearby wounded mobs).
+**Monsters:** 10 kinds (Goblin → ... → Ogre) plus bandits. Night raids grow by day with no cap and
+are built from day-gated factions (see "Raid waves" in §7). There are 3 special mechanics: Troll
+regen, Giant Spider poison, and Dark Shaman heals nearby wounded mobs.
 
 **World (landed):** map expanded to 80x80 (6400 tiles). 3-biome system (Plains ~51%, Hills ~24%,
 Swamp ~24%) with real gameplay effects — Swamp -25% movement speed, Hills +20% mining speed,
@@ -279,7 +281,7 @@ on kill.
   button, which opens it as a modal.
 - **Difficulty (shipped with this phase):** Easy, Normal or Hard on the menu (`sworn.difficulty`).
   The client sends it as `setDifficulty`, and welcome and snapshot carry the world's value. It
-  scales night-wave mobs only. Hard is damage x1.35, hp x1.3 and spawn cap x1.35. Easy is
+  scales raid-wave mobs only. Hard is damage x1.35, hp x1.3 and raid size x1.35. Easy is
   0.75 / 0.8 / 0.75. The multipliers are the `DIFFICULTY_*` constants in `server/src/index.ts`.
   The first claim after a fresh world or restart wins. A solo player may re-pick on day 1, and
   Restart sends the restarter's choice. In-game the setting is read-only, and the Colony panel
@@ -301,6 +303,76 @@ in `SPRITES.md`.
   undecided), the wall torch loop, the move/attack/rally order icons, `playerIdle`, and rough wound
   decals. Visual health stays deferred: the wound sheet came back as pre-baked units rather than
   usable decals.
+
+### Raid waves — landed 2026-10-14 (uncommitted)
+This replaces the old night trickle spawner (one mob every 3 s up to a cap of 8 + 1 per 2 days, at
+most 24).
+- **Size:** tonight's raid is `5 + 2 x dayIndex` mobs (5 on the first day, 7 on day 1, 45 on day 20,
+  105 on day 50), times the difficulty multiplier, rounded, with a minimum of 1. There is no cap,
+  and survivors from earlier nights stay and stay aggressive.
+- **Timing:** the whole raid spawns at once at the midpoint of the day phase, on walkable tiles
+  within 3 tiles of the map edge, one mob per tile where possible.
+- **Groups:** at least half of the raid forms one horde at one edge spot (a 50-70% share, rounded
+  up). The rest split into random groups of 2-6, each at its own edge spot.
+- **Passive, then aggressive:** groups start passive. They loiter within 3 tiles of their spawn
+  and target nothing. Each group gets a random aggro time between spawning and nightfall, and any
+  group still passive at nightfall turns aggressive then. Damaging any member turns its whole group
+  aggressive at once.
+- **March:** an aggressive group marches as one. Its slowest member leads along a single shared
+  path at its own speed, and the others hold golden-angle formation slots around it. Once the
+  leader is within 8 tiles of the Town Center or of a guard or player it could target, the group
+  breaks up into normal per-mob targeting. A damaged group breaks up straight away.
+- **Factions:** each group comes from one faction (`RAID_FACTIONS` in `server/src/index.ts`):
+  Wolf pack, Bandit band, Greenskin warband or Dark host. A faction is eligible once one of its
+  core kinds is unlocked, weighted by how many are. Bandits now raid from the first day (the
+  Elite from day 3); encampment guardians are unchanged.
+- **Deserter nights:** these keep the 25% roll after 10 days, now rolled at the midday spawn. Every
+  eligible deserter joins the horde where it stands. Fresh Bandit-band mobs fill the raid up to its
+  normal size, and none spawn if the deserters alone reach it. The deserters turn on the colony
+  when their group goes aggressive, with the existing event.
+- **Events:** "Raiders gather at the {edge} edge" fires on spawn and "The horde marches on the
+  colony" when the horde turns aggressive. Both use the new `raid` category, which borrows the
+  deserter icon.
+- **Tests:** `server/raid-waves-test.mjs` needs `COLONY_TEST_HOOKS=1`, which enables a test-only
+  `testHook` message for time travel, state dumps, direct damage and tick stats. Run it with
+  `PERF=1` for tick timings.
+
+### Slow farming, hunting and foraging — landed 2026-10-14 (uncommitted)
+Every number is a named constant at the top of its block in `server/src/index.ts` (`FARM_*`/`FARMHAND_*`
+after `LUMBERJACK_WOOD_PER_TRIP`; `HUNTER_*`, `FORAGE*`, `WILDLIFE_*`, `BOAR_*` in the "Hunting & foraging"
+section). One game day = 60 s day + 40 s night = 2000 ticks.
+- **Grain fields:** a Farm Plot is sown, grows for 3 days (the first third reads as "sown"), ripens for the
+  existing 2 s harvest and yields 36 grain. After 5 harvests it lies fallow for 3 days, then re-sows itself
+  while its Barn is staffed. Grow and harvest still scale with Barn level, Plains, happiness and industrial
+  synergy; fallow doesn't. 5 x 36 grain over 18 days = 10 grain per plot-day, the same as the old 8 s + 2 s
+  cycle. The snapshot gained `sownFarmPlots` and `fallowFarmPlots` next to `readyFarmPlots`.
+- **Pasture, Orchard, Sheep Pasture, Hemp Field:** the farmhand still tends all day, but the produce lands as
+  one batch of 90 per 3 days of tending (3 x 1200 daytime ticks, scaled like the old 2 s unit timer).
+  That's the old 30 a day, delivered every 3 days.
+- **Economy:** starting grain is 60 (was 40), so a ~20-consumer colony gets through the 3 dawns before the
+  first harvest. Everything else is unchanged: 1 food per colonist per dawn (Abbey clergy excluded),
+  starvation 10 hp, respawn 5 food. Hunters and foragers are the early food (and early food variety for
+  happiness) while the fields and herds grow.
+- **Hunter's Hut / Forager's Hut** (Farming tab, keys `q` / `y`, 15 wood each, industrial, population-gated):
+  each placement spawns one worker, and placing the hut on itself levels it up (to 3) and adds another.
+  Hunters stalk the nearest unreserved game within 25 tiles of the hut, shoot from 4 tiles (10 damage,
+  1.2 s), carry the carcass home and deposit meat on arrival (deer 6, boar 8, rabbit 2, pheasant 2).
+  Foragers pick the nearest ripe plant within 25 tiles for 3 s and carry the fruit home (berry bush 3,
+  fruit tree 5, mushrooms 2). The plant regrows after 1 day. Both work by day only and sleep in houses.
+- **Wildlife** (server entities, snapshot `wildlife` as a flat 5-number list): per 80x80 there are 6 deer,
+  8 rabbits, 3 boar and 4 pheasants (scaled by area: 84 animals on 160x160), never within 10 tiles of
+  the Town Center. Up to 4 a day (16 on 160x160) respawn back up to those caps. Animals wander slowly,
+  with no pathfinding. Anything that hurts one (hunter, player lance, test hook) makes it flee for 4 s.
+  A boar shot by a hunter charges him instead (4 damage/s, up to 6 s). A player's kill gives its meat
+  straight away. The client-only deer are gone; crows and frogs stay cosmetic.
+- **Wild forage** (world-gen tiles, ripe/picked variants): per 80x80 there are 24 berry bushes, 12 fruit
+  trees and 10 mushroom patches, none within 5 tiles of the Town Center. Bushes and mushrooms are walkable,
+  fruit trees are solid. All of them can be demolished.
+- **Art:** stand-ins everywhere, with the hook names listed in `SPRITES.md` ("stand-ins in use").
+- **Tests:** `server/slow-farming-test.mjs` and `server/hunting-foraging-test.mjs` (both need
+  `COLONY_TEST_HOOKS=1`). New test hooks: `fastForward`, `setRaids`, `setStock`, `farmState`, `wildlifeState`,
+  `spawnWildlife`, `clearWildlife`, `damageWildlife` and `setTileRaw`. The farming tests that timed the
+  old 8 s cycle now pause the world and fast-forward.
 
 Execution order above is my default sequencing (foundation first since map/zoom/clock touch
 everything downstream); say the word if you want a different item first.

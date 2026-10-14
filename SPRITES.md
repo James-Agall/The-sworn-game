@@ -108,15 +108,17 @@ in the bottom of the decor layer, with a random flip. The oldest is dropped past
 cleared when the snapshot flips from night to day (the same dawn at which the server clears the
 gravestones) and on any welcome/restart.
 
-**Ambient wildlife (client-only):** `deerWalk0-3` + `deerGraze0-1` (one shared canvas), `crow0-3`
-(perch + 3 flap frames), `frog0-2` (sit, leap, sit), from `art-sources/Pixel Wildlife and Wound
-Overlay Sheet.png`. Spawned per client on every welcome (`WILDLIFE` in `main.ts`): deer on Plains,
-frogs on Swamp or next to Water, crows on any Empty tile, with counts scaling with the eligible area
-and capped (24/16/14). They wander near their spawn point and only ever target a tile that is
-Empty at that moment. They never reach the server: no collision, no targeting, no gameplay effect.
-Deer graze while resting. Crows flap to a new perch on an arc, drawn over everything while flying.
-Frogs hop with a small arc. They're depth-sorted in the tile layer by the tile they stand on, so
-buildings in front hide them, and the night overlay dims them.
+**Wildlife:** `deerWalk0-3` + `deerGraze0-1` (one shared canvas), `crow0-3` (perch + 3 flap frames),
+`frog0-2` (sit, leap, sit), from `art-sources/Pixel Wildlife and Wound Overlay Sheet.png`.
+- Deer are no longer client-only: since 2026-10-14 they are real server game (snapshot `wildlife`, see
+  "Hunting, foraging and slow farming: stand-ins" below), drawn by `syncWildlife` in `main.ts`: walk
+  frames while walking, graze frames while standing, the walk cycle at double speed while fleeing.
+- Crows and frogs stay ambient and client-only (`WILDLIFE` in `main.ts`): rolled per client on every
+  welcome, frogs on Swamp or next to Water, crows on any Empty tile, counts scaling with the eligible area
+  and capped (16/14). They wander near their spawn point and only ever target a tile that is Empty at
+  that moment, never reach the server, and have no gameplay effect. Crows flap to a new perch on an arc,
+  drawn over everything while flying. Frogs hop with a small arc. All wildlife is depth-sorted in the
+  tile layer by the tile it stands on, so buildings in front hide it, and the night overlay dims it.
 
 **Event toast icons (6):** `icon-event-night/dawn/upgrade/death/ward/deserter`, from
 `art-sources/Pixel Art Icon Sheet_ Events and Orders.png`, labels masked. Shown at 18px
@@ -170,12 +172,15 @@ lanternPost props.
 and candle stubs at the base). Keeps the existing 0.75 size factor, which renders it ~44px tall:
 smaller than the Church (~53px), a little taller than the cross prop (~38px).
 
-**Farm Plot growth states:** `farmPlotGrowing.png` (sprouts in tilled rows) and `farmPlotReady.png`
-(mature golden wheat), driven by real server state. Each snapshot carries `readyFarmPlots` (the tile
-indices of plots in the server's `"harvesting"` state), and the client swaps the tile texture
-whenever a plot enters or leaves that set. With a staffed Barn, a plot shows sprouts for ~8s, then
-ripe wheat for the ~2s harvest. A plot whose Barn is unstaffed or missing freezes on whichever art
-it was showing. The original `farmPlot.png` is still on disk but no longer referenced.
+**Farm Plot growth states:** `farmPlot.png` (bare tilled soil), `farmPlotGrowing.png` (sprouts in
+tilled rows) and `farmPlotReady.png` (mature golden wheat), driven by real server state. Since slow farming
+(2026-10-14) each snapshot carries `readyFarmPlots` (ripe, being harvested), `sownFarmPlots` (the first
+third of the 3-day grow) and `fallowFarmPlots` (resting after 5 harvests); any other plot is growing. The
+client swaps the tile texture when a plot changes state: sown = `farmPlot.png`, growing =
+`farmPlotGrowing.png`, ripe = `farmPlotReady.png`, fallow = `farmPlot.png` tinted pale yellow. A plot whose
+Barn is unstaffed or missing freezes on whichever art it was showing (a fallow plot still finishes resting).
+Optional hooks for #34: `farmPlotSown.png` and `farmPlotFallow.png` replace the stand-ins (and the fallow
+tint) as soon as they exist.
 
 **UI resource icons (13):** `icon-wood`, `icon-iron`, `icon-rock`, `icon-gold`, `icon-grain`,
 `icon-meat`, `icon-fruit`, `icon-wool`, `icon-cotton`, `icon-clothes`, `icon-tools`,
@@ -217,6 +222,30 @@ visual-only (the `activeEffects` system in `main.ts`):
 - All art is drawn facing right. Every unit, mob, and the player flip horizontally (`applyFacing`
   in `main.ts`) based on net horizontal movement direction, with a small dead zone so vertical-only
   movement doesn't snap back to a default facing.
+
+**Hunting, foraging and slow farming: stand-ins in use (2026-10-14).** Everything below renders today with
+borrowed art. Each hook is loaded optionally (`loadOptionalTextures` in `main.ts`): drop a PNG with exactly
+this name into `client/public/sprites/` and it replaces the stand-in (and its tint) on the next page load;
+a missing file just keeps the stand-in. For animation sets the whole set must be present.
+- Hunter worker (#28): stand-in = the archer's `archerWalk0-3` / `archerAttack0-5`, tinted green. Hooks:
+  `hunterWalk0-3` (walk, also used while carrying a carcass home) and `hunterHunt0-2` (the shooting
+  cycle). Static fallback pose: `archer.png`. A carry row (#28 row 3) has no hook yet.
+- Forager worker (#29): stand-in = `farmhandWalk0-3` / `farmhandTend0-2`, tinted warm. Hooks:
+  `foragerWalk0-3`, `foragerForage0-2`. Static fallback: `farmhand.png`.
+- Hunter's Hut (#30): stand-in = `lumberjackPost.png`, tinted green. Hook: `hunterHut.png`. Forager's Hut
+  (#31): stand-in = `orchard.png`, tinted warm. Hook: `foragerHut.png`. Huts level up in place (1-3) but
+  the client doesn't know building levels, so only one image per hut is wired for now.
+- Wild forage (#32), server tiles with a ripe and a picked state: berry bush = `bush3.png` tinted red
+  (ripe) / grey-green (picked); fruit tree = `tree.png` tinted orange (ripe) / grey (picked); mushroom
+  patch = `flowers1.png` tinted brown (ripe) / `tallGrass.png` tinted grey (picked). Hooks:
+  `berryBushRipe`, `berryBushPicked`, `appleTreeRipe`, `appleTreePicked`, `mushroomRipe`,
+  `mushroomPicked` (.png). The pear/plum row of #32 has no tile yet.
+- Huntable game (#33): rabbit, boar and pheasant are the deer frames, scaled (rendered width 12 / 24 /
+  11 px vs the deer's 26) and tinted. Hooks: `rabbitWalk0-3` + `rabbitIdle0-1`, `boarWalk0-3` +
+  `boarGraze0-1`, `pheasantWalk0-3` + `pheasantFlap0-2` (the flee cycle), and for the deer `deerRun0-3`
+  (flee). The deer's FALLEN pose has no hook: a killed animal just vanishes and leaves a small blood stain.
+- Field and pasture states (#34): see Farm Plot growth states above. Pasture / Sheep / Orchard / Hemp
+  "ready" states have no hooks: their produce lands in one batch and is not shown on the map.
 
 ---
 
@@ -274,6 +303,47 @@ Extends the combat-effects sheet (`fx-slash/spark/poof/arrow`) to the systems th
 
 For roads between buildings and to blend with the new Town Center plaza art.
 > Pixel art ground tile set, chunky 16-bit retro style, flat cel-shaded coloring, matching the exact style, size and palette of the existing dirtFloor.png, grassFloor1.png and sandFloor.png tiles. A dirt road autotile set with grass-blended edges: straight (horizontal and vertical), four corners, four T-junctions, a four-way cross, four dead-ends and a single isolated patch (14 tiles), plus one cobblestone plaza tile with a worn-stone pattern and a matching cobble straight road. All tiles seamless and with matching edge pixels so any neighbors connect cleanly. **Scale: every tile exactly the same size as the existing floor tiles (one tile).** Arranged in a clean labeled grid, transparent corners where the grass shows through, clean PNG.
+
+## Hunting, foraging and slow farming (2026-10-14 batch)
+
+For the Hunter's Hut, Forager's Hut, wild animals to hunt, wild food to forage, and the slower
+farming cycle (fields now take days: sown -> growing -> ready, and rest fallow after 5 harvests).
+Same house style as everything above (chunky 16-bit pixel art, thick black outline, flat cel-shaded
+colour, muted desaturated medieval palette, transparent background, all creatures and people facing
+right). Each prompt anchors scale to an existing sprite. One generation per block.
+
+### 28. Hunter worker (walk + hunt cycle)
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, outline weight, proportions and size of the existing worker sprites (lumberjack, farmer, archer). A woodland HUNTER: green-brown hooded cloak, leather jerkin, short bow on his back, a quiver at the hip, a skinned rabbit hanging from his belt. Row 1: a 4-frame WALK cycle. Row 2: a 3-frame HUNT cycle (draw bow, loose arrow, lower bow). Row 3: a 2-frame CARRY walk with a deer carcass slung over his shoulders. All facing right, same canvas size per frame, feet on the same baseline.
+
+### 29. Forager worker (walk + forage cycle)
+> Pixel art character animation sprite sheet, same style, outline weight and scale as the existing worker sprites. A FORAGER: plain linen smock, straw hat, a woven wicker basket on one arm, sleeves rolled. Row 1: a 4-frame WALK cycle. Row 2: a 3-frame FORAGE cycle (stoop, pluck berries from a bush into the basket, stand). Row 3: a 2-frame CARRY walk with a full basket of berries and apples. All facing right, same canvas size per frame, feet on one baseline.
+
+### 30. Hunter's Hut (building, 3 tiers)
+> Pixel art isometric building sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, camera angle and footprint of the existing cottage.png / cottageLv2.png. Three tiers of a HUNTER'S HUT, left to right: Level 1 a small log lean-to cabin with a thatch roof, a rack of drying pelts and a pair of antlers over the door; Level 2 a larger timber lodge with a stone chimney, a hanging deer carcass, and a fur-covered fence; Level 3 a big hunting lodge with two rooms, stacked firewood, a skinning table, a trophy of antlers and boar tusks on the gable, a hound sleeping outside. Each tier on its own small grass patch like the other buildings.
+
+### 31. Forager's Hut (building, 3 tiers)
+> Pixel art isometric building sprite sheet, same style, camera angle and footprint as the existing cottage sprites. Three tiers of a FORAGER'S HUT, left to right: Level 1 a small round wattle-and-daub hut with a mossy thatch roof, baskets by the door and bundles of herbs hanging; Level 2 a larger cottage with a herb garden, drying racks of mushrooms and berries, a stack of wicker baskets; Level 3 a large cosy lodge with a covered porch, a preserves shed with jars, bunches of drying flowers and a little vegetable patch. Each tier on its own small grass patch.
+
+### 32. Wild food: berry bush, fruit tree, mushrooms (full and picked states)
+These are world props the forager harvests; each needs a ripe and a picked-bare state (the bare state regrows).
+> Pixel art environment prop sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, natural palette matching the existing bush3.png, tallGrass.png and tree.png. Row 1: a BERRY BUSH, ripe (round dark green bush covered in bright red berries) then picked (same bush with only leaves, a few stray berries). Row 2: a wild APPLE TREE, ripe (red apples in the canopy) then picked (bare canopy, a few fallen apples on the ground); match the size of tree.png. Row 3: a WILD PEAR/PLUM TREE variant, ripe then picked. Row 4: a MUSHROOM PATCH, ripe (cluster of brown and red-capped mushrooms) then picked (bare moss patch). Each prop on its own transparent background, centred, same ground contact point.
+
+### 33. Huntable animals: rabbit, wild boar, pheasant, plus deer extras
+Needed as real entities (hunters can kill them). Deer already exists (deerWalk0-3, deerGraze0-1); these are additions.
+> Pixel art animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted natural palette, matching the style and scale of the existing deer sprites (deerWalk0-3). Row 1: a WILD RABBIT, a 4-frame hop cycle plus a 2-frame sit/nibble. Row 2: a WILD BOAR (bristly dark brown, tusks, roughly deer-sized but stockier), a 4-frame trot cycle plus a 2-frame snuffle/graze. Row 3: a PHEASANT with bright plumage, a 4-frame walk cycle plus a 3-frame flap-and-take-off. Row 4: a DEER being hunted: a 4-frame fast RUN (flee) cycle and a single FALLEN pose. All facing right, same baseline.
+
+### 34. Field and pasture states for the slow farming cycle
+Fields now take days, so each plot/pasture needs to read at a glance which phase it is in. Current art: farmPlot.png (bare), farmPlotGrowing.png (sprouts), farmPlotReady.png (ripe wheat).
+> Pixel art isometric tile sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, matching the exact footprint, camera angle and style of the existing farmPlotGrowing.png. Row 1, grain FIELD stages: SOWN (freshly tilled dark soil with tiny seed dots), SPROUTING (short green shoots), GROWING (knee-high green wheat), RIPE (golden wheat, matching farmPlotReady.png), HARVESTED (stubble and sheaves), FALLOW (resting field: untilled, overgrown with weeds and wildflowers, pale grass). Row 2, hemp field: SOWN, GROWING, RIPE. Row 3, PASTURE (cattle): animals thin and grazing = growing; FAT and ready (plump cattle, a full trough). Row 4, SHEEP PASTURE: woolly and ready to shear; freshly sheared (pink-bare sheep). Row 5, ORCHARD: blossoming, then fruiting (ripe).
+
+### 35. Builder worker (walk + build cycle) and Builders' Guild (building, 3 tiers)
+Builders are required to construct buildings. For now they reuse the lumberjack worker sprites and the lumberjack post building art as stand-ins (`lumberjack*` frames and `lumberjackPost.png`); real art is needed.
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the style, outline weight and size of the existing worker sprites (lumberjack, ironMiner). A BUILDER: leather apron, rolled sleeves, a cloth cap, a wooden mallet in one hand and a plumb line at the belt. Row 1: a 4-frame WALK cycle. Row 2: a 4-frame BUILD cycle (hammering a plank, then stepping back). Row 3: a 2-frame CARRY walk with a plank of wood on the shoulder. All facing right, same canvas, feet on one baseline.
+> Pixel art isometric building sprite sheet, same style, camera angle and footprint as the existing lumberjackPost.png and cottage sprites. Three tiers of a BUILDERS' GUILD, left to right: Level 1 an open timber workshop with a sawhorse, stacked planks and a half-framed wall; Level 2 a larger guildhall with a crane and a guild banner, stone footings; Level 3 a grand guild house with scaffolding, a stone-and-timber facade, a carved set-square-and-hammer emblem over the door.
+
+### 36. Town Center tiers and the Keep (Town Center Lv1 / Lv2 / Lv3-Keep) and a placeable Town Center marker
+The Town Center becomes upgradeable (Lv3 = a Keep) and placeable. Current art: townCenter.png (plaza). Castle Lv3 art (castleLv3.png) or the staged castleKeep.png can stand in for the Keep.
+> Pixel art isometric building sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the camera angle, footprint (3.5 tiles wide) and style of the existing townCenter.png. Three tiers of the TOWN CENTER, left to right: Level 1 the existing plaza (timber buildings, statue fountain, market stalls); Level 2 the same plaza grown richer, with a stone town hall, a bell tower and a larger market; Level 3 a fortified KEEP: a square stone keep with four corner towers, curtain walls, a gatehouse, banners and a courtyard. Also a ghosted placement outline of the Level 1 plaza (semi-transparent) for building previews.
 
 ## Notes on process
 
