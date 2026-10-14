@@ -209,6 +209,9 @@ export interface GravestoneSnapshot {
   variant: 0 | 1;
 }
 
+// Night-mob tuning chosen on the main menu (server applies the multipliers; see DIFFICULTY_* there).
+export type Difficulty = "easy" | "normal" | "hard";
+
 export type GameEventCategory = "night" | "dawn" | "upgrade" | "death" | "ward" | "deserter";
 
 export type ClientMessage =
@@ -217,7 +220,11 @@ export type ClientMessage =
   | { type: "setTile"; tileX: number; tileY: number; tile: TileType }
   | { type: "attack" }
   | { type: "pause" }
-  | { type: "restart" }
+  // Optional difficulty: the restarting client's choice becomes the new world's difficulty.
+  | { type: "restart"; difficulty?: Difficulty }
+  // Sent after every welcome; only takes effect while the world's difficulty is still unclaimed
+  // (see the server's handleSetDifficulty for the race rules).
+  | { type: "setDifficulty"; difficulty: Difficulty }
   | { type: "commandMove"; unitIds: string[]; x: number; y: number }
   | { type: "commandAttack"; unitIds: string[]; mobId: string }
   | { type: "commandStance"; unitIds: string[]; stance: Stance }
@@ -236,6 +243,7 @@ export type ServerMessage =
       biomes: number[];
       // Explored-tile bitset, base64: bit (i & 7) of byte (i >> 3) is tile index i (y * worldTilesX + x).
       explored: string;
+      difficulty: Difficulty;
     }
   | {
       type: "snapshot";
@@ -272,6 +280,7 @@ export type ServerMessage =
       // Tile indices (y * worldTilesX + x) of Farm Plots whose crop is mature and being harvested.
       readyFarmPlots: number[];
       gravestones: GravestoneSnapshot[];
+      difficulty: Difficulty;
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).

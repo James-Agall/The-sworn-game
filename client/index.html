@@ -376,6 +376,21 @@
         scrollbar-color: var(--wood) transparent;
       }
 
+      .econ-workers-row {
+        margin-left: 6px;
+        font-size: 11px;
+        color: var(--ink-faint);
+      }
+
+      .econ-heading .econ-workers {
+        float: right;
+        font-size: 12px;
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: 0;
+        color: var(--ink-soft);
+      }
+
       .econ-heading {
         color: var(--ink);
         font-size: 16px;
@@ -610,6 +625,9 @@
         border: 1px solid var(--wood-dark);
         border-radius: 3px;
         box-shadow: var(--paper-edge), 0 8px 28px rgba(0, 0, 0, 0.7);
+        /* 100vh minus the 32px gutter and this box's own 52px vertical padding. */
+        max-height: calc(100vh - 84px);
+        overflow-y: auto;
       }
       .menu-title { margin: 0; font-size: 34px; letter-spacing: 1px; }
       .menu-sub { margin: 2px 0 22px; font-size: 13px; color: var(--ink-faint); font-style: italic; }
@@ -640,7 +658,65 @@
         text-align: left;
       }
       .menu-setting input { width: 18px; height: 18px; accent-color: var(--seal); }
+      .menu-setting input[type="range"] { width: 150px; height: 16px; margin: 0; cursor: pointer; }
       .menu-note { margin: 16px 0 0; font-size: 14px; }
+      .menu-section {
+        margin: 14px 0 2px;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ink-faint);
+        text-align: left;
+      }
+      .menu-section:first-child { margin-top: 0; }
+      .set-note { display: block; font-size: 11.5px; font-style: italic; color: var(--ink-faint); }
+      /* Segmented control (Difficulty): parchment chips, the chosen one sealed in red. */
+      .seg {
+        display: inline-flex;
+        flex: none;
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .seg button {
+        font: inherit;
+        font-size: 13px;
+        padding: 5px 10px;
+        color: var(--ink);
+        background: rgba(255, 236, 180, 0.35);
+        border: 0;
+        border-left: 1px solid rgba(90, 52, 24, 0.5);
+        cursor: pointer;
+      }
+      .seg button:first-child { border-left: 0; }
+      .seg button:hover { background: rgba(255, 236, 180, 0.7); }
+      .seg button[aria-checked="true"] {
+        color: var(--seal-ink);
+        background: linear-gradient(180deg, var(--seal), var(--seal-dark));
+      }
+      .seg.readonly button { cursor: default; }
+      .seg.readonly button:hover { background: rgba(255, 236, 180, 0.35); }
+      .seg.readonly button[aria-checked="true"] { background: linear-gradient(180deg, var(--seal), var(--seal-dark)); }
+      .seg.readonly button:not([aria-checked="true"]) { opacity: 0.45; }
+      /* In-game Settings: the same panel, moved into this modal over the running game. */
+      #settings-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(18, 11, 5, 0.6);
+        font-family: var(--font-serif);
+      }
+      #settings-modal[hidden] { display: none; }
+      #settings-modal .menu-title { font-size: 24px; margin-bottom: 12px; }
+      #stat-difficulty {
+        margin-top: 2px;
+        font-size: 11.5px;
+        font-style: italic;
+        color: var(--ink-faint);
+      }
       body.hide-minimap #minimap-frame { display: none; }
       body.hide-events #event-feed { display: none; }
     </style>
@@ -658,10 +734,30 @@
           <p id="menu-bye" class="menu-note" hidden>Thanks for playing. You can close this tab now.</p>
         </div>
         <div id="menu-settings-panel" class="menu-panel" hidden>
+          <div class="menu-section">Game</div>
+          <div class="menu-setting">
+            <span>Difficulty<small id="set-difficulty-note" class="set-note">Night monsters' strength and numbers</small></span>
+            <div id="set-difficulty" class="seg" role="radiogroup" aria-label="Difficulty">
+              <button type="button" role="radio" data-difficulty="easy">Easy</button>
+              <button type="button" role="radio" data-difficulty="normal">Normal</button>
+              <button type="button" role="radio" data-difficulty="hard">Hard</button>
+            </div>
+          </div>
+          <div class="menu-section">Display</div>
           <label class="menu-setting"><span>Show minimap</span><input type="checkbox" id="set-minimap" checked /></label>
           <label class="menu-setting"><span>Show event notifications</span><input type="checkbox" id="set-events" checked /></label>
+          <div class="menu-section">Sound</div>
+          <label class="menu-setting"><span>Master</span><input type="range" id="set-vol-master" min="0" max="100" step="1" /></label>
+          <label class="menu-setting"><span>Music</span><input type="range" id="set-vol-music" min="0" max="100" step="1" /></label>
+          <label class="menu-setting"><span>Effects</span><input type="range" id="set-vol-sfx" min="0" max="100" step="1" /></label>
+          <label class="menu-setting"><span>Mute all sound</span><input type="checkbox" id="set-mute" /></label>
           <button id="menu-back" class="menu-btn secondary">Back</button>
         </div>
+      </div>
+    </div>
+    <div id="settings-modal" hidden>
+      <div id="settings-modal-scroll" class="menu-scroll" role="dialog" aria-modal="true" aria-label="Settings">
+        <h2 class="menu-title">Settings</h2>
       </div>
     </div>
     <div id="command-bar" hidden>
@@ -672,6 +768,7 @@
     <div id="control-buttons">
       <button id="pause-btn" class="control-btn">Pause</button>
       <button id="restart-btn" class="control-btn">Restart</button>
+      <button id="settings-btn" class="control-btn">Settings</button>
       <button id="menu-btn" class="control-btn">Menu</button>
     </div>
     <div id="event-feed" aria-live="polite"></div>
@@ -702,6 +799,7 @@
           </span>
           <span id="stat-happiness">Happiness: 100%</span></div>
         <div id="stat-army">Knights 0  Archers 0  Militia 0  Bishops 0</div>
+        <div id="stat-difficulty"></div>
         <div id="stat-selected" hidden></div>
       </div>
       <div id="goods-scroll">

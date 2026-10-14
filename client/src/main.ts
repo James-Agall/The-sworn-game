@@ -21,8 +21,10 @@ import type {
   Stance,
   GravestoneSnapshot,
   GameEventCategory,
+  Difficulty,
 } from "./protocol";
-import { Biome, TILE_SIZE, TileType, VISION_RADIUS_COLONIST, VISION_RADIUS_PLAYER } from "./protocol";
+import { Biome, PLAYER_SPEED, TILE_SIZE, TileType, VISION_RADIUS_COLONIST, VISION_RADIUS_PLAYER } from "./protocol";
+import { SOUND_SILENT_RADIUS_TILES, SoundManager, proximityGain } from "./sound";
 
 const SERVER_URL = "ws://localhost:8080";
 
@@ -68,7 +70,7 @@ const TOOLS: ToolDef[] = [
     tile: TileType.TailorShop,
     label: "Tailor Shop",
     key: "t",
-    cost: "10 wood + 5 iron (upgradeable). Crafts 1 Wool + 1 Cotton → 1 Clothes",
+    cost: "10 wood + 5 iron (upgradeable). Crafts 1 Wool + 1 Hemp → 1 Clothes",
     category: "industry",
   },
   {
@@ -563,6 +565,62 @@ function hexToHue(hex: number): number {
   return h < 0 ? h + 1 : h;
 }
 
+// ---- Sound triggers (falloff, voice cap, cooldowns and per-key loudness live in sound.ts) ----
+const sound = new SoundManager();
+// While a worker stays in its work state it repeats its sound once per work cycle (server
+// CHOP_TICKS = 2 s, CRAFT_TICKS = 4 s), each colonist on its own random phase.
+const WORK_SOUND_INTERVAL_MS: Record<string, number> = {
+  tree_chop: 2000,
+  mine_pick: 2000,
+  farm_work: 2000,
+  craft_hammer: 4000,
+  heal_chime: 2400,
+};
+// Non-blacksmith artisans hammer quieter.
+const CRAFT_VOLUME_NON_SMITH = 0.6;
+// A mob growls (maybe) the first time it comes this close to the local player.
+const MOB_GROWL_RADIUS_TILES = 10;
+const MOB_GROWL_CHANCE = 0.5;
+// Horse: gallop loop while the local player moves faster than this (px/s); its playbackRate follows
+// speed / PLAYER_SPEED within these bounds. Jumps faster than HORSE_TELEPORT_SPEED are respawns.
+const HORSE_MOVING_MIN_SPEED = 20;
+const HORSE_RATE_MIN = 0.75;
+const HORSE_RATE_MAX = 1.15;
+const HORSE_TELEPORT_SPEED = PLAYER_SPEED * 3;
+// Setting off after standing this long may get a whinny.
+const HORSE_WHINNY_IDLE_MS = 10000;
+const HORSE_WHINNY_CHANCE = 0.3;
+// Ambient loops (water, campfires): nearest such tile within the silent radius, rescanned this often.
+const AMBIENT_SCAN_MS = 500;
+const AMBIENT_TILE_LOOPS: { tile: TileType; key: string; id: string }[] = [
+  { tile: TileType.Water, key: "water_ambient", id: "ambient-water" },
+  { tile: TileType.PropCampfire, key: "fire_crackle", id: "ambient-fire" },
+];
+// Dawn: chime, then the church bell this many seconds later.
+const DAWN_BELL_DELAY_S = 1.2;
+// A local placement counts as confirmed if its tileUpdate arrives within this window.
+const PLACEMENT_CONFIRM_MS = 2000;
+
+function workSoundKey(c: ColonistSnapshot): string | null {
+  switch (c.state) {
+    case "gathering":
+      if (c.kind === "lumberjack") return "tree_chop";
+      if (c.kind === "farmer") return "farm_work";
+      if (c.kind === "ironMiner" || c.kind === "rockMiner") return "mine_pick";
+      return null;
+    case "mining":
+      return "mine_pick";
+    case "farming":
+      return "farm_work";
+    case "crafting":
+      return "craft_hammer";
+    case "healing":
+      return c.kind === "bishop" ? "heal_chime" : null;
+    default:
+      return null;
+  }
+}
+
 async function main() {
   const app = new Application();
   await app.init({ background: "#1a1a1a", resizeTo: window });
@@ -937,6 +995,9 @@ async function main() {
   // A welcome (join or world restart) wipes every entity at once; that isn't a mass death.
   let suppressDeathPoofs = true;
   let readyFarmPlots = new Set<number>();
+  // True from a welcome until its first snapshot has been applied: state diffs then are a world
+  // load, not events, so they make no sound.
+  let soundSuppressed = true;
 
   function syncReadyFarmPlots(indices: number[]) {
     const next = new Set(indices);
@@ -944,6 +1005,13 @@ async function main() {
     readyFarmPlots = next;
     for (const index of changed) {
       if (tiles[index] !== TileType.FarmPlot) continue;
+      // Ripe or harvested. Not on the first snapshot after a welcome (that's every ready plot at once).
+      if (!soundSuppressed) {
+        sound.play("farm_work", {
+          x: (index % worldTilesX) * tileSize + tileSize / 2,
+          y: Math.floor(index / worldTilesX) * tileSize + tileSize / 2,
+        });
+      }
       setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), TileType.FarmPlot);
     }
   }
@@ -1284,11 +1352,17 @@ async function main() {
     }
   }
 
-  function pruneMissing(map: Map<string, EntityVisual>, seenIds: Set<string>, poofOnRemove = false) {
+  function pruneMissing(
+    map: Map<string, EntityVisual>,
+    seenIds: Set<string>,
+    poofOnRemove = false,
+    deathSound?: string
+  ) {
     for (const [id, entry] of Array.from(map)) {
       if (seenIds.has(id)) continue;
       if (poofOnRemove && !suppressDeathPoofs && entry.sprite.visible) {
         spawnDeathPoof(entry.sprite.position.x, entry.sprite.position.y);
+        if (deathSound) sound.play(deathSound, { x: entry.sprite.position.x, y: entry.sprite.position.y });
       }
       destroyVisual(map, id);
     }
@@ -1406,7 +1480,7 @@ async function main() {
 
   function syncColonists(snapshot: ColonistSnapshot[], isNight: boolean) {
     const seenIds = new Set(snapshot.map((c) => c.id));
-    pruneMissing(colonistSprites, seenIds, true);
+    pruneMissing(colonistSprites, seenIds, true, "colonist_death");
     for (const id of Array.from(colonistAnim.keys())) {
       if (!seenIds.has(id)) colonistAnim.delete(id);
     }
@@ -1497,7 +1571,7 @@ async function main() {
 
   function syncMobs(snapshot: MobSnapshot[]) {
     const seenIds = new Set(snapshot.map((m) => m.id));
-    pruneMissing(mobSprites, seenIds, true);
+    pruneMissing(mobSprites, seenIds, true, "monster_death");
     for (const id of Array.from(mobAnim.keys())) {
       if (!seenIds.has(id)) mobAnim.delete(id);
     }
@@ -1566,6 +1640,7 @@ async function main() {
         }
       }
       if (Math.random() < BLOOD_HIT_CHANCE) stampBlood(e.toX, e.toY, BLOOD_HIT_VARIANTS, BLOOD_HIT_SIZE);
+      sound.play("sword_hit", { x: e.toX, y: e.toY });
       const slash = addFx(FX_TEXTURES.slash, FX_SIZE.slash, e.toX, e.toY, 160, fadeOut);
       slash.rotation = angle;
       return;
@@ -1578,6 +1653,8 @@ async function main() {
     const distance = Math.hypot(e.toX - e.fromX, e.toY - e.fromY);
     const durationMs = Math.min(260, Math.max(60, distance / PROJECTILE_PX_PER_MS));
     const tint = isShaman ? SHAMAN_BOLT_TINT : 0xffffff;
+    // Shaman bolts are magic, not arrows: no bow sounds for them.
+    if (!isShaman) sound.play("arrow_shoot", { x: e.fromX, y: e.fromY });
     const projectile = addFx(
       isShaman ? FX_TEXTURES.spark : FX_TEXTURES.arrow,
       isShaman ? FX_SIZE.shamanBolt : FX_SIZE.arrow,
@@ -1585,7 +1662,10 @@ async function main() {
       e.fromY,
       durationMs,
       (s, t) => s.position.set(e.fromX + (e.toX - e.fromX) * t, e.fromY + (e.toY - e.fromY) * t),
-      () => spawnImpactSpark(e.toX, e.toY, tint)
+      () => {
+        spawnImpactSpark(e.toX, e.toY, tint);
+        if (!isShaman) sound.play("arrow_hit", { x: e.toX, y: e.toY });
+      }
     );
     projectile.rotation = angle;
     projectile.tint = tint;
@@ -1879,7 +1959,7 @@ async function main() {
         { key: "rock", label: "Rock" },
         { key: "gold", label: "Gold" },
         { key: "wool", label: "Wool" },
-        { key: "cotton", label: "Cotton" },
+        { key: "cotton", label: "Hemp" },
       ],
     },
     {
@@ -1913,11 +1993,98 @@ async function main() {
   const statSelectedEl = document.getElementById("stat-selected")!;
 
   const goodsValueEls = new Map<GoodKey, HTMLSpanElement>();
+  const workerCountEls = new Map<string, HTMLSpanElement>();
+  const goodsWorkerEls = new Map<GoodKey, HTMLSpanElement>();
+  // Which goods group a worker's job feeds: Food (barn farmers, pastures, orchards), Materials
+  // (lumberjacks, miners, wool/hemp fields) or Crafted (artisans). Null for non-workers.
+  function workerGroup(c: { kind: string; postX: number; postY: number }): string | null {
+    switch (c.kind) {
+      case "farmer":
+        return "Food";
+      case "lumberjack":
+      case "ironMiner":
+      case "rockMiner":
+        return "Materials";
+      case "artisan":
+        return "Crafted";
+      case "farmhand": {
+        const t = tileAt(c.postX, c.postY);
+        return t === TileType.WoolFarm || t === TileType.CottonFarm ? "Materials" : "Food";
+      }
+      default:
+        return null;
+    }
+  }
+  // The single resource a worker's job produces (artisans by their shop; the Tavern's brewers make gold).
+  function workerResource(c: { kind: string; postX: number; postY: number }): GoodKey | null {
+    switch (c.kind) {
+      case "farmer":
+        return "grain";
+      case "lumberjack":
+        return "wood";
+      case "ironMiner":
+        return "iron";
+      case "rockMiner":
+        return "rock";
+      case "farmhand": {
+        const t = tileAt(c.postX, c.postY);
+        return t === TileType.Orchard ? "fruit" : t === TileType.WoolFarm ? "wool" : t === TileType.CottonFarm ? "cotton" : "meat";
+      }
+      case "artisan": {
+        const t = tileAt(c.postX, c.postY);
+        return t === TileType.TailorShop
+          ? "clothes"
+          : t === TileType.Blacksmith
+          ? "tools"
+          : t === TileType.LuxuryWorkshop
+          ? "luxuryItems"
+          : t === TileType.Brewery
+          ? "alcohol"
+          : t === TileType.Tavern
+          ? "gold"
+          : null;
+      }
+      default:
+        return null;
+    }
+  }
+  function refreshWorkerCounts(colonists: { kind: string; state: string; postX: number; postY: number }[], isNight: boolean) {
+    const working: Record<string, number> = { Food: 0, Materials: 0, Crafted: 0 };
+    const total: Record<string, number> = { Food: 0, Materials: 0, Crafted: 0 };
+    for (const c of colonists) {
+      const group = workerGroup(c);
+      if (!group) continue;
+      total[group]++;
+      // Barn farmers have no work animation of their own (the plots grow while the barn is staffed),
+      // so by day they count as working.
+      if (COLONIST_ACTION_STATES.has(c.state) || (c.kind === "farmer" && !isNight)) working[group]++;
+    }
+    for (const [group, el] of workerCountEls) el.textContent = ` ${working[group]}/${total[group]} working`;
+    const resWorking = new Map<GoodKey, number>();
+    const resTotal = new Map<GoodKey, number>();
+    for (const c of colonists) {
+      const res = workerResource(c);
+      if (!res) continue;
+      resTotal.set(res, (resTotal.get(res) ?? 0) + 1);
+      if (COLONIST_ACTION_STATES.has(c.state) || (c.kind === "farmer" && !isNight)) {
+        resWorking.set(res, (resWorking.get(res) ?? 0) + 1);
+      }
+    }
+    for (const [res, el] of goodsWorkerEls) {
+      const total = resTotal.get(res) ?? 0;
+      el.textContent = total > 0 ? ` ${resWorking.get(res) ?? 0}/${total}` : "";
+    }
+  }
   const goodsListEl = document.getElementById("goods-list")!;
   for (const group of GOODS_GROUPS) {
     const heading = document.createElement("div");
     heading.className = "econ-heading";
     heading.textContent = group.heading;
+    const workerCount = document.createElement("span");
+    workerCount.className = "econ-workers";
+    workerCount.title = "Workers working / assigned";
+    heading.appendChild(workerCount);
+    workerCountEls.set(group.heading, workerCount);
     goodsListEl.appendChild(heading);
     for (const good of group.goods) {
       const row = document.createElement("div");
@@ -1926,9 +2093,15 @@ async function main() {
       label.className = "econ-label";
       const icon = document.createElement("img");
       icon.className = "econ-icon";
-      icon.src = `/sprites/icon-${good.key}.png`;
+      // The resource is Hemp (internal key "cotton" is kept so the protocol stays unchanged).
+      icon.src = `/sprites/icon-${good.key === "cotton" ? "hemp" : good.key}.png`;
       icon.alt = "";
       label.append(icon, good.label);
+      const workers = document.createElement("span");
+      workers.className = "econ-workers-row";
+      workers.title = "Workers working / assigned to this resource";
+      label.append(workers);
+      goodsWorkerEls.set(good.key, workers);
       const value = document.createElement("span");
       value.textContent = "0";
       row.append(label, value);
@@ -2377,6 +2550,132 @@ async function main() {
     showFormationMarker(plan, destX, destY, (queue.length - 1) * step);
   }
 
+  // ---- Sound triggers driven by snapshots ----
+  // colonist id -> its current work sound and when it next plays.
+  const workSoundTimers = new Map<string, { key: string; next: number }>();
+  const growledMobs = new Set<string>();
+  let lastMyHp: number | null = null;
+  let lastMyPos: { x: number; y: number; at: number } | null = null;
+  let horseIdleSince = performance.now();
+  let horseMoving = false;
+  let lastAmbientScan = 0;
+  // tile index -> {tile, at}: setTile requests we sent, so their tileUpdate can sound as ours.
+  const pendingPlacements = new Map<number, { tile: number; at: number }>();
+
+  function resetSoundState() {
+    soundSuppressed = true;
+    workSoundTimers.clear();
+    growledMobs.clear();
+    lastMyHp = null;
+    lastMyPos = null;
+    pendingPlacements.clear();
+  }
+
+  function soundOnSnapshot(snap: Extract<ServerMessage, { type: "snapshot" }>) {
+    sound.tileSize = tileSize;
+    sound.setMusicMode(snap.isNight ? "night" : "day");
+    const now = performance.now();
+    const me = snap.players.find((p) => p.id === myId);
+    if (me) {
+      sound.setListener(me.x, me.y);
+      if (lastMyHp !== null && me.hp < lastMyHp && !soundSuppressed) sound.play("player_hurt");
+      lastMyHp = me.hp;
+
+      let speed = 0;
+      if (lastMyPos && now > lastMyPos.at) {
+        speed = Math.hypot(me.x - lastMyPos.x, me.y - lastMyPos.y) / ((now - lastMyPos.at) / 1000);
+        if (speed > HORSE_TELEPORT_SPEED) speed = 0;
+      }
+      // Snapshots can arrive bunched; only resample the speed every ~80 ms.
+      if (!lastMyPos || now - lastMyPos.at >= 80) {
+        lastMyPos = { x: me.x, y: me.y, at: now };
+        const moving = speed > HORSE_MOVING_MIN_SPEED && !snap.isPaused;
+        if (moving && !horseMoving && now - horseIdleSince > HORSE_WHINNY_IDLE_MS && Math.random() < HORSE_WHINNY_CHANCE) {
+          sound.play("horse_whinny");
+        }
+        if (!moving && horseMoving) horseIdleSince = now;
+        horseMoving = moving;
+        const rate = Math.max(HORSE_RATE_MIN, Math.min(HORSE_RATE_MAX, speed / PLAYER_SPEED));
+        sound.setLoop("horse", "horse_gallop", moving ? 1 : 0, rate);
+      }
+
+      if (now - lastAmbientScan >= AMBIENT_SCAN_MS) {
+        lastAmbientScan = now;
+        const r = SOUND_SILENT_RADIUS_TILES;
+        const ptx = Math.floor(me.x / tileSize);
+        const pty = Math.floor(me.y / tileSize);
+        for (const loop of AMBIENT_TILE_LOOPS) {
+          let best = Infinity;
+          for (let ty = Math.max(0, pty - r); ty <= Math.min(worldTilesY - 1, pty + r); ty++) {
+            for (let tx = Math.max(0, ptx - r); tx <= Math.min(worldTilesX - 1, ptx + r); tx++) {
+              if (tiles[ty * worldTilesX + tx] !== loop.tile) continue;
+              best = Math.min(best, Math.hypot(tx * tileSize + tileSize / 2 - me.x, ty * tileSize + tileSize / 2 - me.y));
+            }
+          }
+          const level = best === Infinity ? 0 : proximityGain(best, 0, tileSize);
+          sound.setLoop(loop.id, loop.key, level);
+        }
+      }
+    }
+
+    // Workers: one sound per work cycle each, phase-staggered so a whole village doesn't hit in sync.
+    // Paused: the simulation is frozen, so nobody's working.
+    const seen = new Set<string>();
+    for (const c of snap.isPaused ? [] : snap.colonists) {
+      seen.add(c.id);
+      const key = workSoundKey(c);
+      if (!key) {
+        workSoundTimers.delete(c.id);
+        continue;
+      }
+      const interval = WORK_SOUND_INTERVAL_MS[key] ?? 2000;
+      const timer = workSoundTimers.get(c.id);
+      if (!timer || timer.key !== key) {
+        workSoundTimers.set(c.id, { key, next: now + Math.random() * interval * 0.5 });
+        continue;
+      }
+      if (now < timer.next) continue;
+      timer.next = now + interval;
+      const volume =
+        key === "craft_hammer" && tiles[c.postY * worldTilesX + c.postX] !== TileType.Blacksmith
+          ? CRAFT_VOLUME_NON_SMITH
+          : 1;
+      sound.play(key, { x: c.x, y: c.y, volume });
+    }
+    for (const id of Array.from(workSoundTimers.keys())) if (!seen.has(id)) workSoundTimers.delete(id);
+
+    // Mobs: maybe a growl the first time each comes within range (the per-key cooldown in sound.ts
+    // keeps a whole wave from growling at once).
+    const mobIds = new Set<string>();
+    const growlRangePx = MOB_GROWL_RADIUS_TILES * tileSize;
+    for (const m of snap.mobs) {
+      mobIds.add(m.id);
+      if (growledMobs.has(m.id) || !me) continue;
+      if (Math.hypot(m.x - me.x, m.y - me.y) > growlRangePx) continue;
+      growledMobs.add(m.id);
+      if (!soundSuppressed && Math.random() < MOB_GROWL_CHANCE) sound.play("monster_growl", { x: m.x, y: m.y });
+    }
+    for (const id of Array.from(growledMobs)) if (!mobIds.has(id)) growledMobs.delete(id);
+    soundSuppressed = false;
+  }
+
+  function soundOnEvent(category: GameEventCategory) {
+    if (category === "night") sound.play("night_sting", { priority: true });
+    else if (category === "dawn") {
+      sound.play("dawn_chime", { priority: true });
+      sound.play("church_bell", { priority: true, delay: DAWN_BELL_DELAY_S });
+    } else if (category === "upgrade") sound.play("build_upgrade", { priority: true });
+  }
+
+  function soundOnTileUpdate(tileX: number, tileY: number, tile: number) {
+    const index = tileY * worldTilesX + tileX;
+    const pending = pendingPlacements.get(index);
+    if (!pending) return;
+    pendingPlacements.delete(index);
+    if (pending.tile !== tile || performance.now() - pending.at > PLACEMENT_CONFIRM_MS) return;
+    sound.play("build_place", { x: tileX * tileSize + tileSize / 2, y: tileY * tileSize + tileSize / 2 });
+  }
+
   // ---- Networking ----
 
   const socket = new WebSocket(SERVER_URL);
@@ -2395,7 +2694,7 @@ async function main() {
     restartBtn.blur();
     if (!window.confirm("Restart the world for everyone connected?")) return;
     if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "restart" }));
+      socket.send(JSON.stringify({ type: "restart", difficulty: preferredDifficulty }));
     }
   });
 
@@ -2434,6 +2733,9 @@ async function main() {
     const message: ServerMessage = JSON.parse(event.data);
     if (message.type === "welcome") {
       myId = message.id;
+      // Claims the world's difficulty if nobody has yet (the server ignores it otherwise).
+      sendMessage({ type: "setDifficulty", difficulty: preferredDifficulty });
+      setActiveDifficulty(message.difficulty);
       tileSize = message.tileSize;
       worldTilesX = message.worldTilesX;
       worldTilesY = message.worldTilesY;
@@ -2441,6 +2743,7 @@ async function main() {
       biomes = message.biomes;
       resetMinimap(message.explored);
       suppressDeathPoofs = true;
+      resetSoundState();
       bloodOnNewGravestones = false;
       clearBlood();
       readyFarmPlots = new Set();
@@ -2482,6 +2785,7 @@ async function main() {
         }
         alive.add(c.id);
       }
+      refreshWorkerCounts(message.colonists, message.isNight);
       statArmyEl.textContent = `Knights ${counts.knight}  Archers ${counts.archer}  Militia ${counts.militia}  Bishops ${counts.bishop}`;
       // Drop dead units from the selection so the count and commands stay accurate.
       const stillSelected = Array.from(selectedIds).filter((id) => alive.has(id));
@@ -2494,6 +2798,7 @@ async function main() {
       }
       refreshEconomyPanel(message);
       statPopEl.textContent = `${message.population}/${message.populationCap}`;
+      setActiveDifficulty(message.difficulty);
       statTimeEl.textContent = message.isNight ? "Night" : "Day";
       sundialEl.classList.toggle("night", message.isNight);
       sundialHandEl.setAttribute("transform", `rotate(${message.cycleProgress * 360})`);
@@ -2520,11 +2825,14 @@ async function main() {
       drawHpBar(townCenterHpBar, message.townCenterHp, message.townCenterMaxHp);
       for (const effect of message.effects) spawnEffect(effect);
       drawMinimap(message.players, message.colonists, message.mobs);
+      soundOnSnapshot(message);
     } else if (message.type === "tileUpdate") {
+      soundOnTileUpdate(message.tileX, message.tileY, message.tile);
       setTileLocal(message.tileX, message.tileY, message.tile);
       paintMinimapTile(message.tileY * worldTilesX + message.tileX);
     } else if (message.type === "event") {
       pushEventToast(message.category, message.text);
+      soundOnEvent(message.category);
     } else if (message.type === "explored") {
       markExplored(message.tiles);
     }
@@ -2584,6 +2892,7 @@ async function main() {
         socket.send(JSON.stringify({ type: "attack" }));
         // Immediate feedback even when the swing hits nothing (no server effect then).
         if (myId) triggerPlayerAttackAnim(myId);
+        sound.play("sword_swing");
       }
     }
   });
@@ -2675,6 +2984,9 @@ async function main() {
     if (!tile) return;
     if (socket.readyState !== socket.OPEN) return;
     const value = e.button === 2 ? currentTool : TileType.Empty;
+    if (value !== TileType.Empty) {
+      pendingPlacements.set(tile.tileY * worldTilesX + tile.tileX, { tile: value, at: performance.now() });
+    }
     socket.send(
       JSON.stringify({ type: "setTile", tileX: tile.tileX, tileY: tile.tileY, tile: value })
     );
@@ -2785,13 +3097,41 @@ async function main() {
 }
 
 // Main menu: the game (and its server connection) only starts once Start is pressed. Settings are
-// client-only display prefs kept in localStorage. "Menu" in-game just reloads back to this screen.
+// client-only prefs kept in localStorage, plus the Difficulty choice that's sent to the server on
+// join. There is ONE settings panel: it lives in the main menu until Start, then moves into the
+// in-game #settings-modal (opened by the Settings control button). "Menu" in-game reloads back here.
+const DIFFICULTY_PREF_KEY = "sworn.difficulty";
+const DIFFICULTY_LABEL: Record<Difficulty, string> = { easy: "Easy", normal: "Normal", hard: "Hard" };
+// The menu choice: sent as setDifficulty after every welcome, and with an in-game Restart.
+let preferredDifficulty: Difficulty = "normal";
+let gameStarted = false;
+// The world's active difficulty as the server reports it (null until the first welcome).
+let activeDifficulty: Difficulty | null = null;
+
+function renderDifficultyChoice(value: Difficulty) {
+  document.querySelectorAll<HTMLButtonElement>("#set-difficulty button").forEach((btn) => {
+    btn.setAttribute("aria-checked", String(btn.dataset.difficulty === value));
+  });
+}
+
+// Called from main() on every welcome/snapshot; cheap no-op unless the value changed.
+function setActiveDifficulty(value: Difficulty) {
+  if (value === activeDifficulty) return;
+  activeDifficulty = value;
+  document.getElementById("stat-difficulty")!.textContent = `${DIFFICULTY_LABEL[value]} difficulty`;
+  if (gameStarted) renderDifficultyChoice(value);
+}
+
 function setupMainMenu() {
   const menu = document.getElementById("main-menu")!;
   const mainPanel = document.getElementById("menu-main")!;
   const settingsPanel = document.getElementById("menu-settings-panel")!;
+  const settingsModal = document.getElementById("settings-modal")!;
+  const settingsModalScroll = document.getElementById("settings-modal-scroll")!;
   const minimapBox = document.getElementById("set-minimap") as HTMLInputElement;
   const eventsBox = document.getElementById("set-events") as HTMLInputElement;
+  const difficultySeg = document.getElementById("set-difficulty")!;
+  const difficultyNote = document.getElementById("set-difficulty-note")!;
 
   const load = (key: string): boolean => {
     try {
@@ -2811,6 +3151,34 @@ function setupMainMenu() {
     document.body.classList.toggle("hide-minimap", !minimapBox.checked);
     document.body.classList.toggle("hide-events", !eventsBox.checked);
   };
+  // Sound: sliders/mute edit sound.volumes live (persisted by SoundManager). The AudioContext is
+  // created on the first menu click (a user gesture), at the latest on Start.
+  const volumeInputs: { el: HTMLInputElement; key: "master" | "music" | "sfx" }[] = [
+    { el: document.getElementById("set-vol-master") as HTMLInputElement, key: "master" },
+    { el: document.getElementById("set-vol-music") as HTMLInputElement, key: "music" },
+    { el: document.getElementById("set-vol-sfx") as HTMLInputElement, key: "sfx" },
+  ];
+  const muteBox = document.getElementById("set-mute") as HTMLInputElement;
+  for (const { el, key } of volumeInputs) {
+    el.value = String(Math.round(sound.volumes[key] * 100));
+    el.addEventListener("input", () => sound.setVolumes({ [key]: Number(el.value) / 100 }));
+    // A sample at the new level once the slider is released.
+    if (key !== "music") el.addEventListener("change", () => sound.play("ui_click", { cooldownMs: 0 }));
+  }
+  muteBox.checked = sound.volumes.muted;
+  muteBox.addEventListener("change", () => sound.setVolumes({ muted: muteBox.checked }));
+  document.addEventListener(
+    "pointerdown",
+    () => {
+      if (!sound.unlocked) sound.unlock();
+    },
+    { capture: true }
+  );
+  document.addEventListener("click", (e) => {
+    const el = e.target as HTMLElement | null;
+    if (el?.closest("button, #build-panel-toggle, #economy-panel-toggle")) sound.play("ui_click");
+  });
+
   minimapBox.checked = load("sworn.minimap");
   eventsBox.checked = load("sworn.events");
   apply();
@@ -2823,8 +3191,43 @@ function setupMainMenu() {
     apply();
   });
 
+  try {
+    const stored = localStorage.getItem(DIFFICULTY_PREF_KEY);
+    if (stored === "easy" || stored === "normal" || stored === "hard") preferredDifficulty = stored;
+  } catch {
+    /* default stays Normal */
+  }
+  renderDifficultyChoice(preferredDifficulty);
+  difficultySeg.addEventListener("click", (e) => {
+    // Read-only once the game is running: the world's difficulty is fixed until a restart.
+    if (gameStarted) return;
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-difficulty]");
+    const value = btn?.dataset.difficulty;
+    if (value !== "easy" && value !== "normal" && value !== "hard") return;
+    preferredDifficulty = value;
+    renderDifficultyChoice(value);
+    try {
+      localStorage.setItem(DIFFICULTY_PREF_KEY, value);
+    } catch {
+      /* private mode: setting just won't persist */
+    }
+  });
+
+  const closeModal = () => {
+    settingsModal.hidden = true;
+  };
   document.getElementById("menu-start")!.addEventListener("click", () => {
+    sound.unlock();
     menu.hidden = true;
+    gameStarted = true;
+    // Hand the one settings panel over to the in-game modal.
+    settingsModalScroll.appendChild(settingsPanel);
+    settingsPanel.hidden = false;
+    difficultySeg.classList.add("readonly");
+    difficultySeg.setAttribute("aria-disabled", "true");
+    difficultyNote.textContent = "Fixed for this world; a Restart uses your menu choice";
+    document.getElementById("menu-back")!.textContent = "Close";
+    if (activeDifficulty) renderDifficultyChoice(activeDifficulty);
     void main();
   });
   document.getElementById("menu-settings")!.addEventListener("click", () => {
@@ -2832,8 +3235,29 @@ function setupMainMenu() {
     settingsPanel.hidden = false;
   });
   document.getElementById("menu-back")!.addEventListener("click", () => {
+    if (gameStarted) {
+      closeModal();
+      return;
+    }
     settingsPanel.hidden = true;
     mainPanel.hidden = false;
+  });
+  document.getElementById("settings-btn")!.addEventListener("click", (e) => {
+    (e.currentTarget as HTMLButtonElement).blur();
+    settingsModal.hidden = !settingsModal.hidden;
+  });
+  // Backdrop click or Escape closes; keys typed into the panel (arrows on a slider) don't reach the
+  // game's movement/hotkey handlers on window.
+  settingsModal.addEventListener("click", (e) => {
+    if (e.target === settingsModal) closeModal();
+  });
+  settingsModal.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeModal();
+    e.stopPropagation();
+  });
+  // Escape with focus outside the panel (e.g. right after opening it).
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !settingsModal.hidden) closeModal();
   });
   document.getElementById("menu-exit")!.addEventListener("click", () => {
     // Browsers only let a script close a tab it opened; otherwise show a goodbye line.

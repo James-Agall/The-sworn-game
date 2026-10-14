@@ -252,11 +252,40 @@ bestiary, translated to gameplay):
 Visually distinct (tint/aura + name label), rare spawn chance scaling with day, bonus gold/loot
 on kill.
 
-### Phase 7 — Sound (plan only, not built yet)
-Free/CC0 sources (Kenney.nl, OpenGameArt, itch.io free packs) once you want to move on this.
-Categories: UI clicks/placement, chop/mine, combat hit/death, night-falling sting, victory
-jingle, ambient day/night loop. Implementation: a client-side `SoundManager` over the Web Audio
-API, preloaded short clips, triggered off the Phase 2 event feed plus local UI actions.
+### Phase 7 — Sound — Landed 2026-10-14 (uncommitted)
+- **`client/src/sound.ts` `SoundManager`:** uses the Web Audio API. The AudioContext is created on
+  the first menu click and resumed on Start. Sounds come from `/audio/manifest.json`
+  (`{sfx:{key:[variants]}, music:{day,night}}`). Each sound picks a random variant with a slight
+  pitch change. Decoded clips are cached. A missing manifest, key or file stays silent.
+- **Proximity:** positional sounds play at full volume within 2 tiles of the local player and fade
+  to silence by 14 tiles, with mild stereo pan. The engine plays at most 12 one-shots at once, and
+  each key has a cooldown. Tunables are at the top of `sound.ts`.
+- **Triggers:** all client-side, with no server changes.
+  - Work: chop, mine, farm, craft (louder at the Blacksmith) and bishop heal. Each worker plays
+    once per work cycle, on its own phase. Farm plots sound when they ripen or are harvested.
+  - Combat: melee hits and the player's own swing. Archers have bow and arrow-impact sounds.
+  - Deaths: colonist and monster deaths, on the same logic as the poof.
+  - Player: a hurt sound when hp drops. A gallop loop plays while you move, with cadence tied to
+    speed, and the odd whinny when you set off.
+  - Monsters: the odd growl when a monster first comes within 10 tiles.
+  - Ambient: water and campfire loops by distance.
+  - Building and UI: UI clicks, your own building placement, and upgrade toasts.
+  - Day and night: a sting at nightfall, and a chime plus church bell at dawn. Trigger tunables are
+    the constants above `main()` in `main.ts`.
+- **Music:** a calm day track and a tense night track, crossfading over 3 s at the day/night
+  switch. Music starts only after Start. Everything suspends while the tab is hidden.
+- **Settings:** Master, Music and Effects sliders plus Mute, saved in localStorage
+  (`sworn.sound`). One settings panel serves both the main menu and the new in-game **Settings**
+  button, which opens it as a modal.
+- **Difficulty (shipped with this phase):** Easy, Normal or Hard on the menu (`sworn.difficulty`).
+  The client sends it as `setDifficulty`, and welcome and snapshot carry the world's value. It
+  scales night-wave mobs only. Hard is damage x1.35, hp x1.3 and spawn cap x1.35. Easy is
+  0.75 / 0.8 / 0.75. The multipliers are the `DIFFICULTY_*` constants in `server/src/index.ts`.
+  The first claim after a fresh world or restart wins. A solo player may re-pick on day 1, and
+  Restart sends the restarter's choice. In-game the setting is read-only, and the Colony panel
+  shows it.
+- Tests: `server/difficulty-test.mjs` (private port) and `node client/sound-test.mjs` (falloff,
+  manifest and volume parsing, missing-audio handling, on-disk manifest files).
 
 ### Art batch — landed 2026-10-14 (client-only, uncommitted)
 Seven new source sheets, wired client-side. The server and `protocol.ts` are unchanged. Details are

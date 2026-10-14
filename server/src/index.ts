@@ -12,6 +12,7 @@ import {
   Stance,
   GameEventCategory,
   GravestoneSnapshot,
+  Difficulty,
   TileType,
   Biome,
   isSolidTile,
@@ -601,6 +602,40 @@ function goldForKill(mob: Mob): number {
   return Math.max(GOLD_PER_KILL_MIN, Math.round((mob.maxHp + mob.damage * 2) / GOLD_PER_KILL_BASE_DIVISOR));
 }
 let mobSpawnCooldown = MOB_SPAWN_INTERVAL_TICKS;
+
+// Difficulty (chosen on the client's main menu). Scales NIGHT-WAVE mobs only (spawnMob and the
+// night spawn cap); POI guardians, deserters and the Half-Latch are untouched.
+interface DifficultyTuning {
+  mobDamage: number;
+  mobHp: number;
+  spawnCount: number;
+}
+const DIFFICULTY_EASY: DifficultyTuning = { mobDamage: 0.75, mobHp: 0.8, spawnCount: 0.75 };
+const DIFFICULTY_NORMAL: DifficultyTuning = { mobDamage: 1, mobHp: 1, spawnCount: 1 };
+const DIFFICULTY_HARD: DifficultyTuning = { mobDamage: 1.35, mobHp: 1.3, spawnCount: 1.35 };
+const DIFFICULTY_TUNING: Record<Difficulty, DifficultyTuning> = {
+  easy: DIFFICULTY_EASY,
+  normal: DIFFICULTY_NORMAL,
+  hard: DIFFICULTY_HARD,
+};
+// The world-wide setting. The first setDifficulty after a fresh (re)start claims it; later ones are
+// ignored unless the world is still on its first day with only the sender connected (so a solo
+// player can change their mind) or a restart carries a new value.
+let difficulty: Difficulty = "normal";
+let difficultyClaimed = false;
+function isDifficulty(value: unknown): value is Difficulty {
+  return value === "easy" || value === "normal" || value === "hard";
+}
+function handleSetDifficulty(value: unknown) {
+  if (!isDifficulty(value)) return;
+  const soloFirstDay = players.size <= 1 && cycleTick < DAY_TICKS;
+  if (difficultyClaimed && !soloFirstDay) return;
+  difficulty = value;
+  difficultyClaimed = true;
+}
+function nightMobMaxCount(): number {
+  return Math.max(1, Math.round(currentMobMaxCount() * DIFFICULTY_TUNING[difficulty].spawnCount));
+}
 
 interface MobKindConfig {
   maxHp: number;
@@ -1560,6 +1595,11 @@ function processRespawnQueue() {
     const req = respawnQueue[i];
     const currentTile = tiles[tileIndex(req.tx, req.ty)] as TileType;
     if (!isValidPostTile(req.kind, currentTile)) {
+      respawnQueue.splice(i, 1);
+      continue;
+    }
+    // A barn only ever has one farmer: drop a queued replacement if one is already there.
+    if (req.kind === "farmer" && isBarnStaffed(req.tx, req.ty)) {
       respawnQueue.splice(i, 1);
       continue;
     }
@@ -2730,19 +2770,21 @@ function spawnMob() {
   const dayIndex = Math.floor(cycleTick / (DAY_TICKS + NIGHT_TICKS));
   const kind = pickMobKindForSpawn(dayIndex);
   const config = MOB_KIND_CONFIG[kind];
+  const tuning = DIFFICULTY_TUNING[difficulty];
+  const maxHp = Math.max(1, Math.round(config.maxHp * tuning.mobHp));
   const mob: Mob = {
     id: randomUUID(),
     kind,
     x: center.x,
     y: center.y,
-    hp: config.maxHp,
-    maxHp: config.maxHp,
+    hp: maxHp,
+    maxHp,
     path: [],
     repathCooldown: 0,
     targetType: null,
     targetId: null,
     attackCooldownTicks: 0,
-    damage: config.damage,
+    damage: Math.max(1, Math.round(config.damage * tuning.mobDamage)),
     speed: config.speed,
     range: config.range,
     melee: config.melee,
@@ -3464,11 +3506,18 @@ function sendWelcome(player: Player) {
     tiles: Array.from(tiles),
     biomes: Array.from(biomes),
     explored: packExplored(),
+    difficulty,
   };
   player.socket.send(JSON.stringify(welcome));
 }
 
-function resetWorld() {
+function resetWorld(nextDifficulty?: unknown) {
+  // A restart reopens the difficulty claim; a value sent with the restart claims it straight away.
+  difficultyClaimed = false;
+  if (isDifficulty(nextDifficulty)) {
+    difficulty = nextDifficulty;
+    difficultyClaimed = true;
+  }
   // mobs/colonists must be cleared before generateWorld, which spawns the fresh POI guardians and
   // Abbey clergy.
   colonists.clear();
@@ -3563,7 +3612,9 @@ wss.on("connection", (socket) => {
     } else if (message.type === "pause") {
       isPaused = !isPaused;
     } else if (message.type === "restart") {
-      resetWorld();
+      resetWorld(message.difficulty);
+    } else if (message.type === "setDifficulty") {
+      handleSetDifficulty(message.difficulty);
     } else if (message.type === "commandMove") {
       handleCommandMove(message.unitIds, message.x, message.y);
     } else if (message.type === "commandAttack") {
@@ -4046,7 +4097,7 @@ setInterval(() => {
       if (!suppressMobSpawnTonight) {
         if (mobSpawnCooldown > 0) {
           mobSpawnCooldown--;
-        } else if (activeMobCount() < currentMobMaxCount()) {
+        } else if (activeMobCount() < nightMobMaxCount()) {
           spawnMob();
           mobSpawnCooldown = MOB_SPAWN_INTERVAL_TICKS;
         }
@@ -4180,6 +4231,7 @@ setInterval(() => {
     taskForces: taskForcesForSnapshot(),
     readyFarmPlots: readyFarmPlotIndices(),
     gravestones,
+    difficulty,
   };
   pendingEffects = [];
 
