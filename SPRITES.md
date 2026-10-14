@@ -20,8 +20,17 @@ rather than giving a pixel number.
 **Colonists (static pose, 12):** lumberjack, farmer, knight, archer, ironMiner, rockMiner, bishop,
 farmhand, artisan, militia, spearman, pikeman.
 
-**Player:** player.png (mounted knight on horse, recolored per-player via a hue-shift shader on
-the banner/barding).
+**Player (walk + attack animated):** `playerWalk0-3` (mounted knight with banner) and
+`playerAttack0-1` (lance thrust, no banner), cut from `art-sources/Mounted Knight Pixel Art Sprite
+Sheet.png`. Wired as `PLAYER_ANIM_URLS` in `client/src/main.ts`: walk while moving, idle = walk
+frame 0, and the thrust plays once on the local Space press or when a melee effect originates at a
+player's position (so other players' attacks animate too). Both rows are centered on the horse's
+body (bottom 130px), not the banner or lance, so the feet-pinned row swap doesn't hop. The blue
+banner/barding hues match the old art (99.8% of blue pixels fully inside the recolor shader's hue
+gate), so the per-player hue shift still works. `PLAYER_SPRITE_HEIGHT` went 64 -> 68 so the horse
+keeps its old ~40px on-screen width under the taller banner. `player.png` stays as the fallback
+if any frame fails to load. `playerIdle.png` (the banner standing frame) is extracted but unused,
+per the idle = walk-frame-0 convention.
 
 **Monsters (10 kinds, walk + attack animated):** goblin, wolf, goblinCrossbow, orc, skeleton,
 armoredOrc, giantSpider, darkShaman, troll, ogre. Each kind has `<kind>Walk0-3` + `<kind>Attack0-2`
@@ -83,6 +92,40 @@ unused: every colonist, soldier or monster death drops one (random variant) at t
 
 **Decorative nature scatter:** tallGrass, flowers1, bush3.
 
+**Fire and water loops (4 frames each):** `campfire0-3`, `lanternPost0-3`, `waterTile0-3`, from
+`art-sources/Pixel Art Fire and Water Sprite Sheet.png` (flood-filled off its light vignette; the
+water tiles are straight square crops resized to 64x64). Wired via `TILE_ANIM` in `main.ts`: one
+shared clock steps every animated tile slot (no per-sprite timers), campfire 140ms/frame, lantern
+200ms, water 450ms. Fires are phase-offset per tile by a stable hash; water stays in sync so
+neighbours line up. Each loop shares one canvas, so the box-fit scale from frame 0 holds for every
+frame. The static `campfire.png`/`lanternPost.png`/`waterTile.png` stay as fallbacks.
+
+**Blood splatters (6):** `bloodSplatter0-5` (small blob, medium splash, large splash, streak, pool,
+faded pool), from `art-sources/Pixel Art Blood Splatter Sprite Sheet.png` (saturated-red mask
+plus the dark outline hugging it). Client-only: 35% of melee hits stamp a small one (0/1/3, 12px),
+and every new gravestone (i.e. every death) stamps a large one (2/4/5, 22px). They sit at 60% alpha
+in the bottom of the decor layer, with a random flip. The oldest is dropped past 80, and all are
+cleared when the snapshot flips from night to day (the same dawn at which the server clears the
+gravestones) and on any welcome/restart.
+
+**Ambient wildlife (client-only):** `deerWalk0-3` + `deerGraze0-1` (one shared canvas), `crow0-3`
+(perch + 3 flap frames), `frog0-2` (sit, leap, sit), from `art-sources/Pixel Wildlife and Wound
+Overlay Sheet.png`. Spawned per client on every welcome (`WILDLIFE` in `main.ts`): deer on Plains,
+frogs on Swamp or next to Water, crows on any Empty tile, with counts scaling with the eligible area
+and capped (24/16/14). They wander near their spawn point and only ever target a tile that is
+Empty at that moment. They never reach the server: no collision, no targeting, no gameplay effect.
+Deer graze while resting. Crows flap to a new perch on an arc, drawn over everything while flying.
+Frogs hop with a small arc. They're depth-sorted in the tile layer by the tile they stand on, so
+buildings in front hide them, and the night overlay dims them.
+
+**Event toast icons (6):** `icon-event-night/dawn/upgrade/death/ward/deserter`, from
+`art-sources/Pixel Art Icon Sheet_ Events and Orders.png`, labels masked. Shown at 18px
+(`.event-icon`) at the start of each toast in the event feed, picked by the event's category.
+
+**Stance icons (3):** `icon-stance-defensive/normal/aggressive` (same sheet). Shown at 15px in the
+"Selected: N · <stance> (Z/X/E)" HUD line when the selection shares one stance. "Mixed" keeps text
+only.
+
 **Town Center:** dedicated `townCenter.png`, a plaza scene with a ring of timber buildings,
 a central statue fountain, market stalls and its own cobble/grass ground patch. It is cut from
 `art-sources/Isometric Medieval Landmark Collection.png`. It replaces the old procedural
@@ -92,6 +135,22 @@ renders 3.5 tiles wide (`TOWN_CENTER_WIDTH_TILES`, 112x72px), and the anchor
 The HP bar sits just above the art's flag, about 54px above the tile center (it used to be 24px).
 
 **Sourced but not wired (design calls pending):**
+- `castleRuin.png` (`art-sources/Isometric Castle Ruin and Gate Sprite Sheet.png`): the Phase 5
+  Castle Ruin landmark, a collapsed keep with toppled towers on its own ground patch. Needs its
+  own size/anchor like the Town Center when Phase 5 lands.
+- `gateWoodClosed/Open/Damaged.png` and `gateStoneClosed/Open/Damaged.png` (same sheet): the full
+  state sets for the gates below, cut tight per state (not a shared canvas yet; align them when
+  wired). `art-sources/Medieval Gate Sprite Sheet.png` is a second, lower-quality painterly gate
+  set and was not extracted.
+- `torch0-3.png` (fire/water sheet): a 4-frame wall torch loop. There's no torch prop or wall-mount
+  spot yet; it's meant for gates and castle walls.
+- `icon-order-move/attack/rally.png` (icon sheet): command icons. No existing UI spot shows them
+  (move/attack orders draw a Graphics marker), so they're staged for a future cursor or command bar.
+- `playerIdle.png`: see Player above.
+- `woundLight/Bleeding/Heavy.png` + `...Large.png`: the source sheet drew the wound overlays as
+  pre-baked example units (a front-facing humanoid and ogre), not clean decals. These are just the
+  red pixels lifted off those units: rough, front-facing, positioned for that body. They're not good
+  enough to overlay on our side-facing units, so they're staged only (prompt #24 still stands).
 - `castleKeep.png` (same landmark sheet): a walled castle with four towers and a gatehouse ramp.
   A possible Castle Lv3 look, but it would replace `castleLv3.png` and needs its own size/anchor
   like the Town Center. Its ground patch touches the right edge of the source image.
@@ -163,20 +222,7 @@ visual-only (the `activeEffects` system in `main.ts`):
 
 ## Outstanding — with ready-to-use prompts
 
-### 11. Blood splatter (ground decal, one batched sheet)
-
-For the combat-feedback plan (`ROADMAP.md` §7 Phase 2): a persistent ground stain at a hit/death
-location, distinct from the existing `fx-*` effects (which are all short-lived and attached to the
-attacker/target/death point, not left behind on the ground). Meant to be stamped onto the floor
-layer and cleared the same way a future Gravestone would be (next day-cycle boundary), not faded
-out in milliseconds like `fx-poof`.
-
-> Pixel art ground decal sprite sheet, chunky 16-bit retro style, thick black outline where the splatter's edge is crisp, flat cel-shaded coloring, dark saturated red. Four variants of a blood splatter stain, each a different size and spray shape (a small spatter of a few drops, a medium splash with a few trailing droplets, a larger irregular pool, and an asymmetric directional spray as if flung sideways), each viewed top-down/angled to sit flat on the ground like the existing Farm Plot or floor tiles. Each on its own transparent square, consistent canvas scale across all four so any one can be picked at random. No outline around the whole square, only around the stain's own silhouette. Clean PNG with transparency.
-
-Once sourced, extract the 4 variants (e.g. `bloodSplatter0-3.png`) and wire into `client/src/main.ts`:
-stamp one (random variant, slight random rotation) into the floor/decor layer at a hit location
-(reuse the melee-hit `AttackEffect` the combat-VFX work already added) and/or a death location,
-and clear it at the same day-cycle boundary a future Gravestone feature would use.
+(#11, #13, #17-#23 were sourced on 2026-10-14 and removed. See "Already sourced" above.)
 
 ---
 
@@ -187,13 +233,6 @@ cel-shaded color, transparent background, one generation per block, and an expli
 anchoring size to an existing sprite. Grouped by the feature they unlock.
 
 ### Combat feedback & world life
-
-### 13. Player (mounted knight) walk + attack cycle
-
-`player.png` is a single static pose; the player is the only unit that still glides without animating.
-The blue banner and horse barding are recolored per player by a hue-shift shader, so keep those parts
-a flat saturated blue and everything else (armor, horse, tack) neutral.
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, outline weight, color palette and rider-plus-horse proportions of the existing player.png (armored knight on a grey horse carrying a tall blue banner). **Scale: identical to player.png (the whole mounted figure, banner included, is about 64px tall on screen, roughly 2.3x the height of a foot soldier); keep the horse and rider the same size in every frame.** In one image: Row 1 "Walk Cycle" — 4 frames, same scale and 3/4 camera angle facing right in every frame, horse in a steady walk with a slight rider bob and the banner swaying. Row 2 "Attack Cycle" — 3 frames: lance or sword raised and wound back, strike forward, recovery. Keep the banner flat saturated blue. Transparent background, feet/hooves on the bottom edge of a shared canvas, clean PNG.
 
 ### 14. Ward Priest — dedicated sprite + walk/tend cycle
 
@@ -210,41 +249,13 @@ For Phase 5's boss: "a bigger version of our most powerful mob." Needs its own l
 For Phase 6's Hunger-marked elites (`my_novel/lore/bestiary.md`). Each mark needs a small glyph shown above the monster plus a faint aura ring decal drawn on the ground under it.
 > Pixel art icon set, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, small and simple enough to read at 14-18px display size. Six sinister sigils, each a distinct silhouette and a distinct glowing color so they can be told apart at a glance: **Gorrath** (destruction) — a jagged red-black flame with a shattered blade through it; **Nemri** (trespass) — a hollow doorway with a keyhole, cold teal; **Rux** (false authority) — a smiling theatre mask under a broken crown, sickly yellow; **Morvain** (concealment) — a half-veiled eye that is mostly smoke, violet; **Gunne** (what is lost) — an empty cradle or a single falling tear, pale blue-grey; **Vhorrun** (the unclosed debt) — a loose chain looped around itself, never joined, dull bone-white. Arrange as a clean grid, each on its own transparent square, consistent outline weight. **Scale: each glyph about 18x18px, the same icon scale as the resource icons (icon-wood etc.).** Then a second row of six matching ground-aura ring decals: a flat elliptical glowing ring in the same color with faint matching rune ticks, semi-transparent, drawn as if lying on the ground, each about 56x28px (about 2x as wide as a Troll). Clean PNG with transparency.
 
-### 17. Castle Ruin — large ruined castle POI (Phase 5 objective)
-
-> Pixel art isometric building sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated dark palette. A collapsed, overgrown ruin of the same grand castle shown in the existing Castle Keep sprite: the central keep with a broken, half-fallen top and exposed floors, two of the corner towers toppled into rubble, cracked curtain walls with big breaches, a sagging gatehouse with a torn dark banner, ivy and weeds on the stone, scattered stone blocks and bone piles in the courtyard, a faint cold green-grey glow in the windows suggesting something lives inside. Dark, menacing, clearly the same architecture as the intact Keep but long abandoned. Include its own ground patch, like the other landmark sprites. Match the exact style, outline weight, color palette and lighting of the existing Castle Keep and Town Center landmark sprites. **Scale: about the same footprint as the Castle Keep landmark (roughly 4-5 tiles wide on screen, far larger than a normal Ruin prop, which is about one tile).** Single static scene, transparent background, clean PNG.
-
-### 18. Gate open / closed / damaged states (for the unwired `gateWood` / `gateStone`)
-
-Only needed once Gates exist as a buildable.
-> Pixel art isometric building sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art, proportions and palette of the existing gateWood and gateStone sprites. For EACH of the two gates provide three states, laid out as two rows (wood on top, stone below) with columns "Closed", "Open", "Damaged": Closed = as in the existing sprite; Open = the same gate with the wooden doors swung fully open (or the stone portcullis raised), path clearly visible through it; Damaged = closed but splintered/cracked, a door hanging from one hinge or the portcullis bent, scorch marks. **Scale: identical to the existing gateWood and gateStone sprites in every state (same canvas size and ground patch), so the states can be swapped in place without the building appearing to move.** Transparent background, clean PNG.
-
 ### Polish, animation and UI
 
-### 19. Fire and light flicker (campfire, lantern post, torch)
-
-> Pixel art animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, warm saturated flame colors. Match the exact art and scale of the existing campfire.png and lanternPost.png sprites. Three rows, each 4 frames of a looping flicker, same canvas and camera angle in every frame so only the flame/glow changes: Row 1 the campfire (ring of stones, flames licking up and shifting), Row 2 the lantern post (lantern flame wavering, a faint glow), Row 3 a wall torch (a new small prop: iron bracket with a flaming torch, the same style) for gates and castle walls. **Scale: campfire and lantern post identical to their existing sprites (about one tile wide on screen); the torch about 12x24px.** Transparent background, clean PNG.
-
-### 20. Water ripple (4-frame tile loop)
-
-> Pixel art tile animation, chunky 16-bit retro style, flat cel-shaded coloring. Match the exact style and size of the existing waterTile.png (a flat top-down/angled water tile). Four frames of a seamless looping ripple: subtle lighter-blue highlight lines and a few tiny sparkles shifting position each frame, base color unchanged, edges identical in every frame so adjacent tiles never show seams. **Scale: each frame exactly the same canvas size as waterTile.png (one tile).** Arranged in a single row, clean PNG.
-
-### 21. Event toast icons (6)
-
-For the Phase 2 notification feed, one small icon per event category.
-> Pixel art icon set, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, readable at 16px. Same style, outline weight and polish as the existing resource icons (icon-wood, icon-gold, icon-tools). Six icons: **night** — a crescent moon with a star; **dawn** — a low sun rising over a horizon line; **upgrade** — a hammer over an upward arrow; **death** — a small gravestone with a cross; **ward** — a standing stone with a glowing rune; **deserter** — a torn banner dragged on the ground. Each on its own transparent square, consistent scale. **Scale: each icon about 16x16px, the same as the existing resource icons.** Clean PNG with transparency.
-
-### 22. Stance and order icons (3 stances + 3 cursors)
-
-For the stance HUD line (Defensive / Normal / Aggressive, keys Z / X / E) and command cursors.
-> Pixel art icon set, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, readable at 16px, matching the existing resource icons. Row 1, three stance icons: **Defensive** — a heater shield; **Normal** — a plain sword point-up; **Aggressive** — two crossed swords with a small flame. Row 2, three cursor icons about 24px: **Move** — a boot print / chevron arrow; **Attack** — a sword with a small red target ring; **Rally** — a small blue pennant on a pole. **Scale: stance icons 16x16px (same as the resource icons); cursors 24x24px.** Each on its own transparent square. Clean PNG with transparency.
-
-### 23. Ambient wildlife (deer, crow, frog)
-
-Small non-hostile decoration that makes the map feel alive; wanders, never attacks.
-> Pixel art animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted natural palette matching the grass and swamp floor tiles. Three creatures, each with a short loop, all facing right and sharing one canvas per row with feet on the bottom edge: a **deer** (4-frame walk, plus 2-frame head-down graze), a **crow** (4-frame flap), a **frog** (a 3-frame hop). Match the existing monster roster's outline weight and desaturated palette, but friendlier and calm. **Scale: the deer about 22px long, comparable to the Wolf (about 24px wide on screen); the crow about 8px; the frog about 6px.** Transparent background, clean PNG.
-
 ### 24. Wound overlays (for the future visual-health system)
+
+The 2026-10-14 sheet (`Pixel Wildlife and Wound Overlay Sheet.png`) drew these as pre-baked example
+units instead of decals, so this prompt is still open. Stress "decals only, no character" when you
+regenerate it.
 
 For the "bleed and armor deteriorates with health" feature: drawn over any unit sprite as health drops.
 > Pixel art overlay decal sheet, chunky 16-bit retro style, flat cel-shaded coloring, transparent background. Three escalating wound overlays sized to sit on a small humanoid unit sprite: **Light** — two or three small dark-red scratches and a few drops; **Bleeding** — a dark-red stain across the torso with drips running down; **Heavy** — a large dark-red stain, torn cloth edges and several spatters. Semi-transparent in the middle, crisp dark edges, no outline around the whole square. **Scale: each overlay 28x28px, the same height as a colonist sprite (28px), so it can be centered directly on a unit; also provide a 2x larger version of each (56x56px) for big monsters like the Troll and Ogre.** Clean PNG with transparency.
