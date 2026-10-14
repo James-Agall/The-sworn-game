@@ -1,7 +1,8 @@
 // Scripted test: 40x40 world, raised starting stock, ore-only mine placement + revert-on-break,
 // Town Center immunity, and player melee (friendly fire + 0.5s cooldown).
 // Sections can be limited with ONLY=a,b,c,d,e (default) plus the slow night checks f (civilians
-// shelter at the TC + mob priority, add STATIC=1 to skip walking) and g2 (TC attacked when no
+// shelter in houses first and at the TC only when there are no free beds - this test builds no houses, so
+// everyone uses the TC - + mob priority, add STATIC=1 to skip walking) and g2 (TC attacked when no
 // players are connected). Sections c, e and walking-f need a server where players can actually
 // walk away from spawn and no other players are connected.
 import WebSocket from "ws";
@@ -284,7 +285,7 @@ if (ONLY.has("e")) {
   b.ws.close();
 }
 
-// ---- (f) + (g) best-effort night checks: civilians shelter at the TC; mob target priority ----
+// ---- (f) + (g) best-effort night checks: civilians shelter (houses first, TC overflow); mob target priority ----
 // STATIC=1: don't walk (posts placed in reach of spawn, no guard) -> checks f and "player beats TC".
 // default: walk to place a Knight Post on one side of the TC and civilians on the far side -> checks f
 // and "guard beats player".
@@ -345,7 +346,7 @@ if (ONLY.has("f")) {
     if (civSpot) await walkPath(a, pathTo(a, civSpot), 25000);
   }
   await placeNear(a, 3, "Lumberjack Post");
-  await placeNear(a, 4, "Farm");
+  await placeNear(a, 16, "Barn"); // a farmer (FarmPlot=4 needs an adjacent Barn, so it can't be placed alone)
   console.log(`[${el()}] (f) player waiting at ${tileStr(a.me())}, ${tilesFromTc(a.me()).toFixed(1)} tiles from TC; isNight=${a.snap.isNight}`);
 
   const nightWait = Date.now();
@@ -355,7 +356,7 @@ if (ONLY.has("f")) {
   } else {
     console.log(`[${el()}] (f) night fell`);
     const civKinds = new Set(["lumberjack", "farmer", "ironMiner", "rockMiner"]);
-    const nightStartFood = a.snap.food;
+    const nightStartFood = a.snap.grain;
     const farmerStates = new Map();
     const mobFirst = new Map();
     const mobLast = new Map();
@@ -387,7 +388,7 @@ if (ONLY.has("f")) {
       }
       const civStr = civs.map((c) => `${c.kind}${tileStr(c)} d=${tilesFromTc(c).toFixed(1)} ${c.state}`).join(" | ");
       const mobStr = s.mobs.map((m) => tileStr(m)).join(" ");
-      console.log(`[${el()}] ${s.isNight ? "NIGHT" : "DAY  "} food=${s.food} tcHp=${s.townCenterHp} playerHp=${a.me().hp} :: ${civStr} :: mobs ${mobStr || "-"}${knights.length ? ` :: guard ${tileStr(knights[0])} ${knights[0].state} hp=${knights[0].hp}` : ""}`);
+      console.log(`[${el()}] ${s.isNight ? "NIGHT" : "DAY  "} grain=${s.grain} tcHp=${s.townCenterHp} playerHp=${a.me().hp} :: ${civStr} :: mobs ${mobStr || "-"}${knights.length ? ` :: guard ${tileStr(knights[0])} ${knights[0].state} hp=${knights[0].hp}` : ""}`);
       if (phase === "dawn") {
         afterDawn.push(civs.map((c) => ({ ...c })));
         if (Date.now() - dawnAt > 6000) break;
@@ -395,15 +396,20 @@ if (ONLY.has("f")) {
       await sleep(2000);
     }
 
-    // f: every civilian sheltered next to the TC by the end of the night.
+    // f: civilians sleep in houses while beds last (House 1 / BigHouse 3 / HouseLevel2 5) and the rest at
+    // the TC. This section builds no houses, so with no beds in the world everyone must be at the TC.
     const nightCivs = lastNight.colonists.filter((c) => civKinds.has(c.kind));
-    result(nightCivs.length >= 2 && nightCivs.every((c) => tilesFromTc(c) <= 1.5),
-      `(f) end of night: civilians at ${nightCivs.map((c) => `${c.kind}${tileStr(c)} ${tilesFromTc(c).toFixed(2)} tiles`).join(", ")} (all <= 1.5 tiles from TC)`);
+    let beds = 0;
+    for (const t of a.tiles) beds += t === 13 ? 1 : t === 14 ? 3 : t === 15 ? 5 : 0;
+    const atTc = nightCivs.filter((c) => tilesFromTc(c) <= 1.5 && c.sheltered === true);
+    const expectTc = Math.max(0, nightCivs.length - beds);
+    result(nightCivs.length >= 2 && (beds === 0 ? atTc.length === nightCivs.length : atTc.length === expectTc),
+      `(f) end of night, ${beds} house beds: civilians at ${nightCivs.map((c) => `${c.kind}${tileStr(c)} ${tilesFromTc(c).toFixed(2)} tiles sh=${c.sheltered}`).join(", ")} (expected ${expectTc} sheltered <= 1.5 tiles from TC)`);
     result(nightCivs.filter((c) => c.kind !== "farmer").every((c) => c.state === "idle"),
       `(f) gatherers report state "idle" while sheltering (${nightCivs.filter((c) => c.kind !== "farmer").map((c) => c.state)})`);
     const fStates = [...farmerStates.values()].map((st) => [...st]);
-    result(fStates.length > 0 && fStates.every((st) => st.length === 1) && lastNight.food === nightStartFood,
-      `(f) farmer state frozen through the night (${JSON.stringify(fStates)}), food ${nightStartFood} -> ${lastNight.food} during night`);
+    result(fStates.length > 0 && fStates.every((st) => st.length === 1) && lastNight.grain === nightStartFood,
+      `(f) farmer state frozen through the night (${JSON.stringify(fStates)}), grain ${nightStartFood} -> ${lastNight.grain} during night`);
     const resumed = afterDawn.flat().some((c) => c.kind === "lumberjack" && c.state !== "idle");
     result(resumed, `(f) lumberjack resumed its job after dawn (states after dawn: ${JSON.stringify(afterDawn.map((cs) => cs.filter((c) => c.kind === "lumberjack").map((c) => c.state)[0]))})`);
     const farmerAfter = afterDawn.at(-1)?.find((c) => c.kind === "farmer");

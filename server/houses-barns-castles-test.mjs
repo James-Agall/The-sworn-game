@@ -1,8 +1,10 @@
 // Scripted test: houses/population cap, barns + farm plots, mine clustering, knight castle leveling,
-// archer towers, plus a spawn-movement sanity check. Needs a FRESH server (starting stock 40/20/30/30,
-// no structures built yet) with no other players connected.
-// Run order is chosen for the resource budget: castle (all 30 iron) first, then houses (30 wood),
-// lumberjacks to refill wood, mines, barn (15 wood), archer tower (11 wood).
+// archer towers, plus a spawn-movement sanity check. Needs a FRESH server (starting stock wood 80 / iron 60 /
+// rock 60 / grain 40, no structures built yet) with no other players connected; run it with COLONY_WORLD_SIZE=80.
+// The Town Center alone gives a population cap of 10 (plus +1 per house/house or house/workplace neighbour pair),
+// so the population-gating phase fills the cap with Lumberjack Posts at a separate site.
+// Saint Wren's Abbey clergy (world-gen bishops posted at the AbbeyHall) are not the colony's: they are
+// filtered out of every snapshot's `colonists` (kept in `clergy`), exactly as the server's population does.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -20,7 +22,10 @@ const T = {
   IronMine: 9, RockMine: 10, StoneWall: 11, TownCenter: 12, House: 13, BigHouse: 14, HouseLevel2: 15,
   Barn: 16, Castle2: 17, Castle3: 18, ArcherTower: 19,
 };
-const SOLID = new Set([1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+const ABBEY_HALL = 46;
+// Every tile type the server treats as solid (protocol.ts isSolidTile): 1..49 except FarmPlot (4),
+// which includes world-gen water, ruins, encampment props, the Abbey and Ward Stones.
+const SOLID = new Set(Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4));
 const TILE = 32;
 const REACH = TILE * 2.5;
 
@@ -31,7 +36,11 @@ function connect() {
     if (m.type === "welcome") {
       c.welcome = m;
       c.tiles = [...m.tiles];
+      c.welcomeTiles = [...m.tiles];
     } else if (m.type === "snapshot") {
+      const isClergy = (k) => c.tiles[k.postY * c.welcome.worldTilesX + k.postX] === ABBEY_HALL;
+      m.clergy = m.colonists.filter(isClergy);
+      m.colonists = m.colonists.filter((k) => !isClergy(k));
       if (!c.firstSnap) c.firstSnap = m;
       m.at = Date.now();
       // Track player deaths (hp resets to max + teleport to the TC) so a failed action can be explained.
@@ -160,13 +169,13 @@ async function placeExpectAt(c, x, y, tile, expectX, expectY, expectTile, tries 
 
 // Find a reachable standing tile whose surrounding 5x5 box (Chebyshev radius 2) is entirely Empty and
 // unoccupied, at least 7 tiles away from every previously used site.
-function findSite(c, avoid) {
+function findSite(c, avoid, minDist = 7) {
   const { dist, key } = bfs(c);
   let best = null;
   for (const [k, d] of dist) {
     const x = k % c.W();
     const y = Math.floor(k / c.W());
-    if (avoid.some((a) => Math.max(Math.abs(a.x - x), Math.abs(a.y - y)) < 7)) continue;
+    if (avoid.some((a) => Math.max(Math.abs(a.x - x), Math.abs(a.y - y)) < minDist)) continue;
     let ok = true;
     for (let dx = -2; dx <= 2 && ok; dx++)
       for (let dy = -2; dy <= 2 && ok; dy++) {
@@ -192,10 +201,112 @@ async function gotoNewSite(c, label) {
   return ok ? s : null;
 }
 
+// ---- server formulas replicated client-side (server/src/index.ts) ----
+const INDUSTRIAL = new Set([T.Lumberjack, T.Barn, T.IronMine, T.RockMine, 21, 22, 23, 24, 25, 26, 27, 30]);
+// industrialSynergyMultiplier: +5% per other industrial building within 5 tiles (Chebyshev).
+function industrialSynergy(c, x, y) {
+  let n = 0;
+  for (let ty = y - 5; ty <= y + 5; ty++)
+    for (let tx = x - 5; tx <= x + 5; tx++)
+      if ((tx !== x || ty !== y) && c.inBounds(tx, ty) && INDUSTRIAL.has(c.tileAt(tx, ty))) n++;
+  return 1 + n * 0.05;
+}
+// effectiveChopTicks: CHOP_TICKS (2s) x level bonus x biome / (happiness speed x industrial synergy).
+function expectedChopTicks(level, happiness, synergy, biomeFactor = 1) {
+  const happyMult = 0.5 + (1 - 0.5) * (happiness / 100);
+  const lb = (Math.min(Math.max(level, 1), 3) - 1) * 0.05;
+  return Math.max(1, Math.round((40 * (1 - lb) * biomeFactor) / (happyMult * synergy)));
+}
+const biomeAt = (c, x, y) => c.welcome.biomes[y * c.W() + x]; // 0 Plains, 1 Hills, 2 Swamp
+
+// ---- population filler ----
+// The Town Center alone gives a population cap of 10, so a "cap reached" check needs real civilians.
+// Walks to fresh 5x5 sites well away (>= minDist, Chebyshev) from `avoid` and places free Lumberjack Posts in
+// reach until population == cap, never sealing the player in and never waiting on a blocked tile.
+const RING = [];
+for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if ((dx || dy) && Math.hypot(dx, dy) <= 2.5) RING.push([dx, dy]);
+function reachableCount(c, from, blockedKey, limit) {
+  const key = (x, y) => y * c.W() + x;
+  const seen = new Set([key(from.x, from.y)]);
+  const q = [from];
+  while (q.length && seen.size < limit) {
+    const cur = q.shift();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const n = { x: cur.x + dx, y: cur.y + dy };
+      const k = key(n.x, n.y);
+      if (seen.has(k) || k === blockedKey || !c.walkable(n.x, n.y)) continue;
+      seen.add(k);
+      q.push(n);
+    }
+  }
+  return seen.size;
+}
+async function fillPopulationToCap(c, label, avoid, minDist = 10) {
+  const posts = [];
+  for (let round = 0; round < 3 && c.snap.population < c.snap.populationCap; round++) {
+    const s = findSite(c, [...avoid, ...posts.map((p) => p.site)], minDist);
+    if (!s || !(await ensureAt(c, s))) break;
+    for (let pass = 0; pass < 2; pass++)
+      for (const [dx, dy] of RING) {
+        if (c.snap.population >= c.snap.populationCap) break;
+        const p = { x: s.x + dx, y: s.y + dy, site: s };
+        if (c.tileAt(p.x, p.y) !== T.Empty || colonistOnTile(c, p.x, p.y)) continue;
+        if (reachableCount(c, s, p.y * c.W() + p.x, 80) < 80) continue;
+        await act(c, p.x, p.y, T.Lumberjack, 250);
+        if (c.tileAt(p.x, p.y) === T.Lumberjack) posts.push(p);
+      }
+  }
+  info(`${label} filled population with ${posts.length} filler Lumberjack Posts: pop=${c.snap.population}/${c.snap.populationCap}`);
+  return posts;
+}
+// Breaks the filler posts, walking to a reachable standing tile within reach of each one when needed.
+async function clearFillers(c, posts) {
+  for (const p of posts) {
+    for (let attempt = 0; attempt < 3 && c.tileAt(p.x, p.y) === T.Lumberjack; attempt++) {
+      const me = c.me();
+      if (Math.hypot(me.x - (p.x * TILE + 16), me.y - (p.y * TILE + 16)) > TILE * 2.25) {
+        const { dist, key } = bfs(c);
+        let best = null;
+        for (let sy = p.y - 2; sy <= p.y + 2; sy++)
+          for (let sx = p.x - 2; sx <= p.x + 2; sx++) {
+            const d = dist.get(key(sx, sy));
+            if (d !== undefined && Math.hypot(sx - p.x, sy - p.y) <= 2.25 && (!best || d < best.d)) best = { x: sx, y: sy, d };
+          }
+        if (!best || !(await ensureAt(c, best))) break;
+      }
+      await act(c, p.x, p.y, T.Empty, 200);
+    }
+  }
+  await sleep(200);
+  const left = posts.filter((p) => c.tileAt(p.x, p.y) === T.Lumberjack).length;
+  if (left) info(`clearFillers: ${left} filler post(s) could not be reached and remain`);
+}
+
+// populationCap(): Town Center base 10 + 1/3/5 per House/BigHouse/HouseLevel2 + neighbourhood bonus (+1 per
+// 8-neighbour pair of house/house, counted once, or house/workplace-or-unit building).
+const HOUSE_CAP = { 13: 1, 14: 3, 15: 5 };
+const SYNERGY_BUILDINGS = new Set([3, 16, 9, 10, 20, 21, 22, 23, 24, 25, 26, 27, 30, 31, 49, 5, 17, 18, 6, 19, 32, 33, 34]);
+function expectedCap(c) {
+  let cap = 10;
+  for (let y = 0; y < c.H(); y++)
+    for (let x = 0; x < c.W(); x++) {
+      const t = c.tileAt(x, y);
+      if (!HOUSE_CAP[t]) continue;
+      cap += HOUSE_CAP[t];
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        if (!c.inBounds(x + dx, y + dy)) continue;
+        const n = c.tileAt(x + dx, y + dy);
+        if (SYNERGY_BUILDINGS.has(n)) cap++;
+        else if (HOUSE_CAP[n] && (dy > 0 || (dy === 0 && dx > 0))) cap++;
+      }
+    }
+  return cap;
+}
+
 const a = connect();
 await a.ready();
 const TC = { x: Math.floor(a.W() / 2), y: Math.floor(a.H() / 2) };
-info(`connected; players=${a.snap.players.length}; first snapshot stock wood=${a.firstSnap.wood} food=${a.firstSnap.food} iron=${a.firstSnap.iron} rock=${a.firstSnap.rock} pop=${a.firstSnap.population}/${a.firstSnap.populationCap} isNight=${a.firstSnap.isNight}`);
+info(`connected; players=${a.snap.players.length}; first snapshot stock wood=${a.firstSnap.wood} grain=${a.firstSnap.grain} iron=${a.firstSnap.iron} rock=${a.firstSnap.rock} pop=${a.firstSnap.population}/${a.firstSnap.populationCap} isNight=${a.firstSnap.isNight}`);
 
 // Observe tree growth near lumberjack posts throughout the run.
 const lumberjackPosts = [];
@@ -221,8 +332,9 @@ const lumberjackPosts = [];
     }
   }
   result(!!moved, `(a) player moved immediately after spawn: ${moved ? `dir (${moved.dx},${moved.dy}) moved ${moved.d.toFixed(1)}px` : "STUCK in every direction"}`);
-  result(a.snap.population === 0 && a.snap.populationCap === 0,
-    `(a) fresh server reports population=${a.snap.population} populationCap=${a.snap.populationCap} (expected 0/0)`);
+  // The Town Center alone houses 10 (TOWN_CENTER_BASE_POPULATION); the Abbey clergy don't count.
+  result(a.snap.population === 0 && a.snap.populationCap === 10,
+    `(a) fresh server reports population=${a.snap.population} populationCap=${a.snap.populationCap} (expected 0/10: Town Center base)`);
 }
 
 // ---------------- (f) castle leveling ----------------
@@ -242,36 +354,32 @@ const lumberjackPosts = [];
       `(f) one new knight, hp/maxHp=${knight?.hp}/${knight?.maxHp} (expected 60/60)`);
     result(a.snap.iron === iron0 - 10 && a.snap.rock === rock0 - 5, `(f) 1st post cost: iron ${iron0}->${a.snap.iron}, rock ${rock0}->${a.snap.rock}`);
 
-    const pickK2 = () => {
-      const kn = a.snap.colonists.find((k) => k.id === knight?.id);
-      const kt = kn ? { x: Math.floor(kn.x / TILE), y: Math.floor(kn.y / TILE) } : null;
-      for (const n of [{ x: A.x - 1, y: A.y }, { x: A.x + 1, y: A.y }, { x: A.x, y: A.y + 1 }]) {
-        if (kt && kt.x === n.x && kt.y === n.y) continue;
-        if (n.x === s.x && n.y === s.y) continue;
-        if (a.tileAt(n.x, n.y) === T.Empty && !colonistOnTile(a, n.x, n.y)) return n;
-      }
-      return null;
-    };
-    let K2 = pickK2();
-    info(`(f) knight spawned at tile (${Math.floor(knight.x / TILE)},${Math.floor(knight.y / TILE)}); 2nd/3rd post tile K2=(${K2?.x},${K2?.y})`);
     const iron1 = a.snap.iron, rock1 = a.snap.rock;
-    const p2 = await placeExpectAt(a, K2.x, K2.y, T.KnightPost, A.x, A.y, T.Castle2);
+    const p2 = await placeExpectAt(a, A.x, A.y, T.KnightPost, A.x, A.y, T.Castle2);
     await sleep(150);
     const k2 = a.snap.colonists.find((k) => k.id === knight.id);
-    result(p2.hit.length === 1 && p2.hit[0].tile === T.Castle2 && a.tileAt(K2.x, K2.y) === T.Empty &&
-      p2.ups.every((u) => !(u.tileX === K2.x && u.tileY === K2.y)),
-      `(f) 2nd adjacent KnightPost: original (${A.x},${A.y}) -> ${a.tileAt(A.x, A.y)} (expected 17), new tile (${K2.x},${K2.y}) stays ${a.tileAt(K2.x, K2.y)} (expected 0, no update)`);
-    result(k2 && k2.maxHp === 100 && k2.hp === 100 && kinds(a, "knight").length === knights0.size + 1,
+    result(p2.hit.length === 1 && p2.hit[0].tile === T.Castle2 && a.tileAt(A.x, A.y) === T.Castle2 &&
+      p2.ups.every((u) => u.tileX === A.x && u.tileY === A.y),
+      `(f) KnightPost placed ON the post (${A.x},${A.y}) -> ${a.tileAt(A.x, A.y)} (expected 17), no other tile updated`);
+    result(k2 && k2.maxHp === 100 && k2.hp === 100 && kinds(a, "knight").length === knights0.size + 3,
       `(f) same knight upgraded in place: hp/maxHp=${k2?.hp}/${k2?.maxHp} (expected 100/100); knights=${kinds(a, "knight").length}`);
-    result(a.snap.iron === iron1 - 10 && a.snap.rock === rock1 - 5, `(f) 2nd (combining) post still costs 10 iron + 5 rock: iron ${iron1}->${a.snap.iron}, rock ${rock1}->${a.snap.rock}`);
+    result(a.snap.iron === iron1 - 10 && a.snap.rock === rock1 - 5, `(f) 2nd (in-place) post still costs 10 iron + 5 rock: iron ${iron1}->${a.snap.iron}, rock ${rock1}->${a.snap.rock}`);
 
-    if (a.tileAt(K2.x, K2.y) !== T.Empty || colonistOnTile(a, K2.x, K2.y)) K2 = pickK2();
-    const p3 = await placeExpectAt(a, K2.x, K2.y, T.KnightPost, A.x, A.y, T.Castle3);
+    const p3 = await placeExpectAt(a, A.x, A.y, T.KnightPost, A.x, A.y, T.Castle3);
     await sleep(150);
     const k3 = a.snap.colonists.find((k) => k.id === knight.id);
-    result(p3.hit.length === 1 && p3.hit[0].tile === T.Castle3 && a.tileAt(K2.x, K2.y) === T.Empty,
-      `(f) 3rd adjacent KnightPost: original -> ${a.tileAt(A.x, A.y)} (expected 18), placed tile stays ${a.tileAt(K2.x, K2.y)}`);
+    result(p3.hit.length === 1 && p3.hit[0].tile === T.Castle3 && p3.ups.every((u) => u.tileX === A.x && u.tileY === A.y),
+      `(f) 3rd KnightPost on the castle: tile -> ${a.tileAt(A.x, A.y)} (expected 18), no other tile updated`);
     result(k3 && k3.maxHp === 160 && k3.hp === 160, `(f) knight now hp/maxHp=${k3?.hp}/${k3?.maxHp} (expected 160/160)`);
+    // A KnightPost on an empty tile ADJACENT to the castle is just a new standalone post.
+    const adj = [{ x: A.x - 1, y: A.y }, { x: A.x + 1, y: A.y }].find((n) => a.tileAt(n.x, n.y) === T.Empty && !colonistOnTile(a, n.x, n.y));
+    if (adj) {
+      const p4 = await placeExpectAt(a, adj.x, adj.y, T.KnightPost, adj.x, adj.y, T.KnightPost);
+      await sleep(150);
+      result(p4.hit.length === 1 && a.tileAt(A.x, A.y) === T.Castle3 && a.tileAt(adj.x, adj.y) === T.KnightPost &&
+        kinds(a, "knight").length === knights0.size + 6,
+        `(f) KnightPost next to a castle is a new post: castle stays ${a.tileAt(A.x, A.y)} (18), new tile ${a.tileAt(adj.x, adj.y)} (5), knights=${kinds(a, "knight").length}`);
+    }
     info(`(f) stock after 3 knight posts: iron=${a.snap.iron} rock=${a.snap.rock}`);
   }
 }
@@ -285,22 +393,30 @@ const H1 = {}, H2 = {};
     Object.assign(H1, { x: siteA.x, y: siteA.y - 2 });
     Object.assign(H2, { x: siteA.x + 1, y: siteA.y - 2 });
     const w0 = a.snap.wood;
+    const cap0 = a.snap.populationCap;
     const p1 = await placeExpectAt(a, H1.x, H1.y, T.House, H1.x, H1.y, T.House);
     await sleep(100);
-    result(p1.hit.length === 1 && p1.hit[0].tile === T.House && a.snap.populationCap === 1,
-      `(b) House at (${H1.x},${H1.y}) -> ${JSON.stringify(p1.hit.map((u) => u.tile))} (expected [13]); populationCap=${a.snap.populationCap} (expected 1); wood ${w0}->${a.snap.wood}`);
-    const p2 = await placeExpectAt(a, H2.x, H2.y, T.House, H1.x, H1.y, T.BigHouse);
+    result(p1.hit.length === 1 && p1.hit[0].tile === T.House && a.snap.populationCap === cap0 + 1,
+      `(b) House at (${H1.x},${H1.y}) -> ${JSON.stringify(p1.hit.map((u) => u.tile))} (expected [13]); populationCap=${a.snap.populationCap} (expected ${cap0 + 1}); wood ${w0}->${a.snap.wood}`);
+    // Upgrading needs goods in stock; the test server starts without them, so a House on a House is rejected.
+    // Only updates at H1 matter: trees grow (and get chopped) elsewhere at any time.
+    const rejU = (await act(a, H1.x, H1.y, T.House, 600)).filter((u) => u.tileX === H1.x && u.tileY === H1.y);
+    result(rejU.length === 0 && a.tileAt(H1.x, H1.y) === T.House && a.snap.wood === w0 - 10,
+      `(b) House on House with no goods is rejected: tile=${a.tileAt(H1.x, H1.y)} (expected 13), updates=${rejU.length}, wood ${w0}->${a.snap.wood} (expected -10 only)`);
+    const p2 = await placeExpectAt(a, H2.x, H2.y, T.House, H2.x, H2.y, T.House);
     await sleep(100);
-    result(p2.hit.length === 1 && p2.hit[0].tile === T.BigHouse && a.tileAt(H2.x, H2.y) === T.Empty &&
-      p2.ups.every((u) => !(u.tileX === H2.x && u.tileY === H2.y)),
-      `(b) adjacent House at (${H2.x},${H2.y}): first tile -> ${a.tileAt(H1.x, H1.y)} (expected 14), second tile stays ${a.tileAt(H2.x, H2.y)} (expected 0); cap=${a.snap.populationCap} (expected 3)`);
-    const p3 = await placeExpectAt(a, H2.x, H2.y, T.House, H1.x, H1.y, T.HouseLevel2);
-    await sleep(100);
-    result(p3.hit.length === 1 && p3.hit[0].tile === T.HouseLevel2 && a.tileAt(H2.x, H2.y) === T.Empty,
-      `(b) third adjacent House: original tile -> ${a.tileAt(H1.x, H1.y)} (expected 15)`);
-    result(a.snap.population === 0 && a.snap.populationCap === 5,
-      `(b) population=${a.snap.population} populationCap=${a.snap.populationCap} (expected 0/5)`);
-    result(a.snap.wood === w0 - 30, `(b) each House placement cost a flat 10 wood: wood ${w0}->${a.snap.wood} (expected -30)`);
+    result(p2.hit.length === 1 && p2.hit[0].tile === T.House && a.tileAt(H1.x, H1.y) === T.House && a.snap.populationCap === cap0 + 3,
+      `(b) adjacent House at (${H2.x},${H2.y}) is a new standalone House: first tile ${a.tileAt(H1.x, H1.y)} (expected 13), cap=${a.snap.populationCap} (expected ${cap0 + 3}: 2 houses + 1 adjacency pair)`);
+    result(a.snap.wood === w0 - 20, `(b) each House placement cost a flat 10 wood: wood ${w0}->${a.snap.wood} (expected -20)`);
+    // The in-place success path is only exercised if the stock happens to hold the goods.
+    if (a.snap.grain >= 3 && a.snap.meat >= 3 && a.snap.fruit >= 3 && a.snap.clothes >= 5 && a.snap.tools >= 2 && a.snap.luxuryItems >= 1) {
+      const u1 = await placeExpectAt(a, H1.x, H1.y, T.House, H1.x, H1.y, T.BigHouse);
+      result(u1.hit.length === 1 && u1.ups.every((u) => u.tileX === H1.x && u.tileY === H1.y), `(b) House on House -> BigHouse in place`);
+      const u2 = await placeExpectAt(a, H1.x, H1.y, T.House, H1.x, H1.y, T.HouseLevel2);
+      result(u2.hit.length === 1 && u2.ups.every((u) => u.tileX === H1.x && u.tileY === H1.y), `(b) House on BigHouse -> HouseLevel2 in place`);
+    } else {
+      info(`(b) in-place House upgrade success path not exercised: server has no goods stock (see economy-goods-test (d))`);
+    }
     // A 4th House next to the HouseLevel2 must not combine further (capped) -> plain House. Only if affordable.
     info(`(b) wood left=${a.snap.wood}`);
   }
@@ -313,6 +429,11 @@ let sixth = null;
   if (siteA && (await ensureAt(a, siteA))) {
     for (const [dx, dy] of [[-2, 0], [-2, 1], [-1, 2], [0, 2], [1, 2]]) L.push({ x: siteA.x + dx, y: siteA.y + dy });
     sixth = { x: siteA.x + 2, y: siteA.y + 1 };
+    // Trees can regrow on the planned extra tile while the cap is being filled; fall back to another empty
+    // in-reach tile that touches no house (so placing it later can't change the cap).
+    const houseNear = (x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dy]) => a.tileAt(x + dx, y + dy) === T.House);
+    const freeExtra = (p) => a.tileAt(p.x, p.y) === T.Empty && !colonistOnTile(a, p.x, p.y) && !houseNear(p.x, p.y);
+    const pickSixth = () => (freeExtra(sixth) ? sixth : RING.map(([dx, dy]) => ({ x: siteA.x + dx, y: siteA.y + dy })).find(freeExtra) ?? sixth);
     let okAll = true;
     for (const [i, p] of L.entries()) {
       const r = await placeExpectAt(a, p.x, p.y, T.Lumberjack, p.x, p.y, T.Lumberjack);
@@ -321,26 +442,41 @@ let sixth = null;
       info(`(c) lumberjack ${i + 1} at (${p.x},${p.y}): ${r.hit.length ? "placed" : "REJECTED"}; pop=${a.snap.population}/${a.snap.populationCap}`);
       lumberjackPosts.push(p);
     }
-    result(okAll && a.snap.population === 5 && a.snap.populationCap === 5,
-      `(c) 5 lumberjack posts placed; pop=${a.snap.population}/${a.snap.populationCap} (expected 5/5)`);
+    result(okAll && a.snap.population === 5,
+      `(c) 5 lumberjack posts placed; pop=${a.snap.population}/${a.snap.populationCap} (expected 5)`);
+    // The cap is no longer just the houses: Town Center base 10 + houses + neighbourhood pairs. Check it against
+    // the formula, then fill the remaining slots with filler Lumberjack Posts at a separate site.
+    const capNow = expectedCap(a);
+    result(a.snap.populationCap === capNow,
+      `(c) populationCap=${a.snap.populationCap} matches TC base 10 + houses + neighbourhood pairs = ${capNow}`);
+    const fillers = await fillPopulationToCap(a, "(c)", [...usedSites, siteA]);
+    for (const site of new Set(fillers.map((p) => p.site))) usedSites.push(site);
+    const cap = a.snap.populationCap;
+    result(a.snap.population === cap, `(c) population filled to the cap: ${a.snap.population}/${cap} (5 here + ${fillers.length} fillers)`);
+    await ensureAt(a, siteA);
+    sixth = pickSixth();
     while (colonistOnTile(a, sixth.x, sixth.y)) await sleep(100);
     const pre = a.tileAt(sixth.x, sixth.y);
     const rej = await act(a, sixth.x, sixth.y, T.Lumberjack, 800);
-    result(pre === T.Empty && rej.filter((u) => u.tileX === sixth.x && u.tileY === sixth.y).length === 0 && a.snap.population === 5,
-      `(c) 6th lumberjack at (${sixth.x},${sixth.y}) rejected at cap (updates there=${rej.filter((u) => u.tileX === sixth.x && u.tileY === sixth.y).length}, pop=${a.snap.population})`);
+    result(pre === T.Empty && rej.filter((u) => u.tileX === sixth.x && u.tileY === sixth.y && u.tile === T.Lumberjack).length === 0 && a.snap.population === cap,
+      `(c) extra lumberjack at (${sixth.x},${sixth.y}) rejected at cap (updates there=${rej.filter((u) => u.tileX === sixth.x && u.tileY === sixth.y && u.tile === T.Lumberjack).length}, pop=${a.snap.population}/${cap})`);
     // Also gated: Iron/Rock Mine and Barn at cap — Barn checked here (wood permitting) on an empty tile.
     const br = await act(a, siteA.x - 1, siteA.y - 2, T.Barn, 600);
     result(br.filter((u) => u.tileX === siteA.x - 1 && u.tileY === siteA.y - 2).length === 0,
       `(c) Barn also rejected at cap (wood=${a.snap.wood}; ${a.snap.wood >= 15 ? "affordable, so rejection is the pop gate" : "NOTE: also unaffordable, so not conclusive"})`);
     const brk = await act(a, L[0].x, L[0].y, T.Empty);
     await sleep(100);
-    result(brk.some((u) => u.tileX === L[0].x && u.tileY === L[0].y && u.tile === T.Empty) && a.snap.population === 4,
-      `(c) broke lumberjack at (${L[0].x},${L[0].y}); pop=${a.snap.population} (expected 4)`);
+    result(brk.some((u) => u.tileX === L[0].x && u.tileY === L[0].y && u.tile === T.Empty) && a.snap.population === cap - 1,
+      `(c) broke lumberjack at (${L[0].x},${L[0].y}); pop=${a.snap.population} (expected ${cap - 1})`);
     lumberjackPosts.shift();
+    sixth = pickSixth();
     const r6 = await placeExpectAt(a, sixth.x, sixth.y, T.Lumberjack, sixth.x, sixth.y, T.Lumberjack);
     await sleep(100);
-    result(r6.hit.length === 1 && a.snap.population === 5, `(c) 6th lumberjack now accepted; pop=${a.snap.population}/${a.snap.populationCap}`);
+    result(r6.hit.length === 1 && a.snap.population === cap, `(c) extra lumberjack now accepted; pop=${a.snap.population}/${a.snap.populationCap}`);
     lumberjackPosts.push(sixth);
+    // Fillers done: break them so the rest of the run sees only this site's 5 lumberjacks.
+    await clearFillers(a, fillers);
+    info(`(c) fillers broken: pop=${a.snap.population}/${a.snap.populationCap}`);
   }
 }
 
@@ -396,15 +532,15 @@ let sixth = null;
     await sleep(150);
     result(p1.hit.length === 1 && p1.hit[0].tile === mine && p1.hit[0].prev === ore && kinds(a, kind).length === m0 + 1,
       `(e) ${label} Mine on ore O accepted (tile ${ore}->${a.tileAt(O.x, O.y)}); ${kind}s=${kinds(a, kind).length}`);
-    const p2 = await placeExpectAt(a, E.x, E.y, mine, E.x, E.y, mine);
+    // New rule: a mine on an EMPTY tile next to a mine is rejected (only on ore, or on the mine itself to upgrade).
+    while (colonistOnTile(a, E.x, E.y)) await sleep(100);
+    const p2 = await act(a, E.x, E.y, mine, 700);
+    result(p2.filter((u) => u.tileX === E.x && u.tileY === E.y).length === 0 && a.tileAt(E.x, E.y) === T.Empty && kinds(a, kind).length === m0 + 1,
+      `(e) ${label} Mine on empty E adjacent to a mine is rejected (tile=${a.tileAt(E.x, E.y)} expected 0); ${kind}s=${kinds(a, kind).length} (expected ${m0 + 1})`);
+    const p3 = await act(a, O.x, O.y, mine, 700);
     await sleep(150);
-    result(p2.hit.length === 1 && p2.hit[0].tile === mine && p2.hit[0].prev === T.Empty && kinds(a, kind).length === m0 + 2,
-      `(e) ${label} Mine on empty E adjacent to mine accepted; ${kind}s=${kinds(a, kind).length} (expected ${m0 + 2}); pop=${a.snap.population}/${a.snap.populationCap}`);
-    const b2 = await act(a, E.x, E.y, T.Empty);
-    await sleep(150);
-    const b2u = b2.filter((u) => u.tileX === E.x && u.tileY === E.y);
-    result(b2u.length === 1 && b2u[0].tile === T.Empty && kinds(a, kind).length === m0 + 1,
-      `(e) breaking adjacent-placed ${label} Mine reverts to ${JSON.stringify(b2u.map((u) => u.tile))} (expected [0], NOT ore); ${kind}s=${kinds(a, kind).length}`);
+    result(p3.filter((u) => u.tileX === O.x && u.tileY === O.y).length === 0 && a.tileAt(O.x, O.y) === mine && kinds(a, kind).length === m0 + 2,
+      `(e) ${label} Mine placed ON the mine upgrades in place (no tileUpdate, tile stays ${a.tileAt(O.x, O.y)}); ${kind}s=${kinds(a, kind).length} (expected ${m0 + 2})`);
     const b1 = await act(a, O.x, O.y, T.Empty);
     await sleep(150);
     const b1u = b1.filter((u) => u.tileX === O.x && u.tileY === O.y);
@@ -448,15 +584,23 @@ let sixth = null;
     const placedAt = Date.now();
     result(pf.hit.length === 1 && pf.hit[0].tile === T.FarmPlot, `(d) Farm Plot adjacent to Barn at (${Fadj.x},${Fadj.y}) accepted (tile 4)`);
     result(kinds(a, "farmer").length === farmers0 + 1, `(d) Farm Plot spawned no colonist (farmers still ${kinds(a, "farmer").length})`);
-    while (Date.now() - placedAt < 12500) await sleep(200);
+    // The snapshot's food field is retired: a plot yields 1 grain (FARM_YIELD_PER_HARVEST) per harvest. The
+    // first grow phase is the flat FARM_GROW_TICKS (160); the harvest phase is scaled by the plot's biome
+    // (Plains -20%), happiness speed and the Barn's industrial synergy.
+    const hm = 0.5 + 0.5 * (a.snap.happiness / 100);
+    const plotBiome = biomeAt(a, Fadj.x, Fadj.y) === 0 ? 0.8 : 1;
+    const harvestT = Math.max(1, Math.round((40 * plotBiome) / (hm * industrialSynergy(a, B.x, B.y))));
+    const first = (160 + harvestT) / 20;
+    while (Date.now() - placedAt < Math.max(12500, (first + 1.5) * 1000)) await sleep(200);
     a.recordSnaps = false;
     const deltas = [];
     for (let i = 1; i < a.snaps.length; i++) {
-      const d = a.snaps[i].food - a.snaps[i - 1].food;
-      if (d !== 0) deltas.push({ d, t: ((a.snaps[i].at - placedAt) / 1000).toFixed(2), night: a.snaps[i].isNight });
+      const d = a.snaps[i].grain - a.snaps[i - 1].grain;
+      if (d !== 0) deltas.push({ d, t: +((a.snaps[i].at - placedAt) / 1000).toFixed(2), night: a.snaps[i].isNight });
     }
-    result(deltas.some((x) => x.d === 3) && !deltas.some((x) => x.d === 1),
-      `(d) food deltas in 12.5s after planting: ${JSON.stringify(deltas)} (expected a single-tick +3 at ~10s, no +1)`);
+    const plus = deltas.filter((x) => x.d > 0);
+    result(plus.length === 1 && plus[0].d === 1 && Math.abs(plus[0].t - first) < 1,
+      `(d) grain increases after planting: ${JSON.stringify(plus)} (expected exactly one +1 harvest at ~${first.toFixed(2)}s = 160-tick grow + ${harvestT}-tick harvest)`);
     // Freeze check: break the Barn, food must stop growing from this plot.
     await ensureAt(a, s);
     const bb = await act(a, B.x, B.y, T.Empty);
@@ -468,9 +612,9 @@ let sixth = null;
     a.recordSnaps = true;
     await sleep(11000);
     a.recordSnaps = false;
-    const plus = [];
-    for (let i = 1; i < a.snaps.length; i++) if (a.snaps[i].food - a.snaps[i - 1].food > 0) plus.push(a.snaps[i].food - a.snaps[i - 1].food);
-    result(plus.length === 0, `(d) plot frozen with no Barn: food increases over 11s = ${JSON.stringify(plus)} (expected none)`);
+    const frozenPlus = [];
+    for (let i = 1; i < a.snaps.length; i++) if (a.snaps[i].grain - a.snaps[i - 1].grain > 0) frozenPlus.push(a.snaps[i].grain - a.snaps[i - 1].grain);
+    result(frozenPlus.length === 0, `(d) plot frozen with no Barn: grain increases over 11s = ${JSON.stringify(frozenPlus)} (expected none)`);
     await ensureAt(a, s);
     const bf = await act(a, Fadj.x, Fadj.y, T.Empty);
     result(bf.some((u) => u.tileX === Fadj.x && u.tileY === Fadj.y && u.tile === T.Empty), `(d) Farm Plot breakable -> Empty`);
@@ -515,21 +659,44 @@ let sixth = null;
 
 // ---------------- lumberjack tree growth (observational) ----------------
 {
-  const growth = a.tileUpdates.filter((u) => u.tile === T.Tree);
-  const near = growth.filter((u) => lumberjackPosts.some((p) => Math.max(Math.abs(p.x - u.tileX), Math.abs(p.y - u.tileY)) <= 2));
-  const ringOk = near.every((u) => lumberjackPosts.every((p) => Math.abs(p.x - u.tileX) + Math.abs(p.y - u.tileY) > 1));
-  info(`lumberjack growth: ${growth.length} tree tileUpdates total during run, ${near.length} within 2 tiles of a current lumberjack post ${JSON.stringify(near.map((u) => [u.tileX, u.tileY]))}; none orthogonally adjacent to a post: ${ringOk}`);
+  // Replay the tile updates over the welcome map so each grown tree is judged against the posts that
+  // stood at that moment (posts are placed and broken during the run).
+  const POST_TILES = new Set([3, 4, 5, 6, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, ...Array.from({ length: 15 }, (_, i) => 20 + i), 49]);
+  const replay = [...a.welcomeTiles];
+  const W = a.W();
+  const growth = [];
+  const near = [];
+  let ringOk = true;
+  for (const u of a.tileUpdates) {
+    if (u.tile === T.Tree) {
+      growth.push(u);
+      let nearPost = false;
+      for (let dy = -2; dy <= 2; dy++)
+        for (let dx = -2; dx <= 2; dx++)
+          if (a.inBounds(u.tileX + dx, u.tileY + dy) && replay[(u.tileY + dy) * W + u.tileX + dx] === T.Lumberjack) nearPost = true;
+      if (nearPost) {
+        near.push(u);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]])
+          if (a.inBounds(u.tileX + dx, u.tileY + dy) && POST_TILES.has(replay[(u.tileY + dy) * W + u.tileX + dx])) ringOk = false;
+      }
+    }
+    replay[u.tileY * W + u.tileX] = u.tile;
+  }
+  info(`lumberjack growth: ${growth.length} tree tileUpdates total during run, ${near.length} within 2 tiles of a lumberjack post standing at the time ${JSON.stringify(near.map((u) => [u.tileX, u.tileY]))}; none orthogonally adjacent to a then-standing post: ${ringOk}`);
   result(near.length > 0 && ringOk, `(extra) trees grew within the 2-tile radius of lumberjack posts, never on the ring touching a post`);
 }
 
-// ---------------- breaking a HouseLevel2 (observational, end of run) ----------------
+// ---------------- breaking the houses (observational, end of run) ----------------
 if (siteA && (await ensureAt(a, siteA))) {
   const pop0 = a.snap.population;
-  const bh = await act(a, H1.x, H1.y, T.Empty);
-  await sleep(150);
-  const bhu = bh.filter((u) => u.tileX === H1.x && u.tileY === H1.y);
-  result(bhu.length === 1 && bhu[0].tile === T.Empty && a.snap.populationCap === 0,
-    `(extra) breaking HouseLevel2 reverts straight to Empty; populationCap=${a.snap.populationCap} (expected 0)`);
+  for (const H of [H1, H2]) {
+    const bh = await act(a, H.x, H.y, T.Empty);
+    await sleep(150);
+    const bhu = bh.filter((u) => u.tileX === H.x && u.tileY === H.y);
+    result(bhu.length === 1 && bhu[0].tile === T.Empty, `(extra) breaking the house at (${H.x},${H.y}) reverts straight to Empty`);
+  }
+  result(a.snap.populationCap === a.firstSnap.populationCap,
+    `(extra) after breaking all houses populationCap=${a.snap.populationCap} (expected the Town Center base ${a.firstSnap.populationCap})`);
   info(`after losing all housing: population=${a.snap.population} (was ${pop0}) — existing civilians are NOT evicted (pop > cap)`);
 }
 

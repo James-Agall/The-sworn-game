@@ -3,12 +3,17 @@
 // must be the ONLY connected player (restart resets the world for everyone).
 //
 //   H: happiness in snapshot matches the server formula recomputed client-side (food variety / trees / tavern coverage).
-//   A: Militia Camp -> 2 militia (30hp), adjacent -> MilitiaCamp2 + 6 spearmen (50hp), adjacent -> MilitiaCamp3 + 10
+//   A: Militia Camp -> 2 militia (30hp), placed on it -> MilitiaCamp2 + 6 spearmen (50hp), placed on it again -> MilitiaCamp3 + 10
 //      pikemen (80hp); costs 5 wood + 5 iron each; pikemen accept commandMove + task-force assignment (commandable).
 //   B: Brewery consumes 2 grain -> 1 alcohol; cycle time slowed by happiness (live vs the 4s happiness=100 baseline);
 //      lumberjack earns wood for a Tavern; Tavern raises happiness via coverage; Tavern converts 1 alcohol -> 10 gold.
 //   C: grain burned to 0 -> happiness < 35 -> at dawn soldiers desert into dormant 80hp mobs (not deletions).
 //   Final: restart clears alcohol / militia line / deserters.
+// Current-server notes: restart stock is wood 80 / iron 60 / rock 60 / grain 40; craft cycles also speed up 5% per
+// other industrial building within 5 tiles; a unit building gets +1 unit per adjacent house (incl. diagonals).
+// Saint Wren's Abbey clergy (world-gen bishops posted at the AbbeyHall) are not the colony's: they are filtered
+// out of every snapshot's `colonists` (kept in `clergy`), exactly as the server's population and happiness do.
+// Run with COLONY_WORLD_SIZE=80.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -28,7 +33,11 @@ const T = {
   Pasture: 21, Orchard: 22, WoolFarm: 23, CottonFarm: 24, TailorShop: 25, Blacksmith: 26, LuxuryWorkshop: 27,
   Market: 28, GoldShop: 29, Brewery: 30, Tavern: 31, MilitiaPost: 32, MilitiaCamp2: 33, MilitiaCamp3: 34,
 };
-const SOLID = new Set([1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34]);
+const ABBEY_HALL = 46;
+// Every tile type the server treats as solid (protocol.ts isSolidTile): 1..49 except FarmPlot (4),
+// which includes world-gen water, ruins, encampment props, the Abbey and Ward Stones.
+const SOLID = new Set(Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4));
+const INDUSTRIAL = new Set([3, 16, 9, 10, 21, 22, 23, 24, 25, 26, 27, 30]);
 const TILE = 32;
 const PLAYER_ATTACK_RANGE = TILE * 1.3;
 const SOLDIER = new Set(["knight", "archer", "militia", "spearman", "pikeman"]);
@@ -43,6 +52,9 @@ function connect() {
       c.welcomes++;
       c.tiles = [...m.tiles];
     } else if (m.type === "snapshot") {
+      const isClergy = (k) => c.tiles[k.postY * c.welcome.worldTilesX + k.postX] === ABBEY_HALL;
+      m.clergy = m.colonists.filter(isClergy);
+      m.colonists = m.colonists.filter((k) => !isClergy(k));
       m.at = Date.now();
       const prev = c.snap;
       c.snap = m;
@@ -199,7 +211,16 @@ async function gotoSite(c, label) {
   return ok ? s : null;
 }
 
-// Client-side replica of the server's computeColonyHappiness().
+// industrialSynergyMultiplier: +5% per other industrial building within 5 tiles (Chebyshev).
+function industrialSynergy(c, x, y) {
+  let n = 0;
+  for (let ty = y - 5; ty <= y + 5; ty++)
+    for (let tx = x - 5; tx <= x + 5; tx++)
+      if ((tx !== x || ty !== y) && c.inBounds(tx, ty) && INDUSTRIAL.has(c.tileAt(tx, ty))) n++;
+  return 1 + n * 0.05;
+}
+
+// Client-side replica of the server's computeColonyHappiness() (snapshot colonists exclude the Abbey clergy).
 function expectedHappiness(c) {
   const s = c.snap;
   const food = ["grain", "meat", "fruit"].filter((k) => s[k] > 0).length;
@@ -242,7 +263,11 @@ async function restart(c, label) {
   // none of the pre-restart mobs (incl. deserters) survived it.
   const carried = s.mobs.filter((m) => mobIdsBefore.has(m.id)).length;
   result(s.alcohol === 0 && s.colonists.length === 0 && militia === 0 && carried === 0 && !s.isNight,
-    `${label} restart: alcohol=${s.alcohol} colonists=${s.colonists.length} militiaLine=${militia} pre-restart mobs(incl. deserters) carried over=${carried} day=${!s.isNight}`);
+    `${label} restart: alcohol=${s.alcohol} colony colonists=${s.colonists.length} militiaLine=${militia} pre-restart mobs(incl. deserters) carried over=${carried} day=${!s.isNight}`);
+  // The only colonists a fresh world has are Saint Wren's Abbey's three world-gen clergy (none if no Abbey fit).
+  const hasAbbey = c.tiles.includes(ABBEY_HALL);
+  result(s.clergy.length === (hasAbbey ? 3 : 0) && s.clergy.every((k) => k.kind === "bishop"),
+    `${label} restart: only the Abbey's world-gen clergy remain (${s.clergy.length} bishops at the AbbeyHall, expected ${hasAbbey ? 3 : 0})`);
   checkHappinessFormula(c, `${label} post-restart`);
 }
 
@@ -265,7 +290,6 @@ await restart(a, "(A0)");
   if (s) {
     const P = (dx, dy) => ({ x: s.x + dx, y: s.y + dy });
     const M = P(-1, -1);
-    const U = P(-2, -1); // left of M: militia spawn on M's +x side, so this stays free for the upgrade placements
     let w0 = a.snap.wood, i0 = a.snap.iron;
     let r = await placeExpectAt(a, M.x, M.y, T.MilitiaPost);
     await sleep(150);
@@ -277,20 +301,21 @@ await restart(a, "(A0)");
     const firstIds = g.map((k) => k.id);
 
     w0 = a.snap.wood; i0 = a.snap.iron;
-    r = await placeExpectAt(a, U.x, U.y, T.MilitiaPost, M.x, M.y);
+    // Upgrades happen by placing the MilitiaPost ON the existing camp; the camp tile itself gets the tileUpdate.
+    let ups1 = (await act(a, M.x, M.y, T.MilitiaPost, 600)).filter((u) => u.tileX === M.x && u.tileY === M.y);
     await sleep(150);
     g = atPost(a, M);
-    result(r.hit[0]?.tile === T.MilitiaCamp2 && a.tileAt(M.x, M.y) === T.MilitiaCamp2 && a.tileAt(U.x, U.y) === T.Empty,
-      `(c) adjacent placement upgrades M -> MilitiaCamp2 (tile=${a.tileAt(M.x, M.y)}), placement tile stays Empty (${a.tileAt(U.x, U.y)})`);
+    result(ups1.length === 1 && ups1[0].tileX === M.x && ups1[0].tileY === M.y && ups1[0].tile === T.MilitiaCamp2 && a.tileAt(M.x, M.y) === T.MilitiaCamp2,
+      `(c) placing ON M upgrades it -> MilitiaCamp2 (tile=${a.tileAt(M.x, M.y)}); tileUpdates=${JSON.stringify(ups1.map((u) => [u.tileX, u.tileY, u.tile]))} (only M; trees elsewhere ignored)`);
     result(g.length === 6 && g.every((k) => k.kind === "spearman" && k.maxHp === 50 && k.hp === 50),
       `(c) tier 2: ${g.length} units, kinds=${[...new Set(g.map((k) => k.kind))]}, hp=${[...new Set(g.map((k) => `${k.hp}/${k.maxHp}`))]}`);
     result(firstIds.every((id) => g.some((k) => k.id === id && k.kind === "spearman")), `(c) both original militia were converted in place to spearmen (same ids)`);
     result(a.snap.wood === w0 - 5 && a.snap.iron === i0 - 5, `(c) upgrade cost: wood ${w0}->${a.snap.wood}, iron ${i0}->${a.snap.iron}`);
 
-    r = await placeExpectAt(a, U.x, U.y, T.MilitiaPost, M.x, M.y);
+    ups1 = await act(a, M.x, M.y, T.MilitiaPost, 600);
     await sleep(150);
     g = atPost(a, M);
-    result(r.hit[0]?.tile === T.MilitiaCamp3 && a.tileAt(M.x, M.y) === T.MilitiaCamp3, `(c) third placement -> MilitiaCamp3 (tile=${a.tileAt(M.x, M.y)})`);
+    result(ups1.some((u) => u.tileX === M.x && u.tileY === M.y && u.tile === T.MilitiaCamp3) && a.tileAt(M.x, M.y) === T.MilitiaCamp3, `(c) third placement -> MilitiaCamp3 (tile=${a.tileAt(M.x, M.y)})`);
     result(g.length === 10 && g.every((k) => k.kind === "pikeman" && k.maxHp === 80 && k.hp === 80),
       `(c) tier 3: ${g.length} units, kinds=${[...new Set(g.map((k) => k.kind))]}, hp=${[...new Set(g.map((k) => `${k.hp}/${k.maxHp}`))]}`);
     result(a.snap.population === 0, `(c) still population-exempt at tier 3 (pop=${a.snap.population})`);
@@ -354,9 +379,11 @@ await restart(a, "(B0)");
       const interval = (e[2].at - e[1].at) / 1000;
       const h = e[1].happiness;
       const mult = 0.5 + 0.5 * (h / 100);
-      const expectTicks = Math.max(1, Math.round(80 / mult));
+      // effectiveCraftTicks also divides by the industrial synergy (the lumberjack below is within 5 tiles).
+      const syn = industrialSynergy(a, B.x, B.y);
+      const expectTicks = Math.max(1, Math.round(80 / (mult * syn)));
       result(Math.abs(interval - expectTicks / 20) < 0.5 && interval > 4.4,
-        `(b) live speed: brew cycle ${interval.toFixed(2)}s at happiness ${h} (formula ${expectTicks} ticks = ${(expectTicks / 20).toFixed(2)}s) vs 4.00s baseline at happiness 100`);
+        `(b) live speed: brew cycle ${interval.toFixed(2)}s at happiness ${h}, synergy x${syn} (formula ${expectTicks} ticks = ${(expectTicks / 20).toFixed(2)}s) vs 4.00s baseline at happiness 100`);
     }
     checkHappinessFormula(a, "(b) mid-phase");
 
@@ -394,12 +421,16 @@ await restart(a, "(C0)");
   if (s) {
     const P = (dx, dy) => ({ x: s.x + dx, y: s.y + dy });
     await placeExpectAt(a, ...Object.values(P(-2, 0)), T.House);
-    await placeExpectAt(a, ...Object.values(P(0, -2)), T.Brewery); // burns grain to drop food variety
-    const M = P(-1, 1);
-    const U = P(-2, 1);
+    // Restart grain is 40 now: three Breweries burn it to 0 well before the first dawn (food variety -> 0, so
+    // happiness = scenery only = 30 < 35).
+    await placeExpectAt(a, ...Object.values(P(0, -2)), T.Brewery);
+    await placeExpectAt(a, ...Object.values(P(-1, -2)), T.Brewery);
+    await placeExpectAt(a, ...Object.values(P(1, -2)), T.Brewery);
+    // Not beside the House: a unit building gets +1 unit per adjacent house, and this checks the bare tier count.
+    const M = P(1, 1);
     await placeExpectAt(a, M.x, M.y, T.MilitiaPost);
-    await placeExpectAt(a, U.x, U.y, T.MilitiaPost, M.x, M.y);
-    await placeExpectAt(a, U.x, U.y, T.MilitiaPost, M.x, M.y);
+    await placeExpectAt(a, M.x, M.y, T.MilitiaPost, M.x, M.y); // upgrade = place ON the camp
+    await placeExpectAt(a, M.x, M.y, T.MilitiaPost, M.x, M.y);
     const pk = kinds(a, "pikeman");
     result(pk.length === 10, `(e) setup: ${pk.length} pikemen; grain=${a.snap.grain}; happiness=${a.snap.happiness}`);
 
@@ -415,7 +446,8 @@ await restart(a, "(C0)");
       events.push({ at: next.at, dawn: prev.isNight && !next.isNight, happinessPrev: prev.happiness, gone, newMobs });
     };
     let lowSeen = false;
-    const until = Date.now() + 170000;
+    // Day 60s + night 40s: each low-happiness dawn deserts each soldier with 15% chance, so watch up to 3 dawns.
+    const until = Date.now() + 330000;
     while (Date.now() < until) {
       await sleep(250);
       if (a.snap.happiness < 35) lowSeen = true;
