@@ -1,0 +1,121 @@
+{
+  "sfx": {
+    "ui_click": [
+      "sfx/ui_click_1.ogg",
+      "sfx/ui_click_2.ogg",
+      "sfx/ui_click_3.ogg"
+    ],
+    "build_place": [
+      "sfx/build_place_1.ogg",
+      "sfx/build_place_2.ogg",
+      "sfx/build_place_3.ogg"
+    ],
+    "build_upgrade": [
+      "sfx/build_upgrade_1.ogg",
+      "sfx/build_upgrade_2.ogg"
+    ],
+    "tree_chop": [
+      "sfx/tree_chop_1.ogg",
+      "sfx/tree_chop_2.ogg",
+      "sfx/tree_chop_3.ogg"
+    ],
+    "mine_pick": [
+      "sfx/mine_pick_1.ogg",
+      "sfx/mine_pick_2.ogg",
+      "sfx/mine_pick_3.ogg"
+    ],
+    "farm_work": [
+      "sfx/farm_work_1.ogg",
+      "sfx/farm_work_2.ogg",
+      "sfx/farm_work_3.ogg"
+    ],
+    "craft_hammer": [
+      "sfx/craft_hammer_1.ogg",
+      "sfx/craft_hammer_2.ogg",
+      "sfx/craft_hammer_3.ogg"
+    ],
+    "heal_chime": [
+      "sfx/heal_chime_1.ogg",
+      "sfx/heal_chime_2.ogg"
+    ],
+    "sword_hit": [
+      "sfx/sword_hit_1.ogg",
+      "sfx/sword_hit_2.ogg",
+      "sfx/sword_hit_3.ogg"
+    ],
+    "sword_swing": [
+      "sfx/sword_swing_1.ogg",
+      "sfx/sword_swing_2.ogg",
+      "sfx/sword_swing_3.ogg"
+    ],
+    "arrow_shoot": [
+      "sfx/arrow_shoot_1.ogg",
+      "sfx/arrow_shoot_2.ogg",
+      "sfx/arrow_shoot_3.ogg"
+    ],
+    "arrow_hit": [
+      "sfx/arrow_hit_1.ogg",
+      "sfx/arrow_hit_2.ogg",
+      "sfx/arrow_hit_3.ogg"
+    ],
+    "player_hurt": [
+      "sfx/player_hurt_1.ogg",
+      "sfx/player_hurt_2.ogg",
+      "sfx/player_hurt_3.ogg"
+    ],
+    "colonist_death": [
+      "sfx/colonist_death_1.ogg",
+      "sfx/colonist_death_2.ogg",
+      "sfx/colonist_death_3.ogg"
+    ],
+    "monster_death": [
+      "sfx/monster_death_1.ogg",
+      "sfx/monster_death_2.ogg",
+      "sfx/monster_death_3.ogg"
+    ],
+    "monster_growl": [
+      "sfx/monster_growl_1.ogg",
+      "sfx/monster_growl_2.ogg",
+      "sfx/monster_growl_3.ogg",
+      "sfx/monster_growl_4.ogg"
+    ],
+    "horse_gallop": [
+      "sfx/horse_gallop_1.ogg",
+      "sfx/horse_gallop_2.ogg",
+      "sfx/horse_gallop_3.ogg"
+    ],
+    "footstep_grass": [
+      "sfx/footstep_grass_1.ogg",
+      "sfx/footstep_grass_2.ogg",
+      "sfx/footstep_grass_3.ogg",
+      "sfx/footstep_grass_4.ogg"
+    ],
+    "night_sting": [
+      "sfx/night_sting_1.ogg",
+      "sfx/night_sting_2.ogg"
+    ],
+    "dawn_chime": [
+      "sfx/dawn_chime_1.ogg",
+      "sfx/dawn_chime_2.ogg",
+      "sfx/dawn_chime_3.ogg"
+    ],
+    "church_bell": [
+      "sfx/church_bell_1.ogg",
+      "sfx/church_bell_2.ogg"
+    ],
+    "fire_crackle": [
+      "sfx/fire_crackle_1.ogg"
+    ],
+    "water_ambient": [
+      "sfx/water_ambient_1.ogg"
+    ]
+  },
+  "music": {
+    "day": [
+      "music/day_bards_tale.ogg"
+    ],
+    "night": [
+      "music/night_determined_pursuit.ogg"
+    ]
+  }
+}
