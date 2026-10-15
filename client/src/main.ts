@@ -23,9 +23,18 @@ import type {
   GameEventCategory,
   Difficulty,
   WildlifeKind,
+  TownCenterSnapshot,
+  BuildingInfo,
 } from "./protocol";
 import {
   Biome,
+  BUILDING_LEVEL_SNAPSHOT_STRIDE,
+  CONSTRUCTION_SNAPSHOT_STRIDE,
+  FARM_STAGE_SNAPSHOT_STRIDE,
+  FarmStage,
+  HUNGER_MARK_NAMES,
+  HungerMark,
+  isRoadTile,
   PLAYER_SPEED,
   TILE_SIZE,
   TileType,
@@ -136,6 +145,23 @@ const TOOLS: ToolDef[] = [
     cost: "20 wood + 10 tools. Its Bishop keeps the Unbroken Watch: nothing within 12 tiles can be targeted by monsters while he stands vigil",
     category: "civic",
   },
+  {
+    tile: TileType.BuildersGuild,
+    label: "Builders' Guild",
+    key: "i",
+    cost: "15 wood (place on it to upgrade: +1 builder per level). Builders raise every new building and upgrade",
+    category: "civic",
+  },
+  {
+    tile: TileType.TownCenter,
+    label: "Town Center",
+    key: "0",
+    cost: "60 wood + 30 rock + 20 iron, 12+ tiles from other Town Centers and ruins/camps (place on one to upgrade: +5% output and damage per level). Built at once if none stands",
+    category: "civic",
+  },
+  // Every letter is taken (tools, wasd movement, z/x/e stances), so roads use - and =.
+  { tile: TileType.Road, label: "Road", key: "-", cost: "1 rock. Colonists and you move 25% faster on roads", category: "civic" },
+  { tile: TileType.CobbleRoad, label: "Cobble Road", key: "=", cost: "2 rock. A paved road (same 25% speed bonus)", category: "civic" },
 ];
 
 const COLONIST_COLORS: Record<string, number> = {
@@ -153,6 +179,7 @@ const COLONIST_COLORS: Record<string, number> = {
   pikeman: 0x7a3f1e,
   hunter: 0x6b7d3a,
   forager: 0xc9a46a,
+  builder: 0xb0784a,
 };
 
 // Only military units take part in selection / commands / task forces.
@@ -168,6 +195,7 @@ const WORKER_KINDS = new Set<string>([
   "artisan",
   "hunter",
   "forager",
+  "builder",
 ]);
 // Archer is the one garrison kind that also hides at its post: an Archer Tower reads as the
 // archer firing from inside it, not standing beside it, unlike Barracks/Militia Camp where the
@@ -269,6 +297,7 @@ const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
   banditElite: "/sprites/bandit.png",
 };
 
+const artUrl = (name: string) => `/sprites/${name}.png`;
 const frameUrls = (name: string, count: number) =>
   Array.from({ length: count }, (_, i) => `/sprites/${name}${i}.png`);
 
@@ -291,21 +320,28 @@ const COLONIST_ANIM_URLS: Record<ColonistKind, { walk: string[]; action: string[
   // archer's bow cycle, the forager the farmhand's, each tinted (COLONIST_STANDIN_TINT).
   hunter: { walk: frameUrls("archerWalk", 4), action: frameUrls("archerAttack", 6) },
   forager: { walk: frameUrls("farmhandWalk", 4), action: frameUrls("farmhandTend", 3) },
+  // Stand-in until the builder frames load (COLONIST_OPTIONAL_ANIM_URLS).
+  builder: { walk: frameUrls("lumberjackWalk", 4), action: frameUrls("lumberjackChop", 3) },
 };
 // Dedicated art for kinds still on stand-ins. Loaded separately and optionally (loadOptionalTextures):
 // when every frame of a set loads it replaces the stand-in set and its tint; missing files are fine.
-const COLONIST_OPTIONAL_ANIM_URLS: Partial<Record<ColonistKind, { walk: string[]; action: string[] }>> = {
-  hunter: { walk: frameUrls("hunterWalk", 4), action: frameUrls("hunterHunt", 3) },
-  forager: { walk: frameUrls("foragerWalk", 4), action: frameUrls("foragerForage", 3) },
+// `carry` (optional) plays in the server's "carrying" state (walking a carcass / full basket home).
+const COLONIST_OPTIONAL_ANIM_URLS: Partial<Record<ColonistKind, { walk: string[]; action: string[]; carry: string[] }>> = {
+  hunter: { walk: frameUrls("hunterWalk", 4), action: frameUrls("hunterHunt", 3), carry: frameUrls("hunterCarry", 2) },
+  forager: { walk: frameUrls("foragerWalk", 4), action: frameUrls("foragerForage", 3), carry: frameUrls("foragerCarry", 2) },
+  // Carry = hauling a plank to a construction site (server state "carrying"); action = hammering.
+  builder: { walk: frameUrls("builderWalk", 4), action: frameUrls("builderBuild", 4), carry: frameUrls("builderCarry", 2) },
 };
 const COLONIST_STANDIN_TINT: Partial<Record<ColonistKind, number>> = {
   hunter: 0xb5d39a,
   forager: 0xffd9a8,
+  builder: 0xffc890,
 };
 // Static (fallback) pose per kind when it isn't /sprites/<kind>.png.
 const COLONIST_STATIC_URL_OVERRIDES: Partial<Record<ColonistKind, string>> = {
   hunter: "/sprites/archer.png",
   forager: "/sprites/farmhand.png",
+  builder: "/sprites/lumberjack.png",
 };
 // Player (mounted knight): walk + 2-frame lance attack, idle = walk frame 0. The walk row carries
 // the banner, the attack row doesn't; both canvases are centered on the horse's body (not the
@@ -324,6 +360,7 @@ const COLONIST_ACTION_STATES = new Set([
   "warding",
   "hunting",
   "foraging",
+  "building",
 ]);
 const COLONIST_WALK_STATES = new Set([
   "engaging",
@@ -460,6 +497,10 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.PropCross]: "cross",
   [TileType.PropLanternPost]: "lanternPost",
   [TileType.WardStone]: "wardStone",
+  [TileType.BuildersGuild]: "buildersGuild",
+  // Roads are autotiled in setTileSprite (ROAD_AUTOTILE); these are the construction-site / ghost art.
+  [TileType.Road]: "road-isolated",
+  [TileType.CobbleRoad]: "cobblePlaza",
   // Stand-in art (tinted, see TILE_STANDIN_TINT) until the real sprites in TILE_OPTIONAL_ART land.
   [TileType.HunterHut]: "lumberjackPost",
   [TileType.ForagerHut]: "orchard",
@@ -482,6 +523,11 @@ const TILE_OPTIONAL_ART: Partial<Record<TileType, string>> = {
   [TileType.MushroomPatch]: "mushroomRipe",
   [TileType.MushroomPatchPicked]: "mushroomPicked",
 };
+// Alternate looks picked per tile by a stable position hash (half the fruit trees are pear/plum).
+const TILE_OPTIONAL_ALT_ART: Partial<Record<TileType, string>> = {
+  [TileType.FruitTree]: "pearTreeRipe",
+  [TileType.FruitTreePicked]: "pearTreePicked",
+};
 // Multiplicative tints that tell a stand-in apart from the building/prop whose art it borrows.
 const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.HunterHut]: 0xa8c08a,
@@ -502,14 +548,54 @@ const TILE_ANIM: Partial<Record<TileType, { urls: string[]; frameMs: number; pha
   [TileType.PropLanternPost]: { urls: frameUrls("lanternPost", 4), frameMs: 200, phased: true },
   [TileType.Water]: { urls: frameUrls("waterTile", 4), frameMs: 450, phased: false },
 };
-// Farm Plot art per server state (snapshot readyFarmPlots / sownFarmPlots / fallowFarmPlots; any other
-// plot is growing = the TILE_SPRITE_FILES farmPlotGrowing art). Sown and fallow use the bare
-// farmPlot.png until their own art (SPRITES.md #34) lands under the optional names below; fallow is
-// tinted paler meanwhile so a resting field reads differently from a freshly sown one.
-const FARM_PLOT_READY_URL = "/sprites/farmPlotReady.png";
-const FARM_PLOT_BARE_URL = "/sprites/farmPlot.png";
-const FARM_PLOT_OPTIONAL_URLS = { sown: "/sprites/farmPlotSown.png", fallow: "/sprites/farmPlotFallow.png" };
-const FARM_PLOT_FALLOW_STANDIN_TINT = 0xe8e0a0;
+// Farm art per server stage (snapshot `farmStages`, FarmStage in protocol.ts). A stage with no entry
+// (or whose file failed to load) shows the tile's normal TILE_SPRITE_FILES art.
+const FARM_STAGE_ART: Partial<Record<TileType, Partial<Record<FarmStage, string>>>> = {
+  [TileType.FarmPlot]: {
+    [FarmStage.Sown]: "farmPlotSown",
+    [FarmStage.Sprouting]: "farmPlotSprouting",
+    [FarmStage.Growing]: "farmPlotGrowing",
+    [FarmStage.Ripe]: "farmPlotReady",
+    [FarmStage.Harvested]: "farmPlotHarvested",
+    [FarmStage.Fallow]: "farmPlotFallow",
+  },
+  [TileType.CottonFarm]: {
+    [FarmStage.Sown]: "hempFieldSown",
+    [FarmStage.Growing]: "hempFieldGrowing",
+    [FarmStage.Ripe]: "hempFieldRipe",
+  },
+  [TileType.Pasture]: { [FarmStage.Growing]: "pastureGrowing", [FarmStage.Fat]: "pastureFat" },
+  [TileType.WoolFarm]: {
+    [FarmStage.Sheared]: "sheepPastureSheared",
+    [FarmStage.Woolly]: "sheepPastureWoolly",
+    [FarmStage.Ripe]: "sheepPastureReady",
+  },
+  [TileType.Orchard]: { [FarmStage.Blossoming]: "orchardBlossoming", [FarmStage.Fruiting]: "orchardFruiting" },
+};
+// Tier art by building level (snapshot `buildingLevels`; level 1 = index 0). Missing files fall back to
+// the tile's TILE_SPRITE_FILES art.
+const TILE_LEVEL_ART: Partial<Record<TileType, string[]>> = {
+  [TileType.HunterHut]: ["hunterHut", "hunterHutLv2", "hunterHutLv3"],
+  [TileType.ForagerHut]: ["foragerHut", "foragerHutLv2", "foragerHutLv3"],
+  [TileType.BuildersGuild]: ["buildersGuild", "buildersGuildLv2", "buildersGuildLv3"],
+  [TileType.TownCenter]: ["townCenterLv1", "townCenterLv2", "townCenterKeep"],
+};
+// The tiered Town Center art (a plaza on its own diamond patch, then the Keep) skips the box fit like
+// townCenter.png does: rendered `widthTiles` wide, `anchor` (the patch's center, under the statue / the
+// keep's gate court) pinned on the tile center.
+const TOWN_CENTER_LEVEL_FIT = [
+  { widthTiles: 3, anchor: { x: 0.51, y: 0.62 } },
+  { widthTiles: 3, anchor: { x: 0.51, y: 0.63 } },
+  { widthTiles: 3.2, anchor: { x: 0.5, y: 0.68 } },
+];
+// Placement ghost while the Town Center tool is selected.
+const TOWN_CENTER_MARKER_URL = "/sprites/townCenterMarker.png";
+// A construction site shows its target's art faded and tinted (plus a scaffold + progress bar overlay).
+const CONSTRUCTION_ALPHA = 0.45;
+const CONSTRUCTION_TINT = 0xd8b890;
+// A hunter's deer kill lies on the ground this long before it leaves its blood stain.
+const DEER_FALLEN_URL = "/sprites/deerFallen.png";
+const DEER_FALLEN_MS = 2600;
 // Indexed by GravestoneSnapshot.variant.
 const GRAVESTONE_URLS = ["/sprites/gravestone.png", "/sprites/gravestone2.png"];
 // Rendered height in px: a little shorter than a colonist so it reads as a ground marker.
@@ -523,9 +609,9 @@ const WILDLIFE = {
   crow: { frames: frameUrls("crow", 4), size: 12, tilesPer: 1400, max: 14 },
   frog: { frames: frameUrls("frog", 3), size: 9, tilesPer: 60, max: 16 },
 };
-// Huntable server wildlife (snapshot `wildlife`). Only the deer has art so far; rabbit, boar and
-// pheasant borrow the deer frames, scaled (`size` = rendered width, px) and tinted, until their own
-// frames (SPRITES.md #33) land under WILDLIFE_OPTIONAL_URLS. `walk` plays while walking, `idle` (graze)
+// Huntable server wildlife (snapshot `wildlife`). Each kind's own frames (SPRITES.md #33) load from
+// WILDLIFE_OPTIONAL_URLS, rendered `size` px wide (first walk frame); if a set is missing, that kind
+// falls back to the deer frames, scaled and tinted. `walk` plays while walking, `idle` (graze)
 // while standing, and the faster `run` (deer: optional deerRun) while fleeing or charging.
 const DEER_WALK_URLS = frameUrls("deerWalk", 4);
 const DEER_GRAZE_URLS = frameUrls("deerGraze", 2);
@@ -562,9 +648,75 @@ const FX_URLS = {
   poof: "/sprites/fx-poof.png",
   arrow: "/sprites/fx-arrow.png",
 };
+// Gameplay VFX sheet 2: 4-frame one-shots, each set on one shared canvas.
+const FX_ANIM_URLS = {
+  build: frameUrls("fx-build", 4),
+  upgrade: frameUrls("fx-upgrade", 4),
+  heal: frameUrls("fx-heal", 4),
+  poison: frameUrls("fx-poison", 4),
+  wardPulse: frameUrls("fx-wardPulse", 4),
+  wardLapse: frameUrls("fx-wardLapse", 4),
+};
+// Wound decals over damaged units: [light, bleeding, heavy], small for colonists/most mobs, Large for
+// the big mobs. Thresholds are hp fractions (below the first = light, ... below the last = heavy).
+const WOUND_URLS = ["woundLight", "woundBleeding", "woundHeavy"].map((n) => `/sprites/${n}.png`);
+const WOUND_LARGE_URLS = ["woundLightLarge", "woundBleedingLarge", "woundHeavyLarge"].map((n) => `/sprites/${n}.png`);
+const WOUND_THRESHOLDS = [0.66, 0.4, 0.2];
+// Rendered longer side (px): half a colonist's 28px height; mobs scale with their rendered size.
+const COLONIST_WOUND_SIZE = 14;
+const MOB_WOUND_SIZE_FACTOR = 0.55;
+const WOUND_LARGE_KINDS = new Set<MobKind>(["orc", "armoredOrc", "troll", "ogre"]);
 // Ground-like tile art that should cover its tile exactly (flush, no overhang into neighbors)
 // instead of the bottom-anchored max-box fit buildings use, and always sit under other tile art.
-const TILE_SPRITE_FILL_TILE = new Set<number>([TileType.Water]);
+const TILE_SPRITE_FILL_TILE = new Set<number>([TileType.Water, TileType.Road, TileType.CobbleRoad]);
+// Road autotile, by the mask of orthogonal road neighbours (N=1, E=2, S=4, W=8; Road and Cobble Road
+// connect to each other): [art, clockwise quarter turns]. The delivered road-* files don't all match
+// their names (straightH, tJunctionB and some dead ends/corners are drawn with other connections), so
+// only the pieces whose art matches are used, rotated for the rest. Measured connections: deadEndT = N,
+// straightV = N+S, cornerTL = E+S, cornerTR = S+W, tJunctionR = E+S+W, tJunctionL = N+E+W, cross = all.
+const ROAD_AUTOTILE: [string, number][] = [
+  ["road-isolated", 0], // 0: none
+  ["road-deadEndT", 0], // 1: N
+  ["road-deadEndT", 1], // 2: E
+  ["road-cornerTL", 3], // 3: N+E
+  ["road-deadEndT", 2], // 4: S
+  ["road-straightV", 0], // 5: N+S
+  ["road-cornerTL", 0], // 6: E+S
+  ["road-tJunctionR", 3], // 7: N+E+S
+  ["road-deadEndT", 3], // 8: W
+  ["road-cornerTL", 2], // 9: N+W
+  ["road-straightV", 1], // 10: E+W
+  ["road-tJunctionL", 0], // 11: N+E+W
+  ["road-cornerTR", 0], // 12: S+W
+  ["road-tJunctionR", 1], // 13: N+S+W
+  ["road-tJunctionR", 0], // 14: E+S+W
+  ["road-cross", 0], // 15: all
+];
+// Cobble Road: the vertical cobbleRoad strip for straight runs (rotated for E-W), the plaza fill otherwise.
+const COBBLE_STRAIGHT = "cobbleRoad";
+const COBBLE_FILL = "cobblePlaza";
+const ROAD_ART_URLS = Array.from(new Set([...ROAD_AUTOTILE.map(([n]) => n), COBBLE_STRAIGHT, COBBLE_FILL])).map(
+  (n) => `/sprites/${n}.png`
+);
+// Hunger-marked elites: sigil over the mob, pulsing aura ellipse on the ground under it, a tinted name
+// label, and the mob drawn MARKED_MOB_SCALE larger. Indexed by HungerMark (0 = none).
+const HUNGER_SIGIL_URLS = HUNGER_MARK_NAMES.map((n) => (n ? `/sprites/sigil-${n}.png` : ""));
+const HUNGER_AURA_URLS = HUNGER_MARK_NAMES.map((n) => (n ? `/sprites/aura-${n}.png` : ""));
+const HUNGER_LABEL_COLORS = [0xffffff, 0xff5a4a, 0x4fd8c0, 0xf0c050, 0xb080d0, 0xa8bccc, 0xe0d0b8];
+const HUNGER_SIGIL_SIZE = 16;
+const HUNGER_AURA_WIDTH = 40;
+const MARKED_MOB_SCALE = 1.25;
+// Battered armor: below this hp fraction, an idle (not walking/attacking) pikeman or armoured orc
+// shows its static battered pose. The knight's walk/attack set is drawn in a much chunkier style
+// than knightBattered.png, so swapping in that pose looked like a different unit; knights are
+// tinted darker instead (BATTERED_TINT), as are the pose kinds whenever the battered art is missing.
+const BATTERED_HP_FRACTION = 0.5;
+const BATTERED_TINT = 0x9a948c;
+const BATTERED_POSE_URLS: Record<string, string> = {
+  pikeman: "/sprites/pikemanBattered.png",
+  armoredOrc: "/sprites/armoredOrcBattered.png",
+};
+const BATTERED_TINT_KINDS = new Set<string>(["knight", "pikeman", "armoredOrc"]);
 // Extra scale on top of the max-box fit for small world-gen props, so a barrel or crate doesn't
 // render the same size as a cottage. Unlisted tiles use 1 (unchanged).
 const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
@@ -600,6 +752,12 @@ interface EntityVisual {
   hpBar: Graphics;
   // "This is me" ground ring, only present on the local player's entry.
   marker?: Graphics;
+  // Wound decal, created the first time the unit is seen damaged (see updateWound).
+  wound?: Sprite;
+  // Hunger-marked mobs only (see updateMarkVisuals).
+  aura?: Sprite;
+  sigil?: Sprite;
+  markLabel?: Text;
 }
 
 const COLONIST_KINDS: ColonistKind[] = [
@@ -617,6 +775,7 @@ const COLONIST_KINDS: ColonistKind[] = [
   "pikeman",
   "hunter",
   "forager",
+  "builder",
 ];
 // Rendered heights (px); width follows each texture's aspect ratio.
 const COLONIST_SPRITE_HEIGHT = 28;
@@ -756,6 +915,7 @@ function workSoundKey(c: ColonistSnapshot): string | null {
     case "foraging":
       return "farm_work";
     case "crafting":
+    case "building":
       return "craft_hammer";
     case "healing":
       return c.kind === "bishop" ? "heal_chime" : null;
@@ -784,8 +944,6 @@ async function main() {
     "/sprites/hillsFloor.png",
     "/sprites/swampFloor.png",
     ...NATURE_DECOR.map((d) => d.url),
-    FARM_PLOT_READY_URL,
-    FARM_PLOT_BARE_URL,
     ...GRAVESTONE_URLS,
     ...BLOOD_URLS,
     ...DEER_WALK_URLS,
@@ -793,7 +951,14 @@ async function main() {
     ...WILDLIFE.crow.frames,
     ...WILDLIFE.frog.frames,
     ...Object.values(FX_URLS),
+    ...Object.values(FX_ANIM_URLS).flat(),
+    ...WOUND_URLS,
+    ...WOUND_LARGE_URLS,
     ...Object.values(TILE_ANIM).flatMap((a) => a!.urls),
+    ...ROAD_ART_URLS,
+    ...HUNGER_SIGIL_URLS.filter(Boolean),
+    ...HUNGER_AURA_URLS.filter(Boolean),
+    ...Object.values(BATTERED_POSE_URLS),
   ];
   const ANIM_URLS = [
     ...Object.values(COLONIST_ANIM_URLS).flatMap((a) => [...a.walk, ...a.action]),
@@ -823,9 +988,12 @@ async function main() {
     return out;
   }
   const optionalTexturesPromise = loadOptionalTextures([
-    ...Object.values(COLONIST_OPTIONAL_ANIM_URLS).flatMap((a) => [...a!.walk, ...a!.action]),
-    ...Object.values(TILE_OPTIONAL_ART).map((name) => `/sprites/${name}.png`),
-    ...Object.values(FARM_PLOT_OPTIONAL_URLS),
+    ...Object.values(COLONIST_OPTIONAL_ANIM_URLS).flatMap((a) => [...a!.walk, ...a!.action, ...a!.carry]),
+    ...[...Object.values(TILE_OPTIONAL_ART), ...Object.values(TILE_OPTIONAL_ALT_ART)].map((name) => `/sprites/${name}.png`),
+    ...Object.values(FARM_STAGE_ART).flatMap((stages) => Object.values(stages!).map(artUrl)),
+    ...Object.values(TILE_LEVEL_ART).flatMap((names) => names!.map(artUrl)),
+    TOWN_CENTER_MARKER_URL,
+    DEER_FALLEN_URL,
     ...Object.values(WILDLIFE_OPTIONAL_URLS).flatMap((a) => [...a.walk, ...a.idle, ...a.run]),
   ]);
   // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
@@ -861,6 +1029,12 @@ async function main() {
     if (!texture) continue;
     TILE_TEXTURES.set(Number(tile), texture);
     TILE_TINT.delete(Number(tile));
+  }
+  // Only used where the tile's own optional art loaded too (an alt next to a tinted stand-in would clash).
+  const TILE_ALT_TEXTURES = new Map<number, Texture>();
+  for (const [tile, name] of Object.entries(TILE_OPTIONAL_ALT_ART)) {
+    const texture = optionalTextures[`/sprites/${name}.png`];
+    if (texture && !TILE_TINT.has(Number(tile))) TILE_ALT_TEXTURES.set(Number(tile), texture);
   }
   // Building tiers were generated as separate images and don't necessarily share proportions —
   // a busier/larger-canvas upgrade art can end up box-fit SMALLER than the tier before it, which
@@ -901,10 +1075,34 @@ async function main() {
   const HILLS_FLOOR_TEXTURE = loadedTextures["/sprites/hillsFloor.png"];
   const SWAMP_FLOOR_TEXTURE = loadedTextures["/sprites/swampFloor.png"];
   const NATURE_DECOR_TEXTURES = NATURE_DECOR.map((d) => ({ texture: loadedTextures[d.url], height: d.height }));
-  const FARM_PLOT_READY_TEXTURE = loadedTextures[FARM_PLOT_READY_URL];
-  const FARM_PLOT_SOWN_TEXTURE = optionalTextures[FARM_PLOT_OPTIONAL_URLS.sown] ?? loadedTextures[FARM_PLOT_BARE_URL];
-  const FARM_PLOT_FALLOW_TEXTURE = optionalTextures[FARM_PLOT_OPTIONAL_URLS.fallow] ?? loadedTextures[FARM_PLOT_BARE_URL];
-  const FARM_PLOT_FALLOW_TINT = optionalTextures[FARM_PLOT_OPTIONAL_URLS.fallow] ? 0xffffff : FARM_PLOT_FALLOW_STANDIN_TINT;
+  // tile -> FarmStage -> texture, only for stage art that loaded.
+  const FARM_STAGE_TEXTURES = new Map<number, Map<number, Texture>>();
+  for (const [tile, stages] of Object.entries(FARM_STAGE_ART)) {
+    const byStage = new Map<number, Texture>();
+    for (const [stage, name] of Object.entries(stages!)) {
+      const texture = optionalTextures[artUrl(name!)];
+      if (texture) byStage.set(Number(stage), texture);
+    }
+    FARM_STAGE_TEXTURES.set(Number(tile), byStage);
+  }
+  // tile -> [lv1, lv2, lv3] tier textures (undefined where the file is missing).
+  const TILE_LEVEL_TEXTURES = new Map<number, (Texture | undefined)[]>(
+    Object.entries(TILE_LEVEL_ART).map(([tile, names]) => [Number(tile), names!.map((n) => optionalTextures[artUrl(n)])])
+  );
+  // Same "never shrink on upgrade" rule as TILE_TIER_FAMILIES, per level of a leveled building.
+  const TILE_LEVEL_MIN_HEIGHT = new Map<string, number>();
+  for (const [tile, textures] of TILE_LEVEL_TEXTURES) {
+    if (tile === TileType.TownCenter) continue;
+    let runningMinHeight = 0;
+    textures.forEach((texture, i) => {
+      if (!texture) return;
+      const naturalScale = Math.min((32 * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width, (32 * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height);
+      runningMinHeight = Math.max(naturalScale * texture.height, runningMinHeight);
+      TILE_LEVEL_MIN_HEIGHT.set(`${tile}:${i + 1}`, runningMinHeight);
+    });
+  }
+  const TOWN_CENTER_MARKER_TEXTURE = optionalTextures[TOWN_CENTER_MARKER_URL];
+  const DEER_FALLEN_TEXTURE = optionalTextures[DEER_FALLEN_URL];
   const TILE_ANIM_TEXTURES = new Map<number, { frames: Texture[]; frameMs: number; phased: boolean }>(
     Object.entries(TILE_ANIM).map(([tile, a]) => [
       Number(tile),
@@ -919,12 +1117,25 @@ async function main() {
     poof: loadedTextures[FX_URLS.poof],
     arrow: loadedTextures[FX_URLS.arrow],
   };
+  const FX_ANIM_TEXTURES = Object.fromEntries(
+    Object.entries(FX_ANIM_URLS).map(([k, urls]) => [k, urls.map((u) => loadedTextures[u])])
+  ) as Record<keyof typeof FX_ANIM_URLS, Texture[]>;
+  const WOUND_TEXTURES = WOUND_URLS.map((u) => loadedTextures[u]);
+  const WOUND_LARGE_TEXTURES = WOUND_LARGE_URLS.map((u) => loadedTextures[u]);
+  const roadTexture = (name: string) => loadedTextures[`/sprites/${name}.png`];
+  const HUNGER_SIGIL_TEXTURES = HUNGER_SIGIL_URLS.map((u) => (u ? loadedTextures[u] : undefined));
+  const HUNGER_AURA_TEXTURES = HUNGER_AURA_URLS.map((u) => (u ? loadedTextures[u] : undefined));
+  const BATTERED_POSE_TEXTURES = new Map<string, Texture>(
+    Object.entries(BATTERED_POSE_URLS).flatMap(([kind, url]) => (loadedTextures[url] ? [[kind, loadedTextures[url]] as const] : []))
+  );
   // Frames within one set come from one source sheet, so they share a pixel scale: one constant
   // `scale` per set (sized from the first walk frame) keeps the body the same size while weapons
   // swing out, instead of re-fitting every frame's canvas to a fixed height.
   interface AnimSet {
     walk: Texture[];
     action: Texture[];
+    // Optional carry-home walk (hunter/forager); falls back to `walk`.
+    carry?: Texture[];
     scale: number;
     refHeight: number;
   }
@@ -986,9 +1197,11 @@ async function main() {
     if (![...urls!.walk, ...urls!.action].every((u) => optionalTextures[u])) continue;
     const walk = urls!.walk.map((u) => optionalTextures[u]);
     const action = urls!.action.map((u) => optionalTextures[u]);
+    const carry = urls!.carry.every((u) => optionalTextures[u]) ? urls!.carry.map((u) => optionalTextures[u]) : undefined;
     COLONIST_ANIMS[kind as ColonistKind] = {
       walk,
       action,
+      carry,
       scale: COLONIST_SPRITE_HEIGHT / walk[0].height,
       refHeight: walk[0].height,
     };
@@ -1031,22 +1244,23 @@ async function main() {
   ) as Partial<Record<MobKind, MobVariant[]>>;
   // Ticks (snapshots, ~20/s) each animation frame holds before advancing.
   const ANIM_TICKS_PER_FRAME = 4;
+  type AnimMode = "walk" | "action" | "carry" | null;
   interface AnimState {
-    mode: "walk" | "action" | null;
+    mode: AnimMode;
     frame: number;
     ticksInFrame: number;
     lastX: number;
     lastY: number;
   }
   // Advances `anim` one snapshot tick; returns the frame to show, or null for the static pose.
-  function stepAnim(anim: AnimState, set: AnimSet, mode: "walk" | "action" | null): Texture | null {
+  function stepAnim(anim: AnimState, set: AnimSet, mode: AnimMode): Texture | null {
     if (mode !== anim.mode) {
       anim.mode = mode;
       anim.frame = 0;
       anim.ticksInFrame = 0;
     }
     if (!mode) return null;
-    const sequence = mode === "walk" ? set.walk : set.action;
+    const sequence = mode === "walk" ? set.walk : mode === "carry" ? (set.carry ?? set.walk) : set.action;
     anim.ticksInFrame++;
     if (anim.ticksInFrame >= ANIM_TICKS_PER_FRAME) {
       anim.ticksInFrame = 0;
@@ -1100,9 +1314,8 @@ async function main() {
   let tileSize = 32;
   let worldTilesX = 25;
   let worldTilesY = 25;
-  // Pixel center of the Town Center tile, set once from `welcome` - same formula as the server's
-  // own TOWN_CENTER_TILE (always dead center of the map).
-  let townCenterPx = { x: 0, y: 0 };
+  // Every standing Town Center, from the latest snapshot (minimap markers, HP bars, game over).
+  let latestTownCenters: TownCenterSnapshot[] = [];
   let tiles: number[] = [];
   // Biome per tile from `welcome`; static for the life of a world.
   let biomes: number[] = [];
@@ -1188,34 +1401,108 @@ async function main() {
   }
   // A welcome (join or world restart) wipes every entity at once; that isn't a mass death.
   let suppressDeathPoofs = true;
-  // Tile index -> server farm state for plots not simply growing (see FARM_PLOT_* above).
-  type FarmPlotArtState = "ready" | "sown" | "fallow";
-  let farmPlotStates = new Map<number, FarmPlotArtState>();
+  // Server art state per tile index, from the snapshot: farm stage (FarmStage), building level (>1
+  // only), and construction sites. Each sync re-draws only the tiles whose value changed.
+  let farmStages = new Map<number, number>();
+  let buildingLevels = new Map<number, number>();
+  interface SiteView {
+    target: number;
+    progress: number;
+    upgrade: boolean;
+    builders: number;
+  }
+  let constructionSites = new Map<number, SiteView>();
   // True from a welcome until its first snapshot has been applied: state diffs then are a world
   // load, not events, so they make no sound.
   let soundSuppressed = true;
 
-  function syncFarmPlotStates(ready: number[], sown: number[], fallow: number[]) {
-    const next = new Map<number, FarmPlotArtState>();
-    for (const i of ready) next.set(i, "ready");
-    for (const i of sown) next.set(i, "sown");
-    for (const i of fallow) next.set(i, "fallow");
-    const changed: number[] = [];
-    for (const [i, state] of farmPlotStates) if (next.get(i) !== state) changed.push(i);
-    for (const i of next.keys()) if (!farmPlotStates.has(i)) changed.push(i);
-    const prev = farmPlotStates;
-    farmPlotStates = next;
+  const indexToTile = (index: number) => ({ tx: index % worldTilesX, ty: Math.floor(index / worldTilesX) });
+
+  function syncFarmStages(flat: number[]) {
+    const next = new Map<number, number>();
+    for (let i = 0; i + FARM_STAGE_SNAPSHOT_STRIDE <= flat.length; i += FARM_STAGE_SNAPSHOT_STRIDE) next.set(flat[i], flat[i + 1]);
+    const changed = new Set<number>();
+    for (const [i, stage] of farmStages) if (next.get(i) !== stage) changed.add(i);
+    for (const [i, stage] of next) if (farmStages.get(i) !== stage) changed.add(i);
+    const prev = farmStages;
+    farmStages = next;
     for (const index of changed) {
-      if (tiles[index] !== TileType.FarmPlot) continue;
-      // Ripe or harvested. Not on the first snapshot after a welcome (that's every ready plot at once).
-      const ripeChanged = (prev.get(index) === "ready") !== (next.get(index) === "ready");
-      if (!soundSuppressed && ripeChanged) {
-        sound.play("farm_work", {
-          x: (index % worldTilesX) * tileSize + tileSize / 2,
-          y: Math.floor(index / worldTilesX) * tileSize + tileSize / 2,
-        });
+      const tile = tiles[index];
+      if (FARM_STAGE_ART[tile as TileType] === undefined) continue;
+      // Ripe or harvested grain. Not on the first snapshot after a welcome (that's every ripe plot at once).
+      const ripeChanged = (prev.get(index) === FarmStage.Ripe) !== (next.get(index) === FarmStage.Ripe);
+      if (tile === TileType.FarmPlot && !soundSuppressed && ripeChanged) {
+        const c = indexToTile(index);
+        sound.play("farm_work", { x: c.tx * tileSize + tileSize / 2, y: c.ty * tileSize + tileSize / 2 });
       }
-      setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), TileType.FarmPlot);
+      const { tx, ty } = indexToTile(index);
+      setTileSprite(tx, ty, tile);
+    }
+  }
+
+  function syncBuildingLevels(flat: number[]) {
+    const next = new Map<number, number>();
+    for (let i = 0; i + BUILDING_LEVEL_SNAPSHOT_STRIDE <= flat.length; i += BUILDING_LEVEL_SNAPSHOT_STRIDE) next.set(flat[i], flat[i + 1]);
+    const changed = new Set<number>();
+    for (const [i, level] of buildingLevels) if (next.get(i) !== level) changed.add(i);
+    for (const [i, level] of next) if (buildingLevels.get(i) !== level) changed.add(i);
+    buildingLevels = next;
+    for (const index of changed) {
+      if (TILE_LEVEL_ART[tiles[index] as TileType] === undefined) continue;
+      const { tx, ty } = indexToTile(index);
+      setTileSprite(tx, ty, tiles[index]);
+    }
+  }
+
+  // Scaffolding + progress bars over every site (and a small marker over buildings being upgraded).
+  const siteOverlay = new Graphics();
+  function syncConstructionSites(flat: number[]) {
+    const next = new Map<number, SiteView>();
+    for (let i = 0; i + CONSTRUCTION_SNAPSHOT_STRIDE <= flat.length; i += CONSTRUCTION_SNAPSHOT_STRIDE) {
+      next.set(flat[i], { target: flat[i + 1], progress: flat[i + 2] / 1000, upgrade: flat[i + 3] === 1, builders: flat[i + 4] });
+    }
+    const prev = constructionSites;
+    constructionSites = next;
+    for (const [index, site] of next) {
+      const old = prev.get(index);
+      if (!old || old.target !== site.target) {
+        const { tx, ty } = indexToTile(index);
+        if (tiles[index] === TileType.ConstructionSite) setTileSprite(tx, ty, tiles[index]);
+      }
+    }
+    for (const [index, site] of prev) {
+      if (next.has(index) || !site.upgrade || soundSuppressed) continue;
+      // An in-place upgrade finished (or was dropped): the upgrade sparkle, if the building still stands.
+      if (tiles[index] === TileType.Empty) continue;
+      const { tx, ty } = indexToTile(index);
+      const c = tileCenter(tx, ty);
+      spawnFxAnim("upgrade", c.x, c.y + tileSize / 2, 700);
+    }
+    siteOverlay.clear();
+    for (const [index, site] of next) {
+      const { tx, ty } = indexToTile(index);
+      const x = tx * tileSize;
+      const y = ty * tileSize;
+      if (!site.upgrade) {
+        // Scaffold: two poles and cross braces over the faded building.
+        const top = y - tileSize * 0.6;
+        siteOverlay
+          .moveTo(x + 4, y + tileSize - 2).lineTo(x + 4, top)
+          .moveTo(x + tileSize - 4, y + tileSize - 2).lineTo(x + tileSize - 4, top)
+          .moveTo(x + 4, top + 6).lineTo(x + tileSize - 4, top + 6)
+          .moveTo(x + 4, y + tileSize * 0.45).lineTo(x + tileSize - 4, y + tileSize * 0.45)
+          .moveTo(x + 4, top + 6).lineTo(x + tileSize - 4, y + tileSize * 0.45)
+          .stroke({ width: 2, color: 0x6b4423, alpha: 0.9 });
+      } else {
+        // "Upgrading" marker: a small up-arrow badge.
+        const cx = x + tileSize - 6;
+        const cy = y - 4;
+        siteOverlay.circle(cx, cy, 6).fill({ color: 0x2b1a0c, alpha: 0.85 });
+        siteOverlay.poly([cx, cy - 4, cx + 4, cy + 1, cx + 1.5, cy + 1, cx + 1.5, cy + 4, cx - 1.5, cy + 4, cx - 1.5, cy + 1, cx - 4, cy + 1]).fill(0xf1c40f);
+      }
+      const barY = y + tileSize + 2;
+      siteOverlay.rect(x + 2, barY, tileSize - 4, 4).fill({ color: 0x2b1a0c, alpha: 0.8 });
+      siteOverlay.rect(x + 2, barY, (tileSize - 4) * site.progress, 4).fill(site.upgrade ? 0xf1c40f : 0xe0b468);
     }
   }
 
@@ -1223,30 +1510,76 @@ async function main() {
   nightOverlay.alpha = 0;
   worldLayer.addChild(nightOverlay);
 
-  const townCenterHpBar = new Graphics();
-  worldLayer.addChild(townCenterHpBar);
+  // One HP bar per standing Town Center, keyed by tile index, just above its art.
+  const townCenterHpBars = new Map<number, Graphics>();
+  function syncTownCenterBars(list: TownCenterSnapshot[]) {
+    const seen = new Set<number>();
+    for (const tc of list) {
+      const index = tc.y * worldTilesX + tc.x;
+      seen.add(index);
+      let bar = townCenterHpBars.get(index);
+      if (!bar) {
+        bar = new Graphics();
+        worldLayer.addChild(bar);
+        townCenterHpBars.set(index, bar);
+      }
+      bar.position.set(tc.x * tileSize + tileSize / 2, tc.y * tileSize + tileSize / 2 - townCenterArtAbove(tc.level) - 6);
+      drawHpBar(bar, tc.hp, tc.maxHp);
+    }
+    for (const [index, bar] of Array.from(townCenterHpBars)) {
+      if (seen.has(index)) continue;
+      bar.destroy();
+      townCenterHpBars.delete(index);
+    }
+  }
 
   const cursorHighlight = new Graphics();
+  // Pale plaza ghost under the cursor while the Town Center tool is selected.
+  const placementGhost = new Sprite(TOWN_CENTER_MARKER_TEXTURE ?? Texture.EMPTY);
+  placementGhost.visible = false;
+  placementGhost.alpha = 0.85;
+  // Town Center: the plaza marker. Road tools: a faded road piece filling the hovered tile.
+  function configurePlacementGhost(tool: TileType) {
+    if (isRoadTile(tool)) {
+      const texture = roadTexture(tool === TileType.Road ? "road-isolated" : COBBLE_FILL);
+      placementGhost.texture = texture;
+      placementGhost.anchor.set(0.5);
+      placementGhost.scale.set(32 / texture.width);
+      placementGhost.alpha = 0.55;
+    } else if (TOWN_CENTER_MARKER_TEXTURE) {
+      placementGhost.texture = TOWN_CENTER_MARKER_TEXTURE;
+      placementGhost.anchor.set(TOWN_CENTER_LEVEL_FIT[0].anchor.x, TOWN_CENTER_LEVEL_FIT[0].anchor.y);
+      placementGhost.scale.set((32 * TOWN_CENTER_LEVEL_FIT[0].widthTiles) / TOWN_CENTER_MARKER_TEXTURE.width);
+      placementGhost.alpha = 0.85;
+    }
+  }
+  configurePlacementGhost(TileType.TownCenter);
 
   // World-space overlays: parented to worldLayer so they follow the camera automatically.
   const selectionRings = new Graphics();
   const dragBox = new Graphics();
 
   // Single source of truth for tileSpriteLayer: shows `tile`'s art at (tx, ty), or clears the
-  // slot back to bare floor if it has none (Empty, anything unmapped).
+  // slot back to bare floor if it has none (Empty, anything unmapped). A construction site draws the
+  // building it will become, faded; leveled buildings and farms pick their tier / stage art.
   function setTileSprite(tx: number, ty: number, tile: number) {
     const index = ty * worldTilesX + tx;
-    const farmState = tile === TileType.FarmPlot ? farmPlotStates.get(index) : undefined;
+    const site = tile === TileType.ConstructionSite ? constructionSites.get(index) : undefined;
+    const artTile = site ? site.target : tile;
+    const level = site ? 1 : (buildingLevels.get(index) ?? 1);
+    const stage = farmStages.get(index);
+    const stageTexture = !site && stage !== undefined ? FARM_STAGE_TEXTURES.get(tile)?.get(stage) : undefined;
+    const levelTexture = TILE_LEVEL_TEXTURES.get(artTile)?.[level - 1];
     const texture =
-      tile === TileType.IronOre
-        ? IRON_ORE_VARIANTS[(tx * 7 + ty * 13) % IRON_ORE_VARIANTS.length]
-        : farmState === "ready"
-          ? FARM_PLOT_READY_TEXTURE
-          : farmState === "sown"
-            ? FARM_PLOT_SOWN_TEXTURE
-            : farmState === "fallow"
-              ? FARM_PLOT_FALLOW_TEXTURE
-              : (tileAnimTexture(index, tile, performance.now()) ?? TILE_TEXTURES.get(tile));
+      tile === TileType.ConstructionSite && !site
+        ? TILE_TEXTURES.get(TileType.Wall) // until the snapshot names the target
+        : tile === TileType.IronOre
+          ? IRON_ORE_VARIANTS[(tx * 7 + ty * 13) % IRON_ORE_VARIANTS.length]
+          : (stageTexture ??
+            levelTexture ??
+            (TILE_ALT_TEXTURES.has(tile) && (tx * 7 + ty * 13) % 2 === 1
+              ? TILE_ALT_TEXTURES.get(tile)
+              : (tileAnimTexture(index, tile, performance.now()) ?? TILE_TEXTURES.get(artTile))));
     if (TILE_ANIM_TEXTURES.has(tile)) animatedTiles.set(index, tile);
     else animatedTiles.delete(index);
     let sprite = tileSprites.get(index);
@@ -1264,29 +1597,74 @@ async function main() {
       tileSpriteLayer.addChild(sprite);
       tileSprites.set(index, sprite);
     }
-    sprite.tint = farmState === "fallow" ? FARM_PLOT_FALLOW_TINT : (TILE_TINT.get(tile) ?? 0xffffff);
-    if (tile === TileType.TownCenter) {
-      sprite.anchor.set(TOWN_CENTER_ANCHOR.x, TOWN_CENTER_ANCHOR.y);
-      sprite.scale.set((tileSize * TOWN_CENTER_WIDTH_TILES) / texture.width);
+    sprite.rotation = 0;
+    sprite.alpha = tile === TileType.ConstructionSite ? CONSTRUCTION_ALPHA : 1;
+    sprite.tint =
+      tile === TileType.ConstructionSite
+        ? CONSTRUCTION_TINT
+        : stageTexture || levelTexture
+          ? 0xffffff
+          : (TILE_TINT.get(tile) ?? 0xffffff);
+    if (artTile === TileType.TownCenter) {
+      const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
+      sprite.anchor.set(fit.anchor.x, fit.anchor.y);
+      sprite.scale.set((tileSize * fit.widthTiles) / texture.width);
       sprite.position.set(tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2);
       sprite.zIndex = index;
       return;
     }
+    if (isRoadTile(tile)) {
+      // Autotiled ground: centered so it can rotate, flush on its tile, under all other tile art.
+      const [roadArt, turns] = roadArtFor(tx, ty, tile);
+      sprite.texture = roadArt;
+      sprite.anchor.set(0.5);
+      sprite.rotation = (turns * Math.PI) / 2;
+      sprite.scale.set(tileSize / roadArt.width, tileSize / roadArt.height);
+      sprite.position.set(tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2);
+      sprite.zIndex = -1;
+      return;
+    }
     sprite.anchor.set(0.5, 1);
-    const fillTile = TILE_SPRITE_FILL_TILE.has(tile);
+    const fillTile = TILE_SPRITE_FILL_TILE.has(artTile);
     const naturalScale = fillTile
       ? Math.max(tileSize / texture.width, tileSize / texture.height)
       : Math.min(
           (tileSize * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width,
           (tileSize * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height
-        ) * (TILE_SPRITE_SIZE_FACTOR[tile as TileType] ?? 1);
-    const minHeight = TILE_MIN_RENDER_HEIGHT.get(tile);
+        ) * (TILE_SPRITE_SIZE_FACTOR[artTile as TileType] ?? 1);
+    const minHeight = levelTexture ? TILE_LEVEL_MIN_HEIGHT.get(`${artTile}:${level}`) : TILE_MIN_RENDER_HEIGHT.get(artTile);
     const scale = minHeight ? Math.max(naturalScale, minHeight / texture.height) : naturalScale;
     sprite.scale.set(scale);
     sprite.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize);
     // Row-major index: lower rows draw in front of the rows above them; x breaks ties. Flush
     // ground-like tiles (water) go under all other tile art.
     sprite.zIndex = fillTile ? -1 : index;
+  }
+
+  function isRoadAt(tx: number, ty: number): boolean {
+    if (tx < 0 || ty < 0 || tx >= worldTilesX || ty >= worldTilesY) return false;
+    return isRoadTile(tiles[ty * worldTilesX + tx] as TileType);
+  }
+
+  // [texture, clockwise quarter turns] for the road at (tx, ty) from its orthogonal road neighbours.
+  function roadArtFor(tx: number, ty: number, tile: number): [Texture, number] {
+    const mask =
+      (isRoadAt(tx, ty - 1) ? 1 : 0) | (isRoadAt(tx + 1, ty) ? 2 : 0) | (isRoadAt(tx, ty + 1) ? 4 : 0) | (isRoadAt(tx - 1, ty) ? 8 : 0);
+    if (tile === TileType.CobbleRoad) {
+      if (mask === 5 || mask === 1 || mask === 4) return [roadTexture(COBBLE_STRAIGHT), 0];
+      if (mask === 10 || mask === 2 || mask === 8) return [roadTexture(COBBLE_STRAIGHT), 1];
+      return [roadTexture(COBBLE_FILL), 0];
+    }
+    const [name, turns] = ROAD_AUTOTILE[mask];
+    return [roadTexture(name), turns];
+  }
+
+  // Pixels from a Town Center's tile center up to the top of its art (for its HP bar).
+  function townCenterArtAbove(level: number): number {
+    const levelTexture = TILE_LEVEL_TEXTURES.get(TileType.TownCenter)?.[level - 1];
+    const texture = levelTexture ?? TILE_TEXTURES.get(TileType.TownCenter)!;
+    const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
+    return ((tileSize * fit.widthTiles) / texture.width) * texture.height * fit.anchor.y;
   }
 
   // Floor never changes per-tile, so this only needs to run on a full map (re)load, not per edit.
@@ -1550,10 +1928,33 @@ async function main() {
     }
     for (const [id, entry] of Array.from(wildlifeSprites)) {
       if (seen.has(id)) continue;
-      stampBlood(entry.sprite.position.x, entry.sprite.position.y - tileSize * 0.2, BLOOD_HIT_VARIANTS, BLOOD_HIT_SIZE);
+      const x = entry.sprite.position.x;
+      const y = entry.sprite.position.y;
+      const stain = () => stampBlood(x, y - tileSize * 0.2, BLOOD_HIT_VARIANTS, BLOOD_HIT_SIZE);
+      // A killed deer lies where it fell for a moment, then leaves its stain (other game: just the stain).
+      if (entry.kind === "deer" && DEER_FALLEN_TEXTURE) spawnFallenDeer(x, y, entry.sprite.scale.x < 0, stain);
+      else stain();
       entry.sprite.destroy();
       wildlifeSprites.delete(id);
     }
+  }
+  function spawnFallenDeer(x: number, y: number, facingLeft: boolean, onEnd: () => void) {
+    const texture = DEER_FALLEN_TEXTURE!;
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5, 1);
+    const scale = (WILDLIFE_ART.deer.size * 1.15) / texture.width;
+    sprite.scale.set(facingLeft ? -scale : scale, scale);
+    sprite.position.set(x, y);
+    decorSpriteLayer.addChild(sprite);
+    activeEffects.push({
+      sprite,
+      startedAt: performance.now(),
+      durationMs: DEER_FALLEN_MS,
+      update: (s, t) => {
+        s.alpha = t < 0.75 ? 1 : (1 - t) * 4;
+      },
+      onEnd,
+    });
   }
   function clearWildlifeSprites() {
     for (const entry of wildlifeSprites.values()) entry.sprite.destroy();
@@ -1588,6 +1989,10 @@ async function main() {
     setTileSprite(tx, ty, tile);
     const decor = decorSprites.get(index);
     if (decor) decor.visible = tile === TileType.Empty;
+    // Neighbouring roads re-pick their autotile piece (this tile may have become / stopped being road).
+    for (const [nx, ny] of [[tx, ty - 1], [tx + 1, ty], [tx, ty + 1], [tx - 1, ty]]) {
+      if (isRoadAt(nx, ny)) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
+    }
   }
 
   // Last ratio drawn per bar: every snapshot (20/s) upserts every entity, and with raid waves that can
@@ -1627,8 +2032,47 @@ async function main() {
       entry.sprite.destroy();
       entry.hpBar.destroy();
       entry.marker?.destroy();
+      entry.wound?.destroy();
+      entry.aura?.destroy();
+      entry.sigil?.destroy();
+      entry.markLabel?.destroy();
       map.delete(id);
     }
+  }
+
+  // Health-based wound decal over a unit (light < 66% hp, bleeding < 40%, heavy < 20%). The sprite is
+  // created once, on the unit's first damaged snapshot, then only repositioned/retextured; healthy or
+  // hidden units just hide it.
+  function updateWound(
+    entry: EntityVisual,
+    hp: number,
+    maxHp: number,
+    x: number,
+    y: number,
+    size: number,
+    large: boolean,
+    hidden: boolean
+  ) {
+    const ratio = maxHp > 0 ? hp / maxHp : 1;
+    let tier = -1;
+    for (let i = 0; i < WOUND_THRESHOLDS.length; i++) if (ratio < WOUND_THRESHOLDS[i]) tier = i;
+    if (tier < 0 || hidden || hp <= 0) {
+      if (entry.wound) entry.wound.visible = false;
+      return;
+    }
+    const texture = (large ? WOUND_LARGE_TEXTURES : WOUND_TEXTURES)[tier];
+    let wound = entry.wound;
+    if (!wound) {
+      wound = new Sprite(texture);
+      wound.anchor.set(0.5);
+      wound.alpha = 0.9;
+      worldLayer.addChild(wound);
+      entry.wound = wound;
+    }
+    if (wound.texture !== texture) wound.texture = texture;
+    wound.scale.set(size / Math.max(texture.width, texture.height));
+    wound.position.set(x, y);
+    wound.visible = true;
   }
 
   function pruneMissing(
@@ -1671,6 +2115,10 @@ async function main() {
       entry.marker = marker;
     }
     entry.sprite.position.set(p.x, p.y);
+    // A rider with no Town Center to respawn at is gone until one is built (game over overlay).
+    entry.sprite.visible = !p.dead;
+    entry.hpBar.visible = !p.dead;
+    if (entry.marker) entry.marker.visible = !p.dead;
     entry.marker?.position.set(p.x, p.y + PLAYER_SPRITE_HEIGHT * 0.4);
     // Just above the (taller) sprite's top edge instead of the old fixed -20.
     entry.hpBar.position.set(p.x, p.y - PLAYER_SPRITE_HEIGHT / 2 - 4);
@@ -1731,6 +2179,7 @@ async function main() {
     if (WORKER_KINDS.has(c.kind) && isNight && c.sheltered) hidden = true;
     entry.sprite.visible = !hidden;
     entry.hpBar.visible = !hidden;
+    updateWound(entry, c.hp, c.maxHp, c.x, c.y - 2, COLONIST_WOUND_SIZE, false, hidden);
 
     const set = COLONIST_ANIMS[c.kind];
     if (set && entry.sprite instanceof Sprite) {
@@ -1744,7 +2193,9 @@ async function main() {
       anim.lastY = c.y;
       const mode = COLONIST_ACTION_STATES.has(c.state)
         ? "action"
-        : COLONIST_WALK_STATES.has(c.state) || moved
+        : c.state === "carrying" && set.carry
+          ? "carry"
+          : COLONIST_WALK_STATES.has(c.state) || moved
           ? "walk"
           : null;
       const frame = stepAnim(anim, set, mode);
@@ -1753,9 +2204,23 @@ async function main() {
       // ratio, so using it here made units visibly pop in size on every idle<->walk/action
       // transition (i.e. every time they started or stopped moving).
       showAnimFrame(entry.sprite, set, frame ?? set.walk[0]);
-      entry.sprite.tint = COLONIST_TINT.get(c.kind) ?? 0xffffff;
+      const battered = BATTERED_TINT_KINDS.has(c.kind) && c.hp < c.maxHp * BATTERED_HP_FRACTION;
+      const posed = battered && !frame && showBatteredPose(entry.sprite, set, c.kind, COLONIST_SPRITE_HEIGHT);
+      entry.sprite.tint = battered && !posed ? BATTERED_TINT : (COLONIST_TINT.get(c.kind) ?? 0xffffff);
     }
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
+  }
+
+  // Swaps an idle unit's frame for its static battered pose (BATTERED_POSE_URLS), `height` px tall
+  // with its feet where the anim set's idle frame puts them. False when the kind has no pose art.
+  function showBatteredPose(sprite: Sprite, set: AnimSet, kind: string, height: number): boolean {
+    const texture = BATTERED_POSE_TEXTURES.get(kind);
+    if (!texture) return false;
+    const feetBelowCenter = (set.refHeight * set.scale) / 2;
+    sprite.texture = texture;
+    sprite.scale.set(height / texture.height);
+    sprite.anchor.set(0.5, 1 - feetBelowCenter / height);
+    return true;
   }
 
   function syncColonists(snapshot: ColonistSnapshot[], isNight: boolean) {
@@ -1765,7 +2230,14 @@ async function main() {
       if (!seenIds.has(id)) colonistAnim.delete(id);
     }
     pruneFacing(colonistFacing, seenIds);
-    for (const c of snapshot) upsertColonist(c, isNight);
+    for (const id of Array.from(stateFxAt.keys())) {
+      if (!seenIds.has(id)) stateFxAt.delete(id);
+    }
+    const now = performance.now();
+    for (const c of snapshot) {
+      upsertColonist(c, isNight);
+      stateFx(c, now);
+    }
   }
 
   function nearestFriendlyDistance(x: number, y: number): number {
@@ -1779,9 +2251,14 @@ async function main() {
   }
 
   function upsertMob(m: MobSnapshot) {
+    if (m.kind === "halfLatch" && !suppressDeathPoofs && !mobSprites.has(m.id)) maybeWardLapseFx(m.x, m.y);
     const variants = MOB_VARIANTS[m.kind];
+    const woundSize = (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS * MOB_WOUND_SIZE_FACTOR;
     if (variants) {
       upsertVariantMob(m, variants[stableHash(m.id) % variants.length]);
+      const entry = mobSprites.get(m.id)!;
+      updateWound(entry, m.hp, m.maxHp, m.x, m.y, woundSize, WOUND_LARGE_KINDS.has(m.kind), !entry.sprite.visible);
+      updateMarkVisuals(entry, m);
       return;
     }
     const visual = MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin;
@@ -1800,7 +2277,7 @@ async function main() {
       }
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5);
-      sprite.scale.set(scale);
+      sprite.scale.set(m.mark ? scale * MARKED_MOB_SCALE : scale);
       return sprite;
     });
     entry.sprite.position.set(m.x, m.y);
@@ -1808,7 +2285,50 @@ async function main() {
     const topOffset = texture ? (texture.height * scale) / 2 + 4 : visual.radius + 9;
     entry.hpBar.position.set(m.x, m.y - topOffset);
     drawHpBar(entry.hpBar, m.hp, m.maxHp);
+    updateWound(entry, m.hp, m.maxHp, m.x, m.y, woundSize, WOUND_LARGE_KINDS.has(m.kind), !entry.sprite.visible);
+    updateMarkVisuals(entry, m);
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(mobFacing, m.id, m.x));
+  }
+
+  // Sigil + name label above a Hunger-marked mob (over its hp bar) and its aura on the ground under it
+  // (decor layer: over the floor, under tiles and units), alpha pulsing gently. Created on the mob's
+  // first snapshot; ordinary mobs never get any of it.
+  function updateMarkVisuals(entry: EntityVisual, m: MobSnapshot) {
+    const mark = m.mark ?? HungerMark.None;
+    if (mark === HungerMark.None) return;
+    if (!entry.sigil) {
+      const sigilTexture = HUNGER_SIGIL_TEXTURES[mark];
+      const auraTexture = HUNGER_AURA_TEXTURES[mark];
+      if (auraTexture) {
+        entry.aura = new Sprite(auraTexture);
+        entry.aura.anchor.set(0.5);
+        entry.aura.scale.set(HUNGER_AURA_WIDTH / auraTexture.width);
+        decorSpriteLayer.addChild(entry.aura);
+      }
+      entry.sigil = new Sprite(sigilTexture ?? Texture.EMPTY);
+      entry.sigil.anchor.set(0.5, 1);
+      if (sigilTexture) entry.sigil.scale.set(HUNGER_SIGIL_SIZE / Math.max(sigilTexture.width, sigilTexture.height));
+      const name = HUNGER_MARK_NAMES[mark] ?? "";
+      entry.markLabel = new Text({
+        text: name.charAt(0).toUpperCase() + name.slice(1),
+        style: { fontFamily: "monospace", fontSize: 8, fill: HUNGER_LABEL_COLORS[mark] ?? 0xffffff, stroke: { color: 0x000000, width: 2 } },
+      });
+      entry.markLabel.anchor.set(0.5, 1);
+      worldLayer.addChild(entry.sigil);
+      worldLayer.addChild(entry.markLabel);
+    }
+    const visible = entry.sprite.visible;
+    const barY = entry.hpBar.position.y;
+    entry.sigil.position.set(m.x, barY - 1);
+    entry.sigil.visible = visible;
+    entry.markLabel!.position.set(m.x, barY - HUNGER_SIGIL_SIZE - 1);
+    entry.markLabel!.visible = visible;
+    if (entry.aura) {
+      const feetY = m.y + (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS * MARKED_MOB_SCALE * 0.4;
+      entry.aura.position.set(m.x, feetY);
+      entry.aura.alpha = 0.6 + 0.25 * Math.sin(performance.now() / 450);
+      entry.aura.visible = visible;
+    }
   }
 
   function upsertVariantMob(m: MobSnapshot, variant: MobVariant) {
@@ -1819,7 +2339,7 @@ async function main() {
       return sprite;
     });
     entry.sprite.position.set(m.x, m.y);
-    entry.hpBar.position.set(m.x, m.y - (variant.idle.height * variant.idleScale) / 2 - 4);
+    entry.hpBar.position.set(m.x, m.y - (variant.idle.height * variant.idleScale * (m.mark ? MARKED_MOB_SCALE : 1)) / 2 - 4);
     drawHpBar(entry.hpBar, m.hp, m.maxHp);
     const sprite = entry.sprite instanceof Sprite ? entry.sprite : null;
     const facingRight = sprite ? getFacing(mobFacing, m.id, m.x) : true;
@@ -1845,6 +2365,11 @@ async function main() {
     // of `variant.idle` (a separately-extracted static texture) so idle<->animated transitions
     // don't pop in size.
     showAnimFrame(sprite, set, frame ?? set.walk[0]);
+    const battered = BATTERED_TINT_KINDS.has(m.kind) && m.hp < m.maxHp * BATTERED_HP_FRACTION;
+    const posed =
+      battered && !frame && showBatteredPose(sprite, set, m.kind, (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS);
+    sprite.tint = battered && !posed ? BATTERED_TINT : 0xffffff;
+    if (m.mark) sprite.scale.set(sprite.scale.x * MARKED_MOB_SCALE, sprite.scale.y * MARKED_MOB_SCALE);
     // showAnimFrame resets scale.x to a positive magnitude, so re-apply the flip after it.
     applyFacing(sprite, facingRight);
   }
@@ -1910,6 +2435,81 @@ async function main() {
     });
   }
 
+  // VFX sheet 2 one-shot: steps through the set's 4 frames, fading over the last quarter. `under`
+  // puts it in the tile layer just beneath the tile at `underIndex` (the ward rings sit under the stone).
+  const FX_ANIM_SIZE = { build: 30, upgrade: 30, heal: 22, poison: 20, wardPulse: 56, wardLapse: 56 };
+  function spawnFxAnim(kind: keyof typeof FX_ANIM_TEXTURES, x: number, y: number, durationMs: number, underIndex?: number) {
+    const frames = FX_ANIM_TEXTURES[kind];
+    const sprite = addFx(frames[0], FX_ANIM_SIZE[kind], x, y, durationMs, (s, t) => {
+      const frame = frames[Math.min(frames.length - 1, Math.floor(t * frames.length))];
+      if (s.texture !== frame) s.texture = frame;
+      s.alpha = t < 0.75 ? 1 : (1 - t) * 4;
+    });
+    sprite.anchor.set(0.5, 1);
+    if (underIndex !== undefined) {
+      tileSpriteLayer.addChild(sprite);
+      sprite.zIndex = underIndex - 0.5;
+    }
+  }
+  const tileCenter = (tx: number, ty: number) => ({ x: tx * tileSize + tileSize / 2, y: ty * tileSize + tileSize / 2 });
+  // A Ward Stone's lapse lets a Half-Latch through at the stone (server checkWardStoneLapses), so a
+  // Half-Latch first appearing on or next to a Ward Stone marks the lapse there.
+  function maybeWardLapseFx(x: number, y: number) {
+    const tx = Math.floor(x / tileSize);
+    const ty = Math.floor(y / tileSize);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx < 0 || ny < 0 || nx >= worldTilesX || ny >= worldTilesY) continue;
+        if (tiles[ny * worldTilesX + nx] !== TileType.WardStone) continue;
+        const c = tileCenter(nx, ny);
+        spawnFxAnim("wardLapse", c.x, c.y + tileSize / 2, 900, ny * worldTilesX + nx);
+        return;
+      }
+    }
+  }
+  // Heal / ward-pulse cues from colonist state: one effect per bishop every HEAL_FX_MS while healing,
+  // and per ward priest every WARD_FX_MS while tending its stone (its post).
+  const HEAL_FX_MS = 900;
+  const WARD_FX_MS = 1800;
+  const stateFxAt = new Map<string, number>();
+  const BUILD_FX_MS = 1500;
+  function stateFx(c: ColonistSnapshot, now: number) {
+    if (c.state === "building") {
+      // Builders hammering: a build puff at the site they work (the nearest one).
+      const last = stateFxAt.get(c.id) ?? 0;
+      if (now - last < BUILD_FX_MS) return;
+      stateFxAt.set(c.id, now);
+      let best: { tx: number; ty: number } | null = null;
+      let bestD = tileSize * 2;
+      for (const index of constructionSites.keys()) {
+        const t = indexToTile(index);
+        const d = Math.hypot(t.tx * tileSize + tileSize / 2 - c.x, t.ty * tileSize + tileSize / 2 - c.y);
+        if (d < bestD) {
+          bestD = d;
+          best = t;
+        }
+      }
+      if (best) {
+        const p = tileCenter(best.tx, best.ty);
+        spawnFxAnim("build", p.x, p.y + tileSize / 2, 700);
+      }
+      return;
+    }
+    const healing = c.state === "healing";
+    if (!healing && c.state !== "warding") return;
+    const last = stateFxAt.get(c.id) ?? 0;
+    if (now - last < (healing ? HEAL_FX_MS : WARD_FX_MS)) return;
+    stateFxAt.set(c.id, now);
+    if (healing) {
+      spawnFxAnim("heal", c.x, c.y + 10, 600);
+    } else {
+      const p = tileCenter(c.postX, c.postY);
+      spawnFxAnim("wardPulse", p.x, p.y + tileSize / 2, 1000, c.postY * worldTilesX + c.postX);
+    }
+  }
+
   function spawnEffect(e: AttackEffect) {
     const angle = Math.atan2(e.toY - e.fromY, e.toX - e.fromX);
     if (e.melee) {
@@ -1923,6 +2523,10 @@ async function main() {
       sound.play("sword_hit", { x: e.toX, y: e.toY });
       const slash = addFx(FX_TEXTURES.slash, FX_SIZE.slash, e.toX, e.toY, 160, fadeOut);
       slash.rotation = angle;
+      // Giant Spider bites poison (server: mob.kind === "giantSpider"); the effect's origin is the spider.
+      if (latestMobs.some((m) => m.kind === "giantSpider" && Math.abs(m.x - e.fromX) < 2 && Math.abs(m.y - e.fromY) < 2)) {
+        spawnFxAnim("poison", e.toX, e.toY + 8, 650);
+      }
       return;
     }
     // Ranged attacks don't carry the attacker's kind; a Dark Shaman standing at the origin casts a
@@ -2019,6 +2623,7 @@ async function main() {
   const MINIMAP_ROCK = 0x8d8a80;
   const MINIMAP_IRON = 0x7d5644;
   const MINIMAP_WALL = 0xb8ad98;
+  const MINIMAP_ROAD = 0xa8875a;
   const MINIMAP_BUILDING = 0xe0b468;
   const MINIMAP_RUIN = 0xa0322a;
   const MINIMAP_CAMP = 0xd2731a;
@@ -2056,6 +2661,9 @@ async function main() {
       case TileType.Wall:
       case TileType.StoneWall:
         return MINIMAP_WALL;
+      case TileType.Road:
+      case TileType.CobbleRoad:
+        return MINIMAP_ROAD;
     }
     if (MINIMAP_RUIN_TILES.has(tile)) return MINIMAP_RUIN;
     if (MINIMAP_CAMP_TILES.has(tile)) return MINIMAP_CAMP;
@@ -2120,9 +2728,7 @@ async function main() {
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(minimapStatic, 0, 0, worldTilesX * s, worldTilesY * s);
 
-    const tcX = Math.floor(worldTilesX / 2);
-    const tcY = Math.floor(worldTilesY / 2);
-    if (tiles[tcY * worldTilesX + tcX] === TileType.TownCenter) {
+    for (const { x: tcX, y: tcY } of latestTownCenters) {
       const size = 7 * u;
       const cx = (tcX + 0.5) * s;
       const cy = (tcY + 0.5) * s;
@@ -2554,6 +3160,8 @@ async function main() {
 
   function selectTool(tile: TileType) {
     currentTool = tile;
+    if (tile !== TileType.TownCenter && !isRoadTile(tile)) placementGhost.visible = false;
+    configurePlacementGhost(tile);
     refreshToolbarSelection();
     const def = TOOLS.find((t) => t.tile === tile);
     buildRequirementsEl.textContent = def && def.cost ? def.cost : "No requirements.";
@@ -2969,12 +3577,144 @@ async function main() {
 
   function soundOnTileUpdate(tileX: number, tileY: number, tile: number) {
     const index = tileY * worldTilesX + tileX;
+    const prev = tiles[index] ?? TileType.Empty;
+    if (prev === TileType.ConstructionSite && tile !== TileType.Empty && tile !== TileType.ConstructionSite) {
+      // A construction finished (anyone's): the build sparkle and the placement thud.
+      pendingPlacements.delete(index);
+      const c = tileCenter(tileX, tileY);
+      spawnFxAnim("build", c.x, c.y + tileSize / 2, 700);
+      sound.play("build_place", { x: c.x, y: c.y });
+      return;
+    }
     const pending = pendingPlacements.get(index);
     if (!pending) return;
+    // Our placement became a construction site: the sound waits for its completion.
+    if (tile === TileType.ConstructionSite) {
+      pendingPlacements.delete(index);
+      return;
+    }
     pendingPlacements.delete(index);
-    if (pending.tile !== tile || performance.now() - pending.at > PLACEMENT_CONFIRM_MS) return;
-    sound.play("build_place", { x: tileX * tileSize + tileSize / 2, y: tileY * tileSize + tileSize / 2 });
+    if (performance.now() - pending.at > PLACEMENT_CONFIRM_MS || tile === TileType.Empty) return;
+    const c = tileCenter(tileX, tileY);
+    // Our placement landed: on bare ground it's a build; on an existing building that turned into a
+    // different tile (House -> Big House, barracks -> castle) it's an upgrade.
+    spawnFxAnim(prev !== TileType.Empty && prev !== tile ? "upgrade" : "build", c.x, c.y + tileSize / 2, 700);
+    if (pending.tile !== tile) return;
+    sound.play("build_place", { x: c.x, y: c.y });
   }
+
+  // In-place level-ups (huts, workshops, mines, ...) keep their tile, so no tileUpdate arrives; the
+  // server's "upgrade" event confirms one instead. Play the upgrade effect at our most recent pending
+  // placement of a building onto the same building.
+  function fxOnUpgradeEvent() {
+    let best: { index: number; at: number } | null = null;
+    const now = performance.now();
+    for (const [index, pending] of pendingPlacements) {
+      if (now - pending.at > PLACEMENT_CONFIRM_MS || tiles[index] !== pending.tile) continue;
+      if (!best || pending.at > best.at) best = { index, at: pending.at };
+    }
+    if (!best) return;
+    pendingPlacements.delete(best.index);
+    const c = tileCenter(best.index % worldTilesX, Math.floor(best.index / worldTilesX));
+    spawnFxAnim("upgrade", c.x, c.y + tileSize / 2, 700);
+  }
+
+  // ---- Building info panel (left-click a building; see the pointerup handler) ----
+  // Buildings that open the panel. Walls, trees, rocks and forage keep the old left-click (break).
+  const INFO_TILES = new Set<number>([
+    TileType.TownCenter, TileType.House, TileType.BigHouse, TileType.HouseLevel2, TileType.BarnPost,
+    TileType.LumberjackPost, TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3,
+    TileType.ArcherPost, TileType.ArcherTower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost,
+    TileType.Pasture, TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop,
+    TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery,
+    TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
+    TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
+  ]);
+  const buildingPanelEl = document.getElementById("building-panel")!;
+  const bpNameEl = document.getElementById("bp-name")!;
+  const bpLevelEl = document.getElementById("bp-level")!;
+  const bpStaffingEl = document.getElementById("bp-staffing")!;
+  const bpHpEl = document.getElementById("bp-hp")!;
+  const bpConstructionEl = document.getElementById("bp-construction")!;
+  const bpBonusesEl = document.getElementById("bp-bonuses")!;
+  const bpUpgradeRowEl = document.getElementById("bp-upgrade-row")!;
+  const bpUpgradeBtn = document.getElementById("bp-upgrade") as HTMLButtonElement;
+  const bpUpgradeCostEl = document.getElementById("bp-upgrade-cost")!;
+  // Tile the panel shows; re-requested every second while open so numbers stay live.
+  let infoTile: { tx: number; ty: number } | null = null;
+  const BUILDING_INFO_REFRESH_MS = 1000;
+
+  function requestBuildingInfo() {
+    if (infoTile) sendMessage({ type: "buildingInfo", tileX: infoTile.tx, tileY: infoTile.ty });
+  }
+  function openBuildingInfo(tx: number, ty: number) {
+    infoTile = { tx, ty };
+    requestBuildingInfo();
+  }
+  function closeBuildingInfo() {
+    infoTile = null;
+    buildingPanelEl.hidden = true;
+  }
+  function renderBuildingInfo(info: BuildingInfo) {
+    bpNameEl.textContent = info.name;
+    bpLevelEl.textContent = info.maxLevel > 1 ? `Lv ${info.level}/${info.maxLevel}` : "";
+    bpStaffingEl.textContent = info.staffing;
+    bpHpEl.hidden = info.hp === null;
+    if (info.hp !== null) bpHpEl.textContent = `HP ${info.hp}/${info.maxHp}`;
+    bpConstructionEl.hidden = info.construction === null;
+    if (info.construction !== null) {
+      const label = info.tile === TileType.ConstructionSite ? "Under construction" : "Upgrading";
+      bpConstructionEl.textContent = `${label}: ${Math.round(info.construction * 100)}%`;
+    }
+    const items = info.bonuses.length > 0 ? info.bonuses : ["None yet"];
+    bpBonusesEl.replaceChildren(
+      ...items.map((text) => {
+        const li = document.createElement("li");
+        li.textContent = text;
+        return li;
+      })
+    );
+    bpUpgradeRowEl.hidden = info.upgrade === null;
+    if (info.upgrade) {
+      bpUpgradeBtn.disabled = !info.upgrade.enabled;
+      bpUpgradeCostEl.textContent = info.upgrade.reason ? `${info.upgrade.cost} (${info.upgrade.reason})` : info.upgrade.cost;
+    }
+    buildingPanelEl.hidden = false;
+  }
+  bpUpgradeBtn.addEventListener("click", () => {
+    bpUpgradeBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "upgradeBuilding", tileX: infoTile.tx, tileY: infoTile.ty });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
+  document.getElementById("bp-close")!.addEventListener("click", (e) => {
+    (e.currentTarget as HTMLButtonElement).blur();
+    closeBuildingInfo();
+  });
+  window.setInterval(() => {
+    if (infoTile && !buildingPanelEl.hidden) requestBuildingInfo();
+  }, BUILDING_INFO_REFRESH_MS);
+
+  // ---- Builders counter and game over ----
+  const statBuildersEl = document.getElementById("stat-builders")!;
+  function refreshBuilderCount(colonists: ColonistSnapshot[], isNight: boolean) {
+    let total = 0;
+    let working = 0;
+    for (const c of colonists) {
+      if (c.kind !== "builder") continue;
+      total++;
+      if (!isNight && (c.state === "building" || c.state === "carrying")) working++;
+    }
+    statBuildersEl.textContent = `Builders  ${working}/${total} working`;
+  }
+  const gameOverEl = document.getElementById("game-over")!;
+  function refreshGameOver(me: PlayerSnapshot | undefined) {
+    gameOverEl.hidden = !(me?.dead && latestTownCenters.length === 0);
+  }
+  document.getElementById("game-over-restart")!.addEventListener("click", (e) => {
+    (e.currentTarget as HTMLButtonElement).blur();
+    sendMessage({ type: "restart", difficulty: preferredDifficulty });
+  });
 
   // ---- Networking ----
 
@@ -3018,7 +3758,7 @@ async function main() {
     const icon = document.createElement("img");
     icon.className = "event-icon";
     // "raid" has no art of its own; it borrows the deserter icon.
-    icon.src = `/sprites/icon-event-${category === "raid" ? "deserter" : category}.png`;
+    icon.src = `/sprites/icon-event-${category === "raid" ? "deserter" : category === "build" ? "upgrade" : category}.png`;
     icon.alt = "";
     toast.append(icon, text);
     eventFeedEl.prepend(toast);
@@ -3047,18 +3787,16 @@ async function main() {
       resetSoundState();
       bloodOnNewGravestones = false;
       clearBlood();
-      farmPlotStates = new Map();
+      farmStages = new Map();
+      buildingLevels = new Map();
+      constructionSites = new Map();
+      siteOverlay.clear();
       clearWildlifeSprites();
       redrawGrid();
-      townCenterPx = {
-        x: Math.floor(worldTilesX / 2) * tileSize + tileSize / 2,
-        y: Math.floor(worldTilesY / 2) * tileSize + tileSize / 2,
-      };
-      // Just above the Town Center art's top edge (its flag), which rises well above the tile.
-      const tcTexture = TILE_TEXTURES.get(TileType.TownCenter)!;
-      const tcArtAbove =
-        ((tileSize * TOWN_CENTER_WIDTH_TILES) / tcTexture.width) * tcTexture.height * TOWN_CENTER_ANCHOR.y;
-      townCenterHpBar.position.set(townCenterPx.x, townCenterPx.y - tcArtAbove - 6);
+      latestTownCenters = [];
+      syncTownCenterBars([]);
+      worldLayer.addChild(siteOverlay);
+      worldLayer.addChild(placementGhost);
       worldLayer.addChild(cursorHighlight);
       worldLayer.addChild(formationMarker);
       worldLayer.addChild(selectionRings);
@@ -3068,7 +3806,11 @@ async function main() {
       syncColonists(message.colonists, message.isNight);
       syncMobs(message.mobs);
       suppressDeathPoofs = false;
-      syncFarmPlotStates(message.readyFarmPlots, message.sownFarmPlots, message.fallowFarmPlots);
+      syncBuildingLevels(message.buildingLevels);
+      syncFarmStages(message.farmStages);
+      syncConstructionSites(message.constructionSites);
+      latestTownCenters = message.townCenters;
+      syncTownCenterBars(message.townCenters);
       syncWildlife(message.wildlife);
       // Dawn wipes the blood, the same boundary at which the server clears the gravestones.
       if (wasNight && !message.isNight) clearBlood();
@@ -3124,8 +3866,8 @@ async function main() {
       pausedBanner.visible = message.isPaused;
       pauseBtn.textContent = message.isPaused ? "Resume" : "Pause";
       nightOverlay.alpha = message.isNight ? 0.35 : 0;
-      townCenterHpBar.visible = message.townCenterHp > 0;
-      drawHpBar(townCenterHpBar, message.townCenterHp, message.townCenterMaxHp);
+      refreshGameOver(message.players.find((p) => p.id === myId));
+      refreshBuilderCount(message.colonists, message.isNight);
       for (const effect of message.effects) spawnEffect(effect);
       drawMinimap(message.players, message.colonists, message.mobs);
       soundOnSnapshot(message);
@@ -3135,9 +3877,14 @@ async function main() {
       paintMinimapTile(message.tileY * worldTilesX + message.tileX);
     } else if (message.type === "event") {
       pushEventToast(message.category, message.text);
+      if (message.category === "upgrade") fxOnUpgradeEvent();
       soundOnEvent(message.category);
     } else if (message.type === "explored") {
       markExplored(message.tiles);
+    } else if (message.type === "buildingInfo") {
+      if (!infoTile || infoTile.tx !== message.tileX || infoTile.ty !== message.tileY) return;
+      if (message.info) renderBuildingInfo(message.info);
+      else closeBuildingInfo();
     }
   });
 
@@ -3163,6 +3910,7 @@ async function main() {
     if (e.key === "Escape") {
       setSelection([]);
       cancelLeftPress();
+      closeBuildingInfo();
       return;
     }
     const stance = STANCE_HOTKEYS[e.key.toLowerCase()];
@@ -3335,7 +4083,12 @@ async function main() {
     }
 
     const tile = pointerTile(x, y);
-    if (tile && GARRISON_TILES.has(tiles[tile.tileY * worldTilesX + tile.tileX])) {
+    // Left-click on a building (any build tool but Demolish selected) opens its info panel instead of
+    // breaking it; with Demolish selected it breaks as before. Garrison buildings also select their units.
+    const tileValue = tile ? tiles[tile.tileY * worldTilesX + tile.tileX] : TileType.Empty;
+    const showInfo = tile !== null && currentTool !== TileType.Empty && INFO_TILES.has(tileValue);
+    if (showInfo) openBuildingInfo(tile.tileX, tile.tileY);
+    if (tile && GARRISON_TILES.has(tileValue)) {
       setSelection(
         latestColonists
           .filter(
@@ -3355,7 +4108,7 @@ async function main() {
 
     // Nothing selectable under the cursor: original left-click behaviour (break tile).
     setSelection([]);
-    if (!tile) return;
+    if (!tile || showInfo) return;
     if (socket.readyState !== socket.OPEN) return;
     socket.send(
       JSON.stringify({ type: "setTile", tileX: tile.tileX, tileY: tile.tileY, tile: TileType.Empty })
@@ -3392,7 +4145,10 @@ async function main() {
     }
     cursorHighlight.clear();
     const tile = pointerTile(x, y);
+    placementGhost.visible =
+      !!tile && ((currentTool === TileType.TownCenter && !!TOWN_CENTER_MARKER_TEXTURE) || isRoadTile(currentTool));
     if (!tile) return;
+    placementGhost.position.set(tile.tileX * tileSize + tileSize / 2, tile.tileY * tileSize + tileSize / 2);
     cursorHighlight
       .rect(tile.tileX * tileSize, tile.tileY * tileSize, tileSize, tileSize)
       .stroke({ width: 2, color: 0xffffff, alpha: 0.6 });

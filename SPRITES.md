@@ -72,7 +72,7 @@ frames (`MOB_VARIANT_URLS` in `client/src/main.ts`). Encampments pick among them
 **Half-Latch (static pose, 5 variants):** `halfLatch0-4.png`: the same wisp-like shadow sliver in
 five tints (charcoal, slate blue, violet, green, grey), picked per mob by a stable id hash.
 
-**Buildings (30, all tiers):** woodWall, stoneWall, barracks, castleLv2, castleLv3, archeryRange,
+**Buildings (30, all tiers, plus the tiered Builders' Guild / huts / Town Center below):** woodWall, stoneWall, barracks, castleLv2, castleLv3, archeryRange,
 archerTower, militiaCamp, militiaCamp2, militiaCamp3, cottage, bigCottage, cottageLv2, church,
 lumberjackPost, farmPlot, barn, pasture, orchard, sheepPasture, hempField, ironMine, quarry,
 tailorShop, blacksmith, jewelersWorkshop, brewery, bazaar, tradingPost, tavern.
@@ -128,7 +128,14 @@ gravestones) and on any welcome/restart.
 "Selected: N · <stance> (Z/X/E)" HUD line when the selection shares one stance. "Mixed" keeps text
 only.
 
-**Town Center:** dedicated `townCenter.png`, a plaza scene with a ring of timber buildings,
+**Town Center tiers (wired 2026-10-15):** Town Centers have levels now (snapshot `buildingLevels`), and the art
+follows them via `TILE_LEVEL_ART`: Lv1 `townCenterLv1.png`, Lv2 `townCenterLv2.png`, Lv3 `townCenterKeep.png`.
+Each skips the box fit with its own `TOWN_CENTER_LEVEL_FIT` width/anchor in `main.ts` (3 / 3 / 3.2 tiles wide,
+anchored on the plaza's statue / the keep's court), and the per-Town-Center HP bar sits above whichever art is
+shown. `townCenterMarker.png` is the placement ghost while the Town Center tool (key `0`) is selected.
+`townCenter.png` below stays as the fallback if a tier file is missing.
+
+**Town Center (fallback):** dedicated `townCenter.png`, a plaza scene with a ring of timber buildings,
 a central statue fountain, market stalls and its own cobble/grass ground patch. It is cut from
 `art-sources/Isometric Medieval Landmark Collection.png`. It replaces the old procedural
 `drawTile()`/`gridGraphics` keep, and that layer was deleted. It skips the building box fit: it
@@ -149,10 +156,6 @@ The HP bar sits just above the art's flag, about 54px above the tile center (it 
 - `icon-order-move/attack/rally.png` (icon sheet): command icons. No existing UI spot shows them
   (move/attack orders draw a Graphics marker), so they're staged for a future cursor or command bar.
 - `playerIdle.png`: see Player above.
-- `woundLight/Bleeding/Heavy.png` + `...Large.png`: the source sheet drew the wound overlays as
-  pre-baked example units (a front-facing humanoid and ogre), not clean decals. These are just the
-  red pixels lifted off those units: rough, front-facing, positioned for that body. They're not good
-  enough to overlay on our side-facing units, so they're staged only (prompt #24 still stands).
 - `castleKeep.png` (same landmark sheet): a walled castle with four towers and a gatehouse ramp.
   A possible Castle Lv3 look, but it would replace `castleLv3.png` and needs its own size/anchor
   like the Town Center. Its ground patch touches the right edge of the source image.
@@ -172,15 +175,15 @@ lanternPost props.
 and candle stubs at the base). Keeps the existing 0.75 size factor, which renders it ~44px tall:
 smaller than the Church (~53px), a little taller than the cross prop (~38px).
 
-**Farm Plot growth states:** `farmPlot.png` (bare tilled soil), `farmPlotGrowing.png` (sprouts in
-tilled rows) and `farmPlotReady.png` (mature golden wheat), driven by real server state. Since slow farming
-(2026-10-14) each snapshot carries `readyFarmPlots` (ripe, being harvested), `sownFarmPlots` (the first
-third of the 3-day grow) and `fallowFarmPlots` (resting after 5 harvests); any other plot is growing. The
-client swaps the tile texture when a plot changes state: sown = `farmPlot.png`, growing =
-`farmPlotGrowing.png`, ripe = `farmPlotReady.png`, fallow = `farmPlot.png` tinted pale yellow. A plot whose
-Barn is unstaffed or missing freezes on whichever art it was showing (a fallow plot still finishes resting).
-Optional hooks for #34: `farmPlotSown.png` and `farmPlotFallow.png` replace the stand-ins (and the fallow
-tint) as soon as they exist.
+**Farm Plot growth states:** driven by real server state, the snapshot's `farmStages` since 2026-10-15
+(`readyFarmPlots` / `sownFarmPlots` / `fallowFarmPlots` are still sent but the client no longer reads them):
+`farmPlotSown.png` (first third of the 3-day grow), `farmPlotSprouting.png` (second third), `farmPlotGrowing.png`
+(last third), `farmPlotReady.png` (ripe, being cut), `farmPlotHarvested.png` (stubble for 8 s after each
+harvest), `farmPlotFallow.png` (resting after 5 harvests). Since 2026-10-15 all four
+come from one matched set (`art-sources/Medieval Farming Game Asset Atlas.png`, #34); the old
+`farmPlotGrowing`/`farmPlotReady` art was overwritten (still in git history) so the four states read as one
+style. Every stage file is optional: a missing one falls back to `farmPlotGrowing.png`. A plot whose Barn is
+unstaffed or missing freezes on whichever art it was showing.
 
 **UI resource icons (13):** `icon-wood`, `icon-iron`, `icon-rock`, `icon-gold`, `icon-grain`,
 `icon-meat`, `icon-fruit`, `icon-wool`, `icon-cotton`, `icon-clothes`, `icon-tools`,
@@ -223,35 +226,93 @@ visual-only (the `activeEffects` system in `main.ts`):
   in `main.ts`) based on net horizontal movement direction, with a small dead zone so vertical-only
   movement doesn't snap back to a default facing.
 
-**Hunting, foraging and slow farming: stand-ins in use (2026-10-14).** Everything below renders today with
-borrowed art. Each hook is loaded optionally (`loadOptionalTextures` in `main.ts`): drop a PNG with exactly
-this name into `client/public/sprites/` and it replaces the stand-in (and its tint) on the next page load;
-a missing file just keeps the stand-in. For animation sets the whole set must be present.
-- Hunter worker (#28): stand-in = the archer's `archerWalk0-3` / `archerAttack0-5`, tinted green. Hooks:
-  `hunterWalk0-3` (walk, also used while carrying a carcass home) and `hunterHunt0-2` (the shooting
-  cycle). Static fallback pose: `archer.png`. A carry row (#28 row 3) has no hook yet.
-- Forager worker (#29): stand-in = `farmhandWalk0-3` / `farmhandTend0-2`, tinted warm. Hooks:
-  `foragerWalk0-3`, `foragerForage0-2`. Static fallback: `farmhand.png`.
-- Hunter's Hut (#30): stand-in = `lumberjackPost.png`, tinted green. Hook: `hunterHut.png`. Forager's Hut
-  (#31): stand-in = `orchard.png`, tinted warm. Hook: `foragerHut.png`. Huts level up in place (1-3) but
-  the client doesn't know building levels, so only one image per hut is wired for now.
-- Wild forage (#32), server tiles with a ripe and a picked state: berry bush = `bush3.png` tinted red
-  (ripe) / grey-green (picked); fruit tree = `tree.png` tinted orange (ripe) / grey (picked); mushroom
-  patch = `flowers1.png` tinted brown (ripe) / `tallGrass.png` tinted grey (picked). Hooks:
-  `berryBushRipe`, `berryBushPicked`, `appleTreeRipe`, `appleTreePicked`, `mushroomRipe`,
-  `mushroomPicked` (.png). The pear/plum row of #32 has no tile yet.
-- Huntable game (#33): rabbit, boar and pheasant are the deer frames, scaled (rendered width 12 / 24 /
-  11 px vs the deer's 26) and tinted. Hooks: `rabbitWalk0-3` + `rabbitIdle0-1`, `boarWalk0-3` +
-  `boarGraze0-1`, `pheasantWalk0-3` + `pheasantFlap0-2` (the flee cycle), and for the deer `deerRun0-3`
-  (flee). The deer's FALLEN pose has no hook: a killed animal just vanishes and leaves a small blood stain.
-- Field and pasture states (#34): see Farm Plot growth states above. Pasture / Sheep / Orchard / Hemp
-  "ready" states have no hooks: their produce lands in one batch and is not shown on the map.
+**Hunting, foraging and slow farming (wired 2026-10-15).** From `art-sources/Medieval Fantasy Worker and Hut
+Sprite Sheet.png` (#28-#31) and `art-sources/Medieval Farming Game Asset Atlas.png` (#32-#34). Each hook is still
+loaded optionally (`loadOptionalTextures` in `main.ts`): if a file goes missing, the old tinted stand-in comes back.
+- Hunter worker: `hunterWalk0-3`, `hunterHunt0-2` (draw, loose, lower), `hunterCarry0-1` (deer carcass on the
+  shoulders). Forager: `foragerWalk0-3`, `foragerForage0-2` (includes the berry bush she picks from),
+  `foragerCarry0-1` (full basket). The carry cycle plays in the server's `carrying` state (walking the load
+  home); `AnimSet.carry` is optional and falls back to walk. Each row is on one shared canvas, feet on the bottom
+  edge, centred on the mass centroid. Static fallbacks stay `archer.png` / `farmhand.png`.
+- Hunter's Hut / Forager's Hut: all three tiers wired (`hunterHut`, `hunterHutLv2/Lv3`, `foragerHut`,
+  `foragerHutLv2/Lv3`) through `TILE_LEVEL_ART`, driven by the snapshot's `buildingLevels` (since 2026-10-15). A
+  higher tier never renders smaller than the one before (`TILE_LEVEL_MIN_HEIGHT`).
+- Wild forage: `berryBushRipe/Picked`, `appleTreeRipe/Picked`, `mushroomRipe/Picked`. The pear/plum row
+  (`pearTreeRipe/Picked.png`) is wired as a look variant: about half of all fruit trees (stable tile-position
+  hash, `TILE_OPTIONAL_ALT_ART`) use it, in both the ripe and the picked state.
+- Huntable game: `rabbitWalk0-3` + `rabbitIdle0-1` (sit/nibble), `boarWalk0-3` + `boarGraze0-1`,
+  `pheasantWalk0-3` + `pheasantFlap0-2` (take-off, the flee cycle), and `deerRun0-3` (flee). Each kind's frames
+  share one pixel scale; rendered width still comes from `WILDLIFE_ART.size` (first walk frame). `deerRun` was
+  resampled 1.8x so it matches the older `deerWalk` pixel density (the client scales every deer frame by the walk
+  frame's width). `deerFallen.png` (wired 2026-10-15, client-only): a killed deer lies at its death spot for
+  2.6 s, fading out over the last quarter, then leaves its blood stain (`spawnFallenDeer`); other game just
+  leaves the stain.
+- Field and pasture states (wired 2026-10-15) via `FARM_STAGE_ART`, driven by the snapshot's `farmStages`
+  (the server's 0..1 progress through the farmhand's 3-day cycle): Hemp Field `hempFieldSown` (first third) /
+  `hempFieldGrowing` / `hempFieldRipe` (last third); Pasture `pastureGrowing` / `pastureFat` (last 30%); Sheep
+  Pasture `sheepPastureSheared` (first 25%, right after the wool lands) / `sheepPastureWoolly` /
+  `sheepPastureReady` (last 20%); Orchard `orchardBlossoming` (first 35%) / plain `orchard` / `orchardFruiting`
+  (last 35%). An unstaffed farm shows its plain art.
+
+**Gameplay VFX sheet 2 (#26, wired 2026-10-15):** `fx-build0-3`, `fx-upgrade0-3`, `fx-heal0-3`, `fx-poison0-3`,
+`fx-wardPulse0-3`, `fx-wardLapse0-3`, from `art-sources/Medieval Fantasy Strategy Sprite Sheet.png` (glow fringe
+recovered by colour-to-alpha against the light checker; each set on one shared canvas). Played by `spawnFxAnim`
+(4 frames over the effect's life, fade in the last quarter), all client-side, from existing data only:
+- Build / upgrade: when our own placement is confirmed by a `tileUpdate` (bare ground = build; a building that
+  turned into a different tile, e.g. House -> Big House, = upgrade), and for in-place level-ups (no tileUpdate)
+  when the server's `upgrade` event arrives while we have a recent pending placement on that same building.
+  Other players' builds don't play it.
+- Heal: once per 0.9s at a Bishop in the `healing` state.
+- Poison: at the target of a melee hit whose origin is a Giant Spider (the server's poison source).
+- Ward pulse: once per 1.8s at the Ward Stone a priest is tending (`warding` state, post = the stone).
+- Ward lapse: at a Ward Stone when a Half-Latch first appears on or next to it (the server spawns one at the
+  stone on a lapse). The ward rings are drawn in the tile layer just beneath the stone so the sheet's own baked-in
+  obelisk is hidden behind `wardStone.png`.
+
+**Wound overlays (#24, wired 2026-10-15):** `woundLight/Bleeding/Heavy.png` (small) and `...Large.png`, from
+`art-sources/Pixel Art Sigils, Auras, and Wound Overlays.png` (real alpha; these replace the rough decals lifted
+off example units in the 2026-10-14 batch). Drawn over colonists and mobs as hp drops (`updateWound`): light below
+66% hp, bleeding below 40%, heavy below 20%. Colonists use the small set at 14px; mobs use 0.55x their rendered
+size, with the Large set for orc, armoredOrc, troll and ogre. One sprite per unit, created on its first damaged
+snapshot and then only moved/retextured (hidden while healthy or hidden at a post).
+
+**Builders and construction (#35, wired 2026-10-15):** `builderWalk0-3`, `builderBuild0-3` (the action cycle while
+hammering at a site), `builderCarry0-1` (plank on the shoulder, played in the `carrying` state while hauling to a
+site), loaded optionally (`COLONIST_OPTIONAL_ANIM_URLS`; the tinted lumberjack set is the stand-in). Builders'
+Guild tiers `buildersGuild.png`, `buildersGuildLv2.png`, `buildersGuildLv3.png` follow the building's level.
+Construction sites have no art of their own: the target building's sprite is drawn at 45% alpha with a warm tint,
+under a Graphics scaffold and a progress bar; an in-place upgrade shows a small yellow up-arrow badge and bar.
+
+**Hunger marks (#16, wired 2026-10-15):** `sigil-gorrath/nemri/rux/morvain/gunne/vhorrun.png` drawn 16px above a
+marked mob's hp bar with a tinted name label over it, and `aura-<same names>.png` 40px wide on the ground under it
+(decor layer, alpha pulsing 0.35-0.85). Marked mobs render 1.25x. The server sends `mark` (HungerMark) in MobSnapshot.
+
+**Battered armor (#25, wired 2026-10-15):** below 50% hp an idle (not walking/attacking) pikeman colonist or armoured
+orc shows `pikemanBattered.png` / `armoredOrcBattered.png` instead of the idle frame, sized to the unit's normal
+height with its feet where the idle frame puts them. The animated sets keep playing while moving/attacking (the wound
+overlays show the damage there). `knightBattered.png` is not used: the knight's walk/attack set is drawn in a much
+chunkier style, so the detailed pose read as a different unit; a hurt knight (and any of the three while animating
+or if its pose art is missing) is tinted darker (0x9a948c) instead. The `...Pristine.png` poses are unused.
+
+**Roads (#27, wired 2026-10-15):** Road and Cobble Road tiles, autotiled on the client from their 4 orthogonal road
+neighbours (the two types connect to each other). The delivered `road-*` files mostly don't match their names
+(measured: `straightH` and `tJunctionB` are vertical straights, `tJunctionT` is a cross, `deadEndB/L/R` and
+`cornerBL/BR` have extra stubs), so only the pieces that match are used and rotated for the rest: `road-deadEndT`
+(N), `road-straightV` (N+S), `road-cornerTL` (E+S), `road-cornerTR` (S+W), `road-tJunctionR` (E+S+W),
+`road-tJunctionL` (N+E+W), `road-cross`, `road-isolated`. Cobble Road: `cobbleRoad.png` (vertical strip, rotated for
+E-W) on straight runs and dead ends, `cobblePlaza.png` everywhere else. Unused: `road-straightH`, `road-tJunctionT/B`,
+`road-deadEndB/L/R`, `road-cornerBL/BR` (a redraw with the names' connections would let them in).
+
+- `art-sources/Fantasy Game Effect Sprite Sheet.png` (in Downloads, not copied): a lower-quality duplicate of VFX
+  sheet 2 with stray gate art. Ignored.
 
 ---
 
 ## Outstanding — with ready-to-use prompts
 
-(#11, #13, #17-#23 were sourced on 2026-10-14 and removed. See "Already sourced" above.)
+(#11, #13, #17-#23 were sourced on 2026-10-14 and #16, #24-#36 on 2026-10-15, and their prompts removed. See
+"Already sourced" above. Still open: #14 and #15 below. Delivered but not yet in the game: the earlier Castle Ruin,
+gate and torch art under "Sourced but not wired".)
 
 ---
 
@@ -272,78 +333,6 @@ The Ward Priest currently reuses the Church bishop art, so the two are indisting
 
 For Phase 5's boss: "a bigger version of our most powerful mob." Needs its own look, not just an upscaled Ogre.
 > Pixel art monster animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated dark-fantasy palette. A towering ogre warlord, a clear escalation of the existing Ogre sprite (same pinkish-brown skin, bald head, tusks, heavy build): add a jagged iron crown fused into the skull, rusted shoulder plates and a studded iron belt, red war-paint streaks across the face and chest, a tattered dark banner strapped to its back, and a huge spiked iron-and-stone maul. Should read instantly as "the boss". Match the existing Ogre's art style, outline weight and palette. **Scale: the same drawing style as the Ogre, but 1.6x larger in every dimension (the Ogre is about 51px tall on screen, so the Warlord is about 82px tall); keep it identical in size in every frame.** In one image: Row 1 "Walk Cycle" — 4 frames, facing right, a slow heavy stomp. Row 2 "Attack Cycle" — 3 frames: maul raised overhead, slammed down with debris, recovery. Row 3 "Roar" — 3 frames: head back, chest out, a shockwave ring, settle. Plus one centered static idle pose. Transparent background, feet on the bottom edge of a shared canvas, clean PNG.
-
-### 16. Hunger-mark sigils (6 icons + 6 ground auras)
-
-For Phase 6's Hunger-marked elites (`my_novel/lore/bestiary.md`). Each mark needs a small glyph shown above the monster plus a faint aura ring decal drawn on the ground under it.
-> Pixel art icon set, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, small and simple enough to read at 14-18px display size. Six sinister sigils, each a distinct silhouette and a distinct glowing color so they can be told apart at a glance: **Gorrath** (destruction) — a jagged red-black flame with a shattered blade through it; **Nemri** (trespass) — a hollow doorway with a keyhole, cold teal; **Rux** (false authority) — a smiling theatre mask under a broken crown, sickly yellow; **Morvain** (concealment) — a half-veiled eye that is mostly smoke, violet; **Gunne** (what is lost) — an empty cradle or a single falling tear, pale blue-grey; **Vhorrun** (the unclosed debt) — a loose chain looped around itself, never joined, dull bone-white. Arrange as a clean grid, each on its own transparent square, consistent outline weight. **Scale: each glyph about 18x18px, the same icon scale as the resource icons (icon-wood etc.).** Then a second row of six matching ground-aura ring decals: a flat elliptical glowing ring in the same color with faint matching rune ticks, semi-transparent, drawn as if lying on the ground, each about 56x28px (about 2x as wide as a Troll). Clean PNG with transparency.
-
-### Polish, animation and UI
-
-### 24. Wound overlays (for the future visual-health system)
-
-The 2026-10-14 sheet (`Pixel Wildlife and Wound Overlay Sheet.png`) drew these as pre-baked example
-units instead of decals, so this prompt is still open. Stress "decals only, no character" when you
-regenerate it.
-
-For the "bleed and armor deteriorates with health" feature: drawn over any unit sprite as health drops.
-> Pixel art overlay decal sheet, chunky 16-bit retro style, flat cel-shaded coloring, transparent background. Three escalating wound overlays sized to sit on a small humanoid unit sprite: **Light** — two or three small dark-red scratches and a few drops; **Bleeding** — a dark-red stain across the torso with drips running down; **Heavy** — a large dark-red stain, torn cloth edges and several spatters. Semi-transparent in the middle, crisp dark edges, no outline around the whole square. **Scale: each overlay 28x28px, the same height as a colonist sprite (28px), so it can be centered directly on a unit; also provide a 2x larger version of each (56x56px) for big monsters like the Troll and Ogre.** Clean PNG with transparency.
-
-### 25. Battered-armor variants (Knight, Pikeman, Armoured Orc — static)
-
-Also for visual health: the armored units show dents and missing plates at low health.
-> Pixel art character sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring. Three static pose pairs, each a "Pristine" next to a "Battered" version: the **Knight** (grey plate, helm, round shield, sword), the **Pikeman** (full plate with red plume, long pike) and the **Armoured Orc** (spiked iron plate, spiked mace). The Battered version keeps the exact same pose, proportions and palette but shows dented, scratched and cracked plates, a missing shoulder plate or a snapped plume, and scuffs of dirt and dried blood. Match the exact style, outline weight and palette of the existing sprites for each. **Scale: identical to the existing Knight, Pikeman and Armoured Orc sprites (the colonists about 28px tall on screen, the Armoured Orc about 36px); the Battered version must have the same canvas size and body position as its Pristine twin so the two can be swapped in place.** Transparent background, clean PNG.
-
-### 26. Gameplay VFX sheet 2 (build, upgrade, heal, poison, ward)
-
-Extends the combat-effects sheet (`fx-slash/spark/poof/arrow`) to the systems that landed since.
-> Pixel art game effect sprite sheet, chunky 16-bit retro style, bright saturated colors that pop against the muted terrain, thick black outline where appropriate. Match the style, outline weight and polish of the existing fx-slash, fx-spark and fx-poof sprites. Each effect as a short animation, 4 frames in a row, same canvas size per effect: **Build** — a puff of tan dust with a few flying wood chips; **Upgrade** — a gold ring of sparkles rising and fading with a small arrow; **Heal** — a soft green-white pulse ring with rising plus signs; **Poison** — a sickly green cloud with bubbles drifting up; **Ward pulse** — a pale gold ring expanding outward with faint rune marks (for a Ward Stone being tended); **Ward lapse** — the same ring flickering, cracking and fading to grey. **Scale: Build/Upgrade/Heal/Poison about 32x32px (one tile, like fx-poof); the Ward pulse and Ward lapse rings about 96x48px, wide enough to read as a flat expanding ring around a stone.** Transparent background, clean PNG.
-
-### 27. Road and path tiles (autotile set) + cobble plaza
-
-For roads between buildings and to blend with the new Town Center plaza art.
-> Pixel art ground tile set, chunky 16-bit retro style, flat cel-shaded coloring, matching the exact style, size and palette of the existing dirtFloor.png, grassFloor1.png and sandFloor.png tiles. A dirt road autotile set with grass-blended edges: straight (horizontal and vertical), four corners, four T-junctions, a four-way cross, four dead-ends and a single isolated patch (14 tiles), plus one cobblestone plaza tile with a worn-stone pattern and a matching cobble straight road. All tiles seamless and with matching edge pixels so any neighbors connect cleanly. **Scale: every tile exactly the same size as the existing floor tiles (one tile).** Arranged in a clean labeled grid, transparent corners where the grass shows through, clean PNG.
-
-## Hunting, foraging and slow farming (2026-10-14 batch)
-
-For the Hunter's Hut, Forager's Hut, wild animals to hunt, wild food to forage, and the slower
-farming cycle (fields now take days: sown -> growing -> ready, and rest fallow after 5 harvests).
-Same house style as everything above (chunky 16-bit pixel art, thick black outline, flat cel-shaded
-colour, muted desaturated medieval palette, transparent background, all creatures and people facing
-right). Each prompt anchors scale to an existing sprite. One generation per block.
-
-### 28. Hunter worker (walk + hunt cycle)
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, outline weight, proportions and size of the existing worker sprites (lumberjack, farmer, archer). A woodland HUNTER: green-brown hooded cloak, leather jerkin, short bow on his back, a quiver at the hip, a skinned rabbit hanging from his belt. Row 1: a 4-frame WALK cycle. Row 2: a 3-frame HUNT cycle (draw bow, loose arrow, lower bow). Row 3: a 2-frame CARRY walk with a deer carcass slung over his shoulders. All facing right, same canvas size per frame, feet on the same baseline.
-
-### 29. Forager worker (walk + forage cycle)
-> Pixel art character animation sprite sheet, same style, outline weight and scale as the existing worker sprites. A FORAGER: plain linen smock, straw hat, a woven wicker basket on one arm, sleeves rolled. Row 1: a 4-frame WALK cycle. Row 2: a 3-frame FORAGE cycle (stoop, pluck berries from a bush into the basket, stand). Row 3: a 2-frame CARRY walk with a full basket of berries and apples. All facing right, same canvas size per frame, feet on one baseline.
-
-### 30. Hunter's Hut (building, 3 tiers)
-> Pixel art isometric building sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the exact art style, camera angle and footprint of the existing cottage.png / cottageLv2.png. Three tiers of a HUNTER'S HUT, left to right: Level 1 a small log lean-to cabin with a thatch roof, a rack of drying pelts and a pair of antlers over the door; Level 2 a larger timber lodge with a stone chimney, a hanging deer carcass, and a fur-covered fence; Level 3 a big hunting lodge with two rooms, stacked firewood, a skinning table, a trophy of antlers and boar tusks on the gable, a hound sleeping outside. Each tier on its own small grass patch like the other buildings.
-
-### 31. Forager's Hut (building, 3 tiers)
-> Pixel art isometric building sprite sheet, same style, camera angle and footprint as the existing cottage sprites. Three tiers of a FORAGER'S HUT, left to right: Level 1 a small round wattle-and-daub hut with a mossy thatch roof, baskets by the door and bundles of herbs hanging; Level 2 a larger cottage with a herb garden, drying racks of mushrooms and berries, a stack of wicker baskets; Level 3 a large cosy lodge with a covered porch, a preserves shed with jars, bunches of drying flowers and a little vegetable patch. Each tier on its own small grass patch.
-
-### 32. Wild food: berry bush, fruit tree, mushrooms (full and picked states)
-These are world props the forager harvests; each needs a ripe and a picked-bare state (the bare state regrows).
-> Pixel art environment prop sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, natural palette matching the existing bush3.png, tallGrass.png and tree.png. Row 1: a BERRY BUSH, ripe (round dark green bush covered in bright red berries) then picked (same bush with only leaves, a few stray berries). Row 2: a wild APPLE TREE, ripe (red apples in the canopy) then picked (bare canopy, a few fallen apples on the ground); match the size of tree.png. Row 3: a WILD PEAR/PLUM TREE variant, ripe then picked. Row 4: a MUSHROOM PATCH, ripe (cluster of brown and red-capped mushrooms) then picked (bare moss patch). Each prop on its own transparent background, centred, same ground contact point.
-
-### 33. Huntable animals: rabbit, wild boar, pheasant, plus deer extras
-Needed as real entities (hunters can kill them). Deer already exists (deerWalk0-3, deerGraze0-1); these are additions.
-> Pixel art animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted natural palette, matching the style and scale of the existing deer sprites (deerWalk0-3). Row 1: a WILD RABBIT, a 4-frame hop cycle plus a 2-frame sit/nibble. Row 2: a WILD BOAR (bristly dark brown, tusks, roughly deer-sized but stockier), a 4-frame trot cycle plus a 2-frame snuffle/graze. Row 3: a PHEASANT with bright plumage, a 4-frame walk cycle plus a 3-frame flap-and-take-off. Row 4: a DEER being hunted: a 4-frame fast RUN (flee) cycle and a single FALLEN pose. All facing right, same baseline.
-
-### 34. Field and pasture states for the slow farming cycle
-Fields now take days, so each plot/pasture needs to read at a glance which phase it is in. Current art: farmPlot.png (bare), farmPlotGrowing.png (sprouts), farmPlotReady.png (ripe wheat).
-> Pixel art isometric tile sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, matching the exact footprint, camera angle and style of the existing farmPlotGrowing.png. Row 1, grain FIELD stages: SOWN (freshly tilled dark soil with tiny seed dots), SPROUTING (short green shoots), GROWING (knee-high green wheat), RIPE (golden wheat, matching farmPlotReady.png), HARVESTED (stubble and sheaves), FALLOW (resting field: untilled, overgrown with weeds and wildflowers, pale grass). Row 2, hemp field: SOWN, GROWING, RIPE. Row 3, PASTURE (cattle): animals thin and grazing = growing; FAT and ready (plump cattle, a full trough). Row 4, SHEEP PASTURE: woolly and ready to shear; freshly sheared (pink-bare sheep). Row 5, ORCHARD: blossoming, then fruiting (ripe).
-
-### 35. Builder worker (walk + build cycle) and Builders' Guild (building, 3 tiers)
-Builders are required to construct buildings. For now they reuse the lumberjack worker sprites and the lumberjack post building art as stand-ins (`lumberjack*` frames and `lumberjackPost.png`); real art is needed.
-> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the style, outline weight and size of the existing worker sprites (lumberjack, ironMiner). A BUILDER: leather apron, rolled sleeves, a cloth cap, a wooden mallet in one hand and a plumb line at the belt. Row 1: a 4-frame WALK cycle. Row 2: a 4-frame BUILD cycle (hammering a plank, then stepping back). Row 3: a 2-frame CARRY walk with a plank of wood on the shoulder. All facing right, same canvas, feet on one baseline.
-> Pixel art isometric building sprite sheet, same style, camera angle and footprint as the existing lumberjackPost.png and cottage sprites. Three tiers of a BUILDERS' GUILD, left to right: Level 1 an open timber workshop with a sawhorse, stacked planks and a half-framed wall; Level 2 a larger guildhall with a crane and a guild banner, stone footings; Level 3 a grand guild house with scaffolding, a stone-and-timber facade, a carved set-square-and-hammer emblem over the door.
-
-### 36. Town Center tiers and the Keep (Town Center Lv1 / Lv2 / Lv3-Keep) and a placeable Town Center marker
-The Town Center becomes upgradeable (Lv3 = a Keep) and placeable. Current art: townCenter.png (plaza). Castle Lv3 art (castleLv3.png) or the staged castleKeep.png can stand in for the Keep.
-> Pixel art isometric building sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Match the camera angle, footprint (3.5 tiles wide) and style of the existing townCenter.png. Three tiers of the TOWN CENTER, left to right: Level 1 the existing plaza (timber buildings, statue fountain, market stalls); Level 2 the same plaza grown richer, with a stone town hall, a bell tower and a larger market; Level 3 a fortified KEEP: a square stone keep with four corner towers, curtain walls, a gatehouse, banners and a courtyard. Also a ghosted placement outline of the Level 1 plaza (semi-transparent) for building previews.
 
 ## Notes on process
 

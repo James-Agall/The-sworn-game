@@ -718,6 +718,58 @@
         font-style: italic;
         color: var(--ink-faint);
       }
+      .event-toast.event-build { border-left-color: #8a5a20; }
+      /* Building info (left-click a building): parchment card, top right, over the build panel. */
+      #building-panel {
+        position: fixed;
+        top: 56px;
+        right: 52px;
+        z-index: 20;
+        width: min(290px, calc(100vw - 64px));
+        padding: 12px 14px 12px;
+        color: var(--ink);
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif);
+        font-size: 14px;
+      }
+      #building-panel[hidden] { display: none; }
+      .bp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+      #bp-name { font-size: 19px; font-weight: bold; }
+      #bp-level { font-size: 13px; color: var(--ink-soft); white-space: nowrap; }
+      #bp-close {
+        font: inherit;
+        font-size: 18px;
+        line-height: 1;
+        padding: 0 4px;
+        color: var(--ink);
+        background: none;
+        border: 0;
+        cursor: pointer;
+      }
+      .bp-row { margin-top: 4px; }
+      .bp-row[hidden] { display: none; }
+      #bp-bonuses { margin: 2px 0 0; padding-left: 18px; font-size: 13px; }
+      #bp-bonuses li { margin: 2px 0; }
+      #bp-upgrade-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+      #bp-upgrade-row[hidden] { display: none; }
+      #bp-upgrade-cost { font-size: 12.5px; color: var(--ink-soft); }
+      /* Game over: the rider fell with no Town Center standing. */
+      #game-over {
+        position: fixed;
+        inset: 0;
+        z-index: 90;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(18, 11, 5, 0.65);
+        font-family: var(--font-serif);
+      }
+      #game-over[hidden] { display: none; }
+      #stat-builders { font-size: 12.5px; color: var(--ink-soft); }
       body.hide-minimap #minimap-frame { display: none; }
       body.hide-events #event-feed { display: none; }
     </style>
@@ -773,6 +825,24 @@
       <button id="menu-btn" class="control-btn">Menu</button>
     </div>
     <div id="event-feed" aria-live="polite"></div>
+    <div id="building-panel" role="dialog" aria-label="Building" hidden>
+      <div class="bp-head"><span id="bp-name"></span><span id="bp-level"></span><button id="bp-close" aria-label="Close">×</button></div>
+      <div id="bp-staffing" class="bp-row"></div>
+      <div id="bp-hp" class="bp-row" hidden></div>
+      <div id="bp-construction" class="bp-row" hidden></div>
+      <div class="menu-section" style="margin-top: 8px">Bonuses</div>
+      <ul id="bp-bonuses"></ul>
+      <div id="bp-upgrade-row" hidden>
+        <button id="bp-upgrade" class="econ-btn">Upgrade</button><span id="bp-upgrade-cost"></span>
+      </div>
+    </div>
+    <div id="game-over" hidden>
+      <div class="menu-scroll" role="dialog" aria-modal="true" aria-label="Game over">
+        <h1 class="menu-title">The Colony Has Fallen</h1>
+        <p class="menu-sub">You fell, and no Town Center stands for you to rise again at.</p>
+        <button id="game-over-restart" class="menu-btn">Restart</button>
+      </div>
+    </div>
     <div id="build-panel-toggle">Build</div>
     <div id="build-panel" class="collapsed">
       <div id="build-category-tabs"></div>
@@ -800,6 +870,7 @@
           </span>
           <span id="stat-happiness">Happiness: 100%</span></div>
         <div id="stat-army">Knights 0  Archers 0  Militia 0  Bishops 0</div>
+        <div id="stat-builders" title="Builders working / total">Builders 0/0</div>
         <div id="stat-difficulty"></div>
         <div id="stat-selected" hidden></div>
       </div>

@@ -16,9 +16,15 @@ import {
   WildlifeKind,
   WILDLIFE_KINDS,
   WildlifeState,
+  FarmStage,
+  TownCenterSnapshot,
+  BuildingInfo,
   TileType,
   Biome,
+  HungerMark,
+  HUNGER_MARK_NAMES,
   isSolidTile,
+  isRoadTile,
   TICK_RATE,
   TILE_SIZE,
   DEFAULT_WORLD_TILES,
@@ -49,6 +55,8 @@ interface Player {
   attackCooldownTicks: number;
   poisonTicksRemaining: number;
   poisonDamagePerTick: number;
+  // Killed while no Town Center stood: no respawn until one is (re)built (see respawnDeadPlayers).
+  dead: boolean;
 }
 
 interface TileCoord {
@@ -109,6 +117,11 @@ interface Colonist {
   // the meat/fruit carried back to the hut, deposited on arrival.
   targetWildlifeId: number | null;
   carryAmount: number;
+
+  // Builder: resourceKey of the construction site it is assigned to (see updateBuilder).
+  buildSiteKey: string | null;
+  // Farmhand: length of the current produce cycle (chopTicksRemaining counts it down), for the art stage.
+  cycleTicksTotal: number;
 }
 
 type MobTargetType = "colonist" | "player" | "townCenter";
@@ -144,7 +157,29 @@ interface Mob {
   // not by updateMob's per-mob targeting; passive is true until its group turns aggressive.
   groupId: string | null;
   passive: boolean;
+  // Hunger mark (HungerMark.None for ordinary mobs); see the HUNGER_* constants and markedMob* helpers.
+  mark: HungerMark;
+  // Gorrath: tick its one-off wounded fury ends (0 = never triggered; it triggers once per mob).
+  furyUntilTick: number;
+  // Rux: the target it has already feinted at, and the tick its current feint ends.
+  feintTargetId: string | null;
+  feintUntilTick: number;
+  // Vhorrun: tick its withdrawal ends, and the point it backs away from meanwhile.
+  withdrawUntilTick: number;
+  withdrawFromX: number;
+  withdrawFromY: number;
 }
+
+// Defaults for the Mob fields every creation site shares (spread into each Mob literal).
+const MOB_MARK_DEFAULTS = {
+  mark: HungerMark.None,
+  furyUntilTick: 0,
+  feintTargetId: null,
+  feintUntilTick: 0,
+  withdrawUntilTick: 0,
+  withdrawFromX: 0,
+  withdrawFromY: 0,
+};
 
 interface RespawnRequest {
   tx: number;
@@ -165,6 +200,8 @@ interface FarmPlotState {
   harvestTicksRemaining: number;
   harvestsSinceFallow: number;
   fallowTicksRemaining: number;
+  // Counts down after a harvest: the plot shows its "harvested" stubble art meanwhile (FarmStage.Harvested).
+  harvestedTicksRemaining: number;
   state: "sown" | "growing" | "harvesting" | "fallow";
 }
 
@@ -239,18 +276,67 @@ function taskForcesForSnapshot(): Record<string, string[]> {
   return result;
 }
 
+// Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
+// Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
 const TOWN_CENTER_TILE: TileCoord = {
   x: Math.floor(WORLD_TILES_X / 2),
   y: Math.floor(WORLD_TILES_Y / 2),
 };
-const TOWN_CENTER_MAX_HP = 1000;
-let townCenterHp = TOWN_CENTER_MAX_HP;
-let townCenterDestroyed = false;
+// Max HP per Town Center level (1-3). Level 3 is the Keep.
+const TOWN_CENTER_MAX_HP_BY_LEVEL = [1000, 1500, 2000];
+// Each level above 1 of the HIGHEST standing Town Center adds this much colony-wide productivity (via
+// productionSpeedMultiplier) and unit damage (via armyDamageMultiplier): +5% at Lv2, +10% at Lv3.
+const TOWN_CENTER_LEVEL_BONUS_PER_STEP = 0.05;
+// ...and this much to the population base.
+const TOWN_CENTER_LEVEL_POPULATION_BONUS = 5;
+interface TownCenter {
+  x: number;
+  y: number;
+  level: number;
+  hp: number;
+}
+// Every standing Town Center (a destroyed one is removed). Reset to the starting one by generateWorld.
+let townCenters: TownCenter[] = [];
 let isPaused = false;
 
-function spawnPointNearTownCenter(): { x: number; y: number } {
-  const approach = findAdjacentWalkable(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y);
-  return tileToPixelCenter(approach ?? TOWN_CENTER_TILE);
+function townCenterMaxHp(level: number): number {
+  return TOWN_CENTER_MAX_HP_BY_LEVEL[Math.min(Math.max(level, 1), 3) - 1];
+}
+
+function findTownCenterAt(tx: number, ty: number): TownCenter | undefined {
+  return townCenters.find((tc) => tc.x === tx && tc.y === ty);
+}
+
+function nearestTownCenter(px: number, py: number): TownCenter | null {
+  let best: TownCenter | null = null;
+  let bestD = Infinity;
+  for (const tc of townCenters) {
+    const c = tileToPixelCenter(tc);
+    const d = Math.hypot(c.x - px, c.y - py);
+    if (d < bestD) {
+      bestD = d;
+      best = tc;
+    }
+  }
+  return best;
+}
+
+// The colony-wide Town Center bonuses use the highest level among the standing ones (0 with none).
+function highestTownCenterLevel(): number {
+  return townCenters.reduce((max, tc) => Math.max(max, tc.level), 0);
+}
+
+function townCenterBonus(): number {
+  return levelBonus(highestTownCenterLevel(), TOWN_CENTER_LEVEL_BONUS_PER_STEP);
+}
+
+// Next to the Town Center nearest `near` (default: the starting spot), or the starting spot itself
+// when none stands.
+function spawnPointNearTownCenter(near?: { x: number; y: number }): { x: number; y: number } {
+  const tc = near ? nearestTownCenter(near.x, near.y) : townCenters[0] ?? null;
+  const tile = tc ?? TOWN_CENTER_TILE;
+  const approach = findAdjacentWalkable(tile.x, tile.y);
+  return tileToPixelCenter(approach ?? tile);
 }
 
 function tileIndex(tx: number, ty: number): number {
@@ -304,6 +390,13 @@ function biomeAt(tx: number, ty: number): Biome {
 function biomeSpeedMultiplier(px: number, py: number): number {
   const t = tileOfPixel(px, py);
   return biomeAt(t.x, t.y) === Biome.Swamp ? 1 - SWAMP_SPEED_PENALTY : 1;
+}
+
+// Roads (Road / Cobble Road tiles): colonists and players standing on one move this much faster
+// (on top of the biome multiplier). Mobs get no bonus.
+const ROAD_SPEED_BONUS = 0.25;
+function roadSpeedMultiplier(px: number, py: number): number {
+  return isRoadTile(tileAtPixel(px, py)) ? 1 + ROAD_SPEED_BONUS : 1;
 }
 
 // Production-timer multiplier for a building, from the biome of its own tile: mines on Hills and
@@ -431,7 +524,10 @@ function advanceAlongPath(
   const ddx = target.x - entity.x;
   const ddy = target.y - entity.y;
   const dist = Math.hypot(ddx, ddy);
-  const step = speed * biomeSpeedMultiplier(entity.x, entity.y) * dt;
+  // The road bonus is for colonists only (players move by input, mobs never get it).
+  const isColonist = colonists.get((entity as { id?: string }).id ?? "") === entity;
+  const road = isColonist ? roadSpeedMultiplier(entity.x, entity.y) : 1;
+  const step = speed * biomeSpeedMultiplier(entity.x, entity.y) * road * dt;
   if (dist <= step) {
     entity.x = target.x;
     entity.y = target.y;
@@ -449,6 +545,8 @@ function resourceKey(tx: number, ty: number): string {
 }
 
 function releaseResourceReservation(c: Colonist) {
+  // A builder leaving its site (night shelter, death, desertion) frees its slot there; the site stays.
+  c.buildSiteKey = null;
   if (c.targetWildlifeId !== null) {
     const animal = wildlife.get(c.targetWildlifeId);
     if (animal && animal.reservedBy === c.id) animal.reservedBy = null;
@@ -615,7 +713,75 @@ const MOB_REPATH_TICKS = TICK_RATE;
 const GOLD_PER_KILL_BASE_DIVISOR = 8;
 const GOLD_PER_KILL_MIN = 3;
 function goldForKill(mob: Mob): number {
-  return Math.max(GOLD_PER_KILL_MIN, Math.round((mob.maxHp + mob.damage * 2) / GOLD_PER_KILL_BASE_DIVISOR));
+  const base = Math.max(GOLD_PER_KILL_MIN, Math.round((mob.maxHp + mob.damage * 2) / GOLD_PER_KILL_BASE_DIVISOR));
+  return mob.mark !== HungerMark.None ? base * HUNGER_MARK_GOLD_MULT : base;
+}
+
+// ---- Hunger-marked elites (ROADMAP Phase 6) ----
+// At raid spawn each fresh raider may bear one of the six Hungers' marks (uniform pick). The chance
+// is 0 before raid day HUNGER_MARK_MIN_DAY (0-based dayIndex, same as unlockDay), then rises
+// linearly from HUNGER_MARK_CHANCE_START to HUNGER_MARK_CHANCE_MAX at HUNGER_MARK_CHANCE_MAX_DAY
+// (flat after). At most one mark per HUNGER_MARK_RAIDERS_PER_MARK raiders (min 1). Deserters are
+// never marked. A marked mob gets x1.5 hp, x1.25 damage and pays x3 gold.
+const HUNGER_MARK_MIN_DAY = 3;
+const HUNGER_MARK_CHANCE_START = 0.03;
+const HUNGER_MARK_CHANCE_MAX = 0.15;
+const HUNGER_MARK_CHANCE_MAX_DAY = 30;
+const HUNGER_MARK_RAIDERS_PER_MARK = 5;
+const HUNGER_MARK_HP_MULT = 1.5;
+const HUNGER_MARK_DAMAGE_MULT = 1.25;
+const HUNGER_MARK_GOLD_MULT = 3;
+// Gunne / Gorrath re-evaluate their pick once a second (ordinary mobs keep a target until it's gone).
+const MARK_RETARGET_TICKS = TICK_RATE;
+// Gorrath (frenzy): the first blow that would kill it leaves it at GORRATH_FURY_HP_FRACTION of its
+// max hp instead and starts a wounded fury for GORRATH_FURY_TICKS, during which it takes only
+// GORRATH_FURY_DAMAGE_TAKEN of incoming damage. Once per mob. It targets the healthiest (highest
+// current hp) guard / militia / player within GORRATH_SCAN_RANGE_TILES.
+const GORRATH_FURY_HP_FRACTION = 0.2;
+const GORRATH_FURY_TICKS = 4 * TICK_RATE;
+const GORRATH_FURY_DAMAGE_TAKEN = 0.5;
+const GORRATH_SCAN_RANGE_TILES = 8;
+// Gunne: targets the guard / militia / player with the lowest hp fraction within
+// GUNNE_SCAN_RANGE_TILES, as long as one is wounded at all (else ordinary targeting).
+const GUNNE_SCAN_RANGE_TILES = 10;
+// Rux (feint): the first time it closes to attack range on a new target it backs off for
+// RUX_FEINT_TICKS instead of striking, then comes back and commits (one feint per target).
+const RUX_FEINT_TICKS = Math.round(1.5 * TICK_RATE);
+// Morvain (hard to track): guards only notice it within MORVAIN_DETECTION_FACTOR of their alert
+// range, and a guard chasing it loses the lock once it's further away than that reduced range.
+const MORVAIN_DETECTION_FACTOR = 0.5;
+// Vhorrun (hit-and-run): after a hit that leaves its (colonist / player) target below
+// VHORRUN_WITHDRAW_TARGET_HP of max hp, it drops the target and backs away for VHORRUN_WITHDRAW_TICKS,
+// then picks a target afresh.
+const VHORRUN_WITHDRAW_TARGET_HP = 0.4;
+const VHORRUN_WITHDRAW_TICKS = 6 * TICK_RATE;
+// Nemri (avoids engagement): ignores guards and players and makes straight for the nearest unwarded
+// Town Center (the thing being guarded); with none, ordinary targeting.
+// testHook "forceMarkChance" {value}: overrides the per-raider chance (null restores it).
+let testForceMarkChance: number | null = null;
+
+function hungerMarkChance(dayIndex: number): number {
+  if (testForceMarkChance !== null) return testForceMarkChance;
+  if (dayIndex < HUNGER_MARK_MIN_DAY) return 0;
+  const t = Math.min(1, (dayIndex - HUNGER_MARK_MIN_DAY) / (HUNGER_MARK_CHANCE_MAX_DAY - HUNGER_MARK_MIN_DAY));
+  return HUNGER_MARK_CHANCE_START + (HUNGER_MARK_CHANCE_MAX - HUNGER_MARK_CHANCE_START) * t;
+}
+
+function applyHungerMark(mob: Mob, mark: HungerMark) {
+  mob.mark = mark;
+  mob.maxHp = Math.max(1, Math.round(mob.maxHp * HUNGER_MARK_HP_MULT));
+  mob.hp = mob.maxHp;
+  mob.damage = Math.max(1, Math.round(mob.damage * HUNGER_MARK_DAMAGE_MULT));
+}
+
+function hungerMarkLabel(mark: HungerMark): string {
+  const name = HUNGER_MARK_NAMES[mark] ?? "";
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+// "armoredOrc" -> "armored orc", for event text.
+function mobKindLabel(kind: MobKind): string {
+  return kind.replace(/([A-Z])/g, " $1").toLowerCase();
 }
 
 // Difficulty (chosen on the client's main menu). Scales RAID-WAVE mobs only (createRaidMob and the
@@ -906,6 +1072,11 @@ function happinessSpeedMultiplier(): number {
   return PRODUCTION_HAPPINESS_FLOOR + (1 - PRODUCTION_HAPPINESS_FLOOR) * (colonyHappiness / 100);
 }
 
+// Every production timer (and builders' work rate) divides by this: happiness times the Town Center bonus.
+function productionSpeedMultiplier(): number {
+  return happinessSpeedMultiplier() * (1 + townCenterBonus());
+}
+
 const POST_TILE_TYPES = [
   TileType.LumberjackPost,
   TileType.FarmPlot,
@@ -939,6 +1110,7 @@ const POST_TILE_TYPES = [
   TileType.WardStone,
   TileType.HunterHut,
   TileType.ForagerHut,
+  TileType.BuildersGuild,
 ];
 
 function isAdjacentToPlayerOrPost(tx: number, ty: number): boolean {
@@ -1041,6 +1213,7 @@ const INDUSTRIAL_TILES: TileType[] = [
   TileType.Brewery,
   TileType.HunterHut,
   TileType.ForagerHut,
+  TileType.BuildersGuild,
 ];
 
 function industrialSynergyMultiplier(tx: number, ty: number): number {
@@ -1067,7 +1240,7 @@ function armyDamageMultiplier(tx: number, ty: number): number {
     const t = tiles[tileIndex(nx, ny)] as TileType;
     if (isMilitaryTile(t) || t === TileType.Blacksmith) bonus += ARMY_SYNERGY_PER_NEIGHBOUR;
   }
-  return 1 + bonus;
+  return 1 + bonus + townCenterBonus();
 }
 
 function effectiveChopTicks(tx: number, ty: number): number {
@@ -1075,7 +1248,7 @@ function effectiveChopTicks(tx: number, ty: number): number {
   return Math.max(
     1,
     Math.round((CHOP_TICKS * (1 - levelBonus(level)) * biomeProductionFactor(tx, ty)) /
-        (happinessSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
+        (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
   );
 }
 
@@ -1085,13 +1258,13 @@ function effectiveFarmhandCycleTicks(tx: number, ty: number): number {
   return Math.max(
     1,
     Math.round((FARMHAND_CYCLE_TICKS * (1 - levelBonus(level)) * biomeProductionFactor(tx, ty)) /
-        (happinessSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
+        (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
   );
 }
 
 function effectiveCraftTicks(tx: number, ty: number): number {
   const level = getBuildingLevel(tx, ty);
-  return Math.max(1, Math.round((CRAFT_TICKS * (1 - levelBonus(level))) / (happinessSpeedMultiplier() * industrialSynergyMultiplier(tx, ty))));
+  return Math.max(1, Math.round((CRAFT_TICKS * (1 - levelBonus(level))) / (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty))));
 }
 
 const FARM_PRODUCE_BY_TILE: Partial<Record<TileType, "meat" | "fruit" | "wool" | "cotton">> = {
@@ -1147,6 +1320,8 @@ function isValidPostTile(kind: ColonistKind, t: TileType): boolean {
   if (kind === "artisan") return CRAFT_RECIPES[t] !== undefined;
   if (kind === "hunter") return t === TileType.HunterHut;
   if (kind === "forager") return t === TileType.ForagerHut;
+  // The colony's starting builders are posted at a Town Center, the rest at a Builders' Guild.
+  if (kind === "builder") return t === TileType.BuildersGuild || t === TileType.TownCenter;
   return false;
 }
 
@@ -1159,7 +1334,8 @@ function isCivilianKind(kind: ColonistKind): boolean {
     kind === "farmhand" ||
     kind === "artisan" ||
     kind === "hunter" ||
-    kind === "forager"
+    kind === "forager" ||
+    kind === "builder"
   );
 }
 
@@ -1183,6 +1359,18 @@ function civilianPopulationUsed(): number {
 }
 
 const TOWN_CENTER_BASE_POPULATION = 10;
+// Every Town Center after the first adds this much to the base.
+const TOWN_CENTER_EXTRA_POPULATION = 5;
+
+// 10 for the first Town Center, +5 per extra one, +5 per level of the highest; 0 with none standing.
+function townCenterPopulationBase(): number {
+  if (townCenters.length === 0) return 0;
+  return (
+    TOWN_CENTER_BASE_POPULATION +
+    TOWN_CENTER_EXTRA_POPULATION * (townCenters.length - 1) +
+    TOWN_CENTER_LEVEL_POPULATION_BONUS * (highestTownCenterLevel() - 1)
+  );
+}
 
 // Synergy bonuses count all eight surrounding tiles (diagonals too), so buildings can be packed
 // into solid blocks. Spawn-space checks still use the four orthogonal tiles units actually spawn on.
@@ -1213,7 +1401,7 @@ function isSynergyBuilding(t: TileType): boolean {
 }
 
 function populationCap(): number {
-  let cap = townCenterDestroyed ? 0 : TOWN_CENTER_BASE_POPULATION;
+  let cap = townCenterPopulationBase();
   for (let i = 0; i < tiles.length; i++) {
     const t = tiles[i] as TileType;
     if (t === TileType.House) cap += 1;
@@ -1319,7 +1507,10 @@ function spawnColonistForPost(
     poisonDamagePerTick: 0,
     targetWildlifeId: null,
     carryAmount: 0,
+    buildSiteKey: null,
+    cycleTicksTotal: 0,
   };
+  colonist.cycleTicksTotal = colonist.chopTicksRemaining;
   colonists.set(colonist.id, colonist);
   return colonist;
 }
@@ -1330,6 +1521,7 @@ function queueRespawn(c: Colonist) {
 
 const WALL_TILES = [TileType.Wall, TileType.StoneWall];
 const NO_COLONIST_TILES = [
+  TileType.ConstructionSite,
   TileType.Wall,
   TileType.StoneWall,
   TileType.House,
@@ -1337,6 +1529,8 @@ const NO_COLONIST_TILES = [
   TileType.HouseLevel2,
   TileType.Market,
   TileType.GoldShop,
+  TileType.Road,
+  TileType.CobbleRoad,
 ];
 
 function removeColonistForPost(tx: number, ty: number) {
@@ -1456,6 +1650,8 @@ const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
   [TileType.Tavern]: "Tavern",
   [TileType.HunterHut]: "Hunter's Hut",
   [TileType.ForagerHut]: "Forager's Hut",
+  [TileType.BuildersGuild]: "Builders' Guild",
+  [TileType.TownCenter]: "Town Center",
 };
 
 function announceUpgrade(baseType: TileType, level: number) {
@@ -1481,25 +1677,16 @@ function canAffordHouseUpgrade(current: TileType): boolean {
   return stock.grain >= 1 && stock.meat >= 1 && stock.fruit >= 1 && stock.clothes >= 2;
 }
 
+// The upgrade goods are charged at placement (placementCost), so a queued upgrade can't overdraw later.
 function resolveHousePlacement(tx: number, ty: number) {
   const current = tiles[tileIndex(tx, ty)] as TileType;
   if (current === TileType.BigHouse) {
-    stock.grain -= 2;
-    stock.meat -= 2;
-    stock.fruit -= 2;
-    stock.clothes -= 3;
-    stock.tools -= 2;
-    stock.luxuryItems -= 1;
     tiles[tileIndex(tx, ty)] = TileType.HouseLevel2;
     broadcastTileUpdate(tx, ty, TileType.HouseLevel2);
     announceUpgrade(TileType.House, 3);
     return;
   }
   if (current === TileType.House) {
-    stock.grain -= 1;
-    stock.meat -= 1;
-    stock.fruit -= 1;
-    stock.clothes -= 2;
     tiles[tileIndex(tx, ty)] = TileType.BigHouse;
     broadcastTileUpdate(tx, ty, TileType.BigHouse);
     announceUpgrade(TileType.House, 2);
@@ -1693,7 +1880,8 @@ function resolveTavernPlacement(tx: number, ty: number) {
 
 // Hunter's Hut / Forager's Hut: like a mine, every level adds one more worker (so each placement,
 // upgrades included, needs a free population slot).
-function resolveFoodHutPlacement(tx: number, ty: number, hutType: TileType, kind: "hunter" | "forager") {
+// The Builders' Guild works the same way (one builder per level).
+function resolveFoodHutPlacement(tx: number, ty: number, hutType: TileType, kind: "hunter" | "forager" | "builder") {
   const current = tiles[tileIndex(tx, ty)] as TileType;
   if (current === hutType) {
     const currentLevel = getBuildingLevel(tx, ty);
@@ -1707,9 +1895,68 @@ function resolveFoodHutPlacement(tx: number, ty: number, hutType: TileType, kind
   spawnColonistForPost(tx, ty, kind);
 }
 
+// The colony starts (and restarts) with this many builders posted at the Town Center.
+const STARTING_BUILDERS = 2;
+
+// Tops the Town Center builders (builders posted at any Town Center, alive or queued to respawn) back
+// up to STARTING_BUILDERS, spawning the missing ones at (tx, ty). Runs at world-gen and whenever a new
+// Town Center is built, so a colony that lost its Town Center and its builders can rebuild.
+function topUpTownCenterBuilders(tx: number, ty: number) {
+  let have = 0;
+  for (const c of colonists.values()) {
+    if (c.kind === "builder" && tiles[tileIndex(c.postX, c.postY)] !== TileType.BuildersGuild) have++;
+  }
+  for (const q of respawnQueue) {
+    if (q.kind === "builder" && tiles[tileIndex(q.tx, q.ty)] !== TileType.BuildersGuild) have++;
+  }
+  for (let i = have; i < STARTING_BUILDERS; i++) spawnColonistForPost(tx, ty, "builder");
+}
+
+// A new Town Center (instant when none stands or no builder is alive; see handleSetTileInner), or a
+// level-up of an existing one: the level raises its max HP (and heals by the difference).
+function resolveTownCenterPlacement(tx: number, ty: number) {
+  const existing = findTownCenterAt(tx, ty);
+  if (existing) {
+    if (existing.level >= 3) return;
+    const oldMax = townCenterMaxHp(existing.level);
+    existing.level++;
+    existing.hp = Math.min(townCenterMaxHp(existing.level), existing.hp + townCenterMaxHp(existing.level) - oldMax);
+    announceUpgrade(TileType.TownCenter, existing.level);
+    return;
+  }
+  tiles[tileIndex(tx, ty)] = TileType.TownCenter;
+  townCenters.push({ x: tx, y: ty, level: 1, hp: townCenterMaxHp(1) });
+  broadcastTileUpdate(tx, ty, TileType.TownCenter);
+  revealAround(tx, ty, START_VISION_OFFSETS);
+  topUpTownCenterBuilders(tx, ty);
+  broadcastEvent("build", "A new Town Center stands");
+}
+
+// Mob damage brought it down: it is removed for good (a new one can be placed).
+function destroyTownCenter(tc: TownCenter) {
+  townCenters = townCenters.filter((t) => t !== tc);
+  const key = resourceKey(tc.x, tc.y);
+  constructionSites.delete(key);
+  tiles[tileIndex(tc.x, tc.y)] = TileType.Empty;
+  broadcastTileUpdate(tc.x, tc.y, TileType.Empty);
+  broadcastEvent(
+    "death",
+    townCenters.length > 0 ? "A Town Center has been destroyed" : "The last Town Center has been destroyed — build a new one"
+  );
+}
+
 function processRespawnQueue() {
   for (let i = respawnQueue.length - 1; i >= 0; i--) {
     const req = respawnQueue[i];
+    // A builder whose Town Center fell respawns at the nearest one still standing.
+    if (req.kind === "builder" && !isValidPostTile("builder", tiles[tileIndex(req.tx, req.ty)] as TileType)) {
+      const p = tileToPixelCenter({ x: req.tx, y: req.ty });
+      const tc = nearestTownCenter(p.x, p.y);
+      if (tc) {
+        req.tx = tc.x;
+        req.ty = tc.y;
+      }
+    }
     const currentTile = tiles[tileIndex(req.tx, req.ty)] as TileType;
     if (!isValidPostTile(req.kind, currentTile)) {
       respawnQueue.splice(i, 1);
@@ -1803,6 +2050,7 @@ function desertColonist(c: Colonist) {
     guardianActive: false,
     groupId: null,
     passive: false,
+    ...MOB_MARK_DEFAULTS,
   };
   mobs.set(mob.id, mob);
   colonists.delete(c.id);
@@ -1845,7 +2093,7 @@ function effectiveFarmPlotTicks(base: number, plotX: number, plotY: number, plot
     1,
     Math.round(
       (base * (1 - bonus) * biomeProductionFactor(plotX, plotY)) /
-        (happinessSpeedMultiplier() * industrialSynergyMultiplier(plot.barnX, plot.barnY))
+        (productionSpeedMultiplier() * industrialSynergyMultiplier(plot.barnX, plot.barnY))
     )
   );
 }
@@ -1865,6 +2113,7 @@ function newFarmPlot(barnX: number, barnY: number): FarmPlotState {
     harvestTicksRemaining: 0,
     harvestsSinceFallow: 0,
     fallowTicksRemaining: 0,
+    harvestedTicksRemaining: 0,
     state: "sown",
   };
   // The first sowing is the flat FARM_GROW_TICKS (as before: the plot's multipliers apply from the
@@ -1877,6 +2126,7 @@ function updateFarmPlots() {
   for (const [plotKey, plot] of farmPlots) {
     // A resting field recovers on its own; only re-sowing it needs the farmer.
     if (plot.state === "fallow" && plot.fallowTicksRemaining > 0) plot.fallowTicksRemaining--;
+    if (plot.harvestedTicksRemaining > 0) plot.harvestedTicksRemaining--;
     if (tiles[tileIndex(plot.barnX, plot.barnY)] !== TileType.BarnPost) continue;
     if (!isBarnStaffed(plot.barnX, plot.barnY)) continue;
     const [plotX, plotY] = plotKey.split(",").map(Number);
@@ -1887,6 +2137,7 @@ function updateFarmPlots() {
       if (plot.harvestTicksRemaining <= 0) {
         stock.grain += FARM_YIELD_PER_HARVEST;
         plot.harvestsSinceFallow++;
+        plot.harvestedTicksRemaining = FARM_HARVESTED_SHOW_TICKS;
         if (plot.harvestsSinceFallow >= FARM_HARVESTS_BEFORE_FALLOW) {
           plot.harvestsSinceFallow = 0;
           plot.state = "fallow";
@@ -1906,6 +2157,69 @@ function updateFarmPlots() {
       }
     }
   }
+}
+
+// ---- Farm art stages (snapshot farmStages; FarmStage in protocol.ts). Cosmetic only. ----
+// A grain plot shows its stubble ("harvested") art this long after each harvest.
+const FARM_HARVESTED_SHOW_TICKS = TICK_RATE * 8;
+// Stage boundaries as fractions (0..1) of the current grow phase / farmhand produce cycle.
+const FARM_SPROUTING_FRACTION = 2 / 3; // grain: sown < 1/3 <= sprouting < 2/3 <= growing
+const HEMP_GROWING_FROM = 1 / 3;
+const HEMP_RIPE_FROM = 2 / 3;
+const PASTURE_FAT_FROM = 0.7;
+const SHEEP_WOOLLY_FROM = 0.25; // sheared right after the wool batch lands
+const SHEEP_READY_FROM = 0.8;
+const ORCHARD_BLOSSOM_UNTIL = 0.35;
+const ORCHARD_FRUITING_FROM = 0.65;
+
+// 0..1 through the plot's current grow phase (1 while ripe/fallow).
+function farmPlotProgress(plot: FarmPlotState): number {
+  if (plot.state === "harvesting" || plot.state === "fallow") return 1;
+  return plot.growTicksTotal > 0 ? 1 - plot.growTicksRemaining / plot.growTicksTotal : 0;
+}
+
+function farmPlotStage(plot: FarmPlotState): FarmStage {
+  if (plot.state === "harvesting") return FarmStage.Ripe;
+  if (plot.state === "fallow") return FarmStage.Fallow;
+  if (plot.harvestedTicksRemaining > 0) return FarmStage.Harvested;
+  const p = farmPlotProgress(plot);
+  if (p < FARM_SOWN_FRACTION) return FarmStage.Sown;
+  return p < FARM_SPROUTING_FRACTION ? FarmStage.Sprouting : FarmStage.Growing;
+}
+
+// 0..1 through a farmhand's current produce cycle (the batch lands at 1).
+function farmhandProgress(c: Colonist): number {
+  return c.cycleTicksTotal > 0 ? Math.min(1, Math.max(0, 1 - c.chopTicksRemaining / c.cycleTicksTotal)) : 0;
+}
+
+function farmhandFarmStage(tile: TileType, p: number): FarmStage | null {
+  if (tile === TileType.CottonFarm) return p < HEMP_GROWING_FROM ? FarmStage.Sown : p < HEMP_RIPE_FROM ? FarmStage.Growing : FarmStage.Ripe;
+  if (tile === TileType.Pasture) return p < PASTURE_FAT_FROM ? FarmStage.Growing : FarmStage.Fat;
+  if (tile === TileType.WoolFarm) return p < SHEEP_WOOLLY_FROM ? FarmStage.Sheared : p < SHEEP_READY_FROM ? FarmStage.Woolly : FarmStage.Ripe;
+  if (tile === TileType.Orchard) {
+    return p < ORCHARD_BLOSSOM_UNTIL ? FarmStage.Blossoming : p < ORCHARD_FRUITING_FROM ? FarmStage.Growing : FarmStage.Fruiting;
+  }
+  return null;
+}
+
+// Flattened [tile index, FarmStage] for every grain plot and every staffed animal/orchard/hemp farm.
+function farmStagesForSnapshot(): number[] {
+  const out: number[] = [];
+  for (const [plotKey, plot] of farmPlots) {
+    const [plotX, plotY] = plotKey.split(",").map(Number);
+    out.push(tileIndex(plotX, plotY), farmPlotStage(plot));
+  }
+  const seen = new Set<number>();
+  for (const c of colonists.values()) {
+    if (c.kind !== "farmhand") continue;
+    const index = tileIndex(c.postX, c.postY);
+    if (seen.has(index)) continue;
+    const stage = farmhandFarmStage(tiles[index] as TileType, farmhandProgress(c));
+    if (stage === null) continue;
+    seen.add(index);
+    out.push(index, stage);
+  }
+  return out;
 }
 
 function planRouteToNearestResource(
@@ -1955,6 +2269,7 @@ function updateFarmhand(c: Colonist) {
   if (c.chopTicksRemaining <= 0) {
     stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource];
     c.chopTicksRemaining = effectiveFarmhandCycleTicks(c.postX, c.postY);
+    c.cycleTicksTotal = c.chopTicksRemaining;
   }
 }
 
@@ -2468,7 +2783,7 @@ function effectiveFoodHutTicks(base: number, tx: number, ty: number): number {
   const level = getBuildingLevel(tx, ty);
   return Math.max(
     1,
-    Math.round((base * (1 - levelBonus(level))) / (happinessSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
+    Math.round((base * (1 - levelBonus(level))) / (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
   );
 }
 
@@ -2682,6 +2997,128 @@ function updateForager(c: Colonist, dt: number) {
   }
 }
 
+// ---- Builders: they turn construction sites (see startConstruction) into buildings ----
+// Civilians: work only by day, shelter at night (the site keeps its progress overnight). States:
+// idle -> carrying (hauling materials to a site) -> building (adds to the site's progress every tick)
+// -> idle; with nothing to build they walk back to their post ("toPost").
+const BUILDER_MAX_PER_SITE = 2;
+const BUILDER_IDLE_RETRY_TICKS = TICK_RATE;
+// A builder works the site from any tile within this distance of its center (i.e. a neighbouring tile).
+const BUILDER_WORK_RANGE_PX = TILE_SIZE * 1.6;
+// How many of the nearest open sites get a path check per try (unreachable ones stay queued).
+const BUILDER_ROUTE_CANDIDATES = 6;
+
+function anyBuilderAlive(): boolean {
+  for (const c of colonists.values()) if (c.kind === "builder") return true;
+  return false;
+}
+
+function siteBuilderCount(key: string, onlyWorking = false): number {
+  let n = 0;
+  for (const c of colonists.values()) {
+    if (c.buildSiteKey === key && (!onlyWorking || c.state === "building")) n++;
+  }
+  return n;
+}
+
+// Progress a builder adds per tick (a site needs `totalTicks` of it): happiness and the Town Center
+// bonus, plus its Guild's level and industrial synergy for a Guild builder.
+function builderRate(c: Colonist): number {
+  let rate = productionSpeedMultiplier();
+  if (tiles[tileIndex(c.postX, c.postY)] === TileType.BuildersGuild) {
+    rate *= (1 + levelBonus(getBuildingLevel(c.postX, c.postY))) * industrialSynergyMultiplier(c.postX, c.postY);
+  }
+  return rate;
+}
+
+function planBuildSite(c: Colonist): { key: string; path: TileCoord[] } | null {
+  const candidates: { key: string; site: ConstructionSiteState; d: number }[] = [];
+  for (const [key, site] of constructionSites) {
+    if (siteBuilderCount(key) >= BUILDER_MAX_PER_SITE) continue;
+    const center = tileToPixelCenter({ x: site.tx, y: site.ty });
+    candidates.push({ key, site, d: Math.hypot(center.x - c.x, center.y - c.y) });
+  }
+  candidates.sort((p, q) => p.d - q.d);
+  const start = tileOfPixel(c.x, c.y);
+  for (const { key, site } of candidates.slice(0, BUILDER_ROUTE_CANDIDATES)) {
+    const center = tileToPixelCenter({ x: site.tx, y: site.ty });
+    if (Math.hypot(center.x - c.x, center.y - c.y) <= BUILDER_WORK_RANGE_PX) return { key, path: [] };
+    const approach = findAdjacentWalkable(site.tx, site.ty);
+    if (!approach) continue;
+    const path = findPath(start, approach);
+    if (path) return { key, path };
+  }
+  return null;
+}
+
+function updateBuilder(c: Colonist, dt: number) {
+  // Its Town Center fell: report to the nearest one still standing.
+  if (!isValidPostTile("builder", tiles[tileIndex(c.postX, c.postY)] as TileType)) {
+    const tc = nearestTownCenter(c.x, c.y);
+    if (tc) {
+      c.postX = tc.x;
+      c.postY = tc.y;
+    }
+  }
+  const site = c.buildSiteKey ? constructionSites.get(c.buildSiteKey) : undefined;
+  if (c.buildSiteKey && !site) {
+    // Finished, or demolished under it.
+    c.buildSiteKey = null;
+    c.path = [];
+    c.state = "idle";
+  }
+  switch (c.state) {
+    case "carrying": {
+      if (!site) return;
+      advanceAlongPath(c, dt, COLONIST_SPEED);
+      if (c.path.length > 0) return;
+      const center = tileToPixelCenter({ x: site.tx, y: site.ty });
+      if (Math.hypot(center.x - c.x, center.y - c.y) <= BUILDER_WORK_RANGE_PX) {
+        c.state = "building";
+      } else {
+        c.buildSiteKey = null;
+        c.state = "idle";
+        c.idleCooldown = BUILDER_IDLE_RETRY_TICKS;
+      }
+      return;
+    }
+    case "building":
+      if (site) site.progress += builderRate(c);
+      return;
+    case "toPost":
+      advanceAlongPath(c, dt, COLONIST_SPEED);
+      if (c.path.length === 0) c.state = "idle";
+      // Keep looking for work on the way home.
+      if (c.idleCooldown > 0) c.idleCooldown--;
+      if (c.idleCooldown > 0) return;
+      break;
+    default:
+      c.state = "idle";
+      if (c.idleCooldown > 0) {
+        c.idleCooldown--;
+        return;
+      }
+  }
+  c.idleCooldown = BUILDER_IDLE_RETRY_TICKS;
+  const plan = planBuildSite(c);
+  if (plan) {
+    c.buildSiteKey = plan.key;
+    c.path = plan.path;
+    c.state = "carrying";
+    return;
+  }
+  if (c.state === "toPost") return;
+  const post = tileToPixelCenter({ x: c.postX, y: c.postY });
+  if (Math.hypot(post.x - c.x, post.y - c.y) > TILE_SIZE * 1.6) {
+    const approach = findAdjacentWalkable(c.postX, c.postY);
+    const path = approach ? findPath(tileOfPixel(c.x, c.y), approach) : null;
+    if (path && path.length > 0) {
+      c.path = path;
+      c.state = "toPost";
+    }
+  }
+}
+
 function houseCapacity(t: TileType): number {
   return t === TileType.HouseLevel2 ? 5 : t === TileType.BigHouse ? 3 : t === TileType.House ? 1 : 0;
 }
@@ -2695,7 +3132,7 @@ function houseOccupancy(tx: number, ty: number): number {
 }
 
 // Each civilian sleeps in the nearest house with a free bed; anyone left over (or with no house
-// at all) uses the Town Center. Beds are a house's tier capacity (1 / 3 / 5).
+// at all) uses the nearest standing Town Center (with none, they just wait where they are). Beds are a house's tier capacity (1 / 3 / 5).
 function assignShelter(c: Colonist) {
   c.shelterAssigned = true;
   c.homeTileX = -1;
@@ -2716,13 +3153,15 @@ function assignShelter(c: Colonist) {
   }
 }
 
-function shelterTileFor(c: Colonist): TileCoord {
-  return c.homeTileX >= 0 ? { x: c.homeTileX, y: c.homeTileY } : TOWN_CENTER_TILE;
+function shelterTileFor(c: Colonist): TileCoord | null {
+  return c.homeTileX >= 0 ? { x: c.homeTileX, y: c.homeTileY } : nearestTownCenter(c.x, c.y);
 }
 
 function isAtShelter(c: Colonist): boolean {
   if (!c.sheltering || !c.shelterAssigned) return false;
-  const center = tileToPixelCenter(shelterTileFor(c));
+  const shelter = shelterTileFor(c);
+  if (!shelter) return false;
+  const center = tileToPixelCenter(shelter);
   return Math.hypot(c.x - center.x, c.y - center.y) <= TILE_SIZE * 1.5;
 }
 
@@ -2733,6 +3172,7 @@ function updateShelteringCivilian(c: Colonist, dt: number) {
     c.path = [];
   }
   const target = shelterTileFor(c);
+  if (!target) return;
   const center = tileToPixelCenter(target);
   const dist = Math.hypot(c.x - center.x, c.y - center.y);
   if (dist > TILE_SIZE * 1.5) {
@@ -2769,7 +3209,7 @@ function updateStationaryWorkerReturning(c: Colonist, dt: number) {
   } else {
     const ddx = postCenter.x - c.x;
     const ddy = postCenter.y - c.y;
-    const step = COLONIST_SPEED * biomeSpeedMultiplier(c.x, c.y) * dt;
+    const step = COLONIST_SPEED * biomeSpeedMultiplier(c.x, c.y) * roadSpeedMultiplier(c.x, c.y) * dt;
     if (dist <= step) {
       c.x = postCenter.x;
       c.y = postCenter.y;
@@ -2796,6 +3236,7 @@ function findNearestMobInRange(
   for (const mob of mobs.values()) {
     if (isEligible && !isEligible(mob)) continue;
     const d = Math.hypot(mob.x - fromX, mob.y - fromY);
+    if (mob.mark === HungerMark.Morvain && d > maxRangePx * MORVAIN_DETECTION_FACTOR) continue;
     if (d <= maxRangePx && d < bestDist) {
       best = mob;
       bestDist = d;
@@ -2826,8 +3267,13 @@ function damageMob(mob: Mob, amount: number) {
     const group = raidGroups.get(mob.groupId);
     if (group) engageRaidGroup(group);
   }
-  mob.hp -= amount;
+  mob.hp -= mob.mark === HungerMark.Gorrath && cycleTick < mob.furyUntilTick ? amount * GORRATH_FURY_DAMAGE_TAKEN : amount;
   mob.lastDamagedTick = cycleTick;
+  // Gorrath's frenzy: the first lethal blow is shrugged off into a short wounded fury.
+  if (mob.hp <= 0 && mob.mark === HungerMark.Gorrath && mob.furyUntilTick === 0) {
+    mob.hp = Math.max(1, Math.round(mob.maxHp * GORRATH_FURY_HP_FRACTION));
+    mob.furyUntilTick = cycleTick + GORRATH_FURY_TICKS;
+  }
   if (mob.hp <= 0) {
     gravestones.push({ x: mob.x, y: mob.y, variant: Math.random() < 0.5 ? 0 : 1 });
     mobs.delete(mob.id);
@@ -2835,14 +3281,36 @@ function damageMob(mob: Mob, amount: number) {
   }
 }
 
+// A killed player respawns at the standing Town Center nearest where they fell. With none standing
+// they stay dead (game over for them) until someone builds one: see respawnDeadPlayers.
 function damagePlayer(player: Player, amount: number) {
+  if (player.dead) return;
   player.hp -= amount;
   if (player.hp <= 0) {
-    player.hp = PLAYER_MAX_HP;
     player.poisonTicksRemaining = 0;
-    const spawn = spawnPointNearTownCenter();
-    player.x = spawn.x;
-    player.y = spawn.y;
+    if (townCenters.length > 0) {
+      player.hp = PLAYER_MAX_HP;
+      const spawn = spawnPointNearTownCenter(player);
+      player.x = spawn.x;
+      player.y = spawn.y;
+    } else {
+      player.hp = 0;
+      player.dead = true;
+      player.input = { dx: 0, dy: 0 };
+      broadcastEvent("death", "A rider has fallen, and no Town Center stands to rise again at");
+    }
+  }
+}
+
+function respawnDeadPlayers() {
+  if (townCenters.length === 0) return;
+  for (const p of players.values()) {
+    if (!p.dead) continue;
+    p.dead = false;
+    p.hp = PLAYER_MAX_HP;
+    const spawn = spawnPointNearTownCenter(p);
+    p.x = spawn.x;
+    p.y = spawn.y;
   }
 }
 
@@ -2961,7 +3429,7 @@ function handleBuyWithGold(item: "tools" | "clothes" | "luxuryItems" | "wood" | 
 }
 
 function handlePlayerAttack(attacker: Player) {
-  if (attacker.attackCooldownTicks > 0) return;
+  if (attacker.dead || attacker.attackCooldownTicks > 0) return;
   attacker.attackCooldownTicks = PLAYER_ATTACK_COOLDOWN_TICKS;
 
   let bestType: "player" | "mob" | null = null;
@@ -2969,7 +3437,7 @@ function handlePlayerAttack(attacker: Player) {
   let bestDist = Infinity;
 
   for (const p of players.values()) {
-    if (p.id === attacker.id) continue;
+    if (p.id === attacker.id || p.dead) continue;
     const d = Math.hypot(p.x - attacker.x, p.y - attacker.y);
     if (d <= PLAYER_ATTACK_RANGE && d < bestDist) {
       bestDist = d;
@@ -3072,7 +3540,7 @@ function returnToRally(c: Colonist, dt: number, speed: number) {
   if (c.path.length > 0) {
     advanceAlongPath(c, dt, speed);
   } else {
-    const step = speed * biomeSpeedMultiplier(c.x, c.y) * dt;
+    const step = speed * biomeSpeedMultiplier(c.x, c.y) * roadSpeedMultiplier(c.x, c.y) * dt;
     if (dist <= step) {
       c.x = c.rallyX;
       c.y = c.rallyY;
@@ -3157,6 +3625,14 @@ function updateGuardColonist(c: Colonist, dt: number) {
       returnToRally(c, dt, stats.speed);
       return;
     }
+    // A Morvain-marked mob slips away once it's past the reduced range guards can track it at.
+    if (target.mark === HungerMark.Morvain && dist > STANCE_ALERT_RANGE_TILES[c.stance] * TILE_SIZE * MORVAIN_DETECTION_FACTOR) {
+      c.targetMobId = null;
+      c.path = [];
+      c.repathCooldown = MOB_REPATH_TICKS;
+      returnToRally(c, dt, stats.speed);
+      return;
+    }
     c.state = "engaging";
     if (c.path.length === 0 && c.repathCooldown <= 0) {
       const start = tileOfPixel(c.x, c.y);
@@ -3181,7 +3657,7 @@ function findNearestInjured(
   let bestDist = Infinity;
   const maxRangePx = maxRangeTiles * TILE_SIZE;
   for (const p of players.values()) {
-    if (p.hp >= PLAYER_MAX_HP) continue;
+    if (p.hp >= PLAYER_MAX_HP || p.dead) continue;
     const d = Math.hypot(p.x - fromX, p.y - fromY);
     if (d <= maxRangePx && d < bestDist) {
       bestDist = d;
@@ -3472,6 +3948,7 @@ function spawnHalfLatch(tile: TileCoord) {
     guardianActive: false,
     groupId: null,
     passive: false,
+    ...MOB_MARK_DEFAULTS,
   };
   mobs.set(mob.id, mob);
 }
@@ -3546,6 +4023,9 @@ function updateColonist(c: Colonist, dt: number) {
       break;
     case "forager":
       updateForager(c, dt);
+      break;
+    case "builder":
+      updateBuilder(c, dt);
       break;
     case "knight":
     case "archer":
@@ -3729,6 +4209,7 @@ function createRaidMob(kind: MobKind, tile: TileCoord, groupId: string): Mob {
     guardianActive: false,
     groupId,
     passive: true,
+    ...MOB_MARK_DEFAULTS,
   };
   mobs.set(mob.id, mob);
   return mob;
@@ -3760,6 +4241,9 @@ function spawnRaid(dayIndex: number) {
     occupied.add(tileIndex(t.x, t.y));
   }
 
+  const markChance = hungerMarkChance(dayIndex);
+  let marksLeft = markChance > 0 ? Math.max(1, Math.floor(combined / HUNGER_MARK_RAIDERS_PER_MARK)) : 0;
+  const marked: Mob[] = [];
   let announceEdge: RaidEdge | null = null;
   sizes.forEach((size, i) => {
     const isHorde = i === 0;
@@ -3793,6 +4277,11 @@ function spawnRaid(dayIndex: number) {
       group.edge = anchor.edge;
       for (const tile of clusterRaidTiles(anchor.tile, freshCount, occupied)) {
         const mob = createRaidMob(pickRaidFactionKind(group.faction, dayIndex), tile, group.id);
+        if (marksLeft > 0 && Math.random() < markChance) {
+          applyHungerMark(mob, randInt(HungerMark.Gorrath, HungerMark.Vhorrun) as HungerMark);
+          marksLeft--;
+          marked.push(mob);
+        }
         group.memberIds.push(mob.id);
         group.homes.set(mob.id, tile);
       }
@@ -3801,6 +4290,12 @@ function spawnRaid(dayIndex: number) {
     if (group.memberIds.length > 0) raidGroups.set(group.id, group);
   });
   if (announceEdge) broadcastEvent("raid", `Raiders gather at the ${announceEdge} edge`);
+  // One toast: the first marked elite by name, the rest as a count.
+  if (marked.length > 0) {
+    const first = marked[0];
+    const more = marked.length > 1 ? `, with ${marked.length - 1} more Hunger-marked` : "";
+    broadcastEvent("raid", `A ${hungerMarkLabel(first.mark)}-marked ${mobKindLabel(first.kind)} leads the raid${more}`);
+  }
 }
 
 // Returns true when `m` was a still-dormant deserter (so the caller can announce the turn).
@@ -3908,7 +4403,8 @@ function loiterRaidMob(group: RaidGroup, m: Mob, members: Mob[], dt: number) {
 // Where a marching group heads: the Town Center while it stands unwarded, otherwise whatever the
 // leader would target on its own. null (nothing targetable, e.g. all warded) means hold position.
 function raidMarchGoal(leader: Mob): { x: number; y: number } | null {
-  const tc = resolveTargetPosition("townCenter", null);
+  const nearest = nearestTownCenter(leader.x, leader.y);
+  const tc = nearest ? resolveTargetPosition("townCenter", resourceKey(nearest.x, nearest.y)) : null;
   if (tc && !isWarded(tc.x, tc.y, activeWardSources())) return tc;
   const picked = pickMobTarget(leader);
   return picked ? resolveTargetPosition(picked.type, picked.id) : null;
@@ -3923,6 +4419,7 @@ function raidGroupShouldEngage(leader: Mob, goal: { x: number; y: number }): boo
     if (Math.hypot(c.x - leader.x, c.y - leader.y) <= range && !isWarded(c.x, c.y, wards)) return true;
   }
   for (const p of players.values()) {
+    if (p.dead) continue;
     if (Math.hypot(p.x - leader.x, p.y - leader.y) <= range && !isWarded(p.x, p.y, wards)) return true;
   }
   return false;
@@ -4010,8 +4507,54 @@ function updateRaidGroups(dt: number) {
 // Candidates under an active ward are skipped. If that leaves nothing, returns null and updateMob
 // leaves the mob standing where it is until something targetable turns up (same as before when
 // there was simply nothing to attack).
+// The nearest unwarded Town Center as a mob target, or null.
+function nearestUnwardedTownCenterTarget(mob: Mob, wards: TileCoord[]): { type: MobTargetType; id: string } | null {
+  const byDistance = townCenters
+    .map((tc) => ({ tc, pos: tileToPixelCenter(tc) }))
+    .sort((a, b) => Math.hypot(a.pos.x - mob.x, a.pos.y - mob.y) - Math.hypot(b.pos.x - mob.x, b.pos.y - mob.y));
+  for (const { tc } of byDistance) {
+    const id = resourceKey(tc.x, tc.y);
+    const pos = resolveTargetPosition("townCenter", id);
+    if (pos && !isWarded(pos.x, pos.y, wards)) return { type: "townCenter", id };
+  }
+  return null;
+}
+
+// Gunne: the most wounded (lowest hp fraction, below full) guard / militia / player in range.
+// Gorrath: the healthiest (highest current hp) one in range. null falls back to ordinary targeting.
+function pickMarkedUnitTarget(mob: Mob, wards: TileCoord[]): { type: MobTargetType; id: string } | null {
+  const gunne = mob.mark === HungerMark.Gunne;
+  const rangePx = (gunne ? GUNNE_SCAN_RANGE_TILES : GORRATH_SCAN_RANGE_TILES) * TILE_SIZE;
+  let best: { type: MobTargetType; id: string } | null = null;
+  let bestScore = -Infinity;
+  const consider = (type: MobTargetType, id: string, x: number, y: number, hp: number, maxHp: number) => {
+    if (Math.hypot(x - mob.x, y - mob.y) > rangePx || isWarded(x, y, wards)) return;
+    const ratio = hp / Math.max(1, maxHp);
+    if (gunne && ratio >= 1) return;
+    const score = gunne ? -ratio : hp;
+    if (score > bestScore) {
+      bestScore = score;
+      best = { type, id };
+    }
+  };
+  for (const c of colonists.values()) {
+    if (isGuardOrMilitiaKind(c.kind)) consider("colonist", c.id, c.x, c.y, c.hp, c.maxHp);
+  }
+  for (const p of players.values()) {
+    if (!p.dead) consider("player", p.id, p.x, p.y, p.hp, PLAYER_MAX_HP);
+  }
+  return best;
+}
+
 function pickMobTarget(mob: Mob): { type: MobTargetType; id: string | null } | null {
   const wards = activeWardSources();
+  if (mob.mark === HungerMark.Nemri) {
+    const tc = nearestUnwardedTownCenterTarget(mob, wards);
+    if (tc) return tc;
+  } else if (mob.mark === HungerMark.Gunne || mob.mark === HungerMark.Gorrath) {
+    const picked = pickMarkedUnitTarget(mob, wards);
+    if (picked) return picked;
+  }
   let bestGuard: Colonist | null = null;
   let bestGuardDist = Infinity;
   for (const c of colonists.values()) {
@@ -4028,7 +4571,7 @@ function pickMobTarget(mob: Mob): { type: MobTargetType; id: string | null } | n
   let bestPlayer: Player | null = null;
   let bestPlayerDist = Infinity;
   for (const p of players.values()) {
-    if (isWarded(p.x, p.y, wards)) continue;
+    if (p.dead || isWarded(p.x, p.y, wards)) continue;
     const d = Math.hypot(p.x - mob.x, p.y - mob.y);
     if (d < bestPlayerDist) {
       bestPlayerDist = d;
@@ -4037,9 +4580,8 @@ function pickMobTarget(mob: Mob): { type: MobTargetType; id: string | null } | n
   }
   if (bestPlayer) return { type: "player", id: bestPlayer.id };
 
-  const townCenterPos = resolveTargetPosition("townCenter", null);
-  if (townCenterPos && !isWarded(townCenterPos.x, townCenterPos.y, wards)) return { type: "townCenter", id: null };
-  return null;
+  // The nearest Town Center that isn't warded.
+  return nearestUnwardedTownCenterTarget(mob, wards);
 }
 
 function resolveTargetPosition(
@@ -4054,11 +4596,36 @@ function resolveTargetPosition(
   if (targetType === "player") {
     if (!targetId) return null;
     const p = players.get(targetId);
-    return p ? { x: p.x, y: p.y } : null;
+    return p && !p.dead ? { x: p.x, y: p.y } : null;
   }
-  if (townCenterDestroyed) return null;
-  const approach = findAdjacentWalkable(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y);
-  return tileToPixelCenter(approach ?? TOWN_CENTER_TILE);
+  // Town Center targets are keyed by the Town Center's tile ("x,y").
+  const tc = targetId ? townCenters.find((t) => resourceKey(t.x, t.y) === targetId) : undefined;
+  if (!tc) return null;
+  const approach = findAdjacentWalkable(tc.x, tc.y);
+  return tileToPixelCenter(approach ?? tc);
+}
+
+function damageTownCenter(tc: TownCenter, amount: number) {
+  tc.hp -= amount;
+  if (tc.hp <= 0) destroyTownCenter(tc);
+}
+
+// One straight step directly away from (fx, fy); stays put if that would enter a solid tile.
+function stepMobAwayFrom(mob: Mob, fx: number, fy: number, dt: number) {
+  mob.path = [];
+  const dx = mob.x - fx;
+  const dy = mob.y - fy;
+  const d = Math.hypot(dx, dy) || 1;
+  stepRaidMobToward(mob, mob.x + (dx / d) * TILE_SIZE, mob.y + (dy / d) * TILE_SIZE, mob.speed, dt);
+}
+
+function startVhorrunWithdraw(mob: Mob, from: { x: number; y: number }) {
+  mob.withdrawUntilTick = cycleTick + VHORRUN_WITHDRAW_TICKS;
+  mob.withdrawFromX = from.x;
+  mob.withdrawFromY = from.y;
+  mob.targetType = null;
+  mob.targetId = null;
+  mob.path = [];
 }
 
 function updateMob(mob: Mob, dt: number) {
@@ -4101,9 +4668,17 @@ function updateMob(mob: Mob, dt: number) {
   // Raid-group members are moved by updateRaidGroups until their group breaks up.
   if (mob.groupId !== null) return;
 
+  // Vhorrun withdrawing after winning an exchange: back away from where the fight was, then return.
+  if (mob.mark === HungerMark.Vhorrun && cycleTick < mob.withdrawUntilTick) {
+    stepMobAwayFrom(mob, mob.withdrawFromX, mob.withdrawFromY, dt);
+    return;
+  }
+
   let targetPos = mob.targetType ? resolveTargetPosition(mob.targetType, mob.targetId) : null;
   // A target that has since moved under (or been covered by) an active ward is dropped and re-picked.
   if (targetPos && isWarded(targetPos.x, targetPos.y, activeWardSources())) targetPos = null;
+  // Gunne / Gorrath keep re-checking for a weaker / stronger victim.
+  if ((mob.mark === HungerMark.Gunne || mob.mark === HungerMark.Gorrath) && cycleTick % MARK_RETARGET_TICKS === 0) targetPos = null;
 
   if (!targetPos) {
     const picked = pickMobTarget(mob);
@@ -4119,9 +4694,20 @@ function updateMob(mob: Mob, dt: number) {
 
   if (!targetPos) return;
 
+  // Rux mid-feint: falls back from the target it just closed on.
+  if (mob.mark === HungerMark.Rux && cycleTick < mob.feintUntilTick) {
+    stepMobAwayFrom(mob, targetPos.x, targetPos.y, dt);
+    return;
+  }
+
   const dist = Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y);
   if (dist <= mob.range) {
     mob.path = [];
+    if (mob.mark === HungerMark.Rux && mob.feintTargetId !== mob.targetId) {
+      mob.feintTargetId = mob.targetId;
+      mob.feintUntilTick = cycleTick + RUX_FEINT_TICKS;
+      return;
+    }
     if (mob.attackCooldownTicks > 0) {
       mob.attackCooldownTicks--;
     } else {
@@ -4135,6 +4721,9 @@ function updateMob(mob: Mob, dt: number) {
             c.poisonDamagePerTick = POISON_DAMAGE_PER_TICK;
           }
           damageColonist(c, mob.damage);
+          if (mob.mark === HungerMark.Vhorrun && c.hp > 0 && c.hp < c.maxHp * VHORRUN_WITHDRAW_TARGET_HP) {
+            startVhorrunWithdraw(mob, targetPos);
+          }
         }
       } else if (mob.targetType === "player" && mob.targetId) {
         const p = players.get(mob.targetId);
@@ -4144,15 +4733,13 @@ function updateMob(mob: Mob, dt: number) {
             p.poisonDamagePerTick = POISON_DAMAGE_PER_TICK;
           }
           damagePlayer(p, mob.damage);
+          if (mob.mark === HungerMark.Vhorrun && !p.dead && p.hp < PLAYER_MAX_HP * VHORRUN_WITHDRAW_TARGET_HP) {
+            startVhorrunWithdraw(mob, targetPos);
+          }
         }
-      } else if (mob.targetType === "townCenter" && !townCenterDestroyed) {
-        townCenterHp -= mob.damage;
-        if (townCenterHp <= 0) {
-          townCenterHp = 0;
-          townCenterDestroyed = true;
-          tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.Empty;
-          broadcastTileUpdate(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y, TileType.Empty);
-        }
+      } else if (mob.targetType === "townCenter" && mob.targetId) {
+        const tc = townCenters.find((t) => resourceKey(t.x, t.y) === mob.targetId);
+        if (tc) damageTownCenter(tc, mob.damage);
       }
     }
   } else {
@@ -4452,6 +5039,7 @@ function spawnGuardian(kind: MobKind, tile: TileCoord, siteId: string, siteKind:
     guardianActive: false,
     groupId: null,
     passive: false,
+    ...MOB_MARK_DEFAULTS,
   };
   mobs.set(mob.id, mob);
 }
@@ -4587,7 +5175,7 @@ const VISION_BUILDING_TILES = new Set<TileType>([
   TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop, TileType.Blacksmith,
   TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern,
   TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
-  TileType.HunterHut, TileType.ForagerHut,
+  TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild,
 ]);
 
 function revealAround(tx: number, ty: number, offsets: Array<[number, number]>) {
@@ -4659,6 +5247,7 @@ function generateWorld() {
   worldNoiseSalt = Math.floor(Math.random() * 0x7fffffff);
   abbeyCenter = null;
   tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
+  townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
   generateBiomes();
   generatePonds();
   const placedSites: TileCoord[] = [];
@@ -4671,6 +5260,7 @@ function generateWorld() {
   generatePoiSites("encampment", randInt(ENCAMPMENT_SITE_COUNT_MIN, ENCAMPMENT_SITE_COUNT_MAX), placedSites);
   spawnInitialWildlife();
   resetExplored();
+  topUpTownCenterBuilders(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y);
 }
 
 generateWorld();
@@ -4755,6 +5345,12 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         deserterActive: m.deserterActive,
         siteId: m.siteId,
         targetType: m.targetType,
+        targetId: m.targetId,
+        mark: m.mark,
+        hp: m.hp,
+        maxHp: m.maxHp,
+        damage: m.damage,
+        furyUntilTick: m.furyUntilTick,
       })),
       factions: RAID_FACTIONS,
       unlockDays: Object.fromEntries(Object.entries(MOB_KIND_CONFIG).map(([k, c]) => [k, c.unlockDay])),
@@ -4800,10 +5396,17 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     reply({ stock: { ...stock } });
   } else if (msg.op === "farmState") {
     reply({
-      plots: Array.from(farmPlots, ([key, p]) => ({ key, ...p })),
+      plots: Array.from(farmPlots, ([key, p]) => ({ key, ...p, progress: farmPlotProgress(p) })),
       farmhands: Array.from(colonists.values())
         .filter((c) => c.kind === "farmhand")
-        .map((c) => ({ id: c.id, postX: c.postX, postY: c.postY, cycleTicksRemaining: c.chopTicksRemaining, state: c.state })),
+        .map((c) => ({
+          id: c.id,
+          postX: c.postX,
+          postY: c.postY,
+          cycleTicksRemaining: c.chopTicksRemaining,
+          state: c.state,
+          progress: farmhandProgress(c),
+        })),
       constants: {
         FARM_GROW_TICKS,
         FARM_HARVEST_TICKS,
@@ -4874,6 +5477,59 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       broadcastTileUpdate(msg.tx, msg.ty, msg.tile as TileType);
     }
     reply({ tile: tiles[tileIndex(msg.tx, msg.ty)] });
+  } else if (msg.op === "forceMarkChance") {
+    testForceMarkChance = typeof msg.value === "number" ? msg.value : null;
+    reply({ value: testForceMarkChance });
+  } else if (msg.op === "spawnMob" && typeof msg.kind === "string" && typeof msg.tx === "number" && typeof msg.ty === "number") {
+    // An already-released (non-raid) mob at a tile, optionally Hunger-marked.
+    if (!(msg.kind in MOB_KIND_CONFIG) || !inBounds(msg.tx, msg.ty)) {
+      reply({ id: null });
+    } else {
+      const mob = createRaidMob(msg.kind as MobKind, { x: msg.tx, y: msg.ty }, "");
+      mob.groupId = null;
+      mob.passive = false;
+      if (typeof msg.mark === "number" && msg.mark >= HungerMark.Gorrath && msg.mark <= HungerMark.Vhorrun) applyHungerMark(mob, msg.mark);
+      reply({ id: mob.id, mark: mob.mark, hp: mob.hp, maxHp: mob.maxHp, damage: mob.damage });
+    }
+  } else if (msg.op === "setColonistHp" && typeof msg.id === "string" && typeof msg.hp === "number") {
+    const c = colonists.get(msg.id);
+    if (c) c.hp = Math.max(1, Math.min(c.maxHp, msg.hp));
+    reply({ found: !!c, hp: c?.hp ?? null });
+  } else if (msg.op === "setInstantBuild") {
+    instantBuild = msg.enabled === true;
+    reply({ enabled: instantBuild });
+  } else if (msg.op === "teleportPlayer" && typeof msg.x === "number" && typeof msg.y === "number") {
+    player.x = msg.x;
+    player.y = msg.y;
+    reply({ x: player.x, y: player.y });
+  } else if (msg.op === "damagePlayer" && typeof msg.amount === "number") {
+    damagePlayer(player, msg.amount);
+    reply({ hp: player.hp, dead: player.dead });
+  } else if (msg.op === "damageTownCenter" && typeof msg.tx === "number" && typeof msg.ty === "number" && typeof msg.amount === "number") {
+    const tc = findTownCenterAt(msg.tx, msg.ty);
+    if (tc) damageTownCenter(tc, msg.amount);
+    reply({ found: !!tc, townCenters: townCenters.map((t) => ({ ...t })) });
+  } else if (msg.op === "killColonists" && typeof msg.kind === "string") {
+    let killed = 0;
+    for (const c of Array.from(colonists.values())) {
+      if (c.kind !== msg.kind) continue;
+      damageColonist(c, c.hp + 1);
+      killed++;
+    }
+    reply({ killed });
+  } else if (msg.op === "constructionState") {
+    reply({
+      sites: Array.from(constructionSites.values()).map((site) => ({ ...site })),
+      builders: Array.from(colonists.values())
+        .filter((c) => c.kind === "builder")
+        .map((c) => ({ id: c.id, x: c.x, y: c.y, state: c.state, postX: c.postX, postY: c.postY, buildSiteKey: c.buildSiteKey })),
+      townCenters: townCenters.map((t) => ({ ...t })),
+      productionSpeedMultiplier: productionSpeedMultiplier(),
+      happinessSpeedMultiplier: happinessSpeedMultiplier(),
+      armyBonus: townCenterBonus(),
+      populationCap: populationCap(),
+      instantBuild,
+    });
   } else if (msg.op === "tickStats") {
     const sorted = tickDurationsMs.slice().sort((p, q) => p - q);
     const avg = sorted.reduce((sum, v) => sum + v, 0) / Math.max(1, sorted.length);
@@ -4920,6 +5576,8 @@ function resetWorld(nextDifficulty?: unknown) {
   // Abbey clergy.
   colonists.clear();
   mobs.clear();
+  // Before generateWorld: it tops up the starting builders, counting queued builder respawns.
+  respawnQueue.length = 0;
   generateWorld();
 
   respawnQueue.length = 0;
@@ -4942,8 +5600,7 @@ function resetWorld(nextDifficulty?: unknown) {
   goldShopBuilt = false;
   colonyHappiness = 100;
 
-  townCenterHp = TOWN_CENTER_MAX_HP;
-  townCenterDestroyed = false;
+  constructionSites.clear();
 
   cycleTick = 0;
   wasNight = false;
@@ -4962,6 +5619,7 @@ function resetWorld(nextDifficulty?: unknown) {
     player.poisonTicksRemaining = 0;
     player.poisonDamagePerTick = 0;
     player.input = { dx: 0, dy: 0 };
+    player.dead = false;
   }
 
   for (const player of players.values()) {
@@ -4986,6 +5644,7 @@ wss.on("connection", (socket) => {
     attackCooldownTicks: 0,
     poisonTicksRemaining: 0,
     poisonDamagePerTick: 0,
+    dead: false,
   };
   players.set(id, player);
 
@@ -5030,6 +5689,18 @@ wss.on("connection", (socket) => {
       handleExchangeResource(message.from, message.to);
     } else if (message.type === "buyWithGold") {
       handleBuyWithGold(message.item);
+    } else if (message.type === "buildingInfo") {
+      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+      const reply: ServerMessage = {
+        type: "buildingInfo",
+        tileX: message.tileX,
+        tileY: message.tileY,
+        info: buildingInfoFor(message.tileX, message.tileY),
+      };
+      socket.send(JSON.stringify(reply));
+    } else if (message.type === "upgradeBuilding") {
+      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+      handleUpgradeBuilding(player, message.tileX, message.tileY);
     }
   });
 
@@ -5066,6 +5737,10 @@ const PLACEABLE_TILES = [
   TileType.WardStone,
   TileType.HunterHut,
   TileType.ForagerHut,
+  TileType.BuildersGuild,
+  TileType.TownCenter,
+  TileType.Road,
+  TileType.CobbleRoad,
 ];
 const BREAKABLE_TILES = [
   TileType.Wall,
@@ -5101,6 +5776,12 @@ const BREAKABLE_TILES = [
   TileType.WardStone,
   TileType.HunterHut,
   TileType.ForagerHut,
+  TileType.BuildersGuild,
+  // Demolishing a site frees its builders; the materials are lost (no refund).
+  TileType.ConstructionSite,
+  // Demolished roads revert to bare ground.
+  TileType.Road,
+  TileType.CobbleRoad,
   // Wild forage can be cleared like any other obstacle (it simply stops being food).
   ...FORAGE_TILES,
 ];
@@ -5122,6 +5803,7 @@ const POPULATION_GATED_TILES = [
   TileType.WardStone,
   TileType.HunterHut,
   TileType.ForagerHut,
+  TileType.BuildersGuild,
 ];
 const CRAFT_BUILDING_TILES = [TileType.TailorShop, TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Brewery];
 
@@ -5142,6 +5824,7 @@ const IN_PLACE_UPGRADE_TILES: TileType[] = [
   TileType.RockMinePost,
   TileType.HunterHut,
   TileType.ForagerHut,
+  TileType.BuildersGuild,
 ];
 
 // True when placing `tile` on the existing `current` building upgrades it in place.
@@ -5154,6 +5837,7 @@ function isInPlaceUpgrade(tile: TileType, current: TileType, tx: number, ty: num
   if (tile === TileType.ArcherPost) {
     return (current === TileType.ArcherPost || current === TileType.ArcherTower) && getBuildingLevel(tx, ty) < 3;
   }
+  if (tile === TileType.TownCenter) return current === TileType.TownCenter && (findTownCenterAt(tx, ty)?.level ?? 3) < 3;
   return tile === current && IN_PLACE_UPGRADE_TILES.includes(tile) && getBuildingLevel(tx, ty) < 3;
 }
 
@@ -5228,26 +5912,293 @@ function sealsInSpawner(tx: number, ty: number, tile: TileType): boolean {
   return false;
 }
 
-function handleSetTile(player: Player, tx: number, ty: number, tile: TileType) {
+function handleSetTile(player: Player, tx: number, ty: number, tile: TileType, skipReach = false) {
+  if (player.dead) return;
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
   if (tile !== TileType.Empty && !isSolidTile(tiles[tileIndex(tx, ty)] as TileType) && sealsInSpawner(tx, ty, tile)) return;
-  handleSetTileInner(player, tx, ty, tile);
+  handleSetTileInner(player, tx, ty, tile, skipReach);
   syncGuardBonusesAround(tx, ty);
 }
 
-function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileType) {
+// ---- Placement costs (charged when a placement is accepted, i.e. when its construction site starts) ----
+type Cost = Partial<Record<ResourceKey, number>>;
+const BUILDERS_GUILD_WOOD_COST = 15;
+const TOWN_CENTER_COST: Cost = { wood: 60, rock: 30, iron: 20 };
+// Upgrading a Town Center to level 2 / level 3 (the Keep).
+const TOWN_CENTER_UPGRADE_COSTS: Cost[] = [
+  { wood: 80, rock: 60, iron: 40 },
+  { wood: 120, rock: 100, iron: 80, tools: 10 },
+];
+// A new Town Center must stand at least this far (tiles) from every other one and from POIs.
+const TOWN_CENTER_MIN_SPACING_TILES = 12;
+const TOWN_CENTER_POI_CLEARANCE_TILES = 6;
+const POI_TILES = new Set<TileType>([
+  TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble,
+  TileType.PropCampfire, TileType.PropCart, TileType.PropBarrel, TileType.PropCrate, TileType.PropFence,
+  TileType.AbbeyHall, TileType.PropCross, TileType.PropLanternPost,
+]);
+
+function placementCost(tile: TileType, current: TileType, tx: number, ty: number): Cost {
+  switch (tile) {
+    case TileType.Wall:
+      return { wood: WOOD_WALL_COST };
+    case TileType.StoneWall:
+      return { rock: STONE_WALL_COST };
+    case TileType.Road:
+      return { rock: ROAD_ROCK_COST };
+    case TileType.CobbleRoad:
+      return { rock: COBBLE_ROAD_ROCK_COST };
+    case TileType.ArcherPost:
+      return { wood: ARCHER_WOOD_COST };
+    case TileType.KnightPost:
+      return { iron: KNIGHT_IRON_COST, rock: KNIGHT_ROCK_COST };
+    case TileType.House:
+      if (current === TileType.BigHouse) {
+        return { wood: HOUSE_WOOD_COST, grain: 2, meat: 2, fruit: 2, clothes: 3, tools: 2, luxuryItems: 1 };
+      }
+      if (current === TileType.House) return { wood: HOUSE_WOOD_COST, grain: 1, meat: 1, fruit: 1, clothes: 2 };
+      return { wood: HOUSE_WOOD_COST };
+    case TileType.BarnPost:
+      return { wood: BARN_WOOD_COST };
+    case TileType.ChurchPost:
+      return { wood: CHURCH_WOOD_COST };
+    case TileType.WardStone:
+      return { wood: WARD_STONE_WOOD_COST, tools: WARD_STONE_TOOLS_COST };
+    case TileType.Market:
+    case TileType.GoldShop:
+      return { wood: SHOP_WOOD_COST };
+    case TileType.Tavern:
+      return { wood: TAVERN_WOOD_COST, rock: TAVERN_ROCK_COST };
+    case TileType.MilitiaPost:
+      return { wood: MILITIA_WOOD_COST, iron: MILITIA_IRON_COST };
+    case TileType.HunterHut:
+    case TileType.ForagerHut:
+      return { wood: FOOD_HUT_WOOD_COST };
+    case TileType.BuildersGuild:
+      return { wood: BUILDERS_GUILD_WOOD_COST };
+    case TileType.TownCenter: {
+      const tc = current === TileType.TownCenter ? findTownCenterAt(tx, ty) : undefined;
+      return tc ? TOWN_CENTER_UPGRADE_COSTS[Math.min(tc.level, 2) - 1] : TOWN_CENTER_COST;
+    }
+  }
+  if (CRAFT_BUILDING_TILES.includes(tile)) return { wood: CRAFT_BUILDING_WOOD_COST, iron: CRAFT_BUILDING_IRON_COST };
+  return {};
+}
+
+function canAfford(cost: Cost): boolean {
+  return Object.entries(cost).every(([key, amount]) => stock[key as ResourceKey] >= (amount ?? 0));
+}
+
+function spend(cost: Cost) {
+  for (const [key, amount] of Object.entries(cost)) stock[key as ResourceKey] -= amount ?? 0;
+}
+
+function formatCost(cost: Cost): string {
+  const parts = Object.entries(cost).map(([key, amount]) => `${amount} ${key === "luxuryItems" ? "luxury items" : key === "cotton" ? "hemp" : key}`);
+  return parts.length > 0 ? parts.join(" + ") : "Free";
+}
+
+// A new Town Center keeps its distance from every other one (built or under construction), from the
+// Abbey and from ruins / encampments.
+function townCenterSpotOk(tx: number, ty: number): boolean {
+  for (const tc of townCenters) {
+    if (Math.hypot(tc.x - tx, tc.y - ty) < TOWN_CENTER_MIN_SPACING_TILES) return false;
+  }
+  for (const site of constructionSites.values()) {
+    if (site.target === TileType.TownCenter && Math.hypot(site.tx - tx, site.ty - ty) < TOWN_CENTER_MIN_SPACING_TILES) return false;
+  }
+  if (abbeyCenter && Math.hypot(abbeyCenter.x - tx, abbeyCenter.y - ty) < ABBEY_GROUNDS_RADIUS + TOWN_CENTER_POI_CLEARANCE_TILES) return false;
+  const r = TOWN_CENTER_POI_CLEARANCE_TILES;
+  for (let y = ty - r; y <= ty + r; y++) {
+    for (let x = tx - r; x <= tx + r; x++) {
+      if (inBounds(x, y) && POI_TILES.has(tiles[tileIndex(x, y)] as TileType)) return false;
+    }
+  }
+  return findAdjacentWalkable(tx, ty) !== null;
+}
+
+// The level a building will have once `tile` placed on `current` resolves (1 for a new building).
+function levelAfterPlacement(tile: TileType, current: TileType, tx: number, ty: number): number {
+  if (current === TileType.Empty || !isInPlaceUpgrade(tile, current, tx, ty)) return 1;
+  return currentBuildingLevel(tx, ty, current) + 1;
+}
+
+function currentBuildingLevel(tx: number, ty: number, t: TileType): number {
+  if (t === TileType.BigHouse || t === TileType.CastleLevel2 || t === TileType.MilitiaCamp2) return 2;
+  if (t === TileType.HouseLevel2 || t === TileType.CastleLevel3 || t === TileType.MilitiaCamp3) return 3;
+  if (t === TileType.House || t === TileType.KnightPost || t === TileType.MilitiaPost) return 1;
+  if (t === TileType.TownCenter) return findTownCenterAt(tx, ty)?.level ?? 1;
+  return getBuildingLevel(tx, ty);
+}
+
+// ---- Construction: builders turn an accepted placement into the building over time ----
+// Every placeable building except Farm Plots (a field sown on the spot) becomes a construction site.
+// The cost is charged at placement; a new building's tile turns into a solid ConstructionSite, an
+// in-place upgrade keeps the building (and its workers) running until the upgrade lands. When the
+// site's progress reaches its total, the normal resolve*Placement logic runs, exactly as an instant
+// placement used to (worker spawns, upgrades and synergies all unchanged).
+interface ConstructionSiteState {
+  tx: number;
+  ty: number;
+  // The placement requested (e.g. ArcherPost, House on a House = upgrade).
+  target: TileType;
+  // What the tile held when the placement was accepted (restored just before resolving).
+  prevTile: TileType;
+  upgrade: boolean;
+  // Builder work accumulated (each working builder adds builderRate per tick) / needed.
+  progress: number;
+  totalTicks: number;
+}
+const constructionSites = new Map<string, ConstructionSiteState>();
+// COLONY_INSTANT_BUILD=1 (or testHook "setInstantBuild") skips construction entirely, for the scripted
+// tests written before builders existed: every placement resolves on the spot, no builder needed.
+let instantBuild = process.env.COLONY_INSTANT_BUILD === "1";
+
+// Base build time (seconds) per level; an upgrade to level n takes n times as long. Split between up
+// to BUILDER_MAX_PER_SITE builders and scaled by builderRate (happiness, Town Center, Guild).
+const BUILD_SECONDS_WALL = 4;
+// Roads: cheap ground tiles, built by builders like everything else (one tile per placement).
+const ROAD_ROCK_COST = 1;
+const COBBLE_ROAD_ROCK_COST = 2;
+const BUILD_SECONDS_ROAD = 4;
+const BUILD_SECONDS_COBBLE_ROAD = 6;
+const BUILD_SECONDS_HOUSE = 10;
+const BUILD_SECONDS_DEFAULT = 12;
+const BUILD_SECONDS_BIG = 20;
+const BUILD_SECONDS_TOWN_CENTER = 40;
+const BIG_BUILD_TILES = new Set<TileType>([
+  TileType.KnightPost, TileType.ChurchPost, TileType.Tavern, TileType.TailorShop, TileType.Blacksmith,
+  TileType.LuxuryWorkshop, TileType.Brewery, TileType.Market, TileType.GoldShop, TileType.WardStone,
+]);
+
+function buildTicksFor(tile: TileType, level: number): number {
+  const base =
+    tile === TileType.Road
+      ? BUILD_SECONDS_ROAD
+      : tile === TileType.CobbleRoad
+        ? BUILD_SECONDS_COBBLE_ROAD
+        : tile === TileType.Wall || tile === TileType.StoneWall
+      ? BUILD_SECONDS_WALL
+      : tile === TileType.House
+        ? BUILD_SECONDS_HOUSE
+        : tile === TileType.TownCenter
+          ? BUILD_SECONDS_TOWN_CENTER
+          : BIG_BUILD_TILES.has(tile)
+            ? BUILD_SECONDS_BIG
+            : BUILD_SECONDS_DEFAULT;
+  return Math.round(base * TICK_RATE * Math.max(1, level));
+}
+
+function startConstruction(tx: number, ty: number, tile: TileType, current: TileType, upgrade: boolean) {
+  const site: ConstructionSiteState = {
+    tx,
+    ty,
+    target: tile,
+    prevTile: current,
+    upgrade,
+    progress: 0,
+    totalTicks: buildTicksFor(tile, levelAfterPlacement(tile, current, tx, ty)),
+  };
+  constructionSites.set(resourceKey(tx, ty), site);
+  if (!upgrade) {
+    tiles[tileIndex(tx, ty)] = TileType.ConstructionSite;
+    broadcastTileUpdate(tx, ty, TileType.ConstructionSite);
+  }
+}
+
+function completeConstruction(key: string, site: ConstructionSiteState) {
+  constructionSites.delete(key);
+  const index = tileIndex(site.tx, site.ty);
+  if (site.upgrade) {
+    // The building changed under a queued upgrade (destroyed or replaced): nothing left to upgrade.
+    if (tiles[index] !== site.prevTile) return;
+  } else {
+    if (tiles[index] !== TileType.ConstructionSite) return;
+    tiles[index] = site.prevTile;
+  }
+  resolvePlacement(site.tx, site.ty, site.target, site.prevTile);
+  syncGuardBonusesAround(site.tx, site.ty);
+}
+
+// Once per tick, after the builders have worked.
+function updateConstructionSites() {
+  for (const [key, site] of Array.from(constructionSites)) {
+    const index = tileIndex(site.tx, site.ty);
+    // Cleared some other way (e.g. a test rewriting the tile): drop the record.
+    if (!site.upgrade && tiles[index] !== TileType.ConstructionSite) {
+      constructionSites.delete(key);
+      continue;
+    }
+    if (site.progress >= site.totalTicks) completeConstruction(key, site);
+  }
+}
+
+// Flattened [tile index, target, progress 0-1000, upgrade 0/1, builders working] per site.
+function constructionSitesForSnapshot(): number[] {
+  const out: number[] = [];
+  for (const [key, site] of constructionSites) {
+    out.push(
+      tileIndex(site.tx, site.ty),
+      site.target,
+      Math.min(1000, Math.floor((site.progress / site.totalTicks) * 1000)),
+      site.upgrade ? 1 : 0,
+      siteBuilderCount(key, true)
+    );
+  }
+  return out;
+}
+
+// Flattened [tile index, level] for every building above level 1 (Town Centers included).
+function buildingLevelsForSnapshot(): number[] {
+  const out: number[] = [];
+  for (const [key, level] of buildingLevel) {
+    if (level <= 1) continue;
+    const [tx, ty] = key.split(",").map(Number);
+    out.push(tileIndex(tx, ty), level);
+  }
+  for (const tc of townCenters) if (tc.level > 1) out.push(tileIndex(tc.x, tc.y), tc.level);
+  return out;
+}
+
+function sendEvent(player: Player, category: GameEventCategory, text: string) {
+  if (player.socket.readyState === player.socket.OPEN) {
+    player.socket.send(JSON.stringify({ type: "event", category, text } satisfies ServerMessage));
+  }
+}
+
+// Workers that queued (not yet finished) constructions will spawn, so the population gate counts them.
+function pendingWorkerSlots(): number {
+  let n = 0;
+  for (const site of constructionSites.values()) {
+    if (POPULATION_GATED_TILES.includes(site.target) && placementNeedsNewWorkerSlot(site.target, site.tx, site.ty)) n++;
+  }
+  return n;
+}
+
+function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileType, skipReach = false) {
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
 
   const tileCenter = tileToPixelCenter({ x: tx, y: ty });
   const dist = Math.hypot(player.x - tileCenter.x, player.y - tileCenter.y);
-  if (dist > REACH) return;
+  if (!skipReach && dist > REACH) return;
 
   const current = tiles[tileIndex(tx, ty)] as TileType;
+  const siteKey = resourceKey(tx, ty);
 
   if (tile === TileType.Empty) {
     if (!BREAKABLE_TILES.includes(current)) return;
+    // A queued construction or upgrade here is dropped with the tile (no refund).
+    const site = constructionSites.get(siteKey);
+    constructionSites.delete(siteKey);
+    if (current === TileType.ConstructionSite) {
+      // Ore / rock / a wall under an unfinished mine or archer tower comes back.
+      const revert = site && !site.upgrade ? site.prevTile : TileType.Empty;
+      tiles[tileIndex(tx, ty)] = revert;
+      broadcastTileUpdate(tx, ty, revert);
+      return;
+    }
     // A Ward Stone has no colonist of its own; the Ward Priest merely targets it, and retargets.
     if (!NO_COLONIST_TILES.includes(current) && current !== TileType.WardStone) {
       removeColonistForPost(tx, ty);
@@ -5285,6 +6236,9 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
     return;
   }
 
+  // One construction (or upgrade) per tile at a time.
+  if (constructionSites.has(siteKey)) return;
+
   const upgradeInPlace = isInPlaceUpgrade(tile, current, tx, ty);
 
   if (upgradeInPlace) {
@@ -5301,31 +6255,18 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
   } else if (tile === TileType.WardStone) {
     if (current !== TileType.Empty) return;
     if (tilesOfType(TileType.ChurchPost).length === 0) return;
+  } else if (tile === TileType.TownCenter) {
+    if (current !== TileType.Empty || !townCenterSpotOk(tx, ty)) return;
   } else {
     if (current !== TileType.Empty) return;
   }
 
-  if (tile === TileType.Wall && stock.wood < WOOD_WALL_COST) return;
-  if (tile === TileType.StoneWall && stock.rock < STONE_WALL_COST) return;
-  if (tile === TileType.ArcherPost && stock.wood < ARCHER_WOOD_COST) return;
-  if (tile === TileType.KnightPost && (stock.iron < KNIGHT_IRON_COST || stock.rock < KNIGHT_ROCK_COST)) return;
-  if (tile === TileType.House && stock.wood < HOUSE_WOOD_COST) return;
-  if (tile === TileType.BarnPost && stock.wood < BARN_WOOD_COST) return;
-  if (tile === TileType.ChurchPost && stock.wood < CHURCH_WOOD_COST) return;
-  if (tile === TileType.WardStone && (stock.wood < WARD_STONE_WOOD_COST || stock.tools < WARD_STONE_TOOLS_COST)) return;
-  if (
-    CRAFT_BUILDING_TILES.includes(tile) &&
-    (stock.wood < CRAFT_BUILDING_WOOD_COST || stock.iron < CRAFT_BUILDING_IRON_COST)
-  )
-    return;
-  if ((tile === TileType.Market || tile === TileType.GoldShop) && stock.wood < SHOP_WOOD_COST) return;
-  if (tile === TileType.Tavern && (stock.wood < TAVERN_WOOD_COST || stock.rock < TAVERN_ROCK_COST)) return;
-  if (tile === TileType.MilitiaPost && (stock.wood < MILITIA_WOOD_COST || stock.iron < MILITIA_IRON_COST)) return;
-  if ((tile === TileType.HunterHut || tile === TileType.ForagerHut) && stock.wood < FOOD_HUT_WOOD_COST) return;
+  const cost = placementCost(tile, current, tx, ty);
+  if (!canAfford(cost)) return;
   if (
     POPULATION_GATED_TILES.includes(tile) &&
     placementNeedsNewWorkerSlot(tile, tx, ty) &&
-    civilianPopulationUsed() >= populationCap()
+    civilianPopulationUsed() + pendingWorkerSlots() >= populationCap()
   )
     return;
 
@@ -5340,35 +6281,28 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
     }
   }
 
-  if (tile === TileType.Wall) stock.wood -= WOOD_WALL_COST;
-  if (tile === TileType.StoneWall) stock.rock -= STONE_WALL_COST;
-  if (tile === TileType.ArcherPost) stock.wood -= ARCHER_WOOD_COST;
-  if (tile === TileType.KnightPost) {
-    stock.iron -= KNIGHT_IRON_COST;
-    stock.rock -= KNIGHT_ROCK_COST;
+  // A Town Center goes up at once when none stands or no builder is left, so a colony that lost both
+  // can always start over.
+  const instant =
+    instantBuild ||
+    tile === TileType.FarmPlot ||
+    (tile === TileType.TownCenter && (townCenters.length === 0 || !anyBuilderAlive()));
+  if (!instant && !anyBuilderAlive()) {
+    sendEvent(player, "build", "No builders available");
+    return;
   }
-  if (tile === TileType.House) stock.wood -= HOUSE_WOOD_COST;
-  if (tile === TileType.BarnPost) stock.wood -= BARN_WOOD_COST;
-  if (tile === TileType.ChurchPost) stock.wood -= CHURCH_WOOD_COST;
-  if (tile === TileType.WardStone) {
-    stock.wood -= WARD_STONE_WOOD_COST;
-    stock.tools -= WARD_STONE_TOOLS_COST;
-  }
-  if (CRAFT_BUILDING_TILES.includes(tile)) {
-    stock.wood -= CRAFT_BUILDING_WOOD_COST;
-    stock.iron -= CRAFT_BUILDING_IRON_COST;
-  }
-  if (tile === TileType.Market || tile === TileType.GoldShop) stock.wood -= SHOP_WOOD_COST;
-  if (tile === TileType.Tavern) {
-    stock.wood -= TAVERN_WOOD_COST;
-    stock.rock -= TAVERN_ROCK_COST;
-  }
-  if (tile === TileType.MilitiaPost) {
-    stock.wood -= MILITIA_WOOD_COST;
-    stock.iron -= MILITIA_IRON_COST;
-  }
-  if (tile === TileType.HunterHut || tile === TileType.ForagerHut) stock.wood -= FOOD_HUT_WOOD_COST;
 
+  spend(cost);
+  if (instant) {
+    resolvePlacement(tx, ty, tile, current);
+  } else {
+    startConstruction(tx, ty, tile, current, upgradeInPlace);
+  }
+}
+
+// Turns an accepted placement into the building (instantly, or when its construction completes).
+// `current` is what the tile held when the placement was accepted.
+function resolvePlacement(tx: number, ty: number, tile: TileType, current: TileType) {
   if (tile === TileType.House) {
     resolveHousePlacement(tx, ty);
     return;
@@ -5463,6 +6397,14 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
     resolveFoodHutPlacement(tx, ty, TileType.ForagerHut, "forager");
     return;
   }
+  if (tile === TileType.BuildersGuild) {
+    resolveFoodHutPlacement(tx, ty, TileType.BuildersGuild, "builder");
+    return;
+  }
+  if (tile === TileType.TownCenter) {
+    resolveTownCenterPlacement(tx, ty);
+    return;
+  }
   if (tile === TileType.Market) {
     tiles[tileIndex(tx, ty)] = tile;
     broadcastTileUpdate(tx, ty, tile);
@@ -5478,6 +6420,153 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
 
   tiles[tileIndex(tx, ty)] = tile;
   broadcastTileUpdate(tx, ty, tile);
+}
+
+// ---- Building info panel (client left-click) and its Upgrade button ----
+
+// The tile to "place on itself" to upgrade the building at `t` in place (null: not upgradeable).
+function upgradePlacementTile(t: TileType): TileType | null {
+  if (t === TileType.House || t === TileType.BigHouse) return TileType.House;
+  if (t === TileType.KnightPost || t === TileType.CastleLevel2) return TileType.KnightPost;
+  if (t === TileType.MilitiaPost || t === TileType.MilitiaCamp2) return TileType.MilitiaPost;
+  if (t === TileType.ArcherPost || t === TileType.ArcherTower) return TileType.ArcherPost;
+  if (t === TileType.TownCenter) return TileType.TownCenter;
+  return IN_PLACE_UPGRADE_TILES.includes(t) ? t : null;
+}
+
+const BUILDING_NAMES: Partial<Record<TileType, string>> = {
+  ...UPGRADE_NAMES,
+  [TileType.BigHouse]: "Cottage",
+  [TileType.HouseLevel2]: "Cottage",
+  [TileType.CastleLevel2]: "Hall of the Sworn",
+  [TileType.CastleLevel3]: "Hall of the Sworn",
+  [TileType.MilitiaCamp2]: "Militia Camp",
+  [TileType.MilitiaCamp3]: "Militia Camp",
+  [TileType.Market]: "Bazaar",
+  [TileType.GoldShop]: "Trading Post",
+  [TileType.WardStone]: "Ward Stone",
+  [TileType.FarmPlot]: "Farm Plot",
+  [TileType.Wall]: "Wood Wall",
+  [TileType.StoneWall]: "Stone Wall",
+  [TileType.Road]: "Road",
+  [TileType.CobbleRoad]: "Cobble Road",
+};
+
+const pct = (fraction: number) => `${Math.round(fraction * 100)}%`;
+
+function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
+  if (!inBounds(tx, ty)) return null;
+  const t = tiles[tileIndex(tx, ty)] as TileType;
+  const key = resourceKey(tx, ty);
+  const site = constructionSites.get(key);
+  if (t === TileType.ConstructionSite) {
+    if (!site) return null;
+    const level = levelAfterPlacement(site.target, site.prevTile, tx, ty);
+    return {
+      name: `Construction: ${BUILDING_NAMES[site.target] ?? "Building"}`,
+      tile: t,
+      level,
+      maxLevel: 3,
+      hp: null,
+      maxHp: null,
+      staffing: `Builders ${siteBuilderCount(key)}/${BUILDER_MAX_PER_SITE}`,
+      bonuses: [`Build speed x${productionSpeedMultiplier().toFixed(2)} per builder (happiness, Town Center)`],
+      upgrade: null,
+      construction: Math.min(1, site.progress / site.totalTicks),
+    };
+  }
+  const name = BUILDING_NAMES[t];
+  if (!name) return null;
+  const level = currentBuildingLevel(tx, ty, t);
+  const tc = t === TileType.TownCenter ? findTownCenterAt(tx, ty) : undefined;
+  const posted = Array.from(colonists.values()).filter((c) => c.postX === tx && c.postY === ty && !isAbbeyClergy(c));
+  const bonuses: string[] = [];
+  let staffing = posted.length > 0 ? `Workers ${posted.length}` : "No workers";
+
+  if (tc) {
+    staffing = `Population ${civilianPopulationUsed()}/${populationCap()}`;
+    bonuses.push(
+      `Lv${tc.level}: +${pct(levelBonus(tc.level, TOWN_CENTER_LEVEL_BONUS_PER_STEP))} productivity and unit damage (colony-wide; the highest Town Center counts)`
+    );
+    bonuses.push(`Population base ${townCenterPopulationBase()} (10, +5 per extra Town Center, +5 per level)`);
+  } else if (isHouseTile(t)) {
+    staffing = `Beds ${houseOccupancy(tx, ty)}/${houseCapacity(t)}`;
+    let neighbours = 0;
+    for (const [dx, dy] of NEIGHBOURS_8) {
+      if (!inBounds(tx + dx, ty + dy)) continue;
+      const n = tiles[tileIndex(tx + dx, ty + dy)] as TileType;
+      if (isSynergyBuilding(n) || isHouseTile(n)) neighbours++;
+    }
+    bonuses.push(`+${houseCapacity(t)} population (tier ${level})`);
+    if (neighbours > 0) bonuses.push(`+${neighbours} population from adjacent houses / workplaces / barracks`);
+  } else if (level > 1 && !isMilitaryTile(t)) {
+    bonuses.push(`Lv${level}: ${pct(levelBonus(level))} shorter work cycles`);
+  }
+
+  if (isMilitaryTile(t)) {
+    const army = armyDamageMultiplier(tx, ty) - 1;
+    if (army > 0) bonuses.push(`Unit damage +${pct(army)} (adjacent army buildings / Blacksmith, Town Center level)`);
+    const houses = adjacentHouseCount(tx, ty);
+    if (houses > 0) bonuses.push(`+${houses} extra unit${houses === 1 ? "" : "s"} from adjacent houses`);
+  }
+  if (t === TileType.ChurchPost) bonuses.push(`Heals ${healAmountFor(tx, ty)} per prayer`);
+  if (t === TileType.BuildersGuild) bonuses.push(`${level} builder${level === 1 ? "" : "s"} (one per level)`);
+  if (INDUSTRIAL_TILES.includes(t)) {
+    const synergy = industrialSynergyMultiplier(tx, ty) - 1;
+    bonuses.push(`Industrial synergy +${pct(synergy)} (+5% per industrial building within 5 tiles)`);
+  }
+  if (isSynergyBuilding(t)) {
+    const houses = adjacentHouseCount(tx, ty);
+    if (houses > 0 && !isMilitaryTile(t)) bonuses.push(`${houses} adjacent house${houses === 1 ? "" : "s"}: +${houses} population`);
+  }
+  const biome = biomeProductionFactor(tx, ty);
+  if (biome < 1) bonuses.push(`${biomeAt(tx, ty) === Biome.Hills ? "Hills" : "Plains"} biome: ${pct(1 - biome)} shorter cycles`);
+  if (POPULATION_GATED_TILES.includes(t) || INDUSTRIAL_TILES.includes(t)) {
+    bonuses.push(`Happiness ${colonyHappiness}%: work speed x${happinessSpeedMultiplier().toFixed(2)}`);
+    if (townCenterBonus() > 0) bonuses.push(`Town Center Lv${highestTownCenterLevel()}: +${pct(townCenterBonus())} productivity`);
+  }
+
+  let upgrade: BuildingInfo["upgrade"] = null;
+  const placeTile = upgradePlacementTile(t);
+  if (placeTile !== null) {
+    if (level >= 3) {
+      upgrade = { cost: "Max level", enabled: false, reason: "Already at level 3" };
+    } else {
+      const cost = placementCost(placeTile, t, tx, ty);
+      let reason = "";
+      if (site) reason = "Upgrade under way";
+      else if (!canAfford(cost)) reason = "Not enough resources";
+      else if (!isInPlaceUpgrade(placeTile, t, tx, ty)) reason = "Can't upgrade yet";
+      else if (
+        POPULATION_GATED_TILES.includes(placeTile) &&
+        placementNeedsNewWorkerSlot(placeTile, tx, ty) &&
+        civilianPopulationUsed() + pendingWorkerSlots() >= populationCap()
+      )
+        reason = "Population cap reached";
+      else if (!instantBuild && !anyBuilderAlive() && placeTile !== TileType.TownCenter) reason = "No builders available";
+      upgrade = { cost: `Lv${level + 1}: ${formatCost(cost)}`, enabled: reason === "", reason };
+    }
+  }
+
+  return {
+    name,
+    tile: t,
+    level,
+    maxLevel: t === TileType.Wall || t === TileType.StoneWall || t === TileType.Market || t === TileType.GoldShop || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
+    hp: tc ? Math.max(0, Math.round(tc.hp)) : null,
+    maxHp: tc ? townCenterMaxHp(tc.level) : null,
+    staffing,
+    bonuses,
+    upgrade,
+    construction: site ? Math.min(1, site.progress / site.totalTicks) : null,
+  };
+}
+
+function handleUpgradeBuilding(player: Player, tx: number, ty: number) {
+  if (!inBounds(tx, ty)) return;
+  const placeTile = upgradePlacementTile(tiles[tileIndex(tx, ty)] as TileType);
+  if (placeTile === null) return;
+  handleSetTile(player, tx, ty, placeTile, true);
 }
 
 const dt = 1 / TICK_RATE;
@@ -5530,11 +6619,12 @@ function stepSimulation() {
       }
     }
 
+    if (player.dead) continue;
     const { dx, dy } = player.input;
     const length = Math.hypot(dx, dy) || 1;
     const normDx = dx / length;
     const normDy = dy / length;
-    const playerSpeed = PLAYER_SPEED * biomeSpeedMultiplier(player.x, player.y);
+    const playerSpeed = PLAYER_SPEED * biomeSpeedMultiplier(player.x, player.y) * roadSpeedMultiplier(player.x, player.y);
 
     const nextX = clamp(
       player.x + normDx * playerSpeed * dt,
@@ -5554,6 +6644,7 @@ function stepSimulation() {
   for (const colonist of colonists.values()) {
     updateColonist(colonist, dt);
   }
+  updateConstructionSites();
 
   updateRaidGroups(dt);
   for (const mob of mobs.values()) {
@@ -5568,6 +6659,7 @@ function stepSimulation() {
   updateForageRegrow();
   processRespawnQueue();
   updateWardPriestPresence();
+  respawnDeadPlayers();
 }
 
 setInterval(() => {
@@ -5590,6 +6682,7 @@ setInterval(() => {
       color: p.color,
       hp: p.hp,
       maxHp: PLAYER_MAX_HP,
+      dead: p.dead,
     })),
     colonists: Array.from(colonists.values()).map((c): ColonistSnapshot => ({
       id: c.id,
@@ -5611,6 +6704,7 @@ setInterval(() => {
       y: m.y,
       hp: m.hp,
       maxHp: m.maxHp,
+      ...(m.mark !== HungerMark.None ? { mark: m.mark } : {}),
     })),
     wood: stock.wood,
     iron: stock.iron,
@@ -5633,8 +6727,9 @@ setInterval(() => {
     dayFraction: DAY_TICKS / (DAY_TICKS + NIGHT_TICKS),
     isPaused,
     effects: pendingEffects,
-    townCenterHp,
-    townCenterMaxHp: TOWN_CENTER_MAX_HP,
+    // The first standing Town Center (the starting one unless it fell); townCenters has them all.
+    townCenterHp: townCenters[0] ? Math.max(0, townCenters[0].hp) : 0,
+    townCenterMaxHp: townCenterMaxHp(townCenters[0]?.level ?? 1),
     population: civilianPopulationUsed(),
     populationCap: populationCap(),
     taskForces: taskForcesForSnapshot(),
@@ -5644,6 +6739,12 @@ setInterval(() => {
     wildlife: wildlifeForSnapshot(),
     gravestones,
     difficulty,
+    buildingLevels: buildingLevelsForSnapshot(),
+    farmStages: farmStagesForSnapshot(),
+    constructionSites: constructionSitesForSnapshot(),
+    townCenters: townCenters.map(
+      (tc): TownCenterSnapshot => ({ x: tc.x, y: tc.y, level: tc.level, hp: Math.max(0, tc.hp), maxHp: townCenterMaxHp(tc.level) })
+    ),
   };
   pendingEffects = [];
 

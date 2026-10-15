@@ -82,6 +82,18 @@ export enum TileType {
   FruitTreePicked = 55,
   MushroomPatch = 56,
   MushroomPatchPicked = 57,
+  // Player-built: posts builders (one per level). Upgradeable in place to level 3.
+  BuildersGuild = 58,
+  // A building waiting for builders (server ConstructionSite record: target tile, progress). Solid.
+  ConstructionSite = 59,
+  // Player-built ground tiles: walkable, never solid, drawn as ground (autotiled from their road
+  // neighbours on the client). Colonists and players move faster on them (server ROAD_SPEED_BONUS).
+  Road = 60,
+  CobbleRoad = 61,
+}
+
+export function isRoadTile(tile: TileType): boolean {
+  return tile === TileType.Road || tile === TileType.CobbleRoad;
 }
 
 // Ground biome per tile, a separate layer from TileType (sent once in `welcome`, never changes
@@ -145,7 +157,9 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.HunterHut ||
     tile === TileType.ForagerHut ||
     tile === TileType.FruitTree ||
-    tile === TileType.FruitTreePicked
+    tile === TileType.FruitTreePicked ||
+    tile === TileType.BuildersGuild ||
+    tile === TileType.ConstructionSite
   );
 }
 
@@ -163,7 +177,8 @@ export type ColonistKind =
   | "spearman"
   | "pikeman"
   | "hunter"
-  | "forager";
+  | "forager"
+  | "builder";
 
 // Combat stance for guard-tier units (knight/archer/militia line): how far they aggro, how far they
 // chase from their rally point, and how tight a formation they hold. Every colonist carries one
@@ -201,6 +216,19 @@ export type MobKind =
   | "banditElite"
   | "halfLatch";
 
+// Hunger-marked elites (ROADMAP Phase 6): a rare raid mob bearing one Hunger's mark. Index = the
+// snapshot's `mark` value; HUNGER_MARK_NAMES[mark] names it (sigil-<name>.png / aura-<name>.png).
+export enum HungerMark {
+  None = 0,
+  Gorrath = 1,
+  Nemri = 2,
+  Rux = 3,
+  Morvain = 4,
+  Gunne = 5,
+  Vhorrun = 6,
+}
+export const HUNGER_MARK_NAMES = ["", "gorrath", "nemri", "rux", "morvain", "gunne", "vhorrun"];
+
 export interface MobSnapshot {
   id: string;
   kind: MobKind;
@@ -208,6 +236,8 @@ export interface MobSnapshot {
   y: number;
   hp: number;
   maxHp: number;
+  // Omitted for unmarked mobs (the common case) to keep snapshots small.
+  mark?: HungerMark;
 }
 
 export interface AttackEffect {
@@ -243,7 +273,57 @@ export enum WildlifeState {
 // Night-mob tuning chosen on the main menu (server applies the multipliers; see DIFFICULTY_* there).
 export type Difficulty = "easy" | "normal" | "hard";
 
-export type GameEventCategory = "night" | "dawn" | "upgrade" | "death" | "ward" | "deserter" | "raid";
+export type GameEventCategory = "night" | "dawn" | "upgrade" | "death" | "ward" | "deserter" | "raid" | "build";
+
+// Per-tile art stage of a farm-type building (snapshot `farmStages`). Grain plots: Sown -> Sprouting ->
+// Growing -> Ripe (being cut) -> Harvested (briefly) / Fallow. Hemp: Sown/Growing/Ripe. Pasture:
+// Growing/Fat. Sheep Pasture: Sheared/Woolly/Ripe (ready to shear). Orchard: Blossoming/Growing/Fruiting.
+export enum FarmStage {
+  Sown = 0,
+  Sprouting = 1,
+  Growing = 2,
+  Ripe = 3,
+  Harvested = 4,
+  Fallow = 5,
+  Fat = 6,
+  Sheared = 7,
+  Woolly = 8,
+  Blossoming = 9,
+  Fruiting = 10,
+}
+// `farmStages` is flattened [tile index, FarmStage] pairs; `buildingLevels` is [tile index, level] pairs
+// (only buildings above level 1, Town Centers included).
+export const FARM_STAGE_SNAPSHOT_STRIDE = 2;
+export const BUILDING_LEVEL_SNAPSHOT_STRIDE = 2;
+// `constructionSites` is flattened, CONSTRUCTION_SNAPSHOT_STRIDE numbers per site: [tile index, target
+// TileType (what will be built / upgraded), progress 0-1000, 1 if an in-place upgrade else 0, builders working].
+export const CONSTRUCTION_SNAPSHOT_STRIDE = 5;
+
+export interface TownCenterSnapshot {
+  x: number;
+  y: number;
+  level: number;
+  hp: number;
+  maxHp: number;
+}
+
+// Reply to a `buildingInfo` request; every number is computed by the server's own formulas.
+export interface BuildingInfo {
+  name: string;
+  tile: TileType;
+  level: number;
+  maxLevel: number;
+  // Only Town Centers have hit points; null otherwise.
+  hp: number | null;
+  maxHp: number | null;
+  // e.g. "Workers 2", "Beds 3/5", "Population base 10".
+  staffing: string;
+  bonuses: string[];
+  // In-place upgrade (or null when the building can't be upgraded at all).
+  upgrade: { cost: string; enabled: boolean; reason: string } | null;
+  // 0-1 when a construction / upgrade is queued here, else null.
+  construction: number | null;
+}
 
 export type ClientMessage =
   | { type: "join"; name?: string }
@@ -261,7 +341,10 @@ export type ClientMessage =
   | { type: "commandStance"; unitIds: string[]; stance: Stance }
   | { type: "assignTaskForce"; slot: number; unitIds: string[] }
   | { type: "exchangeResource"; from: "wood" | "iron" | "rock"; to: "wood" | "iron" | "rock" }
-  | { type: "buyWithGold"; item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock" };
+  | { type: "buyWithGold"; item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock" }
+  | { type: "buildingInfo"; tileX: number; tileY: number }
+  // Queues the in-place upgrade of the building at the tile (same rules as placing it on itself, no reach limit).
+  | { type: "upgradeBuilding"; tileX: number; tileY: number };
 
 export type ServerMessage =
   | {
@@ -316,12 +399,17 @@ export type ServerMessage =
       wildlife: number[];
       gravestones: GravestoneSnapshot[];
       difficulty: Difficulty;
+      buildingLevels: number[];
+      farmStages: number[];
+      constructionSites: number[];
+      townCenters: TownCenterSnapshot[];
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).
   | { type: "event"; category: GameEventCategory; text: string }
   // Tile indices newly explored since the last one (batched a few times a second, never empty).
-  | { type: "explored"; tiles: number[] };
+  | { type: "explored"; tiles: number[] }
+  | { type: "buildingInfo"; tileX: number; tileY: number; info: BuildingInfo | null };
 
 export interface PlayerSnapshot {
   id: string;
@@ -330,4 +418,6 @@ export interface PlayerSnapshot {
   color: number;
   hp: number;
   maxHp: number;
+  // Killed with no Town Center standing to respawn at (game over unless one is rebuilt).
+  dead: boolean;
 }

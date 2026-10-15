@@ -235,24 +235,30 @@ Test: `server/minimap-fog-test.mjs`.
 - **Mini-bosses:** standalone POIs scattered on the map — one upscaled elite of a given kind
   leading 2-4 normal mobs of that same kind, same dormant/wake pattern.
 
-### Phase 6 — Hunger-marked elites (lore-accurate, from `my_novel/lore/bestiary.md`)
-Rare marked variants of existing mobs, one behavior modifier per Hunger (verbatim from the
-bestiary, translated to gameplay):
-- **Gorrath-marked** — frenzied: fights through what should be lethal damage (brief reduced-damage
-  "wounded fury" state near death), targets the strongest unit/player in range rather than the
-  weakest.
-- **Nemri-marked** — avoids direct engagement, makes for whatever's being guarded (a building/
-  objective) rather than whoever's guarding it.
-- **Rux-marked** — the "talks back" one: taunts/fake signals (gameplay translation TBD at
-  implementation time — likely a deceptive feint before committing to an attack).
-- **Morvain-marked** — hard to track: reduced detection/aggro range against it, harder to keep a
-  lock on once it breaks line of sight.
-- **Gunne-marked** — targets the most wounded (lowest-HP%) unit specifically, ignoring healthier
-  targets if one is available.
-- **Vhorrun-marked** — hit-and-run: withdraws instead of finishing a fight it's winning, returns
-  later rather than pressing an advantage.
-Visually distinct (tint/aura + name label), rare spawn chance scaling with day, bonus gold/loot
-on kill.
+### Phase 6 — Hunger-marked elites — Landed 2026-10-15 (uncommitted)
+Rare marked variants of night-raid mobs, one behavior modifier per Hunger (from
+`my_novel/lore/bestiary.md`, translated to gameplay). Server: `Mob.mark` (HungerMark 1-6), constants
+`HUNGER_*` / per-Hunger ones beside `goldForKill`; behaviours live in `pickMobTarget` / `updateMob` /
+`damageMob` / `findNearestMobInRange` / `updateGuardColonist`.
+- **Spawn:** each fresh raider (never deserters) rolls at raid spawn: 0% before dayIndex 3, then
+  3% rising linearly to 15% at dayIndex 30 (flat after); at most max(1, floor(raid size / 5)) marks
+  per raid; Hunger picked uniformly. Marked: hp x1.5, damage x1.25, gold on kill x3. One `raid`
+  toast per raid: "A Gorrath-marked goblin leads the raid[, with N more Hunger-marked]".
+- **Gorrath-marked** — the first blow that would kill it leaves it at 20% max hp and starts a 4 s
+  wounded fury taking 50% damage (once per mob). Targets the highest-current-hp guard/militia/player
+  within 8 tiles (else normal targeting), re-checked every second.
+- **Nemri-marked** — ignores guards and players and heads for the nearest unwarded Town Center
+  (normal targeting if none). Fights back only by hitting the Town Center.
+- **Rux-marked** — feint: the first time it reaches attack range on a new target it backs straight
+  off for 1.5 s without striking, then returns and commits (one feint per target).
+- **Morvain-marked** — guards only acquire it within 50% of their stance alert range, and a guard
+  chasing it drops the lock once it's further than that reduced range.
+- **Gunne-marked** — targets the guard/militia/player with the lowest hp% within 10 tiles, as long
+  as one is below full hp (else normal targeting), re-checked every second.
+- **Vhorrun-marked** — after a hit that leaves its colonist/player target below 40% hp it drops the
+  target and backs away for 6 s, then picks a target afresh.
+- **Client:** sigil (16px) + tinted name label above the mob, pulsing aura (40px) on the ground under
+  it, marked mobs drawn 1.25x. Test: `server/hunger-roads-test.mjs` (also covers roads).
 
 ### Phase 7 — Sound — Landed 2026-10-14 (uncommitted)
 - **`client/src/sound.ts` `SoundManager`:** uses the Web Audio API. The AudioContext is created on
@@ -373,6 +379,34 @@ section). One game day = 60 s day + 40 s night = 2000 ticks.
   `COLONY_TEST_HOOKS=1`). New test hooks: `fastForward`, `setRaids`, `setStock`, `farmState`, `wildlifeState`,
   `spawnWildlife`, `clearWildlife`, `damageWildlife` and `setTileRaw`. The farming tests that timed the
   old 8 s cycle now pause the world and fast-forward.
+
+### Builders, construction, building info and placeable Town Centers — landed 2026-10-15 (uncommitted)
+
+- **Builders** (`builder` colonist, civilian: uses population, eats, works by day, shelters at night). The
+  colony starts and restarts with 2 posted at the Town Center (they respawn there; a newly built Town
+  Center tops them back up to 2). The **Builders' Guild** (key `i`, Civic, 15 wood, industrial-synergy
+  member, population-gated) adds one builder per level, upgradeable in place to Lv3.
+- **Construction**: every placement except Farm Plots (still instant) and Demolish is charged at once and
+  becomes a solid `ConstructionSite` tile (in-place upgrades keep the building running and show an
+  "upgrading" badge). Idle builders haul materials to the nearest site (max 2 per site), work it
+  ("building"), and on completion the old `resolve*Placement` logic runs unchanged. Build time: wall 4 s,
+  house 10 s, default 12 s, big buildings (barracks, church, tavern, workshops, shops, Ward Stone) 20 s,
+  Town Center 40 s, times the level being built, shared by the builders, scaled by happiness and the
+  Town Center bonus (Guild builders also get their Guild's level and synergy). Unreachable sites wait;
+  demolishing a site refunds nothing. With no builder alive placements are refused ("No builders
+  available"). `COLONY_INSTANT_BUILD=1` / testHook `setInstantBuild` restores instant placement.
+- **Building info** (left-click a building with any tool but Demolish): name, level, staff, HP (Town
+  Centers), server-computed bonuses, construction progress, and an Upgrade button (no reach limit).
+- **Town Centers** are a list: placeable (key `0`, 60 wood + 30 rock + 20 iron, 12+ tiles from other Town
+  Centers and POIs), upgradeable to Lv2 (80/60/40 wood/rock/iron) and Lv3 the Keep (120/100/80 + 10 tools).
+  The highest level gives +5%/+10% productivity and unit damage, +5 population per level; HP 1000/1500/2000.
+  Population base is 10 for the first and +5 per extra. A destroyed one is removed; mobs target the nearest.
+  A killed player respawns at the nearest standing one; with none, they stay dead (Game Over overlay with
+  Restart) until a new one is placed, which is built instantly when none stands or no builder lives.
+- **Art data**: snapshot `buildingLevels` (tier art for huts, Guild, Town Center), `farmStages` (grain
+  sprouting/harvested, hemp, pasture, sheep, orchard stages), `constructionSites`, `townCenters`.
+- **Test:** `server/builders-towncenter-test.mjs`. Older suites that place buildings need
+  `COLONY_INSTANT_BUILD=1`, and some counting colonists/population/food must allow for the 2 builders.
 
 Execution order above is my default sequencing (foundation first since map/zoom/clock touch
 everything downstream); say the word if you want a different item first.
