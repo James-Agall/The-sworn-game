@@ -7,3 +7,6 @@ dist/
 
 # OMC operational state (not project files)
 .omc/
+
+# Player save files
+server/saves/

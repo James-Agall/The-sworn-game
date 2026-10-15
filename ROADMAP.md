@@ -383,8 +383,8 @@ section). One game day = 60 s day + 40 s night = 2000 ticks.
 ### Builders, construction, building info and placeable Town Centers — landed 2026-10-15 (uncommitted)
 
 - **Builders** (`builder` colonist, civilian: uses population, eats, works by day, shelters at night). The
-  colony starts and restarts with 2 posted at the Town Center (they respawn there; a newly built Town
-  Center tops them back up to 2). The **Builders' Guild** (key `i`, Civic, 15 wood, industrial-synergy
+  colony starts and restarts with 1 posted at the Town Center; each Town Center keeps one builder per
+  level (1/2/3, topped up when it is built or upgraded; they respawn there). The **Builders' Guild** (key `i`, Civic, 15 wood, industrial-synergy
   member, population-gated) adds one builder per level, upgradeable in place to Lv3.
 - **Construction**: every placement except Farm Plots (still instant) and Demolish is charged at once and
   becomes a solid `ConstructionSite` tile (in-place upgrades keep the building running and show an
@@ -406,7 +406,56 @@ section). One game day = 60 s day + 40 s night = 2000 ticks.
 - **Art data**: snapshot `buildingLevels` (tier art for huts, Guild, Town Center), `farmStages` (grain
   sprouting/harvested, hemp, pasture, sheep, orchard stages), `constructionSites`, `townCenters`.
 - **Test:** `server/builders-towncenter-test.mjs`. Older suites that place buildings need
-  `COLONY_INSTANT_BUILD=1`, and some counting colonists/population/food must allow for the 2 builders.
+  `COLONY_INSTANT_BUILD=1`, and some counting colonists/population/food must allow for the starting builder
+  (1 since the building-HP work below; it was 2).
+
+### Save files — landed 2026-10-15 (uncommitted)
+
+- **Slots**: `server/saves/{autosave,slot1,slot2,slot3}.json` (gitignored; `COLONY_SAVE_DIR` overrides the
+  directory), versioned JSON `{version: 1, savedAt, dayIndex, population, difficulty, worldSize, label,
+  state}`, ~220-240 KiB on a 160x160 day-4 world. Load refuses another `version` or a different world size
+  (clear error toast to the requester).
+- **What's saved**: everything that defines the world (`snapshotWorld` / `applyWorld` in
+  `server/src/index.ts`): tiles, biomes, fog, noise salt, Abbey centre, stock, flags, happiness, day/night
+  tick, raid schedule + groups, colonists, mobs (guardians, deserters, marks), wildlife, respawn queue, farm
+  plots, forage regrow, building levels, construction sites, Town Centers, Ward Stones + priest, task
+  forces, reservations, gravestones and the test flags. Not saved: players (everyone connected respawns at
+  a Town Center, like a restart), per-tick transients, client-only blood. Loading broadcasts a fresh
+  welcome + "Game loaded" to everyone; the loaded world keeps its own difficulty.
+- **Autosave**: each dawn (flagged in `stepSimulation`, written by the tick loop, debounced), and on
+  SIGINT/SIGTERM (sync write, then exit; also on `tsx watch` restarts). Only after a player has connected
+  since boot, so an unattended fresh server never overwrites the last real autosave; with
+  `COLONY_TEST_HOOKS=1` only when the test sets its own `COLONY_SAVE_DIR`. Snapshot+stringify blocks the
+  tick ~1.5 ms on 160x160, the write is async.
+- **UI**: main menu Continue (autosave) / New Game / Load Game, listed via `GET /saves` on the server port;
+  in-game Settings has Save Game (3 slots, overwrite confirm) and a Load list.
+- **Protocol**: `saveGame`, `loadGame`, `listSaves` / `saveList`, `saveResult`.
+- **Test:** `server/save-load-test.mjs` (boots its own private servers, no external server needed).
+
+### Building HP, mob attacks on buildings, fire, repair — landed 2026-10-15 (uncommitted)
+
+- **HP** (`server/src/index.ts`, constants at the top): wood wall 60, houses / huts / archer post 120,
+  workplaces 180, big buildings (barracks, church, tavern, workshops, shops, Ward Stone), castles, archer
+  towers, Lv3 militia camp and stone walls 250; x1 / 1.4 / 1.8 by level. Town Centers keep their own HP.
+  Damage is stored only for damaged buildings (`buildingHp`), saved / loaded (old saves load at full HP).
+- **Mob targeting**: guards / militia first, then players (unchanged); with neither targetable, the nearest
+  unwarded building (Town Centers included, walls never as a goal). Walls are breached only when the
+  building has no route or the route exceeds `BREACH_DETOUR_FACTOR` (3) x the straight distance (and
+  `BREACH_MIN_ROUTE_TILES`, 12): the mob then attacks the first wall on the cheapest route through walls.
+  A mob on a building turns on any guard / player that becomes targetable (checked once a second). A raid
+  group with no route to the colony breaks up so its mobs can breach. Mobs hit buildings with their
+  normal damage; at 0 HP the building is demolished like a player demolish (workers, level, site, HP) with
+  an "X destroyed" toast.
+- **Repair**: idle builders by day (construction sites first) take manual Repair requests, then the most
+  damaged building; skip jobs with a mob within 8 tiles; heal max HP over 60 s per builder (builder rate);
+  cost `REPAIR_COST_FRACTION` 0.3 x placement cost x level, pro rata to the HP missing, rounded up per
+  resource ("Not enough materials to repair" otherwise). Building info shows HP for every damageable
+  building and a **Repair** button (pays now, queues first).
+- **Client**: pooled campfire-loop flames by damage tier (<75% / <50% / <25%), soot tint, smoke puffs below
+  50%, HP bar while damaged (Town Centers keep their own bar).
+- **Protocol**: snapshot `damagedBuildings` ([tile index, hp permille]), `BuildingInfo.repair`,
+  `repairBuilding` message.
+- **Test:** `server/building-damage-test.mjs` (test hooks `ignorePlayers`, `damageBuilding`, `buildingState`).
 
 Execution order above is my default sequencing (foundation first since map/zoom/clock touch
 everything downstream); say the word if you want a different item first.

@@ -25,11 +25,14 @@ import type {
   WildlifeKind,
   TownCenterSnapshot,
   BuildingInfo,
+  SaveInfo,
+  SaveSlot,
 } from "./protocol";
 import {
   Biome,
   BUILDING_LEVEL_SNAPSHOT_STRIDE,
   CONSTRUCTION_SNAPSHOT_STRIDE,
+  DAMAGED_BUILDING_SNAPSHOT_STRIDE,
   FARM_STAGE_SNAPSHOT_STRIDE,
   FarmStage,
   HUNGER_MARK_NAMES,
@@ -47,6 +50,10 @@ import {
 import { SOUND_SILENT_RADIUS_TILES, SoundManager, proximityGain } from "./sound";
 
 const SERVER_URL = "ws://localhost:8080";
+// The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
+const SAVES_URL = `${SERVER_URL.replace(/^ws/, "http")}/saves`;
+// Main menu Continue / Load Game: the slot to load right after the first welcome (else null).
+let pendingLoadSlot: SaveSlot | null = null;
 
 type ToolCategory = "combat" | "farming" | "industry" | "civic" | "trade";
 
@@ -268,6 +275,7 @@ const FORMATION_MARKER_FADE_MS = 400;
 const MOB_HIT_RADIUS = 12;
 
 // Per-kind mob size: radius scales roughly with toughness so size alone reads as a threat cue.
+// Human-sized kinds (bandits, skeleton, shaman) stay close to the 28px colonist height (radius 8).
 // Drives the sprite's rendered size (radius * MOB_SPRITE_SIZE_PER_RADIUS along the texture's
 // longer side) and, if a texture is missing, the fallback colored circle.
 const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
@@ -275,16 +283,17 @@ const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
   wolf: { color: 0x8a8a8a, radius: 7.5 },
   goblinCrossbow: { color: 0x6b8e23, radius: 7 },
   orc: { color: 0x3d7a2a, radius: 9.5 },
-  skeleton: { color: 0xe8e0c8, radius: 9.5 },
+  skeleton: { color: 0xe8e0c8, radius: 8.5 },
   armoredOrc: { color: 0x4a5a3a, radius: 11 },
   darkShaman: { color: 0x4b1f6b, radius: 8 },
   giantSpider: { color: 0x1e1a1e, radius: 8.5 },
   troll: { color: 0x3b4a2a, radius: 13 },
   ogre: { color: 0x8b5a2b, radius: 15 },
-  banditClubman: { color: 0x6b4a2a, radius: 9 },
-  banditArcher: { color: 0x5a5a3a, radius: 9 },
-  // ~1.45x a regular bandit's footprint so the mini-boss reads as a step up at a glance.
-  banditElite: { color: 0x7a2a2a, radius: 13 },
+  banditClubman: { color: 0x6b4a2a, radius: 8.2 },
+  banditArcher: { color: 0x5a5a3a, radius: 8 },
+  // Bandits are people: sized against the 28px colonist (radius 8 ~ 28px). The elite is ~1.25x a
+  // regular bandit so it still reads as a step up without towering over the colony's own units.
+  banditElite: { color: 0x7a2a2a, radius: 10 },
   // Smaller than a goblin — "barely more than a shadow".
   halfLatch: { color: 0x0e0e12, radius: 5.5 },
 };
@@ -361,6 +370,7 @@ const COLONIST_ACTION_STATES = new Set([
   "hunting",
   "foraging",
   "building",
+  "repairing",
 ]);
 const COLONIST_WALK_STATES = new Set([
   "engaging",
@@ -373,6 +383,7 @@ const COLONIST_WALK_STATES = new Set([
   "collecting",
   "carrying",
   "toForage",
+  "toRepair",
 ]);
 // Hunter/forager states that count as "working" in the Colony panel (out on the job, not idle at the hut).
 const FOOD_WORKER_BUSY_STATES = new Set(["stalking", "hunting", "collecting", "carrying", "toForage", "foraging"]);
@@ -548,6 +559,13 @@ const TILE_ANIM: Partial<Record<TileType, { urls: string[]; frameMs: number; pha
   [TileType.PropLanternPost]: { urls: frameUrls("lanternPost", 4), frameMs: 200, phased: true },
   [TileType.Water]: { urls: frameUrls("waterTile", 4), frameMs: 450, phased: false },
 };
+// Damaged buildings (client, cosmetic): flame width (px) per fire tier 1-3 (campfire0-3 frames),
+// the soot tint on the building art, a smoke puff (fx-poof) every FIRE_SMOKE_MS per building from tier
+// 2, and a cap on simultaneous overlays.
+const FIRE_FLAME_WIDTH = [0, 12, 18, 26];
+const SOOT_TINT = 0x8c7c6c;
+const FIRE_SMOKE_MS = 1600;
+const MAX_FIRE_OVERLAYS = 80;
 // Farm art per server stage (snapshot `farmStages`, FarmStage in protocol.ts). A stage with no entry
 // (or whose file failed to load) shows the tile's normal TILE_SPRITE_FILES art.
 const FARM_STAGE_ART: Partial<Record<TileType, Partial<Record<FarmStage, string>>>> = {
@@ -916,6 +934,7 @@ function workSoundKey(c: ColonistSnapshot): string | null {
       return "farm_work";
     case "crafting":
     case "building":
+    case "repairing":
       return "craft_hammer";
     case "healing":
       return c.kind === "bishop" ? "heal_chime" : null;
@@ -1109,6 +1128,8 @@ async function main() {
       { frames: a!.urls.map((u) => loadedTextures[u]), frameMs: a!.frameMs, phased: a!.phased },
     ])
   );
+  const FIRE_FRAMES = TILE_ANIM_TEXTURES.get(TileType.PropCampfire)!.frames;
+  const FIRE_FRAME_MS = TILE_ANIM_TEXTURES.get(TileType.PropCampfire)!.frameMs;
   const GRAVESTONE_TEXTURES = GRAVESTONE_URLS.map((url) => loadedTextures[url]);
   const BLOOD_TEXTURES = BLOOD_URLS.map((url) => loadedTextures[url]);
   const FX_TEXTURES = {
@@ -1412,6 +1433,8 @@ async function main() {
     builders: number;
   }
   let constructionSites = new Map<number, SiteView>();
+  // Damaged buildings (snapshot `damagedBuildings`): tile index -> HP permille. See syncDamagedBuildings.
+  let damagedBuildings = new Map<number, number>();
   // True from a welcome until its first snapshot has been applied: state diffs then are a world
   // load, not events, so they make no sound.
   let soundSuppressed = true;
@@ -1504,6 +1527,79 @@ async function main() {
       siteOverlay.rect(x + 2, barY, tileSize - 4, 4).fill({ color: 0x2b1a0c, alpha: 0.8 });
       siteOverlay.rect(x + 2, barY, (tileSize - 4) * site.progress, 4).fill(site.upgrade ? 0xf1c40f : 0xe0b468);
     }
+  }
+
+  // ---- Damaged buildings: flames, soot and an HP bar ----
+  // Fire tier by HP permille: 1 below 75% (small flames + soot), 2 below 50% (medium flames + smoke
+  // puffs), 3 below 25% (large flames). Overlays are pooled (one flame sprite + one HP bar per damaged
+  // building, at most MAX_FIRE_OVERLAYS) and animated by the shared tile clock below.
+  function fireTier(permille: number): number {
+    return permille < 250 ? 3 : permille < 500 ? 2 : permille < 750 ? 1 : 0;
+  }
+  interface FireOverlay {
+    flame: Sprite;
+    bar: Graphics;
+    tier: number;
+    phase: number;
+    nextSmokeAt: number;
+  }
+  const fireOverlays = new Map<number, FireOverlay>();
+  const firePool: FireOverlay[] = [];
+  function releaseFire(index: number, o: FireOverlay, restoreArt: boolean) {
+    o.flame.visible = false;
+    o.bar.visible = false;
+    fireOverlays.delete(index);
+    firePool.push(o);
+    if (restoreArt && index < tiles.length) {
+      const { tx, ty } = indexToTile(index);
+      setTileSprite(tx, ty, tiles[index]);
+    }
+  }
+  function syncDamagedBuildings(flat: number[]) {
+    const next = new Map<number, number>();
+    for (let i = 0; i + DAMAGED_BUILDING_SNAPSHOT_STRIDE <= flat.length; i += DAMAGED_BUILDING_SNAPSHOT_STRIDE) next.set(flat[i], flat[i + 1]);
+    const prev = damagedBuildings;
+    damagedBuildings = next;
+    for (const [index, o] of fireOverlays) if (!next.has(index)) releaseFire(index, o, true);
+    for (const [index, permille] of next) {
+      let o = fireOverlays.get(index);
+      if (o && prev.get(index) === permille) continue;
+      if (!o) {
+        if (fireOverlays.size >= MAX_FIRE_OVERLAYS) continue;
+        o = firePool.pop();
+        if (!o) {
+          const flame = new Sprite(FIRE_FRAMES[0]);
+          flame.anchor.set(0.5, 1);
+          tileSpriteLayer.addChild(flame);
+          const bar = new Graphics();
+          worldLayer.addChild(bar);
+          o = { flame, bar, tier: -1, phase: 0, nextSmokeAt: 0 };
+        }
+        o.tier = -1;
+        o.phase = index % FIRE_FRAMES.length;
+        fireOverlays.set(index, o);
+      }
+      const { tx, ty } = indexToTile(index);
+      const tier = fireTier(permille);
+      if (tier !== o.tier) {
+        o.tier = tier;
+        o.flame.visible = tier > 0;
+        o.flame.scale.set(FIRE_FLAME_WIDTH[tier] / FIRE_FRAMES[0].width);
+        o.flame.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize - tileSize * 0.3);
+        o.flame.zIndex = index + 0.5;
+        // Soot tint on (or off) the building art.
+        setTileSprite(tx, ty, tiles[index]);
+      }
+      // Town Centers keep their own always-on bar (syncTownCenterBars).
+      o.bar.visible = tiles[index] !== TileType.TownCenter;
+      o.bar.position.set(tx * tileSize + tileSize / 2, ty * tileSize - 8);
+      drawHpBar(o.bar, permille, 1000);
+    }
+  }
+  // Welcome: drop every overlay (the world's tile art is redrawn from scratch anyway).
+  function clearFires() {
+    for (const [index, o] of fireOverlays) releaseFire(index, o, false);
+    damagedBuildings = new Map();
   }
 
   const nightOverlay = new Graphics();
@@ -1605,6 +1701,7 @@ async function main() {
         : stageTexture || levelTexture
           ? 0xffffff
           : (TILE_TINT.get(tile) ?? 0xffffff);
+    if (fireTier(damagedBuildings.get(index) ?? 1000) > 0) sprite.tint = SOOT_TINT;
     if (artTile === TileType.TownCenter) {
       const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
       sprite.anchor.set(fit.anchor.x, fit.anchor.y);
@@ -2426,6 +2523,17 @@ async function main() {
     spark.tint = tint;
   }
 
+  // Dark smoke rising off a burning building (fx-poof, tinted; see syncDamagedBuildings).
+  function spawnSmokePuff(x: number, y: number) {
+    const base = FX_SIZE.poof / Math.max(FX_TEXTURES.poof.width, FX_TEXTURES.poof.height);
+    const puff = addFx(FX_TEXTURES.poof, FX_SIZE.poof, x, y, 1200, (s, t) => {
+      s.scale.set(base * (0.6 + 0.8 * t));
+      s.y = y - 18 * t;
+      s.alpha = 0.55 * (1 - t);
+    });
+    puff.tint = 0x4a4440;
+  }
+
   function spawnDeathPoof(x: number, y: number) {
     const base = FX_SIZE.poof / Math.max(FX_TEXTURES.poof.width, FX_TEXTURES.poof.height);
     addFx(FX_TEXTURES.poof, FX_SIZE.poof, x, y, 420, (s, t) => {
@@ -2476,14 +2584,14 @@ async function main() {
   const stateFxAt = new Map<string, number>();
   const BUILD_FX_MS = 1500;
   function stateFx(c: ColonistSnapshot, now: number) {
-    if (c.state === "building") {
-      // Builders hammering: a build puff at the site they work (the nearest one).
+    if (c.state === "building" || c.state === "repairing") {
+      // Builders hammering: a build puff at the site (or damaged building) they work, the nearest one.
       const last = stateFxAt.get(c.id) ?? 0;
       if (now - last < BUILD_FX_MS) return;
       stateFxAt.set(c.id, now);
       let best: { tx: number; ty: number } | null = null;
       let bestD = tileSize * 2;
-      for (const index of constructionSites.keys()) {
+      for (const index of (c.state === "building" ? constructionSites : damagedBuildings).keys()) {
         const t = indexToTile(index);
         const d = Math.hypot(t.tx * tileSize + tileSize / 2 - c.x, t.ty * tileSize + tileSize / 2 - c.y);
         if (d < bestD) {
@@ -2510,7 +2618,30 @@ async function main() {
     }
   }
 
+  // Effects don't carry the attacker: whoever stands at the origin turns to face the target, so
+  // fighters slash at each other rather than facing the way they last walked. The facing sticks
+  // until the unit next moves horizontally (see getFacing).
+  function faceAttacker(e: AttackEffect) {
+    const dx = e.toX - e.fromX;
+    if (Math.abs(dx) < 1) return;
+    const right = dx > 0;
+    const at = (x: number, y: number) => Math.abs(x - e.fromX) < 2 && Math.abs(y - e.fromY) < 2;
+    const face = (map: FacingMap, sprites: Map<string, EntityVisual>, units: { id: string; x: number; y: number }[]) => {
+      for (const u of units) {
+        if (!at(u.x, u.y)) continue;
+        const prev = map.get(u.id);
+        if (prev) prev.facingRight = right;
+        else map.set(u.id, { lastX: u.x, facingRight: right });
+        const s = sprites.get(u.id)?.sprite;
+        if (s instanceof Sprite) applyFacing(s, right);
+      }
+    };
+    face(colonistFacing, colonistSprites, latestColonists);
+    face(mobFacing, mobSprites, latestMobs);
+  }
+
   function spawnEffect(e: AttackEffect) {
+    faceAttacker(e);
     const angle = Math.atan2(e.toY - e.fromY, e.toX - e.fromX);
     if (e.melee) {
       // Effects don't carry the attacker; a player standing at the origin plays its lance thrust.
@@ -2582,6 +2713,16 @@ async function main() {
       const sprite = tileSprites.get(index);
       const texture = tileAnimTexture(index, tile, now);
       if (sprite && texture && sprite.texture !== texture) sprite.texture = texture;
+    }
+    // Building fires share the campfire loop's clock; tier 2+ also puffs smoke now and then.
+    const fireFrame = Math.floor(now / FIRE_FRAME_MS);
+    for (const o of fireOverlays.values()) {
+      if (o.tier <= 0) continue;
+      o.flame.texture = FIRE_FRAMES[(fireFrame + o.phase) % FIRE_FRAMES.length];
+      if (o.tier >= 2 && now >= o.nextSmokeAt) {
+        o.nextSmokeAt = now + FIRE_SMOKE_MS * (0.75 + 0.5 * Math.random());
+        spawnSmokePuff(o.flame.x, o.flame.y - FIRE_FLAME_WIDTH[o.tier]);
+      }
     }
   });
 
@@ -3438,8 +3579,71 @@ async function main() {
     }
   });
 
+  // Custom-width formation: the player dragged a line on the ground; units spread evenly along it
+  // (front rank first, further ranks in rows behind) facing away from where they are now.
+  function computeLineFormationTargets(
+    units: ColonistSnapshot[],
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number
+  ): FormationPlan & { cx: number; cy: number } {
+    const spacing = tileSize * FORMATION_SPACING_TILES[groupStance(units)];
+    const L = Math.max(1, Math.hypot(bx - ax, by - ay));
+    const ux = (bx - ax) / L;
+    const uy = (by - ay) / L;
+    const cx = (ax + bx) / 2;
+    const cy = (ay + by) / 2;
+    let ucx = 0;
+    let ucy = 0;
+    for (const u of units) {
+      ucx += u.x;
+      ucy += u.y;
+    }
+    ucx /= units.length;
+    ucy /= units.length;
+    // Front = the perpendicular pointing away from the units' current side of the line.
+    let fx = -uy;
+    let fy = ux;
+    if ((cx - ucx) * fx + (cy - ucy) * fy < 0) {
+      fx = -fx;
+      fy = -fy;
+    }
+    const cols = Math.max(1, Math.min(units.length, Math.floor(L / spacing) + 1));
+    const step = cols > 1 ? L / (cols - 1) : 0;
+    const ranks = new Map<number, ColonistSnapshot[]>();
+    for (const u of units) {
+      const rank = FORMATION_RANK[u.kind] ?? FORMATION_RANK.bishop;
+      const bucket = ranks.get(rank);
+      if (bucket) bucket.push(u);
+      else ranks.set(rank, [u]);
+    }
+    const targets = new Map<string, { x: number; y: number }>();
+    let depthRows = 0;
+    for (const rank of Array.from(ranks.keys()).sort((a, b) => a - b)) {
+      const members = ranks.get(rank)!;
+      members.sort((a, b) => b.x * fx + b.y * fy - (a.x * fx + a.y * fy));
+      const rowCount = Math.ceil(members.length / cols);
+      for (let row = 0; row < rowCount; row++) {
+        const rowMembers = members
+          .slice(row * cols, row * cols + cols)
+          .sort((a, b) => a.x * ux + a.y * uy - (b.x * ux + b.y * uy));
+        const depth = (depthRows + row) * spacing;
+        rowMembers.forEach((u, i) => {
+          const lateral = (i - (rowMembers.length - 1) / 2) * step;
+          targets.set(u.id, { x: cx - depth * fx + lateral * ux, y: cy - depth * fy + lateral * uy });
+        });
+      }
+      depthRows += rowCount;
+    }
+    return { targets, spacing, fx, fy, frontHalfWidth: L / 2, cx, cy };
+  }
+
   function dispatchFormationMove(units: ColonistSnapshot[], destX: number, destY: number, order: number) {
-    const plan = computeFormationTargets(units, destX, destY);
+    dispatchPlannedMove(units, computeFormationTargets(units, destX, destY), destX, destY, order);
+  }
+
+  function dispatchPlannedMove(units: ColonistSnapshot[], plan: FormationPlan, destX: number, destY: number, order: number) {
     const distToSlot = (u: ColonistSnapshot) => {
       const slot = plan.targets.get(u.id)!;
       return Math.hypot(slot.x - u.x, slot.y - u.y);
@@ -3640,6 +3844,9 @@ async function main() {
   const bpUpgradeRowEl = document.getElementById("bp-upgrade-row")!;
   const bpUpgradeBtn = document.getElementById("bp-upgrade") as HTMLButtonElement;
   const bpUpgradeCostEl = document.getElementById("bp-upgrade-cost")!;
+  const bpRepairRowEl = document.getElementById("bp-repair-row")!;
+  const bpRepairBtn = document.getElementById("bp-repair") as HTMLButtonElement;
+  const bpRepairCostEl = document.getElementById("bp-repair-cost")!;
   // Tile the panel shows; re-requested every second while open so numbers stay live.
   let infoTile: { tx: number; ty: number } | null = null;
   const BUILDING_INFO_REFRESH_MS = 1000;
@@ -3679,12 +3886,23 @@ async function main() {
       bpUpgradeBtn.disabled = !info.upgrade.enabled;
       bpUpgradeCostEl.textContent = info.upgrade.reason ? `${info.upgrade.cost} (${info.upgrade.reason})` : info.upgrade.cost;
     }
+    bpRepairRowEl.hidden = info.repair === null;
+    if (info.repair) {
+      bpRepairBtn.disabled = !info.repair.enabled;
+      bpRepairCostEl.textContent = info.repair.reason ? `${info.repair.cost} (${info.repair.reason})` : info.repair.cost;
+    }
     buildingPanelEl.hidden = false;
   }
   bpUpgradeBtn.addEventListener("click", () => {
     bpUpgradeBtn.blur();
     if (!infoTile) return;
     sendMessage({ type: "upgradeBuilding", tileX: infoTile.tx, tileY: infoTile.ty });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
+  bpRepairBtn.addEventListener("click", () => {
+    bpRepairBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "repairBuilding", tileX: infoTile.tx, tileY: infoTile.ty });
     window.setTimeout(requestBuildingInfo, 150);
   });
   document.getElementById("bp-close")!.addEventListener("click", (e) => {
@@ -3703,7 +3921,7 @@ async function main() {
     for (const c of colonists) {
       if (c.kind !== "builder") continue;
       total++;
-      if (!isNight && (c.state === "building" || c.state === "carrying")) working++;
+      if (!isNight && (c.state === "building" || c.state === "carrying" || c.state === "repairing" || c.state === "toRepair")) working++;
     }
     statBuildersEl.textContent = `Builders  ${working}/${total} working`;
   }
@@ -3774,8 +3992,15 @@ async function main() {
     const message: ServerMessage = JSON.parse(event.data);
     if (message.type === "welcome") {
       myId = message.id;
-      // Claims the world's difficulty if nobody has yet (the server ignores it otherwise).
-      sendMessage({ type: "setDifficulty", difficulty: preferredDifficulty });
+      if (pendingLoadSlot) {
+        // Continue / Load Game: the save brings its own difficulty (no claim), then a fresh welcome.
+        sendMessage({ type: "loadGame", slot: pendingLoadSlot });
+        pendingLoadSlot = null;
+      } else {
+        // Claims the world's difficulty if nobody has yet (the server ignores it otherwise).
+        sendMessage({ type: "setDifficulty", difficulty: preferredDifficulty });
+      }
+      sendMessage({ type: "listSaves" });
       setActiveDifficulty(message.difficulty);
       tileSize = message.tileSize;
       worldTilesX = message.worldTilesX;
@@ -3790,6 +4015,7 @@ async function main() {
       farmStages = new Map();
       buildingLevels = new Map();
       constructionSites = new Map();
+      clearFires();
       siteOverlay.clear();
       clearWildlifeSprites();
       redrawGrid();
@@ -3799,6 +4025,7 @@ async function main() {
       worldLayer.addChild(placementGhost);
       worldLayer.addChild(cursorHighlight);
       worldLayer.addChild(formationMarker);
+      worldLayer.addChild(lineGuide);
       worldLayer.addChild(selectionRings);
       worldLayer.addChild(dragBox);
     } else if (message.type === "snapshot") {
@@ -3809,6 +4036,7 @@ async function main() {
       syncBuildingLevels(message.buildingLevels);
       syncFarmStages(message.farmStages);
       syncConstructionSites(message.constructionSites);
+      syncDamagedBuildings(message.damagedBuildings);
       latestTownCenters = message.townCenters;
       syncTownCenterBars(message.townCenters);
       syncWildlife(message.wildlife);
@@ -3885,8 +4113,81 @@ async function main() {
       if (!infoTile || infoTile.tx !== message.tileX || infoTile.ty !== message.tileY) return;
       if (message.info) renderBuildingInfo(message.info);
       else closeBuildingInfo();
+    } else if (message.type === "saveList") {
+      renderSavePanel(message.saves);
+    } else if (message.type === "saveResult") {
+      const name = SAVE_SLOT_NAMES[message.slot];
+      if (message.ok && message.action === "save") pushEventToast("build", `Game saved to ${name}`);
+      else if (!message.ok) pushEventToast("death", message.error ?? `Could not ${message.action} ${name}`);
     }
   });
+
+  // Quick-save button: saves to the slot you last saved to (Slot 1 the first time), no dialog.
+  function getLastSaveSlot(): SaveSlot {
+    try {
+      const v = localStorage.getItem("sworn.lastSaveSlot");
+      if (v === "slot1" || v === "slot2" || v === "slot3") return v;
+    } catch {
+      /* ignore */
+    }
+    return "slot1";
+  }
+  function setLastSaveSlot(slot: SaveSlot) {
+    try {
+      localStorage.setItem("sworn.lastSaveSlot", slot);
+    } catch {
+      /* ignore */
+    }
+  }
+  document.getElementById("save-btn")!.addEventListener("click", () => {
+    sendMessage({ type: "saveGame", slot: getLastSaveSlot() });
+  });
+
+  // In-game Save Game section (top of the Settings modal): 3 manual slots, plus Load for every save.
+  let latestSaves: SaveInfo[] = [];
+  function renderSavePanel(saves: SaveInfo[]) {
+    latestSaves = saves;
+    const bySlot = new Map(saves.map((sv) => [sv.slot, sv]));
+    renderSaveRows(
+      document.getElementById("save-slot-list")!,
+      (["slot1", "slot2", "slot3"] as SaveSlot[]).map((slot) => ({
+        slot,
+        info: bySlot.get(slot),
+        buttons: [
+          {
+            label: "Save",
+            onClick: () => {
+              const existing = latestSaves.find((sv) => sv.slot === slot);
+              if (existing && !window.confirm(`Overwrite ${SAVE_SLOT_NAMES[slot]} (${describeSave(existing)})?`)) return;
+              setLastSaveSlot(slot);
+              sendMessage({ type: "saveGame", slot });
+            },
+          },
+        ],
+      }))
+    );
+    renderSaveRows(
+      document.getElementById("save-load-list")!,
+      saves.map((sv) => ({
+        slot: sv.slot,
+        info: sv,
+        buttons: [
+          {
+            label: "Load",
+            secondary: true,
+            onClick: () => {
+              if (!window.confirm(`Load ${SAVE_SLOT_NAMES[sv.slot]} for everyone connected? Unsaved progress is lost.`)) return;
+              sendMessage({ type: "loadGame", slot: sv.slot });
+              document.getElementById("settings-modal")!.hidden = true;
+            },
+          },
+        ],
+      })),
+      "No saves yet"
+    );
+  }
+  // Refresh the list whenever the Settings modal opens (another player may have saved meanwhile).
+  document.getElementById("settings-btn")!.addEventListener("click", () => sendMessage({ type: "listSaves" }));
 
   const keys = new Set<string>();
   window.addEventListener("keydown", (e) => {
@@ -3910,6 +4211,7 @@ async function main() {
     if (e.key === "Escape") {
       setSelection([]);
       cancelLeftPress();
+      cancelOrderPress();
       closeBuildingInfo();
       return;
     }
@@ -3983,6 +4285,25 @@ async function main() {
     dragging: boolean;
   }
   let leftPress: LeftPress | null = null;
+  // Right-button order in progress for a multi-unit selection (see computeLineFormationTargets).
+  interface OrderPress {
+    pointerId: number;
+    screenX: number;
+    screenY: number;
+    worldX: number;
+    worldY: number;
+    dragging: boolean;
+    order: number;
+  }
+  let orderPress: OrderPress | null = null;
+  const lineGuide = new Graphics();
+  function cancelOrderPress() {
+    if (orderPress && app.canvas.hasPointerCapture(orderPress.pointerId)) {
+      app.canvas.releasePointerCapture(orderPress.pointerId);
+    }
+    orderPress = null;
+    lineGuide.clear();
+  }
 
   function cancelLeftPress() {
     if (leftPress && app.canvas.hasPointerCapture(leftPress.pointerId)) {
@@ -4025,7 +4346,9 @@ async function main() {
       if (mob) {
         socket.send(JSON.stringify({ type: "commandAttack", unitIds, mobId: mob.id }));
       } else if (units.length > 1) {
-        dispatchFormationMove(units, x, y, order);
+        // Wait for release: a click orders the normal block, a drag stretches a custom line.
+        orderPress = { pointerId: e.pointerId, screenX: e.clientX, screenY: e.clientY, worldX: x, worldY: y, dragging: false, order };
+        app.canvas.setPointerCapture(e.pointerId);
       } else {
         socket.send(JSON.stringify({ type: "commandMove", unitIds, x, y }));
       }
@@ -4044,6 +4367,23 @@ async function main() {
   });
 
   app.canvas.addEventListener("pointerup", (e) => {
+    if (e.button === 2 && orderPress && e.pointerId === orderPress.pointerId) {
+      const press = orderPress;
+      cancelOrderPress();
+      // Units may have died or been deselected while the button was held.
+      const units = latestColonists.filter((c) => selectedIds.has(c.id));
+      if (units.length === 0 || unitOrder.get(units[0].id) !== press.order && !units.some((u) => unitOrder.get(u.id) === press.order)) return;
+      const rect = app.canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
+      const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+      if (press.dragging && units.length > 1) {
+        const plan = computeLineFormationTargets(units, press.worldX, press.worldY, x, y);
+        dispatchPlannedMove(units, plan, plan.cx, plan.cy, press.order);
+      } else if (units.length > 1) {
+        dispatchFormationMove(units, press.worldX, press.worldY, press.order);
+      }
+      return;
+    }
     if (e.button !== 0 || !leftPress || e.pointerId !== leftPress.pointerId) return;
     const press = leftPress;
     cancelLeftPress();
@@ -4117,12 +4457,35 @@ async function main() {
 
   app.canvas.addEventListener("pointercancel", (e) => {
     if (leftPress && e.pointerId === leftPress.pointerId) cancelLeftPress();
+    if (orderPress && e.pointerId === orderPress.pointerId) cancelOrderPress();
   });
 
   app.canvas.addEventListener("pointermove", (e) => {
     const rect = app.canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
     const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+    if (orderPress && e.pointerId === orderPress.pointerId) {
+      if (
+        !orderPress.dragging &&
+        Math.hypot(e.clientX - orderPress.screenX, e.clientY - orderPress.screenY) > DRAG_THRESHOLD_PX
+      ) {
+        orderPress.dragging = true;
+      }
+      if (orderPress.dragging) {
+        const units = latestColonists.filter((c) => selectedIds.has(c.id));
+        lineGuide.clear();
+        if (units.length > 1) {
+          const plan = computeLineFormationTargets(units, orderPress.worldX, orderPress.worldY, x, y);
+          for (const pos of plan.targets.values()) {
+            lineGuide.circle(pos.x, pos.y, 4).stroke({ width: 1.5, color: SELECTION_COLOR, alpha: 0.7 });
+          }
+          lineGuide
+            .moveTo(orderPress.worldX, orderPress.worldY)
+            .lineTo(x, y)
+            .stroke({ width: 3, color: SELECTION_COLOR, alpha: 0.85 });
+        }
+      }
+    }
     if (leftPress && e.pointerId === leftPress.pointerId) {
       if (
         !leftPress.dragging &&
@@ -4179,6 +4542,54 @@ function setActiveDifficulty(value: Difficulty) {
   activeDifficulty = value;
   document.getElementById("stat-difficulty")!.textContent = `${DIFFICULTY_LABEL[value]} difficulty`;
   if (gameStarted) renderDifficultyChoice(value);
+}
+
+const SAVE_SLOT_NAMES: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3" };
+
+function describeSave(sv: SaveInfo): string {
+  return `Day ${sv.dayIndex + 1} · ${sv.population} pop · ${DIFFICULTY_LABEL[sv.difficulty]}`;
+}
+
+// One parchment row per slot: name + day/population/difficulty + when, then its buttons.
+function renderSaveRows(
+  container: HTMLElement,
+  rows: { slot: SaveSlot; info?: SaveInfo; buttons: { label: string; secondary?: boolean; onClick: () => void }[] }[],
+  emptyText?: string
+) {
+  container.replaceChildren();
+  if (rows.length === 0 && emptyText) {
+    const empty = document.createElement("div");
+    empty.className = "save-empty";
+    empty.textContent = emptyText;
+    container.append(empty);
+    return;
+  }
+  for (const row of rows) {
+    const el = document.createElement("div");
+    el.className = "save-row";
+    const text = document.createElement("span");
+    text.textContent = SAVE_SLOT_NAMES[row.slot];
+    const note = document.createElement("small");
+    note.textContent = row.info
+      ? `${describeSave(row.info)} · ${new Date(row.info.savedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`
+      : "Empty";
+    text.append(note);
+    const btns = document.createElement("span");
+    btns.className = "save-btns";
+    for (const b of row.buttons) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = b.label;
+      if (b.secondary) btn.className = "secondary";
+      btn.addEventListener("click", () => {
+        btn.blur();
+        b.onClick();
+      });
+      btns.append(btn);
+    }
+    el.append(text, btns);
+    container.append(el);
+  }
 }
 
 function setupMainMenu() {
@@ -4275,7 +4686,8 @@ function setupMainMenu() {
   const closeModal = () => {
     settingsModal.hidden = true;
   };
-  document.getElementById("menu-start")!.addEventListener("click", () => {
+  const startGame = (loadSlot: SaveSlot | null) => {
+    pendingLoadSlot = loadSlot;
     sound.unlock();
     menu.hidden = true;
     gameStarted = true;
@@ -4288,7 +4700,38 @@ function setupMainMenu() {
     document.getElementById("menu-back")!.textContent = "Close";
     if (activeDifficulty) renderDifficultyChoice(activeDifficulty);
     void main();
+  };
+  // New Game keeps the old Start behaviour (whatever world the server is running, menu difficulty).
+  document.getElementById("menu-start")!.addEventListener("click", () => startGame(null));
+  document.getElementById("menu-continue")!.addEventListener("click", () => startGame("autosave"));
+  const loadPanel = document.getElementById("menu-load-panel")!;
+  document.getElementById("menu-load")!.addEventListener("click", () => {
+    mainPanel.hidden = true;
+    loadPanel.hidden = false;
   });
+  document.getElementById("menu-load-back")!.addEventListener("click", () => {
+    loadPanel.hidden = true;
+    mainPanel.hidden = false;
+  });
+  // Continue / Load Game only show once the server reports saves (silently absent if it's down).
+  fetch(SAVES_URL)
+    .then((res) => res.json() as Promise<{ saves: SaveInfo[] }>)
+    .then(({ saves }) => {
+      if (gameStarted) return;
+      document.getElementById("menu-continue")!.hidden = !saves.some((sv) => sv.slot === "autosave");
+      document.getElementById("menu-load")!.hidden = saves.length === 0;
+      renderSaveRows(
+        document.getElementById("menu-load-list")!,
+        saves.map((sv) => ({
+          slot: sv.slot,
+          info: sv,
+          buttons: [{ label: "Load", onClick: () => startGame(sv.slot) }],
+        }))
+      );
+    })
+    .catch(() => {
+      /* server unreachable: New Game only */
+    });
   document.getElementById("menu-settings")!.addEventListener("click", () => {
     mainPanel.hidden = true;
     settingsPanel.hidden = false;

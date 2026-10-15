@@ -11,6 +11,8 @@ npm run dev
 
 This installs both npm workspaces (`server`, `client`) and starts the server (ws://localhost:8080) and client (http://localhost:5173) together via `concurrently`.
 
+Save files live in `server/saves/` (autosave each dawn and on server shutdown, plus 3 manual slots from in-game Settings); the main menu's Continue loads the autosave. See ROADMAP.md "Save files".
+
 Open http://localhost:5173 in two separate browser windows or tabs to simulate two players. Move with WASD or the arrow keys. Use the toolbar at the bottom of the screen (an HTML overlay, or press 1-9 / h / b / c) to pick a tool: Wood Wall (1), Stone Wall (2), Lumberjack Post (3), Farm (4), Knight Post (5), Archer Post (6), Iron Mine (7), Rock Mine (8), Break (9), House (h), Barn (b), or Church (c). Every toolbar button shows its cost or placement condition next to its label, plus "upgradeable" for buildings that level up (e.g. "Knight Post (5) — 10 iron + 5 rock (upgradeable)", "Farm (4) — Free, needs adjacent Barn"). Right-click places the selected tool; left-click always breaks (see "Breaking" below for what each tile reverts to). Press Space to attack (see Combat below).
 
 The world is 40x40 tiles, which no longer fits on screen at once, so the camera follows your own player: the world scrolls to keep you centered, while the HUD stays fixed in the top-left. Clicks are converted from screen to world coordinates through the camera offset, so placing/breaking works anywhere on the visible part of the map.

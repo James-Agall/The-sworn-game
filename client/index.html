@@ -616,6 +616,33 @@
         font-family: var(--font-serif);
       }
       #main-menu[hidden] { display: none; }
+      .menu-btn[hidden] { display: none; }
+      /* Save slots (main menu Load Game + in-game Settings): one parchment row per slot. */
+      .save-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 7px 4px;
+        font-size: 14px;
+        border-bottom: 1px solid rgba(90, 52, 24, 0.35);
+        text-align: left;
+      }
+      .save-row small { display: block; font-size: 11.5px; font-style: italic; color: var(--ink-faint); }
+      .save-row .save-btns { display: flex; gap: 6px; flex: none; }
+      .save-row button {
+        font: inherit;
+        font-size: 13px;
+        padding: 4px 10px;
+        color: var(--seal-ink);
+        background: linear-gradient(180deg, var(--seal), var(--seal-dark));
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      .save-row button.secondary { color: var(--ink); background: rgba(255, 236, 180, 0.35); }
+      .save-row button:hover { filter: brightness(1.15); }
+      .save-empty { padding: 8px 4px; font-size: 13px; font-style: italic; color: var(--ink-faint); text-align: left; }
       .menu-scroll {
         width: min(360px, calc(100vw - 32px));
         padding: 28px 28px 24px;
@@ -756,6 +783,9 @@
       #bp-bonuses li { margin: 2px 0; }
       #bp-upgrade-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
       #bp-upgrade-row[hidden] { display: none; }
+      #bp-repair-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+      #bp-repair-row[hidden] { display: none; }
+      #bp-repair-cost { font-size: 12.5px; color: var(--ink-soft); }
       #bp-upgrade-cost { font-size: 12.5px; color: var(--ink-soft); }
       /* Game over: the rider fell with no Town Center standing. */
       #game-over {
@@ -781,10 +811,17 @@
         <h1 class="menu-title">The Sworn Game</h1>
         <p class="menu-sub">A colony at the edge of the Hunger</p>
         <div id="menu-main" class="menu-panel">
-          <button id="menu-start" class="menu-btn">Start</button>
+          <button id="menu-continue" class="menu-btn" hidden>Continue</button>
+          <button id="menu-start" class="menu-btn">New Game</button>
+          <button id="menu-load" class="menu-btn secondary" hidden>Load Game</button>
           <button id="menu-settings" class="menu-btn secondary">Settings</button>
           <button id="menu-exit" class="menu-btn secondary">Exit</button>
           <p id="menu-bye" class="menu-note" hidden>Thanks for playing. You can close this tab now.</p>
+        </div>
+        <div id="menu-load-panel" class="menu-panel" hidden>
+          <div class="menu-section">Load Game</div>
+          <div id="menu-load-list"></div>
+          <button id="menu-load-back" class="menu-btn secondary">Back</button>
         </div>
         <div id="menu-settings-panel" class="menu-panel" hidden>
           <div class="menu-section">Game</div>
@@ -811,6 +848,12 @@
     <div id="settings-modal" hidden>
       <div id="settings-modal-scroll" class="menu-scroll" role="dialog" aria-modal="true" aria-label="Settings">
         <h2 class="menu-title">Settings</h2>
+        <div id="save-panel" class="menu-panel">
+          <div class="menu-section">Save Game</div>
+          <div id="save-slot-list"></div>
+          <div class="menu-section">Load</div>
+          <div id="save-load-list"></div>
+        </div>
       </div>
     </div>
     <div id="command-bar" hidden>
@@ -821,6 +864,7 @@
     <div id="control-buttons">
       <button id="pause-btn" class="control-btn">Pause</button>
       <button id="restart-btn" class="control-btn">Restart</button>
+      <button id="save-btn" class="control-btn" title="Quick save to your last-used slot">Save</button>
       <button id="settings-btn" class="control-btn">Settings</button>
       <button id="menu-btn" class="control-btn">Menu</button>
     </div>
@@ -834,6 +878,9 @@
       <ul id="bp-bonuses"></ul>
       <div id="bp-upgrade-row" hidden>
         <button id="bp-upgrade" class="econ-btn">Upgrade</button><span id="bp-upgrade-cost"></span>
+      </div>
+      <div id="bp-repair-row" hidden>
+        <button id="bp-repair" class="econ-btn">Repair</button><span id="bp-repair-cost"></span>
       </div>
     </div>
     <div id="game-over" hidden>

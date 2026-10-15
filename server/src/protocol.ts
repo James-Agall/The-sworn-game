@@ -298,6 +298,9 @@ export const BUILDING_LEVEL_SNAPSHOT_STRIDE = 2;
 // `constructionSites` is flattened, CONSTRUCTION_SNAPSHOT_STRIDE numbers per site: [tile index, target
 // TileType (what will be built / upgraded), progress 0-1000, 1 if an in-place upgrade else 0, builders working].
 export const CONSTRUCTION_SNAPSHOT_STRIDE = 5;
+// `damagedBuildings` is flattened [tile index, hp permille 0-999] pairs: every building (Town Centers
+// included) below full HP. A building missing from it is at full HP.
+export const DAMAGED_BUILDING_SNAPSHOT_STRIDE = 2;
 
 export interface TownCenterSnapshot {
   x: number;
@@ -313,7 +316,7 @@ export interface BuildingInfo {
   tile: TileType;
   level: number;
   maxLevel: number;
-  // Only Town Centers have hit points; null otherwise.
+  // Hit points of any building mobs can damage (null for the rest, e.g. construction sites, farm plots).
   hp: number | null;
   maxHp: number | null;
   // e.g. "Workers 2", "Beds 3/5", "Population base 10".
@@ -323,6 +326,9 @@ export interface BuildingInfo {
   upgrade: { cost: string; enabled: boolean; reason: string } | null;
   // 0-1 when a construction / upgrade is queued here, else null.
   construction: number | null;
+  // Manual repair (null while the building is at full HP): the materials it costs now ("Free" when
+  // already paid) and why it can't be ordered, if so.
+  repair: { cost: string; enabled: boolean; reason: string } | null;
 }
 
 export type ClientMessage =
@@ -344,7 +350,14 @@ export type ClientMessage =
   | { type: "buyWithGold"; item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock" }
   | { type: "buildingInfo"; tileX: number; tileY: number }
   // Queues the in-place upgrade of the building at the tile (same rules as placing it on itself, no reach limit).
-  | { type: "upgradeBuilding"; tileX: number; tileY: number };
+  | { type: "upgradeBuilding"; tileX: number; tileY: number }
+  // Pays for the building's missing HP now and makes it the builders' first repair job.
+  | { type: "repairBuilding"; tileX: number; tileY: number }
+  // Save files (server/saves/<slot>.json). saveGame takes slot1-3 (the autosave is the server's own);
+  // loadGame replaces the shared world for everyone connected.
+  | { type: "saveGame"; slot: SaveSlot }
+  | { type: "loadGame"; slot: SaveSlot }
+  | { type: "listSaves" };
 
 export type ServerMessage =
   | {
@@ -403,13 +416,19 @@ export type ServerMessage =
       farmStages: number[];
       constructionSites: number[];
       townCenters: TownCenterSnapshot[];
+      // See DAMAGED_BUILDING_SNAPSHOT_STRIDE.
+      damagedBuildings: number[];
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).
   | { type: "event"; category: GameEventCategory; text: string }
   // Tile indices newly explored since the last one (batched a few times a second, never empty).
   | { type: "explored"; tiles: number[] }
-  | { type: "buildingInfo"; tileX: number; tileY: number; info: BuildingInfo | null };
+  | { type: "buildingInfo"; tileX: number; tileY: number; info: BuildingInfo | null }
+  // Reply to listSaves (also served as JSON by GET /saves on the same port, for the main menu).
+  | { type: "saveList"; saves: SaveInfo[] }
+  // Reply to saveGame / loadGame, to the requesting client only (`action` says which).
+  | { type: "saveResult"; ok: boolean; error?: string; slot: SaveSlot; action: "save" | "load" };
 
 export interface PlayerSnapshot {
   id: string;
@@ -420,4 +439,17 @@ export interface PlayerSnapshot {
   maxHp: number;
   // Killed with no Town Center standing to respawn at (game over unless one is rebuilt).
   dead: boolean;
+}
+
+export type SaveSlot = "autosave" | "slot1" | "slot2" | "slot3";
+export const SAVE_SLOTS: SaveSlot[] = ["autosave", "slot1", "slot2", "slot3"];
+
+// One existing save file's metadata. dayIndex is 0-based (day 1 = 0).
+export interface SaveInfo {
+  slot: SaveSlot;
+  label: string;
+  savedAt: string;
+  dayIndex: number;
+  population: number;
+  difficulty: Difficulty;
 }

@@ -99,6 +99,9 @@ shared clock steps every animated tile slot (no per-sprite timers), campfire 140
 200ms, water 450ms. Fires are phase-offset per tile by a stable hash; water stays in sync so
 neighbours line up. Each loop shares one canvas, so the box-fit scale from frame 0 holds for every
 frame. The static `campfire.png`/`lanternPost.png`/`waterTile.png` stay as fallbacks.
+The same `campfire0-3` frames double as **burning-building flames** (client `syncDamagedBuildings`):
+one pooled overlay per damaged building, 12/18/26px wide below 75/50/25% HP, on the shared clock,
+plus a soot tint on the building and a dark-tinted `fx-poof` smoke puff below 50%. No new art.
 
 **Blood splatters (6):** `bloodSplatter0-5` (small blob, medium splash, large splash, streak, pool,
 faded pool), from `art-sources/Pixel Art Blood Splatter Sprite Sheet.png` (saturated-red mask

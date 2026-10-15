@@ -12,7 +12,7 @@ const result = (ok, msg) => {
   console.log(`${ok ? "PASS" : "FAIL"} [${el()}] ${msg}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const T = { Empty: 0, Wall: 1, House: 13, TownCenter: 12, HunterHut: 50, ConstructionSite: 59 };
+const T = { Empty: 0, Wall: 1, House: 13, TownCenter: 12, HunterHut: 50, BuildersGuild: 58, ConstructionSite: 59 };
 const POI = new Set([36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48]);
 const TILE = 32;
 const REACH = TILE * 2.5;
@@ -106,9 +106,9 @@ await c.hookCall("setStock", { stock: { wood: 2000, rock: 2000, iron: 2000, tool
 await c.hookCall("setCycleTick", { tick: 0 });
 let snap = await c.freshSnap();
 
-// 1. The colony starts with 2 builders.
+// 1. The colony starts with 1 builder (a Town Center keeps one builder per level).
 const builders = snap.colonists.filter((col) => col.kind === "builder");
-result(builders.length === 2, `starts with 2 builders (got ${builders.length})`);
+result(builders.length === 1, `starts with 1 builder (got ${builders.length})`);
 result(snap.townCenters.length === 1 && snap.townCenters[0].level === 1, "one level-1 Town Center in the snapshot");
 
 // 2. Placing a House creates a construction site; the builders finish it.
@@ -162,7 +162,11 @@ const tcSpot = await placeTownCenter(c, townCenterSpots(c, snap.townCenters));
 snap = await c.freshSnap();
 result(tcSpot !== null && snap.townCenters.length === 2, `second Town Center placed (${JSON.stringify(tcSpot)})`);
 let st = await c.hookCall("constructionState");
+const postedAt = (state, x, y) => state.builders.filter((b) => b.postX === x && b.postY === y).length;
+result(postedAt(st, tcSpot.x, tcSpot.y) === 1, `new level-1 Town Center gets 1 builder (${postedAt(st, tcSpot.x, tcSpot.y)})`);
 const happinessOnly = st.happinessSpeedMultiplier;
+// Its builder is alive now, so the upgrades below would be construction sites: build them instantly.
+await c.hookCall("setInstantBuild", { enabled: true });
 result(Math.abs(st.productionSpeedMultiplier - happinessOnly) < 1e-9 && st.armyBonus === 0, "no Town Center bonus at level 1");
 c.send({ type: "setTile", tileX: tcSpot.x, tileY: tcSpot.y, tile: T.TownCenter });
 snap = await c.freshSnap();
@@ -170,6 +174,7 @@ snap = await c.freshSnap();
 st = await c.hookCall("constructionState");
 const tc2 = st.townCenters.find((t) => t.x === tcSpot.x && t.y === tcSpot.y);
 result(tc2?.level === 2 && tc2.hp === 1500, `Town Center upgraded to level 2 with 1500 HP (${JSON.stringify(tc2)})`);
+result(postedAt(st, tcSpot.x, tcSpot.y) === 2, `level-2 Town Center has 2 builders (${postedAt(st, tcSpot.x, tcSpot.y)})`);
 result(
   Math.abs(st.productionSpeedMultiplier / st.happinessSpeedMultiplier - 1.05) < 1e-9 && Math.abs(st.armyBonus - 0.05) < 1e-9,
   `level-2 Town Center: +5% productivity (x${(st.productionSpeedMultiplier / st.happinessSpeedMultiplier).toFixed(3)}) and +5% damage (${st.armyBonus})`
@@ -184,6 +189,26 @@ result(
   c.info?.info?.name === "Town Center" && c.info.info.level === 2 && c.info.info.hp === 1500 && c.info.info.upgrade?.cost.startsWith("Lv3"),
   `buildingInfo for the Town Center: ${JSON.stringify(c.info?.info && { name: c.info.info.name, level: c.info.info.level, hp: c.info.info.hp, upgrade: c.info.info.upgrade, bonuses: c.info.info.bonuses.length })}`
 );
+
+// 5b. Level 3 (the Keep): 3 builders. A Builders' Guild still adds one builder per level.
+c.send({ type: "setTile", tileX: tcSpot.x, tileY: tcSpot.y, tile: T.TownCenter });
+await c.freshSnap();
+await c.freshSnap();
+st = await c.hookCall("constructionState");
+const tcKeep = st.townCenters.find((t) => t.x === tcSpot.x && t.y === tcSpot.y);
+result(tcKeep?.level === 3 && postedAt(st, tcSpot.x, tcSpot.y) === 3, `level-3 Town Center has 3 builders (level ${tcKeep?.level}, ${postedAt(st, tcSpot.x, tcSpot.y)})`);
+const guildSpot = freeTilesNearMe(c)[0];
+c.send({ type: "setTile", tileX: guildSpot.x, tileY: guildSpot.y, tile: T.BuildersGuild });
+await c.freshSnap();
+c.send({ type: "setTile", tileX: guildSpot.x, tileY: guildSpot.y, tile: T.BuildersGuild });
+await c.freshSnap();
+await c.freshSnap();
+st = await c.hookCall("constructionState");
+result(
+  c.tileAt(guildSpot.x, guildSpot.y) === T.BuildersGuild && postedAt(st, guildSpot.x, guildSpot.y) === 2,
+  `level-2 Builders' Guild has 2 builders (${postedAt(st, guildSpot.x, guildSpot.y)})`
+);
+await c.hookCall("setInstantBuild", { enabled: false });
 
 // 6. Destroy every Town Center and kill the player: game over (dead, no respawn).
 for (const tc of st.townCenters) await c.hookCall("damageTownCenter", { tx: tc.x, ty: tc.y, amount: 1e6 });

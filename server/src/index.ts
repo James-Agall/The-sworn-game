@@ -1,5 +1,9 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   ClientMessage,
   ServerMessage,
@@ -35,6 +39,9 @@ import {
   VISION_RADIUS_COLONIST,
   VISION_RADIUS_BUILDING,
   VISION_RADIUS_START,
+  SaveSlot,
+  SaveInfo,
+  SAVE_SLOTS,
 } from "./protocol.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
@@ -107,7 +114,7 @@ interface Colonist {
   rallyX: number;
   rallyY: number;
 
-  // Only read by updateGuardColonist (see STANCE_ALERT_RANGE_TILES / STANCE_CHASE_LEASH_TILES).
+  // Only read by updateGuardColonist (see STANCE_ALERT_RANGE_TILES / LINE_LEASH_TILES).
   stance: Stance;
 
   poisonTicksRemaining: number;
@@ -120,11 +127,15 @@ interface Colonist {
 
   // Builder: resourceKey of the construction site it is assigned to (see updateBuilder).
   buildSiteKey: string | null;
+  // Builder: resourceKey of the damaged building it is repairing (see planRepair). Missing in old saves.
+  repairKey?: string | null;
   // Farmhand: length of the current produce cycle (chopTicksRemaining counts it down), for the art stage.
   cycleTicksTotal: number;
 }
 
-type MobTargetType = "colonist" | "player" | "townCenter";
+// "building": any damageable non-Town-Center building, keyed by its tile ("x,y"), walls included
+// (a wall is only targeted to breach it; see pickBuildingTarget).
+type MobTargetType = "colonist" | "player" | "townCenter" | "building";
 
 interface Mob {
   id: string;
@@ -168,6 +179,11 @@ interface Mob {
   withdrawUntilTick: number;
   withdrawFromX: number;
   withdrawFromY: number;
+  // Building / Town Center targets: the tile to attack from, chosen by pickBuildingTarget (the route
+  // there is known to be walkable). Only used while approachFor equals targetId; missing in old saves.
+  approachFor?: string | null;
+  approachX?: number;
+  approachY?: number;
 }
 
 // Defaults for the Mob fields every creation site shares (spread into each Mob literal).
@@ -179,6 +195,9 @@ const MOB_MARK_DEFAULTS = {
   withdrawUntilTick: 0,
   withdrawFromX: 0,
   withdrawFromY: 0,
+  approachFor: null,
+  approachX: -1,
+  approachY: -1,
 };
 
 interface RespawnRequest {
@@ -255,6 +274,39 @@ const farmPlots = new Map<string, FarmPlotState>();
 const minesPlacedOnOre = new Set<string>();
 const archerTowerWallType = new Map<string, TileType>();
 const buildingLevel = new Map<string, number>();
+
+// ---- Building hit points (mobs damage buildings; builders repair them) ----
+// Max HP by building class, times BUILDING_HP_LEVEL_MULT[level - 1]. Town Centers keep their own HP
+// (TOWN_CENTER_MAX_HP_BY_LEVEL). Classes: see buildingBaseHp.
+const BUILDING_HP_WALL = 60;
+const BUILDING_HP_SMALL = 120;
+const BUILDING_HP_WORKPLACE = 180;
+const BUILDING_HP_BIG = 250;
+const BUILDING_HP_LEVEL_MULT = [1, 1.4, 1.8];
+// A mob with no guard / player to fight goes for the nearest building; it breaks through a wall only
+// when no route exists, or the route is longer than BREACH_DETOUR_FACTOR x the straight distance (and
+// longer than BREACH_MIN_ROUTE_TILES, so short walks around a wall end are never breached).
+const BREACH_DETOUR_FACTOR = 3;
+const BREACH_MIN_ROUTE_TILES = 12;
+// Route cost of crossing one wall tile in the breach search (a walkable tile costs 1).
+const BREACH_WALL_COST = 8;
+// How many of the nearest buildings get a route check per target pick.
+const BUILDING_TARGET_CANDIDATES = 3;
+// Repair: a builder heals max HP over REPAIR_SECONDS_FULL (times its builder rate); materials cost
+// REPAIR_COST_FRACTION of the building's own placement cost for a full 0 -> max repair, charged
+// (rounded up) for the HP missing when the repair starts.
+const REPAIR_SECONDS_FULL = 60;
+const REPAIR_COST_FRACTION = 0.3;
+// Builders don't start (and walk away from) a repair with a mob this close to the building.
+const REPAIR_MOB_CLEARANCE_TILES = 8;
+// Current HP of damaged buildings (resourceKey); a building missing here is at full HP.
+const buildingHp = new Map<string, number>();
+// HP of repair already paid for per building (manual Repair pays up front, builders pay when they start).
+const repairPaid = new Map<string, number>();
+// Manual Repair requests (resourceKey), served before the automatic most-damaged pick.
+const repairQueue: string[] = [];
+// Cached tiles of damageable non-wall buildings for mob target picks; rebuilt when tiles change.
+let buildingTargetsDirty = true;
 const taskForces = new Map<number, string[]>();
 
 function pruneTaskForces() {
@@ -547,6 +599,7 @@ function resourceKey(tx: number, ty: number): string {
 function releaseResourceReservation(c: Colonist) {
   // A builder leaving its site (night shelter, death, desertion) frees its slot there; the site stays.
   c.buildSiteKey = null;
+  c.repairKey = null;
   if (c.targetWildlifeId !== null) {
     const animal = wildlife.get(c.targetWildlifeId);
     if (animal && animal.reservedBy === c.id) animal.reservedBy = null;
@@ -577,11 +630,52 @@ const STANCE_ALERT_RANGE_TILES: Record<Stance, number> = {
   normal: GUARD_ALERT_RANGE_TILES,
   aggressive: 12,
 };
-const STANCE_CHASE_LEASH_TILES: Record<Stance, number> = {
-  defensive: 2,
-  normal: 10,
-  aggressive: 20,
+// Line discipline: how far (tiles) a soldier may leave its rally slot to fight. Only mobs within this
+// leash + attack range of the slot are picked up, a chase past it is dropped, and the unit walks back
+// to its slot afterwards, so the line re-forms instead of dissolving. (Replaced the old 2/10/20 leash.)
+const LINE_LEASH_TILES: Record<Stance, number> = {
+  defensive: 1.5,
+  normal: 4,
+  aggressive: 8,
 };
+// Archers don't advance past the front rank: the nearest friendly melee soldier (within this many
+// tiles of the archer) to the target marks the front.
+const ARCHER_FRONT_RANK_SCAN_TILES = 6;
+
+// Mob aggro: a guard / militia or a player is only a mob target within these ranges (tiles) of the mob;
+// otherwise the mob goes for buildings. A mob already on a unit drops it past MOB_AGGRO_DROP_FACTOR x.
+const MOB_AGGRO_RANGE_GUARD_TILES = 9;
+const MOB_AGGRO_RANGE_PLAYER_TILES = 7;
+const MOB_AGGRO_DROP_FACTOR = 1.5;
+// A mob (or marching raid group) heading for the Town Center turns on any non-wall building it passes
+// within this many tiles ("if they find houses first they destroy the houses").
+const MOB_BUILDING_AGGRO_TILES = 6;
+
+// ---- Bodies (separation) ----
+// Body radii in px: colonists, and mobs by kind (about 0.9 x the client's MOB_VISUALS radius). Players
+// have no body. separateBodies pushes overlapping bodies apart after everyone has moved.
+const COLONIST_BODY_RADIUS = 7;
+const PLAYER_BODY_RADIUS = 8;
+const MOB_BODY_RADIUS: Record<MobKind, number> = {
+  goblin: 7,
+  wolf: 7.5,
+  goblinCrossbow: 7,
+  orc: 9,
+  skeleton: 8,
+  armoredOrc: 10,
+  giantSpider: 8.5,
+  darkShaman: 7.5,
+  troll: 12,
+  ogre: 14,
+  banditClubman: 7.5,
+  banditArcher: 7.5,
+  banditElite: 9,
+  halfLatch: 5.5,
+};
+const SEPARATION_ITERATIONS = 2;
+// Share of an overlap a stationary / attacking body takes vs a moving one (normalised per pair).
+const SEPARATION_WEIGHT_STILL = 0.3;
+const SEPARATION_WEIGHT_MOVING = 0.7;
 // Nothing within this many tiles of an active ward source (a staffed Ward Stone, or Saint Wren's
 // Abbey, which is always warded) can be chosen as a mob target. See activeWardSources.
 const WARD_RADIUS_TILES = 12;
@@ -917,8 +1011,21 @@ const RAID_LOITER_CHANCE_PER_TICK = 1 / (TICK_RATE * 3);
 const RAID_ENGAGE_RANGE_TILES = 8;
 // Followers may move this much faster than the group pace to catch up with their formation slot.
 const RAID_FOLLOWER_CATCHUP = 1.25;
-// Formation slots: golden-angle spiral, slot i at radius RAID_FORMATION_SPACING_TILES * sqrt(i).
-const RAID_FORMATION_SPACING_TILES = 0.7;
+// Formation: heading-relative staggered rows per faction (see raidFormationSlots). Slot spacing is
+// RAID_FORMATION_SPACING_BODIES x the group's mean body diameter; heavies (troll / ogre) take the front
+// centre, ranged kinds the rear rows. On contact rows are released one by one, RAID_RELEASE_ROW_TICKS apart.
+type RaidFormationShape = "wedge" | "line" | "column";
+const RAID_FORMATION_SHAPE: Record<RaidFactionId, RaidFormationShape> = {
+  wolfPack: "wedge",
+  banditBand: "line",
+  greenskinWarband: "column",
+  darkHost: "column",
+};
+const RAID_FORMATION_SPACING_BODIES = 1.6;
+const RAID_WEDGE_LOOSENESS = 1.3;
+const RAID_RELEASE_ROW_TICKS = Math.round(TICK_RATE * 0.4);
+// Heading smoothing per tick (path corners would otherwise swing the whole formation each tile).
+const RAID_HEADING_SMOOTHING = 0.15;
 const RAID_MARCH_REPATH_TICKS = TICK_RATE * 2;
 
 const TROLL_REGEN_DELAY_TICKS = TICK_RATE * 4;
@@ -1508,6 +1615,7 @@ function spawnColonistForPost(
     targetWildlifeId: null,
     carryAmount: 0,
     buildSiteKey: null,
+    repairKey: null,
     cycleTicksTotal: 0,
   };
   colonist.cycleTicksTotal = colonist.chopTicksRemaining;
@@ -1895,21 +2003,15 @@ function resolveFoodHutPlacement(tx: number, ty: number, hutType: TileType, kind
   spawnColonistForPost(tx, ty, kind);
 }
 
-// The colony starts (and restarts) with this many builders posted at the Town Center.
-const STARTING_BUILDERS = 2;
-
-// Tops the Town Center builders (builders posted at any Town Center, alive or queued to respawn) back
-// up to STARTING_BUILDERS, spawning the missing ones at (tx, ty). Runs at world-gen and whenever a new
-// Town Center is built, so a colony that lost its Town Center and its builders can rebuild.
-function topUpTownCenterBuilders(tx: number, ty: number) {
+// Each Town Center keeps one builder per level (1 / 2 / 3) posted at it; the colony starts with one.
+// Tops that Town Center's builders (alive or queued to respawn there) back up to its level. Runs at
+// world-gen, whenever a Town Center is built or upgraded, so a colony that lost its Town Center and its
+// builders can rebuild. (Builders' Guild builders are separate: one per Guild level.)
+function topUpTownCenterBuilders(tc: TownCenter) {
   let have = 0;
-  for (const c of colonists.values()) {
-    if (c.kind === "builder" && tiles[tileIndex(c.postX, c.postY)] !== TileType.BuildersGuild) have++;
-  }
-  for (const q of respawnQueue) {
-    if (q.kind === "builder" && tiles[tileIndex(q.tx, q.ty)] !== TileType.BuildersGuild) have++;
-  }
-  for (let i = have; i < STARTING_BUILDERS; i++) spawnColonistForPost(tx, ty, "builder");
+  for (const c of colonists.values()) if (c.kind === "builder" && c.postX === tc.x && c.postY === tc.y) have++;
+  for (const q of respawnQueue) if (q.kind === "builder" && q.tx === tc.x && q.ty === tc.y) have++;
+  for (let i = have; i < tc.level; i++) spawnColonistForPost(tc.x, tc.y, "builder");
 }
 
 // A new Town Center (instant when none stands or no builder is alive; see handleSetTileInner), or a
@@ -1922,13 +2024,15 @@ function resolveTownCenterPlacement(tx: number, ty: number) {
     existing.level++;
     existing.hp = Math.min(townCenterMaxHp(existing.level), existing.hp + townCenterMaxHp(existing.level) - oldMax);
     announceUpgrade(TileType.TownCenter, existing.level);
+    topUpTownCenterBuilders(existing);
     return;
   }
   tiles[tileIndex(tx, ty)] = TileType.TownCenter;
-  townCenters.push({ x: tx, y: ty, level: 1, hp: townCenterMaxHp(1) });
+  const tc: TownCenter = { x: tx, y: ty, level: 1, hp: townCenterMaxHp(1) };
+  townCenters.push(tc);
   broadcastTileUpdate(tx, ty, TileType.TownCenter);
   revealAround(tx, ty, START_VISION_OFFSETS);
-  topUpTownCenterBuilders(tx, ty);
+  topUpTownCenterBuilders(tc);
   broadcastEvent("build", "A new Town Center stands");
 }
 
@@ -1946,6 +2050,8 @@ function destroyTownCenter(tc: TownCenter) {
 }
 
 function processRespawnQueue() {
+  // Replacements only arrive by day: the queue (and its timers) simply waits out the night.
+  if (isNightNow()) return;
   for (let i = respawnQueue.length - 1; i >= 0; i--) {
     const req = respawnQueue[i];
     // A builder whose Town Center fell respawns at the nearest one still standing.
@@ -3085,6 +3191,10 @@ function updateBuilder(c: Colonist, dt: number) {
     case "building":
       if (site) site.progress += builderRate(c);
       return;
+    case "toRepair":
+    case "repairing":
+      if (updateRepair(c, dt)) return;
+      break;
     case "toPost":
       advanceAlongPath(c, dt, COLONIST_SPEED);
       if (c.path.length === 0) c.state = "idle";
@@ -3107,6 +3217,14 @@ function updateBuilder(c: Colonist, dt: number) {
     c.state = "carrying";
     return;
   }
+  // Nothing to build: repair (manual requests first, then the most damaged building).
+  const repair = planRepair(c);
+  if (repair) {
+    c.repairKey = repair.key;
+    c.path = repair.path;
+    c.state = "toRepair";
+    return;
+  }
   if (c.state === "toPost") return;
   const post = tileToPixelCenter({ x: c.postX, y: c.postY });
   if (Math.hypot(post.x - c.x, post.y - c.y) > TILE_SIZE * 1.6) {
@@ -3117,6 +3235,180 @@ function updateBuilder(c: Colonist, dt: number) {
       c.state = "toPost";
     }
   }
+}
+
+// ---- Repair: idle builders (by day, like all builder work) heal damaged buildings ----
+// "Not enough materials to repair" is announced at most this often.
+const REPAIR_SHORT_TOAST_TICKS = TICK_RATE * 30;
+let lastRepairShortToastTick = -Infinity;
+
+function announceRepairShort() {
+  if (cycleTick - lastRepairShortToastTick < REPAIR_SHORT_TOAST_TICKS && cycleTick >= lastRepairShortToastTick) return;
+  lastRepairShortToastTick = cycleTick;
+  broadcastEvent("build", "Not enough materials to repair");
+}
+
+// Materials for `hp` HP of repair at a tile: REPAIR_COST_FRACTION of the building's placement cost
+// (times its level) pro rata to hp / max HP, each resource rounded up.
+function repairCost(tx: number, ty: number, hp: number): Cost {
+  const s = structureHp(tx, ty);
+  if (!s || hp <= 0) return {};
+  const t = tiles[tileIndex(tx, ty)] as TileType;
+  const base = placementCost(upgradePlacementTile(t) ?? t, TileType.Empty, tx, ty);
+  const fraction = REPAIR_COST_FRACTION * currentBuildingLevel(tx, ty, t) * Math.min(1, hp / s.max);
+  const cost: Cost = {};
+  for (const [key, amount] of Object.entries(base)) {
+    if (amount) cost[key as ResourceKey] = Math.ceil(amount * fraction - 1e-9);
+  }
+  return cost;
+}
+
+// HP still to be paid for before the building at a tile is back to full.
+function unpaidRepairHp(tx: number, ty: number): number {
+  const s = structureHp(tx, ty);
+  return s ? Math.max(0, s.max - s.hp - (repairPaid.get(resourceKey(tx, ty)) ?? 0)) : 0;
+}
+
+function mobNearTile(tile: TileCoord, rangeTiles: number): boolean {
+  const c = tileToPixelCenter(tile);
+  const r = rangeTiles * TILE_SIZE;
+  for (const m of mobs.values()) {
+    if (isDormantGuardian(m) || m.passive || (m.isDeserter && !m.deserterActive)) continue;
+    if (Math.hypot(m.x - c.x, m.y - c.y) <= r) return true;
+  }
+  return false;
+}
+
+function repairBuilderCount(key: string): number {
+  let n = 0;
+  for (const c of colonists.values()) if (c.repairKey === key) n++;
+  return n;
+}
+
+// The repair job for an idle builder: manual Repair requests first (in request order), then the most
+// damaged building (lowest HP fraction). Skips jobs with a mob nearby, full crews, unaffordable ones
+// (announced) and unreachable ones.
+function planRepair(c: Colonist): { key: string; path: TileCoord[] } | null {
+  // Drop manual requests for buildings that are gone or already back to full.
+  for (let i = repairQueue.length - 1; i >= 0; i--) {
+    const tile = keyToTile(repairQueue[i]);
+    const s = tile ? structureHp(tile.x, tile.y) : null;
+    if (!s || s.hp >= s.max) repairQueue.splice(i, 1);
+  }
+  const jobs: { key: string; tile: TileCoord; rank: number }[] = repairQueue.map((key, i) => ({ key, tile: keyToTile(key)!, rank: i - repairQueue.length }));
+  const auto = Array.from(buildingHp.keys()).concat(townCenters.map((tc) => resourceKey(tc.x, tc.y)));
+  for (const key of auto) {
+    if (repairQueue.includes(key)) continue;
+    const tile = keyToTile(key);
+    const s = tile ? structureHp(tile.x, tile.y) : null;
+    if (tile && s && s.hp < s.max) jobs.push({ key, tile, rank: s.hp / s.max });
+  }
+  jobs.sort((p, q) => p.rank - q.rank);
+  const start = tileOfPixel(c.x, c.y);
+  let tried = 0;
+  let short = false;
+  for (const job of jobs) {
+    if (tried >= BUILDER_ROUTE_CANDIDATES) break;
+    if (repairBuilderCount(job.key) >= BUILDER_MAX_PER_SITE || mobNearTile(job.tile, REPAIR_MOB_CLEARANCE_TILES)) continue;
+    if (!canAfford(repairCost(job.tile.x, job.tile.y, unpaidRepairHp(job.tile.x, job.tile.y)))) {
+      short = true;
+      continue;
+    }
+    tried++;
+    const center = tileToPixelCenter(job.tile);
+    if (Math.hypot(center.x - c.x, center.y - c.y) <= BUILDER_WORK_RANGE_PX) return { key: job.key, path: [] };
+    const approach = findAdjacentWalkable(job.tile.x, job.tile.y);
+    const path = approach ? findPath(start, approach) : null;
+    if (path) return { key: job.key, path };
+  }
+  if (short) announceRepairShort();
+  return null;
+}
+
+// A builder's "toRepair" (walking) / "repairing" (healing) step. False when the job ended this tick
+// and the builder should look for new work right away.
+function updateRepair(c: Colonist, dt: number): boolean {
+  const key = c.repairKey ?? null;
+  const tile = key ? keyToTile(key) : null;
+  const s = tile ? structureHp(tile.x, tile.y) : null;
+  const endJob = () => {
+    c.repairKey = null;
+    c.path = [];
+    c.state = "idle";
+  };
+  if (!key || !tile || !s || s.hp >= s.max || mobNearTile(tile, REPAIR_MOB_CLEARANCE_TILES)) {
+    endJob();
+    return false;
+  }
+  if (c.state === "toRepair") {
+    advanceAlongPath(c, dt, COLONIST_SPEED);
+    if (c.path.length > 0) return true;
+    const center = tileToPixelCenter(tile);
+    if (Math.hypot(center.x - c.x, center.y - c.y) > BUILDER_WORK_RANGE_PX) {
+      endJob();
+      c.idleCooldown = BUILDER_IDLE_RETRY_TICKS;
+      return true;
+    }
+    c.state = "repairing";
+    return true;
+  }
+  // Construction comes first: a newly opened site pulls the builder off its repair (paid HP is kept).
+  if (cycleTick % BUILDER_IDLE_RETRY_TICKS === 0) {
+    const plan = planBuildSite(c);
+    if (plan) {
+      endJob();
+      c.buildSiteKey = plan.key;
+      c.path = plan.path;
+      c.state = "carrying";
+      return true;
+    }
+  }
+  const missing = s.max - s.hp;
+  let paid = repairPaid.get(key) ?? 0;
+  if (paid <= 1e-6) {
+    const cost = repairCost(tile.x, tile.y, missing);
+    if (!canAfford(cost)) {
+      announceRepairShort();
+      endJob();
+      c.idleCooldown = BUILDER_IDLE_RETRY_TICKS;
+      return true;
+    }
+    spend(cost);
+    paid = missing;
+  }
+  const heal = Math.min(paid, missing, (s.max / (REPAIR_SECONDS_FULL * TICK_RATE)) * builderRate(c));
+  healStructure(tile.x, tile.y, heal);
+  paid -= heal;
+  if (heal >= missing - 1e-6) {
+    repairPaid.delete(key);
+    const queued = repairQueue.indexOf(key);
+    if (queued >= 0) repairQueue.splice(queued, 1);
+    endJob();
+    return true;
+  }
+  if (paid > 1e-6) repairPaid.set(key, paid);
+  else repairPaid.delete(key);
+  return true;
+}
+
+// Manual Repair (building info panel): pays for the missing HP now and puts the building at the front
+// of the builders' repair work (served by day, like all builder work).
+function handleRepairBuilding(player: Player, tx: number, ty: number) {
+  if (player.dead) return;
+  const s = structureHp(tx, ty);
+  const key = resourceKey(tx, ty);
+  if (!s || s.hp >= s.max || repairQueue.includes(key)) return;
+  const unpaid = unpaidRepairHp(tx, ty);
+  if (unpaid > 0) {
+    const cost = repairCost(tx, ty, unpaid);
+    if (!canAfford(cost)) {
+      sendEvent(player, "build", "Not enough materials to repair");
+      return;
+    }
+    spend(cost);
+    repairPaid.set(key, (repairPaid.get(key) ?? 0) + unpaid);
+  }
+  repairQueue.push(key);
 }
 
 function houseCapacity(t: TileType): number {
@@ -3245,6 +3537,245 @@ function findNearestMobInRange(
   return best;
 }
 
+// ---- Engagement slots ----
+// A melee attacker claims one slot on a ring around its target and fights from there, so several
+// attackers spread around a target instead of stacking on one point. Unit targets (mob / colonist /
+// player) get N slots at angles 2*pi*i/N; buildings and Town Centers get the walkable tiles of their
+// 8-tile ring reachable from the approach tile pickBuildingTarget chose. Ranged attackers take none.
+// Keys: "m:<mobId>", "c:<colonistId>", "p:<playerId>", "b:<x,y>" (buildings and Town Centers).
+const slotClaims = new Map<string, Map<number, string>>();
+const attackerSlots = new Map<string, { key: string; slot: number }>();
+
+function releaseSlot(attackerId: string) {
+  const claim = attackerSlots.get(attackerId);
+  if (!claim) return;
+  attackerSlots.delete(attackerId);
+  const claims = slotClaims.get(claim.key);
+  if (claims && claims.get(claim.slot) === attackerId) {
+    claims.delete(claim.slot);
+    if (claims.size === 0) slotClaims.delete(claim.key);
+  }
+}
+
+// Keeps the attacker's slot on `key` while it is still usable (finite score), else claims the free
+// slot with the lowest score. -1 when every usable slot is taken (the attacker then goes straight in).
+function claimSlot(attackerId: string, key: string, count: number, score: (slot: number) => number): number {
+  const held = attackerSlots.get(attackerId);
+  if (held && held.key === key && held.slot < count && score(held.slot) !== Infinity) return held.slot;
+  releaseSlot(attackerId);
+  let claims = slotClaims.get(key);
+  let best = -1;
+  let bestScore = Infinity;
+  for (let i = 0; i < count; i++) {
+    if (claims?.has(i)) continue;
+    const s = score(i);
+    if (s < bestScore) {
+      bestScore = s;
+      best = i;
+    }
+  }
+  if (best < 0) return -1;
+  if (!claims) {
+    claims = new Map();
+    slotClaims.set(key, claims);
+  }
+  claims.set(best, attackerId);
+  attackerSlots.set(attackerId, { key, slot: best });
+  return best;
+}
+
+function mobSlotKey(mob: Mob): string | null {
+  if (!mob.targetType || mob.targetId === null) return null;
+  if (mob.targetType === "colonist") return `c:${mob.targetId}`;
+  if (mob.targetType === "player") return `p:${mob.targetId}`;
+  return `b:${mob.targetId}`;
+}
+
+// Once a second: frees slots of dead attackers and of attackers that have moved on to another target.
+function pruneSlotClaims() {
+  for (const [id, claim] of attackerSlots) {
+    const mob = mobs.get(id);
+    const c = mob ? undefined : colonists.get(id);
+    const current = mob ? (mob.melee ? mobSlotKey(mob) : null) : c && c.targetMobId ? `m:${c.targetMobId}` : null;
+    if (current !== claim.key) releaseSlot(id);
+  }
+}
+
+// The point a melee attacker (at ax, ay, body ar, attack range `range`) should fight `key` from: a ring
+// slot around the target at (tx, ty) with body radius tr. null: no free slot, go straight at the target.
+function unitSlotPoint(
+  attackerId: string, ax: number, ay: number, ar: number, range: number,
+  key: string, tx: number, ty: number, tr: number
+): { x: number; y: number } | null {
+  const n = tr >= 12 ? 10 : tr >= 9 ? 8 : 6;
+  const radius = Math.min(range - 0.5, Math.max(range * 0.9, tr + ar + 1));
+  const a0 = Math.atan2(ay - ty, ax - tx);
+  const point = (i: number) => {
+    const a = (2 * Math.PI * i) / n;
+    return { x: tx + Math.cos(a) * radius, y: ty + Math.sin(a) * radius };
+  };
+  const slot = claimSlot(attackerId, key, n, (i) => {
+    const p = point(i);
+    if (!isWalkablePixel(p.x, p.y)) return Infinity;
+    const da = Math.abs(((((2 * Math.PI * i) / n - a0) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
+    return da;
+  });
+  return slot < 0 ? null : point(slot);
+}
+
+// Clockwise 8-ring around a tile; consecutive entries are edge-adjacent, so a run of walkable entries
+// is one connected strip.
+const RING_8: ReadonlyArray<readonly [number, number]> = [
+  [-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0],
+];
+
+// The ring tile a mob attacks building (bx, by) from: the walkable strip of the building's 8-ring that
+// contains `approach` (so it is reachable), nearest free tile first. null without an approach tile.
+function buildingSlotTile(mob: Mob, key: string, bx: number, by: number, approach: TileCoord | null): TileCoord | null {
+  if (!approach) return null;
+  const start = RING_8.findIndex(([dx, dy]) => bx + dx === approach.x && by + dy === approach.y);
+  if (start < 0) return approach;
+  const reachable = new Array<boolean>(8).fill(false);
+  reachable[start] = true;
+  for (const dir of [1, 7]) {
+    for (let k = 1; k < 8; k++) {
+      const i = (start + dir * k) % 8;
+      if (!isWalkableTile(bx + RING_8[i][0], by + RING_8[i][1])) break;
+      reachable[i] = true;
+    }
+  }
+  const slot = claimSlot(mob.id, key, 8, (i) => {
+    if (!reachable[i]) return Infinity;
+    const c = tileToPixelCenter({ x: bx + RING_8[i][0], y: by + RING_8[i][1] });
+    return Math.hypot(c.x - mob.x, c.y - mob.y);
+  });
+  return slot < 0 ? approach : { x: bx + RING_8[slot][0], y: by + RING_8[slot][1] };
+}
+
+// Moves a melee attacker toward `goal` (its slot, or the target itself) when out of attack range:
+// close in straight once within 1.5 tiles, otherwise follow a path to the goal's tile (rate-limited).
+function approachGoal(
+  e: { x: number; y: number; path: TileCoord[]; repathCooldown: number },
+  goal: { x: number; y: number },
+  fallback: { x: number; y: number },
+  speed: number,
+  dt: number
+) {
+  if (Math.hypot(goal.x - e.x, goal.y - e.y) <= TILE_SIZE * 1.5) {
+    e.path = [];
+    if (stepRaidMobToward(e, goal.x, goal.y, speed, dt)) return;
+    goal = fallback;
+  }
+  if (e.path.length === 0 && e.repathCooldown <= 0) {
+    const goalTile = isWalkablePixel(goal.x, goal.y) ? tileOfPixel(goal.x, goal.y) : tileOfPixel(fallback.x, fallback.y);
+    e.path = findPath(tileOfPixel(e.x, e.y), goalTile) ?? [];
+    e.repathCooldown = MOB_REPATH_TICKS;
+  } else if (e.repathCooldown > 0) {
+    e.repathCooldown--;
+  }
+  advanceAlongPath(e, dt, speed);
+}
+
+// ---- Bodies: spatial hash + separation ----
+// Rebuilt every tick after everything has moved: one cell per tile (bodies are at most 28 px across,
+// so overlapping pairs are always in the same or adjacent cells). Bodies: soldiers and bishops (not the
+// Ward Priest), and every awake mob that isn't a loitering raider or a dormant deserter. Civilians keep
+// to their posts / paths and are left out, as are players.
+interface Body {
+  e: { x: number; y: number };
+  r: number;
+  w: number;
+}
+const bodies: Body[] = [];
+const cellHead = new Int32Array(WORLD_TILES_X * WORLD_TILES_Y);
+let cellNext = new Int32Array(256);
+// Ids of mobs that struck or held in attack range this tick (they take the smaller separation share).
+const mobsAttackingThisTick = new Set<string>();
+
+function collectBodies() {
+  bodies.length = 0;
+  for (const c of colonists.values()) {
+    if (!isGuardOrMilitiaKind(c.kind) && !(c.kind === "bishop" && !isWardPriest(c))) continue;
+    const still = c.state === "attacking" || c.state === "idle";
+    bodies.push({ e: c, r: COLONIST_BODY_RADIUS, w: still ? SEPARATION_WEIGHT_STILL : SEPARATION_WEIGHT_MOVING });
+  }
+  for (const m of mobs.values()) {
+    if (isDormantGuardian(m) || (m.isDeserter && !m.deserterActive) || m.passive) continue;
+    const still = mobsAttackingThisTick.has(m.id);
+    bodies.push({ e: m, r: MOB_BODY_RADIUS[m.kind] ?? 8, w: still ? SEPARATION_WEIGHT_STILL : SEPARATION_WEIGHT_MOVING });
+  }
+}
+
+function rebuildBodyHash() {
+  cellHead.fill(-1);
+  if (cellNext.length < bodies.length) cellNext = new Int32Array(bodies.length * 2);
+  for (let i = 0; i < bodies.length; i++) {
+    const tx = Math.floor(bodies[i].e.x / TILE_SIZE);
+    const ty = Math.floor(bodies[i].e.y / TILE_SIZE);
+    if (!inBounds(tx, ty)) {
+      cellNext[i] = -1;
+      continue;
+    }
+    const cell = tileIndex(tx, ty);
+    cellNext[i] = cellHead[cell];
+    cellHead[cell] = i;
+  }
+}
+
+// Moves a body by (dx, dy) unless that would put its centre on a solid tile.
+function nudgeBody(b: Body, dx: number, dy: number) {
+  const nx = b.e.x + dx;
+  const ny = b.e.y + dy;
+  if (isWalkablePixel(nx, ny)) {
+    b.e.x = nx;
+    b.e.y = ny;
+  } else if (isWalkablePixel(nx, b.e.y)) {
+    b.e.x = nx;
+  } else if (isWalkablePixel(b.e.x, ny)) {
+    b.e.y = ny;
+  }
+}
+
+// Push-apart relaxation over every overlapping pair (allies and enemies alike).
+function separateBodies() {
+  collectBodies();
+  for (let iter = 0; iter < SEPARATION_ITERATIONS; iter++) {
+    rebuildBodyHash();
+    for (let i = 0; i < bodies.length; i++) {
+      const a = bodies[i];
+      const tx = Math.floor(a.e.x / TILE_SIZE);
+      const ty = Math.floor(a.e.y / TILE_SIZE);
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          if (!inBounds(tx + ox, ty + oy)) continue;
+          for (let j = cellHead[tileIndex(tx + ox, ty + oy)]; j >= 0; j = cellNext[j]) {
+            if (j <= i) continue;
+            const b = bodies[j];
+            let dx = b.e.x - a.e.x;
+            let dy = b.e.y - a.e.y;
+            const min = a.r + b.r;
+            const d2 = dx * dx + dy * dy;
+            if (d2 >= min * min) continue;
+            let d = Math.sqrt(d2);
+            if (d < 0.01) {
+              // Exactly stacked: split along a fixed per-pair direction.
+              const ang = (i * 7 + j * 13) * 0.61803;
+              dx = Math.cos(ang);
+              dy = Math.sin(ang);
+              d = 1;
+            }
+            const overlap = min - Math.sqrt(d2);
+            const share = overlap / (a.w + b.w);
+            nudgeBody(a, (-dx / d) * share * a.w, (-dy / d) * share * a.w);
+            nudgeBody(b, (dx / d) * share * b.w, (dy / d) * share * b.w);
+          }
+        }
+      }
+    }
+  }
+  mobsAttackingThisTick.clear();
+}
+
 function isDormantGuardian(mob: Mob): boolean {
   return mob.siteId !== null && !mob.guardianActive;
 }
@@ -3353,6 +3884,7 @@ function handleCommandMove(unitIds: string[], x: number, y: number) {
     c.rallyX = x;
     c.rallyY = y;
     c.targetMobId = null;
+    commandedTargets.delete(c.id);
     c.healTargetType = null;
     c.healTargetId = null;
     c.path = [];
@@ -3360,12 +3892,17 @@ function handleCommandMove(unitIds: string[], x: number, y: number) {
   }
 }
 
+// Colonist id -> the mob an explicit Attack order sent it after: that chase ignores the line leash
+// (LINE_LEASH_TILES) and the front-rank hold. Stale entries are harmless (checked against targetMobId).
+const commandedTargets = new Map<string, string>();
+
 function handleCommandAttack(unitIds: string[], mobId: string) {
   if (!mobs.has(mobId)) return;
   for (const id of unitIds) {
     const c = colonists.get(id);
     if (!c || !isGuardOrMilitiaKind(c.kind)) continue;
     c.targetMobId = mobId;
+    commandedTargets.set(c.id, mobId);
     c.path = [];
     c.repathCooldown = 0;
   }
@@ -3570,7 +4107,7 @@ function updateGuardColonist(c: Colonist, dt: number) {
       // Skip anything the chase leash wouldn't let this unit reach (further from its rally point than
       // leash + attack range): it would only walk out to the leash, give up, and come back to
       // re-acquire the same mob, forever, e.g. against a dormant POI guardian that never moves.
-      const reachPx = STANCE_CHASE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range;
+      const reachPx = LINE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range;
       const found = findNearestMobInRange(
         c.x,
         c.y,
@@ -3595,10 +4132,27 @@ function updateGuardColonist(c: Colonist, dt: number) {
     return;
   }
 
+  const commanded = commandedTargets.get(c.id) === target.id;
+  const leashPx = LINE_LEASH_TILES[c.stance] * TILE_SIZE;
+  // The target has left the zone this unit holds (its slot's leash + attack range): let it go.
+  if (!commanded && Math.hypot(target.x - c.rallyX, target.y - c.rallyY) > leashPx + stats.range + TILE_SIZE) {
+    dropGuardTarget(c);
+    if (stats.speed === 0) c.state = "idle";
+    else returnToRally(c, dt, stats.speed);
+    return;
+  }
+
   const dist = Math.hypot(target.x - c.x, target.y - c.y);
+  // Melee fights from a ring slot around the target (see unitSlotPoint); ranged keeps its stand-off.
+  const slot =
+    stats.melee && stats.speed > 0
+      ? unitSlotPoint(c.id, c.x, c.y, COLONIST_BODY_RADIUS, stats.range, `m:${target.id}`, target.x, target.y, MOB_BODY_RADIUS[target.kind] ?? 8)
+      : null;
   if (dist <= stats.range) {
     c.state = "attacking";
     c.path = [];
+    // Slide round to the claimed slot while trading blows.
+    if (slot && Math.hypot(slot.x - c.x, slot.y - c.y) > 2) stepRaidMobToward(c, slot.x, slot.y, stats.speed * 0.5, dt);
     if (c.attackCooldownTicks > 0) {
       c.attackCooldownTicks--;
     } else {
@@ -3618,33 +4172,47 @@ function updateGuardColonist(c: Colonist, dt: number) {
     // attack range above is never interrupted). Past the leash, drop the target and head home this
     // tick; the repath cooldown holds off the next scan for a beat so the unit actually turns back
     // instead of re-acquiring the same target next tick and jittering on the leash edge.
-    if (Math.hypot(c.x - c.rallyX, c.y - c.rallyY) > STANCE_CHASE_LEASH_TILES[c.stance] * TILE_SIZE) {
-      c.targetMobId = null;
-      c.path = [];
-      c.repathCooldown = MOB_REPATH_TICKS;
+    if (!commanded && Math.hypot(c.x - c.rallyX, c.y - c.rallyY) > leashPx) {
+      dropGuardTarget(c);
       returnToRally(c, dt, stats.speed);
       return;
     }
     // A Morvain-marked mob slips away once it's past the reduced range guards can track it at.
     if (target.mark === HungerMark.Morvain && dist > STANCE_ALERT_RANGE_TILES[c.stance] * TILE_SIZE * MORVAIN_DETECTION_FACTOR) {
-      c.targetMobId = null;
-      c.path = [];
-      c.repathCooldown = MOB_REPATH_TICKS;
+      dropGuardTarget(c);
+      returnToRally(c, dt, stats.speed);
+      return;
+    }
+    // Archers never advance past the front rank: while a friendly melee soldier nearby is closer to the
+    // target, they hold their slot and wait for it to come into bow range over the front line.
+    if (!stats.melee && !commanded && behindFrontRank(c, target)) {
       returnToRally(c, dt, stats.speed);
       return;
     }
     c.state = "engaging";
-    if (c.path.length === 0 && c.repathCooldown <= 0) {
-      const start = tileOfPixel(c.x, c.y);
-      const goalTile = tileOfPixel(target.x, target.y);
-      const path = findPath(start, goalTile);
-      c.path = path ?? [];
-      c.repathCooldown = MOB_REPATH_TICKS;
-    } else if (c.repathCooldown > 0) {
-      c.repathCooldown--;
-    }
-    advanceAlongPath(c, dt, stats.speed);
+    approachGoal(c, slot ?? target, target, stats.speed, dt);
   }
+}
+
+// True while the archer `c` would step past the front rank by closing on `target`: some friendly melee
+// soldier within ARCHER_FRONT_RANK_SCAN_TILES of the archer, and none of them is more than half a tile
+// nearer the target than the archer (no melee soldier nearby: no front rank, free to advance).
+function behindFrontRank(c: Colonist, target: Mob): boolean {
+  const scanPx = ARCHER_FRONT_RANK_SCAN_TILES * TILE_SIZE;
+  let front = Infinity;
+  for (const o of colonists.values()) {
+    if (o === c || !isGuardOrMilitiaKind(o.kind) || o.kind === "archer") continue;
+    if (Math.abs(o.x - c.x) > scanPx || Math.abs(o.y - c.y) > scanPx) continue;
+    front = Math.min(front, Math.hypot(target.x - o.x, target.y - o.y));
+  }
+  return front < Infinity && Math.hypot(target.x - c.x, target.y - c.y) <= front + TILE_SIZE * 0.5;
+}
+
+function dropGuardTarget(c: Colonist) {
+  c.targetMobId = null;
+  c.path = [];
+  c.repathCooldown = MOB_REPATH_TICKS;
+  releaseSlot(c.id);
 }
 
 function findNearestInjured(
@@ -4065,9 +4633,18 @@ interface RaidGroup {
   aggroTick: number;
   state: RaidGroupState;
   leaderId: string | null;
-  // Formation offset (pixels from the leader) per follower, set when the march starts.
-  offsets: Map<string, { x: number; y: number }>;
+  // Formation slot per follower, set when the march starts: heading-relative pixels from the leader
+  // (x = to the leader's right, y = behind it) and its row (0 = the leader's front row; old saves: 0).
+  offsets: Map<string, { x: number; y: number; row?: number }>;
   repathCooldown: number;
+  // March heading (unit vector, smoothed from the leader's movement); missing in old saves.
+  headingX?: number;
+  headingY?: number;
+  // Contact: the tick row-by-row release began (see releaseRaidRows) and the leader's position then,
+  // which the rows still waiting hold their slots around. Unset while the group is not engaging.
+  engagedTick?: number;
+  anchorX?: number;
+  anchorY?: number;
 }
 const raidGroups = new Map<string, RaidGroup>();
 // Day index whose raid has already spawned, so the midday check fires once per day.
@@ -4326,15 +4903,81 @@ function raidGroupMembers(group: RaidGroup): Mob[] {
   return members;
 }
 
-// Dissolves the group: every member switches to normal per-mob targeting right away.
+// Contact: the group breaks up row by row (front row now, each further row RAID_RELEASE_ROW_TICKS
+// later; see releaseRaidRows) instead of all at once. A group that never marched has no rows and is
+// released whole.
 function engageRaidGroup(group: RaidGroup) {
-  let turned = 0;
-  for (const m of raidGroupMembers(group)) if (releaseRaidMob(m)) turned++;
-  raidGroups.delete(group.id);
-  announceDeserterTurn(turned);
+  if (group.engagedTick !== undefined) return;
+  const leader = group.leaderId ? mobs.get(group.leaderId) : undefined;
+  const members = raidGroupMembers(group);
+  const anchor = leader && leader.groupId === group.id ? leader : members[0];
+  group.engagedTick = cycleTick;
+  group.anchorX = anchor?.x ?? 0;
+  group.anchorY = anchor?.y ?? 0;
+  releaseRaidRows(group, 0);
 }
 
-// Slowest member leads (so the group moves at its pace); the rest get golden-angle spiral slots.
+function raidMemberRow(group: RaidGroup, m: Mob): number {
+  return group.state === "marching" ? (group.offsets.get(m.id)?.row ?? 0) : 0;
+}
+
+// Releases every member whose row is due; the rest hold their slot around the contact point. The
+// group is deleted once everyone is out.
+function releaseRaidRows(group: RaidGroup, dt: number) {
+  const due = Math.floor((cycleTick - (group.engagedTick ?? cycleTick)) / RAID_RELEASE_ROW_TICKS);
+  let turned = 0;
+  for (const m of raidGroupMembers(group)) {
+    if (raidMemberRow(group, m) <= due) {
+      if (releaseRaidMob(m)) turned++;
+      continue;
+    }
+    const offset = group.offsets.get(m.id);
+    if (offset && dt > 0) {
+      const p = formationPoint(group, group.anchorX ?? m.x, group.anchorY ?? m.y, offset);
+      stepRaidMobToward(m, p.x, p.y, m.speed, dt);
+    }
+  }
+  announceDeserterTurn(turned);
+  if (raidGroupMembers(group).length === 0) raidGroups.delete(group.id);
+}
+
+function isHeavyMobKind(kind: MobKind): boolean {
+  return kind === "troll" || kind === "ogre";
+}
+
+// Heading-relative slots for `count` members, front row first, each row's slots centre-out:
+// x = lateral (right of the heading), y = distance behind the front row.
+//   wedge  (wolves)               - row r holds r + 1 slots, loosely spaced (naturally staggered).
+//   line   (bandits)              - wide rows, every other row shifted half a spacing.
+//   column (greenskins, dark host) - narrow rows (2-4 wide), every other row shifted half a spacing.
+function raidFormationSlots(shape: RaidFormationShape, count: number, spacing: number): { x: number; y: number; row: number }[] {
+  const slots: { x: number; y: number; row: number }[] = [];
+  const width =
+    shape === "line" ? Math.max(2, Math.ceil(Math.sqrt(count * 2.5)))
+    : shape === "column" ? Math.min(4, Math.max(2, Math.ceil(Math.sqrt(count / 2))))
+    : 0;
+  const gap = shape === "wedge" ? spacing * RAID_WEDGE_LOOSENESS : spacing;
+  for (let row = 0; slots.length < count; row++) {
+    const w = shape === "wedge" ? row + 1 : width;
+    const shift = shape !== "wedge" && row % 2 === 1 ? gap / 2 : 0;
+    const rowSlots: { x: number; y: number; row: number }[] = [];
+    for (let i = 0; i < w; i++) rowSlots.push({ x: (i - (w - 1) / 2) * gap + shift, y: row * gap * 0.9, row });
+    rowSlots.sort((a, b) => Math.abs(a.x) - Math.abs(b.x));
+    for (const slot of rowSlots) if (slots.length < count) slots.push(slot);
+  }
+  return slots;
+}
+
+// World position of a heading-relative formation offset from (ox, oy).
+function formationPoint(group: RaidGroup, ox: number, oy: number, offset: { x: number; y: number }): { x: number; y: number } {
+  const fx = group.headingX ?? 1;
+  const fy = group.headingY ?? 0;
+  // Right of the heading in screen space (y down): (-fy, fx).
+  return { x: ox - fy * offset.x - fx * offset.y, y: oy + fx * offset.x - fy * offset.y };
+}
+
+// Slowest member leads (so the group moves at its pace) from the front-centre slot; the others fill
+// the faction's formation: heavies first (front / centre), then the melee rank and file, ranged last.
 function assignRaidLeader(group: RaidGroup): Mob | null {
   const members = raidGroupMembers(group);
   if (members.length === 0) return null;
@@ -4342,14 +4985,16 @@ function assignRaidLeader(group: RaidGroup): Mob | null {
   group.leaderId = leader.id;
   group.repathCooldown = 0;
   group.offsets.clear();
-  let slot = 1;
-  for (const m of members) {
-    if (m === leader) continue;
-    const r = RAID_FORMATION_SPACING_TILES * TILE_SIZE * Math.sqrt(slot);
-    const a = slot * 2.399963;
-    group.offsets.set(m.id, { x: r * Math.cos(a), y: r * Math.sin(a) });
-    slot++;
-  }
+  const meanR = members.reduce((sum, m) => sum + (MOB_BODY_RADIUS[m.kind] ?? 8), 0) / members.length;
+  const spacing = RAID_FORMATION_SPACING_BODIES * 2 * Math.min(12, Math.max(7, meanR));
+  const slots = raidFormationSlots(RAID_FORMATION_SHAPE[group.faction] ?? "column", members.length, spacing);
+  const origin = slots[0];
+  const rank = (m: Mob) => (isHeavyMobKind(m.kind) ? 0 : m.melee ? 1 : 2);
+  const followers = members.filter((m) => m !== leader).sort((a, b) => rank(a) - rank(b));
+  followers.forEach((m, i) => {
+    const slot = slots[i + 1];
+    group.offsets.set(m.id, { x: slot.x - origin.x, y: slot.y - origin.y, row: slot.row });
+  });
   return leader;
 }
 
@@ -4414,6 +5059,8 @@ function raidGroupShouldEngage(leader: Mob, goal: { x: number; y: number }): boo
   const range = RAID_ENGAGE_RANGE_TILES * TILE_SIZE;
   if (Math.hypot(goal.x - leader.x, goal.y - leader.y) <= range) return true;
   const wards = activeWardSources();
+  // Houses and other buildings met on the way are attacked first (see MOB_BUILDING_AGGRO_TILES).
+  if (buildingNearby(leader.x, leader.y, Infinity, wards)) return true;
   for (const c of colonists.values()) {
     if (!isGuardOrMilitiaKind(c.kind)) continue;
     if (Math.hypot(c.x - leader.x, c.y - leader.y) <= range && !isWarded(c.x, c.y, wards)) return true;
@@ -4426,7 +5073,7 @@ function raidGroupShouldEngage(leader: Mob, goal: { x: number; y: number }): boo
 }
 
 // Straight-line step toward (tx, ty); false (and no move) if the step would enter a solid tile.
-function stepRaidMobToward(m: Mob, tx: number, ty: number, speed: number, dt: number): boolean {
+function stepRaidMobToward(m: { x: number; y: number }, tx: number, ty: number, speed: number, dt: number): boolean {
   const dx = tx - m.x;
   const dy = ty - m.y;
   const d = Math.hypot(dx, dy);
@@ -4442,14 +5089,15 @@ function stepRaidMobToward(m: Mob, tx: number, ty: number, speed: number, dt: nu
 
 // Followers don't pathfind while they can walk straight to their slot (or the leader); only a
 // follower blocked both ways gets a short path to the leader, rate-limited by MOB_REPATH_TICKS.
-function moveRaidFollower(m: Mob, leader: Mob, offset: { x: number; y: number }, pace: number, dt: number) {
+function moveRaidFollower(group: RaidGroup, m: Mob, leader: Mob, offset: { x: number; y: number }, pace: number, dt: number) {
   const speed = Math.min(m.speed, pace * RAID_FOLLOWER_CATCHUP);
   if (m.path.length > 0) {
     advanceAlongPath(m, dt, speed);
     return;
   }
   if (m.repathCooldown > 0) m.repathCooldown--;
-  if (stepRaidMobToward(m, leader.x + offset.x, leader.y + offset.y, speed, dt)) return;
+  const slot = formationPoint(group, leader.x, leader.y, offset);
+  if (stepRaidMobToward(m, slot.x, slot.y, speed, dt)) return;
   if (stepRaidMobToward(m, leader.x, leader.y, speed, dt)) return;
   if (m.repathCooldown <= 0) {
     m.path = findPath(tileOfPixel(m.x, m.y), tileOfPixel(leader.x, leader.y)) ?? [];
@@ -4468,18 +5116,42 @@ function marchRaidGroup(group: RaidGroup, dt: number) {
     return;
   }
   if (group.repathCooldown > 0) group.repathCooldown--;
-  // One shared path per group. No route (e.g. a walled-in colony) holds the group where it is and
-  // retries every RAID_MARCH_REPATH_TICKS, rather than every member searching the map every second.
+  // One shared path per group, refreshed every RAID_MARCH_REPATH_TICKS rather than every member
+  // searching the map every second.
   if (leader.path.length === 0 && group.repathCooldown <= 0) {
-    leader.path = findPath(tileOfPixel(leader.x, leader.y), tileOfPixel(goal.x, goal.y)) ?? [];
+    const route = findPath(tileOfPixel(leader.x, leader.y), tileOfPixel(goal.x, goal.y));
+    // No route at all (a walled-in colony): the group breaks up and each mob picks its own target,
+    // which breaches a wall when it has to (see pickBuildingTarget).
+    if (!route) {
+      engageRaidGroup(group);
+      return;
+    }
+    leader.path = route;
     group.repathCooldown = RAID_MARCH_REPATH_TICKS;
   }
   const pace = leader.speed;
+  const lx = leader.x;
+  const ly = leader.y;
+  if (group.headingX === undefined) {
+    const d = Math.hypot(goal.x - lx, goal.y - ly) || 1;
+    group.headingX = (goal.x - lx) / d;
+    group.headingY = (goal.y - ly) / d;
+  }
   advanceAlongPath(leader, dt, pace);
+  const mx = leader.x - lx;
+  const my = leader.y - ly;
+  const moved = Math.hypot(mx, my);
+  if (moved > 0.1) {
+    const hx = (group.headingX ?? 1) * (1 - RAID_HEADING_SMOOTHING) + (mx / moved) * RAID_HEADING_SMOOTHING;
+    const hy = (group.headingY ?? 0) * (1 - RAID_HEADING_SMOOTHING) + (my / moved) * RAID_HEADING_SMOOTHING;
+    const h = Math.hypot(hx, hy) || 1;
+    group.headingX = hx / h;
+    group.headingY = hy / h;
+  }
   for (const m of raidGroupMembers(group)) {
     if (m === leader) continue;
     const offset = group.offsets.get(m.id);
-    if (offset) moveRaidFollower(m, leader, offset, pace, dt);
+    if (offset) moveRaidFollower(group, m, leader, offset, pace, dt);
     else stepRaidMobToward(m, leader.x, leader.y, Math.min(m.speed, pace * RAID_FOLLOWER_CATCHUP), dt);
   }
 }
@@ -4490,6 +5162,10 @@ function updateRaidGroups(dt: number) {
     const members = raidGroupMembers(group);
     if (members.length === 0) {
       raidGroups.delete(group.id);
+      continue;
+    }
+    if (group.engagedTick !== undefined) {
+      releaseRaidRows(group, dt);
       continue;
     }
     if (group.state === "passive") {
@@ -4546,7 +5222,14 @@ function pickMarkedUnitTarget(mob: Mob, wards: TileCoord[]): { type: MobTargetTy
   return best;
 }
 
-function pickMobTarget(mob: Mob): { type: MobTargetType; id: string | null } | null {
+// A mob target pick; `approach` (building / Town Center targets only) is the tile to attack from.
+interface PickedTarget {
+  type: MobTargetType;
+  id: string | null;
+  approach?: TileCoord;
+}
+
+function pickMobTarget(mob: Mob): PickedTarget | null {
   const wards = activeWardSources();
   if (mob.mark === HungerMark.Nemri) {
     const tc = nearestUnwardedTownCenterTarget(mob, wards);
@@ -4555,8 +5238,9 @@ function pickMobTarget(mob: Mob): { type: MobTargetType; id: string | null } | n
     const picked = pickMarkedUnitTarget(mob, wards);
     if (picked) return picked;
   }
+  // Guards / players only draw a mob within its aggro range; beyond that it goes for buildings.
   let bestGuard: Colonist | null = null;
-  let bestGuardDist = Infinity;
+  let bestGuardDist = MOB_AGGRO_RANGE_GUARD_TILES * TILE_SIZE;
   for (const c of colonists.values()) {
     if (!isGuardOrMilitiaKind(c.kind)) continue;
     if (isWarded(c.x, c.y, wards)) continue;
@@ -4569,9 +5253,9 @@ function pickMobTarget(mob: Mob): { type: MobTargetType; id: string | null } | n
   if (bestGuard) return { type: "colonist", id: bestGuard.id };
 
   let bestPlayer: Player | null = null;
-  let bestPlayerDist = Infinity;
+  let bestPlayerDist = MOB_AGGRO_RANGE_PLAYER_TILES * TILE_SIZE;
   for (const p of players.values()) {
-    if (p.dead || isWarded(p.x, p.y, wards)) continue;
+    if (p.dead || testPlayersIgnored || isWarded(p.x, p.y, wards)) continue;
     const d = Math.hypot(p.x - mob.x, p.y - mob.y);
     if (d < bestPlayerDist) {
       bestPlayerDist = d;
@@ -4580,13 +5264,42 @@ function pickMobTarget(mob: Mob): { type: MobTargetType; id: string | null } | n
   }
   if (bestPlayer) return { type: "player", id: bestPlayer.id };
 
-  // The nearest Town Center that isn't warded.
-  return nearestUnwardedTownCenterTarget(mob, wards);
+  // No guard / player to fight: the nearest unwarded building (Town Centers included).
+  return pickBuildingTarget(mob, wards);
 }
 
+// True while a guard / militia / player is targetable (unwarded) within the mob's aggro range: a mob on
+// a building drops it then.
+function unitInAggroRange(mob: Mob, wards: TileCoord[]): boolean {
+  const guardPx = MOB_AGGRO_RANGE_GUARD_TILES * TILE_SIZE;
+  const playerPx = MOB_AGGRO_RANGE_PLAYER_TILES * TILE_SIZE;
+  for (const c of colonists.values()) {
+    if (isGuardOrMilitiaKind(c.kind) && Math.hypot(c.x - mob.x, c.y - mob.y) <= guardPx && !isWarded(c.x, c.y, wards)) return true;
+  }
+  for (const p of players.values()) {
+    if (!p.dead && !testPlayersIgnored && Math.hypot(p.x - mob.x, p.y - mob.y) <= playerPx && !isWarded(p.x, p.y, wards)) return true;
+  }
+  return false;
+}
+
+// True when an unwarded non-wall building lies within MOB_BUILDING_AGGRO_TILES of (x, y) and nearer than
+// `than` px (a mob heading for a Town Center turns on houses it passes). Scans the cached candidates.
+function buildingNearby(x: number, y: number, than: number, wards: TileCoord[]): boolean {
+  const limit = Math.min(than, MOB_BUILDING_AGGRO_TILES * TILE_SIZE);
+  for (const b of buildingTargetCandidates()) {
+    const cx = b.x * TILE_SIZE + TILE_SIZE / 2;
+    const cy = b.y * TILE_SIZE + TILE_SIZE / 2;
+    if (Math.abs(cx - x) > limit || Math.abs(cy - y) > limit) continue;
+    if (Math.hypot(cx - x, cy - y) < limit && !isWarded(cx, cy, wards)) return true;
+  }
+  return false;
+}
+
+// `mob` (optional) lets a building / Town Center target resolve to the approach tile its pick chose.
 function resolveTargetPosition(
   targetType: MobTargetType,
-  targetId: string | null
+  targetId: string | null,
+  mob?: Mob
 ): { x: number; y: number } | null {
   if (targetType === "colonist") {
     if (!targetId) return null;
@@ -4598,16 +5311,252 @@ function resolveTargetPosition(
     const p = players.get(targetId);
     return p && !p.dead ? { x: p.x, y: p.y } : null;
   }
+  if (targetType === "building") {
+    const tile = targetId ? keyToTile(targetId) : null;
+    if (!tile || !isDamageableBuilding(tiles[tileIndex(tile.x, tile.y)] as TileType)) return null;
+    return tileToPixelCenter(mobApproach(mob, targetId) ?? findAdjacentWalkable(tile.x, tile.y) ?? tile);
+  }
   // Town Center targets are keyed by the Town Center's tile ("x,y").
   const tc = targetId ? townCenters.find((t) => resourceKey(t.x, t.y) === targetId) : undefined;
   if (!tc) return null;
-  const approach = findAdjacentWalkable(tc.x, tc.y);
+  const approach = mobApproach(mob, targetId) ?? findAdjacentWalkable(tc.x, tc.y);
   return tileToPixelCenter(approach ?? tc);
+}
+
+function keyToTile(key: string): TileCoord | null {
+  const [x, y] = key.split(",").map(Number);
+  return Number.isInteger(x) && Number.isInteger(y) && inBounds(x, y) ? { x, y } : null;
+}
+
+// The approach tile `mob`'s pick chose for `targetId`, while it is still walkable.
+function mobApproach(mob: Mob | undefined, targetId: string | null): TileCoord | null {
+  if (!mob || targetId === null || mob.approachFor !== targetId) return null;
+  const x = mob.approachX ?? -1;
+  const y = mob.approachY ?? -1;
+  return isWalkableTile(x, y) ? { x, y } : null;
 }
 
 function damageTownCenter(tc: TownCenter, amount: number) {
   tc.hp -= amount;
   if (tc.hp <= 0) destroyTownCenter(tc);
+}
+
+function isWallTile(t: TileType): boolean {
+  return t === TileType.Wall || t === TileType.StoneWall;
+}
+
+// Tile type -> 1 when mobs can damage it: player buildings that are solid and demolishable (walls
+// included), not construction sites, roads, farm plots or wild forage. Town Centers are separate.
+let damageableLut: Uint8Array | null = null;
+function isDamageableBuilding(t: TileType): boolean {
+  if (!damageableLut) {
+    damageableLut = new Uint8Array(256);
+    for (const b of BREAKABLE_TILES) {
+      if (b !== TileType.ConstructionSite && isSolidTile(b) && !FORAGE_TILES.includes(b)) damageableLut[b] = 1;
+    }
+  }
+  return damageableLut[t] === 1;
+}
+
+function buildingBaseHp(t: TileType): number {
+  if (t === TileType.Wall) return BUILDING_HP_WALL;
+  if (
+    t === TileType.StoneWall || BIG_BUILD_TILES.has(t) || t === TileType.CastleLevel2 || t === TileType.CastleLevel3 ||
+    t === TileType.ArcherTower || t === TileType.MilitiaCamp3
+  )
+    return BUILDING_HP_BIG;
+  if (isHouseTile(t) || t === TileType.HunterHut || t === TileType.ForagerHut || t === TileType.ArcherPost) return BUILDING_HP_SMALL;
+  return BUILDING_HP_WORKPLACE;
+}
+
+function buildingMaxHp(tx: number, ty: number, t: TileType): number {
+  const level = Math.min(Math.max(currentBuildingLevel(tx, ty, t), 1), 3);
+  return Math.round(buildingBaseHp(t) * BUILDING_HP_LEVEL_MULT[level - 1]);
+}
+
+// HP of the building / Town Center at a tile (null: nothing damageable there).
+function structureHp(tx: number, ty: number): { hp: number; max: number } | null {
+  if (!inBounds(tx, ty)) return null;
+  const t = tiles[tileIndex(tx, ty)] as TileType;
+  if (t === TileType.TownCenter) {
+    const tc = findTownCenterAt(tx, ty);
+    return tc ? { hp: Math.max(0, tc.hp), max: townCenterMaxHp(tc.level) } : null;
+  }
+  if (!isDamageableBuilding(t)) return null;
+  const max = buildingMaxHp(tx, ty, t);
+  return { hp: Math.min(max, buildingHp.get(resourceKey(tx, ty)) ?? max), max };
+}
+
+function healStructure(tx: number, ty: number, amount: number) {
+  const key = resourceKey(tx, ty);
+  const tc = findTownCenterAt(tx, ty);
+  if (tc && tiles[tileIndex(tx, ty)] === TileType.TownCenter) {
+    tc.hp = Math.min(townCenterMaxHp(tc.level), tc.hp + amount);
+    return;
+  }
+  const s = structureHp(tx, ty);
+  if (!s) return;
+  if (s.hp + amount >= s.max) buildingHp.delete(key);
+  else buildingHp.set(key, s.hp + amount);
+}
+
+// Mob damage to the building (or Town Center) at a tile; at 0 HP it is destroyed.
+function damageBuilding(tx: number, ty: number, amount: number) {
+  const t = tiles[tileIndex(tx, ty)] as TileType;
+  if (t === TileType.TownCenter) {
+    const tc = findTownCenterAt(tx, ty);
+    if (tc) damageTownCenter(tc, amount);
+    return;
+  }
+  const s = structureHp(tx, ty);
+  if (!s) return;
+  const hp = s.hp - amount;
+  if (hp > 0) {
+    buildingHp.set(resourceKey(tx, ty), hp);
+    return;
+  }
+  // Destroyed: the same clean-up as a player demolishing it (posted workers, level, site, HP).
+  demolishTile(tx, ty, t);
+  syncGuardBonusesAround(tx, ty);
+  broadcastEvent("death", `${BUILDING_NAMES[t] ?? "A building"} destroyed`);
+}
+
+// Flattened [tile index, hp permille] per damaged building and Town Center (see damagedBuildings).
+function damagedBuildingsForSnapshot(): number[] {
+  const out: number[] = [];
+  for (const key of Array.from(buildingHp.keys())) {
+    const tile = keyToTile(key);
+    const s = tile ? structureHp(tile.x, tile.y) : null;
+    // The building is gone (or became something undamageable) some other way: drop the record.
+    if (!tile || !s || tiles[tileIndex(tile.x, tile.y)] === TileType.TownCenter) {
+      buildingHp.delete(key);
+      continue;
+    }
+    if (s.hp < s.max) out.push(tileIndex(tile.x, tile.y), Math.floor((s.hp / s.max) * 1000));
+  }
+  for (const tc of townCenters) {
+    const max = townCenterMaxHp(tc.level);
+    if (tc.hp < max) out.push(tileIndex(tc.x, tc.y), Math.max(0, Math.floor((tc.hp / max) * 1000)));
+  }
+  return out;
+}
+
+// Damageable non-wall buildings (the candidates of pickBuildingTarget), rebuilt lazily after tile changes.
+let buildingTargetTiles: TileCoord[] = [];
+let buildingTargetsBuiltTick = -1;
+function buildingTargetCandidates(): TileCoord[] {
+  // Also rebuilt every few seconds, in case some code path changed a tile without a tileUpdate.
+  if (buildingTargetsDirty || cycleTick - buildingTargetsBuiltTick > TICK_RATE * 5 || cycleTick < buildingTargetsBuiltTick) {
+    buildingTargetTiles = [];
+    for (let i = 0; i < tiles.length; i++) {
+      const t = tiles[i] as TileType;
+      if (isDamageableBuilding(t) && !isWallTile(t)) buildingTargetTiles.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+    }
+    buildingTargetsDirty = false;
+    buildingTargetsBuiltTick = cycleTick;
+  }
+  return buildingTargetTiles;
+}
+
+// Shortest route (start excluded) from `start` to a tile next to (gx, gy), 4-connected. wallCost 0:
+// walls are solid like any other building (an ordinary route); wallCost > 0: wall tiles are passable at
+// that cost each (the breach search). Dijkstra over a binary heap of cost * N + tile index.
+const routeCost = new Float64Array(WORLD_TILES_X * WORLD_TILES_Y);
+const routeParent = new Int32Array(WORLD_TILES_X * WORLD_TILES_Y);
+function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: number): TileCoord[] | null {
+  const n = tiles.length;
+  const s = tileIndex(start.x, start.y);
+  const isGoal = (i: number) => Math.abs((i % WORLD_TILES_X) - gx) + Math.abs(Math.floor(i / WORLD_TILES_X) - gy) === 1;
+  if (isGoal(s)) return [];
+  routeCost.fill(Infinity);
+  routeCost[s] = 0;
+  const heap: number[] = [s];
+  const push = (v: number) => {
+    let i = heap.push(v) - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heap[p] <= heap[i]) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]];
+      i = p;
+    }
+  };
+  const pop = (): number => {
+    const top = heap[0];
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l] < heap[m]) m = l;
+        if (r < heap.length && heap[r] < heap[m]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  while (heap.length > 0) {
+    const v = pop();
+    const idx = v % n;
+    const cost = (v - idx) / n;
+    if (cost > routeCost[idx]) continue;
+    if (idx !== s && isGoal(idx)) {
+      const path: TileCoord[] = [];
+      for (let i = idx; i !== s; i = routeParent[i]) path.unshift({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+      return path;
+    }
+    const x = idx % WORLD_TILES_X;
+    const y = Math.floor(idx / WORLD_TILES_X);
+    for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+      if (!inBounds(nx, ny)) continue;
+      const ni = tileIndex(nx, ny);
+      const t = tiles[ni] as TileType;
+      const step = !isSolidTile(t) ? 1 : wallCost > 0 && isWallTile(t) ? wallCost : 0;
+      if (step === 0) continue;
+      const next = cost + step;
+      if (next >= routeCost[ni]) continue;
+      routeCost[ni] = next;
+      routeParent[ni] = idx;
+      push(next * n + ni);
+    }
+  }
+  return null;
+}
+
+// The nearest unwarded building or Town Center the mob can reach. A target that is walled off (no
+// route, or a detour past BREACH_DETOUR_FACTOR) makes the target the first wall on the cheapest route
+// through the walls instead, attacked from the tile before it.
+function pickBuildingTarget(mob: Mob, wards: TileCoord[]): PickedTarget | null {
+  const candidates: { x: number; y: number; type: MobTargetType; d: number }[] = [];
+  const consider = (x: number, y: number, type: MobTargetType) => {
+    const c = tileToPixelCenter({ x, y });
+    if (!isWarded(c.x, c.y, wards)) candidates.push({ x, y, type, d: Math.hypot(c.x - mob.x, c.y - mob.y) });
+  };
+  for (const tc of townCenters) consider(tc.x, tc.y, "townCenter");
+  for (const b of buildingTargetCandidates()) consider(b.x, b.y, "building");
+  candidates.sort((p, q) => p.d - q.d);
+  const start = tileOfPixel(mob.x, mob.y);
+  for (const cand of candidates.slice(0, BUILDING_TARGET_CANDIDATES)) {
+    const id = resourceKey(cand.x, cand.y);
+    const straight = Math.hypot(cand.x - start.x, cand.y - start.y);
+    const route = routeToBuilding(start, cand.x, cand.y, 0);
+    const approachOf = (r: TileCoord[]) => (r.length > 0 ? r[r.length - 1] : start);
+    if (route && (route.length <= BREACH_MIN_ROUTE_TILES || route.length <= BREACH_DETOUR_FACTOR * straight)) {
+      return { type: cand.type, id, approach: approachOf(route) };
+    }
+    const breach = routeToBuilding(start, cand.x, cand.y, BREACH_WALL_COST);
+    const wallAt = breach ? breach.findIndex((t) => isWallTile(tiles[tileIndex(t.x, t.y)] as TileType)) : -1;
+    if (breach && wallAt >= 0) {
+      const wall = breach[wallAt];
+      return { type: "building", id: resourceKey(wall.x, wall.y), approach: wallAt > 0 ? breach[wallAt - 1] : start };
+    }
+    if (route) return { type: cand.type, id, approach: approachOf(route) };
+  }
+  return null;
 }
 
 // One straight step directly away from (fx, fy); stays put if that would enter a solid tile.
@@ -4674,18 +5623,40 @@ function updateMob(mob: Mob, dt: number) {
     return;
   }
 
-  let targetPos = mob.targetType ? resolveTargetPosition(mob.targetType, mob.targetId) : null;
+  let targetPos = mob.targetType ? resolveTargetPosition(mob.targetType, mob.targetId, mob) : null;
   // A target that has since moved under (or been covered by) an active ward is dropped and re-picked.
   if (targetPos && isWarded(targetPos.x, targetPos.y, activeWardSources())) targetPos = null;
+  // Once a second (Nemri keeps to its Town Center): a mob on a building / Town Center turns on any
+  // guard or player that comes within aggro range; one heading for a Town Center turns on a nearer
+  // building it passes; one chasing a unit gives up once it is well past aggro range.
+  if (targetPos && mob.mark !== HungerMark.Nemri && cycleTick % TICK_RATE === 0) {
+    const wards = activeWardSources();
+    if (mob.targetType === "building" || mob.targetType === "townCenter") {
+      if (unitInAggroRange(mob, wards)) targetPos = null;
+      else if (mob.targetType === "townCenter" && buildingNearby(mob.x, mob.y, Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y), wards)) targetPos = null;
+    } else if (mob.mark === HungerMark.None) {
+      const aggro = mob.targetType === "player" ? MOB_AGGRO_RANGE_PLAYER_TILES : MOB_AGGRO_RANGE_GUARD_TILES;
+      if (Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y) > aggro * TILE_SIZE * MOB_AGGRO_DROP_FACTOR) targetPos = null;
+    }
+  }
   // Gunne / Gorrath keep re-checking for a weaker / stronger victim.
   if ((mob.mark === HungerMark.Gunne || mob.mark === HungerMark.Gorrath) && cycleTick % MARK_RETARGET_TICKS === 0) targetPos = null;
 
   if (!targetPos) {
     const picked = pickMobTarget(mob);
+    releaseSlot(mob.id);
     if (picked) {
       mob.targetType = picked.type;
       mob.targetId = picked.id;
-      targetPos = resolveTargetPosition(picked.type, picked.id);
+      mob.approachFor = picked.approach ? picked.id : null;
+      mob.approachX = picked.approach?.x ?? -1;
+      mob.approachY = picked.approach?.y ?? -1;
+      // A fresh building route starts now (the old path led to the previous target).
+      if (picked.approach) {
+        mob.path = [];
+        mob.repathCooldown = 0;
+      }
+      targetPos = resolveTargetPosition(picked.type, picked.id, mob);
     } else {
       mob.targetType = null;
       mob.targetId = null;
@@ -4700,9 +5671,26 @@ function updateMob(mob: Mob, dt: number) {
     return;
   }
 
+  // Melee engagement slot: a unit target gives a ring point to fight from; a building / Town Center
+  // gives a free tile of its walkable ring, which becomes the spot to stand on.
+  let slot: { x: number; y: number } | null = null;
+  const slotKey = mob.melee ? mobSlotKey(mob) : null;
+  if (slotKey && mob.targetId !== null) {
+    if (mob.targetType === "building" || mob.targetType === "townCenter") {
+      const b = keyToTile(mob.targetId);
+      const ringTile = b ? buildingSlotTile(mob, slotKey, b.x, b.y, mobApproach(mob, mob.targetId)) : null;
+      if (ringTile) targetPos = tileToPixelCenter(ringTile);
+    } else {
+      const tr = mob.targetType === "colonist" ? COLONIST_BODY_RADIUS : PLAYER_BODY_RADIUS;
+      slot = unitSlotPoint(mob.id, mob.x, mob.y, MOB_BODY_RADIUS[mob.kind] ?? 8, mob.range, slotKey, targetPos.x, targetPos.y, tr);
+    }
+  }
+
   const dist = Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y);
   if (dist <= mob.range) {
     mob.path = [];
+    mobsAttackingThisTick.add(mob.id);
+    if (slot && Math.hypot(slot.x - mob.x, slot.y - mob.y) > 2) stepRaidMobToward(mob, slot.x, slot.y, mob.speed * 0.5, dt);
     if (mob.mark === HungerMark.Rux && mob.feintTargetId !== mob.targetId) {
       mob.feintTargetId = mob.targetId;
       mob.feintUntilTick = cycleTick + RUX_FEINT_TICKS;
@@ -4712,7 +5700,10 @@ function updateMob(mob: Mob, dt: number) {
       mob.attackCooldownTicks--;
     } else {
       mob.attackCooldownTicks = MOB_ATTACK_COOLDOWN_TICKS;
-      pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: targetPos.x, toY: targetPos.y, melee: mob.melee });
+      // Building hits land on the building itself, not the tile the mob attacks it from.
+      const struck = (mob.targetType === "building" || mob.targetType === "townCenter") && mob.targetId ? keyToTile(mob.targetId) : null;
+      const hit = struck ? tileToPixelCenter(struck) : targetPos;
+      pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: hit.x, toY: hit.y, melee: mob.melee });
       if (mob.targetType === "colonist" && mob.targetId) {
         const c = colonists.get(mob.targetId);
         if (c) {
@@ -4740,8 +5731,12 @@ function updateMob(mob: Mob, dt: number) {
       } else if (mob.targetType === "townCenter" && mob.targetId) {
         const tc = townCenters.find((t) => resourceKey(t.x, t.y) === mob.targetId);
         if (tc) damageTownCenter(tc, mob.damage);
+      } else if (mob.targetType === "building" && struck) {
+        damageBuilding(struck.x, struck.y, mob.damage);
       }
     }
+  } else if (slot) {
+    approachGoal(mob, slot, targetPos, mob.speed, dt);
   } else {
     if (mob.path.length === 0 && mob.repathCooldown <= 0) {
       const start = tileOfPixel(mob.x, mob.y);
@@ -5260,7 +6255,7 @@ function generateWorld() {
   generatePoiSites("encampment", randInt(ENCAMPMENT_SITE_COUNT_MIN, ENCAMPMENT_SITE_COUNT_MAX), placedSites);
   spawnInitialWildlife();
   resetExplored();
-  topUpTownCenterBuilders(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y);
+  topUpTownCenterBuilders(townCenters[0]);
 }
 
 generateWorld();
@@ -5273,6 +6268,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function broadcastTileUpdate(tx: number, ty: number, tile: TileType) {
+  buildingTargetsDirty = true;
   if (VISION_BUILDING_TILES.has(tile)) revealAround(tx, ty, BUILDING_VISION_OFFSETS);
   const update: ServerMessage = { type: "tileUpdate", tileX: tx, tileY: ty, tile };
   const payload = JSON.stringify(update);
@@ -5308,6 +6304,9 @@ let testHoldRaidAggro = false;
 // testHook "setRaids" {enabled:false} skips the midday raid spawn of every day that passes while it is
 // off (economy tests fast-forward days).
 let testRaidsDisabled = false;
+// testHook "ignorePlayers" {value:true}: mobs never target players (so a test client standing in the
+// world doesn't draw every mob away from the buildings).
+let testPlayersIgnored = false;
 const tickDurationsMs: number[] = [];
 const TICK_DURATION_SAMPLES = 400;
 
@@ -5333,6 +6332,10 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         aggroTick: g.aggroTick,
         leaderId: g.leaderId,
         memberIds: g.memberIds,
+        headingX: g.headingX ?? null,
+        headingY: g.headingY ?? null,
+        engagedTick: g.engagedTick ?? null,
+        offsets: Array.from(g.offsets),
       })),
       mobs: Array.from(mobs.values()).map((m) => ({
         id: m.id,
@@ -5542,12 +6545,73 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       groups: raidGroups.size,
     });
     if (msg.reset) tickDurationsMs.length = 0;
+  } else if (msg.op === "spawnSoldier" && typeof msg.kind === "string" && typeof msg.x === "number" && typeof msg.y === "number") {
+    // A soldier standing at pixel (x, y) with its rally slot there (post = that tile; no building).
+    const kind = msg.kind as ColonistKind;
+    const tile = tileOfPixel(msg.x, msg.y);
+    if (!isGuardOrMilitiaKind(kind) || !isWalkableTile(tile.x, tile.y)) {
+      reply({ id: null });
+    } else {
+      const c = spawnColonistForPost(tile.x, tile.y, kind);
+      Object.assign(c, { x: msg.x, y: msg.y, rallyTileX: tile.x, rallyTileY: tile.y, rallyX: msg.x, rallyY: msg.y });
+      if (typeof msg.stance === "string" && STANCES.includes(msg.stance as Stance)) c.stance = msg.stance as Stance;
+      reply({ id: c.id });
+    }
+  } else if (msg.op === "bodyState") {
+    // Positions, targets and engagement slots of soldiers and mobs (combat-line-test).
+    reply({
+      cycleTick,
+      colonists: Array.from(colonists.values())
+        .filter((c) => isGuardOrMilitiaKind(c.kind))
+        .map((c) => ({ id: c.id, kind: c.kind, x: c.x, y: c.y, state: c.state, rallyX: c.rallyX, rallyY: c.rallyY, targetMobId: c.targetMobId, hp: c.hp })),
+      mobs: Array.from(mobs.values()).map((m) => ({
+        id: m.id, kind: m.kind, x: m.x, y: m.y, groupId: m.groupId, targetType: m.targetType, targetId: m.targetId, hp: m.hp,
+      })),
+      slots: Array.from(attackerSlots),
+    });
+  } else if (msg.op === "ignorePlayers") {
+    testPlayersIgnored = msg.value === true;
+    reply({ value: testPlayersIgnored });
+  } else if (msg.op === "damageBuilding" && typeof msg.tx === "number" && typeof msg.ty === "number" && typeof msg.amount === "number") {
+    damageBuilding(msg.tx, msg.ty, msg.amount);
+    reply({ hp: structureHp(msg.tx, msg.ty), tile: tiles[tileIndex(msg.tx, msg.ty)] });
+  } else if (msg.op === "buildingState") {
+    // Building HP / repair state, builders, and every mob's target (with its approach tile).
+    reply({
+      buildingHp: Array.from(buildingHp),
+      repairPaid: Array.from(repairPaid),
+      repairQueue,
+      damagedBuildings: damagedBuildingsForSnapshot(),
+      stock: { ...stock },
+      cycleTick,
+      isNight: isNightNow(),
+      builders: Array.from(colonists.values())
+        .filter((c) => c.kind === "builder")
+        .map((c) => ({ id: c.id, x: c.x, y: c.y, state: c.state, postX: c.postX, postY: c.postY, repairKey: c.repairKey ?? null })),
+      mobs: Array.from(mobs.values()).map((m) => ({
+        id: m.id, x: m.x, y: m.y, targetType: m.targetType, targetId: m.targetId, approachX: m.approachX, approachY: m.approachY,
+      })),
+    });
   }
 }
 
 // PORT lets a scripted test run a private server without touching the shared :8080 world.
 const PORT = Number.parseInt(process.env.PORT ?? "", 10) || 8080;
-const wss = new WebSocketServer({ port: PORT });
+// One HTTP server on PORT: websocket upgrades go to `wss`; plain GET /saves lists the save slots for
+// the main menu (which has no websocket open yet).
+const httpServer = createServer((req, res) => {
+  if (req.method === "GET" && req.url?.split("?")[0] === "/saves") {
+    void listSaves().then((saves) => {
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify({ saves }));
+    });
+    return;
+  }
+  res.writeHead(404, { "Access-Control-Allow-Origin": "*" });
+  res.end();
+});
+const wss = new WebSocketServer({ server: httpServer });
+httpServer.listen(PORT);
 console.log(`colony2d server listening on ws://localhost:${PORT}`);
 
 function sendWelcome(player: Player) {
@@ -5585,6 +6649,10 @@ function resetWorld(nextDifficulty?: unknown) {
   minesPlacedOnOre.clear();
   archerTowerWallType.clear();
   buildingLevel.clear();
+  buildingHp.clear();
+  repairPaid.clear();
+  repairQueue.length = 0;
+  buildingTargetsDirty = true;
   reservedResourceTiles.clear();
   taskForces.clear();
   wardStonesActiveLastTick.clear();
@@ -5610,6 +6678,12 @@ function resetWorld(nextDifficulty?: unknown) {
   lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
   isPaused = false;
 
+  respawnPlayersAndWelcome();
+}
+
+// After the world is replaced (restart or load): every connected player respawns at a Town Center
+// and gets the whole new world in a fresh welcome.
+function respawnPlayersAndWelcome() {
   for (const player of players.values()) {
     const spawn = spawnPointNearTownCenter();
     player.x = spawn.x;
@@ -5626,6 +6700,324 @@ function resetWorld(nextDifficulty?: unknown) {
     sendWelcome(player);
   }
 }
+
+// ---- Save files ----
+// One JSON file per slot under server/saves/ (or COLONY_SAVE_DIR). snapshotWorld captures every piece
+// of module state that defines the world; applyWorld writes it back IN PLACE (the const Maps/Sets/
+// arrays/typed arrays are cleared and refilled, so nothing that holds a reference to them goes stale).
+// Not saved: player sessions (connected players respawn at a Town Center, as after a restart),
+// pendingEffects / pendingExplored / visionTile (per-tick transients) and client-only blood.
+const SAVE_VERSION = 1;
+const SAVE_SLOT_LABELS: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3" };
+const SAVE_DIR = process.env.COLONY_SAVE_DIR
+  ? path.resolve(process.env.COLONY_SAVE_DIR)
+  : fileURLToPath(new URL("../saves/", import.meta.url));
+// A scripted test server (test hooks on) must never clobber the real world's autosave, so with test
+// hooks it only autosaves into a COLONY_SAVE_DIR of its own.
+const AUTOSAVE_ENABLED = !TEST_HOOKS || !!process.env.COLONY_SAVE_DIR;
+// A freshly booted server's unattended world must not overwrite the last real autosave: autosaves
+// (dawn + shutdown) only start once a player has connected.
+let anyPlayerSinceBoot = false;
+// Set by the dawn hook inside stepSimulation; the tick loop runs the save once, outside fastForward.
+let autosaveDue = false;
+// Saves/loads run one at a time, queued in request order (a load asked for while the dawn autosave
+// is still writing just waits a few ms). A load also holds the simulation while the file is read.
+let saveLoadQueue: Promise<unknown> = Promise.resolve();
+let autosaveQueued = false;
+let simHeldForLoad = false;
+
+function serialized<T>(fn: () => Promise<T>): Promise<T> {
+  const run = saveLoadQueue.then(fn, fn);
+  saveLoadQueue = run.catch(() => undefined);
+  return run;
+}
+
+interface SaveFile {
+  version: number;
+  savedAt: string;
+  dayIndex: number;
+  population: number;
+  difficulty: Difficulty;
+  worldSize: number;
+  label: string;
+  state: WorldState;
+}
+type WorldState = ReturnType<typeof snapshotWorld>;
+
+function isSaveSlot(value: unknown): value is SaveSlot {
+  return typeof value === "string" && (SAVE_SLOTS as string[]).includes(value);
+}
+
+function savePath(slot: SaveSlot): string {
+  return path.join(SAVE_DIR, `${slot}.json`);
+}
+
+// Plain-object view of the world. Serialized right away (JSON.stringify), so live objects are
+// referenced rather than copied. Raid groups' Maps become entry arrays.
+function snapshotWorld() {
+  return {
+    tiles: Buffer.from(tiles).toString("base64"),
+    biomes: Buffer.from(biomes).toString("base64"),
+    explored: packExplored(),
+    worldNoiseSalt,
+    abbeyCenter,
+    stock: { ...stock },
+    marketBuilt,
+    goldShopBuilt,
+    colonyHappiness,
+    difficulty,
+    cycleTick,
+    wasNight,
+    raidSpawnedForDay,
+    treeRespawnCooldown,
+    lumberjackTreeGrowCooldown,
+    wildlifeRespawnCooldown,
+    nextWildlifeId,
+    wardPriestId,
+    wardPriestTendTicks,
+    wardPriestRespawnTicks,
+    townCenters,
+    colonists: Array.from(colonists.values()),
+    mobs: Array.from(mobs.values()),
+    wildlife: Array.from(wildlife.values()),
+    respawnQueue,
+    farmPlots: Array.from(farmPlots),
+    forageRegrow: Array.from(forageRegrow),
+    minesPlacedOnOre: Array.from(minesPlacedOnOre),
+    archerTowerWallType: Array.from(archerTowerWallType),
+    buildingLevel: Array.from(buildingLevel),
+    buildingHp: Array.from(buildingHp),
+    repairPaid: Array.from(repairPaid),
+    repairQueue,
+    taskForces: Array.from(taskForces),
+    reservedResourceTiles: Array.from(reservedResourceTiles),
+    wardStoneLastTended: Array.from(wardStoneLastTended),
+    wardStonesActiveLastTick: Array.from(wardStonesActiveLastTick),
+    gravestones,
+    constructionSites: Array.from(constructionSites),
+    raidGroups: Array.from(raidGroups.values()).map((g) => ({
+      ...g,
+      homes: Array.from(g.homes),
+      offsets: Array.from(g.offsets),
+    })),
+    flags: {
+      testForceDeserterRoll,
+      testHoldRaidAggro,
+      testRaidsDisabled,
+      testWildlifeRespawnDisabled,
+      testForceMarkChance,
+      instantBuild,
+      testPlayersIgnored,
+    },
+  };
+}
+
+function refill<K, V>(map: Map<K, V>, entries: [K, V][]) {
+  map.clear();
+  for (const [k, v] of entries) map.set(k, v);
+}
+
+function applyWorld(s: WorldState) {
+  tiles.set(Buffer.from(s.tiles, "base64"));
+  biomes.set(Buffer.from(s.biomes, "base64"));
+  const bits = Buffer.from(s.explored, "base64");
+  for (let i = 0; i < explored.length; i++) explored[i] = (bits[i >> 3] >> (i & 7)) & 1;
+  worldNoiseSalt = s.worldNoiseSalt;
+  abbeyCenter = s.abbeyCenter;
+  Object.assign(stock, s.stock);
+  marketBuilt = s.marketBuilt;
+  goldShopBuilt = s.goldShopBuilt;
+  colonyHappiness = s.colonyHappiness;
+  difficulty = s.difficulty;
+  // The loaded world's difficulty is settled: joining clients' setDifficulty must not override it.
+  difficultyClaimed = true;
+  cycleTick = s.cycleTick;
+  wasNight = s.wasNight;
+  raidSpawnedForDay = s.raidSpawnedForDay;
+  treeRespawnCooldown = s.treeRespawnCooldown;
+  lumberjackTreeGrowCooldown = s.lumberjackTreeGrowCooldown;
+  wildlifeRespawnCooldown = s.wildlifeRespawnCooldown;
+  nextWildlifeId = s.nextWildlifeId;
+  wardPriestId = s.wardPriestId;
+  wardPriestTendTicks = s.wardPriestTendTicks;
+  wardPriestRespawnTicks = s.wardPriestRespawnTicks;
+  townCenters = s.townCenters;
+  refill(colonists, s.colonists.map((c): [string, Colonist] => [c.id, c]));
+  refill(mobs, s.mobs.map((m): [string, Mob] => [m.id, m]));
+  refill(wildlife, s.wildlife.map((a): [number, Wildlife] => [a.id, a]));
+  respawnQueue.length = 0;
+  respawnQueue.push(...s.respawnQueue);
+  refill(farmPlots, s.farmPlots);
+  refill(forageRegrow, s.forageRegrow);
+  minesPlacedOnOre.clear();
+  for (const key of s.minesPlacedOnOre) minesPlacedOnOre.add(key);
+  refill(archerTowerWallType, s.archerTowerWallType);
+  refill(buildingLevel, s.buildingLevel);
+  // `?? []`: saves from before building HP load with every building at full HP.
+  refill(buildingHp, s.buildingHp ?? []);
+  refill(repairPaid, s.repairPaid ?? []);
+  repairQueue.length = 0;
+  repairQueue.push(...(s.repairQueue ?? []));
+  buildingTargetsDirty = true;
+  refill(taskForces, s.taskForces);
+  refill(reservedResourceTiles, s.reservedResourceTiles);
+  refill(wardStoneLastTended, s.wardStoneLastTended);
+  wardStonesActiveLastTick.clear();
+  for (const key of s.wardStonesActiveLastTick) wardStonesActiveLastTick.add(key);
+  gravestones.length = 0;
+  gravestones.push(...s.gravestones);
+  refill(constructionSites, s.constructionSites);
+  refill(
+    raidGroups,
+    s.raidGroups.map((g): [string, RaidGroup] => [g.id, { ...g, homes: new Map(g.homes), offsets: new Map(g.offsets) }])
+  );
+  testForceDeserterRoll = s.flags.testForceDeserterRoll;
+  testHoldRaidAggro = s.flags.testHoldRaidAggro;
+  testRaidsDisabled = s.flags.testRaidsDisabled;
+  testWildlifeRespawnDisabled = s.flags.testWildlifeRespawnDisabled;
+  testForceMarkChance = s.flags.testForceMarkChance;
+  instantBuild = s.flags.instantBuild;
+  testPlayersIgnored = s.flags.testPlayersIgnored ?? false;
+  // Transients: nothing in flight survives a load; everyone re-stamps vision from scratch.
+  pendingEffects = [];
+  pendingExplored = [];
+  visionTile = new WeakMap();
+  isPaused = false;
+}
+
+function saveFileFor(slot: SaveSlot): SaveFile {
+  return {
+    version: SAVE_VERSION,
+    savedAt: new Date().toISOString(),
+    dayIndex: Math.floor(cycleTick / GAME_DAY_TICKS),
+    population: civilianPopulationUsed(),
+    difficulty,
+    worldSize: WORLD_TILES_X,
+    label: SAVE_SLOT_LABELS[slot],
+    state: snapshotWorld(),
+  };
+}
+
+// Snapshot + stringify run synchronously inside one tick (so the sim is effectively paused for them
+// and the save is a consistent instant); only the disk write is async (temp file + rename).
+function saveToSlot(slot: SaveSlot): Promise<string | null> {
+  return serialized(() => writeSave(slot));
+}
+
+async function writeSave(slot: SaveSlot): Promise<string | null> {
+  try {
+    const t0 = performance.now();
+    const json = JSON.stringify(saveFileFor(slot));
+    const syncMs = performance.now() - t0;
+    await fsp.mkdir(SAVE_DIR, { recursive: true });
+    const tmp = `${savePath(slot)}.tmp`;
+    await fsp.writeFile(tmp, json);
+    await fsp.rename(tmp, savePath(slot));
+    console.log(
+      `[save] ${slot}: ${(json.length / 1024).toFixed(1)} KiB, snapshot+stringify ${syncMs.toFixed(1)} ms (blocks the tick), total ${(performance.now() - t0).toFixed(1)} ms`
+    );
+    return null;
+  } catch (err) {
+    console.error(`[save] ${slot} failed:`, err);
+    return `Save failed: ${(err as Error).message}`;
+  }
+}
+
+function loadFromSlot(slot: SaveSlot): Promise<string | null> {
+  return serialized(() => readSave(slot));
+}
+
+async function readSave(slot: SaveSlot): Promise<string | null> {
+  simHeldForLoad = true;
+  try {
+    const t0 = performance.now();
+    let file: SaveFile;
+    try {
+      file = JSON.parse(await fsp.readFile(savePath(slot), "utf8"));
+    } catch (err) {
+      return (err as NodeJS.ErrnoException).code === "ENOENT" ? `${SAVE_SLOT_LABELS[slot]} is empty` : `Save file is unreadable`;
+    }
+    if (file.version !== SAVE_VERSION) {
+      return `Save version ${file.version} is not supported (this server reads version ${SAVE_VERSION})`;
+    }
+    if (file.worldSize !== WORLD_TILES_X) {
+      return `Save is for a ${file.worldSize}x${file.worldSize} world; this server runs ${WORLD_TILES_X}x${WORLD_TILES_X} (set COLONY_WORLD_SIZE=${file.worldSize})`;
+    }
+    applyWorld(file.state);
+    respawnPlayersAndWelcome();
+    broadcastEvent("build", "Game loaded");
+    console.log(`[load] ${slot}: day ${file.dayIndex + 1}, ${(performance.now() - t0).toFixed(1)} ms`);
+    return null;
+  } finally {
+    simHeldForLoad = false;
+  }
+}
+
+async function listSaves(): Promise<SaveInfo[]> {
+  const out: SaveInfo[] = [];
+  for (const slot of SAVE_SLOTS) {
+    try {
+      const file: SaveFile = JSON.parse(await fsp.readFile(savePath(slot), "utf8"));
+      out.push({
+        slot,
+        label: file.label,
+        savedAt: file.savedAt,
+        dayIndex: file.dayIndex,
+        population: file.population,
+        difficulty: file.difficulty,
+      });
+    } catch {
+      /* empty slot (or unreadable): not listed */
+    }
+  }
+  return out;
+}
+
+function sendTo(player: Player, message: ServerMessage) {
+  if (player.socket.readyState === player.socket.OPEN) player.socket.send(JSON.stringify(message));
+}
+
+async function handleSaveGame(player: Player, slot: unknown) {
+  if (!isSaveSlot(slot) || slot === "autosave") return;
+  const error = await saveToSlot(slot);
+  sendTo(player, { type: "saveResult", ok: !error, ...(error ? { error } : {}), slot, action: "save" });
+  sendTo(player, { type: "saveList", saves: await listSaves() });
+}
+
+async function handleLoadGame(player: Player, slot: unknown) {
+  if (!isSaveSlot(slot)) return;
+  const error = await loadFromSlot(slot);
+  sendTo(player, { type: "saveResult", ok: !error, ...(error ? { error } : {}), slot, action: "load" });
+}
+
+function runDueAutosave() {
+  if (!autosaveDue) return;
+  autosaveDue = false;
+  // Debounced: never more than one autosave queued or writing.
+  if (!AUTOSAVE_ENABLED || !anyPlayerSinceBoot || autosaveQueued) return;
+  autosaveQueued = true;
+  void saveToSlot("autosave").finally(() => (autosaveQueued = false));
+}
+
+// Ctrl+C / kill / tsx watch restarts: write the autosave synchronously, then exit.
+let shuttingDown = false;
+function saveOnShutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (AUTOSAVE_ENABLED && anyPlayerSinceBoot && !simHeldForLoad) {
+    try {
+      const t0 = performance.now();
+      mkdirSync(SAVE_DIR, { recursive: true });
+      writeFileSync(savePath("autosave"), JSON.stringify(saveFileFor("autosave")));
+      console.log(`[save] autosave on ${signal}: ${(performance.now() - t0).toFixed(1)} ms`);
+    } catch (err) {
+      console.error(`[save] autosave on ${signal} failed:`, err);
+    }
+  }
+  process.exit(0);
+}
+process.on("SIGINT", () => saveOnShutdown("SIGINT"));
+process.on("SIGTERM", () => saveOnShutdown("SIGTERM"));
 
 wss.on("connection", (socket) => {
   const id = randomUUID();
@@ -5647,6 +7039,7 @@ wss.on("connection", (socket) => {
     dead: false,
   };
   players.set(id, player);
+  anyPlayerSinceBoot = true;
 
   sendWelcome(player);
 
@@ -5701,6 +7094,15 @@ wss.on("connection", (socket) => {
     } else if (message.type === "upgradeBuilding") {
       if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
       handleUpgradeBuilding(player, message.tileX, message.tileY);
+    } else if (message.type === "repairBuilding") {
+      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+      handleRepairBuilding(player, message.tileX, message.tileY);
+    } else if (message.type === "saveGame") {
+      void handleSaveGame(player, message.slot);
+    } else if (message.type === "loadGame") {
+      void handleLoadGame(player, message.slot);
+    } else if (message.type === "listSaves") {
+      void listSaves().then((saves) => sendTo(player, { type: "saveList", saves }));
     }
   });
 
@@ -6176,6 +7578,59 @@ function pendingWorkerSlots(): number {
   return n;
 }
 
+// Removes the building (or site, road, forage) at a tile: its posted workers, level, farm plot, site,
+// HP records; mines / archer towers revert to the ore / wall under them. Player demolish and mob
+// destruction (damageBuilding) both end here.
+function demolishTile(tx: number, ty: number, current: TileType) {
+  const siteKey = resourceKey(tx, ty);
+  buildingHp.delete(siteKey);
+  repairPaid.delete(siteKey);
+  // A queued construction or upgrade here is dropped with the tile (no refund).
+  const site = constructionSites.get(siteKey);
+  constructionSites.delete(siteKey);
+  if (current === TileType.ConstructionSite) {
+    // Ore / rock / a wall under an unfinished mine or archer tower comes back.
+    const revert = site && !site.upgrade ? site.prevTile : TileType.Empty;
+    tiles[tileIndex(tx, ty)] = revert;
+    broadcastTileUpdate(tx, ty, revert);
+    return;
+  }
+  // A Ward Stone has no colonist of its own; the Ward Priest merely targets it, and retargets.
+  if (!NO_COLONIST_TILES.includes(current) && current !== TileType.WardStone) {
+    removeColonistForPost(tx, ty);
+  }
+  buildingLevel.delete(resourceKey(tx, ty));
+  if (current === TileType.FarmPlot) {
+    farmPlots.delete(resourceKey(tx, ty));
+  }
+  if (current === TileType.IronMinePost) {
+    const key = resourceKey(tx, ty);
+    const revert = minesPlacedOnOre.has(key) ? TileType.IronOre : TileType.Empty;
+    minesPlacedOnOre.delete(key);
+    tiles[tileIndex(tx, ty)] = revert;
+    broadcastTileUpdate(tx, ty, revert);
+    return;
+  }
+  if (current === TileType.RockMinePost) {
+    const key = resourceKey(tx, ty);
+    const revert = minesPlacedOnOre.has(key) ? TileType.Rock : TileType.Empty;
+    minesPlacedOnOre.delete(key);
+    tiles[tileIndex(tx, ty)] = revert;
+    broadcastTileUpdate(tx, ty, revert);
+    return;
+  }
+  if (current === TileType.ArcherTower) {
+    const key = resourceKey(tx, ty);
+    const revert = archerTowerWallType.get(key) ?? TileType.Empty;
+    archerTowerWallType.delete(key);
+    tiles[tileIndex(tx, ty)] = revert;
+    broadcastTileUpdate(tx, ty, revert);
+    return;
+  }
+  tiles[tileIndex(tx, ty)] = TileType.Empty;
+  broadcastTileUpdate(tx, ty, TileType.Empty);
+}
+
 function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileType, skipReach = false) {
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
@@ -6189,50 +7644,7 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
 
   if (tile === TileType.Empty) {
     if (!BREAKABLE_TILES.includes(current)) return;
-    // A queued construction or upgrade here is dropped with the tile (no refund).
-    const site = constructionSites.get(siteKey);
-    constructionSites.delete(siteKey);
-    if (current === TileType.ConstructionSite) {
-      // Ore / rock / a wall under an unfinished mine or archer tower comes back.
-      const revert = site && !site.upgrade ? site.prevTile : TileType.Empty;
-      tiles[tileIndex(tx, ty)] = revert;
-      broadcastTileUpdate(tx, ty, revert);
-      return;
-    }
-    // A Ward Stone has no colonist of its own; the Ward Priest merely targets it, and retargets.
-    if (!NO_COLONIST_TILES.includes(current) && current !== TileType.WardStone) {
-      removeColonistForPost(tx, ty);
-    }
-    buildingLevel.delete(resourceKey(tx, ty));
-    if (current === TileType.FarmPlot) {
-      farmPlots.delete(resourceKey(tx, ty));
-    }
-    if (current === TileType.IronMinePost) {
-      const key = resourceKey(tx, ty);
-      const revert = minesPlacedOnOre.has(key) ? TileType.IronOre : TileType.Empty;
-      minesPlacedOnOre.delete(key);
-      tiles[tileIndex(tx, ty)] = revert;
-      broadcastTileUpdate(tx, ty, revert);
-      return;
-    }
-    if (current === TileType.RockMinePost) {
-      const key = resourceKey(tx, ty);
-      const revert = minesPlacedOnOre.has(key) ? TileType.Rock : TileType.Empty;
-      minesPlacedOnOre.delete(key);
-      tiles[tileIndex(tx, ty)] = revert;
-      broadcastTileUpdate(tx, ty, revert);
-      return;
-    }
-    if (current === TileType.ArcherTower) {
-      const key = resourceKey(tx, ty);
-      const revert = archerTowerWallType.get(key) ?? TileType.Empty;
-      archerTowerWallType.delete(key);
-      tiles[tileIndex(tx, ty)] = revert;
-      broadcastTileUpdate(tx, ty, revert);
-      return;
-    }
-    tiles[tileIndex(tx, ty)] = TileType.Empty;
-    broadcastTileUpdate(tx, ty, TileType.Empty);
+    demolishTile(tx, ty, current);
     return;
   }
 
@@ -6293,6 +7705,11 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
   }
 
   spend(cost);
+  // A new building (e.g. an archer tower on a damaged wall) starts at full HP.
+  if (!upgradeInPlace) {
+    buildingHp.delete(siteKey);
+    repairPaid.delete(siteKey);
+  }
   if (instant) {
     resolvePlacement(tx, ty, tile, current);
   } else {
@@ -6473,6 +7890,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
       bonuses: [`Build speed x${productionSpeedMultiplier().toFixed(2)} per builder (happiness, Town Center)`],
       upgrade: null,
       construction: Math.min(1, site.progress / site.totalTicks),
+      repair: null,
     };
   }
   const name = BUILDING_NAMES[t];
@@ -6489,6 +7907,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
       `Lv${tc.level}: +${pct(levelBonus(tc.level, TOWN_CENTER_LEVEL_BONUS_PER_STEP))} productivity and unit damage (colony-wide; the highest Town Center counts)`
     );
     bonuses.push(`Population base ${townCenterPopulationBase()} (10, +5 per extra Town Center, +5 per level)`);
+    bonuses.push(`${tc.level} builder${tc.level === 1 ? "" : "s"} (one per level)`);
   } else if (isHouseTile(t)) {
     staffing = `Beds ${houseOccupancy(tx, ty)}/${houseCapacity(t)}`;
     let neighbours = 0;
@@ -6548,17 +7967,29 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     }
   }
 
+  const hpState = structureHp(tx, ty);
+  let repair: BuildingInfo["repair"] = null;
+  if (hpState && hpState.hp < hpState.max) {
+    const cost = repairCost(tx, ty, unpaidRepairHp(tx, ty));
+    let reason = "";
+    if (repairQueue.includes(key)) reason = "Repair under way";
+    else if (!canAfford(cost)) reason = "Not enough resources";
+    else if (!anyBuilderAlive()) reason = "No builders available";
+    repair = { cost: formatCost(cost), enabled: reason === "", reason };
+  }
+
   return {
     name,
     tile: t,
     level,
     maxLevel: t === TileType.Wall || t === TileType.StoneWall || t === TileType.Market || t === TileType.GoldShop || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
-    hp: tc ? Math.max(0, Math.round(tc.hp)) : null,
-    maxHp: tc ? townCenterMaxHp(tc.level) : null,
+    hp: hpState ? Math.ceil(hpState.hp) : null,
+    maxHp: hpState ? hpState.max : null,
     staffing,
     bonuses,
     upgrade,
     construction: site ? Math.min(1, site.progress / site.totalTicks) : null,
+    repair,
   };
 }
 
@@ -6582,6 +8013,7 @@ function stepSimulation() {
     broadcastEvent("dawn", "Dawn breaks — the colony survived the night");
     applyDailyFoodConsumption();
     applyMoraleCheck();
+    autosaveDue = true;
   }
 
   if (nightNow && !wasNight) broadcastEvent("night", "Night falls");
@@ -6650,6 +8082,8 @@ function stepSimulation() {
   for (const mob of mobs.values()) {
     updateMob(mob, dt);
   }
+  separateBodies();
+  if (cycleTick % TICK_RATE === 0) pruneSlotClaims();
   updateWildlife(dt);
   updateWildlifeRespawn();
 
@@ -6664,7 +8098,8 @@ function stepSimulation() {
 
 setInterval(() => {
   const tickStart = TEST_HOOKS ? performance.now() : 0;
-  if (!isPaused) stepSimulation();
+  if (!isPaused && !simHeldForLoad) stepSimulation();
+  runDueAutosave();
 
   // Outside the pause gate so a player joining mid-pause still gets their surroundings.
   updateVision();
@@ -6742,6 +8177,7 @@ setInterval(() => {
     buildingLevels: buildingLevelsForSnapshot(),
     farmStages: farmStagesForSnapshot(),
     constructionSites: constructionSitesForSnapshot(),
+    damagedBuildings: damagedBuildingsForSnapshot(),
     townCenters: townCenters.map(
       (tc): TownCenterSnapshot => ({ x: tc.x, y: tc.y, level: tc.level, hp: Math.max(0, tc.hp), maxHp: townCenterMaxHp(tc.level) })
     ),
