@@ -521,6 +521,82 @@
       .event-toast.event-ward { border-left-color: #5b2d8a; }
       .event-toast.event-deserter { border-left-color: #c26a00; }
       .event-toast.event-raid { border-left-color: #a8321e; }
+      .event-toast.event-milestone { border-left-color: #b07d12; font-weight: 600; }
+      .event-toast.event-boss { border-left-color: var(--seal); font-weight: 600; }
+
+      /* Goal tracker: a small parchment card under the control buttons (top-right); it slides left of
+         the Build panel while that's open, like the minimap. Flashes gold when a goal completes. */
+      #goal-tracker {
+        position: fixed;
+        top: 56px;
+        right: 12px;
+        width: 210px;
+        z-index: 9;
+        padding: 8px 12px 9px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        font-family: var(--font-serif);
+        color: var(--ink);
+        pointer-events: none;
+        transition: right 0.2s ease;
+      }
+      #goal-tracker[hidden] { display: none; }
+      #build-panel:not(.collapsed) ~ #goal-tracker { right: 322px; }
+      .goal-heading {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ink-faint);
+      }
+      #goal-title { margin: 3px 0 5px; font-size: 14px; font-weight: 600; }
+      .goal-progress {
+        height: 6px;
+        border: 1px solid var(--wood-dark);
+        border-radius: 2px;
+        background: rgba(94, 50, 20, 0.25);
+        overflow: hidden;
+      }
+      #goal-progress-fill { height: 100%; width: 0; background: linear-gradient(180deg, var(--rod-light), var(--rod-mid)); transition: width 0.4s ease; }
+      #goal-progress-text { margin-top: 3px; font-size: 11px; color: var(--ink-soft); text-align: right; min-height: 1em; }
+      #goal-tracker.goal-done #goal-title { color: var(--mood-good); }
+      #goal-tracker.goal-flash { animation: goal-flash 1.6s ease-out; }
+      @keyframes goal-flash {
+        0% { box-shadow: var(--paper-edge), 0 0 0 2px #f1c40f, 0 0 22px 6px rgba(241, 196, 15, 0.85); }
+        100% { box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #goal-tracker.goal-flash { animation: none; box-shadow: var(--paper-edge), 0 0 0 2px #f1c40f; }
+      }
+
+      /* Boss bar: the Ogre Warlord's hp, bottom-centre above the command bar while he's near. */
+      #boss-bar {
+        position: fixed;
+        left: 50%;
+        bottom: 92px;
+        transform: translateX(-50%);
+        width: min(420px, calc(100vw - 32px));
+        z-index: 9;
+        padding: 6px 12px 8px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        font-family: var(--font-serif);
+        color: var(--seal);
+        text-align: center;
+        pointer-events: none;
+      }
+      #boss-bar[hidden] { display: none; }
+      #boss-bar-name { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 4px; }
+      .boss-bar-track { height: 10px; border: 1px solid var(--wood-dark); border-radius: 2px; background: var(--seal-dark); overflow: hidden; }
+      #boss-bar-fill { height: 100%; width: 100%; background: linear-gradient(180deg, #d14a2e, var(--seal)); transition: width 0.2s linear; }
 
       /* Fog-of-war minimap: a small unrolled map, rods top and bottom. Bottom-right, and it steps
          left of the Build panel while that's open (same 0.2s slide), so neither panel covers it. */
@@ -897,6 +973,16 @@
       <div id="toolbar"></div>
     </div>
     <div id="minimap-frame"><canvas id="minimap" width="160" height="160" aria-label="Minimap"></canvas></div>
+    <div id="goal-tracker" aria-live="polite" hidden>
+      <div class="goal-heading"><span>Goal</span><span id="goal-step"></span></div>
+      <div id="goal-title"></div>
+      <div class="goal-progress"><div id="goal-progress-fill"></div></div>
+      <div id="goal-progress-text"></div>
+    </div>
+    <div id="boss-bar" hidden>
+      <div id="boss-bar-name"></div>
+      <div class="boss-bar-track"><div id="boss-bar-fill"></div></div>
+    </div>
     <div id="economy-panel-toggle" class="panel-open">Colony</div>
     <div id="economy-panel">
       <div id="colony-stats">

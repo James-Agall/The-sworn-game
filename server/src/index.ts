@@ -27,6 +27,9 @@ import {
   Biome,
   HungerMark,
   HUNGER_MARK_NAMES,
+  BossTier,
+  bossTitle,
+  GoalSnapshot,
   isSolidTile,
   isRoadTile,
   TICK_RATE,
@@ -162,8 +165,12 @@ interface Mob {
   // guardian at the same site; null for night-wave mobs and deserters. Dormant (guardianActive
   // false) guardians do nothing in updateMob until any one of their site is damaged.
   siteId: string | null;
-  siteKind: "ruin" | "encampment" | null;
+  siteKind: PoiSiteKind | null;
   guardianActive: boolean;
+  // Phase 5 bosses (the Castle Ruin's Ogre Warlord, mini-boss pack leaders); missing on every other
+  // mob and in old saves. bossSighted: the one-off "sighted" toast has fired for it.
+  boss?: BossTier;
+  bossSighted?: boolean;
   // Raid-wave group (see raidGroups). While groupId is set the mob is driven by updateRaidGroups,
   // not by updateMob's per-mob targeting; passive is true until its group turns aggressive.
   groupId: string | null;
@@ -185,6 +192,10 @@ interface Mob {
   approachX?: number;
   approachY?: number;
 }
+
+// Ruins and encampments are the small scattered sites; "castleRuin" is the one Castle Ruin and
+// "miniBoss" a mini-boss pack (ROADMAP Phase 5). All share the dormant-until-provoked wake mechanic.
+type PoiSiteKind = "ruin" | "encampment" | "castleRuin" | "miniBoss";
 
 // Defaults for the Mob fields every creation site shares (spread into each Mob literal).
 const MOB_MARK_DEFAULTS = {
@@ -494,7 +505,7 @@ function scatterResourceTiles(tileType: TileType, count: number) {
     const tx = Math.floor(Math.random() * WORLD_TILES_X);
     const ty = Math.floor(Math.random() * WORLD_TILES_Y);
     if (tx === spawnTx && ty === spawnTy) continue;
-    if (isInAbbeyGrounds(tx, ty)) continue;
+    if (isInReservedGrounds(tx, ty)) continue;
     const idx = tileIndex(tx, ty);
     if (tiles[idx] === TileType.Empty) {
       tiles[idx] = tileType;
@@ -1247,7 +1258,7 @@ function tryGrowTree() {
         tiles[tileIndex(tx, ty)] === TileType.Empty &&
         !tileOccupiedByEntity(tx, ty) &&
         !isAdjacentToPlayerOrPost(tx, ty) &&
-        !isInAbbeyGrounds(tx, ty)
+        !isInReservedGrounds(tx, ty)
       ) {
         candidates.push({ x: tx, y: ty });
       }
@@ -1278,7 +1289,7 @@ function tryGrowTreesNearLumberjackPosts() {
         if (tiles[tileIndex(tx, ty)] !== TileType.Empty) continue;
         if (tileOccupiedByEntity(tx, ty)) continue;
         if (isAdjacentToPlayerOrPost(tx, ty)) continue;
-        if (isInAbbeyGrounds(tx, ty)) continue;
+        if (isInReservedGrounds(tx, ty)) continue;
         candidates.push({ x: tx, y: ty });
       }
     }
@@ -2612,7 +2623,7 @@ function hasTreeNear(tx: number, ty: number, radius: number): boolean {
 // on Plains/Hills. Always an Empty tile.
 function wildlifeTileOk(kind: WildlifeKind, tx: number, ty: number): boolean {
   if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Empty) return false;
-  if (isInAbbeyGrounds(tx, ty)) return false;
+  if (isInReservedGrounds(tx, ty)) return false;
   if (Math.hypot(tx - TOWN_CENTER_TILE.x, ty - TOWN_CENTER_TILE.y) < WILDLIFE_MIN_TOWN_CENTER_DIST_TILES) return false;
   const biome = biomeAt(tx, ty);
   if (kind === "deer" || kind === "rabbit") return biome === Biome.Plains;
@@ -2846,7 +2857,7 @@ function scatterForage(tile: TileType, count: number, isValid: (tx: number, ty: 
     const tx = Math.floor(Math.random() * WORLD_TILES_X);
     const ty = Math.floor(Math.random() * WORLD_TILES_Y);
     if (tiles[tileIndex(tx, ty)] !== TileType.Empty) continue;
-    if (isInAbbeyGrounds(tx, ty)) continue;
+    if (isInReservedGrounds(tx, ty)) continue;
     if (Math.hypot(tx - TOWN_CENTER_TILE.x, ty - TOWN_CENTER_TILE.y) < FORAGE_MIN_TOWN_CENTER_DIST_TILES) continue;
     if (!isValid(tx, ty)) continue;
     tiles[tileIndex(tx, ty)] = tile;
@@ -3809,6 +3820,7 @@ function damageMob(mob: Mob, amount: number) {
     gravestones.push({ x: mob.x, y: mob.y, variant: Math.random() < 0.5 ? 0 : 1 });
     mobs.delete(mob.id);
     stock.gold += goldForKill(mob);
+    if (mob.boss) onBossKilled(mob);
   }
 }
 
@@ -5848,6 +5860,12 @@ function isInAbbeyGrounds(tx: number, ty: number): boolean {
   return Math.max(Math.abs(tx - abbeyCenter.x), Math.abs(ty - abbeyCenter.y)) <= ABBEY_GROUNDS_RADIUS;
 }
 
+// World-gen grounds that resource scatter, forage, wildlife and tree regrowth keep off: the Abbey's
+// and the Castle Ruin's.
+function isInReservedGrounds(tx: number, ty: number): boolean {
+  return isInAbbeyGrounds(tx, ty) || isInCastleRuinGrounds(tx, ty);
+}
+
 const NEIGHBORS_8: TileCoord[] = [
   { x: -1, y: -1 },
   { x: 0, y: -1 },
@@ -6005,7 +6023,7 @@ function poiSiteFootprintClear(
   return true;
 }
 
-function spawnGuardian(kind: MobKind, tile: TileCoord, siteId: string, siteKind: "ruin" | "encampment") {
+function spawnGuardian(kind: MobKind, tile: TileCoord, siteId: string, siteKind: PoiSiteKind): Mob {
   const config = MOB_KIND_CONFIG[kind];
   const center = tileToPixelCenter(tile);
   const mob: Mob = {
@@ -6037,6 +6055,7 @@ function spawnGuardian(kind: MobKind, tile: TileCoord, siteId: string, siteKind:
     ...MOB_MARK_DEFAULTS,
   };
   mobs.set(mob.id, mob);
+  return mob;
 }
 
 function pickWeightedGuardianKind(weights: { kind: MobKind; weight: number }[]): MobKind {
@@ -6107,7 +6126,7 @@ function generatePoiSites(siteKind: "ruin" | "encampment", count: number, placed
 // Saint Wren's Abbey: lays out ABBEY_LAYOUT around a clear spot (grounds + apron all Empty, no
 // water) and posts its three resident clergy at the hall. Runs before resources are scattered, so
 // the 11x11 clear area is only ever contested by ponds; scatter and tree regrowth then skip the
-// grounds (isInAbbeyGrounds). Adds the Abbey's center to placedSites so later POIs keep their spacing.
+// grounds (isInReservedGrounds). Adds the Abbey's center to placedSites so later POIs keep their spacing.
 function placeAbbey(placedSites: TileCoord[]) {
   const center = pickScatteredTile(ABBEY_MIN_SPAWN_DIST, POI_SITE_MIN_SPACING, placedSites, (t) =>
     poiSiteFootprintClear(t, ABBEY_GROUNDS_RADIUS, ABBEY_GROUNDS_RADIUS)
@@ -6132,6 +6151,280 @@ function placeAbbey(placedSites: TileCoord[]) {
     c.x = spot.x;
     c.y = spot.y;
   }
+}
+
+// ---- The Castle Ruin, its Ogre Warlord, and mini-boss packs (ROADMAP Phase 5) ----
+// The Castle Ruin: exactly one per world, a 9x9 walled ruin (existing ruin tiles, no new art) placed
+// as far from the starting Town Center as world-gen can manage. Gaps in the middle of each wall let
+// units in and out. Its guardians stand inside, dormant; the Ogre Warlord holds the centre ("B").
+// 1/2 ruin walls, A arch, S statue, R rubble, "." open ground (Empty).
+const CASTLE_RUIN_LAYOUT = [
+  "12A1.1A21",
+  "2.......2",
+  "A..R.R..A",
+  "1.S...S.1",
+  "....B....",
+  "1.S...S.1",
+  "A..R.R..A",
+  "2.......2",
+  "12A1.1A21",
+];
+const CASTLE_RUIN_LAYOUT_TILES: Record<string, TileType> = {
+  "1": TileType.RuinWall1,
+  "2": TileType.RuinWall2,
+  A: TileType.RuinArch,
+  S: TileType.RuinStatue,
+  R: TileType.RuinRubble,
+};
+const CASTLE_RUIN_FOOTPRINT_RADIUS = Math.floor(CASTLE_RUIN_LAYOUT.length / 2);
+// The footprint plus a one-tile apron kept clear (like the Abbey's), so the gates are never blocked.
+const CASTLE_RUIN_GROUNDS_RADIUS = CASTLE_RUIN_FOOTPRINT_RADIUS + 1;
+// Preferred minimum distances from the Town Center, as fractions of the map width, tried in order
+// (a crowded or small map falls back to the next); last resort is just clear of the spawn area.
+const CASTLE_RUIN_SPAWN_DIST_FRACTIONS = [0.4, 0.33, 0.25];
+const CASTLE_RUIN_GUARDIANS_MIN = 8;
+const CASTLE_RUIN_GUARDIANS_MAX = 12;
+// Ruin-weighted, with heavier hitters than an ordinary ruin.
+const CASTLE_RUIN_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] = [
+  { kind: "skeleton", weight: 4 },
+  { kind: "orc", weight: 2 },
+  { kind: "armoredOrc", weight: 2 },
+  { kind: "darkShaman", weight: 2 },
+];
+const WARLORD_HP_MULT = 4.5;
+const WARLORD_DAMAGE_MULT = 2;
+// On top of the usual goldForKill.
+const WARLORD_REWARD: Partial<Record<ResourceKey, number>> = { gold: 250, wood: 150, rock: 150, iron: 100 };
+
+// Mini-bosses: standalone packs of one kind, an upscaled elite plus 2-4 ordinary followers.
+const MINI_BOSS_SITE_COUNT_MIN = Math.max(1, scaledCount(0.75));
+const MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCount(1.25));
+const MINI_BOSS_KINDS: MobKind[] = ["wolf", "orc", "skeleton", "giantSpider", "armoredOrc", "troll"];
+const ELITE_HP_MULT = 2.5;
+const ELITE_DAMAGE_MULT = 1.5;
+const ELITE_REWARD: Partial<Record<ResourceKey, number>> = { gold: 60, wood: 40, iron: 30 };
+
+// Centre tile of this world's Castle Ruin (null only if world-gen couldn't fit one, or an old save).
+let castleRuinCenter: TileCoord | null = null;
+
+function isInCastleRuinGrounds(tx: number, ty: number): boolean {
+  if (!castleRuinCenter) return false;
+  return Math.max(Math.abs(tx - castleRuinCenter.x), Math.abs(ty - castleRuinCenter.y)) <= CASTLE_RUIN_GROUNDS_RADIUS;
+}
+
+function makeBoss(mob: Mob, tier: BossTier) {
+  const hpMult = tier === "warlord" ? WARLORD_HP_MULT : ELITE_HP_MULT;
+  const damageMult = tier === "warlord" ? WARLORD_DAMAGE_MULT : ELITE_DAMAGE_MULT;
+  mob.maxHp = Math.round(mob.maxHp * hpMult);
+  mob.hp = mob.maxHp;
+  mob.damage = Math.round(mob.damage * damageMult);
+  mob.boss = tier;
+  mob.bossSighted = false;
+}
+
+function formatReward(reward: Partial<Record<ResourceKey, number>>): string {
+  return Object.entries(reward)
+    .map(([key, n]) => `+${n} ${key}`)
+    .join(", ");
+}
+
+function grantReward(reward: Partial<Record<ResourceKey, number>>) {
+  for (const [key, n] of Object.entries(reward)) stock[key as ResourceKey] += n ?? 0;
+}
+
+// Runs before resources are scattered (right after the Abbey), so the grounds are only contested by
+// ponds and the Abbey; scatter and regrowth then skip them (isInReservedGrounds).
+function placeCastleRuin(placedSites: TileCoord[]) {
+  const fits = (t: TileCoord) => poiSiteFootprintClear(t, CASTLE_RUIN_GROUNDS_RADIUS, CASTLE_RUIN_GROUNDS_RADIUS);
+  const spacing = ABBEY_GROUNDS_RADIUS + CASTLE_RUIN_GROUNDS_RADIUS + 2;
+  let center: TileCoord | null = null;
+  for (const fraction of CASTLE_RUIN_SPAWN_DIST_FRACTIONS) {
+    center = pickScatteredTile(Math.floor(WORLD_TILES_X * fraction), spacing, placedSites, fits);
+    if (center) break;
+  }
+  center ??= pickScatteredTile(SPAWN_CLEAR_RADIUS_TILES + CASTLE_RUIN_GROUNDS_RADIUS, spacing, placedSites, fits);
+  if (!center) return;
+  castleRuinCenter = center;
+  placedSites.push(center);
+  const siteId = randomUUID();
+  const open: TileCoord[] = [];
+  for (let ry = 0; ry < CASTLE_RUIN_LAYOUT.length; ry++) {
+    for (let rx = 0; rx < CASTLE_RUIN_LAYOUT[ry].length; rx++) {
+      const t = { x: center.x + rx - CASTLE_RUIN_FOOTPRINT_RADIUS, y: center.y + ry - CASTLE_RUIN_FOOTPRINT_RADIUS };
+      const tile = CASTLE_RUIN_LAYOUT_TILES[CASTLE_RUIN_LAYOUT[ry][rx]];
+      if (tile !== undefined) tiles[tileIndex(t.x, t.y)] = tile;
+      // Guardians stand on the open ground inside the walls (not in the gate gaps, not on the boss).
+      else if (CASTLE_RUIN_LAYOUT[ry][rx] === "." && rx > 0 && ry > 0 && rx < CASTLE_RUIN_LAYOUT.length - 1 && ry < CASTLE_RUIN_LAYOUT.length - 1) open.push(t);
+    }
+  }
+  makeBoss(spawnGuardian("ogre", center, siteId, "castleRuin"), "warlord");
+  const count = randInt(CASTLE_RUIN_GUARDIANS_MIN, CASTLE_RUIN_GUARDIANS_MAX);
+  for (const spot of shuffled(open).slice(0, count)) {
+    spawnGuardian(pickWeightedGuardianKind(CASTLE_RUIN_GUARDIAN_WEIGHTS), spot, siteId, "castleRuin");
+  }
+}
+
+// After the ruins and encampments, same spacing rules. No decoration: just the pack, the elite on
+// the centre tile and its followers on free neighbours.
+function generateMiniBossSites(count: number, placedSites: TileCoord[]) {
+  for (let i = 0; i < count; i++) {
+    const center = pickScatteredTile(
+      SPAWN_CLEAR_RADIUS_TILES + POI_SITE_FOOTPRINT_RADIUS,
+      POI_SITE_MIN_SPACING,
+      placedSites,
+      poiSiteFootprintClear
+    );
+    if (!center) continue;
+    placedSites.push(center);
+    const siteId = randomUUID();
+    const kind = MINI_BOSS_KINDS[randInt(0, MINI_BOSS_KINDS.length - 1)];
+    makeBoss(spawnGuardian(kind, center, siteId, "miniBoss"), "elite");
+    for (const offset of shuffled(NEIGHBORS_8).slice(0, randInt(2, 4))) {
+      spawnGuardian(kind, { x: center.x + offset.x, y: center.y + offset.y }, siteId, "miniBoss");
+    }
+  }
+}
+
+// Set when the Ogre Warlord dies; the goal track's final goal reads it. Saved.
+let castleCleared = false;
+
+function onBossKilled(mob: Mob) {
+  const title = bossTitle(mob.kind, mob.boss!);
+  if (mob.boss === "warlord") {
+    castleCleared = true;
+    grantReward(WARLORD_REWARD);
+    broadcastEvent("boss", `The ${title} has fallen — the Castle Ruin is cleared! (${formatReward(WARLORD_REWARD)})`);
+    evaluateGoals();
+  } else {
+    grantReward(ELITE_REWARD);
+    broadcastEvent("boss", `The ${title} is slain (${formatReward(ELITE_REWARD)})`);
+  }
+}
+
+// Once per boss: the first time a player (vision radius VISION_RADIUS_PLAYER) or one of the colony's
+// colonists (VISION_RADIUS_COLONIST) has it in live vision. Checked once a second.
+function checkBossSightings() {
+  for (const mob of mobs.values()) {
+    if (!mob.boss || mob.bossSighted) continue;
+    const seen =
+      Array.from(players.values()).some(
+        (p) => !p.dead && Math.hypot(p.x - mob.x, p.y - mob.y) <= VISION_RADIUS_PLAYER * TILE_SIZE
+      ) ||
+      Array.from(colonists.values()).some(
+        (c) => !isAbbeyClergy(c) && Math.hypot(c.x - mob.x, c.y - mob.y) <= VISION_RADIUS_COLONIST * TILE_SIZE
+      );
+    if (!seen) continue;
+    mob.bossSighted = true;
+    const title = bossTitle(mob.kind, mob.boss);
+    broadcastEvent(
+      "boss",
+      mob.boss === "warlord" ? `The ${title} has been sighted at the Castle Ruin` : `A ${title} has been sighted`
+    );
+  }
+}
+
+// ---- Goal track (ROADMAP Phase 5) ----
+// One shared, ordered track per world. Only the current goal is checked (once a second, plus right
+// after the Warlord dies); when it's met the colony gets its reward, a "milestone" toast, and the next
+// goal becomes current (several can complete in one check, e.g. a night milestone already passed).
+interface GoalDef {
+  title: string;
+  progress: () => { progress: number; target: number };
+  reward: Partial<Record<ResourceKey, number>>;
+}
+
+const GOAL_WORKER_KINDS = new Set<ColonistKind>([
+  "lumberjack", "farmer", "ironMiner", "rockMiner", "farmhand", "artisan", "hunter", "forager",
+]);
+
+// Dawns since the world began (cycle 0 starts at dawn, so day N's dawn is cycleTick N * cycle).
+function nightsSurvived(): number {
+  return Math.floor(cycleTick / GAME_DAY_TICKS);
+}
+
+// Any player-placed structure: a queued construction, a built building (Town Centers beyond the
+// starting one count), or a wall.
+function anyPlayerBuilding(): boolean {
+  if (constructionSites.size > 0 || townCenters.length > 1) return true;
+  for (let i = 0; i < tiles.length; i++) {
+    const t = tiles[i] as TileType;
+    if (t === TileType.Wall || t === TileType.StoneWall) return true;
+    if (t !== TileType.TownCenter && VISION_BUILDING_TILES.has(t)) return true;
+  }
+  return false;
+}
+
+function flagGoal(done: boolean) {
+  return { progress: done ? 1 : 0, target: 1 };
+}
+
+function nightsGoal(target: number, reward: Partial<Record<ResourceKey, number>>): GoalDef {
+  return {
+    title: target === 1 ? "Survive the first night" : `Survive ${target} nights`,
+    progress: () => ({ progress: Math.min(target, nightsSurvived()), target }),
+    reward,
+  };
+}
+
+const GOALS: GoalDef[] = [
+  { title: "Place a building", progress: () => flagGoal(anyPlayerBuilding()), reward: { wood: 20 } },
+  {
+    title: "Assign a worker",
+    progress: () => flagGoal(Array.from(colonists.values()).some((c) => GOAL_WORKER_KINDS.has(c.kind))),
+    reward: { wood: 20, rock: 10 },
+  },
+  {
+    title: "Arm a unit",
+    progress: () => flagGoal(Array.from(colonists.values()).some((c) => isSoldierKind(c.kind))),
+    reward: { iron: 15 },
+  },
+  nightsGoal(1, { gold: 15, grain: 20 }),
+  nightsGoal(3, { gold: 30, wood: 30, rock: 30 }),
+  nightsGoal(7, { gold: 60, iron: 40, rock: 40 }),
+  nightsGoal(14, { gold: 100, wood: 60, iron: 60 }),
+  nightsGoal(21, { gold: 150, wood: 80, iron: 80, rock: 80 }),
+  { title: "Clear the Castle Ruin", progress: () => flagGoal(castleCleared), reward: { gold: 100 } },
+];
+
+let goalIndex = 0;
+let goalSnapshot: GoalSnapshot = { index: 0, total: GOALS.length, title: GOALS[0].title, progress: 0, target: 1 };
+
+function refreshGoalSnapshot(progress?: { progress: number; target: number }) {
+  if (goalIndex >= GOALS.length) {
+    goalSnapshot = { index: GOALS.length, total: GOALS.length, title: "Every goal complete", progress: 1, target: 1 };
+    return;
+  }
+  const p = progress ?? GOALS[goalIndex].progress();
+  goalSnapshot = { index: goalIndex, total: GOALS.length, title: GOALS[goalIndex].title, ...p };
+}
+
+// silent: catch up without rewards or toasts (an old save loaded with no goal state).
+function evaluateGoals(silent = false) {
+  while (goalIndex < GOALS.length) {
+    const goal = GOALS[goalIndex];
+    const p = goal.progress();
+    if (p.progress < p.target) {
+      refreshGoalSnapshot(p);
+      return;
+    }
+    goalIndex++;
+    if (silent) continue;
+    grantReward(goal.reward);
+    const final = goalIndex === GOALS.length;
+    broadcastEvent(
+      "milestone",
+      final
+        ? `Final goal complete: ${goal.title} — the colony stands victorious! (${formatReward(goal.reward)})`
+        : `Goal complete: ${goal.title} (${formatReward(goal.reward)})`
+    );
+  }
+  refreshGoalSnapshot();
+}
+
+function resetGoals() {
+  goalIndex = 0;
+  castleCleared = false;
+  refreshGoalSnapshot(flagGoal(false));
 }
 
 // ---- Fog of war (minimap only) ----
@@ -6234,25 +6527,29 @@ function flushExplored() {
 
 // Full world regeneration (boot + restart). Callers must clear `mobs` and `colonists` first: this
 // spawns the new world's POI guardians and Abbey clergy into them. Order: biomes (own layer) ->
-// ponds -> Abbey -> resources -> wild forage -> POI sites -> wild game, each step only ever writing onto Empty tiles, so nothing
+// ponds -> Abbey -> Castle Ruin -> resources -> wild forage -> POI sites -> mini-boss packs -> wild game, each step only ever writing onto Empty tiles, so nothing
 // lands on top of anything placed before it.
 function generateWorld() {
   tiles.fill(TileType.Empty);
   biomes.fill(Biome.Plains);
   worldNoiseSalt = Math.floor(Math.random() * 0x7fffffff);
   abbeyCenter = null;
+  castleRuinCenter = null;
+  resetGoals();
   tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
   townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
   generateBiomes();
   generatePonds();
   const placedSites: TileCoord[] = [];
   placeAbbey(placedSites);
+  placeCastleRuin(placedSites);
   scatterResourceTiles(TileType.Tree, TREE_COUNT);
   scatterResourceTiles(TileType.IronOre, IRON_ORE_COUNT);
   scatterResourceTiles(TileType.Rock, ROCK_COUNT);
   generateForage();
   generatePoiSites("ruin", randInt(RUIN_SITE_COUNT_MIN, RUIN_SITE_COUNT_MAX), placedSites);
   generatePoiSites("encampment", randInt(ENCAMPMENT_SITE_COUNT_MIN, ENCAMPMENT_SITE_COUNT_MAX), placedSites);
+  generateMiniBossSites(randInt(MINI_BOSS_SITE_COUNT_MIN, MINI_BOSS_SITE_COUNT_MAX), placedSites);
   spawnInitialWildlife();
   resetExplored();
   topUpTownCenterBuilders(townCenters[0]);
@@ -6289,8 +6586,6 @@ function broadcastEvent(category: GameEventCategory, text: string) {
   }
 }
 
-// TODO: Phase 5 — broadcastEvent("milestone", ...) once the short-term goal system exists, and a
-// boss/mini-boss "sighted" event once the Castle Ruin boss lands.
 
 // COLONY_TEST_HOOKS=1 enables the "testHook" client message for scripted tests (server/*.mjs):
 // time travel, raid-state dumps, direct mob damage and tick timing. Off by default: never needed
@@ -6575,6 +6870,23 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "damageBuilding" && typeof msg.tx === "number" && typeof msg.ty === "number" && typeof msg.amount === "number") {
     damageBuilding(msg.tx, msg.ty, msg.amount);
     reply({ hp: structureHp(msg.tx, msg.ty), tile: tiles[tileIndex(msg.tx, msg.ty)] });
+  } else if (msg.op === "goalState") {
+    // Goal track, the Castle Ruin and every boss / Castle Ruin guardian (goals-castle-test).
+    reply({
+      goalIndex,
+      goal: goalSnapshot,
+      goalTitles: GOALS.map((g) => g.title),
+      castleCleared,
+      castleRuinCenter,
+      nightsSurvived: nightsSurvived(),
+      stock: { ...stock },
+      mobs: Array.from(mobs.values())
+        .filter((m) => m.boss || m.siteKind === "castleRuin" || m.siteKind === "miniBoss")
+        .map((m) => ({
+          id: m.id, kind: m.kind, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp, damage: m.damage, boss: m.boss ?? null,
+          siteId: m.siteId, siteKind: m.siteKind, guardianActive: m.guardianActive, bossSighted: m.bossSighted ?? false,
+        })),
+    });
   } else if (msg.op === "buildingState") {
     // Building HP / repair state, builders, and every mob's target (with its approach tile).
     reply({
@@ -6625,6 +6937,7 @@ function sendWelcome(player: Player) {
     biomes: Array.from(biomes),
     explored: packExplored(),
     difficulty,
+    castleRuin: castleRuinCenter,
   };
   player.socket.send(JSON.stringify(welcome));
 }
@@ -6761,6 +7074,8 @@ function snapshotWorld() {
     explored: packExplored(),
     worldNoiseSalt,
     abbeyCenter,
+    castleRuinCenter,
+    goals: { goalIndex, castleCleared },
     stock: { ...stock },
     marketBuilt,
     goldShopBuilt,
@@ -6824,6 +7139,11 @@ function applyWorld(s: WorldState) {
   for (let i = 0; i < explored.length; i++) explored[i] = (bits[i >> 3] >> (i & 7)) & 1;
   worldNoiseSalt = s.worldNoiseSalt;
   abbeyCenter = s.abbeyCenter;
+  // `?? null` / missing `goals`: saves from before Phase 5 have no Castle Ruin, and their goal track
+  // catches up silently (below, once the rest of the world is in place).
+  castleRuinCenter = s.castleRuinCenter ?? null;
+  goalIndex = s.goals?.goalIndex ?? 0;
+  castleCleared = s.goals?.castleCleared ?? false;
   Object.assign(stock, s.stock);
   marketBuilt = s.marketBuilt;
   goldShopBuilt = s.goldShopBuilt;
@@ -6878,6 +7198,7 @@ function applyWorld(s: WorldState) {
   testForceMarkChance = s.flags.testForceMarkChance;
   instantBuild = s.flags.instantBuild;
   testPlayersIgnored = s.flags.testPlayersIgnored ?? false;
+  evaluateGoals(!s.goals);
   // Transients: nothing in flight survives a load; everyone re-stamps vision from scratch.
   pendingEffects = [];
   pendingExplored = [];
@@ -8094,6 +8415,10 @@ function stepSimulation() {
   processRespawnQueue();
   updateWardPriestPresence();
   respawnDeadPlayers();
+  if (cycleTick % TICK_RATE === 0) {
+    checkBossSightings();
+    evaluateGoals();
+  }
 }
 
 setInterval(() => {
@@ -8140,6 +8465,7 @@ setInterval(() => {
       hp: m.hp,
       maxHp: m.maxHp,
       ...(m.mark !== HungerMark.None ? { mark: m.mark } : {}),
+      ...(m.boss ? { boss: m.boss } : {}),
     })),
     wood: stock.wood,
     iron: stock.iron,
@@ -8181,6 +8507,7 @@ setInterval(() => {
     townCenters: townCenters.map(
       (tc): TownCenterSnapshot => ({ x: tc.x, y: tc.y, level: tc.level, hp: Math.max(0, tc.hp), maxHp: townCenterMaxHp(tc.level) })
     ),
+    goal: goalSnapshot,
   };
   pendingEffects = [];
 

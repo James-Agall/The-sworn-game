@@ -194,7 +194,7 @@ reasonable first pass, not something confirmed with you — flag if they feel wr
 ### Phase 2 — Combat feedback & notifications
 **Landed 2026-10-12.** Gravestones are wired (snapshot `gravestones`, cleared at dawn) and the
 `event` feed is live for nightfall, dawn, tier upgrades, colonist deaths, ward lapses and deserter
-waves. Milestone and boss-sighted events wait for Phase 5 (TODO in `server/src/index.ts`).
+waves. Milestone and boss-sighted events landed with Phase 5 (`milestone` / `boss` categories).
 - **Gravestones.** `gravestone.png`/`gravestone2.png` already exist in `client/public/sprites/`
   but are unused — wire them up now. On a colonist/soldier death, drop one (random variant) as a
   transient decor entity (not a tile, so it doesn't collide with buildable-tile logic) at the
@@ -224,16 +224,47 @@ Test: `server/minimap-fog-test.mjs`.
   unexplored, terrain-tinted explored, live dots for players/colonists/mobs/buildings in current
   vision range. More load-bearing once the map is 160x160.
 
-### Phase 5 — Short-term goals & the Castle Ruin
-- **Goal track:** tutorial-style first steps (place a building, assign a worker, arm a unit,
-  survive the first night) → "survive N nights" milestones → final objective: clear the Castle
-  Ruin.
-- **Castle Ruin:** one large, singular POI (bigger footprint than a normal Ruin), dense guardian
-  count, dormant-until-provoked (reusing the existing Ruin/Encampment wake mechanic).
-- **Boss:** an upscaled Ogre variant (bigger render size, stat multiplier **(judgment call,
-  proposing ~4-5x HP, ~2x damage)**) guarding the Castle Ruin's center.
-- **Mini-bosses:** standalone POIs scattered on the map — one upscaled elite of a given kind
-  leading 2-4 normal mobs of that same kind, same dormant/wake pattern.
+### Phase 5 — Short-term goals & the Castle Ruin — landed 2026-10-16 (uncommitted)
+Server: the "Castle Ruin, its Ogre Warlord, and mini-boss packs" and "Goal track" blocks just above
+the fog-of-war code in `server/src/index.ts` (`CASTLE_RUIN_*`, `WARLORD_*`, `MINI_BOSS_*`, `ELITE_*`,
+`GOALS`). Protocol changes are additive only: `MobSnapshot.boss` ("warlord" | "elite"), snapshot
+`goal` (`GoalSnapshot`), `welcome.castleRuin`, event categories `milestone` and `boss`, plus
+`BOSS_RENDER_SCALE` / `bossTitle` (shared by server toasts and client labels).
+- **Goal track:** one shared, ordered track per world. Place a building → Assign a worker → Arm a
+  unit → Survive the first night → Survive 3 / 7 / 14 / 21 nights → Clear the Castle Ruin. Only the
+  current goal is checked, once a second (and straight after the Warlord dies); several can complete
+  in one check. Nights survived = dawns since the world began. Each goal pays a small reward
+  (wood/rock/iron early, 15-150 gold plus materials for the night milestones, 100 gold for the final)
+  and posts a `milestone` toast. **(judgment call)** rewards. Saved (`goals` in the save state); a
+  pre-Phase-5 save loads with its track caught up silently (no toasts, no rewards).
+- **Castle Ruin:** exactly one per world, a 9x9 walled ruin built from the existing ruin tiles
+  (walls, arches, statues, rubble; a gate gap in the middle of each side) plus a one-tile apron that
+  scatter, forage, wildlife and tree regrowth keep off (`isInReservedGrounds`). Placed right after
+  the Abbey, at least 40% / 33% / 25% of the map width from the Town Center (first that fits), with
+  8-12 dormant guardians inside (skeleton 4 : orc 2 : armoured orc 2 : dark shaman 2), all on one
+  wake group with the Warlord (siteKind `castleRuin`). Fits at 160, 80 and 64; also placed at 48 in
+  testing, where mini-boss packs sometimes don't fit.
+- **Ogre Warlord:** an ogre at the ruin's centre, 4.5x HP (990), 2x damage (56). On death: the usual
+  gold-per-kill plus 250 gold, 150 wood, 150 rock, 100 iron, a `boss` toast, the Castle Ruin is
+  cleared and the final goal completes. Never respawns.
+- **Mini-bosses:** `scaledCount(0.75)`-`scaledCount(1.25)` packs (3-5 at 160x160, 1 at 80x80), placed
+  after the encampments with the same spacing rules and no decoration: one elite at 2.5x HP / 1.5x
+  damage (Dire Wolf Alpha, Orc Chieftain, Skeleton Lord, Spider Matriarch, Orc Warchief or Troll
+  Elder) and 2-4 ordinary mobs of its kind (siteKind `miniBoss`, same wake mechanic). The elite pays
+  60 gold, 40 wood and 30 iron and posts a toast.
+- **Sightings:** the first time a boss or mini-boss comes within a player's or colonist's live vision
+  radius, a `boss` toast goes out (once per boss, saved as `bossSighted`). Being seen doesn't wake it.
+- **Client:** a parchment goal card sits top-right under the control buttons. It shows the step, the
+  title, a progress bar (with an N / M count for the night goals) and a gold flash when a goal
+  completes, and it slides left of the Build panel like the minimap. Bosses are drawn bigger (Warlord
+  1.6x, elites 1.3x, no new art) with a serif name label and a 2x / 1.5x hp bar. The Warlord's
+  parchment boss bar shows above the command bar while he's within 15 tiles of you. The minimap
+  outlines the Castle Ruin (9x9, with a red keep) once its centre tile is explored. Toasts: `milestone`
+  uses the upgrade icon and sound, `boss` uses the death icon.
+- **Tests:** `server/goals-castle-test.mjs` starts its own private servers (PORT base, default 18961;
+  sizes 80/160/64) and covers world-gen, the goal order, toasts and rewards, sightings, save / restart
+  / load, old-save compatibility and the kills. `world-gen-poi-test.mjs` now leaves the Castle Ruin
+  and mini-boss packs out of its ruin / encampment counts.
 
 ### Phase 6 — Hunger-marked elites — Landed 2026-10-15 (uncommitted)
 Rare marked variants of night-raid mobs, one behavior modifier per Hunger (from
@@ -305,7 +336,7 @@ in `SPRITES.md`.
 - **Blood (Phase 2 combat feedback):** some melee hits and every death leave a ground stain. Stains
   are capped at 80 and cleared at dawn with the gravestones.
 - **Ambient wildlife:** deer, crows and frogs wander client-side with no gameplay effect.
-- **Staged, not wired:** the Castle Ruin (Phase 5), the six gate states (gate passability is still
+- **Staged, not wired:** the Castle Ruin art (Phase 5 shipped with the existing ruin tiles instead), the six gate states (gate passability is still
   undecided), the wall torch loop, the move/attack/rally order icons, `playerIdle`, and rough wound
   decals. Visual health stays deferred: the wound sheet came back as pre-baked units rather than
   usable decals.

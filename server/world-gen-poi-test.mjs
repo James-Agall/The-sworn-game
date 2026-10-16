@@ -168,10 +168,22 @@ async function followPath(path, { stopWhen, timeoutMs = 25000 } = {}) {
 
 // Groups the world's POI sites: each centerpiece tile (ruin wall/arch, campfire) + its extras +
 // the mobs whose nearest centerpiece it is.
+// Phase 5's Castle Ruin (its 9x9 walls reuse the ruin tiles) and mini-boss packs (an elite plus its
+// followers, within a tile of it) are covered by goals-castle-test.mjs and left out here.
+const inCastleRuin = (x, y) => {
+  const cr = a.welcome.castleRuin;
+  return !!cr && Math.max(Math.abs(x - cr.x), Math.abs(y - cr.y)) <= 5;
+};
+function isPhase5Mob(m, s) {
+  if (m.boss || inCastleRuin(Math.floor(m.x / TILE), Math.floor(m.y / TILE))) return true;
+  return s.mobs.some((e) => e.boss === "elite" && Math.max(Math.abs(e.x - m.x), Math.abs(e.y - m.y)) <= TILE * 1.01);
+}
+
 function readSites(s = a.snap) {
   const sites = [];
   for (let y = 0; y < H(); y++) {
     for (let x = 0; x < W(); x++) {
+      if (inCastleRuin(x, y)) continue;
       const t = tileAt(x, y);
       if (RUIN_CENTER.has(t)) sites.push({ kind: "ruin", x, y, tile: t, mobs: [], extras: [] });
       else if (t === T.PropCampfire) sites.push({ kind: "encampment", x, y, tile: t, mobs: [], extras: [] });
@@ -185,6 +197,7 @@ function readSites(s = a.snap) {
     }
   }
   for (const m of s.mobs) {
+    if (isPhase5Mob(m, s)) continue;
     let best = null;
     let bd = Infinity;
     for (const site of sites) {
@@ -292,6 +305,7 @@ if (ONLY.has("A")) {
 // ---------------------------------------------------------------- B: Plains farming bonus
 if (ONLY.has("B")) {
   await restart();
+  await a.hook("setInstantBuild", { enabled: true }); // placements would otherwise be builder-built sites
   const me = tileOf(a.me());
   let placed = null;
   for (const [dx, dy] of [[0, 2], [2, 0], [0, -2], [-2, 0], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
@@ -381,6 +395,7 @@ if (ONLY.has("C")) {
 // ---------------------------------------------------------------- D: Hills mining bonus
 if (ONLY.has("D")) {
   await restart();
+  await a.hook("setInstantBuild", { enabled: true }); // placements would otherwise be builder-built sites
   const isHillsOre = (x, y) => inB(x, y) && (tileAt(x, y) === T.IronOre || tileAt(x, y) === T.Rock) && biomeAt(x, y) === BIOME.Hills;
   let ore = null;
   const path = bfs(tileOf(a.me()), (t) => {

@@ -238,6 +238,36 @@ export interface MobSnapshot {
   maxHp: number;
   // Omitted for unmarked mobs (the common case) to keep snapshots small.
   mark?: HungerMark;
+  // Phase 5 bosses only (omitted for every other mob): see BossTier.
+  boss?: BossTier;
+}
+
+// Phase 5 bosses: "warlord" is the Castle Ruin's Ogre Warlord (one per world, never respawns);
+// "elite" leads a mini-boss pack of its own kind. Both are drawn larger (BOSS_RENDER_SCALE) with a
+// name label (bossTitle) and a bigger hp bar.
+export type BossTier = "warlord" | "elite";
+export const BOSS_RENDER_SCALE: Record<BossTier, number> = { warlord: 1.6, elite: 1.3 };
+const ELITE_TITLES: Partial<Record<MobKind, string>> = {
+  wolf: "Dire Wolf Alpha",
+  orc: "Orc Chieftain",
+  skeleton: "Skeleton Lord",
+  giantSpider: "Spider Matriarch",
+  armoredOrc: "Orc Warchief",
+  troll: "Troll Elder",
+};
+export function bossTitle(kind: MobKind, tier: BossTier): string {
+  if (tier === "warlord") return "Ogre Warlord";
+  return ELITE_TITLES[kind] ?? "Elite";
+}
+
+// The shared goal track (ROADMAP Phase 5): the current goal and its progress. `index` counts from 0;
+// index === total means every goal is done (title is then a closing line, progress === target).
+export interface GoalSnapshot {
+  index: number;
+  total: number;
+  title: string;
+  progress: number;
+  target: number;
 }
 
 export interface AttackEffect {
@@ -273,7 +303,10 @@ export enum WildlifeState {
 // Night-mob tuning chosen on the main menu (server applies the multipliers; see DIFFICULTY_* there).
 export type Difficulty = "easy" | "normal" | "hard";
 
-export type GameEventCategory = "night" | "dawn" | "upgrade" | "death" | "ward" | "deserter" | "raid" | "build";
+export type GameEventCategory =
+  | "night" | "dawn" | "upgrade" | "death" | "ward" | "deserter" | "raid" | "build"
+  // Phase 5: a goal completed / a boss or mini-boss sighted or slain.
+  | "milestone" | "boss";
 
 // Per-tile art stage of a farm-type building (snapshot `farmStages`). Grain plots: Sown -> Sprouting ->
 // Growing -> Ripe (being cut) -> Harvested (briefly) / Fallow. Hemp: Sown/Growing/Ripe. Pasture:
@@ -371,6 +404,9 @@ export type ServerMessage =
       // Explored-tile bitset, base64: bit (i & 7) of byte (i >> 3) is tile index i (y * worldTilesX + x).
       explored: string;
       difficulty: Difficulty;
+      // Centre tile of this world's Castle Ruin (null if world-gen couldn't fit one, or an old save).
+      // The minimap marks it once that tile is explored.
+      castleRuin?: { x: number; y: number } | null;
     }
   | {
       type: "snapshot";
@@ -418,6 +454,8 @@ export type ServerMessage =
       townCenters: TownCenterSnapshot[];
       // See DAMAGED_BUILDING_SNAPSHOT_STRIDE.
       damagedBuildings: number[];
+      // The shared goal track's current goal (Phase 5).
+      goal?: GoalSnapshot;
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).

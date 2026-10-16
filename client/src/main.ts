@@ -27,9 +27,12 @@ import type {
   BuildingInfo,
   SaveInfo,
   SaveSlot,
+  GoalSnapshot,
 } from "./protocol";
 import {
   Biome,
+  BOSS_RENDER_SCALE,
+  bossTitle,
   BUILDING_LEVEL_SNAPSHOT_STRIDE,
   CONSTRUCTION_SNAPSHOT_STRIDE,
   DAMAGED_BUILDING_SNAPSHOT_STRIDE,
@@ -452,9 +455,9 @@ function stableHash(id: string): number {
 // Goblin (r7) -> ~24px, ogre (r15) -> ~52px.
 const MOB_SPRITE_SIZE_PER_RADIUS = 3.5;
 
-function mobHitRadius(kind: MobKind): number {
+function mobHitRadius(kind: MobKind, scale = 1): number {
   const radius = (MOB_VISUALS[kind] ?? MOB_VISUALS.goblin).radius;
-  return Math.max(MOB_HIT_RADIUS, (radius * MOB_SPRITE_SIZE_PER_RADIUS) / 2);
+  return Math.max(MOB_HIT_RADIUS, (radius * MOB_SPRITE_SIZE_PER_RADIUS * scale) / 2);
 }
 
 // Sprite art per tile type. Empty (bare floor) is deliberately absent.
@@ -724,6 +727,14 @@ const HUNGER_LABEL_COLORS = [0xffffff, 0xff5a4a, 0x4fd8c0, 0xf0c050, 0xb080d0, 0
 const HUNGER_SIGIL_SIZE = 16;
 const HUNGER_AURA_WIDTH = 40;
 const MARKED_MOB_SCALE = 1.25;
+// Render scale of a mob: Hunger-marked x1.25, Phase 5 bosses x BOSS_RENDER_SCALE (no new art: the
+// ogre sprite drawn 1.6x is the Ogre Warlord). Both stack.
+function mobRenderScale(m: MobSnapshot): number {
+  return (m.mark ? MARKED_MOB_SCALE : 1) * (m.boss ? BOSS_RENDER_SCALE[m.boss] : 1);
+}
+// Boss name labels and hp bars (the bar is the usual one, drawn this much bigger).
+const BOSS_LABEL_COLORS = { warlord: 0xf1c40f, elite: 0xf0a050 };
+const BOSS_HP_BAR_SCALE = { warlord: 2, elite: 1.5 };
 // Battered armor: below this hp fraction, an idle (not walking/attacking) pikeman or armoured orc
 // shows its static battered pose. The knight's walk/attack set is drawn in a much chunkier style
 // than knightBattered.png, so swapping in that pose looked like a different unit; knights are
@@ -776,6 +787,8 @@ interface EntityVisual {
   aura?: Sprite;
   sigil?: Sprite;
   markLabel?: Text;
+  // Phase 5 bosses only (see updateBossVisuals).
+  bossLabel?: Text;
 }
 
 const COLONIST_KINDS: ColonistKind[] = [
@@ -1337,6 +1350,8 @@ async function main() {
   let worldTilesY = 25;
   // Every standing Town Center, from the latest snapshot (minimap markers, HP bars, game over).
   let latestTownCenters: TownCenterSnapshot[] = [];
+  // This world's Castle Ruin centre (welcome); the minimap marks it once that tile is explored.
+  let castleRuinTile: { x: number; y: number } | null = null;
   let tiles: number[] = [];
   // Biome per tile from `welcome`; static for the life of a world.
   let biomes: number[] = [];
@@ -2133,6 +2148,7 @@ async function main() {
       entry.aura?.destroy();
       entry.sigil?.destroy();
       entry.markLabel?.destroy();
+      entry.bossLabel?.destroy();
       map.delete(id);
     }
   }
@@ -2356,6 +2372,7 @@ async function main() {
       const entry = mobSprites.get(m.id)!;
       updateWound(entry, m.hp, m.maxHp, m.x, m.y, woundSize, WOUND_LARGE_KINDS.has(m.kind), !entry.sprite.visible);
       updateMarkVisuals(entry, m);
+      updateBossVisuals(entry, m);
       return;
     }
     const visual = MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin;
@@ -2374,16 +2391,17 @@ async function main() {
       }
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5);
-      sprite.scale.set(m.mark ? scale * MARKED_MOB_SCALE : scale);
+      sprite.scale.set(scale * mobRenderScale(m));
       return sprite;
     });
     entry.sprite.position.set(m.x, m.y);
     // Bar just above the sprite's top edge, matching the player's "height / 2 + 4" convention.
-    const topOffset = texture ? (texture.height * scale) / 2 + 4 : visual.radius + 9;
+    const topOffset = texture ? (texture.height * scale * mobRenderScale(m)) / 2 + 4 : visual.radius + 9;
     entry.hpBar.position.set(m.x, m.y - topOffset);
     drawHpBar(entry.hpBar, m.hp, m.maxHp);
     updateWound(entry, m.hp, m.maxHp, m.x, m.y, woundSize, WOUND_LARGE_KINDS.has(m.kind), !entry.sprite.visible);
     updateMarkVisuals(entry, m);
+    updateBossVisuals(entry, m);
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(mobFacing, m.id, m.x));
   }
 
@@ -2428,6 +2446,32 @@ async function main() {
     }
   }
 
+  // Name label over a boss's (enlarged, still centred) hp bar. Created on the boss's first snapshot.
+  function updateBossVisuals(entry: EntityVisual, m: MobSnapshot) {
+    if (!m.boss) return;
+    const barScale = BOSS_HP_BAR_SCALE[m.boss];
+    if (!entry.bossLabel) {
+      entry.hpBar.scale.set(barScale);
+      entry.bossLabel = new Text({
+        text: bossTitle(m.kind, m.boss),
+        style: {
+          fontFamily: "Palatino Linotype, Palatino, Georgia, serif",
+          fontSize: m.boss === "warlord" ? 12 : 10,
+          fontWeight: "bold",
+          fill: BOSS_LABEL_COLORS[m.boss],
+          stroke: { color: 0x000000, width: 3 },
+        },
+      });
+      entry.bossLabel.anchor.set(0.5, 1);
+      worldLayer.addChild(entry.bossLabel);
+    }
+    // The bar grows upward from its usual spot so it never covers the sprite.
+    const barY = entry.hpBar.position.y - 4 * (barScale - 1);
+    entry.hpBar.position.y = barY;
+    entry.bossLabel.position.set(m.x, barY - 2 - (m.mark ? HUNGER_SIGIL_SIZE + 10 : 0));
+    entry.bossLabel.visible = entry.sprite.visible;
+  }
+
   function upsertVariantMob(m: MobSnapshot, variant: MobVariant) {
     const entry = ensureVisual(mobSprites, m.id, () => {
       const sprite = new Sprite(variant.idle);
@@ -2436,7 +2480,7 @@ async function main() {
       return sprite;
     });
     entry.sprite.position.set(m.x, m.y);
-    entry.hpBar.position.set(m.x, m.y - (variant.idle.height * variant.idleScale * (m.mark ? MARKED_MOB_SCALE : 1)) / 2 - 4);
+    entry.hpBar.position.set(m.x, m.y - (variant.idle.height * variant.idleScale * mobRenderScale(m)) / 2 - 4);
     drawHpBar(entry.hpBar, m.hp, m.maxHp);
     const sprite = entry.sprite instanceof Sprite ? entry.sprite : null;
     const facingRight = sprite ? getFacing(mobFacing, m.id, m.x) : true;
@@ -2466,7 +2510,8 @@ async function main() {
     const posed =
       battered && !frame && showBatteredPose(sprite, set, m.kind, (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS);
     sprite.tint = battered && !posed ? BATTERED_TINT : 0xffffff;
-    if (m.mark) sprite.scale.set(sprite.scale.x * MARKED_MOB_SCALE, sprite.scale.y * MARKED_MOB_SCALE);
+    const renderScale = mobRenderScale(m);
+    if (renderScale !== 1) sprite.scale.set(sprite.scale.x * renderScale, sprite.scale.y * renderScale);
     // showAnimFrame resets scale.x to a positive magnitude, so re-apply the flip after it.
     applyFacing(sprite, facingRight);
   }
@@ -2879,6 +2924,24 @@ async function main() {
       ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
       ctx.fillStyle = "#f1c40f";
       ctx.fillRect(cx - 1.5 * u, cy - 1.5 * u, 3 * u, 3 * u);
+    }
+
+    // The Castle Ruin, once its centre tile is explored: its 9x9 walls outlined, a red keep in the middle.
+    if (castleRuinTile && explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
+      const half = 4.5 * s;
+      const cx = (castleRuinTile.x + 0.5) * s;
+      const cy = (castleRuinTile.y + 0.5) * s;
+      ctx.lineWidth = 3 * u;
+      ctx.strokeStyle = "#1a0f06";
+      ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
+      ctx.lineWidth = 1.5 * u;
+      ctx.strokeStyle = "#d8cfbf";
+      ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
+      const keep = 5 * u;
+      ctx.fillStyle = "#1a0f06";
+      ctx.fillRect(cx - keep / 2 - u, cy - keep / 2 - u, keep + 2 * u, keep + 2 * u);
+      ctx.fillStyle = "#a8321e";
+      ctx.fillRect(cx - keep / 2, cy - keep / 2, keep, keep);
     }
 
     // Live view right now: players and the colony's own colonists (not the Abbey's clergy), with
@@ -3776,7 +3839,7 @@ async function main() {
     else if (category === "dawn") {
       sound.play("dawn_chime", { priority: true });
       sound.play("church_bell", { priority: true, delay: DAWN_BELL_DELAY_S });
-    } else if (category === "upgrade") sound.play("build_upgrade", { priority: true });
+    } else if (category === "upgrade" || category === "milestone") sound.play("build_upgrade", { priority: true });
   }
 
   function soundOnTileUpdate(tileX: number, tileY: number, tile: number) {
@@ -3975,8 +4038,9 @@ async function main() {
     toast.className = `event-toast event-${category}`;
     const icon = document.createElement("img");
     icon.className = "event-icon";
-    // "raid" has no art of its own; it borrows the deserter icon.
-    icon.src = `/sprites/icon-event-${category === "raid" ? "deserter" : category === "build" ? "upgrade" : category}.png`;
+    // "raid" has no art of its own; it borrows the deserter icon (build/milestone the upgrade one, boss the death one).
+    const iconName: Partial<Record<GameEventCategory, string>> = { raid: "deserter", build: "upgrade", milestone: "upgrade", boss: "death" };
+    icon.src = `/sprites/icon-event-${iconName[category] ?? category}.png`;
     icon.alt = "";
     toast.append(icon, text);
     eventFeedEl.prepend(toast);
@@ -3985,6 +4049,56 @@ async function main() {
     ) as HTMLElement[];
     for (const old of live.slice(MAX_TOASTS)) removeToast(old, "dropped", TOAST_DROP_MS);
     window.setTimeout(() => removeToast(toast, "fading", TOAST_FADE_MS), TOAST_SHOW_MS);
+  }
+
+  // ---- Goal tracker (top-right parchment card) and the Ogre Warlord's boss bar ----
+  const goalTrackerEl = document.getElementById("goal-tracker")!;
+  const goalStepEl = document.getElementById("goal-step")!;
+  const goalTitleEl = document.getElementById("goal-title")!;
+  const goalFillEl = document.getElementById("goal-progress-fill")!;
+  const goalCountEl = document.getElementById("goal-progress-text")!;
+  const GOAL_FLASH_MS = 1600;
+  // -1 until the first snapshot after a welcome, so a load / restart never flashes.
+  let lastGoalIndex = -1;
+  let goalFlashTimer = 0;
+
+  function syncGoal(goal: GoalSnapshot | undefined) {
+    if (!goal) {
+      goalTrackerEl.hidden = true;
+      return;
+    }
+    goalTrackerEl.hidden = false;
+    const done = goal.index >= goal.total;
+    goalStepEl.textContent = done ? "Complete" : `${goal.index + 1} / ${goal.total}`;
+    goalTitleEl.textContent = goal.title;
+    goalFillEl.style.width = `${Math.round((Math.min(goal.progress, goal.target) / goal.target) * 100)}%`;
+    goalCountEl.textContent = goal.target > 1 ? `${goal.progress} / ${goal.target}` : done ? "Victory" : "";
+    goalTrackerEl.classList.toggle("goal-done", done);
+    if (lastGoalIndex !== -1 && goal.index > lastGoalIndex) {
+      goalTrackerEl.classList.remove("goal-flash");
+      void goalTrackerEl.offsetWidth; // restart the animation
+      goalTrackerEl.classList.add("goal-flash");
+      window.clearTimeout(goalFlashTimer);
+      goalFlashTimer = window.setTimeout(() => goalTrackerEl.classList.remove("goal-flash"), GOAL_FLASH_MS);
+    }
+    lastGoalIndex = goal.index;
+  }
+
+  const bossBarEl = document.getElementById("boss-bar")!;
+  const bossBarNameEl = document.getElementById("boss-bar-name")!;
+  const bossBarFillEl = document.getElementById("boss-bar-fill")!;
+  // Shown while the Ogre Warlord is within this many tiles of the local player.
+  const BOSS_BAR_RANGE_TILES = VISION_RADIUS_PLAYER * 1.5;
+
+  function syncBossBar(mobs: MobSnapshot[], players: PlayerSnapshot[]) {
+    const me = players.find((p) => p.id === myId);
+    const warlord = mobs.find((m) => m.boss === "warlord");
+    const near =
+      !!me && !!warlord && Math.hypot(warlord.x - me.x, warlord.y - me.y) <= BOSS_BAR_RANGE_TILES * tileSize;
+    bossBarEl.hidden = !near;
+    if (!near || !warlord) return;
+    bossBarNameEl.textContent = bossTitle(warlord.kind, "warlord");
+    bossBarFillEl.style.width = `${Math.max(0, Math.min(100, (warlord.hp / warlord.maxHp) * 100)).toFixed(1)}%`;
   }
 
   let wasNight = false;
@@ -4007,6 +4121,8 @@ async function main() {
       worldTilesY = message.worldTilesY;
       tiles = message.tiles;
       biomes = message.biomes;
+      castleRuinTile = message.castleRuin ?? null;
+      lastGoalIndex = -1;
       resetMinimap(message.explored);
       suppressDeathPoofs = true;
       resetSoundState();
@@ -4098,6 +4214,8 @@ async function main() {
       refreshBuilderCount(message.colonists, message.isNight);
       for (const effect of message.effects) spawnEffect(effect);
       drawMinimap(message.players, message.colonists, message.mobs);
+      syncGoal(message.goal);
+      syncBossBar(message.mobs, message.players);
       soundOnSnapshot(message);
     } else if (message.type === "tileUpdate") {
       soundOnTileUpdate(message.tileX, message.tileY, message.tile);
@@ -4338,7 +4456,7 @@ async function main() {
       const order = stampOrder(unitIds);
       hideFormationMarker();
       const mob = findNearest(
-        latestMobs.filter((m) => (m.x - x) ** 2 + (m.y - y) ** 2 <= mobHitRadius(m.kind) ** 2),
+        latestMobs.filter((m) => (m.x - x) ** 2 + (m.y - y) ** 2 <= mobHitRadius(m.kind, mobRenderScale(m)) ** 2),
         x,
         y,
         Infinity
