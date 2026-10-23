@@ -4916,14 +4916,42 @@ function raidSizeForDay(dayIndex: number): number {
 // Raids spawn on the edge band of a "raid box": the whole map on small worlds, but at most this many
 // tiles from the first Town Center on big ones, so a 512 map's raiders reach the colony in reasonable time.
 const RAID_MAX_SPAWN_DIST_TILES = 110;
+// Shrinking spawn distances tried in turn until a raid anchor is within the pathfinding budget.
+const RAID_SPAWN_DIST_STEPS = [RAID_MAX_SPAWN_DIST_TILES, 80, 55, 35];
+let raidSpawnDist = RAID_MAX_SPAWN_DIST_TILES;
 function raidBox() {
   const c = townCenters[0] ?? TOWN_CENTER_TILE;
   return {
-    x0: Math.max(0, c.x - RAID_MAX_SPAWN_DIST_TILES),
-    x1: Math.min(WORLD_TILES_X - 1, c.x + RAID_MAX_SPAWN_DIST_TILES),
-    y0: Math.max(0, c.y - RAID_MAX_SPAWN_DIST_TILES),
-    y1: Math.min(WORLD_TILES_Y - 1, c.y + RAID_MAX_SPAWN_DIST_TILES),
+    x0: Math.max(0, c.x - raidSpawnDist),
+    x1: Math.min(WORLD_TILES_X - 1, c.x + raidSpawnDist),
+    y0: Math.max(0, c.y - raidSpawnDist),
+    y1: Math.min(WORLD_TILES_Y - 1, c.y + raidSpawnDist),
   };
+}
+
+// A raid anchor must be able to reach the colony inside the pathfinding budget (a margin under
+// PATH_NODE_BUDGET, since the real path also detours). Breadth-first from the anchor until it is within
+// RAID_REACH_RADIUS tiles of a Town Center (walls are breached by mobs, so the last stretch is not tested).
+const RAID_REACH_RADIUS = 20;
+const RAID_REACH_BUDGET = Math.floor(PATH_NODE_BUDGET * 0.8);
+function raidAnchorWithinPathBudget(anchor: TileCoord): boolean {
+  const goals = townCenters.length > 0 ? townCenters : [TOWN_CENTER_TILE];
+  const near = (t: TileCoord) => goals.some((c) => Math.max(Math.abs(t.x - c.x), Math.abs(t.y - c.y)) <= RAID_REACH_RADIUS);
+  const seen = new Set<number>([tileIndex(anchor.x, anchor.y)]);
+  const queue: TileCoord[] = [anchor];
+  for (let head = 0; head < queue.length; head++) {
+    if (head > RAID_REACH_BUDGET) return false;
+    const t = queue[head];
+    if (near(t)) return true;
+    for (const n of [{ x: t.x + 1, y: t.y }, { x: t.x - 1, y: t.y }, { x: t.x, y: t.y + 1 }, { x: t.x, y: t.y - 1 }]) {
+      if (!isWalkableTile(n.x, n.y)) continue;
+      const k = tileIndex(n.x, n.y);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      queue.push(n);
+    }
+  }
+  return false;
 }
 
 function isRaidEdgeTile(tx: number, ty: number): boolean {
@@ -4933,7 +4961,18 @@ function isRaidEdgeTile(tx: number, ty: number): boolean {
 }
 
 function randomRaidAnchor(): { tile: TileCoord; edge: RaidEdge } | null {
-  for (let attempt = 0; attempt < 40; attempt++) {
+  // Try the full spawn distance first, then closer boxes, until an anchor can path to the colony in budget.
+  for (const dist of RAID_SPAWN_DIST_STEPS) {
+    raidSpawnDist = dist;
+    const found = randomRaidAnchorInBox(true);
+    if (found) return found;
+  }
+  raidSpawnDist = RAID_SPAWN_DIST_STEPS[RAID_SPAWN_DIST_STEPS.length - 1];
+  return randomRaidAnchorInBox(false);
+}
+
+function randomRaidAnchorInBox(requireBudget: boolean): { tile: TileCoord; edge: RaidEdge } | null {
+  for (let attempt = 0; attempt < (requireBudget ? 16 : 40); attempt++) {
     const side = Math.floor(Math.random() * 4);
     const b = raidBox();
     const along = side < 2 ? randInt(b.x0, b.x1) : randInt(b.y0, b.y1);
@@ -4942,7 +4981,7 @@ function randomRaidAnchor(): { tile: TileCoord; edge: RaidEdge } | null {
       : side === 1 ? { x: along, y: b.y1 }
       : side === 2 ? { x: b.x0, y: along }
       : { x: b.x1, y: along };
-    if (isWalkableTile(tile.x, tile.y)) {
+    if (isWalkableTile(tile.x, tile.y) && (!requireBudget || raidAnchorWithinPathBudget(tile))) {
       const edge: RaidEdge = side === 0 ? "north" : side === 1 ? "south" : side === 2 ? "west" : "east";
       return { tile, edge };
     }
