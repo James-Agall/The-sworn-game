@@ -1835,11 +1835,22 @@ async function main() {
   }
 
   // Floor never changes per-tile, so this only needs to run on a full map (re)load, not per edit.
+  // A 512 map has 262k floor tiles, so sprites are built per 16x16-tile chunk, lazily the first time
+  // the camera sees it (updateFloorChunks, every frame), and chunks off screen are hidden.
+  const FLOOR_CHUNK_TILES = 16;
+  const floorChunks = new Map<number, Container>();
   function setFloorSprites() {
     for (const s of floorSprites) s.destroy();
     floorSprites.length = 0;
-    for (let x = 0; x < worldTilesX; x++) {
-      for (let y = 0; y < worldTilesY; y++) {
+    for (const c of floorChunks.values()) c.destroy({ children: true });
+    floorChunks.clear();
+  }
+  function buildFloorChunk(cx: number, cy: number): Container {
+    const chunk = new Container();
+    const x0 = cx * FLOOR_CHUNK_TILES;
+    const y0 = cy * FLOOR_CHUNK_TILES;
+    for (let x = x0; x < Math.min(worldTilesX, x0 + FLOOR_CHUNK_TILES); x++) {
+      for (let y = y0; y < Math.min(worldTilesY, y0 + FLOOR_CHUNK_TILES); y++) {
         const biome = biomes[y * worldTilesX + x] ?? Biome.Plains;
         const texture =
           biome === Biome.Hills
@@ -1852,8 +1863,31 @@ async function main() {
         sprite.width = tileSize;
         sprite.height = tileSize;
         sprite.position.set(x * tileSize, y * tileSize);
-        floorSpriteLayer.addChild(sprite);
-        floorSprites.push(sprite);
+        chunk.addChild(sprite);
+      }
+    }
+    floorSpriteLayer.addChild(chunk);
+    return chunk;
+  }
+  function updateFloorChunks() {
+    const span = FLOOR_CHUNK_TILES * tileSize;
+    const left = Math.floor(-worldLayer.position.x / ZOOM / span) - 1;
+    const right = Math.floor((app.screen.width - worldLayer.position.x) / ZOOM / span) + 1;
+    const top = Math.floor(-worldLayer.position.y / ZOOM / span) - 1;
+    const bottom = Math.floor((app.screen.height - worldLayer.position.y) / ZOOM / span) + 1;
+    const chunksX = Math.ceil(worldTilesX / FLOOR_CHUNK_TILES);
+    const chunksY = Math.ceil(worldTilesY / FLOOR_CHUNK_TILES);
+    for (let cy = 0; cy < chunksY; cy++) {
+      for (let cx = 0; cx < chunksX; cx++) {
+        const key = cy * chunksX + cx;
+        const visible = cx >= left && cx <= right && cy >= top && cy <= bottom;
+        let chunk = floorChunks.get(key);
+        if (!chunk) {
+          if (!visible) continue;
+          chunk = buildFloorChunk(cx, cy);
+          floorChunks.set(key, chunk);
+        }
+        chunk.visible = visible;
       }
     }
   }
@@ -2835,6 +2869,7 @@ async function main() {
       app.screen.width / 2 - focus.x * ZOOM,
       app.screen.height / 2 - focus.y * ZOOM
     );
+    updateFloorChunks();
   });
 
   // ---- Fog-of-war minimap (DOM canvas, bottom-right; the main view is never fogged) ----
@@ -4269,7 +4304,7 @@ async function main() {
   }
   document.getElementById("game-over-restart")!.addEventListener("click", (e) => {
     (e.currentTarget as HTMLButtonElement).blur();
-    sendMessage({ type: "restart", difficulty: preferredDifficulty });
+    sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize });
   });
 
   // ---- Networking ----
@@ -4290,7 +4325,7 @@ async function main() {
     restartBtn.blur();
     if (!window.confirm("Restart the world for everyone connected?")) return;
     if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "restart", difficulty: preferredDifficulty }));
+      socket.send(JSON.stringify({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize }));
     }
   });
 
@@ -4387,7 +4422,7 @@ async function main() {
         pendingLoadSlot = null;
       } else {
         // Claims the world's difficulty if nobody has yet (the server ignores it otherwise).
-        sendMessage({ type: "setDifficulty", difficulty: preferredDifficulty });
+        sendMessage({ type: "setDifficulty", difficulty: preferredDifficulty, worldSize: preferredWorldSize });
       }
       sendMessage({ type: "listSaves" });
       setActiveDifficulty(message.difficulty);
@@ -4932,6 +4967,16 @@ const DIFFICULTY_PREF_KEY = "sworn.difficulty";
 const DIFFICULTY_LABEL: Record<Difficulty, string> = { easy: "Easy", normal: "Normal", hard: "Hard" };
 // The menu choice: sent as setDifficulty after every welcome, and with an in-game Restart.
 let preferredDifficulty: Difficulty = "normal";
+// Map size (tiles per side) chosen in the menu; New Game / Restart regenerate the world at it.
+const MAP_SIZE_PREF_KEY = "sworn.mapSize";
+const MAP_SIZES = [64, 96, 160, 256, 384, 512];
+// undefined until the player picks one: then the server keeps its own default (COLONY_WORLD_SIZE or 160).
+let preferredWorldSize: number | undefined;
+function renderMapSizeChoice(value: number | undefined) {
+  document.querySelectorAll<HTMLButtonElement>("#set-mapsize button").forEach((btn) => {
+    btn.setAttribute("aria-checked", String(Number(btn.dataset.size) === (value ?? 160)));
+  });
+}
 let gameStarted = false;
 // The world's active difficulty as the server reports it (null until the first welcome).
 let activeDifficulty: Difficulty | null = null;
@@ -5074,6 +5119,26 @@ function setupMainMenu() {
     /* default stays Normal */
   }
   renderDifficultyChoice(preferredDifficulty);
+  try {
+    const storedSize = Number(localStorage.getItem(MAP_SIZE_PREF_KEY));
+    if (MAP_SIZES.includes(storedSize)) preferredWorldSize = storedSize;
+  } catch {
+    /* default stays Medium */
+  }
+  renderMapSizeChoice(preferredWorldSize);
+  const mapSizeSeg = document.getElementById("set-mapsize")!;
+  mapSizeSeg.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-size]");
+    const value = Number(btn?.dataset.size);
+    if (!MAP_SIZES.includes(value)) return;
+    preferredWorldSize = value;
+    renderMapSizeChoice(value);
+    try {
+      localStorage.setItem(MAP_SIZE_PREF_KEY, String(value));
+    } catch {
+      /* private mode: setting just won't persist */
+    }
+  });
   difficultySeg.addEventListener("click", (e) => {
     // Read-only once the game is running: the world's difficulty is fixed until a restart.
     if (gameStarted) return;

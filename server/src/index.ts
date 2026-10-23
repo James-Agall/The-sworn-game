@@ -56,14 +56,29 @@ import {
   FIGHT_CLUSTER_TILES,
   FIGHT_RELEVANCE_TILES,
   FIGHT_MAX_PER_PLAYER,
+  WILDLIFE_SNAPSHOT_STRIDE,
 } from "./protocol.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
-const WORLD_TILES_X = Number.parseInt(process.env.COLONY_WORLD_SIZE ?? "", 10) || DEFAULT_WORLD_TILES;
-const WORLD_TILES_Y = WORLD_TILES_X;
+// The size is chosen per world (main menu / restart / save); COLONY_WORLD_SIZE is only the boot default.
+// setWorldSize() (below, once every size-dependent module value is declared) re-allocates them all.
+const MIN_WORLD_SIZE = 64;
+const MAX_WORLD_SIZE = 512;
+const clampWorldSize = (n: number) => Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, Math.round(n)));
+let WORLD_TILES_X = clampWorldSize(Number.parseInt(process.env.COLONY_WORLD_SIZE ?? "", 10) || DEFAULT_WORLD_TILES);
+let WORLD_TILES_Y = WORLD_TILES_X;
 // World-gen counts below were tuned on 80x80; scale them by area so bigger maps keep the same density.
-const WORLD_AREA_SCALE = (WORLD_TILES_X * WORLD_TILES_Y) / (80 * 80);
+let WORLD_AREA_SCALE = (WORLD_TILES_X * WORLD_TILES_Y) / (80 * 80);
 const scaledCount = (n: number) => Math.round(n * WORLD_AREA_SCALE);
+// Things that cost CPU every tick (wildlife) or are expensive to populate (POIs and their guardians,
+// mini-bosses) scale by area only up to the 160x160 tuning (scale 4); beyond that, as the 4th root, so a
+// 512 map gets ~1.8x a 160 map's count instead of ~10x.
+const SUBLINEAR_FULL_SCALE = 4;
+const subScale = () =>
+  WORLD_AREA_SCALE <= SUBLINEAR_FULL_SCALE
+    ? WORLD_AREA_SCALE
+    : SUBLINEAR_FULL_SCALE * Math.pow(WORLD_AREA_SCALE / SUBLINEAR_FULL_SCALE, 0.25);
+const scaledCountSub = (n: number) => Math.round(n * subScale());
 
 interface Player {
   id: string;
@@ -249,12 +264,12 @@ interface FarmPlotState {
 const players = new Map<string, Player>();
 const colonists = new Map<string, Colonist>();
 const mobs = new Map<string, Mob>();
-const worldWidth = WORLD_TILES_X * TILE_SIZE;
-const worldHeight = WORLD_TILES_Y * TILE_SIZE;
+let worldWidth = WORLD_TILES_X * TILE_SIZE;
+let worldHeight = WORLD_TILES_Y * TILE_SIZE;
 
-const tiles = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y).fill(TileType.Empty);
+let tiles = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y).fill(TileType.Empty);
 // Parallel to `tiles`; Biome value per tile, regenerated with the rest of the world.
-const biomes = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y).fill(Biome.Plains);
+let biomes = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y).fill(Biome.Plains);
 
 const STARTING_WOOD = 80;
 const STARTING_IRON = 60;
@@ -521,9 +536,9 @@ function tileOccupiedByEntity(tx: number, ty: number): boolean {
 tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
 
 // Tuned for the 80x80 map (4x the old 40x40 counts of 24/14/16, keeping per-tile density).
-const TREE_COUNT = scaledCount(96);
-const IRON_ORE_COUNT = scaledCount(56);
-const ROCK_COUNT = scaledCount(64);
+let TREE_COUNT = scaledCount(96);
+let IRON_ORE_COUNT = scaledCount(56);
+let ROCK_COUNT = scaledCount(64);
 
 function scatterResourceTiles(tileType: TileType, count: number) {
   const spawnTx = Math.floor(WORLD_TILES_X / 2);
@@ -574,6 +589,7 @@ function adjacentTilesOfType(tx: number, ty: number, type: TileType): TileCoord[
   return neighbors.filter((n) => inBounds(n.x, n.y) && tiles[tileIndex(n.x, n.y)] === type);
 }
 
+const PATH_NODE_BUDGET = 60000;
 function findPath(start: TileCoord, goal: TileCoord): TileCoord[] | null {
   if (start.x === goal.x && start.y === goal.y) return [];
 
@@ -582,8 +598,11 @@ function findPath(start: TileCoord, goal: TileCoord): TileCoord[] | null {
   const parent = new Map<number, TileCoord>();
   const queue: TileCoord[] = [start];
 
-  while (queue.length > 0) {
-    const current = queue.shift()!;
+  // Node budget: a request can never stall a tick on a huge map (a 160 map has 25.6k tiles in all, so
+  // it is never reached there). Over budget = no path, like an unreachable goal.
+  for (let head = 0; head < queue.length; head++) {
+    if (head > PATH_NODE_BUDGET) return null;
+    const current = queue[head];
     const neighbors = [
       { x: current.x + 1, y: current.y },
       { x: current.x - 1, y: current.y },
@@ -991,10 +1010,15 @@ let difficultyClaimed = false;
 function isDifficulty(value: unknown): value is Difficulty {
   return value === "easy" || value === "normal" || value === "hard";
 }
-function handleSetDifficulty(value: unknown) {
+function handleSetDifficulty(value: unknown, worldSize?: unknown) {
   if (!isDifficulty(value)) return;
   const soloFirstDay = players.size <= 1 && cycleTick < DAY_TICKS;
   if (difficultyClaimed && !soloFirstDay) return;
+  // New Game with a different map size: regenerate the (still unclaimed / first-day solo) world at it.
+  if (typeof worldSize === "number" && Number.isFinite(worldSize) && clampWorldSize(worldSize) !== WORLD_TILES_X) {
+    resetWorld(value, worldSize);
+    return;
+  }
   difficulty = value;
   difficultyClaimed = true;
 }
@@ -1237,7 +1261,7 @@ const CHURCH_HEAL_BONUS_PER_STEP = 0.1;
 const TREE_RESPAWN_INTERVAL_TICKS = TICK_RATE * 8;
 // Regrowth cap, scaled 4x with TREE_COUNT for the 80x80 map (at the old 50 the 96 starting
 // trees would sit above the cap and natural regrowth would never run).
-const MAX_TREES = scaledCount(200);
+let MAX_TREES = scaledCount(200);
 let treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
 
 const LUMBERJACK_TREE_RADIUS = 2;
@@ -2657,9 +2681,9 @@ const FORAGE_REGROW_TICKS = LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS;
 
 // Wild forage scatter (counts tuned for 80x80, scaled by area like the other world-gen counts).
 // Berry bushes on Plains, fruit trees on Plains, mushrooms next to trees (any biome) or in Swamp.
-const BERRY_BUSH_COUNT = scaledCount(24);
-const FRUIT_TREE_COUNT = scaledCount(12);
-const MUSHROOM_PATCH_COUNT = scaledCount(10);
+let BERRY_BUSH_COUNT = scaledCount(24);
+let FRUIT_TREE_COUNT = scaledCount(12);
+let MUSHROOM_PATCH_COUNT = scaledCount(10);
 // Nothing wild grows this close to the Town Center (keeps the start area buildable).
 const FORAGE_MIN_TOWN_CENTER_DIST_TILES = 5;
 const FORAGE_RIPE_TO_PICKED: Partial<Record<TileType, TileType>> = {
@@ -2702,13 +2726,13 @@ interface WildlifeConfig {
   cap: number;
 }
 const WILDLIFE_CONFIG: Record<WildlifeKind, WildlifeConfig> = {
-  deer: { maxHp: 18, speed: 28, fleeSpeed: 115, meat: 6, cap: scaledCount(6) },
-  rabbit: { maxHp: 6, speed: 30, fleeSpeed: 125, meat: 2, cap: scaledCount(8) },
-  boar: { maxHp: 30, speed: 24, fleeSpeed: 100, meat: 8, cap: scaledCount(3) },
-  pheasant: { maxHp: 6, speed: 22, fleeSpeed: 120, meat: 2, cap: scaledCount(4) },
+  deer: { maxHp: 18, speed: 28, fleeSpeed: 115, meat: 6, cap: scaledCountSub(6) },
+  rabbit: { maxHp: 6, speed: 30, fleeSpeed: 125, meat: 2, cap: scaledCountSub(8) },
+  boar: { maxHp: 30, speed: 24, fleeSpeed: 100, meat: 8, cap: scaledCountSub(3) },
+  pheasant: { maxHp: 6, speed: 22, fleeSpeed: 120, meat: 2, cap: scaledCountSub(4) },
 };
 // 4 a day on 80x80 (16 on 160x160): a map's sustainable hunt is about this many animals a day.
-const WILDLIFE_RESPAWN_PER_DAY = Math.max(1, scaledCount(4));
+let WILDLIFE_RESPAWN_PER_DAY = Math.max(1, scaledCountSub(4));
 // Long days: the interval stays in real time (4 per legacy 100 s day = one every 25 s on 80x80), so a
 // long day tops up ~15 animals and hunting income per second is unchanged.
 const WILDLIFE_RESPAWN_INTERVAL_TICKS = Math.round((LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS) / WILDLIFE_RESPAWN_PER_DAY);
@@ -2940,10 +2964,18 @@ function damageWildlife(a: Wildlife, amount: number, fromX: number, fromY: numbe
   return false;
 }
 
+// Dormancy: wildlife with no living player or colonist within this many tiles skips its AI and
+// movement (only the cheap cooldown timer runs) and wakes when one comes near.
+const DORMANCY_RADIUS_TILES = 64;
 function updateWildlife(dt: number) {
+  const anchors: { x: number; y: number }[] = [];
+  for (const p of players.values()) if (!p.dead) anchors.push(p);
+  for (const c of colonists.values()) anchors.push(c);
+  const dormantDist = DORMANCY_RADIUS_TILES * TILE_SIZE;
   for (const a of wildlife.values()) {
     const config = WILDLIFE_CONFIG[a.kind];
     if (a.attackCooldownTicks > 0) a.attackCooldownTicks--;
+    if (!anchors.some((p) => Math.abs(p.x - a.x) < dormantDist && Math.abs(p.y - a.y) < dormantDist)) continue;
     // Something was built on top of it (placement only checks players/colonists): step off.
     const here = tileOfPixel(a.x, a.y);
     if (!isWalkableTile(here.x, here.y)) {
@@ -3857,7 +3889,7 @@ interface Body {
   mob?: boolean;
 }
 const bodies: Body[] = [];
-const cellHead = new Int32Array(WORLD_TILES_X * WORLD_TILES_Y);
+let cellHead = new Int32Array(WORLD_TILES_X * WORLD_TILES_Y);
 let cellNext = new Int32Array(256);
 // Ids of mobs that struck or held in attack range this tick (they take the smaller separation share).
 const mobsAttackingThisTick = new Set<string>();
@@ -4881,19 +4913,35 @@ function raidSizeForDay(dayIndex: number): number {
   return Math.max(1, Math.round(base * DIFFICULTY_TUNING[difficulty].spawnCount));
 }
 
+// Raids spawn on the edge band of a "raid box": the whole map on small worlds, but at most this many
+// tiles from the first Town Center on big ones, so a 512 map's raiders reach the colony in reasonable time.
+const RAID_MAX_SPAWN_DIST_TILES = 110;
+function raidBox() {
+  const c = townCenters[0] ?? TOWN_CENTER_TILE;
+  return {
+    x0: Math.max(0, c.x - RAID_MAX_SPAWN_DIST_TILES),
+    x1: Math.min(WORLD_TILES_X - 1, c.x + RAID_MAX_SPAWN_DIST_TILES),
+    y0: Math.max(0, c.y - RAID_MAX_SPAWN_DIST_TILES),
+    y1: Math.min(WORLD_TILES_Y - 1, c.y + RAID_MAX_SPAWN_DIST_TILES),
+  };
+}
+
 function isRaidEdgeTile(tx: number, ty: number): boolean {
-  return Math.min(tx, ty, WORLD_TILES_X - 1 - tx, WORLD_TILES_Y - 1 - ty) < RAID_EDGE_BAND_TILES;
+  const b = raidBox();
+  if (tx < b.x0 || tx > b.x1 || ty < b.y0 || ty > b.y1) return false;
+  return Math.min(tx - b.x0, b.x1 - tx, ty - b.y0, b.y1 - ty) < RAID_EDGE_BAND_TILES;
 }
 
 function randomRaidAnchor(): { tile: TileCoord; edge: RaidEdge } | null {
   for (let attempt = 0; attempt < 40; attempt++) {
     const side = Math.floor(Math.random() * 4);
-    const along = Math.floor(Math.random() * (side < 2 ? WORLD_TILES_X : WORLD_TILES_Y));
+    const b = raidBox();
+    const along = side < 2 ? randInt(b.x0, b.x1) : randInt(b.y0, b.y1);
     const tile =
-      side === 0 ? { x: along, y: 0 }
-      : side === 1 ? { x: along, y: WORLD_TILES_Y - 1 }
-      : side === 2 ? { x: 0, y: along }
-      : { x: WORLD_TILES_X - 1, y: along };
+      side === 0 ? { x: along, y: b.y0 }
+      : side === 1 ? { x: along, y: b.y1 }
+      : side === 2 ? { x: b.x0, y: along }
+      : { x: b.x1, y: along };
     if (isWalkableTile(tile.x, tile.y)) {
       const edge: RaidEdge = side === 0 ? "north" : side === 1 ? "south" : side === 2 ? "west" : "east";
       return { tile, edge };
@@ -5883,8 +5931,9 @@ function buildingTargetCandidates(): TileCoord[] {
 // Shortest route (start excluded) from `start` to a tile next to (gx, gy), 4-connected. wallCost 0:
 // walls are solid like any other building (an ordinary route); wallCost > 0: wall tiles are passable at
 // that cost each (the breach search). Dijkstra over a binary heap of cost * N + tile index.
-const routeCost = new Float64Array(WORLD_TILES_X * WORLD_TILES_Y);
-const routeParent = new Int32Array(WORLD_TILES_X * WORLD_TILES_Y);
+let routeCost = new Float64Array(WORLD_TILES_X * WORLD_TILES_Y);
+let routeParent = new Int32Array(WORLD_TILES_X * WORLD_TILES_Y);
+const ROUTE_NODE_BUDGET = 120000;
 function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: number): TileCoord[] | null {
   const n = tiles.length;
   const s = tileIndex(start.x, start.y);
@@ -5921,7 +5970,10 @@ function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: num
     }
     return top;
   };
+  // Settled-node budget (see PATH_NODE_BUDGET); a 160 map has only 25.6k tiles, so it never bites there.
+  let settled = 0;
   while (heap.length > 0) {
+    if (++settled > ROUTE_NODE_BUDGET) return null;
     const v = pop();
     const idx = v % n;
     const cost = (v - idx) / n;
@@ -6203,7 +6255,7 @@ const SPAWN_CLEAR_RADIUS_TILES = 15;
 // max(SPAWN_CLEAR_RADIUS_TILES, radius + BIOME_EDGE_JITTER_TILES + this).
 const SPAWN_PLAINS_RADIUS_TILES = 6;
 
-const BIOME_SEEDS_PER_KIND = scaledCount(5);
+let BIOME_SEEDS_PER_KIND = scaledCount(5);
 // Plains is meant to be the majority biome (the default colony-building terrain), with Hills and
 // Swamp as scattered regional pockets. 14-18 made Hills+Swamp cover ~70% of the map instead;
 // 10-13 brings Plains back to roughly half, per the executor's own simulation.
@@ -6213,18 +6265,18 @@ const BIOME_SEED_MIN_SPACING = 12;
 const BIOME_EDGE_JITTER_TILES = 3;
 const BIOME_NOISE_CELL_TILES = 4;
 
-const POND_COUNT_MIN = scaledCount(8);
-const POND_COUNT_MAX = scaledCount(12);
+let POND_COUNT_MIN = scaledCount(8);
+let POND_COUNT_MAX = scaledCount(12);
 const POND_RADIUS_MIN = 2;
 const POND_RADIUS_MAX = 4;
 const POND_EDGE_JITTER_TILES = 1;
 const POND_NOISE_CELL_TILES = 2;
 const POND_MIN_SPACING = 12;
 
-const RUIN_SITE_COUNT_MIN = scaledCount(6);
-const RUIN_SITE_COUNT_MAX = scaledCount(10);
-const ENCAMPMENT_SITE_COUNT_MIN = scaledCount(6);
-const ENCAMPMENT_SITE_COUNT_MAX = scaledCount(10);
+let RUIN_SITE_COUNT_MIN = scaledCountSub(6);
+let RUIN_SITE_COUNT_MAX = scaledCountSub(10);
+let ENCAMPMENT_SITE_COUNT_MIN = scaledCountSub(6);
+let ENCAMPMENT_SITE_COUNT_MAX = scaledCountSub(10);
 const POI_SITE_MIN_SPACING = 10;
 // Every tile within this Chebyshev radius of a site's center must be Empty before the site is placed.
 const POI_SITE_FOOTPRINT_RADIUS = 2;
@@ -6628,8 +6680,8 @@ const WARLORD_DAMAGE_MULT = 2;
 const WARLORD_REWARD: Partial<Record<ResourceKey, number>> = { gold: 250, wood: 150, rock: 150, iron: 100 };
 
 // Mini-bosses: standalone packs of one kind, an upscaled elite plus 2-4 ordinary followers.
-const MINI_BOSS_SITE_COUNT_MIN = Math.max(1, scaledCount(0.75));
-const MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCount(1.25));
+let MINI_BOSS_SITE_COUNT_MIN = Math.max(1, scaledCountSub(0.75));
+let MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCountSub(1.25));
 const MINI_BOSS_KINDS: MobKind[] = ["wolf", "orc", "skeleton", "giantSpider", "armoredOrc", "troll"];
 const ELITE_HP_MULT = 2.5;
 const ELITE_DAMAGE_MULT = 1.5;
@@ -6864,7 +6916,7 @@ function resetGoals() {
 // Explored tiles, shared by every player and kept for the life of the world. Sources only reveal
 // when their tile changes (or a building lands), stamping a precomputed circle; nothing ever scans
 // the whole map per tick.
-const explored = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y);
+let explored = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y);
 // Newly explored tile indices awaiting the next batched `explored` broadcast.
 let pendingExplored: number[] = [];
 const EXPLORED_FLUSH_TICKS = 5; // 4 Hz at TICK_RATE 20
@@ -6962,7 +7014,48 @@ function flushExplored() {
 // spawns the new world's POI guardians and Abbey clergy into them. Order: biomes (own layer) ->
 // ponds -> Abbey -> Castle Ruin -> resources -> wild forage -> POI sites -> mini-boss packs -> wild game, each step only ever writing onto Empty tiles, so nothing
 // lands on top of anything placed before it.
+// Re-allocates every world-size-dependent module value for a new size (call before generateWorld, after
+// clearing mobs/colonists). A no-op when the size is unchanged.
+function setWorldSize(size: number) {
+  size = clampWorldSize(size);
+  if (size === WORLD_TILES_X) return;
+  WORLD_TILES_X = WORLD_TILES_Y = size;
+  WORLD_AREA_SCALE = (size * size) / (80 * 80);
+  worldWidth = size * TILE_SIZE;
+  worldHeight = size * TILE_SIZE;
+  const cells = size * size;
+  tiles = new Uint8Array(cells).fill(TileType.Empty);
+  biomes = new Uint8Array(cells).fill(Biome.Plains);
+  explored = new Uint8Array(cells);
+  cellHead = new Int32Array(cells);
+  routeCost = new Float64Array(cells);
+  routeParent = new Int32Array(cells);
+  TOWN_CENTER_TILE.x = TOWN_CENTER_TILE.y = Math.floor(size / 2);
+  TREE_COUNT = scaledCount(96);
+  IRON_ORE_COUNT = scaledCount(56);
+  ROCK_COUNT = scaledCount(64);
+  MAX_TREES = scaledCount(200);
+  BERRY_BUSH_COUNT = scaledCount(24);
+  FRUIT_TREE_COUNT = scaledCount(12);
+  MUSHROOM_PATCH_COUNT = scaledCount(10);
+  WILDLIFE_RESPAWN_PER_DAY = Math.max(1, scaledCountSub(4));
+  WILDLIFE_CONFIG.deer.cap = scaledCountSub(6);
+  WILDLIFE_CONFIG.rabbit.cap = scaledCountSub(8);
+  WILDLIFE_CONFIG.boar.cap = scaledCountSub(3);
+  WILDLIFE_CONFIG.pheasant.cap = scaledCountSub(4);
+  BIOME_SEEDS_PER_KIND = scaledCount(5);
+  POND_COUNT_MIN = scaledCount(8);
+  POND_COUNT_MAX = scaledCount(12);
+  RUIN_SITE_COUNT_MIN = scaledCountSub(6);
+  RUIN_SITE_COUNT_MAX = scaledCountSub(10);
+  ENCAMPMENT_SITE_COUNT_MIN = scaledCountSub(6);
+  ENCAMPMENT_SITE_COUNT_MAX = scaledCountSub(10);
+  MINI_BOSS_SITE_COUNT_MIN = Math.max(1, scaledCountSub(0.75));
+  MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCountSub(1.25));
+}
+
 function generateWorld() {
+  const genStart = performance.now();
   tiles.fill(TileType.Empty);
   biomes.fill(Biome.Plains);
   worldNoiseSalt = Math.floor(Math.random() * 0x7fffffff);
@@ -6986,6 +7079,7 @@ function generateWorld() {
   spawnInitialWildlife();
   resetExplored();
   topUpTownCenterBuilders(townCenters[0]);
+  console.log(`[world] generated ${WORLD_TILES_X}x${WORLD_TILES_Y} in ${(performance.now() - genStart).toFixed(0)} ms`);
 }
 
 generateWorld();
@@ -7438,7 +7532,7 @@ function sendWelcome(player: Player) {
   player.socket.send(JSON.stringify(welcome));
 }
 
-function resetWorld(nextDifficulty?: unknown) {
+function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   // A restart reopens the difficulty claim; a value sent with the restart claims it straight away.
   difficultyClaimed = false;
   if (isDifficulty(nextDifficulty)) {
@@ -7449,6 +7543,9 @@ function resetWorld(nextDifficulty?: unknown) {
   // Abbey clergy.
   colonists.clear();
   mobs.clear();
+  wildlife.clear();
+  // A different size re-allocates the world arrays (live regeneration, no server restart).
+  if (typeof nextSize === "number" && Number.isFinite(nextSize)) setWorldSize(nextSize);
   // Before generateWorld: it tops up the starting builders, counting queued builder respawns.
   respawnQueue.length = 0;
   generateWorld();
@@ -7803,8 +7900,15 @@ async function readSave(slot: SaveSlot): Promise<string | null> {
     if (file.version !== SAVE_VERSION) {
       return `Save version ${file.version} is not supported (this server reads version ${SAVE_VERSION})`;
     }
+    // The save brings its own map size (saves from before sizes were chosen stored the size they ran at).
+    if (!Number.isInteger(file.worldSize) || file.worldSize < MIN_WORLD_SIZE || file.worldSize > MAX_WORLD_SIZE) {
+      return `Save has an unsupported world size (${file.worldSize})`;
+    }
     if (file.worldSize !== WORLD_TILES_X) {
-      return `Save is for a ${file.worldSize}x${file.worldSize} world; this server runs ${WORLD_TILES_X}x${WORLD_TILES_X} (set COLONY_WORLD_SIZE=${file.worldSize})`;
+      colonists.clear();
+      mobs.clear();
+      wildlife.clear();
+      setWorldSize(file.worldSize);
     }
     applyWorld(file.state);
     respawnPlayersAndWelcome();
@@ -7930,9 +8034,9 @@ wss.on("connection", (socket) => {
     } else if (message.type === "pause") {
       isPaused = !isPaused;
     } else if (message.type === "restart") {
-      resetWorld(message.difficulty);
+      resetWorld(message.difficulty, message.worldSize);
     } else if (message.type === "setDifficulty") {
-      handleSetDifficulty(message.difficulty);
+      handleSetDifficulty(message.difficulty, message.worldSize);
     } else if (message.type === "commandMove") {
       handleCommandMove(message.unitIds, message.x, message.y);
     } else if (message.type === "commandAttack") {
@@ -9245,6 +9349,10 @@ function withPlayerFights(payload: string, player: Player): string {
   return payload.slice(0, -1) + ',"fights":' + JSON.stringify(fights) + "}";
 }
 
+// Interest management (worlds bigger than this): view distance (half-screen at max zoom-out) + margin.
+const SNAPSHOT_CULL_MIN_WORLD = 192;
+const SNAPSHOT_VIEW_TILES = 60;
+
 const dt = 1 / TICK_RATE;
 let wasNight = false;
 
@@ -9451,9 +9559,22 @@ setInterval(() => {
   };
   pendingEffects = [];
 
-  const payload = JSON.stringify(snapshot);
+  // Small/medium worlds send everyone the same payload. On big worlds each player only gets the mobs and
+  // wildlife within view distance + margin (their camera never shows more), keeping snapshots small.
+  const cull = WORLD_TILES_X > SNAPSHOT_CULL_MIN_WORLD && snapshot.type === "snapshot";
+  const sharedPayload = cull ? "" : JSON.stringify(snapshot);
   for (const player of players.values()) {
     if (player.socket.readyState === player.socket.OPEN) {
+      let payload = sharedPayload;
+      if (snapshot.type === "snapshot" && cull) {
+        const limit = SNAPSHOT_VIEW_TILES * TILE_SIZE;
+        const near = (x: number, y: number) => Math.abs(x - player.x) < limit && Math.abs(y - player.y) < limit;
+        const wl: number[] = [];
+        for (let i = 0; i < snapshot.wildlife.length; i += WILDLIFE_SNAPSHOT_STRIDE) {
+          if (near(snapshot.wildlife[i + 2], snapshot.wildlife[i + 3])) wl.push(...snapshot.wildlife.slice(i, i + WILDLIFE_SNAPSHOT_STRIDE));
+        }
+        payload = JSON.stringify({ ...snapshot, mobs: snapshot.mobs.filter((m) => near(m.x, m.y)), wildlife: wl });
+      }
       player.socket.send(withPlayerFights(payload, player));
     }
   }

@@ -393,10 +393,10 @@ export type ClientMessage =
   | { type: "attack" }
   | { type: "pause" }
   // Optional difficulty: the restarting client's choice becomes the new world's difficulty.
-  | { type: "restart"; difficulty?: Difficulty }
+  | { type: "restart"; difficulty?: Difficulty; worldSize?: number }
   // Sent after every welcome; only takes effect while the world's difficulty is still unclaimed
   // (see the server's handleSetDifficulty for the race rules).
-  | { type: "setDifficulty"; difficulty: Difficulty }
+  | { type: "setDifficulty"; difficulty: Difficulty; worldSize?: number }
   | { type: "commandMove"; unitIds: string[]; x: number; y: number }
   | { type: "commandAttack"; unitIds: string[]; mobId: string }
   | { type: "commandStance"; unitIds: string[]; stance: Stance }

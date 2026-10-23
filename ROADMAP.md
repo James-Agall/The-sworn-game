@@ -680,3 +680,25 @@ gates, (3) towers and farms. Each lands its own "— landed" section in §7's st
 6. **Replace archery with a new "Tower" building**: no workers; upgradeable for rate of fire and damage.
    **Landed 2026-10-23** as a building of its own; the Archery Range stays (see "Towers & farms" above).
 7. **Barns hold more farms, each farm less productive.** **Landed 2026-10-23** (see "Towers & farms" above).
+
+## 512 map (phase A) — landed 2026-10-23
+
+Plan: `~/docs/colony2d/PLAN-512-map-and-forts.md` §1 (no forts/camps/settlements yet).
+
+- **Map size is a per-world choice**: Tiny 64, Small 96, Medium 160 (default), Large 256, Huge 384, Giant 512 (main-menu
+  "Map size", stored in `localStorage` `sworn.mapSize`; the client only sends it once chosen). New Game (`setDifficulty`
+  with `worldSize`, same claim rules as difficulty) and Restart (`restart` with `worldSize`) regenerate the world live at the
+  new size (`setWorldSize` re-allocates tiles/biomes/explored/route buffers and the size-scaled counts) — no server restart.
+  `COLONY_WORLD_SIZE` is only the boot default. Saves store `worldSize`; loading one resizes the world to it.
+- **Counts**: trees/ore/ponds/forage/biomes scale by area; wildlife, ruins, encampments and mini-bosses use `scaledCountSub`
+  (area up to 160, then the 4th root: ~1.8x a 160 map at 512). Castle Ruin still placed by a fraction of the map size.
+- **Dormancy**: wildlife with no living player/colonist within 64 tiles only ticks its cooldown. POI guardians/deserters were
+  already dormant; raid mobs are never dormant.
+- **Snapshots**: worlds > 192 send each player only mobs/wildlife within 60 tiles (smaller worlds unchanged). Fog was already
+  incremental (`explored` deltas); `welcome` still carries the whole map once (~1.1 MB at 512).
+- **Pathfinding/raids**: `findPath` has a 60k-node budget (BFS head index instead of `shift`), `routeToBuilding` 120k settled
+  nodes. Raids spawn on the edge of a box at most 110 tiles from the first Town Center (the whole map at <= 220).
+- **Client**: floor sprites are built per 16x16 chunk, lazily, and hidden off screen (262k sprites at 512 otherwise).
+- Test: `server/world-512-test.mjs` (512 gen time, tick time, snapshot bytes, save/load; live resize 160 -> 64 -> 256 and size
+  round-trip through a save). 512 measured: gen ~2.1 s, idle tick avg ~4 ms, ~3.1 KB/snapshot, save 980 KiB / ~9 ms.
+- Not done: chunked A*/hierarchical routing, camp/settlement sites, min POI spacing is the existing 10 tiles.
