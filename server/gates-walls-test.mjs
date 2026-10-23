@@ -14,7 +14,7 @@ const result = (ok, msg) => {
   console.log(`${ok ? "PASS" : "FAIL"} [${el()}] ${msg}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const T = { Empty: 0, Wall: 1, ArcherTower: 19, StoneWall: 11, House: 13, Gate: 70 };
+const T = { Empty: 0, Wall: 1, Tower: 62, StoneWall: 11, House: 13, Gate: 70 };
 const TILE = 32;
 
 const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, events: [], hook: new Map(), save: null, welcomes: 0 };
@@ -84,7 +84,7 @@ await setTile(H.x, H.y, T.House);
 for (const r of ring) await setTile(r.x, r.y, T.StoneWall);
 // Within 8 tiles of the gate and of the east wall, so both pay the same tower penalty.
 const tower = { x: H.x + 3, y: H.y - 6 };
-await setTile(tower.x, tower.y, T.ArcherTower);
+await setTile(tower.x, tower.y, T.Tower);
 await hook("killColonists", { kind: "builder" });
 await hook("setStock", { stock: { wood: 0, rock: 0, iron: 0 } });
 let mob = await hook("spawnMob", { kind: "orc", tx: H.x + 5, ty: H.y });
