@@ -28,6 +28,7 @@ import type {
   SaveInfo,
   SaveSlot,
   GoalSnapshot,
+  GateLock,
 } from "./protocol";
 import {
   Biome,
@@ -38,6 +39,9 @@ import {
   DAMAGED_BUILDING_SNAPSHOT_STRIDE,
   FARM_STAGE_SNAPSHOT_STRIDE,
   FarmStage,
+  GATE_FLAG_OPEN,
+  GATE_FLAG_OVERRUN,
+  GATE_SNAPSHOT_STRIDE,
   HUNGER_MARK_NAMES,
   HungerMark,
   isRoadTile,
@@ -79,8 +83,16 @@ const TOOL_CATEGORIES: { key: ToolCategory; label: string }[] = [
 ];
 
 const TOOLS: ToolDef[] = [
-  { tile: TileType.Wall, label: "Wood Wall", key: "1", cost: "1 wood", category: "combat" },
-  { tile: TileType.StoneWall, label: "Stone Wall", key: "2", cost: "1 rock", category: "combat" },
+  { tile: TileType.Wall, label: "Wood Wall", key: "1", cost: "3 wood. 200 HP", category: "combat" },
+  { tile: TileType.StoneWall, label: "Stone Wall", key: "2", cost: "3 rock. 900 HP", category: "combat" },
+  // Walls & gates (2026-10-23). Every letter is taken, so the gate uses [.
+  {
+    tile: TileType.Gate,
+    label: "Gate",
+    key: "[",
+    cost: "10 wood + 5 rock. 450 HP. Opens for your units, closed to monsters (lock it from its info panel); anyone may pass while it's open",
+    category: "combat",
+  },
   { tile: TileType.LumberjackPost, label: "Lumberjack", key: "3", cost: "Free (upgradeable)", category: "farming" },
   { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: "Free, needs adjacent Barn", category: "farming" },
   { tile: TileType.KnightPost, label: "Hall of the Sworn", key: "5", cost: "10 iron + 5 rock (upgradeable)", category: "combat" },
@@ -474,6 +486,7 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.TownCenter]: "townCenter",
   [TileType.Wall]: "woodWall",
   [TileType.StoneWall]: "stoneWall",
+  [TileType.Gate]: "gateWoodClosed",
   [TileType.KnightPost]: "barracks",
   [TileType.CastleLevel2]: "castleLv2",
   [TileType.CastleLevel3]: "castleLv3",
@@ -980,6 +993,7 @@ async function main() {
   const EXTRA_URLS = [
     "/sprites/ironOre2.png",
     "/sprites/ironOre3.png",
+    "/sprites/gateWoodOpen.png",
     "/sprites/grassFloor1.png",
     "/sprites/grassFloor2.png",
     "/sprites/hillsFloor.png",
@@ -1114,6 +1128,7 @@ async function main() {
     loadedTextures["/sprites/grassFloor2.png"],
   ];
   const HILLS_FLOOR_TEXTURE = loadedTextures["/sprites/hillsFloor.png"];
+  const GATE_OPEN_TEXTURE = loadedTextures["/sprites/gateWoodOpen.png"];
   const SWAMP_FLOOR_TEXTURE = loadedTextures["/sprites/swampFloor.png"];
   const NATURE_DECOR_TEXTURES = NATURE_DECOR.map((d) => ({ texture: loadedTextures[d.url], height: d.height }));
   // tile -> FarmStage -> texture, only for stage art that loaded.
@@ -1459,6 +1474,8 @@ async function main() {
   let constructionSites = new Map<number, SiteView>();
   // Damaged buildings (snapshot `damagedBuildings`): tile index -> HP permille. See syncDamagedBuildings.
   let damagedBuildings = new Map<number, number>();
+  // Walls & gates: snapshot `gates`, tile index -> GATE_FLAG_* bits (see syncGates).
+  let gateFlags = new Map<number, number>();
   // True from a welcome until its first snapshot has been applied: state diffs then are a world
   // load, not events, so they make no sound.
   let soundSuppressed = true;
@@ -1550,6 +1567,21 @@ async function main() {
       const barY = y + tileSize + 2;
       siteOverlay.rect(x + 2, barY, tileSize - 4, 4).fill({ color: 0x2b1a0c, alpha: 0.8 });
       siteOverlay.rect(x + 2, barY, (tileSize - 4) * site.progress, 4).fill(site.upgrade ? 0xf1c40f : 0xe0b468);
+    }
+  }
+
+  // Walls & gates: redraw a gate whose open / overrun look changed.
+  function syncGates(flat: number[] | undefined) {
+    const next = new Map<number, number>();
+    const list = flat ?? [];
+    for (let i = 0; i + GATE_SNAPSHOT_STRIDE <= list.length; i += GATE_SNAPSHOT_STRIDE) next.set(list[i], list[i + 1]);
+    const shown = (f: number | undefined) => ((f ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
+    const prev = gateFlags;
+    gateFlags = next;
+    for (const index of new Set([...prev.keys(), ...next.keys()])) {
+      if (shown(prev.get(index)) === shown(next.get(index)) || tiles[index] !== TileType.Gate) continue;
+      const { tx, ty } = indexToTile(index);
+      setTileSprite(tx, ty, tiles[index]);
     }
   }
 
@@ -1690,8 +1722,10 @@ async function main() {
     const stage = farmStages.get(index);
     const stageTexture = !site && stage !== undefined ? FARM_STAGE_TEXTURES.get(tile)?.get(stage) : undefined;
     const levelTexture = TILE_LEVEL_TEXTURES.get(artTile)?.[level - 1];
-    const texture =
-      tile === TileType.ConstructionSite && !site
+    const gateOpen = tile === TileType.Gate && ((gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
+    const texture = gateOpen
+      ? GATE_OPEN_TEXTURE
+      : tile === TileType.ConstructionSite && !site
         ? TILE_TEXTURES.get(TileType.Wall) // until the snapshot names the target
         : tile === TileType.IronOre
           ? IRON_ORE_VARIANTS[(tx * 7 + ty * 13) % IRON_ORE_VARIANTS.length]
@@ -2855,6 +2889,7 @@ async function main() {
         return MINIMAP_IRON;
       case TileType.Wall:
       case TileType.StoneWall:
+      case TileType.Gate:
         return MINIMAP_WALL;
       case TileType.Road:
       case TileType.CobbleRoad:
@@ -3908,6 +3943,7 @@ async function main() {
     TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery,
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
+    TileType.Gate,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
   const bpNameEl = document.getElementById("bp-name")!;
@@ -3922,6 +3958,13 @@ async function main() {
   const bpRepairRowEl = document.getElementById("bp-repair-row")!;
   const bpRepairBtn = document.getElementById("bp-repair") as HTMLButtonElement;
   const bpRepairCostEl = document.getElementById("bp-repair-cost")!;
+  // Walls & gates: the gate's lock (click cycles auto -> open -> closed).
+  const bpGateRowEl = document.getElementById("bp-gate-row")!;
+  const bpGateBtn = document.getElementById("bp-gate-lock") as HTMLButtonElement;
+  const bpGateStateEl = document.getElementById("bp-gate-state")!;
+  const GATE_LOCK_NEXT: Record<GateLock, GateLock> = { auto: "open", open: "closed", closed: "auto" };
+  const GATE_LOCK_LABEL: Record<GateLock, string> = { auto: "Auto", open: "Locked open", closed: "Locked closed" };
+  let shownGateLock: GateLock = "auto";
   // Tile the panel shows; re-requested every second while open so numbers stay live.
   let infoTile: { tx: number; ty: number } | null = null;
   const BUILDING_INFO_REFRESH_MS = 1000;
@@ -3966,8 +4009,20 @@ async function main() {
       bpRepairBtn.disabled = !info.repair.enabled;
       bpRepairCostEl.textContent = info.repair.reason ? `${info.repair.cost} (${info.repair.reason})` : info.repair.cost;
     }
+    bpGateRowEl.hidden = !info.gate;
+    if (info.gate) {
+      shownGateLock = info.gate.lock;
+      bpGateBtn.textContent = `Lock: ${GATE_LOCK_LABEL[info.gate.lock]}`;
+      bpGateStateEl.textContent = info.gate.overrun ? "Overrun!" : info.gate.open ? "Open" : "Closed";
+    }
     buildingPanelEl.hidden = false;
   }
+  bpGateBtn.addEventListener("click", () => {
+    bpGateBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "setGateLock", tileX: infoTile.tx, tileY: infoTile.ty, lock: GATE_LOCK_NEXT[shownGateLock] });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
   bpUpgradeBtn.addEventListener("click", () => {
     bpUpgradeBtn.blur();
     if (!infoTile) return;
@@ -4165,6 +4220,7 @@ async function main() {
       syncFarmStages(message.farmStages);
       syncConstructionSites(message.constructionSites);
       syncDamagedBuildings(message.damagedBuildings);
+      syncGates(message.gates);
       latestTownCenters = message.townCenters;
       syncTownCenterBars(message.townCenters);
       syncWildlife(message.wildlife);

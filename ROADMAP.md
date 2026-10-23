@@ -530,6 +530,33 @@ the formation and fight what is in front of them; surplus attackers queue instea
   per-tick step (body separation can shove a mob past its own speed on the odd tick; the raw max is reported),
   `world-gen-poi-test.mjs` D ignores the first (start-up) mining interval.
 
+### Walls & gates — landed 2026-10-23
+
+- **Walls** (§8 item 2): wood wall 3 wood (was 1), HP 200 (was 60); stone wall 3 rock (was 1), HP 900 (was 250).
+  Full repair (0.3 x cost) is 1 wood / 1 rock.
+- **Gate** (item 3): new `TileType.Gate` (= 70, numbered apart to avoid colliding with parallel tile additions),
+  Combat tab, key `[`, 10 wood + 5 rock, 8 s build, 450 HP, one material (wood-gate art `gateWoodClosed/Open`).
+  Not in `isSolidTile`; per-tile server state `gates` (open, lock, overrun). Lock "auto" opens while a player or
+  any colonist is within 1.5 tiles and closes 2 s after the last leaves (never on a body standing in it); the
+  building info panel cycles Auto / Locked open / Locked closed (`setGateLock`; locked closed blocks the
+  colony's units too). Open = passable for everyone; closed = solid for mobs and wildlife. Implemented in
+  `isWalkableTile` from the mover's side (`hostileMover`, set by `withHostileMover` around raid groups, mob
+  updates and wildlife; body separation uses the body's side); `advanceAlongPath` drops a path whose next
+  tile is a gate that closed. Snapshot `gates` ([index, GATE_FLAG_*] pairs), `BuildingInfo.gate`, minimap
+  draws gates as walls, saved / loaded (`gates`, old saves unaffected).
+- **Mob gate vs wall** (item 4): `pickBuildingTarget` still takes an ordinary route within
+  `BREACH_DETOUR_FACTOR` (open / overrun gates count as ground). Otherwise the breach search crosses walls
+  and closed gates at `breachStepCost = 1 + round(hp / 25) + 12 x living towers within 8 tiles` (full HP:
+  wood wall 9, gate 19, stone wall 37) and attacks the first obstacle on the cheapest route. A mob storming
+  a gate re-picks once it opens / is overrun, and one whose path search failed re-picks once a second.
+- **Gate overrun** (item 5): once a second per gate, if the summed current HP of awake mobs within 6 tiles
+  beats the defenders' (guard / militia colonists + towers in that range) and no living tower
+  (`isTowerTile`, currently ArcherTower / ArcherPost; the towers branch should repoint it at its Tower tile)
+  stands within 8 tiles, the gate is passable for mobs (drawn open) until that majority is lost; toast
+  "Gate overrun".
+- **Test:** `server/gates-walls-test.mjs` (16 checks; test hook `gateState` with `checkOverrun`). Other suites
+  not re-run this round: building-damage-test's breach step now chews through a 200 HP wall (was 60).
+
 Execution order above is my default sequencing (foundation first since map/zoom/clock touch
 everything downstream); say the word if you want a different item first.
 
@@ -541,11 +568,11 @@ gates, (3) towers and farms. Each lands its own "— landed" section in §7's st
 1. **Battle discipline / formations** — units keep formation, each fights the enemy nearest its own slot,
    attackers queue instead of clumping, tighter formations, a minimum line-drag frontage. **Landed
    2026-10-23** (see "Battle discipline" above).
-2. **Walls costlier, much higher HP.**
+2. **Walls costlier, much higher HP.** **Landed 2026-10-23** (see "Walls & gates" above).
 3. **Gates** with an open / closed state: open for friendly units; when open, ANY unit (friend or foe) may
-   pass.
-4. **Mob decision gate vs wall**: a mob chooses between going for a gate and breaching a wall.
+   pass. **Landed 2026-10-23.**
+4. **Mob decision gate vs wall**: a mob chooses between going for a gate and breaching a wall. **Landed 2026-10-23.**
 5. **Monsters with majority strength near a gate and no living towers pass through freely** (the gate no
-   longer holds them).
+   longer holds them). **Landed 2026-10-23.**
 6. **Replace archery with a new "Tower" building**: no workers; upgradeable for rate of fire and damage.
 7. **Barns hold more farms, each farm less productive.**

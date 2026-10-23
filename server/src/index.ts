@@ -45,6 +45,11 @@ import {
   SaveSlot,
   SaveInfo,
   SAVE_SLOTS,
+  GateLock,
+  GATE_FLAG_OPEN,
+  GATE_FLAG_LOCK_OPEN,
+  GATE_FLAG_LOCK_CLOSED,
+  GATE_FLAG_OVERRUN,
 } from "./protocol.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
@@ -289,7 +294,11 @@ const buildingLevel = new Map<string, number>();
 // ---- Building hit points (mobs damage buildings; builders repair them) ----
 // Max HP by building class, times BUILDING_HP_LEVEL_MULT[level - 1]. Town Centers keep their own HP
 // (TOWN_CENTER_MAX_HP_BY_LEVEL). Classes: see buildingBaseHp.
-const BUILDING_HP_WALL = 60;
+// Walls & gates (2026-10-23): wood wall 60 -> 200, stone wall 250 (was BIG) -> 900; the gate sits
+// between them so a mob storming a gate beats breaching stone but not wood (see breachStepCost).
+const BUILDING_HP_WALL = 200;
+const BUILDING_HP_STONE_WALL = 900;
+const BUILDING_HP_GATE = 450;
 const BUILDING_HP_SMALL = 120;
 const BUILDING_HP_WORKPLACE = 180;
 const BUILDING_HP_BIG = 250;
@@ -299,7 +308,8 @@ const BUILDING_HP_LEVEL_MULT = [1, 1.4, 1.8];
 // longer than BREACH_MIN_ROUTE_TILES, so short walks around a wall end are never breached).
 const BREACH_DETOUR_FACTOR = 3;
 const BREACH_MIN_ROUTE_TILES = 12;
-// Route cost of crossing one wall tile in the breach search (a walkable tile costs 1).
+// Passed to routeToBuilding to run the breach search (> 0). Since walls & gates (2026-10-23) the cost of
+// crossing each wall / closed gate tile is breachStepCost (HP and tower defence), not this flat value.
 const BREACH_WALL_COST = 8;
 // How many of the nearest buildings get a route check per target pick.
 const BUILDING_TARGET_CANDIDATES = 3;
@@ -312,6 +322,17 @@ const REPAIR_COST_FRACTION = 0.3;
 const REPAIR_MOB_CLEARANCE_TILES = 8;
 // Current HP of damaged buildings (resourceKey); a building missing here is at full HP.
 const buildingHp = new Map<string, number>();
+// Walls & gates: state of every Gate tile, by tile index (see the "Walls & gates" block), and whose
+// perspective isWalkableTile answers for: true while mobs (and wildlife) move / path (withHostileMover).
+interface GateState {
+  open: boolean;
+  lock: GateLock;
+  // Ticks since a friendly unit was last near (auto lock: closes at GATE_CLOSE_DELAY_TICKS).
+  clearTicks: number;
+  overrun: boolean;
+}
+const gates = new Map<number, GateState>();
+let hostileMover = false;
 // HP of repair already paid for per building (manual Repair pays up front, builders pay when they start).
 const repairPaid = new Map<string, number>();
 // Manual Repair requests (resourceKey), served before the automatic most-damaged pick.
@@ -421,7 +442,8 @@ function collidesAt(px: number, py: number): boolean {
   const offsets = [-PLAYER_HALF_SIZE, PLAYER_HALF_SIZE];
   for (const ox of offsets) {
     for (const oy of offsets) {
-      if (isSolidTile(tileAtPixel(px + ox, py + oy))) return true;
+      const t = tileAtPixel(px + ox, py + oy);
+      if (isSolidTile(t) || (t === TileType.Gate && !isWalkablePixel(px + ox, py + oy))) return true;
     }
   }
   return false;
@@ -514,7 +536,11 @@ function scatterResourceTiles(tileType: TileType, count: number) {
   }
 }
 function isWalkableTile(tx: number, ty: number): boolean {
-  return inBounds(tx, ty) && !isSolidTile(tiles[tileIndex(tx, ty)] as TileType);
+  if (!inBounds(tx, ty)) return false;
+  const t = tiles[tileIndex(tx, ty)] as TileType;
+  // Gates: passable by their state, from the current mover's side (hostileMover).
+  if (t === TileType.Gate) return gatePassable(tileIndex(tx, ty), hostileMover);
+  return !isSolidTile(t);
 }
 
 function findAdjacentWalkable(tx: number, ty: number): TileCoord | null {
@@ -586,6 +612,12 @@ function advanceAlongPath(
   speed: number
 ) {
   if (entity.path.length === 0) return;
+  // A gate on the path closed (or was locked) since it was planned: drop the path so the mover replans.
+  const nextTile = entity.path[0];
+  if (inBounds(nextTile.x, nextTile.y) && tiles[tileIndex(nextTile.x, nextTile.y)] === TileType.Gate && !isWalkableTile(nextTile.x, nextTile.y)) {
+    entity.path = [];
+    return;
+  }
   const target = tileToPixelCenter(entity.path[0]);
   const ddx = target.x - entity.x;
   const ddy = target.y - entity.y;
@@ -1139,8 +1171,12 @@ const RESPAWN_FOOD_COST = 5;
 const ARCHER_WOOD_COST = 10;
 const KNIGHT_IRON_COST = 10;
 const KNIGHT_ROCK_COST = 5;
-const WOOD_WALL_COST = 1;
-const STONE_WALL_COST = 1;
+// Walls & gates (2026-10-23): walls 3x their old 1 wood / 1 rock. Full repair = REPAIR_COST_FRACTION
+// (0.3) of this, i.e. 1 wood / 1 rock per wall, 3 wood + 2 rock per gate.
+const WOOD_WALL_COST = 3;
+const STONE_WALL_COST = 3;
+const GATE_WOOD_COST = 10;
+const GATE_ROCK_COST = 5;
 const HOUSE_WOOD_COST = 10;
 const BARN_WOOD_COST = 15;
 const CHURCH_WOOD_COST = 15;
@@ -3720,6 +3756,8 @@ interface Body {
   e: { x: number; y: number };
   r: number;
   w: number;
+  // Walls & gates: a mob body is nudged from the hostile side (never onto a closed gate).
+  mob?: boolean;
 }
 const bodies: Body[] = [];
 const cellHead = new Int32Array(WORLD_TILES_X * WORLD_TILES_Y);
@@ -3737,7 +3775,7 @@ function collectBodies() {
   for (const m of mobs.values()) {
     if (isDormantGuardian(m) || (m.isDeserter && !m.deserterActive) || m.passive) continue;
     const still = mobsAttackingThisTick.has(m.id);
-    bodies.push({ e: m, r: MOB_BODY_RADIUS[m.kind] ?? 8, w: still ? SEPARATION_WEIGHT_STILL : SEPARATION_WEIGHT_MOVING });
+    bodies.push({ e: m, r: MOB_BODY_RADIUS[m.kind] ?? 8, w: still ? SEPARATION_WEIGHT_STILL : SEPARATION_WEIGHT_MOVING, mob: true });
   }
 }
 
@@ -3759,6 +3797,8 @@ function rebuildBodyHash() {
 
 // Moves a body by (dx, dy) unless that would put its centre on a solid tile.
 function nudgeBody(b: Body, dx: number, dy: number) {
+  const prevMover = hostileMover;
+  hostileMover = b.mob === true;
   const nx = b.e.x + dx;
   const ny = b.e.y + dy;
   if (isWalkablePixel(nx, ny)) {
@@ -3769,6 +3809,7 @@ function nudgeBody(b: Body, dx: number, dy: number) {
   } else if (isWalkablePixel(b.e.x, ny)) {
     b.e.y = ny;
   }
+  hostileMover = prevMover;
 }
 
 // Push-apart relaxation over every overlapping pair (allies and enemies alike).
@@ -5448,14 +5489,18 @@ function isDamageableBuilding(t: TileType): boolean {
     for (const b of BREAKABLE_TILES) {
       if (b !== TileType.ConstructionSite && isSolidTile(b) && !FORAGE_TILES.includes(b)) damageableLut[b] = 1;
     }
+    // Gates aren't solid tiles (their passability is gate state) but take damage like a wall.
+    damageableLut[TileType.Gate] = 1;
   }
   return damageableLut[t] === 1;
 }
 
 function buildingBaseHp(t: TileType): number {
   if (t === TileType.Wall) return BUILDING_HP_WALL;
+  if (t === TileType.StoneWall) return BUILDING_HP_STONE_WALL;
+  if (t === TileType.Gate) return BUILDING_HP_GATE;
   if (
-    t === TileType.StoneWall || BIG_BUILD_TILES.has(t) || t === TileType.CastleLevel2 || t === TileType.CastleLevel3 ||
+    BIG_BUILD_TILES.has(t) || t === TileType.CastleLevel2 || t === TileType.CastleLevel3 ||
     t === TileType.ArcherTower || t === TileType.MilitiaCamp3
   )
     return BUILDING_HP_BIG;
@@ -5535,6 +5580,210 @@ function damagedBuildingsForSnapshot(): number[] {
   return out;
 }
 
+// ---- Walls & gates (ROADMAP §8 items 2-5, 2026-10-23) ----
+// A Gate is one placeable tile with HP (BUILDING_HP_GATE) and a state per tile (`gates`):
+//  - OPEN / CLOSED. With lock "auto" it opens while a friendly unit (a player or any colonist) is within
+//    GATE_OPEN_RANGE_PX of its centre and closes GATE_CLOSE_DELAY_TICKS after the last one left. Lock
+//    "open" / "closed" (building info menu, setGateLock) holds it either way; a locked-closed gate blocks
+//    the colony's own units too. It never closes on a body standing in it.
+//  - Passability (isWalkableTile via gatePassable): open = ground for everyone, friend or foe; closed =
+//    solid for mobs and wildlife (hostileMover), passable for the colony's units (they open it on arrival).
+//  - OVERRUN (item 5): once a second, if the summed strength (current HP) of awake mobs within
+//    GATE_OVERRUN_RANGE_TILES beats the defenders' (guard / militia colonists in that range + towers in it)
+//    and no living tower (isTowerTile) stands within GATE_TOWER_RANGE_TILES, the gate is overrun: it is
+//    passable for mobs as if open until that majority is lost ("Gate overrun" toast on the way in).
+// Mob choice gate vs wall (item 4): pickBuildingTarget first tries an ordinary route (open / overrun gates
+// are ground, closed gates and walls solid) and takes it within BREACH_DETOUR_FACTOR. Otherwise the breach
+// search crosses walls and closed gates at
+//   breachStepCost = 1 + round(currentHp / BREACH_HP_PER_TILE) + BREACH_TOWER_PENALTY_TILES x (living
+//                    towers within GATE_TOWER_RANGE_TILES of that tile)
+// route tiles each (full HP: wood wall 9, gate 19, stone wall 37), and the first wall / closed gate on the
+// cheapest route is attacked. So an open gate wins whenever it's within the detour, a closed gate beats a
+// stone wall unless the wall route is ~18+ tiles shorter, a wood wall beats a gate unless the gate route
+// is ~10+ tiles shorter, damaged sections and undefended stretches are preferred.
+const GATE_OPEN_RANGE_PX = TILE_SIZE * 1.5;
+const GATE_CLOSE_DELAY_TICKS = TICK_RATE * 2;
+const GATE_OVERRUN_RANGE_TILES = 6;
+const GATE_TOWER_RANGE_TILES = 8;
+const BREACH_HP_PER_TILE = 25;
+const BREACH_TOWER_PENALTY_TILES = 12;
+const BUILD_SECONDS_GATE = 8;
+// Set by broadcastTileUpdate: the gate registry and the tower cache are rescanned.
+let gateTilesDirty = true;
+// Mobs whose last path search toward their building target failed (a gate closed on the route).
+const mobsWithoutRoute = new Set<string>();
+
+// The tower tiles that defend gates (and add breach cost). The towers work replaces ArcherPost /
+// ArcherTower with its own Tower tile: update this one helper then.
+function isTowerTile(tile: TileType): boolean {
+  return tile === TileType.ArcherTower || tile === TileType.ArcherPost;
+}
+
+let towerTilesCache: TileCoord[] = [];
+let towerTilesTick = -1;
+function livingTowerTiles(): TileCoord[] {
+  if (towerTilesTick !== cycleTick || gateTilesDirty) {
+    towerTilesCache = [];
+    for (let i = 0; i < tiles.length; i++) {
+      if (isTowerTile(tiles[i] as TileType)) towerTilesCache.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+    }
+    towerTilesTick = cycleTick;
+  }
+  return towerTilesCache;
+}
+
+function towersWithin(tx: number, ty: number, rangeTiles: number): TileCoord[] {
+  return livingTowerTiles().filter((t) => Math.hypot(t.x - tx, t.y - ty) <= rangeTiles);
+}
+
+// Runs `fn` with isWalkableTile answering for mobs (closed gates solid).
+function withHostileMover<T>(fn: () => T): T {
+  const prev = hostileMover;
+  hostileMover = true;
+  try {
+    return fn();
+  } finally {
+    hostileMover = prev;
+  }
+}
+
+function gateAt(index: number): GateState {
+  let g = gates.get(index);
+  if (!g) {
+    g = { open: false, lock: "auto", clearTicks: GATE_CLOSE_DELAY_TICKS, overrun: false };
+    gates.set(index, g);
+  }
+  return g;
+}
+
+// A gate tile with no record yet (just placed by a test, or a fresh load) counts as closed, auto.
+function gatePassable(index: number, hostile: boolean): boolean {
+  const g = gates.get(index);
+  if (hostile) return !!g && (g.open || g.overrun);
+  return !g || g.open || g.lock !== "closed";
+}
+
+// A wall or a gate mobs can't walk through right now (the breach search's obstacles).
+function isBreachObstacle(tx: number, ty: number): boolean {
+  if (!inBounds(tx, ty)) return false;
+  const t = tiles[tileIndex(tx, ty)] as TileType;
+  return isWallTile(t) || (t === TileType.Gate && !gatePassable(tileIndex(tx, ty), true));
+}
+
+// Route cost of breaking through the wall / closed gate at a tile (integer: routeToBuilding's heap needs it).
+function breachStepCost(tx: number, ty: number): number {
+  const hp = structureHp(tx, ty)?.hp ?? 0;
+  return 1 + Math.round(hp / BREACH_HP_PER_TILE) + BREACH_TOWER_PENALTY_TILES * towersWithin(tx, ty, GATE_TOWER_RANGE_TILES).length;
+}
+
+// updateMob's once-a-second check for a mob on a building target.
+function mobTargetNeedsRepick(mob: Mob): boolean {
+  if (mobsWithoutRoute.has(mob.id) && mob.path.length === 0) {
+    mobsWithoutRoute.delete(mob.id);
+    return true;
+  }
+  const tile = mob.targetType === "building" && mob.targetId ? keyToTile(mob.targetId) : null;
+  return !!tile && tiles[tileIndex(tile.x, tile.y)] === TileType.Gate && gatePassable(tileIndex(tile.x, tile.y), true);
+}
+
+function friendlyNearGate(cx: number, cy: number): boolean {
+  for (const p of players.values()) {
+    if (!p.dead && Math.hypot(p.x - cx, p.y - cy) <= GATE_OPEN_RANGE_PX) return true;
+  }
+  for (const c of colonists.values()) {
+    if (Math.hypot(c.x - cx, c.y - cy) <= GATE_OPEN_RANGE_PX) return true;
+  }
+  return false;
+}
+
+// Anything standing in the gate's tile (a player's box overlapping it): the gate can't close on it.
+function gateOccupied(tx: number, ty: number): boolean {
+  const inTile = (x: number, y: number) => Math.floor(x / TILE_SIZE) === tx && Math.floor(y / TILE_SIZE) === ty;
+  const x0 = tx * TILE_SIZE;
+  const y0 = ty * TILE_SIZE;
+  for (const p of players.values()) {
+    if (p.dead) continue;
+    if (p.x + PLAYER_HALF_SIZE > x0 && p.x - PLAYER_HALF_SIZE < x0 + TILE_SIZE && p.y + PLAYER_HALF_SIZE > y0 && p.y - PLAYER_HALF_SIZE < y0 + TILE_SIZE) return true;
+  }
+  for (const c of colonists.values()) if (inTile(c.x, c.y)) return true;
+  for (const m of mobs.values()) if (inTile(m.x, m.y)) return true;
+  for (const a of wildlife.values()) if (inTile(a.x, a.y)) return true;
+  return false;
+}
+
+function evaluateGateOverrun(index: number, g: GateState) {
+  const tx = index % WORLD_TILES_X;
+  const ty = Math.floor(index / WORLD_TILES_X);
+  const c = tileToPixelCenter({ x: tx, y: ty });
+  const range = GATE_OVERRUN_RANGE_TILES * TILE_SIZE;
+  let hostile = 0;
+  for (const m of mobs.values()) {
+    if (m.passive || isDormantGuardian(m) || (m.isDeserter && !m.deserterActive)) continue;
+    if (Math.hypot(m.x - c.x, m.y - c.y) <= range) hostile += Math.max(0, m.hp);
+  }
+  let defence = 0;
+  for (const col of colonists.values()) {
+    if (isGuardOrMilitiaKind(col.kind) && Math.hypot(col.x - c.x, col.y - c.y) <= range) defence += Math.max(0, col.hp);
+  }
+  for (const t of towersWithin(tx, ty, GATE_OVERRUN_RANGE_TILES)) defence += structureHp(t.x, t.y)?.hp ?? 0;
+  const overrun = hostile > 0 && hostile > defence && towersWithin(tx, ty, GATE_TOWER_RANGE_TILES).length === 0;
+  if (overrun && !g.overrun) broadcastEvent("raid", "Gate overrun");
+  g.overrun = overrun;
+}
+
+// Once per tick: registry upkeep, auto open / close, and (once a second) the overrun check.
+function updateGates(forceOverrunCheck = false) {
+  if (gateTilesDirty) {
+    for (let i = 0; i < tiles.length; i++) if (tiles[i] === TileType.Gate) gateAt(i);
+    for (const index of Array.from(gates.keys())) if (tiles[index] !== TileType.Gate) gates.delete(index);
+    gateTilesDirty = false;
+    towerTilesTick = -1;
+  }
+  if (cycleTick % TICK_RATE === 0) {
+    for (const id of Array.from(mobsWithoutRoute)) if (!mobs.has(id)) mobsWithoutRoute.delete(id);
+  }
+  for (const [index, g] of gates) {
+    const tx = index % WORLD_TILES_X;
+    const ty = Math.floor(index / WORLD_TILES_X);
+    const c = tileToPixelCenter({ x: tx, y: ty });
+    if (g.lock === "open") {
+      g.open = true;
+    } else if (g.lock === "auto" && friendlyNearGate(c.x, c.y)) {
+      g.open = true;
+      g.clearTicks = 0;
+    } else {
+      if (g.lock === "auto") g.clearTicks++;
+      const shouldClose = g.lock === "closed" || g.clearTicks >= GATE_CLOSE_DELAY_TICKS;
+      if (g.open && shouldClose && !gateOccupied(tx, ty)) g.open = false;
+    }
+    if (forceOverrunCheck || cycleTick % TICK_RATE === 0) evaluateGateOverrun(index, g);
+  }
+}
+
+function gatesForSnapshot(): number[] {
+  const out: number[] = [];
+  for (const [index, g] of gates) {
+    out.push(
+      index,
+      (g.open ? GATE_FLAG_OPEN : 0) |
+        (g.lock === "open" ? GATE_FLAG_LOCK_OPEN : 0) |
+        (g.lock === "closed" ? GATE_FLAG_LOCK_CLOSED : 0) |
+        (g.overrun ? GATE_FLAG_OVERRUN : 0)
+    );
+  }
+  return out;
+}
+
+function handleSetGateLock(tx: number, ty: number, lock: unknown) {
+  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Gate) return;
+  if (lock !== "auto" && lock !== "open" && lock !== "closed") return;
+  const g = gateAt(tileIndex(tx, ty));
+  g.lock = lock;
+  if (lock === "open") g.open = true;
+  // Auto: start the close countdown now; the next tick re-opens it for anyone still near.
+  if (lock === "auto") g.clearTicks = GATE_CLOSE_DELAY_TICKS;
+}
+
 // Damageable non-wall buildings (the candidates of pickBuildingTarget), rebuilt lazily after tile changes.
 let buildingTargetTiles: TileCoord[] = [];
 let buildingTargetsBuiltTick = -1;
@@ -5544,7 +5793,7 @@ function buildingTargetCandidates(): TileCoord[] {
     buildingTargetTiles = [];
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i] as TileType;
-      if (isDamageableBuilding(t) && !isWallTile(t)) buildingTargetTiles.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+      if (isDamageableBuilding(t) && !isWallTile(t) && t !== TileType.Gate) buildingTargetTiles.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
     }
     buildingTargetsDirty = false;
     buildingTargetsBuiltTick = cycleTick;
@@ -5609,7 +5858,11 @@ function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: num
       if (!inBounds(nx, ny)) continue;
       const ni = tileIndex(nx, ny);
       const t = tiles[ni] as TileType;
-      const step = !isSolidTile(t) ? 1 : wallCost > 0 && isWallTile(t) ? wallCost : 0;
+      // Gates: an open (or overrun) gate is ground; a closed one is solid, or a breach obstacle like a wall.
+      const step =
+        t === TileType.Gate
+          ? gatePassable(ni, true) ? 1 : wallCost > 0 ? breachStepCost(nx, ny) : 0
+          : !isSolidTile(t) ? 1 : wallCost > 0 && isWallTile(t) ? breachStepCost(nx, ny) : 0;
       if (step === 0) continue;
       const next = cost + step;
       if (next >= routeCost[ni]) continue;
@@ -5643,7 +5896,7 @@ function pickBuildingTarget(mob: Mob, wards: TileCoord[]): PickedTarget | null {
       return { type: cand.type, id, approach: approachOf(route) };
     }
     const breach = routeToBuilding(start, cand.x, cand.y, BREACH_WALL_COST);
-    const wallAt = breach ? breach.findIndex((t) => isWallTile(tiles[tileIndex(t.x, t.y)] as TileType)) : -1;
+    const wallAt = breach ? breach.findIndex((t) => isBreachObstacle(t.x, t.y)) : -1;
     if (breach && wallAt >= 0) {
       const wall = breach[wallAt];
       return { type: "building", id: resourceKey(wall.x, wall.y), approach: wallAt > 0 ? breach[wallAt - 1] : start };
@@ -5727,6 +5980,8 @@ function updateMob(mob: Mob, dt: number) {
     const wards = activeWardSources();
     if (mob.targetType === "building" || mob.targetType === "townCenter") {
       if (unitInAggroRange(mob, wards)) targetPos = null;
+      // Walls & gates: a gate it was storming opened / was overrun, or its route closed: re-pick.
+      else if (mobTargetNeedsRepick(mob)) targetPos = null;
       else if (mob.targetType === "townCenter" && buildingNearby(mob.x, mob.y, Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y), wards)) targetPos = null;
     } else if (mob.mark === HungerMark.None) {
       const aggro = mob.targetType === "player" ? MOB_AGGRO_RANGE_PLAYER_TILES : MOB_AGGRO_RANGE_GUARD_TILES;
@@ -5850,6 +6105,8 @@ function updateMob(mob: Mob, dt: number) {
       const path = findPath(start, goalTile);
       mob.path = path ?? [];
       mob.repathCooldown = MOB_REPATH_TICKS;
+      if (path) mobsWithoutRoute.delete(mob.id);
+      else mobsWithoutRoute.add(mob.id);
     } else if (mob.repathCooldown > 0) {
       mob.repathCooldown--;
     }
@@ -6442,7 +6699,7 @@ function anyPlayerBuilding(): boolean {
   if (constructionSites.size > 0 || townCenters.length > 1) return true;
   for (let i = 0; i < tiles.length; i++) {
     const t = tiles[i] as TileType;
-    if (t === TileType.Wall || t === TileType.StoneWall) return true;
+    if (t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate) return true;
     if (t !== TileType.TownCenter && VISION_BUILDING_TILES.has(t)) return true;
   }
   return false;
@@ -6660,6 +6917,7 @@ function clamp(value: number, min: number, max: number): number {
 
 function broadcastTileUpdate(tx: number, ty: number, tile: TileType) {
   buildingTargetsDirty = true;
+  gateTilesDirty = true;
   if (VISION_BUILDING_TILES.has(tile)) revealAround(tx, ty, BUILDING_VISION_OFFSETS);
   const update: ServerMessage = { type: "tileUpdate", tileX: tx, tileY: ty, tile };
   const payload = JSON.stringify(update);
@@ -6964,6 +7222,25 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "damageBuilding" && typeof msg.tx === "number" && typeof msg.ty === "number" && typeof msg.amount === "number") {
     damageBuilding(msg.tx, msg.ty, msg.amount);
     reply({ hp: structureHp(msg.tx, msg.ty), tile: tiles[tileIndex(msg.tx, msg.ty)] });
+  } else if (msg.op === "gateState") {
+    // Walls & gates: every gate's state and HP; checkOverrun runs the overrun evaluation right now.
+    if (msg.checkOverrun === true) {
+      gateTilesDirty = true;
+      updateGates(true);
+    }
+    reply({
+      gates: Array.from(gates, ([index, g]) => {
+        const x = index % WORLD_TILES_X;
+        const y = Math.floor(index / WORLD_TILES_X);
+        return { x, y, ...g, hp: structureHp(x, y) };
+      }),
+      hp: { wall: buildingMaxHp(0, 0, TileType.Wall), stoneWall: buildingMaxHp(0, 0, TileType.StoneWall), gate: buildingMaxHp(0, 0, TileType.Gate) },
+      cost: {
+        wall: placementCost(TileType.Wall, TileType.Empty, 0, 0),
+        stoneWall: placementCost(TileType.StoneWall, TileType.Empty, 0, 0),
+        gate: placementCost(TileType.Gate, TileType.Empty, 0, 0),
+      },
+    });
   } else if (msg.op === "goalState") {
     // Goal track, the Castle Ruin and every boss / Castle Ruin guardian (goals-castle-test).
     reply({
@@ -7076,6 +7353,9 @@ function resetWorld(nextDifficulty?: unknown) {
   colonyHappiness = 100;
 
   constructionSites.clear();
+  gates.clear();
+  gateTilesDirty = true;
+  mobsWithoutRoute.clear();
 
   cycleTick = 0;
   wasNight = false;
@@ -7204,6 +7484,7 @@ function snapshotWorld() {
     wardStonesActiveLastTick: Array.from(wardStonesActiveLastTick),
     gravestones,
     constructionSites: Array.from(constructionSites),
+    gates: Array.from(gates),
     raidGroups: Array.from(raidGroups.values()).map((g) => ({
       ...g,
       homes: Array.from(g.homes),
@@ -7281,6 +7562,10 @@ function applyWorld(s: WorldState) {
   gravestones.length = 0;
   gravestones.push(...s.gravestones);
   refill(constructionSites, s.constructionSites);
+  // `?? []`: saves from before gates (none on the map); gate tiles without a record start closed / auto.
+  refill(gates, s.gates ?? []);
+  gateTilesDirty = true;
+  mobsWithoutRoute.clear();
   refill(
     raidGroups,
     s.raidGroups.map((g): [string, RaidGroup] => [g.id, { ...g, homes: new Map(g.homes), offsets: new Map(g.offsets) }])
@@ -7512,6 +7797,9 @@ wss.on("connection", (socket) => {
     } else if (message.type === "repairBuilding") {
       if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
       handleRepairBuilding(player, message.tileX, message.tileY);
+    } else if (message.type === "setGateLock") {
+      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+      handleSetGateLock(message.tileX, message.tileY, message.lock);
     } else if (message.type === "saveGame") {
       void handleSaveGame(player, message.slot);
     } else if (message.type === "loadGame") {
@@ -7558,6 +7846,7 @@ const PLACEABLE_TILES = [
   TileType.TownCenter,
   TileType.Road,
   TileType.CobbleRoad,
+  TileType.Gate,
 ];
 const BREAKABLE_TILES = [
   TileType.Wall,
@@ -7601,6 +7890,7 @@ const BREAKABLE_TILES = [
   TileType.CobbleRoad,
   // Wild forage can be cleared like any other obstacle (it simply stops being food).
   ...FORAGE_TILES,
+  TileType.Gate,
 ];
 const POPULATION_GATED_TILES = [
   TileType.LumberjackPost,
@@ -7762,6 +8052,8 @@ function placementCost(tile: TileType, current: TileType, tx: number, ty: number
       return { wood: WOOD_WALL_COST };
     case TileType.StoneWall:
       return { rock: STONE_WALL_COST };
+    case TileType.Gate:
+      return { wood: GATE_WOOD_COST, rock: GATE_ROCK_COST };
     case TileType.Road:
       return { rock: ROAD_ROCK_COST };
     case TileType.CobbleRoad:
@@ -7897,6 +8189,8 @@ function buildTicksFor(tile: TileType, level: number): number {
         ? BUILD_SECONDS_COBBLE_ROAD
         : tile === TileType.Wall || tile === TileType.StoneWall
       ? BUILD_SECONDS_WALL
+      : tile === TileType.Gate
+      ? BUILD_SECONDS_GATE
       : tile === TileType.House
         ? BUILD_SECONDS_HOUSE
         : tile === TileType.TownCenter
@@ -8015,6 +8309,7 @@ function demolishTile(tx: number, ty: number, current: TileType) {
     removeColonistForPost(tx, ty);
   }
   buildingLevel.delete(resourceKey(tx, ty));
+  if (current === TileType.Gate) gates.delete(tileIndex(tx, ty));
   if (current === TileType.FarmPlot) {
     farmPlots.delete(resourceKey(tx, ty));
   }
@@ -8280,6 +8575,7 @@ const BUILDING_NAMES: Partial<Record<TileType, string>> = {
   [TileType.FarmPlot]: "Farm Plot",
   [TileType.Wall]: "Wood Wall",
   [TileType.StoneWall]: "Stone Wall",
+  [TileType.Gate]: "Gate",
   [TileType.Road]: "Road",
   [TileType.CobbleRoad]: "Cobble Road",
 };
@@ -8397,7 +8693,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     name,
     tile: t,
     level,
-    maxLevel: t === TileType.Wall || t === TileType.StoneWall || t === TileType.Market || t === TileType.GoldShop || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
+    maxLevel: t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate || t === TileType.Market || t === TileType.GoldShop || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
     hp: hpState ? Math.ceil(hpState.hp) : null,
     maxHp: hpState ? hpState.max : null,
     staffing,
@@ -8405,6 +8701,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     upgrade,
     construction: site ? Math.min(1, site.progress / site.totalTicks) : null,
     repair,
+    ...(t === TileType.Gate ? { gate: (({ open, lock, overrun }) => ({ open, lock, overrun }))(gateAt(tileIndex(tx, ty))) } : {}),
   };
 }
 
@@ -8493,14 +8790,18 @@ function stepSimulation() {
   }
   updateConstructionSites();
 
-  updateRaidGroups(dt);
-  for (const mob of mobs.values()) {
-    updateMob(mob, dt);
-  }
+  // Walls & gates: mobs and wildlife move and path from the hostile side of every gate.
+  withHostileMover(() => {
+    updateRaidGroups(dt);
+    for (const mob of mobs.values()) {
+      updateMob(mob, dt);
+    }
+  });
   separateBodies();
   if (cycleTick % TICK_RATE === 0) pruneSlotClaims();
-  updateWildlife(dt);
+  withHostileMover(() => updateWildlife(dt));
   updateWildlifeRespawn();
+  updateGates();
 
   checkWardStoneLapses();
 
@@ -8602,6 +8903,7 @@ setInterval(() => {
       (tc): TownCenterSnapshot => ({ x: tc.x, y: tc.y, level: tc.level, hp: Math.max(0, tc.hp), maxHp: townCenterMaxHp(tc.level) })
     ),
     goal: goalSnapshot,
+    gates: gatesForSnapshot(),
   };
   pendingEffects = [];
 
