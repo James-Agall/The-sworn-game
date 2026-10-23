@@ -78,6 +78,7 @@ let maxGap = 0;
 for (let i = 0; i < angles.length; i++) maxGap = Math.max(maxGap, ((angles[(i + 1) % angles.length] - angles[i]) + 2 * Math.PI) % (2 * Math.PI) || 2 * Math.PI);
 const spread = 360 - (maxGap * 180) / Math.PI;
 const inRange = gm.filter((m) => Math.hypot(m.x - P.x, m.y - P.y) <= TILE * 0.8 + 0.5).length;
+if (process.env.DEBUG) for (const m of gm) info(`slot-goblin ${m.id.slice(0, 6)} at ${(m.x - P.x).toFixed(1)},${(m.y - P.y).toFixed(1)} from me (d ${Math.hypot(m.x - P.x, m.y - P.y).toFixed(1)}), target ${m.targetType} ${m.targetId?.slice(0, 6)}, slot ${JSON.stringify(bs.slots.find(([id]) => id === m.id)?.[1])}`);
 result(onMe.length === 5 && slotIdx.size === 5 && minPair >= 13 && spread >= 120 && inRange === 5,
   `5 goblins on one player: ${slotIdx.size} distinct slots, ${inRange} in strike range, closest pair ${minPair.toFixed(1)} px, angular spread ${spread.toFixed(0)} deg`);
 for (const id of gob) await hook("damageMob", { mobId: id, amount: 999 });
@@ -97,7 +98,10 @@ for (let i = 0; i < 30; i++) {
   const k = bs.colonists.find((u) => u.id === kn);
   const g = bs.mobs.find((m) => m.id === g1);
   if (process.env.DEBUG) info(`leash ${i}: knight ${k ? `${k.x.toFixed(0)},${k.y.toFixed(0)} ${k.state} hp ${k.hp} -> ${k.targetMobId?.slice(0, 6)}` : "gone"}; goblin ${g ? `${g.x.toFixed(0)},${g.y.toFixed(0)} hp ${g.hp} ${g.id.slice(0, 6)}` : "dead"}; near: ${bs.mobs.filter((m) => Math.hypot(m.x - R.x, m.y - R.y) < 200).map((m) => `${m.kind}:${m.id.slice(0, 6)}`).join(" ")}`);
-  if (!k) break;
+  if (!k) {
+    if (process.env.DEBUG) info(`leash ${i}: knight gone; mobs within 8 tiles of the slot: ${bs.mobs.filter((m) => Math.hypot(m.x - R.x, m.y - R.y) < 8 * TILE).map((m) => `${m.kind}:${m.id.slice(0, 6)}@${m.x.toFixed(0)},${m.y.toFixed(0)} ${m.targetType}`).join(" ")}`);
+    break;
+  }
   if (k.state === "attacking") fought = true;
   maxOut = Math.max(maxOut, Math.hypot(k.x - R.x, k.y - R.y) / TILE);
 }
@@ -154,6 +158,7 @@ for (const g of st.groups) {
     const ey = leader.y + fx * off.x - fy * off.y;
     total++;
     if (Math.hypot(m.x - ex, m.y - ey) <= 24) ok++;
+    if (process.env.DEBUG) info(`group ${g.id.slice(0, 6)} ${g.faction ?? ""} ${m.kind} off ${Math.hypot(m.x - ex, m.y - ey).toFixed(0)} px (row ${off.row}, offset ${off.x.toFixed(0)},${off.y.toFixed(0)}; leader ${leader.kind} ${leader.x.toFixed(0)},${leader.y.toFixed(0)}; heading ${fx.toFixed(2)},${fy.toFixed(2)})`);
   }
   const rowOf = (pred) => g.offsets.filter(([id]) => pred(st.mobs.find((x) => x.id === id))).map(([, o]) => o.row);
   const ranged = rowOf((m) => m && ["goblinCrossbow", "banditArcher", "darkShaman"].includes(m.kind));

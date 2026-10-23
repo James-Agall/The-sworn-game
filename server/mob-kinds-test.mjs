@@ -89,6 +89,7 @@ if (ONLY.has("a") || ONLY.has("b")) {
   const seen = new Map(); // mobId -> { kind, day, maxHp }
   const kindsByDay = new Map(); // day -> Map(kind -> count)
   const maxStep = new Map(); // kind -> max per-tick displacement observed
+  const stepsByKind = new Map(); // kind -> every non-zero per-tick displacement observed
   const rangedShots = []; // { kind, d, myTarget }
   let meleeEffects = 0;
 
@@ -111,6 +112,10 @@ if (ONLY.has("a") || ONLY.has("b")) {
       if (pm && !s.isPaused) {
         const step = dist(pm, m);
         if (step > (maxStep.get(m.kind) ?? 0)) maxStep.set(m.kind, step);
+        if (step > 0.01) {
+          if (!stepsByKind.has(m.kind)) stepsByKind.set(m.kind, []);
+          stepsByKind.get(m.kind).push(step);
+        }
       }
     }
     for (const e of s.effects) {
@@ -150,10 +155,15 @@ if (ONLY.has("a") || ONLY.has("b")) {
     const badHp = [...seen.values()].filter((m) => CONFIG[m.kind] && m.maxHp !== CONFIG[m.kind].maxHp);
     result(badHp.length === 0, `every spawned mob's maxHp matches its kind's config${badHp.length ? " — mismatches: " + badHp.map((m) => `${m.kind}:${m.maxHp}`).join(", ") : ""}`);
     // Raid groups march at their slowest member's pace and loiter at half speed, so a kind may never
-    // reach full speed in the window: check it never exceeds it.
-    for (const [kind, step] of maxStep) {
+    // reach full speed in the window: check it never exceeds it. Since combat bodies landed (body
+    // separation pushes overlapping bodies apart after everyone has moved), a mob in a crowd can also be
+    // shoved on top of its own step on the odd tick, so the raw max is only reported; the check is on
+    // the 98th-percentile step, which separation spikes don't reach.
+    for (const [kind, steps] of stepsByKind) {
       const expected = CONFIG[kind].speed / TICK_RATE;
-      result(step <= expected + 0.05, `${kind} max per-tick step ${step.toFixed(2)}px <= speed/TICK_RATE = ${expected.toFixed(2)}px`);
+      const sorted = steps.slice().sort((p, q) => p - q);
+      const p98 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.98))];
+      result(p98 <= expected + 0.05, `${kind} p98 per-tick step ${p98.toFixed(2)}px <= speed/TICK_RATE = ${expected.toFixed(2)}px (max ${maxStep.get(kind).toFixed(2)}px over ${steps.length} steps)`);
     }
     const crossbowsByDay1Plus = [...seen.values()].filter((m) => m.kind === "goblinCrossbow").length;
     console.log(`[${el()}] goblinCrossbow spawns (eligible from day 1): ${crossbowsByDay1Plus}`);

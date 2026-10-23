@@ -488,5 +488,64 @@ section). One game day = 60 s day + 40 s night = 2000 ticks.
   `repairBuilding` message.
 - **Test:** `server/building-damage-test.mjs` (test hooks `ignorePlayers`, `damageBuilding`, `buildingState`).
 
+### Battle discipline — landed 2026-10-23
+
+User report: "battles are still clumping together and not seeming realistic". Units now hold their place in
+the formation and fight what is in front of them; surplus attackers queue instead of piling onto one body.
+
+- **Fight what is in front of your slot** (`pickGuardTarget`): an uncommanded soldier picks the enemy nearest
+  to its own rally slot (not to wherever the scrum pushed it), within its alert range and the slot's reach
+  (leash + strike range). Once a second, while not trading blows, it switches to an enemy nearer its slot
+  than `SLOT_RETARGET_FACTOR` (0.7) x the current one's distance; after a kill / when the target leaves the
+  leash it walks back onto its exact slot (as before). Leash tightened: normal 4 -> 3, aggressive 8 -> 6
+  tiles (defensive 1.5).
+- **Attacker cap + queue** (`meleeAttackerCap`, `targetHasRoom`, `claimSlot` cap): at most 3 melee attackers
+  on a soldier-sized body (radius < 9), 4 on an orc-sized one, 6 on a troll / ogre (players are exempt). A
+  soldier skips enemies that are full; if every enemy in reach is full it holds its own slot (the queue) and
+  rescans; a commanded soldier on a full target waits `QUEUE_STANDOFF_PX` (1.2 tiles) outside strike range.
+- **Mobs too** (`pickMobTarget`, `updateMob`): a melee mob prefers the nearest soldier with room when it is at
+  most `MOB_ROOM_DETOUR_PX` (4 tiles) further than the nearest one, so a raid spreads along the defenders'
+  line; a mob with no slot on its target stands off just outside strike range and re-picks once a second.
+- **Close in near strike range** (`SLOT_CLOSE_IN_PX`, half a tile): an attacker that close goes straight for
+  the target and slides round to its ring slot while fighting (a far-side slot used to wedge it behind the
+  attackers already there).
+- **Path knots fixed** (`PATH_WAYPOINT_TOLERANCE_PX` 10, `returnToRally`): an intermediate waypoint within
+  10 px counts as reached, and a unit on / edge-adjacent to its rally tile steers straight in. Bodies pushing
+  each other apart could never all stand on one tile centre, so squads used to orbit a waypoint forever or
+  freeze a few px short of their slots (the "clump" after a formation move).
+- **Tighter formations**: client `FORMATION_SPACING_TILES` defensive 0.9 -> 0.8, normal 1.25 -> 1.05,
+  aggressive 1.5 -> 1.3 (bodies are 14 px; 0.8 tiles = 25.6 px never overlaps). Raid formations
+  `RAID_FORMATION_SPACING_BODIES` 1.6 -> 1.35; `RAID_FOLLOWER_CATCHUP` 1.25 -> 1.5 so followers form up early
+  in the march.
+- **Line-drag minimum frontage** (client `computeLineFormationTargets`): never more than
+  `LINE_MAX_DEPTH_ROWS` (3) rows deep, so a short drag can't string the group out in single file:
+  `minCols = min(n, max(2, ceil(n / 3)))`, `minLength = (minCols - 1) * spacing` (n = selected units); a drag
+  shorter than that is widened about its midpoint. A long drag spreads the front row along it, but slots are
+  never more than `LINE_MAX_GAP` (1.5) x spacing apart (the row stays centred on the line), so a thin line
+  doesn't open gaps.
+- **Test:** `server/battle-discipline-test.mjs` (new; line frontage, a 3x3 block vs 6 goblins: max distance from
+  slot, attackers per goblin, distinct targets, stacked bodies, return to slot; 9 goblins on a 3-knight line:
+  claims per knight, knights attacked, stacked mobs). `formation-test.mjs` replica updated to the new spacing
+  (and now uses `setInstantBuild`). Stale tests fixed alongside: `mob-kinds-test.mjs` checks the 98th-percentile
+  per-tick step (body separation can shove a mob past its own speed on the odd tick; the raw max is reported),
+  `world-gen-poi-test.mjs` D ignores the first (start-up) mining interval.
+
 Execution order above is my default sequencing (foundation first since map/zoom/clock touch
 everything downstream); say the word if you want a different item first.
+
+## 8. Strategy plan 2026-10-23
+
+The user's plan for the next round, in order. Three sequential agents: (1) battle discipline, (2) walls and
+gates, (3) towers and farms. Each lands its own "— landed" section in §7's style and ticks its item here.
+
+1. **Battle discipline / formations** — units keep formation, each fights the enemy nearest its own slot,
+   attackers queue instead of clumping, tighter formations, a minimum line-drag frontage. **Landed
+   2026-10-23** (see "Battle discipline" above).
+2. **Walls costlier, much higher HP.**
+3. **Gates** with an open / closed state: open for friendly units; when open, ANY unit (friend or foe) may
+   pass.
+4. **Mob decision gate vs wall**: a mob chooses between going for a gate and breaching a wall.
+5. **Monsters with majority strength near a gate and no living towers pass through freely** (the gate no
+   longer holds them).
+6. **Replace archery with a new "Tower" building**: no workers; upgradeable for rate of fire and damage.
+7. **Barns hold more farms, each farm less productive.**

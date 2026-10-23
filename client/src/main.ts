@@ -253,12 +253,21 @@ const FORMATION_MAX_ROW_WIDTH = 5;
 // visible footprint is ~23-28px wide and ~31px tall (26.5px body + the HP bar 18px above center), so
 // at 1.0 (32px) rows touched edge-to-edge and diagonal facings (22.6px x/y offsets) overlapped; 1.25
 // leaves a visible gap at every facing. Defensive deliberately packs tighter than that (a shield-wall
-// look, sprites may touch on diagonals); Aggressive spreads out.
+// look, sprites may touch on diagonals); Aggressive spreads out. Battle discipline (2026-10-23) tightened
+// every stance (was 0.9 / 1.25 / 1.5): server bodies are 14px across, so even 0.8 (25.6px) never overlaps.
 const FORMATION_SPACING_TILES: Record<Stance, number> = {
-  defensive: 0.9,
-  normal: 1.25,
-  aggressive: 1.5,
+  defensive: 0.8,
+  normal: 1.05,
+  aggressive: 1.3,
 };
+// Line-drag formations (computeLineFormationTargets). Minimum frontage: never more than
+// LINE_MAX_DEPTH_ROWS rows deep, so a short drag can't string the group out in single file -
+//   minCols = min(n, max(2, ceil(n / LINE_MAX_DEPTH_ROWS))),  minLength = (minCols - 1) * spacing
+// (n = selected units): a drag shorter than minLength is widened symmetrically about its midpoint.
+// A long drag spreads the front row along it, but no wider apart than LINE_MAX_GAP x spacing (the row
+// stays centred on the line), so a thin line never opens gaps for enemies to walk through.
+const LINE_MAX_DEPTH_ROWS = 3;
+const LINE_MAX_GAP = 1.5;
 // Stance hotkeys. 'c' (the AoE-style third key) is the Church build tool, so aggressive is 'e'.
 const STANCE_HOTKEYS: Record<string, Stance> = { z: "defensive", x: "normal", e: "aggressive" };
 const STANCE_LABEL: Record<Stance, string> = { defensive: "Defensive", normal: "Normal", aggressive: "Aggressive" };
@@ -3652,11 +3661,14 @@ async function main() {
     by: number
   ): FormationPlan & { cx: number; cy: number } {
     const spacing = tileSize * FORMATION_SPACING_TILES[groupStance(units)];
-    const L = Math.max(1, Math.hypot(bx - ax, by - ay));
-    const ux = (bx - ax) / L;
-    const uy = (by - ay) / L;
+    const dragLen = Math.hypot(bx - ax, by - ay);
+    const ux = dragLen >= 1 ? (bx - ax) / dragLen : 1;
+    const uy = dragLen >= 1 ? (by - ay) / dragLen : 0;
     const cx = (ax + bx) / 2;
     const cy = (ay + by) / 2;
+    // Minimum frontage (see LINE_MAX_DEPTH_ROWS): a short drag is widened about its midpoint.
+    const minCols = Math.min(units.length, Math.max(2, Math.ceil(units.length / LINE_MAX_DEPTH_ROWS)));
+    const L = Math.max(dragLen, (minCols - 1) * spacing, 1);
     let ucx = 0;
     let ucy = 0;
     for (const u of units) {
@@ -3672,8 +3684,8 @@ async function main() {
       fx = -fx;
       fy = -fy;
     }
-    const cols = Math.max(1, Math.min(units.length, Math.floor(L / spacing) + 1));
-    const step = cols > 1 ? L / (cols - 1) : 0;
+    const cols = Math.max(minCols, Math.min(units.length, Math.floor(L / spacing) + 1));
+    const step = cols > 1 ? Math.min(L / (cols - 1), spacing * LINE_MAX_GAP) : 0;
     const ranks = new Map<number, ColonistSnapshot[]>();
     for (const u of units) {
       const rank = FORMATION_RANK[u.kind] ?? FORMATION_RANK.bishop;
@@ -3699,7 +3711,7 @@ async function main() {
       }
       depthRows += rowCount;
     }
-    return { targets, spacing, fx, fy, frontHalfWidth: L / 2, cx, cy };
+    return { targets, spacing, fx, fy, frontHalfWidth: ((cols - 1) * step) / 2, cx, cy };
   }
 
   function dispatchFormationMove(units: ColonistSnapshot[], destX: number, destY: number, order: number) {

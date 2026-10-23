@@ -414,7 +414,11 @@ if (ONLY.has("D")) {
     a.send({ type: "setTile", tileX: ore.x, tileY: ore.y, tile: mineType });
     await sleep(300);
     result(tileAt(ore.x, ore.y) === mineType, `D: ${key} mine placed on Hills ore at (${ore.x},${ore.y}) after walking ${path.length - 1} tiles`);
-    const intervals = await measureIntervals(key, 3, 15000);
+    // The first interval after placement is a start-up transient (the miner walks over / the work timer
+    // starts mid-cycle), so it is measured but not judged; the steady-state intervals after it must match.
+    const measured = await measureIntervals(key, 4, 20000);
+    console.log(`info D: first interval ${measured[0]?.interval ?? "?"}t (start-up, not judged)`);
+    const intervals = measured.slice(1);
     const ok = intervals.length >= 2 && intervals.every((iv) => iv.interval === Math.max(1, Math.round((CHOP_TICKS * 0.8) / happinessMult(iv.happiness))));
     result(ok, `D: Hills mine ${key} interval == round(40*0.8/happinessMult): ${intervals.map((iv) => `${iv.interval}t (h=${iv.happiness}, hills-expect=${Math.round(32 / happinessMult(iv.happiness))}, no-bonus=${Math.round(40 / happinessMult(iv.happiness))})`).join("; ")}`);
   }

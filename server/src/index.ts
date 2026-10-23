@@ -577,6 +577,9 @@ function findPath(start: TileCoord, goal: TileCoord): TileCoord[] | null {
   return null;
 }
 
+// advanceAlongPath: how near (px) an intermediate waypoint's tile centre counts as reached.
+const PATH_WAYPOINT_TOLERANCE_PX = 10;
+
 function advanceAlongPath(
   entity: { x: number; y: number; path: TileCoord[] },
   dt: number,
@@ -595,6 +598,19 @@ function advanceAlongPath(
     entity.x = target.x;
     entity.y = target.y;
     entity.path.shift();
+  } else if (entity.path.length > 1 && dist <= PATH_WAYPOINT_TOLERANCE_PX) {
+    // Close enough to a waypoint that isn't the last: move on toward the next one. Bodies pushing each
+    // other apart can never all stand on one tile centre, and used to orbit it forever (a squad stuck
+    // in a knot on its way to its formation). Tile centres of a 4-connected path are edge-adjacent, so
+    // the straight line from anywhere in this tile to the next centre stays on those two tiles.
+    entity.path.shift();
+    const next = tileToPixelCenter(entity.path[0]);
+    const nd = Math.hypot(next.x - entity.x, next.y - entity.y);
+    if (nd > 0) {
+      const s = Math.min(step, nd);
+      entity.x += ((next.x - entity.x) / nd) * s;
+      entity.y += ((next.y - entity.y) / nd) * s;
+    }
   } else {
     entity.x += (ddx / dist) * step;
     entity.y += (ddy / dist) * step;
@@ -644,11 +660,25 @@ const STANCE_ALERT_RANGE_TILES: Record<Stance, number> = {
 // Line discipline: how far (tiles) a soldier may leave its rally slot to fight. Only mobs within this
 // leash + attack range of the slot are picked up, a chase past it is dropped, and the unit walks back
 // to its slot afterwards, so the line re-forms instead of dissolving. (Replaced the old 2/10/20 leash.)
+// Battle discipline (2026-10-23) tightened normal 4 -> 3 and aggressive 8 -> 6 so a line holds its shape.
 const LINE_LEASH_TILES: Record<Stance, number> = {
   defensive: 1.5,
-  normal: 4,
-  aggressive: 8,
+  normal: 3,
+  aggressive: 6,
 };
+// Battle discipline: a soldier with no commanded target fights the enemy nearest to ITS OWN slot (not to
+// wherever the scrum has pushed it), and re-checks once a second while not trading blows, switching
+// only when another enemy is clearly nearer the slot (below this fraction of the current one's distance).
+const SLOT_RETARGET_FACTOR = 0.7;
+// Melee attackers per unit target (see meleeAttackerCap): surplus attackers pick another enemy with room
+// or wait (a queue) - soldiers on their own formation slot, mobs standing off this far outside strike
+// range - instead of everyone piling onto one target. Players are exempt (their ring decides).
+const QUEUE_STANDOFF_PX = TILE_SIZE * 1.2;
+// A melee attacker this close (px) to strike range closes straight on its target rather than walking
+// round to its ring slot (it slides there while fighting); the far side can be walled off by bodies.
+const SLOT_CLOSE_IN_PX = TILE_SIZE * 0.5;
+// How much further (px) a melee mob will go for a soldier with room than for the nearest one (pickMobTarget).
+const MOB_ROOM_DETOUR_PX = TILE_SIZE * 4;
 // Archers don't advance past the front rank: the nearest friendly melee soldier (within this many
 // tiles of the archer) to the target marks the front.
 const ARCHER_FRONT_RANK_SCAN_TILES = 6;
@@ -1021,7 +1051,7 @@ const RAID_LOITER_CHANCE_PER_TICK = 1 / (TICK_RATE * 3);
 // colony (Town Center) or to any targetable guard/player.
 const RAID_ENGAGE_RANGE_TILES = 8;
 // Followers may move this much faster than the group pace to catch up with their formation slot.
-const RAID_FOLLOWER_CATCHUP = 1.25;
+const RAID_FOLLOWER_CATCHUP = 1.5; // battle discipline 2026-10-23: was 1.25 (followers took most of a march to form up)
 // Formation: heading-relative staggered rows per faction (see raidFormationSlots). Slot spacing is
 // RAID_FORMATION_SPACING_BODIES x the group's mean body diameter; heavies (troll / ogre) take the front
 // centre, ranged kinds the rear rows. On contact rows are released one by one, RAID_RELEASE_ROW_TICKS apart.
@@ -1032,7 +1062,7 @@ const RAID_FORMATION_SHAPE: Record<RaidFactionId, RaidFormationShape> = {
   greenskinWarband: "column",
   darkHost: "column",
 };
-const RAID_FORMATION_SPACING_BODIES = 1.6;
+const RAID_FORMATION_SPACING_BODIES = 1.35; // battle discipline 2026-10-23: was 1.6
 const RAID_WEDGE_LOOSENESS = 1.3;
 const RAID_RELEASE_ROW_TICKS = Math.round(TICK_RATE * 0.4);
 // Heading smoothing per tick (path corners would otherwise swing the whole formation each tile).
@@ -3527,27 +3557,6 @@ function getMobById(id: string): Mob | undefined {
   return mobs.get(id);
 }
 
-function findNearestMobInRange(
-  fromX: number,
-  fromY: number,
-  maxRangeTiles: number,
-  isEligible?: (mob: Mob) => boolean
-): Mob | null {
-  let best: Mob | null = null;
-  let bestDist = Infinity;
-  const maxRangePx = maxRangeTiles * TILE_SIZE;
-  for (const mob of mobs.values()) {
-    if (isEligible && !isEligible(mob)) continue;
-    const d = Math.hypot(mob.x - fromX, mob.y - fromY);
-    if (mob.mark === HungerMark.Morvain && d > maxRangePx * MORVAIN_DETECTION_FACTOR) continue;
-    if (d <= maxRangePx && d < bestDist) {
-      best = mob;
-      bestDist = d;
-    }
-  }
-  return best;
-}
-
 // ---- Engagement slots ----
 // A melee attacker claims one slot on a ring around its target and fights from there, so several
 // attackers spread around a target instead of stacking on one point. Unit targets (mob / colonist /
@@ -3568,13 +3577,28 @@ function releaseSlot(attackerId: string) {
   }
 }
 
+// How many melee attackers may fight one unit target at once, by its body radius: 3 on a soldier-sized
+// body, 4 on an orc-sized one, 6 on a troll / ogre.
+function meleeAttackerCap(targetRadius: number): number {
+  return targetRadius >= 12 ? 6 : targetRadius >= 9 ? 4 : 3;
+}
+
+// True when `attackerId` already fights `key` from a slot, or `key` has fewer than `cap` attackers.
+function targetHasRoom(attackerId: string, key: string, cap: number): boolean {
+  const held = attackerSlots.get(attackerId);
+  if (held && held.key === key) return true;
+  return (slotClaims.get(key)?.size ?? 0) < cap;
+}
+
 // Keeps the attacker's slot on `key` while it is still usable (finite score), else claims the free
-// slot with the lowest score. -1 when every usable slot is taken (the attacker then goes straight in).
-function claimSlot(attackerId: string, key: string, count: number, score: (slot: number) => number): number {
+// slot with the lowest score. -1 when every usable slot is taken, or `cap` attackers already hold one
+// (the attacker then queues: see updateGuardColonist / updateMob).
+function claimSlot(attackerId: string, key: string, count: number, score: (slot: number) => number, cap = Infinity): number {
   const held = attackerSlots.get(attackerId);
   if (held && held.key === key && held.slot < count && score(held.slot) !== Infinity) return held.slot;
   releaseSlot(attackerId);
   let claims = slotClaims.get(key);
+  if ((claims?.size ?? 0) >= cap) return -1;
   let best = -1;
   let bestScore = Infinity;
   for (let i = 0; i < count; i++) {
@@ -3613,10 +3637,10 @@ function pruneSlotClaims() {
 }
 
 // The point a melee attacker (at ax, ay, body ar, attack range `range`) should fight `key` from: a ring
-// slot around the target at (tx, ty) with body radius tr. null: no free slot, go straight at the target.
+// slot around the target at (tx, ty) with body radius tr. null: no free slot (or `cap` reached).
 function unitSlotPoint(
   attackerId: string, ax: number, ay: number, ar: number, range: number,
-  key: string, tx: number, ty: number, tr: number
+  key: string, tx: number, ty: number, tr: number, cap = Infinity
 ): { x: number; y: number } | null {
   const n = tr >= 12 ? 10 : tr >= 9 ? 8 : 6;
   const radius = Math.min(range - 0.5, Math.max(range * 0.9, tr + ar + 1));
@@ -3630,7 +3654,7 @@ function unitSlotPoint(
     if (!isWalkablePixel(p.x, p.y)) return Infinity;
     const da = Math.abs(((((2 * Math.PI * i) / n - a0) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
     return da;
-  });
+  }, cap);
   return slot < 0 ? null : point(slot);
 }
 
@@ -4075,17 +4099,19 @@ function returnToRally(c: Colonist, dt: number, speed: number) {
     c.state = "idle";
     return;
   }
-  const onRallyTile = here.x === rallyTile.x && here.y === rallyTile.y;
-  if (c.path.length === 0 && !onRallyTile) {
+  // On (or edge-adjacent to) the rally tile: steer straight in (the final leg: a straight line from an
+  // edge-adjacent tile to any point in the rally tile stays on those two walkable tiles). A path left
+  // over from the march may still lead through this tile's centre, which a squadmate's body can hold
+  // the unit off forever (it froze a few px short of its slot).
+  const nextToRally = Math.abs(here.x - rallyTile.x) + Math.abs(here.y - rallyTile.y) <= 1;
+  if (nextToRally) c.path = [];
+  if (c.path.length === 0 && !nextToRally) {
     c.path = findPath(here, rallyTile) ?? [];
     if (c.path.length === 0) {
       c.state = "idle";
       return;
     }
   }
-  // Final leg: once the rally tile is the only step left, the unit is on an edge-adjacent tile, so
-  // a straight line to any point in the rally tile stays on those two walkable tiles.
-  if (c.path.length === 1 && c.path[0].x === rallyTile.x && c.path[0].y === rallyTile.y) c.path = [];
   if (c.path.length > 0) {
     advanceAlongPath(c, dt, speed);
   } else {
@@ -4116,16 +4142,7 @@ function updateGuardColonist(c: Colonist, dt: number) {
     if (c.repathCooldown > 0) {
       c.repathCooldown--;
     } else {
-      // Skip anything the chase leash wouldn't let this unit reach (further from its rally point than
-      // leash + attack range): it would only walk out to the leash, give up, and come back to
-      // re-acquire the same mob, forever, e.g. against a dormant POI guardian that never moves.
-      const reachPx = LINE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range;
-      const found = findNearestMobInRange(
-        c.x,
-        c.y,
-        STANCE_ALERT_RANGE_TILES[c.stance],
-        (m) => Math.hypot(m.x - c.rallyX, m.y - c.rallyY) <= reachPx
-      );
+      const found = pickGuardTarget(c, stats);
       if (found) {
         c.targetMobId = found.id;
         target = found;
@@ -4154,12 +4171,40 @@ function updateGuardColonist(c: Colonist, dt: number) {
     return;
   }
 
-  const dist = Math.hypot(target.x - c.x, target.y - c.y);
+  let dist = Math.hypot(target.x - c.x, target.y - c.y);
+  // Stickiness with a slot leash: once a second, while not trading blows, switch to an enemy clearly
+  // nearer this unit's own slot (the line fights what is in front of each man, not one shared target).
+  if (!commanded && dist > stats.range && cycleTick % TICK_RATE === 0) {
+    const better = pickGuardTarget(c, stats);
+    const cur = Math.hypot(target.x - c.rallyX, target.y - c.rallyY);
+    if (better && better !== target && Math.hypot(better.x - c.rallyX, better.y - c.rallyY) < cur * SLOT_RETARGET_FACTOR) {
+      releaseSlot(c.id);
+      c.path = [];
+      c.targetMobId = better.id;
+      target = better;
+      dist = Math.hypot(target.x - c.x, target.y - c.y);
+    }
+  }
   // Melee fights from a ring slot around the target (see unitSlotPoint); ranged keeps its stand-off.
-  const slot =
-    stats.melee && stats.speed > 0
-      ? unitSlotPoint(c.id, c.x, c.y, COLONIST_BODY_RADIUS, stats.range, `m:${target.id}`, target.x, target.y, MOB_BODY_RADIUS[target.kind] ?? 8)
-      : null;
+  const targetR = MOB_BODY_RADIUS[target.kind] ?? 8;
+  const meleeMover = stats.melee && stats.speed > 0;
+  const slot = meleeMover
+    ? unitSlotPoint(c.id, c.x, c.y, COLONIST_BODY_RADIUS, stats.range, `m:${target.id}`, target.x, target.y, targetR, meleeAttackerCap(targetR))
+    : null;
+  if (meleeMover && !slot && dist > stats.range) {
+    // Queue: the target already has its share of attackers. Uncommanded, give it up and hold this
+    // unit's own slot (rescanned after the repath cooldown); commanded, close to a stand-off behind
+    // the fighters and wait there for a place to free.
+    if (!commanded) {
+      dropGuardTarget(c);
+      returnToRally(c, dt, stats.speed);
+      return;
+    }
+    c.state = "engaging";
+    if (dist > stats.range + QUEUE_STANDOFF_PX) approachGoal(c, target, target, stats.speed, dt);
+    else c.path = [];
+    return;
+  }
   if (dist <= stats.range) {
     c.state = "attacking";
     c.path = [];
@@ -4202,7 +4247,9 @@ function updateGuardColonist(c: Colonist, dt: number) {
       return;
     }
     c.state = "engaging";
-    approachGoal(c, slot ?? target, target, stats.speed, dt);
+    // Within half a tile of strike range, close straight in (then slide round to the slot while fighting,
+    // above): a slot on the far side of the target can't be walked to through the attackers already there.
+    approachGoal(c, slot && dist > stats.range + SLOT_CLOSE_IN_PX ? slot : target, target, stats.speed, dt);
   }
 }
 
@@ -4218,6 +4265,29 @@ function behindFrontRank(c: Colonist, target: Mob): boolean {
     front = Math.min(front, Math.hypot(target.x - o.x, target.y - o.y));
   }
   return front < Infinity && Math.hypot(target.x - c.x, target.y - c.y) <= front + TILE_SIZE * 0.5;
+}
+
+// The enemy a soldier should take on: within its alert range (from where it stands) and within its
+// slot's reach (leash + attack range of the rally point - anything further it would only walk out to,
+// give up on and re-acquire forever, e.g. a dormant POI guardian), NEAREST TO ITS SLOT. A melee soldier
+// skips enemies that already have their share of attackers (meleeAttackerCap), so a line spreads over
+// the enemies in front of it; with none left it holds its slot (the queue).
+function pickGuardTarget(c: Colonist, stats: { range: number; melee: boolean; speed: number }): Mob | null {
+  const alertPx = STANCE_ALERT_RANGE_TILES[c.stance] * TILE_SIZE;
+  const reachPx = LINE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range;
+  const queues = stats.melee && stats.speed > 0;
+  let best: Mob | null = null;
+  let bestDist = Infinity;
+  for (const m of mobs.values()) {
+    const du = Math.hypot(m.x - c.x, m.y - c.y);
+    if (du > (m.mark === HungerMark.Morvain ? alertPx * MORVAIN_DETECTION_FACTOR : alertPx)) continue;
+    const ds = Math.hypot(m.x - c.rallyX, m.y - c.rallyY);
+    if (ds > reachPx || ds >= bestDist) continue;
+    if (queues && !targetHasRoom(c.id, `m:${m.id}`, meleeAttackerCap(MOB_BODY_RADIUS[m.kind] ?? 8))) continue;
+    best = m;
+    bestDist = ds;
+  }
+  return best;
 }
 
 function dropGuardTarget(c: Colonist) {
@@ -5251,8 +5321,15 @@ function pickMobTarget(mob: Mob): PickedTarget | null {
     if (picked) return picked;
   }
   // Guards / players only draw a mob within its aggro range; beyond that it goes for buildings.
+  // Battle discipline: a melee mob prefers the nearest soldier that still has room for another attacker
+  // (meleeAttackerCap) when it is at most MOB_ROOM_DETOUR_PX further than the nearest one, so a raid
+  // spreads along the defenders' line instead of piling onto the first man; otherwise it queues on the
+  // nearest (see updateMob).
   let bestGuard: Colonist | null = null;
   let bestGuardDist = MOB_AGGRO_RANGE_GUARD_TILES * TILE_SIZE;
+  let roomGuard: Colonist | null = null;
+  let roomGuardDist = MOB_AGGRO_RANGE_GUARD_TILES * TILE_SIZE;
+  const guardCap = meleeAttackerCap(COLONIST_BODY_RADIUS);
   for (const c of colonists.values()) {
     if (!isGuardOrMilitiaKind(c.kind)) continue;
     if (isWarded(c.x, c.y, wards)) continue;
@@ -5261,7 +5338,12 @@ function pickMobTarget(mob: Mob): PickedTarget | null {
       bestGuardDist = d;
       bestGuard = c;
     }
+    if (mob.melee && d < roomGuardDist && targetHasRoom(mob.id, `c:${c.id}`, guardCap)) {
+      roomGuardDist = d;
+      roomGuard = c;
+    }
   }
+  if (roomGuard && roomGuardDist <= bestGuardDist + MOB_ROOM_DETOUR_PX) return { type: "colonist", id: roomGuard.id };
   if (bestGuard) return { type: "colonist", id: bestGuard.id };
 
   let bestPlayer: Player | null = null;
@@ -5649,6 +5731,8 @@ function updateMob(mob: Mob, dt: number) {
     } else if (mob.mark === HungerMark.None) {
       const aggro = mob.targetType === "player" ? MOB_AGGRO_RANGE_PLAYER_TILES : MOB_AGGRO_RANGE_GUARD_TILES;
       if (Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y) > aggro * TILE_SIZE * MOB_AGGRO_DROP_FACTOR) targetPos = null;
+      // Queued (no engagement slot on its soldier): look again for one with room.
+      else if (mob.melee && mob.targetType === "colonist" && !attackerSlots.has(mob.id)) targetPos = null;
     }
   }
   // Gunne / Gorrath keep re-checking for a weaker / stronger victim.
@@ -5694,11 +5778,21 @@ function updateMob(mob: Mob, dt: number) {
       if (ringTile) targetPos = tileToPixelCenter(ringTile);
     } else {
       const tr = mob.targetType === "colonist" ? COLONIST_BODY_RADIUS : PLAYER_BODY_RADIUS;
-      slot = unitSlotPoint(mob.id, mob.x, mob.y, MOB_BODY_RADIUS[mob.kind] ?? 8, mob.range, slotKey, targetPos.x, targetPos.y, tr);
+      const cap = mob.targetType === "colonist" ? meleeAttackerCap(tr) : Infinity;
+      slot = unitSlotPoint(mob.id, mob.x, mob.y, MOB_BODY_RADIUS[mob.kind] ?? 8, mob.range, slotKey, targetPos.x, targetPos.y, tr, cap);
     }
   }
 
   const dist = Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y);
+  // Queue: a melee mob with no slot on its unit target stands off behind the fighters instead of
+  // shoving into the scrum (it re-picks a target with room once a second, see above).
+  if (
+    slotKey && !slot && dist > mob.range && dist <= mob.range + QUEUE_STANDOFF_PX &&
+    (mob.targetType === "colonist" || mob.targetType === "player")
+  ) {
+    mob.path = [];
+    return;
+  }
   if (dist <= mob.range) {
     mob.path = [];
     mobsAttackingThisTick.add(mob.id);
@@ -5748,7 +5842,7 @@ function updateMob(mob: Mob, dt: number) {
       }
     }
   } else if (slot) {
-    approachGoal(mob, slot, targetPos, mob.speed, dt);
+    approachGoal(mob, dist > mob.range + SLOT_CLOSE_IN_PX ? slot : targetPos, targetPos, mob.speed, dt);
   } else {
     if (mob.path.length === 0 && mob.repathCooldown <= 0) {
       const start = tileOfPixel(mob.x, mob.y);

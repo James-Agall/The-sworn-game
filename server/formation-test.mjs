@@ -1,6 +1,6 @@
 // Scripted test: RTS formation moves (client-side slot assignment + closest-first staggered dispatch, replicated here
 // exactly as client/src/main.ts does it) and the server's rally/return-to-slot behaviour. Begins with a `restart`,
-// so it must be the ONLY connected player (restart resets the world for everyone).
+// so it must be the ONLY connected player (restart resets the world for everyone). Needs COLONY_TEST_HOOKS=1 (setInstantBuild).
 //
 //   Setup: Barracks (1 knight) + Militia Camp (2 militia) + 2 Archery Ranges (2 archers) + Church (1 bishop) = a
 //          6-unit, 3-rank group (rank 0: knight+militia, rank 1: archers, rank 2: bishop).
@@ -34,7 +34,7 @@ const FIGHTING = new Set(["engaging", "attacking", "approaching", "healing"]);
 // ---- Exact replica of client/src/main.ts formation logic ----
 const FORMATION_RANK = { knight: 0, militia: 0, spearman: 0, pikeman: 0, archer: 1, bishop: 2, artillery: 3 };
 const FORMATION_MAX_ROW_WIDTH = 5;
-const FORMATION_SPACING_TILES = 1.25;
+const FORMATION_SPACING_TILES = 1.05; // normal stance (client FORMATION_SPACING_TILES.normal)
 const FORMATION_DISPATCH_STEP_MS = 80;
 const FORMATION_DISPATCH_MAX_SPREAD_MS = 800;
 const SPACING = TILE * FORMATION_SPACING_TILES;
@@ -313,9 +313,13 @@ const defend = setInterval(() => {
   a.send({ type: "restart" });
   await waitFor(a, () => a.welcomes > w0, 3000);
   await sleep(300);
-  // Saint Wren's Abbey's 3 resident clergy (posted at its AbbeyHall) exist in every fresh world.
-  const ours = a.snap.colonists.filter((k) => a.tileAt(k.postX, k.postY) !== T.AbbeyHall);
-  result(ours.length === 0 && !a.snap.isNight, `restart: fresh day-0 world, colonists=${ours.length} (+${a.snap.colonists.length - ours.length} Abbey clergy)`);
+  // Saint Wren's Abbey's 3 resident clergy (posted at its AbbeyHall) and the Town Center's starting
+  // builder exist in every fresh world.
+  const ours = a.snap.colonists.filter((k) => a.tileAt(k.postX, k.postY) !== T.AbbeyHall && k.kind !== "builder");
+  result(ours.length === 0 && !a.snap.isNight, `restart: fresh day-0 world, colonists=${ours.length} (+${a.snap.colonists.length - ours.length} Abbey clergy / starting builder)`);
+  // Placements would otherwise be builder-built construction sites (needs COLONY_TEST_HOOKS=1).
+  a.send({ type: "testHook", op: "setInstantBuild", enabled: true });
+  await sleep(100);
 }
 
 // Setup
