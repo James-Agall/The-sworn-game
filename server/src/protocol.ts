@@ -91,8 +91,7 @@ export enum TileType {
   Road = 60,
   CobbleRoad = 61,
   // Player-built, free-standing: shoots the nearest hostile mob in range on its own (no workers, no
-  // population). Upgradeable in place to level 3. Replaces the retired ArcherPost (6) / ArcherTower
-  // (19), whose values stay reserved: old saves convert both to Tower on load.
+  // population). Upgradeable in place to level 3. Separate from the Archery Range (ArcherPost).
   Tower = 62,
 }
 

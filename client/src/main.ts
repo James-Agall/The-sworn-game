@@ -84,10 +84,11 @@ const TOOLS: ToolDef[] = [
   { tile: TileType.LumberjackPost, label: "Lumberjack", key: "3", cost: "Free (upgradeable)", category: "farming" },
   { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: "Free, within 2 tiles of a Barn (up to 8 per Barn)", category: "farming" },
   { tile: TileType.KnightPost, label: "Hall of the Sworn", key: "5", cost: "10 iron + 5 rock (upgradeable)", category: "combat" },
+  { tile: TileType.ArcherPost, label: "Archery Range", key: "6", cost: "10 wood (on Wall = Tower, upgradeable)", category: "combat" },
   {
     tile: TileType.Tower,
     label: "Tower",
-    key: "6",
+    key: "[",
     cost: "20 wood + 15 rock. Shoots the nearest monster within 7 tiles; no workers (upgradeable: faster, harder shots)",
     category: "combat",
   },
@@ -229,6 +230,8 @@ const GARRISON_TILES = new Set<number>([
   TileType.KnightPost,
   TileType.CastleLevel2,
   TileType.CastleLevel3,
+  TileType.ArcherPost,
+  TileType.ArcherTower,
   TileType.MilitiaPost,
   TileType.MilitiaCamp2,
   TileType.MilitiaCamp3,
@@ -481,6 +484,8 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.KnightPost]: "barracks",
   [TileType.CastleLevel2]: "castleLv2",
   [TileType.CastleLevel3]: "castleLv3",
+  [TileType.ArcherPost]: "archeryRange",
+  [TileType.ArcherTower]: "archerTower",
   [TileType.Tower]: "archerTower",
   [TileType.MilitiaPost]: "militiaCamp",
   [TileType.MilitiaCamp2]: "militiaCamp2",
@@ -3906,7 +3911,7 @@ async function main() {
   const INFO_TILES = new Set<number>([
     TileType.TownCenter, TileType.House, TileType.BigHouse, TileType.HouseLevel2, TileType.BarnPost,
     TileType.LumberjackPost, TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3,
-    TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost,
+    TileType.ArcherPost, TileType.ArcherTower, TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost,
     TileType.Pasture, TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop,
     TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery,
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
@@ -4190,7 +4195,7 @@ async function main() {
         alive.add(c.id);
       }
       refreshWorkerCounts(message.colonists, message.isNight);
-      statArmyEl.textContent = `Knights ${counts.knight}  Militia ${counts.militia}  Bishops ${counts.bishop}`;
+      statArmyEl.textContent = `Knights ${counts.knight}  Archers ${counts.archer}  Militia ${counts.militia}  Bishops ${counts.bishop}`;
       // Drop dead units from the selection so the count and commands stay accurate.
       const stillSelected = Array.from(selectedIds).filter((id) => alive.has(id));
       if (stillSelected.length !== selectedIds.size) {

@@ -532,26 +532,20 @@ the formation and fight what is in front of them; surplus attackers queue instea
 
 ### Towers & farms — landed 2026-10-23
 
-- **Archery retired**: the Archery Range (`ArcherPost`) and wall-mounted Archer Tower (`ArcherTower`) are gone
-  from the build menu, placement, upgrades, garrison sync and info panel; nothing posts archers any more
-  (`isValidPostTile("archer")` is false). The enum values 6 / 19 stay reserved. The "archer" colonist kind and
-  its combat stats remain in code, inert (enemy Bandit Archers are untouched).
-- **Tower** (`TileType.Tower` = 62, build key 6, `archerTower.png` art): free-standing 1x1, solid, no workers,
+- **Archery kept** (user's call): the Archery Range (`ArcherPost`), its wall-mounted Archer Tower upgrade and
+  archer training / respawn / garrison levels are unchanged from c2440e3. The Tower is a separate building.
+- **Tower** (`TileType.Tower` = 62, build key `[`, `archerTower.png` art): free-standing 1x1, solid, no workers,
   no population slot, not a military tile (no unit spawns / army synergy). `updateTowers` (each tick, after
   mobs move) shoots the nearest hostile mob in range (never dormant guardians, passive raid groups or
   unturned deserters) with the ranged arrow VFX; damage is flat. Levels via the normal in-place upgrade:
   L1 8 dmg / 1.5 s / 7 tiles, L2 12 / 1.1 s / 7.5, L3 18 / 0.8 s / 8 (`TOWER_STATS`); cost 20w+15r, then
-  30w+30r, 45w+50r (`TOWER_COSTS`). HP: big-building class, 250 / 350 / 450. Helpers `isTowerTile(tile)` and
-  `livingTowersNear(tx, ty, radiusTiles)` (exported, for the gate logic).
-- **Old saves** (`migrateArcheryToTowers`, runs on every load, no version bump): ArcherPost / ArcherTower tiles
-  become Towers at their level (the wall under an Archer Tower is not restored), archers are dismissed (no
-  refund: they cost no population), queued archer respawns dropped, queued archery construction becomes Tower.
+  30w+30r, 45w+50r (`TOWER_COSTS`). HP: big-building class, 250 / 350 / 450. Helpers `isTowerTile(tile)` (matches only
+  `TileType.Tower`, not the Archer Tower) and `livingTowersNear(tx, ty, radiusTiles)` (exported, for the gate logic).
 - **Barns**: a Farm Plot may go anywhere within `BARN_FARM_RADIUS_TILES` 2 (Chebyshev) of a Barn with fewer than
   `BARN_MAX_FARM_PLOTS` 8 plots (was: orthogonally adjacent, so 4); it joins the nearest such Barn.
   `FARM_YIELD_PER_HARVEST` 36 -> 24: 6.67 grain per plot-day (was 10), a full Barn ~53/day (was 40).
 - **Test:** `server/towers-farms-test.mjs` (new; hook `towerState`). `slow-farming-test.mjs` constant check
-  updated. Not re-run this round: archer-dependent sections of `army-damage`, `houses-barns-castles` (g),
-  `upgrades-church` (d), `formation`, `economy` tests are now stale.
+  updated (not re-run this round).
 
 Execution order above is my default sequencing (foundation first since map/zoom/clock touch
 everything downstream); say the word if you want a different item first.
@@ -571,5 +565,5 @@ gates, (3) towers and farms. Each lands its own "— landed" section in §7's st
 5. **Monsters with majority strength near a gate and no living towers pass through freely** (the gate no
    longer holds them).
 6. **Replace archery with a new "Tower" building**: no workers; upgradeable for rate of fire and damage.
-   **Landed 2026-10-23** (see "Towers & farms" above).
+   **Landed 2026-10-23** as a building of its own; the Archery Range stays (see "Towers & farms" above).
 7. **Barns hold more farms, each farm less productive.** **Landed 2026-10-23** (see "Towers & farms" above).

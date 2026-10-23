@@ -1,17 +1,14 @@
 // Scripted test: Towers (ROADMAP §8 item 6) and bigger, leaner Barns (item 7). Needs a private server
 // with test hooks and its own save dir:
-//   COLONY_TEST_HOOKS=1 COLONY_WORLD_SIZE=80 COLONY_SAVE_DIR=/tmp/x PORT=19310 npx tsx src/index.ts &   then
-//   PORT=19310 SAVE_DIR=/tmp/x node towers-farms-test.mjs
+//   COLONY_TEST_HOOKS=1 COLONY_WORLD_SIZE=80 PORT=19310 npx tsx src/index.ts &   then
+//   PORT=19310 node towers-farms-test.mjs
 // Checks: a Tower places with no workers and costs 20 wood + 15 rock; it shoots a troll for its level's
 // damage at its level's rate (L1-L3, upgraded via upgradeBuilding at the TOWER_COSTS price); max HP is
-// the big-building class x level; livingTowersNear; an old save's ArcherPost / ArcherTower tiles load
-// as Towers with their archers dismissed; a Barn takes 8 plots within 2 tiles, not a 9th; yield 24.
+// the big-building class x level; livingTowersNear; a Barn takes 8 plots within 2 tiles, not a 9th;
+// yield 24; the Archery Range still places and trains an archer (and is not a Tower).
 import WebSocket from "ws";
-import { promises as fsp } from "node:fs";
-import path from "node:path";
 
 const PORT = process.env.PORT ?? 19310;
-const SAVE_DIR = process.env.SAVE_DIR;
 let fails = 0;
 const result = (ok, msg) => {
   if (!ok) fails++;
@@ -76,6 +73,8 @@ await hook("setInstantBuild", { enabled: true });
 await hook("setRaids", { enabled: false });
 await hook("ignorePlayers", { value: true });
 await hook("setCycleTick", { tick: 10 });
+// Paused: only fastForward advances the sim, so tick counts between shots are exact.
+send({ type: "pause" });
 for (let y = 15; y <= 45; y++) for (let x = 15; x <= 35; x++) await hook("setTileRaw", { tx: x, ty: y, tile: T.Empty });
 await hook("setStock", { stock: { wood: 500, rock: 500, iron: 100 } });
 
@@ -149,37 +148,16 @@ const farm = await hook("farmState");
 result(farm.plots.filter((p) => p.barnX === BX && p.barnY === BY).length === 8, "8 plots belong to the Barn");
 result(farm.constants.FARM_YIELD_PER_HARVEST === 24, `FARM_YIELD_PER_HARVEST ${farm.constants.FARM_YIELD_PER_HARVEST} (expected 24)`);
 
-// ---- Old-save migration: ArcherPost / ArcherTower -> Tower, archers dismissed ----
-if (!SAVE_DIR) {
-  result(false, "SAVE_DIR not set: migration check skipped");
-} else {
-  send({ type: "saveGame", slot: "slot1" });
-  await waitFor((m) => m.type === "saveResult" && m.action === "save");
-  const file = path.join(SAVE_DIR, "slot1.json");
-  const save = JSON.parse(await fsp.readFile(file, "utf8"));
-  const tiles = Buffer.from(save.state.tiles, "base64");
-  const W = save.worldSize;
-  tiles[40 * W + 30] = T.ArcherPost;
-  tiles[40 * W + 32] = T.ArcherTower;
-  save.state.tiles = tiles.toString("base64");
-  save.state.buildingLevel.push(["30,40", 2]);
-  save.state.archerTowerWallType = [["32,40", 1]];
-  const template = save.state.colonists[0];
-  save.state.colonists.push({ ...template, id: "old-archer-1", kind: "archer", postX: 30, postY: 40 });
-  save.state.colonists.push({ ...template, id: "old-archer-2", kind: "archer", postX: 32, postY: 40, isTower: true });
-  save.state.respawnQueue.push({ tx: 30, ty: 40, kind: "archer", ticksRemaining: 10 });
-  await fsp.writeFile(file, JSON.stringify(save));
-  const w = c.welcomes;
-  send({ type: "loadGame", slot: "slot1" });
-  const lr = await waitFor((m) => m.type === "saveResult" && m.action === "load");
-  while (c.welcomes === w) await sleep(10);
-  await snaps(2);
-  result(lr.ok, `old save loads (${lr.error ?? "ok"})`);
-  result(tileAt(30, 40) === T.Tower && tileAt(32, 40) === T.Tower, `ArcherPost / ArcherTower tiles -> ${tileAt(30, 40)} / ${tileAt(32, 40)} (expected 62 / 62)`);
-  result(!c.snap.colonists.some((k) => k.kind === "archer"), "archers dismissed");
-  const towers = (await hook("towerState")).towers;
-  result(towers.find((t) => t.x === 30 && t.y === 40)?.level === 2, "converted Archery Range keeps its level (2)");
-}
+// ---- The Archery Range still trains an archer (independent of the Tower) ----
+const AX = 30, AY = 30;
+const w0 = (await hook("setStock", { stock: {} })).stock.wood;
+result(await placeAt(AX, AY, T.ArcherPost), "Archery Range placed");
+await snaps(3);
+const w1 = (await hook("setStock", { stock: {} })).stock.wood;
+const archers = c.snap.colonists.filter((k) => k.kind === "archer" && k.postX === AX && k.postY === AY);
+result(archers.length >= 1 && w0 - w1 === 10, `Archery Range: ${archers.length} archer(s), cost ${w0 - w1} wood (expected >=1, 10)`);
+const tw = (await hook("towerState")).towers;
+result(!tw.some((t) => t.x === AX && t.y === AY), "isTowerTile does not match the Archery Range");
 
 console.log(fails === 0 ? "ALL PASS" : `${fails} FAIL(S)`);
 c.ws.close();
