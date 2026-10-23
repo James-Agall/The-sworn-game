@@ -456,6 +456,8 @@ export type ServerMessage =
       damagedBuildings: number[];
       // The shared goal track's current goal (Phase 5).
       goal?: GoalSnapshot;
+      // Dawn/dusk respawn windows (long days): see RespawnWindowSnapshot.
+      respawn?: RespawnWindowSnapshot;
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).
@@ -490,4 +492,16 @@ export interface SaveInfo {
   dayIndex: number;
   population: number;
   difficulty: Difficulty;
+}
+
+// ---- Long days & dawn/dusk respawns (2026-10-23) ----
+// Snapshot `respawn`: dead units (respawnQueue + a fallen Ward Priest) come back together only at the
+// two respawn windows, dawn (cycle tick 0) and dusk (the last daylight tick). `ticksToWindow` counts
+// to `nextWindow` (TICK_RATE ticks a second); dayTicks / nightTicks are the server's cycle lengths.
+export interface RespawnWindowSnapshot {
+  waiting: number;
+  nextWindow: "dawn" | "dusk";
+  ticksToWindow: number;
+  dayTicks: number;
+  nightTicks: number;
 }

@@ -639,8 +639,17 @@ function releaseResourceReservation(c: Colonist) {
   }
 }
 
-const DAY_TICKS = TICK_RATE * 60;
-const NIGHT_TICKS = TICK_RATE * 40;
+// ---- Long days (2026-10-23): a 5-minute day and a 75 s night (was 60 s + 40 s). ----
+// The night stays short so raids stay tense; the day is long so there's more to DO between raids.
+// LEGACY_* is the old cycle: rates that must not slow down in real time are written as
+// legacy-rate x DAY_LENGTH_SCALE / DAYLIGHT_SCALE (see ROADMAP "Long days & dawn/dusk respawns").
+const DAY_TICKS = TICK_RATE * 300;
+const NIGHT_TICKS = TICK_RATE * 75;
+const LEGACY_DAY_TICKS = TICK_RATE * 60;
+const LEGACY_NIGHT_TICKS = TICK_RATE * 40;
+// Real-time length of a whole cycle vs the old one (375 s / 100 s = 3.75) and of the daylight (5).
+const DAY_LENGTH_SCALE = (DAY_TICKS + NIGHT_TICKS) / (LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS);
+const DAYLIGHT_SCALE = DAY_TICKS / LEGACY_DAY_TICKS;
 let cycleTick = 0;
 function isNightNow(): boolean {
   const t = cycleTick % (DAY_TICKS + NIGHT_TICKS);
@@ -1077,7 +1086,8 @@ const DARK_SHAMAN_HEAL_RANGE = TILE_SIZE * 5;
 const DARK_SHAMAN_HEAL_AMOUNT = 15;
 const DARK_SHAMAN_HEAL_COOLDOWN_TICKS = TICK_RATE * 3;
 
-const DESERTER_ACTIVATION_DAYS = 10;
+// Long days: was 10 (of the old 100 s days); 3 long days (~19 min) keeps it near the old ~17 min.
+const DESERTER_ACTIVATION_DAYS = 3;
 const DESERTER_ACTIVATION_TICKS = DESERTER_ACTIVATION_DAYS * (DAY_TICKS + NIGHT_TICKS);
 // Rolled at each midday raid spawn when eligible deserters exist: on success they become the core of
 // tonight's raid (see spawnRaid).
@@ -1098,21 +1108,25 @@ const CRAFT_TICKS = TICK_RATE * 4;
 const IDLE_RETRY_TICKS = TICK_RATE;
 const LUMBERJACK_WOOD_PER_TRIP = 3;
 
-// ---- Slow farming: every farm number lives here. One game day = DAY_TICKS + NIGHT_TICKS (100 s). ----
+// ---- Slow farming: every farm number lives here. One game day = DAY_TICKS + NIGHT_TICKS (375 s). ----
+// Long days: the farm timers below stay in REAL time, i.e. in "legacy days" of the old 100 s cycle
+// (LEGACY_GAME_DAY_TICKS; a field grows 5 min, ~0.8 of a long day), so grain / meat / fruit / wool /
+// cotton per real second, the opening food bridge (STARTING_GRAIN) and the farm tests are unchanged.
 const GAME_DAY_TICKS = DAY_TICKS + NIGHT_TICKS;
+const LEGACY_GAME_DAY_TICKS = LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS;
 // Grain field (Farm Plot next to a staffed Barn): sown -> growing -> ripe (the short harvest phase)
 // -> +FARM_YIELD_PER_HARVEST grain -> sown again. Plots grow day and night. Every
 // FARM_HARVESTS_BEFORE_FALLOW harvests the field rests FALLOW for FARM_FALLOW_TICKS, then re-sows itself
 // (once its Barn is staffed). Grow and harvest are scaled by the Barn's level, the plot's biome,
 // happiness and the Barn's industrial synergy; fallow is a flat rest.
 const FARM_GROW_DAYS = 3;
-const FARM_GROW_TICKS = FARM_GROW_DAYS * GAME_DAY_TICKS;
+const FARM_GROW_TICKS = FARM_GROW_DAYS * LEGACY_GAME_DAY_TICKS;
 // The first third of the grow phase reads as freshly sown soil (snapshot sownFarmPlots).
 const FARM_SOWN_FRACTION = 1 / 3;
 const FARM_HARVEST_TICKS = TICK_RATE * 2;
 const FARM_HARVESTS_BEFORE_FALLOW = 5;
 const FARM_FALLOW_DAYS = 3;
-const FARM_FALLOW_TICKS = FARM_FALLOW_DAYS * GAME_DAY_TICKS;
+const FARM_FALLOW_TICKS = FARM_FALLOW_DAYS * LEGACY_GAME_DAY_TICKS;
 // The old 8 s grow + 2 s harvest gave 1 grain per 10 s = 10 grain per plot per game day. A full field
 // rotation is now 5 x 3 grow days + 3 fallow days = 18 days, so 36 per harvest keeps the long-run
 // average at 5 * 36 / 18 = 10 grain per plot-day (12 per active grow-day).
@@ -1123,7 +1137,7 @@ const FARM_YIELD_PER_HARVEST = 36;
 // 3-day cycle yields 3 * 30 = 90 (same average rate, delivered in one batch). The cycle length is scaled
 // by the building's level, biome, happiness and industrial synergy exactly like the old unit timer.
 const FARMHAND_CYCLE_DAYS = 3;
-const FARMHAND_CYCLE_TICKS = FARMHAND_CYCLE_DAYS * DAY_TICKS;
+const FARMHAND_CYCLE_TICKS = FARMHAND_CYCLE_DAYS * LEGACY_DAY_TICKS;
 const FARMHAND_YIELD_PER_CYCLE: Record<"meat" | "fruit" | "wool" | "cotton", number> = {
   meat: 90,
   fruit: 90,
@@ -1131,9 +1145,13 @@ const FARMHAND_YIELD_PER_CYCLE: Record<"meat" | "fruit" | "wool" | "cotton", num
   cotton: 90,
 };
 
-const FOOD_PER_COLONIST_PER_DAY = 1;
+// Long days: upkeep stays 1 per colonist per 100 s of real time, so a long day costs 3.75 (rounded up
+// for the whole colony at dawn; see applyDailyFoodConsumption).
+const FOOD_PER_COLONIST_PER_DAY = 1 * DAY_LENGTH_SCALE;
 const STARVATION_DAMAGE = 10;
-const RESPAWN_DELAY_TICKS = TICK_RATE * 5;
+// Long days: replaces the old 5 s RESPAWN_DELAY_TICKS. Dead units wait in respawnQueue and come back
+// together only at the two respawn windows, dawn (cycle tick 0) and dusk (the last daylight tick,
+// DAY_TICKS - 1, so "day-only respawns" still holds); see respawnWindowAt / processRespawnQueue.
 const RESPAWN_FOOD_COST = 5;
 
 const ARCHER_WOOD_COST = 10;
@@ -1665,7 +1683,8 @@ function spawnColonistForPost(
 }
 
 function queueRespawn(c: Colonist) {
-  respawnQueue.push({ tx: c.postX, ty: c.postY, kind: c.kind, ticksRemaining: RESPAWN_DELAY_TICKS });
+  // ticksRemaining is unused since dawn/dusk respawn windows (kept so old and new saves share a shape).
+  respawnQueue.push({ tx: c.postX, ty: c.postY, kind: c.kind, ticksRemaining: 0 });
 }
 
 const WALL_TILES = [TileType.Wall, TileType.StoneWall];
@@ -2090,9 +2109,47 @@ function destroyTownCenter(tc: TownCenter) {
   );
 }
 
+// ---- Dawn/dusk respawn windows (long days, 2026-10-23) ----
+// The dead wait in respawnQueue (still validated, re-homed and pruned every daylight tick) and come back in one
+// batch at the next window: dawn = cycle tick 0 of a day, dusk = DAY_TICKS - 1, the last daylight
+// tick (so replacements still only ever arrive by day). A unit the batch can't afford (food) or fit
+// (population cap) keeps waiting for the next window. The Ward Priest follows the same windows.
+type RespawnWindow = "dawn" | "dusk";
+const DUSK_RESPAWN_CYCLE_TICK = DAY_TICKS - 1;
+// Units spawned by this tick's window (respawnQueue + Ward Priest), for the "Reinforcements" toast.
+let respawnWindowSpawned = 0;
+// True while a dead Ward Priest is due back at the next window (counted as waiting on the client).
+let wardPriestAwaitingWindow = false;
+
+function respawnWindowAt(tick: number): RespawnWindow | null {
+  const t = tick % GAME_DAY_TICKS;
+  return t === 0 ? "dawn" : t === DUSK_RESPAWN_CYCLE_TICK ? "dusk" : null;
+}
+
+// The first window strictly after `tick`, and how many ticks away it is.
+function nextRespawnWindow(tick: number): { window: RespawnWindow; ticks: number } {
+  const t = tick % GAME_DAY_TICKS;
+  return t < DUSK_RESPAWN_CYCLE_TICK
+    ? { window: "dusk", ticks: DUSK_RESPAWN_CYCLE_TICK - t }
+    : { window: "dawn", ticks: GAME_DAY_TICKS - t };
+}
+
+// The snapshot's `respawn` (protocol RespawnWindowSnapshot).
+function respawnWindowSnapshot() {
+  const next = nextRespawnWindow(cycleTick);
+  return {
+    waiting: respawnQueue.length + (wardPriestAwaitingWindow ? 1 : 0),
+    nextWindow: next.window,
+    ticksToWindow: next.ticks,
+    dayTicks: DAY_TICKS,
+    nightTicks: NIGHT_TICKS,
+  };
+}
+
 function processRespawnQueue() {
-  // Replacements only arrive by day: the queue (and its timers) simply waits out the night.
+  // Replacements only arrive by day (both windows are daylight ticks); the queue waits out the night.
   if (isNightNow()) return;
+  const windowNow = respawnWindowAt(cycleTick);
   for (let i = respawnQueue.length - 1; i >= 0; i--) {
     const req = respawnQueue[i];
     // A builder whose Town Center fell respawns at the nearest one still standing.
@@ -2117,11 +2174,9 @@ function processRespawnQueue() {
     if (consumesPopulation(req.kind) && civilianPopulationUsed() >= populationCap()) {
       continue;
     }
-    if (req.ticksRemaining > 0) {
-      req.ticksRemaining--;
-      continue;
-    }
+    if (!windowNow) continue;
     if (trySpendFood(RESPAWN_FOOD_COST)) {
+      respawnWindowSpawned++;
       const castleLevel =
         req.kind === "knight"
           ? castleLevelForTile(currentTile)
@@ -2155,7 +2210,7 @@ function applyDailyFoodConsumption() {
   const consumers = Array.from(colonists.values()).filter((c) => !isAbbeyClergy(c));
   const consumerCount = consumers.length;
   if (consumerCount === 0) return;
-  let needed = consumerCount * FOOD_PER_COLONIST_PER_DAY;
+  let needed = Math.ceil(consumerCount * FOOD_PER_COLONIST_PER_DAY);
   for (const key of ["grain", "meat", "fruit"] as const) {
     if (needed <= 0) break;
     const take = Math.min(stock[key], needed);
@@ -2522,7 +2577,8 @@ const FOOD_WORKER_IDLE_RETRY_TICKS = TICK_RATE * 2;
 // the fruit home. A picked plant regrows to ripe after FORAGE_REGROW_TICKS (day and night).
 const FORAGER_WORK_RADIUS_TILES = 25;
 const FORAGE_TICKS = TICK_RATE * 3;
-const FORAGE_REGROW_TICKS = DAY_TICKS + NIGHT_TICKS;
+// Long days: stays 100 s of real time (one legacy day), so forage income per second is unchanged.
+const FORAGE_REGROW_TICKS = LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS;
 
 // Wild forage scatter (counts tuned for 80x80, scaled by area like the other world-gen counts).
 // Berry bushes on Plains, fruit trees on Plains, mushrooms next to trees (any biome) or in Swamp.
@@ -2578,7 +2634,9 @@ const WILDLIFE_CONFIG: Record<WildlifeKind, WildlifeConfig> = {
 };
 // 4 a day on 80x80 (16 on 160x160): a map's sustainable hunt is about this many animals a day.
 const WILDLIFE_RESPAWN_PER_DAY = Math.max(1, scaledCount(4));
-const WILDLIFE_RESPAWN_INTERVAL_TICKS = Math.round((DAY_TICKS + NIGHT_TICKS) / WILDLIFE_RESPAWN_PER_DAY);
+// Long days: the interval stays in real time (4 per legacy 100 s day = one every 25 s on 80x80), so a
+// long day tops up ~15 animals and hunting income per second is unchanged.
+const WILDLIFE_RESPAWN_INTERVAL_TICKS = Math.round((LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS) / WILDLIFE_RESPAWN_PER_DAY);
 // Game never spawns this close to the Town Center (nor within WILDLIFE_PLAYER_CLEARANCE_TILES of a
 // player, for respawns), so the colony's surroundings aren't a petting zoo.
 const WILDLIFE_MIN_TOWN_CENTER_DIST_TILES = 10;
@@ -4458,8 +4516,8 @@ function assignWardPriestTarget(c: Colonist, stone: TileCoord) {
 
 // Once per tick: forget tend records of demolished stones, then keep exactly one Ward Priest alive
 // while a Church and at least one Ward Stone exist (dismissed otherwise). A first priest, or one
-// re-summoned after a dismissal, appears at once; one that died waits RESPAWN_DELAY_TICKS and pays
-// RESPAWN_FOOD_COST, matching processRespawnQueue.
+// re-summoned after a dismissal, appears at once; one that died waits for the next dawn/dusk respawn
+// window and pays RESPAWN_FOOD_COST, matching processRespawnQueue.
 function updateWardPriestPresence() {
   for (const key of wardStoneLastTended.keys()) {
     const [tx, ty] = key.split(",").map(Number);
@@ -4470,20 +4528,23 @@ function updateWardPriestPresence() {
   const priest = wardPriestId ? colonists.get(wardPriestId) : undefined;
   if (wardPriestId && !priest) {
     wardPriestId = null;
-    wardPriestRespawnTicks = RESPAWN_DELAY_TICKS;
+    // >= 0 = died, due back at a respawn window (0 since the windows; old saves may hold a countdown).
+    wardPriestRespawnTicks = 0;
   }
+  wardPriestAwaitingWindow = false;
   if (priest && (stones.length === 0 || !church)) {
     colonists.delete(priest.id);
     wardPriestId = null;
     return;
   }
   if (priest || stones.length === 0 || !church) return;
+  wardPriestAwaitingWindow = wardPriestRespawnTicks >= 0;
   if (civilianPopulationUsed() >= populationCap()) return;
-  if (wardPriestRespawnTicks > 0) {
-    wardPriestRespawnTicks--;
-    return;
+  if (wardPriestRespawnTicks >= 0) {
+    if (isNightNow() || !respawnWindowAt(cycleTick) || !trySpendFood(RESPAWN_FOOD_COST)) return;
+    wardPriestAwaitingWindow = false;
+    respawnWindowSpawned++;
   }
-  if (wardPriestRespawnTicks === 0 && !trySpendFood(RESPAWN_FOOD_COST)) return;
   const spawned = spawnColonistForPost(church.x, church.y, "bishop");
   wardPriestId = spawned.id;
   wardPriestRespawnTicks = -1;
@@ -6472,11 +6533,13 @@ const GOALS: GoalDef[] = [
     progress: () => flagGoal(Array.from(colonists.values()).some((c) => isSoldierKind(c.kind))),
     reward: { iron: 15 },
   },
+  // Long days: was 1/3/7/14/21 nights of the old 100 s cycle (2 / 5 / 12 / 23 / 35 min); now 1/2/4/7/10
+  // long nights of 375 s (6 / 12.5 / 25 / 44 / 62.5 min): each step still a meaningful stretch of play.
   nightsGoal(1, { gold: 15, grain: 20 }),
-  nightsGoal(3, { gold: 30, wood: 30, rock: 30 }),
-  nightsGoal(7, { gold: 60, iron: 40, rock: 40 }),
-  nightsGoal(14, { gold: 100, wood: 60, iron: 60 }),
-  nightsGoal(21, { gold: 150, wood: 80, iron: 80, rock: 80 }),
+  nightsGoal(2, { gold: 30, wood: 30, rock: 30 }),
+  nightsGoal(4, { gold: 60, iron: 40, rock: 40 }),
+  nightsGoal(7, { gold: 100, wood: 60, iron: 60 }),
+  nightsGoal(10, { gold: 150, wood: 80, iron: 80, rock: 80 }),
   { title: "Clear the Castle Ruin", progress: () => flagGoal(castleCleared), reward: { gold: 100 } },
 ];
 
@@ -6810,6 +6873,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         FARMHAND_YIELD_PER_CYCLE,
         DAY_TICKS,
         NIGHT_TICKS,
+        LEGACY_GAME_DAY_TICKS,
       },
       happiness: colonyHappiness,
     });
@@ -6998,6 +7062,24 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         id: m.id, x: m.x, y: m.y, targetType: m.targetType, targetId: m.targetId, approachX: m.approachX, approachY: m.approachY,
       })),
     });
+  } else if (msg.op === "respawnState") {
+    // Long days & dawn/dusk respawn windows (day-respawn-test).
+    reply({
+      cycleTick,
+      isNight: isNightNow(),
+      queue: respawnQueue.map((q) => ({ ...q })),
+      respawn: respawnWindowSnapshot(),
+      window: respawnWindowAt(cycleTick),
+      duskTick: DUSK_RESPAWN_CYCLE_TICK,
+      wardPriestRespawnTicks,
+      constants: {
+        DAY_TICKS, NIGHT_TICKS, GAME_DAY_TICKS, LEGACY_DAY_TICKS, LEGACY_NIGHT_TICKS, DAY_LENGTH_SCALE,
+        FOOD_PER_COLONIST_PER_DAY, FARM_GROW_TICKS, FARMHAND_CYCLE_TICKS, FORAGE_REGROW_TICKS,
+        WILDLIFE_RESPAWN_INTERVAL_TICKS, DESERTER_ACTIVATION_TICKS, RESPAWN_FOOD_COST,
+      },
+      goalTitles: GOALS.map((g) => g.title),
+      colonists: Array.from(colonists.values()).map((c) => ({ id: c.id, kind: c.kind, postX: c.postX, postY: c.postY })),
+    });
   }
 }
 
@@ -7176,6 +7258,9 @@ function snapshotWorld() {
     colonyHappiness,
     difficulty,
     cycleTick,
+    // Long days: the cycle this cycleTick was counted in (saves without it are the old 1200 + 800).
+    dayTicks: DAY_TICKS as number,
+    nightTicks: NIGHT_TICKS as number,
     wasNight,
     raidSpawnedForDay,
     treeRespawnCooldown,
@@ -7292,12 +7377,44 @@ function applyWorld(s: WorldState) {
   testForceMarkChance = s.flags.testForceMarkChance;
   instantBuild = s.flags.instantBuild;
   testPlayersIgnored = s.flags.testPlayersIgnored ?? false;
+  migrateSaveDayLength(s.dayTicks ?? LEGACY_DAY_TICKS, s.nightTicks ?? LEGACY_NIGHT_TICKS);
   evaluateGoals(!s.goals);
   // Transients: nothing in flight survives a load; everyone re-stamps vision from scratch.
   pendingEffects = [];
   pendingExplored = [];
   visionTile = new WeakMap();
   isPaused = false;
+}
+
+// Long days: a save counted in another cycle length (every save from before 2026-10-23 is 1200 + 800)
+// keeps its day number and its place in the day/night (same fraction of the day or of the night).
+// Absolute tick stamps move by the same delta, so their elapsed times (ward grace, fury, deserter
+// age, raid aggro) are unchanged.
+function migrateSaveDayLength(oldDay: number, oldNight: number) {
+  if (oldDay === DAY_TICKS && oldNight === NIGHT_TICKS) return;
+  const oldCycle = oldDay + oldNight;
+  const day = Math.floor(cycleTick / oldCycle);
+  const pos = cycleTick % oldCycle;
+  const newPos =
+    pos < oldDay
+      ? Math.floor((pos * DAY_TICKS) / oldDay)
+      : DAY_TICKS + Math.floor(((pos - oldDay) * NIGHT_TICKS) / oldNight);
+  const delta = day * GAME_DAY_TICKS + newPos - cycleTick;
+  cycleTick += delta;
+  wasNight = isNightNow();
+  for (const m of mobs.values()) {
+    m.lastDamagedTick += delta;
+    m.furyUntilTick += delta;
+    m.withdrawUntilTick += delta;
+    m.feintUntilTick += delta;
+    m.deserterSinceTick += delta;
+  }
+  for (const g of raidGroups.values()) {
+    g.aggroTick += delta;
+    if (g.engagedTick !== undefined && g.engagedTick !== null) g.engagedTick += delta;
+  }
+  for (const [key, t] of wardStoneLastTended) wardStoneLastTended.set(key, t + delta);
+  console.log(`[load] day length ${oldDay}+${oldNight} -> ${DAY_TICKS}+${NIGHT_TICKS} ticks: cycleTick moved by ${delta}`);
 }
 
 function saveFileFor(slot: SaveSlot): SaveFile {
@@ -8508,6 +8625,14 @@ function stepSimulation() {
   updateForageRegrow();
   processRespawnQueue();
   updateWardPriestPresence();
+  // Dawn/dusk respawn windows: one toast per batch.
+  if (respawnWindowSpawned > 0) {
+    broadcastEvent(
+      "build",
+      `Reinforcements arrive at ${respawnWindowAt(cycleTick) ?? "dawn"}: ${respawnWindowSpawned} unit${respawnWindowSpawned === 1 ? "" : "s"} back on duty`
+    );
+    respawnWindowSpawned = 0;
+  }
   respawnDeadPlayers();
   if (cycleTick % TICK_RATE === 0) {
     checkBossSightings();
@@ -8602,6 +8727,7 @@ setInterval(() => {
       (tc): TownCenterSnapshot => ({ x: tc.x, y: tc.y, level: tc.level, hp: Math.max(0, tc.hp), maxHp: townCenterMaxHp(tc.level) })
     ),
     goal: goalSnapshot,
+    respawn: respawnWindowSnapshot(),
   };
   pendingEffects = [];
 

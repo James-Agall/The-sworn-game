@@ -29,6 +29,7 @@ import type {
   SaveSlot,
   GoalSnapshot,
 } from "./protocol";
+import { TICK_RATE } from "./protocol"; // long days: respawn-window ETA
 import {
   Biome,
   BOSS_RENDER_SCALE,
@@ -3990,6 +3991,7 @@ async function main() {
 
   // ---- Builders counter and game over ----
   const statBuildersEl = document.getElementById("stat-builders")!;
+  const statRespawnEl = document.getElementById("stat-respawn")!;
   function refreshBuilderCount(colonists: ColonistSnapshot[], isNight: boolean) {
     let total = 0;
     let working = 0;
@@ -4227,6 +4229,16 @@ async function main() {
       for (const effect of message.effects) spawnEffect(effect);
       drawMinimap(message.players, message.colonists, message.mobs);
       syncGoal(message.goal);
+      // Long days: dawn/dusk respawn windows (cycle lengths come from the server, never hard-coded).
+      if (message.respawn) {
+        const r = message.respawn;
+        const secs = Math.ceil(r.ticksToWindow / TICK_RATE);
+        const eta = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+        statRespawnEl.textContent =
+          r.waiting > 0
+            ? `Reinforcements: ${r.waiting} waiting · ${r.nextWindow} in ${eta}`
+            : `Next respawn window: ${r.nextWindow} in ${eta}`;
+      }
       syncBossBar(message.mobs, message.players);
       soundOnSnapshot(message);
     } else if (message.type === "tileUpdate") {

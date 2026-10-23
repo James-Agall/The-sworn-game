@@ -89,6 +89,8 @@ await new Promise((r) => c.ws.on("open", r));
 while (!c.snap) await sleep(10);
 await restart();
 await hook("setRaids", { enabled: false });
+// Barns / plots are built by builders now: place them instantly.
+await hook("setInstantBuild", { enabled: true });
 // Plenty of everything, so starvation and building costs never interfere.
 await hook("setStock", { stock: { wood: 500, grain: 5000, meat: 0, fruit: 0 } });
 
@@ -118,9 +120,11 @@ let { st, p } = await farmState();
 const K = st.constants;
 info(`constants: grow ${K.FARM_GROW_TICKS}t harvest ${K.FARM_HARVEST_TICKS}t sown ${K.FARM_SOWN_FRACTION} fallow ${K.FARM_FALLOW_TICKS}t after ${K.FARM_HARVESTS_BEFORE_FALLOW} harvests, yield ${K.FARM_YIELD_PER_HARVEST}; farmhand cycle ${K.FARMHAND_CYCLE_TICKS}t yields ${JSON.stringify(K.FARMHAND_YIELD_PER_CYCLE)}`);
 const DAY = K.DAY_TICKS + K.NIGHT_TICKS;
-result(K.FARM_GROW_TICKS === 3 * DAY && K.FARM_FALLOW_TICKS === 3 * DAY && K.FARM_HARVESTS_BEFORE_FALLOW === 5,
-  `constants: grow = 3 days (${K.FARM_GROW_TICKS}t), fallow = 3 days (${K.FARM_FALLOW_TICKS}t), fallow after 5 harvests`);
-result(K.FARM_YIELD_PER_HARVEST * K.FARM_HARVESTS_BEFORE_FALLOW / ((K.FARM_GROW_TICKS * K.FARM_HARVESTS_BEFORE_FALLOW + K.FARM_FALLOW_TICKS) / DAY) === 10,
+// Long days (2026-10-23): farm timers stay in real time, counted in legacy 100 s days.
+const LDAY = (K.LEGACY_GAME_DAY_TICKS ?? DAY);
+result(K.FARM_GROW_TICKS === 3 * LDAY && K.FARM_FALLOW_TICKS === 3 * LDAY && K.FARM_HARVESTS_BEFORE_FALLOW === 5,
+  `constants: grow = 3 legacy days (${K.FARM_GROW_TICKS}t), fallow = 3 days (${K.FARM_FALLOW_TICKS}t), fallow after 5 harvests`);
+result(K.FARM_YIELD_PER_HARVEST * K.FARM_HARVESTS_BEFORE_FALLOW / ((K.FARM_GROW_TICKS * K.FARM_HARVESTS_BEFORE_FALLOW + K.FARM_FALLOW_TICKS) / LDAY) === 10,
   `constants: long-run grain per plot-day = 5 x ${K.FARM_YIELD_PER_HARVEST} / 18 days = 10 (the old 8 s+2 s cycle's 10/day)`);
 
 // ---- A) sown -> growing -> ripe on the flat first grow ----
