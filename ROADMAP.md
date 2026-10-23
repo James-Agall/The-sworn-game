@@ -530,6 +530,43 @@ the formation and fight what is in front of them; surplus attackers queue instea
   per-tick step (body separation can shove a mob past its own speed on the odd tick; the raw max is reported),
   `world-gen-poi-test.mjs` D ignores the first (start-up) mining interval.
 
+### Off-screen fight notifiers — landed 2026-10-23
+
+- **Server:** every blow between a mob and the other side is logged: a soldier or player hitting a mob
+  (`damageMob` gets an optional attacker key; test-hook and other blows without one don't count), and a
+  mob hitting a colonist, player, building or Town Center. Every 0.5 s `scanFights` keeps the last
+  `FIGHT_WINDOW_SECONDS` (3 s) of hits, clusters them by proximity (`FIGHT_CLUSTER_TILES` 8, merged when
+  centroids drift together) and keeps each fight's id stable from scan to scan. Each fight records its
+  centre tile, distinct combatants, dps, intensity 1-3, whether the colony's units / buildings / which
+  players are in it, and a label from the fiercest attacker (Ogre Warlord > Castle Ruin > mini-boss >
+  Ruin guardians / Bandit camp > Deserters > Bandit raid / Wolf pack / Dark host / Greenskin raid > Half-Latch).
+- **Protocol (additive):** `FightSnapshot`, `FIGHT_*` constants, `snapshot.fights?`. It is per player:
+  the server adds it to the shared snapshot JSON for each socket, and leaves it out when there are none.
+  Relevant = the player is in it, or the (shared) colony's units/buildings are, or it's within
+  `FIGHT_RELEVANCE_TILES` (48). Fights you're in come first, then by intensity, then nearest, at most 8.
+- **Client:** `client/src/fightArrows.ts` (pure: rim clamping + angle, compass name, fade). Each fight
+  outside the view gets a parchment arrow on the screen edge (tinted amber / red / seal by intensity,
+  pulsing, "Bandit raid · north" / "Under attack · east" plus distance in tiles). It fades over the last
+  second of the window and for 0.6 s once the fight is dropped. Clicking an arrow pans the camera there
+  for 4 s (any movement key snaps it back). The minimap shows pulsing rings at every listed fight. The
+  first time a fight starts off-screen there's one toast ("Greenskin raid to the west (31 tiles)"),
+  at most one every 20 s.
+- **Tests:** `server/fight-notifier-test.mjs` (clustering, centre, direction via the client helper, id
+  stability, expiry, relevance across two players, building-only fight, cap of 8). `client/fight-arrows-test.mjs`
+  (plain `node`, no server).
+- **Manual browser check (user):**
+  1. Leave soldiers fighting a raid somewhere off-screen: an arrow sits on the screen edge pointing at it,
+     with a label and distance, and it rotates and slides along the rim as you walk around.
+  2. Walk until the fight is on screen: its arrow goes away. Walk off again: it comes back.
+  3. Kill the last raider: the arrow fades about 3 s later.
+  4. Click an arrow: the camera glides to the fight, comes back by itself after ~4 s, or at once on WASD.
+  5. The minimap shows a pulsing red ring where the fight is. A bigger battle pulses faster and redder
+     (seal border on the arrow).
+  6. One toast like "Bandit raid to the north (40 tiles)" when a new fight starts off-screen, and no
+     second toast for another fight within 20 s.
+  7. Arrows don't sit under the top buttons or toasts, or the bottom command bar. Hovering an arrow
+     thickens its ring.
+
 Execution order above is my default sequencing (foundation first since map/zoom/clock touch
 everything downstream); say the word if you want a different item first.
 

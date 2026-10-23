@@ -45,6 +45,12 @@ import {
   SaveSlot,
   SaveInfo,
   SAVE_SLOTS,
+  FightKind,
+  FightSnapshot,
+  FIGHT_WINDOW_SECONDS,
+  FIGHT_CLUSTER_TILES,
+  FIGHT_RELEVANCE_TILES,
+  FIGHT_MAX_PER_PLAYER,
 } from "./protocol.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
@@ -3826,7 +3832,10 @@ function activateGuardianSite(siteId: string) {
 // was placed since the most recent dawn and lasts until the next one.
 const gravestones: GravestoneSnapshot[] = [];
 
-function damageMob(mob: Mob, amount: number) {
+// attackerKey ("p:<playerId>" / "c:<colonistId>") marks a blow for the fight notifiers; blows without
+// one (test hooks, untracked sources) aren't counted as fighting.
+function damageMob(mob: Mob, amount: number, attackerKey?: string) {
+  if (attackerKey) recordFightHit(mob, mob.x, mob.y, attackerKey, amount);
   if (isDormantGuardian(mob)) activateGuardianSite(mob.siteId!);
   // Hitting any member of a raid group (passive or marching) turns the whole group on its attackers.
   if (mob.groupId !== null) {
@@ -4054,7 +4063,7 @@ function handlePlayerAttack(attacker: Player) {
     const target = mobs.get(bestId);
     if (target) {
       pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
-      damageMob(target, PLAYER_ATTACK_DAMAGE);
+      damageMob(target, PLAYER_ATTACK_DAMAGE, "p:" + attacker.id);
     }
   }
 }
@@ -4213,7 +4222,7 @@ function updateGuardColonist(c: Colonist, dt: number) {
     if (c.attackCooldownTicks > 0) {
       c.attackCooldownTicks--;
     } else {
-      damageMob(target, stats.damage * armyDamageMultiplier(c.postX, c.postY));
+      damageMob(target, stats.damage * armyDamageMultiplier(c.postX, c.postY), "c:" + c.id);
       c.attackCooldownTicks = stats.cooldown;
       pendingEffects.push({ fromX: c.x, fromY: c.y, toX: target.x, toY: target.y, melee: stats.melee });
       if (target.hp <= 0) {
@@ -5810,6 +5819,7 @@ function updateMob(mob: Mob, dt: number) {
       const struck = (mob.targetType === "building" || mob.targetType === "townCenter") && mob.targetId ? keyToTile(mob.targetId) : null;
       const hit = struck ? tileToPixelCenter(struck) : targetPos;
       pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: hit.x, toY: hit.y, melee: mob.melee });
+      if (mob.targetId) recordMobStrike(mob, hit.x, hit.y);
       if (mob.targetType === "colonist" && mob.targetId) {
         const c = colonists.get(mob.targetId);
         if (c) {
@@ -6981,6 +6991,9 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
           siteId: m.siteId, siteKind: m.siteKind, guardianActive: m.guardianActive, bossSighted: m.bossSighted ?? false,
         })),
     });
+  } else if (msg.op === "fightState") {
+    // Every tracked fight (unfiltered) plus this player's filtered list (fight-notifier-test).
+    reply({ cycleTick, hits: fightHits.length, fights: activeFights.map((f) => ({ ...f, playerIds: Array.from(f.playerIds) })), mine: fightsForPlayer(player) });
   } else if (msg.op === "buildingState") {
     // Building HP / repair state, builders, and every mob's target (with its approach tile).
     reply({
@@ -7091,6 +7104,7 @@ function resetWorld(nextDifficulty?: unknown) {
 // After the world is replaced (restart or load): every connected player respawns at a Town Center
 // and gets the whole new world in a fresh welcome.
 function respawnPlayersAndWelcome() {
+  clearFights();
   for (const player of players.values()) {
     const spawn = spawnPointNearTownCenter();
     player.x = spawn.x;
@@ -8415,6 +8429,246 @@ function handleUpgradeBuilding(player: Player, tx: number, ty: number) {
   handleSetTile(player, tx, ty, placeTile, true);
 }
 
+// ---- Off-screen fight notifiers (ROADMAP "Off-screen fight notifiers — landed 2026-10-23") ----
+// Every blow between a mob and the other side (a soldier/colonist/player hitting a mob, a mob hitting
+// a colonist/player/building) is logged as a FightHit. Every FIGHT_SCAN_TICKS, scanFights drops hits
+// older than FIGHT_WINDOW_SECONDS and clusters the rest by proximity (FIGHT_CLUSTER_TILES) into
+// activeFights, keeping each fight's id while it lasts. Each snapshot then carries the player's own
+// relevant subset (fightsForPlayer), spliced into the shared payload by withPlayerFights.
+const FIGHT_SCAN_TICKS = Math.round(TICK_RATE / 2);
+const FIGHT_WINDOW_TICKS = FIGHT_WINDOW_SECONDS * TICK_RATE;
+// Bounds the work in a huge battle: the oldest hits go first past FIGHT_MAX_HITS, and only the
+// FIGHT_MAX_TRACKED biggest clusters are kept.
+const FIGHT_MAX_HITS = 3000;
+const FIGHT_MAX_TRACKED = 32;
+// Intensity thresholds (combatants / damage per second).
+const FIGHT_BATTLE_COMBATANTS = 5;
+const FIGHT_BATTLE_DPS = 20;
+const FIGHT_MAJOR_COMBATANTS = 12;
+const FIGHT_MAJOR_DPS = 60;
+
+interface FightHit {
+  tick: number;
+  x: number;
+  y: number;
+  mobId: string;
+  // The mob's opponent: "c:<colonistId>", "p:<playerId>" or "b:<building tile key>".
+  other: string;
+  amount: number;
+  // Colony colonist (not the Abbey's clergy) / colony building involved; the player, if one is.
+  units: boolean;
+  buildings: boolean;
+  playerId: string | null;
+  kind: FightKind;
+  label: string;
+  // Higher wins when a cluster's hits disagree on who the attackers are.
+  rank: number;
+}
+
+interface ActiveFight extends Omit<FightSnapshot, "you"> {
+  playerIds: Set<string>;
+  lastTick: number;
+}
+
+let fightHits: FightHit[] = [];
+let activeFights: ActiveFight[] = [];
+let nextFightId = 1;
+
+function clearFights() {
+  fightHits = [];
+  activeFights = [];
+}
+
+const FIGHT_RAID_LABELS: Partial<Record<MobKind, string>> = {
+  wolf: "Wolf pack",
+  banditClubman: "Bandit raid",
+  banditArcher: "Bandit raid",
+  banditElite: "Bandit raid",
+  skeleton: "Dark host",
+  giantSpider: "Dark host",
+  darkShaman: "Dark host",
+};
+
+function fightThreatOf(mob: Mob): { kind: FightKind; label: string; rank: number } {
+  if (mob.boss === "warlord") return { kind: "boss", label: bossTitle(mob.kind, "warlord"), rank: 7 };
+  if (mob.siteKind === "castleRuin") return { kind: "boss", label: "Castle Ruin", rank: 6 };
+  if (mob.boss === "elite") return { kind: "boss", label: bossTitle(mob.kind, "elite"), rank: 5 };
+  if (mob.siteKind === "miniBoss") return { kind: "boss", label: "Mini-boss pack", rank: 5 };
+  if (mob.siteKind === "ruin") return { kind: "guardians", label: "Ruin guardians", rank: 4 };
+  if (mob.siteKind === "encampment") return { kind: "guardians", label: "Bandit camp", rank: 4 };
+  if (mob.isDeserter) return { kind: "deserters", label: "Deserters", rank: 3 };
+  if (mob.kind === "halfLatch") return { kind: "monsters", label: "Half-Latch", rank: 1 };
+  return { kind: "raid", label: FIGHT_RAID_LABELS[mob.kind] ?? "Greenskin raid", rank: 2 };
+}
+
+function recordFightHit(mob: Mob, x: number, y: number, other: string, amount: number) {
+  const id = other.slice(2);
+  const colonist = other.startsWith("c:") ? colonists.get(id) : undefined;
+  fightHits.push({
+    tick: cycleTick,
+    x,
+    y,
+    mobId: mob.id,
+    other,
+    amount,
+    units: !!colonist && !isAbbeyClergy(colonist),
+    buildings: other.startsWith("b:"),
+    playerId: other.startsWith("p:") ? id : null,
+    ...fightThreatOf(mob),
+  });
+  if (fightHits.length > FIGHT_MAX_HITS) fightHits.splice(0, fightHits.length - FIGHT_MAX_HITS);
+}
+
+// A mob's own blow on its current target, logged halfway between the two.
+function recordMobStrike(mob: Mob, hitX: number, hitY: number) {
+  const prefix = mob.targetType === "colonist" ? "c:" : mob.targetType === "player" ? "p:" : "b:";
+  recordFightHit(mob, (mob.x + hitX) / 2, (mob.y + hitY) / 2, prefix + mob.targetId, mob.damage);
+}
+
+function scanFights() {
+  const cutoff = cycleTick - FIGHT_WINDOW_TICKS;
+  // A setCycleTick (tests) can move time backwards: future-dated hits go too.
+  fightHits = fightHits.filter((h) => h.tick > cutoff && h.tick <= cycleTick);
+
+  interface Cluster {
+    sumX: number;
+    sumY: number;
+    n: number;
+    hits: FightHit[];
+  }
+  const radius = FIGHT_CLUSTER_TILES * TILE_SIZE;
+  const clusters: Cluster[] = [];
+  for (const h of fightHits) {
+    let best: Cluster | null = null;
+    let bestD = radius;
+    for (const c of clusters) {
+      const d = Math.hypot(c.sumX / c.n - h.x, c.sumY / c.n - h.y);
+      if (d <= bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    if (!best) {
+      best = { sumX: 0, sumY: 0, n: 0, hits: [] };
+      clusters.push(best);
+    }
+    best.sumX += h.x;
+    best.sumY += h.y;
+    best.n++;
+    best.hits.push(h);
+  }
+  // Centroids drift as hits join: merge any two that ended up within the radius.
+  for (let merged = true; merged; ) {
+    merged = false;
+    for (let i = 0; i < clusters.length && !merged; i++) {
+      for (let j = i + 1; j < clusters.length; j++) {
+        const a = clusters[i];
+        const b = clusters[j];
+        if (Math.hypot(a.sumX / a.n - b.sumX / b.n, a.sumY / a.n - b.sumY / b.n) > radius) continue;
+        a.sumX += b.sumX;
+        a.sumY += b.sumY;
+        a.n += b.n;
+        a.hits.push(...b.hits);
+        clusters.splice(j, 1);
+        merged = true;
+        break;
+      }
+    }
+  }
+
+  const next: ActiveFight[] = clusters.map((c) => {
+    const combatants = new Set<string>();
+    const playerIds = new Set<string>();
+    let damage = 0;
+    let lastTick = 0;
+    let units = false;
+    let buildings = false;
+    let top = c.hits[0];
+    for (const h of c.hits) {
+      combatants.add("m:" + h.mobId);
+      combatants.add(h.other);
+      damage += h.amount;
+      lastTick = Math.max(lastTick, h.tick);
+      units ||= h.units;
+      buildings ||= h.buildings;
+      if (h.playerId) playerIds.add(h.playerId);
+      if (h.rank > top.rank) top = h;
+    }
+    const dps = Math.round(damage / FIGHT_WINDOW_SECONDS);
+    const count = combatants.size;
+    const intensity: 1 | 2 | 3 =
+      count >= FIGHT_MAJOR_COMBATANTS || dps >= FIGHT_MAJOR_DPS ? 3 : count >= FIGHT_BATTLE_COMBATANTS || dps >= FIGHT_BATTLE_DPS ? 2 : 1;
+    return {
+      id: 0,
+      x: Math.floor(c.sumX / c.n / TILE_SIZE),
+      y: Math.floor(c.sumY / c.n / TILE_SIZE),
+      combatants: count,
+      dps,
+      intensity,
+      kind: top.kind,
+      label: top.label,
+      units,
+      buildings,
+      quiet: Math.round(((cycleTick - lastTick) / TICK_RATE) * 10) / 10,
+      playerIds,
+      lastTick,
+    };
+  });
+  next.sort((a, b) => b.combatants - a.combatants);
+  next.length = Math.min(next.length, FIGHT_MAX_TRACKED);
+
+  // Keep ids stable: biggest fights first claim the nearest previous fight within ~1.5 radii.
+  const unclaimed = activeFights.slice();
+  for (const f of next) {
+    let bestIdx = -1;
+    let bestD = FIGHT_CLUSTER_TILES * 1.5;
+    unclaimed.forEach((p, i) => {
+      const d = Math.hypot(p.x - f.x, p.y - f.y);
+      if (d <= bestD) {
+        bestD = d;
+        bestIdx = i;
+      }
+    });
+    f.id = bestIdx >= 0 ? unclaimed.splice(bestIdx, 1)[0].id : nextFightId++;
+  }
+  activeFights = next;
+}
+
+// The colony is shared, so any fight its units or buildings are in concerns every player; other
+// fights (a lone rider, the Abbey's clergy) only those within FIGHT_RELEVANCE_TILES. Fights the
+// player is in come first, then bigger, then nearer.
+function fightsForPlayer(player: Player): FightSnapshot[] {
+  if (activeFights.length === 0) return [];
+  const ptx = player.x / TILE_SIZE;
+  const pty = player.y / TILE_SIZE;
+  return activeFights
+    .map((f) => ({ f, you: f.playerIds.has(player.id), dist: Math.hypot(f.x + 0.5 - ptx, f.y + 0.5 - pty) }))
+    .filter(({ f, you, dist }) => you || f.units || f.buildings || dist <= FIGHT_RELEVANCE_TILES)
+    .sort((a, b) => Number(b.you) - Number(a.you) || b.f.intensity - a.f.intensity || a.dist - b.dist)
+    .slice(0, FIGHT_MAX_PER_PLAYER)
+    .map(({ f, you }): FightSnapshot => ({
+      id: f.id,
+      x: f.x,
+      y: f.y,
+      combatants: f.combatants,
+      dps: f.dps,
+      intensity: f.intensity,
+      kind: f.kind,
+      label: f.label,
+      units: f.units,
+      buildings: f.buildings,
+      you,
+      quiet: f.quiet,
+    }));
+}
+
+// Splices the player's `fights` into the shared snapshot JSON (omitted when they have none).
+function withPlayerFights(payload: string, player: Player): string {
+  const fights = fightsForPlayer(player);
+  if (fights.length === 0) return payload;
+  return payload.slice(0, -1) + ',"fights":' + JSON.stringify(fights) + "}";
+}
+
 const dt = 1 / TICK_RATE;
 let wasNight = false;
 
@@ -8513,6 +8767,7 @@ function stepSimulation() {
     checkBossSightings();
     evaluateGoals();
   }
+  if (cycleTick % FIGHT_SCAN_TICKS === 0) scanFights();
 }
 
 setInterval(() => {
@@ -8608,7 +8863,7 @@ setInterval(() => {
   const payload = JSON.stringify(snapshot);
   for (const player of players.values()) {
     if (player.socket.readyState === player.socket.OPEN) {
-      player.socket.send(payload);
+      player.socket.send(withPlayerFights(payload, player));
     }
   }
   if (TEST_HOOKS) {

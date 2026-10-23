@@ -456,6 +456,9 @@ export type ServerMessage =
       damagedBuildings: number[];
       // The shared goal track's current goal (Phase 5).
       goal?: GoalSnapshot;
+      // Off-screen fight notifiers: active fights relevant to THIS player (per-player field, omitted
+      // when there are none). See FightSnapshot.
+      fights?: FightSnapshot[];
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).
@@ -490,4 +493,39 @@ export interface SaveInfo {
   dayIndex: number;
   population: number;
   difficulty: Difficulty;
+}
+
+// ---- Off-screen fight notifiers (ROADMAP "Off-screen fight notifiers — landed 2026-10-23") ----
+// The server clusters recent blows (mob vs soldier / colonist / player / building) into fights; each
+// snapshot lists, per player, the ones involving the colony or that player, or within
+// FIGHT_RELEVANCE_TILES of them (at most FIGHT_MAX_PER_PLAYER, most urgent first). A fight drops out
+// FIGHT_WINDOW_SECONDS after its last blow. The client draws an edge-of-screen arrow per off-screen fight.
+export const FIGHT_WINDOW_SECONDS = 3;
+export const FIGHT_CLUSTER_TILES = 8;
+export const FIGHT_RELEVANCE_TILES = 48;
+export const FIGHT_MAX_PER_PLAYER = 8;
+// "raid": night-wave raiders; "guardians": ruin / encampment guardians; "boss": the Castle Ruin, its
+// Warlord, a mini-boss pack; "deserters": turned deserters; "monsters": anything else (Half-Latch).
+export type FightKind = "raid" | "guardians" | "boss" | "deserters" | "monsters";
+export interface FightSnapshot {
+  // Stable while the fight lasts (a cluster that drifts keeps its id).
+  id: number;
+  // Centre tile of the fight.
+  x: number;
+  y: number;
+  // Distinct mobs and defenders seen trading blows in the window.
+  combatants: number;
+  // Damage dealt per second (both sides) over the window.
+  dps: number;
+  // 1 skirmish, 2 battle, 3 major battle.
+  intensity: 1 | 2 | 3;
+  kind: FightKind;
+  // Who the attackers are, e.g. "Bandit raid", "Ruin guardians", "Castle Ruin", "Ogre Warlord".
+  label: string;
+  // The colony's units / buildings (Town Centers included) are in it; `you`: this player is.
+  units: boolean;
+  buildings: boolean;
+  you: boolean;
+  // Seconds since the last blow (0 .. FIGHT_WINDOW_SECONDS).
+  quiet: number;
 }
