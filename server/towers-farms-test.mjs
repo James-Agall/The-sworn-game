@@ -5,7 +5,8 @@
 // Checks: a Tower places with no workers and costs 20 wood + 15 rock; it shoots a troll for its level's
 // damage at its level's rate (L1-L3, upgraded via upgradeBuilding at the TOWER_COSTS price); max HP is
 // the big-building class x level; livingTowersNear; a Barn takes 8 plots within 2 tiles, not a 9th;
-// yield 24; the Archery Range still places and trains an archer (and is not a Tower).
+// yield 24; the Archery Range still places and trains an archer (and is not a Tower); an old save's
+// ArcherTower tile loads as an ArcherPost.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 19310;
@@ -158,6 +159,23 @@ const archers = c.snap.colonists.filter((k) => k.kind === "archer" && k.postX ==
 result(archers.length >= 1 && w0 - w1 === 10, `Archery Range: ${archers.length} archer(s), cost ${w0 - w1} wood (expected >=1, 10)`);
 const tw = (await hook("towerState")).towers;
 result(!tw.some((t) => t.x === AX && t.y === AY), "isTowerTile does not match the Archery Range");
+
+// ---- An old save's wall-mounted ArcherTower tile loads as a plain Archery Range ----
+await hook("setTileRaw", { tx: AX, ty: AY, tile: T.ArcherTower });
+let saveRes = null;
+c.ws.on("message", (raw) => {
+  const m = JSON.parse(raw.toString());
+  if (m.type === "saveResult") saveRes = m;
+});
+send({ type: "saveGame", slot: "slot1" });
+for (let i = 0; i < 300 && !saveRes; i++) await sleep(10);
+result(saveRes?.ok === true, `saved with an ArcherTower tile (${saveRes?.error ?? "ok"})`);
+const wBefore = c.welcomes;
+send({ type: "loadGame", slot: "slot1" });
+while (c.welcomes === wBefore) await sleep(10);
+result(tileAt(AX, AY) === T.ArcherPost, `old ArcherTower tile loaded as ${tileAt(AX, AY)} (expected ArcherPost ${T.ArcherPost})`);
+await snaps(2);
+result(c.snap.colonists.some((k) => k.kind === "archer" && k.postX === AX && k.postY === AY), "archers keep their post after the conversion");
 
 console.log(fails === 0 ? "ALL PASS" : `${fails} FAIL(S)`);
 c.ws.close();

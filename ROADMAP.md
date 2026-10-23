@@ -532,15 +532,16 @@ the formation and fight what is in front of them; surplus attackers queue instea
 
 ### Towers & farms — landed 2026-10-23
 
-- **Archery kept** (user's call): the Archery Range (`ArcherPost`), its wall-mounted Archer Tower upgrade and
-  archer training / respawn / garrison levels are unchanged from c2440e3. The Tower is a separate building.
+- **Archery kept** (user's call): the Archery Range (`ArcherPost`), and
+  archer training / respawn / garrison levels are unchanged from c2440e3, except the wall-mounted Archer Tower upgrade is removed (`TileType.ArcherTower` = 19 stays
+  reserved in the protocol; an old save's tile loads as an Archery Range). The Tower is a separate building.
 - **Tower** (`TileType.Tower` = 62, build key `[`, `archerTower.png` art): free-standing 1x1, solid, no workers,
   no population slot, not a military tile (no unit spawns / army synergy). `updateTowers` (each tick, after
   mobs move) shoots the nearest hostile mob in range (never dormant guardians, passive raid groups or
   unturned deserters) with the ranged arrow VFX; damage is flat. Levels via the normal in-place upgrade:
   L1 8 dmg / 1.5 s / 7 tiles, L2 12 / 1.1 s / 7.5, L3 18 / 0.8 s / 8 (`TOWER_STATS`); cost 20w+15r, then
   30w+30r, 45w+50r (`TOWER_COSTS`). HP: big-building class, 250 / 350 / 450. Helpers `isTowerTile(tile)` (matches only
-  `TileType.Tower`, not the Archer Tower) and `livingTowersNear(tx, ty, radiusTiles)` (exported, for the gate logic).
+  `TileType.Tower`, not the Archery Range) and `livingTowersNear(tx, ty, radiusTiles)` (exported, for the gate logic).
 - **Barns**: a Farm Plot may go anywhere within `BARN_FARM_RADIUS_TILES` 2 (Chebyshev) of a Barn with fewer than
   `BARN_MAX_FARM_PLOTS` 8 plots (was: orthogonally adjacent, so 4); it joins the nearest such Barn.
   `FARM_YIELD_PER_HARVEST` 36 -> 24: 6.67 grain per plot-day (was 10), a full Barn ~53/day (was 40).

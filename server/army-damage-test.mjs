@@ -25,8 +25,8 @@ const result = (ok, msg) => {
 const info = (msg) => console.log(`info [${el()}] ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T = { Empty: 0, FarmPlot: 4, KnightPost: 5, ArcherPost: 6, Blacksmith: 26, MilitiaPost: 32 };
-// Server isMilitaryTile: KnightPost, CastleLevel2/3, ArcherPost, ArcherTower, MilitiaPost, MilitiaCamp2/3.
-const MILITARY = new Set([5, 17, 18, 6, 19, 32, 33, 34]);
+// Server isMilitaryTile: KnightPost, CastleLevel2/3, ArcherPost, MilitiaPost, MilitiaCamp2/3.
+const MILITARY = new Set([5, 17, 18, 6, 32, 33, 34]);
 const TILE = 32;
 const BASE_DAMAGE = { knight: 12, militia: 6, archer: 8 }; // level-1 stats (KNIGHT_LEVEL_STATS[0], MILITIA_LEVEL_STATS[0], ARCHER_DAMAGE)
 

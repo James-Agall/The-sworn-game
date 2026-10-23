@@ -100,7 +100,7 @@ const TOOLS: ToolDef[] = [
   { tile: TileType.LumberjackPost, label: "Lumberjack", key: "3", cost: "Free (upgradeable)", category: "farming" },
   { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: "Free, within 2 tiles of a Barn (up to 8 per Barn)", category: "farming" },
   { tile: TileType.KnightPost, label: "Hall of the Sworn", key: "5", cost: "10 iron + 5 rock (upgradeable)", category: "combat" },
-  { tile: TileType.ArcherPost, label: "Archery Range", key: "6", cost: "10 wood (on Wall = Tower, upgradeable)", category: "combat" },
+  { tile: TileType.ArcherPost, label: "Archery Range", key: "6", cost: "10 wood (upgradeable)", category: "combat" },
   {
     tile: TileType.Tower,
     label: "Tower",
@@ -230,15 +230,15 @@ const WORKER_KINDS = new Set<string>([
   "forager",
   "builder",
 ]);
-// Archer is the one garrison kind that also hides at its post: an Archer Tower reads as the
-// archer firing from inside it, not standing beside it, unlike Barracks/Militia Camp where the
+// Archer is the one garrison kind that also hides at its post: an Archery Range reads as the
+// archers shooting from inside it, not standing beside it, unlike Barracks/Militia Camp where the
 // garrison visibly stands watch outside.
 const HIDE_AT_POST_KINDS = new Set<string>([...WORKER_KINDS, "archer"]);
 const AT_POST_HIDE_RADIUS_PX = 6;
 // Archers loiter within GARRISON_LOITER_PX (1.5 tiles) of their post server-side, not pinned to
 // its exact center like a stationary worker, so the tight worker radius above would almost never
 // match and the archer would stay visible nearly all the time. Match that loiter radius instead,
-// so the archer reads as "inside the tower" for its whole idle/patrol range and only reappears
+// so the archer reads as "inside the range" for its whole idle/patrol range and only reappears
 // once actually rallied or chasing beyond it.
 const ARCHER_HIDE_RADIUS_PX = 48;
 // Buildings whose garrison (knights/archers with matching postX/postY) can be click-selected.
@@ -247,7 +247,6 @@ const GARRISON_TILES = new Set<number>([
   TileType.CastleLevel2,
   TileType.CastleLevel3,
   TileType.ArcherPost,
-  TileType.ArcherTower,
   TileType.MilitiaPost,
   TileType.MilitiaCamp2,
   TileType.MilitiaCamp3,
@@ -502,7 +501,6 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.CastleLevel2]: "castleLv2",
   [TileType.CastleLevel3]: "castleLv3",
   [TileType.ArcherPost]: "archeryRange",
-  [TileType.ArcherTower]: "archerTower",
   [TileType.Tower]: "archerTower",
   [TileType.MilitiaPost]: "militiaCamp",
   [TileType.MilitiaCamp2]: "militiaCamp2",
@@ -4180,7 +4178,7 @@ async function main() {
   const INFO_TILES = new Set<number>([
     TileType.TownCenter, TileType.House, TileType.BigHouse, TileType.HouseLevel2, TileType.BarnPost,
     TileType.LumberjackPost, TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3,
-    TileType.ArcherPost, TileType.ArcherTower, TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost,
+    TileType.ArcherPost, TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost,
     TileType.Pasture, TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop,
     TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery,
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,

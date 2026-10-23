@@ -1,5 +1,5 @@
 // Scripted test: houses/population cap, barns + farm plots, mine clustering, knight castle leveling,
-// archer towers, plus a spawn-movement sanity check. Needs a FRESH server (starting stock wood 80 / iron 60 /
+// the Archery Range (rejected on a wall), plus a spawn-movement sanity check. Needs a FRESH server (starting stock wood 80 / iron 60 /
 // rock 60 / grain 60, no structures built yet) with no other players connected; run it with COLONY_WORLD_SIZE=80.
 // The Town Center alone gives a population cap of 10 (plus +1 per house/house or house/workplace neighbour pair),
 // so the population-gating phase fills the cap with Lumberjack Posts at a separate site.
@@ -651,7 +651,7 @@ let sixth = null;
   }
 }
 
-// ---------------- (g) archer tower ----------------
+// ---------------- (g) Archery Range cannot be placed on a wall ----------------
 {
   info(`(g) waiting for wood >= 11 (wood=${a.snap.wood})`);
   const waitStart = Date.now();
@@ -659,29 +659,14 @@ let sixth = null;
   const s = await gotoNewSite(a, "(g)");
   if (s) {
     const W = { x: s.x, y: s.y - 2 };
-    const w0 = a.snap.wood;
     const pw = await placeExpectAt(a, W.x, W.y, T.Wall, W.x, W.y, T.Wall);
     await sleep(100);
     result(pw.hit.length === 1 && pw.hit[0].tile === T.Wall, `(g) Wood Wall at (${W.x},${W.y}) placed`);
-    const archers0 = new Set(kinds(a, "archer").map((k) => k.id));
     const w1 = a.snap.wood;
-    const pa = await placeExpectAt(a, W.x, W.y, T.ArcherPost, W.x, W.y, T.ArcherTower);
+    const pa = await placeExpectAt(a, W.x, W.y, T.ArcherPost, W.x, W.y, T.ArcherPost);
     await sleep(150);
-    const archer = kinds(a, "archer").find((k) => !archers0.has(k.id));
-    result(pa.hit.length === 1 && pa.hit[0].tile === T.ArcherTower && pa.hit[0].prev === T.Wall,
-      `(g) Archer Post on the Wall -> ${JSON.stringify(pa.hit.map((u) => u.tile))} (expected [19], not 6); wood ${w1}->${a.snap.wood} (expected -10)`);
-    result(archer && archer.maxHp === 50 && archer.hp === 50, `(g) tower archer hp/maxHp=${archer?.hp}/${archer?.maxHp} (expected 50/50)`);
-    if (archer) {
-      const p0 = { x: archer.x, y: archer.y };
-      await sleep(3000);
-      const now = a.snap.colonists.find((k) => k.id === archer.id);
-      result(now && now.x === p0.x && now.y === p0.y, `(g) tower archer stationary over 3s: (${p0.x},${p0.y}) -> (${now?.x},${now?.y}) state=${now?.state}`);
-    }
-    const bt = await act(a, W.x, W.y, T.Empty);
-    await sleep(150);
-    const btu = bt.filter((u) => u.tileX === W.x && u.tileY === W.y);
-    result(btu.length === 1 && btu[0].tile === T.Wall && !a.snap.colonists.some((k) => k.id === archer?.id),
-      `(g) breaking the tower reverts to ${JSON.stringify(btu.map((u) => u.tile))} (expected [1] Wall), archer removed`);
+    result(pa.hit.length === 0 && a.snap.wood >= w1,
+      `(g) Archery Range on the Wall rejected: ${JSON.stringify(pa.hit.map((u) => u.tile))} (expected none); wood ${w1}->${a.snap.wood}`);
     const bw = await act(a, W.x, W.y, T.Empty);
     info(`(g) cleanup: broke wall -> ${JSON.stringify(bw.filter((u) => u.tileX === W.x && u.tileY === W.y).map((u) => u.tile))}; wood=${a.snap.wood}`);
   }

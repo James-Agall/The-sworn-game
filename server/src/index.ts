@@ -131,7 +131,6 @@ interface Colonist {
   homeTileY: number;
 
   castleLevel: number;
-  isTower: boolean;
 
   healTargetType: "player" | "colonist" | null;
   healTargetId: string | null;
@@ -309,7 +308,6 @@ let pendingEffects: AttackEffect[] = [];
 const respawnQueue: RespawnRequest[] = [];
 const farmPlots = new Map<string, FarmPlotState>();
 const minesPlacedOnOre = new Set<string>();
-const archerTowerWallType = new Map<string, TileType>();
 const buildingLevel = new Map<string, number>();
 // Towers: ticks until each Tower (resourceKey) may shoot again (transient, not saved). See the Tower block.
 const towerCooldowns = new Map<string, number>();
@@ -813,9 +811,6 @@ const ARCHER_ATTACK_RANGE = TILE_SIZE * 4;
 const ARCHER_ATTACK_COOLDOWN_TICKS = Math.round(TICK_RATE * 1.2);
 const ARCHER_SPEED = 100;
 
-const ARCHER_TOWER_MAX_HP = 50;
-const ARCHER_TOWER_DAMAGE = 14;
-
 const MILITIA_LEVEL_STATS = [
   { maxHp: 30, damage: 6 },
   { maxHp: 50, damage: 10 },
@@ -825,7 +820,7 @@ const MILITIA_SPEED = 120;
 
 const CIVILIAN_MAX_HP = 20;
 
-function guardStats(kind: ColonistKind, level: number, isTower: boolean) {
+function guardStats(kind: ColonistKind, level: number) {
   if (kind === "knight") {
     const lvl = Math.min(Math.max(level, 1), 3) - 1;
     const tierStats = KNIGHT_LEVEL_STATS[lvl];
@@ -853,16 +848,6 @@ function guardStats(kind: ColonistKind, level: number, isTower: boolean) {
     };
   }
   const bonus = levelBonus(level);
-  if (isTower) {
-    return {
-      maxHp: Math.round(ARCHER_TOWER_MAX_HP * (1 + bonus)),
-      damage: Math.ceil(ARCHER_TOWER_DAMAGE * (1 + bonus)),
-      range: ARCHER_ATTACK_RANGE,
-      cooldown: Math.round(ARCHER_ATTACK_COOLDOWN_TICKS * (1 - bonus)),
-      speed: 0,
-      melee: false,
-    };
-  }
   return {
     maxHp: Math.round(ARCHER_MAX_HP * (1 + bonus)),
     damage: Math.ceil(ARCHER_DAMAGE * (1 + bonus)),
@@ -1332,7 +1317,6 @@ const POST_TILE_TYPES = [
   TileType.BarnPost,
   TileType.CastleLevel2,
   TileType.CastleLevel3,
-  TileType.ArcherTower,
   TileType.ChurchPost,
   TileType.Pasture,
   TileType.Orchard,
@@ -1547,7 +1531,7 @@ function isValidPostTile(kind: ColonistKind, t: TileType): boolean {
     return t === TileType.KnightPost || t === TileType.CastleLevel2 || t === TileType.CastleLevel3;
   }
   if (kind === "archer") {
-    return t === TileType.ArcherPost || t === TileType.ArcherTower;
+    return t === TileType.ArcherPost;
   }
   if (isMilitiaLineKind(kind)) return t === TileType.MilitiaPost || t === TileType.MilitiaCamp2 || t === TileType.MilitiaCamp3;
   if (kind === "lumberjack") return t === TileType.LumberjackPost;
@@ -1629,7 +1613,6 @@ function isMilitaryTile(t: TileType): boolean {
     t === TileType.CastleLevel2 ||
     t === TileType.CastleLevel3 ||
     t === TileType.ArcherPost ||
-    t === TileType.ArcherTower ||
     t === TileType.MilitiaPost ||
     t === TileType.MilitiaCamp2 ||
     t === TileType.MilitiaCamp3
@@ -1696,14 +1679,13 @@ function spawnColonistForPost(
   tx: number,
   ty: number,
   kind: ColonistKind,
-  castleLevel = 1,
-  isTower = false
+  castleLevel = 1
 ): Colonist {
   const isGuard = kind === "knight" || kind === "archer" || isMilitiaLineKind(kind);
   const stationary = isStationaryMinerKind(kind) || kind === "farmhand";
   const spawnTile = isStationaryWorkerKind(kind) ? { x: tx, y: ty } : findAdjacentWalkable(tx, ty) ?? { x: tx, y: ty };
   const center = tileToPixelCenter(spawnTile);
-  const stats = isGuard ? guardStats(kind, castleLevel, isTower) : null;
+  const stats = isGuard ? guardStats(kind, castleLevel) : null;
   const maxHp = stats ? stats.maxHp : kind === "bishop" ? BISHOP_MAX_HP : CIVILIAN_MAX_HP;
   const colonist: Colonist = {
     id: randomUUID(),
@@ -1736,7 +1718,6 @@ function spawnColonistForPost(
     homeTileX: -1,
     homeTileY: -1,
     castleLevel,
-    isTower,
     healTargetType: null,
     healTargetId: null,
     rallyTileX: tx,
@@ -1815,8 +1796,7 @@ function spawnExtraGuards(
   tx: number,
   ty: number,
   kind: "knight" | "archer",
-  newLevel: number,
-  isTower = false
+  newLevel: number
 ) {
   const targetCount = guardCountForLevel(newLevel);
   let currentCount = 0;
@@ -1824,35 +1804,35 @@ function spawnExtraGuards(
     if (c.kind === kind && c.postX === tx && c.postY === ty) currentCount++;
   }
   for (let i = currentCount; i < targetCount; i++) {
-    spawnColonistForPost(tx, ty, kind, newLevel, isTower);
+    spawnColonistForPost(tx, ty, kind, newLevel);
   }
 }
 
 function upgradeKnightAt(tx: number, ty: number, level: number) {
-  const stats = guardStats("knight", level, false);
+  const stats = guardStats("knight", level);
   for (const c of getColonistsAtPost(tx, ty)) {
     if (c.kind !== "knight") continue;
     c.castleLevel = level;
     c.maxHp = stats.maxHp;
     c.hp = stats.maxHp;
   }
-  spawnExtraGuards(tx, ty, "knight", level, false);
+  spawnExtraGuards(tx, ty, "knight", level);
 }
 
-function upgradeArcherAt(tx: number, ty: number, level: number, isTower: boolean) {
+function upgradeArcherAt(tx: number, ty: number, level: number) {
   for (const c of getColonistsAtPost(tx, ty)) {
     if (c.kind !== "archer") continue;
     c.castleLevel = level;
-    const stats = guardStats("archer", level, c.isTower);
+    const stats = guardStats("archer", level);
     c.maxHp = stats.maxHp;
     c.hp = stats.maxHp;
   }
-  spawnExtraGuards(tx, ty, "archer", level, isTower);
+  spawnExtraGuards(tx, ty, "archer", level);
 }
 
 function upgradeMilitiaAt(tx: number, ty: number, level: number) {
   const newKind = militiaKindForLevel(level);
-  const stats = guardStats(newKind, level, false);
+  const stats = guardStats(newKind, level);
   for (const c of getColonistsAtPost(tx, ty)) {
     if (!isMilitiaLineKind(c.kind)) continue;
     c.kind = newKind;
@@ -1866,7 +1846,7 @@ function upgradeMilitiaAt(tx: number, ty: number, level: number) {
     if (isMilitiaLineKind(c.kind) && c.postX === tx && c.postY === ty) currentCount++;
   }
   for (let i = currentCount; i < targetCount; i++) {
-    spawnColonistForPost(tx, ty, newKind, level, false);
+    spawnColonistForPost(tx, ty, newKind, level);
   }
 }
 
@@ -1876,7 +1856,6 @@ const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
   [TileType.KnightPost]: "Hall of the Sworn",
   [TileType.MilitiaPost]: "Militia Camp",
   [TileType.ArcherPost]: "Archery Range",
-  [TileType.ArcherTower]: "Archer Tower",
   [TileType.Tower]: "Tower",
   [TileType.IronMinePost]: "Iron Mine",
   [TileType.RockMinePost]: "Quarry",
@@ -1958,7 +1937,7 @@ function resolveKnightPlacement(tx: number, ty: number) {
   }
   tiles[tileIndex(tx, ty)] = TileType.KnightPost;
   broadcastTileUpdate(tx, ty, TileType.KnightPost);
-  spawnColonistForPost(tx, ty, "knight", 1, false);
+  spawnColonistForPost(tx, ty, "knight", 1);
 }
 
 function resolveMilitiaPlacement(tx: number, ty: number) {
@@ -1979,30 +1958,22 @@ function resolveMilitiaPlacement(tx: number, ty: number) {
   }
   tiles[tileIndex(tx, ty)] = TileType.MilitiaPost;
   broadcastTileUpdate(tx, ty, TileType.MilitiaPost);
-  spawnColonistForPost(tx, ty, "militia", 1, false);
-  spawnColonistForPost(tx, ty, "militia", 1, false);
+  spawnColonistForPost(tx, ty, "militia", 1);
+  spawnColonistForPost(tx, ty, "militia", 1);
 }
 
-function resolveArcherPlacement(tx: number, ty: number, wallType: TileType | null) {
+function resolveArcherPlacement(tx: number, ty: number) {
   const here = tiles[tileIndex(tx, ty)] as TileType;
-  if (here === TileType.ArcherPost || here === TileType.ArcherTower) {
+  if (here === TileType.ArcherPost) {
     const newLevel = getBuildingLevel(tx, ty) + 1;
     buildingLevel.set(resourceKey(tx, ty), newLevel);
-    const isTower = here === TileType.ArcherTower;
-    upgradeArcherAt(tx, ty, newLevel, isTower);
+    upgradeArcherAt(tx, ty, newLevel);
     announceUpgrade(here, newLevel);
     return;
   }
-  if (wallType !== null) {
-    tiles[tileIndex(tx, ty)] = TileType.ArcherTower;
-    archerTowerWallType.set(resourceKey(tx, ty), wallType);
-    broadcastTileUpdate(tx, ty, TileType.ArcherTower);
-    spawnColonistForPost(tx, ty, "archer", 1, true);
-  } else {
-    tiles[tileIndex(tx, ty)] = TileType.ArcherPost;
-    broadcastTileUpdate(tx, ty, TileType.ArcherPost);
-    spawnColonistForPost(tx, ty, "archer", 1, false);
-  }
+  tiles[tileIndex(tx, ty)] = TileType.ArcherPost;
+  broadcastTileUpdate(tx, ty, TileType.ArcherPost);
+  spawnColonistForPost(tx, ty, "archer", 1);
 }
 
 function resolveMinePlacement(
@@ -2261,9 +2232,8 @@ function processRespawnQueue() {
           : isMilitiaLineKind(req.kind)
           ? militiaLevelForTile(currentTile)
           : 1;
-      const isTower = req.kind === "archer" ? currentTile === TileType.ArcherTower : false;
       const spawnKind = isMilitiaLineKind(req.kind) ? militiaKindForLevel(castleLevel) : req.kind;
-      spawnColonistForPost(req.tx, req.ty, spawnKind, castleLevel, isTower);
+      spawnColonistForPost(req.tx, req.ty, spawnKind, castleLevel);
       respawnQueue.splice(i, 1);
     }
   }
@@ -4301,7 +4271,7 @@ function returnToRally(c: Colonist, dt: number, speed: number) {
 }
 
 function updateGuardColonist(c: Colonist, dt: number) {
-  const stats = guardStats(c.kind, c.castleLevel, c.isTower);
+  const stats = guardStats(c.kind, c.castleLevel);
 
   let target = c.targetMobId ? getMobById(c.targetMobId) : undefined;
   if (c.targetMobId && !target) {
@@ -5691,7 +5661,7 @@ function buildingBaseHp(t: TileType): number {
   if (t === TileType.Gate) return BUILDING_HP_GATE;
   if (
     BIG_BUILD_TILES.has(t) || t === TileType.CastleLevel2 || t === TileType.CastleLevel3 ||
-    t === TileType.ArcherTower || isTowerTile(t) || t === TileType.MilitiaCamp3
+    isTowerTile(t) || t === TileType.MilitiaCamp3
   )
     return BUILDING_HP_BIG;
   if (isHouseTile(t) || t === TileType.HunterHut || t === TileType.ForagerHut || t === TileType.ArcherPost) return BUILDING_HP_SMALL;
@@ -6983,7 +6953,7 @@ const VISION_BUILDING_TILES = new Set<TileType>([
   TileType.TownCenter,
   TileType.House, TileType.BigHouse, TileType.HouseLevel2, TileType.BarnPost, TileType.LumberjackPost,
   TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3, TileType.ArcherPost,
-  TileType.ArcherTower, TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost, TileType.Pasture,
+  TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost, TileType.Pasture,
   TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop, TileType.Blacksmith,
   TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern,
   TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
@@ -7592,7 +7562,6 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   respawnQueue.length = 0;
   farmPlots.clear();
   minesPlacedOnOre.clear();
-  archerTowerWallType.clear();
   buildingLevel.clear();
   towerCooldowns.clear();
   buildingHp.clear();
@@ -7739,7 +7708,6 @@ function snapshotWorld() {
     farmPlots: Array.from(farmPlots),
     forageRegrow: Array.from(forageRegrow),
     minesPlacedOnOre: Array.from(minesPlacedOnOre),
-    archerTowerWallType: Array.from(archerTowerWallType),
     buildingLevel: Array.from(buildingLevel),
     buildingHp: Array.from(buildingHp),
     repairPaid: Array.from(repairPaid),
@@ -7812,11 +7780,11 @@ function applyWorld(s: WorldState) {
   refill(forageRegrow, s.forageRegrow);
   minesPlacedOnOre.clear();
   for (const key of s.minesPlacedOnOre) minesPlacedOnOre.add(key);
-  refill(archerTowerWallType, s.archerTowerWallType);
   refill(buildingLevel, s.buildingLevel);
   // `?? []`: saves from before building HP load with every building at full HP.
   refill(buildingHp, s.buildingHp ?? []);
   refill(repairPaid, s.repairPaid ?? []);
+  migrateArcherTowers();
   repairQueue.length = 0;
   repairQueue.push(...(s.repairQueue ?? []));
   buildingTargetsDirty = true;
@@ -7851,6 +7819,24 @@ function applyWorld(s: WorldState) {
   pendingExplored = [];
   visionTile = new WeakMap();
   isPaused = false;
+}
+
+// The wall-mounted Archer Tower is gone: an old save's ArcherTower tile becomes a plain Archery Range
+// (its archers keep their post). One tile cannot hold both post and wall, so the wall the old tower
+// replaced is not restored.
+function migrateArcherTowers() {
+  for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
+    for (let tx = 0; tx < WORLD_TILES_X; tx++) {
+      if ((tiles[tileIndex(tx, ty)] as TileType) !== TileType.ArcherTower) continue;
+      tiles[tileIndex(tx, ty)] = TileType.ArcherPost;
+      for (const c of getColonistsAtPost(tx, ty)) {
+        if (c.kind !== "archer") continue;
+        const stats = guardStats("archer", c.castleLevel);
+        c.maxHp = stats.maxHp;
+        c.hp = Math.min(c.hp, stats.maxHp);
+      }
+    }
+  }
 }
 
 // Long days: a save counted in another cycle length (every save from before 2026-10-23 is 1200 + 800)
@@ -8168,7 +8154,6 @@ const BREAKABLE_TILES = [
   TileType.CastleLevel2,
   TileType.CastleLevel3,
   TileType.ArcherPost,
-  TileType.ArcherTower,
   TileType.Tower,
   TileType.IronMinePost,
   TileType.RockMinePost,
@@ -8251,7 +8236,7 @@ function isInPlaceUpgrade(tile: TileType, current: TileType, tx: number, ty: num
   if (tile === TileType.KnightPost) return current === TileType.KnightPost || current === TileType.CastleLevel2;
   if (tile === TileType.MilitiaPost) return current === TileType.MilitiaPost || current === TileType.MilitiaCamp2;
   if (tile === TileType.ArcherPost) {
-    return (current === TileType.ArcherPost || current === TileType.ArcherTower) && getBuildingLevel(tx, ty) < 3;
+    return current === TileType.ArcherPost && getBuildingLevel(tx, ty) < 3;
   }
   if (tile === TileType.TownCenter) return current === TileType.TownCenter && (findTownCenterAt(tx, ty)?.level ?? 3) < 3;
   return tile === current && IN_PLACE_UPGRADE_TILES.includes(tile) && getBuildingLevel(tx, ty) < 3;
@@ -8276,15 +8261,13 @@ function syncGuardBonusAt(tx: number, ty: number) {
   let kind: ColonistKind;
   let level: number;
   let base: number;
-  let isTower = false;
   if (t === TileType.KnightPost || t === TileType.CastleLevel2 || t === TileType.CastleLevel3) {
     kind = "knight";
     level = t === TileType.KnightPost ? 1 : t === TileType.CastleLevel2 ? 2 : 3;
     base = guardCountForLevel(level);
-  } else if (t === TileType.ArcherPost || t === TileType.ArcherTower) {
+  } else if (t === TileType.ArcherPost) {
     kind = "archer";
     level = getBuildingLevel(tx, ty);
-    isTower = t === TileType.ArcherTower;
     base = guardCountForLevel(level);
   } else {
     level = t === TileType.MilitiaPost ? 1 : t === TileType.MilitiaCamp2 ? 2 : 3;
@@ -8297,7 +8280,7 @@ function syncGuardBonusAt(tx: number, ty: number) {
     if (c.postX === tx && c.postY === ty && (c.kind === kind || (kind !== "knight" && kind !== "archer" && isMilitiaLineKind(c.kind)))) have++;
   }
   for (const q of respawnQueue) if (q.tx === tx && q.ty === ty) have++;
-  for (let i = have; i < target; i++) spawnColonistForPost(tx, ty, kind, level, isTower);
+  for (let i = have; i < target; i++) spawnColonistForPost(tx, ty, kind, level);
 }
 
 function syncGuardBonusesAround(tx: number, ty: number) {
@@ -8599,7 +8582,7 @@ function pendingWorkerSlots(): number {
 }
 
 // Removes the building (or site, road, forage) at a tile: its posted workers, level, farm plot, site,
-// HP records; mines / archer towers revert to the ore / wall under them. Player demolish and mob
+// HP records; mines revert to the ore under them. Player demolish and mob
 // destruction (damageBuilding) both end here.
 function demolishTile(tx: number, ty: number, current: TileType) {
   const siteKey = resourceKey(tx, ty);
@@ -8609,7 +8592,7 @@ function demolishTile(tx: number, ty: number, current: TileType) {
   const site = constructionSites.get(siteKey);
   constructionSites.delete(siteKey);
   if (current === TileType.ConstructionSite) {
-    // Ore / rock / a wall under an unfinished mine or archer tower comes back.
+    // Ore / rock under an unfinished mine comes back.
     const revert = site && !site.upgrade ? site.prevTile : TileType.Empty;
     tiles[tileIndex(tx, ty)] = revert;
     broadcastTileUpdate(tx, ty, revert);
@@ -8636,14 +8619,6 @@ function demolishTile(tx: number, ty: number, current: TileType) {
     const key = resourceKey(tx, ty);
     const revert = minesPlacedOnOre.has(key) ? TileType.Rock : TileType.Empty;
     minesPlacedOnOre.delete(key);
-    tiles[tileIndex(tx, ty)] = revert;
-    broadcastTileUpdate(tx, ty, revert);
-    return;
-  }
-  if (current === TileType.ArcherTower) {
-    const key = resourceKey(tx, ty);
-    const revert = archerTowerWallType.get(key) ?? TileType.Empty;
-    archerTowerWallType.delete(key);
     tiles[tileIndex(tx, ty)] = revert;
     broadcastTileUpdate(tx, ty, revert);
     return;
@@ -8685,7 +8660,7 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
     if (current !== TileType.Empty) return;
     if (barnForNewFarmPlot(tx, ty) === null) return;
   } else if (tile === TileType.ArcherPost) {
-    if (current !== TileType.Empty && !WALL_TILES.includes(current)) return;
+    if (current !== TileType.Empty) return;
   } else if (tile === TileType.WardStone) {
     if (current !== TileType.Empty) return;
     if (tilesOfType(TileType.ChurchPost).length === 0) return;
@@ -8727,7 +8702,7 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
   }
 
   spend(cost);
-  // A new building (e.g. an archer tower on a damaged wall) starts at full HP.
+  // A new building (e.g. a house over a cleared, damaged tile) starts at full HP.
   if (!upgradeInPlace) {
     buildingHp.delete(siteKey);
     repairPaid.delete(siteKey);
@@ -8755,8 +8730,7 @@ function resolvePlacement(tx: number, ty: number, tile: TileType, current: TileT
     return;
   }
   if (tile === TileType.ArcherPost) {
-    const wallType = WALL_TILES.includes(current) ? current : null;
-    resolveArcherPlacement(tx, ty, wallType);
+    resolveArcherPlacement(tx, ty);
     return;
   }
   if (tile === TileType.Tower) {
@@ -8988,7 +8962,7 @@ function upgradePlacementTile(t: TileType): TileType | null {
   if (t === TileType.House || t === TileType.BigHouse) return TileType.House;
   if (t === TileType.KnightPost || t === TileType.CastleLevel2) return TileType.KnightPost;
   if (t === TileType.MilitiaPost || t === TileType.MilitiaCamp2) return TileType.MilitiaPost;
-  if (t === TileType.ArcherPost || t === TileType.ArcherTower) return TileType.ArcherPost;
+  if (t === TileType.ArcherPost) return TileType.ArcherPost;
   if (t === TileType.TownCenter) return TileType.TownCenter;
   return IN_PLACE_UPGRADE_TILES.includes(t) ? t : null;
 }
