@@ -93,7 +93,23 @@ export enum TileType {
   // Player-built, free-standing: shoots the nearest hostile mob in range on its own (no workers, no
   // population). Upgradeable in place to level 3. Separate from the Archery Range (ArcherPost).
   Tower = 62,
+  // Player-built gate (Walls & gates, 2026-10-23). NOT in isSolidTile: its passability is server state
+  // (snapshot `gates`): open for anyone, closed for mobs (the colony's own units open it by walking up).
+  // Numbered apart from the run above so parallel tile additions don't collide.
+  Gate = 70,
 }
+
+// ---- Walls & gates (2026-10-23) ----
+// Gate lock chosen in the building info menu: "auto" opens for friendly units nearby, "open" / "closed"
+// hold it (a locked-closed gate blocks the colony's own units too).
+export type GateLock = "auto" | "open" | "closed";
+// `gates` is flattened [tile index, GATE_FLAG_* bits] pairs, one per gate tile.
+export const GATE_SNAPSHOT_STRIDE = 2;
+export const GATE_FLAG_OPEN = 1;
+export const GATE_FLAG_LOCK_OPEN = 2;
+export const GATE_FLAG_LOCK_CLOSED = 4;
+// Overrun: a hostile majority near the gate with no living tower in range; mobs pass as if it were open.
+export const GATE_FLAG_OVERRUN = 8;
 
 export function isRoadTile(tile: TileType): boolean {
   return tile === TileType.Road || tile === TileType.CobbleRoad;
@@ -366,6 +382,8 @@ export interface BuildingInfo {
   // Manual repair (null while the building is at full HP): the materials it costs now ("Free" when
   // already paid) and why it can't be ordered, if so.
   repair: { cost: string; enabled: boolean; reason: string } | null;
+  // Gates only: the current state and lock (see setGateLock).
+  gate?: { open: boolean; lock: GateLock; overrun: boolean };
 }
 
 export type ClientMessage =
@@ -390,6 +408,8 @@ export type ClientMessage =
   | { type: "upgradeBuilding"; tileX: number; tileY: number }
   // Pays for the building's missing HP now and makes it the builders' first repair job.
   | { type: "repairBuilding"; tileX: number; tileY: number }
+  // Sets the lock of the gate at the tile (no reach limit, like the other building info buttons).
+  | { type: "setGateLock"; tileX: number; tileY: number; lock: GateLock }
   // Save files (server/saves/<slot>.json). saveGame takes slot1-3 (the autosave is the server's own);
   // loadGame replaces the shared world for everyone connected.
   | { type: "saveGame"; slot: SaveSlot }
@@ -460,6 +480,8 @@ export type ServerMessage =
       damagedBuildings: number[];
       // The shared goal track's current goal (Phase 5).
       goal?: GoalSnapshot;
+      // See GATE_SNAPSHOT_STRIDE (omitted by older servers).
+      gates?: number[];
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).
