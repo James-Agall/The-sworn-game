@@ -881,6 +881,82 @@
       #stat-builders { font-size: 12.5px; color: var(--ink-soft); }
       body.hide-minimap #minimap-frame { display: none; }
       body.hide-events #event-feed { display: none; }
+
+      /* Off-screen fight notifiers: one arrow per fight outside the view, clamped to the screen rim and
+         pointing at it (placed per frame by main.ts via fightArrows.ts). The layer never takes clicks;
+         each arrow does (it pans the camera to the fight). Tint by intensity: amber, red, seal. */
+      #fight-arrows { position: fixed; inset: 0; z-index: 11; pointer-events: none; overflow: hidden; }
+      .fight-arrow {
+        --fight-tint: #c26a00;
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        padding: 0;
+        border: 0;
+        background: none;
+        pointer-events: auto;
+        cursor: pointer;
+        font-family: var(--font-serif);
+      }
+      .fight-arrow[hidden] { display: none; }
+      .fight-arrow.fight-i2 { --fight-tint: #a8321e; }
+      .fight-arrow.fight-i3 { --fight-tint: var(--seal); }
+      .fight-chevron {
+        position: absolute;
+        left: -14px;
+        top: -14px;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 2px solid var(--fight-tint);
+        box-shadow: var(--paper-edge), 0 2px 5px rgba(0, 0, 0, 0.55);
+      }
+      /* The point: a triangle on the chevron's right side, so rotate(angle) aims it. */
+      .fight-chevron::after {
+        content: "";
+        position: absolute;
+        right: -9px;
+        top: 50%;
+        transform: translateY(-50%);
+        border-top: 7px solid transparent;
+        border-bottom: 7px solid transparent;
+        border-left: 9px solid var(--fight-tint);
+      }
+      .fight-chevron::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 8px;
+        height: 8px;
+        margin: -4px 0 0 -4px;
+        border-radius: 50%;
+        background: var(--fight-tint);
+      }
+      .fight-label {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        padding: 2px 7px 3px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        color: var(--ink);
+        border: 1px solid var(--wood-dark);
+        border-left: 3px solid var(--fight-tint);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 2px 5px rgba(0, 0, 0, 0.5);
+        font-size: 12px;
+        line-height: 1.2;
+        white-space: nowrap;
+        text-align: left;
+      }
+      .fight-label small { display: block; font-size: 10.5px; color: var(--ink-soft); }
+      .fight-arrow:hover .fight-chevron { border-width: 3px; }
+      .fight-arrow:focus-visible { outline: none; }
+      .fight-arrow:focus-visible .fight-label { outline: 2px solid var(--sel-ink); }
     </style>
   </head>
   <body>
@@ -948,6 +1024,7 @@
       <button id="menu-btn" class="control-btn">Menu</button>
     </div>
     <div id="event-feed" aria-live="polite"></div>
+    <div id="fight-arrows"></div>
     <div id="building-panel" role="dialog" aria-label="Building" hidden>
       <div class="bp-head"><span id="bp-name"></span><span id="bp-level"></span><button id="bp-close" aria-label="Close">×</button></div>
       <div id="bp-staffing" class="bp-row"></div>
