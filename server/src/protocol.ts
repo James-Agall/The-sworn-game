@@ -90,6 +90,10 @@ export enum TileType {
   // neighbours on the client). Colonists and players move faster on them (server ROAD_SPEED_BONUS).
   Road = 60,
   CobbleRoad = 61,
+  // Player-built, free-standing: shoots the nearest hostile mob in range on its own (no workers, no
+  // population). Upgradeable in place to level 3. Replaces the retired ArcherPost (6) / ArcherTower
+  // (19), whose values stay reserved: old saves convert both to Tower on load.
+  Tower = 62,
 }
 
 export function isRoadTile(tile: TileType): boolean {
@@ -159,7 +163,8 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.FruitTree ||
     tile === TileType.FruitTreePicked ||
     tile === TileType.BuildersGuild ||
-    tile === TileType.ConstructionSite
+    tile === TileType.ConstructionSite ||
+    tile === TileType.Tower
   );
 }
 

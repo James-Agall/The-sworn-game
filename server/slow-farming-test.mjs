@@ -120,8 +120,8 @@ info(`constants: grow ${K.FARM_GROW_TICKS}t harvest ${K.FARM_HARVEST_TICKS}t sow
 const DAY = K.DAY_TICKS + K.NIGHT_TICKS;
 result(K.FARM_GROW_TICKS === 3 * DAY && K.FARM_FALLOW_TICKS === 3 * DAY && K.FARM_HARVESTS_BEFORE_FALLOW === 5,
   `constants: grow = 3 days (${K.FARM_GROW_TICKS}t), fallow = 3 days (${K.FARM_FALLOW_TICKS}t), fallow after 5 harvests`);
-result(K.FARM_YIELD_PER_HARVEST * K.FARM_HARVESTS_BEFORE_FALLOW / ((K.FARM_GROW_TICKS * K.FARM_HARVESTS_BEFORE_FALLOW + K.FARM_FALLOW_TICKS) / DAY) === 10,
-  `constants: long-run grain per plot-day = 5 x ${K.FARM_YIELD_PER_HARVEST} / 18 days = 10 (the old 8 s+2 s cycle's 10/day)`);
+result(K.FARM_YIELD_PER_HARVEST * K.FARM_HARVESTS_BEFORE_FALLOW / ((K.FARM_GROW_TICKS * K.FARM_HARVESTS_BEFORE_FALLOW + K.FARM_FALLOW_TICKS) / DAY) === 20 / 3,
+  `constants: long-run grain per plot-day = 5 x ${K.FARM_YIELD_PER_HARVEST} / 18 days = 6.67 (was 10; Barns now hold 8 plots, not 4)`);
 
 // ---- A) sown -> growing -> ripe on the flat first grow ----
 result(p && p.state === "sown" && p.growTicksRemaining <= K.FARM_GROW_TICKS && p.growTicksTotal === K.FARM_GROW_TICKS,
