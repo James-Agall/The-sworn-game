@@ -62,10 +62,11 @@ const GOAL_TITLES = [
   "Assign a worker",
   "Arm a unit",
   "Survive the first night",
-  "Survive 3 nights",
+  // Long days (2026-10-23): rescaled from 3/7/14/21.
+  "Survive 2 nights",
+  "Survive 4 nights",
   "Survive 7 nights",
-  "Survive 14 nights",
-  "Survive 21 nights",
+  "Survive 10 nights",
   "Clear the Castle Ruin",
 ];
 
@@ -310,16 +311,16 @@ try {
     await c.hook("setCycleTick", { tick: cycle + 5 });
     st = await waitGoal(c, (s) => s.goalIndex >= 4);
     result(st.goalIndex === 4 && st.nightsSurvived === 1, `B: first dawn completed "Survive the first night" -> "${st.goal.title}" ${st.goal.progress}/${st.goal.target}`);
-    await c.hook("setCycleTick", { tick: 2 * cycle + 5 });
-    st = await waitGoal(c, (s) => s.goal.progress === 2);
+    await c.hook("setCycleTick", { tick: 3 * cycle + 5 });
+    st = await waitGoal(c, (s) => s.goalIndex >= 5 && s.goal.progress === 3);
     await c.nextSnap();
-    result(st.goalIndex === 4 && c.snap.goal.progress === 2 && c.snap.goal.target === 3, `B: 2 nights -> snapshot progress ${c.snap.goal.progress}/${c.snap.goal.target}`);
-    await c.hook("setCycleTick", { tick: 21 * cycle + 5 });
+    result(st.goalIndex === 5 && c.snap.goal.progress === 3 && c.snap.goal.target === 4, `B: 3 nights -> snapshot progress ${c.snap.goal.progress}/${c.snap.goal.target}`);
+    await c.hook("setCycleTick", { tick: 10 * cycle + 5 });
     st = await waitGoal(c, (s) => s.goalIndex >= 8);
-    result(st.goalIndex === 8 && st.goal.title === "Clear the Castle Ruin", `B: 21 nights chain-completed the night milestones -> "${st.goal.title}"`);
+    result(st.goalIndex === 8 && st.goal.title === "Clear the Castle Ruin", `B: 10 nights chain-completed the night milestones -> "${st.goal.title}"`);
     const nightToasts = ms().slice(3);
     result(
-      ["first night", "3 nights", "7 nights", "14 nights", "21 nights"].every((n, k) => nightToasts[k]?.includes(n)),
+      ["first night", "2 nights", "4 nights", "7 nights", "10 nights"].every((n, k) => nightToasts[k]?.includes(n)),
       `B: one toast per night milestone: ${JSON.stringify(nightToasts)}`
     );
     // Rewards: 15+30+60+100+150 gold from the night goals (no kills happened).

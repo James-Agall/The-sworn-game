@@ -574,6 +574,55 @@ the formation and fight what is in front of them; surplus attackers queue instea
 - **Test:** `server/gates-walls-test.mjs` (16 checks; test hook `gateState` with `checkOverrun`). Other suites
   not re-run this round: building-damage-test's breach step now chews through a 200 HP wall (was 60).
 
+### Long days & dawn/dusk respawns — landed 2026-10-23
+
+PLAN-512-map-and-forts.md §5. **Day 300 s, night 75 s** (`DAY_TICKS` / `NIGHT_TICKS`, was 60 s + 40 s): a game
+day is 375 s, `DAY_LENGTH_SCALE` 3.75 x the old cycle, `DAYLIGHT_SCALE` 5 x the old daylight. The night stays
+short so raids stay tense. Principle: the **economy runs per real second** (income per second unchanged, so a
+long day means more to do between raids, not less income); only day-phase events stay per game day. Rates
+that must not slow down are written against `LEGACY_DAY_TICKS` / `LEGACY_NIGHT_TICKS` (the old cycle).
+
+| Rate | Was | Now | Basis |
+|---|---|---|---|
+| Farm Plot grow / fallow (`FARM_GROW_TICKS`, `FARM_FALLOW_TICKS`) | 3 / 3 days of 100 s | 3 / 3 legacy days (300 s each, ~0.8 long day) | per second: grain/plot/s, the 60-grain opening bridge and farm tests unchanged |
+| Farm yield per harvest | 36 | 36 | per second |
+| Farmhand cycle (`FARMHAND_CYCLE_TICKS`) | 3 x 60 s of tending | 3 x 60 s of tending, yield 90 | per second (1 unit per 2 s of tending) |
+| Forage regrow (`FORAGE_REGROW_TICKS`) | 1 day (100 s) | 100 s | per second |
+| Wildlife respawn (`WILDLIFE_RESPAWN_INTERVAL_TICKS`) | 4 per day (one per 25 s) | one per 25 s (~15 per long day) | per second |
+| Tree regrowth (`TREE_RESPAWN_INTERVAL_TICKS`, lumberjack regrow) | 8 s / 10 s | unchanged | already per second |
+| Worker production (chop / mine / craft / hunt / forage trips) | per tick | unchanged | per second (workers now work 80% of the cycle vs 60%) |
+| Food upkeep (`FOOD_PER_COLONIST_PER_DAY`, at dawn) | 1 per colonist per day | 3.75 per colonist per day (colony total rounded up) | per second: still 1 per 100 s |
+| Starvation damage, morale/desertion check, gravestone wipe, dawn autosave | each dawn | each dawn | per game day (fewer per hour) |
+| Raid spawn (`RAID_SPAWN_CYCLE_TICK`) | day midpoint (30 s) | day midpoint (150 s) | per game day |
+| Raid size / kind unlocks / Hunger-mark chance | per day index | per day index | per raid (one raid per night; see caveat) |
+| Deserter activation (`DESERTER_ACTIVATION_DAYS`) | 10 days (~17 min) | 3 days (~19 min) | ~real time |
+| Ward grace (`WARD_GRACE_TICKS` 60 s), repair toasts, combat timers | per tick | unchanged | per second |
+| Goal track night counts | 1 / 3 / 7 / 14 / 21 | 1 / 2 / 4 / 7 / 10 | rescaled (6 / 12.5 / 25 / 44 / 62.5 min) |
+| Respawn delay (`RESPAWN_DELAY_TICKS` 5 s) | 5 s, day only | removed: dawn / dusk windows | per game day |
+| Client sundial / clock / music | from snapshot `cycleProgress` / `dayFraction` / `isNight` | unchanged | server-driven, nothing hard-coded |
+
+- **Respawn windows** (`respawnWindowAt`, `nextRespawnWindow`, `processRespawnQueue`): the dead wait in
+  `respawnQueue` and come back in one batch at **dawn** (cycle tick 0) or **dusk** (`DUSK_RESPAWN_CYCLE_TICK` =
+  `DAY_TICKS - 1`, the last daylight tick, so "day-only respawns" still holds). Each unit still costs
+  `RESPAWN_FOOD_COST` (5); one the batch can't feed or fit under the population cap waits for the next window.
+  Builders whose Town Center fell are re-homed, invalid posts / staffed barns still drop their entry. A fallen
+  Ward Priest follows the same windows (`wardPriestRespawnTicks` >= 0 = waiting). One toast per batch:
+  "Reinforcements arrive at dawn/dusk: N units back on duty" (category `build`).
+- **Client**: snapshot `respawn` (`RespawnWindowSnapshot`: waiting, nextWindow, ticksToWindow, dayTicks,
+  nightTicks) drives `#stat-respawn` under the builders line in the Colony panel: "Reinforcements: 3 waiting ·
+  dusk in 2:15" (or "Next respawn window: …").
+- **Saves**: the queue was already saved; the world state now also stores `dayTicks` / `nightTicks`. A save in
+  another cycle length (all older saves: 1200 + 800) loads via `migrateSaveDayLength`: same day number, same
+  fraction through the day or night; absolute tick stamps (mob fury / feint / withdraw / last-damaged /
+  deserter age, raid-group aggro / engaged, ward-stone tend times) move by the same delta.
+- **Test**: `server/day-respawn-test.mjs` (new, self-contained, PORT default 19760, ~3 s): constants, goal
+  rescale, mid-day death -> dusk batch + toast, night death -> dawn batch + toast, no-food window skipped,
+  queue across save/restart/load, an old-format save migrated. `goals-castle-test.mjs` titles/night counts and
+  `slow-farming-test.mjs` (legacy-day farm constants, `setInstantBuild`) updated but not re-run this round.
+- **Caveat (balance)**: raids still ramp per raid while income per raid rises ~5x (5x the daylight), so raids
+  are relatively easier and come 3.75x less often per hour; revisit `RAID_SIZE_PER_DAY` / unlock days after a
+  playtest.
+
 Execution order above is my default sequencing (foundation first since map/zoom/clock touch
 everything downstream); say the word if you want a different item first.
 
