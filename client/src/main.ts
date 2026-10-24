@@ -230,17 +230,10 @@ const WORKER_KINDS = new Set<string>([
   "forager",
   "builder",
 ]);
-// Archer is the one garrison kind that also hides at its post: an Archery Range reads as the
-// archers shooting from inside it, not standing beside it, unlike Barracks/Militia Camp where the
-// garrison visibly stands watch outside.
-const HIDE_AT_POST_KINDS = new Set<string>([...WORKER_KINDS, "archer"]);
+// Workers (and civilians sheltering at night, below) read as going inside their building. Garrison
+// units, archers included, always stay visible.
+const HIDE_AT_POST_KINDS = new Set<string>([...WORKER_KINDS]);
 const AT_POST_HIDE_RADIUS_PX = 6;
-// Archers loiter within GARRISON_LOITER_PX (1.5 tiles) of their post server-side, not pinned to
-// its exact center like a stationary worker, so the tight worker radius above would almost never
-// match and the archer would stay visible nearly all the time. Match that loiter radius instead,
-// so the archer reads as "inside the range" for its whole idle/patrol range and only reappears
-// once actually rallied or chasing beyond it.
-const ARCHER_HIDE_RADIUS_PX = 48;
 // Buildings whose garrison (knights/archers with matching postX/postY) can be click-selected.
 const GARRISON_TILES = new Set<number>([
   TileType.KnightPost,
@@ -2369,7 +2362,7 @@ async function main() {
     if (HIDE_AT_POST_KINDS.has(c.kind)) {
       const postCenterX = c.postX * tileSize + tileSize / 2;
       const postCenterY = c.postY * tileSize + tileSize / 2;
-      const hideRadius = c.kind === "archer" ? ARCHER_HIDE_RADIUS_PX : AT_POST_HIDE_RADIUS_PX;
+      const hideRadius = AT_POST_HIDE_RADIUS_PX;
       if (Math.hypot(c.x - postCenterX, c.y - postCenterY) <= hideRadius) hidden = true;
     }
     // Civilians shelter in a house (or the Town Center) at night; the server sets `sheltered` once
