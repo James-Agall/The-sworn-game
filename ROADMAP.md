@@ -703,3 +703,10 @@ Plan: `~/docs/colony2d/PLAN-512-map-and-forts.md` §1 (no forts/camps/settlement
 - Test: `server/world-512-test.mjs` (512 gen time, tick time, snapshot bytes, save/load; live resize 160 -> 64 -> 256 and size
   round-trip through a save). 512 measured: gen ~2.1 s, idle tick avg ~4 ms, ~3.1 KB/snapshot, save 980 KiB / ~9 ms.
 - Not done: chunked A*/hierarchical routing, camp/settlement sites, min POI spacing is the existing 10 tiles.
+
+## Builders spread, farmers tend plots, wall repair — landed 2026-10-24
+
+- Builders: `planBuildSite` / `planRepair` now sort candidates by builders already assigned (fewest first), then nearest (sites) or manual request / lowest HP fraction (repairs). `BUILDER_MAX_PER_SITE` stays 2, so several damaged buildings or sites get different builders at once.
+- Farmers: a Barn farmer (`updateFarmer`) walks to each of its Barn's Farm Plots in turn, works ~6 s at each (state `farming`), skips unreachable plots, and shelters / returns to the Barn at night as before. Movement only: `updateFarmPlots` growth and yield are untouched. Farmhand posts without plots (Pasture, Orchard, ...) stay put.
+- Wall repair: auto-repair already covered every damageable building (Wall, StoneWall, Gate via `structureHp`); repair cost is `ceil(placement cost * 0.3 * level * hp fraction)` so a wall is never free (min 1 wood / rock). Unaffordable jobs keep the "Not enough materials to repair" toast.
+- Test hooks: `damageBuilding` (tx, ty, amount; 0 = just read HP), `farmers` in `constructionState`. Test: `server/builders-farmers-test.mjs`.

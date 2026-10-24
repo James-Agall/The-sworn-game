@@ -157,6 +157,11 @@ interface Colonist {
   buildSiteKey: string | null;
   // Builder: resourceKey of the damaged building it is repairing (see planRepair). Missing in old saves.
   repairKey?: string | null;
+  // Farmer touring its Barn's plots (movement only): current plot key, ticks left working there, next plot index.
+  farmPlotKey?: string | null;
+  farmTouring?: boolean;
+  farmDwellTicks?: number;
+  farmNextIdx?: number;
   // Farmhand: length of the current produce cycle (chopTicksRemaining counts it down), for the art stage.
   cycleTicksTotal: number;
 }
@@ -2530,6 +2535,59 @@ function updateStationaryMiner(c: Colonist, dt: number) {
   }
 }
 
+// A Barn farmer walks its Barn's Farm Plots in turn and works a few seconds at each (presence only:
+// grain growth / yield stay in updateFarmPlots). Unreachable plots are skipped; no plots = stays put.
+const FARMER_PLOT_DWELL_TICKS = 6 * TICK_RATE;
+function updateFarmer(c: Colonist, dt: number) {
+  if (c.farmPlotKey) {
+    const plotTile = keyToTile(c.farmPlotKey);
+    if (!plotTile || !farmPlots.has(c.farmPlotKey)) {
+      c.farmPlotKey = null;
+      c.state = "idle";
+      return;
+    }
+    if (c.path.length > 0) {
+      c.state = "idle";
+      advanceAlongPath(c, dt, COLONIST_SPEED);
+      return;
+    }
+    c.state = "farming";
+    if ((c.farmDwellTicks ?? 0) <= 0) c.farmDwellTicks = FARMER_PLOT_DWELL_TICKS;
+    if (--c.farmDwellTicks! <= 0) {
+      c.farmPlotKey = null;
+      c.state = "idle";
+    }
+    return;
+  }
+  c.state = "idle";
+  if (c.idleCooldown > 0) {
+    c.idleCooldown--;
+    return;
+  }
+  const keys: string[] = [];
+  for (const [key, plot] of farmPlots) if (plot.barnX === c.postX && plot.barnY === c.postY) keys.push(key);
+  if (keys.length === 0) {
+    c.farmTouring = false;
+    return;
+  }
+  keys.sort();
+  const start = tileOfPixel(c.x, c.y);
+  for (let i = 0; i < keys.length; i++) {
+    const idx = ((c.farmNextIdx ?? 0) + i) % keys.length;
+    const tile = keyToTile(keys[idx]);
+    const path = tile ? findPath(start, tile) : null;
+    if (!tile || !path) continue;
+    c.farmNextIdx = idx + 1;
+    c.farmPlotKey = keys[idx];
+    c.farmTouring = true;
+    c.farmDwellTicks = 0;
+    c.path = path;
+    return;
+  }
+  c.farmTouring = false;
+  c.idleCooldown = BUILDER_IDLE_RETRY_TICKS * 5; // none reachable: stay at the barn, retry later
+}
+
 // chopTicksRemaining counts down the current FARMHAND_CYCLE_TICKS cycle, one tick per tick of tending
 // (daytime only: farmhands shelter at night), and the whole batch lands when it runs out.
 function updateFarmhand(c: Colonist) {
@@ -3314,13 +3372,15 @@ function builderRate(c: Colonist): number {
 }
 
 function planBuildSite(c: Colonist): { key: string; path: TileCoord[] } | null {
-  const candidates: { key: string; site: ConstructionSiteState; d: number }[] = [];
+  const candidates: { key: string; site: ConstructionSiteState; d: number; n: number }[] = [];
   for (const [key, site] of constructionSites) {
-    if (siteBuilderCount(key) >= BUILDER_MAX_PER_SITE) continue;
+    const n = siteBuilderCount(key);
+    if (n >= BUILDER_MAX_PER_SITE) continue;
     const center = tileToPixelCenter({ x: site.tx, y: site.ty });
-    candidates.push({ key, site, d: Math.hypot(center.x - c.x, center.y - c.y) });
+    candidates.push({ key, site, d: Math.hypot(center.x - c.x, center.y - c.y), n });
   }
-  candidates.sort((p, q) => p.d - q.d);
+  // Spread out: the site with the fewest builders already on it first, ties nearest.
+  candidates.sort((p, q) => p.n - q.n || p.d - q.d);
   const start = tileOfPixel(c.x, c.y);
   for (const { key, site } of candidates.slice(0, BUILDER_ROUTE_CANDIDATES)) {
     const center = tileToPixelCenter({ x: site.tx, y: site.ty });
@@ -3471,21 +3531,23 @@ function planRepair(c: Colonist): { key: string; path: TileCoord[] } | null {
     const s = tile ? structureHp(tile.x, tile.y) : null;
     if (!s || s.hp >= s.max) repairQueue.splice(i, 1);
   }
-  const jobs: { key: string; tile: TileCoord; rank: number }[] = repairQueue.map((key, i) => ({ key, tile: keyToTile(key)!, rank: i - repairQueue.length }));
+  const jobs: { key: string; tile: TileCoord; rank: number; n: number }[] = repairQueue.map((key, i) => ({ key, tile: keyToTile(key)!, rank: i - repairQueue.length, n: 0 }));
   const auto = Array.from(buildingHp.keys()).concat(townCenters.map((tc) => resourceKey(tc.x, tc.y)));
   for (const key of auto) {
     if (repairQueue.includes(key)) continue;
     const tile = keyToTile(key);
     const s = tile ? structureHp(tile.x, tile.y) : null;
-    if (tile && s && s.hp < s.max) jobs.push({ key, tile, rank: s.hp / s.max });
+    if (tile && s && s.hp < s.max) jobs.push({ key, tile, rank: s.hp / s.max, n: 0 });
   }
-  jobs.sort((p, q) => p.rank - q.rank);
+  for (const job of jobs) job.n = repairBuilderCount(job.key);
+  // Spread out: fewest builders already assigned first, then manual requests / lowest HP fraction.
+  jobs.sort((p, q) => p.n - q.n || p.rank - q.rank);
   const start = tileOfPixel(c.x, c.y);
   let tried = 0;
   let short = false;
   for (const job of jobs) {
     if (tried >= BUILDER_ROUTE_CANDIDATES) break;
-    if (repairBuilderCount(job.key) >= BUILDER_MAX_PER_SITE || mobNearTile(job.tile, REPAIR_MOB_CLEARANCE_TILES)) continue;
+    if (job.n >= BUILDER_MAX_PER_SITE || mobNearTile(job.tile, REPAIR_MOB_CLEARANCE_TILES)) continue;
     if (!canAfford(repairCost(job.tile.x, job.tile.y, unpaidRepairHp(job.tile.x, job.tile.y)))) {
       short = true;
       continue;
@@ -4777,6 +4839,8 @@ function updateColonist(c: Colonist, dt: number) {
       // looked exactly like they weren't actually heading to the Town Center.
       c.state = "idle";
       c.path = [];
+      c.farmPlotKey = null;
+      c.farmTouring = false;
     } else if (!night && c.sheltering) {
       c.sheltering = false;
       c.shelterAssigned = false;
@@ -4791,7 +4855,7 @@ function updateColonist(c: Colonist, dt: number) {
     if (stationaryWorker) {
       const postCenter = tileToPixelCenter({ x: c.postX, y: c.postY });
       const distToPost = Math.hypot(c.x - postCenter.x, c.y - postCenter.y);
-      if (c.path.length > 0 || distToPost > 2) {
+      if (!c.farmTouring && (c.path.length > 0 || distToPost > 2)) {
         updateStationaryWorkerReturning(c, dt);
         return;
       }
@@ -4813,6 +4877,7 @@ function updateColonist(c: Colonist, dt: number) {
       updateArtisan(c);
       break;
     case "farmer":
+      updateFarmer(c, dt);
       break;
     case "hunter":
       updateHunter(c, dt);
@@ -7345,6 +7410,10 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const tc = findTownCenterAt(msg.tx, msg.ty);
     if (tc) damageTownCenter(tc, msg.amount);
     reply({ found: !!tc, townCenters: townCenters.map((t) => ({ ...t })) });
+  } else if (msg.op === "damageBuilding" && typeof msg.tx === "number" && typeof msg.ty === "number") {
+    // amount 0 (or missing) just reports the HP.
+    if (typeof msg.amount === "number" && msg.amount > 0 && structureHp(msg.tx, msg.ty)) damageBuilding(msg.tx, msg.ty, msg.amount);
+    reply({ structure: structureHp(msg.tx, msg.ty) });
   } else if (msg.op === "killColonists" && typeof msg.kind === "string") {
     let killed = 0;
     for (const c of Array.from(colonists.values())) {
@@ -7358,7 +7427,10 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       sites: Array.from(constructionSites.values()).map((site) => ({ ...site })),
       builders: Array.from(colonists.values())
         .filter((c) => c.kind === "builder")
-        .map((c) => ({ id: c.id, x: c.x, y: c.y, state: c.state, postX: c.postX, postY: c.postY, buildSiteKey: c.buildSiteKey })),
+        .map((c) => ({ id: c.id, x: c.x, y: c.y, state: c.state, postX: c.postX, postY: c.postY, buildSiteKey: c.buildSiteKey, repairKey: c.repairKey ?? null })),
+      farmers: Array.from(colonists.values())
+        .filter((c) => c.kind === "farmer")
+        .map((c) => ({ id: c.id, x: c.x, y: c.y, state: c.state, postX: c.postX, postY: c.postY, sheltering: c.sheltering })),
       townCenters: townCenters.map((t) => ({ ...t })),
       productionSpeedMultiplier: productionSpeedMultiplier(),
       happinessSpeedMultiplier: happinessSpeedMultiplier(),
