@@ -710,3 +710,14 @@ Plan: `~/docs/colony2d/PLAN-512-map-and-forts.md` §1 (no forts/camps/settlement
 - Farmers: a Barn farmer (`updateFarmer`) walks to each of its Barn's Farm Plots in turn, works ~6 s at each (state `farming`), skips unreachable plots, and shelters / returns to the Barn at night as before. Movement only: `updateFarmPlots` growth and yield are untouched. Farmhand posts without plots (Pasture, Orchard, ...) stay put.
 - Wall repair: auto-repair already covered every damageable building (Wall, StoneWall, Gate via `structureHp`); repair cost is `ceil(placement cost * 0.3 * level * hp fraction)` so a wall is never free (min 1 wood / rock). Unaffordable jobs keep the "Not enough materials to repair" toast.
 - Test hooks: `damageBuilding` (tx, ty, amount; 0 = just read HP), `farmers` in `constructionState`. Test: `server/builders-farmers-test.mjs`.
+
+### Raid arrival timing — landed 2026-10-24
+Every edge-spawned raid group now ARRIVES after nightfall and before 2/3 of the way into the night
+(`RAID_ARRIVAL_WINDOW_FRACTION`). At spawn (`raidDepartureTick`) a random arrival tick in that window minus the
+estimated trip (path length to the first Town Center minus the engage range, x `RAID_TRAVEL_SLACK`, over the
+slowest member's speed, plus `RAID_TRAVEL_MARGIN_TICKS`) becomes the group's `aggroTick` (departure), never
+earlier than the spawn (too-long trips leave at once). A group that reaches contact range before nightfall
+`holdRaidGroup`s: stays in formation, members `passive` (towers/soldiers ignore them, nothing attacks), and engages
+when night falls or the moment it is attacked. Paused groups keep `groupId`, so dormancy/respawn logic still treats
+them as raid mobs. Deserter-only groups are unchanged. `holdRaidAggro` still pins departure to nightfall. New test
+hook `raidDepartNow`; test: `server/raid-timing-test.mjs`.

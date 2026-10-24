@@ -1105,6 +1105,15 @@ const RAID_FACTIONS: Record<RaidFactionId, RaidFactionEntry[]> = {
 
 // Day-phase tick (within the cycle) at which the raid spawns: the midpoint of the day.
 const RAID_SPAWN_CYCLE_TICK = Math.floor(DAY_TICKS / 2);
+// Arrival timing (2026-10-24): every edge-spawned group is timed to REACH the colony after nightfall but
+// before RAID_ARRIVAL_WINDOW_FRACTION of the way into the night. At spawn its travel time (path length
+// x RAID_TRAVEL_SLACK / the slowest member's speed, plus RAID_TRAVEL_MARGIN_TICKS) is subtracted from a
+// random arrival tick in that window to get its departure (aggroTick), never earlier than the spawn.
+// A group that gets to contact range before nightfall holds in formation (passive, no attacking) until
+// night falls, or until it is attacked.
+const RAID_ARRIVAL_WINDOW_FRACTION = 2 / 3;
+const RAID_TRAVEL_SLACK = 1.15;
+const RAID_TRAVEL_MARGIN_TICKS = TICK_RATE * 8;
 // Raiders spawn on walkable tiles within this many tiles of the map border.
 const RAID_EDGE_BAND_TILES = 3;
 // Passive raiders wander one tile at a time, never more than this far (Chebyshev) from their spawn.
@@ -5143,6 +5152,20 @@ function createRaidMob(kind: MobKind, tile: TileCoord, groupId: string): Mob {
 // On a deserter night (DESERTER_WAVE_CHANCE, once deserters have waited DESERTER_ACTIVATION_DAYS)
 // every eligible deserter joins the horde where it stands, and fresh Bandit-band mobs fill the raid up
 // to its normal size (none if the deserters alone already reach it).
+// Departure tick for a group at `from`: a random arrival tick in [nightfall, nightfall + window] minus
+// the estimated trip to the engage range of the first Town Center, but never before now.
+function raidDepartureTick(from: TileCoord, group: RaidGroup, nightfallTick: number): number {
+  const tc = townCenters[0] ?? TOWN_CENTER_TILE;
+  const route = findPath(from, tc);
+  const routeTiles = route ? route.length : Math.hypot(tc.x - from.x, tc.y - from.y) * 1.5;
+  const speeds = group.memberIds.map((id) => mobs.get(id)?.speed ?? MOB_SPEED);
+  const slowest = Math.max(1, Math.min(...speeds));
+  const px = Math.max(0, routeTiles - RAID_ENGAGE_RANGE_TILES) * TILE_SIZE;
+  const travel = Math.ceil(((px * RAID_TRAVEL_SLACK) / slowest) * TICK_RATE) + RAID_TRAVEL_MARGIN_TICKS;
+  const arrival = nightfallTick + Math.floor(Math.random() * NIGHT_TICKS * RAID_ARRIVAL_WINDOW_FRACTION);
+  return Math.max(cycleTick, arrival - travel);
+}
+
 function spawnRaid(dayIndex: number) {
   const nightfallTick = dayIndex * (DAY_TICKS + NIGHT_TICKS) + DAY_TICKS;
   const total = raidSizeForDay(dayIndex);
@@ -5212,7 +5235,10 @@ function spawnRaid(dayIndex: number) {
       }
       if (announceEdge === null) announceEdge = anchor.edge;
     }
-    if (group.memberIds.length > 0) raidGroups.set(group.id, group);
+    if (group.memberIds.length > 0) {
+      if (anchor && !testHoldRaidAggro) group.aggroTick = raidDepartureTick(anchor.tile, group, nightfallTick);
+      raidGroups.set(group.id, group);
+    }
   });
   if (announceEdge) broadcastEvent("raid", `Raiders gather at the ${announceEdge} edge`);
   // One toast: the first marked elite by name, the rest as a count.
@@ -5453,6 +5479,21 @@ function moveRaidFollower(group: RaidGroup, m: Mob, leader: Mob, offset: { x: nu
   }
 }
 
+// Arrived before nightfall: stand in formation just outside contact range, passive (no attacking, not
+// shot by towers or soldiers) until night falls; marchRaidGroup then engages. An attack engages at once.
+function holdRaidGroup(group: RaidGroup, leader: Mob, dt: number) {
+  leader.path = [];
+  for (const m of raidGroupMembers(group)) {
+    m.passive = true;
+    if (m === leader) continue;
+    const offset = group.offsets.get(m.id);
+    if (offset) {
+      const p = formationPoint(group, leader.x, leader.y, offset);
+      stepRaidMobToward(m, p.x, p.y, Math.min(m.speed, leader.speed * RAID_FOLLOWER_CATCHUP), dt);
+    }
+  }
+}
+
 function marchRaidGroup(group: RaidGroup, dt: number) {
   let leader = group.leaderId ? mobs.get(group.leaderId) : undefined;
   if (!leader || leader.groupId !== group.id) leader = assignRaidLeader(group) ?? undefined;
@@ -5460,9 +5501,12 @@ function marchRaidGroup(group: RaidGroup, dt: number) {
   const goal = raidMarchGoal(leader);
   if (!goal) return;
   if (raidGroupShouldEngage(leader, goal)) {
-    engageRaidGroup(group);
+    if (isNightNow()) engageRaidGroup(group);
+    else holdRaidGroup(group, leader, dt);
     return;
   }
+  if (leader.passive) for (const m of raidGroupMembers(group)) m.passive = false;
+  if (leader.passive) for (const m of raidGroupMembers(group)) m.passive = false;
   if (group.repathCooldown > 0) group.repathCooldown--;
   // One shared path per group, refreshed every RAID_MARCH_REPATH_TICKS rather than every member
   // searching the map every second.
@@ -5471,7 +5515,8 @@ function marchRaidGroup(group: RaidGroup, dt: number) {
     // No route at all (a walled-in colony): the group breaks up and each mob picks its own target,
     // which breaches a wall when it has to (see pickBuildingTarget).
     if (!route) {
-      engageRaidGroup(group);
+      if (isNightNow()) engageRaidGroup(group);
+      else holdRaidGroup(group, leader, dt);
       return;
     }
     leader.path = route;
@@ -7265,6 +7310,10 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "holdRaidAggro") {
     testHoldRaidAggro = msg.value === true;
     reply({ value: testHoldRaidAggro });
+  } else if (msg.op === "raidDepartNow") {
+    // Every group leaves immediately (raid-timing test: forces early arrivals, which must pause).
+    for (const g of raidGroups.values()) g.aggroTick = Math.min(g.aggroTick, cycleTick);
+    reply({ groups: raidGroups.size });
   } else if (msg.op === "addDeserters" && typeof msg.count === "number") {
     // Dormant deserters near the Town Center, already past DESERTER_ACTIVATION_DAYS.
     const ids: string[] = [];

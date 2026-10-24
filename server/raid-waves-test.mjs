@@ -190,9 +190,9 @@ for (const day of [1, 20, 50]) {
   const r = await raidAtDay(day);
   const groupsNow = r.state.groups.filter((g) => r.fresh.some((m) => m.groupId === g.id));
   const lo = day * CYCLE + MID;
-  const hi = day * CYCLE + DAY;
+  const hi = day * CYCLE + DAY + Math.floor((st.nightTicks * 2) / 3); // arrival-timed departures (see raid-timing-test.mjs)
   result(groupsNow.every((g) => g.aggroTick >= lo && g.aggroTick < hi),
-    `day ${day}: every group's aggro tick lies between the spawn and nightfall (${groupsNow.map((g) => g.aggroTick - lo).join(",")} ticks after spawn; nightfall at +${hi - lo})`);
+    `day ${day}: every group's aggro tick lies between the spawn and the end of the arrival window (${groupsNow.map((g) => g.aggroTick - lo).join(",")} ticks after spawn; window ends at +${hi - lo})`);
   result(r.fresh.length === raidSize(day), `day-${day} raid = ${r.fresh.length} (expected ${raidSize(day)})`);
   // A group whose random aggro time fell in the first few ticks may already be marching off the edge.
   const marching = new Set(r.state.groups.filter((g) => g.state !== "passive").map((g) => g.id));
