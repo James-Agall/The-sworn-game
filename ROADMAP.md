@@ -721,3 +721,43 @@ earlier than the spawn (too-long trips leave at once). A group that reaches cont
 when night falls or the moment it is attacked. Paused groups keep `groupId`, so dormancy/respawn logic still treats
 them as raid mobs. Deserter-only groups are unchanged. `holdRaidAggro` still pins departure to nightfall. New test
 hook `raidDepartNow`; test: `server/raid-timing-test.mjs`.
+
+## Bigger, rotated view — landed 2026-10-27
+
+Client-only (server, `TILE_SIZE` and `protocol.ts` untouched). `client/src/viewTransform.ts` is the one pure module:
+`VIEW_PREF_KEY` (`sworn.viewRotation`), `viewSettingsFor` (Rotated = 45 deg + 1.5x, Classic = 0 deg + 1x),
+`worldToScreen` / `screenToWorld` / `cameraPosition` (rotation about the world origin, the container offset follows
+the camera), `rotateVector`, `screenRectToWorldQuad` / `visibleWorldBounds`, `depthKey`.
+
+- Rendering: `worldLayer` gets `rotation = VIEW_ANGLE` and zoom `1.3 * scale` (~1.95 rotated). Ground (floor chunks,
+  roads, water fill, blood, night tint, selection rings, formation marker, line guide, tile hover) rotates with it;
+  every upright object goes through `placeUpright(obj, x, y, ox, oy)` (counter-rotated, lifted by a SCREEN offset):
+  buildings/props/trees (feet half a tile below the tile centre on screen), Town Centers, units, hp bars, wounds,
+  sigils/labels/boss names, gravestones, critters/wildlife, fire, smoke/poofs/sparks/VFX. Slash/arrow/bolt keep their
+  world-space flight angle. Construction scaffolds/progress bars are drawn in screen-upright tile-local coords.
+- tileSpriteLayer z-order uses `depthKey` (screen y, ties by screen x; exactly the row-major index in Classic).
+- Floor chunk culling uses the screen's world bounding box; the minimap stays north-up and draws the view as a
+  rotated quad; drag-select is a screen rectangle (selection by screen position); WASD sends the screen direction
+  rotated into the world; fight arrows are placed/pointed in screen space, labels keep the WORLD compass name;
+  stereo pan follows screen x.
+- Setting: Settings > Display > View (Rotated / Classic). Read when the game starts; an in-game change applies after
+  Menu (page reload). There are no zoom controls in the client, so only the fixed zoom was scaled.
+- Test: `node client/view-transform-test.mjs` (round trips at 0/45/90 deg, rotateVector, bounds, depth order).
+
+Manual browser checklist:
+1. Pan: start a game (Rotated): tiles are diamonds; W/A/S/D move the rider straight up/left/down/right on screen,
+   the camera follows and floor never shows black gaps at the screen corners while walking far.
+2. Upright: buildings, trees, units, hp bars, boss/Hunger labels, gravestones and fire stand upright, feet on their
+   tile; units in front (lower on screen) draw over buildings behind them.
+3. Zoom: everything is ~1.5x larger than Classic; Town Center hp bar and construction scaffolds/progress bars sit
+   above/below their building, not off to one side.
+4. Click-select: click a soldier to select it; left-click a building opens its info panel; right-click places the
+   selected build tool on the tile under the cursor (the hover diamond outline matches).
+5. Drag-select: drag a box; it's a screen rectangle and selects exactly the units inside it.
+6. Line-drag formation: with several units selected, right-drag a line; the guide and the final positions follow the
+   cursor.
+7. Build ghost + minimap: the Town Center / road ghost sits on the hovered tile; the minimap is north-up with the view
+   drawn as a rotated outline around your marker (there is no minimap click-to-jump in the game). Fight arrows point
+   at the fight on screen and name its world compass direction; clicking one pans there.
+8. Classic toggle: Settings > View > Classic, then Menu: the game looks and plays exactly as before (axis-aligned,
+   original size); switch back to Rotated the same way.

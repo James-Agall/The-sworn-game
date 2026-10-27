@@ -208,6 +208,9 @@ export class SoundManager {
   private listenerX = 0;
   private listenerY = 0;
   private hasListener = false;
+  // The client's view rotation (radians): stereo pan follows the SCREEN x offset, not world x.
+  private viewCos = 1;
+  private viewSin = 0;
   private loops = new Map<string, LoopVoice>();
   private musicMode: string | null = null;
   private musicVoice: MusicVoice | null = null;
@@ -340,6 +343,11 @@ export class SoundManager {
     return ready[Math.floor(Math.random() * ready.length)];
   }
 
+  setViewAngle(angle: number) {
+    this.viewCos = angle === 0 ? 1 : Math.cos(angle);
+    this.viewSin = angle === 0 ? 0 : Math.sin(angle);
+  }
+
   setListener(x: number, y: number) {
     this.listenerX = x;
     this.listenerY = y;
@@ -376,7 +384,9 @@ export class SoundManager {
     source.connect(gain);
     if (positional && typeof ctx.createStereoPanner === "function") {
       const pan = ctx.createStereoPanner();
-      pan.pan.value = stereoPan(opts.x! - this.listenerX, this.tileSize);
+      const dx = opts.x! - this.listenerX;
+      const dy = opts.y! - this.listenerY;
+      pan.pan.value = stereoPan(this.viewCos * dx - this.viewSin * dy, this.tileSize);
       gain.connect(pan);
       tail = pan;
     }

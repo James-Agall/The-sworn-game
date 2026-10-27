@@ -59,6 +59,18 @@ import { SOUND_SILENT_RADIUS_TILES, SoundManager, proximityGain } from "./sound"
 import type { FightSnapshot } from "./protocol";
 import { FIGHT_WINDOW_SECONDS } from "./protocol";
 import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
+import {
+  VIEW_PREF_KEY,
+  cameraPosition,
+  depthKey,
+  rotateVector,
+  screenRectToWorldQuad,
+  screenToWorld,
+  viewSettingsFor,
+  visibleWorldBounds,
+  worldToScreen,
+  type ViewState,
+} from "./viewTransform";
 
 const SERVER_URL = "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -1366,10 +1378,31 @@ async function main() {
     buildPanelToggle.blur();
   });
 
-  const ZOOM = 1.3;
+  // View (ROADMAP "Bigger, rotated view"): the menu's View setting, read once per page load. The
+  // world container is rotated by VIEW_ANGLE (tiles read as diamonds) and zoomed by VIEW_SCALE on top
+  // of the base 1.3; every upright object (units, buildings, bars, labels) is counter-rotated by
+  // placeUpright. Classic = angle 0, scale 1: the original view.
+  const viewSettings = viewSettingsFor(readViewPref());
+  const VIEW_ANGLE = viewSettings.angle;
+  const ZOOM = 1.3 * viewSettings.scale;
   const worldLayer = new Container();
   worldLayer.scale.set(ZOOM);
+  worldLayer.rotation = VIEW_ANGLE;
   app.stage.addChild(worldLayer);
+  sound.setViewAngle(VIEW_ANGLE);
+  const camView = (): ViewState => ({ angle: VIEW_ANGLE, zoom: ZOOM, x: worldLayer.position.x, y: worldLayer.position.y });
+  // Places an upright object whose ground anchor is world (x, y), lifted by a SCREEN-space offset
+  // (ox, oy) in world px (oy < 0 = up on screen), and counter-rotates it so it reads upright.
+  function placeUpright(obj: Container, x: number, y: number, ox = 0, oy = 0) {
+    const o = rotateVector(-VIEW_ANGLE, ox, oy);
+    obj.position.set(x + o.x, y + o.y);
+    obj.rotation = -VIEW_ANGLE;
+  }
+  // Inverse of placeUpright's lift: the screen-space y offset of obj from world point (x, y).
+  const screenLiftOf = (obj: Container, x: number, y: number) =>
+    rotateVector(VIEW_ANGLE, obj.position.x - x, obj.position.y - y).y;
+  // Draw order in tileSpriteLayer: by screen y (row-major tile index in the Classic view).
+  const tileDepth = (tx: number, ty: number) => depthKey(VIEW_ANGLE, tx, ty, worldTilesX);
 
   let myId: string | null = null;
   let tileSize = 32;
@@ -1436,7 +1469,7 @@ async function main() {
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5, 1);
       sprite.scale.set(GRAVESTONE_HEIGHT / texture.height);
-      sprite.position.set(g.x, g.y + GRAVESTONE_HEIGHT / 2);
+      placeUpright(sprite, g.x, g.y, 0, GRAVESTONE_HEIGHT / 2);
       decorSpriteLayer.addChild(sprite);
       gravestoneSprites.set(key, sprite);
     }
@@ -1543,33 +1576,43 @@ async function main() {
       if (tiles[index] === TileType.Empty) continue;
       const { tx, ty } = indexToTile(index);
       const c = tileCenter(tx, ty);
-      spawnFxAnim("upgrade", c.x, c.y + tileSize / 2, 700);
+      spawnFxAnim("upgrade", c.x, c.y, 700, tileSize / 2);
     }
     siteOverlay.clear();
     for (const [index, site] of next) {
       const { tx, ty } = indexToTile(index);
-      const x = tx * tileSize;
-      const y = ty * tileSize;
+      // Drawn in screen-upright tile-local coords (0..tileSize from the tile's top-left in the Classic
+      // view) and mapped into the (possibly rotated) world around the tile centre.
+      const ox = tx * tileSize + tileSize / 2;
+      const oy = ty * tileSize + tileSize / 2;
+      const at = (lx: number, ly: number): [number, number] => {
+        const o = rotateVector(-VIEW_ANGLE, lx - tileSize / 2, ly - tileSize / 2);
+        return [ox + o.x, oy + o.y];
+      };
+      const rectPts = (lx: number, ly: number, w: number, h: number) => [...at(lx, ly), ...at(lx + w, ly), ...at(lx + w, ly + h), ...at(lx, ly + h)];
       if (!site.upgrade) {
         // Scaffold: two poles and cross braces over the faded building.
-        const top = y - tileSize * 0.6;
+        const top = -tileSize * 0.6;
         siteOverlay
-          .moveTo(x + 4, y + tileSize - 2).lineTo(x + 4, top)
-          .moveTo(x + tileSize - 4, y + tileSize - 2).lineTo(x + tileSize - 4, top)
-          .moveTo(x + 4, top + 6).lineTo(x + tileSize - 4, top + 6)
-          .moveTo(x + 4, y + tileSize * 0.45).lineTo(x + tileSize - 4, y + tileSize * 0.45)
-          .moveTo(x + 4, top + 6).lineTo(x + tileSize - 4, y + tileSize * 0.45)
+          .moveTo(...at(4, tileSize - 2)).lineTo(...at(4, top))
+          .moveTo(...at(tileSize - 4, tileSize - 2)).lineTo(...at(tileSize - 4, top))
+          .moveTo(...at(4, top + 6)).lineTo(...at(tileSize - 4, top + 6))
+          .moveTo(...at(4, tileSize * 0.45)).lineTo(...at(tileSize - 4, tileSize * 0.45))
+          .moveTo(...at(4, top + 6)).lineTo(...at(tileSize - 4, tileSize * 0.45))
           .stroke({ width: 2, color: 0x6b4423, alpha: 0.9 });
       } else {
         // "Upgrading" marker: a small up-arrow badge.
-        const cx = x + tileSize - 6;
-        const cy = y - 4;
-        siteOverlay.circle(cx, cy, 6).fill({ color: 0x2b1a0c, alpha: 0.85 });
-        siteOverlay.poly([cx, cy - 4, cx + 4, cy + 1, cx + 1.5, cy + 1, cx + 1.5, cy + 4, cx - 1.5, cy + 4, cx - 1.5, cy + 1, cx - 4, cy + 1]).fill(0xf1c40f);
+        const cx = tileSize - 6;
+        const cy = -4;
+        siteOverlay.circle(...at(cx, cy), 6).fill({ color: 0x2b1a0c, alpha: 0.85 });
+        const badge = [cx, cy - 4, cx + 4, cy + 1, cx + 1.5, cy + 1, cx + 1.5, cy + 4, cx - 1.5, cy + 4, cx - 1.5, cy + 1, cx - 4, cy + 1];
+        const pts: number[] = [];
+        for (let i = 0; i < badge.length; i += 2) pts.push(...at(badge[i], badge[i + 1]));
+        siteOverlay.poly(pts).fill(0xf1c40f);
       }
-      const barY = y + tileSize + 2;
-      siteOverlay.rect(x + 2, barY, tileSize - 4, 4).fill({ color: 0x2b1a0c, alpha: 0.8 });
-      siteOverlay.rect(x + 2, barY, (tileSize - 4) * site.progress, 4).fill(site.upgrade ? 0xf1c40f : 0xe0b468);
+      const barY = tileSize + 2;
+      siteOverlay.poly(rectPts(2, barY, tileSize - 4, 4)).fill({ color: 0x2b1a0c, alpha: 0.8 });
+      siteOverlay.poly(rectPts(2, barY, (tileSize - 4) * site.progress, 4)).fill(site.upgrade ? 0xf1c40f : 0xe0b468);
     }
   }
 
@@ -1644,14 +1687,14 @@ async function main() {
         o.tier = tier;
         o.flame.visible = tier > 0;
         o.flame.scale.set(FIRE_FLAME_WIDTH[tier] / FIRE_FRAMES[0].width);
-        o.flame.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize - tileSize * 0.3);
-        o.flame.zIndex = index + 0.5;
+        placeUpright(o.flame, tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2, 0, tileSize / 2 - tileSize * 0.3);
+        o.flame.zIndex = tileDepth(tx, ty) + 0.5;
         // Soot tint on (or off) the building art.
         setTileSprite(tx, ty, tiles[index]);
       }
       // Town Centers keep their own always-on bar (syncTownCenterBars).
       o.bar.visible = tiles[index] !== TileType.TownCenter;
-      o.bar.position.set(tx * tileSize + tileSize / 2, ty * tileSize - 8);
+      placeUpright(o.bar, tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2, 0, -tileSize / 2 - 8);
       drawHpBar(o.bar, permille, 1000);
     }
   }
@@ -1678,7 +1721,7 @@ async function main() {
         worldLayer.addChild(bar);
         townCenterHpBars.set(index, bar);
       }
-      bar.position.set(tc.x * tileSize + tileSize / 2, tc.y * tileSize + tileSize / 2 - townCenterArtAbove(tc.level) - 6);
+      placeUpright(bar, tc.x * tileSize + tileSize / 2, tc.y * tileSize + tileSize / 2, 0, -townCenterArtAbove(tc.level) - 6);
       drawHpBar(bar, tc.hp, tc.maxHp);
     }
     for (const [index, bar] of Array.from(townCenterHpBars)) {
@@ -1767,8 +1810,8 @@ async function main() {
       const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
       sprite.anchor.set(fit.anchor.x, fit.anchor.y);
       sprite.scale.set((tileSize * fit.widthTiles) / texture.width);
-      sprite.position.set(tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2);
-      sprite.zIndex = index;
+      placeUpright(sprite, tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2);
+      sprite.zIndex = tileDepth(tx, ty);
       return;
     }
     if (isRoadTile(tile)) {
@@ -1793,10 +1836,13 @@ async function main() {
     const minHeight = levelTexture ? TILE_LEVEL_MIN_HEIGHT.get(`${artTile}:${level}`) : TILE_MIN_RENDER_HEIGHT.get(artTile);
     const scale = minHeight ? Math.max(naturalScale, minHeight / texture.height) : naturalScale;
     sprite.scale.set(scale);
-    sprite.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize);
-    // Row-major index: lower rows draw in front of the rows above them; x breaks ties. Flush
-    // ground-like tiles (water) go under all other tile art.
-    sprite.zIndex = fillTile ? -1 : index;
+    // Upright art stands on its tile (feet half a tile below the centre, on screen); flush
+    // ground-like tiles (water) lie flat in the rotated world instead.
+    if (fillTile) sprite.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize);
+    else placeUpright(sprite, tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2, 0, tileSize / 2);
+    // Screen-y order (row-major index in Classic): lower rows draw in front of the rows above them;
+    // x breaks ties. Flush ground-like tiles (water) go under all other tile art.
+    sprite.zIndex = fillTile ? -1 : tileDepth(tx, ty);
   }
 
   function isRoadAt(tx: number, ty: number): boolean {
@@ -1862,10 +1908,12 @@ async function main() {
   }
   function updateFloorChunks() {
     const span = FLOOR_CHUNK_TILES * tileSize;
-    const left = Math.floor(-worldLayer.position.x / ZOOM / span) - 1;
-    const right = Math.floor((app.screen.width - worldLayer.position.x) / ZOOM / span) + 1;
-    const top = Math.floor(-worldLayer.position.y / ZOOM / span) - 1;
-    const bottom = Math.floor((app.screen.height - worldLayer.position.y) / ZOOM / span) + 1;
+    // The screen's world-space bounding box (a rotated rectangle in the rotated view).
+    const b = visibleWorldBounds(camView(), 0, 0, app.screen.width, app.screen.height);
+    const left = Math.floor(b.minX / span) - 1;
+    const right = Math.floor(b.maxX / span) + 1;
+    const top = Math.floor(b.minY / span) - 1;
+    const bottom = Math.floor(b.maxY / span) + 1;
     const chunksX = Math.ceil(worldTilesX / FLOOR_CHUNK_TILES);
     const chunksY = Math.ceil(worldTilesY / FLOOR_CHUNK_TILES);
     for (let cy = 0; cy < chunksY; cy++) {
@@ -1900,7 +1948,7 @@ async function main() {
         // Small stable offset inside the tile so the scatter doesn't sit on a visible grid.
         const offsetX = (tileHash01(x, y, 3) - 0.5) * tileSize * 0.4;
         const offsetY = (tileHash01(x, y, 4) - 0.5) * tileSize * 0.3;
-        sprite.position.set(x * tileSize + tileSize / 2 + offsetX, (y + 0.85) * tileSize + offsetY);
+        placeUpright(sprite, x * tileSize + tileSize / 2 + offsetX, (y + 0.5) * tileSize + offsetY, 0, 0.35 * tileSize);
         sprite.visible = (tiles[index] ?? TileType.Empty) === TileType.Empty;
         decorSpriteLayer.addChild(sprite);
         decorSprites.set(index, sprite);
@@ -1958,8 +2006,7 @@ async function main() {
     }
     return null;
   }
-  const critterZ = (x: number, y: number) =>
-    Math.floor(y / tileSize) * worldTilesX + Math.floor(x / tileSize) + 0.5;
+  const critterZ = (x: number, y: number) => tileDepth(Math.floor(x / tileSize), Math.floor(y / tileSize)) + 0.5;
   function spawnWildlife() {
     for (const c of critters) c.sprite.destroy();
     critters.length = 0;
@@ -1984,7 +2031,7 @@ async function main() {
         const sprite = new Sprite(textures[0]);
         sprite.anchor.set(0.5, 1);
         sprite.scale.set(def.size / textures[0].width);
-        sprite.position.set(x, y);
+        placeUpright(sprite, x, y);
         // Depth-sorted among the tile art like a prop on the tile it stands on (see setTileSprite's
         // row-major zIndex), so a frog behind a cottage is hidden by it. Updated only on a tile change.
         sprite.zIndex = critterZ(x, y);
@@ -2040,7 +2087,7 @@ async function main() {
       // Crows fly and frogs hop: lift the sprite along an arc while moving (purely visual).
       const t = c.moving ? Math.min(1, c.elapsedMs / c.moveMs) : 0;
       const lift = c.kind === "crow" ? Math.sin(Math.PI * t) * 14 : c.kind === "frog" ? Math.sin(Math.PI * t) * 5 : 0;
-      c.sprite.position.set(c.x, c.y - lift);
+      placeUpright(c.sprite, c.x, c.y, 0, -lift);
       // A crow in flight passes over everything on the ground.
       const z = c.kind === "crow" && c.moving ? Number.MAX_SAFE_INTEGER : critterZ(c.x, c.y);
       if (z !== c.sprite.zIndex) c.sprite.zIndex = z;
@@ -2081,7 +2128,7 @@ async function main() {
       return [kind, { walk, idle, run, tint }];
     })
   ) as Record<WildlifeKind, WildlifeSet>;
-  const wildlifeSprites = new Map<number, { sprite: Sprite; kind: WildlifeKind; lastX: number; phase: number }>();
+  const wildlifeSprites = new Map<number, { sprite: Sprite; kind: WildlifeKind; lastX: number; lastY: number; phase: number }>();
   // `flat` is the snapshot's flattened list (WILDLIFE_SNAPSHOT_STRIDE numbers per animal). An animal
   // that disappears was killed (nothing else removes one), so it leaves a small blood stain.
   function syncWildlife(flat: number[]) {
@@ -2102,12 +2149,12 @@ async function main() {
         sprite.scale.set(WILDLIFE_ART[kind].size / set.walk[0].width);
         sprite.tint = set.tint;
         tileSpriteLayer.addChild(sprite);
-        entry = { sprite, kind, lastX: x, phase: Math.floor(Math.random() * 4) };
+        entry = { sprite, kind, lastX: x, lastY: y, phase: Math.floor(Math.random() * 4) };
         wildlifeSprites.set(id, entry);
       }
       const { sprite } = entry;
       // Feet a little below the server position (the tile-centre point), like the old critters.
-      sprite.position.set(x, y + tileSize * 0.2);
+      placeUpright(sprite, x, y, 0, tileSize * 0.2);
       const z = critterZ(x, y);
       if (z !== sprite.zIndex) sprite.zIndex = z;
       const running = state === WildlifeState.Flee || state === WildlifeState.Charge;
@@ -2117,12 +2164,14 @@ async function main() {
       const scale = WILDLIFE_ART[kind].size / set.walk[0].width;
       if (Math.abs(x - entry.lastX) > 0.5) sprite.scale.x = x > entry.lastX ? scale : -scale;
       entry.lastX = x;
+      entry.lastY = y;
     }
     for (const [id, entry] of Array.from(wildlifeSprites)) {
       if (seen.has(id)) continue;
-      const x = entry.sprite.position.x;
-      const y = entry.sprite.position.y;
-      const stain = () => stampBlood(x, y - tileSize * 0.2, BLOOD_HIT_VARIANTS, BLOOD_HIT_SIZE);
+      // Server position (the feet are lifted tileSize * 0.2 below it on screen).
+      const x = entry.lastX;
+      const y = entry.lastY;
+      const stain = () => stampBlood(x, y, BLOOD_HIT_VARIANTS, BLOOD_HIT_SIZE);
       // A killed deer lies where it fell for a moment, then leaves its stain (other game: just the stain).
       if (entry.kind === "deer" && DEER_FALLEN_TEXTURE) spawnFallenDeer(x, y, entry.sprite.scale.x < 0, stain);
       else stain();
@@ -2136,7 +2185,7 @@ async function main() {
     sprite.anchor.set(0.5, 1);
     const scale = (WILDLIFE_ART.deer.size * 1.15) / texture.width;
     sprite.scale.set(facingLeft ? -scale : scale, scale);
-    sprite.position.set(x, y);
+    placeUpright(sprite, x, y, 0, tileSize * 0.2);
     decorSpriteLayer.addChild(sprite);
     activeEffects.push({
       sprite,
@@ -2264,7 +2313,7 @@ async function main() {
     }
     if (wound.texture !== texture) wound.texture = texture;
     wound.scale.set(size / Math.max(texture.width, texture.height));
-    wound.position.set(x, y);
+    placeUpright(wound, x, y);
     wound.visible = true;
   }
 
@@ -2307,14 +2356,14 @@ async function main() {
       worldLayer.addChildAt(marker, worldLayer.getChildIndex(entry.sprite));
       entry.marker = marker;
     }
-    entry.sprite.position.set(p.x, p.y);
+    placeUpright(entry.sprite, p.x, p.y);
     // A rider with no Town Center to respawn at is gone until one is built (game over overlay).
     entry.sprite.visible = !p.dead;
     entry.hpBar.visible = !p.dead;
     if (entry.marker) entry.marker.visible = !p.dead;
-    entry.marker?.position.set(p.x, p.y + PLAYER_SPRITE_HEIGHT * 0.4);
+    if (entry.marker) placeUpright(entry.marker, p.x, p.y, 0, PLAYER_SPRITE_HEIGHT * 0.4);
     // Just above the (taller) sprite's top edge instead of the old fixed -20.
-    entry.hpBar.position.set(p.x, p.y - PLAYER_SPRITE_HEIGHT / 2 - 4);
+    placeUpright(entry.hpBar, p.x, p.y, 0, -PLAYER_SPRITE_HEIGHT / 2 - 4);
     drawHpBar(entry.hpBar, p.hp, p.maxHp);
     if (!(entry.sprite instanceof Sprite)) return;
     const facingRight = getFacing(playerFacing, p.id, p.x);
@@ -2354,8 +2403,8 @@ async function main() {
       sprite.scale.set(COLONIST_SPRITE_HEIGHT / texture.height);
       return sprite;
     });
-    entry.sprite.position.set(c.x, c.y);
-    entry.hpBar.position.set(c.x, c.y - 18);
+    placeUpright(entry.sprite, c.x, c.y);
+    placeUpright(entry.hpBar, c.x, c.y, 0, -18);
     drawHpBar(entry.hpBar, c.hp, c.maxHp);
 
     let hidden = false;
@@ -2474,10 +2523,10 @@ async function main() {
       sprite.scale.set(scale * mobRenderScale(m));
       return sprite;
     });
-    entry.sprite.position.set(m.x, m.y);
+    placeUpright(entry.sprite, m.x, m.y);
     // Bar just above the sprite's top edge, matching the player's "height / 2 + 4" convention.
     const topOffset = texture ? (texture.height * scale * mobRenderScale(m)) / 2 + 4 : visual.radius + 9;
-    entry.hpBar.position.set(m.x, m.y - topOffset);
+    placeUpright(entry.hpBar, m.x, m.y, 0, -topOffset);
     drawHpBar(entry.hpBar, m.hp, m.maxHp);
     updateWound(entry, m.hp, m.maxHp, m.x, m.y, woundSize, WOUND_LARGE_KINDS.has(m.kind), !entry.sprite.visible);
     updateMarkVisuals(entry, m);
@@ -2513,14 +2562,14 @@ async function main() {
       worldLayer.addChild(entry.markLabel);
     }
     const visible = entry.sprite.visible;
-    const barY = entry.hpBar.position.y;
-    entry.sigil.position.set(m.x, barY - 1);
+    const barY = screenLiftOf(entry.hpBar, m.x, m.y);
+    placeUpright(entry.sigil, m.x, m.y, 0, barY - 1);
     entry.sigil.visible = visible;
-    entry.markLabel!.position.set(m.x, barY - HUNGER_SIGIL_SIZE - 1);
+    placeUpright(entry.markLabel!, m.x, m.y, 0, barY - HUNGER_SIGIL_SIZE - 1);
     entry.markLabel!.visible = visible;
     if (entry.aura) {
       const feetY = m.y + (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS * MARKED_MOB_SCALE * 0.4;
-      entry.aura.position.set(m.x, feetY);
+      placeUpright(entry.aura, m.x, m.y, 0, feetY - m.y);
       entry.aura.alpha = 0.6 + 0.25 * Math.sin(performance.now() / 450);
       entry.aura.visible = visible;
     }
@@ -2546,9 +2595,9 @@ async function main() {
       worldLayer.addChild(entry.bossLabel);
     }
     // The bar grows upward from its usual spot so it never covers the sprite.
-    const barY = entry.hpBar.position.y - 4 * (barScale - 1);
-    entry.hpBar.position.y = barY;
-    entry.bossLabel.position.set(m.x, barY - 2 - (m.mark ? HUNGER_SIGIL_SIZE + 10 : 0));
+    const barY = screenLiftOf(entry.hpBar, m.x, m.y) - 4 * (barScale - 1);
+    placeUpright(entry.hpBar, m.x, m.y, 0, barY);
+    placeUpright(entry.bossLabel, m.x, m.y, 0, barY - 2 - (m.mark ? HUNGER_SIGIL_SIZE + 10 : 0));
     entry.bossLabel.visible = entry.sprite.visible;
   }
 
@@ -2559,8 +2608,8 @@ async function main() {
       sprite.scale.set(variant.idleScale);
       return sprite;
     });
-    entry.sprite.position.set(m.x, m.y);
-    entry.hpBar.position.set(m.x, m.y - (variant.idle.height * variant.idleScale * mobRenderScale(m)) / 2 - 4);
+    placeUpright(entry.sprite, m.x, m.y);
+    placeUpright(entry.hpBar, m.x, m.y, 0, -(variant.idle.height * variant.idleScale * mobRenderScale(m)) / 2 - 4);
     drawHpBar(entry.hpBar, m.hp, m.maxHp);
     const sprite = entry.sprite instanceof Sprite ? entry.sprite : null;
     const facingRight = sprite ? getFacing(mobFacing, m.id, m.x) : true;
@@ -2633,7 +2682,8 @@ async function main() {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
     sprite.scale.set(size / Math.max(texture.width, texture.height));
-    sprite.position.set(x, y);
+    // Upright; directional effects (slash, arrow, bolt) then set their own world-space rotation.
+    placeUpright(sprite, x, y);
     worldLayer.addChild(sprite);
     activeEffects.push({ sprite, startedAt: performance.now(), durationMs, update, onEnd });
     return sprite;
@@ -2649,11 +2699,13 @@ async function main() {
   }
 
   // Dark smoke rising off a burning building (fx-poof, tinted; see syncDamagedBuildings).
-  function spawnSmokePuff(x: number, y: number) {
+  // (x, y) is the flame's foot; the puff starts `lift` px above it on screen and rises from there.
+  function spawnSmokePuff(x: number, y: number, lift: number) {
     const base = FX_SIZE.poof / Math.max(FX_TEXTURES.poof.width, FX_TEXTURES.poof.height);
-    const puff = addFx(FX_TEXTURES.poof, FX_SIZE.poof, x, y, 1200, (s, t) => {
+    const start = rotateVector(-VIEW_ANGLE, 0, -lift);
+    const puff = addFx(FX_TEXTURES.poof, FX_SIZE.poof, x + start.x, y + start.y, 1200, (s, t) => {
       s.scale.set(base * (0.6 + 0.8 * t));
-      s.y = y - 18 * t;
+      placeUpright(s, x, y, 0, -lift - 18 * t);
       s.alpha = 0.55 * (1 - t);
     });
     puff.tint = 0x4a4440;
@@ -2663,7 +2715,7 @@ async function main() {
     const base = FX_SIZE.poof / Math.max(FX_TEXTURES.poof.width, FX_TEXTURES.poof.height);
     addFx(FX_TEXTURES.poof, FX_SIZE.poof, x, y, 420, (s, t) => {
       s.scale.set(base * (0.7 + 0.5 * t));
-      s.y = y - 6 * t;
+      placeUpright(s, x, y, 0, -6 * t);
       s.alpha = 1 - t;
     });
   }
@@ -2671,7 +2723,8 @@ async function main() {
   // VFX sheet 2 one-shot: steps through the set's 4 frames, fading over the last quarter. `under`
   // puts it in the tile layer just beneath the tile at `underIndex` (the ward rings sit under the stone).
   const FX_ANIM_SIZE = { build: 30, upgrade: 30, heal: 22, poison: 20, wardPulse: 56, wardLapse: 56 };
-  function spawnFxAnim(kind: keyof typeof FX_ANIM_TEXTURES, x: number, y: number, durationMs: number, underIndex?: number) {
+  // `drop` lowers the effect that many px below (x, y) on screen (a tile's foot is tileSize / 2 below its centre).
+  function spawnFxAnim(kind: keyof typeof FX_ANIM_TEXTURES, x: number, y: number, durationMs: number, drop = 0, underIndex?: number) {
     const frames = FX_ANIM_TEXTURES[kind];
     const sprite = addFx(frames[0], FX_ANIM_SIZE[kind], x, y, durationMs, (s, t) => {
       const frame = frames[Math.min(frames.length - 1, Math.floor(t * frames.length))];
@@ -2679,9 +2732,10 @@ async function main() {
       s.alpha = t < 0.75 ? 1 : (1 - t) * 4;
     });
     sprite.anchor.set(0.5, 1);
+    placeUpright(sprite, x, y, 0, drop);
     if (underIndex !== undefined) {
       tileSpriteLayer.addChild(sprite);
-      sprite.zIndex = underIndex - 0.5;
+      sprite.zIndex = tileDepth(underIndex % worldTilesX, Math.floor(underIndex / worldTilesX)) - 0.5;
     }
   }
   const tileCenter = (tx: number, ty: number) => ({ x: tx * tileSize + tileSize / 2, y: ty * tileSize + tileSize / 2 });
@@ -2697,7 +2751,7 @@ async function main() {
         if (nx < 0 || ny < 0 || nx >= worldTilesX || ny >= worldTilesY) continue;
         if (tiles[ny * worldTilesX + nx] !== TileType.WardStone) continue;
         const c = tileCenter(nx, ny);
-        spawnFxAnim("wardLapse", c.x, c.y + tileSize / 2, 900, ny * worldTilesX + nx);
+        spawnFxAnim("wardLapse", c.x, c.y, 900, tileSize / 2, ny * worldTilesX + nx);
         return;
       }
     }
@@ -2726,7 +2780,7 @@ async function main() {
       }
       if (best) {
         const p = tileCenter(best.tx, best.ty);
-        spawnFxAnim("build", p.x, p.y + tileSize / 2, 700);
+        spawnFxAnim("build", p.x, p.y, 700, tileSize / 2);
       }
       return;
     }
@@ -2736,10 +2790,10 @@ async function main() {
     if (now - last < (healing ? HEAL_FX_MS : WARD_FX_MS)) return;
     stateFxAt.set(c.id, now);
     if (healing) {
-      spawnFxAnim("heal", c.x, c.y + 10, 600);
+      spawnFxAnim("heal", c.x, c.y, 600, 10);
     } else {
       const p = tileCenter(c.postX, c.postY);
-      spawnFxAnim("wardPulse", p.x, p.y + tileSize / 2, 1000, c.postY * worldTilesX + c.postX);
+      spawnFxAnim("wardPulse", p.x, p.y, 1000, tileSize / 2, c.postY * worldTilesX + c.postX);
     }
   }
 
@@ -2781,7 +2835,7 @@ async function main() {
       slash.rotation = angle;
       // Giant Spider bites poison (server: mob.kind === "giantSpider"); the effect's origin is the spider.
       if (latestMobs.some((m) => m.kind === "giantSpider" && Math.abs(m.x - e.fromX) < 2 && Math.abs(m.y - e.fromY) < 2)) {
-        spawnFxAnim("poison", e.toX, e.toY + 8, 650);
+        spawnFxAnim("poison", e.toX, e.toY, 650, 8);
       }
       return;
     }
@@ -2846,7 +2900,7 @@ async function main() {
       o.flame.texture = FIRE_FRAMES[(fireFrame + o.phase) % FIRE_FRAMES.length];
       if (o.tier >= 2 && now >= o.nextSmokeAt) {
         o.nextSmokeAt = now + FIRE_SMOKE_MS * (0.75 + 0.5 * Math.random());
-        spawnSmokePuff(o.flame.x, o.flame.y - FIRE_FLAME_WIDTH[o.tier]);
+        spawnSmokePuff(o.flame.x, o.flame.y, FIRE_FLAME_WIDTH[o.tier]);
       }
     }
   });
@@ -2856,10 +2910,8 @@ async function main() {
     const mine = playerSprites.get(myId);
     if (!mine) return;
     const focus = fightPeekFocus(mine.sprite.position.x, mine.sprite.position.y);
-    worldLayer.position.set(
-      app.screen.width / 2 - focus.x * ZOOM,
-      app.screen.height / 2 - focus.y * ZOOM
-    );
+    const pos = cameraPosition(VIEW_ANGLE, ZOOM, app.screen.width / 2, app.screen.height / 2, focus.x, focus.y);
+    worldLayer.position.set(pos.x, pos.y);
     updateFloorChunks();
   });
 
@@ -3080,14 +3132,23 @@ async function main() {
       ctx.stroke();
     }
 
-    // Main camera viewport (worldLayer is scaled by ZOOM and offset to follow the player).
-    const viewX = toMap(-worldLayer.position.x / ZOOM);
-    const viewY = toMap(-worldLayer.position.y / ZOOM);
-    const viewW = toMap(app.screen.width / ZOOM);
-    const viewH = toMap(app.screen.height / ZOOM);
+    // Main camera viewport (worldLayer is scaled by ZOOM, rotated by VIEW_ANGLE and offset to follow
+    // the player): the screen rectangle's world quad, a rotated outline in the rotated view.
     ctx.lineWidth = u;
     ctx.strokeStyle = "rgba(251, 236, 200, 0.85)";
-    ctx.strokeRect(Math.round(viewX) + u / 2, Math.round(viewY) + u / 2, Math.round(viewW) - u, Math.round(viewH) - u);
+    if (VIEW_ANGLE === 0) {
+      const viewX = toMap(-worldLayer.position.x / ZOOM);
+      const viewY = toMap(-worldLayer.position.y / ZOOM);
+      const viewW = toMap(app.screen.width / ZOOM);
+      const viewH = toMap(app.screen.height / ZOOM);
+      ctx.strokeRect(Math.round(viewX) + u / 2, Math.round(viewY) + u / 2, Math.round(viewW) - u, Math.round(viewH) - u);
+    } else {
+      const quad = screenRectToWorldQuad(camView(), 0, 0, app.screen.width, app.screen.height);
+      ctx.beginPath();
+      quad.forEach((q, i) => (i === 0 ? ctx.moveTo(toMap(q.x), toMap(q.y)) : ctx.lineTo(toMap(q.x), toMap(q.y))));
+      ctx.closePath();
+      ctx.stroke();
+    }
     drawFightPings(ctx, s, u);
   }
 
@@ -3150,17 +3211,16 @@ async function main() {
 
   function fightIsOnScreen(f: FightSnapshot): boolean {
     const w = fightWorldPos(f);
-    return placeEdgeArrow(
-      app.screen.width, app.screen.height,
-      worldLayer.position.x + w.x * ZOOM, worldLayer.position.y + w.y * ZOOM, FIGHT_ARROW_INSETS
-    ).onScreen;
+    const sp = worldToScreen(camView(), w.x, w.y);
+    return placeEdgeArrow(app.screen.width, app.screen.height, sp.x, sp.y, FIGHT_ARROW_INSETS).onScreen;
   }
 
   // Direction and distance in tiles from the local player (the camera centre if there is none).
   function fightBearing(f: FightSnapshot): { dir: string; tiles: number } {
     const me = myId ? playerSprites.get(myId) : undefined;
-    const ox = me ? me.sprite.position.x / tileSize : (app.screen.width / 2 - worldLayer.position.x) / ZOOM / tileSize;
-    const oy = me ? me.sprite.position.y / tileSize : (app.screen.height / 2 - worldLayer.position.y) / ZOOM / tileSize;
+    const centre = screenToWorld(camView(), app.screen.width / 2, app.screen.height / 2);
+    const ox = (me ? me.sprite.position.x : centre.x) / tileSize;
+    const oy = (me ? me.sprite.position.y : centre.y) / tileSize;
     const dx = f.x + 0.5 - ox;
     const dy = f.y + 0.5 - oy;
     return { dir: compassDirection(dx, dy), tiles: Math.round(Math.hypot(dx, dy)) };
@@ -3231,6 +3291,7 @@ async function main() {
   app.ticker.add(() => {
     if (fightArrows.size === 0) return;
     const now = performance.now();
+    const view = camView();
     for (const [id, a] of fightArrows) {
       const gone = a.goneAt ? now - a.goneAt : 0;
       if (gone >= FIGHT_ARROW_FADE_MS) {
@@ -3238,11 +3299,10 @@ async function main() {
         fightArrows.delete(id);
         continue;
       }
+      // Placed (and pointed) in screen space; the label's compass name stays the WORLD bearing.
       const w = fightWorldPos(a.fight);
-      const p = placeEdgeArrow(
-        app.screen.width, app.screen.height,
-        worldLayer.position.x + w.x * ZOOM, worldLayer.position.y + w.y * ZOOM, FIGHT_ARROW_INSETS
-      );
+      const sp = worldToScreen(view, w.x, w.y);
+      const p = placeEdgeArrow(app.screen.width, app.screen.height, sp.x, sp.y, FIGHT_ARROW_INSETS);
       a.el.hidden = p.onScreen;
       if (p.onScreen) continue;
       a.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
@@ -4129,7 +4189,7 @@ async function main() {
       // A construction finished (anyone's): the build sparkle and the placement thud.
       pendingPlacements.delete(index);
       const c = tileCenter(tileX, tileY);
-      spawnFxAnim("build", c.x, c.y + tileSize / 2, 700);
+      spawnFxAnim("build", c.x, c.y, 700, tileSize / 2);
       sound.play("build_place", { x: c.x, y: c.y });
       return;
     }
@@ -4145,7 +4205,7 @@ async function main() {
     const c = tileCenter(tileX, tileY);
     // Our placement landed: on bare ground it's a build; on an existing building that turned into a
     // different tile (House -> Big House, barracks -> castle) it's an upgrade.
-    spawnFxAnim(prev !== TileType.Empty && prev !== tile ? "upgrade" : "build", c.x, c.y + tileSize / 2, 700);
+    spawnFxAnim(prev !== TileType.Empty && prev !== tile ? "upgrade" : "build", c.x, c.y, 700, tileSize / 2);
     if (pending.tile !== tile) return;
     sound.play("build_place", { x: c.x, y: c.y });
   }
@@ -4163,7 +4223,7 @@ async function main() {
     if (!best) return;
     pendingPlacements.delete(best.index);
     const c = tileCenter(best.index % worldTilesX, Math.floor(best.index / worldTilesX));
-    spawnFxAnim("upgrade", c.x, c.y + tileSize / 2, 700);
+    spawnFxAnim("upgrade", c.x, c.y, 700, tileSize / 2);
   }
 
   // ---- Building info panel (left-click a building; see the pointerup handler) ----
@@ -4689,6 +4749,11 @@ async function main() {
     if (keys.has("s") || keys.has("arrowdown")) dy += 1;
     if (keys.has("a") || keys.has("arrowleft")) dx -= 1;
     if (keys.has("d") || keys.has("arrowright")) dx += 1;
+    // Keys move in SCREEN directions: rotate into the (axis-aligned) world the server simulates.
+    if (VIEW_ANGLE !== 0 && (dx !== 0 || dy !== 0)) {
+      const w = rotateVector(-VIEW_ANGLE, dx, dy);
+      return { dx: w.x, dy: w.y };
+    }
     return { dx, dy };
   }
 
@@ -4706,6 +4771,16 @@ async function main() {
   }
 
   app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // Canvas-relative screen px and the world point under them (through the view transform).
+  function pointerScreen(e: { clientX: number; clientY: number }): { x: number; y: number } {
+    const rect = app.canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+  function pointerWorld(e: { clientX: number; clientY: number }): { x: number; y: number } {
+    const p = pointerScreen(e);
+    return screenToWorld(camView(), p.x, p.y);
+  }
 
   // Left button is resolved on pointerup (it may become a drag-select); other buttons act on down.
   interface LeftPress {
@@ -4746,9 +4821,7 @@ async function main() {
   }
 
   app.canvas.addEventListener("pointerdown", (e) => {
-    const rect = app.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
-    const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+    const { x, y } = pointerWorld(e);
     if (e.button === 0) {
       leftPress = {
         pointerId: e.pointerId,
@@ -4805,9 +4878,7 @@ async function main() {
       // Units may have died or been deselected while the button was held.
       const units = latestColonists.filter((c) => selectedIds.has(c.id));
       if (units.length === 0 || unitOrder.get(units[0].id) !== press.order && !units.some((u) => unitOrder.get(u.id) === press.order)) return;
-      const rect = app.canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
-      const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+      const { x, y } = pointerWorld(e);
       if (press.dragging && units.length > 1) {
         const plan = computeLineFormationTargets(units, press.worldX, press.worldY, x, y);
         dispatchPlannedMove(units, plan, plan.cx, plan.cy, press.order);
@@ -4819,25 +4890,24 @@ async function main() {
     if (e.button !== 0 || !leftPress || e.pointerId !== leftPress.pointerId) return;
     const press = leftPress;
     cancelLeftPress();
-    const rect = app.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
-    const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+    const { x, y } = pointerWorld(e);
 
     if (press.dragging) {
-      const minX = Math.min(press.worldX, x);
-      const maxX = Math.max(press.worldX, x);
-      const minY = Math.min(press.worldY, y);
-      const maxY = Math.max(press.worldY, y);
+      // The box is a SCREEN rectangle (a rotated quad in the world when the view is rotated).
+      const view = camView();
+      const a = worldToScreen(view, press.worldX, press.worldY);
+      const b = worldToScreen(view, x, y);
+      const minX = Math.min(a.x, b.x);
+      const maxX = Math.max(a.x, b.x);
+      const minY = Math.min(a.y, b.y);
+      const maxY = Math.max(a.y, b.y);
       setSelection(
         latestColonists
-          .filter(
-            (c) =>
-              isCommandable(c) &&
-              c.x >= minX &&
-              c.x <= maxX &&
-              c.y >= minY &&
-              c.y <= maxY
-          )
+          .filter((c) => {
+            if (!isCommandable(c)) return false;
+            const p = worldToScreen(view, c.x, c.y);
+            return p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+          })
           .map((c) => c.id)
       );
       return;
@@ -4893,9 +4963,7 @@ async function main() {
   });
 
   app.canvas.addEventListener("pointermove", (e) => {
-    const rect = app.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
-    const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+    const { x, y } = pointerWorld(e);
     if (orderPress && e.pointerId === orderPress.pointerId) {
       if (
         !orderPress.dragging &&
@@ -4927,13 +4995,12 @@ async function main() {
       }
       if (leftPress.dragging) {
         dragBox.clear();
+        const view = camView();
+        const a = worldToScreen(view, leftPress.worldX, leftPress.worldY);
+        const b = pointerScreen(e);
+        const quad = screenRectToWorldQuad(view, a.x, a.y, b.x, b.y);
         dragBox
-          .rect(
-            Math.min(leftPress.worldX, x),
-            Math.min(leftPress.worldY, y),
-            Math.abs(x - leftPress.worldX),
-            Math.abs(y - leftPress.worldY)
-          )
+          .poly(quad.flatMap((q) => [q.x, q.y]))
           .fill({ color: SELECTION_COLOR, alpha: 0.12 })
           .stroke({ width: 1.5, color: SELECTION_COLOR });
       }
@@ -4943,7 +5010,9 @@ async function main() {
     placementGhost.visible =
       !!tile && ((currentTool === TileType.TownCenter && !!TOWN_CENTER_MARKER_TEXTURE) || isRoadTile(currentTool));
     if (!tile) return;
+    // Road ghosts lie flat on the tile; the Town Center plaza stands upright like the real one.
     placementGhost.position.set(tile.tileX * tileSize + tileSize / 2, tile.tileY * tileSize + tileSize / 2);
+    placementGhost.rotation = isRoadTile(currentTool) ? 0 : -VIEW_ANGLE;
     cursorHighlight
       .rect(tile.tileX * tileSize, tile.tileY * tileSize, tileSize, tileSize)
       .stroke({ width: 2, color: 0xffffff, alpha: 0.6 });
@@ -4955,6 +5024,20 @@ async function main() {
 // join. There is ONE settings panel: it lives in the main menu until Start, then moves into the
 // in-game #settings-modal (opened by the Settings control button). "Menu" in-game reloads back here.
 const DIFFICULTY_PREF_KEY = "sworn.difficulty";
+// View: "rotated" (default) or "classic"; read once when the game starts (main), so an in-game change
+// applies from the next Menu / reload.
+function readViewPref(): string | null {
+  try {
+    return localStorage.getItem(VIEW_PREF_KEY);
+  } catch {
+    return null;
+  }
+}
+function renderViewChoice(value: string | null) {
+  document.querySelectorAll<HTMLButtonElement>("#set-view button").forEach((btn) => {
+    btn.setAttribute("aria-checked", String(btn.dataset.view === (value === "classic" ? "classic" : "rotated")));
+  });
+}
 const DIFFICULTY_LABEL: Record<Difficulty, string> = { easy: "Easy", normal: "Normal", hard: "Hard" };
 // The menu choice: sent as setDifficulty after every welcome, and with an in-game Restart.
 let preferredDifficulty: Difficulty = "normal";
@@ -5117,6 +5200,24 @@ function setupMainMenu() {
     /* default stays Medium */
   }
   renderMapSizeChoice(preferredWorldSize);
+  renderViewChoice(readViewPref());
+  const viewSeg = document.getElementById("set-view")!;
+  const viewAtStart = () => (readViewPref() === "classic" ? "classic" : "rotated");
+  let viewInUse: string | null = null;
+  viewSeg.addEventListener("click", (e) => {
+    const value = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-view]")?.dataset.view;
+    if (value !== "rotated" && value !== "classic") return;
+    try {
+      localStorage.setItem(VIEW_PREF_KEY, value);
+    } catch {
+      /* private mode: setting just won't persist */
+    }
+    renderViewChoice(value);
+    if (viewInUse) {
+      document.getElementById("set-view-note")!.textContent =
+        value === viewInUse ? "Rotated diamond view, or the original" : "Applies after Menu (reload)";
+    }
+  });
   const mapSizeSeg = document.getElementById("set-mapsize")!;
   mapSizeSeg.addEventListener("click", (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-size]");
@@ -5160,6 +5261,7 @@ function setupMainMenu() {
     difficultySeg.setAttribute("aria-disabled", "true");
     difficultyNote.textContent = "Fixed for this world; a Restart uses your menu choice";
     document.getElementById("menu-back")!.textContent = "Close";
+    viewInUse = viewAtStart();
     if (activeDifficulty) renderDifficultyChoice(activeDifficulty);
     void main();
   };
