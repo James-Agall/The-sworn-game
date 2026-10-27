@@ -488,6 +488,67 @@ section). One game day = 60 s day + 40 s night = 2000 ticks.
   `repairBuilding` message.
 - **Test:** `server/building-damage-test.mjs` (test hooks `ignorePlayers`, `damageBuilding`, `buildingState`).
 
+### Monster tactics — landed 2026-10-27
+
+Step 2 of 2 toward Total War-style battles (step 1: Regiments & roles, below). Server only; the protocol and
+client are untouched (one toast). All of it lives in the "Monster tactics" block after `updateMob`.
+
+- **Regiments**: every mob sharing `regimentKey(m)` = `groupId ?? regimentId ?? siteId` (a raid group,
+  before and after it breaks up, or a POI site; future horde / fort sites just set a shared `siteId` or
+  `regimentId`). `updateRegiments` (once a second, inside `withHostileMover`, before `updateRaidGroups`)
+  keeps a `RegimentState` per key (morale, routed, sheltering, shelter posts, flank group, last strength
+  ratio, home = where it was first seen) and evaluates every regiment with awake, non-passive members.
+  Not saved: a loaded world starts every regiment at morale 100. `mobTactic(mob)` (from `updateMob`, after
+  the raid-group return) moves flanking / routing / leaving / sheltering mobs.
+- **Strength**: Lanchester-style `sum HP x sum damage` of the members vs the player's forces within
+  `TACTICS_SCAN_TILES` (10) of the centroid (+ the regiment's spread, max 8): soldiers (damage per mob attack
+  interval), players (unless `ignorePlayers`), standing towers (`livingTowersNear`, tower HP and rate).
+  The product (not a plain sum of HP x damage) so five goblins aren't "outnumbered" by one rider.
+- **Flanking** (`tryFlank`): when a front-rank member is closing on (within reach + `FLANK_CONTACT_TILES` 6)
+  a soldier, the enemy line (soldiers near) is >= 2 tiles wide and wider than the melee contact, and no
+  member is already past it, the regiment's fast units (wolves, spiders; or, with none, `FLANK_DETACH_FRACTION`
+  20% of a >= 5-strong front line, its outermost on that side) walk an arc: out `FLANK_ARC_TILES` (7) beyond
+  the line's end on their own side, level with the line, then `FLANK_BEHIND_TILES` (3) behind it - the side
+  whose probe tiles are all walkable (open flank). Target: the enemy archer nearest the arc's end, else the
+  line's end unit; within `FLANK_ENGAGE_TILES` (3) of it (past the first waypoint) or at the end it becomes
+  an ordinary colonist target (slots / attacker caps / queueing as usual). One flank group per regiment
+  (`flankIds`); a mob that flanked once (`flanker`) is never sent again; `FLANK_MAX_TICKS` 20 s cap.
+- **Wall cover**: only regiments that own walls - `walledSites` (ids) / `SITE_KIND_WALLED` (per site kind,
+  empty today: ruins / encampments have none; fences don't count) - or whose members already stand inside a
+  walled enclosure (`walledEnclosure`: 4-way flood fill of mob-walkable tiles, closed gates solid, that closes
+  within `COVER_ENCLOSURE_TILES` (8) and touches a wall / gate). Outnumbered (ratio < 0.6) with an intact
+  shelter: `sheltering`; posts inside (ranged / casters on the wall-side tiles nearest the enemy, melee on the
+  tiles nearest a gate). Sheltering mobs walk to their post and only fight a unit already in reach
+  (ranged fire over the wall; melee hold the gate), never advance, never breach. Out again when the ratio
+  passes 1.0, or on a breach: a gap / open or overrun gate (the fill leaks) or any bordering wall / gate
+  under 50% HP. No outnumbered morale drain while sheltering; a sheltering regiment doesn't rout.
+- **Morale** 0-100 per regiment, start 100, only changes in contact (else +3/s): casualties
+  `MORALE_CASUALTY` (50) x role weight (frontline 1, shock 2, ranged 0.8, caster 1, fast 0.8, boss /
+  Hunger-marked 3) / peak size; front line lost (no non-rear member left) -8/s; outflanked (an enemy 1+ tile
+  behind the centroid within 4 tiles of a member) -4/s; outnumbered -20/s x (1 - ratio / 0.6); winning (ratio
+  > 1.5) +3/s. Losses x0.5 while a morale anchor (`boss` or Hunger mark) lives.
+- **Rout** below 25: site regiments flee home (`tactic = "rout"`, +20% speed, no targets); cornered (soldier
+  within 1.2 tiles and no route / already home) they fight back. They rally above 50 after 10 s without
+  contact. Raid regiments leave instead (`tactic = "leave"`): a group still in formation is released and
+  deleted from `raidGroups` at once; members walk to the map edge straight away from the enemy
+  (`fleeEdgePoint`) and despawn there or after 60 s (`despawnMob`: no gold, slots released). Toast "The
+  raiders break and flee!" (raid event, once per 30 s). Morale anchors never rout or leave while alive.
+- **Player side (minimal)**: no morale. Pursuit safety in `pickGuardTarget`: a routing / leaving mob is
+  only fought inside a soldier's attack range, never chased, so a broken enemy doesn't drag the line apart.
+- **Test hooks**: `spawnMob` takes `regimentId` / `siteId` (awake guardian); `spawnRaidGroup` {kinds, tx, ty}
+  (an engaged group, one row per member); `setRegimentWalled` {id, value}; `tacticsConfig` {freezeMorale};
+  `tacticsState` (regiments, events: flank / flankStrike / cover / coverEnd / rout / rally / despawn).
+- **Test:** `server/tactics-test.mjs` (160 world): F wolf of a 6 armoured orc + 2 orc + wolf regiment flanks a
+  5-knight line (+2 archers, morale frozen) and strikes an archer while the front is still engaged; R a 2-goblin
+  raid group vs 8 knights routs, toasts, moves off and is gone (group, regiment, mobs; despawned at the edge);
+  W 4 walled-site mobs in a 5x5 walled enclosure vs 8 knights take cover and stay inside 15 s, a gate under
+  half HP ends it.
+- **Hooks for the horde phases**: give each horde / fort site a shared `siteId` (or `regimentId`) and add it
+  to `walledSites` (or its kind to `SITE_KIND_WALLED`) when it has walls; `RegimentState.home*` is the
+  anchor routs fall back to; `tacticsEvent` is the place to hang horde-level reactions (e.g. a rout spreading
+  morale loss to neighbouring regiments); `startRout` / `evaluateRegiment` are where horde-wide morale or a
+  warlord's rally would plug in.
+
 ### Regiments & roles — landed 2026-10-27
 
 Step 1 of 2 toward Total War-style battles (step 2: monster flanking, retreat behind walls, morale). Units now

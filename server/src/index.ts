@@ -215,6 +215,18 @@ interface Mob {
   // Regiments: the raid group this mob marched in, kept after its group breaks up so its ranged /
   // casters still know their front rank (see regimentFrontDistance). Missing for non-raid mobs.
   regimentId?: string | null;
+  // Monster tactics (see the "Monster tactics" block); missing on most mobs and in old saves.
+  //   flank - walking a flanking arc (flankWaypoints) round the enemy line to flankTargetId (a soldier)
+  //   rout  - fleeing toward its regiment's home;  leave - a routed raider walking off the map (fleeX/Y)
+  tactic?: "flank" | "rout" | "leave" | null;
+  flankWaypoints?: { x: number; y: number }[];
+  flankTargetId?: string | null;
+  flankUntilTick?: number;
+  // Set once a flank delivered it to its target (never sent round again; the "flankStrike" event).
+  flanker?: boolean;
+  fleeX?: number;
+  fleeY?: number;
+  leaveUntilTick?: number;
   // Hunger mark (HungerMark.None for ordinary mobs); see the HUNGER_* constants and markedMob* helpers.
   mark: HungerMark;
   // Gorrath: tick its one-off wounded fury ends (0 = never triggered; it triggers once per mob).
@@ -4079,6 +4091,7 @@ function damageMob(mob: Mob, amount: number, attackerKey?: string) {
   if (mob.hp <= 0) {
     gravestones.push({ x: mob.x, y: mob.y, variant: Math.random() < 0.5 ? 0 : 1 });
     mobs.delete(mob.id);
+    noteRegimentCasualty(mob);
     stock.gold += goldForKill(mob);
     if (mob.boss) onBossKilled(mob);
   }
@@ -4645,6 +4658,9 @@ function pickGuardTarget(c: Colonist, stats: { range: number; melee: boolean; sp
   for (const m of mobs.values()) {
     const du = Math.hypot(m.x - c.x, m.y - c.y);
     if (du > (m.mark === HungerMark.Morvain ? alertPx * MORVAIN_DETECTION_FACTOR : alertPx)) continue;
+    // Monster tactics, pursuit safety: a routed / leaving mob is only fought within attack range, never
+    // chased, so a broken enemy doesn't pull the line apart.
+    if ((m.tactic === "rout" || m.tactic === "leave") && du > stats.range) continue;
     const ds = Math.hypot(m.x - c.rallyX, m.y - c.rallyY);
     if (ds > reachPx) continue;
     const score = rearRank && du <= stats.range ? du - (engagedWithFrontline(m) ? 2e6 : 1e6) : ds;
@@ -6419,6 +6435,12 @@ function updateMob(mob: Mob, dt: number) {
   // Raid-group members are moved by updateRaidGroups until their group breaks up.
   if (mob.groupId !== null) return;
 
+  // Monster tactics: flanking / routing / leaving mobs are moved by mobTactic; a sheltering one holds
+  // its post behind the walls and only fights what is in reach ("hold").
+  const tactic = mobTactic(mob, dt);
+  if (tactic === "handled") return;
+  const hold = tactic === "hold";
+
   // Vhorrun withdrawing after winning an exchange: back away from where the fight was, then return.
   if (mob.mark === HungerMark.Vhorrun && cycleTick < mob.withdrawUntilTick) {
     stepMobAwayFrom(mob, mob.withdrawFromX, mob.withdrawFromY, dt);
@@ -6448,6 +6470,7 @@ function updateMob(mob: Mob, dt: number) {
   // Gunne / Gorrath keep re-checking for a weaker / stronger victim.
   if ((mob.mark === HungerMark.Gunne || mob.mark === HungerMark.Gorrath) && cycleTick % MARK_RETARGET_TICKS === 0) targetPos = null;
 
+  if (!targetPos && hold) return;
   if (!targetPos) {
     const picked = pickMobTarget(mob);
     releaseSlot(mob.id);
@@ -6513,6 +6536,7 @@ function updateMob(mob: Mob, dt: number) {
   }
 
   const dist = Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y);
+  if (hold && dist > mob.range) return;
   // Queue: a melee mob with no slot on its unit target stands off behind the fighters instead of
   // shoving into the scrum (it re-picks a target with room once a second, see above).
   if (
@@ -6543,6 +6567,9 @@ function updateMob(mob: Mob, dt: number) {
       if (mob.targetType === "colonist" && mob.targetId) {
         const c = colonists.get(mob.targetId);
         if (c) {
+          if (mob.flanker && isRearRole(colonistRole(c) ?? "frontline")) {
+            tacticsEvent(regimentKey(mob) ?? "", "flankStrike", `${mob.kind}->${c.kind}`);
+          }
           if (mob.kind === "giantSpider") {
             c.poisonTicksRemaining = POISON_DURATION_TICKS;
             c.poisonDamagePerTick = POISON_DAMAGE_PER_TICK;
@@ -6587,6 +6614,616 @@ function updateMob(mob: Mob, dt: number) {
     }
     advanceAlongPath(mob, dt, mob.speed);
   }
+}
+
+// ---- Monster tactics: flanking, wall cover, morale & rout (ROADMAP "Monster tactics") ----
+// A regiment is every mob sharing regimentKey: a raid group (groupId, then regimentId once it broke
+// up) or a POI site (siteId; future horde / fort sites use the same key). updateRegiments evaluates
+// each one once a second: its strength against the player's forces near it, its morale, and whether it
+// sends a flank group, takes cover behind its own walls or routs. mobTactic then moves the members.
+const TACTICS_EVAL_TICKS = TICK_RATE;
+// Player forces (soldiers, players, standing towers) this far from a regiment's centroid (plus its own
+// spread, up to TACTICS_SPREAD_CAP_TILES) count against it; any at all means it is "in contact".
+const TACTICS_SCAN_TILES = 10;
+const TACTICS_SPREAD_CAP_TILES = 8;
+// Flanking: the arc passes this far outside the enemy line's end, then cuts in behind it.
+const FLANK_ARC_TILES = 7;
+const FLANK_BEHIND_TILES = 3;
+// No fast units: this share of the front line (at least FLANK_MIN_FRONT_FOR_DETACH strong) goes round.
+const FLANK_DETACH_FRACTION = 0.2;
+const FLANK_MIN_FRONT_FOR_DETACH = 5;
+const FLANK_MAX_TICKS = 20 * TICK_RATE;
+const FLANK_WAYPOINT_REACH_PX = TILE_SIZE * 1.5;
+// A flanker past its first waypoint engages early once its target is this close.
+const FLANK_ENGAGE_TILES = 3;
+// The front line counts as engaged once a front-rank member closes within this much of its reach of a
+// soldier target (so the fast wing leaves as the lines meet, not after it has charged in itself).
+const FLANK_CONTACT_TILES = 6;
+// Strength ratio (regiment / enemy) below which it is outnumbered (cover / morale drain), and above
+// which a sheltering regiment comes back out.
+const TACTICS_OUTNUMBERED_RATIO = 0.6;
+const COVER_REENGAGE_RATIO = 1.0;
+// A wall / gate of the shelter below this HP fraction (or an opened gate / a gap) is a breach.
+const COVER_BREACH_HP_FRACTION = 0.5;
+// Walled enclosure search: Chebyshev radius from the start tile it must close within.
+const COVER_ENCLOSURE_TILES = 8;
+const MORALE_MAX = 100;
+const MORALE_ROUT = 25;
+const MORALE_RALLY = 50;
+const MORALE_RALLY_QUIET_TICKS = 10 * TICK_RATE;
+// One death costs MORALE_CASUALTY x its weight / the regiment's peak size (only applied in contact).
+const MORALE_CASUALTY = 50;
+const MORALE_ROLE_WEIGHT: Record<CombatRole, number> = { frontline: 1, shock: 2, ranged: 0.8, caster: 1, fast: 0.8 };
+const MORALE_LEADER_WEIGHT = 3;
+const MORALE_FRONT_LOST_PER_SEC = 8;
+const MORALE_OUTFLANKED_PER_SEC = 4;
+// Drain at ratio 0, falling linearly to 0 at TACTICS_OUTNUMBERED_RATIO.
+const MORALE_OUTNUMBERED_PER_SEC = 20;
+const MORALE_RECOVER_PER_SEC = 3;
+const MORALE_WINNING_RATIO = 1.5;
+// Losses are scaled by this while a morale anchor (boss / Hunger-marked) lives.
+const MORALE_ANCHOR_RESIST = 0.5;
+const ROUT_SPEED_FACTOR = 1.2;
+const RAID_LEAVE_MAX_TICKS = 60 * TICK_RATE;
+const ROUT_TOAST_COOLDOWN_TICKS = 30 * TICK_RATE;
+
+interface RegimentState {
+  id: string;
+  morale: number;
+  peak: number;
+  routed: boolean;
+  // A raid regiment (no site): routing makes it leave the map instead of falling back home.
+  raid: boolean;
+  homeX: number;
+  homeY: number;
+  lastContactTick: number;
+  pendingLoss: number;
+  hadFront: boolean;
+  sheltering: boolean;
+  // Shelter post per member (a tile inside the walls), set while sheltering.
+  posts: Map<string, TileCoord>;
+  flankIds: string[];
+  ratio: number;
+}
+const regiments = new Map<string, RegimentState>();
+// Site / regiment ids that own walls (the cover behaviour). Fort / horde sites register here, or set
+// SITE_KIND_WALLED for their kind; testHook "setRegimentWalled" too. Encampment fences do not count.
+const walledSites = new Set<string>();
+const SITE_KIND_WALLED: Partial<Record<PoiSiteKind, boolean>> = {};
+// Recent tactics events (testHook "tacticsState").
+const tacticsEvents: Array<{ tick: number; type: string; regiment: string; detail?: string }> = [];
+let lastRoutToastTick = -Infinity;
+// testHook "tacticsConfig" {freezeMorale:true}: morale never changes (isolates flanking in tests).
+let testMoraleFrozen = false;
+
+function regimentKey(m: Mob): string | null {
+  return m.groupId ?? m.regimentId ?? m.siteId ?? null;
+}
+
+function tacticsEvent(regiment: string, type: string, detail?: string) {
+  tacticsEvents.push({ tick: cycleTick, type, regiment, detail });
+  if (tacticsEvents.length > 200) tacticsEvents.shift();
+}
+
+// Bosses and Hunger-marked leaders: morale resistance for their regiment, and they never rout.
+function isMoraleAnchor(m: Mob): boolean {
+  return !!m.boss || m.mark !== HungerMark.None;
+}
+
+function noteRegimentCasualty(m: Mob) {
+  const key = regimentKey(m);
+  const reg = key ? regiments.get(key) : undefined;
+  if (!reg) return;
+  const weight = isMoraleAnchor(m) ? MORALE_LEADER_WEIGHT : MORALE_ROLE_WEIGHT[mobRole(m)];
+  reg.pendingLoss += (MORALE_CASUALTY * weight) / Math.max(3, reg.peak);
+}
+
+interface EnemyUnit {
+  type: "colonist" | "player";
+  id: string;
+  x: number;
+  y: number;
+  rear: boolean;
+}
+
+// The player's forces within radiusPx of (cx, cy): summed HP and damage per mob attack interval.
+function playerForceNear(cx: number, cy: number, radiusPx: number): { hp: number; dmg: number; units: EnemyUnit[] } {
+  let hp = 0;
+  let dmg = 0;
+  const units: EnemyUnit[] = [];
+  for (const c of colonists.values()) {
+    if (!isGuardOrMilitiaKind(c.kind) || c.hp <= 0) continue;
+    if (Math.abs(c.x - cx) > radiusPx || Math.abs(c.y - cy) > radiusPx || Math.hypot(c.x - cx, c.y - cy) > radiusPx) continue;
+    const stats = guardStats(c.kind, c.castleLevel);
+    hp += c.hp;
+    dmg += (stats.damage * MOB_ATTACK_COOLDOWN_TICKS) / Math.max(1, stats.cooldown);
+    units.push({ type: "colonist", id: c.id, x: c.x, y: c.y, rear: isRearRole(colonistRole(c) ?? "frontline") });
+  }
+  if (!testPlayersIgnored) {
+    for (const p of players.values()) {
+      if (p.dead || Math.hypot(p.x - cx, p.y - cy) > radiusPx) continue;
+      hp += p.hp;
+      dmg += PLAYER_ATTACK_DAMAGE;
+      units.push({ type: "player", id: p.id, x: p.x, y: p.y, rear: false });
+    }
+  }
+  const t = tileOfPixel(cx, cy);
+  for (const tw of livingTowersNear(t.x, t.y, radiusPx / TILE_SIZE)) {
+    hp += structureHp(tw.x, tw.y)?.hp ?? BUILDING_HP_BIG;
+    dmg += (towerStatsForLevel(tw.level).damage * MOB_ATTACK_COOLDOWN_TICKS) / towerCooldownTicks(tw.level);
+  }
+  return { hp, dmg, units };
+}
+
+// The walkable tiles (mob's view: closed gates solid) reachable from `start` without passing
+// COVER_ENCLOSURE_TILES from it, if they are closed off and at least one wall / gate closes them;
+// barriers are the wall / gate tiles bordering them. null: open ground, or a gap / open gate (a breach).
+function walledEnclosure(start: TileCoord): { tiles: TileCoord[]; barriers: TileCoord[] } | null {
+  if (!isWalkableTile(start.x, start.y)) return null;
+  const seen = new Set<number>([tileIndex(start.x, start.y)]);
+  const barrierSeen = new Set<number>();
+  const tilesOut: TileCoord[] = [start];
+  const barriers: TileCoord[] = [];
+  for (let i = 0; i < tilesOut.length; i++) {
+    const t = tilesOut[i];
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const n = { x: t.x + dx, y: t.y + dy };
+      if (!inBounds(n.x, n.y)) continue;
+      const idx = tileIndex(n.x, n.y);
+      if (seen.has(idx) || barrierSeen.has(idx)) continue;
+      if (isWalkableTile(n.x, n.y)) {
+        if (Math.max(Math.abs(n.x - start.x), Math.abs(n.y - start.y)) > COVER_ENCLOSURE_TILES) return null;
+        seen.add(idx);
+        tilesOut.push(n);
+      } else {
+        barrierSeen.add(idx);
+        const tt = tiles[idx] as TileType;
+        if (isWallTile(tt) || tt === TileType.Gate) barriers.push(n);
+      }
+    }
+  }
+  return barriers.length > 0 ? { tiles: tilesOut, barriers } : null;
+}
+
+function enclosureBreached(e: { barriers: TileCoord[] }): boolean {
+  return e.barriers.some((b) => {
+    const s = structureHp(b.x, b.y);
+    return !!s && s.hp < s.max * COVER_BREACH_HP_FRACTION;
+  });
+}
+
+// Where the regiment shelters: from its walled site's home, else (mobs already inside walls) from the
+// member nearest its centroid. Only regiments that own walls (walledSites / SITE_KIND_WALLED) or stand
+// inside a walled enclosure get one.
+function regimentShelter(reg: RegimentState, members: Mob[], cx: number, cy: number) {
+  const site = members.find((m) => m.siteId)?.siteKind ?? null;
+  if (walledSites.has(reg.id) || (site && SITE_KIND_WALLED[site])) {
+    const e = walledEnclosure(tileOfPixel(reg.homeX, reg.homeY));
+    if (e) return e;
+  }
+  const near = members.reduce((b, m) => (Math.hypot(m.x - cx, m.y - cy) < Math.hypot(b.x - cx, b.y - cy) ? m : b));
+  return walledEnclosure(tileOfPixel(near.x, near.y));
+}
+
+// Posts inside the shelter: ranged / casters on the wall-side tiles nearest the enemy (fire over the
+// wall), melee on the tiles nearest a gate (or the enemy, with no gate) to hold the way in.
+function assignShelterPosts(reg: RegimentState, members: Mob[], e: { tiles: TileCoord[]; barriers: TileCoord[] }, ex: number, ey: number) {
+  reg.posts.clear();
+  const used = new Set<string>();
+  const barrierKeys = new Set(e.barriers.map((b) => resourceKey(b.x, b.y)));
+  const gatesIn = e.barriers.filter((b) => tiles[tileIndex(b.x, b.y)] === TileType.Gate);
+  const enemyTile = { x: ex / TILE_SIZE, y: ey / TILE_SIZE };
+  const byWall = e.tiles
+    .filter((t) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => barrierKeys.has(resourceKey(t.x + dx, t.y + dy))))
+    .sort((a, b) => tileDistance(a, enemyTile) - tileDistance(b, enemyTile));
+  const toward = gatesIn.length > 0 ? gatesIn : [{ x: Math.floor(enemyTile.x), y: Math.floor(enemyTile.y) }];
+  const byGate = e.tiles
+    .slice()
+    .sort((a, b) => Math.min(...toward.map((g) => tileDistance(a, g))) - Math.min(...toward.map((g) => tileDistance(b, g))));
+  for (const m of members) {
+    const list = m.melee ? byGate : byWall.length > 0 ? byWall : byGate;
+    const post = list.find((t) => !used.has(resourceKey(t.x, t.y)));
+    if (!post) continue;
+    used.add(resourceKey(post.x, post.y));
+    reg.posts.set(m.id, post);
+  }
+}
+
+// A point on the map edge straight away from (ax, ay) as seen from the mob (the nearest edge when
+// they coincide); a walkable tile near it when there is one.
+function fleeEdgePoint(m: Mob, ax: number, ay: number): { x: number; y: number } {
+  const t = tileOfPixel(m.x, m.y);
+  let vx = m.x - ax;
+  let vy = m.y - ay;
+  if (Math.hypot(vx, vy) < 1) {
+    const dW = t.x;
+    const dE = WORLD_TILES_X - 1 - t.x;
+    const dN = t.y;
+    const dS = WORLD_TILES_Y - 1 - t.y;
+    const min = Math.min(dW, dE, dN, dS);
+    vx = min === dW ? -1 : min === dE ? 1 : 0;
+    vy = vx !== 0 ? 0 : min === dN ? -1 : 1;
+  }
+  const maxX = WORLD_TILES_X - 1;
+  const maxY = WORLD_TILES_Y - 1;
+  const tx = vx > 0 ? (maxX - t.x) / vx : vx < 0 ? -t.x / vx : Infinity;
+  const ty = vy > 0 ? (maxY - t.y) / vy : vy < 0 ? -t.y / vy : Infinity;
+  const k = Math.min(tx, ty);
+  const e = {
+    x: Math.min(maxX, Math.max(0, Math.round(t.x + vx * k))),
+    y: Math.min(maxY, Math.max(0, Math.round(t.y + vy * k))),
+  };
+  const alongX = tx > ty; // hit the north / south edge: search along x
+  for (let d = 0; d <= 10; d++) {
+    for (const s of [d, -d]) {
+      const x = alongX ? Math.min(maxX, Math.max(0, e.x + s)) : e.x;
+      const y = alongX ? e.y : Math.min(maxY, Math.max(0, e.y + s));
+      if (isWalkableTile(x, y)) return tileToPixelCenter({ x, y });
+    }
+  }
+  return tileToPixelCenter(e);
+}
+
+function despawnMob(m: Mob) {
+  mobs.delete(m.id);
+  releaseSlot(m.id);
+  mobsWithoutRoute.delete(m.id);
+}
+
+function clearMobTarget(m: Mob) {
+  m.targetType = null;
+  m.targetId = null;
+  m.path = [];
+  releaseSlot(m.id);
+}
+
+function startRout(reg: RegimentState, members: Mob[], ex: number, ey: number) {
+  reg.routed = true;
+  reg.sheltering = false;
+  reg.flankIds = [];
+  tacticsEvent(reg.id, "rout", `morale ${reg.morale.toFixed(0)}`);
+  // A raid group still (partly) in formation breaks up at once; the raid's bookkeeping drops it.
+  const group = raidGroups.get(reg.id);
+  if (group) {
+    for (const m of raidGroupMembers(group)) releaseRaidMob(m);
+    raidGroups.delete(group.id);
+  }
+  for (const m of members) {
+    if (isMoraleAnchor(m)) continue;
+    clearMobTarget(m);
+    m.tactic = reg.raid ? "leave" : "rout";
+    m.flanker = false;
+    if (reg.raid) {
+      const edge = fleeEdgePoint(m, ex, ey);
+      m.fleeX = edge.x;
+      m.fleeY = edge.y;
+      m.leaveUntilTick = cycleTick + RAID_LEAVE_MAX_TICKS;
+    }
+  }
+  if (reg.raid && cycleTick - lastRoutToastTick >= ROUT_TOAST_COOLDOWN_TICKS) {
+    lastRoutToastTick = cycleTick;
+    broadcastEvent("raid", "The raiders break and flee!");
+  }
+}
+
+// Flank group: the regiment's fast units (or a detachment of its front line's wing) go round the end of
+// an enemy line that is wider than the fight, to its archers (else the line's end unit).
+function tryFlank(reg: RegimentState, members: Mob[], units: EnemyUnit[], cx: number, cy: number) {
+  reg.flankIds = reg.flankIds.filter((id) => mobs.get(id)?.tactic === "flank");
+  if (reg.flankIds.length > 0) return;
+  const soldiers = units.filter((u) => u.type === "colonist");
+  if (soldiers.length < 2) return;
+  // A mob that already flanked once stays in the fight it was delivered to.
+  const free = members.filter((m) => m.groupId === null && !m.tactic && !m.flanker);
+  const engaged = free.filter((m) => {
+    const role = mobRole(m);
+    if (isRearRole(role) || m.targetType !== "colonist" || !m.targetId) return false;
+    const c = colonists.get(m.targetId);
+    return !!c && Math.hypot(c.x - m.x, c.y - m.y) <= m.range + FLANK_CONTACT_TILES * TILE_SIZE;
+  });
+  // Someone has to hold the front while the flank goes round (a pure wolf pack doesn't flank).
+  if (engaged.length === 0 || !members.some((m) => !isRearRole(mobRole(m)) && mobRole(m) !== "fast")) return;
+  const ex = soldiers.reduce((s, u) => s + u.x, 0) / soldiers.length;
+  const ey = soldiers.reduce((s, u) => s + u.y, 0) / soldiers.length;
+  const dl = Math.hypot(ex - cx, ey - cy) || 1;
+  const dx = (ex - cx) / dl;
+  const dy = (ey - cy) / dl;
+  const lx = -dy;
+  const ly = dx;
+  const lat = (p: { x: number; y: number }) => (p.x - ex) * lx + (p.y - ey) * ly;
+  const dep = (p: { x: number; y: number }) => (p.x - ex) * dx + (p.y - ey) * dy;
+  const lo = Math.min(...soldiers.map(lat));
+  const hi = Math.max(...soldiers.map(lat));
+  // The fight's width: the front-rank members already trading blows (none yet: 0).
+  const inMelee = engaged.filter((m) => {
+    const c = colonists.get(m.targetId!);
+    return mobRole(m) !== "fast" && !!c && Math.hypot(c.x - m.x, c.y - m.y) <= m.range + TILE_SIZE * 0.5;
+  });
+  const elo = inMelee.length > 0 ? Math.min(...inMelee.map(lat)) : 0;
+  const ehi = inMelee.length > 0 ? Math.max(...inMelee.map(lat)) : 0;
+  // The line must be a line, and wider than the fight; a regiment already past it is surrounding it.
+  if (hi - lo < 2 * TILE_SIZE || hi - lo <= ehi - elo) return;
+  if (members.some((m) => dep(m) > TILE_SIZE)) return;
+  const back = Math.max(...soldiers.map(dep));
+  const fast = free.filter((m) => mobRole(m) === "fast" && !isMoraleAnchor(m));
+  const front = free.filter((m) => !isRearRole(mobRole(m)) && mobRole(m) !== "fast" && !isMoraleAnchor(m));
+  const prefer = fast.length > 0 ? Math.sign(fast.reduce((s, m) => s + lat(m), 0)) || 1 : 1;
+  for (const s of [prefer, -prefer]) {
+    const end = s > 0 ? hi : lo;
+    const out = end + s * FLANK_ARC_TILES * TILE_SIZE;
+    // Out to the side on its own side of the line first, then level with the line, then behind it.
+    const ahead = Math.min(dl, 4 * TILE_SIZE);
+    const w0 = { x: ex + lx * out - dx * ahead, y: ey + ly * out - dy * ahead };
+    const w1 = { x: ex + lx * out, y: ey + ly * out };
+    const along = end + s * FLANK_ARC_TILES * TILE_SIZE * 0.5;
+    const behind = back + FLANK_BEHIND_TILES * TILE_SIZE;
+    const w2 = { x: ex + lx * along + dx * behind, y: ey + ly * along + dy * behind };
+    // Open flank: the arc's points and the ground between them are walkable and on the map.
+    const probes = [w0, w1, w2, { x: (w1.x + w2.x) / 2, y: (w1.y + w2.y) / 2 }, { x: ex + lx * (end + s * TILE_SIZE * 3), y: ey + ly * (end + s * TILE_SIZE * 3) }];
+    if (!probes.every((p) => { const t = tileOfPixel(p.x, p.y); return isWalkableTile(t.x, t.y); })) continue;
+    let flankers = fast;
+    if (flankers.length === 0) {
+      if (front.length < FLANK_MIN_FRONT_FOR_DETACH) return;
+      const n = Math.max(1, Math.round(front.length * FLANK_DETACH_FRACTION));
+      flankers = front.slice().sort((a, b) => s * lat(b) - s * lat(a)).slice(0, n);
+    }
+    const rear = soldiers.filter((u) => u.rear);
+    const pool = rear.length > 0 ? rear : soldiers;
+    const target = rear.length > 0
+      ? pool.reduce((b, u) => (Math.hypot(u.x - w2.x, u.y - w2.y) < Math.hypot(b.x - w2.x, b.y - w2.y) ? u : b))
+      : pool.reduce((b, u) => (s * lat(u) > s * lat(b) ? u : b));
+    for (const m of flankers) {
+      clearMobTarget(m);
+      m.tactic = "flank";
+      m.flankWaypoints = [w0, w1, w2];
+      m.flankTargetId = target.id;
+      m.flankUntilTick = cycleTick + FLANK_MAX_TICKS;
+      m.repathCooldown = 0;
+      reg.flankIds.push(m.id);
+    }
+    tacticsEvent(reg.id, "flank", `${flankers.length} (${flankers.map((m) => m.kind).join(",")}) side ${s}`);
+    return;
+  }
+}
+
+function evaluateRegiment(reg: RegimentState, members: Mob[]) {
+  let cx = 0;
+  let cy = 0;
+  for (const m of members) {
+    cx += m.x / members.length;
+    cy += m.y / members.length;
+  }
+  reg.peak = Math.max(reg.peak, members.length);
+  const spread = Math.min(TACTICS_SPREAD_CAP_TILES * TILE_SIZE, Math.max(...members.map((m) => Math.hypot(m.x - cx, m.y - cy))));
+  const enemy = playerForceNear(cx, cy, TACTICS_SCAN_TILES * TILE_SIZE + spread);
+  const hp = members.reduce((s, m) => s + Math.max(0, m.hp), 0);
+  const dmg = members.reduce((s, m) => s + m.damage, 0);
+  // Lanchester-style strength (summed HP x summed damage), so numbers count as they do in a melee.
+  const enemyPower = enemy.hp * enemy.dmg;
+  const contact = enemyPower > 0;
+  reg.ratio = contact ? (hp * dmg) / enemyPower : Infinity;
+  let ex = cx;
+  let ey = cy;
+  if (enemy.units.length > 0) {
+    ex = enemy.units.reduce((s, u) => s + u.x, 0) / enemy.units.length;
+    ey = enemy.units.reduce((s, u) => s + u.y, 0) / enemy.units.length;
+  }
+
+  // Morale.
+  if (!testMoraleFrozen) {
+    let delta = 0;
+    if (contact) {
+      reg.lastContactTick = cycleTick;
+      delta -= reg.pendingLoss;
+      if (members.some((m) => !isRearRole(mobRole(m)))) reg.hadFront = true;
+      else if (reg.hadFront) delta -= MORALE_FRONT_LOST_PER_SEC;
+      // Outflanked: an enemy within 4 tiles of a member on the far side of the regiment.
+      const dl = Math.hypot(ex - cx, ey - cy) || 1;
+      const outflanked = enemy.units.some(
+        (u) => ((u.x - cx) * (ex - cx) + (u.y - cy) * (ey - cy)) / dl < -TILE_SIZE &&
+          members.some((m) => Math.hypot(m.x - u.x, m.y - u.y) <= 4 * TILE_SIZE)
+      );
+      if (outflanked) delta -= MORALE_OUTFLANKED_PER_SEC;
+      if (reg.ratio < TACTICS_OUTNUMBERED_RATIO && !reg.sheltering) {
+        delta -= MORALE_OUTNUMBERED_PER_SEC * (1 - reg.ratio / TACTICS_OUTNUMBERED_RATIO);
+      } else if (reg.ratio > MORALE_WINNING_RATIO) delta += MORALE_RECOVER_PER_SEC;
+      if (delta < 0 && members.some(isMoraleAnchor)) delta *= MORALE_ANCHOR_RESIST;
+    } else {
+      delta += MORALE_RECOVER_PER_SEC;
+    }
+    reg.morale = Math.max(0, Math.min(MORALE_MAX, reg.morale + delta));
+  }
+  reg.pendingLoss = 0;
+
+  // Wall cover: shelter while clearly outnumbered and the walls hold; out again when the odds flip
+  // or the walls are breached.
+  if (reg.sheltering) {
+    const e = regimentShelter(reg, members, cx, cy);
+    if (!e || enclosureBreached(e) || reg.ratio > COVER_REENGAGE_RATIO) {
+      reg.sheltering = false;
+      reg.posts.clear();
+      tacticsEvent(reg.id, "coverEnd", !e || enclosureBreached(e) ? "breach" : "odds");
+    } else assignShelterPosts(reg, members, e, ex, ey);
+  } else if (!reg.routed && contact && reg.ratio < TACTICS_OUTNUMBERED_RATIO) {
+    const e = regimentShelter(reg, members, cx, cy);
+    if (e && !enclosureBreached(e)) {
+      reg.sheltering = true;
+      for (const m of members) if (m.tactic === "flank") m.tactic = null;
+      reg.flankIds = [];
+      assignShelterPosts(reg, members, e, ex, ey);
+      tacticsEvent(reg.id, "cover", `${e.tiles.length} tiles`);
+    }
+  }
+
+  // Rout / rally.
+  if (!reg.routed && !reg.sheltering && reg.morale < MORALE_ROUT) startRout(reg, members, ex, ey);
+  else if (reg.routed && !reg.raid && reg.morale > MORALE_RALLY && cycleTick - reg.lastContactTick >= MORALE_RALLY_QUIET_TICKS) {
+    reg.routed = false;
+    tacticsEvent(reg.id, "rally", `morale ${reg.morale.toFixed(0)}`);
+  }
+  for (const m of members) {
+    if (!reg.routed && m.tactic === "rout") m.tactic = null;
+    else if (reg.routed && !reg.raid && !m.tactic && !isMoraleAnchor(m) && m.groupId === null) {
+      clearMobTarget(m);
+      m.tactic = "rout";
+    }
+  }
+
+  if (!reg.routed && !reg.sheltering && contact) tryFlank(reg, members, enemy.units, cx, cy);
+}
+
+function updateRegiments() {
+  if (cycleTick % TACTICS_EVAL_TICKS !== 0) return;
+  const byReg = new Map<string, Mob[]>();
+  const seen = new Set<string>();
+  for (const m of mobs.values()) {
+    const key = regimentKey(m);
+    if (!key) continue;
+    seen.add(key);
+    let reg = regiments.get(key);
+    if (!reg) {
+      reg = {
+        id: key, morale: MORALE_MAX, peak: 0, routed: false, raid: !m.siteId, homeX: m.x, homeY: m.y,
+        lastContactTick: -Infinity, pendingLoss: 0, hadFront: false, sheltering: false, posts: new Map(), flankIds: [], ratio: Infinity,
+      };
+      regiments.set(key, reg);
+    }
+    if (isDormantGuardian(m) || m.passive || (m.isDeserter && !m.deserterActive)) continue;
+    const list = byReg.get(key);
+    if (list) list.push(m);
+    else byReg.set(key, [m]);
+  }
+  for (const id of regiments.keys()) if (!seen.has(id)) regiments.delete(id);
+  for (const [id, members] of byReg) evaluateRegiment(regiments.get(id)!, members);
+}
+
+// Walks `mob` to (gx, gy) along a path (repathed every MOB_REPATH_TICKS); false when no route exists.
+function walkMobTo(mob: Mob, gx: number, gy: number, speed: number, dt: number): boolean {
+  if (mob.path.length === 0) {
+    if (mob.repathCooldown > 0) {
+      mob.repathCooldown--;
+      return true;
+    }
+    mob.repathCooldown = MOB_REPATH_TICKS;
+    const route = findPath(tileOfPixel(mob.x, mob.y), tileOfPixel(gx, gy));
+    if (!route) return false;
+    mob.path = route;
+    if (route.length === 0) stepRaidMobToward(mob, gx, gy, speed, dt);
+  }
+  advanceAlongPath(mob, dt, speed);
+  return true;
+}
+
+function nearestPlayerUnitWithin(mob: Mob, radiusPx: number): { type: MobTargetType; id: string } | null {
+  let best: { type: MobTargetType; id: string } | null = null;
+  let bestD = radiusPx;
+  for (const c of colonists.values()) {
+    if (!isGuardOrMilitiaKind(c.kind)) continue;
+    const d = Math.hypot(c.x - mob.x, c.y - mob.y);
+    if (d <= bestD) {
+      bestD = d;
+      best = { type: "colonist", id: c.id };
+    }
+  }
+  if (!testPlayersIgnored) {
+    for (const p of players.values()) {
+      const d = Math.hypot(p.x - mob.x, p.y - mob.y);
+      if (!p.dead && d <= bestD) {
+        bestD = d;
+        best = { type: "player", id: p.id };
+      }
+    }
+  }
+  return best;
+}
+
+// Per-mob tactics step, from updateMob. "handled": it moved the mob this tick; "hold": sheltering, a
+// unit target in reach is set (updateMob fights it but never moves); null: ordinary behaviour.
+function mobTactic(mob: Mob, dt: number): "handled" | "hold" | null {
+  const key = regimentKey(mob);
+  const reg = key ? regiments.get(key) : undefined;
+  if (mob.tactic === "leave") {
+    const t = tileOfPixel(mob.x, mob.y);
+    const onEdge = t.x <= 0 || t.y <= 0 || t.x >= WORLD_TILES_X - 1 || t.y >= WORLD_TILES_Y - 1;
+    const gx = mob.fleeX ?? mob.x;
+    const gy = mob.fleeY ?? mob.y;
+    if (onEdge || cycleTick >= (mob.leaveUntilTick ?? 0) || Math.hypot(gx - mob.x, gy - mob.y) < TILE_SIZE * 0.75) {
+      despawnMob(mob);
+      if (key) tacticsEvent(key, "despawn", mob.kind);
+      return "handled";
+    }
+    if (!walkMobTo(mob, gx, gy, mob.speed * ROUT_SPEED_FACTOR, dt)) {
+      const threat = nearestMeleeSoldier(mob.x, mob.y, TILE_SIZE * 1.2);
+      if (threat) return null;
+      stepRaidMobToward(mob, gx, gy, mob.speed * ROUT_SPEED_FACTOR, dt);
+    }
+    return "handled";
+  }
+  if (mob.tactic === "rout") {
+    if (!reg || !reg.routed) {
+      mob.tactic = null;
+      return null;
+    }
+    const threat = nearestMeleeSoldier(mob.x, mob.y, TILE_SIZE * 1.2);
+    const home = Math.hypot(reg.homeX - mob.x, reg.homeY - mob.y) <= TILE_SIZE * 1.5;
+    // Cornered (an attacker on it and nowhere left to run): it fights back.
+    if (home) return threat ? null : "handled";
+    if (!walkMobTo(mob, reg.homeX, reg.homeY, mob.speed * ROUT_SPEED_FACTOR, dt)) {
+      if (threat) return null;
+      mob.tactic = null;
+    }
+    return "handled";
+  }
+  if (mob.tactic === "flank") {
+    const target = mob.flankTargetId ? colonists.get(mob.flankTargetId) : undefined;
+    const wps = mob.flankWaypoints ?? [];
+    if (!target || cycleTick > (mob.flankUntilTick ?? 0) || (reg && (reg.routed || reg.sheltering))) {
+      mob.tactic = null;
+      return null;
+    }
+    if (wps.length === 0 || (wps.length < 3 && Math.hypot(target.x - mob.x, target.y - mob.y) <= FLANK_ENGAGE_TILES * TILE_SIZE)) {
+      mob.tactic = null;
+      mob.flanker = true;
+      mob.targetType = "colonist";
+      mob.targetId = target.id;
+      mob.path = [];
+      mob.repathCooldown = 0;
+      return null;
+    }
+    const wp = wps[0];
+    if (Math.hypot(wp.x - mob.x, wp.y - mob.y) <= FLANK_WAYPOINT_REACH_PX) {
+      wps.shift();
+      mob.path = [];
+      mob.repathCooldown = 0;
+      return "handled";
+    }
+    if (!walkMobTo(mob, wp.x, wp.y, mob.speed, dt)) {
+      wps.shift();
+      mob.repathCooldown = 0;
+    }
+    return "handled";
+  }
+  if (reg?.sheltering) {
+    const post = reg.posts.get(mob.id);
+    const foe = nearestPlayerUnitWithin(mob, mob.range + (mob.melee ? TILE_SIZE * 0.5 : 0));
+    if (foe) {
+      if (mob.targetId !== foe.id) {
+        clearMobTarget(mob);
+        mob.targetType = foe.type;
+        mob.targetId = foe.id;
+      }
+      return "hold";
+    }
+    if (mob.targetType) clearMobTarget(mob);
+    if (post) {
+      const p = tileToPixelCenter(post);
+      if (Math.hypot(p.x - mob.x, p.y - mob.y) > TILE_SIZE * 0.4 && !walkMobTo(mob, p.x, p.y, mob.speed, dt)) {
+        stepRaidMobToward(mob, p.x, p.y, mob.speed, dt);
+      }
+    }
+    return "handled";
+  }
+  return null;
 }
 
 // ---- World generation: biomes, ponds, resource scatter, POI sites (ruins / encampments) ----
@@ -7663,8 +8300,50 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       mob.groupId = null;
       mob.passive = false;
       if (typeof msg.mark === "number" && msg.mark >= HungerMark.Gorrath && msg.mark <= HungerMark.Vhorrun) applyHungerMark(mob, msg.mark);
+      // Monster tactics: optional regiment (raid-style) or an awake site guardian (siteId).
+      if (typeof msg.regimentId === "string") mob.regimentId = msg.regimentId;
+      if (typeof msg.siteId === "string") Object.assign(mob, { siteId: msg.siteId, siteKind: "encampment", guardianActive: true });
       reply({ id: mob.id, mark: mob.mark, hp: mob.hp, maxHp: mob.maxHp, damage: mob.damage });
     }
+  } else if (msg.op === "spawnRaidGroup" && Array.isArray(msg.kinds) && typeof msg.tx === "number" && typeof msg.ty === "number") {
+    // A raid group already in contact (engaged now): member i is on row i, so the rows release one by
+    // one (RAID_RELEASE_ROW_TICKS apart) and some are still in the group early on.
+    const id = randomUUID();
+    const group: RaidGroup = {
+      id, faction: "greenskinWarband", isHorde: false, edge: "west", memberIds: [], homes: new Map(), aggroTick: 0,
+      state: "marching", leaderId: null, offsets: new Map(), repathCooldown: 0, headingX: 1, headingY: 0,
+      engagedTick: cycleTick, anchorX: tileToPixelCenter({ x: msg.tx, y: msg.ty }).x, anchorY: tileToPixelCenter({ x: msg.tx, y: msg.ty }).y,
+    };
+    (msg.kinds as unknown[]).forEach((k, i) => {
+      if (typeof k !== "string" || !(k in MOB_KIND_CONFIG)) return;
+      const mob = createRaidMob(k as MobKind, { x: (msg.tx as number), y: (msg.ty as number) + i }, id);
+      mob.passive = false;
+      group.memberIds.push(mob.id);
+      group.offsets.set(mob.id, { x: 0, y: i * TILE_SIZE, row: i });
+    });
+    group.leaderId = group.memberIds[0] ?? null;
+    raidGroups.set(id, group);
+    reply({ id, memberIds: group.memberIds });
+  } else if (msg.op === "setRegimentWalled" && typeof msg.id === "string") {
+    if (msg.value === false) walledSites.delete(msg.id);
+    else walledSites.add(msg.id);
+    reply({ walled: walledSites.has(msg.id) });
+  } else if (msg.op === "tacticsConfig") {
+    testMoraleFrozen = msg.freezeMorale === true;
+    reply({ freezeMorale: testMoraleFrozen });
+  } else if (msg.op === "tacticsState") {
+    reply({
+      cycleTick,
+      regiments: Array.from(regiments.values()).map((r) => ({
+        id: r.id, morale: r.morale, routed: r.routed, raid: r.raid, sheltering: r.sheltering, ratio: Number.isFinite(r.ratio) ? r.ratio : null,
+        flankIds: r.flankIds, homeX: r.homeX, homeY: r.homeY,
+      })),
+      events: tacticsEvents,
+      groups: Array.from(raidGroups.keys()),
+      mobs: Array.from(mobs.values())
+        .filter((m) => regimentKey(m))
+        .map((m) => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, hp: m.hp, regiment: regimentKey(m), groupId: m.groupId, tactic: m.tactic ?? null, targetType: m.targetType, targetId: m.targetId })),
+    });
   } else if (msg.op === "setColonistHp" && typeof msg.id === "string" && typeof msg.hp === "number") {
     const c = colonists.get(msg.id);
     if (c) c.hp = Math.max(1, Math.min(c.maxHp, msg.hp));
@@ -7936,6 +8615,8 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   cycleTick = 0;
   wasNight = false;
   raidGroups.clear();
+  regiments.clear();
+  walledSites.clear();
   raidSpawnedForDay = -1;
   treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
   lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
@@ -8149,6 +8830,8 @@ function applyWorld(s: WorldState) {
     raidGroups,
     s.raidGroups.map((g): [string, RaidGroup] => [g.id, { ...g, homes: new Map(g.homes), offsets: new Map(g.offsets) }])
   );
+  // Monster tactics state is not saved: regiments start fresh (morale 100) from the restored mobs.
+  regiments.clear();
   testForceDeserterRoll = s.flags.testForceDeserterRoll;
   testHoldRaidAggro = s.flags.testHoldRaidAggro;
   testRaidsDisabled = s.flags.testRaidsDisabled;
@@ -9792,6 +10475,7 @@ function stepSimulation() {
 
   // Walls & gates: mobs and wildlife move and path from the hostile side of every gate.
   withHostileMover(() => {
+    updateRegiments();
     updateRaidGroups(dt);
     for (const mob of mobs.values()) {
       updateMob(mob, dt);
