@@ -58,6 +58,8 @@ import {
   FIGHT_MAX_PER_PLAYER,
   WILDLIFE_SNAPSHOT_STRIDE,
   CombatRole,
+  SiegeKind,
+  SIEGE_KINDS,
   MOB_ROLE,
   COLONIST_ROLE,
   isRearRole,
@@ -817,6 +819,8 @@ const MOB_BODY_RADIUS: Record<MobKind, number> = {
   banditArcher: 7.5,
   banditElite: 9,
   halfLatch: 5.5,
+  batteringRam: 12,
+  catapult: 11,
 };
 const SEPARATION_ITERATIONS = 2;
 // Share of an overlap a stationary / attacking body takes vs a moving one (normalised per pair).
@@ -859,7 +863,76 @@ const MILITIA_SPEED = 120;
 
 const CIVILIAN_MAX_HP = 20;
 
+// ---- Cavalry & siege (ROADMAP "Cavalry & siege") ----
+// Cavalry: knight HP / damage per Stables level, 1.6x the knight's speed, and a charge: the first blow
+// after riding CAVALRY_CHARGE_TILES in a straight line deals CAVALRY_CHARGE_MULT x (then
+// CAVALRY_CHARGE_COOLDOWN_TICKS before the next charge can land). See trackCharge.
+const CAVALRY_SPEED = Math.round(KNIGHT_SPEED * 1.6);
+const CAVALRY_CHARGE_TILES = 5;
+const CAVALRY_CHARGE_MULT = 2;
+const CAVALRY_CHARGE_COOLDOWN_TICKS = 8 * TICK_RATE;
+// A charge run survives this long standing still (the tick between the last stride and the blow).
+const CAVALRY_CHARGE_IDLE_GRACE_TICKS = TICK_RATE;
+// Siege engines (the player's and the raids' share these numbers). Ram: slow, very tough, melee, x4
+// damage vs buildings / walls / gates, x0.3 vs units. Catapult: a boulder every 4 s at 3..11 tiles,
+// splashing everything of the other side within 1.5 tiles (x3 vs buildings).
+const RAM_MAX_HP = KNIGHT_LEVEL_STATS[0].maxHp * 4;
+const RAM_DAMAGE = 12;
+const RAM_SPEED = Math.round(KNIGHT_SPEED * 0.5);
+const RAM_ATTACK_COOLDOWN_TICKS = 2 * TICK_RATE;
+const SIEGE_BUILDING_MULT = 4;
+const RAM_UNIT_MULT = 0.3;
+const CATAPULT_MAX_HP = ARCHER_MAX_HP * 2;
+const CATAPULT_DAMAGE = 18;
+const CATAPULT_SPEED = 50;
+const CATAPULT_RANGE = TILE_SIZE * 11;
+const CATAPULT_MIN_RANGE = TILE_SIZE * 3;
+const CATAPULT_RELOAD_TICKS = 4 * TICK_RATE;
+const CATAPULT_SPLASH_PX = TILE_SIZE * 1.5;
+const CATAPULT_BUILDING_MULT = 3;
+// Siege Workshop production: one engine at a time, SIEGE_BUILD_TICKS each, SIEGE_WORKSHOP_CAP alive per
+// workshop, SIEGE_POPULATION_COST population each (counted in civilianPopulationUsed).
+const SIEGE_BUILD_TICKS = 30 * TICK_RATE;
+const SIEGE_WORKSHOP_CAP = 2;
+const SIEGE_POPULATION_COST = 2;
+const SIEGE_UNIT_COST: Record<SiegeKind, Partial<Record<"wood" | "iron" | "rock", number>>> = {
+  batteringRam: { wood: 30, iron: 10 },
+  catapult: { wood: 25, iron: 15 },
+};
+const SIEGE_LABEL: Record<SiegeKind, string> = { batteringRam: "Battering Ram", catapult: "Catapult" };
+// Building costs: Stables (per level, like the Hall of the Sworn's iron + rock, plus wood) and the Workshop.
+const STABLES_COSTS = [
+  { wood: 20, rock: 10, iron: 10 },
+  { wood: 30, rock: 20, iron: 20 },
+  { wood: 45, rock: 30, iron: 30 },
+];
+const SIEGE_WORKSHOP_COST = { wood: 30, iron: 15, rock: 15 };
+// Siege mobs pay this much more gold.
+const SIEGE_GOLD_MULT = 2;
+
+function isSiegeKind(kind: string): kind is SiegeKind {
+  return kind === "batteringRam" || kind === "catapult";
+}
+
 function guardStats(kind: ColonistKind, level: number) {
+  if (kind === "cavalry") {
+    const lvl = Math.min(Math.max(level, 1), 3) - 1;
+    const tierStats = KNIGHT_LEVEL_STATS[lvl];
+    return {
+      maxHp: tierStats.maxHp,
+      damage: tierStats.damage,
+      range: KNIGHT_ATTACK_RANGE,
+      cooldown: Math.round(KNIGHT_ATTACK_COOLDOWN_TICKS * (1 - levelBonus(level))),
+      speed: CAVALRY_SPEED,
+      melee: true,
+    };
+  }
+  if (kind === "batteringRam") {
+    return { maxHp: RAM_MAX_HP, damage: RAM_DAMAGE, range: KNIGHT_ATTACK_RANGE, cooldown: RAM_ATTACK_COOLDOWN_TICKS, speed: RAM_SPEED, melee: true };
+  }
+  if (kind === "catapult") {
+    return { maxHp: CATAPULT_MAX_HP, damage: CATAPULT_DAMAGE, range: CATAPULT_RANGE, cooldown: CATAPULT_RELOAD_TICKS, speed: CATAPULT_SPEED, melee: false };
+  }
   if (kind === "knight") {
     const lvl = Math.min(Math.max(level, 1), 3) - 1;
     const tierStats = KNIGHT_LEVEL_STATS[lvl];
@@ -920,11 +993,12 @@ function isMilitiaLineKind(kind: ColonistKind): boolean {
 }
 
 function isGuardOrMilitiaKind(kind: ColonistKind) {
-  return kind === "knight" || kind === "archer" || isMilitiaLineKind(kind);
+  return kind === "knight" || kind === "archer" || kind === "cavalry" || isSiegeKind(kind) || isMilitiaLineKind(kind);
 }
 
+// Soldiers that can desert (siege engines can't).
 function isSoldierKind(kind: ColonistKind): boolean {
-  return kind === "knight" || kind === "archer" || kind === "militia" || kind === "spearman" || kind === "pikeman";
+  return isGuardOrMilitiaKind(kind) && !isSiegeKind(kind);
 }
 
 // Speed/range/damage fallbacks for deserter mobs, which take their stats from the deserting
@@ -940,7 +1014,8 @@ const MOB_REPATH_TICKS = TICK_RATE;
 const GOLD_PER_KILL_BASE_DIVISOR = 8;
 const GOLD_PER_KILL_MIN = 3;
 function goldForKill(mob: Mob): number {
-  const base = Math.max(GOLD_PER_KILL_MIN, Math.round((mob.maxHp + mob.damage * 2) / GOLD_PER_KILL_BASE_DIVISOR));
+  const raw = Math.max(GOLD_PER_KILL_MIN, Math.round((mob.maxHp + mob.damage * 2) / GOLD_PER_KILL_BASE_DIVISOR));
+  const base = isSiegeKind(mob.kind) ? raw * SIEGE_GOLD_MULT : raw;
   return mob.mark !== HungerMark.None ? base * HUNGER_MARK_GOLD_MULT : base;
 }
 
@@ -1083,6 +1158,10 @@ const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
     melee: true,
     unlockDay: Number.POSITIVE_INFINITY,
   },
+  // Siege engines (Cavalry & siege): the orc and bandit factions' non-core extras, at most
+  // raidSiegeCap(day) of them per raid. See updateSiegeMob.
+  batteringRam: { maxHp: RAM_MAX_HP, damage: RAM_DAMAGE, speed: RAM_SPEED, range: TILE_SIZE * 0.8, melee: true, unlockDay: 10 },
+  catapult: { maxHp: CATAPULT_MAX_HP, damage: CATAPULT_DAMAGE, speed: CATAPULT_SPEED, range: CATAPULT_RANGE, melee: false, unlockDay: 14 },
 };
 
 // ---- Raid waves: tuning ----
@@ -1117,6 +1196,8 @@ const RAID_FACTIONS: Record<RaidFactionId, RaidFactionEntry[]> = {
     { kind: "banditClubman", weight: 5, core: true },
     { kind: "banditArcher", weight: 3, core: true },
     { kind: "banditElite", weight: 1, core: true },
+    { kind: "batteringRam", weight: 1, core: false },
+    { kind: "catapult", weight: 1, core: false },
   ],
   greenskinWarband: [
     { kind: "goblin", weight: 10, core: true },
@@ -1125,6 +1206,8 @@ const RAID_FACTIONS: Record<RaidFactionId, RaidFactionEntry[]> = {
     { kind: "armoredOrc", weight: 3, core: true },
     { kind: "troll", weight: 1, core: false },
     { kind: "ogre", weight: 1, core: false },
+    { kind: "batteringRam", weight: 1, core: false },
+    { kind: "catapult", weight: 1, core: false },
   ],
   darkHost: [
     { kind: "skeleton", weight: 4, core: true },
@@ -1384,6 +1467,8 @@ const POST_TILE_TYPES = [
   TileType.HunterHut,
   TileType.ForagerHut,
   TileType.BuildersGuild,
+  TileType.Stables,
+  TileType.SiegeWorkshop,
 ];
 
 function isAdjacentToPlayerOrPost(tx: number, ty: number): boolean {
@@ -1581,6 +1666,8 @@ function isValidPostTile(kind: ColonistKind, t: TileType): boolean {
   if (kind === "archer") {
     return t === TileType.ArcherPost;
   }
+  if (kind === "cavalry") return t === TileType.Stables;
+  if (isSiegeKind(kind)) return t === TileType.SiegeWorkshop;
   if (isMilitiaLineKind(kind)) return t === TileType.MilitiaPost || t === TileType.MilitiaCamp2 || t === TileType.MilitiaCamp3;
   if (kind === "lumberjack") return t === TileType.LumberjackPost;
   if (kind === "farmer") return t === TileType.BarnPost;
@@ -1627,6 +1714,7 @@ function civilianPopulationUsed(): number {
   let count = 0;
   for (const c of colonists.values()) {
     if (consumesPopulation(c.kind) && !isAbbeyClergy(c)) count++;
+    else if (isSiegeKind(c.kind)) count += SIEGE_POPULATION_COST;
   }
   return count;
 }
@@ -1663,7 +1751,8 @@ function isMilitaryTile(t: TileType): boolean {
     t === TileType.ArcherPost ||
     t === TileType.MilitiaPost ||
     t === TileType.MilitiaCamp2 ||
-    t === TileType.MilitiaCamp3
+    t === TileType.MilitiaCamp3 ||
+    t === TileType.Stables
   );
 }
 
@@ -1729,7 +1818,7 @@ function spawnColonistForPost(
   kind: ColonistKind,
   castleLevel = 1
 ): Colonist {
-  const isGuard = kind === "knight" || kind === "archer" || isMilitiaLineKind(kind);
+  const isGuard = isGuardOrMilitiaKind(kind);
   const stationary = isStationaryMinerKind(kind) || kind === "farmhand";
   const spawnTile = isStationaryWorkerKind(kind) ? { x: tx, y: ty } : findAdjacentWalkable(tx, ty) ?? { x: tx, y: ty };
   const center = tileToPixelCenter(spawnTile);
@@ -1843,7 +1932,7 @@ function guardCountForLevel(level: number): number {
 function spawnExtraGuards(
   tx: number,
   ty: number,
-  kind: "knight" | "archer",
+  kind: "knight" | "archer" | "cavalry",
   newLevel: number
 ) {
   const targetCount = guardCountForLevel(newLevel);
@@ -1876,6 +1965,32 @@ function upgradeArcherAt(tx: number, ty: number, level: number) {
     c.hp = stats.maxHp;
   }
   spawnExtraGuards(tx, ty, "archer", level);
+}
+
+// Stables: 1 / 2 / 3 riders per level (plus the house bonus, see syncGuardBonusAt).
+function cavalryCountForLevel(level: number): number {
+  return Math.min(Math.max(level, 1), 3);
+}
+
+function resolveStablesPlacement(tx: number, ty: number) {
+  if (tiles[tileIndex(tx, ty)] === TileType.Stables) {
+    const level = getBuildingLevel(tx, ty) + 1;
+    buildingLevel.set(resourceKey(tx, ty), level);
+    const stats = guardStats("cavalry", level);
+    for (const c of getColonistsAtPost(tx, ty)) {
+      if (c.kind !== "cavalry") continue;
+      c.castleLevel = level;
+      c.maxHp = stats.maxHp;
+      c.hp = stats.maxHp;
+    }
+    let have = getColonistsAtPost(tx, ty).filter((c) => c.kind === "cavalry").length;
+    for (; have < cavalryCountForLevel(level); have++) spawnColonistForPost(tx, ty, "cavalry", level);
+    announceUpgrade(TileType.Stables, level);
+    return;
+  }
+  tiles[tileIndex(tx, ty)] = TileType.Stables;
+  broadcastTileUpdate(tx, ty, TileType.Stables);
+  spawnColonistForPost(tx, ty, "cavalry", 1);
 }
 
 function upgradeMilitiaAt(tx: number, ty: number, level: number) {
@@ -1923,6 +2038,7 @@ const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
   [TileType.ForagerHut]: "Forager's Hut",
   [TileType.BuildersGuild]: "Builders' Guild",
   [TileType.TownCenter]: "Town Center",
+  [TileType.Stables]: "Stables",
 };
 
 function announceUpgrade(baseType: TileType, level: number) {
@@ -2275,7 +2391,7 @@ function processRespawnQueue() {
       const castleLevel =
         req.kind === "knight"
           ? castleLevelForTile(currentTile)
-          : req.kind === "archer"
+          : req.kind === "archer" || req.kind === "cavalry"
           ? getBuildingLevel(req.tx, req.ty)
           : isMilitiaLineKind(req.kind)
           ? militiaLevelForTile(currentTile)
@@ -4142,12 +4258,16 @@ function damageColonist(colonist: Colonist, amount: number) {
     gravestones.push({ x: colonist.x, y: colonist.y, variant: Math.random() < 0.5 ? 0 : 1 });
     broadcastEvent("death", colonistDeathText(colonist));
     releaseResourceReservation(colonist);
-    if (!isWardPriest(colonist)) queueRespawn(colonist);
+    // Siege engines are rebuilt at their workshop, never respawned.
+    if (!isWardPriest(colonist) && !isSiegeKind(colonist.kind)) queueRespawn(colonist);
     colonists.delete(colonist.id);
+    chargeRuns.delete(colonist.id);
   }
 }
 
-const COMMANDABLE_KINDS: ColonistKind[] = ["knight", "archer", "bishop", "militia", "spearman", "pikeman"];
+const COMMANDABLE_KINDS: ColonistKind[] = [
+  "knight", "archer", "bishop", "militia", "spearman", "pikeman", "cavalry", "batteringRam", "catapult",
+];
 
 // Only a Church's bishop takes orders: the Ward Priest must keep his rounds for the wards to stand,
 // and the Abbey's clergy aren't the colony's at all. Mirrored by the client's isCommandable (which
@@ -4379,6 +4499,7 @@ function returnToRally(c: Colonist, dt: number, speed: number) {
 
 function updateGuardColonist(c: Colonist, dt: number) {
   const stats = guardStats(c.kind, c.castleLevel);
+  if (c.kind === "cavalry") trackCharge(c);
 
   let target = c.targetMobId ? getMobById(c.targetMobId) : undefined;
   if (c.targetMobId && !target) {
@@ -4519,7 +4640,27 @@ function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown
     c.attackCooldownTicks--;
     return;
   }
-  damageMob(target, stats.damage * armyDamageMultiplier(c.postX, c.postY), "c:" + c.id);
+  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY);
+  // Cavalry & siege: the catapult lobs a splashing boulder (never inside its minimum range), the ram
+  // barely scratches units, a rider's charge doubles its first blow.
+  if (c.kind === "catapult") {
+    if (Math.hypot(target.x - c.x, target.y - c.y) < CATAPULT_MIN_RANGE) return;
+    catapultImpact(c.x, c.y, target.x, target.y, damage, "colony", "c:" + c.id);
+    c.attackCooldownTicks = stats.cooldown;
+    if (target.hp <= 0) c.targetMobId = null;
+    return;
+  }
+  if (c.kind === "batteringRam") {
+    damage *= RAM_UNIT_MULT;
+    siegeEvent("ramHit", c.id, damage, "unit");
+  }
+  if (c.kind === "cavalry") {
+    const mult = takeChargeBonus(c);
+    if (mult > 1) siegeEvent("charge", c.id, damage * mult);
+    else siegeEvent("hit", c.id, damage);
+    damage *= mult;
+  }
+  damageMob(target, damage, "c:" + c.id);
   c.attackCooldownTicks = stats.cooldown;
   pendingEffects.push({ fromX: c.x, fromY: c.y, toX: target.x, toY: target.y, melee: stats.melee });
   if (target.hp <= 0) c.targetMobId = null;
@@ -4530,8 +4671,16 @@ function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown
 function colonistRole(c: Colonist): CombatRole | undefined {
   return COLONIST_ROLE[c.kind];
 }
+// isRearRole for a unit (the catapult is a rear siege role, the ram a front one).
+function isRearColonist(c: Colonist): boolean {
+  return isRearRole(colonistRole(c) ?? "frontline", c.kind);
+}
+function isRearMob(m: Mob): boolean {
+  return isRearRole(mobRole(m), m.kind);
+}
 function mobRole(m: Mob): CombatRole {
   const role = MOB_ROLE[m.kind] ?? "frontline";
+  if (role === "siege") return role;
   if (!m.melee) return isRearRole(role) ? role : "ranged";
   return isRearRole(role) ? "frontline" : role;
 }
@@ -4543,7 +4692,7 @@ function hasFriendlyFrontline(c: Colonist): boolean {
   for (const o of colonists.values()) {
     if (o === c) continue;
     const role = colonistRole(o);
-    if (!role || isRearRole(role)) continue;
+    if (!role || isRearColonist(o)) continue;
     if (Math.abs(o.x - c.x) <= scanPx && Math.abs(o.y - c.y) <= scanPx) return true;
   }
   return false;
@@ -4570,7 +4719,7 @@ function nearestMeleeSoldier(x: number, y: number, radiusPx: number): Colonist |
   let bestD = radiusPx;
   for (const c of colonists.values()) {
     const role = colonistRole(c);
-    if (!role || isRearRole(role)) continue;
+    if (!role || isRearColonist(c)) continue;
     const d = Math.hypot(c.x - x, c.y - y);
     if (d <= bestD) {
       best = c;
@@ -4600,7 +4749,7 @@ function engagedWithFrontline(m: Mob): boolean {
   if (m.targetType !== "colonist" || !m.targetId) return false;
   const c = colonists.get(m.targetId);
   const role = c ? colonistRole(c) : undefined;
-  return !!role && !isRearRole(role);
+  return !!c && !!role && !isRearColonist(c);
 }
 
 // Squad march: per-tick speed for every squad member walking back to its formation slot (no target),
@@ -4647,7 +4796,9 @@ function updateSquadMarch() {
 // skips enemies that already have their share of attackers (meleeAttackerCap), so a line spreads over
 // the enemies in front of it; with none left it holds its slot (the queue).
 function pickGuardTarget(c: Colonist, stats: { range: number; melee: boolean; speed: number }): Mob | null {
-  const alertPx = STANCE_ALERT_RANGE_TILES[c.stance] * TILE_SIZE;
+  // A catapult sees as far as it throws; a ram only takes on what is right next to it.
+  const alertPx = c.kind === "batteringRam" ? stats.range + COLONIST_BODY_RADIUS * 2
+    : Math.max(STANCE_ALERT_RANGE_TILES[c.stance] * TILE_SIZE, c.kind === "catapult" ? stats.range : 0);
   const reachPx = LINE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range;
   const queues = stats.melee && stats.speed > 0;
   // Regiments: a ranged soldier behind a front rank ranks enemies already in bow range first (those
@@ -5066,6 +5217,9 @@ function updateColonist(c: Colonist, dt: number) {
       updateBuilder(c, dt);
       break;
     case "knight":
+    case "cavalry":
+    case "batteringRam":
+    case "catapult":
     case "archer":
     case "militia":
     case "spearman":
@@ -5240,6 +5394,7 @@ function isRaidKindUnlocked(kind: MobKind, dayIndex: number): boolean {
 
 function pickRaidFaction(dayIndex: number): RaidFactionId {
   const weighted = (Object.keys(RAID_FACTIONS) as RaidFactionId[])
+    .filter((f) => !testForceRaidSiege || f === "banditBand" || f === "greenskinWarband")
     .map((f) => ({ f, w: RAID_FACTIONS[f].filter((e) => e.core && isRaidKindUnlocked(e.kind, dayIndex)).length }))
     .filter((x) => x.w > 0);
   let roll = Math.random() * weighted.reduce((sum, x) => sum + x.w, 0);
@@ -5250,8 +5405,20 @@ function pickRaidFaction(dayIndex: number): RaidFactionId {
   return weighted[weighted.length - 1].f;
 }
 
-function pickRaidFactionKind(faction: RaidFactionId, dayIndex: number): MobKind {
-  const eligible = RAID_FACTIONS[faction].filter((e) => isRaidKindUnlocked(e.kind, dayIndex));
+// `siegeLeft` (per raid): how many more of each siege kind the raid may still take (raidSiegeCap).
+function pickRaidFactionKind(faction: RaidFactionId, dayIndex: number, siegeLeft?: Partial<Record<SiegeKind, number>>): MobKind {
+  const eligible = RAID_FACTIONS[faction].filter(
+    (e) => isRaidKindUnlocked(e.kind, dayIndex) && (!isSiegeKind(e.kind) || (siegeLeft?.[e.kind] ?? 0) > 0)
+  );
+  const pick = pickWeightedRaidKind(eligible);
+  if (siegeLeft && isSiegeKind(pick)) siegeLeft[pick]!--;
+  return pick;
+}
+
+function pickWeightedRaidKind(all: RaidFactionEntry[]): MobKind {
+  const forced = testForceRaidSiege ? all.find((e) => isSiegeKind(e.kind)) : undefined;
+  if (forced) return forced.kind;
+  const eligible = all;
   let roll = Math.random() * eligible.reduce((sum, e) => sum + e.weight, 0);
   for (const e of eligible) {
     roll -= e.weight;
@@ -5357,6 +5524,8 @@ function spawnRaid(dayIndex: number) {
     occupied.add(tileIndex(t.x, t.y));
   }
 
+  const siegeLeft: Partial<Record<SiegeKind, number>> = {};
+  for (const k of SIEGE_KINDS) siegeLeft[k] = isRaidKindUnlocked(k, dayIndex) ? raidSiegeCap(dayIndex, k) : 0;
   const markChance = hungerMarkChance(dayIndex);
   let marksLeft = markChance > 0 ? Math.max(1, Math.floor(combined / HUNGER_MARK_RAIDERS_PER_MARK)) : 0;
   const marked: Mob[] = [];
@@ -5392,7 +5561,7 @@ function spawnRaid(dayIndex: number) {
     if (anchor) {
       group.edge = anchor.edge;
       for (const tile of clusterRaidTiles(anchor.tile, freshCount, occupied)) {
-        const mob = createRaidMob(pickRaidFactionKind(group.faction, dayIndex), tile, group.id);
+        const mob = createRaidMob(pickRaidFactionKind(group.faction, dayIndex, siegeLeft), tile, group.id);
         if (marksLeft > 0 && Math.random() < markChance) {
           applyHungerMark(mob, randInt(HungerMark.Gorrath, HungerMark.Vhorrun) as HungerMark);
           marksLeft--;
@@ -5529,8 +5698,8 @@ const RAID_REAR_RANK_TILES = 3.5;
 function assignRaidLeader(group: RaidGroup): Mob | null {
   const members = raidGroupMembers(group);
   if (members.length === 0) return null;
-  const front = members.filter((m) => !isRearRole(mobRole(m)));
-  const rear = front.length > 0 ? members.filter((m) => isRearRole(mobRole(m))) : [];
+  const front = members.filter((m) => !isRearMob(m));
+  const rear = front.length > 0 ? members.filter((m) => isRearMob(m)) : [];
   const line = front.length > 0 ? front : members;
   const leader = line.reduce((slowest, m) => (m.speed < slowest.speed ? m : slowest));
   group.leaderId = leader.id;
@@ -5543,7 +5712,8 @@ function assignRaidLeader(group: RaidGroup): Mob | null {
   const free = slots.slice(1);
   const take = (m: Mob, slot: { x: number; y: number; row: number }) =>
     group.offsets.set(m.id, { x: slot.x - origin.x, y: slot.y - origin.y, row: slot.row });
-  const rank = (m: Mob) => (mobRole(m) === "shock" || isHeavyMobKind(m.kind) ? 0 : m.melee ? 1 : 2);
+  // Shock, heavies and the ram take the front-centre slots.
+  const rank = (m: Mob) => (mobRole(m) === "shock" || mobRole(m) === "siege" || isHeavyMobKind(m.kind) ? 0 : m.melee ? 1 : 2);
   const followers = line.filter((m) => m !== leader);
   // Fast roles take the wing slots (widest first, front rows first); the rest fill in formation order.
   const wings = free.slice().sort((a, b) => Math.abs(b.x - origin.x) - Math.abs(a.x - origin.x) || a.row - b.row);
@@ -5978,7 +6148,7 @@ function buildingBaseHp(t: TileType): number {
   if (t === TileType.StoneWall) return BUILDING_HP_STONE_WALL;
   if (t === TileType.Gate) return BUILDING_HP_GATE;
   if (
-    BIG_BUILD_TILES.has(t) || t === TileType.CastleLevel2 || t === TileType.CastleLevel3 ||
+    BIG_BUILD_TILES.has(t) || t === TileType.CastleLevel2 || t === TileType.CastleLevel3 || t === TileType.Stables ||
     isTowerTile(t) || t === TileType.MilitiaCamp3
   )
     return BUILDING_HP_BIG;
@@ -6379,7 +6549,7 @@ function regimentFrontDistance(mob: Mob, regiment: string, target: { x: number; 
   const scanPx = ARCHER_FRONT_RANK_SCAN_TILES * TILE_SIZE;
   let best = Infinity;
   for (const o of mobs.values()) {
-    if (o === mob || (o.regimentId ?? o.siteId) !== regiment || o.groupId !== null || isRearRole(mobRole(o))) continue;
+    if (o === mob || (o.regimentId ?? o.siteId) !== regiment || o.groupId !== null || isRearMob(o)) continue;
     if (Math.abs(o.x - mob.x) > scanPx || Math.abs(o.y - mob.y) > scanPx) continue;
     best = Math.min(best, Math.hypot(target.x - o.x, target.y - o.y));
   }
@@ -6440,6 +6610,12 @@ function updateMob(mob: Mob, dt: number) {
   const tactic = mobTactic(mob, dt);
   if (tactic === "handled") return;
   const hold = tactic === "hold";
+
+  // Cavalry & siege: rams and catapults pick and hit their own targets (see updateSiegeMob).
+  if (isSiegeKind(mob.kind)) {
+    updateSiegeMob(mob, dt, hold);
+    return;
+  }
 
   // Vhorrun withdrawing after winning an exchange: back away from where the fight was, then return.
   if (mob.mark === HungerMark.Vhorrun && cycleTick < mob.withdrawUntilTick) {
@@ -6567,7 +6743,7 @@ function updateMob(mob: Mob, dt: number) {
       if (mob.targetType === "colonist" && mob.targetId) {
         const c = colonists.get(mob.targetId);
         if (c) {
-          if (mob.flanker && isRearRole(colonistRole(c) ?? "frontline")) {
+          if (mob.flanker && isRearColonist(c)) {
             tacticsEvent(regimentKey(mob) ?? "", "flankStrike", `${mob.kind}->${c.kind}`);
           }
           if (mob.kind === "giantSpider") {
@@ -6653,7 +6829,8 @@ const MORALE_RALLY = 50;
 const MORALE_RALLY_QUIET_TICKS = 10 * TICK_RATE;
 // One death costs MORALE_CASUALTY x its weight / the regiment's peak size (only applied in contact).
 const MORALE_CASUALTY = 50;
-const MORALE_ROLE_WEIGHT: Record<CombatRole, number> = { frontline: 1, shock: 2, ranged: 0.8, caster: 1, fast: 0.8 };
+// Siege: the ram weighs as shock (2), the catapult as ranged (0.8); see moraleWeight.
+const MORALE_ROLE_WEIGHT: Record<CombatRole, number> = { frontline: 1, shock: 2, ranged: 0.8, caster: 1, fast: 0.8, siege: 2 };
 const MORALE_LEADER_WEIGHT = 3;
 const MORALE_FRONT_LOST_PER_SEC = 8;
 const MORALE_OUTFLANKED_PER_SEC = 4;
@@ -6714,7 +6891,7 @@ function noteRegimentCasualty(m: Mob) {
   const key = regimentKey(m);
   const reg = key ? regiments.get(key) : undefined;
   if (!reg) return;
-  const weight = isMoraleAnchor(m) ? MORALE_LEADER_WEIGHT : MORALE_ROLE_WEIGHT[mobRole(m)];
+  const weight = isMoraleAnchor(m) ? MORALE_LEADER_WEIGHT : m.kind === "catapult" ? MORALE_ROLE_WEIGHT.ranged : MORALE_ROLE_WEIGHT[mobRole(m)];
   reg.pendingLoss += (MORALE_CASUALTY * weight) / Math.max(3, reg.peak);
 }
 
@@ -6737,7 +6914,7 @@ function playerForceNear(cx: number, cy: number, radiusPx: number): { hp: number
     const stats = guardStats(c.kind, c.castleLevel);
     hp += c.hp;
     dmg += (stats.damage * MOB_ATTACK_COOLDOWN_TICKS) / Math.max(1, stats.cooldown);
-    units.push({ type: "colonist", id: c.id, x: c.x, y: c.y, rear: isRearRole(colonistRole(c) ?? "frontline") });
+    units.push({ type: "colonist", id: c.id, x: c.x, y: c.y, rear: isRearColonist(c) });
   }
   if (!testPlayersIgnored) {
     for (const p of players.values()) {
@@ -6916,13 +7093,12 @@ function tryFlank(reg: RegimentState, members: Mob[], units: EnemyUnit[], cx: nu
   // A mob that already flanked once stays in the fight it was delivered to.
   const free = members.filter((m) => m.groupId === null && !m.tactic && !m.flanker);
   const engaged = free.filter((m) => {
-    const role = mobRole(m);
-    if (isRearRole(role) || m.targetType !== "colonist" || !m.targetId) return false;
+    if (isRearMob(m) || m.targetType !== "colonist" || !m.targetId) return false;
     const c = colonists.get(m.targetId);
     return !!c && Math.hypot(c.x - m.x, c.y - m.y) <= m.range + FLANK_CONTACT_TILES * TILE_SIZE;
   });
   // Someone has to hold the front while the flank goes round (a pure wolf pack doesn't flank).
-  if (engaged.length === 0 || !members.some((m) => !isRearRole(mobRole(m)) && mobRole(m) !== "fast")) return;
+  if (engaged.length === 0 || !members.some((m) => !isRearMob(m) && mobRole(m) !== "fast")) return;
   const ex = soldiers.reduce((s, u) => s + u.x, 0) / soldiers.length;
   const ey = soldiers.reduce((s, u) => s + u.y, 0) / soldiers.length;
   const dl = Math.hypot(ex - cx, ey - cy) || 1;
@@ -6946,7 +7122,8 @@ function tryFlank(reg: RegimentState, members: Mob[], units: EnemyUnit[], cx: nu
   if (members.some((m) => dep(m) > TILE_SIZE)) return;
   const back = Math.max(...soldiers.map(dep));
   const fast = free.filter((m) => mobRole(m) === "fast" && !isMoraleAnchor(m));
-  const front = free.filter((m) => !isRearRole(mobRole(m)) && mobRole(m) !== "fast" && !isMoraleAnchor(m));
+  // Siege engines never go round a flank.
+  const front = free.filter((m) => !isRearMob(m) && mobRole(m) !== "fast" && mobRole(m) !== "siege" && !isMoraleAnchor(m));
   const prefer = fast.length > 0 ? Math.sign(fast.reduce((s, m) => s + lat(m), 0)) || 1 : 1;
   for (const s of [prefer, -prefer]) {
     const end = s > 0 ? hi : lo;
@@ -7015,7 +7192,7 @@ function evaluateRegiment(reg: RegimentState, members: Mob[]) {
     if (contact) {
       reg.lastContactTick = cycleTick;
       delta -= reg.pendingLoss;
-      if (members.some((m) => !isRearRole(mobRole(m)))) reg.hadFront = true;
+      if (members.some((m) => !isRearMob(m))) reg.hadFront = true;
       else if (reg.hadFront) delta -= MORALE_FRONT_LOST_PER_SEC;
       // Outflanked: an enemy within 4 tiles of a member on the far side of the regiment.
       const dl = Math.hypot(ex - cx, ey - cy) || 1;
@@ -7928,7 +8105,7 @@ const VISION_BUILDING_TILES = new Set<TileType>([
   TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop, TileType.Blacksmith,
   TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern,
   TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
-  TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild,
+  TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.Stables, TileType.SiegeWorkshop,
 ]);
 
 function revealAround(tx: number, ty: number, offsets: Array<[number, number]>) {
@@ -8324,6 +8501,26 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     group.leaderId = group.memberIds[0] ?? null;
     raidGroups.set(id, group);
     reply({ id, memberIds: group.memberIds });
+  } else if (msg.op === "forceRaidSiege") {
+    // Cavalry & siege: raids pick orc / bandit factions and take their siege engines first (up to the caps).
+    testForceRaidSiege = msg.value === true;
+    reply({ value: testForceRaidSiege });
+  } else if (msg.op === "spawnRaidNow" && typeof msg.dayIndex === "number") {
+    spawnRaid(Math.max(0, Math.floor(msg.dayIndex)));
+    reply({ groups: raidGroups.size, caps: Object.fromEntries(SIEGE_KINDS.map((k) => [k, raidSiegeCap(Math.floor(msg.dayIndex as number), k)])) });
+  } else if (msg.op === "siegeState") {
+    reply({
+      cycleTick,
+      events: siegeEvents,
+      workshops: Array.from(siegeWorkshops, ([key, w]) => ({ key, ...w })),
+      units: Array.from(colonists.values())
+        .filter((c) => c.kind === "cavalry" || isSiegeKind(c.kind))
+        .map((c) => ({ id: c.id, kind: c.kind, x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, postX: c.postX, postY: c.postY, level: c.castleLevel, speed: guardStats(c.kind, c.castleLevel).speed })),
+      roles: { colonist: COLONIST_ROLE, mob: MOB_ROLE },
+      population: civilianPopulationUsed(),
+      populationCap: populationCap(),
+      stock: { ...stock },
+    });
   } else if (msg.op === "setRegimentWalled" && typeof msg.id === "string") {
     if (msg.value === false) walledSites.delete(msg.id);
     else walledSites.add(msg.id);
@@ -9120,6 +9317,9 @@ wss.on("connection", (socket) => {
     } else if (message.type === "setGateLock") {
       if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
       handleSetGateLock(message.tileX, message.tileY, message.lock);
+    } else if (message.type === "queueSiege") {
+      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+      handleQueueSiege(message.tileX, message.tileY, message.kind);
     } else if (message.type === "saveGame") {
       void handleSaveGame(player, message.slot);
     } else if (message.type === "loadGame") {
@@ -9168,6 +9368,8 @@ const PLACEABLE_TILES = [
   TileType.Road,
   TileType.CobbleRoad,
   TileType.Gate,
+  TileType.Stables,
+  TileType.SiegeWorkshop,
 ];
 const BREAKABLE_TILES = [
   TileType.Wall,
@@ -9204,6 +9406,8 @@ const BREAKABLE_TILES = [
   TileType.HunterHut,
   TileType.ForagerHut,
   TileType.BuildersGuild,
+  TileType.Stables,
+  TileType.SiegeWorkshop,
   // Demolishing a site frees its builders; the materials are lost (no refund).
   TileType.ConstructionSite,
   // Demolished roads revert to bare ground.
@@ -9263,8 +9467,8 @@ function isInPlaceUpgrade(tile: TileType, current: TileType, tx: number, ty: num
   }
   if (tile === TileType.KnightPost) return current === TileType.KnightPost || current === TileType.CastleLevel2;
   if (tile === TileType.MilitiaPost) return current === TileType.MilitiaPost || current === TileType.MilitiaCamp2;
-  if (tile === TileType.ArcherPost) {
-    return current === TileType.ArcherPost && getBuildingLevel(tx, ty) < 3;
+  if (tile === TileType.ArcherPost || tile === TileType.Stables) {
+    return current === tile && getBuildingLevel(tx, ty) < 3;
   }
   if (tile === TileType.TownCenter) return current === TileType.TownCenter && (findTownCenterAt(tx, ty)?.level ?? 3) < 3;
   return tile === current && IN_PLACE_UPGRADE_TILES.includes(tile) && getBuildingLevel(tx, ty) < 3;
@@ -9297,6 +9501,10 @@ function syncGuardBonusAt(tx: number, ty: number) {
     kind = "archer";
     level = getBuildingLevel(tx, ty);
     base = guardCountForLevel(level);
+  } else if (t === TileType.Stables) {
+    kind = "cavalry";
+    level = getBuildingLevel(tx, ty);
+    base = cavalryCountForLevel(level);
   } else {
     level = t === TileType.MilitiaPost ? 1 : t === TileType.MilitiaCamp2 ? 2 : 3;
     kind = militiaKindForLevel(level);
@@ -9305,7 +9513,7 @@ function syncGuardBonusAt(tx: number, ty: number) {
   const target = base + adjacentHouseCount(tx, ty);
   let have = 0;
   for (const c of colonists.values()) {
-    if (c.postX === tx && c.postY === ty && (c.kind === kind || (kind !== "knight" && kind !== "archer" && isMilitiaLineKind(c.kind)))) have++;
+    if (c.postX === tx && c.postY === ty && (c.kind === kind || (isMilitiaLineKind(kind) && isMilitiaLineKind(c.kind)))) have++;
   }
   for (const q of respawnQueue) if (q.tx === tx && q.ty === ty) have++;
   for (let i = have; i < target; i++) spawnColonistForPost(tx, ty, kind, level);
@@ -9384,6 +9592,10 @@ function placementCost(tile: TileType, current: TileType, tx: number, ty: number
       return towerCostForLevel(levelAfterPlacement(tile, current, tx, ty));
     case TileType.KnightPost:
       return { iron: KNIGHT_IRON_COST, rock: KNIGHT_ROCK_COST };
+    case TileType.Stables:
+      return STABLES_COSTS[Math.min(Math.max(levelAfterPlacement(tile, current, tx, ty), 1), 3) - 1];
+    case TileType.SiegeWorkshop:
+      return SIEGE_WORKSHOP_COST;
     case TileType.House:
       if (current === TileType.BigHouse) {
         return { wood: HOUSE_WOOD_COST, grain: 2, meat: 2, fruit: 2, clothes: 3, tools: 2, luxuryItems: 1 };
@@ -9501,6 +9713,7 @@ const BUILD_SECONDS_TOWN_CENTER = 40;
 const BIG_BUILD_TILES = new Set<TileType>([
   TileType.KnightPost, TileType.ChurchPost, TileType.Tavern, TileType.TailorShop, TileType.Blacksmith,
   TileType.LuxuryWorkshop, TileType.Brewery, TileType.Market, TileType.GoldShop, TileType.WardStone,
+  TileType.Stables, TileType.SiegeWorkshop,
 ]);
 
 function buildTicksFor(tile: TileType, level: number): number {
@@ -9632,6 +9845,7 @@ function demolishTile(tx: number, ty: number, current: TileType) {
   }
   buildingLevel.delete(resourceKey(tx, ty));
   if (current === TileType.Gate) gates.delete(tileIndex(tx, ty));
+  if (current === TileType.SiegeWorkshop) siegeWorkshops.delete(resourceKey(tx, ty));
   if (current === TileType.FarmPlot) {
     farmPlots.delete(resourceKey(tx, ty));
   }
@@ -9759,6 +9973,10 @@ function resolvePlacement(tx: number, ty: number, tile: TileType, current: TileT
   }
   if (tile === TileType.ArcherPost) {
     resolveArcherPlacement(tx, ty);
+    return;
+  }
+  if (tile === TileType.Stables) {
+    resolveStablesPlacement(tx, ty);
     return;
   }
   if (tile === TileType.Tower) {
@@ -9983,6 +10201,356 @@ function towerInfoLines(level: number): string[] {
   return lines;
 }
 
+// ---- Cavalry & siege (ROADMAP "Cavalry & siege"): the cavalry charge, siege strikes and the catapult's
+// splash, Siege Workshop production, and the raids' siege engines (updateSiegeMob). ----
+
+// Cavalry charge runs: where the rider's current straight run began (ax, ay), its last position, ticks
+// stood still, and the tick its next charge may land. Not saved.
+interface ChargeRun {
+  ax: number;
+  ay: number;
+  lx: number;
+  ly: number;
+  idle: number;
+  readyTick: number;
+}
+const chargeRuns = new Map<string, ChargeRun>();
+// Recent siege / charge events (testHook "siegeState").
+const siegeEvents: Array<{ tick: number; type: string; id: string; amount?: number; detail?: string }> = [];
+function siegeEvent(type: string, id: string, amount?: number, detail?: string) {
+  siegeEvents.push({ tick: cycleTick, type, id, amount, detail });
+  if (siegeEvents.length > 200) siegeEvents.shift();
+}
+
+// Once per tick for a rider (before it moves): a stride turning more than 60 degrees off the run's line
+// starts a new run where the turn was; standing still past the grace ends it.
+function trackCharge(c: Colonist) {
+  const run = chargeRuns.get(c.id);
+  if (!run) {
+    chargeRuns.set(c.id, { ax: c.x, ay: c.y, lx: c.x, ly: c.y, idle: 0, readyTick: 0 });
+    return;
+  }
+  const sx = c.x - run.lx;
+  const sy = c.y - run.ly;
+  const step = Math.hypot(sx, sy);
+  const rx = run.lx - run.ax;
+  const ry = run.ly - run.ay;
+  const rl = Math.hypot(rx, ry);
+  if (step < 0.5) {
+    if (++run.idle > CAVALRY_CHARGE_IDLE_GRACE_TICKS) {
+      run.ax = c.x;
+      run.ay = c.y;
+    }
+  } else {
+    run.idle = 0;
+    if (rl > 1 && (sx * rx + sy * ry) / (step * rl) < 0.5) {
+      run.ax = run.lx;
+      run.ay = run.ly;
+    }
+  }
+  run.lx = c.x;
+  run.ly = c.y;
+}
+
+// The damage multiplier of a rider's blow: x CAVALRY_CHARGE_MULT when it ends a straight run of
+// CAVALRY_CHARGE_TILES+ off cooldown. Any blow ends the run.
+function takeChargeBonus(c: Colonist): number {
+  const run = chargeRuns.get(c.id);
+  if (!run) return 1;
+  const ok = cycleTick >= run.readyTick && Math.hypot(c.x - run.ax, c.y - run.ay) >= CAVALRY_CHARGE_TILES * TILE_SIZE;
+  run.ax = c.x;
+  run.ay = c.y;
+  if (!ok) return 1;
+  run.readyTick = cycleTick + CAVALRY_CHARGE_COOLDOWN_TICKS;
+  return CAVALRY_CHARGE_MULT;
+}
+
+// A boulder from (fx, fy) landing at (tx, ty): `damage` to every unit of the other side within
+// CATAPULT_SPLASH_PX, x CATAPULT_BUILDING_MULT to every building there (the raids' catapults only: the
+// colony's never hit its own buildings, and monsters have none).
+function catapultImpact(fx: number, fy: number, tx: number, ty: number, damage: number, side: "colony" | "mob", attackerKey: string) {
+  pendingEffects.push({ fromX: fx, fromY: fy, toX: tx, toY: ty, boulder: true });
+  let hits = 0;
+  if (side === "colony") {
+    for (const m of Array.from(mobs.values())) {
+      if (!isTowerTarget(m) || Math.hypot(m.x - tx, m.y - ty) > CATAPULT_SPLASH_PX) continue;
+      damageMob(m, damage, attackerKey);
+      hits++;
+    }
+    siegeEvent("boulder", attackerKey, damage, `units:${hits}`);
+    return;
+  }
+  for (const c of Array.from(colonists.values())) {
+    if (isAbbeyClergy(c) || Math.hypot(c.x - tx, c.y - ty) > CATAPULT_SPLASH_PX) continue;
+    damageColonist(c, damage);
+    hits++;
+  }
+  for (const p of players.values()) {
+    if (p.dead || testPlayersIgnored || Math.hypot(p.x - tx, p.y - ty) > CATAPULT_SPLASH_PX) continue;
+    damagePlayer(p, damage);
+    hits++;
+  }
+  let buildings = 0;
+  const c0 = tileOfPixel(tx, ty);
+  const r = Math.ceil(CATAPULT_SPLASH_PX / TILE_SIZE);
+  for (let y = c0.y - r; y <= c0.y + r; y++) {
+    for (let x = c0.x - r; x <= c0.x + r; x++) {
+      if (!inBounds(x, y) || !structureHp(x, y)) continue;
+      const centre = tileToPixelCenter({ x, y });
+      if (Math.hypot(centre.x - tx, centre.y - ty) > CATAPULT_SPLASH_PX + TILE_SIZE / 2) continue;
+      damageBuilding(x, y, damage * CATAPULT_BUILDING_MULT);
+      buildings++;
+    }
+  }
+  siegeEvent("boulder", attackerKey, damage, `units:${hits},buildings:${buildings}`);
+}
+
+// ---- Siege Workshop production ----
+interface SiegeWorkshopState {
+  building: SiegeKind | null;
+  ticksLeft: number;
+}
+const siegeWorkshops = new Map<string, SiegeWorkshopState>();
+
+function siegeUnitsAt(tx: number, ty: number): number {
+  let n = 0;
+  for (const c of colonists.values()) if (c.postX === tx && c.postY === ty && isSiegeKind(c.kind)) n++;
+  return n;
+}
+
+// Why the workshop at (tx, ty) can't start `kind` now ("" = it can).
+function siegeQueueBlocker(tx: number, ty: number, kind: SiegeKind): string {
+  const state = siegeWorkshops.get(resourceKey(tx, ty));
+  if (state?.building) return `Building a ${SIEGE_LABEL[state.building]}`;
+  if (siegeUnitsAt(tx, ty) >= SIEGE_WORKSHOP_CAP) return `At most ${SIEGE_WORKSHOP_CAP} engines`;
+  if (!canAfford(SIEGE_UNIT_COST[kind])) return "Not enough resources";
+  if (civilianPopulationUsed() + pendingWorkerSlots() + SIEGE_POPULATION_COST > populationCap()) return "Population cap reached";
+  return "";
+}
+
+function siegeWorkshopInfo(tx: number, ty: number): NonNullable<BuildingInfo["siege"]> {
+  const state = siegeWorkshops.get(resourceKey(tx, ty));
+  return {
+    building: state?.building ?? null,
+    progress: state?.building ? 1 - state.ticksLeft / SIEGE_BUILD_TICKS : null,
+    units: siegeUnitsAt(tx, ty),
+    cap: SIEGE_WORKSHOP_CAP,
+    options: SIEGE_KINDS.map((kind) => {
+      const reason = siegeQueueBlocker(tx, ty, kind);
+      return { kind, label: SIEGE_LABEL[kind], cost: formatCost(SIEGE_UNIT_COST[kind]), enabled: reason === "", reason };
+    }),
+  };
+}
+
+function handleQueueSiege(tx: number, ty: number, kind: unknown) {
+  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.SiegeWorkshop) return;
+  if (kind !== "batteringRam" && kind !== "catapult") return;
+  if (siegeQueueBlocker(tx, ty, kind) !== "") return;
+  spend(SIEGE_UNIT_COST[kind]);
+  siegeWorkshops.set(resourceKey(tx, ty), { building: kind, ticksLeft: instantBuild ? 1 : SIEGE_BUILD_TICKS });
+}
+
+// Once per tick: an engine under way rolls out when its timer runs down.
+function updateSiegeWorkshops() {
+  for (const [key, state] of siegeWorkshops) {
+    if (!state.building) continue;
+    const tile = keyToTile(key);
+    if (!tile || tiles[tileIndex(tile.x, tile.y)] !== TileType.SiegeWorkshop) {
+      siegeWorkshops.delete(key);
+      continue;
+    }
+    if (--state.ticksLeft > 0) continue;
+    const c = spawnColonistForPost(tile.x, tile.y, state.building, 1);
+    broadcastEvent("build", `A ${SIEGE_LABEL[state.building].toLowerCase()} rolls out of the Siege Workshop`);
+    siegeEvent("built", c.id, undefined, state.building);
+    state.building = null;
+  }
+}
+
+// ---- The raids' siege engines (updateMob hands them to updateSiegeMob once released) ----
+// A ram looks for a closed gate within RAM_GATE_SCAN_TILES first, then breaches walls / hits buildings
+// like any mob (pickBuildingTarget); units only when it stands next to one and has no building to hit.
+const RAM_GATE_SCAN_TILES = 25;
+const SIEGE_RETARGET_TICKS = 2 * TICK_RATE;
+// Per raid, each siege kind is capped at raidSiegeCap(day): 1 from its unlock day, +1 every 6 days.
+function raidSiegeCap(dayIndex: number, kind: SiegeKind): number {
+  return Math.max(0, 1 + Math.floor((dayIndex - MOB_KIND_CONFIG[kind].unlockDay) / 6));
+}
+// testHook "forceRaidSiege" {value:true}: raids pick orc / bandit factions and fill their siege caps first.
+let testForceRaidSiege = false;
+
+function pickRamTarget(mob: Mob): PickedTarget | null {
+  const wards = activeWardSources();
+  const start = tileOfPixel(mob.x, mob.y);
+  const closed: { x: number; y: number; d: number }[] = [];
+  for (const index of gates.keys()) {
+    if (gatePassable(index, true)) continue;
+    const x = index % WORLD_TILES_X;
+    const y = Math.floor(index / WORLD_TILES_X);
+    const c = tileToPixelCenter({ x, y });
+    const d = Math.hypot(c.x - mob.x, c.y - mob.y);
+    if (d <= RAM_GATE_SCAN_TILES * TILE_SIZE && !isWarded(c.x, c.y, wards)) closed.push({ x, y, d });
+  }
+  closed.sort((a, b) => a.d - b.d);
+  for (const g of closed.slice(0, 3)) {
+    const route = routeToBuilding(start, g.x, g.y, 0);
+    if (route) return { type: "building", id: resourceKey(g.x, g.y), approach: route.length > 0 ? route[route.length - 1] : start };
+  }
+  return pickBuildingTarget(mob, wards);
+}
+
+// The best catapult shot from where it stands, within [CATAPULT_MIN_RANGE, its range]: towers first,
+// then walls / gates, then any other building or Town Center (nearest in each class), else the unit
+// (colonist / player) with the most others within the splash. null: nothing in range.
+function pickCatapultShot(mob: Mob): { x: number; y: number } | null {
+  const wards = activeWardSources();
+  const here = tileOfPixel(mob.x, mob.y);
+  const r = Math.ceil(mob.range / TILE_SIZE);
+  let best: { x: number; y: number } | null = null;
+  let bestScore = Infinity;
+  for (let y = here.y - r; y <= here.y + r; y++) {
+    for (let x = here.x - r; x <= here.x + r; x++) {
+      if (!inBounds(x, y) || !structureHp(x, y)) continue;
+      const c = tileToPixelCenter({ x, y });
+      const d = Math.hypot(c.x - mob.x, c.y - mob.y);
+      if (d < CATAPULT_MIN_RANGE || d > mob.range || isWarded(c.x, c.y, wards)) continue;
+      const t = tiles[tileIndex(x, y)] as TileType;
+      const cls = isTowerTile(t) ? 0 : isWallTile(t) || t === TileType.Gate ? 1 : 2;
+      const score = cls * 1e6 + d;
+      if (score < bestScore) {
+        bestScore = score;
+        best = c;
+      }
+    }
+  }
+  if (best) return best;
+  const units: { x: number; y: number }[] = [];
+  for (const c of colonists.values()) if (!isAbbeyClergy(c) && !isWarded(c.x, c.y, wards)) units.push(c);
+  for (const p of players.values()) if (!p.dead && !testPlayersIgnored && !isWarded(p.x, p.y, wards)) units.push(p);
+  let bestCount = 0;
+  for (const u of units) {
+    const d = Math.hypot(u.x - mob.x, u.y - mob.y);
+    if (d < CATAPULT_MIN_RANGE || d > mob.range) continue;
+    const count = units.filter((o) => Math.hypot(o.x - u.x, o.y - u.y) <= CATAPULT_SPLASH_PX).length;
+    if (count > bestCount || (count === bestCount && best && d < Math.hypot(best.x - mob.x, best.y - mob.y))) {
+      bestCount = count;
+      best = { x: u.x, y: u.y };
+    }
+  }
+  return best;
+}
+
+// Walks a siege mob along a path to (x, y) (the shared mob pathing, MOB_REPATH_TICKS apart).
+function walkSiegeMob(mob: Mob, x: number, y: number, dt: number) {
+  if (mob.path.length === 0 && mob.repathCooldown <= 0) {
+    const path = findPath(tileOfPixel(mob.x, mob.y), tileOfPixel(x, y));
+    mob.path = path ?? [];
+    mob.repathCooldown = MOB_REPATH_TICKS;
+  } else if (mob.repathCooldown > 0) {
+    mob.repathCooldown--;
+  }
+  advanceAlongPath(mob, dt, mob.speed);
+}
+
+function updateSiegeMob(mob: Mob, dt: number, hold: boolean) {
+  if (mob.attackCooldownTicks > 0) mob.attackCooldownTicks--;
+  if (mob.kind === "catapult") {
+    const shot = pickCatapultShot(mob);
+    if (shot) {
+      mob.path = [];
+      const threat = nearestMeleeSoldier(mob.x, mob.y, RANGED_KITE_TILES * TILE_SIZE);
+      if (threat && !hold) stepMobAwayFrom(mob, threat.x, threat.y, dt);
+      if (mob.attackCooldownTicks <= 0) {
+        mob.attackCooldownTicks = CATAPULT_RELOAD_TICKS;
+        mobsAttackingThisTick.add(mob.id);
+        recordFightHit(mob, (mob.x + shot.x) / 2, (mob.y + shot.y) / 2, "b:siege", mob.damage);
+        catapultImpact(mob.x, mob.y, shot.x, shot.y, mob.damage, "mob", "m:" + mob.id);
+      }
+      return;
+    }
+    if (hold) return;
+    // Nothing in range: advance on the colony like any raider, but never past its regiment's front rank.
+    if (!mob.targetType || cycleTick % SIEGE_RETARGET_TICKS === 0) {
+      const picked = pickBuildingTarget(mob, activeWardSources());
+      mob.targetType = picked?.type ?? null;
+      mob.targetId = picked?.id ?? null;
+      mob.approachFor = picked?.approach ? picked.id : null;
+      mob.approachX = picked?.approach?.x ?? -1;
+      mob.approachY = picked?.approach?.y ?? -1;
+    }
+    const goal = mob.targetType ? resolveTargetPosition(mob.targetType, mob.targetId, mob) : null;
+    if (!goal) return;
+    const regiment = mob.regimentId ?? mob.siteId;
+    const frontDist = regiment ? regimentFrontDistance(mob, regiment, goal) : Infinity;
+    if (frontDist < Infinity && Math.hypot(goal.x - mob.x, goal.y - mob.y) <= frontDist + TILE_SIZE * 2) {
+      mob.path = [];
+      return;
+    }
+    walkSiegeMob(mob, goal.x, goal.y, dt);
+    return;
+  }
+  // Battering ram.
+  let targetPos = mob.targetType ? resolveTargetPosition(mob.targetType, mob.targetId, mob) : null;
+  const onGate = mob.targetType === "building" && mob.targetId !== null && (() => {
+    const t = keyToTile(mob.targetId!);
+    return !!t && tiles[tileIndex(t.x, t.y)] === TileType.Gate;
+  })();
+  if (targetPos && mobTargetNeedsRepick(mob)) targetPos = null;
+  if (targetPos && !onGate && cycleTick % SIEGE_RETARGET_TICKS === 0) targetPos = null;
+  if (!targetPos && !hold) {
+    const picked = pickRamTarget(mob);
+    if (picked && (picked.id !== mob.targetId || picked.type !== mob.targetType)) {
+      mob.path = [];
+      mob.repathCooldown = 0;
+    }
+    mob.targetType = picked?.type ?? null;
+    mob.targetId = picked?.id ?? null;
+    mob.approachFor = picked?.approach ? picked.id : null;
+    mob.approachX = picked?.approach?.x ?? -1;
+    mob.approachY = picked?.approach?.y ?? -1;
+    targetPos = picked ? resolveTargetPosition(picked.type, picked.id, mob) : null;
+  }
+  // No building to hit: a unit standing right next to it.
+  if (!targetPos) {
+    const reach = mob.range + COLONIST_BODY_RADIUS;
+    for (const c of colonists.values()) {
+      if (!isAbbeyClergy(c) && Math.hypot(c.x - mob.x, c.y - mob.y) <= reach) {
+        mob.targetType = "colonist";
+        mob.targetId = c.id;
+        targetPos = { x: c.x, y: c.y };
+        break;
+      }
+    }
+    if (!targetPos) return;
+  }
+  const dist = Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y);
+  if (dist > mob.range) {
+    if (!hold) walkSiegeMob(mob, targetPos.x, targetPos.y, dt);
+    return;
+  }
+  mob.path = [];
+  mobsAttackingThisTick.add(mob.id);
+  if (mob.attackCooldownTicks > 0) return;
+  mob.attackCooldownTicks = RAM_ATTACK_COOLDOWN_TICKS;
+  const struck = (mob.targetType === "building" || mob.targetType === "townCenter") && mob.targetId ? keyToTile(mob.targetId) : null;
+  const hit = struck ? tileToPixelCenter(struck) : targetPos;
+  pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: hit.x, toY: hit.y, melee: true });
+  if (mob.targetId) recordMobStrike(mob, hit.x, hit.y);
+  if (struck) {
+    const amount = mob.damage * SIEGE_BUILDING_MULT;
+    siegeEvent("ramHit", mob.id, amount, `building:${tiles[tileIndex(struck.x, struck.y)]}`);
+    damageBuilding(struck.x, struck.y, amount);
+  } else if (mob.targetType === "colonist" && mob.targetId) {
+    const c = colonists.get(mob.targetId);
+    if (c) {
+      siegeEvent("ramHit", mob.id, mob.damage * RAM_UNIT_MULT, "unit");
+      damageColonist(c, mob.damage * RAM_UNIT_MULT);
+    }
+    mob.targetType = null;
+    mob.targetId = null;
+  }
+}
+
 // ---- Building info panel (client left-click) and its Upgrade button ----
 
 // The tile to "place on itself" to upgrade the building at `t` in place (null: not upgradeable).
@@ -9991,6 +10559,7 @@ function upgradePlacementTile(t: TileType): TileType | null {
   if (t === TileType.KnightPost || t === TileType.CastleLevel2) return TileType.KnightPost;
   if (t === TileType.MilitiaPost || t === TileType.MilitiaCamp2) return TileType.MilitiaPost;
   if (t === TileType.ArcherPost) return TileType.ArcherPost;
+  if (t === TileType.Stables) return TileType.Stables;
   if (t === TileType.TownCenter) return TileType.TownCenter;
   return IN_PLACE_UPGRADE_TILES.includes(t) ? t : null;
 }
@@ -10012,6 +10581,7 @@ const BUILDING_NAMES: Partial<Record<TileType, string>> = {
   [TileType.Gate]: "Gate",
   [TileType.Road]: "Road",
   [TileType.CobbleRoad]: "Cobble Road",
+  [TileType.SiegeWorkshop]: "Siege Workshop",
 };
 
 const pct = (fraction: number) => `${Math.round(fraction * 100)}%`;
@@ -10075,6 +10645,14 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
   }
   if (t === TileType.ChurchPost) bonuses.push(`Heals ${healAmountFor(tx, ty)} per prayer`);
   if (t === TileType.BuildersGuild) bonuses.push(`${level} builder${level === 1 ? "" : "s"} (one per level)`);
+  if (t === TileType.Stables) {
+    bonuses.push(`Lv${level}: ${cavalryCountForLevel(level)} cavalry (fast, wings), charge x${CAVALRY_CHARGE_MULT} after ${CAVALRY_CHARGE_TILES} tiles in a straight line`);
+  }
+  if (t === TileType.SiegeWorkshop) {
+    staffing = `Engines ${siegeUnitsAt(tx, ty)}/${SIEGE_WORKSHOP_CAP}`;
+    bonuses.push(`Builds one engine at a time (${SIEGE_BUILD_TICKS / TICK_RATE}s each), ${SIEGE_POPULATION_COST} population each`);
+    bonuses.push(`Ram: x${SIEGE_BUILDING_MULT} vs buildings, x${RAM_UNIT_MULT} vs units. Catapult: ${CATAPULT_RANGE / TILE_SIZE}-tile boulders, splash`);
+  }
   if (isTowerTile(t)) {
     staffing = "No workers needed";
     bonuses.push(...towerInfoLines(level));
@@ -10131,7 +10709,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     name,
     tile: t,
     level,
-    maxLevel: t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate || t === TileType.Market || t === TileType.GoldShop || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
+    maxLevel: t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate || t === TileType.SiegeWorkshop || t === TileType.Market || t === TileType.GoldShop || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
     hp: hpState ? Math.ceil(hpState.hp) : null,
     maxHp: hpState ? hpState.max : null,
     staffing,
@@ -10140,6 +10718,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     construction: site ? Math.min(1, site.progress / site.totalTicks) : null,
     repair,
     ...(t === TileType.Gate ? { gate: (({ open, lock, overrun }) => ({ open, lock, overrun }))(gateAt(tileIndex(tx, ty))) } : {}),
+    ...(t === TileType.SiegeWorkshop ? { siege: siegeWorkshopInfo(tx, ty) } : {}),
   };
 }
 
@@ -10472,6 +11051,7 @@ function stepSimulation() {
     updateColonist(colonist, dt);
   }
   updateConstructionSites();
+  updateSiegeWorkshops();
 
   // Walls & gates: mobs and wildlife move and path from the hostile side of every gate.
   withHostileMover(() => {

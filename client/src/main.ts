@@ -58,8 +58,8 @@ import {
 import { SOUND_SILENT_RADIUS_TILES, SoundManager, proximityGain } from "./sound";
 import type { FightSnapshot } from "./protocol";
 import { FIGHT_WINDOW_SECONDS } from "./protocol";
-import { COLONIST_ROLE, MOB_ROLE, isRearRole } from "./protocol";
-import type { CombatRole } from "./protocol";
+import { COLONIST_ROLE, MOB_ROLE, isRearRole, SIEGE_KINDS } from "./protocol";
+import type { CombatRole, SiegeKind } from "./protocol";
 import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
 
 const SERVER_URL = "ws://localhost:8080";
@@ -103,6 +103,21 @@ const TOOLS: ToolDef[] = [
   { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: "Free, within 2 tiles of a Barn (up to 8 per Barn)", category: "farming" },
   { tile: TileType.KnightPost, label: "Hall of the Sworn", key: "5", cost: "10 iron + 5 rock (upgradeable)", category: "combat" },
   { tile: TileType.ArcherPost, label: "Archery Range", key: "6", cost: "10 wood (upgradeable)", category: "combat" },
+  // Cavalry & siege (2026-10-27): ; and ' are the last free keys.
+  {
+    tile: TileType.Stables,
+    label: "Stables",
+    key: ";",
+    cost: "20 wood + 10 rock + 10 iron (upgradeable: 1/2/3 cavalry). Fast riders for the wings; x2 charge after 5 tiles in a straight line",
+    category: "combat",
+  },
+  {
+    tile: TileType.SiegeWorkshop,
+    label: "Siege Workshop",
+    key: "'",
+    cost: "30 wood + 15 iron + 15 rock. Builds battering rams and catapults (info panel), 2 population each, up to 2",
+    category: "combat",
+  },
   {
     tile: TileType.Tower,
     label: "Tower",
@@ -215,10 +230,15 @@ const COLONIST_COLORS: Record<string, number> = {
   hunter: 0x6b7d3a,
   forager: 0xc9a46a,
   builder: 0xb0784a,
+  cavalry: 0x8fa3c0,
+  batteringRam: 0x7a5230,
+  catapult: 0x6b4a2a,
 };
 
 // Only military units take part in selection / commands / task forces.
-const COMMANDABLE_KINDS = new Set<string>(["knight", "archer", "bishop", "militia", "spearman", "pikeman"]);
+const COMMANDABLE_KINDS = new Set<string>([
+  "knight", "archer", "bishop", "militia", "spearman", "pikeman", "cavalry", "batteringRam", "catapult",
+]);
 // Workers who vanish into their building/plot while on the job, instead of standing visibly on
 // top of it. Guards/militia/bishop stay visible — you want to see your garrison standing watch.
 const WORKER_KINDS = new Set<string>([
@@ -245,16 +265,21 @@ const GARRISON_TILES = new Set<number>([
   TileType.MilitiaPost,
   TileType.MilitiaCamp2,
   TileType.MilitiaCamp3,
+  TileType.Stables,
+  TileType.SiegeWorkshop,
 ]);
 const SELECTION_COLOR = 0x00e5ff;
 const DRAG_THRESHOLD_PX = 6;
 const UNIT_HIT_RADIUS = 10;
 
 // Formation rank for a group move order, front to back (0 = closest to the destination, i.e.
-// leads the march). "artillery" has no matching colonist kind yet, but the slot is reserved for
-// a future siege unit so the ordering doesn't need revisiting when one is added.
+// leads the march). Knights (shock) and rams take the front row's centre (centreShock); cavalry
+// (fast) the wings; catapults join the archers' rear line.
 const FORMATION_RANK: Record<string, number> = {
   knight: 0,
+  cavalry: 0,
+  batteringRam: 0,
+  catapult: 1,
   militia: 0,
   spearman: 0,
   pikeman: 0,
@@ -300,6 +325,7 @@ const ROLE_COLORS: Record<CombatRole, number> = {
   ranged: 0x58b85c,
   caster: 0x9b6fd6,
   fast: 0x4fb3e8,
+  siege: 0x8b5a2b,
 };
 const ROLE_LABEL: Record<CombatRole, string> = {
   frontline: "Frontline",
@@ -307,6 +333,7 @@ const ROLE_LABEL: Record<CombatRole, string> = {
   ranged: "Ranged",
   caster: "Caster",
   fast: "Fast",
+  siege: "Siege",
 };
 // Stance hotkeys. 'c' (the AoE-style third key) is the Church build tool, so aggressive is 'e'.
 const STANCE_HOTKEYS: Record<string, Stance> = { z: "defensive", x: "normal", e: "aggressive" };
@@ -348,6 +375,9 @@ const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
   banditElite: { color: 0x7a2a2a, radius: 10 },
   // Smaller than a goblin — "barely more than a shadow".
   halfLatch: { color: 0x0e0e12, radius: 5.5 },
+  // Siege engines: PLACEHOLDER art (cart / crate props, tinted; see MOB_TINT and SPRITES.md #37+).
+  batteringRam: { color: 0x7a5230, radius: 13 },
+  catapult: { color: 0x6b4a2a, radius: 12 },
 };
 const MOB_KINDS = Object.keys(MOB_VISUALS) as MobKind[];
 // Mob kinds whose texture isn't /sprites/<kind>.png.
@@ -356,7 +386,11 @@ const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
   banditClubman: "/sprites/banditClubmanWalk0.png",
   banditArcher: "/sprites/banditArcherWalk2.png",
   banditElite: "/sprites/bandit.png",
+  batteringRam: "/sprites/cart.png",
+  catapult: "/sprites/crate.png",
 };
+// Tints for mob kinds drawn with borrowed (placeholder) art.
+const MOB_TINT: Partial<Record<MobKind, number>> = { batteringRam: 0xb07a4a, catapult: 0x9a7048 };
 
 const artUrl = (name: string) => `/sprites/${name}.png`;
 const frameUrls = (name: string, count: number) =>
@@ -383,6 +417,11 @@ const COLONIST_ANIM_URLS: Record<ColonistKind, { walk: string[]; action: string[
   forager: { walk: frameUrls("farmhandWalk", 4), action: frameUrls("farmhandTend", 3) },
   // Stand-in until the builder frames load (COLONIST_OPTIONAL_ANIM_URLS).
   builder: { walk: frameUrls("lumberjackWalk", 4), action: frameUrls("lumberjackChop", 3) },
+  // Cavalry & siege PLACEHOLDERS (SPRITES.md #37+): the rider borrows the player's ride cycle (tinted
+  // blue-grey), the engines the cart / crate props.
+  cavalry: { walk: frameUrls("playerWalk", 4), action: frameUrls("playerAttack", 2) },
+  batteringRam: { walk: [artUrl("cart")], action: [artUrl("cart")] },
+  catapult: { walk: [artUrl("crate")], action: [artUrl("crate")] },
 };
 // Dedicated art for kinds still on stand-ins. Loaded separately and optionally (loadOptionalTextures):
 // when every frame of a set loads it replaces the stand-in set and its tint; missing files are fine.
@@ -392,17 +431,26 @@ const COLONIST_OPTIONAL_ANIM_URLS: Partial<Record<ColonistKind, { walk: string[]
   forager: { walk: frameUrls("foragerWalk", 4), action: frameUrls("foragerForage", 3), carry: frameUrls("foragerCarry", 2) },
   // Carry = hauling a plank to a construction site (server state "carrying"); action = hammering.
   builder: { walk: frameUrls("builderWalk", 4), action: frameUrls("builderBuild", 4), carry: frameUrls("builderCarry", 2) },
+  cavalry: { walk: frameUrls("cavalryWalk", 4), action: frameUrls("cavalryAttack", 3), carry: [] },
 };
 const COLONIST_STANDIN_TINT: Partial<Record<ColonistKind, number>> = {
   hunter: 0xb5d39a,
   forager: 0xffd9a8,
   builder: 0xffc890,
+  cavalry: 0xa8b8d8,
+  batteringRam: 0xc89a6a,
+  catapult: 0xb08a60,
 };
+// Rendered height (px) per kind where it isn't COLONIST_SPRITE_HEIGHT (a rider on a horse, engines).
+const COLONIST_KIND_HEIGHT: Partial<Record<ColonistKind, number>> = { cavalry: 50, batteringRam: 30, catapult: 30 };
 // Static (fallback) pose per kind when it isn't /sprites/<kind>.png.
 const COLONIST_STATIC_URL_OVERRIDES: Partial<Record<ColonistKind, string>> = {
   hunter: "/sprites/archer.png",
   forager: "/sprites/farmhand.png",
   builder: "/sprites/lumberjack.png",
+  cavalry: "/sprites/player.png",
+  batteringRam: "/sprites/cart.png",
+  catapult: "/sprites/crate.png",
 };
 // Player (mounted knight): walk + 2-frame lance attack, idle = walk frame 0. The walk row carries
 // the banner, the attack row doesn't; both canvases are centered on the horse's body (not the
@@ -574,6 +622,9 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.FruitTreePicked]: "tree",
   [TileType.MushroomPatch]: "flowers1",
   [TileType.MushroomPatchPicked]: "tallGrass",
+  // Cavalry & siege PLACEHOLDERS (SPRITES.md #38/#39).
+  [TileType.Stables]: "castleLv2",
+  [TileType.SiegeWorkshop]: "blacksmith",
 };
 // Dedicated art per tile (SPRITES.md #30-#32), loaded optionally: a file that exists replaces the
 // TILE_SPRITE_FILES stand-in above and drops its tint; a missing one keeps the stand-in.
@@ -586,6 +637,8 @@ const TILE_OPTIONAL_ART: Partial<Record<TileType, string>> = {
   [TileType.FruitTreePicked]: "appleTreePicked",
   [TileType.MushroomPatch]: "mushroomRipe",
   [TileType.MushroomPatchPicked]: "mushroomPicked",
+  [TileType.Stables]: "stables",
+  [TileType.SiegeWorkshop]: "siegeWorkshop",
 };
 // Alternate looks picked per tile by a stable position hash (half the fruit trees are pear/plum).
 const TILE_OPTIONAL_ALT_ART: Partial<Record<TileType, string>> = {
@@ -602,6 +655,8 @@ const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.FruitTreePicked]: 0x9a9a84,
   [TileType.MushroomPatch]: 0xd8a080,
   [TileType.MushroomPatchPicked]: 0x8a8a70,
+  [TileType.Stables]: 0xd8c0a0,
+  [TileType.SiegeWorkshop]: 0xc8a888,
 };
 // Looping tile animations (client-side, cosmetic). All frames of a loop share one canvas, so the
 // box-fit scale setTileSprite computes from frame 0 stays valid for every frame. One shared clock
@@ -857,6 +912,9 @@ const COLONIST_KINDS: ColonistKind[] = [
   "hunter",
   "forager",
   "builder",
+  "cavalry",
+  "batteringRam",
+  "catapult",
 ];
 // Rendered heights (px); width follows each texture's aspect ratio.
 const COLONIST_SPRITE_HEIGHT = 28;
@@ -1275,7 +1333,10 @@ async function main() {
     }
   }
   const COLONIST_ANIMS = Object.fromEntries(
-    Object.entries(COLONIST_ANIM_URLS).map(([kind, urls]) => [kind, buildAnimSet(urls, COLONIST_SPRITE_HEIGHT)])
+    Object.entries(COLONIST_ANIM_URLS).map(([kind, urls]) => [
+      kind,
+      buildAnimSet(urls, COLONIST_KIND_HEIGHT[kind as ColonistKind] ?? COLONIST_SPRITE_HEIGHT),
+    ])
   ) as Record<ColonistKind, AnimSet>;
   // Tint per kind while it still renders a stand-in set (cleared below when its own art loaded).
   const COLONIST_TINT = new Map<string, number>(Object.entries(COLONIST_STANDIN_TINT).map(([k, t]) => [k, t!]));
@@ -1287,8 +1348,8 @@ async function main() {
     COLONIST_ANIMS[kind as ColonistKind] = {
       walk,
       action,
-      carry,
-      scale: COLONIST_SPRITE_HEIGHT / walk[0].height,
+      carry: carry && carry.length > 0 ? carry : undefined,
+      scale: (COLONIST_KIND_HEIGHT[kind as ColonistKind] ?? COLONIST_SPRITE_HEIGHT) / walk[0].height,
       refHeight: walk[0].height,
     };
     COLONIST_TINT.delete(kind);
@@ -2498,6 +2559,7 @@ async function main() {
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5);
       sprite.scale.set(scale * mobRenderScale(m));
+      sprite.tint = MOB_TINT[m.kind] ?? 0xffffff;
       return sprite;
     });
     entry.sprite.position.set(m.x, m.y);
@@ -2645,6 +2707,10 @@ async function main() {
   // Rendered size (px, longest side) of each effect sprite in world space.
   const FX_SIZE = { slash: 22, spark: 14, poof: 30, arrow: 18, shamanBolt: 12 };
   const SHAMAN_BOLT_TINT = 0xb98cff;
+  const BOULDER_SIZE = 12;
+  const BOULDER_TINT = 0x7a5530;
+  const BOULDER_PUFF_SIZE = 40;
+  const BOULDER_PUFF_TINT = 0xb09070;
   const PROJECTILE_PX_PER_MS = 0.5;
 
   function addFx(
@@ -2794,6 +2860,26 @@ async function main() {
   function spawnEffect(e: AttackEffect) {
     faceAttacker(e);
     const angle = Math.atan2(e.toY - e.fromY, e.toX - e.fromX);
+    if (e.boulder) {
+      // Catapult boulder (PLACEHOLDER: the round spark sprite tinted brown, SPRITES.md #42): a slow arc,
+      // then a dust / debris puff (the poof, tinted) where it lands.
+      const distance = Math.hypot(e.toX - e.fromX, e.toY - e.fromY);
+      const durationMs = Math.min(1100, Math.max(350, distance / 0.35));
+      const arc = Math.min(90, distance * 0.35);
+      const boulder = addFx(FX_TEXTURES.spark, BOULDER_SIZE, e.fromX, e.fromY, durationMs, (sp, t) => {
+        sp.position.set(e.fromX + (e.toX - e.fromX) * t, e.fromY + (e.toY - e.fromY) * t - Math.sin(Math.PI * t) * arc);
+        sp.rotation = t * 6;
+      }, () => {
+        const puff = addFx(FX_TEXTURES.poof, BOULDER_PUFF_SIZE, e.toX, e.toY, 500, (sp, t) => {
+          sp.alpha = 1 - t * t;
+          sp.scale.set((BOULDER_PUFF_SIZE / Math.max(sp.texture.width, sp.texture.height)) * (0.7 + 0.6 * t));
+        });
+        puff.tint = BOULDER_PUFF_TINT;
+        sound.play("sword_hit", { x: e.toX, y: e.toY });
+      });
+      boulder.tint = BOULDER_TINT;
+      return;
+    }
     if (e.melee) {
       // Effects don't carry the attacker; a player standing at the origin plays its lance thrust.
       for (const [id, { sprite }] of playerSprites) {
@@ -3700,7 +3786,7 @@ async function main() {
     const ring = (x: number, y: number, role: CombatRole | undefined, r: number) => {
       if (role) roleRings.ellipse(x, y + r * 0.8, r, r * 0.4).stroke({ width: 1.5, color: ROLE_COLORS[role], alpha: 0.65 });
     };
-    for (const c of latestColonists) ring(c.x, c.y, COLONIST_ROLE[c.kind], 9);
+    for (const c of latestColonists) ring(c.x, c.y, COLONIST_ROLE[c.kind], c.kind === "cavalry" || c.kind === "batteringRam" || c.kind === "catapult" ? 12 : 9);
     for (const m of latestMobs) ring(m.x, m.y, MOB_ROLE[m.kind], 10);
   }
 
@@ -3852,22 +3938,22 @@ async function main() {
     let rearShift = 0;
     for (const rank of sortedRanks) {
       const members = ranks.get(rank)!;
-      const rear = hasFront && isRearRole(COLONIST_ROLE[members[0].kind]);
+      const rear = hasFront && isRearRole(COLONIST_ROLE[members[0].kind], members[0].kind);
       // The ranged rank stands REAR_LINE_OFFSET_TILES behind the front row (further if the front is deeper).
       if (rear) rearShift = Math.max(rearShift, REAR_LINE_OFFSET_TILES * tileSize - depthRows * spacing);
       // Hand out slots in the same spatial order units already stand in, so nobody walks across
       // a squadmate: the units furthest along the facing take the rank's front row, and within a
       // row, left-to-right (along p) maps to left-to-right. Assigning by array order instead sent
       // e.g. the leftmost unit to the rightmost slot, and mirrored every row on a turn.
-      members.sort((a, b) => b.x * fx + b.y * fy - (a.x * fx + a.y * fy));
+      members.sort((a, b) => Number(isShockUnit(b)) - Number(isShockUnit(a)) || b.x * fx + b.y * fy - (a.x * fx + a.y * fy));
       const n = members.length;
       const cols = Math.min(FORMATION_MAX_ROW_WIDTH, n);
       const rowCount = Math.ceil(n / cols);
       if (depthRows === 0) frontHalfWidth = ((cols - 1) / 2) * spacing;
       for (let row = 0; row < rowCount; row++) {
-        const rowMembers = members
-          .slice(row * cols, row * cols + cols)
-          .sort((a, b) => a.x * px + a.y * py - (b.x * px + b.y * py));
+        const rowMembers = centreShock(
+          members.slice(row * cols, row * cols + cols).sort((a, b) => a.x * px + a.y * py - (b.x * px + b.y * py))
+        );
         const rowN = rowMembers.length;
         const depth = (depthRows + row) * spacing + rearShift;
         rowMembers.forEach((u, i) => {
@@ -3885,6 +3971,30 @@ async function main() {
     return { targets: result, spacing, fx, fy, frontHalfWidth };
   }
 
+  // Shock troops (knights) and front-rank siege (rams) lead their rank and take the centre of its row.
+  function isShockUnit(u: ColonistSnapshot): boolean {
+    const role = COLONIST_ROLE[u.kind];
+    return role === "shock" || (role === "siege" && !isRearRole(role, u.kind));
+  }
+  // `row` sorted left to right; returns it with the shock units moved onto the centre-most slots (each
+  // group keeping its left-to-right order, so nobody crosses a squadmate within it).
+  function centreShock(row: ColonistSnapshot[]): ColonistSnapshot[] {
+    const shock = row.filter(isShockUnit);
+    if (shock.length === 0 || shock.length === row.length) return row;
+    const rest = row.filter((u) => !isShockUnit(u));
+    const mid = (row.length - 1) / 2;
+    const centre = row
+      .map((_, i) => i)
+      .sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid) || a - b)
+      .slice(0, shock.length)
+      .sort((a, b) => a - b);
+    const out: ColonistSnapshot[] = new Array(row.length);
+    centre.forEach((slot, i) => (out[slot] = shock[i]));
+    let j = 0;
+    for (let i = 0; i < row.length; i++) if (!out[i]) out[i] = rest[j++];
+    return out;
+  }
+
   // Formation ranks by FORMATION_RANK, minus the fast-role units (they take the front row's ends,
   // see placeFastOnWings). hasFront: some unit fights in the front rank (frontline / shock / fast),
   // so the ranged rank forms a second line behind it.
@@ -3894,7 +4004,7 @@ async function main() {
     let hasFront = false;
     for (const u of units) {
       const role = COLONIST_ROLE[u.kind];
-      if (role && !isRearRole(role)) hasFront = true;
+      if (role && !isRearRole(role, u.kind)) hasFront = true;
       if (role === "fast") {
         fast.push(u);
         continue;
@@ -4057,15 +4167,15 @@ async function main() {
     let frontHalfWidth = -1;
     for (const rank of Array.from(ranks.keys()).sort((a, b) => a - b)) {
       const members = ranks.get(rank)!;
-      const rear = hasFront && depth > 0 && isRearRole(COLONIST_ROLE[members[0].kind]);
+      const rear = hasFront && depth > 0 && isRearRole(COLONIST_ROLE[members[0].kind], members[0].kind);
       const rankCols = rear ? Math.max(1, Math.min(members.length, Math.ceil(cols * REAR_LINE_WIDTH))) : cols;
       if (rear) depth = Math.max(depth, REAR_LINE_OFFSET_TILES * tileSize);
-      members.sort((a, b) => b.x * fx + b.y * fy - (a.x * fx + a.y * fy));
+      members.sort((a, b) => Number(isShockUnit(b)) - Number(isShockUnit(a)) || b.x * fx + b.y * fy - (a.x * fx + a.y * fy));
       const rowCount = Math.ceil(members.length / rankCols);
       for (let row = 0; row < rowCount; row++) {
-        const rowMembers = members
-          .slice(row * rankCols, row * rankCols + rankCols)
-          .sort((a, b) => a.x * ux + a.y * uy - (b.x * ux + b.y * uy));
+        const rowMembers = centreShock(
+          members.slice(row * rankCols, row * rankCols + rankCols).sort((a, b) => a.x * ux + a.y * uy - (b.x * ux + b.y * uy))
+        );
         if (frontHalfWidth < 0) frontHalfWidth = ((rowMembers.length - 1) * step) / 2;
         rowMembers.forEach((u, i) => {
           const lateral = (i - (rowMembers.length - 1) / 2) * step;
@@ -4273,7 +4383,7 @@ async function main() {
     TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery,
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
-    TileType.Gate,
+    TileType.Gate, TileType.Stables, TileType.SiegeWorkshop,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
   const bpNameEl = document.getElementById("bp-name")!;
@@ -4295,6 +4405,12 @@ async function main() {
   const GATE_LOCK_NEXT: Record<GateLock, GateLock> = { auto: "open", open: "closed", closed: "auto" };
   const GATE_LOCK_LABEL: Record<GateLock, string> = { auto: "Auto", open: "Locked open", closed: "Locked closed" };
   let shownGateLock: GateLock = "auto";
+  // Cavalry & siege: the Siege Workshop's two build buttons (queueSiege) and its status line.
+  const bpSiegeRowEl = document.getElementById("bp-siege-row")!;
+  const bpSiegeStateEl = document.getElementById("bp-siege-state")!;
+  const bpSiegeBtns = new Map<SiegeKind, HTMLButtonElement>(
+    SIEGE_KINDS.map((kind) => [kind, document.getElementById(`bp-siege-${kind}`) as HTMLButtonElement])
+  );
   // Tile the panel shows; re-requested every second while open so numbers stay live.
   let infoTile: { tx: number; ty: number } | null = null;
   const BUILDING_INFO_REFRESH_MS = 1000;
@@ -4345,6 +4461,20 @@ async function main() {
       bpGateBtn.textContent = `Lock: ${GATE_LOCK_LABEL[info.gate.lock]}`;
       bpGateStateEl.textContent = info.gate.overrun ? "Overrun!" : info.gate.open ? "Open" : "Closed";
     }
+    bpSiegeRowEl.hidden = !info.siege;
+    if (info.siege) {
+      for (const opt of info.siege.options) {
+        const btn = bpSiegeBtns.get(opt.kind);
+        if (!btn) continue;
+        btn.disabled = !opt.enabled;
+        btn.textContent = `Build ${opt.label} (${opt.cost})`;
+        btn.title = opt.reason;
+      }
+      const reason = info.siege.options.find((o) => !o.enabled)?.reason ?? "";
+      bpSiegeStateEl.textContent = info.siege.building
+        ? `Building: ${info.siege.building === "batteringRam" ? "Battering Ram" : "Catapult"} ${Math.round((info.siege.progress ?? 0) * 100)}%`
+        : `Engines ${info.siege.units}/${info.siege.cap}${reason ? ` · ${reason}` : ""}`;
+    }
     buildingPanelEl.hidden = false;
   }
   bpGateBtn.addEventListener("click", () => {
@@ -4353,6 +4483,14 @@ async function main() {
     sendMessage({ type: "setGateLock", tileX: infoTile.tx, tileY: infoTile.ty, lock: GATE_LOCK_NEXT[shownGateLock] });
     window.setTimeout(requestBuildingInfo, 150);
   });
+  for (const [kind, btn] of bpSiegeBtns) {
+    btn.addEventListener("click", () => {
+      btn.blur();
+      if (!infoTile) return;
+      sendMessage({ type: "queueSiege", tileX: infoTile.tx, tileY: infoTile.ty, kind });
+      window.setTimeout(requestBuildingInfo, 150);
+    });
+  }
   bpUpgradeBtn.addEventListener("click", () => {
     bpUpgradeBtn.blur();
     if (!infoTile) return;
@@ -4565,19 +4703,23 @@ async function main() {
       latestMobs = message.mobs;
       drawRoleRings();
       latestTaskForces = message.taskForces;
-      const counts = { knight: 0, archer: 0, militia: 0, bishop: 0 };
+      const counts = { knight: 0, archer: 0, militia: 0, bishop: 0, cavalry: 0, siege: 0 };
       const alive = new Set<string>();
       for (const c of message.colonists) {
         if (!isCommandable(c)) continue;
-        if (c.kind === "knight" || c.kind === "archer" || c.kind === "bishop") {
+        if (c.kind === "knight" || c.kind === "archer" || c.kind === "bishop" || c.kind === "cavalry") {
           counts[c.kind]++;
         } else if (c.kind === "militia" || c.kind === "spearman" || c.kind === "pikeman") {
           counts.militia++;
+        } else if (c.kind === "batteringRam" || c.kind === "catapult") {
+          counts.siege++;
         }
         alive.add(c.id);
       }
       refreshWorkerCounts(message.colonists, message.isNight);
-      statArmyEl.textContent = `Knights ${counts.knight}  Archers ${counts.archer}  Militia ${counts.militia}  Bishops ${counts.bishop}`;
+      statArmyEl.textContent =
+        `Knights ${counts.knight}  Cavalry ${counts.cavalry}  Archers ${counts.archer}  Militia ${counts.militia}` +
+        `${counts.siege > 0 ? `  Siege ${counts.siege}` : ""}  Bishops ${counts.bishop}`;
       // Drop dead units from the selection so the count and commands stay accurate.
       const stillSelected = Array.from(selectedIds).filter((id) => alive.has(id));
       if (stillSelected.length !== selectedIds.size) {
@@ -4962,16 +5104,7 @@ async function main() {
     if (tile && GARRISON_TILES.has(tileValue)) {
       setSelection(
         latestColonists
-          .filter(
-            (c) =>
-              (c.kind === "knight" ||
-                c.kind === "archer" ||
-                c.kind === "militia" ||
-                c.kind === "spearman" ||
-                c.kind === "pikeman") &&
-              c.postX === tile.tileX &&
-              c.postY === tile.tileY
-          )
+          .filter((c) => COLONIST_ROLE[c.kind] !== undefined && c.postX === tile.tileX && c.postY === tile.tileY)
           .map((c) => c.id)
       );
       return;

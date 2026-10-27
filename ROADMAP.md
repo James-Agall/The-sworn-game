@@ -488,6 +488,61 @@ section). One game day = 60 s day + 40 s night = 2000 ticks.
   `repairBuilding` message.
 - **Test:** `server/building-damage-test.mjs` (test hooks `ignorePlayers`, `damageBuilding`, `buildingState`).
 
+### Cavalry & siege — landed 2026-10-27
+
+Knights become shock troops; a new cavalry unit; battering rams and catapults for both the colony and the raids.
+New art is all PLACEHOLDER (SPRITES.md "New requests (2026-10-28 batch)", #37-#44, with a wiring table).
+
+| Unit | Role / slot | HP | Damage | Speed | Notes |
+|---|---|---|---|---|---|
+| Knight | shock: front row, centre | 60/100/160 | 12/20/32 | 110 | unchanged stats; was frontline |
+| Cavalry | fast: wings | 60/100/160 (= knight per Stables level) | 12/20/32 | 176 (1.6x) | charge: first blow after >= 5 tiles in a straight line x2, 8 s cooldown |
+| Battering ram | siege, front centre | 240 (4x knight) | 12 base: x4 vs buildings / walls / gates (48), x0.3 vs units (3.6) | 55 (0.5x) | every 2 s; gates first, then walls / buildings; units only when adjacent with nothing else to hit |
+| Catapult | siege, rear line | 70 (2x archer) | 18 boulder, splash 1.5 tiles, x3 vs buildings (54) | 50 | range 3-11 tiles, reload 4 s; towers > walls / gates > buildings, else the densest unit cluster |
+
+- **Roles**: `CombatRole` gains `siege`; `COLONIST_ROLE` knight `shock`, cavalry `fast`, batteringRam / catapult `siege`;
+  `MOB_ROLE` batteringRam / catapult `siege`. `isRearRole(role, kind?)` now takes the unit's kind: a siege role is rear
+  only for the catapult (server `isRearColonist` / `isRearMob`). Morale weights: ram 2 (as shock), catapult 0.8 (as
+  ranged); siege mobs never join a flank detachment. Client formations (`centreShock`): shock units and rams lead
+  rank 0 and take the front row's centre slots; cavalry the wings (`placeFastOnWings`); catapults join the archers'
+  rear line. Role ring colour siege = brown (`0x8b5a2b`); the selection readout lists "Siege".
+- **Stables** (`TileType.Stables` = 71, hotkey `;`): 20 wood + 10 rock + 10 iron (Lv2 30/20/20, Lv3 45/30/30), builders
+  required, big-building HP, a military tile (army synergy, house bonus +1 rider per adjacent house, spawn-space
+  rule). Garrisons 1 / 2 / 3 cavalry per level through the usual post mechanism (`syncGuardBonusAt`,
+  `resolveStablesPlacement`, respawn queue at dawn / dusk with the Stables' level). No population cost (like knights).
+  Building info: level line; click-select via `GARRISON_TILES`.
+- **Siege Workshop** (`TileType.SiegeWorkshop` = 72, hotkey `'`): 30 wood + 15 iron + 15 rock, builders required, max
+  level 1. Its info panel has "Build Battering Ram" (30 wood + 10 iron) and "Build Catapult" (25 wood + 15 iron)
+  buttons (`queueSiege` message, `BuildingInfo.siege`): one engine at a time, 30 s each (`SIEGE_BUILD_TICKS`), at most
+  `SIEGE_WORKSHOP_CAP` (2) alive per workshop, 2 population each (counted in `civilianPopulationUsed`). Engines are
+  commandable soldiers (squads, stances, formations) and are never respawned: a destroyed engine is rebuilt at the
+  workshop. The player's ram only takes on a mob next to it (or a commanded target); the catapult never fires inside
+  3 tiles and splashes mobs only. (Monsters own no buildings, so the colony's x4 / x3 building damage has no target yet.)
+- **Raids** (`MOB_KIND_CONFIG` batteringRam unlockDay 10, catapult 14; both non-core extras, weight 1, in
+  `greenskinWarband` and `banditBand`): each raid takes at most `raidSiegeCap(day, kind)` = 1 + 1 per 6 days past the
+  unlock of each. In formation the ram ranks with the shock troops (front centre; often the leader, being slowest),
+  the catapult on the rear rank (released last). Released, both run `updateSiegeMob` (after `mobTactic`, so routs /
+  shelter still apply): the ram `pickRamTarget` (nearest closed gate within 25 tiles it can walk up to, else
+  `pickBuildingTarget`'s breach / building pick), the catapult `pickCatapultShot` from where it stands, else it
+  advances on `pickBuildingTarget` but never past its regiment's front rank (`regimentFrontDistance`). Boulders:
+  `catapultImpact` (splash on colonists, players, buildings / Town Centers) + `AttackEffect.boulder`. Siege mobs pay x2
+  gold. Note: a lone ram at an undefended gate simply overruns it (Walls & gates item 5); rams matter where towers /
+  defenders hold the gate.
+- **Client**: placeholder sprites (cavalry = the player's ride cycle tinted blue-grey, 50 px; rams / catapults = the
+  cart / crate props tinted; Stables = castleLv2, Siege Workshop = blacksmith, both tinted; optional real art loads
+  over them); the boulder flies in an arc (spark tinted brown) and ends in a dust puff (poof tinted); army readout
+  adds Cavalry / Siege.
+- **Not saved**: charge runs and Siege Workshop jobs in progress (a load drops a half-built engine; built engines and
+  riders are ordinary saved colonists).
+- **Test hooks**: `siegeState` (events: charge / hit / ramHit / boulder / built; units; roles; population),
+  `forceRaidSiege` {value}, `spawnRaidNow` {dayIndex}.
+- **Test:** `server/cavalry-siege-test.mjs` (160 world): S Stables garrisons 1 rider (2 at Lv2), speed 176, role tables;
+  C a 10-tile ride: the first blow is the only charge (24 = 2 x 12); W the workshop rolls out a ram (+2 population),
+  x0.3 vs a skeleton; G a mob ram goes for a locked gate (tower behind it) and hits it for 48; K a mob catapult 8 tiles
+  out hits a house for 54 and splashes both knights beside it; R no siege before day 10, a ram on day 10, ram +
+  catapult on day 14, ram front row centre, catapult rear row. `regiment-test.mjs` and `tactics-test.mjs` re-run:
+  all pass unchanged.
+
 ### Monster tactics — landed 2026-10-27
 
 Step 2 of 2 toward Total War-style battles (step 1: Regiments & roles, below). Server only; the protocol and
@@ -556,11 +611,12 @@ fight as regiments with roles: a melee front line, a ranged rank behind it, flan
 
 | Role | Kinds | Formation place | Behaviour |
 |---|---|---|---|
-| frontline | knight, militia, spearman, pikeman; goblin, orc, armored orc, skeleton, bandit clubman, half-latch | front rank(s) | engages the enemy nearest its slot, holds the leash (Battle discipline) |
-| shock | troll, ogre, bandit elite | front rank, centre (placed first) | as frontline |
+| frontline | militia, spearman, pikeman; goblin, orc, armored orc, skeleton, bandit clubman, half-latch | front rank(s) | engages the enemy nearest its slot, holds the leash (Battle discipline) |
+| shock | knight (since Cavalry & siege); troll, ogre, bandit elite | front rank, centre (placed first) | as frontline |
 | ranged | archer; goblin crossbow, bandit archer | rear line behind the front | holds the rear, fires over the line, kites |
 | caster | dark shaman | rear line (as ranged) | as ranged (+ its heal) |
-| fast | wolf, giant spider (no soldier kind yet) | wings (outermost front slots / ends of the front row) | as frontline |
+| fast | cavalry (since Cavalry & siege); wolf, giant spider | wings (outermost front slots / ends of the front row) | as frontline |
+| siege | battering ram (front, centre with shock), catapult (rear line) - both sides | see "Cavalry & siege" | rams hit buildings, catapults shell from range |
 
 - **Role table** lives in `protocol.ts` (shared, byte-identical): `CombatRole`, `MOB_ROLE`, `COLONIST_ROLE`,
   `isRearRole`. Server helpers `colonistRole(c)`, `mobRole(m)` (a deserter's own `melee` flag wins).

@@ -865,6 +865,9 @@
       #bp-gate-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
       #bp-gate-row[hidden] { display: none; }
       #bp-gate-state { font-size: 12.5px; color: var(--ink-soft); }
+      #bp-siege-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-siege-row[hidden] { display: none; }
+      #bp-siege-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
       #bp-upgrade-cost { font-size: 12.5px; color: var(--ink-soft); }
       /* Game over: the rider fell with no Town Center standing. */
       #game-over {
@@ -1051,6 +1054,11 @@
       </div>
       <div id="bp-gate-row" hidden>
         <button id="bp-gate-lock" class="econ-btn">Lock: Auto</button><span id="bp-gate-state"></span>
+      </div>
+      <div id="bp-siege-row" hidden>
+        <button id="bp-siege-batteringRam" class="econ-btn">Build Ram</button>
+        <button id="bp-siege-catapult" class="econ-btn">Build Catapult</button>
+        <span id="bp-siege-state"></span>
       </div>
     </div>
     <div id="game-over" hidden>

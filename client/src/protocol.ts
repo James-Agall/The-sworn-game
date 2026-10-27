@@ -97,6 +97,10 @@ export enum TileType {
   // (snapshot `gates`): open for anyone, closed for mobs (the colony's own units open it by walking up).
   // Numbered apart from the run above so parallel tile additions don't collide.
   Gate = 70,
+  // Cavalry & siege (2026-10-27): garrisons 1-3 cavalry (levels like the Archery Range) / produces one
+  // battering ram or catapult at a time (building info panel), at most SIEGE_WORKSHOP_CAP alive.
+  Stables = 71,
+  SiegeWorkshop = 72,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -179,7 +183,9 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.FruitTreePicked ||
     tile === TileType.BuildersGuild ||
     tile === TileType.ConstructionSite ||
-    tile === TileType.Tower
+    tile === TileType.Tower ||
+    tile === TileType.Stables ||
+    tile === TileType.SiegeWorkshop
   );
 }
 
@@ -198,7 +204,11 @@ export type ColonistKind =
   | "pikeman"
   | "hunter"
   | "forager"
-  | "builder";
+  | "builder"
+  // Cavalry & siege (2026-10-27): Stables riders and Siege Workshop engines.
+  | "cavalry"
+  | "batteringRam"
+  | "catapult";
 
 // Combat stance for guard-tier units (knight/archer/militia line): how far they aggro, how far they
 // chase from their rally point, and how tight a formation they hold. Every colonist carries one
@@ -234,16 +244,20 @@ export type MobKind =
   | "banditClubman"
   | "banditArcher"
   | "banditElite"
-  | "halfLatch";
+  | "halfLatch"
+  // Raid siege engines (orc / bandit factions, from day 10 / 14).
+  | "batteringRam"
+  | "catapult";
 
 // Regiments & roles (ROADMAP "Regiments & roles"): every combat unit kind fights in a role.
 //   frontline - the melee line: holds the front rank and engages what is in front of its slot.
 //   shock     - heavy melee (troll / ogre / bandit elite): front rank, centre.
 //   ranged    - bows / crossbows: a rear rank behind the line; never advances into melee, kites a step.
 //   caster    - ranged spellcaster (dark shaman): as ranged.
-//   fast      - flankers (wolf, giant spider): the wings of the front rank.
+//   fast      - flankers (wolf, giant spider; cavalry): the wings of the front rank.
+//   siege     - battering ram (front / centre with the shock troops) and catapult (rear line, as ranged).
 // Shared by server (formations, ranged discipline) and client (role rings, formation slots).
-export type CombatRole = "frontline" | "shock" | "ranged" | "caster" | "fast";
+export type CombatRole = "frontline" | "shock" | "ranged" | "caster" | "fast" | "siege";
 export const MOB_ROLE: Record<MobKind, CombatRole> = {
   goblin: "frontline",
   wolf: "fast",
@@ -259,19 +273,28 @@ export const MOB_ROLE: Record<MobKind, CombatRole> = {
   banditArcher: "ranged",
   banditElite: "shock",
   halfLatch: "frontline",
+  batteringRam: "siege",
+  catapult: "siege",
 };
 // Soldier kinds only (civilians and bishops have no combat role).
 export const COLONIST_ROLE: Partial<Record<ColonistKind, CombatRole>> = {
-  knight: "frontline",
+  knight: "shock",
+  cavalry: "fast",
+  batteringRam: "siege",
+  catapult: "siege",
   militia: "frontline",
   spearman: "frontline",
   pikeman: "frontline",
   archer: "ranged",
 };
-// Ranged and caster units form the rear rank.
-export function isRearRole(role: CombatRole | undefined): boolean {
-  return role === "ranged" || role === "caster";
+// Ranged and caster units form the rear rank; of the siege engines only the catapult does (pass the
+// unit's kind; without it a siege role counts as front rank, like the ram).
+export function isRearRole(role: CombatRole | undefined, kind?: string): boolean {
+  return role === "ranged" || role === "caster" || (role === "siege" && kind === "catapult");
 }
+// Siege Workshop production (shared so the client's panel and the server agree).
+export type SiegeKind = "batteringRam" | "catapult";
+export const SIEGE_KINDS: SiegeKind[] = ["batteringRam", "catapult"];
 
 // Hunger-marked elites (ROADMAP Phase 6): a rare raid mob bearing one Hunger's mark. Index = the
 // snapshot's `mark` value; HUNGER_MARK_NAMES[mark] names it (sigil-<name>.png / aura-<name>.png).
@@ -334,6 +357,8 @@ export interface AttackEffect {
   toY: number;
   // Visual-only: melee hits flash at the target; ranged ones fly from attacker to target.
   melee?: boolean;
+  // A catapult's boulder (arcing flight, impact puff at the target); omitted otherwise.
+  boulder?: boolean;
 }
 
 // A transient marker where a colonist died; the server drops every one at the next dawn.
@@ -421,6 +446,15 @@ export interface BuildingInfo {
   repair: { cost: string; enabled: boolean; reason: string } | null;
   // Gates only: the current state and lock (see setGateLock).
   gate?: { open: boolean; lock: GateLock; overrun: boolean };
+  // Siege Workshops only: what is being built (null: idle), its progress 0-1, engines alive / cap, and a
+  // build button per engine (see queueSiege).
+  siege?: {
+    building: SiegeKind | null;
+    progress: number | null;
+    units: number;
+    cap: number;
+    options: { kind: SiegeKind; label: string; cost: string; enabled: boolean; reason: string }[];
+  };
 }
 
 export type ClientMessage =
@@ -449,6 +483,8 @@ export type ClientMessage =
   | { type: "repairBuilding"; tileX: number; tileY: number }
   // Sets the lock of the gate at the tile (no reach limit, like the other building info buttons).
   | { type: "setGateLock"; tileX: number; tileY: number; lock: GateLock }
+  // Starts building one siege engine at the Siege Workshop at the tile (building info panel button).
+  | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
   // Save files (server/saves/<slot>.json). saveGame takes slot1-3 (the autosave is the server's own);
   // loadGame replaces the shared world for everyone connected.
   | { type: "saveGame"; slot: SaveSlot }

@@ -337,6 +337,63 @@ The Ward Priest currently reuses the Church bishop art, so the two are indisting
 For Phase 5's boss: "a bigger version of our most powerful mob." Needs its own look, not just an upscaled Ogre.
 > Pixel art monster animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated dark-fantasy palette. A towering ogre warlord, a clear escalation of the existing Ogre sprite (same pinkish-brown skin, bald head, tusks, heavy build): add a jagged iron crown fused into the skull, rusted shoulder plates and a studded iron belt, red war-paint streaks across the face and chest, a tattered dark banner strapped to its back, and a huge spiked iron-and-stone maul. Should read instantly as "the boss". Match the existing Ogre's art style, outline weight and palette. **Scale: the same drawing style as the Ogre, but 1.6x larger in every dimension (the Ogre is about 51px tall on screen, so the Warlord is about 82px tall); keep it identical in size in every frame.** In one image: Row 1 "Walk Cycle" — 4 frames, facing right, a slow heavy stomp. Row 2 "Attack Cycle" — 3 frames: maul raised overhead, slammed down with debris, recovery. Row 3 "Roar" — 3 frames: head back, chest out, a shockwave ring, settle. Plus one centered static idle pose. Transparent background, feet on the bottom edge of a shared canvas, clean PNG.
 
+## New requests (2026-10-28 batch) — cavalry, siege
+
+For ROADMAP "Cavalry & siege" (2026-10-27): cavalry from the Stables, battering rams and catapults from the Siege
+Workshop, the raids' own rams and catapults, and knights recast as shock troops. Everything below runs on
+PLACEHOLDER art today (table at the end). Same convention as above: chunky 16-bit pixel art, thick black outline,
+flat cel-shaded color, transparent background, one generation per block, an explicit **scale line** anchoring to an
+existing sprite, "match the existing X sprite".
+
+### 37. Cavalry rider — walk/gallop + attack + charge pose
+
+The Stables' riders borrow the player's own ride cycle (tinted blue-grey), so they read as extra copies of the player.
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. A mounted cavalry soldier of the colony, clearly distinct from the existing mounted-knight player sprite (blue banner, lance, no tabard): an open-faced steel helm with a short plume, a heraldic blue-grey tabard with a pale gold chevron over mail, a kite shield on the left arm, a couched lance (gallop/charge) or a drawn sword (attack); the horse is barded in a matching blue-grey caparison with darker trim and a steel chanfron. No banner. Match the art style, outline weight and horse proportions of the existing playerWalk / playerAttack frames. **Scale: same horse-and-rider size as the player's playerWalk0 frame (about 50px tall on screen without the banner); identical in every frame.** In one image: Row 1 "Walk / Gallop" — 4 frames facing right, a brisk gallop. Row 2 "Attack" — 3 frames: sword raised, cut down past the horse's neck, recovery. Row 3 "Charge" — 1 frame: lance couched level, horse at full stretch, rider leaning forward. Transparent background, hooves on the bottom edge of a shared canvas, clean PNG. Files: `cavalryWalk0-3`, `cavalryAttack0-2`, `cavalryCharge0`.
+
+### 38. Stables building
+
+> Pixel art building sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, the same three-quarter iso-top-down view and muted palette as the existing Hall of the Sworn (barracks / castleLv2 / castleLv3) and Archery Range art. A long timber-and-stone stable barn: fieldstone lower walls, dark timber framing and a steep wooden-shingle roof, a row of open stalls along the front with two or three horse heads looking out, a hay rack and a water trough, a small blue-grey pennant flag on the roof ridge matching the cavalry tabards. **Scale: the same footprint and height as the existing barracks.png (one tile wide at the base, rising about two tiles); it must read clearly as a stable, not a castle.** Transparent background, building base on the bottom edge, clean PNG. Optional Lv2 / Lv3 variants (longer, a second stall row, a tack-room tower) in the same image, left to right. Files: `stables`, `stablesLv2`, `stablesLv3`.
+
+### 39. Siege Workshop building
+
+> Pixel art building sprite, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, the same three-quarter iso-top-down view and muted palette as the existing Blacksmith and Hall of the Sworn art. A siege engineers' workshop: an open-sided timber shed under a heavy plank roof, a half-built catapult frame and a stack of oak beams inside, a big treadwheel crane at one end, coils of rope, iron fittings and a work bench out front, wood chips on the ground. **Scale: the same footprint and height as the existing blacksmith.png.** Transparent background, building base on the bottom edge, clean PNG. File: `siegeWorkshop`.
+
+### 40. Battering ram — player and mob variants
+
+> Pixel art siege-engine animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette, viewed from the side facing right like the other unit sprites. TWO variants in one image, one per half. Top half "Colony ram": an iron-shod oak log slung on chains under a pitched wooden roof covered in wet hides, on four solid wooden wheels, two crew legs visible underneath pushing; neat carpentry, a small blue-grey pennant. Bottom half "Raider ram": the same idea built crudely by orcs and bandits — a rough tree trunk with a scrap-iron spike head, a lean-to roof of mismatched planks, rusted scrap metal and stitched animal hides, uneven wheels, a bone or skull charm. Match the outline weight and palette of the existing cart prop and the Ogre / Bandit sprites. **Scale: about 1.2x the existing cart.png prop (roughly 40px wide on screen), identical size in every frame.** For each variant: Row 1 "Move" — 4 frames, wheels turning. Row 2 "Swing" — 3 frames: log drawn back, swung forward, impact with a few splinters. Row 3 "Destroyed" — 1 frame: collapsed roof, broken wheel. Transparent background, wheels on the bottom edge of a shared canvas, clean PNG. Files: `batteringRamWalk0-3`, `batteringRamAttack0-2`, `batteringRamDestroyed`, and `mobBatteringRam...` for the raider variant.
+
+### 41. Catapult — player and mob variants
+
+> Pixel art siege-engine animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette, viewed from the side facing right. TWO variants in one image, one per half. Top half "Colony catapult": a torsion catapult on a four-wheeled oak frame, a long throwing arm with a rope-net sling and a twisted-rope skein, iron brackets, a small blue-grey pennant. Bottom half "Raider catapult": a crude orc/bandit build — a lashed-together frame of rough logs and scrap iron, a bent arm with a hide sling, a pile of jagged rocks, skull ornaments. Match the outline weight and palette of the existing cart and crate props. **Scale: about 1.2x the existing cart.png prop (roughly 40px wide on screen), identical size in every frame.** For each variant: Row 1 "Move" — 4 frames, wheels turning. Row 2 "Load" — 3 frames: arm winched down, boulder placed in the sling, ready. Row 3 "Fire" — 3 frames: arm released, arm at full swing with the boulder leaving, arm settling. Row 4 "Destroyed" — 1 frame: snapped arm, broken frame. Transparent background, wheels on the bottom edge of a shared canvas, clean PNG. Files: `catapultWalk0-3`, `catapultLoad0-2`, `catapultFire0-2`, `catapultDestroyed`, and `mobCatapult...` for the raider variant.
+
+### 42. Boulder projectile + impact puff / debris VFX sheet
+
+> Pixel art VFX sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, matching the existing fx-poof / fx-spark / fx-arrow effects. Row 1 "Boulder" — 4 frames of a rough grey-brown rock tumbling (rotation steps), about 12px across on screen (a bit smaller than the fx-spark sprite). Row 2 "Impact" — 4 frames: a burst of brown-grey dust, flying stone chips and wood splinters expanding then thinning out, about 40px across at its widest (a little bigger than fx-poof). Transparent background, each row on one shared canvas, clean PNG. Files: `fx-boulder0-3`, `fx-boulderImpact0-3`.
+
+### 43. Cavalry charge dust trail VFX
+
+> Pixel art VFX sprite sheet, chunky 16-bit retro style, thick black outline (thin on the wisps), flat cel-shaded coloring, matching the existing fx-poof effect. One row "Charge dust" — 4 frames of a low dust cloud kicked up behind galloping hooves, drifting back and fading, with a few clods of earth; about 24px wide on screen. Transparent background, one shared canvas, clean PNG. Files: `fx-chargeDust0-3`.
+
+### 44. Knight shock-trooper — heavier-armour variant (walk + attack)
+
+Knights are now shock troops (front centre); their art should look heavier than the militia line around them.
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. The existing Knight, upgraded to a heavy shock trooper: full plate with broad layered pauldrons, a great helm with a narrow visor slit, a tall tower shield with a painted colony sigil, a heavy arming sword or flanged mace, a short dark surcoat. Same character and palette as the existing knightWalk / knightAttack frames, just heavier. **Scale: the same body height as the existing knight frames (about 28px on screen); the tower shield may reach slightly above the shoulder.** In one image: Row 1 "Walk Cycle" — 4 frames facing right, a heavy measured step behind the shield. Row 2 "Attack Cycle" — 3 frames: shield braced, a shield-bash plus overhead cut, recovery. Transparent background, feet on the bottom edge of a shared canvas, clean PNG. Files: `knightShockWalk0-3`, `knightShockAttack0-2`.
+
+### Placeholders in use (wire the real art here)
+
+| Item | In game as | Placeholder now | Where to wire it |
+|---|---|---|---|
+| #37 Cavalry | colonist `cavalry` | player `playerWalk0-3` / `playerAttack0-1`, tinted `0xa8b8d8`, 50px tall | `COLONIST_OPTIONAL_ANIM_URLS.cavalry` already looks for `cavalryWalk0-3` / `cavalryAttack0-2` (loads them and drops the tint when present) |
+| #38 Stables | `TileType.Stables` | `castleLv2.png`, tinted `0xd8c0a0` | `TILE_OPTIONAL_ART` already looks for `stables.png`; Lv2/3 via `TILE_LEVEL_ART` |
+| #39 Siege Workshop | `TileType.SiegeWorkshop` | `blacksmith.png`, tinted `0xc8a888` | `TILE_OPTIONAL_ART` already looks for `siegeWorkshop.png` |
+| #40 Ram (colony) | colonist `batteringRam` | `cart.png` (walk + action), tinted `0xc89a6a`, 30px | `COLONIST_ANIM_URLS.batteringRam` |
+| #40 Ram (raider) | mob `batteringRam` | static `cart.png`, tinted `0xb07a4a` (`MOB_TINT`) | `MOB_SPRITE_URL_OVERRIDES` / add a `MOB_VARIANT_URLS` entry |
+| #41 Catapult (colony) | colonist `catapult` | `crate.png`, tinted `0xb08a60`, 30px | `COLONIST_ANIM_URLS.catapult` |
+| #41 Catapult (raider) | mob `catapult` | static `crate.png`, tinted `0x9a7048` (`MOB_TINT`) | `MOB_SPRITE_URL_OVERRIDES` / `MOB_VARIANT_URLS` |
+| #42 Boulder + impact | `AttackEffect.boulder` | `fx-spark` tinted `0x7a5530` (arcing), `fx-poof` tinted `0xb09070` puff | `spawnEffect` (`e.boulder` branch) |
+| #43 Charge dust | (not shown yet) | none | the server has no charge flag in snapshots yet; add one (or infer from cavalry speed) |
+| #44 Knight shock | colonist `knight` | the existing knight frames | `COLONIST_ANIM_URLS.knight` (or an optional set) |
+
 ## Notes on process
 
 - One generation per image block, not one frame per generation — frame-to-frame consistency
