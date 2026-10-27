@@ -57,6 +57,10 @@ import {
   FIGHT_RELEVANCE_TILES,
   FIGHT_MAX_PER_PLAYER,
   WILDLIFE_SNAPSHOT_STRIDE,
+  CombatRole,
+  MOB_ROLE,
+  COLONIST_ROLE,
+  isRearRole,
 } from "./protocol.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
@@ -144,6 +148,9 @@ interface Colonist {
 
   // Only read by updateGuardColonist (see STANCE_ALERT_RANGE_TILES / LINE_LEASH_TILES).
   stance: Stance;
+  // Regiments: the formation order (commandMove.squad) this unit last marched under; its squadmates
+  // march at one pace (updateSquadMarch). Missing / null: no squad (old saves, single-unit moves).
+  squadId?: string | null;
 
   poisonTicksRemaining: number;
   poisonDamagePerTick: number;
@@ -205,6 +212,9 @@ interface Mob {
   // not by updateMob's per-mob targeting; passive is true until its group turns aggressive.
   groupId: string | null;
   passive: boolean;
+  // Regiments: the raid group this mob marched in, kept after its group breaks up so its ranged /
+  // casters still know their front rank (see regimentFrontDistance). Missing for non-raid mobs.
+  regimentId?: string | null;
   // Hunger mark (HungerMark.None for ordinary mobs); see the HUNGER_* constants and markedMob* helpers.
   mark: HungerMark;
   // Gorrath: tick its one-off wounded fury ends (0 = never triggered; it triggers once per mob).
@@ -753,6 +763,18 @@ const MOB_ROOM_DETOUR_PX = TILE_SIZE * 4;
 // Archers don't advance past the front rank: the nearest friendly melee soldier (within this many
 // tiles of the archer) to the target marks the front.
 const ARCHER_FRONT_RANK_SCAN_TILES = 6;
+// Regiments & roles: a ranged unit (archer, or a raid's crossbow / archer / shaman) with a friendly front
+// rank near it kites a step back when an enemy melee unit comes within this many tiles.
+const RANGED_KITE_TILES = 2;
+// Squad march (updateSquadMarch): a squad on a formation move advances at its slowest member's pace;
+// a member more than SQUAD_LEAD_TOLERANCE_TILES ahead of its place in the formation slows to
+// SQUAD_AHEAD_SPEED_FACTOR of that pace, one that far behind catches up at its own speed. Within
+// SQUAD_SETTLE_TILES of the destination (centroid of the slots) members settle onto their slots alone;
+// with a member over SQUAD_BROKEN_TILES out of place the line is broken and nobody waits.
+const SQUAD_LEAD_TOLERANCE_TILES = 1;
+const SQUAD_AHEAD_SPEED_FACTOR = 0.25;
+const SQUAD_SETTLE_TILES = 2.5;
+const SQUAD_BROKEN_TILES = 6;
 
 // Mob aggro: a guard / militia or a player is only a mob target within these ranges (tiles) of the mob;
 // otherwise the mob goes for buildings. A mob already on a unit drops it past MOB_AGGRO_DROP_FACTOR x.
@@ -4123,12 +4145,13 @@ function isCommandable(c: Colonist): boolean {
   return c.kind !== "bishop" || tiles[tileIndex(c.postX, c.postY)] === TileType.ChurchPost;
 }
 
-function handleCommandMove(unitIds: string[], x: number, y: number) {
+function handleCommandMove(unitIds: string[], x: number, y: number, squad?: unknown) {
   const tile = tileOfPixel(x, y);
   if (!inBounds(tile.x, tile.y)) return;
   for (const id of unitIds) {
     const c = colonists.get(id);
     if (!c || !isCommandable(c)) continue;
+    c.squadId = typeof squad === "string" && squad.length > 0 && squad.length <= 64 ? squad : null;
     c.rallyTileX = tile.x;
     c.rallyTileY = tile.y;
     c.rallyX = x;
@@ -4371,7 +4394,7 @@ function updateGuardColonist(c: Colonist, dt: number) {
       c.state = "idle";
       return;
     }
-    returnToRally(c, dt, stats.speed);
+    returnToRally(c, dt, squadMarchSpeed.get(c.id) ?? stats.speed);
     return;
   }
 
@@ -4388,16 +4411,41 @@ function updateGuardColonist(c: Colonist, dt: number) {
   let dist = Math.hypot(target.x - c.x, target.y - c.y);
   // Stickiness with a slot leash: once a second, while not trading blows, switch to an enemy clearly
   // nearer this unit's own slot (the line fights what is in front of each man, not one shared target).
+  // A ranged unit switches to any enemy that is within bow range (pickGuardTarget ranks those first).
   if (!commanded && dist > stats.range && cycleTick % TICK_RATE === 0) {
     const better = pickGuardTarget(c, stats);
     const cur = Math.hypot(target.x - c.rallyX, target.y - c.rallyY);
-    if (better && better !== target && Math.hypot(better.x - c.rallyX, better.y - c.rallyY) < cur * SLOT_RETARGET_FACTOR) {
+    const switchTo = !better || better === target ? false
+      : stats.melee ? Math.hypot(better.x - c.rallyX, better.y - c.rallyY) < cur * SLOT_RETARGET_FACTOR
+      : Math.hypot(better.x - c.x, better.y - c.y) <= stats.range;
+    if (better && switchTo) {
       releaseSlot(c.id);
       c.path = [];
       c.targetMobId = better.id;
       target = better;
       dist = Math.hypot(target.x - c.x, target.y - c.y);
     }
+  }
+  // Regiments: a ranged unit with a friendly front rank near it holds its rear slot - it fires at what
+  // comes into bow range, never walks out toward the enemy line, and kites a step back (toward its slot
+  // where that is away from the threat) from an enemy melee unit within RANGED_KITE_TILES. No front
+  // rank (archers on their own) or a commanded target: the ordinary behaviour below.
+  if (!stats.melee && stats.speed > 0 && !commanded && hasFriendlyFrontline(c)) {
+    const threat = nearestMeleeMob(c.x, c.y, RANGED_KITE_TILES * TILE_SIZE);
+    if (threat) {
+      kiteStep(c, threat, leashPx, stats.speed, dt);
+      dist = Math.hypot(target.x - c.x, target.y - c.y);
+    }
+    if (dist <= stats.range) {
+      if (!threat) c.path = [];
+      c.state = "attacking";
+      guardStrike(c, target, stats);
+    } else if (threat) {
+      c.state = "engaging";
+    } else {
+      returnToRally(c, dt, stats.speed);
+    }
+    return;
   }
   // Melee fights from a ring slot around the target (see unitSlotPoint); ranged keeps its stand-off.
   const targetR = MOB_BODY_RADIUS[target.kind] ?? 8;
@@ -4424,16 +4472,7 @@ function updateGuardColonist(c: Colonist, dt: number) {
     c.path = [];
     // Slide round to the claimed slot while trading blows.
     if (slot && Math.hypot(slot.x - c.x, slot.y - c.y) > 2) stepRaidMobToward(c, slot.x, slot.y, stats.speed * 0.5, dt);
-    if (c.attackCooldownTicks > 0) {
-      c.attackCooldownTicks--;
-    } else {
-      damageMob(target, stats.damage * armyDamageMultiplier(c.postX, c.postY), "c:" + c.id);
-      c.attackCooldownTicks = stats.cooldown;
-      pendingEffects.push({ fromX: c.x, fromY: c.y, toX: target.x, toY: target.y, melee: stats.melee });
-      if (target.hp <= 0) {
-        c.targetMobId = null;
-      }
-    }
+    guardStrike(c, target, stats);
   } else {
     if (stats.speed === 0) {
       c.state = "idle";
@@ -4454,12 +4493,6 @@ function updateGuardColonist(c: Colonist, dt: number) {
       returnToRally(c, dt, stats.speed);
       return;
     }
-    // Archers never advance past the front rank: while a friendly melee soldier nearby is closer to the
-    // target, they hold their slot and wait for it to come into bow range over the front line.
-    if (!stats.melee && !commanded && behindFrontRank(c, target)) {
-      returnToRally(c, dt, stats.speed);
-      return;
-    }
     c.state = "engaging";
     // Within half a tile of strike range, close straight in (then slide round to the slot while fighting,
     // above): a slot on the far side of the target can't be walked to through the attackers already there.
@@ -4467,18 +4500,132 @@ function updateGuardColonist(c: Colonist, dt: number) {
   }
 }
 
-// True while the archer `c` would step past the front rank by closing on `target`: some friendly melee
-// soldier within ARCHER_FRONT_RANK_SCAN_TILES of the archer, and none of them is more than half a tile
-// nearer the target than the archer (no melee soldier nearby: no front rank, free to advance).
-function behindFrontRank(c: Colonist, target: Mob): boolean {
-  const scanPx = ARCHER_FRONT_RANK_SCAN_TILES * TILE_SIZE;
-  let front = Infinity;
-  for (const o of colonists.values()) {
-    if (o === c || !isGuardOrMilitiaKind(o.kind) || o.kind === "archer") continue;
-    if (Math.abs(o.x - c.x) > scanPx || Math.abs(o.y - c.y) > scanPx) continue;
-    front = Math.min(front, Math.hypot(target.x - o.x, target.y - o.y));
+// One blow / arrow at `target` when the cooldown allows.
+function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown: number; melee: boolean }) {
+  if (c.attackCooldownTicks > 0) {
+    c.attackCooldownTicks--;
+    return;
   }
-  return front < Infinity && Math.hypot(target.x - c.x, target.y - c.y) <= front + TILE_SIZE * 0.5;
+  damageMob(target, stats.damage * armyDamageMultiplier(c.postX, c.postY), "c:" + c.id);
+  c.attackCooldownTicks = stats.cooldown;
+  pendingEffects.push({ fromX: c.x, fromY: c.y, toX: target.x, toY: target.y, melee: stats.melee });
+  if (target.hp <= 0) c.targetMobId = null;
+}
+
+// Regiments: the combat role of a soldier (COLONIST_ROLE) or a mob (MOB_ROLE, corrected by the mob's
+// own melee flag: a deserter takes its stats from the colonist it was).
+function colonistRole(c: Colonist): CombatRole | undefined {
+  return COLONIST_ROLE[c.kind];
+}
+function mobRole(m: Mob): CombatRole {
+  const role = MOB_ROLE[m.kind] ?? "frontline";
+  if (!m.melee) return isRearRole(role) ? role : "ranged";
+  return isRearRole(role) ? "frontline" : role;
+}
+
+// True while a friendly front-rank soldier (any non-rear role) stands within ARCHER_FRONT_RANK_SCAN_TILES
+// of the ranged soldier `c`: then `c` holds the rear (see updateGuardColonist).
+function hasFriendlyFrontline(c: Colonist): boolean {
+  const scanPx = ARCHER_FRONT_RANK_SCAN_TILES * TILE_SIZE;
+  for (const o of colonists.values()) {
+    if (o === c) continue;
+    const role = colonistRole(o);
+    if (!role || isRearRole(role)) continue;
+    if (Math.abs(o.x - c.x) <= scanPx && Math.abs(o.y - c.y) <= scanPx) return true;
+  }
+  return false;
+}
+
+// The nearest awake melee mob within radiusPx of (x, y), or null.
+function nearestMeleeMob(x: number, y: number, radiusPx: number): Mob | null {
+  let best: Mob | null = null;
+  let bestD = radiusPx;
+  for (const m of mobs.values()) {
+    if (!m.melee || m.passive || isDormantGuardian(m)) continue;
+    const d = Math.hypot(m.x - x, m.y - y);
+    if (d <= bestD) {
+      best = m;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+// The nearest guard / militia melee soldier within radiusPx of (x, y), or null (a ranged mob's kite threat).
+function nearestMeleeSoldier(x: number, y: number, radiusPx: number): Colonist | null {
+  let best: Colonist | null = null;
+  let bestD = radiusPx;
+  for (const c of colonists.values()) {
+    const role = colonistRole(c);
+    if (!role || isRearRole(role)) continue;
+    const d = Math.hypot(c.x - x, c.y - y);
+    if (d <= bestD) {
+      best = c;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+// One kite step for a ranged soldier: back onto its rear slot when that lies further from the threat,
+// otherwise a tile straight away from it (never past its leash from the slot).
+function kiteStep(c: Colonist, threat: { x: number; y: number }, leashPx: number, speed: number, dt: number) {
+  c.path = [];
+  const dThreat = Math.hypot(threat.x - c.x, threat.y - c.y) || 1;
+  const toSlot = Math.hypot(c.rallyX - c.x, c.rallyY - c.y);
+  if (toSlot > RALLY_ARRIVE_PX && Math.hypot(c.rallyX - threat.x, c.rallyY - threat.y) > dThreat) {
+    stepRaidMobToward(c, c.rallyX, c.rallyY, speed, dt);
+    return;
+  }
+  const ax = c.x + ((c.x - threat.x) / dThreat) * TILE_SIZE;
+  const ay = c.y + ((c.y - threat.y) / dThreat) * TILE_SIZE;
+  if (Math.hypot(ax - c.rallyX, ay - c.rallyY) <= leashPx) stepRaidMobToward(c, ax, ay, speed, dt);
+}
+
+// True when the mob is fighting a front-rank soldier (a ranged unit's preferred target).
+function engagedWithFrontline(m: Mob): boolean {
+  if (m.targetType !== "colonist" || !m.targetId) return false;
+  const c = colonists.get(m.targetId);
+  const role = c ? colonistRole(c) : undefined;
+  return !!role && !isRearRole(role);
+}
+
+// Squad march: per-tick speed for every squad member walking back to its formation slot (no target),
+// see SQUAD_* above. Members without an entry move at their own speed.
+const squadMarchSpeed = new Map<string, number>();
+function updateSquadMarch() {
+  squadMarchSpeed.clear();
+  const squads = new Map<string, Colonist[]>();
+  for (const c of colonists.values()) {
+    if (!c.squadId || c.targetMobId || !isGuardOrMilitiaKind(c.kind)) continue;
+    const list = squads.get(c.squadId);
+    if (list) list.push(c);
+    else squads.set(c.squadId, [c]);
+  }
+  for (const members of squads.values()) {
+    if (members.length < 2) continue;
+    let pcx = 0, pcy = 0, rcx = 0, rcy = 0;
+    let pace = Infinity;
+    for (const m of members) {
+      pcx += m.x; pcy += m.y; rcx += m.rallyX; rcy += m.rallyY;
+      pace = Math.min(pace, guardStats(m.kind, m.castleLevel).speed);
+    }
+    const n = members.length;
+    pcx /= n; pcy /= n; rcx /= n; rcy /= n;
+    const togo = Math.hypot(rcx - pcx, rcy - pcy);
+    if (togo <= SQUAD_SETTLE_TILES * TILE_SIZE || pace <= 0) continue;
+    const dx = (rcx - pcx) / togo;
+    const dy = (rcy - pcy) / togo;
+    // Lead: how far along the march direction a member is ahead of its own place in the formation.
+    const leads = members.map((m) => (m.x - pcx - (m.rallyX - rcx)) * dx + (m.y - pcy - (m.rallyY - rcy)) * dy);
+    const broken = leads.some((l) => Math.abs(l) > SQUAD_BROKEN_TILES * TILE_SIZE);
+    const tol = SQUAD_LEAD_TOLERANCE_TILES * TILE_SIZE;
+    members.forEach((m, i) => {
+      const own = guardStats(m.kind, m.castleLevel).speed;
+      const lead = leads[i];
+      squadMarchSpeed.set(m.id, lead < -tol ? own : lead > tol && !broken ? pace * SQUAD_AHEAD_SPEED_FACTOR : pace);
+    });
+  }
 }
 
 // The enemy a soldier should take on: within its alert range (from where it stands) and within its
@@ -4490,16 +4637,21 @@ function pickGuardTarget(c: Colonist, stats: { range: number; melee: boolean; sp
   const alertPx = STANCE_ALERT_RANGE_TILES[c.stance] * TILE_SIZE;
   const reachPx = LINE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range;
   const queues = stats.melee && stats.speed > 0;
+  // Regiments: a ranged soldier behind a front rank ranks enemies already in bow range first (those
+  // fighting a front-rank soldier before the rest, nearest to the archer first), then the slot rule.
+  const rearRank = !stats.melee && hasFriendlyFrontline(c);
   let best: Mob | null = null;
   let bestDist = Infinity;
   for (const m of mobs.values()) {
     const du = Math.hypot(m.x - c.x, m.y - c.y);
     if (du > (m.mark === HungerMark.Morvain ? alertPx * MORVAIN_DETECTION_FACTOR : alertPx)) continue;
     const ds = Math.hypot(m.x - c.rallyX, m.y - c.rallyY);
-    if (ds > reachPx || ds >= bestDist) continue;
+    if (ds > reachPx) continue;
+    const score = rearRank && du <= stats.range ? du - (engagedWithFrontline(m) ? 2e6 : 1e6) : ds;
+    if (score >= bestDist) continue;
     if (queues && !targetHasRoom(c.id, `m:${m.id}`, meleeAttackerCap(MOB_BODY_RADIUS[m.kind] ?? 8))) continue;
     best = m;
-    bestDist = ds;
+    bestDist = score;
   }
   return best;
 }
@@ -5252,6 +5404,7 @@ function spawnRaid(dayIndex: number) {
 // Returns true when `m` was a still-dormant deserter (so the caller can announce the turn).
 function releaseRaidMob(m: Mob): boolean {
   const turnedDeserter = m.isDeserter && !m.deserterActive;
+  if (m.groupId) m.regimentId = m.groupId;
   m.groupId = null;
   m.passive = false;
   m.path = [];
@@ -5350,25 +5503,62 @@ function formationPoint(group: RaidGroup, ox: number, oy: number, offset: { x: n
   return { x: ox - fy * offset.x - fx * offset.y, y: oy + fx * offset.x - fy * offset.y };
 }
 
-// Slowest member leads (so the group moves at its pace) from the front-centre slot; the others fill
-// the faction's formation: heavies first (front / centre), then the melee rank and file, ranged last.
+// Regiments & roles: the front ranks hold the melee roles in the faction's formation - shock (heavies)
+// first, so front / centre, then the frontline rank and file - with the fast roles (wolves, spiders) on
+// the wings (the outermost front slots). The ranged / casters form a rear rank RAID_REAR_RANK_TILES behind
+// the front row (or one spacing behind the last front row, if deeper), centred, released last on contact.
+// The slowest front-rank member leads from the front-centre slot (an all-ranged group: the slowest of
+// all); the march goes at the slowest member's pace (marchRaidGroup).
+const RAID_REAR_RANK_TILES = 3.5;
 function assignRaidLeader(group: RaidGroup): Mob | null {
   const members = raidGroupMembers(group);
   if (members.length === 0) return null;
-  const leader = members.reduce((slowest, m) => (m.speed < slowest.speed ? m : slowest));
+  const front = members.filter((m) => !isRearRole(mobRole(m)));
+  const rear = front.length > 0 ? members.filter((m) => isRearRole(mobRole(m))) : [];
+  const line = front.length > 0 ? front : members;
+  const leader = line.reduce((slowest, m) => (m.speed < slowest.speed ? m : slowest));
   group.leaderId = leader.id;
   group.repathCooldown = 0;
   group.offsets.clear();
   const meanR = members.reduce((sum, m) => sum + (MOB_BODY_RADIUS[m.kind] ?? 8), 0) / members.length;
   const spacing = RAID_FORMATION_SPACING_BODIES * 2 * Math.min(12, Math.max(7, meanR));
-  const slots = raidFormationSlots(RAID_FORMATION_SHAPE[group.faction] ?? "column", members.length, spacing);
+  const slots = raidFormationSlots(RAID_FORMATION_SHAPE[group.faction] ?? "column", line.length, spacing);
   const origin = slots[0];
-  const rank = (m: Mob) => (isHeavyMobKind(m.kind) ? 0 : m.melee ? 1 : 2);
-  const followers = members.filter((m) => m !== leader).sort((a, b) => rank(a) - rank(b));
-  followers.forEach((m, i) => {
-    const slot = slots[i + 1];
+  const free = slots.slice(1);
+  const take = (m: Mob, slot: { x: number; y: number; row: number }) =>
     group.offsets.set(m.id, { x: slot.x - origin.x, y: slot.y - origin.y, row: slot.row });
-  });
+  const rank = (m: Mob) => (mobRole(m) === "shock" || isHeavyMobKind(m.kind) ? 0 : m.melee ? 1 : 2);
+  const followers = line.filter((m) => m !== leader);
+  // Fast roles take the wing slots (widest first, front rows first); the rest fill in formation order.
+  const wings = free.slice().sort((a, b) => Math.abs(b.x - origin.x) - Math.abs(a.x - origin.x) || a.row - b.row);
+  const used = new Set<{ x: number; y: number; row: number }>();
+  for (const m of followers.filter((f) => mobRole(f) === "fast")) {
+    const slot = wings.find((w) => !used.has(w));
+    if (!slot) break;
+    used.add(slot);
+    take(m, slot);
+  }
+  const rest = free.filter((sl) => !used.has(sl));
+  followers
+    .filter((f) => !group.offsets.has(f.id))
+    .sort((a, b) => rank(a) - rank(b))
+    .forEach((m, i) => take(m, rest[i]));
+  if (rear.length > 0) {
+    const frontWidth = slots.filter((sl) => sl.row === 0).length;
+    const lastRow = slots.reduce((r, sl) => Math.max(r, sl.row), 0);
+    const backY = slots.reduce((y, sl) => Math.max(y, sl.y), 0);
+    const y0 = Math.max(backY + spacing, RAID_REAR_RANK_TILES * TILE_SIZE);
+    const width = Math.min(rear.length, Math.max(2, frontWidth));
+    rear.forEach((m, i) => {
+      const r = Math.floor(i / width);
+      const inRow = Math.min(width, rear.length - r * width);
+      const k = i % width;
+      // Centre-out within the row: 0, +1, -1, +2, ...
+      const col = k === 0 ? 0 : k % 2 === 1 ? (k + 1) / 2 : -k / 2;
+      const centre = inRow % 2 === 0 ? spacing / 2 : 0;
+      group.offsets.set(m.id, { x: col * spacing - centre - origin.x, y: y0 + r * spacing - origin.y, row: lastRow + 1 + r });
+    });
+  }
   return leader;
 }
 
@@ -5522,7 +5712,9 @@ function marchRaidGroup(group: RaidGroup, dt: number) {
     leader.path = route;
     group.repathCooldown = RAID_MARCH_REPATH_TICKS;
   }
-  const pace = leader.speed;
+  // Regiments: the whole group advances at its slowest member's pace (the leader is the slowest of the
+  // front rank; a slower rear rank holds everyone back to it).
+  const pace = raidGroupMembers(group).reduce((p, m) => Math.min(p, m.speed), leader.speed);
   const lx = leader.x;
   const ly = leader.y;
   if (group.headingX === undefined) {
@@ -6165,6 +6357,19 @@ function stepMobAwayFrom(mob: Mob, fx: number, fy: number, dt: number) {
   stepRaidMobToward(mob, mob.x + (dx / d) * TILE_SIZE, mob.y + (dy / d) * TILE_SIZE, mob.speed, dt);
 }
 
+// Distance to `target` of the nearest front-rank (non-rear role) mob of the same regiment within
+// ARCHER_FRONT_RANK_SCAN_TILES of `mob`; Infinity when it has no front rank left near it.
+function regimentFrontDistance(mob: Mob, regiment: string, target: { x: number; y: number }): number {
+  const scanPx = ARCHER_FRONT_RANK_SCAN_TILES * TILE_SIZE;
+  let best = Infinity;
+  for (const o of mobs.values()) {
+    if (o === mob || (o.regimentId ?? o.siteId) !== regiment || o.groupId !== null || isRearRole(mobRole(o))) continue;
+    if (Math.abs(o.x - mob.x) > scanPx || Math.abs(o.y - mob.y) > scanPx) continue;
+    best = Math.min(best, Math.hypot(target.x - o.x, target.y - o.y));
+  }
+  return best;
+}
+
 function startVhorrunWithdraw(mob: Mob, from: { x: number; y: number }) {
   mob.withdrawUntilTick = cycleTick + VHORRUN_WITHDRAW_TICKS;
   mob.withdrawFromX = from.x;
@@ -6270,6 +6475,25 @@ function updateMob(mob: Mob, dt: number) {
   if (mob.mark === HungerMark.Rux && cycleTick < mob.feintUntilTick) {
     stepMobAwayFrom(mob, targetPos.x, targetPos.y, dt);
     return;
+  }
+
+  // Regiments: a ranged / caster mob whose regiment (raid group, or POI site) still has a front rank near
+  // it stays behind that front: it never closes on a unit target past the front's own distance to it,
+  // fires once in range, and kites a step back from a soldier's melee within RANGED_KITE_TILES.
+  if (!mob.melee && (mob.targetType === "colonist" || mob.targetType === "player")) {
+    const regiment = mob.regimentId ?? mob.siteId;
+    const frontDist = regiment ? regimentFrontDistance(mob, regiment, targetPos) : Infinity;
+    if (frontDist < Infinity) {
+      const threat = nearestMeleeSoldier(mob.x, mob.y, RANGED_KITE_TILES * TILE_SIZE);
+      const d = Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y);
+      if (threat) {
+        stepMobAwayFrom(mob, threat.x, threat.y, dt);
+        if (Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y) > mob.range) return;
+      } else if (d > mob.range && d <= frontDist + TILE_SIZE * 0.5) {
+        mob.path = [];
+        return;
+      }
+    }
   }
 
   // Melee engagement slot: a unit target gives a ring point to fight from; a building / Town Center
@@ -8184,7 +8408,7 @@ wss.on("connection", (socket) => {
     } else if (message.type === "setDifficulty") {
       handleSetDifficulty(message.difficulty, message.worldSize);
     } else if (message.type === "commandMove") {
-      handleCommandMove(message.unitIds, message.x, message.y);
+      handleCommandMove(message.unitIds, message.x, message.y, message.squad);
     } else if (message.type === "commandAttack") {
       handleCommandAttack(message.unitIds, message.mobId);
     } else if (message.type === "commandStance") {
@@ -9560,6 +9784,7 @@ function stepSimulation() {
     if (!collidesAt(player.x, nextY)) player.y = nextY;
   }
 
+  updateSquadMarch();
   for (const colonist of colonists.values()) {
     updateColonist(colonist, dt);
   }

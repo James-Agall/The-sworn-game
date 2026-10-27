@@ -236,6 +236,43 @@ export type MobKind =
   | "banditElite"
   | "halfLatch";
 
+// Regiments & roles (ROADMAP "Regiments & roles"): every combat unit kind fights in a role.
+//   frontline - the melee line: holds the front rank and engages what is in front of its slot.
+//   shock     - heavy melee (troll / ogre / bandit elite): front rank, centre.
+//   ranged    - bows / crossbows: a rear rank behind the line; never advances into melee, kites a step.
+//   caster    - ranged spellcaster (dark shaman): as ranged.
+//   fast      - flankers (wolf, giant spider): the wings of the front rank.
+// Shared by server (formations, ranged discipline) and client (role rings, formation slots).
+export type CombatRole = "frontline" | "shock" | "ranged" | "caster" | "fast";
+export const MOB_ROLE: Record<MobKind, CombatRole> = {
+  goblin: "frontline",
+  wolf: "fast",
+  goblinCrossbow: "ranged",
+  orc: "frontline",
+  skeleton: "frontline",
+  armoredOrc: "frontline",
+  darkShaman: "caster",
+  giantSpider: "fast",
+  troll: "shock",
+  ogre: "shock",
+  banditClubman: "frontline",
+  banditArcher: "ranged",
+  banditElite: "shock",
+  halfLatch: "frontline",
+};
+// Soldier kinds only (civilians and bishops have no combat role).
+export const COLONIST_ROLE: Partial<Record<ColonistKind, CombatRole>> = {
+  knight: "frontline",
+  militia: "frontline",
+  spearman: "frontline",
+  pikeman: "frontline",
+  archer: "ranged",
+};
+// Ranged and caster units form the rear rank.
+export function isRearRole(role: CombatRole | undefined): boolean {
+  return role === "ranged" || role === "caster";
+}
+
 // Hunger-marked elites (ROADMAP Phase 6): a rare raid mob bearing one Hunger's mark. Index = the
 // snapshot's `mark` value; HUNGER_MARK_NAMES[mark] names it (sigil-<name>.png / aura-<name>.png).
 export enum HungerMark {
@@ -397,7 +434,9 @@ export type ClientMessage =
   // Sent after every welcome; only takes effect while the world's difficulty is still unclaimed
   // (see the server's handleSetDifficulty for the race rules).
   | { type: "setDifficulty"; difficulty: Difficulty; worldSize?: number }
-  | { type: "commandMove"; unitIds: string[]; x: number; y: number }
+  // squad: optional, shared by every unit of one formation order (the client sends the order number), so the
+  // server marches them together (see updateSquadMarch). Old clients omit it.
+  | { type: "commandMove"; unitIds: string[]; x: number; y: number; squad?: string }
   | { type: "commandAttack"; unitIds: string[]; mobId: string }
   | { type: "commandStance"; unitIds: string[]; stance: Stance }
   | { type: "assignTaskForce"; slot: number; unitIds: string[] }

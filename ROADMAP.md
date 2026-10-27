@@ -488,6 +488,70 @@ section). One game day = 60 s day + 40 s night = 2000 ticks.
   `repairBuilding` message.
 - **Test:** `server/building-damage-test.mjs` (test hooks `ignorePlayers`, `damageBuilding`, `buildingState`).
 
+### Regiments & roles — landed 2026-10-27
+
+Step 1 of 2 toward Total War-style battles (step 2: monster flanking, retreat behind walls, morale). Units now
+fight as regiments with roles: a melee front line, a ranged rank behind it, flankers on the wings.
+
+| Role | Kinds | Formation place | Behaviour |
+|---|---|---|---|
+| frontline | knight, militia, spearman, pikeman; goblin, orc, armored orc, skeleton, bandit clubman, half-latch | front rank(s) | engages the enemy nearest its slot, holds the leash (Battle discipline) |
+| shock | troll, ogre, bandit elite | front rank, centre (placed first) | as frontline |
+| ranged | archer; goblin crossbow, bandit archer | rear line behind the front | holds the rear, fires over the line, kites |
+| caster | dark shaman | rear line (as ranged) | as ranged (+ its heal) |
+| fast | wolf, giant spider (no soldier kind yet) | wings (outermost front slots / ends of the front row) | as frontline |
+
+- **Role table** lives in `protocol.ts` (shared, byte-identical): `CombatRole`, `MOB_ROLE`, `COLONIST_ROLE`,
+  `isRearRole`. Server helpers `colonistRole(c)`, `mobRole(m)` (a deserter's own `melee` flag wins).
+- **Player formations** (client `computeFormationTargets` / `computeLineFormationTargets`, shared
+  `formationRanks` / `placeFastOnWings`): with a front rank in the order, the archers form a second line
+  `REAR_LINE_OFFSET_TILES` (2.5) behind the front row (or one spacing behind a deeper front), at most
+  `REAR_LINE_WIDTH` (0.7) x the front's columns; fast roles take the front row's ends. A line drag faces away
+  from the units' side, or toward the nearest mob within `LINE_FACE_ENEMY_TILES` (12) of the line's centre.
+  Archers-only orders keep the old layout. Plan slots carry `rear` (drawn as green squares in the line guide
+  and the destination marker).
+- **Ranged discipline (soldiers)**, `updateGuardColonist`: an uncommanded archer with a friendly front-rank
+  soldier within `ARCHER_FRONT_RANK_SCAN_TILES` (6) (`hasFriendlyFrontline`) never leaves its slot to close
+  on a target - it fires at whatever is in bow range (`pickGuardTarget` ranks in-range enemies first, those
+  fighting a front-rank soldier (`engagedWithFrontline`) before the rest; once a second it switches to one in
+  range) and, with an enemy melee mob within `RANGED_KITE_TILES` (2), takes one kite step (`kiteStep`: back
+  onto its slot if that is further from the threat, else a tile straight away, within the leash) while
+  still firing. No front rank, or a commanded target: the old behaviour. (Replaces `behindFrontRank`.)
+- **Ranged discipline (mobs)**, `updateMob`: a ranged / caster mob keeps its regiment (`Mob.regimentId`, the
+  raid group it marched in, set in `releaseRaidMob`; POI guardians use `siteId`). While a front-rank mate is
+  within 6 tiles (`regimentFrontDistance`) it never closes on a unit target past that mate's own distance
+  (it waits once in front of it), fires once in range, and steps away (`stepMobAwayFrom`) from a soldier
+  (`nearestMeleeSoldier`) within 2 tiles.
+- **Raid formations** (`assignRaidLeader`): the front ranks use the faction shape for the melee roles only -
+  shock first, then frontline, fast roles on the widest slots; ranged / casters form a centred rear rank
+  `RAID_REAR_RANK_TILES` (3.5) behind the front row (or a spacing behind a deeper front), on later rows, so
+  `releaseRaidRows` lets them go last. The leader is the slowest front-rank member; the march goes at the
+  slowest member's pace (`marchRaidGroup`). An all-ranged group keeps the old layout.
+- **Advance together** (`updateSquadMarch`, per tick before colonists update): the client tags each formation
+  order's moves with `commandMove.squad` (optional, additive; `o<order>`), stored as `Colonist.squadId`. Squad
+  members walking to their slots (no target) march at the slowest member's speed; one more than
+  `SQUAD_LEAD_TOLERANCE_TILES` (1) ahead of its place in the formation slows to `SQUAD_AHEAD_SPEED_FACTOR`
+  (0.25) x, one that far behind catches up at its own speed. Within `SQUAD_SETTLE_TILES` (2.5) of the
+  destination everyone settles alone; a member over `SQUAD_BROKEN_TILES` (6) out of place means the line is
+  broken and nobody waits. Applies in every stance.
+- **Client**: role rings (thin tinted ellipse at the feet: frontline amber, shock red, ranged green, caster
+  purple, fast blue; `drawRoleRings`) under every soldier and monster; the selection readout lists roles
+  ("Selected: 10 (6 Frontline, 4 Ranged) · Normal"). There is no separate unit info panel.
+- Untouched: towers, gates (mob gate logic, overrun), fight notifiers, dawn/dusk respawns, dormant POI
+  guardians (dormancy returns before the ranged code), save/load (new fields optional).
+- **Hooks for step 2** (flanking / retreat / morale): `mobRole(m) === "fast"` + the wing offsets in
+  `group.offsets` (largest |x|) are the flankers to send round a line; `Mob.regimentId` groups a broken-up raid
+  for regiment-level morale (count living members, rout together); `Colonist.squadId` +
+  `updateSquadMarch` (per-squad centroid / slot centroid already computed) is where a squad-wide retreat order
+  or morale check plugs in; `hasFriendlyFrontline` / `regimentFrontDistance` tell when a rear rank has lost its
+  front (a natural morale trigger); `kiteStep` / `stepMobAwayFrom` are the step-back primitives.
+- **Test:** `server/regiment-test.mjs` (new; default 160 world): F two-line slots (archers >= 2 tiles behind
+  the front, rear line narrower) + live arrival; C 3 goblins + 2 orcs vs the line, archers stay >= 2 tiles
+  behind the knights' mean front while >= 3 knights stand; A 6 militia + 4 archers march 15 tiles as a squad:
+  nobody > 1.5 tiles out of formation, pace = the archers' 100 px/s, settles on its slots.
+  `battle-discipline-test.mjs` and `raid-waves-test.mjs` re-run: all pass, unchanged. The raid rear-rank
+  layout itself is not covered by a test yet.
+
 ### Battle discipline — landed 2026-10-23
 
 User report: "battles are still clumping together and not seeming realistic". Units now hold their place in

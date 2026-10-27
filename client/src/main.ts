@@ -58,6 +58,8 @@ import {
 import { SOUND_SILENT_RADIUS_TILES, SoundManager, proximityGain } from "./sound";
 import type { FightSnapshot } from "./protocol";
 import { FIGHT_WINDOW_SECONDS } from "./protocol";
+import { COLONIST_ROLE, MOB_ROLE, isRearRole } from "./protocol";
+import type { CombatRole } from "./protocol";
 import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
 
 const SERVER_URL = "ws://localhost:8080";
@@ -283,6 +285,29 @@ const FORMATION_SPACING_TILES: Record<Stance, number> = {
 // stays centred on the line), so a thin line never opens gaps for enemies to walk through.
 const LINE_MAX_DEPTH_ROWS = 3;
 const LINE_MAX_GAP = 1.5;
+// Regiments & roles: with a front rank in the order, the ranged rank (archers) forms a second line
+// REAR_LINE_OFFSET_TILES behind the front row (or one spacing behind the last front row, if deeper),
+// at most REAR_LINE_WIDTH x the front's columns wide; fast roles take the two ends of the front row.
+// A line drag faces away from the units' side, or toward the nearest enemy within
+// LINE_FACE_ENEMY_TILES of the line's centre.
+const REAR_LINE_OFFSET_TILES = 2.5;
+const REAR_LINE_WIDTH = 0.7;
+const LINE_FACE_ENEMY_TILES = 12;
+// Role rings drawn under soldiers and monsters (see drawRoleRings).
+const ROLE_COLORS: Record<CombatRole, number> = {
+  frontline: 0xd8a24a,
+  shock: 0xc0392b,
+  ranged: 0x58b85c,
+  caster: 0x9b6fd6,
+  fast: 0x4fb3e8,
+};
+const ROLE_LABEL: Record<CombatRole, string> = {
+  frontline: "Frontline",
+  shock: "Shock",
+  ranged: "Ranged",
+  caster: "Caster",
+  fast: "Fast",
+};
 // Stance hotkeys. 'c' (the AoE-style third key) is the Church build tool, so aggressive is 'e'.
 const STANCE_HOTKEYS: Record<string, Stance> = { z: "defensive", x: "normal", e: "aggressive" };
 const STANCE_LABEL: Record<Stance, string> = { defensive: "Defensive", normal: "Normal", aggressive: "Aggressive" };
@@ -1712,6 +1737,7 @@ async function main() {
 
   // World-space overlays: parented to worldLayer so they follow the camera automatically.
   const selectionRings = new Graphics();
+  const roleRings = new Graphics();
   const dragBox = new Graphics();
 
   // Single source of truth for tileSpriteLayer: shows `tile`'s art at (tx, ty), or clears the
@@ -3668,6 +3694,16 @@ async function main() {
     return c.kind !== "bishop" || tiles[c.postY * worldTilesX + c.postX] === TileType.ChurchPost;
   }
 
+  // Regiments & roles: a thin role-tinted ring at the feet of every soldier and monster (ROLE_COLORS).
+  function drawRoleRings() {
+    roleRings.clear();
+    const ring = (x: number, y: number, role: CombatRole | undefined, r: number) => {
+      if (role) roleRings.ellipse(x, y + r * 0.8, r, r * 0.4).stroke({ width: 1.5, color: ROLE_COLORS[role], alpha: 0.65 });
+    };
+    for (const c of latestColonists) ring(c.x, c.y, COLONIST_ROLE[c.kind], 9);
+    for (const m of latestMobs) ring(m.x, m.y, MOB_ROLE[m.kind], 10);
+  }
+
   function redrawSelectionRings() {
     selectionRings.clear();
     for (const c of latestColonists) {
@@ -3689,7 +3725,15 @@ async function main() {
       b.classList.toggle("active", b.dataset.stance === single);
     }
     const stance = stances.size === 0 ? "" : single ? STANCE_LABEL[single] : "Mixed";
-    const text = stance ? `Selected: ${selectedIds.size} · ${stance} (Z/X/E)` : `Selected: ${selectedIds.size}`;
+    // Regiments: the selection's roles, e.g. "6 Frontline, 4 Ranged".
+    const roleCounts = new Map<CombatRole, number>();
+    for (const c of latestColonists) {
+      const role = selectedIds.has(c.id) ? COLONIST_ROLE[c.kind] : undefined;
+      if (role) roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
+    }
+    const roles = Array.from(roleCounts, ([role, n]) => `${n} ${ROLE_LABEL[role]}`).join(", ");
+    const count = roles ? `${selectedIds.size} (${roles})` : `${selectedIds.size}`;
+    const text = stance ? `Selected: ${count} · ${stance} (Z/X/E)` : `Selected: ${count}`;
     // Called every snapshot; only touch the DOM when the line actually changes.
     if (text === lastSelectionHudText) return;
     lastSelectionHudText = text;
@@ -3701,7 +3745,7 @@ async function main() {
     icon.className = "econ-icon";
     icon.src = `/sprites/icon-stance-${single}.png`;
     icon.alt = "";
-    statSelectedEl.replaceChildren(`Selected: ${selectedIds.size} · `, icon, ` ${stance} (Z/X/E)`);
+    statSelectedEl.replaceChildren(`Selected: ${count} · `, icon, ` ${stance} (Z/X/E)`);
   }
   let lastSelectionHudText = "";
 
@@ -3738,7 +3782,8 @@ async function main() {
   }
 
   interface FormationPlan {
-    targets: Map<string, { x: number; y: number }>;
+    // rear: a ranged slot on the second line (drawn as a square in the marker / line guide).
+    targets: Map<string, { x: number; y: number; rear?: boolean }>;
     spacing: number;
     // Unit facing (current centroid -> destination); the front row is centered on the destination.
     fx: number;
@@ -3766,7 +3811,7 @@ async function main() {
     destX: number,
     destY: number
   ): FormationPlan {
-    const result = new Map<string, { x: number; y: number }>();
+    const result = new Map<string, { x: number; y: number; rear?: boolean }>();
     const spacing = tileSize * FORMATION_SPACING_TILES[groupStance(units)];
     if (units.length <= 1) {
       for (const u of units) result.set(u.id, { x: destX, y: destY });
@@ -3795,13 +3840,7 @@ async function main() {
     const px = -fy;
     const py = fx;
 
-    const ranks = new Map<number, ColonistSnapshot[]>();
-    for (const u of units) {
-      const rank = FORMATION_RANK[u.kind] ?? FORMATION_RANK.bishop;
-      const bucket = ranks.get(rank);
-      if (bucket) bucket.push(u);
-      else ranks.set(rank, [u]);
-    }
+    const { ranks, fast, hasFront } = formationRanks(units);
 
     // Age of Empires-style box formation: each rank fills its own tight rectangular block (up
     // to FORMATION_MAX_ROW_WIDTH units per row, wrapping to further rows behind), rather than
@@ -3810,8 +3849,12 @@ async function main() {
     const sortedRanks = Array.from(ranks.keys()).sort((a, b) => a - b);
     let depthRows = 0;
     let frontHalfWidth = 0;
+    let rearShift = 0;
     for (const rank of sortedRanks) {
       const members = ranks.get(rank)!;
+      const rear = hasFront && isRearRole(COLONIST_ROLE[members[0].kind]);
+      // The ranged rank stands REAR_LINE_OFFSET_TILES behind the front row (further if the front is deeper).
+      if (rear) rearShift = Math.max(rearShift, REAR_LINE_OFFSET_TILES * tileSize - depthRows * spacing);
       // Hand out slots in the same spatial order units already stand in, so nobody walks across
       // a squadmate: the units furthest along the facing take the rank's front row, and within a
       // row, left-to-right (along p) maps to left-to-right. Assigning by array order instead sent
@@ -3826,18 +3869,63 @@ async function main() {
           .slice(row * cols, row * cols + cols)
           .sort((a, b) => a.x * px + a.y * py - (b.x * px + b.y * py));
         const rowN = rowMembers.length;
-        const depth = (depthRows + row) * spacing;
+        const depth = (depthRows + row) * spacing + rearShift;
         rowMembers.forEach((u, i) => {
           const lateral = (i - (rowN - 1) / 2) * spacing;
           result.set(u.id, {
             x: destX - depth * fx + lateral * px,
             y: destY - depth * fy + lateral * py,
+            rear,
           });
         });
       }
       depthRows += rowCount;
     }
+    placeFastOnWings(fast, result, destX, destY, px, py, frontHalfWidth, spacing);
     return { targets: result, spacing, fx, fy, frontHalfWidth };
+  }
+
+  // Formation ranks by FORMATION_RANK, minus the fast-role units (they take the front row's ends,
+  // see placeFastOnWings). hasFront: some unit fights in the front rank (frontline / shock / fast),
+  // so the ranged rank forms a second line behind it.
+  function formationRanks(units: ColonistSnapshot[]) {
+    const ranks = new Map<number, ColonistSnapshot[]>();
+    const fast: ColonistSnapshot[] = [];
+    let hasFront = false;
+    for (const u of units) {
+      const role = COLONIST_ROLE[u.kind];
+      if (role && !isRearRole(role)) hasFront = true;
+      if (role === "fast") {
+        fast.push(u);
+        continue;
+      }
+      const rank = FORMATION_RANK[u.kind] ?? FORMATION_RANK.bishop;
+      const bucket = ranks.get(rank);
+      if (bucket) bucket.push(u);
+      else ranks.set(rank, [u]);
+    }
+    return { ranks, fast, hasFront };
+  }
+
+  // Fast roles (flankers) on the wings: alternately right / left of the front row, one gap further out each.
+  function placeFastOnWings(
+    fast: ColonistSnapshot[],
+    targets: Map<string, { x: number; y: number; rear?: boolean }>,
+    cx: number,
+    cy: number,
+    ux: number,
+    uy: number,
+    halfWidth: number,
+    gap: number
+  ) {
+    fast
+      .slice()
+      .sort((a, b) => a.x * ux + a.y * uy - (b.x * ux + b.y * uy))
+      .forEach((u, i) => {
+        const side = i % 2 === 0 ? 1 : -1;
+        const lateral = side * (halfWidth + gap * (Math.floor(i / 2) + 1));
+        targets.set(u.id, { x: cx + lateral * ux, y: cy + lateral * uy });
+      });
   }
 
   // Newest order number per unit. A rank's delayed commandMove is dropped for any unit that has
@@ -3867,15 +3955,19 @@ async function main() {
     formationMarkerState = null;
   }
 
+  // A formation slot: a ring on the front rank, a square (ranged green) on the rear line.
+  function drawSlot(g: Graphics, pos: { x: number; y: number; rear?: boolean }, alpha: number) {
+    if (pos.rear) g.rect(pos.x - 3.5, pos.y - 3.5, 7, 7).stroke({ width: 1.5, color: ROLE_COLORS.ranged, alpha });
+    else g.circle(pos.x, pos.y, 4).stroke({ width: 1.5, color: SELECTION_COLOR, alpha });
+  }
+
   function showFormationMarker(plan: FormationPlan, destX: number, destY: number, dispatchMs: number) {
     const { fx, fy } = plan;
     const px = -fy;
     const py = fx;
     formationMarker.clear();
     formationMarker.alpha = 1;
-    for (const pos of plan.targets.values()) {
-      formationMarker.circle(pos.x, pos.y, 4).stroke({ width: 1.5, color: SELECTION_COLOR, alpha: 0.6 });
-    }
+    for (const pos of plan.targets.values()) drawSlot(formationMarker, pos, 0.6);
     // Front edge sits half a slot ahead of the front row's centers.
     const edgeX = destX + fx * plan.spacing * 0.5;
     const edgeY = destY + fy * plan.spacing * 0.5;
@@ -3945,40 +4037,44 @@ async function main() {
     }
     ucx /= units.length;
     ucy /= units.length;
-    // Front = the perpendicular pointing away from the units' current side of the line.
+    // Front = the perpendicular pointing away from the units' current side of the line, or toward the
+    // nearest enemy near the line (LINE_FACE_ENEMY_TILES) when there is one.
     let fx = -uy;
     let fy = ux;
-    if ((cx - ucx) * fx + (cy - ucy) * fy < 0) {
+    const foe = findNearest(latestMobs, cx, cy, LINE_FACE_ENEMY_TILES * tileSize);
+    const toward = foe ? (foe.x - cx) * fx + (foe.y - cy) * fy : (cx - ucx) * fx + (cy - ucy) * fy;
+    if (toward < 0) {
       fx = -fx;
       fy = -fy;
     }
     const cols = Math.max(minCols, Math.min(units.length, Math.floor(L / spacing) + 1));
     const step = cols > 1 ? Math.min(L / (cols - 1), spacing * LINE_MAX_GAP) : 0;
-    const ranks = new Map<number, ColonistSnapshot[]>();
-    for (const u of units) {
-      const rank = FORMATION_RANK[u.kind] ?? FORMATION_RANK.bishop;
-      const bucket = ranks.get(rank);
-      if (bucket) bucket.push(u);
-      else ranks.set(rank, [u]);
-    }
-    const targets = new Map<string, { x: number; y: number }>();
-    let depthRows = 0;
+    const { ranks, fast, hasFront } = formationRanks(units);
+    const targets = new Map<string, { x: number; y: number; rear?: boolean }>();
+    // Depth (px behind the line) of the next row; the ranged rank behind a front is a narrower second
+    // line REAR_LINE_OFFSET_TILES back (see REAR_LINE_WIDTH).
+    let depth = 0;
+    let frontHalfWidth = -1;
     for (const rank of Array.from(ranks.keys()).sort((a, b) => a - b)) {
       const members = ranks.get(rank)!;
+      const rear = hasFront && depth > 0 && isRearRole(COLONIST_ROLE[members[0].kind]);
+      const rankCols = rear ? Math.max(1, Math.min(members.length, Math.ceil(cols * REAR_LINE_WIDTH))) : cols;
+      if (rear) depth = Math.max(depth, REAR_LINE_OFFSET_TILES * tileSize);
       members.sort((a, b) => b.x * fx + b.y * fy - (a.x * fx + a.y * fy));
-      const rowCount = Math.ceil(members.length / cols);
+      const rowCount = Math.ceil(members.length / rankCols);
       for (let row = 0; row < rowCount; row++) {
         const rowMembers = members
-          .slice(row * cols, row * cols + cols)
+          .slice(row * rankCols, row * rankCols + rankCols)
           .sort((a, b) => a.x * ux + a.y * uy - (b.x * ux + b.y * uy));
-        const depth = (depthRows + row) * spacing;
+        if (frontHalfWidth < 0) frontHalfWidth = ((rowMembers.length - 1) * step) / 2;
         rowMembers.forEach((u, i) => {
           const lateral = (i - (rowMembers.length - 1) / 2) * step;
-          targets.set(u.id, { x: cx - depth * fx + lateral * ux, y: cy - depth * fy + lateral * uy });
+          targets.set(u.id, { x: cx - depth * fx + lateral * ux, y: cy - depth * fy + lateral * uy, rear });
         });
+        depth += spacing;
       }
-      depthRows += rowCount;
     }
+    placeFastOnWings(fast, targets, cx, cy, ux, uy, Math.max(0, frontHalfWidth), step || spacing);
     return { targets, spacing, fx, fy, frontHalfWidth: ((cols - 1) * step) / 2, cx, cy };
   }
 
@@ -3997,7 +4093,8 @@ async function main() {
       const send = () => {
         if (unitOrder.get(u.id) !== order) return;
         const pos = plan.targets.get(u.id)!;
-        sendMessage({ type: "commandMove", unitIds: [u.id], x: pos.x, y: pos.y });
+        // One squad per formation order: the server marches its members at one pace.
+        sendMessage({ type: "commandMove", unitIds: [u.id], x: pos.x, y: pos.y, squad: queue.length > 1 ? `o${order}` : undefined });
       };
       if (i === 0) send();
       else setTimeout(send, i * step);
@@ -4445,6 +4542,7 @@ async function main() {
       worldLayer.addChild(formationMarker);
       worldLayer.addChild(lineGuide);
       worldLayer.addChild(selectionRings);
+      worldLayer.addChild(roleRings);
       worldLayer.addChild(dragBox);
     } else if (message.type === "snapshot") {
       syncPlayers(message.players);
@@ -4465,6 +4563,7 @@ async function main() {
       syncGravestones(message.gravestones);
       latestColonists = message.colonists;
       latestMobs = message.mobs;
+      drawRoleRings();
       latestTaskForces = message.taskForces;
       const counts = { knight: 0, archer: 0, militia: 0, bishop: 0 };
       const alive = new Set<string>();
@@ -4908,9 +5007,7 @@ async function main() {
         lineGuide.clear();
         if (units.length > 1) {
           const plan = computeLineFormationTargets(units, orderPress.worldX, orderPress.worldY, x, y);
-          for (const pos of plan.targets.values()) {
-            lineGuide.circle(pos.x, pos.y, 4).stroke({ width: 1.5, color: SELECTION_COLOR, alpha: 0.7 });
-          }
+          for (const pos of plan.targets.values()) drawSlot(lineGuide, pos, 0.7);
           lineGuide
             .moveTo(orderPress.worldX, orderPress.worldY)
             .lineTo(x, y)
