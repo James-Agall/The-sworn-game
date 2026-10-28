@@ -1289,9 +1289,9 @@ Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 1 (camera, zoom, LOD, fo
   floor-chunk culling, minimap view rect, fight arrows). Pan: WASD / arrows, 12 px edge scroll, middle-drag; wheel
   zooms about the cursor (floor = the whole map fits on screen, min 0.05); minimap click / drag jumps there; Home
   centres on the rider; a fight-arrow click jumps the strategy view instead of peeking.
-- **Strategy mode rules**: rider sends `input {0,0}` (stands idle, can be attacked), Space doesn't swing, letter
-  keys never pick a build tool, right-click never places, left-click never demolishes (building panels still open on
-  click, garrison clicks still select), the build panel is hidden. Selection, box select and orders work as before.
+- **Strategy mode rules**: rider sends `input {0,0}` (stands idle, can be attacked), Space doesn't swing. Building
+  and demolishing stay available (build panel, hotkeys, right-click place, left-click demolish all work as in the
+  normal view). Selection, box select and orders work as before.
 - **LOD** (`client/src/strategy/lod.ts`): Tactical >= 0.75 as today; Field 0.35-0.75 civilians at 50% alpha; Map
   < 0.35 hides the floor, decor and tile layers (floor chunks aren't even built) and shows the minimap's 1 px/tile
   canvas as a nearest-scaled "strategic map" sprite, units as role-tinted screen-size dots (selected = cyan, mobs
@@ -1321,8 +1321,8 @@ Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 1 (camera, zoom, LOD, fo
 2. In strategy mode, the wheel zooms toward the cursor; on a 512 map zoom all the way out: the whole map fits on
    screen, soldiers become coloured dots, the ground becomes the minimap-style map.
 3. WASD / arrows pan, the mouse at a screen edge pans, middle-drag pans; the rider doesn't move. Home recentres on him.
-4. Right-click on empty ground places nothing; left-click on ground demolishes nothing; clicking a building still
-   opens its panel; the build panel is gone until you exit.
+4. Building and demolishing still work while zoomed out: the build panel stays, right-click places the selected
+   tool, left-click on bare ground demolishes, clicking a building opens its panel.
 5. Unexplored ground is black, explored ground outside your units' sight is dimmed; monsters are hidden outside sight
    (walk a soldier toward one and it appears). Tab back: no fog, as before.
 6. Zoomed all the way out on 512, panning / zooming stays smooth (no FPS drop).

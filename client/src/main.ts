@@ -6061,9 +6061,8 @@ async function main() {
   window.addEventListener("keydown", (e) => {
     const key = e.key.toLowerCase();
     keys.add(key);
-    // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool. Strategy mode
-    // has no building, so its letter keys never pick a tool either.
-    if (e.ctrlKey || e.altKey || strategyCam.inStrategy) return;
+    // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool.
+    if (e.ctrlKey || e.altKey) return;
     const match = TOOLS.find((t) => t.key === key);
     if (match) {
       if (match.tile !== TileType.Empty && match.category !== activeCategory) {
@@ -6561,8 +6560,6 @@ async function main() {
       }
       return;
     }
-    // Strategy mode: right-click never places a tile.
-    if (strategyCam.inStrategy) return;
     const tile = pointerTile(x, y);
     if (!tile) return;
     if (socket.readyState !== socket.OPEN) return;
@@ -6640,7 +6637,7 @@ async function main() {
     // breaking it; with Demolish selected it breaks as before. Garrison buildings also select their units.
     const tileValue = tile ? tiles[tile.tileY * worldTilesX + tile.tileX] : TileType.Empty;
     // Strategy mode never demolishes, so its clicks always open the panel.
-    const showInfo = tile !== null && (currentTool !== TileType.Empty || strategyCam.inStrategy) && INFO_TILES.has(tileValue);
+    const showInfo = tile !== null && currentTool !== TileType.Empty && INFO_TILES.has(tileValue);
     if (showInfo) openBuildingInfo(tile.tileX, tile.tileY);
     if (tile && GARRISON_TILES.has(tileValue)) {
       setSelection(
@@ -6651,9 +6648,9 @@ async function main() {
       return;
     }
 
-    // Nothing selectable under the cursor: original left-click behaviour (break tile; never in strategy mode).
+    // Nothing selectable under the cursor: original left-click behaviour (break tile).
     setSelection([]);
-    if (!tile || showInfo || strategyCam.inStrategy) return;
+    if (!tile || showInfo) return;
     if (socket.readyState !== socket.OPEN) return;
     socket.send(
       JSON.stringify({ type: "setTile", tileX: tile.tileX, tileY: tile.tileY, tile: TileType.Empty })
@@ -6718,11 +6715,6 @@ async function main() {
       }
     }
     cursorHighlight.clear();
-    // Strategy mode has no building: no tile cursor or placement ghost.
-    if (strategyCam.inStrategy) {
-      placementGhost.visible = false;
-      return;
-    }
     const tile = pointerTile(x, y);
     placementGhost.visible =
       !!tile && ((currentTool === TileType.TownCenter && !!TOWN_CENTER_MARKER_TEXTURE) || isRoadTile(currentTool));
