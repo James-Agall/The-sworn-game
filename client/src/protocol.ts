@@ -423,6 +423,11 @@ export interface TownCenterSnapshot {
   level: number;
   hp: number;
   maxHp: number;
+  // Settlement population (units counting toward this Town Center), its effective cap (min of housing
+  // and tier ceiling) and the tier ceiling alone. Omitted by older servers.
+  population?: number;
+  populationCap?: number;
+  populationTierCap?: number;
 }
 
 // Reply to a `buildingInfo` request; every number is computed by the server's own formulas.

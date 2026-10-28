@@ -304,6 +304,21 @@
         line-height: 1.5;
       }
 
+      #stat-settlements .econ-row {
+        font-size: 0.92em;
+        padding-left: 10px;
+      }
+
+      #stat-settlements .pop-full {
+        color: #b7791f;
+        font-weight: 600;
+      }
+
+      #stat-settlements .pop-over {
+        color: #a12a2a;
+        font-weight: 600;
+      }
+
       #stat-time {
         font-weight: 600;
       }
@@ -1089,6 +1104,7 @@
     <div id="economy-panel">
       <div id="colony-stats">
         <div class="econ-row"><span>Pop</span><span id="stat-pop">0/0</span></div>
+        <div id="stat-settlements" title="Population per settlement (Town Center). A full settlement can't take new workers until its Town Center is upgraded."></div>
         <div class="econ-row time-row">
           <span class="time-cell">
             <svg id="sundial" viewBox="-18 -18 36 36" aria-hidden="true">

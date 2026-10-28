@@ -4567,6 +4567,45 @@ async function main() {
     window.setTimeout(() => toast.remove(), fadeMs);
   }
 
+  // ---- Settlement population (ROADMAP "Settlement population caps"): one Colony panel row per Town
+  // Center ("Settlement 1: 9/12"), amber when full, red when over its cap; a toast (throttled per
+  // settlement) when one reaches its cap. Rows are rebuilt only when the text changes.
+  const statSettlementsEl = document.getElementById("stat-settlements")!;
+  const SETTLEMENT_FULL_TOAST_THROTTLE_MS = 60000;
+  const settlementWasFull = new Map<number, boolean>();
+  const settlementToastAt = new Map<number, number>();
+  let settlementPanelKey = "";
+  function refreshSettlementPanel(tcs: TownCenterSnapshot[]) {
+    const rows = tcs.map((tc, i) => ({ n: i + 1, used: tc.population ?? 0, cap: tc.populationCap ?? 0, known: tc.populationCap !== undefined }));
+    const key = rows.map((r) => `${r.n}:${r.used}/${r.cap}`).join("|");
+    if (key !== settlementPanelKey) {
+      settlementPanelKey = key;
+      statSettlementsEl.replaceChildren();
+      for (const r of rows) {
+        if (!r.known) continue;
+        const row = document.createElement("div");
+        row.className = "econ-row";
+        const label = document.createElement("span");
+        label.textContent = `Settlement ${r.n}`;
+        const count = document.createElement("span");
+        count.textContent = `${r.used}/${r.cap}`;
+        if (r.used > r.cap) count.className = "pop-over";
+        else if (r.used === r.cap) count.className = "pop-full";
+        row.append(label, count);
+        statSettlementsEl.append(row);
+      }
+    }
+    const now = performance.now();
+    for (const r of rows) {
+      const full = r.known && r.cap > 0 && r.used >= r.cap;
+      if (full && !settlementWasFull.get(r.n) && now - (settlementToastAt.get(r.n) ?? -Infinity) >= SETTLEMENT_FULL_TOAST_THROTTLE_MS) {
+        settlementToastAt.set(r.n, now);
+        pushEventToast("build", `Settlement ${r.n} is at its population cap — upgrade its Town Center`);
+      }
+      settlementWasFull.set(r.n, full);
+    }
+  }
+
   // Newest on top. Past MAX_TOASTS the oldest still-live toast is dropped with a quick fade, so a
   // burst (a whole garrison dying at once) shows its latest few rather than flooding the screen.
   function pushEventToast(category: GameEventCategory, text: string) {
@@ -4731,6 +4770,7 @@ async function main() {
       }
       refreshEconomyPanel(message);
       statPopEl.textContent = `${message.population}/${message.populationCap}`;
+      refreshSettlementPanel(message.townCenters);
       setActiveDifficulty(message.difficulty);
       statTimeEl.textContent = message.isNight ? "Night" : "Day";
       sundialEl.classList.toggle("night", message.isNight);

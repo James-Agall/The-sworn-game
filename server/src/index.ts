@@ -137,6 +137,9 @@ interface Colonist {
   homeTileY: number;
 
   castleLevel: number;
+  // The settlement (Town Center, "x,y" resourceKey) this unit counts toward. Set at spawn to the Town
+  // Center nearest its post; old saves get it on load; settlementOf re-homes it if that Town Center fell.
+  settlementId: string;
 
   healTargetType: "player" | "colonist" | null;
   healTargetId: string | null;
@@ -1710,27 +1713,119 @@ function isAbbeyClergy(c: Colonist): boolean {
   return tiles[tileIndex(c.postX, c.postY)] === TileType.AbbeyHall;
 }
 
+// What one unit counts for in population: civilians/bishops 1 (not Abbey clergy), siege engines their cost.
+function populationCostOf(c: Colonist): number {
+  if (consumesPopulation(c.kind) && !isAbbeyClergy(c)) return 1;
+  return isSiegeKind(c.kind) ? SIEGE_POPULATION_COST : 0;
+}
+
 function civilianPopulationUsed(): number {
   let count = 0;
-  for (const c of colonists.values()) {
-    if (consumesPopulation(c.kind) && !isAbbeyClergy(c)) count++;
-    else if (isSiegeKind(c.kind)) count += SIEGE_POPULATION_COST;
-  }
+  for (const c of colonists.values()) count += populationCostOf(c);
   return count;
 }
 
 const TOWN_CENTER_BASE_POPULATION = 10;
 // Every Town Center after the first adds this much to the base.
 const TOWN_CENTER_EXTRA_POPULATION = 5;
+// Settlement population ceiling per Town Center tier (index = level - 1). Tune here.
+const SETTLEMENT_POP_CAP_BY_TIER = [12, 24, 40];
 
-// 10 for the first Town Center, +5 per extra one, +5 per level of the highest; 0 with none standing.
-function townCenterPopulationBase(): number {
-  if (townCenters.length === 0) return 0;
-  return (
-    TOWN_CENTER_BASE_POPULATION +
-    TOWN_CENTER_EXTRA_POPULATION * (townCenters.length - 1) +
-    TOWN_CENTER_LEVEL_POPULATION_BONUS * (highestTownCenterLevel() - 1)
-  );
+function settlementTierCap(level: number): number {
+  return SETTLEMENT_POP_CAP_BY_TIER[Math.min(Math.max(level, 1), SETTLEMENT_POP_CAP_BY_TIER.length) - 1];
+}
+
+// The settlement key (Town Center "x,y") nearest a tile; "" with no Town Center.
+function settlementKeyNear(tx: number, ty: number): string {
+  const p = tileToPixelCenter({ x: tx, y: ty });
+  const tc = nearestTownCenter(p.x, p.y);
+  return tc ? resourceKey(tc.x, tc.y) : "";
+}
+
+// The Town Center a unit counts toward: its stored settlement, or (old save / that one fell) the one
+// nearest its post, which is then stored.
+function settlementOf(c: Colonist): TownCenter | null {
+  const tc = c.settlementId ? townCenters.find((t) => resourceKey(t.x, t.y) === c.settlementId) : undefined;
+  if (tc) return tc;
+  c.settlementId = settlementKeyNear(c.postX, c.postY);
+  return townCenters.find((t) => resourceKey(t.x, t.y) === c.settlementId) ?? null;
+}
+
+interface SettlementStat {
+  tc: TownCenter;
+  number: number; // 1-based position in townCenters (the "Settlement N" label)
+  used: number;
+  pending: number; // worker slots of queued constructions
+  housingCap: number;
+  tierCap: number;
+  cap: number; // min(housingCap, tierCap)
+}
+
+// Per-settlement population: units by stored settlement, queued worker slots, and the cap = the
+// housing-derived capacity (base + houses + neighbourhood bonus nearest to it) clamped by the tier cap.
+function settlementStats(): SettlementStat[] {
+  const stats: SettlementStat[] = townCenters.map((tc, i) => ({
+    tc,
+    number: i + 1,
+    used: 0,
+    pending: 0,
+    housingCap:
+      TOWN_CENTER_BASE_POPULATION +
+      (i > 0 ? TOWN_CENTER_EXTRA_POPULATION : 0) +
+      TOWN_CENTER_LEVEL_POPULATION_BONUS * (tc.level - 1),
+    tierCap: settlementTierCap(tc.level),
+    cap: 0,
+  }));
+  if (stats.length === 0) return stats;
+  const statNear = (tx: number, ty: number): SettlementStat | undefined => {
+    const p = tileToPixelCenter({ x: tx, y: ty });
+    const tc = nearestTownCenter(p.x, p.y);
+    return stats.find((s) => s.tc === tc);
+  };
+  for (let i = 0; i < tiles.length; i++) {
+    const t = tiles[i] as TileType;
+    const w = t === TileType.House ? 1 : t === TileType.BigHouse ? 3 : t === TileType.HouseLevel2 ? 5 : 0;
+    if (w) {
+      const s = statNear(i % WORLD_TILES_X, Math.floor(i / WORLD_TILES_X));
+      if (s) s.housingCap += w;
+    }
+  }
+  neighbourhoodPopulationBonus((tx, ty) => {
+    const s = statNear(tx, ty);
+    if (s) s.housingCap++;
+  });
+  for (const c of colonists.values()) {
+    const cost = populationCostOf(c);
+    if (!cost) continue;
+    const tc = settlementOf(c);
+    const s = stats.find((x) => x.tc === tc);
+    if (s) s.used += cost;
+  }
+  for (const site of constructionSites.values()) {
+    if (POPULATION_GATED_TILES.includes(site.target) && placementNeedsNewWorkerSlot(site.target, site.tx, site.ty)) {
+      const s = statNear(site.tx, site.ty);
+      if (s) s.pending++;
+    }
+  }
+  for (const s of stats) s.cap = Math.min(s.housingCap, s.tierCap);
+  return stats;
+}
+
+// "" when the settlement nearest (tx, ty) can take `cost` more population (counting queued worker
+// slots), else why not.
+function settlementBlocker(tx: number, ty: number, cost = 1): string {
+  const stats = settlementStats();
+  if (stats.length === 0) return "No Town Center standing";
+  const key = settlementKeyNear(tx, ty);
+  const s = stats.find((x) => resourceKey(x.tc.x, x.tc.y) === key);
+  if (!s || s.used + s.pending + cost <= s.cap) return "";
+  const hint = s.housingCap < s.tierCap ? "build more houses" : "upgrade the Town Center";
+  return `Settlement ${s.number} full (${s.used + s.pending}/${s.cap}) — ${hint}`;
+}
+
+// Whole-colony population cap: the settlements' effective caps added up.
+function populationCap(): number {
+  return settlementStats().reduce((n, s) => n + s.cap, 0);
 }
 
 // Synergy bonuses count all eight surrounding tiles (diagonals too), so buildings can be packed
@@ -1761,21 +1856,10 @@ function isSynergyBuilding(t: TileType): boolean {
   return POPULATION_GATED_TILES.includes(t) || isMilitaryTile(t);
 }
 
-function populationCap(): number {
-  let cap = townCenterPopulationBase();
-  for (let i = 0; i < tiles.length; i++) {
-    const t = tiles[i] as TileType;
-    if (t === TileType.House) cap += 1;
-    else if (t === TileType.BigHouse) cap += 3;
-    else if (t === TileType.HouseLevel2) cap += 5;
-  }
-  return cap + neighbourhoodPopulationBonus();
-}
-
 // Neighbourhood synergy: +1 population for every adjacent (8-neighbour) pair of (house, house) or
 // (house, any other staffed/unit building). Houses clustered with workplaces and barracks grow
 // the colony faster, so neighbourhoods are worth building.
-function neighbourhoodPopulationBonus(): number {
+function neighbourhoodPopulationBonus(onBonus?: (tx: number, ty: number) => void): number {
   let bonus = 0;
   for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
     for (let tx = 0; tx < WORLD_TILES_X; tx++) {
@@ -1785,9 +1869,15 @@ function neighbourhoodPopulationBonus(): number {
         const ny = ty + dy;
         if (!inBounds(nx, ny)) continue;
         const n = tiles[tileIndex(nx, ny)] as TileType;
-        if (isSynergyBuilding(n)) bonus++;
+        if (isSynergyBuilding(n)) {
+          bonus++;
+          onBonus?.(tx, ty);
+        }
         // House-house pairs are seen from both ends; count each once (the "later" tile in scan order).
-        else if (isHouseTile(n) && (dy > 0 || (dy === 0 && dx > 0))) bonus++;
+        else if (isHouseTile(n) && (dy > 0 || (dy === 0 && dx > 0))) {
+          bonus++;
+          onBonus?.(tx, ty);
+        }
       }
     }
   }
@@ -1855,6 +1945,7 @@ function spawnColonistForPost(
     homeTileX: -1,
     homeTileY: -1,
     castleLevel,
+    settlementId: settlementKeyNear(tx, ty),
     healTargetType: null,
     healTargetId: null,
     rallyTileX: tx,
@@ -2382,7 +2473,8 @@ function processRespawnQueue() {
       respawnQueue.splice(i, 1);
       continue;
     }
-    if (consumesPopulation(req.kind) && civilianPopulationUsed() >= populationCap()) {
+    // A settlement at its cap makes its dead wait for the next window.
+    if (consumesPopulation(req.kind) && settlementBlocker(req.tx, req.ty) !== "") {
       continue;
     }
     if (!windowNow) continue;
@@ -5014,7 +5106,7 @@ function updateWardPriestPresence() {
   }
   if (priest || stones.length === 0 || !church) return;
   wardPriestAwaitingWindow = wardPriestRespawnTicks >= 0;
-  if (civilianPopulationUsed() >= populationCap()) return;
+  if (settlementBlocker(church.x, church.y) !== "") return;
   if (wardPriestRespawnTicks >= 0) {
     if (isNightNow() || !respawnWindowAt(cycleTick) || !trySpendFood(RESPAWN_FOOD_COST)) return;
     wardPriestAwaitingWindow = false;
@@ -8995,6 +9087,10 @@ function applyWorld(s: WorldState) {
   wardPriestRespawnTicks = s.wardPriestRespawnTicks;
   townCenters = s.townCenters;
   refill(colonists, s.colonists.map((c): [string, Colonist] => [c.id, c]));
+  // Saves from before settlements: attach every unit to the Town Center nearest its post (never rejects).
+  for (const c of colonists.values()) {
+    settlementOf(c);
+  }
   refill(mobs, s.mobs.map((m): [string, Mob] => [m.id, m]));
   refill(wildlife, s.wildlife.map((a): [number, Wildlife] => [a.id, a]));
   respawnQueue.length = 0;
@@ -9813,15 +9909,6 @@ function sendEvent(player: Player, category: GameEventCategory, text: string) {
   }
 }
 
-// Workers that queued (not yet finished) constructions will spawn, so the population gate counts them.
-function pendingWorkerSlots(): number {
-  let n = 0;
-  for (const site of constructionSites.values()) {
-    if (POPULATION_GATED_TILES.includes(site.target) && placementNeedsNewWorkerSlot(site.target, site.tx, site.ty)) n++;
-  }
-  return n;
-}
-
 // Removes the building (or site, road, forage) at a tile: its posted workers, level, farm plot, site,
 // HP records; mines revert to the ore under them. Player demolish and mob
 // destruction (damageBuilding) both end here.
@@ -9914,12 +10001,13 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
 
   const cost = placementCost(tile, current, tx, ty);
   if (!canAfford(cost)) return;
-  if (
-    POPULATION_GATED_TILES.includes(tile) &&
-    placementNeedsNewWorkerSlot(tile, tx, ty) &&
-    civilianPopulationUsed() + pendingWorkerSlots() >= populationCap()
-  )
-    return;
+  if (POPULATION_GATED_TILES.includes(tile) && placementNeedsNewWorkerSlot(tile, tx, ty)) {
+    const full = settlementBlocker(tx, ty);
+    if (full) {
+      sendEvent(player, "build", full);
+      return;
+    }
+  }
 
   if (tile !== TileType.FarmPlot && !upgradeInPlace) {
     for (const other of players.values()) {
@@ -10324,7 +10412,8 @@ function siegeQueueBlocker(tx: number, ty: number, kind: SiegeKind): string {
   if (state?.building) return `Building a ${SIEGE_LABEL[state.building]}`;
   if (siegeUnitsAt(tx, ty) >= SIEGE_WORKSHOP_CAP) return `At most ${SIEGE_WORKSHOP_CAP} engines`;
   if (!canAfford(SIEGE_UNIT_COST[kind])) return "Not enough resources";
-  if (civilianPopulationUsed() + pendingWorkerSlots() + SIEGE_POPULATION_COST > populationCap()) return "Population cap reached";
+  const full = settlementBlocker(tx, ty, SIEGE_POPULATION_COST);
+  if (full) return full;
   return "";
 }
 
@@ -10617,11 +10706,12 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
   let staffing = posted.length > 0 ? `Workers ${posted.length}` : "No workers";
 
   if (tc) {
-    staffing = `Population ${civilianPopulationUsed()}/${populationCap()}`;
+    const stat = settlementStats().find((x) => x.tc === tc);
+    staffing = `Population ${stat?.used ?? 0}/${stat?.cap ?? 0}`;
     bonuses.push(
       `Lv${tc.level}: +${pct(levelBonus(tc.level, TOWN_CENTER_LEVEL_BONUS_PER_STEP))} productivity and unit damage (colony-wide; the highest Town Center counts)`
     );
-    bonuses.push(`Population base ${townCenterPopulationBase()} (10, +5 per extra Town Center, +5 per level)`);
+    bonuses.push(`Settlement population cap ${stat?.cap ?? 0}: housing ${stat?.housingCap ?? 0} (10 base, +5 per extra Town Center, +5 per level, houses), tier ceiling ${stat?.tierCap ?? 0}`);
     bonuses.push(`${tc.level} builder${tc.level === 1 ? "" : "s"} (one per level)`);
   } else if (isHouseTile(t)) {
     staffing = `Beds ${houseOccupancy(tx, ty)}/${houseCapacity(t)}`;
@@ -10683,14 +10773,11 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
       if (site) reason = "Upgrade under way";
       else if (!canAfford(cost)) reason = "Not enough resources";
       else if (!isInPlaceUpgrade(placeTile, t, tx, ty)) reason = "Can't upgrade yet";
-      else if (
-        POPULATION_GATED_TILES.includes(placeTile) &&
-        placementNeedsNewWorkerSlot(placeTile, tx, ty) &&
-        civilianPopulationUsed() + pendingWorkerSlots() >= populationCap()
-      )
-        reason = "Population cap reached";
+      else if (POPULATION_GATED_TILES.includes(placeTile) && placementNeedsNewWorkerSlot(placeTile, tx, ty) && settlementBlocker(tx, ty))
+        reason = settlementBlocker(tx, ty);
       else if (!instantBuild && !anyBuilderAlive() && placeTile !== TileType.TownCenter) reason = "No builders available";
-      upgrade = { cost: `Lv${level + 1}: ${formatCost(cost)}`, enabled: reason === "", reason };
+      const tierNote = t === TileType.TownCenter ? ` (max pop ${settlementTierCap(level + 1)})` : "";
+      upgrade = { cost: `Lv${level + 1}: ${formatCost(cost)}${tierNote}`, enabled: reason === "", reason };
     }
   }
 
@@ -11102,6 +11189,7 @@ setInterval(() => {
   const night = isNightNow();
   pruneTaskForces();
 
+  const settlementStatsNow = settlementStats();
   const snapshot: ServerMessage = {
     type: "snapshot",
     players: Array.from(players.values()).map((p): PlayerSnapshot => ({
@@ -11161,7 +11249,7 @@ setInterval(() => {
     townCenterHp: townCenters[0] ? Math.max(0, townCenters[0].hp) : 0,
     townCenterMaxHp: townCenterMaxHp(townCenters[0]?.level ?? 1),
     population: civilianPopulationUsed(),
-    populationCap: populationCap(),
+    populationCap: settlementStatsNow.reduce((n, st) => n + st.cap, 0),
     taskForces: taskForcesForSnapshot(),
     readyFarmPlots: farmPlotIndices("harvesting"),
     sownFarmPlots: farmPlotIndices("sown"),
@@ -11174,7 +11262,16 @@ setInterval(() => {
     constructionSites: constructionSitesForSnapshot(),
     damagedBuildings: damagedBuildingsForSnapshot(),
     townCenters: townCenters.map(
-      (tc): TownCenterSnapshot => ({ x: tc.x, y: tc.y, level: tc.level, hp: Math.max(0, tc.hp), maxHp: townCenterMaxHp(tc.level) })
+      (tc, i): TownCenterSnapshot => ({
+        x: tc.x,
+        y: tc.y,
+        level: tc.level,
+        hp: Math.max(0, tc.hp),
+        maxHp: townCenterMaxHp(tc.level),
+        population: settlementStatsNow[i].used,
+        populationCap: settlementStatsNow[i].cap,
+        populationTierCap: settlementStatsNow[i].tierCap,
+      })
     ),
     goal: goalSnapshot,
     gates: gatesForSnapshot(),

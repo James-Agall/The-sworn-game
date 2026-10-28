@@ -902,3 +902,16 @@ earlier than the spawn (too-long trips leave at once). A group that reaches cont
 when night falls or the moment it is attacked. Paused groups keep `groupId`, so dormancy/respawn logic still treats
 them as raid mobs. Deserter-only groups are unchanged. `holdRaidAggro` still pins departure to nightfall. New test
 hook `raidDepartNow`; test: `server/raid-timing-test.mjs`.
+
+## Settlement population caps — landed 2026-10-28
+
+Population is now counted and capped per settlement (= per Town Center) instead of colony-wide.
+
+- **Tier ceiling** (`SETTLEMENT_POP_CAP_BY_TIER` in server/src/index.ts): Town Center Lv1 = 12, Lv2 = 24, Lv3 = 40.
+- **Effective cap** of a settlement = `min(housing capacity, tier ceiling)`. Housing capacity keeps the old mechanics, attributed per settlement: 10 base (+5 for every Town Center after the first, +5 per level of that Town Center) + houses (1/3/5) and neighbourhood-synergy bonus of the houses nearest that Town Center. The colony-wide `populationCap` is the sum of the settlement caps.
+- **Membership**: every unit that costs population (civilians, builders, bishops, siege engines at `SIEGE_POPULATION_COST`; Abbey clergy excluded) carries `settlementId` ("x,y" of the nearest Town Center to its post at spawn). Saved with the colonist; old saves get it on load (nearest Town Center to the post, never rejected; a settlement already over its cap just can't grow). If a unit's Town Center falls, it is lazily re-attached to the nearest remaining one (`settlementOf`), whether or not that one has room (nobody despawns; it just can't grow).
+- **Gates**: new worker posts, upgrades that add a slot, siege queueing and respawns (dawn/dusk batch, Ward Priest) check the settlement nearest the post. A refused placement sends the event "Settlement 1 full (12/12) — upgrade the Town Center" ("build more houses" when housing, not the tier, is the limit). A respawn that doesn't fit keeps waiting for the next window; queued worker slots of construction sites count.
+- **UI**: Town Center info shows `Population 9/12` and the upgrade button shows `(max pop 24)`; the Colony panel lists `Settlement N  used/cap` under the total (amber at cap, red over); a toast (once per 60 s per settlement) when one reaches its cap.
+- **Protocol (additive)**: `TownCenterSnapshot.population?`, `populationCap?`, `populationTierCap?`.
+- **Test**: `server/settlement-pop-test.mjs` (self-booting, ports 21400+).
+- Caveats: `town-center-test.mjs` is stale (expects the old 40x40 world / 300 HP Town Center) and fails independently of this change. Settlement numbers are the Town Center's position in the list, so they renumber when an earlier one is destroyed.
