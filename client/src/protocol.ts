@@ -249,6 +249,43 @@ export interface ArmyRegimentSnapshot {
   settlement?: number;
   // Task force slot (1-9) of a manual regiment.
   taskForce?: number;
+  // Strategy mode phase 5: summed damage of the alive members per mob attack interval (the figure the mob
+  // tactics' Lanchester strength uses: power = sum hp x sum dmg). Omitted by older servers.
+  dmg?: number;
+}
+
+// Strategy mode phase 5 (additive): global sim time scale (one player's choice applies to everyone).
+export const TIME_SCALES = [0.25, 0.5, 1, 2] as const;
+export type TimeScale = (typeof TIME_SCALES)[number];
+
+// Strategy mode phase 5 (additive): an enemy regiment summary (snapshot `enemyRegiments`, strategy-mode
+// players only, refreshed every ENEMY_REGIMENT_REFRESH_TICKS). One per mob regiment (raid group / site,
+// see the server's regimentKey) or, for loose mobs, per ENEMY_CELL_TILES map cell; only regiments with a
+// member in the colony's live vision (players + colonists, VISION_RADIUS_*), counted from those members.
+export const ENEMY_REGIMENT_REFRESH_TICKS = 10;
+export const ENEMY_CELL_TILES = 16;
+export interface EnemyRegimentSnapshot {
+  id: string;
+  // "Bandit raid", "Ruin guardians", "Ogre Warlord", ...
+  label: string;
+  // Centroid of the seen members (world px, rounded).
+  x: number;
+  y: number;
+  // Seen members, and their roles.
+  count: number;
+  roles: Partial<Record<CombatRole, number>>;
+  // Lanchester strength of the seen members: sum hp x sum damage (compare ArmyRegimentSnapshot.dmg).
+  power: number;
+  // Sum hp / sum maxHp of the seen members.
+  hpFrac: number;
+  // Some members are out of sight: count / power are a lower bound.
+  partial?: boolean;
+  routed?: boolean;
+  sheltering?: boolean;
+  // A raid group held until nightfall (holdRaidGroup).
+  massing?: boolean;
+  // Active flank group: from its centroid to its last waypoint (behind the line), and the target unit.
+  flank?: { fromX: number; fromY: number; x: number; y: number; targetId?: string };
 }
 
 // Strategy mode phase 3 (additive): regiment orders. An order goes to a set of units (the selected
@@ -728,7 +765,10 @@ export type ClientMessage =
   | { type: "input"; dx: number; dy: number }
   | { type: "setTile"; tileX: number; tileY: number; tile: TileType }
   | { type: "attack" }
-  | { type: "pause" }
+  // paused (strategy mode phase 5, optional): set it instead of toggling. Global: applies to everyone.
+  | { type: "pause"; paused?: boolean }
+  // Strategy mode phase 5: global sim speed (TIME_SCALES); like pause, any player's choice applies to all.
+  | { type: "setTimeScale"; scale: number }
   // Optional difficulty: the restarting client's choice becomes the new world's difficulty.
   | { type: "restart"; difficulty?: Difficulty; worldSize?: number }
   // Sent after every welcome; only takes effect while the world's difficulty is still unclaimed
@@ -834,6 +874,15 @@ export type ServerMessage =
       cycleProgress: number;
       dayFraction: number;
       isPaused: boolean;
+      // Strategy mode phase 5: the player id who last paused / resumed, the sim speed (TIME_SCALES; omitted
+      // by older servers = 1) and who set it. Below 1x the server steps the sim (and sends snapshots) only
+      // every 2nd / 4th tick; at 2x it steps twice per tick.
+      pausedBy?: string;
+      timeScale?: number;
+      timeScaleBy?: string;
+      // Strategy mode phase 5: enemy regiment summaries in live vision (strategy-mode players only; sent
+      // every ENEMY_REGIMENT_REFRESH_TICKS, omitted in between: keep the last one).
+      enemyRegiments?: EnemyRegimentSnapshot[];
       effects: AttackEffect[];
       townCenterHp: number;
       townCenterMaxHp: number;

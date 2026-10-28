@@ -85,6 +85,10 @@ import type { ArmyRegimentSnapshot, RegimentClass } from "./protocol";
 import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind, FormationShape } from "./protocol";
 import { FORMATION_SHAPES } from "./protocol";
 import { ORDER_COLORS, ORDER_LABEL, OrderMarkers } from "./strategy/orders";
+import { BAND_COLORS, enemyBannerLabel, IntelOverlay, strengthBand } from "./strategy/intel";
+import type { ObjectiveMarker, Threat } from "./strategy/intel";
+import type { EnemyRegimentSnapshot } from "./protocol";
+import { TIME_SCALES } from "./protocol";
 
 const SERVER_URL = "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -973,6 +977,9 @@ interface EntityVisual {
   bossLabel?: Text;
   // Hero phase 3: heroes only, "Name · Lv N" above the HP bar.
   heroLabel?: Text;
+  // Strategy mode phase 5: snapshot interpolation, from (fx, fy) to the snapshot position (tx, ty); every
+  // part is drawn offset by (ox, oy) from where the snapshot sync put it (see interpBeforeSnapshot).
+  ip?: { fx: number; fy: number; tx: number; ty: number; ox: number; oy: number };
 }
 
 const COLONIST_KINDS: ColonistKind[] = [
@@ -2525,6 +2532,75 @@ async function main() {
       map.delete(id);
     }
   }
+
+  // ---- Strategy mode phase 5: snapshot interpolation (players, colonists, mobs) ----
+  // Each part of a visual is placed by the snapshot syncs at the snapshot position; between snapshots it is
+  // drawn shifted back along the move, so it glides from where it was drawn to the new position over the
+  // measured snapshot interval (50 ms at 1x, 100 / 200 ms in slow motion, when the server only sends
+  // stepped ticks). Undo the shift before the syncs, re-arm after them, shift every frame.
+  const INTERP_SNAP_TILES = 3;
+  let interpSnapAt = 0;
+  let interpIntervalMs = 1000 / TICK_RATE;
+  const interpMaps = [playerSprites, colonistSprites, mobSprites];
+
+  function shiftVisual(e: EntityVisual, dx: number, dy: number) {
+    if (dx === 0 && dy === 0) return;
+    for (const part of [e.sprite, e.hpBar, e.marker, e.wound, e.aura, e.sigil, e.markLabel, e.bossLabel, e.heroLabel]) {
+      if (part) part.position.set(part.position.x + dx, part.position.y + dy);
+    }
+  }
+
+  function interpBeforeSnapshot() {
+    const now = performance.now();
+    if (interpSnapAt > 0) {
+      const gap = Math.min(400, Math.max(20, now - interpSnapAt));
+      interpIntervalMs += (gap - interpIntervalMs) * 0.3;
+    }
+    interpSnapAt = now;
+    for (const map of interpMaps) {
+      for (const e of map.values()) {
+        if (!e.ip) continue;
+        // Remember where it is drawn now (the next glide starts there), then put it back on the snapshot.
+        e.ip.fx = e.ip.tx + e.ip.ox;
+        e.ip.fy = e.ip.ty + e.ip.oy;
+        shiftVisual(e, -e.ip.ox, -e.ip.oy);
+        e.ip.ox = 0;
+        e.ip.oy = 0;
+      }
+    }
+  }
+
+  function interpAfterSnapshot() {
+    const snap = tileSize * INTERP_SNAP_TILES;
+    for (const map of interpMaps) {
+      for (const e of map.values()) {
+        const tx = e.sprite.position.x;
+        const ty = e.sprite.position.y;
+        if (!e.ip || Math.abs(e.ip.fx - tx) > snap || Math.abs(e.ip.fy - ty) > snap) e.ip = { fx: tx, fy: ty, tx, ty, ox: 0, oy: 0 };
+        else {
+          e.ip.tx = tx;
+          e.ip.ty = ty;
+        }
+      }
+    }
+  }
+
+  // Before the camera ticker (which follows the rider's drawn sprite).
+  app.ticker.add(() => {
+    if (interpSnapAt === 0) return;
+    const t = Math.min(1, (performance.now() - interpSnapAt) / interpIntervalMs);
+    for (const map of interpMaps) {
+      for (const e of map.values()) {
+        const ip = e.ip;
+        if (!ip) continue;
+        const ox = (ip.fx - ip.tx) * (1 - t);
+        const oy = (ip.fy - ip.ty) * (1 - t);
+        shiftVisual(e, ox - ip.ox, oy - ip.oy);
+        ip.ox = ox;
+        ip.oy = oy;
+      }
+    }
+  });
 
   // Health-based wound decal over a unit (light < 66% hp, bleeding < 40%, heavy < 20%). The sprite is
   // created once, on the unit's first damaged snapshot, then only repositioned/retextured; healthy or
@@ -4872,6 +4948,63 @@ async function main() {
     pauseBtn.blur();
   });
 
+  // ---- Strategy mode phase 5: global time controls. Pause and speed are the server's, for everyone (no
+  // handshake: whoever changes them last wins); the status line says who it was. Shift+Space pauses /
+  // resumes, Shift+[ / Shift+] step the speed down / up (plain [ ] stay build hotkeys).
+  const timeControlsEl = document.getElementById("time-controls")!;
+  const timeStatusEl = document.getElementById("time-status")!;
+  let currentTimeScale = 1;
+  let currentPaused = false;
+  function sendTimeScale(scale: number) {
+    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "setTimeScale", scale }));
+  }
+  for (const b of Array.from(timeControlsEl.querySelectorAll<HTMLButtonElement>("button[data-scale]"))) {
+    b.addEventListener("click", () => {
+      b.blur();
+      sendTimeScale(Number(b.dataset.scale));
+    });
+  }
+  window.addEventListener("keydown", (e) => {
+    if (!e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.code === "Space") {
+      e.preventDefault();
+      if (!e.repeat && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "pause", paused: !currentPaused }));
+      return;
+    }
+    const step = e.code === "BracketLeft" ? -1 : e.code === "BracketRight" ? 1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    if (e.repeat) return;
+    const scales = TIME_SCALES as readonly number[];
+    const i = Math.max(0, scales.indexOf(currentTimeScale));
+    const next = scales[Math.max(0, Math.min(scales.length - 1, i + step))];
+    if (next !== currentTimeScale) sendTimeScale(next);
+  });
+
+  function whoLabel(id: string | undefined, players: PlayerSnapshot[]): string {
+    if (!id) return "";
+    if (id === myId) return "you";
+    const i = players.findIndex((p) => p.id === id);
+    return i >= 0 ? `Player ${i + 1}` : "a player who left";
+  }
+
+  function syncTimeControls(paused: boolean, pausedBy: string | undefined, scale: number, scaleBy: string | undefined, players: PlayerSnapshot[]) {
+    currentPaused = paused;
+    currentTimeScale = scale;
+    for (const b of Array.from(timeControlsEl.querySelectorAll<HTMLButtonElement>("button[data-scale]"))) {
+      b.classList.toggle("active", Number(b.dataset.scale) === scale);
+    }
+    const speed = scale === 1 ? "" : `${scale === 0.25 ? "¼" : scale === 0.5 ? "½" : `${scale}x`} speed`;
+    const parts: string[] = [];
+    if (paused) parts.push(`Paused${pausedBy ? ` by ${whoLabel(pausedBy, players)}` : ""}`);
+    if (speed) parts.push(`${speed}${scaleBy ? ` (set by ${whoLabel(scaleBy, players)})` : ""}`);
+    const text = parts.join(" · ");
+    timeStatusEl.hidden = text === "";
+    if (timeStatusEl.textContent !== text) timeStatusEl.textContent = text;
+    const banner = paused && pausedBy ? `PAUSED by ${whoLabel(pausedBy, players)}` : "PAUSED";
+    if (pausedBanner.text !== banner) pausedBanner.text = banner;
+  }
+
   restartBtn.addEventListener("click", () => {
     restartBtn.blur();
     if (!window.confirm("Restart the world for everyone connected?")) return;
@@ -5530,9 +5663,11 @@ async function main() {
   const GOAL_FLASH_MS = 1600;
   // -1 until the first snapshot after a welcome, so a load / restart never flashes.
   let lastGoalIndex = -1;
+  let latestGoal: GoalSnapshot | null = null;
   let goalFlashTimer = 0;
 
   function syncGoal(goal: GoalSnapshot | undefined) {
+    latestGoal = goal ?? null;
     if (!goal) {
       goalTrackerEl.hidden = true;
       return;
@@ -5619,10 +5754,12 @@ async function main() {
       worldLayer.addChild(dragBox);
       strategyOnWelcome();
     } else if (message.type === "snapshot") {
+      interpBeforeSnapshot();
       syncPlayers(message.players);
       latestPlayersForSpells = message.players;
       syncColonists(message.colonists, message.isNight);
       syncMobs(message.mobs);
+      interpAfterSnapshot();
       suppressDeathPoofs = false;
       syncBuildingLevels(message.buildingLevels);
       syncFarmStages(message.farmStages);
@@ -5704,7 +5841,8 @@ async function main() {
       for (const effect of message.effects) spawnEffect(effect);
       syncFights(message.fights);
       drawMinimap(message.players, message.colonists, message.mobs);
-      strategyOnSnapshot(message.players, message.armyRegiments, message.orderGroups);
+      strategyOnSnapshot(message.players, message.armyRegiments, message.orderGroups, message.enemyRegiments);
+      syncTimeControls(message.isPaused, message.pausedBy, message.timeScale ?? 1, message.timeScaleBy, message.players);
       syncGoal(message.goal);
       // Long days: dawn/dusk respawn windows (cycle lengths come from the server, never hard-coded).
       if (message.respawn) {
@@ -5867,7 +6005,8 @@ async function main() {
   });
 
   window.addEventListener("keydown", (e) => {
-    if (e.key === " " && !e.repeat) {
+    // Shift+Space is the global pause (phase 5), not an attack.
+    if (e.key === " " && !e.repeat && !e.shiftKey) {
       e.preventDefault();
       // The rider stands idle in strategy mode.
       if (strategyCam.inStrategy) return;
@@ -5903,6 +6042,8 @@ async function main() {
   // jumps there, Home centres on the rider; building is off and the rider stands idle. The server gets
   // the view as `setView` so it sends the mobs inside it, not only those near the rider.
   const STRATEGY_HIT_SCREEN_PX = 6;
+  // Phase 5: clicking a clash icon zooms here (the Field band).
+  const STRATEGY_CLASH_ZOOM = 0.5;
   const STRATEGY_FOG_REFRESH_MS = 200;
   const SET_VIEW_INTERVAL_MS = 200;
   // World px the banner tip sits above its group's centroid (about half a unit's height).
@@ -5967,6 +6108,14 @@ async function main() {
   type StrategySetting = "holdFire" | "skirmish" | "cycleCharge" | "shape";
   const SETTING_HOTKEYS: Record<string, StrategySetting> = { t: "holdFire", v: "skirmish", q: "shape" };
   let armedOrder: ArmedOrder | null = null;
+  // Strategy mode phase 5: enemy summaries (snapshot enemyRegiments, kept until the next), their banners,
+  // the intel overlay (strategy/intel.ts) and the own regiments under flank / rear threat.
+  let enemyRegiments: EnemyRegimentSnapshot[] = [];
+  const enemyBanners = new StrategyBanners();
+  const intel = new IntelOverlay();
+  let strategyThreats: Threat[] = [];
+  // Rear threat: a visible enemy within this many tiles of a member and over a tile behind the facing line.
+  const REAR_THREAT_TILES = 4;
   let orderGroups: ArmyOrderGroupSnapshot[] = [];
   let orderGroupOfUnit = new Map<string, ArmyOrderGroupSnapshot>();
   const orderMarkers = new OrderMarkers();
@@ -6131,6 +6280,7 @@ async function main() {
     placementGhost.visible = false;
     cursorHighlight.clear();
     strategyCam.enter(focus, now);
+    enemyRegiments = [];
     refreshStrategyFog();
     buildStrategyBanners();
     dotsDirty = true;
@@ -6172,12 +6322,18 @@ async function main() {
     strategyDots.visible = map;
     strategyFog.sprite.visible = active;
     strategyBanners.layer.visible = active;
+    enemyBanners.layer.visible = active;
+    intel.layer.visible = active;
     orderMarkers.layer.visible = active;
     if (map && strategicMapDirty) {
       strategicMapSprite.texture.source.update();
       strategicMapDirty = false;
     }
-    if (active) strategyBanners.setZoom(camZoom);
+    if (active) {
+      strategyBanners.setZoom(camZoom);
+      enemyBanners.setZoom(camZoom);
+      drawIntel(map);
+    }
     if (map && (dotsDirty || dotsZoom !== camZoom)) redrawStrategyDots();
     if (changed) {
       strategyWasActive = active;
@@ -6237,6 +6393,8 @@ async function main() {
       dots.push({ x: c.x, y: c.y, color: selectedIds.has(c.id) ? SELECTION_COLOR : role ? ROLE_COLORS[role] : 0xf3da98, r: 2 });
     }
     for (const m of latestMobs) if (strategyFog.sees(m.x, m.y)) dots.push({ x: m.x, y: m.y, color: 0xff3b2a, r: 2.5 });
+    // Phase 5: every summarised enemy regiment (also those beyond the snapshot's mob cull).
+    for (const e of enemyRegiments) dots.push({ x: e.x, y: e.y, color: 0xff3b2a, r: 3 + Math.min(4, Math.sqrt(e.count)), ring: true });
     for (const p of latestPlayersForSpells) {
       if (!p.dead) dots.push({ x: p.x, y: p.y, color: p.id === myId ? 0xffffff : p.color, r: 4, ring: true });
     }
@@ -6348,6 +6506,100 @@ async function main() {
     }
     strategyBanners.sync(banners);
     regimentCards.render(cards);
+    buildEnemyIntel(byId, banners);
+  }
+
+  // Phase 5: the selection's (else the whole army's) Lanchester power: sum hp x sum damage, each regiment's
+  // damage (snapshot ArmyRegimentSnapshot.dmg) prorated by its share of selected alive members.
+  function ownPower(byId: Map<string, ColonistSnapshot>): number {
+    const any = Array.from(selectedIds).some((id) => { const c = byId.get(id); return !!c && isCommandable(c); });
+    let hp = 0;
+    let dmg = 0;
+    for (const reg of armyRegiments) {
+      let alive = 0;
+      let picked = 0;
+      for (const id of reg.unitIds) {
+        const u = byId.get(id);
+        if (!u) continue;
+        alive++;
+        if (any && !selectedIds.has(id)) continue;
+        picked++;
+        hp += Math.max(0, u.hp);
+      }
+      if (alive > 0) dmg += ((reg.dmg ?? 0) * picked) / alive;
+    }
+    return hp * dmg;
+  }
+
+  // Enemy banners (strength band vs the selection / army) and the own regiments under threat: targeted by
+  // a visible flank group, or a visible enemy behind the facing line of their order group.
+  function buildEnemyIntel(byId: Map<string, ColonistSnapshot>, own: BannerGroup[]) {
+    const power = ownPower(byId);
+    const groups: BannerGroup[] = enemyRegiments.map((e) => {
+      const band = strengthBand(e.power, power);
+      return {
+        key: `e:${e.id}`,
+        label: enemyBannerLabel(e, band),
+        count: `${e.count}${e.partial ? "+" : ""}`,
+        hpFrac: e.hpFrac,
+        color: e.routed ? 0x8a8a8a : BAND_COLORS[band],
+        x: e.x,
+        y: e.y - BANNER_LIFT_PX,
+      };
+    });
+    enemyBanners.sync(groups);
+    const ownPos = new Map(own.map((b) => [b.key, b]));
+    const threats = new Map<string, Threat>();
+    for (const e of enemyRegiments) {
+      const reg = e.flank?.targetId ? regimentOfUnit.get(e.flank.targetId) : undefined;
+      const b = reg ? ownPos.get(reg.id) : undefined;
+      if (reg && b) threats.set(reg.id, { x: b.x, y: b.y, text: "Flank threatened" });
+    }
+    const near = REAR_THREAT_TILES * tileSize;
+    const seen = latestMobs.filter((m) => strategySeesEnemy(m.x, m.y));
+    for (const reg of armyRegiments) {
+      const b = ownPos.get(reg.id);
+      const g = reg.unitIds.length > 0 ? orderGroupOfUnit.get(reg.unitIds[0]) : undefined;
+      if (!b || threats.has(reg.id) || g?.facing === undefined || seen.length === 0) continue;
+      const fx = Math.cos(g.facing);
+      const fy = Math.sin(g.facing);
+      const members = reg.unitIds.map((id) => byId.get(id)).filter((u): u is ColonistSnapshot => !!u);
+      const cx = members.reduce((sum, u) => sum + u.x, 0) / members.length;
+      const cy = members.reduce((sum, u) => sum + u.y, 0) / members.length;
+      const behind = seen.some(
+        (m) => (m.x - cx) * fx + (m.y - cy) * fy < -tileSize && members.some((u) => Math.abs(u.x - m.x) <= near && Math.abs(u.y - m.y) <= near && Math.hypot(u.x - m.x, u.y - m.y) <= near)
+      );
+      if (behind) threats.set(reg.id, { x: b.x, y: b.y, text: "Rear threatened" });
+    }
+    strategyThreats = Array.from(threats.values());
+  }
+
+  // Every frame in strategy mode: flank arrows, threats, clash icons (Map band) and objective markers.
+  function drawIntel(mapBand: boolean) {
+    const objectives: ObjectiveMarker[] = [];
+    const castleGoal = latestGoal !== null && latestGoal.index < latestGoal.total && /castle ruin/i.test(latestGoal.title);
+    if (castleRuinTile && explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
+      objectives.push({
+        key: "castle", kind: "castle", label: castleGoal ? latestGoal!.title : "Castle Ruin", objective: castleGoal,
+        x: (castleRuinTile.x + 0.5) * tileSize, y: (castleRuinTile.y + 0.5) * tileSize,
+      });
+    }
+    for (const index of latestHearths) {
+      if (!explored[index]) continue;
+      objectives.push({
+        key: `h${index}`, kind: "camp", label: "Camp", objective: false,
+        x: ((index % worldTilesX) + 0.5) * tileSize, y: (Math.floor(index / worldTilesX) + 0.5) * tileSize,
+      });
+    }
+    intel.draw({
+      zoom: camZoom,
+      mapBand,
+      enemies: enemyRegiments,
+      clashes: mapBand ? latestFights.filter(fightIsOnScreen).map((f) => ({ fight: f, ...fightWorldPos(f) })) : [],
+      threats: strategyThreats,
+      objectives,
+      now: performance.now(),
+    });
   }
 
   // The order glyph of a regiment whose members all share one order group ("Hold", "Move +2").
@@ -6381,8 +6633,14 @@ async function main() {
     return Number(digit[1]);
   }
 
-  function strategyOnSnapshot(players: PlayerSnapshot[], regiments: ArmyRegimentSnapshot[] | undefined, groups: ArmyOrderGroupSnapshot[] | undefined) {
+  function strategyOnSnapshot(
+    players: PlayerSnapshot[],
+    regiments: ArmyRegimentSnapshot[] | undefined,
+    groups: ArmyOrderGroupSnapshot[] | undefined,
+    enemies: EnemyRegimentSnapshot[] | undefined
+  ) {
     if (regiments) setArmyRegiments(regiments);
+    if (enemies) enemyRegiments = enemies;
     if (groups) setOrderGroups(groups);
     redrawOrderMarkers();
     if (strategyCam.active) {
@@ -6412,8 +6670,14 @@ async function main() {
     armOrder(null);
     regimentCards.render([]);
     strategyDots.clear();
+    enemyRegiments = [];
+    strategyThreats = [];
+    enemyBanners.clear();
+    intel.clear();
     worldLayer.addChild(strategyDots);
     worldLayer.addChild(orderMarkers.layer);
+    worldLayer.addChild(intel.layer);
+    worldLayer.addChild(enemyBanners.layer);
     worldLayer.addChild(strategyBanners.layer);
   }
 
@@ -6587,7 +6851,7 @@ async function main() {
       hideFormationMarker();
       // Zoomed out, a unit is a few screen px: keep the hit area at least STRATEGY_HIT_SCREEN_PX wide.
       const minHit = STRATEGY_HIT_SCREEN_PX / camZoom;
-      const mob = findNearest(
+      const mobUnder = findNearest(
         latestMobs.filter(
           (m) => strategySeesEnemy(m.x, m.y) && (m.x - x) ** 2 + (m.y - y) ** 2 <= Math.max(minHit, mobHitRadius(m.kind, mobRenderScale(m))) ** 2
         ),
@@ -6595,6 +6859,10 @@ async function main() {
         y,
         Infinity
       );
+      // Phase 5: right-clicking an enemy banner attacks the visible member nearest its centroid.
+      const enemyKey = !mobUnder && strategyCam.inStrategy ? enemyBanners.hitTest(x, y, camZoom) : null;
+      const enemyReg = enemyKey ? enemyRegiments.find((r) => `e:${r.id}` === enemyKey) : undefined;
+      const mob = mobUnder ?? (enemyReg ? findNearest(latestMobs.filter((m) => strategySeesEnemy(m.x, m.y)), enemyReg.x, enemyReg.y, 6 * tileSize) : null);
       const clicked = pointerTile(x, y);
       const hearthIndex = clicked ? clicked.tileY * worldTilesX + clicked.tileX : -1;
       // Strategy mode phase 3: regiment orders (attack, follow, move / attack-move with a line drag).
@@ -6712,6 +6980,13 @@ async function main() {
     const bannerReg = bannerKey ? armyRegiments.find((r) => r.id === bannerKey) : undefined;
     if (bannerReg) {
       setSelection(e.shiftKey ? [...selectedIds, ...bannerReg.unitIds] : bannerReg.unitIds);
+      return;
+    }
+    // Phase 5: a clash icon (Map band) zooms to the Field band there.
+    const clash = strategyCam.inStrategy && strategyBand === "map" ? intel.hitClash(x, y) : null;
+    if (clash) {
+      strategyCam.zoomAt(STRATEGY_CLASH_ZOOM / strategyCam.target.zoom, app.screen.width / 2, app.screen.height / 2, app.screen.width, app.screen.height);
+      strategyCam.jumpTo(clash.x, clash.y);
       return;
     }
 

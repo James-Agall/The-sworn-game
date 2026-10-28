@@ -87,6 +87,16 @@
         user-select: none;
       }
 
+      /* Strategy mode phase 5: global time controls (pause + speed), and who last changed them. */
+      #time-controls { display: flex; gap: 2px; }
+      #time-controls .control-btn { padding: 8px 8px; min-width: 30px; }
+      #time-controls .control-btn.active { background-color: var(--parch-light); border-color: var(--wood); box-shadow: inset 0 0 0 2px var(--wood-dark); }
+      #time-status {
+        position: fixed; top: 52px; right: 12px; z-index: 12; padding: 3px 10px; border-radius: 4px;
+        background: rgba(26, 15, 6, 0.82); color: #fbecc8; font-family: var(--font-serif); font-size: 12px; pointer-events: none;
+      }
+      #time-status[hidden] { display: none; }
+
       .control-btn:hover,
       #build-panel-toggle:hover,
       #economy-panel-toggle:hover {
@@ -1294,9 +1304,16 @@
       <button class="cmd-btn strategy-only" data-setting="shape" title="Formation shape: Line / Block / Wedge / Loose (Shift+Q cycles)"><span class="cmd-glyph">&#x25B3;</span><span class="cmd-shape">Shape</span><kbd>Shift+Q</kbd></button>
     </div>
     <div id="spell-bar" hidden></div>
+    <div id="time-status" hidden></div>
     <div id="control-buttons">
       <button id="strategy-btn" class="control-btn" title="Strategy view: bird's-eye camera (Tab)">Command</button>
-      <button id="pause-btn" class="control-btn">Pause</button>
+      <button id="pause-btn" class="control-btn" title="Pause / resume for everyone (Shift+Space)">Pause</button>
+      <span id="time-controls">
+        <button class="control-btn" data-scale="0.25" title="Quarter speed for everyone (Shift+[ slower, Shift+] faster)">&#xBC;</button>
+        <button class="control-btn" data-scale="0.5" title="Half speed for everyone (Shift+[ slower, Shift+] faster)">&#xBD;</button>
+        <button class="control-btn" data-scale="1" title="Normal speed (Shift+[ slower, Shift+] faster)">1x</button>
+        <button class="control-btn" data-scale="2" title="Double speed for everyone (Shift+[ slower, Shift+] faster)">2x</button>
+      </span>
       <button id="restart-btn" class="control-btn">Restart</button>
       <button id="save-btn" class="control-btn" title="Quick save to your last-used slot">Save</button>
       <button id="hero-btn" class="control-btn" title="Character sheet (` key)">Hero</button>

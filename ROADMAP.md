@@ -1526,3 +1526,68 @@ Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 4 (stances, fire control
 6. Right-click a camp hearth with a ram / regiment selected: red square on the hearth, they attack it.
 7. Z / X / E stances, Shift+1-4 spells, Shift+F / G / H / R orders still work; plain T / V / Q / C / B behave as
    before (build hotkeys); tactical mode right-click / right-drag unchanged.
+
+## Strategy mode phase 5 — landed 2026-10-28
+
+Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 5 (time controls and battlefield intel).
+
+- **Global time controls** (user decision: one player's choice applies to both, no handshake / auto-resume):
+  `pause` toggles as before or takes `paused: boolean`; new `setTimeScale {scale}` (0.25 / 0.5 / 1 / 2, anything
+  else ignored, both ignored while a load holds the sim). The tick loop adds the scale to an accumulator and runs
+  `stepSimulation` once per whole unit: 1/2 and 1/4 step every 2nd / 4th tick and only those ticks broadcast
+  (the client interpolates across the gap), 2x steps twice a tick. Everything sim-side (day / night, raids,
+  respawn windows, AI, construction, fights) runs inside `stepSimulation`, so it pauses / slows / speeds as one;
+  vision, autosave scheduling and the order / setView handlers stay outside, so orders given while paused are
+  accepted at once (order groups + ghosts show) and start on resume. Paused ticks still send snapshots.
+  Restart / load reset pause and speed. Snapshot: `pausedBy?`, `timeScale`, `timeScaleBy?` (player ids).
+- **Client time UI**: top-right ¼ / ½ / 1x / 2x buttons next to Pause; a status line under the buttons
+  ("Paused by you · ½ speed (set by Player 2)"), the PAUSED banner names who paused. Keys: **Shift+Space** pause /
+  resume, **Shift+[** slower, **Shift+]** faster (plain Space = attack, plain [ ] = build hotkeys, unchanged).
+- **Interpolation**: players, colonists and mobs (with their HP bars, labels, wounds, auras) glide from where
+  they were drawn to each new snapshot position over the measured snapshot interval (50 ms at 1x, 100 / 200 ms
+  in slow motion); jumps over 3 tiles snap. Also smooths normal play; the camera follows the drawn rider.
+- **Enemy regiment summaries** (`enemyRegiments`, strategy-view players only, every 10 ticks): one per mob
+  regiment (raid group / site, `regimentKey`) or per 16-tile cell for loose mobs, only from members in the
+  colony's live vision (players 10 tiles, colonists 6, Abbey clergy excluded; a per-tile stamp grid), anywhere on
+  the map, so far fights beyond the 140-tile setView cap on 512 maps still show. Fields: label (fight labels:
+  "Bandit raid", "Ruin guardians", "Ogre Warlord"...), centroid, seen count + roles, power (sum hp x sum damage),
+  hpFrac, partial (some members unseen), routed, sheltering, massing (a raid held until nightfall), flank (the
+  flank group's centroid -> its point behind the line, + target unit). ArmyRegimentSnapshot gets `dmg?`.
+- **Strength bands**: enemy power / own power (the selection's, else the whole army's; regiment damage prorated by
+  selected members) -> Weak < 0.5, Even < 1.5, Strong < 3, else Deadly; a partly seen regiment shows a range one
+  band up ("Even-Strong", count "5+"). Enemy banners (strategy mode): "Massing: Bandit raid · Strong · behind
+  walls", border coloured by band (grey when fleeing), HP bar. Right-click an enemy banner = attack the visible
+  member nearest its centre. Map band: a red ring per summary (also for mobs culled from the snapshot).
+- **Intel overlay** (`client/src/strategy/intel.ts`): orange curved flank arrows; "Flank threatened" over the own
+  banner a flank group targets, "Rear threatened" when a visible enemy is within 4 tiles of a member and over a
+  tile behind the order group's facing; Map band: crossed-swords clash icons for on-screen fights (size / pulse
+  by intensity; click zooms to the Field band there); markers for the Castle Ruin (gold "Objective: Clear the
+  Castle Ruin" ring while it is the current goal) and explored camp hearths ("Camp" label in the Map band).
+- **Test**: `server/time-intel-test.mjs` (own server, port 20653, world 256, two sockets): pause from A reaches B
+  with pausedBy, cycleTick frozen, snapshots flow; an order while paused is grouped and waits, runs after B
+  resumes; 1/2 speed = 0.50x ticks and snapshots, 2x = 2.00x; bad scales ignored; a seen 2-goblin regiment is
+  summarised with power / roles; an unseen far goblin is not; a non-strategy player gets none; a scout next to
+  the far goblin makes it appear while it is culled from `mobs`. 16/16 (4 runs in a row).
+- **Deviations from the plan**: no consent vote / 60 s auto-resume (user decision: global); speeds 1/4 / 1/2 / 1x
+  / 2x (2x added: "speed-up"); keys Shift+Space / Shift+[ / Shift+] (Space attacks, [ ] build); no enemy morale
+  bars or "Outflanked!" (morale is phase 6); fuzziness comes from partial sight, not the "> 15 tiles" rule (live
+  vision is at most 10 tiles); bands show on every enemy banner, not just on hover; no "last seen" ghosts; no
+  horde "wake the Host" rings (no hordes yet); goals without a place (nights survived) get no marker.
+- **Caveats**: projectiles / effects play at real speed in slow motion; summaries refresh at 2 Hz (wall time), so
+  a banner lags its regiment by up to 0.5 s; the rider (and everyone's input) also slows / stops with the sim.
+
+**Manual browser check (strategy mode phase 5)**
+1. Shift+Space (or Pause): PAUSED banner says "by you", status line "Paused by you"; units / monsters / the
+   sundial freeze. Tab in, select a regiment, Shift-queue 3 right-clicks: ghosts + pips appear and nobody moves;
+   Shift+Space again: they march through the queue.
+2. Click ½ then ¼ (or Shift+[): everything moves slower and smoothly (no stutter / teleporting), the status line
+   says "¼ speed (set by you)"; Shift+] back to 1x, then 2x: day passes twice as fast. 1x normal play looks
+   smoother than before (no 20 Hz jitter), the camera stays locked on the rider.
+3. Second browser tab: pausing / changing speed in one tab shows in the other with "by Player N".
+4. In strategy mode near a raid / monsters: an enemy banner "Greenskin raid · Even" (border colour by band);
+   select a small regiment vs the whole army and the band changes; a raid gathering by day reads "Massing: ...".
+5. A wolf pack / raid flanking your line: orange curved arrow, "Flank threatened" over your banner.
+6. Zoom all the way out during a fight: a crossed-swords icon pulses; click it: the camera zooms in there.
+   Explored Castle Ruin and camps show markers; with "Clear the Castle Ruin" as the goal it reads "Objective".
+7. Right-click an enemy banner with soldiers selected: they attack that regiment. Plain Space still attacks,
+   plain [ ] still pick build tools.

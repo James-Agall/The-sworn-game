@@ -92,6 +92,10 @@ import {
   ARMY_ORDER_QUEUE_MAX,
   FormationShape,
   FORMATION_SHAPES,
+  EnemyRegimentSnapshot,
+  TIME_SCALES,
+  ENEMY_REGIMENT_REFRESH_TICKS,
+  ENEMY_CELL_TILES,
 } from "./protocol.js";
 import { planOrderFormation } from "./formation.js";
 
@@ -497,6 +501,13 @@ interface TownCenter {
 // Every standing Town Center (a destroyed one is removed). Reset to the starting one by generateWorld.
 let townCenters: TownCenter[] = [];
 let isPaused = false;
+// Strategy mode phase 5: global time controls (any player's pause / speed applies to everyone). The tick
+// loop adds timeScale to simAccum each tick and steps the sim once per whole unit (2x: twice a tick;
+// 1/2, 1/4: every 2nd / 4th tick, and only those ticks broadcast).
+let timeScale = 1;
+let timeScaleBy: string | null = null;
+let pausedBy: string | null = null;
+let simAccum = 0;
 
 function townCenterMaxHp(level: number): number {
   return TOWN_CENTER_MAX_HP_BY_LEVEL[Math.min(Math.max(level, 1), 3) - 1];
@@ -4768,10 +4779,16 @@ function armyRegimentsNow(): ArmyRegimentSnapshot[] {
     const roleCount = new Map<CombatRole, number>();
     let hp = 0;
     let maxHp = 0;
+    let dmg = 0;
     for (const c of d.members) {
       d.snap.unitIds.push(c.id);
       hp += Math.max(0, c.hp);
       maxHp += c.maxHp;
+      // As playerForceNear counts it (phase 5 strength estimates).
+      if (isGuardOrMilitiaKind(c.kind) && c.hp > 0) {
+        const stats = unitStats(c);
+        dmg += (stats.damage * MOB_ATTACK_COOLDOWN_TICKS) / Math.max(1, stats.cooldown);
+      }
       const role = unitRole(c.kind, c.heroClass);
       if (role) roleCount.set(role, (roleCount.get(role) ?? 0) + 1);
     }
@@ -4788,6 +4805,7 @@ function armyRegimentsNow(): ArmyRegimentSnapshot[] {
       if (q?.hero) d.snap.role = HERO_CLASS_ROLE[q.hero.heroClass];
     }
     d.snap.hpFrac = maxHp > 0 ? Math.round((hp / maxHp) * 1000) / 1000 : 0;
+    if (dmg > 0) d.snap.dmg = Math.round(dmg * 10) / 10;
     const tf = d.snap.taskForce;
     d.snap.maxCount = tf !== undefined ? Math.max(taskForceMax.get(tf) ?? 0, d.members.length) : d.members.length + d.pending;
   }
@@ -10427,6 +10445,10 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
   lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
   isPaused = false;
+  pausedBy = null;
+  timeScale = 1;
+  timeScaleBy = null;
+  simAccum = 0;
 
   respawnPlayersAndWelcome();
 }
@@ -10686,6 +10708,10 @@ function applyWorld(s: WorldState) {
   pendingExplored = [];
   visionTile = new WeakMap();
   isPaused = false;
+  pausedBy = null;
+  timeScale = 1;
+  timeScaleBy = null;
+  simAccum = 0;
 }
 
 // The wall-mounted Archer Tower is gone: an old save's ArcherTower tile becomes a plain Archery Range
@@ -10937,7 +10963,14 @@ wss.on("connection", (socket, req) => {
     } else if (message.type === "setView") {
       handleSetView(player, message);
     } else if (message.type === "pause") {
-      isPaused = !isPaused;
+      if (simHeldForLoad) return;
+      isPaused = typeof message.paused === "boolean" ? message.paused : !isPaused;
+      pausedBy = player.id;
+    } else if (message.type === "setTimeScale") {
+      if (simHeldForLoad || !(TIME_SCALES as readonly number[]).includes(message.scale)) return;
+      timeScale = message.scale;
+      timeScaleBy = player.id;
+      simAccum = 0;
     } else if (message.type === "restart") {
       resetWorld(message.difficulty, message.worldSize);
     } else if (message.type === "setDifficulty") {
@@ -14242,10 +14275,130 @@ function stepSimulation() {
   if (cycleTick % FIGHT_SCAN_TICKS === 0) scanFights();
 }
 
+// ---- Strategy mode phase 5: enemy regiment summaries (docs PLAN-strategy-mode.md §3 / §4) ----
+// Live vision as a per-tile stamp (players + the colony's colonists, the client fog's radii), restamped per
+// summary pass; a regiment is reported when any member stands in it, from its seen members only. Cost per
+// pass: ~colonists x 113 tile writes + one pass over the mobs, every ENEMY_REGIMENT_REFRESH_TICKS.
+let liveVisionGrid = new Uint16Array(0);
+let liveVisionStamp = 0;
+let enemyRegimentTick = 0;
+
+function stampLiveVision() {
+  if (liveVisionGrid.length !== WORLD_TILES_X * WORLD_TILES_Y) {
+    liveVisionGrid = new Uint16Array(WORLD_TILES_X * WORLD_TILES_Y);
+    liveVisionStamp = 0;
+  }
+  liveVisionStamp = (liveVisionStamp % 65535) + 1;
+  if (liveVisionStamp === 1) liveVisionGrid.fill(0);
+  const stamp = (px: number, py: number, offsets: Array<[number, number]>) => {
+    const tx = Math.floor(px / TILE_SIZE);
+    const ty = Math.floor(py / TILE_SIZE);
+    for (const [dx, dy] of offsets) {
+      const x = tx + dx;
+      const y = ty + dy;
+      if (x >= 0 && y >= 0 && x < WORLD_TILES_X && y < WORLD_TILES_Y) liveVisionGrid[y * WORLD_TILES_X + x] = liveVisionStamp;
+    }
+  };
+  for (const p of players.values()) stamp(p.x, p.y, PLAYER_VISION_OFFSETS);
+  for (const c of colonists.values()) if (!isAbbeyClergy(c)) stamp(c.x, c.y, COLONIST_VISION_OFFSETS);
+}
+
+function inLiveVision(px: number, py: number): boolean {
+  const tx = Math.floor(px / TILE_SIZE);
+  const ty = Math.floor(py / TILE_SIZE);
+  if (tx < 0 || ty < 0 || tx >= WORLD_TILES_X || ty >= WORLD_TILES_Y) return false;
+  return liveVisionGrid[ty * WORLD_TILES_X + tx] === liveVisionStamp;
+}
+
+function enemyRegimentsNow(): EnemyRegimentSnapshot[] {
+  stampLiveVision();
+  const groups = new Map<string, { all: number; seen: Mob[] }>();
+  for (const m of mobs.values()) {
+    if (m.hp <= 0) continue;
+    const key = regimentKey(m) ?? `c:${Math.floor(m.x / TILE_SIZE / ENEMY_CELL_TILES)},${Math.floor(m.y / TILE_SIZE / ENEMY_CELL_TILES)}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { all: 0, seen: [] };
+      groups.set(key, g);
+    }
+    g.all++;
+    if (inLiveVision(m.x, m.y)) g.seen.push(m);
+  }
+  const night = isNightNow();
+  const out: EnemyRegimentSnapshot[] = [];
+  for (const [id, g] of groups) {
+    const seen = g.seen;
+    if (seen.length === 0) continue;
+    let x = 0;
+    let y = 0;
+    let hp = 0;
+    let maxHp = 0;
+    let dmg = 0;
+    let threat = fightThreatOf(seen[0]);
+    const roles: Partial<Record<CombatRole, number>> = {};
+    for (const m of seen) {
+      x += m.x;
+      y += m.y;
+      hp += Math.max(0, m.hp);
+      maxHp += m.maxHp;
+      dmg += m.damage;
+      const role = mobRole(m);
+      roles[role] = (roles[role] ?? 0) + 1;
+      const t = fightThreatOf(m);
+      if (t.rank > threat.rank) threat = t;
+    }
+    const snap: EnemyRegimentSnapshot = {
+      id,
+      label: threat.label,
+      x: Math.round(x / seen.length),
+      y: Math.round(y / seen.length),
+      count: seen.length,
+      roles,
+      power: Math.round(hp * dmg),
+      hpFrac: maxHp > 0 ? Math.round((hp / maxHp) * 100) / 100 : 0,
+    };
+    if (g.all > seen.length) snap.partial = true;
+    if (!night && seen.some((m) => m.groupId !== null && m.passive)) snap.massing = true;
+    const reg = regiments.get(id);
+    if (reg?.routed) snap.routed = true;
+    if (reg?.sheltering) snap.sheltering = true;
+    const flankers = reg ? reg.flankIds.map((fid) => mobs.get(fid)).filter((m): m is Mob => !!m && m.tactic === "flank") : [];
+    const end = flankers[0]?.flankWaypoints?.[flankers[0].flankWaypoints.length - 1];
+    // Only a flank whose runners are in sight (the arc itself is the warning).
+    if (end && flankers.some((m) => inLiveVision(m.x, m.y))) {
+      snap.flank = {
+        fromX: Math.round(flankers.reduce((s, m) => s + m.x, 0) / flankers.length),
+        fromY: Math.round(flankers.reduce((s, m) => s + m.y, 0) / flankers.length),
+        x: Math.round(end.x),
+        y: Math.round(end.y),
+        ...(flankers[0].flankTargetId ? { targetId: flankers[0].flankTargetId } : {}),
+      };
+    }
+    out.push(snap);
+  }
+  return out;
+}
+
 setInterval(() => {
   const tickStart = TEST_HOOKS ? performance.now() : 0;
-  if (!isPaused && !simHeldForLoad) stepSimulation();
+  // Strategy mode phase 5: time scale (see timeScale). Paused / loading: no steps, snapshots every tick.
+  let stepped = false;
+  if (!isPaused && !simHeldForLoad) {
+    simAccum += timeScale;
+    while (simAccum >= 1) {
+      stepSimulation();
+      simAccum -= 1;
+      stepped = true;
+    }
+  }
   runDueAutosave();
+  enemyRegimentTick++;
+  // Slow motion: nothing moved this tick, so no snapshot (the client interpolates across the gap).
+  if (!stepped && !isPaused && !simHeldForLoad) {
+    updateVision();
+    flushExplored();
+    return;
+  }
 
   // Outside the pause gate so a player joining mid-pause still gets their surroundings.
   updateVision();
@@ -14317,6 +14470,9 @@ setInterval(() => {
     cycleProgress: (cycleTick % (DAY_TICKS + NIGHT_TICKS)) / (DAY_TICKS + NIGHT_TICKS),
     dayFraction: DAY_TICKS / (DAY_TICKS + NIGHT_TICKS),
     isPaused,
+    ...(pausedBy ? { pausedBy } : {}),
+    timeScale,
+    ...(timeScaleBy ? { timeScaleBy } : {}),
     effects: pendingEffects,
     // The first standing Town Center (the starting one unless it fell); townCenters has them all.
     townCenterHp: townCenters[0] ? Math.max(0, townCenters[0].hp) : 0,
@@ -14361,6 +14517,12 @@ setInterval(() => {
   // wildlife within view distance + margin (their camera never shows more), keeping snapshots small.
   const cull = WORLD_TILES_X > SNAPSHOT_CULL_MIN_WORLD && snapshot.type === "snapshot";
   const sharedPayload = cull ? "" : JSON.stringify(snapshot);
+  // Strategy mode phase 5: enemy summaries for strategy-mode players, on the first broadcast once due.
+  let enemyJson: string | null = null;
+  if (enemyRegimentTick >= ENEMY_REGIMENT_REFRESH_TICKS && Array.from(players.values()).some((p) => p.view)) {
+    enemyRegimentTick = 0;
+    enemyJson = JSON.stringify(enemyRegimentsNow());
+  }
   for (const player of players.values()) {
     if (player.socket.readyState === player.socket.OPEN) {
       let payload = sharedPayload;
@@ -14376,6 +14538,7 @@ setInterval(() => {
         }
         payload = JSON.stringify({ ...snapshot, mobs: snapshot.mobs.filter((m) => near(m.x, m.y)), wildlife: wl });
       }
+      if (enemyJson !== null && player.view) payload = payload.slice(0, -1) + ',"enemyRegiments":' + enemyJson + "}";
       player.socket.send(withPlayerHeroes(withPlayerProfile(withPlayerFights(payload, player), player), player));
     }
   }
