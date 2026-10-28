@@ -37,6 +37,8 @@ export interface RegimentCard {
   slot?: number;
   // Stance icon name when every member shares one.
   stance?: string;
+  // Strategy mode phase 3: the current order ("Hold", "Move +2"), when the whole regiment shares one.
+  order?: string;
   selected: boolean;
 }
 
@@ -109,7 +111,7 @@ export class RegimentCardBar {
         this.els.set(c.id, ce);
       }
       const hp = Math.round(c.hpFrac * 100);
-      const sig = [c.name, c.icon, c.count, c.maxCount, hp, c.roleLabel, c.slot ?? "", c.stance ?? "", c.selected].join("|");
+      const sig = [c.name, c.icon, c.count, c.maxCount, hp, c.roleLabel, c.slot ?? "", c.stance ?? "", c.order ?? "", c.selected].join("|");
       if (sig === ce.sig) continue;
       ce.sig = sig;
       const el = ce.el;
@@ -122,7 +124,7 @@ export class RegimentCardBar {
         `<img class="reg-icon" src="${c.icon}" alt="" />` +
         (c.stance ? `<img class="reg-stance" src="/sprites/icon-stance-${c.stance}.png" alt="" />` : "") +
         `<span class="reg-name"></span>` +
-        `<span class="reg-meta"><span class="reg-count">${c.count}/${c.maxCount}</span><span class="reg-role" style="color:${c.roleColor}">${c.roleLabel}</span></span>` +
+        `<span class="reg-meta"><span class="reg-count">${c.count}/${c.maxCount}</span><span class="reg-role" style="color:${c.roleColor}">${c.roleLabel}</span>${c.order ? `<span class="reg-order">${c.order}</span>` : ""}</span>` +
         `<span class="reg-hp"><span style="width:${hp}%;background:${hpColor}"></span></span>`;
       // Names (hero names, later renames) go in as text, never as markup.
       el.querySelector(".reg-name")!.textContent = c.name;

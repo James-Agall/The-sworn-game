@@ -1387,3 +1387,74 @@ Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 2 (regiments, card bar, 
    Deselect (Esc), Ctrl+3: task force 3 disbands and its units return to their original cards.
 7. In strategy mode with no group 1 assigned, 1 still picks the Wood Wall build tool; building, demolishing and
    building panels still work. The command / spell bars sit above the card bar, not under it.
+
+## Strategy mode phase 3 — landed 2026-10-28
+
+Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 3 (regiment orders, formations, waypoints).
+
+- **Shared formation code**: `formationRanks`, `placeFastOnWings`, `computeFormationTargets`,
+  `computeLineFormationTargets` and their constants moved out of main.ts into `formation.ts`, byte-identical in
+  `client/src/` and `server/src/` (`cmp` them, like protocol.ts), plus `planOrderFormation(units, x, y, facing?,
+  width?)`. Tactical-mode right-click / right-drag call the same code as before (behaviour unchanged).
+- **Server-authoritative orders** (`server/src/index.ts` "Regiment orders", after `armyRegimentsForSnapshot`):
+  `regimentOrder {regimentIds?, unitIds?, order, queue?}` makes its units an **order group** (`g<N>`). Phase 2
+  regiments are derived per snapshot, so order state lives on the units (a unit is in at most one group), not on
+  the `tf<N>` / `h:<id>` / `a:...` ids. The server forms the slots with formation.ts and moves each unit with the
+  body of commandMove (`rallyUnit`), squad = group id (so `updateSquadMarch` paces it), with the old 0-0.6 s
+  staggered start done server-side. Kinds: move, attackMove (halts on contact in a member's stance alert range,
+  closes in keeping its shape, battle discipline fights, resumes 3 s after clear), retreat (to the point or 3
+  tiles in front of the nearest Town Center, targets dropped, +10% speed, fights only within 1.2 tiles), hold
+  (leash 0.5 tile until the next order), follow (a colonist or `p:<playerId>`; re-forms 2.5 tiles behind it when
+  it moves 2 tiles), attack (a commanded attack until the mob is gone). Shift queues up to 8; a queued order on a
+  holding / following / idle group starts at once. A per-unit commandMove / commandAttack / commandAttackHearth
+  takes the unit out of its group. Validation: known kind, finite in-bounds point, facing normalised, width
+  clamped 0-64 tiles, target id checked (no following your own member), commandable units only, 20 orders/s per
+  socket, ignored while a load holds the sim. Groups are not saved. Per tick: only the pending staggered starts;
+  groups are checked every 5 ticks; formations are solved per order / re-form.
+- **Protocol (additive, both copies byte-identical)**: `ArmyOrderKind`, `ArmyOrder {kind, x?, y?, facing? (radians),
+  width? (tiles), targetId?}`, `ARMY_ORDER_QUEUE_MAX`, `ArmyOrderGroupSnapshot {id, unitIds, order, queue,
+  facing?, width?, engaged?}`, ClientMessage `regimentOrder`, snapshot `orderGroups?` (on change + every 10th tick).
+- **Client** (`client/src/strategy/orders.ts` markers, hooks in main.ts, buttons in index.html), strategy mode only:
+  right-click = move keeping the group's last facing / width (translated); right-drag = a line, width = drag
+  length, facing away from the units or toward an enemy within 12 tiles, Alt while releasing flips it; the ghost
+  slots + facing arrow while dragging are the exact server solve. Ctrl+right-click or Shift+F (then right-click /
+  drag) = attack-move; right-click an enemy = attack; Shift+G then right-click a friendly unit / the rider =
+  follow; Shift+H hold; Shift+R retreat; Shift on any right-click queues a waypoint. Order buttons
+  (Atk-move / Hold / Retreat / Follow) on the command bar in strategy mode; Shift+click Hold / Retreat queues.
+  Esc disarms a pending Shift+F / Shift+G. Map markers: path line from each group through its current order and
+  numbered waypoint pips (colour per kind), a line to a followed / attacked target, a diamond over a holding
+  group, slot ghosts of the current + queued orders for selected groups. Cards show the order ("Hold", "Move +2",
+  "Engaged").
+- **Hotkeys / conflicts**: every plain letter stays a build hotkey (building and demolishing stay on in strategy
+  mode), so the order keys are Shift+F / G / H / R, active only in strategy mode with soldiers selected (the build
+  tool handler skips them); Shift+1-4 stays the spell bar, Z / X / E stances, Ctrl / Alt+1-9 groups as before.
+- **Test**: `server/orders-test.mjs` (own server, port 20633, world 160): line formation exactly the formation.ts
+  slots (front 192 px, rear line 80 px behind, units on their slots), 3-waypoint queue in order and formed at the
+  last, attack-move halts / fights / resumes, retreat ignores a goblin and rallies by the Town Center, commandMove
+  leaves the group, follow re-forms by the rider, junk orders ignored. 14/14 pass.
+- **Deviations from the plan**: order state is on units (order groups), not on stored regiments; the group list is
+  its own snapshot field (`orderGroups`) instead of fields on `ArmyRegimentSnapshot`; `width` is in tiles (not
+  units); order hotkeys are Shift+letter (plan: plain F / H / G / R, which are build hotkeys); no `by` (player name)
+  on orders; no re-form after casualties / reinforcements mid-hold (a new order re-forms); attack takes one mob
+  (no attack-an-enemy-banner spread: enemy banners come in phase 5); the plan's `formation-test` /
+  `regiment-test` / `battle-discipline-test` re-runs were skipped (minimal-testing instruction).
+- **Caveats**: queued-waypoint ghosts are approximated client-side (facing the march from the previous waypoint)
+  until that order starts; Alt held during a right-drag may focus the browser menu bar in some browsers; a group
+  blocked on its path keeps its order until given another.
+
+**Manual browser check (strategy mode phase 3)**
+1. Tab into strategy mode, select a regiment card, right-drag a line: ghost slots + a facing arrow follow the
+   cursor; release: a path line + pip "1" shows, the units march and stop exactly on the ghost slots (the marker
+   goes once they have formed).
+   Drag the other way / hold Alt while releasing: they face the other side.
+2. Right-click elsewhere: the block moves without reshaping (same width, same facing).
+3. Shift+right-click three points: numbered pips 1-2-3 joined by lines; they march them in order and end formed at 3.
+4. Shift+F (or the Atk-move button, or Ctrl+right-click) toward a raid / monster: the regiment halts at contact,
+   fights (card reads "Engaged"), then carries on to the point 3 s after it is clear.
+5. Shift+R: the regiment heads for the Town Center, running past monsters, and forms up in front of it.
+6. Shift+H next to monsters: the regiment stays put (card "Hold"), only striking what comes into reach.
+7. Shift+G then right-click your rider: green line to the rider; Tab out, ride off, Tab back: the regiment has
+   followed and formed up behind you.
+8. Right-click a monster: the regiment attacks it (red line to the target).
+9. With nothing selected, F / H / G / R still pick their build tools; building and demolishing still work.
+   Tactical mode (Tab out): right-click / right-drag formations behave exactly as before.

@@ -251,6 +251,38 @@ export interface ArmyRegimentSnapshot {
   taskForce?: number;
 }
 
+// Strategy mode phase 3 (additive): regiment orders. An order goes to a set of units (the selected
+// regiments' members); the server keeps it as an order group (snapshot `orderGroups`) with a queue
+// of up to ARMY_ORDER_QUEUE_MAX waypoints. Formations come from formation.ts (planOrderFormation).
+export type ArmyOrderKind = "move" | "attackMove" | "retreat" | "hold" | "follow" | "attack";
+export const ARMY_ORDER_QUEUE_MAX = 8;
+export interface ArmyOrder {
+  kind: ArmyOrderKind;
+  // World px: the formation's front-centre (move / attackMove; retreat: optional, default the nearest
+  // Town Center).
+  x?: number;
+  y?: number;
+  // Radians, the direction the front faces; omitted = the direction of travel (the server fills it in
+  // once the order starts).
+  facing?: number;
+  // Frontage of a line in tiles (a dragged line); omitted = a block (or the group's last width).
+  width?: number;
+  // follow: a colonist id or "p:<playerId>"; attack: a mob id.
+  targetId?: string;
+}
+export interface ArmyOrderGroupSnapshot {
+  id: string;
+  unitIds: string[];
+  // The order being carried out (null = done, the units stand where it left them).
+  order: ArmyOrder | null;
+  queue: ArmyOrder[];
+  // The group's last formation (radians / tiles), kept by a plain click-move.
+  facing?: number;
+  width?: number;
+  // attackMove: halted and fighting.
+  engaged?: boolean;
+}
+
 export interface ColonistSnapshot {
   id: string;
   kind: ColonistKind;
@@ -695,6 +727,9 @@ export type ClientMessage =
   // Task force N is also a manual regiment (strategy mode phase 2): its units leave their auto regiment and
   // any other task force; an empty unitIds disbands it (the units return to their auto regiments).
   | { type: "assignTaskForce"; slot: number; unitIds: string[] }
+  // Strategy mode phase 3: an order for the members of the regiments and / or the units; queue = append
+  // to their order group's queue (Shift). A per-unit commandMove / commandAttack takes a unit out of it.
+  | { type: "regimentOrder"; regimentIds?: string[]; unitIds?: string[]; order: ArmyOrder; queue?: boolean }
   | { type: "exchangeResource"; from: "wood" | "iron" | "rock"; to: "wood" | "iron" | "rock" }
   | { type: "buyWithGold"; item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock" }
   | { type: "buildingInfo"; tileX: number; tileY: number }
@@ -788,6 +823,9 @@ export type ServerMessage =
       // Strategy mode phase 2: every player regiment; sent when membership / names change and every 10th
       // tick otherwise (omitted in between and by older servers: keep the last one).
       armyRegiments?: ArmyRegimentSnapshot[];
+      // Strategy mode phase 3: every order group; sent when one changes and every 10th tick otherwise
+      // (omitted in between: keep the last one).
+      orderGroups?: ArmyOrderGroupSnapshot[];
       // Tile indices (y * worldTilesX + x) of Farm Plots whose crop is mature and being harvested.
       readyFarmPlots: number[];
       // Farm Plots freshly sown (bare soil) and resting fallow; any other plot is growing.

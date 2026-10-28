@@ -72,6 +72,8 @@ import { FIGHT_WINDOW_SECONDS } from "./protocol";
 import { MOB_ROLE, isRearRole, SIEGE_KINDS, unitRole, HERO_CLASSES, HERO_CLASS_LABEL } from "./protocol";
 import type { CombatRole, SiegeKind } from "./protocol";
 import { SPELLS, SPELL_SLOT_COUNT } from "./protocol";
+import { LINE_FACE_ENEMY_TILES, computeFormationTargets, computeLineFormationTargets as sharedLineFormation, planOrderFormation } from "./formation";
+import type { FormationPlan } from "./formation";
 import type { SpellId, SpellBookSnapshot } from "./protocol";
 import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
 import { EDGE_SCROLL_PX, PAN_SCREEN_PX_PER_S, StrategyCamera, TACTICAL_ZOOM, WHEEL_ZOOM_STEP } from "./strategy/camera";
@@ -80,6 +82,8 @@ import type { BannerGroup, LodBand, UnitDot, VisionSource } from "./strategy/lod
 import { RegimentCardBar } from "./strategy/cards";
 import type { RegimentCard } from "./strategy/cards";
 import type { ArmyRegimentSnapshot, RegimentClass } from "./protocol";
+import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind } from "./protocol";
+import { ORDER_COLORS, ORDER_LABEL, OrderMarkers } from "./strategy/orders";
 
 const SERVER_URL = "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -300,52 +304,6 @@ const SELECTION_COLOR = 0x00e5ff;
 const DRAG_THRESHOLD_PX = 6;
 const UNIT_HIT_RADIUS = 10;
 
-// Formation rank for a group move order, front to back (0 = closest to the destination, i.e.
-// leads the march). Knights (shock) and rams take the front row's centre (centreShock); cavalry
-// (fast) the wings; catapults join the archers' rear line.
-const FORMATION_RANK: Record<string, number> = {
-  knight: 0,
-  cavalry: 0,
-  batteringRam: 0,
-  catapult: 1,
-  militia: 0,
-  spearman: 0,
-  pikeman: 0,
-  archer: 1,
-  bishop: 2,
-  artillery: 3,
-};
-// Max units per row within a rank's block before wrapping to a row behind it (Age of Empires'
-// box formation uses a similarly tight, roughly-square block per unit type rather than one
-// long line).
-const FORMATION_MAX_ROW_WIDTH = 5;
-// Slot spacing (both across a row and between rows), in tiles, by the group's stance. A unit's
-// visible footprint is ~23-28px wide and ~31px tall (26.5px body + the HP bar 18px above center), so
-// at 1.0 (32px) rows touched edge-to-edge and diagonal facings (22.6px x/y offsets) overlapped; 1.25
-// leaves a visible gap at every facing. Defensive deliberately packs tighter than that (a shield-wall
-// look, sprites may touch on diagonals); Aggressive spreads out. Battle discipline (2026-10-23) tightened
-// every stance (was 0.9 / 1.25 / 1.5): server bodies are 14px across, so even 0.8 (25.6px) never overlaps.
-const FORMATION_SPACING_TILES: Record<Stance, number> = {
-  defensive: 0.8,
-  normal: 1.05,
-  aggressive: 1.3,
-};
-// Line-drag formations (computeLineFormationTargets). Minimum frontage: never more than
-// LINE_MAX_DEPTH_ROWS rows deep, so a short drag can't string the group out in single file -
-//   minCols = min(n, max(2, ceil(n / LINE_MAX_DEPTH_ROWS))),  minLength = (minCols - 1) * spacing
-// (n = selected units): a drag shorter than minLength is widened symmetrically about its midpoint.
-// A long drag spreads the front row along it, but no wider apart than LINE_MAX_GAP x spacing (the row
-// stays centred on the line), so a thin line never opens gaps for enemies to walk through.
-const LINE_MAX_DEPTH_ROWS = 3;
-const LINE_MAX_GAP = 1.5;
-// Regiments & roles: with a front rank in the order, the ranged rank (archers) forms a second line
-// REAR_LINE_OFFSET_TILES behind the front row (or one spacing behind the last front row, if deeper),
-// at most REAR_LINE_WIDTH x the front's columns wide; fast roles take the two ends of the front row.
-// A line drag faces away from the units' side, or toward the nearest enemy within
-// LINE_FACE_ENEMY_TILES of the line's centre.
-const REAR_LINE_OFFSET_TILES = 2.5;
-const REAR_LINE_WIDTH = 0.7;
-const LINE_FACE_ENEMY_TILES = 12;
 // Role rings drawn under soldiers and monsters (see drawRoleRings).
 const ROLE_COLORS: Record<CombatRole, number> = {
   frontline: 0xd8a24a,
@@ -4323,7 +4281,11 @@ async function main() {
 
   const commandBarEl = document.getElementById("command-bar")!;
   commandBarEl.addEventListener("click", (e) => {
-    const stance = (e.target as HTMLElement).closest<HTMLElement>(".cmd-btn")?.dataset.stance as Stance | undefined;
+    const btn = (e.target as HTMLElement).closest<HTMLElement>(".cmd-btn");
+    // Strategy mode phase 3: order buttons (Shift+click queues Hold / Retreat).
+    const orderKind = btn?.dataset.order as ArmyOrderKind | undefined;
+    if (orderKind && strategyCam.inStrategy && selectedIds.size > 0) issueOrder(orderKind, e.shiftKey);
+    const stance = btn?.dataset.stance as Stance | undefined;
     if (stance && selectedIds.size > 0) sendMessage({ type: "commandStance", unitIds: Array.from(selectedIds), stance });
   });
   // Keep a click on the bar from starting a map selection drag / deselecting.
@@ -4334,7 +4296,10 @@ async function main() {
     redrawSelectionRings();
     refreshSelectionHud();
     // Banner borders / card highlights follow the selection without waiting for a snapshot.
-    if (strategyCam.inStrategy) buildStrategyBanners();
+    if (strategyCam.inStrategy) {
+      buildStrategyBanners();
+      redrawOrderMarkers();
+    }
   }
 
   function findNearest<T extends { x: number; y: number }>(
@@ -4355,177 +4320,6 @@ async function main() {
     return best;
   }
 
-  interface FormationPlan {
-    // rear: a ranged slot on the second line (drawn as a square in the marker / line guide).
-    targets: Map<string, { x: number; y: number; rear?: boolean }>;
-    spacing: number;
-    // Unit facing (current centroid -> destination); the front row is centered on the destination.
-    fx: number;
-    fy: number;
-    frontHalfWidth: number;
-  }
-
-  // Spreads a group move order into per-unit destinations: melee in front (closest to the
-  // clicked point), archers behind them, healers behind that, with a reserved rear rank for a
-  // future artillery-type unit. Units within a rank sit side by side, perpendicular to the
-  // direction of travel. A single unit just goes straight to the clicked point.
-  // One spacing per block (mixing per-unit spacing would break the grid): the most common stance
-  // among the group's guard-tier units; a tie for most common, or no guard units at all, is "normal".
-  function groupStance(units: ColonistSnapshot[]): Stance {
-    const counts: Record<Stance, number> = { defensive: 0, normal: 0, aggressive: 0 };
-    for (const u of units) if (u.kind !== "bishop") counts[u.stance]++;
-    const top = Math.max(counts.defensive, counts.normal, counts.aggressive);
-    const leaders = (Object.keys(counts) as Stance[]).filter((st) => counts[st] === top);
-    return leaders.length === 1 ? leaders[0] : "normal";
-  }
-
-  // Recomputed from scratch on every order from the units' live positions (no remembered squad).
-  function computeFormationTargets(
-    units: ColonistSnapshot[],
-    destX: number,
-    destY: number
-  ): FormationPlan {
-    const result = new Map<string, { x: number; y: number; rear?: boolean }>();
-    const spacing = tileSize * FORMATION_SPACING_TILES[groupStance(units)];
-    if (units.length <= 1) {
-      for (const u of units) result.set(u.id, { x: destX, y: destY });
-      return { targets: result, spacing, fx: 1, fy: 0, frontHalfWidth: 0 };
-    }
-
-    let cx = 0;
-    let cy = 0;
-    for (const u of units) {
-      cx += u.x;
-      cy += u.y;
-    }
-    cx /= units.length;
-    cy /= units.length;
-
-    let fx = destX - cx;
-    let fy = destY - cy;
-    const flen = Math.hypot(fx, fy);
-    if (flen < 1) {
-      fx = 1;
-      fy = 0;
-    } else {
-      fx /= flen;
-      fy /= flen;
-    }
-    const px = -fy;
-    const py = fx;
-
-    const { ranks, fast, hasFront } = formationRanks(units);
-
-    // Age of Empires-style box formation: each rank fills its own tight rectangular block (up
-    // to FORMATION_MAX_ROW_WIDTH units per row, wrapping to further rows behind), rather than
-    // one long single-file line — so a 10-pikeman front rank reads as a 5x2 block, not a row
-    // ten units wide. Ranks stack front-to-back by how many rows the ranks ahead actually used.
-    const sortedRanks = Array.from(ranks.keys()).sort((a, b) => a - b);
-    let depthRows = 0;
-    let frontHalfWidth = 0;
-    let rearShift = 0;
-    for (const rank of sortedRanks) {
-      const members = ranks.get(rank)!;
-      const rear = hasFront && isRearRole(unitRole(members[0].kind, members[0].heroClass), members[0].kind);
-      // The ranged rank stands REAR_LINE_OFFSET_TILES behind the front row (further if the front is deeper).
-      if (rear) rearShift = Math.max(rearShift, REAR_LINE_OFFSET_TILES * tileSize - depthRows * spacing);
-      // Hand out slots in the same spatial order units already stand in, so nobody walks across
-      // a squadmate: the units furthest along the facing take the rank's front row, and within a
-      // row, left-to-right (along p) maps to left-to-right. Assigning by array order instead sent
-      // e.g. the leftmost unit to the rightmost slot, and mirrored every row on a turn.
-      members.sort((a, b) => Number(isShockUnit(b)) - Number(isShockUnit(a)) || b.x * fx + b.y * fy - (a.x * fx + a.y * fy));
-      const n = members.length;
-      const cols = Math.min(FORMATION_MAX_ROW_WIDTH, n);
-      const rowCount = Math.ceil(n / cols);
-      if (depthRows === 0) frontHalfWidth = ((cols - 1) / 2) * spacing;
-      for (let row = 0; row < rowCount; row++) {
-        const rowMembers = centreShock(
-          members.slice(row * cols, row * cols + cols).sort((a, b) => a.x * px + a.y * py - (b.x * px + b.y * py))
-        );
-        const rowN = rowMembers.length;
-        const depth = (depthRows + row) * spacing + rearShift;
-        rowMembers.forEach((u, i) => {
-          const lateral = (i - (rowN - 1) / 2) * spacing;
-          result.set(u.id, {
-            x: destX - depth * fx + lateral * px,
-            y: destY - depth * fy + lateral * py,
-            rear,
-          });
-        });
-      }
-      depthRows += rowCount;
-    }
-    placeFastOnWings(fast, result, destX, destY, px, py, frontHalfWidth, spacing);
-    return { targets: result, spacing, fx, fy, frontHalfWidth };
-  }
-
-  // Shock troops (knights) and front-rank siege (rams) lead their rank and take the centre of its row.
-  function isShockUnit(u: ColonistSnapshot): boolean {
-    const role = unitRole(u.kind, u.heroClass);
-    return role === "shock" || (role === "siege" && !isRearRole(role, u.kind));
-  }
-  // `row` sorted left to right; returns it with the shock units moved onto the centre-most slots (each
-  // group keeping its left-to-right order, so nobody crosses a squadmate within it).
-  function centreShock(row: ColonistSnapshot[]): ColonistSnapshot[] {
-    const shock = row.filter(isShockUnit);
-    if (shock.length === 0 || shock.length === row.length) return row;
-    const rest = row.filter((u) => !isShockUnit(u));
-    const mid = (row.length - 1) / 2;
-    const centre = row
-      .map((_, i) => i)
-      .sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid) || a - b)
-      .slice(0, shock.length)
-      .sort((a, b) => a - b);
-    const out: ColonistSnapshot[] = new Array(row.length);
-    centre.forEach((slot, i) => (out[slot] = shock[i]));
-    let j = 0;
-    for (let i = 0; i < row.length; i++) if (!out[i]) out[i] = rest[j++];
-    return out;
-  }
-
-  // Formation ranks by FORMATION_RANK, minus the fast-role units (they take the front row's ends,
-  // see placeFastOnWings). hasFront: some unit fights in the front rank (frontline / shock / fast),
-  // so the ranged rank forms a second line behind it.
-  function formationRanks(units: ColonistSnapshot[]) {
-    const ranks = new Map<number, ColonistSnapshot[]>();
-    const fast: ColonistSnapshot[] = [];
-    let hasFront = false;
-    for (const u of units) {
-      const role = unitRole(u.kind, u.heroClass);
-      if (role && !isRearRole(role, u.kind)) hasFront = true;
-      if (role === "fast") {
-        fast.push(u);
-        continue;
-      }
-      // Hero phase 3: a hero ranks by its class's role (champion front, marksman / mage rear line).
-      const rank = u.kind === "hero" ? (isRearRole(role) ? 1 : 0) : FORMATION_RANK[u.kind] ?? FORMATION_RANK.bishop;
-      const bucket = ranks.get(rank);
-      if (bucket) bucket.push(u);
-      else ranks.set(rank, [u]);
-    }
-    return { ranks, fast, hasFront };
-  }
-
-  // Fast roles (flankers) on the wings: alternately right / left of the front row, one gap further out each.
-  function placeFastOnWings(
-    fast: ColonistSnapshot[],
-    targets: Map<string, { x: number; y: number; rear?: boolean }>,
-    cx: number,
-    cy: number,
-    ux: number,
-    uy: number,
-    halfWidth: number,
-    gap: number
-  ) {
-    fast
-      .slice()
-      .sort((a, b) => a.x * ux + a.y * uy - (b.x * ux + b.y * uy))
-      .forEach((u, i) => {
-        const side = i % 2 === 0 ? 1 : -1;
-        const lateral = side * (halfWidth + gap * (Math.floor(i / 2) + 1));
-        targets.set(u.id, { x: cx + lateral * ux, y: cy + lateral * uy });
-      });
-  }
 
   // Newest order number per unit. A rank's delayed commandMove is dropped for any unit that has
   // since been given another order (move or attack), so the tail of a staggered formation order
@@ -4610,71 +4404,11 @@ async function main() {
     }
   });
 
-  // Custom-width formation: the player dragged a line on the ground; units spread evenly along it
-  // (front rank first, further ranks in rows behind) facing away from where they are now.
-  function computeLineFormationTargets(
-    units: ColonistSnapshot[],
-    ax: number,
-    ay: number,
-    bx: number,
-    by: number
-  ): FormationPlan & { cx: number; cy: number } {
-    const spacing = tileSize * FORMATION_SPACING_TILES[groupStance(units)];
-    const dragLen = Math.hypot(bx - ax, by - ay);
-    const ux = dragLen >= 1 ? (bx - ax) / dragLen : 1;
-    const uy = dragLen >= 1 ? (by - ay) / dragLen : 0;
-    const cx = (ax + bx) / 2;
-    const cy = (ay + by) / 2;
-    // Minimum frontage (see LINE_MAX_DEPTH_ROWS): a short drag is widened about its midpoint.
-    const minCols = Math.min(units.length, Math.max(2, Math.ceil(units.length / LINE_MAX_DEPTH_ROWS)));
-    const L = Math.max(dragLen, (minCols - 1) * spacing, 1);
-    let ucx = 0;
-    let ucy = 0;
-    for (const u of units) {
-      ucx += u.x;
-      ucy += u.y;
-    }
-    ucx /= units.length;
-    ucy /= units.length;
-    // Front = the perpendicular pointing away from the units' current side of the line, or toward the
-    // nearest enemy near the line (LINE_FACE_ENEMY_TILES) when there is one.
-    let fx = -uy;
-    let fy = ux;
-    const foe = findNearest(latestMobs, cx, cy, LINE_FACE_ENEMY_TILES * tileSize);
-    const toward = foe ? (foe.x - cx) * fx + (foe.y - cy) * fy : (cx - ucx) * fx + (cy - ucy) * fy;
-    if (toward < 0) {
-      fx = -fx;
-      fy = -fy;
-    }
-    const cols = Math.max(minCols, Math.min(units.length, Math.floor(L / spacing) + 1));
-    const step = cols > 1 ? Math.min(L / (cols - 1), spacing * LINE_MAX_GAP) : 0;
-    const { ranks, fast, hasFront } = formationRanks(units);
-    const targets = new Map<string, { x: number; y: number; rear?: boolean }>();
-    // Depth (px behind the line) of the next row; the ranged rank behind a front is a narrower second
-    // line REAR_LINE_OFFSET_TILES back (see REAR_LINE_WIDTH).
-    let depth = 0;
-    let frontHalfWidth = -1;
-    for (const rank of Array.from(ranks.keys()).sort((a, b) => a - b)) {
-      const members = ranks.get(rank)!;
-      const rear = hasFront && depth > 0 && isRearRole(unitRole(members[0].kind, members[0].heroClass), members[0].kind);
-      const rankCols = rear ? Math.max(1, Math.min(members.length, Math.ceil(cols * REAR_LINE_WIDTH))) : cols;
-      if (rear) depth = Math.max(depth, REAR_LINE_OFFSET_TILES * tileSize);
-      members.sort((a, b) => Number(isShockUnit(b)) - Number(isShockUnit(a)) || b.x * fx + b.y * fy - (a.x * fx + a.y * fy));
-      const rowCount = Math.ceil(members.length / rankCols);
-      for (let row = 0; row < rowCount; row++) {
-        const rowMembers = centreShock(
-          members.slice(row * rankCols, row * rankCols + rankCols).sort((a, b) => a.x * ux + a.y * uy - (b.x * ux + b.y * uy))
-        );
-        if (frontHalfWidth < 0) frontHalfWidth = ((rowMembers.length - 1) * step) / 2;
-        rowMembers.forEach((u, i) => {
-          const lateral = (i - (rowMembers.length - 1) / 2) * step;
-          targets.set(u.id, { x: cx - depth * fx + lateral * ux, y: cy - depth * fy + lateral * uy, rear });
-        });
-        depth += spacing;
-      }
-    }
-    placeFastOnWings(fast, targets, cx, cy, ux, uy, Math.max(0, frontHalfWidth), step || spacing);
-    return { targets, spacing, fx, fy, frontHalfWidth: ((cols - 1) * step) / 2, cx, cy };
+  // Custom-width formation (formation.ts): the player dragged a line on the ground; the units face away
+  // from their side of it, or toward the nearest enemy within LINE_FACE_ENEMY_TILES of its centre.
+  function computeLineFormationTargets(units: ColonistSnapshot[], ax: number, ay: number, bx: number, by: number) {
+    const foe = findNearest(latestMobs, (ax + bx) / 2, (ay + by) / 2, LINE_FACE_ENEMY_TILES * tileSize);
+    return sharedLineFormation(units, ax, ay, bx, by, { foe });
   }
 
   function dispatchFormationMove(units: ColonistSnapshot[], destX: number, destY: number, order: number) {
@@ -5963,7 +5697,7 @@ async function main() {
       for (const effect of message.effects) spawnEffect(effect);
       syncFights(message.fights);
       drawMinimap(message.players, message.colonists, message.mobs);
-      strategyOnSnapshot(message.players, message.armyRegiments);
+      strategyOnSnapshot(message.players, message.armyRegiments, message.orderGroups);
       syncGoal(message.goal);
       // Long days: dawn/dusk respawn windows (cycle lengths come from the server, never hard-coded).
       if (message.respawn) {
@@ -6073,7 +5807,7 @@ async function main() {
     keys.add(key);
     // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool. Nor does a plain
     // digit that recalls a control group in strategy mode.
-    if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e)) return;
+    if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e) || strategyOrderKey(e)) return;
     const match = TOOLS.find((t) => t.key === key);
     if (match) {
       if (match.tile !== TileType.Empty && match.category !== activeCategory) {
@@ -6213,8 +5947,112 @@ async function main() {
     canvasPointer = null;
   });
 
+  // ---- Strategy mode phase 3: regiment orders (strategy/orders.ts draws them). Right-click = move as the
+  // formation stands (its last width / facing kept), right-drag = a line (width = drag length, facing away
+  // from the units or toward a nearby enemy, Alt flips), Ctrl+right-click or Shift+F then right-click =
+  // attack-move, right-click an enemy = attack, Shift+G then right-click a friend = follow, Shift+H hold,
+  // Shift+R retreat; Shift on any of these queues it. Shift+letter so every build hotkey stays as it is.
+  type ArmedOrder = "attackMove" | "follow";
+  const ORDER_HOTKEYS: Record<string, ArmyOrderKind> = { f: "attackMove", g: "follow", h: "hold", r: "retreat" };
+  let armedOrder: ArmedOrder | null = null;
+  let orderGroups: ArmyOrderGroupSnapshot[] = [];
+  let orderGroupOfUnit = new Map<string, ArmyOrderGroupSnapshot>();
+  const orderMarkers = new OrderMarkers();
+
+  function armOrder(kind: ArmedOrder | null) {
+    armedOrder = kind;
+    app.canvas.style.cursor = kind ? "crosshair" : "";
+    for (const b of Array.from(commandBarEl.querySelectorAll<HTMLElement>(".cmd-btn[data-order]"))) b.classList.toggle("active", b.dataset.order === kind);
+  }
+
+  function sendRegimentOrder(order: ArmyOrder, queue: boolean) {
+    if (selectedIds.size === 0) return;
+    const msg: ClientMessage = { type: "regimentOrder", unitIds: Array.from(selectedIds), order, ...(queue ? { queue: true } : {}) };
+    sendMessage(msg);
+  }
+
+  // A dragged line as an order: centre, facing (the shared line rule, Alt flips it) and width in tiles.
+  function strategyLine(units: ColonistSnapshot[], ax: number, ay: number, bx: number, by: number, flip: boolean) {
+    const plan = computeLineFormationTargets(units, ax, ay, bx, by);
+    const facing = Math.atan2(flip ? -plan.fy : plan.fy, flip ? -plan.fx : plan.fx);
+    return { x: plan.cx, y: plan.cy, facing, width: Math.hypot(bx - ax, by - ay) / tileSize };
+  }
+
+  // A plain click keeps the formation (facing + width) of the order group the selection exactly is; a
+  // queued click leaves it to the server (it faces its march at the group's width).
+  function keptFormation(queued: boolean): { facing?: number; width?: number } {
+    if (queued) return {};
+    const alive = latestColonists.filter((c) => selectedIds.has(c.id));
+    const g = alive.length > 0 ? orderGroupOfUnit.get(alive[0].id) : undefined;
+    if (!g || !alive.every((c) => orderGroupOfUnit.get(c.id) === g)) return {};
+    const groupAlive = g.unitIds.filter((id) => latestColonists.some((c) => c.id === id)).length;
+    if (groupAlive !== alive.length) return {};
+    return { ...(g.facing !== undefined ? { facing: g.facing } : {}), ...(g.width !== undefined ? { width: g.width } : {}) };
+  }
+
+  // Follow target under the cursor: a colonist outside the selection, else a player ("p:<id>").
+  function followTargetAt(x: number, y: number): string | null {
+    const hit = Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / camZoom);
+    const unit = findNearest(latestColonists.filter((c) => !selectedIds.has(c.id)), x, y, hit);
+    if (unit) return unit.id;
+    const p = findNearest(latestPlayersForSpells.filter((pl) => !pl.dead), x, y, Math.max(hit, 14));
+    return p ? `p:${p.id}` : null;
+  }
+
+  // Shift+F / G / H / R with soldiers selected in strategy mode (else the key is a build hotkey as ever).
+  function strategyOrderKey(e: KeyboardEvent): ArmyOrderKind | null {
+    if (!strategyCam.inStrategy || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return null;
+    const kind = ORDER_HOTKEYS[e.key.toLowerCase()];
+    if (!kind || !latestColonists.some((c) => selectedIds.has(c.id) && isCommandable(c))) return null;
+    return kind;
+  }
+
+  // Order panel button / hotkey: attack-move and follow wait for a right-click, hold / retreat go now.
+  function issueOrder(kind: ArmyOrderKind, queue: boolean) {
+    if (kind === "attackMove" || kind === "follow") {
+      armOrder(armedOrder === kind ? null : kind);
+      return;
+    }
+    sendRegimentOrder({ kind }, queue);
+  }
+
+  function setOrderGroups(groups: ArmyOrderGroupSnapshot[]) {
+    orderGroups = groups;
+    orderGroupOfUnit = new Map();
+    for (const g of groups) for (const id of g.unitIds) orderGroupOfUnit.set(id, g);
+  }
+
+  function redrawOrderMarkers() {
+    orderMarkers.layer.visible = strategyCam.active;
+    if (!strategyCam.active) return;
+    const units = colonistsById();
+    orderMarkers.draw(orderGroups, {
+      units,
+      selected: selectedIds,
+      zoom: camZoom,
+      targetPos: (o) => {
+        if (!o.targetId) return null;
+        if (o.kind === "attack") {
+          const m = latestMobs.find((mob) => mob.id === o.targetId);
+          return m && strategySeesEnemy(m.x, m.y) ? m : null;
+        }
+        if (o.targetId.startsWith("p:")) return latestPlayersForSpells.find((p) => p.id === o.targetId!.slice(2)) ?? null;
+        return units.get(o.targetId) ?? null;
+      },
+    });
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && armedOrder) armOrder(null);
+    const kind = strategyOrderKey(e);
+    if (!kind) return;
+    e.preventDefault();
+    if (!e.repeat) issueOrder(kind, false);
+  });
+
   function toggleStrategy() {
     const now = performance.now();
+    armOrder(null);
     if (strategyCam.inStrategy) {
       strategyCam.exit(now);
       return;
@@ -6273,6 +6111,7 @@ async function main() {
     strategyDots.visible = map;
     strategyFog.sprite.visible = active;
     strategyBanners.layer.visible = active;
+    orderMarkers.layer.visible = active;
     if (map && strategicMapDirty) {
       strategicMapSprite.texture.source.update();
       strategicMapDirty = false;
@@ -6432,11 +6271,20 @@ async function main() {
         hero: reg.cls === "hero",
         slot: reg.taskForce,
         stance: stance ?? undefined,
+        order: regimentOrderLabel(reg),
         selected: alive > 0 && selected === alive,
       });
     }
     strategyBanners.sync(banners);
     regimentCards.render(cards);
+  }
+
+  // The order glyph of a regiment whose members all share one order group ("Hold", "Move +2").
+  function regimentOrderLabel(reg: ArmyRegimentSnapshot): string | undefined {
+    const g = reg.unitIds.length > 0 ? orderGroupOfUnit.get(reg.unitIds[0]) : undefined;
+    if (!g || !g.order || !reg.unitIds.every((id) => orderGroupOfUnit.get(id) === g)) return undefined;
+    const label = g.engaged ? "Engaged" : ORDER_LABEL[g.order.kind];
+    return g.queue.length > 0 ? `${label} +${g.queue.length}` : label;
   }
 
   function setArmyRegiments(regiments: ArmyRegimentSnapshot[]) {
@@ -6462,8 +6310,10 @@ async function main() {
     return Number(digit[1]);
   }
 
-  function strategyOnSnapshot(players: PlayerSnapshot[], regiments: ArmyRegimentSnapshot[] | undefined) {
+  function strategyOnSnapshot(players: PlayerSnapshot[], regiments: ArmyRegimentSnapshot[] | undefined, groups: ArmyOrderGroupSnapshot[] | undefined) {
     if (regiments) setArmyRegiments(regiments);
+    if (groups) setOrderGroups(groups);
+    redrawOrderMarkers();
     if (strategyCam.active) {
       if (performance.now() - fogUpdatedAt >= STRATEGY_FOG_REFRESH_MS) {
         strategyFog.update(explored, liveVisionSources(players, latestColonists));
@@ -6486,9 +6336,13 @@ async function main() {
     strategyFog.reset(worldTilesX, worldTilesY, tileSize);
     strategyBanners.clear();
     setArmyRegiments([]);
+    setOrderGroups([]);
+    orderMarkers.clear();
+    armOrder(null);
     regimentCards.render([]);
     strategyDots.clear();
     worldLayer.addChild(strategyDots);
+    worldLayer.addChild(orderMarkers.layer);
     worldLayer.addChild(strategyBanners.layer);
   }
 
@@ -6601,6 +6455,9 @@ async function main() {
     worldY: number;
     dragging: boolean;
     order: number;
+    // Strategy mode: the regiment order a release sends (Shift at press = queue it).
+    kind?: "move" | "attackMove";
+    queue?: boolean;
   }
   let orderPress: OrderPress | null = null;
   const lineGuide = new Graphics();
@@ -6669,11 +6526,24 @@ async function main() {
       );
       const clicked = pointerTile(x, y);
       const hearthIndex = clicked ? clicked.tileY * worldTilesX + clicked.tileX : -1;
+      // Strategy mode phase 3: regiment orders (attack, follow, move / attack-move with a line drag).
+      const strategic = strategyCam.inStrategy;
+      const armed = armedOrder;
+      if (strategic) armOrder(null);
       if (mob) {
-        socket.send(JSON.stringify({ type: "commandAttack", unitIds, mobId: mob.id }));
+        if (strategic) sendRegimentOrder({ kind: "attack", targetId: mob.id }, e.shiftKey);
+        else socket.send(JSON.stringify({ type: "commandAttack", unitIds, mobId: mob.id }));
       } else if (clicked && latestHearths.has(hearthIndex)) {
         // Camp hearths: right-click a standing hearth to send the selection against it.
         socket.send(JSON.stringify({ type: "commandAttackHearth", unitIds, tileX: clicked.tileX, tileY: clicked.tileY }));
+      } else if (strategic && armed === "follow") {
+        const targetId = followTargetAt(x, y);
+        if (targetId) sendRegimentOrder({ kind: "follow", targetId }, e.shiftKey);
+      } else if (strategic) {
+        // Wait for release: a click moves the formation as it stands, a drag lays out a line.
+        const kind = armed === "attackMove" || e.ctrlKey ? "attackMove" : "move";
+        orderPress = { pointerId: e.pointerId, screenX: e.clientX, screenY: e.clientY, worldX: x, worldY: y, dragging: false, order, kind, queue: e.shiftKey };
+        app.canvas.setPointerCapture(e.pointerId);
       } else if (units.length > 1) {
         // Wait for release: a click orders the normal block, a drag stretches a custom line.
         orderPress = { pointerId: e.pointerId, screenX: e.clientX, screenY: e.clientY, worldX: x, worldY: y, dragging: false, order };
@@ -6705,6 +6575,11 @@ async function main() {
       const rect = app.canvas.getBoundingClientRect();
       const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
       const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
+      if (press.kind) {
+        const shape = press.dragging && units.length > 1 ? strategyLine(units, press.worldX, press.worldY, x, y, e.altKey) : { x: press.worldX, y: press.worldY, ...keptFormation(press.queue === true) };
+        sendRegimentOrder({ kind: press.kind, ...shape }, press.queue === true);
+        return;
+      }
       if (press.dragging && units.length > 1) {
         const plan = computeLineFormationTargets(units, press.worldX, press.worldY, x, y);
         dispatchPlannedMove(units, plan, plan.cx, plan.cy, press.order);
@@ -6826,7 +6701,21 @@ async function main() {
       if (orderPress.dragging) {
         const units = latestColonists.filter((c) => selectedIds.has(c.id));
         lineGuide.clear();
-        if (units.length > 1) {
+        if (units.length > 1 && orderPress.kind) {
+          // Strategy mode: the ghost is the very formation the server will form (formation.ts).
+          const line = strategyLine(units, orderPress.worldX, orderPress.worldY, x, y, e.altKey);
+          const plan = planOrderFormation(units, line.x, line.y, line.facing, line.width);
+          for (const pos of plan.targets.values()) drawSlot(lineGuide, pos, 0.7);
+          const color = orderPress.kind === "attackMove" ? ORDER_COLORS.attackMove : SELECTION_COLOR;
+          lineGuide.moveTo(orderPress.worldX, orderPress.worldY).lineTo(x, y).stroke({ width: 3, color, alpha: 0.85 });
+          // Facing arrow off the line's middle.
+          const fx = Math.cos(line.facing);
+          const fy = Math.sin(line.facing);
+          const ex = line.x + fx * 26;
+          const ey = line.y + fy * 26;
+          lineGuide.moveTo(line.x, line.y).lineTo(ex, ey).stroke({ width: 3, color, alpha: 0.85 });
+          lineGuide.poly([ex + fx * 8, ey + fy * 8, ex - fy * 6, ey + fx * 6, ex + fy * 6, ey - fx * 6]).fill({ color, alpha: 0.85 });
+        } else if (units.length > 1) {
           const plan = computeLineFormationTargets(units, orderPress.worldX, orderPress.worldY, x, y);
           for (const pos of plan.targets.values()) drawSlot(lineGuide, pos, 0.7);
           lineGuide

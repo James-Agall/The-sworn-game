@@ -86,7 +86,12 @@ import {
   ArmyRegimentSnapshot,
   RegimentClass,
   HERO_CLASS_ROLE,
+  ArmyOrder,
+  ArmyOrderKind,
+  ArmyOrderGroupSnapshot,
+  ARMY_ORDER_QUEUE_MAX,
 } from "./protocol.js";
+import { planOrderFormation } from "./formation.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
 // The size is chosen per world (main menu / restart / save); COLONY_WORLD_SIZE is only the boot default.
@@ -133,6 +138,9 @@ interface Player {
   // strategy mode, else null (see handleSetView); big-world snapshot culling also keeps what is inside it.
   view: { x: number; y: number; halfW: number; halfH: number } | null;
   viewSetAt: number;
+  // Strategy mode phase 3: regimentOrder rate limit (REGIMENT_ORDER_MAX_PER_S per one-second window).
+  orderWindowAt: number;
+  orderWindowCount: number;
 }
 
 interface TileCoord {
@@ -4574,19 +4582,27 @@ function handleCommandMove(unitIds: string[], x: number, y: number, squad?: unkn
   for (const id of unitIds) {
     const c = colonists.get(id);
     if (!c || !isCommandable(c)) continue;
-    c.squadId = typeof squad === "string" && squad.length > 0 && squad.length <= 64 ? squad : null;
-    c.rallyTileX = tile.x;
-    c.rallyTileY = tile.y;
-    c.rallyX = x;
-    c.rallyY = y;
-    c.targetMobId = null;
-    c.targetHearthId = null;
-    commandedTargets.delete(c.id);
-    c.healTargetType = null;
-    c.healTargetId = null;
-    c.path = [];
-    c.repathCooldown = 0;
+    // A per-unit order takes the unit out of its regiment order group (strategy mode phase 3).
+    leaveOrderGroup(c.id);
+    rallyUnit(c, x, y, typeof squad === "string" && squad.length > 0 && squad.length <= 64 ? squad : null);
   }
+}
+
+// The move part of commandMove for one unit: its rally slot becomes (x, y) (in bounds), targets dropped.
+function rallyUnit(c: Colonist, x: number, y: number, squad: string | null) {
+  const tile = tileOfPixel(x, y);
+  c.squadId = squad;
+  c.rallyTileX = tile.x;
+  c.rallyTileY = tile.y;
+  c.rallyX = x;
+  c.rallyY = y;
+  c.targetMobId = null;
+  c.targetHearthId = null;
+  commandedTargets.delete(c.id);
+  c.healTargetType = null;
+  c.healTargetId = null;
+  c.path = [];
+  c.repathCooldown = 0;
 }
 
 // Colonist id -> the mob an explicit Attack order sent it after: that chase ignores the line leash
@@ -4594,10 +4610,11 @@ function handleCommandMove(unitIds: string[], x: number, y: number, squad?: unkn
 const commandedTargets = new Map<string, string>();
 
 function handleCommandAttack(unitIds: string[], mobId: string) {
-  if (!mobs.has(mobId)) return;
+  if (!mobs.has(mobId) || !Array.isArray(unitIds)) return;
   for (const id of unitIds) {
     const c = colonists.get(id);
     if (!c || !isGuardOrMilitiaKind(c.kind)) continue;
+    leaveOrderGroup(c.id);
     c.targetMobId = mobId;
     c.targetHearthId = null;
     commandedTargets.set(c.id, mobId);
@@ -4781,6 +4798,444 @@ function armyRegimentsForSnapshot(): ArmyRegimentSnapshot[] | undefined {
   armyRegimentSignature = signature;
   armyRegimentTicks = 0;
   return regiments;
+}
+
+// ---- Regiment orders (strategy mode phase 3; docs PLAN-strategy-mode.md §4 "Order execution").
+// Regiments are derived per snapshot (above), so order state lives on the UNITS: a regimentOrder makes
+// the units it names an order group ("g<N>": the members of every regiment in the selection), holding the
+// current order and a queue (Shift waypoints, ARMY_ORDER_QUEUE_MAX). A unit is in at most one group; a
+// per-unit commandMove / commandAttack / commandAttackHearth (tactical mode) takes it out. Groups are not
+// saved. The server forms the slots itself with formation.ts (the client's ghosts use the same code) and
+// moves each unit through rallyUnit + its squad (squadId = group id, so updateSquadMarch paces it), with
+// the client's old 0-0.6 s staggered start done here. Work per tick: the pending staggered starts only;
+// groups are checked every ORDER_UPDATE_TICKS, formations solved per order / re-form only.
+//   move        form at (x, y) with the given facing / width (or the group's last width), then done
+//   attackMove  as move; a valid enemy within a member's stance alert range halts the group (shifted so
+//               its nearest member can reach it) and battle discipline fights; resumes 3 s after clear
+//   retreat     to (x, y) or in front of the nearest Town Center, targets dropped, +10% speed, fights
+//               only an enemy within RETREAT_CORNERED_TILES
+//   hold        stays where it is (or on its slots), leash HOLD_LEASH_TILES; lasts until the next order
+//   follow      re-forms FOLLOW_BEHIND_TILES behind a colonist / player when it moves FOLLOW_REFORM_TILES
+//   attack      a commanded attack on a mob (as commandAttack) until it is gone
+interface OrderGroup {
+  id: string;
+  unitIds: Set<string>;
+  current: ArmyOrder | null;
+  queue: ArmyOrder[];
+  // Last formation (radians / tiles; width undefined = block): a click-move keeps it.
+  facing?: number;
+  width?: number;
+  // The slots' centroid (arrival) and the tick the current order started.
+  destX: number;
+  destY: number;
+  startedTick: number;
+  engaged: boolean;
+  clearSince: number;
+  followAt: { x: number; y: number } | null;
+}
+const ORDER_UPDATE_TICKS = 5;
+const REGIMENT_ORDER_MAX_PER_S = 20;
+const ORDER_DISPATCH_STEP_MS = 80;
+const ORDER_DISPATCH_MAX_SPREAD_MS = 600;
+// Arrival is not checked until every staggered start has landed.
+const ORDER_ARRIVE_GRACE_TICKS = TICK_RATE;
+const ORDER_WIDTH_MAX_TILES = 64;
+const ATTACK_MOVE_RESUME_TICKS = 3 * TICK_RATE;
+const RETREAT_CORNERED_TILES = 1.2;
+const RETREAT_SPEED_FACTOR = 1.1;
+const RETREAT_TC_OFFSET_TILES = 3;
+const HOLD_LEASH_TILES = 0.5;
+const FOLLOW_REFORM_TILES = 2;
+const FOLLOW_BEHIND_TILES = 2.5;
+const ARMY_ORDER_KINDS: ArmyOrderKind[] = ["move", "attackMove", "retreat", "hold", "follow", "attack"];
+const orderGroups = new Map<string, OrderGroup>();
+const orderGroupOfUnit = new Map<string, OrderGroup>();
+// Staggered start: unit id -> the slot it heads for once cycleTick reaches `at`.
+const pendingRallies = new Map<string, { at: number; x: number; y: number; group: string; squad: string | null }>();
+let nextOrderGroupId = 1;
+let orderGroupSignature = "";
+let orderGroupTicks = 0;
+
+function leaveOrderGroup(id: string) {
+  pendingRallies.delete(id);
+  const g = orderGroupOfUnit.get(id);
+  if (!g) return;
+  orderGroupOfUnit.delete(id);
+  g.unitIds.delete(id);
+  if (g.unitIds.size === 0) orderGroups.delete(g.id);
+}
+
+function clearOrderGroups() {
+  orderGroups.clear();
+  orderGroupOfUnit.clear();
+  pendingRallies.clear();
+  orderGroupSignature = "";
+}
+
+// The kind of order the unit's group is carrying out (hold / retreat change updateGuardColonist).
+function unitOrderKind(c: Colonist): ArmyOrderKind | undefined {
+  return orderGroupOfUnit.get(c.id)?.current?.kind;
+}
+
+// Alive commandable members; the dead / gone are dropped from the group.
+function groupMembers(g: OrderGroup): Colonist[] {
+  const out: Colonist[] = [];
+  for (const id of g.unitIds) {
+    const c = colonists.get(id);
+    if (c && isCommandable(c)) {
+      out.push(c);
+    } else {
+      g.unitIds.delete(id);
+      orderGroupOfUnit.delete(id);
+      pendingRallies.delete(id);
+    }
+  }
+  return out;
+}
+
+function centroidOf(units: { x: number; y: number }[]): { x: number; y: number } {
+  let x = 0;
+  let y = 0;
+  for (const u of units) {
+    x += u.x;
+    y += u.y;
+  }
+  return { x: x / Math.max(1, units.length), y: y / Math.max(1, units.length) };
+}
+
+// Stop where it stands (the rally slot moves onto it); a fight in progress goes on.
+function haltUnit(c: Colonist, dx = 0, dy = 0) {
+  pendingRallies.delete(c.id);
+  const x = clamp(c.x + dx, 1, WORLD_TILES_X * TILE_SIZE - 1);
+  const y = clamp(c.y + dy, 1, WORLD_TILES_Y * TILE_SIZE - 1);
+  const t = tileOfPixel(x, y);
+  Object.assign(c, { rallyTileX: t.x, rallyTileY: t.y, rallyX: x, rallyY: y, squadId: null });
+  commandedTargets.delete(c.id);
+  if (dx !== 0 || dy !== 0) c.path = [];
+}
+
+// Validated copy of a client order (null = rejected): known kind, finite in-bounds point, normalised
+// facing, clamped width, a bounded target id.
+function sanitizeArmyOrder(raw: unknown): ArmyOrder | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const kind = o.kind as ArmyOrderKind;
+  if (!ARMY_ORDER_KINDS.includes(kind)) return null;
+  const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+  const order: ArmyOrder = { kind };
+  if (num(o.x) && num(o.y)) {
+    order.x = clamp(o.x, 1, WORLD_TILES_X * TILE_SIZE - 1);
+    order.y = clamp(o.y, 1, WORLD_TILES_Y * TILE_SIZE - 1);
+  } else if (kind === "move" || kind === "attackMove") {
+    return null;
+  }
+  if (num(o.facing)) order.facing = Math.atan2(Math.sin(o.facing), Math.cos(o.facing));
+  if (num(o.width)) order.width = clamp(o.width, 0, ORDER_WIDTH_MAX_TILES);
+  if (kind === "follow" || kind === "attack") {
+    if (typeof o.targetId !== "string" || o.targetId.length === 0 || o.targetId.length > 80) return null;
+    order.targetId = o.targetId;
+  }
+  return order;
+}
+
+// A follow target: "p:<playerId>" (alive) or a colonist id.
+function followTargetPos(targetId: string): { x: number; y: number } | null {
+  if (targetId.startsWith("p:")) {
+    const p = players.get(targetId.slice(2));
+    return p && !p.dead ? p : null;
+  }
+  return colonists.get(targetId) ?? null;
+}
+
+function handleRegimentOrder(player: Player, msg: { regimentIds?: unknown; unitIds?: unknown; order?: unknown; queue?: unknown }) {
+  if (simHeldForLoad) return;
+  const now = Date.now();
+  if (now - player.orderWindowAt >= 1000) {
+    player.orderWindowAt = now;
+    player.orderWindowCount = 0;
+  }
+  if (++player.orderWindowCount > REGIMENT_ORDER_MAX_PER_S) return;
+  const order = sanitizeArmyOrder(msg.order);
+  if (!order) return;
+  const ids = new Set<string>();
+  if (Array.isArray(msg.regimentIds) && msg.regimentIds.length > 0) {
+    const wanted = new Set(msg.regimentIds.slice(0, 64).filter((r): r is string => typeof r === "string"));
+    for (const r of armyRegimentsNow()) if (wanted.has(r.id)) for (const id of r.unitIds) ids.add(id);
+  }
+  if (Array.isArray(msg.unitIds)) for (const id of msg.unitIds.slice(0, 1000)) if (typeof id === "string") ids.add(id);
+  const units: Colonist[] = [];
+  for (const id of ids) {
+    const c = colonists.get(id);
+    if (c && isCommandable(c)) units.push(c);
+  }
+  if (units.length === 0) return;
+  if (order.kind === "attack" && !mobs.has(order.targetId!)) return;
+  if (order.kind === "follow" && (!followTargetPos(order.targetId!) || ids.has(order.targetId!))) return;
+  // The same units as an existing group: Shift appends to its queue (a hold / follow / finished order
+  // gives way at once), a plain order replaces its orders but keeps its formation memory.
+  const prev = orderGroupOfUnit.get(units[0].id);
+  const same = !!prev && prev.unitIds.size === units.length && units.every((c) => orderGroupOfUnit.get(c.id) === prev);
+  if (prev && same) {
+    if (msg.queue === true && prev.current && prev.current.kind !== "hold" && prev.current.kind !== "follow") {
+      if (prev.queue.length < ARMY_ORDER_QUEUE_MAX) prev.queue.push(order);
+      return;
+    }
+    if (msg.queue !== true) prev.queue = [];
+    startArmyOrder(prev, order);
+    return;
+  }
+  for (const c of units) leaveOrderGroup(c.id);
+  const g: OrderGroup = {
+    id: `g${nextOrderGroupId++}`, unitIds: new Set(units.map((c) => c.id)), current: null, queue: [],
+    destX: 0, destY: 0, startedTick: cycleTick, engaged: false, clearSince: -1, followAt: null,
+  };
+  orderGroups.set(g.id, g);
+  for (const c of units) orderGroupOfUnit.set(c.id, g);
+  startArmyOrder(g, order);
+}
+
+// Slots from formation.ts at (x, y); nearest-to-its-slot units start first, the rest staggered.
+function formGroupAt(g: OrderGroup, members: Colonist[], x: number, y: number, facing: number | undefined, width: number | undefined) {
+  const plan = planOrderFormation(members, x, y, facing, width);
+  g.facing = Math.atan2(plan.fy, plan.fx);
+  g.width = width;
+  const slots = Array.from(plan.targets.values());
+  const c0 = centroidOf(slots);
+  g.destX = c0.x;
+  g.destY = c0.y;
+  const toSlot = (c: Colonist) => {
+    const s = plan.targets.get(c.id)!;
+    return Math.hypot(s.x - c.x, s.y - c.y);
+  };
+  const order = members.slice().sort((a, b) => toSlot(a) - toSlot(b));
+  const stepMs = order.length > 1 ? Math.min(ORDER_DISPATCH_STEP_MS, ORDER_DISPATCH_MAX_SPREAD_MS / (order.length - 1)) : 0;
+  const squad = order.length > 1 ? g.id : null;
+  order.forEach((c, i) => {
+    const s = plan.targets.get(c.id)!;
+    const sx = clamp(s.x, 1, WORLD_TILES_X * TILE_SIZE - 1);
+    const sy = clamp(s.y, 1, WORLD_TILES_Y * TILE_SIZE - 1);
+    const delay = Math.round((i * stepMs * TICK_RATE) / 1000);
+    if (delay === 0) {
+      pendingRallies.delete(c.id);
+      rallyUnit(c, sx, sy, squad);
+    } else {
+      pendingRallies.set(c.id, { at: cycleTick + delay, x: sx, y: sy, group: g.id, squad });
+    }
+  });
+}
+
+function startArmyOrder(g: OrderGroup, order: ArmyOrder) {
+  g.current = order;
+  g.engaged = false;
+  g.clearSince = -1;
+  g.followAt = null;
+  g.startedTick = cycleTick;
+  const members = groupMembers(g);
+  if (members.length === 0) return;
+  switch (order.kind) {
+    case "move":
+    case "attackMove":
+    case "retreat": {
+      if (order.x === undefined || order.y === undefined) {
+        // Retreat: form RETREAT_TC_OFFSET_TILES in front of the nearest Town Center, facing out.
+        const c0 = centroidOf(members);
+        const tc = nearestTownCenter(c0.x, c0.y);
+        if (!tc) {
+          finishArmyOrder(g, members);
+          return;
+        }
+        const tcx = (tc.x + 0.5) * TILE_SIZE;
+        const tcy = (tc.y + 0.5) * TILE_SIZE;
+        const d = Math.hypot(c0.x - tcx, c0.y - tcy);
+        const dx = d >= 1 ? (c0.x - tcx) / d : 0;
+        const dy = d >= 1 ? (c0.y - tcy) / d : 1;
+        order.x = clamp(tcx + dx * RETREAT_TC_OFFSET_TILES * TILE_SIZE, 1, WORLD_TILES_X * TILE_SIZE - 1);
+        order.y = clamp(tcy + dy * RETREAT_TC_OFFSET_TILES * TILE_SIZE, 1, WORLD_TILES_Y * TILE_SIZE - 1);
+        order.facing ??= Math.atan2(dy, dx);
+      }
+      // No facing given (a queued click): face the way it marches, at the group's last width.
+      const width = order.width ?? (order.facing === undefined ? g.width : undefined);
+      formGroupAt(g, members, order.x, order.y, order.facing, width);
+      // Filled in, so the client's ghost of the current order matches the slots.
+      order.facing = g.facing;
+      if (width !== undefined) order.width = width;
+      return;
+    }
+    case "hold":
+      // Off the march: stop here; already on (or near) its slot: keep the slot.
+      for (const c of members) {
+        pendingRallies.delete(c.id);
+        if (Math.hypot(c.rallyX - c.x, c.rallyY - c.y) > TILE_SIZE) haltUnit(c);
+        commandedTargets.delete(c.id);
+        c.squadId = null;
+      }
+      return;
+    case "follow":
+      updateFollowOrder(g, members);
+      return;
+    case "attack": {
+      const mob = mobs.get(order.targetId!);
+      if (!mob) {
+        finishArmyOrder(g, members);
+        return;
+      }
+      for (const c of members) {
+        pendingRallies.delete(c.id);
+        if (!isGuardOrMilitiaKind(c.kind)) continue;
+        c.targetMobId = mob.id;
+        c.targetHearthId = null;
+        commandedTargets.set(c.id, mob.id);
+        c.squadId = null;
+        c.path = [];
+        c.repathCooldown = 0;
+      }
+      return;
+    }
+  }
+}
+
+// The current order is done: the next queued one starts, else the group stands (after an attack, where
+// the fight left it).
+function finishArmyOrder(g: OrderGroup, members: Colonist[]) {
+  const was = g.current?.kind;
+  g.current = null;
+  g.engaged = false;
+  const next = g.queue.shift();
+  if (next) {
+    startArmyOrder(g, next);
+    return;
+  }
+  if (was === "attack") for (const c of members) if (!c.targetMobId) haltUnit(c);
+}
+
+// Formed = the centroid of the members still marching (not fighting) is within SQUAD_SETTLE_TILES of the
+// slots' centroid.
+function groupArrived(g: OrderGroup, members: Colonist[]): boolean {
+  if (cycleTick - g.startedTick < ORDER_ARRIVE_GRACE_TICKS) return false;
+  const free = members.filter((c) => !c.targetMobId);
+  const c0 = centroidOf(free.length > 0 ? free : members);
+  return Math.hypot(c0.x - g.destX, c0.y - g.destY) <= SQUAD_SETTLE_TILES * TILE_SIZE;
+}
+
+// The nearest enemy an attack-move reacts to: awake, not routing / leaving (pursuit safety), within a
+// member's stance alert range. `reach` = that member's leash + attack range.
+function attackMoveContact(members: Colonist[]): { mob: Mob; member: Colonist; d: number } | null {
+  const c0 = centroidOf(members);
+  let spread = 0;
+  for (const c of members) spread = Math.max(spread, Math.abs(c.x - c0.x), Math.abs(c.y - c0.y));
+  const box = spread + STANCE_ALERT_RANGE_TILES.aggressive * TILE_SIZE;
+  let best: { mob: Mob; member: Colonist; d: number } | null = null;
+  for (const m of mobs.values()) {
+    if (Math.abs(m.x - c0.x) > box || Math.abs(m.y - c0.y) > box) continue;
+    if (m.hp <= 0 || m.passive || isDormantGuardian(m) || m.tactic === "rout" || m.tactic === "leave") continue;
+    for (const c of members) {
+      const d = Math.hypot(m.x - c.x, m.y - c.y);
+      if (d <= STANCE_ALERT_RANGE_TILES[c.stance] * TILE_SIZE && (!best || d < best.d)) best = { mob: m, member: c, d };
+    }
+  }
+  return best;
+}
+
+function updateAttackMove(g: OrderGroup, members: Colonist[]) {
+  const contact = attackMoveContact(members);
+  const fighting = members.some((c) => !!c.targetMobId && mobs.has(c.targetMobId));
+  if (!g.engaged && !contact) {
+    if (groupArrived(g, members)) finishArmyOrder(g, members);
+    return;
+  }
+  if (contact && !fighting && (!g.engaged || !members.some((c) => c.state === "returning"))) {
+    // Halt (first contact) or close in: the whole group shifts toward the enemy until its nearest member
+    // has it inside its slot's reach, keeping the formation's shape; then battle discipline fights.
+    const reach = LINE_LEASH_TILES[contact.member.stance] * TILE_SIZE + unitStats(contact.member).range;
+    const shift = Math.max(0, contact.d - reach * 0.8);
+    const dx = ((contact.mob.x - contact.member.x) / (contact.d || 1)) * shift;
+    const dy = ((contact.mob.y - contact.member.y) / (contact.d || 1)) * shift;
+    if (!g.engaged || shift > TILE_SIZE / 2) for (const c of members) haltUnit(c, dx, dy);
+  }
+  g.engaged = true;
+  if (contact || fighting) {
+    g.clearSince = -1;
+    return;
+  }
+  if (g.clearSince < 0) {
+    g.clearSince = cycleTick;
+  } else if (cycleTick - g.clearSince >= ATTACK_MOVE_RESUME_TICKS && g.current) {
+    // Clear for 3 s: on to the same destination and formation (re-formed from here).
+    startArmyOrder(g, g.current);
+  }
+}
+
+function updateFollowOrder(g: OrderGroup, members: Colonist[]) {
+  const t = followTargetPos(g.current!.targetId!);
+  if (!t) {
+    finishArmyOrder(g, members);
+    return;
+  }
+  const from = g.followAt ?? centroidOf(members);
+  const moved = Math.hypot(t.x - from.x, t.y - from.y);
+  if (g.followAt && moved <= FOLLOW_REFORM_TILES * TILE_SIZE) return;
+  const dx = moved >= 1 ? (t.x - from.x) / moved : Math.cos(g.facing ?? 0);
+  const dy = moved >= 1 ? (t.y - from.y) / moved : Math.sin(g.facing ?? 0);
+  g.followAt = { x: t.x, y: t.y };
+  const x = clamp(t.x - dx * FOLLOW_BEHIND_TILES * TILE_SIZE, 1, WORLD_TILES_X * TILE_SIZE - 1);
+  const y = clamp(t.y - dy * FOLLOW_BEHIND_TILES * TILE_SIZE, 1, WORLD_TILES_Y * TILE_SIZE - 1);
+  formGroupAt(g, members, x, y, Math.atan2(dy, dx), g.width);
+}
+
+// Per tick: the staggered starts that are due. Every ORDER_UPDATE_TICKS: arrivals, attack-move contact,
+// follow re-forms, attack targets, queue pops.
+function updateOrderGroups() {
+  if (pendingRallies.size > 0) {
+    for (const [id, p] of pendingRallies) {
+      if (cycleTick < p.at) continue;
+      pendingRallies.delete(id);
+      const c = colonists.get(id);
+      if (c && orderGroupOfUnit.get(id)?.id === p.group) rallyUnit(c, p.x, p.y, p.squad);
+    }
+  }
+  if (cycleTick % ORDER_UPDATE_TICKS !== 0) return;
+  for (const g of orderGroups.values()) {
+    const members = groupMembers(g);
+    if (members.length === 0) {
+      orderGroups.delete(g.id);
+      continue;
+    }
+    const o = g.current;
+    if (!o) {
+      const next = g.queue.shift();
+      if (next) startArmyOrder(g, next);
+      continue;
+    }
+    if (o.kind === "move" || o.kind === "retreat") {
+      if (groupArrived(g, members)) finishArmyOrder(g, members);
+    } else if (o.kind === "attackMove") {
+      updateAttackMove(g, members);
+    } else if (o.kind === "follow") {
+      updateFollowOrder(g, members);
+    } else if (o.kind === "attack") {
+      const mob = mobs.get(o.targetId!);
+      if (!mob || mob.hp <= 0) finishArmyOrder(g, members);
+    }
+  }
+}
+
+// Sent when an order group changes, else every ARMY_REGIMENT_REFRESH_TICKS.
+function orderGroupsForSnapshot(): ArmyOrderGroupSnapshot[] | undefined {
+  const list: ArmyOrderGroupSnapshot[] = Array.from(orderGroups.values(), (g) => ({
+    id: g.id,
+    unitIds: Array.from(g.unitIds),
+    order: g.current,
+    queue: g.queue,
+    ...(g.facing !== undefined ? { facing: g.facing } : {}),
+    ...(g.width !== undefined ? { width: g.width } : {}),
+    ...(g.engaged ? { engaged: true } : {}),
+  }));
+  const signature = JSON.stringify(list);
+  orderGroupTicks++;
+  if (signature === orderGroupSignature && orderGroupTicks < ARMY_REGIMENT_REFRESH_TICKS) return undefined;
+  orderGroupSignature = signature;
+  orderGroupTicks = 0;
+  return list;
 }
 
 const EXCHANGE_RATES: Record<string, Record<string, { give: number; get: number }>> = {
@@ -4968,34 +5423,42 @@ function updateGuardColonist(c: Colonist, dt: number) {
     // finish walking it before returnToRally plans the route back to its slot.
     c.path = [];
   }
+  // Strategy mode phase 3: a retreating unit only fights what corners it (RETREAT_CORNERED_TILES).
+  const retreating = unitOrderKind(c) === "retreat";
+  if (retreating && target && Math.hypot(target.x - c.x, target.y - c.y) > RETREAT_CORNERED_TILES * TILE_SIZE + stats.range) {
+    c.targetMobId = null;
+    c.path = [];
+    releaseSlot(c.id);
+    target = undefined;
+  }
 
   if (!target) {
     if (c.repathCooldown > 0) {
       c.repathCooldown--;
     } else {
-      const found = pickGuardTarget(c, stats);
+      const found = retreating ? corneringMob(c) : pickGuardTarget(c, stats);
       if (found) {
         c.targetMobId = found.id;
         target = found;
       } else {
-        c.repathCooldown = MOB_REPATH_TICKS;
+        c.repathCooldown = retreating ? ORDER_UPDATE_TICKS : MOB_REPATH_TICKS;
       }
     }
   }
 
   if (!target) {
     // Camp hearths: no enemy in reach (guardians are fought first, picked above), so the hearth.
-    if (hearthStep(c, stats, dt)) return;
+    if (!retreating && hearthStep(c, stats, dt)) return;
     if (stats.speed === 0) {
       c.state = "idle";
       return;
     }
-    returnToRally(c, dt, squadMarchSpeed.get(c.id) ?? stats.speed);
+    returnToRally(c, dt, (squadMarchSpeed.get(c.id) ?? stats.speed) * (retreating ? RETREAT_SPEED_FACTOR : 1));
     return;
   }
 
   const commanded = commandedTargets.get(c.id) === target.id;
-  const leashPx = LINE_LEASH_TILES[c.stance] * TILE_SIZE;
+  const leashPx = guardLeashTiles(c) * TILE_SIZE;
   // The target has left the zone this unit holds (its slot's leash + attack range): let it go.
   if (!commanded && Math.hypot(target.x - c.rallyX, target.y - c.rallyY) > leashPx + stats.range + TILE_SIZE) {
     dropGuardTarget(c);
@@ -5264,7 +5727,7 @@ function pickGuardTarget(c: Colonist, stats: { range: number; melee: boolean; sp
   // A catapult sees as far as it throws; a ram only takes on what is right next to it.
   const alertPx = c.kind === "batteringRam" ? stats.range + COLONIST_BODY_RADIUS * 2
     : Math.max(STANCE_ALERT_RANGE_TILES[c.stance] * TILE_SIZE, c.kind === "catapult" ? stats.range : 0);
-  const reachPx = LINE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range;
+  const reachPx = guardLeashTiles(c) * TILE_SIZE + stats.range;
   const queues = stats.melee && stats.speed > 0;
   // Regiments: a ranged soldier behind a front rank ranks enemies already in bow range first (those
   // fighting a front-rank soldier before the rest, nearest to the archer first), then the slot rule.
@@ -5284,6 +5747,26 @@ function pickGuardTarget(c: Colonist, stats: { range: number; melee: boolean; sp
     if (queues && !targetHasRoom(c.id, `m:${m.id}`, meleeAttackerCap(MOB_BODY_RADIUS[m.kind] ?? 8))) continue;
     best = m;
     bestDist = score;
+  }
+  return best;
+}
+
+// The slot leash (LINE_LEASH_TILES by stance; a regiment on a Hold order: HOLD_LEASH_TILES).
+function guardLeashTiles(c: Colonist): number {
+  return unitOrderKind(c) === "hold" ? HOLD_LEASH_TILES : LINE_LEASH_TILES[c.stance];
+}
+
+// A retreating unit's only target: an awake enemy within RETREAT_CORNERED_TILES of it.
+function corneringMob(c: Colonist): Mob | null {
+  let best: Mob | null = null;
+  let bestD = RETREAT_CORNERED_TILES * TILE_SIZE;
+  for (const m of mobs.values()) {
+    if (m.passive || isDormantGuardian(m)) continue;
+    const d = Math.hypot(m.x - c.x, m.y - c.y);
+    if (d <= bestD) {
+      best = m;
+      bestD = d;
+    }
   }
   return best;
 }
@@ -8448,6 +8931,7 @@ function handleCommandAttackHearth(unitIds: string[], tx: number, ty: number) {
     const approach = hearthApproachTile(h, c.x, c.y);
     if (!approach) continue;
     const p = tileToPixelCenter(approach);
+    leaveOrderGroup(c.id);
     c.targetHearthId = h.siteId;
     c.targetMobId = null;
     commandedTargets.delete(c.id);
@@ -9661,6 +10145,7 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   reservedResourceTiles.clear();
   taskForces.clear();
   taskForceMax.clear();
+  clearOrderGroups();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
   gravestones.length = 0;
@@ -9914,6 +10399,7 @@ function applyWorld(s: WorldState) {
   buildingTargetsDirty = true;
   refill(taskForces, s.taskForces);
   taskForceMax.clear();
+  clearOrderGroups();
   refill(reservedResourceTiles, s.reservedResourceTiles);
   refill(wardStoneLastTended, s.wardStoneLastTended);
   wardStonesActiveLastTick.clear();
@@ -10170,6 +10656,8 @@ wss.on("connection", (socket, req) => {
     heroesSentVersion: -1,
     view: null,
     viewSetAt: 0,
+    orderWindowAt: 0,
+    orderWindowCount: 0,
   };
   players.set(id, player);
   player.hp = playerMaxHp(player);
@@ -10217,6 +10705,8 @@ wss.on("connection", (socket, req) => {
       handleCommandStance(message.unitIds, message.stance);
     } else if (message.type === "assignTaskForce") {
       handleAssignTaskForce(message.slot, message.unitIds);
+    } else if (message.type === "regimentOrder") {
+      handleRegimentOrder(player, message);
     } else if (message.type === "exchangeResource") {
       handleExchangeResource(message.from, message.to);
     } else if (message.type === "buyWithGold") {
@@ -13452,6 +13942,7 @@ function stepSimulation() {
     if (!collidesAt(player.x, nextY)) player.y = nextY;
   }
 
+  updateOrderGroups();
   updateSquadMarch();
   for (const colonist of colonists.values()) {
     updateColonist(colonist, dt);
@@ -13578,6 +14069,7 @@ setInterval(() => {
     populationCap: settlementStatsNow.reduce((n, st) => n + st.cap, 0),
     taskForces: taskForcesForSnapshot(),
     armyRegiments: armyRegimentsForSnapshot(),
+    orderGroups: orderGroupsForSnapshot(),
     readyFarmPlots: farmPlotIndices("harvesting"),
     sownFarmPlots: farmPlotIndices("sown"),
     fallowFarmPlots: farmPlotIndices("fallow"),
