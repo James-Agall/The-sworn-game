@@ -333,6 +333,33 @@ the client scales. Every file loads optionally: a missing one brings back the ol
   one shared canvas. The sheet has no walk cycle, and mixing these with the old knightWalk frames would swap art styles
   mid-step, so knights keep their old set until a matching walk row exists (see #44).
 
+**Connected walls & oriented gates (#59-#62, wired 2026-10-28).** From
+`art-sources/Pixel Art Wall and Gate Tileset Atlas.png` (a labelled poster on a blurred grey background, cut by
+flood-filling the background up to each sprite's black outline; captions and the outer blur halo dropped). Kept at
+source resolution, each set on one shared canvas with a bottom-centre anchor; the client draws every piece and gate at
+one scale (`WALL_ART_PX_PER_TILE` = 68 atlas px per tile, so a horizontal straight spans ~1.2 tiles and overlaps its
+neighbours). Everything loads optionally (`WALL_ART_URLS`): an incomplete wall set or a missing gate file brings back
+`woodWall` / `stoneWall` / `gateWoodClosed` / `gateWoodOpen`.
+- `woodWall_00..15`, `stoneWall_00..15`: piece = 4-bit mask of the orthogonal neighbours (N=1, E=2, S=4, W=8) that are
+  the same wall material or a Gate (`wallArtFor`). Wood and stone walls do not connect to each other.
+- `woodWallDmg_00..15`, `stoneWallDmg_00..15` (#62 "Damaged"; no "Breached" sheet was delivered): shown below 50% HP
+  (`WALL_DAMAGED_PERMILLE`, the fire-tier-2 line), soot tint as before.
+- Gates `gate{Wood,Stone}{H,V}{Closed,Open,Damaged,Overrun}`: H when a wall/gate is east or west, V when only north/south,
+  H when alone; stone when stone-wall neighbours outnumber wood ones (there is one Gate tile type); state from the
+  snapshot flags (overrun > open > damaged below 50% HP > closed). The old `gateWood*` / `gateStone*` files stay as fallback.
+- Art problems found while cutting (redraw candidates; contact sheets in the session scratchpad, `walls/out/cs_*.png`):
+  - The "vertical" gates (rows 2 and 4) are drawn front-on exactly like the horizontal ones (two posts left and right,
+    door facing the camera), so a gate in a north-south wall does not read as turned; it needs a side-on redraw.
+  - Corner, T and cross pieces are compact log/pillar clusters narrower than a tile, so there is a visible gap between
+    them and the straights that join them. Straights do not meet the tile edge at the same height on every side as the
+    request asked; vertical straights (#5) are two posts / one pillar and a N-S run reads as a column of separate posts.
+  - Mask conventions are hard to read from the art: wood #1 and #8 (N / W end caps) are the same single log as the
+    post #0, and nothing in the end caps or corners points toward the connected side. Stone #6 (SE corner) and #7
+    (T N+E+S) look alike, as do stone #11 (T N+E+W) and #12 (SW corner).
+  - A few pixels of the blurred background halo survive on `gateWoodHOverrun` (top right), `gateWoodVOpen` and
+    `gateWoodVOverrun` (between the posts), and `gateStoneVDamaged` has a see-through slit in the broken door (the
+    source shows background through it).
+
 - `art-sources/Fantasy Game Effect Sprite Sheet.png` (in Downloads, not copied): a lower-quality duplicate of VFX
   sheet 2 with stray gate art. Ignored.
 
@@ -475,38 +502,9 @@ Paper-doll layers drawn over the player's existing mounted-knight frames (no new
 
 ## New requests (2026-10-30 batch) — connected walls & oriented gates
 
-Today every wall tile draws the same single `woodWall.png` / `stoneWall.png` regardless of its neighbours, and the gates
-(`gateWood*.png`, `gateStone*.png`) have no orientation, so walls read as a row of separate blocks and corners/gates
-never line up. These requests make walls AUTO-CONNECT: the game will pick a piece from a 4-bit neighbour mask
-(N=1, E=2, S=4, W=8 — a neighbour counts if it is a wall OR a gate of the same line), so we need one piece per mask value.
-All pieces: same 32x32 tile footprint and ground line as the existing `woodWall.png` / `stoneWall.png`, same camera angle,
-chunky 16-bit pixel art, thick black outline, flat cel-shaded, transparent background, pieces drawn so that neighbouring
-pieces line up seamlessly edge to edge (the wall body must meet the tile edge at the same height and thickness on every
-side that connects). **Scale: match the existing Wood Wall / Stone Wall sprite exactly in height, thickness and palette
-(muted desaturated medieval).** One generation per block, laid out as a labelled grid with a fixed 32x32 cell so cells can be cut
-mechanically.
-
-### 59. Wood wall (palisade) — 16 connector pieces
-
-> Pixel art tileset sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. A wooden palisade wall (sharpened upright logs lashed with rope), matching the existing Wood Wall sprite, drawn as a 4x4 grid of 32x32 cells, each a different connection shape. Row 1: "Post (no neighbours)" mask 0, "North end cap" mask 1 (connects only up), "East end cap" mask 2, "North-East corner" mask 3. Row 2: "South end cap" mask 4, "Vertical straight" mask 5 (N+S), "South-East corner" mask 6, "T-junction N+E+S" mask 7. Row 3: "West end cap" mask 8, "North-West corner" mask 9, "Horizontal straight" mask 10 (E+W), "T-junction N+E+W" mask 11. Row 4: "South-West corner" mask 12, "T-junction N+S+W" mask 13, "T-junction E+S+W" mask 14, "Four-way cross" mask 15. Straights must tile seamlessly in their direction; corners and T-junctions have a slightly thicker lashed post at the joint. Transparent background, feet on the tile's bottom edge, labelled cells, clean PNG.
-
-### 60. Stone wall — 16 connector pieces
-
-> Same layout, cell labels, mask numbering and rules as #59, but for the existing Stone Wall sprite: a mortared grey fieldstone wall with a flat capstone course; corners and T-junctions get a squared corner pillar slightly taller than the straight runs; end caps get a rounded capstone. Match the existing Stone Wall's height, thickness, outline weight and palette exactly. 4x4 grid of 32x32 cells, transparent background, labelled, clean PNG.
-
-### 61. Gates — oriented, open/closed, wood and stone
-
-The current gate sprites are not oriented. Gates connect to walls on two opposite sides, so a gate needs a HORIZONTAL
-(walls to the E and W, passage runs N-S) and a VERTICAL (walls to the N and S, passage runs E-W) version.
-> Pixel art tileset sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Wooden and stone wall gates, matching the existing Wood Wall / Stone Wall and the existing gateWood / gateStone sprites in material, style and scale. Four rows of 32x32 cells (extra width allowed if the gate needs it, keep a fixed cell size): Row 1 "Wood gate — horizontal" (set in an east-west wall): Closed, Open, Damaged-closed, Overrun/broken (hanging off hinges). Row 2 "Wood gate — vertical" (set in a north-south wall): the same four states. Row 3 "Stone gate — horizontal": the same four states, with a stone arch/gatehouse lintel and iron-banded doors. Row 4 "Stone gate — vertical": the same four states. The gate posts at both sides must line up exactly with the wall pieces from #59/#60 (same thickness and height at the connecting edges). Transparent background, feet on the tile's bottom edge, labelled cells, clean PNG.
-
-### 62. Damage states for walls (optional, same grid)
-
-> Same 4x4 connector grids as #59 and #60, three extra sheets per material: "Damaged" (cracked/splintered, a few missing logs or stones, about half HP), "Breached" (a gap or collapsed section in the middle of the straight pieces, rubble at the base, about 15% HP), and for each cell keep the same connection shape and silhouette edges so damaged and intact pieces can swap without breaking the line. Wood: splintered, charred and scorched variants optional. Transparent background, labelled, clean PNG.
-
-Wiring note (for later): the client will compute the 4-bit mask per wall/gate tile, treat gates as walls for connectivity, pick
-the piece by mask (and the gate orientation from which two opposite sides connect), and fall back to the current single
-sprite until these exist.
+#59-#62 were delivered and wired on 2026-10-28 (see "Already sourced"; their prompts are removed). Still wanted:
+side-on "vertical" gates (the delivered ones are front-on), wider corner/T/cross pieces that reach the tile edges on
+their connected sides, and the #62 "Breached" (~15% HP) sheets.
 
 ## Notes on process
 

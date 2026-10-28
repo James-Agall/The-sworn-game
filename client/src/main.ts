@@ -715,6 +715,27 @@ const TILE_OPTIONAL_ALT_ART: Partial<Record<TileType, string>> = {
   [TileType.FruitTree]: "pearTreeRipe",
   [TileType.FruitTreePicked]: "pearTreePicked",
 };
+// Connected walls & oriented gates (SPRITES.md #59-62), loaded optionally: 16 pieces per wall set,
+// indexed by the neighbour mask N=1 E=2 S=4 W=8 (a same-material wall or a Gate connects), a damaged
+// set shown below WALL_DAMAGED_PERMILLE HP, and gates per material x orientation x state. A set with
+// any file missing falls back to the single woodWall / stoneWall / gateWood* art.
+const WALL_PIECE_SETS = ["woodWall", "stoneWall", "woodWallDmg", "stoneWallDmg"] as const;
+type WallPieceSet = (typeof WALL_PIECE_SETS)[number];
+const wallPieceUrl = (set: WallPieceSet, mask: number) => `/sprites/${set}_${String(mask).padStart(2, "0")}.png`;
+const GATE_ART_STATES = ["Closed", "Open", "Damaged", "Overrun"] as const;
+type GateArtState = (typeof GATE_ART_STATES)[number];
+const gateArtUrl = (material: "Wood" | "Stone", orient: "H" | "V", state: GateArtState) =>
+  `/sprites/gate${material}${orient}${state}.png`;
+const WALL_ART_URLS = [
+  ...WALL_PIECE_SETS.flatMap((set) => Array.from({ length: 16 }, (_, mask) => wallPieceUrl(set, mask))),
+  ...(["Wood", "Stone"] as const).flatMap((m) => (["H", "V"] as const).flatMap((o) => GATE_ART_STATES.map((s) => gateArtUrl(m, o, s)))),
+];
+// Same threshold as fire tier 2 (fireTier): below half HP a wall shows its damaged piece / gate.
+const WALL_DAMAGED_PERMILLE = 500;
+// All connector pieces and gates come from one atlas at one pixel scale; drawing them all at this
+// many atlas px per tile keeps their proportions, and a horizontal straight (~80px) spans ~1.2 tiles
+// so neighbouring straights overlap instead of leaving a seam.
+const WALL_ART_PX_PER_TILE = 68;
 // Multiplicative tints that tell a stand-in apart from the building/prop whose art it borrows.
 const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.HunterHut]: 0xa8c08a,
@@ -1230,6 +1251,7 @@ async function main() {
     WARLORD_URLS.idle,
     ...BOULDER_URLS,
     ...BOULDER_IMPACT_URLS,
+    ...WALL_ART_URLS,
   ]);
   // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
   // and each URL should be requested once and resolve to one shared Texture.
@@ -1309,6 +1331,12 @@ async function main() {
   ];
   const HILLS_FLOOR_TEXTURE = loadedTextures["/sprites/hillsFloor.png"];
   const GATE_OPEN_TEXTURE = loadedTextures["/sprites/gateWoodOpen.png"];
+  // Only complete 16-piece sets (see WALL_PIECE_SETS).
+  const WALL_PIECE_TEXTURES = new Map<WallPieceSet, Texture[]>();
+  for (const set of WALL_PIECE_SETS) {
+    const pieces = Array.from({ length: 16 }, (_, mask) => optionalTextures[wallPieceUrl(set, mask)]);
+    if (pieces.every(Boolean)) WALL_PIECE_TEXTURES.set(set, pieces);
+  }
   const SWAMP_FLOOR_TEXTURE = loadedTextures["/sprites/swampFloor.png"];
   const NATURE_DECOR_TEXTURES = NATURE_DECOR.map((d) => ({ texture: loadedTextures[d.url], height: d.height }));
   // tile -> FarmStage -> texture, only for stage art that loaded.
@@ -1801,7 +1829,7 @@ async function main() {
     const next = new Map<number, number>();
     const list = flat ?? [];
     for (let i = 0; i + GATE_SNAPSHOT_STRIDE <= list.length; i += GATE_SNAPSHOT_STRIDE) next.set(list[i], list[i + 1]);
-    const shown = (f: number | undefined) => ((f ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
+    const shown = (f: number | undefined) => (f ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN);
     const prev = gateFlags;
     gateFlags = next;
     for (const index of new Set([...prev.keys(), ...next.keys()])) {
@@ -1950,7 +1978,10 @@ async function main() {
     const stageTexture = !site && stage !== undefined ? FARM_STAGE_TEXTURES.get(tile)?.get(stage) : undefined;
     const levelTexture = TILE_LEVEL_TEXTURES.get(artTile)?.[level - 1];
     const gateOpen = tile === TileType.Gate && ((gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
-    const texture = gateOpen
+    const wallArt = wallArtFor(tx, ty, artTile, !!site);
+    const texture = wallArt
+      ? wallArt
+      : gateOpen
       ? GATE_OPEN_TEXTURE
       : tile === TileType.ConstructionSite && !site
         ? TILE_TEXTURES.get(TileType.Wall) // until the snapshot names the target
@@ -2015,12 +2046,47 @@ async function main() {
           (tileSize * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height
         ) * (TILE_SPRITE_SIZE_FACTOR[artTile as TileType] ?? 1);
     const minHeight = levelTexture ? TILE_LEVEL_MIN_HEIGHT.get(`${artTile}:${level}`) : TILE_MIN_RENDER_HEIGHT.get(artTile);
-    const scale = minHeight ? Math.max(naturalScale, minHeight / texture.height) : naturalScale;
+    const scale = wallArt
+      ? tileSize / WALL_ART_PX_PER_TILE
+      : minHeight
+        ? Math.max(naturalScale, minHeight / texture.height)
+        : naturalScale;
     sprite.scale.set(scale);
     sprite.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize);
     // Row-major index: lower rows draw in front of the rows above them; x breaks ties. Flush
     // ground-like tiles (water) go under all other tile art.
     sprite.zIndex = fillTile ? -1 : index;
+  }
+
+  const isWallTile = (t: number) => t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate;
+
+  // Connector piece / oriented gate art (SPRITES.md #59-62) for a wall or gate at (tx, ty), or
+  // undefined to use the single-sprite fallback. Sites draw undamaged.
+  function wallArtFor(tx: number, ty: number, artTile: number, site: boolean): Texture | undefined {
+    if (!isWallTile(artTile)) return undefined;
+    const index = ty * worldTilesX + tx;
+    const damaged = !site && (damagedBuildings.get(index) ?? 1000) < WALL_DAMAGED_PERMILLE;
+    const n = tileAt(tx, ty - 1);
+    const e = tileAt(tx + 1, ty);
+    const s = tileAt(tx, ty + 1);
+    const w = tileAt(tx - 1, ty);
+    if (artTile === TileType.Gate) {
+      // E/W walls make a horizontal gate, N/S (only) a vertical one; stone when stone walls outnumber wood.
+      const orient = isWallTile(e) || isWallTile(w) ? "H" : isWallTile(n) || isWallTile(s) ? "V" : "H";
+      const around = [n, e, s, w];
+      const stone = around.filter((t) => t === TileType.StoneWall).length > around.filter((t) => t === TileType.Wall).length;
+      const flags = site ? 0 : (gateFlags.get(index) ?? 0);
+      const state: GateArtState =
+        flags & GATE_FLAG_OVERRUN ? "Overrun" : flags & GATE_FLAG_OPEN ? "Open" : damaged ? "Damaged" : "Closed";
+      return optionalTextures[gateArtUrl(stone ? "Stone" : "Wood", orient, state)];
+    }
+    const wood = artTile === TileType.Wall;
+    const pieces =
+      (damaged ? WALL_PIECE_TEXTURES.get(wood ? "woodWallDmg" : "stoneWallDmg") : undefined) ??
+      WALL_PIECE_TEXTURES.get(wood ? "woodWall" : "stoneWall");
+    if (!pieces) return undefined;
+    const joins = (t: number) => t === artTile || t === TileType.Gate;
+    return pieces[(joins(n) ? 1 : 0) | (joins(e) ? 2 : 0) | (joins(s) ? 4 : 0) | (joins(w) ? 8 : 0)];
   }
 
   function isRoadAt(tx: number, ty: number): boolean {
@@ -2405,9 +2471,10 @@ async function main() {
     setTileSprite(tx, ty, tile);
     const decor = decorSprites.get(index);
     if (decor) decor.visible = tile === TileType.Empty;
-    // Neighbouring roads re-pick their autotile piece (this tile may have become / stopped being road).
+    // Neighbouring roads re-pick their autotile piece (this tile may have become / stopped being road),
+    // and neighbouring walls / gates their connector piece / orientation.
     for (const [nx, ny] of [[tx, ty - 1], [tx + 1, ty], [tx, ty + 1], [tx - 1, ty]]) {
-      if (isRoadAt(nx, ny)) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
+      if (isRoadAt(nx, ny) || isWallTile(tileAt(nx, ny))) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
     }
   }
 

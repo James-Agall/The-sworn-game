@@ -1255,3 +1255,26 @@ sheet spell slots / spell book (`hs-spellbook`, `hs-spell-auto`), Church row (`b
 6. Recruit a Mage, open its tab: Spell power x1.25, "Auto-cast: On". Give it Heal (tome or level 2+); wound a
    soldier near it in a fight: it heals on its own. Toggle Auto off: it stops.
 7. Save, reload, load: learned spells, slots and Auto settings are back (cooldowns reset).
+
+## Walls connectors & oriented gates — landed 2026-10-28 (client-only)
+
+- Art: SPRITES.md #59-#62 from `art-sources/Pixel Art Wall and Gate Tileset Atlas.png` (see "Already sourced" there for
+  file names and the art problems found: front-on "vertical" gates, narrow corner/T pieces leaving gaps).
+- `wallArtFor` (client/src/main.ts): a Wall / Stone Wall picks piece 0-15 from the 4-bit mask of its N/E/S/W neighbours
+  that are the same material or a Gate, and the `...Dmg` set below 50% HP. A Gate is horizontal with a wall/gate east
+  or west, vertical with them only north/south, stone when stone walls outnumber wood around it, and shows
+  Overrun > Open > Damaged (below 50% HP) > Closed. `setTileLocal` redraws wall/gate neighbours when a tile changes;
+  `syncGates` now also redraws on open <-> overrun. All drawn at one scale (`WALL_ART_PX_PER_TILE`). Optional load:
+  missing files fall back to the old single sprites. No protocol / server change.
+
+**Manual browser check (walls)**
+1. Build a long east-west wood wall: one continuous palisade (straights overlap, ends show the end caps). Same north-south.
+2. Close it into a rectangle and add an inner cross wall: corners, T-junctions and a 4-way cross each show a different
+   cluster piece. Note any gap between a corner/T and the straight next to it.
+3. Repeat with stone walls; wood and stone touching do not connect.
+4. Place a Gate in the east-west wall: horizontal gate; in a north-south wall: the "vertical" art. Next to stone walls
+   it is the stone gatehouse.
+5. Walk a colonist through it: it switches Closed -> Open -> Closed. Lock it open / closed from its panel.
+6. Let a raid batter a wall and a gate below half HP: the damaged pieces / Damaged gate appear (with the soot tint);
+   repair it: intact art comes back. A raid overrunning a gate shows the Overrun (broken) gate.
+7. Demolish a wall tile in the middle of a run: both neighbours switch to end caps.
