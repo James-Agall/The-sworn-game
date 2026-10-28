@@ -1159,3 +1159,99 @@ the siege constants, the rest in the "Hero phase 3: heroes" block after "Hero ph
 5. Upgrade the Keep, recruit a Marksman and a Mage: they hold the rear line; the mage throws purple bolts.
 6. Let a hero die: toast with its fee; its tab shows "fallen"; it returns at the next dawn / dusk window and the
    gold drops by 50 + 25 x level. Save, reload, load: heroes, names, levels and gear are back.
+
+## Hero phase 4: spells — landed 2026-10-28
+
+Phase 4 of `~/docs/colony2d/PLAN-hero-character-sheet.md`. Spell table `SPELLS` in `protocol.ts` (shared, so the
+client's tooltips use the server's numbers); server block "Hero phase 4: spells" after "Hero phase 3: heroes"
+(`SPELL_*`, `TOME_*`, `CHURCH_SPELL_PRICES`, statuses, casting, hero auto-cast); client: spell bar (`#spell-bar`),
+sheet spell slots / spell book (`hs-spellbook`, `hs-spell-auto`), Church row (`bp-spells-row`), `spawnSpellEffect`.
+
+| Spell | Target | Range | Cooldown | Effect (bold = scaled by spell power) |
+|---|---|---|---|---|
+| Fire Bolt | enemy | 8 | 4 s | **30** damage + burn **3**/s for 3 s |
+| Thunder | ground | 7 | 12 s | **40** damage to every enemy within 2 tiles |
+| Frost | ground | 7 | 14 s | **15** damage + 50% slow for 4 s, radius 2.5 |
+| Heal | ally / self | 6 | 8 s | heals **45** |
+| Ward | ally / self | 6 | 18 s | shield absorbing **60** damage for 8 s |
+| Rally Banner | ground | 5 | 30 s | friendly soldiers + players within 4 tiles: +25% damage, +15% speed for 10 s |
+| Summon | ground | 4 | 45 s | 2 skeleton militia (0 population, aggressive) for 40 s, then they crumble |
+| Curse | enemy | 8 | 16 s | +30% damage taken from every source for 8 s |
+
+- **Spell power** = `HeroStats.spellPowerMult` (gear `spellPowerPct`; a mage gets +25% base, `SPELL_MAGE_BASE_PCT`,
+  folded into its stats so the sheet shows x1.25). Any profile can learn / cast any spell.
+- **Book** (per `HeroProfile`, saved with it; old saves: none): `spells` (learned ids), `spellSlots` (4 spell ids),
+  `spellAuto` (heroes; default on), `spellGrants`. The 4 slots are spell ids in `spellSlots`, NOT
+  `Equipment.spell1-4` (those sockets hold `GearItem`s and stay null; keeps the protocol additive). A newly learned
+  spell drops into the first free slot. Snapshot: `HeroProfileSnapshot.spells?` {learned, slots, auto, cooldowns
+  (ticks left at send time)}; the profile is resent on every cast (version bump) so cooldowns arrive then.
+- **Learning**: (a) levels 2 / 4 / 6 / 8 / 10 each auto-learn the next unlearned spell of a fixed order (player:
+  Fire Bolt, Heal, Ward, Thunder, Rally Banner; champion: Rally Banner, Ward, Curse, Thunder, Heal; marksman:
+  Fire Bolt, Curse, Frost, Thunder, Rally Banner; mage: Fire Bolt, Frost, Thunder, Heal, Curse, Summon), toast
+  "You learn Fire Bolt (spell slot 1)" / "<Hero> learns ...". On load, a level-N profile with fewer grants gets
+  the missing ones silently (so old saves catch up). (b) **Spell Tomes**: `GearItem` slot `"tome"`, tier "relic"
+  (purple border), `spellId`; the Warlord always, a mini-boss elite 50%, a destroyed camp hearth 10% (killer, else
+  every connected player, like relics); teaches a spell the receiver doesn't know. Pack click = `useTome`
+  {itemId, heroId?} (the open tab's profile learns it, tome consumed). (c) **Church** info panel: "Learn Heal (80
+  gold)" / "Learn Ward (120 gold)" (`BuildingInfo.spellShop`, `learnSpell` {spellId, tileX, tileY}; player only,
+  colony gold).
+- **Casting** (`castSpell` {slot, targetId? | x, y, heroId?}): validated server-side: learned, slotted, cooldown
+  (per spell per caster profile), range (+ half a tile slack), caster alive, target kind. Refusals toast the
+  reason ("Fire Bolt is on cooldown (4 s)", "Out of range (8 tiles)"). Kills credit the caster (`p:` / `c:` key: XP,
+  relics, tomes). Effects go out as `AttackEffect.spell`.
+- **Statuses** (`spellStatuses`, transient, not saved): burn ticks in `updateSpellStatuses`; curse in `damageMob`;
+  ward shield in `damagePlayer` / `damageColonist` (after armour / gear); rally damage in `guardStrike`, hearth blows
+  and `playerDamage`, rally speed in `unitStats` and the player's move; frost scales `mob.speed` and restores it on
+  expiry (`snapshotWorld` saves the unslowed speed). Summons (`summonedUntil`) aren't saved, cost 0 population,
+  never respawn or leave graves; `ColonistSnapshot.summoned?`.
+- **Hero Auto** (`heroAutoCast`, from `updateGuardColonist`, every 5 ticks): first slotted ready spell whose rule
+  holds: Fire Bolt / Thunder / Frost at the current or nearest awake enemy in range; Curse on a boss / shock-role
+  enemy not already cursed; Heal the most wounded friendly below 60% in range; Ward a friendly hurt in the last 2 s
+  without a shield; Rally Banner with 4+ soldiers attacking / engaging within 4 tiles; Summon when awake enemies
+  within 6 tiles outnumber friendly soldiers (and are 2+). Sheet hero tabs: "Auto-cast: On/Off" (`setSpellAuto`).
+  The player never auto-casts.
+- **Client**: spell bar above the command bar (shown once a spell is learned; parchment; icon, hotkey, dark
+  cooldown overlay with seconds). **Keys: Shift+1..4 or F1..F4** (every letter, bare digit and Ctrl / Alt + digit
+  were taken). A targeted spell then waits for a left click (yellow range ring round the rider, crosshair): enemy =
+  click a monster; ally = click a friendly unit / player, empty ground = yourself (or press the key again);
+  ground = the spot. Right click / Escape cancels. Sheet: 4 spell sockets (pick a spell in the spell book, then
+  click a socket; click a filled socket to empty it), spell tooltips with the scaled numbers, Learn on tomes.
+  Placeholder icons: coloured square + glyph, `/sprites/spell-<id>.png` (SPRITES.md #57: `spell-fireBolt`,
+  `spell-thunder`, `spell-frost`, `spell-heal`, `spell-ward`, `spell-rally`, `spell-summon`, `spell-curse`) drawn
+  over it once present. Cast art (PLACEHOLDER): fire bolt = orange shaman bolt, thunder = blue sparks + poof,
+  frost = blue poof, heal = heal sparks, ward = ward pulse, rally = red poof + gold spark, summon = grey poof,
+  curse = purple poof; summons = militia art tinted bone-grey.
+- **Protocol (additive)**: `SpellId`, `SpellTargeting`, `SpellDef`, `SPELLS`, `SPELL_IDS`, `SPELL_SLOT_COUNT`,
+  `SpellBookSnapshot`, `HeroProfileSnapshot.spells?`, `ItemSlotKind` "tome", `GearItem.spellId?`,
+  `AttackEffect.spell?`, `ColonistSnapshot.summoned?`, `BuildingInfo.spellShop?`; messages `setSpellSlot`,
+  `useTome`, `learnSpell`, `castSpell`, `setSpellAuto`.
+- **Test hooks**: `spellState`, `grantSpell` {spellId, heroId?}, `grantTome` {spellId?}, `spellConfig`
+  {tomeChance, resetCooldowns}, `spawnHero` {heroClass, x, y, stance?}.
+- **Test**: `server/spells-test.mjs` (self-booting 160 world, port 22010): 28 checks, all pass (level-2 Fire Bolt,
+  tome learn + consume, Church -200 gold, setSpellSlot validation, Fire Bolt 30 + burn 9, cooldown refusal, range
+  refusal, x1.4 staff = 42, Thunder hits 2 trolls, Frost slow + expiry, Curse x1.3, Heal +45, Ward absorbs 50, Rally
+  buffs, Summon 2 at 0 population then crumble, mage Auto Heal 56.25, Auto toggle, save/load). `hero-test.mjs`: all
+  pass unchanged. `character-sheet-test.mjs`: its relic counter now excludes tomes (the elite / Warlord kills also
+  drop tomes, tier "relic") - all pass.
+- **Caveats**: cooldowns / statuses / summons reset on load; the player can't cast for a hero from the bar (the
+  server accepts `castSpell.heroId`, no UI); spells ignore line of sight and walls; summons are plain militia
+  (stance aggressive, chase anything); several sessions on one profile share its cooldowns; spell icons and cast
+  art are placeholders; no mana / gold cost per cast.
+
+**Manual browser check (spells)**
+1. Kill 4 mobs yourself (Space): "You reach level 2" and "You learn Fire Bolt (spell slot 1)"; a spell bar
+   appears above the command bar with Fire Bolt and "⇧1".
+2. Press Shift+1 (or F1): crosshair + a yellow range ring round you; click a monster in range: an orange bolt
+   flies, its HP drops 30 then a little more for 3 s; the button greys with a 4..1 countdown. Shift+1 again at
+   once: "on cooldown" toast. Click a monster outside the ring: "Out of range" toast. Right click cancels an aim.
+3. Build / click a Church: "Learn Heal (80 gold)" / "Learn Ward (120 gold)"; click both: gold drops, they land
+   in slots 2-3. F2 then click a wounded soldier: green sparks, it heals. F3 twice: a ward pulse on you; take a
+   hit: no HP lost until 60 is soaked.
+4. Press `: the sheet's 4 spell sockets show the icons; the Spells list shows every learned spell; hover:
+   tooltip with range / cooldown / numbers. Click a spell, then a socket: it moves there; click a filled
+   socket: it empties (the bar follows).
+5. Kill a mini-boss or the Warlord (or a camp): a "Spell tome found" toast and a purple-bordered tome in the
+   pack; click it: "You learn ..."; it's gone from the pack. On a hero tab, the tome teaches that hero.
+6. Recruit a Mage, open its tab: Spell power x1.25, "Auto-cast: On". Give it Heal (tome or level 2+); wound a
+   soldier near it in a fight: it heals on its own. Toggle Auto off: it stops.
+7. Save, reload, load: learned spells, slots and Auto settings are back (cooldowns reset).

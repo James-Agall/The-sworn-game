@@ -78,6 +78,11 @@ import {
   HERO_CLASS_LABEL,
   HeroSheetSnapshot,
   unitRole,
+  SpellId,
+  SPELLS,
+  SPELL_IDS,
+  SPELL_SLOT_COUNT,
+  SpellBookSnapshot,
 } from "./protocol.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
@@ -1082,7 +1087,10 @@ function isSoldierKind(kind: ColonistKind): boolean {
 
 // Combat stats of a living soldier: heroes derive theirs from class + level + equipment (heroCombatStats).
 function unitStats(c: Colonist) {
-  return c.kind === "hero" ? heroCombatStats(c) : guardStats(c.kind, c.castleLevel);
+  const s = c.kind === "hero" ? heroCombatStats(c) : guardStats(c.kind, c.castleLevel);
+  // Hero phase 4: a Rally Banner buff speeds the unit up.
+  const buff = spellBuffSpeedMult("c:" + c.id);
+  return buff === 1 ? s : { ...s, speed: s.speed * buff };
 }
 
 // Speed/range/damage fallbacks for deserter mobs, which take their stats from the deserting
@@ -1800,6 +1808,8 @@ function isAbbeyClergy(c: Colonist): boolean {
 function populationCostOf(c: Colonist): number {
   if (isSiegeKind(c.kind)) return SIEGE_POPULATION_COST;
   if (c.kind === "hero") return HERO_POPULATION_COST;
+  // Hero phase 4: summoned skeletons count for nothing.
+  if (summonedUntil.has(c.id)) return 0;
   return consumesPopulation(c.kind) && !isAbbeyClergy(c) ? 1 : 0;
 }
 
@@ -4443,6 +4453,8 @@ function damageMob(mob: Mob, amount: number, attackerKey?: string) {
     const group = raidGroups.get(mob.groupId);
     if (group) engageRaidGroup(group);
   }
+  // Hero phase 4: a cursed mob takes more from every source.
+  amount *= spellDamageTakenMult(mob);
   mob.hp -= mob.mark === HungerMark.Gorrath && cycleTick < mob.furyUntilTick ? amount * GORRATH_FURY_DAMAGE_TAKEN : amount;
   mob.lastDamagedTick = cycleTick;
   // Gorrath's frenzy: the first lethal blow is shrugged off into a short wounded fury.
@@ -4468,7 +4480,8 @@ function damagePlayer(player: Player, amount: number) {
   // Hero gear: every blow / poison tick the player takes is scaled (equipment survives death).
   const mult = heroProfileOf(player).stats.damageTakenMult;
   if (mult !== 1) heroEvent({ type: "taken", key: player.profileKey, amount: amount * mult, detail: String(amount) });
-  player.hp -= amount * mult;
+  // Hero phase 4: a ward shield soaks it first.
+  player.hp -= absorbWithWard("p:" + player.id, amount * mult);
   if (player.hp <= 0) {
     player.poisonTicksRemaining = 0;
     if (townCenters.length > 0) {
@@ -4513,7 +4526,15 @@ function damageColonist(colonist: Colonist, amount: number) {
   }
   // Hero phase 3: a hero's own gear + level (the same HeroStats as the player).
   if (colonist.kind === "hero") amount *= heroProfileFor(heroKey(colonist.id)).stats.damageTakenMult;
-  colonist.hp -= amount;
+  // Hero phase 4: a ward shield soaks it first.
+  colonist.hp -= absorbWithWard("c:" + colonist.id, amount);
+  if (colonist.hp <= 0 && isSummoned(colonist)) {
+    // A summoned skeleton crumbles: no grave, toast or respawn.
+    summonedUntil.delete(colonist.id);
+    releaseResourceReservation(colonist);
+    colonists.delete(colonist.id);
+    return;
+  }
   if (colonist.hp <= 0) {
     gravestones.push({ x: colonist.x, y: colonist.y, variant: Math.random() < 0.5 ? 0 : 1 });
     broadcastEvent("death", colonistDeathText(colonist));
@@ -4774,6 +4795,8 @@ function returnToRally(c: Colonist, dt: number, speed: number) {
 }
 
 function updateGuardColonist(c: Colonist, dt: number) {
+  // Hero phase 4: heroes auto-cast their slotted spells (when Auto is on).
+  if (c.kind === "hero") heroAutoCast(c);
   const stats = unitStats(c);
   if (c.kind === "cavalry") trackCharge(c);
 
@@ -4919,7 +4942,7 @@ function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown
     return;
   }
   // Armour & weapons: the weapon tier multiplies every blow (charge x2 etc. stack on top).
-  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c);
+  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id);
   if ((c.weaponTier ?? 0) > 0) equipEvent({ type: "hit", id: c.id, tier: c.weaponTier, amount: damage, detail: String(damage / weaponDamageMult(c)) });
   // Cavalry & siege: the catapult lobs a splashing boulder (never inside its minimum range), the ram
   // barely scratches units, a rider's charge doubles its first blow.
@@ -8311,7 +8334,7 @@ function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; mele
       c.attackCooldownTicks--;
       return true;
     }
-    let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c);
+    let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id);
     if (c.kind === "batteringRam") damage *= SIEGE_BUILDING_MULT;
     else if (c.kind === "catapult") damage *= CATAPULT_BUILDING_MULT;
     c.attackCooldownTicks = stats.cooldown;
@@ -9271,6 +9294,35 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       gold: stock.gold,
       events: heroEvents.filter((e) => e.key?.startsWith(HERO_KEY_PREFIX)),
     });
+  } else if (msg.op === "spellState") {
+    // Hero phase 4: this player's / every hero's spell book, statuses, summons, recent spell events.
+    reply({
+      spellTick,
+      player: { key: player.profileKey, ...spellBookSnapshot(heroProfileOf(player)), spellPowerMult: heroProfileOf(player).stats.spellPowerMult, hp: player.hp, maxHp: playerMaxHp(player), x: player.x, y: player.y, id: player.id },
+      heroes: Array.from(heroProfiles.values()).filter((p) => p.heroClass).map((p) => ({ key: p.key, level: p.level, spellPowerMult: p.stats.spellPowerMult, ...spellBookSnapshot(p) })),
+      statuses: Object.fromEntries(spellStatuses),
+      summons: Array.from(summonedUntil, ([id, until]) => ({ id, until, alive: colonists.has(id) })),
+      population: civilianPopulationUsed(),
+      gold: stock.gold,
+      inventory: heroProfileOf(player).inventory,
+      events: spellEvents.slice(),
+    });
+  } else if (msg.op === "grantSpell" && isSpellId(msg.spellId)) {
+    const prof = typeof msg.heroId === "string" ? heroProfiles.get(heroKey(msg.heroId)) : heroProfileOf(player);
+    reply({ learned: prof ? learnSpell(prof, msg.spellId, "hook", false) : false });
+  } else if (msg.op === "grantTome") {
+    reply({ item: grantTome(heroProfileOf(player), "hook", isSpellId(msg.spellId) ? msg.spellId : undefined) });
+  } else if (msg.op === "spellConfig") {
+    testTomeChance = typeof msg.tomeChance === "number" ? msg.tomeChance : null;
+    if (msg.resetCooldowns === true) spellCooldowns.clear();
+    reply({ tomeChance: testTomeChance });
+  } else if (msg.op === "spawnHero" && HERO_CLASSES.includes(msg.heroClass as HeroClass) && typeof msg.x === "number" && typeof msg.y === "number") {
+    // A hero standing at pixel (x, y), posted on that tile (no Keep), without recruiting.
+    const tile = tileOfPixel(msg.x, msg.y);
+    const c = spawnHeroColonist(randomUUID(), pickHeroName(), msg.heroClass as HeroClass, tile.x, tile.y);
+    Object.assign(c, { x: msg.x, y: msg.y, rallyTileX: tile.x, rallyTileY: tile.y, rallyX: msg.x, rallyY: msg.y });
+    if (typeof msg.stance === "string" && STANCES.includes(msg.stance as Stance)) c.stance = msg.stance as Stance;
+    reply({ id: c.id });
   } else if (msg.op === "heroConfig") {
     testRelicChance = typeof msg.relicChance === "number" ? msg.relicChance : null;
     reply({ relicChance: testRelicChance });
@@ -9450,6 +9502,8 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   wardPriestTendTicks = 0;
   wardPriestRespawnTicks = -1;
   pendingEffects = [];
+  // Hero phase 4: statuses, cooldowns and summons are transient.
+  clearSpellState();
 
   Object.assign(stock, initialStock());
   resetEquipment();
@@ -9589,8 +9643,9 @@ function snapshotWorld() {
     wardPriestTendTicks,
     wardPriestRespawnTicks,
     townCenters,
-    colonists: Array.from(colonists.values()),
-    mobs: Array.from(mobs.values()),
+    // Hero phase 4: summons aren't saved; a slowed mob is saved at its own speed.
+    colonists: Array.from(colonists.values()).filter((c) => !summonedUntil.has(c.id)),
+    mobs: Array.from(mobs.values(), (m) => (unslowedSpeed(m) === m.speed ? m : { ...m, speed: unslowedSpeed(m) })),
     wildlife: Array.from(wildlife.values()),
     respawnQueue,
     farmPlots: Array.from(farmPlots),
@@ -9725,6 +9780,8 @@ function applyWorld(s: WorldState) {
   evaluateGoals(!s.goals);
   // Transients: nothing in flight survives a load; everyone re-stamps vision from scratch.
   pendingEffects = [];
+  // Hero phase 4: statuses, cooldowns and summons are transient.
+  clearSpellState();
   pendingExplored = [];
   visionTile = new WeakMap();
   isPaused = false;
@@ -9999,7 +10056,7 @@ wss.on("connection", (socket, req) => {
         type: "buildingInfo",
         tileX: message.tileX,
         tileY: message.tileY,
-        info: buildingInfoFor(message.tileX, message.tileY),
+        info: buildingInfoFor(message.tileX, message.tileY, player),
       };
       socket.send(JSON.stringify(reply));
     } else if (message.type === "upgradeBuilding") {
@@ -10026,6 +10083,16 @@ wss.on("connection", (socket, req) => {
     } else if (message.type === "recruitHero") {
       if (!Number.isInteger(message.tx) || !Number.isInteger(message.ty)) return;
       handleRecruitHero(player, message.tx, message.ty, message.class);
+    } else if (message.type === "setSpellSlot") {
+      handleSetSpellSlot(player, message.slot, message.spellId, message.heroId);
+    } else if (message.type === "useTome") {
+      handleUseTome(player, message.itemId, message.heroId);
+    } else if (message.type === "learnSpell") {
+      handleLearnSpell(player, message.spellId, message.tileX, message.tileY);
+    } else if (message.type === "castSpell") {
+      handleCastSpell(player, message as unknown as Record<string, unknown>);
+    } else if (message.type === "setSpellAuto") {
+      handleSetSpellAuto(player, message.heroId, message.auto);
     } else if (message.type === "saveGame") {
       void handleSaveGame(player, message.slot);
     } else if (message.type === "loadGame") {
@@ -11257,6 +11324,13 @@ interface HeroProfile {
   // fallen / recruiting hero is still known. Their `inventory` stays empty (they equip from the player's).
   heroClass?: HeroClass;
   heroName?: string;
+  // Hero phase 4: learned spell ids, the 4 spell slots (spell ids; Equipment.spell1-4 stay null - an
+  // Equipment socket holds a GearItem), the hero's Auto toggle (players never auto-cast) and how many
+  // level-up spell grants (SPELL_GRANT_LEVELS) were already given.
+  spells: SpellId[];
+  spellSlots: (SpellId | null)[];
+  spellAuto: boolean;
+  spellGrants: number;
 }
 const HERO_INVENTORY_CAP = 40;
 // Total XP at which level 1..10 starts (index = level - 1).
@@ -11322,7 +11396,7 @@ function heroLevelFor(xp: number): number {
   return level;
 }
 
-function computeHeroStats(equipment: Equipment, level: number, baseHp = PLAYER_MAX_HP): HeroStats {
+function computeHeroStats(equipment: Equipment, level: number, baseHp = PLAYER_MAX_HP, spellBasePct = 0): HeroStats {
   const sum: Required<ItemStats> = { damagePct: 0, damageTakenPct: 0, maxHp: 0, moveSpeedPct: 0, attackSpeedPct: 0, spellPowerPct: 0 };
   for (const slot of GEAR_SLOTS) {
     const item = equipment[slot];
@@ -11336,7 +11410,7 @@ function computeHeroStats(equipment: Equipment, level: number, baseHp = PLAYER_M
     damageTakenMult: Math.max(HERO_MIN_DAMAGE_TAKEN_MULT, 1 + sum.damageTakenPct / 100),
     moveSpeedMult: Math.max(HERO_MIN_SPEED_MULT, 1 + sum.moveSpeedPct / 100),
     attackSpeedMult: Math.max(HERO_MIN_SPEED_MULT, 1 + sum.attackSpeedPct / 100),
-    spellPowerMult: 1 + sum.spellPowerPct / 100,
+    spellPowerMult: 1 + (sum.spellPowerPct + spellBasePct) / 100,
   };
 }
 
@@ -11345,7 +11419,11 @@ function newHeroProfile(
 ): HeroProfile {
   const level = heroLevelFor(xp);
   const baseHp = hero ? HERO_CLASS_STATS[hero.heroClass].maxHp : PLAYER_MAX_HP;
-  return { key, equipment, inventory, xp, level, version: ++heroProfileVersionCounter, stats: computeHeroStats(equipment, level, baseHp), ...(hero ?? {}) };
+  return {
+    key, equipment, inventory, xp, level, version: ++heroProfileVersionCounter,
+    stats: computeHeroStats(equipment, level, baseHp, spellBasePctFor(hero?.heroClass)), ...(hero ?? {}),
+    spells: [], spellSlots: Array(SPELL_SLOT_COUNT).fill(null), spellAuto: true, spellGrants: 0,
+  };
 }
 
 function heroProfileFor(key: string): HeroProfile {
@@ -11365,7 +11443,7 @@ function heroProfileOf(player: Player): HeroProfile {
 // every player playing it to the new max (a max-HP gain doesn't heal).
 function recomputeHeroProfile(prof: HeroProfile) {
   prof.level = heroLevelFor(prof.xp);
-  prof.stats = computeHeroStats(prof.equipment, prof.level, prof.heroClass ? HERO_CLASS_STATS[prof.heroClass].maxHp : PLAYER_MAX_HP);
+  prof.stats = computeHeroStats(prof.equipment, prof.level, prof.heroClass ? HERO_CLASS_STATS[prof.heroClass].maxHp : PLAYER_MAX_HP, spellBasePctFor(prof.heroClass));
   prof.version = ++heroProfileVersionCounter;
   for (const p of players.values()) {
     if (p.profileKey === prof.key && !p.dead) p.hp = Math.min(p.hp, prof.stats.maxHp);
@@ -11386,7 +11464,7 @@ function playerMaxHp(p: Player): number {
 }
 
 function playerDamage(p: Player): number {
-  return PLAYER_ATTACK_DAMAGE * heroProfileOf(p).stats.damageMult;
+  return PLAYER_ATTACK_DAMAGE * heroProfileOf(p).stats.damageMult * spellBuffDamageMult("p:" + p.id);
 }
 
 function playerAttackCooldownTicks(p: Player): number {
@@ -11403,6 +11481,7 @@ function heroProfileSnapshot(prof: HeroProfile): HeroProfileSnapshot {
     levelXp: HERO_LEVEL_XP[prof.level - 1],
     nextLevelXp: prof.level < HERO_MAX_LEVEL ? HERO_LEVEL_XP[prof.level] : null,
     stats: prof.stats,
+    spells: spellBookSnapshot(prof),
   };
 }
 
@@ -11464,6 +11543,7 @@ function heroRewardsForKill(mob: Mob, attackerKey?: string) {
       recomputeHeroProfile(prof);
       heroEvent({ type: "xp", key: prof.key, amount: xp, detail: mob.kind });
       if (prof.level > before) sendHeroEvent(prof, "milestone", `You reach level ${prof.level} (+${HERO_LEVEL_DAMAGE_PCT}% damage, +${HERO_LEVEL_MAX_HP} max HP)`);
+      grantLevelSpells(prof, true);
     }
   }
   // Hero phase 3: a hero's killing blow (melee or its own arrow / bolt) earns that hero the XP; the relic
@@ -11480,15 +11560,20 @@ function heroRewardsForKill(mob: Mob, attackerKey?: string) {
       if (prof.level > before) {
         broadcastEvent("milestone", `${hc.heroName ?? "A hero"} reaches level ${prof.level} (+${HERO_LEVEL_DAMAGE_PCT}% damage, +${HERO_LEVEL_MAX_HP}% max HP)`);
       }
+      grantLevelSpells(prof, true);
     }
   }
   if (mob.isDeserter) return;
+  // Hero phase 4: Spell Tomes (the Warlord always, a mini-boss elite TOME_ELITE_CHANCE).
+  const tomeRoll = mob.boss === "warlord" ? 1 : mob.boss === "elite" ? (testTomeChance ?? TOME_ELITE_CHANCE) : 0;
+  if (tomeRoll > 0 && Math.random() < tomeRoll) for (const prof of lootProfiles(attackerKey)) grantTome(prof, mob.boss ?? mob.kind);
   const roll = mob.boss ? 1 : mob.mark !== HungerMark.None || EQUIP_ARMOURED_KINDS.includes(mob.kind) ? (testRelicChance ?? RELIC_ELITE_MOB_CHANCE) : 0;
   if (roll <= 0 || Math.random() >= roll) return;
   for (const prof of lootProfiles(attackerKey)) grantRelic(prof, mob.boss ?? mob.kind);
 }
 
 function heroRelicForHearth(attackerKey?: string) {
+  if (Math.random() < (testTomeChance ?? TOME_HEARTH_CHANCE)) for (const prof of lootProfiles(attackerKey)) grantTome(prof, "hearth");
   if (Math.random() >= (testRelicChance ?? RELIC_HEARTH_CHANCE)) return;
   for (const prof of lootProfiles(attackerKey)) grantRelic(prof, "hearth");
 }
@@ -11564,6 +11649,8 @@ function serializeHeroProfiles() {
   return Array.from(heroProfiles.values(), (p) => ({
     key: p.key, equipment: p.equipment, inventory: p.inventory, xp: p.xp,
     ...(p.heroClass ? { heroClass: p.heroClass, heroName: p.heroName } : {}),
+    // Hero phase 4 (old saves: none learned; restore then grants the level-ups already earned).
+    spells: p.spells, spellSlots: p.spellSlots, spellAuto: p.spellAuto, spellGrants: p.spellGrants,
   }));
 }
 
@@ -11583,7 +11670,9 @@ function restoreHeroProfiles(saved: unknown) {
     const hero = HERO_CLASSES.includes(raw.heroClass as HeroClass)
       ? { heroClass: raw.heroClass as HeroClass, heroName: typeof raw.heroName === "string" ? raw.heroName : "Hero" }
       : undefined;
-    heroProfiles.set(raw.key, newHeroProfile(raw.key, eq, hero ? [] : inv, xp, hero));
+    const prof = newHeroProfile(raw.key, eq, hero ? [] : inv, xp, hero);
+    restoreSpellBook(prof, raw);
+    heroProfiles.set(raw.key, prof);
   }
 }
 
@@ -11787,6 +11876,600 @@ function withPlayerHeroes(payload: string, player: Player): string {
   if (player.heroesSentVersion === heroRosterVersion) return payload;
   player.heroesSentVersion = heroRosterVersion;
   return payload.slice(0, -1) + ',"heroes":' + JSON.stringify(heroSheetsSnapshot()) + "}";
+}
+
+// ---- Hero phase 4: spells (ROADMAP "Hero phase 4: spells") ----
+// The spell table (SPELLS) lives in protocol.ts so the client's tooltips use the same numbers. Every
+// profile (the player's and each hero's) has learned spells + 4 spell slots; a spell has a cooldown per
+// caster (no mana). Damage / heal / shield amounts scale with the caster's spellPowerMult (gear + a mage's
+// SPELL_MAGE_BASE_PCT). Status effects (burn, slow, curse, ward shield, rally buff) and summons live in
+// small transient maps (spellStatuses / summonedUntil) and are NOT saved: a load starts with none.
+const SPELL_MAGE_BASE_PCT = 25;
+// Level-up spell grants: one at each of these levels, the next unlearned spell of the class's order.
+const SPELL_GRANT_LEVELS = [2, 4, 6, 8, 10];
+const SPELL_LEARN_ORDER: Record<HeroClass | "player", SpellId[]> = {
+  player: ["fireBolt", "heal", "ward", "thunder", "rallyBanner"],
+  champion: ["rallyBanner", "ward", "curse", "thunder", "heal"],
+  marksman: ["fireBolt", "curse", "frost", "thunder", "rallyBanner"],
+  mage: ["fireBolt", "frost", "thunder", "heal", "curse", "summon"],
+};
+// Spell Tomes: the Ogre Warlord always drops one, a mini-boss elite TOME_ELITE_CHANCE, a destroyed camp
+// hearth TOME_HEARTH_CHANCE (to the killer, else every connected player's pack, like relics).
+const TOME_ELITE_CHANCE = 0.5;
+const TOME_HEARTH_CHANCE = 0.1;
+// The Church sells the two basic spells to the player (colony gold).
+const CHURCH_SPELL_PRICES: Partial<Record<SpellId, number>> = { heal: 80, ward: 120 };
+// A cast reaches this far past the spell's range (tiles), so a click on a target's edge still counts.
+const SPELL_RANGE_SLACK_PX = TILE_SIZE / 2;
+// Hero auto-cast: rules are checked every SPELL_AUTO_EVERY_TICKS; thresholds per rule.
+const SPELL_AUTO_EVERY_TICKS = 5;
+const SPELL_AUTO_HEAL_BELOW = 0.6;
+const SPELL_AUTO_WARD_HURT_TICKS = 2 * TICK_RATE;
+const SPELL_AUTO_RALLY_ENGAGED = 4;
+const SPELL_AUTO_SUMMON_SCAN_TILES = 6;
+let testTomeChance: number | null = null;
+// Monotonic spell clock (cycleTick restarts with a load / test hooks; this only counts up).
+let spellTick = 0;
+
+interface SpellStatus {
+  burnUntil?: number;
+  burnNext?: number;
+  burnPerSec?: number;
+  burnBy?: string;
+  slowUntil?: number;
+  baseSpeed?: number;
+  curseUntil?: number;
+  curseBonus?: number;
+  shield?: number;
+  shieldUntil?: number;
+  buffUntil?: number;
+  buffDamage?: number;
+  buffSpeed?: number;
+}
+// Keyed "m:<mob id>" / "c:<colonist id>" / "p:<player id>".
+const spellStatuses = new Map<string, SpellStatus>();
+// Profile key -> spell -> spellTick it is ready again.
+const spellCooldowns = new Map<string, Partial<Record<SpellId, number>>>();
+// Summoned skeleton militia: colonist id -> spellTick it crumbles.
+const summonedUntil = new Map<string, number>();
+// Last spellTick a friendly unit / player ("c:" / "p:" key) lost HP (hero Ward auto-cast).
+const lastHurtTick = new Map<string, number>();
+// Test-hook log (spellState): cast / refuse / learn / tome / burn / absorb / summon / expire.
+const spellEvents: { type: string; key?: string; spell?: string; amount?: number; detail?: string; tick: number }[] = [];
+function spellEvent(e: Omit<(typeof spellEvents)[number], "tick">) {
+  if (!TEST_HOOKS) return;
+  spellEvents.push({ ...e, tick: spellTick });
+  if (spellEvents.length > 400) spellEvents.splice(0, spellEvents.length - 400);
+}
+
+function spellBasePctFor(cls: HeroClass | undefined): number {
+  return cls === "mage" ? SPELL_MAGE_BASE_PCT : 0;
+}
+
+function isSpellId(v: unknown): v is SpellId {
+  return typeof v === "string" && (SPELL_IDS as string[]).includes(v);
+}
+
+function spellBookSnapshot(prof: HeroProfile): SpellBookSnapshot {
+  const cooldowns: Partial<Record<SpellId, number>> = {};
+  const cd = spellCooldowns.get(prof.key);
+  if (cd) for (const id of SPELL_IDS) if ((cd[id] ?? 0) > spellTick) cooldowns[id] = cd[id]! - spellTick;
+  return { learned: [...prof.spells], slots: [...prof.spellSlots], auto: !!prof.heroClass && prof.spellAuto, cooldowns };
+}
+
+// Marks a profile for resending (spell book / cooldown changes) without re-deriving its stats.
+function touchSpellProfile(prof: HeroProfile) {
+  prof.version = ++heroProfileVersionCounter;
+  if (prof.heroClass) heroRosterVersion++;
+}
+
+function profileLabel(prof: HeroProfile): string {
+  return prof.heroClass ? prof.heroName ?? "A hero" : "You";
+}
+
+// Teaches `id` (no-op if known) and puts it in the first free slot. Toasts to the player(s) of that
+// profile, or everyone for a hero.
+function learnSpell(prof: HeroProfile, id: SpellId, source: string, announce = true): boolean {
+  if (prof.spells.includes(id)) return false;
+  prof.spells.push(id);
+  const free = prof.spellSlots.indexOf(null);
+  if (free >= 0) prof.spellSlots[free] = id;
+  touchSpellProfile(prof);
+  spellEvent({ type: "learn", key: prof.key, spell: id, detail: source });
+  if (announce) {
+    const text = `${profileLabel(prof)} learn${prof.heroClass ? "s" : ""} ${SPELLS[id].name}${free >= 0 ? ` (spell slot ${free + 1})` : ""}`;
+    if (prof.heroClass) broadcastEvent("milestone", text);
+    else sendHeroEvent(prof, "milestone", text);
+  }
+  return true;
+}
+
+// Level-up grants: one spell per SPELL_GRANT_LEVELS level reached, the first unlearned one of the class
+// order (then any unlearned spell). Also run on load, so an old save's level-N profile gets its spells.
+function grantLevelSpells(prof: HeroProfile, announce: boolean) {
+  const earned = SPELL_GRANT_LEVELS.filter((l) => prof.level >= l).length;
+  while (prof.spellGrants < earned) {
+    prof.spellGrants++;
+    const order = SPELL_LEARN_ORDER[prof.heroClass ?? "player"];
+    const next = order.find((s) => !prof.spells.includes(s)) ?? SPELL_IDS.find((s) => !prof.spells.includes(s));
+    if (next) learnSpell(prof, next, `level ${prof.level}`, announce);
+  }
+}
+
+function restoreSpellBook(prof: HeroProfile, raw: Record<string, unknown>) {
+  const learned = Array.isArray(raw.spells) ? (raw.spells as unknown[]).filter(isSpellId) : [];
+  prof.spells = Array.from(new Set(learned));
+  const slots = Array.isArray(raw.spellSlots) ? (raw.spellSlots as unknown[]) : [];
+  prof.spellSlots = Array.from({ length: SPELL_SLOT_COUNT }, (_, i) => (isSpellId(slots[i]) && prof.spells.includes(slots[i] as SpellId) ? (slots[i] as SpellId) : null));
+  prof.spellAuto = raw.spellAuto !== false;
+  prof.spellGrants = typeof raw.spellGrants === "number" && raw.spellGrants >= 0 ? Math.floor(raw.spellGrants) : 0;
+  grantLevelSpells(prof, false);
+}
+
+// A Spell Tome into the profile's pack: `spellId`, else a random spell it hasn't learned (any once all are).
+function grantTome(prof: HeroProfile, source: string, spellId?: SpellId): GearItem | null {
+  if (prof.inventory.length >= HERO_INVENTORY_CAP) {
+    sendHeroEvent(prof, "build", "A spell tome was found, but your pack is full (40 items)");
+    return null;
+  }
+  const unknown = SPELL_IDS.filter((s) => !prof.spells.includes(s));
+  const pool = unknown.length > 0 ? unknown : SPELL_IDS;
+  const id = spellId ?? pool[Math.floor(Math.random() * pool.length)];
+  const item: GearItem = { id: randomUUID(), slot: "tome", name: `Tome of ${SPELLS[id].name}`, tier: "relic", stats: {}, kind: "tome", spellId: id, icon: SPELLS[id].icon };
+  prof.inventory.push(item);
+  touchSpellProfile(prof);
+  spellEvent({ type: "tome", key: prof.key, spell: id, detail: source });
+  sendHeroEvent(prof, "milestone", `Spell tome found: ${item.name} (Learn it from the Hero sheet)`);
+  return item;
+}
+
+function refuseSpell(player: Player, text: string) {
+  spellEvent({ type: "refuse", key: player.profileKey, detail: text });
+  sendTo(player, { type: "event", category: "build", text });
+}
+
+function handleUseTome(player: Player, itemId: unknown, heroId?: unknown) {
+  if (typeof itemId !== "string") return;
+  const pack = heroProfileOf(player);
+  const prof = gearTarget(player, heroId);
+  if (!prof) return refuseSpell(player, "No such hero");
+  const idx = pack.inventory.findIndex((i) => i.id === itemId && i.slot === "tome");
+  if (idx < 0) return refuseSpell(player, "That tome is not in your pack");
+  const tome = pack.inventory[idx];
+  if (!isSpellId(tome.spellId)) return refuseSpell(player, "That tome is unreadable");
+  if (prof.spells.includes(tome.spellId)) return refuseSpell(player, `${profileLabel(prof) === "You" ? "You already know" : `${profileLabel(prof)} already knows`} ${SPELLS[tome.spellId].name}`);
+  pack.inventory.splice(idx, 1);
+  touchSpellProfile(pack);
+  learnSpell(prof, tome.spellId, "tome");
+}
+
+function churchSpellShop(player: Player | undefined): NonNullable<BuildingInfo["spellShop"]> {
+  const prof = player ? heroProfileOf(player) : null;
+  return (Object.keys(CHURCH_SPELL_PRICES) as SpellId[]).map((spellId) => {
+    const gold = CHURCH_SPELL_PRICES[spellId]!;
+    const reason = prof?.spells.includes(spellId) ? "Already learned" : stock.gold < gold ? "Not enough gold" : "";
+    return { spellId, label: SPELLS[spellId].name, gold, enabled: reason === "", reason };
+  });
+}
+
+function handleLearnSpell(player: Player, spellId: unknown, tx: unknown, ty: unknown) {
+  if (!isSpellId(spellId) || typeof tx !== "number" || typeof ty !== "number" || !inBounds(tx, ty)) return;
+  if (tiles[tileIndex(tx, ty)] !== TileType.ChurchPost) return refuseSpell(player, "Spells are taught at a Church");
+  const price = CHURCH_SPELL_PRICES[spellId];
+  if (price === undefined) return refuseSpell(player, `The Church doesn't teach ${SPELLS[spellId].name}`);
+  const prof = heroProfileOf(player);
+  if (prof.spells.includes(spellId)) return refuseSpell(player, `You already know ${SPELLS[spellId].name}`);
+  if (stock.gold < price) return refuseSpell(player, `Not enough gold (${SPELLS[spellId].name} costs ${price})`);
+  stock.gold -= price;
+  learnSpell(prof, spellId, "church");
+}
+
+function handleSetSpellSlot(player: Player, slot: unknown, spellId: unknown, heroId?: unknown) {
+  if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0 || slot >= SPELL_SLOT_COUNT) return;
+  const prof = gearTarget(player, heroId);
+  if (!prof) return refuseSpell(player, "No such hero");
+  if (spellId === null) {
+    prof.spellSlots[slot] = null;
+  } else {
+    if (!isSpellId(spellId)) return refuseSpell(player, "Unknown spell");
+    if (!prof.spells.includes(spellId)) return refuseSpell(player, `${SPELLS[spellId].name} isn't learned yet`);
+    // A spell sits in one slot at most: setting it elsewhere moves it.
+    const was = prof.spellSlots.indexOf(spellId);
+    if (was >= 0) prof.spellSlots[was] = null;
+    prof.spellSlots[slot] = spellId;
+  }
+  touchSpellProfile(prof);
+  spellEvent({ type: "slot", key: prof.key, spell: spellId ?? undefined, amount: slot });
+}
+
+function handleSetSpellAuto(player: Player, heroId: unknown, auto: unknown) {
+  if (typeof heroId !== "string" || typeof auto !== "boolean") return;
+  const prof = gearTarget(player, heroId);
+  if (!prof || !prof.heroClass) return;
+  prof.spellAuto = auto;
+  touchSpellProfile(prof);
+}
+
+// ---- Status effects (single damage / speed code paths read them) ----
+function statusAt(key: string): SpellStatus {
+  let s = spellStatuses.get(key);
+  if (!s) {
+    s = {};
+    spellStatuses.set(key, s);
+  }
+  return s;
+}
+
+// damageMob: +curseBonus damage taken while cursed.
+function spellDamageTakenMult(mob: Mob): number {
+  const s = spellStatuses.get("m:" + mob.id);
+  return s?.curseUntil !== undefined && s.curseUntil > spellTick ? 1 + (s.curseBonus ?? 0) : 1;
+}
+
+// damagePlayer / damageColonist: a ward shield soaks the blow first. Returns what gets through.
+function absorbWithWard(key: string, amount: number): number {
+  lastHurtTick.set(key, spellTick);
+  const s = spellStatuses.get(key);
+  if (!s?.shield || (s.shieldUntil ?? 0) <= spellTick) return amount;
+  const soaked = Math.min(s.shield, amount);
+  s.shield -= soaked;
+  spellEvent({ type: "absorb", key, amount: soaked, detail: String(amount) });
+  return amount - soaked;
+}
+
+function spellBuffDamageMult(key: string): number {
+  const s = spellStatuses.get(key);
+  return s?.buffUntil !== undefined && s.buffUntil > spellTick ? 1 + (s.buffDamage ?? 0) : 1;
+}
+
+function spellBuffSpeedMult(key: string): number {
+  const s = spellStatuses.get(key);
+  return s?.buffUntil !== undefined && s.buffUntil > spellTick ? 1 + (s.buffSpeed ?? 0) : 1;
+}
+
+// A mob's speed is read in many places, so a slow scales `mob.speed` itself and restores it on expiry
+// (snapshotWorld saves the unslowed speed).
+function slowMob(mob: Mob, fraction: number, ticks: number) {
+  const s = statusAt("m:" + mob.id);
+  if (s.slowUntil === undefined || s.slowUntil <= spellTick || s.baseSpeed === undefined) {
+    s.baseSpeed = mob.speed;
+    mob.speed = mob.speed * (1 - fraction);
+  }
+  s.slowUntil = spellTick + ticks;
+}
+
+function unslowedSpeed(mob: Mob): number {
+  const s = spellStatuses.get("m:" + mob.id);
+  return s?.baseSpeed !== undefined && (s.slowUntil ?? 0) > spellTick ? s.baseSpeed : mob.speed;
+}
+
+// Once per tick: burn ticks, expiries, summon despawns.
+function updateSpellStatuses() {
+  spellTick++;
+  for (const [key, s] of Array.from(spellStatuses)) {
+    const mob = key.startsWith("m:") ? mobs.get(key.slice(2)) : undefined;
+    const alive = mob || (key.startsWith("c:") ? colonists.has(key.slice(2)) : players.has(key.slice(2)));
+    if (!alive) {
+      spellStatuses.delete(key);
+      continue;
+    }
+    if (mob && s.burnUntil !== undefined) {
+      if (s.burnNext !== undefined && spellTick >= s.burnNext && s.burnNext <= s.burnUntil) {
+        s.burnNext += TICK_RATE;
+        spellEvent({ type: "burn", key, amount: s.burnPerSec });
+        damageMob(mob, s.burnPerSec ?? 0, s.burnBy);
+      }
+      if (spellTick > s.burnUntil) s.burnUntil = s.burnNext = s.burnPerSec = s.burnBy = undefined;
+    }
+    if (mob && s.slowUntil !== undefined && spellTick >= s.slowUntil) {
+      if (s.baseSpeed !== undefined && mobs.has(mob.id)) mob.speed = s.baseSpeed;
+      s.slowUntil = s.baseSpeed = undefined;
+    }
+    if (s.curseUntil !== undefined && spellTick >= s.curseUntil) s.curseUntil = s.curseBonus = undefined;
+    if (s.shieldUntil !== undefined && (spellTick >= s.shieldUntil || (s.shield ?? 0) <= 0)) s.shield = s.shieldUntil = undefined;
+    if (s.buffUntil !== undefined && spellTick >= s.buffUntil) s.buffUntil = s.buffDamage = s.buffSpeed = undefined;
+    if (Object.values(s).every((v) => v === undefined)) spellStatuses.delete(key);
+  }
+  for (const [id, until] of summonedUntil) {
+    const c = colonists.get(id);
+    if (!c) {
+      summonedUntil.delete(id);
+      continue;
+    }
+    if (spellTick < until) continue;
+    summonedUntil.delete(id);
+    releaseResourceReservation(c);
+    releaseSlot(c.id);
+    colonists.delete(id);
+    spellEvent({ type: "expire", key: "c:" + id });
+  }
+  if (spellTick % (5 * TICK_RATE) === 0) {
+    for (const [k, t] of lastHurtTick) if (spellTick - t > 5 * TICK_RATE) lastHurtTick.delete(k);
+  }
+}
+
+function clearSpellState() {
+  spellStatuses.clear();
+  spellCooldowns.clear();
+  summonedUntil.clear();
+  lastHurtTick.clear();
+}
+
+function isSummoned(c: Colonist): boolean {
+  return summonedUntil.has(c.id);
+}
+
+// ---- Casting ----
+interface SpellCaster {
+  prof: HeroProfile;
+  x: number;
+  y: number;
+  // Damage attribution ("p:<player id>" / "c:<hero id>": kills give that caster XP).
+  attackerKey: string;
+  self: { type: "player"; p: Player } | { type: "colonist"; c: Colonist };
+}
+type SpellTarget = { targetId?: string; x?: number; y?: number };
+type FriendlyUnit = { type: "player"; p: Player } | { type: "colonist"; c: Colonist };
+
+function friendlyPos(f: FriendlyUnit) {
+  return f.type === "player" ? { x: f.p.x, y: f.p.y } : { x: f.c.x, y: f.c.y };
+}
+function friendlyKey(f: FriendlyUnit) {
+  return f.type === "player" ? "p:" + f.p.id : "c:" + f.c.id;
+}
+function friendlyHp(f: FriendlyUnit) {
+  return f.type === "player" ? { hp: f.p.hp, max: playerMaxHp(f.p) } : { hp: f.c.hp, max: f.c.maxHp };
+}
+
+function resolveFriendly(caster: SpellCaster, targetId: string | undefined): FriendlyUnit | null {
+  if (!targetId) return caster.self;
+  const p = players.get(targetId);
+  if (p) return p.dead ? null : { type: "player", p };
+  const c = colonists.get(targetId);
+  return c && !isAbbeyClergy(c) ? { type: "colonist", c } : null;
+}
+
+function spellScaled(caster: SpellCaster, base: number): number {
+  return base * caster.prof.stats.spellPowerMult;
+}
+
+function spellCooldownLeft(prof: HeroProfile, id: SpellId): number {
+  return Math.max(0, (spellCooldowns.get(prof.key)?.[id] ?? 0) - spellTick);
+}
+
+// Validates and casts. Returns "" on success, else the reason (nothing happened).
+function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarget): string {
+  const def = SPELLS[id];
+  if (!caster.prof.spells.includes(id)) return `${def.name} isn't learned`;
+  const left = spellCooldownLeft(caster.prof, id);
+  if (left > 0) return `${def.name} is on cooldown (${Math.ceil(left / TICK_RATE)} s)`;
+  const rangePx = def.range * TILE_SIZE + SPELL_RANGE_SLACK_PX;
+  const inRange = (x: number, y: number) => Math.hypot(x - caster.x, y - caster.y) <= rangePx;
+  const sp = caster.prof.stats.spellPowerMult;
+  const ticks = (s?: number) => Math.round((s ?? 0) * TICK_RATE);
+  let fx: { x: number; y: number };
+  if (def.targeting === "enemy") {
+    const mob = target.targetId ? mobs.get(target.targetId) : undefined;
+    if (!mob) return "No enemy targeted";
+    if (!inRange(mob.x, mob.y)) return `Out of range (${def.range} tiles)`;
+    fx = { x: mob.x, y: mob.y };
+    if (id === "fireBolt") {
+      damageMob(mob, def.power * sp, caster.attackerKey);
+      if (mobs.has(mob.id)) {
+        const s = statusAt("m:" + mob.id);
+        s.burnUntil = spellTick + ticks(def.duration);
+        s.burnNext = spellTick + TICK_RATE;
+        s.burnPerSec = (def.burnPerSec ?? 0) * sp;
+        s.burnBy = caster.attackerKey;
+      }
+    } else if (id === "curse") {
+      const s = statusAt("m:" + mob.id);
+      s.curseUntil = spellTick + ticks(def.duration);
+      s.curseBonus = def.damageTakenBonus ?? 0;
+    }
+  } else if (def.targeting === "ally" || def.targeting === "self") {
+    const ally = def.targeting === "self" ? caster.self : resolveFriendly(caster, target.targetId);
+    if (!ally) return "No friendly target";
+    const pos = friendlyPos(ally);
+    if (!inRange(pos.x, pos.y)) return `Out of range (${def.range} tiles)`;
+    fx = pos;
+    if (id === "heal") {
+      const amount = def.power * sp;
+      if (ally.type === "player") ally.p.hp = Math.min(playerMaxHp(ally.p), ally.p.hp + amount);
+      else ally.c.hp = Math.min(ally.c.maxHp, ally.c.hp + amount);
+    } else if (id === "ward") {
+      const s = statusAt(friendlyKey(ally));
+      s.shield = def.power * sp;
+      s.shieldUntil = spellTick + ticks(def.duration);
+    }
+  } else {
+    if (typeof target.x !== "number" || typeof target.y !== "number" || !Number.isFinite(target.x) || !Number.isFinite(target.y)) return "No spot targeted";
+    if (!inRange(target.x, target.y)) return `Out of range (${def.range} tiles)`;
+    fx = { x: target.x, y: target.y };
+    const radiusPx = (def.radius ?? 0) * TILE_SIZE;
+    if (id === "thunder" || id === "frost") {
+      const hit = Array.from(mobs.values()).filter((m) => Math.hypot(m.x - fx.x, m.y - fx.y) <= radiusPx);
+      for (const m of hit) {
+        damageMob(m, def.power * sp, caster.attackerKey);
+        if (id === "frost" && mobs.has(m.id)) slowMob(m, def.slow ?? 0, ticks(def.duration));
+      }
+      spellEvent({ type: "aoe", key: caster.prof.key, spell: id, amount: hit.length });
+    } else if (id === "rallyBanner") {
+      const buff = (key: string) => {
+        const s = statusAt(key);
+        s.buffUntil = spellTick + ticks(def.duration);
+        s.buffDamage = def.buffDamage ?? 0;
+        s.buffSpeed = def.buffSpeed ?? 0;
+      };
+      let n = 0;
+      for (const c of colonists.values()) {
+        if (unitRole(c.kind, c.heroClass) === undefined || Math.hypot(c.x - fx.x, c.y - fx.y) > radiusPx) continue;
+        buff("c:" + c.id);
+        n++;
+      }
+      for (const p of players.values()) {
+        if (p.dead || Math.hypot(p.x - fx.x, p.y - fx.y) > radiusPx) continue;
+        buff("p:" + p.id);
+        n++;
+      }
+      spellEvent({ type: "rally", key: caster.prof.key, amount: n });
+    } else if (id === "summon") {
+      const t = tileOfPixel(fx.x, fx.y);
+      const tile = isWalkableTile(t.x, t.y) ? t : tileOfPixel(caster.x, caster.y);
+      for (let i = 0; i < (def.summonCount ?? 0); i++) {
+        const c = spawnColonistForPost(tile.x, tile.y, "militia", 1);
+        const p = { x: fx.x + (i === 0 ? -8 : 8), y: fx.y };
+        if (isWalkableTile(tileOfPixel(p.x, p.y).x, tileOfPixel(p.x, p.y).y)) Object.assign(c, { x: p.x, y: p.y });
+        Object.assign(c, { rallyTileX: tile.x, rallyTileY: tile.y, rallyX: c.x, rallyY: c.y, stance: "aggressive" as Stance });
+        summonedUntil.set(c.id, spellTick + ticks(def.duration));
+        spellEvent({ type: "summon", key: "c:" + c.id });
+      }
+    }
+  }
+  let cd = spellCooldowns.get(caster.prof.key);
+  if (!cd) {
+    cd = {};
+    spellCooldowns.set(caster.prof.key, cd);
+  }
+  cd[id] = spellTick + ticks(def.cooldown);
+  touchSpellProfile(caster.prof);
+  pendingEffects.push({ fromX: caster.x, fromY: caster.y, toX: fx.x, toY: fx.y, spell: id });
+  spellEvent({ type: "cast", key: caster.prof.key, spell: id, amount: def.power * sp, detail: target.targetId ?? (target.x !== undefined ? `${Math.round(target.x)},${Math.round(target.y ?? 0)}` : "self") });
+  return "";
+}
+
+function playerCaster(p: Player): SpellCaster {
+  return { prof: heroProfileOf(p), x: p.x, y: p.y, attackerKey: "p:" + p.id, self: { type: "player", p } };
+}
+
+function heroCaster(c: Colonist): SpellCaster {
+  return { prof: heroProfileFor(heroKey(c.id)), x: c.x, y: c.y, attackerKey: "c:" + c.id, self: { type: "colonist", c } };
+}
+
+function handleCastSpell(player: Player, msg: Record<string, unknown>) {
+  const slot = msg.slot;
+  if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0 || slot >= SPELL_SLOT_COUNT) return;
+  let caster: SpellCaster;
+  if (msg.heroId !== undefined && msg.heroId !== null && msg.heroId !== "") {
+    const c = typeof msg.heroId === "string" ? colonists.get(msg.heroId) : undefined;
+    if (!c || c.kind !== "hero") return refuseSpell(player, "That hero can't cast now");
+    caster = heroCaster(c);
+  } else {
+    if (player.dead) return refuseSpell(player, "You can't cast while fallen");
+    caster = playerCaster(player);
+  }
+  const id = caster.prof.spellSlots[slot];
+  if (!id) return refuseSpell(player, `Spell slot ${slot + 1} is empty`);
+  const reason = castSpellNow(caster, id, {
+    targetId: typeof msg.targetId === "string" ? msg.targetId : undefined,
+    x: typeof msg.x === "number" ? msg.x : undefined,
+    y: typeof msg.y === "number" ? msg.y : undefined,
+  });
+  if (reason) refuseSpell(player, reason);
+}
+
+// ---- Hero auto-cast: each slotted, ready spell whose condition holds (first match casts) ----
+function autoEnemyInRange(c: Colonist, rangePx: number, want?: (m: Mob) => boolean): Mob | null {
+  const ok = (m: Mob) => !m.passive && !isDormantGuardian(m) && Math.hypot(m.x - c.x, m.y - c.y) <= rangePx && (!want || want(m));
+  const cur = c.targetMobId ? mobs.get(c.targetMobId) : undefined;
+  if (cur && ok(cur)) return cur;
+  let best: Mob | null = null;
+  let bestD = Infinity;
+  for (const m of mobs.values()) {
+    if (!ok(m)) continue;
+    const d = Math.hypot(m.x - c.x, m.y - c.y);
+    if (d < bestD) {
+      bestD = d;
+      best = m;
+    }
+  }
+  return best;
+}
+
+function friendliesNear(x: number, y: number, rangePx: number): FriendlyUnit[] {
+  const out: FriendlyUnit[] = [];
+  for (const o of colonists.values()) {
+    if (isAbbeyClergy(o) || Math.hypot(o.x - x, o.y - y) > rangePx) continue;
+    out.push({ type: "colonist", c: o });
+  }
+  for (const p of players.values()) if (!p.dead && Math.hypot(p.x - x, p.y - y) <= rangePx) out.push({ type: "player", p });
+  return out;
+}
+
+function autoSpellTarget(c: Colonist, id: SpellId): SpellTarget | null {
+  const def = SPELLS[id];
+  const rangePx = def.range * TILE_SIZE;
+  const idOf = (f: FriendlyUnit) => (f.type === "player" ? f.p.id : f.c.id);
+  if (id === "fireBolt") {
+    const m = autoEnemyInRange(c, rangePx);
+    return m ? { targetId: m.id } : null;
+  }
+  if (id === "thunder" || id === "frost") {
+    const m = autoEnemyInRange(c, rangePx);
+    return m ? { x: m.x, y: m.y } : null;
+  }
+  if (id === "curse") {
+    const m = autoEnemyInRange(c, rangePx, (mm) => !!mm.boss || mobRole(mm) === "shock");
+    return m && spellDamageTakenMult(m) === 1 ? { targetId: m.id } : null;
+  }
+  if (id === "heal") {
+    let best: FriendlyUnit | null = null;
+    let bestFrac = SPELL_AUTO_HEAL_BELOW;
+    for (const f of friendliesNear(c.x, c.y, rangePx)) {
+      const { hp, max } = friendlyHp(f);
+      if (max > 0 && hp / max < bestFrac) {
+        bestFrac = hp / max;
+        best = f;
+      }
+    }
+    return best ? { targetId: idOf(best) } : null;
+  }
+  if (id === "ward") {
+    let best: FriendlyUnit | null = null;
+    let bestFrac = Infinity;
+    for (const f of friendliesNear(c.x, c.y, rangePx)) {
+      const key = friendlyKey(f);
+      const hurt = lastHurtTick.get(key);
+      if (hurt === undefined || spellTick - hurt > SPELL_AUTO_WARD_HURT_TICKS) continue;
+      const s = spellStatuses.get(key);
+      if (s?.shield && (s.shieldUntil ?? 0) > spellTick) continue;
+      const { hp, max } = friendlyHp(f);
+      if (hp / max < bestFrac) {
+        bestFrac = hp / max;
+        best = f;
+      }
+    }
+    return best ? { targetId: idOf(best) } : null;
+  }
+  if (id === "rallyBanner") {
+    const radiusPx = (def.radius ?? 0) * TILE_SIZE;
+    let engaged = 0;
+    for (const o of colonists.values()) {
+      if (unitRole(o.kind, o.heroClass) === undefined || Math.hypot(o.x - c.x, o.y - c.y) > radiusPx) continue;
+      if (o.state === "attacking" || o.state === "engaging") engaged++;
+    }
+    return engaged >= SPELL_AUTO_RALLY_ENGAGED ? { x: c.x, y: c.y } : null;
+  }
+  if (id === "summon") {
+    const scan = SPELL_AUTO_SUMMON_SCAN_TILES * TILE_SIZE;
+    let foes = 0;
+    for (const m of mobs.values()) if (!m.passive && !isDormantGuardian(m) && Math.hypot(m.x - c.x, m.y - c.y) <= scan) foes++;
+    let friends = 0;
+    for (const o of colonists.values()) if (unitRole(o.kind, o.heroClass) !== undefined && Math.hypot(o.x - c.x, o.y - c.y) <= scan) friends++;
+    return foes >= 2 && foes > friends ? { x: c.x, y: c.y } : null;
+  }
+  return null;
+}
+
+function heroAutoCast(c: Colonist) {
+  if ((spellTick + c.id.charCodeAt(0)) % SPELL_AUTO_EVERY_TICKS !== 0) return;
+  const prof = heroProfiles.get(heroKey(c.id));
+  if (!prof || !prof.spellAuto) return;
+  for (const id of prof.spellSlots) {
+    if (!id || spellCooldownLeft(prof, id) > 0) continue;
+    const t = autoSpellTarget(c, id);
+    if (t && castSpellNow(heroCaster(c), id, t) === "") return;
+  }
 }
 
 // ---- Blacksmith forging: one item at a time per Blacksmith, FORGE_QUEUE_CAP queued (the first is in
@@ -12096,7 +12779,7 @@ const BUILDING_NAMES: Partial<Record<TileType, string>> = {
 
 const pct = (fraction: number) => `${Math.round(fraction * 100)}%`;
 
-function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
+function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingInfo | null {
   if (!inBounds(tx, ty)) return null;
   const t = tiles[tileIndex(tx, ty)] as TileType;
   const key = resourceKey(tx, ty);
@@ -12245,6 +12928,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     ...(t === TileType.SiegeWorkshop ? { siege: siegeWorkshopInfo(tx, ty) } : {}),
     ...(t === TileType.Blacksmith ? { forge: blacksmithForgeInfo(tx, ty) } : {}),
     ...(t === TileType.Keep ? { heroes: keepHeroInfo(tx, ty) } : {}),
+    ...(t === TileType.ChurchPost ? { spellShop: churchSpellShop(forPlayer) } : {}),
   };
 }
 
@@ -12555,7 +13239,7 @@ function stepSimulation() {
     const length = Math.hypot(dx, dy) || 1;
     const normDx = dx / length;
     const normDy = dy / length;
-    const playerSpeed = PLAYER_SPEED * heroProfileOf(player).stats.moveSpeedMult * biomeSpeedMultiplier(player.x, player.y) * roadSpeedMultiplier(player.x, player.y);
+    const playerSpeed = PLAYER_SPEED * heroProfileOf(player).stats.moveSpeedMult * spellBuffSpeedMult("p:" + player.id) * biomeSpeedMultiplier(player.x, player.y) * roadSpeedMultiplier(player.x, player.y);
 
     const nextX = clamp(
       player.x + normDx * playerSpeed * dt,
@@ -12580,6 +13264,7 @@ function stepSimulation() {
   updateSiegeWorkshops();
   updateForges();
   updateHeroRecruits();
+  updateSpellStatuses();
 
   // Walls & gates: mobs and wildlife move and path from the hostile side of every gate.
   withHostileMover(() => {
@@ -12657,6 +13342,7 @@ setInterval(() => {
       ...(c.armourTier ? { armourTier: c.armourTier } : {}),
       ...(c.weaponTier ? { weaponTier: c.weaponTier } : {}),
       ...(c.kind === "hero" ? { heroName: c.heroName, heroClass: c.heroClass, heroLevel: heroProfileFor(heroKey(c.id)).level } : {}),
+      ...(summonedUntil.has(c.id) ? { summoned: true } : {}),
     })),
     mobs: Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,

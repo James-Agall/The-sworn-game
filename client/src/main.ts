@@ -69,6 +69,8 @@ import type { FightSnapshot } from "./protocol";
 import { FIGHT_WINDOW_SECONDS } from "./protocol";
 import { MOB_ROLE, isRearRole, SIEGE_KINDS, unitRole, HERO_CLASSES, HERO_CLASS_LABEL } from "./protocol";
 import type { CombatRole, SiegeKind } from "./protocol";
+import { SPELLS, SPELL_SLOT_COUNT } from "./protocol";
+import type { SpellId, SpellBookSnapshot } from "./protocol";
 import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
 
 const SERVER_URL = "ws://localhost:8080";
@@ -875,6 +877,8 @@ const BATTERED_TINT_KINDS = new Set<string>(["knight", "pikeman", "armoredOrc"])
 // Hero phase 3: the soldier art each hero class borrows (PLACEHOLDER) and the hero tint.
 const HERO_VISUAL_KIND: Record<HeroClass, ColonistKind> = { champion: "knight", marksman: "archer", mage: "bishop" };
 const HERO_TINT = 0xffe7a0;
+// Hero phase 4: a Summon spell's skeleton militia (PLACEHOLDER: the militia art tinted bone-grey).
+const SUMMON_TINT = 0xb8c0d8;
 // Extra scale on top of the max-box fit for small world-gen props, so a barrel or crate doesn't
 // render the same size as a cottage. Unlisted tiles use 1 (unchanged).
 const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
@@ -2533,7 +2537,7 @@ async function main() {
       showAnimFrame(entry.sprite, set, frame ?? set.walk[0]);
       const battered = BATTERED_TINT_KINDS.has(vk) && c.hp < c.maxHp * BATTERED_HP_FRACTION;
       const posed = battered && !frame && showBatteredPose(entry.sprite, set, vk, COLONIST_SPRITE_HEIGHT);
-      entry.sprite.tint = battered && !posed ? BATTERED_TINT : c.kind === "hero" ? HERO_TINT : (COLONIST_TINT.get(vk) ?? 0xffffff);
+      entry.sprite.tint = battered && !posed ? BATTERED_TINT : c.kind === "hero" ? HERO_TINT : c.summoned ? SUMMON_TINT : (COLONIST_TINT.get(vk) ?? 0xffffff);
     }
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
   }
@@ -2904,7 +2908,59 @@ async function main() {
     face(mobFacing, mobSprites, latestMobs);
   }
 
+  // Hero phase 4: spell casts (PLACEHOLDER art, reusing the existing effect sprites): fire bolt = the shaman
+  // bolt tinted orange, thunder = a big pale-blue spark burst, frost = a blue poof, heal = the green heal
+  // sparks, ward = the ward pulse, rally = a red poof + spark (banner), summon = a grey poof, curse = a purple poof.
+  const SPELL_FX_TINT: Record<SpellId, number> = {
+    fireBolt: 0xff8a2a, thunder: 0xcfe0ff, frost: 0x7cc8ff, heal: 0x7fe07f, ward: 0xf2d36b, rallyBanner: 0xd04a3a, summon: 0x9aa0b0, curse: 0xb05be0,
+  };
+  function spellPoof(x: number, y: number, tint: number, size = 44, ms = 600) {
+    const base = size / Math.max(FX_TEXTURES.poof.width, FX_TEXTURES.poof.height);
+    const puff = addFx(FX_TEXTURES.poof, size, x, y, ms, (sp, t) => {
+      sp.scale.set(base * (0.6 + 0.7 * t));
+      sp.alpha = 0.9 * (1 - t);
+    });
+    puff.tint = tint;
+  }
+  function spawnSpellEffect(e: AttackEffect & { spell: SpellId }) {
+    const tint = SPELL_FX_TINT[e.spell];
+    if (e.spell === "fireBolt") {
+      const distance = Math.hypot(e.toX - e.fromX, e.toY - e.fromY);
+      const bolt = addFx(FX_TEXTURES.spark, FX_SIZE.shamanBolt * 1.6, e.fromX, e.fromY, Math.min(320, Math.max(80, distance / PROJECTILE_PX_PER_MS)),
+        (sp, t) => sp.position.set(e.fromX + (e.toX - e.fromX) * t, e.fromY + (e.toY - e.fromY) * t),
+        () => spellPoof(e.toX, e.toY, tint, 30, 400));
+      bolt.tint = tint;
+      return;
+    }
+    if (e.spell === "heal") {
+      spawnFxAnim("heal", e.toX, e.toY + 10, 700);
+      return;
+    }
+    if (e.spell === "ward") {
+      spawnFxAnim("wardPulse", e.toX, e.toY + 16, 900);
+      return;
+    }
+    if (e.spell === "thunder") {
+      for (let i = 0; i < 5; i++) {
+        const sx = e.toX + (Math.random() - 0.5) * TILE_SIZE * 2;
+        const sy = e.toY + (Math.random() - 0.5) * TILE_SIZE * 2;
+        const spark = addFx(FX_TEXTURES.spark, 26, sx, sy, 380, fadeOut);
+        spark.tint = tint;
+      }
+      spellPoof(e.toX, e.toY, 0x8fa8ff, 80, 450);
+      sound.play("sword_hit", { x: e.toX, y: e.toY });
+      return;
+    }
+    const size = e.spell === "frost" ? 90 : e.spell === "rallyBanner" ? 70 : 44;
+    spellPoof(e.toX, e.toY, tint, size, e.spell === "rallyBanner" ? 900 : 600);
+    if (e.spell === "rallyBanner") spawnImpactSpark(e.toX, e.toY - 14, 0xf2c94c);
+  }
+
   function spawnEffect(e: AttackEffect) {
+    if (e.spell) {
+      spawnSpellEffect(e as AttackEffect & { spell: SpellId });
+      return;
+    }
     faceAttacker(e);
     const angle = Math.atan2(e.toY - e.fromY, e.toX - e.fromX);
     if (e.boulder) {
@@ -4509,6 +4565,8 @@ async function main() {
   const bpHeroBtns = new Map<HeroClass, HTMLButtonElement>(
     HERO_CLASSES.map((cls) => [cls, document.getElementById(`bp-hero-${cls}`) as HTMLButtonElement])
   );
+  const bpSpellsRowEl = document.getElementById("bp-spells-row")!;
+  let bpSpellsKey = "";
   // Tile the panel shows; re-requested every second while open so numbers stay live.
   let infoTile: { tx: number; ty: number } | null = null;
   const BUILDING_INFO_REFRESH_MS = 1000;
@@ -4602,6 +4660,30 @@ async function main() {
       const reason = h.options.find((o) => !o.enabled)?.reason ?? "";
       const roster = h.roster.map((r) => `${r.name} (${HERO_CLASS_LABEL[r.heroClass]} Lv ${r.level}) - ${r.status}`).join("\n");
       bpHeroesStateEl.textContent = `Heroes ${h.count}/${h.cap}${reason ? ` · ${reason}` : ""}${roster ? `\n${roster}` : ""}`;
+    }
+    // Hero phase 4: a Church teaches the two basic spells to the player for colony gold.
+    bpSpellsRowEl.hidden = !info.spellShop;
+    if (info.spellShop) {
+      const key = JSON.stringify(info.spellShop);
+      if (key !== bpSpellsKey) {
+        bpSpellsKey = key;
+        bpSpellsRowEl.replaceChildren(
+          ...info.spellShop.map((opt) => {
+            const btn = document.createElement("button");
+            btn.className = "econ-btn";
+            btn.disabled = !opt.enabled;
+            btn.textContent = `Learn ${opt.label} (${opt.gold} gold)`;
+            btn.title = opt.reason || SPELLS[opt.spellId].text.replace("{power}", String(SPELLS[opt.spellId].power));
+            btn.addEventListener("click", () => {
+              btn.blur();
+              if (!infoTile) return;
+              sendMessage({ type: "learnSpell", spellId: opt.spellId, tileX: infoTile.tx, tileY: infoTile.ty });
+              window.setTimeout(requestBuildingInfo, 150);
+            });
+            return btn;
+          })
+        );
+      }
     }
     buildingPanelEl.hidden = false;
   }
@@ -4770,11 +4852,11 @@ async function main() {
     spell1: "Spell", spell2: "Spell", spell3: "Spell", spell4: "Spell",
   };
   const SLOT_GLYPH: Record<string, string> = {
-    head: "H", chest: "C", legs: "L", offhand: "O", trinket: "T", spell: "✶",
+    head: "H", chest: "C", legs: "L", offhand: "O", trinket: "T", spell: "✶", tome: "▤",
     sword: "⚔", spear: "↑", bow: ")", staff: "|", shield: "O", helm: "H", greaves: "L", cuirass: "C",
   };
   const SLOT_FILL: Record<string, string> = {
-    head: "#5b6b7a", chest: "#6b4a2a", legs: "#4f5a3a", weapon: "#7a3a2a", offhand: "#3a4f6b", trinket: "#6b5a2a", spell: "#4a2f6b",
+    head: "#5b6b7a", chest: "#6b4a2a", legs: "#4f5a3a", weapon: "#7a3a2a", offhand: "#3a4f6b", trinket: "#6b5a2a", spell: "#4a2f6b", tome: "#4a2f6b",
   };
   const STAT_LINES: { key: keyof ItemStats; label: string; pct: boolean; lowerIsBetter?: boolean }[] = [
     { key: "damagePct", label: "damage", pct: true },
@@ -4787,7 +4869,7 @@ async function main() {
   const signed = (n: number, pct: boolean) => `${n > 0 ? "+" : ""}${n}${pct ? "%" : ""}`;
 
   function gearSlotFor(item: GearItem, prof: HeroProfileSnapshot): GearSlot | null {
-    if (item.slot === "spell") return null;
+    if (item.slot === "spell" || item.slot === "tome") return null;
     if (item.slot === "trinket") return prof.equipment.trinket1 && !prof.equipment.trinket2 ? "trinket2" : "trinket1";
     return item.slot;
   }
@@ -4872,6 +4954,55 @@ async function main() {
     return el;
   }
 
+  // ---- Hero phase 4: spells on the sheet (icons, tooltips) ----
+  const hsSpellbook = document.getElementById("hs-spellbook")!;
+  const hsSpellAuto = document.getElementById("hs-spell-auto") as HTMLButtonElement;
+  // The spell picked in the spell book, waiting for a slot click.
+  let pickedSpell: SpellId | null = null;
+  const TARGETING_LABEL = { enemy: "Target an enemy", ally: "Target an ally (or yourself)", ground: "Target a spot", self: "Self" };
+  // Placeholder: a coloured square with the spell's glyph; /sprites/<icon>.png (SPRITES.md #57) over it once it exists.
+  function spellIcon(id: SpellId): HTMLElement {
+    const def = SPELLS[id];
+    const el = document.createElement("div");
+    el.className = "hs-item spell";
+    el.style.background = def.color;
+    el.textContent = def.glyph;
+    if (!missingIcons.has(def.icon)) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = `/sprites/${def.icon}.png`;
+      img.onerror = () => {
+        missingIcons.add(def.icon);
+        img.remove();
+      };
+      el.append(img);
+    }
+    return el;
+  }
+  function spellText(id: SpellId, spellPower: number): string {
+    const def = SPELLS[id];
+    const n = (v: number) => String(Math.round(v * spellPower * 10) / 10);
+    return def.text.replace("{power}", n(def.power)).replace("{burn}", n(def.burnPerSec ?? 0));
+  }
+  function showSpellTip(e: MouseEvent, id: SpellId, spellPower: number, hint: string) {
+    const def = SPELLS[id];
+    hsTip.replaceChildren();
+    const name = document.createElement("b");
+    name.textContent = def.name;
+    const meta = document.createElement("div");
+    meta.className = "tier";
+    meta.textContent = `${TARGETING_LABEL[def.targeting]} · range ${def.range} tiles · cooldown ${def.cooldown} s`;
+    const body = document.createElement("div");
+    body.textContent = spellText(id, spellPower) + (def.power > 0 && Math.abs(spellPower - 1) > 1e-6 ? ` (spell power x${spellPower.toFixed(2)})` : "");
+    const foot = document.createElement("div");
+    foot.className = "tier";
+    foot.textContent = hint;
+    hsTip.append(name, meta, body, foot);
+    hsTip.hidden = false;
+    hsTip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 270)}px`;
+    hsTip.style.top = `${Math.min(e.clientY + 14, window.innerHeight - hsTip.offsetHeight - 8)}px`;
+  }
+
   function renderHeroSheet(force = false) {
     if (heroModal.hidden || !heroProfile) return;
     // Hero phase 3: a hero tab shows that hero's sockets / stats / level over the player's shared pack.
@@ -4885,7 +5016,7 @@ async function main() {
     const hpText = hero
       ? unit ? `${Math.ceil(unit.hp)} / ${unit.maxHp}` : hero.status === "recruiting" ? `${prof.stats.maxHp} (arriving)` : `fallen: back at dawn / dusk for ${hero.respawnFee} gold`
       : me ? `${Math.ceil(me.hp)} / ${me.maxHp}` : `${prof.stats.maxHp}`;
-    const key = JSON.stringify([prof, heroStock, sheetTab, heroSheets.map((h) => [h.id, h.name, h.status, h.profile.level])]);
+    const key = JSON.stringify([{ ...prof, spells: prof.spells ? { ...prof.spells, cooldowns: {} } : undefined }, heroStock, sheetTab, pickedSpell, heroSheets.map((h) => [h.id, h.name, h.status, h.profile.level])]);
     if (!force && key === heroRenderKey) {
       if (hpText !== heroHpText) {
         heroHpText = hpText;
@@ -4930,10 +5061,32 @@ async function main() {
         })
       );
     }
+    // Hero phase 4: the 4 spell slots. With a spell picked in the spell book below, a click puts it in the
+    // slot; otherwise a click on a filled slot empties it.
+    const book: SpellBookSnapshot = prof.spells ?? { learned: [], slots: [null, null, null, null], auto: false, cooldowns: {} };
     const spells = document.createElement("div");
     spells.className = "hs-spells";
-    for (const slot of ["spell1", "spell2", "spell3", "spell4"] as GearSlot[]) {
-      spells.append(makeSocket(slot, null, { disabled: true, empty: "✶" }));
+    for (let i = 0; i < SPELL_SLOT_COUNT; i++) {
+      const id = book.slots[i] ?? null;
+      const el = document.createElement("div");
+      el.className = `hs-socket${pickedSpell ? " target" : ""}`;
+      if (id) el.append(spellIcon(id));
+      else {
+        const empty = document.createElement("span");
+        empty.className = "hs-empty";
+        empty.textContent = `Spell ${i + 1}`;
+        el.append(empty);
+      }
+      el.addEventListener("click", () => {
+        hideItemTip();
+        if (pickedSpell) {
+          sendMessage({ type: "setSpellSlot", slot: i, spellId: pickedSpell, ...heroArg });
+          pickedSpell = null;
+        } else if (id) sendMessage({ type: "setSpellSlot", slot: i, spellId: null, ...heroArg });
+      });
+      el.addEventListener("mousemove", (e) => (id ? showSpellTip(e, id, prof.stats.spellPowerMult, pickedSpell ? `Click to put ${SPELLS[pickedSpell].name} here` : "Click to empty the slot") : pickedSpell ? showSpellTip(e, pickedSpell, prof.stats.spellPowerMult, `Click to put it in slot ${i + 1}`) : hideItemTip()));
+      el.addEventListener("mouseleave", hideItemTip);
+      spells.append(el);
     }
     hsDoll.append(spells);
 
@@ -4959,7 +5112,7 @@ async function main() {
       ["Damage taken", mult(s.damageTakenMult, true)],
       ["Move speed", mult(s.moveSpeedMult)],
       ["Attack speed", mult(s.attackSpeedMult)],
-      ["Spell power (spells coming soon)", mult(s.spellPowerMult)],
+      ["Spell power", mult(s.spellPowerMult)],
     ];
     hsStats.replaceChildren();
     for (const [label, value] of rows) {
@@ -4973,6 +5126,34 @@ async function main() {
       hsStats.append(l, v);
     }
 
+    // Hero phase 4: the spell book (learned spells; click one, then a slot) and a hero's Auto toggle.
+    hsSpellbook.replaceChildren();
+    if (book.learned.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "hs-inv-empty";
+      empty.textContent = "No spells yet: one every 2 levels, Spell Tomes from bosses and camps, Heal / Ward at a Church.";
+      hsSpellbook.append(empty);
+    }
+    for (const id of book.learned) {
+      const el = document.createElement("div");
+      el.className = `hs-socket${pickedSpell === id ? " picked" : ""}`;
+      el.append(spellIcon(id));
+      el.addEventListener("click", () => {
+        hideItemTip();
+        pickedSpell = pickedSpell === id ? null : id;
+        renderHeroSheet(true);
+      });
+      el.addEventListener("mousemove", (e) => showSpellTip(e, id, prof.stats.spellPowerMult, pickedSpell === id ? "Now click a spell slot (click again to cancel)" : "Click, then click a spell slot"));
+      el.addEventListener("mouseleave", hideItemTip);
+      hsSpellbook.append(el);
+    }
+    hsSpellAuto.hidden = !hero;
+    if (hero) {
+      hsSpellAuto.textContent = `Auto-cast: ${book.auto ? "On" : "Off"}`;
+      hsSpellAuto.classList.toggle("on", book.auto);
+      hsSpellAuto.onclick = () => sendMessage({ type: "setSpellAuto", heroId: hero.id, auto: !book.auto });
+    }
+
     // Pack.
     document.getElementById("hs-invcount")!.textContent = `(${prof.inventory.length}/${prof.inventoryCap})`;
     hsInv.replaceChildren();
@@ -4983,6 +5164,18 @@ async function main() {
       hsInv.append(empty);
     }
     for (const item of prof.inventory) {
+      // Hero phase 4: a Spell Tome is read ("Learn") by whoever's tab is open, and consumed.
+      if (item.slot === "tome" && item.spellId) {
+        const spellId = item.spellId;
+        const known = book.learned.includes(spellId);
+        hsInv.append(
+          makeSocket(null, item, {
+            onClick: known ? undefined : () => sendMessage({ type: "useTome", itemId: item.id, ...heroArg }),
+            tip: (e) => showSpellTip(e, spellId, prof.stats.spellPowerMult, known ? `${item.name}: already known${hero ? ` by ${hero.name}` : ""}` : `${item.name}: click to Learn${hero ? ` (${hero.name})` : ""}`),
+          })
+        );
+        continue;
+      }
       const target = gearSlotFor(item, prof);
       const current = target ? prof.equipment[target] : null;
       hsInv.append(
@@ -5041,11 +5234,138 @@ async function main() {
     profile: HeroProfileSnapshot | undefined, stock: EquipmentStock | undefined, me: PlayerSnapshot | undefined, heroes?: HeroSheetSnapshot[]
   ) {
     if (profile) heroProfile = profile;
+    // Hero phase 4: cooldown ticks are as of this snapshot; the spell bar counts down from here.
+    if (profile?.spells) spellCdAt = performance.now();
     if (heroes) heroSheets = heroes;
     heroMe = me;
     heroStock = stock;
     renderHeroSheet();
+    renderSpellBar();
   }
+
+  // ---- Hero phase 4: the player's spell bar (bottom centre, above the command bar) ----
+  // Hotkeys Shift+1..4 or F1..F4 (every letter, every bare digit and Ctrl / Alt + digit are taken). A
+  // targeted spell then waits for a left click: enemy = a monster, ally = a friendly unit / player (empty
+  // ground = yourself), ground = the spot; right click or Escape cancels; the same key again casts an
+  // ally spell on yourself. Cooldowns are drawn as a dark overlay with the seconds left.
+  const spellBarEl = document.getElementById("spell-bar")!;
+  let spellCdAt = performance.now();
+  let spellAim: { slot: number; spell: SpellId } | null = null;
+  const spellBtns: HTMLButtonElement[] = [];
+  const SPELL_KEY_LABEL = ["⇧1", "⇧2", "⇧3", "⇧4"];
+  for (let i = 0; i < SPELL_SLOT_COUNT; i++) {
+    const b = document.createElement("button");
+    b.className = "spell-btn";
+    b.addEventListener("click", () => {
+      b.blur();
+      useSpellSlot(i);
+    });
+    b.addEventListener("pointerdown", (e) => e.stopPropagation());
+    spellBarEl.append(b);
+    spellBtns.push(b);
+  }
+  const spellRangeRing = new Graphics();
+  let spellBarKey = "";
+  function spellCooldownMs(id: SpellId): number {
+    const ticks = heroProfile?.spells?.cooldowns[id] ?? 0;
+    return Math.max(0, (ticks / TICK_RATE) * 1000 - (performance.now() - spellCdAt));
+  }
+  function renderSpellBar() {
+    const book = heroProfile?.spells;
+    spellBarEl.hidden = !book || book.learned.length === 0;
+    if (!book) return;
+    const key = JSON.stringify([book.slots, spellAim, heroProfile?.stats.spellPowerMult]);
+    if (key !== spellBarKey) {
+      spellBarKey = key;
+      book.slots.forEach((id, i) => {
+        const b = spellBtns[i];
+        b.replaceChildren();
+        b.classList.toggle("aiming", spellAim?.slot === i);
+        b.disabled = !id;
+        if (id) b.append(spellIcon(id));
+        const k = document.createElement("kbd");
+        k.textContent = SPELL_KEY_LABEL[i];
+        const cd = document.createElement("div");
+        cd.className = "spell-cd";
+        b.append(k, cd);
+        b.onmousemove = id ? (e) => showSpellTip(e, id, heroProfile?.stats.spellPowerMult ?? 1, `Shift+${i + 1} or F${i + 1}`) : null;
+        b.onmouseleave = hideItemTip;
+      });
+    }
+    book.slots.forEach((id, i) => {
+      const cd = spellBtns[i].querySelector<HTMLElement>(".spell-cd");
+      if (!cd) return;
+      const left = id ? spellCooldownMs(id) : 0;
+      cd.style.height = id && left > 0 ? `${Math.min(100, (left / (SPELLS[id].cooldown * 1000)) * 100)}%` : "0";
+      cd.textContent = left > 0 ? String(Math.ceil(left / 1000)) : "";
+    });
+  }
+  window.setInterval(renderSpellBar, 100);
+  function setSpellAim(aim: typeof spellAim) {
+    spellAim = aim;
+    app.canvas.style.cursor = aim ? "crosshair" : "";
+    spellRangeRing.clear();
+    renderSpellBar();
+  }
+  function castSlot(slot: number, target: { targetId?: string; x?: number; y?: number }) {
+    sendMessage({ type: "castSpell", slot, ...target });
+    setSpellAim(null);
+  }
+  function useSpellSlot(slot: number) {
+    const id = heroProfile?.spells?.slots[slot];
+    if (!id) return;
+    const def = SPELLS[id];
+    if (spellCooldownMs(id) > 0) {
+      pushEventToast("build", `${def.name}: ${Math.ceil(spellCooldownMs(id) / 1000)} s cooldown`);
+      return;
+    }
+    // Pressing an ally spell's key again while aiming casts it on yourself.
+    if (def.targeting === "self" || (def.targeting === "ally" && spellAim?.slot === slot)) return castSlot(slot, {});
+    setSpellAim(spellAim?.slot === slot ? null : { slot, spell: id });
+  }
+  // A left click while aiming: true when it was used for the spell.
+  function spellAimClick(x: number, y: number): boolean {
+    if (!spellAim) return false;
+    const def = SPELLS[spellAim.spell];
+    if (def.targeting === "enemy") {
+      const mob = findNearest(latestMobs.filter((m) => (m.x - x) ** 2 + (m.y - y) ** 2 <= (mobHitRadius(m.kind, mobRenderScale(m)) + 6) ** 2), x, y, Infinity);
+      if (!mob) {
+        pushEventToast("build", `${def.name}: click on an enemy (right click cancels)`);
+        return true;
+      }
+      castSlot(spellAim.slot, { targetId: mob.id });
+    } else if (def.targeting === "ally") {
+      const friends = [...latestColonists, ...(latestPlayersForSpells.filter((p) => !p.dead) as { id: string; x: number; y: number }[])];
+      const ally = findNearest(friends, x, y, UNIT_HIT_RADIUS + 4);
+      castSlot(spellAim.slot, ally && ally.id !== myId ? { targetId: ally.id } : {});
+    } else {
+      castSlot(spellAim.slot, { x, y });
+    }
+    return true;
+  }
+  let latestPlayersForSpells: PlayerSnapshot[] = [];
+  app.ticker.add(() => {
+    if (!spellAim || !myId) return;
+    const me = latestPlayersForSpells.find((p) => p.id === myId);
+    spellRangeRing.clear();
+    if (!me) return;
+    spellRangeRing.circle(me.x, me.y, SPELLS[spellAim.spell].range * TILE_SIZE).stroke({ width: 2, color: 0xf2c94c, alpha: 0.6 });
+    if (spellRangeRing.parent !== worldLayer) worldLayer.addChild(spellRangeRing);
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
+    const digit = /^Digit([1-4])$/.exec(e.code);
+    const fkey = /^F([1-4])$/.exec(e.code);
+    if (digit && e.shiftKey) {
+      e.preventDefault();
+      useSpellSlot(Number(digit[1]) - 1);
+    } else if (fkey) {
+      e.preventDefault();
+      useSpellSlot(Number(fkey[1]) - 1);
+    } else if (e.key === "Escape" && spellAim) {
+      setSpellAim(null);
+    }
+  });
 
   // ---- Settlement population (ROADMAP "Settlement population caps"): one Colony panel row per Town
   // Center ("Settlement 1: 9/12"), amber when full, red when over its cap; a toast (throttled per
@@ -5211,6 +5531,7 @@ async function main() {
       worldLayer.addChild(dragBox);
     } else if (message.type === "snapshot") {
       syncPlayers(message.players);
+      latestPlayersForSpells = message.players;
       syncColonists(message.colonists, message.isNight);
       syncMobs(message.mobs);
       suppressDeathPoofs = false;
@@ -5525,6 +5846,12 @@ async function main() {
     const rect = app.canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
     const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+    // Hero phase 4: aiming a spell takes the left click; a right click cancels the aim.
+    if (spellAim && e.button === 0 && spellAimClick(x, y)) return;
+    if (spellAim && e.button === 2) {
+      setSpellAim(null);
+      return;
+    }
     if (e.button === 0) {
       leftPress = {
         pointerId: e.pointerId,

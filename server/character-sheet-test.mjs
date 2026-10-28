@@ -186,7 +186,7 @@ try {
   result(hs.profile.xp === xp0 + 40, `a kill not by the player gives no XP`);
 
   // ---- B: boss relics ----
-  const relics = () => hs.profile.inventory.filter((i) => i.tier === "relic").length + Object.values(hs.profile.equipment).filter((i) => i?.tier === "relic").length;
+  const relics = () => hs.profile.inventory.filter((i) => i.tier === "relic" && i.slot !== "tome").length + Object.values(hs.profile.equipment).filter((i) => i?.tier === "relic").length;
   let r0 = relics();
   const elite = await c.hookCall("spawnMob", { kind: "orc", tx: tc.x - 22, ty: tc.y - 20, boss: "elite" });
   await c.hookCall("damageMob", { mobId: elite.id, amount: 1e7, byPlayer: true });

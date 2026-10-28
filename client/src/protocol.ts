@@ -247,6 +247,8 @@ export interface ColonistSnapshot {
   heroName?: string;
   heroClass?: HeroClass;
   heroLevel?: number;
+  // Hero phase 4: a Summon spell's temporary skeleton militia (no population, despawns).
+  summoned?: boolean;
 }
 
 // Armour & weapons: the two equipment slots; the colony's stock counts each by tier 1..3.
@@ -267,7 +269,8 @@ export const GEAR_SLOTS: GearSlot[] = [
   "head", "chest", "legs", "weapon", "offhand", "trinket1", "trinket2", "spell1", "spell2", "spell3", "spell4",
 ];
 // What kind of socket an item fits (trinket -> trinket1/2, spell -> spell1-4).
-export type ItemSlotKind = "head" | "chest" | "legs" | "weapon" | "offhand" | "trinket" | "spell";
+// Hero phase 4: "tome" = a Spell Tome (pack only, never equipped; "Learn" consumes it, see useTome).
+export type ItemSlotKind = "head" | "chest" | "legs" | "weapon" | "offhand" | "trinket" | "spell" | "tome";
 export type ItemTier = 1 | 2 | 3 | "relic";
 export interface ItemStats {
   damagePct?: number;
@@ -291,6 +294,8 @@ export interface GearItem {
   relicId?: string;
   // Optional sprite basename under /sprites/ (SPRITES.md #49 / #51); the client falls back to a placeholder.
   icon?: string;
+  // Hero phase 4: Spell Tomes only - the spell it teaches.
+  spellId?: SpellId;
 }
 export type Equipment = Record<GearSlot, GearItem | null>;
 // Derived (server-computed) modifiers of the player's gear + level.
@@ -313,6 +318,60 @@ export interface HeroProfileSnapshot {
   levelXp: number;
   nextLevelXp: number | null;
   stats: HeroStats;
+  // Hero phase 4 (additive): learned spells, the 4 spell slots, auto-cast and cooldowns.
+  spells?: SpellBookSnapshot;
+}
+
+// ---- Hero phase 4: spells (ROADMAP "Hero phase 4: spells", 2026-10-28) ----
+// Cooldown-based, no mana. Numbers (damage / heal / shield) scale with the caster's spellPowerMult;
+// percentages and durations do not. Range / radius in tiles, cooldown / duration in seconds.
+export type SpellId = "fireBolt" | "thunder" | "frost" | "heal" | "ward" | "rallyBanner" | "summon" | "curse";
+// enemy: click a monster; ally: click a friendly unit / player (none = yourself); ground: click a spot.
+export type SpellTargeting = "enemy" | "ally" | "ground" | "self";
+export interface SpellDef {
+  id: SpellId;
+  name: string;
+  targeting: SpellTargeting;
+  range: number;
+  cooldown: number;
+  // Main scaled amount: damage (fire bolt / thunder / frost), heal, shield absorb; 0 = none.
+  power: number;
+  radius?: number;
+  // Status length in seconds (burn, slow, ward, rally, summon, curse).
+  duration?: number;
+  // Burn damage per second (scaled), slow / damage-taken / buff fractions (not scaled).
+  burnPerSec?: number;
+  slow?: number;
+  damageTakenBonus?: number;
+  buffDamage?: number;
+  buffSpeed?: number;
+  summonCount?: number;
+  // Sprite basename under /sprites/ (SPRITES.md #57); the client draws a placeholder until it exists.
+  icon: string;
+  // Placeholder icon glyph and colour.
+  glyph: string;
+  color: string;
+  text: string;
+}
+export const SPELLS: Record<SpellId, SpellDef> = {
+  fireBolt: { id: "fireBolt", name: "Fire Bolt", targeting: "enemy", range: 8, cooldown: 4, power: 30, duration: 3, burnPerSec: 3, icon: "spell-fireBolt", glyph: "✹", color: "#b5461c", text: "A bolt of fire: {power} damage, then burns for {burn}/s over 3 s" },
+  thunder: { id: "thunder", name: "Thunder", targeting: "ground", range: 7, cooldown: 12, power: 40, radius: 2, icon: "spell-thunder", glyph: "ϟ", color: "#5a6fb0", text: "Lightning strikes a spot: {power} damage to every enemy within 2 tiles" },
+  frost: { id: "frost", name: "Frost", targeting: "ground", range: 7, cooldown: 14, power: 15, radius: 2.5, duration: 4, slow: 0.5, icon: "spell-frost", glyph: "✻", color: "#3f8fb5", text: "A burst of frost: {power} damage and 50% slow for 4 s to enemies within 2.5 tiles" },
+  heal: { id: "heal", name: "Heal", targeting: "ally", range: 6, cooldown: 8, power: 45, icon: "spell-heal", glyph: "✚", color: "#3c8a3c", text: "Heals an ally (or yourself) for {power}" },
+  ward: { id: "ward", name: "Ward", targeting: "ally", range: 6, cooldown: 18, power: 60, duration: 8, icon: "spell-ward", glyph: "◈", color: "#c9a227", text: "Shields an ally (or yourself): absorbs {power} damage for 8 s" },
+  rallyBanner: { id: "rallyBanner", name: "Rally Banner", targeting: "ground", range: 5, cooldown: 30, power: 0, radius: 4, duration: 10, buffDamage: 0.25, buffSpeed: 0.15, icon: "spell-rally", glyph: "⚑", color: "#9a2f2f", text: "Plants a banner: friendly soldiers within 4 tiles deal +25% damage and move +15% faster for 10 s" },
+  summon: { id: "summon", name: "Summon", targeting: "ground", range: 4, cooldown: 45, power: 0, duration: 40, summonCount: 2, icon: "spell-summon", glyph: "☠", color: "#5c5c6e", text: "Raises 2 skeleton militia for 40 s (no population)" },
+  curse: { id: "curse", name: "Curse", targeting: "enemy", range: 8, cooldown: 16, power: 0, duration: 8, damageTakenBonus: 0.3, icon: "spell-curse", glyph: "☽", color: "#6b2f8a", text: "Curses an enemy: it takes +30% damage for 8 s" },
+};
+export const SPELL_IDS = Object.keys(SPELLS) as SpellId[];
+export const SPELL_SLOT_COUNT = 4;
+// Snapshot form of a profile's spell book. cooldowns: ticks (TICK_RATE / s) left per spell at send time.
+export interface SpellBookSnapshot {
+  learned: SpellId[];
+  slots: (SpellId | null)[];
+  // Heroes only: auto-cast slotted spells (players never auto-cast).
+  auto: boolean;
+  cooldowns: Partial<Record<SpellId, number>>;
 }
 // Hero phase 3: snapshot `heroes`, one per hero of the colony (alive, waiting to respawn or still being
 // recruited), sent per player only when the roster changed. `profile.inventory` is always empty: heroes
@@ -462,6 +521,8 @@ export interface AttackEffect {
   melee?: boolean;
   // A catapult's boulder (arcing flight, impact puff at the target); omitted otherwise.
   boulder?: boolean;
+  // Hero phase 4: a spell's cast (from caster to target / ground point); omitted otherwise.
+  spell?: SpellId;
 }
 
 // A transient marker where a colonist died; the server drops every one at the next dawn.
@@ -585,6 +646,8 @@ export interface BuildingInfo {
     options: { heroClass: HeroClass; label: string; cost: string; enabled: boolean; reason: string }[];
     roster: { name: string; heroClass: HeroClass; level: number; status: string }[];
   };
+  // Churches only (hero phase 4): basic spells the requesting player can buy (see learnSpell).
+  spellShop?: { spellId: SpellId; label: string; gold: number; enabled: boolean; reason: string }[];
 }
 
 export type ClientMessage =
@@ -628,6 +691,16 @@ export type ClientMessage =
   | { type: "takeFromArmoury"; slot: EquipSlot; tier: number; heroId?: string }
   // Hero phase 3: recruit a hero of `class` at the Keep at (tx, ty) (Keep panel buttons).
   | { type: "recruitHero"; tx: number; ty: number; class: HeroClass }
+  // Hero phase 4: spells. slot 0-3; heroId (optional) = that hero's book instead of the player's.
+  | { type: "setSpellSlot"; slot: number; spellId: SpellId | null; heroId?: string }
+  // Reads a Spell Tome from the player's pack (taught to the player, or to heroId) and consumes it.
+  | { type: "useTome"; itemId: string; heroId?: string }
+  // Buys a basic spell at the Church at (tileX, tileY) for the player (gold from the colony stock).
+  | { type: "learnSpell"; spellId: SpellId; tileX: number; tileY: number }
+  // Casts the spell in a slot: targetId (a mob, colonist or player id) for enemy / ally spells, x / y (px)
+  // for ground spells. heroId: the hero casts it.
+  | { type: "castSpell"; slot: number; targetId?: string; x?: number; y?: number; heroId?: string }
+  | { type: "setSpellAuto"; heroId: string; auto: boolean }
   // Save files (server/saves/<slot>.json). saveGame takes slot1-3 (the autosave is the server's own);
   // loadGame replaces the shared world for everyone connected.
   | { type: "saveGame"; slot: SaveSlot }
