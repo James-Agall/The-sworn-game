@@ -1278,3 +1278,54 @@ sheet spell slots / spell book (`hs-spellbook`, `hs-spell-auto`), Church row (`b
 6. Let a raid batter a wall and a gate below half HP: the damaged pieces / Damaged gate appear (with the soot tint);
    repair it: intact art comes back. A raid overrunning a gate shows the Overrun (broken) gate.
 7. Demolish a wall tile in the middle of a run: both neighbours switch to end caps.
+
+## Strategy mode phase 1 — landed 2026-10-28
+
+Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 1 (camera, zoom, LOD, fog; one small server change).
+
+- **Camera** (`client/src/strategy/camera.ts`): Tab (or the new top-bar "Command" button) eases 350 ms from the
+  rider to zoom 0.5; Tab again / Esc (when no spell aim, panel, modal or selection is open: the first Esc still
+  clears a selection) eases back to the rider at 1.3. `const ZOOM` is now `let camZoom` everywhere (pointer maths,
+  floor-chunk culling, minimap view rect, fight arrows). Pan: WASD / arrows, 12 px edge scroll, middle-drag; wheel
+  zooms about the cursor (floor = the whole map fits on screen, min 0.05); minimap click / drag jumps there; Home
+  centres on the rider; a fight-arrow click jumps the strategy view instead of peeking.
+- **Strategy mode rules**: rider sends `input {0,0}` (stands idle, can be attacked), Space doesn't swing, letter
+  keys never pick a build tool, right-click never places, left-click never demolishes (building panels still open on
+  click, garrison clicks still select), the build panel is hidden. Selection, box select and orders work as before.
+- **LOD** (`client/src/strategy/lod.ts`): Tactical >= 0.75 as today; Field 0.35-0.75 civilians at 50% alpha; Map
+  < 0.35 hides the floor, decor and tile layers (floor chunks aren't even built) and shows the minimap's 1 px/tile
+  canvas as a nearest-scaled "strategic map" sprite, units as role-tinted screen-size dots (selected = cyan, mobs
+  red, riders rings, Town Centers squares). Stand-in banners (name + count + HP bar, constant screen size) over each
+  group of commandable units sharing a post (heroes alone) until Phase 2's server regiments.
+- **Fog** (strategy mode only; tactical stays unfogged): unexplored black, explored-but-not-in-live-vision dimmed 45%
+  (same sources as the minimap's live vision), rebuilt at most every 200 ms. Mobs, their role rings, wildlife and
+  right-click attack targets only inside live vision.
+- **Server / protocol (additive, both copies byte-identical)**: `ClientMessage` `setView {x, y, halfW, halfH,
+  strategy}` in tiles. `handleSetView` validates (finite numbers), clamps the centre into the map and half extents to
+  [1, 140] tiles (+4 tile margin), accepts at most one per 100 ms per socket (client sends <= 5/s, only on a >= 1 tile
+  change), `strategy:false` clears it. Big-world (> 192) snapshot culling keeps mobs / wildlife near the avatar OR
+  inside the view rect. Dormancy, raids and fights still key off the rider only.
+- **Floor chunks**: beyond 256 built chunks, off-screen ones are freed (strategy panning would otherwise build all
+  1024 chunks of a 512 map).
+- **Test**: `server/strategy-view-test.mjs` (own server, port 20611, world 256): far mob culled without a view; in
+  the snapshot with a view over it; oversized view clamped; 140-tile view includes it; malformed setView ignored;
+  `strategy:false` drops it. 6/6 pass. Snapshot bytes at 256 with ~40 mobs: rider-only ~6.6 KB, 140-tile view ~33 KB.
+- **Caveats**: in the Map band on 512 the server view cap (140 tiles) is smaller than the screen, so mobs farther than
+  ~144 tiles from the view centre are not sent (Phase 5's `enemyRegiments` summaries cover that); buildings in the Map
+  band are only the map's tan pixels plus Town Center squares; attack VFX (arrows, slashes) of fights outside vision
+  still draw; no walk-anim freeze in the Field band; banners are client-derived, not regiments yet.
+
+**Manual browser check (strategy mode phase 1)**
+1. Press Tab: the camera zooms out smoothly from the rider to a wider view; Tab again returns to the rider at the old
+   zoom. The "Command" button does the same; Esc (nothing selected) exits too.
+2. In strategy mode, the wheel zooms toward the cursor; on a 512 map zoom all the way out: the whole map fits on
+   screen, soldiers become coloured dots, the ground becomes the minimap-style map.
+3. WASD / arrows pan, the mouse at a screen edge pans, middle-drag pans; the rider doesn't move. Home recentres on him.
+4. Right-click on empty ground places nothing; left-click on ground demolishes nothing; clicking a building still
+   opens its panel; the build panel is gone until you exit.
+5. Unexplored ground is black, explored ground outside your units' sight is dimmed; monsters are hidden outside sight
+   (walk a soldier toward one and it appears). Tab back: no fog, as before.
+6. Zoomed all the way out on 512, panning / zooming stays smooth (no FPS drop).
+7. Click / drag on the minimap: the view jumps there. On a 256/512 map, monsters near that spot (far from the rider)
+   show up once your units see them.
+8. Banners float over each garrison's soldiers (e.g. "Knights 4" with an HP bar) at any zoom, same size on screen.

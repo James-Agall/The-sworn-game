@@ -701,6 +701,10 @@ export type ClientMessage =
   // for ground spells. heroId: the hero casts it.
   | { type: "castSpell"; slot: number; targetId?: string; x?: number; y?: number; heroId?: string }
   | { type: "setSpellAuto"; heroId: string; auto: boolean }
+  // Strategy mode phase 1 (additive): the free camera's view in tiles (x / y = centre, halfW / halfH = half
+  // extents; the server clamps them). While strategy is true, big-world snapshots also carry the mobs and
+  // wildlife inside that view, not only those near the rider. strategy: false drops it.
+  | { type: "setView"; x: number; y: number; halfW: number; halfH: number; strategy: boolean }
   // Save files (server/saves/<slot>.json). saveGame takes slot1-3 (the autosave is the server's own);
   // loadGame replaces the shared world for everyone connected.
   | { type: "saveGame"; slot: SaveSlot }

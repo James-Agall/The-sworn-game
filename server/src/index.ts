@@ -126,6 +126,10 @@ interface Player {
   profileSentVersion: number;
   // Hero phase 3: heroRosterVersion last sent as snapshot `heroes` (-1 = send it on the next one).
   heroesSentVersion: number;
+  // Strategy mode phase 1: the free camera's view rect (px, centre + half extents) while the player is in
+  // strategy mode, else null (see handleSetView); big-world snapshot culling also keeps what is inside it.
+  view: { x: number; y: number; halfW: number; halfH: number } | null;
+  viewSetAt: number;
 }
 
 interface TileCoord {
@@ -10001,6 +10005,8 @@ wss.on("connection", (socket, req) => {
     profileKey,
     profileSentVersion: -1,
     heroesSentVersion: -1,
+    view: null,
+    viewSetAt: 0,
   };
   players.set(id, player);
   player.hp = playerMaxHp(player);
@@ -10029,6 +10035,8 @@ wss.on("connection", (socket, req) => {
       handleSetTile(player, message.tileX, message.tileY, message.tile);
     } else if (message.type === "attack") {
       handlePlayerAttack(player);
+    } else if (message.type === "setView") {
+      handleSetView(player, message);
     } else if (message.type === "pause") {
       isPaused = !isPaused;
     } else if (message.type === "restart") {
@@ -13182,6 +13190,31 @@ function withPlayerFights(payload: string, player: Player): string {
 // Interest management (worlds bigger than this): view distance (half-screen at max zoom-out) + margin.
 const SNAPSHOT_CULL_MIN_WORLD = 192;
 const SNAPSHOT_VIEW_TILES = 60;
+// Strategy mode phase 1: a setView rect is capped at this half extent (tiles), padded by the margin, and
+// accepted at most once per SET_VIEW_MIN_MS per socket (the client sends at most 5/s).
+const STRATEGY_VIEW_MAX_HALF_TILES = 140;
+const STRATEGY_VIEW_MARGIN_TILES = 4;
+const SET_VIEW_MIN_MS = 100;
+
+// Validates / clamps a setView. Only culling reads it: dormancy, raids and fights still key off the rider.
+function handleSetView(player: Player, msg: { x: unknown; y: unknown; halfW: unknown; halfH: unknown; strategy: unknown }) {
+  if (msg.strategy !== true) {
+    player.view = null;
+    return;
+  }
+  const now = Date.now();
+  if (now - player.viewSetAt < SET_VIEW_MIN_MS) return;
+  const nums = [msg.x, msg.y, msg.halfW, msg.halfH];
+  if (!nums.every((n) => typeof n === "number" && Number.isFinite(n))) return;
+  const [x, y, halfW, halfH] = nums as number[];
+  player.viewSetAt = now;
+  player.view = {
+    x: clamp(x, 0, WORLD_TILES_X) * TILE_SIZE,
+    y: clamp(y, 0, WORLD_TILES_Y) * TILE_SIZE,
+    halfW: (clamp(halfW, 1, STRATEGY_VIEW_MAX_HALF_TILES) + STRATEGY_VIEW_MARGIN_TILES) * TILE_SIZE,
+    halfH: (clamp(halfH, 1, STRATEGY_VIEW_MAX_HALF_TILES) + STRATEGY_VIEW_MARGIN_TILES) * TILE_SIZE,
+  };
+}
 
 const dt = 1 / TICK_RATE;
 let wasNight = false;
@@ -13421,7 +13454,10 @@ setInterval(() => {
       let payload = sharedPayload;
       if (snapshot.type === "snapshot" && cull) {
         const limit = SNAPSHOT_VIEW_TILES * TILE_SIZE;
-        const near = (x: number, y: number) => Math.abs(x - player.x) < limit && Math.abs(y - player.y) < limit;
+        const view = player.view;
+        const near = (x: number, y: number) =>
+          (Math.abs(x - player.x) < limit && Math.abs(y - player.y) < limit) ||
+          (!!view && Math.abs(x - view.x) < view.halfW && Math.abs(y - view.y) < view.halfH);
         const wl: number[] = [];
         for (let i = 0; i < snapshot.wildlife.length; i += WILDLIFE_SNAPSHOT_STRIDE) {
           if (near(snapshot.wildlife[i + 2], snapshot.wildlife[i + 3])) wl.push(...snapshot.wildlife.slice(i, i + WILDLIFE_SNAPSHOT_STRIDE));

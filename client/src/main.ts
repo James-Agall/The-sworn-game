@@ -1,6 +1,7 @@
 import {
   Application,
   Assets,
+  CanvasSource,
   Container,
   defaultFilterVert,
   Filter,
@@ -11,6 +12,7 @@ import {
   Texture,
 } from "pixi.js";
 import type {
+  ClientMessage,
   ServerMessage,
   PlayerSnapshot,
   ColonistSnapshot,
@@ -72,6 +74,9 @@ import type { CombatRole, SiegeKind } from "./protocol";
 import { SPELLS, SPELL_SLOT_COUNT } from "./protocol";
 import type { SpellId, SpellBookSnapshot } from "./protocol";
 import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
+import { EDGE_SCROLL_PX, PAN_SCREEN_PX_PER_S, StrategyCamera, TACTICAL_ZOOM, WHEEL_ZOOM_STEP } from "./strategy/camera";
+import { drawUnitDots, lodBand, StrategyBanners, StrategyFog } from "./strategy/lod";
+import type { BannerGroup, LodBand, UnitDot, VisionSource } from "./strategy/lod";
 
 const SERVER_URL = "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -1614,9 +1619,16 @@ async function main() {
     buildPanelToggle.blur();
   });
 
-  const ZOOM = 1.3;
+  // Strategy mode phase 1: the zoom is variable (TACTICAL_ZOOM unless the strategy camera is active).
+  let camZoom = TACTICAL_ZOOM;
+  const strategyCam = new StrategyCamera();
+  // LOD band drawn this frame ("tactical" whenever the strategy camera is inactive).
+  let strategyBand: LodBand = "tactical";
+  // Map band unit dots and the stand-in regiment banners (strategy mode only; see strategy/lod.ts).
+  const strategyDots = new Graphics();
+  const strategyBanners = new StrategyBanners();
   const worldLayer = new Container();
-  worldLayer.scale.set(ZOOM);
+  worldLayer.scale.set(camZoom);
   app.stage.addChild(worldLayer);
 
   let myId: string | null = null;
@@ -1643,6 +1655,11 @@ async function main() {
   const floorSpriteLayer = new Container();
   worldLayer.addChild(floorSpriteLayer);
   const floorSprites: Sprite[] = [];
+  // Strategy mode Map band: the minimap's 1 px/tile static canvas stretched over the world (nearest
+  // scaling) stands in for the floor, decor and tile layers, which are hidden at that zoom.
+  const strategicMapSprite = new Sprite(Texture.EMPTY);
+  strategicMapSprite.visible = false;
+  worldLayer.addChild(strategicMapSprite);
 
   // Cosmetic nature scatter (tall grass / flowers / bushes), keyed by tile index: over the floor,
   // under Town Center / buildings / entities. Hidden whenever its tile isn't Empty.
@@ -1915,6 +1932,9 @@ async function main() {
   const nightOverlay = new Graphics();
   nightOverlay.alpha = 0;
   worldLayer.addChild(nightOverlay);
+  // Strategy mode fog (only while the strategy camera is active; the tactical view stays unfogged).
+  const strategyFog = new StrategyFog();
+  worldLayer.addChild(strategyFog.sprite);
 
   // One HP bar per standing Town Center, keyed by tile index, just above its art.
   const townCenterHpBars = new Map<number, Graphics>();
@@ -2119,6 +2139,7 @@ async function main() {
   // A 512 map has 262k floor tiles, so sprites are built per 16x16-tile chunk, lazily the first time
   // the camera sees it (updateFloorChunks, every frame), and chunks off screen are hidden.
   const FLOOR_CHUNK_TILES = 16;
+  const FLOOR_CHUNK_KEEP = 256;
   const floorChunks = new Map<number, Container>();
   function setFloorSprites() {
     for (const s of floorSprites) s.destroy();
@@ -2151,11 +2172,15 @@ async function main() {
     return chunk;
   }
   function updateFloorChunks() {
+    // Map band: the strategic map sprite replaces the floor (building every chunk of a 512 map would
+    // make ~262k sprites).
+    floorSpriteLayer.visible = strategyBand !== "map";
+    if (!floorSpriteLayer.visible) return;
     const span = FLOOR_CHUNK_TILES * tileSize;
-    const left = Math.floor(-worldLayer.position.x / ZOOM / span) - 1;
-    const right = Math.floor((app.screen.width - worldLayer.position.x) / ZOOM / span) + 1;
-    const top = Math.floor(-worldLayer.position.y / ZOOM / span) - 1;
-    const bottom = Math.floor((app.screen.height - worldLayer.position.y) / ZOOM / span) + 1;
+    const left = Math.floor(-worldLayer.position.x / camZoom / span) - 1;
+    const right = Math.floor((app.screen.width - worldLayer.position.x) / camZoom / span) + 1;
+    const top = Math.floor(-worldLayer.position.y / camZoom / span) - 1;
+    const bottom = Math.floor((app.screen.height - worldLayer.position.y) / camZoom / span) + 1;
     const chunksX = Math.ceil(worldTilesX / FLOOR_CHUNK_TILES);
     const chunksY = Math.ceil(worldTilesY / FLOOR_CHUNK_TILES);
     for (let cy = 0; cy < chunksY; cy++) {
@@ -2167,6 +2192,13 @@ async function main() {
           if (!visible) continue;
           chunk = buildFloorChunk(cx, cy);
           floorChunks.set(key, chunk);
+        }
+        // Strategy panning can visit the whole map: past FLOOR_CHUNK_KEEP built chunks, off-screen ones
+        // are freed (rebuilt if seen again) so a 512 map never holds all ~262k floor sprites.
+        if (!visible && floorChunks.size > FLOOR_CHUNK_KEEP) {
+          chunk.destroy({ children: true });
+          floorChunks.delete(key);
+          continue;
         }
         chunk.visible = visible;
       }
@@ -3356,11 +3388,15 @@ async function main() {
     if (!myId) return;
     const mine = playerSprites.get(myId);
     if (!mine) return;
-    const focus = fightPeekFocus(mine.sprite.position.x, mine.sprite.position.y);
+    const sv = strategyCameraView(mine.sprite.position.x, mine.sprite.position.y);
+    const focus = sv ?? fightPeekFocus(mine.sprite.position.x, mine.sprite.position.y);
+    camZoom = sv ? sv.zoom : TACTICAL_ZOOM;
+    worldLayer.scale.set(camZoom);
     worldLayer.position.set(
-      app.screen.width / 2 - focus.x * ZOOM,
-      app.screen.height / 2 - focus.y * ZOOM
+      app.screen.width / 2 - focus.x * camZoom,
+      app.screen.height / 2 - focus.y * camZoom
     );
+    strategyAfterCamera();
     updateFloorChunks();
   });
 
@@ -3375,6 +3411,8 @@ async function main() {
   const minimapStaticCtx = minimapStatic.getContext("2d")!;
   let minimapImage: ImageData | null = null;
   let minimapStaticDirty = false;
+  // The strategic map sprite's texture needs a re-upload from minimapStatic (done only in the Map band).
+  let strategicMapDirty = false;
   let explored = new Uint8Array(0);
   const MINIMAP_TARGET_CSS_PX = 180;
   // Both integers, so tile -> pixel stays exact: CSS px per tile, and backing px per CSS px.
@@ -3470,6 +3508,11 @@ async function main() {
     minimapStatic.height = worldTilesY;
     minimapImage = minimapStaticCtx.createImageData(worldTilesX, worldTilesY);
     for (let i = 0; i < count; i++) paintMinimapTile(i);
+    // The canvas was resized: a fresh texture for the strategic map sprite.
+    if (strategicMapSprite.texture !== Texture.EMPTY) strategicMapSprite.texture.destroy(true);
+    strategicMapSprite.texture = new Texture({ source: new CanvasSource({ resource: minimapStatic, scaleMode: "nearest" }) });
+    strategicMapSprite.scale.set(tileSize);
+    strategicMapDirty = true;
   }
 
   function markExplored(indices: number[]) {
@@ -3478,6 +3521,19 @@ async function main() {
       explored[i] = 1;
       paintMinimapTile(i);
     }
+  }
+
+  // Live view right now: players and the colony's own colonists (not the Abbey's clergy), with the
+  // server's vision radii (minimap enemy dots and the strategy fog share it).
+  function liveVisionSources(players: PlayerSnapshot[], colonists: ColonistSnapshot[]): VisionSource[] {
+    const tileOf = (worldPx: number) => Math.floor(worldPx / tileSize);
+    const sources: VisionSource[] = [];
+    for (const p of players) sources.push({ x: tileOf(p.x), y: tileOf(p.y), r: VISION_RADIUS_PLAYER });
+    for (const c of colonists) {
+      if (tiles[c.postY * worldTilesX + c.postX] === TileType.AbbeyHall) continue;
+      sources.push({ x: tileOf(c.x), y: tileOf(c.y), r: VISION_RADIUS_COLONIST });
+    }
+    return sources;
   }
 
   function cssColor(color: number): string {
@@ -3489,6 +3545,7 @@ async function main() {
     if (minimapStaticDirty) {
       minimapStaticCtx.putImageData(minimapImage, 0, 0);
       minimapStaticDirty = false;
+      strategicMapDirty = true;
     }
     const ctx = minimapCtx;
     const s = minimapCssPerTile * minimapDpr; // backing px per tile
@@ -3542,14 +3599,7 @@ async function main() {
 
     // Live view right now: players and the colony's own colonists (not the Abbey's clergy), with
     // the server's vision radii. Mobs outside it aren't drawn, even on explored ground.
-    const sources: Array<{ x: number; y: number; r2: number }> = [];
-    for (const p of players) {
-      sources.push({ x: tileOf(p.x), y: tileOf(p.y), r2: VISION_RADIUS_PLAYER * VISION_RADIUS_PLAYER });
-    }
-    for (const c of colonists) {
-      if (tiles[c.postY * worldTilesX + c.postX] === TileType.AbbeyHall) continue;
-      sources.push({ x: tileOf(c.x), y: tileOf(c.y), r2: VISION_RADIUS_COLONIST * VISION_RADIUS_COLONIST });
-    }
+    const sources = liveVisionSources(players, colonists).map((v) => ({ x: v.x, y: v.y, r2: v.r * v.r }));
 
     ctx.fillStyle = "#f3da98";
     for (const c of colonists) {
@@ -3593,11 +3643,11 @@ async function main() {
       ctx.stroke();
     }
 
-    // Main camera viewport (worldLayer is scaled by ZOOM and offset to follow the player).
-    const viewX = toMap(-worldLayer.position.x / ZOOM);
-    const viewY = toMap(-worldLayer.position.y / ZOOM);
-    const viewW = toMap(app.screen.width / ZOOM);
-    const viewH = toMap(app.screen.height / ZOOM);
+    // Main camera viewport (worldLayer is scaled by camZoom and offset to the camera focus).
+    const viewX = toMap(-worldLayer.position.x / camZoom);
+    const viewY = toMap(-worldLayer.position.y / camZoom);
+    const viewW = toMap(app.screen.width / camZoom);
+    const viewH = toMap(app.screen.height / camZoom);
     ctx.lineWidth = u;
     ctx.strokeStyle = "rgba(251, 236, 200, 0.85)";
     ctx.strokeRect(Math.round(viewX) + u / 2, Math.round(viewY) + u / 2, Math.round(viewW) - u, Math.round(viewH) - u);
@@ -3665,15 +3715,15 @@ async function main() {
     const w = fightWorldPos(f);
     return placeEdgeArrow(
       app.screen.width, app.screen.height,
-      worldLayer.position.x + w.x * ZOOM, worldLayer.position.y + w.y * ZOOM, FIGHT_ARROW_INSETS
+      worldLayer.position.x + w.x * camZoom, worldLayer.position.y + w.y * camZoom, FIGHT_ARROW_INSETS
     ).onScreen;
   }
 
   // Direction and distance in tiles from the local player (the camera centre if there is none).
   function fightBearing(f: FightSnapshot): { dir: string; tiles: number } {
     const me = myId ? playerSprites.get(myId) : undefined;
-    const ox = me ? me.sprite.position.x / tileSize : (app.screen.width / 2 - worldLayer.position.x) / ZOOM / tileSize;
-    const oy = me ? me.sprite.position.y / tileSize : (app.screen.height / 2 - worldLayer.position.y) / ZOOM / tileSize;
+    const ox = me ? me.sprite.position.x / tileSize : (app.screen.width / 2 - worldLayer.position.x) / camZoom / tileSize;
+    const oy = me ? me.sprite.position.y / tileSize : (app.screen.height / 2 - worldLayer.position.y) / camZoom / tileSize;
     const dx = f.x + 0.5 - ox;
     const dy = f.y + 0.5 - oy;
     return { dir: compassDirection(dx, dy), tiles: Math.round(Math.hypot(dx, dy)) };
@@ -3696,7 +3746,8 @@ async function main() {
       e.stopPropagation();
       const arrow = fightArrows.get(f.id);
       const target = fightWorldPos(arrow ? arrow.fight : f);
-      fightPeek = { x: target.x, y: target.y, until: performance.now() + FIGHT_PEEK_MS };
+      if (strategyCam.inStrategy) strategyCam.jumpTo(target.x, target.y);
+      else fightPeek = { x: target.x, y: target.y, until: performance.now() + FIGHT_PEEK_MS };
       el.blur();
     });
     fightArrowLayer.append(el);
@@ -3754,7 +3805,7 @@ async function main() {
       const w = fightWorldPos(a.fight);
       const p = placeEdgeArrow(
         app.screen.width, app.screen.height,
-        worldLayer.position.x + w.x * ZOOM, worldLayer.position.y + w.y * ZOOM, FIGHT_ARROW_INSETS
+        worldLayer.position.x + w.x * camZoom, worldLayer.position.y + w.y * camZoom, FIGHT_ARROW_INSETS
       );
       a.el.hidden = p.onScreen;
       if (p.onScreen) continue;
@@ -4203,7 +4254,7 @@ async function main() {
         for (const [px, py] of [[hr, 0], [-hr, 0], [0, hr * 0.4], [0, -hr * 0.4]]) roleRings.circle(c.x + px, c.y + r * 0.8 + py, 1.8).fill(0xffe9a8);
       }
     }
-    for (const m of latestMobs) ring(m.x, m.y, MOB_ROLE[m.kind], 10);
+    for (const m of latestMobs) if (strategySeesEnemy(m.x, m.y)) ring(m.x, m.y, MOB_ROLE[m.kind], 10);
   }
 
   function redrawSelectionRings() {
@@ -5815,6 +5866,7 @@ async function main() {
       worldLayer.addChild(selectionRings);
       worldLayer.addChild(roleRings);
       worldLayer.addChild(dragBox);
+      strategyOnWelcome();
     } else if (message.type === "snapshot") {
       syncPlayers(message.players);
       latestPlayersForSpells = message.players;
@@ -5901,6 +5953,7 @@ async function main() {
       for (const effect of message.effects) spawnEffect(effect);
       syncFights(message.fights);
       drawMinimap(message.players, message.colonists, message.mobs);
+      strategyOnSnapshot(message.players);
       syncGoal(message.goal);
       // Long days: dawn/dusk respawn windows (cycle lengths come from the server, never hard-coded).
       if (message.respawn) {
@@ -6008,8 +6061,9 @@ async function main() {
   window.addEventListener("keydown", (e) => {
     const key = e.key.toLowerCase();
     keys.add(key);
-    // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool.
-    if (e.ctrlKey || e.altKey) return;
+    // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool. Strategy mode
+    // has no building, so its letter keys never pick a tool either.
+    if (e.ctrlKey || e.altKey || strategyCam.inStrategy) return;
     const match = TOOLS.find((t) => t.key === key);
     if (match) {
       if (match.tile !== TileType.Empty && match.category !== activeCategory) {
@@ -6056,6 +6110,8 @@ async function main() {
   window.addEventListener("keydown", (e) => {
     if (e.key === " " && !e.repeat) {
       e.preventDefault();
+      // The rider stands idle in strategy mode.
+      if (strategyCam.inStrategy) return;
       if (socket.readyState === socket.OPEN) {
         socket.send(JSON.stringify({ type: "attack" }));
         // Immediate feedback even when the swing hits nothing (no server effect then).
@@ -6077,9 +6133,323 @@ async function main() {
 
   setInterval(() => {
     if (socket.readyState !== socket.OPEN) return;
-    const { dx, dy } = currentInput();
+    // Strategy mode: WASD pans the camera, the rider stops.
+    const { dx, dy } = strategyCam.inStrategy ? { dx: 0, dy: 0 } : currentInput();
     socket.send(JSON.stringify({ type: "input", dx, dy }));
   }, 50);
+
+  // ---- Strategy mode phase 1 (docs PLAN-strategy-mode.md §1): Tab toggles a free bird's-eye camera
+  // (strategy/camera.ts) with LOD bands, fog and stand-in banners (strategy/lod.ts). While it is on:
+  // WASD / arrows / edge scroll / middle-drag pan, the wheel zooms about the cursor, a minimap click
+  // jumps there, Home centres on the rider; building is off and the rider stands idle. The server gets
+  // the view as `setView` so it sends the mobs inside it, not only those near the rider.
+  const STRATEGY_HIT_SCREEN_PX = 6;
+  const STRATEGY_FOG_REFRESH_MS = 200;
+  const SET_VIEW_INTERVAL_MS = 200;
+  // World px the banner tip sits above its group's centroid (about half a unit's height).
+  const BANNER_LIFT_PX = 18;
+  const BANNER_KIND_LABEL: Record<string, string> = {
+    knight: "Knights", archer: "Archers", militia: "Militia", spearman: "Spearmen", pikeman: "Pikemen",
+    cavalry: "Cavalry", bishop: "Bishop", batteringRam: "Rams", catapult: "Catapults",
+  };
+  const strategyBtn = document.getElementById("strategy-btn") as HTMLButtonElement;
+  let panDrag: { pointerId: number; lastX: number; lastY: number } | null = null;
+  let canvasPointer: { x: number; y: number } | null = null;
+  let lastPanAt = 0;
+  let fogUpdatedAt = -Infinity;
+  let dotsDirty = true;
+  let dotsZoom = 0;
+  let strategyWasActive = false;
+  let viewSent: { x: number; y: number; halfW: number; halfH: number } | null = null;
+  let viewSentAt = -Infinity;
+
+  function cancelPanDrag() {
+    if (panDrag && app.canvas.hasPointerCapture(panDrag.pointerId)) app.canvas.releasePointerCapture(panDrag.pointerId);
+    panDrag = null;
+  }
+  app.canvas.addEventListener("pointerleave", () => {
+    canvasPointer = null;
+  });
+
+  function toggleStrategy() {
+    const now = performance.now();
+    if (strategyCam.inStrategy) {
+      strategyCam.exit(now);
+      return;
+    }
+    // From wherever the camera is now (the rider, a fight peek, or mid exit transition).
+    const focus = {
+      x: (app.screen.width / 2 - worldLayer.position.x) / camZoom,
+      y: (app.screen.height / 2 - worldLayer.position.y) / camZoom,
+      zoom: camZoom,
+    };
+    fightPeek = null;
+    fightPeekCam = null;
+    cancelLeftPress();
+    cancelOrderPress();
+    placementGhost.visible = false;
+    cursorHighlight.clear();
+    strategyCam.enter(focus, now);
+    refreshStrategyFog();
+    buildStrategyBanners();
+    dotsDirty = true;
+  }
+
+  // Camera ticker hook: pans from keys / screen edge, then the view to draw (null = follow the rider).
+  function strategyCameraView(riderX: number, riderY: number): { x: number; y: number; zoom: number } | null {
+    const now = performance.now();
+    const dt = Math.min(0.1, Math.max(0, (now - lastPanAt) / 1000));
+    lastPanAt = now;
+    strategyCam.setBounds(worldTilesX * tileSize, worldTilesY * tileSize, app.screen.width, app.screen.height);
+    if (strategyCam.inStrategy && dt > 0) {
+      let { dx, dy } = currentInput();
+      if (canvasPointer && !panDrag) {
+        if (canvasPointer.x <= EDGE_SCROLL_PX) dx = -1;
+        else if (canvasPointer.x >= app.screen.width - EDGE_SCROLL_PX) dx = 1;
+        if (canvasPointer.y <= EDGE_SCROLL_PX) dy = -1;
+        else if (canvasPointer.y >= app.screen.height - EDGE_SCROLL_PX) dy = 1;
+      }
+      if (dx !== 0 || dy !== 0) {
+        const step = (PAN_SCREEN_PX_PER_S * dt) / strategyCam.target.zoom / Math.hypot(dx, dy);
+        strategyCam.pan(dx * step, dy * step);
+      }
+    }
+    return strategyCam.view(now, { x: riderX, y: riderY });
+  }
+
+  // Camera ticker hook, after worldLayer is placed: LOD layer toggles, dots, banner scale, setView.
+  function strategyAfterCamera() {
+    const active = strategyCam.active;
+    const band: LodBand = active ? lodBand(camZoom) : "tactical";
+    const changed = band !== strategyBand || active !== strategyWasActive;
+    strategyBand = band;
+    const map = band === "map";
+    decorSpriteLayer.visible = !map;
+    tileSpriteLayer.visible = !map;
+    strategicMapSprite.visible = map;
+    roleRings.visible = !map;
+    strategyDots.visible = map;
+    strategyFog.sprite.visible = active;
+    strategyBanners.layer.visible = active;
+    if (map && strategicMapDirty) {
+      strategicMapSprite.texture.source.update();
+      strategicMapDirty = false;
+    }
+    if (active) strategyBanners.setZoom(camZoom);
+    if (map && (dotsDirty || dotsZoom !== camZoom)) redrawStrategyDots();
+    if (changed) {
+      strategyWasActive = active;
+      applyStrategyVisibility();
+      document.body.classList.toggle("strategy-mode", active);
+    }
+    const label = strategyCam.inStrategy ? "Exit" : "Command";
+    if (strategyBtn.textContent !== label) strategyBtn.textContent = label;
+    sendStrategyView();
+  }
+
+  // Enemies (and wildlife) are drawn in strategy mode only inside live vision.
+  function strategySeesEnemy(x: number, y: number): boolean {
+    return !strategyCam.active || strategyFog.sees(x, y);
+  }
+
+  function refreshStrategyFog() {
+    strategyFog.update(explored, liveVisionSources(latestPlayersForSpells, latestColonists));
+    fogUpdatedAt = performance.now();
+  }
+
+  function setEntityVisible(e: EntityVisual, visible: boolean) {
+    e.sprite.visible = visible;
+    e.hpBar.visible = visible;
+    if (visible) return;
+    for (const part of [e.marker, e.wound, e.aura, e.sigil, e.markLabel, e.bossLabel, e.heroLabel]) if (part) part.visible = false;
+  }
+
+  // After each snapshot's syncs (which reset colonist / player visibility) and on a band change. Showing
+  // only touches sprite + HP bar; the wound / mark / boss parts follow the sprite on the next snapshot.
+  function applyStrategyVisibility() {
+    const on = strategyCam.active;
+    const map = strategyBand === "map";
+    const field = strategyBand === "field";
+    for (const m of latestMobs) {
+      const e = mobSprites.get(m.id);
+      if (!e) continue;
+      const show = !on || (!map && strategyFog.sees(m.x, m.y));
+      if (show !== e.sprite.visible) setEntityVisible(e, show);
+    }
+    for (const w of wildlifeSprites.values()) w.sprite.visible = !on || strategyFog.sees(w.sprite.position.x, w.sprite.position.y);
+    for (const c of latestColonists) {
+      const e = colonistSprites.get(c.id);
+      if (!e) continue;
+      if (on && map) setEntityVisible(e, false);
+      e.sprite.alpha = on && field && WORKER_KINDS.has(c.kind) ? 0.5 : 1;
+    }
+    if (on && map) for (const e of playerSprites.values()) setEntityVisible(e, false);
+  }
+
+  function redrawStrategyDots() {
+    const dots: UnitDot[] = [];
+    for (const tc of latestTownCenters) dots.push({ x: (tc.x + 0.5) * tileSize, y: (tc.y + 0.5) * tileSize, color: 0x7a1f1a, r: 5, square: true });
+    for (const c of latestColonists) {
+      if (!isCommandable(c)) continue;
+      const role = unitRole(c.kind, c.heroClass);
+      dots.push({ x: c.x, y: c.y, color: selectedIds.has(c.id) ? SELECTION_COLOR : role ? ROLE_COLORS[role] : 0xf3da98, r: 2 });
+    }
+    for (const m of latestMobs) if (strategyFog.sees(m.x, m.y)) dots.push({ x: m.x, y: m.y, color: 0xff3b2a, r: 2.5 });
+    for (const p of latestPlayersForSpells) {
+      if (!p.dead) dots.push({ x: p.x, y: p.y, color: p.id === myId ? 0xffffff : p.color, r: 4, ring: true });
+    }
+    drawUnitDots(strategyDots, camZoom, dots);
+    dotsZoom = camZoom;
+    dotsDirty = false;
+  }
+
+  // Stand-in regiments until Phase 2: the commandable units sharing a garrison post (heroes alone).
+  function buildStrategyBanners() {
+    const groups = new Map<string, { units: ColonistSnapshot[] }>();
+    for (const c of latestColonists) {
+      if (!isCommandable(c)) continue;
+      const key = c.kind === "hero" ? c.id : `${c.postX},${c.postY}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = { units: [] };
+        groups.set(key, g);
+      }
+      g.units.push(c);
+    }
+    const banners: BannerGroup[] = [];
+    for (const [key, { units }] of groups) {
+      const first = units[0];
+      const role = unitRole(first.kind, first.heroClass);
+      let x = 0;
+      let y = 0;
+      let hp = 0;
+      let maxHp = 0;
+      for (const u of units) {
+        x += u.x;
+        y += u.y;
+        hp += Math.max(0, u.hp);
+        maxHp += u.maxHp;
+      }
+      banners.push({
+        key,
+        label: first.kind === "hero" ? first.heroName ?? "Hero" : BANNER_KIND_LABEL[first.kind] ?? first.kind,
+        count: units.length,
+        hpFrac: maxHp > 0 ? hp / maxHp : 1,
+        color: role ? ROLE_COLORS[role] : 0xd8a24a,
+        x: x / units.length,
+        y: y / units.length - BANNER_LIFT_PX,
+      });
+    }
+    strategyBanners.sync(banners);
+  }
+
+  function strategyOnSnapshot(players: PlayerSnapshot[]) {
+    if (strategyCam.active) {
+      if (performance.now() - fogUpdatedAt >= STRATEGY_FOG_REFRESH_MS) {
+        strategyFog.update(explored, liveVisionSources(players, latestColonists));
+        fogUpdatedAt = performance.now();
+      }
+      buildStrategyBanners();
+      dotsDirty = true;
+    }
+    applyStrategyVisibility();
+  }
+
+  function strategyOnWelcome() {
+    if (viewSent) {
+      const off: ClientMessage = { type: "setView", x: 0, y: 0, halfW: 0, halfH: 0, strategy: false };
+      sendMessage(off);
+      viewSent = null;
+    }
+    strategyCam.reset();
+    cancelPanDrag();
+    strategyFog.reset(worldTilesX, worldTilesY, tileSize);
+    strategyBanners.clear();
+    strategyDots.clear();
+    worldLayer.addChild(strategyDots);
+    worldLayer.addChild(strategyBanners.layer);
+  }
+
+  // At most every SET_VIEW_INTERVAL_MS and only when the target moved / resized by a tile or more; one
+  // strategy:false when the mode ends.
+  function sendStrategyView() {
+    if (!strategyCam.inStrategy) {
+      if (viewSent) {
+        const off: ClientMessage = { type: "setView", x: 0, y: 0, halfW: 0, halfH: 0, strategy: false };
+        sendMessage(off);
+        viewSent = null;
+      }
+      return;
+    }
+    const now = performance.now();
+    if (now - viewSentAt < SET_VIEW_INTERVAL_MS) return;
+    const t = strategyCam.target;
+    const round = (n: number) => Math.round(n * 10) / 10;
+    const v = {
+      x: round(t.x / tileSize),
+      y: round(t.y / tileSize),
+      halfW: round(app.screen.width / 2 / t.zoom / tileSize),
+      halfH: round(app.screen.height / 2 / t.zoom / tileSize),
+    };
+    const prev = viewSent;
+    if (prev && Math.abs(v.x - prev.x) < 1 && Math.abs(v.y - prev.y) < 1 && Math.abs(v.halfW - prev.halfW) < 1 && Math.abs(v.halfH - prev.halfH) < 1) return;
+    const msg: ClientMessage = { type: "setView", ...v, strategy: true };
+    sendMessage(msg);
+    viewSent = v;
+    viewSentAt = now;
+  }
+
+  strategyBtn.addEventListener("click", () => {
+    strategyBtn.blur();
+    if (myId) toggleStrategy();
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      if (!e.repeat && myId) toggleStrategy();
+    } else if (e.key === "Home" && strategyCam.inStrategy && myId) {
+      const me = playerSprites.get(myId);
+      if (me) strategyCam.jumpTo(me.sprite.position.x, me.sprite.position.y);
+    }
+  });
+  // Esc leaves strategy mode once nothing else would take it (spell aim, a panel or modal, a selection).
+  // Capture phase, so this runs before the other Escape handlers have closed anything.
+  const settingsModalEl = document.getElementById("settings-modal")!;
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key !== "Escape" || !strategyCam.inStrategy) return;
+      if (spellAim || infoTile || selectedIds.size > 0 || !settingsModalEl.hidden || !heroModal.hidden) return;
+      e.stopImmediatePropagation();
+      strategyCam.exit(performance.now());
+    },
+    { capture: true }
+  );
+  app.canvas.addEventListener(
+    "wheel",
+    (e) => {
+      if (!strategyCam.inStrategy) return;
+      e.preventDefault();
+      const rect = app.canvas.getBoundingClientRect();
+      const notches = Math.max(-3, Math.min(3, (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY) / 100));
+      strategyCam.zoomAt(WHEEL_ZOOM_STEP ** -notches, e.clientX - rect.left, e.clientY - rect.top, app.screen.width, app.screen.height);
+    },
+    { passive: false }
+  );
+  // Minimap click / drag moves the strategy view there.
+  function minimapJump(e: PointerEvent) {
+    const r = minimapEl.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return;
+    strategyCam.jumpTo(((e.clientX - r.left) / r.width) * worldTilesX * tileSize, ((e.clientY - r.top) / r.height) * worldTilesY * tileSize);
+  }
+  minimapEl.addEventListener("pointerdown", (e) => {
+    if (!strategyCam.inStrategy || e.button !== 0) return;
+    minimapEl.setPointerCapture(e.pointerId);
+    minimapJump(e);
+  });
+  minimapEl.addEventListener("pointermove", (e) => {
+    if (strategyCam.inStrategy && minimapEl.hasPointerCapture(e.pointerId)) minimapJump(e);
+  });
 
   function pointerTile(clickX: number, clickY: number): { tileX: number; tileY: number } | null {
     const tileX = Math.floor(clickX / tileSize);
@@ -6130,8 +6500,15 @@ async function main() {
 
   app.canvas.addEventListener("pointerdown", (e) => {
     const rect = app.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
-    const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+    const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
+    const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
+    // Strategy mode: middle-drag pans the camera.
+    if (e.button === 1 && strategyCam.inStrategy) {
+      e.preventDefault();
+      panDrag = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY };
+      app.canvas.setPointerCapture(e.pointerId);
+      return;
+    }
     // Hero phase 4: aiming a spell takes the left click; a right click cancels the aim.
     if (spellAim && e.button === 0 && spellAimClick(x, y)) return;
     if (spellAim && e.button === 2) {
@@ -6158,8 +6535,12 @@ async function main() {
       const unitIds = units.map((u) => u.id);
       const order = stampOrder(unitIds);
       hideFormationMarker();
+      // Zoomed out, a unit is a few screen px: keep the hit area at least STRATEGY_HIT_SCREEN_PX wide.
+      const minHit = STRATEGY_HIT_SCREEN_PX / camZoom;
       const mob = findNearest(
-        latestMobs.filter((m) => (m.x - x) ** 2 + (m.y - y) ** 2 <= mobHitRadius(m.kind, mobRenderScale(m)) ** 2),
+        latestMobs.filter(
+          (m) => strategySeesEnemy(m.x, m.y) && (m.x - x) ** 2 + (m.y - y) ** 2 <= Math.max(minHit, mobHitRadius(m.kind, mobRenderScale(m))) ** 2
+        ),
         x,
         y,
         Infinity
@@ -6180,6 +6561,8 @@ async function main() {
       }
       return;
     }
+    // Strategy mode: right-click never places a tile.
+    if (strategyCam.inStrategy) return;
     const tile = pointerTile(x, y);
     if (!tile) return;
     if (socket.readyState !== socket.OPEN) return;
@@ -6200,8 +6583,8 @@ async function main() {
       const units = latestColonists.filter((c) => selectedIds.has(c.id));
       if (units.length === 0 || unitOrder.get(units[0].id) !== press.order && !units.some((u) => unitOrder.get(u.id) === press.order)) return;
       const rect = app.canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
-      const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+      const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
+      const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
       if (press.dragging && units.length > 1) {
         const plan = computeLineFormationTargets(units, press.worldX, press.worldY, x, y);
         dispatchPlannedMove(units, plan, plan.cx, plan.cy, press.order);
@@ -6210,12 +6593,16 @@ async function main() {
       }
       return;
     }
+    if (e.button === 1 && panDrag && e.pointerId === panDrag.pointerId) {
+      cancelPanDrag();
+      return;
+    }
     if (e.button !== 0 || !leftPress || e.pointerId !== leftPress.pointerId) return;
     const press = leftPress;
     cancelLeftPress();
     const rect = app.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
-    const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+    const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
+    const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
 
     if (press.dragging) {
       const minX = Math.min(press.worldX, x);
@@ -6241,7 +6628,7 @@ async function main() {
       latestColonists.filter(isCommandable),
       x,
       y,
-      UNIT_HIT_RADIUS
+      Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / camZoom)
     );
     if (unit) {
       setSelection([unit.id]);
@@ -6252,7 +6639,8 @@ async function main() {
     // Left-click on a building (any build tool but Demolish selected) opens its info panel instead of
     // breaking it; with Demolish selected it breaks as before. Garrison buildings also select their units.
     const tileValue = tile ? tiles[tile.tileY * worldTilesX + tile.tileX] : TileType.Empty;
-    const showInfo = tile !== null && currentTool !== TileType.Empty && INFO_TILES.has(tileValue);
+    // Strategy mode never demolishes, so its clicks always open the panel.
+    const showInfo = tile !== null && (currentTool !== TileType.Empty || strategyCam.inStrategy) && INFO_TILES.has(tileValue);
     if (showInfo) openBuildingInfo(tile.tileX, tile.tileY);
     if (tile && GARRISON_TILES.has(tileValue)) {
       setSelection(
@@ -6263,9 +6651,9 @@ async function main() {
       return;
     }
 
-    // Nothing selectable under the cursor: original left-click behaviour (break tile).
+    // Nothing selectable under the cursor: original left-click behaviour (break tile; never in strategy mode).
     setSelection([]);
-    if (!tile || showInfo) return;
+    if (!tile || showInfo || strategyCam.inStrategy) return;
     if (socket.readyState !== socket.OPEN) return;
     socket.send(
       JSON.stringify({ type: "setTile", tileX: tile.tileX, tileY: tile.tileY, tile: TileType.Empty })
@@ -6275,12 +6663,20 @@ async function main() {
   app.canvas.addEventListener("pointercancel", (e) => {
     if (leftPress && e.pointerId === leftPress.pointerId) cancelLeftPress();
     if (orderPress && e.pointerId === orderPress.pointerId) cancelOrderPress();
+    if (panDrag && e.pointerId === panDrag.pointerId) cancelPanDrag();
   });
 
   app.canvas.addEventListener("pointermove", (e) => {
     const rect = app.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left - worldLayer.position.x) / ZOOM;
-    const y = (e.clientY - rect.top - worldLayer.position.y) / ZOOM;
+    canvasPointer = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    if (panDrag && e.pointerId === panDrag.pointerId) {
+      strategyCam.pan(-(e.clientX - panDrag.lastX) / camZoom, -(e.clientY - panDrag.lastY) / camZoom);
+      panDrag.lastX = e.clientX;
+      panDrag.lastY = e.clientY;
+      return;
+    }
+    const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
+    const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
     if (orderPress && e.pointerId === orderPress.pointerId) {
       if (
         !orderPress.dragging &&
@@ -6322,6 +6718,11 @@ async function main() {
       }
     }
     cursorHighlight.clear();
+    // Strategy mode has no building: no tile cursor or placement ghost.
+    if (strategyCam.inStrategy) {
+      placementGhost.visible = false;
+      return;
+    }
     const tile = pointerTile(x, y);
     placementGhost.visible =
       !!tile && ((currentTool === TileType.TownCenter && !!TOWN_CENTER_MARKER_TEXTURE) || isRoadTile(currentTool));
