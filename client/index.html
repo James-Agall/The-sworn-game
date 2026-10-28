@@ -887,6 +887,9 @@
       #bp-forge-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
       #stat-equipment { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; }
       #stat-equipment .equip-empty { color: #b7791f; font-weight: 600; }
+      #bp-heroes-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-heroes-row[hidden] { display: none; }
+      #bp-heroes-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; white-space: pre-line; }
       #bp-siege-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
       #bp-upgrade-cost { font-size: 12.5px; color: var(--ink-soft); }
       /* Game over: the rider fell with no Town Center standing. */
@@ -1001,6 +1004,14 @@
         background: none; border: 0; color: var(--ink); cursor: pointer;
       }
       .hs-body { display: flex; gap: 22px; flex-wrap: wrap; }
+      .hs-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
+      .hs-tabs:empty { display: none; }
+      .hs-tabs button {
+        font: inherit; font-size: 12.5px; padding: 3px 9px; cursor: pointer; color: var(--ink);
+        background: rgba(255, 236, 180, 0.35); border: 1px solid rgba(90, 52, 24, 0.55); border-radius: 3px;
+      }
+      .hs-tabs button.active { background: rgba(242, 201, 76, 0.55); border-color: var(--sel-ink); font-weight: 600; }
+      .hs-tabs button.fallen { opacity: 0.6; font-style: italic; }
       .hs-doll {
         display: grid;
         grid-template-columns: repeat(3, 56px);
@@ -1156,7 +1167,8 @@
     <div id="hero-modal" hidden>
       <div id="hero-sheet" class="menu-scroll" role="dialog" aria-modal="true" aria-label="Character sheet">
         <button id="hs-close" aria-label="Close">×</button>
-        <h2 class="menu-title">Character</h2>
+        <h2 class="menu-title" id="hs-title">Character</h2>
+        <div id="hs-tabs" class="hs-tabs"></div>
         <div class="hs-body">
           <div id="hs-doll" class="hs-doll"></div>
           <div class="hs-right">
@@ -1200,6 +1212,12 @@
         <button id="bp-forge-armour" class="econ-btn">Forge Armour</button>
         <button id="bp-forge-weapon" class="econ-btn">Forge Weapon</button>
         <span id="bp-forge-state"></span>
+      </div>
+      <div id="bp-heroes-row" hidden>
+        <button id="bp-hero-champion" class="econ-btn">Recruit Champion</button>
+        <button id="bp-hero-marksman" class="econ-btn">Recruit Marksman</button>
+        <button id="bp-hero-mage" class="econ-btn">Recruit Mage</button>
+        <span id="bp-heroes-state"></span>
       </div>
     </div>
     <div id="game-over" hidden>

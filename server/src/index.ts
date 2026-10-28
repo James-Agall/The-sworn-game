@@ -73,6 +73,11 @@ import {
   Equipment,
   HeroStats,
   HeroProfileSnapshot,
+  HeroClass,
+  HERO_CLASSES,
+  HERO_CLASS_LABEL,
+  HeroSheetSnapshot,
+  unitRole,
 } from "./protocol.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
@@ -114,6 +119,8 @@ interface Player {
   profileKey: string;
   // heroProfile.version last sent in this player's snapshot (-1 = send it on the next one).
   profileSentVersion: number;
+  // Hero phase 3: heroRosterVersion last sent as snapshot `heroes` (-1 = send it on the next one).
+  heroesSentVersion: number;
 }
 
 interface TileCoord {
@@ -177,6 +184,10 @@ interface Colonist {
   // Missing in old saves = 0 (unequipped, today's stats).
   armourTier?: number;
   weaponTier?: number;
+  // Hero phase 3: heroes only (kind "hero"). The colonist id is the hero's stable id (profile "hero:<id>",
+  // which holds its XP / level / equipment). Missing on every other unit and in old saves.
+  heroClass?: HeroClass;
+  heroName?: string;
 
   poisonTicksRemaining: number;
   poisonDamagePerTick: number;
@@ -294,6 +305,8 @@ interface RespawnRequest {
   ty: number;
   kind: ColonistKind;
   ticksRemaining: number;
+  // Hero phase 3: a fallen hero (comes back with the same id / name / class at a window, for a gold fee).
+  hero?: { id: string; name: string; heroClass: HeroClass };
 }
 
 // "sown" and "growing" are one grow timer (sown = its first FARM_SOWN_FRACTION, for the client art);
@@ -919,6 +932,17 @@ const CATAPULT_BUILDING_MULT = 3;
 const SIEGE_BUILD_TICKS = 30 * TICK_RATE;
 const SIEGE_WORKSHOP_CAP = 2;
 const SIEGE_POPULATION_COST = 2;
+// ---- Hero phase 3: heroes (ROADMAP "Hero phase 3: heroes"; the rest lives after the Hero phases 1-2 block) ----
+// Class base stats; level (+4% damage, +6% HP per level) and equipment come on top via computeHeroStats.
+const HERO_CLASS_STATS: Record<HeroClass, { maxHp: number; damage: number; range: number; cooldown: number; speed: number; melee: boolean }> = {
+  champion: { maxHp: 160, damage: 26, range: KNIGHT_ATTACK_RANGE, cooldown: KNIGHT_ATTACK_COOLDOWN_TICKS, speed: 110, melee: true },
+  marksman: { maxHp: 90, damage: 16, range: ARCHER_ATTACK_RANGE + TILE_SIZE, cooldown: ARCHER_ATTACK_COOLDOWN_TICKS, speed: 100, melee: false },
+  // A magic bolt (the client draws a Dark Shaman's bolt for it); spells are phase 4.
+  mage: { maxHp: 80, damage: 14, range: TILE_SIZE * 7, cooldown: Math.round(TICK_RATE * 1.5), speed: 95, melee: false },
+};
+const HERO_POPULATION_COST = 2;
+// Bumped whenever a hero is recruited / spawns / dies / changes gear or XP: snapshot `heroes` is resent.
+let heroRosterVersion = 0;
 const SIEGE_UNIT_COST: Record<SiegeKind, Partial<Record<"wood" | "iron" | "rock", number>>> = {
   batteringRam: { wood: 30, iron: 10 },
   catapult: { wood: 25, iron: 15 },
@@ -968,6 +992,8 @@ function isSiegeKind(kind: string): kind is SiegeKind {
 }
 
 function guardStats(kind: ColonistKind, level: number) {
+  // Heroes: class base stats (unitStats adds level + equipment); champion as the class-less fallback.
+  if (kind === "hero") return heroBaseStats("champion");
   if (kind === "cavalry") {
     const lvl = Math.min(Math.max(level, 1), 3) - 1;
     const tierStats = KNIGHT_LEVEL_STATS[lvl];
@@ -1046,12 +1072,17 @@ function isMilitiaLineKind(kind: ColonistKind): boolean {
 }
 
 function isGuardOrMilitiaKind(kind: ColonistKind) {
-  return kind === "knight" || kind === "archer" || kind === "cavalry" || isSiegeKind(kind) || isMilitiaLineKind(kind);
+  return kind === "knight" || kind === "archer" || kind === "cavalry" || kind === "hero" || isSiegeKind(kind) || isMilitiaLineKind(kind);
 }
 
-// Soldiers that can desert (siege engines can't).
+// Soldiers that can desert (siege engines and heroes can't; heroes count population via populationCostOf).
 function isSoldierKind(kind: ColonistKind): boolean {
-  return isGuardOrMilitiaKind(kind) && !isSiegeKind(kind);
+  return isGuardOrMilitiaKind(kind) && !isSiegeKind(kind) && kind !== "hero";
+}
+
+// Combat stats of a living soldier: heroes derive theirs from class + level + equipment (heroCombatStats).
+function unitStats(c: Colonist) {
+  return c.kind === "hero" ? heroCombatStats(c) : guardStats(c.kind, c.castleLevel);
 }
 
 // Speed/range/damage fallbacks for deserter mobs, which take their stats from the deserting
@@ -1768,6 +1799,7 @@ function isAbbeyClergy(c: Colonist): boolean {
 // What one unit counts for in population: civilians/bishops/soldiers 1 (not Abbey clergy), siege engines their cost.
 function populationCostOf(c: Colonist): number {
   if (isSiegeKind(c.kind)) return SIEGE_POPULATION_COST;
+  if (c.kind === "hero") return HERO_POPULATION_COST;
   return consumesPopulation(c.kind) && !isAbbeyClergy(c) ? 1 : 0;
 }
 
@@ -2066,7 +2098,10 @@ function spawnColonistForPost(
 
 function queueRespawn(c: Colonist) {
   // ticksRemaining is unused since dawn/dusk respawn windows (kept so old and new saves share a shape).
-  respawnQueue.push({ tx: c.postX, ty: c.postY, kind: c.kind, ticksRemaining: 0 });
+  respawnQueue.push({
+    tx: c.postX, ty: c.postY, kind: c.kind, ticksRemaining: 0,
+    ...(c.kind === "hero" && c.heroClass ? { hero: { id: c.id, name: c.heroName ?? "Hero", heroClass: c.heroClass } } : {}),
+  });
 }
 
 const WALL_TILES = [TileType.Wall, TileType.StoneWall];
@@ -2086,13 +2121,14 @@ const NO_COLONIST_TILES = [
 
 function removeColonistForPost(tx: number, ty: number) {
   for (const [id, c] of colonists) {
-    if (c.postX === tx && c.postY === ty) {
+    // Heroes never despawn: a lost Keep leaves them posted at its tile (they respawn there too).
+    if (c.postX === tx && c.postY === ty && c.kind !== "hero") {
       releaseResourceReservation(c);
       colonists.delete(id);
     }
   }
   for (let i = respawnQueue.length - 1; i >= 0; i--) {
-    if (respawnQueue[i].tx === tx && respawnQueue[i].ty === ty) {
+    if (respawnQueue[i].tx === tx && respawnQueue[i].ty === ty && !respawnQueue[i].hero) {
       respawnQueue.splice(i, 1);
     }
   }
@@ -2554,6 +2590,24 @@ function processRespawnQueue() {
   const windowNow = respawnWindowAt(cycleTick);
   for (let i = respawnQueue.length - 1; i >= 0; i--) {
     const req = respawnQueue[i];
+    // Hero phase 3: a fallen hero is never dropped; it comes back at a window when its settlement has room
+    // (2 population) and the gold fee can be paid, else it waits for the next one.
+    if (req.hero) {
+      if (!windowNow) continue;
+      if (settlementBlocker(req.tx, req.ty, HERO_POPULATION_COST) !== "") continue;
+      const fee = heroRespawnFee(req.hero.id);
+      if (stock.gold < fee) {
+        heroTestEvent({ type: "respawnWait", id: req.hero.id, amount: fee });
+        broadcastEvent("build", `${req.hero.name} waits for ${fee} gold to return at the next dawn or dusk`);
+        continue;
+      }
+      stock.gold -= fee;
+      respawnWindowSpawned++;
+      spawnHeroColonist(req.hero.id, req.hero.name, req.hero.heroClass, req.tx, req.ty);
+      heroTestEvent({ type: "respawn", id: req.hero.id, amount: fee, detail: windowNow });
+      respawnQueue.splice(i, 1);
+      continue;
+    }
     // A builder whose Town Center fell respawns at the nearest one still standing.
     if (req.kind === "builder" && !isValidPostTile("builder", tiles[tileIndex(req.tx, req.ty)] as TileType)) {
       const p = tileToPixelCenter({ x: req.tx, y: req.ty });
@@ -4445,6 +4499,7 @@ function respawnDeadPlayers() {
 
 function colonistDeathText(c: Colonist): string {
   if (isWardPriest(c)) return "The Ward Priest has died";
+  if (c.kind === "hero") return `${c.heroName ?? "A hero"} has fallen: back at the next dawn or dusk for ${heroRespawnFee(c.id)} gold`;
   const name = c.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
   return `${/^[aeiou]/.test(name) ? "An" : "A"} ${name} has died`;
 }
@@ -4456,6 +4511,8 @@ function damageColonist(colonist: Colonist, amount: number) {
     amount *= armourDamageTakenMult(colonist);
     equipEvent({ type: "taken", id: colonist.id, tier: colonist.armourTier, amount, detail: String(raw) });
   }
+  // Hero phase 3: a hero's own gear + level (the same HeroStats as the player).
+  if (colonist.kind === "hero") amount *= heroProfileFor(heroKey(colonist.id)).stats.damageTakenMult;
   colonist.hp -= amount;
   if (colonist.hp <= 0) {
     gravestones.push({ x: colonist.x, y: colonist.y, variant: Math.random() < 0.5 ? 0 : 1 });
@@ -4465,11 +4522,12 @@ function damageColonist(colonist: Colonist, amount: number) {
     if (!isWardPriest(colonist) && !isSiegeKind(colonist.kind)) queueRespawn(colonist);
     colonists.delete(colonist.id);
     chargeRuns.delete(colonist.id);
+    if (colonist.kind === "hero") heroRosterVersion++;
   }
 }
 
 const COMMANDABLE_KINDS: ColonistKind[] = [
-  "knight", "archer", "bishop", "militia", "spearman", "pikeman", "cavalry", "batteringRam", "catapult",
+  "knight", "archer", "bishop", "militia", "spearman", "pikeman", "cavalry", "batteringRam", "catapult", "hero",
 ];
 
 // Only a Church's bishop takes orders: the Ward Priest must keep his rounds for the wards to stand,
@@ -4716,7 +4774,7 @@ function returnToRally(c: Colonist, dt: number, speed: number) {
 }
 
 function updateGuardColonist(c: Colonist, dt: number) {
-  const stats = guardStats(c.kind, c.castleLevel);
+  const stats = unitStats(c);
   if (c.kind === "cavalry") trackCharge(c);
 
   let target = c.targetMobId ? getMobById(c.targetMobId) : undefined;
@@ -4882,6 +4940,7 @@ function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown
     else siegeEvent("hit", c.id, damage);
     damage *= mult;
   }
+  if (c.kind === "hero") heroTestEvent({ type: "hit", id: c.id, amount: damage, detail: target.id });
   damageMob(target, damage, "c:" + c.id);
   c.attackCooldownTicks = stats.cooldown;
   pendingEffects.push({ fromX: c.x, fromY: c.y, toX: target.x, toY: target.y, melee: stats.melee });
@@ -4891,7 +4950,7 @@ function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown
 // Regiments: the combat role of a soldier (COLONIST_ROLE) or a mob (MOB_ROLE, corrected by the mob's
 // own melee flag: a deserter takes its stats from the colonist it was).
 function colonistRole(c: Colonist): CombatRole | undefined {
-  return COLONIST_ROLE[c.kind];
+  return unitRole(c.kind, c.heroClass);
 }
 // isRearRole for a unit (the catapult is a rear siege role, the ram a front one).
 function isRearColonist(c: Colonist): boolean {
@@ -4992,7 +5051,7 @@ function updateSquadMarch() {
     let pace = Infinity;
     for (const m of members) {
       pcx += m.x; pcy += m.y; rcx += m.rallyX; rcy += m.rallyY;
-      pace = Math.min(pace, guardStats(m.kind, m.castleLevel).speed);
+      pace = Math.min(pace, unitStats(m).speed);
     }
     const n = members.length;
     pcx /= n; pcy /= n; rcx /= n; rcy /= n;
@@ -5005,7 +5064,7 @@ function updateSquadMarch() {
     const broken = leads.some((l) => Math.abs(l) > SQUAD_BROKEN_TILES * TILE_SIZE);
     const tol = SQUAD_LEAD_TOLERANCE_TILES * TILE_SIZE;
     members.forEach((m, i) => {
-      const own = guardStats(m.kind, m.castleLevel).speed;
+      const own = unitStats(m).speed;
       const lead = leads[i];
       squadMarchSpeed.set(m.id, lead < -tol ? own : lead > tol && !broken ? pace * SQUAD_AHEAD_SPEED_FACTOR : pace);
     });
@@ -5446,6 +5505,7 @@ function updateColonist(c: Colonist, dt: number) {
     case "militia":
     case "spearman":
     case "pikeman":
+    case "hero":
       updateGuardColonist(c, dt);
       break;
     case "bishop":
@@ -7137,7 +7197,7 @@ function playerForceNear(cx: number, cy: number, radiusPx: number): { hp: number
   for (const c of colonists.values()) {
     if (!isGuardOrMilitiaKind(c.kind) || c.hp <= 0) continue;
     if (Math.abs(c.x - cx) > radiusPx || Math.abs(c.y - cy) > radiusPx || Math.hypot(c.x - cx, c.y - cy) > radiusPx) continue;
-    const stats = guardStats(c.kind, c.castleLevel);
+    const stats = unitStats(c);
     hp += c.hp;
     dmg += (stats.damage * MOB_ATTACK_COOLDOWN_TICKS) / Math.max(1, stats.cooldown);
     units.push({ type: "colonist", id: c.id, x: c.x, y: c.y, rear: isRearColonist(c) });
@@ -8857,8 +8917,10 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     });
   } else if (msg.op === "damageMob" && typeof msg.mobId === "string" && typeof msg.amount === "number") {
     const mob = mobs.get(msg.mobId);
-    // byPlayer: the blow counts as this player's (relic / XP rewards go to them).
-    if (mob) damageMob(mob, msg.amount, msg.byPlayer === true ? "p:" + player.id : undefined);
+    // byPlayer: the blow counts as this player's (relic / XP rewards go to them); byColonist: that unit's
+    // (hero phase 3: a hero's killing blow).
+    const by = msg.byPlayer === true ? "p:" + player.id : typeof msg.byColonist === "string" ? "c:" + msg.byColonist : undefined;
+    if (mob) damageMob(mob, msg.amount, by);
     reply({ found: !!mob });
   } else if (msg.op === "forceDeserterRoll") {
     testForceDeserterRoll = typeof msg.value === "boolean" ? msg.value : null;
@@ -9123,7 +9185,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // A soldier standing at pixel (x, y) with its rally slot there (post = that tile; no building).
     const kind = msg.kind as ColonistKind;
     const tile = tileOfPixel(msg.x, msg.y);
-    if (!isGuardOrMilitiaKind(kind) || !isWalkableTile(tile.x, tile.y)) {
+    if (!isGuardOrMilitiaKind(kind) || kind === "hero" || !isWalkableTile(tile.x, tile.y)) {
       reply({ id: null });
     } else {
       const c = spawnColonistForPost(tile.x, tile.y, kind);
@@ -9196,6 +9258,19 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "grantRelic") {
     const item = grantRelic(heroProfileOf(player), "hook", typeof msg.relicId === "string" ? msg.relicId : undefined);
     reply({ item });
+  } else if (msg.op === "heroUnitState") {
+    // Hero phase 3: every hero (sheet form + live unit), pending recruits, queued respawns, gold.
+    reply({
+      heroes: heroSheetsSnapshot(),
+      units: Array.from(colonists.values()).filter((c) => c.kind === "hero").map((c) => ({
+        id: c.id, name: c.heroName, heroClass: c.heroClass, hp: c.hp, maxHp: c.maxHp, x: c.x, y: c.y, postX: c.postX, postY: c.postY,
+        settlementId: c.settlementId, role: colonistRole(c), stats: unitStats(c), stance: c.stance, rallyX: c.rallyX, rallyY: c.rallyY,
+      })),
+      recruits: heroRecruits.map((r) => ({ ...r })),
+      queue: respawnQueue.filter((q) => q.hero).map((q) => ({ ...q })),
+      gold: stock.gold,
+      events: heroEvents.filter((e) => e.key?.startsWith(HERO_KEY_PREFIX)),
+    });
   } else if (msg.op === "heroConfig") {
     testRelicChance = typeof msg.relicChance === "number" ? msg.relicChance : null;
     reply({ relicChance: testRelicChance });
@@ -9379,6 +9454,8 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   Object.assign(stock, initialStock());
   resetEquipment();
   heroProfiles.clear();
+  heroRecruits.length = 0;
+  heroRosterVersion++;
   marketBuilt = false;
   goldShopBuilt = false;
   colonyHappiness = 100;
@@ -9411,6 +9488,7 @@ function respawnPlayersAndWelcome() {
     player.y = spawn.y;
     player.hp = playerMaxHp(player);
     player.profileSentVersion = -1;
+    player.heroesSentVersion = -1;
     player.attackCooldownTicks = 0;
     player.poisonTicksRemaining = 0;
     player.poisonDamagePerTick = 0;
@@ -9491,6 +9569,8 @@ function snapshotWorld() {
     equipment: { armour: [...equipment.armour], weapon: [...equipment.weapon] },
     // Hero phases 1-2: every player profile (gear, inventory, XP).
     heroProfiles: serializeHeroProfiles() as unknown,
+    // Hero phase 3: heroes still being recruited (the heroes themselves are colonists / respawn entries).
+    heroRecruits: heroRecruits.map((r) => ({ ...r })),
     marketBuilt,
     goldShopBuilt,
     colonyHappiness,
@@ -9569,6 +9649,10 @@ function applyWorld(s: WorldState) {
   equipment.weapon = [0, 1, 2].map((i) => s.equipment?.weapon?.[i] ?? 0);
   // Saves from before Hero phases 1-2: no profiles (everyone starts with an empty pack, level 1).
   restoreHeroProfiles(s.heroProfiles);
+  // Saves from before hero phase 3: no heroes, nobody being recruited.
+  heroRecruits.length = 0;
+  heroRecruits.push(...((s.heroRecruits ?? []) as HeroRecruit[]));
+  heroRosterVersion++;
   marketBuilt = s.marketBuilt;
   goldShopBuilt = s.goldShopBuilt;
   colonyHappiness = s.colonyHappiness;
@@ -9859,6 +9943,7 @@ wss.on("connection", (socket, req) => {
     dead: false,
     profileKey,
     profileSentVersion: -1,
+    heroesSentVersion: -1,
   };
   players.set(id, player);
   player.hp = playerMaxHp(player);
@@ -9933,11 +10018,14 @@ wss.on("connection", (socket, req) => {
       if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
       handleQueueForge(message.tileX, message.tileY, message.slot);
     } else if (message.type === "equipItem") {
-      handleEquipItem(player, message.itemId, message.slot);
+      handleEquipItem(player, message.itemId, message.slot, message.heroId);
     } else if (message.type === "unequipItem") {
-      handleUnequipItem(player, message.slot);
+      handleUnequipItem(player, message.slot, message.heroId);
     } else if (message.type === "takeFromArmoury") {
-      handleTakeFromArmoury(player, message.slot, message.tier);
+      handleTakeFromArmoury(player, message.slot, message.tier, message.heroId);
+    } else if (message.type === "recruitHero") {
+      if (!Number.isInteger(message.tx) || !Number.isInteger(message.ty)) return;
+      handleRecruitHero(player, message.tx, message.ty, message.class);
     } else if (message.type === "saveGame") {
       void handleSaveGame(player, message.slot);
     } else if (message.type === "loadGame") {
@@ -11165,12 +11253,17 @@ interface HeroProfile {
   // Cached derived modifiers (recomputed by recomputeHeroProfile on every change).
   stats: HeroStats;
   level: number;
+  // Hero phase 3: set on hero profiles ("hero:<id>") only - the hero's class (its base HP) and name, so a
+  // fallen / recruiting hero is still known. Their `inventory` stays empty (they equip from the player's).
+  heroClass?: HeroClass;
+  heroName?: string;
 }
 const HERO_INVENTORY_CAP = 40;
 // Total XP at which level 1..10 starts (index = level - 1).
 const HERO_LEVEL_XP = [0, 40, 100, 180, 280, 400, 550, 730, 940, 1200];
 const HERO_MAX_LEVEL = HERO_LEVEL_XP.length;
-// Per level above 1: +4% damage dealt (multiplicative on the gear's), +6 max HP.
+// Per level above 1: +4% damage dealt (multiplicative on the gear's), +6% of the base max HP (the player's
+// base is 100, so +6 HP; a hero's base is its class HP).
 const HERO_LEVEL_DAMAGE_PCT = 4;
 const HERO_LEVEL_MAX_HP = 6;
 // XP for a kill (killing blow by that player): 10 per mob, x3 Hunger-marked, 60 a mini-boss elite, 250 the Warlord.
@@ -11229,7 +11322,7 @@ function heroLevelFor(xp: number): number {
   return level;
 }
 
-function computeHeroStats(equipment: Equipment, level: number): HeroStats {
+function computeHeroStats(equipment: Equipment, level: number, baseHp = PLAYER_MAX_HP): HeroStats {
   const sum: Required<ItemStats> = { damagePct: 0, damageTakenPct: 0, maxHp: 0, moveSpeedPct: 0, attackSpeedPct: 0, spellPowerPct: 0 };
   for (const slot of GEAR_SLOTS) {
     const item = equipment[slot];
@@ -11238,7 +11331,7 @@ function computeHeroStats(equipment: Equipment, level: number): HeroStats {
   }
   const lv = level - 1;
   return {
-    maxHp: PLAYER_MAX_HP + sum.maxHp + HERO_LEVEL_MAX_HP * lv,
+    maxHp: baseHp + sum.maxHp + Math.round((baseHp * HERO_LEVEL_MAX_HP * lv) / 100),
     damageMult: (1 + sum.damagePct / 100) * (1 + (HERO_LEVEL_DAMAGE_PCT * lv) / 100),
     damageTakenMult: Math.max(HERO_MIN_DAMAGE_TAKEN_MULT, 1 + sum.damageTakenPct / 100),
     moveSpeedMult: Math.max(HERO_MIN_SPEED_MULT, 1 + sum.moveSpeedPct / 100),
@@ -11247,9 +11340,12 @@ function computeHeroStats(equipment: Equipment, level: number): HeroStats {
   };
 }
 
-function newHeroProfile(key: string, equipment = emptyEquipment(), inventory: GearItem[] = [], xp = 0): HeroProfile {
+function newHeroProfile(
+  key: string, equipment = emptyEquipment(), inventory: GearItem[] = [], xp = 0, hero?: { heroClass: HeroClass; heroName: string }
+): HeroProfile {
   const level = heroLevelFor(xp);
-  return { key, equipment, inventory, xp, level, version: ++heroProfileVersionCounter, stats: computeHeroStats(equipment, level) };
+  const baseHp = hero ? HERO_CLASS_STATS[hero.heroClass].maxHp : PLAYER_MAX_HP;
+  return { key, equipment, inventory, xp, level, version: ++heroProfileVersionCounter, stats: computeHeroStats(equipment, level, baseHp), ...(hero ?? {}) };
 }
 
 function heroProfileFor(key: string): HeroProfile {
@@ -11269,10 +11365,19 @@ function heroProfileOf(player: Player): HeroProfile {
 // every player playing it to the new max (a max-HP gain doesn't heal).
 function recomputeHeroProfile(prof: HeroProfile) {
   prof.level = heroLevelFor(prof.xp);
-  prof.stats = computeHeroStats(prof.equipment, prof.level);
+  prof.stats = computeHeroStats(prof.equipment, prof.level, prof.heroClass ? HERO_CLASS_STATS[prof.heroClass].maxHp : PLAYER_MAX_HP);
   prof.version = ++heroProfileVersionCounter;
   for (const p of players.values()) {
     if (p.profileKey === prof.key && !p.dead) p.hp = Math.min(p.hp, prof.stats.maxHp);
+  }
+  // Hero phase 3: the living hero's max HP follows (a gain doesn't heal, a loss clamps).
+  if (prof.heroClass) {
+    heroRosterVersion++;
+    const c = colonists.get(prof.key.slice(HERO_KEY_PREFIX.length));
+    if (c) {
+      c.maxHp = prof.stats.maxHp;
+      c.hp = Math.min(c.hp, c.maxHp);
+    }
   }
 }
 
@@ -11313,7 +11418,9 @@ function gearSlotKind(slot: GearSlot): ItemSlotKind {
 }
 
 function ownsRelic(prof: HeroProfile, relicId: string): boolean {
-  return prof.inventory.some((i) => i.relicId === relicId) || GEAR_SLOTS.some((s) => prof.equipment[s]?.relicId === relicId);
+  const has = (p: HeroProfile) => p.inventory.some((i) => i.relicId === relicId) || GEAR_SLOTS.some((s) => p.equipment[s]?.relicId === relicId);
+  // Hero phase 3: a relic worn by one of the colony's heroes counts as owned (heroes equip from the shared pack).
+  return has(prof) || Array.from(heroProfiles.values()).some((p) => !!p.heroClass && has(p));
 }
 
 // A random relic this profile doesn't own yet (or `relicId`, if given and unowned) into its inventory.
@@ -11359,6 +11466,22 @@ function heroRewardsForKill(mob: Mob, attackerKey?: string) {
       if (prof.level > before) sendHeroEvent(prof, "milestone", `You reach level ${prof.level} (+${HERO_LEVEL_DAMAGE_PCT}% damage, +${HERO_LEVEL_MAX_HP} max HP)`);
     }
   }
+  // Hero phase 3: a hero's killing blow (melee or its own arrow / bolt) earns that hero the XP; the relic
+  // roll below still goes to the players' shared pack (lootProfiles: every connected player).
+  if (attackerKey?.startsWith("c:")) {
+    const hc = colonists.get(attackerKey.slice(2));
+    if (hc?.kind === "hero") {
+      const xp = mob.boss ? HERO_XP_BOSS[mob.boss] : HERO_XP_PER_KILL * (mob.mark !== HungerMark.None ? HERO_XP_MARKED_MULT : 1);
+      const prof = heroProfileFor(heroKey(hc.id));
+      const before = prof.level;
+      prof.xp += xp;
+      recomputeHeroProfile(prof);
+      heroEvent({ type: "xp", key: prof.key, amount: xp, detail: mob.kind });
+      if (prof.level > before) {
+        broadcastEvent("milestone", `${hc.heroName ?? "A hero"} reaches level ${prof.level} (+${HERO_LEVEL_DAMAGE_PCT}% damage, +${HERO_LEVEL_MAX_HP}% max HP)`);
+      }
+    }
+  }
   if (mob.isDeserter) return;
   const roll = mob.boss ? 1 : mob.mark !== HungerMark.None || EQUIP_ARMOURED_KINDS.includes(mob.kind) ? (testRelicChance ?? RELIC_ELITE_MOB_CHANCE) : 0;
   if (roll <= 0 || Math.random() >= roll) return;
@@ -11375,36 +11498,51 @@ function refuseGear(player: Player, text: string) {
   sendTo(player, { type: "event", category: "build", text });
 }
 
-function handleEquipItem(player: Player, itemId: unknown, slot: unknown) {
+// Hero phase 3: the profile whose equipment an equip message targets: the player's own (no heroId), or the
+// hero's ("hero:<id>"; any hero of the colony, alive or not). The pack is always the player's.
+function gearTarget(player: Player, heroId: unknown): HeroProfile | null {
+  if (heroId === undefined || heroId === null || heroId === "") return heroProfileOf(player);
+  if (typeof heroId !== "string") return null;
+  const prof = heroProfiles.get(heroKey(heroId));
+  return prof?.heroClass ? prof : null;
+}
+
+function handleEquipItem(player: Player, itemId: unknown, slot: unknown, heroId?: unknown) {
   if (typeof itemId !== "string" || typeof slot !== "string" || !GEAR_SLOTS.includes(slot as GearSlot)) return;
-  const prof = heroProfileOf(player);
-  const idx = prof.inventory.findIndex((i) => i.id === itemId);
+  const pack = heroProfileOf(player);
+  const prof = gearTarget(player, heroId);
+  if (!prof) return refuseGear(player, "No such hero");
+  const idx = pack.inventory.findIndex((i) => i.id === itemId);
   if (idx < 0) return refuseGear(player, "That item is not in your pack");
-  const item = prof.inventory[idx];
+  const item = pack.inventory[idx];
   const gs = slot as GearSlot;
   if (gearSlotKind(gs) !== item.slot) return refuseGear(player, `${item.name} doesn't go in the ${gs} slot`);
-  prof.inventory.splice(idx, 1);
+  pack.inventory.splice(idx, 1);
   const old = prof.equipment[gs];
-  if (old) prof.inventory.push(old);
+  if (old) pack.inventory.push(old);
   prof.equipment[gs] = item;
   recomputeHeroProfile(prof);
+  if (prof !== pack) recomputeHeroProfile(pack);
   heroEvent({ type: "equip", key: prof.key, detail: `${gs} ${item.name}` });
 }
 
-function handleUnequipItem(player: Player, slot: unknown) {
+function handleUnequipItem(player: Player, slot: unknown, heroId?: unknown) {
   if (typeof slot !== "string" || !GEAR_SLOTS.includes(slot as GearSlot)) return;
-  const prof = heroProfileOf(player);
+  const pack = heroProfileOf(player);
+  const prof = gearTarget(player, heroId);
+  if (!prof) return refuseGear(player, "No such hero");
   const item = prof.equipment[slot as GearSlot];
   if (!item) return;
-  if (prof.inventory.length >= HERO_INVENTORY_CAP) return refuseGear(player, "Your pack is full (40 items)");
+  if (pack.inventory.length >= HERO_INVENTORY_CAP) return refuseGear(player, "Your pack is full (40 items)");
   prof.equipment[slot as GearSlot] = null;
-  prof.inventory.push(item);
+  pack.inventory.push(item);
   recomputeHeroProfile(prof);
+  if (prof !== pack) recomputeHeroProfile(pack);
   heroEvent({ type: "unequip", key: prof.key, detail: `${slot} ${item.name}` });
 }
 
 // One plain tiered piece out of the colony stock into the player's pack (it no longer arms a soldier).
-function handleTakeFromArmoury(player: Player, slot: unknown, tier: unknown) {
+function handleTakeFromArmoury(player: Player, slot: unknown, tier: unknown, heroId?: unknown) {
   if (slot !== "armour" && slot !== "weapon") return;
   if (typeof tier !== "number" || !Number.isInteger(tier) || tier < 1 || tier > EQUIP_TIERS) return;
   const prof = heroProfileOf(player);
@@ -11412,14 +11550,21 @@ function handleTakeFromArmoury(player: Player, slot: unknown, tier: unknown) {
   if (prof.inventory.length >= HERO_INVENTORY_CAP) return refuseGear(player, "Your pack is full (40 items)");
   equipment[slot][tier - 1]--;
   const def = PLAIN_GEAR[slot];
-  prof.inventory.push({ id: randomUUID(), slot: def.slot, name: def.names[tier - 1], tier: tier as 1 | 2 | 3, stats: def.stats(tier), kind: def.kind, icon: `icon-${slot}T${tier}` });
+  const item: GearItem = { id: randomUUID(), slot: def.slot, name: def.names[tier - 1], tier: tier as 1 | 2 | 3, stats: def.stats(tier), kind: def.kind, icon: `icon-${slot}T${tier}` };
+  prof.inventory.push(item);
   recomputeHeroProfile(prof);
   heroEvent({ type: "take", key: prof.key, detail: `${slot} ${tier}` });
+  // Hero phase 3: taken for a hero's tab - straight onto that hero when its socket is free.
+  const hero = heroId ? gearTarget(player, heroId) : null;
+  if (hero && hero !== prof && !hero.equipment[def.slot as GearSlot]) handleEquipItem(player, item.id, def.slot, heroId);
 }
 
 // Save / load: profiles as plain data; anything malformed is dropped (old saves: none).
 function serializeHeroProfiles() {
-  return Array.from(heroProfiles.values(), (p) => ({ key: p.key, equipment: p.equipment, inventory: p.inventory, xp: p.xp }));
+  return Array.from(heroProfiles.values(), (p) => ({
+    key: p.key, equipment: p.equipment, inventory: p.inventory, xp: p.xp,
+    ...(p.heroClass ? { heroClass: p.heroClass, heroName: p.heroName } : {}),
+  }));
 }
 
 function restoreHeroProfiles(saved: unknown) {
@@ -11435,7 +11580,10 @@ function restoreHeroProfiles(saved: unknown) {
     for (const slot of GEAR_SLOTS) if (validItem(savedEq[slot])) eq[slot] = savedEq[slot] as GearItem;
     const inv = Array.isArray(raw.inventory) ? raw.inventory.filter(validItem).slice(0, HERO_INVENTORY_CAP) : [];
     const xp = typeof raw.xp === "number" && raw.xp >= 0 ? raw.xp : 0;
-    heroProfiles.set(raw.key, newHeroProfile(raw.key, eq, inv, xp));
+    const hero = HERO_CLASSES.includes(raw.heroClass as HeroClass)
+      ? { heroClass: raw.heroClass as HeroClass, heroName: typeof raw.heroName === "string" ? raw.heroName : "Hero" }
+      : undefined;
+    heroProfiles.set(raw.key, newHeroProfile(raw.key, eq, hero ? [] : inv, xp, hero));
   }
 }
 
@@ -11445,6 +11593,200 @@ function withPlayerProfile(payload: string, player: Player): string {
   if (player.profileSentVersion === prof.version) return payload;
   player.profileSentVersion = prof.version;
   return payload.slice(0, -1) + ',"profile":' + JSON.stringify(heroProfileSnapshot(prof)) + "}";
+}
+
+// ---- Hero phase 3: heroes (ROADMAP "Hero phase 3: heroes") ----
+// A hero is a colonist of kind "hero" with a class (HERO_CLASS_STATS) and a name; its id is stable across
+// deaths and its profile "hero:<id>" (same list as the players') holds XP / level / equipment. It is
+// recruited at a Keep (at most one per Keep level), counts HERO_POPULATION_COST toward the Keep's
+// settlement, fights as a soldier of its class's role, never deserts or despawns, and comes back from
+// death at a dawn / dusk window for a gold fee.
+const HERO_KEY_PREFIX = "hero:";
+// One sheet tab per hero: at most this many in the colony.
+const HERO_MAX_TOTAL = 9;
+const HERO_RECRUIT_TICKS = 10 * TICK_RATE;
+const HERO_RESPAWN_FEE_BASE = 50;
+const HERO_RESPAWN_FEE_PER_LEVEL = 25;
+const HERO_RECRUIT_COST: Record<HeroClass, Cost> = {
+  champion: { gold: 120, iron: 20 },
+  marksman: { gold: 100, wood: 30 },
+  mage: { gold: 140, rock: 20 },
+};
+const HERO_NAMES = [
+  "Aldric", "Brannoc", "Cedwyn", "Daria", "Edric", "Fenna", "Garrow", "Hild", "Isolde", "Jorund",
+  "Kestrel", "Leofric", "Maelis", "Osric", "Rowena", "Sigrun", "Tamsin", "Ulric", "Wynne", "Yseult",
+];
+interface HeroRecruit {
+  id: string;
+  name: string;
+  heroClass: HeroClass;
+  tx: number;
+  ty: number;
+  ticksLeft: number;
+}
+const heroRecruits: HeroRecruit[] = [];
+
+function heroKey(id: string): string {
+  return HERO_KEY_PREFIX + id;
+}
+
+function heroBaseStats(cls: HeroClass) {
+  return { ...HERO_CLASS_STATS[cls] };
+}
+
+function heroTestEvent(e: { type: string; id: string; amount?: number; detail?: string }) {
+  heroEvent({ type: e.type, key: heroKey(e.id), amount: e.amount, detail: e.detail });
+}
+
+// The hero's profile, created (or given its class, e.g. after a lost profile) on demand.
+function ensureHeroProfile(id: string, heroClass: HeroClass, heroName: string): HeroProfile {
+  let prof = heroProfiles.get(heroKey(id));
+  if (!prof) {
+    prof = newHeroProfile(heroKey(id), emptyEquipment(), [], 0, { heroClass, heroName });
+    heroProfiles.set(prof.key, prof);
+  } else if (!prof.heroClass) {
+    prof.heroClass = heroClass;
+    prof.heroName = heroName;
+    recomputeHeroProfile(prof);
+  }
+  return prof;
+}
+
+// Class base + the SAME HeroStats as the player (computeHeroStats: level and equipment).
+function heroCombatStats(c: Colonist) {
+  const cls = c.heroClass ?? "champion";
+  const base = HERO_CLASS_STATS[cls];
+  const s = ensureHeroProfile(c.id, cls, c.heroName ?? "Hero").stats;
+  return {
+    maxHp: s.maxHp,
+    damage: base.damage * s.damageMult,
+    range: base.range,
+    cooldown: Math.max(1, Math.round(base.cooldown / s.attackSpeedMult)),
+    speed: base.speed * s.moveSpeedMult,
+    melee: base.melee,
+  };
+}
+
+function heroRespawnFee(id: string): number {
+  return HERO_RESPAWN_FEE_BASE + HERO_RESPAWN_FEE_PER_LEVEL * (heroProfiles.get(heroKey(id))?.level ?? 1);
+}
+
+// Every hero of the colony with where it belongs: alive (posted at its Keep), being recruited, or fallen
+// (queued for a window).
+function heroRoster(): { id: string; name: string; heroClass: HeroClass; tx: number; ty: number; status: HeroSheetSnapshot["status"] }[] {
+  const out: ReturnType<typeof heroRoster> = [];
+  for (const c of colonists.values()) {
+    if (c.kind === "hero") out.push({ id: c.id, name: c.heroName ?? "Hero", heroClass: c.heroClass ?? "champion", tx: c.postX, ty: c.postY, status: "alive" });
+  }
+  for (const r of heroRecruits) out.push({ id: r.id, name: r.name, heroClass: r.heroClass, tx: r.tx, ty: r.ty, status: "recruiting" });
+  for (const q of respawnQueue) if (q.hero) out.push({ ...q.hero, tx: q.tx, ty: q.ty, status: "fallen" });
+  return out;
+}
+
+function pickHeroName(): string {
+  const used = new Set(heroRoster().map((h) => h.name));
+  const free = HERO_NAMES.filter((n) => !used.has(n));
+  if (free.length > 0) return free[Math.floor(Math.random() * free.length)];
+  for (let i = 2; ; i++) {
+    const n = `${HERO_NAMES[Math.floor(Math.random() * HERO_NAMES.length)]} ${["", "", "II", "III", "IV", "V"][i] ?? i}`;
+    if (!used.has(n)) return n;
+  }
+}
+
+// Why the Keep at (tx, ty) can't recruit a `cls` now ("" = it can).
+function heroRecruitBlocker(tx: number, ty: number, cls: HeroClass): string {
+  const level = getBuildingLevel(tx, ty);
+  const roster = heroRoster();
+  if (roster.filter((h) => h.tx === tx && h.ty === ty).length >= level) {
+    return `Keep Lv ${level} holds ${level} hero${level === 1 ? "" : "es"}${level < 3 ? " (upgrade the Keep for more)" : ""}`;
+  }
+  if (roster.length >= HERO_MAX_TOTAL) return `At most ${HERO_MAX_TOTAL} heroes`;
+  if (!canAfford(HERO_RECRUIT_COST[cls])) return "Not enough resources";
+  // Heroes still being recruited for this settlement already hold their 2 population.
+  const key = settlementKeyNear(tx, ty);
+  const pending = heroRecruits.filter((r) => settlementKeyNear(r.tx, r.ty) === key).length;
+  return settlementBlocker(tx, ty, HERO_POPULATION_COST * (1 + pending));
+}
+
+function keepHeroInfo(tx: number, ty: number): NonNullable<BuildingInfo["heroes"]> {
+  const here = heroRoster().filter((h) => h.tx === tx && h.ty === ty);
+  return {
+    count: here.length,
+    cap: getBuildingLevel(tx, ty),
+    options: HERO_CLASSES.map((heroClass) => {
+      const reason = heroRecruitBlocker(tx, ty, heroClass);
+      return { heroClass, label: HERO_CLASS_LABEL[heroClass], cost: formatCost(HERO_RECRUIT_COST[heroClass]), enabled: reason === "", reason };
+    }),
+    roster: here.map((h) => ({
+      name: h.name,
+      heroClass: h.heroClass,
+      level: heroProfiles.get(heroKey(h.id))?.level ?? 1,
+      status: h.status === "fallen" ? `fallen, back at dawn / dusk for ${heroRespawnFee(h.id)} gold` : h.status,
+    })),
+  };
+}
+
+function handleRecruitHero(player: Player, tx: number, ty: number, cls: unknown) {
+  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Keep) return;
+  if (!HERO_CLASSES.includes(cls as HeroClass)) return;
+  const heroClass = cls as HeroClass;
+  const reason = heroRecruitBlocker(tx, ty, heroClass);
+  if (reason) {
+    heroEvent({ type: "recruitRefused", key: player.profileKey, detail: reason });
+    sendTo(player, { type: "event", category: "build", text: `Can't recruit: ${reason}` });
+    return;
+  }
+  spend(HERO_RECRUIT_COST[heroClass]);
+  const id = randomUUID();
+  const name = pickHeroName();
+  ensureHeroProfile(id, heroClass, name);
+  heroRecruits.push({ id, name, heroClass, tx, ty, ticksLeft: instantBuild ? 1 : HERO_RECRUIT_TICKS });
+  heroRosterVersion++;
+  heroTestEvent({ type: "recruit", id, detail: heroClass });
+  broadcastEvent("build", `${name} the ${HERO_CLASS_LABEL[heroClass]} answers the Keep's call (arrives in ${instantBuild ? 0 : HERO_RECRUIT_TICKS / TICK_RATE} s)`);
+}
+
+// Once per tick: a recruit's short muster runs down, then the hero walks out of the Keep.
+function updateHeroRecruits() {
+  for (let i = heroRecruits.length - 1; i >= 0; i--) {
+    const r = heroRecruits[i];
+    if (--r.ticksLeft > 0) continue;
+    heroRecruits.splice(i, 1);
+    spawnHeroColonist(r.id, r.name, r.heroClass, r.tx, r.ty);
+    broadcastEvent("milestone", `${r.name} the ${HERO_CLASS_LABEL[r.heroClass]} joins the colony`);
+  }
+}
+
+// The hero (new or back from death) beside its Keep, holding the spot it stepped out on.
+function spawnHeroColonist(id: string, name: string, heroClass: HeroClass, tx: number, ty: number): Colonist {
+  const c = spawnColonistForPost(tx, ty, "hero", 1);
+  colonists.delete(c.id);
+  c.id = id;
+  c.heroClass = heroClass;
+  c.heroName = name;
+  colonists.set(id, c);
+  const prof = ensureHeroProfile(id, heroClass, name);
+  c.maxHp = prof.stats.maxHp;
+  c.hp = c.maxHp;
+  const t = tileOfPixel(c.x, c.y);
+  Object.assign(c, { rallyTileX: t.x, rallyTileY: t.y, rallyX: c.x, rallyY: c.y });
+  heroRosterVersion++;
+  heroTestEvent({ type: "spawn", id, detail: heroClass });
+  return c;
+}
+
+function heroSheetsSnapshot(): HeroSheetSnapshot[] {
+  return heroRoster().map((h) => {
+    const prof = ensureHeroProfile(h.id, h.heroClass, h.name);
+    return { id: h.id, name: h.name, heroClass: h.heroClass, status: h.status, respawnFee: heroRespawnFee(h.id), profile: heroProfileSnapshot(prof) };
+  });
+}
+
+// Appended to a player's snapshot payload only when the hero roster changed since the last one sent.
+function withPlayerHeroes(payload: string, player: Player): string {
+  if (player.heroesSentVersion === heroRosterVersion) return payload;
+  player.heroesSentVersion = heroRosterVersion;
+  return payload.slice(0, -1) + ',"heroes":' + JSON.stringify(heroSheetsSnapshot()) + "}";
 }
 
 // ---- Blacksmith forging: one item at a time per Blacksmith, FORGE_QUEUE_CAP queued (the first is in
@@ -11821,6 +12163,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     const stat = settlementStats().find((x) => resourceKey(x.tc.x, x.tc.y) === settlementKeyNear(tx, ty));
     staffing = `Population ${stat?.used ?? 0}/${stat?.cap ?? 0}`;
     bonuses.push(`Keep Lv ${level}: +${KEEP_POPULATION_PER_LEVEL * level} population`);
+    bonuses.push(`Recruits up to ${level} hero${level === 1 ? "" : "es"} (one per Keep level), ${HERO_POPULATION_COST} population each`);
   }
   if (t === TileType.Blacksmith) {
     bonuses.push(`Forges tier-${level} armour / weapons (tier = level) for knights, spearmen, pikemen and cavalry`);
@@ -11901,6 +12244,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     ...(t === TileType.Gate ? { gate: (({ open, lock, overrun }) => ({ open, lock, overrun }))(gateAt(tileIndex(tx, ty))) } : {}),
     ...(t === TileType.SiegeWorkshop ? { siege: siegeWorkshopInfo(tx, ty) } : {}),
     ...(t === TileType.Blacksmith ? { forge: blacksmithForgeInfo(tx, ty) } : {}),
+    ...(t === TileType.Keep ? { heroes: keepHeroInfo(tx, ty) } : {}),
   };
 }
 
@@ -12235,6 +12579,7 @@ function stepSimulation() {
   updateConstructionSites();
   updateSiegeWorkshops();
   updateForges();
+  updateHeroRecruits();
 
   // Walls & gates: mobs and wildlife move and path from the hostile side of every gate.
   withHostileMover(() => {
@@ -12311,6 +12656,7 @@ setInterval(() => {
       sheltered: isAtShelter(c),
       ...(c.armourTier ? { armourTier: c.armourTier } : {}),
       ...(c.weaponTier ? { weaponTier: c.weaponTier } : {}),
+      ...(c.kind === "hero" ? { heroName: c.heroName, heroClass: c.heroClass, heroLevel: heroProfileFor(heroKey(c.id)).level } : {}),
     })),
     mobs: Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,
@@ -12396,7 +12742,7 @@ setInterval(() => {
         }
         payload = JSON.stringify({ ...snapshot, mobs: snapshot.mobs.filter((m) => near(m.x, m.y)), wildlife: wl });
       }
-      player.socket.send(withPlayerProfile(withPlayerFights(payload, player), player));
+      player.socket.send(withPlayerHeroes(withPlayerProfile(withPlayerFights(payload, player), player), player));
     }
   }
   if (TEST_HOOKS) {

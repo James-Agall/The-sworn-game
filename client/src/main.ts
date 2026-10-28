@@ -34,6 +34,8 @@ import type {
   GearItem,
   GearSlot,
   HeroProfileSnapshot,
+  HeroSheetSnapshot,
+  HeroClass,
   ItemStats,
 } from "./protocol";
 import { TICK_RATE } from "./protocol"; // long days: respawn-window ETA
@@ -65,7 +67,7 @@ import {
 import { SOUND_SILENT_RADIUS_TILES, SoundManager, proximityGain } from "./sound";
 import type { FightSnapshot } from "./protocol";
 import { FIGHT_WINDOW_SECONDS } from "./protocol";
-import { COLONIST_ROLE, MOB_ROLE, isRearRole, SIEGE_KINDS } from "./protocol";
+import { MOB_ROLE, isRearRole, SIEGE_KINDS, unitRole, HERO_CLASSES, HERO_CLASS_LABEL } from "./protocol";
 import type { CombatRole, SiegeKind } from "./protocol";
 import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
 
@@ -248,11 +250,12 @@ const COLONIST_COLORS: Record<string, number> = {
   cavalry: 0x8fa3c0,
   batteringRam: 0x7a5230,
   catapult: 0x6b4a2a,
+  hero: 0xf2c94c,
 };
 
 // Only military units take part in selection / commands / task forces.
 const COMMANDABLE_KINDS = new Set<string>([
-  "knight", "archer", "bishop", "militia", "spearman", "pikeman", "cavalry", "batteringRam", "catapult",
+  "knight", "archer", "bishop", "militia", "spearman", "pikeman", "cavalry", "batteringRam", "catapult", "hero",
 ]);
 // Workers who vanish into their building/plot while on the job, instead of standing visibly on
 // top of it. Guards/militia/bishop stay visible — you want to see your garrison standing watch.
@@ -413,7 +416,8 @@ const frameUrls = (name: string, count: number) =>
 
 // Walk + action (attack, or the worker's chop/mine/heal/... cycle) frame URLs per colonist kind.
 // Each row was normalized at extraction onto one shared canvas with the feet on the bottom edge.
-const COLONIST_ANIM_URLS: Record<ColonistKind, { walk: string[]; action: string[] }> = {
+// Heroes borrow their class's set (HERO_VISUAL_KIND), so "hero" has none of its own.
+const COLONIST_ANIM_URLS: Record<Exclude<ColonistKind, "hero">, { walk: string[]; action: string[] }> = {
   knight: { walk: frameUrls("knightWalk", 4), action: frameUrls("knightAttack", 4) },
   archer: { walk: frameUrls("archerWalk", 4), action: frameUrls("archerAttack", 6) },
   militia: { walk: frameUrls("militiaWalk", 4), action: frameUrls("militiaAttack", 3) },
@@ -868,6 +872,9 @@ const BATTERED_POSE_URLS: Record<string, string> = {
   armoredOrc: "/sprites/armoredOrcBattered.png",
 };
 const BATTERED_TINT_KINDS = new Set<string>(["knight", "pikeman", "armoredOrc"]);
+// Hero phase 3: the soldier art each hero class borrows (PLACEHOLDER) and the hero tint.
+const HERO_VISUAL_KIND: Record<HeroClass, ColonistKind> = { champion: "knight", marksman: "archer", mage: "bishop" };
+const HERO_TINT = 0xffe7a0;
 // Extra scale on top of the max-box fit for small world-gen props, so a barrel or crate doesn't
 // render the same size as a cottage. Unlisted tiles use 1 (unchanged).
 const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
@@ -912,6 +919,8 @@ interface EntityVisual {
   markLabel?: Text;
   // Phase 5 bosses only (see updateBossVisuals).
   bossLabel?: Text;
+  // Hero phase 3: heroes only, "Name · Lv N" above the HP bar.
+  heroLabel?: Text;
 }
 
 const COLONIST_KINDS: ColonistKind[] = [
@@ -2337,6 +2346,7 @@ async function main() {
       entry.sigil?.destroy();
       entry.markLabel?.destroy();
       entry.bossLabel?.destroy();
+      entry.heroLabel?.destroy();
       map.delete(id);
     }
   }
@@ -2454,8 +2464,11 @@ async function main() {
   }
 
   function upsertColonist(c: ColonistSnapshot, isNight: boolean) {
+    // Hero phase 3 (PLACEHOLDER art): a hero borrows its class's soldier art (champion = knight, marksman =
+    // archer, mage = bishop), tinted gold-ish, with a name + level label and a gold ring (drawRoleRings).
+    const vk: ColonistKind = c.kind === "hero" ? HERO_VISUAL_KIND[c.heroClass ?? "champion"] : c.kind;
     const entry = ensureVisual(colonistSprites, c.id, () => {
-      const texture = COLONIST_TEXTURES[c.kind];
+      const texture = COLONIST_TEXTURES[vk];
       if (!texture) return new Graphics().circle(0, 0, 8).fill(COLONIST_COLORS[c.kind] ?? 0xffffff);
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5);
@@ -2481,8 +2494,21 @@ async function main() {
     entry.sprite.visible = !hidden;
     entry.hpBar.visible = !hidden;
     updateWound(entry, c.hp, c.maxHp, c.x, c.y - 2, COLONIST_WOUND_SIZE, false, hidden);
+    if (c.kind === "hero") {
+      const text = `${c.heroName ?? "Hero"} · Lv ${c.heroLevel ?? 1}`;
+      if (!entry.heroLabel) {
+        entry.heroLabel = new Text({
+          text,
+          style: { fontFamily: "Palatino Linotype, Palatino, Georgia, serif", fontSize: 10, fontWeight: "bold", fill: 0xf2c94c, stroke: { color: 0x000000, width: 3 } },
+        });
+        entry.heroLabel.anchor.set(0.5, 1);
+        worldLayer.addChild(entry.heroLabel);
+      } else if (entry.heroLabel.text !== text) entry.heroLabel.text = text;
+      entry.heroLabel.position.set(c.x, c.y - 21);
+      entry.heroLabel.visible = !hidden;
+    }
 
-    const set = COLONIST_ANIMS[c.kind];
+    const set = COLONIST_ANIMS[vk];
     if (set && entry.sprite instanceof Sprite) {
       let anim = colonistAnim.get(c.id);
       if (!anim) {
@@ -2505,9 +2531,9 @@ async function main() {
       // ratio, so using it here made units visibly pop in size on every idle<->walk/action
       // transition (i.e. every time they started or stopped moving).
       showAnimFrame(entry.sprite, set, frame ?? set.walk[0]);
-      const battered = BATTERED_TINT_KINDS.has(c.kind) && c.hp < c.maxHp * BATTERED_HP_FRACTION;
-      const posed = battered && !frame && showBatteredPose(entry.sprite, set, c.kind, COLONIST_SPRITE_HEIGHT);
-      entry.sprite.tint = battered && !posed ? BATTERED_TINT : (COLONIST_TINT.get(c.kind) ?? 0xffffff);
+      const battered = BATTERED_TINT_KINDS.has(vk) && c.hp < c.maxHp * BATTERED_HP_FRACTION;
+      const posed = battered && !frame && showBatteredPose(entry.sprite, set, vk, COLONIST_SPRITE_HEIGHT);
+      entry.sprite.tint = battered && !posed ? BATTERED_TINT : c.kind === "hero" ? HERO_TINT : (COLONIST_TINT.get(vk) ?? 0xffffff);
     }
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
   }
@@ -2922,7 +2948,7 @@ async function main() {
     // purple bolt instead of an arrow.
     const isShaman = latestMobs.some(
       (m) => m.kind === "darkShaman" && Math.abs(m.x - e.fromX) < 2 && Math.abs(m.y - e.fromY) < 2
-    );
+    ) || latestColonists.some((c) => c.heroClass === "mage" && Math.abs(c.x - e.fromX) < 2 && Math.abs(c.y - e.fromY) < 2);
     const distance = Math.hypot(e.toX - e.fromX, e.toY - e.fromY);
     const durationMs = Math.min(260, Math.max(60, distance / PROJECTILE_PX_PER_MS));
     const tint = isShaman ? SHAMAN_BOLT_TINT : 0xffffff;
@@ -3823,11 +3849,17 @@ async function main() {
     };
     for (const c of latestColonists) {
       const r = c.kind === "cavalry" || c.kind === "batteringRam" || c.kind === "catapult" ? 12 : 9;
-      ring(c.x, c.y, COLONIST_ROLE[c.kind], r);
+      ring(c.x, c.y, unitRole(c.kind, c.heroClass), r);
       // Armour & weapons (PLACEHOLDER until the tiered art of SPRITES.md #45+): a thin bronze / silver / gold
       // ring just inside the role ring shows the unit's armour tier.
       const tier = c.armourTier ?? 0;
       if (tier > 0) roleRings.ellipse(c.x, c.y + r * 0.8, r - 2.5, (r - 2.5) * 0.4).stroke({ width: 1.5, color: ARMOUR_TIER_COLORS[tier - 1], alpha: 0.85 });
+      // Hero phase 3: a gold ring outside the role ring with four pips on it.
+      if (c.kind === "hero") {
+        const hr = r + 3;
+        roleRings.ellipse(c.x, c.y + r * 0.8, hr, hr * 0.4).stroke({ width: 2, color: 0xf2c94c, alpha: 0.95 });
+        for (const [px, py] of [[hr, 0], [-hr, 0], [0, hr * 0.4], [0, -hr * 0.4]]) roleRings.circle(c.x + px, c.y + r * 0.8 + py, 1.8).fill(0xffe9a8);
+      }
     }
     for (const m of latestMobs) ring(m.x, m.y, MOB_ROLE[m.kind], 10);
   }
@@ -3856,7 +3888,7 @@ async function main() {
     // Regiments: the selection's roles, e.g. "6 Frontline, 4 Ranged".
     const roleCounts = new Map<CombatRole, number>();
     for (const c of latestColonists) {
-      const role = selectedIds.has(c.id) ? COLONIST_ROLE[c.kind] : undefined;
+      const role = selectedIds.has(c.id) ? unitRole(c.kind, c.heroClass) : undefined;
       if (role) roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
     }
     const roles = Array.from(roleCounts, ([role, n]) => `${n} ${ROLE_LABEL[role]}`).join(", ");
@@ -3864,7 +3896,9 @@ async function main() {
     // Armour & weapons: a single selected knight / spearman / pikeman / cavalry shows its tiers.
     if (selectedIds.size === 1) {
       const u = latestColonists.find((c) => selectedIds.has(c.id));
-      if (u && EQUIPPED_KIND_LABEL[u.kind]) {
+      if (u?.kind === "hero") {
+        count = `${HERO_CLASS_LABEL[u.heroClass ?? "champion"]} ${u.heroName ?? ""} Lv ${u.heroLevel ?? 1} (\` opens its sheet)`;
+      } else if (u && EQUIPPED_KIND_LABEL[u.kind]) {
         const t = (n: number | undefined) => (n ? `T${n}` : "none");
         count = `${EQUIPPED_KIND_LABEL[u.kind]} (armour ${t(u.armourTier)}, weapon ${t(u.weaponTier)})`;
       }
@@ -3989,7 +4023,7 @@ async function main() {
     let rearShift = 0;
     for (const rank of sortedRanks) {
       const members = ranks.get(rank)!;
-      const rear = hasFront && isRearRole(COLONIST_ROLE[members[0].kind], members[0].kind);
+      const rear = hasFront && isRearRole(unitRole(members[0].kind, members[0].heroClass), members[0].kind);
       // The ranged rank stands REAR_LINE_OFFSET_TILES behind the front row (further if the front is deeper).
       if (rear) rearShift = Math.max(rearShift, REAR_LINE_OFFSET_TILES * tileSize - depthRows * spacing);
       // Hand out slots in the same spatial order units already stand in, so nobody walks across
@@ -4024,7 +4058,7 @@ async function main() {
 
   // Shock troops (knights) and front-rank siege (rams) lead their rank and take the centre of its row.
   function isShockUnit(u: ColonistSnapshot): boolean {
-    const role = COLONIST_ROLE[u.kind];
+    const role = unitRole(u.kind, u.heroClass);
     return role === "shock" || (role === "siege" && !isRearRole(role, u.kind));
   }
   // `row` sorted left to right; returns it with the shock units moved onto the centre-most slots (each
@@ -4054,13 +4088,14 @@ async function main() {
     const fast: ColonistSnapshot[] = [];
     let hasFront = false;
     for (const u of units) {
-      const role = COLONIST_ROLE[u.kind];
+      const role = unitRole(u.kind, u.heroClass);
       if (role && !isRearRole(role, u.kind)) hasFront = true;
       if (role === "fast") {
         fast.push(u);
         continue;
       }
-      const rank = FORMATION_RANK[u.kind] ?? FORMATION_RANK.bishop;
+      // Hero phase 3: a hero ranks by its class's role (champion front, marksman / mage rear line).
+      const rank = u.kind === "hero" ? (isRearRole(role) ? 1 : 0) : FORMATION_RANK[u.kind] ?? FORMATION_RANK.bishop;
       const bucket = ranks.get(rank);
       if (bucket) bucket.push(u);
       else ranks.set(rank, [u]);
@@ -4218,7 +4253,7 @@ async function main() {
     let frontHalfWidth = -1;
     for (const rank of Array.from(ranks.keys()).sort((a, b) => a - b)) {
       const members = ranks.get(rank)!;
-      const rear = hasFront && depth > 0 && isRearRole(COLONIST_ROLE[members[0].kind], members[0].kind);
+      const rear = hasFront && depth > 0 && isRearRole(unitRole(members[0].kind, members[0].heroClass), members[0].kind);
       const rankCols = rear ? Math.max(1, Math.min(members.length, Math.ceil(cols * REAR_LINE_WIDTH))) : cols;
       if (rear) depth = Math.max(depth, REAR_LINE_OFFSET_TILES * tileSize);
       members.sort((a, b) => Number(isShockUnit(b)) - Number(isShockUnit(a)) || b.x * fx + b.y * fy - (a.x * fx + a.y * fy));
@@ -4468,6 +4503,12 @@ async function main() {
   const bpForgeBtns = new Map<EquipSlot, HTMLButtonElement>(
     (["armour", "weapon"] as EquipSlot[]).map((slot) => [slot, document.getElementById(`bp-forge-${slot}`) as HTMLButtonElement])
   );
+  // Hero phase 3: the Keep's three recruit buttons (recruitHero) and its hero roster line.
+  const bpHeroesRowEl = document.getElementById("bp-heroes-row")!;
+  const bpHeroesStateEl = document.getElementById("bp-heroes-state")!;
+  const bpHeroBtns = new Map<HeroClass, HTMLButtonElement>(
+    HERO_CLASSES.map((cls) => [cls, document.getElementById(`bp-hero-${cls}`) as HTMLButtonElement])
+  );
   // Tile the panel shows; re-requested every second while open so numbers stay live.
   let infoTile: { tx: number; ty: number } | null = null;
   const BUILDING_INFO_REFRESH_MS = 1000;
@@ -4548,7 +4589,29 @@ async function main() {
         ? `Forging: ${head.slot === "armour" ? "Armour" : "Weapon"} T${head.tier} ${Math.round((f.progress ?? 0) * 100)}% · queue ${f.queue.length}/${f.cap}${reason ? ` · ${reason}` : ""}`
         : `Forges tier ${f.tier} · queue 0/${f.cap}${reason ? ` · ${reason}` : ""}`;
     }
+    bpHeroesRowEl.hidden = !info.heroes;
+    if (info.heroes) {
+      const h = info.heroes;
+      for (const opt of h.options) {
+        const btn = bpHeroBtns.get(opt.heroClass);
+        if (!btn) continue;
+        btn.disabled = !opt.enabled;
+        btn.textContent = `Recruit ${opt.label} (${opt.cost})`;
+        btn.title = opt.reason;
+      }
+      const reason = h.options.find((o) => !o.enabled)?.reason ?? "";
+      const roster = h.roster.map((r) => `${r.name} (${HERO_CLASS_LABEL[r.heroClass]} Lv ${r.level}) - ${r.status}`).join("\n");
+      bpHeroesStateEl.textContent = `Heroes ${h.count}/${h.cap}${reason ? ` · ${reason}` : ""}${roster ? `\n${roster}` : ""}`;
+    }
     buildingPanelEl.hidden = false;
+  }
+  for (const [cls, btn] of bpHeroBtns) {
+    btn.addEventListener("click", () => {
+      btn.blur();
+      if (!infoTile) return;
+      sendMessage({ type: "recruitHero", tx: infoTile.tx, ty: infoTile.ty, class: cls });
+      window.setTimeout(requestBuildingInfo, 150);
+    });
   }
   for (const [slot, btn] of bpForgeBtns) {
     btn.addEventListener("click", () => {
@@ -4692,6 +4755,11 @@ async function main() {
   const hsArmoury = document.getElementById("hs-armoury")!;
   const hsTip = document.getElementById("hs-tip")!;
   let heroProfile: HeroProfileSnapshot | null = null;
+  // Hero phase 3: the colony's heroes (snapshot `heroes`) and the open tab ("" = the player).
+  let heroSheets: HeroSheetSnapshot[] = [];
+  let sheetTab = "";
+  const hsTabs = document.getElementById("hs-tabs")!;
+  const hsTitle = document.getElementById("hs-title")!;
   let heroStock: EquipmentStock | undefined;
   let heroRenderKey = "";
   let heroHpText = "";
@@ -4806,10 +4874,18 @@ async function main() {
 
   function renderHeroSheet(force = false) {
     if (heroModal.hidden || !heroProfile) return;
-    const prof = heroProfile;
+    // Hero phase 3: a hero tab shows that hero's sockets / stats / level over the player's shared pack.
+    const hero = sheetTab ? heroSheets.find((h) => h.id === sheetTab) : undefined;
+    if (sheetTab && !hero) sheetTab = "";
+    const pack = heroProfile;
+    const prof: HeroProfileSnapshot = hero ? { ...hero.profile, inventory: pack.inventory, inventoryCap: pack.inventoryCap } : pack;
+    const heroArg = hero ? { heroId: hero.id } : {};
     const me = heroMe;
-    const hpText = me ? `${Math.ceil(me.hp)} / ${me.maxHp}` : `${prof.stats.maxHp}`;
-    const key = JSON.stringify([prof, heroStock]);
+    const unit = hero ? latestColonists.find((c) => c.id === hero.id) : undefined;
+    const hpText = hero
+      ? unit ? `${Math.ceil(unit.hp)} / ${unit.maxHp}` : hero.status === "recruiting" ? `${prof.stats.maxHp} (arriving)` : `fallen: back at dawn / dusk for ${hero.respawnFee} gold`
+      : me ? `${Math.ceil(me.hp)} / ${me.maxHp}` : `${prof.stats.maxHp}`;
+    const key = JSON.stringify([prof, heroStock, sheetTab, heroSheets.map((h) => [h.id, h.name, h.status, h.profile.level])]);
     if (!force && key === heroRenderKey) {
       if (hpText !== heroHpText) {
         heroHpText = hpText;
@@ -4821,6 +4897,22 @@ async function main() {
     heroRenderKey = key;
     heroHpText = hpText;
     hideItemTip();
+    hsTitle.textContent = hero ? `${hero.name} · ${HERO_CLASS_LABEL[hero.heroClass]}` : "Character";
+    hsTabs.replaceChildren();
+    if (heroSheets.length > 0) {
+      const tab = (id: string, label: string, cls = "") => {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.className = `${id === sheetTab ? "active" : ""} ${cls}`.trim();
+        b.addEventListener("click", () => {
+          sheetTab = id;
+          renderHeroSheet(true);
+        });
+        hsTabs.append(b);
+      };
+      tab("", "Player");
+      for (const h of heroSheets.slice(0, 9)) tab(h.id, `${h.name} Lv ${h.profile.level}`, h.status === "alive" ? "" : "fallen");
+    }
     // Paper-doll: trinket / head / trinket, weapon / chest / off-hand, - / legs / -, then 4 spell slots.
     const layout: (GearSlot | null)[] = ["trinket1", "head", "trinket2", "weapon", "chest", "offhand", null, "legs", null];
     hsDoll.replaceChildren();
@@ -4833,7 +4925,7 @@ async function main() {
       hsDoll.append(
         makeSocket(slot, item, {
           empty: SLOT_LABEL[slot],
-          onClick: item ? () => sendMessage({ type: "unequipItem", slot }) : undefined,
+          onClick: item ? () => sendMessage({ type: "unequipItem", slot, ...heroArg }) : undefined,
           tip: item ? (e) => showItemTip(e, item, null, "Click to unequip", false) : undefined,
         })
       );
@@ -4851,7 +4943,7 @@ async function main() {
     const into = prof.nextLevelXp === null ? 1 : prof.xp - prof.levelXp;
     (document.getElementById("hs-xpfill") as HTMLElement).style.width = `${Math.round(Math.min(1, into / span) * 100)}%`;
     document.getElementById("hs-xptext")!.textContent =
-      prof.nextLevelXp === null ? `${prof.xp} XP · max level` : `${prof.xp} / ${prof.nextLevelXp} XP · +4% damage and +6 HP per level`;
+      prof.nextLevelXp === null ? `${prof.xp} XP · max level` : `${prof.xp} / ${prof.nextLevelXp} XP · +4% damage and +6${hero ? "%" : ""} HP per level`;
 
     // Stat summary (multipliers include gear and level).
     const s = prof.stats;
@@ -4895,7 +4987,7 @@ async function main() {
       const current = target ? prof.equipment[target] : null;
       hsInv.append(
         makeSocket(null, item, {
-          onClick: target ? () => sendMessage({ type: "equipItem", itemId: item.id, slot: target }) : undefined,
+          onClick: target ? () => sendMessage({ type: "equipItem", itemId: item.id, slot: target, ...heroArg }) : undefined,
           tip: (e) => showItemTip(e, item, current, target ? `Click to equip (${SLOT_LABEL[target]})` : "Coming soon", !!target),
         })
       );
@@ -4911,13 +5003,18 @@ async function main() {
         btn.textContent = `${slot === "armour" ? "Chest armour" : "Weapon"} T${tier} (${n})`;
         btn.disabled = n <= 0 || full;
         btn.title = full ? "Your pack is full" : n <= 0 ? "None in the colony's stock (forge at a Blacksmith)" : "Takes it from the stock soldiers muster with";
-        btn.addEventListener("click", () => sendMessage({ type: "takeFromArmoury", slot, tier }));
+        btn.addEventListener("click", () => sendMessage({ type: "takeFromArmoury", slot, tier, ...heroArg }));
         hsArmoury.append(btn);
       }
     }
   }
 
   function setHeroSheetOpen(open: boolean) {
+    // Hero phase 3: opening with exactly one hero selected shows that hero's tab.
+    if (open && selectedIds.size === 1) {
+      const id = [...selectedIds][0];
+      if (heroSheets.some((h) => h.id === id)) sheetTab = id;
+    }
     heroModal.hidden = !open;
     hideItemTip();
     if (open) renderHeroSheet(true);
@@ -4940,8 +5037,11 @@ async function main() {
     }
   });
 
-  function syncHeroProfile(profile: HeroProfileSnapshot | undefined, stock: EquipmentStock | undefined, me: PlayerSnapshot | undefined) {
+  function syncHeroProfile(
+    profile: HeroProfileSnapshot | undefined, stock: EquipmentStock | undefined, me: PlayerSnapshot | undefined, heroes?: HeroSheetSnapshot[]
+  ) {
     if (profile) heroProfile = profile;
+    if (heroes) heroSheets = heroes;
     heroMe = me;
     heroStock = stock;
     renderHeroSheet();
@@ -5133,7 +5233,7 @@ async function main() {
       latestMobs = message.mobs;
       drawRoleRings();
       latestTaskForces = message.taskForces;
-      const counts = { knight: 0, archer: 0, militia: 0, bishop: 0, cavalry: 0, siege: 0 };
+      const counts = { knight: 0, archer: 0, militia: 0, bishop: 0, cavalry: 0, siege: 0, hero: 0 };
       const alive = new Set<string>();
       for (const c of message.colonists) {
         if (!isCommandable(c)) continue;
@@ -5143,13 +5243,15 @@ async function main() {
           counts.militia++;
         } else if (c.kind === "batteringRam" || c.kind === "catapult") {
           counts.siege++;
+        } else if (c.kind === "hero") {
+          counts.hero++;
         }
         alive.add(c.id);
       }
       refreshWorkerCounts(message.colonists, message.isNight);
       statArmyEl.textContent =
         `Knights ${counts.knight}  Cavalry ${counts.cavalry}  Archers ${counts.archer}  Militia ${counts.militia}` +
-        `${counts.siege > 0 ? `  Siege ${counts.siege}` : ""}  Bishops ${counts.bishop}`;
+        `${counts.siege > 0 ? `  Siege ${counts.siege}` : ""}${counts.hero > 0 ? `  Heroes ${counts.hero}` : ""}  Bishops ${counts.bishop}`;
       // Drop dead units from the selection so the count and commands stay accurate.
       const stillSelected = Array.from(selectedIds).filter((id) => alive.has(id));
       if (stillSelected.length !== selectedIds.size) {
@@ -5161,7 +5263,7 @@ async function main() {
       }
       refreshEconomyPanel(message);
       refreshEquipmentLine(message.equipment);
-      syncHeroProfile(message.profile, message.equipment, message.players.find((p) => p.id === myId));
+      syncHeroProfile(message.profile, message.equipment, message.players.find((p) => p.id === myId), message.heroes);
       statPopEl.textContent = `${message.population}/${message.populationCap}`;
       refreshSettlementPanel(message.townCenters);
       setActiveDifficulty(message.difficulty);
@@ -5542,7 +5644,7 @@ async function main() {
     if (tile && GARRISON_TILES.has(tileValue)) {
       setSelection(
         latestColonists
-          .filter((c) => COLONIST_ROLE[c.kind] !== undefined && c.postX === tile.tileX && c.postY === tile.tileY)
+          .filter((c) => unitRole(c.kind, c.heroClass) !== undefined && c.postX === tile.tileX && c.postY === tile.tileY)
           .map((c) => c.id)
       );
       return;

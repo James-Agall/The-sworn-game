@@ -212,7 +212,15 @@ export type ColonistKind =
   // Cavalry & siege (2026-10-27): Stables riders and Siege Workshop engines.
   | "cavalry"
   | "batteringRam"
-  | "catapult";
+  | "catapult"
+  // Hero phase 3 (2026-10-28): a named, levelled hero recruited at a Keep (class in ColonistSnapshot.heroClass).
+  | "hero";
+
+// Hero phase 3: the three hero classes and the regiment role each fights in.
+export type HeroClass = "champion" | "marksman" | "mage";
+export const HERO_CLASSES: HeroClass[] = ["champion", "marksman", "mage"];
+export const HERO_CLASS_ROLE: Record<HeroClass, CombatRole> = { champion: "shock", marksman: "ranged", mage: "caster" };
+export const HERO_CLASS_LABEL: Record<HeroClass, string> = { champion: "Champion", marksman: "Marksman", mage: "Mage" };
 
 // Combat stance for guard-tier units (knight/archer/militia line): how far they aggro, how far they
 // chase from their rally point, and how tight a formation they hold. Every colonist carries one
@@ -235,6 +243,10 @@ export interface ColonistSnapshot {
   // Armour & weapons: the tier (1-3) a knight / spearman / pikeman / cavalry spawned with; omitted = 0 (unequipped).
   armourTier?: number;
   weaponTier?: number;
+  // Hero phase 3: heroes only (kind "hero"); the id is the hero's stable id.
+  heroName?: string;
+  heroClass?: HeroClass;
+  heroLevel?: number;
 }
 
 // Armour & weapons: the two equipment slots; the colony's stock counts each by tier 1..3.
@@ -302,6 +314,19 @@ export interface HeroProfileSnapshot {
   nextLevelXp: number | null;
   stats: HeroStats;
 }
+// Hero phase 3: snapshot `heroes`, one per hero of the colony (alive, waiting to respawn or still being
+// recruited), sent per player only when the roster changed. `profile.inventory` is always empty: heroes
+// equip from the player's shared pack (the player's own `profile`).
+export interface HeroSheetSnapshot {
+  id: string;
+  name: string;
+  heroClass: HeroClass;
+  // "alive" | "recruiting" (arrives soon) | "fallen" (waits for a dawn / dusk window and its gold fee).
+  status: "alive" | "recruiting" | "fallen";
+  // Gold the next respawn costs (50 + 25 x level).
+  respawnFee: number;
+  profile: HeroProfileSnapshot;
+}
 
 export type MobKind =
   | "goblin"
@@ -360,6 +385,11 @@ export const COLONIST_ROLE: Partial<Record<ColonistKind, CombatRole>> = {
   pikeman: "frontline",
   archer: "ranged",
 };
+// A unit's role, heroes by their class (hero phase 3).
+export function unitRole(kind: ColonistKind, heroClass?: HeroClass): CombatRole | undefined {
+  if (kind === "hero") return heroClass ? HERO_CLASS_ROLE[heroClass] : "shock";
+  return COLONIST_ROLE[kind];
+}
 // Ranged and caster units form the rear rank; of the siege engines only the catapult does (pass the
 // unit's kind; without it a siege role counts as front rank, like the ram).
 export function isRearRole(role: CombatRole | undefined, kind?: string): boolean {
@@ -547,6 +577,14 @@ export interface BuildingInfo {
     cap: number;
     options: { slot: EquipSlot; label: string; cost: string; enabled: boolean; reason: string }[];
   };
+  // Keeps only (hero phase 3): heroes posted here / cap (= Keep level), one recruit button per class
+  // (see recruitHero), and the roster of this Keep's heroes.
+  heroes?: {
+    count: number;
+    cap: number;
+    options: { heroClass: HeroClass; label: string; cost: string; enabled: boolean; reason: string }[];
+    roster: { name: string; heroClass: HeroClass; level: number; status: string }[];
+  };
 }
 
 export type ClientMessage =
@@ -583,9 +621,13 @@ export type ClientMessage =
   | { type: "queueForge"; tileX: number; tileY: number; slot: EquipSlot }
   // Hero phases 1-2 (additive): equip an inventory item into a slot (swaps any occupant back), unequip a
   // slot, or pull one plain tiered piece (armour -> chest item, weapon -> weapon item) out of the colony stock.
-  | { type: "equipItem"; itemId: string; slot: GearSlot }
-  | { type: "unequipItem"; slot: GearSlot }
-  | { type: "takeFromArmoury"; slot: EquipSlot; tier: number }
+  // Hero phase 3: heroId (optional, default = the player) targets that hero's equipment; items still come
+  // from / return to the player's pack.
+  | { type: "equipItem"; itemId: string; slot: GearSlot; heroId?: string }
+  | { type: "unequipItem"; slot: GearSlot; heroId?: string }
+  | { type: "takeFromArmoury"; slot: EquipSlot; tier: number; heroId?: string }
+  // Hero phase 3: recruit a hero of `class` at the Keep at (tx, ty) (Keep panel buttons).
+  | { type: "recruitHero"; tx: number; ty: number; class: HeroClass }
   // Save files (server/saves/<slot>.json). saveGame takes slot1-3 (the autosave is the server's own);
   // loadGame replaces the shared world for everyone connected.
   | { type: "saveGame"; slot: SaveSlot }
@@ -669,6 +711,8 @@ export type ServerMessage =
       equipment?: EquipmentStock;
       // Hero phases 1-2: this player's gear / inventory / XP (per-player field, only when it changed).
       profile?: HeroProfileSnapshot;
+      // Hero phase 3: the colony's heroes (sheet tabs); appended per player only when it changed.
+      heroes?: HeroSheetSnapshot[];
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).

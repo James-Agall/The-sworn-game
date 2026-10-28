@@ -1086,3 +1086,76 @@ in server/src/index.ts (`HERO_*`, `RELIC_*`, `PLAIN_GEAR`, `RELIC_CATALOGUE`, `H
    weapon to see red / green deltas.
 6. Die and respawn: gear and pack are unchanged. Save, reload the page (same browser), load the save: same sheet.
 7. Esc, the x and a backdrop click close it; WASD still moves while it's open.
+
+## Hero phase 3: heroes — landed 2026-10-28
+
+Phase 3 of `~/docs/colony2d/PLAN-hero-character-sheet.md`. Server: `HERO_CLASS_STATS` / `HERO_POPULATION_COST` next to
+the siege constants, the rest in the "Hero phase 3: heroes" block after "Hero phases 1-2"; client: Keep row
+(`bp-heroes-row`), sheet tabs (`hs-tabs`), hero visuals in `upsertColonist` / `drawRoleRings`.
+
+| Class | Role | HP | Damage | Range | Attack | Speed | Recruit cost |
+|---|---|---|---|---|---|---|---|
+| Champion | shock (front centre) | 160 | 26 | melee (knight's) | 0.8 s | 110 | 120 gold + 20 iron |
+| Marksman | ranged (rear line) | 90 | 16 arrow | 5 tiles (archer + 1) | 1.2 s | 100 | 100 gold + 30 wood |
+| Mage | caster (rear line) | 80 | 14 magic bolt (shaman bolt art) | 7 tiles | 1.5 s | 95 | 140 gold + 20 rock |
+
+- **Unit**: `ColonistKind` `"hero"` with `heroClass` / `heroName` on the colonist (saved with it). The colonist id
+  is the hero's stable id; its `HeroProfile` `hero:<id>` (same `heroProfiles` list / save as the players', now
+  with `heroClass` / `heroName`) holds XP, level and equipment. Stats = class base through the SAME
+  `computeHeroStats(equipment, level, baseHp)` as the player: damage x(1 + gear %)(1 + 4% per level), max HP =
+  base + gear + 6% of base per level (the player's base is 100, so still +6 HP), damage taken (in
+  `damageColonist`), move / attack speed. `unitStats(c)` replaces `guardStats(kind, level)` wherever a live
+  unit's stats are read (guard update, squad pace, tactics force). Heroes are soldiers (`isGuardOrMilitiaKind`,
+  commandable, squads / formations / stances / attack / hearth orders, guard targeting, ranged discipline for
+  marksman / mage), never desert (`isSoldierKind` excludes them), take no armour-tier stock, and never despawn
+  (a demolished Keep leaves them posted at its tile). Role: `unitRole(kind, heroClass)` (protocol;
+  `HERO_CLASS_ROLE`), used by server `colonistRole` and every client role lookup.
+- **Recruiting** (`recruitHero` {tx, ty, class}, Keep panel buttons): heroes per Keep <= Keep level (1-3), <= 9 in
+  the colony, cost paid at once, 2 population in the Keep's settlement (`settlementBlocker(tx, ty, 2 x (1 +
+  recruits pending there))`). Refusals toast "Can't recruit: Keep Lv 1 holds 1 hero (upgrade the Keep for more)" /
+  "Settlement 1 full (19/20) — ..." / "Not enough resources". The hero arrives after 10 s (`HERO_RECRUIT_TICKS`;
+  1 tick with instant build) beside the Keep, rallying where it stepped out. Names: random from `HERO_NAMES` (20),
+  unique in the colony. Pending recruits are saved (`heroRecruits`).
+- **Death / respawn**: the respawn queue entry carries `hero` {id, name, heroClass}; it is never dropped. At a
+  dawn / dusk window it comes back (same id, name, level, gear, full HP) if the settlement has room for 2 and
+  the stock has the fee 50 + 25 x level gold (paid then, no food); otherwise "X waits for N gold ..." and it
+  waits for the next window.
+- **XP / loot**: a kill whose attacker key is `c:<hero id>` (melee blow or its arrow / bolt) gives that hero
+  the XP of `heroRewardsForKill` (10 / x3 marked / 60 elite / 250 Warlord); toast "<Name> reaches level N". Relic
+  rolls are unchanged and go to the connected players' packs. A relic worn by any hero counts as owned.
+- **Sheet**: tabs "Player | <hero> Lv N ..." (up to 9; fallen / recruiting ones in italics); a hero tab shows its
+  sockets, stats, level / XP, HP (or "fallen: back at dawn / dusk for N gold") over the player's shared pack.
+  `equipItem` / `unequipItem` / `takeFromArmoury` take an optional `heroId` (take: the piece goes to the pack
+  and straight onto that hero if the socket is free). Opening the sheet (` or Hero) with one hero selected opens
+  its tab; the selection line reads "Champion Hild Lv 2 (` opens its sheet)".
+- **Client art (PLACEHOLDER)**: champion = knight set, marksman = archer set, mage = bishop set, tinted pale
+  gold; "Name · Lv N" label; a gold ring with four pips outside the role ring; mage bolts drawn as the shaman's.
+  Colony panel army line adds "Heroes N".
+- **Protocol (additive)**: `HeroClass`, `HERO_CLASSES`, `HERO_CLASS_ROLE`, `HERO_CLASS_LABEL`, `unitRole`,
+  `HeroSheetSnapshot`; `ColonistSnapshot.heroName? / heroClass? / heroLevel?`; snapshot `heroes?` (appended per
+  player when `heroRosterVersion` changed); `BuildingInfo.heroes?`; messages `recruitHero`, `heroId?` on the
+  three gear messages.
+- **Test hooks**: `heroUnitState` (sheets, live units with stats / role, recruits, queued respawns, gold, hero
+  events spawn / recruit / hit / xp / respawn / respawnWait); `damageMob` takes `byColonist`.
+- **Test**: `server/hero-test.mjs` (self-booting 160 world, port 21910): 24 checks, all pass. `character-sheet-test.mjs`
+  and `settlement-pop-test.mjs` re-run: all pass unchanged.
+- **Caveats**: heroes use borrowed art; the hero list is colony-wide (every player sees every hero's tab and can
+  equip it from their own pack); a hero whose Keep is gone still counts toward that Keep's tile (it respawns
+  beside the empty tile and a new Keep elsewhere starts its count at 0); the marksman's / mage's projectile
+  damage is instant like the archers'; mages have no spells yet.
+- **Phase 4 (spells) hooks**: `HeroProfile.stats.spellPowerMult` is already derived for heroes; `spell1-4`
+  sockets exist on every hero profile; `heroCombatStats(c)` is where a cooldown / auto-cast hook can read the
+  class (mage = caster) and level; `guardStrike`'s hero branch (`heroTestEvent "hit"`) is the place to swap a
+  basic bolt for a cast; the sheet's disabled spell sockets take `heroArg` like the gear sockets.
+
+**Manual browser check (heroes)**
+1. Upgrade a Town Center to Lv2, build a Keep, click it: three "Recruit ..." buttons with costs, "Heroes 0/1".
+2. Recruit a Champion: toast, 10 s later a gold-tinted knight with "Name · Lv 1" and a gold pip ring beside the
+   Keep; the Keep panel reads "Heroes 1/1" and the buttons grey out; Settlement population +2.
+3. Click the hero: "Selected: Champion Name Lv 1 (` opens its sheet)"; move / attack orders work; in a box
+   select with knights and archers it takes the front centre.
+4. Press `: the sheet opens on the hero's tab (Player | Name Lv 1); equip a relic from the pack: its stats
+   change, the Player tab's pack loses it; unequip: back in the pack.
+5. Upgrade the Keep, recruit a Marksman and a Mage: they hold the rear line; the mage throws purple bolts.
+6. Let a hero die: toast with its fee; its tab shows "fallen"; it returns at the next dawn / dusk window and the
+   gold drops by 50 + 25 x level. Save, reload, load: heroes, names, levels and gear are back.
