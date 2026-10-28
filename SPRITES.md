@@ -480,6 +480,41 @@ Paper-doll layers drawn over the player's existing mounted-knight frames (no new
 | #53 forging | Blacksmith forge queue (`BuildingInfo.forge`) | static `blacksmith.png` | needs the forge-busy state per Blacksmith in the snapshot |
 | #54 Blacksmith Lv2/Lv3 | `TileType.Blacksmith` levels 2-3 | `blacksmith.png` | `TILE_LEVEL_ART` |
 
+## New requests (2026-10-30 batch) — connected walls & oriented gates
+
+Today every wall tile draws the same single `woodWall.png` / `stoneWall.png` regardless of its neighbours, and the gates
+(`gateWood*.png`, `gateStone*.png`) have no orientation, so walls read as a row of separate blocks and corners/gates
+never line up. These requests make walls AUTO-CONNECT: the game will pick a piece from a 4-bit neighbour mask
+(N=1, E=2, S=4, W=8 — a neighbour counts if it is a wall OR a gate of the same line), so we need one piece per mask value.
+All pieces: same 32x32 tile footprint and ground line as the existing `woodWall.png` / `stoneWall.png`, same camera angle,
+chunky 16-bit pixel art, thick black outline, flat cel-shaded, transparent background, pieces drawn so that neighbouring
+pieces line up seamlessly edge to edge (the wall body must meet the tile edge at the same height and thickness on every
+side that connects). **Scale: match the existing Wood Wall / Stone Wall sprite exactly in height, thickness and palette
+(muted desaturated medieval).** One generation per block, laid out as a labelled grid with a fixed 32x32 cell so cells can be cut
+mechanically.
+
+### 59. Wood wall (palisade) — 16 connector pieces
+
+> Pixel art tileset sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. A wooden palisade wall (sharpened upright logs lashed with rope), matching the existing Wood Wall sprite, drawn as a 4x4 grid of 32x32 cells, each a different connection shape. Row 1: "Post (no neighbours)" mask 0, "North end cap" mask 1 (connects only up), "East end cap" mask 2, "North-East corner" mask 3. Row 2: "South end cap" mask 4, "Vertical straight" mask 5 (N+S), "South-East corner" mask 6, "T-junction N+E+S" mask 7. Row 3: "West end cap" mask 8, "North-West corner" mask 9, "Horizontal straight" mask 10 (E+W), "T-junction N+E+W" mask 11. Row 4: "South-West corner" mask 12, "T-junction N+S+W" mask 13, "T-junction E+S+W" mask 14, "Four-way cross" mask 15. Straights must tile seamlessly in their direction; corners and T-junctions have a slightly thicker lashed post at the joint. Transparent background, feet on the tile's bottom edge, labelled cells, clean PNG.
+
+### 60. Stone wall — 16 connector pieces
+
+> Same layout, cell labels, mask numbering and rules as #59, but for the existing Stone Wall sprite: a mortared grey fieldstone wall with a flat capstone course; corners and T-junctions get a squared corner pillar slightly taller than the straight runs; end caps get a rounded capstone. Match the existing Stone Wall's height, thickness, outline weight and palette exactly. 4x4 grid of 32x32 cells, transparent background, labelled, clean PNG.
+
+### 61. Gates — oriented, open/closed, wood and stone
+
+The current gate sprites are not oriented. Gates connect to walls on two opposite sides, so a gate needs a HORIZONTAL
+(walls to the E and W, passage runs N-S) and a VERTICAL (walls to the N and S, passage runs E-W) version.
+> Pixel art tileset sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. Wooden and stone wall gates, matching the existing Wood Wall / Stone Wall and the existing gateWood / gateStone sprites in material, style and scale. Four rows of 32x32 cells (extra width allowed if the gate needs it, keep a fixed cell size): Row 1 "Wood gate — horizontal" (set in an east-west wall): Closed, Open, Damaged-closed, Overrun/broken (hanging off hinges). Row 2 "Wood gate — vertical" (set in a north-south wall): the same four states. Row 3 "Stone gate — horizontal": the same four states, with a stone arch/gatehouse lintel and iron-banded doors. Row 4 "Stone gate — vertical": the same four states. The gate posts at both sides must line up exactly with the wall pieces from #59/#60 (same thickness and height at the connecting edges). Transparent background, feet on the tile's bottom edge, labelled cells, clean PNG.
+
+### 62. Damage states for walls (optional, same grid)
+
+> Same 4x4 connector grids as #59 and #60, three extra sheets per material: "Damaged" (cracked/splintered, a few missing logs or stones, about half HP), "Breached" (a gap or collapsed section in the middle of the straight pieces, rubble at the base, about 15% HP), and for each cell keep the same connection shape and silhouette edges so damaged and intact pieces can swap without breaking the line. Wood: splintered, charred and scorched variants optional. Transparent background, labelled, clean PNG.
+
+Wiring note (for later): the client will compute the 4-bit mask per wall/gate tile, treat gates as walls for connectivity, pick
+the piece by mask (and the gate orientation from which two opposite sides connect), and fall back to the current single
+sprite until these exist.
+
 ## Notes on process
 
 - One generation per image block, not one frame per generation — frame-to-frame consistency
