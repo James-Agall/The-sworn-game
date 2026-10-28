@@ -940,3 +940,63 @@ The Town Center no longer upgrades "toward a Keep": its Lv3 used to be the Keep 
 - **Test hooks**: `hearthState` (hearths + their guardians, `campsDestroyed`, events), `damageHearth` {siteId, amount}.
 - **Test**: `server/camp-hearth-test.mjs` (self-booting 160 world, port 21610): 9 knight posts fill settlement 1 (each +1), the next is refused "Settlement 1 full (10/10)", a Hall upgrade too; a Town Center 20 tiles away refused with the 24-tile message, one at 28 accepted; knights ordered at a bandit hearth hit it (138/150), it's in `damagedBuildings`; destroyed -> all guardians `leave` (tactics `rout` event), rubble tile, loot 15 x garrison gold, toast, `campsDestroyed` 1, guardians gone after 65 s; save/load keeps the destroyed flag and every hearth. `settlement-pop-test.mjs` (default port now 21620) and `tactics-test.mjs` re-run: all pass.
 - Caveats: hearths are encampment-only (all bandit camps today; orc faction wording is ready). Mobs never target their own hearth, towers ignore it. The hearth has no info panel (no building info on decor tiles). Soldiers posted by the `spawnSoldier` test hook count toward population like any soldier.
+
+## Armour & weapons — landed 2026-10-28
+
+A colony-wide stock of armour and weapons, tier 1-3, worn by the line troops. All constants sit in one block in
+server/src/index.ts (`EQUIP_*`, `FORGE_*`, `WEAPON_DAMAGE_MULT`, `ARMOUR_DAMAGE_TAKEN_MULT`).
+
+| Tier | Weapon: damage dealt | Armour: damage taken | Forge armour | Forge weapon |
+|---|---|---|---|---|
+| 0 (unequipped) | x1.0 | x1.0 | - | - |
+| 1 | x1.2 | x0.85 | 3 iron, 15 s | 2 iron + 1 wood, 10 s |
+| 2 | x1.4 | x0.7 | 5 iron + 1 tool (or + 1 wood without tools), 15 s | 4 iron + 1 wood, 10 s |
+| 3 | x1.7 | x0.55 | 8 iron + 2 tools (or + 2 wood), 15 s | 6 iron + 1 wood, 10 s |
+
+- **Stock**: `equipment` {armour[3], weapon[3]} (index = tier - 1). Saved (`equipment`; old saves: zeros), sent in
+  every snapshot (`equipment?`), shown in the Colony panel as "Armour T1/T2/T3: 2/0/1 · Weapons: 3/1/0", each half
+  amber when it is all zeros.
+- **Who wears it**: knight, spearman, pikeman, cavalry (`EQUIPPED_KINDS`; not militia, archers, siege engines,
+  civilians). `spawnColonistForPost` calls `equipNewUnit` for those kinds, so it covers new posts, upgrade-added
+  slots, dawn / dusk respawns, house-bonus extras and the `spawnSoldier` test hook: each slot takes the highest
+  tier in stock (independently). With none in stock the unit still spawns, at tier 0 for that slot, and a toast
+  ("A knight musters without armour ... forge more at a Blacksmith") fires at most once per 60 s. Tiers are stored on
+  the colonist (`armourTier` / `weaponTier`, saved with it; old saves: missing = 0) and sent as optional
+  `ColonistSnapshot.armourTier` / `weaponTier` (omitted at 0). A militia camp upgrade converts its existing militia
+  to spearmen / pikemen in place: they are not spawns and keep tier 0 (only the extra slots muster equipped).
+- **Effects**: the weapon multiplier is applied in `guardStrike` (every blow at a mob, before the cavalry charge x2,
+  so it stacks multiplicatively) and on hearth blows; the armour multiplier in `damageColonist` (the single place a
+  colonist loses HP, so every mob blow, boulder, poison tick is reduced). Max HP is unchanged by armour.
+- **Blacksmith forging**: the Blacksmith info panel gets "Forge Armour Tn" / "Forge Weapon Tn" buttons (`queueForge`
+  {tileX, tileY, slot}; `BuildingInfo.forge`: tier, queue, progress, cap, options with cost + reason). Tier = the
+  Blacksmith's level at queue time. Cost paid when queued, no refund. Each Blacksmith has its own queue, one item at a
+  time, `FORGE_QUEUE_CAP` 5 queued (incl. the one in progress); progress only runs while its artisan (the smith) is
+  alive and posted there ("No smith at work" otherwise). Done items go to the stock with a toast. The smith's usual
+  tools production is unchanged (forging is extra, not exclusive). **Queues are not saved**: a load starts every
+  Blacksmith idle (what was paid for in-flight items is lost).
+- **Drops**: a kill (`damageMob` death, so soldiers, towers, siege and players all count; deserters never drop) of an
+  armoured kind (`EQUIP_ARMOURED_KINDS`: armored orc, bandit elite) drops one tier-1 piece (armour / weapon 50/50)
+  with `EQUIP_DROP_CHANCE` 35%; bosses (Ogre Warlord, mini-boss elites) and Hunger-marked mobs always drop one.
+  Toast the first time ("Salvaged a tier-1 armour from a fallen armored orc"), then at most once per 60 s.
+- **Camp / boss loot**: a destroyed camp hearth adds 1 + floor(garrison / 2) pieces (armour / weapon at random, tier
+  1/2/3 weighted 50/35/15%, `EQUIP_LOOT_TIER_WEIGHTS`), listed in the "Plundered ..." toast. The Ogre Warlord adds
+  4 such pieces and a mini-boss elite 2 (`BOSS_EQUIP_LOOT`), named in their "fallen" / "slain" toasts (on top of
+  the guaranteed tier-1 drop).
+- **Client**: forge row in the building panel (cost, time and tier on the buttons; "Forging: Armour T2 40% · queue
+  2/5"); Colony panel stock line; a single selected knight / spearman / pikeman / cavalry reads "Selected: Knight
+  (armour T2, weapon T1) · Normal"; a thin bronze / silver / gold ring inside the role ring shows the armour tier
+  (PLACEHOLDER, see SPRITES.md "New requests (2026-10-29 batch)", #45-#58).
+- **Protocol (additive)**: `EquipSlot`, `EquipmentStock`, `ColonistSnapshot.armourTier?` / `weaponTier?`, snapshot
+  `equipment?`, `BuildingInfo.forge?`, `ClientMessage` `queueForge`.
+- **Test hooks**: `equipState` (stock, forge queues, equipped units, events equip / unequipped / forged / drop / loot /
+  hit / taken), `setEquipment` {armour, weapon}, `equipConfig` {dropChance}, `damageColonist` {id, amount}.
+- **Test**: `server/equipment-test.mjs` (self-booting 160 world, port 21710): forge at Blacksmith Lv1 and Lv2 (tier =
+  level, exact iron / wood / tool costs, tool -> wood substitution), queue cap; a knight takes the highest tiers and
+  the stock drops; an empty stock gives a tier-0 knight + toast; archers are not equipped; weapon T3 blow = base x1.7,
+  armour T3 takes 11 of 20; armoured-orc kill drops a tier-1 piece, a goblin nothing, a marked goblin always; a
+  destroyed hearth pays 1 + floor(garrison / 2) tiered pieces + toast; save/load keeps stock and every unit's tiers.
+  `camp-hearth-test.mjs` re-run: all pass unchanged. `cavalry-siege-test.mjs`: K failed once (the two splash
+  knights spawned wearing T2 / T1 armour looted from earlier kills in the same run, taking 15.3 instead of 18); the
+  test now empties the stock before spawning them (logs the stock) - all pass.
+- Caveats: equipment is never returned to the stock when a unit dies (each respawn takes fresh gear); weapon tier is
+  not drawn on the map; deserters keep no gear; the forge has no dedicated art or busy state on the map.

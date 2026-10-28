@@ -394,6 +394,92 @@ Knights are now shock troops (front centre); their art should look heavier than 
 | #43 Charge dust | (not shown yet) | none | the server has no charge flag in snapshots yet; add one (or infer from cavalry speed) |
 | #44 Knight shock | colonist `knight` | the existing knight frames | `COLONIST_ANIM_URLS.knight` (or an optional set) |
 
+## New requests (2026-10-29 batch) — armour & weapon tiers
+
+For ROADMAP "Armour & weapons" (2026-10-28): knights, spearmen, pikemen and cavalry now muster with armour and a
+weapon of tier 1-3 from the colony's stock (forged at the Blacksmith, tier = its level; looted from armoured foes
+and camps). Today the tier only shows as a thin ring at the unit's feet (table at the end). Same convention as
+above: chunky 16-bit pixel art, thick black outline, flat cel-shaded color, transparent background, one generation
+per block, an explicit **scale line** anchoring to an existing sprite.
+
+**Tier progression (applies to every on-unit sheet below):** tier 1 "iron & leather" — plain, functional, dull
+grey iron over brown leather, no ornament; tier 2 "steel" — brighter steel, coloured trim on the tabard / edges,
+added pauldrons and a gorget; tier 3 "gilded plate" — full plate with gold edging and filigree, a plume or crest,
+a faint warm glow on the weapon edge. The silhouette must stay the same unit at every tier (same pose, height and
+feet position), only heavier and brighter, so the three rows read as one progression. Rarity colours used across
+icons and UI: bronze `#cd7f32` (T1), silver `#c0c8d0` (T2), gold `#f2c94c` (T3) — the same colours as today's
+placeholder rings.
+
+### 45. Knight (shock) — armour tiers 1-3, walk + attack
+
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. The existing Knight shock trooper (see #44: tower shield, arming sword) in THREE armour tiers, one tier per row pair: tier 1 iron mail and leather with a plain kettle helm and a plain wooden shield; tier 2 polished steel plate with pauldrons, a blue-grey tabard trim and a painted shield rim; tier 3 gilded full plate with gold filigree, a crested great helm with a plume, a gold-rimmed shield and a faintly glowing blade. Match the art style, proportions and palette of the existing knightWalk / knightAttack frames. **Scale: the same body height as the existing knight frames (about 28px on screen) in every frame and tier; the plume may rise a few pixels above the helm.** In one image, 6 rows: Rows 1-2 tier 1 "Walk" (4 frames facing right) and "Attack" (3 frames: shield braced, cut, recovery); rows 3-4 the same for tier 2; rows 5-6 for tier 3. Transparent background, feet on the bottom edge of each row's shared canvas, clean PNG. Files: `knightT1Walk0-3`, `knightT1Attack0-2`, `knightT2...`, `knightT3...`.
+
+### 46. Spearman — armour & weapon tiers 1-3, walk + attack
+
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. The existing Spearman in three tiers: tier 1 padded gambeson, leather cap, a plain ash spear with an iron head and a round wooden buckler; tier 2 a steel brigandine with small pauldrons, a steel kettle helm, a longer spear with a steel leaf head and coloured pennon; tier 3 gilded half-plate, a crested helm, a gold-banded spear with a gleaming head. Match the existing spearman sprite's art style, proportions and palette. **Scale: the same body height as the existing spearman sprite (about 26px on screen); the spear may extend past the frame edge by the same amount as today.** In one image, 6 rows: per tier a "Walk" row (4 frames facing right) and an "Attack" row (3 frames: spear drawn back, thrust, recovery), tier 1 at the top. Transparent background, feet on the bottom edge of each row, clean PNG. Files: `spearmanT1Walk0-3`, `spearmanT1Attack0-2`, `spearmanT2...`, `spearmanT3...`.
+
+### 47. Pikeman — armour & weapon tiers 1-3, walk + attack
+
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. The existing Pikeman in three tiers: tier 1 quilted jack and an open iron morion, a long plain pike; tier 2 a steel breastplate with tassets and pauldrons, a combed morion, a pike with a steel langet and a coloured tassel; tier 3 gilded breastplate and morion with a plume, a gold-banded pike with a polished head. Match the existing pikeman sprite's art style, proportions and palette. **Scale: the same body height as the existing pikeman sprite (about 26px on screen); the pike keeps today's length.** In one image, 6 rows: per tier a "Walk" row (4 frames facing right, pike shouldered) and an "Attack" row (3 frames: pike levelled, thrust, recovery), tier 1 at the top. Transparent background, feet on the bottom edge of each row, clean PNG. Files: `pikemanT1Walk0-3`, `pikemanT1Attack0-2`, `pikemanT2...`, `pikemanT3...`.
+
+### 48. Cavalry rider — armour & weapon tiers 1-3, gallop + attack
+
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. The cavalry rider of #37 in three tiers, rider AND horse: tier 1 mail shirt, leather barding, a plain sabre and a plain wooden lance; tier 2 steel plate with pauldrons, a blue-grey caparison with darker trim and a steel chanfron, a steel sabre and a pennoned lance; tier 3 gilded plate with a plumed helm, a gold-trimmed caparison and a gilded chanfron, a gleaming sabre and a gold-banded lance. Match #37 (or, until it exists, the player's playerWalk frames) for horse proportions, art style and palette. **Scale: the same horse-and-rider size as the player's playerWalk0 frame (about 50px tall on screen) in every frame and tier.** In one image, 6 rows: per tier a "Gallop" row (4 frames facing right) and an "Attack" row (3 frames: sabre raised, cut past the horse's neck, recovery), tier 1 at the top. Transparent background, hooves on the bottom edge of each row, clean PNG. Files: `cavalryT1Walk0-3`, `cavalryT1Attack0-2`, `cavalryT2...`, `cavalryT3...`.
+
+### 49. Equipment stock icons — armour / weapon x 3 tiers (Colony panel)
+
+> Pixel art UI icon set, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, matching the existing resource icons (icon-iron, icon-tools, icon-clothes). Six small inventory icons in one row, left to right: armour T1 (an iron-and-leather cuirass, bronze rim), armour T2 (a steel breastplate with pauldrons, silver rim), armour T3 (a gilded breastplate, gold rim), weapon T1 (a plain iron sword, bronze rim), weapon T2 (a steel sword with a coloured grip, silver rim), weapon T3 (a gilded sword with a faint glow, gold rim). **Scale: the same size as the existing icon-iron.png (about 16x16 on screen); identical canvas per icon.** Transparent background, evenly spaced, clean PNG. Files: `icon-armourT1-3`, `icon-weaponT1-3`.
+
+### 50. Per-family armour & weapon icons — 2 sheets (armour, weapon), 6 icons x 3 tiers, 32x32
+
+For a later unit/equipment panel (and the hero/character sheet in #57). One sheet per slot on a shared 32x32 grid.
+> Pixel art UI icon sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted medieval palette, matching the existing resource icons. A strict grid of 32x32 cells, 6 columns x 3 rows; row 1 tier 1 (iron & leather) with a bronze `#cd7f32` square rarity border, row 2 tier 2 (steel, trim) with a silver `#c0c8d0` border, row 3 tier 3 (gilded plate) with a gold `#f2c94c` border and a soft glow. ARMOUR sheet columns: knight plate cuirass, knight tower shield, spearman brigandine, pikeman breastplate + morion, cavalry rider plate, cavalry horse barding (chanfron + caparison). WEAPON sheet columns: knight arming sword, knight flanged mace, spearman spear, pikeman pike, cavalry lance, cavalry sabre. Each item centred in its cell, the same pose across tiers so the tiers read as upgrades of one item. **Scale: each icon fills about 26px of its 32x32 cell; every cell the same size.** Transparent background, clean PNG. Files: `equipArmourSheet.png`, `equipWeaponSheet.png` (cells addressed by column, tier).
+
+### 51. Relic set — unique armour & weapon icons (32x32)
+
+For hero and player equipment (not in the game yet; see Notes).
+> Pixel art UI icon sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring. A named relic set, "the Sworn Relics", 8 icons on a strict 32x32 grid in one row, each in a purple-to-teal gradient "relic" border with a soft teal glow and a few sparkle pixels: armour — helm (a crowned great helm), chest (an engraved cuirass with a glowing sigil), legs (greaves with rune bands), shield-or-cloak (a heater shield with the colony sigil, or a star-flecked cloak); weapons — sword (a rune-etched longsword), spear (a winged spear), bow (a recurve bow with glowing string), staff (a gnarled staff with a floating teal crystal). Pale steel and old gold, with teal rune light. Match the style and outline weight of #50. **Scale: each icon fills about 26px of its 32x32 cell.** Transparent background, clean PNG. Files: `relicHelm`, `relicChest`, `relicLegs`, `relicShield`, `relicSword`, `relicSpear`, `relicBow`, `relicStaff` (or one `relicSheet.png`).
+
+### 52. Loot pickup sparkle VFX
+
+> Pixel art VFX sprite sheet, chunky 16-bit retro style, thick black outline (thin on the sparkles), flat cel-shaded coloring, matching the existing fx-spark / fx-poof effects. One row "Loot sparkle" — 4 frames: a small burst of gold and white star glints rising from the ground with a faint ring, peaking then fading upward; about 20px across on screen (a bit larger than fx-spark). Optional row 2: the same in teal for relics. Transparent background, one shared canvas per row, clean PNG. Files: `fx-loot0-3` (`fx-lootRelic0-3`).
+
+### 53. Blacksmith — forging animation (4 frames)
+
+> Pixel art building animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, the same three-quarter iso-top-down view, footprint and palette as the existing blacksmith.png. The Blacksmith at work: the smith at the anvil out front with a hammer, the forge mouth glowing. One row, 4 frames: hammer raised, hammer striking with a burst of orange sparks, sparks scattering and the forge flaring, hammer lifting again. Only the smith, sparks and forge glow change between frames. **Scale: identical to the existing blacksmith.png in every frame.** Transparent background, building base on the bottom edge, clean PNG. Files: `blacksmithForge0-3`.
+
+### 54. Blacksmith Lv2 / Lv3 upgraded art
+
+> Pixel art building sprites, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, the same view and palette as the existing blacksmith.png. Two upgraded versions side by side: Lv2 "Smithy" — a larger stone forge with a tall brick chimney, a second anvil, a quenching trough and racks of steel blades and breastplates; Lv3 "Armoury" — a stone-and-timber hall with a double forge, a bellows wheel, a display of gilded plate on a stand and a gold-trimmed shield over the door. **Scale: Lv2 the same footprint as blacksmith.png and about 15% taller; Lv3 the same footprint and about 30% taller.** Transparent background, building base on the bottom edge, clean PNG. Files: `blacksmithLv2`, `blacksmithLv3`.
+
+### 55. Player rider — visible-equipment overlay set (3 tiers + relic)
+
+Paper-doll layers drawn over the player's existing mounted-knight frames (no new body).
+> Pixel art equipment overlay sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, drawn to sit EXACTLY over the existing playerWalk0-3 and playerAttack0-1 frames (same canvas, same pixel positions; everything else transparent). Four layers: helm, chest (cuirass + pauldrons), cloak, weapon-in-hand (lance on walk, sword on attack). Four sets: tier 1 iron & leather, tier 2 steel with trim and pauldrons, tier 3 gilded plate with a plume and a faint glow, and a relic set (purple-teal rune light, matching #51). **Scale: identical to the player frames (about 68px tall with the banner); frame-for-frame registered.** Layout: one block per set (tier 1, tier 2, tier 3, relic), each block with a "Walk" row (4 frames) and an "Attack" row (3 frames — a 3-frame cut to replace the current 2-frame thrust), each row showing the four layers stacked as separate rows in fixed order (helm, chest, cloak, weapon). Transparent background, clean PNG. Files: `playerEquip{T1,T2,T3,Relic}{Helm,Chest,Cloak,Weapon}{Walk0-3,Attack0-2}`.
+
+### 56. Generic HERO unit — base + visible-equipment overlay set
+
+> Pixel art character animation sprite sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, muted desaturated medieval palette. A generic on-foot hero of the colony: a bareheaded figure in a plain linen tunic and boots, neutral pose, built as a paper-doll base. Then the same overlay layers as #55 — helm, chest, cloak, weapon-in-hand (sword) — in tier 1 / tier 2 / tier 3 / relic sets, drawn to register exactly over the base. Match the proportions and palette of the existing knight frames. **Scale: the same body height as the existing knight frames (about 28px on screen).** Rows: base "Walk" (4 frames facing right) and "Attack" (3 frames: raise, cut, recovery); then per set the four layers over the same 4 + 3 frames. Transparent background, feet on the bottom edge, clean PNG. Files: `heroWalk0-3`, `heroAttack0-2`, `heroEquip{T1,T2,T3,Relic}{Helm,Chest,Cloak,Weapon}{Walk0-3,Attack0-2}`.
+
+### 57. Spell icons — 8 x 32x32 placeholder sheet
+
+> Pixel art UI icon sheet, chunky 16-bit retro style, thick black outline, flat cel-shaded coloring, matching #50. A strict grid of 8 cells of 32x32 in one row, each icon inside the same consistent frame (a dark rounded square with a thin parchment-gold border): fire bolt (orange streak), heal (green cross with leaves), ward (pale blue rune circle, matching the Ward Stone's glow), thunder (white-blue lightning fork), frost (ice-crystal shard), summon (purple portal with a rising silhouette), rally / banner buff (a raised blue-grey banner with a gold chevron), curse (a sickly green-violet skull mark). **Scale: each symbol fills about 24px of its 32x32 cell; identical frames.** Transparent outside the frames, clean PNG. Files: `spellSheet.png` (`spell-fireBolt`, `spell-heal`, `spell-ward`, `spell-thunder`, `spell-frost`, `spell-summon`, `spell-rally`, `spell-curse`).
+
+### 58. Character-sheet UI — parchment profile panel with slot sockets
+
+> Pixel art UI panel, chunky 16-bit retro style, thick dark-ink outline, flat shading, matching the game's existing parchment UI skin (the Colony panel and building-info cards: aged cream parchment, dark brown ink borders, red wax-seal accents). A portrait-oriented profile panel: a framed portrait window at the top left, a name / title banner beside it, and empty square slot sockets (inset parchment wells with a thin inked rim, each with a faint silhouette glyph of what goes there): head, chest, legs, weapon, off-hand / shield, trinket x2, and a row of 4 spell slots at the bottom; a small stat block area on the right. Slots sized for the 32x32 icons of #50/#51/#57 plus a 3px rim. **Scale: about 320x420 px at 1x; slot sockets 38x38.** Transparent outside the panel, clean PNG, plus the empty socket as a separate 38x38 PNG. Files: `ui-characterSheet.png`, `ui-slotSocket.png`.
+
+### Placeholders in use (wire the real art here)
+
+| Item | In game as | Placeholder now | Where to wire it |
+|---|---|---|---|
+| #45-#48 tiered units | `ColonistSnapshot.armourTier` / `weaponTier` (knight, spearman, pikeman, cavalry) | the unit's normal sprite + a thin armour-tier ring inside the role ring (bronze `0xcd7f32` / silver `0xc0c8d0` / gold `0xf2c94c`, `ARMOUR_TIER_COLORS`); weapon tier not shown on the map | `drawRoleRings` (ring); swap the anim set by tier in the colonist sprite code (`COLONIST_ANIM_URLS` / an optional per-tier set) |
+| #49 stock icons | Colony panel `#stat-equipment` | text only ("Armour T1/T2/T3: 2/0/1 · Weapons: 3/1/0", amber when a slot is empty) | `refreshEquipmentLine` |
+| #50, #51, #55-#58 | (no hero, player gear, relics, spells or character sheet in the game yet) | none | future hero / character-sheet work |
+| #52 loot sparkle | drops / camp loot (server toast only) | none (toast only) | needs a drop position in the snapshot or an `AttackEffect` flag |
+| #53 forging | Blacksmith forge queue (`BuildingInfo.forge`) | static `blacksmith.png` | needs the forge-busy state per Blacksmith in the snapshot |
+| #54 Blacksmith Lv2/Lv3 | `TileType.Blacksmith` levels 2-3 | `blacksmith.png` | `TILE_LEVEL_ART` |
+
 ## Notes on process
 
 - One generation per image block, not one frame per generation — frame-to-frame consistency

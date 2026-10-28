@@ -882,6 +882,11 @@
       #bp-gate-state { font-size: 12.5px; color: var(--ink-soft); }
       #bp-siege-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
       #bp-siege-row[hidden] { display: none; }
+      #bp-forge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-forge-row[hidden] { display: none; }
+      #bp-forge-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
+      #stat-equipment { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; }
+      #stat-equipment .equip-empty { color: #b7791f; font-weight: 600; }
       #bp-siege-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
       #bp-upgrade-cost { font-size: 12.5px; color: var(--ink-soft); }
       /* Game over: the rider fell with no Town Center standing. */
@@ -1075,6 +1080,11 @@
         <button id="bp-siege-catapult" class="econ-btn">Build Catapult</button>
         <span id="bp-siege-state"></span>
       </div>
+      <div id="bp-forge-row" hidden>
+        <button id="bp-forge-armour" class="econ-btn">Forge Armour</button>
+        <button id="bp-forge-weapon" class="econ-btn">Forge Weapon</button>
+        <span id="bp-forge-state"></span>
+      </div>
     </div>
     <div id="game-over" hidden>
       <div class="menu-scroll" role="dialog" aria-modal="true" aria-label="Game over">
@@ -1121,6 +1131,7 @@
           </span>
           <span id="stat-happiness">Happiness: 100%</span></div>
         <div id="stat-army">Knights 0  Archers 0  Militia 0  Bishops 0</div>
+        <div id="stat-equipment" title="Armour and weapons in stock by tier (T1/T2/T3). Knights, spearmen, pikemen and cavalry take the best of each when they muster; with none they fight unequipped. Forge more at a Blacksmith (tier = its level), or loot armoured foes and camps."></div>
         <div id="stat-builders" title="Builders working / total">Builders 0/0</div>
         <div id="stat-respawn" title="Fallen units return together at dawn and at dusk">Respawns at dawn / dusk</div>
         <div id="stat-difficulty"></div>

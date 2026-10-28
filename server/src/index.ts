@@ -23,6 +23,8 @@ import {
   FarmStage,
   TownCenterSnapshot,
   BuildingInfo,
+  EquipSlot,
+  EquipmentStock,
   TileType,
   Biome,
   HungerMark,
@@ -158,6 +160,10 @@ interface Colonist {
   squadId?: string | null;
   // Camp hearths: the siteId of the hearth this soldier is attacking (commanded or aggressive pick).
   targetHearthId?: string | null;
+  // Armour & weapons: the tier (0-3) taken from the stock when this unit spawned (EQUIPPED_KINDS only).
+  // Missing in old saves = 0 (unequipped, today's stats).
+  armourTier?: number;
+  weaponTier?: number;
 
   poisonTicksRemaining: number;
   poisonDamagePerTick: number;
@@ -914,6 +920,35 @@ const STABLES_COSTS = [
 const SIEGE_WORKSHOP_COST = { wood: 30, iron: 15, rock: 15 };
 // Siege mobs pay this much more gold.
 const SIEGE_GOLD_MULT = 2;
+
+// ---- Armour & weapons (ROADMAP "Armour & weapons — landed 2026-10-28") ----
+// A colony-wide stock of armour and weapons by tier 1..3 (index tier - 1). Each EQUIPPED_KINDS unit takes
+// the highest tier in stock of each slot (independently) when it spawns; with none it spawns unequipped
+// (tier 0). Weapons scale damage dealt, armour damage taken; max HP is unchanged by either.
+const EQUIP_TIERS = 3;
+const EQUIPPED_KINDS: ColonistKind[] = ["knight", "spearman", "pikeman", "cavalry"];
+// Indexed by tier 0..3 (0 = unequipped).
+const WEAPON_DAMAGE_MULT = [1, 1.2, 1.4, 1.7];
+const ARMOUR_DAMAGE_TAKEN_MULT = [1, 0.85, 0.7, 0.55];
+// Blacksmith forging: the tier forged = the Blacksmith's level. Indexed by tier - 1.
+const FORGE_ARMOUR_IRON = [3, 5, 8];
+const FORGE_WEAPON_IRON = [2, 4, 6];
+const FORGE_WEAPON_WOOD = 1;
+// Armour above tier 1 also takes (tier - 1) tools, or that much wood when the stock has too few tools.
+const FORGE_TICKS: Record<EquipSlot, number> = { armour: 15 * TICK_RATE, weapon: 10 * TICK_RATE };
+const FORGE_QUEUE_CAP = 5;
+// Drops: an armoured enemy (EQUIP_ARMOURED_KINDS, any boss / mini-boss elite, any Hunger-marked mob) killed
+// by the colony's side drops one tier-1 piece (armour / weapon 50/50) with EQUIP_DROP_CHANCE; bosses and
+// marked mobs always drop one.
+const EQUIP_ARMOURED_KINDS: MobKind[] = ["armoredOrc", "banditElite"];
+const EQUIP_DROP_CHANCE = 0.35;
+// Camp / boss loot: pieces of a random tier 1..3, weighted EQUIP_LOOT_TIER_WEIGHTS.
+const EQUIP_LOOT_TIER_WEIGHTS = [0.5, 0.35, 0.15];
+// Extra tiered pieces for the Ogre Warlord / a mini-boss elite (on top of their guaranteed tier-1 drop).
+const BOSS_EQUIP_LOOT: Record<BossTier, number> = { warlord: 4, elite: 2 };
+const EQUIP_TOAST_THROTTLE_TICKS = 60 * TICK_RATE;
+const equipment: EquipmentStock = { armour: [0, 0, 0], weapon: [0, 0, 0] };
+const EQUIP_SLOT_LABEL: Record<EquipSlot, string> = { armour: "armour", weapon: "weapon" };
 
 function isSiegeKind(kind: string): kind is SiegeKind {
   return kind === "batteringRam" || kind === "catapult";
@@ -2012,6 +2047,7 @@ function spawnColonistForPost(
   };
   colonist.cycleTicksTotal = colonist.chopTicksRemaining;
   colonists.set(colonist.id, colonist);
+  if (isEquippedKind(kind)) equipNewUnit(colonist);
   return colonist;
 }
 
@@ -4352,6 +4388,7 @@ function damageMob(mob: Mob, amount: number, attackerKey?: string) {
     mobs.delete(mob.id);
     noteRegimentCasualty(mob);
     stock.gold += goldForKill(mob);
+    dropEquipmentFor(mob);
     if (mob.boss) onBossKilled(mob);
   }
 }
@@ -4396,6 +4433,12 @@ function colonistDeathText(c: Colonist): string {
 }
 
 function damageColonist(colonist: Colonist, amount: number) {
+  // Armour & weapons: armour scales every blow taken (max HP is unchanged).
+  if ((colonist.armourTier ?? 0) > 0) {
+    const raw = amount;
+    amount *= armourDamageTakenMult(colonist);
+    equipEvent({ type: "taken", id: colonist.id, tier: colonist.armourTier, amount, detail: String(raw) });
+  }
   colonist.hp -= amount;
   if (colonist.hp <= 0) {
     gravestones.push({ x: colonist.x, y: colonist.y, variant: Math.random() < 0.5 ? 0 : 1 });
@@ -4798,7 +4841,9 @@ function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown
     c.attackCooldownTicks--;
     return;
   }
-  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY);
+  // Armour & weapons: the weapon tier multiplies every blow (charge x2 etc. stack on top).
+  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c);
+  if ((c.weaponTier ?? 0) > 0) equipEvent({ type: "hit", id: c.id, tier: c.weaponTier, amount: damage, detail: String(damage / weaponDamageMult(c)) });
   // Cavalry & siege: the catapult lobs a splashing boulder (never inside its minimum range), the ram
   // barely scratches units, a rider's charge doubles its first blow.
   if (c.kind === "catapult") {
@@ -8092,10 +8137,12 @@ function destroyHearth(h: HearthState) {
   stock.wood += loot.wood;
   stock.rock += loot.rock;
   stock.iron += loot.iron;
-  hearthEvent(h.siteId, "destroyed", `${members.length} routed; loot ${JSON.stringify(loot)}`);
+  // Armour & weapons: 1 + floor(garrison / 2) pieces of a weighted random tier.
+  const gear = grantTieredEquipment(1 + Math.floor(g / 2), "hearth");
+  hearthEvent(h.siteId, "destroyed", `${members.length} routed; loot ${JSON.stringify(loot)}; gear ${gear}`);
   broadcastEvent(
     "milestone",
-    `The ${h.faction} camp breaks and scatters! Plundered ${loot.gold} gold, ${loot.wood} wood, ${loot.rock} rock, ${loot.iron} iron`
+    `The ${h.faction} camp breaks and scatters! Plundered ${loot.gold} gold, ${loot.wood} wood, ${loot.rock} rock, ${loot.iron} iron, ${gear}`
   );
 }
 
@@ -8183,7 +8230,7 @@ function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; mele
       c.attackCooldownTicks--;
       return true;
     }
-    let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY);
+    let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c);
     if (c.kind === "batteringRam") damage *= SIEGE_BUILDING_MULT;
     else if (c.kind === "catapult") damage *= CATAPULT_BUILDING_MULT;
     c.attackCooldownTicks = stats.cooldown;
@@ -8378,11 +8425,13 @@ function onBossKilled(mob: Mob) {
   if (mob.boss === "warlord") {
     castleCleared = true;
     grantReward(WARLORD_REWARD);
-    broadcastEvent("boss", `The ${title} has fallen — the Castle Ruin is cleared! (${formatReward(WARLORD_REWARD)})`);
+    const gear = grantTieredEquipment(BOSS_EQUIP_LOOT.warlord, "warlord");
+    broadcastEvent("boss", `The ${title} has fallen — the Castle Ruin is cleared! (${formatReward(WARLORD_REWARD)}, ${gear})`);
     evaluateGoals();
   } else {
     grantReward(ELITE_REWARD);
-    broadcastEvent("boss", `The ${title} is slain (${formatReward(ELITE_REWARD)})`);
+    const gear = grantTieredEquipment(BOSS_EQUIP_LOOT.elite, "elite");
+    broadcastEvent("boss", `The ${title} is slain (${formatReward(ELITE_REWARD)}, ${gear})`);
   }
 }
 
@@ -9095,6 +9144,32 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         gate: placementCost(TileType.Gate, TileType.Empty, 0, 0),
       },
     });
+  } else if (msg.op === "equipState") {
+    // Armour & weapons: the stock, every forge queue, every equipped-kind unit's tiers, recent events.
+    reply({
+      equipment: { armour: [...equipment.armour], weapon: [...equipment.weapon] },
+      forges: Array.from(forgeQueues, ([key, f]) => ({ key, queue: f.queue.map((q) => ({ ...q })), ticksLeft: f.ticksLeft })),
+      units: Array.from(colonists.values())
+        .filter((c) => isEquippedKind(c.kind))
+        .map((c) => ({ id: c.id, kind: c.kind, hp: c.hp, maxHp: c.maxHp, armourTier: c.armourTier ?? 0, weaponTier: c.weaponTier ?? 0, postX: c.postX, postY: c.postY })),
+      events: equipEvents.slice(),
+      stock: { ...stock },
+      mults: { weapon: WEAPON_DAMAGE_MULT, armour: ARMOUR_DAMAGE_TAKEN_MULT },
+    });
+  } else if (msg.op === "setEquipment") {
+    for (const slot of ["armour", "weapon"] as EquipSlot[]) {
+      const v = (msg as Record<string, unknown>)[slot];
+      if (Array.isArray(v)) equipment[slot] = [0, 1, 2].map((i) => (typeof v[i] === "number" ? v[i] : 0));
+    }
+    reply({ equipment: { armour: [...equipment.armour], weapon: [...equipment.weapon] } });
+  } else if (msg.op === "equipConfig") {
+    testEquipDropChance = typeof msg.dropChance === "number" ? msg.dropChance : null;
+    reply({ dropChance: testEquipDropChance });
+  } else if (msg.op === "damageColonist" && typeof msg.id === "string" && typeof msg.amount === "number") {
+    const c = colonists.get(msg.id);
+    const before = c?.hp ?? null;
+    if (c) damageColonist(c, msg.amount);
+    reply({ found: !!c, before, after: c ? c.hp : null });
   } else if (msg.op === "hearthState") {
     // Camp hearths: every hearth with its site's living guardians, the counter and recent events.
     reply({
@@ -9265,6 +9340,7 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   pendingEffects = [];
 
   Object.assign(stock, initialStock());
+  resetEquipment();
   marketBuilt = false;
   goldShopBuilt = false;
   colonyHappiness = 100;
@@ -9372,6 +9448,8 @@ function snapshotWorld() {
     goals: { goalIndex, castleCleared, campsDestroyed },
     hearths: Array.from(hearths.values()),
     stock: { ...stock },
+    // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
+    equipment: { armour: [...equipment.armour], weapon: [...equipment.weapon] },
     marketBuilt,
     goldShopBuilt,
     colonyHappiness,
@@ -9444,6 +9522,10 @@ function applyWorld(s: WorldState) {
   castleCleared = s.goals?.castleCleared ?? false;
   campsDestroyed = s.goals?.campsDestroyed ?? 0;
   Object.assign(stock, s.stock);
+  // `?? zeros`: saves from before Armour & weapons have an empty stock (units without tiers fight as tier 0).
+  resetEquipment();
+  equipment.armour = [0, 1, 2].map((i) => s.equipment?.armour?.[i] ?? 0);
+  equipment.weapon = [0, 1, 2].map((i) => s.equipment?.weapon?.[i] ?? 0);
   marketBuilt = s.marketBuilt;
   goldShopBuilt = s.goldShopBuilt;
   colonyHappiness = s.colonyHappiness;
@@ -9798,6 +9880,9 @@ wss.on("connection", (socket) => {
     } else if (message.type === "queueSiege") {
       if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
       handleQueueSiege(message.tileX, message.tileY, message.kind);
+    } else if (message.type === "queueForge") {
+      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+      handleQueueForge(message.tileX, message.tileY, message.slot);
     } else if (message.type === "saveGame") {
       void handleSaveGame(player, message.slot);
     } else if (message.type === "loadGame") {
@@ -10903,6 +10988,201 @@ function updateSiegeWorkshops() {
   }
 }
 
+// ---- Armour & weapons: stock, equipping, forging, drops (constants: EQUIP_* / FORGE_* / *_MULT) ----
+// Test-hook log (equipState): equip / unequipped / forged / drop / loot / hit / taken.
+const equipEvents: { type: string; id?: string; slot?: EquipSlot; tier?: number; amount?: number; detail?: string; tick: number }[] = [];
+function equipEvent(e: Omit<(typeof equipEvents)[number], "tick">) {
+  if (!TEST_HOOKS) return;
+  equipEvents.push({ ...e, tick: cycleTick });
+  if (equipEvents.length > 300) equipEvents.splice(0, equipEvents.length - 300);
+}
+let lastUnequippedToastTick = -Infinity;
+let equipDropToasted = false;
+let lastEquipDropToastTick = -Infinity;
+// testHook "equipConfig" {dropChance}: overrides EQUIP_DROP_CHANCE (null = the constant).
+let testEquipDropChance: number | null = null;
+
+function resetEquipment() {
+  equipment.armour = [0, 0, 0];
+  equipment.weapon = [0, 0, 0];
+  forgeQueues.clear();
+  lastUnequippedToastTick = -Infinity;
+  equipDropToasted = false;
+  lastEquipDropToastTick = -Infinity;
+}
+
+function isEquippedKind(kind: ColonistKind): boolean {
+  return EQUIPPED_KINDS.includes(kind);
+}
+
+// Takes the highest tier in stock of `slot` (0 when the stock is empty).
+function takeBestEquipment(slot: EquipSlot): number {
+  for (let tier = EQUIP_TIERS; tier >= 1; tier--) {
+    if (equipment[slot][tier - 1] > 0) {
+      equipment[slot][tier - 1]--;
+      return tier;
+    }
+  }
+  return 0;
+}
+
+// Called by spawnColonistForPost for every EQUIPPED_KINDS unit (posts, upgrades, respawns, house extras).
+function equipNewUnit(c: Colonist) {
+  c.armourTier = takeBestEquipment("armour");
+  c.weaponTier = takeBestEquipment("weapon");
+  equipEvent({ type: "equip", id: c.id, detail: `${c.kind} armour ${c.armourTier} weapon ${c.weaponTier}` });
+  if (c.armourTier > 0 && c.weaponTier > 0) return;
+  equipEvent({ type: "unequipped", id: c.id, detail: `${c.armourTier === 0 ? "armour " : ""}${c.weaponTier === 0 ? "weapon" : ""}`.trim() });
+  if (cycleTick - lastUnequippedToastTick < EQUIP_TOAST_THROTTLE_TICKS) return;
+  lastUnequippedToastTick = cycleTick;
+  const missing = c.armourTier === 0 && c.weaponTier === 0 ? "armour or weapons" : c.armourTier === 0 ? "armour" : "a forged weapon";
+  const name = c.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
+  broadcastEvent("build", `A ${name} musters without ${missing} — the stock is empty (forge more at a Blacksmith)`);
+}
+
+function weaponDamageMult(c: Colonist): number {
+  return WEAPON_DAMAGE_MULT[c.weaponTier ?? 0] ?? 1;
+}
+
+function armourDamageTakenMult(c: Colonist): number {
+  return ARMOUR_DAMAGE_TAKEN_MULT[c.armourTier ?? 0] ?? 1;
+}
+
+function rollLootTier(): number {
+  let r = Math.random();
+  for (let i = 0; i < EQUIP_LOOT_TIER_WEIGHTS.length; i++) {
+    r -= EQUIP_LOOT_TIER_WEIGHTS[i];
+    if (r < 0) return i + 1;
+  }
+  return 1;
+}
+
+// `count` pieces (armour or weapon at random) of a weighted random tier, straight into the stock.
+// Returns the toast text, e.g. "2 armour (T1, T3), 1 weapon (T2)".
+function grantTieredEquipment(count: number, source: string): string {
+  const got: Record<EquipSlot, number[]> = { armour: [], weapon: [] };
+  for (let i = 0; i < count; i++) {
+    const slot: EquipSlot = Math.random() < 0.5 ? "armour" : "weapon";
+    const tier = rollLootTier();
+    equipment[slot][tier - 1]++;
+    got[slot].push(tier);
+    equipEvent({ type: "loot", slot, tier, detail: source });
+  }
+  return (["armour", "weapon"] as EquipSlot[])
+    .filter((slot) => got[slot].length > 0)
+    .map((slot) => `${got[slot].length} ${EQUIP_SLOT_LABEL[slot]} (${got[slot].sort().map((t) => `T${t}`).join(", ")})`)
+    .join(", ");
+}
+
+// From damageMob on a kill: armoured kinds drop a tier-1 piece EQUIP_DROP_CHANCE of the time, bosses /
+// mini-boss elites / Hunger-marked mobs always. Deserters (former colonists) drop nothing.
+function dropEquipmentFor(mob: Mob) {
+  if (mob.isDeserter) return;
+  const guaranteed = !!mob.boss || mob.mark !== HungerMark.None;
+  if (!guaranteed && !EQUIP_ARMOURED_KINDS.includes(mob.kind)) return;
+  if (!guaranteed && Math.random() >= (testEquipDropChance ?? EQUIP_DROP_CHANCE)) return;
+  const slot: EquipSlot = Math.random() < 0.5 ? "armour" : "weapon";
+  equipment[slot][0]++;
+  equipEvent({ type: "drop", id: mob.id, slot, tier: 1, detail: mob.kind });
+  const first = !equipDropToasted;
+  if (!first && cycleTick - lastEquipDropToastTick < EQUIP_TOAST_THROTTLE_TICKS) return;
+  equipDropToasted = true;
+  lastEquipDropToastTick = cycleTick;
+  const name = mob.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
+  broadcastEvent(
+    first ? "milestone" : "build",
+    `Salvaged a tier-1 ${EQUIP_SLOT_LABEL[slot]} from a fallen ${name}${first ? " — it goes to the colony's stock" : ""}`
+  );
+}
+
+// ---- Blacksmith forging: one item at a time per Blacksmith, FORGE_QUEUE_CAP queued (the first is in
+// progress). Cost is paid when queued (no refund). Not saved: a load starts every forge empty.
+interface ForgeQueueState {
+  queue: { slot: EquipSlot; tier: number }[];
+  ticksLeft: number;
+}
+const forgeQueues = new Map<string, ForgeQueueState>();
+
+function forgeCost(slot: EquipSlot, tier: number): Cost {
+  const i = Math.min(Math.max(tier, 1), EQUIP_TIERS) - 1;
+  if (slot === "weapon") return { iron: FORGE_WEAPON_IRON[i], wood: FORGE_WEAPON_WOOD };
+  const extra = tier - 1;
+  if (extra <= 0) return { iron: FORGE_ARMOUR_IRON[i] };
+  return stock.tools >= extra ? { iron: FORGE_ARMOUR_IRON[i], tools: extra } : { iron: FORGE_ARMOUR_IRON[i], wood: extra };
+}
+
+function blacksmithStaffed(tx: number, ty: number): boolean {
+  for (const c of colonists.values()) if (c.postX === tx && c.postY === ty && c.kind === "artisan") return true;
+  return false;
+}
+
+// Why the Blacksmith at (tx, ty) can't queue `slot` now ("" = it can).
+function forgeQueueBlocker(tx: number, ty: number, slot: EquipSlot): string {
+  if (!blacksmithStaffed(tx, ty)) return "No smith at work";
+  if ((forgeQueues.get(resourceKey(tx, ty))?.queue.length ?? 0) >= FORGE_QUEUE_CAP) return `Queue full (${FORGE_QUEUE_CAP})`;
+  if (!canAfford(forgeCost(slot, getBuildingLevel(tx, ty)))) return "Not enough resources";
+  return "";
+}
+
+function blacksmithForgeInfo(tx: number, ty: number): NonNullable<BuildingInfo["forge"]> {
+  const state = forgeQueues.get(resourceKey(tx, ty));
+  const tier = getBuildingLevel(tx, ty);
+  const head = state?.queue[0];
+  return {
+    tier,
+    queue: state ? state.queue.map((q) => ({ ...q })) : [],
+    progress: head ? 1 - state!.ticksLeft / FORGE_TICKS[head.slot] : null,
+    cap: FORGE_QUEUE_CAP,
+    options: (["armour", "weapon"] as EquipSlot[]).map((slot) => {
+      const reason = forgeQueueBlocker(tx, ty, slot);
+      return {
+        slot,
+        label: `Forge ${slot === "armour" ? "Armour" : "Weapon"} T${tier}`,
+        cost: `${formatCost(forgeCost(slot, tier))}, ${FORGE_TICKS[slot] / TICK_RATE}s`,
+        enabled: reason === "",
+        reason,
+      };
+    }),
+  };
+}
+
+function handleQueueForge(tx: number, ty: number, slot: unknown) {
+  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Blacksmith) return;
+  if (slot !== "armour" && slot !== "weapon") return;
+  if (forgeQueueBlocker(tx, ty, slot) !== "") return;
+  const tier = getBuildingLevel(tx, ty);
+  spend(forgeCost(slot, tier));
+  const key = resourceKey(tx, ty);
+  let state = forgeQueues.get(key);
+  if (!state) {
+    state = { queue: [], ticksLeft: 0 };
+    forgeQueues.set(key, state);
+  }
+  state.queue.push({ slot, tier });
+  if (state.queue.length === 1) state.ticksLeft = instantBuild ? 1 : FORGE_TICKS[slot];
+}
+
+// Once per tick: each Blacksmith's first queued item counts down while a smith is posted there.
+function updateForges() {
+  for (const [key, state] of forgeQueues) {
+    const tile = keyToTile(key);
+    if (!tile || tiles[tileIndex(tile.x, tile.y)] !== TileType.Blacksmith) {
+      forgeQueues.delete(key);
+      continue;
+    }
+    const head = state.queue[0];
+    if (!head || !blacksmithStaffed(tile.x, tile.y)) continue;
+    if (--state.ticksLeft > 0) continue;
+    equipment[head.slot][head.tier - 1]++;
+    equipEvent({ type: "forged", slot: head.slot, tier: head.tier, detail: key });
+    broadcastEvent("build", `The Blacksmith forged a tier-${head.tier} ${EQUIP_SLOT_LABEL[head.slot]}`);
+    state.queue.shift();
+    const next = state.queue[0];
+    if (next) state.ticksLeft = instantBuild ? 1 : FORGE_TICKS[next.slot];
+    else forgeQueues.delete(key);
+  }
+}
+
 // ---- The raids' siege engines (updateMob hands them to updateSiegeMob once released) ----
 // A ram looks for a closed gate within RAM_GATE_SCAN_TILES first, then breaches walls / hits buildings
 // like any mob (pickBuildingTarget); units only when it stands next to one and has no building to hit.
@@ -11190,6 +11470,9 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     staffing = `Population ${stat?.used ?? 0}/${stat?.cap ?? 0}`;
     bonuses.push(`Keep Lv ${level}: +${KEEP_POPULATION_PER_LEVEL * level} population`);
   }
+  if (t === TileType.Blacksmith) {
+    bonuses.push(`Forges tier-${level} armour / weapons (tier = level) for knights, spearmen, pikemen and cavalry`);
+  }
   if (t === TileType.SiegeWorkshop) {
     staffing = `Engines ${siegeUnitsAt(tx, ty)}/${SIEGE_WORKSHOP_CAP}`;
     bonuses.push(`Builds one engine at a time (${SIEGE_BUILD_TICKS / TICK_RATE}s each), ${SIEGE_POPULATION_COST} population each`);
@@ -11265,6 +11548,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     repair,
     ...(t === TileType.Gate ? { gate: (({ open, lock, overrun }) => ({ open, lock, overrun }))(gateAt(tileIndex(tx, ty))) } : {}),
     ...(t === TileType.SiegeWorkshop ? { siege: siegeWorkshopInfo(tx, ty) } : {}),
+    ...(t === TileType.Blacksmith ? { forge: blacksmithForgeInfo(tx, ty) } : {}),
   };
 }
 
@@ -11598,6 +11882,7 @@ function stepSimulation() {
   }
   updateConstructionSites();
   updateSiegeWorkshops();
+  updateForges();
 
   // Walls & gates: mobs and wildlife move and path from the hostile side of every gate.
   withHostileMover(() => {
@@ -11672,6 +11957,8 @@ setInterval(() => {
       postY: c.postY,
       stance: c.stance,
       sheltered: isAtShelter(c),
+      ...(c.armourTier ? { armourTier: c.armourTier } : {}),
+      ...(c.weaponTier ? { weaponTier: c.weaponTier } : {}),
     })),
     mobs: Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,
@@ -11721,6 +12008,7 @@ setInterval(() => {
     constructionSites: constructionSitesForSnapshot(),
     damagedBuildings: damagedBuildingsForSnapshot(),
     hearths: hearthsForSnapshot(),
+    equipment,
     townCenters: townCenters.map(
       (tc, i): TownCenterSnapshot => ({
         x: tc.x,

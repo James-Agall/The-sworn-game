@@ -232,6 +232,17 @@ export interface ColonistSnapshot {
   stance: Stance;
   // True once a civilian has reached its night shelter (a house, or the Town Center) and should be drawn "inside".
   sheltered: boolean;
+  // Armour & weapons: the tier (1-3) a knight / spearman / pikeman / cavalry spawned with; omitted = 0 (unequipped).
+  armourTier?: number;
+  weaponTier?: number;
+}
+
+// Armour & weapons: the two equipment slots; the colony's stock counts each by tier 1..3.
+export type EquipSlot = "armour" | "weapon";
+export interface EquipmentStock {
+  // Index 0 = tier 1, 1 = tier 2, 2 = tier 3.
+  armour: number[];
+  weapon: number[];
 }
 
 export type MobKind =
@@ -469,6 +480,15 @@ export interface BuildingInfo {
     cap: number;
     options: { kind: SiegeKind; label: string; cost: string; enabled: boolean; reason: string }[];
   };
+  // Blacksmiths only (Armour & weapons): the tier it forges (= its level), its queue (first = in progress,
+  // progress 0-1), the queue cap, and a button per slot (see queueForge).
+  forge?: {
+    tier: number;
+    queue: { slot: EquipSlot; tier: number }[];
+    progress: number | null;
+    cap: number;
+    options: { slot: EquipSlot; label: string; cost: string; enabled: boolean; reason: string }[];
+  };
 }
 
 export type ClientMessage =
@@ -501,6 +521,8 @@ export type ClientMessage =
   | { type: "setGateLock"; tileX: number; tileY: number; lock: GateLock }
   // Starts building one siege engine at the Siege Workshop at the tile (building info panel button).
   | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
+  // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).
+  | { type: "queueForge"; tileX: number; tileY: number; slot: EquipSlot }
   // Save files (server/saves/<slot>.json). saveGame takes slot1-3 (the autosave is the server's own);
   // loadGame replaces the shared world for everyone connected.
   | { type: "saveGame"; slot: SaveSlot }
@@ -580,6 +602,8 @@ export type ServerMessage =
       fights?: FightSnapshot[];
       // Camp hearths: standing (not destroyed) hearths, see HEARTH_SNAPSHOT_STRIDE (omitted by older servers).
       hearths?: number[];
+      // Armour & weapons: the colony's equipment stock by tier (omitted by older servers).
+      equipment?: EquipmentStock;
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).

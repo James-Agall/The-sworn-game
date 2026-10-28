@@ -182,6 +182,10 @@ const K = { x: TCT.x - 56, y: TCT.y };
 if (ONLY.has("K")) {
   await clearArena(K, 12, 8);
   await hook("setTileRaw", { tx: K.x, ty: K.y, tile: HOUSE });
+  // Armour & weapons (2026-10-28): earlier kills may have dropped armour into the stock; these knights must
+  // spawn unequipped so the splash lands at its raw 18.
+  info(`K: equipment stock before the knights: ${JSON.stringify((await hook("equipState")).equipment)}`);
+  await hook("setEquipment", { armour: [0, 0, 0], weapon: [0, 0, 0] });
   const k1 = (await hook("spawnSoldier", { kind: "knight", x: px(K.x), y: px(K.y - 1), stance: "defensive" })).id;
   const k2 = (await hook("spawnSoldier", { kind: "knight", x: px(K.x), y: px(K.y + 1), stance: "defensive" })).id;
   await ff(2);

@@ -29,6 +29,8 @@ import type {
   SaveSlot,
   GoalSnapshot,
   GateLock,
+  EquipSlot,
+  EquipmentStock,
 } from "./protocol";
 import { TICK_RATE } from "./protocol"; // long days: respawn-window ETA
 import {
@@ -3807,13 +3809,22 @@ async function main() {
     return c.kind !== "bishop" || tiles[c.postY * worldTilesX + c.postX] === TileType.ChurchPost;
   }
 
+  // Armour tier tint (T1 bronze, T2 silver, T3 gold).
+  const ARMOUR_TIER_COLORS = [0xcd7f32, 0xc0c8d0, 0xf2c94c];
   // Regiments & roles: a thin role-tinted ring at the feet of every soldier and monster (ROLE_COLORS).
   function drawRoleRings() {
     roleRings.clear();
     const ring = (x: number, y: number, role: CombatRole | undefined, r: number) => {
       if (role) roleRings.ellipse(x, y + r * 0.8, r, r * 0.4).stroke({ width: 1.5, color: ROLE_COLORS[role], alpha: 0.65 });
     };
-    for (const c of latestColonists) ring(c.x, c.y, COLONIST_ROLE[c.kind], c.kind === "cavalry" || c.kind === "batteringRam" || c.kind === "catapult" ? 12 : 9);
+    for (const c of latestColonists) {
+      const r = c.kind === "cavalry" || c.kind === "batteringRam" || c.kind === "catapult" ? 12 : 9;
+      ring(c.x, c.y, COLONIST_ROLE[c.kind], r);
+      // Armour & weapons (PLACEHOLDER until the tiered art of SPRITES.md #45+): a thin bronze / silver / gold
+      // ring just inside the role ring shows the unit's armour tier.
+      const tier = c.armourTier ?? 0;
+      if (tier > 0) roleRings.ellipse(c.x, c.y + r * 0.8, r - 2.5, (r - 2.5) * 0.4).stroke({ width: 1.5, color: ARMOUR_TIER_COLORS[tier - 1], alpha: 0.85 });
+    }
     for (const m of latestMobs) ring(m.x, m.y, MOB_ROLE[m.kind], 10);
   }
 
@@ -3845,7 +3856,15 @@ async function main() {
       if (role) roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
     }
     const roles = Array.from(roleCounts, ([role, n]) => `${n} ${ROLE_LABEL[role]}`).join(", ");
-    const count = roles ? `${selectedIds.size} (${roles})` : `${selectedIds.size}`;
+    let count = roles ? `${selectedIds.size} (${roles})` : `${selectedIds.size}`;
+    // Armour & weapons: a single selected knight / spearman / pikeman / cavalry shows its tiers.
+    if (selectedIds.size === 1) {
+      const u = latestColonists.find((c) => selectedIds.has(c.id));
+      if (u && EQUIPPED_KIND_LABEL[u.kind]) {
+        const t = (n: number | undefined) => (n ? `T${n}` : "none");
+        count = `${EQUIPPED_KIND_LABEL[u.kind]} (armour ${t(u.armourTier)}, weapon ${t(u.weaponTier)})`;
+      }
+    }
     const text = stance ? `Selected: ${count} · ${stance} (Z/X/E)` : `Selected: ${count}`;
     // Called every snapshot; only touch the DOM when the line actually changes.
     if (text === lastSelectionHudText) return;
@@ -3861,6 +3880,7 @@ async function main() {
     statSelectedEl.replaceChildren(`Selected: ${count} · `, icon, ` ${stance} (Z/X/E)`);
   }
   let lastSelectionHudText = "";
+  const EQUIPPED_KIND_LABEL: Partial<Record<ColonistKind, string>> = { knight: "Knight", spearman: "Spearman", pikeman: "Pikeman", cavalry: "Cavalry" };
 
   const commandBarEl = document.getElementById("command-bar")!;
   commandBarEl.addEventListener("click", (e) => {
@@ -4438,6 +4458,12 @@ async function main() {
   const bpSiegeBtns = new Map<SiegeKind, HTMLButtonElement>(
     SIEGE_KINDS.map((kind) => [kind, document.getElementById(`bp-siege-${kind}`) as HTMLButtonElement])
   );
+  // Armour & weapons: the Blacksmith's two forge buttons (queueForge) and its queue line.
+  const bpForgeRowEl = document.getElementById("bp-forge-row")!;
+  const bpForgeStateEl = document.getElementById("bp-forge-state")!;
+  const bpForgeBtns = new Map<EquipSlot, HTMLButtonElement>(
+    (["armour", "weapon"] as EquipSlot[]).map((slot) => [slot, document.getElementById(`bp-forge-${slot}`) as HTMLButtonElement])
+  );
   // Tile the panel shows; re-requested every second while open so numbers stay live.
   let infoTile: { tx: number; ty: number } | null = null;
   const BUILDING_INFO_REFRESH_MS = 1000;
@@ -4502,7 +4528,31 @@ async function main() {
         ? `Building: ${info.siege.building === "batteringRam" ? "Battering Ram" : "Catapult"} ${Math.round((info.siege.progress ?? 0) * 100)}%`
         : `Engines ${info.siege.units}/${info.siege.cap}${reason ? ` · ${reason}` : ""}`;
     }
+    bpForgeRowEl.hidden = !info.forge;
+    if (info.forge) {
+      for (const opt of info.forge.options) {
+        const btn = bpForgeBtns.get(opt.slot);
+        if (!btn) continue;
+        btn.disabled = !opt.enabled;
+        btn.textContent = `${opt.label} (${opt.cost})`;
+        btn.title = opt.reason;
+      }
+      const f = info.forge;
+      const reason = f.options.find((o) => !o.enabled)?.reason ?? "";
+      const head = f.queue[0];
+      bpForgeStateEl.textContent = head
+        ? `Forging: ${head.slot === "armour" ? "Armour" : "Weapon"} T${head.tier} ${Math.round((f.progress ?? 0) * 100)}% · queue ${f.queue.length}/${f.cap}${reason ? ` · ${reason}` : ""}`
+        : `Forges tier ${f.tier} · queue 0/${f.cap}${reason ? ` · ${reason}` : ""}`;
+    }
     buildingPanelEl.hidden = false;
+  }
+  for (const [slot, btn] of bpForgeBtns) {
+    btn.addEventListener("click", () => {
+      btn.blur();
+      if (!infoTile) return;
+      sendMessage({ type: "queueForge", tileX: infoTile.tx, tileY: infoTile.ty, slot });
+      window.setTimeout(requestBuildingInfo, 150);
+    });
   }
   bpGateBtn.addEventListener("click", () => {
     bpGateBtn.blur();
@@ -4592,6 +4642,27 @@ async function main() {
     if (toast.classList.contains("dropped") || toast.classList.contains("fading")) return;
     toast.classList.add(cls);
     window.setTimeout(() => toast.remove(), fadeMs);
+  }
+
+  // ---- Armour & weapons: "Armour T1/T2/T3: 2/0/1 · Weapons: 3/1/0" (amber when a slot is empty) ----
+  const statEquipmentEl = document.getElementById("stat-equipment")!;
+  let equipmentLineKey = "";
+  function refreshEquipmentLine(eq: EquipmentStock | undefined) {
+    statEquipmentEl.hidden = !eq;
+    if (!eq) return;
+    const key = `${eq.armour.join("/")}|${eq.weapon.join("/")}`;
+    if (key === equipmentLineKey) return;
+    equipmentLineKey = key;
+    const part = (label: string, counts: number[]) => {
+      const span = document.createElement("span");
+      span.textContent = `${label}: ${counts.join("/")}`;
+      if (counts.every((n) => n <= 0)) {
+        span.className = "equip-empty";
+        span.title = "None in stock: new soldiers muster without it";
+      }
+      return span;
+    };
+    statEquipmentEl.replaceChildren(part("Armour T1/T2/T3", eq.armour), " · ", part("Weapons", eq.weapon));
   }
 
   // ---- Settlement population (ROADMAP "Settlement population caps"): one Colony panel row per Town
@@ -4807,6 +4878,7 @@ async function main() {
         refreshSelectionHud();
       }
       refreshEconomyPanel(message);
+      refreshEquipmentLine(message.equipment);
       statPopEl.textContent = `${message.population}/${message.populationCap}`;
       refreshSettlementPanel(message.townCenters);
       setActiveDifficulty(message.difficulty);
