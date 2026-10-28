@@ -38,6 +38,7 @@ import {
   BUILDING_LEVEL_SNAPSHOT_STRIDE,
   CONSTRUCTION_SNAPSHOT_STRIDE,
   DAMAGED_BUILDING_SNAPSHOT_STRIDE,
+  HEARTH_SNAPSHOT_STRIDE,
   FARM_STAGE_SNAPSHOT_STRIDE,
   FarmStage,
   GATE_FLAG_OPEN,
@@ -1474,6 +1475,9 @@ async function main() {
   let worldTilesY = 25;
   // Every standing Town Center, from the latest snapshot (minimap markers, HP bars, game over).
   let latestTownCenters: TownCenterSnapshot[] = [];
+  // Camp hearths: tile indices of the standing ones (snapshot `hearths`), for right-click attack orders
+  // and minimap markers (explored tiles only).
+  let latestHearths = new Set<number>();
   // This world's Castle Ruin centre (welcome); the minimap marks it once that tile is explored.
   let castleRuinTile: { x: number; y: number } | null = null;
   let tiles: number[] = [];
@@ -3132,6 +3136,18 @@ async function main() {
       ctx.fillRect(cx - 1.5 * u, cy - 1.5 * u, 3 * u, 3 * u);
     }
 
+    // Camp hearths, once explored: a small ember dot with a dark rim on the camp's centre.
+    for (const index of latestHearths) {
+      if (!explored[index]) continue;
+      const cx = ((index % worldTilesX) + 0.5) * s;
+      const cy = (Math.floor(index / worldTilesX) + 0.5) * s;
+      const r = 2.5 * u;
+      ctx.fillStyle = "#1a0f06";
+      ctx.fillRect(cx - r - u, cy - r - u, 2 * (r + u), 2 * (r + u));
+      ctx.fillStyle = "#ff7a1a";
+      ctx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+    }
+
     // The Castle Ruin, once its centre tile is explored: its 9x9 walls outlined, a red keep in the middle.
     if (castleRuinTile && explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
       const half = 4.5 * s;
@@ -4730,6 +4746,7 @@ async function main() {
       clearWildlifeSprites();
       redrawGrid();
       latestTownCenters = [];
+      latestHearths = new Set();
       syncTownCenterBars([]);
       worldLayer.addChild(siteOverlay);
       worldLayer.addChild(placementGhost);
@@ -4750,6 +4767,9 @@ async function main() {
       syncDamagedBuildings(message.damagedBuildings);
       syncGates(message.gates);
       latestTownCenters = message.townCenters;
+      latestHearths = new Set();
+      const hearthFlat = message.hearths ?? [];
+      for (let i = 0; i + HEARTH_SNAPSHOT_STRIDE <= hearthFlat.length; i += HEARTH_SNAPSHOT_STRIDE) latestHearths.add(hearthFlat[i]);
       syncTownCenterBars(message.townCenters);
       syncWildlife(message.wildlife);
       // Dawn wipes the blood, the same boundary at which the server clears the gravestones.
@@ -5074,8 +5094,13 @@ async function main() {
         y,
         Infinity
       );
+      const clicked = pointerTile(x, y);
+      const hearthIndex = clicked ? clicked.tileY * worldTilesX + clicked.tileX : -1;
       if (mob) {
         socket.send(JSON.stringify({ type: "commandAttack", unitIds, mobId: mob.id }));
+      } else if (clicked && latestHearths.has(hearthIndex)) {
+        // Camp hearths: right-click a standing hearth to send the selection against it.
+        socket.send(JSON.stringify({ type: "commandAttackHearth", unitIds, tileX: clicked.tileX, tileY: clicked.tileY }));
       } else if (units.length > 1) {
         // Wait for release: a click orders the normal block, a drag stretches a custom line.
         orderPress = { pointerId: e.pointerId, screenX: e.clientX, screenY: e.clientY, worldX: x, worldY: y, dragging: false, order };

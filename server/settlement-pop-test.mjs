@@ -1,5 +1,5 @@
 // Scripted test: per-settlement population caps. Self-contained: boots its OWN 160x160 server with
-// COLONY_TEST_HOOKS=1 on PORT (default 21410) and a temp COLONY_SAVE_DIR, kills its process group after.
+// COLONY_TEST_HOOKS=1 on PORT (default 21620) and a temp COLONY_SAVE_DIR, kills its process group after.
 // Run from server/: `node settlement-pop-test.mjs`.
 //   two Town Centers; fill settlement 1 -> next worker post refused with "Settlement 1 full (n/cap)",
 //   settlement 2 still accepts; upgrading TC 1 raises its cap and the refused placement now works;
@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PORT = Number(process.env.PORT ?? 21410);
+const PORT = Number(process.env.PORT ?? 21620);
 let fails = 0;
 const result = (ok, msg) => {
   if (!ok) fails++;
@@ -94,7 +94,7 @@ function townCenterSpots(c, tcs) {
   for (let y = 4; y < W - 4; y++)
     for (let x = 4; x < W - 4; x++) {
       if (c.tileAt(x, y) !== T.Empty || c.tileAt(x + 1, y) !== T.Empty) continue;
-      if (tcs.some((tc) => Math.hypot(tc.x - x, tc.y - y) < 14)) continue;
+      if (tcs.some((tc) => Math.hypot(tc.x - x, tc.y - y) < 26)) continue; // TOWN_CENTER_MIN_SPACING_TILES 24
       // Keep the second settlement fairly near the first so it is reachable and its nearest-TC area is its own.
       if (Math.hypot(tcs[0].x - x, tcs[0].y - y) > 40) continue;
       let poi = false;

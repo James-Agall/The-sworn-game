@@ -156,6 +156,8 @@ interface Colonist {
   // Regiments: the formation order (commandMove.squad) this unit last marched under; its squadmates
   // march at one pace (updateSquadMarch). Missing / null: no squad (old saves, single-unit moves).
   squadId?: string | null;
+  // Camp hearths: the siteId of the hearth this soldier is attacking (commanded or aggressive pick).
+  targetHearthId?: string | null;
 
   poisonTicksRemaining: number;
   poisonDamagePerTick: number;
@@ -1702,8 +1704,10 @@ function isCivilianKind(kind: ColonistKind): boolean {
   );
 }
 
+// Every living friendly unit counts toward its settlement's population (soldiers too since 2026-10-28);
+// siege engines count at SIEGE_POPULATION_COST (populationCostOf), Abbey clergy not at all.
 function consumesPopulation(kind: ColonistKind): boolean {
-  return isCivilianKind(kind) || kind === "bishop";
+  return isCivilianKind(kind) || kind === "bishop" || isSoldierKind(kind);
 }
 
 // Saint Wren's Abbey's resident clergy: colonists only so the existing bishop code can drive them.
@@ -1713,10 +1717,10 @@ function isAbbeyClergy(c: Colonist): boolean {
   return tiles[tileIndex(c.postX, c.postY)] === TileType.AbbeyHall;
 }
 
-// What one unit counts for in population: civilians/bishops 1 (not Abbey clergy), siege engines their cost.
+// What one unit counts for in population: civilians/bishops/soldiers 1 (not Abbey clergy), siege engines their cost.
 function populationCostOf(c: Colonist): number {
-  if (consumesPopulation(c.kind) && !isAbbeyClergy(c)) return 1;
-  return isSiegeKind(c.kind) ? SIEGE_POPULATION_COST : 0;
+  if (isSiegeKind(c.kind)) return SIEGE_POPULATION_COST;
+  return consumesPopulation(c.kind) && !isAbbeyClergy(c) ? 1 : 0;
 }
 
 function civilianPopulationUsed(): number {
@@ -1817,7 +1821,11 @@ function settlementStats(): SettlementStat[] {
     if (s) s.used += cost;
   }
   for (const site of constructionSites.values()) {
-    if (POPULATION_GATED_TILES.includes(site.target) && placementNeedsNewWorkerSlot(site.target, site.tx, site.ty)) {
+    const garrison = garrisonGain(site.target, site.prevTile, site.tx, site.ty);
+    if (garrison > 0) {
+      const s = statNear(site.tx, site.ty);
+      if (s) s.pending += garrison;
+    } else if (POPULATION_GATED_TILES.includes(site.target) && placementNeedsNewWorkerSlot(site.target, site.tx, site.ty)) {
       const s = statNear(site.tx, site.ty);
       if (s) s.pending++;
     }
@@ -1904,6 +1912,32 @@ function neighbourhoodPopulationBonus(onBonus?: (tx: number, ty: number) => void
 function findUpgradeTargetFor(tx: number, ty: number, type: TileType): TileCoord | null {
   if (tiles[tileIndex(tx, ty)] !== type) return null;
   return getBuildingLevel(tx, ty) < 3 ? { x: tx, y: ty } : null;
+}
+
+// Soldiers a military placement adds to its garrison (the post's base headcount after minus before:
+// a new post or an in-place upgrade); 0 for anything else. Checked against the settlement cap like
+// worker slots (handleSetTileInner, upgrade button) and counted as pending while under construction.
+function garrisonGain(tile: TileType, current: TileType, tx: number, ty: number): number {
+  let before = 0;
+  let after = 0;
+  if (tile === TileType.KnightPost) {
+    const lv = current === TileType.KnightPost ? 1 : current === TileType.CastleLevel2 ? 2 : current === TileType.CastleLevel3 ? 3 : 0;
+    if (lv >= 3) return 0;
+    before = lv ? guardCountForLevel(lv) : 0;
+    after = guardCountForLevel(lv + 1);
+  } else if (tile === TileType.MilitiaPost) {
+    const lv = current === TileType.MilitiaPost ? 1 : current === TileType.MilitiaCamp2 ? 2 : current === TileType.MilitiaCamp3 ? 3 : 0;
+    if (lv >= 3) return 0;
+    before = lv ? militiaCountForLevel(lv) : 0;
+    after = militiaCountForLevel(lv + 1);
+  } else if (tile === TileType.ArcherPost || tile === TileType.Stables) {
+    const lv = current === tile ? getBuildingLevel(tx, ty) : 0;
+    if (lv >= 3) return 0;
+    const count = tile === TileType.ArcherPost ? guardCountForLevel : cavalryCountForLevel;
+    before = lv ? count(lv) : 0;
+    after = count(lv + 1);
+  }
+  return Math.max(0, after - before);
 }
 
 function placementNeedsNewWorkerSlot(tile: TileType, tx: number, ty: number): boolean {
@@ -2490,11 +2524,11 @@ function processRespawnQueue() {
       respawnQueue.splice(i, 1);
       continue;
     }
-    // A settlement at its cap makes its dead wait for the next window.
+    if (!windowNow) continue;
+    // A settlement at its cap makes its dead (soldiers included) wait for the next window.
     if (consumesPopulation(req.kind) && settlementBlocker(req.tx, req.ty) !== "") {
       continue;
     }
-    if (!windowNow) continue;
     if (trySpendFood(RESPAWN_FOOD_COST)) {
       respawnWindowSpawned++;
       const castleLevel =
@@ -4399,6 +4433,7 @@ function handleCommandMove(unitIds: string[], x: number, y: number, squad?: unkn
     c.rallyX = x;
     c.rallyY = y;
     c.targetMobId = null;
+    c.targetHearthId = null;
     commandedTargets.delete(c.id);
     c.healTargetType = null;
     c.healTargetId = null;
@@ -4417,6 +4452,7 @@ function handleCommandAttack(unitIds: string[], mobId: string) {
     const c = colonists.get(id);
     if (!c || !isGuardOrMilitiaKind(c.kind)) continue;
     c.targetMobId = mobId;
+    c.targetHearthId = null;
     commandedTargets.set(c.id, mobId);
     c.path = [];
     c.repathCooldown = 0;
@@ -4522,7 +4558,18 @@ function handlePlayerAttack(attacker: Player) {
     return;
   }
 
-  if (!bestType || !bestId) return;
+  if (!bestType || !bestId) {
+    // Camp hearths: with nothing else in reach, the player can strike a hearth next to them.
+    for (const h of hearths.values()) {
+      if (h.destroyed) continue;
+      const p = tileToPixelCenter(h);
+      if (Math.hypot(p.x - attacker.x, p.y - attacker.y) > PLAYER_ATTACK_RANGE + TILE_SIZE / 2) continue;
+      pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: p.x, toY: p.y, melee: true });
+      damageHearth(h, PLAYER_ATTACK_DAMAGE, "p:" + attacker.id);
+      return;
+    }
+    return;
+  }
   if (bestType === "player") {
     const target = players.get(bestId);
     if (target) {
@@ -4633,6 +4680,8 @@ function updateGuardColonist(c: Colonist, dt: number) {
   }
 
   if (!target) {
+    // Camp hearths: no enemy in reach (guardians are fought first, picked above), so the hearth.
+    if (hearthStep(c, stats, dt)) return;
     if (stats.speed === 0) {
       c.state = "idle";
       return;
@@ -6334,6 +6383,10 @@ function damagedBuildingsForSnapshot(): number[] {
     const max = townCenterMaxHp(tc.level);
     if (tc.hp < max) out.push(tileIndex(tc.x, tc.y), Math.max(0, Math.floor((tc.hp / max) * 1000)));
   }
+  // Camp hearths: a damaged one gets the same HP bar / flames as a damaged building.
+  for (const h of hearths.values()) {
+    if (!h.destroyed && h.hp < h.maxHp) out.push(tileIndex(h.x, h.y), Math.max(0, Math.floor((h.hp / h.maxHp) * 1000)));
+  }
   return out;
 }
 
@@ -7163,7 +7216,7 @@ function clearMobTarget(m: Mob) {
   releaseSlot(m.id);
 }
 
-function startRout(reg: RegimentState, members: Mob[], ex: number, ey: number) {
+function startRout(reg: RegimentState, members: Mob[], ex: number, ey: number, toast = true) {
   reg.routed = true;
   reg.sheltering = false;
   reg.flankIds = [];
@@ -7186,7 +7239,7 @@ function startRout(reg: RegimentState, members: Mob[], ex: number, ey: number) {
       m.leaveUntilTick = cycleTick + RAID_LEAVE_MAX_TICKS;
     }
   }
-  if (reg.raid && cycleTick - lastRoutToastTick >= ROUT_TOAST_COOLDOWN_TICKS) {
+  if (toast && reg.raid && cycleTick - lastRoutToastTick >= ROUT_TOAST_COOLDOWN_TICKS) {
     lastRoutToastTick = cycleTick;
     broadcastEvent("raid", "The raiders break and flee!");
   }
@@ -7853,9 +7906,12 @@ function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord) {
     }
   }
   const guardianCount = siteKind === "ruin" ? randInt(2, 3) : randInt(2, 4);
+  const kinds: MobKind[] = [];
   for (const spot of shuffled(guardianSpots).slice(0, guardianCount)) {
-    spawnGuardian(siteKind === "ruin" ? pickRuinGuardianKind() : pickEncampmentGuardianKind(), spot, siteId, siteKind);
+    kinds.push(spawnGuardian(siteKind === "ruin" ? pickRuinGuardianKind() : pickEncampmentGuardianKind(), spot, siteId, siteKind).kind);
   }
+  // Camp hearths: a site kind with `hasHearth` gets a destroyable hearth on its centrepiece.
+  if (SITE_KIND_HAS_HEARTH[siteKind]?.hasHearth) registerHearth(siteId, siteKind, center, kinds);
 }
 
 function generatePoiSites(siteKind: "ruin" | "encampment", count: number, placedSites: TileCoord[]) {
@@ -7870,6 +7926,286 @@ function generatePoiSites(siteKind: "ruin" | "encampment", count: number, placed
     placedSites.push(center);
     placePoiSite(siteKind, center);
   }
+}
+
+// ---- Camp hearths (ROADMAP "Camp hearths, soldier population, settlement spacing", 2026-10-28) ----
+// Every non-player settlement / camp whose site kind has `hasHearth` gets a destroyable HEARTH on its
+// centre tile (the encampment's PropCampfire today), registered by the site stamper (placePoiSite), so a
+// future fort / human-settlement kind only needs the flag. Player soldiers, the player and siege engines
+// can attack it; hitting it wakes the site's guardians (they defend it). At 0 HP the camp BREAKS: every
+// guardian of the site routs (startRout as a "leave" regiment: they flee to the map edge and despawn there
+// or after RAID_LEAVE_MAX_TICKS), the hearth tile burns to rubble and the camp's props burn out, a share of
+// the camp's stockpile (HEARTH_LOOT_PER_GUARDIAN x garrison) goes to the colony, and campsDestroyed++.
+// Destroyed hearths stay in the save (`destroyed`): never respawned, never re-woken.
+const SITE_KIND_HAS_HEARTH: Partial<Record<PoiSiteKind, { hasHearth: boolean; hp: number }>> = {
+  encampment: { hasHearth: true, hp: 150 },
+};
+const HEARTH_DEFAULT_HP = 150;
+const HEARTH_LOOT_PER_GUARDIAN = { gold: 15, wood: 10, rock: 5, iron: 5 };
+// Aggressive-stance soldiers with no enemy in reach go for a standing hearth this close to them.
+const HEARTH_AUTO_TARGET_TILES = 8;
+
+interface HearthState {
+  siteId: string;
+  siteKind: PoiSiteKind;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  destroyed: boolean;
+  // "bandit" / "orc": the toast's faction word.
+  faction: string;
+  // Guardians the site was stamped with (scales the loot).
+  garrison: number;
+}
+const hearths = new Map<string, HearthState>();
+let campsDestroyed = 0;
+// Recent hearth events (testHook "hearthState").
+const hearthEvents: Array<{ tick: number; type: string; siteId: string; detail?: string }> = [];
+
+function hearthEvent(siteId: string, type: string, detail?: string) {
+  hearthEvents.push({ tick: cycleTick, type, siteId, detail });
+  if (hearthEvents.length > 100) hearthEvents.shift();
+}
+
+function campFaction(kinds: MobKind[]): string {
+  if (kinds.some((k) => k.startsWith("bandit"))) return "bandit";
+  if (kinds.some((k) => k === "orc" || k === "armoredOrc" || k.startsWith("goblin"))) return "orc";
+  return "enemy";
+}
+
+function registerHearth(siteId: string, siteKind: PoiSiteKind, center: TileCoord, kinds: MobKind[]) {
+  const maxHp = SITE_KIND_HAS_HEARTH[siteKind]?.hp ?? HEARTH_DEFAULT_HP;
+  hearths.set(siteId, {
+    siteId, siteKind, x: center.x, y: center.y, hp: maxHp, maxHp, destroyed: false, faction: campFaction(kinds), garrison: kinds.length,
+  });
+}
+
+function standingHearthAt(tx: number, ty: number): HearthState | undefined {
+  for (const h of hearths.values()) if (!h.destroyed && h.x === tx && h.y === ty) return h;
+  return undefined;
+}
+
+// Old saves (no hearth records) and sites missing one: a full-HP hearth on the campfire nearest each
+// hearth-kind site's guardians; a campfire left with no guardians gets one too (it only leaves loot).
+function backfillHearths() {
+  const claimed = new Set<number>();
+  for (const h of hearths.values()) claimed.add(tileIndex(h.x, h.y));
+  const sites = new Map<string, Mob[]>();
+  for (const m of mobs.values()) {
+    if (!m.siteId || !m.siteKind || !SITE_KIND_HAS_HEARTH[m.siteKind]?.hasHearth || hearths.has(m.siteId)) continue;
+    const list = sites.get(m.siteId);
+    if (list) list.push(m);
+    else sites.set(m.siteId, [m]);
+  }
+  const campfires: TileCoord[] = [];
+  for (let i = 0; i < tiles.length; i++) {
+    if (tiles[i] === TileType.PropCampfire && !claimed.has(i)) campfires.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+  }
+  for (const [siteId, members] of sites) {
+    const cx = members.reduce((s, m) => s + m.x, 0) / members.length / TILE_SIZE;
+    const cy = members.reduce((s, m) => s + m.y, 0) / members.length / TILE_SIZE;
+    let best: TileCoord | null = null;
+    let bestD = POI_SITE_FOOTPRINT_RADIUS + 8;
+    for (const f of campfires) {
+      const d = Math.hypot(f.x + 0.5 - cx, f.y + 0.5 - cy);
+      if (!claimed.has(tileIndex(f.x, f.y)) && d <= bestD) {
+        bestD = d;
+        best = f;
+      }
+    }
+    if (!best) continue;
+    claimed.add(tileIndex(best.x, best.y));
+    registerHearth(siteId, members[0].siteKind!, best, members.map((m) => m.kind));
+  }
+  for (const f of campfires) {
+    if (claimed.has(tileIndex(f.x, f.y))) continue;
+    registerHearth(randomUUID(), "encampment", f, ["banditClubman", "banditClubman"]);
+  }
+}
+
+// Damage to a hearth from the colony's side; wakes its guardians (they defend it).
+function damageHearth(h: HearthState, amount: number, attackerKey?: string) {
+  if (h.destroyed || amount <= 0) return;
+  activateGuardianSite(h.siteId);
+  h.hp -= amount;
+  hearthEvent(h.siteId, "hit", `${amount.toFixed(1)} ${attackerKey ?? ""}`.trim());
+  if (h.hp <= 0) destroyHearth(h);
+}
+
+function destroyHearth(h: HearthState) {
+  h.destroyed = true;
+  h.hp = 0;
+  campsDestroyed++;
+  const centre = tileToPixelCenter(h);
+  // The fire burns out: the hearth tile becomes scorched rubble, the camp's props around it burn away.
+  tiles[tileIndex(h.x, h.y)] = TileType.RuinRubble;
+  broadcastTileUpdate(h.x, h.y, TileType.RuinRubble);
+  pendingEffects.push({ fromX: centre.x, fromY: centre.y, toX: centre.x, toY: centre.y, boulder: true });
+  for (const o of NEIGHBORS_8) {
+    const x = h.x + o.x;
+    const y = h.y + o.y;
+    if (!inBounds(x, y) || !ENCAMPMENT_EXTRAS.includes(tiles[tileIndex(x, y)] as TileType)) continue;
+    tiles[tileIndex(x, y)] = TileType.Empty;
+    broadcastTileUpdate(x, y, TileType.Empty);
+    const p = tileToPixelCenter({ x, y });
+    pendingEffects.push({ fromX: p.x, fromY: p.y, toX: p.x, toY: p.y, boulder: true });
+  }
+  // Every guardian of the site breaks: a "leave" rout away from the attackers (or the hearth).
+  const members = Array.from(mobs.values()).filter((m) => m.siteId === h.siteId);
+  if (members.length > 0) {
+    for (const m of members) m.guardianActive = true;
+    let reg = regiments.get(h.siteId);
+    if (!reg) {
+      reg = {
+        id: h.siteId, morale: 0, peak: members.length, routed: false, raid: true, homeX: centre.x, homeY: centre.y,
+        lastContactTick: cycleTick, pendingLoss: 0, hadFront: false, sheltering: false, posts: new Map(), flankIds: [], ratio: 0,
+      };
+      regiments.set(h.siteId, reg);
+    }
+    reg.raid = true;
+    reg.morale = 0;
+    const enemy = playerForceNear(centre.x, centre.y, TACTICS_SCAN_TILES * TILE_SIZE);
+    const ex = enemy.units.length > 0 ? enemy.units.reduce((s, u) => s + u.x, 0) / enemy.units.length : centre.x;
+    const ey = enemy.units.length > 0 ? enemy.units.reduce((s, u) => s + u.y, 0) / enemy.units.length : centre.y;
+    startRout(reg, members, ex, ey, false);
+    // A broken camp has no anchor: its bosses / marked leaders flee with the rest.
+    for (const m of members) {
+      if (m.tactic === "leave") continue;
+      clearMobTarget(m);
+      m.tactic = "leave";
+      m.flanker = false;
+      const edge = fleeEdgePoint(m, ex, ey);
+      m.fleeX = edge.x;
+      m.fleeY = edge.y;
+      m.leaveUntilTick = cycleTick + RAID_LEAVE_MAX_TICKS;
+    }
+  }
+  const g = Math.max(1, h.garrison);
+  const loot = {
+    gold: HEARTH_LOOT_PER_GUARDIAN.gold * g,
+    wood: HEARTH_LOOT_PER_GUARDIAN.wood * g,
+    rock: HEARTH_LOOT_PER_GUARDIAN.rock * g,
+    iron: HEARTH_LOOT_PER_GUARDIAN.iron * g,
+  };
+  stock.gold += loot.gold;
+  stock.wood += loot.wood;
+  stock.rock += loot.rock;
+  stock.iron += loot.iron;
+  hearthEvent(h.siteId, "destroyed", `${members.length} routed; loot ${JSON.stringify(loot)}`);
+  broadcastEvent(
+    "milestone",
+    `The ${h.faction} camp breaks and scatters! Plundered ${loot.gold} gold, ${loot.wood} wood, ${loot.rock} rock, ${loot.iron} iron`
+  );
+}
+
+// Flattened [tile index, hp permille] per standing hearth (snapshot `hearths`, HEARTH_SNAPSHOT_STRIDE).
+function hearthsForSnapshot(): number[] {
+  const out: number[] = [];
+  for (const h of hearths.values()) {
+    if (!h.destroyed) out.push(tileIndex(h.x, h.y), Math.max(0, Math.floor((h.hp / h.maxHp) * 1000)));
+  }
+  return out;
+}
+
+// The orthogonal walkable neighbour of a hearth nearest (px, py), else any walkable neighbour.
+function hearthApproachTile(h: HearthState, px: number, py: number): TileCoord | null {
+  let best: TileCoord | null = null;
+  let bestD = Infinity;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const t = { x: h.x + dx, y: h.y + dy };
+    if (!isWalkableTile(t.x, t.y)) continue;
+    const p = tileToPixelCenter(t);
+    const d = Math.hypot(p.x - px, p.y - py);
+    if (d < bestD) {
+      bestD = d;
+      best = t;
+    }
+  }
+  return best ?? findAdjacentWalkable(h.x, h.y);
+}
+
+// Commanded attack on a hearth: the units' rally moves to the hearth (so they defend that spot
+// against its guardians, and hold there once it falls).
+function handleCommandAttackHearth(unitIds: string[], tx: number, ty: number) {
+  const h = standingHearthAt(tx, ty);
+  if (!h) return;
+  for (const id of unitIds) {
+    const c = colonists.get(id);
+    if (!c || !isGuardOrMilitiaKind(c.kind)) continue;
+    const approach = hearthApproachTile(h, c.x, c.y);
+    if (!approach) continue;
+    const p = tileToPixelCenter(approach);
+    c.targetHearthId = h.siteId;
+    c.targetMobId = null;
+    commandedTargets.delete(c.id);
+    c.squadId = null;
+    c.rallyTileX = approach.x;
+    c.rallyTileY = approach.y;
+    c.rallyX = p.x;
+    c.rallyY = p.y;
+    c.path = [];
+    c.repathCooldown = 0;
+  }
+}
+
+// A soldier with no mob target: works on its hearth target (commanded, or picked on an aggressive stance
+// when one stands within HEARTH_AUTO_TARGET_TILES and inside the unit's zone). True when it acted.
+function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; melee: boolean; range: number; speed: number }, dt: number): boolean {
+  let h = c.targetHearthId ? hearths.get(c.targetHearthId) : undefined;
+  if (c.targetHearthId && (!h || h.destroyed)) {
+    c.targetHearthId = null;
+    c.path = [];
+    h = undefined;
+  }
+  if (!h && c.stance === "aggressive") {
+    const zone = LINE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range + TILE_SIZE;
+    let bestD = HEARTH_AUTO_TARGET_TILES * TILE_SIZE;
+    for (const cand of hearths.values()) {
+      if (cand.destroyed) continue;
+      const p = tileToPixelCenter(cand);
+      const d = Math.hypot(p.x - c.x, p.y - c.y);
+      if (d <= bestD && Math.hypot(p.x - c.rallyX, p.y - c.rallyY) <= zone) {
+        bestD = d;
+        h = cand;
+      }
+    }
+    if (h) c.targetHearthId = h.siteId;
+  }
+  if (!h) return false;
+  const p = tileToPixelCenter(h);
+  const dist = Math.hypot(p.x - c.x, p.y - c.y);
+  const reach = Math.max(stats.range + TILE_SIZE * 0.5, TILE_SIZE * 1.5);
+  if (dist <= reach) {
+    c.path = [];
+    c.state = "attacking";
+    if (c.attackCooldownTicks > 0) {
+      c.attackCooldownTicks--;
+      return true;
+    }
+    let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY);
+    if (c.kind === "batteringRam") damage *= SIEGE_BUILDING_MULT;
+    else if (c.kind === "catapult") damage *= CATAPULT_BUILDING_MULT;
+    c.attackCooldownTicks = stats.cooldown;
+    pendingEffects.push({ fromX: c.x, fromY: c.y, toX: p.x, toY: p.y, melee: stats.melee, ...(c.kind === "catapult" ? { boulder: true } : {}) });
+    damageHearth(h, damage, "c:" + c.id);
+    if (h.destroyed) c.targetHearthId = null;
+    return true;
+  }
+  if (stats.speed === 0) return false;
+  if (c.path.length === 0) {
+    const approach = hearthApproachTile(h, c.x, c.y);
+    const route = approach ? findPath(tileOfPixel(c.x, c.y), approach) : null;
+    if (!route) {
+      c.targetHearthId = null;
+      return false;
+    }
+    c.path = route;
+    if (route.length === 0) stepRaidMobToward(c, p.x, p.y, stats.speed, dt);
+  }
+  if (c.path.length > 0) advanceAlongPath(c, dt, stats.speed);
+  c.state = "engaging";
+  return true;
 }
 
 // Saint Wren's Abbey: lays out ABBEY_LAYOUT around a clear spot (grounds + apron all Empty, no
@@ -8175,6 +8511,7 @@ function evaluateGoals(silent = false) {
 function resetGoals() {
   goalIndex = 0;
   castleCleared = false;
+  campsDestroyed = 0;
   refreshGoalSnapshot(flagGoal(false));
 }
 
@@ -8327,6 +8664,7 @@ function generateWorld() {
   worldNoiseSalt = Math.floor(Math.random() * 0x7fffffff);
   abbeyCenter = null;
   castleRuinCenter = null;
+  hearths.clear();
   resetGoals();
   tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
   townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
@@ -8757,6 +9095,23 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         gate: placementCost(TileType.Gate, TileType.Empty, 0, 0),
       },
     });
+  } else if (msg.op === "hearthState") {
+    // Camp hearths: every hearth with its site's living guardians, the counter and recent events.
+    reply({
+      campsDestroyed,
+      events: hearthEvents.slice(),
+      hearths: Array.from(hearths.values()).map((h) => ({
+        ...h,
+        tile: tiles[tileIndex(h.x, h.y)],
+        guardians: Array.from(mobs.values())
+          .filter((m) => m.siteId === h.siteId)
+          .map((m) => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, hp: m.hp, active: m.guardianActive, tactic: m.tactic ?? null })),
+      })),
+    });
+  } else if (msg.op === "damageHearth" && typeof msg.siteId === "string" && typeof msg.amount === "number") {
+    const h = hearths.get(msg.siteId);
+    if (h) damageHearth(h, msg.amount, "test");
+    reply({ found: !!h, hp: h?.hp ?? null, destroyed: h?.destroyed ?? null });
   } else if (msg.op === "goalState") {
     // Goal track, the Castle Ruin and every boss / Castle Ruin guardian (goals-castle-test).
     reply({
@@ -8764,6 +9119,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       goal: goalSnapshot,
       goalTitles: GOALS.map((g) => g.title),
       castleCleared,
+      campsDestroyed,
       castleRuinCenter,
       nightsSurvived: nightsSurvived(),
       stock: { ...stock },
@@ -9013,7 +9369,8 @@ function snapshotWorld() {
     worldNoiseSalt,
     abbeyCenter,
     castleRuinCenter,
-    goals: { goalIndex, castleCleared },
+    goals: { goalIndex, castleCleared, campsDestroyed },
+    hearths: Array.from(hearths.values()),
     stock: { ...stock },
     marketBuilt,
     goldShopBuilt,
@@ -9085,6 +9442,7 @@ function applyWorld(s: WorldState) {
   castleRuinCenter = s.castleRuinCenter ?? null;
   goalIndex = s.goals?.goalIndex ?? 0;
   castleCleared = s.goals?.castleCleared ?? false;
+  campsDestroyed = s.goals?.campsDestroyed ?? 0;
   Object.assign(stock, s.stock);
   marketBuilt = s.marketBuilt;
   goldShopBuilt = s.goldShopBuilt;
@@ -9142,6 +9500,10 @@ function applyWorld(s: WorldState) {
   );
   // Monster tactics state is not saved: regiments start fresh (morale 100) from the restored mobs.
   regiments.clear();
+  // Camp hearths (destroyed ones included); saves from before them, or sites without one, get a
+  // full-HP hearth on their campfire.
+  refill(hearths, (s.hearths ?? []).map((h): [string, HearthState] => [h.siteId, h]));
+  backfillHearths();
   testForceDeserterRoll = s.flags.testForceDeserterRoll;
   testHoldRaidAggro = s.flags.testHoldRaidAggro;
   testRaidsDisabled = s.flags.testRaidsDisabled;
@@ -9404,6 +9766,9 @@ wss.on("connection", (socket) => {
       handleCommandMove(message.unitIds, message.x, message.y, message.squad);
     } else if (message.type === "commandAttack") {
       handleCommandAttack(message.unitIds, message.mobId);
+    } else if (message.type === "commandAttackHearth") {
+      if (!Array.isArray(message.unitIds) || !Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+      handleCommandAttackHearth(message.unitIds, message.tileX, message.tileY);
     } else if (message.type === "commandStance") {
       handleCommandStance(message.unitIds, message.stance);
     } else if (message.type === "assignTaskForce") {
@@ -9632,7 +9997,11 @@ function syncGuardBonusAt(tx: number, ty: number) {
     if (c.postX === tx && c.postY === ty && (c.kind === kind || (isMilitiaLineKind(kind) && isMilitiaLineKind(c.kind)))) have++;
   }
   for (const q of respawnQueue) if (q.tx === tx && q.ty === ty) have++;
-  for (let i = have; i < target; i++) spawnColonistForPost(tx, ty, kind, level);
+  for (let i = have; i < target; i++) {
+    // House-bonus soldiers count toward the settlement too: they wait (next sync) while it is full.
+    if (settlementBlocker(tx, ty) !== "") break;
+    spawnColonistForPost(tx, ty, kind, level);
+  }
 }
 
 function syncGuardBonusesAround(tx: number, ty: number) {
@@ -9687,8 +10056,9 @@ const KEEP_COSTS: Cost[] = [
   { wood: 90, rock: 70, iron: 40 },
   { wood: 130, rock: 100, iron: 70, tools: 10 },
 ];
-// A new Town Center must stand at least this far (tiles) from every other one and from POIs.
-const TOWN_CENTER_MIN_SPACING_TILES = 12;
+// A new Town Center must stand at least this far (tiles) from every other one (built or queued).
+// Doubled 12 -> 24 on 2026-10-28 so settlements spread out (a 160 map still fits several).
+const TOWN_CENTER_MIN_SPACING_TILES = 24;
 const TOWN_CENTER_POI_CLEARANCE_TILES = 6;
 const POI_TILES = new Set<TileType>([
   TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble,
@@ -9768,13 +10138,19 @@ function formatCost(cost: Cost): string {
 
 // A new Town Center keeps its distance from every other one (built or under construction), from the
 // Abbey and from ruins / encampments.
-function townCenterSpotOk(tx: number, ty: number): boolean {
+// True when (tx, ty) is closer than TOWN_CENTER_MIN_SPACING_TILES to a Town Center or a queued one.
+function townCenterTooClose(tx: number, ty: number): boolean {
   for (const tc of townCenters) {
-    if (Math.hypot(tc.x - tx, tc.y - ty) < TOWN_CENTER_MIN_SPACING_TILES) return false;
+    if (Math.hypot(tc.x - tx, tc.y - ty) < TOWN_CENTER_MIN_SPACING_TILES) return true;
   }
   for (const site of constructionSites.values()) {
-    if (site.target === TileType.TownCenter && Math.hypot(site.tx - tx, site.ty - ty) < TOWN_CENTER_MIN_SPACING_TILES) return false;
+    if (site.target === TileType.TownCenter && Math.hypot(site.tx - tx, site.ty - ty) < TOWN_CENTER_MIN_SPACING_TILES) return true;
   }
+  return false;
+}
+
+function townCenterSpotOk(tx: number, ty: number): boolean {
+  if (townCenterTooClose(tx, ty)) return false;
   if (abbeyCenter && Math.hypot(abbeyCenter.x - tx, abbeyCenter.y - ty) < ABBEY_GROUNDS_RADIUS + TOWN_CENTER_POI_CLEARANCE_TILES) return false;
   const r = TOWN_CENTER_POI_CLEARANCE_TILES;
   for (let y = ty - r; y <= ty + r; y++) {
@@ -10036,7 +10412,12 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
     if (current !== TileType.Empty) return;
     if (tilesOfType(TileType.ChurchPost).length === 0) return;
   } else if (tile === TileType.TownCenter) {
-    if (current !== TileType.Empty || !townCenterSpotOk(tx, ty)) return;
+    if (current !== TileType.Empty) return;
+    if (townCenterTooClose(tx, ty)) {
+      sendEvent(player, "build", `A new Town Center must stand at least ${TOWN_CENTER_MIN_SPACING_TILES} tiles from another`);
+      return;
+    }
+    if (!townCenterSpotOk(tx, ty)) return;
   } else if (tile === TileType.Keep) {
     if (current !== TileType.Empty) return;
     const keepBlock = keepPlacementBlocker(tx, ty);
@@ -10052,6 +10433,14 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
   if (!canAfford(cost)) return;
   if (POPULATION_GATED_TILES.includes(tile) && placementNeedsNewWorkerSlot(tile, tx, ty)) {
     const full = settlementBlocker(tx, ty);
+    if (full) {
+      sendEvent(player, "build", full);
+      return;
+    }
+  }
+  const garrison = garrisonGain(tile, current, tx, ty);
+  if (garrison > 0) {
+    const full = settlementBlocker(tx, ty, garrison);
     if (full) {
       sendEvent(player, "build", full);
       return;
@@ -10838,6 +11227,8 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
       else if (!isInPlaceUpgrade(placeTile, t, tx, ty)) reason = "Can't upgrade yet";
       else if (POPULATION_GATED_TILES.includes(placeTile) && placementNeedsNewWorkerSlot(placeTile, tx, ty) && settlementBlocker(tx, ty))
         reason = settlementBlocker(tx, ty);
+      else if (garrisonGain(placeTile, t, tx, ty) > 0 && settlementBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty)))
+        reason = settlementBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty));
       else if (!instantBuild && !anyBuilderAlive() && placeTile !== TileType.TownCenter) reason = "No builders available";
       const tierNote =
         t === TileType.TownCenter
@@ -11329,6 +11720,7 @@ setInterval(() => {
     farmStages: farmStagesForSnapshot(),
     constructionSites: constructionSitesForSnapshot(),
     damagedBuildings: damagedBuildingsForSnapshot(),
+    hearths: hearthsForSnapshot(),
     townCenters: townCenters.map(
       (tc, i): TownCenterSnapshot => ({
         x: tc.x,

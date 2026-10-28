@@ -420,6 +420,9 @@ export const CONSTRUCTION_SNAPSHOT_STRIDE = 5;
 // `damagedBuildings` is flattened [tile index, hp permille 0-999] pairs: every building (Town Centers
 // included) below full HP. A building missing from it is at full HP.
 export const DAMAGED_BUILDING_SNAPSHOT_STRIDE = 2;
+// `hearths` is flattened [tile index, hp permille 0-1000] pairs, one per standing camp hearth (damaged
+// ones are also in `damagedBuildings`, which draws their HP bar).
+export const HEARTH_SNAPSHOT_STRIDE = 2;
 
 export interface TownCenterSnapshot {
   x: number;
@@ -483,6 +486,8 @@ export type ClientMessage =
   // server marches them together (see updateSquadMarch). Old clients omit it.
   | { type: "commandMove"; unitIds: string[]; x: number; y: number; squad?: string }
   | { type: "commandAttack"; unitIds: string[]; mobId: string }
+  // Camp hearths: send the units against the standing hearth on that tile (additive, 2026-10-28).
+  | { type: "commandAttackHearth"; unitIds: string[]; tileX: number; tileY: number }
   | { type: "commandStance"; unitIds: string[]; stance: Stance }
   | { type: "assignTaskForce"; slot: number; unitIds: string[] }
   | { type: "exchangeResource"; from: "wood" | "iron" | "rock"; to: "wood" | "iron" | "rock" }
@@ -573,6 +578,8 @@ export type ServerMessage =
       // Off-screen fight notifiers: active fights relevant to THIS player (per-player field, omitted
       // when there are none). See FightSnapshot.
       fights?: FightSnapshot[];
+      // Camp hearths: standing (not destroyed) hearths, see HEARTH_SNAPSHOT_STRIDE (omitted by older servers).
+      hearths?: number[];
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).
