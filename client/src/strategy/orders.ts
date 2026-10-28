@@ -3,8 +3,10 @@
 // current order and queued waypoints (numbered pips), a line to a followed / attacked target, a diamond
 // over a holding group, and for the selected groups the formation slots of the current and queued
 // orders (formation.ts, the same solve the server forms with). main.ts owns input; this only draws.
+// Phase 4: charge / bombard / attackHearth markers, and range rings round the selected ranged / siege units.
 import { Container, Graphics, Text } from "pixi.js";
 import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind, ColonistSnapshot } from "../protocol";
+import { TILE_SIZE } from "../protocol";
 import { planOrderFormation } from "../formation";
 
 export const ORDER_COLORS: Record<ArmyOrderKind, number> = {
@@ -14,6 +16,9 @@ export const ORDER_COLORS: Record<ArmyOrderKind, number> = {
   hold: 0xe8e8e8,
   follow: 0x3bd16f,
   attack: 0xff3b2a,
+  charge: 0xffb02e,
+  bombard: 0xb36bff,
+  attackHearth: 0xff3b2a,
 };
 export const ORDER_LABEL: Record<ArmyOrderKind, string> = {
   move: "Move",
@@ -22,7 +27,18 @@ export const ORDER_LABEL: Record<ArmyOrderKind, string> = {
   hold: "Hold",
   follow: "Follow",
   attack: "Attack",
+  charge: "Charge",
+  bombard: "Bombard",
+  attackHearth: "Siege",
 };
+// Range rings (tiles; mirrors the server's ARCHER_ATTACK_RANGE, HERO_CLASS_STATS, CATAPULT_*): [max, min?].
+const RANGE_RING_TILES: Partial<Record<string, [number, number?]>> = {
+  archer: [4],
+  catapult: [11, 3],
+  marksman: [5],
+  mage: [7],
+};
+const RANGE_RING_COLOR = 0x9fe0ff;
 const RANGED_SLOT_COLOR = 0x58b85c;
 const PIP_SCREEN_PX = 7;
 const LINE_SCREEN_PX = 2;
@@ -87,7 +103,22 @@ export class OrderMarkers {
             .stroke({ width: k, color: 0x0a1a24, alpha });
           return;
         }
-        if (o.kind === "follow" || o.kind === "attack") {
+        if (o.kind === "attackHearth" && o.tileX !== undefined && o.tileY !== undefined) {
+          const hx = (o.tileX + 0.5) * TILE_SIZE;
+          const hy = (o.tileY + 0.5) * TILE_SIZE;
+          g.moveTo(fromX, fromY).lineTo(hx, hy).stroke({ width: LINE_SCREEN_PX * k, color, alpha });
+          g.rect(hx - 12 * k, hy - 12 * k, 24 * k, 24 * k).stroke({ width: LINE_SCREEN_PX * k, color, alpha });
+          return;
+        }
+        if (o.kind === "bombard" && o.x !== undefined && o.y !== undefined) {
+          // Crosshair + the boulder's splash (1.5 tiles).
+          const r = TILE_SIZE * 1.5;
+          g.moveTo(fromX, fromY).lineTo(o.x, o.y).stroke({ width: LINE_SCREEN_PX * k, color, alpha: alpha * 0.6 });
+          g.circle(o.x, o.y, r).stroke({ width: LINE_SCREEN_PX * k, color, alpha });
+          g.moveTo(o.x - r, o.y).lineTo(o.x + r, o.y).moveTo(o.x, o.y - r).lineTo(o.x, o.y + r).stroke({ width: k, color, alpha });
+          return;
+        }
+        if (o.kind === "follow" || o.kind === "attack" || o.kind === "charge") {
           const t = ctx.targetPos(o);
           if (!t) return;
           g.moveTo(fromX, fromY).lineTo(t.x, t.y).stroke({ width: LINE_SCREEN_PX * k, color, alpha });
@@ -120,6 +151,15 @@ export class OrderMarkers {
       });
     }
     for (let i = pipN; i < this.pips.length; i++) this.pips[i].visible = false;
+    // Range rings for the selected ranged / siege units (catapults also show their minimum range).
+    for (const id of ctx.selected) {
+      const u = ctx.units.get(id);
+      if (!u) continue;
+      const ring = RANGE_RING_TILES[u.kind === "hero" ? u.heroClass ?? "" : u.kind];
+      if (!ring) continue;
+      g.circle(u.x, u.y, ring[0] * TILE_SIZE).stroke({ width: k, color: RANGE_RING_COLOR, alpha: 0.35 });
+      if (ring[1]) g.circle(u.x, u.y, ring[1] * TILE_SIZE).stroke({ width: k, color: 0xff7a3a, alpha: 0.3 });
+    }
   }
 
   private pip(i: number): Text {

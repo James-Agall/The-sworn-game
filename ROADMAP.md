@@ -1458,3 +1458,71 @@ Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 3 (regiment orders, form
 8. Right-click a monster: the regiment attacks it (red line to the target).
 9. With nothing selected, F / H / G / R still pick their build tools; building and demolishing still work.
    Tactical mode (Tab out): right-click / right-drag formations behave exactly as before.
+
+## Strategy mode phase 4 — landed 2026-10-28
+
+Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 4 (stances, fire control, charge, siege).
+
+- **Stances reconciled**: the existing defensive / normal / aggressive stance (Z / X / E, `commandStance`) stays
+  the stance; hold fire and skirmish are per-unit toggles on top of it (`regimentSettings` also takes `stance`).
+  - **Hold fire**: ranged units / catapults pick no targets of their own (`pickGuardTarget`), don't auto-attack
+    hearths, heroes don't auto-cast; an attack / charge / bombard order still fires. Turning it on drops an
+    uncommanded target at once.
+  - **Skirmish**: ranged units kite from melee within 4 tiles with or without a front rank (`kiteStep`, normally 2
+    tiles behind a front rank), also while holding fire; their slot leash is at least 8 tiles (room to kite).
+    Melee units ignore it (plan: also fast roles; cavalry is melee here).
+  - **Formation shape** (per unit, the group's most common wins, `formation.ts` `groupShape` / `reshapePlan`):
+    line (the phase 3 layout, default), block (ceil(sqrt n) columns, ignores a dragged width), wedge (rows 1, 2,
+    3 ... from the apex along the facing), loose (line layout x1.6 spacing). `planOrderFormation` applies it, so
+    server forming and client ghosts (drag ghost + order ghosts) match. Changing the shape re-forms the group in
+    place (its destination while marching, its last formation spot when idle / holding).
+- **New order kinds** (`regimentOrder`, server "Regiment orders" block): `charge {targetId}` (knights, cavalry,
+  champions run at the mob as a commanded target: no leash, no squad pace, the existing cavalry x2 lands; the
+  rest of the group stands; with **cycle charge** on, a rider whose charge landed withdraws 11 tiles (re-aimed
+  while the enemy closes), waits out the 8 s charge cooldown and charges again from >= 9 tiles out, or after
+  12 s out); `bombard {x, y}` (catapults walk into their 3-11 tile band and shell the point every reload, splash
+  as ever, a standing camp hearth under the splash takes x3 building damage; while bombarding they pick no other
+  targets; lasts until the next order, like hold); `attackHearth {tileX, tileY}` (the group attacks a camp hearth
+  as commandAttackHearth does, but stays an order group; done when it falls).
+- **Protocol (additive, both copies byte-identical)**: `ArmyOrderKind` + charge / bombard / attackHearth,
+  `ArmyOrder.tileX? / tileY?`, `FormationShape`, `FORMATION_SHAPES`, ColonistSnapshot `holdFire? / skirmish? /
+  cycleCharge? / shape?` (sent only when set), ClientMessage `regimentSettings {regimentIds?, unitIds?, stance?,
+  holdFire?, skirmish?, cycleCharge?, shape?}` (validated, shares the 20/s order rate limit, ignored during a
+  load). `formation.ts` (byte-identical): `FormationUnit.shape?`, `LOOSE_SPACING_MULT`, `groupShape`,
+  `planOrderFormation(..., shape = groupShape(units))`.
+- **Client** (strategy mode only): command bar adds Charge (Shift+C, then right-click an enemy or near one),
+  Bombard (Shift+B, then right-click the ground), Hold fire (Shift+T), Skirmish (Shift+V), Cycle (Alt+C) and Shape
+  (Shift+Q cycles Line / Block / Wedge / Loose; the button shows the selection's shape). Toggles light up when
+  every selected unit has them. Right-clicking a camp hearth in strategy mode sends `attackHearth` (tactical mode
+  still sends commandAttackHearth). Map: charge line + ring on the target, bombard crosshair + splash ring,
+  siege square on the hearth; range rings round each selected archer (4), marksman (5), mage (7) and catapult
+  (11, plus the 3-tile minimum in orange). Cards: stance icon as before plus flags "HF" / "Sk" / "Cyc" / shape.
+- **Test**: `server/stances-test.mjs` (own server, port 20644, world 160): hold-fire archers leave a skeleton
+  untouched until an attack order; skirmishers stay >= 2 tiles from a skeleton while shooting it; a cycle-charging
+  rider lands x2 twice (second after the cooldown); a catapult walks into range and shells an empty point; a
+  finished line re-forms as a wedge (1 / 2 / 3 rows); junk settings ignored. 10/10 pass (6 runs in a row).
+- **Deviations from the plan**: plain T / V / Q / C / B are build hotkeys, so the keys are Shift+T / V / Q / C / B
+  and Alt+C (cycle charge); withdraw distance 11 tiles, not 6 (with 6 the run was too short to land x2 against an
+  advancing enemy); skirmish only for ranged units (not cavalry); rams use the attackHearth order (there are no
+  enemy gates / walls to ram); range rings are per unit at its position (not per slot ghost; no tower rings); no
+  re-run of the formation / regiment / battle-discipline / orders tests (minimal-testing instruction). The
+  re-charging rider's attack cooldown is reset when it turns (the cooldown only runs down while striking).
+- **Caveats**: settings live on the units and persist after leaving strategy mode (hold-fire archers stay
+  hold-fire in tactical mode, where the toggles are not shown); settings are not saved; a charge ordered on the
+  ground with no visible enemy within 3 tiles of the click does nothing; Alt+C may focus the browser menu bar in
+  some browsers (use the Cycle button).
+
+**Manual browser check (strategy mode phase 4)**
+1. Tab into strategy mode, select an archer regiment: blue range rings show round each archer. Shift+T: the
+   Hold fire button lights, the card shows "HF", and the archers stop shooting at a nearby monster; right-click
+   the monster: they shoot it. Shift+T again: they fire at will.
+2. Shift+V on archers near goblins / skeletons: they back off as melee closes and shoot while backing (card "Sk").
+3. Select cavalry, Alt+C (or the Cycle button, card "Cyc"), Shift+C then right-click a monster: the riders charge
+   (orange line), hit, ride off, wait, and charge again.
+4. Select a catapult, Shift+B then right-click the ground: purple crosshair; the catapult moves into range and
+   lobs boulders at that spot every few seconds. Its rings show 3 and 11 tiles.
+5. Select a regiment, Shift+Q a few times: the button reads Block / Wedge / Loose / Line, the card shows the shape,
+   the regiment re-forms in place, and a right-drag ghost has the new shape (the units stop on it).
+6. Right-click a camp hearth with a ram / regiment selected: red square on the hearth, they attack it.
+7. Z / X / E stances, Shift+1-4 spells, Shift+F / G / H / R orders still work; plain T / V / Q / C / B behave as
+   before (build hotkeys); tactical mode right-click / right-drag unchanged.

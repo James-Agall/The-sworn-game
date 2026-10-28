@@ -72,7 +72,7 @@ import { FIGHT_WINDOW_SECONDS } from "./protocol";
 import { MOB_ROLE, isRearRole, SIEGE_KINDS, unitRole, HERO_CLASSES, HERO_CLASS_LABEL } from "./protocol";
 import type { CombatRole, SiegeKind } from "./protocol";
 import { SPELLS, SPELL_SLOT_COUNT } from "./protocol";
-import { LINE_FACE_ENEMY_TILES, computeFormationTargets, computeLineFormationTargets as sharedLineFormation, planOrderFormation } from "./formation";
+import { LINE_FACE_ENEMY_TILES, computeFormationTargets, computeLineFormationTargets as sharedLineFormation, groupShape, planOrderFormation } from "./formation";
 import type { FormationPlan } from "./formation";
 import type { SpellId, SpellBookSnapshot } from "./protocol";
 import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
@@ -82,7 +82,8 @@ import type { BannerGroup, LodBand, UnitDot, VisionSource } from "./strategy/lod
 import { RegimentCardBar } from "./strategy/cards";
 import type { RegimentCard } from "./strategy/cards";
 import type { ArmyRegimentSnapshot, RegimentClass } from "./protocol";
-import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind } from "./protocol";
+import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind, FormationShape } from "./protocol";
+import { FORMATION_SHAPES } from "./protocol";
 import { ORDER_COLORS, ORDER_LABEL, OrderMarkers } from "./strategy/orders";
 
 const SERVER_URL = "ws://localhost:8080";
@@ -324,6 +325,8 @@ const ROLE_LABEL: Record<CombatRole, string> = {
 // Stance hotkeys. 'c' (the AoE-style third key) is the Church build tool, so aggressive is 'e'.
 const STANCE_HOTKEYS: Record<string, Stance> = { z: "defensive", x: "normal", e: "aggressive" };
 const STANCE_LABEL: Record<Stance, string> = { defensive: "Defensive", normal: "Normal", aggressive: "Aggressive" };
+// Strategy mode phase 4: formation shape names (command bar, cards).
+const SHAPE_LABEL: Record<FormationShape, string> = { line: "Line", block: "Block", wedge: "Wedge", loose: "Loose" };
 // Per-unit move orders go out one at a time, units already closest to their own slot first, this
 // far apart; the step shrinks for big groups so the last unit never waits more than the max spread.
 // Measured with server/formation-test.mjs (stacked-sprite time on 90/180-degree turns), this beat
@@ -4240,9 +4243,10 @@ async function main() {
     );
     const single = stances.size === 1 ? [...stances][0] : null;
     commandBarEl.hidden = stances.size === 0;
-    for (const b of Array.from(commandBarEl.querySelectorAll<HTMLElement>(".cmd-btn"))) {
+    for (const b of Array.from(commandBarEl.querySelectorAll<HTMLElement>(".cmd-btn[data-stance]"))) {
       b.classList.toggle("active", b.dataset.stance === single);
     }
+    refreshSettingButtons();
     const stance = stances.size === 0 ? "" : single ? STANCE_LABEL[single] : "Mixed";
     // Regiments: the selection's roles, e.g. "6 Frontline, 4 Ranged".
     const roleCounts = new Map<CombatRole, number>();
@@ -4285,6 +4289,9 @@ async function main() {
     // Strategy mode phase 3: order buttons (Shift+click queues Hold / Retreat).
     const orderKind = btn?.dataset.order as ArmyOrderKind | undefined;
     if (orderKind && strategyCam.inStrategy && selectedIds.size > 0) issueOrder(orderKind, e.shiftKey);
+    // Strategy mode phase 4: hold fire / skirmish / cycle charge toggles and the shape cycle.
+    const setting = btn?.dataset.setting as StrategySetting | undefined;
+    if (setting && strategyCam.inStrategy && selectedIds.size > 0) applyStrategySetting(setting);
     const stance = btn?.dataset.stance as Stance | undefined;
     if (stance && selectedIds.size > 0) sendMessage({ type: "commandStance", unitIds: Array.from(selectedIds), stance });
   });
@@ -5807,7 +5814,7 @@ async function main() {
     keys.add(key);
     // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool. Nor does a plain
     // digit that recalls a control group in strategy mode.
-    if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e) || strategyOrderKey(e)) return;
+    if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e) || strategyOrderKey(e) || strategySettingKey(e)) return;
     const match = TOOLS.find((t) => t.key === key);
     if (match) {
       if (match.tile !== TileType.Empty && match.category !== activeCategory) {
@@ -5952,8 +5959,13 @@ async function main() {
   // from the units or toward a nearby enemy, Alt flips), Ctrl+right-click or Shift+F then right-click =
   // attack-move, right-click an enemy = attack, Shift+G then right-click a friend = follow, Shift+H hold,
   // Shift+R retreat; Shift on any of these queues it. Shift+letter so every build hotkey stays as it is.
-  type ArmedOrder = "attackMove" | "follow";
-  const ORDER_HOTKEYS: Record<string, ArmyOrderKind> = { f: "attackMove", g: "follow", h: "hold", r: "retreat" };
+  // Phase 4: Shift+C then right-click an enemy = charge, Shift+B then right-click = bombard that point;
+  // right-clicking a camp hearth = attackHearth. Settings: Shift+T hold fire, Shift+V skirmish, Alt+C cycle
+  // charge (toggles), Shift+Q cycles the shape.
+  type ArmedOrder = "attackMove" | "follow" | "charge" | "bombard";
+  const ORDER_HOTKEYS: Record<string, ArmyOrderKind> = { f: "attackMove", g: "follow", h: "hold", r: "retreat", c: "charge", b: "bombard" };
+  type StrategySetting = "holdFire" | "skirmish" | "cycleCharge" | "shape";
+  const SETTING_HOTKEYS: Record<string, StrategySetting> = { t: "holdFire", v: "skirmish", q: "shape" };
   let armedOrder: ArmedOrder | null = null;
   let orderGroups: ArmyOrderGroupSnapshot[] = [];
   let orderGroupOfUnit = new Map<string, ArmyOrderGroupSnapshot>();
@@ -6007,9 +6019,52 @@ async function main() {
     return kind;
   }
 
-  // Order panel button / hotkey: attack-move and follow wait for a right-click, hold / retreat go now.
+  // Shift+T / V / Q, or Alt+C, with soldiers selected in strategy mode.
+  function strategySettingKey(e: KeyboardEvent): StrategySetting | null {
+    if (!strategyCam.inStrategy || e.ctrlKey || e.metaKey) return null;
+    const key = e.key.toLowerCase();
+    const setting = e.altKey && !e.shiftKey ? (e.code === "KeyC" ? "cycleCharge" : null) : e.shiftKey && !e.altKey ? SETTING_HOTKEYS[key] ?? null : null;
+    if (!setting || !latestColonists.some((c) => selectedIds.has(c.id) && isCommandable(c))) return null;
+    return setting;
+  }
+
+  function selectedCommandable(): ColonistSnapshot[] {
+    return latestColonists.filter((c) => selectedIds.has(c.id) && isCommandable(c));
+  }
+
+  // A toggle turns on unless every selected unit already has it; the shape steps on from the selection's.
+  function applyStrategySetting(setting: StrategySetting) {
+    const units = selectedCommandable();
+    if (units.length === 0) return;
+    const unitIds = units.map((u) => u.id);
+    if (setting === "shape") {
+      const next = FORMATION_SHAPES[(FORMATION_SHAPES.indexOf(groupShape(units)) + 1) % FORMATION_SHAPES.length];
+      sendMessage({ type: "regimentSettings", unitIds, shape: next });
+      return;
+    }
+    const on = !units.every((u) => u[setting] === true);
+    sendMessage({ type: "regimentSettings", unitIds, [setting]: on });
+  }
+
+  // Command bar: the setting toggles light up when every selected unit has them; Shape shows the shape.
+  function refreshSettingButtons() {
+    const units = selectedCommandable();
+    for (const b of Array.from(commandBarEl.querySelectorAll<HTMLElement>(".cmd-btn[data-setting]"))) {
+      const setting = b.dataset.setting as StrategySetting;
+      if (setting === "shape") {
+        const label = b.querySelector(".cmd-shape");
+        const text = units.length > 0 ? SHAPE_LABEL[groupShape(units)] : "Shape";
+        if (label && label.textContent !== text) label.textContent = text;
+        continue;
+      }
+      b.classList.toggle("active", units.length > 0 && units.every((u) => u[setting] === true));
+    }
+  }
+
+  // Order panel button / hotkey: attack-move, follow, charge and bombard wait for a right-click, hold /
+  // retreat go now.
   function issueOrder(kind: ArmyOrderKind, queue: boolean) {
-    if (kind === "attackMove" || kind === "follow") {
+    if (kind === "attackMove" || kind === "follow" || kind === "charge" || kind === "bombard") {
       armOrder(armedOrder === kind ? null : kind);
       return;
     }
@@ -6032,7 +6087,7 @@ async function main() {
       zoom: camZoom,
       targetPos: (o) => {
         if (!o.targetId) return null;
-        if (o.kind === "attack") {
+        if (o.kind === "attack" || o.kind === "charge") {
           const m = latestMobs.find((mob) => mob.id === o.targetId);
           return m && strategySeesEnemy(m.x, m.y) ? m : null;
         }
@@ -6044,6 +6099,12 @@ async function main() {
 
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && armedOrder) armOrder(null);
+    const setting = strategySettingKey(e);
+    if (setting) {
+      e.preventDefault();
+      if (!e.repeat) applyStrategySetting(setting);
+      return;
+    }
     const kind = strategyOrderKey(e);
     if (!kind) return;
     e.preventDefault();
@@ -6227,6 +6288,10 @@ async function main() {
       let maxHp = 0;
       let first: ColonistSnapshot | null = null;
       let stance: Stance | null | undefined;
+      let holdFire = true;
+      let skirmish = true;
+      let cycle = true;
+      let shape: FormationShape | null | undefined;
       let alive = 0;
       let selected = 0;
       for (const id of reg.unitIds) {
@@ -6234,6 +6299,11 @@ async function main() {
         if (!u) continue;
         first ??= u;
         stance = stance === undefined ? u.stance : stance === u.stance ? stance : null;
+        holdFire &&= u.holdFire === true;
+        skirmish &&= u.skirmish === true;
+        cycle &&= u.cycleCharge === true;
+        const us = u.shape ?? "line";
+        shape = shape === undefined ? us : shape === us ? shape : null;
         alive++;
         if (selectedIds.has(id)) selected++;
         x += u.x;
@@ -6272,6 +6342,7 @@ async function main() {
         slot: reg.taskForce,
         stance: stance ?? undefined,
         order: regimentOrderLabel(reg),
+        flags: alive > 0 ? [holdFire && "HF", skirmish && "Sk", cycle && "Cyc", shape && shape !== "line" && SHAPE_LABEL[shape]].filter(Boolean).join(" ") || undefined : undefined,
         selected: alive > 0 && selected === alive,
       });
     }
@@ -6530,12 +6601,24 @@ async function main() {
       const strategic = strategyCam.inStrategy;
       const armed = armedOrder;
       if (strategic) armOrder(null);
-      if (mob) {
+      // Phase 4: a charge armed on the ground takes the nearest visible enemy within 3 tiles of the click.
+      const chargeMob = strategic && armed === "charge"
+        ? mob ?? findNearest(latestMobs.filter((m) => strategySeesEnemy(m.x, m.y)), x, y, 3 * tileSize)
+        : null;
+      if (strategic && armed === "bombard") {
+        sendRegimentOrder({ kind: "bombard", x, y }, e.shiftKey);
+      } else if (chargeMob) {
+        sendRegimentOrder({ kind: "charge", targetId: chargeMob.id }, e.shiftKey);
+      } else if (strategic && armed === "charge") {
+        // Nothing to charge there: no order.
+      } else if (mob) {
         if (strategic) sendRegimentOrder({ kind: "attack", targetId: mob.id }, e.shiftKey);
         else socket.send(JSON.stringify({ type: "commandAttack", unitIds, mobId: mob.id }));
       } else if (clicked && latestHearths.has(hearthIndex)) {
-        // Camp hearths: right-click a standing hearth to send the selection against it.
-        socket.send(JSON.stringify({ type: "commandAttackHearth", unitIds, tileX: clicked.tileX, tileY: clicked.tileY }));
+        // Camp hearths: right-click a standing hearth to send the selection against it (strategy mode: as
+        // a regiment order, so the group keeps its queue / settings).
+        if (strategic) sendRegimentOrder({ kind: "attackHearth", tileX: clicked.tileX, tileY: clicked.tileY }, e.shiftKey);
+        else socket.send(JSON.stringify({ type: "commandAttackHearth", unitIds, tileX: clicked.tileX, tileY: clicked.tileY }));
       } else if (strategic && armed === "follow") {
         const targetId = followTargetAt(x, y);
         if (targetId) sendRegimentOrder({ kind: "follow", targetId }, e.shiftKey);

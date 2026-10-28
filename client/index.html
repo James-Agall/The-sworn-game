@@ -807,6 +807,7 @@
       .reg-meta { display: flex; justify-content: space-between; gap: 4px; font-size: 11px; }
       .reg-role { font-weight: 700; text-shadow: 0 0 2px rgba(0, 0, 0, 0.6); }
       .reg-order { font-weight: 700; color: #00e5ff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.8); white-space: nowrap; }
+      .reg-flags { font-weight: 700; color: #ffb02e; text-shadow: 0 0 2px rgba(0, 0, 0, 0.8); white-space: nowrap; }
       .reg-hp { grid-column: 1 / 3; height: 5px; margin-top: 3px; background: #550000; border: 1px solid var(--wood-dark); }
       .reg-hp span { display: block; height: 100%; }
 
@@ -1284,6 +1285,13 @@
       <button class="cmd-btn strategy-only" data-order="hold" title="Hold position: stand and fight from the slot (Shift+H; Shift+click queues)"><span class="cmd-glyph">&#x25C6;</span>Hold<kbd>Shift+H</kbd></button>
       <button class="cmd-btn strategy-only" data-order="retreat" title="Retreat to the nearest Town Center, fighting only when cornered (Shift+R; Shift+click queues)"><span class="cmd-glyph">&#x21B6;</span>Retreat<kbd>Shift+R</kbd></button>
       <button class="cmd-btn strategy-only" data-order="follow" title="Follow: then right-click a friendly unit or rider (Shift+G)"><span class="cmd-glyph">&#x27A4;</span>Follow<kbd>Shift+G</kbd></button>
+      <button class="cmd-btn strategy-only" data-order="charge" title="Charge: then right-click an enemy; knights / cavalry / champions run at it at full speed (Shift+C)"><span class="cmd-glyph">&#x21E2;</span>Charge<kbd>Shift+C</kbd></button>
+      <button class="cmd-btn strategy-only" data-order="bombard" title="Bombard: then right-click the ground; catapults shell that point every reload (Shift+B). Right-click a camp hearth to besiege it"><span class="cmd-glyph">&#x2739;</span>Bombard<kbd>Shift+B</kbd></button>
+      <span class="cmd-sep strategy-only"></span>
+      <button class="cmd-btn strategy-only" data-setting="holdFire" title="Hold fire: archers, catapults and hero auto-spells only shoot what they are ordered to (Shift+T)"><span class="cmd-glyph">&#x2298;</span>Hold fire<kbd>Shift+T</kbd></button>
+      <button class="cmd-btn strategy-only" data-setting="skirmish" title="Skirmish: ranged units back off from melee within 4 tiles (Shift+V)"><span class="cmd-glyph">&#x21C4;</span>Skirmish<kbd>Shift+V</kbd></button>
+      <button class="cmd-btn strategy-only" data-setting="cycleCharge" title="Cycle charge: on a charge order, cavalry withdraw after the blow and charge again (Alt+C)"><span class="cmd-glyph">&#x21BB;</span>Cycle<kbd>Alt+C</kbd></button>
+      <button class="cmd-btn strategy-only" data-setting="shape" title="Formation shape: Line / Block / Wedge / Loose (Shift+Q cycles)"><span class="cmd-glyph">&#x25B3;</span><span class="cmd-shape">Shape</span><kbd>Shift+Q</kbd></button>
     </div>
     <div id="spell-bar" hidden></div>
     <div id="control-buttons">

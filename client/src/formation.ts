@@ -4,7 +4,7 @@
 // functions the server forms regiments with, so a ghost marks where the units stop. Moved out of the
 // client's main.ts (computeFormationTargets / computeLineFormationTargets), behaviour unchanged.
 import { TILE_SIZE, isRearRole, unitRole } from "./protocol.js";
-import type { ColonistKind, HeroClass, Stance } from "./protocol.js";
+import type { ColonistKind, FormationShape, HeroClass, Stance } from "./protocol.js";
 
 // The fields a formation reads (a ColonistSnapshot on the client, a Colonist on the server).
 export interface FormationUnit {
@@ -14,6 +14,8 @@ export interface FormationUnit {
   y: number;
   heroClass?: HeroClass;
   stance: Stance;
+  // Strategy mode phase 4: the unit's regiment shape (omitted = "line").
+  shape?: FormationShape;
 }
 export interface FormationSlot {
   x: number;
@@ -315,19 +317,74 @@ export function computeLineFormationTargets(
   return { targets, spacing, fx, fy, frontHalfWidth: ((cols - 1) * step) / 2, cx, cy };
 }
 
+// Strategy mode phase 4: loose order spreads every slot this much further from the front centre.
+export const LOOSE_SPACING_MULT = 1.6;
+
+// The group's shape: the most common among its units ("line" when omitted; a tie is "line").
+export function groupShape(units: FormationUnit[]): FormationShape {
+  const counts = new Map<FormationShape, number>();
+  for (const u of units) counts.set(u.shape ?? "line", (counts.get(u.shape ?? "line") ?? 0) + 1);
+  let best: FormationShape = "line";
+  let top = 0;
+  let tie = false;
+  for (const [shape, n] of counts) {
+    if (n > top) {
+      best = shape;
+      top = n;
+      tie = false;
+    } else if (n === top) {
+      tie = true;
+    }
+  }
+  return tie ? "line" : best;
+}
+
+// Re-lays a line-layout plan (front centre cx, cy) as another shape. Units keep their front-to-back,
+// centre-out order (so shock stays at the front centre, archers at the back) and, within a row, their
+// left-to-right order. block = ceil(sqrt(n)) columns; wedge = rows of 1, 2, 3 ... from the apex.
+function reshapePlan(plan: FormationPlan, cx: number, cy: number, shape: FormationShape): FormationPlan {
+  if (shape === "line" || plan.targets.size <= 1) return plan;
+  const { fx, fy } = plan;
+  const px = -fy;
+  const py = fx;
+  const entries = Array.from(plan.targets, ([id, s]) => ({ id, rear: s.rear, depth: (cx - s.x) * fx + (cy - s.y) * fy, lat: (s.x - cx) * px + (s.y - cy) * py }));
+  const targets = new Map<string, FormationSlot>();
+  const place = (id: string, rear: boolean | undefined, depth: number, lat: number) =>
+    targets.set(id, { x: cx - depth * fx + lat * px, y: cy - depth * fy + lat * py, ...(rear ? { rear } : {}) });
+  if (shape === "loose") {
+    for (const e of entries) place(e.id, e.rear, e.depth * LOOSE_SPACING_MULT, e.lat * LOOSE_SPACING_MULT);
+    return { targets, spacing: plan.spacing * LOOSE_SPACING_MULT, fx, fy, frontHalfWidth: plan.frontHalfWidth * LOOSE_SPACING_MULT };
+  }
+  entries.sort((a, b) => a.depth - b.depth || Math.abs(a.lat) - Math.abs(b.lat));
+  const n = entries.length;
+  const cols = Math.ceil(Math.sqrt(n));
+  const spacing = plan.spacing;
+  let i = 0;
+  for (let row = 0; i < n; row++) {
+    const size = shape === "wedge" ? row + 1 : cols;
+    const chunk = entries.slice(i, i + size).sort((a, b) => a.lat - b.lat);
+    chunk.forEach((e, j) => place(e.id, e.rear, row * spacing, (j - (chunk.length - 1) / 2) * spacing));
+    i += size;
+  }
+  return { targets, spacing, fx, fy, frontHalfWidth: shape === "wedge" ? 0 : ((Math.min(cols, n) - 1) / 2) * spacing };
+}
+
 // Regiment orders (strategy mode phase 3): the formation an order forms at (x, y). `facing` is the
 // front's normal in radians, `widthTiles` the frontage of a line (omitted = the block of
 // computeFormationTargets). A line without a facing faces the direction of travel. The server forms with
 // this and the client draws its ghosts with it, so with a facing given both get the same slots.
+// Phase 4: `shape` (default: the units' groupShape) re-lays the slots; block / wedge ignore the width.
 export function planOrderFormation(
   units: FormationUnit[],
   x: number,
   y: number,
   facing?: number,
-  widthTiles?: number
+  widthTiles?: number,
+  shape: FormationShape = groupShape(units)
 ): FormationPlan & { cx: number; cy: number } {
   let f = facing !== undefined && Number.isFinite(facing) ? { x: Math.cos(facing), y: Math.sin(facing) } : undefined;
-  if (widthTiles === undefined || units.length <= 1) return { ...computeFormationTargets(units, x, y, f), cx: x, cy: y };
+  if (shape === "block" || shape === "wedge") widthTiles = undefined;
+  if (widthTiles === undefined || units.length <= 1) return { ...reshapePlan(computeFormationTargets(units, x, y, f), x, y, shape), cx: x, cy: y };
   if (!f) {
     let ucx = 0;
     let ucy = 0;
@@ -344,5 +401,6 @@ export function planOrderFormation(
   const half = (Math.max(0, widthTiles) * TILE_SIZE) / 2;
   const ux = f.y;
   const uy = -f.x;
-  return computeLineFormationTargets(units, x - ux * half, y - uy * half, x + ux * half, y + uy * half, { facing: f });
+  const line = computeLineFormationTargets(units, x - ux * half, y - uy * half, x + ux * half, y + uy * half, { facing: f });
+  return { ...reshapePlan(line, line.cx, line.cy, shape), cx: line.cx, cy: line.cy };
 }

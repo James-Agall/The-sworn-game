@@ -254,7 +254,9 @@ export interface ArmyRegimentSnapshot {
 // Strategy mode phase 3 (additive): regiment orders. An order goes to a set of units (the selected
 // regiments' members); the server keeps it as an order group (snapshot `orderGroups`) with a queue
 // of up to ARMY_ORDER_QUEUE_MAX waypoints. Formations come from formation.ts (planOrderFormation).
-export type ArmyOrderKind = "move" | "attackMove" | "retreat" | "hold" | "follow" | "attack";
+// Phase 4 adds charge (shock / fast members run at a mob, cavalry cycle-charge), bombard (catapults shell
+// the point x, y each reload) and attackHearth (the group attacks the camp hearth at tileX, tileY).
+export type ArmyOrderKind = "move" | "attackMove" | "retreat" | "hold" | "follow" | "attack" | "charge" | "bombard" | "attackHearth";
 export const ARMY_ORDER_QUEUE_MAX = 8;
 export interface ArmyOrder {
   kind: ArmyOrderKind;
@@ -267,9 +269,17 @@ export interface ArmyOrder {
   facing?: number;
   // Frontage of a line in tiles (a dragged line); omitted = a block (or the group's last width).
   width?: number;
-  // follow: a colonist id or "p:<playerId>"; attack: a mob id.
+  // follow: a colonist id or "p:<playerId>"; attack / charge: a mob id.
   targetId?: string;
+  // attackHearth: the hearth's tile.
+  tileX?: number;
+  tileY?: number;
 }
+// Strategy mode phase 4 (additive): a regiment's formation shape (formation.ts planOrderFormation). line =
+// the phase 3 layout (a block, or a line when a width is given); block = a square; wedge = a triangle
+// pointing along the facing; loose = the line layout at LOOSE_SPACING_MULT spacing.
+export type FormationShape = "line" | "block" | "wedge" | "loose";
+export const FORMATION_SHAPES: FormationShape[] = ["line", "block", "wedge", "loose"];
 export interface ArmyOrderGroupSnapshot {
   id: string;
   unitIds: string[];
@@ -305,6 +315,13 @@ export interface ColonistSnapshot {
   heroLevel?: number;
   // Hero phase 4: a Summon spell's temporary skeleton militia (no population, despawns).
   summoned?: boolean;
+  // Strategy mode phase 4 (regimentSettings; omitted = off / "line"): hold fire (ranged / catapults /
+  // hero auto-spells only fire at a commanded target), skirmish (ranged back off from melee within
+  // SKIRMISH_KITE_TILES), cycle charge (cavalry on a charge order withdraw and charge again), shape.
+  holdFire?: boolean;
+  skirmish?: boolean;
+  cycleCharge?: boolean;
+  shape?: FormationShape;
 }
 
 // Armour & weapons: the two equipment slots; the colony's stock counts each by tier 1..3.
@@ -730,6 +747,9 @@ export type ClientMessage =
   // Strategy mode phase 3: an order for the members of the regiments and / or the units; queue = append
   // to their order group's queue (Shift). A per-unit commandMove / commandAttack takes a unit out of it.
   | { type: "regimentOrder"; regimentIds?: string[]; unitIds?: string[]; order: ArmyOrder; queue?: boolean }
+  // Strategy mode phase 4: per-unit settings for the members of the regiments and / or the units (each
+  // field omitted = unchanged). A shape change re-forms their order groups in place.
+  | { type: "regimentSettings"; regimentIds?: string[]; unitIds?: string[]; stance?: Stance; holdFire?: boolean; skirmish?: boolean; cycleCharge?: boolean; shape?: FormationShape }
   | { type: "exchangeResource"; from: "wood" | "iron" | "rock"; to: "wood" | "iron" | "rock" }
   | { type: "buyWithGold"; item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock" }
   | { type: "buildingInfo"; tileX: number; tileY: number }

@@ -90,6 +90,8 @@ import {
   ArmyOrderKind,
   ArmyOrderGroupSnapshot,
   ARMY_ORDER_QUEUE_MAX,
+  FormationShape,
+  FORMATION_SHAPES,
 } from "./protocol.js";
 import { planOrderFormation } from "./formation.js";
 
@@ -200,6 +202,11 @@ interface Colonist {
   squadId?: string | null;
   // Camp hearths: the siteId of the hearth this soldier is attacking (commanded or aggressive pick).
   targetHearthId?: string | null;
+  // Strategy mode phase 4 (regimentSettings): hold fire, skirmish, cycle charge, formation shape.
+  holdFire?: boolean;
+  skirmish?: boolean;
+  cycleCharge?: boolean;
+  shape?: FormationShape;
   // Armour & weapons: the tier (0-3) taken from the stock when this unit spawned (EQUIPPED_KINDS only).
   // Missing in old saves = 0 (unequipped, today's stats).
   armourTier?: number;
@@ -4817,6 +4824,14 @@ function armyRegimentsForSnapshot(): ArmyRegimentSnapshot[] | undefined {
 //   hold        stays where it is (or on its slots), leash HOLD_LEASH_TILES; lasts until the next order
 //   follow      re-forms FOLLOW_BEHIND_TILES behind a colonist / player when it moves FOLLOW_REFORM_TILES
 //   attack      a commanded attack on a mob (as commandAttack) until it is gone
+// Phase 4:
+//   charge      shock / fast members run at a mob at full speed (a commanded target: no leash, no squad
+//               pace; the cavalry charge x2 lands as ever); with cycleCharge a rider whose charge landed
+//               withdraws CHARGE_WITHDRAW_TILES and charges again once its charge cooldown is over. The
+//               rest of the group stands. Until the mob is gone.
+//   bombard     catapults shell the point each reload from within their 3-11 tile band (walking into it
+//               first); a standing hearth under the splash takes building damage. Until the next order.
+//   attackHearth  the group attacks a camp hearth (as commandAttackHearth) until it falls.
 interface OrderGroup {
   id: string;
   unitIds: Set<string>;
@@ -4832,6 +4847,8 @@ interface OrderGroup {
   engaged: boolean;
   clearSince: number;
   followAt: { x: number; y: number } | null;
+  // Phase 4: the front centre the group last formed at (a shape change re-forms there).
+  lastAt?: { x: number; y: number };
 }
 const ORDER_UPDATE_TICKS = 5;
 const REGIMENT_ORDER_MAX_PER_S = 20;
@@ -4847,7 +4864,19 @@ const RETREAT_TC_OFFSET_TILES = 3;
 const HOLD_LEASH_TILES = 0.5;
 const FOLLOW_REFORM_TILES = 2;
 const FOLLOW_BEHIND_TILES = 2.5;
-const ARMY_ORDER_KINDS: ArmyOrderKind[] = ["move", "attackMove", "retreat", "hold", "follow", "attack"];
+const ARMY_ORDER_KINDS: ArmyOrderKind[] = ["move", "attackMove", "retreat", "hold", "follow", "attack", "charge", "bombard", "attackHearth"];
+// Phase 4: cycle charge (see the order list above) and skirmish (updateGuardColonist).
+const CHARGE_WITHDRAW_TILES = 11;
+// A withdrawn rider turns to charge again only from this far out (so its run still reaches
+// CAVALRY_CHARGE_TILES while the enemy closes in), or after CHARGE_WITHDRAW_MAX_TICKS out.
+const CHARGE_RECHARGE_GAP_TILES = 9;
+const CHARGE_WITHDRAW_MAX_TICKS = 12 * TICK_RATE;
+const SKIRMISH_KITE_TILES = 4;
+// A skirmisher backs off at most this far from its slot.
+const SKIRMISH_DRIFT_TILES = 8;
+// Unit id -> its charge cycle on a charge order: "in" (riding at the target; readyTick = the charge
+// cooldown it had when it set off, so a changed value = a charge landed) or "out" (withdrawing, since).
+const chargeCycle = new Map<string, { phase: "in" | "out"; readyTick: number; since: number }>();
 const orderGroups = new Map<string, OrderGroup>();
 const orderGroupOfUnit = new Map<string, OrderGroup>();
 // Staggered start: unit id -> the slot it heads for once cycleTick reaches `at`.
@@ -4858,6 +4887,7 @@ let orderGroupTicks = 0;
 
 function leaveOrderGroup(id: string) {
   pendingRallies.delete(id);
+  chargeCycle.delete(id);
   const g = orderGroupOfUnit.get(id);
   if (!g) return;
   orderGroupOfUnit.delete(id);
@@ -4869,6 +4899,7 @@ function clearOrderGroups() {
   orderGroups.clear();
   orderGroupOfUnit.clear();
   pendingRallies.clear();
+  chargeCycle.clear();
   orderGroupSignature = "";
 }
 
@@ -4888,6 +4919,7 @@ function groupMembers(g: OrderGroup): Colonist[] {
       g.unitIds.delete(id);
       orderGroupOfUnit.delete(id);
       pendingRallies.delete(id);
+      chargeCycle.delete(id);
     }
   }
   return out;
@@ -4926,14 +4958,19 @@ function sanitizeArmyOrder(raw: unknown): ArmyOrder | null {
   if (num(o.x) && num(o.y)) {
     order.x = clamp(o.x, 1, WORLD_TILES_X * TILE_SIZE - 1);
     order.y = clamp(o.y, 1, WORLD_TILES_Y * TILE_SIZE - 1);
-  } else if (kind === "move" || kind === "attackMove") {
+  } else if (kind === "move" || kind === "attackMove" || kind === "bombard") {
     return null;
   }
   if (num(o.facing)) order.facing = Math.atan2(Math.sin(o.facing), Math.cos(o.facing));
   if (num(o.width)) order.width = clamp(o.width, 0, ORDER_WIDTH_MAX_TILES);
-  if (kind === "follow" || kind === "attack") {
+  if (kind === "follow" || kind === "attack" || kind === "charge") {
     if (typeof o.targetId !== "string" || o.targetId.length === 0 || o.targetId.length > 80) return null;
     order.targetId = o.targetId;
+  }
+  if (kind === "attackHearth") {
+    if (!Number.isInteger(o.tileX) || !Number.isInteger(o.tileY) || !inBounds(o.tileX as number, o.tileY as number)) return null;
+    order.tileX = o.tileX as number;
+    order.tileY = o.tileY as number;
   }
   return order;
 }
@@ -4947,6 +4984,22 @@ function followTargetPos(targetId: string): { x: number; y: number } | null {
   return colonists.get(targetId) ?? null;
 }
 
+// The commandable units a regimentOrder / regimentSettings names (regiment members + unit ids, capped).
+function orderedUnits(regimentIds: unknown, unitIds: unknown): Colonist[] {
+  const ids = new Set<string>();
+  if (Array.isArray(regimentIds) && regimentIds.length > 0) {
+    const wanted = new Set(regimentIds.slice(0, 64).filter((r): r is string => typeof r === "string"));
+    for (const r of armyRegimentsNow()) if (wanted.has(r.id)) for (const id of r.unitIds) ids.add(id);
+  }
+  if (Array.isArray(unitIds)) for (const id of unitIds.slice(0, 1000)) if (typeof id === "string") ids.add(id);
+  const units: Colonist[] = [];
+  for (const id of ids) {
+    const c = colonists.get(id);
+    if (c && isCommandable(c)) units.push(c);
+  }
+  return units;
+}
+
 function handleRegimentOrder(player: Player, msg: { regimentIds?: unknown; unitIds?: unknown; order?: unknown; queue?: unknown }) {
   if (simHeldForLoad) return;
   const now = Date.now();
@@ -4957,26 +5010,18 @@ function handleRegimentOrder(player: Player, msg: { regimentIds?: unknown; unitI
   if (++player.orderWindowCount > REGIMENT_ORDER_MAX_PER_S) return;
   const order = sanitizeArmyOrder(msg.order);
   if (!order) return;
-  const ids = new Set<string>();
-  if (Array.isArray(msg.regimentIds) && msg.regimentIds.length > 0) {
-    const wanted = new Set(msg.regimentIds.slice(0, 64).filter((r): r is string => typeof r === "string"));
-    for (const r of armyRegimentsNow()) if (wanted.has(r.id)) for (const id of r.unitIds) ids.add(id);
-  }
-  if (Array.isArray(msg.unitIds)) for (const id of msg.unitIds.slice(0, 1000)) if (typeof id === "string") ids.add(id);
-  const units: Colonist[] = [];
-  for (const id of ids) {
-    const c = colonists.get(id);
-    if (c && isCommandable(c)) units.push(c);
-  }
+  const units = orderedUnits(msg.regimentIds, msg.unitIds);
   if (units.length === 0) return;
-  if (order.kind === "attack" && !mobs.has(order.targetId!)) return;
+  const ids = new Set(units.map((c) => c.id));
+  if ((order.kind === "attack" || order.kind === "charge") && !mobs.has(order.targetId!)) return;
+  if (order.kind === "attackHearth" && !standingHearthAt(order.tileX!, order.tileY!)) return;
   if (order.kind === "follow" && (!followTargetPos(order.targetId!) || ids.has(order.targetId!))) return;
   // The same units as an existing group: Shift appends to its queue (a hold / follow / finished order
   // gives way at once), a plain order replaces its orders but keeps its formation memory.
   const prev = orderGroupOfUnit.get(units[0].id);
   const same = !!prev && prev.unitIds.size === units.length && units.every((c) => orderGroupOfUnit.get(c.id) === prev);
   if (prev && same) {
-    if (msg.queue === true && prev.current && prev.current.kind !== "hold" && prev.current.kind !== "follow") {
+    if (msg.queue === true && prev.current && prev.current.kind !== "hold" && prev.current.kind !== "follow" && prev.current.kind !== "bombard") {
       if (prev.queue.length < ARMY_ORDER_QUEUE_MAX) prev.queue.push(order);
       return;
     }
@@ -4999,6 +5044,7 @@ function formGroupAt(g: OrderGroup, members: Colonist[], x: number, y: number, f
   const plan = planOrderFormation(members, x, y, facing, width);
   g.facing = Math.atan2(plan.fy, plan.fx);
   g.width = width;
+  g.lastAt = { x, y };
   const slots = Array.from(plan.targets.values());
   const c0 = centroidOf(slots);
   g.destX = c0.x;
@@ -5032,6 +5078,7 @@ function startArmyOrder(g: OrderGroup, order: ArmyOrder) {
   g.startedTick = cycleTick;
   const members = groupMembers(g);
   if (members.length === 0) return;
+  for (const c of members) chargeCycle.delete(c.id);
   switch (order.kind) {
     case "move":
     case "attackMove":
@@ -5091,7 +5138,138 @@ function startArmyOrder(g: OrderGroup, order: ArmyOrder) {
       }
       return;
     }
+    case "charge": {
+      const mob = mobs.get(order.targetId!);
+      if (!mob) {
+        finishArmyOrder(g, members);
+        return;
+      }
+      for (const c of members) {
+        pendingRallies.delete(c.id);
+        if (canCharge(c)) chargeAt(c, mob);
+      }
+      return;
+    }
+    case "bombard":
+      for (const c of members) {
+        pendingRallies.delete(c.id);
+        if (c.kind === "catapult") bombardPosition(c, order.x!, order.y!);
+      }
+      return;
+    case "attackHearth": {
+      const h = standingHearthAt(order.tileX!, order.tileY!);
+      if (!h) {
+        finishArmyOrder(g, members);
+        return;
+      }
+      for (const c of members) {
+        pendingRallies.delete(c.id);
+        if (isGuardOrMilitiaKind(c.kind)) sendAgainstHearth(c, h);
+      }
+      return;
+    }
   }
+}
+
+// Phase 4, charge: knights / cavalry / champions (shock and fast roles).
+function canCharge(c: Colonist): boolean {
+  const role = colonistRole(c);
+  return role === "shock" || role === "fast";
+}
+
+// Off at the mob: a commanded target (no leash, no squad pace).
+function chargeAt(c: Colonist, mob: Mob) {
+  c.targetMobId = mob.id;
+  c.targetHearthId = null;
+  commandedTargets.set(c.id, mob.id);
+  c.squadId = null;
+  c.path = [];
+  c.repathCooldown = 0;
+  chargeCycle.set(c.id, { phase: "in", readyTick: chargeRuns.get(c.id)?.readyTick ?? 0, since: cycleTick });
+}
+
+// Every ORDER_UPDATE_TICKS on a charge order: a cycling rider whose charge landed withdraws (straight away
+// from the mob, re-aimed while the mob closes in) and turns again once its cooldown is over and it has
+// room for a full run.
+function updateChargeOrder(g: OrderGroup, members: Colonist[]) {
+  const mob = mobs.get(g.current!.targetId!);
+  if (!mob || mob.hp <= 0) {
+    finishArmyOrder(g, members);
+    return;
+  }
+  for (const c of members) {
+    const cyc = chargeCycle.get(c.id);
+    if (!cyc) continue;
+    const run = chargeRuns.get(c.id);
+    const d = Math.hypot(c.x - mob.x, c.y - mob.y);
+    if (cyc.phase === "out") {
+      const ready = !run || cycleTick >= run.readyTick;
+      if (ready && (d >= CHARGE_RECHARGE_GAP_TILES * TILE_SIZE || cycleTick - cyc.since >= CHARGE_WITHDRAW_MAX_TICKS)) {
+        // The attack cooldown only runs down while striking; out this long it is long over (else the rider
+        // waits it out at the mob, sliding to its ring slot, which breaks the charge run).
+        c.attackCooldownTicks = 0;
+        chargeAt(c, mob);
+      } else if (Math.hypot(c.rallyX - mob.x, c.rallyY - mob.y) < (CHARGE_WITHDRAW_TILES - 0.5) * TILE_SIZE) {
+        withdrawFrom(c, mob, d);
+      }
+      continue;
+    }
+    if (c.cycleCharge && run && run.readyTick !== cyc.readyTick && run.readyTick > cycleTick) {
+      chargeCycle.set(c.id, { phase: "out", readyTick: run.readyTick, since: cycleTick });
+      withdrawFrom(c, mob, d);
+    } else if (c.targetMobId !== mob.id) {
+      chargeAt(c, mob);
+    }
+  }
+}
+
+function withdrawFrom(c: Colonist, mob: Mob, d: number) {
+  const ux = d >= 1 ? (c.x - mob.x) / d : 1;
+  const uy = d >= 1 ? (c.y - mob.y) / d : 0;
+  const x = clamp(mob.x + ux * CHARGE_WITHDRAW_TILES * TILE_SIZE, TILE_SIZE, WORLD_TILES_X * TILE_SIZE - TILE_SIZE);
+  const y = clamp(mob.y + uy * CHARGE_WITHDRAW_TILES * TILE_SIZE, TILE_SIZE, WORLD_TILES_Y * TILE_SIZE - TILE_SIZE);
+  rallyUnit(c, x, y, null);
+  releaseSlot(c.id);
+}
+
+// Phase 4, bombard: a catapult outside its throw band walks to the band's middle on the line to the point.
+function bombardPosition(c: Colonist, x: number, y: number) {
+  const d = Math.hypot(x - c.x, y - c.y);
+  if (d >= CATAPULT_MIN_RANGE + TILE_SIZE / 2 && d <= CATAPULT_RANGE - TILE_SIZE / 2) {
+    haltUnit(c);
+    return;
+  }
+  const want = (CATAPULT_MIN_RANGE + CATAPULT_RANGE) / 2;
+  const ux = d >= 1 ? (c.x - x) / d : 1;
+  const uy = d >= 1 ? (c.y - y) / d : 0;
+  rallyUnit(c, clamp(x + ux * want, 1, WORLD_TILES_X * TILE_SIZE - 1), clamp(y + uy * want, 1, WORLD_TILES_Y * TILE_SIZE - 1), null);
+}
+
+// The bombard point of a catapult whose group is on a bombard order (null otherwise).
+function bombardPoint(c: Colonist): { x: number; y: number } | null {
+  const o = orderGroupOfUnit.get(c.id)?.current;
+  return o && o.kind === "bombard" && o.x !== undefined && o.y !== undefined ? { x: o.x, y: o.y } : null;
+}
+
+// One bombard tick: inside the throw band it shells the point each reload (true = it acted).
+function bombardStep(c: Colonist, at: { x: number; y: number }, stats: { damage: number; cooldown: number }): boolean {
+  const d = Math.hypot(at.x - c.x, at.y - c.y);
+  if (d < CATAPULT_MIN_RANGE || d > CATAPULT_RANGE) return false;
+  c.path = [];
+  c.state = "attacking";
+  if (c.attackCooldownTicks > 0) {
+    c.attackCooldownTicks--;
+    return true;
+  }
+  const damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id);
+  catapultImpact(c.x, c.y, at.x, at.y, damage, "colony", "c:" + c.id);
+  for (const h of hearths.values()) {
+    if (h.destroyed) continue;
+    const p = tileToPixelCenter(h);
+    if (Math.hypot(p.x - at.x, p.y - at.y) <= CATAPULT_SPLASH_PX + TILE_SIZE / 2) damageHearth(h, damage * CATAPULT_BUILDING_MULT, "c:" + c.id);
+  }
+  c.attackCooldownTicks = stats.cooldown;
+  return true;
 }
 
 // The current order is done: the next queued one starts, else the group stands (after an attack, where
@@ -5105,7 +5283,7 @@ function finishArmyOrder(g: OrderGroup, members: Colonist[]) {
     startArmyOrder(g, next);
     return;
   }
-  if (was === "attack") for (const c of members) if (!c.targetMobId) haltUnit(c);
+  if (was === "attack" || was === "charge") for (const c of members) if (!c.targetMobId) haltUnit(c);
 }
 
 // Formed = the centroid of the members still marching (not fighting) is within SQUAD_SETTLE_TILES of the
@@ -5215,6 +5393,48 @@ function updateOrderGroups() {
     } else if (o.kind === "attack") {
       const mob = mobs.get(o.targetId!);
       if (!mob || mob.hp <= 0) finishArmyOrder(g, members);
+    } else if (o.kind === "charge") {
+      updateChargeOrder(g, members);
+    } else if (o.kind === "attackHearth") {
+      if (!standingHearthAt(o.tileX!, o.tileY!)) finishArmyOrder(g, members);
+    }
+  }
+}
+
+// Strategy mode phase 4: per-unit settings for the named regiments' members and / or units. A shape
+// change re-forms each affected order group where it stands (its destination while marching).
+function handleRegimentSettings(player: Player, msg: { regimentIds?: unknown; unitIds?: unknown; stance?: unknown; holdFire?: unknown; skirmish?: unknown; cycleCharge?: unknown; shape?: unknown }) {
+  if (simHeldForLoad) return;
+  const now = Date.now();
+  if (now - player.orderWindowAt >= 1000) {
+    player.orderWindowAt = now;
+    player.orderWindowCount = 0;
+  }
+  if (++player.orderWindowCount > REGIMENT_ORDER_MAX_PER_S) return;
+  const units = orderedUnits(msg.regimentIds, msg.unitIds);
+  const stance = STANCES.includes(msg.stance as Stance) ? (msg.stance as Stance) : undefined;
+  const shape = FORMATION_SHAPES.includes(msg.shape as FormationShape) ? (msg.shape as FormationShape) : undefined;
+  const reform = new Set<OrderGroup>();
+  for (const c of units) {
+    if (stance) c.stance = stance;
+    if (typeof msg.holdFire === "boolean") c.holdFire = msg.holdFire || undefined;
+    if (typeof msg.skirmish === "boolean") c.skirmish = msg.skirmish || undefined;
+    if (typeof msg.cycleCharge === "boolean") c.cycleCharge = msg.cycleCharge || undefined;
+    if (shape && (c.shape ?? "line") !== shape) {
+      c.shape = shape === "line" ? undefined : shape;
+      const g = orderGroupOfUnit.get(c.id);
+      if (g) reform.add(g);
+    }
+    // Hold fire drops an uncommanded target at once.
+    if (msg.holdFire === true && c.targetMobId && commandedTargets.get(c.id) !== c.targetMobId && !unitStats(c).melee) dropGuardTarget(c);
+  }
+  for (const g of reform) {
+    const o = g.current;
+    if (o && (o.kind === "move" || o.kind === "attackMove" || o.kind === "retreat") && !g.engaged) {
+      startArmyOrder(g, o);
+    } else if ((!o || o.kind === "hold") && g.lastAt) {
+      const members = groupMembers(g);
+      if (members.length > 0) formGroupAt(g, members, g.lastAt.x, g.lastAt.y, g.facing, g.width);
     }
   }
 }
@@ -5423,13 +5643,19 @@ function updateGuardColonist(c: Colonist, dt: number) {
     // finish walking it before returnToRally plans the route back to its slot.
     c.path = [];
   }
-  // Strategy mode phase 3: a retreating unit only fights what corners it (RETREAT_CORNERED_TILES).
-  const retreating = unitOrderKind(c) === "retreat";
+  // Strategy mode phase 3: a retreating unit only fights what corners it (RETREAT_CORNERED_TILES); so
+  // does a rider withdrawing between charges (phase 4).
+  const retreating = unitOrderKind(c) === "retreat" || chargeCycle.get(c.id)?.phase === "out";
   if (retreating && target && Math.hypot(target.x - c.x, target.y - c.y) > RETREAT_CORNERED_TILES * TILE_SIZE + stats.range) {
     c.targetMobId = null;
     c.path = [];
     releaseSlot(c.id);
     target = undefined;
+  }
+  // Phase 4: a catapult on a bombard order shells its point (a commanded target comes first).
+  if (c.kind === "catapult" && !(target && commandedTargets.get(c.id) === target.id)) {
+    const at = bombardPoint(c);
+    if (at && bombardStep(c, at, stats)) return;
   }
 
   if (!target) {
@@ -5447,6 +5673,15 @@ function updateGuardColonist(c: Colonist, dt: number) {
   }
 
   if (!target) {
+    // Phase 4, skirmish: a ranged unit backs off from melee within SKIRMISH_KITE_TILES (hold fire too).
+    if (c.skirmish && !stats.melee && stats.speed > 0) {
+      const threat = nearestMeleeMob(c.x, c.y, SKIRMISH_KITE_TILES * TILE_SIZE);
+      if (threat) {
+        kiteStep(c, threat, guardLeashTiles(c) * TILE_SIZE, stats.speed, dt);
+        c.state = "engaging";
+        return;
+      }
+    }
     // Camp hearths: no enemy in reach (guardians are fought first, picked above), so the hearth.
     if (!retreating && hearthStep(c, stats, dt)) return;
     if (stats.speed === 0) {
@@ -5488,9 +5723,10 @@ function updateGuardColonist(c: Colonist, dt: number) {
   // Regiments: a ranged unit with a friendly front rank near it holds its rear slot - it fires at what
   // comes into bow range, never walks out toward the enemy line, and kites a step back (toward its slot
   // where that is away from the threat) from an enemy melee unit within RANGED_KITE_TILES. No front
-  // rank (archers on their own) or a commanded target: the ordinary behaviour below.
-  if (!stats.melee && stats.speed > 0 && !commanded && hasFriendlyFrontline(c)) {
-    const threat = nearestMeleeMob(c.x, c.y, RANGED_KITE_TILES * TILE_SIZE);
+  // rank (archers on their own) or a commanded target: the ordinary behaviour below. Phase 4: a
+  // skirmisher does this with or without a front rank, from SKIRMISH_KITE_TILES.
+  if (!stats.melee && stats.speed > 0 && !commanded && (c.skirmish || hasFriendlyFrontline(c))) {
+    const threat = nearestMeleeMob(c.x, c.y, (c.skirmish ? SKIRMISH_KITE_TILES : RANGED_KITE_TILES) * TILE_SIZE);
     if (threat) {
       kiteStep(c, threat, leashPx, stats.speed, dt);
       dist = Math.hypot(target.x - c.x, target.y - c.y);
@@ -5724,6 +5960,9 @@ function updateSquadMarch() {
 // skips enemies that already have their share of attackers (meleeAttackerCap), so a line spreads over
 // the enemies in front of it; with none left it holds its slot (the queue).
 function pickGuardTarget(c: Colonist, stats: { range: number; melee: boolean; speed: number }): Mob | null {
+  // Phase 4, hold fire: a ranged unit / catapult only shoots a commanded target; a catapult on a bombard
+  // order only its point.
+  if (!stats.melee && (c.holdFire || (c.kind === "catapult" && bombardPoint(c)))) return null;
   // A catapult sees as far as it throws; a ram only takes on what is right next to it.
   const alertPx = c.kind === "batteringRam" ? stats.range + COLONIST_BODY_RADIUS * 2
     : Math.max(STANCE_ALERT_RANGE_TILES[c.stance] * TILE_SIZE, c.kind === "catapult" ? stats.range : 0);
@@ -5751,9 +5990,12 @@ function pickGuardTarget(c: Colonist, stats: { range: number; melee: boolean; sp
   return best;
 }
 
-// The slot leash (LINE_LEASH_TILES by stance; a regiment on a Hold order: HOLD_LEASH_TILES).
+// The slot leash (LINE_LEASH_TILES by stance; a regiment on a Hold order: HOLD_LEASH_TILES; a ranged
+// skirmisher: at least SKIRMISH_DRIFT_TILES, the room it kites in).
 function guardLeashTiles(c: Colonist): number {
-  return unitOrderKind(c) === "hold" ? HOLD_LEASH_TILES : LINE_LEASH_TILES[c.stance];
+  if (unitOrderKind(c) === "hold") return HOLD_LEASH_TILES;
+  if (c.skirmish && !unitStats(c).melee) return Math.max(LINE_LEASH_TILES[c.stance], SKIRMISH_DRIFT_TILES);
+  return LINE_LEASH_TILES[c.stance];
 }
 
 // A retreating unit's only target: an awake enemy within RETREAT_CORNERED_TILES of it.
@@ -8928,21 +9170,27 @@ function handleCommandAttackHearth(unitIds: string[], tx: number, ty: number) {
   for (const id of unitIds) {
     const c = colonists.get(id);
     if (!c || !isGuardOrMilitiaKind(c.kind)) continue;
-    const approach = hearthApproachTile(h, c.x, c.y);
-    if (!approach) continue;
-    const p = tileToPixelCenter(approach);
+    if (!hearthApproachTile(h, c.x, c.y)) continue;
     leaveOrderGroup(c.id);
-    c.targetHearthId = h.siteId;
-    c.targetMobId = null;
-    commandedTargets.delete(c.id);
-    c.squadId = null;
-    c.rallyTileX = approach.x;
-    c.rallyTileY = approach.y;
-    c.rallyX = p.x;
-    c.rallyY = p.y;
-    c.path = [];
-    c.repathCooldown = 0;
+    sendAgainstHearth(c, h);
   }
+}
+
+// The unit's rally moves to the hearth's approach tile and it attacks the hearth (no-op without one).
+function sendAgainstHearth(c: Colonist, h: HearthState) {
+  const approach = hearthApproachTile(h, c.x, c.y);
+  if (!approach) return;
+  const p = tileToPixelCenter(approach);
+  c.targetHearthId = h.siteId;
+  c.targetMobId = null;
+  commandedTargets.delete(c.id);
+  c.squadId = null;
+  c.rallyTileX = approach.x;
+  c.rallyTileY = approach.y;
+  c.rallyX = p.x;
+  c.rallyY = p.y;
+  c.path = [];
+  c.repathCooldown = 0;
 }
 
 // A soldier with no mob target: works on its hearth target (commanded, or picked on an aggressive stance
@@ -8954,7 +9202,7 @@ function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; mele
     c.path = [];
     h = undefined;
   }
-  if (!h && c.stance === "aggressive") {
+  if (!h && c.stance === "aggressive" && !(c.holdFire && !stats.melee)) {
     const zone = LINE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range + TILE_SIZE;
     let bestD = HEARTH_AUTO_TARGET_TILES * TILE_SIZE;
     for (const cand of hearths.values()) {
@@ -10707,6 +10955,8 @@ wss.on("connection", (socket, req) => {
       handleAssignTaskForce(message.slot, message.unitIds);
     } else if (message.type === "regimentOrder") {
       handleRegimentOrder(player, message);
+    } else if (message.type === "regimentSettings") {
+      handleRegimentSettings(player, message);
     } else if (message.type === "exchangeResource") {
       handleExchangeResource(message.from, message.to);
     } else if (message.type === "buyWithGold") {
@@ -13123,6 +13373,8 @@ function autoSpellTarget(c: Colonist, id: SpellId): SpellTarget | null {
 }
 
 function heroAutoCast(c: Colonist) {
+  // Strategy mode phase 4: hold fire also holds a hero's auto-spells.
+  if (c.holdFire) return;
   if ((spellTick + c.id.charCodeAt(0)) % SPELL_AUTO_EVERY_TICKS !== 0) return;
   const prof = heroProfiles.get(heroKey(c.id));
   if (!prof || !prof.spellAuto) return;
@@ -14030,6 +14282,10 @@ setInterval(() => {
       ...(c.weaponTier ? { weaponTier: c.weaponTier } : {}),
       ...(c.kind === "hero" ? { heroName: c.heroName, heroClass: c.heroClass, heroLevel: heroProfileFor(heroKey(c.id)).level } : {}),
       ...(summonedUntil.has(c.id) ? { summoned: true } : {}),
+      ...(c.holdFire ? { holdFire: true } : {}),
+      ...(c.skirmish ? { skirmish: true } : {}),
+      ...(c.cycleCharge ? { cycleCharge: true } : {}),
+      ...(c.shape ? { shape: c.shape } : {}),
     })),
     mobs: Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,
