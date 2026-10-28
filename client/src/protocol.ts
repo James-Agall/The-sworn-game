@@ -245,6 +245,64 @@ export interface EquipmentStock {
   weapon: number[];
 }
 
+// ---- Hero phases 1-2: items, inventory, character sheet (ROADMAP "Hero phases 1-2", 2026-10-28) ----
+// Per-player (later per-hero) gear. Plain tiered pieces (chest / weapon) are pulled from the colony's
+// EquipmentStock; relics are unique named drops. Stats are additive percentages / flat HP.
+export type GearSlot =
+  | "head" | "chest" | "legs" | "weapon" | "offhand" | "trinket1" | "trinket2"
+  | "spell1" | "spell2" | "spell3" | "spell4";
+export const GEAR_SLOTS: GearSlot[] = [
+  "head", "chest", "legs", "weapon", "offhand", "trinket1", "trinket2", "spell1", "spell2", "spell3", "spell4",
+];
+// What kind of socket an item fits (trinket -> trinket1/2, spell -> spell1-4).
+export type ItemSlotKind = "head" | "chest" | "legs" | "weapon" | "offhand" | "trinket" | "spell";
+export type ItemTier = 1 | 2 | 3 | "relic";
+export interface ItemStats {
+  damagePct?: number;
+  // Negative = takes less damage.
+  damageTakenPct?: number;
+  maxHp?: number;
+  moveSpeedPct?: number;
+  attackSpeedPct?: number;
+  spellPowerPct?: number;
+}
+export interface GearItem {
+  // Unique per instance.
+  id: string;
+  slot: ItemSlotKind;
+  name: string;
+  tier: ItemTier;
+  stats: ItemStats;
+  // e.g. "sword" / "spear" / "bow" / "staff" / "helm" / "shield" (glyph on the placeholder icon).
+  kind?: string;
+  // Relic catalogue key (relics only).
+  relicId?: string;
+  // Optional sprite basename under /sprites/ (SPRITES.md #49 / #51); the client falls back to a placeholder.
+  icon?: string;
+}
+export type Equipment = Record<GearSlot, GearItem | null>;
+// Derived (server-computed) modifiers of the player's gear + level.
+export interface HeroStats {
+  maxHp: number;
+  damageMult: number;
+  damageTakenMult: number;
+  moveSpeedMult: number;
+  attackSpeedMult: number;
+  spellPowerMult: number;
+}
+// Snapshot `profile`: sent only to its own player, and only when it changed (keep the last one).
+export interface HeroProfileSnapshot {
+  equipment: Equipment;
+  inventory: GearItem[];
+  inventoryCap: number;
+  xp: number;
+  level: number;
+  // Total XP at which the current / next level starts (next = null at the max level).
+  levelXp: number;
+  nextLevelXp: number | null;
+  stats: HeroStats;
+}
+
 export type MobKind =
   | "goblin"
   | "wolf"
@@ -523,6 +581,11 @@ export type ClientMessage =
   | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
   // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).
   | { type: "queueForge"; tileX: number; tileY: number; slot: EquipSlot }
+  // Hero phases 1-2 (additive): equip an inventory item into a slot (swaps any occupant back), unequip a
+  // slot, or pull one plain tiered piece (armour -> chest item, weapon -> weapon item) out of the colony stock.
+  | { type: "equipItem"; itemId: string; slot: GearSlot }
+  | { type: "unequipItem"; slot: GearSlot }
+  | { type: "takeFromArmoury"; slot: EquipSlot; tier: number }
   // Save files (server/saves/<slot>.json). saveGame takes slot1-3 (the autosave is the server's own);
   // loadGame replaces the shared world for everyone connected.
   | { type: "saveGame"; slot: SaveSlot }
@@ -604,6 +667,8 @@ export type ServerMessage =
       hearths?: number[];
       // Armour & weapons: the colony's equipment stock by tier (omitted by older servers).
       equipment?: EquipmentStock;
+      // Hero phases 1-2: this player's gear / inventory / XP (per-player field, only when it changed).
+      profile?: HeroProfileSnapshot;
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).

@@ -65,6 +65,14 @@ import {
   MOB_ROLE,
   COLONIST_ROLE,
   isRearRole,
+  GearSlot,
+  GEAR_SLOTS,
+  GearItem,
+  ItemSlotKind,
+  ItemStats,
+  Equipment,
+  HeroStats,
+  HeroProfileSnapshot,
 } from "./protocol.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
@@ -101,6 +109,11 @@ interface Player {
   poisonDamagePerTick: number;
   // Killed while no Town Center stood: no respawn until one is (re)built (see respawnDeadPlayers).
   dead: boolean;
+  // Hero phases 1-2: the persistent profile (gear, inventory, XP) this session plays as: the ws URL's
+  // `?profile=` (the client's stored id), else "default". Several sessions with one key share it.
+  profileKey: string;
+  // heroProfile.version last sent in this player's snapshot (-1 = send it on the next one).
+  profileSentVersion: number;
 }
 
 interface TileCoord {
@@ -4389,6 +4402,7 @@ function damageMob(mob: Mob, amount: number, attackerKey?: string) {
     noteRegimentCasualty(mob);
     stock.gold += goldForKill(mob);
     dropEquipmentFor(mob);
+    heroRewardsForKill(mob, attackerKey);
     if (mob.boss) onBossKilled(mob);
   }
 }
@@ -4397,11 +4411,14 @@ function damageMob(mob: Mob, amount: number, attackerKey?: string) {
 // they stay dead (game over for them) until someone builds one: see respawnDeadPlayers.
 function damagePlayer(player: Player, amount: number) {
   if (player.dead) return;
-  player.hp -= amount;
+  // Hero gear: every blow / poison tick the player takes is scaled (equipment survives death).
+  const mult = heroProfileOf(player).stats.damageTakenMult;
+  if (mult !== 1) heroEvent({ type: "taken", key: player.profileKey, amount: amount * mult, detail: String(amount) });
+  player.hp -= amount * mult;
   if (player.hp <= 0) {
     player.poisonTicksRemaining = 0;
     if (townCenters.length > 0) {
-      player.hp = PLAYER_MAX_HP;
+      player.hp = playerMaxHp(player);
       const spawn = spawnPointNearTownCenter(player);
       player.x = spawn.x;
       player.y = spawn.y;
@@ -4419,7 +4436,7 @@ function respawnDeadPlayers() {
   for (const p of players.values()) {
     if (!p.dead) continue;
     p.dead = false;
-    p.hp = PLAYER_MAX_HP;
+    p.hp = playerMaxHp(p);
     const spawn = spawnPointNearTownCenter(p);
     p.x = spawn.x;
     p.y = spawn.y;
@@ -4561,7 +4578,8 @@ function handleBuyWithGold(item: "tools" | "clothes" | "luxuryItems" | "wood" | 
 
 function handlePlayerAttack(attacker: Player) {
   if (attacker.dead || attacker.attackCooldownTicks > 0) return;
-  attacker.attackCooldownTicks = PLAYER_ATTACK_COOLDOWN_TICKS;
+  attacker.attackCooldownTicks = playerAttackCooldownTicks(attacker);
+  const damage = playerDamage(attacker);
 
   let bestType: "player" | "mob" | null = null;
   let bestId: string | null = null;
@@ -4597,7 +4615,7 @@ function handlePlayerAttack(attacker: Player) {
     // A player's kill is dressed on the spot: the meat goes straight to the stockpile.
     pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: bestAnimal.x, toY: bestAnimal.y, melee: true });
     const meat = WILDLIFE_CONFIG[bestAnimal.kind].meat;
-    if (damageWildlife(bestAnimal, PLAYER_ATTACK_DAMAGE, attacker.x, attacker.y, null)) stock.meat += meat;
+    if (damageWildlife(bestAnimal, damage, attacker.x, attacker.y, null)) stock.meat += meat;
     return;
   }
 
@@ -4608,7 +4626,7 @@ function handlePlayerAttack(attacker: Player) {
       const p = tileToPixelCenter(h);
       if (Math.hypot(p.x - attacker.x, p.y - attacker.y) > PLAYER_ATTACK_RANGE + TILE_SIZE / 2) continue;
       pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: p.x, toY: p.y, melee: true });
-      damageHearth(h, PLAYER_ATTACK_DAMAGE, "p:" + attacker.id);
+      damageHearth(h, damage, "p:" + attacker.id);
       return;
     }
     return;
@@ -4617,13 +4635,14 @@ function handlePlayerAttack(attacker: Player) {
     const target = players.get(bestId);
     if (target) {
       pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
-      damagePlayer(target, PLAYER_ATTACK_DAMAGE);
+      damagePlayer(target, damage);
     }
   } else {
     const target = mobs.get(bestId);
     if (target) {
       pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
-      damageMob(target, PLAYER_ATTACK_DAMAGE, "p:" + attacker.id);
+      heroEvent({ type: "hit", key: attacker.profileKey, amount: damage, detail: target.id });
+      damageMob(target, damage, "p:" + attacker.id);
     }
   }
 }
@@ -5043,7 +5062,7 @@ function findNearestInjured(
   let bestDist = Infinity;
   const maxRangePx = maxRangeTiles * TILE_SIZE;
   for (const p of players.values()) {
-    if (p.hp >= PLAYER_MAX_HP || p.dead) continue;
+    if (p.hp >= playerMaxHp(p) || p.dead) continue;
     const d = Math.hypot(p.x - fromX, p.y - fromY);
     if (d <= maxRangePx && d < bestDist) {
       bestDist = d;
@@ -5072,7 +5091,7 @@ function updateBishopColonist(c: Colonist, dt: number) {
 
   if (c.healTargetType === "player" && c.healTargetId) {
     const p = players.get(c.healTargetId);
-    if (p && p.hp < PLAYER_MAX_HP) targetPos = { x: p.x, y: p.y };
+    if (p && p.hp < playerMaxHp(p)) targetPos = { x: p.x, y: p.y };
   } else if (c.healTargetType === "colonist" && c.healTargetId) {
     const other = colonists.get(c.healTargetId);
     if (other && other.hp < other.maxHp) targetPos = { x: other.x, y: other.y };
@@ -5109,7 +5128,7 @@ function updateBishopColonist(c: Colonist, dt: number) {
       const amount = healAmountFor(c.postX, c.postY);
       if (c.healTargetType === "player" && c.healTargetId) {
         const p = players.get(c.healTargetId);
-        if (p) p.hp = Math.min(PLAYER_MAX_HP, p.hp + amount);
+        if (p) p.hp = Math.min(playerMaxHp(p), p.hp + amount);
       } else if (c.healTargetType === "colonist" && c.healTargetId) {
         const other = colonists.get(c.healTargetId);
         if (other) other.hp = Math.min(other.maxHp, other.hp + amount);
@@ -6191,7 +6210,7 @@ function pickMarkedUnitTarget(mob: Mob, wards: TileCoord[]): { type: MobTargetTy
     if (isGuardOrMilitiaKind(c.kind)) consider("colonist", c.id, c.x, c.y, c.hp, c.maxHp);
   }
   for (const p of players.values()) {
-    if (!p.dead) consider("player", p.id, p.x, p.y, p.hp, PLAYER_MAX_HP);
+    if (!p.dead) consider("player", p.id, p.x, p.y, p.hp, playerMaxHp(p));
   }
   return best;
 }
@@ -6970,7 +6989,7 @@ function updateMob(mob: Mob, dt: number) {
             p.poisonDamagePerTick = POISON_DAMAGE_PER_TICK;
           }
           damagePlayer(p, mob.damage);
-          if (mob.mark === HungerMark.Vhorrun && !p.dead && p.hp < PLAYER_MAX_HP * VHORRUN_WITHDRAW_TARGET_HP) {
+          if (mob.mark === HungerMark.Vhorrun && !p.dead && p.hp < playerMaxHp(p) * VHORRUN_WITHDRAW_TARGET_HP) {
             startVhorrunWithdraw(mob, targetPos);
           }
         }
@@ -7127,7 +7146,7 @@ function playerForceNear(cx: number, cy: number, radiusPx: number): { hp: number
     for (const p of players.values()) {
       if (p.dead || Math.hypot(p.x - cx, p.y - cy) > radiusPx) continue;
       hp += p.hp;
-      dmg += PLAYER_ATTACK_DAMAGE;
+      dmg += playerDamage(p);
       units.push({ type: "player", id: p.id, x: p.x, y: p.y, rear: false });
     }
   }
@@ -8075,10 +8094,10 @@ function damageHearth(h: HearthState, amount: number, attackerKey?: string) {
   activateGuardianSite(h.siteId);
   h.hp -= amount;
   hearthEvent(h.siteId, "hit", `${amount.toFixed(1)} ${attackerKey ?? ""}`.trim());
-  if (h.hp <= 0) destroyHearth(h);
+  if (h.hp <= 0) destroyHearth(h, attackerKey);
 }
 
-function destroyHearth(h: HearthState) {
+function destroyHearth(h: HearthState, attackerKey?: string) {
   h.destroyed = true;
   h.hp = 0;
   campsDestroyed++;
@@ -8144,6 +8163,8 @@ function destroyHearth(h: HearthState) {
     "milestone",
     `The ${h.faction} camp breaks and scatters! Plundered ${loot.gold} gold, ${loot.wood} wood, ${loot.rock} rock, ${loot.iron} iron, ${gear}`
   );
+  // Hero phases 1-2: RELIC_HEARTH_CHANCE of a relic (after the plunder toast).
+  heroRelicForHearth(attackerKey);
 }
 
 // Flattened [tile index, hp permille] per standing hearth (snapshot `hearths`, HEARTH_SNAPSHOT_STRIDE).
@@ -8836,7 +8857,8 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     });
   } else if (msg.op === "damageMob" && typeof msg.mobId === "string" && typeof msg.amount === "number") {
     const mob = mobs.get(msg.mobId);
-    if (mob) damageMob(mob, msg.amount);
+    // byPlayer: the blow counts as this player's (relic / XP rewards go to them).
+    if (mob) damageMob(mob, msg.amount, msg.byPlayer === true ? "p:" + player.id : undefined);
     reply({ found: !!mob });
   } else if (msg.op === "forceDeserterRoll") {
     testForceDeserterRoll = typeof msg.value === "boolean" ? msg.value : null;
@@ -8976,6 +8998,8 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       // Monster tactics: optional regiment (raid-style) or an awake site guardian (siteId).
       if (typeof msg.regimentId === "string") mob.regimentId = msg.regimentId;
       if (typeof msg.siteId === "string") Object.assign(mob, { siteId: msg.siteId, siteKind: "encampment", guardianActive: true });
+      // Hero phases 1-2: optional boss tier ("warlord" / "elite").
+      if (msg.boss === "warlord" || msg.boss === "elite") makeBoss(mob, msg.boss);
       reply({ id: mob.id, mark: mob.mark, hp: mob.hp, maxHp: mob.maxHp, damage: mob.damage });
     }
   } else if (msg.op === "spawnRaidGroup" && Array.isArray(msg.kinds) && typeof msg.tx === "number" && typeof msg.ty === "number") {
@@ -9162,6 +9186,19 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       if (Array.isArray(v)) equipment[slot] = [0, 1, 2].map((i) => (typeof v[i] === "number" ? v[i] : 0));
     }
     reply({ equipment: { armour: [...equipment.armour], weapon: [...equipment.weapon] } });
+  } else if (msg.op === "heroState") {
+    // Hero phases 1-2: this player's profile (snapshot form), hp, every saved profile key, recent events.
+    const prof = heroProfileOf(player);
+    reply({
+      key: prof.key, profile: heroProfileSnapshot(prof), hp: player.hp, dead: player.dead,
+      cooldownTicks: playerAttackCooldownTicks(player), keys: Array.from(heroProfiles.keys()), events: heroEvents.slice(),
+    });
+  } else if (msg.op === "grantRelic") {
+    const item = grantRelic(heroProfileOf(player), "hook", typeof msg.relicId === "string" ? msg.relicId : undefined);
+    reply({ item });
+  } else if (msg.op === "heroConfig") {
+    testRelicChance = typeof msg.relicChance === "number" ? msg.relicChance : null;
+    reply({ relicChance: testRelicChance });
   } else if (msg.op === "equipConfig") {
     testEquipDropChance = typeof msg.dropChance === "number" ? msg.dropChance : null;
     reply({ dropChance: testEquipDropChance });
@@ -9341,6 +9378,7 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
 
   Object.assign(stock, initialStock());
   resetEquipment();
+  heroProfiles.clear();
   marketBuilt = false;
   goldShopBuilt = false;
   colonyHappiness = 100;
@@ -9371,7 +9409,8 @@ function respawnPlayersAndWelcome() {
     const spawn = spawnPointNearTownCenter();
     player.x = spawn.x;
     player.y = spawn.y;
-    player.hp = PLAYER_MAX_HP;
+    player.hp = playerMaxHp(player);
+    player.profileSentVersion = -1;
     player.attackCooldownTicks = 0;
     player.poisonTicksRemaining = 0;
     player.poisonDamagePerTick = 0;
@@ -9450,6 +9489,8 @@ function snapshotWorld() {
     stock: { ...stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...equipment.armour], weapon: [...equipment.weapon] },
+    // Hero phases 1-2: every player profile (gear, inventory, XP).
+    heroProfiles: serializeHeroProfiles() as unknown,
     marketBuilt,
     goldShopBuilt,
     colonyHappiness,
@@ -9526,6 +9567,8 @@ function applyWorld(s: WorldState) {
   resetEquipment();
   equipment.armour = [0, 1, 2].map((i) => s.equipment?.armour?.[i] ?? 0);
   equipment.weapon = [0, 1, 2].map((i) => s.equipment?.weapon?.[i] ?? 0);
+  // Saves from before Hero phases 1-2: no profiles (everyone starts with an empty pack, level 1).
+  restoreHeroProfiles(s.heroProfiles);
   marketBuilt = s.marketBuilt;
   goldShopBuilt = s.goldShopBuilt;
   colonyHappiness = s.colonyHappiness;
@@ -9793,8 +9836,11 @@ function saveOnShutdown(signal: string) {
 process.on("SIGINT", () => saveOnShutdown("SIGINT"));
 process.on("SIGTERM", () => saveOnShutdown("SIGTERM"));
 
-wss.on("connection", (socket) => {
+wss.on("connection", (socket, req) => {
   const id = randomUUID();
+  // Hero phases 1-2: the client's stored profile id (`?profile=`), else the world's "default" profile.
+  const profileParam = new URL(req.url ?? "/", "http://localhost").searchParams.get("profile") ?? "";
+  const profileKey = /^[\w-]{1,64}$/.test(profileParam) ? profileParam : "default";
   const color = PLAYER_COLORS[nextColorIndex % PLAYER_COLORS.length];
   nextColorIndex += 1;
 
@@ -9811,8 +9857,11 @@ wss.on("connection", (socket) => {
     poisonTicksRemaining: 0,
     poisonDamagePerTick: 0,
     dead: false,
+    profileKey,
+    profileSentVersion: -1,
   };
   players.set(id, player);
+  player.hp = playerMaxHp(player);
   anyPlayerSinceBoot = true;
 
   sendWelcome(player);
@@ -9883,6 +9932,12 @@ wss.on("connection", (socket) => {
     } else if (message.type === "queueForge") {
       if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
       handleQueueForge(message.tileX, message.tileY, message.slot);
+    } else if (message.type === "equipItem") {
+      handleEquipItem(player, message.itemId, message.slot);
+    } else if (message.type === "unequipItem") {
+      handleUnequipItem(player, message.slot);
+    } else if (message.type === "takeFromArmoury") {
+      handleTakeFromArmoury(player, message.slot, message.tier);
     } else if (message.type === "saveGame") {
       void handleSaveGame(player, message.slot);
     } else if (message.type === "loadGame") {
@@ -11095,6 +11150,303 @@ function dropEquipmentFor(mob: Mob) {
   );
 }
 
+// ---- Hero phases 1-2: items, inventory, XP for the PLAYER (ROADMAP "Hero phases 1-2") ----
+// A HeroProfile is the player's persistent gear + XP, keyed by Player.profileKey, saved with the world
+// (`heroProfiles`), never touched by death / respawn. Heroes (phase 3) can own one each: nothing here is
+// player-specific except heroProfileOf / playerMaxHp / playerDamage / playerAttackCooldownTicks.
+interface HeroProfile {
+  key: string;
+  equipment: Equipment;
+  // Unequipped items only (equipped ones live in `equipment`), at most HERO_INVENTORY_CAP.
+  inventory: GearItem[];
+  xp: number;
+  // Bumped (from heroProfileVersionCounter) on every change; the snapshot resends the profile then.
+  version: number;
+  // Cached derived modifiers (recomputed by recomputeHeroProfile on every change).
+  stats: HeroStats;
+  level: number;
+}
+const HERO_INVENTORY_CAP = 40;
+// Total XP at which level 1..10 starts (index = level - 1).
+const HERO_LEVEL_XP = [0, 40, 100, 180, 280, 400, 550, 730, 940, 1200];
+const HERO_MAX_LEVEL = HERO_LEVEL_XP.length;
+// Per level above 1: +4% damage dealt (multiplicative on the gear's), +6 max HP.
+const HERO_LEVEL_DAMAGE_PCT = 4;
+const HERO_LEVEL_MAX_HP = 6;
+// XP for a kill (killing blow by that player): 10 per mob, x3 Hunger-marked, 60 a mini-boss elite, 250 the Warlord.
+const HERO_XP_PER_KILL = 10;
+const HERO_XP_MARKED_MULT = 3;
+const HERO_XP_BOSS: Record<BossTier, number> = { warlord: 250, elite: 60 };
+// Floors so stacked gear can't zero damage taken or freeze movement.
+const HERO_MIN_DAMAGE_TAKEN_MULT = 0.25;
+const HERO_MIN_SPEED_MULT = 0.5;
+// Relic drop chances: a destroyed camp hearth; an armoured kind (EQUIP_ARMOURED_KINDS) or Hunger-marked
+// mob (not a boss). The Ogre Warlord and every mini-boss elite always drop one.
+const RELIC_HEARTH_CHANCE = 0.15;
+const RELIC_ELITE_MOB_CHANCE = 0.08;
+// Plain tiered pieces pulled from the colony stock: same strength as the soldiers' tier multipliers
+// (WEAPON_DAMAGE_MULT x1.2 / 1.4 / 1.7 = +20 / 40 / 70%; ARMOUR_DAMAGE_TAKEN_MULT x0.85 / 0.7 / 0.55).
+const PLAIN_GEAR: Record<EquipSlot, { slot: ItemSlotKind; kind: string; names: string[]; stats: (tier: number) => ItemStats }> = {
+  weapon: {
+    slot: "weapon", kind: "sword", names: ["Iron Arming Sword", "Steel Arming Sword", "Gilded Arming Sword"],
+    stats: (t) => ({ damagePct: Math.round((WEAPON_DAMAGE_MULT[t] - 1) * 100) }),
+  },
+  armour: {
+    slot: "chest", kind: "cuirass", names: ["Iron & Leather Cuirass", "Steel Breastplate", "Gilded Breastplate"],
+    stats: (t) => ({ damageTakenPct: Math.round((ARMOUR_DAMAGE_TAKEN_MULT[t] - 1) * 100) }),
+  },
+};
+// The Sworn Relics: unique named pieces, at most one of each per profile (owned or equipped).
+const RELIC_CATALOGUE: { relicId: string; slot: ItemSlotKind; kind: string; name: string; icon: string; stats: ItemStats }[] = [
+  { relicId: "oathkeeperHelm", slot: "head", kind: "helm", name: "Oathkeeper's Helm", icon: "relicHelm", stats: { damageTakenPct: -15, maxHp: 20 } },
+  { relicId: "gorrathHide", slot: "chest", kind: "cuirass", name: "Gorrath's Hide", icon: "relicChest", stats: { damageTakenPct: -40, maxHp: 30 } },
+  { relicId: "vhorrunStride", slot: "legs", kind: "greaves", name: "Vhorrun's Stride", icon: "relicLegs", stats: { moveSpeedPct: 15, damageTakenPct: -10 } },
+  { relicId: "wardStoneAegis", slot: "offhand", kind: "shield", name: "Aegis of the Ward Stone", icon: "relicShield", stats: { damageTakenPct: -20, maxHp: 15 } },
+  { relicId: "swornOathblade", slot: "weapon", kind: "sword", name: "The Sworn Oathblade", icon: "relicSword", stats: { damagePct: 60, attackSpeedPct: 10 } },
+  { relicId: "gunneTooth", slot: "weapon", kind: "spear", name: "Gunne's Tooth", icon: "relicSpear", stats: { damagePct: 55, moveSpeedPct: 10 } },
+  { relicId: "morvainWhisper", slot: "weapon", kind: "bow", name: "Morvain's Whisper", icon: "relicBow", stats: { damagePct: 40, attackSpeedPct: 30 } },
+  { relicId: "abbeyEmberstaff", slot: "weapon", kind: "staff", name: "Abbey Emberstaff", icon: "relicStaff", stats: { damagePct: 35, spellPowerPct: 40 } },
+];
+const heroProfiles = new Map<string, HeroProfile>();
+let heroProfileVersionCounter = 0;
+// testHook "heroConfig" {relicChance}: overrides both relic chances (null = the constants).
+let testRelicChance: number | null = null;
+// Test-hook log (heroState): hit / taken / relic / xp / equip / refuse.
+const heroEvents: { type: string; key?: string; amount?: number; detail?: string; tick: number }[] = [];
+function heroEvent(e: Omit<(typeof heroEvents)[number], "tick">) {
+  if (!TEST_HOOKS) return;
+  heroEvents.push({ ...e, tick: cycleTick });
+  if (heroEvents.length > 300) heroEvents.splice(0, heroEvents.length - 300);
+}
+
+function emptyEquipment(): Equipment {
+  return Object.fromEntries(GEAR_SLOTS.map((s) => [s, null])) as Equipment;
+}
+
+function heroLevelFor(xp: number): number {
+  let level = 1;
+  while (level < HERO_MAX_LEVEL && xp >= HERO_LEVEL_XP[level]) level++;
+  return level;
+}
+
+function computeHeroStats(equipment: Equipment, level: number): HeroStats {
+  const sum: Required<ItemStats> = { damagePct: 0, damageTakenPct: 0, maxHp: 0, moveSpeedPct: 0, attackSpeedPct: 0, spellPowerPct: 0 };
+  for (const slot of GEAR_SLOTS) {
+    const item = equipment[slot];
+    if (!item) continue;
+    for (const k of Object.keys(sum) as (keyof ItemStats)[]) sum[k] += item.stats[k] ?? 0;
+  }
+  const lv = level - 1;
+  return {
+    maxHp: PLAYER_MAX_HP + sum.maxHp + HERO_LEVEL_MAX_HP * lv,
+    damageMult: (1 + sum.damagePct / 100) * (1 + (HERO_LEVEL_DAMAGE_PCT * lv) / 100),
+    damageTakenMult: Math.max(HERO_MIN_DAMAGE_TAKEN_MULT, 1 + sum.damageTakenPct / 100),
+    moveSpeedMult: Math.max(HERO_MIN_SPEED_MULT, 1 + sum.moveSpeedPct / 100),
+    attackSpeedMult: Math.max(HERO_MIN_SPEED_MULT, 1 + sum.attackSpeedPct / 100),
+    spellPowerMult: 1 + sum.spellPowerPct / 100,
+  };
+}
+
+function newHeroProfile(key: string, equipment = emptyEquipment(), inventory: GearItem[] = [], xp = 0): HeroProfile {
+  const level = heroLevelFor(xp);
+  return { key, equipment, inventory, xp, level, version: ++heroProfileVersionCounter, stats: computeHeroStats(equipment, level) };
+}
+
+function heroProfileFor(key: string): HeroProfile {
+  let prof = heroProfiles.get(key);
+  if (!prof) {
+    prof = newHeroProfile(key);
+    heroProfiles.set(key, prof);
+  }
+  return prof;
+}
+
+function heroProfileOf(player: Player): HeroProfile {
+  return heroProfileFor(player.profileKey);
+}
+
+// After any change to a profile: re-derive its modifiers, mark it for resending, and clamp the HP of
+// every player playing it to the new max (a max-HP gain doesn't heal).
+function recomputeHeroProfile(prof: HeroProfile) {
+  prof.level = heroLevelFor(prof.xp);
+  prof.stats = computeHeroStats(prof.equipment, prof.level);
+  prof.version = ++heroProfileVersionCounter;
+  for (const p of players.values()) {
+    if (p.profileKey === prof.key && !p.dead) p.hp = Math.min(p.hp, prof.stats.maxHp);
+  }
+}
+
+function playerMaxHp(p: Player): number {
+  return heroProfileOf(p).stats.maxHp;
+}
+
+function playerDamage(p: Player): number {
+  return PLAYER_ATTACK_DAMAGE * heroProfileOf(p).stats.damageMult;
+}
+
+function playerAttackCooldownTicks(p: Player): number {
+  return Math.max(1, Math.round(PLAYER_ATTACK_COOLDOWN_TICKS / heroProfileOf(p).stats.attackSpeedMult));
+}
+
+function heroProfileSnapshot(prof: HeroProfile): HeroProfileSnapshot {
+  return {
+    equipment: prof.equipment,
+    inventory: prof.inventory,
+    inventoryCap: HERO_INVENTORY_CAP,
+    xp: prof.xp,
+    level: prof.level,
+    levelXp: HERO_LEVEL_XP[prof.level - 1],
+    nextLevelXp: prof.level < HERO_MAX_LEVEL ? HERO_LEVEL_XP[prof.level] : null,
+    stats: prof.stats,
+  };
+}
+
+function sendHeroEvent(prof: HeroProfile, category: GameEventCategory, text: string) {
+  for (const p of players.values()) if (p.profileKey === prof.key) sendTo(p, { type: "event", category, text });
+}
+
+// Which slot kinds a gear slot accepts.
+function gearSlotKind(slot: GearSlot): ItemSlotKind {
+  if (slot === "trinket1" || slot === "trinket2") return "trinket";
+  if (slot.startsWith("spell")) return "spell";
+  return slot as ItemSlotKind;
+}
+
+function ownsRelic(prof: HeroProfile, relicId: string): boolean {
+  return prof.inventory.some((i) => i.relicId === relicId) || GEAR_SLOTS.some((s) => prof.equipment[s]?.relicId === relicId);
+}
+
+// A random relic this profile doesn't own yet (or `relicId`, if given and unowned) into its inventory.
+// Returns the item, or null (all owned / unknown id / inventory full).
+function grantRelic(prof: HeroProfile, source: string, relicId?: string): GearItem | null {
+  const pool = RELIC_CATALOGUE.filter((r) => !ownsRelic(prof, r.relicId) && (relicId === undefined || r.relicId === relicId));
+  if (pool.length === 0) return null;
+  if (prof.inventory.length >= HERO_INVENTORY_CAP) {
+    sendHeroEvent(prof, "build", "A relic was found, but your pack is full (40 items)");
+    return null;
+  }
+  const r = pool[Math.floor(Math.random() * pool.length)];
+  const item: GearItem = { id: randomUUID(), slot: r.slot, name: r.name, tier: "relic", stats: { ...r.stats }, kind: r.kind, relicId: r.relicId, icon: r.icon };
+  prof.inventory.push(item);
+  recomputeHeroProfile(prof);
+  heroEvent({ type: "relic", key: prof.key, detail: `${r.relicId} ${source}` });
+  sendHeroEvent(prof, "milestone", `Relic found: ${item.name}`);
+  return item;
+}
+
+// Who gets a kill's relic / XP: the player who struck the blow ("p:<id>"), else (soldiers, towers, test
+// hooks) every connected player's profile (relics only; XP needs a player's own killing blow).
+function lootProfiles(attackerKey?: string): HeroProfile[] {
+  if (attackerKey?.startsWith("p:")) {
+    const p = players.get(attackerKey.slice(2));
+    if (p) return [heroProfileOf(p)];
+  }
+  const keys = new Set(Array.from(players.values(), (p) => p.profileKey));
+  return Array.from(keys, (k) => heroProfileFor(k));
+}
+
+// From damageMob on a kill: relics (bosses always, armoured / marked mobs RELIC_ELITE_MOB_CHANCE) and XP.
+function heroRewardsForKill(mob: Mob, attackerKey?: string) {
+  if (attackerKey?.startsWith("p:")) {
+    const p = players.get(attackerKey.slice(2));
+    if (p) {
+      const xp = mob.boss ? HERO_XP_BOSS[mob.boss] : HERO_XP_PER_KILL * (mob.mark !== HungerMark.None ? HERO_XP_MARKED_MULT : 1);
+      const prof = heroProfileOf(p);
+      const before = prof.level;
+      prof.xp += xp;
+      recomputeHeroProfile(prof);
+      heroEvent({ type: "xp", key: prof.key, amount: xp, detail: mob.kind });
+      if (prof.level > before) sendHeroEvent(prof, "milestone", `You reach level ${prof.level} (+${HERO_LEVEL_DAMAGE_PCT}% damage, +${HERO_LEVEL_MAX_HP} max HP)`);
+    }
+  }
+  if (mob.isDeserter) return;
+  const roll = mob.boss ? 1 : mob.mark !== HungerMark.None || EQUIP_ARMOURED_KINDS.includes(mob.kind) ? (testRelicChance ?? RELIC_ELITE_MOB_CHANCE) : 0;
+  if (roll <= 0 || Math.random() >= roll) return;
+  for (const prof of lootProfiles(attackerKey)) grantRelic(prof, mob.boss ?? mob.kind);
+}
+
+function heroRelicForHearth(attackerKey?: string) {
+  if (Math.random() >= (testRelicChance ?? RELIC_HEARTH_CHANCE)) return;
+  for (const prof of lootProfiles(attackerKey)) grantRelic(prof, "hearth");
+}
+
+function refuseGear(player: Player, text: string) {
+  heroEvent({ type: "refuse", key: player.profileKey, detail: text });
+  sendTo(player, { type: "event", category: "build", text });
+}
+
+function handleEquipItem(player: Player, itemId: unknown, slot: unknown) {
+  if (typeof itemId !== "string" || typeof slot !== "string" || !GEAR_SLOTS.includes(slot as GearSlot)) return;
+  const prof = heroProfileOf(player);
+  const idx = prof.inventory.findIndex((i) => i.id === itemId);
+  if (idx < 0) return refuseGear(player, "That item is not in your pack");
+  const item = prof.inventory[idx];
+  const gs = slot as GearSlot;
+  if (gearSlotKind(gs) !== item.slot) return refuseGear(player, `${item.name} doesn't go in the ${gs} slot`);
+  prof.inventory.splice(idx, 1);
+  const old = prof.equipment[gs];
+  if (old) prof.inventory.push(old);
+  prof.equipment[gs] = item;
+  recomputeHeroProfile(prof);
+  heroEvent({ type: "equip", key: prof.key, detail: `${gs} ${item.name}` });
+}
+
+function handleUnequipItem(player: Player, slot: unknown) {
+  if (typeof slot !== "string" || !GEAR_SLOTS.includes(slot as GearSlot)) return;
+  const prof = heroProfileOf(player);
+  const item = prof.equipment[slot as GearSlot];
+  if (!item) return;
+  if (prof.inventory.length >= HERO_INVENTORY_CAP) return refuseGear(player, "Your pack is full (40 items)");
+  prof.equipment[slot as GearSlot] = null;
+  prof.inventory.push(item);
+  recomputeHeroProfile(prof);
+  heroEvent({ type: "unequip", key: prof.key, detail: `${slot} ${item.name}` });
+}
+
+// One plain tiered piece out of the colony stock into the player's pack (it no longer arms a soldier).
+function handleTakeFromArmoury(player: Player, slot: unknown, tier: unknown) {
+  if (slot !== "armour" && slot !== "weapon") return;
+  if (typeof tier !== "number" || !Number.isInteger(tier) || tier < 1 || tier > EQUIP_TIERS) return;
+  const prof = heroProfileOf(player);
+  if (equipment[slot][tier - 1] <= 0) return refuseGear(player, `No tier-${tier} ${EQUIP_SLOT_LABEL[slot]} in the colony's stock`);
+  if (prof.inventory.length >= HERO_INVENTORY_CAP) return refuseGear(player, "Your pack is full (40 items)");
+  equipment[slot][tier - 1]--;
+  const def = PLAIN_GEAR[slot];
+  prof.inventory.push({ id: randomUUID(), slot: def.slot, name: def.names[tier - 1], tier: tier as 1 | 2 | 3, stats: def.stats(tier), kind: def.kind, icon: `icon-${slot}T${tier}` });
+  recomputeHeroProfile(prof);
+  heroEvent({ type: "take", key: prof.key, detail: `${slot} ${tier}` });
+}
+
+// Save / load: profiles as plain data; anything malformed is dropped (old saves: none).
+function serializeHeroProfiles() {
+  return Array.from(heroProfiles.values(), (p) => ({ key: p.key, equipment: p.equipment, inventory: p.inventory, xp: p.xp }));
+}
+
+function restoreHeroProfiles(saved: unknown) {
+  heroProfiles.clear();
+  if (!Array.isArray(saved)) return;
+  const validItem = (i: unknown): i is GearItem =>
+    !!i && typeof i === "object" && typeof (i as GearItem).id === "string" && typeof (i as GearItem).name === "string" &&
+    typeof (i as GearItem).slot === "string" && typeof (i as GearItem).stats === "object";
+  for (const raw of saved as Record<string, unknown>[]) {
+    if (!raw || typeof raw.key !== "string") continue;
+    const eq = emptyEquipment();
+    const savedEq = (raw.equipment ?? {}) as Record<string, unknown>;
+    for (const slot of GEAR_SLOTS) if (validItem(savedEq[slot])) eq[slot] = savedEq[slot] as GearItem;
+    const inv = Array.isArray(raw.inventory) ? raw.inventory.filter(validItem).slice(0, HERO_INVENTORY_CAP) : [];
+    const xp = typeof raw.xp === "number" && raw.xp >= 0 ? raw.xp : 0;
+    heroProfiles.set(raw.key, newHeroProfile(raw.key, eq, inv, xp));
+  }
+}
+
+// Appended to this player's snapshot payload only when their profile changed since the last one sent.
+function withPlayerProfile(payload: string, player: Player): string {
+  const prof = heroProfileOf(player);
+  if (player.profileSentVersion === prof.version) return payload;
+  player.profileSentVersion = prof.version;
+  return payload.slice(0, -1) + ',"profile":' + JSON.stringify(heroProfileSnapshot(prof)) + "}";
+}
+
 // ---- Blacksmith forging: one item at a time per Blacksmith, FORGE_QUEUE_CAP queued (the first is in
 // progress). Cost is paid when queued (no refund). Not saved: a load starts every forge empty.
 interface ForgeQueueState {
@@ -11859,7 +12211,7 @@ function stepSimulation() {
     const length = Math.hypot(dx, dy) || 1;
     const normDx = dx / length;
     const normDy = dy / length;
-    const playerSpeed = PLAYER_SPEED * biomeSpeedMultiplier(player.x, player.y) * roadSpeedMultiplier(player.x, player.y);
+    const playerSpeed = PLAYER_SPEED * heroProfileOf(player).stats.moveSpeedMult * biomeSpeedMultiplier(player.x, player.y) * roadSpeedMultiplier(player.x, player.y);
 
     const nextX = clamp(
       player.x + normDx * playerSpeed * dt,
@@ -11942,7 +12294,7 @@ setInterval(() => {
       y: p.y,
       color: p.color,
       hp: p.hp,
-      maxHp: PLAYER_MAX_HP,
+      maxHp: playerMaxHp(p),
       dead: p.dead,
     })),
     colonists: Array.from(colonists.values()).map((c): ColonistSnapshot => ({
@@ -12044,7 +12396,7 @@ setInterval(() => {
         }
         payload = JSON.stringify({ ...snapshot, mobs: snapshot.mobs.filter((m) => near(m.x, m.y)), wildlife: wl });
       }
-      player.socket.send(withPlayerFights(payload, player));
+      player.socket.send(withPlayerProfile(withPlayerFights(payload, player), player));
     }
   }
   if (TEST_HOOKS) {

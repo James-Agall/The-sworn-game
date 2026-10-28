@@ -1000,3 +1000,89 @@ server/src/index.ts (`EQUIP_*`, `FORGE_*`, `WEAPON_DAMAGE_MULT`, `ARMOUR_DAMAGE_
   test now empties the stock before spawning them (logs the stock) - all pass.
 - Caveats: equipment is never returned to the stock when a unit dies (each respawn takes fresh gear); weapon tier is
   not drawn on the map; deserters keep no gear; the forge has no dedicated art or busy state on the map.
+
+## Hero phases 1-2: items, inventory, character sheet — landed 2026-10-28
+
+Phases 1-2 of `~/docs/colony2d/PLAN-hero-character-sheet.md`, for the PLAYER only. Server block "Hero phases 1-2"
+in server/src/index.ts (`HERO_*`, `RELIC_*`, `PLAIN_GEAR`, `RELIC_CATALOGUE`, `HeroProfile`); client block
+"Hero phases 1-2: Character sheet" in client/src/main.ts plus `#hero-modal` in client/index.html.
+
+- **Model**: `GearItem` {id, slot kind, name, tier 1|2|3|'relic', stats, kind?, relicId?, icon?}; stats are additive:
+  damagePct, damageTakenPct (negative = better), maxHp, moveSpeedPct, attackSpeedPct, spellPowerPct. `Equipment` =
+  {head, chest, legs, weapon, offhand, trinket1, trinket2, spell1-4}. A `HeroProfile` {key, equipment, inventory (cap
+  40, unequipped items only), xp} is keyed by the ws URL's `?profile=` (the client keeps a random id in localStorage
+  `sworn.profileId`; no key = "default"), saved with the world (`heroProfiles`; old saves: none, so everyone starts
+  empty at level 1), cleared by Restart, never touched by death / respawn / load-respawn.
+- **Derived (recomputed on every change, cached)**: damage x(1 + sum damagePct)(1 + 4% x (level - 1)) on every player
+  blow (mobs, players, wildlife, hearths; also the tactics force estimate); damage taken x max(0.25, 1 + sum
+  damageTakenPct) in `damagePlayer` (every blow and poison tick); max HP = 100 + sum maxHp + 6 x (level - 1) (current
+  HP clamped down, gains don't heal; respawns / bishop heals / mob targeting use it); move speed x max(0.5, 1 + pct);
+  attack cooldown = 10 ticks / (1 + attackSpeedPct); spell power is stored only (spells are phase 4).
+- **Plain tiered pieces** (chest and weapon only, same strength as the soldiers' tier multipliers, which are unchanged):
+
+  | Tier | Weapon (sword) | Chest armour |
+  |---|---|---|
+  | 1 | Iron Arming Sword, +20% damage | Iron & Leather Cuirass, -15% damage taken |
+  | 2 | Steel Arming Sword, +40% | Steel Breastplate, -30% |
+  | 3 | Gilded Arming Sword, +70% | Gilded Breastplate, -45% |
+
+  Got only by "Take from armoury" on the sheet (`takeFromArmoury` {slot armour|weapon, tier}): one piece leaves the
+  colony stock (so a soldier won't muster with it). Drops / loot still go to the colony stock as before.
+- **The Sworn Relics** (unique per profile; a drop picks a random one not owned or equipped, none once all 8 are):
+
+  | Relic | Slot | Stats |
+  |---|---|---|
+  | Oathkeeper's Helm | head | -15% damage taken, +20 max HP |
+  | Gorrath's Hide | chest | -40% damage taken, +30 max HP |
+  | Vhorrun's Stride | legs | +15% move speed, -10% damage taken |
+  | Aegis of the Ward Stone | off-hand (shield) | -20% damage taken, +15 max HP |
+  | The Sworn Oathblade | weapon (sword) | +60% damage, +10% attack speed |
+  | Gunne's Tooth | weapon (spear) | +55% damage, +10% move speed |
+  | Morvain's Whisper | weapon (bow) | +40% damage, +30% attack speed |
+  | Abbey Emberstaff | weapon (staff) | +35% damage, +40% spell power |
+
+  Sources: the Ogre Warlord and every mini-boss elite always; a destroyed camp hearth 15%; an armoured kind (armored
+  orc, bandit elite) or Hunger-marked mob 8% (read "armoured elites or Hunger-marked"). Goes to the killer if a player
+  struck the killing blow, else to every connected player's profile. Toast to that player only: "Relic found: <name>".
+  Pack full: "A relic was found, but your pack is full".
+- **XP**: only the player's own killing blows: 10 per mob, x3 Hunger-marked, 60 a mini-boss elite, 250 the Warlord.
+  Levels 1-10 start at 0 / 40 / 100 / 180 / 280 / 400 / 550 / 730 / 940 / 1200 XP; level-up toast.
+- **Equip rules** (`equipItem` {itemId, slot} swaps any occupant back to the pack; `unequipItem` {slot}; any time):
+  the item's slot kind must match (trinket -> trinket1/2; spell slots have no items yet); refused ones toast the
+  reason to that player. Unequip / take refuse when the pack is full.
+- **Protocol (additive)**: `GearSlot`, `GEAR_SLOTS`, `ItemSlotKind`, `ItemTier`, `ItemStats`, `GearItem`, `Equipment`,
+  `HeroStats`, `HeroProfileSnapshot`; messages `equipItem`, `unequipItem`, `takeFromArmoury`; snapshot `profile?`,
+  appended per player (like `fights`) only when that profile's version changed (and after every welcome), so the
+  shared snapshot doesn't grow. `PlayerSnapshot.maxHp` is now the derived max.
+- **Client**: **` (Backquote)** toggles the sheet (C is the Church tool; every letter is bound), plus a **Hero** button
+  in the top-right controls; Escape / backdrop / x closes. Paper-doll (trinket / head / trinket, weapon / chest /
+  off-hand, legs, 4 greyed spell sockets "coming soon"), level + XP bar, stat summary (HP, damage, damage taken, move
+  speed, attack speed, spell power, green = better), pack grid, six "Chest armour / Weapon T1-T3 (n)" armoury
+  buttons. Icons are placeholders: slot-coloured square + glyph, border bronze / silver / gold / purple-teal relic;
+  `/sprites/<item.icon>.png` (SPRITES.md #49 `icon-armourT1-3` / `icon-weaponT1-3`, #51 `relicHelm` ... `relicStaff`)
+  is drawn over it once it exists (a missing file is tried once per session). Tooltip: name, tier/relic + slot, stat
+  lines, +/- deltas vs the item in the target slot.
+- **Test hooks**: `heroState` (profile, hp, cooldown, keys, events hit / taken / relic / xp / equip / unequip / take /
+  refuse), `grantRelic` {relicId?}, `heroConfig` {relicChance}; `spawnMob` takes `boss` ("warlord" | "elite"),
+  `damageMob` takes `byPlayer: true`.
+- **Test**: `server/character-sheet-test.mjs` (self-booting 160 world, port 21810): 28 checks, all pass (grant, wrong
+  slot refused, blow 15 x1.6 = 24, Hide x0.6 / 130 HP, clamp on unequip, armoury take T3 / refuse empty T2, swap,
+  XP/level 2 = x1.04 / +6 HP, elite / Warlord / forced hearth relics, save/load, death keeps gear).
+  `equipment-test.mjs` re-run: all pass unchanged.
+- **Phase 3 hooks**: give each hero a `HeroProfile` (key e.g. `hero:<colonistId>`, same save list); apply
+  `computeHeroStats(prof.equipment, prof.level)` in `guardStrike` / `damageColonist` / its maxHp; route its kills to
+  it in `heroRewardsForKill`; the sheet needs a tab list and a `heroId` on the equip messages (default = the player).
+- Caveats: no unequip-to-armoury (plain gear can't go back to the stock); bow / staff relics still swing the
+  player's melee blow; equipment isn't drawn on the rider (SPRITES.md #55).
+
+**Manual browser check (the sheet)**
+1. Press ` (or click Hero): the sheet opens; level 1, 0 / 40 XP, Health 100 / 100, every multiplier x1.00, empty pack.
+2. Forge (or have) armour / weapons in stock: the armoury buttons show the counts; click "Weapon T1": it leaves the
+   Colony panel stock line and appears in the pack with a bronze border.
+3. Hover it: tooltip "Iron Arming Sword, Tier 1 · Weapon, +20% damage (+20%)". Click it: it moves to the Weapon
+   socket, Damage reads x1.20 in green. Click the socket: back to the pack.
+4. Kill 4 mobs yourself (Space): a "You reach level 2" toast; the bar and Damage x1.04 / Health max 106 update.
+5. Kill a mini-boss elite: "Relic found: ..." toast; the relic has the purple-teal border; equip it, hover another
+   weapon to see red / green deltas.
+6. Die and respawn: gear and pack are unchanged. Save, reload the page (same browser), load the save: same sheet.
+7. Esc, the x and a backdrop click close it; WASD still moves while it's open.

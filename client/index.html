@@ -980,6 +980,101 @@
       .fight-arrow:hover .fight-chevron { border-width: 3px; }
       .fight-arrow:focus-visible { outline: none; }
       .fight-arrow:focus-visible .fight-label { outline: 2px solid var(--sel-ink); }
+      /* Hero phases 1-2: Character sheet (` key / Hero button): parchment modal, paper-doll left, stats +
+         pack right. Item icons are placeholders (coloured square + glyph, rarity border) until SPRITES.md
+         #49 / #51 land (an icon image, when present, is drawn over the placeholder). */
+      #hero-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(18, 11, 5, 0.6);
+        font-family: var(--font-serif);
+      }
+      #hero-modal[hidden] { display: none; }
+      #hero-sheet { width: min(760px, calc(100vw - 32px)); text-align: left; position: relative; }
+      #hero-sheet .menu-title { font-size: 24px; margin-bottom: 4px; }
+      #hs-close {
+        position: absolute; top: 10px; right: 12px; font: inherit; font-size: 22px; line-height: 1;
+        background: none; border: 0; color: var(--ink); cursor: pointer;
+      }
+      .hs-body { display: flex; gap: 22px; flex-wrap: wrap; }
+      .hs-doll {
+        display: grid;
+        grid-template-columns: repeat(3, 56px);
+        grid-auto-rows: 56px;
+        gap: 10px;
+        padding: 12px;
+        background: rgba(94, 50, 20, 0.12);
+        border: 1px solid rgba(90, 52, 24, 0.45);
+        border-radius: 4px;
+        align-content: start;
+      }
+      .hs-spells { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: center; }
+      .hs-spells .hs-socket { width: 38px; height: 38px; }
+      .hs-socket {
+        position: relative;
+        width: 56px; height: 56px; box-sizing: border-box;
+        border: 2px solid rgba(90, 52, 24, 0.55);
+        border-radius: 4px;
+        background: rgba(255, 236, 180, 0.35);
+        box-shadow: inset 0 2px 5px rgba(46, 26, 12, 0.45);
+        cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .hs-socket .hs-empty { font-size: 10px; color: var(--ink-faint); text-align: center; line-height: 1.1; pointer-events: none; }
+      .hs-socket.disabled { opacity: 0.45; cursor: default; }
+      .hs-socket:not(.disabled):hover { border-color: var(--sel-ink); }
+      .hs-item {
+        position: relative;
+        width: 44px; height: 44px; box-sizing: border-box;
+        border: 3px solid #cd7f32;
+        border-radius: 3px;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 18px; color: #fbecc8;
+        text-shadow: 0 1px 1px #000;
+        pointer-events: none;
+      }
+      .hs-item.t2 { border-color: #c0c8d0; }
+      .hs-item.t3 { border-color: #f2c94c; box-shadow: 0 0 6px rgba(242, 201, 76, 0.7); }
+      .hs-item.relic {
+        border-image: linear-gradient(135deg, #7b3fa0, #1aa39a) 1;
+        box-shadow: 0 0 8px rgba(26, 163, 154, 0.8);
+      }
+      .hs-item img { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); image-rendering: pixelated; }
+      .hs-right { flex: 1; min-width: 300px; }
+      .hs-level { font-size: 15px; font-weight: 600; }
+      .hs-xpbar { height: 8px; margin: 4px 0 2px; background: rgba(46, 26, 12, 0.25); border: 1px solid var(--wood-dark); border-radius: 2px; }
+      .hs-xpfill { height: 100%; background: linear-gradient(90deg, var(--seal), #b8862f); }
+      .hs-xptext { font-size: 11.5px; color: var(--ink-faint); font-style: italic; }
+      .hs-stats { display: grid; grid-template-columns: 1fr auto; gap: 2px 14px; margin: 10px 0 4px; font-size: 13.5px; }
+      .hs-stats .up { color: var(--mood-good); }
+      .hs-stats .down { color: var(--mood-bad); }
+      .hs-inv { display: grid; grid-template-columns: repeat(auto-fill, 50px); gap: 6px; margin-top: 6px; min-height: 50px; }
+      .hs-inv .hs-socket { width: 50px; height: 50px; }
+      .hs-inv-empty { font-size: 12.5px; font-style: italic; color: var(--ink-faint); }
+      .hs-armoury { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      .hs-armoury button {
+        font: inherit; font-size: 12.5px; padding: 4px 8px; color: var(--ink);
+        background: rgba(255, 236, 180, 0.35); border: 1px solid var(--wood-dark); border-radius: 3px; cursor: pointer;
+      }
+      .hs-armoury button:hover:not(:disabled) { background: rgba(255, 236, 180, 0.7); }
+      .hs-armoury button:disabled { opacity: 0.45; cursor: default; }
+      #hs-tip {
+        position: fixed; z-index: 101; max-width: 260px; pointer-events: none;
+        padding: 6px 9px; font-size: 12.5px; line-height: 1.35; color: var(--ink);
+        background: var(--burn-sm), var(--paper); background-color: var(--parch-light);
+        border: 1px solid var(--wood-dark); border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        font-family: var(--font-serif);
+      }
+      #hs-tip[hidden] { display: none; }
+      #hs-tip b { display: block; font-size: 13.5px; }
+      #hs-tip .tier { font-style: italic; color: var(--ink-faint); }
+      #hs-tip .up { color: var(--mood-good); }
+      #hs-tip .down { color: var(--mood-bad); }
     </style>
   </head>
   <body>
@@ -1054,8 +1149,29 @@
       <button id="pause-btn" class="control-btn">Pause</button>
       <button id="restart-btn" class="control-btn">Restart</button>
       <button id="save-btn" class="control-btn" title="Quick save to your last-used slot">Save</button>
+      <button id="hero-btn" class="control-btn" title="Character sheet (` key)">Hero</button>
       <button id="settings-btn" class="control-btn">Settings</button>
       <button id="menu-btn" class="control-btn">Menu</button>
+    </div>
+    <div id="hero-modal" hidden>
+      <div id="hero-sheet" class="menu-scroll" role="dialog" aria-modal="true" aria-label="Character sheet">
+        <button id="hs-close" aria-label="Close">×</button>
+        <h2 class="menu-title">Character</h2>
+        <div class="hs-body">
+          <div id="hs-doll" class="hs-doll"></div>
+          <div class="hs-right">
+            <div class="hs-level">Level <span id="hs-level">1</span></div>
+            <div class="hs-xpbar"><div id="hs-xpfill" class="hs-xpfill" style="width: 0%"></div></div>
+            <div id="hs-xptext" class="hs-xptext"></div>
+            <div id="hs-stats" class="hs-stats"></div>
+            <div class="menu-section">Pack <span id="hs-invcount"></span></div>
+            <div id="hs-inv" class="hs-inv"></div>
+            <div class="menu-section">Take from the armoury</div>
+            <div id="hs-armoury" class="hs-armoury"></div>
+          </div>
+        </div>
+      </div>
+      <div id="hs-tip" hidden></div>
     </div>
     <div id="event-feed" aria-live="polite"></div>
     <div id="fight-arrows"></div>

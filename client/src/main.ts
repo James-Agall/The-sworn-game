@@ -31,6 +31,10 @@ import type {
   GateLock,
   EquipSlot,
   EquipmentStock,
+  GearItem,
+  GearSlot,
+  HeroProfileSnapshot,
+  ItemStats,
 } from "./protocol";
 import { TICK_RATE } from "./protocol"; // long days: respawn-window ETA
 import {
@@ -4612,7 +4616,18 @@ async function main() {
 
   // ---- Networking ----
 
-  const socket = new WebSocket(SERVER_URL);
+  // Hero phases 1-2: a stored per-browser profile id, so this player's gear / XP follow them across sessions.
+  let profileId = "";
+  try {
+    profileId = localStorage.getItem("sworn.profileId") ?? "";
+    if (!/^[\w-]{1,64}$/.test(profileId)) {
+      profileId = (crypto.randomUUID?.() ?? `p${Date.now()}${Math.floor(Math.random() * 1e9)}`).replace(/[^\w-]/g, "");
+      localStorage.setItem("sworn.profileId", profileId);
+    }
+  } catch {
+    profileId = "";
+  }
+  const socket = new WebSocket(profileId ? `${SERVER_URL}/?profile=${profileId}` : SERVER_URL);
 
   const pauseBtn = document.getElementById("pause-btn") as HTMLButtonElement;
   const restartBtn = document.getElementById("restart-btn") as HTMLButtonElement;
@@ -4663,6 +4678,273 @@ async function main() {
       return span;
     };
     statEquipmentEl.replaceChildren(part("Armour T1/T2/T3", eq.armour), " · ", part("Weapons", eq.weapon));
+  }
+
+  // ---- Hero phases 1-2: Character sheet (` key or the Hero button). The server sends this player's
+  // profile in a snapshot only when it changes (snapshot.profile); the sheet re-renders then, or when the
+  // colony's armoury stock changes while it's open. Placeholder icons: a coloured square with a slot
+  // glyph and a rarity border (bronze / silver / gold / purple-teal relic); a real icon (SPRITES.md #49 /
+  // #51, /sprites/<item.icon>.png) is drawn over it once that file exists.
+  const heroModal = document.getElementById("hero-modal")!;
+  const hsDoll = document.getElementById("hs-doll")!;
+  const hsInv = document.getElementById("hs-inv")!;
+  const hsStats = document.getElementById("hs-stats")!;
+  const hsArmoury = document.getElementById("hs-armoury")!;
+  const hsTip = document.getElementById("hs-tip")!;
+  let heroProfile: HeroProfileSnapshot | null = null;
+  let heroStock: EquipmentStock | undefined;
+  let heroRenderKey = "";
+  let heroHpText = "";
+  let heroMe: PlayerSnapshot | undefined;
+  const missingIcons = new Set<string>();
+  const SLOT_LABEL: Record<GearSlot, string> = {
+    head: "Head", chest: "Chest", legs: "Legs", weapon: "Weapon", offhand: "Off-hand", trinket1: "Trinket", trinket2: "Trinket",
+    spell1: "Spell", spell2: "Spell", spell3: "Spell", spell4: "Spell",
+  };
+  const SLOT_GLYPH: Record<string, string> = {
+    head: "H", chest: "C", legs: "L", offhand: "O", trinket: "T", spell: "✶",
+    sword: "⚔", spear: "↑", bow: ")", staff: "|", shield: "O", helm: "H", greaves: "L", cuirass: "C",
+  };
+  const SLOT_FILL: Record<string, string> = {
+    head: "#5b6b7a", chest: "#6b4a2a", legs: "#4f5a3a", weapon: "#7a3a2a", offhand: "#3a4f6b", trinket: "#6b5a2a", spell: "#4a2f6b",
+  };
+  const STAT_LINES: { key: keyof ItemStats; label: string; pct: boolean; lowerIsBetter?: boolean }[] = [
+    { key: "damagePct", label: "damage", pct: true },
+    { key: "damageTakenPct", label: "damage taken", pct: true, lowerIsBetter: true },
+    { key: "maxHp", label: "max HP", pct: false },
+    { key: "moveSpeedPct", label: "move speed", pct: true },
+    { key: "attackSpeedPct", label: "attack speed", pct: true },
+    { key: "spellPowerPct", label: "spell power", pct: true },
+  ];
+  const signed = (n: number, pct: boolean) => `${n > 0 ? "+" : ""}${n}${pct ? "%" : ""}`;
+
+  function gearSlotFor(item: GearItem, prof: HeroProfileSnapshot): GearSlot | null {
+    if (item.slot === "spell") return null;
+    if (item.slot === "trinket") return prof.equipment.trinket1 && !prof.equipment.trinket2 ? "trinket2" : "trinket1";
+    return item.slot;
+  }
+
+  function itemIcon(item: GearItem): HTMLElement {
+    const el = document.createElement("div");
+    el.className = `hs-item ${item.tier === "relic" ? "relic" : `t${item.tier}`}`;
+    el.style.background = SLOT_FILL[item.slot] ?? "#555";
+    el.textContent = SLOT_GLYPH[item.kind ?? ""] ?? SLOT_GLYPH[item.slot] ?? "?";
+    if (item.icon && !missingIcons.has(item.icon)) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = `/sprites/${item.icon}.png`;
+      const icon = item.icon;
+      img.onerror = () => {
+        missingIcons.add(icon);
+        img.remove();
+      };
+      el.append(img);
+    }
+    return el;
+  }
+
+  function showItemTip(e: MouseEvent, item: GearItem, compare: GearItem | null, hint: string, showDelta: boolean) {
+    hsTip.replaceChildren();
+    const name = document.createElement("b");
+    name.textContent = item.name;
+    const tier = document.createElement("div");
+    tier.className = "tier";
+    tier.textContent = item.tier === "relic" ? `Relic · ${SLOT_LABEL[gearSlotFor(item, heroProfile!) ?? "head"]}` : `Tier ${item.tier} · ${SLOT_LABEL[gearSlotFor(item, heroProfile!) ?? "head"]}`;
+    hsTip.append(name, tier);
+    for (const line of STAT_LINES) {
+      const v = item.stats[line.key] ?? 0;
+      const old = compare?.stats[line.key] ?? 0;
+      if (v === 0 && old === 0) continue;
+      const row = document.createElement("div");
+      row.textContent = `${signed(v, line.pct)} ${line.label}`;
+      if (showDelta) {
+        const d = v - old;
+        if (d !== 0) {
+          const span = document.createElement("span");
+          const better = line.lowerIsBetter ? d < 0 : d > 0;
+          span.className = better ? "up" : "down";
+          span.textContent = ` (${signed(d, line.pct)})`;
+          row.append(span);
+        }
+      }
+      hsTip.append(row);
+    }
+    const foot = document.createElement("div");
+    foot.className = "tier";
+    foot.textContent = compare ? `${hint} · vs ${compare.name}` : hint;
+    hsTip.append(foot);
+    hsTip.hidden = false;
+    hsTip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 270)}px`;
+    hsTip.style.top = `${Math.min(e.clientY + 14, window.innerHeight - hsTip.offsetHeight - 8)}px`;
+  }
+
+  function hideItemTip() {
+    hsTip.hidden = true;
+  }
+
+  function makeSocket(slot: GearSlot | null, item: GearItem | null, opts: { disabled?: boolean; empty?: string; onClick?: () => void; tip?: (e: MouseEvent) => void }) {
+    const el = document.createElement("div");
+    el.className = `hs-socket${opts.disabled ? " disabled" : ""}`;
+    if (slot) el.dataset.slot = slot;
+    if (item) el.append(itemIcon(item));
+    else {
+      const empty = document.createElement("span");
+      empty.className = "hs-empty";
+      empty.textContent = opts.empty ?? "";
+      el.append(empty);
+    }
+    if (opts.onClick && !opts.disabled) el.addEventListener("click", () => {
+      hideItemTip();
+      opts.onClick!();
+    });
+    if (opts.tip) {
+      el.addEventListener("mousemove", opts.tip);
+      el.addEventListener("mouseleave", hideItemTip);
+    } else if (opts.disabled) el.title = "Spells: coming soon";
+    return el;
+  }
+
+  function renderHeroSheet(force = false) {
+    if (heroModal.hidden || !heroProfile) return;
+    const prof = heroProfile;
+    const me = heroMe;
+    const hpText = me ? `${Math.ceil(me.hp)} / ${me.maxHp}` : `${prof.stats.maxHp}`;
+    const key = JSON.stringify([prof, heroStock]);
+    if (!force && key === heroRenderKey) {
+      if (hpText !== heroHpText) {
+        heroHpText = hpText;
+        const hpEl = document.getElementById("hs-hp");
+        if (hpEl) hpEl.textContent = hpText;
+      }
+      return;
+    }
+    heroRenderKey = key;
+    heroHpText = hpText;
+    hideItemTip();
+    // Paper-doll: trinket / head / trinket, weapon / chest / off-hand, - / legs / -, then 4 spell slots.
+    const layout: (GearSlot | null)[] = ["trinket1", "head", "trinket2", "weapon", "chest", "offhand", null, "legs", null];
+    hsDoll.replaceChildren();
+    for (const slot of layout) {
+      if (!slot) {
+        hsDoll.append(document.createElement("div"));
+        continue;
+      }
+      const item = prof.equipment[slot];
+      hsDoll.append(
+        makeSocket(slot, item, {
+          empty: SLOT_LABEL[slot],
+          onClick: item ? () => sendMessage({ type: "unequipItem", slot }) : undefined,
+          tip: item ? (e) => showItemTip(e, item, null, "Click to unequip", false) : undefined,
+        })
+      );
+    }
+    const spells = document.createElement("div");
+    spells.className = "hs-spells";
+    for (const slot of ["spell1", "spell2", "spell3", "spell4"] as GearSlot[]) {
+      spells.append(makeSocket(slot, null, { disabled: true, empty: "✶" }));
+    }
+    hsDoll.append(spells);
+
+    // Level / XP.
+    document.getElementById("hs-level")!.textContent = String(prof.level);
+    const span = prof.nextLevelXp === null ? 1 : prof.nextLevelXp - prof.levelXp;
+    const into = prof.nextLevelXp === null ? 1 : prof.xp - prof.levelXp;
+    (document.getElementById("hs-xpfill") as HTMLElement).style.width = `${Math.round(Math.min(1, into / span) * 100)}%`;
+    document.getElementById("hs-xptext")!.textContent =
+      prof.nextLevelXp === null ? `${prof.xp} XP · max level` : `${prof.xp} / ${prof.nextLevelXp} XP · +4% damage and +6 HP per level`;
+
+    // Stat summary (multipliers include gear and level).
+    const s = prof.stats;
+    const mult = (v: number, lowerIsBetter = false) => {
+      const el = document.createElement("span");
+      el.textContent = `x${v.toFixed(2)}`;
+      if (Math.abs(v - 1) > 1e-6) el.className = (lowerIsBetter ? v < 1 : v > 1) ? "up" : "down";
+      return el;
+    };
+    const rows: [string, HTMLElement | string][] = [
+      ["Health", hpText],
+      ["Damage", mult(s.damageMult)],
+      ["Damage taken", mult(s.damageTakenMult, true)],
+      ["Move speed", mult(s.moveSpeedMult)],
+      ["Attack speed", mult(s.attackSpeedMult)],
+      ["Spell power (spells coming soon)", mult(s.spellPowerMult)],
+    ];
+    hsStats.replaceChildren();
+    for (const [label, value] of rows) {
+      const l = document.createElement("span");
+      l.textContent = label;
+      const v = typeof value === "string" ? document.createElement("span") : value;
+      if (typeof value === "string") {
+        v.id = "hs-hp";
+        v.textContent = value;
+      }
+      hsStats.append(l, v);
+    }
+
+    // Pack.
+    document.getElementById("hs-invcount")!.textContent = `(${prof.inventory.length}/${prof.inventoryCap})`;
+    hsInv.replaceChildren();
+    if (prof.inventory.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "hs-inv-empty";
+      empty.textContent = "Empty. Relics drop from bosses, mini-bosses and camps; plain gear comes from the armoury.";
+      hsInv.append(empty);
+    }
+    for (const item of prof.inventory) {
+      const target = gearSlotFor(item, prof);
+      const current = target ? prof.equipment[target] : null;
+      hsInv.append(
+        makeSocket(null, item, {
+          onClick: target ? () => sendMessage({ type: "equipItem", itemId: item.id, slot: target }) : undefined,
+          tip: (e) => showItemTip(e, item, current, target ? `Click to equip (${SLOT_LABEL[target]})` : "Coming soon", !!target),
+        })
+      );
+    }
+
+    // Take from the armoury: one plain piece of a tier out of the colony stock (armour -> chest, weapon -> weapon).
+    hsArmoury.replaceChildren();
+    const full = prof.inventory.length >= prof.inventoryCap;
+    for (const slot of ["armour", "weapon"] as EquipSlot[]) {
+      for (let tier = 1; tier <= 3; tier++) {
+        const n = heroStock?.[slot][tier - 1] ?? 0;
+        const btn = document.createElement("button");
+        btn.textContent = `${slot === "armour" ? "Chest armour" : "Weapon"} T${tier} (${n})`;
+        btn.disabled = n <= 0 || full;
+        btn.title = full ? "Your pack is full" : n <= 0 ? "None in the colony's stock (forge at a Blacksmith)" : "Takes it from the stock soldiers muster with";
+        btn.addEventListener("click", () => sendMessage({ type: "takeFromArmoury", slot, tier }));
+        hsArmoury.append(btn);
+      }
+    }
+  }
+
+  function setHeroSheetOpen(open: boolean) {
+    heroModal.hidden = !open;
+    hideItemTip();
+    if (open) renderHeroSheet(true);
+  }
+  document.getElementById("hero-btn")!.addEventListener("click", (e) => {
+    (e.currentTarget as HTMLButtonElement).blur();
+    setHeroSheetOpen(heroModal.hidden);
+  });
+  document.getElementById("hs-close")!.addEventListener("click", () => setHeroSheetOpen(false));
+  heroModal.addEventListener("click", (e) => {
+    if (e.target === heroModal) setHeroSheetOpen(false);
+  });
+  // ` (Backquote; C is the Church tool) toggles the sheet, Escape closes it.
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "Backquote" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat) {
+      e.preventDefault();
+      setHeroSheetOpen(heroModal.hidden);
+    } else if (e.key === "Escape" && !heroModal.hidden) {
+      setHeroSheetOpen(false);
+    }
+  });
+
+  function syncHeroProfile(profile: HeroProfileSnapshot | undefined, stock: EquipmentStock | undefined, me: PlayerSnapshot | undefined) {
+    if (profile) heroProfile = profile;
+    heroMe = me;
+    heroStock = stock;
+    renderHeroSheet();
   }
 
   // ---- Settlement population (ROADMAP "Settlement population caps"): one Colony panel row per Town
@@ -4879,6 +5161,7 @@ async function main() {
       }
       refreshEconomyPanel(message);
       refreshEquipmentLine(message.equipment);
+      syncHeroProfile(message.profile, message.equipment, message.players.find((p) => p.id === myId));
       statPopEl.textContent = `${message.population}/${message.populationCap}`;
       refreshSettlementPanel(message.townCenters);
       setActiveDifficulty(message.difficulty);
