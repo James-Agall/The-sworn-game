@@ -1329,3 +1329,61 @@ Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 1 (camera, zoom, LOD, fo
 7. Click / drag on the minimap: the view jumps there. On a 256/512 map, monsters near that spot (far from the rider)
    show up once your units see them.
 8. Banners float over each garrison's soldiers (e.g. "Knights 4" with an HP bar) at any zoom, same size on screen.
+
+## Strategy mode phase 2 — landed 2026-10-28
+
+Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 2 (regiments, card bar, control groups) with the user's
+2026-10-28 grouping decision.
+
+- **Server regiments** (`server/src/index.ts` "Army regiments", after `handleAssignTaskForce`): derived from state at
+  every snapshot, never stored. Each commandable unit is in exactly one: task force N -> "Task Force N" (`tf<N>`); a
+  hero -> alone (`h:<id>`, its name); else by settlement (`settlementOf`) and class (`a:<x,y>:<class>`): Knights,
+  Infantry (militia + spearmen + pikemen), Archers, Cavalry, Rams, Catapults, Clergy (the Church bishop), named
+  with the settlement number ("Knights I", "Infantry II"). Max = alive + queued respawns (task force: the size it was
+  assigned at), so a card reads 3/5 after deaths and refills at dawn. Respawned units (new ids) rejoin their
+  post's auto regiment. Save / load needs nothing new (task forces and settlements were already saved). Mob
+  regiments (`RegimentState`, raids / POI sites) untouched.
+- **Merge / split = the existing task forces**: Ctrl+N with a selection makes it task force N, which is now also a
+  manual regiment: those units leave their auto regiment and any other task force (task forces no longer overlap).
+  Ctrl+N with nothing selected disbands N (its units go back to their auto regiments). No new grouping UI.
+- **Protocol (additive, both copies byte-identical)**: `RegimentClass`, `ArmyRegimentSnapshot {id, name, unitIds,
+  cls, role?, maxCount, hpFrac, settlement?, taskForce?}`; snapshot `armyRegiments?` sent when membership / names /
+  max change and every 10th tick otherwise (the client keeps the last one and reads live HP from the colonists).
+- **Client** (`client/src/strategy/cards.ts`, hooks in main.ts, CSS in index.html): strategy-mode card bar along the
+  bottom (left edge to the minimap; the command / spell / boss bars step up above it): unit icon, name, alive/max,
+  role, stance icon (when uniform), HP bar, control-group badge; role tabs All / Melee / Ranged / Cavalry / Siege /
+  Heroes. Click = select the regiment, Shift+click toggles it in / out, double-click centres the camera on it.
+  Banners (replacing phase 1's per-post stand-ins) show "name alive/max" + HP bar per regiment, cyan border when
+  selected; clicking a banner selects its regiment.
+- **Strategy-mode selection**: clicking a unit selects its whole regiment, Alt+click just that unit; box select takes
+  whole regiments of anything inside (Alt+box: just the boxed units); Shift adds. Tactical mode is unchanged.
+- **Control groups**: Ctrl+1-9 assign (as before), Alt+1-9 recall (as before, any mode), and in strategy mode plain 1-9
+  recalls a group; tapping the same digit twice within 350 ms centres on it.
+- **Test**: `server/regiment-groups-test.mjs` (own server, port 20623, world 160, new test hook `placeTownCenter`):
+  per-class grouping, infantry merge, hero alone, second settlement separate, one regiment per unit, task force
+  merge / move between slots / disband, dead rider keeps 0/1. 11/11 pass.
+- **Deviations from the plan**: grouping is per settlement + class (user decision), not per garrison post; siege
+  engines group per settlement by kind, not one per workshop; merge / split goes through task forces instead of a
+  `regimentEdit` message and a Split button; no rename yet; regiments are derived, not an `ArmyRegiment` store with
+  stance / orders (Phase 3 adds per-regiment order state keyed by these ids); plain 1-9 recalls only an
+  *assigned* group because building stays on in strategy mode (an unassigned digit still picks its build tool);
+  no hero spell slots on cards, no "You" rider card, no double-click-a-unit-selects-its-kind; morale not shown
+  (user decision: health only until Phase 6).
+- **Caveats**: Ctrl+N with nothing selected now disbands N in tactical mode too; a task force that loses every unit
+  disappears (its respawns rejoin their auto regiments); browsers may keep Ctrl+1-9 for tab switching (as before).
+
+**Manual browser check (strategy mode phase 2)**
+1. Tab into strategy mode: a card bar appears at the bottom with one card per class per Town Center (e.g. "Knights I",
+   "Infantry I" holding militia, spearmen and pikemen together, "Archers I") plus one per hero; Tab out hides it.
+2. Banners over each regiment read "Knights I 4/5" with an HP bar; with a second Town Center its soldiers get their
+   own "... II" cards and banners.
+3. Let a soldier die: its card count drops (e.g. 3/4), the card dims at 0, and it refills at dawn.
+4. Click a card: the whole regiment is selected (cyan rings, card and banner highlighted); Shift+click another card
+   adds it; double-click a card: the camera centres on that regiment.
+5. Click one soldier on the map: its whole regiment is selected; Alt+click selects just him; drag a box over part of a
+   regiment: the whole regiment is selected (Alt+drag: only the boxed units).
+6. Select two regiments, Ctrl+3: one "Task Force 3" card (badge 3) replaces them. Alt+click one unit, Ctrl+4: it
+   splits off into "Task Force 4". Press 3: task force 3 is selected; press 3 twice quickly: the camera centres on it.
+   Deselect (Esc), Ctrl+3: task force 3 disbands and its units return to their original cards.
+7. In strategy mode with no group 1 assigned, 1 still picks the Wood Wall build tool; building, demolishing and
+   building panels still work. The command / spell bars sit above the card bar, not under it.

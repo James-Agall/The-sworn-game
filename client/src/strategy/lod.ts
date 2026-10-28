@@ -1,6 +1,5 @@
 // Strategy mode phase 1 (docs PLAN-strategy-mode.md §1): level-of-detail bands, the fog layer, unit dots
-// for the Map band and the stand-in regiment banners (units sharing a garrison post; Phase 2 replaces
-// them with server regiments).
+// for the Map band and the regiment banners (phase 2: one per server regiment, see main.ts).
 import { CanvasSource, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 
 export type LodBand = "tactical" | "field" | "map";
@@ -115,7 +114,8 @@ export function drawUnitDots(g: Graphics, zoom: number, dots: UnitDot[]) {
 export interface BannerGroup {
   key: string;
   label: string;
-  count: number;
+  // "alive/max".
+  count: string;
   hpFrac: number;
   color: number;
   x: number;
@@ -129,12 +129,14 @@ interface Banner {
   label: string;
   hpFrac: number;
   color: number;
+  // Screen px width (grows with the label).
+  w: number;
 }
 
-const BANNER_W = 64;
+const BANNER_MIN_W = 64;
 const BANNER_H = 26;
 
-// Fixed-screen-size banners above each group's centroid (stand-in until Phase 2's regiments).
+// Fixed-screen-size banners above each regiment's centroid.
 export class StrategyBanners {
   readonly layer = new Container();
   private banners = new Map<string, Banner>();
@@ -155,22 +157,27 @@ export class StrategyBanners {
         text.position.set(0, -BANNER_H - 6);
         root.addChild(bg, text);
         this.layer.addChild(root);
-        b = { root, bg, text, label: "", hpFrac: -1, color: -1 };
+        b = { root, bg, text, label: "", hpFrac: -1, color: -1, w: BANNER_MIN_W };
         this.banners.set(g.key, b);
       }
       const label = `${g.label} ${g.count}`;
+      let resized = false;
       if (label !== b.label) {
         b.label = label;
         b.text.text = label;
+        const w = Math.max(BANNER_MIN_W, Math.ceil(b.text.width) + 10);
+        resized = w !== b.w;
+        b.w = w;
       }
       const hp = Math.round(g.hpFrac * 40) / 40;
-      if (hp !== b.hpFrac || g.color !== b.color) {
+      if (resized || hp !== b.hpFrac || g.color !== b.color) {
         b.hpFrac = hp;
         b.color = g.color;
+        const W = b.w;
         b.bg.clear();
-        b.bg.roundRect(-BANNER_W / 2, -BANNER_H - 8, BANNER_W, BANNER_H, 4).fill({ color: 0x1a0f06, alpha: 0.82 }).stroke({ width: 1.5, color: g.color });
-        b.bg.rect(-BANNER_W / 2 + 5, -14, BANNER_W - 10, 4).fill(0x550000);
-        b.bg.rect(-BANNER_W / 2 + 5, -14, (BANNER_W - 10) * hp, 4).fill(0x3bd16f);
+        b.bg.roundRect(-W / 2, -BANNER_H - 8, W, BANNER_H, 4).fill({ color: 0x1a0f06, alpha: 0.82 }).stroke({ width: 1.5, color: g.color });
+        b.bg.rect(-W / 2 + 5, -14, W - 10, 4).fill(0x550000);
+        b.bg.rect(-W / 2 + 5, -14, (W - 10) * hp, 4).fill(0x3bd16f);
         b.bg.moveTo(-4, -8).lineTo(4, -8).lineTo(0, -2).closePath().fill(g.color);
       }
       b.root.position.set(g.x, g.y);
@@ -186,6 +193,16 @@ export class StrategyBanners {
   setZoom(zoom: number) {
     const s = 1 / zoom;
     for (const b of this.banners.values()) b.root.scale.set(s);
+  }
+
+  // The banner key under the world point (px), or null; banners are BANNER_H screen px tall above their pin.
+  hitTest(x: number, y: number, zoom: number): string | null {
+    for (const [key, b] of this.banners) {
+      const lx = (x - b.root.position.x) * zoom;
+      const ly = (y - b.root.position.y) * zoom;
+      if (Math.abs(lx) <= b.w / 2 && ly >= -BANNER_H - 8 && ly <= 0) return key;
+    }
+    return null;
   }
 
   clear() {

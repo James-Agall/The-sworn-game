@@ -77,6 +77,9 @@ import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows
 import { EDGE_SCROLL_PX, PAN_SCREEN_PX_PER_S, StrategyCamera, TACTICAL_ZOOM, WHEEL_ZOOM_STEP } from "./strategy/camera";
 import { drawUnitDots, lodBand, StrategyBanners, StrategyFog } from "./strategy/lod";
 import type { BannerGroup, LodBand, UnitDot, VisionSource } from "./strategy/lod";
+import { RegimentCardBar } from "./strategy/cards";
+import type { RegimentCard } from "./strategy/cards";
+import type { ArmyRegimentSnapshot, RegimentClass } from "./protocol";
 
 const SERVER_URL = "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -955,6 +958,11 @@ const BATTERED_POSE_URLS: Record<string, string> = {
 const BATTERED_TINT_KINDS = new Set<string>(["knight", "pikeman", "armoredOrc"]);
 // Hero phase 3: the soldier art each hero class borrows (PLACEHOLDER) and the hero tint.
 const HERO_VISUAL_KIND: Record<HeroClass, ColonistKind> = { champion: "knight", marksman: "archer", mage: "bishop" };
+// Strategy mode phase 2: card icon (/sprites/<kind>Walk0.png) of a regiment with no unit alive.
+const REGIMENT_ICON_KIND: Record<RegimentClass, ColonistKind> = {
+  infantry: "militia", knights: "knight", archers: "archer", cavalry: "cavalry", clergy: "bishop",
+  rams: "batteringRam", catapults: "catapult", hero: "knight", mixed: "knight",
+};
 const HERO_TINT = 0xffe7a0;
 // Hero phase 4: a Summon spell's skeleton militia (PLACEHOLDER: the militia art tinted bone-grey).
 const SUMMON_TINT = 0xb8c0d8;
@@ -1624,7 +1632,7 @@ async function main() {
   const strategyCam = new StrategyCamera();
   // LOD band drawn this frame ("tactical" whenever the strategy camera is inactive).
   let strategyBand: LodBand = "tactical";
-  // Map band unit dots and the stand-in regiment banners (strategy mode only; see strategy/lod.ts).
+  // Map band unit dots and the regiment banners (strategy mode only; see strategy/lod.ts).
   const strategyDots = new Graphics();
   const strategyBanners = new StrategyBanners();
   const worldLayer = new Container();
@@ -4325,6 +4333,8 @@ async function main() {
     selectedIds = new Set(ids);
     redrawSelectionRings();
     refreshSelectionHud();
+    // Banner borders / card highlights follow the selection without waiting for a snapshot.
+    if (strategyCam.inStrategy) buildStrategyBanners();
   }
 
   function findNearest<T extends { x: number; y: number }>(
@@ -5953,7 +5963,7 @@ async function main() {
       for (const effect of message.effects) spawnEffect(effect);
       syncFights(message.fights);
       drawMinimap(message.players, message.colonists, message.mobs);
-      strategyOnSnapshot(message.players);
+      strategyOnSnapshot(message.players, message.armyRegiments);
       syncGoal(message.goal);
       // Long days: dawn/dusk respawn windows (cycle lengths come from the server, never hard-coded).
       if (message.respawn) {
@@ -6061,8 +6071,9 @@ async function main() {
   window.addEventListener("keydown", (e) => {
     const key = e.key.toLowerCase();
     keys.add(key);
-    // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool.
-    if (e.ctrlKey || e.altKey) return;
+    // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool. Nor does a plain
+    // digit that recalls a control group in strategy mode.
+    if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e)) return;
     const match = TOOLS.find((t) => t.key === key);
     if (match) {
       if (match.tile !== TileType.Empty && match.category !== activeCategory) {
@@ -6088,6 +6099,13 @@ async function main() {
       if (selectedIds.size > 0) sendMessage({ type: "commandStance", unitIds: Array.from(selectedIds), stance });
       return;
     }
+    // Strategy mode: plain 1-9 recalls an assigned group (double-tap centres on it).
+    const recall = isStrategyGroupRecall(e);
+    if (recall) {
+      e.preventDefault();
+      if (!e.repeat) recallControlGroup(recall);
+      return;
+    }
     // e.code is layout/modifier independent (Alt+1 can produce other e.key values on some OSes).
     const digit = /^Digit([1-9])$/.exec(e.code);
     if (!digit || !(e.ctrlKey || e.altKey)) return;
@@ -6095,14 +6113,15 @@ async function main() {
     if (e.repeat) return;
     const slot = Number(digit[1]);
     if (e.ctrlKey) {
-      if (selectedIds.size === 0) return;
+      // A task force is also a manual regiment: assigning merges / splits the selection into it, and
+      // Ctrl+N with nothing selected disbands it (its units go back to their auto regiments).
       if (socket.readyState === socket.OPEN) {
         socket.send(
           JSON.stringify({ type: "assignTaskForce", slot, unitIds: Array.from(selectedIds) })
         );
       }
     } else {
-      setSelection(latestTaskForces[String(slot)] ?? []);
+      recallControlGroup(slot);
     }
   });
 
@@ -6147,10 +6166,34 @@ async function main() {
   const SET_VIEW_INTERVAL_MS = 200;
   // World px the banner tip sits above its group's centroid (about half a unit's height).
   const BANNER_LIFT_PX = 18;
-  const BANNER_KIND_LABEL: Record<string, string> = {
-    knight: "Knights", archer: "Archers", militia: "Militia", spearman: "Spearmen", pikeman: "Pikemen",
-    cavalry: "Cavalry", bishop: "Bishop", batteringRam: "Rams", catapult: "Catapults",
-  };
+  // Strategy mode phase 2: the server's regiments (snapshot armyRegiments, kept until the next one) and
+  // each unit's regiment. Tapping the same control-group digit twice within this window centres on it.
+  const GROUP_DOUBLE_TAP_MS = 350;
+  let armyRegiments: ArmyRegimentSnapshot[] = [];
+  let regimentOfUnit = new Map<string, ArmyRegimentSnapshot>();
+  let lastGroupTap = { slot: 0, at: -Infinity };
+  const regimentCards = new RegimentCardBar(document.getElementById("regiment-cards")!, {
+    select: (id, additive) => {
+      const reg = armyRegiments.find((r) => r.id === id);
+      if (!reg) return;
+      if (!additive) {
+        setSelection(reg.unitIds);
+        return;
+      }
+      // Shift: toggle this regiment in / out of the selection.
+      const next = new Set(selectedIds);
+      const allIn = reg.unitIds.length > 0 && reg.unitIds.every((u) => next.has(u));
+      for (const u of reg.unitIds) {
+        if (allIn) next.delete(u);
+        else next.add(u);
+      }
+      setSelection(next);
+    },
+    centre: (id) => {
+      const reg = armyRegiments.find((r) => r.id === id);
+      if (reg) centreOnUnits(reg.unitIds);
+    },
+  });
   const strategyBtn = document.getElementById("strategy-btn") as HTMLButtonElement;
   let panDrag: { pointerId: number; lastX: number; lastY: number } | null = null;
   let canvasPointer: { x: number; y: number } | null = null;
@@ -6302,47 +6345,125 @@ async function main() {
     dotsDirty = false;
   }
 
-  // Stand-in regiments until Phase 2: the commandable units sharing a garrison post (heroes alone).
-  function buildStrategyBanners() {
-    const groups = new Map<string, { units: ColonistSnapshot[] }>();
-    for (const c of latestColonists) {
-      if (!isCommandable(c)) continue;
-      const key = c.kind === "hero" ? c.id : `${c.postX},${c.postY}`;
-      let g = groups.get(key);
-      if (!g) {
-        g = { units: [] };
-        groups.set(key, g);
-      }
-      g.units.push(c);
+  function colonistsById(): Map<string, ColonistSnapshot> {
+    return new Map(latestColonists.map((c) => [c.id, c]));
+  }
+
+  // Centre of the alive units of the list (no-op if none is alive).
+  function centreOnUnits(ids: string[]) {
+    const byId = colonistsById();
+    let x = 0;
+    let y = 0;
+    let n = 0;
+    for (const id of ids) {
+      const c = byId.get(id);
+      if (!c) continue;
+      x += c.x;
+      y += c.y;
+      n++;
     }
+    if (n > 0) strategyCam.jumpTo(x / n, y / n);
+  }
+
+  // Strategy mode selection widens a pick to whole regiments (Alt keeps single units, see pointerup).
+  function wholeRegiments(ids: Iterable<string>): string[] {
+    const out = new Set<string>();
+    for (const id of ids) {
+      const reg = regimentOfUnit.get(id);
+      if (reg) for (const u of reg.unitIds) out.add(u);
+      else out.add(id);
+    }
+    return Array.from(out);
+  }
+
+  // Banners over each regiment's alive units and the card bar, from the server regiments + live HP.
+  function buildStrategyBanners() {
+    const byId = colonistsById();
     const banners: BannerGroup[] = [];
-    for (const [key, { units }] of groups) {
-      const first = units[0];
-      const role = unitRole(first.kind, first.heroClass);
+    const cards: RegimentCard[] = [];
+    for (const reg of armyRegiments) {
       let x = 0;
       let y = 0;
       let hp = 0;
       let maxHp = 0;
-      for (const u of units) {
+      let first: ColonistSnapshot | null = null;
+      let stance: Stance | null | undefined;
+      let alive = 0;
+      let selected = 0;
+      for (const id of reg.unitIds) {
+        const u = byId.get(id);
+        if (!u) continue;
+        first ??= u;
+        stance = stance === undefined ? u.stance : stance === u.stance ? stance : null;
+        alive++;
+        if (selectedIds.has(id)) selected++;
         x += u.x;
         y += u.y;
         hp += Math.max(0, u.hp);
         maxHp += u.maxHp;
       }
-      banners.push({
-        key,
-        label: first.kind === "hero" ? first.heroName ?? "Hero" : BANNER_KIND_LABEL[first.kind] ?? first.kind,
-        count: units.length,
-        hpFrac: maxHp > 0 ? hp / maxHp : 1,
-        color: role ? ROLE_COLORS[role] : 0xd8a24a,
-        x: x / units.length,
-        y: y / units.length - BANNER_LIFT_PX,
+      const hpFrac = maxHp > 0 ? hp / maxHp : alive === 0 ? 0 : reg.hpFrac;
+      const roleColor = reg.role ? ROLE_COLORS[reg.role] : 0xd8a24a;
+      const count = `${alive}/${Math.max(reg.maxCount, alive)}`;
+      if (alive > 0) {
+        banners.push({
+          key: reg.id,
+          label: reg.name,
+          count,
+          hpFrac,
+          color: selected > 0 ? SELECTION_COLOR : roleColor,
+          x: x / alive,
+          y: y / alive - BANNER_LIFT_PX,
+        });
+      }
+      const iconKind: ColonistKind = first
+        ? first.kind === "hero" ? HERO_VISUAL_KIND[first.heroClass ?? "champion"] : first.kind
+        : REGIMENT_ICON_KIND[reg.cls];
+      cards.push({
+        id: reg.id,
+        name: reg.name,
+        icon: `/sprites/${iconKind}Walk0.png`,
+        count: alive,
+        maxCount: Math.max(reg.maxCount, alive),
+        hpFrac,
+        role: reg.role,
+        roleLabel: reg.cls === "clergy" ? "Healer" : reg.role ? ROLE_LABEL[reg.role] : "",
+        roleColor: `#${roleColor.toString(16).padStart(6, "0")}`,
+        hero: reg.cls === "hero",
+        slot: reg.taskForce,
+        stance: stance ?? undefined,
+        selected: alive > 0 && selected === alive,
       });
     }
     strategyBanners.sync(banners);
+    regimentCards.render(cards);
   }
 
-  function strategyOnSnapshot(players: PlayerSnapshot[]) {
+  function setArmyRegiments(regiments: ArmyRegimentSnapshot[]) {
+    armyRegiments = regiments;
+    regimentOfUnit = new Map();
+    for (const reg of regiments) for (const id of reg.unitIds) regimentOfUnit.set(id, reg);
+  }
+
+  // Control groups (task forces): select slot N; a second tap of N within GROUP_DOUBLE_TAP_MS centres on it.
+  function recallControlGroup(slot: number) {
+    const ids = latestTaskForces[String(slot)] ?? [];
+    setSelection(ids);
+    const now = performance.now();
+    if (strategyCam.inStrategy && lastGroupTap.slot === slot && now - lastGroupTap.at <= GROUP_DOUBLE_TAP_MS) centreOnUnits(ids);
+    lastGroupTap = { slot, at: now };
+  }
+
+  // Strategy mode: a plain 1-9 recalls that control group when it has one (else it stays a build hotkey).
+  function isStrategyGroupRecall(e: KeyboardEvent): number {
+    if (!strategyCam.inStrategy || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return 0;
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    if (!digit || !(latestTaskForces[digit[1]]?.length > 0)) return 0;
+    return Number(digit[1]);
+  }
+
+  function strategyOnSnapshot(players: PlayerSnapshot[], regiments: ArmyRegimentSnapshot[] | undefined) {
+    if (regiments) setArmyRegiments(regiments);
     if (strategyCam.active) {
       if (performance.now() - fogUpdatedAt >= STRATEGY_FOG_REFRESH_MS) {
         strategyFog.update(explored, liveVisionSources(players, latestColonists));
@@ -6364,6 +6485,8 @@ async function main() {
     cancelPanDrag();
     strategyFog.reset(worldTilesX, worldTilesY, tileSize);
     strategyBanners.clear();
+    setArmyRegiments([]);
+    regimentCards.render([]);
     strategyDots.clear();
     worldLayer.addChild(strategyDots);
     worldLayer.addChild(strategyBanners.layer);
@@ -6606,18 +6729,31 @@ async function main() {
       const maxX = Math.max(press.worldX, x);
       const minY = Math.min(press.worldY, y);
       const maxY = Math.max(press.worldY, y);
-      setSelection(
-        latestColonists
-          .filter(
-            (c) =>
-              isCommandable(c) &&
-              c.x >= minX &&
-              c.x <= maxX &&
-              c.y >= minY &&
-              c.y <= maxY
-          )
-          .map((c) => c.id)
-      );
+      const boxed = latestColonists
+        .filter(
+          (c) =>
+            isCommandable(c) &&
+            c.x >= minX &&
+            c.x <= maxX &&
+            c.y >= minY &&
+            c.y <= maxY
+        )
+        .map((c) => c.id);
+      // Strategy mode: whole regiments of anything inside, Shift adds; Alt keeps just the boxed units.
+      if (strategyCam.inStrategy) {
+        const picked = e.altKey ? boxed : wholeRegiments(boxed);
+        setSelection(e.shiftKey ? [...selectedIds, ...picked] : picked);
+      } else {
+        setSelection(boxed);
+      }
+      return;
+    }
+
+    // Strategy mode: a banner selects its regiment.
+    const bannerKey = strategyCam.inStrategy ? strategyBanners.hitTest(x, y, camZoom) : null;
+    const bannerReg = bannerKey ? armyRegiments.find((r) => r.id === bannerKey) : undefined;
+    if (bannerReg) {
+      setSelection(e.shiftKey ? [...selectedIds, ...bannerReg.unitIds] : bannerReg.unitIds);
       return;
     }
 
@@ -6628,7 +6764,13 @@ async function main() {
       Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / camZoom)
     );
     if (unit) {
-      setSelection([unit.id]);
+      // Strategy mode: a unit stands for its whole regiment (Alt+click = just that unit), Shift adds.
+      if (strategyCam.inStrategy) {
+        const picked = e.altKey ? [unit.id] : wholeRegiments([unit.id]);
+        setSelection(e.shiftKey ? [...selectedIds, ...picked] : picked);
+      } else {
+        setSelection([unit.id]);
+      }
       return;
     }
 

@@ -83,6 +83,9 @@ import {
   SPELL_IDS,
   SPELL_SLOT_COUNT,
   SpellBookSnapshot,
+  ArmyRegimentSnapshot,
+  RegimentClass,
+  HERO_CLASS_ROLE,
 } from "./protocol.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
@@ -442,6 +445,7 @@ function pruneTaskForces() {
     const alive = unitIds.filter((id) => colonists.has(id));
     if (alive.length === 0) {
       taskForces.delete(slot);
+      taskForceMax.delete(slot);
     } else if (alive.length !== unitIds.length) {
       taskForces.set(slot, alive);
     }
@@ -4613,17 +4617,170 @@ function handleCommandStance(unitIds: string[], stance: Stance) {
   }
 }
 
+// A task force is also a manual regiment (strategy mode phase 2), so a unit is in at most one: assigning
+// takes the units out of every other slot. Empty (or no valid unit) disbands the slot.
 function handleAssignTaskForce(slot: number, unitIds: string[]) {
-  if (!Number.isInteger(slot) || slot < 1 || slot > 9) return;
-  const valid = unitIds.filter((id) => {
-    const c = colonists.get(id);
+  if (!Number.isInteger(slot) || slot < 1 || slot > 9 || !Array.isArray(unitIds)) return;
+  const valid = Array.from(new Set(unitIds)).filter((id) => {
+    const c = typeof id === "string" ? colonists.get(id) : undefined;
     return c && isCommandable(c);
   });
-  if (valid.length === 0) {
-    taskForces.delete(slot);
-  } else {
-    taskForces.set(slot, valid);
+  taskForces.delete(slot);
+  taskForceMax.delete(slot);
+  if (valid.length === 0) return;
+  const taken = new Set(valid);
+  for (const [other, ids] of taskForces) {
+    const kept = ids.filter((id) => !taken.has(id));
+    if (kept.length === ids.length) continue;
+    if (kept.length === 0) {
+      taskForces.delete(other);
+      taskForceMax.delete(other);
+    } else {
+      taskForces.set(other, kept);
+    }
   }
+  taskForces.set(slot, valid);
+  taskForceMax.set(slot, valid.length);
+}
+
+// ---- Army regiments (strategy mode phase 2; docs PLAN-strategy-mode.md §4 and the user's 2026-10-28
+// grouping decision). Derived from state at every snapshot, never stored: each commandable unit is in
+// exactly one regiment —
+//   task force N (assignTaskForce)  "tf<N>": the manual merge / split (select units, Ctrl+N)
+//   a hero                          "h:<id>": alone
+//   everything else                 "a:<settlement>:<class>": by Town Center (settlementOf) and class
+// Respawned units get new ids, so they rejoin their post's auto regiment (a hero its own). Task forces and
+// settlements are already saved, so save / load needs nothing new. Mob regiments (RegimentState) are separate.
+const REGIMENT_CLASS_OF: Partial<Record<ColonistKind, RegimentClass>> = {
+  knight: "knights",
+  archer: "archers",
+  cavalry: "cavalry",
+  militia: "infantry",
+  spearman: "infantry",
+  pikeman: "infantry",
+  bishop: "clergy",
+  batteringRam: "rams",
+  catapult: "catapults",
+  hero: "hero",
+};
+const REGIMENT_CLASS_LABEL: Record<RegimentClass, string> = {
+  infantry: "Infantry", knights: "Knights", archers: "Archers", cavalry: "Cavalry", clergy: "Clergy",
+  rams: "Rams", catapults: "Catapults", hero: "Hero", mixed: "Task Force",
+};
+const REGIMENT_CLASS_ORDER: RegimentClass[] = ["knights", "infantry", "archers", "cavalry", "rams", "catapults", "clergy"];
+// Without a membership / name change, armyRegiments rides along every this many ticks (2 Hz).
+const ARMY_REGIMENT_REFRESH_TICKS = 10;
+// Size each task force was assigned at (its card's max); not saved (a loaded one starts at its alive count).
+const taskForceMax = new Map<number, number>();
+let armyRegimentSignature = "";
+let armyRegimentTicks = 0;
+
+function romanNumeral(n: number): string {
+  const table: [number, string][] = [[10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
+  let out = "";
+  for (const [v, s] of table) for (; n >= v; n -= v) out += s;
+  return out;
+}
+
+function armyRegimentsNow(): ArmyRegimentSnapshot[] {
+  const settlementNumber = new Map(townCenters.map((tc, i) => [resourceKey(tc.x, tc.y), i + 1]));
+  const inTaskForce = new Map<string, number>();
+  for (const [slot, ids] of taskForces) for (const id of ids) inTaskForce.set(id, slot);
+  interface Draft { snap: ArmyRegimentSnapshot; members: Colonist[]; pending: number; order: number }
+  const drafts = new Map<string, Draft>();
+  const draftFor = (id: string, make: () => Omit<Draft, "members" | "pending">): Draft => {
+    let d = drafts.get(id);
+    if (!d) {
+      d = { ...make(), members: [], pending: 0 };
+      drafts.set(id, d);
+    }
+    return d;
+  };
+  const autoDraft = (key: string, cls: RegimentClass) => {
+    const n = settlementNumber.get(key);
+    return draftFor(`a:${key}:${cls}`, () => ({
+      snap: {
+        id: `a:${key}:${cls}`, name: n ? `${REGIMENT_CLASS_LABEL[cls]} ${romanNumeral(n)}` : REGIMENT_CLASS_LABEL[cls],
+        unitIds: [], cls, maxCount: 0, hpFrac: 0, ...(n ? { settlement: n } : {}),
+      },
+      order: 1000 + (n ?? 99) * 20 + REGIMENT_CLASS_ORDER.indexOf(cls),
+    }));
+  };
+  const heroDraft = (id: string, name: string) =>
+    draftFor(`h:${id}`, () => ({ snap: { id: `h:${id}`, name, unitIds: [], cls: "hero", maxCount: 0, hpFrac: 0 }, order: 5000 }));
+
+  for (const c of colonists.values()) {
+    const cls = REGIMENT_CLASS_OF[c.kind];
+    if (!cls || !isCommandable(c)) continue;
+    const slot = inTaskForce.get(c.id);
+    let d: Draft;
+    if (slot !== undefined) {
+      d = draftFor(`tf${slot}`, () => ({
+        snap: { id: `tf${slot}`, name: `Task Force ${slot}`, unitIds: [], cls, maxCount: 0, hpFrac: 0, taskForce: slot },
+        order: slot,
+      }));
+      if (d.snap.cls !== cls) d.snap.cls = "mixed";
+    } else if (c.kind === "hero") {
+      d = heroDraft(c.id, c.heroName ?? "Hero");
+    } else {
+      settlementOf(c);
+      d = autoDraft(c.settlementId, cls);
+    }
+    d.members.push(c);
+  }
+  // The dead waiting for the dawn respawn count toward the regiment they come back into.
+  for (const q of respawnQueue) {
+    if (q.hero) {
+      heroDraft(q.hero.id, q.hero.name).pending++;
+      continue;
+    }
+    const cls = REGIMENT_CLASS_OF[q.kind];
+    if (!cls || (q.kind === "bishop" && tiles[tileIndex(q.tx, q.ty)] !== TileType.ChurchPost)) continue;
+    autoDraft(settlementKeyNear(q.tx, q.ty), cls).pending++;
+  }
+
+  const result: Draft[] = Array.from(drafts.values());
+  for (const d of result) {
+    const roleCount = new Map<CombatRole, number>();
+    let hp = 0;
+    let maxHp = 0;
+    for (const c of d.members) {
+      d.snap.unitIds.push(c.id);
+      hp += Math.max(0, c.hp);
+      maxHp += c.maxHp;
+      const role = unitRole(c.kind, c.heroClass);
+      if (role) roleCount.set(role, (roleCount.get(role) ?? 0) + 1);
+    }
+    let best = 0;
+    for (const [role, n] of roleCount) {
+      if (n > best) {
+        best = n;
+        d.snap.role = role;
+      }
+    }
+    if (!d.snap.role && d.snap.cls === "hero") {
+      // A dead hero: its class role, from the respawn entry.
+      const q = respawnQueue.find((r) => r.hero && `h:${r.hero.id}` === d.snap.id);
+      if (q?.hero) d.snap.role = HERO_CLASS_ROLE[q.hero.heroClass];
+    }
+    d.snap.hpFrac = maxHp > 0 ? Math.round((hp / maxHp) * 1000) / 1000 : 0;
+    const tf = d.snap.taskForce;
+    d.snap.maxCount = tf !== undefined ? Math.max(taskForceMax.get(tf) ?? 0, d.members.length) : d.members.length + d.pending;
+  }
+  result.sort((a, b) => a.order - b.order || a.snap.name.localeCompare(b.snap.name));
+  return result.map((d) => d.snap);
+}
+
+// Sent when membership / names / max change, else every ARMY_REGIMENT_REFRESH_TICKS (HP drifts in between;
+// the client reads live HP from the colonists anyway).
+function armyRegimentsForSnapshot(): ArmyRegimentSnapshot[] | undefined {
+  const regiments = armyRegimentsNow();
+  const signature = JSON.stringify(regiments.map((r) => [r.id, r.name, r.cls, r.maxCount, r.unitIds]));
+  armyRegimentTicks++;
+  if (signature === armyRegimentSignature && armyRegimentTicks < ARMY_REGIMENT_REFRESH_TICKS) return undefined;
+  armyRegimentSignature = signature;
+  armyRegimentTicks = 0;
+  return regiments;
 }
 
 const EXCHANGE_RATES: Record<string, Record<string, { give: number; get: number }>> = {
@@ -9072,6 +9229,10 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       broadcastTileUpdate(msg.tx, msg.ty, msg.tile as TileType);
     }
     reply({ tile: tiles[tileIndex(msg.tx, msg.ty)] });
+  } else if (msg.op === "placeTownCenter" && typeof msg.tx === "number" && typeof msg.ty === "number") {
+    // A new Town Center at the tile, no placement rules or builders' work (regiment-groups-test).
+    if (inBounds(msg.tx, msg.ty) && !findTownCenterAt(msg.tx, msg.ty)) resolveTownCenterPlacement(msg.tx, msg.ty);
+    reply({ townCenters: townCenters.map((t) => ({ ...t })) });
   } else if (msg.op === "forceMarkChance") {
     testForceMarkChance = typeof msg.value === "number" ? msg.value : null;
     reply({ value: testForceMarkChance });
@@ -9499,6 +9660,7 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   buildingTargetsDirty = true;
   reservedResourceTiles.clear();
   taskForces.clear();
+  taskForceMax.clear();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
   gravestones.length = 0;
@@ -9751,6 +9913,7 @@ function applyWorld(s: WorldState) {
   repairQueue.push(...(s.repairQueue ?? []));
   buildingTargetsDirty = true;
   refill(taskForces, s.taskForces);
+  taskForceMax.clear();
   refill(reservedResourceTiles, s.reservedResourceTiles);
   refill(wardStoneLastTended, s.wardStoneLastTended);
   wardStonesActiveLastTick.clear();
@@ -13414,6 +13577,7 @@ setInterval(() => {
     population: civilianPopulationUsed(),
     populationCap: settlementStatsNow.reduce((n, st) => n + st.cap, 0),
     taskForces: taskForcesForSnapshot(),
+    armyRegiments: armyRegimentsForSnapshot(),
     readyFarmPlots: farmPlotIndices("harvesting"),
     sownFarmPlots: farmPlotIndices("sown"),
     fallowFarmPlots: farmPlotIndices("fallow"),

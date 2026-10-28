@@ -227,6 +227,30 @@ export const HERO_CLASS_LABEL: Record<HeroClass, string> = { champion: "Champion
 // (default "normal"); it has no effect on bishops or civilians.
 export type Stance = "defensive" | "normal" | "aggressive";
 
+// Strategy mode phase 2 (additive): a player regiment, derived by the server every snapshot. Each
+// commandable unit is in exactly one: a task force (assignTaskForce slot N, the manual merge / split),
+// else a hero alone, else its settlement (Town Center) + class. Infantry = militia + spearmen + pikemen.
+// Task-force regiments are "mixed" unless every member shares one class.
+export type RegimentClass = "infantry" | "knights" | "archers" | "cavalry" | "clergy" | "rams" | "catapults" | "hero" | "mixed";
+export interface ArmyRegimentSnapshot {
+  // "tf<N>" (task force N), "h:<heroId>", or "a:<settlement x,y>:<class>".
+  id: string;
+  name: string;
+  // Alive members (may be empty while the dead wait for the dawn respawn).
+  unitIds: string[];
+  cls: RegimentClass;
+  // The members' most common role (none for clergy).
+  role?: CombatRole;
+  // Alive + queued respawns (auto / hero regiments) or the size it was assigned at (task forces).
+  maxCount: number;
+  // Sum hp / sum maxHp of the alive members (0 with none).
+  hpFrac: number;
+  // 1-based "Settlement N" of an auto regiment.
+  settlement?: number;
+  // Task force slot (1-9) of a manual regiment.
+  taskForce?: number;
+}
+
 export interface ColonistSnapshot {
   id: string;
   kind: ColonistKind;
@@ -668,6 +692,8 @@ export type ClientMessage =
   // Camp hearths: send the units against the standing hearth on that tile (additive, 2026-10-28).
   | { type: "commandAttackHearth"; unitIds: string[]; tileX: number; tileY: number }
   | { type: "commandStance"; unitIds: string[]; stance: Stance }
+  // Task force N is also a manual regiment (strategy mode phase 2): its units leave their auto regiment and
+  // any other task force; an empty unitIds disbands it (the units return to their auto regiments).
   | { type: "assignTaskForce"; slot: number; unitIds: string[] }
   | { type: "exchangeResource"; from: "wood" | "iron" | "rock"; to: "wood" | "iron" | "rock" }
   | { type: "buyWithGold"; item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock" }
@@ -759,6 +785,9 @@ export type ServerMessage =
       population: number;
       populationCap: number;
       taskForces: Record<string, string[]>;
+      // Strategy mode phase 2: every player regiment; sent when membership / names change and every 10th
+      // tick otherwise (omitted in between and by older servers: keep the last one).
+      armyRegiments?: ArmyRegimentSnapshot[];
       // Tile indices (y * worldTilesX + x) of Farm Plots whose crop is mature and being harvested.
       readyFarmPlots: number[];
       // Farm Plots freshly sown (bare soil) and resting fallow; any other plot is growing.
