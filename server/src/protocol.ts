@@ -101,6 +101,9 @@ export enum TileType {
   // battering ram or catapult at a time (building info panel), at most SIEGE_WORKSHOP_CAP alive.
   Stables = 71,
   SiegeWorkshop = 72,
+  // Keep (2026-10-28): a separate per-settlement building (needs a Town Center at level 2); each of its
+  // three levels (buildingLevels) adds +10 to that settlement's population cap.
+  Keep = 73,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -185,7 +188,8 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.ConstructionSite ||
     tile === TileType.Tower ||
     tile === TileType.Stables ||
-    tile === TileType.SiegeWorkshop
+    tile === TileType.SiegeWorkshop ||
+    tile === TileType.Keep
   );
 }
 
@@ -428,6 +432,8 @@ export interface TownCenterSnapshot {
   population?: number;
   populationCap?: number;
   populationTierCap?: number;
+  // Population added to that cap by the settlement's Keep (10 per Keep level; 0 or omitted: no Keep).
+  populationKeepBonus?: number;
 }
 
 // Reply to a `buildingInfo` request; every number is computed by the server's own formulas.

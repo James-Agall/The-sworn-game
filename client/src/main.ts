@@ -118,6 +118,14 @@ const TOOLS: ToolDef[] = [
     cost: "30 wood + 15 iron + 15 rock. Builds battering rams and catapults (info panel), 2 population each, up to 2",
     category: "combat",
   },
+  // Keep (2026-10-28): every letter, digit and the other punctuation keys are taken, so it uses `.`.
+  {
+    tile: TileType.Keep,
+    label: "Keep",
+    key: ".",
+    cost: "60 wood + 40 rock + 20 iron. One per settlement; needs a Town Center at level 2. Each level (upgradeable to 3) adds +10 to the settlement's population cap",
+    category: "civic",
+  },
   {
     tile: TileType.Tower,
     label: "Tower",
@@ -566,6 +574,7 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.KnightPost]: "barracks",
   [TileType.CastleLevel2]: "castleLv2",
   [TileType.CastleLevel3]: "castleLv3",
+  [TileType.Keep]: "castleKeep",
   [TileType.ArcherPost]: "archeryRange",
   [TileType.Tower]: "archerTower",
   [TileType.MilitiaPost]: "militiaCamp",
@@ -704,15 +713,16 @@ const TILE_LEVEL_ART: Partial<Record<TileType, string[]>> = {
   [TileType.HunterHut]: ["hunterHut", "hunterHutLv2", "hunterHutLv3"],
   [TileType.ForagerHut]: ["foragerHut", "foragerHutLv2", "foragerHutLv3"],
   [TileType.BuildersGuild]: ["buildersGuild", "buildersGuildLv2", "buildersGuildLv3"],
-  [TileType.TownCenter]: ["townCenterLv1", "townCenterLv2", "townCenterKeep"],
+  // Lv3 reuses the Lv2 plaza: the keep art (castleKeep.png) now belongs to the separate Keep building.
+  [TileType.TownCenter]: ["townCenterLv1", "townCenterLv2", "townCenterLv2"],
 };
-// The tiered Town Center art (a plaza on its own diamond patch, then the Keep) skips the box fit like
+// The tiered Town Center art (a plaza on its own diamond patch) skips the box fit like
 // townCenter.png does: rendered `widthTiles` wide, `anchor` (the patch's center, under the statue / the
 // keep's gate court) pinned on the tile center.
 const TOWN_CENTER_LEVEL_FIT = [
   { widthTiles: 3, anchor: { x: 0.51, y: 0.62 } },
   { widthTiles: 3, anchor: { x: 0.51, y: 0.63 } },
-  { widthTiles: 3.2, anchor: { x: 0.5, y: 0.68 } },
+  { widthTiles: 3, anchor: { x: 0.51, y: 0.63 } },
 ];
 // Placement ghost while the Town Center tool is selected.
 const TOWN_CENTER_MARKER_URL = "/sprites/townCenterMarker.png";
@@ -854,6 +864,7 @@ const BATTERED_TINT_KINDS = new Set<string>(["knight", "pikeman", "armoredOrc"])
 // Extra scale on top of the max-box fit for small world-gen props, so a barrel or crate doesn't
 // render the same size as a cottage. Unlisted tiles use 1 (unchanged).
 const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
+  [TileType.Keep]: 1.8,
   [TileType.RuinStatue]: 0.7,
   [TileType.RuinRubble]: 0.75,
   [TileType.PropCampfire]: 0.8,
@@ -4383,7 +4394,7 @@ async function main() {
     TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery,
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
-    TileType.Gate, TileType.Stables, TileType.SiegeWorkshop,
+    TileType.Gate, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
   const bpNameEl = document.getElementById("bp-name")!;
@@ -4576,6 +4587,13 @@ async function main() {
   const settlementToastAt = new Map<number, number>();
   let settlementPanelKey = "";
   function refreshSettlementPanel(tcs: TownCenterSnapshot[]) {
+    // Grey the Keep tool until some Town Center is at level 2 (it stays selectable, the cost text says why).
+    const keepBtn = toolButtonEls.get(TileType.Keep);
+    if (keepBtn) {
+      const keepReady = tcs.some((tc) => tc.level >= 2);
+      keepBtn.style.opacity = keepReady ? "" : "0.5";
+      keepBtn.title = keepReady ? "" : "Keep needs a Town Center at level 2";
+    }
     const rows = tcs.map((tc, i) => ({ n: i + 1, used: tc.population ?? 0, cap: tc.populationCap ?? 0, known: tc.populationCap !== undefined }));
     const key = rows.map((r) => `${r.n}:${r.used}/${r.cap}`).join("|");
     if (key !== settlementPanelKey) {
@@ -4600,7 +4618,7 @@ async function main() {
       const full = r.known && r.cap > 0 && r.used >= r.cap;
       if (full && !settlementWasFull.get(r.n) && now - (settlementToastAt.get(r.n) ?? -Infinity) >= SETTLEMENT_FULL_TOAST_THROTTLE_MS) {
         settlementToastAt.set(r.n, now);
-        pushEventToast("build", `Settlement ${r.n} is at its population cap — upgrade its Town Center`);
+        pushEventToast("build", `Settlement ${r.n} is at its population cap — upgrade its Town Center or build a Keep`);
       }
       settlementWasFull.set(r.n, full);
     }

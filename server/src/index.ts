@@ -419,7 +419,7 @@ const TOWN_CENTER_TILE: TileCoord = {
   x: Math.floor(WORLD_TILES_X / 2),
   y: Math.floor(WORLD_TILES_Y / 2),
 };
-// Max HP per Town Center level (1-3). Level 3 is the Keep.
+// Max HP per Town Center level (1-3).
 const TOWN_CENTER_MAX_HP_BY_LEVEL = [1000, 1500, 2000];
 // Each level above 1 of the HIGHEST standing Town Center adds this much colony-wide productivity (via
 // productionSpeedMultiplier) and unit damage (via armyDamageMultiplier): +5% at Lv2, +10% at Lv3.
@@ -1729,7 +1729,11 @@ const TOWN_CENTER_BASE_POPULATION = 10;
 // Every Town Center after the first adds this much to the base.
 const TOWN_CENTER_EXTRA_POPULATION = 5;
 // Settlement population ceiling per Town Center tier (index = level - 1). Tune here.
-const SETTLEMENT_POP_CAP_BY_TIER = [12, 24, 40];
+const SETTLEMENT_POP_CAP_BY_TIER = [20, 30, 40];
+// Each level of a settlement's Keep (a separate building) adds this to both its tier ceiling and its
+// housing capacity, so the bonus is real whichever of the two was limiting.
+const KEEP_POPULATION_PER_LEVEL = 10;
+const KEEP_MIN_TOWN_CENTER_LEVEL = 2;
 
 function settlementTierCap(level: number): number {
   return SETTLEMENT_POP_CAP_BY_TIER[Math.min(Math.max(level, 1), SETTLEMENT_POP_CAP_BY_TIER.length) - 1];
@@ -1756,9 +1760,10 @@ interface SettlementStat {
   number: number; // 1-based position in townCenters (the "Settlement N" label)
   used: number;
   pending: number; // worker slots of queued constructions
-  housingCap: number;
-  tierCap: number;
-  cap: number; // min(housingCap, tierCap)
+  housingCap: number; // includes keepBonus
+  tierCap: number; // the Town Center tier ceiling alone
+  keepBonus: number; // 10 per level of this settlement's Keep
+  cap: number; // min(housingCap, tierCap + keepBonus)
 }
 
 // Per-settlement population: units by stored settlement, queued worker slots, and the cap = the
@@ -1774,6 +1779,7 @@ function settlementStats(): SettlementStat[] {
       (i > 0 ? TOWN_CENTER_EXTRA_POPULATION : 0) +
       TOWN_CENTER_LEVEL_POPULATION_BONUS * (tc.level - 1),
     tierCap: settlementTierCap(tc.level),
+    keepBonus: 0,
     cap: 0,
   }));
   if (stats.length === 0) return stats;
@@ -1788,6 +1794,15 @@ function settlementStats(): SettlementStat[] {
     if (w) {
       const s = statNear(i % WORLD_TILES_X, Math.floor(i / WORLD_TILES_X));
       if (s) s.housingCap += w;
+    } else if (t === TileType.Keep) {
+      const x = i % WORLD_TILES_X;
+      const y = Math.floor(i / WORLD_TILES_X);
+      const s = statNear(x, y);
+      if (s) {
+        const bonus = KEEP_POPULATION_PER_LEVEL * getBuildingLevel(x, y);
+        s.keepBonus += bonus;
+        s.housingCap += bonus;
+      }
     }
   }
   neighbourhoodPopulationBonus((tx, ty) => {
@@ -1807,7 +1822,7 @@ function settlementStats(): SettlementStat[] {
       if (s) s.pending++;
     }
   }
-  for (const s of stats) s.cap = Math.min(s.housingCap, s.tierCap);
+  for (const s of stats) s.cap = Math.min(s.housingCap, s.tierCap + s.keepBonus);
   return stats;
 }
 
@@ -1819,7 +1834,7 @@ function settlementBlocker(tx: number, ty: number, cost = 1): string {
   const key = settlementKeyNear(tx, ty);
   const s = stats.find((x) => resourceKey(x.tc.x, x.tc.y) === key);
   if (!s || s.used + s.pending + cost <= s.cap) return "";
-  const hint = s.housingCap < s.tierCap ? "build more houses" : "upgrade the Town Center";
+  const hint = s.housingCap < s.tierCap + s.keepBonus ? "build more houses" : "upgrade the Town Center or build a Keep";
   return `Settlement ${s.number} full (${s.used + s.pending}/${s.cap}) — ${hint}`;
 }
 
@@ -1983,6 +1998,7 @@ const NO_COLONIST_TILES = [
   TileType.GoldShop,
   TileType.Road,
   TileType.CobbleRoad,
+  TileType.Keep,
 ];
 
 function removeColonistForPost(tx: number, ty: number) {
@@ -2130,6 +2146,7 @@ const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
   [TileType.BuildersGuild]: "Builders' Guild",
   [TileType.TownCenter]: "Town Center",
   [TileType.Stables]: "Stables",
+  [TileType.Keep]: "Keep",
 };
 
 function announceUpgrade(baseType: TileType, level: number) {
@@ -8197,7 +8214,7 @@ const VISION_BUILDING_TILES = new Set<TileType>([
   TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop, TileType.Blacksmith,
   TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern,
   TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
-  TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.Stables, TileType.SiegeWorkshop,
+  TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
 ]);
 
 function revealAround(tx: number, ty: number, offsets: Array<[number, number]>) {
@@ -9466,6 +9483,7 @@ const PLACEABLE_TILES = [
   TileType.Gate,
   TileType.Stables,
   TileType.SiegeWorkshop,
+  TileType.Keep,
 ];
 const BREAKABLE_TILES = [
   TileType.Wall,
@@ -9504,6 +9522,7 @@ const BREAKABLE_TILES = [
   TileType.BuildersGuild,
   TileType.Stables,
   TileType.SiegeWorkshop,
+  TileType.Keep,
   // Demolishing a site frees its builders; the materials are lost (no refund).
   TileType.ConstructionSite,
   // Demolished roads revert to bare ground.
@@ -9554,6 +9573,7 @@ const IN_PLACE_UPGRADE_TILES: TileType[] = [
   TileType.ForagerHut,
   TileType.BuildersGuild,
   TileType.Tower,
+  TileType.Keep,
 ];
 
 // True when placing `tile` on the existing `current` building upgrades it in place.
@@ -9656,10 +9676,16 @@ function handleSetTile(player: Player, tx: number, ty: number, tile: TileType, s
 type Cost = Partial<Record<ResourceKey, number>>;
 const BUILDERS_GUILD_WOOD_COST = 15;
 const TOWN_CENTER_COST: Cost = { wood: 60, rock: 30, iron: 20 };
-// Upgrading a Town Center to level 2 / level 3 (the Keep).
+// Upgrading a Town Center to level 2 / level 3.
 const TOWN_CENTER_UPGRADE_COSTS: Cost[] = [
   { wood: 80, rock: 60, iron: 40 },
   { wood: 120, rock: 100, iron: 80, tools: 10 },
+];
+// The Keep: build (level 1), then upgrade to level 2 / level 3.
+const KEEP_COSTS: Cost[] = [
+  { wood: 60, rock: 40, iron: 20 },
+  { wood: 90, rock: 70, iron: 40 },
+  { wood: 130, rock: 100, iron: 70, tools: 10 },
 ];
 // A new Town Center must stand at least this far (tiles) from every other one and from POIs.
 const TOWN_CENTER_MIN_SPACING_TILES = 12;
@@ -9716,6 +9742,8 @@ function placementCost(tile: TileType, current: TileType, tx: number, ty: number
       return { wood: FOOD_HUT_WOOD_COST };
     case TileType.BuildersGuild:
       return { wood: BUILDERS_GUILD_WOOD_COST };
+    case TileType.Keep:
+      return KEEP_COSTS[Math.min(Math.max(levelAfterPlacement(tile, current, tx, ty), 1), 3) - 1];
     case TileType.TownCenter: {
       const tc = current === TileType.TownCenter ? findTownCenterAt(tx, ty) : undefined;
       return tc ? TOWN_CENTER_UPGRADE_COSTS[Math.min(tc.level, 2) - 1] : TOWN_CENTER_COST;
@@ -9809,7 +9837,7 @@ const BUILD_SECONDS_TOWN_CENTER = 40;
 const BIG_BUILD_TILES = new Set<TileType>([
   TileType.KnightPost, TileType.ChurchPost, TileType.Tavern, TileType.TailorShop, TileType.Blacksmith,
   TileType.LuxuryWorkshop, TileType.Brewery, TileType.Market, TileType.GoldShop, TileType.WardStone,
-  TileType.Stables, TileType.SiegeWorkshop,
+  TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
 ]);
 
 function buildTicksFor(tile: TileType, level: number): number {
@@ -9957,6 +9985,20 @@ function demolishTile(tx: number, ty: number, current: TileType) {
   broadcastTileUpdate(tx, ty, TileType.Empty);
 }
 
+// "" when a new Keep may go up near (tx, ty): its settlement's Town Center is at level 2+ and has no
+// Keep (built or queued) yet; else why not.
+function keepPlacementBlocker(tx: number, ty: number): string {
+  const key = settlementKeyNear(tx, ty);
+  const tc = townCenters.find((t) => resourceKey(t.x, t.y) === key);
+  if (!tc || tc.level < KEEP_MIN_TOWN_CENTER_LEVEL) return `Keep needs a Town Center at level ${KEEP_MIN_TOWN_CENTER_LEVEL}`;
+  const has = (x: number, y: number) => settlementKeyNear(x, y) === key;
+  for (const k of tilesOfType(TileType.Keep)) if (has(k.x, k.y)) return "This settlement already has a Keep";
+  for (const site of constructionSites.values()) {
+    if (site.target === TileType.Keep && !site.upgrade && has(site.tx, site.ty)) return "This settlement already has a Keep";
+  }
+  return "";
+}
+
 function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileType, skipReach = false) {
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
@@ -9995,6 +10037,13 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
     if (tilesOfType(TileType.ChurchPost).length === 0) return;
   } else if (tile === TileType.TownCenter) {
     if (current !== TileType.Empty || !townCenterSpotOk(tx, ty)) return;
+  } else if (tile === TileType.Keep) {
+    if (current !== TileType.Empty) return;
+    const keepBlock = keepPlacementBlocker(tx, ty);
+    if (keepBlock) {
+      sendEvent(player, "build", keepBlock);
+      return;
+    }
   } else {
     if (current !== TileType.Empty) return;
   }
@@ -10069,6 +10118,15 @@ function resolvePlacement(tx: number, ty: number, tile: TileType, current: TileT
   }
   if (tile === TileType.Tower) {
     resolveTowerPlacement(tx, ty);
+    return;
+  }
+  if (tile === TileType.Keep) {
+    if (current === TileType.Keep) {
+      tryLevelUpInPlace(tx, ty, [TileType.Keep]);
+      return;
+    }
+    tiles[tileIndex(tx, ty)] = TileType.Keep;
+    broadcastTileUpdate(tx, ty, TileType.Keep);
     return;
   }
   if (tile === TileType.IronMinePost) {
@@ -10711,7 +10769,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     bonuses.push(
       `Lv${tc.level}: +${pct(levelBonus(tc.level, TOWN_CENTER_LEVEL_BONUS_PER_STEP))} productivity and unit damage (colony-wide; the highest Town Center counts)`
     );
-    bonuses.push(`Settlement population cap ${stat?.cap ?? 0}: housing ${stat?.housingCap ?? 0} (10 base, +5 per extra Town Center, +5 per level, houses), tier ceiling ${stat?.tierCap ?? 0}`);
+    bonuses.push(`Settlement population cap ${stat?.cap ?? 0}: housing ${stat?.housingCap ?? 0} (10 base, +5 per extra Town Center, +5 per level, houses, Keep), tier ceiling ${stat?.tierCap ?? 0}${stat && stat.keepBonus > 0 ? ` + Keep ${stat.keepBonus}` : ""}`);
     bonuses.push(`${tc.level} builder${tc.level === 1 ? "" : "s"} (one per level)`);
   } else if (isHouseTile(t)) {
     staffing = `Beds ${houseOccupancy(tx, ty)}/${houseCapacity(t)}`;
@@ -10723,7 +10781,7 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
     }
     bonuses.push(`+${houseCapacity(t)} population (tier ${level})`);
     if (neighbours > 0) bonuses.push(`+${neighbours} population from adjacent houses / workplaces / barracks`);
-  } else if (level > 1 && !isMilitaryTile(t) && !isTowerTile(t)) {
+  } else if (level > 1 && !isMilitaryTile(t) && !isTowerTile(t) && t !== TileType.Keep) {
     bonuses.push(`Lv${level}: ${pct(levelBonus(level))} shorter work cycles`);
   }
 
@@ -10737,6 +10795,11 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
   if (t === TileType.BuildersGuild) bonuses.push(`${level} builder${level === 1 ? "" : "s"} (one per level)`);
   if (t === TileType.Stables) {
     bonuses.push(`Lv${level}: ${cavalryCountForLevel(level)} cavalry (fast, wings), charge x${CAVALRY_CHARGE_MULT} after ${CAVALRY_CHARGE_TILES} tiles in a straight line`);
+  }
+  if (t === TileType.Keep) {
+    const stat = settlementStats().find((x) => resourceKey(x.tc.x, x.tc.y) === settlementKeyNear(tx, ty));
+    staffing = `Population ${stat?.used ?? 0}/${stat?.cap ?? 0}`;
+    bonuses.push(`Keep Lv ${level}: +${KEEP_POPULATION_PER_LEVEL * level} population`);
   }
   if (t === TileType.SiegeWorkshop) {
     staffing = `Engines ${siegeUnitsAt(tx, ty)}/${SIEGE_WORKSHOP_CAP}`;
@@ -10776,7 +10839,12 @@ function buildingInfoFor(tx: number, ty: number): BuildingInfo | null {
       else if (POPULATION_GATED_TILES.includes(placeTile) && placementNeedsNewWorkerSlot(placeTile, tx, ty) && settlementBlocker(tx, ty))
         reason = settlementBlocker(tx, ty);
       else if (!instantBuild && !anyBuilderAlive() && placeTile !== TileType.TownCenter) reason = "No builders available";
-      const tierNote = t === TileType.TownCenter ? ` (max pop ${settlementTierCap(level + 1)})` : "";
+      const tierNote =
+        t === TileType.TownCenter
+          ? ` (max pop ${settlementTierCap(level + 1)})`
+          : t === TileType.Keep
+            ? ` (+${KEEP_POPULATION_PER_LEVEL * (level + 1)} population)`
+            : "";
       upgrade = { cost: `Lv${level + 1}: ${formatCost(cost)}${tierNote}`, enabled: reason === "", reason };
     }
   }
@@ -11271,6 +11339,7 @@ setInterval(() => {
         population: settlementStatsNow[i].used,
         populationCap: settlementStatsNow[i].cap,
         populationTierCap: settlementStatsNow[i].tierCap,
+        populationKeepBonus: settlementStatsNow[i].keepBonus,
       })
     ),
     goal: goalSnapshot,

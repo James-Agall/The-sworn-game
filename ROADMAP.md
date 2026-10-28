@@ -429,7 +429,7 @@ section). One game day = 60 s day + 40 s night = 2000 ticks.
 - **Building info** (left-click a building with any tool but Demolish): name, level, staff, HP (Town
   Centers), server-computed bonuses, construction progress, and an Upgrade button (no reach limit).
 - **Town Centers** are a list: placeable (key `0`, 60 wood + 30 rock + 20 iron, 12+ tiles from other Town
-  Centers and POIs), upgradeable to Lv2 (80/60/40 wood/rock/iron) and Lv3 the Keep (120/100/80 + 10 tools).
+  Centers and POIs), upgradeable to Lv2 (80/60/40 wood/rock/iron) and Lv3 (120/100/80 + 10 tools). (Lv3 was once called "the Keep"; the Keep is now a separate building, see Settlement population caps.)
   The highest level gives +5%/+10% productivity and unit damage, +5 population per level; HP 1000/1500/2000.
   Population base is 10 for the first and +5 per extra. A destroyed one is removed; mobs target the nearest.
   A killed player respawns at the nearest standing one; with none, they stay dead (Game Over overlay with
@@ -907,11 +907,21 @@ hook `raidDepartNow`; test: `server/raid-timing-test.mjs`.
 
 Population is now counted and capped per settlement (= per Town Center) instead of colony-wide.
 
-- **Tier ceiling** (`SETTLEMENT_POP_CAP_BY_TIER` in server/src/index.ts): Town Center Lv1 = 12, Lv2 = 24, Lv3 = 40.
+- **Tier ceiling** (`SETTLEMENT_POP_CAP_BY_TIER` in server/src/index.ts): Town Center Lv1 = 20, Lv2 = 30, Lv3 = 40 (retuned 2026-10-28 from 12/24/40). Housing still reaches the ceiling at sensible building (Lv1: base 10 + ten Cottages, or four Big Cottages; Lv3: base 20 + four Lv3 houses), so the housing formula is unchanged.
 - **Effective cap** of a settlement = `min(housing capacity, tier ceiling)`. Housing capacity keeps the old mechanics, attributed per settlement: 10 base (+5 for every Town Center after the first, +5 per level of that Town Center) + houses (1/3/5) and neighbourhood-synergy bonus of the houses nearest that Town Center. The colony-wide `populationCap` is the sum of the settlement caps.
 - **Membership**: every unit that costs population (civilians, builders, bishops, siege engines at `SIEGE_POPULATION_COST`; Abbey clergy excluded) carries `settlementId` ("x,y" of the nearest Town Center to its post at spawn). Saved with the colonist; old saves get it on load (nearest Town Center to the post, never rejected; a settlement already over its cap just can't grow). If a unit's Town Center falls, it is lazily re-attached to the nearest remaining one (`settlementOf`), whether or not that one has room (nobody despawns; it just can't grow).
-- **Gates**: new worker posts, upgrades that add a slot, siege queueing and respawns (dawn/dusk batch, Ward Priest) check the settlement nearest the post. A refused placement sends the event "Settlement 1 full (12/12) — upgrade the Town Center" ("build more houses" when housing, not the tier, is the limit). A respawn that doesn't fit keeps waiting for the next window; queued worker slots of construction sites count.
+- **Gates**: new worker posts, upgrades that add a slot, siege queueing and respawns (dawn/dusk batch, Ward Priest) check the settlement nearest the post. A refused placement sends the event "Settlement 1 full (12/12) — upgrade the Town Center or build a Keep" ("build more houses" when housing, not the tier, is the limit). A respawn that doesn't fit keeps waiting for the next window; queued worker slots of construction sites count.
 - **UI**: Town Center info shows `Population 9/12` and the upgrade button shows `(max pop 24)`; the Colony panel lists `Settlement N  used/cap` under the total (amber at cap, red over); a toast (once per 60 s per settlement) when one reaches its cap.
-- **Protocol (additive)**: `TownCenterSnapshot.population?`, `populationCap?`, `populationTierCap?`.
+- **Protocol (additive)**: `TownCenterSnapshot.population?`, `populationCap?`, `populationTierCap?`, `populationKeepBonus?`; `TileType.Keep = 73`.
 - **Test**: `server/settlement-pop-test.mjs` (self-booting, ports 21400+).
 - Caveats: `town-center-test.mjs` is stale (expects the old 40x40 world / 300 HP Town Center) and fails independently of this change. Settlement numbers are the Town Center's position in the list, so they renumber when an earlier one is destroyed.
+
+### Keep — separate building, 2026-10-28
+
+The Town Center no longer upgrades "toward a Keep": its Lv3 used to be the Keep (art `townCenterKeep.png`); the tiers stay numeric 1/2/3 (caps 20/30/40, HP, costs unchanged, so old saves load as they are) and Lv3 now reuses the Lv2 plaza art. The keep art is now the new building.
+
+- **Keep** (`TileType.Keep = 73`, sprite `castleKeep.png`, build menu Civic, hotkey `.`, big-building HP, builder required). Per settlement (nearest Town Center, like other posts), **one per settlement** (built or queued). A new Keep is refused unless that settlement's Town Center is Lv2+: "Keep needs a Town Center at level 2" (the build button is greyed until some Town Center is Lv2). Cost 60 wood + 40 rock + 20 iron; upgrades (generic building-level store, `KEEP_COSTS`) to Lv2 90/70/40 and Lv3 130/100/70 + 10 tools.
+- **Effect**: each Keep level adds +10 to the settlement's tier ceiling AND +10 housing capacity (so the bonus is real whichever was limiting): cap = `min(housing + 10N, tierCap + 10N)`; max +30 at Lv3. Demolished or destroyed: the bonus goes (units over the cap stay, the settlement just can't grow).
+- **UI**: Keep panel shows "Keep Lv N: +10N population" and the settlement's `Population used/cap`; the Town Center panel's cap line and the Colony panel include the bonus (`populationKeepBonus` in the snapshot).
+- **Cap table** (tier ceiling + Keep): Lv1 20 / 30 / 40 / 50; Lv2 30 / 40 / 50 / 60; Lv3 40 / 50 / 60 / 70 (Keep none / Lv1 / Lv2 / Lv3).
+- **Test**: `server/settlement-pop-test.mjs` (tier caps, Keep refusal/allow, Lv1-3 +10/20/30, second Keep refused, save/load, demolish).

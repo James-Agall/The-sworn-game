@@ -4,6 +4,8 @@
 //   two Town Centers; fill settlement 1 -> next worker post refused with "Settlement 1 full (n/cap)",
 //   settlement 2 still accepts; upgrading TC 1 raises its cap and the refused placement now works;
 //   per-settlement counts add up to the total; save/load keeps the assignments.
+//   tier caps 20/30/40; the Keep (separate building): refused at Town Center level 1, allowed at 2,
+//   levels 1..3 add +10/+20/+30 to the settlement cap, demolishing removes it, save/load keeps it.
 import WebSocket from "ws";
 import { spawn } from "node:child_process";
 import { mkdtempSync, existsSync } from "node:fs";
@@ -18,7 +20,7 @@ const result = (ok, msg) => {
   console.log(`${ok ? "PASS" : "FAIL"} ${msg}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const T = { Empty: 0, TownCenter: 12, HunterHut: 50 };
+const T = { Empty: 0, TownCenter: 12, HunterHut: 50, Keep: 73 };
 const POI = new Set([36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48]);
 const TILE = 32;
 const REACH = TILE * 2.5;
@@ -155,7 +157,7 @@ try {
 
   const state = () => c.snap.townCenters.map((t) => ({ pop: t.population, cap: t.populationCap, tier: t.populationTierCap }));
   console.log("initial", JSON.stringify(state()));
-  result(state()[0].tier === 12 && state()[1].tier === 12, "both Town Centers report tier cap 12 at level 1");
+  result(state()[0].tier === 20 && state()[1].tier === 20, "both Town Centers report tier cap 20 at level 1");
 
   // Fill settlement 1 until a post is refused.
   let refused = null;
@@ -186,11 +188,62 @@ try {
   await c.freshSnap();
   await c.freshSnap();
   const up = state()[0];
-  result(c.snap.townCenters[0].level === 2 && up.cap > s1.cap && up.tier === 24, `upgrading TC 1 raised its cap ${s1.cap} -> ${up.cap} (tier ceiling ${up.tier})`);
+  result(c.snap.townCenters[0].level === 2 && up.cap > s1.cap && up.tier === 30, `upgrading TC 1 raised its cap ${s1.cap} -> ${up.cap} (tier ceiling ${up.tier})`);
   const again = await tryHut(c, tc1.x, tc1.y);
   result(again.r === "placed", `the previously refused post now succeeds (${again.r})`);
 
-  // Save / load round trip keeps assignments.
+  // Tier 3 ceiling is 40.
+  await tele(c, tc1.x + 1, tc1.y);
+  c.send({ type: "setTile", tileX: tc1.x, tileY: tc1.y, tile: T.TownCenter });
+  await c.freshSnap();
+  await c.freshSnap();
+  result(c.snap.townCenters[0].level === 3 && state()[0].tier === 40, `Town Center 1 at level 3 has tier ceiling ${state()[0].tier}`);
+
+  // Keep: refused at Town Center level 1 (settlement 2), allowed at level 2 (settlement 1 here is level 3).
+  const keepAt = async (tc) => {
+    await tele(c, tc.x + 3, tc.y + 3);
+    await c.freshSnap();
+    const spot = freeTilesNear(c).find((s) => Math.hypot(s.x - tc.x, s.y - tc.y) < 8);
+    if (!spot) return null;
+    const before = c.events.length;
+    c.send({ type: "setTile", tileX: spot.x, tileY: spot.y, tile: T.Keep });
+    await c.freshSnap();
+    await c.freshSnap();
+    return { spot, placed: c.tileAt(spot.x, spot.y) === T.Keep, text: c.events.slice(before).join("|") };
+  };
+  const k0 = await keepAt(tc2);
+  result(k0 && !k0.placed && /Keep needs a Town Center at level 2/.test(k0.text), `Keep refused at Town Center level 1: "${k0?.text}"`);
+  // Settlement 2 to level 2, then the Keep goes up.
+  await tele(c, tc2.x + 1, tc2.y);
+  c.send({ type: "setTile", tileX: tc2.x, tileY: tc2.y, tile: T.TownCenter });
+  await c.freshSnap();
+  await c.freshSnap();
+  const base2 = state()[1];
+  result(c.snap.townCenters[1].level === 2 && base2.tier === 30, `Town Center 2 at level 2 (tier ${base2.tier})`);
+  const k1 = await keepAt(tc2);
+  await c.freshSnap();
+  result(k1 && k1.placed, "Keep allowed at Town Center level 2");
+  const keepSpot = k1.spot;
+  const lvl = (x, y) => {
+    const arr = c.snap.buildingLevels ?? [];
+    for (let i = 0; i + 1 < arr.length; i += 2) if (arr[i] === y * c.W() + x) return arr[i + 1];
+    return 1;
+  };
+  const capNow = () => state()[1].cap;
+  result(capNow() === base2.cap + 10 && c.snap.townCenters[1].populationKeepBonus === 10, `Keep Lv1 cap ${base2.cap} -> ${capNow()} (+10)`);
+  // A second Keep in the same settlement is refused.
+  const k2 = await keepAt(tc2);
+  result(k2 && !k2.placed && /already has a Keep/.test(k2.text), `second Keep refused: "${k2?.text}"`);
+  // Levels 2 and 3 through the upgrade flow.
+  for (const n of [2, 3]) {
+    await tele(c, keepSpot.x + 1, keepSpot.y);
+    c.send({ type: "upgradeBuilding", tileX: keepSpot.x, tileY: keepSpot.y });
+    await c.freshSnap();
+    await c.freshSnap();
+    result(capNow() === base2.cap + 10 * n && lvl(keepSpot.x, keepSpot.y) === n, `Keep Lv${n} cap ${capNow()} (+${capNow() - base2.cap}), level ${lvl(keepSpot.x, keepSpot.y)}`);
+  }
+
+  // Save / load round trip keeps assignments (and the Keep).
   const snapState = JSON.stringify(state());
   c.send({ type: "pause" });
   await sleep(300);
@@ -204,6 +257,14 @@ try {
   await sleep(500);
   await c.freshSnap();
   result(c.saves[1]?.ok === true && JSON.stringify(state()) === snapState, `load restored per-settlement counts ${snapState} -> ${JSON.stringify(state())}`);
+  result(c.tileAt(keepSpot.x, keepSpot.y) === T.Keep && lvl(keepSpot.x, keepSpot.y) === 3 && capNow() === base2.cap + 30, `load kept the Keep at level 3 (cap ${capNow()})`);
+
+  // Demolishing the Keep removes its bonus.
+  await tele(c, keepSpot.x + 1, keepSpot.y);
+  c.send({ type: "setTile", tileX: keepSpot.x, tileY: keepSpot.y, tile: T.Empty });
+  await c.freshSnap();
+  await c.freshSnap();
+  result(c.tileAt(keepSpot.x, keepSpot.y) === T.Empty && capNow() === base2.cap, `demolishing the Keep removed its bonus (cap ${capNow()})`);
 } finally {
   killServer();
 }
