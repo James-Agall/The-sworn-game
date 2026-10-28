@@ -395,7 +395,8 @@ const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
   banditElite: { color: 0x7a2a2a, radius: 10 },
   // Smaller than a goblin — "barely more than a shadow".
   halfLatch: { color: 0x0e0e12, radius: 5.5 },
-  // Siege engines: PLACEHOLDER art (cart / crate props, tinted; see MOB_TINT and SPRITES.md #37+).
+  // Siege engines: the raider ram / catapult sets (MOB_OPTIONAL_VARIANT_URLS); cart / crate props, tinted
+  // (MOB_TINT), if those files are missing.
   batteringRam: { color: 0x7a5230, radius: 13 },
   catapult: { color: 0x6b4a2a, radius: 12 },
 };
@@ -438,8 +439,8 @@ const COLONIST_ANIM_URLS: Record<Exclude<ColonistKind, "hero">, { walk: string[]
   forager: { walk: frameUrls("farmhandWalk", 4), action: frameUrls("farmhandTend", 3) },
   // Stand-in until the builder frames load (COLONIST_OPTIONAL_ANIM_URLS).
   builder: { walk: frameUrls("lumberjackWalk", 4), action: frameUrls("lumberjackChop", 3) },
-  // Cavalry & siege PLACEHOLDERS (SPRITES.md #37+): the rider borrows the player's ride cycle (tinted
-  // blue-grey), the engines the cart / crate props.
+  // Cavalry & siege stand-ins, used only if their own sets (COLONIST_OPTIONAL_ANIM_URLS) are missing: the
+  // rider borrows the player's ride cycle (tinted blue-grey), the engines the cart / crate props.
   cavalry: { walk: frameUrls("playerWalk", 4), action: frameUrls("playerAttack", 2) },
   batteringRam: { walk: [artUrl("cart")], action: [artUrl("cart")] },
   catapult: { walk: [artUrl("crate")], action: [artUrl("crate")] },
@@ -447,13 +448,37 @@ const COLONIST_ANIM_URLS: Record<Exclude<ColonistKind, "hero">, { walk: string[]
 // Dedicated art for kinds still on stand-ins. Loaded separately and optionally (loadOptionalTextures):
 // when every frame of a set loads it replaces the stand-in set and its tint; missing files are fine.
 // `carry` (optional) plays in the server's "carrying" state (walking a carcass / full basket home).
-const COLONIST_OPTIONAL_ANIM_URLS: Partial<Record<ColonistKind, { walk: string[]; action: string[]; carry: string[] }>> = {
+// `height` (optional) is the set's rendered height when it differs from the stand-in's COLONIST_KIND_HEIGHT.
+const COLONIST_OPTIONAL_ANIM_URLS: Partial<
+  Record<ColonistKind, { walk: string[]; action: string[]; carry: string[]; height?: number }>
+> = {
   hunter: { walk: frameUrls("hunterWalk", 4), action: frameUrls("hunterHunt", 3), carry: frameUrls("hunterCarry", 2) },
   forager: { walk: frameUrls("foragerWalk", 4), action: frameUrls("foragerForage", 3), carry: frameUrls("foragerCarry", 2) },
   // Carry = hauling a plank to a construction site (server state "carrying"); action = hammering.
   builder: { walk: frameUrls("builderWalk", 4), action: frameUrls("builderBuild", 4), carry: frameUrls("builderCarry", 2) },
   cavalry: { walk: frameUrls("cavalryWalk", 4), action: frameUrls("cavalryAttack", 3), carry: [] },
+  // Siege engines (SPRITES.md #40/#41). The canvases include the pennant, so they are set taller than the
+  // 30px props: the ram renders ~28px wide, the catapult ~44px.
+  batteringRam: { walk: frameUrls("batteringRamWalk", 4), action: frameUrls("batteringRamAttack", 3), carry: [], height: 40 },
+  catapult: {
+    walk: frameUrls("catapultWalk", 4),
+    action: [...frameUrls("catapultLoad", 3), ...frameUrls("catapultFire", 3)],
+    carry: [],
+    height: 38,
+  },
 };
+// Cavalry charge (client-inferred, see cavalryChargeRun): the couched-lance pose replaces the gallop once a
+// rider has run CAVALRY_CHARGE_TILES (the server's charge distance) in a straight line, kicking up dust.
+const CAVALRY_CHARGE_URL = "/sprites/cavalryCharge0.png";
+const CAVALRY_CHARGE_TILES = 5;
+const CHARGE_DUST_URL = "/sprites/fx-dust0.png";
+const CHARGE_DUST_MS = 200;
+// A destroyed siege engine leaves its wreck at the spot for this long (fading over the last quarter).
+const SIEGE_WRECK_URLS: Record<"colonist" | "mob", Partial<Record<string, string>>> = {
+  colonist: { batteringRam: "/sprites/batteringRamDestroyed.png", catapult: "/sprites/catapultDestroyed.png" },
+  mob: { batteringRam: "/sprites/mobBatteringRamDestroyed.png", catapult: "/sprites/mobCatapultDestroyed.png" },
+};
+const SIEGE_WRECK_MS = 4000;
 const COLONIST_STANDIN_TINT: Partial<Record<ColonistKind, number>> = {
   hunter: 0xb5d39a,
   forager: 0xffd9a8,
@@ -547,6 +572,27 @@ const MOB_VARIANT_URLS: Partial<Record<MobKind, MobVariantUrls[]>> = {
   troll: [{ walk: frameUrls("trollWalk", 4), action: frameUrls("trollAttack", 3) }],
   ogre: [{ walk: frameUrls("ogreWalk", 4), action: frameUrls("ogreAttack", 3) }],
 };
+// Animated looks loaded optionally (loadOptionalTextures): when every frame loads, the set replaces the
+// kind's static, tinted stand-in (MOB_SPRITE_URL_OVERRIDES / MOB_TINT). The raiders' siege engines
+// (SPRITES.md #40/#41): the ram's move row has only two clean frames on the source sheet.
+const MOB_OPTIONAL_VARIANT_URLS: Partial<Record<MobKind, { walk: string[]; action: string[] }>> = {
+  batteringRam: { walk: frameUrls("mobBatteringRamWalk", 2), action: frameUrls("mobBatteringRamAttack", 3) },
+  catapult: { walk: frameUrls("mobCatapultWalk", 4), action: [...frameUrls("mobCatapultLoad", 3), ...frameUrls("mobCatapultFire", 3)] },
+};
+// The Ogre Warlord boss (an ogre with boss "warlord"; SPRITES.md #15), loaded optionally: without it the
+// boss stays the plain ogre set drawn BOSS_RENDER_SCALE larger. Walk / attack as usual; standing still it
+// shows `idle`, and plays its `roar` when first seen and then every WARLORD_ROAR_EVERY_MS while idle.
+const WARLORD_URLS = {
+  walk: frameUrls("ogreWarlordWalk", 4),
+  action: frameUrls("ogreWarlordAttack", 3),
+  roar: frameUrls("ogreWarlordRoar", 3),
+  idle: "/sprites/ogreWarlordIdle.png",
+};
+// Rendered walk-canvas height before BOSS_RENDER_SCALE. The canvas is 265px, the body (crown to feet,
+// without the banner pole) 210px of it, so 64 puts the body at the ogre's ~51px, i.e. ~82px as the boss.
+const WARLORD_ANIM_SIZE = 64;
+const WARLORD_ROAR_FRAME_MS = 260;
+const WARLORD_ROAR_EVERY_MS = 9000;
 // Wide, low kinds whose anim set is sized by the first walk frame's longer side (its width), like
 // the static mob textures (upsertMob), so they don't balloon horizontally. Every other animated
 // kind fits by height: a walk canvas is widened symmetrically around the body's centroid to fit
@@ -562,6 +608,8 @@ const MOB_ATTACK_ANIM_RANGE_OVERRIDES_PX: Partial<Record<MobKind, number>> = {
   banditArcher: TILE_SIZE * 4 + 16,
   goblinCrossbow: TILE_SIZE * 4 + 16,
   darkShaman: TILE_SIZE * 5 + 16,
+  // Server CATAPULT_RANGE.
+  catapult: TILE_SIZE * 11 + 16,
 };
 
 function stableHash(id: string): number {
@@ -644,7 +692,7 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.FruitTreePicked]: "tree",
   [TileType.MushroomPatch]: "flowers1",
   [TileType.MushroomPatchPicked]: "tallGrass",
-  // Cavalry & siege PLACEHOLDERS (SPRITES.md #38/#39).
+  // Cavalry & siege stand-ins, used only if stables / siegeWorkshop art is missing (TILE_OPTIONAL_ART).
   [TileType.Stables]: "castleLv2",
   [TileType.SiegeWorkshop]: "blacksmith",
 };
@@ -728,6 +776,7 @@ const TILE_LEVEL_ART: Partial<Record<TileType, string[]>> = {
   [TileType.BuildersGuild]: ["buildersGuild", "buildersGuildLv2", "buildersGuildLv3"],
   // Lv3 reuses the Lv2 plaza: the keep art (castleKeep.png) now belongs to the separate Keep building.
   [TileType.TownCenter]: ["townCenterLv1", "townCenterLv2", "townCenterLv2"],
+  [TileType.Stables]: ["stables", "stablesLv2", "stablesLv3"],
 };
 // The tiered Town Center art (a plaza on its own diamond patch) skips the box fit like
 // townCenter.png does: rendered `widthTiles` wide, `anchor` (the patch's center, under the statue / the
@@ -806,6 +855,10 @@ const FX_ANIM_URLS = {
   wardPulse: frameUrls("fx-wardPulse", 4),
   wardLapse: frameUrls("fx-wardLapse", 4),
 };
+// Catapult boulder (5 rock variants, one picked per shot) and its 4-frame dust impact (SPRITES.md #42),
+// loaded optionally: missing files fall back to the tinted spark / poof.
+const BOULDER_URLS = frameUrls("fx-boulder", 5);
+const BOULDER_IMPACT_URLS = frameUrls("fx-boulderImpact", 4);
 // Wound decals over damaged units: [light, bleeding, heavy], small for colonists/most mobs, Large for
 // the big mobs. Thresholds are hp fractions (below the first = light, ... below the last = heavy).
 const WOUND_URLS = ["woundLight", "woundBleeding", "woundHeavy"].map((n) => `/sprites/${n}.png`);
@@ -855,8 +908,8 @@ const HUNGER_LABEL_COLORS = [0xffffff, 0xff5a4a, 0x4fd8c0, 0xf0c050, 0xb080d0, 0
 const HUNGER_SIGIL_SIZE = 16;
 const HUNGER_AURA_WIDTH = 40;
 const MARKED_MOB_SCALE = 1.25;
-// Render scale of a mob: Hunger-marked x1.25, Phase 5 bosses x BOSS_RENDER_SCALE (no new art: the
-// ogre sprite drawn 1.6x is the Ogre Warlord). Both stack.
+// Render scale of a mob: Hunger-marked x1.25, Phase 5 bosses x BOSS_RENDER_SCALE (the Warlord has its own
+// art, WARLORD_URLS, sized so this scale lands it at ~1.6x an ogre). Both stack.
 function mobRenderScale(m: MobSnapshot): number {
   return (m.mark ? MARKED_MOB_SCALE : 1) * (m.boss ? BOSS_RENDER_SCALE[m.boss] : 1);
 }
@@ -1167,6 +1220,16 @@ async function main() {
     TOWN_CENTER_MARKER_URL,
     DEER_FALLEN_URL,
     ...Object.values(WILDLIFE_OPTIONAL_URLS).flatMap((a) => [...a.walk, ...a.idle, ...a.run]),
+    CAVALRY_CHARGE_URL,
+    CHARGE_DUST_URL,
+    ...Object.values(SIEGE_WRECK_URLS).flatMap((byKind) => Object.values(byKind) as string[]),
+    ...Object.values(MOB_OPTIONAL_VARIANT_URLS).flatMap((v) => [...v!.walk, ...v!.action]),
+    ...WARLORD_URLS.walk,
+    ...WARLORD_URLS.action,
+    ...WARLORD_URLS.roar,
+    WARLORD_URLS.idle,
+    ...BOULDER_URLS,
+    ...BOULDER_IMPACT_URLS,
   ]);
   // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
   // and each URL should be requested once and resolve to one shared Texture.
@@ -1318,12 +1381,13 @@ async function main() {
   function buildAnimSet(
     urls: { walk: string[]; action: string[] },
     renderSize: number,
-    fitLongerSide = false
+    fitLongerSide = false,
+    textures: Record<string, Texture> = loadedTextures
   ): AnimSet {
-    const walk = urls.walk.map((u) => loadedTextures[u]);
+    const walk = urls.walk.map((u) => textures[u]);
     const refHeight = walk[0].height;
     const refSize = fitLongerSide ? Math.max(walk[0].width, refHeight) : refHeight;
-    return { walk, action: urls.action.map((u) => loadedTextures[u]), scale: renderSize / refSize, refHeight };
+    return { walk, action: urls.action.map((u) => textures[u]), scale: renderSize / refSize, refHeight };
   }
   // Feet sit on each frame's bottom edge; pin them to where the first walk frame's feet land when
   // that frame is center-anchored, so switching between rows of different heights doesn't hop.
@@ -1380,11 +1444,14 @@ async function main() {
       walk,
       action,
       carry: carry && carry.length > 0 ? carry : undefined,
-      scale: (COLONIST_KIND_HEIGHT[kind as ColonistKind] ?? COLONIST_SPRITE_HEIGHT) / walk[0].height,
+      scale: (urls!.height ?? COLONIST_KIND_HEIGHT[kind as ColonistKind] ?? COLONIST_SPRITE_HEIGHT) / walk[0].height,
       refHeight: walk[0].height,
     };
     COLONIST_TINT.delete(kind);
   }
+  // The charge pose only goes with the rider's own set (not the player stand-in).
+  const CAVALRY_CHARGE_TEXTURE = COLONIST_TINT.has("cavalry") ? undefined : optionalTextures[CAVALRY_CHARGE_URL];
+  const CHARGE_DUST_TEXTURE = optionalTextures[CHARGE_DUST_URL];
   // Militia/Spearman/Pikeman were generated together on one shared sheet at one consistent body
   // scale, but Spearman/Pikeman's raised polearm pushes their own walk canvas well past their
   // actual body height (Pikeman's canvas is 254px tall - genuine pike art, not padding - versus
@@ -1402,6 +1469,9 @@ async function main() {
     idle: Texture;
     idleScale: number;
     anim: AnimSet | null;
+    // Ogre Warlord only: a standing pose shown instead of walk frame 0, and the roar frames.
+    idlePose?: Texture;
+    roar?: Texture[];
   }
   const MOB_VARIANTS = Object.fromEntries(
     Object.entries(MOB_VARIANT_URLS).map(([kind, variants]) => {
@@ -1420,6 +1490,39 @@ async function main() {
       ];
     })
   ) as Partial<Record<MobKind, MobVariant[]>>;
+  // Kinds whose MOB_OPTIONAL_VARIANT_URLS set loaded (they get their wreck art; stand-ins don't).
+  const MOB_OWN_ART = new Set<string>();
+  for (const [kind, urls] of Object.entries(MOB_OPTIONAL_VARIANT_URLS)) {
+    if (![...urls!.walk, ...urls!.action].every((u) => optionalTextures[u])) continue;
+    const size = MOB_VISUALS[kind as MobKind].radius * MOB_SPRITE_SIZE_PER_RADIUS;
+    const anim = buildAnimSet(urls!, size, MOB_ANIM_FIT_LONGER_SIDE.has(kind as MobKind), optionalTextures);
+    MOB_VARIANTS[kind as MobKind] = [{ idle: anim.walk[0], idleScale: anim.scale, anim }];
+    MOB_OWN_ART.add(kind);
+  }
+  const SIEGE_WRECK_TEXTURES = {
+    colonist: Object.fromEntries(Object.entries(SIEGE_WRECK_URLS.colonist).map(([k, u]) => [k, optionalTextures[u!]])),
+    mob: Object.fromEntries(Object.entries(SIEGE_WRECK_URLS.mob).map(([k, u]) => [k, optionalTextures[u!]])),
+  } as Record<"colonist" | "mob", Partial<Record<string, Texture>>>;
+  const WARLORD_VARIANT: MobVariant | null = [...WARLORD_URLS.walk, ...WARLORD_URLS.action, ...WARLORD_URLS.roar, WARLORD_URLS.idle].every(
+    (u) => optionalTextures[u]
+  )
+    ? (() => {
+        const anim = buildAnimSet(WARLORD_URLS, WARLORD_ANIM_SIZE, false, optionalTextures);
+        return {
+          idle: anim.walk[0],
+          idleScale: anim.scale,
+          anim,
+          idlePose: optionalTextures[WARLORD_URLS.idle],
+          roar: WARLORD_URLS.roar.map((u) => optionalTextures[u]),
+        };
+      })()
+    : null;
+  // Per Warlord: when the current roar ends and when the next may start (performance.now() ms).
+  const warlordRoar = new Map<string, { until: number; next: number; startedAt: number }>();
+  const BOULDER_TEXTURES = BOULDER_URLS.map((u) => optionalTextures[u]).filter((t): t is Texture => !!t);
+  const BOULDER_IMPACT_TEXTURES = BOULDER_IMPACT_URLS.every((u) => optionalTextures[u])
+    ? BOULDER_IMPACT_URLS.map((u) => optionalTextures[u])
+    : null;
   // Ticks (snapshots, ~20/s) each animation frame holds before advancing.
   const ANIM_TICKS_PER_FRAME = 4;
   type AnimMode = "walk" | "action" | "carry" | null;
@@ -2519,9 +2622,12 @@ async function main() {
         anim = { mode: null, frame: 0, ticksInFrame: 0, lastX: c.x, lastY: c.y };
         colonistAnim.set(c.id, anim);
       }
-      const moved = Math.hypot(c.x - anim.lastX, c.y - anim.lastY) > 0.5;
+      const stepX = c.x - anim.lastX;
+      const stepY = c.y - anim.lastY;
+      const moved = Math.hypot(stepX, stepY) > 0.5;
       anim.lastX = c.x;
       anim.lastY = c.y;
+      const charging = vk === "cavalry" && CAVALRY_CHARGE_TEXTURE !== undefined && cavalryChargeRun(c.id, stepX, stepY);
       const mode = COLONIST_ACTION_STATES.has(c.state)
         ? "action"
         : c.state === "carrying" && set.carry
@@ -2534,12 +2640,85 @@ async function main() {
       // image was extracted independently and doesn't share the walk sheet's body-to-canvas
       // ratio, so using it here made units visibly pop in size on every idle<->walk/action
       // transition (i.e. every time they started or stopped moving).
-      showAnimFrame(entry.sprite, set, frame ?? set.walk[0]);
+      showAnimFrame(entry.sprite, set, charging && mode === "walk" ? CAVALRY_CHARGE_TEXTURE! : (frame ?? set.walk[0]));
+      if (charging && mode === "walk" && !hidden) spawnChargeDust(c.id, c.x, c.y + (set.refHeight * set.scale) / 2, stepX);
       const battered = BATTERED_TINT_KINDS.has(vk) && c.hp < c.maxHp * BATTERED_HP_FRACTION;
       const posed = battered && !frame && showBatteredPose(entry.sprite, set, vk, COLONIST_SPRITE_HEIGHT);
       entry.sprite.tint = battered && !posed ? BATTERED_TINT : c.kind === "hero" ? HERO_TINT : c.summoned ? SUMMON_TINT : (COLONIST_TINT.get(vk) ?? 0xffffff);
     }
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
+  }
+
+  // Cavalry charge, inferred client-side (snapshots carry no charge flag): distance ridden in one
+  // direction, reset when the rider stops or turns more than ~35 degrees. True once it reaches the server's
+  // charge distance.
+  const cavalryRuns = new Map<string, { dist: number; dirX: number; dirY: number; dustAt: number }>();
+  function cavalryChargeRun(id: string, dx: number, dy: number): boolean {
+    let run = cavalryRuns.get(id);
+    if (!run) {
+      run = { dist: 0, dirX: 0, dirY: 0, dustAt: 0 };
+      cavalryRuns.set(id, run);
+    }
+    const len = Math.hypot(dx, dy);
+    if (len <= 0.5) {
+      run.dist = 0;
+      return false;
+    }
+    const ux = dx / len;
+    const uy = dy / len;
+    if (run.dist > 0 && ux * run.dirX + uy * run.dirY < 0.82) run.dist = 0;
+    run.dirX = ux;
+    run.dirY = uy;
+    run.dist += len;
+    return run.dist >= CAVALRY_CHARGE_TILES * TILE_SIZE;
+  }
+  // A dust cloud kicked up behind the hooves (fx-dust0), drifting back and fading; one per CHARGE_DUST_MS.
+  function spawnChargeDust(id: string, x: number, feetY: number, dx: number) {
+    const run = cavalryRuns.get(id);
+    const now = performance.now();
+    if (!CHARGE_DUST_TEXTURE || !run || now - run.dustAt < CHARGE_DUST_MS) return;
+    run.dustAt = now;
+    const back = dx >= 0 ? -1 : 1;
+    const sx = x + back * 14;
+    const dust = addFx(CHARGE_DUST_TEXTURE, 24, sx, feetY, 600, (s, t) => {
+      s.x = sx + back * 10 * t;
+      s.alpha = 0.85 * (1 - t);
+    });
+    dust.anchor.set(0.5, 1);
+    if (back > 0) dust.scale.x *= -1;
+  }
+  // A destroyed siege engine's wreck lies where it fell for SIEGE_WRECK_MS. `scale` is the unit's anim-set
+  // scale (the wreck is cut from the same sheet, so it shares the pixel scale), `feetY` its feet line.
+  function spawnSiegeWreck(texture: Texture, x: number, feetY: number, scale: number, facingLeft: boolean) {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5, 1);
+    sprite.scale.set(facingLeft ? -scale : scale, scale);
+    sprite.position.set(x, feetY);
+    decorSpriteLayer.addChild(sprite);
+    activeEffects.push({
+      sprite,
+      startedAt: performance.now(),
+      durationMs: SIEGE_WRECK_MS,
+      update: (s, t) => {
+        s.alpha = t < 0.75 ? 1 : (1 - t) * 4;
+      },
+    });
+  }
+  // Last known siege-engine kind per id (colonists / mobs), so a removed one can leave its wreck.
+  const siegeIds = { colonist: new Map<string, string>(), mob: new Map<string, string>() };
+  function dropSiegeWrecks(which: "colonist" | "mob", sprites: Map<string, EntityVisual>, seenIds: Set<string>, facing: FacingMap) {
+    for (const [id, kind] of siegeIds[which]) {
+      if (seenIds.has(id)) continue;
+      siegeIds[which].delete(id);
+      const entry = sprites.get(id);
+      const texture = SIEGE_WRECK_TEXTURES[which][kind];
+      const set = which === "colonist" ? COLONIST_ANIMS[kind as ColonistKind] : MOB_VARIANTS[kind as MobKind]?.[0]?.anim;
+      if (suppressDeathPoofs || !entry || !entry.sprite.visible || !texture || !set) continue;
+      // Only with the engine's own art (the wreck would not match a tinted stand-in).
+      if (which === "colonist" ? COLONIST_TINT.has(kind) : !MOB_OWN_ART.has(kind)) continue;
+      const { x, y } = entry.sprite.position;
+      spawnSiegeWreck(texture, x, y + (set.refHeight * set.scale) / 2, set.scale, facing.get(id)?.facingRight === false);
+    }
   }
 
   // Swaps an idle unit's frame for its static battered pose (BATTERED_POSE_URLS), `height` px tall
@@ -2556,10 +2735,15 @@ async function main() {
 
   function syncColonists(snapshot: ColonistSnapshot[], isNight: boolean) {
     const seenIds = new Set(snapshot.map((c) => c.id));
+    dropSiegeWrecks("colonist", colonistSprites, seenIds, colonistFacing);
     pruneMissing(colonistSprites, seenIds, true, "colonist_death");
     for (const id of Array.from(colonistAnim.keys())) {
       if (!seenIds.has(id)) colonistAnim.delete(id);
     }
+    for (const id of Array.from(cavalryRuns.keys())) {
+      if (!seenIds.has(id)) cavalryRuns.delete(id);
+    }
+    for (const c of snapshot) if (c.kind === "batteringRam" || c.kind === "catapult") siegeIds.colonist.set(c.id, c.kind);
     pruneFacing(colonistFacing, seenIds);
     for (const id of Array.from(stateFxAt.keys())) {
       if (!seenIds.has(id)) stateFxAt.delete(id);
@@ -2583,7 +2767,7 @@ async function main() {
 
   function upsertMob(m: MobSnapshot) {
     if (m.kind === "halfLatch" && !suppressDeathPoofs && !mobSprites.has(m.id)) maybeWardLapseFx(m.x, m.y);
-    const variants = MOB_VARIANTS[m.kind];
+    const variants = m.boss === "warlord" && WARLORD_VARIANT ? [WARLORD_VARIANT] : MOB_VARIANTS[m.kind];
     const woundSize = (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS * MOB_WOUND_SIZE_FACTOR;
     if (variants) {
       upsertVariantMob(m, variants[stableHash(m.id) % variants.length]);
@@ -2723,8 +2907,8 @@ async function main() {
     const frame = stepAnim(anim, set, mode);
     // Same fix as the colonist idle fallback above: use the walk cycle's own first frame instead
     // of `variant.idle` (a separately-extracted static texture) so idle<->animated transitions
-    // don't pop in size.
-    showAnimFrame(sprite, set, frame ?? set.walk[0]);
+    // don't pop in size. The Warlord's idle pose shares its walk canvas, so it doesn't pop either.
+    showAnimFrame(sprite, set, frame ?? warlordIdleFrame(m.id, variant) ?? set.walk[0]);
     const battered = BATTERED_TINT_KINDS.has(m.kind) && m.hp < m.maxHp * BATTERED_HP_FRACTION;
     const posed =
       battered && !frame && showBatteredPose(sprite, set, m.kind, (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS);
@@ -2735,12 +2919,36 @@ async function main() {
     applyFacing(sprite, facingRight);
   }
 
+  // Standing Warlord: its idle pose, or a roar when first seen and then every WARLORD_ROAR_EVERY_MS
+  // (staggered a little). Null for any other variant.
+  function warlordIdleFrame(id: string, variant: MobVariant): Texture | null {
+    if (!variant.roar || !variant.idlePose) return null;
+    const now = performance.now();
+    let roar = warlordRoar.get(id);
+    if (!roar) {
+      roar = { until: 0, next: now, startedAt: 0 };
+      warlordRoar.set(id, roar);
+    }
+    if (now >= roar.next && now >= roar.until) {
+      roar.startedAt = now;
+      roar.until = now + variant.roar.length * WARLORD_ROAR_FRAME_MS;
+      roar.next = roar.until + WARLORD_ROAR_EVERY_MS + Math.random() * 3000;
+    }
+    if (now < roar.until) return variant.roar[Math.min(variant.roar.length - 1, Math.floor((now - roar.startedAt) / WARLORD_ROAR_FRAME_MS))];
+    return variant.idlePose;
+  }
+
   function syncMobs(snapshot: MobSnapshot[]) {
     const seenIds = new Set(snapshot.map((m) => m.id));
+    dropSiegeWrecks("mob", mobSprites, seenIds, mobFacing);
     pruneMissing(mobSprites, seenIds, true, "monster_death");
     for (const id of Array.from(mobAnim.keys())) {
       if (!seenIds.has(id)) mobAnim.delete(id);
     }
+    for (const id of Array.from(warlordRoar.keys())) {
+      if (!seenIds.has(id)) warlordRoar.delete(id);
+    }
+    for (const m of snapshot) if (m.kind === "batteringRam" || m.kind === "catapult") siegeIds.mob.set(m.id, m.kind);
     pruneFacing(mobFacing, seenIds);
     for (const m of snapshot) upsertMob(m);
   }
@@ -2964,23 +3172,34 @@ async function main() {
     faceAttacker(e);
     const angle = Math.atan2(e.toY - e.fromY, e.toX - e.fromX);
     if (e.boulder) {
-      // Catapult boulder (PLACEHOLDER: the round spark sprite tinted brown, SPRITES.md #42): a slow arc,
-      // then a dust / debris puff (the poof, tinted) where it lands.
+      // Catapult boulder (one of the fx-boulder rocks, SPRITES.md #42): a slow tumbling arc, then the
+      // 4-frame dust impact where it lands. Falls back to a brown-tinted spark and poof without that art.
       const distance = Math.hypot(e.toX - e.fromX, e.toY - e.fromY);
       const durationMs = Math.min(1100, Math.max(350, distance / 0.35));
       const arc = Math.min(90, distance * 0.35);
-      const boulder = addFx(FX_TEXTURES.spark, BOULDER_SIZE, e.fromX, e.fromY, durationMs, (sp, t) => {
+      const rock = BOULDER_TEXTURES.length > 0 ? BOULDER_TEXTURES[Math.floor(Math.random() * BOULDER_TEXTURES.length)] : null;
+      const boulder = addFx(rock ?? FX_TEXTURES.spark, BOULDER_SIZE, e.fromX, e.fromY, durationMs, (sp, t) => {
         sp.position.set(e.fromX + (e.toX - e.fromX) * t, e.fromY + (e.toY - e.fromY) * t - Math.sin(Math.PI * t) * arc);
         sp.rotation = t * 6;
       }, () => {
+        sound.play("sword_hit", { x: e.toX, y: e.toY });
+        const frames = BOULDER_IMPACT_TEXTURES;
+        if (frames) {
+          const impact = addFx(frames[0], BOULDER_PUFF_SIZE, e.toX, e.toY + 6, 560, (sp, t) => {
+            const frame = frames[Math.min(frames.length - 1, Math.floor(t * frames.length))];
+            if (sp.texture !== frame) sp.texture = frame;
+            sp.alpha = t < 0.75 ? 1 : (1 - t) * 4;
+          });
+          impact.anchor.set(0.5, 1);
+          return;
+        }
         const puff = addFx(FX_TEXTURES.poof, BOULDER_PUFF_SIZE, e.toX, e.toY, 500, (sp, t) => {
           sp.alpha = 1 - t * t;
           sp.scale.set((BOULDER_PUFF_SIZE / Math.max(sp.texture.width, sp.texture.height)) * (0.7 + 0.6 * t));
         });
         puff.tint = BOULDER_PUFF_TINT;
-        sound.play("sword_hit", { x: e.toX, y: e.toY });
       });
-      boulder.tint = BOULDER_TINT;
+      if (!rock) boulder.tint = BOULDER_TINT;
       return;
     }
     if (e.melee) {
