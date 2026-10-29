@@ -683,6 +683,20 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > `goblinRiderCharge0-2.png`, `goblinRiderAttack0-2.png`, `goblinRiderIdle.png`, `goblinRiderHit.png`,
 > `goblinRiderDeath0-2.png`, and the veteran set `goblinRiderVetWalk0-3.png`, `goblinRiderVetAttack0-2.png`.
 
+## Regenerate (2026-10-29 delivery review)
+
+Delivered 2026-10-29 and good: #45-#48 (knight, cavalry, spearman, pikeman tiers), #53, #54, #57, #58. Wired by the
+"tier art + blacksmith + spell icons + character sheet" job. These two sheets came back unusable and need regenerating:
+
+- **#49-#52 equipment, per-family armour and weapon icons, relics, loot sparkle** (`Medieval Pixel Art Equipment and
+  Relics.png`): the icons are blurry painted images, not clean pixel art; tier labels repeat or are wrong (T2 twice in
+  a row, two rows both titled weapon); the sparkles are faint. Redo as crisp 32x32 pixel icons with a metal-coloured
+  frame per tier (bronze / silver / gold) and a distinct silhouette per family, one clearly labelled row each.
+- **#55-#56 rider and hero equipment overlays** (`Medieval Knight Equipment Sprite Atlas.png`): blurry, garbled titles,
+  and the pieces are scattered rather than laid out per animation frame. Redo as a clean grid, one row per slot (head,
+  chest, legs, weapon, cloak) per frame of the base walk/attack animation, each piece pre-positioned to overlay the base
+  sprite frame exactly (same canvas size as the base frames), per tier T1-T3 plus a relic tint.
+
 ## Notes on process
 
 - One generation per image block, not one frame per generation — frame-to-frame consistency
