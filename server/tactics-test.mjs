@@ -5,9 +5,10 @@
 //   F: flanking - 5 knights in a north-south line + 2 archers behind it vs a regiment of 6 armoured orcs +
 //      2 orcs + 1 wolf (morale frozen): a flank group forms (the wolf) and a wolf strikes an archer while the
 //      regiment's front line is still fighting the knights.
-//   R: rout - a raid group of 2 goblins (still in contact formation) vs 8 knights: it routs (tactics event
-//      + "The raiders break and flee!" toast), the goblins move away, and afterwards the group, its
-//      regiment and its mobs are all gone.
+//   R: rout - a raid group of 4 goblins (still in contact formation) vs 8 knights, 3 of them killed once in
+//      contact (crushed: raids commit to the fight until at most a quarter is left, see raid-morale-test):
+//      it routs (tactics event + "The raiders break and flee!" toast), the survivor moves away, and
+//      afterwards the group, its regiment and its mobs are all gone.
 //   W: wall cover - 3 goblins + 1 goblin crossbow of a walled site ("fortT") inside a walled 5x5 enclosure
 //      with a closed gate, 8 knights outside: the regiment takes cover and every member is still inside
 //      after 15 s; breaking the gate below half HP ends the cover ("coverEnd" breach).
@@ -116,7 +117,8 @@ if (ONLY.has("F")) {
 if (ONLY.has("R")) {
   await knightLine(A.x - 2, A.y - 4, 8, "defensive");
   await ff(2);
-  const g = await hook("spawnRaidGroup", { kinds: ["goblin", "goblin"], tx: A.x + 7, ty: A.y });
+  const g = await hook("spawnRaidGroup", { kinds: ["goblin", "goblin", "goblin", "goblin"], tx: A.x + 7, ty: A.y - 1 });
+  let culled = false;
   const kx = px(A.x - 2);
   const ky = px(A.y);
   let routAt = null;
@@ -125,7 +127,12 @@ if (ONLY.has("R")) {
   for (let i = 0; i < 80; i++) {
     await ff(5);
     const ts = await tactics();
-    const mine = ts.mobs.filter((m) => m.regiment === g.id);
+    let mine = ts.mobs.filter((m) => m.regiment === g.id);
+    if (!culled && ts.regiments.find((r) => r.id === g.id)?.ratio != null) {
+      culled = true;
+      for (const m of mine.slice(0, mine.length - 1)) await hook("damageMob", { mobId: m.id, amount: 99999 });
+      mine = mine.slice(-1);
+    }
     const meanD = mine.length ? mine.reduce((s, m) => s + Math.hypot(m.x - kx, m.y - ky), 0) / mine.length / TILE : null;
     if (process.env.DEBUG && i % 4 === 0) info(`R${i}: ${JSON.stringify(ts.regiments.find((r) => r.id === g.id))} ${mine.map((m) => `${m.kind}@${(m.x / TILE - A.x).toFixed(1)},${(m.y / TILE - A.y).toFixed(1)} ${m.groupId ? "G" : ""}${m.tactic ?? ""} ${m.targetType}`).join(" ")}`);
     if (routAt === null && ts.events.some((e) => e.regiment === g.id && e.type === "rout")) {
@@ -137,7 +144,7 @@ if (ONLY.has("R")) {
       break;
     }
   }
-  result(routAt !== null, `R: 2 goblins vs 8 knights: the raid group routed (tick ${routAt})`);
+  result(routAt !== null, `R: 4 goblins vs 8 knights, 3 killed: the crushed raid group routed (tick ${routAt})`);
   result(c.events.some((e) => e.text === "The raiders break and flee!"), "R: toast 'The raiders break and flee!'");
   result(atRout !== null && later !== null && later > atRout + 2, `R: the goblins moved away (${atRout?.toFixed(1)} -> ${later?.toFixed(1)} tiles from the knights)`);
   await ff(1300);

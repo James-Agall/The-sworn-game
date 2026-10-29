@@ -1638,3 +1638,40 @@ Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 5 (time controls and bat
 3. Keep adding camps / posts: the one that would push the garrison past 12 is refused with the
    "garrison full" toast; its upgrade button shows the same reason.
 4. Build a Blacksmith: tools climb to 30 and stop; wood stops dropping. Its info panel says it idles at 30.
+
+## Raid morale retune — landed 2026-10-29
+
+"Enemy night raids flee too easily": a raid regiment (`reg.raid`, no `siteId`) at full morale hit the rout
+line in ~7 s once outnumbered, one death cost 8-17 morale in a 6-man group, and a routed raid never rallies
+(it leaves by the map edge). Server only; site regiments (camp guardians, hordes, forts) keep the shared
+`MORALE_*` numbers unchanged. New `RAID_MORALE_*` constants in the Monster tactics block:
+
+| | shared (sites) | raid |
+|---|---|---|
+| rout line | `MORALE_ROUT` 25 | `RAID_MORALE_ROUT` 10 |
+| casualty (x weight / peak) | 50 | 25 |
+| outnumbered drain at ratio 0 (/s) | 20 | 10 |
+| front line lost (/s) | 8 | 4 |
+| outflanked (/s) | 4 | 2 |
+| losses while an anchor lives | x0.5 | x0.25 |
+| contact grace | none | `RAID_MORALE_GRACE_TICKS` first 10 s of contact: no morale loss |
+
+- **Crushed**: a raid in contact also routs (whatever its morale) once at most `RAID_CRUSHED_FRACTION` 25%
+  of its peak strength is left, or when the boss / Hunger-marked anchor it had is dead. Not under
+  `tacticsConfig {freezeMorale}`.
+- Unchanged: recovery (+3/s), wall cover (sheltering still blocks rout), flanking, the rout itself
+  (leave by the edge, toast, no rally for raids).
+- Effect: in an 8 orcs vs 8 knights fight (ratio ~0.3) the old raid broke at morale 0 with 3 still standing
+  ~5 s after contact; now it fights until 2 are left. Most raid fights are decided inside the 10 s grace, so
+  in practice raids now break on being crushed rather than on morale.
+- **Tests**: new `raid-morale-test.mjs` (8 orcs vs 8 knights: 2 killed at contact, no rout while 3+ stand;
+  cut to 2 of 8: routs) - passes, and fails its rout-with-3-left check on the old tuning. `tactics-test.mjs`
+  R case updated (2 goblins vs 8 knights no longer routs: now 4 goblins, 3 killed at contact -> crushed
+  rout, toast, leave, despawn); F / R / W all pass on a fresh server.
+
+**Manual browser check (raid morale)**
+1. Play into the first night with a modest garrison (a few knights / militia) and wait for a raid to reach it.
+2. Watch the melee: the raiders keep fighting as their first members fall - no "The raiders break and flee!"
+   toast after the first one or two deaths.
+3. Keep cutting them down: once only a quarter or so are left (or their boss dies) the toast appears and the
+   survivors run for the map edge.

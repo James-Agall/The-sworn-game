@@ -8157,6 +8157,17 @@ const MORALE_RECOVER_PER_SEC = 3;
 const MORALE_WINNING_RATIO = 1.5;
 // Losses are scaled by this while a morale anchor (boss / Hunger-marked) lives.
 const MORALE_ANCHOR_RESIST = 0.5;
+// Night raids (reg.raid) commit to the fight: a lower rout line, half the casualty / outnumbered cost,
+// gentler front-lost / outflanked drains, a morale grace at first contact, and a stronger anchor. They
+// still rout once crushed (at most RAID_CRUSHED_FRACTION of peak left, or the anchor they had is dead).
+const RAID_MORALE_ROUT = 10;
+const RAID_MORALE_CASUALTY = 25;
+const RAID_MORALE_OUTNUMBERED_PER_SEC = 10;
+const RAID_MORALE_FRONT_LOST_PER_SEC = 4;
+const RAID_MORALE_OUTFLANKED_PER_SEC = 2;
+const RAID_MORALE_ANCHOR_RESIST = 0.25;
+const RAID_MORALE_GRACE_TICKS = 10 * TICK_RATE;
+const RAID_CRUSHED_FRACTION = 0.25;
 const ROUT_SPEED_FACTOR = 1.2;
 const RAID_LEAVE_MAX_TICKS = 60 * TICK_RATE;
 const ROUT_TOAST_COOLDOWN_TICKS = 30 * TICK_RATE;
@@ -8171,6 +8182,9 @@ interface RegimentState {
   homeX: number;
   homeY: number;
   lastContactTick: number;
+  // First tick in contact (raid morale grace), and whether a morale anchor has ever been a member.
+  firstContactTick: number;
+  hadAnchor: boolean;
   pendingLoss: number;
   hadFront: boolean;
   sheltering: boolean;
@@ -8209,7 +8223,7 @@ function noteRegimentCasualty(m: Mob) {
   const reg = key ? regiments.get(key) : undefined;
   if (!reg) return;
   const weight = isMoraleAnchor(m) ? MORALE_LEADER_WEIGHT : m.kind === "catapult" ? MORALE_ROLE_WEIGHT.ranged : MORALE_ROLE_WEIGHT[mobRole(m)];
-  reg.pendingLoss += (MORALE_CASUALTY * weight) / Math.max(3, reg.peak);
+  reg.pendingLoss += ((reg.raid ? RAID_MORALE_CASUALTY : MORALE_CASUALTY) * weight) / Math.max(3, reg.peak);
 }
 
 interface EnemyUnit {
@@ -8504,24 +8518,29 @@ function evaluateRegiment(reg: RegimentState, members: Mob[]) {
   }
 
   // Morale.
+  const anchored = members.some(isMoraleAnchor);
+  if (anchored) reg.hadAnchor = true;
+  if (contact && reg.firstContactTick === -Infinity) reg.firstContactTick = cycleTick;
   if (!testMoraleFrozen) {
     let delta = 0;
     if (contact) {
       reg.lastContactTick = cycleTick;
       delta -= reg.pendingLoss;
       if (members.some((m) => !isRearMob(m))) reg.hadFront = true;
-      else if (reg.hadFront) delta -= MORALE_FRONT_LOST_PER_SEC;
+      else if (reg.hadFront) delta -= reg.raid ? RAID_MORALE_FRONT_LOST_PER_SEC : MORALE_FRONT_LOST_PER_SEC;
       // Outflanked: an enemy within 4 tiles of a member on the far side of the regiment.
       const dl = Math.hypot(ex - cx, ey - cy) || 1;
       const outflanked = enemy.units.some(
         (u) => ((u.x - cx) * (ex - cx) + (u.y - cy) * (ey - cy)) / dl < -TILE_SIZE &&
           members.some((m) => Math.hypot(m.x - u.x, m.y - u.y) <= 4 * TILE_SIZE)
       );
-      if (outflanked) delta -= MORALE_OUTFLANKED_PER_SEC;
+      if (outflanked) delta -= reg.raid ? RAID_MORALE_OUTFLANKED_PER_SEC : MORALE_OUTFLANKED_PER_SEC;
       if (reg.ratio < TACTICS_OUTNUMBERED_RATIO && !reg.sheltering) {
-        delta -= MORALE_OUTNUMBERED_PER_SEC * (1 - reg.ratio / TACTICS_OUTNUMBERED_RATIO);
+        delta -= (reg.raid ? RAID_MORALE_OUTNUMBERED_PER_SEC : MORALE_OUTNUMBERED_PER_SEC) * (1 - reg.ratio / TACTICS_OUTNUMBERED_RATIO);
       } else if (reg.ratio > MORALE_WINNING_RATIO) delta += MORALE_RECOVER_PER_SEC;
-      if (delta < 0 && members.some(isMoraleAnchor)) delta *= MORALE_ANCHOR_RESIST;
+      if (delta < 0 && anchored) delta *= reg.raid ? RAID_MORALE_ANCHOR_RESIST : MORALE_ANCHOR_RESIST;
+      // A raid's first seconds of contact cost no morale.
+      if (reg.raid && cycleTick - reg.firstContactTick < RAID_MORALE_GRACE_TICKS) delta = Math.max(0, delta);
     } else {
       delta += MORALE_RECOVER_PER_SEC;
     }
@@ -8550,7 +8569,9 @@ function evaluateRegiment(reg: RegimentState, members: Mob[]) {
   }
 
   // Rout / rally.
-  if (!reg.routed && !reg.sheltering && reg.morale < MORALE_ROUT) startRout(reg, members, ex, ey);
+  // A raid breaks on morale only below its lower line, or once crushed (few left / its anchor dead).
+  const crushed = reg.raid && contact && !testMoraleFrozen && (members.length <= RAID_CRUSHED_FRACTION * reg.peak || (reg.hadAnchor && !anchored));
+  if (!reg.routed && !reg.sheltering && (reg.morale < (reg.raid ? RAID_MORALE_ROUT : MORALE_ROUT) || crushed)) startRout(reg, members, ex, ey);
   else if (reg.routed && !reg.raid && reg.morale > MORALE_RALLY && cycleTick - reg.lastContactTick >= MORALE_RALLY_QUIET_TICKS) {
     reg.routed = false;
     tacticsEvent(reg.id, "rally", `morale ${reg.morale.toFixed(0)}`);
@@ -8578,7 +8599,7 @@ function updateRegiments() {
     if (!reg) {
       reg = {
         id: key, morale: MORALE_MAX, peak: 0, routed: false, raid: !m.siteId, homeX: m.x, homeY: m.y,
-        lastContactTick: -Infinity, pendingLoss: 0, hadFront: false, sheltering: false, posts: new Map(), flankIds: [], ratio: Infinity,
+        lastContactTick: -Infinity, firstContactTick: -Infinity, hadAnchor: false, pendingLoss: 0, hadFront: false, sheltering: false, posts: new Map(), flankIds: [], ratio: Infinity,
       };
       regiments.set(key, reg);
     }
@@ -9214,7 +9235,7 @@ function destroyHearth(h: HearthState, attackerKey?: string) {
     if (!reg) {
       reg = {
         id: h.siteId, morale: 0, peak: members.length, routed: false, raid: true, homeX: centre.x, homeY: centre.y,
-        lastContactTick: cycleTick, pendingLoss: 0, hadFront: false, sheltering: false, posts: new Map(), flankIds: [], ratio: 0,
+        lastContactTick: cycleTick, firstContactTick: cycleTick, hadAnchor: false, pendingLoss: 0, hadFront: false, sheltering: false, posts: new Map(), flankIds: [], ratio: 0,
       };
       regiments.set(h.siteId, reg);
     }
