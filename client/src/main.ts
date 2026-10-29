@@ -4199,7 +4199,7 @@ async function main() {
       btn.className = "tool-btn";
       btn.textContent = `${tool.label} (${tool.key})`;
       btn.addEventListener("click", () => {
-        selectTool(tool.tile);
+        selectTool(tool.tile, true);
         btn.blur();
       });
       container.appendChild(btn);
@@ -4248,10 +4248,10 @@ async function main() {
     }
   }
 
-  function selectTool(tile: TileType) {
+  function selectTool(tile: TileType, fromUser = false) {
     currentTool = tile;
     // Picking something to build puts the units down, so right-click places instead of giving orders.
-    if (tile !== TileType.Empty && selectedIds.size > 0) setSelection([]);
+    if (fromUser && tile !== TileType.Empty && selectedIds.size > 0) setSelection([]);
     if (tile !== TileType.TownCenter && !isRoadTile(tile)) placementGhost.visible = false;
     configurePlacementGhost(tile);
     refreshToolbarSelection();
@@ -5981,7 +5981,7 @@ async function main() {
         refreshToolbarVisibility();
         refreshCategoryTabSelection();
       }
-      selectTool(match.tile);
+      selectTool(match.tile, true);
     }
   });
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
