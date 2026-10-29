@@ -40,7 +40,7 @@ if listening 8080 || listening 5173; then
   exit 1
 fi
 
-[ -d node_modules ] || { echo "Installing dependencies (first run)..."; npm install; }
+[ -e node_modules/@colony/shared ] || { echo "Installing dependencies (first run)..."; npm install; }
 
 echo "Starting The Sworn Game... close this window to stop it."
 open_browser &

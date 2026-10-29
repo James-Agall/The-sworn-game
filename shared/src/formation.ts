@@ -1,6 +1,6 @@
 // Formation slots for group move orders, shared by client and server (strategy mode phase 3; docs
-// PLAN-strategy-mode.md §4 "Shared formation code"). Byte-identical copies live in client/src/ and
-// server/src/ (`cmp` them). Pure: units in, slot points out. The client draws its ghosts with the same
+// PLAN-strategy-mode.md §4 "Shared formation code"). Lives in the @colony/shared workspace package, which
+// both sides import. Pure: units in, slot points out. The client draws its ghosts with the same
 // functions the server forms regiments with, so a ghost marks where the units stop. Moved out of the
 // client's main.ts (computeFormationTargets / computeLineFormationTargets), behaviour unchanged.
 import { TILE_SIZE, isRearRole, unitRole } from "./protocol.js";

@@ -1,0 +1,10 @@
+{
+  "name": "@colony/shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./protocol": "./src/protocol.ts",
+    "./formation": "./src/formation.ts"
+  }
+}

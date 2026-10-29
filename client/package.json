@@ -6,6 +6,7 @@
     "dev": "vite"
   },
   "dependencies": {
+    "@colony/shared": "*",
     "pixi.js": "^8.6.0"
   },
   "devDependencies": {

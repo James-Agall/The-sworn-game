@@ -39,8 +39,8 @@ import type {
   HeroSheetSnapshot,
   HeroClass,
   ItemStats,
-} from "./protocol";
-import { TICK_RATE } from "./protocol"; // long days: respawn-window ETA
+} from "@colony/shared/protocol";
+import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-window ETA
 import {
   Biome,
   BOSS_RENDER_SCALE,
@@ -66,30 +66,30 @@ import {
   WILDLIFE_KINDS,
   WILDLIFE_SNAPSHOT_STRIDE,
   WildlifeState,
-} from "./protocol";
+} from "@colony/shared/protocol";
 import { SOUND_SILENT_RADIUS_TILES, SoundManager, proximityGain } from "./sound";
-import type { FightSnapshot } from "./protocol";
-import { FIGHT_WINDOW_SECONDS } from "./protocol";
-import { MOB_ROLE, isRearRole, SIEGE_KINDS, unitRole, HERO_CLASSES, HERO_CLASS_LABEL } from "./protocol";
-import type { CombatRole, SiegeKind } from "./protocol";
-import { SPELLS, SPELL_SLOT_COUNT } from "./protocol";
-import { LINE_FACE_ENEMY_TILES, computeFormationTargets, computeLineFormationTargets as sharedLineFormation, groupShape, planOrderFormation } from "./formation";
-import type { FormationPlan } from "./formation";
-import type { SpellId, SpellBookSnapshot } from "./protocol";
+import type { FightSnapshot } from "@colony/shared/protocol";
+import { FIGHT_WINDOW_SECONDS } from "@colony/shared/protocol";
+import { MOB_ROLE, isRearRole, SIEGE_KINDS, unitRole, HERO_CLASSES, HERO_CLASS_LABEL } from "@colony/shared/protocol";
+import type { CombatRole, SiegeKind } from "@colony/shared/protocol";
+import { SPELLS, SPELL_SLOT_COUNT } from "@colony/shared/protocol";
+import { LINE_FACE_ENEMY_TILES, computeFormationTargets, computeLineFormationTargets as sharedLineFormation, groupShape, planOrderFormation } from "@colony/shared/formation";
+import type { FormationPlan } from "@colony/shared/formation";
+import type { SpellId, SpellBookSnapshot } from "@colony/shared/protocol";
 import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
 import { EDGE_SCROLL_PX, PAN_SCREEN_PX_PER_S, StrategyCamera, TACTICAL_ZOOM, WHEEL_ZOOM_STEP } from "./strategy/camera";
 import { drawUnitDots, lodBand, StrategyBanners, StrategyFog } from "./strategy/lod";
 import type { BannerGroup, LodBand, UnitDot, VisionSource } from "./strategy/lod";
 import { RegimentCardBar } from "./strategy/cards";
 import type { RegimentCard } from "./strategy/cards";
-import type { ArmyRegimentSnapshot, RegimentClass } from "./protocol";
-import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind, FormationShape } from "./protocol";
-import { FORMATION_SHAPES } from "./protocol";
+import type { ArmyRegimentSnapshot, RegimentClass } from "@colony/shared/protocol";
+import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind, FormationShape } from "@colony/shared/protocol";
+import { FORMATION_SHAPES } from "@colony/shared/protocol";
 import { ORDER_COLORS, ORDER_LABEL, OrderMarkers } from "./strategy/orders";
 import { BAND_COLORS, enemyBannerLabel, IntelOverlay, strengthBand } from "./strategy/intel";
 import type { ObjectiveMarker, Threat } from "./strategy/intel";
-import type { EnemyRegimentSnapshot } from "./protocol";
-import { TIME_SCALES } from "./protocol";
+import type { EnemyRegimentSnapshot } from "@colony/shared/protocol";
+import { TIME_SCALES } from "@colony/shared/protocol";
 
 const SERVER_URL = "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).

@@ -97,8 +97,8 @@ import {
   TIME_SCALES,
   ENEMY_REGIMENT_REFRESH_TICKS,
   ENEMY_CELL_TILES,
-} from "./protocol.js";
-import { planOrderFormation } from "./formation.js";
+} from "@colony/shared/protocol";
+import { planOrderFormation } from "@colony/shared/formation";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
 // The size is chosen per world (main menu / restart / save); COLONY_WORLD_SIZE is only the boot default.

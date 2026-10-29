@@ -618,7 +618,7 @@ fight as regiments with roles: a melee front line, a ranged rank behind it, flan
 | fast | cavalry (since Cavalry & siege); wolf, giant spider | wings (outermost front slots / ends of the front row) | as frontline |
 | siege | battering ram (front, centre with shock), catapult (rear line) - both sides | see "Cavalry & siege" | rams hit buildings, catapults shell from range |
 
-- **Role table** lives in `protocol.ts` (shared, byte-identical): `CombatRole`, `MOB_ROLE`, `COLONIST_ROLE`,
+- **Role table** lives in `protocol.ts` (shared): `CombatRole`, `MOB_ROLE`, `COLONIST_ROLE`,
   `isRearRole`. Server helpers `colonistRole(c)`, `mobRole(m)` (a deserter's own `melee` flag wins).
 - **Player formations** (client `computeFormationTargets` / `computeLineFormationTargets`, shared
   `formationRanks` / `placeFastOnWings`): with a front rank in the order, the archers form a second line
@@ -1796,3 +1796,16 @@ stamps owned tiles at world-gen yet (that is phase B's stamper); only the test h
 5. Walk your player through the rubble gap; demolish the rubble (it clears to grass).
 6. Strategy mode: give a regiment an attack-move order past the fort: it stops and attacks the fort's structures.
 7. Save, load: the fort is still tinted and its gate still shut to you.
+
+## Shared package — landed 2026-10-29
+- `protocol.ts` and `formation.ts` now live once, in the `shared/` npm workspace (`@colony/shared`,
+  `shared/src/{protocol,formation,index}.ts`). Server and client import `@colony/shared/protocol` /
+  `@colony/shared/formation` (or everything from `@colony/shared`). The old byte-identical copies in
+  `server/src/` and `client/src/` are gone, and so is the "keep them byte-identical, `cmp` them" rule: older
+  entries above that mention both copies / `cmp` are history. Edit `shared/src/` once.
+- No build step: the package `exports` point at the `.ts` sources. tsx (server), Vite (client) and
+  `tsc --noEmit` (moduleResolution Bundler) all follow `node_modules/@colony/shared` (a workspace symlink to
+  `shared/`) and compile/type-check the sources directly. `cd shared && npx tsc --noEmit` checks it alone.
+- `scripts/live.sh` snapshots `shared/` too; the live dir's `node_modules` is now a dir of symlinks into the
+  repo's, with `@colony/shared` pointing at the snapshot's own `shared/`, so repo edits never reach the live copy.
+- No behaviour change.

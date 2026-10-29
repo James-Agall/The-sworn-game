@@ -5,9 +5,9 @@
 // orders (formation.ts, the same solve the server forms with). main.ts owns input; this only draws.
 // Phase 4: charge / bombard / attackHearth markers, and range rings round the selected ranged / siege units.
 import { Container, Graphics, Text } from "pixi.js";
-import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind, ColonistSnapshot } from "../protocol";
-import { TILE_SIZE } from "../protocol";
-import { planOrderFormation } from "../formation";
+import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind, ColonistSnapshot } from "@colony/shared/protocol";
+import { TILE_SIZE } from "@colony/shared/protocol";
+import { planOrderFormation } from "@colony/shared/formation";
 
 export const ORDER_COLORS: Record<ArmyOrderKind, number> = {
   move: 0x00e5ff,

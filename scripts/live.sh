@@ -4,6 +4,8 @@
 # background after this window closes. Same ports as dev (server :8080, client :5173) and the same saves
 # (server/saves), so only one of the live copy and `npm run dev` can run at a time.
 #
+# The snapshot is server/src + shared/ (the @colony/shared package both sides import) + a built client.
+#
 #   live.sh            start (snapshots the current code first; just opens the browser if already running)
 #   live.sh update     stop, take a fresh snapshot of the code, start again (your world is autosaved/restored)
 #   live.sh stop       stop it
@@ -45,10 +47,21 @@ stop_all() { stop_one client; stop_one server; }
 snapshot() {
   echo "Snapshotting the code into $LIVE ..."
   mkdir -p "$LIVE/server" "$LIVE/client" "$PIDS" "$SAVES"
-  rm -rf "$LIVE/server/src" "$LIVE/client/dist"
+  rm -rf "$LIVE/server/src" "$LIVE/client/dist" "$LIVE/shared"
   cp -r "$REPO/server/src" "$LIVE/server/src"
   cp "$REPO/server/package.json" "$LIVE/server/package.json"
-  [ -e "$LIVE/node_modules" ] || ln -s "$REPO/node_modules" "$LIVE/node_modules"
+  cp -r "$REPO/shared" "$LIVE/shared"
+  # node_modules: a dir of symlinks into the repo's, except @colony/shared (in the repo a workspace link to
+  # repo/shared), which points at the snapshot's own shared/ so the live server never runs repo edits.
+  # (rm -rf on a symlink or a dir of symlinks never touches what they point at.)
+  rm -rf "$LIVE/node_modules"
+  mkdir -p "$LIVE/node_modules/@colony"
+  for m in "$REPO"/node_modules/* "$REPO"/node_modules/.[!.]*; do
+    [ -e "$m" ] || continue
+    case "$(basename "$m")" in @colony) continue ;; esac
+    ln -s "$m" "$LIVE/node_modules/$(basename "$m")"
+  done
+  ln -s ../../shared "$LIVE/node_modules/@colony/shared"
   (cd "$REPO/client" && npx vite build --outDir "$LIVE/client/dist" --emptyOutDir) >"$LIVE/build.log" 2>&1 \
     || { echo "Client build failed, see $LIVE/build.log"; tail -15 "$LIVE/build.log"; return 1; }
 }

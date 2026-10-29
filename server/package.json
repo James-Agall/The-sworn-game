@@ -6,6 +6,7 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
+    "@colony/shared": "*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

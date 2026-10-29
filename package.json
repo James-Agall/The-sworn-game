@@ -2,6 +2,7 @@
   "name": "colony2d",
   "private": true,
   "workspaces": [
+    "shared",
     "server",
     "client"
   ],

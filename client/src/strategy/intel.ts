@@ -3,7 +3,7 @@
 // "flank / rear threatened" warnings over own regiments, clash icons for fights in the Map band, and
 // objective markers (Castle Ruin, camp hearths). main.ts owns the data and input; this only draws.
 import { Container, Graphics, Text } from "pixi.js";
-import type { EnemyRegimentSnapshot, FightSnapshot } from "../protocol";
+import type { EnemyRegimentSnapshot, FightSnapshot } from "@colony/shared/protocol";
 
 export type StrengthBand = "Weak" | "Even" | "Strong" | "Deadly";
 const BANDS: StrengthBand[] = ["Weak", "Even", "Strong", "Deadly"];

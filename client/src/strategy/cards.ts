@@ -2,7 +2,7 @@
 // bottom of the screen (strategy mode only; the CSS hides it otherwise). Role tabs filter it; click = select
 // that regiment (Shift adds / removes), double-click = also centre the camera on it. main.ts builds the card
 // models from the server's armyRegiments + live colonist HP; this module only owns the DOM.
-import type { CombatRole } from "../protocol";
+import type { CombatRole } from "@colony/shared/protocol";
 
 export type CardTab = "all" | "melee" | "ranged" | "cavalry" | "siege" | "heroes";
 const TABS: { key: CardTab; label: string }[] = [

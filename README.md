@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-This installs both npm workspaces (`server`, `client`) and starts the server (ws://localhost:8080) and client (http://localhost:5173) together via `concurrently`.
+This installs the npm workspaces (`shared`, `server`, `client`) and starts the server (ws://localhost:8080) and client (http://localhost:5173) together via `concurrently`.
 
 Save files live in `server/saves/` (autosave each dawn and on server shutdown, plus 3 manual slots from in-game Settings); the main menu's Continue loads the autosave. See ROADMAP.md "Save files".
 
@@ -107,7 +107,6 @@ Phases are ordered so the game stays playable after each one:
 - A mine built on a deposit converts it, so that deposit no longer counts as minable ore; a level-1 miner walks to another deposit of the same type (and has nothing to mine if every deposit of that type has a mine on it). Mines built on empty ground next to an existing mine (only possible once that mine is level 3) don't consume a deposit, but their miners still walk to the nearest free deposit rather than working "their" vein
 - Chunked world loading
 - A pathfinding budget/cache
-- Promoting the duplicated `protocol.ts` (currently kept in sync by hand between `server/src` and `client/src`) into a real shared workspace package
 - Tile rendering does a full grid redraw on every single tile change; that's now 1600 tiles at 40x40, and will need patching to a per-tile sprite/mesh approach (and culling to the camera view) for a much larger world
 - No dynamic obstacle avoidance in pathfinding (colonists path through tiles players/other colonists are currently standing on — fine at this scale)
 - Pathfinding has no request budget/cache yet (plain BFS per request; the grid is now 40x40, so revisit if colonist/mob counts grow significantly, per the earlier performance plan)
