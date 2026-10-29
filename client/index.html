@@ -1138,6 +1138,18 @@
       }
       #hero-modal[hidden] { display: none; }
       #hero-sheet { width: min(760px, calc(100vw - 32px)); text-align: left; position: relative; }
+      /* SPRITES.md #58: the parchment panel's torn edge as the sheet's frame (its outer 18px ring only; the
+         panel's baked placeholder labels stay hidden), the CSS parchment inside. A missing file leaves an
+         18px plain wood border. */
+      #hero-sheet.menu-scroll {
+        border: 18px solid var(--wood-dark);
+        border-image: url("/sprites/ui-characterSheet.png") 18 / 18px stretch;
+        border-radius: 0;
+        background-clip: padding-box;
+        box-shadow: none;
+        padding: 12px 14px 10px;
+        max-height: calc(100vh - 88px);
+      }
       #hero-sheet .menu-title { font-size: 24px; margin-bottom: 4px; }
       #hs-close {
         position: absolute; top: 10px; right: 12px; font: inherit; font-size: 22px; line-height: 1;
@@ -1164,11 +1176,13 @@
         align-content: start;
       }
       .hs-spells { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: center; }
-      .hs-spells .hs-socket { width: 38px; height: 38px; }
+      .hs-spells .hs-socket { width: 38px; height: 38px; border-width: 3px; border-image-width: 3px; }
+      /* SPRITES.md #58 slot socket: its carved rim as a 9-slice border (not its baked helmet centre). */
       .hs-socket {
         position: relative;
         width: 56px; height: 56px; box-sizing: border-box;
-        border: 2px solid rgba(90, 52, 24, 0.55);
+        border: 4px solid rgba(90, 52, 24, 0.55);
+        border-image: url("/sprites/ui-slotSocket.png") 10 / 4px stretch;
         border-radius: 4px;
         background: rgba(255, 236, 180, 0.35);
         box-shadow: inset 0 2px 5px rgba(46, 26, 12, 0.45);
@@ -1177,7 +1191,7 @@
       }
       .hs-socket .hs-empty { font-size: 10px; color: var(--ink-faint); text-align: center; line-height: 1.1; pointer-events: none; }
       .hs-socket.disabled { opacity: 0.45; cursor: default; }
-      .hs-socket:not(.disabled):hover { border-color: var(--sel-ink); }
+      .hs-socket:not(.disabled):hover { outline: 2px solid var(--sel-ink); outline-offset: -1px; }
       .hs-item {
         position: relative;
         width: 44px; height: 44px; box-sizing: border-box;
@@ -1191,9 +1205,10 @@
       .hs-item.t2 { border-color: #c0c8d0; }
       .hs-item.t3 { border-color: #f2c94c; box-shadow: 0 0 6px rgba(242, 201, 76, 0.7); }
       .hs-item.spell { border-color: #b98cff; font-size: 20px; }
-      .hs-spells .hs-item { width: 32px; height: 32px; font-size: 15px; border-width: 2px; }
-      .hs-socket.picked { border-color: var(--sel-ink); box-shadow: 0 0 6px rgba(242, 201, 76, 0.9); }
-      .hs-socket.target { border-style: dashed; border-color: var(--sel-ink); }
+      .hs-spells .hs-item { width: 30px; height: 30px; font-size: 15px; border-width: 2px; }
+      .hs-inv .hs-item { width: 40px; height: 40px; }
+      .hs-socket.picked { outline: 2px solid var(--sel-ink); outline-offset: -1px; box-shadow: 0 0 6px rgba(242, 201, 76, 0.9); }
+      .hs-socket.target { outline: 2px dashed var(--sel-ink); outline-offset: -1px; }
       .hs-spellhint { font-size: 11px; font-style: italic; color: var(--ink-faint); }
       .hs-auto { margin-top: 6px; font: inherit; font-size: 12.5px; padding: 3px 10px; cursor: pointer; background: rgba(255, 236, 180, 0.35); border: 1px solid var(--wood-dark); border-radius: 3px; color: inherit; }
       .hs-auto.on { background: rgba(120, 170, 80, 0.45); }

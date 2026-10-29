@@ -475,7 +475,8 @@ export interface SpellDef {
   buffDamage?: number;
   buffSpeed?: number;
   summonCount?: number;
-  // Sprite basename under /sprites/ (SPRITES.md #57); the client draws a placeholder until it exists.
+  // Sprite basename under /sprites/ (SPRITES.md #57: ui-spell<n>, n = this table's order); the client
+  // draws a placeholder if it is missing.
   icon: string;
   // Placeholder icon glyph and colour.
   glyph: string;
@@ -483,14 +484,14 @@ export interface SpellDef {
   text: string;
 }
 export const SPELLS: Record<SpellId, SpellDef> = {
-  fireBolt: { id: "fireBolt", name: "Fire Bolt", targeting: "enemy", range: 8, cooldown: 4, power: 30, duration: 3, burnPerSec: 3, icon: "spell-fireBolt", glyph: "✹", color: "#b5461c", text: "A bolt of fire: {power} damage, then burns for {burn}/s over 3 s" },
-  thunder: { id: "thunder", name: "Thunder", targeting: "ground", range: 7, cooldown: 12, power: 40, radius: 2, icon: "spell-thunder", glyph: "ϟ", color: "#5a6fb0", text: "Lightning strikes a spot: {power} damage to every enemy within 2 tiles" },
-  frost: { id: "frost", name: "Frost", targeting: "ground", range: 7, cooldown: 14, power: 15, radius: 2.5, duration: 4, slow: 0.5, icon: "spell-frost", glyph: "✻", color: "#3f8fb5", text: "A burst of frost: {power} damage and 50% slow for 4 s to enemies within 2.5 tiles" },
-  heal: { id: "heal", name: "Heal", targeting: "ally", range: 6, cooldown: 8, power: 45, icon: "spell-heal", glyph: "✚", color: "#3c8a3c", text: "Heals an ally (or yourself) for {power}" },
-  ward: { id: "ward", name: "Ward", targeting: "ally", range: 6, cooldown: 18, power: 60, duration: 8, icon: "spell-ward", glyph: "◈", color: "#c9a227", text: "Shields an ally (or yourself): absorbs {power} damage for 8 s" },
-  rallyBanner: { id: "rallyBanner", name: "Rally Banner", targeting: "ground", range: 5, cooldown: 30, power: 0, radius: 4, duration: 10, buffDamage: 0.25, buffSpeed: 0.15, icon: "spell-rally", glyph: "⚑", color: "#9a2f2f", text: "Plants a banner: friendly soldiers within 4 tiles deal +25% damage and move +15% faster for 10 s" },
-  summon: { id: "summon", name: "Summon", targeting: "ground", range: 4, cooldown: 45, power: 0, duration: 40, summonCount: 2, icon: "spell-summon", glyph: "☠", color: "#5c5c6e", text: "Raises 2 skeleton militia for 40 s (no population)" },
-  curse: { id: "curse", name: "Curse", targeting: "enemy", range: 8, cooldown: 16, power: 0, duration: 8, damageTakenBonus: 0.3, icon: "spell-curse", glyph: "☽", color: "#6b2f8a", text: "Curses an enemy: it takes +30% damage for 8 s" },
+  fireBolt: { id: "fireBolt", name: "Fire Bolt", targeting: "enemy", range: 8, cooldown: 4, power: 30, duration: 3, burnPerSec: 3, icon: "ui-spell0", glyph: "✹", color: "#b5461c", text: "A bolt of fire: {power} damage, then burns for {burn}/s over 3 s" },
+  thunder: { id: "thunder", name: "Thunder", targeting: "ground", range: 7, cooldown: 12, power: 40, radius: 2, icon: "ui-spell1", glyph: "ϟ", color: "#5a6fb0", text: "Lightning strikes a spot: {power} damage to every enemy within 2 tiles" },
+  frost: { id: "frost", name: "Frost", targeting: "ground", range: 7, cooldown: 14, power: 15, radius: 2.5, duration: 4, slow: 0.5, icon: "ui-spell2", glyph: "✻", color: "#3f8fb5", text: "A burst of frost: {power} damage and 50% slow for 4 s to enemies within 2.5 tiles" },
+  heal: { id: "heal", name: "Heal", targeting: "ally", range: 6, cooldown: 8, power: 45, icon: "ui-spell3", glyph: "✚", color: "#3c8a3c", text: "Heals an ally (or yourself) for {power}" },
+  ward: { id: "ward", name: "Ward", targeting: "ally", range: 6, cooldown: 18, power: 60, duration: 8, icon: "ui-spell4", glyph: "◈", color: "#c9a227", text: "Shields an ally (or yourself): absorbs {power} damage for 8 s" },
+  rallyBanner: { id: "rallyBanner", name: "Rally Banner", targeting: "ground", range: 5, cooldown: 30, power: 0, radius: 4, duration: 10, buffDamage: 0.25, buffSpeed: 0.15, icon: "ui-spell5", glyph: "⚑", color: "#9a2f2f", text: "Plants a banner: friendly soldiers within 4 tiles deal +25% damage and move +15% faster for 10 s" },
+  summon: { id: "summon", name: "Summon", targeting: "ground", range: 4, cooldown: 45, power: 0, duration: 40, summonCount: 2, icon: "ui-spell6", glyph: "☠", color: "#5c5c6e", text: "Raises 2 skeleton militia for 40 s (no population)" },
+  curse: { id: "curse", name: "Curse", targeting: "enemy", range: 8, cooldown: 16, power: 0, duration: 8, damageTakenBonus: 0.3, icon: "ui-spell7", glyph: "☽", color: "#6b2f8a", text: "Curses an enemy: it takes +30% damage for 8 s" },
 };
 export const SPELL_IDS = Object.keys(SPELLS) as SpellId[];
 export const SPELL_SLOT_COUNT = 4;
@@ -983,6 +984,8 @@ export type ServerMessage =
       hearths?: number[];
       // Armour & weapons: the colony's equipment stock by tier (omitted by older servers).
       equipment?: EquipmentStock;
+      // Tile indices of Blacksmiths forging right now (queue not empty, smith at work); omitted by older servers.
+      forgeBusy?: number[];
       // Forts phase A: NPC-owned tiles, see SITE_TILE_SNAPSHOT_STRIDE (per player, only when changed;
       // a full replacement of the previous list).
       siteTiles?: number[];

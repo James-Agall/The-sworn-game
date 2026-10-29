@@ -14388,6 +14388,17 @@ function updateForges() {
   }
 }
 
+// Snapshot `forgeBusy`: tile indices of the Blacksmiths whose queue head is counting down (the client
+// plays the forging animation there).
+function forgeBusyForSnapshot(): number[] {
+  const out: number[] = [];
+  for (const [key, state] of forgeQueues) {
+    const tile = keyToTile(key);
+    if (tile && state.queue.length > 0 && blacksmithStaffed(tile.x, tile.y)) out.push(tileIndex(tile.x, tile.y));
+  }
+  return out;
+}
+
 // ---- The raids' siege engines (updateMob hands them to updateSiegeMob once released) ----
 // A ram looks for a closed gate within RAM_GATE_SCAN_TILES first, then breaches walls / hits buildings
 // like any mob (pickBuildingTarget); units only when it stands next to one and has no building to hit.
@@ -15409,6 +15420,7 @@ setInterval(() => {
     damagedBuildings: damagedBuildingsForSnapshot(),
     hearths: hearthsForSnapshot(),
     equipment,
+    forgeBusy: forgeBusyForSnapshot(),
     townCenters: townCenters.map(
       (tc, i): TownCenterSnapshot => ({
         x: tc.x,

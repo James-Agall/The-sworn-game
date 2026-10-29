@@ -1844,6 +1844,31 @@ Bigger-feeling world without a grid change (TILE_SIZE stays 32; QUEUE.md "bigger
   (brown wolves) in a greenskin raid gallop in, the first hit on a soldier lands hard, they veer off and come back;
   pikemen drop them fast.
 
+## Delivered sprite sheets wired — landed 2026-10-29
+QUEUE.md "wire the newly delivered sprite sheets"; SPRITES.md #45-#48, #53, #54, #57, #58 (cut details there; sheets
+copied to `art-sources/`). #49-#52 and #55-#56 still need regenerating.
+- **Armour tiers (client):** `COLONIST_TIER_ANIM_URLS` (optional) `{knight,spearman,pikeman,cavalry}T{1-3}Walk0-3` /
+  `Attack0-2`, picked by `ColonistSnapshot.armourTier` (heroes keep their class art). A tier set reuses its base set's
+  scale (the frames were resampled to that pixel scale); the armour-tier ring is drawn only where the tier art is
+  missing. Tier sets do not use the base cavalry couched-lance pose or the battered pose (tint only).
+- **Blacksmith:** additive snapshot `forgeBusy` (tile indices; server `forgeBusyForSnapshot`: queue not empty and a smith
+  posted). The client loops `blacksmithForge0-3` there at level 1; Lv2 Smithy / Lv3 Armoury art via `TILE_LEVEL_ART`
+  (static while forging).
+- **Spell icons:** `SpellDef.icon` is now `ui-spell0-7` (table order); used by the spell bar, the sheet's spell slots,
+  the spell book, and Spell Tomes (`itemIcon` maps a tome to its spell's icon, so old saves' tomes pick it up too).
+- **Character sheet:** the #58 panel's torn edge is the sheet's 18px `border-image` frame and the slot socket's rim is
+  every socket's border (hover / picked / target now draw an outline); the panel's baked labels and the socket's helmet
+  stay hidden (inside the 9-slice ring), the DOM layout is unchanged.
+- Browser checklist: (1) muster knights / spearmen / pikemen / cavalry with T1, T2, T3 armour in stock (Blacksmith or
+  `setStock`): each shows its tier's look (T3 gold with a plume), same size and feet line as an unequipped one, no tier
+  ring under them; walk and attack animate, facing flips; an unequipped (tier 0) unit still looks as before; (2) queue
+  a forge item at a staffed Lv1 Blacksmith: the smith hammers at the anvil until the queue empties, then the static art
+  returns; upgrade to Lv2 / Lv3: Smithy / Armoury art, not smaller than Lv1; (3) learn spells (Church Heal / Ward, or
+  levels): icons in the spell book, the 4 sheet slots and the spell bar (cooldown overlay and key label still readable);
+  (4) open the character sheet (`): torn parchment frame around it, sockets with carved rims, items / empty labels sit
+  inside them, hover / picked / dashed-target outlines show, tabs and close button still work, it scrolls on a short
+  window; (5) strategy mode cards and banners unchanged.
+
 ## Known failing tests — 2026-10-29 (test harness)
 
 `npm test` (`scripts/run-tests.mjs`, see README "Tests") runs every `server/*-test.mjs` and `client/*-test.mjs`.

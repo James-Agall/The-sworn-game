@@ -446,6 +446,17 @@ const COLONIST_OPTIONAL_ANIM_URLS: Partial<
     height: 38,
   },
 };
+// Armour & weapons (SPRITES.md #45-#48): a walk + attack set per armour tier 1-3 (ColonistSnapshot.armourTier;
+// 0 / omitted = the base set above), loaded optionally. The frames were cut at the base set's pixel scale
+// (feet on the bottom edge), so a tier set reuses its base set's `scale`. A tier missing any file keeps the
+// base set plus the armour-tier ring (drawRoleRings).
+const TIER_ART_KINDS = ["knight", "spearman", "pikeman", "cavalry"] as const;
+const COLONIST_TIER_ANIM_URLS = Object.fromEntries(
+  TIER_ART_KINDS.map((kind) => [
+    kind,
+    [1, 2, 3].map((t) => ({ walk: frameUrls(`${kind}T${t}Walk`, 4), action: frameUrls(`${kind}T${t}Attack`, 3) })),
+  ])
+) as Record<(typeof TIER_ART_KINDS)[number], { walk: string[]; action: string[] }[]>;
 // Cavalry charge (client-inferred, see cavalryChargeRun): the couched-lance pose replaces the gallop once a
 // rider has run CAVALRY_CHARGE_TILES (the server's charge distance) in a straight line, kicking up dust.
 const CAVALRY_CHARGE_URL = "/sprites/cavalryCharge0.png";
@@ -784,7 +795,13 @@ const TILE_LEVEL_ART: Partial<Record<TileType, string[]>> = {
   // Lv3 reuses the Lv2 plaza: the keep art (castleKeep.png) now belongs to the separate Keep building.
   [TileType.TownCenter]: ["townCenterLv1", "townCenterLv2", "townCenterLv2"],
   [TileType.Stables]: ["stables", "stablesLv2", "stablesLv3"],
+  // SPRITES.md #54: Lv2 Smithy, Lv3 Armoury.
+  [TileType.Blacksmith]: ["blacksmith", "blacksmithLv2", "blacksmithLv3"],
 };
+// SPRITES.md #53: a Blacksmith the server reports forging (snapshot `forgeBusy`) loops these frames (one
+// shared canvas), only while it shows its level-1 look (Lv2 / Lv3 art stays static). Loaded optionally.
+const BLACKSMITH_FORGE_URLS = frameUrls("blacksmithForge", 4);
+const BLACKSMITH_FORGE_FRAME_MS = 180;
 // The tiered Town Center art (a plaza on its own diamond patch) skips the box fit like
 // townCenter.png does: rendered `widthTiles` wide, `anchor` (the patch's center, under the statue / the
 // keep's gate court) pinned on the tile center.
@@ -1240,6 +1257,8 @@ async function main() {
   }
   const optionalTexturesPromise = loadOptionalTextures([
     ...Object.values(COLONIST_OPTIONAL_ANIM_URLS).flatMap((a) => [...a!.walk, ...a!.action, ...a!.carry]),
+    ...Object.values(COLONIST_TIER_ANIM_URLS).flatMap((tiers) => tiers.flatMap((a) => [...a.walk, ...a.action])),
+    ...BLACKSMITH_FORGE_URLS,
     ...[...Object.values(TILE_OPTIONAL_ART), ...Object.values(TILE_OPTIONAL_ALT_ART)].map((name) => `/sprites/${name}.png`),
     ...Object.values(FARM_STAGE_ART).flatMap((stages) => Object.values(stages!).map(artUrl)),
     ...Object.values(TILE_LEVEL_ART).flatMap((names) => names!.map(artUrl)),
@@ -1500,6 +1519,25 @@ async function main() {
   for (const kind of ["militia", "spearman", "pikeman"] as ColonistKind[]) {
     COLONIST_ANIMS[kind].scale = COLONIST_SPRITE_HEIGHT / militiaRefHeight;
   }
+  // kind -> [T1, T2, T3] armour-tier sets (undefined where a file is missing, or the base set is a stand-in).
+  const COLONIST_TIER_ANIMS = new Map<string, (AnimSet | undefined)[]>(
+    TIER_ART_KINDS.map((kind) => {
+      const base = COLONIST_ANIMS[kind];
+      return [
+        kind,
+        COLONIST_TIER_ANIM_URLS[kind].map((urls) => {
+          if (COLONIST_TINT.has(kind) || ![...urls.walk, ...urls.action].every((u) => optionalTextures[u])) return undefined;
+          const walk = urls.walk.map((u) => optionalTextures[u]);
+          return { walk, action: urls.action.map((u) => optionalTextures[u]), scale: base.scale, refHeight: walk[0].height };
+        }),
+      ];
+    })
+  );
+  const colonistTierSet = (c: ColonistSnapshot): AnimSet | undefined =>
+    c.kind === "hero" || !c.armourTier ? undefined : COLONIST_TIER_ANIMS.get(c.kind)?.[c.armourTier - 1];
+  const BLACKSMITH_FORGE_TEXTURES = BLACKSMITH_FORGE_URLS.every((u) => optionalTextures[u])
+    ? BLACKSMITH_FORGE_URLS.map((u) => optionalTextures[u])
+    : undefined;
   interface MobVariant {
     idle: Texture;
     idleScale: number;
@@ -1727,6 +1765,11 @@ async function main() {
   // Tile index -> tile type, for slots currently showing a looping TILE_ANIM.
   const animatedTiles = new Map<number, number>();
   function tileAnimTexture(index: number, tile: number, now: number): Texture | undefined {
+    if (tile === TileType.Blacksmith) {
+      if (!BLACKSMITH_FORGE_TEXTURES || !forgeBusy.has(index)) return undefined;
+      const frames = BLACKSMITH_FORGE_TEXTURES;
+      return frames[(Math.floor(now / BLACKSMITH_FORGE_FRAME_MS) + stableHash(String(index))) % frames.length];
+    }
     const anim = TILE_ANIM_TEXTURES.get(tile);
     if (!anim) return undefined;
     const phase = anim.phased ? stableHash(String(index)) : 0;
@@ -1738,6 +1781,8 @@ async function main() {
   // only), and construction sites. Each sync re-draws only the tiles whose value changed.
   let farmStages = new Map<number, number>();
   let buildingLevels = new Map<number, number>();
+  // Blacksmith tile indices forging right now (snapshot `forgeBusy`).
+  let forgeBusy = new Set<number>();
   interface SiteView {
     target: number;
     progress: number;
@@ -1790,6 +1835,17 @@ async function main() {
     buildingLevels = next;
     for (const index of changed) {
       if (TILE_LEVEL_ART[tiles[index] as TileType] === undefined) continue;
+      const { tx, ty } = indexToTile(index);
+      setTileSprite(tx, ty, tiles[index]);
+    }
+  }
+
+  function syncForgeBusy(flat: number[] | undefined) {
+    const next = new Set(flat ?? []);
+    const changed = [...[...forgeBusy].filter((i) => !next.has(i)), ...[...next].filter((i) => !forgeBusy.has(i))];
+    forgeBusy = next;
+    for (const index of changed) {
+      if (tiles[index] !== TileType.Blacksmith) continue;
       const { tx, ty } = indexToTile(index);
       setTileSprite(tx, ty, tiles[index]);
     }
@@ -2017,6 +2073,8 @@ async function main() {
     const stage = farmStages.get(index);
     const stageTexture = !site && stage !== undefined ? FARM_STAGE_TEXTURES.get(tile)?.get(stage) : undefined;
     const levelTexture = TILE_LEVEL_TEXTURES.get(artTile)?.[level - 1];
+    const forging =
+      tile === TileType.Blacksmith && BLACKSMITH_FORGE_TEXTURES !== undefined && forgeBusy.has(index) && (level === 1 || !levelTexture);
     const gateOpen = tile === TileType.Gate && ((gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
     const wallArt = wallArtFor(tx, ty, artTile, !!site);
     const texture = wallArt
@@ -2027,12 +2085,14 @@ async function main() {
         ? TILE_TEXTURES.get(TileType.Wall) // until the snapshot names the target
         : tile === TileType.IronOre
           ? IRON_ORE_VARIANTS[(tx * 7 + ty * 13) % IRON_ORE_VARIANTS.length]
-          : (stageTexture ??
+          : forging
+            ? tileAnimTexture(index, tile, performance.now())
+            : (stageTexture ??
             levelTexture ??
             (TILE_ALT_TEXTURES.has(tile) && (tx * 7 + ty * 13) % 2 === 1
               ? TILE_ALT_TEXTURES.get(tile)
               : (tileAnimTexture(index, tile, performance.now()) ?? TILE_TEXTURES.get(artTile))));
-    if (TILE_ANIM_TEXTURES.has(tile)) animatedTiles.set(index, tile);
+    if (TILE_ANIM_TEXTURES.has(tile) || forging) animatedTiles.set(index, tile);
     else animatedTiles.delete(index);
     let sprite = tileSprites.get(index);
     if (!texture) {
@@ -2804,7 +2864,8 @@ async function main() {
       entry.heroLabel.visible = !hidden;
     }
 
-    const set = COLONIST_ANIMS[vk];
+    const tierSet = colonistTierSet(c);
+    const set = tierSet ?? COLONIST_ANIMS[vk];
     if (set && entry.sprite instanceof Sprite) {
       let anim = colonistAnim.get(c.id);
       if (!anim) {
@@ -2829,10 +2890,11 @@ async function main() {
       // image was extracted independently and doesn't share the walk sheet's body-to-canvas
       // ratio, so using it here made units visibly pop in size on every idle<->walk/action
       // transition (i.e. every time they started or stopped moving).
-      showAnimFrame(entry.sprite, set, charging && mode === "walk" ? CAVALRY_CHARGE_TEXTURE! : (frame ?? set.walk[0]));
+      // The couched-lance pose and the battered pose are base-set art, so a tier set keeps its own frames.
+      showAnimFrame(entry.sprite, set, charging && mode === "walk" && !tierSet ? CAVALRY_CHARGE_TEXTURE! : (frame ?? set.walk[0]));
       if (charging && mode === "walk" && !hidden) spawnChargeDust(c.id, c.x, c.y + (set.refHeight * set.scale) / 2, stepX);
       const battered = BATTERED_TINT_KINDS.has(vk) && c.hp < c.maxHp * BATTERED_HP_FRACTION;
-      const posed = battered && !frame && showBatteredPose(entry.sprite, set, vk, COLONIST_SPRITE_HEIGHT);
+      const posed = battered && !frame && !tierSet && showBatteredPose(entry.sprite, set, vk, COLONIST_SPRITE_HEIGHT);
       entry.sprite.tint = battered && !posed ? BATTERED_TINT : c.kind === "hero" ? HERO_TINT : c.summoned ? SUMMON_TINT : (COLONIST_TINT.get(vk) ?? 0xffffff);
     }
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
@@ -4337,10 +4399,10 @@ async function main() {
     for (const c of latestColonists) {
       const r = c.kind === "cavalry" || c.kind === "batteringRam" || c.kind === "catapult" ? 12 : 9;
       ring(c.x, c.y, unitRole(c.kind, c.heroClass), r);
-      // Armour & weapons (PLACEHOLDER until the tiered art of SPRITES.md #45+): a thin bronze / silver / gold
-      // ring just inside the role ring shows the unit's armour tier.
+      // Armour & weapons: a thin bronze / silver / gold ring just inside the role ring shows the unit's
+      // armour tier, only where its tier art (COLONIST_TIER_ANIMS) is missing.
       const tier = c.armourTier ?? 0;
-      if (tier > 0) roleRings.ellipse(c.x, c.y + r * 0.8, r - 2.5, (r - 2.5) * 0.4).stroke({ width: 1.5, color: ARMOUR_TIER_COLORS[tier - 1], alpha: 0.85 });
+      if (tier > 0 && !colonistTierSet(c)) roleRings.ellipse(c.x, c.y + r * 0.8, r - 2.5, (r - 2.5) * 0.4).stroke({ width: 1.5, color: ARMOUR_TIER_COLORS[tier - 1], alpha: 0.85 });
       // Hero phase 3: a gold ring outside the role ring with four pips on it.
       if (c.kind === "hero") {
         const hr = r + 3;
@@ -5151,11 +5213,12 @@ async function main() {
     el.className = `hs-item ${item.tier === "relic" ? "relic" : `t${item.tier}`}`;
     el.style.background = SLOT_FILL[item.slot] ?? "#555";
     el.textContent = SLOT_GLYPH[item.kind ?? ""] ?? SLOT_GLYPH[item.slot] ?? "?";
-    if (item.icon && !missingIcons.has(item.icon)) {
+    // A Spell Tome shows its spell's current icon (saved tomes may carry an older icon name).
+    const icon = item.spellId ? SPELLS[item.spellId].icon : item.icon;
+    if (icon && !missingIcons.has(icon)) {
       const img = document.createElement("img");
       img.alt = "";
-      img.src = `/sprites/${item.icon}.png`;
-      const icon = item.icon;
+      img.src = `/sprites/${icon}.png`;
       img.onerror = () => {
         missingIcons.add(icon);
         img.remove();
@@ -5806,6 +5869,7 @@ async function main() {
       clearBlood();
       farmStages = new Map();
       buildingLevels = new Map();
+      forgeBusy = new Set();
       constructionSites = new Map();
       clearFires();
       siteOverlay.clear();
@@ -5832,6 +5896,7 @@ async function main() {
       interpAfterSnapshot();
       suppressDeathPoofs = false;
       syncBuildingLevels(message.buildingLevels);
+      syncForgeBusy(message.forgeBusy);
       syncFarmStages(message.farmStages);
       syncConstructionSites(message.constructionSites);
       syncDamagedBuildings(message.damagedBuildings);
