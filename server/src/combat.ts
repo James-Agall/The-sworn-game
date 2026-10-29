@@ -23,6 +23,7 @@ import {
 } from "./tiles.js";
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { releaseResourceReservation, stock } from "./economy.js";
+import { onBossKilled } from "./worldgen.js";
 import { WILDLIFE_CONFIG, damageWildlife, isWalkablePixel } from "./wildlife.js";
 import {
   findTownCenterAt, isHouseTile, isWardPriest, queueRespawn, spawnPointNearTownCenter, townCenterMaxHp,
@@ -32,12 +33,15 @@ import { activateGuardianSite, goldForKill, isDormantGuardian, keyToTile } from 
 import {
   currentBuildingLevel, demolishTile, destroyTownCenter, syncGuardBonusesAround, tryLevelUpInPlace,
 } from "./construction.js";
+import { notePlayerCasualty, noteRegimentCasualty } from "./tactics.js";
+import { engageRaidGroup, stepRaidMobToward } from "./raids.js";
+import { damageHearth } from "./hearths.js";
 import {
-  absorbWithWard, armourDamageTakenMult, broadcastEvent, broadcastTileUpdate, damageHearth, dropEquipmentFor,
-  engageRaidGroup, equipEvent, heroEvent, heroKey, heroProfileFor, heroProfileOf, heroRespawnFee, heroRewardsForKill,
-  isSummoned, notePlayerCasualty, noteRegimentCasualty, onBossKilled, playerAttackCooldownTicks, playerDamage,
-  playerMaxHp, recordFightHit, spellDamageTakenMult, stepRaidMobToward,
-} from "./index.js";
+  armourDamageTakenMult, dropEquipmentFor, equipEvent, heroEvent, heroKey, heroProfileFor, heroProfileOf,
+  heroRespawnFee, heroRewardsForKill, playerAttackCooldownTicks, playerDamage, playerMaxHp,
+} from "./heroes.js";
+import { absorbWithWard, isSummoned, spellDamageTakenMult } from "./spells.js";
+import { broadcastEvent, broadcastTileUpdate, recordFightHit } from "./index.js";
 
 export function getMobById(id: string): Mob | undefined {
   return mobs.get(id);

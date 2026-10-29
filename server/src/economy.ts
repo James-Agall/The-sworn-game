@@ -16,8 +16,9 @@ import {
   biomeProductionFactor, getBuildingLevel, inBounds, levelBonus, resourceKey, tileIndex, tileOccupiedByEntity,
   tileOfPixel,
 } from "./tiles.js";
+import { isInReservedGrounds } from "./worldgen.js";
 import { countTilesOfType, isMilitaryTile, productionSpeedMultiplier, townCenterBonus } from "./colonists.js";
-import { broadcastTileUpdate, isInReservedGrounds } from "./index.js";
+import { broadcastTileUpdate } from "./index.js";
 
 export function initialStock(): Record<ResourceKey, number> {
   return {

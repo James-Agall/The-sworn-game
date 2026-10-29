@@ -44,10 +44,8 @@ import { isDormantGuardian, keyToTile } from "./mobs.js";
 import {
   canAfford, currentBuildingLevel, placementCost, sendEvent, spend, upgradePlacementTile,
 } from "./construction.js";
-import {
-  broadcastEvent, broadcastTileUpdate, equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind,
-  spawnHeroColonist,
-} from "./index.js";
+import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroColonist } from "./heroes.js";
+import { broadcastEvent, broadcastTileUpdate } from "./index.js";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.

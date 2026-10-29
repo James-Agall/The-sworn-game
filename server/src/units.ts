@@ -38,11 +38,12 @@ import {
 import { catapultImpact, siegeEvent, takeChargeBonus, trackCharge } from "./siege.js";
 import { isDormantGuardian, mobBodyRadius, mobHitBonus } from "./mobs.js";
 import { adjacentHouseCount, cavalryCountForLevel } from "./construction.js";
-import {
-  bombardPoint, bombardStep, equipEvent, hearthStep, heroAutoCast, heroBaseStats, heroCombatStats, heroTestEvent,
-  isCommandable, isRoutedUnit, moraleDamageMult, playerMaxHp, spellBuffDamageMult, spellBuffSpeedMult,
-  stepRaidMobToward, unitOrderKind, weaponDamageMult,
-} from "./index.js";
+import { isRoutedUnit, moraleDamageMult } from "./tactics.js";
+import { stepRaidMobToward } from "./raids.js";
+import { hearthStep } from "./hearths.js";
+import { equipEvent, heroBaseStats, heroCombatStats, heroTestEvent, playerMaxHp, weaponDamageMult } from "./heroes.js";
+import { heroAutoCast, spellBuffDamageMult, spellBuffSpeedMult } from "./spells.js";
+import { bombardPoint, bombardStep, isCommandable, unitOrderKind } from "./orders.js";
 
 export function pruneTaskForces() {
   for (const [slot, unitIds] of taskForces) {

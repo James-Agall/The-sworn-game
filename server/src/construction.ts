@@ -49,10 +49,9 @@ import {
   gateAt, isTowerTile, resolveTowerPlacement, structureHp, towerCostForLevel, towerInfoLines,
 } from "./combat.js";
 import { siegeUnitsAt, siegeWorkshopInfo } from "./siege.js";
-import {
-  START_VISION_OFFSETS, blacksmithForgeInfo, broadcastEvent, broadcastTileUpdate, churchSpellShop, keepHeroInfo,
-  revealAround,
-} from "./index.js";
+import { blacksmithForgeInfo, keepHeroInfo } from "./heroes.js";
+import { churchSpellShop } from "./spells.js";
+import { START_VISION_OFFSETS, broadcastEvent, broadcastTileUpdate, revealAround } from "./index.js";
 
 export function upgradeKnightAt(tx: number, ty: number, level: number) {
   const stats = guardStats("knight", level);
