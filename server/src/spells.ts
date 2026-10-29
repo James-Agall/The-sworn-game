@@ -25,7 +25,8 @@ import { mobRole } from "./units.js";
 import { damageMob, releaseSlot } from "./combat.js";
 import { isDormantGuardian } from "./mobs.js";
 import { gearTarget, heroKey, heroProfileFor, heroProfileOf, playerMaxHp, sendHeroEvent } from "./heroes.js";
-import { broadcastEvent, sendTo } from "./index.js";
+import { sendTo } from "./saves.js";
+import { broadcastEvent } from "./net.js";
 
 export function spellEvent(e: Omit<(typeof spellEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;

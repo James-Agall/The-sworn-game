@@ -5,7 +5,7 @@ import type {
   ColonistKind, Stance, FormationShape, HeroClass, MobKind, BossTier, HungerMark, GateLock, WildlifeKind, ArmyOrder,
   Difficulty, TileType, SiegeKind, Equipment, GearItem, HeroStats, SpellId, EquipSlot, FightKind, FightSnapshot,
 } from "@colony/shared/protocol";
-import type { snapshotWorld } from "./index.js";
+import type { snapshotWorld } from "./saves.js";
 
 export interface Player {
   // Forts phase A: the ownerVersion of the last `siteTiles` this player was sent.

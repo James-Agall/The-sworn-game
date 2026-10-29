@@ -41,7 +41,7 @@ import {
   heroRespawnFee, heroRewardsForKill, playerAttackCooldownTicks, playerDamage, playerMaxHp,
 } from "./heroes.js";
 import { absorbWithWard, isSummoned, spellDamageTakenMult } from "./spells.js";
-import { broadcastEvent, broadcastTileUpdate, recordFightHit } from "./index.js";
+import { broadcastEvent, broadcastTileUpdate, recordFightHit } from "./net.js";
 
 export function getMobById(id: string): Mob | undefined {
   return mobs.get(id);

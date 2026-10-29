@@ -1869,6 +1869,64 @@ copied to `art-sources/`). #49-#52 and #55-#56 still need regenerating.
   inside them, hover / picked / dashed-target outlines show, tabs and close button still work, it scrolls on a short
   window; (5) strategy mode cards and banners unchanged.
 
+## Server module split — landed 2026-10-29
+
+QUEUE item 3 (and the groundwork for item 4). The 15.5k-line `server/src/index.ts` is now 26 modules, no behaviour
+change: code moved verbatim (plus `export`), comments kept, exported names unchanged. Commits "Server split stage 1-5".
+
+| Module | Lines | What |
+|---|---|---|
+| `index.ts` | 386 | boot + wiring: imports every module in evaluation order, `generateWorld()`, `httpServer.listen`, SIGINT/SIGTERM, the WebSocket message router, the tick loop + snapshot |
+| `types.ts` | 609 | every interface / type alias |
+| `constants.ts` | 1578 | tuning numbers and constant tables (pure data: no runtime import of another server module) |
+| `state.ts` | 680 | the `state` object + in-place containers (below) |
+| `tiles.ts` | 140 | tile index/bounds/pixel helpers, biomes, roads, building levels, owner map, `isNightNow`, `clamp`, `resourceKey` |
+| `pathfinding.ts` | 220 | walkability, A* `findPath`, path following, body separation (spatial hash) |
+| `economy.ts` | 362 | stock, gathering, tree growth, synergies, recipes, farm plots/stages, exchange + gold shop |
+| `wildlife.ts` | 558 | hunters, foragers, wild game, forage |
+| `worldgen.ts` | 528 | world size, `setWorldSize`, `generateWorld`, biomes, ponds, POIs, Abbey, Castle Ruin, bosses |
+| `colonists.ts` | 1599 | workers, builders, repair, shelter, happiness, population/settlements, town centers, respawn windows, food, ward priest, `updateColonist` |
+| `units.ts` | 923 | unit stats, garrisons, guard AI, rally/return, bishops, task forces, army regiment derivation |
+| `combat.ts` | 815 | damage (mobs/players/colonists/buildings), engagement slots, building HP, walls & gates, towers |
+| `siege.ts` | 351 | cavalry charges, siege strikes/catapult, Siege Workshop, raid siege engines |
+| `mobs.ts` | 684 | mob kinds, sizes, hunger marks, difficulty, targeting, building routing, `updateMob` |
+| `construction.ts` | 1179 | placement rules + costs, `handleSetTile*`, construction sites, upgrades, demolition, building info panel |
+| `tactics.ts` | 814 | monster tactics (regiments, flanking, cover, morale, routs) + player regiment morale |
+| `raids.ts` | 696 | raid waves: sizing, factions, spawning, formations, marching |
+| `hearths.ts` | 397 | camp hearths |
+| `goals.ts` | 100 | goal track |
+| `heroes.ts` | 692 | equipment, hero profiles/items/relics, recruitable heroes, Blacksmith forging |
+| `spells.ts` | 555 | spell book, status effects, casting, auto-cast |
+| `orders.ts` | 839 | commands, stances, order groups / regiment orders, enemy regiment intel (live vision) |
+| `sim.ts` | 153 | `stepSimulation` (one tick; the loop and the fastForward hook run it) |
+| `saves.ts` | 522 | snapshot/apply world, migrations, slots, autosave, restart (`resetWorld`) |
+| `net.ts` | 352 | the `httpServer` / `wss` objects (created at import, no side effect; `listen(PORT)` stays in index, `PORT` is in constants.ts), broadcasts, welcome, fog of war, fight notifiers, view culling |
+| `testhooks.ts` | 661 | `handleTestHook` (COLONY_TEST_HOOKS) |
+
+State conventions (the base for the per-clan refactor, QUEUE item 4):
+- **`state`** (`state.ts`, type `ServerState`): every former module-level `let` (all 110 were reassigned somewhere) is a
+  field, read and written as `state.cycleTick`, `state.tiles`, `state.WORLD_TILES_X`, ... (ES module bindings can't be
+  reassigned from another module). `ServerState` extends one interface per domain group (`TimeFields`,
+  `OwnersFields`, `RaidsFields`, `HeroesFields`, ...), so a per-clan sub-state can be carved out group by group.
+  Initial values: literals in the `initial` object; size-dependent ones (`state.tiles = new Uint8Array(...)`, the
+  `scaledCount` counts) assigned right after it in declaration order; two that need domain tables are assigned where
+  they were declared (`state.wildlifeRespawnCooldown` in wildlife.ts, `state.goalSnapshot` in goals.ts).
+- **Containers** that are only mutated in place (`players`, `colonists`, `mobs`, `gates`, `tileOwner`, `regiments`,
+  ...) are plain exported consts in `state.ts`, grouped by domain. Containers with computed initial data (`stock =
+  initialStock()`) stay in their domain module.
+- New module-level mutable values: a field on `state` (add it to the right `*Fields` interface) if it is ever
+  reassigned; an exported const in `state.ts` if it is only mutated. Never `export let`.
+- **Import / evaluation order:** `constants.ts` and `state.ts` are runtime leaves (state imports only constants); every
+  other module may import any other (cycles are fine: they only reach functions and containers at call time).
+  `index.ts` imports every module in the order of `ORDER` (types, constants, state, tiles, ... testhooks) and keeps all
+  side effects (`generateWorld()`, listen, signal handlers, `wss.on`, `setInterval`). Gotcha: a new module-level
+  initialiser that READS another domain module's const / calls its function at import time can hit a TDZ error
+  ("Cannot access X before initialization"); put such tables in constants.ts or compute them lazily. Boot the server
+  once after such a change: TDZ errors throw at startup.
+- Config read from the environment at import (`PORT`, `TEST_HOOKS`, `SAVE_DIR`, `AUTOSAVE_ENABLED`) is in constants.ts.
+- `SAVE_DIR` resolves `../saves/` from `import.meta.url` in constants.ts: keep server modules flat in `server/src/`
+  (live.sh copies the whole directory; nested directories would work for it but would move that path).
+
 ## Known failing tests — 2026-10-29 (test harness)
 
 `npm test` (`scripts/run-tests.mjs`, see README "Tests") runs every `server/*-test.mjs` and `client/*-test.mjs`.
@@ -1897,3 +1955,5 @@ any test waiting for real nights needs `setCycleTick` time travel. The colony st
 | `upgrades-church-test` | fix unverified | Freshness check (cap 12, builder), House cost -20, builder left after clearing fillers; (d) archer hp chipped by daytime raid mobs (raids now spawn by day and hold near the colony): raids off for (d). |
 | `walls-regrow-test` | stale, not fixed | 25x25 world, 0 starting stock, 1-wood walls, mines on Empty. A rewrite was drafted but never run, so it was not committed. |
 | `gravestone-events-test`, `halflatch-ward-lapse-test`, `happiness-militia-tavern-test`, `hunting-foraging-test`, `shelter-overflow-test`, `ward-priest-patrol-test` | not re-run | Baseline failures were placements turning into construction sites; the runner now boots them with `COLONY_INSTANT_BUILD=1`. happiness-militia-tavern also has stale checks (restart colonist count = starting builder, "militia are population-exempt" against pop 1/12). |
+| `owner-map-test` | flaky, pre-existing | Fails ~1 run in 3 on the original monolith (57684cf) and on the split alike (random world): "snapshot gate carries GATE_FLAG_FOREIGN (flags undefined)", sometimes also the rubble / ram-through-the-gap checks. Re-run before blaming a change. |
+| `gates-walls-test` | flaky, pre-existing | Failed once in the 2026-10-29 pre-split baseline ("living tower within 8 tiles: no overrun"), passed on every later run. |

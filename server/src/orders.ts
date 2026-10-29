@@ -30,7 +30,7 @@ import { isRoutedUnit, moraleDamageMult, regimentKey } from "./tactics.js";
 import { attackObjectiveAt, damageHearth, nearestHostileStructure, sendAgainstHearth } from "./hearths.js";
 import { weaponDamageMult } from "./heroes.js";
 import { spellBuffDamageMult } from "./spells.js";
-import { COLONIST_VISION_OFFSETS, PLAYER_VISION_OFFSETS, fightThreatOf } from "./index.js";
+import { COLONIST_VISION_OFFSETS, PLAYER_VISION_OFFSETS, fightThreatOf } from "./net.js";
 
 // Only a Church's bishop takes orders: the Ward Priest must keep his rounds for the wards to stand,
 // and the Abbey's clergy aren't the colony's at all. Mirrored by the client's isCommandable (which

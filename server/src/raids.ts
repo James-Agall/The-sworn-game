@@ -26,7 +26,7 @@ import {
   applyHungerMark, applyMobSize, buildingNearby, hungerMarkChance, hungerMarkLabel, mobBodyRadius, mobKindLabel,
   pickMobTarget, resolveTargetPosition,
 } from "./mobs.js";
-import { broadcastEvent } from "./index.js";
+import { broadcastEvent } from "./net.js";
 
 // ---- Raid waves ----
 // spawnRaid runs once per day at the day's midpoint and puts the whole of tonight's raid on the map

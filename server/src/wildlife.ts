@@ -23,7 +23,7 @@ import { industrialSynergyMultiplier, releaseResourceReservation, stock } from "
 import { isInReservedGrounds, randInt } from "./worldgen.js";
 import { TOWN_CENTER_TILE, productionSpeedMultiplier } from "./colonists.js";
 import { damageColonist } from "./combat.js";
-import { broadcastTileUpdate } from "./index.js";
+import { broadcastTileUpdate } from "./net.js";
 
 // ---- Hunting & foraging: Hunter's Hut / Forager's Hut workers, wild game, wild forage ----
 // Every tunable lives here. Hunters and foragers are civilians: they only work by day and shelter in

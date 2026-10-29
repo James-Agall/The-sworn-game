@@ -34,7 +34,8 @@ import { siegeEvent, takeChargeBonus, trackCharge, updateSiegeMob } from "./sieg
 import { mobTactic, regimentKey, tacticsEvent } from "./tactics.js";
 import { stepRaidMobToward } from "./raids.js";
 import { playerMaxHp } from "./heroes.js";
-import { recordMobStrike, resetWorld } from "./index.js";
+import { resetWorld } from "./saves.js";
+import { recordMobStrike } from "./net.js";
 
 export function mobBodyRadius(m: Mob): number {
   return Math.min(MOB_BODY_RADIUS_MAX, (MOB_BODY_RADIUS[m.kind] ?? 8) * mobSizeScale(m));

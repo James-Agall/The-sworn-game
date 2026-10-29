@@ -509,26 +509,36 @@ state.MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCountSub(1.25));
 state.explored = new Uint8Array(state.WORLD_TILES_X * state.WORLD_TILES_Y);
 
 // ---- In-place containers (only mutated, never reassigned) ----
-// ---- core ----
+
+// -- core --
 export const players = new Map<string, Player>();
 export const colonists = new Map<string, Colonist>();
 export const mobs = new Map<string, Mob>();
-// ---- respawn ----
+
+// -- respawn --
 export const respawnQueue: RespawnRequest[] = [];
-// ---- farms ----
+
+// -- farms --
 export const farmPlots = new Map<string, FarmPlotState>();
 export const minesPlacedOnOre = new Set<string>();
-// ---- buildings ----
+
+// -- buildings --
 export const buildingLevel = new Map<string, number>();
-// ---- towers ----
-// Towers: ticks until each Tower (resourceKey) may shoot again (transient, not saved). See the Tower block.
-export const towerCooldowns = new Map<string, number>();
-// ---- buildings ----
 // Current HP of damaged buildings (resourceKey); a building missing here is at full HP.
 export const buildingHp = new Map<string, number>();
-// ---- gates ----
+
+// -- towers --
+// Towers: ticks until each Tower (resourceKey) may shoot again (transient, not saved). See the Tower block.
+export const towerCooldowns = new Map<string, number>();
+// Recent site-tower shots (testHook "ownerState").
+export const towerEvents: Array<{ tick: number; tower: string; target: string; damage: number }> = [];
+
+// -- gates --
 export const gates = new Map<number, GateState>();
-// ---- owners ----
+// Mobs whose last path search toward their building target failed (a gate closed on the route).
+export const mobsWithoutRoute = new Set<string>();
+
+// -- owners --
 // Forts phase A (PLAN-forts-diplomacy-moats.md §1): tile owners. Sparse: tile index -> site number
 // (>= 1); a tile missing here is the colony's / unowned (every tile of an old save). Site number n names
 // ownerSiteIds[n - 1] (the mobs' siteId; phase B's SiteState takes this over). moverOwner is the site
@@ -538,22 +548,31 @@ export const ownerSiteIds: string[] = [];
 // Colonist id -> tile index of the site wall / gate it is breaching on the way to its structure target
 // (the target itself is walled off; see structureStep). Not saved: a load re-plans.
 export const structureBreach = new Map<string, number>();
-// ---- builders ----
+
+// -- builders --
 // HP of repair already paid for per building (manual Repair pays up front, builders pay when they start).
 export const repairPaid = new Map<string, number>();
 // Manual Repair requests (resourceKey), served before the automatic most-damaged pick.
 export const repairQueue: string[] = [];
-// ---- taskForces ----
+
+// -- taskForces --
 export const taskForces = new Map<number, string[]>();
-// ---- economy ----
+
+// -- economy --
 export const reservedResourceTiles = new Map<string, string>();
-// ---- equipment ----
+
+// -- equipment --
 export const equipment: EquipmentStock = { armour: [0, 0, 0], weapon: [0, 0, 0] };
-// ---- wildlife ----
+// ---- Armour & weapons: stock, equipping, forging, drops (constants: EQUIP_* / FORGE_* / *_MULT) ----
+// Test-hook log (equipState): equip / unequipped / forged / drop / loot / hit / taken.
+export const equipEvents: { type: string; id?: string; slot?: EquipSlot; tier?: number; amount?: number; detail?: string; tick: number }[] = [];
+
+// -- wildlife --
 // Tile index -> ticks until that picked plant is ripe again.
 export const forageRegrow = new Map<number, number>();
 export const wildlife = new Map<number, Wildlife>();
-// ---- slots ----
+
+// -- slots --
 // ---- Engagement slots ----
 // A melee attacker claims one slot on a ring around its target and fights from there, so several
 // attackers spread around a target instead of stacking on one point. Unit targets (mob / colonist /
@@ -562,22 +581,21 @@ export const wildlife = new Map<number, Wildlife>();
 // Keys: "m:<mobId>", "c:<colonistId>", "p:<playerId>", "b:<x,y>" (buildings and Town Centers).
 export const slotClaims = new Map<string, Map<number, string>>();
 export const attackerSlots = new Map<string, { key: string; slot: number }>();
-// ---- bodies ----
+
+// -- bodies --
 export const bodies: Body[] = [];
 // Ids of mobs that struck or held in attack range this tick (they take the smaller separation share).
 export const mobsAttackingThisTick = new Set<string>();
-// ---- combat ----
+
+// -- combat --
 // Wiped wholesale at each dawn (before that dawn's starvation deaths add new ones), so every entry
 // was placed since the most recent dawn and lasts until the next one.
 export const gravestones: GravestoneSnapshot[] = [];
-// ---- orders ----
+
+// -- orders --
 // Colonist id -> the mob an explicit Attack order sent it after: that chase ignores the line leash
 // (LINE_LEASH_TILES) and the front-rank hold. Stale entries are harmless (checked against targetMobId).
 export const commandedTargets = new Map<string, string>();
-// ---- regiments ----
-// Size each task force was assigned at (its card's max); not saved (a loaded one starts at its alive count).
-export const taskForceMax = new Map<number, number>();
-// ---- orders ----
 // Unit id -> its charge cycle on a charge order: "in" (riding at the target; readyTick = the charge
 // cooldown it had when it set off, so a changed value = a charge landed) or "out" (withdrawing, since).
 export const chargeCycle = new Map<string, { phase: "in" | "out"; readyTick: number; since: number }>();
@@ -585,30 +603,36 @@ export const orderGroups = new Map<string, OrderGroup>();
 export const orderGroupOfUnit = new Map<string, OrderGroup>();
 // Staggered start: unit id -> the slot it heads for once cycleTick reaches `at`.
 export const pendingRallies = new Map<string, { at: number; x: number; y: number; group: string; squad: string | null }>();
-// ---- units ----
+
+// -- regiments --
+// Size each task force was assigned at (its card's max); not saved (a loaded one starts at its alive count).
+export const taskForceMax = new Map<number, number>();
+
+// -- units --
 // Squad march: per-tick speed for every squad member walking back to its formation slot (no target),
 // see SQUAD_* above. Members without an entry move at their own speed.
 export const squadMarchSpeed = new Map<string, number>();
-// ---- ward ----
+
+// -- ward --
 // resourceKey -> cycleTick at which the priest last finished tending that stone. A stone with no
 // entry has never been tended and is not warded.
 export const wardStoneLastTended = new Map<string, number>();
 // Ward Stones (resourceKey) whose ward was up at the end of the previous tick. Only Ward Stones:
 // the Abbey's ward never lapses, so it is never tracked and never lets a Half-Latch through.
 export const wardStonesActiveLastTick = new Set<string>();
-// ---- raids ----
+
+// -- raids --
 export const raidGroups = new Map<string, RaidGroup>();
-// ---- gates ----
-// Mobs whose last path search toward their building target failed (a gate closed on the route).
-export const mobsWithoutRoute = new Set<string>();
-// ---- tactics ----
+
+// -- tactics --
 export const regiments = new Map<string, RegimentState>();
 // Site / regiment ids that own walls (the cover behaviour). Fort / horde sites register here, or set
 // SITE_KIND_WALLED for their kind; testHook "setRegimentWalled" too. Encampment fences do not count.
 export const walledSites = new Set<string>();
 // Recent tactics events (testHook "tacticsState").
 export const tacticsEvents: Array<{ tick: number; type: string; regiment: string; detail?: string }> = [];
-// ---- playerMorale ----
+
+// -- playerMorale --
 export const playerMorale = new Map<string, PlayerMoraleState>();
 // Unit id -> its regiment id as of the last evaluation (casualties, wavering damage).
 export const moraleRegimentOfUnit = new Map<string, string>();
@@ -616,32 +640,31 @@ export const moraleRegimentOfUnit = new Map<string, string>();
 // keeps standing in its retreat group; otherwise it leaves the group and goes back to the rally slot it
 // held before the rout: its post, or where a tactical-mode move left it).
 export const routedUnits = new Map<string, { reg: string; hadGroup: boolean; rallyX: number; rallyY: number }>();
-// ---- hearths ----
+
+// -- hearths --
 export const hearths = new Map<string, HearthState>();
 // Recent hearth events (testHook "hearthState").
 export const hearthEvents: Array<{ tick: number; type: string; siteId: string; detail?: string }> = [];
-// ---- testhooks ----
+
+// -- testhooks --
 export const tickDurationsMs: number[] = [];
-// ---- construction ----
+
+// -- construction --
 export const constructionSites = new Map<string, ConstructionSiteState>();
-// ---- towers ----
-// Recent site-tower shots (testHook "ownerState").
-export const towerEvents: Array<{ tick: number; tower: string; target: string; damage: number }> = [];
-// ---- siege ----
+
+// -- siege --
 export const chargeRuns = new Map<string, ChargeRun>();
 // Recent siege / charge events (testHook "siegeState").
 export const siegeEvents: Array<{ tick: number; type: string; id: string; amount?: number; detail?: string }> = [];
 export const siegeWorkshops = new Map<string, SiegeWorkshopState>();
-// ---- equipment ----
-// ---- Armour & weapons: stock, equipping, forging, drops (constants: EQUIP_* / FORGE_* / *_MULT) ----
-// Test-hook log (equipState): equip / unequipped / forged / drop / loot / hit / taken.
-export const equipEvents: { type: string; id?: string; slot?: EquipSlot; tier?: number; amount?: number; detail?: string; tick: number }[] = [];
-// ---- heroes ----
+
+// -- heroes --
 export const heroProfiles = new Map<string, HeroProfile>();
 // Test-hook log (heroState): hit / taken / relic / xp / equip / refuse.
 export const heroEvents: { type: string; key?: string; amount?: number; detail?: string; tick: number }[] = [];
 export const heroRecruits: HeroRecruit[] = [];
-// ---- spells ----
+
+// -- spells --
 // Keyed "m:<mob id>" / "c:<colonist id>" / "p:<player id>".
 export const spellStatuses = new Map<string, SpellStatus>();
 // Profile key -> spell -> spellTick it is ready again.
@@ -652,5 +675,6 @@ export const summonedUntil = new Map<string, number>();
 export const lastHurtTick = new Map<string, number>();
 // Test-hook log (spellState): cast / refuse / learn / tome / burn / absorb / summon / expire.
 export const spellEvents: { type: string; key?: string; spell?: string; amount?: number; detail?: string; tick: number }[] = [];
-// ---- forge ----
+
+// -- forge --
 export const forgeQueues = new Map<string, ForgeQueueState>();

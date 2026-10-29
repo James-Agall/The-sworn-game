@@ -6,7 +6,7 @@ import { GAME_DAY_TICKS, GOAL_WORKER_KINDS, VISION_BUILDING_TILES } from "./cons
 import { colonists, constructionSites, state } from "./state.js";
 import { formatReward, grantReward } from "./worldgen.js";
 import { isSoldierKind } from "./units.js";
-import { broadcastEvent } from "./index.js";
+import { broadcastEvent } from "./net.js";
 
 // Dawns since the world began (cycle 0 starts at dawn, so day N's dawn is cycleTick N * cycle).
 export function nightsSurvived(): number {

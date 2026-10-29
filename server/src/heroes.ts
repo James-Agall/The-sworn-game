@@ -30,7 +30,8 @@ import { canAfford, formatCost, spend } from "./construction.js";
 import {
   grantLevelSpells, grantTome, restoreSpellBook, spellBasePctFor, spellBookSnapshot, spellBuffDamageMult,
 } from "./spells.js";
-import { broadcastEvent, sendTo } from "./index.js";
+import { sendTo } from "./saves.js";
+import { broadcastEvent } from "./net.js";
 
 export function equipEvent(e: Omit<(typeof equipEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;

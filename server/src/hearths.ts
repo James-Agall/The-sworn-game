@@ -25,7 +25,7 @@ import { stepRaidMobToward } from "./raids.js";
 import { grantTieredEquipment, heroRelicForHearth, weaponDamageMult } from "./heroes.js";
 import { spellBuffDamageMult } from "./spells.js";
 import { leaveOrderGroup } from "./orders.js";
-import { broadcastEvent, broadcastTileUpdate } from "./index.js";
+import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 
 export function hearthEvent(siteId: string, type: string, detail?: string) {
   hearthEvents.push({ tick: state.cycleTick, type, siteId, detail });

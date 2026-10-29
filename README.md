@@ -21,6 +21,22 @@ The HUD in the top-left shows the shared colony stockpiles (wood, food, iron, ro
 
 The world renders as a checkered grass floor with a distinct procedurally drawn icon for each structure/resource (trees, ore, rock, walls, posts, farm plots, houses at each size, barns, churches, castles at each level, archer towers, the Town Center) instead of flat color tiles.
 
+## Project layout
+
+- `shared/src/`: the `@colony/shared` workspace package (`protocol.ts` message/snapshot types and tile enums,
+  `formation.ts`), imported by both sides as `@colony/shared/protocol` / `@colony/shared/formation`.
+- `client/`: the PixiJS client.
+- `server/src/`: the authoritative server, one module per domain (ROADMAP.md "Server module split"):
+  - `index.ts`: boot and wiring only: imports every module in evaluation order, generates the world, starts the
+    server, routes client messages, runs the tick loop and sends snapshots.
+  - `types.ts` (interfaces), `constants.ts` (tuning numbers and tables, pure data), `state.ts` (the mutable world
+    state: the `state` object for every value that is reassigned, plus the in-place Maps / Sets / arrays).
+  - `tiles.ts`, `pathfinding.ts`, `economy.ts`, `wildlife.ts`, `worldgen.ts`, `colonists.ts`, `units.ts`,
+    `combat.ts`, `siege.ts`, `mobs.ts`, `construction.ts`, `tactics.ts`, `raids.ts`, `hearths.ts`, `goals.ts`,
+    `heroes.ts`, `spells.ts`, `orders.ts`, `sim.ts` (one simulation tick), `saves.ts`, `net.ts`, `testhooks.ts`.
+- `server/*-test.mjs`, `client/*-test.mjs`: black-box tests over WebSocket (see Tests).
+- `scripts/`: `run-tests.mjs` (the test runner), `live.sh` (the always-on frozen copy), launchers.
+
 ## Tests
 
 ```bash

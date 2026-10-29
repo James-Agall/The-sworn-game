@@ -28,7 +28,7 @@ import { applyMobSize } from "./mobs.js";
 import { registerHearth } from "./hearths.js";
 import { evaluateGoals, resetGoals } from "./goals.js";
 import { grantTieredEquipment } from "./heroes.js";
-import { broadcastEvent, resetExplored } from "./index.js";
+import { broadcastEvent, resetExplored } from "./net.js";
 
 export function scatterResourceTiles(tileType: TileType, count: number) {
   const spawnTx = Math.floor(state.WORLD_TILES_X / 2);

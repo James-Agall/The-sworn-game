@@ -18,7 +18,7 @@ import {
 } from "./tiles.js";
 import { isInReservedGrounds } from "./worldgen.js";
 import { countTilesOfType, isMilitaryTile, productionSpeedMultiplier, townCenterBonus } from "./colonists.js";
-import { broadcastTileUpdate } from "./index.js";
+import { broadcastTileUpdate } from "./net.js";
 
 export function initialStock(): Record<ResourceKey, number> {
   return {

@@ -24,7 +24,7 @@ import {
   keyToTile, pickBuildingTarget, regimentFrontDistance, resolveTargetPosition, routeToBuilding, stepMobAwayFrom,
 } from "./mobs.js";
 import { canAfford, formatCost, spend } from "./construction.js";
-import { broadcastEvent, recordFightHit, recordMobStrike } from "./index.js";
+import { broadcastEvent, recordFightHit, recordMobStrike } from "./net.js";
 
 // ---- Cavalry & siege (ROADMAP "Cavalry & siege"): the cavalry charge, siege strikes and the catapult's
 // splash, Siege Workshop production, and the raids' siege engines (updateSiegeMob). ----

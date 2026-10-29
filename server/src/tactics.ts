@@ -42,7 +42,7 @@ import { isDormantGuardian } from "./mobs.js";
 import { raidGroupMembers, releaseRaidMob, stepRaidMobToward } from "./raids.js";
 import { playerDamage } from "./heroes.js";
 import { centroidOf, leaveOrderGroup, rallyUnit, startArmyOrder } from "./orders.js";
-import { broadcastEvent } from "./index.js";
+import { broadcastEvent } from "./net.js";
 
 export function regimentKey(m: Mob): string | null {
   return m.groupId ?? m.regimentId ?? m.siteId ?? null;
