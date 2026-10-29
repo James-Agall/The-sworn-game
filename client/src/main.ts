@@ -4250,6 +4250,8 @@ async function main() {
 
   function selectTool(tile: TileType) {
     currentTool = tile;
+    // Picking something to build puts the units down, so right-click places instead of giving orders.
+    if (tile !== TileType.Empty && selectedIds.size > 0) setSelection([]);
     if (tile !== TileType.TownCenter && !isRoadTile(tile)) placementGhost.visible = false;
     configurePlacementGhost(tile);
     refreshToolbarSelection();
