@@ -55,6 +55,7 @@ import {
   GATE_FLAG_OPEN,
   GATE_FLAG_OVERRUN,
   SITE_TILE_SNAPSHOT_STRIDE,
+  CLAN_TILE_SNAPSHOT_STRIDE,
   GATE_SNAPSHOT_STRIDE,
   HUNGER_MARK_NAMES,
   HungerMark,
@@ -1798,6 +1799,23 @@ async function main() {
   // number. Drawn tinted (FOREIGN_TINT), red on the minimap; right-click with soldiers = attack it.
   let siteOwners = new Map<number, number>();
   const FOREIGN_TINT = 0xffa090;
+  // Clans (snapshot clanId / clans / clanTiles, only while 2+ clans play): this player's clan, every clan's
+  // colour, and the clan of every player building. Another clan's buildings are tinted with its colour
+  // and its units get a ring in it; neither can be selected or ordered.
+  let myClan = 0;
+  let clanColors = new Map<number, number>();
+  let clanNames = new Map<number, string>();
+  let clanTiles = new Map<number, number>();
+  const isForeignClanIndex = (index: number) => {
+    const owner = clanTiles.get(index);
+    return owner !== undefined && owner !== myClan;
+  };
+  // Halfway between the clan colour and white, so the building art still reads.
+  const clanTint = (clan: number) => {
+    const c = clanColors.get(clan) ?? 0xffffff;
+    const mix = (shift: number) => Math.round((((c >> shift) & 0xff) + 0xff) / 2) << shift;
+    return mix(16) | mix(8) | mix(0);
+  };
   // True from a welcome until its first snapshot has been applied: state diffs then are a world
   // load, not events, so they make no sound.
   let soundSuppressed = true;
@@ -1915,6 +1933,19 @@ async function main() {
       const { tx, ty } = indexToTile(index);
       setTileSprite(tx, ty, tiles[index]);
       paintMinimapTile(index);
+    }
+  }
+
+  function syncClanTiles(flat: number[] | undefined) {
+    if (!flat) return;
+    const next = new Map<number, number>();
+    for (let i = 0; i + CLAN_TILE_SNAPSHOT_STRIDE <= flat.length; i += CLAN_TILE_SNAPSHOT_STRIDE) next.set(flat[i], flat[i + 1]);
+    const prev = clanTiles;
+    clanTiles = next;
+    for (const index of new Set([...prev.keys(), ...next.keys()])) {
+      if (prev.get(index) === next.get(index)) continue;
+      const { tx, ty } = indexToTile(index);
+      setTileSprite(tx, ty, tiles[index]);
     }
   }
 
@@ -2119,6 +2150,7 @@ async function main() {
           : (TILE_TINT.get(tile) ?? 0xffffff);
     if (fireTier(damagedBuildings.get(index) ?? 1000) > 0) sprite.tint = SOOT_TINT;
     else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = FOREIGN_TINT;
+    else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
     if (artTile === TileType.TownCenter) {
       const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
       sprite.anchor.set(fit.anchor.x, fit.anchor.y);
@@ -4385,6 +4417,8 @@ async function main() {
   // Abbey clergy (posted at an AbbeyHall) aren't ours.
   function isCommandable(c: ColonistSnapshot): boolean {
     if (!COMMANDABLE_KINDS.has(c.kind)) return false;
+    // Clans: another clan's units are neutral, never ours to command.
+    if ((c.clan ?? 0) !== myClan) return false;
     return c.kind !== "bishop" || tiles[c.postY * worldTilesX + c.postX] === TileType.ChurchPost;
   }
 
@@ -4399,6 +4433,10 @@ async function main() {
     for (const c of latestColonists) {
       const r = c.kind === "cavalry" || c.kind === "batteringRam" || c.kind === "catapult" ? 12 : 9;
       ring(c.x, c.y, unitRole(c.kind, c.heroClass), r);
+      // Clans: another clan's unit wears a ring in its clan colour.
+      if ((c.clan ?? 0) !== myClan) {
+        roleRings.ellipse(c.x, c.y + r * 0.8, r + 2, (r + 2) * 0.4).stroke({ width: 2, color: clanColors.get(c.clan ?? 0) ?? 0xffffff, alpha: 0.9 });
+      }
       // Armour & weapons: a thin bronze / silver / gold ring just inside the role ring shows the unit's
       // armour tier, only where its tier art (COLONIST_TIER_ANIMS) is missing.
       const tier = c.armourTier ?? 0;
@@ -5049,7 +5087,10 @@ async function main() {
   } catch {
     profileId = "";
   }
-  const socket = new WebSocket(profileId ? `${SERVER_URL}/?profile=${profileId}` : SERVER_URL);
+  const wsParams = new URLSearchParams();
+  if (profileId) wsParams.set("profile", profileId);
+  if (clanParam()) wsParams.set("clan", clanParam());
+  const socket = new WebSocket(wsParams.toString() ? `${SERVER_URL}/?${wsParams}` : SERVER_URL);
 
   const pauseBtn = document.getElementById("pause-btn") as HTMLButtonElement;
   const restartBtn = document.getElementById("restart-btn") as HTMLButtonElement;
@@ -5902,6 +5943,21 @@ async function main() {
       syncDamagedBuildings(message.damagedBuildings);
       syncGates(message.gates);
       syncSiteTiles(message.siteTiles);
+      if (message.clans) {
+        clanColors = new Map(message.clans.map((c) => [c.id, c.color]));
+        clanNames = new Map(message.clans.map((c) => [c.id, c.name]));
+      }
+      const clanNow = message.clanId ?? 0;
+      if (clanNow !== myClan) {
+        myClan = clanNow;
+        pushEventToast("milestone", `You play for ${clanNames.get(myClan) ?? `clan ${myClan}`}`);
+        for (const index of clanTiles.keys()) {
+          const { tx, ty } = indexToTile(index);
+          setTileSprite(tx, ty, tiles[index]);
+        }
+      }
+      // Back to one clan (a restart / load): nothing is foreign any more.
+      syncClanTiles(message.clanId === undefined && clanTiles.size > 0 ? [] : message.clanTiles);
       latestTownCenters = message.townCenters;
       latestHearths = new Set();
       const hearthFlat = message.hearths ?? [];
@@ -5931,7 +5987,7 @@ async function main() {
         }
         alive.add(c.id);
       }
-      refreshWorkerCounts(message.colonists, message.isNight);
+      refreshWorkerCounts(myClan === 0 && clanTiles.size === 0 ? message.colonists : message.colonists.filter((c) => (c.clan ?? 0) === myClan), message.isNight);
       statArmyEl.textContent =
         `Knights ${counts.knight}  Cavalry ${counts.cavalry}  Archers ${counts.archer}  Militia ${counts.militia}` +
         `${counts.siege > 0 ? `  Siege ${counts.siege}` : ""}${counts.hero > 0 ? `  Heroes ${counts.hero}` : ""}  Bishops ${counts.bishop}`;
@@ -7288,6 +7344,19 @@ const DIFFICULTY_LABEL: Record<Difficulty, string> = { easy: "Easy", normal: "No
 let preferredDifficulty: Difficulty = "normal";
 // Map size (tiles per side) chosen in the menu; New Game / Restart regenerate the world at it.
 const MAP_SIZE_PREF_KEY = "sworn.mapSize";
+// Clans: the main menu's Clan choice (sent as the ws URL's `?clan=`): join the clan already playing (clan 0)
+// or found a new one. A page URL `?clan=new` / `?clan=<id>` overrides it (e.g. to join clan 2).
+let preferredClan: "join" | "new" = "join";
+function clanParam(): string {
+  const fromPage = new URLSearchParams(location.search).get("clan");
+  if (fromPage && /^(new|\d{1,3})$/.test(fromPage)) return fromPage;
+  return preferredClan === "new" ? "new" : "";
+}
+function renderClanChoice() {
+  document.querySelectorAll<HTMLButtonElement>("#set-clan button").forEach((btn) => {
+    btn.setAttribute("aria-checked", String(btn.dataset.clan === preferredClan));
+  });
+}
 const MAP_SIZES = [64, 96, 160, 256, 384, 512];
 // undefined until the player picks one: then the server keeps its own default (COLONY_WORLD_SIZE or 160).
 let preferredWorldSize: number | undefined;
@@ -7445,6 +7514,13 @@ function setupMainMenu() {
     /* default stays Medium */
   }
   renderMapSizeChoice(preferredWorldSize);
+  renderClanChoice();
+  document.getElementById("set-clan")!.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-clan]");
+    if (btn?.dataset.clan !== "join" && btn?.dataset.clan !== "new") return;
+    preferredClan = btn.dataset.clan;
+    renderClanChoice();
+  });
   const mapSizeSeg = document.getElementById("set-mapsize")!;
   mapSizeSeg.addEventListener("click", (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-size]");

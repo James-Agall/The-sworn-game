@@ -125,6 +125,16 @@ export const GATE_FLAG_FOREIGN = 16;
 // Forts phase A: snapshot `siteTiles` is flattened [tile index, site number] pairs, one per NPC-owned
 // tile (site number >= 1). Per player, sent only when the owner map changed since that player's last one.
 export const SITE_TILE_SNAPSHOT_STRIDE = 2;
+// Clans (ROADMAP "Clans — landed"): snapshot `clanTiles` is flattened [tile index, clan id] pairs, one per
+// player building of any clan, sent only while there are 2+ clans and only when it changed (a full
+// replacement). Missing (or a single-clan game) = clan 0.
+export const CLAN_TILE_SNAPSHOT_STRIDE = 2;
+export interface ClanSnapshot {
+  id: number;
+  name: string;
+  // Banner / border tint.
+  color: number;
+}
 
 export function isRoadTile(tile: TileType): boolean {
   return tile === TileType.Road || tile === TileType.CobbleRoad;
@@ -351,6 +361,8 @@ export interface ArmyOrderGroupSnapshot {
 
 export interface ColonistSnapshot {
   id: string;
+  // Clans: the unit's clan (omitted = 0). Units of another clan are neutral and not commandable.
+  clan?: number;
   kind: ColonistKind;
   x: number;
   y: number;
@@ -989,6 +1001,12 @@ export type ServerMessage =
       // Forts phase A: NPC-owned tiles, see SITE_TILE_SNAPSHOT_STRIDE (per player, only when changed;
       // a full replacement of the previous list).
       siteTiles?: number[];
+      // Clans (only while there are 2+): this player's clan id, every clan, and the clan of every player
+      // building (CLAN_TILE_SNAPSHOT_STRIDE; per player, only when changed). The economy / army / population
+      // / goal fields of this snapshot are the receiving player's clan's.
+      clanId?: number;
+      clans?: ClanSnapshot[];
+      clanTiles?: number[];
       // Hero phases 1-2: this player's gear / inventory / XP (per-player field, only when it changed).
       profile?: HeroProfileSnapshot;
       // Hero phase 3: the colony's heroes (sheet tabs); appended per player only when it changed.
@@ -1014,6 +1032,8 @@ export interface PlayerSnapshot {
   maxHp: number;
   // Killed with no Town Center standing to respawn at (game over unless one is rebuilt).
   dead: boolean;
+  // Clans: the player's clan (omitted = 0).
+  clan?: number;
 }
 
 export type SaveSlot = "autosave" | "slot1" | "slot2" | "slot3";

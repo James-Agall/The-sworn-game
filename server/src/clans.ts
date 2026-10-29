@@ -165,5 +165,15 @@ export function foundClan(player: Player): Clan | null {
     topUpTownCenterBuilders(tc);
     refreshGoalSnapshot();
   });
+  state.heroRosterVersion++;
   return clan;
+}
+
+// Snapshot `clanTiles`: [tile index, clan id] for every clan-ownable tile (clan 0's included), one map pass.
+export function clanTilesForSnapshot(): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < state.tiles.length; i++) {
+    if (isClanOwnableTile(state.tiles[i] as TileType)) out.push(i, clanIdAtIndex(i));
+  }
+  return out;
 }

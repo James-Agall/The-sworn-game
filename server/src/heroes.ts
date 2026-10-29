@@ -31,7 +31,7 @@ import {
 } from "./spells.js";
 import { sendTo } from "./saves.js";
 import { broadcastEvent } from "./net.js";
-import { clanIdAt, enterClan, resetClan } from "./clans.js";
+import { clanIdAt, clanOf, enterClan, resetClan, withClan } from "./clans.js";
 
 export function equipEvent(e: Omit<(typeof equipEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;
@@ -484,11 +484,13 @@ export function heroRespawnFee(id: string): number {
 // (queued for a window).
 export function heroRoster(): { id: string; name: string; heroClass: HeroClass; tx: number; ty: number; status: HeroSheetSnapshot["status"] }[] {
   const out: ReturnType<typeof heroRoster> = [];
+  // Clans: the active clan's heroes only.
+  const own = (tx: number, ty: number, clan?: number) => (clan ?? clanIdAt(tx, ty)) === state.clan.id;
   for (const c of colonists.values()) {
-    if (c.kind === "hero") out.push({ id: c.id, name: c.heroName ?? "Hero", heroClass: c.heroClass ?? "champion", tx: c.postX, ty: c.postY, status: "alive" });
+    if (c.kind === "hero" && (c.clan ?? 0) === state.clan.id) out.push({ id: c.id, name: c.heroName ?? "Hero", heroClass: c.heroClass ?? "champion", tx: c.postX, ty: c.postY, status: "alive" });
   }
-  for (const r of heroRecruits) out.push({ id: r.id, name: r.name, heroClass: r.heroClass, tx: r.tx, ty: r.ty, status: "recruiting" });
-  for (const q of respawnQueue) if (q.hero) out.push({ ...q.hero, tx: q.tx, ty: q.ty, status: "fallen" });
+  for (const r of heroRecruits) if (own(r.tx, r.ty)) out.push({ id: r.id, name: r.name, heroClass: r.heroClass, tx: r.tx, ty: r.ty, status: "recruiting" });
+  for (const q of respawnQueue) if (q.hero && own(q.tx, q.ty, q.clan)) out.push({ ...q.hero, tx: q.tx, ty: q.ty, status: "fallen" });
   return out;
 }
 
@@ -597,7 +599,7 @@ export function heroSheetsSnapshot(): HeroSheetSnapshot[] {
 export function withPlayerHeroes(payload: string, player: Player): string {
   if (player.heroesSentVersion === state.heroRosterVersion) return payload;
   player.heroesSentVersion = state.heroRosterVersion;
-  return payload.slice(0, -1) + ',"heroes":' + JSON.stringify(heroSheetsSnapshot()) + "}";
+  return payload.slice(0, -1) + ',"heroes":' + JSON.stringify(withClan(clanOf(player), heroSheetsSnapshot)) + "}";
 }
 // ---- Blacksmith forging: one item at a time per Blacksmith, FORGE_QUEUE_CAP queued (the first is in
 // progress). Cost is paid when queued (no refund). Not saved: a load starts every forge empty.

@@ -13,7 +13,7 @@ import {
   FIGHT_MAX_HITS, FIGHT_MAX_TRACKED, FIGHT_RAID_LABELS, FIGHT_WINDOW_TICKS, SET_VIEW_MIN_MS,
   STRATEGY_VIEW_MARGIN_TILES, STRATEGY_VIEW_MAX_HALF_TILES, VISION_BUILDING_TILES,
 } from "./constants.js";
-import { colonists, players, state, tileClan } from "./state.js";
+import { clans, colonists, players, state, tileClan } from "./state.js";
 import { clamp } from "./tiles.js";
 import { TOWN_CENTER_TILE, isAbbeyClergy } from "./colonists.js";
 import { listSaves } from "./saves.js";
@@ -97,6 +97,8 @@ export function flushExplored() {
 export function broadcastTileUpdate(tx: number, ty: number, tile: TileType) {
   // Clans: a tile that is no longer a building (cleared, destroyed, reverted to ore) loses its clan.
   if (tileClan.size > 0 && !isClanOwnableTile(tile)) setTileClan(ty * state.WORLD_TILES_X + tx, 0);
+  // With 2+ clans every building change resends snapshot `clanTiles` (clan 0's buildings are listed too).
+  if (clans.length > 1) state.clanTilesVersion++;
   state.buildingTargetsDirty = true;
   state.gateTilesDirty = true;
   if (VISION_BUILDING_TILES.has(tile)) revealAround(tx, ty, BUILDING_VISION_OFFSETS);

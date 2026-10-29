@@ -32,7 +32,7 @@ import { makeBoss } from "./worldgen.js";
 import { WILDLIFE_CONFIG, WILDLIFE_RESPAWN_INTERVAL_TICKS, damageWildlife, spawnWildlifeAt } from "./wildlife.js";
 import {
   TOWN_CENTER_TILE, civilianPopulationUsed, findTownCenterAt, happinessSpeedMultiplier, populationCap,
-  productionSpeedMultiplier, respawnWindowAt, respawnWindowSnapshot, spawnColonistForPost, townCenterBonus,
+  productionSpeedMultiplier, respawnWindowAt, respawnWindowSnapshot, settlementKeyNear, spawnColonistForPost, townCenterBonus,
 } from "./colonists.js";
 import { colonistRole, guardStats, isGuardOrMilitiaKind, isSiegeKind, unitStats } from "./units.js";
 import {
@@ -442,6 +442,8 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     } else {
       const c = spawnColonistForPost(tile.x, tile.y, kind);
       Object.assign(c, { x: msg.x, y: msg.y, rallyTileX: tile.x, rallyTileY: tile.y, rallyX: msg.x, rallyY: msg.y });
+      // Clans: the soldier is the requesting player's clan's.
+      if (player.clan) Object.assign(c, { clan: player.clan, settlementId: settlementKeyNear(tile.x, tile.y, player.clan) });
       if (typeof msg.stance === "string" && STANCES.includes(msg.stance as Stance)) c.stance = msg.stance as Stance;
       reply({ id: c.id });
     }

@@ -519,7 +519,7 @@ const initial: Partial<ServerState> = {
 export const state = initial as ServerState;
 
 // Every clan, by id (clans[i].id === i). Clan 0 always exists (the colony of every old save / default join).
-export const clans: Clan[] = [makeClan(0, "The Colony", 0)];
+export const clans: Clan[] = [makeClan(0, "The Colony", 0xd4a017)];
 state.clan = clans[0];
 state.eventClan = null;
 for (const key of CLAN_FIELD_KEYS) {

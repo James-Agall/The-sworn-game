@@ -13,7 +13,7 @@ import {
   TICK_DURATION_SAMPLES,
 } from "./constants.js";
 import {
-  clans, colonists, gravestones, mobs, players, state, summonedUntil, tickDurationsMs, tileClan, tileOwner,
+  clans, colonists, gravestones, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
 } from "./state.js";
 import { clamp, isNightNow, tileIndex } from "./tiles.js";
 import "./pathfinding.js";
@@ -50,7 +50,7 @@ import {
 } from "./saves.js";
 import { broadcastEvent, flushExplored, handleSetView, httpServer, sendWelcome, updateVision, withPlayerFights, wss } from "./net.js";
 import { handleTestHook } from "./testhooks.js";
-import { clanOf, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
+import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
 
 state.tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
 
@@ -90,9 +90,9 @@ wss.on("connection", (socket, req) => {
     orderWindowAt: 0,
     orderWindowCount: 0,
   };
-  players.set(id, player);
   // Clans: `?clan=new` founds the player's own clan (a new Town Center and stock elsewhere on the map),
-  // `?clan=<id>` joins that clan if it exists; anything else (or no room to found one) joins clan 0.
+  // `?clan=<id>` joins that clan if it exists; anything else (or no room to found one) joins clan 0. Done
+  // before the player is listed, so the founding's tile update doesn't reach it ahead of its welcome.
   const clanParam = new URL(req.url ?? "/", "http://localhost").searchParams.get("clan") ?? "";
   if (clanParam === "new") {
     const founded = foundClan(player);
@@ -106,6 +106,7 @@ wss.on("connection", (socket, req) => {
     player.x = at.x;
     player.y = at.y;
   }
+  players.set(id, player);
   player.hp = playerMaxHp(player);
   state.anyPlayerSinceBoot = true;
 
@@ -421,6 +422,7 @@ setInterval(() => {
     state.enemyRegimentTick = 0;
     enemyJson = JSON.stringify(enemyRegimentsNow());
   }
+  let clanTilesJson: string | null = null;
   for (const player of players.values()) {
     if (player.socket.readyState === player.socket.OPEN) {
       const snapshot = snapshots[player.clan] ?? snapshots[0];
@@ -442,10 +444,11 @@ setInterval(() => {
         player.siteTilesVersion = state.ownerVersion;
         payload = payload.slice(0, -1) + ',"siteTiles":' + JSON.stringify(Array.from(tileOwner).flat()) + "}";
       }
-      // Clans: other clans' building tiles (flattened [index, clan]), resent when tileClan changed.
-      if (snapshot.type === "snapshot" && player.clanTilesVersion !== state.clanTilesVersion) {
+      // Clans: every player building's clan (CLAN_TILE_SNAPSHOT_STRIDE), resent when it changed.
+      if (clans.length > 1 && player.clanTilesVersion !== state.clanTilesVersion) {
         player.clanTilesVersion = state.clanTilesVersion;
-        payload = payload.slice(0, -1) + ',"clanTiles":' + JSON.stringify(Array.from(tileClan).flat()) + "}";
+        clanTilesJson ??= JSON.stringify(clanTilesForSnapshot());
+        payload = payload.slice(0, -1) + ',"clanTiles":' + clanTilesJson + "}";
       }
       player.socket.send(withPlayerHeroes(withPlayerProfile(withPlayerFights(payload, player), player), player));
     }
