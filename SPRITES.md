@@ -506,6 +506,48 @@ Paper-doll layers drawn over the player's existing mounted-knight frames (no new
 side-on "vertical" gates (the delivered ones are front-on), wider corner/T/cross pieces that reach the tile edges on
 their connected sides, and the #62 "Breached" (~15% HP) sheets.
 
+## New requests (2026-10-30 batch) — trader wagons & Trading Post levels
+
+The Trading Post (`TileType.GoldShop`) sends a trader wagon to friendly settlements (see PLAN-forts-diplomacy-moats.md).
+The wagon grows with the Trading Post level and carries a bigger escort at each level (Lv1: 2 militia + 1 spearman;
+Lv2: 4 spearmen; Lv3: 4 pikemen + 1 cavalry rider). The escorts reuse the existing militia / spearman / pikeman /
+cavalry sprites; only the wagons and Trading Post art are new. Until the art arrives the client draws a tinted cart
+placeholder.
+
+### 63. Trader wagon, Lv1 — small hand cart (move, idle, hit, wrecked)
+> Pixel art, chunky 16-bit retro style, thick dark-ink outline, flat shading, 3/4 top-down view matching the existing
+> rams / catapults / cavalry sprites. A small two-wheeled wooden hand cart pulled by a single donkey, loaded with a few
+> sacks and crates under a tied tarp, a driver in a plain tunic walking at its head. One sheet, one row per animation,
+> facing RIGHT (the game mirrors it): **move 4 frames** (wheels turning, donkey legs and driver walking), **idle 1
+> frame**, **hit 2 frames** (cart jolts, sacks spill), **wrecked 1 frame** (broken wheel, scattered sacks, donkey gone).
+> Match the scale of the existing Spearman sprite for the driver. **About 56x40 px per frame.** Transparent background,
+> clean PNG, no text. Files: `traderWagon1Walk0-3.png`, `traderWagon1Idle.png`, `traderWagon1Hit0-1.png`,
+> `traderWagon1Destroyed.png`.
+
+### 64. Trader wagon, Lv2 — covered wagon
+> Same style, view, facing and frame layout as #63, a clear step up: a four-wheeled covered merchant wagon with a
+> canvas hood, painted trim and a hanging lantern, pulled by two horses, a driver on the bench. Visibly bigger and
+> richer than #63 but not armoured. Move 4 / idle 1 / hit 2 / wrecked 1. **About 84x52 px per frame.** Files:
+> `traderWagon2Walk0-3.png`, `traderWagon2Idle.png`, `traderWagon2Hit0-1.png`, `traderWagon2Destroyed.png`.
+
+### 65. Trader wagon, Lv3 — armoured merchant caravan wagon
+> Same style, view, facing and frame layout, the grandest: a long reinforced wagon with iron-banded wooden walls, a
+> peaked roof, a banner on a pole in the colony's colours and a guard seat at the rear, pulled by four horses in two
+> pairs, loot chests visible on the roof rack. Move 4 / idle 1 / hit 2 / wrecked 1. **About 120x64 px per frame.**
+> Files: `traderWagon3Walk0-3.png`, `traderWagon3Idle.png`, `traderWagon3Hit0-1.png`, `traderWagon3Destroyed.png`.
+
+### 66. Trading Post — Lv2 / Lv3 upgraded art
+> Match the existing Trading Post (`GoldShop`) sprite. Lv2: a larger two-storey shop with a loading dock, a hitched
+> empty cart beside it and a hanging sign. Lv3: a walled market yard with a covered stall row, stacked crates and
+> barrels, a flag on the roof, and a small stable for the caravan horses. Same tile footprint as the current sprite,
+> same camera angle. **About 64x64 px each.** Files: `tradingPostLv2.png`, `tradingPostLv3.png`.
+
+### 67. Trade UI & map icons (32x32)
+> A small icon set in the game's parchment UI style: a wagon-wheel / route marker for the minimap and map (trade route
+> destination), a coin-purse "profit" icon, a "wagon under attack" crossed-swords-on-wheel alert icon, and a
+> "relation" handshake icon. 32x32 each, transparent PNGs. Files: `ui-tradeRoute.png`, `ui-tradeProfit.png`,
+> `ui-tradeAlert.png`, `ui-relation.png`.
+
 ## Notes on process
 
 - One generation per image block, not one frame per generation — frame-to-frame consistency
