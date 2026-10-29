@@ -1,391 +1,161 @@
-import { WebSocketServer, WebSocket } from "ws";
+import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
-  ClientMessage,
-  ServerMessage,
-  PlayerSnapshot,
-  ColonistSnapshot,
-  ColonistKind,
-  MobSnapshot,
-  MobKind,
-  AttackEffect,
-  Stance,
-  GameEventCategory,
-  GravestoneSnapshot,
-  Difficulty,
-  WildlifeKind,
-  WILDLIFE_KINDS,
-  WildlifeState,
-  FarmStage,
-  TownCenterSnapshot,
-  BuildingInfo,
-  EquipSlot,
-  EquipmentStock,
-  TileType,
-  Biome,
-  HungerMark,
-  HUNGER_MARK_NAMES,
-  BossTier,
-  bossTitle,
-  GoalSnapshot,
-  isSolidTile,
-  isRoadTile,
-  TICK_RATE,
-  TILE_SIZE,
-  DEFAULT_WORLD_TILES,
-  PLAYER_SPEED,
-  PLAYER_HALF_SIZE,
-  PLAYER_MAX_HP,
-  VISION_RADIUS_PLAYER,
-  VISION_RADIUS_COLONIST,
-  VISION_RADIUS_BUILDING,
-  VISION_RADIUS_START,
-  SaveSlot,
-  SaveInfo,
-  SAVE_SLOTS,
-  GateLock,
-  GATE_FLAG_OPEN,
-  GATE_FLAG_LOCK_OPEN,
-  GATE_FLAG_LOCK_CLOSED,
-  GATE_FLAG_OVERRUN,
-  GATE_FLAG_FOREIGN,
-  FightKind,
-  FightSnapshot,
-  FIGHT_WINDOW_SECONDS,
-  FIGHT_CLUSTER_TILES,
-  FIGHT_RELEVANCE_TILES,
-  FIGHT_MAX_PER_PLAYER,
-  WILDLIFE_SNAPSHOT_STRIDE,
-  CombatRole,
-  SiegeKind,
-  SIEGE_KINDS,
-  MOB_ROLE,
-  MOB_SIZE_RANGE,
-  mobSizeScale,
-  COLONIST_ROLE,
-  isRearRole,
-  GearSlot,
-  GEAR_SLOTS,
-  GearItem,
-  ItemSlotKind,
-  ItemStats,
-  Equipment,
-  HeroStats,
-  HeroProfileSnapshot,
-  HeroClass,
-  HERO_CLASSES,
-  HERO_CLASS_LABEL,
-  HeroSheetSnapshot,
-  unitRole,
-  SpellId,
-  SPELLS,
-  SPELL_IDS,
-  SPELL_SLOT_COUNT,
-  SpellBookSnapshot,
-  ArmyRegimentSnapshot,
-  RegimentClass,
-  HERO_CLASS_ROLE,
-  ArmyOrder,
-  ArmyOrderKind,
-  ArmyOrderGroupSnapshot,
-  ARMY_ORDER_QUEUE_MAX,
-  FormationShape,
-  FORMATION_SHAPES,
-  EnemyRegimentSnapshot,
-  TIME_SCALES,
-  ENEMY_REGIMENT_REFRESH_TICKS,
-  ENEMY_CELL_TILES,
+  TileType, TILE_SIZE, PLAYER_HALF_SIZE, isSolidTile, Biome, isRoadTile, mobSizeScale, type SiegeKind,
+  type ColonistKind, HungerMark, HUNGER_MARK_NAMES, type MobKind, type Difficulty, MOB_SIZE_RANGE, FarmStage,
+  type WildlifeKind, WILDLIFE_KINDS, TICK_RATE, type Stance, type ArmyRegimentSnapshot, type RegimentClass,
+  type CombatRole, unitRole, HERO_CLASS_ROLE, type ArmyOrderKind, type ArmyOrder, ARMY_ORDER_QUEUE_MAX,
+  FORMATION_SHAPES, type FormationShape, type ArmyOrderGroupSnapshot, isRearRole, MOB_ROLE, SIEGE_KINDS,
+  GATE_FLAG_OPEN, GATE_FLAG_LOCK_OPEN, GATE_FLAG_LOCK_CLOSED, GATE_FLAG_OVERRUN, GATE_FLAG_FOREIGN, type BossTier,
+  bossTitle, VISION_RADIUS_PLAYER, VISION_RADIUS_COLONIST, VISION_RADIUS_BUILDING, VISION_RADIUS_START,
+  type ServerMessage, type GameEventCategory, COLONIST_ROLE, type EquipSlot, HERO_CLASSES, type HeroClass,
+  type SaveSlot, SAVE_SLOTS, type SaveInfo, PLAYER_MAX_HP, type ClientMessage, TIME_SCALES, type BuildingInfo,
+  type Equipment, GEAR_SLOTS, type HeroStats, type ItemStats, type GearItem, SPELL_SLOT_COUNT,
+  type HeroProfileSnapshot, type GearSlot, type ItemSlotKind, type HeroSheetSnapshot, HERO_CLASS_LABEL, type SpellId,
+  SPELL_IDS, type SpellBookSnapshot, SPELLS, type FightKind, FIGHT_CLUSTER_TILES, FIGHT_WINDOW_SECONDS,
+  type FightSnapshot, FIGHT_RELEVANCE_TILES, FIGHT_MAX_PER_PLAYER, PLAYER_SPEED, type EnemyRegimentSnapshot,
+  ENEMY_CELL_TILES, type PlayerSnapshot, type ColonistSnapshot, type MobSnapshot, type TownCenterSnapshot,
+  ENEMY_REGIMENT_REFRESH_TICKS, WILDLIFE_SNAPSHOT_STRIDE,
 } from "@colony/shared/protocol";
 import { planOrderFormation } from "@colony/shared/formation";
-
-// The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
-// The size is chosen per world (main menu / restart / save); COLONY_WORLD_SIZE is only the boot default.
-// setWorldSize() (below, once every size-dependent module value is declared) re-allocates them all.
-const MIN_WORLD_SIZE = 64;
-const MAX_WORLD_SIZE = 512;
-const clampWorldSize = (n: number) => Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, Math.round(n)));
-let WORLD_TILES_X = clampWorldSize(Number.parseInt(process.env.COLONY_WORLD_SIZE ?? "", 10) || DEFAULT_WORLD_TILES);
-let WORLD_TILES_Y = WORLD_TILES_X;
-// World-gen counts below were tuned on 80x80; scale them by area so bigger maps keep the same density.
-let WORLD_AREA_SCALE = (WORLD_TILES_X * WORLD_TILES_Y) / (80 * 80);
-const scaledCount = (n: number) => Math.round(n * WORLD_AREA_SCALE);
-// Things that cost CPU every tick (wildlife) or are expensive to populate (POIs and their guardians,
-// mini-bosses) scale by area only up to the 160x160 tuning (scale 4); beyond that, as the 4th root, so a
-// 512 map gets ~1.8x a 160 map's count instead of ~10x.
-const SUBLINEAR_FULL_SCALE = 4;
-const subScale = () =>
-  WORLD_AREA_SCALE <= SUBLINEAR_FULL_SCALE
-    ? WORLD_AREA_SCALE
-    : SUBLINEAR_FULL_SCALE * Math.pow(WORLD_AREA_SCALE / SUBLINEAR_FULL_SCALE, 0.25);
-const scaledCountSub = (n: number) => Math.round(n * subScale());
-
-interface Player {
-  // Forts phase A: the ownerVersion of the last `siteTiles` this player was sent.
-  siteTilesVersion?: number;
-  id: string;
-  x: number;
-  y: number;
-  color: number;
-  hp: number;
-  input: { dx: number; dy: number };
-  socket: WebSocket;
-  attackCooldownTicks: number;
-  poisonTicksRemaining: number;
-  poisonDamagePerTick: number;
-  // Killed while no Town Center stood: no respawn until one is (re)built (see respawnDeadPlayers).
-  dead: boolean;
-  // Hero phases 1-2: the persistent profile (gear, inventory, XP) this session plays as: the ws URL's
-  // `?profile=` (the client's stored id), else "default". Several sessions with one key share it.
-  profileKey: string;
-  // heroProfile.version last sent in this player's snapshot (-1 = send it on the next one).
-  profileSentVersion: number;
-  // Hero phase 3: heroRosterVersion last sent as snapshot `heroes` (-1 = send it on the next one).
-  heroesSentVersion: number;
-  // Strategy mode phase 1: the free camera's view rect (px, centre + half extents) while the player is in
-  // strategy mode, else null (see handleSetView); big-world snapshot culling also keeps what is inside it.
-  view: { x: number; y: number; halfW: number; halfH: number } | null;
-  viewSetAt: number;
-  // Strategy mode phase 3: regimentOrder rate limit (REGIMENT_ORDER_MAX_PER_S per one-second window).
-  orderWindowAt: number;
-  orderWindowCount: number;
-}
-
-interface TileCoord {
-  x: number;
-  y: number;
-}
-
-interface Colonist {
-  id: string;
-  kind: ColonistKind;
-  postX: number;
-  postY: number;
-  x: number;
-  y: number;
-  state: string;
-  path: TileCoord[];
-
-  targetResourceX: number;
-  targetResourceY: number;
-  chopTicksRemaining: number;
-  idleCooldown: number;
-
-  growTicksRemaining: number;
-  harvestTicksRemaining: number;
-
-  hp: number;
-  maxHp: number;
-  attackCooldownTicks: number;
-  targetMobId: string | null;
-  repathCooldown: number;
-
-  sheltering: boolean;
-  // Night shelter: a house tile, or the Town Center when homeTileX < 0. Reset each dawn.
-  shelterAssigned: boolean;
-  homeTileX: number;
-  homeTileY: number;
-
-  castleLevel: number;
-  // The settlement (Town Center, "x,y" resourceKey) this unit counts toward. Set at spawn to the Town
-  // Center nearest its post; old saves get it on load; settlementOf re-homes it if that Town Center fell.
-  settlementId: string;
-
-  healTargetType: "player" | "colonist" | null;
-  healTargetId: string | null;
-
-  rallyTileX: number;
-  rallyTileY: number;
-  // Exact pixel point inside the rally tile (a formation slot isn't a tile center, and two slots of
-  // a diagonal formation can share one tile). See returnToRally.
-  rallyX: number;
-  rallyY: number;
-
-  // Only read by updateGuardColonist (see STANCE_ALERT_RANGE_TILES / LINE_LEASH_TILES).
-  stance: Stance;
-  // Regiments: the formation order (commandMove.squad) this unit last marched under; its squadmates
-  // march at one pace (updateSquadMarch). Missing / null: no squad (old saves, single-unit moves).
-  squadId?: string | null;
-  // Camp hearths: the siteId of the hearth this soldier is attacking (commanded or aggressive pick).
-  targetHearthId?: string | null;
-  // Strategy mode phase 4 (regimentSettings): hold fire, skirmish, cycle charge, formation shape.
-  holdFire?: boolean;
-  skirmish?: boolean;
-  cycleCharge?: boolean;
-  shape?: FormationShape;
-  // Armour & weapons: the tier (0-3) taken from the stock when this unit spawned (EQUIPPED_KINDS only).
-  // Missing in old saves = 0 (unequipped, today's stats).
-  armourTier?: number;
-  weaponTier?: number;
-  // Hero phase 3: heroes only (kind "hero"). The colonist id is the hero's stable id (profile "hero:<id>",
-  // which holds its XP / level / equipment). Missing on every other unit and in old saves.
-  heroClass?: HeroClass;
-  heroName?: string;
-
-  poisonTicksRemaining: number;
-  poisonDamagePerTick: number;
-
-  // Hunter: the animal it is stalking/shooting (reserved via Wildlife.reservedBy). Hunter/forager:
-  // the meat/fruit carried back to the hut, deposited on arrival.
-  targetWildlifeId: number | null;
-  carryAmount: number;
-
-  // Builder: resourceKey of the construction site it is assigned to (see updateBuilder).
-  buildSiteKey: string | null;
-  // Builder: resourceKey of the damaged building it is repairing (see planRepair). Missing in old saves.
-  repairKey?: string | null;
-  // Farmer touring its Barn's plots (movement only): current plot key, ticks left working there, next plot index.
-  farmPlotKey?: string | null;
-  farmTouring?: boolean;
-  farmDwellTicks?: number;
-  farmNextIdx?: number;
-  // Farmhand: length of the current produce cycle (chopTicksRemaining counts it down), for the art stage.
-  cycleTicksTotal: number;
-}
-
-// "building": any damageable non-Town-Center building, keyed by its tile ("x,y"), walls included
-// (a wall is only targeted to breach it; see pickBuildingTarget).
-type MobTargetType = "colonist" | "player" | "townCenter" | "building";
-
-interface Mob {
-  id: string;
-  kind: MobKind;
-  x: number;
-  y: number;
-  hp: number;
-  maxHp: number;
-  path: TileCoord[];
-  repathCooldown: number;
-  targetType: MobTargetType | null;
-  targetId: string | null;
-  attackCooldownTicks: number;
-  damage: number;
-  speed: number;
-  range: number;
-  melee: boolean;
-  lastDamagedTick: number;
-  healCooldownTicks: number;
-  isDeserter: boolean;
-  deserterActive: boolean;
-  deserterSinceTick: number;
-  // World-gen POI guardians (ruins + encampments share one mechanic). siteId links every
-  // guardian at the same site; null for night-wave mobs and deserters. Dormant (guardianActive
-  // false) guardians do nothing in updateMob until any one of their site is damaged.
-  siteId: string | null;
-  siteKind: PoiSiteKind | null;
-  guardianActive: boolean;
-  // Phase 5 bosses (the Castle Ruin's Ogre Warlord, mini-boss pack leaders); missing on every other
-  // mob and in old saves. bossSighted: the one-off "sighted" toast has fired for it.
-  boss?: BossTier;
-  bossSighted?: boolean;
-  // Raid-wave group (see raidGroups). While groupId is set the mob is driven by updateRaidGroups,
-  // not by updateMob's per-mob targeting; passive is true until its group turns aggressive.
-  groupId: string | null;
-  passive: boolean;
-  // Regiments: the raid group this mob marched in, kept after its group breaks up so its ranged /
-  // casters still know their front rank (see regimentFrontDistance). Missing for non-raid mobs.
-  regimentId?: string | null;
-  // Monster tactics (see the "Monster tactics" block); missing on most mobs and in old saves.
-  //   flank - walking a flanking arc (flankWaypoints) round the enemy line to flankTargetId (a soldier)
-  //   rout  - fleeing toward its regiment's home;  leave - a routed raider walking off the map (fleeX/Y)
-  tactic?: "flank" | "rout" | "leave" | null;
-  flankWaypoints?: { x: number; y: number }[];
-  flankTargetId?: string | null;
-  flankUntilTick?: number;
-  // Set once a flank delivered it to its target (never sent round again; the "flankStrike" event).
-  flanker?: boolean;
-  fleeX?: number;
-  fleeY?: number;
-  leaveUntilTick?: number;
-  // Hunger mark (HungerMark.None for ordinary mobs); see the HUNGER_* constants and markedMob* helpers.
-  mark: HungerMark;
-  // Gorrath: tick its one-off wounded fury ends (0 = never triggered; it triggers once per mob).
-  furyUntilTick: number;
-  // Rux: the target it has already feinted at, and the tick its current feint ends.
-  feintTargetId: string | null;
-  feintUntilTick: number;
-  // Vhorrun: tick its withdrawal ends, and the point it backs away from meanwhile.
-  withdrawUntilTick: number;
-  withdrawFromX: number;
-  withdrawFromY: number;
-  // Building / Town Center targets: the tile to attack from, chosen by pickBuildingTarget (the route
-  // there is known to be walkable). Only used while approachFor equals targetId; missing in old saves.
-  approachFor?: string | null;
-  approachX?: number;
-  approachY?: number;
-  // Scale pass: the mob's rolled size (MOB_SIZE_RANGE, see applyMobSize); missing = 1 (old saves too).
-  scale?: number;
-}
-
-// Ruins and encampments are the small scattered sites; "castleRuin" is the one Castle Ruin and
-// "miniBoss" a mini-boss pack (ROADMAP Phase 5). All share the dormant-until-provoked wake mechanic.
-type PoiSiteKind = "ruin" | "encampment" | "castleRuin" | "miniBoss";
-
-// Defaults for the Mob fields every creation site shares (spread into each Mob literal).
-const MOB_MARK_DEFAULTS = {
-  mark: HungerMark.None,
-  furyUntilTick: 0,
-  feintTargetId: null,
-  feintUntilTick: 0,
-  withdrawUntilTick: 0,
-  withdrawFromX: 0,
-  withdrawFromY: 0,
-  approachFor: null,
-  approachX: -1,
-  approachY: -1,
-};
-
-interface RespawnRequest {
-  tx: number;
-  ty: number;
-  kind: ColonistKind;
-  ticksRemaining: number;
-  // Hero phase 3: a fallen hero (comes back with the same id / name / class at a window, for a gold fee).
-  hero?: { id: string; name: string; heroClass: HeroClass };
-}
-
-// "sown" and "growing" are one grow timer (sown = its first FARM_SOWN_FRACTION, for the client art);
-// "harvesting" is the ripe crop being cut; "fallow" is the rest after FARM_HARVESTS_BEFORE_FALLOW
-// harvests. See updateFarmPlots.
-interface FarmPlotState {
-  barnX: number;
-  barnY: number;
-  growTicksRemaining: number;
-  // Length of the current grow phase, so the sown -> growing split can be told apart.
-  growTicksTotal: number;
-  harvestTicksRemaining: number;
-  harvestsSinceFallow: number;
-  fallowTicksRemaining: number;
-  // Counts down after a harvest: the plot shows its "harvested" stubble art meanwhile (FarmStage.Harvested).
-  harvestedTicksRemaining: number;
-  state: "sown" | "growing" | "harvesting" | "fallow";
-}
-
-const players = new Map<string, Player>();
-const colonists = new Map<string, Colonist>();
-const mobs = new Map<string, Mob>();
-let worldWidth = WORLD_TILES_X * TILE_SIZE;
-let worldHeight = WORLD_TILES_Y * TILE_SIZE;
-
-let tiles = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y).fill(TileType.Empty);
-// Parallel to `tiles`; Biome value per tile, regenerated with the rest of the world.
-let biomes = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y).fill(Biome.Plains);
-
-const STARTING_WOOD = 80;
-const STARTING_IRON = 60;
-const STARTING_ROCK = 60;
-// 60 (was 40): fields and animal farms now take ~3 days to deliver their first batch, so the
-// opening stock has to carry a ~20-consumer colony through 3 dawns (see FARM_* / FARMHAND_*).
-const STARTING_GRAIN = 60;
-
-type ResourceKey =
-  | "wood" | "iron" | "rock"
-  | "grain" | "meat" | "fruit" | "wool" | "cotton"
-  | "clothes" | "tools" | "luxuryItems"
-  | "gold" | "alcohol";
+import type {
+  ActiveFight, AttackObjective, Body, Colonist, ConstructionSiteState, Cost, EnemyUnit, FarmPlotState, FightHit,
+  FriendlyUnit, GateState, GoalDef, HearthState, HeroProfile, HeroRecruit, Mob, MobTargetType, OrderGroup,
+  PickedTarget, Player, PlayerMoraleState, PoiSiteKind, RaidEdge, RaidFactionEntry, RaidFactionId,
+  RaidFormationShape, RaidGroup, RegimentState, ResourceKey, RespawnWindow, SaveFile, SettlementStat, SpellCaster,
+  SpellStatus, SpellTarget, TileCoord, TownCenter, Wildlife, WildlifeConfig, WorldState,
+} from "./types.js";
+import {
+  ABBEY_CLERGY_OFFSETS, ABBEY_FOOTPRINT_RADIUS, ABBEY_GROUNDS_RADIUS, ABBEY_LAYOUT, ABBEY_LAYOUT_TILES,
+  ABBEY_MIN_SPAWN_DIST, ARCHER_ATTACK_COOLDOWN_TICKS, ARCHER_ATTACK_RANGE, ARCHER_DAMAGE,
+  ARCHER_FRONT_RANK_SCAN_TILES, ARCHER_MAX_HP, ARCHER_SPEED, ARCHER_WOOD_COST, ARMOUR_DAMAGE_TAKEN_MULT,
+  ARMY_ORDER_KINDS, ARMY_REGIMENT_REFRESH_TICKS, ARMY_SYNERGY_PER_NEIGHBOUR, ATTACK_MOVE_RESUME_TICKS,
+  AUTOSAVE_ENABLED, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, BARN_WOOD_COST, BIG_BUILD_TILES,
+  BIOME_EDGE_JITTER_TILES, BIOME_NOISE_CELL_TILES, BIOME_SEED_MIN_SPACING, BIOME_SEED_RADIUS_MAX,
+  BIOME_SEED_RADIUS_MIN, BISHOP_HEAL_AMOUNT, BISHOP_HEAL_COOLDOWN_TICKS, BISHOP_HEAL_RANGE, BISHOP_MAX_HP,
+  BISHOP_SPEED, BLACKSMITH_TOOLS_STOCK_CAP, BOAR_ATTACK_COOLDOWN_TICKS, BOAR_ATTACK_RANGE, BOAR_CHARGE_SPEED,
+  BOAR_CHARGE_TICKS, BOAR_DAMAGE, BOSS_EQUIP_LOOT, BREACH_DETOUR_FACTOR, BREACH_HP_PER_TILE, BREACH_MIN_ROUTE_TILES,
+  BREACH_TOWER_PENALTY_TILES, BREACH_WALL_COST, BREAKABLE_TILES, BUILDERS_GUILD_WOOD_COST, BUILDER_IDLE_RETRY_TICKS,
+  BUILDER_MAX_PER_SITE, BUILDER_ROUTE_CANDIDATES, BUILDER_WORK_RANGE_PX, BUILDING_HP_BIG, BUILDING_HP_GATE,
+  BUILDING_HP_LEVEL_MULT, BUILDING_HP_SMALL, BUILDING_HP_STONE_WALL, BUILDING_HP_WALL, BUILDING_HP_WORKPLACE,
+  BUILDING_NAMES, BUILDING_TARGET_CANDIDATES, BUILD_SECONDS_BIG, BUILD_SECONDS_COBBLE_ROAD, BUILD_SECONDS_DEFAULT,
+  BUILD_SECONDS_GATE, BUILD_SECONDS_HOUSE, BUILD_SECONDS_ROAD, BUILD_SECONDS_TOWN_CENTER, BUILD_SECONDS_WALL,
+  CASTLE_RUIN_FOOTPRINT_RADIUS, CASTLE_RUIN_GROUNDS_RADIUS, CASTLE_RUIN_GUARDIANS_MAX, CASTLE_RUIN_GUARDIANS_MIN,
+  CASTLE_RUIN_GUARDIAN_WEIGHTS, CASTLE_RUIN_LAYOUT, CASTLE_RUIN_LAYOUT_TILES, CASTLE_RUIN_SPAWN_DIST_FRACTIONS,
+  CATAPULT_BUILDING_MULT, CATAPULT_DAMAGE, CATAPULT_MAX_HP, CATAPULT_MIN_RANGE, CATAPULT_RANGE,
+  CATAPULT_RELOAD_TICKS, CATAPULT_SPEED, CATAPULT_SPLASH_PX, CAVALRY_CHARGE_COOLDOWN_TICKS,
+  CAVALRY_CHARGE_IDLE_GRACE_TICKS, CAVALRY_CHARGE_MULT, CAVALRY_CHARGE_TILES, CAVALRY_SPEED,
+  CHARGE_RECHARGE_GAP_TILES, CHARGE_WITHDRAW_MAX_TICKS, CHARGE_WITHDRAW_TILES, CHOP_TICKS,
+  CHURCH_HEAL_BONUS_PER_STEP, CHURCH_SPELL_PRICES, CHURCH_WOOD_COST, CIVILIAN_MAX_HP, COBBLE_ROAD_ROCK_COST,
+  COLONIST_BODY_RADIUS, COLONIST_SPEED, COMMANDABLE_KINDS, COVER_BREACH_HP_FRACTION, COVER_ENCLOSURE_TILES,
+  COVER_REENGAGE_RATIO, CRAFT_BUILDING_IRON_COST, CRAFT_BUILDING_TILES, CRAFT_BUILDING_WOOD_COST, CRAFT_RECIPES,
+  CRAFT_TICKS, DARK_SHAMAN_HEAL_AMOUNT, DARK_SHAMAN_HEAL_COOLDOWN_TICKS, DARK_SHAMAN_HEAL_RANGE, DAY_LENGTH_SCALE,
+  DAY_TICKS, DESERTER_ACTIVATION_TICKS, DESERTER_WAVE_CHANCE, DIFFICULTY_TUNING, DORMANCY_RADIUS_TILES,
+  DUSK_RESPAWN_CYCLE_TICK, ELITE_DAMAGE_MULT, ELITE_HP_MULT, ELITE_REWARD, ENCAMPMENT_EXTRAS,
+  ENCAMPMENT_GUARDIAN_WEIGHTS, ENEMY_OUTFLANKED_SHOW_TICKS, EQUIPPED_KINDS, EQUIP_ARMOURED_KINDS, EQUIP_DROP_CHANCE,
+  EQUIP_LOOT_TIER_WEIGHTS, EQUIP_SLOT_LABEL, EQUIP_TIERS, EQUIP_TOAST_THROTTLE_TICKS, EXCHANGE_RATES,
+  EXPLORED_FLUSH_TICKS, FARMER_PLOT_DWELL_TICKS, FARMHAND_CYCLE_TICKS, FARMHAND_YIELD_PER_CYCLE, FARM_FALLOW_TICKS,
+  FARM_GROW_TICKS, FARM_HARVESTED_SHOW_TICKS, FARM_HARVESTS_BEFORE_FALLOW, FARM_HARVEST_TICKS, FARM_PRODUCE_BY_TILE,
+  FARM_SOWN_FRACTION, FARM_SPROUTING_FRACTION, FARM_YIELD_PER_HARVEST, FIGHT_BATTLE_COMBATANTS, FIGHT_BATTLE_DPS,
+  FIGHT_MAJOR_COMBATANTS, FIGHT_MAJOR_DPS, FIGHT_MAX_HITS, FIGHT_MAX_TRACKED, FIGHT_RAID_LABELS, FIGHT_SCAN_TICKS,
+  FIGHT_WINDOW_TICKS, FLANK_ARC_TILES, FLANK_BEHIND_TILES, FLANK_CONTACT_TILES, FLANK_DETACH_FRACTION,
+  FLANK_ENGAGE_TILES, FLANK_MAX_TICKS, FLANK_MIN_FRONT_FOR_DETACH, FLANK_WAYPOINT_REACH_PX, FOLLOW_BEHIND_TILES,
+  FOLLOW_REFORM_TILES, FOOD_HUT_WOOD_COST, FOOD_PER_COLONIST_PER_DAY, FOOD_WORKER_IDLE_RETRY_TICKS,
+  FOOD_WORKER_ROUTE_CANDIDATES, FORAGER_WORK_RADIUS_TILES, FORAGE_FRUIT_YIELD, FORAGE_MIN_TOWN_CENTER_DIST_TILES,
+  FORAGE_PICKED_TO_RIPE, FORAGE_REGROW_TICKS, FORAGE_RIPE_TO_PICKED, FORAGE_TICKS, FORAGE_TILES, FORGE_ARMOUR_IRON,
+  FORGE_QUEUE_CAP, FORGE_TICKS, FORGE_WEAPON_IRON, FORGE_WEAPON_WOOD, GAME_DAY_TICKS, GARRISON_LOITER_PX,
+  GATE_CLOSE_DELAY_TICKS, GATE_OPEN_RANGE_PX, GATE_OVERRUN_RANGE_TILES, GATE_ROCK_COST, GATE_TOWER_RANGE_TILES,
+  GATE_WOOD_COST, GATHER_RESOURCE_TILE, GOAL_WORKER_KINDS, GOBLIN_RIDER_DAMAGE_TAKEN, GOBLIN_RIDER_WITHDRAW_TICKS,
+  GOLD_PER_KILL_BASE_DIVISOR, GOLD_PER_KILL_MIN, GOLD_SHOP_PRICES, GORRATH_FURY_DAMAGE_TAKEN,
+  GORRATH_FURY_HP_FRACTION, GORRATH_FURY_TICKS, GORRATH_SCAN_RANGE_TILES, GUARD_ALERT_RANGE_TILES,
+  GUNNE_SCAN_RANGE_TILES, HAPPINESS_DESERTION_CHANCE, HAPPINESS_DESERTION_THRESHOLD, HAPPINESS_MUTINY_THRESHOLD,
+  HAPPINESS_SCENERY_TREE_BASELINE, HEARTH_AUTO_TARGET_TILES, HEARTH_DEFAULT_HP, HEARTH_LOOT_PER_GUARDIAN,
+  HEMP_GROWING_FROM, HEMP_RIPE_FROM, HERO_CLASS_STATS, HERO_INVENTORY_CAP, HERO_KEY_PREFIX, HERO_LEVEL_DAMAGE_PCT,
+  HERO_LEVEL_MAX_HP, HERO_LEVEL_XP, HERO_MAX_LEVEL, HERO_MAX_TOTAL, HERO_MIN_DAMAGE_TAKEN_MULT, HERO_MIN_SPEED_MULT,
+  HERO_NAMES, HERO_POPULATION_COST, HERO_RECRUIT_COST, HERO_RECRUIT_TICKS, HERO_RESPAWN_FEE_BASE,
+  HERO_RESPAWN_FEE_PER_LEVEL, HERO_XP_BOSS, HERO_XP_MARKED_MULT, HERO_XP_PER_KILL, HILLS_MINING_BONUS,
+  HOLD_LEASH_TILES, HOUSE_ROCK_COST, HOUSE_WOOD_COST, HUNGER_MARK_CHANCE_MAX, HUNGER_MARK_CHANCE_MAX_DAY,
+  HUNGER_MARK_CHANCE_START, HUNGER_MARK_DAMAGE_MULT, HUNGER_MARK_GOLD_MULT, HUNGER_MARK_HP_MULT, HUNGER_MARK_MIN_DAY,
+  HUNGER_MARK_RAIDERS_PER_MARK, HUNTER_ARROW_DAMAGE, HUNTER_BOW_RANGE, HUNTER_CHASE_LEASH_TILES, HUNTER_REPATH_TICKS,
+  HUNTER_SHOT_COOLDOWN_TICKS, HUNTER_WORK_RADIUS_TILES, IDLE_RETRY_TICKS, INDUSTRIAL_SYNERGY_PER_BUILDING,
+  INDUSTRIAL_SYNERGY_RADIUS, INDUSTRIAL_TILES, IN_PLACE_UPGRADE_TILES, KEEP_COSTS, KEEP_GARRISON_PER_LEVEL,
+  KEEP_MIN_TOWN_CENTER_LEVEL, KEEP_POPULATION_PER_LEVEL, KNIGHT_ATTACK_COOLDOWN_TICKS, KNIGHT_ATTACK_RANGE,
+  KNIGHT_IRON_COST, KNIGHT_LEVEL_STATS, KNIGHT_ROCK_COST, KNIGHT_SPEED, LEGACY_DAY_TICKS, LEGACY_GAME_DAY_TICKS,
+  LEGACY_NIGHT_TICKS, LEVEL_BONUS_PER_STEP, LINE_LEASH_TILES, LUMBERJACK_TREE_INTERVAL_TICKS, LUMBERJACK_TREE_RADIUS,
+  LUMBERJACK_WOOD_PER_TRIP, MARK_RETARGET_TICKS, MAX_WORLD_SIZE, MILITIA_IRON_COST, MILITIA_LEVEL_STATS,
+  MILITIA_SPEED, MILITIA_WOOD_COST, MINI_BOSS_KINDS, MIN_WORLD_SIZE, MOB_AGGRO_DROP_FACTOR,
+  MOB_AGGRO_RANGE_GUARD_TILES, MOB_AGGRO_RANGE_PLAYER_TILES, MOB_ATTACK_COOLDOWN_TICKS, MOB_ATTACK_RANGE,
+  MOB_BODY_RADIUS, MOB_BODY_RADIUS_MAX, MOB_BUILDING_AGGRO_TILES, MOB_DAMAGE, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS,
+  MOB_REPATH_TICKS, MOB_ROOM_DETOUR_PX, MOB_SIZE_DAMAGE_PER_SCALE, MOB_SIZE_HP_PER_SCALE, MOB_SIZE_SPEED_PER_SCALE,
+  MOB_SPEED, MORALE_ANCHOR_RESIST, MORALE_CASUALTY, MORALE_FRONT_LOST_PER_SEC, MORALE_LEADER_WEIGHT, MORALE_MAX,
+  MORALE_OUTFLANKED_PER_SEC, MORALE_OUTNUMBERED_PER_SEC, MORALE_RALLY, MORALE_RALLY_QUIET_TICKS,
+  MORALE_RECOVER_PER_SEC, MORALE_ROLE_WEIGHT, MORALE_ROUT, MORALE_WINNING_RATIO, MORVAIN_DETECTION_FACTOR,
+  NEIGHBORS_8, NEIGHBOURS_8, NIGHT_TICKS, NO_COLONIST_TILES, ORCHARD_BLOSSOM_UNTIL, ORCHARD_FRUITING_FROM,
+  ORDER_ARRIVE_GRACE_TICKS, ORDER_DISPATCH_MAX_SPREAD_MS, ORDER_DISPATCH_STEP_MS, ORDER_UPDATE_TICKS,
+  ORDER_WIDTH_MAX_TILES, PASTURE_FAT_FROM, PATH_NODE_BUDGET, PATH_WAYPOINT_TOLERANCE_PX, PLACEABLE_TILES,
+  PLAINS_FARMING_BONUS, PLAIN_GEAR, PLAYER_ATTACK_COOLDOWN_TICKS, PLAYER_ATTACK_DAMAGE, PLAYER_ATTACK_RANGE,
+  PLAYER_BODY_RADIUS, PLAYER_COLORS, PLAYER_MORALE_ANCHOR_RESIST, PLAYER_MORALE_ANCHOR_TILES, PLAYER_MORALE_CASUALTY,
+  PLAYER_MORALE_FRONT_LOST_PER_SEC, PLAYER_MORALE_GRACE_TICKS, PLAYER_MORALE_MIN_UNITS,
+  PLAYER_MORALE_NEW_FIGHT_TICKS, PLAYER_MORALE_OUTFLANKED_PER_SEC, PLAYER_MORALE_OUTNUMBERED_PER_SEC,
+  PLAYER_MORALE_RALLY, PLAYER_MORALE_RECOVER_PER_SEC, PLAYER_MORALE_RESIST_FLOOR, PLAYER_MORALE_ROUT,
+  PLAYER_MORALE_SCAN_TILES, PLAYER_MORALE_TC_RECOVER_MULT, PLAYER_MORALE_TC_RESIST, PLAYER_MORALE_TC_TILES,
+  PLAYER_MORALE_TOAST_COOLDOWN_TICKS, PLAYER_MORALE_TOWER_RESIST, PLAYER_MORALE_TOWER_TILES,
+  PLAYER_MORALE_WALL_RESIST, PLAYER_MORALE_WALL_TILES, PLAYER_MORALE_WAVER, PLAYER_MORALE_WAVERING_DAMAGE,
+  PLAYER_MORALE_WINNING_PER_SEC, PLAYER_ROUT_MAX_TICKS, PLAYER_ROUT_MIN_TICKS, PLAYER_ROUT_QUIET_TICKS,
+  PLAYER_ROUT_SPEED_FACTOR, POISON_DAMAGE_PER_TICK, POISON_DURATION_TICKS, POI_SITE_FOOTPRINT_RADIUS,
+  POI_SITE_MIN_SPACING, POI_SITE_WATER_CLEARANCE, POI_TILES, POND_EDGE_JITTER_TILES, POND_MIN_SPACING,
+  POND_NOISE_CELL_TILES, POND_RADIUS_MAX, POND_RADIUS_MIN, POPULATION_GATED_TILES, PORT, POST_TILE_TYPES,
+  PRODUCTION_HAPPINESS_FLOOR, QUEUE_STANDOFF_PX, RAID_ARRIVAL_WINDOW_FRACTION, RAID_BASE_SIZE, RAID_CRUSHED_FRACTION,
+  RAID_EDGE_BAND_TILES, RAID_ENGAGE_RANGE_TILES, RAID_FACTIONS, RAID_FOLLOWER_CATCHUP, RAID_FORMATION_SHAPE,
+  RAID_FORMATION_SPACING_BODIES, RAID_GROUP_SIZE_MAX, RAID_GROUP_SIZE_MIN, RAID_HEADING_SMOOTHING,
+  RAID_HORDE_SHARE_MAX, RAID_HORDE_SHARE_MIN, RAID_LEAVE_MAX_TICKS, RAID_LOITER_CHANCE_PER_TICK,
+  RAID_LOITER_RADIUS_TILES, RAID_MARCH_REPATH_TICKS, RAID_MORALE_ANCHOR_RESIST, RAID_MORALE_CASUALTY,
+  RAID_MORALE_FRONT_LOST_PER_SEC, RAID_MORALE_GRACE_TICKS, RAID_MORALE_OUTFLANKED_PER_SEC,
+  RAID_MORALE_OUTNUMBERED_PER_SEC, RAID_MORALE_ROUT, RAID_REACH_BUDGET, RAID_REACH_RADIUS, RAID_REAR_RANK_TILES,
+  RAID_RELEASE_ROW_TICKS, RAID_SIZE_PER_DAY, RAID_SPAWN_CYCLE_TICK, RAID_SPAWN_DIST_STEPS, RAID_TRAVEL_MARGIN_TICKS,
+  RAID_TRAVEL_SLACK, RAID_WEDGE_LOOSENESS, RALLY_ARRIVE_PX, RAM_ATTACK_COOLDOWN_TICKS, RAM_DAMAGE,
+  RAM_GATE_SCAN_TILES, RAM_MAX_HP, RAM_SPEED, RAM_UNIT_MULT, RANGED_KITE_TILES, REACH, REGIMENT_CLASS_LABEL,
+  REGIMENT_CLASS_OF, REGIMENT_CLASS_ORDER, REGIMENT_ORDER_MAX_PER_S, RELIC_CATALOGUE, RELIC_ELITE_MOB_CHANCE,
+  RELIC_HEARTH_CHANCE, REPAIR_COST_FRACTION, REPAIR_MOB_CLEARANCE_TILES, REPAIR_SECONDS_FULL,
+  REPAIR_SHORT_TOAST_TICKS, RESPAWN_FOOD_COST, RETREAT_CORNERED_TILES, RETREAT_SPEED_FACTOR, RETREAT_TC_OFFSET_TILES,
+  RING_8, ROAD_ROCK_COST, ROAD_SPEED_BONUS, ROUTE_NODE_BUDGET, ROUT_SPEED_FACTOR, ROUT_TOAST_COOLDOWN_TICKS,
+  RUIN_CENTERPIECES, RUIN_EXTRAS, RUIN_GUARDIAN_WEIGHTS, RUX_FEINT_TICKS, SAVE_DIR, SAVE_SLOT_LABELS, SAVE_VERSION,
+  SEPARATION_ITERATIONS, SEPARATION_WEIGHT_MOVING, SEPARATION_WEIGHT_STILL, SETTLEMENT_GARRISON_CAP_BY_TIER,
+  SETTLEMENT_POP_CAP_BY_TIER, SET_VIEW_MIN_MS, SHEEP_READY_FROM, SHEEP_WOOLLY_FROM, SHOP_WOOD_COST,
+  SIEGE_BUILDING_MULT, SIEGE_BUILD_TICKS, SIEGE_GOLD_MULT, SIEGE_LABEL, SIEGE_POPULATION_COST, SIEGE_RETARGET_TICKS,
+  SIEGE_UNIT_COST, SIEGE_WORKSHOP_CAP, SIEGE_WORKSHOP_COST, SITE_KIND_HAS_HEARTH, SITE_KIND_WALLED,
+  SKIRMISH_DRIFT_TILES, SKIRMISH_KITE_TILES, SLOT_CLOSE_IN_PX, SLOT_RETARGET_FACTOR, SNAPSHOT_CULL_MIN_WORLD,
+  SNAPSHOT_VIEW_TILES, SPAWN_CLEAR_RADIUS_TILES, SPAWN_PLAINS_RADIUS_TILES, SPELL_AUTO_EVERY_TICKS,
+  SPELL_AUTO_HEAL_BELOW, SPELL_AUTO_RALLY_ENGAGED, SPELL_AUTO_SUMMON_SCAN_TILES, SPELL_AUTO_WARD_HURT_TICKS,
+  SPELL_GRANT_LEVELS, SPELL_LEARN_ORDER, SPELL_MAGE_BASE_PCT, SPELL_RANGE_SLACK_PX, SQUAD_AHEAD_SPEED_FACTOR,
+  SQUAD_BROKEN_TILES, SQUAD_LEAD_TOLERANCE_TILES, SQUAD_SETTLE_TILES, STABLES_COSTS, STANCES,
+  STANCE_ALERT_RANGE_TILES, STARTING_GRAIN, STARTING_IRON, STARTING_ROCK, STARTING_WOOD, STARVATION_DAMAGE,
+  STONE_WALL_COST, STRATEGY_VIEW_MARGIN_TILES, STRATEGY_VIEW_MAX_HALF_TILES, STRUCTURE_TARGET_PREFIX,
+  SWAMP_SPEED_PENALTY, TACTICS_EVAL_TICKS, TACTICS_OUTNUMBERED_RATIO, TACTICS_SCAN_TILES, TACTICS_SPREAD_CAP_TILES,
+  TAVERN_HAPPINESS_RADIUS_TILES, TAVERN_ROCK_COST, TAVERN_WOOD_COST, TEST_HOOKS, TICK_DURATION_SAMPLES,
+  TOME_ELITE_CHANCE, TOME_HEARTH_CHANCE, TOWER_COSTS, TOWER_STATS, TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_COST,
+  TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP, TOWN_CENTER_LEVEL_POPULATION_BONUS,
+  TOWN_CENTER_MAX_HP_BY_LEVEL, TOWN_CENTER_MIN_SPACING_TILES, TOWN_CENTER_POI_CLEARANCE_TILES,
+  TOWN_CENTER_UPGRADE_COSTS, TREE_RESPAWN_INTERVAL_TICKS, TROLL_REGEN_DELAY_TICKS, TROLL_REGEN_PER_TICK,
+  UPGRADE_NAMES, VHORRUN_WITHDRAW_TARGET_HP, VHORRUN_WITHDRAW_TICKS, VISION_BUILDING_TILES, WARD_GRACE_TICKS,
+  WARD_RADIUS_TILES, WARD_STONE_TOOLS_COST, WARD_STONE_WOOD_COST, WARD_TEND_TICKS, WARLORD_DAMAGE_MULT,
+  WARLORD_HP_MULT, WARLORD_REWARD, WEAPON_DAMAGE_MULT, WILDLIFE_FLEE_TICKS, WILDLIFE_MIN_TOWN_CENTER_DIST_TILES,
+  WILDLIFE_PLAYER_CLEARANCE_TILES, WILDLIFE_REST_MAX_TICKS, WILDLIFE_REST_MIN_TICKS, WILDLIFE_STATE_CODE,
+  WILDLIFE_WANDER_RADIUS_TILES, WOOD_WALL_COST, clampWorldSize, dt, pct,
+} from "./constants.js";
+import {
+  attackerSlots, bodies, buildingHp, buildingLevel, chargeCycle, chargeRuns, colonists, commandedTargets,
+  constructionSites, equipEvents, equipment, farmPlots, forageRegrow, forgeQueues, gates, gravestones, hearthEvents,
+  hearths, heroEvents, heroProfiles, heroRecruits, lastHurtTick, minesPlacedOnOre, mobs, mobsAttackingThisTick,
+  mobsWithoutRoute, moraleRegimentOfUnit, orderGroupOfUnit, orderGroups, ownerSiteIds, pendingRallies, playerMorale,
+  players, raidGroups, regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, routedUnits,
+  scaledCount, scaledCountSub, siegeEvents, siegeWorkshops, slotClaims, spellCooldowns, spellEvents, spellStatuses,
+  squadMarchSpeed, state, structureBreach, summonedUntil, tacticsEvents, taskForceMax, taskForces, tickDurationsMs,
+  tileOwner, towerCooldowns, towerEvents, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
+} from "./state.js";
 
 function initialStock(): Record<ResourceKey, number> {
   return {
@@ -406,69 +176,8 @@ function initialStock(): Record<ResourceKey, number> {
 }
 
 const stock: Record<ResourceKey, number> = initialStock();
-let marketBuilt = false;
-let goldShopBuilt = false;
-let pendingEffects: AttackEffect[] = [];
-const respawnQueue: RespawnRequest[] = [];
-const farmPlots = new Map<string, FarmPlotState>();
-const minesPlacedOnOre = new Set<string>();
-const buildingLevel = new Map<string, number>();
-// Towers: ticks until each Tower (resourceKey) may shoot again (transient, not saved). See the Tower block.
-const towerCooldowns = new Map<string, number>();
-
 // ---- Building hit points (mobs damage buildings; builders repair them) ----
-// Max HP by building class, times BUILDING_HP_LEVEL_MULT[level - 1]. Town Centers keep their own HP
-// (TOWN_CENTER_MAX_HP_BY_LEVEL). Classes: see buildingBaseHp.
-// Walls & gates (2026-10-23): wood wall 60 -> 200, stone wall 250 (was BIG) -> 900; the gate sits
-// between them so a mob storming a gate beats breaching stone but not wood (see breachStepCost).
-const BUILDING_HP_WALL = 200;
-const BUILDING_HP_STONE_WALL = 900;
-const BUILDING_HP_GATE = 450;
-const BUILDING_HP_SMALL = 120;
-const BUILDING_HP_WORKPLACE = 180;
-const BUILDING_HP_BIG = 250;
-const BUILDING_HP_LEVEL_MULT = [1, 1.4, 1.8];
-// A mob with no guard / player to fight goes for the nearest building; it breaks through a wall only
-// when no route exists, or the route is longer than BREACH_DETOUR_FACTOR x the straight distance (and
-// longer than BREACH_MIN_ROUTE_TILES, so short walks around a wall end are never breached).
-const BREACH_DETOUR_FACTOR = 3;
-const BREACH_MIN_ROUTE_TILES = 12;
-// Passed to routeToBuilding to run the breach search (> 0). Since walls & gates (2026-10-23) the cost of
-// crossing each wall / closed gate tile is breachStepCost (HP and tower defence), not this flat value.
-const BREACH_WALL_COST = 8;
-// How many of the nearest buildings get a route check per target pick.
-const BUILDING_TARGET_CANDIDATES = 3;
-// Repair: a builder heals max HP over REPAIR_SECONDS_FULL (times its builder rate); materials cost
-// REPAIR_COST_FRACTION of the building's own placement cost for a full 0 -> max repair, charged
-// (rounded up) for the HP missing when the repair starts.
-const REPAIR_SECONDS_FULL = 60;
-const REPAIR_COST_FRACTION = 0.3;
-// Builders don't start (and walk away from) a repair with a mob this close to the building.
-const REPAIR_MOB_CLEARANCE_TILES = 8;
-// Current HP of damaged buildings (resourceKey); a building missing here is at full HP.
-const buildingHp = new Map<string, number>();
-// Walls & gates: state of every Gate tile, by tile index (see the "Walls & gates" block), and whose
-// perspective isWalkableTile answers for: true while mobs (and wildlife) move / path (withHostileMover).
-interface GateState {
-  open: boolean;
-  lock: GateLock;
-  // Ticks since a friendly unit was last near (auto lock: closes at GATE_CLOSE_DELAY_TICKS).
-  clearTicks: number;
-  overrun: boolean;
-}
-const gates = new Map<number, GateState>();
-let hostileMover = false;
-// Forts phase A (PLAN-forts-diplomacy-moats.md §1): tile owners. Sparse: tile index -> site number
-// (>= 1); a tile missing here is the colony's / unowned (every tile of an old save). Site number n names
-// ownerSiteIds[n - 1] (the mobs' siteId; phase B's SiteState takes this over). moverOwner is the site
-// number of the mob currently moving / pathing (0: none), read by gatePassable next to hostileMover.
-const tileOwner = new Map<number, number>();
-const ownerSiteIds: string[] = [];
-let ownerVersion = 0;
-let moverOwner = 0;
-// Colonist id -> tile index of the site wall / gate it is breaching on the way to its structure target
-// (the target itself is walled off; see structureStep). Not saved: a load re-plans.
-const structureBreach = new Map<string, number>();
+
 
 function ownerAt(index: number): number {
   return tileOwner.size === 0 ? 0 : (tileOwner.get(index) ?? 0);
@@ -488,28 +197,21 @@ function clearOwners() {
   tileOwner.clear();
   ownerSiteIds.length = 0;
   structureBreach.clear();
-  ownerVersion++;
-  buildingTargetsDirty = true;
+  state.ownerVersion++;
+  state.buildingTargetsDirty = true;
 }
 
 function setOwner(index: number, owner: number) {
   if (owner > 0) tileOwner.set(index, owner);
   else if (!tileOwner.delete(index)) return;
-  ownerVersion++;
-  buildingTargetsDirty = true;
+  state.ownerVersion++;
+  state.buildingTargetsDirty = true;
 }
 
 // v1: every NPC site is hostile to the colony (relations come in phase D).
 function isHostileOwner(owner: number): boolean {
   return owner > 0;
 }
-// HP of repair already paid for per building (manual Repair pays up front, builders pay when they start).
-const repairPaid = new Map<string, number>();
-// Manual Repair requests (resourceKey), served before the automatic most-damaged pick.
-const repairQueue: string[] = [];
-// Cached tiles of damageable non-wall buildings for mob target picks; rebuilt when tiles change.
-let buildingTargetsDirty = true;
-const taskForces = new Map<number, string[]>();
 
 function pruneTaskForces() {
   for (const [slot, unitIds] of taskForces) {
@@ -534,45 +236,22 @@ function taskForcesForSnapshot(): Record<string, string[]> {
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
 const TOWN_CENTER_TILE: TileCoord = {
-  x: Math.floor(WORLD_TILES_X / 2),
-  y: Math.floor(WORLD_TILES_Y / 2),
+  x: Math.floor(state.WORLD_TILES_X / 2),
+  y: Math.floor(state.WORLD_TILES_Y / 2),
 };
-// Max HP per Town Center level (1-3).
-const TOWN_CENTER_MAX_HP_BY_LEVEL = [1000, 1500, 2000];
-// Each level above 1 of the HIGHEST standing Town Center adds this much colony-wide productivity (via
-// productionSpeedMultiplier) and unit damage (via armyDamageMultiplier): +5% at Lv2, +10% at Lv3.
-const TOWN_CENTER_LEVEL_BONUS_PER_STEP = 0.05;
-// ...and this much to the population base.
-const TOWN_CENTER_LEVEL_POPULATION_BONUS = 5;
-interface TownCenter {
-  x: number;
-  y: number;
-  level: number;
-  hp: number;
-}
-// Every standing Town Center (a destroyed one is removed). Reset to the starting one by generateWorld.
-let townCenters: TownCenter[] = [];
-let isPaused = false;
-// Strategy mode phase 5: global time controls (any player's pause / speed applies to everyone). The tick
-// loop adds timeScale to simAccum each tick and steps the sim once per whole unit (2x: twice a tick;
-// 1/2, 1/4: every 2nd / 4th tick, and only those ticks broadcast).
-let timeScale = 1;
-let timeScaleBy: string | null = null;
-let pausedBy: string | null = null;
-let simAccum = 0;
 
 function townCenterMaxHp(level: number): number {
   return TOWN_CENTER_MAX_HP_BY_LEVEL[Math.min(Math.max(level, 1), 3) - 1];
 }
 
 function findTownCenterAt(tx: number, ty: number): TownCenter | undefined {
-  return townCenters.find((tc) => tc.x === tx && tc.y === ty);
+  return state.townCenters.find((tc) => tc.x === tx && tc.y === ty);
 }
 
 function nearestTownCenter(px: number, py: number): TownCenter | null {
   let best: TownCenter | null = null;
   let bestD = Infinity;
-  for (const tc of townCenters) {
+  for (const tc of state.townCenters) {
     const c = tileToPixelCenter(tc);
     const d = Math.hypot(c.x - px, c.y - py);
     if (d < bestD) {
@@ -585,7 +264,7 @@ function nearestTownCenter(px: number, py: number): TownCenter | null {
 
 // The colony-wide Town Center bonuses use the highest level among the standing ones (0 with none).
 function highestTownCenterLevel(): number {
-  return townCenters.reduce((max, tc) => Math.max(max, tc.level), 0);
+  return state.townCenters.reduce((max, tc) => Math.max(max, tc.level), 0);
 }
 
 function townCenterBonus(): number {
@@ -595,25 +274,25 @@ function townCenterBonus(): number {
 // Next to the Town Center nearest `near` (default: the starting spot), or the starting spot itself
 // when none stands.
 function spawnPointNearTownCenter(near?: { x: number; y: number }): { x: number; y: number } {
-  const tc = near ? nearestTownCenter(near.x, near.y) : townCenters[0] ?? null;
+  const tc = near ? nearestTownCenter(near.x, near.y) : state.townCenters[0] ?? null;
   const tile = tc ?? TOWN_CENTER_TILE;
   const approach = findAdjacentWalkable(tile.x, tile.y);
   return tileToPixelCenter(approach ?? tile);
 }
 
 function tileIndex(tx: number, ty: number): number {
-  return ty * WORLD_TILES_X + tx;
+  return ty * state.WORLD_TILES_X + tx;
 }
 
 function inBounds(tx: number, ty: number): boolean {
-  return tx >= 0 && ty >= 0 && tx < WORLD_TILES_X && ty < WORLD_TILES_Y;
+  return tx >= 0 && ty >= 0 && tx < state.WORLD_TILES_X && ty < state.WORLD_TILES_Y;
 }
 
 function tileAtPixel(px: number, py: number): TileType {
   const tx = Math.floor(px / TILE_SIZE);
   const ty = Math.floor(py / TILE_SIZE);
   if (!inBounds(tx, ty)) return TileType.Wall;
-  return tiles[tileIndex(tx, ty)] as TileType;
+  return state.tiles[tileIndex(tx, ty)] as TileType;
 }
 
 function collidesAt(px: number, py: number): boolean {
@@ -638,14 +317,9 @@ function tileOfPixel(px: number, py: number): TileCoord {
   return { x: Math.floor(px / TILE_SIZE), y: Math.floor(py / TILE_SIZE) };
 }
 
-// Biome gameplay effects (see generateBiomes for how biomes are laid out).
-const SWAMP_SPEED_PENALTY = 0.25;
-const HILLS_MINING_BONUS = 0.2;
-const PLAINS_FARMING_BONUS = 0.2;
-
 function biomeAt(tx: number, ty: number): Biome {
   if (!inBounds(tx, ty)) return Biome.Plains;
-  return biomes[tileIndex(tx, ty)] as Biome;
+  return state.biomes[tileIndex(tx, ty)] as Biome;
 }
 
 // Movement multiplier for any entity (player, colonist, mob), from the biome of the tile it is
@@ -654,10 +328,6 @@ function biomeSpeedMultiplier(px: number, py: number): number {
   const t = tileOfPixel(px, py);
   return biomeAt(t.x, t.y) === Biome.Swamp ? 1 - SWAMP_SPEED_PENALTY : 1;
 }
-
-// Roads (Road / Cobble Road tiles): colonists and players standing on one move this much faster
-// (on top of the biome multiplier). Mobs get no bonus.
-const ROAD_SPEED_BONUS = 0.25;
 function roadSpeedMultiplier(px: number, py: number): number {
   return isRoadTile(tileAtPixel(px, py)) ? 1 + ROAD_SPEED_BONUS : 1;
 }
@@ -665,7 +335,7 @@ function roadSpeedMultiplier(px: number, py: number): number {
 // Production-timer multiplier for a building, from the biome of its own tile: mines on Hills and
 // farms (Farm Plot / Pasture / Orchard / Sheep / Hemp) on Plains run 20% shorter cycles.
 function biomeProductionFactor(tx: number, ty: number): number {
-  const tile = tiles[tileIndex(tx, ty)] as TileType;
+  const tile = state.tiles[tileIndex(tx, ty)] as TileType;
   const biome = biomeAt(tx, ty);
   if ((tile === TileType.IronMinePost || tile === TileType.RockMinePost) && biome === Biome.Hills) {
     return 1 - HILLS_MINING_BONUS;
@@ -688,36 +358,31 @@ function tileOccupiedByEntity(tx: number, ty: number): boolean {
   return false;
 }
 
-tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
-
-// Tuned for the 80x80 map (4x the old 40x40 counts of 24/14/16, keeping per-tile density).
-let TREE_COUNT = scaledCount(96);
-let IRON_ORE_COUNT = scaledCount(56);
-let ROCK_COUNT = scaledCount(64);
+state.tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
 
 function scatterResourceTiles(tileType: TileType, count: number) {
-  const spawnTx = Math.floor(WORLD_TILES_X / 2);
-  const spawnTy = Math.floor(WORLD_TILES_Y / 2);
+  const spawnTx = Math.floor(state.WORLD_TILES_X / 2);
+  const spawnTy = Math.floor(state.WORLD_TILES_Y / 2);
   let placed = 0;
   let attempts = 0;
   while (placed < count && attempts < scaledCount(1000)) {
     attempts++;
-    const tx = Math.floor(Math.random() * WORLD_TILES_X);
-    const ty = Math.floor(Math.random() * WORLD_TILES_Y);
+    const tx = Math.floor(Math.random() * state.WORLD_TILES_X);
+    const ty = Math.floor(Math.random() * state.WORLD_TILES_Y);
     if (tx === spawnTx && ty === spawnTy) continue;
     if (isInReservedGrounds(tx, ty)) continue;
     const idx = tileIndex(tx, ty);
-    if (tiles[idx] === TileType.Empty) {
-      tiles[idx] = tileType;
+    if (state.tiles[idx] === TileType.Empty) {
+      state.tiles[idx] = tileType;
       placed++;
     }
   }
 }
 function isWalkableTile(tx: number, ty: number): boolean {
   if (!inBounds(tx, ty)) return false;
-  const t = tiles[tileIndex(tx, ty)] as TileType;
+  const t = state.tiles[tileIndex(tx, ty)] as TileType;
   // Gates: passable by their state, from the current mover's side (hostileMover).
-  if (t === TileType.Gate) return gatePassable(tileIndex(tx, ty), hostileMover);
+  if (t === TileType.Gate) return gatePassable(tileIndex(tx, ty), state.hostileMover);
   return !isSolidTile(t);
 }
 
@@ -741,14 +406,12 @@ function adjacentTilesOfType(tx: number, ty: number, type: TileType): TileCoord[
     { x: tx, y: ty + 1 },
     { x: tx, y: ty - 1 },
   ];
-  return neighbors.filter((n) => inBounds(n.x, n.y) && tiles[tileIndex(n.x, n.y)] === type);
+  return neighbors.filter((n) => inBounds(n.x, n.y) && state.tiles[tileIndex(n.x, n.y)] === type);
 }
-
-const PATH_NODE_BUDGET = 60000;
 function findPath(start: TileCoord, goal: TileCoord): TileCoord[] | null {
   if (start.x === goal.x && start.y === goal.y) return [];
 
-  const key = (t: TileCoord) => t.y * WORLD_TILES_X + t.x;
+  const key = (t: TileCoord) => t.y * state.WORLD_TILES_X + t.x;
   const visited = new Set<number>([key(start)]);
   const parent = new Map<number, TileCoord>();
   const queue: TileCoord[] = [start];
@@ -785,9 +448,6 @@ function findPath(start: TileCoord, goal: TileCoord): TileCoord[] | null {
   return null;
 }
 
-// advanceAlongPath: how near (px) an intermediate waypoint's tile centre counts as reached.
-const PATH_WAYPOINT_TOLERANCE_PX = 10;
-
 function advanceAlongPath(
   entity: { x: number; y: number; path: TileCoord[] },
   dt: number,
@@ -796,7 +456,7 @@ function advanceAlongPath(
   if (entity.path.length === 0) return;
   // A gate on the path closed (or was locked) since it was planned: drop the path so the mover replans.
   const nextTile = entity.path[0];
-  if (inBounds(nextTile.x, nextTile.y) && tiles[tileIndex(nextTile.x, nextTile.y)] === TileType.Gate && !isWalkableTile(nextTile.x, nextTile.y)) {
+  if (inBounds(nextTile.x, nextTile.y) && state.tiles[tileIndex(nextTile.x, nextTile.y)] === TileType.Gate && !isWalkableTile(nextTile.x, nextTile.y)) {
     entity.path = [];
     return;
   }
@@ -831,8 +491,6 @@ function advanceAlongPath(
   }
 }
 
-const reservedResourceTiles = new Map<string, string>();
-
 function resourceKey(tx: number, ty: number): string {
   return `${tx},${ty}`;
 }
@@ -852,108 +510,14 @@ function releaseResourceReservation(c: Colonist) {
     reservedResourceTiles.delete(key);
   }
 }
-
 // ---- Long days (2026-10-23): a 5-minute day and a 75 s night (was 60 s + 40 s). ----
-// The night stays short so raids stay tense; the day is long so there's more to DO between raids.
-// LEGACY_* is the old cycle: rates that must not slow down in real time are written as
-// legacy-rate x DAY_LENGTH_SCALE / DAYLIGHT_SCALE (see ROADMAP "Long days & dawn/dusk respawns").
-const DAY_TICKS = TICK_RATE * 300;
-const NIGHT_TICKS = TICK_RATE * 75;
-const LEGACY_DAY_TICKS = TICK_RATE * 60;
-const LEGACY_NIGHT_TICKS = TICK_RATE * 40;
-// Real-time length of a whole cycle vs the old one (375 s / 100 s = 3.75) and of the daylight (5).
-const DAY_LENGTH_SCALE = (DAY_TICKS + NIGHT_TICKS) / (LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS);
-const DAYLIGHT_SCALE = DAY_TICKS / LEGACY_DAY_TICKS;
-let cycleTick = 0;
+
 function isNightNow(): boolean {
-  const t = cycleTick % (DAY_TICKS + NIGHT_TICKS);
+  const t = state.cycleTick % (DAY_TICKS + NIGHT_TICKS);
   return t >= DAY_TICKS;
 }
-
-const GUARD_ALERT_RANGE_TILES = 7;
-// Per-stance combat tuning for guard-tier units. Alert range: how close (from the unit) a mob must be
-// before it's picked up as a target; "normal" is the original flat GUARD_ALERT_RANGE_TILES, so a unit
-// nobody touches behaves as before. Chase leash: how far from its own rally point (rallyX/rallyY) a
-// unit will go while closing on an out-of-range target before giving up and walking home.
-const STANCE_ALERT_RANGE_TILES: Record<Stance, number> = {
-  defensive: 3,
-  normal: GUARD_ALERT_RANGE_TILES,
-  aggressive: 12,
-};
-// Line discipline: how far (tiles) a soldier may leave its rally slot to fight. Only mobs within this
-// leash + attack range of the slot are picked up, a chase past it is dropped, and the unit walks back
-// to its slot afterwards, so the line re-forms instead of dissolving. (Replaced the old 2/10/20 leash.)
-// Battle discipline (2026-10-23) tightened normal 4 -> 3 and aggressive 8 -> 6 so a line holds its shape.
-const LINE_LEASH_TILES: Record<Stance, number> = {
-  defensive: 1.5,
-  normal: 3,
-  aggressive: 6,
-};
-// Battle discipline: a soldier with no commanded target fights the enemy nearest to ITS OWN slot (not to
-// wherever the scrum has pushed it), and re-checks once a second while not trading blows, switching
-// only when another enemy is clearly nearer the slot (below this fraction of the current one's distance).
-const SLOT_RETARGET_FACTOR = 0.7;
-// Melee attackers per unit target (see meleeAttackerCap): surplus attackers pick another enemy with room
-// or wait (a queue) - soldiers on their own formation slot, mobs standing off this far outside strike
-// range - instead of everyone piling onto one target. Players are exempt (their ring decides).
-const QUEUE_STANDOFF_PX = TILE_SIZE * 1.2;
-// A melee attacker this close (px) to strike range closes straight on its target rather than walking
-// round to its ring slot (it slides there while fighting); the far side can be walled off by bodies.
-const SLOT_CLOSE_IN_PX = TILE_SIZE * 0.5;
-// How much further (px) a melee mob will go for a soldier with room than for the nearest one (pickMobTarget).
-const MOB_ROOM_DETOUR_PX = TILE_SIZE * 4;
-// Archers don't advance past the front rank: the nearest friendly melee soldier (within this many
-// tiles of the archer) to the target marks the front.
-const ARCHER_FRONT_RANK_SCAN_TILES = 6;
-// Regiments & roles: a ranged unit (archer, or a raid's crossbow / archer / shaman) with a friendly front
-// rank near it kites a step back when an enemy melee unit comes within this many tiles.
-const RANGED_KITE_TILES = 2;
-// Squad march (updateSquadMarch): a squad on a formation move advances at its slowest member's pace;
-// a member more than SQUAD_LEAD_TOLERANCE_TILES ahead of its place in the formation slows to
-// SQUAD_AHEAD_SPEED_FACTOR of that pace, one that far behind catches up at its own speed. Within
-// SQUAD_SETTLE_TILES of the destination (centroid of the slots) members settle onto their slots alone;
-// with a member over SQUAD_BROKEN_TILES out of place the line is broken and nobody waits.
-const SQUAD_LEAD_TOLERANCE_TILES = 1;
-const SQUAD_AHEAD_SPEED_FACTOR = 0.25;
-const SQUAD_SETTLE_TILES = 2.5;
-const SQUAD_BROKEN_TILES = 6;
-
-// Mob aggro: a guard / militia or a player is only a mob target within these ranges (tiles) of the mob;
-// otherwise the mob goes for buildings. A mob already on a unit drops it past MOB_AGGRO_DROP_FACTOR x.
-const MOB_AGGRO_RANGE_GUARD_TILES = 9;
-const MOB_AGGRO_RANGE_PLAYER_TILES = 7;
-const MOB_AGGRO_DROP_FACTOR = 1.5;
-// A mob (or marching raid group) heading for the Town Center turns on any non-wall building it passes
-// within this many tiles ("if they find houses first they destroy the houses").
-const MOB_BUILDING_AGGRO_TILES = 6;
-
 // ---- Bodies (separation) ----
-// Body radii in px: colonists, and mobs by kind (about 0.9 x the client's MOB_VISUALS radius). Players
-// have no body. separateBodies pushes overlapping bodies apart after everyone has moved.
-const COLONIST_BODY_RADIUS = 7;
-const PLAYER_BODY_RADIUS = 8;
-const MOB_BODY_RADIUS: Record<MobKind, number> = {
-  goblin: 7,
-  wolf: 7.5,
-  goblinCrossbow: 7,
-  orc: 9,
-  skeleton: 8,
-  armoredOrc: 10,
-  giantSpider: 8.5,
-  darkShaman: 7.5,
-  troll: 12,
-  ogre: 14,
-  banditClubman: 7.5,
-  banditArcher: 7.5,
-  banditElite: 9,
-  halfLatch: 5.5,
-  batteringRam: 12,
-  catapult: 11,
-  goblinRider: 8,
-};
-// Scale pass: the body grows with the mob's size (mobSizeScale: kind x roll x boss tier), capped so a
-// boss still fits the one-cell neighbour scan of separateBodies.
-const MOB_BODY_RADIUS_MAX = TILE_SIZE * 0.7;
+
 function mobBodyRadius(m: Mob): number {
   return Math.min(MOB_BODY_RADIUS_MAX, (MOB_BODY_RADIUS[m.kind] ?? 8) * mobSizeScale(m));
 }
@@ -961,14 +525,6 @@ function mobBodyRadius(m: Mob): number {
 function mobHitBonus(m: Mob): number {
   return Math.max(0, mobBodyRadius(m) - (MOB_BODY_RADIUS[m.kind] ?? 8));
 }
-const SEPARATION_ITERATIONS = 2;
-// Share of an overlap a stationary / attacking body takes vs a moving one (normalised per pair).
-const SEPARATION_WEIGHT_STILL = 0.3;
-const SEPARATION_WEIGHT_MOVING = 0.7;
-// Nothing within this many tiles of an active ward source (a staffed Ward Stone, or Saint Wren's
-// Abbey, which is always warded) can be chosen as a mob target. See activeWardSources.
-const WARD_RADIUS_TILES = 12;
-const LEVEL_BONUS_PER_STEP = 0.05;
 
 function levelBonus(level: number, step = LEVEL_BONUS_PER_STEP): number {
   return (Math.min(Math.max(level, 1), 3) - 1) * step;
@@ -977,117 +533,12 @@ function levelBonus(level: number, step = LEVEL_BONUS_PER_STEP): number {
 function getBuildingLevel(tx: number, ty: number): number {
   return buildingLevel.get(resourceKey(tx, ty)) ?? 1;
 }
-
-const KNIGHT_LEVEL_STATS = [
-  { maxHp: 60, damage: 12 },
-  { maxHp: 100, damage: 20 },
-  { maxHp: 160, damage: 32 },
-];
-const KNIGHT_ATTACK_RANGE = TILE_SIZE * 0.8;
-const KNIGHT_ATTACK_COOLDOWN_TICKS = Math.round(TICK_RATE * 0.8);
-const KNIGHT_SPEED = 110;
-
-const ARCHER_MAX_HP = 35;
-const ARCHER_DAMAGE = 8;
-const ARCHER_ATTACK_RANGE = TILE_SIZE * 4;
-const ARCHER_ATTACK_COOLDOWN_TICKS = Math.round(TICK_RATE * 1.2);
-const ARCHER_SPEED = 100;
-
-const MILITIA_LEVEL_STATS = [
-  { maxHp: 30, damage: 6 },
-  { maxHp: 50, damage: 10 },
-  { maxHp: 80, damage: 16 },
-];
-const MILITIA_SPEED = 120;
-
-const CIVILIAN_MAX_HP = 20;
-
 // ---- Cavalry & siege (ROADMAP "Cavalry & siege") ----
-// Cavalry: knight HP / damage per Stables level, 1.6x the knight's speed, and a charge: the first blow
-// after riding CAVALRY_CHARGE_TILES in a straight line deals CAVALRY_CHARGE_MULT x (then
-// CAVALRY_CHARGE_COOLDOWN_TICKS before the next charge can land). See trackCharge.
-const CAVALRY_SPEED = Math.round(KNIGHT_SPEED * 1.6);
-const CAVALRY_CHARGE_TILES = 5;
-const CAVALRY_CHARGE_MULT = 2;
-const CAVALRY_CHARGE_COOLDOWN_TICKS = 8 * TICK_RATE;
-// A charge run survives this long standing still (the tick between the last stride and the blow).
-const CAVALRY_CHARGE_IDLE_GRACE_TICKS = TICK_RATE;
-// Siege engines (the player's and the raids' share these numbers). Ram: slow, very tough, melee, x4
-// damage vs buildings / walls / gates, x0.3 vs units. Catapult: a boulder every 4 s at 3..11 tiles,
-// splashing everything of the other side within 1.5 tiles (x3 vs buildings).
-const RAM_MAX_HP = KNIGHT_LEVEL_STATS[0].maxHp * 4;
-const RAM_DAMAGE = 12;
-const RAM_SPEED = Math.round(KNIGHT_SPEED * 0.5);
-const RAM_ATTACK_COOLDOWN_TICKS = 2 * TICK_RATE;
-const SIEGE_BUILDING_MULT = 4;
-const RAM_UNIT_MULT = 0.3;
-const CATAPULT_MAX_HP = ARCHER_MAX_HP * 2;
-const CATAPULT_DAMAGE = 18;
-const CATAPULT_SPEED = 50;
-const CATAPULT_RANGE = TILE_SIZE * 11;
-const CATAPULT_MIN_RANGE = TILE_SIZE * 3;
-const CATAPULT_RELOAD_TICKS = 4 * TICK_RATE;
-const CATAPULT_SPLASH_PX = TILE_SIZE * 1.5;
-const CATAPULT_BUILDING_MULT = 3;
-// Siege Workshop production: one engine at a time, SIEGE_BUILD_TICKS each, SIEGE_WORKSHOP_CAP alive per
-// workshop, SIEGE_POPULATION_COST population each (counted in civilianPopulationUsed).
-const SIEGE_BUILD_TICKS = 30 * TICK_RATE;
-const SIEGE_WORKSHOP_CAP = 2;
-const SIEGE_POPULATION_COST = 2;
+
 // ---- Hero phase 3: heroes (ROADMAP "Hero phase 3: heroes"; the rest lives after the Hero phases 1-2 block) ----
-// Class base stats; level (+4% damage, +6% HP per level) and equipment come on top via computeHeroStats.
-const HERO_CLASS_STATS: Record<HeroClass, { maxHp: number; damage: number; range: number; cooldown: number; speed: number; melee: boolean }> = {
-  champion: { maxHp: 160, damage: 26, range: KNIGHT_ATTACK_RANGE, cooldown: KNIGHT_ATTACK_COOLDOWN_TICKS, speed: 110, melee: true },
-  marksman: { maxHp: 90, damage: 16, range: ARCHER_ATTACK_RANGE + TILE_SIZE, cooldown: ARCHER_ATTACK_COOLDOWN_TICKS, speed: 100, melee: false },
-  // A magic bolt (the client draws a Dark Shaman's bolt for it); spells are phase 4.
-  mage: { maxHp: 80, damage: 14, range: TILE_SIZE * 7, cooldown: Math.round(TICK_RATE * 1.5), speed: 95, melee: false },
-};
-const HERO_POPULATION_COST = 2;
-// Bumped whenever a hero is recruited / spawns / dies / changes gear or XP: snapshot `heroes` is resent.
-let heroRosterVersion = 0;
-const SIEGE_UNIT_COST: Record<SiegeKind, Partial<Record<"wood" | "iron" | "rock", number>>> = {
-  batteringRam: { wood: 30, iron: 10 },
-  catapult: { wood: 25, iron: 15 },
-};
-const SIEGE_LABEL: Record<SiegeKind, string> = { batteringRam: "Battering Ram", catapult: "Catapult" };
-// Building costs: Stables (per level, like the Hall of the Sworn's iron + rock, plus wood) and the Workshop.
-const STABLES_COSTS = [
-  { wood: 20, rock: 10, iron: 10 },
-  { wood: 30, rock: 20, iron: 20 },
-  { wood: 45, rock: 30, iron: 30 },
-];
-const SIEGE_WORKSHOP_COST = { wood: 30, iron: 15, rock: 15 };
-// Siege mobs pay this much more gold.
-const SIEGE_GOLD_MULT = 2;
 
 // ---- Armour & weapons (ROADMAP "Armour & weapons — landed 2026-10-28") ----
-// A colony-wide stock of armour and weapons by tier 1..3 (index tier - 1). Each EQUIPPED_KINDS unit takes
-// the highest tier in stock of each slot (independently) when it spawns; with none it spawns unequipped
-// (tier 0). Weapons scale damage dealt, armour damage taken; max HP is unchanged by either.
-const EQUIP_TIERS = 3;
-const EQUIPPED_KINDS: ColonistKind[] = ["knight", "spearman", "pikeman", "cavalry"];
-// Indexed by tier 0..3 (0 = unequipped).
-const WEAPON_DAMAGE_MULT = [1, 1.2, 1.4, 1.7];
-const ARMOUR_DAMAGE_TAKEN_MULT = [1, 0.85, 0.7, 0.55];
-// Blacksmith forging: the tier forged = the Blacksmith's level. Indexed by tier - 1.
-const FORGE_ARMOUR_IRON = [3, 5, 8];
-const FORGE_WEAPON_IRON = [2, 4, 6];
-const FORGE_WEAPON_WOOD = 1;
-// Armour above tier 1 also takes (tier - 1) tools, or that much wood when the stock has too few tools.
-const FORGE_TICKS: Record<EquipSlot, number> = { armour: 15 * TICK_RATE, weapon: 10 * TICK_RATE };
-const FORGE_QUEUE_CAP = 5;
-// Drops: an armoured enemy (EQUIP_ARMOURED_KINDS, any boss / mini-boss elite, any Hunger-marked mob) killed
-// by the colony's side drops one tier-1 piece (armour / weapon 50/50) with EQUIP_DROP_CHANCE; bosses and
-// marked mobs always drop one.
-const EQUIP_ARMOURED_KINDS: MobKind[] = ["armoredOrc", "banditElite"];
-const EQUIP_DROP_CHANCE = 0.35;
-// Camp / boss loot: pieces of a random tier 1..3, weighted EQUIP_LOOT_TIER_WEIGHTS.
-const EQUIP_LOOT_TIER_WEIGHTS = [0.5, 0.35, 0.15];
-// Extra tiered pieces for the Ogre Warlord / a mini-boss elite (on top of their guaranteed tier-1 drop).
-const BOSS_EQUIP_LOOT: Record<BossTier, number> = { warlord: 4, elite: 2 };
-const EQUIP_TOAST_THROTTLE_TICKS = 60 * TICK_RATE;
-const equipment: EquipmentStock = { armour: [0, 0, 0], weapon: [0, 0, 0] };
-const EQUIP_SLOT_LABEL: Record<EquipSlot, string> = { armour: "armour", weapon: "weapon" };
+
 
 function isSiegeKind(kind: string): kind is SiegeKind {
   return kind === "batteringRam" || kind === "catapult";
@@ -1189,70 +640,16 @@ function unitStats(c: Colonist) {
   const buff = spellBuffSpeedMult("c:" + c.id);
   return buff === 1 ? s : { ...s, speed: s.speed * buff };
 }
-
-// Speed/range/damage fallbacks for deserter mobs, which take their stats from the deserting
-// colonist rather than from MOB_KIND_CONFIG.
-const MOB_SPEED = 70;
-const MOB_DAMAGE = 5;
-const MOB_ATTACK_COOLDOWN_TICKS = TICK_RATE;
-const MOB_ATTACK_RANGE = TILE_SIZE * 0.8;
-const MOB_REPATH_TICKS = TICK_RATE;
-// Flat per-kill gold regardless of monster tier made an Ogre pay the same as a Goblin. Scale off
-// the mob's own current maxHp/damage instead of a lookup table, so this also naturally covers
-// deserted-colonist mobs (whose stats already reflect how dangerous they were in service).
-const GOLD_PER_KILL_BASE_DIVISOR = 8;
-const GOLD_PER_KILL_MIN = 3;
 function goldForKill(mob: Mob): number {
   const raw = Math.max(GOLD_PER_KILL_MIN, Math.round((mob.maxHp + mob.damage * 2) / GOLD_PER_KILL_BASE_DIVISOR));
   const base = isSiegeKind(mob.kind) ? raw * SIEGE_GOLD_MULT : raw;
   return mob.mark !== HungerMark.None ? base * HUNGER_MARK_GOLD_MULT : base;
 }
-
 // ---- Hunger-marked elites (ROADMAP Phase 6) ----
-// At raid spawn each fresh raider may bear one of the six Hungers' marks (uniform pick). The chance
-// is 0 before raid day HUNGER_MARK_MIN_DAY (0-based dayIndex, same as unlockDay), then rises
-// linearly from HUNGER_MARK_CHANCE_START to HUNGER_MARK_CHANCE_MAX at HUNGER_MARK_CHANCE_MAX_DAY
-// (flat after). At most one mark per HUNGER_MARK_RAIDERS_PER_MARK raiders (min 1). Deserters are
-// never marked. A marked mob gets x1.5 hp, x1.25 damage and pays x3 gold.
-const HUNGER_MARK_MIN_DAY = 3;
-const HUNGER_MARK_CHANCE_START = 0.03;
-const HUNGER_MARK_CHANCE_MAX = 0.15;
-const HUNGER_MARK_CHANCE_MAX_DAY = 30;
-const HUNGER_MARK_RAIDERS_PER_MARK = 5;
-const HUNGER_MARK_HP_MULT = 1.5;
-const HUNGER_MARK_DAMAGE_MULT = 1.25;
-const HUNGER_MARK_GOLD_MULT = 3;
-// Gunne / Gorrath re-evaluate their pick once a second (ordinary mobs keep a target until it's gone).
-const MARK_RETARGET_TICKS = TICK_RATE;
-// Gorrath (frenzy): the first blow that would kill it leaves it at GORRATH_FURY_HP_FRACTION of its
-// max hp instead and starts a wounded fury for GORRATH_FURY_TICKS, during which it takes only
-// GORRATH_FURY_DAMAGE_TAKEN of incoming damage. Once per mob. It targets the healthiest (highest
-// current hp) guard / militia / player within GORRATH_SCAN_RANGE_TILES.
-const GORRATH_FURY_HP_FRACTION = 0.2;
-const GORRATH_FURY_TICKS = 4 * TICK_RATE;
-const GORRATH_FURY_DAMAGE_TAKEN = 0.5;
-const GORRATH_SCAN_RANGE_TILES = 8;
-// Gunne: targets the guard / militia / player with the lowest hp fraction within
-// GUNNE_SCAN_RANGE_TILES, as long as one is wounded at all (else ordinary targeting).
-const GUNNE_SCAN_RANGE_TILES = 10;
-// Rux (feint): the first time it closes to attack range on a new target it backs off for
-// RUX_FEINT_TICKS instead of striking, then comes back and commits (one feint per target).
-const RUX_FEINT_TICKS = Math.round(1.5 * TICK_RATE);
-// Morvain (hard to track): guards only notice it within MORVAIN_DETECTION_FACTOR of their alert
-// range, and a guard chasing it loses the lock once it's further away than that reduced range.
-const MORVAIN_DETECTION_FACTOR = 0.5;
-// Vhorrun (hit-and-run): after a hit that leaves its (colonist / player) target below
-// VHORRUN_WITHDRAW_TARGET_HP of max hp, it drops the target and backs away for VHORRUN_WITHDRAW_TICKS,
-// then picks a target afresh.
-const VHORRUN_WITHDRAW_TARGET_HP = 0.4;
-const VHORRUN_WITHDRAW_TICKS = 6 * TICK_RATE;
-// Nemri (avoids engagement): ignores guards and players and makes straight for the nearest unwarded
-// Town Center (the thing being guarded); with none, ordinary targeting.
-// testHook "forceMarkChance" {value}: overrides the per-raider chance (null restores it).
-let testForceMarkChance: number | null = null;
+
 
 function hungerMarkChance(dayIndex: number): number {
-  if (testForceMarkChance !== null) return testForceMarkChance;
+  if (state.testForceMarkChance !== null) return state.testForceMarkChance;
   if (dayIndex < HUNGER_MARK_MIN_DAY) return 0;
   const t = Math.min(1, (dayIndex - HUNGER_MARK_MIN_DAY) / (HUNGER_MARK_CHANCE_MAX_DAY - HUNGER_MARK_MIN_DAY));
   return HUNGER_MARK_CHANCE_START + (HUNGER_MARK_CHANCE_MAX - HUNGER_MARK_CHANCE_START) * t;
@@ -1275,96 +672,23 @@ function mobKindLabel(kind: MobKind): string {
   if (kind === "goblinRider") return "goblin wolf rider";
   return kind.replace(/([A-Z])/g, " $1").toLowerCase();
 }
-
-// Difficulty (chosen on the client's main menu). Scales RAID-WAVE mobs only (createRaidMob and the
-// raid size); POI guardians, deserters and the Half-Latch are untouched.
-interface DifficultyTuning {
-  mobDamage: number;
-  mobHp: number;
-  spawnCount: number;
-}
-const DIFFICULTY_EASY: DifficultyTuning = { mobDamage: 0.75, mobHp: 0.8, spawnCount: 0.75 };
-const DIFFICULTY_NORMAL: DifficultyTuning = { mobDamage: 1, mobHp: 1, spawnCount: 1 };
-const DIFFICULTY_HARD: DifficultyTuning = { mobDamage: 1.35, mobHp: 1.3, spawnCount: 1.35 };
-const DIFFICULTY_TUNING: Record<Difficulty, DifficultyTuning> = {
-  easy: DIFFICULTY_EASY,
-  normal: DIFFICULTY_NORMAL,
-  hard: DIFFICULTY_HARD,
-};
-// The world-wide setting. The first setDifficulty after a fresh (re)start claims it; later ones are
-// ignored unless the world is still on its first day with only the sender connected (so a solo
-// player can change their mind) or a restart carries a new value.
-let difficulty: Difficulty = "normal";
-let difficultyClaimed = false;
 function isDifficulty(value: unknown): value is Difficulty {
   return value === "easy" || value === "normal" || value === "hard";
 }
 function handleSetDifficulty(value: unknown, worldSize?: unknown) {
   if (!isDifficulty(value)) return;
-  const soloFirstDay = players.size <= 1 && cycleTick < DAY_TICKS;
-  if (difficultyClaimed && !soloFirstDay) return;
+  const soloFirstDay = players.size <= 1 && state.cycleTick < DAY_TICKS;
+  if (state.difficultyClaimed && !soloFirstDay) return;
   // New Game with a different map size: regenerate the (still unclaimed / first-day solo) world at it.
-  if (typeof worldSize === "number" && Number.isFinite(worldSize) && clampWorldSize(worldSize) !== WORLD_TILES_X) {
+  if (typeof worldSize === "number" && Number.isFinite(worldSize) && clampWorldSize(worldSize) !== state.WORLD_TILES_X) {
     resetWorld(value, worldSize);
     return;
   }
-  difficulty = value;
-  difficultyClaimed = true;
+  state.difficulty = value;
+  state.difficultyClaimed = true;
 }
-
-interface MobKindConfig {
-  maxHp: number;
-  damage: number;
-  speed: number;
-  range: number; // in pixels, already multiplied by TILE_SIZE
-  melee: boolean;
-  unlockDay: number;
-}
-
-const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
-  goblin: { maxHp: 18, damage: 4, speed: 95, range: TILE_SIZE * 0.8, melee: true, unlockDay: 0 },
-  wolf: { maxHp: 22, damage: 6, speed: 130, range: TILE_SIZE * 0.8, melee: true, unlockDay: 0 },
-  goblinCrossbow: { maxHp: 16, damage: 6, speed: 80, range: TILE_SIZE * 4, melee: false, unlockDay: 1 },
-  orc: { maxHp: 45, damage: 10, speed: 75, range: TILE_SIZE * 0.8, melee: true, unlockDay: 3 },
-  skeleton: { maxHp: 50, damage: 8, speed: 60, range: TILE_SIZE * 0.8, melee: true, unlockDay: 4 },
-  armoredOrc: { maxHp: 80, damage: 14, speed: 55, range: TILE_SIZE * 0.8, melee: true, unlockDay: 6 },
-  giantSpider: { maxHp: 35, damage: 7, speed: 115, range: TILE_SIZE * 0.8, melee: true, unlockDay: 6 },
-  darkShaman: { maxHp: 25, damage: 12, speed: 70, range: TILE_SIZE * 5, melee: false, unlockDay: 7 },
-  troll: { maxHp: 120, damage: 16, speed: 65, range: TILE_SIZE * 0.8, melee: true, unlockDay: 10 },
-  ogre: { maxHp: 220, damage: 28, speed: 50, range: TILE_SIZE * 0.8, melee: true, unlockDay: 12 },
-  // Bandits: encampment guardians (ENCAMPMENT_GUARDIAN_WEIGHTS, unaffected by unlockDay) and,
-  // since raid waves, the Bandit band faction (RAID_FACTIONS).
-  banditClubman: { maxHp: 30, damage: 7, speed: 85, range: TILE_SIZE * 0.8, melee: true, unlockDay: 0 },
-  banditArcher: { maxHp: 25, damage: 8, speed: 75, range: TILE_SIZE * 4, melee: false, unlockDay: 0 },
-  banditElite: { maxHp: 70, damage: 14, speed: 70, range: TILE_SIZE * 0.8, melee: true, unlockDay: 3 },
-  // Half-Latch: the minor demon that slips through when a Ward Stone's ward lapses (see
-  // checkWardStoneLapses). Deliberately a nuisance, not a threat. In no raid faction; unlockDay is
-  // unreachable as a backstop.
-  halfLatch: {
-    maxHp: 12,
-    damage: 3,
-    speed: 90,
-    range: TILE_SIZE * 0.8,
-    melee: true,
-    unlockDay: Number.POSITIVE_INFINITY,
-  },
-  // Siege engines (Cavalry & siege): the orc and bandit factions' non-core extras, at most
-  // raidSiegeCap(day) of them per raid. See updateSiegeMob.
-  batteringRam: { maxHp: RAM_MAX_HP, damage: RAM_DAMAGE, speed: RAM_SPEED, range: TILE_SIZE * 0.8, melee: true, unlockDay: 10 },
-  catapult: { maxHp: CATAPULT_MAX_HP, damage: CATAPULT_DAMAGE, speed: CATAPULT_SPEED, range: CATAPULT_RANGE, melee: false, unlockDay: 14 },
-  // Goblin wolf rider (scale pass): the greenskins' cavalry, from raid day 8 (see GOBLIN_RIDER_*).
-  goblinRider: { maxHp: 30, damage: 7, speed: 125, range: TILE_SIZE * 0.8, melee: true, unlockDay: 8 },
-};
-
 // ---- Scale pass: size variation ----
-// Every mob of a MOB_SIZE_RANGE kind rolls a size s, deterministically from its id (so a save can
-// re-derive it; it is stored on the mob as `scale` anyway). The split mapping puts the median at 1
-// (half the mobs in [min, 1], half in [1, max]). Bigger = more HP / damage / melee reach / body, a
-// little slower; smaller = the reverse. HP x damage at s: about s^1.5, mean ~1.02 over the range, so
-// raid strength (and enemy intel power, which sums the scaled hp / damage) stays roughly where it was.
-const MOB_SIZE_HP_PER_SCALE = 1;
-const MOB_SIZE_DAMAGE_PER_SCALE = 0.5;
-const MOB_SIZE_SPEED_PER_SCALE = -0.5;
+
 function hashString01(id: string): number {
   let h = 2166136261;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
@@ -1391,245 +715,17 @@ function applyMobSize(mob: Mob, rollSize = true) {
   }
   if (mob.melee) mob.range = MOB_KIND_CONFIG[mob.kind].range * mobSizeScale({ kind: mob.kind, scale: mob.scale });
 }
-
 // ---- Goblin wolf rider ----
-// Charges like the colony's cavalry (trackCharge / takeChargeBonus: CAVALRY_CHARGE_MULT on the first blow
-// after CAVALRY_CHARGE_TILES in a straight line), then withdraws GOBLIN_RIDER_WITHDRAW_TICKS to hit and
-// run. Pikemen / spearmen hit it harder (GOBLIN_RIDER_DAMAGE_TAKEN).
-const GOBLIN_RIDER_WITHDRAW_TICKS = Math.round(TICK_RATE * 1.5);
-const GOBLIN_RIDER_DAMAGE_TAKEN: Partial<Record<ColonistKind, number>> = { pikeman: 1.6, spearman: 1.3 };
 
 // ---- Raid waves: tuning ----
-// Halfway through each day the whole of tonight's raid spawns at once at the map edge, in passive
-// groups (see spawnRaid / updateRaidGroups). Raid size = RAID_BASE_SIZE + RAID_SIZE_PER_DAY * dayIndex,
-// times the difficulty spawnCount (rounded, min 1). No cap.
-const RAID_BASE_SIZE = 5;
-const RAID_SIZE_PER_DAY = 2;
-// The horde (one big group) takes this share of the raid, rolled uniformly in [MIN, MAX] and rounded
-// up, so it is always at least half. The rest split into random groups of GROUP_SIZE_MIN..MAX.
-const RAID_HORDE_SHARE_MIN = 0.5;
-const RAID_HORDE_SHARE_MAX = 0.7;
-const RAID_GROUP_SIZE_MIN = 2;
-const RAID_GROUP_SIZE_MAX = 6;
-
-// Factions: each raid group is built from ONE faction. A faction is eligible on a day when at least
-// one of its `core` kinds is unlocked (MOB_KIND_CONFIG unlockDay), and is picked with weight = the
-// number of its unlocked core kinds. Inside a group, kinds are picked by `weight` among the faction's
-// unlocked entries (core or not). Non-core entries are heavies/supplements: they never make a
-// faction eligible by themselves (so goblins alone don't unlock the Dark host on day 0).
-type RaidFactionId = "wolfPack" | "banditBand" | "greenskinWarband" | "darkHost" | "riderPack";
-interface RaidFactionEntry {
-  kind: MobKind;
-  weight: number;
-  core: boolean;
-}
-const RAID_FACTIONS: Record<RaidFactionId, RaidFactionEntry[]> = {
-  wolfPack: [{ kind: "wolf", weight: 1, core: true }],
-  // Scale pass: a wandering pack of goblin wolf riders (from the riders' unlock day), now and then.
-  riderPack: [{ kind: "goblinRider", weight: 1, core: true }],
-  // On a deserter night the eligible deserters are the raid's core and only this faction fills
-  // the rest of the raid (see spawnRaid).
-  banditBand: [
-    { kind: "banditClubman", weight: 5, core: true },
-    { kind: "banditArcher", weight: 3, core: true },
-    { kind: "banditElite", weight: 1, core: true },
-    { kind: "batteringRam", weight: 1, core: false },
-    { kind: "catapult", weight: 1, core: false },
-  ],
-  greenskinWarband: [
-    { kind: "goblin", weight: 10, core: true },
-    { kind: "goblinCrossbow", weight: 4, core: true },
-    { kind: "orc", weight: 5, core: true },
-    { kind: "armoredOrc", weight: 3, core: true },
-    { kind: "troll", weight: 1, core: false },
-    { kind: "ogre", weight: 1, core: false },
-    { kind: "batteringRam", weight: 1, core: false },
-    { kind: "catapult", weight: 1, core: false },
-    { kind: "goblinRider", weight: 2, core: false },
-  ],
-  darkHost: [
-    { kind: "skeleton", weight: 4, core: true },
-    { kind: "giantSpider", weight: 3, core: true },
-    { kind: "darkShaman", weight: 2, core: true },
-    { kind: "troll", weight: 1, core: false },
-    { kind: "ogre", weight: 1, core: false },
-    { kind: "goblin", weight: 1, core: false },
-    { kind: "orc", weight: 1, core: false },
-  ],
-};
-
-// Day-phase tick (within the cycle) at which the raid spawns: the midpoint of the day.
-const RAID_SPAWN_CYCLE_TICK = Math.floor(DAY_TICKS / 2);
-// Arrival timing (2026-10-24): every edge-spawned group is timed to REACH the colony after nightfall but
-// before RAID_ARRIVAL_WINDOW_FRACTION of the way into the night. At spawn its travel time (path length
-// x RAID_TRAVEL_SLACK / the slowest member's speed, plus RAID_TRAVEL_MARGIN_TICKS) is subtracted from a
-// random arrival tick in that window to get its departure (aggroTick), never earlier than the spawn.
-// A group that gets to contact range before nightfall holds in formation (passive, no attacking) until
-// night falls, or until it is attacked.
-const RAID_ARRIVAL_WINDOW_FRACTION = 2 / 3;
-const RAID_TRAVEL_SLACK = 1.15;
-const RAID_TRAVEL_MARGIN_TICKS = TICK_RATE * 8;
-// Raiders spawn on walkable tiles within this many tiles of the map border.
-const RAID_EDGE_BAND_TILES = 3;
-// Passive raiders wander one tile at a time, never more than this far (Chebyshev) from their spawn.
-const RAID_LOITER_RADIUS_TILES = 3;
-const RAID_LOITER_CHANCE_PER_TICK = 1 / (TICK_RATE * 3);
-// A marching group breaks up into normal per-mob targeting once its leader is this close to the
-// colony (Town Center) or to any targetable guard/player.
-const RAID_ENGAGE_RANGE_TILES = 8;
-// Followers may move this much faster than the group pace to catch up with their formation slot.
-const RAID_FOLLOWER_CATCHUP = 1.5; // battle discipline 2026-10-23: was 1.25 (followers took most of a march to form up)
-// Formation: heading-relative staggered rows per faction (see raidFormationSlots). Slot spacing is
-// RAID_FORMATION_SPACING_BODIES x the group's mean body diameter; heavies (troll / ogre) take the front
-// centre, ranged kinds the rear rows. On contact rows are released one by one, RAID_RELEASE_ROW_TICKS apart.
-type RaidFormationShape = "wedge" | "line" | "column";
-const RAID_FORMATION_SHAPE: Record<RaidFactionId, RaidFormationShape> = {
-  wolfPack: "wedge",
-  riderPack: "wedge",
-  banditBand: "line",
-  greenskinWarband: "column",
-  darkHost: "column",
-};
-const RAID_FORMATION_SPACING_BODIES = 1.35; // battle discipline 2026-10-23: was 1.6
-const RAID_WEDGE_LOOSENESS = 1.3;
-const RAID_RELEASE_ROW_TICKS = Math.round(TICK_RATE * 0.4);
-// Heading smoothing per tick (path corners would otherwise swing the whole formation each tile).
-const RAID_HEADING_SMOOTHING = 0.15;
-const RAID_MARCH_REPATH_TICKS = TICK_RATE * 2;
-
-const TROLL_REGEN_DELAY_TICKS = TICK_RATE * 4;
-const TROLL_REGEN_PER_TICK = 1;
-const POISON_DURATION_TICKS = TICK_RATE * 3;
-const POISON_DAMAGE_PER_TICK = 1;
-const DARK_SHAMAN_HEAL_RANGE = TILE_SIZE * 5;
-const DARK_SHAMAN_HEAL_AMOUNT = 15;
-const DARK_SHAMAN_HEAL_COOLDOWN_TICKS = TICK_RATE * 3;
-
-// Long days: was 10 (of the old 100 s days); 3 long days (~19 min) keeps it near the old ~17 min.
-const DESERTER_ACTIVATION_DAYS = 3;
-const DESERTER_ACTIVATION_TICKS = DESERTER_ACTIVATION_DAYS * (DAY_TICKS + NIGHT_TICKS);
-// Rolled at each midday raid spawn when eligible deserters exist: on success they become the core of
-// tonight's raid (see spawnRaid).
-const DESERTER_WAVE_CHANCE = 0.25;
-
-let colonyHappiness = 100;
-
-const HAPPINESS_SCENERY_TREE_BASELINE = 20;
-const HAPPINESS_DESERTION_THRESHOLD = 35;
-const HAPPINESS_MUTINY_THRESHOLD = 15;
-const HAPPINESS_DESERTION_CHANCE = 0.15;
-const TAVERN_HAPPINESS_RADIUS_TILES = 6;
-const PRODUCTION_HAPPINESS_FLOOR = 0.5;
-
-const COLONIST_SPEED = 100;
-const CHOP_TICKS = TICK_RATE * 2;
-const CRAFT_TICKS = TICK_RATE * 4;
-const IDLE_RETRY_TICKS = TICK_RATE;
-const LUMBERJACK_WOOD_PER_TRIP = 3;
 
 // ---- Slow farming: every farm number lives here. One game day = DAY_TICKS + NIGHT_TICKS (375 s). ----
-// Long days: the farm timers below stay in REAL time, i.e. in "legacy days" of the old 100 s cycle
-// (LEGACY_GAME_DAY_TICKS; a field grows 5 min, ~0.8 of a long day), so grain / meat / fruit / wool /
-// cotton per real second, the opening food bridge (STARTING_GRAIN) and the farm tests are unchanged.
-const GAME_DAY_TICKS = DAY_TICKS + NIGHT_TICKS;
-const LEGACY_GAME_DAY_TICKS = LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS;
-// Grain field (Farm Plot next to a staffed Barn): sown -> growing -> ripe (the short harvest phase)
-// -> +FARM_YIELD_PER_HARVEST grain -> sown again. Plots grow day and night. Every
-// FARM_HARVESTS_BEFORE_FALLOW harvests the field rests FALLOW for FARM_FALLOW_TICKS, then re-sows itself
-// (once its Barn is staffed). Grow and harvest are scaled by the Barn's level, the plot's biome,
-// happiness and the Barn's industrial synergy; fallow is a flat rest.
-const FARM_GROW_DAYS = 3;
-const FARM_GROW_TICKS = FARM_GROW_DAYS * LEGACY_GAME_DAY_TICKS;
-// The first third of the grow phase reads as freshly sown soil (snapshot sownFarmPlots).
-const FARM_SOWN_FRACTION = 1 / 3;
-const FARM_HARVEST_TICKS = TICK_RATE * 2;
-const FARM_HARVESTS_BEFORE_FALLOW = 5;
-const FARM_FALLOW_DAYS = 3;
-const FARM_FALLOW_TICKS = FARM_FALLOW_DAYS * LEGACY_GAME_DAY_TICKS;
-// Farm timers stay in real time, counted in legacy 100 s days (long days, 2026-10-23). A full field
-// rotation is 5 x 3 grow days + 3 fallow days = 18 legacy days. 24 per harvest (was 36, cut a third on
-// 2026-10-23 when a Barn's plot cap doubled from 4 to BARN_MAX_FARM_PLOTS 8) gives a long-run
-// 5 * 24 / 18 = 6.67 grain per plot per legacy day (was 10), so a full Barn yields ~53 instead of 40.
-const FARM_YIELD_PER_HARVEST = 24;
-// Farm Plots per Barn (was 4: the orthogonally adjacent tiles). A new plot may go anywhere within
-// BARN_FARM_RADIUS_TILES (Chebyshev) of a Barn with fewer than BARN_MAX_FARM_PLOTS plots; it belongs to
-// the nearest such Barn.
-const BARN_MAX_FARM_PLOTS = 8;
-const BARN_FARM_RADIUS_TILES = 2;
-// Pasture / Orchard / Sheep Pasture / Hemp Field: the farmhand tends all day as before (works only by
-// day, shelters at night), but the produce lands once per cycle of FARMHAND_CYCLE_DAYS days of tending.
-// The old rate was 1 unit per CHOP_TICKS (2 s) of tending = DAY_TICKS / CHOP_TICKS = 30 a day, so a
-// 3-day cycle yields 3 * 30 = 90 (same average rate, delivered in one batch). The cycle length is scaled
-// by the building's level, biome, happiness and industrial synergy exactly like the old unit timer.
-const FARMHAND_CYCLE_DAYS = 3;
-const FARMHAND_CYCLE_TICKS = FARMHAND_CYCLE_DAYS * LEGACY_DAY_TICKS;
-const FARMHAND_YIELD_PER_CYCLE: Record<"meat" | "fruit" | "wool" | "cotton", number> = {
-  meat: 90,
-  fruit: 90,
-  wool: 90,
-  cotton: 90,
-};
 
-// Long days: upkeep stays 1 per colonist per 100 s of real time, so a long day costs 3.75 (rounded up
-// for the whole colony at dawn; see applyDailyFoodConsumption).
-const FOOD_PER_COLONIST_PER_DAY = 1 * DAY_LENGTH_SCALE;
-const STARVATION_DAMAGE = 10;
-// Long days: replaces the old 5 s RESPAWN_DELAY_TICKS. Dead units wait in respawnQueue and come back
-// together only at the two respawn windows, dawn (cycle tick 0) and dusk (the last daylight tick,
-// DAY_TICKS - 1, so "day-only respawns" still holds); see respawnWindowAt / processRespawnQueue.
-const RESPAWN_FOOD_COST = 5;
-
-const ARCHER_WOOD_COST = 10;
-const KNIGHT_IRON_COST = 10;
-const KNIGHT_ROCK_COST = 5;
-// Walls & gates (2026-10-23): walls 3x their old 1 wood / 1 rock. Full repair = REPAIR_COST_FRACTION
-// (0.3) of this, i.e. 1 wood / 1 rock per wall, 3 wood + 2 rock per gate.
-const WOOD_WALL_COST = 3;
-const STONE_WALL_COST = 3;
-const GATE_WOOD_COST = 10;
-const GATE_ROCK_COST = 5;
-// Houses got costlier with barracks housing (2026-10-29): 10 wood -> 20 wood + 5 rock to build; the
-// upgrades' wood doubled and they take rock too (placementCost).
-const HOUSE_WOOD_COST = 20;
-const HOUSE_ROCK_COST = 5;
-const BARN_WOOD_COST = 15;
-const CHURCH_WOOD_COST = 15;
-const CRAFT_BUILDING_WOOD_COST = 10;
-const CRAFT_BUILDING_IRON_COST = 5;
-const SHOP_WOOD_COST = 15;
-const TAVERN_WOOD_COST = 20;
-const TAVERN_ROCK_COST = 10;
-const MILITIA_WOOD_COST = 5;
-const MILITIA_IRON_COST = 5;
-const WARD_STONE_WOOD_COST = 20;
-const FOOD_HUT_WOOD_COST = 15;
-const WARD_STONE_TOOLS_COST = 10;
-
-const PLAYER_ATTACK_DAMAGE = 15;
-const PLAYER_ATTACK_RANGE = TILE_SIZE * 1.3;
-const PLAYER_ATTACK_COOLDOWN_TICKS = Math.round(TICK_RATE * 0.5);
-
-const BISHOP_MAX_HP = 25;
-const BISHOP_HEAL_AMOUNT = 10;
-const BISHOP_HEAL_RANGE = TILE_SIZE * 2;
-const BISHOP_HEAL_COOLDOWN_TICKS = Math.round(TICK_RATE * 0.8);
-const BISHOP_SPEED = 100;
-const CHURCH_HEAL_BONUS_PER_STEP = 0.1;
-
-const TREE_RESPAWN_INTERVAL_TICKS = TICK_RATE * 8;
-// Regrowth cap, scaled 4x with TREE_COUNT for the 80x80 map (at the old 50 the 96 starting
-// trees would sit above the cap and natural regrowth would never run).
-let MAX_TREES = scaledCount(200);
-let treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
-
-const LUMBERJACK_TREE_RADIUS = 2;
-const LUMBERJACK_TREE_INTERVAL_TICKS = TICK_RATE * 10;
-let lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
 
 function countTilesOfType(tileType: TileType): number {
   let count = 0;
-  for (let i = 0; i < tiles.length; i++) {
-    if (tiles[i] === tileType) count++;
+  for (let i = 0; i < state.tiles.length; i++) {
+    if (state.tiles[i] === tileType) count++;
   }
   return count;
 }
@@ -1647,9 +743,9 @@ function computeColonyHappiness(): number {
   }
 
   const tavernTiles: TileCoord[] = [];
-  for (let tx = 0; tx < WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
-      if (tiles[tileIndex(tx, ty)] === TileType.Tavern) tavernTiles.push({ x: tx, y: ty });
+  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
+    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
+      if (state.tiles[tileIndex(tx, ty)] === TileType.Tavern) tavernTiles.push({ x: tx, y: ty });
     }
   }
   let tavernCoverageScore = 0;
@@ -1667,51 +763,13 @@ function computeColonyHappiness(): number {
 }
 
 function happinessSpeedMultiplier(): number {
-  return PRODUCTION_HAPPINESS_FLOOR + (1 - PRODUCTION_HAPPINESS_FLOOR) * (colonyHappiness / 100);
+  return PRODUCTION_HAPPINESS_FLOOR + (1 - PRODUCTION_HAPPINESS_FLOOR) * (state.colonyHappiness / 100);
 }
 
 // Every production timer (and builders' work rate) divides by this: happiness times the Town Center bonus.
 function productionSpeedMultiplier(): number {
   return happinessSpeedMultiplier() * (1 + townCenterBonus());
 }
-
-const POST_TILE_TYPES = [
-  TileType.LumberjackPost,
-  TileType.FarmPlot,
-  TileType.KnightPost,
-  TileType.ArcherPost,
-  TileType.Tower,
-  TileType.IronMinePost,
-  TileType.RockMinePost,
-  TileType.TownCenter,
-  TileType.House,
-  TileType.BigHouse,
-  TileType.HouseLevel2,
-  TileType.BarnPost,
-  TileType.CastleLevel2,
-  TileType.CastleLevel3,
-  TileType.ChurchPost,
-  TileType.Pasture,
-  TileType.Orchard,
-  TileType.WoolFarm,
-  TileType.CottonFarm,
-  TileType.TailorShop,
-  TileType.Blacksmith,
-  TileType.LuxuryWorkshop,
-  TileType.Market,
-  TileType.GoldShop,
-  TileType.Brewery,
-  TileType.Tavern,
-  TileType.MilitiaPost,
-  TileType.MilitiaCamp2,
-  TileType.MilitiaCamp3,
-  TileType.WardStone,
-  TileType.HunterHut,
-  TileType.ForagerHut,
-  TileType.BuildersGuild,
-  TileType.Stables,
-  TileType.SiegeWorkshop,
-];
 
 function isAdjacentToPlayerOrPost(tx: number, ty: number): boolean {
   for (const p of players.values()) {
@@ -1726,18 +784,18 @@ function isAdjacentToPlayerOrPost(tx: number, ty: number): boolean {
   ];
   for (const n of neighbors) {
     if (!inBounds(n.x, n.y)) continue;
-    if (POST_TILE_TYPES.includes(tiles[tileIndex(n.x, n.y)] as TileType)) return true;
+    if (POST_TILE_TYPES.includes(state.tiles[tileIndex(n.x, n.y)] as TileType)) return true;
   }
   return false;
 }
 
 function tryGrowTree() {
-  if (countTilesOfType(TileType.Tree) >= MAX_TREES) return;
+  if (countTilesOfType(TileType.Tree) >= state.MAX_TREES) return;
   const candidates: TileCoord[] = [];
-  for (let tx = 0; tx < WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
+  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
+    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
       if (
-        tiles[tileIndex(tx, ty)] === TileType.Empty &&
+        state.tiles[tileIndex(tx, ty)] === TileType.Empty &&
         !tileOccupiedByEntity(tx, ty) &&
         !isAdjacentToPlayerOrPost(tx, ty) &&
         !isInReservedGrounds(tx, ty)
@@ -1748,27 +806,27 @@ function tryGrowTree() {
   }
   if (candidates.length === 0) return;
   const spot = candidates[Math.floor(Math.random() * candidates.length)];
-  tiles[tileIndex(spot.x, spot.y)] = TileType.Tree;
+  state.tiles[tileIndex(spot.x, spot.y)] = TileType.Tree;
   broadcastTileUpdate(spot.x, spot.y, TileType.Tree);
 }
 
 function tryGrowTreesNearLumberjackPosts() {
-  if (countTilesOfType(TileType.Tree) >= MAX_TREES) return;
+  if (countTilesOfType(TileType.Tree) >= state.MAX_TREES) return;
   const posts: TileCoord[] = [];
-  for (let tx = 0; tx < WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
-      if (tiles[tileIndex(tx, ty)] === TileType.LumberjackPost) posts.push({ x: tx, y: ty });
+  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
+    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
+      if (state.tiles[tileIndex(tx, ty)] === TileType.LumberjackPost) posts.push({ x: tx, y: ty });
     }
   }
   for (const post of posts) {
-    if (countTilesOfType(TileType.Tree) >= MAX_TREES) return;
+    if (countTilesOfType(TileType.Tree) >= state.MAX_TREES) return;
     const candidates: TileCoord[] = [];
     for (let dx = -LUMBERJACK_TREE_RADIUS; dx <= LUMBERJACK_TREE_RADIUS; dx++) {
       for (let dy = -LUMBERJACK_TREE_RADIUS; dy <= LUMBERJACK_TREE_RADIUS; dy++) {
         const tx = post.x + dx;
         const ty = post.y + dy;
         if (!inBounds(tx, ty)) continue;
-        if (tiles[tileIndex(tx, ty)] !== TileType.Empty) continue;
+        if (state.tiles[tileIndex(tx, ty)] !== TileType.Empty) continue;
         if (tileOccupiedByEntity(tx, ty)) continue;
         if (isAdjacentToPlayerOrPost(tx, ty)) continue;
         if (isInReservedGrounds(tx, ty)) continue;
@@ -1777,16 +835,10 @@ function tryGrowTreesNearLumberjackPosts() {
     }
     if (candidates.length === 0) continue;
     const spot = candidates[Math.floor(Math.random() * candidates.length)];
-    tiles[tileIndex(spot.x, spot.y)] = TileType.Tree;
+    state.tiles[tileIndex(spot.x, spot.y)] = TileType.Tree;
     broadcastTileUpdate(spot.x, spot.y, TileType.Tree);
   }
 }
-
-const GATHER_RESOURCE_TILE: Partial<Record<ColonistKind, TileType>> = {
-  lumberjack: TileType.Tree,
-  ironMiner: TileType.IronOre,
-  rockMiner: TileType.Rock,
-};
 
 function depositGatheredResource(kind: ColonistKind) {
   if (kind === "lumberjack") stock.wood += LUMBERJACK_WOOD_PER_TRIP;
@@ -1794,42 +846,17 @@ function depositGatheredResource(kind: ColonistKind) {
   else if (kind === "rockMiner") stock.rock += 1;
 }
 
-// Industrial cluster synergy: +5% productivity for every other industrial building within 5 tiles
-// (Chebyshev distance), stacking. Applied as a speed multiplier on the building's work cycle.
-const INDUSTRIAL_SYNERGY_RADIUS = 5;
-const INDUSTRIAL_SYNERGY_PER_BUILDING = 0.05;
-const INDUSTRIAL_TILES: TileType[] = [
-  TileType.LumberjackPost,
-  TileType.BarnPost,
-  TileType.IronMinePost,
-  TileType.RockMinePost,
-  TileType.Pasture,
-  TileType.Orchard,
-  TileType.WoolFarm,
-  TileType.CottonFarm,
-  TileType.TailorShop,
-  TileType.Blacksmith,
-  TileType.LuxuryWorkshop,
-  TileType.Brewery,
-  TileType.HunterHut,
-  TileType.ForagerHut,
-  TileType.BuildersGuild,
-];
-
 function industrialSynergyMultiplier(tx: number, ty: number): number {
-  if (!INDUSTRIAL_TILES.includes(tiles[tileIndex(tx, ty)] as TileType)) return 1;
+  if (!INDUSTRIAL_TILES.includes(state.tiles[tileIndex(tx, ty)] as TileType)) return 1;
   let others = 0;
   for (let y = ty - INDUSTRIAL_SYNERGY_RADIUS; y <= ty + INDUSTRIAL_SYNERGY_RADIUS; y++) {
     for (let x = tx - INDUSTRIAL_SYNERGY_RADIUS; x <= tx + INDUSTRIAL_SYNERGY_RADIUS; x++) {
       if ((x === tx && y === ty) || !inBounds(x, y)) continue;
-      if (INDUSTRIAL_TILES.includes(tiles[tileIndex(x, y)] as TileType)) others++;
+      if (INDUSTRIAL_TILES.includes(state.tiles[tileIndex(x, y)] as TileType)) others++;
     }
   }
   return 1 + others * INDUSTRIAL_SYNERGY_PER_BUILDING;
 }
-
-// Army cluster synergy: +5% unit damage per adjacent (incl. diagonal) army building, and +5% per adjacent Blacksmith.
-const ARMY_SYNERGY_PER_NEIGHBOUR = 0.05;
 
 function armyDamageMultiplier(tx: number, ty: number): number {
   let bonus = 0;
@@ -1837,7 +864,7 @@ function armyDamageMultiplier(tx: number, ty: number): number {
     const nx = tx + dx;
     const ny = ty + dy;
     if (!inBounds(nx, ny)) continue;
-    const t = tiles[tileIndex(nx, ny)] as TileType;
+    const t = state.tiles[tileIndex(nx, ny)] as TileType;
     if (isMilitaryTile(t) || t === TileType.Blacksmith) bonus += ARMY_SYNERGY_PER_NEIGHBOUR;
   }
   return 1 + bonus + townCenterBonus();
@@ -1866,31 +893,6 @@ function effectiveCraftTicks(tx: number, ty: number): number {
   const level = getBuildingLevel(tx, ty);
   return Math.max(1, Math.round((CRAFT_TICKS * (1 - levelBonus(level))) / (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty))));
 }
-
-const FARM_PRODUCE_BY_TILE: Partial<Record<TileType, "meat" | "fruit" | "wool" | "cotton">> = {
-  [TileType.Pasture]: "meat",
-  [TileType.Orchard]: "fruit",
-  [TileType.WoolFarm]: "wool",
-  [TileType.CottonFarm]: "cotton",
-};
-
-interface CraftRecipe {
-  inputs: Partial<Record<ResourceKey, number>>;
-  output: ResourceKey;
-  outputAmount?: number;
-  // The artisan idles once the colony holds this much of the output (so it stops eating its inputs).
-  stockCap?: number;
-}
-// Tools are only spent on a few upgrades, so an uncapped Blacksmith turned ~10 wood + 10 iron a game
-// minute into a tools pile forever (the "wood slowly depleting" report, 2026-10-29).
-const BLACKSMITH_TOOLS_STOCK_CAP = 30;
-const CRAFT_RECIPES: Partial<Record<TileType, CraftRecipe>> = {
-  [TileType.TailorShop]: { inputs: { wool: 1, cotton: 1 }, output: "clothes" },
-  [TileType.Blacksmith]: { inputs: { iron: 1, wood: 1 }, output: "tools", stockCap: BLACKSMITH_TOOLS_STOCK_CAP },
-  [TileType.LuxuryWorkshop]: { inputs: { rock: 1, fruit: 1 }, output: "luxuryItems" },
-  [TileType.Brewery]: { inputs: { grain: 2 }, output: "alcohol" },
-  [TileType.Tavern]: { inputs: { alcohol: 1 }, output: "gold", outputAmount: 10 },
-};
 
 function isStationaryMinerKind(kind: ColonistKind): boolean {
   return kind === "ironMiner" || kind === "rockMiner";
@@ -1957,7 +959,7 @@ function consumesPopulation(kind: ColonistKind): boolean {
 // They aren't the colony's (no population, food, happiness, commands); identified by their post,
 // since AbbeyHall is only ever placed by world-gen.
 function isAbbeyClergy(c: Colonist): boolean {
-  return tiles[tileIndex(c.postX, c.postY)] === TileType.AbbeyHall;
+  return state.tiles[tileIndex(c.postX, c.postY)] === TileType.AbbeyHall;
 }
 
 // What one unit counts for in population: civilians/bishops 1 (not Abbey clergy), siege engines and heroes
@@ -1976,17 +978,6 @@ function civilianPopulationUsed(): number {
   return count;
 }
 
-// 10 -> 12 on 2026-10-29 with costlier houses, so the opening settlement isn't housing-starved.
-const TOWN_CENTER_BASE_POPULATION = 12;
-// Every Town Center after the first adds this much to the base.
-const TOWN_CENTER_EXTRA_POPULATION = 5;
-// Settlement population ceiling per Town Center tier (index = level - 1). Tune here.
-const SETTLEMENT_POP_CAP_BY_TIER = [20, 30, 40];
-// Each level of a settlement's Keep (a separate building) adds this to both its tier ceiling and its
-// housing capacity, so the bonus is real whichever of the two was limiting.
-const KEEP_POPULATION_PER_LEVEL = 10;
-const KEEP_MIN_TOWN_CENTER_LEVEL = 2;
-
 function settlementTierCap(level: number): number {
   return SETTLEMENT_POP_CAP_BY_TIER[Math.min(Math.max(level, 1), SETTLEMENT_POP_CAP_BY_TIER.length) - 1];
 }
@@ -2001,31 +992,16 @@ function settlementKeyNear(tx: number, ty: number): string {
 // The Town Center a unit counts toward: its stored settlement, or (old save / that one fell) the one
 // nearest its post, which is then stored.
 function settlementOf(c: Colonist): TownCenter | null {
-  const tc = c.settlementId ? townCenters.find((t) => resourceKey(t.x, t.y) === c.settlementId) : undefined;
+  const tc = c.settlementId ? state.townCenters.find((t) => resourceKey(t.x, t.y) === c.settlementId) : undefined;
   if (tc) return tc;
   c.settlementId = settlementKeyNear(c.postX, c.postY);
-  return townCenters.find((t) => resourceKey(t.x, t.y) === c.settlementId) ?? null;
-}
-
-interface SettlementStat {
-  tc: TownCenter;
-  number: number; // 1-based position in townCenters (the "Settlement N" label)
-  used: number;
-  pending: number; // worker slots of queued constructions
-  housingCap: number; // includes keepBonus
-  tierCap: number; // the Town Center tier ceiling alone
-  keepBonus: number; // 10 per level of this settlement's Keep
-  cap: number; // min(housingCap, tierCap + keepBonus)
-  troops: number; // living soldiers of this settlement (they don't count in `used`)
-  troopCap: number; // sum of its unit buildings' own troop capacities (base + adjacent houses)
-  garrisonBase: number; // its unit buildings' tier headcounts, built + queued (checked against garrisonCap)
-  garrisonCap: number; // SETTLEMENT_GARRISON_CAP_BY_TIER + KEEP_GARRISON_PER_LEVEL per Keep level
+  return state.townCenters.find((t) => resourceKey(t.x, t.y) === c.settlementId) ?? null;
 }
 
 // Per-settlement population: units by stored settlement, queued worker slots, and the cap = the
 // housing-derived capacity (base + houses + neighbourhood bonus nearest to it) clamped by the tier cap.
 function settlementStats(): SettlementStat[] {
-  const stats: SettlementStat[] = townCenters.map((tc, i) => ({
+  const stats: SettlementStat[] = state.townCenters.map((tc, i) => ({
     tc,
     number: i + 1,
     used: 0,
@@ -2048,15 +1024,15 @@ function settlementStats(): SettlementStat[] {
     const tc = nearestTownCenter(p.x, p.y);
     return stats.find((s) => s.tc === tc);
   };
-  for (let i = 0; i < tiles.length; i++) {
-    const t = tiles[i] as TileType;
+  for (let i = 0; i < state.tiles.length; i++) {
+    const t = state.tiles[i] as TileType;
     const w = t === TileType.House ? 1 : t === TileType.BigHouse ? 3 : t === TileType.HouseLevel2 ? 5 : 0;
     if (w) {
-      const s = statNear(i % WORLD_TILES_X, Math.floor(i / WORLD_TILES_X));
+      const s = statNear(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X));
       if (s) s.housingCap += w;
     } else if (t === TileType.Keep) {
-      const x = i % WORLD_TILES_X;
-      const y = Math.floor(i / WORLD_TILES_X);
+      const x = i % state.WORLD_TILES_X;
+      const y = Math.floor(i / state.WORLD_TILES_X);
       const s = statNear(x, y);
       if (s) {
         const bonus = KEEP_POPULATION_PER_LEVEL * getBuildingLevel(x, y);
@@ -2065,8 +1041,8 @@ function settlementStats(): SettlementStat[] {
         s.garrisonCap += KEEP_GARRISON_PER_LEVEL * getBuildingLevel(x, y);
       }
     } else if (isMilitaryTile(t)) {
-      const x = i % WORLD_TILES_X;
-      const y = Math.floor(i / WORLD_TILES_X);
+      const x = i % state.WORLD_TILES_X;
+      const y = Math.floor(i / state.WORLD_TILES_X);
       const slots = unitBuildingSlots(x, y);
       const s = statNear(x, y);
       if (s && slots) {
@@ -2131,12 +1107,6 @@ function populationCap(): number {
   return settlementStats().reduce((n, s) => n + s.cap, 0);
 }
 
-// Synergy bonuses count all eight surrounding tiles (diagonals too), so buildings can be packed
-// into solid blocks. Spawn-space checks still use the four orthogonal tiles units actually spawn on.
-const NEIGHBOURS_8: ReadonlyArray<readonly [number, number]> = [
-  [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
-];
-
 function isHouseTile(t: TileType): boolean {
   return t === TileType.House || t === TileType.BigHouse || t === TileType.HouseLevel2;
 }
@@ -2164,14 +1134,14 @@ function isSynergyBuilding(t: TileType): boolean {
 // the colony faster, so neighbourhoods are worth building.
 function neighbourhoodPopulationBonus(onBonus?: (tx: number, ty: number) => void): number {
   let bonus = 0;
-  for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
-    for (let tx = 0; tx < WORLD_TILES_X; tx++) {
-      if (!isHouseTile(tiles[tileIndex(tx, ty)] as TileType)) continue;
+  for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
+    for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
+      if (!isHouseTile(state.tiles[tileIndex(tx, ty)] as TileType)) continue;
       for (const [dx, dy] of NEIGHBOURS_8) {
         const nx = tx + dx;
         const ny = ty + dy;
         if (!inBounds(nx, ny)) continue;
-        const n = tiles[tileIndex(nx, ny)] as TileType;
+        const n = state.tiles[tileIndex(nx, ny)] as TileType;
         if (isSynergyBuilding(n)) {
           bonus++;
           onBonus?.(tx, ty);
@@ -2190,20 +1160,11 @@ function neighbourhoodPopulationBonus(onBonus?: (tx: number, ty: number) => void
 
 // Upgrades happen by placing the same building on top of an existing one, not next to it.
 function findUpgradeTargetFor(tx: number, ty: number, type: TileType): TileCoord | null {
-  if (tiles[tileIndex(tx, ty)] !== type) return null;
+  if (state.tiles[tileIndex(tx, ty)] !== type) return null;
   return getBuildingLevel(tx, ty) < 3 ? { x: tx, y: ty } : null;
 }
-
 // ---- Barracks housing (2026-10-29) ----
-// Soldiers don't use the settlement's (civilian) population: every unit building (Militia Camp line,
-// Hall of the Sworn / castles, Archery Range, Stables) houses its own troops, `cap` = its tier headcount
-// (`base`) + 1 per adjacent house (8 neighbours, diagonals included, any house tier: adjacentHouseCount).
-// syncGuardBonusAt fields soldiers up to `cap`; respawns never exceed it. What gates new unit buildings
-// and their upgrades is the settlement's garrison: the base headcounts of its unit buildings (built +
-// queued) may not exceed SETTLEMENT_GARRISON_CAP_BY_TIER[Town Center level] + KEEP_GARRISON_PER_LEVEL per
-// Keep level (garrisonBlocker). House extras ride on top of that ceiling.
-const SETTLEMENT_GARRISON_CAP_BY_TIER = [12, 24, 40];
-const KEEP_GARRISON_PER_LEVEL = 5;
+
 
 function settlementGarrisonTierCap(level: number): number {
   return SETTLEMENT_GARRISON_CAP_BY_TIER[Math.min(Math.max(level, 1), SETTLEMENT_GARRISON_CAP_BY_TIER.length) - 1];
@@ -2211,7 +1172,7 @@ function settlementGarrisonTierCap(level: number): number {
 
 // The unit building at a tile: the kind it fields, its level, tier headcount and own troop capacity.
 function unitBuildingSlots(tx: number, ty: number): { kind: ColonistKind; level: number; base: number; cap: number } | null {
-  const t = tiles[tileIndex(tx, ty)] as TileType;
+  const t = state.tiles[tileIndex(tx, ty)] as TileType;
   if (!isMilitaryTile(t)) return null;
   let kind: ColonistKind;
   let level: number;
@@ -2275,7 +1236,7 @@ function placementNeedsNewWorkerSlot(tile: TileType, tx: number, ty: number): bo
   if (tile === TileType.LumberjackPost) return findUpgradeTargetFor(tx, ty, TileType.LumberjackPost) === null;
   if (tile === TileType.BarnPost) return findUpgradeTargetFor(tx, ty, TileType.BarnPost) === null;
   if (tile === TileType.ChurchPost) return findUpgradeTargetFor(tx, ty, TileType.ChurchPost) === null;
-  if (tile === TileType.WardStone) return wardPriestId === null;
+  if (tile === TileType.WardStone) return state.wardPriestId === null;
   if (FARM_PRODUCE_BY_TILE[tile] !== undefined || CRAFT_RECIPES[tile] !== undefined) {
     return findUpgradeTargetFor(tx, ty, tile) === null;
   }
@@ -2354,21 +1315,6 @@ function queueRespawn(c: Colonist) {
     ...(c.kind === "hero" && c.heroClass ? { hero: { id: c.id, name: c.heroName ?? "Hero", heroClass: c.heroClass } } : {}),
   });
 }
-
-const WALL_TILES = [TileType.Wall, TileType.StoneWall];
-const NO_COLONIST_TILES = [
-  TileType.ConstructionSite,
-  TileType.Wall,
-  TileType.StoneWall,
-  TileType.House,
-  TileType.BigHouse,
-  TileType.HouseLevel2,
-  TileType.Market,
-  TileType.GoldShop,
-  TileType.Road,
-  TileType.CobbleRoad,
-  TileType.Keep,
-];
 
 function removeColonistForPost(tx: number, ty: number) {
   for (const [id, c] of colonists) {
@@ -2450,7 +1396,7 @@ function cavalryCountForLevel(level: number): number {
 }
 
 function resolveStablesPlacement(tx: number, ty: number) {
-  if (tiles[tileIndex(tx, ty)] === TileType.Stables) {
+  if (state.tiles[tileIndex(tx, ty)] === TileType.Stables) {
     const level = getBuildingLevel(tx, ty) + 1;
     buildingLevel.set(resourceKey(tx, ty), level);
     const stats = guardStats("cavalry", level);
@@ -2465,7 +1411,7 @@ function resolveStablesPlacement(tx: number, ty: number) {
     announceUpgrade(TileType.Stables, level);
     return;
   }
-  tiles[tileIndex(tx, ty)] = TileType.Stables;
+  state.tiles[tileIndex(tx, ty)] = TileType.Stables;
   broadcastTileUpdate(tx, ty, TileType.Stables);
   spawnColonistForPost(tx, ty, "cavalry", 1);
 }
@@ -2490,41 +1436,12 @@ function upgradeMilitiaAt(tx: number, ty: number, level: number) {
   }
 }
 
-// Event-feed names for tier upgrades, matching the client's build-panel labels.
-const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
-  [TileType.House]: "Cottage",
-  [TileType.KnightPost]: "Hall of the Sworn",
-  [TileType.MilitiaPost]: "Militia Camp",
-  [TileType.ArcherPost]: "Archery Range",
-  [TileType.Tower]: "Tower",
-  [TileType.IronMinePost]: "Iron Mine",
-  [TileType.RockMinePost]: "Quarry",
-  [TileType.LumberjackPost]: "Lumberjack",
-  [TileType.BarnPost]: "Barn",
-  [TileType.ChurchPost]: "Church",
-  [TileType.Pasture]: "Pasture",
-  [TileType.Orchard]: "Orchard",
-  [TileType.WoolFarm]: "Sheep Pasture",
-  [TileType.CottonFarm]: "Hemp Field",
-  [TileType.TailorShop]: "Tailor Shop",
-  [TileType.Blacksmith]: "Blacksmith",
-  [TileType.LuxuryWorkshop]: "Jeweler's Workshop",
-  [TileType.Brewery]: "Brewery",
-  [TileType.Tavern]: "Tavern",
-  [TileType.HunterHut]: "Hunter's Hut",
-  [TileType.ForagerHut]: "Forager's Hut",
-  [TileType.BuildersGuild]: "Builders' Guild",
-  [TileType.TownCenter]: "Town Center",
-  [TileType.Stables]: "Stables",
-  [TileType.Keep]: "Keep",
-};
-
 function announceUpgrade(baseType: TileType, level: number) {
   broadcastEvent("upgrade", `${UPGRADE_NAMES[baseType] ?? "A building"} upgraded to level ${level}`);
 }
 
 function tryLevelUpInPlace(tx: number, ty: number, matchTypes: TileType[]): TileCoord | null {
-  const current = tiles[tileIndex(tx, ty)] as TileType;
+  const current = state.tiles[tileIndex(tx, ty)] as TileType;
   if (!matchTypes.includes(current)) return null;
   const currentLevel = getBuildingLevel(tx, ty);
   if (currentLevel >= 3) return null;
@@ -2544,68 +1461,68 @@ function canAffordHouseUpgrade(current: TileType): boolean {
 
 // The upgrade goods are charged at placement (placementCost), so a queued upgrade can't overdraw later.
 function resolveHousePlacement(tx: number, ty: number) {
-  const current = tiles[tileIndex(tx, ty)] as TileType;
+  const current = state.tiles[tileIndex(tx, ty)] as TileType;
   if (current === TileType.BigHouse) {
-    tiles[tileIndex(tx, ty)] = TileType.HouseLevel2;
+    state.tiles[tileIndex(tx, ty)] = TileType.HouseLevel2;
     broadcastTileUpdate(tx, ty, TileType.HouseLevel2);
     announceUpgrade(TileType.House, 3);
     return;
   }
   if (current === TileType.House) {
-    tiles[tileIndex(tx, ty)] = TileType.BigHouse;
+    state.tiles[tileIndex(tx, ty)] = TileType.BigHouse;
     broadcastTileUpdate(tx, ty, TileType.BigHouse);
     announceUpgrade(TileType.House, 2);
     return;
   }
-  tiles[tileIndex(tx, ty)] = TileType.House;
+  state.tiles[tileIndex(tx, ty)] = TileType.House;
   broadcastTileUpdate(tx, ty, TileType.House);
 }
 
 function resolveKnightPlacement(tx: number, ty: number) {
-  const current = tiles[tileIndex(tx, ty)] as TileType;
+  const current = state.tiles[tileIndex(tx, ty)] as TileType;
   if (current === TileType.CastleLevel2) {
-    tiles[tileIndex(tx, ty)] = TileType.CastleLevel3;
+    state.tiles[tileIndex(tx, ty)] = TileType.CastleLevel3;
     broadcastTileUpdate(tx, ty, TileType.CastleLevel3);
     upgradeKnightAt(tx, ty, 3);
     announceUpgrade(TileType.KnightPost, 3);
     return;
   }
   if (current === TileType.KnightPost) {
-    tiles[tileIndex(tx, ty)] = TileType.CastleLevel2;
+    state.tiles[tileIndex(tx, ty)] = TileType.CastleLevel2;
     broadcastTileUpdate(tx, ty, TileType.CastleLevel2);
     upgradeKnightAt(tx, ty, 2);
     announceUpgrade(TileType.KnightPost, 2);
     return;
   }
-  tiles[tileIndex(tx, ty)] = TileType.KnightPost;
+  state.tiles[tileIndex(tx, ty)] = TileType.KnightPost;
   broadcastTileUpdate(tx, ty, TileType.KnightPost);
   spawnColonistForPost(tx, ty, "knight", 1);
 }
 
 function resolveMilitiaPlacement(tx: number, ty: number) {
-  const current = tiles[tileIndex(tx, ty)] as TileType;
+  const current = state.tiles[tileIndex(tx, ty)] as TileType;
   if (current === TileType.MilitiaCamp2) {
-    tiles[tileIndex(tx, ty)] = TileType.MilitiaCamp3;
+    state.tiles[tileIndex(tx, ty)] = TileType.MilitiaCamp3;
     broadcastTileUpdate(tx, ty, TileType.MilitiaCamp3);
     upgradeMilitiaAt(tx, ty, 3);
     announceUpgrade(TileType.MilitiaPost, 3);
     return;
   }
   if (current === TileType.MilitiaPost) {
-    tiles[tileIndex(tx, ty)] = TileType.MilitiaCamp2;
+    state.tiles[tileIndex(tx, ty)] = TileType.MilitiaCamp2;
     broadcastTileUpdate(tx, ty, TileType.MilitiaCamp2);
     upgradeMilitiaAt(tx, ty, 2);
     announceUpgrade(TileType.MilitiaPost, 2);
     return;
   }
-  tiles[tileIndex(tx, ty)] = TileType.MilitiaPost;
+  state.tiles[tileIndex(tx, ty)] = TileType.MilitiaPost;
   broadcastTileUpdate(tx, ty, TileType.MilitiaPost);
   spawnColonistForPost(tx, ty, "militia", 1);
   spawnColonistForPost(tx, ty, "militia", 1);
 }
 
 function resolveArcherPlacement(tx: number, ty: number) {
-  const here = tiles[tileIndex(tx, ty)] as TileType;
+  const here = state.tiles[tileIndex(tx, ty)] as TileType;
   if (here === TileType.ArcherPost) {
     const newLevel = getBuildingLevel(tx, ty) + 1;
     buildingLevel.set(resourceKey(tx, ty), newLevel);
@@ -2613,7 +1530,7 @@ function resolveArcherPlacement(tx: number, ty: number) {
     announceUpgrade(here, newLevel);
     return;
   }
-  tiles[tileIndex(tx, ty)] = TileType.ArcherPost;
+  state.tiles[tileIndex(tx, ty)] = TileType.ArcherPost;
   broadcastTileUpdate(tx, ty, TileType.ArcherPost);
   spawnColonistForPost(tx, ty, "archer", 1);
 }
@@ -2625,7 +1542,7 @@ function resolveMinePlacement(
   oreType: TileType,
   minerKind: "ironMiner" | "rockMiner"
 ) {
-  const current = tiles[tileIndex(tx, ty)] as TileType;
+  const current = state.tiles[tileIndex(tx, ty)] as TileType;
   if (current === mineType) {
     const currentLevel = getBuildingLevel(tx, ty);
     buildingLevel.set(resourceKey(tx, ty), currentLevel + 1);
@@ -2633,7 +1550,7 @@ function resolveMinePlacement(
     spawnColonistForPost(tx, ty, minerKind);
     return;
   }
-  tiles[tileIndex(tx, ty)] = mineType;
+  state.tiles[tileIndex(tx, ty)] = mineType;
   broadcastTileUpdate(tx, ty, mineType);
   if (current === oreType) minesPlacedOnOre.add(resourceKey(tx, ty));
   spawnColonistForPost(tx, ty, minerKind);
@@ -2642,7 +1559,7 @@ function resolveMinePlacement(
 function resolveLumberjackPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.LumberjackPost]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.LumberjackPost;
+  state.tiles[tileIndex(tx, ty)] = TileType.LumberjackPost;
   broadcastTileUpdate(tx, ty, TileType.LumberjackPost);
   spawnColonistForPost(tx, ty, "lumberjack");
 }
@@ -2650,7 +1567,7 @@ function resolveLumberjackPlacement(tx: number, ty: number) {
 function resolveBarnPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.BarnPost]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.BarnPost;
+  state.tiles[tileIndex(tx, ty)] = TileType.BarnPost;
   broadcastTileUpdate(tx, ty, TileType.BarnPost);
   spawnColonistForPost(tx, ty, "farmer");
 }
@@ -2658,7 +1575,7 @@ function resolveBarnPlacement(tx: number, ty: number) {
 function resolveChurchPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.ChurchPost]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.ChurchPost;
+  state.tiles[tileIndex(tx, ty)] = TileType.ChurchPost;
   broadcastTileUpdate(tx, ty, TileType.ChurchPost);
   spawnColonistForPost(tx, ty, "bishop");
 }
@@ -2666,7 +1583,7 @@ function resolveChurchPlacement(tx: number, ty: number) {
 function resolvePasturePlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Pasture]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.Pasture;
+  state.tiles[tileIndex(tx, ty)] = TileType.Pasture;
   broadcastTileUpdate(tx, ty, TileType.Pasture);
   spawnColonistForPost(tx, ty, "farmhand");
 }
@@ -2674,7 +1591,7 @@ function resolvePasturePlacement(tx: number, ty: number) {
 function resolveOrchardPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Orchard]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.Orchard;
+  state.tiles[tileIndex(tx, ty)] = TileType.Orchard;
   broadcastTileUpdate(tx, ty, TileType.Orchard);
   spawnColonistForPost(tx, ty, "farmhand");
 }
@@ -2682,7 +1599,7 @@ function resolveOrchardPlacement(tx: number, ty: number) {
 function resolveWoolFarmPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.WoolFarm]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.WoolFarm;
+  state.tiles[tileIndex(tx, ty)] = TileType.WoolFarm;
   broadcastTileUpdate(tx, ty, TileType.WoolFarm);
   spawnColonistForPost(tx, ty, "farmhand");
 }
@@ -2690,7 +1607,7 @@ function resolveWoolFarmPlacement(tx: number, ty: number) {
 function resolveCottonFarmPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.CottonFarm]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.CottonFarm;
+  state.tiles[tileIndex(tx, ty)] = TileType.CottonFarm;
   broadcastTileUpdate(tx, ty, TileType.CottonFarm);
   spawnColonistForPost(tx, ty, "farmhand");
 }
@@ -2698,7 +1615,7 @@ function resolveCottonFarmPlacement(tx: number, ty: number) {
 function resolveTailorShopPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.TailorShop]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.TailorShop;
+  state.tiles[tileIndex(tx, ty)] = TileType.TailorShop;
   broadcastTileUpdate(tx, ty, TileType.TailorShop);
   spawnColonistForPost(tx, ty, "artisan");
 }
@@ -2706,7 +1623,7 @@ function resolveTailorShopPlacement(tx: number, ty: number) {
 function resolveBlacksmithPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Blacksmith]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.Blacksmith;
+  state.tiles[tileIndex(tx, ty)] = TileType.Blacksmith;
   broadcastTileUpdate(tx, ty, TileType.Blacksmith);
   spawnColonistForPost(tx, ty, "artisan");
 }
@@ -2714,7 +1631,7 @@ function resolveBlacksmithPlacement(tx: number, ty: number) {
 function resolveLuxuryWorkshopPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.LuxuryWorkshop]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.LuxuryWorkshop;
+  state.tiles[tileIndex(tx, ty)] = TileType.LuxuryWorkshop;
   broadcastTileUpdate(tx, ty, TileType.LuxuryWorkshop);
   spawnColonistForPost(tx, ty, "artisan");
 }
@@ -2722,7 +1639,7 @@ function resolveLuxuryWorkshopPlacement(tx: number, ty: number) {
 function resolveBreweryPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Brewery]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.Brewery;
+  state.tiles[tileIndex(tx, ty)] = TileType.Brewery;
   broadcastTileUpdate(tx, ty, TileType.Brewery);
   spawnColonistForPost(tx, ty, "artisan");
 }
@@ -2730,7 +1647,7 @@ function resolveBreweryPlacement(tx: number, ty: number) {
 function resolveTavernPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Tavern]);
   if (upgraded) return;
-  tiles[tileIndex(tx, ty)] = TileType.Tavern;
+  state.tiles[tileIndex(tx, ty)] = TileType.Tavern;
   broadcastTileUpdate(tx, ty, TileType.Tavern);
   spawnColonistForPost(tx, ty, "artisan");
 }
@@ -2739,7 +1656,7 @@ function resolveTavernPlacement(tx: number, ty: number) {
 // upgrades included, needs a free population slot).
 // The Builders' Guild works the same way (one builder per level).
 function resolveFoodHutPlacement(tx: number, ty: number, hutType: TileType, kind: "hunter" | "forager" | "builder") {
-  const current = tiles[tileIndex(tx, ty)] as TileType;
+  const current = state.tiles[tileIndex(tx, ty)] as TileType;
   if (current === hutType) {
     const currentLevel = getBuildingLevel(tx, ty);
     buildingLevel.set(resourceKey(tx, ty), currentLevel + 1);
@@ -2747,7 +1664,7 @@ function resolveFoodHutPlacement(tx: number, ty: number, hutType: TileType, kind
     spawnColonistForPost(tx, ty, kind);
     return;
   }
-  tiles[tileIndex(tx, ty)] = hutType;
+  state.tiles[tileIndex(tx, ty)] = hutType;
   broadcastTileUpdate(tx, ty, hutType);
   spawnColonistForPost(tx, ty, kind);
 }
@@ -2776,9 +1693,9 @@ function resolveTownCenterPlacement(tx: number, ty: number) {
     topUpTownCenterBuilders(existing);
     return;
   }
-  tiles[tileIndex(tx, ty)] = TileType.TownCenter;
+  state.tiles[tileIndex(tx, ty)] = TileType.TownCenter;
   const tc: TownCenter = { x: tx, y: ty, level: 1, hp: townCenterMaxHp(1) };
-  townCenters.push(tc);
+  state.townCenters.push(tc);
   broadcastTileUpdate(tx, ty, TileType.TownCenter);
   revealAround(tx, ty, START_VISION_OFFSETS);
   topUpTownCenterBuilders(tc);
@@ -2787,28 +1704,18 @@ function resolveTownCenterPlacement(tx: number, ty: number) {
 
 // Mob damage brought it down: it is removed for good (a new one can be placed).
 function destroyTownCenter(tc: TownCenter) {
-  townCenters = townCenters.filter((t) => t !== tc);
+  state.townCenters = state.townCenters.filter((t) => t !== tc);
   const key = resourceKey(tc.x, tc.y);
   constructionSites.delete(key);
-  tiles[tileIndex(tc.x, tc.y)] = TileType.Empty;
+  state.tiles[tileIndex(tc.x, tc.y)] = TileType.Empty;
   broadcastTileUpdate(tc.x, tc.y, TileType.Empty);
   broadcastEvent(
     "death",
-    townCenters.length > 0 ? "A Town Center has been destroyed" : "The last Town Center has been destroyed — build a new one"
+    state.townCenters.length > 0 ? "A Town Center has been destroyed" : "The last Town Center has been destroyed — build a new one"
   );
 }
-
 // ---- Dawn/dusk respawn windows (long days, 2026-10-23) ----
-// The dead wait in respawnQueue (still validated, re-homed and pruned every daylight tick) and come back in one
-// batch at the next window: dawn = cycle tick 0 of a day, dusk = DAY_TICKS - 1, the last daylight
-// tick (so replacements still only ever arrive by day). A unit the batch can't afford (food) or fit
-// (population cap) keeps waiting for the next window. The Ward Priest follows the same windows.
-type RespawnWindow = "dawn" | "dusk";
-const DUSK_RESPAWN_CYCLE_TICK = DAY_TICKS - 1;
-// Units spawned by this tick's window (respawnQueue + Ward Priest), for the "Reinforcements" toast.
-let respawnWindowSpawned = 0;
-// True while a dead Ward Priest is due back at the next window (counted as waiting on the client).
-let wardPriestAwaitingWindow = false;
+
 
 function respawnWindowAt(tick: number): RespawnWindow | null {
   const t = tick % GAME_DAY_TICKS;
@@ -2825,9 +1732,9 @@ function nextRespawnWindow(tick: number): { window: RespawnWindow; ticks: number
 
 // The snapshot's `respawn` (protocol RespawnWindowSnapshot).
 function respawnWindowSnapshot() {
-  const next = nextRespawnWindow(cycleTick);
+  const next = nextRespawnWindow(state.cycleTick);
   return {
-    waiting: respawnQueue.length + (wardPriestAwaitingWindow ? 1 : 0),
+    waiting: respawnQueue.length + (state.wardPriestAwaitingWindow ? 1 : 0),
     nextWindow: next.window,
     ticksToWindow: next.ticks,
     dayTicks: DAY_TICKS,
@@ -2838,7 +1745,7 @@ function respawnWindowSnapshot() {
 function processRespawnQueue() {
   // Replacements only arrive by day (both windows are daylight ticks); the queue waits out the night.
   if (isNightNow()) return;
-  const windowNow = respawnWindowAt(cycleTick);
+  const windowNow = respawnWindowAt(state.cycleTick);
   for (let i = respawnQueue.length - 1; i >= 0; i--) {
     const req = respawnQueue[i];
     // Hero phase 3: a fallen hero is never dropped; it comes back at a window when its settlement has room
@@ -2853,14 +1760,14 @@ function processRespawnQueue() {
         continue;
       }
       stock.gold -= fee;
-      respawnWindowSpawned++;
+      state.respawnWindowSpawned++;
       spawnHeroColonist(req.hero.id, req.hero.name, req.hero.heroClass, req.tx, req.ty);
       heroTestEvent({ type: "respawn", id: req.hero.id, amount: fee, detail: windowNow });
       respawnQueue.splice(i, 1);
       continue;
     }
     // A builder whose Town Center fell respawns at the nearest one still standing.
-    if (req.kind === "builder" && !isValidPostTile("builder", tiles[tileIndex(req.tx, req.ty)] as TileType)) {
+    if (req.kind === "builder" && !isValidPostTile("builder", state.tiles[tileIndex(req.tx, req.ty)] as TileType)) {
       const p = tileToPixelCenter({ x: req.tx, y: req.ty });
       const tc = nearestTownCenter(p.x, p.y);
       if (tc) {
@@ -2868,7 +1775,7 @@ function processRespawnQueue() {
         req.ty = tc.y;
       }
     }
-    const currentTile = tiles[tileIndex(req.tx, req.ty)] as TileType;
+    const currentTile = state.tiles[tileIndex(req.tx, req.ty)] as TileType;
     if (!isValidPostTile(req.kind, currentTile)) {
       respawnQueue.splice(i, 1);
       continue;
@@ -2893,7 +1800,7 @@ function processRespawnQueue() {
       continue;
     }
     if (trySpendFood(RESPAWN_FOOD_COST)) {
-      respawnWindowSpawned++;
+      state.respawnWindowSpawned++;
       const castleLevel =
         req.kind === "knight"
           ? castleLevelForTile(currentTile)
@@ -2962,7 +1869,7 @@ function desertColonist(c: Colonist) {
     healCooldownTicks: 0,
     isDeserter: true,
     deserterActive: false,
-    deserterSinceTick: cycleTick,
+    deserterSinceTick: state.cycleTick,
     siteId: null,
     siteKind: null,
     guardianActive: false,
@@ -2975,11 +1882,11 @@ function desertColonist(c: Colonist) {
 }
 
 function applyMoraleCheck() {
-  if (colonyHappiness < HAPPINESS_MUTINY_THRESHOLD) {
+  if (state.colonyHappiness < HAPPINESS_MUTINY_THRESHOLD) {
     for (const c of Array.from(colonists.values())) {
       if (isSoldierKind(c.kind)) desertColonist(c);
     }
-  } else if (colonyHappiness < HAPPINESS_DESERTION_THRESHOLD) {
+  } else if (state.colonyHappiness < HAPPINESS_DESERTION_THRESHOLD) {
     for (const c of Array.from(colonists.values())) {
       if (isSoldierKind(c.kind) && Math.random() < HAPPINESS_DESERTION_CHANCE) desertColonist(c);
     }
@@ -3006,7 +1913,7 @@ function barnForNewFarmPlot(tx: number, ty: number): TileCoord | null {
   let bestD = Infinity;
   for (let y = ty - BARN_FARM_RADIUS_TILES; y <= ty + BARN_FARM_RADIUS_TILES; y++) {
     for (let x = tx - BARN_FARM_RADIUS_TILES; x <= tx + BARN_FARM_RADIUS_TILES; x++) {
-      if (!inBounds(x, y) || tiles[tileIndex(x, y)] !== TileType.BarnPost) continue;
+      if (!inBounds(x, y) || state.tiles[tileIndex(x, y)] !== TileType.BarnPost) continue;
       const d = Math.hypot(x - tx, y - ty);
       if (d >= bestD || farmPlotCountForBarn(x, y) >= BARN_MAX_FARM_PLOTS) continue;
       bestD = d;
@@ -3068,7 +1975,7 @@ function updateFarmPlots() {
     // A resting field recovers on its own; only re-sowing it needs the farmer.
     if (plot.state === "fallow" && plot.fallowTicksRemaining > 0) plot.fallowTicksRemaining--;
     if (plot.harvestedTicksRemaining > 0) plot.harvestedTicksRemaining--;
-    if (tiles[tileIndex(plot.barnX, plot.barnY)] !== TileType.BarnPost) continue;
+    if (state.tiles[tileIndex(plot.barnX, plot.barnY)] !== TileType.BarnPost) continue;
     if (!isBarnStaffed(plot.barnX, plot.barnY)) continue;
     const [plotX, plotY] = plotKey.split(",").map(Number);
     if (plot.state === "fallow") {
@@ -3099,19 +2006,8 @@ function updateFarmPlots() {
     }
   }
 }
-
 // ---- Farm art stages (snapshot farmStages; FarmStage in protocol.ts). Cosmetic only. ----
-// A grain plot shows its stubble ("harvested") art this long after each harvest.
-const FARM_HARVESTED_SHOW_TICKS = TICK_RATE * 8;
-// Stage boundaries as fractions (0..1) of the current grow phase / farmhand produce cycle.
-const FARM_SPROUTING_FRACTION = 2 / 3; // grain: sown < 1/3 <= sprouting < 2/3 <= growing
-const HEMP_GROWING_FROM = 1 / 3;
-const HEMP_RIPE_FROM = 2 / 3;
-const PASTURE_FAT_FROM = 0.7;
-const SHEEP_WOOLLY_FROM = 0.25; // sheared right after the wool batch lands
-const SHEEP_READY_FROM = 0.8;
-const ORCHARD_BLOSSOM_UNTIL = 0.35;
-const ORCHARD_FRUITING_FROM = 0.65;
+
 
 // 0..1 through the plot's current grow phase (1 while ripe/fallow).
 function farmPlotProgress(plot: FarmPlotState): number {
@@ -3155,7 +2051,7 @@ function farmStagesForSnapshot(): number[] {
     if (c.kind !== "farmhand") continue;
     const index = tileIndex(c.postX, c.postY);
     if (seen.has(index)) continue;
-    const stage = farmhandFarmStage(tiles[index] as TileType, farmhandProgress(c));
+    const stage = farmhandFarmStage(state.tiles[index] as TileType, farmhandProgress(c));
     if (stage === null) continue;
     seen.add(index);
     out.push(index, stage);
@@ -3168,9 +2064,9 @@ function planRouteToNearestResource(
   resourceTile: TileType
 ): { path: TileCoord[]; resX: number; resY: number } | null {
   const spots: TileCoord[] = [];
-  for (let tx = 0; tx < WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
-      if (tiles[tileIndex(tx, ty)] === resourceTile && !reservedResourceTiles.has(resourceKey(tx, ty))) {
+  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
+    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
+      if (state.tiles[tileIndex(tx, ty)] === resourceTile && !reservedResourceTiles.has(resourceKey(tx, ty))) {
         spots.push({ x: tx, y: ty });
       }
     }
@@ -3199,10 +2095,6 @@ function updateStationaryMiner(c: Colonist, dt: number) {
     c.chopTicksRemaining = effectiveChopTicks(c.postX, c.postY);
   }
 }
-
-// A Barn farmer walks its Barn's Farm Plots in turn and works a few seconds at each (presence only:
-// grain growth / yield stay in updateFarmPlots). Unreachable plots are skipped; no plots = stays put.
-const FARMER_PLOT_DWELL_TICKS = 6 * TICK_RATE;
 function updateFarmer(c: Colonist, dt: number) {
   if (c.farmPlotKey) {
     const plotTile = keyToTile(c.farmPlotKey);
@@ -3256,7 +2148,7 @@ function updateFarmer(c: Colonist, dt: number) {
 // chopTicksRemaining counts down the current FARMHAND_CYCLE_TICKS cycle, one tick per tick of tending
 // (daytime only: farmhands shelter at night), and the whole batch lands when it runs out.
 function updateFarmhand(c: Colonist) {
-  const resource = FARM_PRODUCE_BY_TILE[tiles[tileIndex(c.postX, c.postY)] as TileType];
+  const resource = FARM_PRODUCE_BY_TILE[state.tiles[tileIndex(c.postX, c.postY)] as TileType];
   if (!resource) return;
   c.state = "farming";
   c.chopTicksRemaining--;
@@ -3268,7 +2160,7 @@ function updateFarmhand(c: Colonist) {
 }
 
 function updateArtisan(c: Colonist) {
-  const recipe = CRAFT_RECIPES[tiles[tileIndex(c.postX, c.postY)] as TileType];
+  const recipe = CRAFT_RECIPES[state.tiles[tileIndex(c.postX, c.postY)] as TileType];
   if (!recipe) return;
   c.state = "crafting";
   const inputsReady = Object.entries(recipe.inputs).every(
@@ -3318,8 +2210,8 @@ function updateGathererColonist(c: Colonist, dt: number) {
       c.chopTicksRemaining--;
       if (c.chopTicksRemaining <= 0) {
         const idx = tileIndex(c.targetResourceX, c.targetResourceY);
-        if (c.kind === "lumberjack" && tiles[idx] === resourceTile) {
-          tiles[idx] = TileType.Empty;
+        if (c.kind === "lumberjack" && state.tiles[idx] === resourceTile) {
+          state.tiles[idx] = TileType.Empty;
           broadcastTileUpdate(c.targetResourceX, c.targetResourceY, TileType.Empty);
         }
         releaseResourceReservation(c);
@@ -3353,135 +2245,16 @@ function updateGathererColonist(c: Colonist, dt: number) {
 // houses at night like everyone else (updateColonist). Their hut's level adds workers (one per level,
 // see resolveFoodHutPlacement) and, with happiness and industrial synergy, speeds their work timers.
 
-// Hunters: find the nearest unreserved living game within HUNTER_WORK_RADIUS_TILES of the hut, close to
-// bow range, shoot until it dies, pick up the carcass and carry it home (meat lands on arrival).
-const HUNTER_WORK_RADIUS_TILES = 25;
-// Give up a chase once the quarry is this far from the hut (it can flee past the work radius).
-const HUNTER_CHASE_LEASH_TILES = HUNTER_WORK_RADIUS_TILES + 5;
-const HUNTER_BOW_RANGE = TILE_SIZE * 4;
-const HUNTER_ARROW_DAMAGE = 10;
-const HUNTER_SHOT_COOLDOWN_TICKS = Math.round(TICK_RATE * 1.2);
-const HUNTER_REPATH_TICKS = TICK_RATE;
-// How many of the nearest candidates (game or forage) get a path check before the worker waits.
-const FOOD_WORKER_ROUTE_CANDIDATES = 6;
-const FOOD_WORKER_IDLE_RETRY_TICKS = TICK_RATE * 2;
-
-// Foragers: nearest RIPE forage within FORAGER_WORK_RADIUS_TILES of the hut, pick for FORAGE_TICKS, carry
-// the fruit home. A picked plant regrows to ripe after FORAGE_REGROW_TICKS (day and night).
-const FORAGER_WORK_RADIUS_TILES = 25;
-const FORAGE_TICKS = TICK_RATE * 3;
-// Long days: stays 100 s of real time (one legacy day), so forage income per second is unchanged.
-const FORAGE_REGROW_TICKS = LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS;
-
-// Wild forage scatter (counts tuned for 80x80, scaled by area like the other world-gen counts).
-// Berry bushes on Plains, fruit trees on Plains, mushrooms next to trees (any biome) or in Swamp.
-let BERRY_BUSH_COUNT = scaledCount(24);
-let FRUIT_TREE_COUNT = scaledCount(12);
-let MUSHROOM_PATCH_COUNT = scaledCount(10);
-// Nothing wild grows this close to the Town Center (keeps the start area buildable).
-const FORAGE_MIN_TOWN_CENTER_DIST_TILES = 5;
-const FORAGE_RIPE_TO_PICKED: Partial<Record<TileType, TileType>> = {
-  [TileType.BerryBush]: TileType.BerryBushPicked,
-  [TileType.FruitTree]: TileType.FruitTreePicked,
-  [TileType.MushroomPatch]: TileType.MushroomPatchPicked,
-};
-const FORAGE_PICKED_TO_RIPE: Partial<Record<TileType, TileType>> = {
-  [TileType.BerryBushPicked]: TileType.BerryBush,
-  [TileType.FruitTreePicked]: TileType.FruitTree,
-  [TileType.MushroomPatchPicked]: TileType.MushroomPatch,
-};
-// Fruit carried home per plant picked.
-const FORAGE_FRUIT_YIELD: Partial<Record<TileType, number>> = {
-  [TileType.BerryBush]: 3,
-  [TileType.FruitTree]: 5,
-  [TileType.MushroomPatch]: 2,
-};
-const FORAGE_TILES: TileType[] = [
-  TileType.BerryBush,
-  TileType.BerryBushPicked,
-  TileType.FruitTree,
-  TileType.FruitTreePicked,
-  TileType.MushroomPatch,
-  TileType.MushroomPatchPicked,
-];
-// Tile index -> ticks until that picked plant is ripe again.
-const forageRegrow = new Map<number, number>();
-
-// Wild game. Counts per 80x80 (scaled by area): every kind starts at its cap, and the population is
-// topped back up by WILDLIFE_RESPAWN_PER_DAY animals a day (the kind furthest below its cap first,
-// never above the caps).
-interface WildlifeConfig {
-  maxHp: number;
-  // px/s while wandering / fleeing.
-  speed: number;
-  fleeSpeed: number;
-  // Meat delivered when the carcass reaches the hut (or straight away when a player kills it).
-  meat: number;
-  cap: number;
-}
 const WILDLIFE_CONFIG: Record<WildlifeKind, WildlifeConfig> = {
   deer: { maxHp: 18, speed: 28, fleeSpeed: 115, meat: 6, cap: scaledCountSub(6) },
   rabbit: { maxHp: 6, speed: 30, fleeSpeed: 125, meat: 2, cap: scaledCountSub(8) },
   boar: { maxHp: 30, speed: 24, fleeSpeed: 100, meat: 8, cap: scaledCountSub(3) },
   pheasant: { maxHp: 6, speed: 22, fleeSpeed: 120, meat: 2, cap: scaledCountSub(4) },
 };
-// 4 a day on 80x80 (16 on 160x160): a map's sustainable hunt is about this many animals a day.
-let WILDLIFE_RESPAWN_PER_DAY = Math.max(1, scaledCountSub(4));
 // Long days: the interval stays in real time (4 per legacy 100 s day = one every 25 s on 80x80), so a
 // long day tops up ~15 animals and hunting income per second is unchanged.
-const WILDLIFE_RESPAWN_INTERVAL_TICKS = Math.round((LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS) / WILDLIFE_RESPAWN_PER_DAY);
-// Game never spawns this close to the Town Center (nor within WILDLIFE_PLAYER_CLEARANCE_TILES of a
-// player, for respawns), so the colony's surroundings aren't a petting zoo.
-const WILDLIFE_MIN_TOWN_CENTER_DIST_TILES = 10;
-const WILDLIFE_PLAYER_CLEARANCE_TILES = 8;
-// Wandering: short walks to a random walkable spot within this radius of home, with rests between.
-const WILDLIFE_WANDER_RADIUS_TILES = 5;
-const WILDLIFE_REST_MIN_TICKS = TICK_RATE * 2;
-const WILDLIFE_REST_MAX_TICKS = TICK_RATE * 8;
-// Any damage makes an animal bolt directly away from the attacker for this long; it then settles
-// wherever it ended up (its new home).
-const WILDLIFE_FLEE_TICKS = TICK_RATE * 4;
-// A boar shot by a hunter charges him instead of fleeing, for at most BOAR_CHARGE_TICKS, then flees.
-const BOAR_CHARGE_TICKS = TICK_RATE * 6;
-const BOAR_CHARGE_SPEED = 95;
-const BOAR_DAMAGE = 4;
-const BOAR_ATTACK_RANGE = TILE_SIZE * 0.8;
-const BOAR_ATTACK_COOLDOWN_TICKS = TICK_RATE;
-
-type WildlifeMode = "idle" | "walk" | "flee" | "charge";
-interface Wildlife {
-  id: number;
-  kind: WildlifeKind;
-  x: number;
-  y: number;
-  hp: number;
-  homeX: number;
-  homeY: number;
-  mode: WildlifeMode;
-  targetX: number;
-  targetY: number;
-  restTicks: number;
-  // flee / charge time left.
-  modeTicks: number;
-  fleeDirX: number;
-  fleeDirY: number;
-  // Colonist id of the hunter chasing it (one hunter per animal), and of the hunter a boar charges.
-  reservedBy: string | null;
-  chargeTargetId: string | null;
-  attackCooldownTicks: number;
-}
-const wildlife = new Map<number, Wildlife>();
-let nextWildlifeId = 1;
-let wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
-// testHook "setWildlifeRespawn" {enabled:false}: no new game appears (hunting tests control every animal).
-let testWildlifeRespawnDisabled = false;
-
-const WILDLIFE_STATE_CODE: Record<WildlifeMode, WildlifeState> = {
-  idle: WildlifeState.Idle,
-  walk: WildlifeState.Walk,
-  flee: WildlifeState.Flee,
-  charge: WildlifeState.Charge,
-};
+const WILDLIFE_RESPAWN_INTERVAL_TICKS = Math.round((LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS) / state.WILDLIFE_RESPAWN_PER_DAY);
+state.wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
 
 function wildlifeForSnapshot(): number[] {
   const out: number[] = [];
@@ -3494,7 +2267,7 @@ function wildlifeForSnapshot(): number[] {
 function hasTreeNear(tx: number, ty: number, radius: number): boolean {
   for (let dy = -radius; dy <= radius; dy++) {
     for (let dx = -radius; dx <= radius; dx++) {
-      if (inBounds(tx + dx, ty + dy) && tiles[tileIndex(tx + dx, ty + dy)] === TileType.Tree) return true;
+      if (inBounds(tx + dx, ty + dy) && state.tiles[tileIndex(tx + dx, ty + dy)] === TileType.Tree) return true;
     }
   }
   return false;
@@ -3503,7 +2276,7 @@ function hasTreeNear(tx: number, ty: number, radius: number): boolean {
 // Deer and rabbits on Plains; boar on Plains/Hills with a tree within 2 tiles (forest edges); pheasant
 // on Plains/Hills. Always an Empty tile.
 function wildlifeTileOk(kind: WildlifeKind, tx: number, ty: number): boolean {
-  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Empty) return false;
+  if (!inBounds(tx, ty) || state.tiles[tileIndex(tx, ty)] !== TileType.Empty) return false;
   if (isInReservedGrounds(tx, ty)) return false;
   if (Math.hypot(tx - TOWN_CENTER_TILE.x, ty - TOWN_CENTER_TILE.y) < WILDLIFE_MIN_TOWN_CENTER_DIST_TILES) return false;
   const biome = biomeAt(tx, ty);
@@ -3515,7 +2288,7 @@ function wildlifeTileOk(kind: WildlifeKind, tx: number, ty: number): boolean {
 function spawnWildlifeAt(kind: WildlifeKind, tx: number, ty: number): Wildlife {
   const center = tileToPixelCenter({ x: tx, y: ty });
   const animal: Wildlife = {
-    id: nextWildlifeId++,
+    id: state.nextWildlifeId++,
     kind,
     x: center.x,
     y: center.y,
@@ -3540,8 +2313,8 @@ function spawnWildlifeAt(kind: WildlifeKind, tx: number, ty: number): Wildlife {
 // Rejection-samples a spawn tile for `kind`; null if none found (crowded map).
 function pickWildlifeSpawnTile(kind: WildlifeKind, avoidPlayers: boolean): TileCoord | null {
   for (let attempt = 0; attempt < 400; attempt++) {
-    const tx = Math.floor(Math.random() * WORLD_TILES_X);
-    const ty = Math.floor(Math.random() * WORLD_TILES_Y);
+    const tx = Math.floor(Math.random() * state.WORLD_TILES_X);
+    const ty = Math.floor(Math.random() * state.WORLD_TILES_Y);
     if (!wildlifeTileOk(kind, tx, ty)) continue;
     if (avoidPlayers) {
       const center = tileToPixelCenter({ x: tx, y: ty });
@@ -3558,8 +2331,8 @@ function pickWildlifeSpawnTile(kind: WildlifeKind, avoidPlayers: boolean): TileC
 
 function spawnInitialWildlife() {
   wildlife.clear();
-  nextWildlifeId = 1;
-  wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
+  state.nextWildlifeId = 1;
+  state.wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
   for (const kind of WILDLIFE_KINDS) {
     for (let i = 0; i < WILDLIFE_CONFIG[kind].cap; i++) {
       const tile = pickWildlifeSpawnTile(kind, false);
@@ -3570,12 +2343,12 @@ function spawnInitialWildlife() {
 
 // One animal every WILDLIFE_RESPAWN_INTERVAL_TICKS, of the kind furthest below its cap (by ratio).
 function updateWildlifeRespawn() {
-  if (testWildlifeRespawnDisabled) return;
-  if (wildlifeRespawnCooldown > 0) {
-    wildlifeRespawnCooldown--;
+  if (state.testWildlifeRespawnDisabled) return;
+  if (state.wildlifeRespawnCooldown > 0) {
+    state.wildlifeRespawnCooldown--;
     return;
   }
-  wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
+  state.wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
   const counts: Record<WildlifeKind, number> = { deer: 0, rabbit: 0, boar: 0, pheasant: 0 };
   for (const a of wildlife.values()) counts[a.kind]++;
   let best: WildlifeKind | null = null;
@@ -3607,8 +2380,8 @@ function stepWildlife(a: Wildlife, dirX: number, dirY: number, speed: number, dt
   const step = speed * biomeSpeedMultiplier(a.x, a.y) * dt;
   const nx = a.x + (dirX / len) * step;
   const ny = a.y + (dirY / len) * step;
-  const clampX = clamp(nx, TILE_SIZE / 2, worldWidth - TILE_SIZE / 2);
-  const clampY = clamp(ny, TILE_SIZE / 2, worldHeight - TILE_SIZE / 2);
+  const clampX = clamp(nx, TILE_SIZE / 2, state.worldWidth - TILE_SIZE / 2);
+  const clampY = clamp(ny, TILE_SIZE / 2, state.worldHeight - TILE_SIZE / 2);
   if (isWalkablePixel(clampX, clampY)) {
     a.x = clampX;
     a.y = clampY;
@@ -3657,10 +2430,6 @@ function damageWildlife(a: Wildlife, amount: number, fromX: number, fromY: numbe
   }
   return false;
 }
-
-// Dormancy: wildlife with no living player or colonist within this many tiles skips its AI and
-// movement (only the cheap cooldown timer runs) and wakes when one comes near.
-const DORMANCY_RADIUS_TILES = 64;
 function updateWildlife(dt: number) {
   const anchors: { x: number; y: number }[] = [];
   for (const p of players.values()) if (!p.dead) anchors.push(p);
@@ -3705,7 +2474,7 @@ function updateWildlife(dt: number) {
       if (dist <= BOAR_ATTACK_RANGE) {
         if (a.attackCooldownTicks <= 0) {
           a.attackCooldownTicks = BOAR_ATTACK_COOLDOWN_TICKS;
-          pendingEffects.push({ fromX: a.x, fromY: a.y, toX: target.x, toY: target.y, melee: true });
+          state.pendingEffects.push({ fromX: a.x, fromY: a.y, toX: target.x, toY: target.y, melee: true });
           damageColonist(target, BOAR_DAMAGE);
         }
       } else {
@@ -3743,24 +2512,24 @@ function updateWildlife(dt: number) {
 function scatterForage(tile: TileType, count: number, isValid: (tx: number, ty: number) => boolean) {
   let placed = 0;
   for (let attempts = 0; placed < count && attempts < scaledCount(2000); attempts++) {
-    const tx = Math.floor(Math.random() * WORLD_TILES_X);
-    const ty = Math.floor(Math.random() * WORLD_TILES_Y);
-    if (tiles[tileIndex(tx, ty)] !== TileType.Empty) continue;
+    const tx = Math.floor(Math.random() * state.WORLD_TILES_X);
+    const ty = Math.floor(Math.random() * state.WORLD_TILES_Y);
+    if (state.tiles[tileIndex(tx, ty)] !== TileType.Empty) continue;
     if (isInReservedGrounds(tx, ty)) continue;
     if (Math.hypot(tx - TOWN_CENTER_TILE.x, ty - TOWN_CENTER_TILE.y) < FORAGE_MIN_TOWN_CENTER_DIST_TILES) continue;
     if (!isValid(tx, ty)) continue;
-    tiles[tileIndex(tx, ty)] = tile;
+    state.tiles[tileIndex(tx, ty)] = tile;
     placed++;
   }
 }
 
 function generateForage() {
   forageRegrow.clear();
-  scatterForage(TileType.BerryBush, BERRY_BUSH_COUNT, (tx, ty) => biomeAt(tx, ty) === Biome.Plains);
-  scatterForage(TileType.FruitTree, FRUIT_TREE_COUNT, (tx, ty) => biomeAt(tx, ty) === Biome.Plains);
+  scatterForage(TileType.BerryBush, state.BERRY_BUSH_COUNT, (tx, ty) => biomeAt(tx, ty) === Biome.Plains);
+  scatterForage(TileType.FruitTree, state.FRUIT_TREE_COUNT, (tx, ty) => biomeAt(tx, ty) === Biome.Plains);
   scatterForage(
     TileType.MushroomPatch,
-    MUSHROOM_PATCH_COUNT,
+    state.MUSHROOM_PATCH_COUNT,
     (tx, ty) => biomeAt(tx, ty) === Biome.Swamp || hasTreeNear(tx, ty, 1)
   );
 }
@@ -3768,7 +2537,7 @@ function generateForage() {
 // Picked plants count down to ripe; an entry whose tile was cleared (demolished) is dropped.
 function updateForageRegrow() {
   for (const [index, ticks] of forageRegrow) {
-    const tile = tiles[index] as TileType;
+    const tile = state.tiles[index] as TileType;
     const ripe = FORAGE_PICKED_TO_RIPE[tile];
     if (ripe === undefined) {
       forageRegrow.delete(index);
@@ -3779,8 +2548,8 @@ function updateForageRegrow() {
       continue;
     }
     forageRegrow.delete(index);
-    tiles[index] = ripe;
-    broadcastTileUpdate(index % WORLD_TILES_X, Math.floor(index / WORLD_TILES_X), ripe);
+    state.tiles[index] = ripe;
+    broadcastTileUpdate(index % state.WORLD_TILES_X, Math.floor(index / state.WORLD_TILES_X), ripe);
   }
 }
 
@@ -3859,7 +2628,7 @@ function updateHunter(c: Colonist, dt: number) {
       c.path = [];
       if (c.attackCooldownTicks > 0) return;
       c.attackCooldownTicks = effectiveFoodHutTicks(HUNTER_SHOT_COOLDOWN_TICKS, c.postX, c.postY);
-      pendingEffects.push({ fromX: c.x, fromY: c.y, toX: animal.x, toY: animal.y });
+      state.pendingEffects.push({ fromX: c.x, fromY: c.y, toX: animal.x, toY: animal.y });
       const carcass = { x: animal.x, y: animal.y };
       if (damageWildlife(animal, HUNTER_ARROW_DAMAGE, c.x, c.y, c.id)) {
         c.targetWildlifeId = null;
@@ -3912,9 +2681,9 @@ function planForage(c: Colonist): { tx: number; ty: number; path: TileCoord[] } 
   const hut = { x: c.postX, y: c.postY };
   const r = FORAGER_WORK_RADIUS_TILES;
   const candidates: { tx: number; ty: number; d: number }[] = [];
-  for (let ty = Math.max(0, hut.y - r); ty <= Math.min(WORLD_TILES_Y - 1, hut.y + r); ty++) {
-    for (let tx = Math.max(0, hut.x - r); tx <= Math.min(WORLD_TILES_X - 1, hut.x + r); tx++) {
-      if (FORAGE_RIPE_TO_PICKED[tiles[tileIndex(tx, ty)] as TileType] === undefined) continue;
+  for (let ty = Math.max(0, hut.y - r); ty <= Math.min(state.WORLD_TILES_Y - 1, hut.y + r); ty++) {
+    for (let tx = Math.max(0, hut.x - r); tx <= Math.min(state.WORLD_TILES_X - 1, hut.x + r); tx++) {
+      if (FORAGE_RIPE_TO_PICKED[state.tiles[tileIndex(tx, ty)] as TileType] === undefined) continue;
       if (Math.hypot(tx - hut.x, ty - hut.y) > r) continue;
       if (reservedResourceTiles.has(resourceKey(tx, ty))) continue;
       candidates.push({ tx, ty, d: (tx + 0.5 - c.x / TILE_SIZE) ** 2 + (ty + 0.5 - c.y / TILE_SIZE) ** 2 });
@@ -3936,7 +2705,7 @@ function planForage(c: Colonist): { tx: number; ty: number; path: TileCoord[] } 
 function updateForager(c: Colonist, dt: number) {
   const targetRipe = () =>
     c.targetResourceX >= 0 &&
-    FORAGE_RIPE_TO_PICKED[tiles[tileIndex(c.targetResourceX, c.targetResourceY)] as TileType] !== undefined;
+    FORAGE_RIPE_TO_PICKED[state.tiles[tileIndex(c.targetResourceX, c.targetResourceY)] as TileType] !== undefined;
   switch (c.state) {
     case "toForage":
       if (!targetRipe()) {
@@ -3963,9 +2732,9 @@ function updateForager(c: Colonist, dt: number) {
       }
       if (--c.chopTicksRemaining > 0) return;
       const index = tileIndex(c.targetResourceX, c.targetResourceY);
-      const ripe = tiles[index] as TileType;
+      const ripe = state.tiles[index] as TileType;
       const picked = FORAGE_RIPE_TO_PICKED[ripe]!;
-      tiles[index] = picked;
+      state.tiles[index] = picked;
       broadcastTileUpdate(c.targetResourceX, c.targetResourceY, picked);
       forageRegrow.set(index, FORAGE_REGROW_TICKS);
       c.carryAmount += FORAGE_FRUIT_YIELD[ripe] ?? 0;
@@ -4002,17 +2771,8 @@ function updateForager(c: Colonist, dt: number) {
     }
   }
 }
-
 // ---- Builders: they turn construction sites (see startConstruction) into buildings ----
-// Civilians: work only by day, shelter at night (the site keeps its progress overnight). States:
-// idle -> carrying (hauling materials to a site) -> building (adds to the site's progress every tick)
-// -> idle; with nothing to build they walk back to their post ("toPost").
-const BUILDER_MAX_PER_SITE = 2;
-const BUILDER_IDLE_RETRY_TICKS = TICK_RATE;
-// A builder works the site from any tile within this distance of its center (i.e. a neighbouring tile).
-const BUILDER_WORK_RANGE_PX = TILE_SIZE * 1.6;
-// How many of the nearest open sites get a path check per try (unreachable ones stay queued).
-const BUILDER_ROUTE_CANDIDATES = 6;
+
 
 function anyBuilderAlive(): boolean {
   for (const c of colonists.values()) if (c.kind === "builder") return true;
@@ -4031,7 +2791,7 @@ function siteBuilderCount(key: string, onlyWorking = false): number {
 // bonus, plus its Guild's level and industrial synergy for a Guild builder.
 function builderRate(c: Colonist): number {
   let rate = productionSpeedMultiplier();
-  if (tiles[tileIndex(c.postX, c.postY)] === TileType.BuildersGuild) {
+  if (state.tiles[tileIndex(c.postX, c.postY)] === TileType.BuildersGuild) {
     rate *= (1 + levelBonus(getBuildingLevel(c.postX, c.postY))) * industrialSynergyMultiplier(c.postX, c.postY);
   }
   return rate;
@@ -4061,7 +2821,7 @@ function planBuildSite(c: Colonist): { key: string; path: TileCoord[] } | null {
 
 function updateBuilder(c: Colonist, dt: number) {
   // Its Town Center fell: report to the nearest one still standing.
-  if (!isValidPostTile("builder", tiles[tileIndex(c.postX, c.postY)] as TileType)) {
+  if (!isValidPostTile("builder", state.tiles[tileIndex(c.postX, c.postY)] as TileType)) {
     const tc = nearestTownCenter(c.x, c.y);
     if (tc) {
       c.postX = tc.x;
@@ -4138,15 +2898,12 @@ function updateBuilder(c: Colonist, dt: number) {
     }
   }
 }
-
 // ---- Repair: idle builders (by day, like all builder work) heal damaged buildings ----
-// "Not enough materials to repair" is announced at most this often.
-const REPAIR_SHORT_TOAST_TICKS = TICK_RATE * 30;
-let lastRepairShortToastTick = -Infinity;
+
 
 function announceRepairShort() {
-  if (cycleTick - lastRepairShortToastTick < REPAIR_SHORT_TOAST_TICKS && cycleTick >= lastRepairShortToastTick) return;
-  lastRepairShortToastTick = cycleTick;
+  if (state.cycleTick - state.lastRepairShortToastTick < REPAIR_SHORT_TOAST_TICKS && state.cycleTick >= state.lastRepairShortToastTick) return;
+  state.lastRepairShortToastTick = state.cycleTick;
   broadcastEvent("build", "Not enough materials to repair");
 }
 
@@ -4155,7 +2912,7 @@ function announceRepairShort() {
 function repairCost(tx: number, ty: number, hp: number): Cost {
   const s = structureHp(tx, ty);
   if (!s || hp <= 0) return {};
-  const t = tiles[tileIndex(tx, ty)] as TileType;
+  const t = state.tiles[tileIndex(tx, ty)] as TileType;
   const base = placementCost(upgradePlacementTile(t) ?? t, TileType.Empty, tx, ty);
   const fraction = REPAIR_COST_FRACTION * currentBuildingLevel(tx, ty, t) * Math.min(1, hp / s.max);
   const cost: Cost = {};
@@ -4198,7 +2955,7 @@ function planRepair(c: Colonist): { key: string; path: TileCoord[] } | null {
     if (!s || s.hp >= s.max) repairQueue.splice(i, 1);
   }
   const jobs: { key: string; tile: TileCoord; rank: number; n: number }[] = repairQueue.map((key, i) => ({ key, tile: keyToTile(key)!, rank: i - repairQueue.length, n: 0 }));
-  const auto = Array.from(buildingHp.keys()).concat(townCenters.map((tc) => resourceKey(tc.x, tc.y)));
+  const auto = Array.from(buildingHp.keys()).concat(state.townCenters.map((tc) => resourceKey(tc.x, tc.y)));
   for (const key of auto) {
     if (repairQueue.includes(key)) continue;
     const tile = keyToTile(key);
@@ -4259,7 +3016,7 @@ function updateRepair(c: Colonist, dt: number): boolean {
     return true;
   }
   // Construction comes first: a newly opened site pulls the builder off its repair (paid HP is kept).
-  if (cycleTick % BUILDER_IDLE_RETRY_TICKS === 0) {
+  if (state.cycleTick % BUILDER_IDLE_RETRY_TICKS === 0) {
     const plan = planBuildSite(c);
     if (plan) {
       endJob();
@@ -4336,9 +3093,9 @@ function assignShelter(c: Colonist) {
   c.homeTileX = -1;
   c.homeTileY = -1;
   let bestD = Infinity;
-  for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
-    for (let tx = 0; tx < WORLD_TILES_X; tx++) {
-      const cap = houseCapacity(tiles[tileIndex(tx, ty)] as TileType);
+  for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
+    for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
+      const cap = houseCapacity(state.tiles[tileIndex(tx, ty)] as TileType);
       if (cap === 0) continue;
       const center = tileToPixelCenter({ x: tx, y: ty });
       const d = Math.hypot(c.x - center.x, c.y - center.y);
@@ -4365,7 +3122,7 @@ function isAtShelter(c: Colonist): boolean {
 
 function updateShelteringCivilian(c: Colonist, dt: number) {
   // (Re)assign on first night tick, and if the house was demolished or replaced mid-night.
-  if (!c.shelterAssigned || (c.homeTileX >= 0 && houseCapacity(tiles[tileIndex(c.homeTileX, c.homeTileY)] as TileType) === 0)) {
+  if (!c.shelterAssigned || (c.homeTileX >= 0 && houseCapacity(state.tiles[tileIndex(c.homeTileX, c.homeTileY)] as TileType) === 0)) {
     assignShelter(c);
     c.path = [];
   }
@@ -4421,15 +3178,8 @@ function updateStationaryWorkerReturning(c: Colonist, dt: number) {
 function getMobById(id: string): Mob | undefined {
   return mobs.get(id);
 }
-
 // ---- Engagement slots ----
-// A melee attacker claims one slot on a ring around its target and fights from there, so several
-// attackers spread around a target instead of stacking on one point. Unit targets (mob / colonist /
-// player) get N slots at angles 2*pi*i/N; buildings and Town Centers get the walkable tiles of their
-// 8-tile ring reachable from the approach tile pickBuildingTarget chose. Ranged attackers take none.
-// Keys: "m:<mobId>", "c:<colonistId>", "p:<playerId>", "b:<x,y>" (buildings and Town Centers).
-const slotClaims = new Map<string, Map<number, string>>();
-const attackerSlots = new Map<string, { key: string; slot: number }>();
+
 
 function releaseSlot(attackerId: string) {
   const claim = attackerSlots.get(attackerId);
@@ -4523,12 +3273,6 @@ function unitSlotPoint(
   return slot < 0 ? null : point(slot);
 }
 
-// Clockwise 8-ring around a tile; consecutive entries are edge-adjacent, so a run of walkable entries
-// is one connected strip.
-const RING_8: ReadonlyArray<readonly [number, number]> = [
-  [-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0],
-];
-
 // The ring tile a mob attacks building (bx, by) from: the walkable strip of the building's 8-ring that
 // contains `approach` (so it is reachable), nearest free tile first. null without an approach tile.
 function buildingSlotTile(mob: Mob, key: string, bx: number, by: number, approach: TileCoord | null): TileCoord | null {
@@ -4575,24 +3319,8 @@ function approachGoal(
   }
   advanceAlongPath(e, dt, speed);
 }
-
 // ---- Bodies: spatial hash + separation ----
-// Rebuilt every tick after everything has moved: one cell per tile (bodies are at most 28 px across,
-// so overlapping pairs are always in the same or adjacent cells). Bodies: soldiers and bishops (not the
-// Ward Priest), and every awake mob that isn't a loitering raider or a dormant deserter. Civilians keep
-// to their posts / paths and are left out, as are players.
-interface Body {
-  e: { x: number; y: number };
-  r: number;
-  w: number;
-  // Walls & gates: a mob body is nudged from the hostile side (never onto a closed gate).
-  mob?: boolean;
-}
-const bodies: Body[] = [];
-let cellHead = new Int32Array(WORLD_TILES_X * WORLD_TILES_Y);
-let cellNext = new Int32Array(256);
-// Ids of mobs that struck or held in attack range this tick (they take the smaller separation share).
-const mobsAttackingThisTick = new Set<string>();
+
 
 function collectBodies() {
   bodies.length = 0;
@@ -4609,27 +3337,27 @@ function collectBodies() {
 }
 
 function rebuildBodyHash() {
-  cellHead.fill(-1);
-  if (cellNext.length < bodies.length) cellNext = new Int32Array(bodies.length * 2);
+  state.cellHead.fill(-1);
+  if (state.cellNext.length < bodies.length) state.cellNext = new Int32Array(bodies.length * 2);
   for (let i = 0; i < bodies.length; i++) {
     const tx = Math.floor(bodies[i].e.x / TILE_SIZE);
     const ty = Math.floor(bodies[i].e.y / TILE_SIZE);
     if (!inBounds(tx, ty)) {
-      cellNext[i] = -1;
+      state.cellNext[i] = -1;
       continue;
     }
     const cell = tileIndex(tx, ty);
-    cellNext[i] = cellHead[cell];
-    cellHead[cell] = i;
+    state.cellNext[i] = state.cellHead[cell];
+    state.cellHead[cell] = i;
   }
 }
 
 // Moves a body by (dx, dy) unless that would put its centre on a solid tile.
 function nudgeBody(b: Body, dx: number, dy: number) {
-  const prevMover = hostileMover;
-  const prevOwner = moverOwner;
-  hostileMover = b.mob === true;
-  moverOwner = b.mob === true ? siteNumber((b.e as Mob).siteId) : 0;
+  const prevMover = state.hostileMover;
+  const prevOwner = state.moverOwner;
+  state.hostileMover = b.mob === true;
+  state.moverOwner = b.mob === true ? siteNumber((b.e as Mob).siteId) : 0;
   const nx = b.e.x + dx;
   const ny = b.e.y + dy;
   if (isWalkablePixel(nx, ny)) {
@@ -4640,8 +3368,8 @@ function nudgeBody(b: Body, dx: number, dy: number) {
   } else if (isWalkablePixel(b.e.x, ny)) {
     b.e.y = ny;
   }
-  hostileMover = prevMover;
-  moverOwner = prevOwner;
+  state.hostileMover = prevMover;
+  state.moverOwner = prevOwner;
 }
 
 // Push-apart relaxation over every overlapping pair (allies and enemies alike).
@@ -4656,7 +3384,7 @@ function separateBodies() {
       for (let oy = -1; oy <= 1; oy++) {
         for (let ox = -1; ox <= 1; ox++) {
           if (!inBounds(tx + ox, ty + oy)) continue;
-          for (let j = cellHead[tileIndex(tx + ox, ty + oy)]; j >= 0; j = cellNext[j]) {
+          for (let j = state.cellHead[tileIndex(tx + ox, ty + oy)]; j >= 0; j = state.cellNext[j]) {
             if (j <= i) continue;
             const b = bodies[j];
             let dx = b.e.x - a.e.x;
@@ -4695,10 +3423,6 @@ function activateGuardianSite(siteId: string) {
   }
 }
 
-// Wiped wholesale at each dawn (before that dawn's starvation deaths add new ones), so every entry
-// was placed since the most recent dawn and lasts until the next one.
-const gravestones: GravestoneSnapshot[] = [];
-
 // attackerKey ("p:<playerId>" / "c:<colonistId>") marks a blow for the fight notifiers; blows without
 // one (test hooks, untracked sources) aren't counted as fighting.
 function damageMob(mob: Mob, amount: number, attackerKey?: string) {
@@ -4716,12 +3440,12 @@ function damageMob(mob: Mob, amount: number, attackerKey?: string) {
     const by = colonists.get(attackerKey.slice(2));
     amount *= (by && GOBLIN_RIDER_DAMAGE_TAKEN[by.kind]) || 1;
   }
-  mob.hp -= mob.mark === HungerMark.Gorrath && cycleTick < mob.furyUntilTick ? amount * GORRATH_FURY_DAMAGE_TAKEN : amount;
-  mob.lastDamagedTick = cycleTick;
+  mob.hp -= mob.mark === HungerMark.Gorrath && state.cycleTick < mob.furyUntilTick ? amount * GORRATH_FURY_DAMAGE_TAKEN : amount;
+  mob.lastDamagedTick = state.cycleTick;
   // Gorrath's frenzy: the first lethal blow is shrugged off into a short wounded fury.
   if (mob.hp <= 0 && mob.mark === HungerMark.Gorrath && mob.furyUntilTick === 0) {
     mob.hp = Math.max(1, Math.round(mob.maxHp * GORRATH_FURY_HP_FRACTION));
-    mob.furyUntilTick = cycleTick + GORRATH_FURY_TICKS;
+    mob.furyUntilTick = state.cycleTick + GORRATH_FURY_TICKS;
   }
   if (mob.hp <= 0) {
     gravestones.push({ x: mob.x, y: mob.y, variant: Math.random() < 0.5 ? 0 : 1 });
@@ -4746,7 +3470,7 @@ function damagePlayer(player: Player, amount: number) {
   player.hp -= absorbWithWard("p:" + player.id, amount * mult);
   if (player.hp <= 0) {
     player.poisonTicksRemaining = 0;
-    if (townCenters.length > 0) {
+    if (state.townCenters.length > 0) {
       player.hp = playerMaxHp(player);
       const spawn = spawnPointNearTownCenter(player);
       player.x = spawn.x;
@@ -4761,7 +3485,7 @@ function damagePlayer(player: Player, amount: number) {
 }
 
 function respawnDeadPlayers() {
-  if (townCenters.length === 0) return;
+  if (state.townCenters.length === 0) return;
   for (const p of players.values()) {
     if (!p.dead) continue;
     p.dead = false;
@@ -4806,13 +3530,9 @@ function damageColonist(colonist: Colonist, amount: number) {
     if (!isWardPriest(colonist) && !isSiegeKind(colonist.kind)) queueRespawn(colonist);
     colonists.delete(colonist.id);
     chargeRuns.delete(colonist.id);
-    if (colonist.kind === "hero") heroRosterVersion++;
+    if (colonist.kind === "hero") state.heroRosterVersion++;
   }
 }
-
-const COMMANDABLE_KINDS: ColonistKind[] = [
-  "knight", "archer", "bishop", "militia", "spearman", "pikeman", "cavalry", "batteringRam", "catapult", "hero",
-];
 
 // Only a Church's bishop takes orders: the Ward Priest must keep his rounds for the wards to stand,
 // and the Abbey's clergy aren't the colony's at all. Mirrored by the client's isCommandable (which
@@ -4820,7 +3540,7 @@ const COMMANDABLE_KINDS: ColonistKind[] = [
 function isCommandable(c: Colonist): boolean {
   if (!COMMANDABLE_KINDS.includes(c.kind)) return false;
   if (isWardPriest(c)) return false;
-  return c.kind !== "bishop" || tiles[tileIndex(c.postX, c.postY)] === TileType.ChurchPost;
+  return c.kind !== "bishop" || state.tiles[tileIndex(c.postX, c.postY)] === TileType.ChurchPost;
 }
 
 function handleCommandMove(unitIds: string[], x: number, y: number, squad?: unknown) {
@@ -4852,10 +3572,6 @@ function rallyUnit(c: Colonist, x: number, y: number, squad: string | null) {
   c.repathCooldown = 0;
 }
 
-// Colonist id -> the mob an explicit Attack order sent it after: that chase ignores the line leash
-// (LINE_LEASH_TILES) and the front-rank hold. Stale entries are harmless (checked against targetMobId).
-const commandedTargets = new Map<string, string>();
-
 function handleCommandAttack(unitIds: string[], mobId: string) {
   if (!mobs.has(mobId) || !Array.isArray(unitIds)) return;
   for (const id of unitIds) {
@@ -4869,8 +3585,6 @@ function handleCommandAttack(unitIds: string[], mobId: string) {
     c.repathCooldown = 0;
   }
 }
-
-const STANCES: Stance[] = ["defensive", "normal", "aggressive"];
 
 function handleCommandStance(unitIds: string[], stance: Stance) {
   if (!STANCES.includes(stance)) return;
@@ -4906,7 +3620,6 @@ function handleAssignTaskForce(slot: number, unitIds: string[]) {
   taskForces.set(slot, valid);
   taskForceMax.set(slot, valid.length);
 }
-
 // ---- Army regiments (strategy mode phase 2; docs PLAN-strategy-mode.md §4 and the user's 2026-10-28
 // grouping decision). Derived from state at every snapshot, never stored: each commandable unit is in
 // exactly one regiment —
@@ -4915,29 +3628,7 @@ function handleAssignTaskForce(slot: number, unitIds: string[]) {
 //   everything else                 "a:<settlement>:<class>": by Town Center (settlementOf) and class
 // Respawned units get new ids, so they rejoin their post's auto regiment (a hero its own). Task forces and
 // settlements are already saved, so save / load needs nothing new. Mob regiments (RegimentState) are separate.
-const REGIMENT_CLASS_OF: Partial<Record<ColonistKind, RegimentClass>> = {
-  knight: "knights",
-  archer: "archers",
-  cavalry: "cavalry",
-  militia: "infantry",
-  spearman: "infantry",
-  pikeman: "infantry",
-  bishop: "clergy",
-  batteringRam: "rams",
-  catapult: "catapults",
-  hero: "hero",
-};
-const REGIMENT_CLASS_LABEL: Record<RegimentClass, string> = {
-  infantry: "Infantry", knights: "Knights", archers: "Archers", cavalry: "Cavalry", clergy: "Clergy",
-  rams: "Rams", catapults: "Catapults", hero: "Hero", mixed: "Task Force",
-};
-const REGIMENT_CLASS_ORDER: RegimentClass[] = ["knights", "infantry", "archers", "cavalry", "rams", "catapults", "clergy"];
-// Without a membership / name change, armyRegiments rides along every this many ticks (2 Hz).
-const ARMY_REGIMENT_REFRESH_TICKS = 10;
-// Size each task force was assigned at (its card's max); not saved (a loaded one starts at its alive count).
-const taskForceMax = new Map<number, number>();
-let armyRegimentSignature = "";
-let armyRegimentTicks = 0;
+
 
 function romanNumeral(n: number): string {
   const table: [number, string][] = [[10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
@@ -4947,7 +3638,7 @@ function romanNumeral(n: number): string {
 }
 
 function armyRegimentsNow(): ArmyRegimentSnapshot[] {
-  const settlementNumber = new Map(townCenters.map((tc, i) => [resourceKey(tc.x, tc.y), i + 1]));
+  const settlementNumber = new Map(state.townCenters.map((tc, i) => [resourceKey(tc.x, tc.y), i + 1]));
   const inTaskForce = new Map<string, number>();
   for (const [slot, ids] of taskForces) for (const id of ids) inTaskForce.set(id, slot);
   interface Draft { snap: ArmyRegimentSnapshot; members: Colonist[]; pending: number; order: number }
@@ -4999,7 +3690,7 @@ function armyRegimentsNow(): ArmyRegimentSnapshot[] {
       continue;
     }
     const cls = REGIMENT_CLASS_OF[q.kind];
-    if (!cls || (q.kind === "bishop" && tiles[tileIndex(q.tx, q.ty)] !== TileType.ChurchPost)) continue;
+    if (!cls || (q.kind === "bishop" && state.tiles[tileIndex(q.tx, q.ty)] !== TileType.ChurchPost)) continue;
     autoDraft(settlementKeyNear(q.tx, q.ty), cls).pending++;
   }
 
@@ -5055,13 +3746,12 @@ function armyRegimentsNow(): ArmyRegimentSnapshot[] {
 function armyRegimentsForSnapshot(): ArmyRegimentSnapshot[] | undefined {
   const regiments = armyRegimentsNow();
   const signature = JSON.stringify(regiments.map((r) => [r.id, r.name, r.cls, r.maxCount, r.unitIds, r.moraleState, r.outflanked]));
-  armyRegimentTicks++;
-  if (signature === armyRegimentSignature && armyRegimentTicks < ARMY_REGIMENT_REFRESH_TICKS) return undefined;
-  armyRegimentSignature = signature;
-  armyRegimentTicks = 0;
+  state.armyRegimentTicks++;
+  if (signature === state.armyRegimentSignature && state.armyRegimentTicks < ARMY_REGIMENT_REFRESH_TICKS) return undefined;
+  state.armyRegimentSignature = signature;
+  state.armyRegimentTicks = 0;
   return regiments;
 }
-
 // ---- Regiment orders (strategy mode phase 3; docs PLAN-strategy-mode.md §4 "Order execution").
 // Regiments are derived per snapshot (above), so order state lives on the UNITS: a regimentOrder makes
 // the units it names an order group ("g<N>": the members of every regiment in the selection), holding the
@@ -5087,58 +3777,7 @@ function armyRegimentsForSnapshot(): ArmyRegimentSnapshot[] | undefined {
 //   bombard     catapults shell the point each reload from within their 3-11 tile band (walking into it
 //               first); a standing hearth under the splash takes building damage. Until the next order.
 //   attackHearth  the group attacks a camp hearth (as commandAttackHearth) until it falls.
-interface OrderGroup {
-  id: string;
-  unitIds: Set<string>;
-  current: ArmyOrder | null;
-  queue: ArmyOrder[];
-  // Last formation (radians / tiles; width undefined = block): a click-move keeps it.
-  facing?: number;
-  width?: number;
-  // The slots' centroid (arrival) and the tick the current order started.
-  destX: number;
-  destY: number;
-  startedTick: number;
-  engaged: boolean;
-  clearSince: number;
-  followAt: { x: number; y: number } | null;
-  // Phase 4: the front centre the group last formed at (a shape change re-forms there).
-  lastAt?: { x: number; y: number };
-}
-const ORDER_UPDATE_TICKS = 5;
-const REGIMENT_ORDER_MAX_PER_S = 20;
-const ORDER_DISPATCH_STEP_MS = 80;
-const ORDER_DISPATCH_MAX_SPREAD_MS = 600;
-// Arrival is not checked until every staggered start has landed.
-const ORDER_ARRIVE_GRACE_TICKS = TICK_RATE;
-const ORDER_WIDTH_MAX_TILES = 64;
-const ATTACK_MOVE_RESUME_TICKS = 3 * TICK_RATE;
-const RETREAT_CORNERED_TILES = 1.2;
-const RETREAT_SPEED_FACTOR = 1.1;
-const RETREAT_TC_OFFSET_TILES = 3;
-const HOLD_LEASH_TILES = 0.5;
-const FOLLOW_REFORM_TILES = 2;
-const FOLLOW_BEHIND_TILES = 2.5;
-const ARMY_ORDER_KINDS: ArmyOrderKind[] = ["move", "attackMove", "retreat", "hold", "follow", "attack", "charge", "bombard", "attackHearth"];
-// Phase 4: cycle charge (see the order list above) and skirmish (updateGuardColonist).
-const CHARGE_WITHDRAW_TILES = 11;
-// A withdrawn rider turns to charge again only from this far out (so its run still reaches
-// CAVALRY_CHARGE_TILES while the enemy closes in), or after CHARGE_WITHDRAW_MAX_TICKS out.
-const CHARGE_RECHARGE_GAP_TILES = 9;
-const CHARGE_WITHDRAW_MAX_TICKS = 12 * TICK_RATE;
-const SKIRMISH_KITE_TILES = 4;
-// A skirmisher backs off at most this far from its slot.
-const SKIRMISH_DRIFT_TILES = 8;
-// Unit id -> its charge cycle on a charge order: "in" (riding at the target; readyTick = the charge
-// cooldown it had when it set off, so a changed value = a charge landed) or "out" (withdrawing, since).
-const chargeCycle = new Map<string, { phase: "in" | "out"; readyTick: number; since: number }>();
-const orderGroups = new Map<string, OrderGroup>();
-const orderGroupOfUnit = new Map<string, OrderGroup>();
-// Staggered start: unit id -> the slot it heads for once cycleTick reaches `at`.
-const pendingRallies = new Map<string, { at: number; x: number; y: number; group: string; squad: string | null }>();
-let nextOrderGroupId = 1;
-let orderGroupSignature = "";
-let orderGroupTicks = 0;
+
 
 function leaveOrderGroup(id: string) {
   pendingRallies.delete(id);
@@ -5155,7 +3794,7 @@ function clearOrderGroups() {
   orderGroupOfUnit.clear();
   pendingRallies.clear();
   chargeCycle.clear();
-  orderGroupSignature = "";
+  state.orderGroupSignature = "";
 }
 
 // The kind of order the unit's group is carrying out (hold / retreat change updateGuardColonist).
@@ -5193,8 +3832,8 @@ function centroidOf(units: { x: number; y: number }[]): { x: number; y: number }
 // Stop where it stands (the rally slot moves onto it); a fight in progress goes on.
 function haltUnit(c: Colonist, dx = 0, dy = 0) {
   pendingRallies.delete(c.id);
-  const x = clamp(c.x + dx, 1, WORLD_TILES_X * TILE_SIZE - 1);
-  const y = clamp(c.y + dy, 1, WORLD_TILES_Y * TILE_SIZE - 1);
+  const x = clamp(c.x + dx, 1, state.WORLD_TILES_X * TILE_SIZE - 1);
+  const y = clamp(c.y + dy, 1, state.WORLD_TILES_Y * TILE_SIZE - 1);
   const t = tileOfPixel(x, y);
   Object.assign(c, { rallyTileX: t.x, rallyTileY: t.y, rallyX: x, rallyY: y, squadId: null });
   commandedTargets.delete(c.id);
@@ -5211,8 +3850,8 @@ function sanitizeArmyOrder(raw: unknown): ArmyOrder | null {
   const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
   const order: ArmyOrder = { kind };
   if (num(o.x) && num(o.y)) {
-    order.x = clamp(o.x, 1, WORLD_TILES_X * TILE_SIZE - 1);
-    order.y = clamp(o.y, 1, WORLD_TILES_Y * TILE_SIZE - 1);
+    order.x = clamp(o.x, 1, state.WORLD_TILES_X * TILE_SIZE - 1);
+    order.y = clamp(o.y, 1, state.WORLD_TILES_Y * TILE_SIZE - 1);
   } else if (kind === "move" || kind === "attackMove" || kind === "bombard") {
     return null;
   }
@@ -5256,7 +3895,7 @@ function orderedUnits(regimentIds: unknown, unitIds: unknown): Colonist[] {
 }
 
 function handleRegimentOrder(player: Player, msg: { regimentIds?: unknown; unitIds?: unknown; order?: unknown; queue?: unknown }) {
-  if (simHeldForLoad) return;
+  if (state.simHeldForLoad) return;
   const now = Date.now();
   if (now - player.orderWindowAt >= 1000) {
     player.orderWindowAt = now;
@@ -5287,8 +3926,8 @@ function handleRegimentOrder(player: Player, msg: { regimentIds?: unknown; unitI
   }
   for (const c of units) leaveOrderGroup(c.id);
   const g: OrderGroup = {
-    id: `g${nextOrderGroupId++}`, unitIds: new Set(units.map((c) => c.id)), current: null, queue: [],
-    destX: 0, destY: 0, startedTick: cycleTick, engaged: false, clearSince: -1, followAt: null,
+    id: `g${state.nextOrderGroupId++}`, unitIds: new Set(units.map((c) => c.id)), current: null, queue: [],
+    destX: 0, destY: 0, startedTick: state.cycleTick, engaged: false, clearSince: -1, followAt: null,
   };
   orderGroups.set(g.id, g);
   for (const c of units) orderGroupOfUnit.set(c.id, g);
@@ -5314,14 +3953,14 @@ function formGroupAt(g: OrderGroup, members: Colonist[], x: number, y: number, f
   const squad = order.length > 1 ? g.id : null;
   order.forEach((c, i) => {
     const s = plan.targets.get(c.id)!;
-    const sx = clamp(s.x, 1, WORLD_TILES_X * TILE_SIZE - 1);
-    const sy = clamp(s.y, 1, WORLD_TILES_Y * TILE_SIZE - 1);
+    const sx = clamp(s.x, 1, state.WORLD_TILES_X * TILE_SIZE - 1);
+    const sy = clamp(s.y, 1, state.WORLD_TILES_Y * TILE_SIZE - 1);
     const delay = Math.round((i * stepMs * TICK_RATE) / 1000);
     if (delay === 0) {
       pendingRallies.delete(c.id);
       rallyUnit(c, sx, sy, squad);
     } else {
-      pendingRallies.set(c.id, { at: cycleTick + delay, x: sx, y: sy, group: g.id, squad });
+      pendingRallies.set(c.id, { at: state.cycleTick + delay, x: sx, y: sy, group: g.id, squad });
     }
   });
 }
@@ -5331,7 +3970,7 @@ function startArmyOrder(g: OrderGroup, order: ArmyOrder) {
   g.engaged = false;
   g.clearSince = -1;
   g.followAt = null;
-  g.startedTick = cycleTick;
+  g.startedTick = state.cycleTick;
   const members = groupMembers(g);
   if (members.length === 0) return;
   for (const c of members) chargeCycle.delete(c.id);
@@ -5352,8 +3991,8 @@ function startArmyOrder(g: OrderGroup, order: ArmyOrder) {
         const d = Math.hypot(c0.x - tcx, c0.y - tcy);
         const dx = d >= 1 ? (c0.x - tcx) / d : 0;
         const dy = d >= 1 ? (c0.y - tcy) / d : 1;
-        order.x = clamp(tcx + dx * RETREAT_TC_OFFSET_TILES * TILE_SIZE, 1, WORLD_TILES_X * TILE_SIZE - 1);
-        order.y = clamp(tcy + dy * RETREAT_TC_OFFSET_TILES * TILE_SIZE, 1, WORLD_TILES_Y * TILE_SIZE - 1);
+        order.x = clamp(tcx + dx * RETREAT_TC_OFFSET_TILES * TILE_SIZE, 1, state.WORLD_TILES_X * TILE_SIZE - 1);
+        order.y = clamp(tcy + dy * RETREAT_TC_OFFSET_TILES * TILE_SIZE, 1, state.WORLD_TILES_Y * TILE_SIZE - 1);
         order.facing ??= Math.atan2(dy, dx);
       }
       // No facing given (a queued click): face the way it marches, at the group's last width.
@@ -5441,7 +4080,7 @@ function chargeAt(c: Colonist, mob: Mob) {
   c.squadId = null;
   c.path = [];
   c.repathCooldown = 0;
-  chargeCycle.set(c.id, { phase: "in", readyTick: chargeRuns.get(c.id)?.readyTick ?? 0, since: cycleTick });
+  chargeCycle.set(c.id, { phase: "in", readyTick: chargeRuns.get(c.id)?.readyTick ?? 0, since: state.cycleTick });
 }
 
 // Every ORDER_UPDATE_TICKS on a charge order: a cycling rider whose charge landed withdraws (straight away
@@ -5459,8 +4098,8 @@ function updateChargeOrder(g: OrderGroup, members: Colonist[]) {
     const run = chargeRuns.get(c.id);
     const d = Math.hypot(c.x - mob.x, c.y - mob.y);
     if (cyc.phase === "out") {
-      const ready = !run || cycleTick >= run.readyTick;
-      if (ready && (d >= CHARGE_RECHARGE_GAP_TILES * TILE_SIZE || cycleTick - cyc.since >= CHARGE_WITHDRAW_MAX_TICKS)) {
+      const ready = !run || state.cycleTick >= run.readyTick;
+      if (ready && (d >= CHARGE_RECHARGE_GAP_TILES * TILE_SIZE || state.cycleTick - cyc.since >= CHARGE_WITHDRAW_MAX_TICKS)) {
         // The attack cooldown only runs down while striking; out this long it is long over (else the rider
         // waits it out at the mob, sliding to its ring slot, which breaks the charge run).
         c.attackCooldownTicks = 0;
@@ -5470,8 +4109,8 @@ function updateChargeOrder(g: OrderGroup, members: Colonist[]) {
       }
       continue;
     }
-    if (c.cycleCharge && run && run.readyTick !== cyc.readyTick && run.readyTick > cycleTick) {
-      chargeCycle.set(c.id, { phase: "out", readyTick: run.readyTick, since: cycleTick });
+    if (c.cycleCharge && run && run.readyTick !== cyc.readyTick && run.readyTick > state.cycleTick) {
+      chargeCycle.set(c.id, { phase: "out", readyTick: run.readyTick, since: state.cycleTick });
       withdrawFrom(c, mob, d);
     } else if (c.targetMobId !== mob.id) {
       chargeAt(c, mob);
@@ -5482,8 +4121,8 @@ function updateChargeOrder(g: OrderGroup, members: Colonist[]) {
 function withdrawFrom(c: Colonist, mob: Mob, d: number) {
   const ux = d >= 1 ? (c.x - mob.x) / d : 1;
   const uy = d >= 1 ? (c.y - mob.y) / d : 0;
-  const x = clamp(mob.x + ux * CHARGE_WITHDRAW_TILES * TILE_SIZE, TILE_SIZE, WORLD_TILES_X * TILE_SIZE - TILE_SIZE);
-  const y = clamp(mob.y + uy * CHARGE_WITHDRAW_TILES * TILE_SIZE, TILE_SIZE, WORLD_TILES_Y * TILE_SIZE - TILE_SIZE);
+  const x = clamp(mob.x + ux * CHARGE_WITHDRAW_TILES * TILE_SIZE, TILE_SIZE, state.WORLD_TILES_X * TILE_SIZE - TILE_SIZE);
+  const y = clamp(mob.y + uy * CHARGE_WITHDRAW_TILES * TILE_SIZE, TILE_SIZE, state.WORLD_TILES_Y * TILE_SIZE - TILE_SIZE);
   rallyUnit(c, x, y, null);
   releaseSlot(c.id);
 }
@@ -5498,7 +4137,7 @@ function bombardPosition(c: Colonist, x: number, y: number) {
   const want = (CATAPULT_MIN_RANGE + CATAPULT_RANGE) / 2;
   const ux = d >= 1 ? (c.x - x) / d : 1;
   const uy = d >= 1 ? (c.y - y) / d : 0;
-  rallyUnit(c, clamp(x + ux * want, 1, WORLD_TILES_X * TILE_SIZE - 1), clamp(y + uy * want, 1, WORLD_TILES_Y * TILE_SIZE - 1), null);
+  rallyUnit(c, clamp(x + ux * want, 1, state.WORLD_TILES_X * TILE_SIZE - 1), clamp(y + uy * want, 1, state.WORLD_TILES_Y * TILE_SIZE - 1), null);
 }
 
 // The bombard point of a catapult whose group is on a bombard order (null otherwise).
@@ -5545,7 +4184,7 @@ function finishArmyOrder(g: OrderGroup, members: Colonist[]) {
 // Formed = the centroid of the members still marching (not fighting) is within SQUAD_SETTLE_TILES of the
 // slots' centroid.
 function groupArrived(g: OrderGroup, members: Colonist[]): boolean {
-  if (cycleTick - g.startedTick < ORDER_ARRIVE_GRACE_TICKS) return false;
+  if (state.cycleTick - g.startedTick < ORDER_ARRIVE_GRACE_TICKS) return false;
   const free = members.filter((c) => !c.targetMobId);
   const c0 = centroidOf(free.length > 0 ? free : members);
   return Math.hypot(c0.x - g.destX, c0.y - g.destY) <= SQUAD_SETTLE_TILES * TILE_SIZE;
@@ -5610,8 +4249,8 @@ function updateAttackMove(g: OrderGroup, members: Colonist[]) {
     return;
   }
   if (g.clearSince < 0) {
-    g.clearSince = cycleTick;
-  } else if (cycleTick - g.clearSince >= ATTACK_MOVE_RESUME_TICKS && g.current) {
+    g.clearSince = state.cycleTick;
+  } else if (state.cycleTick - g.clearSince >= ATTACK_MOVE_RESUME_TICKS && g.current) {
     // Clear for 3 s: on to the same destination and formation (re-formed from here).
     startArmyOrder(g, g.current);
   }
@@ -5629,8 +4268,8 @@ function updateFollowOrder(g: OrderGroup, members: Colonist[]) {
   const dx = moved >= 1 ? (t.x - from.x) / moved : Math.cos(g.facing ?? 0);
   const dy = moved >= 1 ? (t.y - from.y) / moved : Math.sin(g.facing ?? 0);
   g.followAt = { x: t.x, y: t.y };
-  const x = clamp(t.x - dx * FOLLOW_BEHIND_TILES * TILE_SIZE, 1, WORLD_TILES_X * TILE_SIZE - 1);
-  const y = clamp(t.y - dy * FOLLOW_BEHIND_TILES * TILE_SIZE, 1, WORLD_TILES_Y * TILE_SIZE - 1);
+  const x = clamp(t.x - dx * FOLLOW_BEHIND_TILES * TILE_SIZE, 1, state.WORLD_TILES_X * TILE_SIZE - 1);
+  const y = clamp(t.y - dy * FOLLOW_BEHIND_TILES * TILE_SIZE, 1, state.WORLD_TILES_Y * TILE_SIZE - 1);
   formGroupAt(g, members, x, y, Math.atan2(dy, dx), g.width);
 }
 
@@ -5639,13 +4278,13 @@ function updateFollowOrder(g: OrderGroup, members: Colonist[]) {
 function updateOrderGroups() {
   if (pendingRallies.size > 0) {
     for (const [id, p] of pendingRallies) {
-      if (cycleTick < p.at) continue;
+      if (state.cycleTick < p.at) continue;
       pendingRallies.delete(id);
       const c = colonists.get(id);
       if (c && orderGroupOfUnit.get(id)?.id === p.group) rallyUnit(c, p.x, p.y, p.squad);
     }
   }
-  if (cycleTick % ORDER_UPDATE_TICKS !== 0) return;
+  if (state.cycleTick % ORDER_UPDATE_TICKS !== 0) return;
   for (const g of orderGroups.values()) {
     const members = groupMembers(g);
     if (members.length === 0) {
@@ -5678,7 +4317,7 @@ function updateOrderGroups() {
 // Strategy mode phase 4: per-unit settings for the named regiments' members and / or units. A shape
 // change re-forms each affected order group where it stands (its destination while marching).
 function handleRegimentSettings(player: Player, msg: { regimentIds?: unknown; unitIds?: unknown; stance?: unknown; holdFire?: unknown; skirmish?: unknown; cycleCharge?: unknown; shape?: unknown }) {
-  if (simHeldForLoad) return;
+  if (state.simHeldForLoad) return;
   const now = Date.now();
   if (now - player.orderWindowAt >= 1000) {
     player.orderWindowAt = now;
@@ -5725,21 +4364,15 @@ function orderGroupsForSnapshot(): ArmyOrderGroupSnapshot[] | undefined {
     ...(g.engaged ? { engaged: true } : {}),
   }));
   const signature = JSON.stringify(list);
-  orderGroupTicks++;
-  if (signature === orderGroupSignature && orderGroupTicks < ARMY_REGIMENT_REFRESH_TICKS) return undefined;
-  orderGroupSignature = signature;
-  orderGroupTicks = 0;
+  state.orderGroupTicks++;
+  if (signature === state.orderGroupSignature && state.orderGroupTicks < ARMY_REGIMENT_REFRESH_TICKS) return undefined;
+  state.orderGroupSignature = signature;
+  state.orderGroupTicks = 0;
   return list;
 }
 
-const EXCHANGE_RATES: Record<string, Record<string, { give: number; get: number }>> = {
-  wood: { iron: { give: 3, get: 1 }, rock: { give: 3, get: 1 } },
-  iron: { wood: { give: 3, get: 1 }, rock: { give: 2, get: 1 } },
-  rock: { wood: { give: 3, get: 1 }, iron: { give: 2, get: 1 } },
-};
-
 function handleExchangeResource(from: "wood" | "iron" | "rock", to: "wood" | "iron" | "rock") {
-  if (!marketBuilt || from === to) return;
+  if (!state.marketBuilt || from === to) return;
   const rate = EXCHANGE_RATES[from]?.[to];
   if (!rate) return;
   if (stock[from] < rate.give) return;
@@ -5747,17 +4380,8 @@ function handleExchangeResource(from: "wood" | "iron" | "rock", to: "wood" | "ir
   stock[to] += rate.get;
 }
 
-const GOLD_SHOP_PRICES: Record<string, { cost: number; amount: number }> = {
-  tools: { cost: 10, amount: 1 },
-  clothes: { cost: 8, amount: 1 },
-  luxuryItems: { cost: 20, amount: 1 },
-  wood: { cost: 5, amount: 5 },
-  iron: { cost: 8, amount: 5 },
-  rock: { cost: 8, amount: 5 },
-};
-
 function handleBuyWithGold(item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock") {
-  if (!goldShopBuilt) return;
+  if (!state.goldShopBuilt) return;
   const price = GOLD_SHOP_PRICES[item];
   if (!price) return;
   if (stock.gold < price.cost) return;
@@ -5802,7 +4426,7 @@ function handlePlayerAttack(attacker: Player) {
   }
   if (bestAnimal) {
     // A player's kill is dressed on the spot: the meat goes straight to the stockpile.
-    pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: bestAnimal.x, toY: bestAnimal.y, melee: true });
+    state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: bestAnimal.x, toY: bestAnimal.y, melee: true });
     const meat = WILDLIFE_CONFIG[bestAnimal.kind].meat;
     if (damageWildlife(bestAnimal, damage, attacker.x, attacker.y, null)) stock.meat += meat;
     return;
@@ -5814,7 +4438,7 @@ function handlePlayerAttack(attacker: Player) {
       if (h.destroyed) continue;
       const p = tileToPixelCenter(h);
       if (Math.hypot(p.x - attacker.x, p.y - attacker.y) > PLAYER_ATTACK_RANGE + TILE_SIZE / 2) continue;
-      pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: p.x, toY: p.y, melee: true });
+      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: p.x, toY: p.y, melee: true });
       damageHearth(h, damage, "p:" + attacker.id);
       return;
     }
@@ -5823,21 +4447,18 @@ function handlePlayerAttack(attacker: Player) {
   if (bestType === "player") {
     const target = players.get(bestId);
     if (target) {
-      pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
+      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
       damagePlayer(target, damage);
     }
   } else {
     const target = mobs.get(bestId);
     if (target) {
-      pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
+      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
       heroEvent({ type: "hit", key: attacker.profileKey, amount: damage, detail: target.id });
       damageMob(target, damage, "p:" + attacker.id);
     }
   }
 }
-
-const RALLY_ARRIVE_PX = 2;
-const GARRISON_LOITER_PX = TILE_SIZE * 1.5;
 
 // Walks an idle (no target) commandable unit back to its rally point; shared by guards and bishops.
 // A walkable rally tile is a commanded point (a formation slot): path to that tile, then steer
@@ -5985,7 +4606,7 @@ function updateGuardColonist(c: Colonist, dt: number) {
   // Stickiness with a slot leash: once a second, while not trading blows, switch to an enemy clearly
   // nearer this unit's own slot (the line fights what is in front of each man, not one shared target).
   // A ranged unit switches to any enemy that is within bow range (pickGuardTarget ranks those first).
-  if (!commanded && dist > stats.range && cycleTick % TICK_RATE === 0) {
+  if (!commanded && dist > stats.range && state.cycleTick % TICK_RATE === 0) {
     const better = pickGuardTarget(c, stats);
     const cur = Math.hypot(target.x - c.rallyX, target.y - c.rallyY);
     const switchTo = !better || better === target ? false
@@ -6105,7 +4726,7 @@ function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown
   if (c.kind === "hero") heroTestEvent({ type: "hit", id: c.id, amount: damage, detail: target.id });
   damageMob(target, damage, "c:" + c.id);
   c.attackCooldownTicks = stats.cooldown;
-  pendingEffects.push({ fromX: c.x, fromY: c.y, toX: target.x, toY: target.y, melee: stats.melee });
+  state.pendingEffects.push({ fromX: c.x, fromY: c.y, toX: target.x, toY: target.y, melee: stats.melee });
   if (target.hp <= 0) c.targetMobId = null;
 }
 
@@ -6194,10 +4815,6 @@ function engagedWithFrontline(m: Mob): boolean {
   const role = c ? colonistRole(c) : undefined;
   return !!c && !!role && !isRearColonist(c);
 }
-
-// Squad march: per-tick speed for every squad member walking back to its formation slot (no target),
-// see SQUAD_* above. Members without an entry move at their own speed.
-const squadMarchSpeed = new Map<string, number>();
 function updateSquadMarch() {
   squadMarchSpeed.clear();
   const squads = new Map<string, Colonist[]>();
@@ -6402,27 +5019,14 @@ function updateBishopColonist(c: Colonist, dt: number) {
   }
 }
 
-// One Ward Priest per colony tends every Ward Stone in turn. He is a "bishop" colonist spawned at a
-// Church, but his postX/postY always names the Ward Stone he is heading to or tending, so he reads
-// as a (non-commandable) Ward Stone bishop everywhere the post tile is consulted, client included.
-const WARD_TEND_TICKS = TICK_RATE * 10;
-const WARD_GRACE_TICKS = TICK_RATE * 60;
-let wardPriestId: string | null = null;
-let wardPriestTendTicks = 0;
-// -1: no respawn pending. Otherwise counts down like a respawnQueue entry, then costs food.
-let wardPriestRespawnTicks = -1;
-// resourceKey -> cycleTick at which the priest last finished tending that stone. A stone with no
-// entry has never been tended and is not warded.
-const wardStoneLastTended = new Map<string, number>();
-
 function isWardPriest(c: Colonist): boolean {
-  return c.id === wardPriestId;
+  return c.id === state.wardPriestId;
 }
 
 function tilesOfType(type: TileType): TileCoord[] {
   const found: TileCoord[] = [];
-  for (let i = 0; i < tiles.length; i++) {
-    if (tiles[i] === type) found.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+  for (let i = 0; i < state.tiles.length; i++) {
+    if (state.tiles[i] === type) found.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
   }
   return found;
 }
@@ -6455,7 +5059,7 @@ function assignWardPriestTarget(c: Colonist, stone: TileCoord) {
   c.rallyX = center.x;
   c.rallyY = center.y;
   c.path = [];
-  wardPriestTendTicks = 0;
+  state.wardPriestTendTicks = 0;
 }
 
 // Once per tick: forget tend records of demolished stones, then keep exactly one Ward Priest alive
@@ -6465,38 +5069,38 @@ function assignWardPriestTarget(c: Colonist, stone: TileCoord) {
 function updateWardPriestPresence() {
   for (const key of wardStoneLastTended.keys()) {
     const [tx, ty] = key.split(",").map(Number);
-    if (tiles[tileIndex(tx, ty)] !== TileType.WardStone) wardStoneLastTended.delete(key);
+    if (state.tiles[tileIndex(tx, ty)] !== TileType.WardStone) wardStoneLastTended.delete(key);
   }
   const stones = tilesOfType(TileType.WardStone);
   const church = tilesOfType(TileType.ChurchPost)[0] ?? null;
-  const priest = wardPriestId ? colonists.get(wardPriestId) : undefined;
-  if (wardPriestId && !priest) {
-    wardPriestId = null;
+  const priest = state.wardPriestId ? colonists.get(state.wardPriestId) : undefined;
+  if (state.wardPriestId && !priest) {
+    state.wardPriestId = null;
     // >= 0 = died, due back at a respawn window (0 since the windows; old saves may hold a countdown).
-    wardPriestRespawnTicks = 0;
+    state.wardPriestRespawnTicks = 0;
   }
-  wardPriestAwaitingWindow = false;
+  state.wardPriestAwaitingWindow = false;
   if (priest && (stones.length === 0 || !church)) {
     colonists.delete(priest.id);
-    wardPriestId = null;
+    state.wardPriestId = null;
     return;
   }
   if (priest || stones.length === 0 || !church) return;
-  wardPriestAwaitingWindow = wardPriestRespawnTicks >= 0;
+  state.wardPriestAwaitingWindow = state.wardPriestRespawnTicks >= 0;
   if (settlementBlocker(church.x, church.y) !== "") return;
-  if (wardPriestRespawnTicks >= 0) {
-    if (isNightNow() || !respawnWindowAt(cycleTick) || !trySpendFood(RESPAWN_FOOD_COST)) return;
-    wardPriestAwaitingWindow = false;
-    respawnWindowSpawned++;
+  if (state.wardPriestRespawnTicks >= 0) {
+    if (isNightNow() || !respawnWindowAt(state.cycleTick) || !trySpendFood(RESPAWN_FOOD_COST)) return;
+    state.wardPriestAwaitingWindow = false;
+    state.respawnWindowSpawned++;
   }
   const spawned = spawnColonistForPost(church.x, church.y, "bishop");
-  wardPriestId = spawned.id;
-  wardPriestRespawnTicks = -1;
+  state.wardPriestId = spawned.id;
+  state.wardPriestRespawnTicks = -1;
   assignWardPriestTarget(spawned, nextWardStoneFor(spawned, stones)!);
 }
 
 function updateWardPriest(c: Colonist, dt: number) {
-  if (tiles[tileIndex(c.postX, c.postY)] !== TileType.WardStone) {
+  if (state.tiles[tileIndex(c.postX, c.postY)] !== TileType.WardStone) {
     const next = nextWardStoneFor(c, tilesOfType(TileType.WardStone));
     if (!next) {
       c.state = "idle";
@@ -6518,9 +5122,9 @@ function updateWardPriest(c: Colonist, dt: number) {
   }
   c.path = [];
   c.state = "warding";
-  wardPriestTendTicks++;
-  if (wardPriestTendTicks < WARD_TEND_TICKS) return;
-  wardStoneLastTended.set(resourceKey(c.postX, c.postY), cycleTick);
+  state.wardPriestTendTicks++;
+  if (state.wardPriestTendTicks < WARD_TEND_TICKS) return;
+  wardStoneLastTended.set(resourceKey(c.postX, c.postY), state.cycleTick);
   const next = nextWardStoneFor(c, tilesOfType(TileType.WardStone));
   if (!next) return;
   if (next.x !== c.postX || next.y !== c.postY) c.state = "patrolling";
@@ -6530,11 +5134,11 @@ function updateWardPriest(c: Colonist, dt: number) {
 // Every position currently under a ward: the Abbey (always) plus each Ward Stone the Ward Priest
 // finished tending within the last WARD_GRACE_TICKS.
 function activeWardSources(): TileCoord[] {
-  const sources: TileCoord[] = abbeyCenter ? [abbeyCenter] : [];
+  const sources: TileCoord[] = state.abbeyCenter ? [state.abbeyCenter] : [];
   for (const [key, tended] of wardStoneLastTended) {
-    if (cycleTick - tended > WARD_GRACE_TICKS) continue;
+    if (state.cycleTick - tended > WARD_GRACE_TICKS) continue;
     const [tx, ty] = key.split(",").map(Number);
-    if (tiles[tileIndex(tx, ty)] === TileType.WardStone) sources.push({ x: tx, y: ty });
+    if (state.tiles[tileIndex(tx, ty)] === TileType.WardStone) sources.push({ x: tx, y: ty });
   }
   return sources;
 }
@@ -6547,10 +5151,6 @@ function isWarded(px: number, py: number, sources: TileCoord[]): boolean {
   });
 }
 
-// Ward Stones (resourceKey) whose ward was up at the end of the previous tick. Only Ward Stones:
-// the Abbey's ward never lapses, so it is never tracked and never lets a Half-Latch through.
-const wardStonesActiveLastTick = new Set<string>();
-
 // Once per tick: any Ward Stone whose ward was up last tick and is down now has just lapsed, and a
 // Half-Latch slips through at the stone. A stone that stays lapsed tick after tick triggers nothing
 // more; it only re-arms once the Ward Priest tends it again. A stone that was
@@ -6558,12 +5158,12 @@ const wardStonesActiveLastTick = new Set<string>();
 function checkWardStoneLapses() {
   const activeNow = new Set<string>();
   for (const s of activeWardSources()) {
-    if (tiles[tileIndex(s.x, s.y)] === TileType.WardStone) activeNow.add(resourceKey(s.x, s.y));
+    if (state.tiles[tileIndex(s.x, s.y)] === TileType.WardStone) activeNow.add(resourceKey(s.x, s.y));
   }
   for (const key of wardStonesActiveLastTick) {
     if (activeNow.has(key)) continue;
     const [tx, ty] = key.split(",").map(Number);
-    if (tiles[tileIndex(tx, ty)] === TileType.WardStone) {
+    if (state.tiles[tileIndex(tx, ty)] === TileType.WardStone) {
       spawnHalfLatch({ x: tx, y: ty });
       broadcastEvent("ward", "A Ward Stone's ward has lapsed — something slipped through");
     }
@@ -6713,65 +5313,22 @@ function updateColonist(c: Colonist, dt: number) {
 //              within RAID_ENGAGE_RANGE_TILES of the colony or a target, the group dissolves and each
 //              member falls back to updateMob's normal per-mob targeting (as does a damaged group).
 
-type RaidEdge = "north" | "south" | "east" | "west";
-type RaidGroupState = "passive" | "marching";
-interface RaidGroup {
-  id: string;
-  faction: RaidFactionId;
-  isHorde: boolean;
-  // Edge its fresh mobs spawned on; null for a group of deserters only (they are never edge-spawned).
-  edge: RaidEdge | null;
-  memberIds: string[];
-  // Loiter centre (spawn tile) per edge-spawned member; deserters stand still instead.
-  homes: Map<string, TileCoord>;
-  aggroTick: number;
-  state: RaidGroupState;
-  leaderId: string | null;
-  // Formation slot per follower, set when the march starts: heading-relative pixels from the leader
-  // (x = to the leader's right, y = behind it) and its row (0 = the leader's front row; old saves: 0).
-  offsets: Map<string, { x: number; y: number; row?: number }>;
-  repathCooldown: number;
-  // March heading (unit vector, smoothed from the leader's movement); missing in old saves.
-  headingX?: number;
-  headingY?: number;
-  // Contact: the tick row-by-row release began (see releaseRaidRows) and the leader's position then,
-  // which the rows still waiting hold their slots around. Unset while the group is not engaging.
-  engagedTick?: number;
-  anchorX?: number;
-  anchorY?: number;
-}
-const raidGroups = new Map<string, RaidGroup>();
-// Day index whose raid has already spawned, so the midday check fires once per day.
-let raidSpawnedForDay = -1;
 
 function raidSizeForDay(dayIndex: number): number {
   const base = RAID_BASE_SIZE + RAID_SIZE_PER_DAY * dayIndex;
-  return Math.max(1, Math.round(base * DIFFICULTY_TUNING[difficulty].spawnCount));
+  return Math.max(1, Math.round(base * DIFFICULTY_TUNING[state.difficulty].spawnCount));
 }
-
-// Raids spawn on the edge band of a "raid box": the whole map on small worlds, but at most this many
-// tiles from the first Town Center on big ones, so a 512 map's raiders reach the colony in reasonable time.
-const RAID_MAX_SPAWN_DIST_TILES = 110;
-// Shrinking spawn distances tried in turn until a raid anchor is within the pathfinding budget.
-const RAID_SPAWN_DIST_STEPS = [RAID_MAX_SPAWN_DIST_TILES, 80, 55, 35];
-let raidSpawnDist = RAID_MAX_SPAWN_DIST_TILES;
 function raidBox() {
-  const c = townCenters[0] ?? TOWN_CENTER_TILE;
+  const c = state.townCenters[0] ?? TOWN_CENTER_TILE;
   return {
-    x0: Math.max(0, c.x - raidSpawnDist),
-    x1: Math.min(WORLD_TILES_X - 1, c.x + raidSpawnDist),
-    y0: Math.max(0, c.y - raidSpawnDist),
-    y1: Math.min(WORLD_TILES_Y - 1, c.y + raidSpawnDist),
+    x0: Math.max(0, c.x - state.raidSpawnDist),
+    x1: Math.min(state.WORLD_TILES_X - 1, c.x + state.raidSpawnDist),
+    y0: Math.max(0, c.y - state.raidSpawnDist),
+    y1: Math.min(state.WORLD_TILES_Y - 1, c.y + state.raidSpawnDist),
   };
 }
-
-// A raid anchor must be able to reach the colony inside the pathfinding budget (a margin under
-// PATH_NODE_BUDGET, since the real path also detours). Breadth-first from the anchor until it is within
-// RAID_REACH_RADIUS tiles of a Town Center (walls are breached by mobs, so the last stretch is not tested).
-const RAID_REACH_RADIUS = 20;
-const RAID_REACH_BUDGET = Math.floor(PATH_NODE_BUDGET * 0.8);
 function raidAnchorWithinPathBudget(anchor: TileCoord): boolean {
-  const goals = townCenters.length > 0 ? townCenters : [TOWN_CENTER_TILE];
+  const goals = state.townCenters.length > 0 ? state.townCenters : [TOWN_CENTER_TILE];
   const near = (t: TileCoord) => goals.some((c) => Math.max(Math.abs(t.x - c.x), Math.abs(t.y - c.y)) <= RAID_REACH_RADIUS);
   const seen = new Set<number>([tileIndex(anchor.x, anchor.y)]);
   const queue: TileCoord[] = [anchor];
@@ -6799,11 +5356,11 @@ function isRaidEdgeTile(tx: number, ty: number): boolean {
 function randomRaidAnchor(): { tile: TileCoord; edge: RaidEdge } | null {
   // Try the full spawn distance first, then closer boxes, until an anchor can path to the colony in budget.
   for (const dist of RAID_SPAWN_DIST_STEPS) {
-    raidSpawnDist = dist;
+    state.raidSpawnDist = dist;
     const found = randomRaidAnchorInBox(true);
     if (found) return found;
   }
-  raidSpawnDist = RAID_SPAWN_DIST_STEPS[RAID_SPAWN_DIST_STEPS.length - 1];
+  state.raidSpawnDist = RAID_SPAWN_DIST_STEPS[RAID_SPAWN_DIST_STEPS.length - 1];
   return randomRaidAnchorInBox(false);
 }
 
@@ -6864,7 +5421,7 @@ function isRaidKindUnlocked(kind: MobKind, dayIndex: number): boolean {
 
 function pickRaidFaction(dayIndex: number): RaidFactionId {
   const weighted = (Object.keys(RAID_FACTIONS) as RaidFactionId[])
-    .filter((f) => !testForceRaidSiege || f === "banditBand" || f === "greenskinWarband")
+    .filter((f) => !state.testForceRaidSiege || f === "banditBand" || f === "greenskinWarband")
     .map((f) => ({ f, w: RAID_FACTIONS[f].filter((e) => e.core && isRaidKindUnlocked(e.kind, dayIndex)).length }))
     .filter((x) => x.w > 0);
   let roll = Math.random() * weighted.reduce((sum, x) => sum + x.w, 0);
@@ -6886,7 +5443,7 @@ function pickRaidFactionKind(faction: RaidFactionId, dayIndex: number, siegeLeft
 }
 
 function pickWeightedRaidKind(all: RaidFactionEntry[]): MobKind {
-  const forced = testForceRaidSiege ? all.find((e) => isSiegeKind(e.kind)) : undefined;
+  const forced = state.testForceRaidSiege ? all.find((e) => isSiegeKind(e.kind)) : undefined;
   if (forced) return forced.kind;
   const eligible = all;
   let roll = Math.random() * eligible.reduce((sum, e) => sum + e.weight, 0);
@@ -6920,7 +5477,7 @@ function splitRaidGroups(total: number, hordeSize: number): number[] {
 function createRaidMob(kind: MobKind, tile: TileCoord, groupId: string, rollSize = true): Mob {
   const center = tileToPixelCenter(tile);
   const config = MOB_KIND_CONFIG[kind];
-  const tuning = DIFFICULTY_TUNING[difficulty];
+  const tuning = DIFFICULTY_TUNING[state.difficulty];
   const maxHp = Math.max(1, Math.round(config.maxHp * tuning.mobHp));
   const mob: Mob = {
     id: randomUUID(),
@@ -6961,7 +5518,7 @@ function createRaidMob(kind: MobKind, tile: TileCoord, groupId: string, rollSize
 // Departure tick for a group at `from`: a random arrival tick in [nightfall, nightfall + window] minus
 // the estimated trip to the engage range of the first Town Center, but never before now.
 function raidDepartureTick(from: TileCoord, group: RaidGroup, nightfallTick: number): number {
-  const tc = townCenters[0] ?? TOWN_CENTER_TILE;
+  const tc = state.townCenters[0] ?? TOWN_CENTER_TILE;
   const route = findPath(from, tc);
   const routeTiles = route ? route.length : Math.hypot(tc.x - from.x, tc.y - from.y) * 1.5;
   const speeds = group.memberIds.map((id) => mobs.get(id)?.speed ?? MOB_SPEED);
@@ -6969,7 +5526,7 @@ function raidDepartureTick(from: TileCoord, group: RaidGroup, nightfallTick: num
   const px = Math.max(0, routeTiles - RAID_ENGAGE_RANGE_TILES) * TILE_SIZE;
   const travel = Math.ceil(((px * RAID_TRAVEL_SLACK) / slowest) * TICK_RATE) + RAID_TRAVEL_MARGIN_TICKS;
   const arrival = nightfallTick + Math.floor(Math.random() * NIGHT_TICKS * RAID_ARRIVAL_WINDOW_FRACTION);
-  return Math.max(cycleTick, arrival - travel);
+  return Math.max(state.cycleTick, arrival - travel);
 }
 
 function spawnRaid(dayIndex: number) {
@@ -6980,9 +5537,9 @@ function spawnRaid(dayIndex: number) {
       m.isDeserter &&
       !m.deserterActive &&
       m.groupId === null &&
-      cycleTick - m.deserterSinceTick >= DESERTER_ACTIVATION_TICKS
+      state.cycleTick - m.deserterSinceTick >= DESERTER_ACTIVATION_TICKS
   );
-  const deserterRoll = testForceDeserterRoll ?? Math.random() < DESERTER_WAVE_CHANCE;
+  const deserterRoll = state.testForceDeserterRoll ?? Math.random() < DESERTER_WAVE_CHANCE;
   const deserters = eligibleDeserters.length > 0 && deserterRoll ? eligibleDeserters : [];
   const combined = Math.max(total, deserters.length);
   const hordeShare = randRange(RAID_HORDE_SHARE_MIN, RAID_HORDE_SHARE_MAX);
@@ -7010,9 +5567,9 @@ function spawnRaid(dayIndex: number) {
       edge: null,
       memberIds: [],
       homes: new Map(),
-      aggroTick: testHoldRaidAggro
+      aggroTick: state.testHoldRaidAggro
         ? nightfallTick
-        : cycleTick + Math.floor(Math.random() * Math.max(1, nightfallTick - cycleTick)),
+        : state.cycleTick + Math.floor(Math.random() * Math.max(1, nightfallTick - state.cycleTick)),
       state: "passive",
       leaderId: null,
       offsets: new Map(),
@@ -7044,7 +5601,7 @@ function spawnRaid(dayIndex: number) {
       if (announceEdge === null) announceEdge = anchor.edge;
     }
     if (group.memberIds.length > 0) {
-      if (anchor && !testHoldRaidAggro) group.aggroTick = raidDepartureTick(anchor.tile, group, nightfallTick);
+      if (anchor && !state.testHoldRaidAggro) group.aggroTick = raidDepartureTick(anchor.tile, group, nightfallTick);
       raidGroups.set(group.id, group);
     }
   });
@@ -7094,7 +5651,7 @@ function engageRaidGroup(group: RaidGroup) {
   const leader = group.leaderId ? mobs.get(group.leaderId) : undefined;
   const members = raidGroupMembers(group);
   const anchor = leader && leader.groupId === group.id ? leader : members[0];
-  group.engagedTick = cycleTick;
+  group.engagedTick = state.cycleTick;
   group.anchorX = anchor?.x ?? 0;
   group.anchorY = anchor?.y ?? 0;
   releaseRaidRows(group, 0);
@@ -7107,7 +5664,7 @@ function raidMemberRow(group: RaidGroup, m: Mob): number {
 // Releases every member whose row is due; the rest hold their slot around the contact point. The
 // group is deleted once everyone is out.
 function releaseRaidRows(group: RaidGroup, dt: number) {
-  const due = Math.floor((cycleTick - (group.engagedTick ?? cycleTick)) / RAID_RELEASE_ROW_TICKS);
+  const due = Math.floor((state.cycleTick - (group.engagedTick ?? state.cycleTick)) / RAID_RELEASE_ROW_TICKS);
   let turned = 0;
   for (const m of raidGroupMembers(group)) {
     if (raidMemberRow(group, m) <= due) {
@@ -7158,14 +5715,6 @@ function formationPoint(group: RaidGroup, ox: number, oy: number, offset: { x: n
   // Right of the heading in screen space (y down): (-fy, fx).
   return { x: ox - fy * offset.x - fx * offset.y, y: oy + fx * offset.x - fy * offset.y };
 }
-
-// Regiments & roles: the front ranks hold the melee roles in the faction's formation - shock (heavies)
-// first, so front / centre, then the frontline rank and file - with the fast roles (wolves, spiders) on
-// the wings (the outermost front slots). The ranged / casters form a rear rank RAID_REAR_RANK_TILES behind
-// the front row (or one spacing behind the last front row, if deeper), centred, released last on contact.
-// The slowest front-rank member leads from the front-centre slot (an all-ranged group: the slowest of
-// all); the march goes at the slowest member's pace (marchRaidGroup).
-const RAID_REAR_RANK_TILES = 3.5;
 function assignRaidLeader(group: RaidGroup): Mob | null {
   const members = raidGroupMembers(group);
   if (members.length === 0) return null;
@@ -7411,7 +5960,7 @@ function updateRaidGroups(dt: number) {
       continue;
     }
     if (group.state === "passive") {
-      if (cycleTick < group.aggroTick && !night) {
+      if (state.cycleTick < group.aggroTick && !night) {
         for (const m of members) loiterRaidMob(group, m, members, dt);
         continue;
       }
@@ -7427,7 +5976,7 @@ function updateRaidGroups(dt: number) {
 // there was simply nothing to attack).
 // The nearest unwarded Town Center as a mob target, or null.
 function nearestUnwardedTownCenterTarget(mob: Mob, wards: TileCoord[]): { type: MobTargetType; id: string } | null {
-  const byDistance = townCenters
+  const byDistance = state.townCenters
     .map((tc) => ({ tc, pos: tileToPixelCenter(tc) }))
     .sort((a, b) => Math.hypot(a.pos.x - mob.x, a.pos.y - mob.y) - Math.hypot(b.pos.x - mob.x, b.pos.y - mob.y));
   for (const { tc } of byDistance) {
@@ -7462,13 +6011,6 @@ function pickMarkedUnitTarget(mob: Mob, wards: TileCoord[]): { type: MobTargetTy
     if (!p.dead) consider("player", p.id, p.x, p.y, p.hp, playerMaxHp(p));
   }
   return best;
-}
-
-// A mob target pick; `approach` (building / Town Center targets only) is the tile to attack from.
-interface PickedTarget {
-  type: MobTargetType;
-  id: string | null;
-  approach?: TileCoord;
 }
 
 function pickMobTarget(mob: Mob): PickedTarget | null {
@@ -7509,7 +6051,7 @@ function pickMobTarget(mob: Mob): PickedTarget | null {
   let bestPlayer: Player | null = null;
   let bestPlayerDist = MOB_AGGRO_RANGE_PLAYER_TILES * TILE_SIZE;
   for (const p of players.values()) {
-    if (p.dead || testPlayersIgnored || isWarded(p.x, p.y, wards)) continue;
+    if (p.dead || state.testPlayersIgnored || isWarded(p.x, p.y, wards)) continue;
     const d = Math.hypot(p.x - mob.x, p.y - mob.y);
     if (d < bestPlayerDist) {
       bestPlayerDist = d;
@@ -7531,7 +6073,7 @@ function unitInAggroRange(mob: Mob, wards: TileCoord[]): boolean {
     if (isGuardOrMilitiaKind(c.kind) && Math.hypot(c.x - mob.x, c.y - mob.y) <= guardPx && !isWarded(c.x, c.y, wards)) return true;
   }
   for (const p of players.values()) {
-    if (!p.dead && !testPlayersIgnored && Math.hypot(p.x - mob.x, p.y - mob.y) <= playerPx && !isWarded(p.x, p.y, wards)) return true;
+    if (!p.dead && !state.testPlayersIgnored && Math.hypot(p.x - mob.x, p.y - mob.y) <= playerPx && !isWarded(p.x, p.y, wards)) return true;
   }
   return false;
 }
@@ -7567,11 +6109,11 @@ function resolveTargetPosition(
   }
   if (targetType === "building") {
     const tile = targetId ? keyToTile(targetId) : null;
-    if (!tile || !isDamageableBuilding(tiles[tileIndex(tile.x, tile.y)] as TileType)) return null;
+    if (!tile || !isDamageableBuilding(state.tiles[tileIndex(tile.x, tile.y)] as TileType)) return null;
     return tileToPixelCenter(mobApproach(mob, targetId) ?? findAdjacentWalkable(tile.x, tile.y) ?? tile);
   }
   // Town Center targets are keyed by the Town Center's tile ("x,y").
-  const tc = targetId ? townCenters.find((t) => resourceKey(t.x, t.y) === targetId) : undefined;
+  const tc = targetId ? state.townCenters.find((t) => resourceKey(t.x, t.y) === targetId) : undefined;
   if (!tc) return null;
   const approach = mobApproach(mob, targetId) ?? findAdjacentWalkable(tc.x, tc.y);
   return tileToPixelCenter(approach ?? tc);
@@ -7598,20 +6140,16 @@ function damageTownCenter(tc: TownCenter, amount: number) {
 function isWallTile(t: TileType): boolean {
   return t === TileType.Wall || t === TileType.StoneWall;
 }
-
-// Tile type -> 1 when mobs can damage it: player buildings that are solid and demolishable (walls
-// included), not construction sites, roads, farm plots or wild forage. Town Centers are separate.
-let damageableLut: Uint8Array | null = null;
 function isDamageableBuilding(t: TileType): boolean {
-  if (!damageableLut) {
-    damageableLut = new Uint8Array(256);
+  if (!state.damageableLut) {
+    state.damageableLut = new Uint8Array(256);
     for (const b of BREAKABLE_TILES) {
-      if (b !== TileType.ConstructionSite && isSolidTile(b) && !FORAGE_TILES.includes(b)) damageableLut[b] = 1;
+      if (b !== TileType.ConstructionSite && isSolidTile(b) && !FORAGE_TILES.includes(b)) state.damageableLut[b] = 1;
     }
     // Gates aren't solid tiles (their passability is gate state) but take damage like a wall.
-    damageableLut[TileType.Gate] = 1;
+    state.damageableLut[TileType.Gate] = 1;
   }
-  return damageableLut[t] === 1;
+  return state.damageableLut[t] === 1;
 }
 
 function buildingBaseHp(t: TileType): number {
@@ -7635,7 +6173,7 @@ function buildingMaxHp(tx: number, ty: number, t: TileType): number {
 // HP of the building / Town Center at a tile (null: nothing damageable there).
 function structureHp(tx: number, ty: number): { hp: number; max: number } | null {
   if (!inBounds(tx, ty)) return null;
-  const t = tiles[tileIndex(tx, ty)] as TileType;
+  const t = state.tiles[tileIndex(tx, ty)] as TileType;
   if (t === TileType.TownCenter) {
     const tc = findTownCenterAt(tx, ty);
     return tc ? { hp: Math.max(0, tc.hp), max: townCenterMaxHp(tc.level) } : null;
@@ -7648,7 +6186,7 @@ function structureHp(tx: number, ty: number): { hp: number; max: number } | null
 function healStructure(tx: number, ty: number, amount: number) {
   const key = resourceKey(tx, ty);
   const tc = findTownCenterAt(tx, ty);
-  if (tc && tiles[tileIndex(tx, ty)] === TileType.TownCenter) {
+  if (tc && state.tiles[tileIndex(tx, ty)] === TileType.TownCenter) {
     tc.hp = Math.min(townCenterMaxHp(tc.level), tc.hp + amount);
     return;
   }
@@ -7660,7 +6198,7 @@ function healStructure(tx: number, ty: number, amount: number) {
 
 // Mob damage to the building (or Town Center) at a tile; at 0 HP it is destroyed.
 function damageBuilding(tx: number, ty: number, amount: number) {
-  const t = tiles[tileIndex(tx, ty)] as TileType;
+  const t = state.tiles[tileIndex(tx, ty)] as TileType;
   if (t === TileType.TownCenter) {
     const tc = findTownCenterAt(tx, ty);
     if (tc) damageTownCenter(tc, amount);
@@ -7682,7 +6220,7 @@ function damageBuilding(tx: number, ty: number, amount: number) {
     // the ground is nobody's now.
     setOwner(index, 0);
     if (isWallTile(t) || t === TileType.Gate) {
-      tiles[index] = TileType.Rubble;
+      state.tiles[index] = TileType.Rubble;
       broadcastTileUpdate(tx, ty, TileType.Rubble);
     }
   }
@@ -7697,13 +6235,13 @@ function damagedBuildingsForSnapshot(): number[] {
     const tile = keyToTile(key);
     const s = tile ? structureHp(tile.x, tile.y) : null;
     // The building is gone (or became something undamageable) some other way: drop the record.
-    if (!tile || !s || tiles[tileIndex(tile.x, tile.y)] === TileType.TownCenter) {
+    if (!tile || !s || state.tiles[tileIndex(tile.x, tile.y)] === TileType.TownCenter) {
       buildingHp.delete(key);
       continue;
     }
     if (s.hp < s.max) out.push(tileIndex(tile.x, tile.y), Math.floor((s.hp / s.max) * 1000));
   }
-  for (const tc of townCenters) {
+  for (const tc of state.townCenters) {
     const max = townCenterMaxHp(tc.level);
     if (tc.hp < max) out.push(tileIndex(tc.x, tc.y), Math.max(0, Math.floor((tc.hp / max) * 1000)));
   }
@@ -7713,48 +6251,17 @@ function damagedBuildingsForSnapshot(): number[] {
   }
   return out;
 }
-
 // ---- Walls & gates (ROADMAP §8 items 2-5, 2026-10-23) ----
-// A Gate is one placeable tile with HP (BUILDING_HP_GATE) and a state per tile (`gates`):
-//  - OPEN / CLOSED. With lock "auto" it opens while a friendly unit (a player or any colonist) is within
-//    GATE_OPEN_RANGE_PX of its centre and closes GATE_CLOSE_DELAY_TICKS after the last one left. Lock
-//    "open" / "closed" (building info menu, setGateLock) holds it either way; a locked-closed gate blocks
-//    the colony's own units too. It never closes on a body standing in it.
-//  - Passability (isWalkableTile via gatePassable): open = ground for everyone, friend or foe; closed =
-//    solid for mobs and wildlife (hostileMover), passable for the colony's units (they open it on arrival).
-//  - OVERRUN (item 5): once a second, if the summed strength (current HP) of awake mobs within
-//    GATE_OVERRUN_RANGE_TILES beats the defenders' (guard / militia colonists in that range + towers in it)
-//    and no living Tower (livingTowersNear) stands within GATE_TOWER_RANGE_TILES, the gate is overrun: it is
-//    passable for mobs as if open until that majority is lost ("Gate overrun" toast on the way in).
-// Mob choice gate vs wall (item 4): pickBuildingTarget first tries an ordinary route (open / overrun gates
-// are ground, closed gates and walls solid) and takes it within BREACH_DETOUR_FACTOR. Otherwise the breach
-// search crosses walls and closed gates at
-//   breachStepCost = 1 + round(currentHp / BREACH_HP_PER_TILE) + BREACH_TOWER_PENALTY_TILES x (living
-//                    towers within GATE_TOWER_RANGE_TILES of that tile)
-// route tiles each (full HP: wood wall 9, gate 19, stone wall 37), and the first wall / closed gate on the
-// cheapest route is attacked. So an open gate wins whenever it's within the detour, a closed gate beats a
-// stone wall unless the wall route is ~18+ tiles shorter, a wood wall beats a gate unless the gate route
-// is ~10+ tiles shorter, damaged sections and undefended stretches are preferred.
-const GATE_OPEN_RANGE_PX = TILE_SIZE * 1.5;
-const GATE_CLOSE_DELAY_TICKS = TICK_RATE * 2;
-const GATE_OVERRUN_RANGE_TILES = 6;
-const GATE_TOWER_RANGE_TILES = 8;
-const BREACH_HP_PER_TILE = 25;
-const BREACH_TOWER_PENALTY_TILES = 12;
-const BUILD_SECONDS_GATE = 8;
-// Set by broadcastTileUpdate: the gate registry is rescanned.
-let gateTilesDirty = true;
-// Mobs whose last path search toward their building target failed (a gate closed on the route).
-const mobsWithoutRoute = new Set<string>();
+
 
 // Runs `fn` with isWalkableTile answering for mobs (closed gates solid).
 function withHostileMover<T>(fn: () => T): T {
-  const prev = hostileMover;
-  hostileMover = true;
+  const prev = state.hostileMover;
+  state.hostileMover = true;
   try {
     return fn();
   } finally {
-    hostileMover = prev;
+    state.hostileMover = prev;
   }
 }
 
@@ -7773,7 +6280,7 @@ function gateAt(index: number): GateState {
 function gatePassable(index: number, hostile: boolean): boolean {
   const g = gates.get(index);
   const own = ownerAt(index);
-  if (own !== 0) return hostile ? moverOwner === own : !!g && g.overrun;
+  if (own !== 0) return hostile ? state.moverOwner === own : !!g && g.overrun;
   if (hostile) return !!g && (g.open || g.overrun);
   return !g || g.open || g.lock !== "closed";
 }
@@ -7782,7 +6289,7 @@ function gatePassable(index: number, hostile: boolean): boolean {
 // Forts phase A: mobs only breach the colony's walls / gates (owner 0); NPC-owned ones are solid to them.
 function isBreachObstacle(tx: number, ty: number): boolean {
   if (!inBounds(tx, ty)) return false;
-  const t = tiles[tileIndex(tx, ty)] as TileType;
+  const t = state.tiles[tileIndex(tx, ty)] as TileType;
   if (ownerAt(tileIndex(tx, ty)) !== 0) return false;
   return isWallTile(t) || (t === TileType.Gate && !gatePassable(tileIndex(tx, ty), true));
 }
@@ -7791,7 +6298,7 @@ function isBreachObstacle(tx: number, ty: number): boolean {
 function isColonyBreachObstacle(tx: number, ty: number): boolean {
   if (!inBounds(tx, ty)) return false;
   const i = tileIndex(tx, ty);
-  const t = tiles[i] as TileType;
+  const t = state.tiles[i] as TileType;
   return isHostileOwner(ownerAt(i)) && (isWallTile(t) || (t === TileType.Gate && !gatePassable(i, false)));
 }
 
@@ -7810,7 +6317,7 @@ function mobTargetNeedsRepick(mob: Mob): boolean {
     return true;
   }
   const tile = mob.targetType === "building" && mob.targetId ? keyToTile(mob.targetId) : null;
-  return !!tile && tiles[tileIndex(tile.x, tile.y)] === TileType.Gate && gatePassable(tileIndex(tile.x, tile.y), true);
+  return !!tile && state.tiles[tileIndex(tile.x, tile.y)] === TileType.Gate && gatePassable(tileIndex(tile.x, tile.y), true);
 }
 
 function friendlyNearGate(cx: number, cy: number, owner = 0): boolean {
@@ -7847,8 +6354,8 @@ function gateOccupied(tx: number, ty: number): boolean {
 }
 
 function evaluateGateOverrun(index: number, g: GateState) {
-  const tx = index % WORLD_TILES_X;
-  const ty = Math.floor(index / WORLD_TILES_X);
+  const tx = index % state.WORLD_TILES_X;
+  const ty = Math.floor(index / state.WORLD_TILES_X);
   const c = tileToPixelCenter({ x: tx, y: ty });
   const range = GATE_OVERRUN_RANGE_TILES * TILE_SIZE;
   const owner = ownerAt(index);
@@ -7885,17 +6392,17 @@ function evaluateGateOverrun(index: number, g: GateState) {
 
 // Once per tick: registry upkeep, auto open / close, and (once a second) the overrun check.
 function updateGates(forceOverrunCheck = false) {
-  if (gateTilesDirty) {
-    for (let i = 0; i < tiles.length; i++) if (tiles[i] === TileType.Gate) gateAt(i);
-    for (const index of Array.from(gates.keys())) if (tiles[index] !== TileType.Gate) gates.delete(index);
-    gateTilesDirty = false;
+  if (state.gateTilesDirty) {
+    for (let i = 0; i < state.tiles.length; i++) if (state.tiles[i] === TileType.Gate) gateAt(i);
+    for (const index of Array.from(gates.keys())) if (state.tiles[index] !== TileType.Gate) gates.delete(index);
+    state.gateTilesDirty = false;
   }
-  if (cycleTick % TICK_RATE === 0) {
+  if (state.cycleTick % TICK_RATE === 0) {
     for (const id of Array.from(mobsWithoutRoute)) if (!mobs.has(id)) mobsWithoutRoute.delete(id);
   }
   for (const [index, g] of gates) {
-    const tx = index % WORLD_TILES_X;
-    const ty = Math.floor(index / WORLD_TILES_X);
+    const tx = index % state.WORLD_TILES_X;
+    const ty = Math.floor(index / state.WORLD_TILES_X);
     const c = tileToPixelCenter({ x: tx, y: ty });
     if (g.lock === "open") {
       g.open = true;
@@ -7907,7 +6414,7 @@ function updateGates(forceOverrunCheck = false) {
       const shouldClose = g.lock === "closed" || g.clearTicks >= GATE_CLOSE_DELAY_TICKS;
       if (g.open && shouldClose && !gateOccupied(tx, ty)) g.open = false;
     }
-    if (forceOverrunCheck || cycleTick % TICK_RATE === 0) evaluateGateOverrun(index, g);
+    if (forceOverrunCheck || state.cycleTick % TICK_RATE === 0) evaluateGateOverrun(index, g);
   }
 }
 
@@ -7927,7 +6434,7 @@ function gatesForSnapshot(): number[] {
 }
 
 function handleSetGateLock(tx: number, ty: number, lock: unknown) {
-  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Gate || ownerAt(tileIndex(tx, ty)) !== 0) return;
+  if (!inBounds(tx, ty) || state.tiles[tileIndex(tx, ty)] !== TileType.Gate || ownerAt(tileIndex(tx, ty)) !== 0) return;
   if (lock !== "auto" && lock !== "open" && lock !== "closed") return;
   const g = gateAt(tileIndex(tx, ty));
   g.lock = lock;
@@ -7935,40 +6442,29 @@ function handleSetGateLock(tx: number, ty: number, lock: unknown) {
   // Auto: start the close countdown now; the next tick re-opens it for anyone still near.
   if (lock === "auto") g.clearTicks = GATE_CLOSE_DELAY_TICKS;
 }
-
-// Damageable non-wall buildings (the candidates of pickBuildingTarget), rebuilt lazily after tile changes.
-let buildingTargetTiles: TileCoord[] = [];
-let buildingTargetsBuiltTick = -1;
 function buildingTargetCandidates(): TileCoord[] {
   // Also rebuilt every few seconds, in case some code path changed a tile without a tileUpdate.
-  if (buildingTargetsDirty || cycleTick - buildingTargetsBuiltTick > TICK_RATE * 5 || cycleTick < buildingTargetsBuiltTick) {
-    buildingTargetTiles = [];
-    for (let i = 0; i < tiles.length; i++) {
-      const t = tiles[i] as TileType;
+  if (state.buildingTargetsDirty || state.cycleTick - state.buildingTargetsBuiltTick > TICK_RATE * 5 || state.cycleTick < state.buildingTargetsBuiltTick) {
+    state.buildingTargetTiles = [];
+    for (let i = 0; i < state.tiles.length; i++) {
+      const t = state.tiles[i] as TileType;
       // Forts phase A: mobs never go for an NPC site's buildings (no NPC-vs-NPC fighting in v1).
-      if (isDamageableBuilding(t) && !isWallTile(t) && t !== TileType.Gate && ownerAt(i) === 0) buildingTargetTiles.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+      if (isDamageableBuilding(t) && !isWallTile(t) && t !== TileType.Gate && ownerAt(i) === 0) state.buildingTargetTiles.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
     }
-    buildingTargetsDirty = false;
-    buildingTargetsBuiltTick = cycleTick;
+    state.buildingTargetsDirty = false;
+    state.buildingTargetsBuiltTick = state.cycleTick;
   }
-  return buildingTargetTiles;
+  return state.buildingTargetTiles;
 }
-
-// Shortest route (start excluded) from `start` to a tile next to (gx, gy), 4-connected. wallCost 0:
-// walls are solid like any other building (an ordinary route); wallCost > 0: wall tiles are passable at
-// that cost each (the breach search). Dijkstra over a binary heap of cost * N + tile index.
-let routeCost = new Float64Array(WORLD_TILES_X * WORLD_TILES_Y);
-let routeParent = new Int32Array(WORLD_TILES_X * WORLD_TILES_Y);
-const ROUTE_NODE_BUDGET = 120000;
 // colony = true (forts phase A): the colony's side: gates by gatePassable(_, false), and only a hostile
 // site's walls / gates are breachable; false: the mobs' side, only the colony's (owner 0) are.
 function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: number, colony = false): TileCoord[] | null {
-  const n = tiles.length;
+  const n = state.tiles.length;
   const s = tileIndex(start.x, start.y);
-  const isGoal = (i: number) => Math.abs((i % WORLD_TILES_X) - gx) + Math.abs(Math.floor(i / WORLD_TILES_X) - gy) === 1;
+  const isGoal = (i: number) => Math.abs((i % state.WORLD_TILES_X) - gx) + Math.abs(Math.floor(i / state.WORLD_TILES_X) - gy) === 1;
   if (isGoal(s)) return [];
-  routeCost.fill(Infinity);
-  routeCost[s] = 0;
+  state.routeCost.fill(Infinity);
+  state.routeCost[s] = 0;
   const heap: number[] = [s];
   const push = (v: number) => {
     let i = heap.push(v) - 1;
@@ -8005,18 +6501,18 @@ function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: num
     const v = pop();
     const idx = v % n;
     const cost = (v - idx) / n;
-    if (cost > routeCost[idx]) continue;
+    if (cost > state.routeCost[idx]) continue;
     if (idx !== s && isGoal(idx)) {
       const path: TileCoord[] = [];
-      for (let i = idx; i !== s; i = routeParent[i]) path.unshift({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+      for (let i = idx; i !== s; i = state.routeParent[i]) path.unshift({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
       return path;
     }
-    const x = idx % WORLD_TILES_X;
-    const y = Math.floor(idx / WORLD_TILES_X);
+    const x = idx % state.WORLD_TILES_X;
+    const y = Math.floor(idx / state.WORLD_TILES_X);
     for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
       if (!inBounds(nx, ny)) continue;
       const ni = tileIndex(nx, ny);
-      const t = tiles[ni] as TileType;
+      const t = state.tiles[ni] as TileType;
       // Gates: an open (or overrun) gate is ground; a closed one is solid, or a breach obstacle like a wall.
       const own = tileOwner.size === 0 ? 0 : ownerAt(ni);
       const breachable = wallCost > 0 && (colony ? isHostileOwner(own) : own === 0);
@@ -8026,9 +6522,9 @@ function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: num
           : !isSolidTile(t) ? 1 : breachable && isWallTile(t) ? breachStepCost(nx, ny) : 0;
       if (step === 0) continue;
       const next = cost + step;
-      if (next >= routeCost[ni]) continue;
-      routeCost[ni] = next;
-      routeParent[ni] = idx;
+      if (next >= state.routeCost[ni]) continue;
+      state.routeCost[ni] = next;
+      state.routeParent[ni] = idx;
       push(next * n + ni);
     }
   }
@@ -8044,7 +6540,7 @@ function pickBuildingTarget(mob: Mob, wards: TileCoord[]): PickedTarget | null {
     const c = tileToPixelCenter({ x, y });
     if (!isWarded(c.x, c.y, wards)) candidates.push({ x, y, type, d: Math.hypot(c.x - mob.x, c.y - mob.y) });
   };
-  for (const tc of townCenters) consider(tc.x, tc.y, "townCenter");
+  for (const tc of state.townCenters) consider(tc.x, tc.y, "townCenter");
   for (const b of buildingTargetCandidates()) consider(b.x, b.y, "building");
   candidates.sort((p, q) => p.d - q.d);
   const start = tileOfPixel(mob.x, mob.y);
@@ -8090,7 +6586,7 @@ function regimentFrontDistance(mob: Mob, regiment: string, target: { x: number; 
 }
 
 function startVhorrunWithdraw(mob: Mob, from: { x: number; y: number }) {
-  mob.withdrawUntilTick = cycleTick + VHORRUN_WITHDRAW_TICKS;
+  mob.withdrawUntilTick = state.cycleTick + VHORRUN_WITHDRAW_TICKS;
   mob.withdrawFromX = from.x;
   mob.withdrawFromY = from.y;
   mob.targetType = null;
@@ -8107,7 +6603,7 @@ function updateMob(mob: Mob, dt: number) {
   if (
     mob.kind === "troll" &&
     mob.hp < mob.maxHp &&
-    cycleTick - mob.lastDamagedTick >= TROLL_REGEN_DELAY_TICKS
+    state.cycleTick - mob.lastDamagedTick >= TROLL_REGEN_DELAY_TICKS
   ) {
     mob.hp = Math.min(mob.maxHp, mob.hp + TROLL_REGEN_PER_TICK);
   }
@@ -8154,7 +6650,7 @@ function updateMob(mob: Mob, dt: number) {
 
   // Vhorrun withdrawing after winning an exchange: back away from where the fight was, then return.
   // A goblin wolf rider after its charge landed: rides off (hit and run), then comes back at its target.
-  if ((mob.mark === HungerMark.Vhorrun || mob.kind === "goblinRider") && cycleTick < mob.withdrawUntilTick) {
+  if ((mob.mark === HungerMark.Vhorrun || mob.kind === "goblinRider") && state.cycleTick < mob.withdrawUntilTick) {
     stepMobAwayFrom(mob, mob.withdrawFromX, mob.withdrawFromY, dt);
     return;
   }
@@ -8165,7 +6661,7 @@ function updateMob(mob: Mob, dt: number) {
   // Once a second (Nemri keeps to its Town Center): a mob on a building / Town Center turns on any
   // guard or player that comes within aggro range; one heading for a Town Center turns on a nearer
   // building it passes; one chasing a unit gives up once it is well past aggro range.
-  if (targetPos && mob.mark !== HungerMark.Nemri && cycleTick % TICK_RATE === 0) {
+  if (targetPos && mob.mark !== HungerMark.Nemri && state.cycleTick % TICK_RATE === 0) {
     const wards = activeWardSources();
     if (mob.targetType === "building" || mob.targetType === "townCenter") {
       if (unitInAggroRange(mob, wards)) targetPos = null;
@@ -8180,7 +6676,7 @@ function updateMob(mob: Mob, dt: number) {
     }
   }
   // Gunne / Gorrath keep re-checking for a weaker / stronger victim.
-  if ((mob.mark === HungerMark.Gunne || mob.mark === HungerMark.Gorrath) && cycleTick % MARK_RETARGET_TICKS === 0) targetPos = null;
+  if ((mob.mark === HungerMark.Gunne || mob.mark === HungerMark.Gorrath) && state.cycleTick % MARK_RETARGET_TICKS === 0) targetPos = null;
 
   if (!targetPos && hold) return;
   if (!targetPos) {
@@ -8207,7 +6703,7 @@ function updateMob(mob: Mob, dt: number) {
   if (!targetPos) return;
 
   // Rux mid-feint: falls back from the target it just closed on.
-  if (mob.mark === HungerMark.Rux && cycleTick < mob.feintUntilTick) {
+  if (mob.mark === HungerMark.Rux && state.cycleTick < mob.feintUntilTick) {
     stepMobAwayFrom(mob, targetPos.x, targetPos.y, dt);
     return;
   }
@@ -8264,7 +6760,7 @@ function updateMob(mob: Mob, dt: number) {
     if (slot && Math.hypot(slot.x - mob.x, slot.y - mob.y) > 2) stepRaidMobToward(mob, slot.x, slot.y, mob.speed * 0.5, dt);
     if (mob.mark === HungerMark.Rux && mob.feintTargetId !== mob.targetId) {
       mob.feintTargetId = mob.targetId;
-      mob.feintUntilTick = cycleTick + RUX_FEINT_TICKS;
+      mob.feintUntilTick = state.cycleTick + RUX_FEINT_TICKS;
       return;
     }
     if (mob.attackCooldownTicks > 0) {
@@ -8274,7 +6770,7 @@ function updateMob(mob: Mob, dt: number) {
       // Building hits land on the building itself, not the tile the mob attacks it from.
       const struck = (mob.targetType === "building" || mob.targetType === "townCenter") && mob.targetId ? keyToTile(mob.targetId) : null;
       const hit = struck ? tileToPixelCenter(struck) : targetPos;
-      pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: hit.x, toY: hit.y, melee: mob.melee });
+      state.pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: hit.x, toY: hit.y, melee: mob.melee });
       if (mob.targetId) recordMobStrike(mob, hit.x, hit.y);
       // Goblin wolf rider: a charge (a straight run of CAVALRY_CHARGE_TILES) doubles its first blow on a
       // unit, and it then withdraws for GOBLIN_RIDER_WITHDRAW_TICKS before riding in again.
@@ -8284,7 +6780,7 @@ function updateMob(mob: Mob, dt: number) {
         siegeEvent(mult > 1 ? "riderCharge" : "riderHit", mob.id, blow * mult);
         if (mult > 1) {
           blow *= mult;
-          mob.withdrawUntilTick = cycleTick + GOBLIN_RIDER_WITHDRAW_TICKS;
+          mob.withdrawUntilTick = state.cycleTick + GOBLIN_RIDER_WITHDRAW_TICKS;
           mob.withdrawFromX = targetPos.x;
           mob.withdrawFromY = targetPos.y;
           mob.path = [];
@@ -8318,7 +6814,7 @@ function updateMob(mob: Mob, dt: number) {
           }
         }
       } else if (mob.targetType === "townCenter" && mob.targetId) {
-        const tc = townCenters.find((t) => resourceKey(t.x, t.y) === mob.targetId);
+        const tc = state.townCenters.find((t) => resourceKey(t.x, t.y) === mob.targetId);
         if (tc) damageTownCenter(tc, mob.damage);
       } else if (mob.targetType === "building" && struck) {
         damageBuilding(struck.x, struck.y, mob.damage);
@@ -8341,111 +6837,15 @@ function updateMob(mob: Mob, dt: number) {
     advanceAlongPath(mob, dt, mob.speed);
   }
 }
-
 // ---- Monster tactics: flanking, wall cover, morale & rout (ROADMAP "Monster tactics") ----
-// A regiment is every mob sharing regimentKey: a raid group (groupId, then regimentId once it broke
-// up) or a POI site (siteId; future horde / fort sites use the same key). updateRegiments evaluates
-// each one once a second: its strength against the player's forces near it, its morale, and whether it
-// sends a flank group, takes cover behind its own walls or routs. mobTactic then moves the members.
-const TACTICS_EVAL_TICKS = TICK_RATE;
-// Player forces (soldiers, players, standing towers) this far from a regiment's centroid (plus its own
-// spread, up to TACTICS_SPREAD_CAP_TILES) count against it; any at all means it is "in contact".
-const TACTICS_SCAN_TILES = 10;
-const TACTICS_SPREAD_CAP_TILES = 8;
-// Flanking: the arc passes this far outside the enemy line's end, then cuts in behind it.
-const FLANK_ARC_TILES = 7;
-const FLANK_BEHIND_TILES = 3;
-// No fast units: this share of the front line (at least FLANK_MIN_FRONT_FOR_DETACH strong) goes round.
-const FLANK_DETACH_FRACTION = 0.2;
-const FLANK_MIN_FRONT_FOR_DETACH = 5;
-const FLANK_MAX_TICKS = 20 * TICK_RATE;
-const FLANK_WAYPOINT_REACH_PX = TILE_SIZE * 1.5;
-// A flanker past its first waypoint engages early once its target is this close.
-const FLANK_ENGAGE_TILES = 3;
-// The front line counts as engaged once a front-rank member closes within this much of its reach of a
-// soldier target (so the fast wing leaves as the lines meet, not after it has charged in itself).
-const FLANK_CONTACT_TILES = 6;
-// Strength ratio (regiment / enemy) below which it is outnumbered (cover / morale drain), and above
-// which a sheltering regiment comes back out.
-const TACTICS_OUTNUMBERED_RATIO = 0.6;
-const COVER_REENGAGE_RATIO = 1.0;
-// A wall / gate of the shelter below this HP fraction (or an opened gate / a gap) is a breach.
-const COVER_BREACH_HP_FRACTION = 0.5;
-// Walled enclosure search: Chebyshev radius from the start tile it must close within.
-const COVER_ENCLOSURE_TILES = 8;
-const MORALE_MAX = 100;
-const MORALE_ROUT = 25;
-const MORALE_RALLY = 50;
-const MORALE_RALLY_QUIET_TICKS = 10 * TICK_RATE;
-// One death costs MORALE_CASUALTY x its weight / the regiment's peak size (only applied in contact).
-const MORALE_CASUALTY = 50;
-// Siege: the ram weighs as shock (2), the catapult as ranged (0.8); see moraleWeight.
-const MORALE_ROLE_WEIGHT: Record<CombatRole, number> = { frontline: 1, shock: 2, ranged: 0.8, caster: 1, fast: 0.8, siege: 2 };
-const MORALE_LEADER_WEIGHT = 3;
-const MORALE_FRONT_LOST_PER_SEC = 8;
-const MORALE_OUTFLANKED_PER_SEC = 4;
-// Drain at ratio 0, falling linearly to 0 at TACTICS_OUTNUMBERED_RATIO.
-const MORALE_OUTNUMBERED_PER_SEC = 20;
-const MORALE_RECOVER_PER_SEC = 3;
-const MORALE_WINNING_RATIO = 1.5;
-// Losses are scaled by this while a morale anchor (boss / Hunger-marked) lives.
-const MORALE_ANCHOR_RESIST = 0.5;
-// Night raids (reg.raid) commit to the fight: a lower rout line, half the casualty / outnumbered cost,
-// gentler front-lost / outflanked drains, a morale grace at first contact, and a stronger anchor. They
-// still rout once crushed (at most RAID_CRUSHED_FRACTION of peak left, or the anchor they had is dead).
-const RAID_MORALE_ROUT = 10;
-const RAID_MORALE_CASUALTY = 25;
-const RAID_MORALE_OUTNUMBERED_PER_SEC = 10;
-const RAID_MORALE_FRONT_LOST_PER_SEC = 4;
-const RAID_MORALE_OUTFLANKED_PER_SEC = 2;
-const RAID_MORALE_ANCHOR_RESIST = 0.25;
-const RAID_MORALE_GRACE_TICKS = 10 * TICK_RATE;
-const RAID_CRUSHED_FRACTION = 0.25;
-const ROUT_SPEED_FACTOR = 1.2;
-const RAID_LEAVE_MAX_TICKS = 60 * TICK_RATE;
-const ROUT_TOAST_COOLDOWN_TICKS = 30 * TICK_RATE;
 
-interface RegimentState {
-  id: string;
-  morale: number;
-  peak: number;
-  routed: boolean;
-  // A raid regiment (no site): routing makes it leave the map instead of falling back home.
-  raid: boolean;
-  homeX: number;
-  homeY: number;
-  lastContactTick: number;
-  // First tick in contact (raid morale grace), and whether a morale anchor has ever been a member.
-  firstContactTick: number;
-  hadAnchor: boolean;
-  pendingLoss: number;
-  hadFront: boolean;
-  sheltering: boolean;
-  // Shelter post per member (a tile inside the walls), set while sheltering.
-  posts: Map<string, TileCoord>;
-  flankIds: string[];
-  ratio: number;
-  // Strategy mode phase 6: the last evaluation that found it outflanked (enemy banner "Outflanked!").
-  outflankedTick?: number;
-}
-const regiments = new Map<string, RegimentState>();
-const ENEMY_OUTFLANKED_SHOW_TICKS = 3 * TICK_RATE;
-// Site / regiment ids that own walls (the cover behaviour). Fort / horde sites register here, or set
-// SITE_KIND_WALLED for their kind; testHook "setRegimentWalled" too. Encampment fences do not count.
-const walledSites = new Set<string>();
-const SITE_KIND_WALLED: Partial<Record<PoiSiteKind, boolean>> = {};
-// Recent tactics events (testHook "tacticsState").
-const tacticsEvents: Array<{ tick: number; type: string; regiment: string; detail?: string }> = [];
-let lastRoutToastTick = -Infinity;
-// testHook "tacticsConfig" {freezeMorale:true}: morale never changes (isolates flanking in tests).
-let testMoraleFrozen = false;
 
 function regimentKey(m: Mob): string | null {
   return m.groupId ?? m.regimentId ?? m.siteId ?? null;
 }
 
 function tacticsEvent(regiment: string, type: string, detail?: string) {
-  tacticsEvents.push({ tick: cycleTick, type, regiment, detail });
+  tacticsEvents.push({ tick: state.cycleTick, type, regiment, detail });
   if (tacticsEvents.length > 200) tacticsEvents.shift();
 }
 
@@ -8462,14 +6862,6 @@ function noteRegimentCasualty(m: Mob) {
   reg.pendingLoss += ((reg.raid ? RAID_MORALE_CASUALTY : MORALE_CASUALTY) * weight) / Math.max(3, reg.peak);
 }
 
-interface EnemyUnit {
-  type: "colonist" | "player";
-  id: string;
-  x: number;
-  y: number;
-  rear: boolean;
-}
-
 // The player's forces within radiusPx of (cx, cy): summed HP and damage per mob attack interval.
 function playerForceNear(cx: number, cy: number, radiusPx: number): { hp: number; dmg: number; units: EnemyUnit[] } {
   let hp = 0;
@@ -8483,7 +6875,7 @@ function playerForceNear(cx: number, cy: number, radiusPx: number): { hp: number
     dmg += (stats.damage * MOB_ATTACK_COOLDOWN_TICKS) / Math.max(1, stats.cooldown);
     units.push({ type: "colonist", id: c.id, x: c.x, y: c.y, rear: isRearColonist(c) });
   }
-  if (!testPlayersIgnored) {
+  if (!state.testPlayersIgnored) {
     for (const p of players.values()) {
       if (p.dead || Math.hypot(p.x - cx, p.y - cy) > radiusPx) continue;
       hp += p.hp;
@@ -8521,7 +6913,7 @@ function walledEnclosure(start: TileCoord): { tiles: TileCoord[]; barriers: Tile
         tilesOut.push(n);
       } else {
         barrierSeen.add(idx);
-        const tt = tiles[idx] as TileType;
+        const tt = state.tiles[idx] as TileType;
         if (isWallTile(tt) || tt === TileType.Gate) barriers.push(n);
       }
     }
@@ -8555,7 +6947,7 @@ function assignShelterPosts(reg: RegimentState, members: Mob[], e: { tiles: Tile
   reg.posts.clear();
   const used = new Set<string>();
   const barrierKeys = new Set(e.barriers.map((b) => resourceKey(b.x, b.y)));
-  const gatesIn = e.barriers.filter((b) => tiles[tileIndex(b.x, b.y)] === TileType.Gate);
+  const gatesIn = e.barriers.filter((b) => state.tiles[tileIndex(b.x, b.y)] === TileType.Gate);
   const enemyTile = { x: ex / TILE_SIZE, y: ey / TILE_SIZE };
   const byWall = e.tiles
     .filter((t) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => barrierKeys.has(resourceKey(t.x + dx, t.y + dy))))
@@ -8581,15 +6973,15 @@ function fleeEdgePoint(m: Mob, ax: number, ay: number): { x: number; y: number }
   let vy = m.y - ay;
   if (Math.hypot(vx, vy) < 1) {
     const dW = t.x;
-    const dE = WORLD_TILES_X - 1 - t.x;
+    const dE = state.WORLD_TILES_X - 1 - t.x;
     const dN = t.y;
-    const dS = WORLD_TILES_Y - 1 - t.y;
+    const dS = state.WORLD_TILES_Y - 1 - t.y;
     const min = Math.min(dW, dE, dN, dS);
     vx = min === dW ? -1 : min === dE ? 1 : 0;
     vy = vx !== 0 ? 0 : min === dN ? -1 : 1;
   }
-  const maxX = WORLD_TILES_X - 1;
-  const maxY = WORLD_TILES_Y - 1;
+  const maxX = state.WORLD_TILES_X - 1;
+  const maxY = state.WORLD_TILES_Y - 1;
   const tx = vx > 0 ? (maxX - t.x) / vx : vx < 0 ? -t.x / vx : Infinity;
   const ty = vy > 0 ? (maxY - t.y) / vy : vy < 0 ? -t.y / vy : Infinity;
   const k = Math.min(tx, ty);
@@ -8641,11 +7033,11 @@ function startRout(reg: RegimentState, members: Mob[], ex: number, ey: number, t
       const edge = fleeEdgePoint(m, ex, ey);
       m.fleeX = edge.x;
       m.fleeY = edge.y;
-      m.leaveUntilTick = cycleTick + RAID_LEAVE_MAX_TICKS;
+      m.leaveUntilTick = state.cycleTick + RAID_LEAVE_MAX_TICKS;
     }
   }
-  if (toast && reg.raid && cycleTick - lastRoutToastTick >= ROUT_TOAST_COOLDOWN_TICKS) {
-    lastRoutToastTick = cycleTick;
+  if (toast && reg.raid && state.cycleTick - state.lastRoutToastTick >= ROUT_TOAST_COOLDOWN_TICKS) {
+    state.lastRoutToastTick = state.cycleTick;
     broadcastEvent("raid", "The raiders break and flee!");
   }
 }
@@ -8721,7 +7113,7 @@ function tryFlank(reg: RegimentState, members: Mob[], units: EnemyUnit[], cx: nu
       m.tactic = "flank";
       m.flankWaypoints = [w0, w1, w2];
       m.flankTargetId = target.id;
-      m.flankUntilTick = cycleTick + FLANK_MAX_TICKS;
+      m.flankUntilTick = state.cycleTick + FLANK_MAX_TICKS;
       m.repathCooldown = 0;
       reg.flankIds.push(m.id);
     }
@@ -8756,11 +7148,11 @@ function evaluateRegiment(reg: RegimentState, members: Mob[]) {
   // Morale.
   const anchored = members.some(isMoraleAnchor);
   if (anchored) reg.hadAnchor = true;
-  if (contact && reg.firstContactTick === -Infinity) reg.firstContactTick = cycleTick;
-  if (!testMoraleFrozen) {
+  if (contact && reg.firstContactTick === -Infinity) reg.firstContactTick = state.cycleTick;
+  if (!state.testMoraleFrozen) {
     let delta = 0;
     if (contact) {
-      reg.lastContactTick = cycleTick;
+      reg.lastContactTick = state.cycleTick;
       delta -= reg.pendingLoss;
       if (members.some((m) => !isRearMob(m))) reg.hadFront = true;
       else if (reg.hadFront) delta -= reg.raid ? RAID_MORALE_FRONT_LOST_PER_SEC : MORALE_FRONT_LOST_PER_SEC;
@@ -8772,14 +7164,14 @@ function evaluateRegiment(reg: RegimentState, members: Mob[]) {
       );
       if (outflanked) {
         delta -= reg.raid ? RAID_MORALE_OUTFLANKED_PER_SEC : MORALE_OUTFLANKED_PER_SEC;
-        reg.outflankedTick = cycleTick;
+        reg.outflankedTick = state.cycleTick;
       }
       if (reg.ratio < TACTICS_OUTNUMBERED_RATIO && !reg.sheltering) {
         delta -= (reg.raid ? RAID_MORALE_OUTNUMBERED_PER_SEC : MORALE_OUTNUMBERED_PER_SEC) * (1 - reg.ratio / TACTICS_OUTNUMBERED_RATIO);
       } else if (reg.ratio > MORALE_WINNING_RATIO) delta += MORALE_RECOVER_PER_SEC;
       if (delta < 0 && anchored) delta *= reg.raid ? RAID_MORALE_ANCHOR_RESIST : MORALE_ANCHOR_RESIST;
       // A raid's first seconds of contact cost no morale.
-      if (reg.raid && cycleTick - reg.firstContactTick < RAID_MORALE_GRACE_TICKS) delta = Math.max(0, delta);
+      if (reg.raid && state.cycleTick - reg.firstContactTick < RAID_MORALE_GRACE_TICKS) delta = Math.max(0, delta);
     } else {
       delta += MORALE_RECOVER_PER_SEC;
     }
@@ -8809,9 +7201,9 @@ function evaluateRegiment(reg: RegimentState, members: Mob[]) {
 
   // Rout / rally.
   // A raid breaks on morale only below its lower line, or once crushed (few left / its anchor dead).
-  const crushed = reg.raid && contact && !testMoraleFrozen && (members.length <= RAID_CRUSHED_FRACTION * reg.peak || (reg.hadAnchor && !anchored));
+  const crushed = reg.raid && contact && !state.testMoraleFrozen && (members.length <= RAID_CRUSHED_FRACTION * reg.peak || (reg.hadAnchor && !anchored));
   if (!reg.routed && !reg.sheltering && (reg.morale < (reg.raid ? RAID_MORALE_ROUT : MORALE_ROUT) || crushed)) startRout(reg, members, ex, ey);
-  else if (reg.routed && !reg.raid && reg.morale > MORALE_RALLY && cycleTick - reg.lastContactTick >= MORALE_RALLY_QUIET_TICKS) {
+  else if (reg.routed && !reg.raid && reg.morale > MORALE_RALLY && state.cycleTick - reg.lastContactTick >= MORALE_RALLY_QUIET_TICKS) {
     reg.routed = false;
     tacticsEvent(reg.id, "rally", `morale ${reg.morale.toFixed(0)}`);
   }
@@ -8827,7 +7219,7 @@ function evaluateRegiment(reg: RegimentState, members: Mob[]) {
 }
 
 function updateRegiments() {
-  if (cycleTick % TACTICS_EVAL_TICKS !== 0) return;
+  if (state.cycleTick % TACTICS_EVAL_TICKS !== 0) return;
   const byReg = new Map<string, Mob[]>();
   const seen = new Set<string>();
   for (const m of mobs.values()) {
@@ -8850,7 +7242,6 @@ function updateRegiments() {
   for (const id of regiments.keys()) if (!seen.has(id)) regiments.delete(id);
   for (const [id, members] of byReg) evaluateRegiment(regiments.get(id)!, members);
 }
-
 // ---- Player regiment morale (strategy mode phase 6; docs PLAN-strategy-mode.md Phase 6). The mob model
 // above, tuned gentler: the player's derived regiments (armyRegimentsNow ids) of PLAYER_MORALE_MIN_UNITS+
 // fighting units (no heroes, no siege engines) lose morale in contact for casualties, being outnumbered
@@ -8862,66 +7253,7 @@ function updateRegiments() {
 // are put on a retreat to the nearest Town Center (phase 3 retreat: fights only when cornered) at rout
 // speed and refuse orders until it rallies (PLAYER_MORALE_RALLY after PLAYER_ROUT_QUIET_TICKS quiet and
 // PLAYER_ROUT_MIN_TICKS fleeing, or at the latest after PLAYER_ROUT_MAX_TICKS). Evaluated once a second.
-const PLAYER_MORALE_MIN_UNITS = 3;
-const PLAYER_MORALE_WAVER = 40;
-const PLAYER_MORALE_ROUT = 15;
-const PLAYER_MORALE_RALLY = 45;
-const PLAYER_MORALE_SCAN_TILES = 8;
-// One death costs this x its role weight / max(3, the regiment's peak size).
-const PLAYER_MORALE_CASUALTY = 35;
-const PLAYER_MORALE_OUTNUMBERED_PER_SEC = 8;
-const PLAYER_MORALE_OUTFLANKED_PER_SEC = 3;
-const PLAYER_MORALE_FRONT_LOST_PER_SEC = 4;
-const PLAYER_MORALE_RECOVER_PER_SEC = 4;
-const PLAYER_MORALE_WINNING_PER_SEC = 2;
-// The first seconds of a new engagement cost no morale beyond casualties.
-const PLAYER_MORALE_GRACE_TICKS = 5 * TICK_RATE;
-// Contact after this long quiet is a new engagement (grace again).
-const PLAYER_MORALE_NEW_FIGHT_TICKS = 10 * TICK_RATE;
-// Drain multipliers (stacking, floored at PLAYER_MORALE_RESIST_FLOOR).
-const PLAYER_MORALE_ANCHOR_TILES = 6;
-const PLAYER_MORALE_ANCHOR_RESIST = 0.6;
-const PLAYER_MORALE_TOWER_TILES = 8;
-const PLAYER_MORALE_TOWER_RESIST = 0.75;
-const PLAYER_MORALE_WALL_TILES = 4;
-const PLAYER_MORALE_WALL_RESIST = 0.85;
-const PLAYER_MORALE_TC_TILES = 12;
-const PLAYER_MORALE_TC_RESIST = 0.6;
-const PLAYER_MORALE_RESIST_FLOOR = 0.3;
-// Out of contact within PLAYER_MORALE_TC_TILES of a Town Center: recovery x this.
-const PLAYER_MORALE_TC_RECOVER_MULT = 2;
-const PLAYER_MORALE_WAVERING_DAMAGE = 0.85;
-const PLAYER_ROUT_SPEED_FACTOR = 1.25;
-const PLAYER_ROUT_MIN_TICKS = 6 * TICK_RATE;
-const PLAYER_ROUT_QUIET_TICKS = 4 * TICK_RATE;
-const PLAYER_ROUT_MAX_TICKS = 25 * TICK_RATE;
-const PLAYER_MORALE_TOAST_COOLDOWN_TICKS = 20 * TICK_RATE;
 
-interface PlayerMoraleState {
-  id: string;
-  name: string;
-  morale: number;
-  peak: number;
-  // Evaluated this second (big enough, or routing): the snapshot carries its morale.
-  active: boolean;
-  routed: boolean;
-  routedTick: number;
-  lastContactTick: number;
-  fightStartTick: number;
-  pendingLoss: number;
-  hadFront: boolean;
-  outflanked: boolean;
-  lastWarnTick: number;
-  // Own side / enemy Lanchester strength at the last evaluation in contact (test hook).
-  ratio: number;
-}
-const playerMorale = new Map<string, PlayerMoraleState>();
-// Unit id -> its regiment id as of the last evaluation (casualties, wavering damage).
-const moraleRegimentOfUnit = new Map<string, string>();
-// Routed unit -> the regiment it routed with, and whether it was in an order group before (on rally it
-// keeps standing in its retreat group; otherwise it leaves the group and goes back to the rally slot it
-// held before the rout: its post, or where a tactical-mode move left it).
-const routedUnits = new Map<string, { reg: string; hadGroup: boolean; rallyX: number; rallyY: number }>();
 
 function isRoutedUnit(id: string): boolean {
   return routedUnits.has(id);
@@ -8971,7 +7303,7 @@ function playerMoraleResist(members: Colonist[], cx: number, cy: number): number
   let k = 1;
   const anchorPx = PLAYER_MORALE_ANCHOR_TILES * TILE_SIZE;
   let anchored = members.some((c) => c.kind === "knight");
-  if (!anchored && !testPlayersIgnored) {
+  if (!anchored && !state.testPlayersIgnored) {
     for (const p of players.values()) if (!p.dead && Math.hypot(p.x - cx, p.y - cy) <= anchorPx) anchored = true;
   }
   if (!anchored) {
@@ -8989,7 +7321,7 @@ function playerMoraleResist(members: Colonist[], cx: number, cy: number): number
   for (let dy = -PLAYER_MORALE_WALL_TILES; dy <= PLAYER_MORALE_WALL_TILES && !walls; dy++) {
     for (let dx = -PLAYER_MORALE_WALL_TILES; dx <= PLAYER_MORALE_WALL_TILES; dx++) {
       if (!inBounds(t.x + dx, t.y + dy)) continue;
-      const tt = tiles[tileIndex(t.x + dx, t.y + dy)] as TileType;
+      const tt = state.tiles[tileIndex(t.x + dx, t.y + dy)] as TileType;
       if (isWallTile(tt) || tt === TileType.Gate) {
         walls = true;
         break;
@@ -9009,15 +7341,15 @@ function nearTownCenter(x: number, y: number): boolean {
 }
 
 function moraleToast(reg: PlayerMoraleState, text: string, force = false) {
-  if (!force && cycleTick - reg.lastWarnTick < PLAYER_MORALE_TOAST_COOLDOWN_TICKS) return;
-  reg.lastWarnTick = cycleTick;
+  if (!force && state.cycleTick - reg.lastWarnTick < PLAYER_MORALE_TOAST_COOLDOWN_TICKS) return;
+  reg.lastWarnTick = state.cycleTick;
   broadcastEvent("morale", text);
 }
 
 // The regiment breaks: every member retreats to the nearest Town Center as one order group.
 function startPlayerRout(reg: PlayerMoraleState, members: Colonist[]) {
   reg.routed = true;
-  reg.routedTick = cycleTick;
+  reg.routedTick = state.cycleTick;
   tacticsEvent(reg.id, "playerRout", `morale ${reg.morale.toFixed(0)}`);
   moraleToast(reg, `${reg.name} is routing!`, true);
   for (const c of members) {
@@ -9026,8 +7358,8 @@ function startPlayerRout(reg: PlayerMoraleState, members: Colonist[]) {
     dropGuardTarget(c);
   }
   const g: OrderGroup = {
-    id: `g${nextOrderGroupId++}`, unitIds: new Set(members.map((c) => c.id)), current: null, queue: [],
-    destX: 0, destY: 0, startedTick: cycleTick, engaged: false, clearSince: -1, followAt: null,
+    id: `g${state.nextOrderGroupId++}`, unitIds: new Set(members.map((c) => c.id)), current: null, queue: [],
+    destX: 0, destY: 0, startedTick: state.cycleTick, engaged: false, clearSince: -1, followAt: null,
   };
   orderGroups.set(g.id, g);
   for (const c of members) orderGroupOfUnit.set(c.id, g);
@@ -9054,8 +7386,8 @@ function evaluatePlayerRegiment(reg: PlayerMoraleState, members: Colonist[]) {
   reg.outflanked = false;
   let delta = 0;
   if (contact) {
-    if (cycleTick - reg.lastContactTick > PLAYER_MORALE_NEW_FIGHT_TICKS) reg.fightStartTick = cycleTick;
-    reg.lastContactTick = cycleTick;
+    if (state.cycleTick - reg.lastContactTick > PLAYER_MORALE_NEW_FIGHT_TICKS) reg.fightStartTick = state.cycleTick;
+    reg.lastContactTick = state.cycleTick;
     if (!reg.routed) {
       const friend = playerForceNear(c0.x, c0.y, radius);
       const ratio = (friend.hp * friend.dmg) / enemyPower;
@@ -9076,7 +7408,7 @@ function evaluatePlayerRegiment(reg: PlayerMoraleState, members: Colonist[]) {
       if (reg.outflanked) delta -= PLAYER_MORALE_OUTFLANKED_PER_SEC;
       if (ratio < TACTICS_OUTNUMBERED_RATIO) delta -= PLAYER_MORALE_OUTNUMBERED_PER_SEC * (1 - ratio / TACTICS_OUTNUMBERED_RATIO);
       else if (ratio > MORALE_WINNING_RATIO) delta += PLAYER_MORALE_WINNING_PER_SEC;
-      if (cycleTick - reg.fightStartTick < PLAYER_MORALE_GRACE_TICKS) delta = Math.max(0, delta);
+      if (state.cycleTick - reg.fightStartTick < PLAYER_MORALE_GRACE_TICKS) delta = Math.max(0, delta);
       delta -= reg.pendingLoss;
       if (delta < 0) delta *= playerMoraleResist(members, c0.x, c0.y);
     }
@@ -9084,7 +7416,7 @@ function evaluatePlayerRegiment(reg: PlayerMoraleState, members: Colonist[]) {
     delta += PLAYER_MORALE_RECOVER_PER_SEC * (nearTownCenter(c0.x, c0.y) ? PLAYER_MORALE_TC_RECOVER_MULT : 1);
   }
   reg.pendingLoss = 0;
-  if (!testMoraleFrozen) reg.morale = Math.max(0, Math.min(MORALE_MAX, reg.morale + delta));
+  if (!state.testMoraleFrozen) reg.morale = Math.max(0, Math.min(MORALE_MAX, reg.morale + delta));
 
   if (!reg.routed) {
     if (reg.morale < PLAYER_MORALE_ROUT && contact && members.length >= PLAYER_MORALE_MIN_UNITS) {
@@ -9094,8 +7426,8 @@ function evaluatePlayerRegiment(reg: PlayerMoraleState, members: Colonist[]) {
     }
     return;
   }
-  const fled = cycleTick - reg.routedTick;
-  const quiet = cycleTick - reg.lastContactTick >= PLAYER_ROUT_QUIET_TICKS;
+  const fled = state.cycleTick - reg.routedTick;
+  const quiet = state.cycleTick - reg.lastContactTick >= PLAYER_ROUT_QUIET_TICKS;
   if ((reg.morale >= PLAYER_MORALE_RALLY && quiet && fled >= PLAYER_ROUT_MIN_TICKS) || fled >= PLAYER_ROUT_MAX_TICKS) {
     reg.routed = false;
     reg.morale = Math.max(reg.morale, PLAYER_MORALE_RALLY);
@@ -9107,7 +7439,7 @@ function evaluatePlayerRegiment(reg: PlayerMoraleState, members: Colonist[]) {
 }
 
 function updatePlayerMorale() {
-  if (cycleTick % TACTICS_EVAL_TICKS !== 0) return;
+  if (state.cycleTick % TACTICS_EVAL_TICKS !== 0) return;
   moraleRegimentOfUnit.clear();
   const seen = new Set<string>();
   for (const r of armyRegimentsNow()) {
@@ -9177,7 +7509,7 @@ function nearestPlayerUnitWithin(mob: Mob, radiusPx: number): { type: MobTargetT
       best = { type: "colonist", id: c.id };
     }
   }
-  if (!testPlayersIgnored) {
+  if (!state.testPlayersIgnored) {
     for (const p of players.values()) {
       const d = Math.hypot(p.x - mob.x, p.y - mob.y);
       if (!p.dead && d <= bestD) {
@@ -9196,10 +7528,10 @@ function mobTactic(mob: Mob, dt: number): "handled" | "hold" | null {
   const reg = key ? regiments.get(key) : undefined;
   if (mob.tactic === "leave") {
     const t = tileOfPixel(mob.x, mob.y);
-    const onEdge = t.x <= 0 || t.y <= 0 || t.x >= WORLD_TILES_X - 1 || t.y >= WORLD_TILES_Y - 1;
+    const onEdge = t.x <= 0 || t.y <= 0 || t.x >= state.WORLD_TILES_X - 1 || t.y >= state.WORLD_TILES_Y - 1;
     const gx = mob.fleeX ?? mob.x;
     const gy = mob.fleeY ?? mob.y;
-    if (onEdge || cycleTick >= (mob.leaveUntilTick ?? 0) || Math.hypot(gx - mob.x, gy - mob.y) < TILE_SIZE * 0.75) {
+    if (onEdge || state.cycleTick >= (mob.leaveUntilTick ?? 0) || Math.hypot(gx - mob.x, gy - mob.y) < TILE_SIZE * 0.75) {
       despawnMob(mob);
       if (key) tacticsEvent(key, "despawn", mob.kind);
       return "handled";
@@ -9229,7 +7561,7 @@ function mobTactic(mob: Mob, dt: number): "handled" | "hold" | null {
   if (mob.tactic === "flank") {
     const target = mob.flankTargetId ? colonists.get(mob.flankTargetId) : undefined;
     const wps = mob.flankWaypoints ?? [];
-    if (!target || cycleTick > (mob.flankUntilTick ?? 0) || (reg && (reg.routed || reg.sheltering))) {
+    if (!target || state.cycleTick > (mob.flankUntilTick ?? 0) || (reg && (reg.routed || reg.sheltering))) {
       mob.tactic = null;
       return null;
     }
@@ -9280,99 +7612,10 @@ function mobTactic(mob: Mob, dt: number): "handled" | "hold" | null {
 
 // ---- World generation: biomes, ponds, resource scatter, POI sites (ruins / encampments) ----
 
-// Nothing world-gen places (biome seeds, ponds, POI sites) comes closer than this to the Town Center.
-const SPAWN_CLEAR_RADIUS_TILES = 15;
-// Biome blobs (including edge jitter) never reach within this many tiles of the Town Center, so the
-// starting area is always Plains. A seed's own min distance from spawn is therefore
-// max(SPAWN_CLEAR_RADIUS_TILES, radius + BIOME_EDGE_JITTER_TILES + this).
-const SPAWN_PLAINS_RADIUS_TILES = 6;
-
-let BIOME_SEEDS_PER_KIND = scaledCount(5);
-// Plains is meant to be the majority biome (the default colony-building terrain), with Hills and
-// Swamp as scattered regional pockets. 14-18 made Hills+Swamp cover ~70% of the map instead;
-// 10-13 brings Plains back to roughly half, per the executor's own simulation.
-const BIOME_SEED_RADIUS_MIN = 10;
-const BIOME_SEED_RADIUS_MAX = 13;
-const BIOME_SEED_MIN_SPACING = 12;
-const BIOME_EDGE_JITTER_TILES = 3;
-const BIOME_NOISE_CELL_TILES = 4;
-
-let POND_COUNT_MIN = scaledCount(8);
-let POND_COUNT_MAX = scaledCount(12);
-const POND_RADIUS_MIN = 2;
-const POND_RADIUS_MAX = 4;
-const POND_EDGE_JITTER_TILES = 1;
-const POND_NOISE_CELL_TILES = 2;
-const POND_MIN_SPACING = 12;
-
-let RUIN_SITE_COUNT_MIN = scaledCountSub(6);
-let RUIN_SITE_COUNT_MAX = scaledCountSub(10);
-let ENCAMPMENT_SITE_COUNT_MIN = scaledCountSub(6);
-let ENCAMPMENT_SITE_COUNT_MAX = scaledCountSub(10);
-const POI_SITE_MIN_SPACING = 10;
-// Every tile within this Chebyshev radius of a site's center must be Empty before the site is placed.
-const POI_SITE_FOOTPRINT_RADIUS = 2;
-// ...and there must be no Water within this Chebyshev radius.
-const POI_SITE_WATER_CLEARANCE = 3;
-
-const RUIN_CENTERPIECES = [TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch];
-const RUIN_EXTRAS = [TileType.RuinStatue, TileType.RuinRubble];
-const ENCAMPMENT_EXTRAS = [TileType.PropCart, TileType.PropBarrel, TileType.PropCrate, TileType.PropFence];
-// Skeleton is the most thematic ruin guardian: 60% skeleton, 20% darkShaman, 20% orc.
-const RUIN_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] = [
-  { kind: "skeleton", weight: 3 },
-  { kind: "darkShaman", weight: 1 },
-  { kind: "orc", weight: 1 },
-];
-// Clubman is the rank-and-file guard, Archer the support, Elite a rare mini-boss.
-const ENCAMPMENT_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] = [
-  { kind: "banditClubman", weight: 5 },
-  { kind: "banditArcher", weight: 3 },
-  { kind: "banditElite", weight: 1 },
-];
-
-// Saint Wren's Abbey: exactly one per world, a 9x9 walled complex, north at the top. H is the hall
-// (church art) on the north side of the cloister; S the worn stone statue at the centre of the
-// garth; X crosses down the east side (the cemetery); L lantern posts flanking the hall doors and the
-// processional path from the south gate (the gap in the fence) up to the statue; F boundary fence;
-// "." open ground (left Empty). The resident clergy stand on the row below the hall.
-const ABBEY_LAYOUT = [
-  "FFFFFFFFF",
-  "F.L.H.L.F",
-  "F.......F",
-  "F......XF",
-  "F...S...F",
-  "F......XF",
-  "F.......F",
-  "F..L.L.XF",
-  "FFFF.FFFF",
-];
-const ABBEY_LAYOUT_TILES: Record<string, TileType> = {
-  F: TileType.PropFence,
-  H: TileType.AbbeyHall,
-  S: TileType.RuinStatue,
-  X: TileType.PropCross,
-  L: TileType.PropLanternPost,
-};
-const ABBEY_FOOTPRINT_RADIUS = Math.floor(ABBEY_LAYOUT.length / 2);
-// The footprint plus a one-tile apron that stays clear of resources/trees so the gate is never blocked.
-const ABBEY_GROUNDS_RADIUS = ABBEY_FOOTPRINT_RADIUS + 1;
-// Far enough out that the Abbey's permanent ward never reaches the spawn-clear area.
-const ABBEY_MIN_SPAWN_DIST = SPAWN_CLEAR_RADIUS_TILES + WARD_RADIUS_TILES;
-// "Never fewer than three" keep the Unbroken Watch; offsets from the Abbey's center (the statue).
-const ABBEY_CLERGY_OFFSETS: TileCoord[] = [
-  { x: -1, y: -2 },
-  { x: 0, y: -2 },
-  { x: 1, y: -2 },
-];
-
-// Center tile of this world's Abbey (null only if world-gen couldn't fit one). Doubles as the
-// Abbey's permanent ward source.
-let abbeyCenter: TileCoord | null = null;
 
 function isInAbbeyGrounds(tx: number, ty: number): boolean {
-  if (!abbeyCenter) return false;
-  return Math.max(Math.abs(tx - abbeyCenter.x), Math.abs(ty - abbeyCenter.y)) <= ABBEY_GROUNDS_RADIUS;
+  if (!state.abbeyCenter) return false;
+  return Math.max(Math.abs(tx - state.abbeyCenter.x), Math.abs(ty - state.abbeyCenter.y)) <= ABBEY_GROUNDS_RADIUS;
 }
 
 // World-gen grounds that resource scatter, forage, wildlife and tree regrowth keep off: the Abbey's
@@ -9380,21 +7623,6 @@ function isInAbbeyGrounds(tx: number, ty: number): boolean {
 function isInReservedGrounds(tx: number, ty: number): boolean {
   return isInAbbeyGrounds(tx, ty) || isInCastleRuinGrounds(tx, ty);
 }
-
-const NEIGHBORS_8: TileCoord[] = [
-  { x: -1, y: -1 },
-  { x: 0, y: -1 },
-  { x: 1, y: -1 },
-  { x: -1, y: 0 },
-  { x: 1, y: 0 },
-  { x: -1, y: 1 },
-  { x: 0, y: 1 },
-  { x: 1, y: 1 },
-];
-
-// Re-rolled per world so jittered biome/pond edges differ between worlds, but within a world the
-// jitter is a fixed function of tile position (stable, no flicker).
-let worldNoiseSalt = 0;
 
 function randInt(min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min + 1));
@@ -9448,7 +7676,7 @@ function pickScatteredTile(
   isValid?: (t: TileCoord) => boolean
 ): TileCoord | null {
   for (let attempts = 0; attempts < 1000; attempts++) {
-    const t = { x: Math.floor(Math.random() * WORLD_TILES_X), y: Math.floor(Math.random() * WORLD_TILES_Y) };
+    const t = { x: Math.floor(Math.random() * state.WORLD_TILES_X), y: Math.floor(Math.random() * state.WORLD_TILES_Y) };
     if (tileDistance(t, TOWN_CENTER_TILE) < minSpawnDist) continue;
     if (avoid.some((o) => tileDistance(o, t) < minSpacing)) continue;
     if (isValid && !isValid(t)) continue;
@@ -9459,7 +7687,7 @@ function pickScatteredTile(
 
 function generateBiomes() {
   const seeds: { x: number; y: number; radius: number; biome: Biome }[] = [];
-  for (let i = 0; i < BIOME_SEEDS_PER_KIND * 2; i++) {
+  for (let i = 0; i < state.BIOME_SEEDS_PER_KIND * 2; i++) {
     // Alternate so a crowded map that runs out of room still gets both kinds.
     const biome = i % 2 === 0 ? Biome.Hills : Biome.Swamp;
     const radius = randRange(BIOME_SEED_RADIUS_MIN, BIOME_SEED_RADIUS_MAX);
@@ -9470,8 +7698,8 @@ function generateBiomes() {
     const spot = pickScatteredTile(minSpawnDist, BIOME_SEED_MIN_SPACING, seeds);
     if (spot) seeds.push({ x: spot.x, y: spot.y, radius, biome });
   }
-  for (let tx = 0; tx < WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
+  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
+    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
       let nearest: (typeof seeds)[number] | null = null;
       let nearestDist = Infinity;
       for (const seed of seeds) {
@@ -9481,15 +7709,15 @@ function generateBiomes() {
           nearest = seed;
         }
       }
-      const jitter = edgeJitter(tx, ty, BIOME_NOISE_CELL_TILES, worldNoiseSalt) * BIOME_EDGE_JITTER_TILES;
-      biomes[tileIndex(tx, ty)] =
+      const jitter = edgeJitter(tx, ty, BIOME_NOISE_CELL_TILES, state.worldNoiseSalt) * BIOME_EDGE_JITTER_TILES;
+      state.biomes[tileIndex(tx, ty)] =
         nearest && nearestDist <= nearest.radius + jitter ? nearest.biome : Biome.Plains;
     }
   }
 }
 
 function generatePonds() {
-  const count = randInt(POND_COUNT_MIN, POND_COUNT_MAX);
+  const count = randInt(state.POND_COUNT_MIN, state.POND_COUNT_MAX);
   const centers: TileCoord[] = [];
   for (let i = 0; i < count; i++) {
     const radius = randRange(POND_RADIUS_MIN, POND_RADIUS_MAX);
@@ -9498,7 +7726,7 @@ function generatePonds() {
       SPAWN_CLEAR_RADIUS_TILES + reach,
       POND_MIN_SPACING,
       centers,
-      (t) => tiles[tileIndex(t.x, t.y)] === TileType.Empty
+      (t) => state.tiles[tileIndex(t.x, t.y)] === TileType.Empty
     );
     if (!center) continue;
     centers.push(center);
@@ -9508,9 +7736,9 @@ function generatePonds() {
         const ty = center.y + dy;
         if (!inBounds(tx, ty)) continue;
         const idx = tileIndex(tx, ty);
-        if (tiles[idx] !== TileType.Empty) continue;
-        const jitter = edgeJitter(tx, ty, POND_NOISE_CELL_TILES, worldNoiseSalt + 1) * POND_EDGE_JITTER_TILES;
-        if (Math.hypot(dx, dy) <= radius + jitter) tiles[idx] = TileType.Water;
+        if (state.tiles[idx] !== TileType.Empty) continue;
+        const jitter = edgeJitter(tx, ty, POND_NOISE_CELL_TILES, state.worldNoiseSalt + 1) * POND_EDGE_JITTER_TILES;
+        if (Math.hypot(dx, dy) <= radius + jitter) state.tiles[idx] = TileType.Water;
       }
     }
   }
@@ -9530,7 +7758,7 @@ function poiSiteFootprintClear(
         if (inFootprint) return false;
         continue;
       }
-      const tile = tiles[tileIndex(tx, ty)] as TileType;
+      const tile = state.tiles[tileIndex(tx, ty)] as TileType;
       if (tile === TileType.Water) return false;
       if (inFootprint && tile !== TileType.Empty) return false;
     }
@@ -9602,10 +7830,10 @@ function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord) {
   const extraCount = siteKind === "ruin" ? randInt(0, 2) : randInt(1, 3);
   const extraPool = siteKind === "ruin" ? RUIN_EXTRAS : ENCAMPMENT_EXTRAS;
   const decorations: TileCoord[] = [center];
-  tiles[tileIndex(center.x, center.y)] = centerpiece;
+  state.tiles[tileIndex(center.x, center.y)] = centerpiece;
   for (const offset of shuffled(NEIGHBORS_8).slice(0, extraCount)) {
     const t = { x: center.x + offset.x, y: center.y + offset.y };
-    tiles[tileIndex(t.x, t.y)] = extraPool[randInt(0, extraPool.length - 1)];
+    state.tiles[tileIndex(t.x, t.y)] = extraPool[randInt(0, extraPool.length - 1)];
     decorations.push(t);
   }
 
@@ -9613,7 +7841,7 @@ function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord) {
   for (let dx = -POI_SITE_FOOTPRINT_RADIUS; dx <= POI_SITE_FOOTPRINT_RADIUS; dx++) {
     for (let dy = -POI_SITE_FOOTPRINT_RADIUS; dy <= POI_SITE_FOOTPRINT_RADIUS; dy++) {
       const t = { x: center.x + dx, y: center.y + dy };
-      if (tiles[tileIndex(t.x, t.y)] !== TileType.Empty) continue;
+      if (state.tiles[tileIndex(t.x, t.y)] !== TileType.Empty) continue;
       if (decorations.some((d) => Math.max(Math.abs(d.x - t.x), Math.abs(d.y - t.y)) === 1)) {
         guardianSpots.push(t);
       }
@@ -9641,44 +7869,11 @@ function generatePoiSites(siteKind: "ruin" | "encampment", count: number, placed
     placePoiSite(siteKind, center);
   }
 }
-
 // ---- Camp hearths (ROADMAP "Camp hearths, soldier population, settlement spacing", 2026-10-28) ----
-// Every non-player settlement / camp whose site kind has `hasHearth` gets a destroyable HEARTH on its
-// centre tile (the encampment's PropCampfire today), registered by the site stamper (placePoiSite), so a
-// future fort / human-settlement kind only needs the flag. Player soldiers, the player and siege engines
-// can attack it; hitting it wakes the site's guardians (they defend it). At 0 HP the camp BREAKS: every
-// guardian of the site routs (startRout as a "leave" regiment: they flee to the map edge and despawn there
-// or after RAID_LEAVE_MAX_TICKS), the hearth tile burns to rubble and the camp's props burn out, a share of
-// the camp's stockpile (HEARTH_LOOT_PER_GUARDIAN x garrison) goes to the colony, and campsDestroyed++.
-// Destroyed hearths stay in the save (`destroyed`): never respawned, never re-woken.
-const SITE_KIND_HAS_HEARTH: Partial<Record<PoiSiteKind, { hasHearth: boolean; hp: number }>> = {
-  encampment: { hasHearth: true, hp: 150 },
-};
-const HEARTH_DEFAULT_HP = 150;
-const HEARTH_LOOT_PER_GUARDIAN = { gold: 15, wood: 10, rock: 5, iron: 5 };
-// Aggressive-stance soldiers with no enemy in reach go for a standing hearth this close to them.
-const HEARTH_AUTO_TARGET_TILES = 8;
 
-interface HearthState {
-  siteId: string;
-  siteKind: PoiSiteKind;
-  x: number;
-  y: number;
-  hp: number;
-  maxHp: number;
-  destroyed: boolean;
-  // "bandit" / "orc": the toast's faction word.
-  faction: string;
-  // Guardians the site was stamped with (scales the loot).
-  garrison: number;
-}
-const hearths = new Map<string, HearthState>();
-let campsDestroyed = 0;
-// Recent hearth events (testHook "hearthState").
-const hearthEvents: Array<{ tick: number; type: string; siteId: string; detail?: string }> = [];
 
 function hearthEvent(siteId: string, type: string, detail?: string) {
-  hearthEvents.push({ tick: cycleTick, type, siteId, detail });
+  hearthEvents.push({ tick: state.cycleTick, type, siteId, detail });
   if (hearthEvents.length > 100) hearthEvents.shift();
 }
 
@@ -9700,19 +7895,9 @@ function standingHearthAt(tx: number, ty: number): HearthState | undefined {
   return undefined;
 }
 
-// Forts phase A: what the attackHearth order / commandAttackHearth (generalised "attack structure") can
-// hit at a tile: a standing hearth (id = its siteId) or a damageable tile of a hostile NPC site (id =
-// STRUCTURE_TARGET_PREFIX + tile index). Colonist.targetHearthId holds either id.
-const STRUCTURE_TARGET_PREFIX = "tile:";
-interface AttackObjective {
-  id: string;
-  x: number;
-  y: number;
-}
-
 function hostileStructureAt(index: number): boolean {
   if (!isHostileOwner(ownerAt(index))) return false;
-  return structureHp(index % WORLD_TILES_X, Math.floor(index / WORLD_TILES_X)) !== null;
+  return structureHp(index % state.WORLD_TILES_X, Math.floor(index / state.WORLD_TILES_X)) !== null;
 }
 
 function attackObjectiveAt(tx: number, ty: number): AttackObjective | null {
@@ -9728,8 +7913,8 @@ function nearestHostileStructure(px: number, py: number, maxPx: number, zx = px,
   let best: AttackObjective | null = null;
   let bestD = maxPx;
   for (const index of tileOwner.keys()) {
-    const x = index % WORLD_TILES_X;
-    const y = Math.floor(index / WORLD_TILES_X);
+    const x = index % state.WORLD_TILES_X;
+    const y = Math.floor(index / state.WORLD_TILES_X);
     const c = tileToPixelCenter({ x, y });
     if (Math.abs(c.x - px) > bestD || Math.abs(c.y - py) > bestD) continue;
     const d = Math.hypot(c.x - px, c.y - py);
@@ -9754,8 +7939,8 @@ function backfillHearths() {
     else sites.set(m.siteId, [m]);
   }
   const campfires: TileCoord[] = [];
-  for (let i = 0; i < tiles.length; i++) {
-    if (tiles[i] === TileType.PropCampfire && !claimed.has(i)) campfires.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+  for (let i = 0; i < state.tiles.length; i++) {
+    if (state.tiles[i] === TileType.PropCampfire && !claimed.has(i)) campfires.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
   }
   for (const [siteId, members] of sites) {
     const cx = members.reduce((s, m) => s + m.x, 0) / members.length / TILE_SIZE;
@@ -9791,20 +7976,20 @@ function damageHearth(h: HearthState, amount: number, attackerKey?: string) {
 function destroyHearth(h: HearthState, attackerKey?: string) {
   h.destroyed = true;
   h.hp = 0;
-  campsDestroyed++;
+  state.campsDestroyed++;
   const centre = tileToPixelCenter(h);
   // The fire burns out: the hearth tile becomes scorched rubble, the camp's props around it burn away.
-  tiles[tileIndex(h.x, h.y)] = TileType.RuinRubble;
+  state.tiles[tileIndex(h.x, h.y)] = TileType.RuinRubble;
   broadcastTileUpdate(h.x, h.y, TileType.RuinRubble);
-  pendingEffects.push({ fromX: centre.x, fromY: centre.y, toX: centre.x, toY: centre.y, boulder: true });
+  state.pendingEffects.push({ fromX: centre.x, fromY: centre.y, toX: centre.x, toY: centre.y, boulder: true });
   for (const o of NEIGHBORS_8) {
     const x = h.x + o.x;
     const y = h.y + o.y;
-    if (!inBounds(x, y) || !ENCAMPMENT_EXTRAS.includes(tiles[tileIndex(x, y)] as TileType)) continue;
-    tiles[tileIndex(x, y)] = TileType.Empty;
+    if (!inBounds(x, y) || !ENCAMPMENT_EXTRAS.includes(state.tiles[tileIndex(x, y)] as TileType)) continue;
+    state.tiles[tileIndex(x, y)] = TileType.Empty;
     broadcastTileUpdate(x, y, TileType.Empty);
     const p = tileToPixelCenter({ x, y });
-    pendingEffects.push({ fromX: p.x, fromY: p.y, toX: p.x, toY: p.y, boulder: true });
+    state.pendingEffects.push({ fromX: p.x, fromY: p.y, toX: p.x, toY: p.y, boulder: true });
   }
   // Every guardian of the site breaks: a "leave" rout away from the attackers (or the hearth).
   const members = Array.from(mobs.values()).filter((m) => m.siteId === h.siteId);
@@ -9814,7 +7999,7 @@ function destroyHearth(h: HearthState, attackerKey?: string) {
     if (!reg) {
       reg = {
         id: h.siteId, morale: 0, peak: members.length, routed: false, raid: true, homeX: centre.x, homeY: centre.y,
-        lastContactTick: cycleTick, firstContactTick: cycleTick, hadAnchor: false, pendingLoss: 0, hadFront: false, sheltering: false, posts: new Map(), flankIds: [], ratio: 0,
+        lastContactTick: state.cycleTick, firstContactTick: state.cycleTick, hadAnchor: false, pendingLoss: 0, hadFront: false, sheltering: false, posts: new Map(), flankIds: [], ratio: 0,
       };
       regiments.set(h.siteId, reg);
     }
@@ -9833,7 +8018,7 @@ function destroyHearth(h: HearthState, attackerKey?: string) {
       const edge = fleeEdgePoint(m, ex, ey);
       m.fleeX = edge.x;
       m.fleeY = edge.y;
-      m.leaveUntilTick = cycleTick + RAID_LEAVE_MAX_TICKS;
+      m.leaveUntilTick = state.cycleTick + RAID_LEAVE_MAX_TICKS;
     }
   }
   const g = Math.max(1, h.garrison);
@@ -9940,7 +8125,7 @@ function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; mele
     }
     if (h) c.targetHearthId = h.siteId;
     // Forts phase A: else a hostile site's structure in the same reach (scanned a few times a second).
-    if (!h && tileOwner.size > 0 && cycleTick % 5 === 0) {
+    if (!h && tileOwner.size > 0 && state.cycleTick % 5 === 0) {
       const s = nearestHostileStructure(c.x, c.y, HEARTH_AUTO_TARGET_TILES * TILE_SIZE, c.rallyX, c.rallyY, zone);
       if (s) {
         c.targetHearthId = s.id;
@@ -9963,7 +8148,7 @@ function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; mele
     if (c.kind === "batteringRam") damage *= SIEGE_BUILDING_MULT;
     else if (c.kind === "catapult") damage *= CATAPULT_BUILDING_MULT;
     c.attackCooldownTicks = stats.cooldown;
-    pendingEffects.push({ fromX: c.x, fromY: c.y, toX: p.x, toY: p.y, melee: stats.melee, ...(c.kind === "catapult" ? { boulder: true } : {}) });
+    state.pendingEffects.push({ fromX: c.x, fromY: c.y, toX: p.x, toY: p.y, melee: stats.melee, ...(c.kind === "catapult" ? { boulder: true } : {}) });
     damageHearth(h, damage, "c:" + c.id);
     if (h.destroyed) c.targetHearthId = null;
     return true;
@@ -9988,7 +8173,7 @@ function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; mele
 // Walled off: breaks through the first site wall / gate on the cheapest route (structureBreach) first.
 function structureStep(c: Colonist, stats: { damage: number; cooldown: number; melee: boolean; range: number; speed: number }, dt: number): boolean {
   const goal = Number(c.targetHearthId!.slice(STRUCTURE_TARGET_PREFIX.length));
-  if (!Number.isInteger(goal) || goal < 0 || goal >= tiles.length || !hostileStructureAt(goal)) {
+  if (!Number.isInteger(goal) || goal < 0 || goal >= state.tiles.length || !hostileStructureAt(goal)) {
     c.targetHearthId = null;
     structureBreach.delete(c.id);
     c.path = [];
@@ -10003,8 +8188,8 @@ function structureStep(c: Colonist, stats: { damage: number; cooldown: number; m
       c.path = [];
     }
   }
-  const tx = at % WORLD_TILES_X;
-  const ty = Math.floor(at / WORLD_TILES_X);
+  const tx = at % state.WORLD_TILES_X;
+  const ty = Math.floor(at / state.WORLD_TILES_X);
   const p = tileToPixelCenter({ x: tx, y: ty });
   const dist = Math.hypot(p.x - c.x, p.y - c.y);
   const reach = Math.max(stats.range + TILE_SIZE * 0.5, TILE_SIZE * 1.5);
@@ -10019,7 +8204,7 @@ function structureStep(c: Colonist, stats: { damage: number; cooldown: number; m
     if (c.kind === "batteringRam") damage *= SIEGE_BUILDING_MULT;
     else if (c.kind === "catapult") damage *= CATAPULT_BUILDING_MULT;
     c.attackCooldownTicks = stats.cooldown;
-    pendingEffects.push({ fromX: c.x, fromY: c.y, toX: p.x, toY: p.y, melee: stats.melee, ...(c.kind === "catapult" ? { boulder: true } : {}) });
+    state.pendingEffects.push({ fromX: c.x, fromY: c.y, toX: p.x, toY: p.y, melee: stats.melee, ...(c.kind === "catapult" ? { boulder: true } : {}) });
     // Hitting a site's building wakes its guardians (they defend it).
     const siteId = ownerSiteIds[ownerAt(at) - 1];
     if (siteId) activateGuardianSite(siteId);
@@ -10066,7 +8251,7 @@ function placeAbbey(placedSites: TileCoord[]) {
     poiSiteFootprintClear(t, ABBEY_GROUNDS_RADIUS, ABBEY_GROUNDS_RADIUS)
   );
   if (!center) return;
-  abbeyCenter = center;
+  state.abbeyCenter = center;
   placedSites.push(center);
   let hall: TileCoord | null = null;
   for (let ry = 0; ry < ABBEY_LAYOUT.length; ry++) {
@@ -10074,7 +8259,7 @@ function placeAbbey(placedSites: TileCoord[]) {
       const tile = ABBEY_LAYOUT_TILES[ABBEY_LAYOUT[ry][rx]];
       if (tile === undefined) continue;
       const t = { x: center.x + rx - ABBEY_FOOTPRINT_RADIUS, y: center.y + ry - ABBEY_FOOTPRINT_RADIUS };
-      tiles[tileIndex(t.x, t.y)] = tile;
+      state.tiles[tileIndex(t.x, t.y)] = tile;
       if (tile === TileType.AbbeyHall) hall = t;
     }
   }
@@ -10086,64 +8271,12 @@ function placeAbbey(placedSites: TileCoord[]) {
     c.y = spot.y;
   }
 }
-
 // ---- The Castle Ruin, its Ogre Warlord, and mini-boss packs (ROADMAP Phase 5) ----
-// The Castle Ruin: exactly one per world, a 9x9 walled ruin (existing ruin tiles, no new art) placed
-// as far from the starting Town Center as world-gen can manage. Gaps in the middle of each wall let
-// units in and out. Its guardians stand inside, dormant; the Ogre Warlord holds the centre ("B").
-// 1/2 ruin walls, A arch, S statue, R rubble, "." open ground (Empty).
-const CASTLE_RUIN_LAYOUT = [
-  "12A1.1A21",
-  "2.......2",
-  "A..R.R..A",
-  "1.S...S.1",
-  "....B....",
-  "1.S...S.1",
-  "A..R.R..A",
-  "2.......2",
-  "12A1.1A21",
-];
-const CASTLE_RUIN_LAYOUT_TILES: Record<string, TileType> = {
-  "1": TileType.RuinWall1,
-  "2": TileType.RuinWall2,
-  A: TileType.RuinArch,
-  S: TileType.RuinStatue,
-  R: TileType.RuinRubble,
-};
-const CASTLE_RUIN_FOOTPRINT_RADIUS = Math.floor(CASTLE_RUIN_LAYOUT.length / 2);
-// The footprint plus a one-tile apron kept clear (like the Abbey's), so the gates are never blocked.
-const CASTLE_RUIN_GROUNDS_RADIUS = CASTLE_RUIN_FOOTPRINT_RADIUS + 1;
-// Preferred minimum distances from the Town Center, as fractions of the map width, tried in order
-// (a crowded or small map falls back to the next); last resort is just clear of the spawn area.
-const CASTLE_RUIN_SPAWN_DIST_FRACTIONS = [0.4, 0.33, 0.25];
-const CASTLE_RUIN_GUARDIANS_MIN = 8;
-const CASTLE_RUIN_GUARDIANS_MAX = 12;
-// Ruin-weighted, with heavier hitters than an ordinary ruin.
-const CASTLE_RUIN_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] = [
-  { kind: "skeleton", weight: 4 },
-  { kind: "orc", weight: 2 },
-  { kind: "armoredOrc", weight: 2 },
-  { kind: "darkShaman", weight: 2 },
-];
-const WARLORD_HP_MULT = 4.5;
-const WARLORD_DAMAGE_MULT = 2;
-// On top of the usual goldForKill.
-const WARLORD_REWARD: Partial<Record<ResourceKey, number>> = { gold: 250, wood: 150, rock: 150, iron: 100 };
 
-// Mini-bosses: standalone packs of one kind, an upscaled elite plus 2-4 ordinary followers.
-let MINI_BOSS_SITE_COUNT_MIN = Math.max(1, scaledCountSub(0.75));
-let MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCountSub(1.25));
-const MINI_BOSS_KINDS: MobKind[] = ["wolf", "orc", "skeleton", "giantSpider", "armoredOrc", "troll"];
-const ELITE_HP_MULT = 2.5;
-const ELITE_DAMAGE_MULT = 1.5;
-const ELITE_REWARD: Partial<Record<ResourceKey, number>> = { gold: 60, wood: 40, iron: 30 };
-
-// Centre tile of this world's Castle Ruin (null only if world-gen couldn't fit one, or an old save).
-let castleRuinCenter: TileCoord | null = null;
 
 function isInCastleRuinGrounds(tx: number, ty: number): boolean {
-  if (!castleRuinCenter) return false;
-  return Math.max(Math.abs(tx - castleRuinCenter.x), Math.abs(ty - castleRuinCenter.y)) <= CASTLE_RUIN_GROUNDS_RADIUS;
+  if (!state.castleRuinCenter) return false;
+  return Math.max(Math.abs(tx - state.castleRuinCenter.x), Math.abs(ty - state.castleRuinCenter.y)) <= CASTLE_RUIN_GROUNDS_RADIUS;
 }
 
 function makeBoss(mob: Mob, tier: BossTier) {
@@ -10173,12 +8306,12 @@ function placeCastleRuin(placedSites: TileCoord[]) {
   const spacing = ABBEY_GROUNDS_RADIUS + CASTLE_RUIN_GROUNDS_RADIUS + 2;
   let center: TileCoord | null = null;
   for (const fraction of CASTLE_RUIN_SPAWN_DIST_FRACTIONS) {
-    center = pickScatteredTile(Math.floor(WORLD_TILES_X * fraction), spacing, placedSites, fits);
+    center = pickScatteredTile(Math.floor(state.WORLD_TILES_X * fraction), spacing, placedSites, fits);
     if (center) break;
   }
   center ??= pickScatteredTile(SPAWN_CLEAR_RADIUS_TILES + CASTLE_RUIN_GROUNDS_RADIUS, spacing, placedSites, fits);
   if (!center) return;
-  castleRuinCenter = center;
+  state.castleRuinCenter = center;
   placedSites.push(center);
   const siteId = randomUUID();
   const open: TileCoord[] = [];
@@ -10186,7 +8319,7 @@ function placeCastleRuin(placedSites: TileCoord[]) {
     for (let rx = 0; rx < CASTLE_RUIN_LAYOUT[ry].length; rx++) {
       const t = { x: center.x + rx - CASTLE_RUIN_FOOTPRINT_RADIUS, y: center.y + ry - CASTLE_RUIN_FOOTPRINT_RADIUS };
       const tile = CASTLE_RUIN_LAYOUT_TILES[CASTLE_RUIN_LAYOUT[ry][rx]];
-      if (tile !== undefined) tiles[tileIndex(t.x, t.y)] = tile;
+      if (tile !== undefined) state.tiles[tileIndex(t.x, t.y)] = tile;
       // Guardians stand on the open ground inside the walls (not in the gate gaps, not on the boss).
       else if (CASTLE_RUIN_LAYOUT[ry][rx] === "." && rx > 0 && ry > 0 && rx < CASTLE_RUIN_LAYOUT.length - 1 && ry < CASTLE_RUIN_LAYOUT.length - 1) open.push(t);
     }
@@ -10219,13 +8352,10 @@ function generateMiniBossSites(count: number, placedSites: TileCoord[]) {
   }
 }
 
-// Set when the Ogre Warlord dies; the goal track's final goal reads it. Saved.
-let castleCleared = false;
-
 function onBossKilled(mob: Mob) {
   const title = bossTitle(mob.kind, mob.boss!);
   if (mob.boss === "warlord") {
-    castleCleared = true;
+    state.castleCleared = true;
     grantReward(WARLORD_REWARD);
     const gear = grantTieredEquipment(BOSS_EQUIP_LOOT.warlord, "warlord");
     broadcastEvent("boss", `The ${title} has fallen — the Castle Ruin is cleared! (${formatReward(WARLORD_REWARD)}, ${gear})`);
@@ -10258,32 +8388,20 @@ function checkBossSightings() {
     );
   }
 }
-
 // ---- Goal track (ROADMAP Phase 5) ----
-// One shared, ordered track per world. Only the current goal is checked (once a second, plus right
-// after the Warlord dies); when it's met the colony gets its reward, a "milestone" toast, and the next
-// goal becomes current (several can complete in one check, e.g. a night milestone already passed).
-interface GoalDef {
-  title: string;
-  progress: () => { progress: number; target: number };
-  reward: Partial<Record<ResourceKey, number>>;
-}
 
-const GOAL_WORKER_KINDS = new Set<ColonistKind>([
-  "lumberjack", "farmer", "ironMiner", "rockMiner", "farmhand", "artisan", "hunter", "forager",
-]);
 
 // Dawns since the world began (cycle 0 starts at dawn, so day N's dawn is cycleTick N * cycle).
 function nightsSurvived(): number {
-  return Math.floor(cycleTick / GAME_DAY_TICKS);
+  return Math.floor(state.cycleTick / GAME_DAY_TICKS);
 }
 
 // Any player-placed structure: a queued construction, a built building (Town Centers beyond the
 // starting one count), or a wall.
 function anyPlayerBuilding(): boolean {
-  if (constructionSites.size > 0 || townCenters.length > 1) return true;
-  for (let i = 0; i < tiles.length; i++) {
-    const t = tiles[i] as TileType;
+  if (constructionSites.size > 0 || state.townCenters.length > 1) return true;
+  for (let i = 0; i < state.tiles.length; i++) {
+    const t = state.tiles[i] as TileType;
     if (t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate) return true;
     if (t !== TileType.TownCenter && VISION_BUILDING_TILES.has(t)) return true;
   }
@@ -10321,34 +8439,32 @@ const GOALS: GoalDef[] = [
   nightsGoal(4, { gold: 60, iron: 40, rock: 40 }),
   nightsGoal(7, { gold: 100, wood: 60, iron: 60 }),
   nightsGoal(10, { gold: 150, wood: 80, iron: 80, rock: 80 }),
-  { title: "Clear the Castle Ruin", progress: () => flagGoal(castleCleared), reward: { gold: 100 } },
+  { title: "Clear the Castle Ruin", progress: () => flagGoal(state.castleCleared), reward: { gold: 100 } },
 ];
-
-let goalIndex = 0;
-let goalSnapshot: GoalSnapshot = { index: 0, total: GOALS.length, title: GOALS[0].title, progress: 0, target: 1 };
+state.goalSnapshot = { index: 0, total: GOALS.length, title: GOALS[0].title, progress: 0, target: 1 };
 
 function refreshGoalSnapshot(progress?: { progress: number; target: number }) {
-  if (goalIndex >= GOALS.length) {
-    goalSnapshot = { index: GOALS.length, total: GOALS.length, title: "Every goal complete", progress: 1, target: 1 };
+  if (state.goalIndex >= GOALS.length) {
+    state.goalSnapshot = { index: GOALS.length, total: GOALS.length, title: "Every goal complete", progress: 1, target: 1 };
     return;
   }
-  const p = progress ?? GOALS[goalIndex].progress();
-  goalSnapshot = { index: goalIndex, total: GOALS.length, title: GOALS[goalIndex].title, ...p };
+  const p = progress ?? GOALS[state.goalIndex].progress();
+  state.goalSnapshot = { index: state.goalIndex, total: GOALS.length, title: GOALS[state.goalIndex].title, ...p };
 }
 
 // silent: catch up without rewards or toasts (an old save loaded with no goal state).
 function evaluateGoals(silent = false) {
-  while (goalIndex < GOALS.length) {
-    const goal = GOALS[goalIndex];
+  while (state.goalIndex < GOALS.length) {
+    const goal = GOALS[state.goalIndex];
     const p = goal.progress();
     if (p.progress < p.target) {
       refreshGoalSnapshot(p);
       return;
     }
-    goalIndex++;
+    state.goalIndex++;
     if (silent) continue;
     grantReward(goal.reward);
-    const final = goalIndex === GOALS.length;
+    const final = state.goalIndex === GOALS.length;
     broadcastEvent(
       "milestone",
       final
@@ -10360,23 +8476,14 @@ function evaluateGoals(silent = false) {
 }
 
 function resetGoals() {
-  goalIndex = 0;
-  castleCleared = false;
-  campsDestroyed = 0;
+  state.goalIndex = 0;
+  state.castleCleared = false;
+  state.campsDestroyed = 0;
   refreshGoalSnapshot(flagGoal(false));
 }
 
 // ---- Fog of war (minimap only) ----
-// Explored tiles, shared by every player and kept for the life of the world. Sources only reveal
-// when their tile changes (or a building lands), stamping a precomputed circle; nothing ever scans
-// the whole map per tick.
-let explored = new Uint8Array(WORLD_TILES_X * WORLD_TILES_Y);
-// Newly explored tile indices awaiting the next batched `explored` broadcast.
-let pendingExplored: number[] = [];
-const EXPLORED_FLUSH_TICKS = 5; // 4 Hz at TICK_RATE 20
-let exploredFlushCountdown = EXPLORED_FLUSH_TICKS;
-// Tile index each player/colonist last revealed from. Replaced on world reset so everyone re-stamps.
-let visionTile = new WeakMap<object, number>();
+
 
 function circleOffsets(radius: number): Array<[number, number]> {
   const out: Array<[number, number]> = [];
@@ -10392,37 +8499,24 @@ const COLONIST_VISION_OFFSETS = circleOffsets(VISION_RADIUS_COLONIST);
 const BUILDING_VISION_OFFSETS = circleOffsets(VISION_RADIUS_BUILDING);
 const START_VISION_OFFSETS = circleOffsets(VISION_RADIUS_START);
 
-// Player-built structures that see (walls don't), plus the Town Center. Natural terrain, POI
-// props and the Abbey never do.
-const VISION_BUILDING_TILES = new Set<TileType>([
-  TileType.TownCenter,
-  TileType.House, TileType.BigHouse, TileType.HouseLevel2, TileType.BarnPost, TileType.LumberjackPost,
-  TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3, TileType.ArcherPost,
-  TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost, TileType.Pasture,
-  TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop, TileType.Blacksmith,
-  TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern,
-  TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
-  TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
-]);
-
 function revealAround(tx: number, ty: number, offsets: Array<[number, number]>) {
   for (const [dx, dy] of offsets) {
     const x = tx + dx;
     const y = ty + dy;
-    if (x < 0 || y < 0 || x >= WORLD_TILES_X || y >= WORLD_TILES_Y) continue;
-    const index = y * WORLD_TILES_X + x;
-    if (explored[index]) continue;
-    explored[index] = 1;
-    pendingExplored.push(index);
+    if (x < 0 || y < 0 || x >= state.WORLD_TILES_X || y >= state.WORLD_TILES_Y) continue;
+    const index = y * state.WORLD_TILES_X + x;
+    if (state.explored[index]) continue;
+    state.explored[index] = 1;
+    state.pendingExplored.push(index);
   }
 }
 
 function revealFrom(source: object, px: number, py: number, offsets: Array<[number, number]>) {
   const tx = Math.floor(px / TILE_SIZE);
   const ty = Math.floor(py / TILE_SIZE);
-  const index = ty * WORLD_TILES_X + tx;
-  if (visionTile.get(source) === index) return;
-  visionTile.set(source, index);
+  const index = ty * state.WORLD_TILES_X + tx;
+  if (state.visionTile.get(source) === index) return;
+  state.visionTile.set(source, index);
   revealAround(tx, ty, offsets);
 }
 
@@ -10435,27 +8529,27 @@ function updateVision() {
 }
 
 function resetExplored() {
-  explored.fill(0);
-  visionTile = new WeakMap();
+  state.explored.fill(0);
+  state.visionTile = new WeakMap();
   revealAround(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y, START_VISION_OFFSETS);
   // The fresh world reaches clients whole, in `welcome`.
-  pendingExplored = [];
+  state.pendingExplored = [];
 }
 
 function packExplored(): string {
-  const bytes = new Uint8Array(Math.ceil(explored.length / 8));
-  for (let i = 0; i < explored.length; i++) {
-    if (explored[i]) bytes[i >> 3] |= 1 << (i & 7);
+  const bytes = new Uint8Array(Math.ceil(state.explored.length / 8));
+  for (let i = 0; i < state.explored.length; i++) {
+    if (state.explored[i]) bytes[i >> 3] |= 1 << (i & 7);
   }
   return Buffer.from(bytes).toString("base64");
 }
 
 function flushExplored() {
-  if (--exploredFlushCountdown > 0) return;
-  exploredFlushCountdown = EXPLORED_FLUSH_TICKS;
-  if (pendingExplored.length === 0) return;
-  const message: ServerMessage = { type: "explored", tiles: pendingExplored };
-  pendingExplored = [];
+  if (--state.exploredFlushCountdown > 0) return;
+  state.exploredFlushCountdown = EXPLORED_FLUSH_TICKS;
+  if (state.pendingExplored.length === 0) return;
+  const message: ServerMessage = { type: "explored", tiles: state.pendingExplored };
+  state.pendingExplored = [];
   const payload = JSON.stringify(message);
   for (const p of players.values()) {
     if (p.socket.readyState === p.socket.OPEN) {
@@ -10472,84 +8566,81 @@ function flushExplored() {
 // clearing mobs/colonists). A no-op when the size is unchanged.
 function setWorldSize(size: number) {
   size = clampWorldSize(size);
-  if (size === WORLD_TILES_X) return;
-  WORLD_TILES_X = WORLD_TILES_Y = size;
-  WORLD_AREA_SCALE = (size * size) / (80 * 80);
-  worldWidth = size * TILE_SIZE;
-  worldHeight = size * TILE_SIZE;
+  if (size === state.WORLD_TILES_X) return;
+  state.WORLD_TILES_X = state.WORLD_TILES_Y = size;
+  state.WORLD_AREA_SCALE = (size * size) / (80 * 80);
+  state.worldWidth = size * TILE_SIZE;
+  state.worldHeight = size * TILE_SIZE;
   const cells = size * size;
-  tiles = new Uint8Array(cells).fill(TileType.Empty);
-  biomes = new Uint8Array(cells).fill(Biome.Plains);
-  explored = new Uint8Array(cells);
-  cellHead = new Int32Array(cells);
-  routeCost = new Float64Array(cells);
-  routeParent = new Int32Array(cells);
+  state.tiles = new Uint8Array(cells).fill(TileType.Empty);
+  state.biomes = new Uint8Array(cells).fill(Biome.Plains);
+  state.explored = new Uint8Array(cells);
+  state.cellHead = new Int32Array(cells);
+  state.routeCost = new Float64Array(cells);
+  state.routeParent = new Int32Array(cells);
   TOWN_CENTER_TILE.x = TOWN_CENTER_TILE.y = Math.floor(size / 2);
-  TREE_COUNT = scaledCount(96);
-  IRON_ORE_COUNT = scaledCount(56);
-  ROCK_COUNT = scaledCount(64);
-  MAX_TREES = scaledCount(200);
-  BERRY_BUSH_COUNT = scaledCount(24);
-  FRUIT_TREE_COUNT = scaledCount(12);
-  MUSHROOM_PATCH_COUNT = scaledCount(10);
-  WILDLIFE_RESPAWN_PER_DAY = Math.max(1, scaledCountSub(4));
+  state.TREE_COUNT = scaledCount(96);
+  state.IRON_ORE_COUNT = scaledCount(56);
+  state.ROCK_COUNT = scaledCount(64);
+  state.MAX_TREES = scaledCount(200);
+  state.BERRY_BUSH_COUNT = scaledCount(24);
+  state.FRUIT_TREE_COUNT = scaledCount(12);
+  state.MUSHROOM_PATCH_COUNT = scaledCount(10);
+  state.WILDLIFE_RESPAWN_PER_DAY = Math.max(1, scaledCountSub(4));
   WILDLIFE_CONFIG.deer.cap = scaledCountSub(6);
   WILDLIFE_CONFIG.rabbit.cap = scaledCountSub(8);
   WILDLIFE_CONFIG.boar.cap = scaledCountSub(3);
   WILDLIFE_CONFIG.pheasant.cap = scaledCountSub(4);
-  BIOME_SEEDS_PER_KIND = scaledCount(5);
-  POND_COUNT_MIN = scaledCount(8);
-  POND_COUNT_MAX = scaledCount(12);
-  RUIN_SITE_COUNT_MIN = scaledCountSub(6);
-  RUIN_SITE_COUNT_MAX = scaledCountSub(10);
-  ENCAMPMENT_SITE_COUNT_MIN = scaledCountSub(6);
-  ENCAMPMENT_SITE_COUNT_MAX = scaledCountSub(10);
-  MINI_BOSS_SITE_COUNT_MIN = Math.max(1, scaledCountSub(0.75));
-  MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCountSub(1.25));
+  state.BIOME_SEEDS_PER_KIND = scaledCount(5);
+  state.POND_COUNT_MIN = scaledCount(8);
+  state.POND_COUNT_MAX = scaledCount(12);
+  state.RUIN_SITE_COUNT_MIN = scaledCountSub(6);
+  state.RUIN_SITE_COUNT_MAX = scaledCountSub(10);
+  state.ENCAMPMENT_SITE_COUNT_MIN = scaledCountSub(6);
+  state.ENCAMPMENT_SITE_COUNT_MAX = scaledCountSub(10);
+  state.MINI_BOSS_SITE_COUNT_MIN = Math.max(1, scaledCountSub(0.75));
+  state.MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCountSub(1.25));
 }
 
 function generateWorld() {
   const genStart = performance.now();
-  tiles.fill(TileType.Empty);
-  biomes.fill(Biome.Plains);
-  worldNoiseSalt = Math.floor(Math.random() * 0x7fffffff);
-  abbeyCenter = null;
-  castleRuinCenter = null;
+  state.tiles.fill(TileType.Empty);
+  state.biomes.fill(Biome.Plains);
+  state.worldNoiseSalt = Math.floor(Math.random() * 0x7fffffff);
+  state.abbeyCenter = null;
+  state.castleRuinCenter = null;
   hearths.clear();
   clearOwners();
   resetGoals();
-  tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
-  townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
+  state.tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
+  state.townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
   generateBiomes();
   generatePonds();
   const placedSites: TileCoord[] = [];
   placeAbbey(placedSites);
   placeCastleRuin(placedSites);
-  scatterResourceTiles(TileType.Tree, TREE_COUNT);
-  scatterResourceTiles(TileType.IronOre, IRON_ORE_COUNT);
-  scatterResourceTiles(TileType.Rock, ROCK_COUNT);
+  scatterResourceTiles(TileType.Tree, state.TREE_COUNT);
+  scatterResourceTiles(TileType.IronOre, state.IRON_ORE_COUNT);
+  scatterResourceTiles(TileType.Rock, state.ROCK_COUNT);
   generateForage();
-  generatePoiSites("ruin", randInt(RUIN_SITE_COUNT_MIN, RUIN_SITE_COUNT_MAX), placedSites);
-  generatePoiSites("encampment", randInt(ENCAMPMENT_SITE_COUNT_MIN, ENCAMPMENT_SITE_COUNT_MAX), placedSites);
-  generateMiniBossSites(randInt(MINI_BOSS_SITE_COUNT_MIN, MINI_BOSS_SITE_COUNT_MAX), placedSites);
+  generatePoiSites("ruin", randInt(state.RUIN_SITE_COUNT_MIN, state.RUIN_SITE_COUNT_MAX), placedSites);
+  generatePoiSites("encampment", randInt(state.ENCAMPMENT_SITE_COUNT_MIN, state.ENCAMPMENT_SITE_COUNT_MAX), placedSites);
+  generateMiniBossSites(randInt(state.MINI_BOSS_SITE_COUNT_MIN, state.MINI_BOSS_SITE_COUNT_MAX), placedSites);
   spawnInitialWildlife();
   resetExplored();
-  topUpTownCenterBuilders(townCenters[0]);
-  console.log(`[world] generated ${WORLD_TILES_X}x${WORLD_TILES_Y} in ${(performance.now() - genStart).toFixed(0)} ms`);
+  topUpTownCenterBuilders(state.townCenters[0]);
+  console.log(`[world] generated ${state.WORLD_TILES_X}x${state.WORLD_TILES_Y} in ${(performance.now() - genStart).toFixed(0)} ms`);
 }
 
 generateWorld();
-
-const PLAYER_COLORS = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf1c40f, 0x9b59b6];
-let nextColorIndex = 0;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
 function broadcastTileUpdate(tx: number, ty: number, tile: TileType) {
-  buildingTargetsDirty = true;
-  gateTilesDirty = true;
+  state.buildingTargetsDirty = true;
+  state.gateTilesDirty = true;
   if (VISION_BUILDING_TILES.has(tile)) revealAround(tx, ty, BUILDING_VISION_OFFSETS);
   const update: ServerMessage = { type: "tileUpdate", tileX: tx, tileY: ty, tile };
   const payload = JSON.stringify(update);
@@ -10570,38 +8661,19 @@ function broadcastEvent(category: GameEventCategory, text: string) {
   }
 }
 
-
-// COLONY_TEST_HOOKS=1 enables the "testHook" client message for scripted tests (server/*.mjs):
-// time travel, raid-state dumps, direct mob damage and tick timing. Off by default: never needed
-// by (or reachable from) the real client.
-const TEST_HOOKS = process.env.COLONY_TEST_HOOKS === "1";
-// Overrides spawnRaid's DESERTER_WAVE_CHANCE roll when set (testHook "forceDeserterRoll").
-let testForceDeserterRoll: boolean | null = null;
-// When true, spawnRaid gives every group aggroTick = nightfall (testHook "holdRaidAggro"), so a test
-// can inspect passive groups without a random early aggro racing it.
-let testHoldRaidAggro = false;
-// testHook "setRaids" {enabled:false} skips the midday raid spawn of every day that passes while it is
-// off (economy tests fast-forward days).
-let testRaidsDisabled = false;
-// testHook "ignorePlayers" {value:true}: mobs never target players (so a test client standing in the
-// world doesn't draw every mob away from the buildings).
-let testPlayersIgnored = false;
-const tickDurationsMs: number[] = [];
-const TICK_DURATION_SAMPLES = 400;
-
 function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
     player.socket.send(JSON.stringify({ type: "testHookResult", op: msg.op, ...data }));
   if (msg.op === "setCycleTick" && typeof msg.tick === "number") {
-    cycleTick = Math.max(0, Math.floor(msg.tick));
-    wasNight = isNightNow();
-    reply({ cycleTick });
+    state.cycleTick = Math.max(0, Math.floor(msg.tick));
+    state.wasNight = isNightNow();
+    reply({ cycleTick: state.cycleTick });
   } else if (msg.op === "raidState") {
     reply({
-      cycleTick,
+      cycleTick: state.cycleTick,
       dayTicks: DAY_TICKS,
       nightTicks: NIGHT_TICKS,
-      worldTiles: WORLD_TILES_X,
+      worldTiles: state.WORLD_TILES_X,
       groups: Array.from(raidGroups.values()).map((g) => ({
         id: g.id,
         faction: g.faction,
@@ -10651,14 +8723,14 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     if (mob) damageMob(mob, msg.amount, by);
     reply({ found: !!mob });
   } else if (msg.op === "forceDeserterRoll") {
-    testForceDeserterRoll = typeof msg.value === "boolean" ? msg.value : null;
-    reply({ value: testForceDeserterRoll });
+    state.testForceDeserterRoll = typeof msg.value === "boolean" ? msg.value : null;
+    reply({ value: state.testForceDeserterRoll });
   } else if (msg.op === "holdRaidAggro") {
-    testHoldRaidAggro = msg.value === true;
-    reply({ value: testHoldRaidAggro });
+    state.testHoldRaidAggro = msg.value === true;
+    reply({ value: state.testHoldRaidAggro });
   } else if (msg.op === "raidDepartNow") {
     // Every group leaves immediately (raid-timing test: forces early arrivals, which must pause).
-    for (const g of raidGroups.values()) g.aggroTick = Math.min(g.aggroTick, cycleTick);
+    for (const g of raidGroups.values()) g.aggroTick = Math.min(g.aggroTick, state.cycleTick);
     reply({ groups: raidGroups.size });
   } else if (msg.op === "addDeserters" && typeof msg.count === "number") {
     // Dormant deserters near the Town Center, already past DESERTER_ACTIVATION_DAYS.
@@ -10670,7 +8742,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         groupId: null,
         passive: false,
         isDeserter: true,
-        deserterSinceTick: cycleTick - DESERTER_ACTIVATION_TICKS,
+        deserterSinceTick: state.cycleTick - DESERTER_ACTIVATION_TICKS,
       });
       ids.push(mob.id);
     }
@@ -10679,11 +8751,11 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // Runs whole simulation ticks back to back (no snapshots in between), up to 200000 per call.
     const n = Math.max(0, Math.min(200000, Math.floor(msg.ticks)));
     for (let i = 0; i < n; i++) stepSimulation();
-    pendingEffects = [];
-    reply({ cycleTick });
+    state.pendingEffects = [];
+    reply({ cycleTick: state.cycleTick });
   } else if (msg.op === "setRaids") {
-    testRaidsDisabled = msg.enabled === false;
-    reply({ enabled: !testRaidsDisabled });
+    state.testRaidsDisabled = msg.enabled === false;
+    reply({ enabled: !state.testRaidsDisabled });
   } else if (msg.op === "setStock" && msg.stock && typeof msg.stock === "object") {
     for (const [key, value] of Object.entries(msg.stock as Record<string, unknown>)) {
       if (key in stock && typeof value === "number") stock[key as ResourceKey] = value;
@@ -10715,15 +8787,15 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         NIGHT_TICKS,
         LEGACY_GAME_DAY_TICKS,
       },
-      happiness: colonyHappiness,
+      happiness: state.colonyHappiness,
     });
   } else if (msg.op === "wildlifeState") {
     reply({
       animals: Array.from(wildlife.values()).map((a) => ({ ...a })),
       config: WILDLIFE_CONFIG,
       forage: {
-        ripe: tiles.reduce((n, t) => n + (FORAGE_RIPE_TO_PICKED[t as TileType] !== undefined ? 1 : 0), 0),
-        picked: tiles.reduce((n, t) => n + (FORAGE_PICKED_TO_RIPE[t as TileType] !== undefined ? 1 : 0), 0),
+        ripe: state.tiles.reduce((n, t) => n + (FORAGE_RIPE_TO_PICKED[t as TileType] !== undefined ? 1 : 0), 0),
+        picked: state.tiles.reduce((n, t) => n + (FORAGE_PICKED_TO_RIPE[t as TileType] !== undefined ? 1 : 0), 0),
         regrow: Array.from(forageRegrow, ([index, ticks]) => ({ index, ticks })),
         yields: FORAGE_FRUIT_YIELD,
         regrowTicks: FORAGE_REGROW_TICKS,
@@ -10744,7 +8816,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
           carryAmount: c.carryAmount,
           sheltering: c.sheltering,
         })),
-      cycleTick,
+      cycleTick: state.cycleTick,
     });
   } else if (msg.op === "spawnWildlife" && typeof msg.kind === "string" && typeof msg.tx === "number" && typeof msg.ty === "number") {
     const kind = msg.kind as WildlifeKind;
@@ -10754,8 +8826,8 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       reply({ id: spawnWildlifeAt(kind, msg.tx, msg.ty).id });
     }
   } else if (msg.op === "setWildlifeRespawn") {
-    testWildlifeRespawnDisabled = msg.enabled === false;
-    reply({ enabled: !testWildlifeRespawnDisabled });
+    state.testWildlifeRespawnDisabled = msg.enabled === false;
+    reply({ enabled: !state.testWildlifeRespawnDisabled });
   } else if (msg.op === "clearWildlife") {
     for (const c of colonists.values()) if (c.targetWildlifeId !== null) releaseResourceReservation(c);
     wildlife.clear();
@@ -10769,10 +8841,10 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "setTileRaw" && typeof msg.tx === "number" && typeof msg.ty === "number" && typeof msg.tile === "number") {
     // World editing for tests (forage plants next to a hut, clearing obstacles). No placement rules.
     if (inBounds(msg.tx, msg.ty)) {
-      tiles[tileIndex(msg.tx, msg.ty)] = msg.tile;
+      state.tiles[tileIndex(msg.tx, msg.ty)] = msg.tile;
       broadcastTileUpdate(msg.tx, msg.ty, msg.tile as TileType);
     }
-    reply({ tile: tiles[tileIndex(msg.tx, msg.ty)] });
+    reply({ tile: state.tiles[tileIndex(msg.tx, msg.ty)] });
   } else if (msg.op === "stampTestSite" && typeof msg.cx === "number" && typeof msg.cy === "number") {
     // Forts phase A: a hand-placed NPC fort: a 5x5 ring of walls (stone with {stone:true}) owned by the
     // site `siteId` (default a fresh "testsite:<n>"), a gate in the middle of its west side and a tower in
@@ -10793,7 +8865,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         const t = !ring ? (dx === 0 && dy === 0 && msg.tower !== false ? TileType.Tower : TileType.Empty)
           : dx === -2 && dy === 0 ? TileType.Gate : msg.stone ? TileType.StoneWall : TileType.Wall;
         buildingHp.delete(resourceKey(x, y));
-        tiles[i] = t;
+        state.tiles[i] = t;
         broadcastTileUpdate(x, y, t);
         setOwner(i, t === TileType.Empty ? 0 : num);
         if (t === TileType.Gate) gate = { x, y };
@@ -10808,18 +8880,18 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     reply({ owner: inBounds(msg.tx, msg.ty) ? ownerAt(tileIndex(msg.tx, msg.ty)) : 0 });
   } else if (msg.op === "ownerState") {
     reply({
-      owners: Array.from(tileOwner).map(([i, o]) => ({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X), owner: o, tile: tiles[i] })),
+      owners: Array.from(tileOwner).map(([i, o]) => ({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X), owner: o, tile: state.tiles[i] })),
       sites: [...ownerSiteIds],
-      version: ownerVersion,
+      version: state.ownerVersion,
       towerShots: towerEvents.slice(),
     });
   } else if (msg.op === "placeTownCenter" && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // A new Town Center at the tile, no placement rules or builders' work (regiment-groups-test).
     if (inBounds(msg.tx, msg.ty) && !findTownCenterAt(msg.tx, msg.ty)) resolveTownCenterPlacement(msg.tx, msg.ty);
-    reply({ townCenters: townCenters.map((t) => ({ ...t })) });
+    reply({ townCenters: state.townCenters.map((t) => ({ ...t })) });
   } else if (msg.op === "forceMarkChance") {
-    testForceMarkChance = typeof msg.value === "number" ? msg.value : null;
-    reply({ value: testForceMarkChance });
+    state.testForceMarkChance = typeof msg.value === "number" ? msg.value : null;
+    reply({ value: state.testForceMarkChance });
   } else if (msg.op === "spawnMob" && typeof msg.kind === "string" && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // An already-released (non-raid) mob at a tile, optionally Hunger-marked.
     if (!(msg.kind in MOB_KIND_CONFIG) || !inBounds(msg.tx, msg.ty)) {
@@ -10844,7 +8916,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const group: RaidGroup = {
       id, faction: "greenskinWarband", isHorde: false, edge: "west", memberIds: [], homes: new Map(), aggroTick: 0,
       state: "marching", leaderId: null, offsets: new Map(), repathCooldown: 0, headingX: 1, headingY: 0,
-      engagedTick: cycleTick, anchorX: tileToPixelCenter({ x: msg.tx, y: msg.ty }).x, anchorY: tileToPixelCenter({ x: msg.tx, y: msg.ty }).y,
+      engagedTick: state.cycleTick, anchorX: tileToPixelCenter({ x: msg.tx, y: msg.ty }).x, anchorY: tileToPixelCenter({ x: msg.tx, y: msg.ty }).y,
     };
     (msg.kinds as unknown[]).forEach((k, i) => {
       if (typeof k !== "string" || !(k in MOB_KIND_CONFIG)) return;
@@ -10858,14 +8930,14 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     reply({ id, memberIds: group.memberIds });
   } else if (msg.op === "forceRaidSiege") {
     // Cavalry & siege: raids pick orc / bandit factions and take their siege engines first (up to the caps).
-    testForceRaidSiege = msg.value === true;
-    reply({ value: testForceRaidSiege });
+    state.testForceRaidSiege = msg.value === true;
+    reply({ value: state.testForceRaidSiege });
   } else if (msg.op === "spawnRaidNow" && typeof msg.dayIndex === "number") {
     spawnRaid(Math.max(0, Math.floor(msg.dayIndex)));
     reply({ groups: raidGroups.size, caps: Object.fromEntries(SIEGE_KINDS.map((k) => [k, raidSiegeCap(Math.floor(msg.dayIndex as number), k)])) });
   } else if (msg.op === "siegeState") {
     reply({
-      cycleTick,
+      cycleTick: state.cycleTick,
       events: siegeEvents,
       workshops: Array.from(siegeWorkshops, ([key, w]) => ({ key, ...w })),
       units: Array.from(colonists.values())
@@ -10881,11 +8953,11 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     else walledSites.add(msg.id);
     reply({ walled: walledSites.has(msg.id) });
   } else if (msg.op === "tacticsConfig") {
-    testMoraleFrozen = msg.freezeMorale === true;
-    reply({ freezeMorale: testMoraleFrozen });
+    state.testMoraleFrozen = msg.freezeMorale === true;
+    reply({ freezeMorale: state.testMoraleFrozen });
   } else if (msg.op === "tacticsState") {
     reply({
-      cycleTick,
+      cycleTick: state.cycleTick,
       regiments: Array.from(regiments.values()).map((r) => ({
         id: r.id, morale: r.morale, routed: r.routed, raid: r.raid, sheltering: r.sheltering, ratio: Number.isFinite(r.ratio) ? r.ratio : null,
         flankIds: r.flankIds, homeX: r.homeX, homeY: r.homeY,
@@ -10905,7 +8977,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       }
     }
     reply({
-      cycleTick,
+      cycleTick: state.cycleTick,
       regiments: Array.from(playerMorale.values()).map((r) => ({ id: r.id, name: r.name, morale: r.morale, active: r.active, routed: r.routed, outflanked: r.outflanked, peak: r.peak, ratio: Number.isFinite(r.ratio) ? r.ratio : null, lastContactTick: Number.isFinite(r.lastContactTick) ? r.lastContactTick : null })),
       routedUnits: Array.from(routedUnits.keys()),
       unitRegiment: Object.fromEntries(moraleRegimentOfUnit),
@@ -10915,8 +8987,8 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     if (c) c.hp = Math.max(1, Math.min(c.maxHp, msg.hp));
     reply({ found: !!c, hp: c?.hp ?? null });
   } else if (msg.op === "setInstantBuild") {
-    instantBuild = msg.enabled === true;
-    reply({ enabled: instantBuild });
+    state.instantBuild = msg.enabled === true;
+    reply({ enabled: state.instantBuild });
   } else if (msg.op === "teleportPlayer" && typeof msg.x === "number" && typeof msg.y === "number") {
     player.x = msg.x;
     player.y = msg.y;
@@ -10927,7 +8999,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "damageTownCenter" && typeof msg.tx === "number" && typeof msg.ty === "number" && typeof msg.amount === "number") {
     const tc = findTownCenterAt(msg.tx, msg.ty);
     if (tc) damageTownCenter(tc, msg.amount);
-    reply({ found: !!tc, townCenters: townCenters.map((t) => ({ ...t })) });
+    reply({ found: !!tc, townCenters: state.townCenters.map((t) => ({ ...t })) });
   } else if (msg.op === "damageBuilding" && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // amount 0 (or missing) just reports the HP.
     if (typeof msg.amount === "number" && msg.amount > 0 && structureHp(msg.tx, msg.ty)) damageBuilding(msg.tx, msg.ty, msg.amount);
@@ -10949,12 +9021,12 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       farmers: Array.from(colonists.values())
         .filter((c) => c.kind === "farmer")
         .map((c) => ({ id: c.id, x: c.x, y: c.y, state: c.state, postX: c.postX, postY: c.postY, sheltering: c.sheltering })),
-      townCenters: townCenters.map((t) => ({ ...t })),
+      townCenters: state.townCenters.map((t) => ({ ...t })),
       productionSpeedMultiplier: productionSpeedMultiplier(),
       happinessSpeedMultiplier: happinessSpeedMultiplier(),
       armyBonus: townCenterBonus(),
       populationCap: populationCap(),
-      instantBuild,
+      instantBuild: state.instantBuild,
     });
   } else if (msg.op === "tickStats") {
     const sorted = tickDurationsMs.slice().sort((p, q) => p - q);
@@ -10983,7 +9055,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "bodyState") {
     // Positions, targets and engagement slots of soldiers and mobs (combat-line-test).
     reply({
-      cycleTick,
+      cycleTick: state.cycleTick,
       colonists: Array.from(colonists.values())
         .filter((c) => isGuardOrMilitiaKind(c.kind))
         .map((c) => ({ id: c.id, kind: c.kind, x: c.x, y: c.y, state: c.state, rallyX: c.rallyX, rallyY: c.rallyY, targetMobId: c.targetMobId, hp: c.hp })),
@@ -10993,21 +9065,21 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       slots: Array.from(attackerSlots),
     });
   } else if (msg.op === "ignorePlayers") {
-    testPlayersIgnored = msg.value === true;
-    reply({ value: testPlayersIgnored });
+    state.testPlayersIgnored = msg.value === true;
+    reply({ value: state.testPlayersIgnored });
   } else if (msg.op === "damageBuilding" && typeof msg.tx === "number" && typeof msg.ty === "number" && typeof msg.amount === "number") {
     damageBuilding(msg.tx, msg.ty, msg.amount);
-    reply({ hp: structureHp(msg.tx, msg.ty), tile: tiles[tileIndex(msg.tx, msg.ty)] });
+    reply({ hp: structureHp(msg.tx, msg.ty), tile: state.tiles[tileIndex(msg.tx, msg.ty)] });
   } else if (msg.op === "gateState") {
     // Walls & gates: every gate's state and HP; checkOverrun runs the overrun evaluation right now.
     if (msg.checkOverrun === true) {
-      gateTilesDirty = true;
+      state.gateTilesDirty = true;
       updateGates(true);
     }
     reply({
       gates: Array.from(gates, ([index, g]) => {
-        const x = index % WORLD_TILES_X;
-        const y = Math.floor(index / WORLD_TILES_X);
+        const x = index % state.WORLD_TILES_X;
+        const y = Math.floor(index / state.WORLD_TILES_X);
         return { x, y, ...g, hp: structureHp(x, y) };
       }),
       hp: { wall: buildingMaxHp(0, 0, TileType.Wall), stoneWall: buildingMaxHp(0, 0, TileType.StoneWall), gate: buildingMaxHp(0, 0, TileType.Gate) },
@@ -11061,7 +9133,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "spellState") {
     // Hero phase 4: this player's / every hero's spell book, statuses, summons, recent spell events.
     reply({
-      spellTick,
+      spellTick: state.spellTick,
       player: { key: player.profileKey, ...spellBookSnapshot(heroProfileOf(player)), spellPowerMult: heroProfileOf(player).stats.spellPowerMult, hp: player.hp, maxHp: playerMaxHp(player), x: player.x, y: player.y, id: player.id },
       heroes: Array.from(heroProfiles.values()).filter((p) => p.heroClass).map((p) => ({ key: p.key, level: p.level, spellPowerMult: p.stats.spellPowerMult, ...spellBookSnapshot(p) })),
       statuses: Object.fromEntries(spellStatuses),
@@ -11077,9 +9149,9 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "grantTome") {
     reply({ item: grantTome(heroProfileOf(player), "hook", isSpellId(msg.spellId) ? msg.spellId : undefined) });
   } else if (msg.op === "spellConfig") {
-    testTomeChance = typeof msg.tomeChance === "number" ? msg.tomeChance : null;
+    state.testTomeChance = typeof msg.tomeChance === "number" ? msg.tomeChance : null;
     if (msg.resetCooldowns === true) spellCooldowns.clear();
-    reply({ tomeChance: testTomeChance });
+    reply({ tomeChance: state.testTomeChance });
   } else if (msg.op === "spawnHero" && HERO_CLASSES.includes(msg.heroClass as HeroClass) && typeof msg.x === "number" && typeof msg.y === "number") {
     // A hero standing at pixel (x, y), posted on that tile (no Keep), without recruiting.
     const tile = tileOfPixel(msg.x, msg.y);
@@ -11088,11 +9160,11 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     if (typeof msg.stance === "string" && STANCES.includes(msg.stance as Stance)) c.stance = msg.stance as Stance;
     reply({ id: c.id });
   } else if (msg.op === "heroConfig") {
-    testRelicChance = typeof msg.relicChance === "number" ? msg.relicChance : null;
-    reply({ relicChance: testRelicChance });
+    state.testRelicChance = typeof msg.relicChance === "number" ? msg.relicChance : null;
+    reply({ relicChance: state.testRelicChance });
   } else if (msg.op === "equipConfig") {
-    testEquipDropChance = typeof msg.dropChance === "number" ? msg.dropChance : null;
-    reply({ dropChance: testEquipDropChance });
+    state.testEquipDropChance = typeof msg.dropChance === "number" ? msg.dropChance : null;
+    reply({ dropChance: state.testEquipDropChance });
   } else if (msg.op === "damageColonist" && typeof msg.id === "string" && typeof msg.amount === "number") {
     const c = colonists.get(msg.id);
     const before = c?.hp ?? null;
@@ -11101,11 +9173,11 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "hearthState") {
     // Camp hearths: every hearth with its site's living guardians, the counter and recent events.
     reply({
-      campsDestroyed,
+      campsDestroyed: state.campsDestroyed,
       events: hearthEvents.slice(),
       hearths: Array.from(hearths.values()).map((h) => ({
         ...h,
-        tile: tiles[tileIndex(h.x, h.y)],
+        tile: state.tiles[tileIndex(h.x, h.y)],
         guardians: Array.from(mobs.values())
           .filter((m) => m.siteId === h.siteId)
           .map((m) => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, hp: m.hp, active: m.guardianActive, tactic: m.tactic ?? null })),
@@ -11118,12 +9190,12 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "goalState") {
     // Goal track, the Castle Ruin and every boss / Castle Ruin guardian (goals-castle-test).
     reply({
-      goalIndex,
-      goal: goalSnapshot,
+      goalIndex: state.goalIndex,
+      goal: state.goalSnapshot,
       goalTitles: GOALS.map((g) => g.title),
-      castleCleared,
-      campsDestroyed,
-      castleRuinCenter,
+      castleCleared: state.castleCleared,
+      campsDestroyed: state.campsDestroyed,
+      castleRuinCenter: state.castleRuinCenter,
       nightsSurvived: nightsSurvived(),
       stock: { ...stock },
       mobs: Array.from(mobs.values())
@@ -11135,7 +9207,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     });
   } else if (msg.op === "fightState") {
     // Every tracked fight (unfiltered) plus this player's filtered list (fight-notifier-test).
-    reply({ cycleTick, hits: fightHits.length, fights: activeFights.map((f) => ({ ...f, playerIds: Array.from(f.playerIds) })), mine: fightsForPlayer(player) });
+    reply({ cycleTick: state.cycleTick, hits: state.fightHits.length, fights: state.activeFights.map((f) => ({ ...f, playerIds: Array.from(f.playerIds) })), mine: fightsForPlayer(player) });
   } else if (msg.op === "buildingState") {
     // Building HP / repair state, builders, and every mob's target (with its approach tile).
     reply({
@@ -11144,7 +9216,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       repairQueue,
       damagedBuildings: damagedBuildingsForSnapshot(),
       stock: { ...stock },
-      cycleTick,
+      cycleTick: state.cycleTick,
       isNight: isNightNow(),
       builders: Array.from(colonists.values())
         .filter((c) => c.kind === "builder")
@@ -11156,10 +9228,10 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "towerState") {
     // Tower tuning, every standing Tower, and livingTowersNear(tx, ty, radius) when asked (towers-farms-test).
     const towers: Array<Record<string, unknown>> = [];
-    for (let i = 0; i < tiles.length; i++) {
-      if (!isTowerTile(tiles[i] as TileType)) continue;
-      const x = i % WORLD_TILES_X;
-      const y = Math.floor(i / WORLD_TILES_X);
+    for (let i = 0; i < state.tiles.length; i++) {
+      if (!isTowerTile(state.tiles[i] as TileType)) continue;
+      const x = i % state.WORLD_TILES_X;
+      const y = Math.floor(i / state.WORLD_TILES_X);
       towers.push({ x, y, level: getBuildingLevel(x, y), cooldown: towerCooldowns.get(resourceKey(x, y)) ?? 0, hp: structureHp(x, y) });
     }
     reply({
@@ -11172,18 +9244,18 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         : null,
       barnMaxFarmPlots: BARN_MAX_FARM_PLOTS,
       barnFarmRadiusTiles: BARN_FARM_RADIUS_TILES,
-      cycleTick,
+      cycleTick: state.cycleTick,
     });
   } else if (msg.op === "respawnState") {
     // Long days & dawn/dusk respawn windows (day-respawn-test).
     reply({
-      cycleTick,
+      cycleTick: state.cycleTick,
       isNight: isNightNow(),
       queue: respawnQueue.map((q) => ({ ...q })),
       respawn: respawnWindowSnapshot(),
-      window: respawnWindowAt(cycleTick),
+      window: respawnWindowAt(state.cycleTick),
       duskTick: DUSK_RESPAWN_CYCLE_TICK,
-      wardPriestRespawnTicks,
+      wardPriestRespawnTicks: state.wardPriestRespawnTicks,
       constants: {
         DAY_TICKS, NIGHT_TICKS, GAME_DAY_TICKS, LEGACY_DAY_TICKS, LEGACY_NIGHT_TICKS, DAY_LENGTH_SCALE,
         FOOD_PER_COLONIST_PER_DAY, FARM_GROW_TICKS, FARMHAND_CYCLE_TICKS, FORAGE_REGROW_TICKS,
@@ -11194,9 +9266,6 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     });
   }
 }
-
-// PORT lets a scripted test run a private server without touching the shared :8080 world.
-const PORT = Number.parseInt(process.env.PORT ?? "", 10) || 8080;
 // One HTTP server on PORT: websocket upgrades go to `wss`; plain GET /saves lists the save slots for
 // the main menu (which has no websocket open yet).
 const httpServer = createServer((req, res) => {
@@ -11219,23 +9288,23 @@ function sendWelcome(player: Player) {
     type: "welcome",
     id: player.id,
     tileSize: TILE_SIZE,
-    worldTilesX: WORLD_TILES_X,
-    worldTilesY: WORLD_TILES_Y,
-    tiles: Array.from(tiles),
-    biomes: Array.from(biomes),
+    worldTilesX: state.WORLD_TILES_X,
+    worldTilesY: state.WORLD_TILES_Y,
+    tiles: Array.from(state.tiles),
+    biomes: Array.from(state.biomes),
     explored: packExplored(),
-    difficulty,
-    castleRuin: castleRuinCenter,
+    difficulty: state.difficulty,
+    castleRuin: state.castleRuinCenter,
   };
   player.socket.send(JSON.stringify(welcome));
 }
 
 function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   // A restart reopens the difficulty claim; a value sent with the restart claims it straight away.
-  difficultyClaimed = false;
+  state.difficultyClaimed = false;
   if (isDifficulty(nextDifficulty)) {
-    difficulty = nextDifficulty;
-    difficultyClaimed = true;
+    state.difficulty = nextDifficulty;
+    state.difficultyClaimed = true;
   }
   // mobs/colonists must be cleared before generateWorld, which spawns the fresh POI guardians and
   // Abbey clergy.
@@ -11256,7 +9325,7 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   buildingHp.clear();
   repairPaid.clear();
   repairQueue.length = 0;
-  buildingTargetsDirty = true;
+  state.buildingTargetsDirty = true;
   reservedResourceTiles.clear();
   taskForces.clear();
   taskForceMax.clear();
@@ -11265,10 +9334,10 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
   gravestones.length = 0;
-  wardPriestId = null;
-  wardPriestTendTicks = 0;
-  wardPriestRespawnTicks = -1;
-  pendingEffects = [];
+  state.wardPriestId = null;
+  state.wardPriestTendTicks = 0;
+  state.wardPriestRespawnTicks = -1;
+  state.pendingEffects = [];
   // Hero phase 4: statuses, cooldowns and summons are transient.
   clearSpellState();
 
@@ -11276,29 +9345,29 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   resetEquipment();
   heroProfiles.clear();
   heroRecruits.length = 0;
-  heroRosterVersion++;
-  marketBuilt = false;
-  goldShopBuilt = false;
-  colonyHappiness = 100;
+  state.heroRosterVersion++;
+  state.marketBuilt = false;
+  state.goldShopBuilt = false;
+  state.colonyHappiness = 100;
 
   constructionSites.clear();
   gates.clear();
-  gateTilesDirty = true;
+  state.gateTilesDirty = true;
   mobsWithoutRoute.clear();
 
-  cycleTick = 0;
-  wasNight = false;
+  state.cycleTick = 0;
+  state.wasNight = false;
   raidGroups.clear();
   regiments.clear();
   walledSites.clear();
-  raidSpawnedForDay = -1;
-  treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
-  lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
-  isPaused = false;
-  pausedBy = null;
-  timeScale = 1;
-  timeScaleBy = null;
-  simAccum = 0;
+  state.raidSpawnedForDay = -1;
+  state.treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
+  state.lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
+  state.isPaused = false;
+  state.pausedBy = null;
+  state.timeScale = 1;
+  state.timeScaleBy = null;
+  state.simAccum = 0;
 
   respawnPlayersAndWelcome();
 }
@@ -11325,49 +9394,14 @@ function respawnPlayersAndWelcome() {
     sendWelcome(player);
   }
 }
-
 // ---- Save files ----
-// One JSON file per slot under server/saves/ (or COLONY_SAVE_DIR). snapshotWorld captures every piece
-// of module state that defines the world; applyWorld writes it back IN PLACE (the const Maps/Sets/
-// arrays/typed arrays are cleared and refilled, so nothing that holds a reference to them goes stale).
-// Not saved: player sessions (connected players respawn at a Town Center, as after a restart),
-// pendingEffects / pendingExplored / visionTile (per-tick transients) and client-only blood.
-const SAVE_VERSION = 1;
-const SAVE_SLOT_LABELS: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3" };
-const SAVE_DIR = process.env.COLONY_SAVE_DIR
-  ? path.resolve(process.env.COLONY_SAVE_DIR)
-  : fileURLToPath(new URL("../saves/", import.meta.url));
-// A scripted test server (test hooks on) must never clobber the real world's autosave, so with test
-// hooks it only autosaves into a COLONY_SAVE_DIR of its own.
-const AUTOSAVE_ENABLED = !TEST_HOOKS || !!process.env.COLONY_SAVE_DIR;
-// A freshly booted server's unattended world must not overwrite the last real autosave: autosaves
-// (dawn + shutdown) only start once a player has connected.
-let anyPlayerSinceBoot = false;
-// Set by the dawn hook inside stepSimulation; the tick loop runs the save once, outside fastForward.
-let autosaveDue = false;
-// Saves/loads run one at a time, queued in request order (a load asked for while the dawn autosave
-// is still writing just waits a few ms). A load also holds the simulation while the file is read.
-let saveLoadQueue: Promise<unknown> = Promise.resolve();
-let autosaveQueued = false;
-let simHeldForLoad = false;
+
 
 function serialized<T>(fn: () => Promise<T>): Promise<T> {
-  const run = saveLoadQueue.then(fn, fn);
-  saveLoadQueue = run.catch(() => undefined);
+  const run = state.saveLoadQueue.then(fn, fn);
+  state.saveLoadQueue = run.catch(() => undefined);
   return run;
 }
-
-interface SaveFile {
-  version: number;
-  savedAt: string;
-  dayIndex: number;
-  population: number;
-  difficulty: Difficulty;
-  worldSize: number;
-  label: string;
-  state: WorldState;
-}
-type WorldState = ReturnType<typeof snapshotWorld>;
 
 function isSaveSlot(value: unknown): value is SaveSlot {
   return typeof value === "string" && (SAVE_SLOTS as string[]).includes(value);
@@ -11379,15 +9413,15 @@ function savePath(slot: SaveSlot): string {
 
 // Plain-object view of the world. Serialized right away (JSON.stringify), so live objects are
 // referenced rather than copied. Raid groups' Maps become entry arrays.
-function snapshotWorld() {
+export function snapshotWorld() {
   return {
-    tiles: Buffer.from(tiles).toString("base64"),
-    biomes: Buffer.from(biomes).toString("base64"),
+    tiles: Buffer.from(state.tiles).toString("base64"),
+    biomes: Buffer.from(state.biomes).toString("base64"),
     explored: packExplored(),
-    worldNoiseSalt,
-    abbeyCenter,
-    castleRuinCenter,
-    goals: { goalIndex, castleCleared, campsDestroyed },
+    worldNoiseSalt: state.worldNoiseSalt,
+    abbeyCenter: state.abbeyCenter,
+    castleRuinCenter: state.castleRuinCenter,
+    goals: { goalIndex: state.goalIndex, castleCleared: state.castleCleared, campsDestroyed: state.campsDestroyed },
     hearths: Array.from(hearths.values()),
     // Forts phase A: NPC tile owners as flattened [tile index, site number] pairs + the site ids they
     // name (optional: saves without them have every tile the colony's).
@@ -11400,24 +9434,24 @@ function snapshotWorld() {
     heroProfiles: serializeHeroProfiles() as unknown,
     // Hero phase 3: heroes still being recruited (the heroes themselves are colonists / respawn entries).
     heroRecruits: heroRecruits.map((r) => ({ ...r })),
-    marketBuilt,
-    goldShopBuilt,
-    colonyHappiness,
-    difficulty,
-    cycleTick,
+    marketBuilt: state.marketBuilt,
+    goldShopBuilt: state.goldShopBuilt,
+    colonyHappiness: state.colonyHappiness,
+    difficulty: state.difficulty,
+    cycleTick: state.cycleTick,
     // Long days: the cycle this cycleTick was counted in (saves without it are the old 1200 + 800).
     dayTicks: DAY_TICKS as number,
     nightTicks: NIGHT_TICKS as number,
-    wasNight,
-    raidSpawnedForDay,
-    treeRespawnCooldown,
-    lumberjackTreeGrowCooldown,
-    wildlifeRespawnCooldown,
-    nextWildlifeId,
-    wardPriestId,
-    wardPriestTendTicks,
-    wardPriestRespawnTicks,
-    townCenters,
+    wasNight: state.wasNight,
+    raidSpawnedForDay: state.raidSpawnedForDay,
+    treeRespawnCooldown: state.treeRespawnCooldown,
+    lumberjackTreeGrowCooldown: state.lumberjackTreeGrowCooldown,
+    wildlifeRespawnCooldown: state.wildlifeRespawnCooldown,
+    nextWildlifeId: state.nextWildlifeId,
+    wardPriestId: state.wardPriestId,
+    wardPriestTendTicks: state.wardPriestTendTicks,
+    wardPriestRespawnTicks: state.wardPriestRespawnTicks,
+    townCenters: state.townCenters,
     // Hero phase 4: summons aren't saved; a slowed mob is saved at its own speed.
     colonists: Array.from(colonists.values()).filter((c) => !summonedUntil.has(c.id)),
     mobs: Array.from(mobs.values(), (m) => (unslowedSpeed(m) === m.speed ? m : { ...m, speed: unslowedSpeed(m) })),
@@ -11443,13 +9477,13 @@ function snapshotWorld() {
       offsets: Array.from(g.offsets),
     })),
     flags: {
-      testForceDeserterRoll,
-      testHoldRaidAggro,
-      testRaidsDisabled,
-      testWildlifeRespawnDisabled,
-      testForceMarkChance,
-      instantBuild,
-      testPlayersIgnored,
+      testForceDeserterRoll: state.testForceDeserterRoll,
+      testHoldRaidAggro: state.testHoldRaidAggro,
+      testRaidsDisabled: state.testRaidsDisabled,
+      testWildlifeRespawnDisabled: state.testWildlifeRespawnDisabled,
+      testForceMarkChance: state.testForceMarkChance,
+      instantBuild: state.instantBuild,
+      testPlayersIgnored: state.testPlayersIgnored,
     },
   };
 }
@@ -11460,18 +9494,18 @@ function refill<K, V>(map: Map<K, V>, entries: [K, V][]) {
 }
 
 function applyWorld(s: WorldState) {
-  tiles.set(Buffer.from(s.tiles, "base64"));
-  biomes.set(Buffer.from(s.biomes, "base64"));
+  state.tiles.set(Buffer.from(s.tiles, "base64"));
+  state.biomes.set(Buffer.from(s.biomes, "base64"));
   const bits = Buffer.from(s.explored, "base64");
-  for (let i = 0; i < explored.length; i++) explored[i] = (bits[i >> 3] >> (i & 7)) & 1;
-  worldNoiseSalt = s.worldNoiseSalt;
-  abbeyCenter = s.abbeyCenter;
+  for (let i = 0; i < state.explored.length; i++) state.explored[i] = (bits[i >> 3] >> (i & 7)) & 1;
+  state.worldNoiseSalt = s.worldNoiseSalt;
+  state.abbeyCenter = s.abbeyCenter;
   // `?? null` / missing `goals`: saves from before Phase 5 have no Castle Ruin, and their goal track
   // catches up silently (below, once the rest of the world is in place).
-  castleRuinCenter = s.castleRuinCenter ?? null;
-  goalIndex = s.goals?.goalIndex ?? 0;
-  castleCleared = s.goals?.castleCleared ?? false;
-  campsDestroyed = s.goals?.campsDestroyed ?? 0;
+  state.castleRuinCenter = s.castleRuinCenter ?? null;
+  state.goalIndex = s.goals?.goalIndex ?? 0;
+  state.castleCleared = s.goals?.castleCleared ?? false;
+  state.campsDestroyed = s.goals?.campsDestroyed ?? 0;
   Object.assign(stock, s.stock);
   // `?? zeros`: saves from before Armour & weapons have an empty stock (units without tiers fight as tier 0).
   resetEquipment();
@@ -11482,24 +9516,24 @@ function applyWorld(s: WorldState) {
   // Saves from before hero phase 3: no heroes, nobody being recruited.
   heroRecruits.length = 0;
   heroRecruits.push(...((s.heroRecruits ?? []) as HeroRecruit[]));
-  heroRosterVersion++;
-  marketBuilt = s.marketBuilt;
-  goldShopBuilt = s.goldShopBuilt;
-  colonyHappiness = s.colonyHappiness;
-  difficulty = s.difficulty;
+  state.heroRosterVersion++;
+  state.marketBuilt = s.marketBuilt;
+  state.goldShopBuilt = s.goldShopBuilt;
+  state.colonyHappiness = s.colonyHappiness;
+  state.difficulty = s.difficulty;
   // The loaded world's difficulty is settled: joining clients' setDifficulty must not override it.
-  difficultyClaimed = true;
-  cycleTick = s.cycleTick;
-  wasNight = s.wasNight;
-  raidSpawnedForDay = s.raidSpawnedForDay;
-  treeRespawnCooldown = s.treeRespawnCooldown;
-  lumberjackTreeGrowCooldown = s.lumberjackTreeGrowCooldown;
-  wildlifeRespawnCooldown = s.wildlifeRespawnCooldown;
-  nextWildlifeId = s.nextWildlifeId;
-  wardPriestId = s.wardPriestId;
-  wardPriestTendTicks = s.wardPriestTendTicks;
-  wardPriestRespawnTicks = s.wardPriestRespawnTicks;
-  townCenters = s.townCenters;
+  state.difficultyClaimed = true;
+  state.cycleTick = s.cycleTick;
+  state.wasNight = s.wasNight;
+  state.raidSpawnedForDay = s.raidSpawnedForDay;
+  state.treeRespawnCooldown = s.treeRespawnCooldown;
+  state.lumberjackTreeGrowCooldown = s.lumberjackTreeGrowCooldown;
+  state.wildlifeRespawnCooldown = s.wildlifeRespawnCooldown;
+  state.nextWildlifeId = s.nextWildlifeId;
+  state.wardPriestId = s.wardPriestId;
+  state.wardPriestTendTicks = s.wardPriestTendTicks;
+  state.wardPriestRespawnTicks = s.wardPriestRespawnTicks;
+  state.townCenters = s.townCenters;
   refill(colonists, s.colonists.map((c): [string, Colonist] => [c.id, c]));
   // Saves from before settlements: attach every unit to the Town Center nearest its post (never rejects).
   for (const c of colonists.values()) {
@@ -11520,7 +9554,7 @@ function applyWorld(s: WorldState) {
   migrateArcherTowers();
   repairQueue.length = 0;
   repairQueue.push(...(s.repairQueue ?? []));
-  buildingTargetsDirty = true;
+  state.buildingTargetsDirty = true;
   refill(taskForces, s.taskForces);
   taskForceMax.clear();
   clearOrderGroups();
@@ -11534,7 +9568,7 @@ function applyWorld(s: WorldState) {
   refill(constructionSites, s.constructionSites);
   // `?? []`: saves from before gates (none on the map); gate tiles without a record start closed / auto.
   refill(gates, s.gates ?? []);
-  gateTilesDirty = true;
+  state.gateTilesDirty = true;
   mobsWithoutRoute.clear();
   refill(
     raidGroups,
@@ -11549,38 +9583,38 @@ function applyWorld(s: WorldState) {
   clearOwners();
   ownerSiteIds.push(...(s.ownerSites ?? []));
   const owners = s.owners ?? [];
-  for (let i = 0; i + 1 < owners.length; i += 2) if (owners[i] < tiles.length && owners[i + 1] > 0) tileOwner.set(owners[i], owners[i + 1]);
-  testForceDeserterRoll = s.flags.testForceDeserterRoll;
-  testHoldRaidAggro = s.flags.testHoldRaidAggro;
-  testRaidsDisabled = s.flags.testRaidsDisabled;
-  testWildlifeRespawnDisabled = s.flags.testWildlifeRespawnDisabled;
-  testForceMarkChance = s.flags.testForceMarkChance;
-  instantBuild = s.flags.instantBuild;
-  testPlayersIgnored = s.flags.testPlayersIgnored ?? false;
+  for (let i = 0; i + 1 < owners.length; i += 2) if (owners[i] < state.tiles.length && owners[i + 1] > 0) tileOwner.set(owners[i], owners[i + 1]);
+  state.testForceDeserterRoll = s.flags.testForceDeserterRoll;
+  state.testHoldRaidAggro = s.flags.testHoldRaidAggro;
+  state.testRaidsDisabled = s.flags.testRaidsDisabled;
+  state.testWildlifeRespawnDisabled = s.flags.testWildlifeRespawnDisabled;
+  state.testForceMarkChance = s.flags.testForceMarkChance;
+  state.instantBuild = s.flags.instantBuild;
+  state.testPlayersIgnored = s.flags.testPlayersIgnored ?? false;
   towerCooldowns.clear();
   migrateSaveDayLength(s.dayTicks ?? LEGACY_DAY_TICKS, s.nightTicks ?? LEGACY_NIGHT_TICKS);
   evaluateGoals(!s.goals);
   // Transients: nothing in flight survives a load; everyone re-stamps vision from scratch.
-  pendingEffects = [];
+  state.pendingEffects = [];
   // Hero phase 4: statuses, cooldowns and summons are transient.
   clearSpellState();
-  pendingExplored = [];
-  visionTile = new WeakMap();
-  isPaused = false;
-  pausedBy = null;
-  timeScale = 1;
-  timeScaleBy = null;
-  simAccum = 0;
+  state.pendingExplored = [];
+  state.visionTile = new WeakMap();
+  state.isPaused = false;
+  state.pausedBy = null;
+  state.timeScale = 1;
+  state.timeScaleBy = null;
+  state.simAccum = 0;
 }
 
 // The wall-mounted Archer Tower is gone: an old save's ArcherTower tile becomes a plain Archery Range
 // (its archers keep their post). One tile cannot hold both post and wall, so the wall the old tower
 // replaced is not restored.
 function migrateArcherTowers() {
-  for (let ty = 0; ty < WORLD_TILES_Y; ty++) {
-    for (let tx = 0; tx < WORLD_TILES_X; tx++) {
-      if ((tiles[tileIndex(tx, ty)] as TileType) !== TileType.ArcherTower) continue;
-      tiles[tileIndex(tx, ty)] = TileType.ArcherPost;
+  for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
+    for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
+      if ((state.tiles[tileIndex(tx, ty)] as TileType) !== TileType.ArcherTower) continue;
+      state.tiles[tileIndex(tx, ty)] = TileType.ArcherPost;
       for (const c of getColonistsAtPost(tx, ty)) {
         if (c.kind !== "archer") continue;
         const stats = guardStats("archer", c.castleLevel);
@@ -11598,15 +9632,15 @@ function migrateArcherTowers() {
 function migrateSaveDayLength(oldDay: number, oldNight: number) {
   if (oldDay === DAY_TICKS && oldNight === NIGHT_TICKS) return;
   const oldCycle = oldDay + oldNight;
-  const day = Math.floor(cycleTick / oldCycle);
-  const pos = cycleTick % oldCycle;
+  const day = Math.floor(state.cycleTick / oldCycle);
+  const pos = state.cycleTick % oldCycle;
   const newPos =
     pos < oldDay
       ? Math.floor((pos * DAY_TICKS) / oldDay)
       : DAY_TICKS + Math.floor(((pos - oldDay) * NIGHT_TICKS) / oldNight);
-  const delta = day * GAME_DAY_TICKS + newPos - cycleTick;
-  cycleTick += delta;
-  wasNight = isNightNow();
+  const delta = day * GAME_DAY_TICKS + newPos - state.cycleTick;
+  state.cycleTick += delta;
+  state.wasNight = isNightNow();
   for (const m of mobs.values()) {
     m.lastDamagedTick += delta;
     m.furyUntilTick += delta;
@@ -11626,10 +9660,10 @@ function saveFileFor(slot: SaveSlot): SaveFile {
   return {
     version: SAVE_VERSION,
     savedAt: new Date().toISOString(),
-    dayIndex: Math.floor(cycleTick / GAME_DAY_TICKS),
+    dayIndex: Math.floor(state.cycleTick / GAME_DAY_TICKS),
     population: civilianPopulationUsed(),
-    difficulty,
-    worldSize: WORLD_TILES_X,
+    difficulty: state.difficulty,
+    worldSize: state.WORLD_TILES_X,
     label: SAVE_SLOT_LABELS[slot],
     state: snapshotWorld(),
   };
@@ -11665,7 +9699,7 @@ function loadFromSlot(slot: SaveSlot): Promise<string | null> {
 }
 
 async function readSave(slot: SaveSlot): Promise<string | null> {
-  simHeldForLoad = true;
+  state.simHeldForLoad = true;
   try {
     const t0 = performance.now();
     let file: SaveFile;
@@ -11681,7 +9715,7 @@ async function readSave(slot: SaveSlot): Promise<string | null> {
     if (!Number.isInteger(file.worldSize) || file.worldSize < MIN_WORLD_SIZE || file.worldSize > MAX_WORLD_SIZE) {
       return `Save has an unsupported world size (${file.worldSize})`;
     }
-    if (file.worldSize !== WORLD_TILES_X) {
+    if (file.worldSize !== state.WORLD_TILES_X) {
       colonists.clear();
       mobs.clear();
       wildlife.clear();
@@ -11693,7 +9727,7 @@ async function readSave(slot: SaveSlot): Promise<string | null> {
     console.log(`[load] ${slot}: day ${file.dayIndex + 1}, ${(performance.now() - t0).toFixed(1)} ms`);
     return null;
   } finally {
-    simHeldForLoad = false;
+    state.simHeldForLoad = false;
   }
 }
 
@@ -11735,20 +9769,17 @@ async function handleLoadGame(player: Player, slot: unknown) {
 }
 
 function runDueAutosave() {
-  if (!autosaveDue) return;
-  autosaveDue = false;
+  if (!state.autosaveDue) return;
+  state.autosaveDue = false;
   // Debounced: never more than one autosave queued or writing.
-  if (!AUTOSAVE_ENABLED || !anyPlayerSinceBoot || autosaveQueued) return;
-  autosaveQueued = true;
-  void saveToSlot("autosave").finally(() => (autosaveQueued = false));
+  if (!AUTOSAVE_ENABLED || !state.anyPlayerSinceBoot || state.autosaveQueued) return;
+  state.autosaveQueued = true;
+  void saveToSlot("autosave").finally(() => (state.autosaveQueued = false));
 }
-
-// Ctrl+C / kill / tsx watch restarts: write the autosave synchronously, then exit.
-let shuttingDown = false;
 function saveOnShutdown(signal: string) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  if (AUTOSAVE_ENABLED && anyPlayerSinceBoot && !simHeldForLoad) {
+  if (state.shuttingDown) return;
+  state.shuttingDown = true;
+  if (AUTOSAVE_ENABLED && state.anyPlayerSinceBoot && !state.simHeldForLoad) {
     try {
       const t0 = performance.now();
       mkdirSync(SAVE_DIR, { recursive: true });
@@ -11768,8 +9799,8 @@ wss.on("connection", (socket, req) => {
   // Hero phases 1-2: the client's stored profile id (`?profile=`), else the world's "default" profile.
   const profileParam = new URL(req.url ?? "/", "http://localhost").searchParams.get("profile") ?? "";
   const profileKey = /^[\w-]{1,64}$/.test(profileParam) ? profileParam : "default";
-  const color = PLAYER_COLORS[nextColorIndex % PLAYER_COLORS.length];
-  nextColorIndex += 1;
+  const color = PLAYER_COLORS[state.nextColorIndex % PLAYER_COLORS.length];
+  state.nextColorIndex += 1;
 
   const spawn = spawnPointNearTownCenter();
   const player: Player = {
@@ -11794,7 +9825,7 @@ wss.on("connection", (socket, req) => {
   };
   players.set(id, player);
   player.hp = playerMaxHp(player);
-  anyPlayerSinceBoot = true;
+  state.anyPlayerSinceBoot = true;
 
   sendWelcome(player);
 
@@ -11822,14 +9853,14 @@ wss.on("connection", (socket, req) => {
     } else if (message.type === "setView") {
       handleSetView(player, message);
     } else if (message.type === "pause") {
-      if (simHeldForLoad) return;
-      isPaused = typeof message.paused === "boolean" ? message.paused : !isPaused;
-      pausedBy = player.id;
+      if (state.simHeldForLoad) return;
+      state.isPaused = typeof message.paused === "boolean" ? message.paused : !state.isPaused;
+      state.pausedBy = player.id;
     } else if (message.type === "setTimeScale") {
-      if (simHeldForLoad || !(TIME_SCALES as readonly number[]).includes(message.scale)) return;
-      timeScale = message.scale;
-      timeScaleBy = player.id;
-      simAccum = 0;
+      if (state.simHeldForLoad || !(TIME_SCALES as readonly number[]).includes(message.scale)) return;
+      state.timeScale = message.scale;
+      state.timeScaleBy = player.id;
+      state.simAccum = 0;
     } else if (message.type === "restart") {
       resetWorld(message.difficulty, message.worldSize);
     } else if (message.type === "setDifficulty") {
@@ -11910,137 +9941,6 @@ wss.on("connection", (socket, req) => {
   });
 });
 
-const REACH = TILE_SIZE * 2.5;
-const PLACEABLE_TILES = [
-  TileType.Wall,
-  TileType.StoneWall,
-  TileType.House,
-  TileType.BarnPost,
-  TileType.LumberjackPost,
-  TileType.FarmPlot,
-  TileType.KnightPost,
-  TileType.ArcherPost,
-  TileType.Tower,
-  TileType.IronMinePost,
-  TileType.RockMinePost,
-  TileType.ChurchPost,
-  TileType.Pasture,
-  TileType.Orchard,
-  TileType.WoolFarm,
-  TileType.CottonFarm,
-  TileType.TailorShop,
-  TileType.Blacksmith,
-  TileType.LuxuryWorkshop,
-  TileType.Market,
-  TileType.GoldShop,
-  TileType.Brewery,
-  TileType.Tavern,
-  TileType.MilitiaPost,
-  TileType.WardStone,
-  TileType.HunterHut,
-  TileType.ForagerHut,
-  TileType.BuildersGuild,
-  TileType.TownCenter,
-  TileType.Road,
-  TileType.CobbleRoad,
-  TileType.Gate,
-  TileType.Stables,
-  TileType.SiegeWorkshop,
-  TileType.Keep,
-];
-const BREAKABLE_TILES = [
-  // Forts phase A: a fallen NPC wall's rubble can be cleared.
-  TileType.Rubble,
-  TileType.Wall,
-  TileType.StoneWall,
-  TileType.House,
-  TileType.BigHouse,
-  TileType.HouseLevel2,
-  TileType.BarnPost,
-  TileType.LumberjackPost,
-  TileType.FarmPlot,
-  TileType.KnightPost,
-  TileType.CastleLevel2,
-  TileType.CastleLevel3,
-  TileType.ArcherPost,
-  TileType.Tower,
-  TileType.IronMinePost,
-  TileType.RockMinePost,
-  TileType.ChurchPost,
-  TileType.Pasture,
-  TileType.Orchard,
-  TileType.WoolFarm,
-  TileType.CottonFarm,
-  TileType.TailorShop,
-  TileType.Blacksmith,
-  TileType.LuxuryWorkshop,
-  TileType.Market,
-  TileType.GoldShop,
-  TileType.Brewery,
-  TileType.Tavern,
-  TileType.MilitiaPost,
-  TileType.MilitiaCamp2,
-  TileType.MilitiaCamp3,
-  TileType.WardStone,
-  TileType.HunterHut,
-  TileType.ForagerHut,
-  TileType.BuildersGuild,
-  TileType.Stables,
-  TileType.SiegeWorkshop,
-  TileType.Keep,
-  // Demolishing a site frees its builders; the materials are lost (no refund).
-  TileType.ConstructionSite,
-  // Demolished roads revert to bare ground.
-  TileType.Road,
-  TileType.CobbleRoad,
-  // Wild forage can be cleared like any other obstacle (it simply stops being food).
-  ...FORAGE_TILES,
-  TileType.Gate,
-];
-const POPULATION_GATED_TILES = [
-  TileType.LumberjackPost,
-  TileType.BarnPost,
-  TileType.IronMinePost,
-  TileType.RockMinePost,
-  TileType.ChurchPost,
-  TileType.Pasture,
-  TileType.Orchard,
-  TileType.WoolFarm,
-  TileType.CottonFarm,
-  TileType.TailorShop,
-  TileType.Blacksmith,
-  TileType.LuxuryWorkshop,
-  TileType.Brewery,
-  TileType.Tavern,
-  TileType.WardStone,
-  TileType.HunterHut,
-  TileType.ForagerHut,
-  TileType.BuildersGuild,
-];
-const CRAFT_BUILDING_TILES = [TileType.TailorShop, TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Brewery];
-
-const IN_PLACE_UPGRADE_TILES: TileType[] = [
-  TileType.LumberjackPost,
-  TileType.BarnPost,
-  TileType.ChurchPost,
-  TileType.Pasture,
-  TileType.Orchard,
-  TileType.WoolFarm,
-  TileType.CottonFarm,
-  TileType.TailorShop,
-  TileType.Blacksmith,
-  TileType.LuxuryWorkshop,
-  TileType.Brewery,
-  TileType.Tavern,
-  TileType.IronMinePost,
-  TileType.RockMinePost,
-  TileType.HunterHut,
-  TileType.ForagerHut,
-  TileType.BuildersGuild,
-  TileType.Tower,
-  TileType.Keep,
-];
-
 // True when placing `tile` on the existing `current` building upgrades it in place.
 function isInPlaceUpgrade(tile: TileType, current: TileType, tx: number, ty: number): boolean {
   if (tile === TileType.House) {
@@ -12062,7 +9962,7 @@ function adjacentHouseCount(tx: number, ty: number): number {
   for (const [dx, dy] of NEIGHBOURS_8) {
     const nx = tx + dx;
     const ny = ty + dy;
-    if (inBounds(nx, ny) && isHouseTile(tiles[tileIndex(nx, ny)] as TileType)) n++;
+    if (inBounds(nx, ny) && isHouseTile(state.tiles[tileIndex(nx, ny)] as TileType)) n++;
   }
   return n;
 }
@@ -12099,7 +9999,7 @@ function sealsInSpawner(tx: number, ty: number, tile: TileType): boolean {
   if (!isSolidTile(tile)) return false;
   if (isMilitaryTile(tile) && walkableNeighbourCount(tx, ty, -1, -1) === 0) return true;
   for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
-    if (!inBounds(nx, ny) || !isMilitaryTile(tiles[tileIndex(nx, ny)] as TileType)) continue;
+    if (!inBounds(nx, ny) || !isMilitaryTile(state.tiles[tileIndex(nx, ny)] as TileType)) continue;
     if (walkableNeighbourCount(nx, ny, tx, ty) === 0) return true;
   }
   return false;
@@ -12109,35 +10009,12 @@ function handleSetTile(player: Player, tx: number, ty: number, tile: TileType, s
   if (player.dead) return;
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
-  if (tile !== TileType.Empty && !isSolidTile(tiles[tileIndex(tx, ty)] as TileType) && sealsInSpawner(tx, ty, tile)) return;
+  if (tile !== TileType.Empty && !isSolidTile(state.tiles[tileIndex(tx, ty)] as TileType) && sealsInSpawner(tx, ty, tile)) return;
   handleSetTileInner(player, tx, ty, tile, skipReach);
   syncGuardBonusesAround(tx, ty);
 }
-
 // ---- Placement costs (charged when a placement is accepted, i.e. when its construction site starts) ----
-type Cost = Partial<Record<ResourceKey, number>>;
-const BUILDERS_GUILD_WOOD_COST = 15;
-const TOWN_CENTER_COST: Cost = { wood: 60, rock: 30, iron: 20 };
-// Upgrading a Town Center to level 2 / level 3.
-const TOWN_CENTER_UPGRADE_COSTS: Cost[] = [
-  { wood: 80, rock: 60, iron: 40 },
-  { wood: 120, rock: 100, iron: 80, tools: 10 },
-];
-// The Keep: build (level 1), then upgrade to level 2 / level 3.
-const KEEP_COSTS: Cost[] = [
-  { wood: 60, rock: 40, iron: 20 },
-  { wood: 90, rock: 70, iron: 40 },
-  { wood: 130, rock: 100, iron: 70, tools: 10 },
-];
-// A new Town Center must stand at least this far (tiles) from every other one (built or queued).
-// Doubled 12 -> 24 on 2026-10-28 so settlements spread out (a 160 map still fits several).
-const TOWN_CENTER_MIN_SPACING_TILES = 24;
-const TOWN_CENTER_POI_CLEARANCE_TILES = 6;
-const POI_TILES = new Set<TileType>([
-  TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble,
-  TileType.PropCampfire, TileType.PropCart, TileType.PropBarrel, TileType.PropCrate, TileType.PropFence,
-  TileType.AbbeyHall, TileType.PropCross, TileType.PropLanternPost,
-]);
+
 
 function placementCost(tile: TileType, current: TileType, tx: number, ty: number): Cost {
   switch (tile) {
@@ -12213,7 +10090,7 @@ function formatCost(cost: Cost): string {
 // Abbey and from ruins / encampments.
 // True when (tx, ty) is closer than TOWN_CENTER_MIN_SPACING_TILES to a Town Center or a queued one.
 function townCenterTooClose(tx: number, ty: number): boolean {
-  for (const tc of townCenters) {
+  for (const tc of state.townCenters) {
     if (Math.hypot(tc.x - tx, tc.y - ty) < TOWN_CENTER_MIN_SPACING_TILES) return true;
   }
   for (const site of constructionSites.values()) {
@@ -12224,11 +10101,11 @@ function townCenterTooClose(tx: number, ty: number): boolean {
 
 function townCenterSpotOk(tx: number, ty: number): boolean {
   if (townCenterTooClose(tx, ty)) return false;
-  if (abbeyCenter && Math.hypot(abbeyCenter.x - tx, abbeyCenter.y - ty) < ABBEY_GROUNDS_RADIUS + TOWN_CENTER_POI_CLEARANCE_TILES) return false;
+  if (state.abbeyCenter && Math.hypot(state.abbeyCenter.x - tx, state.abbeyCenter.y - ty) < ABBEY_GROUNDS_RADIUS + TOWN_CENTER_POI_CLEARANCE_TILES) return false;
   const r = TOWN_CENTER_POI_CLEARANCE_TILES;
   for (let y = ty - r; y <= ty + r; y++) {
     for (let x = tx - r; x <= tx + r; x++) {
-      if (inBounds(x, y) && POI_TILES.has(tiles[tileIndex(x, y)] as TileType)) return false;
+      if (inBounds(x, y) && POI_TILES.has(state.tiles[tileIndex(x, y)] as TileType)) return false;
     }
   }
   return findAdjacentWalkable(tx, ty) !== null;
@@ -12247,47 +10124,8 @@ function currentBuildingLevel(tx: number, ty: number, t: TileType): number {
   if (t === TileType.TownCenter) return findTownCenterAt(tx, ty)?.level ?? 1;
   return getBuildingLevel(tx, ty);
 }
-
 // ---- Construction: builders turn an accepted placement into the building over time ----
-// Every placeable building except Farm Plots (a field sown on the spot) becomes a construction site.
-// The cost is charged at placement; a new building's tile turns into a solid ConstructionSite, an
-// in-place upgrade keeps the building (and its workers) running until the upgrade lands. When the
-// site's progress reaches its total, the normal resolve*Placement logic runs, exactly as an instant
-// placement used to (worker spawns, upgrades and synergies all unchanged).
-interface ConstructionSiteState {
-  tx: number;
-  ty: number;
-  // The placement requested (e.g. ArcherPost, House on a House = upgrade).
-  target: TileType;
-  // What the tile held when the placement was accepted (restored just before resolving).
-  prevTile: TileType;
-  upgrade: boolean;
-  // Builder work accumulated (each working builder adds builderRate per tick) / needed.
-  progress: number;
-  totalTicks: number;
-}
-const constructionSites = new Map<string, ConstructionSiteState>();
-// COLONY_INSTANT_BUILD=1 (or testHook "setInstantBuild") skips construction entirely, for the scripted
-// tests written before builders existed: every placement resolves on the spot, no builder needed.
-let instantBuild = process.env.COLONY_INSTANT_BUILD === "1";
 
-// Base build time (seconds) per level; an upgrade to level n takes n times as long. Split between up
-// to BUILDER_MAX_PER_SITE builders and scaled by builderRate (happiness, Town Center, Guild).
-const BUILD_SECONDS_WALL = 4;
-// Roads: cheap ground tiles, built by builders like everything else (one tile per placement).
-const ROAD_ROCK_COST = 1;
-const COBBLE_ROAD_ROCK_COST = 2;
-const BUILD_SECONDS_ROAD = 4;
-const BUILD_SECONDS_COBBLE_ROAD = 6;
-const BUILD_SECONDS_HOUSE = 10;
-const BUILD_SECONDS_DEFAULT = 12;
-const BUILD_SECONDS_BIG = 20;
-const BUILD_SECONDS_TOWN_CENTER = 40;
-const BIG_BUILD_TILES = new Set<TileType>([
-  TileType.KnightPost, TileType.ChurchPost, TileType.Tavern, TileType.TailorShop, TileType.Blacksmith,
-  TileType.LuxuryWorkshop, TileType.Brewery, TileType.Market, TileType.GoldShop, TileType.WardStone,
-  TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
-]);
 
 function buildTicksFor(tile: TileType, level: number): number {
   const base =
@@ -12321,7 +10159,7 @@ function startConstruction(tx: number, ty: number, tile: TileType, current: Tile
   };
   constructionSites.set(resourceKey(tx, ty), site);
   if (!upgrade) {
-    tiles[tileIndex(tx, ty)] = TileType.ConstructionSite;
+    state.tiles[tileIndex(tx, ty)] = TileType.ConstructionSite;
     broadcastTileUpdate(tx, ty, TileType.ConstructionSite);
   }
 }
@@ -12331,10 +10169,10 @@ function completeConstruction(key: string, site: ConstructionSiteState) {
   const index = tileIndex(site.tx, site.ty);
   if (site.upgrade) {
     // The building changed under a queued upgrade (destroyed or replaced): nothing left to upgrade.
-    if (tiles[index] !== site.prevTile) return;
+    if (state.tiles[index] !== site.prevTile) return;
   } else {
-    if (tiles[index] !== TileType.ConstructionSite) return;
-    tiles[index] = site.prevTile;
+    if (state.tiles[index] !== TileType.ConstructionSite) return;
+    state.tiles[index] = site.prevTile;
   }
   resolvePlacement(site.tx, site.ty, site.target, site.prevTile);
   syncGuardBonusesAround(site.tx, site.ty);
@@ -12345,7 +10183,7 @@ function updateConstructionSites() {
   for (const [key, site] of Array.from(constructionSites)) {
     const index = tileIndex(site.tx, site.ty);
     // Cleared some other way (e.g. a test rewriting the tile): drop the record.
-    if (!site.upgrade && tiles[index] !== TileType.ConstructionSite) {
+    if (!site.upgrade && state.tiles[index] !== TileType.ConstructionSite) {
       constructionSites.delete(key);
       continue;
     }
@@ -12376,7 +10214,7 @@ function buildingLevelsForSnapshot(): number[] {
     const [tx, ty] = key.split(",").map(Number);
     out.push(tileIndex(tx, ty), level);
   }
-  for (const tc of townCenters) if (tc.level > 1) out.push(tileIndex(tc.x, tc.y), tc.level);
+  for (const tc of state.townCenters) if (tc.level > 1) out.push(tileIndex(tc.x, tc.y), tc.level);
   return out;
 }
 
@@ -12399,7 +10237,7 @@ function demolishTile(tx: number, ty: number, current: TileType) {
   if (current === TileType.ConstructionSite) {
     // Ore / rock under an unfinished mine comes back.
     const revert = site && !site.upgrade ? site.prevTile : TileType.Empty;
-    tiles[tileIndex(tx, ty)] = revert;
+    state.tiles[tileIndex(tx, ty)] = revert;
     broadcastTileUpdate(tx, ty, revert);
     return;
   }
@@ -12417,7 +10255,7 @@ function demolishTile(tx: number, ty: number, current: TileType) {
     const key = resourceKey(tx, ty);
     const revert = minesPlacedOnOre.has(key) ? TileType.IronOre : TileType.Empty;
     minesPlacedOnOre.delete(key);
-    tiles[tileIndex(tx, ty)] = revert;
+    state.tiles[tileIndex(tx, ty)] = revert;
     broadcastTileUpdate(tx, ty, revert);
     return;
   }
@@ -12425,12 +10263,12 @@ function demolishTile(tx: number, ty: number, current: TileType) {
     const key = resourceKey(tx, ty);
     const revert = minesPlacedOnOre.has(key) ? TileType.Rock : TileType.Empty;
     minesPlacedOnOre.delete(key);
-    tiles[tileIndex(tx, ty)] = revert;
+    state.tiles[tileIndex(tx, ty)] = revert;
     broadcastTileUpdate(tx, ty, revert);
     return;
   }
   if (isTowerTile(current)) towerCooldowns.delete(resourceKey(tx, ty));
-  tiles[tileIndex(tx, ty)] = TileType.Empty;
+  state.tiles[tileIndex(tx, ty)] = TileType.Empty;
   broadcastTileUpdate(tx, ty, TileType.Empty);
 }
 
@@ -12438,7 +10276,7 @@ function demolishTile(tx: number, ty: number, current: TileType) {
 // Keep (built or queued) yet; else why not.
 function keepPlacementBlocker(tx: number, ty: number): string {
   const key = settlementKeyNear(tx, ty);
-  const tc = townCenters.find((t) => resourceKey(t.x, t.y) === key);
+  const tc = state.townCenters.find((t) => resourceKey(t.x, t.y) === key);
   if (!tc || tc.level < KEEP_MIN_TOWN_CENTER_LEVEL) return `Keep needs a Town Center at level ${KEEP_MIN_TOWN_CENTER_LEVEL}`;
   const has = (x: number, y: number) => settlementKeyNear(x, y) === key;
   for (const k of tilesOfType(TileType.Keep)) if (has(k.x, k.y)) return "This settlement already has a Keep";
@@ -12456,7 +10294,7 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
   const dist = Math.hypot(player.x - tileCenter.x, player.y - tileCenter.y);
   if (!skipReach && dist > REACH) return;
 
-  const current = tiles[tileIndex(tx, ty)] as TileType;
+  const current = state.tiles[tileIndex(tx, ty)] as TileType;
   const siteKey = resourceKey(tx, ty);
   // Forts phase A: an NPC site's tile can be neither demolished nor built on / upgraded.
   if (ownerAt(tileIndex(tx, ty)) !== 0) {
@@ -12539,9 +10377,9 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
   // A Town Center goes up at once when none stands or no builder is left, so a colony that lost both
   // can always start over.
   const instant =
-    instantBuild ||
+    state.instantBuild ||
     tile === TileType.FarmPlot ||
-    (tile === TileType.TownCenter && (townCenters.length === 0 || !anyBuilderAlive()));
+    (tile === TileType.TownCenter && (state.townCenters.length === 0 || !anyBuilderAlive()));
   if (!instant && !anyBuilderAlive()) {
     sendEvent(player, "build", "No builders available");
     return;
@@ -12592,7 +10430,7 @@ function resolvePlacement(tx: number, ty: number, tile: TileType, current: TileT
       tryLevelUpInPlace(tx, ty, [TileType.Keep]);
       return;
     }
-    tiles[tileIndex(tx, ty)] = TileType.Keep;
+    state.tiles[tileIndex(tx, ty)] = TileType.Keep;
     broadcastTileUpdate(tx, ty, TileType.Keep);
     return;
   }
@@ -12608,7 +10446,7 @@ function resolvePlacement(tx: number, ty: number, tile: TileType, current: TileT
     // Checked by handleSetTileInner just before (Farm Plots are placed instantly).
     const barn = barnForNewFarmPlot(tx, ty);
     if (!barn) return;
-    tiles[tileIndex(tx, ty)] = tile;
+    state.tiles[tileIndex(tx, ty)] = tile;
     broadcastTileUpdate(tx, ty, tile);
     farmPlots.set(resourceKey(tx, ty), newFarmPlot(barn.x, barn.y));
     return;
@@ -12626,9 +10464,9 @@ function resolvePlacement(tx: number, ty: number, tile: TileType, current: TileT
     return;
   }
   if (tile === TileType.WardStone) {
-    tiles[tileIndex(tx, ty)] = tile;
+    state.tiles[tileIndex(tx, ty)] = tile;
     broadcastTileUpdate(tx, ty, tile);
-    if (wardPriestId === null && wardPriestRespawnTicks < 0) updateWardPriestPresence();
+    if (state.wardPriestId === null && state.wardPriestRespawnTicks < 0) updateWardPriestPresence();
     return;
   }
   if (tile === TileType.Pasture) {
@@ -12684,39 +10522,23 @@ function resolvePlacement(tx: number, ty: number, tile: TileType, current: TileT
     return;
   }
   if (tile === TileType.Market) {
-    tiles[tileIndex(tx, ty)] = tile;
+    state.tiles[tileIndex(tx, ty)] = tile;
     broadcastTileUpdate(tx, ty, tile);
-    marketBuilt = true;
+    state.marketBuilt = true;
     return;
   }
   if (tile === TileType.GoldShop) {
-    tiles[tileIndex(tx, ty)] = tile;
+    state.tiles[tileIndex(tx, ty)] = tile;
     broadcastTileUpdate(tx, ty, tile);
-    goldShopBuilt = true;
+    state.goldShopBuilt = true;
     return;
   }
 
-  tiles[tileIndex(tx, ty)] = tile;
+  state.tiles[tileIndex(tx, ty)] = tile;
   broadcastTileUpdate(tx, ty, tile);
 }
-
 // ---- Towers (ROADMAP §8 item 6; separate from the Archery Range) ----
-// A free-standing 1x1 building with no workers and no population slot. Every tick each Tower counts down
-// its cooldown; off cooldown it shoots the nearest hostile mob within range (a ranged AttackEffect, the
-// arrow VFX the archers used). Upgraded in place to level 3 (place a Tower on a Tower, or the info
-// panel's Upgrade): faster, harder and slightly longer shots. Max HP is the big-building class
-// (BUILDING_HP_BIG x BUILDING_HP_LEVEL_MULT). Damage is flat: no army / Town Center multipliers.
-const TOWER_STATS = [
-  { damage: 8, cooldownSeconds: 1.5, rangeTiles: 7 },
-  { damage: 12, cooldownSeconds: 1.1, rangeTiles: 7.5 },
-  { damage: 18, cooldownSeconds: 0.8, rangeTiles: 8 },
-];
-// Cost to build (level 1), then to upgrade to level 2 / level 3.
-const TOWER_COSTS: Cost[] = [
-  { wood: 20, rock: 15 },
-  { wood: 30, rock: 30 },
-  { wood: 45, rock: 50 },
-];
+
 
 // The one place that says what a Tower tile is (the gate logic asks it too).
 export function isTowerTile(tile: TileType): boolean {
@@ -12742,9 +10564,9 @@ function towerCooldownTicks(level: number): number {
 export function livingTowersNear(tx: number, ty: number, radiusTiles: number, owner?: number): Array<{ x: number; y: number; level: number }> {
   const out: Array<{ x: number; y: number; level: number }> = [];
   const r = Math.ceil(radiusTiles);
-  for (let y = Math.max(0, ty - r); y <= Math.min(WORLD_TILES_Y - 1, ty + r); y++) {
-    for (let x = Math.max(0, tx - r); x <= Math.min(WORLD_TILES_X - 1, tx + r); x++) {
-      if (!isTowerTile(tiles[tileIndex(x, y)] as TileType)) continue;
+  for (let y = Math.max(0, ty - r); y <= Math.min(state.WORLD_TILES_Y - 1, ty + r); y++) {
+    for (let x = Math.max(0, tx - r); x <= Math.min(state.WORLD_TILES_X - 1, tx + r); x++) {
+      if (!isTowerTile(state.tiles[tileIndex(x, y)] as TileType)) continue;
       if (owner !== undefined && ownerAt(tileIndex(x, y)) !== owner) continue;
       if (Math.hypot(x - tx, y - ty) <= radiusTiles) out.push({ x, y, level: getBuildingLevel(x, y) });
     }
@@ -12753,11 +10575,11 @@ export function livingTowersNear(tx: number, ty: number, radiusTiles: number, ow
 }
 
 function resolveTowerPlacement(tx: number, ty: number) {
-  if (isTowerTile(tiles[tileIndex(tx, ty)] as TileType)) {
+  if (isTowerTile(state.tiles[tileIndex(tx, ty)] as TileType)) {
     tryLevelUpInPlace(tx, ty, [TileType.Tower]);
     return;
   }
-  tiles[tileIndex(tx, ty)] = TileType.Tower;
+  state.tiles[tileIndex(tx, ty)] = TileType.Tower;
   broadcastTileUpdate(tx, ty, TileType.Tower);
   towerCooldowns.delete(resourceKey(tx, ty));
 }
@@ -12770,10 +10592,10 @@ function isTowerTarget(m: Mob): boolean {
 
 // Once per tick, after the mobs have moved.
 function updateTowers() {
-  for (let i = 0; i < tiles.length; i++) {
-    if (!isTowerTile(tiles[i] as TileType)) continue;
-    const tx = i % WORLD_TILES_X;
-    const ty = Math.floor(i / WORLD_TILES_X);
+  for (let i = 0; i < state.tiles.length; i++) {
+    if (!isTowerTile(state.tiles[i] as TileType)) continue;
+    const tx = i % state.WORLD_TILES_X;
+    const ty = Math.floor(i / state.WORLD_TILES_X);
     const key = resourceKey(tx, ty);
     const cooldown = towerCooldowns.get(key) ?? 0;
     if (cooldown > 1) {
@@ -12805,7 +10627,7 @@ function updateTowers() {
       continue;
     }
     // Shot from the top of the tower art.
-    pendingEffects.push({ fromX: cx, fromY: cy - TILE_SIZE / 3, toX: best.x, toY: best.y });
+    state.pendingEffects.push({ fromX: cx, fromY: cy - TILE_SIZE / 3, toX: best.x, toY: best.y });
     damageMob(best, stats.damage, "b:" + key);
     towerCooldowns.set(key, towerCooldownTicks(level));
   }
@@ -12816,7 +10638,7 @@ function siteTowerShot(key: string, cx: number, cy: number, range: number, damag
   let bestD = range;
   let player: Player | null = null;
   let colonist: Colonist | null = null;
-  if (!testPlayersIgnored) {
+  if (!state.testPlayersIgnored) {
     for (const p of players.values()) {
       const d = p.dead ? Infinity : Math.hypot(p.x - cx, p.y - cy);
       if (d <= bestD) {
@@ -12836,15 +10658,13 @@ function siteTowerShot(key: string, cx: number, cy: number, range: number, damag
   }
   const target = colonist ?? player;
   if (!target) return false;
-  pendingEffects.push({ fromX: cx, fromY: cy - TILE_SIZE / 3, toX: target.x, toY: target.y });
+  state.pendingEffects.push({ fromX: cx, fromY: cy - TILE_SIZE / 3, toX: target.x, toY: target.y });
   if (colonist) damageColonist(colonist, damage);
   else damagePlayer(player!, damage);
-  towerEvents.push({ tick: cycleTick, tower: key, target: colonist ? "c:" + colonist.id : "p:" + player!.id, damage });
+  towerEvents.push({ tick: state.cycleTick, tower: key, target: colonist ? "c:" + colonist.id : "p:" + player!.id, damage });
   if (towerEvents.length > 50) towerEvents.shift();
   return true;
 }
-// Recent site-tower shots (testHook "ownerState").
-const towerEvents: Array<{ tick: number; tower: string; target: string; damage: number }> = [];
 
 function towerInfoLines(level: number): string[] {
   const line = (l: number) => {
@@ -12860,21 +10680,8 @@ function towerInfoLines(level: number): string[] {
 // ---- Cavalry & siege (ROADMAP "Cavalry & siege"): the cavalry charge, siege strikes and the catapult's
 // splash, Siege Workshop production, and the raids' siege engines (updateSiegeMob). ----
 
-// Cavalry charge runs: where the rider's current straight run began (ax, ay), its last position, ticks
-// stood still, and the tick its next charge may land. Not saved.
-interface ChargeRun {
-  ax: number;
-  ay: number;
-  lx: number;
-  ly: number;
-  idle: number;
-  readyTick: number;
-}
-const chargeRuns = new Map<string, ChargeRun>();
-// Recent siege / charge events (testHook "siegeState").
-const siegeEvents: Array<{ tick: number; type: string; id: string; amount?: number; detail?: string }> = [];
 function siegeEvent(type: string, id: string, amount?: number, detail?: string) {
-  siegeEvents.push({ tick: cycleTick, type, id, amount, detail });
+  siegeEvents.push({ tick: state.cycleTick, type, id, amount, detail });
   if (siegeEvents.length > 200) siegeEvents.shift();
 }
 
@@ -12913,11 +10720,11 @@ function trackCharge(c: { id: string; x: number; y: number }) {
 function takeChargeBonus(c: { id: string; x: number; y: number }): number {
   const run = chargeRuns.get(c.id);
   if (!run) return 1;
-  const ok = cycleTick >= run.readyTick && Math.hypot(c.x - run.ax, c.y - run.ay) >= CAVALRY_CHARGE_TILES * TILE_SIZE;
+  const ok = state.cycleTick >= run.readyTick && Math.hypot(c.x - run.ax, c.y - run.ay) >= CAVALRY_CHARGE_TILES * TILE_SIZE;
   run.ax = c.x;
   run.ay = c.y;
   if (!ok) return 1;
-  run.readyTick = cycleTick + CAVALRY_CHARGE_COOLDOWN_TICKS;
+  run.readyTick = state.cycleTick + CAVALRY_CHARGE_COOLDOWN_TICKS;
   return CAVALRY_CHARGE_MULT;
 }
 
@@ -12925,7 +10732,7 @@ function takeChargeBonus(c: { id: string; x: number; y: number }): number {
 // CATAPULT_SPLASH_PX, x CATAPULT_BUILDING_MULT to every building there (the raids' catapults only: the
 // colony's never hit its own buildings, and monsters have none).
 function catapultImpact(fx: number, fy: number, tx: number, ty: number, damage: number, side: "colony" | "mob", attackerKey: string) {
-  pendingEffects.push({ fromX: fx, fromY: fy, toX: tx, toY: ty, boulder: true });
+  state.pendingEffects.push({ fromX: fx, fromY: fy, toX: tx, toY: ty, boulder: true });
   let hits = 0;
   if (side === "colony") {
     for (const m of Array.from(mobs.values())) {
@@ -12942,7 +10749,7 @@ function catapultImpact(fx: number, fy: number, tx: number, ty: number, damage: 
     hits++;
   }
   for (const p of players.values()) {
-    if (p.dead || testPlayersIgnored || Math.hypot(p.x - tx, p.y - ty) > CATAPULT_SPLASH_PX) continue;
+    if (p.dead || state.testPlayersIgnored || Math.hypot(p.x - tx, p.y - ty) > CATAPULT_SPLASH_PX) continue;
     damagePlayer(p, damage);
     hits++;
   }
@@ -12960,13 +10767,8 @@ function catapultImpact(fx: number, fy: number, tx: number, ty: number, damage: 
   }
   siegeEvent("boulder", attackerKey, damage, `units:${hits},buildings:${buildings}`);
 }
-
 // ---- Siege Workshop production ----
-interface SiegeWorkshopState {
-  building: SiegeKind | null;
-  ticksLeft: number;
-}
-const siegeWorkshops = new Map<string, SiegeWorkshopState>();
+
 
 function siegeUnitsAt(tx: number, ty: number): number {
   let n = 0;
@@ -13000,51 +10802,44 @@ function siegeWorkshopInfo(tx: number, ty: number): NonNullable<BuildingInfo["si
 }
 
 function handleQueueSiege(tx: number, ty: number, kind: unknown) {
-  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.SiegeWorkshop) return;
+  if (!inBounds(tx, ty) || state.tiles[tileIndex(tx, ty)] !== TileType.SiegeWorkshop) return;
   if (kind !== "batteringRam" && kind !== "catapult") return;
   if (siegeQueueBlocker(tx, ty, kind) !== "") return;
   spend(SIEGE_UNIT_COST[kind]);
-  siegeWorkshops.set(resourceKey(tx, ty), { building: kind, ticksLeft: instantBuild ? 1 : SIEGE_BUILD_TICKS });
+  siegeWorkshops.set(resourceKey(tx, ty), { building: kind, ticksLeft: state.instantBuild ? 1 : SIEGE_BUILD_TICKS });
 }
 
 // Once per tick: an engine under way rolls out when its timer runs down.
 function updateSiegeWorkshops() {
-  for (const [key, state] of siegeWorkshops) {
-    if (!state.building) continue;
+  for (const [key, localState] of siegeWorkshops) {
+    if (!localState.building) continue;
     const tile = keyToTile(key);
-    if (!tile || tiles[tileIndex(tile.x, tile.y)] !== TileType.SiegeWorkshop) {
+    if (!tile || state.tiles[tileIndex(tile.x, tile.y)] !== TileType.SiegeWorkshop) {
       siegeWorkshops.delete(key);
       continue;
     }
-    if (--state.ticksLeft > 0) continue;
-    const c = spawnColonistForPost(tile.x, tile.y, state.building, 1);
-    broadcastEvent("build", `A ${SIEGE_LABEL[state.building].toLowerCase()} rolls out of the Siege Workshop`);
-    siegeEvent("built", c.id, undefined, state.building);
-    state.building = null;
+    if (--localState.ticksLeft > 0) continue;
+    const c = spawnColonistForPost(tile.x, tile.y, localState.building, 1);
+    broadcastEvent("build", `A ${SIEGE_LABEL[localState.building].toLowerCase()} rolls out of the Siege Workshop`);
+    siegeEvent("built", c.id, undefined, localState.building);
+    localState.building = null;
   }
 }
-
 // ---- Armour & weapons: stock, equipping, forging, drops (constants: EQUIP_* / FORGE_* / *_MULT) ----
-// Test-hook log (equipState): equip / unequipped / forged / drop / loot / hit / taken.
-const equipEvents: { type: string; id?: string; slot?: EquipSlot; tier?: number; amount?: number; detail?: string; tick: number }[] = [];
+
 function equipEvent(e: Omit<(typeof equipEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;
-  equipEvents.push({ ...e, tick: cycleTick });
+  equipEvents.push({ ...e, tick: state.cycleTick });
   if (equipEvents.length > 300) equipEvents.splice(0, equipEvents.length - 300);
 }
-let lastUnequippedToastTick = -Infinity;
-let equipDropToasted = false;
-let lastEquipDropToastTick = -Infinity;
-// testHook "equipConfig" {dropChance}: overrides EQUIP_DROP_CHANCE (null = the constant).
-let testEquipDropChance: number | null = null;
 
 function resetEquipment() {
   equipment.armour = [0, 0, 0];
   equipment.weapon = [0, 0, 0];
   forgeQueues.clear();
-  lastUnequippedToastTick = -Infinity;
-  equipDropToasted = false;
-  lastEquipDropToastTick = -Infinity;
+  state.lastUnequippedToastTick = -Infinity;
+  state.equipDropToasted = false;
+  state.lastEquipDropToastTick = -Infinity;
 }
 
 function isEquippedKind(kind: ColonistKind): boolean {
@@ -13069,8 +10864,8 @@ function equipNewUnit(c: Colonist) {
   equipEvent({ type: "equip", id: c.id, detail: `${c.kind} armour ${c.armourTier} weapon ${c.weaponTier}` });
   if (c.armourTier > 0 && c.weaponTier > 0) return;
   equipEvent({ type: "unequipped", id: c.id, detail: `${c.armourTier === 0 ? "armour " : ""}${c.weaponTier === 0 ? "weapon" : ""}`.trim() });
-  if (cycleTick - lastUnequippedToastTick < EQUIP_TOAST_THROTTLE_TICKS) return;
-  lastUnequippedToastTick = cycleTick;
+  if (state.cycleTick - state.lastUnequippedToastTick < EQUIP_TOAST_THROTTLE_TICKS) return;
+  state.lastUnequippedToastTick = state.cycleTick;
   const missing = c.armourTier === 0 && c.weaponTier === 0 ? "armour or weapons" : c.armourTier === 0 ? "armour" : "a forged weapon";
   const name = c.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
   broadcastEvent("build", `A ${name} musters without ${missing} — the stock is empty (forge more at a Blacksmith)`);
@@ -13116,99 +10911,25 @@ function dropEquipmentFor(mob: Mob) {
   if (mob.isDeserter) return;
   const guaranteed = !!mob.boss || mob.mark !== HungerMark.None;
   if (!guaranteed && !EQUIP_ARMOURED_KINDS.includes(mob.kind)) return;
-  if (!guaranteed && Math.random() >= (testEquipDropChance ?? EQUIP_DROP_CHANCE)) return;
+  if (!guaranteed && Math.random() >= (state.testEquipDropChance ?? EQUIP_DROP_CHANCE)) return;
   const slot: EquipSlot = Math.random() < 0.5 ? "armour" : "weapon";
   equipment[slot][0]++;
   equipEvent({ type: "drop", id: mob.id, slot, tier: 1, detail: mob.kind });
-  const first = !equipDropToasted;
-  if (!first && cycleTick - lastEquipDropToastTick < EQUIP_TOAST_THROTTLE_TICKS) return;
-  equipDropToasted = true;
-  lastEquipDropToastTick = cycleTick;
+  const first = !state.equipDropToasted;
+  if (!first && state.cycleTick - state.lastEquipDropToastTick < EQUIP_TOAST_THROTTLE_TICKS) return;
+  state.equipDropToasted = true;
+  state.lastEquipDropToastTick = state.cycleTick;
   const name = mob.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
   broadcastEvent(
     first ? "milestone" : "build",
     `Salvaged a tier-1 ${EQUIP_SLOT_LABEL[slot]} from a fallen ${name}${first ? " — it goes to the colony's stock" : ""}`
   );
 }
-
 // ---- Hero phases 1-2: items, inventory, XP for the PLAYER (ROADMAP "Hero phases 1-2") ----
-// A HeroProfile is the player's persistent gear + XP, keyed by Player.profileKey, saved with the world
-// (`heroProfiles`), never touched by death / respawn. Heroes (phase 3) can own one each: nothing here is
-// player-specific except heroProfileOf / playerMaxHp / playerDamage / playerAttackCooldownTicks.
-interface HeroProfile {
-  key: string;
-  equipment: Equipment;
-  // Unequipped items only (equipped ones live in `equipment`), at most HERO_INVENTORY_CAP.
-  inventory: GearItem[];
-  xp: number;
-  // Bumped (from heroProfileVersionCounter) on every change; the snapshot resends the profile then.
-  version: number;
-  // Cached derived modifiers (recomputed by recomputeHeroProfile on every change).
-  stats: HeroStats;
-  level: number;
-  // Hero phase 3: set on hero profiles ("hero:<id>") only - the hero's class (its base HP) and name, so a
-  // fallen / recruiting hero is still known. Their `inventory` stays empty (they equip from the player's).
-  heroClass?: HeroClass;
-  heroName?: string;
-  // Hero phase 4: learned spell ids, the 4 spell slots (spell ids; Equipment.spell1-4 stay null - an
-  // Equipment socket holds a GearItem), the hero's Auto toggle (players never auto-cast) and how many
-  // level-up spell grants (SPELL_GRANT_LEVELS) were already given.
-  spells: SpellId[];
-  spellSlots: (SpellId | null)[];
-  spellAuto: boolean;
-  spellGrants: number;
-}
-const HERO_INVENTORY_CAP = 40;
-// Total XP at which level 1..10 starts (index = level - 1).
-const HERO_LEVEL_XP = [0, 40, 100, 180, 280, 400, 550, 730, 940, 1200];
-const HERO_MAX_LEVEL = HERO_LEVEL_XP.length;
-// Per level above 1: +4% damage dealt (multiplicative on the gear's), +6% of the base max HP (the player's
-// base is 100, so +6 HP; a hero's base is its class HP).
-const HERO_LEVEL_DAMAGE_PCT = 4;
-const HERO_LEVEL_MAX_HP = 6;
-// XP for a kill (killing blow by that player): 10 per mob, x3 Hunger-marked, 60 a mini-boss elite, 250 the Warlord.
-const HERO_XP_PER_KILL = 10;
-const HERO_XP_MARKED_MULT = 3;
-const HERO_XP_BOSS: Record<BossTier, number> = { warlord: 250, elite: 60 };
-// Floors so stacked gear can't zero damage taken or freeze movement.
-const HERO_MIN_DAMAGE_TAKEN_MULT = 0.25;
-const HERO_MIN_SPEED_MULT = 0.5;
-// Relic drop chances: a destroyed camp hearth; an armoured kind (EQUIP_ARMOURED_KINDS) or Hunger-marked
-// mob (not a boss). The Ogre Warlord and every mini-boss elite always drop one.
-const RELIC_HEARTH_CHANCE = 0.15;
-const RELIC_ELITE_MOB_CHANCE = 0.08;
-// Plain tiered pieces pulled from the colony stock: same strength as the soldiers' tier multipliers
-// (WEAPON_DAMAGE_MULT x1.2 / 1.4 / 1.7 = +20 / 40 / 70%; ARMOUR_DAMAGE_TAKEN_MULT x0.85 / 0.7 / 0.55).
-const PLAIN_GEAR: Record<EquipSlot, { slot: ItemSlotKind; kind: string; names: string[]; stats: (tier: number) => ItemStats }> = {
-  weapon: {
-    slot: "weapon", kind: "sword", names: ["Iron Arming Sword", "Steel Arming Sword", "Gilded Arming Sword"],
-    stats: (t) => ({ damagePct: Math.round((WEAPON_DAMAGE_MULT[t] - 1) * 100) }),
-  },
-  armour: {
-    slot: "chest", kind: "cuirass", names: ["Iron & Leather Cuirass", "Steel Breastplate", "Gilded Breastplate"],
-    stats: (t) => ({ damageTakenPct: Math.round((ARMOUR_DAMAGE_TAKEN_MULT[t] - 1) * 100) }),
-  },
-};
-// The Sworn Relics: unique named pieces, at most one of each per profile (owned or equipped).
-const RELIC_CATALOGUE: { relicId: string; slot: ItemSlotKind; kind: string; name: string; icon: string; stats: ItemStats }[] = [
-  { relicId: "oathkeeperHelm", slot: "head", kind: "helm", name: "Oathkeeper's Helm", icon: "relicHelm", stats: { damageTakenPct: -15, maxHp: 20 } },
-  { relicId: "gorrathHide", slot: "chest", kind: "cuirass", name: "Gorrath's Hide", icon: "relicChest", stats: { damageTakenPct: -40, maxHp: 30 } },
-  { relicId: "vhorrunStride", slot: "legs", kind: "greaves", name: "Vhorrun's Stride", icon: "relicLegs", stats: { moveSpeedPct: 15, damageTakenPct: -10 } },
-  { relicId: "wardStoneAegis", slot: "offhand", kind: "shield", name: "Aegis of the Ward Stone", icon: "relicShield", stats: { damageTakenPct: -20, maxHp: 15 } },
-  { relicId: "swornOathblade", slot: "weapon", kind: "sword", name: "The Sworn Oathblade", icon: "relicSword", stats: { damagePct: 60, attackSpeedPct: 10 } },
-  { relicId: "gunneTooth", slot: "weapon", kind: "spear", name: "Gunne's Tooth", icon: "relicSpear", stats: { damagePct: 55, moveSpeedPct: 10 } },
-  { relicId: "morvainWhisper", slot: "weapon", kind: "bow", name: "Morvain's Whisper", icon: "relicBow", stats: { damagePct: 40, attackSpeedPct: 30 } },
-  { relicId: "abbeyEmberstaff", slot: "weapon", kind: "staff", name: "Abbey Emberstaff", icon: "relicStaff", stats: { damagePct: 35, spellPowerPct: 40 } },
-];
-const heroProfiles = new Map<string, HeroProfile>();
-let heroProfileVersionCounter = 0;
-// testHook "heroConfig" {relicChance}: overrides both relic chances (null = the constants).
-let testRelicChance: number | null = null;
-// Test-hook log (heroState): hit / taken / relic / xp / equip / refuse.
-const heroEvents: { type: string; key?: string; amount?: number; detail?: string; tick: number }[] = [];
+
 function heroEvent(e: Omit<(typeof heroEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;
-  heroEvents.push({ ...e, tick: cycleTick });
+  heroEvents.push({ ...e, tick: state.cycleTick });
   if (heroEvents.length > 300) heroEvents.splice(0, heroEvents.length - 300);
 }
 
@@ -13246,7 +10967,7 @@ function newHeroProfile(
   const level = heroLevelFor(xp);
   const baseHp = hero ? HERO_CLASS_STATS[hero.heroClass].maxHp : PLAYER_MAX_HP;
   return {
-    key, equipment, inventory, xp, level, version: ++heroProfileVersionCounter,
+    key, equipment, inventory, xp, level, version: ++state.heroProfileVersionCounter,
     stats: computeHeroStats(equipment, level, baseHp, spellBasePctFor(hero?.heroClass)), ...(hero ?? {}),
     spells: [], spellSlots: Array(SPELL_SLOT_COUNT).fill(null), spellAuto: true, spellGrants: 0,
   };
@@ -13270,13 +10991,13 @@ function heroProfileOf(player: Player): HeroProfile {
 function recomputeHeroProfile(prof: HeroProfile) {
   prof.level = heroLevelFor(prof.xp);
   prof.stats = computeHeroStats(prof.equipment, prof.level, prof.heroClass ? HERO_CLASS_STATS[prof.heroClass].maxHp : PLAYER_MAX_HP, spellBasePctFor(prof.heroClass));
-  prof.version = ++heroProfileVersionCounter;
+  prof.version = ++state.heroProfileVersionCounter;
   for (const p of players.values()) {
     if (p.profileKey === prof.key && !p.dead) p.hp = Math.min(p.hp, prof.stats.maxHp);
   }
   // Hero phase 3: the living hero's max HP follows (a gain doesn't heal, a loss clamps).
   if (prof.heroClass) {
-    heroRosterVersion++;
+    state.heroRosterVersion++;
     const c = colonists.get(prof.key.slice(HERO_KEY_PREFIX.length));
     if (c) {
       c.maxHp = prof.stats.maxHp;
@@ -13391,16 +11112,16 @@ function heroRewardsForKill(mob: Mob, attackerKey?: string) {
   }
   if (mob.isDeserter) return;
   // Hero phase 4: Spell Tomes (the Warlord always, a mini-boss elite TOME_ELITE_CHANCE).
-  const tomeRoll = mob.boss === "warlord" ? 1 : mob.boss === "elite" ? (testTomeChance ?? TOME_ELITE_CHANCE) : 0;
+  const tomeRoll = mob.boss === "warlord" ? 1 : mob.boss === "elite" ? (state.testTomeChance ?? TOME_ELITE_CHANCE) : 0;
   if (tomeRoll > 0 && Math.random() < tomeRoll) for (const prof of lootProfiles(attackerKey)) grantTome(prof, mob.boss ?? mob.kind);
-  const roll = mob.boss ? 1 : mob.mark !== HungerMark.None || EQUIP_ARMOURED_KINDS.includes(mob.kind) ? (testRelicChance ?? RELIC_ELITE_MOB_CHANCE) : 0;
+  const roll = mob.boss ? 1 : mob.mark !== HungerMark.None || EQUIP_ARMOURED_KINDS.includes(mob.kind) ? (state.testRelicChance ?? RELIC_ELITE_MOB_CHANCE) : 0;
   if (roll <= 0 || Math.random() >= roll) return;
   for (const prof of lootProfiles(attackerKey)) grantRelic(prof, mob.boss ?? mob.kind);
 }
 
 function heroRelicForHearth(attackerKey?: string) {
-  if (Math.random() < (testTomeChance ?? TOME_HEARTH_CHANCE)) for (const prof of lootProfiles(attackerKey)) grantTome(prof, "hearth");
-  if (Math.random() >= (testRelicChance ?? RELIC_HEARTH_CHANCE)) return;
+  if (Math.random() < (state.testTomeChance ?? TOME_HEARTH_CHANCE)) for (const prof of lootProfiles(attackerKey)) grantTome(prof, "hearth");
+  if (Math.random() >= (state.testRelicChance ?? RELIC_HEARTH_CHANCE)) return;
   for (const prof of lootProfiles(attackerKey)) grantRelic(prof, "hearth");
 }
 
@@ -13509,37 +11230,8 @@ function withPlayerProfile(payload: string, player: Player): string {
   player.profileSentVersion = prof.version;
   return payload.slice(0, -1) + ',"profile":' + JSON.stringify(heroProfileSnapshot(prof)) + "}";
 }
-
 // ---- Hero phase 3: heroes (ROADMAP "Hero phase 3: heroes") ----
-// A hero is a colonist of kind "hero" with a class (HERO_CLASS_STATS) and a name; its id is stable across
-// deaths and its profile "hero:<id>" (same list as the players') holds XP / level / equipment. It is
-// recruited at a Keep (at most one per Keep level), counts HERO_POPULATION_COST toward the Keep's
-// settlement, fights as a soldier of its class's role, never deserts or despawns, and comes back from
-// death at a dawn / dusk window for a gold fee.
-const HERO_KEY_PREFIX = "hero:";
-// One sheet tab per hero: at most this many in the colony.
-const HERO_MAX_TOTAL = 9;
-const HERO_RECRUIT_TICKS = 10 * TICK_RATE;
-const HERO_RESPAWN_FEE_BASE = 50;
-const HERO_RESPAWN_FEE_PER_LEVEL = 25;
-const HERO_RECRUIT_COST: Record<HeroClass, Cost> = {
-  champion: { gold: 120, iron: 20 },
-  marksman: { gold: 100, wood: 30 },
-  mage: { gold: 140, rock: 20 },
-};
-const HERO_NAMES = [
-  "Aldric", "Brannoc", "Cedwyn", "Daria", "Edric", "Fenna", "Garrow", "Hild", "Isolde", "Jorund",
-  "Kestrel", "Leofric", "Maelis", "Osric", "Rowena", "Sigrun", "Tamsin", "Ulric", "Wynne", "Yseult",
-];
-interface HeroRecruit {
-  id: string;
-  name: string;
-  heroClass: HeroClass;
-  tx: number;
-  ty: number;
-  ticksLeft: number;
-}
-const heroRecruits: HeroRecruit[] = [];
+
 
 function heroKey(id: string): string {
   return HERO_KEY_PREFIX + id;
@@ -13642,7 +11334,7 @@ function keepHeroInfo(tx: number, ty: number): NonNullable<BuildingInfo["heroes"
 }
 
 function handleRecruitHero(player: Player, tx: number, ty: number, cls: unknown) {
-  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Keep) return;
+  if (!inBounds(tx, ty) || state.tiles[tileIndex(tx, ty)] !== TileType.Keep) return;
   if (!HERO_CLASSES.includes(cls as HeroClass)) return;
   const heroClass = cls as HeroClass;
   const reason = heroRecruitBlocker(tx, ty, heroClass);
@@ -13655,10 +11347,10 @@ function handleRecruitHero(player: Player, tx: number, ty: number, cls: unknown)
   const id = randomUUID();
   const name = pickHeroName();
   ensureHeroProfile(id, heroClass, name);
-  heroRecruits.push({ id, name, heroClass, tx, ty, ticksLeft: instantBuild ? 1 : HERO_RECRUIT_TICKS });
-  heroRosterVersion++;
+  heroRecruits.push({ id, name, heroClass, tx, ty, ticksLeft: state.instantBuild ? 1 : HERO_RECRUIT_TICKS });
+  state.heroRosterVersion++;
   heroTestEvent({ type: "recruit", id, detail: heroClass });
-  broadcastEvent("build", `${name} the ${HERO_CLASS_LABEL[heroClass]} answers the Keep's call (arrives in ${instantBuild ? 0 : HERO_RECRUIT_TICKS / TICK_RATE} s)`);
+  broadcastEvent("build", `${name} the ${HERO_CLASS_LABEL[heroClass]} answers the Keep's call (arrives in ${state.instantBuild ? 0 : HERO_RECRUIT_TICKS / TICK_RATE} s)`);
 }
 
 // Once per tick: a recruit's short muster runs down, then the hero walks out of the Keep.
@@ -13685,7 +11377,7 @@ function spawnHeroColonist(id: string, name: string, heroClass: HeroClass, tx: n
   c.hp = c.maxHp;
   const t = tileOfPixel(c.x, c.y);
   Object.assign(c, { rallyTileX: t.x, rallyTileY: t.y, rallyX: c.x, rallyY: c.y });
-  heroRosterVersion++;
+  state.heroRosterVersion++;
   heroTestEvent({ type: "spawn", id, detail: heroClass });
   return c;
 }
@@ -13699,72 +11391,15 @@ function heroSheetsSnapshot(): HeroSheetSnapshot[] {
 
 // Appended to a player's snapshot payload only when the hero roster changed since the last one sent.
 function withPlayerHeroes(payload: string, player: Player): string {
-  if (player.heroesSentVersion === heroRosterVersion) return payload;
-  player.heroesSentVersion = heroRosterVersion;
+  if (player.heroesSentVersion === state.heroRosterVersion) return payload;
+  player.heroesSentVersion = state.heroRosterVersion;
   return payload.slice(0, -1) + ',"heroes":' + JSON.stringify(heroSheetsSnapshot()) + "}";
 }
-
 // ---- Hero phase 4: spells (ROADMAP "Hero phase 4: spells") ----
-// The spell table (SPELLS) lives in protocol.ts so the client's tooltips use the same numbers. Every
-// profile (the player's and each hero's) has learned spells + 4 spell slots; a spell has a cooldown per
-// caster (no mana). Damage / heal / shield amounts scale with the caster's spellPowerMult (gear + a mage's
-// SPELL_MAGE_BASE_PCT). Status effects (burn, slow, curse, ward shield, rally buff) and summons live in
-// small transient maps (spellStatuses / summonedUntil) and are NOT saved: a load starts with none.
-const SPELL_MAGE_BASE_PCT = 25;
-// Level-up spell grants: one at each of these levels, the next unlearned spell of the class's order.
-const SPELL_GRANT_LEVELS = [2, 4, 6, 8, 10];
-const SPELL_LEARN_ORDER: Record<HeroClass | "player", SpellId[]> = {
-  player: ["fireBolt", "heal", "ward", "thunder", "rallyBanner"],
-  champion: ["rallyBanner", "ward", "curse", "thunder", "heal"],
-  marksman: ["fireBolt", "curse", "frost", "thunder", "rallyBanner"],
-  mage: ["fireBolt", "frost", "thunder", "heal", "curse", "summon"],
-};
-// Spell Tomes: the Ogre Warlord always drops one, a mini-boss elite TOME_ELITE_CHANCE, a destroyed camp
-// hearth TOME_HEARTH_CHANCE (to the killer, else every connected player's pack, like relics).
-const TOME_ELITE_CHANCE = 0.5;
-const TOME_HEARTH_CHANCE = 0.1;
-// The Church sells the two basic spells to the player (colony gold).
-const CHURCH_SPELL_PRICES: Partial<Record<SpellId, number>> = { heal: 80, ward: 120 };
-// A cast reaches this far past the spell's range (tiles), so a click on a target's edge still counts.
-const SPELL_RANGE_SLACK_PX = TILE_SIZE / 2;
-// Hero auto-cast: rules are checked every SPELL_AUTO_EVERY_TICKS; thresholds per rule.
-const SPELL_AUTO_EVERY_TICKS = 5;
-const SPELL_AUTO_HEAL_BELOW = 0.6;
-const SPELL_AUTO_WARD_HURT_TICKS = 2 * TICK_RATE;
-const SPELL_AUTO_RALLY_ENGAGED = 4;
-const SPELL_AUTO_SUMMON_SCAN_TILES = 6;
-let testTomeChance: number | null = null;
-// Monotonic spell clock (cycleTick restarts with a load / test hooks; this only counts up).
-let spellTick = 0;
 
-interface SpellStatus {
-  burnUntil?: number;
-  burnNext?: number;
-  burnPerSec?: number;
-  burnBy?: string;
-  slowUntil?: number;
-  baseSpeed?: number;
-  curseUntil?: number;
-  curseBonus?: number;
-  shield?: number;
-  shieldUntil?: number;
-  buffUntil?: number;
-  buffDamage?: number;
-  buffSpeed?: number;
-}
-// Keyed "m:<mob id>" / "c:<colonist id>" / "p:<player id>".
-const spellStatuses = new Map<string, SpellStatus>();
-// Profile key -> spell -> spellTick it is ready again.
-const spellCooldowns = new Map<string, Partial<Record<SpellId, number>>>();
-// Summoned skeleton militia: colonist id -> spellTick it crumbles.
-const summonedUntil = new Map<string, number>();
-// Last spellTick a friendly unit / player ("c:" / "p:" key) lost HP (hero Ward auto-cast).
-const lastHurtTick = new Map<string, number>();
-// Test-hook log (spellState): cast / refuse / learn / tome / burn / absorb / summon / expire.
-const spellEvents: { type: string; key?: string; spell?: string; amount?: number; detail?: string; tick: number }[] = [];
 function spellEvent(e: Omit<(typeof spellEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;
-  spellEvents.push({ ...e, tick: spellTick });
+  spellEvents.push({ ...e, tick: state.spellTick });
   if (spellEvents.length > 400) spellEvents.splice(0, spellEvents.length - 400);
 }
 
@@ -13779,14 +11414,14 @@ function isSpellId(v: unknown): v is SpellId {
 function spellBookSnapshot(prof: HeroProfile): SpellBookSnapshot {
   const cooldowns: Partial<Record<SpellId, number>> = {};
   const cd = spellCooldowns.get(prof.key);
-  if (cd) for (const id of SPELL_IDS) if ((cd[id] ?? 0) > spellTick) cooldowns[id] = cd[id]! - spellTick;
+  if (cd) for (const id of SPELL_IDS) if ((cd[id] ?? 0) > state.spellTick) cooldowns[id] = cd[id]! - state.spellTick;
   return { learned: [...prof.spells], slots: [...prof.spellSlots], auto: !!prof.heroClass && prof.spellAuto, cooldowns };
 }
 
 // Marks a profile for resending (spell book / cooldown changes) without re-deriving its stats.
 function touchSpellProfile(prof: HeroProfile) {
-  prof.version = ++heroProfileVersionCounter;
-  if (prof.heroClass) heroRosterVersion++;
+  prof.version = ++state.heroProfileVersionCounter;
+  if (prof.heroClass) state.heroRosterVersion++;
 }
 
 function profileLabel(prof: HeroProfile): string {
@@ -13880,7 +11515,7 @@ function churchSpellShop(player: Player | undefined): NonNullable<BuildingInfo["
 
 function handleLearnSpell(player: Player, spellId: unknown, tx: unknown, ty: unknown) {
   if (!isSpellId(spellId) || typeof tx !== "number" || typeof ty !== "number" || !inBounds(tx, ty)) return;
-  if (tiles[tileIndex(tx, ty)] !== TileType.ChurchPost) return refuseSpell(player, "Spells are taught at a Church");
+  if (state.tiles[tileIndex(tx, ty)] !== TileType.ChurchPost) return refuseSpell(player, "Spells are taught at a Church");
   const price = CHURCH_SPELL_PRICES[spellId];
   if (price === undefined) return refuseSpell(player, `The Church doesn't teach ${SPELLS[spellId].name}`);
   const prof = heroProfileOf(player);
@@ -13929,14 +11564,14 @@ function statusAt(key: string): SpellStatus {
 // damageMob: +curseBonus damage taken while cursed.
 function spellDamageTakenMult(mob: Mob): number {
   const s = spellStatuses.get("m:" + mob.id);
-  return s?.curseUntil !== undefined && s.curseUntil > spellTick ? 1 + (s.curseBonus ?? 0) : 1;
+  return s?.curseUntil !== undefined && s.curseUntil > state.spellTick ? 1 + (s.curseBonus ?? 0) : 1;
 }
 
 // damagePlayer / damageColonist: a ward shield soaks the blow first. Returns what gets through.
 function absorbWithWard(key: string, amount: number): number {
-  lastHurtTick.set(key, spellTick);
+  lastHurtTick.set(key, state.spellTick);
   const s = spellStatuses.get(key);
-  if (!s?.shield || (s.shieldUntil ?? 0) <= spellTick) return amount;
+  if (!s?.shield || (s.shieldUntil ?? 0) <= state.spellTick) return amount;
   const soaked = Math.min(s.shield, amount);
   s.shield -= soaked;
   spellEvent({ type: "absorb", key, amount: soaked, detail: String(amount) });
@@ -13945,33 +11580,33 @@ function absorbWithWard(key: string, amount: number): number {
 
 function spellBuffDamageMult(key: string): number {
   const s = spellStatuses.get(key);
-  return s?.buffUntil !== undefined && s.buffUntil > spellTick ? 1 + (s.buffDamage ?? 0) : 1;
+  return s?.buffUntil !== undefined && s.buffUntil > state.spellTick ? 1 + (s.buffDamage ?? 0) : 1;
 }
 
 function spellBuffSpeedMult(key: string): number {
   const s = spellStatuses.get(key);
-  return s?.buffUntil !== undefined && s.buffUntil > spellTick ? 1 + (s.buffSpeed ?? 0) : 1;
+  return s?.buffUntil !== undefined && s.buffUntil > state.spellTick ? 1 + (s.buffSpeed ?? 0) : 1;
 }
 
 // A mob's speed is read in many places, so a slow scales `mob.speed` itself and restores it on expiry
 // (snapshotWorld saves the unslowed speed).
 function slowMob(mob: Mob, fraction: number, ticks: number) {
   const s = statusAt("m:" + mob.id);
-  if (s.slowUntil === undefined || s.slowUntil <= spellTick || s.baseSpeed === undefined) {
+  if (s.slowUntil === undefined || s.slowUntil <= state.spellTick || s.baseSpeed === undefined) {
     s.baseSpeed = mob.speed;
     mob.speed = mob.speed * (1 - fraction);
   }
-  s.slowUntil = spellTick + ticks;
+  s.slowUntil = state.spellTick + ticks;
 }
 
 function unslowedSpeed(mob: Mob): number {
   const s = spellStatuses.get("m:" + mob.id);
-  return s?.baseSpeed !== undefined && (s.slowUntil ?? 0) > spellTick ? s.baseSpeed : mob.speed;
+  return s?.baseSpeed !== undefined && (s.slowUntil ?? 0) > state.spellTick ? s.baseSpeed : mob.speed;
 }
 
 // Once per tick: burn ticks, expiries, summon despawns.
 function updateSpellStatuses() {
-  spellTick++;
+  state.spellTick++;
   for (const [key, s] of Array.from(spellStatuses)) {
     const mob = key.startsWith("m:") ? mobs.get(key.slice(2)) : undefined;
     const alive = mob || (key.startsWith("c:") ? colonists.has(key.slice(2)) : players.has(key.slice(2)));
@@ -13980,20 +11615,20 @@ function updateSpellStatuses() {
       continue;
     }
     if (mob && s.burnUntil !== undefined) {
-      if (s.burnNext !== undefined && spellTick >= s.burnNext && s.burnNext <= s.burnUntil) {
+      if (s.burnNext !== undefined && state.spellTick >= s.burnNext && s.burnNext <= s.burnUntil) {
         s.burnNext += TICK_RATE;
         spellEvent({ type: "burn", key, amount: s.burnPerSec });
         damageMob(mob, s.burnPerSec ?? 0, s.burnBy);
       }
-      if (spellTick > s.burnUntil) s.burnUntil = s.burnNext = s.burnPerSec = s.burnBy = undefined;
+      if (state.spellTick > s.burnUntil) s.burnUntil = s.burnNext = s.burnPerSec = s.burnBy = undefined;
     }
-    if (mob && s.slowUntil !== undefined && spellTick >= s.slowUntil) {
+    if (mob && s.slowUntil !== undefined && state.spellTick >= s.slowUntil) {
       if (s.baseSpeed !== undefined && mobs.has(mob.id)) mob.speed = s.baseSpeed;
       s.slowUntil = s.baseSpeed = undefined;
     }
-    if (s.curseUntil !== undefined && spellTick >= s.curseUntil) s.curseUntil = s.curseBonus = undefined;
-    if (s.shieldUntil !== undefined && (spellTick >= s.shieldUntil || (s.shield ?? 0) <= 0)) s.shield = s.shieldUntil = undefined;
-    if (s.buffUntil !== undefined && spellTick >= s.buffUntil) s.buffUntil = s.buffDamage = s.buffSpeed = undefined;
+    if (s.curseUntil !== undefined && state.spellTick >= s.curseUntil) s.curseUntil = s.curseBonus = undefined;
+    if (s.shieldUntil !== undefined && (state.spellTick >= s.shieldUntil || (s.shield ?? 0) <= 0)) s.shield = s.shieldUntil = undefined;
+    if (s.buffUntil !== undefined && state.spellTick >= s.buffUntil) s.buffUntil = s.buffDamage = s.buffSpeed = undefined;
     if (Object.values(s).every((v) => v === undefined)) spellStatuses.delete(key);
   }
   for (const [id, until] of summonedUntil) {
@@ -14002,15 +11637,15 @@ function updateSpellStatuses() {
       summonedUntil.delete(id);
       continue;
     }
-    if (spellTick < until) continue;
+    if (state.spellTick < until) continue;
     summonedUntil.delete(id);
     releaseResourceReservation(c);
     releaseSlot(c.id);
     colonists.delete(id);
     spellEvent({ type: "expire", key: "c:" + id });
   }
-  if (spellTick % (5 * TICK_RATE) === 0) {
-    for (const [k, t] of lastHurtTick) if (spellTick - t > 5 * TICK_RATE) lastHurtTick.delete(k);
+  if (state.spellTick % (5 * TICK_RATE) === 0) {
+    for (const [k, t] of lastHurtTick) if (state.spellTick - t > 5 * TICK_RATE) lastHurtTick.delete(k);
   }
 }
 
@@ -14024,18 +11659,8 @@ function clearSpellState() {
 function isSummoned(c: Colonist): boolean {
   return summonedUntil.has(c.id);
 }
-
 // ---- Casting ----
-interface SpellCaster {
-  prof: HeroProfile;
-  x: number;
-  y: number;
-  // Damage attribution ("p:<player id>" / "c:<hero id>": kills give that caster XP).
-  attackerKey: string;
-  self: { type: "player"; p: Player } | { type: "colonist"; c: Colonist };
-}
-type SpellTarget = { targetId?: string; x?: number; y?: number };
-type FriendlyUnit = { type: "player"; p: Player } | { type: "colonist"; c: Colonist };
+
 
 function friendlyPos(f: FriendlyUnit) {
   return f.type === "player" ? { x: f.p.x, y: f.p.y } : { x: f.c.x, y: f.c.y };
@@ -14060,7 +11685,7 @@ function spellScaled(caster: SpellCaster, base: number): number {
 }
 
 function spellCooldownLeft(prof: HeroProfile, id: SpellId): number {
-  return Math.max(0, (spellCooldowns.get(prof.key)?.[id] ?? 0) - spellTick);
+  return Math.max(0, (spellCooldowns.get(prof.key)?.[id] ?? 0) - state.spellTick);
 }
 
 // Validates and casts. Returns "" on success, else the reason (nothing happened).
@@ -14083,14 +11708,14 @@ function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarget): st
       damageMob(mob, def.power * sp, caster.attackerKey);
       if (mobs.has(mob.id)) {
         const s = statusAt("m:" + mob.id);
-        s.burnUntil = spellTick + ticks(def.duration);
-        s.burnNext = spellTick + TICK_RATE;
+        s.burnUntil = state.spellTick + ticks(def.duration);
+        s.burnNext = state.spellTick + TICK_RATE;
         s.burnPerSec = (def.burnPerSec ?? 0) * sp;
         s.burnBy = caster.attackerKey;
       }
     } else if (id === "curse") {
       const s = statusAt("m:" + mob.id);
-      s.curseUntil = spellTick + ticks(def.duration);
+      s.curseUntil = state.spellTick + ticks(def.duration);
       s.curseBonus = def.damageTakenBonus ?? 0;
     }
   } else if (def.targeting === "ally" || def.targeting === "self") {
@@ -14106,7 +11731,7 @@ function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarget): st
     } else if (id === "ward") {
       const s = statusAt(friendlyKey(ally));
       s.shield = def.power * sp;
-      s.shieldUntil = spellTick + ticks(def.duration);
+      s.shieldUntil = state.spellTick + ticks(def.duration);
     }
   } else {
     if (typeof target.x !== "number" || typeof target.y !== "number" || !Number.isFinite(target.x) || !Number.isFinite(target.y)) return "No spot targeted";
@@ -14123,7 +11748,7 @@ function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarget): st
     } else if (id === "rallyBanner") {
       const buff = (key: string) => {
         const s = statusAt(key);
-        s.buffUntil = spellTick + ticks(def.duration);
+        s.buffUntil = state.spellTick + ticks(def.duration);
         s.buffDamage = def.buffDamage ?? 0;
         s.buffSpeed = def.buffSpeed ?? 0;
       };
@@ -14147,7 +11772,7 @@ function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarget): st
         const p = { x: fx.x + (i === 0 ? -8 : 8), y: fx.y };
         if (isWalkableTile(tileOfPixel(p.x, p.y).x, tileOfPixel(p.x, p.y).y)) Object.assign(c, { x: p.x, y: p.y });
         Object.assign(c, { rallyTileX: tile.x, rallyTileY: tile.y, rallyX: c.x, rallyY: c.y, stance: "aggressive" as Stance });
-        summonedUntil.set(c.id, spellTick + ticks(def.duration));
+        summonedUntil.set(c.id, state.spellTick + ticks(def.duration));
         spellEvent({ type: "summon", key: "c:" + c.id });
       }
     }
@@ -14157,9 +11782,9 @@ function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarget): st
     cd = {};
     spellCooldowns.set(caster.prof.key, cd);
   }
-  cd[id] = spellTick + ticks(def.cooldown);
+  cd[id] = state.spellTick + ticks(def.cooldown);
   touchSpellProfile(caster.prof);
-  pendingEffects.push({ fromX: caster.x, fromY: caster.y, toX: fx.x, toY: fx.y, spell: id });
+  state.pendingEffects.push({ fromX: caster.x, fromY: caster.y, toX: fx.x, toY: fx.y, spell: id });
   spellEvent({ type: "cast", key: caster.prof.key, spell: id, amount: def.power * sp, detail: target.targetId ?? (target.x !== undefined ? `${Math.round(target.x)},${Math.round(target.y ?? 0)}` : "self") });
   return "";
 }
@@ -14256,9 +11881,9 @@ function autoSpellTarget(c: Colonist, id: SpellId): SpellTarget | null {
     for (const f of friendliesNear(c.x, c.y, rangePx)) {
       const key = friendlyKey(f);
       const hurt = lastHurtTick.get(key);
-      if (hurt === undefined || spellTick - hurt > SPELL_AUTO_WARD_HURT_TICKS) continue;
+      if (hurt === undefined || state.spellTick - hurt > SPELL_AUTO_WARD_HURT_TICKS) continue;
       const s = spellStatuses.get(key);
-      if (s?.shield && (s.shieldUntil ?? 0) > spellTick) continue;
+      if (s?.shield && (s.shieldUntil ?? 0) > state.spellTick) continue;
       const { hp, max } = friendlyHp(f);
       if (hp / max < bestFrac) {
         bestFrac = hp / max;
@@ -14290,7 +11915,7 @@ function autoSpellTarget(c: Colonist, id: SpellId): SpellTarget | null {
 function heroAutoCast(c: Colonist) {
   // Strategy mode phase 4: hold fire also holds a hero's auto-spells.
   if (c.holdFire) return;
-  if ((spellTick + c.id.charCodeAt(0)) % SPELL_AUTO_EVERY_TICKS !== 0) return;
+  if ((state.spellTick + c.id.charCodeAt(0)) % SPELL_AUTO_EVERY_TICKS !== 0) return;
   const prof = heroProfiles.get(heroKey(c.id));
   if (!prof || !prof.spellAuto) return;
   for (const id of prof.spellSlots) {
@@ -14299,14 +11924,9 @@ function heroAutoCast(c: Colonist) {
     if (t && castSpellNow(heroCaster(c), id, t) === "") return;
   }
 }
-
 // ---- Blacksmith forging: one item at a time per Blacksmith, FORGE_QUEUE_CAP queued (the first is in
 // progress). Cost is paid when queued (no refund). Not saved: a load starts every forge empty.
-interface ForgeQueueState {
-  queue: { slot: EquipSlot; tier: number }[];
-  ticksLeft: number;
-}
-const forgeQueues = new Map<string, ForgeQueueState>();
+
 
 function forgeCost(slot: EquipSlot, tier: number): Cost {
   const i = Math.min(Math.max(tier, 1), EQUIP_TIERS) - 1;
@@ -14352,38 +11972,38 @@ function blacksmithForgeInfo(tx: number, ty: number): NonNullable<BuildingInfo["
 }
 
 function handleQueueForge(tx: number, ty: number, slot: unknown) {
-  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Blacksmith) return;
+  if (!inBounds(tx, ty) || state.tiles[tileIndex(tx, ty)] !== TileType.Blacksmith) return;
   if (slot !== "armour" && slot !== "weapon") return;
   if (forgeQueueBlocker(tx, ty, slot) !== "") return;
   const tier = getBuildingLevel(tx, ty);
   spend(forgeCost(slot, tier));
   const key = resourceKey(tx, ty);
-  let state = forgeQueues.get(key);
-  if (!state) {
-    state = { queue: [], ticksLeft: 0 };
-    forgeQueues.set(key, state);
+  let localState = forgeQueues.get(key);
+  if (!localState) {
+    localState = { queue: [], ticksLeft: 0 };
+    forgeQueues.set(key, localState);
   }
-  state.queue.push({ slot, tier });
-  if (state.queue.length === 1) state.ticksLeft = instantBuild ? 1 : FORGE_TICKS[slot];
+  localState.queue.push({ slot, tier });
+  if (localState.queue.length === 1) localState.ticksLeft = state.instantBuild ? 1 : FORGE_TICKS[slot];
 }
 
 // Once per tick: each Blacksmith's first queued item counts down while a smith is posted there.
 function updateForges() {
-  for (const [key, state] of forgeQueues) {
+  for (const [key, localState] of forgeQueues) {
     const tile = keyToTile(key);
-    if (!tile || tiles[tileIndex(tile.x, tile.y)] !== TileType.Blacksmith) {
+    if (!tile || state.tiles[tileIndex(tile.x, tile.y)] !== TileType.Blacksmith) {
       forgeQueues.delete(key);
       continue;
     }
-    const head = state.queue[0];
+    const head = localState.queue[0];
     if (!head || !blacksmithStaffed(tile.x, tile.y)) continue;
-    if (--state.ticksLeft > 0) continue;
+    if (--localState.ticksLeft > 0) continue;
     equipment[head.slot][head.tier - 1]++;
     equipEvent({ type: "forged", slot: head.slot, tier: head.tier, detail: key });
     broadcastEvent("build", `The Blacksmith forged a tier-${head.tier} ${EQUIP_SLOT_LABEL[head.slot]}`);
-    state.queue.shift();
-    const next = state.queue[0];
-    if (next) state.ticksLeft = instantBuild ? 1 : FORGE_TICKS[next.slot];
+    localState.queue.shift();
+    const next = localState.queue[0];
+    if (next) localState.ticksLeft = state.instantBuild ? 1 : FORGE_TICKS[next.slot];
     else forgeQueues.delete(key);
   }
 }
@@ -14398,18 +12018,12 @@ function forgeBusyForSnapshot(): number[] {
   }
   return out;
 }
-
 // ---- The raids' siege engines (updateMob hands them to updateSiegeMob once released) ----
-// A ram looks for a closed gate within RAM_GATE_SCAN_TILES first, then breaches walls / hits buildings
-// like any mob (pickBuildingTarget); units only when it stands next to one and has no building to hit.
-const RAM_GATE_SCAN_TILES = 25;
-const SIEGE_RETARGET_TICKS = 2 * TICK_RATE;
+
 // Per raid, each siege kind is capped at raidSiegeCap(day): 1 from its unlock day, +1 every 6 days.
 function raidSiegeCap(dayIndex: number, kind: SiegeKind): number {
   return Math.max(0, 1 + Math.floor((dayIndex - MOB_KIND_CONFIG[kind].unlockDay) / 6));
 }
-// testHook "forceRaidSiege" {value:true}: raids pick orc / bandit factions and fill their siege caps first.
-let testForceRaidSiege = false;
 
 function pickRamTarget(mob: Mob): PickedTarget | null {
   const wards = activeWardSources();
@@ -14418,8 +12032,8 @@ function pickRamTarget(mob: Mob): PickedTarget | null {
   for (const index of gates.keys()) {
     // Forts phase A: raid rams only ram the colony's gates.
     if (gatePassable(index, true) || ownerAt(index) !== 0) continue;
-    const x = index % WORLD_TILES_X;
-    const y = Math.floor(index / WORLD_TILES_X);
+    const x = index % state.WORLD_TILES_X;
+    const y = Math.floor(index / state.WORLD_TILES_X);
     const c = tileToPixelCenter({ x, y });
     const d = Math.hypot(c.x - mob.x, c.y - mob.y);
     if (d <= RAM_GATE_SCAN_TILES * TILE_SIZE && !isWarded(c.x, c.y, wards)) closed.push({ x, y, d });
@@ -14447,7 +12061,7 @@ function pickCatapultShot(mob: Mob): { x: number; y: number } | null {
       const c = tileToPixelCenter({ x, y });
       const d = Math.hypot(c.x - mob.x, c.y - mob.y);
       if (d < CATAPULT_MIN_RANGE || d > mob.range || isWarded(c.x, c.y, wards)) continue;
-      const t = tiles[tileIndex(x, y)] as TileType;
+      const t = state.tiles[tileIndex(x, y)] as TileType;
       const cls = isTowerTile(t) ? 0 : isWallTile(t) || t === TileType.Gate ? 1 : 2;
       const score = cls * 1e6 + d;
       if (score < bestScore) {
@@ -14459,7 +12073,7 @@ function pickCatapultShot(mob: Mob): { x: number; y: number } | null {
   if (best) return best;
   const units: { x: number; y: number }[] = [];
   for (const c of colonists.values()) if (!isAbbeyClergy(c) && !isWarded(c.x, c.y, wards)) units.push(c);
-  for (const p of players.values()) if (!p.dead && !testPlayersIgnored && !isWarded(p.x, p.y, wards)) units.push(p);
+  for (const p of players.values()) if (!p.dead && !state.testPlayersIgnored && !isWarded(p.x, p.y, wards)) units.push(p);
   let bestCount = 0;
   for (const u of units) {
     const d = Math.hypot(u.x - mob.x, u.y - mob.y);
@@ -14503,7 +12117,7 @@ function updateSiegeMob(mob: Mob, dt: number, hold: boolean) {
     }
     if (hold) return;
     // Nothing in range: advance on the colony like any raider, but never past its regiment's front rank.
-    if (!mob.targetType || cycleTick % SIEGE_RETARGET_TICKS === 0) {
+    if (!mob.targetType || state.cycleTick % SIEGE_RETARGET_TICKS === 0) {
       const picked = pickBuildingTarget(mob, activeWardSources());
       mob.targetType = picked?.type ?? null;
       mob.targetId = picked?.id ?? null;
@@ -14526,10 +12140,10 @@ function updateSiegeMob(mob: Mob, dt: number, hold: boolean) {
   let targetPos = mob.targetType ? resolveTargetPosition(mob.targetType, mob.targetId, mob) : null;
   const onGate = mob.targetType === "building" && mob.targetId !== null && (() => {
     const t = keyToTile(mob.targetId!);
-    return !!t && tiles[tileIndex(t.x, t.y)] === TileType.Gate;
+    return !!t && state.tiles[tileIndex(t.x, t.y)] === TileType.Gate;
   })();
   if (targetPos && mobTargetNeedsRepick(mob)) targetPos = null;
-  if (targetPos && !onGate && cycleTick % SIEGE_RETARGET_TICKS === 0) targetPos = null;
+  if (targetPos && !onGate && state.cycleTick % SIEGE_RETARGET_TICKS === 0) targetPos = null;
   if (!targetPos && !hold) {
     const picked = pickRamTarget(mob);
     if (picked && (picked.id !== mob.targetId || picked.type !== mob.targetType)) {
@@ -14567,11 +12181,11 @@ function updateSiegeMob(mob: Mob, dt: number, hold: boolean) {
   mob.attackCooldownTicks = RAM_ATTACK_COOLDOWN_TICKS;
   const struck = (mob.targetType === "building" || mob.targetType === "townCenter") && mob.targetId ? keyToTile(mob.targetId) : null;
   const hit = struck ? tileToPixelCenter(struck) : targetPos;
-  pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: hit.x, toY: hit.y, melee: true });
+  state.pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: hit.x, toY: hit.y, melee: true });
   if (mob.targetId) recordMobStrike(mob, hit.x, hit.y);
   if (struck) {
     const amount = mob.damage * SIEGE_BUILDING_MULT;
-    siegeEvent("ramHit", mob.id, amount, `building:${tiles[tileIndex(struck.x, struck.y)]}`);
+    siegeEvent("ramHit", mob.id, amount, `building:${state.tiles[tileIndex(struck.x, struck.y)]}`);
     damageBuilding(struck.x, struck.y, amount);
   } else if (mob.targetType === "colonist" && mob.targetId) {
     const c = colonists.get(mob.targetId);
@@ -14597,31 +12211,9 @@ function upgradePlacementTile(t: TileType): TileType | null {
   return IN_PLACE_UPGRADE_TILES.includes(t) ? t : null;
 }
 
-const BUILDING_NAMES: Partial<Record<TileType, string>> = {
-  ...UPGRADE_NAMES,
-  [TileType.BigHouse]: "Cottage",
-  [TileType.HouseLevel2]: "Cottage",
-  [TileType.CastleLevel2]: "Hall of the Sworn",
-  [TileType.CastleLevel3]: "Hall of the Sworn",
-  [TileType.MilitiaCamp2]: "Militia Camp",
-  [TileType.MilitiaCamp3]: "Militia Camp",
-  [TileType.Market]: "Bazaar",
-  [TileType.GoldShop]: "Trading Post",
-  [TileType.WardStone]: "Ward Stone",
-  [TileType.FarmPlot]: "Farm Plot",
-  [TileType.Wall]: "Wood Wall",
-  [TileType.StoneWall]: "Stone Wall",
-  [TileType.Gate]: "Gate",
-  [TileType.Road]: "Road",
-  [TileType.CobbleRoad]: "Cobble Road",
-  [TileType.SiegeWorkshop]: "Siege Workshop",
-};
-
-const pct = (fraction: number) => `${Math.round(fraction * 100)}%`;
-
 function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingInfo | null {
   if (!inBounds(tx, ty)) return null;
-  const t = tiles[tileIndex(tx, ty)] as TileType;
+  const t = state.tiles[tileIndex(tx, ty)] as TileType;
   const key = resourceKey(tx, ty);
   const site = constructionSites.get(key);
   if (t === TileType.ConstructionSite) {
@@ -14663,14 +12255,14 @@ function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingIn
     let neighbours = 0;
     for (const [dx, dy] of NEIGHBOURS_8) {
       if (!inBounds(tx + dx, ty + dy)) continue;
-      const n = tiles[tileIndex(tx + dx, ty + dy)] as TileType;
+      const n = state.tiles[tileIndex(tx + dx, ty + dy)] as TileType;
       if (isSynergyBuilding(n) || isHouseTile(n)) neighbours++;
     }
     bonuses.push(`+${houseCapacity(t)} population (tier ${level})`);
     if (neighbours > 0) bonuses.push(`+${neighbours} population from adjacent houses / workplaces / barracks`);
     let barracks = 0;
     for (const [dx, dy] of NEIGHBOURS_8) {
-      if (inBounds(tx + dx, ty + dy) && isMilitaryTile(tiles[tileIndex(tx + dx, ty + dy)] as TileType)) barracks++;
+      if (inBounds(tx + dx, ty + dy) && isMilitaryTile(state.tiles[tileIndex(tx + dx, ty + dy)] as TileType)) barracks++;
     }
     if (barracks > 0) bonuses.push(`+1 troop slot to each of ${barracks} adjacent unit building${barracks === 1 ? "" : "s"}`);
   } else if (level > 1 && !isMilitaryTile(t) && !isTowerTile(t) && t !== TileType.Keep) {
@@ -14724,7 +12316,7 @@ function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingIn
   const biome = biomeProductionFactor(tx, ty);
   if (biome < 1) bonuses.push(`${biomeAt(tx, ty) === Biome.Hills ? "Hills" : "Plains"} biome: ${pct(1 - biome)} shorter cycles`);
   if (POPULATION_GATED_TILES.includes(t) || INDUSTRIAL_TILES.includes(t)) {
-    bonuses.push(`Happiness ${colonyHappiness}%: work speed x${happinessSpeedMultiplier().toFixed(2)}`);
+    bonuses.push(`Happiness ${state.colonyHappiness}%: work speed x${happinessSpeedMultiplier().toFixed(2)}`);
     if (townCenterBonus() > 0) bonuses.push(`Town Center Lv${highestTownCenterLevel()}: +${pct(townCenterBonus())} productivity`);
   }
 
@@ -14743,7 +12335,7 @@ function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingIn
         reason = settlementBlocker(tx, ty);
       else if (garrisonGain(placeTile, t, tx, ty) > 0 && garrisonBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty)))
         reason = garrisonBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty));
-      else if (!instantBuild && !anyBuilderAlive() && placeTile !== TileType.TownCenter) reason = "No builders available";
+      else if (!state.instantBuild && !anyBuilderAlive() && placeTile !== TileType.TownCenter) reason = "No builders available";
       const tierNote =
         t === TileType.TownCenter
           ? ` (max pop ${settlementTierCap(level + 1)})`
@@ -14797,70 +12389,17 @@ function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingIn
 
 function handleUpgradeBuilding(player: Player, tx: number, ty: number) {
   if (!inBounds(tx, ty)) return;
-  const placeTile = upgradePlacementTile(tiles[tileIndex(tx, ty)] as TileType);
+  const placeTile = upgradePlacementTile(state.tiles[tileIndex(tx, ty)] as TileType);
   if (placeTile === null) return;
   handleSetTile(player, tx, ty, placeTile, true);
 }
-
 // ---- Off-screen fight notifiers (ROADMAP "Off-screen fight notifiers — landed 2026-10-23") ----
-// Every blow between a mob and the other side (a soldier/colonist/player hitting a mob, a mob hitting
-// a colonist/player/building) is logged as a FightHit. Every FIGHT_SCAN_TICKS, scanFights drops hits
-// older than FIGHT_WINDOW_SECONDS and clusters the rest by proximity (FIGHT_CLUSTER_TILES) into
-// activeFights, keeping each fight's id while it lasts. Each snapshot then carries the player's own
-// relevant subset (fightsForPlayer), spliced into the shared payload by withPlayerFights.
-const FIGHT_SCAN_TICKS = Math.round(TICK_RATE / 2);
-const FIGHT_WINDOW_TICKS = FIGHT_WINDOW_SECONDS * TICK_RATE;
-// Bounds the work in a huge battle: the oldest hits go first past FIGHT_MAX_HITS, and only the
-// FIGHT_MAX_TRACKED biggest clusters are kept.
-const FIGHT_MAX_HITS = 3000;
-const FIGHT_MAX_TRACKED = 32;
-// Intensity thresholds (combatants / damage per second).
-const FIGHT_BATTLE_COMBATANTS = 5;
-const FIGHT_BATTLE_DPS = 20;
-const FIGHT_MAJOR_COMBATANTS = 12;
-const FIGHT_MAJOR_DPS = 60;
 
-interface FightHit {
-  tick: number;
-  x: number;
-  y: number;
-  mobId: string;
-  // The mob's opponent: "c:<colonistId>", "p:<playerId>" or "b:<building tile key>".
-  other: string;
-  amount: number;
-  // Colony colonist (not the Abbey's clergy) / colony building involved; the player, if one is.
-  units: boolean;
-  buildings: boolean;
-  playerId: string | null;
-  kind: FightKind;
-  label: string;
-  // Higher wins when a cluster's hits disagree on who the attackers are.
-  rank: number;
-}
-
-interface ActiveFight extends Omit<FightSnapshot, "you"> {
-  playerIds: Set<string>;
-  lastTick: number;
-}
-
-let fightHits: FightHit[] = [];
-let activeFights: ActiveFight[] = [];
-let nextFightId = 1;
 
 function clearFights() {
-  fightHits = [];
-  activeFights = [];
+  state.fightHits = [];
+  state.activeFights = [];
 }
-
-const FIGHT_RAID_LABELS: Partial<Record<MobKind, string>> = {
-  wolf: "Wolf pack",
-  banditClubman: "Bandit raid",
-  banditArcher: "Bandit raid",
-  banditElite: "Bandit raid",
-  skeleton: "Dark host",
-  giantSpider: "Dark host",
-  darkShaman: "Dark host",
-};
 
 function fightThreatOf(mob: Mob): { kind: FightKind; label: string; rank: number } {
   if (mob.boss === "warlord") return { kind: "boss", label: bossTitle(mob.kind, "warlord"), rank: 7 };
@@ -14877,8 +12416,8 @@ function fightThreatOf(mob: Mob): { kind: FightKind; label: string; rank: number
 function recordFightHit(mob: Mob, x: number, y: number, other: string, amount: number) {
   const id = other.slice(2);
   const colonist = other.startsWith("c:") ? colonists.get(id) : undefined;
-  fightHits.push({
-    tick: cycleTick,
+  state.fightHits.push({
+    tick: state.cycleTick,
     x,
     y,
     mobId: mob.id,
@@ -14889,7 +12428,7 @@ function recordFightHit(mob: Mob, x: number, y: number, other: string, amount: n
     playerId: other.startsWith("p:") ? id : null,
     ...fightThreatOf(mob),
   });
-  if (fightHits.length > FIGHT_MAX_HITS) fightHits.splice(0, fightHits.length - FIGHT_MAX_HITS);
+  if (state.fightHits.length > FIGHT_MAX_HITS) state.fightHits.splice(0, state.fightHits.length - FIGHT_MAX_HITS);
 }
 
 // A mob's own blow on its current target, logged halfway between the two.
@@ -14899,9 +12438,9 @@ function recordMobStrike(mob: Mob, hitX: number, hitY: number) {
 }
 
 function scanFights() {
-  const cutoff = cycleTick - FIGHT_WINDOW_TICKS;
+  const cutoff = state.cycleTick - FIGHT_WINDOW_TICKS;
   // A setCycleTick (tests) can move time backwards: future-dated hits go too.
-  fightHits = fightHits.filter((h) => h.tick > cutoff && h.tick <= cycleTick);
+  state.fightHits = state.fightHits.filter((h) => h.tick > cutoff && h.tick <= state.cycleTick);
 
   interface Cluster {
     sumX: number;
@@ -14911,7 +12450,7 @@ function scanFights() {
   }
   const radius = FIGHT_CLUSTER_TILES * TILE_SIZE;
   const clusters: Cluster[] = [];
-  for (const h of fightHits) {
+  for (const h of state.fightHits) {
     let best: Cluster | null = null;
     let bestD = radius;
     for (const c of clusters) {
@@ -14982,7 +12521,7 @@ function scanFights() {
       label: top.label,
       units,
       buildings,
-      quiet: Math.round(((cycleTick - lastTick) / TICK_RATE) * 10) / 10,
+      quiet: Math.round(((state.cycleTick - lastTick) / TICK_RATE) * 10) / 10,
       playerIds,
       lastTick,
     };
@@ -14991,7 +12530,7 @@ function scanFights() {
   next.length = Math.min(next.length, FIGHT_MAX_TRACKED);
 
   // Keep ids stable: biggest fights first claim the nearest previous fight within ~1.5 radii.
-  const unclaimed = activeFights.slice();
+  const unclaimed = state.activeFights.slice();
   for (const f of next) {
     let bestIdx = -1;
     let bestD = FIGHT_CLUSTER_TILES * 1.5;
@@ -15002,19 +12541,19 @@ function scanFights() {
         bestIdx = i;
       }
     });
-    f.id = bestIdx >= 0 ? unclaimed.splice(bestIdx, 1)[0].id : nextFightId++;
+    f.id = bestIdx >= 0 ? unclaimed.splice(bestIdx, 1)[0].id : state.nextFightId++;
   }
-  activeFights = next;
+  state.activeFights = next;
 }
 
 // The colony is shared, so any fight its units or buildings are in concerns every player; other
 // fights (a lone rider, the Abbey's clergy) only those within FIGHT_RELEVANCE_TILES. Fights the
 // player is in come first, then bigger, then nearer.
 function fightsForPlayer(player: Player): FightSnapshot[] {
-  if (activeFights.length === 0) return [];
+  if (state.activeFights.length === 0) return [];
   const ptx = player.x / TILE_SIZE;
   const pty = player.y / TILE_SIZE;
-  return activeFights
+  return state.activeFights
     .map((f) => ({ f, you: f.playerIds.has(player.id), dist: Math.hypot(f.x + 0.5 - ptx, f.y + 0.5 - pty) }))
     .filter(({ f, you, dist }) => you || f.units || f.buildings || dist <= FIGHT_RELEVANCE_TILES)
     .sort((a, b) => Number(b.you) - Number(a.you) || b.f.intensity - a.f.intensity || a.dist - b.dist)
@@ -15042,15 +12581,6 @@ function withPlayerFights(payload: string, player: Player): string {
   return payload.slice(0, -1) + ',"fights":' + JSON.stringify(fights) + "}";
 }
 
-// Interest management (worlds bigger than this): view distance (half-screen at max zoom-out) + margin.
-const SNAPSHOT_CULL_MIN_WORLD = 192;
-const SNAPSHOT_VIEW_TILES = 60;
-// Strategy mode phase 1: a setView rect is capped at this half extent (tiles), padded by the margin, and
-// accepted at most once per SET_VIEW_MIN_MS per socket (the client sends at most 5/s).
-const STRATEGY_VIEW_MAX_HALF_TILES = 140;
-const STRATEGY_VIEW_MARGIN_TILES = 4;
-const SET_VIEW_MIN_MS = 100;
-
 // Validates / clamps a setView. Only culling reads it: dormancy, raids and fights still key off the rider.
 function handleSetView(player: Player, msg: { x: unknown; y: unknown; halfW: unknown; halfH: unknown; strategy: unknown }) {
   if (msg.strategy !== true) {
@@ -15064,53 +12594,50 @@ function handleSetView(player: Player, msg: { x: unknown; y: unknown; halfW: unk
   const [x, y, halfW, halfH] = nums as number[];
   player.viewSetAt = now;
   player.view = {
-    x: clamp(x, 0, WORLD_TILES_X) * TILE_SIZE,
-    y: clamp(y, 0, WORLD_TILES_Y) * TILE_SIZE,
+    x: clamp(x, 0, state.WORLD_TILES_X) * TILE_SIZE,
+    y: clamp(y, 0, state.WORLD_TILES_Y) * TILE_SIZE,
     halfW: (clamp(halfW, 1, STRATEGY_VIEW_MAX_HALF_TILES) + STRATEGY_VIEW_MARGIN_TILES) * TILE_SIZE,
     halfH: (clamp(halfH, 1, STRATEGY_VIEW_MAX_HALF_TILES) + STRATEGY_VIEW_MARGIN_TILES) * TILE_SIZE,
   };
 }
 
-const dt = 1 / TICK_RATE;
-let wasNight = false;
-
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 function stepSimulation() {
-  cycleTick++;
+  state.cycleTick++;
   const nightNow = isNightNow();
 
-  if (!nightNow && wasNight) {
+  if (!nightNow && state.wasNight) {
     gravestones.length = 0;
     broadcastEvent("dawn", "Dawn breaks — the colony survived the night");
     applyDailyFoodConsumption();
     applyMoraleCheck();
-    autosaveDue = true;
+    state.autosaveDue = true;
   }
 
-  if (nightNow && !wasNight) broadcastEvent("night", "Night falls");
-  wasNight = nightNow;
+  if (nightNow && !state.wasNight) broadcastEvent("night", "Night falls");
+  state.wasNight = nightNow;
 
-  colonyHappiness = computeColonyHappiness();
+  state.colonyHappiness = computeColonyHappiness();
 
-  const dayIndex = Math.floor(cycleTick / (DAY_TICKS + NIGHT_TICKS));
-  if (!nightNow && cycleTick % (DAY_TICKS + NIGHT_TICKS) >= RAID_SPAWN_CYCLE_TICK && raidSpawnedForDay !== dayIndex) {
-    raidSpawnedForDay = dayIndex;
+  const dayIndex = Math.floor(state.cycleTick / (DAY_TICKS + NIGHT_TICKS));
+  if (!nightNow && state.cycleTick % (DAY_TICKS + NIGHT_TICKS) >= RAID_SPAWN_CYCLE_TICK && state.raidSpawnedForDay !== dayIndex) {
+    state.raidSpawnedForDay = dayIndex;
     // With raids switched off by a test the day's raid is skipped for good, not deferred to re-enabling.
-    if (!testRaidsDisabled) spawnRaid(dayIndex);
+    if (!state.testRaidsDisabled) spawnRaid(dayIndex);
   }
 
-  if (treeRespawnCooldown > 0) {
-    treeRespawnCooldown--;
+  if (state.treeRespawnCooldown > 0) {
+    state.treeRespawnCooldown--;
   } else {
     tryGrowTree();
-    treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
+    state.treeRespawnCooldown = TREE_RESPAWN_INTERVAL_TICKS;
   }
 
-  if (lumberjackTreeGrowCooldown > 0) {
-    lumberjackTreeGrowCooldown--;
+  if (state.lumberjackTreeGrowCooldown > 0) {
+    state.lumberjackTreeGrowCooldown--;
   } else {
     tryGrowTreesNearLumberjackPosts();
-    lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
+    state.lumberjackTreeGrowCooldown = LUMBERJACK_TREE_INTERVAL_TICKS;
   }
 
   for (const player of players.values()) {
@@ -15132,14 +12659,14 @@ function stepSimulation() {
     const nextX = clamp(
       player.x + normDx * playerSpeed * dt,
       PLAYER_HALF_SIZE,
-      worldWidth - PLAYER_HALF_SIZE
+      state.worldWidth - PLAYER_HALF_SIZE
     );
     if (!collidesAt(nextX, player.y)) player.x = nextX;
 
     const nextY = clamp(
       player.y + normDy * playerSpeed * dt,
       PLAYER_HALF_SIZE,
-      worldHeight - PLAYER_HALF_SIZE
+      state.worldHeight - PLAYER_HALF_SIZE
     );
     if (!collidesAt(player.x, nextY)) player.y = nextY;
   }
@@ -15162,14 +12689,14 @@ function stepSimulation() {
     updateRaidGroups(dt);
     for (const mob of mobs.values()) {
       // Forts phase A: a site's own mobs pass its gates.
-      moverOwner = tileOwner.size === 0 ? 0 : siteNumber(mob.siteId);
+      state.moverOwner = tileOwner.size === 0 ? 0 : siteNumber(mob.siteId);
       updateMob(mob, dt);
     }
-    moverOwner = 0;
+    state.moverOwner = 0;
   });
   updateTowers();
   separateBodies();
-  if (cycleTick % TICK_RATE === 0) pruneSlotClaims();
+  if (state.cycleTick % TICK_RATE === 0) pruneSlotClaims();
   withHostileMover(() => updateWildlife(dt));
   updateWildlifeRespawn();
   updateGates();
@@ -15181,43 +12708,38 @@ function stepSimulation() {
   processRespawnQueue();
   updateWardPriestPresence();
   // Dawn/dusk respawn windows: one toast per batch.
-  if (respawnWindowSpawned > 0) {
+  if (state.respawnWindowSpawned > 0) {
     broadcastEvent(
       "build",
-      `Reinforcements arrive at ${respawnWindowAt(cycleTick) ?? "dawn"}: ${respawnWindowSpawned} unit${respawnWindowSpawned === 1 ? "" : "s"} back on duty`
+      `Reinforcements arrive at ${respawnWindowAt(state.cycleTick) ?? "dawn"}: ${state.respawnWindowSpawned} unit${state.respawnWindowSpawned === 1 ? "" : "s"} back on duty`
     );
-    respawnWindowSpawned = 0;
+    state.respawnWindowSpawned = 0;
   }
   respawnDeadPlayers();
-  if (cycleTick % TICK_RATE === 0) {
+  if (state.cycleTick % TICK_RATE === 0) {
     checkBossSightings();
     evaluateGoals();
   }
-  if (cycleTick % FIGHT_SCAN_TICKS === 0) scanFights();
+  if (state.cycleTick % FIGHT_SCAN_TICKS === 0) scanFights();
 }
 
 // ---- Strategy mode phase 5: enemy regiment summaries (docs PLAN-strategy-mode.md §3 / §4) ----
-// Live vision as a per-tile stamp (players + the colony's colonists, the client fog's radii), restamped per
-// summary pass; a regiment is reported when any member stands in it, from its seen members only. Cost per
-// pass: ~colonists x 113 tile writes + one pass over the mobs, every ENEMY_REGIMENT_REFRESH_TICKS.
-let liveVisionGrid = new Uint16Array(0);
-let liveVisionStamp = 0;
-let enemyRegimentTick = 0;
+
 
 function stampLiveVision() {
-  if (liveVisionGrid.length !== WORLD_TILES_X * WORLD_TILES_Y) {
-    liveVisionGrid = new Uint16Array(WORLD_TILES_X * WORLD_TILES_Y);
-    liveVisionStamp = 0;
+  if (state.liveVisionGrid.length !== state.WORLD_TILES_X * state.WORLD_TILES_Y) {
+    state.liveVisionGrid = new Uint16Array(state.WORLD_TILES_X * state.WORLD_TILES_Y);
+    state.liveVisionStamp = 0;
   }
-  liveVisionStamp = (liveVisionStamp % 65535) + 1;
-  if (liveVisionStamp === 1) liveVisionGrid.fill(0);
+  state.liveVisionStamp = (state.liveVisionStamp % 65535) + 1;
+  if (state.liveVisionStamp === 1) state.liveVisionGrid.fill(0);
   const stamp = (px: number, py: number, offsets: Array<[number, number]>) => {
     const tx = Math.floor(px / TILE_SIZE);
     const ty = Math.floor(py / TILE_SIZE);
     for (const [dx, dy] of offsets) {
       const x = tx + dx;
       const y = ty + dy;
-      if (x >= 0 && y >= 0 && x < WORLD_TILES_X && y < WORLD_TILES_Y) liveVisionGrid[y * WORLD_TILES_X + x] = liveVisionStamp;
+      if (x >= 0 && y >= 0 && x < state.WORLD_TILES_X && y < state.WORLD_TILES_Y) state.liveVisionGrid[y * state.WORLD_TILES_X + x] = state.liveVisionStamp;
     }
   };
   for (const p of players.values()) stamp(p.x, p.y, PLAYER_VISION_OFFSETS);
@@ -15227,8 +12749,8 @@ function stampLiveVision() {
 function inLiveVision(px: number, py: number): boolean {
   const tx = Math.floor(px / TILE_SIZE);
   const ty = Math.floor(py / TILE_SIZE);
-  if (tx < 0 || ty < 0 || tx >= WORLD_TILES_X || ty >= WORLD_TILES_Y) return false;
-  return liveVisionGrid[ty * WORLD_TILES_X + tx] === liveVisionStamp;
+  if (tx < 0 || ty < 0 || tx >= state.WORLD_TILES_X || ty >= state.WORLD_TILES_Y) return false;
+  return state.liveVisionGrid[ty * state.WORLD_TILES_X + tx] === state.liveVisionStamp;
 }
 
 function enemyRegimentsNow(): EnemyRegimentSnapshot[] {
@@ -15286,7 +12808,7 @@ function enemyRegimentsNow(): EnemyRegimentSnapshot[] {
     if (reg?.sheltering) snap.sheltering = true;
     // Phase 6: morale bar and "Outflanked!" on the enemy banner.
     if (reg) snap.morale = Math.round(reg.morale);
-    if (reg?.outflankedTick !== undefined && cycleTick - reg.outflankedTick <= ENEMY_OUTFLANKED_SHOW_TICKS) snap.outflanked = true;
+    if (reg?.outflankedTick !== undefined && state.cycleTick - reg.outflankedTick <= ENEMY_OUTFLANKED_SHOW_TICKS) snap.outflanked = true;
     const flankers = reg ? reg.flankIds.map((fid) => mobs.get(fid)).filter((m): m is Mob => !!m && m.tactic === "flank") : [];
     const end = flankers[0]?.flankWaypoints?.[flankers[0].flankWaypoints.length - 1];
     // Only a flank whose runners are in sight (the arc itself is the warning).
@@ -15308,18 +12830,18 @@ setInterval(() => {
   const tickStart = TEST_HOOKS ? performance.now() : 0;
   // Strategy mode phase 5: time scale (see timeScale). Paused / loading: no steps, snapshots every tick.
   let stepped = false;
-  if (!isPaused && !simHeldForLoad) {
-    simAccum += timeScale;
-    while (simAccum >= 1) {
+  if (!state.isPaused && !state.simHeldForLoad) {
+    state.simAccum += state.timeScale;
+    while (state.simAccum >= 1) {
       stepSimulation();
-      simAccum -= 1;
+      state.simAccum -= 1;
       stepped = true;
     }
   }
   runDueAutosave();
-  enemyRegimentTick++;
+  state.enemyRegimentTick++;
   // Slow motion: nothing moved this tick, so no snapshot (the client interpolates across the gap).
-  if (!stepped && !isPaused && !simHeldForLoad) {
+  if (!stepped && !state.isPaused && !state.simHeldForLoad) {
     updateVision();
     flushExplored();
     return;
@@ -15389,20 +12911,20 @@ setInterval(() => {
     luxuryItems: stock.luxuryItems,
     gold: stock.gold,
     alcohol: stock.alcohol,
-    happiness: colonyHappiness,
-    marketBuilt,
-    goldShopBuilt,
+    happiness: state.colonyHappiness,
+    marketBuilt: state.marketBuilt,
+    goldShopBuilt: state.goldShopBuilt,
     isNight: night,
-    cycleProgress: (cycleTick % (DAY_TICKS + NIGHT_TICKS)) / (DAY_TICKS + NIGHT_TICKS),
+    cycleProgress: (state.cycleTick % (DAY_TICKS + NIGHT_TICKS)) / (DAY_TICKS + NIGHT_TICKS),
     dayFraction: DAY_TICKS / (DAY_TICKS + NIGHT_TICKS),
-    isPaused,
-    ...(pausedBy ? { pausedBy } : {}),
-    timeScale,
-    ...(timeScaleBy ? { timeScaleBy } : {}),
-    effects: pendingEffects,
+    isPaused: state.isPaused,
+    ...(state.pausedBy ? { pausedBy: state.pausedBy } : {}),
+    timeScale: state.timeScale,
+    ...(state.timeScaleBy ? { timeScaleBy: state.timeScaleBy } : {}),
+    effects: state.pendingEffects,
     // The first standing Town Center (the starting one unless it fell); townCenters has them all.
-    townCenterHp: townCenters[0] ? Math.max(0, townCenters[0].hp) : 0,
-    townCenterMaxHp: townCenterMaxHp(townCenters[0]?.level ?? 1),
+    townCenterHp: state.townCenters[0] ? Math.max(0, state.townCenters[0].hp) : 0,
+    townCenterMaxHp: townCenterMaxHp(state.townCenters[0]?.level ?? 1),
     population: civilianPopulationUsed(),
     populationCap: settlementStatsNow.reduce((n, st) => n + st.cap, 0),
     taskForces: taskForcesForSnapshot(),
@@ -15413,7 +12935,7 @@ setInterval(() => {
     fallowFarmPlots: farmPlotIndices("fallow"),
     wildlife: wildlifeForSnapshot(),
     gravestones,
-    difficulty,
+    difficulty: state.difficulty,
     buildingLevels: buildingLevelsForSnapshot(),
     farmStages: farmStagesForSnapshot(),
     constructionSites: constructionSitesForSnapshot(),
@@ -15421,7 +12943,7 @@ setInterval(() => {
     hearths: hearthsForSnapshot(),
     equipment,
     forgeBusy: forgeBusyForSnapshot(),
-    townCenters: townCenters.map(
+    townCenters: state.townCenters.map(
       (tc, i): TownCenterSnapshot => ({
         x: tc.x,
         y: tc.y,
@@ -15438,20 +12960,20 @@ setInterval(() => {
         garrisonCap: settlementStatsNow[i].garrisonCap,
       })
     ),
-    goal: goalSnapshot,
+    goal: state.goalSnapshot,
     gates: gatesForSnapshot(),
     respawn: respawnWindowSnapshot(),
   };
-  pendingEffects = [];
+  state.pendingEffects = [];
 
   // Small/medium worlds send everyone the same payload. On big worlds each player only gets the mobs and
   // wildlife within view distance + margin (their camera never shows more), keeping snapshots small.
-  const cull = WORLD_TILES_X > SNAPSHOT_CULL_MIN_WORLD && snapshot.type === "snapshot";
+  const cull = state.WORLD_TILES_X > SNAPSHOT_CULL_MIN_WORLD && snapshot.type === "snapshot";
   const sharedPayload = cull ? "" : JSON.stringify(snapshot);
   // Strategy mode phase 5: enemy summaries for strategy-mode players, on the first broadcast once due.
   let enemyJson: string | null = null;
-  if (enemyRegimentTick >= ENEMY_REGIMENT_REFRESH_TICKS && Array.from(players.values()).some((p) => p.view)) {
-    enemyRegimentTick = 0;
+  if (state.enemyRegimentTick >= ENEMY_REGIMENT_REFRESH_TICKS && Array.from(players.values()).some((p) => p.view)) {
+    state.enemyRegimentTick = 0;
     enemyJson = JSON.stringify(enemyRegimentsNow());
   }
   for (const player of players.values()) {
@@ -15470,8 +12992,8 @@ setInterval(() => {
         payload = JSON.stringify({ ...snapshot, mobs: snapshot.mobs.filter((m) => near(m.x, m.y)), wildlife: wl });
       }
       if (enemyJson !== null && player.view) payload = payload.slice(0, -1) + ',"enemyRegiments":' + enemyJson + "}";
-      if (snapshot.type === "snapshot" && player.siteTilesVersion !== ownerVersion) {
-        player.siteTilesVersion = ownerVersion;
+      if (snapshot.type === "snapshot" && player.siteTilesVersion !== state.ownerVersion) {
+        player.siteTilesVersion = state.ownerVersion;
         payload = payload.slice(0, -1) + ',"siteTiles":' + JSON.stringify(Array.from(tileOwner).flat()) + "}";
       }
       player.socket.send(withPlayerHeroes(withPlayerProfile(withPlayerFights(payload, player), player), player));
