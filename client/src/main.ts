@@ -164,7 +164,7 @@ const TOOLS: ToolDef[] = [
   { tile: TileType.IronMinePost, label: "Iron Mine", key: "7", cost: "Free, on ore; place on a mine to upgrade", category: "industry" },
   { tile: TileType.RockMinePost, label: "Quarry", key: "8", cost: "Free, on ore; place on a mine to upgrade", category: "industry" },
   { tile: TileType.Empty, label: "Demolish", key: "9", cost: "", category: "farming" },
-  { tile: TileType.House, label: "Cottage", key: "h", cost: "10 wood (+1 pop per adjacent house or workplace; upgrade by placing on it)", category: "civic" },
+  { tile: TileType.House, label: "Cottage", key: "h", cost: "20 wood + 5 rock (+1 pop per adjacent house or workplace; +1 troop slot to each adjacent unit building; upgrade by placing on it)", category: "civic" },
   { tile: TileType.BarnPost, label: "Barn", key: "b", cost: "15 wood (upgradeable)", category: "farming" },
   { tile: TileType.ChurchPost, label: "Church", key: "c", cost: "15 wood (upgradeable)", category: "civic" },
   // w/a/s/d are movement keys, so the farm hotkeys avoid them.
@@ -197,7 +197,7 @@ const TOOLS: ToolDef[] = [
     tile: TileType.Blacksmith,
     label: "Blacksmith",
     key: "k",
-    cost: "10 wood + 5 iron (upgradeable). Crafts 1 Iron + 1 Wood → 1 Tools",
+    cost: "10 wood + 5 iron (upgradeable). Crafts 1 Iron + 1 Wood → 1 Tools, idles at 30 tools",
     category: "industry",
   },
   {
@@ -5604,8 +5604,16 @@ async function main() {
       keepBtn.style.opacity = keepReady ? "" : "0.5";
       keepBtn.title = keepReady ? "" : "Keep needs a Town Center at level 2";
     }
-    const rows = tcs.map((tc, i) => ({ n: i + 1, used: tc.population ?? 0, cap: tc.populationCap ?? 0, known: tc.populationCap !== undefined }));
-    const key = rows.map((r) => `${r.n}:${r.used}/${r.cap}`).join("|");
+    const rows = tcs.map((tc, i) => ({
+      n: i + 1,
+      used: tc.population ?? 0,
+      cap: tc.populationCap ?? 0,
+      known: tc.populationCap !== undefined,
+      // Barracks housing: soldiers live in their unit buildings, shown apart from the civilian count.
+      troops: tc.troops,
+      troopCap: tc.troopCap ?? 0,
+    }));
+    const key = rows.map((r) => `${r.n}:${r.used}/${r.cap}:${r.troops}/${r.troopCap}`).join("|");
     if (key !== settlementPanelKey) {
       settlementPanelKey = key;
       statSettlementsEl.replaceChildren();
@@ -5621,6 +5629,17 @@ async function main() {
         else if (r.used === r.cap) count.className = "pop-full";
         row.append(label, count);
         statSettlementsEl.append(row);
+        if (r.troops !== undefined && r.troopCap > 0) {
+          const troopRow = document.createElement("div");
+          troopRow.className = "econ-row";
+          const troopLabel = document.createElement("span");
+          troopLabel.textContent = `Settlement ${r.n} troops`;
+          troopLabel.title = "Soldiers live in their unit buildings (each houses its tier headcount + 1 per adjacent house), not in settlement population";
+          const troopCount = document.createElement("span");
+          troopCount.textContent = `${r.troops}/${r.troopCap}`;
+          troopRow.append(troopLabel, troopCount);
+          statSettlementsEl.append(troopRow);
+        }
       }
     }
     const now = performance.now();

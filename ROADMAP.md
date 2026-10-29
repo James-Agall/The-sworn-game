@@ -1591,3 +1591,50 @@ Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 5 (time controls and bat
    Explored Castle Ruin and camps show markers; with "Clear the Castle Ruin" as the goal it reads "Objective".
 7. Right-click an enemy banner with soldiers selected: they attack that regiment. Plain Space still attacks,
    plain [ ] still pick build tools.
+
+## Pop cap rework + wood drain — landed 2026-10-29
+
+- **Barracks housing** (supersedes "soldiers count toward the settlement cap" of 2026-10-28). Soldiers (knight,
+  archer, militia / spearman / pikeman, cavalry) no longer use settlement population (`consumesPopulation`
+  is civilians + bishops again; heroes 2 and siege engines 2 still count). Every unit building houses its own
+  troops (`unitBuildingSlots`): **cap = its tier headcount + 1 per adjacent house** (8 neighbours incl.
+  diagonals, any house tier: the existing `adjacentHouseCount` / neighbourhood convention, max 7). Base
+  headcounts unchanged: Militia 2 / 6 / 10, Hall of the Sworn 1 / 3 / 5, Archery Range 1 / 3 / 5, Stables
+  1 / 2 / 3. `syncGuardBonusAt` fields up to the cap (no settlement check any more); a dead soldier's
+  respawn is dropped if its building has no free slot (a neighbour house was demolished).
+- **Garrison ceiling** gates new unit buildings and their upgrades instead: the base headcounts of a
+  settlement's unit buildings (built + queued, `garrisonGain`) may total at most
+  `SETTLEMENT_GARRISON_CAP_BY_TIER` 12 / 24 / 40 (Town Center level) + `KEEP_GARRISON_PER_LEVEL` 5 per Keep
+  level. Refusal: "Settlement N garrison full (12/12 soldiers) — upgrade the Town Center or build a Keep".
+  House extras ride on top of the ceiling. Old saves: nobody is removed; an over-ceiling settlement just
+  can't add unit buildings.
+- **Houses costlier**: Cottage 10 wood -> 20 wood + 5 rock; Cottage->Big 20 wood + 10 rock + the old goods
+  (1 grain/meat/fruit, 2 clothes); Big->Lv3 30 wood + 15 rock + the old goods (2/2/2, 3 clothes, 2 tools,
+  1 luxury). Houses still give civilian housing (+1/+3/+5) and neighbourhood pairs as before.
+- **Starting settlement**: `TOWN_CENTER_BASE_POPULATION` 10 -> 12, and its soldiers are off the civilian count.
+- **UI**: Colony panel shows "Settlement N troops x/y" under each settlement's population row; unit building
+  info panel: "Troops n/cap", base + house breakdown, the settlement's garrison x/y; Town Center info adds a
+  troops / garrison line; house info names the unit buildings it feeds; Keep info shows +garrison.
+- **Protocol (additive)**: `TownCenterSnapshot` `troops?`, `troopCap?`, `garrisonBase?`, `garrisonCap?`.
+- **Wood drain** ("why is my wood slowly depleting"): reproduced headlessly with a temporary wood ledger on
+  `spend()` / artisan inputs. A default world with no buildings loses nothing; with one Blacksmith the
+  artisan crafted 1 iron + 1 wood -> 1 tool every 4 s by day with **no stock cap**, ~10-11 wood (+ as much
+  iron) per game minute, forever, while tools are only spent on a few upgrades. One Lv1 lumberjack brings
+  ~24-27 wood per game minute by day, so a Blacksmith (more at Lv2/3 or with industrial synergy) eats half
+  of it or more. Fix: `CraftRecipe.stockCap`; the Blacksmith idles at `BLACKSMITH_TOOLS_STOCK_CAP` 30 tools
+  (verified: tools stop at 30, wood flat afterwards). Other sinks are player-driven (construction,
+  upgrades, repairs after raid damage, forging, market).
+- **Tests**: `settlement-pop-test.mjs` extended (base 12; 6 Militia Camps fill a level-1 garrison, the 7th
+  is refused; soldiers leave population unchanged; an adjacent house adds a 3rd militiaman); all pass.
+  `regiment-groups-test.mjs`, `cavalry-siege-test.mjs` re-run: all pass. Not re-run, expected stale: `economy-goods-test`
+  and `upgrades-church-test` assert the old 10-wood house; `camp-hearth-test` asserts knight posts filling
+  the settlement.
+
+**Manual browser check (pop cap rework)**
+1. New game: Colony panel "Settlement 1 1/12". Build a Militia Camp: a "Settlement 1 troops 2/2" row appears,
+   population stays the same.
+2. Place a Cottage diagonally next to the camp (20 wood + 5 rock): a 3rd militiaman walks out, troops 3/3;
+   the camp's info panel says "Troops 3/3" and "2 at Lv1 + 1 from adjacent house".
+3. Keep adding camps / posts: the one that would push the garrison past 12 is refused with the
+   "garrison full" toast; its upgrade button shows the same reason.
+4. Build a Blacksmith: tools climb to 30 and stop; wood stops dropping. Its info panel says it idles at 30.

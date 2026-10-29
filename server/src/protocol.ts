@@ -707,6 +707,13 @@ export interface TownCenterSnapshot {
   populationTierCap?: number;
   // Population added to that cap by the settlement's Keep (10 per Keep level; 0 or omitted: no Keep).
   populationKeepBonus?: number;
+  // Barracks housing (2026-10-29): living soldiers (not in `population`) and the sum of the settlement's
+  // unit buildings' own troop capacities (tier headcount + 1 per adjacent house); the garrison is their
+  // tier headcounts (built + queued) against the Town Center tier / Keep ceiling. Omitted by older servers.
+  troops?: number;
+  troopCap?: number;
+  garrisonBase?: number;
+  garrisonCap?: number;
 }
 
 // Reply to a `buildingInfo` request; every number is computed by the server's own formulas.

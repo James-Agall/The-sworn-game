@@ -1475,7 +1475,10 @@ const WOOD_WALL_COST = 3;
 const STONE_WALL_COST = 3;
 const GATE_WOOD_COST = 10;
 const GATE_ROCK_COST = 5;
-const HOUSE_WOOD_COST = 10;
+// Houses got costlier with barracks housing (2026-10-29): 10 wood -> 20 wood + 5 rock to build; the
+// upgrades' wood doubled and they take rock too (placementCost).
+const HOUSE_WOOD_COST = 20;
+const HOUSE_ROCK_COST = 5;
 const BARN_WOOD_COST = 15;
 const CHURCH_WOOD_COST = 15;
 const CRAFT_BUILDING_WOOD_COST = 10;
@@ -1762,10 +1765,15 @@ interface CraftRecipe {
   inputs: Partial<Record<ResourceKey, number>>;
   output: ResourceKey;
   outputAmount?: number;
+  // The artisan idles once the colony holds this much of the output (so it stops eating its inputs).
+  stockCap?: number;
 }
+// Tools are only spent on a few upgrades, so an uncapped Blacksmith turned ~10 wood + 10 iron a game
+// minute into a tools pile forever (the "wood slowly depleting" report, 2026-10-29).
+const BLACKSMITH_TOOLS_STOCK_CAP = 30;
 const CRAFT_RECIPES: Partial<Record<TileType, CraftRecipe>> = {
   [TileType.TailorShop]: { inputs: { wool: 1, cotton: 1 }, output: "clothes" },
-  [TileType.Blacksmith]: { inputs: { iron: 1, wood: 1 }, output: "tools" },
+  [TileType.Blacksmith]: { inputs: { iron: 1, wood: 1 }, output: "tools", stockCap: BLACKSMITH_TOOLS_STOCK_CAP },
   [TileType.LuxuryWorkshop]: { inputs: { rock: 1, fruit: 1 }, output: "luxuryItems" },
   [TileType.Brewery]: { inputs: { grain: 2 }, output: "alcohol" },
   [TileType.Tavern]: { inputs: { alcohol: 1 }, output: "gold", outputAmount: 10 },
@@ -1825,10 +1833,11 @@ function isCivilianKind(kind: ColonistKind): boolean {
   );
 }
 
-// Every living friendly unit counts toward its settlement's population (soldiers too since 2026-10-28);
-// siege engines count at SIEGE_POPULATION_COST (populationCostOf), Abbey clergy not at all.
+// Civilians and bishops count toward their settlement's population; siege engines and heroes at their
+// cost (populationCostOf), Abbey clergy not at all. Soldiers did from 2026-10-28; since the barracks-housing
+// rework (2026-10-29) each unit building houses its own troops instead (unitBuildingSlots).
 function consumesPopulation(kind: ColonistKind): boolean {
-  return isCivilianKind(kind) || kind === "bishop" || isSoldierKind(kind);
+  return isCivilianKind(kind) || kind === "bishop";
 }
 
 // Saint Wren's Abbey's resident clergy: colonists only so the existing bishop code can drive them.
@@ -1838,7 +1847,8 @@ function isAbbeyClergy(c: Colonist): boolean {
   return tiles[tileIndex(c.postX, c.postY)] === TileType.AbbeyHall;
 }
 
-// What one unit counts for in population: civilians/bishops/soldiers 1 (not Abbey clergy), siege engines their cost.
+// What one unit counts for in population: civilians/bishops 1 (not Abbey clergy), siege engines and heroes
+// their cost, soldiers 0 (housed by their unit building).
 function populationCostOf(c: Colonist): number {
   if (isSiegeKind(c.kind)) return SIEGE_POPULATION_COST;
   if (c.kind === "hero") return HERO_POPULATION_COST;
@@ -1853,7 +1863,8 @@ function civilianPopulationUsed(): number {
   return count;
 }
 
-const TOWN_CENTER_BASE_POPULATION = 10;
+// 10 -> 12 on 2026-10-29 with costlier houses, so the opening settlement isn't housing-starved.
+const TOWN_CENTER_BASE_POPULATION = 12;
 // Every Town Center after the first adds this much to the base.
 const TOWN_CENTER_EXTRA_POPULATION = 5;
 // Settlement population ceiling per Town Center tier (index = level - 1). Tune here.
@@ -1892,6 +1903,10 @@ interface SettlementStat {
   tierCap: number; // the Town Center tier ceiling alone
   keepBonus: number; // 10 per level of this settlement's Keep
   cap: number; // min(housingCap, tierCap + keepBonus)
+  troops: number; // living soldiers of this settlement (they don't count in `used`)
+  troopCap: number; // sum of its unit buildings' own troop capacities (base + adjacent houses)
+  garrisonBase: number; // its unit buildings' tier headcounts, built + queued (checked against garrisonCap)
+  garrisonCap: number; // SETTLEMENT_GARRISON_CAP_BY_TIER + KEEP_GARRISON_PER_LEVEL per Keep level
 }
 
 // Per-settlement population: units by stored settlement, queued worker slots, and the cap = the
@@ -1909,6 +1924,10 @@ function settlementStats(): SettlementStat[] {
     tierCap: settlementTierCap(tc.level),
     keepBonus: 0,
     cap: 0,
+    troops: 0,
+    troopCap: 0,
+    garrisonBase: 0,
+    garrisonCap: settlementGarrisonTierCap(tc.level),
   }));
   if (stats.length === 0) return stats;
   const statNear = (tx: number, ty: number): SettlementStat | undefined => {
@@ -1930,6 +1949,16 @@ function settlementStats(): SettlementStat[] {
         const bonus = KEEP_POPULATION_PER_LEVEL * getBuildingLevel(x, y);
         s.keepBonus += bonus;
         s.housingCap += bonus;
+        s.garrisonCap += KEEP_GARRISON_PER_LEVEL * getBuildingLevel(x, y);
+      }
+    } else if (isMilitaryTile(t)) {
+      const x = i % WORLD_TILES_X;
+      const y = Math.floor(i / WORLD_TILES_X);
+      const slots = unitBuildingSlots(x, y);
+      const s = statNear(x, y);
+      if (s && slots) {
+        s.troopCap += slots.cap;
+        s.garrisonBase += slots.base;
       }
     }
   }
@@ -1938,17 +1967,20 @@ function settlementStats(): SettlementStat[] {
     if (s) s.housingCap++;
   });
   for (const c of colonists.values()) {
+    const soldier = isSoldierKind(c.kind) && !summonedUntil.has(c.id);
     const cost = populationCostOf(c);
-    if (!cost) continue;
+    if (!cost && !soldier) continue;
     const tc = settlementOf(c);
     const s = stats.find((x) => x.tc === tc);
-    if (s) s.used += cost;
+    if (!s) continue;
+    s.used += cost;
+    if (soldier) s.troops++;
   }
   for (const site of constructionSites.values()) {
     const garrison = garrisonGain(site.target, site.prevTile, site.tx, site.ty);
     if (garrison > 0) {
       const s = statNear(site.tx, site.ty);
-      if (s) s.pending += garrison;
+      if (s) s.garrisonBase += garrison;
     } else if (POPULATION_GATED_TILES.includes(site.target) && placementNeedsNewWorkerSlot(site.target, site.tx, site.ty)) {
       const s = statNear(site.tx, site.ty);
       if (s) s.pending++;
@@ -1968,6 +2000,17 @@ function settlementBlocker(tx: number, ty: number, cost = 1): string {
   if (!s || s.used + s.pending + cost <= s.cap) return "";
   const hint = s.housingCap < s.tierCap + s.keepBonus ? "build more houses" : "upgrade the Town Center or build a Keep";
   return `Settlement ${s.number} full (${s.used + s.pending}/${s.cap}) — ${hint}`;
+}
+
+// "" when the settlement nearest (tx, ty) has garrison room for a unit building's `gain` more base
+// soldiers (a new post or an upgrade, see garrisonGain), else why not.
+function garrisonBlocker(tx: number, ty: number, gain: number): string {
+  const stats = settlementStats();
+  if (stats.length === 0) return "No Town Center standing";
+  const key = settlementKeyNear(tx, ty);
+  const s = stats.find((x) => resourceKey(x.tc.x, x.tc.y) === key);
+  if (!s || s.garrisonBase + gain <= s.garrisonCap) return "";
+  return `Settlement ${s.number} garrison full (${s.garrisonBase}/${s.garrisonCap} soldiers) — upgrade the Town Center or build a Keep`;
 }
 
 // Whole-colony population cap: the settlements' effective caps added up.
@@ -2038,9 +2081,60 @@ function findUpgradeTargetFor(tx: number, ty: number, type: TileType): TileCoord
   return getBuildingLevel(tx, ty) < 3 ? { x: tx, y: ty } : null;
 }
 
+// ---- Barracks housing (2026-10-29) ----
+// Soldiers don't use the settlement's (civilian) population: every unit building (Militia Camp line,
+// Hall of the Sworn / castles, Archery Range, Stables) houses its own troops, `cap` = its tier headcount
+// (`base`) + 1 per adjacent house (8 neighbours, diagonals included, any house tier: adjacentHouseCount).
+// syncGuardBonusAt fields soldiers up to `cap`; respawns never exceed it. What gates new unit buildings
+// and their upgrades is the settlement's garrison: the base headcounts of its unit buildings (built +
+// queued) may not exceed SETTLEMENT_GARRISON_CAP_BY_TIER[Town Center level] + KEEP_GARRISON_PER_LEVEL per
+// Keep level (garrisonBlocker). House extras ride on top of that ceiling.
+const SETTLEMENT_GARRISON_CAP_BY_TIER = [12, 24, 40];
+const KEEP_GARRISON_PER_LEVEL = 5;
+
+function settlementGarrisonTierCap(level: number): number {
+  return SETTLEMENT_GARRISON_CAP_BY_TIER[Math.min(Math.max(level, 1), SETTLEMENT_GARRISON_CAP_BY_TIER.length) - 1];
+}
+
+// The unit building at a tile: the kind it fields, its level, tier headcount and own troop capacity.
+function unitBuildingSlots(tx: number, ty: number): { kind: ColonistKind; level: number; base: number; cap: number } | null {
+  const t = tiles[tileIndex(tx, ty)] as TileType;
+  if (!isMilitaryTile(t)) return null;
+  let kind: ColonistKind;
+  let level: number;
+  let base: number;
+  if (t === TileType.KnightPost || t === TileType.CastleLevel2 || t === TileType.CastleLevel3) {
+    kind = "knight";
+    level = castleLevelForTile(t);
+    base = guardCountForLevel(level);
+  } else if (t === TileType.ArcherPost) {
+    kind = "archer";
+    level = getBuildingLevel(tx, ty);
+    base = guardCountForLevel(level);
+  } else if (t === TileType.Stables) {
+    kind = "cavalry";
+    level = getBuildingLevel(tx, ty);
+    base = cavalryCountForLevel(level);
+  } else {
+    level = militiaLevelForTile(t);
+    kind = militiaKindForLevel(level);
+    base = militiaCountForLevel(level);
+  }
+  return { kind, level, base, cap: base + adjacentHouseCount(tx, ty) };
+}
+
+// Living soldiers posted at a unit building (any militia-line kind counts for a Militia Camp).
+function troopsAtPost(tx: number, ty: number, kind: ColonistKind): number {
+  let n = 0;
+  for (const c of colonists.values()) {
+    if (c.postX === tx && c.postY === ty && (c.kind === kind || (isMilitiaLineKind(kind) && isMilitiaLineKind(c.kind)))) n++;
+  }
+  return n;
+}
+
 // Soldiers a military placement adds to its garrison (the post's base headcount after minus before:
-// a new post or an in-place upgrade); 0 for anything else. Checked against the settlement cap like
-// worker slots (handleSetTileInner, upgrade button) and counted as pending while under construction.
+// a new post or an in-place upgrade); 0 for anything else. Checked against the settlement's garrison
+// ceiling (garrisonBlocker: handleSetTileInner, upgrade button) and counted while under construction.
 function garrisonGain(tile: TileType, current: TileType, tx: number, ty: number): number {
   let before = 0;
   let after = 0;
@@ -2671,8 +2765,17 @@ function processRespawnQueue() {
       respawnQueue.splice(i, 1);
       continue;
     }
+    // Barracks housing: a soldier only comes back while its unit building has a free troop slot (a
+    // demolished neighbour house can shrink it); otherwise the replacement is dropped.
+    if (isSoldierKind(req.kind)) {
+      const slots = unitBuildingSlots(req.tx, req.ty);
+      if (slots && troopsAtPost(req.tx, req.ty, slots.kind) >= slots.cap) {
+        respawnQueue.splice(i, 1);
+        continue;
+      }
+    }
     if (!windowNow) continue;
-    // A settlement at its cap makes its dead (soldiers included) wait for the next window.
+    // A settlement at its cap makes its dead civilians wait for the next window (soldiers use their building).
     if (consumesPopulation(req.kind) && settlementBlocker(req.tx, req.ty) !== "") {
       continue;
     }
@@ -3059,6 +3162,7 @@ function updateArtisan(c: Colonist) {
     ([key, amount]) => stock[key as ResourceKey] >= (amount ?? 0)
   );
   if (!inputsReady) return; // don't tick the timer down while waiting on materials
+  if (recipe.stockCap !== undefined && stock[recipe.output] >= recipe.stockCap) return; // enough in store
   c.chopTicksRemaining--;
   if (c.chopTicksRemaining <= 0) {
     for (const [key, amount] of Object.entries(recipe.inputs)) {
@@ -11206,41 +11310,14 @@ function adjacentHouseCount(tx: number, ty: number): number {
   return n;
 }
 
-// Top up one unit building to its tier headcount plus its house bonus. Never removes units.
+// Top up one unit building to its own troop capacity (tier headcount + house bonus, unitBuildingSlots).
+// Never removes units.
 function syncGuardBonusAt(tx: number, ty: number) {
-  const t = tiles[tileIndex(tx, ty)] as TileType;
-  if (!isMilitaryTile(t)) return;
-  let kind: ColonistKind;
-  let level: number;
-  let base: number;
-  if (t === TileType.KnightPost || t === TileType.CastleLevel2 || t === TileType.CastleLevel3) {
-    kind = "knight";
-    level = t === TileType.KnightPost ? 1 : t === TileType.CastleLevel2 ? 2 : 3;
-    base = guardCountForLevel(level);
-  } else if (t === TileType.ArcherPost) {
-    kind = "archer";
-    level = getBuildingLevel(tx, ty);
-    base = guardCountForLevel(level);
-  } else if (t === TileType.Stables) {
-    kind = "cavalry";
-    level = getBuildingLevel(tx, ty);
-    base = cavalryCountForLevel(level);
-  } else {
-    level = t === TileType.MilitiaPost ? 1 : t === TileType.MilitiaCamp2 ? 2 : 3;
-    kind = militiaKindForLevel(level);
-    base = militiaCountForLevel(level);
-  }
-  const target = base + adjacentHouseCount(tx, ty);
-  let have = 0;
-  for (const c of colonists.values()) {
-    if (c.postX === tx && c.postY === ty && (c.kind === kind || (isMilitiaLineKind(kind) && isMilitiaLineKind(c.kind)))) have++;
-  }
+  const slots = unitBuildingSlots(tx, ty);
+  if (!slots) return;
+  let have = troopsAtPost(tx, ty, slots.kind);
   for (const q of respawnQueue) if (q.tx === tx && q.ty === ty) have++;
-  for (let i = have; i < target; i++) {
-    // House-bonus soldiers count toward the settlement too: they wait (next sync) while it is full.
-    if (settlementBlocker(tx, ty) !== "") break;
-    spawnColonistForPost(tx, ty, kind, level);
-  }
+  for (let i = have; i < slots.cap; i++) spawnColonistForPost(tx, ty, slots.kind, slots.level);
 }
 
 function syncGuardBonusesAround(tx: number, ty: number) {
@@ -11329,10 +11406,10 @@ function placementCost(tile: TileType, current: TileType, tx: number, ty: number
       return SIEGE_WORKSHOP_COST;
     case TileType.House:
       if (current === TileType.BigHouse) {
-        return { wood: HOUSE_WOOD_COST, grain: 2, meat: 2, fruit: 2, clothes: 3, tools: 2, luxuryItems: 1 };
+        return { wood: 30, rock: 15, grain: 2, meat: 2, fruit: 2, clothes: 3, tools: 2, luxuryItems: 1 };
       }
-      if (current === TileType.House) return { wood: HOUSE_WOOD_COST, grain: 1, meat: 1, fruit: 1, clothes: 2 };
-      return { wood: HOUSE_WOOD_COST };
+      if (current === TileType.House) return { wood: HOUSE_WOOD_COST, rock: 10, grain: 1, meat: 1, fruit: 1, clothes: 2 };
+      return { wood: HOUSE_WOOD_COST, rock: HOUSE_ROCK_COST };
     case TileType.BarnPost:
       return { wood: BARN_WOOD_COST };
     case TileType.ChurchPost:
@@ -11679,7 +11756,7 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
   }
   const garrison = garrisonGain(tile, current, tx, ty);
   if (garrison > 0) {
-    const full = settlementBlocker(tx, ty, garrison);
+    const full = garrisonBlocker(tx, ty, garrison);
     if (full) {
       sendEvent(player, "build", full);
       return;
@@ -13761,7 +13838,8 @@ function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingIn
     bonuses.push(
       `Lv${tc.level}: +${pct(levelBonus(tc.level, TOWN_CENTER_LEVEL_BONUS_PER_STEP))} productivity and unit damage (colony-wide; the highest Town Center counts)`
     );
-    bonuses.push(`Settlement population cap ${stat?.cap ?? 0}: housing ${stat?.housingCap ?? 0} (10 base, +5 per extra Town Center, +5 per level, houses, Keep), tier ceiling ${stat?.tierCap ?? 0}${stat && stat.keepBonus > 0 ? ` + Keep ${stat.keepBonus}` : ""}`);
+    bonuses.push(`Settlement population cap ${stat?.cap ?? 0}: housing ${stat?.housingCap ?? 0} (${TOWN_CENTER_BASE_POPULATION} base, +${TOWN_CENTER_EXTRA_POPULATION} per extra Town Center, +${TOWN_CENTER_LEVEL_POPULATION_BONUS} per level, houses, Keep), tier ceiling ${stat?.tierCap ?? 0}${stat && stat.keepBonus > 0 ? ` + Keep ${stat.keepBonus}` : ""}`);
+    bonuses.push(`Troops ${stat?.troops ?? 0}/${stat?.troopCap ?? 0} (housed by unit buildings, not population); garrison ${stat?.garrisonBase ?? 0}/${stat?.garrisonCap ?? 0} base soldiers`);
     bonuses.push(`${tc.level} builder${tc.level === 1 ? "" : "s"} (one per level)`);
   } else if (isHouseTile(t)) {
     staffing = `Beds ${houseOccupancy(tx, ty)}/${houseCapacity(t)}`;
@@ -13773,6 +13851,11 @@ function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingIn
     }
     bonuses.push(`+${houseCapacity(t)} population (tier ${level})`);
     if (neighbours > 0) bonuses.push(`+${neighbours} population from adjacent houses / workplaces / barracks`);
+    let barracks = 0;
+    for (const [dx, dy] of NEIGHBOURS_8) {
+      if (inBounds(tx + dx, ty + dy) && isMilitaryTile(tiles[tileIndex(tx + dx, ty + dy)] as TileType)) barracks++;
+    }
+    if (barracks > 0) bonuses.push(`+1 troop slot to each of ${barracks} adjacent unit building${barracks === 1 ? "" : "s"}`);
   } else if (level > 1 && !isMilitaryTile(t) && !isTowerTile(t) && t !== TileType.Keep) {
     bonuses.push(`Lv${level}: ${pct(levelBonus(level))} shorter work cycles`);
   }
@@ -13780,8 +13863,14 @@ function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingIn
   if (isMilitaryTile(t)) {
     const army = armyDamageMultiplier(tx, ty) - 1;
     if (army > 0) bonuses.push(`Unit damage +${pct(army)} (adjacent army buildings / Blacksmith, Town Center level)`);
-    const houses = adjacentHouseCount(tx, ty);
-    if (houses > 0) bonuses.push(`+${houses} extra unit${houses === 1 ? "" : "s"} from adjacent houses`);
+    const slots = unitBuildingSlots(tx, ty);
+    if (slots) {
+      const houses = slots.cap - slots.base;
+      staffing = `Troops ${troopsAtPost(tx, ty, slots.kind)}/${slots.cap}`;
+      bonuses.push(`Houses its own troops (not settlement population): ${slots.base} at Lv${slots.level}${houses > 0 ? ` + ${houses} from adjacent house${houses === 1 ? "" : "s"}` : "; each adjacent house adds +1"}`);
+      const stat = settlementStats().find((x) => resourceKey(x.tc.x, x.tc.y) === settlementKeyNear(tx, ty));
+      if (stat) bonuses.push(`Settlement ${stat.number} garrison ${stat.garrisonBase}/${stat.garrisonCap} base soldiers (Town Center tier, Keep)`);
+    }
   }
   if (t === TileType.ChurchPost) bonuses.push(`Heals ${healAmountFor(tx, ty)} per prayer`);
   if (t === TileType.BuildersGuild) bonuses.push(`${level} builder${level === 1 ? "" : "s"} (one per level)`);
@@ -13791,10 +13880,11 @@ function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingIn
   if (t === TileType.Keep) {
     const stat = settlementStats().find((x) => resourceKey(x.tc.x, x.tc.y) === settlementKeyNear(tx, ty));
     staffing = `Population ${stat?.used ?? 0}/${stat?.cap ?? 0}`;
-    bonuses.push(`Keep Lv ${level}: +${KEEP_POPULATION_PER_LEVEL * level} population`);
+    bonuses.push(`Keep Lv ${level}: +${KEEP_POPULATION_PER_LEVEL * level} population, +${KEEP_GARRISON_PER_LEVEL * level} garrison`);
     bonuses.push(`Recruits up to ${level} hero${level === 1 ? "" : "es"} (one per Keep level), ${HERO_POPULATION_COST} population each`);
   }
   if (t === TileType.Blacksmith) {
+    bonuses.push(`Crafts tools until the colony holds ${BLACKSMITH_TOOLS_STOCK_CAP}, then idles (saves wood and iron)`);
     bonuses.push(`Forges tier-${level} armour / weapons (tier = level) for knights, spearmen, pikemen and cavalry`);
   }
   if (t === TileType.SiegeWorkshop) {
@@ -13834,8 +13924,8 @@ function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingIn
       else if (!isInPlaceUpgrade(placeTile, t, tx, ty)) reason = "Can't upgrade yet";
       else if (POPULATION_GATED_TILES.includes(placeTile) && placementNeedsNewWorkerSlot(placeTile, tx, ty) && settlementBlocker(tx, ty))
         reason = settlementBlocker(tx, ty);
-      else if (garrisonGain(placeTile, t, tx, ty) > 0 && settlementBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty)))
-        reason = settlementBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty));
+      else if (garrisonGain(placeTile, t, tx, ty) > 0 && garrisonBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty)))
+        reason = garrisonBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty));
       else if (!instantBuild && !anyBuilderAlive() && placeTile !== TileType.TownCenter) reason = "No builders available";
       const tierNote =
         t === TileType.TownCenter
@@ -14505,6 +14595,10 @@ setInterval(() => {
         populationCap: settlementStatsNow[i].cap,
         populationTierCap: settlementStatsNow[i].tierCap,
         populationKeepBonus: settlementStatsNow[i].keepBonus,
+        troops: settlementStatsNow[i].troops,
+        troopCap: settlementStatsNow[i].troopCap,
+        garrisonBase: settlementStatsNow[i].garrisonBase,
+        garrisonCap: settlementStatsNow[i].garrisonCap,
       })
     ),
     goal: goalSnapshot,

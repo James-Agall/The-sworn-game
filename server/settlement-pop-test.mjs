@@ -6,6 +6,9 @@
 //   per-settlement counts add up to the total; save/load keeps the assignments.
 //   tier caps 20/30/40; the Keep (separate building): refused at Town Center level 1, allowed at 2,
 //   levels 1..3 add +10/+20/+30 to the settlement cap, demolishing removes it, save/load keeps it.
+//   barracks housing (2026-10-29): Town Center base 12; soldiers don't use settlement population, each unit
+//   building houses its own (tier headcount + 1 per adjacent house: troops/troopCap), and unit buildings are
+//   gated by the settlement's garrison ceiling (12 base soldiers at Town Center level 1).
 import WebSocket from "ws";
 import { spawn } from "node:child_process";
 import { mkdtempSync, existsSync } from "node:fs";
@@ -20,7 +23,7 @@ const result = (ok, msg) => {
   console.log(`${ok ? "PASS" : "FAIL"} ${msg}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const T = { Empty: 0, TownCenter: 12, HunterHut: 50, Keep: 73 };
+const T = { Empty: 0, TownCenter: 12, HunterHut: 50, Keep: 73, MilitiaPost: 32, House: 13 };
 const POI = new Set([36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48]);
 const TILE = 32;
 const REACH = TILE * 2.5;
@@ -106,17 +109,17 @@ function townCenterSpots(c, tcs) {
 
 const tele = (c, tx, ty) => c.hookCall("teleportPlayer", { x: tx * TILE + 16, y: ty * TILE + 16 });
 // Tries a hut on free tiles next to (tx, ty); returns "placed" | "refused" (event text) | "none".
-async function tryHut(c, tx, ty) {
+async function tryHut(c, tx, ty, tile = T.HunterHut, pick = (spots) => spots[0]) {
   await tele(c, tx + 3, ty + 3);
   await c.freshSnap();
-  const spot = freeTilesNear(c).find((s) => Math.hypot(s.x - tx, s.y - ty) < 8);
+  const spot = pick(freeTilesNear(c).filter((s) => Math.hypot(s.x - tx, s.y - ty) < 8));
   if (!spot) return { r: "none" };
   const before = c.events.length;
-  c.send({ type: "setTile", tileX: spot.x, tileY: spot.y, tile: T.HunterHut });
+  c.send({ type: "setTile", tileX: spot.x, tileY: spot.y, tile });
   await c.freshSnap();
   await c.freshSnap();
-  if (c.tileAt(spot.x, spot.y) === T.HunterHut) return { r: "placed" };
-  return { r: "refused", text: c.events.slice(before).find((t) => /^Settlement/.test(t)) ?? "" };
+  if (c.tileAt(spot.x, spot.y) === tile) return { r: "placed", spot };
+  return { r: "refused", spot, text: c.events.slice(before).find((t) => /^Settlement/.test(t)) ?? "" };
 }
 
 try {
@@ -158,6 +161,45 @@ try {
   const state = () => c.snap.townCenters.map((t) => ({ pop: t.population, cap: t.populationCap, tier: t.populationTierCap }));
   console.log("initial", JSON.stringify(state()));
   result(state()[0].tier === 20 && state()[1].tier === 20, "both Town Centers report tier cap 20 at level 1");
+  result(state()[0].cap === 12, `Town Center base housing is 12 (cap ${state()[0].cap})`);
+
+  // Barracks housing, in settlement 2 (level 1: garrison ceiling 12 = six 2-man Militia Camps).
+  {
+    const tcs = () => c.snap.townCenters[1];
+    const pop0 = tcs().population;
+    const posted = (s) => c.snap.colonists.filter((u) => u.postX === s.x && u.postY === s.y).length;
+    // Spread the camps out so a later house next to the first touches only that one.
+    const far = (spots) => spots.find((s) => !c.snap.colonists.some((u) => /militia/.test(u.kind) && Math.hypot(u.postX - s.x, u.postY - s.y) < 3)) ?? null;
+    const camps = [];
+    let refusedCamp = null;
+    for (let i = 0; i < 12 && !refusedCamp; i++) {
+      const r = await tryHut(c, tc2.x + ((i * 3) % 9) - 4, tc2.y + Math.floor(i / 3) * 3 - 4, T.MilitiaPost, far);
+      if (r.r === "placed") camps.push(r.spot);
+      else if (r.r === "refused") refusedCamp = r;
+    }
+    await c.freshSnap();
+    result(camps.length === 6 && refusedCamp && /^Settlement 2 garrison full \(12\/12 soldiers\)/.test(refusedCamp.text),
+      `6 Militia Camps fit the level-1 garrison, the 7th is refused: "${refusedCamp?.text}" (${camps.length} placed)`);
+    result(tcs().population === pop0, `soldiers don't use settlement population (${pop0} -> ${tcs().population})`);
+    result(tcs().troops === 12 && tcs().troopCap === 12 && tcs().garrisonBase === 12 && tcs().garrisonCap === 12,
+      `settlement 2 troops ${tcs().troops}/${tcs().troopCap}, garrison ${tcs().garrisonBase}/${tcs().garrisonCap}`);
+    // A house next to the first camp gives it one more troop slot, filled at once.
+    const camp = camps[0];
+    let houseOk = false;
+    await tele(c, camp.x, camp.y + 2);
+    await c.freshSnap();
+    for (const [dx, dy] of [[1, 1], [-1, 1], [1, -1], [-1, -1], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const hx = camp.x + dx, hy = camp.y + dy;
+      if (c.tileAt(hx, hy) !== T.Empty || c.snap.colonists.some((u) => Math.floor(u.x / TILE) === hx && Math.floor(u.y / TILE) === hy)) continue;
+      c.send({ type: "setTile", tileX: hx, tileY: hy, tile: T.House });
+      await c.freshSnap();
+      await c.freshSnap();
+      if (c.tileAt(hx, hy) === T.House) { houseOk = true; break; }
+    }
+    await c.freshSnap();
+    result(houseOk && posted(camp) === 3 && tcs().troopCap >= 13 && tcs().garrisonBase === 12,
+      `adjacent house: camp fields ${posted(camp)} (2 + 1), troops ${tcs().troops}/${tcs().troopCap}, garrison still ${tcs().garrisonBase}`);
+  }
 
   // Fill settlement 1 until a post is refused.
   let refused = null;
