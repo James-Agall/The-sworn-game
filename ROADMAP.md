@@ -1902,6 +1902,7 @@ change: code moved verbatim (plus `export`), comments kept, exported names uncha
 | `saves.ts` | 522 | snapshot/apply world, migrations, slots, autosave, restart (`resetWorld`) |
 | `net.ts` | 352 | the `httpServer` / `wss` objects (created at import, no side effect; `listen(PORT)` stays in index, `PORT` is in constants.ts), broadcasts, welcome, fog of war, fight notifiers, view culling |
 | `testhooks.ts` | 661 | `handleTestHook` (COLONY_TEST_HOOKS) |
+| `clans.ts` | ~200 | (added with clans) clan context (`withClan` / `enterClan` / `forEachClan`), tile / unit clan helpers, `foundClan` |
 
 State conventions (the base for the per-clan refactor, QUEUE item 4):
 - **`state`** (`state.ts`, type `ServerState`): every former module-level `let` (all 110 were reassigned somewhere) is a
@@ -1912,8 +1913,9 @@ State conventions (the base for the per-clan refactor, QUEUE item 4):
   `scaledCount` counts) assigned right after it in declaration order; two that need domain tables are assigned where
   they were declared (`state.wildlifeRespawnCooldown` in wildlife.ts, `state.goalSnapshot` in goals.ts).
 - **Containers** that are only mutated in place (`players`, `colonists`, `mobs`, `gates`, `tileOwner`, `regiments`,
-  ...) are plain exported consts in `state.ts`, grouped by domain. Containers with computed initial data (`stock =
-  initialStock()`) stay in their domain module.
+  ...) are plain exported consts in `state.ts`, grouped by domain. Containers with computed initial data stay in their domain module.
+  Since clans the per-clan values (stock, equipment, task forces, goals, ...) are `state` accessors forwarding to
+  the active clan (see "Clans — landed"); a new per-clan value goes into `ClanFields` + `CLAN_FIELD_KEYS`.
 - New module-level mutable values: a field on `state` (add it to the right `*Fields` interface) if it is ever
   reassigned; an exported const in `state.ts` if it is only mutated. Never `export let`.
 - **Import / evaluation order:** `constants.ts` and `state.ts` are runtime leaves (state imports only constants); every
@@ -1926,6 +1928,98 @@ State conventions (the base for the per-clan refactor, QUEUE item 4):
 - Config read from the environment at import (`PORT`, `TEST_HOOKS`, `SAVE_DIR`, `AUTOSAVE_ENABLED`) is in constants.ts.
 - `SAVE_DIR` resolves `../saves/` from `import.meta.url` in constants.ts: keep server modules flat in `server/src/`
   (live.sh copies the whole directory; nested directories would work for it but would move that path).
+
+## Clans — landed 2026-10-29
+
+QUEUE item 4 (per-clan state) + plan phase "A2: clans" (`~/docs/colony2d/PLAN-forts-diplomacy-moats.md`,
+decision 1). Commits "Clans stage 1-4". A clan owns its own stock, armour/weapon stock, goal track (and Castle Ruin
+completion), happiness, market / gold-shop flags, task forces, army regiments / order groups, colonists, Town Centers
+(so settlements and population / garrison caps), raid, hero roster and a relations placeholder. Players in one clan
+share all of it exactly as before; **everyone in clan 0 = the old game** (the regression sample passes unchanged).
+
+Design as built:
+- **State**: `state.ts` `Clan` = `ClanFields` (stock, equipment, marketBuilt, goldShopBuilt, colonyHappiness,
+  goalIndex, goalSnapshot, castleCleared, campsDestroyed, army / order snapshot signatures, taskForces,
+  taskForceMax) + id, name, color, foundedDay, `relations` (phase D hook, empty). `clans` (array, `clans[i].id === i`,
+  clan 0 always exists). The ClanFields are **accessor properties on `state` forwarding to `state.clan`** (the active
+  clan), so `state.stock.wood += 1` works on whichever clan the current context set; the old module consts `stock`
+  (economy.ts), `equipment`, `taskForces`, `taskForceMax` (state.ts) are gone: use `state.stock` / `state.equipment` /
+  `state.taskForces`.
+- **Context** (`clans.ts`): `withClan(clan, fn)`, `enterClan(id)` / `resetClan()` (hot loops, no closure, a no-op with
+  one clan), `forEachClan(fn)`. Outside any context the active clan is clan 0. Set by: every client message (sender's
+  clan, index.ts `handleMessage`), each colonist's update, construction-site completion, forges, siege workshops,
+  hero recruits, tower shots (kill gold), farm harvests (barn's clan), respawn entries, and per-clan loops in
+  `stepSimulation` (dawn food + desertion, happiness, raid spawn, goals) and player morale. `state.eventClan`:
+  `broadcastEvent` inside a clan context only reaches that clan's players (world events reach everyone).
+- **Ownership**: `tileClan` (sparse tile index -> clan id >= 1, missing = clan 0, so single-clan games and old saves
+  keep it empty; NPC site tiles stay in `tileOwner`) set when a player's placement is accepted, cleared by
+  `broadcastTileUpdate` when a tile stops being a building (`isClanOwnableTile`). Colonists, Town Centers and respawn
+  entries carry `clan?` (missing = 0; colonists take their post tile's clan at spawn). `townCentersOfClan(id)` /
+  `clanTownCenters()`; `nearestTownCenter(x, y, list)` defaults to every clan's (mob code) and colony code passes its
+  clan's. `settlementStatsAll()` computes every clan's settlements in one map pass (each house / Keep / barracks counts
+  for the nearest Town Center of its own clan; numbered per clan); `settlementStats()` = the active clan's.
+- **Founding / joining**: ws URL `?clan=new` founds a clan (name "Clan N", colour = the founder's player colour):
+  `findClanSite` picks a random legal Town Center spot >= max(24, map side / 4) tiles from every Town Center (5x5 clear,
+  outside Abbey / Castle Ruin / fort tiles), the clan gets the starting stock, a Town Center with its starting builder
+  and a fresh goal track whose "Survive N nights" count from its founding day. `?clan=<id>` joins an existing clan;
+  anything else joins clan 0. Client: main-menu **Clan** choice (Join existing clan / Found my own clan) sent as
+  `?clan=`; a page URL `?clan=new` / `?clan=2` overrides it.
+- **Snapshot (additive)**: the world part is built once per tick, the clan part (stock, happiness, population, army
+  regiments, order groups, task forces, equipment, own `townCenters`, goal, respawn) once per clan. With 2+ clans:
+  `clanId`, `clans` [{id, name, color}], and per player (only when changed) `clanTiles` = [index, clan] for every
+  player building of any clan (clan 0's included). `PlayerSnapshot.clan?`, `ColonistSnapshot.clan?`. Single clan: none
+  of these fields, so the payload is the old one.
+- **Saves**: no SAVE_VERSION bump. Clan 0 lives in the old top-level fields; optional `clans` (clans 1+) and
+  `tileClans` (flattened). A save without them loads as one clan. Restart / load drop every founded clan from memory
+  first and put every connected player in clan 0 (a loaded save's clans come back, but players rejoin clan 0; use
+  `?clan=<id>` to rejoin one).
+
+Defaults adopted (decision 1's open sub-questions):
+- **Neutral clans, no PvP**: colonists, towers and players only ever target mobs (unchanged), so units of different
+  clans never fight. Another clan's buildings can't be demolished / built over / upgraded / repaired / gate-locked /
+  used to queue siege or forging / recruit / learn spells ("That belongs to Clan N"), their units can't be commanded or
+  put in task forces (ids are filtered server-side; the client can't select them), building info shows
+  "Clan N: <building>" with no actions. Gates stay passable for every clan's units (colony gates only stop hostile
+  movers). Relations are phase D: `Clan.relations` is the hook.
+- **Shared world**: one map, fog / explored tiles, day clock, time controls (pause / speed apply to everyone),
+  difficulty, wildlife, NPC sites, bosses and mobs. Mobs target the nearest building / unit of any clan.
+- **Raids**: the same midday schedule; every clan with a Town Center gets its own raid, spawned around and aimed at its
+  own Town Centers, sized by the world day (a clan founded late faces the world's current raid size).
+- **Goals and Castle Ruin per clan**: the Ogre Warlord's kill completes the final goal of the clan whose unit / player /
+  tower killed it.
+- **Ward Stones**: one Ward Priest per world, so only clan 0 may raise Ward Stones (refused for other clans).
+- **Happiness** with 2+ clans is recomputed once a second per clan (one map scan each) instead of every tick.
+
+Caveats: industrial synergies (adjacency) still count neighbouring buildings of another clan; strategy-mode live
+vision / enemy intel is shared by all clans; hero profiles are per player (not per clan); a clan whose last Town
+Center falls keeps its stock and can rebuild (respawn waits like before); there is no leave-clan / switch-clan in game
+(reconnect with `?clan=`).
+
+Tests: new `server/clans-test.mjs` (own server, world 96, port from the runner / 22190): same-clan shared stock, no
+clan fields with one clan, `?clan=new` founds clan 1 (own Town Center 24+ tiles away, starting stock, population 1/12,
+goal track, founder spawns there, clan 0 unchanged), separate stock, a clan-1 House in `clanTiles`, completes only clan
+1's first goal, clan 0 can't demolish it, regiments hold only own units, clan 0 can't order clan 1's knight but clan 1
+can, two clans' knights side by side never fight, save keeps clan 1 + its tiles + stock and loads back with 2 clans,
+an old save (clan fields stripped) loads as one clan shared by everyone: 27/27. Regression sample (owner-map
+orders-test regiment-groups player-morale scale-rider settlement-pop raid-morale tactics-test starting-stock) passes
+after every stage, except owner-map's known-flaky "snapshot gate carries GATE_FLAG_FOREIGN" (a snapshot-timing race in
+the test, also fails on 9ee5a7f).
+
+**Manual browser check (clans)** — two browser windows on the same server:
+1. Window 1: main menu, Clan = Join existing clan, New Game. Play as before (one clan: nothing looks different).
+2. Window 2: Clan = Found my own clan, New Game. A toast "You play for Clan 1"; you spawn at a new Town Center far
+   from the first; the stock bar shows the starting stock (not window 1's), population 1/12, the goal card starts at
+   "Place a building".
+3. Window 1 sees the new Town Center tinted in Clan 1's colour and its builder with a coloured ring; window 2 sees
+   window 1's buildings tinted with the colony's gold.
+4. Window 2 builds a House: its stock drops, window 1's doesn't; its goal ticks over, window 1's doesn't.
+5. Window 1 walks over and tries to demolish / upgrade / repair the House: refused with "That belongs to Clan 1";
+   clicking it shows "Clan 1: House" with no buttons.
+6. Box-select around Clan 1's units from window 1: nothing is selected. Soldiers of both clans standing together never
+   fight; both fight the night's raids (each clan gets its own raid at its own Town Center).
+7. Strategy mode in each window: each sees only its own regiments in the cards.
+8. Save in window 1, load it: both clans come back (window 2 is now in clan 0; reload window 2 with `?clan=1` in the
+   page URL to play clan 1 again).
 
 ## Known failing tests — 2026-10-29 (test harness)
 
