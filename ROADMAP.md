@@ -1810,6 +1810,40 @@ stamps owned tiles at world-gen yet (that is phase B's stamper); only the test h
   repo's, with `@colony/shared` pointing at the snapshot's own `shared/`, so repo edits never reach the live copy.
 - No behaviour change.
 
+## Scale pass + goblin wolf rider — landed 2026-10-29
+Bigger-feeling world without a grid change (TILE_SIZE stays 32; QUEUE.md "bigger-feeling world").
+- **Buildings (client):** `BUILDING_VISUAL_SCALE` in `client/src/main.ts` draws House / Big House / Lv2 House x1.3 on top
+  of the box fit (and of `TILE_SPRITE_SIZE_FACTOR`). Still bottom-centre anchored on the tile's bottom edge and
+  depth-sorted by tile index, so the extra size overflows up and sideways; construction sites use the same path. The
+  tier "never shrink on upgrade" heights include the factor. `buildingTileAt`: a click on the part of a scaled house
+  that overflows into the (non-building) tile above opens that house. The build tool's cursor box stays the 1-tile
+  footprint; build-panel icons are unchanged.
+- **Monster kind scale (shared):** `MOB_KIND_SCALE` (troll x1.3, ogre x1.4, so the Ogre Warlord too) and
+  `mobSizeScale(m)` = kind scale x the mob's own roll x `BOSS_RENDER_SCALE`. The client's `mobRenderScale` uses it (sprite,
+  hp bar, click radius); the server's `mobBodyRadius` (separation / nudge, melee slot rings, attacker caps, formation
+  spacing; capped at 0.7 tile) and melee reach (`applyMobSize`: config range x kind scale x roll) grow with it, and a
+  melee soldier strikes a grown mob from `mobHitBonus` (its extra body radius) further out. Humans unchanged.
+- **Size variation (server-owned):** `MOB_SIZE_RANGE` (goblin / wolf / orc / goblin rider 0.85-1.2, the other normal mobs
+  0.93-1.08; siege engines, Half-Latch, deserters none). Rolled from a hash of the mob's id (median 1), stored on the
+  mob (`scale`, saved with it; old saves = 1) and sent as the additive `MobSnapshot.scale` only when != 1. maxHp x s,
+  damage x (1 + (s-1)/2) (to 0.1), speed x (1 - (s-1)/2): mean hp x damage ~1.02 of base, so raid sizes, morale and
+  enemy intel power (sums the scaled hp / damage) stay where they were. Bosses (Warlord, mini-boss elites) take no roll.
+- **Goblin wolf rider** (`goblinRider`, role `fast`): 30 hp / 7 dmg / speed 125 / melee, unlocks raid day 8. Raids:
+  non-core greenskin extra (weight 2) and a `riderPack` faction (wedge, weight 1: the occasional wandering pack). Reuses
+  the cavalry charge (`trackCharge` / `takeChargeBonus`): the first blow on a unit after a 5-tile straight run deals x2,
+  then it rides off for 1.5 s (hit and run) and comes back. Takes x1.6 from pikemen, x1.3 from spearmen. Flanks as any
+  fast mob; loot / gold like any mob by its stats. Label "goblin wolf rider" in events, "Goblin wolf riders" banner for an
+  all-rider regiment. Client: optional `goblinRiderWalk0-3` / `goblinRiderAttack0-2` (SPRITES.md #83), fallback the wolf
+  set tinted warm brown.
+- Tests: `server/scale-rider-test.mjs` (`npm test -- scale-rider`). mob-kinds / difficulty / goals-castle now expect the
+  size-scaled stats (snapshot `scale`).
+- Browser checklist: (1) build a few cottages in a row / upgrade one to Big House and Lv2: bigger, bottoms on their
+  tiles, rows in front overlap rows behind correctly, the construction site is the same size, clicking the roof opens
+  the house; (2) a troll / ogre (or the Castle Ruin's Warlord) is visibly bigger than before and soldiers fight it from
+  its edge, not inside it; (3) an orc / goblin / wolf pack shows mixed sizes; (4) from day 8 (time travel), wolf riders
+  (brown wolves) in a greenskin raid gallop in, the first hit on a soldier lands hard, they veer off and come back;
+  pikemen drop them fast.
+
 ## Known failing tests — 2026-10-29 (test harness)
 
 `npm test` (`scripts/run-tests.mjs`, see README "Tests") runs every `server/*-test.mjs` and `client/*-test.mjs`.

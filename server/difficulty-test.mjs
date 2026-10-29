@@ -131,10 +131,13 @@ result(raidCount === expectedRaid, `day-0 raid at the day midpoint = ${raidCount
 while (!a.snap.isNight) await a.nextSnaps(1);
 console.log(`[${el()}] night fell; ${dayMobIds.size} world-gen (guardian) mobs excluded`);
 
-const expectedHp = (kind) => Math.max(1, Math.round(DAY0[kind].maxHp * HARD.mobHp));
+// Scale pass: on top of the difficulty, each raid mob's maxHp is x its rolled size s (snapshot `scale`) and
+// its damage x (1 + (s - 1) / 2), to 0.1 (server applyMobSize).
+const expectedHp = (kind, s = 1) => Math.max(1, Math.round(Math.max(1, Math.round(DAY0[kind].maxHp * HARD.mobHp)) * s));
 const expectedDmg = Object.fromEntries(
   Object.entries(DAY0).map(([k, v]) => [k, Math.max(1, Math.round(v.damage * HARD.mobDamage))])
 );
+const sizedDmg = (kind, s = 1) => (s === 1 ? expectedDmg[kind] : Math.max(1, Math.round(expectedDmg[kind] * (1 + (s - 1) * 0.5) * 10) / 10));
 const checked = new Set();
 let hpOk = 0;
 let hpBad = [];
@@ -148,8 +151,8 @@ while (Date.now() - nightStart < 38000 && a.snap.isNight) {
     if (checked.has(m.id)) continue;
     checked.add(m.id);
     if (!DAY0[m.kind]) continue;
-    if (m.maxHp === expectedHp(m.kind)) hpOk++;
-    else hpBad.push(`${m.kind} maxHp ${m.maxHp} != ${expectedHp(m.kind)}`);
+    if (m.maxHp === expectedHp(m.kind, m.scale ?? 1)) hpOk++;
+    else hpBad.push(`${m.kind} maxHp ${m.maxHp} != ${expectedHp(m.kind, m.scale ?? 1)}`);
   }
   const me = s.players.find((p) => p.id === a.id());
   // Walk toward the nearest night mob so one of them hits us.
@@ -167,7 +170,7 @@ while (Date.now() - nightStart < 38000 && a.snap.isNight) {
       const d = Math.hypot(m.x - me.x, m.y - me.y);
       return d < 48 || (m.kind === "banditArcher" && d < 32 * 4.5);
     });
-    if (could.length === 1 && DAY0[could[0].kind]) hitSeen = { kind: could[0].kind, drop };
+    if (could.length === 1 && DAY0[could[0].kind]) hitSeen = { kind: could[0].kind, drop, scale: could[0].scale ?? 1 };
   }
   lastHp = me.hp;
   if (hitSeen && checked.size >= 4) break;
@@ -178,8 +181,8 @@ result(checked.size > 0, `raid mobs seen at night (${checked.size})`);
 result(hpBad.length === 0 && hpOk > 0, `raid mob maxHp scaled x${HARD.mobHp} (${hpOk} ok${hpBad.length ? "; " + hpBad.join(", ") : ""})`);
 if (hitSeen) {
   result(
-    hitSeen.drop === expectedDmg[hitSeen.kind],
-    `${hitSeen.kind} hit the player for ${hitSeen.drop} (expected ${expectedDmg[hitSeen.kind]} = round(${DAY0[hitSeen.kind].damage} x ${HARD.mobDamage}))`
+    Math.abs(hitSeen.drop - sizedDmg(hitSeen.kind, hitSeen.scale)) < 1e-6,
+    `${hitSeen.kind} hit the player for ${hitSeen.drop} (expected ${sizedDmg(hitSeen.kind, hitSeen.scale)} = round(${DAY0[hitSeen.kind].damage} x ${HARD.mobDamage}) x size ${hitSeen.scale})`
   );
 } else {
   console.log(`INFO [${el()}] no unambiguous night-mob hit on the player observed; damage multiplier not checked this run`);

@@ -115,7 +115,7 @@ if (ONLY.has("a") || ONLY.has("b")) {
       if (!seen.has(m.id)) {
         // Spawned while the current dayIndex = nightIndex (raids spawn at the day's midpoint, and
         // nightIndex only advances at dawn).
-        seen.set(m.id, { kind: m.kind, day: nightIndex, maxHp: m.maxHp });
+        seen.set(m.id, { kind: m.kind, day: nightIndex, maxHp: m.maxHp, scale: m.scale ?? 1 });
         const byKind = kindsByDay.get(nightIndex) ?? new Map();
         byKind.set(m.kind, (byKind.get(m.kind) ?? 0) + 1);
         kindsByDay.set(nightIndex, byKind);
@@ -171,15 +171,17 @@ if (ONLY.has("a") || ONLY.has("b")) {
     result([...day0.keys()].every((k) => DAY0_KINDS.has(k)), `day 0 only ${[...DAY0_KINDS].join("/")}: {${[...day0.keys()].join(", ")}}`);
     const distinct = new Set([...seen.values()].map((m) => m.kind));
     result(distinct.size >= 2, `multiple distinct kinds seen: {${[...distinct].join(", ")}}`);
-    const badHp = [...seen.values()].filter((m) => CONFIG[m.kind] && m.maxHp !== CONFIG[m.kind].maxHp);
-    result(badHp.length === 0, `every spawned mob's maxHp matches its kind's config${badHp.length ? " — mismatches: " + badHp.map((m) => `${m.kind}:${m.maxHp}`).join(", ") : ""}`);
+    // Scale pass: a mob's maxHp is its config's x its rolled size (snapshot `scale`, omitted = 1).
+    const badHp = [...seen.values()].filter((m) => CONFIG[m.kind] && m.maxHp !== Math.max(1, Math.round(CONFIG[m.kind].maxHp * m.scale)));
+    result(badHp.length === 0, `every spawned mob's maxHp matches its kind's config x its size${badHp.length ? " — mismatches: " + badHp.map((m) => `${m.kind}:${m.maxHp}`).join(", ") : ""}`);
     // Raid groups march at their slowest member's pace and loiter at half speed, so a kind may never
     // reach full speed in the window: check it never exceeds it. Since combat bodies landed (body
     // separation pushes overlapping bodies apart after everyone has moved), a mob in a crowd can also be
     // shoved on top of its own step on the odd tick, so the raw max is only reported; the check is on
     // the 98th-percentile step, which separation spikes don't reach.
     for (const [kind, steps] of stepsByKind) {
-      const expected = CONFIG[kind].speed / TICK_RATE;
+      // Scale pass: the smallest roll (0.85) is up to 7.5% faster than the config speed.
+      const expected = (CONFIG[kind].speed * 1.075) / TICK_RATE;
       const sorted = steps.slice().sort((p, q) => p - q);
       const p98 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.98))];
       result(p98 <= expected + 0.05, `${kind} p98 per-tick step ${p98.toFixed(2)}px <= speed/TICK_RATE = ${expected.toFixed(2)}px (max ${maxStep.get(kind).toFixed(2)}px over ${steps.length} steps)`);

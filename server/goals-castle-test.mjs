@@ -52,8 +52,15 @@ const CASTLE_RUIN_LAYOUT = [
   "12A1.1A21",
 ];
 const LAYOUT_TILE = { 1: T.RuinWall1, 2: T.RuinWall2, A: T.RuinArch, S: T.RuinStatue, R: T.RuinRubble };
+// Mirror of server MOB_KIND_CONFIG for the boss kinds (bosses take no size roll; their followers do).
 const MOB_BASE = {
   ogre: { maxHp: 220, damage: 28 },
+  wolf: { maxHp: 22, damage: 6 },
+  orc: { maxHp: 45, damage: 10 },
+  skeleton: { maxHp: 50, damage: 8 },
+  giantSpider: { maxHp: 35, damage: 7 },
+  armoredOrc: { maxHp: 80, damage: 14 },
+  troll: { maxHp: 120, damage: 16 },
 };
 const CASTLE_KINDS = new Set(["skeleton", "orc", "armoredOrc", "darkShaman"]);
 const MINI_BOSS_KINDS = new Set(["wolf", "orc", "skeleton", "giantSpider", "armoredOrc", "troll"]);
@@ -215,8 +222,8 @@ function checkWorld(c, st, label) {
   for (const e of elites) {
     const pack = st.mobs.filter((m) => m.siteId === e.siteId && m.id !== e.id);
     if (!MINI_BOSS_KINDS.has(e.kind) || pack.length < 2 || pack.length > 4 || pack.some((m) => m.kind !== e.kind || m.boss)) packOk = false;
-    if (e.maxHp !== pack[0]?.maxHp * 2.5 && e.maxHp !== Math.round(pack[0]?.maxHp * 2.5)) packOk = false;
-    if (e.damage !== Math.round(pack[0]?.damage * 1.5)) packOk = false;
+    if (e.maxHp !== Math.round(MOB_BASE[e.kind].maxHp * 2.5)) packOk = false;
+    if (e.damage !== Math.round(MOB_BASE[e.kind].damage * 1.5)) packOk = false;
   }
   result(packOk, `${label}: each pack = one elite (2.5x hp, 1.5x dmg) + 2-4 followers of its kind: ${elites.map((e) => `${e.kind}(${e.maxHp}hp)+${st.mobs.filter((m) => m.siteId === e.siteId).length - 1}`).join(", ")}`);
   result(st.mobs.every((m) => !m.guardianActive), `${label}: every Castle Ruin / mini-boss mob is dormant`);

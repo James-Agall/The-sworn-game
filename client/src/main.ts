@@ -44,6 +44,7 @@ import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-windo
 import {
   Biome,
   BOSS_RENDER_SCALE,
+  mobSizeScale,
   bossTitle,
   BUILDING_LEVEL_SNAPSHOT_STRIDE,
   CONSTRUCTION_SNAPSHOT_STRIDE,
@@ -373,6 +374,8 @@ const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
   // (MOB_TINT), if those files are missing.
   batteringRam: { color: 0x7a5230, radius: 13 },
   catapult: { color: 0x6b4a2a, radius: 12 },
+  // Goblin wolf rider: a wolf with a goblin on its back, a little bigger than a bare wolf.
+  goblinRider: { color: 0x9a7a4a, radius: 9 },
 };
 const MOB_KINDS = Object.keys(MOB_VISUALS) as MobKind[];
 // Mob kinds whose texture isn't /sprites/<kind>.png.
@@ -383,9 +386,11 @@ const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
   banditElite: "/sprites/bandit.png",
   batteringRam: "/sprites/cart.png",
   catapult: "/sprites/crate.png",
+  goblinRider: "/sprites/wolf.png",
 };
-// Tints for mob kinds drawn with borrowed (placeholder) art.
-const MOB_TINT: Partial<Record<MobKind, number>> = { batteringRam: 0xb07a4a, catapult: 0x9a7048 };
+// Tints for mob kinds drawn with borrowed (placeholder) art. The goblin wolf rider is the wolf set tinted
+// warm brown until its own set (SPRITES.md #83, MOB_OPTIONAL_VARIANT_URLS) lands.
+const MOB_TINT: Partial<Record<MobKind, number>> = { batteringRam: 0xb07a4a, catapult: 0x9a7048, goblinRider: 0xd89a60 };
 
 const artUrl = (name: string) => `/sprites/${name}.png`;
 const frameUrls = (name: string, count: number) =>
@@ -545,6 +550,8 @@ const MOB_VARIANT_URLS: Partial<Record<MobKind, MobVariantUrls[]>> = {
   darkShaman: [{ walk: frameUrls("darkShamanWalk", 4), action: frameUrls("darkShamanAttack", 3) }],
   troll: [{ walk: frameUrls("trollWalk", 4), action: frameUrls("trollAttack", 3) }],
   ogre: [{ walk: frameUrls("ogreWalk", 4), action: frameUrls("ogreAttack", 3) }],
+  // Stand-in (tinted, MOB_TINT) until goblinRider* loads (MOB_OPTIONAL_VARIANT_URLS).
+  goblinRider: [{ walk: frameUrls("wolfWalk", 4), action: frameUrls("wolfAttack", 3) }],
 };
 // Animated looks loaded optionally (loadOptionalTextures): when every frame loads, the set replaces the
 // kind's static, tinted stand-in (MOB_SPRITE_URL_OVERRIDES / MOB_TINT). The raiders' siege engines
@@ -552,6 +559,8 @@ const MOB_VARIANT_URLS: Partial<Record<MobKind, MobVariantUrls[]>> = {
 const MOB_OPTIONAL_VARIANT_URLS: Partial<Record<MobKind, { walk: string[]; action: string[] }>> = {
   batteringRam: { walk: frameUrls("mobBatteringRamWalk", 2), action: frameUrls("mobBatteringRamAttack", 3) },
   catapult: { walk: frameUrls("mobCatapultWalk", 4), action: [...frameUrls("mobCatapultLoad", 3), ...frameUrls("mobCatapultFire", 3)] },
+  // Goblin wolf rider (SPRITES.md #83).
+  goblinRider: { walk: frameUrls("goblinRiderWalk", 4), action: frameUrls("goblinRiderAttack", 3) },
 };
 // The Ogre Warlord boss (an ogre with boss "warlord"; SPRITES.md #15), loaded optionally: without it the
 // boss stays the plain ogre set drawn BOSS_RENDER_SCALE larger. Walk / attack as usual; standing still it
@@ -572,7 +581,7 @@ const WARLORD_ROAR_EVERY_MS = 9000;
 // kind fits by height: a walk canvas is widened symmetrically around the body's centroid to fit
 // each frame's weapon reach, so its width overstates an upright body and a longer-side fit would
 // shrink orcs/crossbowmen ~15% below their static size.
-const MOB_ANIM_FIT_LONGER_SIDE = new Set<MobKind>(["wolf", "giantSpider"]);
+const MOB_ANIM_FIT_LONGER_SIDE = new Set<MobKind>(["wolf", "giantSpider", "goblinRider"]);
 // A stationary mob within this distance of a colonist/player plays its attack cycle (mob snapshots
 // carry no state, so this is inferred client-side).
 const MOB_ATTACK_ANIM_RANGE_PX = 40;
@@ -906,10 +915,11 @@ const HUNGER_LABEL_COLORS = [0xffffff, 0xff5a4a, 0x4fd8c0, 0xf0c050, 0xb080d0, 0
 const HUNGER_SIGIL_SIZE = 16;
 const HUNGER_AURA_WIDTH = 40;
 const MARKED_MOB_SCALE = 1.25;
-// Render scale of a mob: Hunger-marked x1.25, Phase 5 bosses x BOSS_RENDER_SCALE (the Warlord has its own
-// art, WARLORD_URLS, sized so this scale lands it at ~1.6x an ogre). Both stack.
+// Render scale of a mob: Hunger-marked x1.25, times mobSizeScale (scale pass: the kind's MOB_KIND_SCALE, so
+// trolls / ogres read bigger, x the mob's own rolled size, x BOSS_RENDER_SCALE for Phase 5 bosses; the
+// Warlord has its own art, WARLORD_URLS, sized so the boss scale lands it at ~1.6x an ogre). All stack.
 function mobRenderScale(m: MobSnapshot): number {
-  return (m.mark ? MARKED_MOB_SCALE : 1) * (m.boss ? BOSS_RENDER_SCALE[m.boss] : 1);
+  return (m.mark ? MARKED_MOB_SCALE : 1) * mobSizeScale(m);
 }
 // Boss name labels and hp bars (the bar is the usual one, drawn this much bigger).
 const BOSS_LABEL_COLORS = { warlord: 0xf1c40f, elite: 0xf0a050 };
@@ -956,6 +966,15 @@ const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
   [TileType.BerryBushPicked]: 0.5,
   [TileType.MushroomPatch]: 0.45,
   [TileType.MushroomPatchPicked]: 0.45,
+};
+// Scale pass (2026-10-29): buildings drawn bigger than the box fit (on top of TILE_SPRITE_SIZE_FACTOR) so the
+// world feels larger without changing the grid. The sprite overflows its one tile, still bottom-centre
+// anchored on the tile's bottom edge and depth-sorted by tile row like all tile art; a click on the part that
+// overflows into the row above still opens the building (see buildingTileAt).
+const BUILDING_VISUAL_SCALE: Partial<Record<TileType, number>> = {
+  [TileType.House]: 1.3,
+  [TileType.BigHouse]: 1.3,
+  [TileType.HouseLevel2]: 1.3,
 };
 // Tile sprites fit a box this many tiles wide/tall (aspect preserved), bottom-center anchored
 // on the tile's bottom edge so tall art (towers, castles, trees) rises into the row above.
@@ -1300,7 +1319,7 @@ async function main() {
       const naturalScale = Math.min(
         (32 * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width,
         (32 * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height
-      );
+      ) * (BUILDING_VISUAL_SCALE[tile] ?? 1);
       const renderHeight = Math.max(naturalScale * texture.height, runningMinHeight);
       TILE_MIN_RENDER_HEIGHT.set(tile, renderHeight);
       runningMinHeight = renderHeight;
@@ -1346,7 +1365,9 @@ async function main() {
     let runningMinHeight = 0;
     textures.forEach((texture, i) => {
       if (!texture) return;
-      const naturalScale = Math.min((32 * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width, (32 * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height);
+      const naturalScale =
+        Math.min((32 * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width, (32 * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height) *
+        (BUILDING_VISUAL_SCALE[tile as TileType] ?? 1);
       runningMinHeight = Math.max(naturalScale * texture.height, runningMinHeight);
       TILE_LEVEL_MIN_HEIGHT.set(`${tile}:${i + 1}`, runningMinHeight);
     });
@@ -2064,7 +2085,7 @@ async function main() {
       : Math.min(
           (tileSize * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width,
           (tileSize * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height
-        ) * (TILE_SPRITE_SIZE_FACTOR[artTile as TileType] ?? 1);
+        ) * (TILE_SPRITE_SIZE_FACTOR[artTile as TileType] ?? 1) * (BUILDING_VISUAL_SCALE[artTile as TileType] ?? 1);
     const minHeight = levelTexture ? TILE_LEVEL_MIN_HEIGHT.get(`${artTile}:${level}`) : TILE_MIN_RENDER_HEIGHT.get(artTile);
     const scale = wallArt
       ? tileSize / WALL_ART_PX_PER_TILE
@@ -3080,7 +3101,7 @@ async function main() {
     const battered = BATTERED_TINT_KINDS.has(m.kind) && m.hp < m.maxHp * BATTERED_HP_FRACTION;
     const posed =
       battered && !frame && showBatteredPose(sprite, set, m.kind, (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS);
-    sprite.tint = battered && !posed ? BATTERED_TINT : 0xffffff;
+    sprite.tint = battered && !posed ? BATTERED_TINT : MOB_OWN_ART.has(m.kind) ? 0xffffff : (MOB_TINT[m.kind] ?? 0xffffff);
     const renderScale = mobRenderScale(m);
     if (renderScale !== 1) sprite.scale.set(sprite.scale.x * renderScale, sprite.scale.y * renderScale);
     // showAnimFrame resets scale.x to a positive magnitude, so re-apply the flip after it.
@@ -6829,6 +6850,23 @@ async function main() {
     return { tileX, tileY };
   }
 
+  // Scale pass: the tile a click lands on, or the scaled building (BUILDING_VISUAL_SCALE) just below it when
+  // the click hits that building's sprite where it overflows into this (non-building) tile.
+  function buildingTileAt(clickX: number, clickY: number): { tileX: number; tileY: number } | null {
+    const tile = pointerTile(clickX, clickY);
+    if (!tile || INFO_TILES.has(tiles[tile.tileY * worldTilesX + tile.tileX])) return tile;
+    const below = { tileX: tile.tileX, tileY: tile.tileY + 1 };
+    if (below.tileY >= worldTilesY) return tile;
+    const index = below.tileY * worldTilesX + below.tileX;
+    if (!BUILDING_VISUAL_SCALE[tiles[index] as TileType]) return tile;
+    const sprite = tileSprites.get(index);
+    if (!sprite) return tile;
+    // Bottom-centre anchored on the tile's bottom edge (setTileSprite), in world px.
+    const halfW = Math.abs(sprite.width) / 2;
+    const hit = Math.abs(clickX - sprite.position.x) <= halfW && clickY <= sprite.position.y && clickY >= sprite.position.y - Math.abs(sprite.height);
+    return hit ? below : tile;
+  }
+
   app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
   // Left button is resolved on pointerup (it may become a drag-select); other buttons act on down.
@@ -7067,7 +7105,7 @@ async function main() {
       return;
     }
 
-    const tile = pointerTile(x, y);
+    const tile = buildingTileAt(x, y);
     // Left-click on a building (any build tool but Demolish selected) opens its info panel instead of
     // breaking it; with Demolish selected it breaks as before. Garrison buildings also select their units.
     const tileValue = tile ? tiles[tile.tileY * worldTilesX + tile.tileX] : TileType.Empty;

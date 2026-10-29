@@ -533,14 +533,17 @@ export type MobKind =
   | "halfLatch"
   // Raid siege engines (orc / bandit factions, from day 10 / 14).
   | "batteringRam"
-  | "catapult";
+  | "catapult"
+  // Goblin wolf rider (scale pass 2026-10-29): the monsters' cavalry. Fast flanker that charges for a
+  // double first blow, hits and runs, and takes extra damage from pikemen / spearmen.
+  | "goblinRider";
 
 // Regiments & roles (ROADMAP "Regiments & roles"): every combat unit kind fights in a role.
 //   frontline - the melee line: holds the front rank and engages what is in front of its slot.
 //   shock     - heavy melee (troll / ogre / bandit elite): front rank, centre.
 //   ranged    - bows / crossbows: a rear rank behind the line; never advances into melee, kites a step.
 //   caster    - ranged spellcaster (dark shaman): as ranged.
-//   fast      - flankers (wolf, giant spider; cavalry): the wings of the front rank.
+//   fast      - flankers (wolf, giant spider, goblin wolf rider; cavalry): the wings of the front rank.
 //   siege     - battering ram (front / centre with the shock troops) and catapult (rear line, as ranged).
 // Shared by server (formations, ranged discipline) and client (role rings, formation slots).
 export type CombatRole = "frontline" | "shock" | "ranged" | "caster" | "fast" | "siege";
@@ -561,6 +564,7 @@ export const MOB_ROLE: Record<MobKind, CombatRole> = {
   halfLatch: "frontline",
   batteringRam: "siege",
   catapult: "siege",
+  goblinRider: "fast",
 };
 // Soldier kinds only (civilians and bishops have no combat role).
 export const COLONIST_ROLE: Partial<Record<ColonistKind, CombatRole>> = {
@@ -611,6 +615,35 @@ export interface MobSnapshot {
   mark?: HungerMark;
   // Phase 5 bosses only (omitted for every other mob): see BossTier.
   boss?: BossTier;
+  // Scale pass: this mob's rolled size (about 0.85-1.2, see MOB_SIZE_RANGE); omitted when 1.
+  scale?: number;
+}
+
+// Scale pass (2026-10-29): per-kind size on top of the base look, so trolls / ogres (and the Ogre
+// Warlord) read bigger. Drawn by the client (mobSizeScale), and the server's body radius and melee reach
+// grow with it. Missing = 1 (humans and the rest are unchanged).
+export const MOB_KIND_SCALE: Partial<Record<MobKind, number>> = { troll: 1.3, ogre: 1.4 };
+// Per-mob size variation: each mob rolls a size in [min, max] (server-owned, sent as MobSnapshot.scale).
+// Kinds not listed never vary (siege engines, the Half-Latch).
+export const MOB_SIZE_RANGE: Partial<Record<MobKind, readonly [number, number]>> = {
+  goblin: [0.85, 1.2],
+  wolf: [0.85, 1.2],
+  orc: [0.85, 1.2],
+  goblinRider: [0.85, 1.2],
+  goblinCrossbow: [0.93, 1.08],
+  armoredOrc: [0.93, 1.08],
+  skeleton: [0.93, 1.08],
+  giantSpider: [0.93, 1.08],
+  darkShaman: [0.93, 1.08],
+  troll: [0.93, 1.08],
+  ogre: [0.93, 1.08],
+  banditClubman: [0.93, 1.08],
+  banditArcher: [0.93, 1.08],
+  banditElite: [0.93, 1.08],
+};
+// A mob's overall size: kind scale x its own roll x its boss tier (BOSS_RENDER_SCALE).
+export function mobSizeScale(m: { kind: MobKind; scale?: number; boss?: BossTier }): number {
+  return (MOB_KIND_SCALE[m.kind] ?? 1) * (m.scale ?? 1) * (m.boss ? BOSS_RENDER_SCALE[m.boss] : 1);
 }
 
 // Phase 5 bosses: "warlord" is the Castle Ruin's Ogre Warlord (one per world, never respawns);

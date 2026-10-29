@@ -64,6 +64,8 @@ import {
   SiegeKind,
   SIEGE_KINDS,
   MOB_ROLE,
+  MOB_SIZE_RANGE,
+  mobSizeScale,
   COLONIST_ROLE,
   isRearRole,
   GearSlot,
@@ -314,6 +316,8 @@ interface Mob {
   approachFor?: string | null;
   approachX?: number;
   approachY?: number;
+  // Scale pass: the mob's rolled size (MOB_SIZE_RANGE, see applyMobSize); missing = 1 (old saves too).
+  scale?: number;
 }
 
 // Ruins and encampments are the small scattered sites; "castleRuin" is the one Castle Ruin and
@@ -945,7 +949,18 @@ const MOB_BODY_RADIUS: Record<MobKind, number> = {
   halfLatch: 5.5,
   batteringRam: 12,
   catapult: 11,
+  goblinRider: 8,
 };
+// Scale pass: the body grows with the mob's size (mobSizeScale: kind x roll x boss tier), capped so a
+// boss still fits the one-cell neighbour scan of separateBodies.
+const MOB_BODY_RADIUS_MAX = TILE_SIZE * 0.7;
+function mobBodyRadius(m: Mob): number {
+  return Math.min(MOB_BODY_RADIUS_MAX, (MOB_BODY_RADIUS[m.kind] ?? 8) * mobSizeScale(m));
+}
+// How much further a melee soldier reaches a grown mob from (its hit area): the extra body radius.
+function mobHitBonus(m: Mob): number {
+  return Math.max(0, mobBodyRadius(m) - (MOB_BODY_RADIUS[m.kind] ?? 8));
+}
 const SEPARATION_ITERATIONS = 2;
 // Share of an overlap a stationary / attacking body takes vs a moving one (normalised per pair).
 const SEPARATION_WEIGHT_STILL = 0.3;
@@ -1257,6 +1272,7 @@ function hungerMarkLabel(mark: HungerMark): string {
 
 // "armoredOrc" -> "armored orc", for event text.
 function mobKindLabel(kind: MobKind): string {
+  if (kind === "goblinRider") return "goblin wolf rider";
   return kind.replace(/([A-Z])/g, " $1").toLowerCase();
 }
 
@@ -1336,7 +1352,52 @@ const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
   // raidSiegeCap(day) of them per raid. See updateSiegeMob.
   batteringRam: { maxHp: RAM_MAX_HP, damage: RAM_DAMAGE, speed: RAM_SPEED, range: TILE_SIZE * 0.8, melee: true, unlockDay: 10 },
   catapult: { maxHp: CATAPULT_MAX_HP, damage: CATAPULT_DAMAGE, speed: CATAPULT_SPEED, range: CATAPULT_RANGE, melee: false, unlockDay: 14 },
+  // Goblin wolf rider (scale pass): the greenskins' cavalry, from raid day 8 (see GOBLIN_RIDER_*).
+  goblinRider: { maxHp: 30, damage: 7, speed: 125, range: TILE_SIZE * 0.8, melee: true, unlockDay: 8 },
 };
+
+// ---- Scale pass: size variation ----
+// Every mob of a MOB_SIZE_RANGE kind rolls a size s, deterministically from its id (so a save can
+// re-derive it; it is stored on the mob as `scale` anyway). The split mapping puts the median at 1
+// (half the mobs in [min, 1], half in [1, max]). Bigger = more HP / damage / melee reach / body, a
+// little slower; smaller = the reverse. HP x damage at s: about s^1.5, mean ~1.02 over the range, so
+// raid strength (and enemy intel power, which sums the scaled hp / damage) stays roughly where it was.
+const MOB_SIZE_HP_PER_SCALE = 1;
+const MOB_SIZE_DAMAGE_PER_SCALE = 0.5;
+const MOB_SIZE_SPEED_PER_SCALE = -0.5;
+function hashString01(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return (h >>> 0) / 4294967296;
+}
+function rollMobSize(kind: MobKind, id: string): number {
+  const range = MOB_SIZE_RANGE[kind];
+  if (!range) return 1;
+  const u = hashString01(id + ":size");
+  const s = u < 0.5 ? range[0] + (1 - range[0]) * (u * 2) : 1 + (range[1] - 1) * ((u - 0.5) * 2);
+  return Math.round(s * 100) / 100;
+}
+// Applies the size roll and the kind scale (MOB_KIND_SCALE: trolls / ogres reach further) to a freshly
+// built mob (createRaidMob / spawnGuardian). Bosses (rollSize false: makeBoss runs next) take no roll,
+// their size is their tier's BOSS_RENDER_SCALE.
+function applyMobSize(mob: Mob, rollSize = true) {
+  const s = rollSize ? rollMobSize(mob.kind, mob.id) : 1;
+  if (s !== 1) {
+    mob.scale = s;
+    mob.maxHp = Math.max(1, Math.round(mob.maxHp * (1 + (s - 1) * MOB_SIZE_HP_PER_SCALE)));
+    mob.hp = mob.maxHp;
+    mob.damage = Math.max(1, Math.round(mob.damage * (1 + (s - 1) * MOB_SIZE_DAMAGE_PER_SCALE) * 10) / 10);
+    mob.speed = mob.speed * (1 + (s - 1) * MOB_SIZE_SPEED_PER_SCALE);
+  }
+  if (mob.melee) mob.range = MOB_KIND_CONFIG[mob.kind].range * mobSizeScale({ kind: mob.kind, scale: mob.scale });
+}
+
+// ---- Goblin wolf rider ----
+// Charges like the colony's cavalry (trackCharge / takeChargeBonus: CAVALRY_CHARGE_MULT on the first blow
+// after CAVALRY_CHARGE_TILES in a straight line), then withdraws GOBLIN_RIDER_WITHDRAW_TICKS to hit and
+// run. Pikemen / spearmen hit it harder (GOBLIN_RIDER_DAMAGE_TAKEN).
+const GOBLIN_RIDER_WITHDRAW_TICKS = Math.round(TICK_RATE * 1.5);
+const GOBLIN_RIDER_DAMAGE_TAKEN: Partial<Record<ColonistKind, number>> = { pikeman: 1.6, spearman: 1.3 };
 
 // ---- Raid waves: tuning ----
 // Halfway through each day the whole of tonight's raid spawns at once at the map edge, in passive
@@ -1356,7 +1417,7 @@ const RAID_GROUP_SIZE_MAX = 6;
 // number of its unlocked core kinds. Inside a group, kinds are picked by `weight` among the faction's
 // unlocked entries (core or not). Non-core entries are heavies/supplements: they never make a
 // faction eligible by themselves (so goblins alone don't unlock the Dark host on day 0).
-type RaidFactionId = "wolfPack" | "banditBand" | "greenskinWarband" | "darkHost";
+type RaidFactionId = "wolfPack" | "banditBand" | "greenskinWarband" | "darkHost" | "riderPack";
 interface RaidFactionEntry {
   kind: MobKind;
   weight: number;
@@ -1364,6 +1425,8 @@ interface RaidFactionEntry {
 }
 const RAID_FACTIONS: Record<RaidFactionId, RaidFactionEntry[]> = {
   wolfPack: [{ kind: "wolf", weight: 1, core: true }],
+  // Scale pass: a wandering pack of goblin wolf riders (from the riders' unlock day), now and then.
+  riderPack: [{ kind: "goblinRider", weight: 1, core: true }],
   // On a deserter night the eligible deserters are the raid's core and only this faction fills
   // the rest of the raid (see spawnRaid).
   banditBand: [
@@ -1382,6 +1445,7 @@ const RAID_FACTIONS: Record<RaidFactionId, RaidFactionEntry[]> = {
     { kind: "ogre", weight: 1, core: false },
     { kind: "batteringRam", weight: 1, core: false },
     { kind: "catapult", weight: 1, core: false },
+    { kind: "goblinRider", weight: 2, core: false },
   ],
   darkHost: [
     { kind: "skeleton", weight: 4, core: true },
@@ -1421,6 +1485,7 @@ const RAID_FOLLOWER_CATCHUP = 1.5; // battle discipline 2026-10-23: was 1.25 (fo
 type RaidFormationShape = "wedge" | "line" | "column";
 const RAID_FORMATION_SHAPE: Record<RaidFactionId, RaidFormationShape> = {
   wolfPack: "wedge",
+  riderPack: "wedge",
   banditBand: "line",
   greenskinWarband: "column",
   darkHost: "column",
@@ -4539,7 +4604,7 @@ function collectBodies() {
   for (const m of mobs.values()) {
     if (isDormantGuardian(m) || (m.isDeserter && !m.deserterActive) || m.passive) continue;
     const still = mobsAttackingThisTick.has(m.id);
-    bodies.push({ e: m, r: MOB_BODY_RADIUS[m.kind] ?? 8, w: still ? SEPARATION_WEIGHT_STILL : SEPARATION_WEIGHT_MOVING, mob: true });
+    bodies.push({ e: m, r: mobBodyRadius(m), w: still ? SEPARATION_WEIGHT_STILL : SEPARATION_WEIGHT_MOVING, mob: true });
   }
 }
 
@@ -4646,6 +4711,11 @@ function damageMob(mob: Mob, amount: number, attackerKey?: string) {
   }
   // Hero phase 4: a cursed mob takes more from every source.
   amount *= spellDamageTakenMult(mob);
+  // Goblin wolf riders: pikemen / spearmen are their bane.
+  if (mob.kind === "goblinRider" && attackerKey?.startsWith("c:")) {
+    const by = colonists.get(attackerKey.slice(2));
+    amount *= (by && GOBLIN_RIDER_DAMAGE_TAKEN[by.kind]) || 1;
+  }
   mob.hp -= mob.mark === HungerMark.Gorrath && cycleTick < mob.furyUntilTick ? amount * GORRATH_FURY_DAMAGE_TAKEN : amount;
   mob.lastDamagedTick = cycleTick;
   // Gorrath's frenzy: the first lethal blow is shrugged off into a short wounded fury.
@@ -4656,6 +4726,7 @@ function damageMob(mob: Mob, amount: number, attackerKey?: string) {
   if (mob.hp <= 0) {
     gravestones.push({ x: mob.x, y: mob.y, variant: Math.random() < 0.5 ? 0 : 1 });
     mobs.delete(mob.id);
+    chargeRuns.delete(mob.id);
     noteRegimentCasualty(mob);
     stock.gold += goldForKill(mob);
     dropEquipmentFor(mob);
@@ -5836,7 +5907,7 @@ function returnToRally(c: Colonist, dt: number, speed: number) {
 function updateGuardColonist(c: Colonist, dt: number) {
   // Hero phase 4: heroes auto-cast their slotted spells (when Auto is on).
   if (c.kind === "hero") heroAutoCast(c);
-  const stats = unitStats(c);
+  let stats = unitStats(c);
   if (c.kind === "cavalry") trackCharge(c);
 
   let target = c.targetMobId ? getMobById(c.targetMobId) : undefined;
@@ -5897,6 +5968,9 @@ function updateGuardColonist(c: Colonist, dt: number) {
     return;
   }
 
+  // Scale pass: a grown mob (troll / ogre / a big roll) is struck from further out, its bigger body.
+  const hitBonus = stats.melee ? mobHitBonus(target) : 0;
+  if (hitBonus > 0) stats = { ...stats, range: stats.range + hitBonus };
   const commanded = commandedTargets.get(c.id) === target.id;
   const leashPx = guardLeashTiles(c) * TILE_SIZE;
   // The target has left the zone this unit holds (its slot's leash + attack range): let it go.
@@ -5948,7 +6022,7 @@ function updateGuardColonist(c: Colonist, dt: number) {
     return;
   }
   // Melee fights from a ring slot around the target (see unitSlotPoint); ranged keeps its stand-off.
-  const targetR = MOB_BODY_RADIUS[target.kind] ?? 8;
+  const targetR = mobBodyRadius(target);
   const meleeMover = stats.melee && stats.speed > 0;
   const slot = meleeMover
     ? unitSlotPoint(c.id, c.x, c.y, COLONIST_BODY_RADIUS, stats.range, `m:${target.id}`, target.x, target.y, targetR, meleeAttackerCap(targetR))
@@ -6188,7 +6262,7 @@ function pickGuardTarget(c: Colonist, stats: { range: number; melee: boolean; sp
     if (ds > reachPx) continue;
     const score = rearRank && du <= stats.range ? du - (engagedWithFrontline(m) ? 2e6 : 1e6) : ds;
     if (score >= bestDist) continue;
-    if (queues && !targetHasRoom(c.id, `m:${m.id}`, meleeAttackerCap(MOB_BODY_RADIUS[m.kind] ?? 8))) continue;
+    if (queues && !targetHasRoom(c.id, `m:${m.id}`, meleeAttackerCap(mobBodyRadius(m)))) continue;
     best = m;
     bestDist = score;
   }
@@ -6843,7 +6917,7 @@ function splitRaidGroups(total: number, hordeSize: number): number[] {
   return sizes;
 }
 
-function createRaidMob(kind: MobKind, tile: TileCoord, groupId: string): Mob {
+function createRaidMob(kind: MobKind, tile: TileCoord, groupId: string, rollSize = true): Mob {
   const center = tileToPixelCenter(tile);
   const config = MOB_KIND_CONFIG[kind];
   const tuning = DIFFICULTY_TUNING[difficulty];
@@ -6876,6 +6950,7 @@ function createRaidMob(kind: MobKind, tile: TileCoord, groupId: string): Mob {
     passive: true,
     ...MOB_MARK_DEFAULTS,
   };
+  applyMobSize(mob, rollSize);
   mobs.set(mob.id, mob);
   return mob;
 }
@@ -7101,7 +7176,7 @@ function assignRaidLeader(group: RaidGroup): Mob | null {
   group.leaderId = leader.id;
   group.repathCooldown = 0;
   group.offsets.clear();
-  const meanR = members.reduce((sum, m) => sum + (MOB_BODY_RADIUS[m.kind] ?? 8), 0) / members.length;
+  const meanR = members.reduce((sum, m) => sum + mobBodyRadius(m), 0) / members.length;
   const spacing = RAID_FORMATION_SPACING_BODIES * 2 * Math.min(12, Math.max(7, meanR));
   const slots = raidFormationSlots(RAID_FORMATION_SHAPE[group.faction] ?? "column", line.length, spacing);
   const origin = slots[0];
@@ -8026,6 +8101,8 @@ function startVhorrunWithdraw(mob: Mob, from: { x: number; y: number }) {
 function updateMob(mob: Mob, dt: number) {
   if (mob.isDeserter && !mob.deserterActive) return;
   if (isDormantGuardian(mob)) return;
+  // Goblin wolf rider: its straight run (also while marching in its raid group) arms the charge.
+  if (mob.kind === "goblinRider") trackCharge(mob);
 
   if (
     mob.kind === "troll" &&
@@ -8076,7 +8153,8 @@ function updateMob(mob: Mob, dt: number) {
   }
 
   // Vhorrun withdrawing after winning an exchange: back away from where the fight was, then return.
-  if (mob.mark === HungerMark.Vhorrun && cycleTick < mob.withdrawUntilTick) {
+  // A goblin wolf rider after its charge landed: rides off (hit and run), then comes back at its target.
+  if ((mob.mark === HungerMark.Vhorrun || mob.kind === "goblinRider") && cycleTick < mob.withdrawUntilTick) {
     stepMobAwayFrom(mob, mob.withdrawFromX, mob.withdrawFromY, dt);
     return;
   }
@@ -8165,7 +8243,7 @@ function updateMob(mob: Mob, dt: number) {
     } else {
       const tr = mob.targetType === "colonist" ? COLONIST_BODY_RADIUS : PLAYER_BODY_RADIUS;
       const cap = mob.targetType === "colonist" ? meleeAttackerCap(tr) : Infinity;
-      slot = unitSlotPoint(mob.id, mob.x, mob.y, MOB_BODY_RADIUS[mob.kind] ?? 8, mob.range, slotKey, targetPos.x, targetPos.y, tr, cap);
+      slot = unitSlotPoint(mob.id, mob.x, mob.y, mobBodyRadius(mob), mob.range, slotKey, targetPos.x, targetPos.y, tr, cap);
     }
   }
 
@@ -8198,6 +8276,20 @@ function updateMob(mob: Mob, dt: number) {
       const hit = struck ? tileToPixelCenter(struck) : targetPos;
       pendingEffects.push({ fromX: mob.x, fromY: mob.y, toX: hit.x, toY: hit.y, melee: mob.melee });
       if (mob.targetId) recordMobStrike(mob, hit.x, hit.y);
+      // Goblin wolf rider: a charge (a straight run of CAVALRY_CHARGE_TILES) doubles its first blow on a
+      // unit, and it then withdraws for GOBLIN_RIDER_WITHDRAW_TICKS before riding in again.
+      let blow = mob.damage;
+      if (mob.kind === "goblinRider" && (mob.targetType === "colonist" || mob.targetType === "player")) {
+        const mult = takeChargeBonus(mob);
+        siegeEvent(mult > 1 ? "riderCharge" : "riderHit", mob.id, blow * mult);
+        if (mult > 1) {
+          blow *= mult;
+          mob.withdrawUntilTick = cycleTick + GOBLIN_RIDER_WITHDRAW_TICKS;
+          mob.withdrawFromX = targetPos.x;
+          mob.withdrawFromY = targetPos.y;
+          mob.path = [];
+        }
+      }
       if (mob.targetType === "colonist" && mob.targetId) {
         const c = colonists.get(mob.targetId);
         if (c) {
@@ -8208,7 +8300,7 @@ function updateMob(mob: Mob, dt: number) {
             c.poisonTicksRemaining = POISON_DURATION_TICKS;
             c.poisonDamagePerTick = POISON_DAMAGE_PER_TICK;
           }
-          damageColonist(c, mob.damage);
+          damageColonist(c, blow);
           if (mob.mark === HungerMark.Vhorrun && c.hp > 0 && c.hp < c.maxHp * VHORRUN_WITHDRAW_TARGET_HP) {
             startVhorrunWithdraw(mob, targetPos);
           }
@@ -8220,7 +8312,7 @@ function updateMob(mob: Mob, dt: number) {
             p.poisonTicksRemaining = POISON_DURATION_TICKS;
             p.poisonDamagePerTick = POISON_DAMAGE_PER_TICK;
           }
-          damagePlayer(p, mob.damage);
+          damagePlayer(p, blow);
           if (mob.mark === HungerMark.Vhorrun && !p.dead && p.hp < playerMaxHp(p) * VHORRUN_WITHDRAW_TARGET_HP) {
             startVhorrunWithdraw(mob, targetPos);
           }
@@ -9446,7 +9538,7 @@ function poiSiteFootprintClear(
   return true;
 }
 
-function spawnGuardian(kind: MobKind, tile: TileCoord, siteId: string, siteKind: PoiSiteKind): Mob {
+function spawnGuardian(kind: MobKind, tile: TileCoord, siteId: string, siteKind: PoiSiteKind, rollSize = true): Mob {
   const config = MOB_KIND_CONFIG[kind];
   const center = tileToPixelCenter(tile);
   const mob: Mob = {
@@ -9477,6 +9569,7 @@ function spawnGuardian(kind: MobKind, tile: TileCoord, siteId: string, siteKind:
     passive: false,
     ...MOB_MARK_DEFAULTS,
   };
+  applyMobSize(mob, rollSize);
   mobs.set(mob.id, mob);
   return mob;
 }
@@ -10098,7 +10191,7 @@ function placeCastleRuin(placedSites: TileCoord[]) {
       else if (CASTLE_RUIN_LAYOUT[ry][rx] === "." && rx > 0 && ry > 0 && rx < CASTLE_RUIN_LAYOUT.length - 1 && ry < CASTLE_RUIN_LAYOUT.length - 1) open.push(t);
     }
   }
-  makeBoss(spawnGuardian("ogre", center, siteId, "castleRuin"), "warlord");
+  makeBoss(spawnGuardian("ogre", center, siteId, "castleRuin", false), "warlord");
   const count = randInt(CASTLE_RUIN_GUARDIANS_MIN, CASTLE_RUIN_GUARDIANS_MAX);
   for (const spot of shuffled(open).slice(0, count)) {
     spawnGuardian(pickWeightedGuardianKind(CASTLE_RUIN_GUARDIAN_WEIGHTS), spot, siteId, "castleRuin");
@@ -10119,7 +10212,7 @@ function generateMiniBossSites(count: number, placedSites: TileCoord[]) {
     placedSites.push(center);
     const siteId = randomUUID();
     const kind = MINI_BOSS_KINDS[randInt(0, MINI_BOSS_KINDS.length - 1)];
-    makeBoss(spawnGuardian(kind, center, siteId, "miniBoss"), "elite");
+    makeBoss(spawnGuardian(kind, center, siteId, "miniBoss", false), "elite");
     for (const offset of shuffled(NEIGHBORS_8).slice(0, randInt(2, 4))) {
       spawnGuardian(kind, { x: center.x + offset.x, y: center.y + offset.y }, siteId, "miniBoss");
     }
@@ -10540,6 +10633,12 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         maxHp: m.maxHp,
         damage: m.damage,
         furyUntilTick: m.furyUntilTick,
+        scale: m.scale ?? 1,
+        speed: m.speed,
+        range: m.range,
+        bodyRadius: mobBodyRadius(m),
+        rolledScale: rollMobSize(m.kind, m.id),
+        regimentId: m.regimentId ?? null,
       })),
       factions: RAID_FACTIONS,
       unlockDays: Object.fromEntries(Object.entries(MOB_KIND_CONFIG).map(([k, c]) => [k, c.unlockDay])),
@@ -10726,7 +10825,8 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
     if (!(msg.kind in MOB_KIND_CONFIG) || !inBounds(msg.tx, msg.ty)) {
       reply({ id: null });
     } else {
-      const mob = createRaidMob(msg.kind as MobKind, { x: msg.tx, y: msg.ty }, "");
+      const isBoss = msg.boss === "warlord" || msg.boss === "elite";
+      const mob = createRaidMob(msg.kind as MobKind, { x: msg.tx, y: msg.ty }, "", !isBoss);
       mob.groupId = null;
       mob.passive = false;
       if (typeof msg.mark === "number" && msg.mark >= HungerMark.Gorrath && msg.mark <= HungerMark.Vhorrun) applyHungerMark(mob, msg.mark);
@@ -10735,7 +10835,7 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       if (typeof msg.siteId === "string") Object.assign(mob, { siteId: msg.siteId, siteKind: "encampment", guardianActive: true });
       // Hero phases 1-2: optional boss tier ("warlord" / "elite").
       if (msg.boss === "warlord" || msg.boss === "elite") makeBoss(mob, msg.boss);
-      reply({ id: mob.id, mark: mob.mark, hp: mob.hp, maxHp: mob.maxHp, damage: mob.damage });
+      reply({ id: mob.id, mark: mob.mark, hp: mob.hp, maxHp: mob.maxHp, damage: mob.damage, scale: mob.scale ?? 1, speed: mob.speed, range: mob.range, bodyRadius: mobBodyRadius(mob) });
     }
   } else if (msg.op === "spawnRaidGroup" && Array.isArray(msg.kinds) && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // A raid group already in contact (engaged now): member i is on row i, so the rows release one by
@@ -12780,7 +12880,7 @@ function siegeEvent(type: string, id: string, amount?: number, detail?: string) 
 
 // Once per tick for a rider (before it moves): a stride turning more than 60 degrees off the run's line
 // starts a new run where the turn was; standing still past the grace ends it.
-function trackCharge(c: Colonist) {
+function trackCharge(c: { id: string; x: number; y: number }) {
   const run = chargeRuns.get(c.id);
   if (!run) {
     chargeRuns.set(c.id, { ax: c.x, ay: c.y, lx: c.x, ly: c.y, idle: 0, readyTick: 0 });
@@ -12810,7 +12910,7 @@ function trackCharge(c: Colonist) {
 
 // The damage multiplier of a rider's blow: x CAVALRY_CHARGE_MULT when it ends a straight run of
 // CAVALRY_CHARGE_TILES+ off cooldown. Any blow ends the run.
-function takeChargeBonus(c: Colonist): number {
+function takeChargeBonus(c: { id: string; x: number; y: number }): number {
   const run = chargeRuns.get(c.id);
   if (!run) return 1;
   const ok = cycleTick >= run.readyTick && Math.hypot(c.x - run.ax, c.y - run.ay) >= CAVALRY_CHARGE_TILES * TILE_SIZE;
@@ -15159,7 +15259,8 @@ function enemyRegimentsNow(): EnemyRegimentSnapshot[] {
     }
     const snap: EnemyRegimentSnapshot = {
       id,
-      label: threat.label,
+      // Scale pass: a pack of nothing but wolf riders gets its own banner label.
+      label: seen.every((m) => m.kind === "goblinRider") && threat.kind === "raid" ? "Goblin wolf riders" : threat.label,
       x: Math.round(x / seen.length),
       y: Math.round(y / seen.length),
       count: seen.length,
@@ -15262,6 +15363,7 @@ setInterval(() => {
       maxHp: m.maxHp,
       ...(m.mark !== HungerMark.None ? { mark: m.mark } : {}),
       ...(m.boss ? { boss: m.boss } : {}),
+      ...(m.scale !== undefined && m.scale !== 1 ? { scale: m.scale } : {}),
     })),
     wood: stock.wood,
     iron: stock.iron,
