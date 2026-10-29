@@ -52,6 +52,7 @@ import {
   GATE_FLAG_LOCK_OPEN,
   GATE_FLAG_LOCK_CLOSED,
   GATE_FLAG_OVERRUN,
+  GATE_FLAG_FOREIGN,
   FightKind,
   FightSnapshot,
   FIGHT_WINDOW_SECONDS,
@@ -121,6 +122,8 @@ const subScale = () =>
 const scaledCountSub = (n: number) => Math.round(n * subScale());
 
 interface Player {
+  // Forts phase A: the ownerVersion of the last `siteTiles` this player was sent.
+  siteTilesVersion?: number;
   id: string;
   x: number;
   y: number;
@@ -451,6 +454,51 @@ interface GateState {
 }
 const gates = new Map<number, GateState>();
 let hostileMover = false;
+// Forts phase A (PLAN-forts-diplomacy-moats.md §1): tile owners. Sparse: tile index -> site number
+// (>= 1); a tile missing here is the colony's / unowned (every tile of an old save). Site number n names
+// ownerSiteIds[n - 1] (the mobs' siteId; phase B's SiteState takes this over). moverOwner is the site
+// number of the mob currently moving / pathing (0: none), read by gatePassable next to hostileMover.
+const tileOwner = new Map<number, number>();
+const ownerSiteIds: string[] = [];
+let ownerVersion = 0;
+let moverOwner = 0;
+// Colonist id -> tile index of the site wall / gate it is breaching on the way to its structure target
+// (the target itself is walled off; see structureStep). Not saved: a load re-plans.
+const structureBreach = new Map<string, number>();
+
+function ownerAt(index: number): number {
+  return tileOwner.size === 0 ? 0 : (tileOwner.get(index) ?? 0);
+}
+
+// The site number of a siteId (registered on first use), 0 for null.
+function siteNumber(siteId: string | null | undefined, register = false): number {
+  if (!siteId) return 0;
+  const i = ownerSiteIds.indexOf(siteId);
+  if (i >= 0) return i + 1;
+  if (!register) return 0;
+  ownerSiteIds.push(siteId);
+  return ownerSiteIds.length;
+}
+
+function clearOwners() {
+  tileOwner.clear();
+  ownerSiteIds.length = 0;
+  structureBreach.clear();
+  ownerVersion++;
+  buildingTargetsDirty = true;
+}
+
+function setOwner(index: number, owner: number) {
+  if (owner > 0) tileOwner.set(index, owner);
+  else if (!tileOwner.delete(index)) return;
+  ownerVersion++;
+  buildingTargetsDirty = true;
+}
+
+// v1: every NPC site is hostile to the colony (relations come in phase D).
+function isHostileOwner(owner: number): boolean {
+  return owner > 0;
+}
 // HP of repair already paid for per building (manual Repair pays up front, builders pay when they start).
 const repairPaid = new Map<string, number>();
 // Manual Repair requests (resourceKey), served before the automatic most-damaged pick.
@@ -4089,6 +4137,8 @@ function planRepair(c: Colonist): { key: string; path: TileCoord[] } | null {
   for (const key of auto) {
     if (repairQueue.includes(key)) continue;
     const tile = keyToTile(key);
+    // Forts phase A: builders never repair an NPC site's buildings.
+    if (tile && ownerAt(tileIndex(tile.x, tile.y)) !== 0) continue;
     const s = tile ? structureHp(tile.x, tile.y) : null;
     if (tile && s && s.hp < s.max) jobs.push({ key, tile, rank: s.hp / s.max, n: 0 });
   }
@@ -4185,7 +4235,7 @@ function updateRepair(c: Colonist, dt: number): boolean {
 // Manual Repair (building info panel): pays for the missing HP now and puts the building at the front
 // of the builders' repair work (served by day, like all builder work).
 function handleRepairBuilding(player: Player, tx: number, ty: number) {
-  if (player.dead) return;
+  if (player.dead || (inBounds(tx, ty) && ownerAt(tileIndex(tx, ty)) !== 0)) return;
   const s = structureHp(tx, ty);
   const key = resourceKey(tx, ty);
   if (!s || s.hp >= s.max || repairQueue.includes(key)) return;
@@ -4512,7 +4562,9 @@ function rebuildBodyHash() {
 // Moves a body by (dx, dy) unless that would put its centre on a solid tile.
 function nudgeBody(b: Body, dx: number, dy: number) {
   const prevMover = hostileMover;
+  const prevOwner = moverOwner;
   hostileMover = b.mob === true;
+  moverOwner = b.mob === true ? siteNumber((b.e as Mob).siteId) : 0;
   const nx = b.e.x + dx;
   const ny = b.e.y + dy;
   if (isWalkablePixel(nx, ny)) {
@@ -4524,6 +4576,7 @@ function nudgeBody(b: Body, dx: number, dy: number) {
     b.e.y = ny;
   }
   hostileMover = prevMover;
+  moverOwner = prevOwner;
 }
 
 // Push-apart relaxation over every overlapping pair (allies and enemies alike).
@@ -5146,7 +5199,7 @@ function handleRegimentOrder(player: Player, msg: { regimentIds?: unknown; unitI
   if (units.length === 0) return;
   const ids = new Set(units.map((c) => c.id));
   if ((order.kind === "attack" || order.kind === "charge") && !mobs.has(order.targetId!)) return;
-  if (order.kind === "attackHearth" && !standingHearthAt(order.tileX!, order.tileY!)) return;
+  if (order.kind === "attackHearth" && !attackObjectiveAt(order.tileX!, order.tileY!)) return;
   if (order.kind === "follow" && (!followTargetPos(order.targetId!) || ids.has(order.targetId!))) return;
   // The same units as an existing group: Shift appends to its queue (a hold / follow / finished order
   // gives way at once), a plain order replaces its orders but keeps its formation memory.
@@ -5289,7 +5342,7 @@ function startArmyOrder(g: OrderGroup, order: ArmyOrder) {
       }
       return;
     case "attackHearth": {
-      const h = standingHearthAt(order.tileX!, order.tileY!);
+      const h = attackObjectiveAt(order.tileX!, order.tileY!);
       if (!h) {
         finishArmyOrder(g, members);
         return;
@@ -5449,6 +5502,24 @@ function attackMoveContact(members: Colonist[]): { mob: Mob; member: Colonist; d
 function updateAttackMove(g: OrderGroup, members: Colonist[]) {
   const contact = attackMoveContact(members);
   const fighting = members.some((c) => !!c.targetMobId && mobs.has(c.targetMobId));
+  // Forts phase A: with no enemy in reach, a hostile site's structure within the alert range of the group
+  // is attacked (walls on the way get breached); the march resumes once it falls, as after a fight.
+  if (!contact && !fighting && tileOwner.size > 0) {
+    let busy = members.some((c) => c.targetHearthId?.startsWith(STRUCTURE_TARGET_PREFIX));
+    if (!busy) {
+      const c0 = centroidOf(members);
+      const s = nearestHostileStructure(c0.x, c0.y, STANCE_ALERT_RANGE_TILES.aggressive * TILE_SIZE);
+      if (s) {
+        for (const c of members) if (isGuardOrMilitiaKind(c.kind)) sendAgainstHearth(c, s);
+        busy = true;
+      }
+    }
+    if (busy) {
+      g.engaged = true;
+      g.clearSince = -1;
+      return;
+    }
+  }
   if (!g.engaged && !contact) {
     if (groupArrived(g, members)) finishArmyOrder(g, members);
     return;
@@ -5528,7 +5599,7 @@ function updateOrderGroups() {
     } else if (o.kind === "charge") {
       updateChargeOrder(g, members);
     } else if (o.kind === "attackHearth") {
-      if (!standingHearthAt(o.tileX!, o.tileY!)) finishArmyOrder(g, members);
+      if (!attackObjectiveAt(o.tileX!, o.tileY!)) finishArmyOrder(g, members);
     }
   }
 }
@@ -7528,7 +7599,18 @@ function damageBuilding(tx: number, ty: number, amount: number) {
     return;
   }
   // Destroyed: the same clean-up as a player demolishing it (posted workers, level, site, HP).
+  const index = tileIndex(tx, ty);
+  const owner = ownerAt(index);
   demolishTile(tx, ty, t);
+  if (owner !== 0) {
+    // Forts phase A: an NPC site's wall / gate leaves walkable Rubble (a breach gap); whatever it was,
+    // the ground is nobody's now.
+    setOwner(index, 0);
+    if (isWallTile(t) || t === TileType.Gate) {
+      tiles[index] = TileType.Rubble;
+      broadcastTileUpdate(tx, ty, TileType.Rubble);
+    }
+  }
   syncGuardBonusesAround(tx, ty);
   broadcastEvent("death", `${BUILDING_NAMES[t] ?? "A building"} destroyed`);
 }
@@ -7611,23 +7693,39 @@ function gateAt(index: number): GateState {
 }
 
 // A gate tile with no record yet (just placed by a test, or a fresh load) counts as closed, auto.
+// Forts phase A: an NPC-owned gate is passable only for its own site's mobs (moverOwner), and for the
+// colony only while overrun; other mobs and wildlife never pass it.
 function gatePassable(index: number, hostile: boolean): boolean {
   const g = gates.get(index);
+  const own = ownerAt(index);
+  if (own !== 0) return hostile ? moverOwner === own : !!g && g.overrun;
   if (hostile) return !!g && (g.open || g.overrun);
   return !g || g.open || g.lock !== "closed";
 }
 
 // A wall or a gate mobs can't walk through right now (the breach search's obstacles).
+// Forts phase A: mobs only breach the colony's walls / gates (owner 0); NPC-owned ones are solid to them.
 function isBreachObstacle(tx: number, ty: number): boolean {
   if (!inBounds(tx, ty)) return false;
   const t = tiles[tileIndex(tx, ty)] as TileType;
+  if (ownerAt(tileIndex(tx, ty)) !== 0) return false;
   return isWallTile(t) || (t === TileType.Gate && !gatePassable(tileIndex(tx, ty), true));
+}
+
+// Forts phase A: the colony's breach obstacles: walls / gates of a hostile site.
+function isColonyBreachObstacle(tx: number, ty: number): boolean {
+  if (!inBounds(tx, ty)) return false;
+  const i = tileIndex(tx, ty);
+  const t = tiles[i] as TileType;
+  return isHostileOwner(ownerAt(i)) && (isWallTile(t) || (t === TileType.Gate && !gatePassable(i, false)));
 }
 
 // Route cost of breaking through the wall / closed gate at a tile (integer: routeToBuilding's heap needs it).
 function breachStepCost(tx: number, ty: number): number {
   const hp = structureHp(tx, ty)?.hp ?? 0;
-  return 1 + Math.round(hp / BREACH_HP_PER_TILE) + BREACH_TOWER_PENALTY_TILES * livingTowersNear(tx, ty, GATE_TOWER_RANGE_TILES).length;
+  // Towers of the wall's owner defend it (the colony's for a colony wall, the site's for a site wall).
+  const owner = ownerAt(tileIndex(tx, ty));
+  return 1 + Math.round(hp / BREACH_HP_PER_TILE) + BREACH_TOWER_PENALTY_TILES * livingTowersNear(tx, ty, GATE_TOWER_RANGE_TILES, owner).length;
 }
 
 // updateMob's once-a-second check for a mob on a building target.
@@ -7640,7 +7738,15 @@ function mobTargetNeedsRepick(mob: Mob): boolean {
   return !!tile && tiles[tileIndex(tile.x, tile.y)] === TileType.Gate && gatePassable(tileIndex(tile.x, tile.y), true);
 }
 
-function friendlyNearGate(cx: number, cy: number): boolean {
+function friendlyNearGate(cx: number, cy: number, owner = 0): boolean {
+  // Forts phase A: an NPC gate opens for its own site's awake mobs only.
+  if (owner !== 0) {
+    for (const m of mobs.values()) {
+      if (Math.abs(m.x - cx) > GATE_OPEN_RANGE_PX || Math.abs(m.y - cy) > GATE_OPEN_RANGE_PX) continue;
+      if (Math.hypot(m.x - cx, m.y - cy) <= GATE_OPEN_RANGE_PX && siteNumber(m.siteId) === owner) return true;
+    }
+    return false;
+  }
   for (const p of players.values()) {
     if (!p.dead && Math.hypot(p.x - cx, p.y - cy) <= GATE_OPEN_RANGE_PX) return true;
   }
@@ -7670,6 +7776,23 @@ function evaluateGateOverrun(index: number, g: GateState) {
   const ty = Math.floor(index / WORLD_TILES_X);
   const c = tileToPixelCenter({ x: tx, y: ty });
   const range = GATE_OVERRUN_RANGE_TILES * TILE_SIZE;
+  const owner = ownerAt(index);
+  if (owner !== 0) {
+    // Forts phase A, an NPC gate: the colony's soldiers and players near it against the site's mobs and
+    // towers there; overrun only with no living tower of the site within GATE_TOWER_RANGE_TILES.
+    let attackers = 0;
+    let defenders = 0;
+    for (const col of colonists.values()) {
+      if (isGuardOrMilitiaKind(col.kind) && Math.hypot(col.x - c.x, col.y - c.y) <= range) attackers += Math.max(0, col.hp);
+    }
+    for (const p of players.values()) if (!p.dead && Math.hypot(p.x - c.x, p.y - c.y) <= range) attackers += Math.max(0, p.hp);
+    for (const m of mobs.values()) {
+      if (siteNumber(m.siteId) === owner && Math.hypot(m.x - c.x, m.y - c.y) <= range) defenders += Math.max(0, m.hp);
+    }
+    for (const t of livingTowersNear(tx, ty, GATE_OVERRUN_RANGE_TILES, owner)) defenders += structureHp(t.x, t.y)?.hp ?? 0;
+    g.overrun = attackers > 0 && attackers > defenders && livingTowersNear(tx, ty, GATE_TOWER_RANGE_TILES, owner).length === 0;
+    return;
+  }
   let hostile = 0;
   for (const m of mobs.values()) {
     if (m.passive || isDormantGuardian(m) || (m.isDeserter && !m.deserterActive)) continue;
@@ -7679,8 +7802,8 @@ function evaluateGateOverrun(index: number, g: GateState) {
   for (const col of colonists.values()) {
     if (isGuardOrMilitiaKind(col.kind) && Math.hypot(col.x - c.x, col.y - c.y) <= range) defence += Math.max(0, col.hp);
   }
-  for (const t of livingTowersNear(tx, ty, GATE_OVERRUN_RANGE_TILES)) defence += structureHp(t.x, t.y)?.hp ?? 0;
-  const overrun = hostile > 0 && hostile > defence && livingTowersNear(tx, ty, GATE_TOWER_RANGE_TILES).length === 0;
+  for (const t of livingTowersNear(tx, ty, GATE_OVERRUN_RANGE_TILES, 0)) defence += structureHp(t.x, t.y)?.hp ?? 0;
+  const overrun = hostile > 0 && hostile > defence && livingTowersNear(tx, ty, GATE_TOWER_RANGE_TILES, 0).length === 0;
   if (overrun && !g.overrun) broadcastEvent("raid", "Gate overrun");
   g.overrun = overrun;
 }
@@ -7701,7 +7824,7 @@ function updateGates(forceOverrunCheck = false) {
     const c = tileToPixelCenter({ x: tx, y: ty });
     if (g.lock === "open") {
       g.open = true;
-    } else if (g.lock === "auto" && friendlyNearGate(c.x, c.y)) {
+    } else if (g.lock === "auto" && friendlyNearGate(c.x, c.y, ownerAt(index))) {
       g.open = true;
       g.clearTicks = 0;
     } else {
@@ -7721,14 +7844,15 @@ function gatesForSnapshot(): number[] {
       (g.open ? GATE_FLAG_OPEN : 0) |
         (g.lock === "open" ? GATE_FLAG_LOCK_OPEN : 0) |
         (g.lock === "closed" ? GATE_FLAG_LOCK_CLOSED : 0) |
-        (g.overrun ? GATE_FLAG_OVERRUN : 0)
+        (g.overrun ? GATE_FLAG_OVERRUN : 0) |
+        (ownerAt(index) !== 0 ? GATE_FLAG_FOREIGN : 0)
     );
   }
   return out;
 }
 
 function handleSetGateLock(tx: number, ty: number, lock: unknown) {
-  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Gate) return;
+  if (!inBounds(tx, ty) || tiles[tileIndex(tx, ty)] !== TileType.Gate || ownerAt(tileIndex(tx, ty)) !== 0) return;
   if (lock !== "auto" && lock !== "open" && lock !== "closed") return;
   const g = gateAt(tileIndex(tx, ty));
   g.lock = lock;
@@ -7746,7 +7870,8 @@ function buildingTargetCandidates(): TileCoord[] {
     buildingTargetTiles = [];
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i] as TileType;
-      if (isDamageableBuilding(t) && !isWallTile(t) && t !== TileType.Gate) buildingTargetTiles.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
+      // Forts phase A: mobs never go for an NPC site's buildings (no NPC-vs-NPC fighting in v1).
+      if (isDamageableBuilding(t) && !isWallTile(t) && t !== TileType.Gate && ownerAt(i) === 0) buildingTargetTiles.push({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X) });
     }
     buildingTargetsDirty = false;
     buildingTargetsBuiltTick = cycleTick;
@@ -7760,7 +7885,9 @@ function buildingTargetCandidates(): TileCoord[] {
 let routeCost = new Float64Array(WORLD_TILES_X * WORLD_TILES_Y);
 let routeParent = new Int32Array(WORLD_TILES_X * WORLD_TILES_Y);
 const ROUTE_NODE_BUDGET = 120000;
-function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: number): TileCoord[] | null {
+// colony = true (forts phase A): the colony's side: gates by gatePassable(_, false), and only a hostile
+// site's walls / gates are breachable; false: the mobs' side, only the colony's (owner 0) are.
+function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: number, colony = false): TileCoord[] | null {
   const n = tiles.length;
   const s = tileIndex(start.x, start.y);
   const isGoal = (i: number) => Math.abs((i % WORLD_TILES_X) - gx) + Math.abs(Math.floor(i / WORLD_TILES_X) - gy) === 1;
@@ -7816,10 +7943,12 @@ function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: num
       const ni = tileIndex(nx, ny);
       const t = tiles[ni] as TileType;
       // Gates: an open (or overrun) gate is ground; a closed one is solid, or a breach obstacle like a wall.
+      const own = tileOwner.size === 0 ? 0 : ownerAt(ni);
+      const breachable = wallCost > 0 && (colony ? isHostileOwner(own) : own === 0);
       const step =
         t === TileType.Gate
-          ? gatePassable(ni, true) ? 1 : wallCost > 0 ? breachStepCost(nx, ny) : 0
-          : !isSolidTile(t) ? 1 : wallCost > 0 && isWallTile(t) ? breachStepCost(nx, ny) : 0;
+          ? gatePassable(ni, !colony) ? 1 : breachable ? breachStepCost(nx, ny) : 0
+          : !isSolidTile(t) ? 1 : breachable && isWallTile(t) ? breachStepCost(nx, ny) : 0;
       if (step === 0) continue;
       const next = cost + step;
       if (next >= routeCost[ni]) continue;
@@ -8271,7 +8400,7 @@ function playerForceNear(cx: number, cy: number, radiusPx: number): { hp: number
     }
   }
   const t = tileOfPixel(cx, cy);
-  for (const tw of livingTowersNear(t.x, t.y, radiusPx / TILE_SIZE)) {
+  for (const tw of livingTowersNear(t.x, t.y, radiusPx / TILE_SIZE, 0)) {
     hp += structureHp(tw.x, tw.y)?.hp ?? BUILDING_HP_BIG;
     dmg += (towerStatsForLevel(tw.level).damage * MOB_ATTACK_COOLDOWN_TICKS) / towerCooldownTicks(tw.level);
   }
@@ -8763,7 +8892,7 @@ function playerMoraleResist(members: Colonist[], cx: number, cy: number): number
   }
   if (anchored) k *= PLAYER_MORALE_ANCHOR_RESIST;
   const t = tileOfPixel(cx, cy);
-  if (livingTowersNear(t.x, t.y, PLAYER_MORALE_TOWER_TILES).length > 0) k *= PLAYER_MORALE_TOWER_RESIST;
+  if (livingTowersNear(t.x, t.y, PLAYER_MORALE_TOWER_TILES, 0).length > 0) k *= PLAYER_MORALE_TOWER_RESIST;
   let walls = false;
   for (let dy = -PLAYER_MORALE_WALL_TILES; dy <= PLAYER_MORALE_WALL_TILES && !walls; dy++) {
     for (let dx = -PLAYER_MORALE_WALL_TILES; dx <= PLAYER_MORALE_WALL_TILES; dx++) {
@@ -9478,6 +9607,47 @@ function standingHearthAt(tx: number, ty: number): HearthState | undefined {
   return undefined;
 }
 
+// Forts phase A: what the attackHearth order / commandAttackHearth (generalised "attack structure") can
+// hit at a tile: a standing hearth (id = its siteId) or a damageable tile of a hostile NPC site (id =
+// STRUCTURE_TARGET_PREFIX + tile index). Colonist.targetHearthId holds either id.
+const STRUCTURE_TARGET_PREFIX = "tile:";
+interface AttackObjective {
+  id: string;
+  x: number;
+  y: number;
+}
+
+function hostileStructureAt(index: number): boolean {
+  if (!isHostileOwner(ownerAt(index))) return false;
+  return structureHp(index % WORLD_TILES_X, Math.floor(index / WORLD_TILES_X)) !== null;
+}
+
+function attackObjectiveAt(tx: number, ty: number): AttackObjective | null {
+  if (!inBounds(tx, ty)) return null;
+  const h = standingHearthAt(tx, ty);
+  if (h) return { id: h.siteId, x: h.x, y: h.y };
+  const index = tileIndex(tx, ty);
+  return hostileStructureAt(index) ? { id: STRUCTURE_TARGET_PREFIX + index, x: tx, y: ty } : null;
+}
+
+// The nearest hostile NPC structure within maxPx of (px, py) and within zonePx of (zx, zy); null if none.
+function nearestHostileStructure(px: number, py: number, maxPx: number, zx = px, zy = py, zonePx = Infinity): AttackObjective | null {
+  let best: AttackObjective | null = null;
+  let bestD = maxPx;
+  for (const index of tileOwner.keys()) {
+    const x = index % WORLD_TILES_X;
+    const y = Math.floor(index / WORLD_TILES_X);
+    const c = tileToPixelCenter({ x, y });
+    if (Math.abs(c.x - px) > bestD || Math.abs(c.y - py) > bestD) continue;
+    const d = Math.hypot(c.x - px, c.y - py);
+    if (d > bestD || Math.hypot(c.x - zx, c.y - zy) > zonePx || !hostileStructureAt(index)) continue;
+    bestD = d;
+    best = { id: STRUCTURE_TARGET_PREFIX + index, x, y };
+  }
+  return best;
+}
+
+
 // Old saves (no hearth records) and sites missing one: a full-HP hearth on the campfire nearest each
 // hearth-kind site's guardians; a campfire left with no guardians gets one too (it only leaves loot).
 function backfillHearths() {
@@ -9605,7 +9775,7 @@ function hearthsForSnapshot(): number[] {
 }
 
 // The orthogonal walkable neighbour of a hearth nearest (px, py), else any walkable neighbour.
-function hearthApproachTile(h: HearthState, px: number, py: number): TileCoord | null {
+function hearthApproachTile(h: { x: number; y: number }, px: number, py: number): TileCoord | null {
   let best: TileCoord | null = null;
   let bestD = Infinity;
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -9624,7 +9794,7 @@ function hearthApproachTile(h: HearthState, px: number, py: number): TileCoord |
 // Commanded attack on a hearth: the units' rally moves to the hearth (so they defend that spot
 // against its guardians, and hold there once it falls).
 function handleCommandAttackHearth(unitIds: string[], tx: number, ty: number) {
-  const h = standingHearthAt(tx, ty);
+  const h = attackObjectiveAt(tx, ty);
   if (!h) return;
   for (const id of unitIds) {
     const c = colonists.get(id);
@@ -9636,11 +9806,12 @@ function handleCommandAttackHearth(unitIds: string[], tx: number, ty: number) {
 }
 
 // The unit's rally moves to the hearth's approach tile and it attacks the hearth (no-op without one).
-function sendAgainstHearth(c: Colonist, h: HearthState) {
+function sendAgainstHearth(c: Colonist, h: AttackObjective) {
   const approach = hearthApproachTile(h, c.x, c.y);
   if (!approach) return;
   const p = tileToPixelCenter(approach);
-  c.targetHearthId = h.siteId;
+  structureBreach.delete(c.id);
+  c.targetHearthId = h.id;
   c.targetMobId = null;
   commandedTargets.delete(c.id);
   c.squadId = null;
@@ -9655,6 +9826,7 @@ function sendAgainstHearth(c: Colonist, h: HearthState) {
 // A soldier with no mob target: works on its hearth target (commanded, or picked on an aggressive stance
 // when one stands within HEARTH_AUTO_TARGET_TILES and inside the unit's zone). True when it acted.
 function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; melee: boolean; range: number; speed: number }, dt: number): boolean {
+  if (c.targetHearthId?.startsWith(STRUCTURE_TARGET_PREFIX)) return structureStep(c, stats, dt);
   let h = c.targetHearthId ? hearths.get(c.targetHearthId) : undefined;
   if (c.targetHearthId && (!h || h.destroyed)) {
     c.targetHearthId = null;
@@ -9674,6 +9846,14 @@ function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; mele
       }
     }
     if (h) c.targetHearthId = h.siteId;
+    // Forts phase A: else a hostile site's structure in the same reach (scanned a few times a second).
+    if (!h && tileOwner.size > 0 && cycleTick % 5 === 0) {
+      const s = nearestHostileStructure(c.x, c.y, HEARTH_AUTO_TARGET_TILES * TILE_SIZE, c.rallyX, c.rallyY, zone);
+      if (s) {
+        c.targetHearthId = s.id;
+        return structureStep(c, stats, dt);
+      }
+    }
   }
   if (!h) return false;
   const p = tileToPixelCenter(h);
@@ -9701,6 +9881,79 @@ function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; mele
     const route = approach ? findPath(tileOfPixel(c.x, c.y), approach) : null;
     if (!route) {
       c.targetHearthId = null;
+      return false;
+    }
+    c.path = route;
+    if (route.length === 0) stepRaidMobToward(c, p.x, p.y, stats.speed, dt);
+  }
+  if (c.path.length > 0) advanceAlongPath(c, dt, stats.speed);
+  c.state = "engaging";
+  return true;
+}
+
+// Forts phase A: hearthStep for a structure target (a hostile site's wall / gate / tower / building).
+// Walled off: breaks through the first site wall / gate on the cheapest route (structureBreach) first.
+function structureStep(c: Colonist, stats: { damage: number; cooldown: number; melee: boolean; range: number; speed: number }, dt: number): boolean {
+  const goal = Number(c.targetHearthId!.slice(STRUCTURE_TARGET_PREFIX.length));
+  if (!Number.isInteger(goal) || goal < 0 || goal >= tiles.length || !hostileStructureAt(goal)) {
+    c.targetHearthId = null;
+    structureBreach.delete(c.id);
+    c.path = [];
+    return false;
+  }
+  let at = goal;
+  const breach = structureBreach.get(c.id);
+  if (breach !== undefined) {
+    if (hostileStructureAt(breach)) at = breach;
+    else {
+      structureBreach.delete(c.id);
+      c.path = [];
+    }
+  }
+  const tx = at % WORLD_TILES_X;
+  const ty = Math.floor(at / WORLD_TILES_X);
+  const p = tileToPixelCenter({ x: tx, y: ty });
+  const dist = Math.hypot(p.x - c.x, p.y - c.y);
+  const reach = Math.max(stats.range + TILE_SIZE * 0.5, TILE_SIZE * 1.5);
+  if (dist <= reach) {
+    c.path = [];
+    c.state = "attacking";
+    if (c.attackCooldownTicks > 0) {
+      c.attackCooldownTicks--;
+      return true;
+    }
+    let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id) * moraleDamageMult(c);
+    if (c.kind === "batteringRam") damage *= SIEGE_BUILDING_MULT;
+    else if (c.kind === "catapult") damage *= CATAPULT_BUILDING_MULT;
+    c.attackCooldownTicks = stats.cooldown;
+    pendingEffects.push({ fromX: c.x, fromY: c.y, toX: p.x, toY: p.y, melee: stats.melee, ...(c.kind === "catapult" ? { boulder: true } : {}) });
+    // Hitting a site's building wakes its guardians (they defend it).
+    const siteId = ownerSiteIds[ownerAt(at) - 1];
+    if (siteId) activateGuardianSite(siteId);
+    damageBuilding(tx, ty, damage);
+    if (!hostileStructureAt(at)) {
+      if (at === goal) c.targetHearthId = null;
+      structureBreach.delete(c.id);
+      c.path = [];
+    }
+    return true;
+  }
+  if (stats.speed === 0) return false;
+  if (c.path.length === 0) {
+    const start = tileOfPixel(c.x, c.y);
+    const approach = hearthApproachTile({ x: tx, y: ty }, c.x, c.y);
+    let route = approach ? findPath(start, approach) : null;
+    if (!route && at === goal) {
+      const via = routeToBuilding(start, tx, ty, BREACH_WALL_COST, true);
+      const wallAt = via ? via.findIndex((t) => isColonyBreachObstacle(t.x, t.y)) : -1;
+      if (via && wallAt >= 0) {
+        structureBreach.set(c.id, tileIndex(via[wallAt].x, via[wallAt].y));
+        route = via.slice(0, wallAt);
+      }
+    }
+    if (!route) {
+      c.targetHearthId = null;
+      structureBreach.delete(c.id);
       return false;
     }
     c.path = route;
@@ -10170,6 +10423,7 @@ function generateWorld() {
   abbeyCenter = null;
   castleRuinCenter = null;
   hearths.clear();
+  clearOwners();
   resetGoals();
   tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
   townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
@@ -10420,6 +10674,46 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
       broadcastTileUpdate(msg.tx, msg.ty, msg.tile as TileType);
     }
     reply({ tile: tiles[tileIndex(msg.tx, msg.ty)] });
+  } else if (msg.op === "stampTestSite" && typeof msg.cx === "number" && typeof msg.cy === "number") {
+    // Forts phase A: a hand-placed NPC fort: a 5x5 ring of walls (stone with {stone:true}) owned by the
+    // site `siteId` (default a fresh "testsite:<n>"), a gate in the middle of its west side and a tower in
+    // the centre (unless {tower:false}); the rest of the 5x5 is cleared. No mobs: spawnMob {siteId} adds
+    // its garrison.
+    const siteId = typeof msg.siteId === "string" ? msg.siteId : `testsite:${ownerSiteIds.length + 1}`;
+    const num = siteNumber(siteId, true);
+    const walls: TileCoord[] = [];
+    let gate: TileCoord | null = null;
+    let tower: TileCoord | null = null;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = msg.cx + dx;
+        const y = msg.cy + dy;
+        if (!inBounds(x, y)) continue;
+        const i = tileIndex(x, y);
+        const ring = Math.abs(dx) === 2 || Math.abs(dy) === 2;
+        const t = !ring ? (dx === 0 && dy === 0 && msg.tower !== false ? TileType.Tower : TileType.Empty)
+          : dx === -2 && dy === 0 ? TileType.Gate : msg.stone ? TileType.StoneWall : TileType.Wall;
+        buildingHp.delete(resourceKey(x, y));
+        tiles[i] = t;
+        broadcastTileUpdate(x, y, t);
+        setOwner(i, t === TileType.Empty ? 0 : num);
+        if (t === TileType.Gate) gate = { x, y };
+        else if (t === TileType.Tower) tower = { x, y };
+        else if (t !== TileType.Empty) walls.push({ x, y });
+      }
+    }
+    reply({ siteId, site: num, gate, tower, walls });
+  } else if (msg.op === "setOwner" && typeof msg.tx === "number" && typeof msg.ty === "number") {
+    // Forts phase A: one tile's owner (siteId string, or null for the colony).
+    if (inBounds(msg.tx, msg.ty)) setOwner(tileIndex(msg.tx, msg.ty), siteNumber(typeof msg.siteId === "string" ? msg.siteId : null, true));
+    reply({ owner: inBounds(msg.tx, msg.ty) ? ownerAt(tileIndex(msg.tx, msg.ty)) : 0 });
+  } else if (msg.op === "ownerState") {
+    reply({
+      owners: Array.from(tileOwner).map(([i, o]) => ({ x: i % WORLD_TILES_X, y: Math.floor(i / WORLD_TILES_X), owner: o, tile: tiles[i] })),
+      sites: [...ownerSiteIds],
+      version: ownerVersion,
+      towerShots: towerEvents.slice(),
+    });
   } else if (msg.op === "placeTownCenter" && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // A new Town Center at the tile, no placement rules or builders' work (regiment-groups-test).
     if (inBounds(msg.tx, msg.ty) && !findTownCenterAt(msg.tx, msg.ty)) resolveTownCenterPlacement(msg.tx, msg.ty);
@@ -10995,6 +11289,10 @@ function snapshotWorld() {
     castleRuinCenter,
     goals: { goalIndex, castleCleared, campsDestroyed },
     hearths: Array.from(hearths.values()),
+    // Forts phase A: NPC tile owners as flattened [tile index, site number] pairs + the site ids they
+    // name (optional: saves without them have every tile the colony's).
+    owners: Array.from(tileOwner).flat() as number[] | undefined,
+    ownerSites: [...ownerSiteIds] as string[] | undefined,
     stock: { ...stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...equipment.armour], weapon: [...equipment.weapon] },
@@ -11148,6 +11446,10 @@ function applyWorld(s: WorldState) {
   // full-HP hearth on their campfire.
   refill(hearths, (s.hearths ?? []).map((h): [string, HearthState] => [h.siteId, h]));
   backfillHearths();
+  clearOwners();
+  ownerSiteIds.push(...(s.ownerSites ?? []));
+  const owners = s.owners ?? [];
+  for (let i = 0; i + 1 < owners.length; i += 2) if (owners[i] < tiles.length && owners[i + 1] > 0) tileOwner.set(owners[i], owners[i + 1]);
   testForceDeserterRoll = s.flags.testForceDeserterRoll;
   testHoldRaidAggro = s.flags.testHoldRaidAggro;
   testRaidsDisabled = s.flags.testRaidsDisabled;
@@ -11547,6 +11849,8 @@ const PLACEABLE_TILES = [
   TileType.Keep,
 ];
 const BREAKABLE_TILES = [
+  // Forts phase A: a fallen NPC wall's rubble can be cleared.
+  TileType.Rubble,
   TileType.Wall,
   TileType.StoneWall,
   TileType.House,
@@ -12054,6 +12358,11 @@ function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileTy
 
   const current = tiles[tileIndex(tx, ty)] as TileType;
   const siteKey = resourceKey(tx, ty);
+  // Forts phase A: an NPC site's tile can be neither demolished nor built on / upgraded.
+  if (ownerAt(tileIndex(tx, ty)) !== 0) {
+    sendEvent(player, "build", "That belongs to an enemy fort");
+    return;
+  }
 
   if (tile === TileType.Empty) {
     if (!BREAKABLE_TILES.includes(current)) return;
@@ -12329,12 +12638,14 @@ function towerCooldownTicks(level: number): number {
 // Every standing Tower within radiusTiles (Euclidean, tile units) of tile (tx, ty). A Tower tile only
 // exists while the building stands (destroyed -> demolished to Empty; unfinished -> ConstructionSite),
 // so every one found is alive. A Tower whose upgrade is under way keeps shooting and counts.
-export function livingTowersNear(tx: number, ty: number, radiusTiles: number): Array<{ x: number; y: number; level: number }> {
+// Forts phase A: `owner` given = only that owner's towers (0 = the colony's); omitted = every tower.
+export function livingTowersNear(tx: number, ty: number, radiusTiles: number, owner?: number): Array<{ x: number; y: number; level: number }> {
   const out: Array<{ x: number; y: number; level: number }> = [];
   const r = Math.ceil(radiusTiles);
   for (let y = Math.max(0, ty - r); y <= Math.min(WORLD_TILES_Y - 1, ty + r); y++) {
     for (let x = Math.max(0, tx - r); x <= Math.min(WORLD_TILES_X - 1, tx + r); x++) {
       if (!isTowerTile(tiles[tileIndex(x, y)] as TileType)) continue;
+      if (owner !== undefined && ownerAt(tileIndex(x, y)) !== owner) continue;
       if (Math.hypot(x - tx, y - ty) <= radiusTiles) out.push({ x, y, level: getBuildingLevel(x, y) });
     }
   }
@@ -12373,6 +12684,12 @@ function updateTowers() {
     const stats = towerStatsForLevel(level);
     const cx = tx * TILE_SIZE + TILE_SIZE / 2;
     const cy = ty * TILE_SIZE + TILE_SIZE / 2;
+    // Forts phase A: an NPC site's tower shoots the colony (players and colonists) instead of mobs.
+    if (isHostileOwner(ownerAt(i))) {
+      if (siteTowerShot(key, cx, cy, stats.rangeTiles * TILE_SIZE, stats.damage)) towerCooldowns.set(key, towerCooldownTicks(level));
+      else towerCooldowns.set(key, 0);
+      continue;
+    }
     let best: Mob | null = null;
     let bestD = stats.rangeTiles * TILE_SIZE;
     for (const m of mobs.values()) {
@@ -12393,6 +12710,41 @@ function updateTowers() {
     towerCooldowns.set(key, towerCooldownTicks(level));
   }
 }
+
+// One shot of a site tower at the nearest player or colonist in range; false when nobody is in range.
+function siteTowerShot(key: string, cx: number, cy: number, range: number, damage: number): boolean {
+  let bestD = range;
+  let player: Player | null = null;
+  let colonist: Colonist | null = null;
+  if (!testPlayersIgnored) {
+    for (const p of players.values()) {
+      const d = p.dead ? Infinity : Math.hypot(p.x - cx, p.y - cy);
+      if (d <= bestD) {
+        bestD = d;
+        player = p;
+      }
+    }
+  }
+  for (const c of colonists.values()) {
+    if (Math.abs(c.x - cx) > bestD || Math.abs(c.y - cy) > bestD) continue;
+    const d = Math.hypot(c.x - cx, c.y - cy);
+    if (d <= bestD) {
+      bestD = d;
+      colonist = c;
+      player = null;
+    }
+  }
+  const target = colonist ?? player;
+  if (!target) return false;
+  pendingEffects.push({ fromX: cx, fromY: cy - TILE_SIZE / 3, toX: target.x, toY: target.y });
+  if (colonist) damageColonist(colonist, damage);
+  else damagePlayer(player!, damage);
+  towerEvents.push({ tick: cycleTick, tower: key, target: colonist ? "c:" + colonist.id : "p:" + player!.id, damage });
+  if (towerEvents.length > 50) towerEvents.shift();
+  return true;
+}
+// Recent site-tower shots (testHook "ownerState").
+const towerEvents: Array<{ tick: number; tower: string; target: string; damage: number }> = [];
 
 function towerInfoLines(level: number): string[] {
   const line = (l: number) => {
@@ -13953,7 +14305,8 @@ function pickRamTarget(mob: Mob): PickedTarget | null {
   const start = tileOfPixel(mob.x, mob.y);
   const closed: { x: number; y: number; d: number }[] = [];
   for (const index of gates.keys()) {
-    if (gatePassable(index, true)) continue;
+    // Forts phase A: raid rams only ram the colony's gates.
+    if (gatePassable(index, true) || ownerAt(index) !== 0) continue;
     const x = index % WORLD_TILES_X;
     const y = Math.floor(index / WORLD_TILES_X);
     const c = tileToPixelCenter({ x, y });
@@ -14299,6 +14652,16 @@ function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingIn
     else if (!canAfford(cost)) reason = "Not enough resources";
     else if (!anyBuilderAlive()) reason = "No builders available";
     repair = { cost: formatCost(cost), enabled: reason === "", reason };
+  }
+
+  // Forts phase A: an NPC site's building: labelled as theirs, no upgrade / repair / gate lock / shop.
+  if (ownerAt(tileIndex(tx, ty)) !== 0) {
+    return {
+      name: `Enemy fort: ${name}`, tile: t, level, maxLevel: 1,
+      hp: hpState ? Math.ceil(hpState.hp) : null, maxHp: hpState ? hpState.max : null,
+      staffing: "", bonuses: ["Belongs to an enemy fort: right-click with soldiers selected to attack it"],
+      upgrade: null, construction: null, repair: null,
+    };
   }
 
   return {
@@ -14687,8 +15050,11 @@ function stepSimulation() {
     updateRegiments();
     updateRaidGroups(dt);
     for (const mob of mobs.values()) {
+      // Forts phase A: a site's own mobs pass its gates.
+      moverOwner = tileOwner.size === 0 ? 0 : siteNumber(mob.siteId);
       updateMob(mob, dt);
     }
+    moverOwner = 0;
   });
   updateTowers();
   separateBodies();
@@ -14990,6 +15356,10 @@ setInterval(() => {
         payload = JSON.stringify({ ...snapshot, mobs: snapshot.mobs.filter((m) => near(m.x, m.y)), wildlife: wl });
       }
       if (enemyJson !== null && player.view) payload = payload.slice(0, -1) + ',"enemyRegiments":' + enemyJson + "}";
+      if (snapshot.type === "snapshot" && player.siteTilesVersion !== ownerVersion) {
+        player.siteTilesVersion = ownerVersion;
+        payload = payload.slice(0, -1) + ',"siteTiles":' + JSON.stringify(Array.from(tileOwner).flat()) + "}";
+      }
       player.socket.send(withPlayerHeroes(withPlayerProfile(withPlayerFights(payload, player), player), player));
     }
   }

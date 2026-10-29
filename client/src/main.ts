@@ -53,6 +53,7 @@ import {
   FarmStage,
   GATE_FLAG_OPEN,
   GATE_FLAG_OVERRUN,
+  SITE_TILE_SNAPSHOT_STRIDE,
   GATE_SNAPSHOT_STRIDE,
   HUNGER_MARK_NAMES,
   HungerMark,
@@ -643,6 +644,8 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.RuinArch]: "stoneArch",
   [TileType.RuinStatue]: "statue",
   [TileType.RuinRubble]: "rubble",
+  // Forts phase A: a fallen NPC wall (walkable): the ruin rubble art, flatter and greyed.
+  [TileType.Rubble]: "rubble",
   [TileType.PropCampfire]: "campfire",
   [TileType.PropCart]: "cart",
   [TileType.PropBarrel]: "barrel",
@@ -711,6 +714,7 @@ const WALL_DAMAGED_PERMILLE = 500;
 const WALL_ART_PX_PER_TILE = 68;
 // Multiplicative tints that tell a stand-in apart from the building/prop whose art it borrows.
 const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
+  [TileType.Rubble]: 0x9a9088,
   [TileType.HunterHut]: 0xa8c08a,
   [TileType.ForagerHut]: 0xf0c890,
   [TileType.BerryBush]: 0xff9a9a,
@@ -937,6 +941,7 @@ const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
   [TileType.Keep]: 1.8,
   [TileType.RuinStatue]: 0.7,
   [TileType.RuinRubble]: 0.75,
+  [TileType.Rubble]: 0.55,
   [TileType.PropCampfire]: 0.8,
   [TileType.PropBarrel]: 0.6,
   [TileType.PropCrate]: 0.65,
@@ -1723,6 +1728,10 @@ async function main() {
   let damagedBuildings = new Map<number, number>();
   // Walls & gates: snapshot `gates`, tile index -> GATE_FLAG_* bits (see syncGates).
   let gateFlags = new Map<number, number>();
+  // Forts phase A: NPC-owned tiles (snapshot `siteTiles`, only sent when it changed): tile index -> site
+  // number. Drawn tinted (FOREIGN_TINT), red on the minimap; right-click with soldiers = attack it.
+  let siteOwners = new Map<number, number>();
+  const FOREIGN_TINT = 0xffa090;
   // True from a welcome until its first snapshot has been applied: state diffs then are a world
   // load, not events, so they make no sound.
   let soundSuppressed = true;
@@ -1818,6 +1827,20 @@ async function main() {
   }
 
   // Walls & gates: redraw a gate whose open / overrun look changed.
+  function syncSiteTiles(flat: number[] | undefined) {
+    if (!flat) return;
+    const next = new Map<number, number>();
+    for (let i = 0; i + SITE_TILE_SNAPSHOT_STRIDE <= flat.length; i += SITE_TILE_SNAPSHOT_STRIDE) next.set(flat[i], flat[i + 1]);
+    const prev = siteOwners;
+    siteOwners = next;
+    for (const index of new Set([...prev.keys(), ...next.keys()])) {
+      if (prev.get(index) === next.get(index)) continue;
+      const { tx, ty } = indexToTile(index);
+      setTileSprite(tx, ty, tiles[index]);
+      paintMinimapTile(index);
+    }
+  }
+
   function syncGates(flat: number[] | undefined) {
     const next = new Map<number, number>();
     const list = flat ?? [];
@@ -2014,6 +2037,7 @@ async function main() {
           ? 0xffffff
           : (TILE_TINT.get(tile) ?? 0xffffff);
     if (fireTier(damagedBuildings.get(index) ?? 1000) > 0) sprite.tint = SOOT_TINT;
+    else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = FOREIGN_TINT;
     if (artTile === TileType.TownCenter) {
       const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
       sprite.anchor.set(fit.anchor.x, fit.anchor.y);
@@ -3481,7 +3505,7 @@ async function main() {
   const MINIMAP_CAMP = 0xd2731a;
   const MINIMAP_ABBEY = 0xf0e6cc;
   const MINIMAP_RUIN_TILES = new Set<number>([
-    TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble,
+    TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble, TileType.Rubble,
   ]);
   const MINIMAP_CAMP_TILES = new Set<number>([
     TileType.PropCampfire, TileType.PropCart, TileType.PropBarrel, TileType.PropCrate, TileType.PropFence,
@@ -3490,6 +3514,8 @@ async function main() {
 
   function minimapTileColor(index: number): number {
     if (!explored[index]) return MINIMAP_UNEXPLORED;
+    // Forts phase A: an NPC fort's walls / buildings.
+    if (siteOwners.has(index)) return MINIMAP_RUIN;
     const tile = tiles[index] ?? TileType.Empty;
     switch (tile) {
       case TileType.Empty:
@@ -5789,6 +5815,7 @@ async function main() {
       syncConstructionSites(message.constructionSites);
       syncDamagedBuildings(message.damagedBuildings);
       syncGates(message.gates);
+      syncSiteTiles(message.siteTiles);
       latestTownCenters = message.townCenters;
       latestHearths = new Set();
       const hearthFlat = message.hearths ?? [];
@@ -6915,7 +6942,7 @@ async function main() {
       } else if (mob) {
         if (strategic) sendRegimentOrder({ kind: "attack", targetId: mob.id }, e.shiftKey);
         else socket.send(JSON.stringify({ type: "commandAttack", unitIds, mobId: mob.id }));
-      } else if (clicked && latestHearths.has(hearthIndex)) {
+      } else if (clicked && (latestHearths.has(hearthIndex) || siteOwners.has(hearthIndex))) {
         // Camp hearths: right-click a standing hearth to send the selection against it (strategy mode: as
         // a regiment order, so the group keeps its queue / settings).
         if (strategic) sendRegimentOrder({ kind: "attackHearth", tileX: clicked.tileX, tileY: clicked.tileY }, e.shiftKey);

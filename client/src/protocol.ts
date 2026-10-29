@@ -104,6 +104,9 @@ export enum TileType {
   // Keep (2026-10-28): a separate per-settlement building (needs a Town Center at level 2); each of its
   // three levels (buildingLevels) adds +10 to that settlement's population cap.
   Keep = 73,
+  // Forts phase A (2026-10-29): what a destroyed NPC-owned wall or gate leaves behind. Walkable (NOT in
+  // isSolidTile): a breach gap. The player may clear it (demolish -> Empty).
+  Rubble = 74,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -117,6 +120,11 @@ export const GATE_FLAG_LOCK_OPEN = 2;
 export const GATE_FLAG_LOCK_CLOSED = 4;
 // Overrun: a hostile majority near the gate with no living tower in range; mobs pass as if it were open.
 export const GATE_FLAG_OVERRUN = 8;
+// Forts phase A: the gate belongs to an NPC site (closed to the colony, opens only for its own side).
+export const GATE_FLAG_FOREIGN = 16;
+// Forts phase A: snapshot `siteTiles` is flattened [tile index, site number] pairs, one per NPC-owned
+// tile (site number >= 1). Per player, sent only when the owner map changed since that player's last one.
+export const SITE_TILE_SNAPSHOT_STRIDE = 2;
 
 export function isRoadTile(tile: TileType): boolean {
   return tile === TileType.Road || tile === TileType.CobbleRoad;
@@ -942,6 +950,9 @@ export type ServerMessage =
       hearths?: number[];
       // Armour & weapons: the colony's equipment stock by tier (omitted by older servers).
       equipment?: EquipmentStock;
+      // Forts phase A: NPC-owned tiles, see SITE_TILE_SNAPSHOT_STRIDE (per player, only when changed;
+      // a full replacement of the previous list).
+      siteTiles?: number[];
       // Hero phases 1-2: this player's gear / inventory / XP (per-player field, only when it changed).
       profile?: HeroProfileSnapshot;
       // Hero phase 3: the colony's heroes (sheet tabs); appended per player only when it changed.

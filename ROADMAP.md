@@ -1732,3 +1732,67 @@ Phase 6" (phase 2 deviations above).
 5. Tactical mode: a garrison militia camp that routs walks back to its post after rallying; the rider alone, a
    pair of knights and workers never rout.
 6. Hit a mob regiment from behind with cavalry: its enemy banner shows a morale bar and "· Outflanked!".
+
+## Forts phase A — landed 2026-10-29
+
+Plan: `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §1 + §10 "A" (tile owner map). Groundwork for NPC forts: nothing
+stamps owned tiles at world-gen yet (that is phase B's stamper); only the test hooks / helper below do.
+
+- **Owner map**: `tileOwner` (sparse tile index -> site number >= 1) + `ownerSiteIds` (site number n = the mobs'
+  `siteId` at n - 1). Missing = the colony's / unowned, so old saves load unchanged. `ownerAt`, `siteNumber`,
+  `setOwner`, `isHostileOwner` (v1: every site is hostile to the colony). Saved as optional `owners` (flattened
+  [index, site]) + `ownerSites`; no SAVE_VERSION bump. Cleared on a new world.
+- **Mover side**: `hostileMover` stays; `moverOwner` (site number of the mob moving / pathing, set per mob in the mob
+  loop and in `nudgeBody`) sits beside it.
+- **Gates**: an NPC gate is passable only for its own site's mobs (they open it within 1.5 tiles), never for other
+  mobs / wildlife; closed to players and colonists unless overrun (colony soldiers + players near it beat the site's
+  mobs + towers, and no site tower within 8). No gate lock on NPC gates. Snapshot `GATE_FLAG_FOREIGN` (16).
+- **Towers**: an NPC tower shoots the nearest player or colonist in range (same stats as a colony tower) instead of
+  mobs. Colony tower checks that matter for the colony (gate overrun, mob morale's colony strength, player morale's
+  tower anchor) count colony towers only (`livingTowersNear(..., owner)`).
+- **Breach / pathing**: mobs only breach colony (owner 0) walls / gates and only target colony buildings; raid rams
+  only ram colony gates. `routeToBuilding(..., colony = true)` is the colony's mirror (breaches hostile site walls).
+- **Player attack**: the `attackHearth` regiment order and `commandAttackHearth` now take any hostile site tile with
+  HP too (`attackObjectiveAt`; `targetHearthId = "tile:<index>"`). A walled-off target (a tower inside the ring) makes
+  the unit breach the cheapest site wall / gate on the way first (`structureBreach`). Hits wake the site's
+  guardians; rams / catapults get their building multipliers. Aggressive stance auto-picks a site structure within
+  `HEARTH_AUTO_TARGET_TILES` after hearths; **attack-move** engages a site structure within the aggressive alert
+  range of the group. Camp hearths behave as before.
+- **Rubble**: a destroyed NPC wall / gate becomes `TileType.Rubble = 74` (walkable, a breach gap) and loses its owner;
+  the player can demolish rubble to Empty. Player walls still fall to Empty as before.
+- **Refusals**: no build / upgrade / demolish on an NPC tile ("That belongs to an enemy fort"), no manual repair,
+  builders never auto-repair them. Building info shows "Enemy fort: Wall" with no upgrade / repair / lock.
+- **Snapshot (additive)**: per player `siteTiles?` (flattened [index, site], full list, sent only when the owner map
+  changed since that player's last one). `protocol.ts` copies byte-identical (`cmp`).
+- **Client**: NPC tiles tinted salmon (`FOREIGN_TINT`), red on the minimap; right-click a site tile with soldiers
+  selected = attack it (tactical: `commandAttackHearth`; strategy: `attackHearth` order). Rubble = the ruin-rubble
+  art, smaller and greyed.
+- **Test hooks**: `stampTestSite {cx, cy, siteId?, stone?, tower?}` (5x5 owned wood ring, gate west, tower centre),
+  `setOwner {tx, ty, siteId|null}`, `ownerState` (owners, sites, recent site-tower shots). Helper
+  `server/stamp-test-fort.mjs` (`PORT=<port> node stamp-test-fort.mjs [dx dy]`) stamps one 12 tiles east of the
+  Town Center with two bandit clubmen of the site.
+- **Tests**: new `server/owner-map-test.mjs` (own server, port 22110, world 80): gate shut for a knight + FOREIGN flag,
+  the site's mob walks out through its gate (gate opens), a foreign mob stays walled in, site tower shoots a knight,
+  no demolish, siteTiles reach the client, a ram ordered at the tower breaches a wall -> Rubble (owner cleared), walks
+  in and destroys the tower, a raid mob still breaches a colony wood ring, save / load keeps owners. 17/17.
+  `gates-walls-test.mjs` 16/16 unchanged. No other suites (minimal-testing instruction).
+- **Deviations**: sparse Map + site-id list instead of `owner: Uint16Array` / `SiteState` (phase B); no `moverSide`
+  type (boolean + `moverOwner`); order names kept (`attackHearth`, no `attackStructure` alias, no protocol change);
+  Rubble only for NPC walls (player walls unchanged) and no "Rebuild wall" / builder clear job; NPC towers always
+  fire (no dormancy yet) and hit civilians too; `siteTiles` not fog-filtered; no reserved-footprint build refusal
+  (needs sites); catapult bombard splash does not damage site structures.
+- **Caveats**: attack-move keeps engaging site structures in range one after another (it razes the fort before
+  marching on); aggressive soldiers posted near a fort will start hitting its walls.
+
+**Manual browser check (forts phase A)** — run the server with `COLONY_TEST_HOOKS=1`, then
+`cd server && PORT=<port> node stamp-test-fort.mjs` (a test fort 12 tiles east of the Town Center).
+1. The fort's walls / gate / tower are tinted salmon, and red on the minimap; clicking a wall shows "Enemy fort: Wall"
+   with no upgrade / repair / lock buttons. Demolish on it is refused with a toast.
+2. The two bandits walk out through the fort's gate (it opens for them) and come for your town.
+3. Walk your player up to the gate: it stays shut and you can't pass. Stand within ~7 tiles of the tower: it shoots
+   you (and any soldier near it).
+4. Select a battering ram (or knights), right-click the tower: they break through a wall first, the wall becomes
+   grey rubble, they walk through the gap and destroy the tower. A catapult shells the tower over the wall from range.
+5. Walk your player through the rubble gap; demolish the rubble (it clears to grass).
+6. Strategy mode: give a regiment an attack-move order past the fort: it stops and attacks the fort's structures.
+7. Save, load: the fort is still tinted and its gate still shut to you.
