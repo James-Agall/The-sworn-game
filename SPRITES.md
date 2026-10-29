@@ -548,6 +548,128 @@ placeholder.
 > "relation" handshake icon. 32x32 each, transparent PNGs. Files: `ui-tradeRoute.png`, `ui-tradeProfit.png`,
 > `ui-tradeAlert.png`, `ui-relation.png`.
 
+## New requests (2026-10-30 batch) — everything else the roadmap needs
+
+Grouped by feature. All pixel art in the game's existing chunky 16-bit style (thick dark-ink outline, flat shading,
+3/4 top-down view), transparent PNGs, no text, and each prompt should be pointed at the named existing sprite for
+scale. Until each arrives the client keeps its current placeholder (tinted or drawn shapes); nothing here blocks play.
+
+### Unit & FX leftovers
+
+### 68. Shock knight — walk row (and idle)
+> Match the delivered `shockKnightReady0-2` / `shockKnightAttack0-2` poses exactly (same armour, shield and lance).
+> Add the missing rows on one sheet: **walk 4 frames** facing RIGHT (heavy plated stride, lance carried upright,
+> shield on the arm), **idle 1 frame**. **Same frame size as the delivered knight poses.** Files:
+> `shockKnightWalk0-3.png`, `shockKnightIdle.png`. Wires up the unwired #44.
+
+### 69. Charge dust trail — 4 frames
+> Match the single delivered `fx-dust0` puff. A cavalry-charge dust cloud kicked up behind galloping hooves: 4 frames,
+> puff grows, spreads and fades, soft pixel clusters in dusty tan with lighter highlights. **About 32x24 px per
+> frame.** Files: `fx-chargeDust0-3.png`. Replaces the single-frame placeholder (#43).
+
+### Walls, moats and drawbridges
+
+### 70. Wall piece redraws (fixes the delivered atlas)
+> Match the delivered `woodWall_00..15` / `stoneWall_00..15` atlas look. Redraw only what is wrong: (1) corner,
+> T-junction and cross pieces (indices 3, 6, 7, 9, 11-15) must be full tile width on every connected side so
+> neighbouring pieces touch with no gap; (2) the vertical straight (5) must tile seamlessly top-to-bottom as a
+> continuous wall, not a pair of loose posts; (3) end caps (1, 2, 4, 8) must visibly point away from the open side
+> and differ from the lone post (0); (4) side-on **vertical gates** for wood and stone (closed / open / damaged /
+> overrun) drawn edge-on, door facing sideways, not front-on. Same canvas size and bottom-centre anchor as the
+> delivered set. Files: `woodWall_00..15.png`, `stoneWall_00..15.png`, `woodWallDmg_00..15.png`,
+> `stoneWallDmg_00..15.png`, `gate{Wood,Stone}V{Closed,Open,Damaged,Overrun}.png`.
+
+### 71. Wall breached and rubble states
+> Match #70. For wood and stone: a **breached** (~15% HP) version of the straight (horizontal + vertical), corner and
+> gate pieces, and **rubble** tiles for a destroyed wall (3 variants each: scattered logs and splinters for wood,
+> tumbled stone blocks for stone) that read as walkable ground. Files: `woodWallBreached{H,V,Corner}.png`,
+> `stoneWallBreached{H,V,Corner}.png`, `gateWoodBreached.png`, `gateStoneBreached.png`, `rubbleWood0-2.png`,
+> `rubbleStone0-2.png`.
+
+### 72. Moat — connected water tiles (16-piece mask set)
+> A dug moat in the same piece order as the walls (N=1, E=2, S=4, W=8; 0 isolated pond, 5 vertical, 10 horizontal,
+> 15 cross, and the end caps / corners / T pieces): dark blue-green still water inside a dirt-and-grass bank with a
+> thin lighter ripple line, edges meeting seamlessly with neighbours. Same tile size as the ground tiles. Also: a
+> **3-frame ripple** loop for the water, and a **"being dug" construction state** (raw earth trench with a shovel
+> and spoil heap). Files: `moat_00..15.png`, `moatRipple0-2.png`, `moatDigging.png`.
+
+### 73. Drawbridge — wood and reinforced
+> Spans one moat tile. Match the wood and stone wall palettes. For each of **wood** and **iron-banded**, horizontal
+> (spans a north-south moat) and vertical (spans an east-west moat): **lowered** (walkable plank deck with rope
+> rails), **raised** (deck standing upright as a gate, chains taut), **damaged**, **destroyed** (broken planks
+> floating in the water). Files: `drawbridge{Wood,Iron}{H,V}{Lowered,Raised,Damaged,Destroyed}.png` (16 files).
+
+### Forts, camps and growth
+
+### 74. Bandit camp set with growth stages
+> Match the existing bandit mob and wood-wall art. Camp pieces, each about one tile except where noted: **small tent**,
+> **big tent** (2x2), **lean-to**, **log watchtower platform**, **cooking fire with pot**, **loot cart**, **weapon
+> rack**, **trophy pole** (skull and rags), **ragged banner**, **supply crates and barrels**. Plus four **camp
+> stage** emblems for the minimap and growth readout (tier 1 campfire, tier 2 palisade, tier 3 watchtowers, tier 4
+> war hall). Files: `banditTent.png`, `banditTentBig.png`, `banditLeanTo.png`, `banditWatchtower.png`,
+> `banditFire.png`, `banditCart.png`, `banditRack.png`, `banditTrophy.png`, `banditBanner.png`, `banditCrates.png`,
+> `campTier1-4.png`.
+
+### 75. Orc stockade set
+> Match the existing orc mob art. Crude, heavier, green-grey: **hide tent**, **big war tent** (2x2), **war drum**,
+> **boar pen** (fenced, with a boar), **crude iron forge with anvil**, **iron-ore stockpile**, **skull trophy poles**,
+> **tusk gate** (wood gate variant, horizontal and vertical, closed/open/damaged/overrun), **chieftain's hall**
+> (3x3), **orc war banner**. Files: `orcTent.png`, `orcTentBig.png`, `orcDrum.png`, `orcPen.png`, `orcForge.png`,
+> `orcOre.png`, `orcTrophy.png`, `orcGate{H,V}{Closed,Open,Damaged,Overrun}.png`, `orcHall.png`, `orcBanner.png`.
+
+### 76. Human settlement buildings
+> Match the existing house, barn, church and castle sprites. Neutral human village and town pieces: **market stall**,
+> **inn / tavern**, **windmill / mill**, **town hall** (2x2), **guardhouse** (gate-side), **well**, **signpost**,
+> **quest notice board**, **smithy**, **fenced farmstead**, **riverside dock** with a small boat, and a large
+> **town keep** (3x3) for the Riverwatch garrison town. Files: `settleMarket.png`, `settleInn.png`,
+> `settleMill.png`, `settleHall.png`, `settleGuardhouse.png`, `settleWell.png`, `settleSign.png`,
+> `settleBoard.png`, `settleSmithy.png`, `settleFarm.png`, `settleDock.png`, `settleKeep.png`.
+
+### 77. Fort keep ruin and rebuild
+> Match #74/#75/#76 keeps. A **destroyed keep ruin** (collapsed walls, scorched stone, broken banner) for each of
+> wood-fort, orc and stone-fort keeps, and a **rebuilding scaffold** stage (timber frame around the half-built
+> keep) the player sees while rebuilding it to capture the fort. Files: `keepRuinWood.png`, `keepRuinOrc.png`,
+> `keepRuinStone.png`, `keepScaffold.png`.
+
+### 78. Clan banners and emblems
+> A set of **6 clan emblems** (simple heraldic shapes: wolf, tower, sun, axe, oak, raven) as 32x32 icons, plus a
+> **banner flag** (about 24x32) drawn on greyscale so the game can tint it per clan colour, in a pole-mounted
+> waving 3-frame loop. Files: `clanEmblem0-5.png`, `clanBanner0-2.png`.
+
+### 79. Wandering warband
+> Match the existing bandit and orc mobs. A small marching column marker for the map ("a warband is on the move"): an
+> icon (32x32) plus a **camp-founding animation, 4 frames** (tents being raised and a fire lit, from bare ground to
+> a tiny camp). Files: `ui-warband.png`, `campFounding0-3.png`.
+
+### Diplomacy, quests and trade UI
+
+### 80. Relation tiers, tribute and call-to-arms icons (32x32)
+> Parchment UI style, matching the #67 icons. Six **relation tier** icons: hostile (broken seal), wary, neutral,
+> friendly, allied, vassal (crown over a banner). Plus a **tribute / tax** coin-stack-and-chest icon, a **call to
+> arms** war-horn icon, and a **vassal banner** badge. Files: `ui-rel0-5.png`, `ui-tribute.png`, `ui-callToArms.png`,
+> `ui-vassal.png`.
+
+### 81. Quest UI
+> Parchment skin matching the character sheet (#58). **Quest panel frame** (about 320x400 px: list of scroll entries
+> on the left, a detail pane with reward line on the right), a **quest scroll** entry background, and map/minimap
+> markers (32x32): new quest (scroll with an exclamation seal), active quest, completed (green seal), failed (red
+> seal), and a **gold reward** coin icon. Files: `ui-questPanel.png`, `ui-questEntry.png`, `ui-questNew.png`,
+> `ui-questActive.png`, `ui-questDone.png`, `ui-questFailed.png`, `ui-reward.png`.
+
+### Strategy mode UI
+
+### 82. Strategy mode icon set (32x32 unless noted)
+> Parchment UI style, matching the existing control-button look. **Regiment role icons:** infantry, archers, cavalry,
+> knights, siege, clergy, heroes. **Order icons:** attack-move, hold, retreat, follow, charge, bombard, hold fire,
+> skirmish, cycle charge, formation shape (line / block / wedge / loose, one icon each). **State glyphs (16x16):**
+> wavering, routing, outflanked. **Time controls (24x24):** pause, quarter speed, half speed, normal, double speed.
+> **Regiment banner pole and cloth** (about 24x40, greyscale for tinting by regiment colour), and a **regiment card
+> frame** (about 120x64 px with a slot for an icon, name, count, HP bar and morale bar). Files:
+> `ui-role{Infantry,Archers,Cavalry,Knights,Siege,Clergy,Heroes}.png`,
+> `ui-order{AttackMove,Hold,Retreat,Follow,Charge,Bombard,HoldFire,Skirmish,Cycle}.png`,
+> `ui-shape{Line,Block,Wedge,Loose}.png`, `ui-state{Wavering,Routing,Outflanked}.png`,
+> `ui-time{Pause,Quarter,Half,Normal,Double}.png`, `ui-regimentBanner.png`, `ui-regimentCard.png`.
+
 ## Notes on process
 
 - One generation per image block, not one frame per generation — frame-to-frame consistency
