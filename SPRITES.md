@@ -670,6 +670,19 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > `ui-shape{Line,Block,Wedge,Loose}.png`, `ui-state{Wavering,Routing,Outflanked}.png`,
 > `ui-time{Pause,Quarter,Half,Normal,Double}.png`, `ui-regimentBanner.png`, `ui-regimentCard.png`.
 
+### Monster cavalry — goblin wolf rider
+
+### 83. Goblin wolf rider (monster cavalry), full set
+> Match the existing `goblin` and `wolf` sprites for style and scale (a goblin sitting on the wolf's back, bigger
+> than either alone but not as large as an ogre). A small goblin in ragged leather with a crooked spear or short
+> sword, hunched low over a snarling grey wolf with a rope bridle. One sheet, one row per animation, facing RIGHT
+> (the game mirrors it): **walk 4 frames** (loping wolf gait), **gallop / charge 3 frames** (stretched out, goblin
+> leaning forward with the spear levelled), **attack 3 frames** (spear thrust, wolf snapping), **idle 1 frame**,
+> **hit 1 frame**, **death 3 frames** (wolf collapses, goblin tumbles off). Also a **veteran** palette variant (darker
+> fur, bone trophies on the goblin) for elite riders. **About 64x48 px per frame.** Files: `goblinRiderWalk0-3.png`,
+> `goblinRiderCharge0-2.png`, `goblinRiderAttack0-2.png`, `goblinRiderIdle.png`, `goblinRiderHit.png`,
+> `goblinRiderDeath0-2.png`, and the veteran set `goblinRiderVetWalk0-3.png`, `goblinRiderVetAttack0-2.png`.
+
 ## Notes on process
 
 - One generation per image block, not one frame per generation — frame-to-frame consistency
