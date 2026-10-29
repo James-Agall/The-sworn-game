@@ -463,7 +463,7 @@ export const RAID_LOITER_CHANCE_PER_TICK = 1 / (TICK_RATE * 3);
 // colony (Town Center) or to any targetable guard/player.
 export const RAID_ENGAGE_RANGE_TILES = 8;
 // Followers may move this much faster than the group pace to catch up with their formation slot.
-export const RAID_FOLLOWER_CATCHUP = 1.5;
+export const RAID_FOLLOWER_CATCHUP = 1.5; // battle discipline 2026-10-23: was 1.25 (followers took most of a march to form up)
 export const RAID_FORMATION_SHAPE: Record<RaidFactionId, RaidFormationShape> = {
   wolfPack: "wedge",
   riderPack: "wedge",
@@ -1203,7 +1203,7 @@ export const ELITE_REWARD: Partial<Record<ResourceKey, number>> = { gold: 60, wo
 export const GOAL_WORKER_KINDS = new Set<ColonistKind>([
   "lumberjack", "farmer", "ironMiner", "rockMiner", "farmhand", "artisan", "hunter", "forager",
 ]);
-export const EXPLORED_FLUSH_TICKS = 5;
+export const EXPLORED_FLUSH_TICKS = 5; // 4 Hz at TICK_RATE 20
 // Player-built structures that see (walls don't), plus the Town Center. Natural terrain, POI
 // props and the Abbey never do.
 export const VISION_BUILDING_TILES = new Set<TileType>([

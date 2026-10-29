@@ -271,7 +271,7 @@ export interface RaidFactionEntry {
   kind: MobKind;
   weight: number;
   core: boolean;
-} // battle discipline 2026-10-23: was 1.25 (followers took most of a march to form up)
+}
 // Formation: heading-relative staggered rows per faction (see raidFormationSlots). Slot spacing is
 // RAID_FORMATION_SPACING_BODIES x the group's mean body diameter; heavies (troll / ogre) take the front
 // centre, ranged kinds the rear rows. On contact rows are released one by one, RAID_RELEASE_ROW_TICKS apart.

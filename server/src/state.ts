@@ -232,7 +232,6 @@ export interface FogFields {
   explored: Uint8Array<ArrayBuffer>;
   // Newly explored tile indices awaiting the next batched `explored` broadcast.
   pendingExplored: number[];
-  // 4 Hz at TICK_RATE 20
   exploredFlushCountdown: number;
   // Tile index each player/colonist last revealed from. Replaced on world reset so everyone re-stamps.
   visionTile: WeakMap<object, number>;

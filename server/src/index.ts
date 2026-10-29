@@ -4,101 +4,93 @@ import { createServer } from "node:http";
 import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
-  TileType, TILE_SIZE, PLAYER_HALF_SIZE, isSolidTile, Biome, isRoadTile, mobSizeScale, type SiegeKind,
-  type ColonistKind, HungerMark, HUNGER_MARK_NAMES, type MobKind, type Difficulty, MOB_SIZE_RANGE, FarmStage,
-  type WildlifeKind, WILDLIFE_KINDS, TICK_RATE, type Stance, type ArmyRegimentSnapshot, type RegimentClass,
+  TileType, mobSizeScale, type SiegeKind, type ColonistKind, HungerMark, HUNGER_MARK_NAMES, type MobKind,
+  type Difficulty, MOB_SIZE_RANGE, TILE_SIZE, TICK_RATE, type Stance, type ArmyRegimentSnapshot, type RegimentClass,
   type CombatRole, unitRole, HERO_CLASS_ROLE, type ArmyOrderKind, type ArmyOrder, ARMY_ORDER_QUEUE_MAX,
-  FORMATION_SHAPES, type FormationShape, type ArmyOrderGroupSnapshot, isRearRole, MOB_ROLE, SIEGE_KINDS,
-  GATE_FLAG_OPEN, GATE_FLAG_LOCK_OPEN, GATE_FLAG_LOCK_CLOSED, GATE_FLAG_OVERRUN, GATE_FLAG_FOREIGN, type BossTier,
-  bossTitle, VISION_RADIUS_PLAYER, VISION_RADIUS_COLONIST, VISION_RADIUS_BUILDING, VISION_RADIUS_START,
-  type ServerMessage, type GameEventCategory, COLONIST_ROLE, type EquipSlot, HERO_CLASSES, type HeroClass,
-  type SaveSlot, SAVE_SLOTS, type SaveInfo, PLAYER_MAX_HP, type ClientMessage, TIME_SCALES, type BuildingInfo,
-  type Equipment, GEAR_SLOTS, type HeroStats, type ItemStats, type GearItem, SPELL_SLOT_COUNT,
-  type HeroProfileSnapshot, type GearSlot, type ItemSlotKind, type HeroSheetSnapshot, HERO_CLASS_LABEL, type SpellId,
-  SPELL_IDS, type SpellBookSnapshot, SPELLS, type FightKind, FIGHT_CLUSTER_TILES, FIGHT_WINDOW_SECONDS,
-  type FightSnapshot, FIGHT_RELEVANCE_TILES, FIGHT_MAX_PER_PLAYER, PLAYER_SPEED, type EnemyRegimentSnapshot,
-  ENEMY_CELL_TILES, type PlayerSnapshot, type ColonistSnapshot, type MobSnapshot, type TownCenterSnapshot,
-  ENEMY_REGIMENT_REFRESH_TICKS, WILDLIFE_SNAPSHOT_STRIDE,
+  FORMATION_SHAPES, type FormationShape, type ArmyOrderGroupSnapshot, isRearRole, MOB_ROLE, SIEGE_KINDS, isSolidTile,
+  PLAYER_HALF_SIZE, GATE_FLAG_OPEN, GATE_FLAG_LOCK_OPEN, GATE_FLAG_LOCK_CLOSED, GATE_FLAG_OVERRUN, GATE_FLAG_FOREIGN,
+  Biome, type BossTier, bossTitle, VISION_RADIUS_PLAYER, VISION_RADIUS_COLONIST, VISION_RADIUS_BUILDING,
+  VISION_RADIUS_START, type ServerMessage, type GameEventCategory, type WildlifeKind, WILDLIFE_KINDS, COLONIST_ROLE,
+  type EquipSlot, HERO_CLASSES, type HeroClass, type SaveSlot, SAVE_SLOTS, type SaveInfo, PLAYER_MAX_HP,
+  type ClientMessage, TIME_SCALES, type BuildingInfo, type Equipment, GEAR_SLOTS, type HeroStats, type ItemStats,
+  type GearItem, SPELL_SLOT_COUNT, type HeroProfileSnapshot, type GearSlot, type ItemSlotKind,
+  type HeroSheetSnapshot, HERO_CLASS_LABEL, type SpellId, SPELL_IDS, type SpellBookSnapshot, SPELLS, isRoadTile,
+  type FightKind, FIGHT_CLUSTER_TILES, FIGHT_WINDOW_SECONDS, type FightSnapshot, FIGHT_RELEVANCE_TILES,
+  FIGHT_MAX_PER_PLAYER, PLAYER_SPEED, type EnemyRegimentSnapshot, ENEMY_CELL_TILES, type PlayerSnapshot,
+  type ColonistSnapshot, type MobSnapshot, type TownCenterSnapshot, ENEMY_REGIMENT_REFRESH_TICKS,
+  WILDLIFE_SNAPSHOT_STRIDE,
 } from "@colony/shared/protocol";
 import { planOrderFormation } from "@colony/shared/formation";
 import type {
-  ActiveFight, AttackObjective, Body, Colonist, ConstructionSiteState, Cost, EnemyUnit, FarmPlotState, FightHit,
-  FriendlyUnit, GateState, GoalDef, HearthState, HeroProfile, HeroRecruit, Mob, MobTargetType, OrderGroup,
-  PickedTarget, Player, PlayerMoraleState, PoiSiteKind, RaidEdge, RaidFactionEntry, RaidFactionId,
-  RaidFormationShape, RaidGroup, RegimentState, ResourceKey, RespawnWindow, SaveFile, SettlementStat, SpellCaster,
-  SpellStatus, SpellTarget, TileCoord, TownCenter, Wildlife, WildlifeConfig, WorldState,
+  ActiveFight, AttackObjective, Colonist, ConstructionSiteState, Cost, EnemyUnit, FightHit, FriendlyUnit, GateState,
+  GoalDef, HearthState, HeroProfile, HeroRecruit, Mob, MobTargetType, OrderGroup, PickedTarget, Player,
+  PlayerMoraleState, PoiSiteKind, RaidEdge, RaidFactionEntry, RaidFactionId, RaidFormationShape, RaidGroup,
+  RegimentState, ResourceKey, RespawnWindow, SaveFile, SettlementStat, SpellCaster, SpellStatus, SpellTarget,
+  TileCoord, TownCenter, Wildlife, WorldState,
 } from "./types.js";
 import {
   ABBEY_CLERGY_OFFSETS, ABBEY_FOOTPRINT_RADIUS, ABBEY_GROUNDS_RADIUS, ABBEY_LAYOUT, ABBEY_LAYOUT_TILES,
   ABBEY_MIN_SPAWN_DIST, ARCHER_ATTACK_COOLDOWN_TICKS, ARCHER_ATTACK_RANGE, ARCHER_DAMAGE,
   ARCHER_FRONT_RANK_SCAN_TILES, ARCHER_MAX_HP, ARCHER_SPEED, ARCHER_WOOD_COST, ARMOUR_DAMAGE_TAKEN_MULT,
-  ARMY_ORDER_KINDS, ARMY_REGIMENT_REFRESH_TICKS, ARMY_SYNERGY_PER_NEIGHBOUR, ATTACK_MOVE_RESUME_TICKS,
-  AUTOSAVE_ENABLED, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, BARN_WOOD_COST, BIG_BUILD_TILES,
-  BIOME_EDGE_JITTER_TILES, BIOME_NOISE_CELL_TILES, BIOME_SEED_MIN_SPACING, BIOME_SEED_RADIUS_MAX,
-  BIOME_SEED_RADIUS_MIN, BISHOP_HEAL_AMOUNT, BISHOP_HEAL_COOLDOWN_TICKS, BISHOP_HEAL_RANGE, BISHOP_MAX_HP,
-  BISHOP_SPEED, BLACKSMITH_TOOLS_STOCK_CAP, BOAR_ATTACK_COOLDOWN_TICKS, BOAR_ATTACK_RANGE, BOAR_CHARGE_SPEED,
-  BOAR_CHARGE_TICKS, BOAR_DAMAGE, BOSS_EQUIP_LOOT, BREACH_DETOUR_FACTOR, BREACH_HP_PER_TILE, BREACH_MIN_ROUTE_TILES,
-  BREACH_TOWER_PENALTY_TILES, BREACH_WALL_COST, BREAKABLE_TILES, BUILDERS_GUILD_WOOD_COST, BUILDER_IDLE_RETRY_TICKS,
-  BUILDER_MAX_PER_SITE, BUILDER_ROUTE_CANDIDATES, BUILDER_WORK_RANGE_PX, BUILDING_HP_BIG, BUILDING_HP_GATE,
-  BUILDING_HP_LEVEL_MULT, BUILDING_HP_SMALL, BUILDING_HP_STONE_WALL, BUILDING_HP_WALL, BUILDING_HP_WORKPLACE,
-  BUILDING_NAMES, BUILDING_TARGET_CANDIDATES, BUILD_SECONDS_BIG, BUILD_SECONDS_COBBLE_ROAD, BUILD_SECONDS_DEFAULT,
+  ARMY_ORDER_KINDS, ARMY_REGIMENT_REFRESH_TICKS, ATTACK_MOVE_RESUME_TICKS, AUTOSAVE_ENABLED, BARN_FARM_RADIUS_TILES,
+  BARN_MAX_FARM_PLOTS, BARN_WOOD_COST, BIG_BUILD_TILES, BIOME_EDGE_JITTER_TILES, BIOME_NOISE_CELL_TILES,
+  BIOME_SEED_MIN_SPACING, BIOME_SEED_RADIUS_MAX, BIOME_SEED_RADIUS_MIN, BISHOP_HEAL_AMOUNT,
+  BISHOP_HEAL_COOLDOWN_TICKS, BISHOP_HEAL_RANGE, BISHOP_MAX_HP, BISHOP_SPEED, BLACKSMITH_TOOLS_STOCK_CAP,
+  BOSS_EQUIP_LOOT, BREACH_DETOUR_FACTOR, BREACH_HP_PER_TILE, BREACH_MIN_ROUTE_TILES, BREACH_TOWER_PENALTY_TILES,
+  BREACH_WALL_COST, BREAKABLE_TILES, BUILDERS_GUILD_WOOD_COST, BUILDER_IDLE_RETRY_TICKS, BUILDER_MAX_PER_SITE,
+  BUILDER_ROUTE_CANDIDATES, BUILDER_WORK_RANGE_PX, BUILDING_HP_BIG, BUILDING_HP_GATE, BUILDING_HP_LEVEL_MULT,
+  BUILDING_HP_SMALL, BUILDING_HP_STONE_WALL, BUILDING_HP_WALL, BUILDING_HP_WORKPLACE, BUILDING_NAMES,
+  BUILDING_TARGET_CANDIDATES, BUILD_SECONDS_BIG, BUILD_SECONDS_COBBLE_ROAD, BUILD_SECONDS_DEFAULT,
   BUILD_SECONDS_GATE, BUILD_SECONDS_HOUSE, BUILD_SECONDS_ROAD, BUILD_SECONDS_TOWN_CENTER, BUILD_SECONDS_WALL,
   CASTLE_RUIN_FOOTPRINT_RADIUS, CASTLE_RUIN_GROUNDS_RADIUS, CASTLE_RUIN_GUARDIANS_MAX, CASTLE_RUIN_GUARDIANS_MIN,
   CASTLE_RUIN_GUARDIAN_WEIGHTS, CASTLE_RUIN_LAYOUT, CASTLE_RUIN_LAYOUT_TILES, CASTLE_RUIN_SPAWN_DIST_FRACTIONS,
   CATAPULT_BUILDING_MULT, CATAPULT_DAMAGE, CATAPULT_MAX_HP, CATAPULT_MIN_RANGE, CATAPULT_RANGE,
   CATAPULT_RELOAD_TICKS, CATAPULT_SPEED, CATAPULT_SPLASH_PX, CAVALRY_CHARGE_COOLDOWN_TICKS,
   CAVALRY_CHARGE_IDLE_GRACE_TICKS, CAVALRY_CHARGE_MULT, CAVALRY_CHARGE_TILES, CAVALRY_SPEED,
-  CHARGE_RECHARGE_GAP_TILES, CHARGE_WITHDRAW_MAX_TICKS, CHARGE_WITHDRAW_TILES, CHOP_TICKS,
-  CHURCH_HEAL_BONUS_PER_STEP, CHURCH_SPELL_PRICES, CHURCH_WOOD_COST, CIVILIAN_MAX_HP, COBBLE_ROAD_ROCK_COST,
-  COLONIST_BODY_RADIUS, COLONIST_SPEED, COMMANDABLE_KINDS, COVER_BREACH_HP_FRACTION, COVER_ENCLOSURE_TILES,
-  COVER_REENGAGE_RATIO, CRAFT_BUILDING_IRON_COST, CRAFT_BUILDING_TILES, CRAFT_BUILDING_WOOD_COST, CRAFT_RECIPES,
-  CRAFT_TICKS, DARK_SHAMAN_HEAL_AMOUNT, DARK_SHAMAN_HEAL_COOLDOWN_TICKS, DARK_SHAMAN_HEAL_RANGE, DAY_LENGTH_SCALE,
-  DAY_TICKS, DESERTER_ACTIVATION_TICKS, DESERTER_WAVE_CHANCE, DIFFICULTY_TUNING, DORMANCY_RADIUS_TILES,
-  DUSK_RESPAWN_CYCLE_TICK, ELITE_DAMAGE_MULT, ELITE_HP_MULT, ELITE_REWARD, ENCAMPMENT_EXTRAS,
-  ENCAMPMENT_GUARDIAN_WEIGHTS, ENEMY_OUTFLANKED_SHOW_TICKS, EQUIPPED_KINDS, EQUIP_ARMOURED_KINDS, EQUIP_DROP_CHANCE,
-  EQUIP_LOOT_TIER_WEIGHTS, EQUIP_SLOT_LABEL, EQUIP_TIERS, EQUIP_TOAST_THROTTLE_TICKS, EXCHANGE_RATES,
+  CHARGE_RECHARGE_GAP_TILES, CHARGE_WITHDRAW_MAX_TICKS, CHARGE_WITHDRAW_TILES, CHURCH_HEAL_BONUS_PER_STEP,
+  CHURCH_SPELL_PRICES, CHURCH_WOOD_COST, CIVILIAN_MAX_HP, COBBLE_ROAD_ROCK_COST, COLONIST_BODY_RADIUS,
+  COLONIST_SPEED, COMMANDABLE_KINDS, COVER_BREACH_HP_FRACTION, COVER_ENCLOSURE_TILES, COVER_REENGAGE_RATIO,
+  CRAFT_BUILDING_IRON_COST, CRAFT_BUILDING_TILES, CRAFT_BUILDING_WOOD_COST, CRAFT_RECIPES, DARK_SHAMAN_HEAL_AMOUNT,
+  DARK_SHAMAN_HEAL_COOLDOWN_TICKS, DARK_SHAMAN_HEAL_RANGE, DAY_LENGTH_SCALE, DAY_TICKS, DESERTER_ACTIVATION_TICKS,
+  DESERTER_WAVE_CHANCE, DIFFICULTY_TUNING, DUSK_RESPAWN_CYCLE_TICK, ELITE_DAMAGE_MULT, ELITE_HP_MULT, ELITE_REWARD,
+  ENCAMPMENT_EXTRAS, ENCAMPMENT_GUARDIAN_WEIGHTS, ENEMY_OUTFLANKED_SHOW_TICKS, EQUIPPED_KINDS, EQUIP_ARMOURED_KINDS,
+  EQUIP_DROP_CHANCE, EQUIP_LOOT_TIER_WEIGHTS, EQUIP_SLOT_LABEL, EQUIP_TIERS, EQUIP_TOAST_THROTTLE_TICKS,
   EXPLORED_FLUSH_TICKS, FARMER_PLOT_DWELL_TICKS, FARMHAND_CYCLE_TICKS, FARMHAND_YIELD_PER_CYCLE, FARM_FALLOW_TICKS,
-  FARM_GROW_TICKS, FARM_HARVESTED_SHOW_TICKS, FARM_HARVESTS_BEFORE_FALLOW, FARM_HARVEST_TICKS, FARM_PRODUCE_BY_TILE,
-  FARM_SOWN_FRACTION, FARM_SPROUTING_FRACTION, FARM_YIELD_PER_HARVEST, FIGHT_BATTLE_COMBATANTS, FIGHT_BATTLE_DPS,
-  FIGHT_MAJOR_COMBATANTS, FIGHT_MAJOR_DPS, FIGHT_MAX_HITS, FIGHT_MAX_TRACKED, FIGHT_RAID_LABELS, FIGHT_SCAN_TICKS,
-  FIGHT_WINDOW_TICKS, FLANK_ARC_TILES, FLANK_BEHIND_TILES, FLANK_CONTACT_TILES, FLANK_DETACH_FRACTION,
-  FLANK_ENGAGE_TILES, FLANK_MAX_TICKS, FLANK_MIN_FRONT_FOR_DETACH, FLANK_WAYPOINT_REACH_PX, FOLLOW_BEHIND_TILES,
-  FOLLOW_REFORM_TILES, FOOD_HUT_WOOD_COST, FOOD_PER_COLONIST_PER_DAY, FOOD_WORKER_IDLE_RETRY_TICKS,
-  FOOD_WORKER_ROUTE_CANDIDATES, FORAGER_WORK_RADIUS_TILES, FORAGE_FRUIT_YIELD, FORAGE_MIN_TOWN_CENTER_DIST_TILES,
-  FORAGE_PICKED_TO_RIPE, FORAGE_REGROW_TICKS, FORAGE_RIPE_TO_PICKED, FORAGE_TICKS, FORAGE_TILES, FORGE_ARMOUR_IRON,
-  FORGE_QUEUE_CAP, FORGE_TICKS, FORGE_WEAPON_IRON, FORGE_WEAPON_WOOD, GAME_DAY_TICKS, GARRISON_LOITER_PX,
-  GATE_CLOSE_DELAY_TICKS, GATE_OPEN_RANGE_PX, GATE_OVERRUN_RANGE_TILES, GATE_ROCK_COST, GATE_TOWER_RANGE_TILES,
-  GATE_WOOD_COST, GATHER_RESOURCE_TILE, GOAL_WORKER_KINDS, GOBLIN_RIDER_DAMAGE_TAKEN, GOBLIN_RIDER_WITHDRAW_TICKS,
-  GOLD_PER_KILL_BASE_DIVISOR, GOLD_PER_KILL_MIN, GOLD_SHOP_PRICES, GORRATH_FURY_DAMAGE_TAKEN,
-  GORRATH_FURY_HP_FRACTION, GORRATH_FURY_TICKS, GORRATH_SCAN_RANGE_TILES, GUARD_ALERT_RANGE_TILES,
-  GUNNE_SCAN_RANGE_TILES, HAPPINESS_DESERTION_CHANCE, HAPPINESS_DESERTION_THRESHOLD, HAPPINESS_MUTINY_THRESHOLD,
-  HAPPINESS_SCENERY_TREE_BASELINE, HEARTH_AUTO_TARGET_TILES, HEARTH_DEFAULT_HP, HEARTH_LOOT_PER_GUARDIAN,
-  HEMP_GROWING_FROM, HEMP_RIPE_FROM, HERO_CLASS_STATS, HERO_INVENTORY_CAP, HERO_KEY_PREFIX, HERO_LEVEL_DAMAGE_PCT,
+  FARM_GROW_TICKS, FARM_HARVESTS_BEFORE_FALLOW, FARM_HARVEST_TICKS, FARM_PRODUCE_BY_TILE, FARM_SOWN_FRACTION,
+  FARM_YIELD_PER_HARVEST, FIGHT_BATTLE_COMBATANTS, FIGHT_BATTLE_DPS, FIGHT_MAJOR_COMBATANTS, FIGHT_MAJOR_DPS,
+  FIGHT_MAX_HITS, FIGHT_MAX_TRACKED, FIGHT_RAID_LABELS, FIGHT_SCAN_TICKS, FIGHT_WINDOW_TICKS, FLANK_ARC_TILES,
+  FLANK_BEHIND_TILES, FLANK_CONTACT_TILES, FLANK_DETACH_FRACTION, FLANK_ENGAGE_TILES, FLANK_MAX_TICKS,
+  FLANK_MIN_FRONT_FOR_DETACH, FLANK_WAYPOINT_REACH_PX, FOLLOW_BEHIND_TILES, FOLLOW_REFORM_TILES, FOOD_HUT_WOOD_COST,
+  FOOD_PER_COLONIST_PER_DAY, FORAGE_FRUIT_YIELD, FORAGE_PICKED_TO_RIPE, FORAGE_REGROW_TICKS, FORAGE_RIPE_TO_PICKED,
+  FORAGE_TILES, FORGE_ARMOUR_IRON, FORGE_QUEUE_CAP, FORGE_TICKS, FORGE_WEAPON_IRON, FORGE_WEAPON_WOOD,
+  GAME_DAY_TICKS, GARRISON_LOITER_PX, GATE_CLOSE_DELAY_TICKS, GATE_OPEN_RANGE_PX, GATE_OVERRUN_RANGE_TILES,
+  GATE_ROCK_COST, GATE_TOWER_RANGE_TILES, GATE_WOOD_COST, GATHER_RESOURCE_TILE, GOAL_WORKER_KINDS,
+  GOBLIN_RIDER_DAMAGE_TAKEN, GOBLIN_RIDER_WITHDRAW_TICKS, GOLD_PER_KILL_BASE_DIVISOR, GOLD_PER_KILL_MIN,
+  GORRATH_FURY_DAMAGE_TAKEN, GORRATH_FURY_HP_FRACTION, GORRATH_FURY_TICKS, GORRATH_SCAN_RANGE_TILES,
+  GUARD_ALERT_RANGE_TILES, GUNNE_SCAN_RANGE_TILES, HAPPINESS_DESERTION_CHANCE, HAPPINESS_DESERTION_THRESHOLD,
+  HAPPINESS_MUTINY_THRESHOLD, HAPPINESS_SCENERY_TREE_BASELINE, HEARTH_AUTO_TARGET_TILES, HEARTH_DEFAULT_HP,
+  HEARTH_LOOT_PER_GUARDIAN, HERO_CLASS_STATS, HERO_INVENTORY_CAP, HERO_KEY_PREFIX, HERO_LEVEL_DAMAGE_PCT,
   HERO_LEVEL_MAX_HP, HERO_LEVEL_XP, HERO_MAX_LEVEL, HERO_MAX_TOTAL, HERO_MIN_DAMAGE_TAKEN_MULT, HERO_MIN_SPEED_MULT,
   HERO_NAMES, HERO_POPULATION_COST, HERO_RECRUIT_COST, HERO_RECRUIT_TICKS, HERO_RESPAWN_FEE_BASE,
-  HERO_RESPAWN_FEE_PER_LEVEL, HERO_XP_BOSS, HERO_XP_MARKED_MULT, HERO_XP_PER_KILL, HILLS_MINING_BONUS,
-  HOLD_LEASH_TILES, HOUSE_ROCK_COST, HOUSE_WOOD_COST, HUNGER_MARK_CHANCE_MAX, HUNGER_MARK_CHANCE_MAX_DAY,
-  HUNGER_MARK_CHANCE_START, HUNGER_MARK_DAMAGE_MULT, HUNGER_MARK_GOLD_MULT, HUNGER_MARK_HP_MULT, HUNGER_MARK_MIN_DAY,
-  HUNGER_MARK_RAIDERS_PER_MARK, HUNTER_ARROW_DAMAGE, HUNTER_BOW_RANGE, HUNTER_CHASE_LEASH_TILES, HUNTER_REPATH_TICKS,
-  HUNTER_SHOT_COOLDOWN_TICKS, HUNTER_WORK_RADIUS_TILES, IDLE_RETRY_TICKS, INDUSTRIAL_SYNERGY_PER_BUILDING,
-  INDUSTRIAL_SYNERGY_RADIUS, INDUSTRIAL_TILES, IN_PLACE_UPGRADE_TILES, KEEP_COSTS, KEEP_GARRISON_PER_LEVEL,
-  KEEP_MIN_TOWN_CENTER_LEVEL, KEEP_POPULATION_PER_LEVEL, KNIGHT_ATTACK_COOLDOWN_TICKS, KNIGHT_ATTACK_RANGE,
-  KNIGHT_IRON_COST, KNIGHT_LEVEL_STATS, KNIGHT_ROCK_COST, KNIGHT_SPEED, LEGACY_DAY_TICKS, LEGACY_GAME_DAY_TICKS,
-  LEGACY_NIGHT_TICKS, LEVEL_BONUS_PER_STEP, LINE_LEASH_TILES, LUMBERJACK_TREE_INTERVAL_TICKS, LUMBERJACK_TREE_RADIUS,
-  LUMBERJACK_WOOD_PER_TRIP, MARK_RETARGET_TICKS, MAX_WORLD_SIZE, MILITIA_IRON_COST, MILITIA_LEVEL_STATS,
-  MILITIA_SPEED, MILITIA_WOOD_COST, MINI_BOSS_KINDS, MIN_WORLD_SIZE, MOB_AGGRO_DROP_FACTOR,
-  MOB_AGGRO_RANGE_GUARD_TILES, MOB_AGGRO_RANGE_PLAYER_TILES, MOB_ATTACK_COOLDOWN_TICKS, MOB_ATTACK_RANGE,
-  MOB_BODY_RADIUS, MOB_BODY_RADIUS_MAX, MOB_BUILDING_AGGRO_TILES, MOB_DAMAGE, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS,
-  MOB_REPATH_TICKS, MOB_ROOM_DETOUR_PX, MOB_SIZE_DAMAGE_PER_SCALE, MOB_SIZE_HP_PER_SCALE, MOB_SIZE_SPEED_PER_SCALE,
-  MOB_SPEED, MORALE_ANCHOR_RESIST, MORALE_CASUALTY, MORALE_FRONT_LOST_PER_SEC, MORALE_LEADER_WEIGHT, MORALE_MAX,
-  MORALE_OUTFLANKED_PER_SEC, MORALE_OUTNUMBERED_PER_SEC, MORALE_RALLY, MORALE_RALLY_QUIET_TICKS,
-  MORALE_RECOVER_PER_SEC, MORALE_ROLE_WEIGHT, MORALE_ROUT, MORALE_WINNING_RATIO, MORVAIN_DETECTION_FACTOR,
-  NEIGHBORS_8, NEIGHBOURS_8, NIGHT_TICKS, NO_COLONIST_TILES, ORCHARD_BLOSSOM_UNTIL, ORCHARD_FRUITING_FROM,
+  HERO_RESPAWN_FEE_PER_LEVEL, HERO_XP_BOSS, HERO_XP_MARKED_MULT, HERO_XP_PER_KILL, HOLD_LEASH_TILES, HOUSE_ROCK_COST,
+  HOUSE_WOOD_COST, HUNGER_MARK_CHANCE_MAX, HUNGER_MARK_CHANCE_MAX_DAY, HUNGER_MARK_CHANCE_START,
+  HUNGER_MARK_DAMAGE_MULT, HUNGER_MARK_GOLD_MULT, HUNGER_MARK_HP_MULT, HUNGER_MARK_MIN_DAY,
+  HUNGER_MARK_RAIDERS_PER_MARK, IDLE_RETRY_TICKS, INDUSTRIAL_TILES, IN_PLACE_UPGRADE_TILES, KEEP_COSTS,
+  KEEP_GARRISON_PER_LEVEL, KEEP_MIN_TOWN_CENTER_LEVEL, KEEP_POPULATION_PER_LEVEL, KNIGHT_ATTACK_COOLDOWN_TICKS,
+  KNIGHT_ATTACK_RANGE, KNIGHT_IRON_COST, KNIGHT_LEVEL_STATS, KNIGHT_ROCK_COST, KNIGHT_SPEED, LEGACY_DAY_TICKS,
+  LEGACY_GAME_DAY_TICKS, LEGACY_NIGHT_TICKS, LINE_LEASH_TILES, LUMBERJACK_TREE_INTERVAL_TICKS, MARK_RETARGET_TICKS,
+  MAX_WORLD_SIZE, MILITIA_IRON_COST, MILITIA_LEVEL_STATS, MILITIA_SPEED, MILITIA_WOOD_COST, MINI_BOSS_KINDS,
+  MIN_WORLD_SIZE, MOB_AGGRO_DROP_FACTOR, MOB_AGGRO_RANGE_GUARD_TILES, MOB_AGGRO_RANGE_PLAYER_TILES,
+  MOB_ATTACK_COOLDOWN_TICKS, MOB_ATTACK_RANGE, MOB_BODY_RADIUS, MOB_BODY_RADIUS_MAX, MOB_BUILDING_AGGRO_TILES,
+  MOB_DAMAGE, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS, MOB_REPATH_TICKS, MOB_ROOM_DETOUR_PX, MOB_SIZE_DAMAGE_PER_SCALE,
+  MOB_SIZE_HP_PER_SCALE, MOB_SIZE_SPEED_PER_SCALE, MOB_SPEED, MORALE_ANCHOR_RESIST, MORALE_CASUALTY,
+  MORALE_FRONT_LOST_PER_SEC, MORALE_LEADER_WEIGHT, MORALE_MAX, MORALE_OUTFLANKED_PER_SEC, MORALE_OUTNUMBERED_PER_SEC,
+  MORALE_RALLY, MORALE_RALLY_QUIET_TICKS, MORALE_RECOVER_PER_SEC, MORALE_ROLE_WEIGHT, MORALE_ROUT,
+  MORALE_WINNING_RATIO, MORVAIN_DETECTION_FACTOR, NEIGHBORS_8, NEIGHBOURS_8, NIGHT_TICKS, NO_COLONIST_TILES,
   ORDER_ARRIVE_GRACE_TICKS, ORDER_DISPATCH_MAX_SPREAD_MS, ORDER_DISPATCH_STEP_MS, ORDER_UPDATE_TICKS,
-  ORDER_WIDTH_MAX_TILES, PASTURE_FAT_FROM, PATH_NODE_BUDGET, PATH_WAYPOINT_TOLERANCE_PX, PLACEABLE_TILES,
-  PLAINS_FARMING_BONUS, PLAIN_GEAR, PLAYER_ATTACK_COOLDOWN_TICKS, PLAYER_ATTACK_DAMAGE, PLAYER_ATTACK_RANGE,
-  PLAYER_BODY_RADIUS, PLAYER_COLORS, PLAYER_MORALE_ANCHOR_RESIST, PLAYER_MORALE_ANCHOR_TILES, PLAYER_MORALE_CASUALTY,
-  PLAYER_MORALE_FRONT_LOST_PER_SEC, PLAYER_MORALE_GRACE_TICKS, PLAYER_MORALE_MIN_UNITS,
+  ORDER_WIDTH_MAX_TILES, PLACEABLE_TILES, PLAIN_GEAR, PLAYER_ATTACK_COOLDOWN_TICKS, PLAYER_ATTACK_DAMAGE,
+  PLAYER_ATTACK_RANGE, PLAYER_BODY_RADIUS, PLAYER_COLORS, PLAYER_MORALE_ANCHOR_RESIST, PLAYER_MORALE_ANCHOR_TILES,
+  PLAYER_MORALE_CASUALTY, PLAYER_MORALE_FRONT_LOST_PER_SEC, PLAYER_MORALE_GRACE_TICKS, PLAYER_MORALE_MIN_UNITS,
   PLAYER_MORALE_NEW_FIGHT_TICKS, PLAYER_MORALE_OUTFLANKED_PER_SEC, PLAYER_MORALE_OUTNUMBERED_PER_SEC,
   PLAYER_MORALE_RALLY, PLAYER_MORALE_RECOVER_PER_SEC, PLAYER_MORALE_RESIST_FLOOR, PLAYER_MORALE_ROUT,
   PLAYER_MORALE_SCAN_TILES, PLAYER_MORALE_TC_RECOVER_MULT, PLAYER_MORALE_TC_RESIST, PLAYER_MORALE_TC_TILES,
@@ -107,111 +99,67 @@ import {
   PLAYER_MORALE_WINNING_PER_SEC, PLAYER_ROUT_MAX_TICKS, PLAYER_ROUT_MIN_TICKS, PLAYER_ROUT_QUIET_TICKS,
   PLAYER_ROUT_SPEED_FACTOR, POISON_DAMAGE_PER_TICK, POISON_DURATION_TICKS, POI_SITE_FOOTPRINT_RADIUS,
   POI_SITE_MIN_SPACING, POI_SITE_WATER_CLEARANCE, POI_TILES, POND_EDGE_JITTER_TILES, POND_MIN_SPACING,
-  POND_NOISE_CELL_TILES, POND_RADIUS_MAX, POND_RADIUS_MIN, POPULATION_GATED_TILES, PORT, POST_TILE_TYPES,
-  PRODUCTION_HAPPINESS_FLOOR, QUEUE_STANDOFF_PX, RAID_ARRIVAL_WINDOW_FRACTION, RAID_BASE_SIZE, RAID_CRUSHED_FRACTION,
-  RAID_EDGE_BAND_TILES, RAID_ENGAGE_RANGE_TILES, RAID_FACTIONS, RAID_FOLLOWER_CATCHUP, RAID_FORMATION_SHAPE,
-  RAID_FORMATION_SPACING_BODIES, RAID_GROUP_SIZE_MAX, RAID_GROUP_SIZE_MIN, RAID_HEADING_SMOOTHING,
-  RAID_HORDE_SHARE_MAX, RAID_HORDE_SHARE_MIN, RAID_LEAVE_MAX_TICKS, RAID_LOITER_CHANCE_PER_TICK,
-  RAID_LOITER_RADIUS_TILES, RAID_MARCH_REPATH_TICKS, RAID_MORALE_ANCHOR_RESIST, RAID_MORALE_CASUALTY,
-  RAID_MORALE_FRONT_LOST_PER_SEC, RAID_MORALE_GRACE_TICKS, RAID_MORALE_OUTFLANKED_PER_SEC,
-  RAID_MORALE_OUTNUMBERED_PER_SEC, RAID_MORALE_ROUT, RAID_REACH_BUDGET, RAID_REACH_RADIUS, RAID_REAR_RANK_TILES,
-  RAID_RELEASE_ROW_TICKS, RAID_SIZE_PER_DAY, RAID_SPAWN_CYCLE_TICK, RAID_SPAWN_DIST_STEPS, RAID_TRAVEL_MARGIN_TICKS,
-  RAID_TRAVEL_SLACK, RAID_WEDGE_LOOSENESS, RALLY_ARRIVE_PX, RAM_ATTACK_COOLDOWN_TICKS, RAM_DAMAGE,
-  RAM_GATE_SCAN_TILES, RAM_MAX_HP, RAM_SPEED, RAM_UNIT_MULT, RANGED_KITE_TILES, REACH, REGIMENT_CLASS_LABEL,
-  REGIMENT_CLASS_OF, REGIMENT_CLASS_ORDER, REGIMENT_ORDER_MAX_PER_S, RELIC_CATALOGUE, RELIC_ELITE_MOB_CHANCE,
-  RELIC_HEARTH_CHANCE, REPAIR_COST_FRACTION, REPAIR_MOB_CLEARANCE_TILES, REPAIR_SECONDS_FULL,
-  REPAIR_SHORT_TOAST_TICKS, RESPAWN_FOOD_COST, RETREAT_CORNERED_TILES, RETREAT_SPEED_FACTOR, RETREAT_TC_OFFSET_TILES,
-  RING_8, ROAD_ROCK_COST, ROAD_SPEED_BONUS, ROUTE_NODE_BUDGET, ROUT_SPEED_FACTOR, ROUT_TOAST_COOLDOWN_TICKS,
+  POND_NOISE_CELL_TILES, POND_RADIUS_MAX, POND_RADIUS_MIN, POPULATION_GATED_TILES, PORT, PRODUCTION_HAPPINESS_FLOOR,
+  QUEUE_STANDOFF_PX, RAID_ARRIVAL_WINDOW_FRACTION, RAID_BASE_SIZE, RAID_CRUSHED_FRACTION, RAID_EDGE_BAND_TILES,
+  RAID_ENGAGE_RANGE_TILES, RAID_FACTIONS, RAID_FOLLOWER_CATCHUP, RAID_FORMATION_SHAPE, RAID_FORMATION_SPACING_BODIES,
+  RAID_GROUP_SIZE_MAX, RAID_GROUP_SIZE_MIN, RAID_HEADING_SMOOTHING, RAID_HORDE_SHARE_MAX, RAID_HORDE_SHARE_MIN,
+  RAID_LEAVE_MAX_TICKS, RAID_LOITER_CHANCE_PER_TICK, RAID_LOITER_RADIUS_TILES, RAID_MARCH_REPATH_TICKS,
+  RAID_MORALE_ANCHOR_RESIST, RAID_MORALE_CASUALTY, RAID_MORALE_FRONT_LOST_PER_SEC, RAID_MORALE_GRACE_TICKS,
+  RAID_MORALE_OUTFLANKED_PER_SEC, RAID_MORALE_OUTNUMBERED_PER_SEC, RAID_MORALE_ROUT, RAID_REACH_BUDGET,
+  RAID_REACH_RADIUS, RAID_REAR_RANK_TILES, RAID_RELEASE_ROW_TICKS, RAID_SIZE_PER_DAY, RAID_SPAWN_CYCLE_TICK,
+  RAID_SPAWN_DIST_STEPS, RAID_TRAVEL_MARGIN_TICKS, RAID_TRAVEL_SLACK, RAID_WEDGE_LOOSENESS, RALLY_ARRIVE_PX,
+  RAM_ATTACK_COOLDOWN_TICKS, RAM_DAMAGE, RAM_GATE_SCAN_TILES, RAM_MAX_HP, RAM_SPEED, RAM_UNIT_MULT,
+  RANGED_KITE_TILES, REACH, REGIMENT_CLASS_LABEL, REGIMENT_CLASS_OF, REGIMENT_CLASS_ORDER, REGIMENT_ORDER_MAX_PER_S,
+  RELIC_CATALOGUE, RELIC_ELITE_MOB_CHANCE, RELIC_HEARTH_CHANCE, REPAIR_COST_FRACTION, REPAIR_MOB_CLEARANCE_TILES,
+  REPAIR_SECONDS_FULL, REPAIR_SHORT_TOAST_TICKS, RESPAWN_FOOD_COST, RETREAT_CORNERED_TILES, RETREAT_SPEED_FACTOR,
+  RETREAT_TC_OFFSET_TILES, RING_8, ROAD_ROCK_COST, ROUTE_NODE_BUDGET, ROUT_SPEED_FACTOR, ROUT_TOAST_COOLDOWN_TICKS,
   RUIN_CENTERPIECES, RUIN_EXTRAS, RUIN_GUARDIAN_WEIGHTS, RUX_FEINT_TICKS, SAVE_DIR, SAVE_SLOT_LABELS, SAVE_VERSION,
-  SEPARATION_ITERATIONS, SEPARATION_WEIGHT_MOVING, SEPARATION_WEIGHT_STILL, SETTLEMENT_GARRISON_CAP_BY_TIER,
-  SETTLEMENT_POP_CAP_BY_TIER, SET_VIEW_MIN_MS, SHEEP_READY_FROM, SHEEP_WOOLLY_FROM, SHOP_WOOD_COST,
-  SIEGE_BUILDING_MULT, SIEGE_BUILD_TICKS, SIEGE_GOLD_MULT, SIEGE_LABEL, SIEGE_POPULATION_COST, SIEGE_RETARGET_TICKS,
-  SIEGE_UNIT_COST, SIEGE_WORKSHOP_CAP, SIEGE_WORKSHOP_COST, SITE_KIND_HAS_HEARTH, SITE_KIND_WALLED,
-  SKIRMISH_DRIFT_TILES, SKIRMISH_KITE_TILES, SLOT_CLOSE_IN_PX, SLOT_RETARGET_FACTOR, SNAPSHOT_CULL_MIN_WORLD,
-  SNAPSHOT_VIEW_TILES, SPAWN_CLEAR_RADIUS_TILES, SPAWN_PLAINS_RADIUS_TILES, SPELL_AUTO_EVERY_TICKS,
-  SPELL_AUTO_HEAL_BELOW, SPELL_AUTO_RALLY_ENGAGED, SPELL_AUTO_SUMMON_SCAN_TILES, SPELL_AUTO_WARD_HURT_TICKS,
-  SPELL_GRANT_LEVELS, SPELL_LEARN_ORDER, SPELL_MAGE_BASE_PCT, SPELL_RANGE_SLACK_PX, SQUAD_AHEAD_SPEED_FACTOR,
-  SQUAD_BROKEN_TILES, SQUAD_LEAD_TOLERANCE_TILES, SQUAD_SETTLE_TILES, STABLES_COSTS, STANCES,
-  STANCE_ALERT_RANGE_TILES, STARTING_GRAIN, STARTING_IRON, STARTING_ROCK, STARTING_WOOD, STARVATION_DAMAGE,
-  STONE_WALL_COST, STRATEGY_VIEW_MARGIN_TILES, STRATEGY_VIEW_MAX_HALF_TILES, STRUCTURE_TARGET_PREFIX,
-  SWAMP_SPEED_PENALTY, TACTICS_EVAL_TICKS, TACTICS_OUTNUMBERED_RATIO, TACTICS_SCAN_TILES, TACTICS_SPREAD_CAP_TILES,
-  TAVERN_HAPPINESS_RADIUS_TILES, TAVERN_ROCK_COST, TAVERN_WOOD_COST, TEST_HOOKS, TICK_DURATION_SAMPLES,
-  TOME_ELITE_CHANCE, TOME_HEARTH_CHANCE, TOWER_COSTS, TOWER_STATS, TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_COST,
-  TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP, TOWN_CENTER_LEVEL_POPULATION_BONUS,
-  TOWN_CENTER_MAX_HP_BY_LEVEL, TOWN_CENTER_MIN_SPACING_TILES, TOWN_CENTER_POI_CLEARANCE_TILES,
-  TOWN_CENTER_UPGRADE_COSTS, TREE_RESPAWN_INTERVAL_TICKS, TROLL_REGEN_DELAY_TICKS, TROLL_REGEN_PER_TICK,
-  UPGRADE_NAMES, VHORRUN_WITHDRAW_TARGET_HP, VHORRUN_WITHDRAW_TICKS, VISION_BUILDING_TILES, WARD_GRACE_TICKS,
-  WARD_RADIUS_TILES, WARD_STONE_TOOLS_COST, WARD_STONE_WOOD_COST, WARD_TEND_TICKS, WARLORD_DAMAGE_MULT,
-  WARLORD_HP_MULT, WARLORD_REWARD, WEAPON_DAMAGE_MULT, WILDLIFE_FLEE_TICKS, WILDLIFE_MIN_TOWN_CENTER_DIST_TILES,
-  WILDLIFE_PLAYER_CLEARANCE_TILES, WILDLIFE_REST_MAX_TICKS, WILDLIFE_REST_MIN_TICKS, WILDLIFE_STATE_CODE,
-  WILDLIFE_WANDER_RADIUS_TILES, WOOD_WALL_COST, clampWorldSize, dt, pct,
+  SETTLEMENT_GARRISON_CAP_BY_TIER, SETTLEMENT_POP_CAP_BY_TIER, SET_VIEW_MIN_MS, SHOP_WOOD_COST, SIEGE_BUILDING_MULT,
+  SIEGE_BUILD_TICKS, SIEGE_GOLD_MULT, SIEGE_LABEL, SIEGE_POPULATION_COST, SIEGE_RETARGET_TICKS, SIEGE_UNIT_COST,
+  SIEGE_WORKSHOP_CAP, SIEGE_WORKSHOP_COST, SITE_KIND_HAS_HEARTH, SITE_KIND_WALLED, SKIRMISH_DRIFT_TILES,
+  SKIRMISH_KITE_TILES, SLOT_CLOSE_IN_PX, SLOT_RETARGET_FACTOR, SNAPSHOT_CULL_MIN_WORLD, SNAPSHOT_VIEW_TILES,
+  SPAWN_CLEAR_RADIUS_TILES, SPAWN_PLAINS_RADIUS_TILES, SPELL_AUTO_EVERY_TICKS, SPELL_AUTO_HEAL_BELOW,
+  SPELL_AUTO_RALLY_ENGAGED, SPELL_AUTO_SUMMON_SCAN_TILES, SPELL_AUTO_WARD_HURT_TICKS, SPELL_GRANT_LEVELS,
+  SPELL_LEARN_ORDER, SPELL_MAGE_BASE_PCT, SPELL_RANGE_SLACK_PX, SQUAD_AHEAD_SPEED_FACTOR, SQUAD_BROKEN_TILES,
+  SQUAD_LEAD_TOLERANCE_TILES, SQUAD_SETTLE_TILES, STABLES_COSTS, STANCES, STANCE_ALERT_RANGE_TILES,
+  STARVATION_DAMAGE, STONE_WALL_COST, STRATEGY_VIEW_MARGIN_TILES, STRATEGY_VIEW_MAX_HALF_TILES,
+  STRUCTURE_TARGET_PREFIX, TACTICS_EVAL_TICKS, TACTICS_OUTNUMBERED_RATIO, TACTICS_SCAN_TILES,
+  TACTICS_SPREAD_CAP_TILES, TAVERN_HAPPINESS_RADIUS_TILES, TAVERN_ROCK_COST, TAVERN_WOOD_COST, TEST_HOOKS,
+  TICK_DURATION_SAMPLES, TOME_ELITE_CHANCE, TOME_HEARTH_CHANCE, TOWER_COSTS, TOWER_STATS,
+  TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_COST, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
+  TOWN_CENTER_LEVEL_POPULATION_BONUS, TOWN_CENTER_MAX_HP_BY_LEVEL, TOWN_CENTER_MIN_SPACING_TILES,
+  TOWN_CENTER_POI_CLEARANCE_TILES, TOWN_CENTER_UPGRADE_COSTS, TREE_RESPAWN_INTERVAL_TICKS, TROLL_REGEN_DELAY_TICKS,
+  TROLL_REGEN_PER_TICK, UPGRADE_NAMES, VHORRUN_WITHDRAW_TARGET_HP, VHORRUN_WITHDRAW_TICKS, VISION_BUILDING_TILES,
+  WARD_GRACE_TICKS, WARD_RADIUS_TILES, WARD_STONE_TOOLS_COST, WARD_STONE_WOOD_COST, WARD_TEND_TICKS,
+  WARLORD_DAMAGE_MULT, WARLORD_HP_MULT, WARLORD_REWARD, WEAPON_DAMAGE_MULT, WOOD_WALL_COST, clampWorldSize, dt, pct,
 } from "./constants.js";
 import {
-  attackerSlots, bodies, buildingHp, buildingLevel, chargeCycle, chargeRuns, colonists, commandedTargets,
-  constructionSites, equipEvents, equipment, farmPlots, forageRegrow, forgeQueues, gates, gravestones, hearthEvents,
-  hearths, heroEvents, heroProfiles, heroRecruits, lastHurtTick, minesPlacedOnOre, mobs, mobsAttackingThisTick,
+  attackerSlots, buildingHp, buildingLevel, chargeCycle, chargeRuns, colonists, commandedTargets, constructionSites,
+  equipEvents, equipment, farmPlots, forageRegrow, forgeQueues, gates, gravestones, hearthEvents, hearths,
+  heroEvents, heroProfiles, heroRecruits, lastHurtTick, minesPlacedOnOre, mobs, mobsAttackingThisTick,
   mobsWithoutRoute, moraleRegimentOfUnit, orderGroupOfUnit, orderGroups, ownerSiteIds, pendingRallies, playerMorale,
   players, raidGroups, regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, routedUnits,
   scaledCount, scaledCountSub, siegeEvents, siegeWorkshops, slotClaims, spellCooldowns, spellEvents, spellStatuses,
   squadMarchSpeed, state, structureBreach, summonedUntil, tacticsEvents, taskForceMax, taskForces, tickDurationsMs,
   tileOwner, towerCooldowns, towerEvents, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
 } from "./state.js";
-
-function initialStock(): Record<ResourceKey, number> {
-  return {
-    wood: STARTING_WOOD,
-    iron: STARTING_IRON,
-    rock: STARTING_ROCK,
-    grain: STARTING_GRAIN,
-    meat: 0,
-    fruit: 0,
-    wool: 0,
-    cotton: 0,
-    clothes: 0,
-    tools: 0,
-    luxuryItems: 0,
-    gold: 0,
-    alcohol: 0,
-  };
-}
-
-const stock: Record<ResourceKey, number> = initialStock();
-// ---- Building hit points (mobs damage buildings; builders repair them) ----
-
-
-function ownerAt(index: number): number {
-  return tileOwner.size === 0 ? 0 : (tileOwner.get(index) ?? 0);
-}
-
-// The site number of a siteId (registered on first use), 0 for null.
-function siteNumber(siteId: string | null | undefined, register = false): number {
-  if (!siteId) return 0;
-  const i = ownerSiteIds.indexOf(siteId);
-  if (i >= 0) return i + 1;
-  if (!register) return 0;
-  ownerSiteIds.push(siteId);
-  return ownerSiteIds.length;
-}
-
-function clearOwners() {
-  tileOwner.clear();
-  ownerSiteIds.length = 0;
-  structureBreach.clear();
-  state.ownerVersion++;
-  state.buildingTargetsDirty = true;
-}
-
-function setOwner(index: number, owner: number) {
-  if (owner > 0) tileOwner.set(index, owner);
-  else if (!tileOwner.delete(index)) return;
-  state.ownerVersion++;
-  state.buildingTargetsDirty = true;
-}
-
-// v1: every NPC site is hostile to the colony (relations come in phase D).
-function isHostileOwner(owner: number): boolean {
-  return owner > 0;
-}
+import {
+  biomeAt, biomeProductionFactor, biomeSpeedMultiplier, clamp, clearOwners, collidesAt, getBuildingLevel, inBounds,
+  isHostileOwner, isNightNow, levelBonus, ownerAt, resourceKey, roadSpeedMultiplier, setOwner, siteNumber, tileIndex,
+  tileOfPixel, tileToPixelCenter,
+} from "./tiles.js";
+import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile, separateBodies } from "./pathfinding.js";
+import {
+  armyDamageMultiplier, barnForNewFarmPlot, depositGatheredResource, effectiveChopTicks, effectiveCraftTicks,
+  effectiveFarmhandCycleTicks, farmPlotIndices, farmPlotProgress, farmStagesForSnapshot, farmhandProgress,
+  handleBuyWithGold, handleExchangeResource, industrialSynergyMultiplier, initialStock, isBarnStaffed, newFarmPlot,
+  releaseResourceReservation, stock, tryGrowTree, tryGrowTreesNearLumberjackPosts, updateFarmPlots,
+} from "./economy.js";
+import {
+  WILDLIFE_CONFIG, WILDLIFE_RESPAWN_INTERVAL_TICKS, damageWildlife, generateForage, isWalkablePixel,
+  spawnInitialWildlife, spawnWildlifeAt, updateForageRegrow, updateForager, updateHunter, updateWildlife,
+  updateWildlifeRespawn, wildlifeForSnapshot,
+} from "./wildlife.js";
 
 function pruneTaskForces() {
   for (const [slot, unitIds] of taskForces) {
@@ -235,7 +183,7 @@ function taskForcesForSnapshot(): Record<string, string[]> {
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
-const TOWN_CENTER_TILE: TileCoord = {
+export const TOWN_CENTER_TILE: TileCoord = {
   x: Math.floor(state.WORLD_TILES_X / 2),
   y: Math.floor(state.WORLD_TILES_Y / 2),
 };
@@ -267,7 +215,7 @@ function highestTownCenterLevel(): number {
   return state.townCenters.reduce((max, tc) => Math.max(max, tc.level), 0);
 }
 
-function townCenterBonus(): number {
+export function townCenterBonus(): number {
   return levelBonus(highestTownCenterLevel(), TOWN_CENTER_LEVEL_BONUS_PER_STEP);
 }
 
@@ -278,84 +226,6 @@ function spawnPointNearTownCenter(near?: { x: number; y: number }): { x: number;
   const tile = tc ?? TOWN_CENTER_TILE;
   const approach = findAdjacentWalkable(tile.x, tile.y);
   return tileToPixelCenter(approach ?? tile);
-}
-
-function tileIndex(tx: number, ty: number): number {
-  return ty * state.WORLD_TILES_X + tx;
-}
-
-function inBounds(tx: number, ty: number): boolean {
-  return tx >= 0 && ty >= 0 && tx < state.WORLD_TILES_X && ty < state.WORLD_TILES_Y;
-}
-
-function tileAtPixel(px: number, py: number): TileType {
-  const tx = Math.floor(px / TILE_SIZE);
-  const ty = Math.floor(py / TILE_SIZE);
-  if (!inBounds(tx, ty)) return TileType.Wall;
-  return state.tiles[tileIndex(tx, ty)] as TileType;
-}
-
-function collidesAt(px: number, py: number): boolean {
-  const offsets = [-PLAYER_HALF_SIZE, PLAYER_HALF_SIZE];
-  for (const ox of offsets) {
-    for (const oy of offsets) {
-      const t = tileAtPixel(px + ox, py + oy);
-      if (isSolidTile(t) || (t === TileType.Gate && !isWalkablePixel(px + ox, py + oy))) return true;
-    }
-  }
-  return false;
-}
-
-function tileToPixelCenter(tile: TileCoord): { x: number; y: number } {
-  return {
-    x: tile.x * TILE_SIZE + TILE_SIZE / 2,
-    y: tile.y * TILE_SIZE + TILE_SIZE / 2,
-  };
-}
-
-function tileOfPixel(px: number, py: number): TileCoord {
-  return { x: Math.floor(px / TILE_SIZE), y: Math.floor(py / TILE_SIZE) };
-}
-
-function biomeAt(tx: number, ty: number): Biome {
-  if (!inBounds(tx, ty)) return Biome.Plains;
-  return state.biomes[tileIndex(tx, ty)] as Biome;
-}
-
-// Movement multiplier for any entity (player, colonist, mob), from the biome of the tile it is
-// standing on right now (not where it is heading).
-function biomeSpeedMultiplier(px: number, py: number): number {
-  const t = tileOfPixel(px, py);
-  return biomeAt(t.x, t.y) === Biome.Swamp ? 1 - SWAMP_SPEED_PENALTY : 1;
-}
-function roadSpeedMultiplier(px: number, py: number): number {
-  return isRoadTile(tileAtPixel(px, py)) ? 1 + ROAD_SPEED_BONUS : 1;
-}
-
-// Production-timer multiplier for a building, from the biome of its own tile: mines on Hills and
-// farms (Farm Plot / Pasture / Orchard / Sheep / Hemp) on Plains run 20% shorter cycles.
-function biomeProductionFactor(tx: number, ty: number): number {
-  const tile = state.tiles[tileIndex(tx, ty)] as TileType;
-  const biome = biomeAt(tx, ty);
-  if ((tile === TileType.IronMinePost || tile === TileType.RockMinePost) && biome === Biome.Hills) {
-    return 1 - HILLS_MINING_BONUS;
-  }
-  if ((tile === TileType.FarmPlot || FARM_PRODUCE_BY_TILE[tile] !== undefined) && biome === Biome.Plains) {
-    return 1 - PLAINS_FARMING_BONUS;
-  }
-  return 1;
-}
-
-function tileOccupiedByEntity(tx: number, ty: number): boolean {
-  for (const p of players.values()) {
-    const t = tileOfPixel(p.x, p.y);
-    if (t.x === tx && t.y === ty) return true;
-  }
-  for (const c of colonists.values()) {
-    const t = tileOfPixel(c.x, c.y);
-    if (t.x === tx && t.y === ty) return true;
-  }
-  return false;
 }
 
 state.tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
@@ -378,167 +248,13 @@ function scatterResourceTiles(tileType: TileType, count: number) {
     }
   }
 }
-function isWalkableTile(tx: number, ty: number): boolean {
-  if (!inBounds(tx, ty)) return false;
-  const t = state.tiles[tileIndex(tx, ty)] as TileType;
-  // Gates: passable by their state, from the current mover's side (hostileMover).
-  if (t === TileType.Gate) return gatePassable(tileIndex(tx, ty), state.hostileMover);
-  return !isSolidTile(t);
-}
-
-function findAdjacentWalkable(tx: number, ty: number): TileCoord | null {
-  const neighbors = [
-    { x: tx + 1, y: ty },
-    { x: tx - 1, y: ty },
-    { x: tx, y: ty + 1 },
-    { x: tx, y: ty - 1 },
-  ];
-  for (const n of neighbors) {
-    if (isWalkableTile(n.x, n.y)) return n;
-  }
-  return null;
-}
-
-function adjacentTilesOfType(tx: number, ty: number, type: TileType): TileCoord[] {
-  const neighbors = [
-    { x: tx + 1, y: ty },
-    { x: tx - 1, y: ty },
-    { x: tx, y: ty + 1 },
-    { x: tx, y: ty - 1 },
-  ];
-  return neighbors.filter((n) => inBounds(n.x, n.y) && state.tiles[tileIndex(n.x, n.y)] === type);
-}
-function findPath(start: TileCoord, goal: TileCoord): TileCoord[] | null {
-  if (start.x === goal.x && start.y === goal.y) return [];
-
-  const key = (t: TileCoord) => t.y * state.WORLD_TILES_X + t.x;
-  const visited = new Set<number>([key(start)]);
-  const parent = new Map<number, TileCoord>();
-  const queue: TileCoord[] = [start];
-
-  // Node budget: a request can never stall a tick on a huge map (a 160 map has 25.6k tiles in all, so
-  // it is never reached there). Over budget = no path, like an unreachable goal.
-  for (let head = 0; head < queue.length; head++) {
-    if (head > PATH_NODE_BUDGET) return null;
-    const current = queue[head];
-    const neighbors = [
-      { x: current.x + 1, y: current.y },
-      { x: current.x - 1, y: current.y },
-      { x: current.x, y: current.y + 1 },
-      { x: current.x, y: current.y - 1 },
-    ];
-    for (const n of neighbors) {
-      if (!isWalkableTile(n.x, n.y)) continue;
-      const k = key(n);
-      if (visited.has(k)) continue;
-      visited.add(k);
-      parent.set(k, current);
-      if (n.x === goal.x && n.y === goal.y) {
-        const path: TileCoord[] = [n];
-        let back = current;
-        while (!(back.x === start.x && back.y === start.y)) {
-          path.unshift(back);
-          back = parent.get(key(back))!;
-        }
-        return path;
-      }
-      queue.push(n);
-    }
-  }
-  return null;
-}
-
-function advanceAlongPath(
-  entity: { x: number; y: number; path: TileCoord[] },
-  dt: number,
-  speed: number
-) {
-  if (entity.path.length === 0) return;
-  // A gate on the path closed (or was locked) since it was planned: drop the path so the mover replans.
-  const nextTile = entity.path[0];
-  if (inBounds(nextTile.x, nextTile.y) && state.tiles[tileIndex(nextTile.x, nextTile.y)] === TileType.Gate && !isWalkableTile(nextTile.x, nextTile.y)) {
-    entity.path = [];
-    return;
-  }
-  const target = tileToPixelCenter(entity.path[0]);
-  const ddx = target.x - entity.x;
-  const ddy = target.y - entity.y;
-  const dist = Math.hypot(ddx, ddy);
-  // The road bonus is for colonists only (players move by input, mobs never get it).
-  const isColonist = colonists.get((entity as { id?: string }).id ?? "") === entity;
-  const road = isColonist ? roadSpeedMultiplier(entity.x, entity.y) : 1;
-  const step = speed * biomeSpeedMultiplier(entity.x, entity.y) * road * dt;
-  if (dist <= step) {
-    entity.x = target.x;
-    entity.y = target.y;
-    entity.path.shift();
-  } else if (entity.path.length > 1 && dist <= PATH_WAYPOINT_TOLERANCE_PX) {
-    // Close enough to a waypoint that isn't the last: move on toward the next one. Bodies pushing each
-    // other apart can never all stand on one tile centre, and used to orbit it forever (a squad stuck
-    // in a knot on its way to its formation). Tile centres of a 4-connected path are edge-adjacent, so
-    // the straight line from anywhere in this tile to the next centre stays on those two tiles.
-    entity.path.shift();
-    const next = tileToPixelCenter(entity.path[0]);
-    const nd = Math.hypot(next.x - entity.x, next.y - entity.y);
-    if (nd > 0) {
-      const s = Math.min(step, nd);
-      entity.x += ((next.x - entity.x) / nd) * s;
-      entity.y += ((next.y - entity.y) / nd) * s;
-    }
-  } else {
-    entity.x += (ddx / dist) * step;
-    entity.y += (ddy / dist) * step;
-  }
-}
-
-function resourceKey(tx: number, ty: number): string {
-  return `${tx},${ty}`;
-}
-
-function releaseResourceReservation(c: Colonist) {
-  // A builder leaving its site (night shelter, death, desertion) frees its slot there; the site stays.
-  c.buildSiteKey = null;
-  c.repairKey = null;
-  if (c.targetWildlifeId !== null) {
-    const animal = wildlife.get(c.targetWildlifeId);
-    if (animal && animal.reservedBy === c.id) animal.reservedBy = null;
-    c.targetWildlifeId = null;
-  }
-  if (c.targetResourceX < 0 || c.targetResourceY < 0) return;
-  const key = resourceKey(c.targetResourceX, c.targetResourceY);
-  if (reservedResourceTiles.get(key) === c.id) {
-    reservedResourceTiles.delete(key);
-  }
-}
-// ---- Long days (2026-10-23): a 5-minute day and a 75 s night (was 60 s + 40 s). ----
-
-function isNightNow(): boolean {
-  const t = state.cycleTick % (DAY_TICKS + NIGHT_TICKS);
-  return t >= DAY_TICKS;
-}
-// ---- Bodies (separation) ----
-
-function mobBodyRadius(m: Mob): number {
+export function mobBodyRadius(m: Mob): number {
   return Math.min(MOB_BODY_RADIUS_MAX, (MOB_BODY_RADIUS[m.kind] ?? 8) * mobSizeScale(m));
 }
 // How much further a melee soldier reaches a grown mob from (its hit area): the extra body radius.
 function mobHitBonus(m: Mob): number {
   return Math.max(0, mobBodyRadius(m) - (MOB_BODY_RADIUS[m.kind] ?? 8));
 }
-
-function levelBonus(level: number, step = LEVEL_BONUS_PER_STEP): number {
-  return (Math.min(Math.max(level, 1), 3) - 1) * step;
-}
-
-function getBuildingLevel(tx: number, ty: number): number {
-  return buildingLevel.get(resourceKey(tx, ty)) ?? 1;
-}
-// ---- Cavalry & siege (ROADMAP "Cavalry & siege") ----
-
-// ---- Hero phase 3: heroes (ROADMAP "Hero phase 3: heroes"; the rest lives after the Hero phases 1-2 block) ----
-
-// ---- Armour & weapons (ROADMAP "Armour & weapons — landed 2026-10-28") ----
-
 
 function isSiegeKind(kind: string): kind is SiegeKind {
   return kind === "batteringRam" || kind === "catapult";
@@ -624,7 +340,7 @@ function isMilitiaLineKind(kind: ColonistKind): boolean {
   return kind === "militia" || kind === "spearman" || kind === "pikeman";
 }
 
-function isGuardOrMilitiaKind(kind: ColonistKind) {
+export function isGuardOrMilitiaKind(kind: ColonistKind) {
   return kind === "knight" || kind === "archer" || kind === "cavalry" || kind === "hero" || isSiegeKind(kind) || isMilitiaLineKind(kind);
 }
 
@@ -645,8 +361,6 @@ function goldForKill(mob: Mob): number {
   const base = isSiegeKind(mob.kind) ? raw * SIEGE_GOLD_MULT : raw;
   return mob.mark !== HungerMark.None ? base * HUNGER_MARK_GOLD_MULT : base;
 }
-// ---- Hunger-marked elites (ROADMAP Phase 6) ----
-
 
 function hungerMarkChance(dayIndex: number): number {
   if (state.testForceMarkChance !== null) return state.testForceMarkChance;
@@ -687,8 +401,6 @@ function handleSetDifficulty(value: unknown, worldSize?: unknown) {
   state.difficulty = value;
   state.difficultyClaimed = true;
 }
-// ---- Scale pass: size variation ----
-
 function hashString01(id: string): number {
   let h = 2166136261;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
@@ -715,14 +427,8 @@ function applyMobSize(mob: Mob, rollSize = true) {
   }
   if (mob.melee) mob.range = MOB_KIND_CONFIG[mob.kind].range * mobSizeScale({ kind: mob.kind, scale: mob.scale });
 }
-// ---- Goblin wolf rider ----
 
-// ---- Raid waves: tuning ----
-
-// ---- Slow farming: every farm number lives here. One game day = DAY_TICKS + NIGHT_TICKS (375 s). ----
-
-
-function countTilesOfType(tileType: TileType): number {
+export function countTilesOfType(tileType: TileType): number {
   let count = 0;
   for (let i = 0; i < state.tiles.length; i++) {
     if (state.tiles[i] === tileType) count++;
@@ -767,131 +473,8 @@ function happinessSpeedMultiplier(): number {
 }
 
 // Every production timer (and builders' work rate) divides by this: happiness times the Town Center bonus.
-function productionSpeedMultiplier(): number {
+export function productionSpeedMultiplier(): number {
   return happinessSpeedMultiplier() * (1 + townCenterBonus());
-}
-
-function isAdjacentToPlayerOrPost(tx: number, ty: number): boolean {
-  for (const p of players.values()) {
-    const t = tileOfPixel(p.x, p.y);
-    if (Math.abs(t.x - tx) + Math.abs(t.y - ty) <= 1) return true;
-  }
-  const neighbors = [
-    { x: tx + 1, y: ty },
-    { x: tx - 1, y: ty },
-    { x: tx, y: ty + 1 },
-    { x: tx, y: ty - 1 },
-  ];
-  for (const n of neighbors) {
-    if (!inBounds(n.x, n.y)) continue;
-    if (POST_TILE_TYPES.includes(state.tiles[tileIndex(n.x, n.y)] as TileType)) return true;
-  }
-  return false;
-}
-
-function tryGrowTree() {
-  if (countTilesOfType(TileType.Tree) >= state.MAX_TREES) return;
-  const candidates: TileCoord[] = [];
-  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
-      if (
-        state.tiles[tileIndex(tx, ty)] === TileType.Empty &&
-        !tileOccupiedByEntity(tx, ty) &&
-        !isAdjacentToPlayerOrPost(tx, ty) &&
-        !isInReservedGrounds(tx, ty)
-      ) {
-        candidates.push({ x: tx, y: ty });
-      }
-    }
-  }
-  if (candidates.length === 0) return;
-  const spot = candidates[Math.floor(Math.random() * candidates.length)];
-  state.tiles[tileIndex(spot.x, spot.y)] = TileType.Tree;
-  broadcastTileUpdate(spot.x, spot.y, TileType.Tree);
-}
-
-function tryGrowTreesNearLumberjackPosts() {
-  if (countTilesOfType(TileType.Tree) >= state.MAX_TREES) return;
-  const posts: TileCoord[] = [];
-  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
-      if (state.tiles[tileIndex(tx, ty)] === TileType.LumberjackPost) posts.push({ x: tx, y: ty });
-    }
-  }
-  for (const post of posts) {
-    if (countTilesOfType(TileType.Tree) >= state.MAX_TREES) return;
-    const candidates: TileCoord[] = [];
-    for (let dx = -LUMBERJACK_TREE_RADIUS; dx <= LUMBERJACK_TREE_RADIUS; dx++) {
-      for (let dy = -LUMBERJACK_TREE_RADIUS; dy <= LUMBERJACK_TREE_RADIUS; dy++) {
-        const tx = post.x + dx;
-        const ty = post.y + dy;
-        if (!inBounds(tx, ty)) continue;
-        if (state.tiles[tileIndex(tx, ty)] !== TileType.Empty) continue;
-        if (tileOccupiedByEntity(tx, ty)) continue;
-        if (isAdjacentToPlayerOrPost(tx, ty)) continue;
-        if (isInReservedGrounds(tx, ty)) continue;
-        candidates.push({ x: tx, y: ty });
-      }
-    }
-    if (candidates.length === 0) continue;
-    const spot = candidates[Math.floor(Math.random() * candidates.length)];
-    state.tiles[tileIndex(spot.x, spot.y)] = TileType.Tree;
-    broadcastTileUpdate(spot.x, spot.y, TileType.Tree);
-  }
-}
-
-function depositGatheredResource(kind: ColonistKind) {
-  if (kind === "lumberjack") stock.wood += LUMBERJACK_WOOD_PER_TRIP;
-  else if (kind === "ironMiner") stock.iron += 1;
-  else if (kind === "rockMiner") stock.rock += 1;
-}
-
-function industrialSynergyMultiplier(tx: number, ty: number): number {
-  if (!INDUSTRIAL_TILES.includes(state.tiles[tileIndex(tx, ty)] as TileType)) return 1;
-  let others = 0;
-  for (let y = ty - INDUSTRIAL_SYNERGY_RADIUS; y <= ty + INDUSTRIAL_SYNERGY_RADIUS; y++) {
-    for (let x = tx - INDUSTRIAL_SYNERGY_RADIUS; x <= tx + INDUSTRIAL_SYNERGY_RADIUS; x++) {
-      if ((x === tx && y === ty) || !inBounds(x, y)) continue;
-      if (INDUSTRIAL_TILES.includes(state.tiles[tileIndex(x, y)] as TileType)) others++;
-    }
-  }
-  return 1 + others * INDUSTRIAL_SYNERGY_PER_BUILDING;
-}
-
-function armyDamageMultiplier(tx: number, ty: number): number {
-  let bonus = 0;
-  for (const [dx, dy] of NEIGHBOURS_8) {
-    const nx = tx + dx;
-    const ny = ty + dy;
-    if (!inBounds(nx, ny)) continue;
-    const t = state.tiles[tileIndex(nx, ny)] as TileType;
-    if (isMilitaryTile(t) || t === TileType.Blacksmith) bonus += ARMY_SYNERGY_PER_NEIGHBOUR;
-  }
-  return 1 + bonus + townCenterBonus();
-}
-
-function effectiveChopTicks(tx: number, ty: number): number {
-  const level = getBuildingLevel(tx, ty);
-  return Math.max(
-    1,
-    Math.round((CHOP_TICKS * (1 - levelBonus(level)) * biomeProductionFactor(tx, ty)) /
-        (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
-  );
-}
-
-// Same multipliers as effectiveChopTicks, on the farmhand's multi-day cycle.
-function effectiveFarmhandCycleTicks(tx: number, ty: number): number {
-  const level = getBuildingLevel(tx, ty);
-  return Math.max(
-    1,
-    Math.round((FARMHAND_CYCLE_TICKS * (1 - levelBonus(level)) * biomeProductionFactor(tx, ty)) /
-        (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
-  );
-}
-
-function effectiveCraftTicks(tx: number, ty: number): number {
-  const level = getBuildingLevel(tx, ty);
-  return Math.max(1, Math.round((CRAFT_TICKS * (1 - levelBonus(level))) / (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty))));
 }
 
 function isStationaryMinerKind(kind: ColonistKind): boolean {
@@ -1111,7 +694,7 @@ function isHouseTile(t: TileType): boolean {
   return t === TileType.House || t === TileType.BigHouse || t === TileType.HouseLevel2;
 }
 
-function isMilitaryTile(t: TileType): boolean {
+export function isMilitaryTile(t: TileType): boolean {
   return (
     t === TileType.KnightPost ||
     t === TileType.CastleLevel2 ||
@@ -1157,14 +740,11 @@ function neighbourhoodPopulationBonus(onBonus?: (tx: number, ty: number) => void
   return bonus;
 }
 
-
 // Upgrades happen by placing the same building on top of an existing one, not next to it.
 function findUpgradeTargetFor(tx: number, ty: number, type: TileType): TileCoord | null {
   if (state.tiles[tileIndex(tx, ty)] !== type) return null;
   return getBuildingLevel(tx, ty) < 3 ? { x: tx, y: ty } : null;
 }
-// ---- Barracks housing (2026-10-29) ----
-
 
 function settlementGarrisonTierCap(level: number): number {
   return SETTLEMENT_GARRISON_CAP_BY_TIER[Math.min(Math.max(level, 1), SETTLEMENT_GARRISON_CAP_BY_TIER.length) - 1];
@@ -1714,8 +1294,6 @@ function destroyTownCenter(tc: TownCenter) {
     state.townCenters.length > 0 ? "A Town Center has been destroyed" : "The last Town Center has been destroyed — build a new one"
   );
 }
-// ---- Dawn/dusk respawn windows (long days, 2026-10-23) ----
-
 
 function respawnWindowAt(tick: number): RespawnWindow | null {
   const t = tick % GAME_DAY_TICKS;
@@ -1891,172 +1469,6 @@ function applyMoraleCheck() {
       if (isSoldierKind(c.kind) && Math.random() < HAPPINESS_DESERTION_CHANCE) desertColonist(c);
     }
   }
-}
-
-function isBarnStaffed(bx: number, by: number): boolean {
-  for (const c of colonists.values()) {
-    if (c.kind === "farmer" && c.postX === bx && c.postY === by) return true;
-  }
-  return false;
-}
-
-function farmPlotCountForBarn(bx: number, by: number): number {
-  let n = 0;
-  for (const plot of farmPlots.values()) if (plot.barnX === bx && plot.barnY === by) n++;
-  return n;
-}
-
-// The Barn a new Farm Plot at (tx, ty) would belong to: the nearest one within BARN_FARM_RADIUS_TILES
-// that still has room (fewer than BARN_MAX_FARM_PLOTS plots), else null (the plot can't go there).
-function barnForNewFarmPlot(tx: number, ty: number): TileCoord | null {
-  let best: TileCoord | null = null;
-  let bestD = Infinity;
-  for (let y = ty - BARN_FARM_RADIUS_TILES; y <= ty + BARN_FARM_RADIUS_TILES; y++) {
-    for (let x = tx - BARN_FARM_RADIUS_TILES; x <= tx + BARN_FARM_RADIUS_TILES; x++) {
-      if (!inBounds(x, y) || state.tiles[tileIndex(x, y)] !== TileType.BarnPost) continue;
-      const d = Math.hypot(x - tx, y - ty);
-      if (d >= bestD || farmPlotCountForBarn(x, y) >= BARN_MAX_FARM_PLOTS) continue;
-      bestD = d;
-      best = { x, y };
-    }
-  }
-  return best;
-}
-
-function farmPlotIndices(state: FarmPlotState["state"]): number[] {
-  const result: number[] = [];
-  for (const [plotKey, plot] of farmPlots) {
-    if (plot.state !== state) continue;
-    const [plotX, plotY] = plotKey.split(",").map(Number);
-    result.push(tileIndex(plotX, plotY));
-  }
-  return result;
-}
-
-// Grow / harvest phase length for a plot, scaled by its Barn's level and synergy, its own biome and
-// colony happiness (fallow is never scaled).
-function effectiveFarmPlotTicks(base: number, plotX: number, plotY: number, plot: FarmPlotState): number {
-  const bonus = levelBonus(getBuildingLevel(plot.barnX, plot.barnY));
-  return Math.max(
-    1,
-    Math.round(
-      (base * (1 - bonus) * biomeProductionFactor(plotX, plotY)) /
-        (productionSpeedMultiplier() * industrialSynergyMultiplier(plot.barnX, plot.barnY))
-    )
-  );
-}
-
-function sowFarmPlot(plot: FarmPlotState, ticks: number) {
-  plot.state = "sown";
-  plot.growTicksRemaining = ticks;
-  plot.growTicksTotal = ticks;
-}
-
-function newFarmPlot(barnX: number, barnY: number): FarmPlotState {
-  const plot: FarmPlotState = {
-    barnX,
-    barnY,
-    growTicksRemaining: 0,
-    growTicksTotal: 0,
-    harvestTicksRemaining: 0,
-    harvestsSinceFallow: 0,
-    fallowTicksRemaining: 0,
-    harvestedTicksRemaining: 0,
-    state: "sown",
-  };
-  // The first sowing is the flat FARM_GROW_TICKS (as before: the plot's multipliers apply from the
-  // second cycle on).
-  sowFarmPlot(plot, FARM_GROW_TICKS);
-  return plot;
-}
-
-function updateFarmPlots() {
-  for (const [plotKey, plot] of farmPlots) {
-    // A resting field recovers on its own; only re-sowing it needs the farmer.
-    if (plot.state === "fallow" && plot.fallowTicksRemaining > 0) plot.fallowTicksRemaining--;
-    if (plot.harvestedTicksRemaining > 0) plot.harvestedTicksRemaining--;
-    if (state.tiles[tileIndex(plot.barnX, plot.barnY)] !== TileType.BarnPost) continue;
-    if (!isBarnStaffed(plot.barnX, plot.barnY)) continue;
-    const [plotX, plotY] = plotKey.split(",").map(Number);
-    if (plot.state === "fallow") {
-      if (plot.fallowTicksRemaining <= 0) sowFarmPlot(plot, effectiveFarmPlotTicks(FARM_GROW_TICKS, plotX, plotY, plot));
-    } else if (plot.state === "harvesting") {
-      plot.harvestTicksRemaining--;
-      if (plot.harvestTicksRemaining <= 0) {
-        stock.grain += FARM_YIELD_PER_HARVEST;
-        plot.harvestsSinceFallow++;
-        plot.harvestedTicksRemaining = FARM_HARVESTED_SHOW_TICKS;
-        if (plot.harvestsSinceFallow >= FARM_HARVESTS_BEFORE_FALLOW) {
-          plot.harvestsSinceFallow = 0;
-          plot.state = "fallow";
-          plot.fallowTicksRemaining = FARM_FALLOW_TICKS;
-        } else {
-          sowFarmPlot(plot, effectiveFarmPlotTicks(FARM_GROW_TICKS, plotX, plotY, plot));
-        }
-      }
-    } else {
-      plot.growTicksRemaining--;
-      if (plot.state === "sown" && plot.growTicksRemaining <= plot.growTicksTotal * (1 - FARM_SOWN_FRACTION)) {
-        plot.state = "growing";
-      }
-      if (plot.growTicksRemaining <= 0) {
-        plot.state = "harvesting";
-        plot.harvestTicksRemaining = effectiveFarmPlotTicks(FARM_HARVEST_TICKS, plotX, plotY, plot);
-      }
-    }
-  }
-}
-// ---- Farm art stages (snapshot farmStages; FarmStage in protocol.ts). Cosmetic only. ----
-
-
-// 0..1 through the plot's current grow phase (1 while ripe/fallow).
-function farmPlotProgress(plot: FarmPlotState): number {
-  if (plot.state === "harvesting" || plot.state === "fallow") return 1;
-  return plot.growTicksTotal > 0 ? 1 - plot.growTicksRemaining / plot.growTicksTotal : 0;
-}
-
-function farmPlotStage(plot: FarmPlotState): FarmStage {
-  if (plot.state === "harvesting") return FarmStage.Ripe;
-  if (plot.state === "fallow") return FarmStage.Fallow;
-  if (plot.harvestedTicksRemaining > 0) return FarmStage.Harvested;
-  const p = farmPlotProgress(plot);
-  if (p < FARM_SOWN_FRACTION) return FarmStage.Sown;
-  return p < FARM_SPROUTING_FRACTION ? FarmStage.Sprouting : FarmStage.Growing;
-}
-
-// 0..1 through a farmhand's current produce cycle (the batch lands at 1).
-function farmhandProgress(c: Colonist): number {
-  return c.cycleTicksTotal > 0 ? Math.min(1, Math.max(0, 1 - c.chopTicksRemaining / c.cycleTicksTotal)) : 0;
-}
-
-function farmhandFarmStage(tile: TileType, p: number): FarmStage | null {
-  if (tile === TileType.CottonFarm) return p < HEMP_GROWING_FROM ? FarmStage.Sown : p < HEMP_RIPE_FROM ? FarmStage.Growing : FarmStage.Ripe;
-  if (tile === TileType.Pasture) return p < PASTURE_FAT_FROM ? FarmStage.Growing : FarmStage.Fat;
-  if (tile === TileType.WoolFarm) return p < SHEEP_WOOLLY_FROM ? FarmStage.Sheared : p < SHEEP_READY_FROM ? FarmStage.Woolly : FarmStage.Ripe;
-  if (tile === TileType.Orchard) {
-    return p < ORCHARD_BLOSSOM_UNTIL ? FarmStage.Blossoming : p < ORCHARD_FRUITING_FROM ? FarmStage.Growing : FarmStage.Fruiting;
-  }
-  return null;
-}
-
-// Flattened [tile index, FarmStage] for every grain plot and every staffed animal/orchard/hemp farm.
-function farmStagesForSnapshot(): number[] {
-  const out: number[] = [];
-  for (const [plotKey, plot] of farmPlots) {
-    const [plotX, plotY] = plotKey.split(",").map(Number);
-    out.push(tileIndex(plotX, plotY), farmPlotStage(plot));
-  }
-  const seen = new Set<number>();
-  for (const c of colonists.values()) {
-    if (c.kind !== "farmhand") continue;
-    const index = tileIndex(c.postX, c.postY);
-    if (seen.has(index)) continue;
-    const stage = farmhandFarmStage(state.tiles[index] as TileType, farmhandProgress(c));
-    if (stage === null) continue;
-    seen.add(index);
-    out.push(index, stage);
-  }
-  return out;
 }
 
 function planRouteToNearestResource(
@@ -2240,540 +1652,6 @@ function updateGathererColonist(c: Colonist, dt: number) {
   }
 }
 
-// ---- Hunting & foraging: Hunter's Hut / Forager's Hut workers, wild game, wild forage ----
-// Every tunable lives here. Hunters and foragers are civilians: they only work by day and shelter in
-// houses at night like everyone else (updateColonist). Their hut's level adds workers (one per level,
-// see resolveFoodHutPlacement) and, with happiness and industrial synergy, speeds their work timers.
-
-const WILDLIFE_CONFIG: Record<WildlifeKind, WildlifeConfig> = {
-  deer: { maxHp: 18, speed: 28, fleeSpeed: 115, meat: 6, cap: scaledCountSub(6) },
-  rabbit: { maxHp: 6, speed: 30, fleeSpeed: 125, meat: 2, cap: scaledCountSub(8) },
-  boar: { maxHp: 30, speed: 24, fleeSpeed: 100, meat: 8, cap: scaledCountSub(3) },
-  pheasant: { maxHp: 6, speed: 22, fleeSpeed: 120, meat: 2, cap: scaledCountSub(4) },
-};
-// Long days: the interval stays in real time (4 per legacy 100 s day = one every 25 s on 80x80), so a
-// long day tops up ~15 animals and hunting income per second is unchanged.
-const WILDLIFE_RESPAWN_INTERVAL_TICKS = Math.round((LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS) / state.WILDLIFE_RESPAWN_PER_DAY);
-state.wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
-
-function wildlifeForSnapshot(): number[] {
-  const out: number[] = [];
-  for (const a of wildlife.values()) {
-    out.push(a.id, WILDLIFE_KINDS.indexOf(a.kind), Math.round(a.x), Math.round(a.y), WILDLIFE_STATE_CODE[a.mode]);
-  }
-  return out;
-}
-
-function hasTreeNear(tx: number, ty: number, radius: number): boolean {
-  for (let dy = -radius; dy <= radius; dy++) {
-    for (let dx = -radius; dx <= radius; dx++) {
-      if (inBounds(tx + dx, ty + dy) && state.tiles[tileIndex(tx + dx, ty + dy)] === TileType.Tree) return true;
-    }
-  }
-  return false;
-}
-
-// Deer and rabbits on Plains; boar on Plains/Hills with a tree within 2 tiles (forest edges); pheasant
-// on Plains/Hills. Always an Empty tile.
-function wildlifeTileOk(kind: WildlifeKind, tx: number, ty: number): boolean {
-  if (!inBounds(tx, ty) || state.tiles[tileIndex(tx, ty)] !== TileType.Empty) return false;
-  if (isInReservedGrounds(tx, ty)) return false;
-  if (Math.hypot(tx - TOWN_CENTER_TILE.x, ty - TOWN_CENTER_TILE.y) < WILDLIFE_MIN_TOWN_CENTER_DIST_TILES) return false;
-  const biome = biomeAt(tx, ty);
-  if (kind === "deer" || kind === "rabbit") return biome === Biome.Plains;
-  if (kind === "boar") return biome !== Biome.Swamp && hasTreeNear(tx, ty, 2);
-  return biome !== Biome.Swamp;
-}
-
-function spawnWildlifeAt(kind: WildlifeKind, tx: number, ty: number): Wildlife {
-  const center = tileToPixelCenter({ x: tx, y: ty });
-  const animal: Wildlife = {
-    id: state.nextWildlifeId++,
-    kind,
-    x: center.x,
-    y: center.y,
-    hp: WILDLIFE_CONFIG[kind].maxHp,
-    homeX: center.x,
-    homeY: center.y,
-    mode: "idle",
-    targetX: center.x,
-    targetY: center.y,
-    restTicks: randInt(0, WILDLIFE_REST_MAX_TICKS),
-    modeTicks: 0,
-    fleeDirX: 0,
-    fleeDirY: 0,
-    reservedBy: null,
-    chargeTargetId: null,
-    attackCooldownTicks: 0,
-  };
-  wildlife.set(animal.id, animal);
-  return animal;
-}
-
-// Rejection-samples a spawn tile for `kind`; null if none found (crowded map).
-function pickWildlifeSpawnTile(kind: WildlifeKind, avoidPlayers: boolean): TileCoord | null {
-  for (let attempt = 0; attempt < 400; attempt++) {
-    const tx = Math.floor(Math.random() * state.WORLD_TILES_X);
-    const ty = Math.floor(Math.random() * state.WORLD_TILES_Y);
-    if (!wildlifeTileOk(kind, tx, ty)) continue;
-    if (avoidPlayers) {
-      const center = tileToPixelCenter({ x: tx, y: ty });
-      let tooClose = false;
-      for (const p of players.values()) {
-        if (Math.hypot(p.x - center.x, p.y - center.y) < WILDLIFE_PLAYER_CLEARANCE_TILES * TILE_SIZE) tooClose = true;
-      }
-      if (tooClose) continue;
-    }
-    return { x: tx, y: ty };
-  }
-  return null;
-}
-
-function spawnInitialWildlife() {
-  wildlife.clear();
-  state.nextWildlifeId = 1;
-  state.wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
-  for (const kind of WILDLIFE_KINDS) {
-    for (let i = 0; i < WILDLIFE_CONFIG[kind].cap; i++) {
-      const tile = pickWildlifeSpawnTile(kind, false);
-      if (tile) spawnWildlifeAt(kind, tile.x, tile.y);
-    }
-  }
-}
-
-// One animal every WILDLIFE_RESPAWN_INTERVAL_TICKS, of the kind furthest below its cap (by ratio).
-function updateWildlifeRespawn() {
-  if (state.testWildlifeRespawnDisabled) return;
-  if (state.wildlifeRespawnCooldown > 0) {
-    state.wildlifeRespawnCooldown--;
-    return;
-  }
-  state.wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
-  const counts: Record<WildlifeKind, number> = { deer: 0, rabbit: 0, boar: 0, pheasant: 0 };
-  for (const a of wildlife.values()) counts[a.kind]++;
-  let best: WildlifeKind | null = null;
-  let bestRatio = 1;
-  for (const kind of WILDLIFE_KINDS) {
-    const cap = WILDLIFE_CONFIG[kind].cap;
-    if (cap <= 0) continue;
-    const ratio = counts[kind] / cap;
-    if (ratio < bestRatio) {
-      bestRatio = ratio;
-      best = kind;
-    }
-  }
-  if (!best) return;
-  const tile = pickWildlifeSpawnTile(best, true);
-  if (tile) spawnWildlifeAt(best, tile.x, tile.y);
-}
-
-function isWalkablePixel(px: number, py: number): boolean {
-  const t = tileOfPixel(px, py);
-  return isWalkableTile(t.x, t.y);
-}
-
-// Straight-line step toward (tx, ty), never onto a solid tile (slides along one axis if blocked).
-// Returns false when it couldn't move at all. Wildlife never pathfinds: it only takes short hops.
-function stepWildlife(a: Wildlife, dirX: number, dirY: number, speed: number, dt: number): boolean {
-  const len = Math.hypot(dirX, dirY);
-  if (len === 0) return false;
-  const step = speed * biomeSpeedMultiplier(a.x, a.y) * dt;
-  const nx = a.x + (dirX / len) * step;
-  const ny = a.y + (dirY / len) * step;
-  const clampX = clamp(nx, TILE_SIZE / 2, state.worldWidth - TILE_SIZE / 2);
-  const clampY = clamp(ny, TILE_SIZE / 2, state.worldHeight - TILE_SIZE / 2);
-  if (isWalkablePixel(clampX, clampY)) {
-    a.x = clampX;
-    a.y = clampY;
-    return true;
-  }
-  if (isWalkablePixel(clampX, a.y)) {
-    a.x = clampX;
-    return true;
-  }
-  if (isWalkablePixel(a.x, clampY)) {
-    a.y = clampY;
-    return true;
-  }
-  return false;
-}
-
-function startWildlifeFlee(a: Wildlife, fromX: number, fromY: number) {
-  let dx = a.x - fromX;
-  let dy = a.y - fromY;
-  if (Math.hypot(dx, dy) < 1) {
-    const angle = Math.random() * Math.PI * 2;
-    dx = Math.cos(angle);
-    dy = Math.sin(angle);
-  }
-  a.mode = "flee";
-  a.modeTicks = WILDLIFE_FLEE_TICKS;
-  a.fleeDirX = dx;
-  a.fleeDirY = dy;
-  a.chargeTargetId = null;
-}
-
-// Damage from anything (hunter arrow, player lance, test hook). Returns true if it killed the animal.
-// A boar hit by a hunter charges him; everything else (and a boar hit by anyone else) flees.
-function damageWildlife(a: Wildlife, amount: number, fromX: number, fromY: number, hunterId: string | null): boolean {
-  a.hp -= amount;
-  if (a.hp <= 0) {
-    wildlife.delete(a.id);
-    return true;
-  }
-  if (a.kind === "boar" && hunterId !== null && a.mode !== "charge" && colonists.has(hunterId)) {
-    a.mode = "charge";
-    a.modeTicks = BOAR_CHARGE_TICKS;
-    a.chargeTargetId = hunterId;
-  } else if (a.mode !== "charge") {
-    startWildlifeFlee(a, fromX, fromY);
-  }
-  return false;
-}
-function updateWildlife(dt: number) {
-  const anchors: { x: number; y: number }[] = [];
-  for (const p of players.values()) if (!p.dead) anchors.push(p);
-  for (const c of colonists.values()) anchors.push(c);
-  const dormantDist = DORMANCY_RADIUS_TILES * TILE_SIZE;
-  for (const a of wildlife.values()) {
-    const config = WILDLIFE_CONFIG[a.kind];
-    if (a.attackCooldownTicks > 0) a.attackCooldownTicks--;
-    if (!anchors.some((p) => Math.abs(p.x - a.x) < dormantDist && Math.abs(p.y - a.y) < dormantDist)) continue;
-    // Something was built on top of it (placement only checks players/colonists): step off.
-    const here = tileOfPixel(a.x, a.y);
-    if (!isWalkableTile(here.x, here.y)) {
-      const out = findAdjacentWalkable(here.x, here.y);
-      if (out) {
-        const center = tileToPixelCenter(out);
-        a.x = a.homeX = a.targetX = center.x;
-        a.y = a.homeY = a.targetY = center.y;
-      }
-    }
-    if (a.mode === "flee") {
-      if (!stepWildlife(a, a.fleeDirX, a.fleeDirY, config.fleeSpeed, dt)) {
-        // Cornered: bolt off at a new random angle.
-        const angle = Math.random() * Math.PI * 2;
-        a.fleeDirX = Math.cos(angle);
-        a.fleeDirY = Math.sin(angle);
-      }
-      if (--a.modeTicks <= 0) {
-        a.mode = "idle";
-        a.homeX = a.x;
-        a.homeY = a.y;
-        a.restTicks = randInt(WILDLIFE_REST_MIN_TICKS, WILDLIFE_REST_MAX_TICKS);
-      }
-      continue;
-    }
-    if (a.mode === "charge") {
-      const target = a.chargeTargetId ? colonists.get(a.chargeTargetId) : undefined;
-      if (!target || --a.modeTicks <= 0) {
-        startWildlifeFlee(a, target?.x ?? a.x, target?.y ?? a.y);
-        continue;
-      }
-      const dist = Math.hypot(target.x - a.x, target.y - a.y);
-      if (dist <= BOAR_ATTACK_RANGE) {
-        if (a.attackCooldownTicks <= 0) {
-          a.attackCooldownTicks = BOAR_ATTACK_COOLDOWN_TICKS;
-          state.pendingEffects.push({ fromX: a.x, fromY: a.y, toX: target.x, toY: target.y, melee: true });
-          damageColonist(target, BOAR_DAMAGE);
-        }
-      } else {
-        stepWildlife(a, target.x - a.x, target.y - a.y, BOAR_CHARGE_SPEED, dt);
-      }
-      continue;
-    }
-    if (a.mode === "walk") {
-      const dist = Math.hypot(a.targetX - a.x, a.targetY - a.y);
-      const step = config.speed * dt;
-      if (dist <= step || !stepWildlife(a, a.targetX - a.x, a.targetY - a.y, config.speed, dt)) {
-        if (dist <= step) {
-          a.x = a.targetX;
-          a.y = a.targetY;
-        }
-        a.mode = "idle";
-        a.restTicks = randInt(WILDLIFE_REST_MIN_TICKS, WILDLIFE_REST_MAX_TICKS);
-      }
-      continue;
-    }
-    if (--a.restTicks > 0) continue;
-    const home = tileOfPixel(a.homeX, a.homeY);
-    const tx = home.x + randInt(-WILDLIFE_WANDER_RADIUS_TILES, WILDLIFE_WANDER_RADIUS_TILES);
-    const ty = home.y + randInt(-WILDLIFE_WANDER_RADIUS_TILES, WILDLIFE_WANDER_RADIUS_TILES);
-    if (isWalkableTile(tx, ty)) {
-      a.targetX = tx * TILE_SIZE + TILE_SIZE * (0.25 + Math.random() * 0.5);
-      a.targetY = ty * TILE_SIZE + TILE_SIZE * (0.25 + Math.random() * 0.5);
-      a.mode = "walk";
-    } else {
-      a.restTicks = WILDLIFE_REST_MIN_TICKS;
-    }
-  }
-}
-
-function scatterForage(tile: TileType, count: number, isValid: (tx: number, ty: number) => boolean) {
-  let placed = 0;
-  for (let attempts = 0; placed < count && attempts < scaledCount(2000); attempts++) {
-    const tx = Math.floor(Math.random() * state.WORLD_TILES_X);
-    const ty = Math.floor(Math.random() * state.WORLD_TILES_Y);
-    if (state.tiles[tileIndex(tx, ty)] !== TileType.Empty) continue;
-    if (isInReservedGrounds(tx, ty)) continue;
-    if (Math.hypot(tx - TOWN_CENTER_TILE.x, ty - TOWN_CENTER_TILE.y) < FORAGE_MIN_TOWN_CENTER_DIST_TILES) continue;
-    if (!isValid(tx, ty)) continue;
-    state.tiles[tileIndex(tx, ty)] = tile;
-    placed++;
-  }
-}
-
-function generateForage() {
-  forageRegrow.clear();
-  scatterForage(TileType.BerryBush, state.BERRY_BUSH_COUNT, (tx, ty) => biomeAt(tx, ty) === Biome.Plains);
-  scatterForage(TileType.FruitTree, state.FRUIT_TREE_COUNT, (tx, ty) => biomeAt(tx, ty) === Biome.Plains);
-  scatterForage(
-    TileType.MushroomPatch,
-    state.MUSHROOM_PATCH_COUNT,
-    (tx, ty) => biomeAt(tx, ty) === Biome.Swamp || hasTreeNear(tx, ty, 1)
-  );
-}
-
-// Picked plants count down to ripe; an entry whose tile was cleared (demolished) is dropped.
-function updateForageRegrow() {
-  for (const [index, ticks] of forageRegrow) {
-    const tile = state.tiles[index] as TileType;
-    const ripe = FORAGE_PICKED_TO_RIPE[tile];
-    if (ripe === undefined) {
-      forageRegrow.delete(index);
-      continue;
-    }
-    if (ticks > 1) {
-      forageRegrow.set(index, ticks - 1);
-      continue;
-    }
-    forageRegrow.delete(index);
-    state.tiles[index] = ripe;
-    broadcastTileUpdate(index % state.WORLD_TILES_X, Math.floor(index / state.WORLD_TILES_X), ripe);
-  }
-}
-
-// Hunter/forager work timers: hut level, happiness and industrial synergy (no biome factor).
-function effectiveFoodHutTicks(base: number, tx: number, ty: number): number {
-  const level = getBuildingLevel(tx, ty);
-  return Math.max(
-    1,
-    Math.round((base * (1 - levelBonus(level))) / (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
-  );
-}
-
-function hutDistanceTiles(c: Colonist, px: number, py: number): number {
-  const hut = tileToPixelCenter({ x: c.postX, y: c.postY });
-  return Math.hypot(px - hut.x, py - hut.y) / TILE_SIZE;
-}
-
-// Path home to the hut's doorstep; the worker deposits when it arrives (state "carrying").
-function startCarryingHome(c: Colonist) {
-  const approach = findAdjacentWalkable(c.postX, c.postY);
-  const path = approach ? findPath(tileOfPixel(c.x, c.y), approach) : null;
-  c.path = path ?? [];
-  c.state = "carrying";
-}
-
-function depositCarried(c: Colonist, resource: "meat" | "fruit") {
-  stock[resource] += c.carryAmount;
-  c.carryAmount = 0;
-  c.state = "idle";
-}
-
-function planHunt(c: Colonist): { animal: Wildlife; path: TileCoord[] } | null {
-  const candidates: { animal: Wildlife; d: number }[] = [];
-  for (const a of wildlife.values()) {
-    if (a.reservedBy !== null && a.reservedBy !== c.id) continue;
-    if (hutDistanceTiles(c, a.x, a.y) > HUNTER_WORK_RADIUS_TILES) continue;
-    candidates.push({ animal: a, d: Math.hypot(a.x - c.x, a.y - c.y) });
-  }
-  candidates.sort((p, q) => p.d - q.d);
-  const start = tileOfPixel(c.x, c.y);
-  for (const { animal } of candidates.slice(0, FOOD_WORKER_ROUTE_CANDIDATES)) {
-    const path = findPath(start, tileOfPixel(animal.x, animal.y));
-    if (path) return { animal, path };
-  }
-  return null;
-}
-
-// States: idle -> stalking (walk to bow range) -> hunting (shoot) -> collecting (walk to the carcass)
-// -> carrying (walk home, deposit meat) -> idle. A carcass load survives the night (carried home at
-// dawn); the reservation on a live animal doesn't (released when the hunter goes to shelter).
-function updateHunter(c: Colonist, dt: number) {
-  switch (c.state) {
-    case "stalking":
-    case "hunting": {
-      const animal = c.targetWildlifeId !== null ? wildlife.get(c.targetWildlifeId) : undefined;
-      if (!animal || hutDistanceTiles(c, animal.x, animal.y) > HUNTER_CHASE_LEASH_TILES) {
-        releaseResourceReservation(c);
-        c.path = [];
-        c.state = "idle";
-        c.idleCooldown = 0;
-        return;
-      }
-      if (c.attackCooldownTicks > 0) c.attackCooldownTicks--;
-      const dist = Math.hypot(animal.x - c.x, animal.y - c.y);
-      if (dist > HUNTER_BOW_RANGE) {
-        c.state = "stalking";
-        if (c.repathCooldown > 0) c.repathCooldown--;
-        if (c.path.length === 0 || c.repathCooldown <= 0) {
-          c.path = findPath(tileOfPixel(c.x, c.y), tileOfPixel(animal.x, animal.y)) ?? [];
-          c.repathCooldown = HUNTER_REPATH_TICKS;
-        }
-        advanceAlongPath(c, dt, COLONIST_SPEED);
-        return;
-      }
-      c.state = "hunting";
-      c.path = [];
-      if (c.attackCooldownTicks > 0) return;
-      c.attackCooldownTicks = effectiveFoodHutTicks(HUNTER_SHOT_COOLDOWN_TICKS, c.postX, c.postY);
-      state.pendingEffects.push({ fromX: c.x, fromY: c.y, toX: animal.x, toY: animal.y });
-      const carcass = { x: animal.x, y: animal.y };
-      if (damageWildlife(animal, HUNTER_ARROW_DAMAGE, c.x, c.y, c.id)) {
-        c.targetWildlifeId = null;
-        c.carryAmount += WILDLIFE_CONFIG[animal.kind].meat;
-        c.path = findPath(tileOfPixel(c.x, c.y), tileOfPixel(carcass.x, carcass.y)) ?? [];
-        c.state = "collecting";
-      }
-      return;
-    }
-    case "collecting":
-      advanceAlongPath(c, dt, COLONIST_SPEED);
-      if (c.path.length === 0) startCarryingHome(c);
-      return;
-    case "carrying":
-      advanceAlongPath(c, dt, COLONIST_SPEED);
-      if (c.path.length === 0) depositCarried(c, "meat");
-      return;
-    default: {
-      // "idle" (and anything left over from sheltering).
-      c.state = "idle";
-      if (c.carryAmount > 0) {
-        startCarryingHome(c);
-        return;
-      }
-      if (c.idleCooldown > 0) {
-        c.idleCooldown--;
-        return;
-      }
-      const plan = planHunt(c);
-      if (!plan) {
-        c.idleCooldown = FOOD_WORKER_IDLE_RETRY_TICKS;
-        return;
-      }
-      plan.animal.reservedBy = c.id;
-      c.targetWildlifeId = plan.animal.id;
-      c.path = plan.path;
-      c.repathCooldown = HUNTER_REPATH_TICKS;
-      c.state = "stalking";
-    }
-  }
-}
-
-// Approach tile for a forage plant: walkable ones (bush, mushrooms) are stood on, a fruit tree from
-// beside it.
-function forageApproach(tx: number, ty: number): TileCoord | null {
-  return isWalkableTile(tx, ty) ? { x: tx, y: ty } : findAdjacentWalkable(tx, ty);
-}
-
-function planForage(c: Colonist): { tx: number; ty: number; path: TileCoord[] } | null {
-  const hut = { x: c.postX, y: c.postY };
-  const r = FORAGER_WORK_RADIUS_TILES;
-  const candidates: { tx: number; ty: number; d: number }[] = [];
-  for (let ty = Math.max(0, hut.y - r); ty <= Math.min(state.WORLD_TILES_Y - 1, hut.y + r); ty++) {
-    for (let tx = Math.max(0, hut.x - r); tx <= Math.min(state.WORLD_TILES_X - 1, hut.x + r); tx++) {
-      if (FORAGE_RIPE_TO_PICKED[state.tiles[tileIndex(tx, ty)] as TileType] === undefined) continue;
-      if (Math.hypot(tx - hut.x, ty - hut.y) > r) continue;
-      if (reservedResourceTiles.has(resourceKey(tx, ty))) continue;
-      candidates.push({ tx, ty, d: (tx + 0.5 - c.x / TILE_SIZE) ** 2 + (ty + 0.5 - c.y / TILE_SIZE) ** 2 });
-    }
-  }
-  candidates.sort((p, q) => p.d - q.d);
-  const start = tileOfPixel(c.x, c.y);
-  for (const cand of candidates.slice(0, FOOD_WORKER_ROUTE_CANDIDATES)) {
-    const approach = forageApproach(cand.tx, cand.ty);
-    if (!approach) continue;
-    const path = findPath(start, approach);
-    if (path) return { tx: cand.tx, ty: cand.ty, path };
-  }
-  return null;
-}
-
-// States: idle -> toForage (walk) -> foraging (pick for FORAGE_TICKS) -> carrying (walk home, deposit
-// fruit) -> idle. The target plant is reserved in reservedResourceTiles like a lumberjack's tree.
-function updateForager(c: Colonist, dt: number) {
-  const targetRipe = () =>
-    c.targetResourceX >= 0 &&
-    FORAGE_RIPE_TO_PICKED[state.tiles[tileIndex(c.targetResourceX, c.targetResourceY)] as TileType] !== undefined;
-  switch (c.state) {
-    case "toForage":
-      if (!targetRipe()) {
-        releaseResourceReservation(c);
-        c.targetResourceX = -1;
-        c.targetResourceY = -1;
-        c.path = [];
-        c.state = "idle";
-        return;
-      }
-      advanceAlongPath(c, dt, COLONIST_SPEED);
-      if (c.path.length === 0) {
-        c.state = "foraging";
-        c.chopTicksRemaining = effectiveFoodHutTicks(FORAGE_TICKS, c.postX, c.postY);
-      }
-      return;
-    case "foraging": {
-      if (!targetRipe()) {
-        releaseResourceReservation(c);
-        c.targetResourceX = -1;
-        c.targetResourceY = -1;
-        c.state = "idle";
-        return;
-      }
-      if (--c.chopTicksRemaining > 0) return;
-      const index = tileIndex(c.targetResourceX, c.targetResourceY);
-      const ripe = state.tiles[index] as TileType;
-      const picked = FORAGE_RIPE_TO_PICKED[ripe]!;
-      state.tiles[index] = picked;
-      broadcastTileUpdate(c.targetResourceX, c.targetResourceY, picked);
-      forageRegrow.set(index, FORAGE_REGROW_TICKS);
-      c.carryAmount += FORAGE_FRUIT_YIELD[ripe] ?? 0;
-      releaseResourceReservation(c);
-      c.targetResourceX = -1;
-      c.targetResourceY = -1;
-      startCarryingHome(c);
-      return;
-    }
-    case "carrying":
-      advanceAlongPath(c, dt, COLONIST_SPEED);
-      if (c.path.length === 0) depositCarried(c, "fruit");
-      return;
-    default: {
-      c.state = "idle";
-      if (c.carryAmount > 0) {
-        startCarryingHome(c);
-        return;
-      }
-      if (c.idleCooldown > 0) {
-        c.idleCooldown--;
-        return;
-      }
-      const plan = planForage(c);
-      if (!plan) {
-        c.idleCooldown = FOOD_WORKER_IDLE_RETRY_TICKS;
-        return;
-      }
-      reservedResourceTiles.set(resourceKey(plan.tx, plan.ty), c.id);
-      c.targetResourceX = plan.tx;
-      c.targetResourceY = plan.ty;
-      c.path = plan.path;
-      c.state = "toForage";
-    }
-  }
-}
-// ---- Builders: they turn construction sites (see startConstruction) into buildings ----
-
-
 function anyBuilderAlive(): boolean {
   for (const c of colonists.values()) if (c.kind === "builder") return true;
   return false;
@@ -2898,8 +1776,6 @@ function updateBuilder(c: Colonist, dt: number) {
     }
   }
 }
-// ---- Repair: idle builders (by day, like all builder work) heal damaged buildings ----
-
 
 function announceRepairShort() {
   if (state.cycleTick - state.lastRepairShortToastTick < REPAIR_SHORT_TOAST_TICKS && state.cycleTick >= state.lastRepairShortToastTick) return;
@@ -3178,8 +2054,6 @@ function updateStationaryWorkerReturning(c: Colonist, dt: number) {
 function getMobById(id: string): Mob | undefined {
   return mobs.get(id);
 }
-// ---- Engagement slots ----
-
 
 function releaseSlot(attackerId: string) {
   const claim = attackerSlots.get(attackerId);
@@ -3319,100 +2193,8 @@ function approachGoal(
   }
   advanceAlongPath(e, dt, speed);
 }
-// ---- Bodies: spatial hash + separation ----
 
-
-function collectBodies() {
-  bodies.length = 0;
-  for (const c of colonists.values()) {
-    if (!isGuardOrMilitiaKind(c.kind) && !(c.kind === "bishop" && !isWardPriest(c))) continue;
-    const still = c.state === "attacking" || c.state === "idle";
-    bodies.push({ e: c, r: COLONIST_BODY_RADIUS, w: still ? SEPARATION_WEIGHT_STILL : SEPARATION_WEIGHT_MOVING });
-  }
-  for (const m of mobs.values()) {
-    if (isDormantGuardian(m) || (m.isDeserter && !m.deserterActive) || m.passive) continue;
-    const still = mobsAttackingThisTick.has(m.id);
-    bodies.push({ e: m, r: mobBodyRadius(m), w: still ? SEPARATION_WEIGHT_STILL : SEPARATION_WEIGHT_MOVING, mob: true });
-  }
-}
-
-function rebuildBodyHash() {
-  state.cellHead.fill(-1);
-  if (state.cellNext.length < bodies.length) state.cellNext = new Int32Array(bodies.length * 2);
-  for (let i = 0; i < bodies.length; i++) {
-    const tx = Math.floor(bodies[i].e.x / TILE_SIZE);
-    const ty = Math.floor(bodies[i].e.y / TILE_SIZE);
-    if (!inBounds(tx, ty)) {
-      state.cellNext[i] = -1;
-      continue;
-    }
-    const cell = tileIndex(tx, ty);
-    state.cellNext[i] = state.cellHead[cell];
-    state.cellHead[cell] = i;
-  }
-}
-
-// Moves a body by (dx, dy) unless that would put its centre on a solid tile.
-function nudgeBody(b: Body, dx: number, dy: number) {
-  const prevMover = state.hostileMover;
-  const prevOwner = state.moverOwner;
-  state.hostileMover = b.mob === true;
-  state.moverOwner = b.mob === true ? siteNumber((b.e as Mob).siteId) : 0;
-  const nx = b.e.x + dx;
-  const ny = b.e.y + dy;
-  if (isWalkablePixel(nx, ny)) {
-    b.e.x = nx;
-    b.e.y = ny;
-  } else if (isWalkablePixel(nx, b.e.y)) {
-    b.e.x = nx;
-  } else if (isWalkablePixel(b.e.x, ny)) {
-    b.e.y = ny;
-  }
-  state.hostileMover = prevMover;
-  state.moverOwner = prevOwner;
-}
-
-// Push-apart relaxation over every overlapping pair (allies and enemies alike).
-function separateBodies() {
-  collectBodies();
-  for (let iter = 0; iter < SEPARATION_ITERATIONS; iter++) {
-    rebuildBodyHash();
-    for (let i = 0; i < bodies.length; i++) {
-      const a = bodies[i];
-      const tx = Math.floor(a.e.x / TILE_SIZE);
-      const ty = Math.floor(a.e.y / TILE_SIZE);
-      for (let oy = -1; oy <= 1; oy++) {
-        for (let ox = -1; ox <= 1; ox++) {
-          if (!inBounds(tx + ox, ty + oy)) continue;
-          for (let j = state.cellHead[tileIndex(tx + ox, ty + oy)]; j >= 0; j = state.cellNext[j]) {
-            if (j <= i) continue;
-            const b = bodies[j];
-            let dx = b.e.x - a.e.x;
-            let dy = b.e.y - a.e.y;
-            const min = a.r + b.r;
-            const d2 = dx * dx + dy * dy;
-            if (d2 >= min * min) continue;
-            let d = Math.sqrt(d2);
-            if (d < 0.01) {
-              // Exactly stacked: split along a fixed per-pair direction.
-              const ang = (i * 7 + j * 13) * 0.61803;
-              dx = Math.cos(ang);
-              dy = Math.sin(ang);
-              d = 1;
-            }
-            const overlap = min - Math.sqrt(d2);
-            const share = overlap / (a.w + b.w);
-            nudgeBody(a, (-dx / d) * share * a.w, (-dy / d) * share * a.w);
-            nudgeBody(b, (dx / d) * share * b.w, (dy / d) * share * b.w);
-          }
-        }
-      }
-    }
-  }
-  mobsAttackingThisTick.clear();
-}
-
-function isDormantGuardian(mob: Mob): boolean {
+export function isDormantGuardian(mob: Mob): boolean {
   return mob.siteId !== null && !mob.guardianActive;
 }
 
@@ -3503,7 +2285,7 @@ function colonistDeathText(c: Colonist): string {
   return `${/^[aeiou]/.test(name) ? "An" : "A"} ${name} has died`;
 }
 
-function damageColonist(colonist: Colonist, amount: number) {
+export function damageColonist(colonist: Colonist, amount: number) {
   // Armour & weapons: armour scales every blow taken (max HP is unchanged).
   if ((colonist.armourTier ?? 0) > 0) {
     const raw = amount;
@@ -3628,7 +2410,6 @@ function handleAssignTaskForce(slot: number, unitIds: string[]) {
 //   everything else                 "a:<settlement>:<class>": by Town Center (settlementOf) and class
 // Respawned units get new ids, so they rejoin their post's auto regiment (a hero its own). Task forces and
 // settlements are already saved, so save / load needs nothing new. Mob regiments (RegimentState) are separate.
-
 
 function romanNumeral(n: number): string {
   const table: [number, string][] = [[10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
@@ -3777,7 +2558,6 @@ function armyRegimentsForSnapshot(): ArmyRegimentSnapshot[] | undefined {
 //   bombard     catapults shell the point each reload from within their 3-11 tile band (walking into it
 //               first); a standing hearth under the splash takes building damage. Until the next order.
 //   attackHearth  the group attacks a camp hearth (as commandAttackHearth) until it falls.
-
 
 function leaveOrderGroup(id: string) {
   pendingRallies.delete(id);
@@ -4369,24 +3149,6 @@ function orderGroupsForSnapshot(): ArmyOrderGroupSnapshot[] | undefined {
   state.orderGroupSignature = signature;
   state.orderGroupTicks = 0;
   return list;
-}
-
-function handleExchangeResource(from: "wood" | "iron" | "rock", to: "wood" | "iron" | "rock") {
-  if (!state.marketBuilt || from === to) return;
-  const rate = EXCHANGE_RATES[from]?.[to];
-  if (!rate) return;
-  if (stock[from] < rate.give) return;
-  stock[from] -= rate.give;
-  stock[to] += rate.get;
-}
-
-function handleBuyWithGold(item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock") {
-  if (!state.goldShopBuilt) return;
-  const price = GOLD_SHOP_PRICES[item];
-  if (!price) return;
-  if (stock.gold < price.cost) return;
-  stock.gold -= price.cost;
-  (stock as Record<string, number>)[item] += price.amount;
 }
 
 function handlePlayerAttack(attacker: Player) {
@@ -5019,7 +3781,7 @@ function updateBishopColonist(c: Colonist, dt: number) {
   }
 }
 
-function isWardPriest(c: Colonist): boolean {
+export function isWardPriest(c: Colonist): boolean {
   return c.id === state.wardPriestId;
 }
 
@@ -5312,7 +4074,6 @@ function updateColonist(c: Colonist, dt: number) {
 //              path at its own speed, the rest hold formation slots around it. Once the leader is
 //              within RAID_ENGAGE_RANGE_TILES of the colony or a target, the group dissolves and each
 //              member falls back to updateMob's normal per-mob targeting (as does a damaged group).
-
 
 function raidSizeForDay(dayIndex: number): number {
   const base = RAID_BASE_SIZE + RAID_SIZE_PER_DAY * dayIndex;
@@ -6251,8 +5012,6 @@ function damagedBuildingsForSnapshot(): number[] {
   }
   return out;
 }
-// ---- Walls & gates (ROADMAP §8 items 2-5, 2026-10-23) ----
-
 
 // Runs `fn` with isWalkableTile answering for mobs (closed gates solid).
 function withHostileMover<T>(fn: () => T): T {
@@ -6277,7 +5036,7 @@ function gateAt(index: number): GateState {
 // A gate tile with no record yet (just placed by a test, or a fresh load) counts as closed, auto.
 // Forts phase A: an NPC-owned gate is passable only for its own site's mobs (moverOwner), and for the
 // colony only while overrun; other mobs and wildlife never pass it.
-function gatePassable(index: number, hostile: boolean): boolean {
+export function gatePassable(index: number, hostile: boolean): boolean {
   const g = gates.get(index);
   const own = ownerAt(index);
   if (own !== 0) return hostile ? state.moverOwner === own : !!g && g.overrun;
@@ -6837,8 +5596,6 @@ function updateMob(mob: Mob, dt: number) {
     advanceAlongPath(mob, dt, mob.speed);
   }
 }
-// ---- Monster tactics: flanking, wall cover, morale & rout (ROADMAP "Monster tactics") ----
-
 
 function regimentKey(m: Mob): string | null {
   return m.groupId ?? m.regimentId ?? m.siteId ?? null;
@@ -7254,7 +6011,6 @@ function updateRegiments() {
 // speed and refuse orders until it rallies (PLAYER_MORALE_RALLY after PLAYER_ROUT_QUIET_TICKS quiet and
 // PLAYER_ROUT_MIN_TICKS fleeing, or at the latest after PLAYER_ROUT_MAX_TICKS). Evaluated once a second.
 
-
 function isRoutedUnit(id: string): boolean {
   return routedUnits.has(id);
 }
@@ -7612,7 +6368,6 @@ function mobTactic(mob: Mob, dt: number): "handled" | "hold" | null {
 
 // ---- World generation: biomes, ponds, resource scatter, POI sites (ruins / encampments) ----
 
-
 function isInAbbeyGrounds(tx: number, ty: number): boolean {
   if (!state.abbeyCenter) return false;
   return Math.max(Math.abs(tx - state.abbeyCenter.x), Math.abs(ty - state.abbeyCenter.y)) <= ABBEY_GROUNDS_RADIUS;
@@ -7620,11 +6375,11 @@ function isInAbbeyGrounds(tx: number, ty: number): boolean {
 
 // World-gen grounds that resource scatter, forage, wildlife and tree regrowth keep off: the Abbey's
 // and the Castle Ruin's.
-function isInReservedGrounds(tx: number, ty: number): boolean {
+export function isInReservedGrounds(tx: number, ty: number): boolean {
   return isInAbbeyGrounds(tx, ty) || isInCastleRuinGrounds(tx, ty);
 }
 
-function randInt(min: number, max: number): number {
+export function randInt(min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 
@@ -7869,8 +6624,6 @@ function generatePoiSites(siteKind: "ruin" | "encampment", count: number, placed
     placePoiSite(siteKind, center);
   }
 }
-// ---- Camp hearths (ROADMAP "Camp hearths, soldier population, settlement spacing", 2026-10-28) ----
-
 
 function hearthEvent(siteId: string, type: string, detail?: string) {
   hearthEvents.push({ tick: state.cycleTick, type, siteId, detail });
@@ -7924,7 +6677,6 @@ function nearestHostileStructure(px: number, py: number, maxPx: number, zx = px,
   }
   return best;
 }
-
 
 // Old saves (no hearth records) and sites missing one: a full-HP hearth on the campfire nearest each
 // hearth-kind site's guardians; a campfire left with no guardians gets one too (it only leaves loot).
@@ -8271,8 +7023,6 @@ function placeAbbey(placedSites: TileCoord[]) {
     c.y = spot.y;
   }
 }
-// ---- The Castle Ruin, its Ogre Warlord, and mini-boss packs (ROADMAP Phase 5) ----
-
 
 function isInCastleRuinGrounds(tx: number, ty: number): boolean {
   if (!state.castleRuinCenter) return false;
@@ -8388,8 +7138,6 @@ function checkBossSightings() {
     );
   }
 }
-// ---- Goal track (ROADMAP Phase 5) ----
-
 
 // Dawns since the world began (cycle 0 starts at dawn, so day N's dawn is cycleTick N * cycle).
 function nightsSurvived(): number {
@@ -8483,7 +7231,6 @@ function resetGoals() {
 }
 
 // ---- Fog of war (minimap only) ----
-
 
 function circleOffsets(radius: number): Array<[number, number]> {
   const out: Array<[number, number]> = [];
@@ -8634,11 +7381,7 @@ function generateWorld() {
 
 generateWorld();
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-function broadcastTileUpdate(tx: number, ty: number, tile: TileType) {
+export function broadcastTileUpdate(tx: number, ty: number, tile: TileType) {
   state.buildingTargetsDirty = true;
   state.gateTilesDirty = true;
   if (VISION_BUILDING_TILES.has(tile)) revealAround(tx, ty, BUILDING_VISION_OFFSETS);
@@ -9394,8 +8137,6 @@ function respawnPlayersAndWelcome() {
     sendWelcome(player);
   }
 }
-// ---- Save files ----
-
 
 function serialized<T>(fn: () => Promise<T>): Promise<T> {
   const run = state.saveLoadQueue.then(fn, fn);
@@ -10013,8 +8754,6 @@ function handleSetTile(player: Player, tx: number, ty: number, tile: TileType, s
   handleSetTileInner(player, tx, ty, tile, skipReach);
   syncGuardBonusesAround(tx, ty);
 }
-// ---- Placement costs (charged when a placement is accepted, i.e. when its construction site starts) ----
-
 
 function placementCost(tile: TileType, current: TileType, tx: number, ty: number): Cost {
   switch (tile) {
@@ -10124,8 +8863,6 @@ function currentBuildingLevel(tx: number, ty: number, t: TileType): number {
   if (t === TileType.TownCenter) return findTownCenterAt(tx, ty)?.level ?? 1;
   return getBuildingLevel(tx, ty);
 }
-// ---- Construction: builders turn an accepted placement into the building over time ----
-
 
 function buildTicksFor(tile: TileType, level: number): number {
   const base =
@@ -10537,8 +9274,6 @@ function resolvePlacement(tx: number, ty: number, tile: TileType, current: TileT
   state.tiles[tileIndex(tx, ty)] = tile;
   broadcastTileUpdate(tx, ty, tile);
 }
-// ---- Towers (ROADMAP §8 item 6; separate from the Archery Range) ----
-
 
 // The one place that says what a Tower tile is (the gate logic asks it too).
 export function isTowerTile(tile: TileType): boolean {
@@ -10767,8 +9502,6 @@ function catapultImpact(fx: number, fy: number, tx: number, ty: number, damage: 
   }
   siegeEvent("boulder", attackerKey, damage, `units:${hits},buildings:${buildings}`);
 }
-// ---- Siege Workshop production ----
-
 
 function siegeUnitsAt(tx: number, ty: number): number {
   let n = 0;
@@ -10825,8 +9558,6 @@ function updateSiegeWorkshops() {
     localState.building = null;
   }
 }
-// ---- Armour & weapons: stock, equipping, forging, drops (constants: EQUIP_* / FORGE_* / *_MULT) ----
-
 function equipEvent(e: Omit<(typeof equipEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;
   equipEvents.push({ ...e, tick: state.cycleTick });
@@ -10925,8 +9656,6 @@ function dropEquipmentFor(mob: Mob) {
     `Salvaged a tier-1 ${EQUIP_SLOT_LABEL[slot]} from a fallen ${name}${first ? " — it goes to the colony's stock" : ""}`
   );
 }
-// ---- Hero phases 1-2: items, inventory, XP for the PLAYER (ROADMAP "Hero phases 1-2") ----
-
 function heroEvent(e: Omit<(typeof heroEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;
   heroEvents.push({ ...e, tick: state.cycleTick });
@@ -11230,8 +9959,6 @@ function withPlayerProfile(payload: string, player: Player): string {
   player.profileSentVersion = prof.version;
   return payload.slice(0, -1) + ',"profile":' + JSON.stringify(heroProfileSnapshot(prof)) + "}";
 }
-// ---- Hero phase 3: heroes (ROADMAP "Hero phase 3: heroes") ----
-
 
 function heroKey(id: string): string {
   return HERO_KEY_PREFIX + id;
@@ -11395,8 +10122,6 @@ function withPlayerHeroes(payload: string, player: Player): string {
   player.heroesSentVersion = state.heroRosterVersion;
   return payload.slice(0, -1) + ',"heroes":' + JSON.stringify(heroSheetsSnapshot()) + "}";
 }
-// ---- Hero phase 4: spells (ROADMAP "Hero phase 4: spells") ----
-
 function spellEvent(e: Omit<(typeof spellEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;
   spellEvents.push({ ...e, tick: state.spellTick });
@@ -11659,8 +10384,6 @@ function clearSpellState() {
 function isSummoned(c: Colonist): boolean {
   return summonedUntil.has(c.id);
 }
-// ---- Casting ----
-
 
 function friendlyPos(f: FriendlyUnit) {
   return f.type === "player" ? { x: f.p.x, y: f.p.y } : { x: f.c.x, y: f.c.y };
@@ -11927,7 +10650,6 @@ function heroAutoCast(c: Colonist) {
 // ---- Blacksmith forging: one item at a time per Blacksmith, FORGE_QUEUE_CAP queued (the first is in
 // progress). Cost is paid when queued (no refund). Not saved: a load starts every forge empty.
 
-
 function forgeCost(slot: EquipSlot, tier: number): Cost {
   const i = Math.min(Math.max(tier, 1), EQUIP_TIERS) - 1;
   if (slot === "weapon") return { iron: FORGE_WEAPON_IRON[i], wood: FORGE_WEAPON_WOOD };
@@ -12018,8 +10740,6 @@ function forgeBusyForSnapshot(): number[] {
   }
   return out;
 }
-// ---- The raids' siege engines (updateMob hands them to updateSiegeMob once released) ----
-
 // Per raid, each siege kind is capped at raidSiegeCap(day): 1 from its unlock day, +1 every 6 days.
 function raidSiegeCap(dayIndex: number, kind: SiegeKind): number {
   return Math.max(0, 1 + Math.floor((dayIndex - MOB_KIND_CONFIG[kind].unlockDay) / 6));
@@ -12393,8 +11113,6 @@ function handleUpgradeBuilding(player: Player, tx: number, ty: number) {
   if (placeTile === null) return;
   handleSetTile(player, tx, ty, placeTile, true);
 }
-// ---- Off-screen fight notifiers (ROADMAP "Off-screen fight notifiers — landed 2026-10-23") ----
-
 
 function clearFights() {
   state.fightHits = [];
@@ -12724,7 +11442,6 @@ function stepSimulation() {
 }
 
 // ---- Strategy mode phase 5: enemy regiment summaries (docs PLAN-strategy-mode.md §3 / §4) ----
-
 
 function stampLiveVision() {
   if (state.liveVisionGrid.length !== state.WORLD_TILES_X * state.WORLD_TILES_Y) {
