@@ -404,7 +404,13 @@ export function returnToRally(c: Colonist, dt: number, speed: number) {
   // edge-adjacent tile to any point in the rally tile stays on those two walkable tiles). A path left
   // over from the march may still lead through this tile's centre, which a squadmate's body can hold
   // the unit off forever (it froze a few px short of its slot).
-  const nextToRally = Math.abs(here.x - rallyTile.x) + Math.abs(here.y - rallyTile.y) <= 1;
+  // A diagonal neighbour counts too when both tiles between are walkable (the line stays in that 2x2
+  // block): otherwise a unit veering round a squadmate (below) on a tile border flipped between path and
+  // straight-in modes every tick and never got past.
+  const ddx = Math.abs(here.x - rallyTile.x);
+  const ddy = Math.abs(here.y - rallyTile.y);
+  const nextToRally = ddx + ddy <= 1
+    || (ddx === 1 && ddy === 1 && isWalkableTile(here.x, rallyTile.y) && isWalkableTile(rallyTile.x, here.y));
   if (nextToRally) c.path = [];
   if (c.path.length === 0 && !nextToRally) {
     c.path = findPath(here, rallyTile) ?? [];
@@ -413,6 +419,11 @@ export function returnToRally(c: Colonist, dt: number, speed: number) {
       return;
     }
   }
+  // Already inside the next waypoint's tile: head for the one after. A squadmate idling on its own slot
+  // near that tile's centre holds this unit's body further off than the waypoint tolerance, which froze
+  // it there for good (a knight stuck 68 px short of its slot). The straight line from anywhere in this
+  // tile to the next (edge-adjacent) tile centre stays on those two walkable tiles.
+  while (c.path.length > 1 && c.path[0].x === here.x && c.path[0].y === here.y) c.path.shift();
   if (c.path.length > 0) {
     advanceAlongPath(c, dt, speed);
   } else {
@@ -421,8 +432,31 @@ export function returnToRally(c: Colonist, dt: number, speed: number) {
       c.x = c.rallyX;
       c.y = c.rallyY;
     } else {
-      c.x += ((c.rallyX - c.x) / dist) * step;
-      c.y += ((c.rallyY - c.y) / dist) * step;
+      let ux = (c.rallyX - c.x) / dist;
+      let uy = (c.rallyY - c.y) / dist;
+      // A squadmate idling on its own slot right across this straight line is a wall: separation pushes
+      // this unit straight back (the idle one snaps back onto its slot), so it froze 40-70 px short of
+      // its slot for good. Veer 45deg to the side away from that body so it slides round it.
+      const reach = COLONIST_BODY_RADIUS * 2;
+      for (const o of colonists.values()) {
+        if (o === c || o.state !== "idle" || !isGuardOrMilitiaKind(o.kind)) continue;
+        const ox = o.x - c.x;
+        const oy = o.y - c.y;
+        const along = ox * ux + oy * uy;
+        const across = ux * oy - uy * ox;
+        if (along <= 0 || along >= dist || Math.abs(across) >= reach || Math.hypot(ox, oy) > reach + step * 2) continue;
+        const side = across > 0 ? -1 : 1;
+        const vx = (ux - side * uy) / Math.SQRT2;
+        const vy = (uy + side * ux) / Math.SQRT2;
+        const to = tileOfPixel(c.x + vx * step, c.y + vy * step);
+        if (isWalkableTile(to.x, to.y)) {
+          ux = vx;
+          uy = vy;
+        }
+        break;
+      }
+      c.x += ux * step;
+      c.y += uy * step;
     }
   }
   c.state = "returning";
