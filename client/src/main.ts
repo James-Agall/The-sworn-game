@@ -4629,8 +4629,10 @@ async function main() {
     soundSuppressed = false;
   }
 
-  function soundOnEvent(category: GameEventCategory) {
+  function soundOnEvent(category: GameEventCategory, text: string) {
     if (category === "night") sound.play("night_sting", { priority: true });
+    // Phase 6: one of the player's regiments breaks (wavering / rally toasts stay silent).
+    else if (category === "morale" && text.endsWith("routing!")) sound.play("night_sting", { priority: true });
     else if (category === "dawn") {
       sound.play("dawn_chime", { priority: true });
       sound.play("church_bell", { priority: true, delay: DAWN_BELL_DELAY_S });
@@ -5663,7 +5665,7 @@ async function main() {
     const icon = document.createElement("img");
     icon.className = "event-icon";
     // "raid" has no art of its own; it borrows the deserter icon (build/milestone the upgrade one, boss the death one).
-    const iconName: Partial<Record<GameEventCategory, string>> = { raid: "deserter", build: "upgrade", milestone: "upgrade", boss: "death" };
+    const iconName: Partial<Record<GameEventCategory, string>> = { raid: "deserter", build: "upgrade", milestone: "upgrade", boss: "death", morale: "deserter" };
     icon.src = `/sprites/icon-event-${iconName[category] ?? category}.png`;
     icon.alt = "";
     toast.append(icon, text);
@@ -5884,7 +5886,7 @@ async function main() {
     } else if (message.type === "event") {
       pushEventToast(message.category, message.text);
       if (message.category === "upgrade") fxOnUpgradeEvent();
-      soundOnEvent(message.category);
+      soundOnEvent(message.category, message.text);
     } else if (message.type === "explored") {
       markExplored(message.tiles);
     } else if (message.type === "buildingInfo") {
@@ -6494,14 +6496,18 @@ async function main() {
       const roleColor = reg.role ? ROLE_COLORS[reg.role] : 0xd8a24a;
       const count = `${alive}/${Math.max(reg.maxCount, alive)}`;
       if (alive > 0) {
+        // Phase 6: morale bar + state tag; a routing banner goes grey, a wavering one amber.
+        const moraleColor = reg.moraleState === "routing" ? 0x8a8a8a : reg.moraleState === "wavering" ? 0xffb02e : roleColor;
         banners.push({
           key: reg.id,
           label: reg.name,
           count,
           hpFrac,
-          color: selected > 0 ? SELECTION_COLOR : roleColor,
+          color: selected > 0 ? SELECTION_COLOR : moraleColor,
           x: x / alive,
           y: y / alive - BANNER_LIFT_PX,
+          ...(reg.morale !== undefined ? { morale: reg.morale / 100 } : {}),
+          ...(reg.moraleState === "routing" ? { tag: "Routing" } : reg.moraleState === "wavering" ? { tag: "Wavering" } : reg.outflanked ? { tag: "Outflanked!" } : {}),
         });
       }
       const iconKind: ColonistKind = first
@@ -6522,6 +6528,9 @@ async function main() {
         stance: stance ?? undefined,
         order: regimentOrderLabel(reg),
         flags: alive > 0 ? [holdFire && "HF", skirmish && "Sk", cycle && "Cyc", shape && shape !== "line" && SHAPE_LABEL[shape]].filter(Boolean).join(" ") || undefined : undefined,
+        morale: alive > 0 ? reg.morale : undefined,
+        moraleState: alive > 0 ? reg.moraleState : undefined,
+        outflanked: alive > 0 && reg.outflanked === true,
         selected: alive > 0 && selected === alive,
       });
     }
@@ -6566,6 +6575,9 @@ async function main() {
         color: e.routed ? 0x8a8a8a : BAND_COLORS[band],
         x: e.x,
         y: e.y - BANNER_LIFT_PX,
+        // Phase 6: the enemy's morale bar, and "Outflanked!" when a rear attack is draining it.
+        ...(e.morale !== undefined ? { morale: e.morale / 100 } : {}),
+        ...(e.outflanked && !e.routed ? { tag: "Outflanked!" } : {}),
       };
     });
     enemyBanners.sync(groups);

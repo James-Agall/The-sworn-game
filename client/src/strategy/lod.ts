@@ -120,6 +120,10 @@ export interface BannerGroup {
   color: number;
   x: number;
   y: number;
+  // Strategy mode phase 6: morale 0-1 (a second bar under the HP bar; omitted = none) and a state tag
+  // appended to the label ("Wavering", "Routing", "Outflanked!").
+  morale?: number;
+  tag?: string;
 }
 
 interface Banner {
@@ -128,6 +132,7 @@ interface Banner {
   text: Text;
   label: string;
   hpFrac: number;
+  morale: number;
   color: number;
   // Screen px width (grows with the label).
   w: number;
@@ -157,10 +162,10 @@ export class StrategyBanners {
         text.position.set(0, -BANNER_H - 6);
         root.addChild(bg, text);
         this.layer.addChild(root);
-        b = { root, bg, text, label: "", hpFrac: -1, color: -1, w: BANNER_MIN_W };
+        b = { root, bg, text, label: "", hpFrac: -1, morale: -2, color: -1, w: BANNER_MIN_W };
         this.banners.set(g.key, b);
       }
-      const label = `${g.label} ${g.count}`;
+      const label = `${g.label} ${g.count}${g.tag ? ` · ${g.tag}` : ""}`;
       let resized = false;
       if (label !== b.label) {
         b.label = label;
@@ -170,14 +175,23 @@ export class StrategyBanners {
         b.w = w;
       }
       const hp = Math.round(g.hpFrac * 40) / 40;
-      if (resized || hp !== b.hpFrac || g.color !== b.color) {
+      const morale = g.morale === undefined ? -1 : Math.round(g.morale * 40) / 40;
+      if (resized || hp !== b.hpFrac || morale !== b.morale || g.color !== b.color) {
         b.hpFrac = hp;
+        b.morale = morale;
         b.color = g.color;
         const W = b.w;
         b.bg.clear();
         b.bg.roundRect(-W / 2, -BANNER_H - 8, W, BANNER_H, 4).fill({ color: 0x1a0f06, alpha: 0.82 }).stroke({ width: 1.5, color: g.color });
-        b.bg.rect(-W / 2 + 5, -14, W - 10, 4).fill(0x550000);
-        b.bg.rect(-W / 2 + 5, -14, (W - 10) * hp, 4).fill(0x3bd16f);
+        const hpY = morale >= 0 ? -17 : -14;
+        b.bg.rect(-W / 2 + 5, hpY, W - 10, 4).fill(0x550000);
+        b.bg.rect(-W / 2 + 5, hpY, (W - 10) * hp, 4).fill(0x3bd16f);
+        if (morale >= 0) {
+          // Morale: blue when steady, amber wavering (< 40), red near the rout line (< 15).
+          const mc = morale >= 0.4 ? 0x5aa9ff : morale >= 0.15 ? 0xffb02e : 0xff3b2a;
+          b.bg.rect(-W / 2 + 5, -12, W - 10, 3).fill(0x1d2a3a);
+          b.bg.rect(-W / 2 + 5, -12, (W - 10) * morale, 3).fill(mc);
+        }
         b.bg.moveTo(-4, -8).lineTo(4, -8).lineTo(0, -2).closePath().fill(g.color);
       }
       b.root.position.set(g.x, g.y);

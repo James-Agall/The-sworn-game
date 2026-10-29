@@ -41,6 +41,10 @@ export interface RegimentCard {
   order?: string;
   // Strategy mode phase 4: settings shared by every member ("HF", "Sk", "Cyc", a non-line shape).
   flags?: string;
+  // Strategy mode phase 6: morale 0-100 (regiments that can break) and its state.
+  morale?: number;
+  moraleState?: "wavering" | "routing";
+  outflanked?: boolean;
   selected: boolean;
 }
 
@@ -113,13 +117,18 @@ export class RegimentCardBar {
         this.els.set(c.id, ce);
       }
       const hp = Math.round(c.hpFrac * 100);
-      const sig = [c.name, c.icon, c.count, c.maxCount, hp, c.roleLabel, c.slot ?? "", c.stance ?? "", c.order ?? "", c.flags ?? "", c.selected].join("|");
+      const sig = [c.name, c.icon, c.count, c.maxCount, hp, c.roleLabel, c.slot ?? "", c.stance ?? "", c.order ?? "", c.flags ?? "", c.morale ?? "", c.moraleState ?? "", c.outflanked ?? "", c.selected].join("|");
       if (sig === ce.sig) continue;
       ce.sig = sig;
       const el = ce.el;
       el.classList.toggle("selected", c.selected);
       el.classList.toggle("empty", c.count === 0);
-      el.title = `${c.name}: ${c.count}/${c.maxCount}, ${hp}% health. Click to select, double-click to centre`;
+      el.classList.toggle("wavering", c.moraleState === "wavering");
+      el.classList.toggle("routing", c.moraleState === "routing");
+      const moraleText = c.morale === undefined ? "" : `, morale ${c.morale}${c.moraleState === "routing" ? " (routing: no orders until it rallies)" : c.moraleState === "wavering" ? " (wavering: -15% damage)" : ""}`;
+      el.title = `${c.name}: ${c.count}/${c.maxCount}, ${hp}% health${moraleText}. Click to select, double-click to centre`;
+      const moraleColor = (c.morale ?? 100) >= 40 ? "#5aa9ff" : (c.morale ?? 100) >= 15 ? "#ffb02e" : "#ff3b2a";
+      const stateText = c.moraleState === "routing" ? "Routing" : c.moraleState === "wavering" ? "Wavering" : c.outflanked ? "Outflanked" : "";
       const hpColor = c.hpFrac > 0.6 ? "#3bd16f" : c.hpFrac > 0.3 ? "#e2b23a" : "#d0452f";
       el.innerHTML =
         (c.slot ? `<span class="reg-slot">${c.slot}</span>` : "") +
@@ -127,7 +136,9 @@ export class RegimentCardBar {
         (c.stance ? `<img class="reg-stance" src="/sprites/icon-stance-${c.stance}.png" alt="" />` : "") +
         `<span class="reg-name"></span>` +
         `<span class="reg-meta"><span class="reg-count">${c.count}/${c.maxCount}</span><span class="reg-role" style="color:${c.roleColor}">${c.roleLabel}</span>${c.order ? `<span class="reg-order">${c.order}</span>` : ""}${c.flags ? `<span class="reg-flags">${c.flags}</span>` : ""}</span>` +
-        `<span class="reg-hp"><span style="width:${hp}%;background:${hpColor}"></span></span>`;
+        `<span class="reg-hp"><span style="width:${hp}%;background:${hpColor}"></span></span>` +
+        (c.morale !== undefined ? `<span class="reg-morale"><span style="width:${c.morale}%;background:${moraleColor}"></span></span>` : "") +
+        (stateText ? `<span class="reg-mstate">${stateText}</span>` : "");
       // Names (hero names, later renames) go in as text, never as markup.
       el.querySelector(".reg-name")!.textContent = c.name;
     }

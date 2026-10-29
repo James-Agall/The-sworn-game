@@ -252,6 +252,13 @@ export interface ArmyRegimentSnapshot {
   // Strategy mode phase 5: summed damage of the alive members per mob attack interval (the figure the mob
   // tactics' Lanchester strength uses: power = sum hp x sum dmg). Omitted by older servers.
   dmg?: number;
+  // Strategy mode phase 6: morale 0-100, only for regiments that can break (3+ fighting units, no heroes /
+  // siege engines) or are routing; omitted otherwise (and by older servers).
+  morale?: number;
+  // Below the wavering line (-15% damage), or routed (fleeing to the Town Center, takes no orders).
+  moraleState?: "wavering" | "routing";
+  // An enemy is behind it, or a flank group is running at one of its members (costs morale).
+  outflanked?: boolean;
 }
 
 // Strategy mode phase 5 (additive): global sim time scale (one player's choice applies to everyone).
@@ -282,6 +289,10 @@ export interface EnemyRegimentSnapshot {
   partial?: boolean;
   routed?: boolean;
   sheltering?: boolean;
+  // Strategy mode phase 6: the regiment's morale (0-100; mob regiments only, not loose mobs) and whether it
+  // was outflanked within the last few seconds.
+  morale?: number;
+  outflanked?: boolean;
   // A raid group held until nightfall (holdRaidGroup).
   massing?: boolean;
   // Active flank group: from its centroid to its last waypoint (behind the line), and the target unit.
@@ -662,7 +673,9 @@ export type Difficulty = "easy" | "normal" | "hard";
 export type GameEventCategory =
   | "night" | "dawn" | "upgrade" | "death" | "ward" | "deserter" | "raid" | "build"
   // Phase 5: a goal completed / a boss or mini-boss sighted or slain.
-  | "milestone" | "boss";
+  | "milestone" | "boss"
+  // Strategy mode phase 6: a player regiment wavers, routs or rallies.
+  | "morale";
 
 // Per-tile art stage of a farm-type building (snapshot `farmStages`). Grain plots: Sown -> Sprouting ->
 // Growing -> Ripe (being cut) -> Harvested (briefly) / Fallow. Hemp: Sown/Growing/Ripe. Pasture:

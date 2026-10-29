@@ -4676,6 +4676,7 @@ function damageColonist(colonist: Colonist, amount: number) {
   if (colonist.hp <= 0) {
     gravestones.push({ x: colonist.x, y: colonist.y, variant: Math.random() < 0.5 ? 0 : 1 });
     broadcastEvent("death", colonistDeathText(colonist));
+    notePlayerCasualty(colonist);
     releaseResourceReservation(colonist);
     // Siege engines are rebuilt at their workshop, never respawned.
     if (!isWardPriest(colonist) && !isSiegeKind(colonist.kind)) queueRespawn(colonist);
@@ -4703,7 +4704,7 @@ function handleCommandMove(unitIds: string[], x: number, y: number, squad?: unkn
   if (!inBounds(tile.x, tile.y)) return;
   for (const id of unitIds) {
     const c = colonists.get(id);
-    if (!c || !isCommandable(c)) continue;
+    if (!c || !isCommandable(c) || isRoutedUnit(c.id)) continue;
     // A per-unit order takes the unit out of its regiment order group (strategy mode phase 3).
     leaveOrderGroup(c.id);
     rallyUnit(c, x, y, typeof squad === "string" && squad.length > 0 && squad.length <= 64 ? squad : null);
@@ -4735,7 +4736,7 @@ function handleCommandAttack(unitIds: string[], mobId: string) {
   if (!mobs.has(mobId) || !Array.isArray(unitIds)) return;
   for (const id of unitIds) {
     const c = colonists.get(id);
-    if (!c || !isGuardOrMilitiaKind(c.kind)) continue;
+    if (!c || !isGuardOrMilitiaKind(c.kind) || isRoutedUnit(c.id)) continue;
     leaveOrderGroup(c.id);
     c.targetMobId = mobId;
     c.targetHearthId = null;
@@ -4910,6 +4911,14 @@ function armyRegimentsNow(): ArmyRegimentSnapshot[] {
     }
     d.snap.hpFrac = maxHp > 0 ? Math.round((hp / maxHp) * 1000) / 1000 : 0;
     if (dmg > 0) d.snap.dmg = Math.round(dmg * 10) / 10;
+    // Phase 6: morale (updatePlayerMorale, 1 Hz).
+    const ms = playerMorale.get(d.snap.id);
+    if (ms?.active) {
+      d.snap.morale = Math.round(ms.morale);
+      if (ms.routed) d.snap.moraleState = "routing";
+      else if (ms.morale < PLAYER_MORALE_WAVER) d.snap.moraleState = "wavering";
+      if (ms.outflanked) d.snap.outflanked = true;
+    }
     const tf = d.snap.taskForce;
     d.snap.maxCount = tf !== undefined ? Math.max(taskForceMax.get(tf) ?? 0, d.members.length) : d.members.length + d.pending;
   }
@@ -4921,7 +4930,7 @@ function armyRegimentsNow(): ArmyRegimentSnapshot[] {
 // the client reads live HP from the colonists anyway).
 function armyRegimentsForSnapshot(): ArmyRegimentSnapshot[] | undefined {
   const regiments = armyRegimentsNow();
-  const signature = JSON.stringify(regiments.map((r) => [r.id, r.name, r.cls, r.maxCount, r.unitIds]));
+  const signature = JSON.stringify(regiments.map((r) => [r.id, r.name, r.cls, r.maxCount, r.unitIds, r.moraleState, r.outflanked]));
   armyRegimentTicks++;
   if (signature === armyRegimentSignature && armyRegimentTicks < ARMY_REGIMENT_REFRESH_TICKS) return undefined;
   armyRegimentSignature = signature;
@@ -5132,7 +5141,8 @@ function handleRegimentOrder(player: Player, msg: { regimentIds?: unknown; unitI
   if (++player.orderWindowCount > REGIMENT_ORDER_MAX_PER_S) return;
   const order = sanitizeArmyOrder(msg.order);
   if (!order) return;
-  const units = orderedUnits(msg.regimentIds, msg.unitIds);
+  // Phase 6: routed units take no orders until they rally.
+  const units = orderedUnits(msg.regimentIds, msg.unitIds).filter((c) => !isRoutedUnit(c.id));
   if (units.length === 0) return;
   const ids = new Set(units.map((c) => c.id));
   if ((order.kind === "attack" || order.kind === "charge") && !mobs.has(order.targetId!)) return;
@@ -5383,7 +5393,7 @@ function bombardStep(c: Colonist, at: { x: number; y: number }, stats: { damage:
     c.attackCooldownTicks--;
     return true;
   }
-  const damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id);
+  const damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id) * moraleDamageMult(c);
   catapultImpact(c.x, c.y, at.x, at.y, damage, "colony", "c:" + c.id);
   for (const h of hearths.values()) {
     if (h.destroyed) continue;
@@ -5767,7 +5777,9 @@ function updateGuardColonist(c: Colonist, dt: number) {
   }
   // Strategy mode phase 3: a retreating unit only fights what corners it (RETREAT_CORNERED_TILES); so
   // does a rider withdrawing between charges (phase 4).
-  const retreating = unitOrderKind(c) === "retreat" || chargeCycle.get(c.id)?.phase === "out";
+  // Phase 6: so does a routed unit (all the way to the Town Center and while it stands there).
+  const routed = isRoutedUnit(c.id);
+  const retreating = routed || unitOrderKind(c) === "retreat" || chargeCycle.get(c.id)?.phase === "out";
   if (retreating && target && Math.hypot(target.x - c.x, target.y - c.y) > RETREAT_CORNERED_TILES * TILE_SIZE + stats.range) {
     c.targetMobId = null;
     c.path = [];
@@ -5810,7 +5822,7 @@ function updateGuardColonist(c: Colonist, dt: number) {
       c.state = "idle";
       return;
     }
-    returnToRally(c, dt, (squadMarchSpeed.get(c.id) ?? stats.speed) * (retreating ? RETREAT_SPEED_FACTOR : 1));
+    returnToRally(c, dt, (squadMarchSpeed.get(c.id) ?? stats.speed) * (routed ? PLAYER_ROUT_SPEED_FACTOR : retreating ? RETREAT_SPEED_FACTOR : 1));
     return;
   }
 
@@ -5924,7 +5936,7 @@ function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown
     return;
   }
   // Armour & weapons: the weapon tier multiplies every blow (charge x2 etc. stack on top).
-  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id);
+  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id) * moraleDamageMult(c);
   if ((c.weaponTier ?? 0) > 0) equipEvent({ type: "hit", id: c.id, tier: c.weaponTier, amount: damage, detail: String(damage / weaponDamageMult(c)) });
   // Cavalry & siege: the catapult lobs a splashing boulder (never inside its minimum range), the ram
   // barely scratches units, a rider's charge doubles its first blow.
@@ -8192,8 +8204,11 @@ interface RegimentState {
   posts: Map<string, TileCoord>;
   flankIds: string[];
   ratio: number;
+  // Strategy mode phase 6: the last evaluation that found it outflanked (enemy banner "Outflanked!").
+  outflankedTick?: number;
 }
 const regiments = new Map<string, RegimentState>();
+const ENEMY_OUTFLANKED_SHOW_TICKS = 3 * TICK_RATE;
 // Site / regiment ids that own walls (the cover behaviour). Fort / horde sites register here, or set
 // SITE_KIND_WALLED for their kind; testHook "setRegimentWalled" too. Encampment fences do not count.
 const walledSites = new Set<string>();
@@ -8534,7 +8549,10 @@ function evaluateRegiment(reg: RegimentState, members: Mob[]) {
         (u) => ((u.x - cx) * (ex - cx) + (u.y - cy) * (ey - cy)) / dl < -TILE_SIZE &&
           members.some((m) => Math.hypot(m.x - u.x, m.y - u.y) <= 4 * TILE_SIZE)
       );
-      if (outflanked) delta -= reg.raid ? RAID_MORALE_OUTFLANKED_PER_SEC : MORALE_OUTFLANKED_PER_SEC;
+      if (outflanked) {
+        delta -= reg.raid ? RAID_MORALE_OUTFLANKED_PER_SEC : MORALE_OUTFLANKED_PER_SEC;
+        reg.outflankedTick = cycleTick;
+      }
       if (reg.ratio < TACTICS_OUTNUMBERED_RATIO && !reg.sheltering) {
         delta -= (reg.raid ? RAID_MORALE_OUTNUMBERED_PER_SEC : MORALE_OUTNUMBERED_PER_SEC) * (1 - reg.ratio / TACTICS_OUTNUMBERED_RATIO);
       } else if (reg.ratio > MORALE_WINNING_RATIO) delta += MORALE_RECOVER_PER_SEC;
@@ -8610,6 +8628,304 @@ function updateRegiments() {
   }
   for (const id of regiments.keys()) if (!seen.has(id)) regiments.delete(id);
   for (const [id, members] of byReg) evaluateRegiment(regiments.get(id)!, members);
+}
+
+// ---- Player regiment morale (strategy mode phase 6; docs PLAN-strategy-mode.md Phase 6). The mob model
+// above, tuned gentler: the player's derived regiments (armyRegimentsNow ids) of PLAYER_MORALE_MIN_UNITS+
+// fighting units (no heroes, no siege engines) lose morale in contact for casualties, being outnumbered
+// (the colony's whole force near them counts, towers included), being outflanked (an enemy behind them, or
+// a flank group running at a member) and losing their front rank, and get it back out of contact (faster
+// near a Town Center) or while clearly winning. Drains are scaled down by anchors: a hero, a player or a
+// knight near the centroid, a tower, walls and the Town Center. Below PLAYER_MORALE_WAVER the regiment is
+// Wavering (warning toast, PLAYER_MORALE_WAVERING_DAMAGE); below PLAYER_MORALE_ROUT it routs: its units
+// are put on a retreat to the nearest Town Center (phase 3 retreat: fights only when cornered) at rout
+// speed and refuse orders until it rallies (PLAYER_MORALE_RALLY after PLAYER_ROUT_QUIET_TICKS quiet and
+// PLAYER_ROUT_MIN_TICKS fleeing, or at the latest after PLAYER_ROUT_MAX_TICKS). Evaluated once a second.
+const PLAYER_MORALE_MIN_UNITS = 3;
+const PLAYER_MORALE_WAVER = 40;
+const PLAYER_MORALE_ROUT = 15;
+const PLAYER_MORALE_RALLY = 45;
+const PLAYER_MORALE_SCAN_TILES = 8;
+// One death costs this x its role weight / max(3, the regiment's peak size).
+const PLAYER_MORALE_CASUALTY = 35;
+const PLAYER_MORALE_OUTNUMBERED_PER_SEC = 8;
+const PLAYER_MORALE_OUTFLANKED_PER_SEC = 3;
+const PLAYER_MORALE_FRONT_LOST_PER_SEC = 4;
+const PLAYER_MORALE_RECOVER_PER_SEC = 4;
+const PLAYER_MORALE_WINNING_PER_SEC = 2;
+// The first seconds of a new engagement cost no morale beyond casualties.
+const PLAYER_MORALE_GRACE_TICKS = 5 * TICK_RATE;
+// Contact after this long quiet is a new engagement (grace again).
+const PLAYER_MORALE_NEW_FIGHT_TICKS = 10 * TICK_RATE;
+// Drain multipliers (stacking, floored at PLAYER_MORALE_RESIST_FLOOR).
+const PLAYER_MORALE_ANCHOR_TILES = 6;
+const PLAYER_MORALE_ANCHOR_RESIST = 0.6;
+const PLAYER_MORALE_TOWER_TILES = 8;
+const PLAYER_MORALE_TOWER_RESIST = 0.75;
+const PLAYER_MORALE_WALL_TILES = 4;
+const PLAYER_MORALE_WALL_RESIST = 0.85;
+const PLAYER_MORALE_TC_TILES = 12;
+const PLAYER_MORALE_TC_RESIST = 0.6;
+const PLAYER_MORALE_RESIST_FLOOR = 0.3;
+// Out of contact within PLAYER_MORALE_TC_TILES of a Town Center: recovery x this.
+const PLAYER_MORALE_TC_RECOVER_MULT = 2;
+const PLAYER_MORALE_WAVERING_DAMAGE = 0.85;
+const PLAYER_ROUT_SPEED_FACTOR = 1.25;
+const PLAYER_ROUT_MIN_TICKS = 6 * TICK_RATE;
+const PLAYER_ROUT_QUIET_TICKS = 4 * TICK_RATE;
+const PLAYER_ROUT_MAX_TICKS = 25 * TICK_RATE;
+const PLAYER_MORALE_TOAST_COOLDOWN_TICKS = 20 * TICK_RATE;
+
+interface PlayerMoraleState {
+  id: string;
+  name: string;
+  morale: number;
+  peak: number;
+  // Evaluated this second (big enough, or routing): the snapshot carries its morale.
+  active: boolean;
+  routed: boolean;
+  routedTick: number;
+  lastContactTick: number;
+  fightStartTick: number;
+  pendingLoss: number;
+  hadFront: boolean;
+  outflanked: boolean;
+  lastWarnTick: number;
+  // Own side / enemy Lanchester strength at the last evaluation in contact (test hook).
+  ratio: number;
+}
+const playerMorale = new Map<string, PlayerMoraleState>();
+// Unit id -> its regiment id as of the last evaluation (casualties, wavering damage).
+const moraleRegimentOfUnit = new Map<string, string>();
+// Routed unit -> the regiment it routed with, and whether it was in an order group before (on rally it
+// keeps standing in its retreat group; otherwise it leaves the group and goes back to the rally slot it
+// held before the rout: its post, or where a tactical-mode move left it).
+const routedUnits = new Map<string, { reg: string; hadGroup: boolean; rallyX: number; rallyY: number }>();
+
+function isRoutedUnit(id: string): boolean {
+  return routedUnits.has(id);
+}
+
+function clearPlayerMorale() {
+  playerMorale.clear();
+  moraleRegimentOfUnit.clear();
+  routedUnits.clear();
+}
+
+// Units whose morale counts: fighting soldiers, not heroes (solo, anchors) or siege engines.
+function moraleUnit(c: Colonist): boolean {
+  return c.hp > 0 && isGuardOrMilitiaKind(c.kind) && c.kind !== "hero" && !isSiegeKind(c.kind);
+}
+
+function notePlayerCasualty(c: Colonist) {
+  const reg = playerMorale.get(moraleRegimentOfUnit.get(c.id) ?? "");
+  if (!reg || !isGuardOrMilitiaKind(c.kind) || c.kind === "hero" || isSiegeKind(c.kind)) return;
+  const role = colonistRole(c) ?? "frontline";
+  reg.pendingLoss += (PLAYER_MORALE_CASUALTY * MORALE_ROLE_WEIGHT[role]) / Math.max(3, reg.peak);
+}
+
+function moraleDamageMult(c: Colonist): number {
+  const reg = playerMorale.get(moraleRegimentOfUnit.get(c.id) ?? "");
+  return reg && reg.active && !reg.routed && reg.morale < PLAYER_MORALE_WAVER ? PLAYER_MORALE_WAVERING_DAMAGE : 1;
+}
+
+// Awake hostile mobs (not routing / leaving) within radiusPx: summed hp and damage per attack interval.
+function mobForceNear(cx: number, cy: number, radiusPx: number): { hp: number; dmg: number; units: Mob[] } {
+  let hp = 0;
+  let dmg = 0;
+  const units: Mob[] = [];
+  for (const m of mobs.values()) {
+    if (Math.abs(m.x - cx) > radiusPx || Math.abs(m.y - cy) > radiusPx) continue;
+    if (m.hp <= 0 || m.passive || isDormantGuardian(m) || m.tactic === "rout" || m.tactic === "leave" || (m.isDeserter && !m.deserterActive)) continue;
+    if (Math.hypot(m.x - cx, m.y - cy) > radiusPx) continue;
+    hp += m.hp;
+    dmg += m.damage;
+    units.push(m);
+  }
+  return { hp, dmg, units };
+}
+
+// The product of the drain multipliers that apply at (cx, cy) for this regiment.
+function playerMoraleResist(members: Colonist[], cx: number, cy: number): number {
+  let k = 1;
+  const anchorPx = PLAYER_MORALE_ANCHOR_TILES * TILE_SIZE;
+  let anchored = members.some((c) => c.kind === "knight");
+  if (!anchored && !testPlayersIgnored) {
+    for (const p of players.values()) if (!p.dead && Math.hypot(p.x - cx, p.y - cy) <= anchorPx) anchored = true;
+  }
+  if (!anchored) {
+    for (const c of colonists.values()) {
+      if ((c.kind === "hero" || c.kind === "knight") && c.hp > 0 && Math.abs(c.x - cx) <= anchorPx && Math.abs(c.y - cy) <= anchorPx && Math.hypot(c.x - cx, c.y - cy) <= anchorPx) {
+        anchored = true;
+        break;
+      }
+    }
+  }
+  if (anchored) k *= PLAYER_MORALE_ANCHOR_RESIST;
+  const t = tileOfPixel(cx, cy);
+  if (livingTowersNear(t.x, t.y, PLAYER_MORALE_TOWER_TILES).length > 0) k *= PLAYER_MORALE_TOWER_RESIST;
+  let walls = false;
+  for (let dy = -PLAYER_MORALE_WALL_TILES; dy <= PLAYER_MORALE_WALL_TILES && !walls; dy++) {
+    for (let dx = -PLAYER_MORALE_WALL_TILES; dx <= PLAYER_MORALE_WALL_TILES; dx++) {
+      if (!inBounds(t.x + dx, t.y + dy)) continue;
+      const tt = tiles[tileIndex(t.x + dx, t.y + dy)] as TileType;
+      if (isWallTile(tt) || tt === TileType.Gate) {
+        walls = true;
+        break;
+      }
+    }
+  }
+  if (walls) k *= PLAYER_MORALE_WALL_RESIST;
+  if (nearTownCenter(cx, cy)) k *= PLAYER_MORALE_TC_RESIST;
+  return Math.max(PLAYER_MORALE_RESIST_FLOOR, k);
+}
+
+function nearTownCenter(x: number, y: number): boolean {
+  const tc = nearestTownCenter(x, y);
+  if (!tc) return false;
+  const p = tileToPixelCenter(tc);
+  return Math.hypot(p.x - x, p.y - y) <= PLAYER_MORALE_TC_TILES * TILE_SIZE;
+}
+
+function moraleToast(reg: PlayerMoraleState, text: string, force = false) {
+  if (!force && cycleTick - reg.lastWarnTick < PLAYER_MORALE_TOAST_COOLDOWN_TICKS) return;
+  reg.lastWarnTick = cycleTick;
+  broadcastEvent("morale", text);
+}
+
+// The regiment breaks: every member retreats to the nearest Town Center as one order group.
+function startPlayerRout(reg: PlayerMoraleState, members: Colonist[]) {
+  reg.routed = true;
+  reg.routedTick = cycleTick;
+  tacticsEvent(reg.id, "playerRout", `morale ${reg.morale.toFixed(0)}`);
+  moraleToast(reg, `${reg.name} is routing!`, true);
+  for (const c of members) {
+    routedUnits.set(c.id, { reg: reg.id, hadGroup: orderGroupOfUnit.has(c.id), rallyX: c.rallyX, rallyY: c.rallyY });
+    leaveOrderGroup(c.id);
+    dropGuardTarget(c);
+  }
+  const g: OrderGroup = {
+    id: `g${nextOrderGroupId++}`, unitIds: new Set(members.map((c) => c.id)), current: null, queue: [],
+    destX: 0, destY: 0, startedTick: cycleTick, engaged: false, clearSince: -1, followAt: null,
+  };
+  orderGroups.set(g.id, g);
+  for (const c of members) orderGroupOfUnit.set(c.id, g);
+  startArmyOrder(g, { kind: "retreat" });
+}
+
+function releaseRoutedUnit(id: string, r: { hadGroup: boolean; rallyX: number; rallyY: number }) {
+  routedUnits.delete(id);
+  if (r.hadGroup) return;
+  leaveOrderGroup(id);
+  const c = colonists.get(id);
+  if (c) rallyUnit(c, r.rallyX, r.rallyY, null);
+}
+
+function evaluatePlayerRegiment(reg: PlayerMoraleState, members: Colonist[]) {
+  const c0 = centroidOf(members);
+  let spread = 0;
+  for (const c of members) spread = Math.max(spread, Math.hypot(c.x - c0.x, c.y - c0.y));
+  spread = Math.min(TACTICS_SPREAD_CAP_TILES * TILE_SIZE, spread);
+  const radius = PLAYER_MORALE_SCAN_TILES * TILE_SIZE + spread;
+  const enemy = mobForceNear(c0.x, c0.y, radius);
+  const enemyPower = enemy.hp * enemy.dmg;
+  const contact = enemyPower > 0;
+  reg.outflanked = false;
+  let delta = 0;
+  if (contact) {
+    if (cycleTick - reg.lastContactTick > PLAYER_MORALE_NEW_FIGHT_TICKS) reg.fightStartTick = cycleTick;
+    reg.lastContactTick = cycleTick;
+    if (!reg.routed) {
+      const friend = playerForceNear(c0.x, c0.y, radius);
+      const ratio = (friend.hp * friend.dmg) / enemyPower;
+      reg.ratio = ratio;
+      if (members.some((c) => !isRearColonist(c))) reg.hadFront = true;
+      else if (reg.hadFront) delta -= PLAYER_MORALE_FRONT_LOST_PER_SEC;
+      // Outflanked: an enemy beyond the regiment's far side (from the enemy centroid) within 4 tiles of a
+      // member, or a flank group running at one of its members.
+      const ex = enemy.units.reduce((s, m) => s + m.x, 0) / enemy.units.length;
+      const ey = enemy.units.reduce((s, m) => s + m.y, 0) / enemy.units.length;
+      const dl = Math.hypot(ex - c0.x, ey - c0.y) || 1;
+      const ids = new Set(members.map((c) => c.id));
+      reg.outflanked = enemy.units.some(
+        (m) => (m.tactic === "flank" && !!m.flankTargetId && ids.has(m.flankTargetId)) ||
+          (((m.x - c0.x) * (ex - c0.x) + (m.y - c0.y) * (ey - c0.y)) / dl < -TILE_SIZE &&
+            members.some((c) => Math.abs(c.x - m.x) <= 4 * TILE_SIZE && Math.abs(c.y - m.y) <= 4 * TILE_SIZE && Math.hypot(c.x - m.x, c.y - m.y) <= 4 * TILE_SIZE))
+      );
+      if (reg.outflanked) delta -= PLAYER_MORALE_OUTFLANKED_PER_SEC;
+      if (ratio < TACTICS_OUTNUMBERED_RATIO) delta -= PLAYER_MORALE_OUTNUMBERED_PER_SEC * (1 - ratio / TACTICS_OUTNUMBERED_RATIO);
+      else if (ratio > MORALE_WINNING_RATIO) delta += PLAYER_MORALE_WINNING_PER_SEC;
+      if (cycleTick - reg.fightStartTick < PLAYER_MORALE_GRACE_TICKS) delta = Math.max(0, delta);
+      delta -= reg.pendingLoss;
+      if (delta < 0) delta *= playerMoraleResist(members, c0.x, c0.y);
+    }
+  } else {
+    delta += PLAYER_MORALE_RECOVER_PER_SEC * (nearTownCenter(c0.x, c0.y) ? PLAYER_MORALE_TC_RECOVER_MULT : 1);
+  }
+  reg.pendingLoss = 0;
+  if (!testMoraleFrozen) reg.morale = Math.max(0, Math.min(MORALE_MAX, reg.morale + delta));
+
+  if (!reg.routed) {
+    if (reg.morale < PLAYER_MORALE_ROUT && contact && members.length >= PLAYER_MORALE_MIN_UNITS) {
+      startPlayerRout(reg, members);
+    } else if (reg.morale < PLAYER_MORALE_WAVER && delta < 0) {
+      moraleToast(reg, `${reg.name} is wavering`);
+    }
+    return;
+  }
+  const fled = cycleTick - reg.routedTick;
+  const quiet = cycleTick - reg.lastContactTick >= PLAYER_ROUT_QUIET_TICKS;
+  if ((reg.morale >= PLAYER_MORALE_RALLY && quiet && fled >= PLAYER_ROUT_MIN_TICKS) || fled >= PLAYER_ROUT_MAX_TICKS) {
+    reg.routed = false;
+    reg.morale = Math.max(reg.morale, PLAYER_MORALE_RALLY);
+    reg.hadFront = false;
+    tacticsEvent(reg.id, "playerRally", `morale ${reg.morale.toFixed(0)}`);
+    moraleToast(reg, `${reg.name} rallies`, true);
+    for (const [id, r] of routedUnits) if (r.reg === reg.id) releaseRoutedUnit(id, r);
+  }
+}
+
+function updatePlayerMorale() {
+  if (cycleTick % TACTICS_EVAL_TICKS !== 0) return;
+  moraleRegimentOfUnit.clear();
+  const seen = new Set<string>();
+  for (const r of armyRegimentsNow()) {
+    if (r.cls === "hero" || r.cls === "rams" || r.cls === "catapults") continue;
+    const members: Colonist[] = [];
+    for (const id of r.unitIds) {
+      const c = colonists.get(id);
+      if (c && moraleUnit(c)) members.push(c);
+    }
+    if (members.length === 0) continue;
+    seen.add(r.id);
+    let reg = playerMorale.get(r.id);
+    if (!reg) {
+      reg = {
+        id: r.id, name: r.name, morale: MORALE_MAX, peak: 0, active: false, routed: false, routedTick: -Infinity,
+        lastContactTick: -Infinity, fightStartTick: -Infinity, pendingLoss: 0, hadFront: false, outflanked: false, lastWarnTick: -Infinity, ratio: Infinity,
+      };
+      playerMorale.set(r.id, reg);
+    }
+    reg.name = r.name;
+    for (const c of members) moraleRegimentOfUnit.set(c.id, r.id);
+    reg.active = members.length >= PLAYER_MORALE_MIN_UNITS || reg.routed;
+    if (!reg.active) {
+      // Too small to break: morale only recovers.
+      reg.pendingLoss = 0;
+      reg.outflanked = false;
+      reg.morale = Math.min(MORALE_MAX, reg.morale + PLAYER_MORALE_RECOVER_PER_SEC);
+      continue;
+    }
+    reg.peak = Math.max(reg.peak, members.length);
+    evaluatePlayerRegiment(reg, members);
+  }
+  for (const id of playerMorale.keys()) if (!seen.has(id)) playerMorale.delete(id);
+  // Routed units whose regiment is gone / rallied (or who are dead) are released.
+  for (const [id, r] of routedUnits) {
+    const c = colonists.get(id);
+    if (!c) routedUnits.delete(id);
+    else if (!playerMorale.get(r.reg)?.routed) releaseRoutedUnit(id, r);
+  }
 }
 
 // Walks `mob` to (gx, gy) along a path (repathed every MOB_REPATH_TICKS); false when no route exists.
@@ -9312,7 +9628,7 @@ function handleCommandAttackHearth(unitIds: string[], tx: number, ty: number) {
   if (!h) return;
   for (const id of unitIds) {
     const c = colonists.get(id);
-    if (!c || !isGuardOrMilitiaKind(c.kind)) continue;
+    if (!c || !isGuardOrMilitiaKind(c.kind) || isRoutedUnit(c.id)) continue;
     if (!hearthApproachTile(h, c.x, c.y)) continue;
     leaveOrderGroup(c.id);
     sendAgainstHearth(c, h);
@@ -9370,7 +9686,7 @@ function hearthStep(c: Colonist, stats: { damage: number; cooldown: number; mele
       c.attackCooldownTicks--;
       return true;
     }
-    let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id);
+    let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id) * moraleDamageMult(c);
     if (c.kind === "batteringRam") damage *= SIEGE_BUILDING_MULT;
     else if (c.kind === "catapult") damage *= CATAPULT_BUILDING_MULT;
     c.attackCooldownTicks = stats.cooldown;
@@ -10186,6 +10502,20 @@ function handleTestHook(player: Player, msg: Record<string, unknown>) {
         .filter((m) => regimentKey(m))
         .map((m) => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, hp: m.hp, regiment: regimentKey(m), groupId: m.groupId, tactic: m.tactic ?? null, targetType: m.targetType, targetId: m.targetId })),
     });
+  } else if (msg.op === "playerMoraleState") {
+    // Phase 6: player regiment morale; setMorale {id: value} forces a regiment's morale first.
+    if (msg.setMorale && typeof msg.setMorale === "object") {
+      for (const [id, v] of Object.entries(msg.setMorale as Record<string, unknown>)) {
+        const reg = playerMorale.get(id);
+        if (reg && typeof v === "number") reg.morale = Math.max(0, Math.min(MORALE_MAX, v));
+      }
+    }
+    reply({
+      cycleTick,
+      regiments: Array.from(playerMorale.values()).map((r) => ({ id: r.id, name: r.name, morale: r.morale, active: r.active, routed: r.routed, outflanked: r.outflanked, peak: r.peak, ratio: Number.isFinite(r.ratio) ? r.ratio : null, lastContactTick: Number.isFinite(r.lastContactTick) ? r.lastContactTick : null })),
+      routedUnits: Array.from(routedUnits.keys()),
+      unitRegiment: Object.fromEntries(moraleRegimentOfUnit),
+    });
   } else if (msg.op === "setColonistHp" && typeof msg.id === "string" && typeof msg.hp === "number") {
     const c = colonists.get(msg.id);
     if (c) c.hp = Math.max(1, Math.min(c.maxHp, msg.hp));
@@ -10537,6 +10867,7 @@ function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   taskForces.clear();
   taskForceMax.clear();
   clearOrderGroups();
+  clearPlayerMorale();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
   gravestones.length = 0;
@@ -10795,6 +11126,7 @@ function applyWorld(s: WorldState) {
   refill(taskForces, s.taskForces);
   taskForceMax.clear();
   clearOrderGroups();
+  clearPlayerMorale();
   refill(reservedResourceTiles, s.reservedResourceTiles);
   refill(wardStoneLastTended, s.wardStoneLastTended);
   wardStonesActiveLastTick.clear();
@@ -14338,6 +14670,7 @@ function stepSimulation() {
     if (!collidesAt(player.x, nextY)) player.y = nextY;
   }
 
+  updatePlayerMorale();
   updateOrderGroups();
   updateSquadMarch();
   for (const colonist of colonists.values()) {
@@ -14473,6 +14806,9 @@ function enemyRegimentsNow(): EnemyRegimentSnapshot[] {
     const reg = regiments.get(id);
     if (reg?.routed) snap.routed = true;
     if (reg?.sheltering) snap.sheltering = true;
+    // Phase 6: morale bar and "Outflanked!" on the enemy banner.
+    if (reg) snap.morale = Math.round(reg.morale);
+    if (reg?.outflankedTick !== undefined && cycleTick - reg.outflankedTick <= ENEMY_OUTFLANKED_SHOW_TICKS) snap.outflanked = true;
     const flankers = reg ? reg.flankIds.map((fid) => mobs.get(fid)).filter((m): m is Mob => !!m && m.tactic === "flank") : [];
     const end = flankers[0]?.flankWaypoints?.[flankers[0].flankWaypoints.length - 1];
     // Only a flank whose runners are in sight (the arc itself is the warning).

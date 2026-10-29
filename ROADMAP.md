@@ -1675,3 +1675,60 @@ line in ~7 s once outnumbered, one death cost 8-17 morale in a 6-man group, and 
    toast after the first one or two deaths.
 3. Keep cutting them down: once only a quarter or so are left (or their boss dies) the toast appears and the
    survivors run for the map edge.
+
+## Strategy mode phase 6 — landed 2026-10-29
+
+Plan: `~/docs/colony2d/PLAN-strategy-mode.md` §6 Phase 6 (player morale). Morale for the player's own regiments,
+the mob model (`evaluateRegiment`) re-tuned gentler as `PLAYER_MORALE_*` constants; supersedes "health only until
+Phase 6" (phase 2 deviations above).
+
+- **Who has morale**: the derived regiments (`tf<N>` / `a:<settlement>:<class>`) with 3+ fighting units (no
+  heroes, no rams / catapults: those never rout). A lone rider, workers, heroes and regiments of 1-2 soldiers never
+  rout; their morale only recovers and is not shown. State is keyed on the regiment id (a regrouped task force
+  starts at 100), evaluated once a second (`updatePlayerMorale`, before `updateOrderGroups`).
+- **Drains (in contact, enemies within 8 tiles + spread)**: casualties 35 x role weight / max(3, peak); outnumbered
+  (own side = the colony's whole force near it incl. towers and players, vs awake non-routing mobs; Lanchester
+  ratio < 0.6) up to 8/s; outflanked (an enemy beyond its far side within 4 tiles of a member, or a flank group
+  running at a member) 3/s; front rank lost 4/s. The first 5 s of a new fight drain nothing but casualties.
+  Winning (ratio > 1.5) +2/s; out of contact +4/s (x2 within 12 tiles of a Town Center).
+- **Anchors / bonuses** (drain multipliers, stacking, floor 0.3): a hero, a player or a knight within 6 tiles (a
+  knight regiment always) x0.6; a standing tower within 8 tiles x0.75; a wall / gate within 4 tiles x0.85; a Town
+  Center within 12 tiles x0.6.
+- **States**: < 40 **Wavering** (amber banner / card outline, "Infantry I is wavering" toast, 20 s cooldown, -15%
+  damage); < 15 in contact **Routing**: "Infantry I is routing!" toast + the night sting sound, the units become
+  one order group on a phase 3 retreat to the nearest Town Center (fight only when cornered) at x1.25 speed, and
+  `regimentOrder` / `commandMove` / `commandAttack` / `commandAttackHearth` ignore them. **Rally**: morale >= 45
+  after 4 s out of contact and 6 s fleeing, or at the latest after 25 s; "Infantry I rallies" toast, morale set to
+  at least 45. A regiment that had an order group keeps standing at the Town Center; one that had none (tactical
+  garrison) walks back to the rally slot it held before the rout.
+- **Snapshot (additive)**: `ArmyRegimentSnapshot.morale? / moraleState? ("wavering" | "routing") / outflanked?`
+  (sent at once on a state change, else at the 2 Hz refresh); `EnemyRegimentSnapshot.morale? / outflanked?`
+  (outflanked = the mob regiment's last 3 s); event category `"morale"`. Test hook `playerMoraleState`
+  (optional `setMorale {regimentId: value}`).
+- **Client**: banners get a morale bar under the HP bar (blue / amber < 40 / red < 15) and a "· Wavering" /
+  "· Routing" / "· Outflanked!" tag (routing banner grey, wavering amber); cards a morale bar, a state label, an
+  amber outline when wavering and a pulsing red one when routing, the tooltip explains it. Enemy banners show
+  their morale bar and "Outflanked!" while a rear attack drains them. Toast colour for `morale`. No new hotkeys.
+- **Test**: `server/player-morale-test.mjs` (own server, port 20651, world 160): a 5-militia regiment shows
+  morale 100, two knights show none; forced to 12 next to 6 orcs it routs (state, toast), ignores a move order
+  and flees toward the Town Center; the knights never rout; with the field cleared it rallies (toast) and takes
+  orders again. 10/10 (4 runs). No other suites re-run (minimal-testing instruction).
+- **Deviations from the plan**: rout at 15 (plan: "no rout below 25, Wavering = -20% damage, holds formation"):
+  the user asked for routs, so they exist but with a low line, grace, anchors and a hard 25 s cap; wavering is
+  -15%. Morale lives on the derived regiment ids (no stored ArmyRegiment). The rear-charge x1.25 bonus stays off.
+- **Caveats**: the outnumbered ratio counts every colony unit near the regiment, so a routed neighbour still adds
+  strength; moving a routed unit into a task force does not rally it (it stays routed until its old regiment
+  rallies or vanishes); a regiment of 3 losing one member mid-rout keeps routing until it rallies.
+
+**Manual browser check (strategy mode phase 6)**
+1. Tab into strategy mode: every regiment of 3+ soldiers shows a blue morale bar under its HP bar on the banner
+   and the card; heroes, siege engines and 1-2 unit groups show none.
+2. Send a small regiment (e.g. 4 militia) far from the Town Center into a much bigger raid: after a few seconds
+   the bar drops, turns amber, the banner reads "· Wavering" and a toast says so.
+3. Keep it there: it turns grey "· Routing", the card pulses red, a toast + the night sting play, and the units
+   run to the Town Center; right-clicks / orders on them do nothing until "... rallies" (at most ~25 s).
+4. The same fight next to the Town Center / a tower / with a hero or knights nearby: morale drops much more
+   slowly (usually no rout).
+5. Tactical mode: a garrison militia camp that routs walks back to its post after rallying; the rider alone, a
+   pair of knights and workers never rout.
+6. Hit a mob regiment from behind with cavalry: its enemy banner shows a morale bar and "· Outflanked!".
