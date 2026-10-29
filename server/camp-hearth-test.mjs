@@ -1,8 +1,9 @@
-// Scripted test: soldiers count toward the settlement cap, Town Center spacing, camp hearths.
+// Scripted test: knight posts fill the settlement's garrison ceiling, Town Center spacing, camp hearths.
 // Self-contained: boots its OWN 160x160 server with COLONY_TEST_HOOKS=1 on PORT (default 21610) and a
 // temp COLONY_SAVE_DIR, kills its process group after. Run from server/: `node camp-hearth-test.mjs`.
-//   P knight posts fill settlement 1 (each knight +1 population) until one is refused with
-//     "Settlement 1 full"; a knight-post upgrade (+2 knights) is refused too.
+//   P knight posts fill settlement 1's garrison (each post +1 knight; soldiers no longer use population, see
+//     ROADMAP "Pop cap rework") until one is refused with "Settlement 1 garrison full"; a knight-post upgrade
+//     (+2 base knights) is refused too.
 //   S a second Town Center inside the spacing is refused (message names the distance), outside accepted.
 //   H a knight ordered against a bandit camp's hearth damages it and wakes the guardians; destroying it
 //     routs every guardian ("leave"), burns the campfire to rubble, pays loot, toasts, counts
@@ -117,7 +118,7 @@ try {
   const tc1 = { x: snap.townCenters[0].x, y: snap.townCenters[0].y };
   const s1 = () => ({ pop: c.snap.townCenters[0].population, cap: c.snap.townCenters[0].populationCap });
 
-  // ---- P: knight posts fill settlement 1 ----
+  // ---- P: knight posts fill settlement 1's garrison ----
   const knights = () => c.snap.colonists.filter((u) => u.kind === "knight").length;
   console.log("settlement 1 at start", JSON.stringify(s1()));
   let refused = null;
@@ -138,15 +139,17 @@ try {
     if (c.tileAt(spot.x, spot.y) === T.KnightPost) {
       placed++;
       posts.push(spot);
-      if (s1().pop !== before.pop + 1 || knights() !== before.k + 1) deltasOk = false;
+      if (s1().pop !== before.pop || knights() !== before.k + 1) deltasOk = false;
     } else {
       const text = c.events.slice(before.ev).find((t) => /^Settlement/.test(t));
       if (text) refused = text;
     }
   }
-  result(placed > 0 && deltasOk, `${placed} knight posts placed, each knight +1 settlement population (now ${JSON.stringify(s1())})`);
-  result(!!refused && /^Settlement 1 full \(\d+\/\d+\)/.test(refused), `knight post refused when full: "${refused}"`);
-  result(s1().pop === s1().cap, `settlement 1 exactly at its cap (${s1().pop}/${s1().cap})`);
+  const tc = () => c.snap.townCenters[0];
+  result(placed > 0 && deltasOk, `${placed} knight posts placed, each +1 knight and settlement population unchanged (now ${JSON.stringify(s1())})`);
+  result(!!refused && /^Settlement 1 garrison full \(\d+\/\d+ soldiers\)/.test(refused), `knight post refused when the garrison is full: "${refused}"`);
+  result(tc().garrisonBase === tc().garrisonCap && placed === tc().garrisonCap,
+    `settlement 1 garrison exactly at its ceiling (${tc().garrisonBase}/${tc().garrisonCap}, ${placed} posts)`);
   // Upgrade refused (Hall of the Sworn adds 2 knights).
   {
     const p = posts[0];

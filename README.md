@@ -21,6 +21,24 @@ The HUD in the top-left shows the shared colony stockpiles (wood, food, iron, ro
 
 The world renders as a checkered grass floor with a distinct procedurally drawn icon for each structure/resource (trees, ore, rock, walls, posts, farm plots, houses at each size, barns, churches, castles at each level, archer towers, the Town Center) instead of flat color tiles.
 
+## Tests
+
+```bash
+npm test                    # every server/*-test.mjs and client/*-test.mjs, one at a time
+npm test -- town hero       # only files whose name contains "town" or "hero"
+npm test -- --timeout 300   # per-test timeout in seconds (default 900; a few long suites have more)
+npm test -- --list          # print the files a filter selects
+```
+
+`scripts/run-tests.mjs` prints PASS/FAIL per file (with the first FAIL lines of a failing one) and a summary, and exits
+non-zero if anything failed. Each test gets a private block of 10 ports from 31000 up (checked free first; never 8080, so
+a running dev server is untouched). Tests that boot their own server get `PORT` / `PORT_A` / `PORT_B` / `PORT_C` in that
+block; for the rest the runner boots a fresh server with `COLONY_TEST_HOOKS=1`, a scratch `COLONY_SAVE_DIR` and the world
+size / `COLONY_INSTANT_BUILD` the test needs (the `SERVER_ENV` table in the script). After each file every process it
+started is killed (process groups, then anything still listening on its ports). Full logs:
+`/tmp/colony-test-logs/<file>.log`. The whole suite takes about an hour (several suites play through real-time days);
+known failures are listed in ROADMAP.md "Known failing tests".
+
 ## Colony rules
 
 - **Starting stockpile:** the colony starts with 80 wood, 40 grain, 60 iron, and 60 rock (raised for the bigger map, since the first resource nodes are a longer walk away), so several starter buildings can go up immediately without waiting on gathering.

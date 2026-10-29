@@ -221,7 +221,9 @@ if (horde) {
   result(added.every((id) => horde.memberIds.includes(id)) && horde.memberIds.length * 2 >= raidSize(12),
     `deserters are the horde's core (horde ${horde.memberIds.length}/${raidSize(12)})`);
 } else info("horde already aggro'd before inspection; horde-core check skipped this run");
-result(st.groups.every((g) => g.faction === "banditBand") && fresh.every((m) => m.kind.startsWith("bandit")),
+// Siege engines (batteringRam / catapult) are the bandit faction's non-core extras since Cavalry & siege.
+const SIEGE = new Set(["batteringRam", "catapult"]);
+result(st.groups.every((g) => g.faction === "banditBand") && fresh.every((m) => m.kind.startsWith("bandit") || SIEGE.has(m.kind)),
   `deserter night: every group is Bandit band, fresh kinds ${[...new Set(fresh.map((m) => m.kind))].join(",")}`);
 const freshHeld = fresh.filter((m) => m.passive);
 result(freshHeld.every(onEdge) && deserters.every((m) => !onEdge(m)), "fresh bandits on the edge, deserters stay where they are");

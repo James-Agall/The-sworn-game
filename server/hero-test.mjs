@@ -23,7 +23,7 @@ const result = (ok, msg) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TILE = 32;
-const T = { Empty: 0, Keep: 73 };
+const T = { Empty: 0, HunterHut: 50, Keep: 73 };
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_modules/.bin/tsx")].find((p) => existsSync(p));
 const saveDir = mkdtempSync(path.join(tmpdir(), "herotest-"));
@@ -54,6 +54,7 @@ function connect() {
     else if (m.type === "testHookResult") c.hook.set(m.op, m);
     else if (m.type === "saveResult") c.saves.push(m);
     else if (m.type === "buildingInfo") c.info = m.info;
+    else if (m.type === "tileUpdate" && c.welcome) c.welcome.tiles[m.tileY * c.welcome.worldTilesX + m.tileX] = m.tile;
   });
   c.send = (m) => c.ws.send(JSON.stringify(m));
   c.hookCall = async (op, args = {}) => {
@@ -131,17 +132,31 @@ try {
       if (Math.hypot(x - tc.x, y - tc.y) < 8 || tileAt(x, y) !== T.Empty) continue;
       spots.push({ x, y });
     }
+  // Fillers are Hunter's Huts (1 civilian hunter each): soldiers no longer use settlement population
+  // (ROADMAP "Pop cap rework"). Spots 2 tiles apart so no hut touches another.
   const fillers = [];
-  for (const s of spots.slice(0, free - 1)) {
-    const r = await c.hookCall("spawnSoldier", { kind: "militia", x: s.x * TILE + 16, y: s.y * TILE + 16, stance: "defensive" });
-    if (r.id) fillers.push(r.id);
+  for (const s of spots) {
+    if (fillers.length >= free - 1) break;
+    if (s.x % 2 || s.y % 2) continue;
+    await c.hookCall("teleportPlayer", { x: (s.x + 1) * TILE + 16, y: s.y * TILE + 16 });
+    await c.freshSnap();
+    c.send({ type: "setTile", tileX: s.x, tileY: s.y, tile: T.HunterHut });
+    await c.freshSnap();
+    await c.freshSnap();
+    if (tileAt(s.x, s.y) === T.HunterHut) fillers.push(s);
   }
   snap = await c.freshSnap();
   console.log(`settlement 1: ${pop().population}/${pop().populationCap} (Keep +${pop().populationKeepBonus}), ${fillers.length} fillers`);
   let ev = await recruit("champion");
   let st = await hs();
   result(st.heroes.length === 0 && ev.some((t) => /Can't recruit: Settlement 1 full/.test(t)), `full settlement refuses a recruit: "${ev.find((t) => /recruit/.test(t))}"`);
-  await c.hookCall("killColonists", { kind: "militia" });
+  // Demolish the filler huts (killing the hunters would only queue their respawns).
+  for (const f of fillers) {
+    await c.hookCall("teleportPlayer", { x: (f.x + 1) * TILE + 16, y: f.y * TILE + 16 });
+    await c.freshSnap();
+    c.send({ type: "setTile", tileX: f.x, tileY: f.y, tile: T.Empty });
+    await c.freshSnap();
+  }
   await c.hookCall("fastForward", { ticks: 2 });
   snap = await c.freshSnap();
   const pop0 = pop().population;

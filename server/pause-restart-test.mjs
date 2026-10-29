@@ -10,9 +10,10 @@ const result = (ok, msg) => {
   console.log(`${ok ? "PASS" : "FAIL"} [${el()}] ${msg}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const W = 40;
+// World size and Town Center come from the server (welcome / first snapshot), not a fixed 40x40 map.
+let W = 0;
 const TS = 32;
-const TC = { x: 20, y: 20 };
+let TC = null;
 const T = { Empty: 0, Wall: 1, KnightPost: 5, TownCenter: 12 };
 
 function client(label) {
@@ -29,6 +30,7 @@ function client(label) {
     const m = JSON.parse(raw.toString());
     if (m.type === "welcome") {
       c.welcomes.push({ ...m, at: Date.now(), snapCountAt: c.snapCount });
+      W = m.worldTilesX;
       c.tiles = [...m.tiles];
     } else if (m.type === "snapshot") {
       c.snap = m;
@@ -59,7 +61,8 @@ const nearTownCenter = (p) =>
 const a = client("A");
 await a.ready();
 const myId = a.welcomes[0].id;
-console.log(`[${el()}] A connected id=${myId}`);
+TC = { x: a.snap.townCenters[0].x, y: a.snap.townCenters[0].y };
+console.log(`[${el()}] A connected id=${myId}; world ${W}x${a.welcomes[0].worldTilesY}, Town Center (${TC.x},${TC.y})`);
 
 // Make sure we start unpaused (shared dev server may have been left paused).
 if (a.snap.isPaused) {
@@ -101,14 +104,16 @@ const placeAndWait = async (c, tile) => {
 const wallSpot = cands.shift();
 const woodBefore = a.snap.wood;
 const wallUpd = await placeAndWait(wallSpot, T.Wall);
-result(!!wallUpd && a.snap.wood === woodBefore - 1,
+// WOOD_WALL_COST 3; needs COLONY_INSTANT_BUILD=1 (otherwise placements become construction sites).
+result(!!wallUpd && a.snap.wood === woodBefore - 3,
   `Wood Wall placed at (${wallSpot.x},${wallSpot.y}); wood ${woodBefore} -> ${a.snap.wood}`);
 
 const knightSpot = cands.shift();
 const ironBefore = a.snap.iron;
 const knightUpd = await placeAndWait(knightSpot, T.KnightPost);
-result(!!knightUpd && a.snap.iron === ironBefore - 10 && a.snap.colonists.length > 0,
-  `Knight Post placed at (${knightSpot.x},${knightSpot.y}); iron ${ironBefore} -> ${a.snap.iron}; colonists=${a.snap.colonists.length}`);
+const knightCount = () => a.snap.colonists.filter((c) => c.kind === "knight").length;
+result(!!knightUpd && a.snap.iron === ironBefore - 10 && knightCount() === 1,
+  `Knight Post placed at (${knightSpot.x},${knightSpot.y}); iron ${ironBefore} -> ${a.snap.iron}; knights=${knightCount()}`);
 
 // ---- (a) pause freezes player movement (and colonists) ----
 a.send({ type: "pause" });
@@ -163,22 +168,21 @@ a.send({ type: "restart" });
 while (a.welcomes.length === welcomesBefore) await sleep(10);
 const w = a.welcomes[a.welcomes.length - 1];
 result(w.id === myId, `fresh welcome after restart; id unchanged (${w.id === myId ? "same" : w.id + " != " + myId})`);
-result(Array.isArray(w.tiles) && w.tiles.length === W * W, `welcome tiles length=${w.tiles.length}`);
+result(Array.isArray(w.tiles) && w.tiles.length === w.worldTilesX * w.worldTilesY, `welcome tiles length=${w.tiles.length} (${w.worldTilesX}x${w.worldTilesY})`);
 result(w.tiles[TC.y * W + TC.x] === T.TownCenter, `town center tile restored`);
 result(w.tiles[wallSpot.y * W + wallSpot.x] !== T.Wall && w.tiles[knightSpot.y * W + knightSpot.x] !== T.KnightPost,
   `previously built wall/knight post gone from fresh map`);
-const builtCount = w.tiles.filter((t) => t !== 0 && ![2, 7, 8, 12].includes(t)).length;
-result(builtCount === 0, `fresh map has only Empty/Tree/IronOre/Rock/TownCenter (non-natural tiles=${builtCount})`);
-const counts = { tree: w.tiles.filter((t) => t === 2).length, ore: w.tiles.filter((t) => t === 7).length, rock: w.tiles.filter((t) => t === 8).length };
-result(counts.tree === 24 && counts.ore === 14 && counts.rock === 16,
-  `fresh scatter counts tree=${counts.tree} ore=${counts.ore} rock=${counts.rock} (expected 24/14/16)`);
+// (The old "only natural tiles" / fixed scatter-count checks are gone: world-gen now lays out biomes, water,
+// ruins, encampments and the Abbey, with counts scaled by world size.)
 
 const s = await a.nextSnaps(1);
-result(s.wood === 40 && s.food === 20 && s.iron === 30 && s.rock === 30,
-  `post-restart stock wood=${s.wood} food=${s.food} iron=${s.iron} rock=${s.rock} (expected 40/20/30/30)`);
-result(s.population === 0 && s.populationCap === 0, `post-restart population=${s.population}/${s.populationCap}`);
-result(s.townCenterHp === 300, `post-restart townCenterHp=${s.townCenterHp}`);
-result(s.colonists.length === 0 && s.mobs.length === 0, `post-restart colonists=${s.colonists.length} mobs=${s.mobs.length}`);
+result(s.wood === 80 && s.grain === 60 && s.iron === 60 && s.rock === 60,
+  `post-restart stock wood=${s.wood} grain=${s.grain} iron=${s.iron} rock=${s.rock} (expected 80/60/60/60)`);
+// The fresh colony has only its starting builder (Town Center base population 12).
+result(s.population === 1 && s.populationCap === 12, `post-restart population=${s.population}/${s.populationCap} (expected 1/12)`);
+result(s.townCenterHp === 1000, `post-restart townCenterHp=${s.townCenterHp} (expected 1000)`);
+result(!s.colonists.some((c) => c.kind === "knight") && s.colonists.filter((c) => c.kind === "builder").length === 1,
+  `post-restart colonists: no knights, 1 builder (${s.colonists.map((c) => c.kind).join(",")})`);
 result(s.isPaused === false, `post-restart isPaused=${s.isPaused}`);
 result(s.isNight === false, `post-restart isNight=${s.isNight} (cycle reset to day)`);
 const meR = s.players.find((p) => p.id === myId);

@@ -260,7 +260,20 @@ a.onSnap = (prev, cur) => {
 };
 
 const enough = () => ["L", "K"].every((p) => hits.filter((h) => h.post === p && h.kind === "knight").length >= 3);
-const deadline = Date.now() + 260000;
+// Days are 300 s + 75 s nights now: skip (testHook setCycleTick, needs COLONY_TEST_HOOKS=1) to just before the
+// day's midpoint, when the raid spawns; it then marches in to arrive at nightfall.
+{
+  const rs = await new Promise((resolve) => {
+    const onMsg = (raw) => {
+      const m = JSON.parse(raw.toString());
+      if (m.type === "testHookResult" && m.op === "raidState") { a.ws.off("message", onMsg); resolve(m); }
+    };
+    a.ws.on("message", onMsg);
+    a.ws.send(JSON.stringify({ type: "testHook", op: "raidState" }));
+  });
+  if (rs.cycleTick < rs.dayTicks / 2 - 10) a.ws.send(JSON.stringify({ type: "testHook", op: "setCycleTick", tick: rs.dayTicks / 2 - 10 }));
+}
+const deadline = Date.now() + 700000;
 for (let night = 1; night <= 2 && !enough() && Date.now() < deadline; night++) {
   while (!a.snap.isNight && Date.now() < deadline) await sleep(250);
   info(`night ${night} fell; mobs=${a.snap.mobs.length}`);

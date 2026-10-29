@@ -8,7 +8,7 @@
 //      so they can't be reached on the real server in a practical runtime; section c needs a server
 //      started with FORCE_KINDS / FORCE_MAX / a short day (see the scratch harness in the report).
 //      Select with ONLY=c MECH=spider|troll|shaman PORT=8081.
-// Default: ONLY=a,b against the real dev server on :8080. Note: (a) sends "restart", which resets
+// Default: ONLY=a,b; needs COLONY_TEST_HOOKS=1 (time travel). Note: (a) sends "restart", which resets
 // the world for every connected client.
 import WebSocket from "ws";
 
@@ -69,6 +69,18 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 const a = connect();
 await a.ready();
+const hook = (op, args = {}) =>
+  new Promise((resolve) => {
+    const onMsg = (raw) => {
+      const m = JSON.parse(raw.toString());
+      if (m.type === "testHookResult" && m.op === op) {
+        a.ws.off("message", onMsg);
+        resolve(m);
+      }
+    };
+    a.ws.on("message", onMsg);
+    a.send({ type: "testHook", op, ...args });
+  });
 
 // ---------------------------------------------------------------- (a) + (b)
 if (ONLY.has("a") || ONLY.has("b")) {
@@ -131,13 +143,20 @@ if (ONLY.has("a") || ONLY.has("b")) {
   // Stand at spawn and swing every 300ms (server cooldown 0.5s) so melee mobs near us die; ranged
   // mobs stay out of our 1.3-tile reach.
   const swing = setInterval(() => a.send({ type: "attack" }), 300);
-  const cycleSec = (60 + 40);
-  const totalSec = (NIGHTS - 1) * cycleSec + 60 + 40 + 8;
-  console.log(`[${el()}] observing ${NIGHTS} night(s), ~${totalSec}s ...`);
-  const deadline = Date.now() + totalSec * 1000;
-  while (Date.now() < deadline && nightsSeen <= NIGHTS) {
-    if (nightsSeen === NIGHTS && !a.snap.isNight) break;
-    await sleep(500);
+  // Days are 300 s + 75 s nights now, so the test time-travels (testHook setCycleTick, needs
+  // COLONY_TEST_HOOKS=1): for each night N it jumps to just before day N's midpoint (the raid spawns
+  // there), then to just before dusk, and watches the first ~12 s of the night.
+  const st = await hook("raidState");
+  const CYCLE = st.dayTicks + st.nightTicks;
+  const MID = Math.floor(st.dayTicks / 2);
+  console.log(`[${el()}] observing ${NIGHTS} night(s) with time travel ...`);
+  for (let n = 0; n < NIGHTS; n++) {
+    await hook("setCycleTick", { tick: n * CYCLE + MID - 10 });
+    await sleep(2000);
+    await hook("setCycleTick", { tick: n * CYCLE + st.dayTicks - 20 });
+    const deadline = Date.now() + 10000;
+    while (!a.snap.isNight && Date.now() < deadline) await sleep(100);
+    await sleep(12000);
   }
   clearInterval(swing);
 

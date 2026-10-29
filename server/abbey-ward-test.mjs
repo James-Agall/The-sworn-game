@@ -203,8 +203,9 @@ if (ONLY.has("A")) {
   // Boot world first: nothing has been sent yet except the connection itself.
   const boot = checkAbbeyWorld("A boot world (before any player action)");
   if (boot) {
-    result(a.snap.population === 0 && a.snap.colonists.length === 3,
-      `A boot world: population=${a.snap.population}/${a.snap.populationCap} with ${a.snap.colonists.length} colonists (the 3 clergy don't count)`);
+    // The colony starts with 1 builder posted at the Town Center (the only unit counted).
+    result(a.snap.population === 1 && a.snap.colonists.length === 4 && a.snap.colonists.filter((k) => k.kind === "builder").length === 1,
+      `A boot world: population=${a.snap.population}/${a.snap.populationCap} with ${a.snap.colonists.length} colonists (the starting builder + 3 clergy, who don't count)`);
     result(boot.clergy.every((k) => !isCommandable(k)),
       `A clergy fail the client's isCommandable (kind bishop, but posted at AbbeyHall not ChurchPost): ${boot.clergy.map((k) => isCommandable(k)).join(",")}`);
   }

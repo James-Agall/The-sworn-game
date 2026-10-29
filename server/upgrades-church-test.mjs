@@ -358,7 +358,8 @@ const a = connect();
 await a.ready();
 const TC = { x: Math.floor(a.W() / 2), y: Math.floor(a.H() / 2) };
 info(`connected; players=${a.snap.players.length}; stock wood=${a.firstSnap.wood} grain=${a.firstSnap.grain} iron=${a.firstSnap.iron} rock=${a.firstSnap.rock} pop=${a.firstSnap.population}/${a.firstSnap.populationCap} night=${a.firstSnap.isNight}`);
-if (a.snap.players.length !== 1 || a.firstSnap.populationCap > 10) {
+// A fresh colony: TOWN_CENTER_BASE_POPULATION 12 and the starting builder.
+if (a.snap.players.length !== 1 || a.firstSnap.populationCap > 12 || a.firstSnap.population > 1) {
   console.log("Server is not fresh (other players or structures present) — restart it first.");
   process.exit(2);
 }
@@ -380,8 +381,9 @@ if (a.snap.players.length !== 1 || a.firstSnap.populationCap > 10) {
     result(full && w0 >= 15 && r.filter((u) => u.tileX === C.x && u.tileY === C.y).length === 0 && kinds(a, "bishop").length === 0 && dw >= 0 && dw % 3 === 0,
       `(f) Church at full pop ${a.snap.population}/${a.snap.populationCap} with wood=${w0} (affordable) is rejected: no tileUpdate, no bishop, no Church charge (wood ${w0}->${a.snap.wood})`);
     await clearFillers(a, fillers);
-    result(a.snap.population === 0 && kinds(a, "lumberjack").length === 0,
-      `(f) breaking the ${fillers.length} filler posts frees the population again: pop=${a.snap.population}/${a.snap.populationCap}`);
+    // Only the starting builder is left.
+    result(a.snap.population === 1 && kinds(a, "lumberjack").length === 0,
+      `(f) breaking the ${fillers.length} filler posts frees the population again: pop=${a.snap.population}/${a.snap.populationCap} (expected 1: the starting builder)`);
   }
 }
 
@@ -420,8 +422,8 @@ if (a.snap.players.length !== 1 || a.firstSnap.populationCap > 10) {
     const nb = await placeExpectAt(a, H2.x, H2.y, T.House, H2.x, H2.y);
     await sleep(100);
     result(rej.length === 0 && a.tileAt(H1.x, H1.y) === T.House && nb.hit.length === 1 && a.tileAt(H2.x, H2.y) === T.House &&
-      a.snap.populationCap === cap1 + 2 && a.snap.wood === w1 - 10,
-      `(houses) House on House w/o goods rejected (H1 stays ${a.tileAt(H1.x, H1.y)}, updates=${rej.length}); adjacent House is standalone (tile ${a.tileAt(H2.x, H2.y)}); cap ${cap1}->${a.snap.populationCap} (expected +2: house + adjacency pair), wood ${w1}->${a.snap.wood} (expected -10)`);
+      a.snap.populationCap === cap1 + 2 && a.snap.wood === w1 - 20,
+      `(houses) House on House w/o goods rejected (H1 stays ${a.tileAt(H1.x, H1.y)}, updates=${rej.length}); adjacent House is standalone (tile ${a.tileAt(H2.x, H2.y)}); cap ${cap1}->${a.snap.populationCap} (expected +2: house + adjacency pair), wood ${w1}->${a.snap.wood} (expected -20: a Cottage is 20 wood + 5 rock)`);
   }
 }
 
@@ -750,7 +752,9 @@ let b = null;
 // ---------------- (d) archer upgrade ----------------
 {
   await waitForWood(a, 20, "(d)");
-  // Upgrades refill hp; daylight keeps night mobs from chipping the archer before its hp is read.
+  // Upgrades refill hp; daylight keeps night mobs from chipping the archer before its hp is read. Raids now
+  // spawn by day and hold near the colony until nightfall (ROADMAP "Raid arrival timing"), so raids are off here.
+  await a.hook("setRaids", { enabled: false });
   await waitForFreshDay(a, 20000, "(d)");
   const s = await gotoNewSite(a, "(d)");
   if (s) {
@@ -781,6 +785,7 @@ let b = null;
         `(d) 3rd placement -> level 3: hp/maxHp=${a3?.hp}/${a3?.maxHp} (expected 39/39 = round(35*1.10))`);
     } else info(`(d) level-3 archer skipped (wood=${a.snap.wood})`);
   }
+  await a.hook("setRaids", { enabled: true });
 }
 
 // ---------------- (f) church gating at a non-zero cap ----------------

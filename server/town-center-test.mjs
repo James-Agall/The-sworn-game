@@ -1,4 +1,4 @@
-// Scripted test: 40x40 world, raised starting stock, ore-only mine placement + revert-on-break,
+// Scripted test: boot world size, starting stock, ore-only mine placement + revert-on-break,
 // Town Center immunity, and player melee (friendly fire + 0.5s cooldown).
 // Sections can be limited with ONLY=a,b,c,d,e (default) plus the slow night checks f (civilians
 // shelter in houses first and at the TC only when there are no free beds - this test builds no houses, so
@@ -135,9 +135,11 @@ console.log(`[${el()}] connected on :${PORT}; players=${a.snap.players.length} m
 const TC = { x: Math.floor(a.W() / 2), y: Math.floor(a.H() / 2) };
 
 if (ONLY.has("a")) {
-  result(a.welcome.worldTilesX === 40 && a.welcome.worldTilesY === 40,
-    `(a) welcome world size ${a.welcome.worldTilesX}x${a.welcome.worldTilesY} (expected 40x40)`);
-  result(a.welcome.tiles.length === 1600 && a.tileAt(TC.x, TC.y) === T.TownCenter,
+  // The boot size is COLONY_WORLD_SIZE, else DEFAULT_WORLD_TILES (160); the Town Center sits at the centre.
+  const WANT = Number(process.env.COLONY_WORLD_SIZE ?? 160);
+  result(a.welcome.worldTilesX === WANT && a.welcome.worldTilesY === WANT,
+    `(a) welcome world size ${a.welcome.worldTilesX}x${a.welcome.worldTilesY} (expected ${WANT}x${WANT})`);
+  result(a.welcome.tiles.length === WANT * WANT && a.tileAt(TC.x, TC.y) === T.TownCenter,
     `(a) tiles.length=${a.welcome.tiles.length}; tile at (${TC.x},${TC.y}) = ${a.tileAt(TC.x, TC.y)} (expected TownCenter=12)`);
   const counts = { tree: 0, iron: 0, rock: 0 };
   for (const t of a.welcome.tiles) {
@@ -149,11 +151,11 @@ if (ONLY.has("a")) {
 }
 
 if (ONLY.has("b")) {
-  const { wood, food, iron, rock, townCenterHp, townCenterMaxHp } = a.firstSnap;
-  result(wood === 40 && food === 20 && iron === 30 && rock === 30,
-    `(b) first snapshot stock wood=${wood} food=${food} iron=${iron} rock=${rock} (expected 40/20/30/30)`);
-  result(townCenterHp === 300 && townCenterMaxHp === 300,
-    `(b) townCenterHp=${townCenterHp} townCenterMaxHp=${townCenterMaxHp} (expected 300/300)`);
+  const { wood, grain, iron, rock, townCenterHp, townCenterMaxHp } = a.firstSnap;
+  result(wood === 80 && grain === 60 && iron === 60 && rock === 60,
+    `(b) first snapshot stock wood=${wood} grain=${grain} iron=${iron} rock=${rock} (expected 80/60/60/60)`);
+  result(townCenterHp === 1000 && townCenterMaxHp === 1000,
+    `(b) townCenterHp=${townCenterHp} townCenterMaxHp=${townCenterMaxHp} (expected 1000/1000: Town Center Lv1)`);
 }
 
 if (ONLY.has("d")) {

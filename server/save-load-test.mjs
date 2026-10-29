@@ -3,7 +3,7 @@
 // shared :8080 world are never touched. Run from server/: `node save-load-test.mjs`.
 //   A (80x80):   pause -> save slot1 -> mutate (tiles, building, stock, fast-forward) -> load slot1 ->
 //                state restored (tiles, stock, colonists, cycleTick, building levels, construction
-//                sites, town centers, a mob), sim keeps running, version / size mismatch refused,
+//                sites, town centers, a mob), sim keeps running, version / unsupported size refused,
 //                GET /saves lists the slots.
 //   B (160x160): a few days with raids + colonists, then a manual save: size + timings from the log;
 //                dawn autosave fired; SIGTERM writes the autosave before exit.
@@ -206,12 +206,15 @@ try {
   await sleep(1000);
   const t2 = (await c.hook("raidState")).cycleTick;
   result(t2 > t1 + 10, `sim ticks after load (${t1} -> ${t2})`);
-  await c.hook("fastForward", { ticks: 4000 });
-  result(!A.exited, "server alive after 4000 ticks on the loaded world");
+  // 7100 ticks: with 300 s days (6000 + 1500 night ticks) this crosses the first dawn, so an autosave is written.
+  await c.hook("fastForward", { ticks: 7100 });
+  result(!A.exited, "server alive after 7100 ticks on the loaded world");
 
   // Guards.
   writeFileSync(path.join(dirA, "slot2.json"), JSON.stringify({ ...file, version: 999 }));
-  writeFileSync(path.join(dirA, "slot3.json"), JSON.stringify({ ...file, worldSize: 160 }));
+  // Saves bring their own world size now (a different supported size is loaded, resizing the world), so the
+  // guard is against an unsupported size.
+  writeFileSync(path.join(dirA, "slot3.json"), JSON.stringify({ ...file, worldSize: 999 }));
   const bad1 = c.wait((m) => m.type === "saveResult");
   c.send({ type: "loadGame", slot: "slot2" });
   const b1 = await bad1;
@@ -219,10 +222,10 @@ try {
   const bad2 = c.wait((m) => m.type === "saveResult");
   c.send({ type: "loadGame", slot: "slot3" });
   const b2 = await bad2;
-  result(!b2.ok && /160x160/.test(b2.error ?? ""), `size mismatch refused: ${b2.error}`);
+  result(!b2.ok && /unsupported world size \(999\)/.test(b2.error ?? ""), `unsupported world size refused: ${b2.error}`);
   const listed = await (await fetch(`http://localhost:${PORT_A}/saves`)).json();
   result(
-    // The 3000-tick fast-forward crossed a dawn, so the autosave is listed too.
+    // The 7100-tick fast-forward crossed a dawn, so the autosave is listed too.
     listed.saves.map((s) => s.slot).join(",") === "autosave,slot1,slot2,slot3" && listed.saves[1].dayIndex === file.dayIndex,
     `GET /saves lists ${listed.saves.map((s) => s.slot).join(",")}`
   );
@@ -247,8 +250,8 @@ try {
   await waitForPort(PORT_B);
   const c = connect(PORT_B);
   await c.ready();
-  // ~3.5 days: three dawns (autosave flagged each), three raids spawned.
-  await c.hook("fastForward", { ticks: 7000 });
+  // Past the first dawn (300 s days: 6000 day + 1500 night ticks), so a dawn autosave is written.
+  await c.hook("fastForward", { ticks: 7600 });
   await sleep(500);
   const raid = await c.hook("raidState");
   const snap = await c.nextSnap();

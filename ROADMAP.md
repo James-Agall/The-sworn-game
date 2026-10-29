@@ -1809,3 +1809,32 @@ stamps owned tiles at world-gen yet (that is phase B's stamper); only the test h
 - `scripts/live.sh` snapshots `shared/` too; the live dir's `node_modules` is now a dir of symlinks into the
   repo's, with `@colony/shared` pointing at the snapshot's own `shared/`, so repo edits never reach the live copy.
 - No behaviour change.
+
+## Known failing tests — 2026-10-29 (test harness)
+
+`npm test` (`scripts/run-tests.mjs`, see README "Tests") runs every `server/*-test.mjs` and `client/*-test.mjs`.
+Baseline before the stale-test fixes: **31/59 passed** (79.6 min). Verified passing after the fixes: **43/59**
+(the 31 plus abbey-ward, camp-hearth, hunger-roads, industrial-synergy, pause-restart, raid-waves, save-load,
+starting-stock, tile-sprites-roundtrip, town-center; combat-line and equipment failed once in the baseline and passed on
+re-run: treat as occasionally flaky). The run was stopped before the rest could be re-run, so the list below mixes real
+failures and unverified fixes.
+
+Gotchas found on the way (for anyone fixing the rest): the first short-term goals pay into the stock ("Place a
+building" +20 wood, "Assign a worker" +20 wood +10 rock, "Arm a unit" +15 iron), so exact stock-delta checks right after
+a first building / worker / soldier see a "mysterious" gain; economy-test parses the "Goal complete: ... (+N key)" events
+and subtracts them (a `setGoals` test hook would be simpler, needs an index.ts edit). Days are 300 s + 75 s nights, so
+any test waiting for real nights needs `setCycleTick` time travel. The colony starts with 1 builder (population 1/12).
+
+| Test | State | Symptom / diagnosis |
+|---|---|---|
+| `formation-test` | **real bug, not fixed** | F1 only (F2/F3/C pass): moving the 6-unit group out of the garrison clump, the knight (dispatched last) stays in state `returning` 41 px from its slot, body-blocked by an idle militiaman 14 px away; group never settles in 15 s; the F1->F2 rotation check fails as a consequence. Looks like `returnToRally`'s final straight-in leg can be held off by a squadmate's body (separation) when the slot is next to an idle unit. Reproduced twice. |
+| `economy-goods-test` | stale, not fixed | 17 FAIL lines with instant build: restart colonist count (starting builder), 4 houses = 20 wood + 5 rock each and TC base 12 (expects 10 wood / base 10), goal rewards inside exact wood checks (Market "wood 60->65"), Blacksmith/tool-cap expectations from before `BLACKSMITH_TOOLS_STOCK_CAP`, (e) waits for real night kills with 300 s days (0 kills in the window), House->BigHouse deduction still expects -10 wood. Needs a section-by-section rework. |
+| `economy-test` | rewritten, 1 re-run | Old test assumed a 25x25 world, 0 starting stock, mines on Empty, a `food` stock and dawn food upkeep (removed: grain/meat/fruit + hunger; covered by slow-farming / hunger-roads, so those checks were deleted). Rewrite passed everything except the Knight Post cost check (goal reward +15 iron and a miner delivery landed in the window); fixed (reward accounting, miners retired before the check) but not re-run. |
+| `army-damage-test` | stale, fix unverified | Its 260 s deadline is shorter than one 300 s day, so no night (0 hits). Now skips to just before the raid spawn (`setCycleTick`) and allows 700 s. |
+| `mob-kinds-test` | stale, fix unverified | Observed "3 nights" on the old 100 s cycle (saw 1 night, goblins only). Now time-travels to each night's raid spawn and dusk. |
+| `hero-test` | partly verified | Fillers were militia (soldiers no longer use population): now Hunter's Huts, P section passes. Marksman recruit then failed (killed hunters' queued respawns probably refilled the settlement); now demolishes the huts instead; unverified. |
+| `houses-barns-castles-test` | fix unverified | Updated: starting builder (1/12), TC base 12, Cottage 20 wood, farm plots allowed within `BARN_FARM_RADIUS_TILES` 2 (diagonal now accepted). |
+| `synergies-test` | fix unverified | (1)/(2) pass with instant build; (3) ran out of wood (houses 20 wood): stock topped up via `setStock`. |
+| `upgrades-church-test` | fix unverified | Freshness check (cap 12, builder), House cost -20, builder left after clearing fillers; (d) archer hp chipped by daytime raid mobs (raids now spawn by day and hold near the colony): raids off for (d). |
+| `walls-regrow-test` | stale, not fixed | 25x25 world, 0 starting stock, 1-wood walls, mines on Empty. A rewrite was drafted but never run, so it was not committed. |
+| `gravestone-events-test`, `halflatch-ward-lapse-test`, `happiness-militia-tavern-test`, `hunting-foraging-test`, `shelter-overflow-test`, `ward-priest-patrol-test` | not re-run | Baseline failures were placements turning into construction sites; the runner now boots them with `COLONY_INSTANT_BUILD=1`. happiness-militia-tavern also has stale checks (restart colonist count = starting builder, "militia are population-exempt" against pop 1/12). |

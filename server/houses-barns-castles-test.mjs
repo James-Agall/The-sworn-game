@@ -1,7 +1,7 @@
 // Scripted test: houses/population cap, barns + farm plots, mine clustering, knight castle leveling,
 // the Archery Range (rejected on a wall), plus a spawn-movement sanity check. Needs a FRESH server (starting stock wood 80 / iron 60 /
 // rock 60 / grain 60, no structures built yet) with no other players connected; run it with COLONY_WORLD_SIZE=80.
-// The Town Center alone gives a population cap of 10 (plus +1 per house/house or house/workplace neighbour pair),
+// The Town Center alone gives a population cap of 12 (plus +1 per house/house or house/workplace neighbour pair),
 // so the population-gating phase fills the cap with Lumberjack Posts at a separate site.
 // Saint Wren's Abbey clergy (world-gen bishops posted at the AbbeyHall) are not the colony's: they are
 // filtered out of every snapshot's `colonists` (kept in `clergy`), exactly as the server's population does.
@@ -299,12 +299,12 @@ async function clearFillers(c, posts) {
   if (left) info(`clearFillers: ${left} filler post(s) could not be reached and remain`);
 }
 
-// populationCap(): Town Center base 10 + 1/3/5 per House/BigHouse/HouseLevel2 + neighbourhood bonus (+1 per
+// populationCap(): Town Center base 12 + 1/3/5 per House/BigHouse/HouseLevel2 + neighbourhood bonus (+1 per
 // 8-neighbour pair of house/house, counted once, or house/workplace-or-unit building).
 const HOUSE_CAP = { 13: 1, 14: 3, 15: 5 };
 const SYNERGY_BUILDINGS = new Set([3, 16, 9, 10, 20, 21, 22, 23, 24, 25, 26, 27, 30, 31, 49, 5, 17, 18, 6, 19, 32, 33, 34]);
 function expectedCap(c) {
-  let cap = 10;
+  let cap = 12; // TOWN_CENTER_BASE_POPULATION
   for (let y = 0; y < c.H(); y++)
     for (let x = 0; x < c.W(); x++) {
       const t = c.tileAt(x, y);
@@ -349,9 +349,10 @@ const lumberjackPosts = [];
     }
   }
   result(!!moved, `(a) player moved immediately after spawn: ${moved ? `dir (${moved.dx},${moved.dy}) moved ${moved.d.toFixed(1)}px` : "STUCK in every direction"}`);
-  // The Town Center alone houses 10 (TOWN_CENTER_BASE_POPULATION); the Abbey clergy don't count.
-  result(a.snap.population === 0 && a.snap.populationCap === 10,
-    `(a) fresh server reports population=${a.snap.population} populationCap=${a.snap.populationCap} (expected 0/10: Town Center base)`);
+  // The Town Center alone houses 12 (TOWN_CENTER_BASE_POPULATION); the starting builder is its only
+  // resident; the Abbey clergy don't count.
+  result(a.snap.population === 1 && a.snap.populationCap === 12,
+    `(a) fresh server reports population=${a.snap.population} populationCap=${a.snap.populationCap} (expected 1/12: the starting builder, Town Center base)`);
 }
 
 // ---------------- (f) castle leveling ----------------
@@ -418,13 +419,14 @@ const H1 = {}, H2 = {};
     // Upgrading needs goods in stock; the test server starts without them, so a House on a House is rejected.
     // Only updates at H1 matter: trees grow (and get chopped) elsewhere at any time.
     const rejU = (await act(a, H1.x, H1.y, T.House, 600)).filter((u) => u.tileX === H1.x && u.tileY === H1.y);
-    result(rejU.length === 0 && a.tileAt(H1.x, H1.y) === T.House && a.snap.wood === w0 - 10,
-      `(b) House on House with no goods is rejected: tile=${a.tileAt(H1.x, H1.y)} (expected 13), updates=${rejU.length}, wood ${w0}->${a.snap.wood} (expected -10 only)`);
+    // A Cottage costs 20 wood + 5 rock (ROADMAP "Pop cap rework": was 10 wood).
+    result(rejU.length === 0 && a.tileAt(H1.x, H1.y) === T.House && a.snap.wood === w0 - 20,
+      `(b) House on House with no goods is rejected: tile=${a.tileAt(H1.x, H1.y)} (expected 13), updates=${rejU.length}, wood ${w0}->${a.snap.wood} (expected -20 only)`);
     const p2 = await placeExpectAt(a, H2.x, H2.y, T.House, H2.x, H2.y, T.House);
     await sleep(100);
     result(p2.hit.length === 1 && p2.hit[0].tile === T.House && a.tileAt(H1.x, H1.y) === T.House && a.snap.populationCap === cap0 + 3,
       `(b) adjacent House at (${H2.x},${H2.y}) is a new standalone House: first tile ${a.tileAt(H1.x, H1.y)} (expected 13), cap=${a.snap.populationCap} (expected ${cap0 + 3}: 2 houses + 1 adjacency pair)`);
-    result(a.snap.wood === w0 - 20, `(b) each House placement cost a flat 10 wood: wood ${w0}->${a.snap.wood} (expected -20)`);
+    result(a.snap.wood === w0 - 40, `(b) each House placement cost a flat 20 wood: wood ${w0}->${a.snap.wood} (expected -40)`);
     // The in-place success path is only exercised if the stock happens to hold the goods.
     if (a.snap.grain >= 3 && a.snap.meat >= 3 && a.snap.fruit >= 3 && a.snap.clothes >= 5 && a.snap.tools >= 2 && a.snap.luxuryItems >= 1) {
       const u1 = await placeExpectAt(a, H1.x, H1.y, T.House, H1.x, H1.y, T.BigHouse);
@@ -459,13 +461,14 @@ let sixth = null;
       info(`(c) lumberjack ${i + 1} at (${p.x},${p.y}): ${r.hit.length ? "placed" : "REJECTED"}; pop=${a.snap.population}/${a.snap.populationCap}`);
       lumberjackPosts.push(p);
     }
-    result(okAll && a.snap.population === 5,
-      `(c) 5 lumberjack posts placed; pop=${a.snap.population}/${a.snap.populationCap} (expected 5)`);
-    // The cap is no longer just the houses: Town Center base 10 + houses + neighbourhood pairs. Check it against
+    // + the starting builder.
+    result(okAll && a.snap.population === 6,
+      `(c) 5 lumberjack posts placed; pop=${a.snap.population}/${a.snap.populationCap} (expected 6: 5 + the starting builder)`);
+    // The cap is no longer just the houses: Town Center base 12 + houses + neighbourhood pairs. Check it against
     // the formula, then fill the remaining slots with filler Lumberjack Posts at a separate site.
     const capNow = expectedCap(a);
     result(a.snap.populationCap === capNow,
-      `(c) populationCap=${a.snap.populationCap} matches TC base 10 + houses + neighbourhood pairs = ${capNow}`);
+      `(c) populationCap=${a.snap.populationCap} matches TC base 12 + houses + neighbourhood pairs = ${capNow}`);
     const fillers = await fillPopulationToCap(a, "(c)", [...usedSites, siteA]);
     for (const site of new Set(fillers.map((p) => p.site))) usedSites.push(site);
     const cap = a.snap.populationCap;
@@ -591,10 +594,11 @@ let sixth = null;
       `(d) Barn at (${B.x},${B.y}) -> ${JSON.stringify(pb.hit.map((u) => u.tile))} (expected [16]); farmers=${kinds(a, "farmer").length}; pop ${pop0}->${a.snap.population}; wood ${w0}->${a.snap.wood} (expected -15)`);
     const rf = await act(a, Ffar.x, Ffar.y, T.FarmPlot, 600);
     result(rf.filter((u) => u.tileX === Ffar.x && u.tileY === Ffar.y).length === 0,
-      `(d) Farm Plot at (${Ffar.x},${Ffar.y}), not adjacent to the Barn: rejected`);
+      `(d) Farm Plot at (${Ffar.x},${Ffar.y}), 3 tiles from the Barn (outside its radius): rejected`);
+    // Plots may go anywhere within BARN_FARM_RADIUS_TILES 2 (Chebyshev) of a Barn (was: orthogonally adjacent).
     const rd = await act(a, Fdiag.x, Fdiag.y, T.FarmPlot, 600);
-    result(rd.filter((u) => u.tileX === Fdiag.x && u.tileY === Fdiag.y).length === 0,
-      `(d) Farm Plot at (${Fdiag.x},${Fdiag.y}), only DIAGONAL to the Barn: rejected`);
+    result(rd.some((u) => u.tileX === Fdiag.x && u.tileY === Fdiag.y && u.tile === T.FarmPlot),
+      `(d) Farm Plot at (${Fdiag.x},${Fdiag.y}), DIAGONAL to the Barn (within its radius): accepted`);
     // Slow farming: the world is paused before planting and moved on with testHook fastForward, so the
     // plot's 3-day grow and its harvest are checked tick-exactly (raids off while days are skipped).
     await a.setPaused(true);

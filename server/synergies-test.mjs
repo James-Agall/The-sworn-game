@@ -233,6 +233,10 @@ async function gotoNewSite(c, label) {
 
 const a = connect();
 await a.ready();
+// Houses cost 20 wood + 5 rock since the pop cap rework; top the stock up so the test is about synergies,
+// not about waiting for lumberjacks (needs COLONY_TEST_HOOKS=1).
+a.ws.send(JSON.stringify({ type: "testHook", op: "setStock", stock: { wood: 500, rock: 500, iron: 200 } }));
+await sleep(300);
 const cap0 = a.snap.populationCap;
 info(`connected; wood=${a.snap.wood} iron=${a.snap.iron} rock=${a.snap.rock} cap=${cap0}`);
 
@@ -309,7 +313,7 @@ let ljPos = null, houses1 = [];
       if (!colonistOnTile(a, last.x, last.y)) {
         const wood = a.snap.wood;
         const ups = await act(a, last.x, last.y, T.House, 700);
-        // Lumberjacks keep adding wood, so "rejected" means the 10-wood House cost was never deducted.
+        // Lumberjacks keep adding wood, so "rejected" means the House cost was never deducted.
         result(ups.filter((u) => u.tileX === last.x && u.tileY === last.y).length === 0 && a.tileAt(last.x, last.y) === T.Empty && a.snap.wood >= wood,
           `(3) 4th House on the last open side (${last.x},${last.y}) rejected: tile ${a.tileAt(last.x, last.y)}, wood ${wood}->${a.snap.wood}`);
       } else {

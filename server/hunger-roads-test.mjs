@@ -210,7 +210,8 @@ result(snap.isPaused, "world paused for the test");
   result(raiders.length > 0 && marked.length === cap, `day ${day}: ${raiders.length} raiders, ${marked.length} marked (cap ${cap})`);
   const boosted = marked.every((m) => m.maxHp === Math.round(BASE[m.kind][0] * 1.5) && m.damage === Math.round(BASE[m.kind][1] * 1.25) && m.hp === m.maxHp);
   result(boosted, `marked raiders have x1.5 hp / x1.25 damage (${marked.map((m) => `${m.kind}:${m.mark}`).join(", ")})`);
-  const unboosted = raiders.filter((m) => !m.mark).every((m) => m.maxHp === BASE[m.kind][0]);
+  // Siege engines (batteringRam / catapult, Cavalry & siege) ride along unmarked with derived stats: skip them.
+  const unboosted = raiders.filter((m) => !m.mark && BASE[m.kind]).every((m) => m.maxHp === BASE[m.kind][0]);
   result(unboosted, "unmarked raiders keep base hp");
   snap = await freshSnap();
   const inSnap = snap.mobs.filter((m) => m.mark);
