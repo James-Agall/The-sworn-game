@@ -17,7 +17,7 @@ import {
 } from "./constants.js";
 import {
   chargeCycle, chargeRuns, colonists, commandedTargets, hearths, mobs, orderGroupOfUnit, orderGroups, pendingRallies,
-  players, regiments, state, taskForceMax, taskForces, tileOwner,
+  players, regiments, state, tileOwner,
 } from "./state.js";
 import { clamp, inBounds, isNightNow, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { armyDamageMultiplier } from "./economy.js";
@@ -101,22 +101,22 @@ export function handleAssignTaskForce(slot: number, unitIds: string[]) {
     const c = typeof id === "string" ? colonists.get(id) : undefined;
     return c && isCommandable(c);
   });
-  taskForces.delete(slot);
-  taskForceMax.delete(slot);
+  state.taskForces.delete(slot);
+  state.taskForceMax.delete(slot);
   if (valid.length === 0) return;
   const taken = new Set(valid);
-  for (const [other, ids] of taskForces) {
+  for (const [other, ids] of state.taskForces) {
     const kept = ids.filter((id) => !taken.has(id));
     if (kept.length === ids.length) continue;
     if (kept.length === 0) {
-      taskForces.delete(other);
-      taskForceMax.delete(other);
+      state.taskForces.delete(other);
+      state.taskForceMax.delete(other);
     } else {
-      taskForces.set(other, kept);
+      state.taskForces.set(other, kept);
     }
   }
-  taskForces.set(slot, valid);
-  taskForceMax.set(slot, valid.length);
+  state.taskForces.set(slot, valid);
+  state.taskForceMax.set(slot, valid.length);
 }
 // ---- Regiment orders (strategy mode phase 3; docs PLAN-strategy-mode.md §4 "Order execution").
 // Regiments are derived per snapshot (above), so order state lives on the UNITS: a regimentOrder makes

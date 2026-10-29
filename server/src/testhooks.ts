@@ -16,7 +16,7 @@ import {
   TOWER_COSTS, TOWER_STATS, WEAPON_DAMAGE_MULT,
 } from "./constants.js";
 import {
-  attackerSlots, buildingHp, colonists, constructionSites, equipEvents, equipment, farmPlots, forageRegrow,
+  attackerSlots, buildingHp, colonists, constructionSites, equipEvents, farmPlots, forageRegrow,
   forgeQueues, gates, hearthEvents, hearths, heroEvents, heroProfiles, heroRecruits, mobs, moraleRegimentOfUnit,
   ownerSiteIds, playerMorale, raidGroups, regiments, repairPaid, repairQueue, respawnQueue, routedUnits, siegeEvents,
   siegeWorkshops, spellCooldowns, spellEvents, spellStatuses, state, summonedUntil, tacticsEvents, tickDurationsMs,
@@ -27,7 +27,7 @@ import {
   tileToPixelCenter,
 } from "./tiles.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
-import { farmPlotProgress, farmhandProgress, releaseResourceReservation, stock } from "./economy.js";
+import { farmPlotProgress, farmhandProgress, releaseResourceReservation } from "./economy.js";
 import { makeBoss } from "./worldgen.js";
 import { WILDLIFE_CONFIG, WILDLIFE_RESPAWN_INTERVAL_TICKS, damageWildlife, spawnWildlifeAt } from "./wildlife.js";
 import {
@@ -151,9 +151,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     reply({ enabled: !state.testRaidsDisabled });
   } else if (msg.op === "setStock" && msg.stock && typeof msg.stock === "object") {
     for (const [key, value] of Object.entries(msg.stock as Record<string, unknown>)) {
-      if (key in stock && typeof value === "number") stock[key as ResourceKey] = value;
+      if (key in state.stock && typeof value === "number") state.stock[key as ResourceKey] = value;
     }
-    reply({ stock: { ...stock } });
+    reply({ stock: { ...state.stock } });
   } else if (msg.op === "farmState") {
     reply({
       plots: Array.from(farmPlots, ([key, p]) => ({ key, ...p, progress: farmPlotProgress(p) })),
@@ -339,7 +339,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       roles: { colonist: COLONIST_ROLE, mob: MOB_ROLE },
       population: civilianPopulationUsed(),
       populationCap: populationCap(),
-      stock: { ...stock },
+      stock: { ...state.stock },
     });
   } else if (msg.op === "setRegimentWalled" && typeof msg.id === "string") {
     if (msg.value === false) walledSites.delete(msg.id);
@@ -485,21 +485,21 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "equipState") {
     // Armour & weapons: the stock, every forge queue, every equipped-kind unit's tiers, recent events.
     reply({
-      equipment: { armour: [...equipment.armour], weapon: [...equipment.weapon] },
+      equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
       forges: Array.from(forgeQueues, ([key, f]) => ({ key, queue: f.queue.map((q) => ({ ...q })), ticksLeft: f.ticksLeft })),
       units: Array.from(colonists.values())
         .filter((c) => isEquippedKind(c.kind))
         .map((c) => ({ id: c.id, kind: c.kind, hp: c.hp, maxHp: c.maxHp, armourTier: c.armourTier ?? 0, weaponTier: c.weaponTier ?? 0, postX: c.postX, postY: c.postY })),
       events: equipEvents.slice(),
-      stock: { ...stock },
+      stock: { ...state.stock },
       mults: { weapon: WEAPON_DAMAGE_MULT, armour: ARMOUR_DAMAGE_TAKEN_MULT },
     });
   } else if (msg.op === "setEquipment") {
     for (const slot of ["armour", "weapon"] as EquipSlot[]) {
       const v = (msg as Record<string, unknown>)[slot];
-      if (Array.isArray(v)) equipment[slot] = [0, 1, 2].map((i) => (typeof v[i] === "number" ? v[i] : 0));
+      if (Array.isArray(v)) state.equipment[slot] = [0, 1, 2].map((i) => (typeof v[i] === "number" ? v[i] : 0));
     }
-    reply({ equipment: { armour: [...equipment.armour], weapon: [...equipment.weapon] } });
+    reply({ equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] } });
   } else if (msg.op === "heroState") {
     // Hero phases 1-2: this player's profile (snapshot form), hp, every saved profile key, recent events.
     const prof = heroProfileOf(player);
@@ -520,7 +520,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       })),
       recruits: heroRecruits.map((r) => ({ ...r })),
       queue: respawnQueue.filter((q) => q.hero).map((q) => ({ ...q })),
-      gold: stock.gold,
+      gold: state.stock.gold,
       events: heroEvents.filter((e) => e.key?.startsWith(HERO_KEY_PREFIX)),
     });
   } else if (msg.op === "spellState") {
@@ -532,7 +532,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       statuses: Object.fromEntries(spellStatuses),
       summons: Array.from(summonedUntil, ([id, until]) => ({ id, until, alive: colonists.has(id) })),
       population: civilianPopulationUsed(),
-      gold: stock.gold,
+      gold: state.stock.gold,
       inventory: heroProfileOf(player).inventory,
       events: spellEvents.slice(),
     });
@@ -590,7 +590,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       campsDestroyed: state.campsDestroyed,
       castleRuinCenter: state.castleRuinCenter,
       nightsSurvived: nightsSurvived(),
-      stock: { ...stock },
+      stock: { ...state.stock },
       mobs: Array.from(mobs.values())
         .filter((m) => m.boss || m.siteKind === "castleRuin" || m.siteKind === "miniBoss")
         .map((m) => ({
@@ -608,7 +608,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       repairPaid: Array.from(repairPaid),
       repairQueue,
       damagedBuildings: damagedBuildingsForSnapshot(),
-      stock: { ...stock },
+      stock: { ...state.stock },
       cycleTick: state.cycleTick,
       isNight: isNightNow(),
       builders: Array.from(colonists.values())

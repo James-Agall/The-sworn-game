@@ -5,7 +5,7 @@ import {
   type GravestoneSnapshot, type GoalSnapshot, type EquipSlot, type SpellId,
 } from "@colony/shared/protocol";
 import type {
-  ActiveFight, Body, ChargeRun, Colonist, ConstructionSiteState, FarmPlotState, FightHit, ForgeQueueState, GateState,
+  ResourceKey, ActiveFight, Body, ChargeRun, Colonist, ConstructionSiteState, FarmPlotState, FightHit, ForgeQueueState, GateState,
   HearthState, HeroProfile, HeroRecruit, Mob, OrderGroup, Player, PlayerMoraleState, RaidGroup, RegimentState,
   RespawnRequest, SiegeWorkshopState, SpellStatus, TileCoord, TownCenter, Wildlife,
 } from "./types.js";
@@ -38,10 +38,7 @@ export interface CoreFields {
   biomes: Uint8Array<ArrayBuffer>;
 }
 
-export interface EconomyFields {
-  marketBuilt: boolean;
-  goldShopBuilt: boolean;
-}
+export interface EconomyFields {}
 
 export interface CombatFields {
   pendingEffects: AttackEffect[];
@@ -55,6 +52,8 @@ export interface GatesFields {
 
 export interface OwnersFields {
   ownerVersion: number;
+  // Clans: bumped whenever tileClan changes (snapshot `clanTiles` is resent).
+  clanTilesVersion: number;
   moverOwner: number;
 }
 
@@ -112,9 +111,7 @@ export interface MobsFields {
   difficultyClaimed: boolean;
 }
 
-export interface HappinessFields {
-  colonyHappiness: number;
-}
+export interface HappinessFields {}
 
 export interface TreesFields {
   // Regrowth cap, scaled 4x with TREE_COUNT for the 80x80 map (at the old 50 the 96 starting
@@ -154,15 +151,10 @@ export interface BodiesFields {
   cellNext: Int32Array<ArrayBuffer>;
 }
 
-export interface RegimentsFields {
-  armyRegimentSignature: string;
-  armyRegimentTicks: number;
-}
+export interface RegimentsFields {}
 
 export interface OrdersFields {
   nextOrderGroupId: number;
-  orderGroupSignature: string;
-  orderGroupTicks: number;
 }
 
 export interface WardFields {
@@ -206,9 +198,7 @@ export interface WorldgenFields {
   worldNoiseSalt: number;
 }
 
-export interface HearthsFields {
-  campsDestroyed: number;
-}
+export interface HearthsFields {}
 
 export interface CastleFields {
   // Mini-bosses: standalone packs of one kind, an upscaled elite plus 2-4 ordinary followers.
@@ -216,14 +206,9 @@ export interface CastleFields {
   MINI_BOSS_SITE_COUNT_MAX: number;
   // Centre tile of this world's Castle Ruin (null only if world-gen couldn't fit one, or an old save).
   castleRuinCenter: TileCoord | null;
-  // Set when the Ogre Warlord dies; the goal track's final goal reads it. Saved.
-  castleCleared: boolean;
 }
 
-export interface GoalsFields {
-  goalIndex: number;
-  goalSnapshot: GoalSnapshot;
-}
+export interface GoalsFields {}
 
 export interface FogFields {
   // Explored tiles, shared by every player and kept for the life of the world. Sources only reveal
@@ -310,8 +295,81 @@ export interface IntelFields {
   enemyRegimentTick: number;
 }
 
+// ---- Clans (PLAN-forts-diplomacy-moats.md decision 1, phase A2; ROADMAP "Clans — landed") ----
+// Everything a clan owns on its own. Players of one clan share all of it (clan 0 = the old shared colony).
+// These fields are ACCESSOR properties on `state` that forward to `state.clan`, the active clan: code that
+// reads `state.stock` / `state.goalIndex` / ... works on whichever clan the current context set (a player's
+// message, a colonist's update, a per-clan loop; see clans.ts `withClan`). Outside any context it is clan 0.
+export interface ClanFields {
+  stock: Record<ResourceKey, number>;
+  // Armour & weapons stock (pieces per tier).
+  equipment: EquipmentStock;
+  marketBuilt: boolean;
+  goldShopBuilt: boolean;
+  colonyHappiness: number;
+  goalIndex: number;
+  goalSnapshot: GoalSnapshot;
+  // Set when the Ogre Warlord dies to this clan; the goal track's final goal reads it. Saved.
+  castleCleared: boolean;
+  campsDestroyed: number;
+  // Snapshot change detection of this clan's army regiments / order groups.
+  armyRegimentSignature: string;
+  armyRegimentTicks: number;
+  orderGroupSignature: string;
+  orderGroupTicks: number;
+  // Task force hotkey slots (1-9) -> unit ids, and the size each was assigned at (not saved).
+  taskForces: Map<number, string[]>;
+  taskForceMax: Map<number, number>;
+}
+export interface Clan extends ClanFields {
+  id: number;
+  name: string;
+  // Banner / border tint (a PLAYER_COLORS entry: the founder's colour).
+  color: number;
+  // Phase D hook: relation to other clans by clan id (none yet: every clan is neutral to every other).
+  relations: Record<number, number>;
+}
+export const CLAN_FIELD_KEYS: readonly (keyof ClanFields)[] = [
+  "stock", "equipment", "marketBuilt", "goldShopBuilt", "colonyHappiness", "goalIndex", "goalSnapshot",
+  "castleCleared", "campsDestroyed", "armyRegimentSignature", "armyRegimentTicks", "orderGroupSignature",
+  "orderGroupTicks", "taskForces", "taskForceMax",
+];
+export interface ClanStateFields {
+  // The active clan (see ClanFields). Never null: clan 0 when no context is set.
+  clan: Clan;
+  // The clan whose players broadcastEvent reaches (null: everyone). Set with `clan` by withClan.
+  eventClan: Clan | null;
+}
+
+// A fresh clan; the stock starts empty (callers fill it, e.g. initialStock()).
+export function makeClan(id: number, name: string, color: number): Clan {
+  return {
+    id, name, color, relations: {},
+    stock: {
+      wood: 0, iron: 0, rock: 0, grain: 0, meat: 0, fruit: 0, wool: 0, cotton: 0, clothes: 0, tools: 0,
+      luxuryItems: 0, gold: 0, alcohol: 0,
+    } as Record<ResourceKey, number>,
+    equipment: { armour: [0, 0, 0], weapon: [0, 0, 0] },
+    marketBuilt: false,
+    goldShopBuilt: false,
+    colonyHappiness: 100,
+    goalIndex: 0,
+    goalSnapshot: { index: 0, total: 1, title: "", progress: 0, target: 1 },
+    castleCleared: false,
+      campsDestroyed: 0,
+    armyRegimentSignature: "",
+    armyRegimentTicks: 0,
+    orderGroupSignature: "",
+    orderGroupTicks: 0,
+    taskForces: new Map(),
+    taskForceMax: new Map(),
+  };
+}
+
 export interface ServerState
-  extends WorldSizeFields,
+  extends ClanFields,
+    ClanStateFields,
+    WorldSizeFields,
     CoreFields,
     EconomyFields,
     CombatFields,
@@ -353,9 +411,6 @@ export interface ServerState
 const initial: Partial<ServerState> = {
   // WorldSizeFields
   WORLD_TILES_X: clampWorldSize(Number.parseInt(process.env.COLONY_WORLD_SIZE ?? "", 10) || DEFAULT_WORLD_TILES),
-  // EconomyFields
-  marketBuilt: false,
-  goldShopBuilt: false,
   // CombatFields
   pendingEffects: [],
   // GatesFields
@@ -363,6 +418,7 @@ const initial: Partial<ServerState> = {
   gateTilesDirty: true,
   // OwnersFields
   ownerVersion: 0,
+  clanTilesVersion: 0,
   moverOwner: 0,
   // RoutingFields
   buildingTargetsDirty: true,
@@ -387,8 +443,6 @@ const initial: Partial<ServerState> = {
   testForceMarkChance: null,
   difficulty: "normal",
   difficultyClaimed: false,
-  // HappinessFields
-  colonyHappiness: 100,
   // TreesFields
   treeRespawnCooldown: TREE_RESPAWN_INTERVAL_TICKS,
   lumberjackTreeGrowCooldown: LUMBERJACK_TREE_INTERVAL_TICKS,
@@ -402,13 +456,8 @@ const initial: Partial<ServerState> = {
   lastRepairShortToastTick: -Infinity,
   // BodiesFields
   cellNext: new Int32Array(256),
-  // RegimentsFields
-  armyRegimentSignature: "",
-  armyRegimentTicks: 0,
   // OrdersFields
   nextOrderGroupId: 1,
-  orderGroupSignature: "",
-  orderGroupTicks: 0,
   // WardFields
   wardPriestId: null,
   wardPriestTendTicks: 0,
@@ -424,13 +473,8 @@ const initial: Partial<ServerState> = {
   // WorldgenFields
   abbeyCenter: null,
   worldNoiseSalt: 0,
-  // HearthsFields
-  campsDestroyed: 0,
   // CastleFields
   castleRuinCenter: null,
-  castleCleared: false,
-  // GoalsFields
-  goalIndex: 0,
   // FogFields
   pendingExplored: [],
   exploredFlushCountdown: EXPLORED_FLUSH_TICKS,
@@ -471,6 +515,24 @@ const initial: Partial<ServerState> = {
   enemyRegimentTick: 0,
 };
 export const state = initial as ServerState;
+
+// Every clan, by id (clans[i].id === i). Clan 0 always exists (the colony of every old save / default join).
+export const clans: Clan[] = [makeClan(0, "The Colony", 0)];
+state.clan = clans[0];
+state.eventClan = null;
+for (const key of CLAN_FIELD_KEYS) {
+  Object.defineProperty(state, key, {
+    get: () => state.clan[key],
+    set: (v) => {
+      (state.clan as unknown as Record<string, unknown>)[key] = v;
+    },
+    enumerable: true,
+    configurable: false,
+  });
+}
+// Player-built tiles of clans other than 0: tile index -> clan id (>= 1). Missing = clan 0 / unowned, so old
+// saves and single-clan games keep it empty. NPC site tiles are in tileOwner instead.
+export const tileClan = new Map<number, number>();
 
 export const scaledCount = (n: number) => Math.round(n * state.WORLD_AREA_SCALE);
 export const subScale = () =>
@@ -555,14 +617,11 @@ export const repairPaid = new Map<string, number>();
 // Manual Repair requests (resourceKey), served before the automatic most-damaged pick.
 export const repairQueue: string[] = [];
 
-// -- taskForces --
-export const taskForces = new Map<number, string[]>();
 
 // -- economy --
 export const reservedResourceTiles = new Map<string, string>();
 
 // -- equipment --
-export const equipment: EquipmentStock = { armour: [0, 0, 0], weapon: [0, 0, 0] };
 // ---- Armour & weapons: stock, equipping, forging, drops (constants: EQUIP_* / FORGE_* / *_MULT) ----
 // Test-hook log (equipState): equip / unequipped / forged / drop / loot / hit / taken.
 export const equipEvents: { type: string; id?: string; slot?: EquipSlot; tier?: number; amount?: number; detail?: string; tick: number }[] = [];
@@ -604,9 +663,6 @@ export const orderGroupOfUnit = new Map<string, OrderGroup>();
 // Staggered start: unit id -> the slot it heads for once cycleTick reaches `at`.
 export const pendingRallies = new Map<string, { at: number; x: number; y: number; group: string; squad: string | null }>();
 
-// -- regiments --
-// Size each task force was assigned at (its card's max); not saved (a loaded one starts at its alive count).
-export const taskForceMax = new Map<number, number>();
 
 // -- units --
 // Squad march: per-tick speed for every squad member walking back to its formation slot (no target),

@@ -38,7 +38,8 @@ export function initialStock(): Record<ResourceKey, number> {
   };
 }
 
-export const stock: Record<ResourceKey, number> = initialStock();
+// Clan 0's starting stock (state.stock forwards to the active clan, see state.ts ClanFields).
+state.stock = initialStock();
 
 export function releaseResourceReservation(c: Colonist) {
   // A builder leaving its site (night shelter, death, desertion) frees its slot there; the site stays.
@@ -126,9 +127,9 @@ export function tryGrowTreesNearLumberjackPosts() {
 }
 
 export function depositGatheredResource(kind: ColonistKind) {
-  if (kind === "lumberjack") stock.wood += LUMBERJACK_WOOD_PER_TRIP;
-  else if (kind === "ironMiner") stock.iron += 1;
-  else if (kind === "rockMiner") stock.rock += 1;
+  if (kind === "lumberjack") state.stock.wood += LUMBERJACK_WOOD_PER_TRIP;
+  else if (kind === "ironMiner") state.stock.iron += 1;
+  else if (kind === "rockMiner") state.stock.rock += 1;
 }
 
 export function industrialSynergyMultiplier(tx: number, ty: number): number {
@@ -269,7 +270,7 @@ export function updateFarmPlots() {
     } else if (plot.state === "harvesting") {
       plot.harvestTicksRemaining--;
       if (plot.harvestTicksRemaining <= 0) {
-        stock.grain += FARM_YIELD_PER_HARVEST;
+        state.stock.grain += FARM_YIELD_PER_HARVEST;
         plot.harvestsSinceFallow++;
         plot.harvestedTicksRemaining = FARM_HARVESTED_SHOW_TICKS;
         if (plot.harvestsSinceFallow >= FARM_HARVESTS_BEFORE_FALLOW) {
@@ -347,16 +348,16 @@ export function handleExchangeResource(from: "wood" | "iron" | "rock", to: "wood
   if (!state.marketBuilt || from === to) return;
   const rate = EXCHANGE_RATES[from]?.[to];
   if (!rate) return;
-  if (stock[from] < rate.give) return;
-  stock[from] -= rate.give;
-  stock[to] += rate.get;
+  if (state.stock[from] < rate.give) return;
+  state.stock[from] -= rate.give;
+  state.stock[to] += rate.get;
 }
 
 export function handleBuyWithGold(item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock") {
   if (!state.goldShopBuilt) return;
   const price = GOLD_SHOP_PRICES[item];
   if (!price) return;
-  if (stock.gold < price.cost) return;
-  stock.gold -= price.cost;
-  (stock as Record<string, number>)[item] += price.amount;
+  if (state.stock.gold < price.cost) return;
+  state.stock.gold -= price.cost;
+  (state.stock as Record<string, number>)[item] += price.amount;
 }

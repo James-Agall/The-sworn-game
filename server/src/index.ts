@@ -13,11 +13,12 @@ import {
   TICK_DURATION_SAMPLES,
 } from "./constants.js";
 import {
-  colonists, equipment, gravestones, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
+  colonists, gravestones, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
 } from "./state.js";
 import { clamp, isNightNow, tileIndex } from "./tiles.js";
+import { clanOf, withClan } from "./clans.js";
 import "./pathfinding.js";
-import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchangeResource, stock } from "./economy.js";
+import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchangeResource } from "./economy.js";
 import { generateWorld } from "./worldgen.js";
 import { wildlifeForSnapshot } from "./wildlife.js";
 import {
@@ -80,6 +81,7 @@ wss.on("connection", (socket, req) => {
     poisonTicksRemaining: 0,
     poisonDamagePerTick: 0,
     dead: false,
+    clan: 0,
     profileKey,
     profileSentVersion: -1,
     heroesSentVersion: -1,
@@ -102,109 +104,115 @@ wss.on("connection", (socket, req) => {
       return;
     }
 
-    if (TEST_HOOKS && (message as { type: string }).type === "testHook") {
-      handleTestHook(player, message as unknown as Record<string, unknown>);
-      return;
-    }
-
-    if (message.type === "input") {
-      const dx = clamp(message.dx, -1, 1);
-      const dy = clamp(message.dy, -1, 1);
-      player.input = { dx, dy };
-    } else if (message.type === "setTile") {
-      handleSetTile(player, message.tileX, message.tileY, message.tile);
-    } else if (message.type === "attack") {
-      handlePlayerAttack(player);
-    } else if (message.type === "setView") {
-      handleSetView(player, message);
-    } else if (message.type === "pause") {
-      if (state.simHeldForLoad) return;
-      state.isPaused = typeof message.paused === "boolean" ? message.paused : !state.isPaused;
-      state.pausedBy = player.id;
-    } else if (message.type === "setTimeScale") {
-      if (state.simHeldForLoad || !(TIME_SCALES as readonly number[]).includes(message.scale)) return;
-      state.timeScale = message.scale;
-      state.timeScaleBy = player.id;
-      state.simAccum = 0;
-    } else if (message.type === "restart") {
-      resetWorld(message.difficulty, message.worldSize);
-    } else if (message.type === "setDifficulty") {
-      handleSetDifficulty(message.difficulty, message.worldSize);
-    } else if (message.type === "commandMove") {
-      handleCommandMove(message.unitIds, message.x, message.y, message.squad);
-    } else if (message.type === "commandAttack") {
-      handleCommandAttack(message.unitIds, message.mobId);
-    } else if (message.type === "commandAttackHearth") {
-      if (!Array.isArray(message.unitIds) || !Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
-      handleCommandAttackHearth(message.unitIds, message.tileX, message.tileY);
-    } else if (message.type === "commandStance") {
-      handleCommandStance(message.unitIds, message.stance);
-    } else if (message.type === "assignTaskForce") {
-      handleAssignTaskForce(message.slot, message.unitIds);
-    } else if (message.type === "regimentOrder") {
-      handleRegimentOrder(player, message);
-    } else if (message.type === "regimentSettings") {
-      handleRegimentSettings(player, message);
-    } else if (message.type === "exchangeResource") {
-      handleExchangeResource(message.from, message.to);
-    } else if (message.type === "buyWithGold") {
-      handleBuyWithGold(message.item);
-    } else if (message.type === "buildingInfo") {
-      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
-      const reply: ServerMessage = {
-        type: "buildingInfo",
-        tileX: message.tileX,
-        tileY: message.tileY,
-        info: buildingInfoFor(message.tileX, message.tileY, player),
-      };
-      socket.send(JSON.stringify(reply));
-    } else if (message.type === "upgradeBuilding") {
-      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
-      handleUpgradeBuilding(player, message.tileX, message.tileY);
-    } else if (message.type === "repairBuilding") {
-      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
-      handleRepairBuilding(player, message.tileX, message.tileY);
-    } else if (message.type === "setGateLock") {
-      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
-      handleSetGateLock(message.tileX, message.tileY, message.lock);
-    } else if (message.type === "queueSiege") {
-      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
-      handleQueueSiege(message.tileX, message.tileY, message.kind);
-    } else if (message.type === "queueForge") {
-      if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
-      handleQueueForge(message.tileX, message.tileY, message.slot);
-    } else if (message.type === "equipItem") {
-      handleEquipItem(player, message.itemId, message.slot, message.heroId);
-    } else if (message.type === "unequipItem") {
-      handleUnequipItem(player, message.slot, message.heroId);
-    } else if (message.type === "takeFromArmoury") {
-      handleTakeFromArmoury(player, message.slot, message.tier, message.heroId);
-    } else if (message.type === "recruitHero") {
-      if (!Number.isInteger(message.tx) || !Number.isInteger(message.ty)) return;
-      handleRecruitHero(player, message.tx, message.ty, message.class);
-    } else if (message.type === "setSpellSlot") {
-      handleSetSpellSlot(player, message.slot, message.spellId, message.heroId);
-    } else if (message.type === "useTome") {
-      handleUseTome(player, message.itemId, message.heroId);
-    } else if (message.type === "learnSpell") {
-      handleLearnSpell(player, message.spellId, message.tileX, message.tileY);
-    } else if (message.type === "castSpell") {
-      handleCastSpell(player, message as unknown as Record<string, unknown>);
-    } else if (message.type === "setSpellAuto") {
-      handleSetSpellAuto(player, message.heroId, message.auto);
-    } else if (message.type === "saveGame") {
-      void handleSaveGame(player, message.slot);
-    } else if (message.type === "loadGame") {
-      void handleLoadGame(player, message.slot);
-    } else if (message.type === "listSaves") {
-      void listSaves().then((saves) => sendTo(player, { type: "saveList", saves }));
-    }
+    // Clans: every message runs with the sender's clan active (its stock, goals, army, ...).
+    withClan(clanOf(player), () => handleMessage(player, message));
   });
 
   socket.on("close", () => {
     players.delete(id);
   });
 });
+
+function handleMessage(player: Player, message: ClientMessage) {
+  const socket = player.socket;
+  if (TEST_HOOKS && (message as { type: string }).type === "testHook") {
+    handleTestHook(player, message as unknown as Record<string, unknown>);
+    return;
+  }
+
+  if (message.type === "input") {
+    const dx = clamp(message.dx, -1, 1);
+    const dy = clamp(message.dy, -1, 1);
+    player.input = { dx, dy };
+  } else if (message.type === "setTile") {
+    handleSetTile(player, message.tileX, message.tileY, message.tile);
+  } else if (message.type === "attack") {
+    handlePlayerAttack(player);
+  } else if (message.type === "setView") {
+    handleSetView(player, message);
+  } else if (message.type === "pause") {
+    if (state.simHeldForLoad) return;
+    state.isPaused = typeof message.paused === "boolean" ? message.paused : !state.isPaused;
+    state.pausedBy = player.id;
+  } else if (message.type === "setTimeScale") {
+    if (state.simHeldForLoad || !(TIME_SCALES as readonly number[]).includes(message.scale)) return;
+    state.timeScale = message.scale;
+    state.timeScaleBy = player.id;
+    state.simAccum = 0;
+  } else if (message.type === "restart") {
+    resetWorld(message.difficulty, message.worldSize);
+  } else if (message.type === "setDifficulty") {
+    handleSetDifficulty(message.difficulty, message.worldSize);
+  } else if (message.type === "commandMove") {
+    handleCommandMove(message.unitIds, message.x, message.y, message.squad);
+  } else if (message.type === "commandAttack") {
+    handleCommandAttack(message.unitIds, message.mobId);
+  } else if (message.type === "commandAttackHearth") {
+    if (!Array.isArray(message.unitIds) || !Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+    handleCommandAttackHearth(message.unitIds, message.tileX, message.tileY);
+  } else if (message.type === "commandStance") {
+    handleCommandStance(message.unitIds, message.stance);
+  } else if (message.type === "assignTaskForce") {
+    handleAssignTaskForce(message.slot, message.unitIds);
+  } else if (message.type === "regimentOrder") {
+    handleRegimentOrder(player, message);
+  } else if (message.type === "regimentSettings") {
+    handleRegimentSettings(player, message);
+  } else if (message.type === "exchangeResource") {
+    handleExchangeResource(message.from, message.to);
+  } else if (message.type === "buyWithGold") {
+    handleBuyWithGold(message.item);
+  } else if (message.type === "buildingInfo") {
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+    const reply: ServerMessage = {
+      type: "buildingInfo",
+      tileX: message.tileX,
+      tileY: message.tileY,
+      info: buildingInfoFor(message.tileX, message.tileY, player),
+    };
+    socket.send(JSON.stringify(reply));
+  } else if (message.type === "upgradeBuilding") {
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+    handleUpgradeBuilding(player, message.tileX, message.tileY);
+  } else if (message.type === "repairBuilding") {
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+    handleRepairBuilding(player, message.tileX, message.tileY);
+  } else if (message.type === "setGateLock") {
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+    handleSetGateLock(message.tileX, message.tileY, message.lock);
+  } else if (message.type === "queueSiege") {
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+    handleQueueSiege(message.tileX, message.tileY, message.kind);
+  } else if (message.type === "queueForge") {
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+    handleQueueForge(message.tileX, message.tileY, message.slot);
+  } else if (message.type === "equipItem") {
+    handleEquipItem(player, message.itemId, message.slot, message.heroId);
+  } else if (message.type === "unequipItem") {
+    handleUnequipItem(player, message.slot, message.heroId);
+  } else if (message.type === "takeFromArmoury") {
+    handleTakeFromArmoury(player, message.slot, message.tier, message.heroId);
+  } else if (message.type === "recruitHero") {
+    if (!Number.isInteger(message.tx) || !Number.isInteger(message.ty)) return;
+    handleRecruitHero(player, message.tx, message.ty, message.class);
+  } else if (message.type === "setSpellSlot") {
+    handleSetSpellSlot(player, message.slot, message.spellId, message.heroId);
+  } else if (message.type === "useTome") {
+    handleUseTome(player, message.itemId, message.heroId);
+  } else if (message.type === "learnSpell") {
+    handleLearnSpell(player, message.spellId, message.tileX, message.tileY);
+  } else if (message.type === "castSpell") {
+    handleCastSpell(player, message as unknown as Record<string, unknown>);
+  } else if (message.type === "setSpellAuto") {
+    handleSetSpellAuto(player, message.heroId, message.auto);
+  } else if (message.type === "saveGame") {
+    void handleSaveGame(player, message.slot);
+  } else if (message.type === "loadGame") {
+    void handleLoadGame(player, message.slot);
+  } else if (message.type === "listSaves") {
+    void listSaves().then((saves) => sendTo(player, { type: "saveList", saves }));
+  }
+}
 
 setInterval(() => {
   const tickStart = TEST_HOOKS ? performance.now() : 0;
@@ -278,19 +286,19 @@ setInterval(() => {
       ...(m.boss ? { boss: m.boss } : {}),
       ...(m.scale !== undefined && m.scale !== 1 ? { scale: m.scale } : {}),
     })),
-    wood: stock.wood,
-    iron: stock.iron,
-    rock: stock.rock,
-    grain: stock.grain,
-    meat: stock.meat,
-    fruit: stock.fruit,
-    wool: stock.wool,
-    cotton: stock.cotton,
-    clothes: stock.clothes,
-    tools: stock.tools,
-    luxuryItems: stock.luxuryItems,
-    gold: stock.gold,
-    alcohol: stock.alcohol,
+    wood: state.stock.wood,
+    iron: state.stock.iron,
+    rock: state.stock.rock,
+    grain: state.stock.grain,
+    meat: state.stock.meat,
+    fruit: state.stock.fruit,
+    wool: state.stock.wool,
+    cotton: state.stock.cotton,
+    clothes: state.stock.clothes,
+    tools: state.stock.tools,
+    luxuryItems: state.stock.luxuryItems,
+    gold: state.stock.gold,
+    alcohol: state.stock.alcohol,
     happiness: state.colonyHappiness,
     marketBuilt: state.marketBuilt,
     goldShopBuilt: state.goldShopBuilt,
@@ -321,7 +329,7 @@ setInterval(() => {
     constructionSites: constructionSitesForSnapshot(),
     damagedBuildings: damagedBuildingsForSnapshot(),
     hearths: hearthsForSnapshot(),
-    equipment,
+    equipment: state.equipment,
     forgeBusy: forgeBusyForSnapshot(),
     townCenters: state.townCenters.map(
       (tc, i): TownCenterSnapshot => ({

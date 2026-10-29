@@ -14,7 +14,7 @@ import {
 } from "./state.js";
 import { inBounds, isHostileOwner, ownerAt, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
-import { armyDamageMultiplier, stock } from "./economy.js";
+import { armyDamageMultiplier } from "./economy.js";
 import { isGuardOrMilitiaKind } from "./units.js";
 import { damageBuilding, isColonyBreachObstacle, structureHp } from "./combat.js";
 import { activateGuardianSite, routeToBuilding } from "./mobs.js";
@@ -182,10 +182,10 @@ export function destroyHearth(h: HearthState, attackerKey?: string) {
     rock: HEARTH_LOOT_PER_GUARDIAN.rock * g,
     iron: HEARTH_LOOT_PER_GUARDIAN.iron * g,
   };
-  stock.gold += loot.gold;
-  stock.wood += loot.wood;
-  stock.rock += loot.rock;
-  stock.iron += loot.iron;
+  state.stock.gold += loot.gold;
+  state.stock.wood += loot.wood;
+  state.stock.rock += loot.rock;
+  state.stock.iron += loot.iron;
   // Armour & weapons: 1 + floor(garrison / 2) pieces of a weighted random tier.
   const gear = grantTieredEquipment(1 + Math.floor(g / 2), "hearth");
   hearthEvent(h.siteId, "destroyed", `${members.length} routed; loot ${JSON.stringify(loot)}; gear ${gear}`);

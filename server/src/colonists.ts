@@ -31,8 +31,7 @@ import {
 import { advanceAlongPath, findAdjacentWalkable, findPath } from "./pathfinding.js";
 import {
   depositGatheredResource, effectiveChopTicks, effectiveCraftTicks, effectiveFarmhandCycleTicks,
-  industrialSynergyMultiplier, isBarnStaffed, releaseResourceReservation, stock,
-} from "./economy.js";
+  industrialSynergyMultiplier, isBarnStaffed, releaseResourceReservation, } from "./economy.js";
 import { updateForager, updateHunter } from "./wildlife.js";
 import {
   garrisonGain, guardStats, isGuardOrMilitiaKind, isMilitiaLineKind, isSiegeKind, isSoldierKind, militiaKindForLevel,
@@ -103,7 +102,7 @@ export function countTilesOfType(tileType: TileType): number {
 }
 
 export function computeColonyHappiness(): number {
-  const foodTypesAvailable = (["grain", "meat", "fruit"] as const).filter((k) => stock[k] > 0).length;
+  const foodTypesAvailable = (["grain", "meat", "fruit"] as const).filter((k) => state.stock[k] > 0).length;
   const foodVarietyScore = (foodTypesAvailable / 3) * 100;
 
   const treeCount = countTilesOfType(TileType.Tree);
@@ -595,12 +594,12 @@ export function processRespawnQueue() {
       if (!windowNow) continue;
       if (settlementBlocker(req.tx, req.ty, HERO_POPULATION_COST) !== "") continue;
       const fee = heroRespawnFee(req.hero.id);
-      if (stock.gold < fee) {
+      if (state.stock.gold < fee) {
         heroTestEvent({ type: "respawnWait", id: req.hero.id, amount: fee });
         broadcastEvent("build", `${req.hero.name} waits for ${fee} gold to return at the next dawn or dusk`);
         continue;
       }
-      stock.gold -= fee;
+      state.stock.gold -= fee;
       state.respawnWindowSpawned++;
       spawnHeroColonist(req.hero.id, req.hero.name, req.hero.heroClass, req.tx, req.ty);
       heroTestEvent({ type: "respawn", id: req.hero.id, amount: fee, detail: windowNow });
@@ -658,12 +657,12 @@ export function processRespawnQueue() {
 }
 
 export function trySpendFood(amount: number): boolean {
-  if (stock.grain + stock.meat + stock.fruit < amount) return false;
+  if (state.stock.grain + state.stock.meat + state.stock.fruit < amount) return false;
   let remaining = amount;
   for (const key of ["grain", "meat", "fruit"] as const) {
     if (remaining <= 0) break;
-    const take = Math.min(stock[key], remaining);
-    stock[key] -= take;
+    const take = Math.min(state.stock[key], remaining);
+    state.stock[key] -= take;
     remaining -= take;
   }
   return true;
@@ -677,8 +676,8 @@ export function applyDailyFoodConsumption() {
   let needed = Math.ceil(consumerCount * FOOD_PER_COLONIST_PER_DAY);
   for (const key of ["grain", "meat", "fruit"] as const) {
     if (needed <= 0) break;
-    const take = Math.min(stock[key], needed);
-    stock[key] -= take;
+    const take = Math.min(state.stock[key], needed);
+    state.stock[key] -= take;
     needed -= take;
   }
   if (needed > 0) {
@@ -828,7 +827,7 @@ export function updateFarmhand(c: Colonist) {
   c.state = "farming";
   c.chopTicksRemaining--;
   if (c.chopTicksRemaining <= 0) {
-    stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource];
+    state.stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource];
     c.chopTicksRemaining = effectiveFarmhandCycleTicks(c.postX, c.postY);
     c.cycleTicksTotal = c.chopTicksRemaining;
   }
@@ -839,16 +838,16 @@ export function updateArtisan(c: Colonist) {
   if (!recipe) return;
   c.state = "crafting";
   const inputsReady = Object.entries(recipe.inputs).every(
-    ([key, amount]) => stock[key as ResourceKey] >= (amount ?? 0)
+    ([key, amount]) => state.stock[key as ResourceKey] >= (amount ?? 0)
   );
   if (!inputsReady) return; // don't tick the timer down while waiting on materials
-  if (recipe.stockCap !== undefined && stock[recipe.output] >= recipe.stockCap) return; // enough in store
+  if (recipe.stockCap !== undefined && state.stock[recipe.output] >= recipe.stockCap) return; // enough in store
   c.chopTicksRemaining--;
   if (c.chopTicksRemaining <= 0) {
     for (const [key, amount] of Object.entries(recipe.inputs)) {
-      stock[key as ResourceKey] -= amount ?? 0;
+      state.stock[key as ResourceKey] -= amount ?? 0;
     }
-    stock[recipe.output] += recipe.outputAmount ?? 1;
+    state.stock[recipe.output] += recipe.outputAmount ?? 1;
     c.chopTicksRemaining = effectiveCraftTicks(c.postX, c.postY);
   }
 }

@@ -19,7 +19,7 @@ import {
 } from "./state.js";
 import { inBounds, tileIndex, tileOfPixel } from "./tiles.js";
 import { isWalkableTile } from "./pathfinding.js";
-import { releaseResourceReservation, stock } from "./economy.js";
+import { releaseResourceReservation } from "./economy.js";
 import { isAbbeyClergy, spawnColonistForPost } from "./colonists.js";
 import { mobRole } from "./units.js";
 import { damageMob, releaseSlot } from "./combat.js";
@@ -139,7 +139,7 @@ export function churchSpellShop(player: Player | undefined): NonNullable<Buildin
   const prof = player ? heroProfileOf(player) : null;
   return (Object.keys(CHURCH_SPELL_PRICES) as SpellId[]).map((spellId) => {
     const gold = CHURCH_SPELL_PRICES[spellId]!;
-    const reason = prof?.spells.includes(spellId) ? "Already learned" : stock.gold < gold ? "Not enough gold" : "";
+    const reason = prof?.spells.includes(spellId) ? "Already learned" : state.stock.gold < gold ? "Not enough gold" : "";
     return { spellId, label: SPELLS[spellId].name, gold, enabled: reason === "", reason };
   });
 }
@@ -151,8 +151,8 @@ export function handleLearnSpell(player: Player, spellId: unknown, tx: unknown, 
   if (price === undefined) return refuseSpell(player, `The Church doesn't teach ${SPELLS[spellId].name}`);
   const prof = heroProfileOf(player);
   if (prof.spells.includes(spellId)) return refuseSpell(player, `You already know ${SPELLS[spellId].name}`);
-  if (stock.gold < price) return refuseSpell(player, `Not enough gold (${SPELLS[spellId].name} costs ${price})`);
-  stock.gold -= price;
+  if (state.stock.gold < price) return refuseSpell(player, `Not enough gold (${SPELLS[spellId].name} costs ${price})`);
+  state.stock.gold -= price;
   learnSpell(prof, spellId, "church");
 }
 

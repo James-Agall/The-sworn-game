@@ -19,11 +19,10 @@ import {
   TEST_HOOKS, TOME_ELITE_CHANCE, TOME_HEARTH_CHANCE, WEAPON_DAMAGE_MULT,
 } from "./constants.js";
 import {
-  colonists, equipEvents, equipment, forgeQueues, heroEvents, heroProfiles, heroRecruits, players, respawnQueue,
+  colonists, equipEvents, forgeQueues, heroEvents, heroProfiles, heroRecruits, players, respawnQueue,
   state,
 } from "./state.js";
 import { getBuildingLevel, inBounds, resourceKey, tileIndex, tileOfPixel } from "./tiles.js";
-import { stock } from "./economy.js";
 import { settlementBlocker, settlementKeyNear, spawnColonistForPost } from "./colonists.js";
 import { keyToTile } from "./mobs.js";
 import { canAfford, formatCost, spend } from "./construction.js";
@@ -40,8 +39,8 @@ export function equipEvent(e: Omit<(typeof equipEvents)[number], "tick">) {
 }
 
 export function resetEquipment() {
-  equipment.armour = [0, 0, 0];
-  equipment.weapon = [0, 0, 0];
+  state.equipment.armour = [0, 0, 0];
+  state.equipment.weapon = [0, 0, 0];
   forgeQueues.clear();
   state.lastUnequippedToastTick = -Infinity;
   state.equipDropToasted = false;
@@ -55,8 +54,8 @@ export function isEquippedKind(kind: ColonistKind): boolean {
 // Takes the highest tier in stock of `slot` (0 when the stock is empty).
 export function takeBestEquipment(slot: EquipSlot): number {
   for (let tier = EQUIP_TIERS; tier >= 1; tier--) {
-    if (equipment[slot][tier - 1] > 0) {
-      equipment[slot][tier - 1]--;
+    if (state.equipment[slot][tier - 1] > 0) {
+      state.equipment[slot][tier - 1]--;
       return tier;
     }
   }
@@ -101,7 +100,7 @@ export function grantTieredEquipment(count: number, source: string): string {
   for (let i = 0; i < count; i++) {
     const slot: EquipSlot = Math.random() < 0.5 ? "armour" : "weapon";
     const tier = rollLootTier();
-    equipment[slot][tier - 1]++;
+    state.equipment[slot][tier - 1]++;
     got[slot].push(tier);
     equipEvent({ type: "loot", slot, tier, detail: source });
   }
@@ -119,7 +118,7 @@ export function dropEquipmentFor(mob: Mob) {
   if (!guaranteed && !EQUIP_ARMOURED_KINDS.includes(mob.kind)) return;
   if (!guaranteed && Math.random() >= (state.testEquipDropChance ?? EQUIP_DROP_CHANCE)) return;
   const slot: EquipSlot = Math.random() < 0.5 ? "armour" : "weapon";
-  equipment[slot][0]++;
+  state.equipment[slot][0]++;
   equipEvent({ type: "drop", id: mob.id, slot, tier: 1, detail: mob.kind });
   const first = !state.equipDropToasted;
   if (!first && state.cycleTick - state.lastEquipDropToastTick < EQUIP_TOAST_THROTTLE_TICKS) return;
@@ -382,9 +381,9 @@ export function handleTakeFromArmoury(player: Player, slot: unknown, tier: unkno
   if (slot !== "armour" && slot !== "weapon") return;
   if (typeof tier !== "number" || !Number.isInteger(tier) || tier < 1 || tier > EQUIP_TIERS) return;
   const prof = heroProfileOf(player);
-  if (equipment[slot][tier - 1] <= 0) return refuseGear(player, `No tier-${tier} ${EQUIP_SLOT_LABEL[slot]} in the colony's stock`);
+  if (state.equipment[slot][tier - 1] <= 0) return refuseGear(player, `No tier-${tier} ${EQUIP_SLOT_LABEL[slot]} in the colony's stock`);
   if (prof.inventory.length >= HERO_INVENTORY_CAP) return refuseGear(player, "Your pack is full (40 items)");
-  equipment[slot][tier - 1]--;
+  state.equipment[slot][tier - 1]--;
   const def = PLAIN_GEAR[slot];
   const item: GearItem = { id: randomUUID(), slot: def.slot, name: def.names[tier - 1], tier: tier as 1 | 2 | 3, stats: def.stats(tier), kind: def.kind, icon: `icon-${slot}T${tier}` };
   prof.inventory.push(item);
@@ -605,7 +604,7 @@ export function forgeCost(slot: EquipSlot, tier: number): Cost {
   if (slot === "weapon") return { iron: FORGE_WEAPON_IRON[i], wood: FORGE_WEAPON_WOOD };
   const extra = tier - 1;
   if (extra <= 0) return { iron: FORGE_ARMOUR_IRON[i] };
-  return stock.tools >= extra ? { iron: FORGE_ARMOUR_IRON[i], tools: extra } : { iron: FORGE_ARMOUR_IRON[i], wood: extra };
+  return state.stock.tools >= extra ? { iron: FORGE_ARMOUR_IRON[i], tools: extra } : { iron: FORGE_ARMOUR_IRON[i], wood: extra };
 }
 
 export function blacksmithStaffed(tx: number, ty: number): boolean {
@@ -670,7 +669,7 @@ export function updateForges() {
     const head = localState.queue[0];
     if (!head || !blacksmithStaffed(tile.x, tile.y)) continue;
     if (--localState.ticksLeft > 0) continue;
-    equipment[head.slot][head.tier - 1]++;
+    state.equipment[head.slot][head.tier - 1]++;
     equipEvent({ type: "forged", slot: head.slot, tier: head.tier, detail: key });
     broadcastEvent("build", `The Blacksmith forged a tier-${head.tier} ${EQUIP_SLOT_LABEL[head.slot]}`);
     localState.queue.shift();

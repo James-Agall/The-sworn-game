@@ -31,8 +31,7 @@ import {
 } from "./tiles.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import {
-  armyDamageMultiplier, barnForNewFarmPlot, industrialSynergyMultiplier, newFarmPlot, stock,
-} from "./economy.js";
+  armyDamageMultiplier, barnForNewFarmPlot, industrialSynergyMultiplier, newFarmPlot, } from "./economy.js";
 import {
   anyBuilderAlive, findTownCenterAt, garrisonBlocker, getColonistsAtPost, happinessSpeedMultiplier,
   highestTownCenterLevel, houseCapacity, houseOccupancy, isAbbeyClergy, isHouseTile, isMilitaryTile,
@@ -138,10 +137,10 @@ export function tryLevelUpInPlace(tx: number, ty: number, matchTypes: TileType[]
 export function canAffordHouseUpgrade(current: TileType): boolean {
   if (current === TileType.BigHouse) {
     return (
-      stock.grain >= 2 && stock.meat >= 2 && stock.fruit >= 2 && stock.clothes >= 3 && stock.tools >= 2 && stock.luxuryItems >= 1
+      state.stock.grain >= 2 && state.stock.meat >= 2 && state.stock.fruit >= 2 && state.stock.clothes >= 3 && state.stock.tools >= 2 && state.stock.luxuryItems >= 1
     );
   }
-  return stock.grain >= 1 && stock.meat >= 1 && stock.fruit >= 1 && stock.clothes >= 2;
+  return state.stock.grain >= 1 && state.stock.meat >= 1 && state.stock.fruit >= 1 && state.stock.clothes >= 2;
 }
 
 // The upgrade goods are charged at placement (placementCost), so a queued upgrade can't overdraw later.
@@ -520,11 +519,11 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
 }
 
 export function canAfford(cost: Cost): boolean {
-  return Object.entries(cost).every(([key, amount]) => stock[key as ResourceKey] >= (amount ?? 0));
+  return Object.entries(cost).every(([key, amount]) => state.stock[key as ResourceKey] >= (amount ?? 0));
 }
 
 export function spend(cost: Cost) {
-  for (const [key, amount] of Object.entries(cost)) stock[key as ResourceKey] -= amount ?? 0;
+  for (const [key, amount] of Object.entries(cost)) state.stock[key as ResourceKey] -= amount ?? 0;
 }
 
 export function formatCost(cost: Cost): string {

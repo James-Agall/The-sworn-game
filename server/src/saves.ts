@@ -11,13 +11,12 @@ import {
   MAX_WORLD_SIZE, MIN_WORLD_SIZE, NIGHT_TICKS, SAVE_DIR, SAVE_SLOT_LABELS, SAVE_VERSION, TREE_RESPAWN_INTERVAL_TICKS,
 } from "./constants.js";
 import {
-  buildingHp, buildingLevel, colonists, constructionSites, equipment, farmPlots, forageRegrow, gates, gravestones,
+  buildingHp, buildingLevel, colonists, constructionSites, farmPlots, forageRegrow, gates, gravestones,
   hearths, heroProfiles, heroRecruits, minesPlacedOnOre, mobs, mobsWithoutRoute, ownerSiteIds, players, raidGroups,
-  regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, state, summonedUntil, taskForceMax,
-  taskForces, tileOwner, towerCooldowns, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
+  regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, state, summonedUntil, tileOwner, towerCooldowns, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
 } from "./state.js";
 import { clearOwners, isNightNow, tileIndex } from "./tiles.js";
-import { initialStock, stock } from "./economy.js";
+import { initialStock } from "./economy.js";
 import { generateWorld, setWorldSize } from "./worldgen.js";
 import { civilianPopulationUsed, getColonistsAtPost, settlementOf, spawnPointNearTownCenter } from "./colonists.js";
 import { guardStats } from "./units.js";
@@ -58,8 +57,8 @@ export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   repairQueue.length = 0;
   state.buildingTargetsDirty = true;
   reservedResourceTiles.clear();
-  taskForces.clear();
-  taskForceMax.clear();
+  state.taskForces.clear();
+  state.taskForceMax.clear();
   clearOrderGroups();
   clearPlayerMorale();
   wardStonesActiveLastTick.clear();
@@ -72,7 +71,7 @@ export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   // Hero phase 4: statuses, cooldowns and summons are transient.
   clearSpellState();
 
-  Object.assign(stock, initialStock());
+  Object.assign(state.stock, initialStock());
   resetEquipment();
   heroProfiles.clear();
   heroRecruits.length = 0;
@@ -156,9 +155,9 @@ export function snapshotWorld() {
     // name (optional: saves without them have every tile the colony's).
     owners: Array.from(tileOwner).flat() as number[] | undefined,
     ownerSites: [...ownerSiteIds] as string[] | undefined,
-    stock: { ...stock },
+    stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
-    equipment: { armour: [...equipment.armour], weapon: [...equipment.weapon] },
+    equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
     // Hero phases 1-2: every player profile (gear, inventory, XP).
     heroProfiles: serializeHeroProfiles() as unknown,
     // Hero phase 3: heroes still being recruited (the heroes themselves are colonists / respawn entries).
@@ -193,7 +192,7 @@ export function snapshotWorld() {
     buildingHp: Array.from(buildingHp),
     repairPaid: Array.from(repairPaid),
     repairQueue,
-    taskForces: Array.from(taskForces),
+    taskForces: Array.from(state.taskForces),
     reservedResourceTiles: Array.from(reservedResourceTiles),
     wardStoneLastTended: Array.from(wardStoneLastTended),
     wardStonesActiveLastTick: Array.from(wardStonesActiveLastTick),
@@ -235,11 +234,11 @@ export function applyWorld(s: WorldState) {
   state.goalIndex = s.goals?.goalIndex ?? 0;
   state.castleCleared = s.goals?.castleCleared ?? false;
   state.campsDestroyed = s.goals?.campsDestroyed ?? 0;
-  Object.assign(stock, s.stock);
+  Object.assign(state.stock, s.stock);
   // `?? zeros`: saves from before Armour & weapons have an empty stock (units without tiers fight as tier 0).
   resetEquipment();
-  equipment.armour = [0, 1, 2].map((i) => s.equipment?.armour?.[i] ?? 0);
-  equipment.weapon = [0, 1, 2].map((i) => s.equipment?.weapon?.[i] ?? 0);
+  state.equipment.armour = [0, 1, 2].map((i) => s.equipment?.armour?.[i] ?? 0);
+  state.equipment.weapon = [0, 1, 2].map((i) => s.equipment?.weapon?.[i] ?? 0);
   // Saves from before Hero phases 1-2: no profiles (everyone starts with an empty pack, level 1).
   restoreHeroProfiles(s.heroProfiles);
   // Saves from before hero phase 3: no heroes, nobody being recruited.
@@ -284,8 +283,8 @@ export function applyWorld(s: WorldState) {
   repairQueue.length = 0;
   repairQueue.push(...(s.repairQueue ?? []));
   state.buildingTargetsDirty = true;
-  refill(taskForces, s.taskForces);
-  taskForceMax.clear();
+  refill(state.taskForces, s.taskForces);
+  state.taskForceMax.clear();
   clearOrderGroups();
   clearPlayerMorale();
   refill(reservedResourceTiles, s.reservedResourceTiles);

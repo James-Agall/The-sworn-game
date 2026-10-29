@@ -21,8 +21,7 @@ import {
 } from "./constants.js";
 import {
   chargeCycle, colonists, commandedTargets, mobs, playerMorale, players, respawnQueue, squadMarchSpeed, state,
-  taskForceMax, taskForces,
-} from "./state.js";
+  } from "./state.js";
 import {
   biomeSpeedMultiplier, getBuildingLevel, levelBonus, resourceKey, roadSpeedMultiplier, tileIndex, tileOfPixel,
   tileToPixelCenter,
@@ -46,20 +45,20 @@ import { heroAutoCast, spellBuffDamageMult, spellBuffSpeedMult } from "./spells.
 import { bombardPoint, bombardStep, isCommandable, unitOrderKind } from "./orders.js";
 
 export function pruneTaskForces() {
-  for (const [slot, unitIds] of taskForces) {
+  for (const [slot, unitIds] of state.taskForces) {
     const alive = unitIds.filter((id) => colonists.has(id));
     if (alive.length === 0) {
-      taskForces.delete(slot);
-      taskForceMax.delete(slot);
+      state.taskForces.delete(slot);
+      state.taskForceMax.delete(slot);
     } else if (alive.length !== unitIds.length) {
-      taskForces.set(slot, alive);
+      state.taskForces.set(slot, alive);
     }
   }
 }
 
 export function taskForcesForSnapshot(): Record<string, string[]> {
   const result: Record<string, string[]> = {};
-  for (const [slot, unitIds] of taskForces) {
+  for (const [slot, unitIds] of state.taskForces) {
     result[String(slot)] = unitIds;
   }
   return result;
@@ -250,7 +249,7 @@ export function romanNumeral(n: number): string {
 export function armyRegimentsNow(): ArmyRegimentSnapshot[] {
   const settlementNumber = new Map(state.townCenters.map((tc, i) => [resourceKey(tc.x, tc.y), i + 1]));
   const inTaskForce = new Map<string, number>();
-  for (const [slot, ids] of taskForces) for (const id of ids) inTaskForce.set(id, slot);
+  for (const [slot, ids] of state.taskForces) for (const id of ids) inTaskForce.set(id, slot);
   interface Draft { snap: ArmyRegimentSnapshot; members: Colonist[]; pending: number; order: number }
   const drafts = new Map<string, Draft>();
   const draftFor = (id: string, make: () => Omit<Draft, "members" | "pending">): Draft => {
@@ -345,7 +344,7 @@ export function armyRegimentsNow(): ArmyRegimentSnapshot[] {
       if (ms.outflanked) d.snap.outflanked = true;
     }
     const tf = d.snap.taskForce;
-    d.snap.maxCount = tf !== undefined ? Math.max(taskForceMax.get(tf) ?? 0, d.members.length) : d.members.length + d.pending;
+    d.snap.maxCount = tf !== undefined ? Math.max(state.taskForceMax.get(tf) ?? 0, d.members.length) : d.members.length + d.pending;
   }
   result.sort((a, b) => a.order - b.order || a.snap.name.localeCompare(b.snap.name));
   return result.map((d) => d.snap);

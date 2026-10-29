@@ -8,8 +8,12 @@ import type {
 import type { snapshotWorld } from "./saves.js";
 
 export interface Player {
+  // Clans: the clan this session plays for (state.ts `clans`; 0 = the default shared colony).
+  clan: number;
   // Forts phase A: the ownerVersion of the last `siteTiles` this player was sent.
   siteTilesVersion?: number;
+  // Clans: the clanTilesVersion of the last `clanTiles` this player was sent.
+  clanTilesVersion?: number;
   id: string;
   x: number;
   y: number;
@@ -75,6 +79,8 @@ export interface Colonist {
   // The settlement (Town Center, "x,y" resourceKey) this unit counts toward. Set at spawn to the Town
   // Center nearest its post; old saves get it on load; settlementOf re-homes it if that Town Center fell.
   settlementId: string;
+  // Clans: owning clan (missing = 0). Set at spawn from the post tile's clan (clanIdAt).
+  clan?: number;
 
   healTargetType: "player" | "colonist" | null;
   healTargetId: string | null;
@@ -245,6 +251,8 @@ export interface TownCenter {
   y: number;
   level: number;
   hp: number;
+  // Clans: owning clan (missing = 0).
+  clan?: number;
 }
 // Difficulty (chosen on the client's main menu). Scales RAID-WAVE mobs only (createRaidMob and the
 // raid size); POI guardians, deserters and the Half-Latch are untouched.

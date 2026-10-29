@@ -19,7 +19,6 @@ import {
 } from "./constants.js";
 import { colonists, hearths, mobs, players, scaledCount, scaledCountSub, state } from "./state.js";
 import { clearOwners, inBounds, tileIndex, tileToPixelCenter } from "./tiles.js";
-import { stock } from "./economy.js";
 import { WILDLIFE_CONFIG, generateForage, spawnInitialWildlife } from "./wildlife.js";
 import {
   TOWN_CENTER_TILE, isAbbeyClergy, spawnColonistForPost, topUpTownCenterBuilders, townCenterMaxHp,
@@ -360,7 +359,7 @@ export function formatReward(reward: Partial<Record<ResourceKey, number>>): stri
 }
 
 export function grantReward(reward: Partial<Record<ResourceKey, number>>) {
-  for (const [key, n] of Object.entries(reward)) stock[key as ResourceKey] += n ?? 0;
+  for (const [key, n] of Object.entries(reward)) state.stock[key as ResourceKey] += n ?? 0;
 }
 
 // Runs before resources are scattered (right after the Abbey), so the grounds are only contested by

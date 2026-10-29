@@ -22,7 +22,7 @@ import {
   tileToPixelCenter,
 } from "./tiles.js";
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
-import { releaseResourceReservation, stock } from "./economy.js";
+import { releaseResourceReservation } from "./economy.js";
 import { onBossKilled } from "./worldgen.js";
 import { WILDLIFE_CONFIG, damageWildlife, isWalkablePixel } from "./wildlife.js";
 import {
@@ -215,7 +215,7 @@ export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
     mobs.delete(mob.id);
     chargeRuns.delete(mob.id);
     noteRegimentCasualty(mob);
-    stock.gold += goldForKill(mob);
+    state.stock.gold += goldForKill(mob);
     dropEquipmentFor(mob);
     heroRewardsForKill(mob, attackerKey);
     if (mob.boss) onBossKilled(mob);
@@ -336,7 +336,7 @@ export function handlePlayerAttack(attacker: Player) {
     // A player's kill is dressed on the spot: the meat goes straight to the stockpile.
     state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: bestAnimal.x, toY: bestAnimal.y, melee: true });
     const meat = WILDLIFE_CONFIG[bestAnimal.kind].meat;
-    if (damageWildlife(bestAnimal, damage, attacker.x, attacker.y, null)) stock.meat += meat;
+    if (damageWildlife(bestAnimal, damage, attacker.x, attacker.y, null)) state.stock.meat += meat;
     return;
   }
 

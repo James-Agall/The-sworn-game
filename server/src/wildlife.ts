@@ -19,7 +19,7 @@ import {
   tileToPixelCenter,
 } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
-import { industrialSynergyMultiplier, releaseResourceReservation, stock } from "./economy.js";
+import { industrialSynergyMultiplier, releaseResourceReservation } from "./economy.js";
 import { isInReservedGrounds, randInt } from "./worldgen.js";
 import { TOWN_CENTER_TILE, productionSpeedMultiplier } from "./colonists.js";
 import { damageColonist } from "./combat.js";
@@ -361,7 +361,7 @@ export function startCarryingHome(c: Colonist) {
 }
 
 export function depositCarried(c: Colonist, resource: "meat" | "fruit") {
-  stock[resource] += c.carryAmount;
+  state.stock[resource] += c.carryAmount;
   c.carryAmount = 0;
   c.state = "idle";
 }
