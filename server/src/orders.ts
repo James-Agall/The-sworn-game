@@ -17,11 +17,12 @@ import {
 } from "./constants.js";
 import {
   chargeCycle, chargeRuns, colonists, commandedTargets, hearths, mobs, orderGroupOfUnit, orderGroups, pendingRallies,
-  players, regiments, state, tileOwner,
+  clans, players, regiments, state, tileOwner,
 } from "./state.js";
 import { clamp, inBounds, isNightNow, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { armyDamageMultiplier } from "./economy.js";
 import { isAbbeyClergy, isWardPriest, nearestTownCenter } from "./colonists.js";
+import { inClan, townCentersOfClan } from "./clans.js";
 import { armyRegimentsNow, colonistRole, dropGuardTarget, isGuardOrMilitiaKind, mobRole, unitStats } from "./units.js";
 import { releaseSlot } from "./combat.js";
 import { catapultImpact } from "./siege.js";
@@ -254,7 +255,7 @@ export function orderedUnits(regimentIds: unknown, unitIds: unknown): Colonist[]
   const units: Colonist[] = [];
   for (const id of ids) {
     const c = colonists.get(id);
-    if (c && isCommandable(c)) units.push(c);
+    if (c && isCommandable(c) && inClan(c)) units.push(c);
   }
   return units;
 }
@@ -346,7 +347,7 @@ export function startArmyOrder(g: OrderGroup, order: ArmyOrder) {
       if (order.x === undefined || order.y === undefined) {
         // Retreat: form RETREAT_TC_OFFSET_TILES in front of the nearest Town Center, facing out.
         const c0 = centroidOf(members);
-        const tc = nearestTownCenter(c0.x, c0.y);
+        const tc = nearestTownCenter(c0.x, c0.y, townCentersOfClan(members[0].clan));
         if (!tc) {
           finishArmyOrder(g, members);
           return;
@@ -719,7 +720,12 @@ export function handleRegimentSettings(player: Player, msg: { regimentIds?: unkn
 
 // Sent when an order group changes, else every ARMY_REGIMENT_REFRESH_TICKS.
 export function orderGroupsForSnapshot(): ArmyOrderGroupSnapshot[] | undefined {
-  const list: ArmyOrderGroupSnapshot[] = Array.from(orderGroups.values(), (g) => ({
+  // Clans: only groups of the active clan's units (a group never mixes clans: orders take own units only).
+  const groups = clans.length === 1 ? Array.from(orderGroups.values()) : Array.from(orderGroups.values()).filter((g) => {
+    for (const id of g.unitIds) return (colonists.get(id)?.clan ?? 0) === state.clan.id;
+    return false;
+  });
+  const list: ArmyOrderGroupSnapshot[] = groups.map((g) => ({
     id: g.id,
     unitIds: Array.from(g.unitIds),
     order: g.current,

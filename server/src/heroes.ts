@@ -31,6 +31,7 @@ import {
 } from "./spells.js";
 import { sendTo } from "./saves.js";
 import { broadcastEvent } from "./net.js";
+import { clanIdAt, enterClan, resetClan } from "./clans.js";
 
 export function equipEvent(e: Omit<(typeof equipEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;
@@ -560,8 +561,10 @@ export function updateHeroRecruits() {
     const r = heroRecruits[i];
     if (--r.ticksLeft > 0) continue;
     heroRecruits.splice(i, 1);
+    enterClan(clanIdAt(r.tx, r.ty));
     spawnHeroColonist(r.id, r.name, r.heroClass, r.tx, r.ty);
     broadcastEvent("milestone", `${r.name} the ${HERO_CLASS_LABEL[r.heroClass]} joins the colony`);
+    resetClan();
   }
 }
 
@@ -669,6 +672,8 @@ export function updateForges() {
     const head = localState.queue[0];
     if (!head || !blacksmithStaffed(tile.x, tile.y)) continue;
     if (--localState.ticksLeft > 0) continue;
+    // Clans: the piece goes to the Blacksmith's clan.
+    enterClan(clanIdAt(tile.x, tile.y));
     state.equipment[head.slot][head.tier - 1]++;
     equipEvent({ type: "forged", slot: head.slot, tier: head.tier, detail: key });
     broadcastEvent("build", `The Blacksmith forged a tier-${head.tier} ${EQUIP_SLOT_LABEL[head.slot]}`);
@@ -676,6 +681,7 @@ export function updateForges() {
     const next = localState.queue[0];
     if (next) localState.ticksLeft = state.instantBuild ? 1 : FORGE_TICKS[next.slot];
     else forgeQueues.delete(key);
+    resetClan();
   }
 }
 

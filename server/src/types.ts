@@ -213,6 +213,8 @@ export interface RespawnRequest {
   ty: number;
   kind: ColonistKind;
   ticksRemaining: number;
+  // Clans: the dead unit's clan (missing = 0; falls back to the post tile's clan).
+  clan?: number;
   // Hero phase 3: a fallen hero (comes back with the same id / name / class at a window, for a gold fee).
   hero?: { id: string; name: string; heroClass: HeroClass };
 }

@@ -51,6 +51,7 @@ import { siegeUnitsAt, siegeWorkshopInfo } from "./siege.js";
 import { blacksmithForgeInfo, keepHeroInfo } from "./heroes.js";
 import { churchSpellShop } from "./spells.js";
 import { START_VISION_OFFSETS, broadcastEvent, broadcastTileUpdate, revealAround } from "./net.js";
+import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
 
 export function upgradeKnightAt(tx: number, ty: number, level: number) {
   const stats = guardStats("knight", level);
@@ -367,7 +368,7 @@ export function resolveTownCenterPlacement(tx: number, ty: number) {
     return;
   }
   state.tiles[tileIndex(tx, ty)] = TileType.TownCenter;
-  const tc: TownCenter = { x: tx, y: ty, level: 1, hp: townCenterMaxHp(1) };
+  const tc: TownCenter = { x: tx, y: ty, level: 1, hp: townCenterMaxHp(1), ...(clanIdAt(tx, ty) ? { clan: clanIdAt(tx, ty) } : {}) };
   state.townCenters.push(tc);
   broadcastTileUpdate(tx, ty, TileType.TownCenter);
   revealAround(tx, ty, START_VISION_OFFSETS);
@@ -384,7 +385,7 @@ export function destroyTownCenter(tc: TownCenter) {
   broadcastTileUpdate(tc.x, tc.y, TileType.Empty);
   broadcastEvent(
     "death",
-    state.townCenters.length > 0 ? "A Town Center has been destroyed" : "The last Town Center has been destroyed — build a new one"
+    townCentersOfClan(tc.clan).length > 0 ? "A Town Center has been destroyed" : "The last Town Center has been destroyed — build a new one"
   );
 }
 
@@ -630,7 +631,12 @@ export function updateConstructionSites() {
       constructionSites.delete(key);
       continue;
     }
-    if (site.progress >= site.totalTicks) completeConstruction(key, site);
+    if (site.progress >= site.totalTicks) {
+      // Clans: the finished building resolves in its own clan (costs, toasts, new workers).
+      enterClan(clanIdAt(site.tx, site.ty));
+      completeConstruction(key, site);
+      resetClan();
+    }
   }
 }
 
@@ -722,7 +728,7 @@ export function keepPlacementBlocker(tx: number, ty: number): string {
   const tc = state.townCenters.find((t) => resourceKey(t.x, t.y) === key);
   if (!tc || tc.level < KEEP_MIN_TOWN_CENTER_LEVEL) return `Keep needs a Town Center at level ${KEEP_MIN_TOWN_CENTER_LEVEL}`;
   const has = (x: number, y: number) => settlementKeyNear(x, y) === key;
-  for (const k of tilesOfType(TileType.Keep)) if (has(k.x, k.y)) return "This settlement already has a Keep";
+  for (const k of tilesOfType(TileType.Keep)) if (clanIdAt(k.x, k.y) === state.clan.id && has(k.x, k.y)) return "This settlement already has a Keep";
   for (const site of constructionSites.values()) {
     if (site.target === TileType.Keep && !site.upgrade && has(site.tx, site.ty)) return "This settlement already has a Keep";
   }
@@ -742,6 +748,11 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   // Forts phase A: an NPC site's tile can be neither demolished nor built on / upgraded.
   if (ownerAt(tileIndex(tx, ty)) !== 0) {
     sendEvent(player, "build", "That belongs to an enemy fort");
+    return;
+  }
+  // Clans: another clan's buildings are theirs alone.
+  if (isForeignClanTile(tx, ty, player.clan)) {
+    sendEvent(player, "build", `That belongs to ${clanById(clanIdAt(tx, ty)).name}`);
     return;
   }
 
@@ -769,6 +780,11 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     if (current !== TileType.Empty) return;
   } else if (tile === TileType.WardStone) {
     if (current !== TileType.Empty) return;
+    // Clans: one Ward Priest per world, clan 0's (see ROADMAP "Clans — landed").
+    if (player.clan !== 0) {
+      sendEvent(player, "build", "Only the colony (the first clan) can raise Ward Stones");
+      return;
+    }
     if (tilesOfType(TileType.ChurchPost).length === 0) return;
   } else if (tile === TileType.TownCenter) {
     if (current !== TileType.Empty) return;
@@ -822,7 +838,7 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   const instant =
     state.instantBuild ||
     tile === TileType.FarmPlot ||
-    (tile === TileType.TownCenter && (state.townCenters.length === 0 || !anyBuilderAlive()));
+    (tile === TileType.TownCenter && (clanTownCenters().length === 0 || !anyBuilderAlive()));
   if (!instant && !anyBuilderAlive()) {
     sendEvent(player, "build", "No builders available");
     return;
@@ -833,6 +849,8 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   if (!upgradeInPlace) {
     buildingHp.delete(siteKey);
     repairPaid.delete(siteKey);
+    // Clans: the new building is the placing player's clan's.
+    setTileClan(tileIndex(tx, ty), player.clan);
   }
   if (instant) {
     resolvePlacement(tx, ty, tile, current);
@@ -1146,6 +1164,16 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
       name: `Enemy fort: ${name}`, tile: t, level, maxLevel: 1,
       hp: hpState ? Math.ceil(hpState.hp) : null, maxHp: hpState ? hpState.max : null,
       staffing: "", bonuses: ["Belongs to an enemy fort: right-click with soldiers selected to attack it"],
+      upgrade: null, construction: null, repair: null,
+    };
+  }
+
+  // Clans: another clan's building: labelled as theirs, no upgrade / repair / gate lock / shop.
+  if (forPlayer && isForeignClanTile(tx, ty, forPlayer.clan)) {
+    return {
+      name: `${clanById(clanIdAt(tx, ty)).name}: ${name}`, tile: t, level, maxLevel: level,
+      hp: hpState ? Math.ceil(hpState.hp) : null, maxHp: hpState ? hpState.max : null,
+      staffing: "", bonuses: ["Belongs to another clan (neutral)"],
       upgrade: null, construction: null, repair: null,
     };
   }

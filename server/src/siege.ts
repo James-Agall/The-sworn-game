@@ -25,6 +25,7 @@ import {
 } from "./mobs.js";
 import { canAfford, formatCost, spend } from "./construction.js";
 import { broadcastEvent, recordFightHit, recordMobStrike } from "./net.js";
+import { clanIdAt, enterClan, resetClan } from "./clans.js";
 
 // ---- Cavalry & siege (ROADMAP "Cavalry & siege"): the cavalry charge, siege strikes and the catapult's
 // splash, Siege Workshop production, and the raids' siege engines (updateSiegeMob). ----
@@ -166,8 +167,10 @@ export function updateSiegeWorkshops() {
       continue;
     }
     if (--localState.ticksLeft > 0) continue;
+    enterClan(clanIdAt(tile.x, tile.y));
     const c = spawnColonistForPost(tile.x, tile.y, localState.building, 1);
     broadcastEvent("build", `A ${SIEGE_LABEL[localState.building].toLowerCase()} rolls out of the Siege Workshop`);
+    resetClan();
     siegeEvent("built", c.id, undefined, localState.building);
     localState.building = null;
   }

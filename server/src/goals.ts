@@ -7,17 +7,22 @@ import { colonists, constructionSites, state } from "./state.js";
 import { formatReward, grantReward } from "./worldgen.js";
 import { isSoldierKind } from "./units.js";
 import { broadcastEvent } from "./net.js";
+import { clanIdAt, clanIdAtIndex, clanTownCenters, inClan } from "./clans.js";
 
-// Dawns since the world began (cycle 0 starts at dawn, so day N's dawn is cycleTick N * cycle).
+// Dawns since the world began (cycle 0 starts at dawn, so day N's dawn is cycleTick N * cycle), counted from
+// the active clan's founding day (0 for clan 0).
 export function nightsSurvived(): number {
-  return Math.floor(state.cycleTick / GAME_DAY_TICKS);
+  return Math.max(0, Math.floor(state.cycleTick / GAME_DAY_TICKS) - state.clan.foundedDay);
 }
 
 // Any player-placed structure: a queued construction, a built building (Town Centers beyond the
 // starting one count), or a wall.
 export function anyPlayerBuilding(): boolean {
-  if (constructionSites.size > 0 || state.townCenters.length > 1) return true;
+  // Clans: the active clan's structures only (its first Town Center is its starting one).
+  if (clanTownCenters().length > 1) return true;
+  for (const site of constructionSites.values()) if (clanIdAt(site.tx, site.ty) === state.clan.id) return true;
   for (let i = 0; i < state.tiles.length; i++) {
+    if (clanIdAtIndex(i) !== state.clan.id) continue;
     const t = state.tiles[i] as TileType;
     if (t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate) return true;
     if (t !== TileType.TownCenter && VISION_BUILDING_TILES.has(t)) return true;
@@ -41,12 +46,12 @@ export const GOALS: GoalDef[] = [
   { title: "Place a building", progress: () => flagGoal(anyPlayerBuilding()), reward: { wood: 20 } },
   {
     title: "Assign a worker",
-    progress: () => flagGoal(Array.from(colonists.values()).some((c) => GOAL_WORKER_KINDS.has(c.kind))),
+    progress: () => flagGoal(Array.from(colonists.values()).some((c) => GOAL_WORKER_KINDS.has(c.kind) && inClan(c))),
     reward: { wood: 20, rock: 10 },
   },
   {
     title: "Arm a unit",
-    progress: () => flagGoal(Array.from(colonists.values()).some((c) => isSoldierKind(c.kind))),
+    progress: () => flagGoal(Array.from(colonists.values()).some((c) => isSoldierKind(c.kind) && inClan(c))),
     reward: { iron: 15 },
   },
   // Long days: was 1/3/7/14/21 nights of the old 100 s cycle (2 / 5 / 12 / 23 / 35 min); now 1/2/4/7/10

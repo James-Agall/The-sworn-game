@@ -22,7 +22,7 @@ import {
 } from "./constants.js";
 import {
   buildingHp, colonists, constructionSites, farmPlots, mobs, repairPaid, repairQueue, reservedResourceTiles,
-  respawnQueue, state, summonedUntil, wardStoneLastTended, wardStonesActiveLastTick,
+  clans, respawnQueue, state, summonedUntil, tileClan, wardStoneLastTended, wardStonesActiveLastTick,
 } from "./state.js";
 import {
   biomeSpeedMultiplier, getBuildingLevel, inBounds, isNightNow, levelBonus, ownerAt, resourceKey,
@@ -45,6 +45,7 @@ import {
 } from "./construction.js";
 import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroColonist } from "./heroes.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
+import { clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan } from "./clans.js";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -61,10 +62,11 @@ export function findTownCenterAt(tx: number, ty: number): TownCenter | undefined
   return state.townCenters.find((tc) => tc.x === tx && tc.y === ty);
 }
 
-export function nearestTownCenter(px: number, py: number): TownCenter | null {
+// Nearest Town Center among `list` (default: every clan's; colony code passes clanTownCenters()).
+export function nearestTownCenter(px: number, py: number, list: TownCenter[] = state.townCenters): TownCenter | null {
   let best: TownCenter | null = null;
   let bestD = Infinity;
-  for (const tc of state.townCenters) {
+  for (const tc of list) {
     const c = tileToPixelCenter(tc);
     const d = Math.hypot(c.x - px, c.y - py);
     if (d < bestD) {
@@ -77,7 +79,7 @@ export function nearestTownCenter(px: number, py: number): TownCenter | null {
 
 // The colony-wide Town Center bonuses use the highest level among the standing ones (0 with none).
 export function highestTownCenterLevel(): number {
-  return state.townCenters.reduce((max, tc) => Math.max(max, tc.level), 0);
+  return clanTownCenters().reduce((max, tc) => Math.max(max, tc.level), 0);
 }
 
 export function townCenterBonus(): number {
@@ -86,8 +88,10 @@ export function townCenterBonus(): number {
 
 // Next to the Town Center nearest `near` (default: the starting spot), or the starting spot itself
 // when none stands.
-export function spawnPointNearTownCenter(near?: { x: number; y: number }): { x: number; y: number } {
-  const tc = near ? nearestTownCenter(near.x, near.y) : state.townCenters[0] ?? null;
+export function spawnPointNearTownCenter(near?: { x: number; y: number; clan?: number }): { x: number; y: number } {
+  // Clans: a player respawns at its own clan's Town Centers (else the active clan's).
+  const list = near?.clan !== undefined ? townCentersOfClan(near.clan) : clanTownCenters();
+  const tc = near ? nearestTownCenter(near.x, near.y, list) : list[0] ?? null;
   const tile = tc ?? TOWN_CENTER_TILE;
   const approach = findAdjacentWalkable(tile.x, tile.y);
   return tileToPixelCenter(approach ?? tile);
@@ -110,13 +114,13 @@ export function computeColonyHappiness(): number {
 
   const posts = new Set<string>();
   for (const c of colonists.values()) {
-    if (!isAbbeyClergy(c)) posts.add(resourceKey(c.postX, c.postY));
+    if (!isAbbeyClergy(c) && inClan(c)) posts.add(resourceKey(c.postX, c.postY));
   }
 
   const tavernTiles: TileCoord[] = [];
   for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
     for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
-      if (state.tiles[tileIndex(tx, ty)] === TileType.Tavern) tavernTiles.push({ x: tx, y: ty });
+      if (state.tiles[tileIndex(tx, ty)] === TileType.Tavern && clanIdAt(tx, ty) === state.clan.id) tavernTiles.push({ x: tx, y: ty });
     }
   }
   let tavernCoverageScore = 0;
@@ -222,7 +226,7 @@ export function populationCostOf(c: Colonist): number {
 
 export function civilianPopulationUsed(): number {
   let count = 0;
-  for (const c of colonists.values()) count += populationCostOf(c);
+  for (const c of colonists.values()) if (inClan(c)) count += populationCostOf(c);
   return count;
 }
 
@@ -230,10 +234,11 @@ export function settlementTierCap(level: number): number {
   return SETTLEMENT_POP_CAP_BY_TIER[Math.min(Math.max(level, 1), SETTLEMENT_POP_CAP_BY_TIER.length) - 1];
 }
 
-// The settlement key (Town Center "x,y") nearest a tile; "" with no Town Center.
-export function settlementKeyNear(tx: number, ty: number): string {
+// The settlement key (Town Center "x,y") of clan `clanId` (default: the active clan) nearest a tile; ""
+// with no Town Center.
+export function settlementKeyNear(tx: number, ty: number, clanId = state.clan.id): string {
   const p = tileToPixelCenter({ x: tx, y: ty });
-  const tc = nearestTownCenter(p.x, p.y);
+  const tc = nearestTownCenter(p.x, p.y, townCentersOfClan(clanId));
   return tc ? resourceKey(tc.x, tc.y) : "";
 }
 
@@ -242,21 +247,28 @@ export function settlementKeyNear(tx: number, ty: number): string {
 export function settlementOf(c: Colonist): TownCenter | null {
   const tc = c.settlementId ? state.townCenters.find((t) => resourceKey(t.x, t.y) === c.settlementId) : undefined;
   if (tc) return tc;
-  c.settlementId = settlementKeyNear(c.postX, c.postY);
+  c.settlementId = settlementKeyNear(c.postX, c.postY, c.clan ?? 0);
   return state.townCenters.find((t) => resourceKey(t.x, t.y) === c.settlementId) ?? null;
 }
 
-// Per-settlement population: units by stored settlement, queued worker slots, and the cap = the
-// housing-derived capacity (base + houses + neighbourhood bonus nearest to it) clamped by the tier cap.
+// Per-settlement population of the active clan (see settlementStatsAll).
 export function settlementStats(): SettlementStat[] {
-  const stats: SettlementStat[] = state.townCenters.map((tc, i) => ({
+  return settlementStatsAll().get(state.clan.id) ?? [];
+}
+
+// Per-settlement population of every clan in one map pass (clan id -> its settlements, numbered 1.. per
+// clan): units by stored settlement, queued worker slots, and the cap = the housing-derived capacity (base +
+// houses + neighbourhood bonus nearest to it, among the tile's own clan's Town Centers) clamped by the tier cap.
+export function settlementStatsAll(): Map<number, SettlementStat[]> {
+  const byClan = new Map<number, SettlementStat[]>();
+  const numberIn = new Map<number, number>();
+  const stats: SettlementStat[] = state.townCenters.map((tc) => ({
     tc,
-    number: i + 1,
+    number: 0,
     used: 0,
     pending: 0,
     housingCap:
       TOWN_CENTER_BASE_POPULATION +
-      (i > 0 ? TOWN_CENTER_EXTRA_POPULATION : 0) +
       TOWN_CENTER_LEVEL_POPULATION_BONUS * (tc.level - 1),
     tierCap: settlementTierCap(tc.level),
     keepBonus: 0,
@@ -266,22 +278,34 @@ export function settlementStats(): SettlementStat[] {
     garrisonBase: 0,
     garrisonCap: settlementGarrisonTierCap(tc.level),
   }));
-  if (stats.length === 0) return stats;
-  const statNear = (tx: number, ty: number): SettlementStat | undefined => {
+  // Numbered within each clan; every settlement after a clan's first gets the extra base population.
+  for (const s of stats) {
+    const clanId = s.tc.clan ?? 0;
+    const n = (numberIn.get(clanId) ?? 0) + 1;
+    numberIn.set(clanId, n);
+    s.number = n;
+    if (n > 1) s.housingCap += TOWN_CENTER_EXTRA_POPULATION;
+    let list = byClan.get(clanId);
+    if (!list) byClan.set(clanId, (list = []));
+    list.push(s);
+  }
+  if (stats.length === 0) return byClan;
+  const statOf = new Map(stats.map((s) => [s.tc, s]));
+  const statNear = (tx: number, ty: number, clanId = clanIdAt(tx, ty)): SettlementStat | undefined => {
     const p = tileToPixelCenter({ x: tx, y: ty });
-    const tc = nearestTownCenter(p.x, p.y);
-    return stats.find((s) => s.tc === tc);
+    const tc = nearestTownCenter(p.x, p.y, townCentersOfClan(clanId));
+    return tc ? statOf.get(tc) : undefined;
   };
   for (let i = 0; i < state.tiles.length; i++) {
     const t = state.tiles[i] as TileType;
     const w = t === TileType.House ? 1 : t === TileType.BigHouse ? 3 : t === TileType.HouseLevel2 ? 5 : 0;
     if (w) {
-      const s = statNear(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X));
+      const s = statNear(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X), clanIdAtIndex(i));
       if (s) s.housingCap += w;
     } else if (t === TileType.Keep) {
       const x = i % state.WORLD_TILES_X;
       const y = Math.floor(i / state.WORLD_TILES_X);
-      const s = statNear(x, y);
+      const s = statNear(x, y, clanIdAtIndex(i));
       if (s) {
         const bonus = KEEP_POPULATION_PER_LEVEL * getBuildingLevel(x, y);
         s.keepBonus += bonus;
@@ -292,7 +316,7 @@ export function settlementStats(): SettlementStat[] {
       const x = i % state.WORLD_TILES_X;
       const y = Math.floor(i / state.WORLD_TILES_X);
       const slots = unitBuildingSlots(x, y);
-      const s = statNear(x, y);
+      const s = statNear(x, y, clanIdAtIndex(i));
       if (s && slots) {
         s.troopCap += slots.cap;
         s.garrisonBase += slots.base;
@@ -308,7 +332,7 @@ export function settlementStats(): SettlementStat[] {
     const cost = populationCostOf(c);
     if (!cost && !soldier) continue;
     const tc = settlementOf(c);
-    const s = stats.find((x) => x.tc === tc);
+    const s = tc ? statOf.get(tc) : undefined;
     if (!s) continue;
     s.used += cost;
     if (soldier) s.troops++;
@@ -324,7 +348,7 @@ export function settlementStats(): SettlementStat[] {
     }
   }
   for (const s of stats) s.cap = Math.min(s.housingCap, s.tierCap + s.keepBonus);
-  return stats;
+  return byClan;
 }
 
 // "" when the settlement nearest (tx, ty) can take `cost` more population (counting queued worker
@@ -390,6 +414,8 @@ export function neighbourhoodPopulationBonus(onBonus?: (tx: number, ty: number) 
         const ny = ty + dy;
         if (!inBounds(nx, ny)) continue;
         const n = state.tiles[tileIndex(nx, ny)] as TileType;
+        // Clans: a pair only counts inside one clan.
+        if (tileClan.size > 0 && clanIdAt(nx, ny) !== clanIdAt(tx, ty)) continue;
         if (isSynergyBuilding(n)) {
           bonus++;
           onBonus?.(tx, ty);
@@ -465,7 +491,8 @@ export function spawnColonistForPost(
     homeTileX: -1,
     homeTileY: -1,
     castleLevel,
-    settlementId: settlementKeyNear(tx, ty),
+    settlementId: settlementKeyNear(tx, ty, clanIdAt(tx, ty)),
+    ...(clanIdAt(tx, ty) ? { clan: clanIdAt(tx, ty) } : {}),
     healTargetType: null,
     healTargetId: null,
     rallyTileX: tx,
@@ -490,7 +517,7 @@ export function spawnColonistForPost(
 export function queueRespawn(c: Colonist) {
   // ticksRemaining is unused since dawn/dusk respawn windows (kept so old and new saves share a shape).
   respawnQueue.push({
-    tx: c.postX, ty: c.postY, kind: c.kind, ticksRemaining: 0,
+    tx: c.postX, ty: c.postY, kind: c.kind, ticksRemaining: 0, ...(c.clan ? { clan: c.clan } : {}),
     ...(c.kind === "hero" && c.heroClass ? { hero: { id: c.id, name: c.heroName ?? "Hero", heroClass: c.heroClass } } : {}),
   });
 }
@@ -574,7 +601,10 @@ export function nextRespawnWindow(tick: number): { window: RespawnWindow; ticks:
 export function respawnWindowSnapshot() {
   const next = nextRespawnWindow(state.cycleTick);
   return {
-    waiting: respawnQueue.length + (state.wardPriestAwaitingWindow ? 1 : 0),
+    // Clans: the active clan's dead only (the Ward Priest is clan 0's).
+    waiting:
+      (clans.length === 1 ? respawnQueue.length : respawnQueue.filter((q) => (q.clan ?? clanIdAt(q.tx, q.ty)) === state.clan.id).length) +
+      (state.wardPriestAwaitingWindow && state.clan.id === 0 ? 1 : 0),
     nextWindow: next.window,
     ticksToWindow: next.ticks,
     dayTicks: DAY_TICKS,
@@ -588,6 +618,8 @@ export function processRespawnQueue() {
   const windowNow = respawnWindowAt(state.cycleTick);
   for (let i = respawnQueue.length - 1; i >= 0; i--) {
     const req = respawnQueue[i];
+    // Clans: each entry is served from its own clan's stock and settlements.
+    enterClan(req.clan ?? clanIdAt(req.tx, req.ty));
     // Hero phase 3: a fallen hero is never dropped; it comes back at a window when its settlement has room
     // (2 population) and the gold fee can be paid, else it waits for the next one.
     if (req.hero) {
@@ -609,7 +641,7 @@ export function processRespawnQueue() {
     // A builder whose Town Center fell respawns at the nearest one still standing.
     if (req.kind === "builder" && !isValidPostTile("builder", state.tiles[tileIndex(req.tx, req.ty)] as TileType)) {
       const p = tileToPixelCenter({ x: req.tx, y: req.ty });
-      const tc = nearestTownCenter(p.x, p.y);
+      const tc = nearestTownCenter(p.x, p.y, clanTownCenters());
       if (tc) {
         req.tx = tc.x;
         req.ty = tc.y;
@@ -654,6 +686,7 @@ export function processRespawnQueue() {
       respawnQueue.splice(i, 1);
     }
   }
+  resetClan();
 }
 
 export function trySpendFood(amount: number): boolean {
@@ -670,7 +703,7 @@ export function trySpendFood(amount: number): boolean {
 
 export function applyDailyFoodConsumption() {
   // The Abbey provisions its own clergy: they neither eat the colony's food nor starve with it.
-  const consumers = Array.from(colonists.values()).filter((c) => !isAbbeyClergy(c));
+  const consumers = Array.from(colonists.values()).filter((c) => !isAbbeyClergy(c) && inClan(c));
   const consumerCount = consumers.length;
   if (consumerCount === 0) return;
   let needed = Math.ceil(consumerCount * FOOD_PER_COLONIST_PER_DAY);
@@ -724,11 +757,11 @@ export function desertColonist(c: Colonist) {
 export function applyMoraleCheck() {
   if (state.colonyHappiness < HAPPINESS_MUTINY_THRESHOLD) {
     for (const c of Array.from(colonists.values())) {
-      if (isSoldierKind(c.kind)) desertColonist(c);
+      if (isSoldierKind(c.kind) && inClan(c)) desertColonist(c);
     }
   } else if (state.colonyHappiness < HAPPINESS_DESERTION_THRESHOLD) {
     for (const c of Array.from(colonists.values())) {
-      if (isSoldierKind(c.kind) && Math.random() < HAPPINESS_DESERTION_CHANCE) desertColonist(c);
+      if (isSoldierKind(c.kind) && inClan(c) && Math.random() < HAPPINESS_DESERTION_CHANCE) desertColonist(c);
     }
   }
 }
@@ -915,7 +948,7 @@ export function updateGathererColonist(c: Colonist, dt: number) {
 }
 
 export function anyBuilderAlive(): boolean {
-  for (const c of colonists.values()) if (c.kind === "builder") return true;
+  for (const c of colonists.values()) if (c.kind === "builder" && inClan(c)) return true;
   return false;
 }
 
@@ -940,6 +973,8 @@ export function builderRate(c: Colonist): number {
 export function planBuildSite(c: Colonist): { key: string; path: TileCoord[] } | null {
   const candidates: { key: string; site: ConstructionSiteState; d: number; n: number }[] = [];
   for (const [key, site] of constructionSites) {
+    // Clans: builders only work on their own clan's sites.
+    if (clanIdAt(site.tx, site.ty) !== (c.clan ?? 0)) continue;
     const n = siteBuilderCount(key);
     if (n >= BUILDER_MAX_PER_SITE) continue;
     const center = tileToPixelCenter({ x: site.tx, y: site.ty });
@@ -962,7 +997,7 @@ export function planBuildSite(c: Colonist): { key: string; path: TileCoord[] } |
 export function updateBuilder(c: Colonist, dt: number) {
   // Its Town Center fell: report to the nearest one still standing.
   if (!isValidPostTile("builder", state.tiles[tileIndex(c.postX, c.postY)] as TileType)) {
-    const tc = nearestTownCenter(c.x, c.y);
+    const tc = nearestTownCenter(c.x, c.y, townCentersOfClan(c.clan));
     if (tc) {
       c.postX = tc.x;
       c.postY = tc.y;
@@ -1097,6 +1132,8 @@ export function planRepair(c: Colonist): { key: string; path: TileCoord[] } | nu
   for (const key of auto) {
     if (repairQueue.includes(key)) continue;
     const tile = keyToTile(key);
+    // Clans: builders only repair their own clan's buildings.
+    if (tile && clanIdAt(tile.x, tile.y) !== (c.clan ?? 0)) continue;
     // Forts phase A: builders never repair an NPC site's buildings.
     if (tile && ownerAt(tileIndex(tile.x, tile.y)) !== 0) continue;
     const s = tile ? structureHp(tile.x, tile.y) : null;
@@ -1235,6 +1272,7 @@ export function assignShelter(c: Colonist) {
     for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
       const cap = houseCapacity(state.tiles[tileIndex(tx, ty)] as TileType);
       if (cap === 0) continue;
+      if (clanIdAt(tx, ty) !== (c.clan ?? 0)) continue;
       const center = tileToPixelCenter({ x: tx, y: ty });
       const d = Math.hypot(c.x - center.x, c.y - center.y);
       if (d >= bestD) continue;
@@ -1247,7 +1285,7 @@ export function assignShelter(c: Colonist) {
 }
 
 export function shelterTileFor(c: Colonist): TileCoord | null {
-  return c.homeTileX >= 0 ? { x: c.homeTileX, y: c.homeTileY } : nearestTownCenter(c.x, c.y);
+  return c.homeTileX >= 0 ? { x: c.homeTileX, y: c.homeTileY } : nearestTownCenter(c.x, c.y, townCentersOfClan(c.clan));
 }
 
 export function isAtShelter(c: Colonist): boolean {

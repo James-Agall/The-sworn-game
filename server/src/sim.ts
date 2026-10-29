@@ -5,7 +5,7 @@ import {
   DAY_TICKS, FIGHT_SCAN_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS, NIGHT_TICKS, RAID_SPAWN_CYCLE_TICK,
   TREE_RESPAWN_INTERVAL_TICKS, dt,
 } from "./constants.js";
-import { colonists, gravestones, mobs, players, state, tileOwner } from "./state.js";
+import { clans, colonists, gravestones, mobs, players, state, tileOwner } from "./state.js";
 import { biomeSpeedMultiplier, clamp, collidesAt, isNightNow, roadSpeedMultiplier, siteNumber } from "./tiles.js";
 import { separateBodies } from "./pathfinding.js";
 import { tryGrowTree, tryGrowTreesNearLumberjackPosts, updateFarmPlots } from "./economy.js";
@@ -29,6 +29,7 @@ import { heroProfileOf, updateForges, updateHeroRecruits } from "./heroes.js";
 import { spellBuffSpeedMult, updateSpellStatuses } from "./spells.js";
 import { updateOrderGroups } from "./orders.js";
 import { broadcastEvent, scanFights } from "./net.js";
+import { clanTownCenters, enterClan, forEachClan, resetClan } from "./clans.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
@@ -38,21 +39,31 @@ export function stepSimulation() {
   if (!nightNow && state.wasNight) {
     gravestones.length = 0;
     broadcastEvent("dawn", "Dawn breaks — the colony survived the night");
-    applyDailyFoodConsumption();
-    applyMoraleCheck();
+    // Clans: each clan feeds its own colonists from its own stock, and its own soldiers may desert.
+    forEachClan(() => {
+      applyDailyFoodConsumption();
+      applyMoraleCheck();
+    });
     state.autosaveDue = true;
   }
 
   if (nightNow && !state.wasNight) broadcastEvent("night", "Night falls");
   state.wasNight = nightNow;
 
-  state.colonyHappiness = computeColonyHappiness();
+  // Clans: with several clans each clan's happiness is recomputed once a second (one map scan per clan).
+  if (clans.length === 1) state.colonyHappiness = computeColonyHappiness();
+  else if (state.cycleTick % TICK_RATE === 0) forEachClan((clan) => (clan.colonyHappiness = computeColonyHappiness()));
 
   const dayIndex = Math.floor(state.cycleTick / (DAY_TICKS + NIGHT_TICKS));
   if (!nightNow && state.cycleTick % (DAY_TICKS + NIGHT_TICKS) >= RAID_SPAWN_CYCLE_TICK && state.raidSpawnedForDay !== dayIndex) {
     state.raidSpawnedForDay = dayIndex;
     // With raids switched off by a test the day's raid is skipped for good, not deferred to re-enabling.
-    if (!state.testRaidsDisabled) spawnRaid(dayIndex);
+    // Clans: every clan with a Town Center gets its own raid on the shared schedule (clan 0 always).
+    if (!state.testRaidsDisabled) {
+      forEachClan((clan) => {
+        if (clan.id === 0 || clanTownCenters().length > 0) spawnRaid(dayIndex);
+      });
+    }
   }
 
   if (state.treeRespawnCooldown > 0) {
@@ -103,9 +114,12 @@ export function stepSimulation() {
   updatePlayerMorale();
   updateOrderGroups();
   updateSquadMarch();
+  // Clans: each colonist works for (and pays from / delivers to) its own clan.
   for (const colonist of colonists.values()) {
+    enterClan(colonist.clan);
     updateColonist(colonist, dt);
   }
+  resetClan();
   updateConstructionSites();
   updateSiegeWorkshops();
   updateForges();
@@ -147,7 +161,7 @@ export function stepSimulation() {
   respawnDeadPlayers();
   if (state.cycleTick % TICK_RATE === 0) {
     checkBossSightings();
-    evaluateGoals();
+    forEachClan(() => evaluateGoals());
   }
   if (state.cycleTick % FIGHT_SCAN_TICKS === 0) scanFights();
 }

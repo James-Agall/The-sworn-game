@@ -328,6 +328,8 @@ export interface Clan extends ClanFields {
   color: number;
   // Phase D hook: relation to other clans by clan id (none yet: every clan is neutral to every other).
   relations: Record<number, number>;
+  // Day index (dawns since the world began) the clan was founded on; its "Survive N nights" goals count from it.
+  foundedDay: number;
 }
 export const CLAN_FIELD_KEYS: readonly (keyof ClanFields)[] = [
   "stock", "equipment", "marketBuilt", "goldShopBuilt", "colonyHappiness", "goalIndex", "goalSnapshot",
@@ -342,9 +344,9 @@ export interface ClanStateFields {
 }
 
 // A fresh clan; the stock starts empty (callers fill it, e.g. initialStock()).
-export function makeClan(id: number, name: string, color: number): Clan {
+export function makeClan(id: number, name: string, color: number, foundedDay = 0): Clan {
   return {
-    id, name, color, relations: {},
+    id, name, color, relations: {}, foundedDay,
     stock: {
       wood: 0, iron: 0, rock: 0, grain: 0, meat: 0, fruit: 0, wool: 0, cotton: 0, clothes: 0, tools: 0,
       luxuryItems: 0, gold: 0, alcohol: 0,

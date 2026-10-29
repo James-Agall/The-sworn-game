@@ -13,10 +13,11 @@ import {
   FIGHT_MAX_HITS, FIGHT_MAX_TRACKED, FIGHT_RAID_LABELS, FIGHT_WINDOW_TICKS, SET_VIEW_MIN_MS,
   STRATEGY_VIEW_MARGIN_TILES, STRATEGY_VIEW_MAX_HALF_TILES, VISION_BUILDING_TILES,
 } from "./constants.js";
-import { colonists, players, state } from "./state.js";
+import { colonists, players, state, tileClan } from "./state.js";
 import { clamp } from "./tiles.js";
 import { TOWN_CENTER_TILE, isAbbeyClergy } from "./colonists.js";
 import { listSaves } from "./saves.js";
+import { isClanOwnableTile, setTileClan } from "./clans.js";
 
 // ---- Fog of war (minimap only) ----
 
@@ -94,6 +95,8 @@ export function flushExplored() {
 }
 
 export function broadcastTileUpdate(tx: number, ty: number, tile: TileType) {
+  // Clans: a tile that is no longer a building (cleared, destroyed, reverted to ore) loses its clan.
+  if (tileClan.size > 0 && !isClanOwnableTile(tile)) setTileClan(ty * state.WORLD_TILES_X + tx, 0);
   state.buildingTargetsDirty = true;
   state.gateTilesDirty = true;
   if (VISION_BUILDING_TILES.has(tile)) revealAround(tx, ty, BUILDING_VISION_OFFSETS);
@@ -106,10 +109,13 @@ export function broadcastTileUpdate(tx: number, ty: number, tile: TileType) {
   }
 }
 
+// Clans: inside a clan context (state.eventClan) only that clan's players get the toast.
 export function broadcastEvent(category: GameEventCategory, text: string) {
   const event: ServerMessage = { type: "event", category, text };
   const payload = JSON.stringify(event);
+  const only = state.eventClan;
   for (const p of players.values()) {
+    if (only && p.clan !== only.id) continue;
     if (p.socket.readyState === p.socket.OPEN) {
       p.socket.send(payload);
     }

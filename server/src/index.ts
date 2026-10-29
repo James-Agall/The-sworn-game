@@ -13,17 +13,16 @@ import {
   TICK_DURATION_SAMPLES,
 } from "./constants.js";
 import {
-  colonists, gravestones, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
+  clans, colonists, gravestones, mobs, players, state, summonedUntil, tickDurationsMs, tileClan, tileOwner,
 } from "./state.js";
 import { clamp, isNightNow, tileIndex } from "./tiles.js";
-import { clanOf, withClan } from "./clans.js";
 import "./pathfinding.js";
 import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchangeResource } from "./economy.js";
 import { generateWorld } from "./worldgen.js";
 import { wildlifeForSnapshot } from "./wildlife.js";
 import {
   TOWN_CENTER_TILE, civilianPopulationUsed, handleRepairBuilding, isAtShelter, respawnWindowSnapshot,
-  settlementStats, spawnPointNearTownCenter, townCenterMaxHp,
+  settlementStatsAll, spawnPointNearTownCenter, townCenterMaxHp,
 } from "./colonists.js";
 import { armyRegimentsForSnapshot, pruneTaskForces, taskForcesForSnapshot } from "./units.js";
 import { damagedBuildingsForSnapshot, gatesForSnapshot, handlePlayerAttack, handleSetGateLock } from "./combat.js";
@@ -49,8 +48,9 @@ import { stepSimulation } from "./sim.js";
 import {
   handleLoadGame, handleSaveGame, listSaves, resetWorld, runDueAutosave, saveOnShutdown, sendTo,
 } from "./saves.js";
-import { flushExplored, handleSetView, httpServer, sendWelcome, updateVision, withPlayerFights, wss } from "./net.js";
+import { broadcastEvent, flushExplored, handleSetView, httpServer, sendWelcome, updateVision, withPlayerFights, wss } from "./net.js";
 import { handleTestHook } from "./testhooks.js";
+import { clanOf, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
 
 state.tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
 
@@ -91,6 +91,21 @@ wss.on("connection", (socket, req) => {
     orderWindowCount: 0,
   };
   players.set(id, player);
+  // Clans: `?clan=new` founds the player's own clan (a new Town Center and stock elsewhere on the map),
+  // `?clan=<id>` joins that clan if it exists; anything else (or no room to found one) joins clan 0.
+  const clanParam = new URL(req.url ?? "/", "http://localhost").searchParams.get("clan") ?? "";
+  if (clanParam === "new") {
+    const founded = foundClan(player);
+    if (founded) broadcastEvent("milestone", `A new clan is founded: ${founded.name}`);
+    else sendTo(player, { type: "event", category: "build", text: "No room to found a new clan: you join the colony" });
+  } else if (/^\d{1,3}$/.test(clanParam) && clans[Number(clanParam)]) {
+    player.clan = Number(clanParam);
+  }
+  if (player.clan !== 0) {
+    const at = withClan(clanOf(player), () => spawnPointNearTownCenter());
+    player.x = at.x;
+    player.y = at.y;
+  }
   player.hp = playerMaxHp(player);
   state.anyPlayerSinceBoot = true;
 
@@ -113,8 +128,23 @@ wss.on("connection", (socket, req) => {
   });
 });
 
+// Clans: unit ids of other clans are dropped from commands (each clan commands its own army only).
+function ownUnits(player: Player, ids: unknown): string[] {
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is string => typeof id === "string" && (colonists.get(id)?.clan ?? 0) === player.clan);
+}
+
+// Clans: tile actions (upgrade, repair, gate lock, siege / forge queue, recruit, learn) only on own buildings.
+const TILE_ACTIONS = new Set(["upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "recruitHero", "learnSpell"]);
+
 function handleMessage(player: Player, message: ClientMessage) {
   const socket = player.socket;
+  if (TILE_ACTIONS.has(message.type)) {
+    const m = message as unknown as { tileX?: unknown; tileY?: unknown; tx?: unknown; ty?: unknown };
+    const tx = (m.tileX ?? m.tx) as number;
+    const ty = (m.tileY ?? m.ty) as number;
+    if (Number.isInteger(tx) && Number.isInteger(ty) && tx >= 0 && ty >= 0 && tx < state.WORLD_TILES_X && ty < state.WORLD_TILES_Y && isForeignClanTile(tx, ty, player.clan)) return;
+  }
   if (TEST_HOOKS && (message as { type: string }).type === "testHook") {
     handleTestHook(player, message as unknown as Record<string, unknown>);
     return;
@@ -144,16 +174,16 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "setDifficulty") {
     handleSetDifficulty(message.difficulty, message.worldSize);
   } else if (message.type === "commandMove") {
-    handleCommandMove(message.unitIds, message.x, message.y, message.squad);
+    handleCommandMove(ownUnits(player, message.unitIds), message.x, message.y, message.squad);
   } else if (message.type === "commandAttack") {
-    handleCommandAttack(message.unitIds, message.mobId);
+    handleCommandAttack(ownUnits(player, message.unitIds), message.mobId);
   } else if (message.type === "commandAttackHearth") {
     if (!Array.isArray(message.unitIds) || !Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
-    handleCommandAttackHearth(message.unitIds, message.tileX, message.tileY);
+    handleCommandAttackHearth(ownUnits(player, message.unitIds), message.tileX, message.tileY);
   } else if (message.type === "commandStance") {
-    handleCommandStance(message.unitIds, message.stance);
+    handleCommandStance(ownUnits(player, message.unitIds), message.stance);
   } else if (message.type === "assignTaskForce") {
-    handleAssignTaskForce(message.slot, message.unitIds);
+    handleAssignTaskForce(message.slot, ownUnits(player, message.unitIds));
   } else if (message.type === "regimentOrder") {
     handleRegimentOrder(player, message);
   } else if (message.type === "regimentSettings") {
@@ -240,21 +270,22 @@ setInterval(() => {
   flushExplored();
 
   const night = isNightNow();
-  pruneTaskForces();
+  forEachClan(() => pruneTaskForces());
 
-  const settlementStatsNow = settlementStats();
-  const snapshot: ServerMessage = {
-    type: "snapshot",
-    players: Array.from(players.values()).map((p): PlayerSnapshot => ({
-      id: p.id,
-      x: p.x,
-      y: p.y,
-      color: p.color,
-      hp: p.hp,
-      maxHp: playerMaxHp(p),
-      dead: p.dead,
-    })),
-    colonists: Array.from(colonists.values()).map((c): ColonistSnapshot => ({
+  // Clans: the world part of the snapshot is built once; the clan part (stock, population, army, goals,
+  // ...) once per clan, under that clan's context. One clan: one snapshot, as before.
+  const statsByClan = settlementStatsAll();
+  const playersNow = Array.from(players.values()).map((p): PlayerSnapshot => ({
+    id: p.id,
+    x: p.x,
+    y: p.y,
+    color: p.color,
+    hp: p.hp,
+    maxHp: playerMaxHp(p),
+    dead: p.dead,
+    ...(p.clan ? { clan: p.clan } : {}),
+  }));
+  const colonistsNow = Array.from(colonists.values()).map((c): ColonistSnapshot => ({
       id: c.id,
       kind: c.kind,
       x: c.x,
@@ -274,8 +305,9 @@ setInterval(() => {
       ...(c.skirmish ? { skirmish: true } : {}),
       ...(c.cycleCharge ? { cycleCharge: true } : {}),
       ...(c.shape ? { shape: c.shape } : {}),
-    })),
-    mobs: Array.from(mobs.values()).map((m): MobSnapshot => ({
+      ...(c.clan ? { clan: c.clan } : {}),
+    }));
+  const mobsNow = Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,
       kind: m.kind,
       x: m.x,
@@ -285,79 +317,104 @@ setInterval(() => {
       ...(m.mark !== HungerMark.None ? { mark: m.mark } : {}),
       ...(m.boss ? { boss: m.boss } : {}),
       ...(m.scale !== undefined && m.scale !== 1 ? { scale: m.scale } : {}),
-    })),
-    wood: state.stock.wood,
-    iron: state.stock.iron,
-    rock: state.stock.rock,
-    grain: state.stock.grain,
-    meat: state.stock.meat,
-    fruit: state.stock.fruit,
-    wool: state.stock.wool,
-    cotton: state.stock.cotton,
-    clothes: state.stock.clothes,
-    tools: state.stock.tools,
-    luxuryItems: state.stock.luxuryItems,
-    gold: state.stock.gold,
-    alcohol: state.stock.alcohol,
-    happiness: state.colonyHappiness,
-    marketBuilt: state.marketBuilt,
-    goldShopBuilt: state.goldShopBuilt,
-    isNight: night,
-    cycleProgress: (state.cycleTick % (DAY_TICKS + NIGHT_TICKS)) / (DAY_TICKS + NIGHT_TICKS),
-    dayFraction: DAY_TICKS / (DAY_TICKS + NIGHT_TICKS),
-    isPaused: state.isPaused,
-    ...(state.pausedBy ? { pausedBy: state.pausedBy } : {}),
-    timeScale: state.timeScale,
-    ...(state.timeScaleBy ? { timeScaleBy: state.timeScaleBy } : {}),
-    effects: state.pendingEffects,
-    // The first standing Town Center (the starting one unless it fell); townCenters has them all.
-    townCenterHp: state.townCenters[0] ? Math.max(0, state.townCenters[0].hp) : 0,
-    townCenterMaxHp: townCenterMaxHp(state.townCenters[0]?.level ?? 1),
-    population: civilianPopulationUsed(),
-    populationCap: settlementStatsNow.reduce((n, st) => n + st.cap, 0),
-    taskForces: taskForcesForSnapshot(),
-    armyRegiments: armyRegimentsForSnapshot(),
-    orderGroups: orderGroupsForSnapshot(),
+    }));
+  const world = {
     readyFarmPlots: farmPlotIndices("harvesting"),
     sownFarmPlots: farmPlotIndices("sown"),
     fallowFarmPlots: farmPlotIndices("fallow"),
     wildlife: wildlifeForSnapshot(),
-    gravestones,
-    difficulty: state.difficulty,
     buildingLevels: buildingLevelsForSnapshot(),
     farmStages: farmStagesForSnapshot(),
     constructionSites: constructionSitesForSnapshot(),
     damagedBuildings: damagedBuildingsForSnapshot(),
     hearths: hearthsForSnapshot(),
-    equipment: state.equipment,
     forgeBusy: forgeBusyForSnapshot(),
-    townCenters: state.townCenters.map(
-      (tc, i): TownCenterSnapshot => ({
-        x: tc.x,
-        y: tc.y,
-        level: tc.level,
-        hp: Math.max(0, tc.hp),
-        maxHp: townCenterMaxHp(tc.level),
-        population: settlementStatsNow[i].used,
-        populationCap: settlementStatsNow[i].cap,
-        populationTierCap: settlementStatsNow[i].tierCap,
-        populationKeepBonus: settlementStatsNow[i].keepBonus,
-        troops: settlementStatsNow[i].troops,
-        troopCap: settlementStatsNow[i].troopCap,
-        garrisonBase: settlementStatsNow[i].garrisonBase,
-        garrisonCap: settlementStatsNow[i].garrisonCap,
-      })
-    ),
-    goal: state.goalSnapshot,
     gates: gatesForSnapshot(),
-    respawn: respawnWindowSnapshot(),
   };
+  const clanSnapshot = (): ServerMessage => {
+    const settlementStatsNow = statsByClan.get(state.clan.id) ?? [];
+    const ownTownCenters = clanTownCenters();
+    return {
+      type: "snapshot",
+      players: playersNow,
+      colonists: colonistsNow,
+      mobs: mobsNow,
+      wood: state.stock.wood,
+      iron: state.stock.iron,
+      rock: state.stock.rock,
+      grain: state.stock.grain,
+      meat: state.stock.meat,
+      fruit: state.stock.fruit,
+      wool: state.stock.wool,
+      cotton: state.stock.cotton,
+      clothes: state.stock.clothes,
+      tools: state.stock.tools,
+      luxuryItems: state.stock.luxuryItems,
+      gold: state.stock.gold,
+      alcohol: state.stock.alcohol,
+      happiness: state.colonyHappiness,
+      marketBuilt: state.marketBuilt,
+      goldShopBuilt: state.goldShopBuilt,
+      isNight: night,
+      cycleProgress: (state.cycleTick % (DAY_TICKS + NIGHT_TICKS)) / (DAY_TICKS + NIGHT_TICKS),
+      dayFraction: DAY_TICKS / (DAY_TICKS + NIGHT_TICKS),
+      isPaused: state.isPaused,
+      ...(state.pausedBy ? { pausedBy: state.pausedBy } : {}),
+      timeScale: state.timeScale,
+      ...(state.timeScaleBy ? { timeScaleBy: state.timeScaleBy } : {}),
+      effects: state.pendingEffects,
+      // The clan's first standing Town Center (the starting one unless it fell); townCenters has them all.
+      townCenterHp: ownTownCenters[0] ? Math.max(0, ownTownCenters[0].hp) : 0,
+      townCenterMaxHp: townCenterMaxHp(ownTownCenters[0]?.level ?? 1),
+      population: civilianPopulationUsed(),
+      populationCap: settlementStatsNow.reduce((n, st) => n + st.cap, 0),
+      taskForces: taskForcesForSnapshot(),
+      armyRegiments: armyRegimentsForSnapshot(),
+      orderGroups: orderGroupsForSnapshot(),
+      readyFarmPlots: world.readyFarmPlots,
+      sownFarmPlots: world.sownFarmPlots,
+      fallowFarmPlots: world.fallowFarmPlots,
+      wildlife: world.wildlife,
+      gravestones,
+      difficulty: state.difficulty,
+      buildingLevels: world.buildingLevels,
+      farmStages: world.farmStages,
+      constructionSites: world.constructionSites,
+      damagedBuildings: world.damagedBuildings,
+      hearths: world.hearths,
+      equipment: state.equipment,
+      forgeBusy: world.forgeBusy,
+      townCenters: ownTownCenters.map(
+        (tc, i): TownCenterSnapshot => ({
+          x: tc.x,
+          y: tc.y,
+          level: tc.level,
+          hp: Math.max(0, tc.hp),
+          maxHp: townCenterMaxHp(tc.level),
+          population: settlementStatsNow[i].used,
+          populationCap: settlementStatsNow[i].cap,
+          populationTierCap: settlementStatsNow[i].tierCap,
+          populationKeepBonus: settlementStatsNow[i].keepBonus,
+          troops: settlementStatsNow[i].troops,
+          troopCap: settlementStatsNow[i].troopCap,
+          garrisonBase: settlementStatsNow[i].garrisonBase,
+          garrisonCap: settlementStatsNow[i].garrisonCap,
+        })
+      ),
+      goal: state.goalSnapshot,
+      gates: world.gates,
+      respawn: respawnWindowSnapshot(),
+      ...(clans.length > 1 ? { clanId: state.clan.id, clans: clansNow } : {}),
+    };
+  };
+  const clansNow = clans.length > 1 ? clans.map((c) => ({ id: c.id, name: c.name, color: c.color })) : [];
+  const snapshots = clans.length === 1 ? [clanSnapshot()] : clans.map((c) => withClan(c, clanSnapshot));
   state.pendingEffects = [];
 
   // Small/medium worlds send everyone the same payload. On big worlds each player only gets the mobs and
   // wildlife within view distance + margin (their camera never shows more), keeping snapshots small.
-  const cull = state.WORLD_TILES_X > SNAPSHOT_CULL_MIN_WORLD && snapshot.type === "snapshot";
-  const sharedPayload = cull ? "" : JSON.stringify(snapshot);
+  const cull = state.WORLD_TILES_X > SNAPSHOT_CULL_MIN_WORLD;
+  const sharedPayloads = cull ? [] : snapshots.map((snap) => JSON.stringify(snap));
   // Strategy mode phase 5: enemy summaries for strategy-mode players, on the first broadcast once due.
   let enemyJson: string | null = null;
   if (state.enemyRegimentTick >= ENEMY_REGIMENT_REFRESH_TICKS && Array.from(players.values()).some((p) => p.view)) {
@@ -366,7 +423,8 @@ setInterval(() => {
   }
   for (const player of players.values()) {
     if (player.socket.readyState === player.socket.OPEN) {
-      let payload = sharedPayload;
+      const snapshot = snapshots[player.clan] ?? snapshots[0];
+      let payload = sharedPayloads[player.clan] ?? sharedPayloads[0] ?? "";
       if (snapshot.type === "snapshot" && cull) {
         const limit = SNAPSHOT_VIEW_TILES * TILE_SIZE;
         const view = player.view;
@@ -383,6 +441,11 @@ setInterval(() => {
       if (snapshot.type === "snapshot" && player.siteTilesVersion !== state.ownerVersion) {
         player.siteTilesVersion = state.ownerVersion;
         payload = payload.slice(0, -1) + ',"siteTiles":' + JSON.stringify(Array.from(tileOwner).flat()) + "}";
+      }
+      // Clans: other clans' building tiles (flattened [index, clan]), resent when tileClan changed.
+      if (snapshot.type === "snapshot" && player.clanTilesVersion !== state.clanTilesVersion) {
+        player.clanTilesVersion = state.clanTilesVersion;
+        payload = payload.slice(0, -1) + ',"clanTiles":' + JSON.stringify(Array.from(tileClan).flat()) + "}";
       }
       player.socket.send(withPlayerHeroes(withPlayerProfile(withPlayerFights(payload, player), player), player));
     }

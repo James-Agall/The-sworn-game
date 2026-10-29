@@ -31,6 +31,7 @@ import { inBounds, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { tileDistance } from "./worldgen.js";
 import { nearestTownCenter } from "./colonists.js";
+import { forEachClan, moraleKey } from "./clans.js";
 import {
   armyRegimentsNow, colonistRole, dropGuardTarget, isGuardOrMilitiaKind, isRearColonist, isRearMob, isSiegeKind,
   mobRole, nearestMeleeSoldier, unitStats,
@@ -645,7 +646,12 @@ export function updatePlayerMorale() {
   if (state.cycleTick % TACTICS_EVAL_TICKS !== 0) return;
   moraleRegimentOfUnit.clear();
   const seen = new Set<string>();
-  for (const r of armyRegimentsNow()) {
+  // Clans: every clan's regiments, keyed per clan (moraleKey).
+  const all: ReturnType<typeof armyRegimentsNow> = [];
+  forEachClan(() => {
+    for (const r of armyRegimentsNow()) all.push(state.clan.id === 0 ? r : { ...r, id: moraleKey(r.id) });
+  });
+  for (const r of all) {
     if (r.cls === "hero" || r.cls === "rams" || r.cls === "catapults") continue;
     const members: Colonist[] = [];
     for (const id of r.unitIds) {

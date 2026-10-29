@@ -43,6 +43,7 @@ import { hearthStep } from "./hearths.js";
 import { equipEvent, heroBaseStats, heroCombatStats, heroTestEvent, playerMaxHp, weaponDamageMult } from "./heroes.js";
 import { heroAutoCast, spellBuffDamageMult, spellBuffSpeedMult } from "./spells.js";
 import { bombardPoint, bombardStep, isCommandable, unitOrderKind } from "./orders.js";
+import { clanIdAt, clanTownCenters, inClan, moraleKey } from "./clans.js";
 
 export function pruneTaskForces() {
   for (const [slot, unitIds] of state.taskForces) {
@@ -247,7 +248,8 @@ export function romanNumeral(n: number): string {
 }
 
 export function armyRegimentsNow(): ArmyRegimentSnapshot[] {
-  const settlementNumber = new Map(state.townCenters.map((tc, i) => [resourceKey(tc.x, tc.y), i + 1]));
+  // Clans: only the active clan's units, numbered by its own settlements.
+  const settlementNumber = new Map(clanTownCenters().map((tc, i) => [resourceKey(tc.x, tc.y), i + 1]));
   const inTaskForce = new Map<string, number>();
   for (const [slot, ids] of state.taskForces) for (const id of ids) inTaskForce.set(id, slot);
   interface Draft { snap: ArmyRegimentSnapshot; members: Colonist[]; pending: number; order: number }
@@ -275,7 +277,7 @@ export function armyRegimentsNow(): ArmyRegimentSnapshot[] {
 
   for (const c of colonists.values()) {
     const cls = REGIMENT_CLASS_OF[c.kind];
-    if (!cls || !isCommandable(c)) continue;
+    if (!cls || !isCommandable(c) || !inClan(c)) continue;
     const slot = inTaskForce.get(c.id);
     let d: Draft;
     if (slot !== undefined) {
@@ -294,6 +296,7 @@ export function armyRegimentsNow(): ArmyRegimentSnapshot[] {
   }
   // The dead waiting for the dawn respawn count toward the regiment they come back into.
   for (const q of respawnQueue) {
+    if ((q.clan ?? clanIdAt(q.tx, q.ty)) !== state.clan.id) continue;
     if (q.hero) {
       heroDraft(q.hero.id, q.hero.name).pending++;
       continue;
@@ -336,7 +339,7 @@ export function armyRegimentsNow(): ArmyRegimentSnapshot[] {
     d.snap.hpFrac = maxHp > 0 ? Math.round((hp / maxHp) * 1000) / 1000 : 0;
     if (dmg > 0) d.snap.dmg = Math.round(dmg * 10) / 10;
     // Phase 6: morale (updatePlayerMorale, 1 Hz).
-    const ms = playerMorale.get(d.snap.id);
+    const ms = playerMorale.get(moraleKey(d.snap.id));
     if (ms?.active) {
       d.snap.morale = Math.round(ms.morale);
       if (ms.routed) d.snap.moraleState = "routing";

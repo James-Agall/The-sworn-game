@@ -42,6 +42,7 @@ import {
 } from "./heroes.js";
 import { absorbWithWard, isSummoned, spellDamageTakenMult } from "./spells.js";
 import { broadcastEvent, broadcastTileUpdate, recordFightHit } from "./net.js";
+import { clanIdAtIndex, enterClan, resetClan, townCentersOfClan } from "./clans.js";
 
 export function getMobById(id: string): Mob | undefined {
   return mobs.get(id);
@@ -233,7 +234,7 @@ export function damagePlayer(player: Player, amount: number) {
   player.hp -= absorbWithWard("p:" + player.id, amount * mult);
   if (player.hp <= 0) {
     player.poisonTicksRemaining = 0;
-    if (state.townCenters.length > 0) {
+    if (townCentersOfClan(player.clan).length > 0) {
       player.hp = playerMaxHp(player);
       const spawn = spawnPointNearTownCenter(player);
       player.x = spawn.x;
@@ -250,7 +251,7 @@ export function damagePlayer(player: Player, amount: number) {
 export function respawnDeadPlayers() {
   if (state.townCenters.length === 0) return;
   for (const p of players.values()) {
-    if (!p.dead) continue;
+    if (!p.dead || townCentersOfClan(p.clan).length === 0) continue;
     p.dead = false;
     p.hp = playerMaxHp(p);
     const spawn = spawnPointNearTownCenter(p);
@@ -765,7 +766,10 @@ export function updateTowers() {
     }
     // Shot from the top of the tower art.
     state.pendingEffects.push({ fromX: cx, fromY: cy - TILE_SIZE / 3, toX: best.x, toY: best.y });
+    // Clans: a kill's gold goes to the tower's clan.
+    enterClan(clanIdAtIndex(i));
     damageMob(best, stats.damage, "b:" + key);
+    resetClan();
     towerCooldowns.set(key, towerCooldownTicks(level));
   }
 }

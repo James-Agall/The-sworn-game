@@ -27,6 +27,7 @@ import {
   pickMobTarget, resolveTargetPosition,
 } from "./mobs.js";
 import { broadcastEvent } from "./net.js";
+import { clanTownCenters } from "./clans.js";
 
 // ---- Raid waves ----
 // spawnRaid runs once per day at the day's midpoint and puts the whole of tonight's raid on the map
@@ -42,8 +43,9 @@ export function raidSizeForDay(dayIndex: number): number {
   const base = RAID_BASE_SIZE + RAID_SIZE_PER_DAY * dayIndex;
   return Math.max(1, Math.round(base * DIFFICULTY_TUNING[state.difficulty].spawnCount));
 }
+// Clans: spawnRaid runs once per clan; the raid box and goals are that (active) clan's Town Centers.
 export function raidBox() {
-  const c = state.townCenters[0] ?? TOWN_CENTER_TILE;
+  const c = clanTownCenters()[0] ?? TOWN_CENTER_TILE;
   return {
     x0: Math.max(0, c.x - state.raidSpawnDist),
     x1: Math.min(state.WORLD_TILES_X - 1, c.x + state.raidSpawnDist),
@@ -52,7 +54,8 @@ export function raidBox() {
   };
 }
 export function raidAnchorWithinPathBudget(anchor: TileCoord): boolean {
-  const goals = state.townCenters.length > 0 ? state.townCenters : [TOWN_CENTER_TILE];
+  const own = clanTownCenters();
+  const goals = own.length > 0 ? own : [TOWN_CENTER_TILE];
   const near = (t: TileCoord) => goals.some((c) => Math.max(Math.abs(t.x - c.x), Math.abs(t.y - c.y)) <= RAID_REACH_RADIUS);
   const seen = new Set<number>([tileIndex(anchor.x, anchor.y)]);
   const queue: TileCoord[] = [anchor];
@@ -242,7 +245,7 @@ export function createRaidMob(kind: MobKind, tile: TileCoord, groupId: string, r
 // Departure tick for a group at `from`: a random arrival tick in [nightfall, nightfall + window] minus
 // the estimated trip to the engage range of the first Town Center, but never before now.
 export function raidDepartureTick(from: TileCoord, group: RaidGroup, nightfallTick: number): number {
-  const tc = state.townCenters[0] ?? TOWN_CENTER_TILE;
+  const tc = clanTownCenters()[0] ?? TOWN_CENTER_TILE;
   const route = findPath(from, tc);
   const routeTiles = route ? route.length : Math.hypot(tc.x - from.x, tc.y - from.y) * 1.5;
   const speeds = group.memberIds.map((id) => mobs.get(id)?.speed ?? MOB_SPEED);

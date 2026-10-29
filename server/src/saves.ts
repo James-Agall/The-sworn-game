@@ -11,7 +11,7 @@ import {
   MAX_WORLD_SIZE, MIN_WORLD_SIZE, NIGHT_TICKS, SAVE_DIR, SAVE_SLOT_LABELS, SAVE_VERSION, TREE_RESPAWN_INTERVAL_TICKS,
 } from "./constants.js";
 import {
-  buildingHp, buildingLevel, colonists, constructionSites, farmPlots, forageRegrow, gates, gravestones,
+  type Clan, buildingHp, buildingLevel, clans, colonists, makeClan, tileClan, constructionSites, farmPlots, forageRegrow, gates, gravestones,
   hearths, heroProfiles, heroRecruits, minesPlacedOnOre, mobs, mobsWithoutRoute, ownerSiteIds, players, raidGroups,
   regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, state, summonedUntil, tileOwner, towerCooldowns, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
 } from "./state.js";
@@ -28,8 +28,23 @@ import { playerMaxHp, resetEquipment, restoreHeroProfiles, serializeHeroProfiles
 import { clearSpellState, unslowedSpeed } from "./spells.js";
 import { clearOrderGroups } from "./orders.js";
 import { broadcastEvent, clearFights, packExplored, sendWelcome } from "./net.js";
+import { clanOf, resetClan, withClan } from "./clans.js";
+
+// Clans: a restart / load is clan 0's world again (every founded clan is dropped, every player rejoins clan 0).
+export function resetClans() {
+  clans.length = 1;
+  tileClan.clear();
+  state.clanTilesVersion++;
+  resetClan();
+  for (const p of players.values()) p.clan = 0;
+}
 
 export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
+  resetClans();
+  withClan(clans[0], () => resetWorldInner(nextDifficulty, nextSize));
+}
+
+function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   // A restart reopens the difficulty claim; a value sent with the restart claims it straight away.
   state.difficultyClaimed = false;
   if (isDifficulty(nextDifficulty)) {
@@ -107,7 +122,7 @@ export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
 export function respawnPlayersAndWelcome() {
   clearFights();
   for (const player of players.values()) {
-    const spawn = spawnPointNearTownCenter();
+    const spawn = withClan(clanOf(player), () => spawnPointNearTownCenter());
     player.x = spawn.x;
     player.y = spawn.y;
     player.hp = playerMaxHp(player);
@@ -142,7 +157,25 @@ export function savePath(slot: SaveSlot): string {
 // Plain-object view of the world. Serialized right away (JSON.stringify), so live objects are
 // referenced rather than copied. Raid groups' Maps become entry arrays.
 export function snapshotWorld() {
+  return withClan(clans[0], snapshotWorldInner);
+}
+
+// Clan 0 is saved in the top-level fields (as before clans); clans 1+ in `clans`, their tiles in `tileClans`.
+export function snapshotClan(c: Clan) {
   return {
+    id: c.id, name: c.name, color: c.color, foundedDay: c.foundedDay, relations: c.relations,
+    stock: { ...c.stock },
+    equipment: { armour: [...c.equipment.armour], weapon: [...c.equipment.weapon] },
+    goals: { goalIndex: c.goalIndex, castleCleared: c.castleCleared, campsDestroyed: c.campsDestroyed },
+    marketBuilt: c.marketBuilt, goldShopBuilt: c.goldShopBuilt, colonyHappiness: c.colonyHappiness,
+    taskForces: Array.from(c.taskForces),
+  };
+}
+
+function snapshotWorldInner() {
+  return {
+    clans: clans.slice(1).map(snapshotClan) as ReturnType<typeof snapshotClan>[] | undefined,
+    tileClans: Array.from(tileClan).flat() as number[] | undefined,
     tiles: Buffer.from(state.tiles).toString("base64"),
     biomes: Buffer.from(state.biomes).toString("base64"),
     explored: packExplored(),
@@ -222,6 +255,32 @@ export function refill<K, V>(map: Map<K, V>, entries: [K, V][]) {
 }
 
 export function applyWorld(s: WorldState) {
+  resetClans();
+  withClan(clans[0], () => applyWorldInner(s));
+  // Clans 1+ (saves from before clans have none: everything is clan 0's).
+  for (const sc of s.clans ?? []) {
+    const c = makeClan(clans.length, sc.name, sc.color, sc.foundedDay ?? 0);
+    c.relations = sc.relations ?? {};
+    Object.assign(c.stock, sc.stock);
+    c.equipment.armour = [0, 1, 2].map((i) => sc.equipment?.armour?.[i] ?? 0);
+    c.equipment.weapon = [0, 1, 2].map((i) => sc.equipment?.weapon?.[i] ?? 0);
+    c.goalIndex = sc.goals?.goalIndex ?? 0;
+    c.castleCleared = sc.goals?.castleCleared ?? false;
+    c.campsDestroyed = sc.goals?.campsDestroyed ?? 0;
+    c.marketBuilt = sc.marketBuilt;
+    c.goldShopBuilt = sc.goldShopBuilt;
+    c.colonyHappiness = sc.colonyHappiness;
+    refill(c.taskForces, sc.taskForces ?? []);
+    clans.push(c);
+  }
+  const owned = s.tileClans ?? [];
+  for (let i = 0; i + 1 < owned.length; i += 2) {
+    if (owned[i] < state.tiles.length && owned[i + 1] > 0 && owned[i + 1] < clans.length) tileClan.set(owned[i], owned[i + 1]);
+  }
+  for (const clan of clans.slice(1)) withClan(clan, () => evaluateGoals(true));
+}
+
+function applyWorldInner(s: WorldState) {
   state.tiles.set(Buffer.from(s.tiles, "base64"));
   state.biomes.set(Buffer.from(s.biomes, "base64"));
   const bits = Buffer.from(s.explored, "base64");

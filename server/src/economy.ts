@@ -19,6 +19,7 @@ import {
 import { isInReservedGrounds } from "./worldgen.js";
 import { countTilesOfType, isMilitaryTile, productionSpeedMultiplier, townCenterBonus } from "./colonists.js";
 import { broadcastTileUpdate } from "./net.js";
+import { clanById, clanIdAt } from "./clans.js";
 
 export function initialStock(): Record<ResourceKey, number> {
   return {
@@ -270,7 +271,8 @@ export function updateFarmPlots() {
     } else if (plot.state === "harvesting") {
       plot.harvestTicksRemaining--;
       if (plot.harvestTicksRemaining <= 0) {
-        state.stock.grain += FARM_YIELD_PER_HARVEST;
+        // Clans: the barn's clan gets the grain.
+        clanById(clanIdAt(plot.barnX, plot.barnY)).stock.grain += FARM_YIELD_PER_HARVEST;
         plot.harvestsSinceFallow++;
         plot.harvestedTicksRemaining = FARM_HARVESTED_SHOW_TICKS;
         if (plot.harvestsSinceFallow >= FARM_HARVESTS_BEFORE_FALLOW) {
