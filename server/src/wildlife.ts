@@ -20,9 +20,9 @@ import {
 } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { industrialSynergyMultiplier, releaseResourceReservation, stock } from "./economy.js";
-import {
-  TOWN_CENTER_TILE, broadcastTileUpdate, damageColonist, isInReservedGrounds, productionSpeedMultiplier, randInt,
-} from "./index.js";
+import { TOWN_CENTER_TILE, productionSpeedMultiplier } from "./colonists.js";
+import { damageColonist } from "./combat.js";
+import { broadcastTileUpdate, isInReservedGrounds, randInt } from "./index.js";
 
 // ---- Hunting & foraging: Hunter's Hut / Forager's Hut workers, wild game, wild forage ----
 // Every tunable lives here. Hunters and foragers are civilians: they only work by day and shelter in

@@ -11,7 +11,10 @@ import {
   biomeSpeedMultiplier, inBounds, roadSpeedMultiplier, siteNumber, tileIndex, tileToPixelCenter,
 } from "./tiles.js";
 import { isWalkablePixel } from "./wildlife.js";
-import { gatePassable, isDormantGuardian, isGuardOrMilitiaKind, isWardPriest, mobBodyRadius } from "./index.js";
+import { isWardPriest } from "./colonists.js";
+import { isGuardOrMilitiaKind } from "./units.js";
+import { gatePassable } from "./combat.js";
+import { isDormantGuardian, mobBodyRadius } from "./mobs.js";
 
 export function isWalkableTile(tx: number, ty: number): boolean {
   if (!inBounds(tx, ty)) return false;
