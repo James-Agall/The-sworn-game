@@ -330,6 +330,8 @@ export function settlementStatsAll(): Map<number, SettlementStat[]> {
     if (s) s.housingCap++;
   });
   for (const c of colonists.values()) {
+    // Forts phase F: a vassal's levy counts nowhere (not population, not troops).
+    if (c.levyOf) continue;
     const soldier = isSoldierKind(c.kind) && !summonedUntil.has(c.id);
     const cost = populationCostOf(c);
     if (!cost && !soldier) continue;

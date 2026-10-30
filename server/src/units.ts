@@ -44,6 +44,8 @@ import { equipEvent, heroBaseStats, heroCombatStats, heroTestEvent, playerMaxHp,
 import { heroAutoCast, spellBuffDamageMult, spellBuffSpeedMult } from "./spells.js";
 import { bombardPoint, bombardStep, isCommandable, unitOrderKind } from "./orders.js";
 import { clanIdAt, clanTownCenters, inClan, moraleKey } from "./clans.js";
+import { levyRegimentName } from "./vassals.js";
+import { siteIdNeutral } from "./sites.js";
 
 export function pruneTaskForces() {
   for (const [slot, unitIds] of state.taskForces) {
@@ -288,6 +290,10 @@ export function armyRegimentsNow(): ArmyRegimentSnapshot[] {
       if (d.snap.cls !== cls) d.snap.cls = "mixed";
     } else if (c.kind === "hero") {
       d = heroDraft(c.id, c.heroName ?? "Hero");
+    } else if (c.levyOf) {
+      // Forts phase F: a vassal's levy is its own regiment card ("Hearthmoor Levy", id v:<siteId>).
+      d = draftFor(`v:${c.levyOf}`, () => ({ snap: { id: `v:${c.levyOf}`, name: levyRegimentName(c), unitIds: [], cls, maxCount: 0, hpFrac: 0 }, order: 4000 }));
+      if (d.snap.cls !== cls) d.snap.cls = "mixed";
     } else {
       settlementOf(c);
       d = autoDraft(c.settlementId, cls);
@@ -816,6 +822,8 @@ export function pickGuardTarget(c: Colonist, stats: { range: number; melee: bool
     if ((m.tactic === "rout" || m.tactic === "leave") && du > stats.range) continue;
     const ds = Math.hypot(m.x - c.rallyX, m.y - c.rallyY);
     if (ds > reachPx) continue;
+    // Forts phase F: never a neutral settlement's own folk (a vassal's levy marches out among them).
+    if (m.siteId !== null && siteIdNeutral(m.siteId)) continue;
     const score = rearRank && du <= stats.range ? du - (engagedWithFrontline(m) ? 2e6 : 1e6) : ds;
     if (score >= bestDist) continue;
     if (queues && !targetHasRoom(c.id, `m:${m.id}`, meleeAttackerCap(mobBodyRadius(m)))) continue;

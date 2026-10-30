@@ -37,6 +37,7 @@ import "./raids.js";
 import { handleCommandAttackHearth, hearthsForSnapshot } from "./hearths.js";
 import { siteByNum, sitesForSnapshot } from "./sites.js";
 import { handleTradeWithSite, relationsForSnapshot } from "./diplomacy.js";
+import { handleCallToArms, handleSetTax } from "./vassals.js";
 import { handleQuestMessage, hasQuestsFor, questsForSnapshot, questsVersion } from "./quests.js";
 import "./goals.js";
 import {
@@ -226,6 +227,12 @@ function handleMessage(player: Player, message: ClientMessage) {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY) || !inBounds(message.tileX, message.tileY)) return;
     const r = handleTradeWithSite(player, siteByNum(ownerAt(tileIndex(message.tileX, message.tileY))), message.good, message.qty, message.side);
     if (!r.ok) sendTo(player, { type: "event", category: "build", text: r.text });
+  } else if (message.type === "callToArms" || message.type === "setTax") {
+    // Forts phase F: refusals toast the sender only.
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY) || !inBounds(message.tileX, message.tileY)) return;
+    const s = siteByNum(ownerAt(tileIndex(message.tileX, message.tileY)));
+    const why = message.type === "setTax" ? handleSetTax(s, message.on) : handleCallToArms(player, s, message);
+    if (why) sendTo(player, { type: "event", category: "build", text: why });
   } else if (message.type === "acceptQuest" || message.type === "abandonQuest" || message.type === "deliverQuest") {
     const why = handleQuestMessage(player, message.type, message.questId);
     if (why) sendTo(player, { type: "event", category: "build", text: why });

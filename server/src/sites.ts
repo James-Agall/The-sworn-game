@@ -25,6 +25,7 @@ import { registerHearth } from "./hearths.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { activateGuardianSite, walkMobTo } from "./mobs.js";
 import { onRelationChanged } from "./diplomacy.js";
+import { noteLiegeHit } from "./vassals.js";
 
 // Ground the test-hook stamper may clear (world-gen only ever stamps onto Empty).
 const CLEARABLE_TILES = new Set<number>([
@@ -598,6 +599,7 @@ export function sitesForSnapshot(): SiteSnapshot[] {
       name: s.name, faction: s.faction, keepX: s.keepX, keepY: s.keepY, cleared: s.cleared, captured: s.captured,
       ...(s.capturedBy !== undefined ? { capturedBy: s.capturedBy } : {}),
       num: s.num, ...(s.faction === "human" ? { hostile: s.provoked } : {}),
+      ...(s.vassalOf != null ? { vassalOf: s.vassalOf } : {}),
     });
   }
   return out;
@@ -621,9 +623,10 @@ export function siteIdNeutral(siteId: string): boolean {
   return !!s && isNeutralSite(s);
 }
 
-// A neutral settlement's gates: open to players / colonists by day, shut at night.
+// A neutral settlement's gates: open to players / colonists by day, shut at night (phase F: a vassal's stay
+// open at night too, so its levy can march out / home).
 export function siteGateWelcomes(num: number): boolean {
-  return siteNumNeutral(num) && !isNightNow();
+  return siteNumNeutral(num) && (!isNightNow() || siteByNum(num)?.vassalOf != null);
 }
 
 // Relations hook (phase D builds bands / trade / quests on it): one score per clan per settlement, kept in
@@ -657,6 +660,11 @@ export function attackerClan(attackerKey?: string): number {
 export function noteSettlementAttacked(siteId: string | null | undefined, attackerKey?: string) {
   const s = siteId ? sites.get(siteId) : undefined;
   if (!s || s.faction !== "human" || s.cleared || s.captured) return;
+  // Forts phase F: a vassal never takes up arms against its liege (relation pays instead).
+  if (!s.provoked && s.vassalOf != null && s.vassalOf === attackerClan(attackerKey)) {
+    noteLiegeHit(s, s.vassalOf, attackerKey);
+    return;
+  }
   if (!s.provoked) {
     s.provoked = true;
     s.hostileClans = [];

@@ -101,7 +101,7 @@ export function updateGearPickup() {
     if (bestTierInStock("armour") === 0 && bestTierInStock("weapon") === 0) return;
     const idle: Colonist[] = [];
     for (const c of colonists.values()) {
-      if ((c.clan ?? 0) !== clan.id || c.state !== "idle" || c.targetMobId !== null || c.hp <= 0) continue;
+      if ((c.clan ?? 0) !== clan.id || c.state !== "idle" || c.targetMobId !== null || c.hp <= 0 || c.levyOf) continue;
       if (GEAR_PICKUP_PRIORITY.includes(c.kind)) idle.push(c);
     }
     if (idle.length === 0) return;

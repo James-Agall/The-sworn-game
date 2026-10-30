@@ -38,6 +38,8 @@ import { COLONIST_VISION_OFFSETS, PLAYER_VISION_OFFSETS, fightThreatOf } from ".
 // sees the Ward Priest's post as a Ward Stone).
 export function isCommandable(c: Colonist): boolean {
   if (!COMMANDABLE_KINDS.includes(c.kind)) return false;
+  // Forts phase F: a vassal's levy marching home takes no more orders.
+  if (c.levyHome) return false;
   if (isWardPriest(c)) return false;
   return c.kind !== "bishop" || state.tiles[tileIndex(c.postX, c.postY)] === TileType.ChurchPost;
 }
@@ -315,6 +317,20 @@ export function ensureFollowGroup(units: Colonist[], targetId: string): boolean 
   for (const c of units) orderGroupOfUnit.set(c.id, g);
   startArmyOrder(g, { kind: "follow", targetId });
   return true;
+}
+
+// Forts phase F: the units (a vassal's levy) as one new order group carrying out `order` (no player, no rate
+// limit).
+export function startGroupOrder(units: Colonist[], order: ArmyOrder) {
+  if (units.length === 0) return;
+  for (const c of units) leaveOrderGroup(c.id);
+  const g: OrderGroup = {
+    id: `g${state.nextOrderGroupId++}`, unitIds: new Set(units.map((c) => c.id)), current: null, queue: [],
+    destX: 0, destY: 0, startedTick: state.cycleTick, engaged: false, clearSince: -1, followAt: null,
+  };
+  orderGroups.set(g.id, g);
+  for (const c of units) orderGroupOfUnit.set(c.id, g);
+  startArmyOrder(g, order);
 }
 
 // Slots from formation.ts at (x, y); nearest-to-its-slot units start first, the rest staggered.

@@ -47,6 +47,7 @@ import { broadcastEvent, broadcastTileUpdate, recordFightHit } from "./net.js";
 import { clanIdAtIndex, enterClan, resetClan, townCentersOfClan } from "./clans.js";
 import { noteHostileKill } from "./diplomacy.js";
 import { noteQuestKill } from "./quests.js";
+import { noteLevyDied } from "./vassals.js";
 
 export function getMobById(id: string): Mob | undefined {
   return mobs.get(id);
@@ -309,7 +310,9 @@ export function damageColonist(colonist: Colonist, amount: number) {
     notePlayerCasualty(colonist);
     releaseResourceReservation(colonist);
     // Siege engines are rebuilt at their workshop, never respawned.
-    if (!isWardPriest(colonist) && !isSiegeKind(colonist.kind)) queueRespawn(colonist);
+    // Forts phase F: a vassal's levy never respawns (its garrison regrows; relation pays).
+    if (colonist.levyOf) noteLevyDied(colonist);
+    else if (!isWardPriest(colonist) && !isSiegeKind(colonist.kind)) queueRespawn(colonist);
     colonists.delete(colonist.id);
     chargeRuns.delete(colonist.id);
     if (colonist.kind === "hero") state.heroRosterVersion++;

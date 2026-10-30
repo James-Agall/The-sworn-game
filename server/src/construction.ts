@@ -22,6 +22,7 @@ import {
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_COST, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
   TOWN_CENTER_LEVEL_POPULATION_BONUS, TOWN_CENTER_MIN_SPACING_TILES, TOWN_CENTER_POI_CLEARANCE_TILES,
   TOWN_CENTER_UPGRADE_COSTS, TRADING_POST_UPGRADE_COSTS, UPGRADE_NAMES, WARD_STONE_TOOLS_COST, WARD_STONE_WOOD_COST, WOOD_WALL_COST, pct,
+  RELATION_ALLIED_MIN, RELATION_VASSAL_KEEP,
 } from "./constants.js";
 import {
   buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, minesPlacedOnOre, players, repairPaid,
@@ -54,6 +55,7 @@ import { blacksmithForgeInfo, keepHeroInfo } from "./heroes.js";
 import { churchSpellShop } from "./spells.js";
 import { START_VISION_OFFSETS, broadcastEvent, broadcastTileUpdate, revealAround } from "./net.js";
 import { tierOf, tradeInfoFor } from "./diplomacy.js";
+import { clanPower, sitePower, vassalInfoFor } from "./vassals.js";
 import { captureSite, isInSiteGrounds, nearSiteGrounds, rebuildKeepBlocker, relationOf, siteAtKeep, siteByNum } from "./sites.js";
 import { SITE_TEMPLATES } from "./constants.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
@@ -1179,9 +1181,15 @@ function siteTileInfo(tx: number, ty: number, t: TileType, forPlayer?: Player): 
   ];
   // Forts phase C: neutral until attacked; phase D: the clan's relation tier and the trade panel.
   const trade = human ? tradeInfoFor(s, forPlayer) : undefined;
+  // Forts phase F: the clan's vassal: call to arms / tribute (BuildingInfo.vassal).
+  const vassal = human ? vassalInfoFor(s, forPlayer) : undefined;
   if (human && !s.captured) {
-    const tier = tierOf(forPlayer?.clan ?? 0, s);
-    bonuses.push(`Relation ${Math.round(relationOf(forPlayer?.clan ?? 0, s.id))}: ${RELATION_TIER_NAMES[tier]}${tier === "vassal" ? " (they would swear fealty; vassals come later)" : ""}`);
+    const myClan = forPlayer?.clan ?? 0;
+    const tier = tierOf(myClan, s);
+    const rel = Math.round(relationOf(myClan, s.id));
+    bonuses.push(`Relation ${rel}: ${RELATION_TIER_NAMES[tier]}${tier === "vassal" ? ` (sworn to you; free again below ${RELATION_VASSAL_KEEP})` : ""}`);
+    if (s.vassalOf != null && s.vassalOf !== myClan) bonuses.push(`Vassal of ${clanById(s.vassalOf).name}`);
+    else if (s.vassalOf == null && !s.cleared && rel >= RELATION_ALLIED_MIN) bonuses.push(`At relation 100 it swears fealty if your army's power is at least its own (yours ${clanPower(myClan)}, theirs ${sitePower(s)})`);
     if (!s.cleared) bonuses.push(s.provoked ? "Hostile: you attacked them. Their guards and towers fight until they calm down" : "Neutral: gates open by day, guards and towers leave you alone unless you attack");
   }
   let keep: BuildingInfo["keep"];
@@ -1193,7 +1201,7 @@ function siteTileInfo(tx: number, ty: number, t: TileType, forPlayer?: Player): 
   const title = human && !s.captured && !s.cleared ? `${s.provoked ? "Hostile" : "Neutral"} settlement: ${s.name}` : `${s.name}: ${label}`;
   return {
     name: title, tile: t, level: 1, maxLevel: 1, hp: hp ? Math.round(hp.hp) : null, maxHp: hp?.max ?? null,
-    staffing: s.captured ? "" : human && !s.provoked ? "Neutral" : "Hostile", bonuses, upgrade: null, construction: null, repair: null, ...(keep ? { keep } : {}), ...(trade ? { trade } : {}),
+    staffing: s.captured ? "" : human && !s.provoked ? "Neutral" : "Hostile", bonuses, upgrade: null, construction: null, repair: null, ...(keep ? { keep } : {}), ...(trade ? { trade } : {}), ...(vassal ? { vassal } : {}),
   };
 }
 

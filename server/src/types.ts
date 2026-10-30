@@ -140,6 +140,11 @@ export interface Colonist {
   cycleTicksTotal: number;
   // Forts phase E: trader wagons only (kind "wagon"; postX / postY = its Trading Post). Saved with the colonist.
   wagon?: WagonState;
+  // Forts phase F: a vassal's levy (vassals.ts): the settlement it came from, the garrison mob kind it turns
+  // back into at home, and true once it marches home (no orders then). Saved with the colonist.
+  levyOf?: string;
+  levyKind?: MobKind;
+  levyHome?: boolean;
 }
 // Forts phase E (wagons.ts). dest = "s:<siteId>" (settlement) or "t:<x>,<y>" (own Town Center); route = the
 // outbound path from the post (the way home walks it backwards); cargo = goods loaded, value = their base
@@ -343,10 +348,38 @@ export interface SiteState {
   hostileClans?: number[];
   // Forts phase D (diplomacy.ts): per clan id, today's trade / relation bookkeeping (saved with the site).
   diplo?: Record<number, SiteDiplo>;
+  // Forts phase F (vassals.ts): the clan this settlement is a vassal of (null / missing: none) and its
+  // liege's book: tribute on / off, the tribute ledger, the levy on the field and the call-to-arms cooldown.
+  vassalOf?: number | null;
+  vassal?: VassalState;
+}
+export interface VassalState {
+  tax: boolean;
+  // Game day of the next tribute (dawn), the last one (day, gold, goods, relation cost) and the running total.
+  nextTaxDay: number;
+  lastTax?: { day: number; gold: number; goods: Partial<Record<ResourceKey, number>>; relation: number };
+  taxGoldTotal: number;
+  // Levy colonist ids on the field (alive), when it must go home, when it may be called again, and the
+  // tick of the liege's last penalised hit.
+  levyIds: string[];
+  levyUntilTick: number;
+  levyCooldownUntilTick: number;
+  levyCalled: number;
+  // Levies of the current call killed in the field.
+  levyLost?: number;
+  // Set while the levy marches home: by then it is back in the garrison regardless.
+  levyReturnByTick?: number;
+  leashToastTick?: number;
+  // Game day of the last "would swear fealty but your army is too weak" toast (not yet a vassal).
+  refusedDay?: number;
+  lastHitTick?: number;
+  // Attacker key of the liege's last hit (debug / test hooks).
+  lastHitBy?: string;
 }
 // Forts phase D: one clan's day at one settlement. day = the game day the counters belong to (reset on a
 // new day); bought / sold = units per good today; tradeGain / defendGain = relation gained today (for the
-// daily caps); lastGainDay = the last day any gain landed (drift); vassal = reached 100, kept while >= 70.
+// daily caps); lastGainDay = the last day any gain landed (drift); vassal = phase D "Vassal-ready" flag (old
+// saves only; phase F uses SiteState.vassalOf).
 export interface SiteDiplo {
   day: number;
   bought: Partial<Record<ResourceKey, number>>;

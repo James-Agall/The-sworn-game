@@ -34,6 +34,7 @@ import { clanTownCenters, enterClan, forEachClan, resetClan } from "./clans.js";
 import { settlementsDawn } from "./diplomacy.js";
 import { updateQuests } from "./quests.js";
 import { updateWagons } from "./wagons.js";
+import { updateVassals, vassalsDawn } from "./vassals.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
@@ -50,6 +51,8 @@ export function stepSimulation() {
     });
     // Forts phase D: settlement production / consumption and relation drift.
     settlementsDawn();
+    // Forts phase F: fealty at relation 100, breakaways, tribute.
+    vassalsDawn();
     state.autosaveDue = true;
   }
 
@@ -176,6 +179,7 @@ export function stepSimulation() {
   if (state.cycleTick % TICK_RATE === 0) {
     checkBossSightings();
     updateSites();
+    updateVassals();
     forEachClan(() => evaluateGoals());
   }
   if (state.cycleTick % FIGHT_SCAN_TICKS === 0) scanFights();

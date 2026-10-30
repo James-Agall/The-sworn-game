@@ -17,6 +17,7 @@ import { clans, colonists, sites, state } from "./state.js";
 import { adjustRelation, attackerClan, relationOf } from "./sites.js";
 import { clanById, withClan } from "./clans.js";
 import { broadcastEvent } from "./net.js";
+import { endVassalage, tryVassalise } from "./vassals.js";
 
 export function gameDay(): number {
   return Math.floor(state.cycleTick / (DAY_TICKS + NIGHT_TICKS));
@@ -43,27 +44,30 @@ export function diploOf(s: SiteState, clanId: number): SiteDiplo {
   return d;
 }
 
+// Forts phase F: "vassal" only for the clan the settlement actually serves (SiteState.vassalOf); every other
+// clan tops out at Allied (no vassal prices).
 export function tierOf(clanId: number, s: SiteState): RelationTier {
-  return relationTier(relationOf(clanId, s.id), s.diplo?.[clanId]?.vassal);
+  return relationTier(relationOf(clanId, s.id), s.vassalOf === clanId);
 }
 
-// sites.ts adjustRelation: the snapshot is resent, the vassal flag kept (100 sets it, < 70 breaks it), a
-// tier change toasts the clan.
+// sites.ts adjustRelation: the snapshot is resent; phase F: reaching 100 may make it the clan's vassal
+// (vassals.ts tryVassalise), < 70 ends vassalage (endVassalage, which toasts); a tier change toasts the clan.
 export function onRelationChanged(clanId: number, s: SiteState, before: number, after: number) {
   state.relationsVersion++;
   if (s.faction !== "human") return;
-  const d = s.diplo?.[clanId];
-  const wasVassal = !!d?.vassal;
+  const wasVassal = s.vassalOf === clanId;
   const t0 = relationTier(before, wasVassal);
-  let vassal = wasVassal;
-  if (after >= RELATION_MAX) vassal = true;
-  else if (after < RELATION_VASSAL_KEEP) vassal = false;
-  if (vassal !== wasVassal) diploOf(s, clanId).vassal = vassal;
+  if (wasVassal && after < RELATION_VASSAL_KEEP) {
+    endVassalage(s, `your relation fell below ${RELATION_VASSAL_KEEP}`);
+    return;
+  }
+  if (!wasVassal && after >= RELATION_MAX && tryVassalise(clanId, s)) return;
+  const vassal = s.vassalOf === clanId;
   const t1 = relationTier(after, vassal);
   if (t0 === t1) return;
   const order: RelationTier[] = ["hostile", "wary", "neutral", "friendly", "allied", "vassal"];
   const up = order.indexOf(t1) > order.indexOf(t0);
-  const extra = t1 === "vassal" ? ": they would swear fealty to you" : t1 === "hostile" ? ": they refuse to trade" : t1 === "wary" ? ": no trade until you mend relations" : up ? ": better prices" : "";
+  const extra = t1 === "hostile" ? ": they refuse to trade" : t1 === "wary" ? ": no trade until you mend relations" : up ? ": better prices" : "";
   withClan(clanById(clanId), () => broadcastEvent(up ? "milestone" : "raid", `${s.name} is now ${RELATION_TIER_NAMES[t1]} toward you (${Math.round(after)})${extra}`));
 }
 

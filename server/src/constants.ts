@@ -1740,6 +1740,39 @@ export const WAGON_DANGER_DEADLY = 60;
 export const WAGON_DANGER_COST = 4;
 // A "under attack" toast at most once per this many ticks per wagon.
 export const WAGON_ALERT_TICKS = 20 * TICK_RATE;
+// ---- Forts phase F: vassals, call to arms and tribute (vassals.ts; PLAN-forts-diplomacy-moats.md §6) ----
+// Power (vassals.ts clanPower / sitePower): every living soldier's hp x damage per hit (clan: its commandable
+// fighters, levies and wagon escorts excluded; settlement: its garrison mobs) + POWER_PER_TOWER_LEVEL per tower
+// level + POWER_PER_WALL per wall / gate tile (the clan's own tiles; the settlement's inside its rectangle).
+export const POWER_PER_TOWER_LEVEL = 300;
+export const POWER_PER_WALL = 4;
+// Clan power is a map scan: cached this long per clan.
+export const POWER_CACHE_TICKS = 2 * TICK_RATE;
+// Call to arms: LEVY_SHARE of the living garrison guards (at least LEVY_MIN, if it has them) leave as the
+// clan's units for LEVY_DURATION_TICKS (1 game day), never beyond LEVY_MAX_TILES of the keep, then march home
+// (back in the garrison within LEVY_RETURN_TIMEOUT_TICKS at the latest); next call LEVY_COOLDOWN_TICKS after
+// the call. Each levy killed costs LEVY_DEATH_RELATION, losing them all LEVY_WIPE_RELATION more.
+export const LEVY_SHARE = 0.5;
+export const LEVY_MIN = 2;
+export const LEVY_DURATION_TICKS = DAY_TICKS + NIGHT_TICKS;
+export const LEVY_COOLDOWN_TICKS = 3 * (DAY_TICKS + NIGHT_TICKS);
+export const LEVY_MAX_TILES = 60;
+export const LEVY_RETURN_TIMEOUT_TICKS = Math.round((DAY_TICKS + NIGHT_TICKS) / 4);
+export const LEVY_DEATH_RELATION = 1;
+export const LEVY_WIPE_RELATION = 5;
+export const LEVY_KIND: Partial<Record<MobKind, ColonistKind>> = { townGuard: "spearman", townArcher: "archer", townKnight: "knight" };
+// Tribute: allowed while clan power >= TAX_POWER_MIN x the vassal's; every TAX_INTERVAL_DAYS at dawn it takes
+// share = min(TAX_SHARE_MAX, TAX_SHARE_BASE x clan / vassal power) of each good in its stock and of its purse
+// (gold). Relation cost TAX_RELATION_COST x sqrt(share / TAX_SHARE_MAX) (3 at the base share, 6 at the max:
+// heavier tax costs more, with diminishing extra cost). A vassal stronger than its liege (power ratio < 1 at
+// a dawn) breaks free, as does relation < RELATION_VASSAL_KEEP.
+export const TAX_POWER_MIN = 1.2;
+export const TAX_INTERVAL_DAYS = 2;
+export const TAX_SHARE_BASE = 0.1;
+export const TAX_SHARE_MAX = 0.4;
+export const TAX_RELATION_COST = 6;
+// The liege hitting its own vassal: no hostile spell, but RELATION_ATTACK_PENALTY at most this often.
+export const VASSAL_HIT_COOLDOWN_TICKS = 10 * TICK_RATE;
 // Cosmetic workers: pause at each end of the walk (ticks, random up to x2), walk speed factor.
 export const SETTLEMENT_WORKER_PAUSE_TICKS = 6 * TICK_RATE;
 export const SETTLEMENT_WORKER_SPEED_MULT = 0.7;

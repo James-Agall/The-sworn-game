@@ -154,12 +154,14 @@ export interface SiteSnapshot {
   // hostile right now (attacked: its garrison fights, its gates / towers treat the colony as enemies).
   num?: number;
   hostile?: boolean;
+  // Forts phase F: the clan this settlement is a vassal of (missing: none).
+  vassalOf?: number;
 }
 // Forts phase D: relation tiers (per clan per human settlement; thresholds in the server's constants.ts).
-// "vassal" = Vassal-ready (relation reached 100; the vassal mechanics come in phase F).
+// "vassal" = this clan's vassal (phase F: relation reached 100 with an army at least as strong; kept while >= 70).
 export type RelationTier = "hostile" | "wary" | "neutral" | "friendly" | "allied" | "vassal";
 export const RELATION_TIER_NAMES: Record<RelationTier, string> = {
-  hostile: "Hostile", wary: "Wary", neutral: "Neutral", friendly: "Friendly", allied: "Allied", vassal: "Vassal-ready",
+  hostile: "Hostile", wary: "Wary", neutral: "Neutral", friendly: "Friendly", allied: "Allied", vassal: "Vassal",
 };
 // Snapshot `relations` (per player, the receiving player's clan; resent only when a relation changed):
 // one entry per standing human settlement by its site number (SiteSnapshot.num).
@@ -974,6 +976,26 @@ export interface BuildingInfo {
     sendReason: string;
     canRecall: boolean;
   };
+  // Forts phase F: one of the requesting clan's vassals: power comparison, tribute (on / off, estimate, the
+  // ledger) and the levy (call to arms / dismiss). Time strings are game days ("1.5 days").
+  vassal?: {
+    siteName: string;
+    clanPower: number;
+    sitePower: number;
+    tax: boolean;
+    canTax: boolean;
+    taxReason: string;
+    estimate: string;
+    lastTax: string;
+    nextTax: string;
+    taxGoldTotal: number;
+    levyOnField: number;
+    levyReturning: boolean;
+    levyStatus: string;
+    levySize: number;
+    canCall: boolean;
+    callReason: string;
+  };
   // Churches only (hero phase 4): basic spells the requesting player can buy (see learnSpell).
   spellShop?: { spellId: SpellId; label: string; gold: number; enabled: boolean; reason: string }[];
 }
@@ -1030,6 +1052,12 @@ export type ClientMessage =
   // Forts phase E: the Trading Post at (tileX, tileY): send its wagon now (dest "auto" or a destination id from
   // BuildingInfo.tradingPost), recall it home, or set auto-send (value).
   | { type: "wagonCommand"; tileX: number; tileY: number; cmd: "sendNow" | "recall" | "auto"; dest?: string; value?: boolean }
+  // Forts phase F: call the vassal settlement owning tile (tileX, tileY) to arms: its levy follows followId (a
+  // colonist id of the sender's clan or "p:<playerId>"), else marches to (x, y) world px, else follows the
+  // sender's avatar; dismiss sends the levy on the field home.
+  | { type: "callToArms"; tileX: number; tileY: number; followId?: string; x?: number; y?: number; dismiss?: boolean }
+  // Forts phase F: demand tribute from (on) / stop taxing (off) the vassal settlement owning tile (tileX, tileY).
+  | { type: "setTax"; tileX: number; tileY: number; on: boolean }
   // Starts building one siege engine at the Siege Workshop at the tile (building info panel button).
   | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
   // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).
