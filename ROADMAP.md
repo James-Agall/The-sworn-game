@@ -2098,6 +2098,60 @@ Four user asks in one pass. Constants: `FOOTPRINT_*` / `FORGE_AUTO_*` / `GEAR_PI
    holds the target of each (use - / + to change it) and pauses when iron / wood would drop under 20. Save, load:
    still On.
 
+## Forts phase F — landed 2026-10-30 (vassals: fealty, call to arms, tribute)
+
+Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §6 / §10 "F" + the user spec (2026-10-30). Commits "Phase F stage
+1-3". Test `server/vassals-test.mjs` (port 22170, 19/19, ~1.5 min). Browser checklist: MANUAL-TESTS.md §6e.
+- **Module** `server/src/vassals.ts`; tuning in constants.ts ("Forts phase F" block). State: `SiteState.vassalOf`
+  (clan id | null) + `SiteState.vassal` (`VassalState`: tax on/off, nextTaxDay, lastTax {day, gold, goods, relation},
+  taxGoldTotal = the clan's tribute ledger for that vassal; levyIds, levyUntilTick, levyCooldownUntilTick,
+  levyReturnByTick, levyLost; lastHitTick) and on colonists `levyOf` / `levyKind` / `levyHome`; all ride on the saved
+  sites / colonists (additive, no SAVE_VERSION bump). The phase D `SiteDiplo.vassal` flag is no longer used.
+- **Power** (defined once in vassals.ts): clan = sum over its living fighters (`isGuardOrMilitiaKind`, levies and
+  wagons excluded) of hp x damage per hit (`unitStats`) + 300 x level per tower + 4 per wall / gate tile it owns (a
+  map scan, cached 2 s per clan, only for panels / calls / dawn); settlement = its living garrison mobs' hp x damage +
+  300 per tower + 4 per wall / gate tile inside its rectangle. A Hearthmoor is ~3300; 8 level-1 knights ~5800.
+- **Fealty**: relation reaching 100 (`onRelationChanged`, and re-checked every dawn) makes the settlement that clan's
+  vassal if nobody else holds it, it is not up in arms and clan power >= its power; otherwise a once-a-day toast "would
+  swear fealty, but your army is weaker". Toast "swears fealty", tier `vassal` (label now "Vassal", gold minimap flag
+  + crown; other clans' vassals bronze, tooltip "vassal of <clan>"). Other clans' relations are untouched and top
+  out at Allied (no vassal prices). Vassals keep posting quests and trading / taking wagons at the Vassal tier.
+- **Breaking free** (`endVassalage`: tax off, levy marches home, toast "<name> breaks free: <why>"): relation < 70; at
+  a dawn the vassal's power > the liege's; the settlement falls.
+- **Liege hits**: damage from the liege clan never provokes its vassal (vassals do not fight their liege): relation
+  -15 at most every 10 s instead, toast "You struck your own vassal", so repeated attacks break it and then provoke.
+- **Call to arms** (`callToArms {tileX, tileY, followId?, x?, y?, dismiss?}`): half the living garrison guards (min 2,
+  kinds interleaved) become the clan's colonists at their spots: townGuard -> spearman, townArcher -> archer,
+  townKnight -> knight (level 1, own arms: anything the spawn took from the armoury goes back), stance aggressive.
+  They are one order group following `followId` (a clan unit / player), else attack-moving to (x, y) (clamped to the
+  leash), else following the caller. Regiment card "<name> Levy" (`v:<siteId>`) takes every strategy order; morale
+  as any regiment. No population, no troop count, no respawn, no gear pickup. Leash 60 tiles from the keep (pulled
+  back at 55, checked 1 Hz). After 1 game day / Dismiss / vassalage ending: `levyHome` (no more orders), they walk to
+  the yard and turn back into garrison mobs (after 1/4 day at the latest). Cooldown 3 game days from the call. Each
+  levy killed -1 relation, all of them -5 more ("You bled us dry"). The garrison regrows dead ones on its own.
+- **Tribute** (`setTax {tileX, tileY, on}`): allowed while power ratio >= 1.2; every 2 game days at dawn (after the
+  settlement's production) it takes share = min(0.4, 0.1 x ratio) of each trade good in its stock and of its purse
+  into the clan's stock; relation cost 6 x sqrt(share / 0.4) (3 at share 0.1, 6 at 0.4: heavier tax costs more,
+  with diminishing extra cost). Ratio < 1.2 at a due dawn: "refuses tribute" (retried next dawn). Panel estimate =
+  the same formula on the current stock.
+- **Panel** (`BuildingInfo.vassal`, own vassals only): power line, Call to arms (title = why not) / Dismiss levy, levy
+  status, Demand tribute toggle + estimate, ledger "Tribute: last day N: ... · next in N dawns · total N gold". Non-vassal
+  Allied+ settlements show how fealty works with both power figures; another clan's vassal says "Vassal of <clan>".
+  Strategy mode: Call to arms joins the selected army (follows its first selected unit).
+- **Snapshot** additive: `sites[].vassalOf`. Gates of a vassal stay open to clan units at night (levies get out / home).
+- **Helper**: `node stamp-site.mjs vassal <name> | tax <name> | levy <name> | vassals`. Test hook `vassalSet {siteId,
+  clan?, relation?, vassal?, tax?, nextTaxDay?, levyUntilTick?, levyCooldownUntilTick?, collect?, dawn?, tick?}`
+  (replies the vassal state, power, levies).
+- **Fix on the way**: soldiers' auto-targeting (`pickGuardTarget`) now skips a neutral settlement's own mobs (before,
+  soldiers near / inside a settlement could pick its dormant guards and provoke it).
+- **Regression**: `npm test -- trade-test quests-test wagons-test` 3/3 after updating trade-test's tier check (relation
+  100 with no army now stays Allied with the "would swear fealty" toast instead of "Vassal-ready").
+- **Deviations / not done**: power ratio 1.2 for tribute (plan 1.5) and breakaway when the vassal is stronger (plan:
+  revolt at 0.8 with -30); goods share of the whole stock (plan: 25% of daily production + fixed gold); levy spawns
+  where each guard stands (not swapped at the gate); no "Vassals" tab in strategy mode (panel button + the levy card
+  instead); no "call to a picked point" click mode on the client (the server supports x / y; use the levy card's
+  orders); levy kinds level 1 only; hostility of a provoked vassal still applies to every clan (phase C rule).
+
 ## Forts phase E — landed 2026-10-30 (trader wagons)
 
 Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §5 "Trader wagons" / §10 "E". Commits "Phase E stage 1-3". Test

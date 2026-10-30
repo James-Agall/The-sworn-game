@@ -1,7 +1,8 @@
 // Scripted test: forts phase D, relations and direct trade. Self-contained: boots its OWN 256x256 server with
 // COLONY_TEST_HOOKS=1 on PORT (default 22140) and a temp COLONY_SAVE_DIR, kills its process group after.
 // Run from server/: `node trade-test.mjs`.
-//   T relation tiers by value (Hostile / Wary / Neutral / Friendly / Allied / Vassal-ready + hysteresis), tier toast
+//   T relation tiers by value (Hostile / Wary / Neutral / Friendly / Allied; phase F: 100 without an army does not
+//     vassalise, "would swear fealty" toast instead; the vassal tier itself is vassals-test's)
 //   H hostile / wary / out of range: trade refused, nothing changes hands
 //   P prices: buy > sell at every tier, buy falls and sell rises with the tier
 //   B a buy moves goods and gold both ways; stock-limited; daily per-good cap
@@ -112,8 +113,8 @@ const trade = async (good, qty, side) => {
 // ---- T: tiers ----
 const tiers = [];
 for (const v of [-60, -30, 0, 30, 70, 100, 80, 65]) tiers.push((await rel(v)).tier);
-result(tiers.join(",") === "hostile,wary,neutral,friendly,allied,vassal,vassal,allied", `T tiers -60..100, 80, 65: ${tiers.join(",")}`);
-result(c.events.some((e) => e.includes(`${site.name} is now Vassal-ready`)), "T tier toast (Vassal-ready)");
+result(tiers.join(",") === "hostile,wary,neutral,friendly,allied,allied,allied,allied", `T tiers -60..100, 80, 65: ${tiers.join(",")}`);
+result(c.events.some((e) => e.includes(`${site.name} would swear fealty`)), "T relation 100 with no army: fealty refused toast (phase F)");
 
 // ---- H: refusals ----
 await hook("setStock", { stock: { gold: 1000, grain: 0, wood: 0, meat: 0 } });

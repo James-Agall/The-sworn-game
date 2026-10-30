@@ -194,6 +194,44 @@ level; `node stamp-site.mjs wagon [<name>|auto]` sends the first post's wagon no
    panel says when a new one comes (first dawn / dusk after a day, for 20 wood at Lv1).
 7. **Save / load** with the wagon on the road: it is still on the road with the same cargo, the escort follows again.
 
+## 6e. Vassals (phase F: fealty, call to arms, tribute)
+Same server as §6 (`COLONY_TEST_HOOKS=1`, scratch `COLONY_SAVE_DIR`). Stamp or find a settlement and sight it.
+Shortcuts: `PORT=<port> node stamp-site.mjs vassal <name>` (relation 100 + vassal, forced even with a weak army: it
+then breaks free at the next dawn unless your power is at least its own), `node stamp-site.mjs tax <name>` (tribute
+on + one collected now), `node stamp-site.mjs levy <name>` (the levy's day ends now and the cooldown is cleared),
+`node stamp-site.mjs vassals` (liege, power, tribute, levy of every settlement).
+1. **Fealty refused**: with no soldiers, `node stamp-site.mjs relation <name> 100`: toast "<name> would swear fealty,
+   but your army is weaker than its garrison (power 0 vs ~3300)"; the panel shows "Allied" and "At relation 100 it
+   swears fealty if your army's power is at least its own (yours N, theirs M)".
+2. **Fealty**: build up soldiers (about 6-8 knights for a Hearthmoor) and wait for dawn (or set the relation again):
+   toast "<name> swears fealty: it is now your vassal!". Minimap: its flag turns gold with a small crown; hover says
+   "your vassal". Panel: "Relation 100: Vassal (sworn to you; free again below 70)" and the vassal block (power line,
+   Call to arms, Levy status, Demand tribute: Off, Tribute: last never / next off).
+3. **Call to arms (normal view)**: press Call to arms: toast "<name> answers your call to arms: 3 levies march out
+   for 1.0 days ..."; half its guards leave the walls as YOUR spearmen / archers / knights and follow you. Population
+   counter unchanged. Panel: "Levy: 3 on the field, 1.0 days left"; a second press is refused.
+4. **Strategy mode**: Tab, select one of your regiments, open the vassal's panel, press Call to arms (after `levy
+   <name>` to clear the cooldown): the levy follows the selected army. A "<name> Levy" regiment card appears; select
+   it and give move / attack-move / follow / charge / hold orders: it obeys. Order it far away: it stops about 55
+   tiles from its walls, toast "will not march beyond 60 tiles of its walls".
+5. **Service ends**: press Dismiss levy (or `levy <name>`, or wait one game day): "it marches home"; the levy takes
+   no orders, walks back into the yard and turns back into its guards ("The <name> levy is home"; garrison back to
+   6/6 minus any that died). Panel: "Ready again in N days" (3 days from the call).
+6. **Casualties**: let a levy die in a fight: relation -1 each; if all of them die, "You bled us dry" (-5 more).
+7. **Tribute**: with a strong army (power at least 1.2x theirs) press Demand tribute: the estimate shows e.g. "51
+   gold, 17 grain, 6 fruit (17% of their stock), relation -3.9"; at the next dawn (or `tax <name>`) toast "Tribute from
+   <name>: ..." and your stock rises; the ledger line shows last / next (every 2 dawns) / total. A bigger army takes a
+   bigger share (up to 40%) and costs more relation (up to 6). Without the army the button is disabled with "Your
+   army is too weak"; if your army shrinks below 1.2x while it is on, the dawn toast is "<name> refuses tribute".
+8. **Breaking free**: taxes / killed levies / hitting it lower the relation; below 70: "<name> breaks free: your
+   relation fell below 70" (gold flag goes, tier Allied / Friendly, any levy marches home). Also at a dawn when its
+   garrison outmatches your army: "breaks free: its garrison now outmatches your army".
+9. **Liege hits**: attack your own vassal: it does NOT take up arms; toast "You struck your own vassal <name>!" and
+   relation -15 (at most every 10 s), so repeated attacks break vassalage and the next hit makes it hostile.
+10. **Still a settlement**: a vassal keeps posting quests (Quests panel) and trades at the best (Vassal) prices; a
+   second clan (`?clan=new`) sees it as at most Allied ("Vassal of <clan>" in the panel, bronze minimap flag).
+11. **Save / load** with a levy on the field and tribute on: still a vassal, tribute still on, the levy still yours.
+
 ## 7. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.
    Every unit should walk round the idle ones and stop exactly on its slot; nobody left a tile or two short in
@@ -216,6 +254,8 @@ level; `node stamp-site.mjs wagon [<name>|auto]` sends the first post's wagon no
   `gates-walls`, `goals-castle`, `battle-discipline`, `builders-farmers`, `day-respawn`, `fight-notifier`,
   `orders-test`, `regiment-groups`, `player-morale`, `scale-rider`, `time-intel`, `settlement-pop`, `raid-morale`,
   `tactics-test`, `strategy-view`.
+- Phase F: `vassals-test` (own server, ~1.5 min): fealty vs power, tribute amount / relation cost, call to arms,
+  leash, return, cooldown, casualty, save / load, refused when weaker, breakaways.
 - Known failing or flaky (do not worry): see `ROADMAP.md`, "Known failing tests" and "Full-suite run after the server
   split".
 - No health bars except the red boss bar; fainter green selection rings; smaller banners (strategy mode).

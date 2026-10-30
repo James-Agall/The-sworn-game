@@ -177,6 +177,11 @@ function collectTribute(s: SiteState, clanId: number, ratio: number) {
   adjustRelation(clanId, s.id, -cost);
 }
 
+// Test hooks / stamp-site "tax": one tribute now at the current ratio (at least TAX_POWER_MIN), no checks.
+export function forceTribute(s: SiteState) {
+  if (s.vassalOf != null) collectTribute(s, s.vassalOf, Math.max(TAX_POWER_MIN, powerRatio(s.vassalOf, s)));
+}
+
 // sim.ts at dawn, after settlementsDawn (so tribute comes out of the fresh production): vassalise any settlement
 // at RELATION_MAX, end vassalage of fallen / stronger vassals, collect due tribute.
 export function vassalsDawn() {

@@ -60,7 +60,7 @@ import { grantTome, isSpellId, learnSpell, spellBookSnapshot } from "./spells.js
 import { stepSimulation } from "./sim.js";
 import { broadcastTileUpdate, fightsForPlayer } from "./net.js";
 import { tierOf } from "./diplomacy.js";
-import { endVassalage, updateVassals, vassalDebugState, vassalsDawn } from "./vassals.js";
+import { endVassalage, forceTribute, updateVassals, vassalDebugState, vassalsDawn } from "./vassals.js";
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
@@ -372,7 +372,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // Forts phase F: {siteId, clan?, relation?} sets the relation (adjustRelation: 100 vassalises when strong
     // enough); vassal: true forces vassalOf = clan (no power check), false ends it; tax: bool sets tribute
     // without the power check; nextTaxDay / levyCooldownUntilTick / levyUntilTick overwrite those numbers;
-    // dawn: true runs the dawn pass (vassalsDawn) now; tick: true runs updateVassals once. Replies vassalState.
+    // collect: true takes one tribute now (no power check); dawn: true runs the dawn pass (vassalsDawn) now; tick: true runs updateVassals once. Replies vassalState.
     const st = sites.get(msg.siteId);
     const clan = typeof msg.clan === "number" ? msg.clan : 0;
     if (st) {
@@ -387,6 +387,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         if (typeof msg.tax === "boolean") st.vassal.tax = msg.tax;
         for (const k of ["nextTaxDay", "levyCooldownUntilTick", "levyUntilTick"] as const) if (typeof msg[k] === "number") st.vassal[k] = msg[k] as number;
       }
+      if (msg.collect === true) forceTribute(st);
       if (msg.dawn === true) vassalsDawn();
       if (msg.tick === true) updateVassals();
     }

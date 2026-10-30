@@ -12,6 +12,11 @@
 // south-east of the first Town Center (rule-free; its wagon + escort appear within a second);
 // `node stamp-site.mjs wagon [settlement name|auto]` sends the first Trading Post's wagon now (no trip cap; by
 // day only); `node stamp-site.mjs wagons` lists every post, its wagon (leg, destination, cargo) and escort.
+// Forts phase F: `node stamp-site.mjs vassal <settlement name>` sets clan 0's relation to 100 and makes it clan
+// 0's vassal (forced even when your army is weaker; it may then break free at the next dawn);
+// `node stamp-site.mjs tax <settlement name>` turns tribute on and collects one now (no power check);
+// `node stamp-site.mjs levy <settlement name>` ends the levy's day now (it marches home) and clears the
+// call-to-arms cooldown; `node stamp-site.mjs vassals` lists every settlement's liege, power and levy.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -44,6 +49,19 @@ if (template === "relation") {
   else {
     const r = await hook("diploSet", { siteId: target.id, relation: value });
     console.log(`${target.name}: relation ${r.relation} (${r.tier})`);
+  }
+} else if (["vassal", "tax", "levy", "vassals"].includes(template)) {
+  const sitesNow = ((await hook("sitesState"))?.sites ?? []).filter((x) => x.faction === "human");
+  const show = (r, name) => console.log(`${name}: ${r.vassalOf === null ? "free" : `vassal of clan ${r.vassalOf}`}, relation ${r.relation} (${r.tier}), power clan ${r.clanPower} vs ${r.sitePower}, tribute ${r.vassal?.tax ? "on" : "off"}${r.vassal?.lastTax ? ` (last day ${r.vassal.lastTax.day + 1}: ${r.vassal.lastTax.gold} gold)` : ""}, levy ${r.levies.length} on the field, garrison ${r.garrison}`);
+  if (template === "vassals") {
+    for (const x of sitesNow) show(await hook("vassalSet", { siteId: x.id }), x.name);
+  } else {
+    const name = process.argv[3];
+    const target = sitesNow.find((x) => x.name.toLowerCase() === String(name).toLowerCase());
+    if (!target) console.log(`Usage: ${template} <settlement name>; no settlement "${name}" (${sitesNow.map((x) => x.name).join(", ")})`);
+    else if (template === "vassal") show(await hook("vassalSet", { siteId: target.id, relation: 100, vassal: true }), target.name);
+    else if (template === "tax") show(await hook("vassalSet", { siteId: target.id, tax: true, collect: true }), target.name);
+    else show(await hook("vassalSet", { siteId: target.id, levyUntilTick: 0, levyCooldownUntilTick: 0, tick: true }), target.name);
   }
 } else if (template === "quest" || template === "quests") {
   const sitesNow = (await hook("sitesState"))?.sites ?? [];
