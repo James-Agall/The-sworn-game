@@ -139,6 +139,17 @@ export const GATE_FLAG_FOREIGN = 16;
 export const SITE_TILE_SNAPSHOT_STRIDE = 2;
 // Forts phase B (2026-10-30): the faction of a stamped NPC fort (bandit palisades, orc stockades).
 export type SiteFaction = "bandit" | "orc";
+// Forts phase B stage 3: snapshot `sites` (sent with `siteTiles`): every fort whose keep has been explored
+// (minimap marker coloured by faction; cleared = razed, captured = rebuilt as a clan's outpost).
+export interface SiteSnapshot {
+  name: string;
+  faction: SiteFaction;
+  keepX: number;
+  keepY: number;
+  cleared: boolean;
+  captured: boolean;
+  capturedBy?: number;
+}
 // Clans (ROADMAP "Clans — landed"): snapshot `clanTiles` is flattened [tile index, clan id] pairs, one per
 // player building of any clan, sent only while there are 2+ clans and only when it changed (a full
 // replacement). Missing (or a single-clan game) = clan 0.
@@ -780,6 +791,8 @@ export const DAMAGED_BUILDING_SNAPSHOT_STRIDE = 2;
 export const HEARTH_SNAPSHOT_STRIDE = 2;
 
 export interface TownCenterSnapshot {
+  // Forts phase B: a captured fort's outpost ("Thornwick Palisade Outpost"); omitted for ordinary ones.
+  name?: string;
   x: number;
   y: number;
   level: number;
@@ -851,6 +864,8 @@ export interface BuildingInfo {
     options: { heroClass: HeroClass; label: string; cost: string; enabled: boolean; reason: string }[];
     roster: { name: string; heroClass: HeroClass; level: number; status: string }[];
   };
+  // Forts phase B: a fort's RuinedKeep: the Rebuild button (rebuildKeep) and why it is disabled.
+  keep?: { cost: string; enabled: boolean; reason: string };
   // Churches only (hero phase 4): basic spells the requesting player can buy (see learnSpell).
   spellShop?: { spellId: SpellId; label: string; gold: number; enabled: boolean; reason: string }[];
 }
@@ -894,6 +909,8 @@ export type ClientMessage =
   | { type: "repairBuilding"; tileX: number; tileY: number }
   // Sets the lock of the gate at the tile (no reach limit, like the other building info buttons).
   | { type: "setGateLock"; tileX: number; tileY: number; lock: GateLock }
+  // Forts phase B: rebuild a cleared fort's RuinedKeep (tileX / tileY) as the sender clan's outpost.
+  | { type: "rebuildKeep"; tileX: number; tileY: number }
   // Starts building one siege engine at the Siege Workshop at the tile (building info panel button).
   | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
   // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).
@@ -1025,6 +1042,8 @@ export type ServerMessage =
       // Forts phase A: NPC-owned tiles, see SITE_TILE_SNAPSHOT_STRIDE (per player, only when changed;
       // a full replacement of the previous list).
       siteTiles?: number[];
+      // Forts phase B: explored forts (sent with siteTiles; a full replacement).
+      sites?: SiteSnapshot[];
       // Clans (only while there are 2+): this player's clan id, every clan, and the clan of every player
       // building (CLAN_TILE_SNAPSHOT_STRIDE; per player, only when changed). The economy / army / population
       // / goal fields of this snapshot are the receiving player's clan's.

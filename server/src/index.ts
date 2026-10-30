@@ -29,12 +29,12 @@ import { damagedBuildingsForSnapshot, gatesForSnapshot, handlePlayerAttack, hand
 import { handleQueueSiege } from "./siege.js";
 import { handleSetDifficulty } from "./mobs.js";
 import {
-  buildingInfoFor, buildingLevelsForSnapshot, constructionSitesForSnapshot, handleSetTile, handleUpgradeBuilding,
+  buildingInfoFor, buildingLevelsForSnapshot, handleRebuildKeep, constructionSitesForSnapshot, handleSetTile, handleUpgradeBuilding,
 } from "./construction.js";
 import "./tactics.js";
 import "./raids.js";
 import { handleCommandAttackHearth, hearthsForSnapshot } from "./hearths.js";
-import "./sites.js";
+import { sitesForSnapshot } from "./sites.js";
 import "./goals.js";
 import {
   forgeBusyForSnapshot, handleEquipItem, handleQueueForge, handleSetForgeAuto, handleRecruitHero, handleTakeFromArmoury,
@@ -219,6 +219,9 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "repairBuilding") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleRepairBuilding(player, message.tileX, message.tileY);
+  } else if (message.type === "rebuildKeep") {
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+    handleRebuildKeep(player, message.tileX, message.tileY);
   } else if (message.type === "setGateLock") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleSetGateLock(message.tileX, message.tileY, message.lock);
@@ -401,6 +404,7 @@ setInterval(() => {
       forgeBusy: world.forgeBusy,
       townCenters: ownTownCenters.map(
         (tc, i): TownCenterSnapshot => ({
+          ...(tc.name ? { name: tc.name } : {}),
           x: tc.x,
           y: tc.y,
           level: tc.level,
@@ -456,7 +460,7 @@ setInterval(() => {
       if (enemyJson !== null && player.view) payload = payload.slice(0, -1) + ',"enemyRegiments":' + enemyJson + "}";
       if (snapshot.type === "snapshot" && player.siteTilesVersion !== state.ownerVersion) {
         player.siteTilesVersion = state.ownerVersion;
-        payload = payload.slice(0, -1) + ',"siteTiles":' + JSON.stringify(Array.from(tileOwner).flat()) + "}";
+        payload = payload.slice(0, -1) + ',"siteTiles":' + JSON.stringify(Array.from(tileOwner).flat()) + ',"sites":' + JSON.stringify(sitesForSnapshot()) + "}";
       }
       // Clans: every player building's clan (CLAN_TILE_SNAPSHOT_STRIDE), resent when it changed.
       if (clans.length > 1 && player.clanTilesVersion !== state.clanTilesVersion) {

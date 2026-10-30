@@ -12,8 +12,10 @@ import {
   SITE_FORT_MIN_WORLD_TILES, SITE_FORT_PLACE_ATTEMPTS, SITE_FORT_SPACING_TILES, SITE_FORT_START_CLEARANCE_TILES,
   SITE_KEEP_HP_BY_TIER, SITE_ORC_RING_FRACTION, SITE_TEMPLATES, SITE_TEMPLATE_TILES,
 } from "./constants.js";
-import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, players, sites, state } from "./state.js";
+import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, players, sites, state, tileOwner } from "./state.js";
 import { inBounds, resourceKey, setOwner, siteNumber, tileIndex, tileToPixelCenter } from "./tiles.js";
+import { setTileClan } from "./clans.js";
+import type { SiteSnapshot } from "@colony/shared/protocol";
 import { isInAbbeyGrounds, isInCastleRuinGrounds, shuffled, spawnGuardian } from "./worldgen.js";
 import { registerHearth } from "./hearths.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
@@ -311,6 +313,8 @@ export function onFortKeepDestroyed(siteId: string) {
   const s = sites.get(siteId);
   if (!s) return;
   s.cleared = true;
+  s.sighted = true;
+  state.ownerVersion++;
   state.tiles[tileIndex(s.keepX, s.keepY)] = TileType.RuinedKeep;
   broadcastTileUpdate(s.keepX, s.keepY, TileType.RuinedKeep);
 }
@@ -346,6 +350,12 @@ export function updateSites() {
         provoke = true;
         break;
       }
+    }
+    // Stage 3: "<name> sighted" once its keep tile is explored (the minimap marker appears then).
+    if (!s.sighted && state.explored[tileIndex(s.keepX, s.keepY)]) {
+      s.sighted = true;
+      state.ownerVersion++;
+      broadcastEvent("raid", `${s.name} sighted (${s.faction === "orc" ? "orc stockade" : "bandit palisade"})`);
     }
     if (awake && !s.awake) catchUpSite(s, now);
     s.awake = awake;
@@ -385,6 +395,12 @@ export function siteNumAsleep(num: number): boolean {
   if (num === 0) return false;
   const s = siteByNum(num);
   return !!s && !s.awake;
+}
+
+// A razed fort's gates let the colony through (builders walk in to rebuild the keep).
+export function siteNumCleared(num: number): boolean {
+  const s = num === 0 ? undefined : siteByNum(num);
+  return !!s && s.cleared;
 }
 
 // Extra tower range (tiles) for a fort's towers during its anti-kite surge.
@@ -449,4 +465,60 @@ export function plunderSiteStock(siteId: string): Partial<Record<ResourceKey, nu
 
 export function siteName(siteId: string): string | undefined {
   return sites.get(siteId)?.name;
+}
+
+// ---- Stage 3: capture (rebuild the ruined keep) ----
+
+export function siteAtKeep(tx: number, ty: number): SiteState | undefined {
+  for (const s of sites.values()) if (s.keepX === tx && s.keepY === ty) return s;
+  return undefined;
+}
+
+// Why the ruined keep of `s` cannot be rebuilt yet (null = it can, cost aside).
+export function rebuildKeepBlocker(s: SiteState): string | null {
+  if (s.captured) return "Already rebuilt";
+  if (!s.cleared) return "The keep still stands";
+  for (const m of mobs.values()) {
+    if (m.siteId === s.id && m.x >= s.x0 * TILE_SIZE && m.x < (s.x1 + 1) * TILE_SIZE && m.y >= s.y0 * TILE_SIZE && m.y < (s.y1 + 1) * TILE_SIZE) return "Defenders still hold the fort";
+  }
+  return null;
+}
+
+// The rebuilt keep is up (a Town Center of `clan` on the keep tile): the fort becomes that clan's outpost.
+// Every tile the site owned goes to owner 0 + the clan (walls / gates / towers keep their HP; gates reset
+// to "auto"; tents and props stay as decor); the grounds mask drops it. Returns the outpost name.
+export function captureSite(s: SiteState, clan: number): string {
+  s.captured = true;
+  s.capturedBy = clan;
+  s.awake = false;
+  for (let y = s.y0; y <= s.y1; y++) {
+    for (let x = s.x0; x <= s.x1; x++) {
+      const i = tileIndex(x, y);
+      if (tileOwner.get(i) !== s.num) continue;
+      setOwner(i, 0);
+      setTileClan(i, clan);
+      const g = gates.get(i);
+      if (g) {
+        g.lock = "auto";
+        g.overrun = false;
+      }
+    }
+  }
+  setTileClan(tileIndex(s.keepX, s.keepY), clan);
+  state.ownerVersion++;
+  rebuildSiteGrounds();
+  return `${s.name} Outpost`;
+}
+
+// Snapshot `sites`: every sighted fort.
+export function sitesForSnapshot(): SiteSnapshot[] {
+  const out: SiteSnapshot[] = [];
+  for (const s of sites.values()) {
+    if (!s.sighted) continue;
+    out.push({
+      name: s.name, faction: s.faction, keepX: s.keepX, keepY: s.keepY, cleared: s.cleared, captured: s.captured,
+      ...(s.capturedBy !== undefined ? { capturedBy: s.capturedBy } : {}),
+    });
+  }
+  return out;
 }

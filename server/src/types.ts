@@ -329,6 +329,8 @@ export interface TownCenter {
   hp: number;
   // Clans: owning clan (missing = 0).
   clan?: number;
+  // Forts phase B: a captured fort's outpost name.
+  name?: string;
 }
 // Difficulty (chosen on the client's main menu). Scales RAID-WAVE mobs only (createRaidMob and the
 // raid size); POI guardians, deserters and the Half-Latch are untouched.

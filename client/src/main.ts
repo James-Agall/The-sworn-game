@@ -13,6 +13,8 @@ import {
 } from "pixi.js";
 import type {
   ClientMessage,
+  SiteFaction,
+  SiteSnapshot,
   ServerMessage,
   PlayerSnapshot,
   ColonistSnapshot,
@@ -1814,6 +1816,9 @@ async function main() {
   // number. Drawn tinted (FOREIGN_TINT), red on the minimap; right-click with soldiers = attack it.
   let siteOwners = new Map<number, number>();
   const FOREIGN_TINT = 0xffa090;
+  // Forts phase B: explored forts (snapshot `sites`, sent with siteTiles): minimap flags by faction.
+  let fortMarkers: SiteSnapshot[] = [];
+  const FORT_FLAG_COLOR: Record<SiteFaction, string> = { bandit: "#d35400", orc: "#6b8e23" };
   // Clans (snapshot clanId / clans / clanTiles, only while 2+ clans play): this player's clan, every clan's
   // colour, and the clan of every player building. Another clan's buildings are tinted with its colour
   // and its units get a ring in it; neither can be selected or ordered.
@@ -3787,6 +3792,19 @@ async function main() {
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(minimapStatic, 0, 0, worldTilesX * s, worldTilesY * s);
 
+    // Forts phase B: a flag on each explored fort's keep (faction colour; grey = razed, clan colour = captured).
+    for (const f of fortMarkers) {
+      const fx = (f.keepX + 0.5) * s;
+      const fy = (f.keepY + 0.5) * s;
+      const color = f.captured
+        ? `#${(clanColors.get(f.capturedBy ?? 0) ?? 0x3a7bd5).toString(16).padStart(6, "0")}`
+        : f.cleared ? "#8a8a8a" : FORT_FLAG_COLOR[f.faction];
+      ctx.fillStyle = "#1a1008";
+      ctx.fillRect(fx - 0.5 * u, fy - 7 * u, 1.5 * u, 9 * u);
+      ctx.fillRect(fx + u - 0.5 * u, fy - 7.5 * u, 7 * u, 5 * u);
+      ctx.fillStyle = color;
+      ctx.fillRect(fx + u, fy - 7 * u, 6 * u, 4 * u);
+    }
     for (const { x: tcX, y: tcY } of latestTownCenters) {
       const size = 7 * u;
       const cx = (tcX + 0.5) * s;
@@ -4887,6 +4905,7 @@ async function main() {
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
     TileType.Gate, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
+    TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
   const bpNameEl = document.getElementById("bp-name")!;
@@ -4933,6 +4952,10 @@ async function main() {
     HERO_CLASSES.map((cls) => [cls, document.getElementById(`bp-hero-${cls}`) as HTMLButtonElement])
   );
   const bpSpellsRowEl = document.getElementById("bp-spells-row")!;
+  // Forts phase B: a razed fort's RuinedKeep: Rebuild (rebuildKeep) and its cost / reason.
+  const bpKeepRowEl = document.getElementById("bp-keep-row")!;
+  const bpKeepBtn = document.getElementById("bp-keep-rebuild") as HTMLButtonElement;
+  const bpKeepStateEl = document.getElementById("bp-keep-state")!;
   let bpSpellsKey = "";
   // Tile the panel shows; re-requested every second while open so numbers stay live.
   let infoTile: { tx: number; ty: number } | null = null;
@@ -4977,6 +5000,11 @@ async function main() {
     if (info.repair) {
       bpRepairBtn.disabled = !info.repair.enabled;
       bpRepairCostEl.textContent = info.repair.reason ? `${info.repair.cost} (${info.repair.reason})` : info.repair.cost;
+    }
+    bpKeepRowEl.hidden = !info.keep;
+    if (info.keep) {
+      bpKeepBtn.disabled = !info.keep.enabled;
+      bpKeepStateEl.textContent = info.keep.reason ? `${info.keep.cost} (${info.keep.reason})` : info.keep.cost;
     }
     bpGateRowEl.hidden = !info.gate;
     if (info.gate) {
@@ -5101,6 +5129,12 @@ async function main() {
   bpForgeAutoMoreBtn.addEventListener("click", () => {
     bpForgeAutoMoreBtn.blur();
     sendForgeAuto(true, shownForgeAuto.target + 1);
+  });
+  bpKeepBtn.addEventListener("click", () => {
+    bpKeepBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "rebuildKeep", tileX: infoTile.tx, tileY: infoTile.ty });
+    window.setTimeout(requestBuildingInfo, 150);
   });
   bpGateBtn.addEventListener("click", () => {
     bpGateBtn.blur();
@@ -6041,6 +6075,7 @@ async function main() {
       syncDamagedBuildings(message.damagedBuildings);
       syncGates(message.gates);
       syncSiteTiles(message.siteTiles);
+      if (message.sites) fortMarkers = message.sites;
       if (message.clans) {
         clanColors = new Map(message.clans.map((c) => [c.id, c.color]));
         clanNames = new Map(message.clans.map((c) => [c.id, c.name]));
@@ -7333,7 +7368,8 @@ async function main() {
     // breaking it; with Demolish selected it breaks as before. Garrison buildings also select their units.
     const tileValue = tile ? tiles[tile.tileY * worldTilesX + tile.tileX] : TileType.Empty;
     // Strategy mode never demolishes, so its clicks always open the panel.
-    const showInfo = tile !== null && currentTool !== TileType.Empty && INFO_TILES.has(tileValue);
+    // Forts phase B: any tile of an NPC fort opens its info ("Grakkar Stockade: Wall").
+    const showInfo = tile !== null && currentTool !== TileType.Empty && (INFO_TILES.has(tileValue) || siteOwners.has(tile.tileY * worldTilesX + tile.tileX));
     if (showInfo) openBuildingInfo(tile.tileX, tile.tileY);
     if (tile && GARRISON_TILES.has(tileValue)) {
       setSelection(

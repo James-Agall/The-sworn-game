@@ -1050,6 +1050,9 @@
       #bp-repair-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
       #bp-repair-row[hidden] { display: none; }
       #bp-repair-cost { font-size: 12.5px; color: var(--ink-soft); }
+      #bp-keep-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+      #bp-keep-row[hidden] { display: none; }
+      #bp-keep-state { font-size: 12.5px; color: var(--ink-soft); }
       #bp-gate-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
       #bp-gate-row[hidden] { display: none; }
       #bp-gate-state { font-size: 12.5px; color: var(--ink-soft); }
@@ -1434,6 +1437,9 @@
       </div>
       <div id="bp-repair-row" hidden>
         <button id="bp-repair" class="econ-btn">Repair</button><span id="bp-repair-cost"></span>
+      </div>
+      <div id="bp-keep-row" hidden>
+        <button id="bp-keep-rebuild" class="econ-btn">Rebuild keep</button><span id="bp-keep-state"></span>
       </div>
       <div id="bp-gate-row" hidden>
         <button id="bp-gate-lock" class="econ-btn">Lock: Auto</button><span id="bp-gate-state"></span>

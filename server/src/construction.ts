@@ -24,11 +24,11 @@ import {
 } from "./constants.js";
 import {
   buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, minesPlacedOnOre, players, repairPaid,
-  repairQueue, respawnQueue, siegeWorkshops, state, towerCooldowns,
+  repairQueue, respawnQueue, siegeWorkshops, state, towerCooldowns, hearths, mobs,
 } from "./state.js";
 import {
   anchorOfTile, biomeAt, biomeProductionFactor, getBuildingLevel, inBounds, levelBonus, ownerAt, placedFootprint,
-  resourceKey, tileIndex, tileOfPixel, tileToPixelCenter,
+  resourceKey, setOwner, tileIndex, tileOfPixel, tileToPixelCenter,
 } from "./tiles.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import {
@@ -52,7 +52,8 @@ import { siegeUnitsAt, siegeWorkshopInfo } from "./siege.js";
 import { blacksmithForgeInfo, keepHeroInfo } from "./heroes.js";
 import { churchSpellShop } from "./spells.js";
 import { START_VISION_OFFSETS, broadcastEvent, broadcastTileUpdate, revealAround } from "./net.js";
-import { isInSiteGrounds, nearSiteGrounds } from "./sites.js";
+import { captureSite, isInSiteGrounds, nearSiteGrounds, rebuildKeepBlocker, siteAtKeep, siteByNum } from "./sites.js";
+import { SITE_TEMPLATES } from "./constants.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
 
 export function upgradeKnightAt(tx: number, ty: number, level: number) {
@@ -371,11 +372,14 @@ export function resolveTownCenterPlacement(tx: number, ty: number) {
   }
   state.tiles[tileIndex(tx, ty)] = TileType.TownCenter;
   const tc: TownCenter = { x: tx, y: ty, level: 1, hp: townCenterMaxHp(1), ...(clanIdAt(tx, ty) ? { clan: clanIdAt(tx, ty) } : {}) };
+  // Forts phase B: a Town Center on a razed fort's keep tile captures the fort (its outpost).
+  const fort = siteAtKeep(tx, ty);
+  if (fort && fort.cleared && !fort.captured) tc.name = captureSite(fort, clanIdAt(tx, ty));
   state.townCenters.push(tc);
   broadcastTileUpdate(tx, ty, TileType.TownCenter);
   revealAround(tx, ty, START_VISION_OFFSETS);
   topUpTownCenterBuilders(tc);
-  broadcastEvent("build", "A new Town Center stands");
+  broadcastEvent("build", tc.name ? `${tc.name} stands: the fort is yours` : "A new Town Center stands");
 }
 
 // Mob damage brought it down: it is removed for good (a new one can be placed).
@@ -1107,10 +1111,82 @@ export function upgradePlacementTile(t: TileType): TileType | null {
   return IN_PLACE_UPGRADE_TILES.includes(t) ? t : null;
 }
 
+// Forts phase B: rebuild a razed fort's RuinedKeep as the sender clan's outpost (a Town Center
+// construction on the keep tile, the template's rebuildCost). Bypasses the fort-grounds and "no Town
+// Center near a fort" refusals for this one tile; still keeps the Town Center spacing.
+export function handleRebuildKeep(player: Player, tx: number, ty: number) {
+  if (!inBounds(tx, ty) || state.tiles[tileIndex(tx, ty)] !== TileType.RuinedKeep) return;
+  const s = siteAtKeep(tx, ty);
+  if (!s) return;
+  const problem = rebuildKeepProblem(s.id, tx, ty, player);
+  if (problem) {
+    sendEvent(player, "build", problem);
+    return;
+  }
+  const cost = SITE_TEMPLATES[s.template].rebuildCost;
+  spend(cost);
+  setOwner(tileIndex(tx, ty), 0);
+  setTileClan(tileIndex(tx, ty), player.clan);
+  buildingHp.delete(resourceKey(tx, ty));
+  if (state.instantBuild) {
+    state.tiles[tileIndex(tx, ty)] = TileType.Empty;
+    resolvePlacement(tx, ty, TileType.TownCenter, TileType.Empty);
+  } else {
+    startConstruction(tx, ty, TileType.TownCenter, TileType.RuinedKeep, false);
+    sendEvent(player, "build", `Builders are on their way to rebuild ${s.name}'s keep`);
+  }
+}
+
+// Why the player can't rebuild this RuinedKeep now (null = they can).
+function rebuildKeepProblem(siteId: string, tx: number, ty: number, player?: Player): string | null {
+  const s = siteAtKeep(tx, ty);
+  if (!s || s.id !== siteId) return "Not a fort's keep";
+  const blocker = rebuildKeepBlocker(s);
+  if (blocker) return blocker;
+  if (constructionSites.has(resourceKey(tx, ty))) return "Rebuilding";
+  if (player) {
+    const c = tileToPixelCenter({ x: tx, y: ty });
+    if (Math.hypot(player.x - c.x, player.y - c.y) > REACH * 3) return "Walk up to the keep";
+  }
+  if (townCenterTooClose(tx, ty)) return `Too close to a Town Center (${TOWN_CENTER_MIN_SPACING_TILES} tiles)`;
+  if (!canAfford(SITE_TEMPLATES[s.template].rebuildCost)) return "Not enough materials";
+  if (!state.instantBuild && !anyBuilderAlive()) return "No builders available";
+  return null;
+}
+
+// Building info for a tile an NPC fort owns ("Grakkar Stockade: Wall"), with the Rebuild button on a
+// razed fort's RuinedKeep.
+function siteTileInfo(tx: number, ty: number, t: TileType, forPlayer?: Player): BuildingInfo | null {
+  const s = siteByNum(ownerAt(tileIndex(tx, ty))) ?? (t === TileType.RuinedKeep ? siteAtKeep(tx, ty) : undefined);
+  if (!s) return null;
+  const label = t === TileType.SiteKeep ? "Keep" : t === TileType.RuinedKeep ? "Ruined keep" : t === TileType.Tent ? "Tent" : BUILDING_NAMES[t] ?? "Wall";
+  const hearth = t === TileType.SiteKeep ? hearths.get(s.id) : undefined;
+  const hp = hearth ? { hp: Math.max(0, Math.round(hearth.hp)), max: hearth.maxHp } : structureHp(tx, ty);
+  const living = s.garrison.filter((id) => mobs.has(id)).length;
+  const bonuses = [
+    `${s.faction === "orc" ? "Orc stockade" : "Bandit palisade"}, tier ${s.tier}`,
+    s.captured ? "Captured" : s.cleared ? "Cleared: the keep is razed" : `Garrison ${living}/${s.garrisonMax}${s.awake ? "" : " (asleep)"}`,
+  ];
+  let keep: BuildingInfo["keep"];
+  if (t === TileType.RuinedKeep && !s.captured) {
+    const reason = rebuildKeepProblem(s.id, tx, ty, forPlayer) ?? "";
+    keep = { cost: formatCost(SITE_TEMPLATES[s.template].rebuildCost), enabled: reason === "", reason };
+    bonuses.push(`Rebuild it as your outpost: a level-1 Town Center named "${s.name} Outpost" with its own population cap; the walls, gates and towers become yours`);
+  }
+  return {
+    name: `${s.name}: ${label}`, tile: t, level: 1, maxLevel: 1, hp: hp ? Math.round(hp.hp) : null, maxHp: hp?.max ?? null,
+    staffing: s.captured ? "" : "Hostile", bonuses, upgrade: null, construction: null, repair: null, ...(keep ? { keep } : {}),
+  };
+}
+
 export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingInfo | null {
   if (!inBounds(tx, ty)) return null;
   ({ x: tx, y: ty } = anchorOfTile(tx, ty));
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
+  if (ownerAt(tileIndex(tx, ty)) !== 0 || t === TileType.RuinedKeep) {
+    const info = siteTileInfo(tx, ty, t, forPlayer);
+    if (info) return info;
+  }
   const key = resourceKey(tx, ty);
   const site = constructionSites.get(key);
   if (t === TileType.ConstructionSite) {
@@ -1279,7 +1355,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
   }
 
   return {
-    name,
+    name: tc?.name ?? name,
     tile: t,
     level,
     maxLevel: t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate || t === TileType.SiegeWorkshop || t === TileType.Market || t === TileType.GoldShop || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,

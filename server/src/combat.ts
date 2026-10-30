@@ -29,7 +29,7 @@ import {
   findTownCenterAt, isHouseTile, isWardPriest, queueRespawn, spawnPointNearTownCenter, townCenterMaxHp,
 } from "./colonists.js";
 import { isGuardOrMilitiaKind, isSiegeKind } from "./units.js";
-import { noteSiteHit, siteNumAsleep, siteTowerRangeBonus } from "./sites.js";
+import { noteSiteHit, siteNumAsleep, siteNumCleared, siteTowerRangeBonus } from "./sites.js";
 import { activateGuardianSite, goldForKill, isDormantGuardian, keyToTile } from "./mobs.js";
 import {
   currentBuildingLevel, demolishTile, destroyTownCenter, syncGuardBonusesAround, tryLevelUpInPlace,
@@ -517,7 +517,7 @@ export function gateAt(index: number): GateState {
 export function gatePassable(index: number, hostile: boolean): boolean {
   const g = gates.get(index);
   const own = ownerAt(index);
-  if (own !== 0) return hostile ? state.moverOwner === own : !!g && g.overrun;
+  if (own !== 0) return hostile ? state.moverOwner === own : (!!g && g.overrun) || siteNumCleared(own);
   if (hostile) return !!g && (g.open || g.overrun);
   return !g || g.open || g.lock !== "closed";
 }
