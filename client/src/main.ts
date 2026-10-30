@@ -15,6 +15,9 @@ import type {
   ClientMessage,
   SiteFaction,
   SiteSnapshot,
+  SiteRelationSnapshot,
+  RelationTier,
+  TradeGood,
   ServerMessage,
   PlayerSnapshot,
   ColonistSnapshot,
@@ -43,6 +46,7 @@ import type {
   ItemStats,
 } from "@colony/shared/protocol";
 import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-window ETA
+import { RELATION_TIER_NAMES } from "@colony/shared/protocol"; // forts phase D: relation tier labels
 import { buildCostText, FOOTPRINT_BY_TILE, footprintAnchorOf, footprintOf, footprintPartOffsets, placedFootprintAt } from "@colony/shared/buildings";
 import type { Footprint } from "@colony/shared/buildings";
 import {
@@ -1841,6 +1845,12 @@ async function main() {
   const HUMAN_SITE_TINT = 0xdfe6f5;
   // Forts phase C: neutral human settlements fly a white flag (red while hostile).
   const FORT_FLAG_COLOR: Record<SiteFaction, string> = { bandit: "#d35400", orc: "#6b8e23", human: "#f4f4f0" };
+  // Forts phase D: this clan's relation to each sighted settlement (snapshot `relations`, by site number);
+  // a settlement's minimap flag takes its tier's colour.
+  let siteRelations = new Map<number, SiteRelationSnapshot>();
+  const RELATION_TIER_COLOR: Record<RelationTier, string> = {
+    hostile: "#c0392b", wary: "#e67e22", neutral: "#f4f4f0", friendly: "#8fd18a", allied: "#4a9bd8", vassal: "#f1c40f",
+  };
   // Clans (snapshot clanId / clans / clanTiles, only while 2+ clans play): this player's clan, every clan's
   // colour, and the clan of every player building. Another clan's buildings are tinted with its colour
   // and its units get a ring in it; neither can be selected or ordered.
@@ -3835,7 +3845,9 @@ async function main() {
       const fy = (f.keepY + 0.5) * s;
       const color = f.captured
         ? `#${(clanColors.get(f.capturedBy ?? 0) ?? 0x3a7bd5).toString(16).padStart(6, "0")}`
-        : f.cleared ? "#8a8a8a" : f.hostile ? "#c0392b" : FORT_FLAG_COLOR[f.faction];
+        : f.cleared ? "#8a8a8a" : f.hostile ? "#c0392b"
+        : f.faction === "human" && f.num !== undefined && siteRelations.has(f.num) ? RELATION_TIER_COLOR[siteRelations.get(f.num)!.tier]
+        : FORT_FLAG_COLOR[f.faction];
       // Forts phase C: a human settlement's flag has a green edge (white = neutral, red = hostile).
       ctx.fillStyle = f.faction === "human" && !f.captured && !f.cleared ? "#2e8b3a" : "#1a1008";
       ctx.fillRect(fx - 0.5 * u, fy - 7 * u, 1.5 * u, 9 * u);
@@ -4995,6 +5007,87 @@ async function main() {
   const bpKeepBtn = document.getElementById("bp-keep-rebuild") as HTMLButtonElement;
   const bpKeepStateEl = document.getElementById("bp-keep-state")!;
   let bpSpellsKey = "";
+  // Forts phase D: a human settlement's Trade button and the trade panel (fed by the same buildingInfo
+  // refresh while open; closes with the building panel).
+  const bpTradeRowEl = document.getElementById("bp-trade-row")!;
+  const bpTradeBtn = document.getElementById("bp-trade-open") as HTMLButtonElement;
+  const bpTradeStateEl = document.getElementById("bp-trade-state")!;
+  const tradePanelEl = document.getElementById("trade-panel")!;
+  const tpNameEl = document.getElementById("tp-name")!;
+  const tpRelationEl = document.getElementById("tp-relation")!;
+  const tpReasonEl = document.getElementById("tp-reason")!;
+  const tpFootEl = document.getElementById("tp-foot")!;
+  const tpBodyEl = document.querySelector("#tp-goods tbody")!;
+  const TRADE_GOOD_LABEL: Record<TradeGood, string> = {
+    grain: "Grain", meat: "Meat", fruit: "Fruit", wool: "Wool", wood: "Wood", rock: "Rock", iron: "Iron", clothes: "Cloth", tools: "Tools",
+  };
+  let tradeOpen = false;
+  let tradeKey = "";
+  function sendTrade(good: TradeGood, qty: number, side: "buy" | "sell") {
+    if (!infoTile) return;
+    sendMessage({ type: "tradeWithSite", tileX: infoTile.tx, tileY: infoTile.ty, good, qty, side });
+    window.setTimeout(requestBuildingInfo, 150);
+  }
+  function renderTrade(trade: BuildingInfo["trade"]) {
+    tradePanelEl.hidden = !tradeOpen || !trade;
+    if (!trade || !tradeOpen) return;
+    tpNameEl.textContent = `Trade: ${trade.siteName}`;
+    const pct = Math.round((1 - trade.discount) * 100);
+    tpRelationEl.textContent = `${RELATION_TIER_NAMES[trade.tier]} (relation ${trade.relation})${pct > 0 ? ` · ${pct}% better prices` : ""} · their purse ${trade.gold} gold`;
+    tpReasonEl.textContent = trade.reason;
+    tpReasonEl.hidden = trade.reason === "";
+    // Rebuild the rows only when something changed (the panel refreshes every second; keeps clicks landing).
+    const key = JSON.stringify(trade);
+    if (key === tradeKey) return;
+    tradeKey = key;
+    const btn = (label: string, enabled: boolean, title: string, on: () => void) => {
+      const b = document.createElement("button");
+      b.className = "econ-btn";
+      b.textContent = label;
+      b.disabled = !enabled;
+      b.title = title;
+      b.addEventListener("click", () => {
+        b.blur();
+        on();
+      });
+      return b;
+    };
+    tpBodyEl.replaceChildren(
+      ...trade.goods.map((g) => {
+        const tr = document.createElement("tr");
+        const cell = (...kids: (string | HTMLElement)[]) => {
+          const td = document.createElement("td");
+          td.append(...kids);
+          tr.append(td);
+        };
+        const canBuy = trade.canTrade && g.buyLeft > 0;
+        const canSell = trade.canTrade && g.sellLeft > 0;
+        cell(TRADE_GOOD_LABEL[g.good]);
+        cell(`${g.stock}/${g.cap}`);
+        cell(g.buy.toFixed(2));
+        cell(
+          btn("+1", canBuy, `Buy 1 (${g.buyLeft} more today)`, () => sendTrade(g.good, 1, "buy")),
+          btn("+10", canBuy, `Buy 10 (${g.buyLeft} more today)`, () => sendTrade(g.good, 10, "buy"))
+        );
+        cell(g.sell.toFixed(2));
+        cell(
+          btn("-1", canSell, `Sell 1 (${g.sellLeft} more today)`, () => sendTrade(g.good, 1, "sell")),
+          btn("-10", canSell, `Sell 10 (${g.sellLeft} more today)`, () => sendTrade(g.good, 10, "sell"))
+        );
+        return tr;
+      })
+    );
+    tpFootEl.textContent = "Prices rise as you buy and fall as you sell the same good on one day. Each trade earns a little relation (up to 6 a day).";
+  }
+  bpTradeBtn.addEventListener("click", () => {
+    bpTradeBtn.blur();
+    tradeOpen = !tradeOpen;
+    requestBuildingInfo();
+  });
+  document.getElementById("tp-close")!.addEventListener("click", () => {
+    tradeOpen = false;
+    tradePanelEl.hidden = true;
+  });
   // Tile the panel shows; re-requested every second while open so numbers stay live.
   let infoTile: { tx: number; ty: number } | null = null;
   const BUILDING_INFO_REFRESH_MS = 1000;
@@ -5004,11 +5097,14 @@ async function main() {
   }
   function openBuildingInfo(tx: number, ty: number) {
     infoTile = { tx, ty };
+    tradeOpen = false;
     requestBuildingInfo();
   }
   function closeBuildingInfo() {
     infoTile = null;
     buildingPanelEl.hidden = true;
+    tradeOpen = false;
+    tradePanelEl.hidden = true;
   }
   function renderBuildingInfo(info: BuildingInfo) {
     bpNameEl.textContent = info.name;
@@ -5044,6 +5140,12 @@ async function main() {
       bpKeepBtn.disabled = !info.keep.enabled;
       bpKeepStateEl.textContent = info.keep.reason ? `${info.keep.cost} (${info.keep.reason})` : info.keep.cost;
     }
+    bpTradeRowEl.hidden = !info.trade;
+    if (info.trade) {
+      bpTradeBtn.textContent = tradeOpen ? "Close trade" : "Trade";
+      bpTradeStateEl.textContent = info.trade.canTrade ? `${RELATION_TIER_NAMES[info.trade.tier]} prices` : info.trade.reason;
+    } else tradeOpen = false;
+    renderTrade(info.trade);
     bpGateRowEl.hidden = !info.gate;
     if (info.gate) {
       shownGateLock = info.gate.lock;
@@ -6113,6 +6215,7 @@ async function main() {
       syncDamagedBuildings(message.damagedBuildings);
       syncGates(message.gates);
       if (message.sites) syncFortMarkers(message.sites);
+      if (message.relations) siteRelations = new Map(message.relations.map((r) => [r.num, r]));
       syncSiteTiles(message.siteTiles);
       if (message.clans) {
         clanColors = new Map(message.clans.map((c) => [c.id, c.color]));
@@ -7134,6 +7237,25 @@ async function main() {
   });
   minimapEl.addEventListener("pointermove", (e) => {
     if (strategyCam.inStrategy && minimapEl.hasPointerCapture(e.pointerId)) minimapJump(e);
+    // Forts phase D: hovering a fort flag names it (a settlement with your clan's relation tier).
+    const r = minimapEl.getBoundingClientRect();
+    if (r.width <= 0) return;
+    const tx = ((e.clientX - r.left) / r.width) * worldTilesX;
+    const ty = ((e.clientY - r.top) / r.height) * worldTilesY;
+    const reach = (8 / r.width) * worldTilesX;
+    let tip = "";
+    let best = Infinity;
+    for (const f of fortMarkers) {
+      const d = Math.hypot(f.keepX + 0.5 - tx, f.keepY - 2 - ty);
+      if (d > reach || d >= best) continue;
+      best = d;
+      const rel = f.num !== undefined ? siteRelations.get(f.num) : undefined;
+      tip = f.faction !== "human"
+        ? `${f.name} (${f.faction === "orc" ? "orc stockade" : "bandit palisade"}${f.cleared ? ", razed" : ""})`
+        : f.captured || f.cleared ? `${f.name} (${f.captured ? "captured" : "razed"})`
+        : `${f.name}: ${f.hostile ? "up in arms" : RELATION_TIER_NAMES[rel?.tier ?? "neutral"]} (relation ${rel?.value ?? 0})`;
+    }
+    if (minimapEl.title !== tip) minimapEl.title = tip;
   });
 
   function pointerTile(clickX: number, clickY: number): { tileX: number; tileY: number } | null {

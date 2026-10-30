@@ -1053,6 +1053,36 @@
       #bp-keep-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
       #bp-keep-row[hidden] { display: none; }
       #bp-keep-state { font-size: 12.5px; color: var(--ink-soft); }
+      /* Forts phase D: the Trade button (settlement panels) and the trade panel beside the building panel. */
+      #bp-trade-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+      #bp-trade-row[hidden] { display: none; }
+      #bp-trade-state { font-size: 12.5px; color: var(--ink-soft); }
+      #trade-panel {
+        position: fixed;
+        top: 56px;
+        right: 352px;
+        z-index: 20;
+        width: min(380px, calc(100vw - 64px));
+        padding: 12px 14px 12px;
+        color: var(--ink);
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif);
+        font-size: 14px;
+      }
+      #trade-panel[hidden] { display: none; }
+      @media (max-width: 720px) { #trade-panel { right: 52px; top: 120px; } }
+      #tp-name { font-size: 19px; font-weight: bold; }
+      #tp-close { font: inherit; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--ink); background: none; border: 0; cursor: pointer; }
+      #tp-reason { font-size: 12.5px; color: #8b2a1a; }
+      #tp-foot { font-size: 12px; color: var(--ink-soft); }
+      #tp-goods { width: 100%; margin-top: 6px; border-collapse: collapse; font-size: 13px; }
+      #tp-goods th { text-align: left; font-weight: normal; color: var(--ink-soft); font-size: 12px; border-bottom: 1px solid rgba(74, 42, 20, 0.35); }
+      #tp-goods td { padding: 2px 3px; white-space: nowrap; }
+      #tp-goods .econ-btn { padding: 2px 6px; font-size: 12px; }
       #bp-gate-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
       #bp-gate-row[hidden] { display: none; }
       #bp-gate-state { font-size: 12.5px; color: var(--ink-soft); }
@@ -1465,6 +1495,19 @@
         <span id="bp-heroes-state"></span>
       </div>
       <div id="bp-spells-row" hidden></div>
+      <div id="bp-trade-row" hidden>
+        <button id="bp-trade-open" class="econ-btn">Trade</button><span id="bp-trade-state"></span>
+      </div>
+    </div>
+    <div id="trade-panel" role="dialog" aria-label="Trade" hidden>
+      <div class="bp-head"><span id="tp-name"></span><button id="tp-close" aria-label="Close">×</button></div>
+      <div id="tp-relation" class="bp-row"></div>
+      <div id="tp-reason" class="bp-row"></div>
+      <table id="tp-goods">
+        <thead><tr><th>Good</th><th title="Their stock / cap">Stock</th><th title="Gold per unit you pay">Buy</th><th></th><th title="Gold per unit you get">Sell</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="tp-foot" class="bp-row"></div>
     </div>
     <div id="game-over" hidden>
       <div class="menu-scroll" role="dialog" aria-modal="true" aria-label="Game over">
