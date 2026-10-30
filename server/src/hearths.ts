@@ -26,7 +26,7 @@ import { grantTieredEquipment, heroRelicForHearth, weaponDamageMult } from "./he
 import { spellBuffDamageMult } from "./spells.js";
 import { leaveOrderGroup } from "./orders.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
-import { onFortKeepDestroyed, plunderSiteStock, siteName } from "./sites.js";
+import { noteSettlementAttacked, onFortKeepDestroyed, plunderSiteStock, siteIdNeutral, siteName, siteNumNeutral } from "./sites.js";
 
 export function hearthEvent(siteId: string, type: string, detail?: string) {
   hearthEvents.push({ tick: state.cycleTick, type, siteId, detail });
@@ -75,6 +75,8 @@ export function nearestHostileStructure(px: number, py: number, maxPx: number, z
     if (Math.abs(c.x - px) > bestD || Math.abs(c.y - py) > bestD) continue;
     const d = Math.hypot(c.x - px, c.y - py);
     if (d > bestD || Math.hypot(c.x - zx, c.y - zy) > zonePx || !hostileStructureAt(index)) continue;
+    // Forts phase C: a neutral settlement is never an automatic target (only an explicit order).
+    if (siteNumNeutral(ownerAt(index))) continue;
     bestD = d;
     best = { id: STRUCTURE_TARGET_PREFIX + index, x, y };
   }
@@ -123,6 +125,7 @@ export function backfillHearths() {
 // Damage to a hearth from the colony's side; wakes its guardians (they defend it).
 export function damageHearth(h: HearthState, amount: number, attackerKey?: string) {
   if (h.destroyed || amount <= 0) return;
+  noteSettlementAttacked(h.siteId, attackerKey);
   activateGuardianSite(h.siteId);
   h.hp -= amount;
   hearthEvent(h.siteId, "hit", `${amount.toFixed(1)} ${attackerKey ?? ""}`.trim());
@@ -281,7 +284,7 @@ export function hearthStep(c: Colonist, stats: { damage: number; cooldown: numbe
     const zone = LINE_LEASH_TILES[c.stance] * TILE_SIZE + stats.range + TILE_SIZE;
     let bestD = HEARTH_AUTO_TARGET_TILES * TILE_SIZE;
     for (const cand of hearths.values()) {
-      if (cand.destroyed) continue;
+      if (cand.destroyed || siteIdNeutral(cand.siteId)) continue;
       const p = tileToPixelCenter(cand);
       const d = Math.hypot(p.x - c.x, p.y - c.y);
       if (d <= bestD && Math.hypot(p.x - c.rallyX, p.y - c.rallyY) <= zone) {

@@ -21,7 +21,7 @@ import {
 } from "./combat.js";
 import { updateSiegeWorkshops } from "./siege.js";
 import { updateMob } from "./mobs.js";
-import { updateSites } from "./sites.js";
+import { updateSites, updateSiteWorker } from "./sites.js";
 import { updateConstructionSites } from "./construction.js";
 import { updatePlayerMorale, updateRegiments } from "./tactics.js";
 import { spawnRaid, updateRaidGroups } from "./raids.js";
@@ -135,7 +135,9 @@ export function stepSimulation() {
     for (const mob of mobs.values()) {
       // Forts phase A: a site's own mobs pass its gates.
       state.moverOwner = tileOwner.size === 0 ? 0 : siteNumber(mob.siteId);
-      updateMob(mob, dt);
+      // Forts phase C: a human settlement's cosmetic workers walk their loop instead.
+      if (mob.siteWorker) updateSiteWorker(mob, dt);
+      else updateMob(mob, dt);
     }
     state.moverOwner = 0;
   });

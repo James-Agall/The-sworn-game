@@ -52,7 +52,7 @@ import { siegeUnitsAt, siegeWorkshopInfo } from "./siege.js";
 import { blacksmithForgeInfo, keepHeroInfo } from "./heroes.js";
 import { churchSpellShop } from "./spells.js";
 import { START_VISION_OFFSETS, broadcastEvent, broadcastTileUpdate, revealAround } from "./net.js";
-import { captureSite, isInSiteGrounds, nearSiteGrounds, rebuildKeepBlocker, siteAtKeep, siteByNum } from "./sites.js";
+import { captureSite, isInSiteGrounds, nearSiteGrounds, rebuildKeepBlocker, relationOf, siteAtKeep, siteByNum } from "./sites.js";
 import { SITE_TEMPLATES } from "./constants.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
 
@@ -1163,19 +1163,27 @@ function siteTileInfo(tx: number, ty: number, t: TileType, forPlayer?: Player): 
   const hearth = t === TileType.SiteKeep ? hearths.get(s.id) : undefined;
   const hp = hearth ? { hp: Math.max(0, Math.round(hearth.hp)), max: hearth.maxHp } : structureHp(tx, ty);
   const living = s.garrison.filter((id) => mobs.has(id)).length;
+  const human = s.faction === "human";
+  const noun = SITE_TEMPLATES[s.template].noun ?? "village";
   const bonuses = [
-    `${s.faction === "orc" ? "Orc stockade" : "Bandit palisade"}, tier ${s.tier}`,
+    human ? `${label} of the ${noun} of ${s.name}` : `${s.faction === "orc" ? "Orc stockade" : "Bandit palisade"}, tier ${s.tier}`,
     s.captured ? "Captured" : s.cleared ? "Cleared: the keep is razed" : `Garrison ${living}/${s.garrisonMax}${s.awake ? "" : " (asleep)"}`,
   ];
+  // Forts phase C: neutral until attacked; the relations hook (phase D adds bands / trade).
+  if (human && !s.captured) {
+    bonuses.push(`Relation ${relationOf(forPlayer?.clan ?? 0, s.id)}`);
+    if (!s.cleared) bonuses.push(s.provoked ? "Hostile: you attacked them. Their guards and towers fight until they calm down" : "Neutral: gates open by day, guards and towers leave you alone unless you attack");
+  }
   let keep: BuildingInfo["keep"];
   if (t === TileType.RuinedKeep && !s.captured) {
     const reason = rebuildKeepProblem(s.id, tx, ty, forPlayer) ?? "";
     keep = { cost: formatCost(SITE_TEMPLATES[s.template].rebuildCost), enabled: reason === "", reason };
     bonuses.push(`Rebuild it as your outpost: a level-1 Town Center named "${s.name} Outpost" with its own population cap; the walls, gates and towers become yours`);
   }
+  const title = human && !s.captured && !s.cleared ? `${s.provoked ? "Hostile" : "Neutral"} settlement: ${s.name}` : `${s.name}: ${label}`;
   return {
-    name: `${s.name}: ${label}`, tile: t, level: 1, maxLevel: 1, hp: hp ? Math.round(hp.hp) : null, maxHp: hp?.max ?? null,
-    staffing: s.captured ? "" : "Hostile", bonuses, upgrade: null, construction: null, repair: null, ...(keep ? { keep } : {}),
+    name: title, tile: t, level: 1, maxLevel: 1, hp: hp ? Math.round(hp.hp) : null, maxHp: hp?.max ?? null,
+    staffing: s.captured ? "" : human && !s.provoked ? "Neutral" : "Hostile", bonuses, upgrade: null, construction: null, repair: null, ...(keep ? { keep } : {}),
   };
 }
 

@@ -3,7 +3,7 @@
 // Stage 2: sleeping sites (updateSites), the site-guardian leash (siteLeash), anti-kite surge, loot share.
 import { randomUUID } from "node:crypto";
 import { TILE_SIZE, TileType, type MobKind } from "@colony/shared/protocol";
-import type { Mob, ResourceKey, SiteState, SiteTemplate, SiteTemplateId, TileCoord } from "./types.js";
+import type { Mob, ResourceKey, SiteState, SiteTemplate, SiteTemplateId, SiteWorkerRole, TileCoord } from "./types.js";
 import {
   SITE_AGGRO_EDGE_TILES, SITE_AGGRO_TILES, SITE_AWAKE_RADIUS_TILES, SITE_KITE_DECAY_TICKS, SITE_KITE_HITS,
   SITE_LEASH_TILES, SITE_LOOT_STOCK_SHARE, SITE_REFILL_TICKS, SITE_SURGE_COOLDOWN_TICKS, SITE_SURGE_LEASH_TILES,
@@ -11,16 +11,19 @@ import {
   SITE_APRON_TILES, SITE_FORT_COUNT_AT_512, SITE_FORT_COUNT_EXP, SITE_FORT_LANDMARK_CLEARANCE_TILES,
   SITE_FORT_MIN_WORLD_TILES, SITE_FORT_PLACE_ATTEMPTS, SITE_FORT_SPACING_TILES, SITE_FORT_START_CLEARANCE_TILES,
   SITE_KEEP_HP_BY_TIER, SITE_ORC_RING_FRACTION, SITE_TEMPLATES, SITE_TEMPLATE_TILES,
+  RELATION_ATTACK_PENALTY, RELATION_CONQUEROR_PENALTY, RELATION_MAX, RELATION_MIN, RELATION_NEUTRAL, RELATION_RAZE_PENALTY,
+  SETTLEMENT_HOSTILE_TICKS, SETTLEMENT_WORKER_PAUSE_TICKS, SETTLEMENT_WORKER_SPEED_MULT,
   SETTLEMENT_COUNT_AT_512, SETTLEMENT_INNER_RING_FRACTION, SETTLEMENT_PLACE_ATTEMPTS, SETTLEMENT_SPACING_TILES, SETTLEMENT_START_CLEARANCE_TILES,
 } from "./constants.js";
 import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, players, sites, state, tileOwner } from "./state.js";
-import { inBounds, resourceKey, setOwner, siteNumber, tileIndex, tileToPixelCenter } from "./tiles.js";
-import { setTileClan } from "./clans.js";
+import { inBounds, isNightNow, resourceKey, setOwner, siteNumber, tileIndex, tileToPixelCenter } from "./tiles.js";
+import { clanById, setTileClan } from "./clans.js";
+import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import type { SiteSnapshot } from "@colony/shared/protocol";
 import { isInAbbeyGrounds, isInCastleRuinGrounds, shuffled, spawnGuardian } from "./worldgen.js";
 import { registerHearth } from "./hearths.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
-import { activateGuardianSite } from "./mobs.js";
+import { activateGuardianSite, walkMobTo } from "./mobs.js";
 
 // Ground the test-hook stamper may clear (world-gen only ever stamps onto Empty).
 const CLEARABLE_TILES = new Set<number>([
@@ -372,6 +375,12 @@ export function onFortKeepDestroyed(siteId: string) {
   state.ownerVersion++;
   state.tiles[tileIndex(s.keepX, s.keepY)] = TileType.RuinedKeep;
   broadcastTileUpdate(s.keepX, s.keepY, TileType.RuinedKeep);
+  // Forts phase C: razing a human settlement's keep: its folk flee (the rout) and the clan pays in relation.
+  if (s.faction === "human") {
+    s.provoked = false;
+    adjustRelation(state.clan.id, s.id, -RELATION_RAZE_PENALTY);
+    broadcastEvent("raid", `You attacked a settlement: ${s.name} will not forget (relation ${relationOf(state.clan.id, s.id)})`);
+  }
 }
 
 // ---- Stage 2: sleeping sites, leash, anti-kite, loot ----
@@ -392,6 +401,10 @@ export function updateSites() {
       s.awake = false;
       continue;
     }
+    // Forts phase C: a human settlement is only provoked by being attacked (noteSettlementAttacked), and
+    // calms down once its hostile spell runs out; while hostile, closing in wakes it as for a fort.
+    const human = s.faction === "human";
+    if (human && s.provoked && !s.cleared && now >= (s.hostileUntilTick ?? 0)) calmSettlement(s);
     let awake = false;
     let provoke = false;
     const kx = s.keepX + 0.5;
@@ -399,7 +412,7 @@ export function updateSites() {
     for (const a of anchors) {
       if (Math.max(Math.abs(a.x - kx), Math.abs(a.y - ky)) > SITE_AWAKE_RADIUS_TILES) continue;
       awake = true;
-      if (s.cleared || (a.player && state.testPlayersIgnored)) continue;
+      if (s.cleared || (a.player && state.testPlayersIgnored) || (human && !s.provoked)) continue;
       const e = SITE_AGGRO_EDGE_TILES;
       if (Math.hypot(a.x - kx, a.y - ky) <= SITE_AGGRO_TILES || (a.x >= s.x0 - e && a.x <= s.x1 + 1 + e && a.y >= s.y0 - e && a.y <= s.y1 + 1 + e)) {
         provoke = true;
@@ -410,16 +423,20 @@ export function updateSites() {
     if (!s.sighted && state.explored[tileIndex(s.keepX, s.keepY)]) {
       s.sighted = true;
       state.ownerVersion++;
-      broadcastEvent("raid", `${s.name} sighted (${s.faction === "orc" ? "orc stockade" : "bandit palisade"})`);
+      if (human) broadcastEvent("build", `You sight the ${SITE_TEMPLATES[s.template].noun ?? "village"} of ${s.name}`);
+      else broadcastEvent("raid", `${s.name} sighted (${s.faction === "orc" ? "orc stockade" : "bandit palisade"})`);
     }
-    if (awake && !s.awake) catchUpSite(s, now);
+    if (awake && !s.awake) {
+      catchUpSite(s, now);
+      if (human) spawnSiteWorkers(s);
+    } else if (!awake && s.awake && human) despawnSiteWorkers(s);
     s.awake = awake;
     if (awake) s.lastSimTick = now;
     const garrison = s.garrison.map((id) => mobs.get(id)!);
     if (provoke && awake) {
       if (garrison.some((m) => !m.guardianActive)) activateGuardianSite(s.id);
       s.provoked = true;
-    } else if (s.provoked && garrison.every((m) => !m.guardianActive)) s.provoked = false;
+    } else if (!human && s.provoked && garrison.every((m) => !m.guardianActive)) s.provoked = false;
     if ((s.kiteHits ?? 0) > 0 && now % SITE_KITE_DECAY_TICKS === 0) s.kiteHits!--;
   }
 }
@@ -562,6 +579,10 @@ export function captureSite(s: SiteState, clan: number): string {
   setTileClan(tileIndex(s.keepX, s.keepY), clan);
   state.ownerVersion++;
   rebuildSiteGrounds();
+  // Forts phase C: taking a human settlement: every other settlement thinks less of the "Conqueror".
+  if (s.faction === "human") {
+    for (const o of sites.values()) if (o !== s && o.faction === "human" && !o.cleared) adjustRelation(clan, o.id, -RELATION_CONQUEROR_PENALTY);
+  }
   return `${s.name} Outpost`;
 }
 
@@ -573,7 +594,170 @@ export function sitesForSnapshot(): SiteSnapshot[] {
     out.push({
       name: s.name, faction: s.faction, keepX: s.keepX, keepY: s.keepY, cleared: s.cleared, captured: s.captured,
       ...(s.capturedBy !== undefined ? { capturedBy: s.capturedBy } : {}),
+      num: s.num, ...(s.faction === "human" ? { hostile: s.provoked } : {}),
     });
   }
   return out;
+}
+
+// ---- Forts phase C: human settlements (neutral until attacked), the relations hook, cosmetic workers ----
+
+// A standing human settlement nobody has attacked lately: its guards stay put, its towers hold fire, its
+// gates let the colony through by day, and soldiers never pick its buildings / folk on their own.
+export function isNeutralSite(s: SiteState): boolean {
+  return s.faction === "human" && !s.cleared && !s.captured && !s.provoked;
+}
+
+export function siteNumNeutral(num: number): boolean {
+  const s = num === 0 ? undefined : siteByNum(num);
+  return !!s && isNeutralSite(s);
+}
+
+export function siteIdNeutral(siteId: string): boolean {
+  const s = sites.get(siteId);
+  return !!s && isNeutralSite(s);
+}
+
+// A neutral settlement's gates: open to players / colonists by day, shut at night.
+export function siteGateWelcomes(num: number): boolean {
+  return siteNumNeutral(num) && !isNightNow();
+}
+
+// Relations hook (phase D builds bands / trade / quests on it): one score per clan per settlement, kept in
+// Clan.relations keyed by the site's owner-map number (saved with the clan), RELATION_NEUTRAL when unset.
+export function relationOf(clanId: number, siteId: string): number {
+  const s = sites.get(siteId);
+  return s ? clanById(clanId).relations[s.num] ?? RELATION_NEUTRAL : RELATION_NEUTRAL;
+}
+
+export function adjustRelation(clanId: number, siteId: string, delta: number): number {
+  const s = sites.get(siteId);
+  if (!s) return RELATION_NEUTRAL;
+  const clan = clanById(clanId);
+  const v = Math.max(RELATION_MIN, Math.min(RELATION_MAX, (clan.relations[s.num] ?? RELATION_NEUTRAL) + delta));
+  clan.relations[s.num] = v;
+  return v;
+}
+
+function attackerClan(attackerKey?: string): number {
+  if (attackerKey?.startsWith("p:")) return players.get(attackerKey.slice(2))?.clan ?? state.clan.id;
+  if (attackerKey?.startsWith("c:")) return colonists.get(attackerKey.slice(2))?.clan ?? state.clan.id;
+  return state.clan.id;
+}
+
+// Any colony damage to a human settlement's folk, buildings or keep (damageMob / damageBuilding /
+// damageHearth): it turns hostile for SETTLEMENT_HOSTILE_TICKS (renewed by every hit), its whole garrison
+// wakes, and the attacker's clan loses RELATION_ATTACK_PENALTY once per hostile spell.
+export function noteSettlementAttacked(siteId: string | null | undefined, attackerKey?: string) {
+  const s = siteId ? sites.get(siteId) : undefined;
+  if (!s || s.faction !== "human" || s.cleared || s.captured) return;
+  if (!s.provoked) {
+    s.provoked = true;
+    s.hostileClans = [];
+    state.ownerVersion++;
+    broadcastEvent("raid", `${s.name} takes up arms: you attacked a neutral settlement!`);
+  }
+  s.hostileUntilTick = state.cycleTick + SETTLEMENT_HOSTILE_TICKS;
+  activateGuardianSite(s.id);
+  const clan = attackerClan(attackerKey);
+  s.hostileClans ??= [];
+  if (!s.hostileClans.includes(clan)) {
+    s.hostileClans.push(clan);
+    adjustRelation(clan, s.id, -RELATION_ATTACK_PENALTY);
+  }
+}
+
+// The hostile spell ran out: neutral again, the garrison stands down where it is.
+function calmSettlement(s: SiteState) {
+  s.provoked = false;
+  s.hostileClans = [];
+  s.hostileUntilTick = undefined;
+  state.ownerVersion++;
+  for (const id of s.garrison) {
+    const m = mobs.get(id);
+    if (!m) continue;
+    m.guardianActive = false;
+    m.targetType = null;
+    m.targetId = null;
+    m.path = [];
+    m.leashReturnUntilTick = undefined;
+  }
+  broadcastEvent("build", `${s.name} lays down its arms`);
+}
+
+const WORKER_KIND: Record<SiteWorkerRole, MobKind> = { farm: "townFarmer", mine: "townMiner", priest: "townPriest" };
+
+// Work tiles of a settlement by role (walkable tile indices): farm plots, a tile next to each ore / rock
+// tile, next to the church; shelter = the yard posts.
+function workSpots(s: SiteState): Record<SiteWorkerRole, number[]> {
+  const out: Record<SiteWorkerRole, number[]> = { farm: [], mine: [], priest: [] };
+  for (let y = s.y0; y <= s.y1; y++) {
+    for (let x = s.x0; x <= s.x1; x++) {
+      const i = tileIndex(x, y);
+      if (tileOwner.get(i) !== s.num) continue;
+      const t = state.tiles[i];
+      const role: SiteWorkerRole | null = t === TileType.FarmPlot ? "farm" : t === TileType.IronOre || t === TileType.Rock ? "mine" : t === TileType.ChurchPost ? "priest" : null;
+      if (!role) continue;
+      const at = isWalkableTile(x, y) ? { x, y } : findAdjacentWalkable(x, y);
+      if (at) out[role].push(tileIndex(at.x, at.y));
+    }
+  }
+  return out;
+}
+
+const pick = <T>(list: T[]): T | undefined => list[Math.floor(Math.random() * list.length)];
+
+// On waking: the template's workers (farmers / miners / a priest), each on a yard post with a work tile.
+export function spawnSiteWorkers(s: SiteState) {
+  despawnSiteWorkers(s);
+  const roles = SITE_TEMPLATES[s.template].workers;
+  if (!roles || s.cleared || s.captured || s.posts.length === 0) return;
+  const spots = workSpots(s);
+  for (const [role, n] of Object.entries(roles) as [SiteWorkerRole, number][]) {
+    for (let k = 0; k < n; k++) {
+      const home = pick(s.posts)!;
+      const work = pick(spots[role]) ?? pick(s.posts)!;
+      const m = spawnGuardian(WORKER_KIND[role], { x: home % state.WORLD_TILES_X, y: Math.floor(home / state.WORLD_TILES_X) }, s.id, "fort");
+      m.siteWorker = role;
+      m.workA = work;
+      m.workB = home;
+      m.workLeg = 0;
+      m.workWaitUntilTick = state.cycleTick + Math.floor(Math.random() * SETTLEMENT_WORKER_PAUSE_TICKS);
+      s.workers.push(m.id);
+    }
+  }
+}
+
+// Falling asleep (and before a respawn): the workers go away (they are only there while someone watches).
+export function despawnSiteWorkers(s: SiteState) {
+  for (const id of s.workers) mobs.delete(id);
+  for (const m of Array.from(mobs.values())) if (m.siteId === s.id && m.siteWorker) mobs.delete(m.id);
+  s.workers = [];
+}
+
+// sim.ts, per tick for a worker mob (instead of updateMob): walk to the work tile, pause, walk back to the
+// shelter post, pause, again (a farmer picks another plot each trip). Everyone stays in at night and while
+// the settlement is hostile. An asleep site's leftover workers (after a load) do nothing.
+export function updateSiteWorker(mob: Mob, dt: number) {
+  const s = mob.siteId ? sites.get(mob.siteId) : undefined;
+  if (!s || !s.awake || mob.workB === undefined || mob.tactic === "rout" || mob.tactic === "leave") return;
+  const now = state.cycleTick;
+  const shelter = s.provoked || s.cleared || isNightNow();
+  const leg = shelter ? 1 : mob.workLeg ?? 0;
+  const goal = leg === 0 ? mob.workA ?? mob.workB : mob.workB;
+  const p = tileToPixelCenter({ x: goal % state.WORLD_TILES_X, y: Math.floor(goal / state.WORLD_TILES_X) });
+  if (Math.hypot(p.x - mob.x, p.y - mob.y) > TILE_SIZE * 0.4) {
+    walkMobTo(mob, p.x, p.y, mob.speed * SETTLEMENT_WORKER_SPEED_MULT, dt);
+    return;
+  }
+  mob.path = [];
+  if (shelter) return;
+  if (!mob.workWaitUntilTick) {
+    mob.workWaitUntilTick = now + Math.floor(SETTLEMENT_WORKER_PAUSE_TICKS * (1 + Math.random()));
+    return;
+  }
+  if (now < mob.workWaitUntilTick) return;
+  mob.workWaitUntilTick = 0;
+  mob.workLeg = leg === 0 ? 1 : 0;
+  if (mob.workLeg === 0 && mob.siteWorker === "farm") mob.workA = pick(workSpots(s).farm) ?? mob.workA;
 }

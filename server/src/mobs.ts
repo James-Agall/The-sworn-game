@@ -123,10 +123,11 @@ export function isDormantGuardian(mob: Mob): boolean {
   return mob.siteId !== null && !mob.guardianActive;
 }
 
-// Wakes every guardian sharing siteId, permanently (no re-dormancy).
+// Wakes every guardian sharing siteId, permanently (no re-dormancy). A human settlement's workers
+// (forts phase C) never fight: they stay "dormant" and run to shelter instead (updateSiteWorker).
 export function activateGuardianSite(siteId: string) {
   for (const m of mobs.values()) {
-    if (m.siteId === siteId) m.guardianActive = true;
+    if (m.siteId === siteId && !m.siteWorker) m.guardianActive = true;
   }
 }
 
@@ -710,7 +711,7 @@ function colonyUnitNear(x: number, y: number, r: number): boolean {
 }
 
 // Path-follows to (x, y) (straight steps for the last tile).
-function walkMobTo(mob: Mob, x: number, y: number, speed: number, dt: number) {
+export function walkMobTo(mob: Mob, x: number, y: number, speed: number, dt: number) {
   if (Math.hypot(x - mob.x, y - mob.y) <= TILE_SIZE * 1.5) {
     mob.path = [];
     stepRaidMobToward(mob, x, y, speed, dt);

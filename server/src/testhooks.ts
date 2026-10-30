@@ -6,7 +6,7 @@ import {
   MOB_ROLE, type ColonistKind, type Stance, type EquipSlot, HERO_CLASSES, type HeroClass,
 } from "@colony/shared/protocol";
 import type { Player, RaidGroup, ResourceKey, SiteTemplateId, TileCoord } from "./types.js";
-import { siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
+import { relationOf, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
 import {
   ARMOUR_DAMAGE_TAKEN_MULT, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, DAY_LENGTH_SCALE, DAY_TICKS,
   DESERTER_ACTIVATION_TICKS, DUSK_RESPAWN_CYCLE_TICK, FARMHAND_CYCLE_TICKS, FARMHAND_YIELD_PER_CYCLE,
@@ -308,6 +308,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         return {
           ...st, hearth: hearth ? { hp: hearth.hp, maxHp: hearth.maxHp, destroyed: hearth.destroyed } : null,
           keepTile: state.tiles[tileIndex(st.keepX, st.keepY)],
+          // Forts phase C: clan 0's relation hook value and the living cosmetic workers.
+          relation: relationOf(0, st.id),
+          workerMobs: members.filter((m) => m.siteWorker).map((m) => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, role: m.siteWorker, active: m.guardianActive })),
           // The nearest living player / colonist (Chebyshev tiles from the keep): what keeps it awake.
           nearestUnit: [...Array.from(players.values(), (p) => ({ who: "player", x: p.x, y: p.y, dead: p.dead })), ...Array.from(colonists.values(), (u) => ({ who: u.kind, x: u.x, y: u.y, dead: u.hp <= 0 }))]
             .filter((u) => !u.dead).map((u) => ({ who: u.who, d: Math.round(Math.max(Math.abs(u.x / TILE_SIZE - st.keepX), Math.abs(u.y / TILE_SIZE - st.keepY))) }))

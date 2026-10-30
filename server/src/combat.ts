@@ -14,7 +14,7 @@ import {
   TOWER_STATS,
 } from "./constants.js";
 import {
-  attackerSlots, buildingHp, chargeRuns, colonists, gates, gravestones, hearths, mobs, mobsWithoutRoute, players,
+  attackerSlots, buildingHp, chargeRuns, colonists, gates, gravestones, hearths, mobs, mobsWithoutRoute, ownerSiteIds, players,
   raidGroups, slotClaims, state, summonedUntil, towerCooldowns, towerEvents, wildlife,
 } from "./state.js";
 import {
@@ -29,7 +29,7 @@ import {
   findTownCenterAt, isHouseTile, isWardPriest, queueRespawn, spawnPointNearTownCenter, townCenterMaxHp,
 } from "./colonists.js";
 import { isGuardOrMilitiaKind, isSiegeKind } from "./units.js";
-import { noteSiteHit, siteNumAsleep, siteNumCleared, siteTowerRangeBonus } from "./sites.js";
+import { noteSettlementAttacked, noteSiteHit, siteGateWelcomes, siteNumAsleep, siteNumCleared, siteNumNeutral, siteTowerRangeBonus } from "./sites.js";
 import { activateGuardianSite, goldForKill, isDormantGuardian, keyToTile } from "./mobs.js";
 import {
   currentBuildingLevel, demolishTile, destroyTownCenter, syncGuardBonusesAround, tryLevelUpInPlace,
@@ -192,6 +192,8 @@ export function approachGoal(
 // one (test hooks, untracked sources) aren't counted as fighting.
 export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
   if (attackerKey) recordFightHit(mob, mob.x, mob.y, attackerKey, amount);
+  // Forts phase C: hurting a human settlement's guard / worker turns the settlement hostile.
+  if (mob.siteKind === "fort") noteSettlementAttacked(mob.siteId, attackerKey);
   if (isDormantGuardian(mob)) activateGuardianSite(mob.siteId!);
   if (attackerKey && mob.siteKind === "fort") noteSiteHit(mob, attackerKey);
   // Hitting any member of a raid group (passive or marching) turns the whole group on its attackers.
@@ -438,6 +440,9 @@ export function healStructure(tx: number, ty: number, amount: number) {
 // Mob damage to the building (or Town Center) at a tile; at 0 HP it is destroyed.
 export function damageBuilding(tx: number, ty: number, amount: number) {
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
+  // Forts phase C: damage to a human settlement's building turns it hostile.
+  const own0 = ownerAt(tileIndex(tx, ty));
+  if (own0 !== 0) noteSettlementAttacked(ownerSiteIds[own0 - 1]);
   if (t === TileType.TownCenter) {
     const tc = findTownCenterAt(tx, ty);
     if (tc) damageTownCenter(tc, amount);
@@ -517,7 +522,8 @@ export function gateAt(index: number): GateState {
 export function gatePassable(index: number, hostile: boolean): boolean {
   const g = gates.get(index);
   const own = ownerAt(index);
-  if (own !== 0) return hostile ? state.moverOwner === own : (!!g && g.overrun) || siteNumCleared(own);
+  // Forts phase C: a neutral human settlement's gate lets the colony through by day.
+  if (own !== 0) return hostile ? state.moverOwner === own : (!!g && g.overrun) || siteNumCleared(own) || siteGateWelcomes(own);
   if (hostile) return !!g && (g.open || g.overrun);
   return !g || g.open || g.lock !== "closed";
 }
@@ -564,7 +570,8 @@ export function friendlyNearGate(cx: number, cy: number, owner = 0): boolean {
       if (Math.abs(m.x - cx) > GATE_OPEN_RANGE_PX || Math.abs(m.y - cy) > GATE_OPEN_RANGE_PX) continue;
       if (Math.hypot(m.x - cx, m.y - cy) <= GATE_OPEN_RANGE_PX && siteNumber(m.siteId) === owner) return true;
     }
-    return false;
+    // Forts phase C: a neutral settlement's gate also opens for players / colonists by day.
+    if (!siteGateWelcomes(owner)) return false;
   }
   for (const p of players.values()) {
     if (!p.dead && Math.hypot(p.x - cx, p.y - cy) <= GATE_OPEN_RANGE_PX) return true;
@@ -751,7 +758,8 @@ export function updateTowers() {
     // Forts phase A: an NPC site's tower shoots the colony (players and colonists) instead of mobs.
     if (isHostileOwner(ownerAt(i))) {
       // Forts phase B: a sleeping fort's towers do not fire; its anti-kite surge adds range.
-      if (siteNumAsleep(ownerAt(i))) continue;
+      // Forts phase C: a neutral settlement's towers hold fire.
+      if (siteNumAsleep(ownerAt(i)) || siteNumNeutral(ownerAt(i))) continue;
       if (siteTowerShot(key, cx, cy, (stats.rangeTiles + siteTowerRangeBonus(ownerAt(i))) * TILE_SIZE, stats.damage)) towerCooldowns.set(key, towerCooldownTicks(level));
       else towerCooldowns.set(key, 0);
       continue;
