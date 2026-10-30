@@ -264,6 +264,11 @@ export interface ConstructionFields {
   // COLONY_INSTANT_BUILD=1 (or testHook "setInstantBuild") skips construction entirely, for the scripted
   // tests written before builders existed: every placement resolves on the spot, no builder needed.
   instantBuild: boolean;
+  // Creative mode (main menu "Creative" / ?mode=creative, set by a restart with creative: true; saved, old
+  // saves false): infinite stock, instant build, no population caps, the creative panel's commands.
+  creative: boolean;
+  // Creative: clans (and creative neutrals) are hostile to each other while on (creativeSet allowAttack).
+  creativeAllowAttack: boolean;
 }
 
 export interface EquipmentFields {
@@ -505,6 +510,8 @@ const initial: Partial<ServerState> = {
   shuttingDown: false,
   // ConstructionFields
   instantBuild: process.env.COLONY_INSTANT_BUILD === "1",
+  creative: false,
+  creativeAllowAttack: false,
   // EquipmentFields
   lastUnequippedToastTick: -Infinity,
   equipDropToasted: false,

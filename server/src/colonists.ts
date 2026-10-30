@@ -1,5 +1,6 @@
 // colonists.ts: Colonists: workers, builders, repair, farmers, housing/shelter, population, settlements, town centers, respawn windows, food, ward priest, the colonist tick.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { CREATIVE_CAP } from "./creative.js";
 import { randomUUID } from "node:crypto";
 import { TileType, type ColonistKind, TILE_SIZE, TICK_RATE } from "@colony/shared/protocol";
 import type {
@@ -352,6 +353,8 @@ export function settlementStatsAll(): Map<number, SettlementStat[]> {
     }
   }
   for (const s of stats) s.cap = Math.min(s.housingCap, s.tierCap + s.keepBonus);
+  // Creative mode: no population or garrison caps.
+  if (state.creative) for (const s of stats) s.cap = s.garrisonCap = s.troopCap = CREATIVE_CAP;
   return byClan;
 }
 
@@ -1554,6 +1557,11 @@ export function updateColonist(c: Colonist, dt: number) {
       damageColonist(c, c.poisonDamagePerTick);
     }
     if (!colonists.has(c.id)) return;
+  }
+  // Creative mode: a dummy (Test clan worker / standing soldier) never acts.
+  if (c.creativeDummy) {
+    c.state = "idle";
+    return;
   }
 
   if (isCivilianKind(c.kind)) {

@@ -536,11 +536,14 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
   return {};
 }
 
+// Creative mode: everything is affordable and nothing is ever taken (see creative.ts topUpCreative).
 export function canAfford(cost: Cost): boolean {
+  if (state.creative) return true;
   return Object.entries(cost).every(([key, amount]) => state.stock[key as ResourceKey] >= (amount ?? 0));
 }
 
 export function spend(cost: Cost) {
+  if (state.creative) return;
   for (const [key, amount] of Object.entries(cost)) state.stock[key as ResourceKey] -= amount ?? 0;
 }
 

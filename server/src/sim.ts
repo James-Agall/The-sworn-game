@@ -1,5 +1,6 @@
 // sim.ts: One simulation tick (stepSimulation: everything the pause freezes); index.ts's tick loop and the fastForward test hook run it.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { topUpCreative } from "./creative.js";
 import { TICK_RATE, PLAYER_SPEED, PLAYER_HALF_SIZE } from "@colony/shared/protocol";
 import {
   DAY_TICKS, FIGHT_SCAN_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS, NIGHT_TICKS, RAID_SPAWN_CYCLE_TICK,
@@ -183,4 +184,5 @@ export function stepSimulation() {
     forEachClan(() => evaluateGoals());
   }
   if (state.cycleTick % FIGHT_SCAN_TICKS === 0) scanFights();
+  if (state.creative) topUpCreative();
 }

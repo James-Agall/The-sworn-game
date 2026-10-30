@@ -43,6 +43,7 @@ const SERVER_ENV = {
   "builders-farmers": W80,
   "builders-towncenter": W80,
   "building-damage": { ...W80, ...INSTANT },
+  creative: W80,
   difficulty: W80,
   economy: INSTANT,
   "economy-goods": { ...W80, ...INSTANT },

@@ -55,6 +55,7 @@ import {
 } from "./saves.js";
 import { broadcastEvent, flushExplored, handleSetView, httpServer, sendWelcome, updateVision, withPlayerFights, wss } from "./net.js";
 import { handleTestHook } from "./testhooks.js";
+import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creative.js";
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
 
 state.tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
@@ -127,6 +128,8 @@ wss.on("connection", (socket, req) => {
 
     // Clans: every message runs with the sender's clan active (its stock, goals, army, ...).
     withClan(clanOf(player), () => handleMessage(player, message));
+    // Creative mode: whatever the message spent comes straight back.
+    if (state.creative) topUpCreative();
   });
 
   socket.on("close", () => {
@@ -138,6 +141,11 @@ wss.on("connection", (socket, req) => {
 function ownUnits(player: Player, ids: unknown): string[] {
   if (!Array.isArray(ids)) return [];
   return ids.filter((id): id is string => typeof id === "string" && (colonists.get(id)?.clan ?? 0) === player.clan);
+}
+
+// Creative mode: a new move / attack order drops a force-attack target.
+function clearCreativeTargets(player: Player, ids: unknown) {
+  if (state.creative) for (const id of ownUnits(player, ids)) colonists.get(id)!.creativeTarget = undefined;
 }
 
 // Clans: tile actions (upgrade, repair, gate lock, siege / forge queue, recruit, learn) only on own buildings.
@@ -186,12 +194,28 @@ function handleMessage(player: Player, message: ClientMessage) {
     state.timeScaleBy = player.id;
     state.simAccum = 0;
   } else if (message.type === "restart") {
-    resetWorld(message.difficulty, message.worldSize);
+    resetWorld(message.difficulty, message.worldSize, message.creative === true);
   } else if (message.type === "setDifficulty") {
     handleSetDifficulty(message.difficulty, message.worldSize);
+  } else if (message.type === "creativeSpawn" || message.type === "creativeSet") {
+    // Creative mode: only in a creative world (a normal game refuses every creative command).
+    const m = message as unknown as Record<string, unknown>;
+    const op = message.type === "creativeSet" ? String(m.op) : "spawn";
+    const reply = (ok: boolean, text: string, data: Record<string, unknown> = {}) => sendTo(player, { type: "creativeResult", op, ok, text, ...data });
+    try {
+      if (!state.creative) reply(false, "Not a creative game");
+      else if (message.type === "creativeSpawn") handleCreativeSpawn(player, m, reply);
+      else handleCreativeSet(player, m, reply);
+    } catch (err) {
+      // A test tool must never take the server down.
+      console.error("[creative]", err);
+      reply(false, `Creative command failed: ${(err as Error).message}`);
+    }
   } else if (message.type === "commandMove") {
+    clearCreativeTargets(player, message.unitIds);
     handleCommandMove(ownUnits(player, message.unitIds), message.x, message.y, message.squad);
   } else if (message.type === "commandAttack") {
+    clearCreativeTargets(player, message.unitIds);
     handleCommandAttack(ownUnits(player, message.unitIds), message.mobId);
   } else if (message.type === "commandAttackHearth") {
     if (!Array.isArray(message.unitIds) || !Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
@@ -445,6 +469,7 @@ setInterval(() => {
       goal: state.goalSnapshot,
       gates: world.gates,
       respawn: respawnWindowSnapshot(),
+      ...(state.creative ? { creative: { allowAttack: state.creativeAllowAttack } } : {}),
       ...(clans.length > 1 ? { clanId: state.clan.id, clans: clansNow } : {}),
     };
   };

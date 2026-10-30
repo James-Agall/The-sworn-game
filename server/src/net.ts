@@ -150,6 +150,7 @@ export function sendWelcome(player: Player) {
     explored: packExplored(),
     difficulty: state.difficulty,
     castleRuin: state.castleRuinCenter,
+    ...(state.creative ? { creative: true } : {}),
   };
   player.socket.send(JSON.stringify(welcome));
 }

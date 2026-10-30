@@ -86,7 +86,7 @@ export function handleSetDifficulty(value: unknown, worldSize?: unknown) {
   if (state.difficultyClaimed && !soloFirstDay) return;
   // New Game with a different map size: regenerate the (still unclaimed / first-day solo) world at it.
   if (typeof worldSize === "number" && Number.isFinite(worldSize) && clampWorldSize(worldSize) !== state.WORLD_TILES_X) {
-    resetWorld(value, worldSize);
+    resetWorld(value, worldSize, state.creative);
     return;
   }
   state.difficulty = value;
@@ -453,6 +453,8 @@ export function startVhorrunWithdraw(mob: Mob, from: { x: number; y: number }) {
 export function updateMob(mob: Mob, dt: number) {
   if (mob.isDeserter && !mob.deserterActive) return;
   if (isDormantGuardian(mob)) return;
+  // Creative mode: a neutral unit stands until woken (hit, or "allow attacking neutrals" with fight back on).
+  if (mob.creativeNeutral && !mob.creativeNeutral.awake) return;
   // Goblin wolf rider: its straight run (also while marching in its raid group) arms the charge.
   if (mob.kind === "goblinRider") trackCharge(mob);
 

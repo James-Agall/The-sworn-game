@@ -61,6 +61,7 @@ import { stepSimulation } from "./sim.js";
 import { broadcastTileUpdate, fightsForPlayer } from "./net.js";
 import { tierOf } from "./diplomacy.js";
 import { endVassalage, forceTribute, updateVassals, vassalDebugState, vassalsDawn } from "./vassals.js";
+import { forceVassal, placeTradingPost, spawnMobAt, spawnRaidGroupAt, spawnSoldierAt, stampSiteSearch } from "./creative.js";
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
@@ -283,28 +284,14 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const t = SITE_TEMPLATES[msg.template as SiteTemplateId];
     const { w, h } = templateSize(t);
     const tc = state.townCenters[0] ?? { x: state.WORLD_TILES_X >> 1, y: state.WORLD_TILES_Y >> 1 };
-    let x0 = typeof msg.x0 === "number" ? Math.floor(msg.x0) : tc.x + Math.floor(Number(msg.dx ?? 30)) - (w >> 1);
-    let y0 = typeof msg.y0 === "number" ? Math.floor(msg.y0) : tc.y + Math.floor(Number(msg.dy ?? 0)) - (h >> 1);
-    let problem = siteFitProblem(t, x0, y0, true);
+    const x0 = typeof msg.x0 === "number" ? Math.floor(msg.x0) : tc.x + Math.floor(Number(msg.dx ?? 30)) - (w >> 1);
+    const y0 = typeof msg.y0 === "number" ? Math.floor(msg.y0) : tc.y + Math.floor(Number(msg.dy ?? 0)) - (h >> 1);
     // {search: r}: else the nearest fitting top-left within r tiles (rings outward).
-    const search = typeof msg.search === "number" ? Math.min(60, Math.floor(msg.search)) : 0;
-    for (let r = 1; problem && r <= search; r++) {
-      for (let dy = -r; dy <= r && problem; dy++) {
-        for (let dx = -r; dx <= r && problem; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || siteFitProblem(t, x0 + dx, y0 + dy, true)) continue;
-          x0 += dx;
-          y0 += dy;
-          problem = null;
-        }
-      }
-    }
-    if (problem) reply({ site: null, problem, x0, y0 });
-    else {
-      const site = stampSiteTemplate(t.id, x0, y0, {
-        tier: typeof msg.tier === "number" ? msg.tier : undefined, name: typeof msg.name === "string" ? msg.name : undefined, broadcast: true,
-      });
-      reply({ site: { ...site } });
-    }
+    const r = stampSiteSearch(t.id, x0, y0, typeof msg.search === "number" ? Math.floor(msg.search) : 0, {
+      tier: typeof msg.tier === "number" ? msg.tier : undefined, name: typeof msg.name === "string" ? msg.name : undefined,
+    });
+    if (!r.site) reply({ site: null, problem: r.problem, x0: r.x0, y0: r.y0 });
+    else reply({ site: { ...r.site } });
   } else if (msg.op === "sitesState") {
     // Forts phase B: every fort with its hearth (keep) and living garrison.
     reply({
@@ -351,15 +338,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "wagonPost" && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // Forts phase E: put a Trading Post at (tx, ty) (rule-free, like setTileRaw) at level (default 1), register it
     // now and look after it once (roster + wagon); auto (optional) sets auto-send. Replies wagonState.
-    if (inBounds(msg.tx, msg.ty)) {
-      state.tiles[tileIndex(msg.tx, msg.ty)] = TileType.GoldShop;
-      broadcastTileUpdate(msg.tx, msg.ty, TileType.GoldShop);
-      buildingLevel.set(resourceKey(msg.tx, msg.ty), typeof msg.level === "number" ? msg.level : 1);
-      scanTradingPosts();
-      const post = tradingPosts.get(resourceKey(msg.tx, msg.ty));
-      if (post && typeof msg.auto === "boolean") post.auto = msg.auto;
-      refreshTradingPost(resourceKey(msg.tx, msg.ty));
-    }
+    placeTradingPost(msg.tx, msg.ty, typeof msg.level === "number" ? msg.level : 1, msg.auto);
     reply({ posts: wagonDebugState() });
   } else if (msg.op === "wagonSend" && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // Forts phase E: send the post's wagon now (dest id or "auto"), ignoring the time of day check's trip cap.
@@ -377,12 +356,8 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const clan = typeof msg.clan === "number" ? msg.clan : 0;
     if (st) {
       if (typeof msg.relation === "number") adjustRelation(clan, st.id, msg.relation - relationOf(clan, st.id));
-      if (msg.vassal === true && st.vassalOf !== clan) {
-        st.vassalOf = clan;
-        st.vassal ??= { tax: false, nextTaxDay: 0, taxGoldTotal: 0, levyIds: [], levyUntilTick: 0, levyCooldownUntilTick: 0, levyCalled: 0 };
-        state.relationsVersion++;
-        state.ownerVersion++;
-      } else if (msg.vassal === false) endVassalage(st, "test hook");
+      if (msg.vassal === true) forceVassal(st, clan, true);
+      else if (msg.vassal === false) endVassalage(st, "test hook");
       if (st.vassal) {
         if (typeof msg.tax === "boolean") st.vassal.tax = msg.tax;
         for (const k of ["nextTaxDay", "levyCooldownUntilTick", "levyUntilTick"] as const) if (typeof msg[k] === "number") st.vassal[k] = msg[k] as number;
@@ -419,40 +394,14 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     reply({ value: state.testForceMarkChance });
   } else if (msg.op === "spawnMob" && typeof msg.kind === "string" && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // An already-released (non-raid) mob at a tile, optionally Hunger-marked.
-    if (!(msg.kind in MOB_KIND_CONFIG) || !inBounds(msg.tx, msg.ty)) {
-      reply({ id: null });
-    } else {
-      const isBoss = msg.boss === "warlord" || msg.boss === "elite";
-      const mob = createRaidMob(msg.kind as MobKind, { x: msg.tx, y: msg.ty }, "", !isBoss);
-      mob.groupId = null;
-      mob.passive = false;
-      if (typeof msg.mark === "number" && msg.mark >= HungerMark.Gorrath && msg.mark <= HungerMark.Vhorrun) applyHungerMark(mob, msg.mark);
-      // Monster tactics: optional regiment (raid-style) or an awake site guardian (siteId).
-      if (typeof msg.regimentId === "string") mob.regimentId = msg.regimentId;
-      if (typeof msg.siteId === "string") Object.assign(mob, { siteId: msg.siteId, siteKind: "encampment", guardianActive: true });
-      // Hero phases 1-2: optional boss tier ("warlord" / "elite").
-      if (msg.boss === "warlord" || msg.boss === "elite") makeBoss(mob, msg.boss);
-      reply({ id: mob.id, mark: mob.mark, hp: mob.hp, maxHp: mob.maxHp, damage: mob.damage, scale: mob.scale ?? 1, speed: mob.speed, range: mob.range, bodyRadius: mobBodyRadius(mob) });
-    }
+    const mob = spawnMobAt(msg.kind, msg.tx, msg.ty, { mark: msg.mark, boss: msg.boss, regimentId: msg.regimentId, siteId: msg.siteId });
+    if (!mob) reply({ id: null });
+    else reply({ id: mob.id, mark: mob.mark, hp: mob.hp, maxHp: mob.maxHp, damage: mob.damage, scale: mob.scale ?? 1, speed: mob.speed, range: mob.range, bodyRadius: mobBodyRadius(mob) });
   } else if (msg.op === "spawnRaidGroup" && Array.isArray(msg.kinds) && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // A raid group already in contact (engaged now): member i is on row i, so the rows release one by
     // one (RAID_RELEASE_ROW_TICKS apart) and some are still in the group early on.
-    const id = randomUUID();
-    const group: RaidGroup = {
-      id, faction: "greenskinWarband", isHorde: false, edge: "west", memberIds: [], homes: new Map(), aggroTick: 0,
-      state: "marching", leaderId: null, offsets: new Map(), repathCooldown: 0, headingX: 1, headingY: 0,
-      engagedTick: state.cycleTick, anchorX: tileToPixelCenter({ x: msg.tx, y: msg.ty }).x, anchorY: tileToPixelCenter({ x: msg.tx, y: msg.ty }).y,
-    };
-    (msg.kinds as unknown[]).forEach((k, i) => {
-      if (typeof k !== "string" || !(k in MOB_KIND_CONFIG)) return;
-      const mob = createRaidMob(k as MobKind, { x: (msg.tx as number), y: (msg.ty as number) + i }, id);
-      mob.passive = false;
-      group.memberIds.push(mob.id);
-      group.offsets.set(mob.id, { x: 0, y: i * TILE_SIZE, row: i });
-    });
-    group.leaderId = group.memberIds[0] ?? null;
-    raidGroups.set(id, group);
-    reply({ id, memberIds: group.memberIds });
+    const group = spawnRaidGroupAt(msg.kinds as unknown[], msg.tx, msg.ty);
+    reply({ id: group.id, memberIds: group.memberIds });
   } else if (msg.op === "forceRaidSiege") {
     // Cavalry & siege: raids pick orc / bandit factions and take their siege engines first (up to the caps).
     state.testForceRaidSiege = msg.value === true;
@@ -567,18 +516,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     if (msg.reset) tickDurationsMs.length = 0;
   } else if (msg.op === "spawnSoldier" && typeof msg.kind === "string" && typeof msg.x === "number" && typeof msg.y === "number") {
     // A soldier standing at pixel (x, y) with its rally slot there (post = that tile; no building).
-    const kind = msg.kind as ColonistKind;
-    const tile = tileOfPixel(msg.x, msg.y);
-    if (!isGuardOrMilitiaKind(kind) || kind === "hero" || !isWalkableTile(tile.x, tile.y)) {
-      reply({ id: null });
-    } else {
-      const c = spawnColonistForPost(tile.x, tile.y, kind);
-      Object.assign(c, { x: msg.x, y: msg.y, rallyTileX: tile.x, rallyTileY: tile.y, rallyX: msg.x, rallyY: msg.y });
-      // Clans: the soldier is the requesting player's clan's.
-      if (player.clan) Object.assign(c, { clan: player.clan, settlementId: settlementKeyNear(tile.x, tile.y, player.clan) });
-      if (typeof msg.stance === "string" && STANCES.includes(msg.stance as Stance)) c.stance = msg.stance as Stance;
-      reply({ id: c.id });
-    }
+    // Clans: the soldier is the requesting player's clan's. Heroes: the spawnHero hook.
+    const c = msg.kind === "hero" ? null : spawnSoldierAt(msg.kind as ColonistKind, msg.x, msg.y, player.clan, { stance: msg.stance });
+    reply({ id: c?.id ?? null });
   } else if (msg.op === "bodyState") {
     // Positions, targets and engagement slots of soldiers and mobs (combat-line-test).
     reply({

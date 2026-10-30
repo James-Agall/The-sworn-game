@@ -1816,7 +1816,7 @@ export const PORT = Number.parseInt(process.env.PORT ?? "", 10) || 8080;
 // Not saved: player sessions (connected players respawn at a Town Center, as after a restart),
 // pendingEffects / pendingExplored / visionTile (per-tick transients) and client-only blood.
 export const SAVE_VERSION = 1;
-export const SAVE_SLOT_LABELS: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3" };
+export const SAVE_SLOT_LABELS: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3", creative: "Creative" };
 export const SAVE_DIR = process.env.COLONY_SAVE_DIR
   ? path.resolve(process.env.COLONY_SAVE_DIR)
   : fileURLToPath(new URL("../saves/", import.meta.url));

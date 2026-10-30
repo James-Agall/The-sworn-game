@@ -46,6 +46,8 @@ export interface Player {
   // Strategy mode phase 3: regimentOrder rate limit (REGIMENT_ORDER_MAX_PER_S per one-second window).
   orderWindowAt: number;
   orderWindowCount: number;
+  // Creative mode: this player takes no damage (creativeSet godmode).
+  creativeGod?: boolean;
 }
 export interface TileCoord {
   x: number;
@@ -142,6 +144,11 @@ export interface Colonist {
   wagon?: WagonState;
   // Forts phase F: a vassal's levy (vassals.ts): the settlement it came from, the garrison mob kind it turns
   // back into at home, and true once it marches home (no orders then). Saved with the colonist.
+  // Creative mode: spawned from the creative panel (never respawns, no death toast); a dummy stands still and
+  // never acts; creativeTarget is a forced / auto-picked colonist ("c") or wildlife ("w") target.
+  creativeSpawned?: boolean;
+  creativeDummy?: boolean;
+  creativeTarget?: { type: "c" | "w"; id: string; forced: boolean };
   levyOf?: string;
   levyKind?: MobKind;
   levyHome?: boolean;
@@ -258,6 +265,9 @@ export interface Mob {
   leashCalmSinceTick?: number;
   // Forts phase C: a human settlement's cosmetic worker (never a guardian: stays dormant, never fights),
   // walking between work tile A and shelter tile B (tile indices); leg 0 = to A.
+  // Creative mode: a neutral unit (settlement folk without a settlement): stands passive and is never picked
+  // by soldiers / towers until creative "allow attacking neutrals" is on or it is hit; dummies never wake.
+  creativeNeutral?: { dummy: boolean; awake: boolean };
   siteWorker?: SiteWorkerRole;
   workA?: number;
   workB?: number;
@@ -680,6 +690,7 @@ export interface SaveFile {
   difficulty: Difficulty;
   worldSize: number;
   label: string;
+  creative?: boolean;
   state: WorldState;
 }
 export type WorldState = ReturnType<typeof snapshotWorld>;

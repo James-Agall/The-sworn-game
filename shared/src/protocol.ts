@@ -1000,6 +1000,10 @@ export interface BuildingInfo {
   spellShop?: { spellId: SpellId; label: string; gold: number; enabled: boolean; reason: string }[];
 }
 
+// Creative mode spawn panel sides: own clan units, enemy mobs, enemy armies (raid groups), extra guardians for
+// the nearest fort / settlement, Test clan units (neutral dummy clan), neutral settlement folk, wildlife.
+export type CreativeSpawnSide = "own" | "enemy" | "army" | "guardians" | "neutral" | "folk" | "wildlife";
+
 export type ClientMessage =
   | { type: "join"; name?: string }
   | { type: "input"; dx: number; dy: number }
@@ -1010,7 +1014,12 @@ export type ClientMessage =
   // Strategy mode phase 5: global sim speed (TIME_SCALES); like pause, any player's choice applies to all.
   | { type: "setTimeScale"; scale: number }
   // Optional difficulty: the restarting client's choice becomes the new world's difficulty.
-  | { type: "restart"; difficulty?: Difficulty; worldSize?: number }
+  // creative (optional): the new world is a creative-mode game (main menu "Creative" / ?mode=creative).
+  | { type: "restart"; difficulty?: Difficulty; worldSize?: number; creative?: boolean }
+  // Creative mode only (refused in normal games with a creativeResult ok: false): spawn units / set world state.
+  // Fields per side / op: see the server's creative.ts handleCreativeSpawn / handleCreativeSet.
+  | { type: "creativeSpawn"; side: CreativeSpawnSide; kind: string; count: number; x: number; y: number; formation?: "none" | "line" | "block" | "column"; level?: number; gear?: number; heroClass?: HeroClass; stance?: Stance; mark?: number; boss?: "elite" | "warlord"; faction?: string; aggressive?: boolean }
+  | { type: "creativeSet"; op: string; [key: string]: unknown }
   // Sent after every welcome; only takes effect while the world's difficulty is still unclaimed
   // (see the server's handleSetDifficulty for the race rules).
   | { type: "setDifficulty"; difficulty: Difficulty; worldSize?: number }
@@ -1109,6 +1118,8 @@ export type ServerMessage =
       // Centre tile of this world's Castle Ruin (null if world-gen couldn't fit one, or an old save).
       // The minimap marks it once that tile is explored.
       castleRuin?: { x: number; y: number } | null;
+      // Creative mode world (omitted: a normal game).
+      creative?: boolean;
     }
   | {
       type: "snapshot";
@@ -1177,6 +1188,8 @@ export type ServerMessage =
       gates?: number[];
       // Dawn/dusk respawn windows (long days): see RespawnWindowSnapshot.
       respawn?: RespawnWindowSnapshot;
+      // Creative mode only: the world's creative toggles.
+      creative?: { allowAttack: boolean };
       // Off-screen fight notifiers: active fights relevant to THIS player (per-player field, omitted
       // when there are none). See FightSnapshot.
       fights?: FightSnapshot[];
@@ -1216,6 +1229,8 @@ export type ServerMessage =
   // Reply to listSaves (also served as JSON by GET /saves on the same port, for the main menu).
   | { type: "saveList"; saves: SaveInfo[] }
   // Reply to saveGame / loadGame, to the requesting client only (`action` says which).
+  // Creative mode: the answer to a creativeSpawn / creativeSet (text is toasted; ids = spawned unit ids).
+  | { type: "creativeResult"; op: string; ok: boolean; text: string; [key: string]: unknown }
   | { type: "saveResult"; ok: boolean; error?: string; slot: SaveSlot; action: "save" | "load" };
 
 export interface PlayerSnapshot {
@@ -1231,8 +1246,9 @@ export interface PlayerSnapshot {
   clan?: number;
 }
 
-export type SaveSlot = "autosave" | "slot1" | "slot2" | "slot3";
-export const SAVE_SLOTS: SaveSlot[] = ["autosave", "slot1", "slot2", "slot3"];
+// "creative": creative-mode games save (auto and manual) only here, never over a normal game's slots.
+export type SaveSlot = "autosave" | "slot1" | "slot2" | "slot3" | "creative";
+export const SAVE_SLOTS: SaveSlot[] = ["autosave", "slot1", "slot2", "slot3", "creative"];
 
 // One existing save file's metadata. dayIndex is 0-based (day 1 = 0).
 export interface SaveInfo {
@@ -1242,6 +1258,8 @@ export interface SaveInfo {
   dayIndex: number;
   population: number;
   difficulty: Difficulty;
+  // A creative-mode save (the "creative" slot).
+  creative?: boolean;
 }
 
 // ---- Long days & dawn/dusk respawns (2026-10-23) ----

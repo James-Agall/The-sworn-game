@@ -1,5 +1,6 @@
 // combat.ts: Damage (mobs, players, colonists, buildings), engagement slots, attack effects, player attacks, walls & gates, towers.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { hostileColonistInReach, wakeNeutral } from "./creative.js";
 import { noteWagonHit, onWagonDestroyed } from "./wagons.js";
 import {
   TILE_SIZE, HungerMark, TileType, isSolidTile, PLAYER_HALF_SIZE, TICK_RATE, GATE_FLAG_OPEN, GATE_FLAG_LOCK_OPEN,
@@ -199,6 +200,7 @@ export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
   // Forts phase C: hurting a human settlement's guard / worker turns the settlement hostile.
   if (mob.siteKind === "fort") noteSettlementAttacked(mob.siteId, attackerKey);
   if (isDormantGuardian(mob)) activateGuardianSite(mob.siteId!);
+  if (mob.creativeNeutral) wakeNeutral(mob);
   if (attackerKey && mob.siteKind === "fort") noteSiteHit(mob, attackerKey);
   // Hitting any member of a raid group (passive or marching) turns the whole group on its attackers.
   if (mob.groupId !== null) {
@@ -236,7 +238,7 @@ export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
 // A killed player respawns at the standing Town Center nearest where they fell. With none standing
 // they stay dead (game over for them) until someone builds one: see respawnDeadPlayers.
 export function damagePlayer(player: Player, amount: number) {
-  if (player.dead) return;
+  if (player.dead || player.creativeGod) return;
   // Hero gear: every blow / poison tick the player takes is scaled (equipment survives death).
   const mult = heroProfileOf(player).stats.damageTakenMult;
   if (mult !== 1) heroEvent({ type: "taken", key: player.profileKey, amount: amount * mult, detail: String(amount) });
@@ -306,13 +308,14 @@ export function damageColonist(colonist: Colonist, amount: number) {
   }
   if (colonist.hp <= 0) {
     gravestones.push({ x: colonist.x, y: colonist.y, variant: Math.random() < 0.5 ? 0 : 1 });
-    broadcastEvent("death", colonistDeathText(colonist));
+    // Creative mode: spawned units die quietly and never respawn.
+    if (!colonist.creativeSpawned) broadcastEvent("death", colonistDeathText(colonist));
     notePlayerCasualty(colonist);
     releaseResourceReservation(colonist);
     // Siege engines are rebuilt at their workshop, never respawned.
     // Forts phase F: a vassal's levy never respawns (its garrison regrows; relation pays).
     if (colonist.levyOf) noteLevyDied(colonist);
-    else if (!isWardPriest(colonist) && !isSiegeKind(colonist.kind)) queueRespawn(colonist);
+    else if (!colonist.creativeSpawned && !isWardPriest(colonist) && !isSiegeKind(colonist.kind)) queueRespawn(colonist);
     colonists.delete(colonist.id);
     chargeRuns.delete(colonist.id);
     if (colonist.kind === "hero") state.heroRosterVersion++;
@@ -353,6 +356,13 @@ export function handlePlayerAttack(attacker: Player) {
       bestDist = d;
       bestAnimal = a;
     }
+  }
+  // Creative mode: with "allow attacking neutrals" on, a hostile clan's unit nearer than anything else.
+  const hostile = hostileColonistInReach(attacker, bestDist);
+  if (hostile) {
+    state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: hostile.x, toY: hostile.y, melee: true });
+    damageColonist(hostile, damage);
+    return;
   }
   if (bestAnimal) {
     // A player's kill is dressed on the spot: the meat goes straight to the stockpile.

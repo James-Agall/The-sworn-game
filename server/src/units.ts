@@ -46,6 +46,7 @@ import { bombardPoint, bombardStep, isCommandable, unitOrderKind } from "./order
 import { clanIdAt, clanTownCenters, inClan, moraleKey } from "./clans.js";
 import { levyRegimentName } from "./vassals.js";
 import { siteIdNeutral } from "./sites.js";
+import { creativeFightStep, isSleepingNeutral } from "./creative.js";
 
 export function pruneTaskForces() {
   for (const [slot, unitIds] of state.taskForces) {
@@ -473,6 +474,8 @@ export function returnToRally(c: Colonist, dt: number, speed: number) {
 export function updateGuardColonist(c: Colonist, dt: number) {
   // Hero phase 4: heroes auto-cast their slotted spells (when Auto is on).
   if (c.kind === "hero") heroAutoCast(c);
+  // Creative mode: forced / clan-vs-clan targets (creative.ts).
+  if (state.creative && creativeFightStep(c, dt)) return;
   let stats = unitStats(c);
   if (c.kind === "cavalry") trackCharge(c);
 
@@ -824,6 +827,7 @@ export function pickGuardTarget(c: Colonist, stats: { range: number; melee: bool
     if (ds > reachPx) continue;
     // Forts phase F: never a neutral settlement's own folk (a vassal's levy marches out among them).
     if (m.siteId !== null && siteIdNeutral(m.siteId)) continue;
+    if (isSleepingNeutral(m)) continue;
     const score = rearRank && du <= stats.range ? du - (engagedWithFrontline(m) ? 2e6 : 1e6) : ds;
     if (score >= bestDist) continue;
     if (queues && !targetHasRoom(c.id, `m:${m.id}`, meleeAttackerCap(mobBodyRadius(m)))) continue;

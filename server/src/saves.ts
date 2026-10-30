@@ -1,5 +1,6 @@
 // saves.ts: Save files: snapshot/apply world, migrations, slots, autosave, restart.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { topUpCreative } from "./creative.js";
 import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type SaveSlot, SAVE_SLOTS, TileType, type SaveInfo, type ServerMessage } from "@colony/shared/protocol";
@@ -42,7 +43,14 @@ export function resetClans() {
   for (const p of players.values()) p.clan = 0;
 }
 
-export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
+// creative: the new world's creative flag (a restart without it is a normal game; handleSetDifficulty's
+// regeneration keeps the current one).
+export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown, creative = false) {
+  const wasCreative = state.creative;
+  state.creative = creative;
+  state.creativeAllowAttack = false;
+  if (creative) state.instantBuild = true;
+  else if (wasCreative) state.instantBuild = process.env.COLONY_INSTANT_BUILD === "1";
   resetClans();
   withClan(clans[0], () => resetWorldInner(nextDifficulty, nextSize));
   restoreQuests(undefined);
@@ -93,6 +101,7 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
 
   Object.assign(state.stock, initialStock());
   resetEquipment();
+  if (state.creative) topUpCreative();
   heroProfiles.clear();
   heroRecruits.length = 0;
   state.heroRosterVersion++;
@@ -262,6 +271,9 @@ function snapshotWorldInner() {
       instantBuild: state.instantBuild,
       testPlayersIgnored: state.testPlayersIgnored,
     },
+    // Creative mode (optional: older saves are normal games).
+    creative: state.creative as boolean | undefined,
+    creativeAllowAttack: state.creativeAllowAttack as boolean | undefined,
   };
 }
 
@@ -405,6 +417,8 @@ function applyWorldInner(s: WorldState) {
   state.testForceMarkChance = s.flags.testForceMarkChance;
   state.instantBuild = s.flags.instantBuild;
   state.testPlayersIgnored = s.flags.testPlayersIgnored ?? false;
+  state.creative = s.creative ?? false;
+  state.creativeAllowAttack = s.creativeAllowAttack ?? false;
   towerCooldowns.clear();
   migrateSaveDayLength(s.dayTicks ?? LEGACY_DAY_TICKS, s.nightTicks ?? LEGACY_NIGHT_TICKS);
   evaluateGoals(!s.goals);
@@ -479,6 +493,7 @@ export function saveFileFor(slot: SaveSlot): SaveFile {
     difficulty: state.difficulty,
     worldSize: state.WORLD_TILES_X,
     label: SAVE_SLOT_LABELS[slot],
+    ...(state.creative ? { creative: true } : {}),
     state: snapshotWorld(),
   };
 }
@@ -557,6 +572,7 @@ export async function listSaves(): Promise<SaveInfo[]> {
         dayIndex: file.dayIndex,
         population: file.population,
         difficulty: file.difficulty,
+        ...(file.creative ? { creative: true } : {}),
       });
     } catch {
       /* empty slot (or unreadable): not listed */
@@ -569,10 +585,17 @@ export function sendTo(player: Player, message: ServerMessage) {
   if (player.socket.readyState === player.socket.OPEN) player.socket.send(JSON.stringify(message));
 }
 
+// Creative mode: every save (auto or manual) of a creative game goes to the "creative" slot, so it can never
+// overwrite a normal game's save; a normal game never writes there.
+export function slotForSave(slot: SaveSlot): SaveSlot {
+  return state.creative ? "creative" : slot;
+}
+
 export async function handleSaveGame(player: Player, slot: unknown) {
-  if (!isSaveSlot(slot) || slot === "autosave") return;
-  const error = await saveToSlot(slot);
-  sendTo(player, { type: "saveResult", ok: !error, ...(error ? { error } : {}), slot, action: "save" });
+  if (!isSaveSlot(slot) || slot === "autosave" || (slot === "creative" && !state.creative)) return;
+  const to = slotForSave(slot);
+  const error = await saveToSlot(to);
+  sendTo(player, { type: "saveResult", ok: !error, ...(error ? { error } : {}), slot: to, action: "save" });
   sendTo(player, { type: "saveList", saves: await listSaves() });
 }
 
@@ -588,7 +611,7 @@ export function runDueAutosave() {
   // Debounced: never more than one autosave queued or writing.
   if (!AUTOSAVE_ENABLED || !state.anyPlayerSinceBoot || state.autosaveQueued) return;
   state.autosaveQueued = true;
-  void saveToSlot("autosave").finally(() => (state.autosaveQueued = false));
+  void saveToSlot(slotForSave("autosave")).finally(() => (state.autosaveQueued = false));
 }
 export function saveOnShutdown(signal: string) {
   if (state.shuttingDown) return;
@@ -597,7 +620,8 @@ export function saveOnShutdown(signal: string) {
     try {
       const t0 = performance.now();
       mkdirSync(SAVE_DIR, { recursive: true });
-      writeFileSync(savePath("autosave"), JSON.stringify(saveFileFor("autosave")));
+      const slot = slotForSave("autosave");
+      writeFileSync(savePath(slot), JSON.stringify(saveFileFor(slot)));
       console.log(`[save] autosave on ${signal}: ${(performance.now() - t0).toFixed(1)} ms`);
     } catch (err) {
       console.error(`[save] autosave on ${signal} failed:`, err);
