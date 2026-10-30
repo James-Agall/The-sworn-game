@@ -1,6 +1,7 @@
 // index.ts: boot and wiring. Imports every server module in evaluation order (types, constants and state
 // first; see ROADMAP "Server module split"), generates the world, starts the HTTP/WebSocket server (net.ts),
 // routes client messages, and runs the tick loop (stepSimulation in sim.ts) that sends the snapshots.
+import { handleWagonCommand, wagonSnapshot } from "./wagons.js";
 import { randomUUID } from "node:crypto";
 import {
   TileType, PLAYER_MAX_HP, type ClientMessage, TIME_SCALES, type ServerMessage, type PlayerSnapshot,
@@ -139,7 +140,7 @@ function ownUnits(player: Player, ids: unknown): string[] {
 }
 
 // Clans: tile actions (upgrade, repair, gate lock, siege / forge queue, recruit, learn) only on own buildings.
-const TILE_ACTIONS = new Set(["upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "setForgeAuto", "recruitHero", "learnSpell"]);
+const TILE_ACTIONS = new Set(["upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "setForgeAuto", "recruitHero", "learnSpell", "wagonCommand"]);
 
 function handleMessage(player: Player, message: ClientMessage) {
   const socket = player.socket;
@@ -228,6 +229,10 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "acceptQuest" || message.type === "abandonQuest" || message.type === "deliverQuest") {
     const why = handleQuestMessage(player, message.type, message.questId);
     if (why) sendTo(player, { type: "event", category: "build", text: why });
+  } else if (message.type === "wagonCommand") {
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY) || !inBounds(message.tileX, message.tileY)) return;
+    const text = handleWagonCommand(message.tileX, message.tileY, message.cmd, message.dest, message.value);
+    if (text) sendTo(player, { type: "event", category: "build", text });
   } else if (message.type === "rebuildKeep") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleRebuildKeep(player, message.tileX, message.tileY);
@@ -333,6 +338,7 @@ setInterval(() => {
       ...(c.cycleCharge ? { cycleCharge: true } : {}),
       ...(c.shape ? { shape: c.shape } : {}),
       ...(c.clan ? { clan: c.clan } : {}),
+      ...(c.wagon ? { wagon: wagonSnapshot(c) } : {}),
     }));
   const mobsNow = Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,

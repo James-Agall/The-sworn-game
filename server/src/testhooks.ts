@@ -1,5 +1,8 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { recallWagon, scanTradingPosts, sendWagon, wagonDebugState } from "./wagons.js";
+import { buildingLevel, tradingPosts } from "./state.js";
+import { clanById, clanIdAt, withClan } from "./clans.js";
 import { randomUUID } from "node:crypto";
 import {
   TileType, type WildlifeKind, WILDLIFE_KINDS, type MobKind, HungerMark, TILE_SIZE, SIEGE_KINDS, COLONIST_ROLE,
@@ -344,6 +347,27 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const q = quests.find((o) => o.id === msg.id);
     if (q && typeof msg.expiresTick === "number") q.expiresTick = msg.expiresTick;
     reply({ quests: quests.map((o) => ({ ...o })), snapshot: questsForSnapshot(typeof msg.clan === "number" ? msg.clan : 0), cycleTick: state.cycleTick });
+  } else if (msg.op === "wagonPost" && typeof msg.tx === "number" && typeof msg.ty === "number") {
+    // Forts phase E: put a Trading Post at (tx, ty) (rule-free, like setTileRaw) at level (default 1), register it
+    // now and look after it once (roster + wagon); auto (optional) sets auto-send. Replies wagonState.
+    if (inBounds(msg.tx, msg.ty)) {
+      state.tiles[tileIndex(msg.tx, msg.ty)] = TileType.GoldShop;
+      broadcastTileUpdate(msg.tx, msg.ty, TileType.GoldShop);
+      buildingLevel.set(resourceKey(msg.tx, msg.ty), typeof msg.level === "number" ? msg.level : 1);
+      scanTradingPosts();
+      const post = tradingPosts.get(resourceKey(msg.tx, msg.ty));
+      if (post && typeof msg.auto === "boolean") post.auto = msg.auto;
+    }
+    reply({ posts: wagonDebugState() });
+  } else if (msg.op === "wagonSend" && typeof msg.tx === "number" && typeof msg.ty === "number") {
+    // Forts phase E: send the post's wagon now (dest id or "auto"), ignoring the time of day check's trip cap.
+    const why = withClan(clanById(clanIdAt(msg.tx, msg.ty)), () => sendWagon(resourceKey(msg.tx as number, msg.ty as number), typeof msg.dest === "string" ? msg.dest : "auto", true, true));
+    reply({ problem: why, posts: wagonDebugState() });
+  } else if (msg.op === "wagonRecall" && typeof msg.id === "string") {
+    const w = colonists.get(msg.id);
+    reply({ ok: !!w && recallWagon(w), posts: wagonDebugState() });
+  } else if (msg.op === "wagonState") {
+    reply({ posts: wagonDebugState(), cycleTick: state.cycleTick });
   } else if (msg.op === "siteSet" && typeof msg.siteId === "string") {
     // Forts phase B: overwrite numeric SiteState fields (lastSimTick to fake a long sleep, kiteHits, ...).
     const st = sites.get(msg.siteId);

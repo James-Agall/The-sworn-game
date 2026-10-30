@@ -311,7 +311,9 @@ export type ColonistKind =
   | "batteringRam"
   | "catapult"
   // Hero phase 3 (2026-10-28): a named, levelled hero recruited at a Keep (class in ColonistSnapshot.heroClass).
-  | "hero";
+  | "hero"
+  // Forts phase E: a Trading Post's trader wagon (ColonistSnapshot.wagon); not commandable, no population.
+  | "wagon";
 
 // Hero phase 3: the three hero classes and the regiment role each fights in.
 export type HeroClass = "champion" | "marksman" | "mage";
@@ -469,6 +471,22 @@ export interface ColonistSnapshot {
   skirmish?: boolean;
   cycleCharge?: boolean;
   shape?: FormationShape;
+  // Forts phase E: trader wagons only. leg: home (at its post) / out / unload / back / camp (halted for the
+  // night); dest = destination name; cargo = gold value carried; danger band of the route; escorts alive;
+  // route = the remaining path as tile points (every 4th tile) while on the road.
+  wagon?: WagonSnapshot;
+}
+
+export type WagonLeg = "home" | "out" | "unload" | "back" | "camp";
+export type DangerBand = "safe" | "risky" | "deadly";
+export interface WagonSnapshot {
+  level: number;
+  leg: WagonLeg;
+  dest: string;
+  cargo: number;
+  danger: DangerBand;
+  escorts: number;
+  route?: number[];
 }
 
 // Armour & weapons: the two equipment slots; the colony's stock counts each by tier 1..3.
@@ -943,6 +961,19 @@ export interface BuildingInfo {
     reason: string;
     goods: { good: TradeGood; buy: number; sell: number; stock: number; cap: number; buyLeft: number; sellLeft: number }[];
   };
+  // Forts phase E: a Trading Post: its wagon, escort roster, trip status, auto-send and the destinations
+  // (cached route length / danger band / expected gold; ok false -> reason).
+  tradingPost?: {
+    level: number;
+    auto: boolean;
+    status: string;
+    wagon: { id: string; hp: number; maxHp: number; leg: WagonLeg; dest: string; cargo: number } | null;
+    escorts: { kind: ColonistKind; alive: boolean }[];
+    destinations: { id: string; name: string; kind: "settlement" | "own"; dist: number; danger: DangerBand | null; profit: number; ok: boolean; reason: string }[];
+    canSend: boolean;
+    sendReason: string;
+    canRecall: boolean;
+  };
   // Churches only (hero phase 4): basic spells the requesting player can buy (see learnSpell).
   spellShop?: { spellId: SpellId; label: string; gold: number; enabled: boolean; reason: string }[];
 }
@@ -996,6 +1027,9 @@ export type ClientMessage =
   | { type: "acceptQuest"; questId: number }
   | { type: "abandonQuest"; questId: number }
   | { type: "deliverQuest"; questId: number }
+  // Forts phase E: the Trading Post at (tileX, tileY): send its wagon now (dest "auto" or a destination id from
+  // BuildingInfo.tradingPost), recall it home, or set auto-send (value).
+  | { type: "wagonCommand"; tileX: number; tileY: number; cmd: "sendNow" | "recall" | "auto"; dest?: string; value?: boolean }
   // Starts building one siege engine at the Siege Workshop at the tile (building info panel button).
   | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
   // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).

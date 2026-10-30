@@ -33,6 +33,7 @@ import { broadcastEvent, scanFights } from "./net.js";
 import { clanTownCenters, enterClan, forEachClan, resetClan } from "./clans.js";
 import { settlementsDawn } from "./diplomacy.js";
 import { updateQuests } from "./quests.js";
+import { updateWagons } from "./wagons.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
@@ -128,6 +129,8 @@ export function stepSimulation() {
     updateColonist(colonist, dt);
   }
   resetClan();
+  // Forts phase E: trader wagons (movement, trips, post rosters).
+  updateWagons();
   updateConstructionSites();
   updateSiegeWorkshops();
   updateForges();

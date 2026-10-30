@@ -1,5 +1,6 @@
 // combat.ts: Damage (mobs, players, colonists, buildings), engagement slots, attack effects, player attacks, walls & gates, towers.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { noteWagonHit, onWagonDestroyed } from "./wagons.js";
 import {
   TILE_SIZE, HungerMark, TileType, isSolidTile, PLAYER_HALF_SIZE, TICK_RATE, GATE_FLAG_OPEN, GATE_FLAG_LOCK_OPEN,
   GATE_FLAG_LOCK_CLOSED, GATE_FLAG_OVERRUN, GATE_FLAG_FOREIGN,
@@ -286,6 +287,15 @@ export function damageColonist(colonist: Colonist, amount: number) {
   if (colonist.kind === "hero") amount *= heroProfileFor(heroKey(colonist.id)).stats.damageTakenMult;
   // Hero phase 4: a ward shield soaks it first.
   colonist.hp -= absorbWithWard("c:" + colonist.id, amount);
+  // Forts phase E: a trader wagon is wrecked (no grave, no respawn: its post replaces it, wagons.ts).
+  if (colonist.kind === "wagon") {
+    if (colonist.hp > 0) noteWagonHit(colonist);
+    else {
+      onWagonDestroyed(colonist);
+      colonists.delete(colonist.id);
+    }
+    return;
+  }
   if (colonist.hp <= 0 && isSummoned(colonist)) {
     // A summoned skeleton crumbles: no grave, toast or respawn.
     summonedUntil.delete(colonist.id);

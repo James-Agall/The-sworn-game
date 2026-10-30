@@ -11,7 +11,7 @@ import {
   DARK_SHAMAN_HEAL_RANGE, DAY_TICKS, GOBLIN_RIDER_WITHDRAW_TICKS, GOLD_PER_KILL_BASE_DIVISOR, GOLD_PER_KILL_MIN,
   GORRATH_SCAN_RANGE_TILES, GUNNE_SCAN_RANGE_TILES, HUNGER_MARK_CHANCE_MAX, HUNGER_MARK_CHANCE_MAX_DAY,
   HUNGER_MARK_CHANCE_START, HUNGER_MARK_DAMAGE_MULT, HUNGER_MARK_GOLD_MULT, HUNGER_MARK_HP_MULT, HUNGER_MARK_MIN_DAY,
-  MARK_RETARGET_TICKS, MOB_AGGRO_DROP_FACTOR, MOB_AGGRO_RANGE_GUARD_TILES, MOB_AGGRO_RANGE_PLAYER_TILES,
+  MARK_RETARGET_TICKS, MOB_AGGRO_DROP_FACTOR, MOB_AGGRO_RANGE_GUARD_TILES, WAGON_AGGRO_BONUS_TILES, MOB_AGGRO_RANGE_PLAYER_TILES,
   MOB_ATTACK_COOLDOWN_TICKS, MOB_BODY_RADIUS, MOB_BODY_RADIUS_MAX, MOB_BUILDING_AGGRO_TILES, MOB_KIND_CONFIG,
   MOB_REPATH_TICKS, MOB_ROOM_DETOUR_PX, MOB_SIZE_DAMAGE_PER_SCALE, MOB_SIZE_HP_PER_SCALE, MOB_SIZE_SPEED_PER_SCALE,
   PLAYER_BODY_RADIUS, POISON_DAMAGE_PER_TICK, POISON_DURATION_TICKS, QUEUE_STANDOFF_PX, RANGED_KITE_TILES,
@@ -192,10 +192,16 @@ export function pickMobTarget(mob: Mob): PickedTarget | null {
   let roomGuard: Colonist | null = null;
   let roomGuardDist = MOB_AGGRO_RANGE_GUARD_TILES * TILE_SIZE;
   const guardCap = meleeAttackerCap(COLONIST_BODY_RADIUS);
+  // Forts phase E: a trader wagon counts as a soldier drawing aggro from WAGON_AGGRO_BONUS_TILES further;
+  // bandits go for one in range before anything else (loot).
+  const wagonBonus = WAGON_AGGRO_BONUS_TILES * TILE_SIZE;
+  const bandit = mob.kind === "banditClubman" || mob.kind === "banditArcher";
   for (const c of colonists.values()) {
-    if (!isGuardOrMilitiaKind(c.kind)) continue;
+    const wagon = c.kind === "wagon";
+    if (!wagon && !isGuardOrMilitiaKind(c.kind)) continue;
     if (isWarded(c.x, c.y, wards)) continue;
-    const d = Math.hypot(c.x - mob.x, c.y - mob.y);
+    const d = Math.hypot(c.x - mob.x, c.y - mob.y) - (wagon ? wagonBonus : 0);
+    if (wagon && bandit && d < MOB_AGGRO_RANGE_GUARD_TILES * TILE_SIZE) return { type: "colonist", id: c.id };
     if (d < bestGuardDist) {
       bestGuardDist = d;
       bestGuard = c;
@@ -230,7 +236,8 @@ export function unitInAggroRange(mob: Mob, wards: TileCoord[]): boolean {
   const guardPx = MOB_AGGRO_RANGE_GUARD_TILES * TILE_SIZE;
   const playerPx = MOB_AGGRO_RANGE_PLAYER_TILES * TILE_SIZE;
   for (const c of colonists.values()) {
-    if (isGuardOrMilitiaKind(c.kind) && Math.hypot(c.x - mob.x, c.y - mob.y) <= guardPx && !isWarded(c.x, c.y, wards)) return true;
+    const reach = c.kind === "wagon" ? guardPx + WAGON_AGGRO_BONUS_TILES * TILE_SIZE : guardPx;
+    if ((c.kind === "wagon" || isGuardOrMilitiaKind(c.kind)) && Math.hypot(c.x - mob.x, c.y - mob.y) <= reach && !isWarded(c.x, c.y, wards)) return true;
   }
   for (const p of players.values()) {
     if (!p.dead && !state.testPlayersIgnored && Math.hypot(p.x - mob.x, p.y - mob.y) <= playerPx && !isWarded(p.x, p.y, wards)) return true;

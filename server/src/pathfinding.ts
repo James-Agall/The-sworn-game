@@ -46,7 +46,8 @@ export function adjacentTilesOfType(tx: number, ty: number, type: TileType): Til
   ];
   return neighbors.filter((n) => inBounds(n.x, n.y) && state.tiles[tileIndex(n.x, n.y)] === type);
 }
-export function findPath(start: TileCoord, goal: TileCoord): TileCoord[] | null {
+// blocked (optional, forts phase E wagon detours): extra tiles this search treats as unwalkable.
+export function findPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: number) => boolean): TileCoord[] | null {
   if (start.x === goal.x && start.y === goal.y) return [];
 
   const key = (t: TileCoord) => t.y * state.WORLD_TILES_X + t.x;
@@ -67,6 +68,7 @@ export function findPath(start: TileCoord, goal: TileCoord): TileCoord[] | null 
     ];
     for (const n of neighbors) {
       if (!isWalkableTile(n.x, n.y)) continue;
+      if (blocked && blocked(n.x, n.y) && !(n.x === goal.x && n.y === goal.y)) continue;
       const k = key(n);
       if (visited.has(k)) continue;
       visited.add(k);

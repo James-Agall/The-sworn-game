@@ -444,6 +444,8 @@ const COLONIST_ANIM_URLS: Record<Exclude<ColonistKind, "hero">, { walk: string[]
   cavalry: { walk: frameUrls("playerWalk", 4), action: frameUrls("playerAttack", 2) },
   batteringRam: { walk: [artUrl("cart")], action: [artUrl("cart")] },
   catapult: { walk: [artUrl("crate")], action: [artUrl("crate")] },
+  // Forts phase E: the trader wagon's stand-in is the cart prop (per-level art: WAGON_ART_URLS).
+  wagon: { walk: [artUrl("cart")], action: [artUrl("cart")] },
 };
 // Dedicated art for kinds still on stand-ins. Loaded separately and optionally (loadOptionalTextures):
 // when every frame of a set loads it replaces the stand-in set and its tint; missing files are fine.
@@ -508,6 +510,7 @@ const COLONIST_STATIC_URL_OVERRIDES: Partial<Record<ColonistKind, string>> = {
   cavalry: "/sprites/player.png",
   batteringRam: "/sprites/cart.png",
   catapult: "/sprites/crate.png",
+  wagon: "/sprites/cart.png",
 };
 // Player (mounted knight): walk + 2-frame lance attack, idle = walk frame 0. The walk row carries
 // the banner, the attack row doesn't; both canvases are centered on the horse's body (not the
@@ -1083,6 +1086,7 @@ const COLONIST_KINDS: ColonistKind[] = [
   "cavalry",
   "batteringRam",
   "catapult",
+  "wagon",
 ];
 // Rendered heights (px); width follows each texture's aspect ratio.
 const COLONIST_SPRITE_HEIGHT = 28;

@@ -748,6 +748,7 @@ export const NO_COLONIST_TILES = [
 // Event-feed names for tier upgrades, matching the client's build-panel labels.
 export const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
   [TileType.House]: "Cottage",
+  [TileType.GoldShop]: "Trading Post",
   [TileType.KnightPost]: "Hall of the Sworn",
   [TileType.MilitiaPost]: "Militia Camp",
   [TileType.ArcherPost]: "Archery Range",
@@ -1697,6 +1698,48 @@ export const RELATION_QUEST_DAILY_CAP = 12;
 export const QUEST_FAIL_PENALTY = 8;
 export const QUEST_ABANDON_PENALTY = 5;
 export const QUEST_IGNORE_PENALTY = 3;
+// ---- Forts phase E: trader wagons (wagons.ts; PLAN-forts-diplomacy-moats.md §5 "Trader wagons") ----
+// Trading Post (TileType.GoldShop) upgrade costs to Lv2 / Lv3.
+export const TRADING_POST_UPGRADE_COSTS: Cost[] = [
+  { wood: 60, rock: 40, gold: 30 },
+  { wood: 100, rock: 80, iron: 20, gold: 60 },
+];
+// Per Trading Post level: wagon HP, cargo (gold value of goods loaded per trip), its escort roster (soldiers
+// housed by the post: no civilian population), speed (x COLONIST_SPEED), profit factor and the replacement cost.
+export const WAGON_LEVELS: { hp: number; cargo: number; escort: ColonistKind[]; speed: number; profit: number; rebuild: Cost }[] = [
+  { hp: 120, cargo: 80, escort: ["militia", "militia", "spearman"], speed: 0.8, profit: 1, rebuild: { wood: 20 } },
+  { hp: 220, cargo: 180, escort: ["spearman", "spearman", "spearman", "spearman"], speed: 0.9, profit: 1.1, rebuild: { wood: 40, iron: 10 } },
+  { hp: 400, cargo: 350, escort: ["pikeman", "pikeman", "pikeman", "pikeman", "cavalry"], speed: 0.9, profit: 1.2, rebuild: { wood: 60, iron: 30, gold: 20 } },
+];
+// At most this many wagons per clan (one per post).
+export const WAGON_CLAN_CAP = 3;
+// Destinations: human settlements at Friendly+ within WAGON_MAX_TRIP_TILES (straight line), and the clan's
+// other Town Centers (internal trade: WAGON_INTERNAL_VALUE of the goods' base value, no relation).
+export const WAGON_MAX_TRIP_TILES = 160;
+export const WAGON_INTERNAL_VALUE = 0.5;
+// Unloading at the destination (ticks); the wagon and its escorts wait there.
+export const WAGON_UNLOAD_TICKS = 20 * TICK_RATE;
+// Goods kept back at home (never loaded below this many units of a good).
+export const WAGON_EXPORT_RESERVE = 20;
+// Relation: a completed delivery adds WAGON_DELIVERY_RELATION + the trade value gain (one gainRelation "trade"
+// call, so the daily trade cap applies); goods that never arrive cost WAGON_LOSS_RELATION.
+export const WAGON_DELIVERY_RELATION = 2;
+export const WAGON_LOSS_RELATION = 3;
+// Mobs: a wagon draws aggro from this many tiles further than a soldier (bandits prefer it, see pickMobTarget).
+export const WAGON_AGGRO_BONUS_TILES = 4;
+// Danger score along a route (sampled every 2nd tile): hazard radius (tiles) and weight per sampled tile in it.
+// Bands: score <= WAGON_DANGER_RISKY safe, <= WAGON_DANGER_DEADLY risky, else deadly. A route's cost is
+// length + WAGON_DANGER_COST x score (direct path vs one detour around the hazards).
+export const WAGON_HAZARD_SITE = { radius: 20, weight: 8 };
+export const WAGON_HAZARD_CAMP = { radius: 12, weight: 8 };
+export const WAGON_HAZARD_RAID = { radius: 15, weight: 3 };
+export const WAGON_HAZARD_BOSS = { radius: 12, weight: 10 };
+export const WAGON_RAID_MEMORY_DAYS = 3;
+export const WAGON_DANGER_RISKY = 10;
+export const WAGON_DANGER_DEADLY = 60;
+export const WAGON_DANGER_COST = 4;
+// A "under attack" toast at most once per this many ticks per wagon.
+export const WAGON_ALERT_TICKS = 20 * TICK_RATE;
 // Cosmetic workers: pause at each end of the walk (ticks, random up to x2), walk speed factor.
 export const SETTLEMENT_WORKER_PAUSE_TICKS = 6 * TICK_RATE;
 export const SETTLEMENT_WORKER_SPEED_MULT = 0.7;
@@ -1877,6 +1920,8 @@ export const IN_PLACE_UPGRADE_TILES: TileType[] = [
   TileType.BuildersGuild,
   TileType.Tower,
   TileType.Keep,
+  // Forts phase E: Trading Post levels 2-3 (bigger wagon, stronger escort).
+  TileType.GoldShop,
 ];
 export const BUILDERS_GUILD_WOOD_COST = BUILD_COSTS[TileType.BuildersGuild].wood;
 export const TOWN_CENTER_COST: Cost = { ...BUILD_COSTS[TileType.TownCenter] };

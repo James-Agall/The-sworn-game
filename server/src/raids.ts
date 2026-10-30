@@ -1,5 +1,6 @@
 // raids.ts: Raid waves: sizing, factions, spawning, formations, marching.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { noteRaidAnchor } from "./wagons.js";
 import { randomUUID } from "node:crypto";
 import { type MobKind, type SiegeKind, TILE_SIZE, TICK_RATE, SIEGE_KINDS, HungerMark } from "@colony/shared/protocol";
 import type {
@@ -315,6 +316,7 @@ export function spawnRaid(dayIndex: number) {
     const anchor = freshCount > 0 ? randomRaidAnchor() : null;
     if (anchor) {
       group.edge = anchor.edge;
+      noteRaidAnchor(anchor.tile.x, anchor.tile.y);
       for (const tile of clusterRaidTiles(anchor.tile, freshCount, occupied)) {
         const mob = createRaidMob(pickRaidFactionKind(group.faction, dayIndex, siegeLeft), tile, group.id);
         if (marksLeft > 0 && Math.random() < markChance) {

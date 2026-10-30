@@ -157,7 +157,7 @@ export function unitPrice(good: TradeGood, side: "buy" | "sell", tier: RelationT
   return Math.max(base * TRADE_SELL_FLOOR, base * TRADE_SELL_FACTOR * (2 - disc) * (1 - TRADE_DAY_STEP * n));
 }
 
-function batchGold(good: TradeGood, side: "buy" | "sell", tier: RelationTier, n0: number, qty: number): number {
+export function batchGold(good: TradeGood, side: "buy" | "sell", tier: RelationTier, n0: number, qty: number): number {
   let sum = 0;
   for (let i = 0; i < qty; i++) sum += unitPrice(good, side, tier, n0 + i);
   return side === "buy" ? Math.ceil(sum) : Math.floor(sum);

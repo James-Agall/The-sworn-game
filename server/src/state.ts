@@ -7,7 +7,7 @@ import {
 import type {
   ResourceKey, ActiveFight, Body, ChargeRun, Colonist, ConstructionSiteState, FarmPlotState, FightHit, ForgeQueueState, GateState,
   HearthState, HeroProfile, HeroRecruit, Mob, OrderGroup, Player, PlayerMoraleState, RaidGroup, RegimentState,
-  RespawnRequest, SiegeWorkshopState, SiteState, SpellStatus, TileCoord, TownCenter, Wildlife,
+  RespawnRequest, SiegeWorkshopState, SiteState, SpellStatus, TileCoord, TownCenter, TradingPostState, Wildlife,
 } from "./types.js";
 import {
   EXPLORED_FLUSH_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS, RAID_MAX_SPAWN_DIST_TILES, SUBLINEAR_FULL_SCALE,
@@ -714,6 +714,8 @@ export const routedUnits = new Map<string, { reg: string; hadGroup: boolean; ral
 
 // -- hearths --
 export const hearths = new Map<string, HearthState>();
+// Forts phase E (wagons.ts): Trading Post state by resourceKey (saved).
+export const tradingPosts = new Map<string, TradingPostState>();
 // Recent hearth events (testHook "hearthState").
 export const hearthEvents: Array<{ tick: number; type: string; siteId: string; detail?: string }> = [];
 

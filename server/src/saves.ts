@@ -25,6 +25,7 @@ import { clearPlayerMorale } from "./tactics.js";
 import { backfillHearths } from "./hearths.js";
 import { restoreSites, sitesForSave } from "./sites.js";
 import { questsForSave, restoreQuests } from "./quests.js";
+import { restoreWagons, wagonsForSave } from "./wagons.js";
 import { evaluateGoals } from "./goals.js";
 import { playerMaxHp, resetEquipment, restoreHeroProfiles, serializeHeroProfiles } from "./heroes.js";
 import { clearSpellState, unslowedSpeed } from "./spells.js";
@@ -78,6 +79,7 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   state.taskForces.clear();
   state.taskForceMax.clear();
   clearOrderGroups();
+  restoreWagons(undefined);
   clearPlayerMorale();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
@@ -197,6 +199,9 @@ function snapshotWorldInner() {
     sites: sitesForSave() as SiteState[] | undefined,
     // Forts phase D2: open settlement quests (optional: older saves have none).
     quests: questsForSave() as ReturnType<typeof questsForSave> | undefined,
+    // Forts phase E: Trading Posts (auto-send, rebuild timers) and recent raid anchors (optional; the wagons
+    // themselves are colonists).
+    tradingPosts: wagonsForSave() as ReturnType<typeof wagonsForSave> | undefined,
     stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
@@ -292,6 +297,7 @@ export function applyWorld(s: WorldState) {
   for (const clan of clans.slice(1)) withClan(clan, () => evaluateGoals(true));
   // Forts phase D2: after the sites and clans (quests of missing ones are dropped).
   restoreQuests(s.quests);
+  restoreWagons(s.tradingPosts);
 }
 
 function applyWorldInner(s: WorldState) {

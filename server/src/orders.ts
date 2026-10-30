@@ -300,6 +300,23 @@ export function handleRegimentOrder(player: Player, msg: { regimentIds?: unknown
   startArmyOrder(g, order);
 }
 
+// Forts phase E: a trader wagon's escort as one order group on a persistent follow order (no player, no
+// rate limit). True when it (re)issued the order; nothing changes while they already follow that target.
+export function ensureFollowGroup(units: Colonist[], targetId: string): boolean {
+  if (units.length === 0) return false;
+  const prev = orderGroupOfUnit.get(units[0].id);
+  if (prev && prev.current?.kind === "follow" && prev.current.targetId === targetId && prev.unitIds.size === units.length && units.every((c) => orderGroupOfUnit.get(c.id) === prev)) return false;
+  for (const c of units) leaveOrderGroup(c.id);
+  const g: OrderGroup = {
+    id: `g${state.nextOrderGroupId++}`, unitIds: new Set(units.map((c) => c.id)), current: null, queue: [],
+    destX: 0, destY: 0, startedTick: state.cycleTick, engaged: false, clearSince: -1, followAt: null,
+  };
+  orderGroups.set(g.id, g);
+  for (const c of units) orderGroupOfUnit.set(c.id, g);
+  startArmyOrder(g, { kind: "follow", targetId });
+  return true;
+}
+
 // Slots from formation.ts at (x, y); nearest-to-its-slot units start first, the rest staggered.
 export function formGroupAt(g: OrderGroup, members: Colonist[], x: number, y: number, facing: number | undefined, width: number | undefined) {
   const plan = planOrderFormation(members, x, y, facing, width);

@@ -138,6 +138,41 @@ export interface Colonist {
   farmNextIdx?: number;
   // Farmhand: length of the current produce cycle (chopTicksRemaining counts it down), for the art stage.
   cycleTicksTotal: number;
+  // Forts phase E: trader wagons only (kind "wagon"; postX / postY = its Trading Post). Saved with the colonist.
+  wagon?: WagonState;
+}
+// Forts phase E (wagons.ts). dest = "s:<siteId>" (settlement) or "t:<x>,<y>" (own Town Center); route = the
+// outbound path from the post (the way home walks it backwards); cargo = goods loaded, value = their base
+// gold value; proceeds = gold / goods bought, carried home; waitUntil = end of unloading.
+export interface WagonState {
+  level: number;
+  leg: "home" | "out" | "unload" | "back" | "camp";
+  dest: string;
+  destName: string;
+  route: TileCoord[];
+  danger: number;
+  cargo: Partial<Record<ResourceKey, number>>;
+  value: number;
+  proceeds: Partial<Record<ResourceKey, number>>;
+  waitUntil: number;
+  // The leg to resume after a night camp.
+  resume?: "out" | "back";
+  alertTick?: number;
+  // Fled home (escort wiped): full speed.
+  fleeing?: boolean;
+}
+// One Trading Post (key "x,y"): auto-send, the wagon's id, when a lost wagon may be replaced, the last game day
+// a trip left, and the level its roster was last set up for.
+export interface TradingPostState {
+  auto: boolean;
+  wagonId: string | null;
+  rebuildAtTick: number;
+  lastTripDay: number;
+  tripsToday: number;
+  level: number;
+  clan: number;
+  // The last finished trade (panel status, tests): destination, gold earned, goods bought, relation gained.
+  lastTrip?: { dest: string; sold: Partial<Record<ResourceKey, number>>; gold: number; bought: Partial<Record<ResourceKey, number>>; relation: number };
 }
 // "building": any damageable non-Town-Center building, keyed by its tile ("x,y"), walls included
 // (a wall is only targeted to breach it; see pickBuildingTarget).

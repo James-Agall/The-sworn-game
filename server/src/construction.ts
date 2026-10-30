@@ -1,5 +1,6 @@
 // construction.ts: Placement rules and costs, construction sites, upgrades, demolition, building info panel.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { tradingPostInfo } from "./wagons.js";
 import {
   TileType, isSolidTile, TICK_RATE, type GameEventCategory, type ServerMessage, type BuildingInfo, TILE_SIZE, Biome,
   isRoadTile, RELATION_TIER_NAMES,
@@ -20,7 +21,7 @@ import {
   SIEGE_WORKSHOP_COST, STABLES_COSTS, STONE_WALL_COST, TAVERN_ROCK_COST, TAVERN_WOOD_COST,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_COST, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
   TOWN_CENTER_LEVEL_POPULATION_BONUS, TOWN_CENTER_MIN_SPACING_TILES, TOWN_CENTER_POI_CLEARANCE_TILES,
-  TOWN_CENTER_UPGRADE_COSTS, UPGRADE_NAMES, WARD_STONE_TOOLS_COST, WARD_STONE_WOOD_COST, WOOD_WALL_COST, pct,
+  TOWN_CENTER_UPGRADE_COSTS, TRADING_POST_UPGRADE_COSTS, UPGRADE_NAMES, WARD_STONE_TOOLS_COST, WARD_STONE_WOOD_COST, WOOD_WALL_COST, pct,
 } from "./constants.js";
 import {
   buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, minesPlacedOnOre, players, repairPaid,
@@ -509,8 +510,10 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.WardStone:
       return { wood: WARD_STONE_WOOD_COST, tools: WARD_STONE_TOOLS_COST };
     case TileType.Market:
-    case TileType.GoldShop:
       return { wood: SHOP_WOOD_COST };
+    // Forts phase E: levelling a Trading Post up costs TRADING_POST_UPGRADE_COSTS.
+    case TileType.GoldShop:
+      return current === tile ? TRADING_POST_UPGRADE_COSTS[Math.min(getBuildingLevel(tx, ty), 2) - 1] : { wood: SHOP_WOOD_COST };
     case TileType.Tavern:
       return { wood: TAVERN_WOOD_COST, rock: TAVERN_ROCK_COST };
     case TileType.MilitiaPost:
@@ -1089,6 +1092,10 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     return;
   }
   if (tile === TileType.GoldShop) {
+    if (state.tiles[tileIndex(tx, ty)] === TileType.GoldShop) {
+      tryLevelUpInPlace(tx, ty, [TileType.GoldShop]);
+      return;
+    }
     state.tiles[tileIndex(tx, ty)] = tile;
     broadcastTileUpdate(tx, ty, tile);
     state.goldShopBuilt = true;
@@ -1369,7 +1376,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     name: tc?.name ?? name,
     tile: t,
     level,
-    maxLevel: t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate || t === TileType.SiegeWorkshop || t === TileType.Market || t === TileType.GoldShop || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
+    maxLevel: t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate || t === TileType.SiegeWorkshop || t === TileType.Market || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
     hp: hpState ? Math.ceil(hpState.hp) : null,
     maxHp: hpState ? hpState.max : null,
     staffing,
@@ -1382,6 +1389,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     ...(t === TileType.Blacksmith ? { forge: blacksmithForgeInfo(tx, ty) } : {}),
     ...(t === TileType.Keep ? { heroes: keepHeroInfo(tx, ty) } : {}),
     ...(t === TileType.ChurchPost ? { spellShop: churchSpellShop(forPlayer) } : {}),
+    ...(t === TileType.GoldShop ? { tradingPost: tradingPostInfo(tx, ty) } : {}),
   };
 }
 
