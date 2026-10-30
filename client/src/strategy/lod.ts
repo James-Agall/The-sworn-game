@@ -138,8 +138,8 @@ interface Banner {
   w: number;
 }
 
-const BANNER_MIN_W = 64;
-const BANNER_H = 26;
+const BANNER_MIN_W = 36;
+const BANNER_H = 16;
 
 // Fixed-screen-size banners above each regiment's centroid.
 export class StrategyBanners {
@@ -156,21 +156,21 @@ export class StrategyBanners {
         const bg = new Graphics();
         const text = new Text({
           text: "",
-          style: { fontFamily: "Palatino Linotype, Palatino, Georgia, serif", fontSize: 11, fontWeight: "bold", fill: 0xfbecc8 },
+          style: { fontFamily: "Palatino Linotype, Palatino, Georgia, serif", fontSize: 7, fontWeight: "bold", fill: 0xfbecc8 },
         });
         text.anchor.set(0.5, 0);
-        text.position.set(0, -BANNER_H - 6);
+        text.position.set(0, -BANNER_H - 3);
         root.addChild(bg, text);
         this.layer.addChild(root);
         b = { root, bg, text, label: "", hpFrac: -1, morale: -2, color: -1, w: BANNER_MIN_W };
         this.banners.set(g.key, b);
       }
-      const label = `${g.label} ${g.count}${g.tag ? ` · ${g.tag}` : ""}`;
+      const label = `${g.label}${g.tag ? ` · ${g.tag}` : ""}`;
       let resized = false;
       if (label !== b.label) {
         b.label = label;
         b.text.text = label;
-        const w = Math.max(BANNER_MIN_W, Math.ceil(b.text.width) + 10);
+        const w = Math.max(BANNER_MIN_W, Math.ceil(b.text.width) + 6);
         resized = w !== b.w;
         b.w = w;
       }
@@ -182,17 +182,14 @@ export class StrategyBanners {
         b.color = g.color;
         const W = b.w;
         b.bg.clear();
-        b.bg.roundRect(-W / 2, -BANNER_H - 8, W, BANNER_H, 4).fill({ color: 0x1a0f06, alpha: 0.82 }).stroke({ width: 1.5, color: g.color });
-        const hpY = morale >= 0 ? -17 : -14;
-        b.bg.rect(-W / 2 + 5, hpY, W - 10, 4).fill(0x550000);
-        b.bg.rect(-W / 2 + 5, hpY, (W - 10) * hp, 4).fill(0x3bd16f);
+        b.bg.roundRect(-W / 2, -BANNER_H - 5, W, BANNER_H, 3).fill({ color: 0x1a0f06, alpha: 0.55 }).stroke({ width: 1, color: g.color });
         if (morale >= 0) {
           // Morale: blue when steady, amber wavering (< 40), red near the rout line (< 15).
           const mc = morale >= 0.4 ? 0x5aa9ff : morale >= 0.15 ? 0xffb02e : 0xff3b2a;
-          b.bg.rect(-W / 2 + 5, -12, W - 10, 3).fill(0x1d2a3a);
-          b.bg.rect(-W / 2 + 5, -12, (W - 10) * morale, 3).fill(mc);
+          b.bg.rect(-W / 2 + 3, -10, W - 6, 2).fill(0x1d2a3a);
+          b.bg.rect(-W / 2 + 3, -10, (W - 6) * morale, 2).fill(mc);
         }
-        b.bg.moveTo(-4, -8).lineTo(4, -8).lineTo(0, -2).closePath().fill(g.color);
+        b.bg.moveTo(-3, -5).lineTo(3, -5).lineTo(0, -1).closePath().fill(g.color);
       }
       b.root.position.set(g.x, g.y);
     }
@@ -214,7 +211,7 @@ export class StrategyBanners {
     for (const [key, b] of this.banners) {
       const lx = (x - b.root.position.x) * zoom;
       const ly = (y - b.root.position.y) * zoom;
-      if (Math.abs(lx) <= b.w / 2 && ly >= -BANNER_H - 8 && ly <= 0) return key;
+      if (Math.abs(lx) <= b.w / 2 && ly >= -BANNER_H - 5 && ly <= 0) return key;
     }
     return null;
   }

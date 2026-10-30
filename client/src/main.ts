@@ -2661,7 +2661,7 @@ async function main() {
   // Last ratio drawn per bar: every snapshot (20/s) upserts every entity, and with raid waves that can
   // be hundreds of mobs, so only rebuild a bar's geometry when its fill actually changed.
   const hpBarRatio = new WeakMap<Graphics, number>();
-  function drawHpBar(bar: Graphics, hp: number, maxHp: number) {
+  function drawHpBar(bar: Graphics, hp: number, maxHp: number, fill = 0x3bd16f) {
     const width = 24;
     const height = 4;
     const ratio = Math.max(0, Math.min(1, hp / maxHp));
@@ -2669,7 +2669,7 @@ async function main() {
     hpBarRatio.set(bar, ratio);
     bar.clear();
     bar.rect(-width / 2, 0, width, height).fill(0x550000);
-    bar.rect(-width / 2, 0, width * ratio, height).fill(0x3bd16f);
+    bar.rect(-width / 2, 0, width * ratio, height).fill(fill);
   }
 
   function ensureVisual(
@@ -2856,7 +2856,6 @@ async function main() {
     entry.marker?.position.set(p.x, p.y + PLAYER_SPRITE_HEIGHT * 0.4);
     // Just above the (taller) sprite's top edge instead of the old fixed -20.
     entry.hpBar.position.set(p.x, p.y - PLAYER_SPRITE_HEIGHT / 2 - 4);
-    drawHpBar(entry.hpBar, p.hp, p.maxHp);
     if (!(entry.sprite instanceof Sprite)) return;
     const facingRight = getFacing(playerFacing, p.id, p.x);
     if (PLAYER_ANIM) {
@@ -2900,7 +2899,6 @@ async function main() {
     });
     entry.sprite.position.set(c.x, c.y);
     entry.hpBar.position.set(c.x, c.y - 18);
-    drawHpBar(entry.hpBar, c.hp, c.maxHp);
 
     let hidden = false;
     if (HIDE_AT_POST_KINDS.has(c.kind)) {
@@ -3119,7 +3117,7 @@ async function main() {
     // Bar just above the sprite's top edge, matching the player's "height / 2 + 4" convention.
     const topOffset = texture ? (texture.height * scale * mobRenderScale(m)) / 2 + 4 : visual.radius + 9;
     entry.hpBar.position.set(m.x, m.y - topOffset);
-    drawHpBar(entry.hpBar, m.hp, m.maxHp);
+    if (m.boss) drawHpBar(entry.hpBar, m.hp, m.maxHp, 0xe03020);
     updateWound(entry, m.hp, m.maxHp, m.x, m.y, woundSize, WOUND_LARGE_KINDS.has(m.kind), !entry.sprite.visible);
     updateMarkVisuals(entry, m);
     updateBossVisuals(entry, m);
@@ -3202,7 +3200,7 @@ async function main() {
     });
     entry.sprite.position.set(m.x, m.y);
     entry.hpBar.position.set(m.x, m.y - (variant.idle.height * variant.idleScale * mobRenderScale(m)) / 2 - 4);
-    drawHpBar(entry.hpBar, m.hp, m.maxHp);
+    if (m.boss) drawHpBar(entry.hpBar, m.hp, m.maxHp, 0xe03020);
     const sprite = entry.sprite instanceof Sprite ? entry.sprite : null;
     const facingRight = sprite ? getFacing(mobFacing, m.id, m.x) : true;
     if (sprite) applyFacing(sprite, facingRight);
@@ -4490,7 +4488,7 @@ async function main() {
     selectionRings.clear();
     for (const c of latestColonists) {
       if (!selectedIds.has(c.id)) continue;
-      selectionRings.circle(c.x, c.y, 12).stroke({ width: 2, color: SELECTION_COLOR });
+      selectionRings.circle(c.x, c.y, 12).stroke({ width: 2, color: 0x6fbf5a, alpha: 0.4 });
     }
   }
 

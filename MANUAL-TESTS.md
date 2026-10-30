@@ -69,3 +69,4 @@ code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checkl
   `tactics-test`, `strategy-view`.
 - Known failing or flaky (do not worry): see `ROADMAP.md`, "Known failing tests" and "Full-suite run after the server
   split".
+- No health bars except the red boss bar; fainter green selection rings; smaller banners (strategy mode).
