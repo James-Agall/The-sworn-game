@@ -6,6 +6,8 @@
 // dx / dy: offset of the fort centre from the first Town Center in tiles (default 30, 0); it looks up to 45
 // tiles around that spot for clear ground. "list" only prints the forts world-gen placed.
 // Forts phase D: `node stamp-site.mjs relation <settlement name> <value>` sets clan 0's relation (-100..100) to it.
+// Forts phase D2: `node stamp-site.mjs quest <settlement name> <defend|clearCamp|deliver>` makes it post clan 0 that
+// quest now (defend: jumps to nightfall and spawns 4 goblins outside its walls first). `quests` lists open ones.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -38,6 +40,27 @@ if (template === "relation") {
   else {
     const r = await hook("diploSet", { siteId: target.id, relation: value });
     console.log(`${target.name}: relation ${r.relation} (${r.tier})`);
+  }
+} else if (template === "quest" || template === "quests") {
+  const sitesNow = (await hook("sitesState"))?.sites ?? [];
+  if (template === "quest") {
+    const name = process.argv[3];
+    const kind = process.argv[4] ?? "deliver";
+    const target = sitesNow.find((x) => x.name.toLowerCase() === String(name).toLowerCase() && x.faction === "human");
+    if (!target || !["defend", "clearCamp", "deliver"].includes(kind)) console.log(`Usage: quest <settlement name> <defend|clearCamp|deliver>; no settlement "${name}"`);
+    else {
+      if (kind === "defend") {
+        const raid = await hook("raidState");
+        const day = raid.dayTicks + raid.nightTicks;
+        await hook("setCycleTick", { tick: Math.floor(raid.cycleTick / day) * day + raid.dayTicks + 20 });
+        for (let i = 0; i < 4; i++) await hook("spawnMob", { kind: "goblin", tx: target.x0 - 6 - i, ty: target.keepY });
+      }
+      const r = await hook("questPost", { siteId: target.id, kind });
+      console.log(r?.quest ? `${target.name} posted quest #${r.quest.id} (${kind}) for ${r.quest.reward} gold: open Quests in the top bar` : `${target.name} would not post ${kind}: ${r?.problem}`);
+    }
+  }
+  for (const q of (await hook("questState"))?.quests ?? []) {
+    console.log(`  quest #${q.id} ${q.kind} from ${sitesNow.find((x) => x.id === q.siteId)?.name} (clan ${q.clan}) ${q.reward} gold${q.accepted ? ", accepted" : ""}${q.good ? `, ${q.qty} ${q.good}` : ""}${q.need ? `, slain ${q.kills}/${q.need}` : ""}`);
   }
 } else if (template !== "list") {
   const r = await hook("stampSite", { template, dx, dy, search: 45 });

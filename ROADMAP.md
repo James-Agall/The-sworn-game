@@ -2098,6 +2098,45 @@ Four user asks in one pass. Constants: `FOOTPRINT_*` / `FORGE_AUTO_*` / `GEAR_PI
    holds the target of each (use - / + to change it) and pauses when iron / wood would drop under 20. Save, load:
    still On.
 
+## Forts phase D2 — landed 2026-10-30 (settlement help quests)
+
+Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` "Decisions" 6 / §10 "D2". Commits "Phase D2 stage 1-3". Test
+`server/quests-test.mjs` (port 22150, 17/17). Browser checklist: MANUAL-TESTS.md §6c. Art request: SPRITES.md #81.
+- **Module** `server/src/quests.ts`; tuning in constants.ts ("Forts phase D2" block). Quests are per CLAN (`Quest.clan`):
+  a settlement posts each clan its own, scaled by that clan's tier. Kinds: `defend` ("Defend <name> tonight": posted
+  only at night when >= 3 hostile no-site mobs are within 30 tiles of its walls; kill need = min(those, 6) of them
+  within 30 tiles before dawn, keep standing; resolved at the next dawn), `clearCamp` ("Clear the camp near <name>": the
+  nearest standing bandit / orc camp or fort keep within 60 tiles of its keep; the accepting clan must destroy it),
+  `deliver` ("Deliver N <good>": a good it does not produce and has < 20 of; 20, Riverwatch 30; the Deliver button
+  hands it over from the clan stock when the player or a colonist is within 6 tiles of its walls). Slay-the-beast
+  skipped (no cheap target), escort is phase E.
+- **Posting** (`scanQuests` every 30 s from sim.ts `updateQuests`): standing, sighted settlements only; never from a
+  Hostile-tier settlement or one up in arms against the clan; 20% chance per settlement per clan per scan; at most 2
+  open per settlement per clan; cooldown 1 game day per settlement per clan after each post (`SiteDiplo.questNextTick`).
+  Toast "<name> asks for help: <title> (N gold). Open Quests to accept". A quest is withdrawn if the settlement falls,
+  turns Hostile or takes up arms against the clan; a clearCamp quest closes ("the camp is gone") if someone else razes it.
+- **Rewards**: gold clearCamp 60 + 6 per garrison guardian, defend 20 per kill needed, deliver 2x the goods' base price,
+  times the tier factor (Wary 0.8, Neutral 1, Friendly 1.15, Allied 1.3, Vassal-ready 1.4); the settlement's purse
+  pays what it can, the clan always gets the full sum. Relation +8 / +10 / +6 through `gainRelation(..., "quest")`: a
+  separate daily cap of +12 (`SiteDiplo.questGain`) with the trade-style diminishing, so quests cannot be farmed.
+- **Penalties**: an accepted quest that expires or fails (defend: too few kills by dawn, or the keep fell) -8; abandon
+  -5; ignored (expired unaccepted) -3. Expiry 3 game days (defend: the next dawn).
+- **Protocol** (additive): `acceptQuest` / `abandonQuest` / `deliverQuest {questId}` (refusals toast the sender only);
+  snapshot `quests` (`QuestSnapshot[]`, per player = the clan's, resent on change and once a second for `ticksLeft`).
+- **Client**: top-bar "Quests" button next to Hero ("Quests (N)", gold ring while an unseen quest waits); parchment
+  Quests panel (title, text, reward / relation / penalty, kills for defend, settlement and time left; Accept, or
+  Deliver / Abandon); minimap diamond on each quest's target (gold open, green accepted). No world-view marker yet.
+- **Saves** additive: top-level `quests {nextId, list}`; `questGain` / `questNextTick` ride on `diplo`. New game clears.
+- **Helper**: `node stamp-site.mjs quest <settlement> <defend|clearCamp|deliver>` (defend jumps to nightfall and spawns
+  4 goblins outside its walls first), `node stamp-site.mjs quests` lists them. Test hooks `questPost {siteId, kind,
+  clan?}`, `questScan` (every roll succeeds, no cooldown), `questState {id?, expiresTick?}`.
+- **Hooks**: `noteQuestKill` (combat.ts damageMob), `noteQuestCampCleared` (hearths.ts destroyHearth).
+- **Not done**: defend quests are not tied to a specific raid group (any hostile no-site mobs near the walls count);
+  no world-view quest marker / quest-scroll art (placeholder diamond); the settlement does not actually fight
+  (decision 5), so "keep standing" rarely fails.
+- **Regression**: `npm test -- trade-test settlements`: trade-test passes; settlements-test "O ... stays shut at night"
+  is flaky on the pre-D2 commit too (1 of 3 runs passed there), not caused by D2.
+
 ## Forts phase D — landed 2026-10-30 (relations and direct trade)
 
 Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §4 / §5 (direct trade only; wagons are phase E) / §10 "D".

@@ -133,6 +133,41 @@ Same server as §6 (`COLONY_TEST_HOOKS=1`, scratch `COLONY_SAVE_DIR`, a settleme
 10. **Save / load**: trade a bit, set a relation, save to slot 1, change things, load: relation, tier flag, their stock
     and today's remaining caps come back as saved.
 
+## 6c. Settlement quests (phase D2)
+Same server as §6 (`COLONY_TEST_HOOKS=1`, scratch `COLONY_SAVE_DIR`). Stamp or find a settlement (`node stamp-site.mjs
+hearthmoor 0 60`) and walk up to it so you have sighted it (toast "You sight the village of <name>"). Force a quest with
+`PORT=<port> node stamp-site.mjs quest <name> deliver` (or `clearCamp`, `defend`); `node stamp-site.mjs quests` lists
+open ones. Left alone, sighted settlements post quests on their own now and then (every 30 s a 1-in-5 chance, then a
+day's pause per settlement).
+1. **Posted**: toast "<name> asks for help: Deliver 20 ... (N gold). Open Quests to accept". The top bar's "Quests"
+   button (next to Hero) reads "Quests (1)" with a gold ring; a gold diamond appears on the minimap (on the keep for
+   deliver / defend, on the camp for clearCamp).
+2. **Panel**: click Quests: a parchment panel lists the quest with its text, "Reward N gold, relation +6 · ignore -3",
+   the settlement and time left (e.g. "3.0 days left", counting down). The gold ring goes away once you have looked.
+   Escape or x closes it.
+3. **Accept**: press Accept: toast "Quest accepted: ...", the entry shows a tick, "fail -8", and Deliver / Abandon
+   buttons; the minimap diamond turns green.
+4. **Deliver**: far from the walls press Deliver: "Walk up to <name>'s walls". Without the goods: "You have only N ...".
+   Get the goods (make them, or buy them at another settlement), stand within ~6 tiles of its walls, press Deliver: toast
+   "Quest complete: ... +N gold, relation +6.0"; your stock loses the goods, gold goes up, the quest disappears.
+5. **Clear the camp**: `quest <name> clearCamp` (needs a bandit / orc camp or fort within ~60 tiles: stamp one with
+   `node stamp-site.mjs thornwick <dx> <dy>` close to the settlement if it says "no camp"). Accept, then destroy that
+   camp's hearth / keep: "Quest complete: Clear the camp near <name>. +N gold, relation +..." (on top of the usual
+   "thanks you for clearing the camp (relation +15)").
+6. **Defend tonight**: `quest <name> defend` (jumps to nightfall and spawns 4 goblins just west of its walls). Accept,
+   kill them near the walls: the entry counts "slain 1 / 4" ...; at 4 toast "enough raiders slain. Hold until dawn".
+   At dawn: "Quest complete: Defend <name> tonight". If you accept and do not kill enough by dawn: "Quest failed ...
+   Relation -8". By day the helper says "defend quests are posted at night" unless it set the clock (it does).
+7. **Abandon / ignore**: Abandon an accepted quest: "Quest failed: ... (abandoned). Relation -5". Leave an unaccepted
+   quest for 3 game days (or 2x speed): "You ignored <name>'s plea ... Relation -3".
+8. **No quests from enemies**: `node stamp-site.mjs relation <name> -60` (Hostile): its open quests are withdrawn ("<name>
+   withdrew its request") and `quest <name> deliver` answers "would not post deliver: hostile to the clan". Attacking a
+   guard (up in arms) does the same.
+9. **Not farmable**: complete two or three quests at one settlement on the same day: the relation gain shrinks and stops
+   at +12 a day; the settlement will not post you a new one for a game day after each post (the helper bypasses this).
+10. **Save / load**: accept a quest, save to slot 1, abandon it, load slot 1: the quest is back, still accepted, with
+    its time left.
+
 ## 7. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.
    Every unit should walk round the idle ones and stop exactly on its slot; nobody left a tile or two short in
