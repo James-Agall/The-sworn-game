@@ -7633,7 +7633,29 @@ function setupMainMenu() {
     window.close();
     document.getElementById("menu-bye")!.hidden = false;
   });
-  document.getElementById("menu-btn")!.addEventListener("click", () => location.reload());
+  // The Menu button is a dropdown (Restart / Save / Settings / Return to menu). Choosing an item, clicking
+  // elsewhere or pressing Escape closes it; "Return to menu" reloads back to the main menu as Menu used to.
+  const menuBtn = document.getElementById("menu-btn") as HTMLButtonElement;
+  const menuList = document.getElementById("menu-dropdown-list")!;
+  const setMenuOpen = (open: boolean) => {
+    menuList.hidden = !open;
+    menuBtn.setAttribute("aria-expanded", String(open));
+  };
+  menuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menuBtn.blur();
+    setMenuOpen(menuList.hidden);
+  });
+  menuList.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest(".menu-item")) setMenuOpen(false);
+  });
+  window.addEventListener("click", (e) => {
+    if (!menuList.hidden && !(e.target as HTMLElement).closest("#menu-dropdown")) setMenuOpen(false);
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !menuList.hidden) setMenuOpen(false);
+  });
+  document.getElementById("return-menu-btn")!.addEventListener("click", () => location.reload());
 }
 
 setupMainMenu();

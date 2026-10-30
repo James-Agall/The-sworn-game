@@ -87,6 +87,25 @@
         user-select: none;
       }
 
+      /* Menu dropdown: Restart / Save / Settings / Return to menu live under the Menu button. */
+      #menu-dropdown { position: relative; }
+      #menu-dropdown-list {
+        position: absolute; top: calc(100% + 4px); right: 0; z-index: 14; min-width: 150px;
+        display: flex; flex-direction: column; gap: 2px; padding: 4px;
+        background: var(--burn-sm), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 4px;
+        box-shadow: var(--paper-edge), 0 4px 12px rgba(0, 0, 0, 0.55);
+      }
+      #menu-dropdown-list[hidden] { display: none; }
+      #menu-dropdown-list .menu-item {
+        text-align: left; padding: 8px 12px; border: 1px solid transparent; border-radius: 3px;
+        background: transparent; color: var(--ink); font-family: var(--font-serif); font-size: 13px;
+        font-weight: 600; letter-spacing: 0.04em; cursor: pointer; user-select: none;
+      }
+      #menu-dropdown-list .menu-item:hover,
+      #menu-dropdown-list .menu-item:focus-visible { background-color: var(--parch-light); border-color: var(--wood); outline: none; }
+      #menu-dropdown-list .menu-item:disabled { opacity: 0.5; cursor: default; }
+
       /* Strategy mode phase 5: global time controls (pause + speed), and who last changed them. */
       #time-controls { display: flex; gap: 2px; }
       #time-controls .control-btn { padding: 8px 8px; min-width: 30px; }
@@ -1348,11 +1367,16 @@
         <button class="control-btn" data-scale="1" title="Normal speed (Shift+[ slower, Shift+] faster)">1x</button>
         <button class="control-btn" data-scale="2" title="Double speed for everyone (Shift+[ slower, Shift+] faster)">2x</button>
       </span>
-      <button id="restart-btn" class="control-btn">Restart</button>
-      <button id="save-btn" class="control-btn" title="Quick save to your last-used slot">Save</button>
       <button id="hero-btn" class="control-btn" title="Character sheet (` key)">Hero</button>
-      <button id="settings-btn" class="control-btn">Settings</button>
-      <button id="menu-btn" class="control-btn">Menu</button>
+      <div id="menu-dropdown">
+        <button id="menu-btn" class="control-btn" aria-haspopup="true" aria-expanded="false">Menu &#x25BE;</button>
+        <div id="menu-dropdown-list" role="menu" hidden>
+          <button id="restart-btn" class="menu-item" role="menuitem">Restart</button>
+          <button id="save-btn" class="menu-item" role="menuitem" title="Quick save to your last-used slot">Save</button>
+          <button id="settings-btn" class="menu-item" role="menuitem">Settings</button>
+          <button id="return-menu-btn" class="menu-item" role="menuitem" title="Leave the game and go back to the main menu">Return to menu</button>
+        </div>
+      </div>
     </div>
     <div id="hero-modal" hidden>
       <div id="hero-sheet" class="menu-scroll" role="dialog" aria-modal="true" aria-label="Character sheet">
