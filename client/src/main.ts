@@ -3942,6 +3942,7 @@ async function main() {
       const color = f.captured
         ? `#${(clanColors.get(f.capturedBy ?? 0) ?? 0x3a7bd5).toString(16).padStart(6, "0")}`
         : f.cleared ? "#8a8a8a" : f.hostile ? "#c0392b"
+        : f.vassalOf !== undefined && f.vassalOf !== myClan ? "#a0743a"
         : f.faction === "human" && f.num !== undefined && siteRelations.has(f.num) ? RELATION_TIER_COLOR[siteRelations.get(f.num)!.tier]
         : FORT_FLAG_COLOR[f.faction];
       // Forts phase C: a human settlement's flag has a green edge (white = neutral, red = hostile).
@@ -3950,6 +3951,12 @@ async function main() {
       ctx.fillRect(fx + u - 0.5 * u, fy - 7.5 * u, 7 * u, 5 * u);
       ctx.fillStyle = color;
       ctx.fillRect(fx + u, fy - 7 * u, 6 * u, 4 * u);
+      // Forts phase F: a crown over this clan's vassals.
+      if (f.vassalOf !== undefined && f.vassalOf === myClan && !f.cleared && !f.captured) {
+        ctx.fillStyle = "#f1c40f";
+        ctx.fillRect(fx + u, fy - 9.5 * u, 6 * u, 1.5 * u);
+        for (const dx of [1, 3.5, 6]) ctx.fillRect(fx + dx * u - 0.5 * u, fy - 11 * u, u, 1.5 * u);
+      }
     }
     for (const { x: tcX, y: tcY } of latestTownCenters) {
       const size = 7 * u;
@@ -5205,6 +5212,51 @@ async function main() {
     sendMessage({ type: "wagonCommand", tileX: infoTile.tx, tileY: infoTile.ty, cmd: "auto", value: !bpWagonAuto });
     window.setTimeout(requestBuildingInfo, 150);
   });
+  // Forts phase F: a vassal's block (power, Call to arms / Dismiss, Demand tribute, the tribute ledger).
+  const bpVassalRowEl = document.getElementById("bp-vassal-row")!;
+  const bpVassalPowerEl = document.getElementById("bp-vassal-power")!;
+  const bpVassalCallBtn = document.getElementById("bp-vassal-call") as HTMLButtonElement;
+  const bpVassalDismissBtn = document.getElementById("bp-vassal-dismiss") as HTMLButtonElement;
+  const bpVassalLevyEl = document.getElementById("bp-vassal-levy")!;
+  const bpVassalTaxBtn = document.getElementById("bp-vassal-tax") as HTMLButtonElement;
+  const bpVassalTaxStateEl = document.getElementById("bp-vassal-tax-state")!;
+  const bpVassalLedgerEl = document.getElementById("bp-vassal-ledger")!;
+  let bpVassalTax = false;
+  function renderVassal(v: BuildingInfo["vassal"]) {
+    bpVassalRowEl.hidden = !v;
+    if (!v) return;
+    bpVassalPowerEl.textContent = `Your vassal. Power: yours ${v.clanPower}, theirs ${v.sitePower} (they break free if stronger than you)`;
+    bpVassalCallBtn.disabled = !v.canCall;
+    bpVassalCallBtn.title = v.canCall ? `${v.levySize} levies join you for a day${strategyCam.inStrategy && selectedIds.size > 0 ? " and follow your selected army" : " and follow you"}` : v.callReason;
+    bpVassalDismissBtn.hidden = v.levyOnField === 0 || v.levyReturning;
+    bpVassalLevyEl.textContent = `Levy: ${v.levyStatus}${v.canCall ? ` (${v.levySize} would march)` : ""}`;
+    bpVassalTax = v.tax;
+    bpVassalTaxBtn.textContent = `Demand tribute: ${v.tax ? "On" : "Off"}`;
+    bpVassalTaxBtn.disabled = !v.tax && !v.canTax;
+    bpVassalTaxBtn.title = v.canTax || v.tax ? "Take a share of their stock and purse every 2 days (costs relation)" : v.taxReason;
+    bpVassalTaxStateEl.textContent = v.canTax ? `Estimate: ${v.estimate}` : v.taxReason;
+    bpVassalLedgerEl.textContent = `Tribute: last ${v.lastTax} · next ${v.nextTax} · total ${v.taxGoldTotal} gold`;
+  }
+  bpVassalCallBtn.addEventListener("click", () => {
+    bpVassalCallBtn.blur();
+    if (!infoTile) return;
+    // Strategy mode: the levy joins the selected army (follows its first unit); otherwise it follows the player.
+    const follow = strategyCam.inStrategy && selectedIds.size > 0 ? [...selectedIds][0] : undefined;
+    sendMessage({ type: "callToArms", tileX: infoTile.tx, tileY: infoTile.ty, ...(follow ? { followId: follow } : {}) });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
+  bpVassalDismissBtn.addEventListener("click", () => {
+    bpVassalDismissBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "callToArms", tileX: infoTile.tx, tileY: infoTile.ty, dismiss: true });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
+  bpVassalTaxBtn.addEventListener("click", () => {
+    bpVassalTaxBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "setTax", tileX: infoTile.tx, tileY: infoTile.ty, on: !bpVassalTax });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
   const bpTradeRowEl = document.getElementById("bp-trade-row")!;
   const bpTradeBtn = document.getElementById("bp-trade-open") as HTMLButtonElement;
   const bpTradeStateEl = document.getElementById("bp-trade-state")!;
@@ -5426,6 +5478,7 @@ async function main() {
       bpKeepStateEl.textContent = info.keep.reason ? `${info.keep.cost} (${info.keep.reason})` : info.keep.cost;
     }
     renderTradingPost(info.tradingPost);
+    renderVassal(info.vassal);
     bpTradeRowEl.hidden = !info.trade;
     if (info.trade) {
       bpTradeBtn.textContent = tradeOpen ? "Close trade" : "Trade";
@@ -7548,7 +7601,7 @@ async function main() {
       tip = f.faction !== "human"
         ? `${f.name} (${f.faction === "orc" ? "orc stockade" : "bandit palisade"}${f.cleared ? ", razed" : ""})`
         : f.captured || f.cleared ? `${f.name} (${f.captured ? "captured" : "razed"})`
-        : `${f.name}: ${f.hostile ? "up in arms" : RELATION_TIER_NAMES[rel?.tier ?? "neutral"]} (relation ${rel?.value ?? 0})`;
+        : `${f.name}: ${f.hostile ? "up in arms" : f.vassalOf === myClan ? "your vassal" : RELATION_TIER_NAMES[rel?.tier ?? "neutral"]} (relation ${rel?.value ?? 0})${f.vassalOf !== undefined && f.vassalOf !== myClan ? `, vassal of ${clanNames.get(f.vassalOf) ?? "another clan"}` : ""}`;
     }
     if (minimapEl.title !== tip) minimapEl.title = tip;
   });

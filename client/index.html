@@ -1053,6 +1053,11 @@
       #bp-keep-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
       #bp-keep-row[hidden] { display: none; }
       #bp-keep-state { font-size: 12.5px; color: var(--ink-soft); }
+      /* Forts phase F: a vassal's call to arms / tribute block. */
+      #bp-vassal-row { margin-top: 8px; font-size: 12.5px; }
+      #bp-vassal-row[hidden] { display: none; }
+      #bp-vassal-row > div { margin: 3px 0; }
+      #bp-vassal-levy, #bp-vassal-tax-state, #bp-vassal-ledger, #bp-vassal-power { color: var(--ink-soft); }
       /* Forts phase D: the Trade button (settlement panels) and the trade panel beside the building panel. */
       #bp-trade-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
       #bp-trade-row[hidden] { display: none; }
@@ -1542,6 +1547,14 @@
         <button id="bp-wagon-recall" class="econ-btn">Recall</button>
         <button id="bp-wagon-auto" class="econ-btn" title="Leave every morning with the surplus goods">Auto-send: On</button>
         <ul id="bp-wagon-dests"></ul>
+      </div>
+      <div id="bp-vassal-row" hidden>
+        <div id="bp-vassal-power"></div>
+        <button id="bp-vassal-call" class="econ-btn" title="Half its guards join you for a day (in strategy mode: they follow your selected army; else you)">Call to arms</button>
+        <button id="bp-vassal-dismiss" class="econ-btn" title="Send the levy home now">Dismiss levy</button>
+        <span id="bp-vassal-levy"></span>
+        <div><button id="bp-vassal-tax" class="econ-btn" title="Take a share of their stock and purse every 2 days (costs relation)">Demand tribute: Off</button> <span id="bp-vassal-tax-state"></span></div>
+        <div id="bp-vassal-ledger"></div>
       </div>
       <div id="bp-trade-row" hidden>
         <button id="bp-trade-open" class="econ-btn">Trade</button><span id="bp-trade-state"></span>
