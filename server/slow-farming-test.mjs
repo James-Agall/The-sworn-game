@@ -98,8 +98,11 @@ const me = c.snap.players[0];
 const P = { x: Math.floor(me.x / TILE), y: Math.floor(me.y / TILE) };
 const B = { x: P.x, y: P.y - 2 };
 const plot = { x: P.x + 1, y: P.y - 2 };
-const pasture = { x: P.x - 1, y: P.y - 2 };
-for (const t of [B, plot, pasture]) await hook("setTileRaw", { tx: t.x, ty: t.y, tile: T.Empty });
+// Pastures are 2x2 since 2026-10-30 (anchor = the placed top-left tile; parts right / below it), x4 produce.
+const pasture = { x: P.x - 2, y: P.y - 1 };
+const PASTURE_YIELD_MULT = 4;
+const pastureBlock = [pasture, { x: pasture.x + 1, y: pasture.y }, { x: pasture.x, y: pasture.y + 1 }, { x: pasture.x + 1, y: pasture.y + 1 }];
+for (const t of [B, plot, ...pastureBlock]) await hook("setTileRaw", { tx: t.x, ty: t.y, tile: T.Empty });
 await snaps(2);
 result(await place(B.x, B.y, T.BarnPost), `setup: Barn placed at (${B.x},${B.y})`);
 await snaps(2);
@@ -222,12 +225,12 @@ while (elapsed < 6 * DAY) {
   if (meatSteps.length >= 2) break;
 }
 info(`(D) meat deliveries (ticks after the first night, delta): ${JSON.stringify(meatSteps)}`);
-result(meatSteps.length >= 1 && meatSteps[0].d === K.FARMHAND_YIELD_PER_CYCLE.meat,
-  `(D) first delivery is the whole batch: +${meatSteps[0]?.d} meat (expected +${K.FARMHAND_YIELD_PER_CYCLE.meat})`);
+result(meatSteps.length >= 1 && meatSteps[0].d === K.FARMHAND_YIELD_PER_CYCLE.meat * PASTURE_YIELD_MULT,
+  `(D) first delivery is the whole batch: +${meatSteps[0]?.d} meat (expected +${K.FARMHAND_YIELD_PER_CYCLE.meat} x${PASTURE_YIELD_MULT})`);
 // A cycle of eCycle daytime ticks spans eCycle / DAY_TICKS days on the clock (nights don't count).
 const gapDays = meatSteps.length >= 2 ? (meatSteps[1].at - meatSteps[0].at) / DAY : NaN;
 const cycleDays = eCycle / K.DAY_TICKS;
-result(meatSteps.length >= 2 && meatSteps[1].d === K.FARMHAND_YIELD_PER_CYCLE.meat && Math.abs(gapDays - cycleDays) <= 0.5,
+result(meatSteps.length >= 2 && meatSteps[1].d === K.FARMHAND_YIELD_PER_CYCLE.meat * PASTURE_YIELD_MULT && Math.abs(gapDays - cycleDays) <= 0.5,
   `(D) next batch is another +${meatSteps[1]?.d} one cycle later: ${gapDays.toFixed(2)} days apart (cycle = ${cycleDays.toFixed(2)} days of tending), nothing in between`);
 
 console.log(`\n${fails === 0 ? "ALL PASS" : `${fails} FAIL(S)`} [${el()}]`);

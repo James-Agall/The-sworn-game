@@ -41,7 +41,8 @@ import type {
   ItemStats,
 } from "@colony/shared/protocol";
 import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-window ETA
-import { buildCostText } from "@colony/shared/buildings";
+import { buildCostText, FOOTPRINT_BY_TILE, footprintAnchorOf, footprintOf, footprintPartOffsets, placedFootprintAt } from "@colony/shared/buildings";
+import type { Footprint } from "@colony/shared/buildings";
 import {
   Biome,
   BOSS_RENDER_SCALE,
@@ -172,10 +173,10 @@ const TOOLS: ToolDef[] = [
   { tile: TileType.BarnPost, label: "Barn", key: "b", cost: `${buildCostText(TileType.BarnPost)} (upgradeable)`, category: "farming" },
   { tile: TileType.ChurchPost, label: "Church", key: "c", cost: `${buildCostText(TileType.ChurchPost)} (upgradeable)`, category: "civic" },
   // w/a/s/d are movement keys, so the farm hotkeys avoid them.
-  { tile: TileType.Pasture, label: "Pasture (Meat)", key: "p", cost: "Free (upgradeable)", category: "farming" },
+  { tile: TileType.Pasture, label: "Pasture (Meat)", key: "p", cost: `${buildCostText(TileType.Pasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable)`, category: "farming" },
   { tile: TileType.Orchard, label: "Orchard (Fruit)", key: "o", cost: "Free (upgradeable)", category: "farming" },
-  { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: "Free (upgradeable)", category: "farming" },
-  { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: "Free (upgradeable)", category: "farming" },
+  { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: `${buildCostText(TileType.WoolFarm)}, 2x2 (the tile you place on is its top-left corner; upgradeable)`, category: "farming" },
+  { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: "Free (upgradeable; walkable like a Farm Plot)", category: "farming" },
   {
     tile: TileType.HunterHut,
     label: "Hunter's Hut",
@@ -2094,6 +2095,25 @@ async function main() {
   const roleRings = new Graphics();
   const dragBox = new Graphics();
 
+  // Multi-tile footprints (shared FOOTPRINT_BY_TILE): derived from the tiles alone. The anchor (top-left)
+  // draws the art across the block; BuildingPart tiles draw nothing and stand for their anchor in clicks.
+  function footTile(x: number, y: number): number {
+    return x < 0 || y < 0 || x >= worldTilesX || y >= worldTilesY ? -1 : (tiles[y * worldTilesX + x] ?? TileType.Empty);
+  }
+  function footSize(x: number, y: number): Footprint | null {
+    const t = footTile(x, y);
+    const target = t === TileType.ConstructionSite ? constructionSites.get(y * worldTilesX + x)?.target : t;
+    return target === undefined ? null : (FOOTPRINT_BY_TILE[target as TileType] ?? null);
+  }
+  function placedFootprintClient(x: number, y: number): Footprint {
+    return placedFootprintAt(footTile, footSize, x, y);
+  }
+  // A part tile's anchor (any other tile is its own).
+  function anchorOfClient(x: number, y: number): { x: number; y: number } {
+    if (footTile(x, y) !== TileType.BuildingPart) return { x, y };
+    return footprintAnchorOf(footTile, footSize, x, y) ?? { x, y };
+  }
+
   // Single source of truth for tileSpriteLayer: shows `tile`'s art at (tx, ty), or clears the
   // slot back to bare floor if it has none (Empty, anything unmapped). A construction site draws the
   // building it will become, faded; leveled buildings and farms pick their tier / stage art.
@@ -2109,7 +2129,9 @@ async function main() {
       tile === TileType.Blacksmith && BLACKSMITH_FORGE_TEXTURES !== undefined && forgeBusy.has(index) && (level === 1 || !levelTexture);
     const gateOpen = tile === TileType.Gate && ((gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
     const wallArt = wallArtFor(tx, ty, artTile, !!site);
-    const texture = wallArt
+    const texture = tile === TileType.BuildingPart
+      ? undefined
+      : wallArt
       ? wallArt
       : gateOpen
       ? GATE_OPEN_TEXTURE
@@ -2190,6 +2212,14 @@ async function main() {
     // Row-major index: lower rows draw in front of the rows above them; x breaks ties. Flush
     // ground-like tiles (water) go under all other tile art.
     sprite.zIndex = fillTile ? -1 : index;
+    // A complete multi-tile block: the same art scaled up to span it, bottom-centred on the block and
+    // sorted with its bottom-right tile. Legacy 1x1 pastures (no parts) draw as before.
+    const fp = placedFootprintClient(tx, ty);
+    if (fp.w > 1 || fp.h > 1) {
+      sprite.scale.set(scale * Math.min(fp.w, fp.h));
+      sprite.position.set(tx * tileSize + (fp.w * tileSize) / 2, (ty + fp.h) * tileSize);
+      sprite.zIndex = (ty + fp.h - 1) * worldTilesX + tx + fp.w - 1;
+    }
   }
 
   const isWallTile = (t: number) => t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate;
@@ -2621,6 +2651,10 @@ async function main() {
     // and neighbouring walls / gates their connector piece / orientation.
     for (const [nx, ny] of [[tx, ty - 1], [tx + 1, ty], [tx, ty + 1], [tx - 1, ty]]) {
       if (isRoadAt(nx, ny) || isWallTile(tileAt(nx, ny))) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
+    }
+    // A part tile appearing / going away re-fits the multi-tile art of the anchors up / left of it.
+    for (const [nx, ny] of [[tx - 1, ty], [tx, ty - 1], [tx - 1, ty - 1]]) {
+      if (footSize(nx, ny)) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
     }
   }
 
@@ -6975,7 +7009,10 @@ async function main() {
   // Scale pass: the tile a click lands on, or the scaled building (BUILDING_VISUAL_SCALE) just below it when
   // the click hits that building's sprite where it overflows into this (non-building) tile.
   function buildingTileAt(clickX: number, clickY: number): { tileX: number; tileY: number } | null {
-    const tile = pointerTile(clickX, clickY);
+    const pointed = pointerTile(clickX, clickY);
+    // A multi-tile building's part tile opens / demolishes its anchor.
+    const anchor = pointed ? anchorOfClient(pointed.tileX, pointed.tileY) : null;
+    const tile = pointed && anchor ? { tileX: anchor.x, tileY: anchor.y } : pointed;
     if (!tile || INFO_TILES.has(tiles[tile.tileY * worldTilesX + tile.tileX])) return tile;
     const below = { tileX: tile.tileX, tileY: tile.tileY + 1 };
     if (below.tileY >= worldTilesY) return tile;
@@ -7329,9 +7366,20 @@ async function main() {
       !!tile && ((currentTool === TileType.TownCenter && !!TOWN_CENTER_MARKER_TEXTURE) || isRoadTile(currentTool));
     if (!tile) return;
     placementGhost.position.set(tile.tileX * tileSize + tileSize / 2, tile.tileY * tileSize + tileSize / 2);
+    // Multi-tile build tools: a w x h ghost from the hovered (top-left) tile, red when a part tile is taken
+    // (placing on the same building upgrades it instead, so that stays white).
+    const fp = footprintOf(currentTool);
+    const hovered = tiles[tile.tileY * worldTilesX + tile.tileX];
+    const upgrading = hovered === currentTool || (hovered === TileType.BuildingPart && (() => {
+      const a = anchorOfClient(tile.tileX, tile.tileY);
+      return tiles[a.y * worldTilesX + a.x] === currentTool;
+    })());
+    const blocked = !upgrading && (fp.w > 1 || fp.h > 1) &&
+      footprintPartOffsets(fp).some(([dx, dy]) => footTile(tile.tileX + dx, tile.tileY + dy) !== TileType.Empty);
+    const ghost = upgrading ? { w: 1, h: 1 } : fp;
     cursorHighlight
-      .rect(tile.tileX * tileSize, tile.tileY * tileSize, tileSize, tileSize)
-      .stroke({ width: 2, color: 0xffffff, alpha: 0.6 });
+      .rect(tile.tileX * tileSize, tile.tileY * tileSize, ghost.w * tileSize, ghost.h * tileSize)
+      .stroke({ width: 2, color: blocked ? 0xff5040 : 0xffffff, alpha: blocked ? 0.85 : 0.6 });
   });
 }
 

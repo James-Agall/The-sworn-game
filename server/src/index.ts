@@ -15,7 +15,7 @@ import {
 import {
   clans, colonists, gravestones, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
 } from "./state.js";
-import { clamp, isNightNow, tileIndex } from "./tiles.js";
+import { anchorOfTile, clamp, isNightNow, tileIndex } from "./tiles.js";
 import "./pathfinding.js";
 import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchangeResource } from "./economy.js";
 import { generateWorld } from "./worldgen.js";
@@ -136,10 +136,20 @@ function ownUnits(player: Player, ids: unknown): string[] {
 }
 
 // Clans: tile actions (upgrade, repair, gate lock, siege / forge queue, recruit, learn) only on own buildings.
-const TILE_ACTIONS = new Set(["upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "recruitHero", "learnSpell"]);
+const TILE_ACTIONS = new Set(["upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "setForgeAuto", "recruitHero", "learnSpell"]);
 
 function handleMessage(player: Player, message: ClientMessage) {
   const socket = player.socket;
+  // Multi-tile buildings: a message addressed to a part tile acts on its anchor (setTile does this itself,
+  // after its reach check on the clicked tile).
+  if (message.type !== "setTile") {
+    const tm = message as unknown as { tileX?: unknown; tileY?: unknown };
+    if (Number.isInteger(tm.tileX) && Number.isInteger(tm.tileY)) {
+      const a = anchorOfTile(tm.tileX as number, tm.tileY as number);
+      tm.tileX = a.x;
+      tm.tileY = a.y;
+    }
+  }
   if (TILE_ACTIONS.has(message.type)) {
     const m = message as unknown as { tileX?: unknown; tileY?: unknown; tx?: unknown; ty?: unknown };
     const tx = (m.tileX ?? m.tx) as number;

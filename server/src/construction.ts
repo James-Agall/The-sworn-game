@@ -4,6 +4,7 @@ import {
   TileType, isSolidTile, TICK_RATE, type GameEventCategory, type ServerMessage, type BuildingInfo, TILE_SIZE, Biome,
   isRoadTile,
 } from "@colony/shared/protocol";
+import { footprintOf, footprintPartOffsets } from "@colony/shared/buildings";
 import type { ConstructionSiteState, Cost, Player, ResourceKey, TileCoord, TownCenter } from "./types.js";
 import {
   ABBEY_GROUNDS_RADIUS, ARCHER_WOOD_COST, BARN_WOOD_COST, BIG_BUILD_TILES, BLACKSMITH_TOOLS_STOCK_CAP,
@@ -14,7 +15,7 @@ import {
   FOOD_HUT_WOOD_COST, GATE_ROCK_COST, GATE_WOOD_COST, HERO_POPULATION_COST, HOUSE_ROCK_COST, HOUSE_WOOD_COST,
   INDUSTRIAL_TILES, IN_PLACE_UPGRADE_TILES, KEEP_COSTS, KEEP_GARRISON_PER_LEVEL, KEEP_MIN_TOWN_CENTER_LEVEL,
   KEEP_POPULATION_PER_LEVEL, KNIGHT_IRON_COST, KNIGHT_ROCK_COST, MILITIA_IRON_COST, MILITIA_WOOD_COST, NEIGHBOURS_8,
-  NO_COLONIST_TILES, PLACEABLE_TILES, POI_TILES, POPULATION_GATED_TILES, RAM_UNIT_MULT, REACH, ROAD_ROCK_COST,
+  NO_COLONIST_TILES, PASTURE_WOOD_COST, PLACEABLE_TILES, SHEEP_PASTURE_WOOD_COST, FOOTPRINT_YIELD_PER_TILE, POI_TILES, POPULATION_GATED_TILES, RAM_UNIT_MULT, REACH, ROAD_ROCK_COST,
   SHOP_WOOD_COST, SIEGE_BUILDING_MULT, SIEGE_BUILD_TICKS, SIEGE_POPULATION_COST, SIEGE_WORKSHOP_CAP,
   SIEGE_WORKSHOP_COST, STABLES_COSTS, STONE_WALL_COST, TAVERN_ROCK_COST, TAVERN_WOOD_COST,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_COST, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
@@ -26,8 +27,8 @@ import {
   repairQueue, respawnQueue, siegeWorkshops, state, towerCooldowns,
 } from "./state.js";
 import {
-  biomeAt, biomeProductionFactor, getBuildingLevel, inBounds, levelBonus, ownerAt, resourceKey, tileIndex,
-  tileOfPixel, tileToPixelCenter,
+  anchorOfTile, biomeAt, biomeProductionFactor, getBuildingLevel, inBounds, levelBonus, ownerAt, placedFootprint,
+  resourceKey, tileIndex, tileOfPixel, tileToPixelCenter,
 } from "./tiles.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import {
@@ -492,6 +493,11 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
       return { wood: HOUSE_WOOD_COST, rock: HOUSE_ROCK_COST };
     case TileType.BarnPost:
       return { wood: BARN_WOOD_COST };
+    // 2x2 pastures: the new paddock pays its fencing; levelling one up (or a legacy 1x1) stays free.
+    case TileType.Pasture:
+      return current === tile ? {} : { wood: PASTURE_WOOD_COST };
+    case TileType.WoolFarm:
+      return current === tile ? {} : { wood: SHEEP_PASTURE_WOOD_COST };
     case TileType.ChurchPost:
       return { wood: CHURCH_WOOD_COST };
     case TileType.WardStone:
@@ -677,6 +683,8 @@ export function sendEvent(player: Player, category: GameEventCategory, text: str
 // HP records; mines revert to the ore under them. Player demolish and mob
 // destruction (damageBuilding) both end here.
 export function demolishTile(tx: number, ty: number, current: TileType) {
+  // A multi-tile building (or its construction site) takes its whole block with it.
+  clearFootprintParts(tx, ty);
   const siteKey = resourceKey(tx, ty);
   buildingHp.delete(siteKey);
   repairPaid.delete(siteKey);
@@ -721,6 +729,61 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
   broadcastTileUpdate(tx, ty, TileType.Empty);
 }
 
+// ---- Multi-tile footprints (FOOTPRINT_BY_TILE): the anchor is the placed (top-left) tile ----
+// Clears the part tiles of the complete block anchored at (tx, ty) (none for a 1x1 / legacy building).
+export function clearFootprintParts(tx: number, ty: number) {
+  const fp = placedFootprint(tx, ty);
+  if (fp.w === 1 && fp.h === 1) return;
+  for (const [dx, dy] of footprintPartOffsets(fp)) {
+    state.tiles[tileIndex(tx + dx, ty + dy)] = TileType.Empty;
+    broadcastTileUpdate(tx + dx, ty + dy, TileType.Empty);
+  }
+}
+
+// Why a new `tile` can't take its footprint's part tiles with its anchor at (tx, ty) ("" = it can): each must
+// be on the map, Empty, not an NPC fort's, not under construction, and nobody may stand on it.
+export function footprintBlocker(tile: TileType, tx: number, ty: number): string {
+  const fp = footprintOf(tile);
+  for (const [dx, dy] of footprintPartOffsets(fp)) {
+    const x = tx + dx;
+    const y = ty + dy;
+    const bad =
+      !inBounds(x, y) || state.tiles[tileIndex(x, y)] !== TileType.Empty || ownerAt(tileIndex(x, y)) !== 0 ||
+      constructionSites.has(resourceKey(x, y)) || someoneStandsOn(x, y);
+    if (bad) return `${BUILDING_NAMES[tile] ?? "This building"} needs a clear ${fp.w}x${fp.h} block (the tile you place on is its top-left corner)`;
+  }
+  return "";
+}
+
+function someoneStandsOn(x: number, y: number): boolean {
+  for (const other of players.values()) {
+    const t = tileOfPixel(other.x, other.y);
+    if (t.x === x && t.y === y) return true;
+  }
+  for (const c of colonists.values()) {
+    const t = tileOfPixel(c.x, c.y);
+    if (t.x === x && t.y === y) return true;
+  }
+  return false;
+}
+
+// Stamps the part tiles of a new `tile` anchored at (tx, ty) (checked free by footprintBlocker) for clanId.
+export function stampFootprintParts(tile: TileType, tx: number, ty: number, clanId: number) {
+  for (const [dx, dy] of footprintPartOffsets(footprintOf(tile))) {
+    const i = tileIndex(tx + dx, ty + dy);
+    buildingHp.delete(resourceKey(tx + dx, ty + dy));
+    state.tiles[i] = TileType.BuildingPart;
+    setTileClan(i, clanId);
+    broadcastTileUpdate(tx + dx, ty + dy, TileType.BuildingPart);
+  }
+}
+
+// Produce multiplier of the farm anchored at (tx, ty): its footprint's tile count (1 for a legacy 1x1).
+export function footprintYieldMult(tx: number, ty: number): number {
+  const fp = placedFootprint(tx, ty);
+  return fp.w * fp.h * FOOTPRINT_YIELD_PER_TILE;
+}
+
 // "" when a new Keep may go up near (tx, ty): its settlement's Town Center is at level 2+ and has no
 // Keep (built or queued) yet; else why not.
 export function keepPlacementBlocker(tx: number, ty: number): string {
@@ -742,6 +805,20 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   const tileCenter = tileToPixelCenter({ x: tx, y: ty });
   const dist = Math.hypot(player.x - tileCenter.x, player.y - tileCenter.y);
   if (!skipReach && dist > REACH) return;
+  // Multi-tile buildings: a part tile stands for its anchor (demolish / upgrade / build-over all act there).
+  if (state.tiles[tileIndex(tx, ty)] === TileType.BuildingPart) {
+    const anchor = anchorOfTile(tx, ty);
+    if (anchor.x === tx && anchor.y === ty) {
+      // An orphan part (its anchor is gone some other way): demolishing clears it.
+      if (tile === TileType.Empty && ownerAt(tileIndex(tx, ty)) === 0 && !isForeignClanTile(tx, ty, player.clan)) {
+        state.tiles[tileIndex(tx, ty)] = TileType.Empty;
+        broadcastTileUpdate(tx, ty, TileType.Empty);
+      }
+      return;
+    }
+    tx = anchor.x;
+    ty = anchor.y;
+  }
 
   const current = state.tiles[tileIndex(tx, ty)] as TileType;
   const siteKey = resourceKey(tx, ty);
@@ -821,6 +898,15 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
       return;
     }
   }
+  // Multi-tile buildings (a new one, not a level-up): every part tile must be free.
+  const multiTile = !upgradeInPlace && footprintPartOffsets(footprintOf(tile)).length > 0;
+  if (multiTile) {
+    const blocked = footprintBlocker(tile, tx, ty);
+    if (blocked) {
+      sendEvent(player, "build", blocked);
+      return;
+    }
+  }
 
   if (tile !== TileType.FarmPlot && !upgradeInPlace) {
     for (const other of players.values()) {
@@ -852,6 +938,7 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     // Clans: the new building is the placing player's clan's.
     setTileClan(tileIndex(tx, ty), player.clan);
   }
+  if (multiTile) stampFootprintParts(tile, tx, ty, player.clan);
   if (instant) {
     resolvePlacement(tx, ty, tile, current);
   } else {
@@ -1014,6 +1101,7 @@ export function upgradePlacementTile(t: TileType): TileType | null {
 
 export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): BuildingInfo | null {
   if (!inBounds(tx, ty)) return null;
+  ({ x: tx, y: ty } = anchorOfTile(tx, ty));
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
   const key = resourceKey(tx, ty);
   const site = constructionSites.get(key);
@@ -1083,6 +1171,10 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     }
   }
   if (t === TileType.ChurchPost) bonuses.push(`Heals ${healAmountFor(tx, ty)} per prayer`);
+  if (t === TileType.Pasture || t === TileType.WoolFarm) {
+    const fp = placedFootprint(tx, ty);
+    bonuses.push(fp.w > 1 ? `${fp.w}x${fp.h} paddock: x${footprintYieldMult(tx, ty)} produce per batch` : "Old 1x1 pasture: x1 produce (new pastures are 2x2, x4)");
+  }
   if (t === TileType.BuildersGuild) bonuses.push(`${level} builder${level === 1 ? "" : "s"} (one per level)`);
   if (t === TileType.Stables) {
     bonuses.push(`Lv${level}: ${cavalryCountForLevel(level)} cavalry (fast, wings), charge x${CAVALRY_CHARGE_MULT} after ${CAVALRY_CHARGE_TILES} tiles in a straight line`);

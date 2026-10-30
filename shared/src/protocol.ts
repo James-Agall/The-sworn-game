@@ -107,6 +107,11 @@ export enum TileType {
   // Forts phase A (2026-10-29): what a destroyed NPC-owned wall or gate leaves behind. Walkable (NOT in
   // isSolidTile): a breach gap. The player may clear it (demolish -> Empty).
   Rubble = 74,
+  // Multi-tile footprints (2026-10-30, shared/src/buildings.ts FOOTPRINT_BY_TILE): every tile of a w x h
+  // building except its anchor (top-left, holds the building's own TileType). Solid; never placed directly
+  // (placing the anchor stamps them, demolishing it clears them). The client draws nothing here (the
+  // anchor's art spans the block) and maps clicks to the anchor (footprintAnchorOf).
+  BuildingPart = 90,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -172,7 +177,7 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.Pasture ||
     tile === TileType.Orchard ||
     tile === TileType.WoolFarm ||
-    tile === TileType.CottonFarm ||
+    // Hemp Field (TileType.CottonFarm) is walkable since 2026-10-30, like a Farm Plot.
     tile === TileType.TailorShop ||
     tile === TileType.Blacksmith ||
     tile === TileType.LuxuryWorkshop ||
@@ -207,7 +212,8 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.Tower ||
     tile === TileType.Stables ||
     tile === TileType.SiegeWorkshop ||
-    tile === TileType.Keep
+    tile === TileType.Keep ||
+    tile === TileType.BuildingPart
   );
 }
 

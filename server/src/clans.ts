@@ -104,7 +104,10 @@ export function townCentersOfClan(id: number | undefined): TownCenter[] {
 
 // A tile a clan can own: player buildings, construction sites, Town Centers (not rubble / natural tiles).
 export function isClanOwnableTile(t: TileType): boolean {
-  return t !== TileType.Rubble && (t === TileType.TownCenter || t === TileType.ConstructionSite || BREAKABLE_TILES.includes(t));
+  return (
+    t !== TileType.Rubble &&
+    (t === TileType.TownCenter || t === TileType.ConstructionSite || t === TileType.BuildingPart || BREAKABLE_TILES.includes(t))
+  );
 }
 
 // True when (tx, ty) is a building of a clan other than `clanId` (edits / orders on it are refused).

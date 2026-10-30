@@ -41,7 +41,7 @@ import {
 import { damageColonist, healStructure, structureHp } from "./combat.js";
 import { isDormantGuardian, keyToTile } from "./mobs.js";
 import {
-  canAfford, currentBuildingLevel, placementCost, sendEvent, spend, upgradePlacementTile,
+  canAfford, currentBuildingLevel, footprintYieldMult, placementCost, sendEvent, spend, upgradePlacementTile,
 } from "./construction.js";
 import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroColonist } from "./heroes.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
@@ -860,7 +860,8 @@ export function updateFarmhand(c: Colonist) {
   c.state = "farming";
   c.chopTicksRemaining--;
   if (c.chopTicksRemaining <= 0) {
-    state.stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource];
+    // 2x2 pastures yield per tile of their footprint (footprintYieldMult; legacy 1x1 = x1).
+    state.stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource] * footprintYieldMult(c.postX, c.postY);
     c.chopTicksRemaining = effectiveFarmhandCycleTicks(c.postX, c.postY);
     c.cycleTicksTotal = c.chopTicksRemaining;
   }

@@ -538,6 +538,10 @@ export const BARN_FARM_RADIUS_TILES = 2;
 // by the building's level, biome, happiness and industrial synergy exactly like the old unit timer.
 export const FARMHAND_CYCLE_DAYS = 3;
 export const FARMHAND_CYCLE_TICKS = FARMHAND_CYCLE_DAYS * LEGACY_DAY_TICKS;
+// 2x2 pastures (2026-10-30, FOOTPRINT_BY_TILE): a complete multi-tile farm yields this many batches' worth
+// per cycle per tile of its footprint (same per-tile productivity: a 2x2 Pasture / Sheep Pasture delivers
+// 4 x 90 = 360 per cycle, one farmhand). Legacy 1x1 pastures keep x1.
+export const FOOTPRINT_YIELD_PER_TILE = 1;
 export const FARMHAND_YIELD_PER_CYCLE: Record<"meat" | "fruit" | "wool" | "cotton", number> = {
   meat: 90,
   fruit: 90,
@@ -553,6 +557,8 @@ export const STARVATION_DAMAGE = 10;
 // DAY_TICKS - 1, so "day-only respawns" still holds); see respawnWindowAt / processRespawnQueue.
 export const RESPAWN_FOOD_COST = 5;
 export const ARCHER_WOOD_COST = BUILD_COSTS[TileType.ArcherPost].wood;
+export const PASTURE_WOOD_COST = BUILD_COSTS[TileType.Pasture].wood;
+export const SHEEP_PASTURE_WOOD_COST = BUILD_COSTS[TileType.WoolFarm].wood;
 export const KNIGHT_IRON_COST = BUILD_COSTS[TileType.KnightPost].iron;
 export const KNIGHT_ROCK_COST = BUILD_COSTS[TileType.KnightPost].rock;
 // Walls & gates (2026-10-23): walls 3x their old 1 wood / 1 rock. Full repair = REPAIR_COST_FRACTION

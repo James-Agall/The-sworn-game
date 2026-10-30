@@ -6,7 +6,10 @@ import {
   DAY_TICKS, FARM_PRODUCE_BY_TILE, HILLS_MINING_BONUS, LEVEL_BONUS_PER_STEP, NIGHT_TICKS, PLAINS_FARMING_BONUS,
   ROAD_SPEED_BONUS, SWAMP_SPEED_PENALTY,
 } from "./constants.js";
-import { buildingLevel, colonists, ownerSiteIds, players, state, structureBreach, tileOwner } from "./state.js";
+import { buildingLevel, colonists, constructionSites, ownerSiteIds, players, state, structureBreach, tileOwner } from "./state.js";
+import {
+  FOOTPRINT_BY_TILE, footprintAnchorOf, placedFootprintAt, type Footprint,
+} from "@colony/shared/buildings";
 import { isWalkablePixel } from "./wildlife.js";
 
 export function ownerAt(index: number): number {
@@ -137,4 +140,29 @@ export function getBuildingLevel(tx: number, ty: number): number {
 }
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+// ---- Multi-tile footprints (shared FOOTPRINT_BY_TILE; ROADMAP "Hemp, pastures, gear pickup, forge autocraft") ----
+// The tile at (x, y), -1 off the map.
+export function tileAtOrNone(x: number, y: number): number {
+  return inBounds(x, y) ? state.tiles[tileIndex(x, y)] : -1;
+}
+
+// Footprint of the building type at (x, y) (for a construction site: of its target), null when 1x1-only.
+export function footprintSizeAt(x: number, y: number): Footprint | null {
+  if (!inBounds(x, y)) return null;
+  const t = state.tiles[tileIndex(x, y)] as TileType;
+  const target = t === TileType.ConstructionSite ? constructionSites.get(resourceKey(x, y))?.target : t;
+  return target === undefined ? null : (FOOTPRINT_BY_TILE[target] ?? null);
+}
+
+// The footprint the building anchored at (x, y) covers now (1x1 for ordinary and legacy buildings).
+export function placedFootprint(x: number, y: number): Footprint {
+  return placedFootprintAt(tileAtOrNone, footprintSizeAt, x, y);
+}
+
+// A BuildingPart's anchor; any other tile (or an orphan part) is its own.
+export function anchorOfTile(x: number, y: number): TileCoord {
+  if (tileAtOrNone(x, y) !== TileType.BuildingPart) return { x, y };
+  return footprintAnchorOf(tileAtOrNone, footprintSizeAt, x, y) ?? { x, y };
 }
