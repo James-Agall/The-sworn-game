@@ -41,10 +41,25 @@ code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checkl
   (needs the test-hook server). Soldiers attack its gate, tower, walls; destroyed walls become rubble; the fort's
   tower shoots you; its own gate opens only for its bandits.
 
+## 6. Units settling on their slots (fix 9ee5a7f)
+1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.
+   Every unit should walk round the idle ones and stop exactly on its slot; nobody left a tile or two short in
+   "returning" while the rest have stopped.
+2. Repeat with the line crossing the idle troops (the order sends units through them), and once in a tight spot
+   (between buildings or walls): units must not cut corners onto solid tiles while stepping round someone.
+3. After a fight, the survivors should all walk back onto their slots.
+
+## 7. Flaky automated checks to look at (not caused by recent work)
+- `combat-line-test` fails some runs on old and new code: "marching followers on their heading-relative slots",
+  "5 goblins on one player ... closest pair", "knight fought ... back on slot". If you see these in the game
+  (followers trailing a marching group, goblins bunching on you), note what happened.
+- `battle-discipline` "S: >1 distinct goblin being fought" fails about 1 run in 15 on old and new code (knights
+  sometimes all pile onto one goblin).
+
 ## Automated tests you can run
 - `npm test` runs everything (about 80 minutes). `npm test -- <word> <word>` runs only test files whose name
   contains the word; `npm test -- --list` shows what a filter selects.
-- Fast and reliable (under 1 minute each, expected to pass): `formation-test` (flaky until the formation bug is fixed),
+- Fast and reliable (under 1 minute each, expected to pass): `formation-test`, `regiment-test`,
   `gates-walls`, `goals-castle`, `battle-discipline`, `builders-farmers`, `day-respawn`, `fight-notifier`,
   `orders-test`, `regiment-groups`, `player-morale`, `scale-rider`, `time-intel`, `settlement-pop`, `raid-morale`,
   `tactics-test`, `strategy-view`.
