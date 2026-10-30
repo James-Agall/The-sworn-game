@@ -3,7 +3,7 @@
 import { TileType } from "@colony/shared/protocol";
 import type { GoalDef, ResourceKey } from "./types.js";
 import { GAME_DAY_TICKS, GOAL_WORKER_KINDS, VISION_BUILDING_TILES } from "./constants.js";
-import { colonists, constructionSites, state } from "./state.js";
+import { colonists, constructionSites, state, tileOwner } from "./state.js";
 import { formatReward, grantReward } from "./worldgen.js";
 import { isSoldierKind } from "./units.js";
 import { broadcastEvent } from "./net.js";
@@ -23,6 +23,8 @@ export function anyPlayerBuilding(): boolean {
   for (const site of constructionSites.values()) if (clanIdAt(site.tx, site.ty) === state.clan.id) return true;
   for (let i = 0; i < state.tiles.length; i++) {
     if (clanIdAtIndex(i) !== state.clan.id) continue;
+    // Forts phase B: an NPC fort's walls / towers are not the colony's.
+    if (tileOwner.size > 0 && tileOwner.has(i)) continue;
     const t = state.tiles[i] as TileType;
     if (t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate) return true;
     if (t !== TileType.TownCenter && VISION_BUILDING_TILES.has(t)) return true;

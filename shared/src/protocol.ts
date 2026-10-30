@@ -107,6 +107,13 @@ export enum TileType {
   // Forts phase A (2026-10-29): what a destroyed NPC-owned wall or gate leaves behind. Walkable (NOT in
   // isSolidTile): a breach gap. The player may clear it (demolish -> Empty).
   Rubble = 74,
+  // 75 / 76 reserved for Moat / Drawbridge (forts plan phase H).
+  // Forts phase B (2026-10-30): an NPC fort's keep / chief hall (its hearth: HP in the snapshot `hearths`),
+  // what it leaves when razed (a clan can later rebuild it into an outpost), and the forts' tents (NPC
+  // decor, damageable). All solid.
+  SiteKeep = 77,
+  RuinedKeep = 78,
+  Tent = 79,
   // Multi-tile footprints (2026-10-30, shared/src/buildings.ts FOOTPRINT_BY_TILE): every tile of a w x h
   // building except its anchor (top-left, holds the building's own TileType). Solid; never placed directly
   // (placing the anchor stamps them, demolishing it clears them). The client draws nothing here (the
@@ -130,6 +137,8 @@ export const GATE_FLAG_FOREIGN = 16;
 // Forts phase A: snapshot `siteTiles` is flattened [tile index, site number] pairs, one per NPC-owned
 // tile (site number >= 1). Per player, sent only when the owner map changed since that player's last one.
 export const SITE_TILE_SNAPSHOT_STRIDE = 2;
+// Forts phase B (2026-10-30): the faction of a stamped NPC fort (bandit palisades, orc stockades).
+export type SiteFaction = "bandit" | "orc";
 // Clans (ROADMAP "Clans — landed"): snapshot `clanTiles` is flattened [tile index, clan id] pairs, one per
 // player building of any clan, sent only while there are 2+ clans and only when it changed (a full
 // replacement). Missing (or a single-clan game) = clan 0.
@@ -213,6 +222,9 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.Stables ||
     tile === TileType.SiegeWorkshop ||
     tile === TileType.Keep ||
+    tile === TileType.SiteKeep ||
+    tile === TileType.RuinedKeep ||
+    tile === TileType.Tent ||
     tile === TileType.BuildingPart
   );
 }

@@ -34,6 +34,7 @@ import {
 import "./tactics.js";
 import "./raids.js";
 import { handleCommandAttackHearth, hearthsForSnapshot } from "./hearths.js";
+import "./sites.js";
 import "./goals.js";
 import {
   forgeBusyForSnapshot, handleEquipItem, handleQueueForge, handleSetForgeAuto, handleRecruitHero, handleTakeFromArmoury,

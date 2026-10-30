@@ -4,7 +4,7 @@ import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type SaveSlot, SAVE_SLOTS, TileType, type SaveInfo, type ServerMessage } from "@colony/shared/protocol";
 import type {
-  Colonist, HearthState, HeroRecruit, Mob, Player, RaidGroup, SaveFile, Wildlife, WorldState,
+  Colonist, HearthState, SiteState, HeroRecruit, Mob, Player, RaidGroup, SaveFile, Wildlife, WorldState,
 } from "./types.js";
 import {
   AUTOSAVE_ENABLED, DAY_TICKS, GAME_DAY_TICKS, LEGACY_DAY_TICKS, LEGACY_NIGHT_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS,
@@ -23,6 +23,7 @@ import { guardStats } from "./units.js";
 import { isDifficulty } from "./mobs.js";
 import { clearPlayerMorale } from "./tactics.js";
 import { backfillHearths } from "./hearths.js";
+import { restoreSites, sitesForSave } from "./sites.js";
 import { evaluateGoals } from "./goals.js";
 import { playerMaxHp, resetEquipment, restoreHeroProfiles, serializeHeroProfiles } from "./heroes.js";
 import { clearSpellState, unslowedSpeed } from "./spells.js";
@@ -188,6 +189,8 @@ function snapshotWorldInner() {
     // name (optional: saves without them have every tile the colony's).
     owners: Array.from(tileOwner).flat() as number[] | undefined,
     ownerSites: [...ownerSiteIds] as string[] | undefined,
+    // Forts phase B: SiteState per stamped fort (optional: old saves have no forts).
+    sites: sitesForSave() as SiteState[] | undefined,
     stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
@@ -370,11 +373,14 @@ function applyWorldInner(s: WorldState) {
   // Camp hearths (destroyed ones included); saves from before them, or sites without one, get a
   // full-HP hearth on their campfire.
   refill(hearths, (s.hearths ?? []).map((h): [string, HearthState] => [h.siteId, h]));
-  backfillHearths();
   clearOwners();
   ownerSiteIds.push(...(s.ownerSites ?? []));
   const owners = s.owners ?? [];
   for (let i = 0; i + 1 < owners.length; i += 2) if (owners[i] < state.tiles.length && owners[i + 1] > 0) tileOwner.set(owners[i], owners[i + 1]);
+  // Forts phase B: stamped forts (saves without them have none). After the owners (site numbers).
+  restoreSites(s.sites);
+  // After the owners: a fort's campfires (owned tiles) never get a backfilled hearth.
+  backfillHearths();
   state.testForceDeserterRoll = s.flags.testForceDeserterRoll;
   state.testHoldRaidAggro = s.flags.testHoldRaidAggro;
   state.testRaidsDisabled = s.flags.testRaidsDisabled;

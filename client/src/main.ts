@@ -669,6 +669,10 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.RuinRubble]: "rubble",
   // Forts phase A: a fallen NPC wall (walkable): the ruin rubble art, flatter and greyed.
   [TileType.Rubble]: "rubble",
+  // Forts phase B stand-ins (tinted, TILE_STANDIN_TINT) until dedicated art lands (TILE_OPTIONAL_ART).
+  [TileType.Tent]: "militiaCamp",
+  [TileType.SiteKeep]: "castleKeep",
+  [TileType.RuinedKeep]: "rubble",
   [TileType.PropCampfire]: "campfire",
   [TileType.PropCart]: "cart",
   [TileType.PropBarrel]: "barrel",
@@ -708,6 +712,9 @@ const TILE_OPTIONAL_ART: Partial<Record<TileType, string>> = {
   [TileType.MushroomPatchPicked]: "mushroomPicked",
   [TileType.Stables]: "stables",
   [TileType.SiegeWorkshop]: "siegeWorkshop",
+  [TileType.Tent]: "siteTent",
+  [TileType.SiteKeep]: "siteKeep",
+  [TileType.RuinedKeep]: "ruinedKeep",
 };
 // Alternate looks picked per tile by a stable position hash (half the fruit trees are pear/plum).
 const TILE_OPTIONAL_ALT_ART: Partial<Record<TileType, string>> = {
@@ -738,6 +745,9 @@ const WALL_ART_PX_PER_TILE = 68;
 // Multiplicative tints that tell a stand-in apart from the building/prop whose art it borrows.
 const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.Rubble]: 0x9a9088,
+  [TileType.Tent]: 0xc8a070,
+  [TileType.SiteKeep]: 0xb08870,
+  [TileType.RuinedKeep]: 0x807468,
   [TileType.HunterHut]: 0xa8c08a,
   [TileType.ForagerHut]: 0xf0c890,
   [TileType.BerryBush]: 0xff9a9a,
@@ -972,6 +982,9 @@ const TILE_SPRITE_SIZE_FACTOR: Partial<Record<TileType, number>> = {
   [TileType.RuinStatue]: 0.7,
   [TileType.RuinRubble]: 0.75,
   [TileType.Rubble]: 0.55,
+  [TileType.Tent]: 0.85,
+  [TileType.SiteKeep]: 1.4,
+  [TileType.RuinedKeep]: 1.1,
   [TileType.PropCampfire]: 0.8,
   [TileType.PropBarrel]: 0.6,
   [TileType.PropCrate]: 0.65,

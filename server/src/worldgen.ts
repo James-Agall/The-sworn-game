@@ -14,7 +14,7 @@ import {
   ELITE_REWARD, ENCAMPMENT_EXTRAS, ENCAMPMENT_GUARDIAN_WEIGHTS, MINI_BOSS_KINDS, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS,
   NEIGHBORS_8, POI_SITE_FOOTPRINT_RADIUS, POI_SITE_MIN_SPACING, POI_SITE_WATER_CLEARANCE, POND_EDGE_JITTER_TILES,
   POND_MIN_SPACING, POND_NOISE_CELL_TILES, POND_RADIUS_MAX, POND_RADIUS_MIN, RUIN_CENTERPIECES, RUIN_EXTRAS,
-  RUIN_GUARDIAN_WEIGHTS, SITE_KIND_HAS_HEARTH, SPAWN_CLEAR_RADIUS_TILES, SPAWN_PLAINS_RADIUS_TILES,
+  RUIN_GUARDIAN_WEIGHTS, SITE_KIND_HAS_HEARTH, SITE_POI_CLEARANCE_TILES, SPAWN_CLEAR_RADIUS_TILES, SPAWN_PLAINS_RADIUS_TILES,
   WARLORD_DAMAGE_MULT, WARLORD_HP_MULT, WARLORD_REWARD, clampWorldSize,
 } from "./constants.js";
 import { colonists, hearths, mobs, players, scaledCount, scaledCountSub, state } from "./state.js";
@@ -24,6 +24,7 @@ import {
   TOWN_CENTER_TILE, isAbbeyClergy, spawnColonistForPost, topUpTownCenterBuilders, townCenterMaxHp,
 } from "./colonists.js";
 import { applyMobSize } from "./mobs.js";
+import { clearSites, generateForts, isInSiteGrounds, nearSiteGrounds } from "./sites.js";
 import { registerHearth } from "./hearths.js";
 import { evaluateGoals, resetGoals } from "./goals.js";
 import { grantTieredEquipment } from "./heroes.js";
@@ -55,10 +56,15 @@ export function isInAbbeyGrounds(tx: number, ty: number): boolean {
   return Math.max(Math.abs(tx - state.abbeyCenter.x), Math.abs(ty - state.abbeyCenter.y)) <= ABBEY_GROUNDS_RADIUS;
 }
 
-// World-gen grounds that resource scatter, forage, wildlife and tree regrowth keep off: the Abbey's
-// and the Castle Ruin's.
+// World-gen grounds that resource scatter, forage, wildlife and tree regrowth keep off: the Abbey's,
+// the Castle Ruin's and every standing fort's (forts phase B).
 export function isInReservedGrounds(tx: number, ty: number): boolean {
-  return isInAbbeyGrounds(tx, ty) || isInCastleRuinGrounds(tx, ty);
+  return isInAbbeyGrounds(tx, ty) || isInCastleRuinGrounds(tx, ty) || isInSiteGrounds(tx, ty);
+}
+
+// Ruins / encampments / mini-boss packs: the usual clear footprint, and off the forts' grounds.
+export function poiSiteSpotOk(t: TileCoord): boolean {
+  return poiSiteFootprintClear(t) && !nearSiteGrounds(t.x, t.y, SITE_POI_CLEARANCE_TILES + POI_SITE_FOOTPRINT_RADIUS);
 }
 
 export function randInt(min: number, max: number): number {
@@ -299,7 +305,7 @@ export function generatePoiSites(siteKind: "ruin" | "encampment", count: number,
       SPAWN_CLEAR_RADIUS_TILES + POI_SITE_FOOTPRINT_RADIUS,
       POI_SITE_MIN_SPACING,
       placedSites,
-      poiSiteFootprintClear
+      poiSiteSpotOk
     );
     if (!center) continue;
     placedSites.push(center);
@@ -402,7 +408,7 @@ export function generateMiniBossSites(count: number, placedSites: TileCoord[]) {
       SPAWN_CLEAR_RADIUS_TILES + POI_SITE_FOOTPRINT_RADIUS,
       POI_SITE_MIN_SPACING,
       placedSites,
-      poiSiteFootprintClear
+      poiSiteSpotOk
     );
     if (!center) continue;
     placedSites.push(center);
@@ -469,6 +475,7 @@ export function setWorldSize(size: number) {
   state.tiles = new Uint8Array(cells).fill(TileType.Empty);
   state.biomes = new Uint8Array(cells).fill(Biome.Plains);
   state.explored = new Uint8Array(cells);
+  state.siteGrounds = new Uint8Array(cells);
   state.cellHead = new Int32Array(cells);
   state.routeCost = new Float64Array(cells);
   state.routeParent = new Int32Array(cells);
@@ -505,6 +512,7 @@ export function generateWorld() {
   state.castleRuinCenter = null;
   hearths.clear();
   clearOwners();
+  clearSites();
   resetGoals();
   state.tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
   state.townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
@@ -513,6 +521,8 @@ export function generateWorld() {
   const placedSites: TileCoord[] = [];
   placeAbbey(placedSites);
   placeCastleRuin(placedSites);
+  // Forts phase B: the stamped NPC forts (before the scatter, so only ponds compete for their ground).
+  generateForts();
   scatterResourceTiles(TileType.Tree, state.TREE_COUNT);
   scatterResourceTiles(TileType.IronOre, state.IRON_ORE_COUNT);
   scatterResourceTiles(TileType.Rock, state.ROCK_COUNT);

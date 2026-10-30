@@ -176,7 +176,7 @@ export function foundClan(player: Player): Clan | null {
 export function clanTilesForSnapshot(): number[] {
   const out: number[] = [];
   for (let i = 0; i < state.tiles.length; i++) {
-    if (isClanOwnableTile(state.tiles[i] as TileType)) out.push(i, clanIdAtIndex(i));
+    if (isClanOwnableTile(state.tiles[i] as TileType) && !tileOwner.has(i)) out.push(i, clanIdAtIndex(i));
   }
   return out;
 }

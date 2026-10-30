@@ -4,6 +4,7 @@ import type { WebSocket } from "ws";
 import type {
   ColonistKind, Stance, FormationShape, HeroClass, MobKind, BossTier, HungerMark, GateLock, WildlifeKind, ArmyOrder,
   Difficulty, TileType, SiegeKind, Equipment, GearItem, HeroStats, SpellId, EquipSlot, FightKind, FightSnapshot,
+  SiteFaction,
 } from "@colony/shared/protocol";
 import type { snapshotWorld } from "./saves.js";
 
@@ -207,7 +208,70 @@ export interface Mob {
 }
 // Ruins and encampments are the small scattered sites; "castleRuin" is the one Castle Ruin and
 // "miniBoss" a mini-boss pack (ROADMAP Phase 5). All share the dormant-until-provoked wake mechanic.
-export type PoiSiteKind = "ruin" | "encampment" | "castleRuin" | "miniBoss";
+// Forts phase B: "fort" = a stamped NPC fort (a SiteState in `sites`, keyed by the mobs' siteId).
+export type PoiSiteKind = "ruin" | "encampment" | "castleRuin" | "miniBoss" | "fort";
+// ---- Forts phase B (PLAN-forts-diplomacy-moats.md §2, §8): stamped NPC fort sites ----
+export type SiteTemplateId = "thornwick" | "grakkar";
+export interface SiteTemplate {
+  id: SiteTemplateId;
+  faction: SiteFaction;
+  // "Palisade" / "Stockade": the site name is "<picked name> <label>".
+  label: string;
+  names: string[];
+  // ASCII grid (legend SITE_TEMPLATE_TILES) at the MAX tier; `tiers` is a same-size grid giving, per
+  // non-"." cell, the tier (digit 1-4) that adds it. Rows must all have the same length.
+  rows: string[];
+  tiers: string[];
+  maxTier: number;
+  startTier: number;
+  // Garrison at the start tier (kind -> count).
+  garrison: Partial<Record<MobKind, number>>;
+  // Starting stockpile (looted in part on clearing, stage 2).
+  stock: Partial<Record<ResourceKey, number>>;
+  // Rebuild-the-keep cost (capture, stage 3).
+  rebuildCost: Partial<Record<ResourceKey, number>>;
+}
+export interface SiteState {
+  // = the mobs' siteId (and the hearth's); num = its owner-map site number (ownerSiteIds index + 1).
+  id: string;
+  num: number;
+  kind: "fort";
+  faction: SiteFaction;
+  template: SiteTemplateId;
+  name: string;
+  // Template rectangle (tiles, inclusive); the reserved grounds add `apron` tiles around it.
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  apron: number;
+  keepX: number;
+  keepY: number;
+  // Leash centre / muster point: a yard tile next to the keep.
+  homeX: number;
+  homeY: number;
+  // Growth stage (phase G grows it; the stamper lays the template's cells up to this tier).
+  tier: number;
+  growthTick: number;
+  // Dormancy (stage 2): simulated while a colony unit is within SITE_AWAKE_RADIUS_TILES.
+  awake: boolean;
+  lastSimTick: number;
+  provoked: boolean;
+  stock: Partial<Record<ResourceKey, number>>;
+  // Garrison: kind -> count it is stamped / refilled with, its max, and the living members' mob ids.
+  garrisonRoster: Partial<Record<MobKind, number>>;
+  garrisonMax: number;
+  garrison: string[];
+  // Mob ids doing the cosmetic yard walks while awake (stage 2); spawn tiles of the garrison.
+  workers: string[];
+  posts: number[];
+  // "Fort sighted" toast sent (stage 3).
+  sighted: boolean;
+  // Keep razed (site broken); captured = its keep was rebuilt into a clan's outpost (stage 3).
+  cleared: boolean;
+  captured: boolean;
+  capturedBy?: number;
+}
 export interface RespawnRequest {
   tx: number;
   ty: number;

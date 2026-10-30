@@ -2098,6 +2098,77 @@ Four user asks in one pass. Constants: `FOOTPRINT_*` / `FORGE_AUTO_*` / `GEAR_PI
    holds the target of each (use - / + to change it) and pauses when iron / wood would drop under 20. Save, load:
    still On.
 
+## Forts phase B stage 1 — landed 2026-10-30 (stamper, SiteState, world-gen forts, saves)
+
+Plan: `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §2 / §8 / §10 "B". Only STAGE 1 of phase B (the user paused it
+there): the forts exist on the map, are owned and saved, and their garrisons are the ordinary dormant-guardian packs.
+Stages 2-4 (sleeping sites, leash, loot share, capture / rebuild, client markers / panels, `sites-test.mjs`) are NOT
+built; handoff in `~/docs/colony2d/QUEUE.md`.
+
+- **Module** `server/src/sites.ts` (imported in index.ts after hearths): `validateTemplate`, `cellAtTier`,
+  `siteFitProblem`, `stampSiteTemplate`, `generateForts`, `rebuildSiteGrounds` / `isInSiteGrounds` /
+  `nearSiteGrounds`, `sitesForSave` / `restoreSites`, `onFortKeepDestroyed`, `siteByNum`. Container `sites` (state.ts,
+  siteId -> `SiteState`, types.ts) and the mask `state.siteGrounds` (Uint8Array, 1 = a standing fort's reserved
+  grounds; reallocated in `setWorldSize`).
+- **Templates** (`SITE_TEMPLATES`, constants.ts, legend `SITE_TEMPLATE_TILES`): ASCII grid at max tier + a same-size tier
+  grid. `thornwick` = Thornwick Palisade (bandit, 21x13, tiers 1-3, garrison 4 clubmen + 3 archers + 1 elite = 8);
+  `grakkar` = Grakkar Stockade (orc, 29x21, tiers 1-4, garrison 4 orcs + 2 goblins + 2 crossbows + 1 armoured orc + 1
+  shaman = 10). Both stamp at tier 2: wood wall ring (connected wall art), one gate (S; the N / E gates are tier 3 and
+  stand as wall), one tower, tents, campfires, crates, pen fences, farm plots, a cart (forge) and barrels (ore heap), and
+  the keep. Names "<random from the template list> Palisade / Stockade", unique per world. Tier 4 moat / drawbridge
+  rows are reserved but left open (phase H).
+- **Stamping**: rectangle + 2-tile apron cleared, every stamped cell owned by the site (`setOwner`, site number via
+  `siteNumber`), yard tiles stay Empty and unowned; gates registered closed (NPC gates per phase A); the keep tile
+  (`TileType.SiteKeep` 77) is the site's **hearth** (`registerHearth(..., "fort")`, HP 350 at tier 2 from
+  `SITE_KEEP_HP_BY_TIER`), so the existing hearth attack / destroy / rout / loot code applies; destroying it leaves
+  `TileType.RuinedKeep` 78 (still owned) and marks the site `cleared` (the camp props around it are not burnt, the
+  walls stand). The garrison spawns as dormant guardians (`siteKind "fort"`) on yard tiles inside the walls (flood fill
+  from the keep), nearest the keep, not next to a gate. Tents are `TileType.Tent` 79 (solid, damageable: soldiers can
+  burn them). Old encampments / ruins are unchanged.
+- **World-gen** (`generateForts`, after the Abbey / Castle Ruin, before resources): orc stockades first (outer ring >=
+  0.3 x map side from the start for the first half of the attempts), then palisades; centres >= 50 tiles from every Town
+  Center, >= 40 from each other; the whole grounds on Empty ground (no ponds), off the Abbey / Castle Ruin grounds +4.
+  Counts `round(n512 x (size/512)^1.4)`: 512 -> 10 orc + 12 bandit (22, all placed in the smoke test), 256 -> 4 + 5,
+  160 -> 2 + 2 (3-4 fit). Maps < 128 (the 80 / 96 test worlds) get none. 512 world-gen ~2.5 s total.
+- **Keep-offs**: scatter, forage, wildlife, tree regrowth skip the grounds (`isInReservedGrounds`); ruins / camps /
+  mini-boss packs keep 4 + 2 tiles off them; player builds inside the grounds are refused ("Too close to an enemy
+  fort"; demolish still allowed); `townCenterSpotOk` refuses within 6 tiles of the grounds (also `findClanSite`);
+  `anyPlayerBuilding` (goal "Place a building") and snapshot `clanTiles` ignore NPC-owned tiles.
+- **Saves**: optional `sites` (SiteState list) after `owners` / `ownerSites`; on load `restoreSites` re-registers site
+  numbers and rebuilds the grounds mask, and `backfillHearths` now runs after the owners so a fort's campfires never
+  get a backfilled camp hearth. Old saves: no forts. No SAVE_VERSION bump.
+- **Protocol (additive)**: `TileType.SiteKeep 77 / RuinedKeep 78 / Tent 79` (solid), `SiteFaction`. No new snapshot
+  fields yet (the minimap shows fort tiles red through phase A's `siteTiles` once explored).
+- **Client**: stand-in art (tinted) Tent = militia camp tent, SiteKeep = castle keep, RuinedKeep = rubble; optional
+  dedicated art `siteTent` / `siteKeep` / `ruinedKeep` (TILE_OPTIONAL_ART) when it lands.
+- **Test hooks**: `stampSite {template, x0, y0 | dx, dy (centre from the first Town Center), tier?, name?, search?}`
+  (clears natural ground, refuses over buildings / other grounds, `search` = rings to look for a fit) and `sitesState`
+  (every site + hearth + living garrison + grounds tile count). Helper `server/stamp-site.mjs`.
+- **Tests**: no new test file yet (stage 4). Smoke-checked by script at 160 / 256 / 512 (counts, spacing, dormant
+  garrisons inside the walls, keep = hearth, overlap refused, build refused in the grounds, keep destroyed -> RuinedKeep
+  + cleared, save / load keeps sites, owners, numbers and grounds). Updated: `camp-hearth-test` picks an `encampment`
+  hearth (fort keeps are hearths too), `settlement-pop-test` keeps its second Town Center 14 tiles from fort tiles.
+  Sample `owner-map gates-walls world-512 starting-stock orders-test settlement-pop tactics-test raid-morale
+  regiment-groups scale-rider camp-hearth town-center save-load minimap-fog farm-gear` passes (owner-map's known flake
+  aside). Pre-existing, also failing on d4496a6 without these changes: `clans-test` (section E "clan 1 orders its own
+  knight" + an exception after it), `world-gen-poi` (bandit maxHp vs size roll; pasture +360 meat expected +90).
+- **Caveats (until stage 2)**: a woken fort garrison behaves like any woken guardian pack (walks to the colony, no
+  leash); fort towers fire at any player / colonist in range at all times (phase A rule, no dormancy yet); destroying the
+  keep pays the plain hearth loot (`HEARTH_LOOT_PER_GUARDIAN` x garrison, toast "The orc camp breaks"), not a stock share;
+  the RuinedKeep has no info panel / rebuild yet; no minimap marker / sighted toast.
+
+**Manual browser check (forts phase B stage 1)** — server with `COLONY_TEST_HOOKS=1` and a scratch `COLONY_SAVE_DIR`
+(default world 160, or `COLONY_WORLD_SIZE=512`):
+1. `cd server && PORT=<port> node stamp-site.mjs list` prints every fort with its keep tile and distance from your Town
+   Center. `node stamp-site.mjs thornwick` (or `grakkar`, optional `dx dy`, default 30 tiles east) stamps one near you.
+2. Walk there: a wood palisade ring (connected wall art) tinted salmon, one closed gate on the south side, a tower in a
+   corner, tents, campfires, crates, pens, a dark keep in the middle; bandits / orcs standing still inside. On the minimap
+   the walls show red once explored.
+3. Try to build next to the walls: "Too close to an enemy fort". Stand near the tower: it shoots you (phase A).
+4. Break in (ram / knights through a wall) and attack the keep: the garrison wakes, the keep's HP bar drops; at 0 it
+   becomes rubble-looking "ruined keep", the garrison routs, plunder toast; the walls and tents stay.
+5. Save, load: the fort (and the ruined keep) are still there, still tinted.
+
 ## Known failing tests — 2026-10-29 (test harness)
 
 `npm test` (`scripts/run-tests.mjs`, see README "Tests") runs every `server/*-test.mjs` and `client/*-test.mjs`.

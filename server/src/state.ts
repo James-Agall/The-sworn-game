@@ -7,7 +7,7 @@ import {
 import type {
   ResourceKey, ActiveFight, Body, ChargeRun, Colonist, ConstructionSiteState, FarmPlotState, FightHit, ForgeQueueState, GateState,
   HearthState, HeroProfile, HeroRecruit, Mob, OrderGroup, Player, PlayerMoraleState, RaidGroup, RegimentState,
-  RespawnRequest, SiegeWorkshopState, SpellStatus, TileCoord, TownCenter, Wildlife,
+  RespawnRequest, SiegeWorkshopState, SiteState, SpellStatus, TileCoord, TownCenter, Wildlife,
 } from "./types.js";
 import {
   EXPLORED_FLUSH_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS, RAID_MAX_SPAWN_DIST_TILES, SUBLINEAR_FULL_SCALE,
@@ -55,6 +55,9 @@ export interface OwnersFields {
   // Clans: bumped whenever tileClan changes (snapshot `clanTiles` is resent).
   clanTilesVersion: number;
   moverOwner: number;
+  // Forts phase B: 1 per tile inside a standing (uncaptured) fort's reserved grounds (template rectangle
+  // + apron); rebuilt by sites.ts rebuildSiteGrounds. Scatter / regrowth / POIs / player builds keep off.
+  siteGrounds: Uint8Array<ArrayBuffer>;
 }
 
 export interface RoutingFields {
@@ -574,6 +577,7 @@ state.ENCAMPMENT_SITE_COUNT_MAX = scaledCountSub(10);
 state.MINI_BOSS_SITE_COUNT_MIN = Math.max(1, scaledCountSub(0.75));
 state.MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCountSub(1.25));
 state.explored = new Uint8Array(state.WORLD_TILES_X * state.WORLD_TILES_Y);
+state.siteGrounds = new Uint8Array(state.WORLD_TILES_X * state.WORLD_TILES_Y);
 
 // ---- In-place containers (only mutated, never reassigned) ----
 
@@ -612,6 +616,9 @@ export const mobsWithoutRoute = new Set<string>();
 // number of the mob currently moving / pathing (0: none), read by gatePassable next to hostileMover.
 export const tileOwner = new Map<number, number>();
 export const ownerSiteIds: string[] = [];
+// Forts phase B (PLAN-forts-diplomacy-moats.md §2): stamped NPC forts by siteId (= their mobs' siteId,
+// their hearth's key and ownerSiteIds[num - 1]). Saved as `sites`; old saves have none.
+export const sites = new Map<string, SiteState>();
 // Colonist id -> tile index of the site wall / gate it is breaching on the way to its structure target
 // (the target itself is walled off; see structureStep). Not saved: a load re-plans.
 export const structureBreach = new Map<string, number>();

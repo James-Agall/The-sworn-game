@@ -52,6 +52,7 @@ import { siegeUnitsAt, siegeWorkshopInfo } from "./siege.js";
 import { blacksmithForgeInfo, keepHeroInfo } from "./heroes.js";
 import { churchSpellShop } from "./spells.js";
 import { START_VISION_OFFSETS, broadcastEvent, broadcastTileUpdate, revealAround } from "./net.js";
+import { isInSiteGrounds, nearSiteGrounds } from "./sites.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
 
 export function upgradeKnightAt(tx: number, ty: number, level: number) {
@@ -554,6 +555,8 @@ export function townCenterTooClose(tx: number, ty: number): boolean {
 export function townCenterSpotOk(tx: number, ty: number): boolean {
   if (townCenterTooClose(tx, ty)) return false;
   if (state.abbeyCenter && Math.hypot(state.abbeyCenter.x - tx, state.abbeyCenter.y - ty) < ABBEY_GROUNDS_RADIUS + TOWN_CENTER_POI_CLEARANCE_TILES) return false;
+  // Forts phase B: not next to a fort's reserved grounds either.
+  if (nearSiteGrounds(tx, ty, TOWN_CENTER_POI_CLEARANCE_TILES)) return false;
   const r = TOWN_CENTER_POI_CLEARANCE_TILES;
   for (let y = ty - r; y <= ty + r; y++) {
     for (let x = tx - r; x <= tx + r; x++) {
@@ -825,6 +828,11 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   // Forts phase A: an NPC site's tile can be neither demolished nor built on / upgraded.
   if (ownerAt(tileIndex(tx, ty)) !== 0) {
     sendEvent(player, "build", "That belongs to an enemy fort");
+    return;
+  }
+  // Forts phase B: nothing is built inside a fort's reserved grounds (template rectangle + apron).
+  if (tile !== TileType.Empty && isInSiteGrounds(tx, ty)) {
+    sendEvent(player, "build", "Too close to an enemy fort");
     return;
   }
   // Clans: another clan's buildings are theirs alone.

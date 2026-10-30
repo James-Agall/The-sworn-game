@@ -199,7 +199,8 @@ try {
   // ---- H: camp hearth ----
   let hs = await c.hookCall("hearthState");
   const total = hs.hearths.length;
-  const camp = hs.hearths.find((h) => !h.destroyed && h.guardians.length >= 2 && h.guardians.every((g) => !g.active));
+  // Forts phase B: fort keeps are hearths too (siteKind "fort"); this section is about the loose camps.
+  const camp = hs.hearths.find((h) => h.siteKind === "encampment" && !h.destroyed && h.guardians.length >= 2 && h.guardians.every((g) => !g.active));
   result(!!camp && camp.hp === 150 && camp.tile === T.PropCampfire && /bandit/.test(camp.faction), `${total} hearths; picked ${camp?.faction} camp at (${camp?.x},${camp?.y}) hp ${camp?.hp}, ${camp?.guardians.length} guardians`);
   const snapH = (await c.freshSnap()).hearths ?? [];
   result(snapH.includes(camp.y * c.W() + camp.x), "snapshot `hearths` lists it");

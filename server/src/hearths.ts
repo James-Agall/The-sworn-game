@@ -26,6 +26,7 @@ import { grantTieredEquipment, heroRelicForHearth, weaponDamageMult } from "./he
 import { spellBuffDamageMult } from "./spells.js";
 import { leaveOrderGroup } from "./orders.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
+import { onFortKeepDestroyed } from "./sites.js";
 
 export function hearthEvent(siteId: string, type: string, detail?: string) {
   hearthEvents.push({ tick: state.cycleTick, type, siteId, detail });
@@ -94,7 +95,8 @@ export function backfillHearths() {
   }
   const campfires: TileCoord[] = [];
   for (let i = 0; i < state.tiles.length; i++) {
-    if (state.tiles[i] === TileType.PropCampfire && !claimed.has(i)) campfires.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
+    // Forts phase B: a fort's campfires are decor (its hearth is the keep, saved with the site).
+    if (state.tiles[i] === TileType.PropCampfire && !claimed.has(i) && !tileOwner.has(i)) campfires.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
   }
   for (const [siteId, members] of sites) {
     const cx = members.reduce((s, m) => s + m.x, 0) / members.length / TILE_SIZE;
@@ -132,18 +134,22 @@ export function destroyHearth(h: HearthState, attackerKey?: string) {
   h.hp = 0;
   state.campsDestroyed++;
   const centre = tileToPixelCenter(h);
-  // The fire burns out: the hearth tile becomes scorched rubble, the camp's props around it burn away.
-  state.tiles[tileIndex(h.x, h.y)] = TileType.RuinRubble;
-  broadcastTileUpdate(h.x, h.y, TileType.RuinRubble);
   state.pendingEffects.push({ fromX: centre.x, fromY: centre.y, toX: centre.x, toY: centre.y, boulder: true });
-  for (const o of NEIGHBORS_8) {
-    const x = h.x + o.x;
-    const y = h.y + o.y;
-    if (!inBounds(x, y) || !ENCAMPMENT_EXTRAS.includes(state.tiles[tileIndex(x, y)] as TileType)) continue;
-    state.tiles[tileIndex(x, y)] = TileType.Empty;
-    broadcastTileUpdate(x, y, TileType.Empty);
-    const p = tileToPixelCenter({ x, y });
-    state.pendingEffects.push({ fromX: p.x, fromY: p.y, toX: p.x, toY: p.y, boulder: true });
+  // Forts phase B: a fort's keep falls to a RuinedKeep (the site is cleared; its other tiles stand).
+  if (h.siteKind === "fort") onFortKeepDestroyed(h.siteId);
+  else {
+    // The fire burns out: the hearth tile becomes scorched rubble, the camp's props around it burn away.
+    state.tiles[tileIndex(h.x, h.y)] = TileType.RuinRubble;
+    broadcastTileUpdate(h.x, h.y, TileType.RuinRubble);
+    for (const o of NEIGHBORS_8) {
+      const x = h.x + o.x;
+      const y = h.y + o.y;
+      if (!inBounds(x, y) || !ENCAMPMENT_EXTRAS.includes(state.tiles[tileIndex(x, y)] as TileType)) continue;
+      state.tiles[tileIndex(x, y)] = TileType.Empty;
+      broadcastTileUpdate(x, y, TileType.Empty);
+      const p = tileToPixelCenter({ x, y });
+      state.pendingEffects.push({ fromX: p.x, fromY: p.y, toX: p.x, toY: p.y, boulder: true });
+    }
   }
   // Every guardian of the site breaks: a "leave" rout away from the attackers (or the hearth).
   const members = Array.from(mobs.values()).filter((m) => m.siteId === h.siteId);

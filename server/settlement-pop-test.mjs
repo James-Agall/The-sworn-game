@@ -25,6 +25,10 @@ const result = (ok, msg) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T = { Empty: 0, TownCenter: 12, HunterHut: 50, Keep: 73, MilitiaPost: 32, House: 13 };
 const POI = new Set([36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48]);
+// Forts phase B: world-gen NPC forts (wood wall, gate, tower, keep, ruined keep, tent; nothing of the colony's
+// is built yet when spots are picked). Their reserved grounds refuse buildings, so keep well clear.
+const FORT = new Set([1, 70, 62, 77, 78, 79]);
+const FORT_CLEARANCE = 14;
 const TILE = 32;
 const REACH = TILE * 2.5;
 const DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -102,6 +106,7 @@ function townCenterSpots(c, tcs) {
       if (Math.hypot(tcs[0].x - x, tcs[0].y - y) > 40) continue;
       let poi = false;
       for (let dy = -7; dy <= 7 && !poi; dy++) for (let dx = -7; dx <= 7; dx++) if (POI.has(c.tileAt(x + dx, y + dy))) poi = true;
+      for (let dy = -FORT_CLEARANCE; dy <= FORT_CLEARANCE && !poi; dy++) for (let dx = -FORT_CLEARANCE; dx <= FORT_CLEARANCE; dx++) if (FORT.has(c.tileAt(x + dx, y + dy))) poi = true;
       if (!poi) spots.push({ x, y });
     }
   return spots;

@@ -5,7 +5,8 @@ import {
   TileType, type WildlifeKind, WILDLIFE_KINDS, type MobKind, HungerMark, TILE_SIZE, SIEGE_KINDS, COLONIST_ROLE,
   MOB_ROLE, type ColonistKind, type Stance, type EquipSlot, HERO_CLASSES, type HeroClass,
 } from "@colony/shared/protocol";
-import type { Player, RaidGroup, ResourceKey, TileCoord } from "./types.js";
+import type { Player, RaidGroup, ResourceKey, SiteTemplateId, TileCoord } from "./types.js";
+import { siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
 import {
   ARMOUR_DAMAGE_TAKEN_MULT, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, DAY_LENGTH_SCALE, DAY_TICKS,
   DESERTER_ACTIVATION_TICKS, DUSK_RESPAWN_CYCLE_TICK, FARMHAND_CYCLE_TICKS, FARMHAND_YIELD_PER_CYCLE,
@@ -14,6 +15,7 @@ import {
   FORAGE_RIPE_TO_PICKED, GAME_DAY_TICKS, HERO_KEY_PREFIX, LEGACY_DAY_TICKS, LEGACY_GAME_DAY_TICKS,
   LEGACY_NIGHT_TICKS, MOB_KIND_CONFIG, MORALE_MAX, NIGHT_TICKS, RAID_FACTIONS, RESPAWN_FOOD_COST, STANCES,
   TOWER_COSTS, TOWER_STATS, WEAPON_DAMAGE_MULT,
+  SITE_TEMPLATES,
 } from "./constants.js";
 import {
   attackerSlots, buildingHp, colonists, constructionSites, equipEvents, farmPlots, forageRegrow,
@@ -21,6 +23,7 @@ import {
   ownerSiteIds, playerMorale, raidGroups, regiments, repairPaid, repairQueue, respawnQueue, routedUnits, siegeEvents,
   siegeWorkshops, spellCooldowns, spellEvents, spellStatuses, state, summonedUntil, tacticsEvents, tickDurationsMs,
   tileOwner, towerCooldowns, towerEvents, walledSites, wildlife,
+  sites,
 } from "./state.js";
 import {
   getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, setOwner, siteNumber, tileIndex, tileOfPixel,
@@ -267,6 +270,50 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       }
     }
     reply({ siteId, site: num, gate, tower, walls });
+  } else if (msg.op === "stampSite" && typeof msg.template === "string" && msg.template in SITE_TEMPLATES) {
+    // Forts phase B: stamp a real fort template ({template: "thornwick" | "grakkar", x0, y0} top-left, or
+    // {dx, dy}: its centre that far from the first Town Center; tier?, name?, search? tiles to look around). Clears natural ground (trees,
+    // rock, water) in the rectangle + apron; refuses ({site: null, problem}) over buildings / other grounds.
+    const t = SITE_TEMPLATES[msg.template as SiteTemplateId];
+    const { w, h } = templateSize(t);
+    const tc = state.townCenters[0] ?? { x: state.WORLD_TILES_X >> 1, y: state.WORLD_TILES_Y >> 1 };
+    let x0 = typeof msg.x0 === "number" ? Math.floor(msg.x0) : tc.x + Math.floor(Number(msg.dx ?? 30)) - (w >> 1);
+    let y0 = typeof msg.y0 === "number" ? Math.floor(msg.y0) : tc.y + Math.floor(Number(msg.dy ?? 0)) - (h >> 1);
+    let problem = siteFitProblem(t, x0, y0, true);
+    // {search: r}: else the nearest fitting top-left within r tiles (rings outward).
+    const search = typeof msg.search === "number" ? Math.min(60, Math.floor(msg.search)) : 0;
+    for (let r = 1; problem && r <= search; r++) {
+      for (let dy = -r; dy <= r && problem; dy++) {
+        for (let dx = -r; dx <= r && problem; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || siteFitProblem(t, x0 + dx, y0 + dy, true)) continue;
+          x0 += dx;
+          y0 += dy;
+          problem = null;
+        }
+      }
+    }
+    if (problem) reply({ site: null, problem, x0, y0 });
+    else {
+      const site = stampSiteTemplate(t.id, x0, y0, {
+        tier: typeof msg.tier === "number" ? msg.tier : undefined, name: typeof msg.name === "string" ? msg.name : undefined, broadcast: true,
+      });
+      reply({ site: { ...site } });
+    }
+  } else if (msg.op === "sitesState") {
+    // Forts phase B: every fort with its hearth (keep) and living garrison.
+    reply({
+      sites: Array.from(sites.values(), (st) => {
+        const hearth = hearths.get(st.id);
+        const members = Array.from(mobs.values()).filter((m) => m.siteId === st.id);
+        return {
+          ...st, hearth: hearth ? { hp: hearth.hp, maxHp: hearth.maxHp, destroyed: hearth.destroyed } : null,
+          keepTile: state.tiles[tileIndex(st.keepX, st.keepY)],
+          alive: members.map((m) => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, active: m.guardianActive })),
+        };
+      }),
+      grounds: state.siteGrounds.reduce((n, v) => n + v, 0),
+      worldSize: state.WORLD_TILES_X,
+    });
   } else if (msg.op === "setOwner" && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // Forts phase A: one tile's owner (siteId string, or null for the colony).
     if (inBounds(msg.tx, msg.ty)) setOwner(tileIndex(msg.tx, msg.ty), siteNumber(typeof msg.siteId === "string" ? msg.siteId : null, true));
