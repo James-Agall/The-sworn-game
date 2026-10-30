@@ -40,10 +40,37 @@ code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checkl
   gear ("N soldiers equipped" toast); Blacksmith panel has Autocraft On/Off and a target -/+. Full list: ROADMAP.md
   "Hemp, pastures, gear pickup, forge autocraft — landed".
 
-## 5. Forts (phase A only: no forts exist in the world yet)
-- With the game running: `node server/stamp-test-fort.mjs` drops a small test fort 12 tiles east of your Town Center
-  (needs the test-hook server). Soldiers attack its gate, tower, walls; destroyed walls become rubble; the fort's
-  tower shoots you; its own gate opens only for its bandits.
+## 5. Forts phase B (sleeping forts, leash, loot, capture)
+The client always connects to :8080, so close your normal game first, then start the dev copy with test hooks and a
+scratch save dir (never your real saves) from the repo root:
+`COLONY_TEST_HOOKS=1 COLONY_SAVE_DIR=/tmp/colony-forts COLONY_WORLD_SIZE=256 npm run dev`, open http://localhost:5173.
+World-gen already places forts on maps of 160+ (256: about 4 orc stockades + 5 bandit palisades, at least 50 tiles from
+your start).
+1. **Find one.** `cd server && node stamp-site.mjs list` prints every fort, its keep tile and distance from your Town
+   Center. To get one close by: `node stamp-site.mjs thornwick 30 0` (or `grakkar`; dx dy = tiles from the Town
+   Center). Walk towards it.
+2. **Sighted.** When the keep comes into view: toast "<name> sighted (bandit palisade)" and a small flag on the
+   minimap at the keep (orange = bandit, olive = orc). The flag stays after you leave.
+3. **Asleep vs awake.** From far away nothing at the fort moves or shoots. Walk up: within 12 tiles of the keep (or 3 of
+   the walls) the whole garrison wakes at once and comes at you through the gate; the tower shoots.
+4. **Leash.** Back off slowly. The defenders chase you only to about 16 tiles from the keep, then turn round and walk
+   home (a bit faster than normal). Wait out of sight about 5 s: the hurt ones heal at home; after 20 s calm they stand
+   still again (asleep). Raid waves at night are NOT leashed (they still come all the way).
+5. **Anti-kite.** Shoot defenders from beyond the leash ring with archers 3 times: toast "<name> sallies out against
+   the skirmishers!" and for 8 s the melee defenders keep chasing past the leash, the tower reaches 2 tiles further.
+6. **Fort info.** Left-click any fort tile (wall, gate, tower, tent, keep): the panel says "<fort>: Wall" (or Keep with
+   its HP), the faction / tier and "Garrison n/8" ("(asleep)" while nobody is near).
+7. **Clear + loot.** Break in (ram or knights through a wall) and destroy the keep: toast "<fort> falls! Plundered ...
+   " with more than a camp gives (it includes half the fort's stockpile, e.g. grain); the keep becomes a ruined keep,
+   the garrison routs; the minimap flag turns grey. The fort's gates now let your units through.
+8. **Capture.** Left-click the ruined keep: "Rebuild keep: 40 wood + 20 rock". It is disabled with "Defenders still hold
+   the fort" while any of its mobs is inside the walls, "Walk up to the keep" when you are far. Click Rebuild: builders
+   walk over and build a Town Center there (toast "<fort> Outpost stands: the fort is yours"). Then: the Town Center
+   panel is named "<fort> Outpost" with its own population cap; the walls / gates / tower are yours (no salmon tint;
+   your towers shoot monsters; the gate opens for your units, lock buttons work); you can build inside the old fort;
+   the minimap flag takes your colour.
+9. **Save / load** at any point (asleep, cleared, captured): everything comes back as it was.
+With 2+ clans: a second player's clan can capture a fort too; it becomes that clan's outpost (their colour).
 
 ## 6. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.

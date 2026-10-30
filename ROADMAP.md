@@ -2098,6 +2098,57 @@ Four user asks in one pass. Constants: `FOOTPRINT_*` / `FORGE_AUTO_*` / `GEAR_PI
    holds the target of each (use - / + to change it) and pauses when iron / wood would drop under 20. Save, load:
    still On.
 
+## Forts phase B — landed 2026-10-30 (stages 2-4: sleeping sites, leash, loot, capture, markers, sites-test)
+
+Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §2 (phase B done; stage 1 below). Commits "Forts phase B stage 2 /
+3 / 4". Browser checklist: MANUAL-TESTS.md §5.
+- **Sleeping sites** (`updateSites`, sites.ts, 1 Hz from sim.ts): a fort is `awake` while a living player / colonist
+  (any clan) is within `SITE_AWAKE_RADIUS_TILES` 96 (Chebyshev) of the keep. Asleep: its towers skip `updateTowers`
+  and its gates skip `updateGates` (`siteNumAsleep`); dormant guardians already did nothing. Waking runs `catchUpSite`
+  (one guardian back per `SITE_REFILL_TICKS` 60 s slept, missing roster kinds, up to `garrisonMax`, on `posts`).
+  Provoke: a unit within `SITE_AGGRO_TILES` 12 of the keep / `SITE_AGGRO_EDGE_TILES` 3 of the rectangle wakes the whole
+  garrison (damage still does too).
+- **Leash, site guardians only** (`siteLeash` + `leashStep` in mobs.ts; `SITE_LEASH_TILES` fort 16 / encampment 12 /
+  ruin 12 / miniBoss 14; raid mobs, deserters and the Castle Ruin are untouched): targets picked (once a second) only
+  within the leash of home (fort: `homeX/Y`; others: the mob's `postX/Y`, set at spawn, lazily for old saves); a target
+  past leash + 2 is dropped; a mob past leash + 3 walks back to its post x1.2, ignoring targets 2 s. At home with no
+  colony unit within 10 tiles and no damage: +4% max HP / s after 5 s, dormant again after 20 s (`site.provoked` clears
+  when the whole garrison sleeps).
+- **Anti-kite** (forts): 3 hits from attackers beyond the leash ring (`noteSiteHit` in damageMob, decays 1 / 4 s) ->
+  8 s surge (leash +6, its towers +2 range, melee defenders not leashed), 12 s cooldown; toast "<fort> sallies out".
+- **Clearing**: razing the keep adds `SITE_LOOT_STOCK_SHARE` 50% of `site.stock` to the plunder (`plunderSiteStock`);
+  toast "<fort> falls! Plundered ..."; a cleared fort's gates are passable for colony units (`gatePassable` +
+  `siteNumCleared`) so builders can reach the keep.
+- **Capture** (`rebuildKeep {tileX, tileY}` -> `handleRebuildKeep`, construction.ts): on a cleared fort's RuinedKeep,
+  cost = template `rebuildCost` (40 wood + 20 rock), refused while any of the site's mobs is inside the rectangle
+  ("Defenders still hold the fort"), beyond REACH x3, within the Town Center spacing, unaffordable or without builders.
+  It skips the fort-grounds / "no Town Center near a fort" refusals. The keep tile is un-owned + the sender's clan,
+  then a normal Town Center ConstructionSite (instant with `setInstantBuild`). When it resolves
+  (`resolveTownCenterPlacement`) `captureSite`: `TownCenter.name` = "<fort> Outpost" (snapshot `name`, panel title),
+  every site-owned tile -> owner 0 + `tileClan` = that clan (walls / gates / towers keep HP; gates lock "auto"; tents /
+  props stay decor), `captured` / `capturedBy`, grounds mask rebuilt (you can build inside). Own pop cap as any Town
+  Center.
+- **Client**: any fort tile opens the info panel ("Thornwick Palisade: Wall", faction / tier, garrison n/max,
+  "(asleep)"); RuinedKeep panel has a "Rebuild keep" button (`BuildingInfo.keep`, `#bp-keep-row`). Minimap: a flag on
+  every sighted fort's keep (orange bandit, olive orc, grey razed, clan colour captured) from the additive snapshot
+  `sites?: SiteSnapshot[]` (sent with `siteTiles`). "<fort> sighted" toast once its keep tile is explored.
+- **Saves**: nothing new beyond optional fields (`SiteState.kiteHits / surgeUntilTick / surgeCooldownUntilTick`,
+  `Mob.postX / postY / leashReturnUntilTick / leashCalmSinceTick`, `TownCenter.name`); no SAVE_VERSION bump.
+- **Test hooks**: `siteSet {siteId, fields}` (numeric SiteState fields, e.g. `lastSimTick`), `sitesState` now lists
+  hp / post / target per guardian and `nearestUnit` (what keeps a fort awake).
+- **Tests**: `server/sites-test.mjs` (own 256 server, paused, ~10 s): dormancy, refill after a faked sleep, provoke,
+  chase + leash on a retreating player, heal, re-dormant, back on posts, sighted toast, keep razed + named toast + loot
+  share, rebuild refused with defenders inside, rebuild -> "<fort> Outpost" Town Center + cost + owners released +
+  grounds released + snapshot `sites`, save / load. `owner-map-test` now gives its leashed site mob a knight outside
+  the gate to walk out to (it used to walk to the far Town Center). Regression sample `owner-map camp-hearth
+  gates-walls clans sites` passes (owner-map's known snapshot-timing flakes "GATE_FLAG_FOREIGN" / "siteTiles re-sent
+  after the load" aside).
+- **Caveats / not done**: no worker yard walks or stock production (phase G); towers of a captured fort are not added to
+  the repair queue; captured NPC farm plots / props are decor only; the refill only happens on waking (a fort kept
+  awake never refills); loot goes to the active clan's stock (the clan of the message / tick that razed the keep);
+  sighting uses the shared explored map (one toast per world, not per clan); minimap flags are drawn for sighted forts
+  only, unexplored ones stay hidden.
+
 ## Forts phase B stage 1 — landed 2026-10-30 (stamper, SiteState, world-gen forts, saves)
 
 Plan: `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §2 / §8 / §10 "B". Only STAGE 1 of phase B (the user paused it

@@ -50,11 +50,15 @@ function connect() {
     if (m.type === "welcome") {
       c.welcome = m;
       c.tiles = [...m.tiles];
-    } else if (m.type === "snapshot") c.snap = m;
+    } else if (m.type === "snapshot") {
+      c.snap = m;
+      if (m.sites) c.sites = m.sites;
+    }
     else if (m.type === "tileUpdate") c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX] = m.tile;
     else if (m.type === "event") c.events.push(m.text);
     else if (m.type === "testHookResult") c.hook.set(m.op, m);
-    else if (m.type === "saveResult" || m.type === "loadResult") c.saves.push(m);
+    else if (m.type === "saveResult") c.saves.push(m);
+    else if (m.type === "buildingInfo") c.info = m.info;
   });
 }
 const send = (m) => c.ws.send(JSON.stringify(m));
@@ -82,6 +86,8 @@ for (let i = 0; i < 200; i++) {
 }
 while (!c.snap) await sleep(20);
 const tc = c.snap.townCenters[0];
+// Paused: time only passes through fastForward (no real-time economy noise between checks).
+send({ type: "pause", paused: true });
 
 // Colonists wander up to ~20 tiles from the start: remove them all (respawns come back at the Town Center).
 const kinds = new Set((c.snap.colonists ?? []).map((u) => u.kind));
@@ -166,15 +172,70 @@ await ff(2);
 const after = (await hook("setStock", { stock: {} })).stock;
 s = await siteOf(id);
 const toast = c.events.find((e) => e.includes(`${site0.name} falls!`));
+const sighted = c.events.find((e) => e.startsWith(`${site0.name} sighted`));
+result(!!sighted, `C the fort was sighted on the way: "${sighted}"`);
 result(s.cleared && s.keepTile === T.RuinedKeep, `C keep razed: cleared ${s.cleared}, keep tile ${s.keepTile}`);
 result(!!toast, `C toast names the fort: ${toast ?? c.events.slice(-3).join(" | ")}`);
 const gotWood = after.wood - before.wood;
 result(gotWood >= Math.floor((site0.stock.wood ?? 0) * 0.5), `C loot includes the stockpile share (+${gotWood} wood, stock had ${site0.stock.wood})`);
 
-if (process.env.SITES_TEST_STAGE === "2") {
-  console.log(fails === 0 ? "ALL PASS" : `${fails} FAILED`);
-  process.exit(fails === 0 ? 0 : 1);
+// ---- K: capture by rebuilding the keep ----
+const info = async (tx, ty) => {
+  c.info = undefined;
+  send({ type: "buildingInfo", tileX: tx, tileY: ty });
+  for (let i = 0; i < 300 && c.info === undefined; i++) await sleep(10);
+  return c.info;
+};
+await hook("setStock", { stock: { wood: 500, rock: 500 } });
+s = await siteOf(id);
+const inside = s.alive.filter((m) => m.x >= s.x0 * TILE && m.x < (s.x1 + 1) * TILE && m.y >= s.y0 * TILE && m.y < (s.y1 + 1) * TILE);
+let ki = await info(site0.keepX, site0.keepY);
+result(
+  ki?.name === `${site0.name}: Ruined keep` && (inside.length === 0 || (ki.keep && !ki.keep.enabled && /Defenders/.test(ki.keep.reason))),
+  `K ruined keep panel "${ki?.name}", ${inside.length} defenders inside -> rebuild ${ki?.keep?.enabled ? "enabled" : `refused (${ki?.keep?.reason})`}`
+);
+for (const m of s.alive) await hook("damageMob", { mobId: m.id, amount: 99999 });
+await hook("setInstantBuild", { enabled: true });
+await ff(2);
+ki = await info(site0.keepX, site0.keepY);
+result(!!ki?.keep?.enabled, `K rebuild enabled once the fort is empty (cost ${ki?.keep?.cost}${ki?.keep?.reason ? `, ${ki.keep.reason}` : ""})`);
+const wood0 = (await hook("setStock", { stock: {} })).stock.wood;
+const grounds0 = (await hook("sitesState")).grounds;
+send({ type: "rebuildKeep", tileX: site0.keepX, tileY: site0.keepY });
+// Read the stock before any tick runs (a goal reward for the new Town Center lands on the next tick).
+const wood1 = (await hook("setStock", { stock: {} })).stock.wood;
+await ff(4);
+await sleep(200);
+s = await siteOf(id);
+const tcs = c.snap.townCenters;
+const outpost = tcs.find((t) => t.x === site0.keepX && t.y === site0.keepY);
+result(!!outpost && outpost.name === `${site0.name} Outpost`, `K a Town Center stands on the keep: "${outpost?.name}" (${tcs.length} Town Centers)`);
+result(wood0 - wood1 === 40, `K rebuild cost 40 wood (paid ${wood0 - wood1})`);
+const own = await hook("ownerState");
+const stillOwned = own.owners.filter((o) => o.owner === site0.num).length;
+result(s.captured && s.capturedBy === 0 && stillOwned === 0, `K site captured by clan ${s.capturedBy}, ${stillOwned} tiles still fort-owned`);
+const wallInfo = await info(site0.x0, site0.y0 + Math.floor((site0.y1 - site0.y0) / 2));
+result(!wallInfo || !/Palisade/.test(wallInfo.name), `K the walls are the colony's now (info "${wallInfo?.name ?? "none"}")`);
+const grounds1 = (await hook("sitesState")).grounds;
+result(grounds1 < grounds0, `K the fort's grounds are released (${grounds0} -> ${grounds1} reserved tiles)`);
+let marker = null;
+for (let i = 0; i < 50 && !marker; i++) {
+  marker = (c.sites ?? []).find((x) => x.name === site0.name && x.captured);
+  if (!marker) await sleep(50);
 }
-// STAGE3
+result(!!marker, `K snapshot sites marks it captured (${JSON.stringify(marker)})`);
+
+// ---- S: save / load ----
+send({ type: "saveGame", slot: "slot1" });
+for (let i = 0; i < 300 && c.saves.length < 1; i++) await sleep(20);
+send({ type: "loadGame", slot: "slot1" });
+for (let i = 0; i < 300 && c.saves.length < 2; i++) await sleep(20);
+await sleep(800);
+s = await siteOf(id);
+const own2 = await hook("ownerState");
+await sleep(300);
+const outpost2 = (c.snap.townCenters ?? []).find((t) => t.x === site0.keepX && t.y === site0.keepY);
+result(c.saves[0]?.ok && c.saves[1]?.ok && s?.captured === true && s.cleared === true, `S save / load keeps the captured site (captured ${s?.captured})`);
+result(outpost2?.name === `${site0.name} Outpost` && own2.owners.every((o) => o.owner !== site0.num), `S the outpost keeps its name ("${outpost2?.name}") and the owners stay released`);
 console.log(fails === 0 ? "ALL PASS" : `${fails} FAILED`);
 process.exit(fails === 0 ? 0 : 1);
