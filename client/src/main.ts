@@ -5940,6 +5940,20 @@ async function main() {
   // Shown while the Ogre Warlord is within this many tiles of the local player.
   const BOSS_BAR_RANGE_TILES = VISION_RADIUS_PLAYER * 1.5;
 
+  // The player's own health bar at the top of the screen (unit bars over sprites are hidden).
+  const playerBarEl = document.getElementById("player-bar")!;
+  const playerBarLabelEl = document.getElementById("player-bar-label")!;
+  const playerBarFillEl = document.getElementById("player-bar-fill")!;
+  function syncPlayerBar(players: PlayerSnapshot[]) {
+    const me = players.find((p) => p.id === myId);
+    playerBarEl.hidden = !me || me.dead || me.maxHp <= 0;
+    if (!me || me.dead || me.maxHp <= 0) return;
+    const frac = Math.max(0, Math.min(1, me.hp / me.maxHp));
+    playerBarLabelEl.textContent = `Health ${Math.ceil(me.hp)} / ${Math.ceil(me.maxHp)}`;
+    playerBarFillEl.style.width = `${(frac * 100).toFixed(1)}%`;
+    playerBarFillEl.className = frac <= 0.25 ? "crit" : frac <= 0.5 ? "low" : "";
+  }
+
   function syncBossBar(mobs: MobSnapshot[], players: PlayerSnapshot[]) {
     const me = players.find((p) => p.id === myId);
     const warlord = mobs.find((m) => m.boss === "warlord");
@@ -6118,6 +6132,7 @@ async function main() {
             : `Next respawn window: ${r.nextWindow} in ${eta}`;
       }
       syncBossBar(message.mobs, message.players);
+      syncPlayerBar(message.players);
       soundOnSnapshot(message);
     } else if (message.type === "tileUpdate") {
       soundOnTileUpdate(message.tileX, message.tileY, message.tile);
