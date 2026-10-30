@@ -15,7 +15,7 @@ import {
 import {
   clans, colonists, gravestones, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
 } from "./state.js";
-import { anchorOfTile, clamp, isNightNow, tileIndex } from "./tiles.js";
+import { anchorOfTile, clamp, inBounds, isNightNow, ownerAt, tileIndex } from "./tiles.js";
 import "./pathfinding.js";
 import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchangeResource } from "./economy.js";
 import { generateWorld } from "./worldgen.js";
@@ -34,7 +34,8 @@ import {
 import "./tactics.js";
 import "./raids.js";
 import { handleCommandAttackHearth, hearthsForSnapshot } from "./hearths.js";
-import { sitesForSnapshot } from "./sites.js";
+import { siteByNum, sitesForSnapshot } from "./sites.js";
+import { handleTradeWithSite, relationsForSnapshot } from "./diplomacy.js";
 import "./goals.js";
 import {
   forgeBusyForSnapshot, handleEquipItem, handleQueueForge, handleSetForgeAuto, handleRecruitHero, handleTakeFromArmoury,
@@ -219,6 +220,10 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "repairBuilding") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleRepairBuilding(player, message.tileX, message.tileY);
+  } else if (message.type === "tradeWithSite") {
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY) || !inBounds(message.tileX, message.tileY)) return;
+    const r = handleTradeWithSite(player, siteByNum(ownerAt(tileIndex(message.tileX, message.tileY))), message.good, message.qty, message.side);
+    if (!r.ok) sendTo(player, { type: "event", category: "build", text: r.text });
   } else if (message.type === "rebuildKeep") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleRebuildKeep(player, message.tileX, message.tileY);
@@ -461,6 +466,11 @@ setInterval(() => {
       if (snapshot.type === "snapshot" && player.siteTilesVersion !== state.ownerVersion) {
         player.siteTilesVersion = state.ownerVersion;
         payload = payload.slice(0, -1) + ',"siteTiles":' + JSON.stringify(Array.from(tileOwner).flat()) + ',"sites":' + JSON.stringify(sitesForSnapshot()) + "}";
+      }
+      // Forts phase D: this player's clan's relations, resent when any relation changed.
+      if (snapshot.type === "snapshot" && player.relationsVersion !== state.relationsVersion) {
+        player.relationsVersion = state.relationsVersion;
+        payload = payload.slice(0, -1) + ',"relations":' + JSON.stringify(relationsForSnapshot(player.clan)) + "}";
       }
       // Clans: every player building's clan (CLAN_TILE_SNAPSHOT_STRIDE), resent when it changed.
       if (clans.length > 1 && player.clanTilesVersion !== state.clanTilesVersion) {

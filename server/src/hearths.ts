@@ -27,6 +27,7 @@ import { spellBuffDamageMult } from "./spells.js";
 import { leaveOrderGroup } from "./orders.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { noteSettlementAttacked, onFortKeepDestroyed, plunderSiteStock, siteIdNeutral, siteName, siteNumNeutral } from "./sites.js";
+import { noteCampCleared } from "./diplomacy.js";
 
 export function hearthEvent(siteId: string, type: string, detail?: string) {
   hearthEvents.push({ tick: state.cycleTick, type, siteId, detail });
@@ -136,6 +137,8 @@ export function destroyHearth(h: HearthState, attackerKey?: string) {
   h.destroyed = true;
   h.hp = 0;
   state.campsDestroyed++;
+  // Forts phase D: settlements near a fallen bandit / orc camp or fort are grateful.
+  noteCampCleared(h, attackerKey);
   const centre = tileToPixelCenter(h);
   state.pendingEffects.push({ fromX: centre.x, fromY: centre.y, toX: centre.x, toY: centre.y, boulder: true });
   // Forts phase B: a fort's keep falls to a RuinedKeep (the site is cleared; its other tiles stand).

@@ -24,6 +24,7 @@ import { isInAbbeyGrounds, isInCastleRuinGrounds, shuffled, spawnGuardian } from
 import { registerHearth } from "./hearths.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { activateGuardianSite, walkMobTo } from "./mobs.js";
+import { onRelationChanged } from "./diplomacy.js";
 
 // Ground the test-hook stamper may clear (world-gen only ever stamps onto Empty).
 const CLEARABLE_TILES = new Set<number>([
@@ -373,6 +374,7 @@ export function onFortKeepDestroyed(siteId: string) {
   s.cleared = true;
   s.sighted = true;
   state.ownerVersion++;
+  state.relationsVersion++;
   state.tiles[tileIndex(s.keepX, s.keepY)] = TileType.RuinedKeep;
   broadcastTileUpdate(s.keepX, s.keepY, TileType.RuinedKeep);
   // Forts phase C: razing a human settlement's keep: its folk flee (the rout) and the clan pays in relation.
@@ -422,6 +424,7 @@ export function updateSites() {
     // Stage 3: "<name> sighted" once its keep tile is explored (the minimap marker appears then).
     if (!s.sighted && state.explored[tileIndex(s.keepX, s.keepY)]) {
       s.sighted = true;
+      state.relationsVersion++;
       state.ownerVersion++;
       if (human) broadcastEvent("build", `You sight the ${SITE_TEMPLATES[s.template].noun ?? "village"} of ${s.name}`);
       else broadcastEvent("raid", `${s.name} sighted (${s.faction === "orc" ? "orc stockade" : "bandit palisade"})`);
@@ -634,12 +637,15 @@ export function adjustRelation(clanId: number, siteId: string, delta: number): n
   const s = sites.get(siteId);
   if (!s) return RELATION_NEUTRAL;
   const clan = clanById(clanId);
-  const v = Math.max(RELATION_MIN, Math.min(RELATION_MAX, (clan.relations[s.num] ?? RELATION_NEUTRAL) + delta));
+  const before = clan.relations[s.num] ?? RELATION_NEUTRAL;
+  const v = Math.round(Math.max(RELATION_MIN, Math.min(RELATION_MAX, before + delta)) * 100) / 100;
   clan.relations[s.num] = v;
+  // Forts phase D: tiers, vassal flag, toast, snapshot.
+  if (v !== before) onRelationChanged(clanId, s, before, v);
   return v;
 }
 
-function attackerClan(attackerKey?: string): number {
+export function attackerClan(attackerKey?: string): number {
   if (attackerKey?.startsWith("p:")) return players.get(attackerKey.slice(2))?.clan ?? state.clan.id;
   if (attackerKey?.startsWith("c:")) return colonists.get(attackerKey.slice(2))?.clan ?? state.clan.id;
   return state.clan.id;

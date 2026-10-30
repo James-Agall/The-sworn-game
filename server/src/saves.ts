@@ -184,6 +184,8 @@ function snapshotWorldInner() {
     abbeyCenter: state.abbeyCenter,
     castleRuinCenter: state.castleRuinCenter,
     goals: { goalIndex: state.goalIndex, castleCleared: state.castleCleared, campsDestroyed: state.campsDestroyed },
+    // Forts phase D: clan 0's relations by site number (clans 1+ keep theirs in `clans`; optional).
+    relations: { ...clans[0].relations } as Record<number, number> | undefined,
     hearths: Array.from(hearths.values()),
     // Forts phase A: NPC tile owners as flattened [tile index, site number] pairs + the site ids they
     // name (optional: saves without them have every tile the colony's).
@@ -266,6 +268,7 @@ export function applyWorld(s: WorldState) {
   for (const sc of s.clans ?? []) {
     const c = makeClan(clans.length, sc.name, sc.color, sc.foundedDay ?? 0);
     c.relations = sc.relations ?? {};
+    state.relationsVersion++;
     Object.assign(c.stock, sc.stock);
     c.equipment.armour = [0, 1, 2].map((i) => sc.equipment?.armour?.[i] ?? 0);
     c.equipment.weapon = [0, 1, 2].map((i) => sc.equipment?.weapon?.[i] ?? 0);
@@ -298,6 +301,8 @@ function applyWorldInner(s: WorldState) {
   state.goalIndex = s.goals?.goalIndex ?? 0;
   state.castleCleared = s.goals?.castleCleared ?? false;
   state.campsDestroyed = s.goals?.campsDestroyed ?? 0;
+  clans[0].relations = { ...(s.relations ?? {}) };
+  state.relationsVersion++;
   Object.assign(state.stock, s.stock);
   // `?? zeros`: saves from before Armour & weapons have an empty stock (units without tiers fight as tier 0).
   resetEquipment();

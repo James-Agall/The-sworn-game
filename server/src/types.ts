@@ -15,6 +15,8 @@ export interface Player {
   siteTilesVersion?: number;
   // Clans: the clanTilesVersion of the last `clanTiles` this player was sent.
   clanTilesVersion?: number;
+  // Forts phase D: the relationsVersion of the last `relations` this player was sent.
+  relationsVersion?: number;
   id: string;
   x: number;
   y: number;
@@ -301,6 +303,20 @@ export interface SiteState {
   // charged the relation penalty for this hostile spell.
   hostileUntilTick?: number;
   hostileClans?: number[];
+  // Forts phase D (diplomacy.ts): per clan id, today's trade / relation bookkeeping (saved with the site).
+  diplo?: Record<number, SiteDiplo>;
+}
+// Forts phase D: one clan's day at one settlement. day = the game day the counters belong to (reset on a
+// new day); bought / sold = units per good today; tradeGain / defendGain = relation gained today (for the
+// daily caps); lastGainDay = the last day any gain landed (drift); vassal = reached 100, kept while >= 70.
+export interface SiteDiplo {
+  day: number;
+  bought: Partial<Record<ResourceKey, number>>;
+  sold: Partial<Record<ResourceKey, number>>;
+  tradeGain: number;
+  defendGain: number;
+  lastGainDay: number;
+  vassal?: boolean;
 }
 export interface RespawnRequest {
   tx: number;

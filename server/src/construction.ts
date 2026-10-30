@@ -2,7 +2,7 @@
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import {
   TileType, isSolidTile, TICK_RATE, type GameEventCategory, type ServerMessage, type BuildingInfo, TILE_SIZE, Biome,
-  isRoadTile,
+  isRoadTile, RELATION_TIER_NAMES,
 } from "@colony/shared/protocol";
 import { footprintOf, footprintPartOffsets } from "@colony/shared/buildings";
 import type { ConstructionSiteState, Cost, Player, ResourceKey, TileCoord, TownCenter } from "./types.js";
@@ -52,6 +52,7 @@ import { siegeUnitsAt, siegeWorkshopInfo } from "./siege.js";
 import { blacksmithForgeInfo, keepHeroInfo } from "./heroes.js";
 import { churchSpellShop } from "./spells.js";
 import { START_VISION_OFFSETS, broadcastEvent, broadcastTileUpdate, revealAround } from "./net.js";
+import { tierOf, tradeInfoFor } from "./diplomacy.js";
 import { captureSite, isInSiteGrounds, nearSiteGrounds, rebuildKeepBlocker, relationOf, siteAtKeep, siteByNum } from "./sites.js";
 import { SITE_TEMPLATES } from "./constants.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
@@ -1169,9 +1170,11 @@ function siteTileInfo(tx: number, ty: number, t: TileType, forPlayer?: Player): 
     human ? `${label} of the ${noun} of ${s.name}` : `${s.faction === "orc" ? "Orc stockade" : "Bandit palisade"}, tier ${s.tier}`,
     s.captured ? "Captured" : s.cleared ? "Cleared: the keep is razed" : `Garrison ${living}/${s.garrisonMax}${s.awake ? "" : " (asleep)"}`,
   ];
-  // Forts phase C: neutral until attacked; the relations hook (phase D adds bands / trade).
+  // Forts phase C: neutral until attacked; phase D: the clan's relation tier and the trade panel.
+  const trade = human ? tradeInfoFor(s, forPlayer) : undefined;
   if (human && !s.captured) {
-    bonuses.push(`Relation ${relationOf(forPlayer?.clan ?? 0, s.id)}`);
+    const tier = tierOf(forPlayer?.clan ?? 0, s);
+    bonuses.push(`Relation ${Math.round(relationOf(forPlayer?.clan ?? 0, s.id))}: ${RELATION_TIER_NAMES[tier]}${tier === "vassal" ? " (they would swear fealty; vassals come later)" : ""}`);
     if (!s.cleared) bonuses.push(s.provoked ? "Hostile: you attacked them. Their guards and towers fight until they calm down" : "Neutral: gates open by day, guards and towers leave you alone unless you attack");
   }
   let keep: BuildingInfo["keep"];
@@ -1183,7 +1186,7 @@ function siteTileInfo(tx: number, ty: number, t: TileType, forPlayer?: Player): 
   const title = human && !s.captured && !s.cleared ? `${s.provoked ? "Hostile" : "Neutral"} settlement: ${s.name}` : `${s.name}: ${label}`;
   return {
     name: title, tile: t, level: 1, maxLevel: 1, hp: hp ? Math.round(hp.hp) : null, maxHp: hp?.max ?? null,
-    staffing: s.captured ? "" : human && !s.provoked ? "Neutral" : "Hostile", bonuses, upgrade: null, construction: null, repair: null, ...(keep ? { keep } : {}),
+    staffing: s.captured ? "" : human && !s.provoked ? "Neutral" : "Hostile", bonuses, upgrade: null, construction: null, repair: null, ...(keep ? { keep } : {}), ...(trade ? { trade } : {}),
   };
 }
 

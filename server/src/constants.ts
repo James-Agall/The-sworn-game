@@ -1614,6 +1614,60 @@ export const RELATION_MAX = 100;
 export const RELATION_ATTACK_PENALTY = 15;
 export const RELATION_RAZE_PENALTY = 40;
 export const RELATION_CONQUEROR_PENALTY = 25;
+// ---- Forts phase D: relations and direct trade (PLAN-forts-diplomacy-moats.md §4, §5; diplomacy.ts) ----
+// Tiers by relation value (lower bound inclusive): Hostile <= -50 < Wary <= -10 < Neutral < 25 <= Friendly
+// < 60 <= Allied; reaching RELATION_MAX flags the clan as the settlement's would-be liege ("Vassal-ready",
+// phase F builds the mechanics), kept while >= RELATION_VASSAL_KEEP (hysteresis).
+export const RELATION_WARY_MIN = -49;
+export const RELATION_NEUTRAL_MIN = -9;
+export const RELATION_FRIENDLY_MIN = 25;
+export const RELATION_ALLIED_MIN = 60;
+export const RELATION_VASSAL_KEEP = 70;
+// Gains (per clan per settlement). Trade: +1 per TRADE_GOLD_PER_RELATION gold traded (both ways), capped
+// RELATION_TRADE_DAILY_CAP per game day; defence: +1 per hostile mob (raid / bandit / orc) the clan kills
+// within RELATION_DEFEND_RANGE_TILES of its walls, cap RELATION_DEFEND_DAILY_CAP. Both diminish as the day's
+// cap fills (x max(RELATION_DIMINISH_FLOOR, 1 - gainedToday / cap)) and need relation > Hostile and the
+// settlement not currently up in arms against that clan. Clearing a bandit / orc camp or fort: +15 to every
+// settlement within RELATION_CAMP_NEAR_TILES, +5 within RELATION_CAMP_FAR_TILES (uncapped, also from Hostile:
+// the way back). Drift: no gain for RELATION_IDLE_DAYS -> 1 point a dawn toward neutral.
+export const TRADE_GOLD_PER_RELATION = 20;
+export const RELATION_TRADE_DAILY_CAP = 6;
+export const RELATION_DEFEND_RANGE_TILES = 20;
+export const RELATION_DEFEND_DAILY_CAP = 8;
+export const RELATION_DIMINISH_FLOOR = 0.2;
+export const RELATION_CAMP_NEAR_TILES = 60;
+export const RELATION_CAMP_FAR_TILES = 120;
+export const RELATION_CAMP_NEAR_BONUS = 15;
+export const RELATION_CAMP_FAR_BONUS = 5;
+export const RELATION_IDLE_DAYS = 3;
+export const RELATION_DRIFT_PER_DAY = 1;
+// Direct trade: base price (gold per unit). Colony buys at base x TRADE_BUY_MARKUP x discount x (1 +
+// TRADE_DAY_STEP x boughtToday); sells at base x TRADE_SELL_FACTOR x (2 - discount) x (1 - TRADE_DAY_STEP x
+// soldToday) (floor TRADE_SELL_FLOOR x base); discount by tier below. Buy > sell at every tier.
+export const TRADE_BASE_PRICE: Record<"wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "clothes" | "tools", number> = {
+  wood: 1, rock: 1.5, iron: 3, grain: 2, meat: 3, fruit: 3, wool: 2, clothes: 6, tools: 8,
+};
+export const TRADE_BUY_MARKUP = 1.4;
+export const TRADE_SELL_FACTOR = 0.6;
+export const TRADE_SELL_FLOOR = 0.3;
+export const TRADE_DAY_STEP = 0.01;
+export const TRADE_TIER_DISCOUNT = { neutral: 1, friendly: 0.85, allied: 0.7, vassal: 0.65 } as const;
+// Per good per direction per clan per settlement per game day; one order 1..TRADE_MAX_QTY units.
+export const TRADE_DAILY_CAP_PER_GOOD = 40;
+export const TRADE_MAX_QTY = 50;
+// The player (or one of the clan's colonists) must stand within this many tiles of the settlement's walls.
+export const TRADE_RANGE_TILES = 6;
+// A settlement holds at most this much of a good (what it accepts when you sell); gold is its purse.
+export const SETTLEMENT_STOCK_CAP = 200;
+export const SETTLEMENT_GOLD_CAP = 600;
+// Daily production at dawn (capped); goods a settlement does not produce are used up by
+// SETTLEMENT_CONSUME_FRACTION a dawn (so it buys them again).
+export const SETTLEMENT_PRODUCTION: Partial<Record<SiteTemplateId, Partial<Record<ResourceKey, number>>>> = {
+  hearthmoor: { grain: 20, fruit: 8, meat: 6, wool: 4, gold: 10 },
+  ironhold: { iron: 8, rock: 15, tools: 1, gold: 10 },
+  riverwatch: { grain: 10, wood: 15, iron: 3, fruit: 4, meat: 3, wool: 3, clothes: 2, gold: 25 },
+};
+export const SETTLEMENT_CONSUME_FRACTION = 0.1;
 // Cosmetic workers: pause at each end of the walk (ticks, random up to x2), walk speed factor.
 export const SETTLEMENT_WORKER_PAUSE_TICKS = 6 * TICK_RATE;
 export const SETTLEMENT_WORKER_SPEED_MULT = 0.7;

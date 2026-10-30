@@ -6,7 +6,7 @@ import {
   MOB_ROLE, type ColonistKind, type Stance, type EquipSlot, HERO_CLASSES, type HeroClass,
 } from "@colony/shared/protocol";
 import type { Player, RaidGroup, ResourceKey, SiteTemplateId, TileCoord } from "./types.js";
-import { relationOf, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
+import { adjustRelation, relationOf, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
 import {
   ARMOUR_DAMAGE_TAKEN_MULT, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, DAY_LENGTH_SCALE, DAY_TICKS,
   DESERTER_ACTIVATION_TICKS, DUSK_RESPAWN_CYCLE_TICK, FARMHAND_CYCLE_TICKS, FARMHAND_YIELD_PER_CYCLE,
@@ -56,6 +56,7 @@ import {
 import { grantTome, isSpellId, learnSpell, spellBookSnapshot } from "./spells.js";
 import { stepSimulation } from "./sim.js";
 import { broadcastTileUpdate, fightsForPlayer } from "./net.js";
+import { tierOf } from "./diplomacy.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
@@ -321,6 +322,14 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       grounds: state.siteGrounds.reduce((n, v) => n + v, 0),
       worldSize: state.WORLD_TILES_X,
     });
+  } else if (msg.op === "diploSet" && typeof msg.siteId === "string") {
+    // Forts phase D: set a clan's relation (adjustRelation: tier toasts / vassal flag apply) and / or a
+    // settlement's stock entries; replies with the relation, tier and the site's diplo record.
+    const st = sites.get(msg.siteId);
+    const clan = typeof msg.clan === "number" ? msg.clan : 0;
+    if (st && typeof msg.relation === "number") adjustRelation(clan, st.id, msg.relation - relationOf(clan, st.id));
+    if (st && msg.stock && typeof msg.stock === "object") for (const [k, v] of Object.entries(msg.stock as Record<string, unknown>)) if (typeof v === "number") st.stock[k as ResourceKey] = v;
+    reply({ found: !!st, relation: st ? relationOf(clan, st.id) : null, tier: st ? tierOf(clan, st) : null, diplo: st?.diplo?.[clan] ?? null, stock: st ? { ...st.stock } : null });
   } else if (msg.op === "siteSet" && typeof msg.siteId === "string") {
     // Forts phase B: overwrite numeric SiteState fields (lastSimTick to fake a long sleep, kiteHits, ...).
     const st = sites.get(msg.siteId);

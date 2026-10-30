@@ -54,6 +54,8 @@ export interface OwnersFields {
   ownerVersion: number;
   // Clans: bumped whenever tileClan changes (snapshot `clanTiles` is resent).
   clanTilesVersion: number;
+  // Forts phase D: bumped whenever any clan's relation to a settlement changes (snapshot `relations`).
+  relationsVersion: number;
   moverOwner: number;
   // Forts phase B: 1 per tile inside a standing (uncaptured) fort's reserved grounds (template rectangle
   // + apron); rebuilt by sites.ts rebuildSiteGrounds. Scatter / regrowth / POIs / player builds keep off.
@@ -426,6 +428,7 @@ const initial: Partial<ServerState> = {
   // OwnersFields
   ownerVersion: 0,
   clanTilesVersion: 0,
+  relationsVersion: 0,
   moverOwner: 0,
   // RoutingFields
   buildingTargetsDirty: true,

@@ -155,6 +155,22 @@ export interface SiteSnapshot {
   num?: number;
   hostile?: boolean;
 }
+// Forts phase D: relation tiers (per clan per human settlement; thresholds in the server's constants.ts).
+// "vassal" = Vassal-ready (relation reached 100; the vassal mechanics come in phase F).
+export type RelationTier = "hostile" | "wary" | "neutral" | "friendly" | "allied" | "vassal";
+export const RELATION_TIER_NAMES: Record<RelationTier, string> = {
+  hostile: "Hostile", wary: "Wary", neutral: "Neutral", friendly: "Friendly", allied: "Allied", vassal: "Vassal-ready",
+};
+// Snapshot `relations` (per player, the receiving player's clan; resent only when a relation changed):
+// one entry per standing human settlement by its site number (SiteSnapshot.num).
+export interface SiteRelationSnapshot {
+  num: number;
+  value: number;
+  tier: RelationTier;
+}
+// Forts phase D: goods a settlement trades for gold (direct trade, `tradeWithSite`).
+export type TradeGood = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "clothes" | "tools";
+export const TRADE_GOODS: TradeGood[] = ["grain", "meat", "fruit", "wool", "wood", "rock", "iron", "clothes", "tools"];
 // Clans (ROADMAP "Clans — landed"): snapshot `clanTiles` is flattened [tile index, clan id] pairs, one per
 // player building of any clan, sent only while there are 2+ clans and only when it changed (a full
 // replacement). Missing (or a single-clan game) = clan 0.
@@ -885,6 +901,19 @@ export interface BuildingInfo {
   };
   // Forts phase B: a fort's RuinedKeep: the Rebuild button (rebuildKeep) and why it is disabled.
   keep?: { cost: string; enabled: boolean; reason: string };
+  // Forts phase D: a standing human settlement's market (any of its tiles): relation, prices per unit (buy =
+  // what the clan pays, sell = what it gets), the settlement's stock / cap and today's remaining caps. canTrade
+  // false -> reason ("Walk up to the walls", "Hostile: they refuse to trade", ...).
+  trade?: {
+    siteName: string;
+    relation: number;
+    tier: RelationTier;
+    discount: number;
+    gold: number;
+    canTrade: boolean;
+    reason: string;
+    goods: { good: TradeGood; buy: number; sell: number; stock: number; cap: number; buyLeft: number; sellLeft: number }[];
+  };
   // Churches only (hero phase 4): basic spells the requesting player can buy (see learnSpell).
   spellShop?: { spellId: SpellId; label: string; gold: number; enabled: boolean; reason: string }[];
 }
@@ -930,6 +959,9 @@ export type ClientMessage =
   | { type: "setGateLock"; tileX: number; tileY: number; lock: GateLock }
   // Forts phase B: rebuild a cleared fort's RuinedKeep (tileX / tileY) as the sender clan's outpost.
   | { type: "rebuildKeep"; tileX: number; tileY: number }
+  // Forts phase D: buy / sell qty (1..50) of a good at the human settlement owning tile (tileX, tileY), for gold
+  // from / to the sender clan's stock (server checks range, tier, stock, purse and daily caps).
+  | { type: "tradeWithSite"; tileX: number; tileY: number; good: TradeGood; qty: number; side: "buy" | "sell" }
   // Starts building one siege engine at the Siege Workshop at the tile (building info panel button).
   | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
   // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).
@@ -1063,6 +1095,9 @@ export type ServerMessage =
       siteTiles?: number[];
       // Forts phase B: explored forts (sent with siteTiles; a full replacement).
       sites?: SiteSnapshot[];
+      // Forts phase D: this player's clan's relation to each standing human settlement (per player, only
+      // when it changed; a full replacement).
+      relations?: SiteRelationSnapshot[];
       // Clans (only while there are 2+): this player's clan id, every clan, and the clan of every player
       // building (CLAN_TILE_SNAPSHOT_STRIDE; per player, only when changed). The economy / army / population
       // / goal fields of this snapshot are the receiving player's clan's.

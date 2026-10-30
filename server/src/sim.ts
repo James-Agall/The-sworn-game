@@ -31,6 +31,7 @@ import { spellBuffSpeedMult, updateSpellStatuses } from "./spells.js";
 import { updateOrderGroups } from "./orders.js";
 import { broadcastEvent, scanFights } from "./net.js";
 import { clanTownCenters, enterClan, forEachClan, resetClan } from "./clans.js";
+import { settlementsDawn } from "./diplomacy.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
@@ -45,6 +46,8 @@ export function stepSimulation() {
       applyDailyFoodConsumption();
       applyMoraleCheck();
     });
+    // Forts phase D: settlement production / consumption and relation drift.
+    settlementsDawn();
     state.autosaveDue = true;
   }
 
