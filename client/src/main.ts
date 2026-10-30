@@ -16,6 +16,7 @@ import type {
   SiteFaction,
   SiteSnapshot,
   SiteRelationSnapshot,
+  QuestSnapshot,
   RelationTier,
   TradeGood,
   ServerMessage,
@@ -3867,6 +3868,29 @@ async function main() {
       ctx.fillRect(cx - 1.5 * u, cy - 1.5 * u, 3 * u, 3 * u);
     }
 
+    // Forts phase D2: a quest marker (gold diamond; green once accepted) on each open quest's target tile.
+    for (const q of latestQuests) {
+      const qx = (q.x + 0.5) * s;
+      const qy = (q.y + 0.5) * s;
+      const r = 4.5 * u;
+      ctx.beginPath();
+      ctx.moveTo(qx, qy - r - u);
+      ctx.lineTo(qx + r + u, qy);
+      ctx.lineTo(qx, qy + r + u);
+      ctx.lineTo(qx - r - u, qy);
+      ctx.closePath();
+      ctx.fillStyle = "#1a0f06";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(qx, qy - r);
+      ctx.lineTo(qx + r, qy);
+      ctx.lineTo(qx, qy + r);
+      ctx.lineTo(qx - r, qy);
+      ctx.closePath();
+      ctx.fillStyle = q.accepted ? "#5fd35a" : "#f1c40f";
+      ctx.fill();
+    }
+
     // Camp hearths, once explored: a small ember dot with a dark rim on the camp's centre.
     for (const index of latestHearths) {
       if (!explored[index]) continue;
@@ -5079,6 +5103,95 @@ async function main() {
     );
     tpFootEl.textContent = "Prices rise as you buy and fall as you sell the same good on one day. Each trade earns a little relation (up to 6 a day).";
   }
+  // Forts phase D2: settlement quests (snapshot `quests`, the clan's open ones): the top-bar Quests button,
+  // the parchment Quests panel (accept / abandon / deliver) and minimap markers (drawMinimap).
+  let latestQuests: QuestSnapshot[] = [];
+  let questCycleTicks = TICK_RATE * 375;
+  let questKey = "";
+  let questSeen = new Set<number>();
+  const questPanelEl = document.getElementById("quest-panel")!;
+  const questListEl = document.getElementById("qp-list")!;
+  const questEmptyEl = document.getElementById("qp-empty")!;
+  const questsBtn = document.getElementById("quests-btn") as HTMLButtonElement;
+  function questTimeLeft(ticks: number): string {
+    if (ticks >= questCycleTicks / 2) return `${(ticks / questCycleTicks).toFixed(1)} days left`;
+    const secs = Math.ceil(ticks / TICK_RATE);
+    return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} left`;
+  }
+  function questMeta(q: QuestSnapshot): string {
+    const progress = q.need !== undefined ? ` · slain ${q.progress ?? 0} / ${q.need}` : "";
+    return `Reward ${q.reward} gold, relation +${q.relation} · ${q.accepted ? `fail -${q.penalty}` : `ignore -${q.penalty}`}${progress}`;
+  }
+  function renderQuests() {
+    const open = !questPanelEl.hidden;
+    if (open) for (const q of latestQuests) questSeen.add(q.id);
+    const unseen = latestQuests.some((q) => !q.accepted && !questSeen.has(q.id));
+    questsBtn.textContent = latestQuests.length > 0 ? `Quests (${latestQuests.length})` : "Quests";
+    questsBtn.classList.toggle("has-new", unseen);
+    if (!open) return;
+    questEmptyEl.hidden = latestQuests.length > 0;
+    const key = JSON.stringify(latestQuests.map((q) => ({ ...q, ticksLeft: 0 })));
+    if (key !== questKey) {
+      questKey = key;
+      questListEl.replaceChildren(
+        ...latestQuests.map((q) => {
+          const el = document.createElement("div");
+          el.className = `qp-quest${q.accepted ? " accepted" : ""}`;
+          el.dataset.questId = String(q.id);
+          const name = document.createElement("div");
+          name.className = "qp-name";
+          name.textContent = q.title;
+          const text = document.createElement("div");
+          text.className = "qp-text";
+          text.textContent = q.text;
+          const meta = document.createElement("div");
+          meta.className = "qp-meta";
+          meta.textContent = questMeta(q);
+          const time = document.createElement("div");
+          time.className = "qp-meta qp-time";
+          const btns = document.createElement("div");
+          btns.className = "qp-btns";
+          const btn = (label: string, title: string, type: "acceptQuest" | "abandonQuest" | "deliverQuest") => {
+            const b = document.createElement("button");
+            b.className = "econ-btn";
+            b.textContent = label;
+            b.title = title;
+            b.addEventListener("click", () => {
+              b.blur();
+              sendMessage({ type, questId: q.id });
+            });
+            return b;
+          };
+          if (!q.accepted) btns.append(btn("Accept", "Take on this quest", "acceptQuest"));
+          else {
+            if (q.kind === "deliver") btns.append(btn("Deliver", `Hand over ${q.qty} from your stock (stand near ${q.siteName}'s walls)`, "deliverQuest"));
+            btns.append(btn("Abandon", `Give up (relation -${q.penalty})`, "abandonQuest"));
+          }
+          el.append(name, text, meta, time, btns);
+          return el;
+        })
+      );
+    }
+    for (const el of Array.from(questListEl.querySelectorAll<HTMLElement>(".qp-quest"))) {
+      const q = latestQuests.find((o) => String(o.id) === el.dataset.questId);
+      const t = el.querySelector(".qp-time");
+      if (q && t) t.textContent = `${q.siteName} · ${questTimeLeft(q.ticksLeft)}`;
+    }
+  }
+  function setQuestPanelOpen(open: boolean) {
+    questPanelEl.hidden = !open;
+    questKey = "";
+    renderQuests();
+  }
+  questsBtn.addEventListener("click", () => {
+    questsBtn.blur();
+    setQuestPanelOpen(questPanelEl.hidden);
+  });
+  document.getElementById("qp-close")!.addEventListener("click", () => setQuestPanelOpen(false));
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !questPanelEl.hidden) setQuestPanelOpen(false);
+  });
+
   bpTradeBtn.addEventListener("click", () => {
     bpTradeBtn.blur();
     tradeOpen = !tradeOpen;
@@ -6216,6 +6329,13 @@ async function main() {
       syncGates(message.gates);
       if (message.sites) syncFortMarkers(message.sites);
       if (message.relations) siteRelations = new Map(message.relations.map((r) => [r.num, r]));
+      if (message.respawn) questCycleTicks = message.respawn.dayTicks + message.respawn.nightTicks;
+      if (message.quests) {
+        latestQuests = message.quests;
+        const ids = new Set(latestQuests.map((q) => q.id));
+        questSeen = new Set([...questSeen].filter((id) => ids.has(id)));
+        renderQuests();
+      }
       syncSiteTiles(message.siteTiles);
       if (message.clans) {
         clanColors = new Map(message.clans.map((c) => [c.id, c.color]));
