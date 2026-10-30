@@ -10,7 +10,7 @@ import {
 import { BUILD_COSTS } from "@colony/shared/buildings";
 import type {
   Cost, CraftRecipe, DifficultyTuning, MobKindConfig, PoiSiteKind, RaidFactionEntry, RaidFactionId,
-  RaidFormationShape, ResourceKey, TileCoord, WildlifeMode,
+  RaidFormationShape, ResourceKey, SiteTemplate, SiteTemplateId, TileCoord, WildlifeMode,
 } from "./types.js";
 
 // The scripted server/*.mjs tests assume 80x80: run the server with COLONY_WORLD_SIZE=80 for them.
@@ -1017,7 +1017,8 @@ export const ROUT_SPEED_FACTOR = 1.2;
 export const RAID_LEAVE_MAX_TICKS = 60 * TICK_RATE;
 export const ROUT_TOAST_COOLDOWN_TICKS = 30 * TICK_RATE;
 export const ENEMY_OUTFLANKED_SHOW_TICKS = 3 * TICK_RATE;
-export const SITE_KIND_WALLED: Partial<Record<PoiSiteKind, boolean>> = {};
+// Forts phase B: a fort's ranged defenders shelter behind its walls (regimentShelter).
+export const SITE_KIND_WALLED: Partial<Record<PoiSiteKind, boolean>> = { fort: true };
 export const PLAYER_MORALE_MIN_UNITS = 3;
 export const PLAYER_MORALE_WAVER = 40;
 export const PLAYER_MORALE_ROUT = 15;
@@ -1146,6 +1147,8 @@ export const NEIGHBORS_8: TileCoord[] = [
 // Destroyed hearths stay in the save (`destroyed`): never respawned, never re-woken.
 export const SITE_KIND_HAS_HEARTH: Partial<Record<PoiSiteKind, { hasHearth: boolean; hp: number }>> = {
   encampment: { hasHearth: true, hp: 150 },
+  // Forts phase B: a fort's hearth is its keep (SiteKeep tile); its HP is SITE_KEEP_HP_BY_TIER.
+  fort: { hasHearth: true, hp: 350 },
 };
 export const HEARTH_DEFAULT_HP = 150;
 export const HEARTH_LOOT_PER_GUARDIAN = { gold: 15, wood: 10, rock: 5, iron: 5 };
@@ -1193,6 +1196,196 @@ export const CASTLE_RUIN_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] =
   { kind: "armoredOrc", weight: 2 },
   { kind: "darkShaman", weight: 2 },
 ];
+// ---- Forts phase B (PLAN-forts-diplomacy-moats.md §2, §8, §10 "B"): stamped NPC forts ----
+// Legend of the fort templates (SITE_TEMPLATES): # wood wall, G gate, T tower, K keep / chief hall (the
+// site's hearth), H tent, C campfire, s stockpile crate, p pen fence, f farm plot (decor: no barn), F forge
+// (cart placeholder), M iron ore, ~ moat (tier 4 only; Water until phase H), D drawbridge (tier 4 only,
+// left open until phase H), "." open ground (left Empty, inside the reserved footprint).
+export const SITE_TEMPLATE_TILES: Record<string, TileType> = {
+  "#": TileType.Wall,
+  G: TileType.Gate,
+  T: TileType.Tower,
+  K: TileType.SiteKeep,
+  H: TileType.Tent,
+  C: TileType.PropCampfire,
+  s: TileType.PropCrate,
+  p: TileType.PropFence,
+  f: TileType.FarmPlot,
+  F: TileType.PropCart,
+  M: TileType.IronOre,
+  "~": TileType.Water,
+};
+// Tiles the stamper leaves unowned (ground the colony may use once the fort falls).
+export const SITE_UNOWNED_SYMBOLS = new Set(["~", "D"]);
+// The two wood forts. `tiers`: the tier (digit) each non-"." cell joins at; below its tier a gate cell is
+// a wall (when the wall stands yet) and a wall cell a fence (tier 1 camps), anything else stays open.
+export const SITE_TEMPLATES: Record<SiteTemplateId, SiteTemplate> = {
+  // Fort 1 - Thornwick Palisade (bandit, 21x13, tiers 1-3): the early target, gold + food loot.
+  thornwick: {
+    id: "thornwick",
+    faction: "bandit",
+    label: "Palisade",
+    names: [
+      "Thornwick", "Blackbriar", "Crowmoor", "Ravensgate", "Gallowhill", "Brackenfell", "Wolfden", "Ashcombe",
+      "Redmire", "Hollowmere", "Dunmarsh", "Stagthorn", "Briarwood", "Coldharbour",
+    ],
+    rows: [
+      "##########G##########",
+      "#..................T#",
+      "#..H..H.......H..H..#",
+      "#...................#",
+      "#..s.....C.C.....s..#",
+      "#...................#",
+      "#..H.....sKs.....H..#",
+      "#...................#",
+      "#..p.p.........f.f..#",
+      "#..p.p.........f.f..#",
+      "#...................#",
+      "#T..................#",
+      "##########G##########",
+    ],
+    tiers: [
+      "222222222232222222222",
+      "2..................32",
+      "2..3..1.......1..3..2",
+      "2...................2",
+      "2..1.....1.1.....1..2",
+      "2...................2",
+      "2..1.....111.....1..2",
+      "2...................2",
+      "2..1.1.........1.1..2",
+      "2..1.1.........1.1..2",
+      "2...................2",
+      "22..................2",
+      "222222222222222222222",
+    ],
+    startTier: 2,
+    garrison: { banditClubman: 4, banditArcher: 3, banditElite: 1 },
+    stock: { gold: 60, grain: 40, wood: 30 },
+    income: { gold: 10, grain: 5, wood: 10 },
+    rebuildCost: { wood: 40, rock: 20 },
+  },
+  // Fort 2 - Grakkar Stockade (orc, 29x21, tiers 1-4): the main punishment camp. Tier 4 (phase G / H) digs
+  // the moat strip with a drawbridge before the south gate and adds the bottom towers.
+  grakkar: {
+    id: "grakkar",
+    faction: "orc",
+    label: "Stockade",
+    names: [
+      "Grakkar", "Urzog", "Mograth", "Skarbak", "Gulgor", "Drakmor", "Thrukka", "Vargnar", "Zagrot", "Krullgash",
+      "Bolgrim", "Ushnak",
+    ],
+    rows: [
+      "#############################",
+      "#T.........................T#",
+      "#..H.H.H.............H.H.H..#",
+      "#...........................#",
+      "#..F.......C.......C.....M..#",
+      "#...........................#",
+      "#.H.H...pp...........pp.H.H.#",
+      "#.......pp...........pp.....#",
+      "#...........................#",
+      "#......sss....K....sss......G",
+      "#...........................#",
+      "#.H.H...ff...........ff.H.H.#",
+      "#.......ff...........ff.....#",
+      "#...........................#",
+      "#..C.....................C..#",
+      "#...........................#",
+      "#T.........................T#",
+      "##############G##############",
+      ".............................",
+      "~~~~~~~~~~~~~~D~~~~~~~~~~~~~~",
+      ".............................",
+    ],
+    tiers: [
+      "22222222222222222222222222222",
+      "22.........................32",
+      "2..1.1.1.............1.1.1..2",
+      "2...........................2",
+      "2..2.......1.......1.....1..2",
+      "2...........................2",
+      "2.3.3...11...........11.3.3.2",
+      "2.......11...........11.....2",
+      "2...........................2",
+      "2......111....1....111......3",
+      "2...........................2",
+      "2.1.1...11...........11.1.1.2",
+      "2.......11...........11.....2",
+      "2...........................2",
+      "2..1.....................1..2",
+      "2...........................2",
+      "24.........................42",
+      "22222222222222222222222222222",
+      ".............................",
+      "44444444444444444444444444444",
+      ".............................",
+    ],
+    startTier: 2,
+    garrison: { orc: 4, goblin: 2, goblinCrossbow: 2, armoredOrc: 1, darkShaman: 1 },
+    stock: { gold: 40, wood: 80, iron: 30, rock: 30 },
+    income: { gold: 5, wood: 15, iron: 5, rock: 5 },
+    rebuildCost: { wood: 40, rock: 20 },
+  },
+};
+// Reserved ground around a fort's template rectangle: cleared at world-gen, no player building, no POI.
+export const SITE_APRON_TILES = 2;
+// World-gen: no forts on maps smaller than this (the 80-tile test worlds stay as they were); counts are
+// SITE_FORT_COUNT_AT_512 x (size / 512)^SITE_FORT_COUNT_EXP (512: 12 + 10, 256: 5 + 4, 160: 2 + 2).
+export const SITE_FORT_MIN_WORLD_TILES = 128;
+export const SITE_FORT_COUNT_AT_512: Record<SiteTemplateId, number> = { thornwick: 12, grakkar: 10 };
+export const SITE_FORT_COUNT_EXP = 1.4;
+// Fort centres keep this far apart, this far from the starting Town Center (and any other), and from the
+// Abbey / Castle Ruin centres; orc stockades try the outer ring (fraction of the map width) first.
+export const SITE_FORT_SPACING_TILES = 40;
+export const SITE_FORT_START_CLEARANCE_TILES = 50;
+export const SITE_FORT_LANDMARK_CLEARANCE_TILES = 28;
+export const SITE_ORC_RING_FRACTION = 0.3;
+// Ruins / encampments / mini-boss packs keep this far off any fort's reserved footprint.
+export const SITE_POI_CLEARANCE_TILES = 4;
+// Sleeping sites: a fort simulates (guardian AI, towers, gates, yard walks, refills) only while a living
+// player or colonist is within this Chebyshev radius of its keep (3 chunks of 32).
+export const SITE_AWAKE_RADIUS_TILES = 96;
+// Provoke: a player / soldier within this far of the keep, or SITE_AGGRO_EDGE_TILES of its rectangle,
+// wakes the whole garrison (as damage does).
+export const SITE_AGGRO_TILES = 12;
+export const SITE_AGGRO_EDGE_TILES = 3;
+// Defender leash: a guardian chases only within this many tiles of home (fort: the keep; other sites: its
+// own post), drops a target beyond leash + SITE_CHASE_EXTRA_TILES, and walks home.
+export const SITE_LEASH_TILES: Partial<Record<PoiSiteKind, number>> = {
+  fort: 16, encampment: 12, ruin: 12, miniBoss: 14, castleRuin: 25,
+};
+export const SITE_CHASE_EXTRA_TILES = 2;
+export const SITE_RETURN_SPEED_MULT = 1.2;
+export const SITE_RETURN_IGNORE_TICKS = 2 * TICK_RATE;
+// Healing at home: within SITE_HEAL_RADIUS_TILES of home with no hostile within SITE_CALM_SCAN_TILES and
+// no damage for SITE_HEAL_CALM_TICKS: +SITE_HEAL_PER_SEC of max HP per second. After SITE_RESET_CALM_TICKS
+// calm on its post a guardian goes dormant again (gates close, the site may sleep).
+export const SITE_HEAL_RADIUS_TILES = 6;
+export const SITE_CALM_SCAN_TILES = 10;
+export const SITE_HEAL_CALM_TICKS = 5 * TICK_RATE;
+export const SITE_HEAL_PER_SEC = 0.04;
+export const SITE_RESET_CALM_TICKS = 20 * TICK_RATE;
+// Anti-kite: SITE_KITE_HITS hits on a fort's mobs from attackers beyond the leash ring (decaying 1 per
+// SITE_KITE_DECAY_TICKS) start a surge: leash +SITE_SURGE_LEASH_TILES, towers +SITE_SURGE_TOWER_RANGE_TILES
+// range, melee defenders stop returning, for SITE_SURGE_TICKS; then SITE_SURGE_COOLDOWN_TICKS.
+export const SITE_KITE_HITS = 3;
+export const SITE_KITE_DECAY_TICKS = 4 * TICK_RATE;
+export const SITE_SURGE_TICKS = 8 * TICK_RATE;
+export const SITE_SURGE_COOLDOWN_TICKS = 12 * TICK_RATE;
+export const SITE_SURGE_LEASH_TILES = 6;
+export const SITE_SURGE_TOWER_RANGE_TILES = 2;
+// Garrison refill (calm or sleeping, not cleared): one guardian per SITE_REFILL_TICKS elapsed, up to the max.
+export const SITE_REFILL_TICKS = 60 * TICK_RATE;
+// Keep (= hearth) HP by tier 1-4.
+export const SITE_KEEP_HP_BY_TIER = [200, 350, 550, 800];
+// Clearing: this share of the fort's stockpile is plundered (plus the hearth's per-guardian loot).
+export const SITE_LOOT_STOCK_SHARE = 0.5;
+export const SITE_STOCK_CAP_MULT = 2;
+// Yard walks: this many guardians stroll between yard tiles while the site is awake and calm.
+export const SITE_WORKERS = 2;
+export const SITE_WORKER_WAIT_TICKS = [3 * TICK_RATE, 6 * TICK_RATE];
+export const SITE_WORKER_SPEED_MULT = 0.45;
 export const WARLORD_HP_MULT = 4.5;
 export const WARLORD_DAMAGE_MULT = 2;
 // On top of the usual goldForKill.
@@ -1281,6 +1474,8 @@ export const PLACEABLE_TILES = [
 export const BREAKABLE_TILES = [
   // Forts phase A: a fallen NPC wall's rubble can be cleared.
   TileType.Rubble,
+  // Forts phase B: a fort's tents (soldiers can burn them; a captured fort's can be cleared).
+  TileType.Tent,
   TileType.Wall,
   TileType.StoneWall,
   TileType.House,
@@ -1390,6 +1585,7 @@ export const POI_TILES = new Set<TileType>([
   TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble,
   TileType.PropCampfire, TileType.PropCart, TileType.PropBarrel, TileType.PropCrate, TileType.PropFence,
   TileType.AbbeyHall, TileType.PropCross, TileType.PropLanternPost,
+  TileType.Tent, TileType.SiteKeep, TileType.RuinedKeep,
 ]);
 // Base build time (seconds) per level; an upgrade to level n takes n times as long. Split between up
 // to BUILDER_MAX_PER_SITE builders and scaled by builderRate (happiness, Town Center, Guild).
@@ -1537,6 +1733,10 @@ export const BUILDING_NAMES: Partial<Record<TileType, string>> = {
   [TileType.Wall]: "Wood Wall",
   [TileType.StoneWall]: "Stone Wall",
   [TileType.Gate]: "Gate",
+  // Forts phase B.
+  [TileType.Tent]: "Tent",
+  [TileType.SiteKeep]: "Chief's hall",
+  [TileType.RuinedKeep]: "Ruined keep",
   [TileType.Road]: "Road",
   [TileType.CobbleRoad]: "Cobble Road",
   [TileType.SiegeWorkshop]: "Siege Workshop",

@@ -4,6 +4,7 @@ import type { WebSocket } from "ws";
 import type {
   ColonistKind, Stance, FormationShape, HeroClass, MobKind, BossTier, HungerMark, GateLock, WildlifeKind, ArmyOrder,
   Difficulty, TileType, SiegeKind, Equipment, GearItem, HeroStats, SpellId, EquipSlot, FightKind, FightSnapshot,
+  SiteFaction,
 } from "@colony/shared/protocol";
 import type { snapshotWorld } from "./saves.js";
 
@@ -204,10 +205,83 @@ export interface Mob {
   approachY?: number;
   // Scale pass: the mob's rolled size (MOB_SIZE_RANGE, see applyMobSize); missing = 1 (old saves too).
   scale?: number;
+  // Forts phase B, defender leash (site guardians only; missing = no leash: raid mobs, old awake
+  // guardians): the guardian's post (pixel centre), whether it is walking home, until when it ignores
+  // targets on the way, the last tick a hostile was within SITE_CALM_SCAN_TILES, the last target pick.
+  postX?: number;
+  postY?: number;
+  leashReturning?: boolean;
+  leashIgnoreUntil?: number;
+  lastThreatTick?: number;
+  leashPickTick?: number;
 }
 // Ruins and encampments are the small scattered sites; "castleRuin" is the one Castle Ruin and
 // "miniBoss" a mini-boss pack (ROADMAP Phase 5). All share the dormant-until-provoked wake mechanic.
-export type PoiSiteKind = "ruin" | "encampment" | "castleRuin" | "miniBoss";
+// Forts phase B: "fort" = a stamped NPC fort (SiteState in `sites`, keyed by the mobs' siteId).
+export type PoiSiteKind = "ruin" | "encampment" | "castleRuin" | "miniBoss" | "fort";
+// ---- Forts phase B (PLAN-forts-diplomacy-moats.md §2, §8): stamped NPC fort sites ----
+export type SiteTemplateId = "thornwick" | "grakkar";
+export interface SiteTemplate {
+  id: SiteTemplateId;
+  faction: SiteFaction;
+  // "Palisade" / "Stockade": the site name is "<picked name> <label>".
+  label: string;
+  names: string[];
+  // ASCII grid (legend SITE_TEMPLATE_TILES) at the MAX tier; `tiers` is a same-size grid giving, per
+  // non-"." cell, the tier (digit 1-4) that adds it. Rows must all have the same length.
+  rows: string[];
+  tiers: string[];
+  startTier: number;
+  // Garrison at the start tier (kind -> count); refilled up to this.
+  garrison: Partial<Record<MobKind, number>>;
+  // Starting stockpile and what it gains per game day (capped at 2x the start), looted in part on clearing.
+  stock: Partial<Record<ResourceKey, number>>;
+  income: Partial<Record<ResourceKey, number>>;
+  // Rebuild-the-keep cost (capture).
+  rebuildCost: Partial<Record<ResourceKey, number>>;
+}
+export interface SiteState {
+  // = the mobs' siteId; num = its owner-map site number (ownerSiteIds index + 1).
+  id: string;
+  num: number;
+  faction: SiteFaction;
+  template: SiteTemplateId;
+  name: string;
+  // Template rectangle (tiles, inclusive); the reserved footprint adds SITE_APRON_TILES around it.
+  footprint: { x0: number; y0: number; x1: number; y1: number };
+  keepX: number;
+  keepY: number;
+  // Leash centre / rally point: the yard tile next to the keep (pixel centre).
+  homeX: number;
+  homeY: number;
+  tier: number;
+  // Growth clock (phase G): game tick of the last tier change.
+  growthTick: number;
+  // Last tick the site was awake (simulated), the last garrison refill step, the last stock accrual.
+  lastSimTick: number;
+  lastRefillTick: number;
+  stockTick: number;
+  awake: boolean;
+  // Any guardian of it awake (provoked / fighting); recomputed once a second.
+  provoked: boolean;
+  calmSinceTick: number;
+  stock: Partial<Record<ResourceKey, number>>;
+  garrisonRoster: Partial<Record<MobKind, number>>;
+  garrisonMax: number;
+  // Mob ids doing the cosmetic yard walks while the site is awake and calm.
+  workers: string[];
+  // Anti-kite: hits on its mobs from beyond the leash ring (decays 1 per SITE_KITE_DECAY_TICKS).
+  kiteHits: number;
+  kiteDecayTick: number;
+  surgeUntilTick: number;
+  surgeCooldownUntilTick: number;
+  // "Fort sighted" toast sent (its keep tile was explored).
+  sighted: boolean;
+  // Keep razed (site broken, no respawns); captured = its keep was rebuilt into a clan's outpost.
+  cleared: boolean;
+  captured: boolean;
+  capturedBy?: number;
+}
 export interface RespawnRequest {
   tx: number;
   ty: number;
@@ -255,6 +329,8 @@ export interface TownCenter {
   hp: number;
   // Clans: owning clan (missing = 0).
   clan?: number;
+  // Forts phase B: an outpost rebuilt from a captured fort's keep ("Thornwick Outpost").
+  name?: string;
 }
 // Difficulty (chosen on the client's main menu). Scales RAID-WAVE mobs only (createRaidMob and the
 // raid size); POI guardians, deserters and the Half-Latch are untouched.

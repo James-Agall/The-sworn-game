@@ -107,6 +107,13 @@ export enum TileType {
   // Forts phase A (2026-10-29): what a destroyed NPC-owned wall or gate leaves behind. Walkable (NOT in
   // isSolidTile): a breach gap. The player may clear it (demolish -> Empty).
   Rubble = 74,
+  // 75 / 76 reserved for Moat / Drawbridge (forts plan phase H).
+  // Forts phase B (2026-10-30): an NPC fort's keep / chief hall (its hearth: HP in the snapshot `hearths`),
+  // what it leaves when razed (selectable: a clan can rebuild it into an outpost Town Center), and the
+  // forts' tents (NPC decor, damageable, demolishable once captured). All solid.
+  SiteKeep = 77,
+  RuinedKeep = 78,
+  Tent = 79,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -207,7 +214,10 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.Tower ||
     tile === TileType.Stables ||
     tile === TileType.SiegeWorkshop ||
-    tile === TileType.Keep
+    tile === TileType.Keep ||
+    tile === TileType.SiteKeep ||
+    tile === TileType.RuinedKeep ||
+    tile === TileType.Tent
   );
 }
 
@@ -781,6 +791,8 @@ export interface TownCenterSnapshot {
   troopCap?: number;
   garrisonBase?: number;
   garrisonCap?: number;
+  // Forts phase B: an outpost rebuilt from a captured fort's keep ("Thornwick Outpost"); omitted otherwise.
+  name?: string;
 }
 
 // Reply to a `buildingInfo` request; every number is computed by the server's own formulas.
@@ -832,6 +844,35 @@ export interface BuildingInfo {
   };
   // Churches only (hero phase 4): basic spells the requesting player can buy (see learnSpell).
   spellShop?: { spellId: SpellId; label: string; gold: number; enabled: boolean; reason: string }[];
+  // Forts phase B: an NPC fort's keep (SiteKeep) or its ruin (RuinedKeep). rebuild: the "Rebuild keep"
+  // button (see rebuildKeep), only on a RuinedKeep of a cleared, uncaptured fort; null on a standing keep.
+  keep?: {
+    siteName: string;
+    faction: SiteFaction;
+    garrison: number;
+    garrisonMax: number;
+    rebuild: { cost: string; enabled: boolean; reason: string } | null;
+  };
+}
+
+// ---- Forts phase B (2026-10-30): NPC fort sites ----
+export type SiteFaction = "bandit" | "orc";
+// Snapshot `sites` (sent with `siteTiles`, i.e. whenever the owner map / a site's status changed): every
+// NPC fort. The client marks a fort on the minimap once its keep tile is explored.
+export interface SiteSnapshot {
+  // Site number (as in `siteTiles`).
+  num: number;
+  name: string;
+  faction: SiteFaction;
+  keepX: number;
+  keepY: number;
+  // Template rectangle (tiles, inclusive).
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  cleared: boolean;
+  captured: boolean;
 }
 
 export type ClientMessage =
@@ -904,7 +945,10 @@ export type ClientMessage =
   // loadGame replaces the shared world for everyone connected.
   | { type: "saveGame"; slot: SaveSlot }
   | { type: "loadGame"; slot: SaveSlot }
-  | { type: "listSaves" };
+  | { type: "listSaves" }
+  // Forts phase B: rebuild the RuinedKeep at the tile into an outpost Town Center for the sender's clan
+  // (a construction site for the builders; see BuildingInfo.keep.rebuild).
+  | { type: "rebuildKeep"; tileX: number; tileY: number };
 
 export type ServerMessage =
   | {
@@ -1001,6 +1045,8 @@ export type ServerMessage =
       // Forts phase A: NPC-owned tiles, see SITE_TILE_SNAPSHOT_STRIDE (per player, only when changed;
       // a full replacement of the previous list).
       siteTiles?: number[];
+      // Forts phase B: every NPC fort (see SiteSnapshot), sent together with siteTiles.
+      sites?: SiteSnapshot[];
       // Clans (only while there are 2+): this player's clan id, every clan, and the clan of every player
       // building (CLAN_TILE_SNAPSHOT_STRIDE; per player, only when changed). The economy / army / population
       // / goal fields of this snapshot are the receiving player's clan's.
