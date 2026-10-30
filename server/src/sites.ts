@@ -11,6 +11,7 @@ import {
   SITE_APRON_TILES, SITE_FORT_COUNT_AT_512, SITE_FORT_COUNT_EXP, SITE_FORT_LANDMARK_CLEARANCE_TILES,
   SITE_FORT_MIN_WORLD_TILES, SITE_FORT_PLACE_ATTEMPTS, SITE_FORT_SPACING_TILES, SITE_FORT_START_CLEARANCE_TILES,
   SITE_KEEP_HP_BY_TIER, SITE_ORC_RING_FRACTION, SITE_TEMPLATES, SITE_TEMPLATE_TILES,
+  SETTLEMENT_COUNT_AT_512, SETTLEMENT_INNER_RING_FRACTION, SETTLEMENT_PLACE_ATTEMPTS, SETTLEMENT_SPACING_TILES, SETTLEMENT_START_CLEARANCE_TILES,
 } from "./constants.js";
 import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, players, sites, state, tileOwner } from "./state.js";
 import { inBounds, resourceKey, setOwner, siteNumber, tileIndex, tileToPixelCenter } from "./tiles.js";
@@ -42,7 +43,7 @@ export function validateTemplate(t: SiteTemplate) {
     for (let x = 0; x < w; x++) {
       const c = t.rows[y][x];
       if (c === ".") continue;
-      if (c !== "D" && SITE_TEMPLATE_TILES[c] === undefined) throw new Error(`site template ${t.id}: unknown "${c}" at ${x},${y}`);
+      if (c !== "D" && symbolTile(t, c) === undefined) throw new Error(`site template ${t.id}: unknown "${c}" at ${x},${y}`);
       const tier = Number(t.tiers[y][x]);
       if (!(tier >= 1 && tier <= t.maxTier)) throw new Error(`site template ${t.id}: no tier at ${x},${y}`);
       if (c === "K") keeps++;
@@ -50,6 +51,11 @@ export function validateTemplate(t: SiteTemplate) {
   }
   if (keeps !== 1) throw new Error(`site template ${t.id}: ${keeps} keeps`);
   validated.add(t.id);
+}
+
+// A template cell's tile: the template's own symbol table (human settlements) over the shared legend.
+export function symbolTile(t: SiteTemplate, c: string): TileType | undefined {
+  return t.symbols?.[c] ?? SITE_TEMPLATE_TILES[c];
 }
 
 export function templateSize(t: SiteTemplate): { w: number; h: number } {
@@ -156,7 +162,7 @@ export function stampSiteTemplate(
   const { w, h } = templateSize(t);
   const tier = Math.max(1, Math.min(t.maxTier, Math.round(opts.tier ?? t.startTier)));
   const broadcast = opts.broadcast ?? false;
-  const id = `fort:${randomUUID()}`;
+  const id = `${t.faction === "human" ? "settlement" : "fort"}:${randomUUID()}`;
   const num = siteNumber(id, true);
   const a = SITE_APRON_TILES;
   for (let y = y0 - a; y <= y0 + h - 1 + a; y++) {
@@ -174,7 +180,7 @@ export function stampSiteTemplate(
       const y = y0 + ry;
       const c = cellAtTier(t, rx, ry, tier);
       if (c === "." || c === "D") continue;
-      const tile = SITE_TEMPLATE_TILES[c];
+      const tile = symbolTile(t, c)!;
       setTile(x, y, tile, broadcast);
       setOwner(tileIndex(x, y), num);
       if (tile === TileType.Gate) {
@@ -239,10 +245,11 @@ export function stampSiteTemplate(
 // "<unused name> <label>" ("Thornwick Palisade"); "<name> <label> <n>" once the list is used up.
 export function pickSiteName(t: SiteTemplate): string {
   const taken = new Set(Array.from(sites.values(), (s) => s.name));
-  const free = t.names.map((n) => `${n} ${t.label}`).filter((n) => !taken.has(n));
+  const label = t.label ? ` ${t.label}` : "";
+  const free = t.names.map((n) => `${n}${label}`).filter((n) => !taken.has(n));
   if (free.length > 0) return free[Math.floor(Math.random() * free.length)];
   for (let n = 2; ; n++) {
-    const name = `${t.names[0]} ${t.label} ${n}`;
+    const name = `${t.names[0]}${label} ${n}`;
     if (!taken.has(name)) return name;
   }
 }
@@ -275,6 +282,54 @@ export function generateForts() {
         let spaced = true;
         for (const s of sites.values()) {
           if (Math.hypot(s.keepX - cx, s.keepY - cy) < SITE_FORT_SPACING_TILES) {
+            spaced = false;
+            break;
+          }
+        }
+        if (!spaced || siteFitProblem(t, x0, y0) !== null) continue;
+        stampSiteTemplate(id, x0, y0);
+        break;
+      }
+    }
+  }
+}
+
+// ---- Forts phase C: human settlements at world-gen ----
+
+// How many of each human template a world of `size` gets (512: 5 Hearthmoor + 3 Ironhold + 2 Riverwatch,
+// 256: 2 + 1 + 1, 160: 1 + 1 + 0; none below SITE_FORT_MIN_WORLD_TILES).
+export function settlementCounts(size = state.WORLD_TILES_X): Record<"hearthmoor" | "ironhold" | "riverwatch", number> {
+  if (size < SITE_FORT_MIN_WORLD_TILES) return { hearthmoor: 0, ironhold: 0, riverwatch: 0 };
+  const n = Math.round(SETTLEMENT_COUNT_AT_512 * Math.pow(size / 512, SITE_FORT_COUNT_EXP));
+  const riverwatch = Math.floor(n / 4);
+  const ironhold = Math.round(n * 0.3);
+  return { hearthmoor: Math.max(0, n - riverwatch - ironhold), ironhold, riverwatch };
+}
+
+// Before generateForts: the human settlements (Riverwatch first, it is the biggest), by rejection sampling:
+// centre >= SETTLEMENT_START_CLEARANCE_TILES from every Town Center (and, for the first half of the attempts,
+// within SETTLEMENT_INNER_RING_FRACTION of the map side of one), >= SETTLEMENT_SPACING_TILES from every other
+// settlement and >= SITE_FORT_SPACING_TILES from every fort, then siteFitProblem (Empty ground, off the
+// Abbey / Castle Ruin / other grounds). One that finds no spot is skipped.
+export function generateSettlements() {
+  const counts = settlementCounts();
+  const inner = state.WORLD_TILES_X * SETTLEMENT_INNER_RING_FRACTION;
+  for (const id of ["riverwatch", "ironhold", "hearthmoor"] as const) {
+    const t = SITE_TEMPLATES[id];
+    validateTemplate(t);
+    const { w, h } = templateSize(t);
+    for (let n = 0; n < counts[id]; n++) {
+      for (let attempt = 0; attempt < SETTLEMENT_PLACE_ATTEMPTS; attempt++) {
+        const x0 = 1 + Math.floor(Math.random() * (state.WORLD_TILES_X - w - 2));
+        const y0 = 1 + Math.floor(Math.random() * (state.WORLD_TILES_Y - h - 2));
+        const cx = x0 + (w >> 1);
+        const cy = y0 + (h >> 1);
+        const dTc = Math.min(...state.townCenters.map((tc) => Math.hypot(tc.x - cx, tc.y - cy)));
+        if (dTc < SETTLEMENT_START_CLEARANCE_TILES || (attempt < SETTLEMENT_PLACE_ATTEMPTS / 2 && dTc > inner)) continue;
+        let spaced = true;
+        for (const s of sites.values()) {
+          const min = s.faction === "human" ? SETTLEMENT_SPACING_TILES : SITE_FORT_SPACING_TILES;
+          if (Math.hypot(s.keepX - cx, s.keepY - cy) < min) {
             spaced = false;
             break;
           }

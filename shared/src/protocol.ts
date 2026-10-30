@@ -138,7 +138,8 @@ export const GATE_FLAG_FOREIGN = 16;
 // tile (site number >= 1). Per player, sent only when the owner map changed since that player's last one.
 export const SITE_TILE_SNAPSHOT_STRIDE = 2;
 // Forts phase B (2026-10-30): the faction of a stamped NPC fort (bandit palisades, orc stockades).
-export type SiteFaction = "bandit" | "orc";
+// Forts phase C: "human" = a neutral human settlement (Hearthmoor / Ironhold / Riverwatch templates).
+export type SiteFaction = "bandit" | "orc" | "human";
 // Forts phase B stage 3: snapshot `sites` (sent with `siteTiles`): every fort whose keep has been explored
 // (minimap marker coloured by faction; cleared = razed, captured = rebuilt as a clan's outpost).
 export interface SiteSnapshot {
@@ -149,6 +150,10 @@ export interface SiteSnapshot {
   cleared: boolean;
   captured: boolean;
   capturedBy?: number;
+  // Forts phase C: the site's owner-map number (siteTiles) and, for a human settlement, whether it is
+  // hostile right now (attacked: its garrison fights, its gates / towers treat the colony as enemies).
+  num?: number;
+  hostile?: boolean;
 }
 // Clans (ROADMAP "Clans — landed"): snapshot `clanTiles` is flattened [tile index, clan id] pairs, one per
 // player building of any clan, sent only while there are 2+ clans and only when it changed (a full
@@ -578,7 +583,15 @@ export type MobKind =
   | "catapult"
   // Goblin wolf rider (scale pass 2026-10-29): the monsters' cavalry. Fast flanker that charges for a
   // double first blow, hits and runs, and takes extra damage from pikemen / spearmen.
-  | "goblinRider";
+  | "goblinRider"
+  // Forts phase C: a human settlement's garrison (town guard / archer / knight: colonist art, blue tint)
+  // and its cosmetic workers (farmer / miner / priest: walk loops only, never fight).
+  | "townGuard"
+  | "townArcher"
+  | "townKnight"
+  | "townFarmer"
+  | "townMiner"
+  | "townPriest";
 
 // Regiments & roles (ROADMAP "Regiments & roles"): every combat unit kind fights in a role.
 //   frontline - the melee line: holds the front rank and engages what is in front of its slot.
@@ -607,6 +620,12 @@ export const MOB_ROLE: Record<MobKind, CombatRole> = {
   batteringRam: "siege",
   catapult: "siege",
   goblinRider: "fast",
+  townGuard: "frontline",
+  townArcher: "ranged",
+  townKnight: "shock",
+  townFarmer: "frontline",
+  townMiner: "frontline",
+  townPriest: "frontline",
 };
 // Soldier kinds only (civilians and bishops have no combat role).
 export const COLONIST_ROLE: Partial<Record<ColonistKind, CombatRole>> = {

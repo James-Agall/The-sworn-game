@@ -298,6 +298,8 @@ export function settlementStatsAll(): Map<number, SettlementStat[]> {
   };
   for (let i = 0; i < state.tiles.length; i++) {
     const t = state.tiles[i] as TileType;
+    // Forts phase C: an NPC settlement's houses / keep house nobody of a clan (until captured).
+    if (ownerAt(i) !== 0) continue;
     const w = t === TileType.House ? 1 : t === TileType.BigHouse ? 3 : t === TileType.HouseLevel2 ? 5 : 0;
     if (w) {
       const s = statNear(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X), clanIdAtIndex(i));

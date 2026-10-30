@@ -211,13 +211,20 @@ export interface Mob {
   postY?: number;
   leashReturnUntilTick?: number;
   leashCalmSinceTick?: number;
+  // Forts phase C: a human settlement's cosmetic worker (never a guardian: stays dormant, never fights),
+  // walking between work tile A and shelter tile B (tile indices); leg 0 = to A.
+  siteWorker?: SiteWorkerRole;
+  workA?: number;
+  workB?: number;
+  workLeg?: number;
+  workWaitUntilTick?: number;
 }
 // Ruins and encampments are the small scattered sites; "castleRuin" is the one Castle Ruin and
 // "miniBoss" a mini-boss pack (ROADMAP Phase 5). All share the dormant-until-provoked wake mechanic.
 // Forts phase B: "fort" = a stamped NPC fort (a SiteState in `sites`, keyed by the mobs' siteId).
 export type PoiSiteKind = "ruin" | "encampment" | "castleRuin" | "miniBoss" | "fort";
 // ---- Forts phase B (PLAN-forts-diplomacy-moats.md §2, §8): stamped NPC fort sites ----
-export type SiteTemplateId = "thornwick" | "grakkar";
+export type SiteTemplateId = "thornwick" | "grakkar" | "hearthmoor" | "ironhold" | "riverwatch";
 export interface SiteTemplate {
   id: SiteTemplateId;
   faction: SiteFaction;
@@ -236,11 +243,20 @@ export interface SiteTemplate {
   stock: Partial<Record<ResourceKey, number>>;
   // Rebuild-the-keep cost (capture, stage 3).
   rebuildCost: Partial<Record<ResourceKey, number>>;
+  // Forts phase C: per-template symbol overrides on top of SITE_TEMPLATE_TILES (stone walls, houses, ...),
+  // the cosmetic workers (spawned while awake) and the noun of the sighting toast ("village").
+  symbols?: Record<string, TileType>;
+  workers?: Partial<Record<SiteWorkerRole, number>>;
+  noun?: string;
 }
+// Forts phase C: a human settlement worker's walk loop (farm plots / ore / church and back).
+export type SiteWorkerRole = "farm" | "mine" | "priest";
 export interface SiteState {
   // = the mobs' siteId (and the hearth's); num = its owner-map site number (ownerSiteIds index + 1).
   id: string;
   num: number;
+  // Human settlements (phase C) are kind "fort" too (same stamper / hearth / leash / capture code),
+  // told apart by faction "human".
   kind: "fort";
   faction: SiteFaction;
   template: SiteTemplateId;
@@ -281,6 +297,10 @@ export interface SiteState {
   kiteHits?: number;
   surgeUntilTick?: number;
   surgeCooldownUntilTick?: number;
+  // Forts phase C (human settlements): attacked -> `provoked` until hostileUntilTick; the clans already
+  // charged the relation penalty for this hostile spell.
+  hostileUntilTick?: number;
+  hostileClans?: number[];
 }
 export interface RespawnRequest {
   tx: number;

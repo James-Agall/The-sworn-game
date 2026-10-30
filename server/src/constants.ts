@@ -177,6 +177,12 @@ export const MOB_BODY_RADIUS: Record<MobKind, number> = {
   batteringRam: 12,
   catapult: 11,
   goblinRider: 8,
+  townGuard: 7,
+  townArcher: 7,
+  townKnight: 8,
+  townFarmer: 7,
+  townMiner: 7,
+  townPriest: 7,
 };
 // Scale pass: the body grows with the mob's size (mobSizeScale: kind x roll x boss tier), capped so a
 // boss still fits the one-cell neighbour scan of separateBodies.
@@ -399,6 +405,13 @@ export const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
   catapult: { maxHp: CATAPULT_MAX_HP, damage: CATAPULT_DAMAGE, speed: CATAPULT_SPEED, range: CATAPULT_RANGE, melee: false, unlockDay: 14 },
   // Goblin wolf rider (scale pass): the greenskins' cavalry, from raid day 8 (see GOBLIN_RIDER_*).
   goblinRider: { maxHp: 30, damage: 7, speed: 125, range: TILE_SIZE * 0.8, melee: true, unlockDay: 8 },
+  // Forts phase C: human settlement garrisons and workers (in no raid faction; unlockDay unreachable).
+  townGuard: { maxHp: 40, damage: 8, speed: 80, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
+  townArcher: { maxHp: 30, damage: 8, speed: 75, range: TILE_SIZE * 4, melee: false, unlockDay: Number.POSITIVE_INFINITY },
+  townKnight: { maxHp: 85, damage: 14, speed: 75, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
+  townFarmer: { maxHp: 20, damage: 2, speed: 55, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
+  townMiner: { maxHp: 24, damage: 3, speed: 55, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
+  townPriest: { maxHp: 18, damage: 1, speed: 50, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
 };
 // ---- Scale pass: size variation ----
 // Every mob of a MOB_SIZE_RANGE kind rolls a size s, deterministically from its id (so a save can
@@ -1239,6 +1252,124 @@ export const SITE_TEMPLATE_TILES: Record<string, TileType> = {
   M: TileType.PropBarrel,
   "~": TileType.Water,
 };
+// Forts phase C: human settlement symbols (SiteTemplate.symbols, over SITE_TEMPLATE_TILES): stone walls,
+// houses, a forge (Blacksmith), real ore / rock (inside the reserved grounds: no player mine can go there),
+// a well (one Water tile), barn, market, church, inn (Tavern), mill (BigHouse). The player-building tiles
+// are inert while the site owns them (no workers; housing skips NPC tiles) and real after a capture.
+export const HUMAN_SITE_SYMBOLS: Record<string, TileType> = {
+  "#": TileType.StoneWall,
+  H: TileType.House,
+  F: TileType.Blacksmith,
+  M: TileType.IronOre,
+  R: TileType.Rock,
+  W: TileType.Water,
+  B: TileType.BarnPost,
+  m: TileType.Market,
+  c: TileType.ChurchPost,
+  i: TileType.Tavern,
+  n: TileType.BigHouse,
+};
+// Human templates are single-stage: every non-"." cell joins at tier 1.
+function singleStage(rows: string[]): string[] {
+  return rows.map((r) => r.replace(/[^.]/g, "1"));
+}
+const HEARTHMOOR_ROWS = [
+      "fffffBffffffff...ffffffffffffff",
+      "f.............................f",
+      "f.#############G#############.f",
+      "f.#T.......................T#.f",
+      "f.#.........................#.f",
+      "f.#...H..H..........H..H....#.f",
+      "f.#.........................#.f",
+      "f.#.........................#.f",
+      "f.#.........n...............#.f",
+      "f.#...H...........m.....H...#.f",
+      "f.#.........................#.f",
+      "f.#.........................#.f",
+      "f.#.........................#.f",
+      "f.#.........W..K............#.f",
+      "f.#.....i............c......#.f",
+      "f.#.........................#.f",
+      "f.#.........................#.f",
+      "f.#.....................H...#.f",
+      "f.#...H....s.......s........#.f",
+      "f.#.........................#.f",
+      "f.#.........................#.f",
+      "f.#......H..........H..H....#.f",
+      "f.#.........................#.f",
+      "f.#T.......................T#.f",
+      "f.#############G#############.f",
+      "f.............................f",
+      "ffffffffffffff...ffffffffBfffff",
+];
+const IRONHOLD_ROWS = [
+      ".............................",
+      ".#####################.......",
+      ".#T.................T#.......",
+      ".#...................#.......",
+      ".#...................#....R..",
+      ".#...H..H.....H..H...#..MM.R.",
+      ".#...................#....M..",
+      ".#...................#..M....",
+      ".#...................#.....M.",
+      ".#....s.........s....#.......",
+      ".#...................#.......",
+      ".#.....W...K..F......G.......",
+      ".#...................#.....R.",
+      ".#..............s....#.......",
+      ".#...................#..M.M..",
+      ".#...................#...M...",
+      ".#...H..H.....m..H...#.R...M.",
+      ".#...................#...M...",
+      ".#...................#....R..",
+      ".#...................#.......",
+      ".#T.................T#.......",
+      ".##########G##########.......",
+      ".............................",
+      "..fff.fff....................",
+      ".............................",
+];
+const RIVERWATCH_ROWS = [
+      "~~~~~~~~~~~~~~~~~~~~~D~~~~~~~~~~~~~~~~~~~~~",
+      "...........................................",
+      "...##################G##################...",
+      "...#T.................................T#...",
+      "...#...................................#...",
+      "f..#...................................#..f",
+      "f..#...H..H..H..............H..H..H....#..f",
+      "f..#...................................#..f",
+      "...#...................................#...",
+      "f..#...................................#..f",
+      "f..#............m.........m............#..f",
+      "f..#...H..........................H....#..f",
+      "...#...................................#...",
+      "f..#...................................#..f",
+      "f..#...................................#..f",
+      "f..#.................K.................#..f",
+      "...#........i.................c........#...",
+      "f..#...................................#..f",
+      "f..#...................................#..f",
+      "f..#T.............s.....s.............T#..f",
+      "...#...................................#...",
+      "f..#...................................#..f",
+      "f..#...................................#..f",
+      "f..#...H.........n.......B........H....#..f",
+      "...#...................................#...",
+      "f..#...................................#..f",
+      "f..#...................................#..f",
+      "f..#...H......F......W......W.....H....#..f",
+      "...#...................................#...",
+      "f..#...................................#..f",
+      "f..#...................................#..f",
+      "f..#......H..H..............H..H.......#..f",
+      "...#...................................#...",
+      "f..#...................................#..f",
+      "f..#...................................#..f",
+      "...#T.................................T#...",
+      "...##################G##################...",
+      "...........................................",
+      "~~~~~~~~~~~~~~~~~~~~~D~~~~~~~~~~~~~~~~~~~~~",
+];
 // The two wood forts. `tiers`: the tier (digit) each non-"." cell joins at. Below its tier a gate cell is a
 // wall while the wall ring stands (tier 2+), a wall cell is a fence (tier 1 camp), anything else stays open.
 export const SITE_TEMPLATES: Record<SiteTemplateId, SiteTemplate> = {
@@ -1349,13 +1480,70 @@ export const SITE_TEMPLATES: Record<SiteTemplateId, SiteTemplate> = {
     stock: { gold: 40, wood: 80, iron: 30, rock: 30 },
     rebuildCost: { wood: 40, rock: 20 },
   },
+  // Fort 3 - Hearthmoor (human farming hamlet, stone, 31x27, single stage): farms in a ring outside the wall.
+  hearthmoor: {
+    id: "hearthmoor",
+    faction: "human",
+    label: "",
+    noun: "village",
+    names: [
+      "Hearthmoor", "Ashford", "Willowby", "Brookhollow", "Oakhurst", "Millbrook", "Thistledown", "Elmstead", "Fairmead", "Greenhithe", "Kettlewell", "Marshfield",
+    ],
+    rows: HEARTHMOOR_ROWS,
+    tiers: singleStage(HEARTHMOOR_ROWS),
+    maxTier: 1,
+    startTier: 1,
+    symbols: HUMAN_SITE_SYMBOLS,
+    garrison: { townGuard: 4, townArcher: 2 },
+    workers: { farm: 4, priest: 1 },
+    stock: { gold: 50, grain: 80, fruit: 30, meat: 20 },
+    rebuildCost: { wood: 80, rock: 80, iron: 20 },
+  },
+  // Fort 4 - Ironhold (human mining outpost, stone, 29x25): ore field (real ore tiles, inside the reserved grounds) outside the east gate.
+  ironhold: {
+    id: "ironhold",
+    faction: "human",
+    label: "",
+    noun: "mining outpost",
+    names: [
+      "Ironhold", "Deepdelve", "Coldforge", "Greystone", "Hammerfell", "Copperhill", "Slatebrook", "Anvilmere",
+    ],
+    rows: IRONHOLD_ROWS,
+    tiers: singleStage(IRONHOLD_ROWS),
+    maxTier: 1,
+    startTier: 1,
+    symbols: HUMAN_SITE_SYMBOLS,
+    garrison: { townGuard: 3, townArcher: 2, townKnight: 1 },
+    workers: { mine: 3, farm: 1 },
+    stock: { gold: 40, iron: 60, rock: 80 },
+    rebuildCost: { wood: 80, rock: 80, iron: 20 },
+  },
+  // Fort 5 - Riverwatch (human garrison town, stone, 43x39, rare): moat strips N / S (Water until phase H) with drawbridge gaps (open ground).
+  riverwatch: {
+    id: "riverwatch",
+    faction: "human",
+    label: "",
+    noun: "town",
+    names: [
+      "Riverwatch", "Kingsbridge", "Highwater", "Stonebridge", "Castlemere",
+    ],
+    rows: RIVERWATCH_ROWS,
+    tiers: singleStage(RIVERWATCH_ROWS),
+    maxTier: 1,
+    startTier: 1,
+    symbols: HUMAN_SITE_SYMBOLS,
+    garrison: { townGuard: 5, townArcher: 4, townKnight: 3 },
+    workers: { farm: 4, mine: 1, priest: 1 },
+    stock: { gold: 150, grain: 60, wood: 60, iron: 30, clothes: 20 },
+    rebuildCost: { wood: 80, rock: 80, iron: 20 },
+  },
 };
 // Reserved grounds around a fort's template rectangle: cleared at stamping, no player building, no POI.
 export const SITE_APRON_TILES = 2;
 // World-gen: no forts on maps smaller than this (the 80 / 96-tile test worlds stay as they were); counts are
 // round(SITE_FORT_COUNT_AT_512 x (size / 512)^SITE_FORT_COUNT_EXP): 512: 12 + 10, 256: 5 + 4, 160: 2 + 2.
 export const SITE_FORT_MIN_WORLD_TILES = 128;
-export const SITE_FORT_COUNT_AT_512: Record<SiteTemplateId, number> = { thornwick: 12, grakkar: 10 };
+export const SITE_FORT_COUNT_AT_512: Record<SiteTemplateId, number> = { thornwick: 12, grakkar: 10, hearthmoor: 5, ironhold: 3, riverwatch: 2 };
 export const SITE_FORT_COUNT_EXP = 1.4;
 // Fort centres keep this far apart (Euclidean tiles), this far from every Town Center (the start), and
 // their grounds this far off the Abbey / Castle Ruin grounds. Orc stockades try the outer ring first (at
@@ -1405,6 +1593,30 @@ export const SITE_SURGE_TOWER_RANGE_TILES = 2;
 export const SITE_REFILL_TICKS = 60 * TICK_RATE;
 // Clearing (keep razed): this share of the fort's stockpile is plundered on top of the hearth loot.
 export const SITE_LOOT_STOCK_SHARE = 0.5;
+// ---- Forts phase C: human settlements (PLAN-forts-diplomacy-moats.md §3, §8, §10 "C") ----
+// World-gen: round(SETTLEMENT_COUNT_AT_512 x (size / 512)^SITE_FORT_COUNT_EXP) settlements (512: 10, 256: 4,
+// 160: 2; none < SITE_FORT_MIN_WORLD_TILES), split floor(n / 4) Riverwatch, round(n x 0.3) Ironhold, the rest
+// Hearthmoor. Centres >= SETTLEMENT_SPACING_TILES apart, >= SETTLEMENT_START_CLEARANCE_TILES from every Town
+// Center, >= SITE_FORT_SPACING_TILES from any fort; the first half of the attempts stay within
+// SETTLEMENT_INNER_RING_FRACTION of the map side of a Town Center.
+export const SETTLEMENT_COUNT_AT_512 = 10;
+export const SETTLEMENT_SPACING_TILES = 80;
+export const SETTLEMENT_START_CLEARANCE_TILES = 50;
+export const SETTLEMENT_INNER_RING_FRACTION = 0.35;
+export const SETTLEMENT_PLACE_ATTEMPTS = 1500;
+// Attacked (any colony damage to its units / buildings): hostile for this long (2 game days), then calm.
+export const SETTLEMENT_HOSTILE_TICKS = 2 * (DAY_TICKS + NIGHT_TICKS);
+// Relations hook (phase D builds the rest): Clan.relations[site number], -100..100, default neutral.
+export const RELATION_NEUTRAL = 0;
+export const RELATION_MIN = -100;
+export const RELATION_MAX = 100;
+// First attack of a hostile spell (per clan), razing the keep, capturing it (every OTHER settlement).
+export const RELATION_ATTACK_PENALTY = 15;
+export const RELATION_RAZE_PENALTY = 40;
+export const RELATION_CONQUEROR_PENALTY = 25;
+// Cosmetic workers: pause at each end of the walk (ticks, random up to x2), walk speed factor.
+export const SETTLEMENT_WORKER_PAUSE_TICKS = 6 * TICK_RATE;
+export const SETTLEMENT_WORKER_SPEED_MULT = 0.7;
 export const WARLORD_HP_MULT = 4.5;
 export const WARLORD_DAMAGE_MULT = 2;
 // On top of the usual goldForKill.

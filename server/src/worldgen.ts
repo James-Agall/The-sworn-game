@@ -24,7 +24,7 @@ import {
   TOWN_CENTER_TILE, isAbbeyClergy, spawnColonistForPost, topUpTownCenterBuilders, townCenterMaxHp,
 } from "./colonists.js";
 import { applyMobSize } from "./mobs.js";
-import { clearSites, generateForts, isInSiteGrounds, nearSiteGrounds } from "./sites.js";
+import { clearSites, generateForts, generateSettlements, isInSiteGrounds, nearSiteGrounds } from "./sites.js";
 import { registerHearth } from "./hearths.js";
 import { evaluateGoals, resetGoals } from "./goals.js";
 import { grantTieredEquipment } from "./heroes.js";
@@ -524,6 +524,8 @@ export function generateWorld() {
   placeAbbey(placedSites);
   placeCastleRuin(placedSites);
   // Forts phase B: the stamped NPC forts (before the scatter, so only ponds compete for their ground).
+  // Forts phase C: the (bigger, rarer) human settlements pick their ground first.
+  generateSettlements();
   generateForts();
   scatterResourceTiles(TileType.Tree, state.TREE_COUNT);
   scatterResourceTiles(TileType.IronOre, state.IRON_ORE_COUNT);

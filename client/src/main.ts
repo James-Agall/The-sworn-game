@@ -381,6 +381,13 @@ const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
   catapult: { color: 0x6b4a2a, radius: 12 },
   // Goblin wolf rider: a wolf with a goblin on its back, a little bigger than a bare wolf.
   goblinRider: { color: 0x9a7a4a, radius: 9 },
+  // Forts phase C: human settlement guards / workers, colonist-sized, drawn with the colonist sets (MOB_VARIANT_URLS).
+  townGuard: { color: 0x3a5a9a, radius: 8 },
+  townArcher: { color: 0x3a5a9a, radius: 8 },
+  townKnight: { color: 0x2a4a8a, radius: 8.5 },
+  townFarmer: { color: 0x8a7a4a, radius: 8 },
+  townMiner: { color: 0x6a6a6a, radius: 8 },
+  townPriest: { color: 0xd8d0b8, radius: 8 },
 };
 const MOB_KINDS = Object.keys(MOB_VISUALS) as MobKind[];
 // Mob kinds whose texture isn't /sprites/<kind>.png.
@@ -395,7 +402,11 @@ const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
 };
 // Tints for mob kinds drawn with borrowed (placeholder) art. The goblin wolf rider is the wolf set tinted
 // warm brown until its own set (SPRITES.md #83, MOB_OPTIONAL_VARIANT_URLS) lands.
-const MOB_TINT: Partial<Record<MobKind, number>> = { batteringRam: 0xb07a4a, catapult: 0x9a7048, goblinRider: 0xd89a60 };
+const MOB_TINT: Partial<Record<MobKind, number>> = {
+  batteringRam: 0xb07a4a, catapult: 0x9a7048, goblinRider: 0xd89a60,
+  // Forts phase C: settlement guards in blue livery (borrowed colonist art); workers lightly cooled.
+  townGuard: 0x9ab4ff, townArcher: 0x9ab4ff, townKnight: 0x9ab4ff, townFarmer: 0xd8e0ff, townMiner: 0xd8e0ff, townPriest: 0xd8e0ff,
+};
 
 const artUrl = (name: string) => `/sprites/${name}.png`;
 const frameUrls = (name: string, count: number) =>
@@ -554,6 +565,13 @@ const MOB_VARIANT_URLS: Partial<Record<MobKind, MobVariantUrls[]>> = {
     { idle: "/sprites/bandit.png", walk: frameUrls("banditWalk", 4), action: frameUrls("banditAttack", 3) },
   ],
   halfLatch: frameUrls("halfLatch", 5).map((idle) => ({ idle })),
+  // Forts phase C: human settlement folk borrow the colonist sets (tinted by MOB_TINT).
+  townGuard: [{ walk: frameUrls("militiaWalk", 4), action: frameUrls("militiaAttack", 3) }],
+  townArcher: [{ walk: frameUrls("archerWalk", 4), action: frameUrls("archerAttack", 6) }],
+  townKnight: [{ walk: frameUrls("knightWalk", 4), action: frameUrls("knightAttack", 4) }],
+  townFarmer: [{ walk: frameUrls("farmerWalk", 4), action: frameUrls("farmerHarvest", 3) }],
+  townMiner: [{ walk: frameUrls("ironMinerWalk", 4), action: frameUrls("ironMinerMine", 3) }],
+  townPriest: [{ walk: frameUrls("bishopWalk", 4), action: frameUrls("bishopHeal", 3) }],
   // The monster roster: one look each, 4 walk + 3 attack frames, idle = walk frame 0. The static
   // /sprites/<kind>.png stays as the fallback texture only.
   goblin: [{ walk: frameUrls("goblinWalk", 4), action: frameUrls("goblinAttack", 3) }],
@@ -1818,7 +1836,8 @@ async function main() {
   const FOREIGN_TINT = 0xffa090;
   // Forts phase B: explored forts (snapshot `sites`, sent with siteTiles): minimap flags by faction.
   let fortMarkers: SiteSnapshot[] = [];
-  const FORT_FLAG_COLOR: Record<SiteFaction, string> = { bandit: "#d35400", orc: "#6b8e23" };
+  // Forts phase C: neutral human settlements fly a white flag (red while hostile).
+  const FORT_FLAG_COLOR: Record<SiteFaction, string> = { bandit: "#d35400", orc: "#6b8e23", human: "#f4f4f0" };
   // Clans (snapshot clanId / clans / clanTiles, only while 2+ clans play): this player's clan, every clan's
   // colour, and the clan of every player building. Another clan's buildings are tinted with its colour
   // and its units get a ring in it; neither can be selected or ordered.
