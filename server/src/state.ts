@@ -267,6 +267,8 @@ export interface EquipmentFields {
   lastEquipDropToastTick: number;
   // testHook "equipConfig" {dropChance}: overrides EQUIP_DROP_CHANCE (null = the constant).
   testEquipDropChance: number | null;
+  // testHook "gearPickupConfig" {enabled}: false switches the idle soldiers' gear pickup off (equipment-test).
+  testGearPickupOff: boolean;
 }
 
 export interface SpellsFields {
@@ -502,6 +504,7 @@ const initial: Partial<ServerState> = {
   equipDropToasted: false,
   lastEquipDropToastTick: -Infinity,
   testEquipDropChance: null,
+  testGearPickupOff: false,
   // SpellsFields
   testTomeChance: null,
   spellTick: 0,
@@ -736,3 +739,6 @@ export const spellEvents: { type: string; key?: string; spell?: string; amount?:
 
 // -- forge --
 export const forgeQueues = new Map<string, ForgeQueueState>();
+// Forge autocraft (setForgeAuto): Blacksmith tile key ("x,y") -> stock target, for every Blacksmith with
+// autocraft on (its clan is the tile's). Saved (`forgeAuto`); dropped when the tile stops being a Blacksmith.
+export const forgeAuto = new Map<string, number>();

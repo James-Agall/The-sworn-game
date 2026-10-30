@@ -10,7 +10,9 @@ import {
 import type { Colonist, Cost, HeroProfile, Mob, Player } from "./types.js";
 import {
   ARMOUR_DAMAGE_TAKEN_MULT, EQUIPPED_KINDS, EQUIP_ARMOURED_KINDS, EQUIP_DROP_CHANCE, EQUIP_LOOT_TIER_WEIGHTS,
-  EQUIP_SLOT_LABEL, EQUIP_TIERS, EQUIP_TOAST_THROTTLE_TICKS, FORGE_ARMOUR_IRON, FORGE_QUEUE_CAP, FORGE_TICKS,
+  EQUIP_SLOT_LABEL, EQUIP_TIERS, EQUIP_TOAST_THROTTLE_TICKS, FORGE_ARMOUR_IRON, FORGE_AUTO_CHECK_TICKS,
+  FORGE_AUTO_RESERVE, FORGE_AUTO_TARGET_DEFAULT, FORGE_AUTO_TARGET_MAX, FORGE_QUEUE_CAP, FORGE_TICKS,
+  GEAR_PICKUP_INTERVAL_TICKS, GEAR_PICKUP_PRIORITY,
   FORGE_WEAPON_IRON, FORGE_WEAPON_WOOD, HERO_CLASS_STATS, HERO_INVENTORY_CAP, HERO_KEY_PREFIX, HERO_LEVEL_DAMAGE_PCT,
   HERO_LEVEL_MAX_HP, HERO_LEVEL_XP, HERO_MAX_LEVEL, HERO_MAX_TOTAL, HERO_MIN_DAMAGE_TAKEN_MULT, HERO_MIN_SPEED_MULT,
   HERO_NAMES, HERO_POPULATION_COST, HERO_RECRUIT_COST, HERO_RECRUIT_TICKS, HERO_RESPAWN_FEE_BASE,
@@ -19,7 +21,7 @@ import {
   TEST_HOOKS, TOME_ELITE_CHANCE, TOME_HEARTH_CHANCE, WEAPON_DAMAGE_MULT,
 } from "./constants.js";
 import {
-  colonists, equipEvents, forgeQueues, heroEvents, heroProfiles, heroRecruits, players, respawnQueue,
+  colonists, equipEvents, forgeAuto, forgeQueues, heroEvents, heroProfiles, heroRecruits, players, respawnQueue,
   state,
 } from "./state.js";
 import { getBuildingLevel, inBounds, resourceKey, tileIndex, tileOfPixel } from "./tiles.js";
@@ -31,7 +33,7 @@ import {
 } from "./spells.js";
 import { sendTo } from "./saves.js";
 import { broadcastEvent } from "./net.js";
-import { clanIdAt, clanOf, enterClan, resetClan, withClan } from "./clans.js";
+import { clanIdAt, clanOf, enterClan, forEachClan, resetClan, withClan } from "./clans.js";
 
 export function equipEvent(e: Omit<(typeof equipEvents)[number], "tick">) {
   if (!TEST_HOOKS) return;
@@ -43,6 +45,7 @@ export function resetEquipment() {
   state.equipment.armour = [0, 0, 0];
   state.equipment.weapon = [0, 0, 0];
   forgeQueues.clear();
+  forgeAuto.clear();
   state.lastUnequippedToastTick = -Infinity;
   state.equipDropToasted = false;
   state.lastEquipDropToastTick = -Infinity;
@@ -75,6 +78,52 @@ export function equipNewUnit(c: Colonist) {
   const missing = c.armourTier === 0 && c.weaponTier === 0 ? "armour or weapons" : c.armourTier === 0 ? "armour" : "a forged weapon";
   const name = c.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
   broadcastEvent("build", `A ${name} musters without ${missing} — the stock is empty (forge more at a Blacksmith)`);
+}
+
+// ---- Gear pickup (2026-10-30; GEAR_PICKUP_*) ----
+// Already-mustered soldiers re-arm from the stock: every GEAR_PICKUP_INTERVAL_TICKS, per clan with anything
+// in stock, its idle soldiers of GEAR_PICKUP_PRIORITY kinds (knight > cavalry > pikeman > spearman; militia,
+// archers, engines and heroes don't wear stock gear) are walked slot by slot in that order, lower current
+// tier first within a class; each takes the best tier in stock above its own (never a downgrade) and puts
+// the piece it wore back in the stock. Idle = state "idle" with no target (at its post / rally point, not
+// fighting or marching). Spawns still equip in equipNewUnit; both draw on the one stock, so nothing is
+// counted twice. Cost: one pass over the colonists every 3 s, only while the stock is non-empty.
+const GEAR_TIER_KEY: Record<EquipSlot, "armourTier" | "weaponTier"> = { armour: "armourTier", weapon: "weaponTier" };
+
+function bestTierInStock(slot: EquipSlot): number {
+  for (let tier = EQUIP_TIERS; tier >= 1; tier--) if (state.equipment[slot][tier - 1] > 0) return tier;
+  return 0;
+}
+
+export function updateGearPickup() {
+  if (state.testGearPickupOff || state.cycleTick % GEAR_PICKUP_INTERVAL_TICKS !== 0) return;
+  forEachClan((clan) => {
+    if (bestTierInStock("armour") === 0 && bestTierInStock("weapon") === 0) return;
+    const idle: Colonist[] = [];
+    for (const c of colonists.values()) {
+      if ((c.clan ?? 0) !== clan.id || c.state !== "idle" || c.targetMobId !== null || c.hp <= 0) continue;
+      if (GEAR_PICKUP_PRIORITY.includes(c.kind)) idle.push(c);
+    }
+    if (idle.length === 0) return;
+    const equipped = new Set<string>();
+    for (const slot of ["armour", "weapon"] as EquipSlot[]) {
+      const key = GEAR_TIER_KEY[slot];
+      idle.sort((a, b) => GEAR_PICKUP_PRIORITY.indexOf(a.kind) - GEAR_PICKUP_PRIORITY.indexOf(b.kind) || (a[key] ?? 0) - (b[key] ?? 0));
+      for (const c of idle) {
+        const cur = c[key] ?? 0;
+        const best = bestTierInStock(slot);
+        if (best <= cur) continue;
+        state.equipment[slot][best - 1]--;
+        if (cur > 0) state.equipment[slot][cur - 1]++;
+        c[key] = best;
+        equipped.add(c.id);
+        equipEvent({ type: "pickup", id: c.id, slot, tier: best, detail: `${c.kind} ${cur}->${best}` });
+      }
+    }
+    if (equipped.size === 0) return;
+    const n = equipped.size;
+    broadcastEvent("build", `${n} soldier${n === 1 ? "" : "s"} equipped from the armoury stock`);
+  });
 }
 
 export function weaponDamageMult(c: Colonist): number {
@@ -634,6 +683,12 @@ export function blacksmithForgeInfo(tx: number, ty: number): NonNullable<Buildin
     queue: state ? state.queue.map((q) => ({ ...q })) : [],
     progress: head ? 1 - state!.ticksLeft / FORGE_TICKS[head.slot] : null,
     cap: FORGE_QUEUE_CAP,
+    auto: (() => {
+      const target = forgeAuto.get(resourceKey(tx, ty));
+      return target === undefined
+        ? { on: false, target: FORGE_AUTO_TARGET_DEFAULT, reserve: FORGE_AUTO_RESERVE, status: "Off" }
+        : { on: true, target, reserve: FORGE_AUTO_RESERVE, status: autoForgePlan(tx, ty, target).status };
+    })(),
     options: (["armour", "weapon"] as EquipSlot[]).map((slot) => {
       const reason = forgeQueueBlocker(tx, ty, slot);
       return {
@@ -651,6 +706,11 @@ export function handleQueueForge(tx: number, ty: number, slot: unknown) {
   if (!inBounds(tx, ty) || state.tiles[tileIndex(tx, ty)] !== TileType.Blacksmith) return;
   if (slot !== "armour" && slot !== "weapon") return;
   if (forgeQueueBlocker(tx, ty, slot) !== "") return;
+  queueForgeItem(tx, ty, slot);
+}
+
+// Pays for and queues one `slot` item of the Blacksmith's tier (callers have checked forgeQueueBlocker).
+function queueForgeItem(tx: number, ty: number, slot: EquipSlot) {
   const tier = getBuildingLevel(tx, ty);
   spend(forgeCost(slot, tier));
   const key = resourceKey(tx, ty);
@@ -663,8 +723,74 @@ export function handleQueueForge(tx: number, ty: number, slot: unknown) {
   if (localState.queue.length === 1) localState.ticksLeft = state.instantBuild ? 1 : FORGE_TICKS[slot];
 }
 
+// ---- Forge autocraft (2026-10-30; FORGE_AUTO_*, setForgeAuto) ----
+export function handleSetForgeAuto(tx: number, ty: number, on: unknown, target: unknown) {
+  if (!inBounds(tx, ty) || state.tiles[tileIndex(tx, ty)] !== TileType.Blacksmith || typeof on !== "boolean") return;
+  const key = resourceKey(tx, ty);
+  if (!on) {
+    forgeAuto.delete(key);
+    return;
+  }
+  let t = forgeAuto.get(key) ?? FORGE_AUTO_TARGET_DEFAULT;
+  if (target !== undefined) {
+    if (typeof target !== "number" || !Number.isInteger(target) || target < 1 || target > FORGE_AUTO_TARGET_MAX) return;
+    t = target;
+  }
+  forgeAuto.set(key, t);
+}
+
+// Items of slot / tier the active clan's forges have queued (so two autocrafting smiths don't overshoot).
+function queuedForClan(slot: EquipSlot, tier: number): number {
+  let n = 0;
+  for (const [key, q] of forgeQueues) {
+    const tile = keyToTile(key);
+    if (!tile || clanIdAt(tile.x, tile.y) !== state.clan.id) continue;
+    for (const item of q.queue) if (item.slot === slot && item.tier === tier) n++;
+  }
+  return n;
+}
+
+// True when paying `cost` leaves at least FORGE_AUTO_RESERVE iron and wood (and never goes negative).
+function affordableAboveReserve(cost: Cost): boolean {
+  return Object.entries(cost).every(([k, amount]) => {
+    const floor = k === "iron" || k === "wood" ? FORGE_AUTO_RESERVE : 0;
+    return state.stock[k as keyof typeof state.stock] - (amount ?? 0) >= floor;
+  });
+}
+
+// What autocraft at the Blacksmith (tx, ty) would queue right now (in the active clan), and a status line.
+export function autoForgePlan(tx: number, ty: number, target: number): { slot: EquipSlot | null; status: string } {
+  if (!blacksmithStaffed(tx, ty)) return { slot: null, status: "No smith at work" };
+  const queued = forgeQueues.get(resourceKey(tx, ty))?.queue.length ?? 0;
+  if (queued > 0) return { slot: null, status: `Busy (queue ${queued})` };
+  const tier = getBuildingLevel(tx, ty);
+  const have = (slot: EquipSlot) => state.equipment[slot][tier - 1] + queuedForClan(slot, tier);
+  const short = (["armour", "weapon"] as EquipSlot[]).filter((slot) => have(slot) < target).sort((a, b) => have(a) - have(b));
+  if (short.length === 0) return { slot: null, status: `Stock at target (${target} armour + ${target} weapons T${tier})` };
+  for (const slot of short) if (affordableAboveReserve(forgeCost(slot, tier))) return { slot, status: `Forging to target ${target} (T${tier})` };
+  return { slot: null, status: `Paused: iron / wood at the ${FORGE_AUTO_RESERVE} reserve` };
+}
+
+function updateForgeAuto() {
+  for (const [key, target] of forgeAuto) {
+    const tile = keyToTile(key);
+    if (!tile || state.tiles[tileIndex(tile.x, tile.y)] !== TileType.Blacksmith) {
+      forgeAuto.delete(key);
+      continue;
+    }
+    enterClan(clanIdAt(tile.x, tile.y));
+    const plan = autoForgePlan(tile.x, tile.y, target);
+    if (plan.slot) {
+      queueForgeItem(tile.x, tile.y, plan.slot);
+      equipEvent({ type: "autoForge", slot: plan.slot, tier: getBuildingLevel(tile.x, tile.y), detail: key });
+    }
+    resetClan();
+  }
+}
+
 // Once per tick: each Blacksmith's first queued item counts down while a smith is posted there.
 export function updateForges() {
+  if (forgeAuto.size > 0 && state.cycleTick % FORGE_AUTO_CHECK_TICKS === 0) updateForgeAuto();
   for (const [key, localState] of forgeQueues) {
     const tile = keyToTile(key);
     if (!tile || state.tiles[tileIndex(tile.x, tile.y)] !== TileType.Blacksmith) {

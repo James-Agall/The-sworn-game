@@ -279,7 +279,24 @@ export const FORGE_WEAPON_IRON = [2, 4, 6];
 export const FORGE_WEAPON_WOOD = 1;
 // Armour above tier 1 also takes (tier - 1) tools, or that much wood when the stock has too few tools.
 export const FORGE_TICKS: Record<EquipSlot, number> = { armour: 15 * TICK_RATE, weapon: 10 * TICK_RATE };
-export const FORGE_QUEUE_CAP = 5;
+// 5 -> 20 on 2026-10-30 (the queue line in the info panel summarises it per slot / tier).
+export const FORGE_QUEUE_CAP = 20;
+// Forge autocraft (2026-10-30, setForgeAuto): a Blacksmith with autocraft on queues one item of its tier
+// whenever its queue is empty and the clan's stock (+ what its forges have queued) of that slot / tier is
+// below the target; the slot furthest below target goes first (armour on a tie). It only queues when the
+// stock still holds FORGE_AUTO_RESERVE iron and wood AFTER paying, so it never starves the economy (armour
+// T2/T3 takes tools while there are any, else wood, as forgeCost always did; the smith's tools
+// crafting keeps its BLACKSMITH_TOOLS_STOCK_CAP). Checked every FORGE_AUTO_CHECK_TICKS.
+export const FORGE_AUTO_TARGET_DEFAULT = 4;
+export const FORGE_AUTO_TARGET_MAX = 20;
+export const FORGE_AUTO_RESERVE = 20;
+export const FORGE_AUTO_CHECK_TICKS = TICK_RATE;
+// Gear pickup (2026-10-30): every GEAR_PICKUP_INTERVAL_TICKS, idle EQUIPPED_KINDS soldiers (state idle, no
+// target) upgrade their armour / weapon from the clan's stock: highest-value class first
+// (GEAR_PICKUP_PRIORITY), lower current tier first within a class, each taking the best tier in stock that
+// beats its own (never a downgrade). The piece it wore goes back to the stock for the next soldier.
+export const GEAR_PICKUP_INTERVAL_TICKS = 3 * TICK_RATE;
+export const GEAR_PICKUP_PRIORITY: ColonistKind[] = ["knight", "cavalry", "pikeman", "spearman"];
 // Drops: an armoured enemy (EQUIP_ARMOURED_KINDS, any boss / mini-boss elite, any Hunger-marked mob) killed
 // by the colony's side drops one tier-1 piece (armour / weapon 50/50) with EQUIP_DROP_CHANCE; bosses and
 // marked mobs always drop one.

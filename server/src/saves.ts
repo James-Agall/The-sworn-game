@@ -11,7 +11,7 @@ import {
   MAX_WORLD_SIZE, MIN_WORLD_SIZE, NIGHT_TICKS, SAVE_DIR, SAVE_SLOT_LABELS, SAVE_VERSION, TREE_RESPAWN_INTERVAL_TICKS,
 } from "./constants.js";
 import {
-  type Clan, buildingHp, buildingLevel, clans, colonists, makeClan, tileClan, constructionSites, farmPlots, forageRegrow, gates, gravestones,
+  type Clan, buildingHp, buildingLevel, clans, colonists, makeClan, tileClan, constructionSites, farmPlots, forageRegrow, forgeAuto, gates, gravestones,
   hearths, heroProfiles, heroRecruits, minesPlacedOnOre, mobs, mobsWithoutRoute, ownerSiteIds, players, raidGroups,
   regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, state, summonedUntil, tileOwner, towerCooldowns, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
 } from "./state.js";
@@ -191,6 +191,8 @@ function snapshotWorldInner() {
     stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
+    // Forge autocraft (2026-10-30): [Blacksmith key, target] per Blacksmith with autocraft on (optional).
+    forgeAuto: Array.from(forgeAuto) as [string, number][] | undefined,
     // Hero phases 1-2: every player profile (gear, inventory, XP).
     heroProfiles: serializeHeroProfiles() as unknown,
     // Hero phase 3: heroes still being recruited (the heroes themselves are colonists / respawn entries).
@@ -298,6 +300,8 @@ function applyWorldInner(s: WorldState) {
   resetEquipment();
   state.equipment.armour = [0, 1, 2].map((i) => s.equipment?.armour?.[i] ?? 0);
   state.equipment.weapon = [0, 1, 2].map((i) => s.equipment?.weapon?.[i] ?? 0);
+  // Saves from before forge autocraft: every Blacksmith's autocraft off.
+  refill(forgeAuto, s.forgeAuto ?? []);
   // Saves from before Hero phases 1-2: no profiles (everyone starts with an empty pack, level 1).
   restoreHeroProfiles(s.heroProfiles);
   // Saves from before hero phase 3: no heroes, nobody being recruited.

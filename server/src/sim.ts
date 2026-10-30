@@ -25,7 +25,7 @@ import { updateConstructionSites } from "./construction.js";
 import { updatePlayerMorale, updateRegiments } from "./tactics.js";
 import { spawnRaid, updateRaidGroups } from "./raids.js";
 import { evaluateGoals } from "./goals.js";
-import { heroProfileOf, updateForges, updateHeroRecruits } from "./heroes.js";
+import { heroProfileOf, updateForges, updateGearPickup, updateHeroRecruits } from "./heroes.js";
 import { spellBuffSpeedMult, updateSpellStatuses } from "./spells.js";
 import { updateOrderGroups } from "./orders.js";
 import { broadcastEvent, scanFights } from "./net.js";
@@ -123,6 +123,7 @@ export function stepSimulation() {
   updateConstructionSites();
   updateSiegeWorkshops();
   updateForges();
+  updateGearPickup();
   updateHeroRecruits();
   updateSpellStatuses();
 

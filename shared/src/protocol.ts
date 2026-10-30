@@ -827,6 +827,9 @@ export interface BuildingInfo {
     progress: number | null;
     cap: number;
     options: { slot: EquipSlot; label: string; cost: string; enabled: boolean; reason: string }[];
+    // Forge autocraft (2026-10-30, additive; see setForgeAuto): on/off, the stock target per slot at this
+    // Blacksmith's tier, the iron / wood reserve it never spends below, and what it is doing now.
+    auto?: { on: boolean; target: number; reserve: number; status: string };
   };
   // Keeps only (hero phase 3): heroes posted here / cap (= Keep level), one recruit button per class
   // (see recruitHero), and the roster of this Keep's heroes.
@@ -883,6 +886,9 @@ export type ClientMessage =
   | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
   // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).
   | { type: "queueForge"; tileX: number; tileY: number; slot: EquipSlot }
+  // Forge autocraft (2026-10-30, additive): turns the Blacksmith's autocraft on / off and optionally sets its
+  // stock target (items of each slot at its tier, 1..FORGE_AUTO_TARGET_MAX); saved per Blacksmith.
+  | { type: "setForgeAuto"; tileX: number; tileY: number; on: boolean; target?: number }
   // Hero phases 1-2 (additive): equip an inventory item into a slot (swaps any occupant back), unequip a
   // slot, or pull one plain tiered piece (armour -> chest item, weapon -> weapon item) out of the colony stock.
   // Hero phase 3: heroId (optional, default = the player) targets that hero's equipment; items still come

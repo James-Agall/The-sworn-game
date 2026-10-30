@@ -4906,6 +4906,12 @@ async function main() {
   // Armour & weapons: the Blacksmith's two forge buttons (queueForge) and its queue line.
   const bpForgeRowEl = document.getElementById("bp-forge-row")!;
   const bpForgeStateEl = document.getElementById("bp-forge-state")!;
+  // Forge autocraft: on / off toggle, target - / + (setForgeAuto), and its status line.
+  const bpForgeAutoBtn = document.getElementById("bp-forge-auto") as HTMLButtonElement;
+  const bpForgeAutoLessBtn = document.getElementById("bp-forge-auto-less") as HTMLButtonElement;
+  const bpForgeAutoMoreBtn = document.getElementById("bp-forge-auto-more") as HTMLButtonElement;
+  const bpForgeAutoStateEl = document.getElementById("bp-forge-auto-state")!;
+  let shownForgeAuto: { on: boolean; target: number } = { on: false, target: 4 };
   const bpForgeBtns = new Map<EquipSlot, HTMLButtonElement>(
     (["armour", "weapon"] as EquipSlot[]).map((slot) => [slot, document.getElementById(`bp-forge-${slot}`) as HTMLButtonElement])
   );
@@ -4993,9 +4999,24 @@ async function main() {
       const f = info.forge;
       const reason = f.options.find((o) => !o.enabled)?.reason ?? "";
       const head = f.queue[0];
+      // A long queue (cap 20) reads as counts per slot / tier: "then Armour T2 x5, Weapon T2 x3".
+      const rest = new Map<string, number>();
+      for (const q of f.queue.slice(1)) {
+        const k = `${q.slot === "armour" ? "Armour" : "Weapon"} T${q.tier}`;
+        rest.set(k, (rest.get(k) ?? 0) + 1);
+      }
+      const then = rest.size > 0 ? ` · then ${Array.from(rest, ([k, n]) => `${k} x${n}`).join(", ")}` : "";
       bpForgeStateEl.textContent = head
-        ? `Forging: ${head.slot === "armour" ? "Armour" : "Weapon"} T${head.tier} ${Math.round((f.progress ?? 0) * 100)}% · queue ${f.queue.length}/${f.cap}${reason ? ` · ${reason}` : ""}`
+        ? `Forging: ${head.slot === "armour" ? "Armour" : "Weapon"} T${head.tier} ${Math.round((f.progress ?? 0) * 100)}% · queue ${f.queue.length}/${f.cap}${then}${reason ? ` · ${reason}` : ""}`
         : `Forges tier ${f.tier} · queue 0/${f.cap}${reason ? ` · ${reason}` : ""}`;
+      const auto = f.auto;
+      bpForgeAutoBtn.hidden = bpForgeAutoLessBtn.hidden = bpForgeAutoMoreBtn.hidden = bpForgeAutoStateEl.hidden = !auto;
+      if (auto) {
+        shownForgeAuto = { on: auto.on, target: auto.target };
+        bpForgeAutoBtn.textContent = `Autocraft: ${auto.on ? "On" : "Off"}`;
+        bpForgeAutoBtn.classList.toggle("active", auto.on);
+        bpForgeAutoStateEl.textContent = `Autocraft target ${auto.target} armour + ${auto.target} weapons T${f.tier} (keeps ${auto.reserve} iron / wood)${auto.on ? ` · ${auto.status}` : ""}`;
+      }
     }
     bpHeroesRowEl.hidden = !info.heroes;
     if (info.heroes) {
@@ -5053,6 +5074,23 @@ async function main() {
       window.setTimeout(requestBuildingInfo, 150);
     });
   }
+  const sendForgeAuto = (on: boolean, target: number) => {
+    if (!infoTile) return;
+    sendMessage({ type: "setForgeAuto", tileX: infoTile.tx, tileY: infoTile.ty, on, target: Math.max(1, Math.min(20, target)) });
+    window.setTimeout(requestBuildingInfo, 150);
+  };
+  bpForgeAutoBtn.addEventListener("click", () => {
+    bpForgeAutoBtn.blur();
+    sendForgeAuto(!shownForgeAuto.on, shownForgeAuto.target);
+  });
+  bpForgeAutoLessBtn.addEventListener("click", () => {
+    bpForgeAutoLessBtn.blur();
+    sendForgeAuto(true, shownForgeAuto.target - 1);
+  });
+  bpForgeAutoMoreBtn.addEventListener("click", () => {
+    bpForgeAutoMoreBtn.blur();
+    sendForgeAuto(true, shownForgeAuto.target + 1);
+  });
   bpGateBtn.addEventListener("click", () => {
     bpGateBtn.blur();
     if (!infoTile) return;

@@ -102,6 +102,9 @@ try {
   await c.hookCall("setRaids", { enabled: false });
   await c.hookCall("setInstantBuild", { enabled: true });
   await c.hookCall("ignorePlayers", { value: true });
+  // Idle soldiers re-arm from the stock since 2026-10-30 (farm-gear-test covers it): off here, so the exact
+  // stock checks below only see spawns, drops and loot.
+  await c.hookCall("gearPickupConfig", { enabled: false });
   await c.hookCall("setStock", { stock: { wood: 1000, rock: 1000, iron: 1000, tools: 0, grain: 2000, gold: 500 } });
   let snap = await c.freshSnap();
   const tc = { x: snap.townCenters[0].x, y: snap.townCenters[0].y };
@@ -159,14 +162,15 @@ try {
   result(r.iron === 5 && r.wood === 0 && r.tools === 1 && r.eq.armour[1] === 2, `Lv2 armour with tools: -${r.iron} iron -${r.tools} tool`);
   r = await forge("weapon");
   result(r.iron === 4 && r.wood === 1 && r.eq.weapon[1] === 1, `Lv2 weapon: -${r.iron} iron -${r.wood} wood, stock ${JSON.stringify(r.eq)}`);
-  // Queue cap 5 without instant progress: no smith ticks happen between sends.
+  // Queue cap (20 since 2026-10-30) without instant progress: no smith ticks happen between sends.
   await c.hookCall("setStock", { stock: { iron: 1000 } });
-  for (let i = 0; i < 7; i++) c.send({ type: "queueForge", tileX: bs.x, tileY: bs.y, slot: "weapon" });
+  const cap = (await c.buildingInfo(bs.x, bs.y))?.forge?.cap ?? 20;
+  for (let i = 0; i < cap + 2; i++) c.send({ type: "queueForge", tileX: bs.x, tileY: bs.y, slot: "weapon" });
   await sleep(30);
   let es = await c.hookCall("equipState");
   const q = es.forges.find((f) => f.key === `${bs.x},${bs.y}`)?.queue.length ?? 0;
-  result(q <= 5, `queue capped at 5 (saw ${q})`);
-  await c.hookCall("fastForward", { ticks: 20 });
+  result(q <= cap, `queue capped at ${cap} (saw ${q})`);
+  await c.hookCall("fastForward", { ticks: cap * 4 });
   es = await c.hookCall("equipState");
   await c.hookCall("setEquipment", { armour: [1, 2, 0], weapon: [1, 1, 0] });
 

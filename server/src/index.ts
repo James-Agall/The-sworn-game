@@ -36,7 +36,7 @@ import "./raids.js";
 import { handleCommandAttackHearth, hearthsForSnapshot } from "./hearths.js";
 import "./goals.js";
 import {
-  forgeBusyForSnapshot, handleEquipItem, handleQueueForge, handleRecruitHero, handleTakeFromArmoury,
+  forgeBusyForSnapshot, handleEquipItem, handleQueueForge, handleSetForgeAuto, handleRecruitHero, handleTakeFromArmoury,
   handleUnequipItem, heroKey, heroProfileFor, playerMaxHp, withPlayerHeroes, withPlayerProfile,
 } from "./heroes.js";
 import { handleCastSpell, handleLearnSpell, handleSetSpellAuto, handleSetSpellSlot, handleUseTome } from "./spells.js";
@@ -227,6 +227,9 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "queueForge") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleQueueForge(message.tileX, message.tileY, message.slot);
+  } else if (message.type === "setForgeAuto") {
+    if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
+    handleSetForgeAuto(message.tileX, message.tileY, message.on, message.target);
   } else if (message.type === "equipItem") {
     handleEquipItem(player, message.itemId, message.slot, message.heroId);
   } else if (message.type === "unequipItem") {

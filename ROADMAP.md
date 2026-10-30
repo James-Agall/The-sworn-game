@@ -2021,6 +2021,83 @@ the test, also fails on 9ee5a7f).
 8. Save in window 1, load it: both clans come back (window 2 is now in clan 0; reload window 2 with `?clan=1` in the
    page URL to play clan 1 again).
 
+## Hemp, pastures, gear pickup, forge autocraft — landed 2026-10-30
+
+Four user asks in one pass. Constants: `FOOTPRINT_*` / `FORGE_AUTO_*` / `GEAR_PICKUP_*` in server/src/constants.ts,
+`FOOTPRINT_BY_TILE` / `BUILD_COSTS` in shared/src/buildings.ts.
+
+- **Hemp Field walkable** (`TileType.CottonFarm`): out of `isSolidTile`, so units, players and mobs walk over it like a
+  Farm Plot. Its farmhand still tends it standing on the field (one 90-hemp batch per 3-day tending cycle, growth
+  stages unchanged). Like a Farm Plot it is no longer a damageable building (`isDamageableBuilding` needs a solid
+  tile), so raiders don't burn it; it can still be demolished.
+- **2x2 pastures** (Pasture, Sheep Pasture): a small generic footprint system. `FOOTPRINT_BY_TILE` (shared) gives a
+  type's w x h; the **anchor is the top-left tile = the tile you place on**. The anchor holds the building's TileType
+  and every per-building record (level, HP, farmhand, clan, forge / info / upgrade); the other tiles hold the new
+  `TileType.BuildingPart` (90, solid, never placed directly, no art). Footprints are derived from the tiles alone
+  (`footprintAnchorOf` / `placedFootprintAt`, same code on server and client), so no snapshot or save field: a part's
+  anchor is the tile up / left of it whose block is complete (blocks never overlap and are stamped / cleared whole).
+  - Placement (`handleSetTileInner`): a new 2x2 needs every part tile on the map, Empty, not an NPC fort's, not
+    under construction and nobody standing there (`footprintBlocker`, toast "Pasture needs a clear 2x2 block ...");
+    the parts are stamped (with the placing clan in `tileClan`) before the anchor becomes a site / building.
+    Placing on an existing pasture (or any of its parts) levels it up in place as before (no footprint check).
+  - Any message on a part tile acts on the anchor (`index.ts` rewrites tileX/tileY; `setTile` redirects after its reach
+    check), so a click on any of the 4 opens the same panel, demolish / upgrade / repair work from any tile.
+  - `demolishTile` (player demolish and mob destruction) clears the parts first (`clearFootprintParts`), incl. an
+    unfinished construction site of a pasture.
+  - Walkability unchanged: pastures were solid, the parts are solid. Mobs attack the anchor (parts aren't damageable).
+  - Production: one farmhand at the anchor; a complete 2x2 yields `w*h*FOOTPRINT_YIELD_PER_TILE` = x4 per batch
+    (360 meat / wool per 3-day cycle, the same per-tile productivity). Cost: **10 wood** (pastures were free; levelling
+    up stays free). One population slot as before.
+  - Client: the anchor's sprite (stage art included) is scaled x2 and bottom-centred on the block, sorted with its
+    bottom-right tile; part tiles draw nothing; the build-tool ghost (cursor rectangle) is 2x2 from the hovered tile,
+    red when a part tile is taken; build-tool text "10 wood, 2x2 (... top-left corner ...)".
+  - Saves: tiles carry the parts. **Old saves**: existing pastures have no parts and stay legacy 1x1s (x1 produce,
+    info line "Old 1x1 pasture"); only new placements are 2x2. No migration.
+- **Gear pickup** (`updateGearPickup`, heroes.ts, every `GEAR_PICKUP_INTERVAL_TICKS` 3 s): per clan with anything
+  in its equipment stock, idle soldiers (`state === "idle"`, no target, alive; at their post or rally point, not
+  marching / fighting) of `GEAR_PICKUP_PRIORITY` = **knight > cavalry > pikeman > spearman** (the existing
+  `EQUIPPED_KINDS`; militia / archers / engines / heroes don't wear stock gear) are walked per slot in that order, lower
+  current tier first within a class; each takes the best tier in stock that beats its own (never a downgrade, never a
+  sideways swap) and its old piece goes back to the stock for the next soldier. Instant (no walk). Toast "N soldiers
+  equipped from the armoury stock" (clan-scoped). Snapshot `armourTier` / `weaponTier` update as before. Spawns keep
+  `equipNewUnit`; both draw on the one stock, so nothing is counted twice. Test hook `gearPickupConfig {enabled}`
+  (equipment-test switches it off for its exact stock checks); `equipState` events gain `pickup`.
+- **Forge**: `FORGE_QUEUE_CAP` 5 -> **20**; the panel's queue line now reads "queue 7/20 · then Armour T2 x4, Weapon
+  T2 x2". **Autocraft** per Blacksmith (`setForgeAuto {tileX, tileY, on, target?}`, target 1..`FORGE_AUTO_TARGET_MAX`
+  20, default `FORGE_AUTO_TARGET_DEFAULT` 4): every `FORGE_AUTO_CHECK_TICKS` (1 s) a Blacksmith with autocraft on and
+  an empty queue queues one item of its tier (= level, as manual forging) for the slot furthest below target (armour on
+  a tie), counting the clan's stock of that tier plus what its forges have queued. It only queues if paying leaves at
+  least `FORGE_AUTO_RESERVE` **20 iron and 20 wood** (armour T2/T3 still takes tools while there are any, else wood;
+  the smith's tools crafting keeps its 30 cap). Manual queueing is unchanged and goes first. `forgeAuto` (key ->
+  target) is saved (optional `forgeAuto`; old saves: off), per Blacksmith and so per clan (the tile's clan's stock);
+  dropped when the tile stops being a Blacksmith. Panel: "Autocraft: On/Off", "-" / "+" (target), and a status line
+  ("Stock at target ...", "Paused: iron / wood at the 20 reserve", "No smith at work", "Busy (queue n)").
+- **Protocol (additive)**: `TileType.BuildingPart` 90; `ClientMessage` `setForgeAuto`; `BuildingInfo.forge.auto?`
+  {on, target, reserve, status}; shared/src/buildings.ts `FOOTPRINT_BY_TILE` + helpers and Pasture / Sheep Pasture
+  `BUILD_COSTS`. Hemp's `isSolidTile` change is shared (client never used it for movement).
+- **Tests**: new `server/farm-gear-test.mjs` (own 96 server): hemp walkable + delivers 90; pasture refused on a
+  blocked part tile, anchor + 3 parts, 10 wood, parts solid, part tile opens the panel, 360 meat per cycle, demolish
+  clears all 4, legacy 1x1; gear pickup order / no downgrade / old piece returned / snapshot / toast; queue 20;
+  autocraft to target 3, stops at target, refuses target 0, stops at the iron reserve, kept by save / load.
+  `slow-farming-test` (D) now places a 2x2 pasture and expects 4 x 90; `equipment-test` turns gear pickup off and
+  reads the queue cap from the panel.
+- Caveats: the 2x2 pasture art is the 1x1 sprite scaled x2 (no dedicated art); part tiles have no minimap colour
+  of their own (default building colour); a pasture's build time is the 1x1's; an orphan part (only possible through
+  test hooks / tile edits) can be demolished on its own; gear pickup ignores whether the soldier is at its post (any
+  idle soldier re-arms on the spot).
+
+**Manual browser check (hemp, pastures, gear, forge)**:
+1. Build a Hemp Field and walk your hero across it: no collision; units path over it too.
+2. Pick the Pasture tool: the cursor ghost is a 2x2 square from the hovered tile; over a tree / wall it turns red and
+   placing it shows "Pasture needs a clear 2x2 block". On clear ground it fills 2x2 with the pasture art (10 wood).
+3. Click each of the 4 tiles: the same Pasture panel ("2x2 paddock: x4 produce per batch"). Demolish any tile: all
+   4 go. Same for the Sheep Pasture. An old save's pastures still show as 1x1.
+4. Have a few spearmen / pikemen / a knight out with an empty armoury, then forge (or loot) armour: within ~3 s the
+   knight gets it first ("1 soldier equipped from the armoury stock"), the armour ring on his unit changes.
+5. Blacksmith panel: queue 20 items; the line summarises them. Turn Autocraft On: it keeps forging until the stock
+   holds the target of each (use - / + to change it) and pauses when iron / wood would drop under 20. Save, load:
+   still On.
+
 ## Known failing tests — 2026-10-29 (test harness)
 
 `npm test` (`scripts/run-tests.mjs`, see README "Tests") runs every `server/*-test.mjs` and `client/*-test.mjs`.

@@ -1042,6 +1042,8 @@
       #bp-forge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
       #bp-forge-row[hidden] { display: none; }
       #bp-forge-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
+      #bp-forge-auto-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
+      #bp-forge-auto.active { box-shadow: inset 0 0 0 2px var(--wood-dark); font-weight: 600; }
       #stat-equipment { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; }
       #stat-equipment .equip-empty { color: #b7791f; font-weight: 600; }
       #bp-heroes-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
@@ -1428,7 +1430,11 @@
       <div id="bp-forge-row" hidden>
         <button id="bp-forge-armour" class="econ-btn">Forge Armour</button>
         <button id="bp-forge-weapon" class="econ-btn">Forge Weapon</button>
+        <button id="bp-forge-auto" class="econ-btn" title="Keep forging to hold the stock at the target (never spends iron / wood below the reserve)">Autocraft: Off</button>
+        <button id="bp-forge-auto-less" class="econ-btn" title="Lower the autocraft target">-</button>
+        <button id="bp-forge-auto-more" class="econ-btn" title="Raise the autocraft target">+</button>
         <span id="bp-forge-state"></span>
+        <span id="bp-forge-auto-state"></span>
       </div>
       <div id="bp-heroes-row" hidden>
         <button id="bp-hero-champion" class="econ-btn">Recruit Champion</button>

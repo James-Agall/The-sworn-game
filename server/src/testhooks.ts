@@ -17,7 +17,7 @@ import {
 } from "./constants.js";
 import {
   attackerSlots, buildingHp, colonists, constructionSites, equipEvents, farmPlots, forageRegrow,
-  forgeQueues, gates, hearthEvents, hearths, heroEvents, heroProfiles, heroRecruits, mobs, moraleRegimentOfUnit,
+  forgeAuto, forgeQueues, gates, hearthEvents, hearths, heroEvents, heroProfiles, heroRecruits, mobs, moraleRegimentOfUnit,
   ownerSiteIds, playerMorale, raidGroups, regiments, repairPaid, repairQueue, respawnQueue, routedUnits, siegeEvents,
   siegeWorkshops, spellCooldowns, spellEvents, spellStatuses, state, summonedUntil, tacticsEvents, tickDurationsMs,
   tileOwner, towerCooldowns, towerEvents, walledSites, wildlife,
@@ -489,6 +489,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     reply({
       equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
       forges: Array.from(forgeQueues, ([key, f]) => ({ key, queue: f.queue.map((q) => ({ ...q })), ticksLeft: f.ticksLeft })),
+      forgeAuto: Array.from(forgeAuto),
       units: Array.from(colonists.values())
         .filter((c) => isEquippedKind(c.kind))
         .map((c) => ({ id: c.id, kind: c.kind, hp: c.hp, maxHp: c.maxHp, armourTier: c.armourTier ?? 0, weaponTier: c.weaponTier ?? 0, postX: c.postX, postY: c.postY })),
@@ -557,6 +558,10 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "heroConfig") {
     state.testRelicChance = typeof msg.relicChance === "number" ? msg.relicChance : null;
     reply({ relicChance: state.testRelicChance });
+  } else if (msg.op === "gearPickupConfig") {
+    // Gear pickup (idle soldiers re-arm from the stock): enabled false switches it off for scripted checks.
+    state.testGearPickupOff = msg.enabled === false;
+    reply({ enabled: !state.testGearPickupOff });
   } else if (msg.op === "equipConfig") {
     state.testEquipDropChance = typeof msg.dropChance === "number" ? msg.dropChance : null;
     reply({ dropChance: state.testEquipDropChance });

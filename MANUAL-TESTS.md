@@ -35,6 +35,10 @@ code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checkl
 - House costs 20 wood + 5 rock; a settlement shows civilians N/cap and troops N/cap.
 - Soldiers no longer use the civilian cap; a unit building holds its own troops, +1 slot per adjacent house.
 - Wood should stay flat unless you build or craft (Blacksmith pauses at 30 tools).
+- Hemp fields / 2x2 pastures / gear pickup / forge autocraft (2026-10-30): walk over a Hemp Field; a new Pasture or
+  Sheep Pasture shows a 2x2 ghost (red when blocked) and fills 2x2 tiles; idle soldiers re-arm when the stock gets
+  gear ("N soldiers equipped" toast); Blacksmith panel has Autocraft On/Off and a target -/+. Full list: ROADMAP.md
+  "Hemp, pastures, gear pickup, forge autocraft — landed".
 
 ## 5. Forts (phase A only: no forts exist in the world yet)
 - With the game running: `node server/stamp-test-fort.mjs` drops a small test fort 12 tiles east of your Town Center
