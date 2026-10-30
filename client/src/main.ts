@@ -1836,6 +1836,9 @@ async function main() {
   const FOREIGN_TINT = 0xffa090;
   // Forts phase B: explored forts (snapshot `sites`, sent with siteTiles): minimap flags by faction.
   let fortMarkers: SiteSnapshot[] = [];
+  // Forts phase C: owner-map numbers of sighted human settlements, and their (pale, friendlier) tile tint.
+  const humanSiteNums = new Set<number>();
+  const HUMAN_SITE_TINT = 0xdfe6f5;
   // Forts phase C: neutral human settlements fly a white flag (red while hostile).
   const FORT_FLAG_COLOR: Record<SiteFaction, string> = { bandit: "#d35400", orc: "#6b8e23", human: "#f4f4f0" };
   // Clans (snapshot clanId / clans / clanTiles, only while 2+ clans play): this player's clan, every clan's
@@ -1972,6 +1975,21 @@ async function main() {
       const { tx, ty } = indexToTile(index);
       setTileSprite(tx, ty, tiles[index]);
       paintMinimapTile(index);
+    }
+  }
+
+  // Forts phase C: remember which site numbers are human settlements (their tiles get HUMAN_SITE_TINT);
+  // repaint the tiles of a settlement the first time it shows up.
+  function syncFortMarkers(list: SiteSnapshot[]) {
+    fortMarkers = list;
+    const fresh = new Set<number>();
+    for (const f of list) if (f.faction === "human" && f.num !== undefined && !humanSiteNums.has(f.num)) fresh.add(f.num);
+    if (fresh.size === 0) return;
+    for (const n of fresh) humanSiteNums.add(n);
+    for (const [index, num] of siteOwners) {
+      if (!fresh.has(num)) continue;
+      const { tx, ty } = indexToTile(index);
+      setTileSprite(tx, ty, tiles[index]);
     }
   }
 
@@ -2209,7 +2227,7 @@ async function main() {
           ? 0xffffff
           : (TILE_TINT.get(tile) ?? 0xffffff);
     if (fireTier(damagedBuildings.get(index) ?? 1000) > 0) sprite.tint = SOOT_TINT;
-    else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = FOREIGN_TINT;
+    else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = humanSiteNums.has(siteOwners.get(index)!) ? HUMAN_SITE_TINT : FOREIGN_TINT;
     else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
     if (artTile === TileType.TownCenter) {
       const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
@@ -3817,8 +3835,9 @@ async function main() {
       const fy = (f.keepY + 0.5) * s;
       const color = f.captured
         ? `#${(clanColors.get(f.capturedBy ?? 0) ?? 0x3a7bd5).toString(16).padStart(6, "0")}`
-        : f.cleared ? "#8a8a8a" : FORT_FLAG_COLOR[f.faction];
-      ctx.fillStyle = "#1a1008";
+        : f.cleared ? "#8a8a8a" : f.hostile ? "#c0392b" : FORT_FLAG_COLOR[f.faction];
+      // Forts phase C: a human settlement's flag has a green edge (white = neutral, red = hostile).
+      ctx.fillStyle = f.faction === "human" && !f.captured && !f.cleared ? "#2e8b3a" : "#1a1008";
       ctx.fillRect(fx - 0.5 * u, fy - 7 * u, 1.5 * u, 9 * u);
       ctx.fillRect(fx + u - 0.5 * u, fy - 7.5 * u, 7 * u, 5 * u);
       ctx.fillStyle = color;
@@ -6093,8 +6112,8 @@ async function main() {
       syncConstructionSites(message.constructionSites);
       syncDamagedBuildings(message.damagedBuildings);
       syncGates(message.gates);
+      if (message.sites) syncFortMarkers(message.sites);
       syncSiteTiles(message.siteTiles);
-      if (message.sites) fortMarkers = message.sites;
       if (message.clans) {
         clanColors = new Map(message.clans.map((c) => [c.id, c.color]));
         clanNames = new Map(message.clans.map((c) => [c.id, c.name]));

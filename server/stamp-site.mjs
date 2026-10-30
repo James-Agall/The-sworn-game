@@ -1,7 +1,8 @@
 // Forts phase B browser-check helper: stamps a real fort template (testHook stampSite) near the first Town
 // Center, so you can walk to it, and lists every fort on the map. The server must run with
 // COLONY_TEST_HOOKS=1 (and, for safety, a scratch COLONY_SAVE_DIR).
-//   PORT=<server port> node stamp-site.mjs [thornwick|grakkar|list] [dx] [dy]
+//   PORT=<server port> node stamp-site.mjs [thornwick|grakkar|hearthmoor|ironhold|riverwatch|list] [dx] [dy]
+// Forts phase C: hearthmoor / ironhold / riverwatch stamp a neutral human settlement.
 // dx / dy: offset of the fort centre from the first Town Center in tiles (default 30, 0); it looks up to 45
 // tiles around that spot for clear ground. "list" only prints the forts world-gen placed.
 import WebSocket from "ws";
@@ -40,7 +41,8 @@ if (template !== "list") {
 const st = await hook("sitesState");
 for (const s of st?.sites ?? []) {
   const d = Math.hypot(s.keepX - tc.x, s.keepY - tc.y);
-  console.log(`  ${s.name} (${s.faction}, tier ${s.tier}) keep (${s.keepX}, ${s.keepY}), ${d.toFixed(0)} tiles away, garrison ${s.alive.length}/${s.garrisonMax}${s.cleared ? ", cleared" : ""}`);
+  const human = s.faction === "human" ? `, ${s.template}, ${s.provoked ? "HOSTILE" : "neutral"}, relation ${s.relation}` : "";
+  console.log(`  ${s.name} (${s.faction}, tier ${s.tier}${human}) keep (${s.keepX}, ${s.keepY}), ${d.toFixed(0)} tiles away (dx ${s.keepX - tc.x}, dy ${s.keepY - tc.y}), garrison ${s.alive.length - (s.workerMobs?.length ?? 0)}/${s.garrisonMax}${s.cleared ? ", cleared" : ""}`);
 }
 ws.close();
 process.exit(0);

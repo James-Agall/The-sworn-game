@@ -72,7 +72,36 @@ your start).
 9. **Save / load** at any point (asleep, cleared, captured): everything comes back as it was.
 With 2+ clans: a second player's clan can capture a fort too; it becomes that clan's outpost (their colour).
 
-## 6. Units settling on their slots (fix 9ee5a7f)
+## 6. Human settlements (phase C: neutral villages, attack -> hostile, relation hook)
+Start a server with `COLONY_TEST_HOOKS=1` and a scratch `COLONY_SAVE_DIR` (`COLONY_WORLD_SIZE=256` or `512` gives
+world-gen settlements: 256 has 2-4, 512 about 10).
+1. **Find one**: `cd server && PORT=<port> node stamp-site.mjs list` prints every site; human ones say
+   `(human, tier 1, hearthmoor|ironhold|riverwatch, neutral, relation 0)` with dx / dy from your Town Center. Or stamp one
+   near you: `node stamp-site.mjs hearthmoor 0 60` (also `ironhold`, `riverwatch`; a 160 map is often too crowded for
+   Riverwatch, use 256).
+2. **Look**: walk over. Grey stone walls (pale blue-white tint, not the salmon of enemy forts), corner towers, a dark keep
+   in the middle, houses, a market, church, inn, mill, a one-tile well; Hearthmoor has farm plots in a ring OUTSIDE the
+   wall with barns, Ironhold an ore / rock field outside its east gate, Riverwatch two water strips (moat stand-in) N and
+   S. Toast "You sight the village of <name>" (mining outpost / town for the others). Minimap: a WHITE flag with a green
+   edge on its keep.
+3. **Neutral**: walk (with soldiers on aggressive stance) up to and through the gate by DAY: the gate opens for you, the
+   blue-tinted guards stand still, the towers do not shoot, your soldiers do not attack walls / keep / guards on their
+   own. Click any of its buildings: "Neutral settlement: <name>", "Relation 0", "Neutral: gates open by day ...".
+4. **Workers**: farmers (farmer art, pale) walk out to the farm plots and back, the priest to the church; at Ironhold
+   miners walk to the ore. At night everyone goes inside and the gate stays shut for you (stand next to it at night: it
+   does not open; it still opens for its own folk).
+5. **Attack**: right-click one guard (or a wall) with soldiers selected. Toast "<name> takes up arms ...", the whole
+   garrison comes for you (they turn back at the leash ~16 tiles from the keep, heal, then stand down again after 20 s
+   calm), towers shoot you, the gate is shut. Panel now "Hostile settlement: <name>", "Relation -15"; hitting more does not
+   lower it further this spell; the minimap flag turns red. `stamp-site.mjs list` shows HOSTILE.
+6. **Calm**: after 2 game days with no more damage it lays down its arms (toast), flag white again, gates open by day.
+   (Quick check: leave it alone; no hook needed beyond time, or see settlements-test K.)
+7. **Raze**: break in (ram / knights) and destroy the keep: plunder toast, workers and guards rout, then "You attacked a
+   settlement: <name> will not forget (relation -55 or so)". The ruined keep can be rebuilt as your outpost like a fort
+   (cost 80 wood + 80 rock + 20 iron); afterwards every OTHER settlement's relation drops 25 (see their panels).
+8. **Save / load** with a settlement hostile and one razed: both come back the same (workers reappear when you get near).
+
+## 7. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.
    Every unit should walk round the idle ones and stop exactly on its slot; nobody left a tile or two short in
    "returning" while the rest have stopped.
@@ -80,7 +109,7 @@ With 2+ clans: a second player's clan can capture a fort too; it becomes that cl
    (between buildings or walls): units must not cut corners onto solid tiles while stepping round someone.
 3. After a fight, the survivors should all walk back onto their slots.
 
-## 7. Flaky automated checks to look at (not caused by recent work)
+## 8. Flaky automated checks to look at (not caused by recent work)
 - `combat-line-test` fails some runs on old and new code: "marching followers on their heading-relative slots",
   "5 goblins on one player ... closest pair", "knight fought ... back on slot". If you see these in the game
   (followers trailing a marching group, goblins bunching on you), note what happened.

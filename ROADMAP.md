@@ -2098,6 +2098,68 @@ Four user asks in one pass. Constants: `FOOTPRINT_*` / `FORGE_AUTO_*` / `GEAR_PI
    holds the target of each (use - / + to change it) and pauses when iron / wood would drop under 20. Save, load:
    still On.
 
+## Forts phase C — landed 2026-10-30 (human settlements: Hearthmoor, Ironhold, Riverwatch)
+
+Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §3 / §8 / §10 "C". Commits "Forts phase C stage 1 / 2 / 3". Browser
+checklist: MANUAL-TESTS.md §6.
+- **Templates** (`SITE_TEMPLATES`, constants.ts; `SiteTemplate.symbols` = `HUMAN_SITE_SYMBOLS` over the shared legend,
+  single-stage `tiers`): `hearthmoor` (village, 31x27: stone wall, N + S gates, 4 towers, keep, 11 houses, market,
+  church, inn = Tavern, mill = BigHouse, well = one Water tile, crates; farm-plot ring + 2 barns OUTSIDE the wall;
+  4 guards + 2 archers; 4 farmers + 1 priest), `ironhold` (mining outpost, 29x25: S + E gates, forge = Blacksmith, real
+  IronOre / Rock field outside the E gate, a few farm plots; 3 guards + 2 archers + 1 knight; 3 miners + 1 farmer),
+  `riverwatch` (town, 43x39: Water strips N / S with drawbridge gaps (phase H), 6 towers, 16 houses, 2 markets, barn;
+  5 guards + 4 archers + 3 knights; 4 farmers + 1 miner + 1 priest). Names are bare ("Hearthmoor", "Ashford", ...).
+  Keep = hearth (`SiteKeep`), rebuild cost 80 wood + 80 rock + 20 iron.
+- **SiteState** kind stays "fort", `faction: "human"` (SiteFaction gains "human"); mobs are siteKind "fort", so the
+  phase B hearth / leash (16) / heal / re-dormancy / refill / loot share / capture code is reused unchanged. Ids
+  `settlement:<uuid>`. New optional fields `hostileUntilTick`, `hostileClans`; Mob `siteWorker / workA / workB / workLeg /
+  workWaitUntilTick`.
+- **Mob kinds** (shared): `townGuard` (militia art), `townArcher`, `townKnight`, workers `townFarmer` / `townMiner` /
+  `townPriest` (farmer / iron miner / bishop art), all blue-ish tinted (client MOB_TINT), unlockDay Infinity.
+- **World-gen** (`generateSettlements`, BEFORE `generateForts` so the big templates get ground): total
+  `round(10 x (size/512)^1.4)` split floor(n/4) Riverwatch, round(0.3n) Ironhold, rest Hearthmoor: 512 -> 2 + 3 + 5 (all
+  placed in the smoke run), 256 -> 1 + 1 + 2 (2-3 placed: Riverwatch rarely fits), 160 -> 0 + 1 + 1, none < 128.
+  Centres >= 80 apart, >= 50 from every Town Center, first half of the 1500 attempts within 0.35 x side of one;
+  forts then keep >= 40 from every site. 512 still places all 22 forts.
+- **Neutral by default** (sites.ts `isNeutralSite` / `siteNumNeutral` / `siteGateWelcomes`): no proximity provoke; its
+  towers skip `updateTowers`; its gates are passable for players / colonists and open for them by DAY (`gatePassable`,
+  `friendlyNearGate`), shut at night (own folk still pass); soldiers never auto-target its keep / structures
+  (`hearthStep`, `nearestHostileStructure`, so attack-move too); dormant guards / workers are not auto-targeted (phase B
+  rule). An explicit order (right-click a guard / wall / keep) still attacks.
+- **Hostile spell** (`noteSettlementAttacked`, from `damageMob` / `damageBuilding` / `damageHearth`): any damage makes
+  it `provoked` for `SETTLEMENT_HOSTILE_TICKS` = 2 game days (renewed by each hit), wakes the garrison (workers never
+  fight: `activateGuardianSite` skips them), toast "<name> takes up arms ...", snapshot `sites[].hostile`; while hostile
+  proximity provokes it like a fort. When it runs out (`calmSettlement`): neutral again, guards stand down, toast "lays
+  down its arms".
+- **Relations hook** (phase D builds on it): `relationOf(clan, siteId)` / `adjustRelation(clan, siteId, delta)` over the
+  existing saved `Clan.relations[site number]` (default `RELATION_NEUTRAL` 0, clamp -100..100). First hit of a hostile
+  spell -15 per attacking clan (`RELATION_ATTACK_PENALTY`; attacker = the p: / c: key's clan, else the active clan);
+  razing the keep -40 + toast "You attacked a settlement: <name> will not forget"; capturing one -25 with every other
+  settlement ("Conqueror"). No UI / trade / quests.
+- **Workers** (`spawnSiteWorkers` on waking, `despawnSiteWorkers` on falling asleep, `updateSiteWorker` per tick from
+  sim.ts instead of updateMob): walk (path via own gates, x0.7 speed) between a work tile (farm plot / next to ore or
+  rock / next to the church) and a yard post, pausing 6-12 s; farmers pick a new plot each trip; everyone stays in at
+  night and while hostile. Asleep: no worker mobs, zero cost.
+- **Housing**: the per-Town-Center housing scan now skips NPC-owned tiles (a settlement's houses / keep added housing to
+  the nearest clan-0 Town Center before).
+- **Client**: settlement tiles tinted pale blue-white (`HUMAN_SITE_TINT`, via the new `sites[].num`) instead of the
+  enemy salmon; minimap flag white with a green edge (red while hostile); panel "Neutral settlement: <name>" /
+  "Hostile settlement: <name>" with "<building> of the village of <name>", garrison, relation, status line; toast "You
+  sight the village / mining outpost / town of <name>".
+- **Test hooks**: `sitesState` adds `relation` (clan 0) and `workerMobs`; `server/stamp-site.mjs` takes
+  `hearthmoor | ironhold | riverwatch` and lists neutral / HOSTILE + relation.
+- **Tests**: `server/settlements-test.mjs` (own 256 server, port 22130, ~10 s, 21/21): world-gen count / spacing, a
+  stamped Hearthmoor ignores a player in its yard (guards dormant, towers silent), 5 workers spawn and walk, panel title,
+  gate opens for the player by day and stays shut at night, one hit wakes all guards + relation -15 once, calm after the
+  spell, raze -> cleared + toast + relation -70 total. Regression `npm test -- sites-test owner-map camp-hearth`:
+  sites + camp-hearth pass; owner-map failed with its known flakes (rubble / ram run, then "GATE_FLAG_FOREIGN" on the
+  re-run), see "Known failing tests".
+- **Caveats / not done**: no daily production into `site.stock` (starting stock only; plunder = 50% of it); no
+  NPC-vs-NPC fighting; save / load of a hostile / razed settlement not scripted (fields are plain optional SiteState /
+  Clan data); a misplaced right-click on a neutral building with soldiers selected attacks it (no confirm); raid mobs
+  passing a settlement ignore it and its towers do not shoot them; Riverwatch moat is plain Water (phase H);
+  hostility is per settlement, not per clan (a hostile village fights every clan's units).
+
 ## Forts phase B — landed 2026-10-30 (stages 2-4: sleeping sites, leash, loot, capture, markers, sites-test)
 
 Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §2 (phase B done; stage 1 below). Commits "Forts phase B stage 2 /
