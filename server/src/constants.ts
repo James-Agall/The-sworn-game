@@ -676,9 +676,9 @@ export const TOWN_CENTER_BASE_POPULATION = 12;
 export const TOWN_CENTER_EXTRA_POPULATION = 5;
 // Settlement population ceiling per Town Center tier (index = level - 1). Tune here.
 export const SETTLEMENT_POP_CAP_BY_TIER = [20, 30, 40];
-// Each level of a settlement's Keep (a separate building) adds this to both its tier ceiling and its
-// housing capacity, so the bonus is real whichever of the two was limiting.
-export const KEEP_POPULATION_PER_LEVEL = 10;
+// The Keep no longer adds to the civilian population cap (user, 2026-10-30): its whole +10 per level goes to
+// soldiers, via KEEP_GARRISON_PER_LEVEL below. Kept as a constant at 0 so the civilian maths stays in one place.
+export const KEEP_POPULATION_PER_LEVEL = 0;
 export const KEEP_MIN_TOWN_CENTER_LEVEL = 2;
 // Synergy bonuses count all eight surrounding tiles (diagonals too), so buildings can be packed
 // into solid blocks. Spawn-space checks still use the four orthogonal tiles units actually spawn on.
@@ -694,7 +694,7 @@ export const NEIGHBOURS_8: ReadonlyArray<readonly [number, number]> = [
 // queued) may not exceed SETTLEMENT_GARRISON_CAP_BY_TIER[Town Center level] + KEEP_GARRISON_PER_LEVEL per
 // Keep level (garrisonBlocker). House extras ride on top of that ceiling.
 export const SETTLEMENT_GARRISON_CAP_BY_TIER = [12, 24, 40];
-export const KEEP_GARRISON_PER_LEVEL = 5;
+export const KEEP_GARRISON_PER_LEVEL = 10;
 export const WALL_TILES = [TileType.Wall, TileType.StoneWall];
 export const NO_COLONIST_TILES = [
   TileType.ConstructionSite,

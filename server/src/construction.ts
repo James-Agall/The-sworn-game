@@ -1090,7 +1090,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
   if (t === TileType.Keep) {
     const stat = settlementStats().find((x) => resourceKey(x.tc.x, x.tc.y) === settlementKeyNear(tx, ty));
     staffing = `Population ${stat?.used ?? 0}/${stat?.cap ?? 0}`;
-    bonuses.push(`Keep Lv ${level}: +${KEEP_POPULATION_PER_LEVEL * level} population, +${KEEP_GARRISON_PER_LEVEL * level} garrison`);
+    bonuses.push(`Keep Lv ${level}: +${KEEP_GARRISON_PER_LEVEL * level} soldier garrison (no civilian population)`);
     bonuses.push(`Recruits up to ${level} hero${level === 1 ? "" : "es"} (one per Keep level), ${HERO_POPULATION_COST} population each`);
   }
   if (t === TileType.Blacksmith) {
@@ -1141,7 +1141,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
         t === TileType.TownCenter
           ? ` (max pop ${settlementTierCap(level + 1)})`
           : t === TileType.Keep
-            ? ` (+${KEEP_POPULATION_PER_LEVEL * (level + 1)} population)`
+            ? ` (+${KEEP_GARRISON_PER_LEVEL * (level + 1)} soldier garrison)`
             : "";
       upgrade = { cost: `Lv${level + 1}: ${formatCost(cost)}${tierNote}`, enabled: reason === "", reason };
     }

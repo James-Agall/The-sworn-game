@@ -5,7 +5,7 @@
 //   settlement 2 still accepts; upgrading TC 1 raises its cap and the refused placement now works;
 //   per-settlement counts add up to the total; save/load keeps the assignments.
 //   tier caps 20/30/40; the Keep (separate building): refused at Town Center level 1, allowed at 2,
-//   levels 1..3 add +10/+20/+30 to the settlement cap, demolishing removes it, save/load keeps it.
+//   levels 1..3 add +10/+20/+30 to the soldier garrison cap (not the civilian cap), demolishing removes it, save/load keeps it.
 //   barracks housing (2026-10-29): Town Center base 12; soldiers don't use settlement population, each unit
 //   building houses its own (tier headcount + 1 per adjacent house: troops/troopCap), and unit buildings are
 //   gated by the settlement's garrison ceiling (12 base soldiers at Town Center level 1).
@@ -262,6 +262,7 @@ try {
   await c.freshSnap();
   const base2 = state()[1];
   result(c.snap.townCenters[1].level === 2 && base2.tier === 30, `Town Center 2 at level 2 (tier ${base2.tier})`);
+  const garr0 = c.snap.townCenters[1].garrisonCap;
   const k1 = await keepAt(tc2);
   await c.freshSnap();
   result(k1 && k1.placed, "Keep allowed at Town Center level 2");
@@ -272,7 +273,9 @@ try {
     return 1;
   };
   const capNow = () => state()[1].cap;
-  result(capNow() === base2.cap + 10 && c.snap.townCenters[1].populationKeepBonus === 10, `Keep Lv1 cap ${base2.cap} -> ${capNow()} (+10)`);
+  // The Keep no longer raises the civilian cap (2026-10-30); its +10 per level goes to the soldier garrison.
+  const garrNow = () => c.snap.townCenters[1].garrisonCap;
+  result(capNow() === base2.cap && !(c.snap.townCenters[1].populationKeepBonus > 0) && garrNow() === garr0 + 10, `Keep Lv1 civilian cap ${base2.cap} -> ${capNow()} (unchanged), garrison ${garr0} -> ${garrNow()} (+10)`);
   // A second Keep in the same settlement is refused.
   const k2 = await keepAt(tc2);
   result(k2 && !k2.placed && /already has a Keep/.test(k2.text), `second Keep refused: "${k2?.text}"`);
@@ -282,7 +285,7 @@ try {
     c.send({ type: "upgradeBuilding", tileX: keepSpot.x, tileY: keepSpot.y });
     await c.freshSnap();
     await c.freshSnap();
-    result(capNow() === base2.cap + 10 * n && lvl(keepSpot.x, keepSpot.y) === n, `Keep Lv${n} cap ${capNow()} (+${capNow() - base2.cap}), level ${lvl(keepSpot.x, keepSpot.y)}`);
+    result(capNow() === base2.cap && garrNow() === garr0 + 10 * n && lvl(keepSpot.x, keepSpot.y) === n, `Keep Lv${n} civilian cap ${capNow()} (unchanged), garrison +${garrNow() - garr0}, level ${lvl(keepSpot.x, keepSpot.y)}`);
   }
 
   // Save / load round trip keeps assignments (and the Keep).
@@ -299,14 +302,14 @@ try {
   await sleep(500);
   await c.freshSnap();
   result(c.saves[1]?.ok === true && JSON.stringify(state()) === snapState, `load restored per-settlement counts ${snapState} -> ${JSON.stringify(state())}`);
-  result(c.tileAt(keepSpot.x, keepSpot.y) === T.Keep && lvl(keepSpot.x, keepSpot.y) === 3 && capNow() === base2.cap + 30, `load kept the Keep at level 3 (cap ${capNow()})`);
+  result(c.tileAt(keepSpot.x, keepSpot.y) === T.Keep && lvl(keepSpot.x, keepSpot.y) === 3 && capNow() === base2.cap && garrNow() === garr0 + 30, `load kept the Keep at level 3 (cap ${capNow()})`);
 
   // Demolishing the Keep removes its bonus.
   await tele(c, keepSpot.x + 1, keepSpot.y);
   c.send({ type: "setTile", tileX: keepSpot.x, tileY: keepSpot.y, tile: T.Empty });
   await c.freshSnap();
   await c.freshSnap();
-  result(c.tileAt(keepSpot.x, keepSpot.y) === T.Empty && capNow() === base2.cap, `demolishing the Keep removed its bonus (cap ${capNow()})`);
+  result(c.tileAt(keepSpot.x, keepSpot.y) === T.Empty && capNow() === base2.cap && garrNow() === garr0, `demolishing the Keep removed its bonus (cap ${capNow()})`);
 } finally {
   killServer();
 }

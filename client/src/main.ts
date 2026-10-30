@@ -155,7 +155,7 @@ const TOOLS: ToolDef[] = [
     tile: TileType.Keep,
     label: "Keep",
     key: ".",
-    cost: `${buildCostText(TileType.Keep)}. One per settlement; needs a Town Center at level 2. Each level (upgradeable to 3) adds +10 to the settlement's population cap`,
+    cost: `${buildCostText(TileType.Keep)}. One per settlement; needs a Town Center at level 2. Each level (upgradeable to 3) adds +10 to the settlement's soldier garrison (it does not raise the civilian population cap)`,
     category: "civic",
   },
   {
