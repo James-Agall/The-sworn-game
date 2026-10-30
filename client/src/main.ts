@@ -11,6 +11,7 @@ import {
   Text,
   Texture,
 } from "pixi.js";
+import { setupCreative } from "./creative";
 import type {
   ClientMessage,
   SiteFaction,
@@ -107,6 +108,10 @@ const SERVER_URL = "ws://localhost:8080";
 const SAVES_URL = `${SERVER_URL.replace(/^ws/, "http")}/saves`;
 // Main menu Continue / Load Game: the slot to load right after the first welcome (else null).
 let pendingLoadSlot: SaveSlot | null = null;
+// Creative mode: the menu's game mode (Creative button / ?mode=creative), enforced on the first welcome after
+// New Game / Creative (never after Continue / Load: a save brings its own mode).
+let preferredCreative = new URLSearchParams(location.search).get("mode") === "creative";
+let enforceGameMode = false;
 
 type ToolCategory = "combat" | "farming" | "industry" | "civic" | "trade";
 
@@ -4533,6 +4538,13 @@ async function main() {
   function sendMessage(msg: object) {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
   }
+  // Creative mode panel (shown only in creative worlds).
+  const creativeUi = setupCreative({
+    send: sendMessage,
+    centre: () => ({ x: (app.screen.width / 2 - worldLayer.position.x) / camZoom, y: (app.screen.height / 2 - worldLayer.position.y) / camZoom }),
+    toast: (ok, text) => pushEventToast(ok ? "build" : "death", text),
+    selectedIds: () => Array.from(selectedIds),
+  });
 
   function makeEconButton(container: HTMLElement, text: string, onClick: () => void): HTMLButtonElement {
     const btn = document.createElement("button");
@@ -5668,7 +5680,7 @@ async function main() {
   }
   document.getElementById("game-over-restart")!.addEventListener("click", (e) => {
     (e.currentTarget as HTMLButtonElement).blur();
-    sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize });
+    sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: creativeUi.on });
   });
 
   // ---- Networking ----
@@ -5760,7 +5772,7 @@ async function main() {
     restartBtn.blur();
     if (!window.confirm("Restart the world for everyone connected?")) return;
     if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize }));
+      socket.send(JSON.stringify({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: creativeUi.on }));
     }
   });
 
@@ -6500,10 +6512,15 @@ async function main() {
         // Continue / Load Game: the save brings its own difficulty (no claim), then a fresh welcome.
         sendMessage({ type: "loadGame", slot: pendingLoadSlot });
         pendingLoadSlot = null;
+      } else if (enforceGameMode && !!message.creative !== preferredCreative) {
+        // Creative mode: New Game / Creative from the menu start a world of that mode (a restart for everyone).
+        sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: preferredCreative });
       } else {
         // Claims the world's difficulty if nobody has yet (the server ignores it otherwise).
         sendMessage({ type: "setDifficulty", difficulty: preferredDifficulty, worldSize: preferredWorldSize });
       }
+      enforceGameMode = false;
+      creativeUi.onWelcome(message.creative === true);
       sendMessage({ type: "listSaves" });
       setActiveDifficulty(message.difficulty);
       tileSize = message.tileSize;
@@ -6541,6 +6558,7 @@ async function main() {
       worldLayer.addChild(dragBox);
       strategyOnWelcome();
     } else if (message.type === "snapshot") {
+      creativeUi.onSnapshot(message);
       interpBeforeSnapshot();
       syncPlayers(message.players);
       latestPlayersForSpells = message.players;
@@ -6685,6 +6703,8 @@ async function main() {
       if (!infoTile || infoTile.tx !== message.tileX || infoTile.ty !== message.tileY) return;
       if (message.info) renderBuildingInfo(message.info);
       else closeBuildingInfo();
+    } else if (message.type === "creativeResult") {
+      creativeUi.onResult(message);
     } else if (message.type === "saveList") {
       renderSavePanel(message.saves);
     } else if (message.type === "saveResult") {
@@ -6722,7 +6742,8 @@ async function main() {
     const bySlot = new Map(saves.map((sv) => [sv.slot, sv]));
     renderSaveRows(
       document.getElementById("save-slot-list")!,
-      (["slot1", "slot2", "slot3"] as SaveSlot[]).map((slot) => ({
+      // Creative mode: a creative game saves only to its own slot.
+      ((creativeUi.on ? ["creative"] : ["slot1", "slot2", "slot3"]) as SaveSlot[]).map((slot) => ({
         slot,
         info: bySlot.get(slot),
         buttons: [
@@ -7687,6 +7708,8 @@ async function main() {
       app.canvas.setPointerCapture(e.pointerId);
       return;
     }
+    // Creative mode: a spawn / stamp placed "At click" takes the left click.
+    if (e.button === 0 && creativeUi.consumeClick(x, y)) return;
     // Hero phase 4: aiming a spell takes the left click; a right click cancels the aim.
     if (spellAim && e.button === 0 && spellAimClick(x, y)) return;
     if (spellAim && e.button === 2) {
@@ -7709,6 +7732,8 @@ async function main() {
       if (socket.readyState !== socket.OPEN) return;
       // latestColonists is replaced wholesale on every snapshot (20/s), so this is the units' live
       // positions at the moment of the order — a redirect mid-march re-faces from where they are.
+      // Creative mode: Ctrl+right-click on another clan's unit or an animal force-attacks it.
+      if (e.ctrlKey && creativeUi.forceAttackAt(x, y, latestColonists, myClan, Math.max(STRATEGY_HIT_SCREEN_PX / camZoom, tileSize * 0.6))) return;
       const units = latestColonists.filter((c) => selectedIds.has(c.id));
       const unitIds = units.map((u) => u.id);
       const order = stampOrder(unitIds);
@@ -8040,10 +8065,10 @@ function setActiveDifficulty(value: Difficulty) {
   if (gameStarted) renderDifficultyChoice(value);
 }
 
-const SAVE_SLOT_NAMES: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3" };
+const SAVE_SLOT_NAMES: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3", creative: "Creative" };
 
 function describeSave(sv: SaveInfo): string {
-  return `Day ${sv.dayIndex + 1} · ${sv.population} pop · ${DIFFICULTY_LABEL[sv.difficulty]}`;
+  return `${sv.creative ? "Creative · " : ""}Day ${sv.dayIndex + 1} · ${sv.population} pop · ${DIFFICULTY_LABEL[sv.difficulty]}`;
 }
 
 // One parchment row per slot: name + day/population/difficulty + when, then its buttons.
@@ -8209,8 +8234,10 @@ function setupMainMenu() {
   const closeModal = () => {
     settingsModal.hidden = true;
   };
-  const startGame = (loadSlot: SaveSlot | null) => {
+  const startGame = (loadSlot: SaveSlot | null, creative = preferredCreative) => {
     pendingLoadSlot = loadSlot;
+    preferredCreative = creative;
+    enforceGameMode = loadSlot === null;
     sound.unlock();
     menu.hidden = true;
     gameStarted = true;
@@ -8226,6 +8253,9 @@ function setupMainMenu() {
   };
   // New Game keeps the old Start behaviour (whatever world the server is running, menu difficulty).
   document.getElementById("menu-start")!.addEventListener("click", () => startGame(null));
+  // Creative mode: a new creative world (infinite resources, instant build, the Creative panel).
+  document.getElementById("menu-creative")!.addEventListener("click", () => startGame(null, true));
+  if (preferredCreative) document.getElementById("menu-start")!.textContent = "New Game (Creative)";
   document.getElementById("menu-continue")!.addEventListener("click", () => startGame("autosave"));
   const loadPanel = document.getElementById("menu-load-panel")!;
   document.getElementById("menu-load")!.addEventListener("click", () => {
