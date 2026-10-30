@@ -601,6 +601,13 @@ function updatePost(key: string, post: TradingPostState, windowNow: boolean) {
   }
 }
 
+// Test hook wagonPost: look after one post now (roster + wagon) instead of at the next second.
+export function refreshTradingPost(key: string) {
+  const post = tradingPosts.get(key);
+  if (!post) return;
+  withClan(clanById(post.clan), () => updatePost(key, post, false));
+}
+
 // sim.ts, every tick: wagons move; posts are looked after once a second and at the dawn / dusk windows.
 export function updateWagons() {
   if (state.cycleTick % SCAN_TICKS === 0) scanTradingPosts();

@@ -1,6 +1,6 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { recallWagon, scanTradingPosts, sendWagon, wagonDebugState } from "./wagons.js";
+import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, wagonDebugState } from "./wagons.js";
 import { buildingLevel, tradingPosts } from "./state.js";
 import { clanById, clanIdAt, withClan } from "./clans.js";
 import { randomUUID } from "node:crypto";
@@ -357,6 +357,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       scanTradingPosts();
       const post = tradingPosts.get(resourceKey(msg.tx, msg.ty));
       if (post && typeof msg.auto === "boolean") post.auto = msg.auto;
+      refreshTradingPost(resourceKey(msg.tx, msg.ty));
     }
     reply({ posts: wagonDebugState() });
   } else if (msg.op === "wagonSend" && typeof msg.tx === "number" && typeof msg.ty === "number") {

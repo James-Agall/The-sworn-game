@@ -2098,6 +2098,53 @@ Four user asks in one pass. Constants: `FOOTPRINT_*` / `FORGE_AUTO_*` / `GEAR_PI
    holds the target of each (use - / + to change it) and pauses when iron / wood would drop under 20. Save, load:
    still On.
 
+## Forts phase E — landed 2026-10-30 (trader wagons)
+
+Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §5 "Trader wagons" / §10 "E". Commits "Phase E stage 1-3". Test
+`server/wagons-test.mjs` (port 22160, 12/12). Browser checklist: MANUAL-TESTS.md §6d. Art requests: SPRITES.md #63-#67.
+- **Module** `server/src/wagons.ts`; tuning in constants.ts ("Forts phase E" block). Trading Post (GoldShop) now levels
+  1-3 (`TRADING_POST_UPGRADE_COSTS`: Lv2 60 wood + 40 rock + 30 gold, Lv3 100 wood + 80 rock + 20 iron + 60 gold).
+  Post state `tradingPosts` (state.ts, keyed "x,y": auto, wagonId, rebuildAtTick, trips today, lastTrip), found by a
+  map scan every 10 s.
+- **Wagon** = colonist kind `"wagon"` posted at the post (`Colonist.wagon: WagonState`), not commandable, no
+  population; HP 120 / 220 / 400, cargo 80 / 180 / 350 gold of goods, speed 0.8 / 0.9 / 0.9 x walk, profit x1 / 1.1 /
+  1.2. One per post, 3 per clan. **Escort** = ordinary soldiers posted at the post (Lv1 2 militia + spearman, Lv2 4
+  spearmen, Lv3 4 pikemen + cavalry), housed by it like unit buildings (no civilian cap), equipped from the armoury on
+  spawn; re-rostered free on build / upgrade (while home), dead ones come back at dawn / dusk windows for 5 food each.
+  On a trip they are one order group on a `follow` order on the wagon (`orders.ts ensureFollowGroup`, re-issued once
+  a second if broken; no cavalry scout).
+- **Destinations**: sighted standing settlements at Friendly+ (not up in arms) within 160 tiles, and the clan's other
+  Town Centers (internal: 50% of base value, one delivery per Town Center per day). Auto picks best gold / danger.
+- **Route**: `findPath` once per trip (cached per post + destination per day), plus one detour with every hazard disc
+  blocked (`findPath` got an optional `blocked` predicate); cost length + 4 x danger. Hazards: standing bandit / orc
+  forts (r 20, w 8), camp hearths (r 12, w 8), raid anchors of the last 3 days (r 15, w 3), live bosses (r 12, w 10);
+  danger sampled every 2nd tile -> safe <= 10 < risky <= 60 < deadly. "Known" = all of them (no fog check).
+- **Schedule**: auto-send leaves in the first 40% of the day when home, with full escort and goods (1 auto trip a day,
+  2 incl. manual); manual "Send" ignores the escort check; no travel at night (camps where it is, resumes at dawn).
+- **Trade**: loads the 2 most-stocked goods (keeps 20 of each) up to the cargo value; at the settlement sells via the
+  phase D sell prices / daily caps / stock room / purse (purse pays, level factor on top), spends half the takings on
+  its most-stocked other good, relation gain = one `gainRelation(..., 2 + gold / 20, "trade")` (daily trade cap).
+  Unsold goods ride home. Proceeds land in stock on arrival.
+- **Loss**: wagon HP 0 -> cargo + proceeds lost, toast "plundered near <site>", -3 relation if the goods were
+  outbound to a settlement, replacement after 1 game day at a dawn / dusk window for its level's cost (20 wood /
+  40 wood + 10 iron / 60 wood + 30 iron + 20 gold). Escort wiped on the way out -> it flees home (x1.3 speed).
+- **Mobs**: a wagon is a soldier-class target with +4 tiles aggro; bandit clubmen / archers take one in range first.
+- **Protocol** (additive): `ColonistKind` + "wagon", `ColonistSnapshot.wagon` (level, leg, dest, cargo, danger,
+  escorts, remaining route every 4th tile), `BuildingInfo.tradingPost`, `wagonCommand {tileX, tileY, cmd: sendNow |
+  recall | auto, dest?, value?}`.
+- **Client**: cart stand-in tinted / sized by level, bobbing, red hit flash (optional `traderWagon{1,2,3}Walk0-3 /
+  Idle / Hit0-1` replace it; `tradingPostLv2/3` via TILE_LEVEL_ART); label "Trader LvN · N escorts · to <dest>"
+  coloured by danger; dashed route line; gold minimap dot; Trading Post panel (status, escort, destination picker,
+  Send trader now / Recall / Auto-send). Toast "Trader wagon under attack!" (every 20 s at most); the fight notifier
+  picks up the hits as for any unit.
+- **Saves** additive: top-level `tradingPosts {posts, raidAnchors}`; wagons ride on `colonists`. New game clears.
+- **Helper**: `node stamp-site.mjs tradingpost [level] | wagon [name|auto] | wagons`. Test hooks `wagonPost {tx, ty,
+  level?, auto?}`, `wagonSend {tx, ty, dest?}`, `wagonRecall {id}`, `wagonState`.
+- **Not done / deviations**: escort quest kind skipped (settlements have no wagons of their own: more than a small
+  change); no wagon card on the strategy card bar (label + panel instead); no "Wrecked" sprite; no night halt at a
+  nearby settlement; no Hold command or right-click extra escort; no cavalry scout; wagon costs no population (plan:
+  1); site towers do not shoot it; destinations Friendly+ (user spec), not Neutral+.
+
 ## Forts phase D2 — landed 2026-10-30 (settlement help quests)
 
 Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` "Decisions" 6 / §10 "D2". Commits "Phase D2 stage 1-3". Test

@@ -168,6 +168,32 @@ day's pause per settlement).
 10. **Save / load**: accept a quest, save to slot 1, abandon it, load slot 1: the quest is back, still accepted, with
     its time left.
 
+## 6d. Trader wagons (phase E)
+Same server as §6 (`COLONY_TEST_HOOKS=1`, scratch `COLONY_SAVE_DIR`). Stamp or find a settlement, sight it, and make it
+Friendly: `PORT=<port> node stamp-site.mjs relation <name> 30`. Keep more than 20 of some good (wood, grain...).
+Shortcuts: `node stamp-site.mjs tradingpost [1|2|3]` places a Trading Post 4 tiles SE of the Town Center at that
+level; `node stamp-site.mjs wagon [<name>|auto]` sends the first post's wagon now (by day, no trip cap);
+`node stamp-site.mjs wagons` prints every post, wagon leg / destination / cargo and escort. The top-bar time controls
+(2x / 4x) speed the trip up.
+1. **Build + panel**: build a Trading Post (or the helper). Within a second a cart (brown tint, "Trader Lv1 · 3
+   escorts") and 2 militia + 1 spearman stand by it; the population counter does not change. Click the post: the
+   panel shows "Wagon HP 120/120 · At home", "Escort: Militia, Militia, Spearman", a destination list (name, tiles,
+   safe / risky / deadly, ~gold) and Send trader now / Recall / Auto-send: On.
+2. **Upgrade**: Upgrade to Lv2 (60 wood + 40 rock + 30 gold) then Lv3 (100 wood + 80 rock + 20 iron + 60 gold): the
+   cart gets bigger and greener / iron-grey (art #63-#66 replaces it when delivered), HP 220 / 400, escort 4 spearmen /
+   4 pikemen + 1 cavalry.
+3. **Trip**: press Send trader now (or wait for the morning with Auto-send on): toast "Trader wagon leaves for <name>
+   with N gold of goods (road: safe)", a dashed route line in green / orange / red, a gold dot on the minimap, the
+   escort walks with it. At the walls it waits ~20 s, toasts "sold its goods ... N gold (relation +x)", turns home
+   and on arrival "Trader wagon is home from <name>: +N gold ...". The settlement's relation rose (Trade panel).
+4. **Recall**: send it again, press Recall halfway: it turns back with its cargo (goods return to stock).
+5. **Night**: send it late in the day: at nightfall it stops ("camped," in its label) and goes on at dawn.
+6. **Attack**: stamp a bandit camp on the route (`node stamp-site.mjs thornwick <dx> <dy>`) or spawn bandits near the
+   moving cart: toast "Trader wagon under attack!", the fight notifier / minimap alert fires, the escort fights.
+   Let it die: "Our trader wagon was plundered near ..." and "<name>: the goods never arrived (relation -3)"; the
+   panel says when a new one comes (first dawn / dusk after a day, for 20 wood at Lv1).
+7. **Save / load** with the wagon on the road: it is still on the road with the same cargo, the escort follows again.
+
 ## 7. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.
    Every unit should walk round the idle ones and stop exactly on its slot; nobody left a tile or two short in

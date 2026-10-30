@@ -8,6 +8,10 @@
 // Forts phase D: `node stamp-site.mjs relation <settlement name> <value>` sets clan 0's relation (-100..100) to it.
 // Forts phase D2: `node stamp-site.mjs quest <settlement name> <defend|clearCamp|deliver>` makes it post clan 0 that
 // quest now (defend: jumps to nightfall and spawns 4 goblins outside its walls first). `quests` lists open ones.
+// Forts phase E: `node stamp-site.mjs tradingpost [level]` puts a Trading Post (level 1-3, default 1) 4 tiles
+// south-east of the first Town Center (rule-free; its wagon + escort appear within a second);
+// `node stamp-site.mjs wagon [settlement name|auto]` sends the first Trading Post's wagon now (no trip cap; by
+// day only); `node stamp-site.mjs wagons` lists every post, its wagon (leg, destination, cargo) and escort.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -62,6 +66,31 @@ if (template === "relation") {
   for (const q of (await hook("questState"))?.quests ?? []) {
     console.log(`  quest #${q.id} ${q.kind} from ${sitesNow.find((x) => x.id === q.siteId)?.name} (clan ${q.clan}) ${q.reward} gold${q.accepted ? ", accepted" : ""}${q.good ? `, ${q.qty} ${q.good}` : ""}${q.need ? `, slain ${q.kills}/${q.need}` : ""}`);
   }
+} else if (template === "tradingpost" || template === "wagon" || template === "wagons") {
+  const printPosts = (posts) => {
+    for (const p of posts ?? []) {
+      const w = p.wagon;
+      console.log(`  Trading Post (${p.key}) Lv${p.levelNow}, auto ${p.auto ? "on" : "off"}: ${w ? `wagon ${Math.ceil(w.hp)}/${w.maxHp} HP, ${w.leg}${w.destName ? ` (${w.destName})` : ""}, cargo ${JSON.stringify(w.cargo)}` : `no wagon (rebuild at tick ${p.rebuildAtTick})`}; escort ${p.escorts.map((e) => e.kind).join(", ") || "none"}`);
+    }
+  };
+  if (template === "tradingpost") {
+    const level = Math.min(3, Math.max(1, Number(process.argv[3] ?? 1) || 1));
+    printPosts((await hook("wagonPost", { tx: tc.x + 4, ty: tc.y + 4, level }))?.posts);
+  } else if (template === "wagon") {
+    const posts = (await hook("wagonState"))?.posts ?? [];
+    if (posts.length === 0) console.log("No Trading Post: build one (or `node stamp-site.mjs tradingpost`)");
+    else {
+      const name = process.argv[3];
+      const target = name && name !== "auto" ? (await hook("sitesState"))?.sites.find((x) => x.name.toLowerCase() === name.toLowerCase()) : null;
+      if (name && name !== "auto" && !target) console.log(`No settlement "${name}": sending to the best destination`);
+      const [tx, ty] = posts[0].key.split(",").map(Number);
+      const r = await hook("wagonSend", { tx, ty, dest: target ? `s:${target.id}` : "auto" });
+      console.log(r?.problem ? `Wagon not sent: ${r.problem}` : "Wagon sent: watch it leave (time controls speed it up)");
+      printPosts(r?.posts);
+    }
+  } else printPosts((await hook("wagonState"))?.posts);
+  ws.close();
+  process.exit(0);
 } else if (template !== "list") {
   const r = await hook("stampSite", { template, dx, dy, search: 45 });
   if (!r) {
