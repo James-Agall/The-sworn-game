@@ -7,6 +7,7 @@ import {
   type EquipSlot, type BossTier, type Difficulty, TileType, WildlifeState, type RegimentClass, type ArmyOrderKind,
   type CombatRole, type SaveSlot, type ItemSlotKind, type ItemStats, type SpellId, FIGHT_WINDOW_SECONDS,
 } from "@colony/shared/protocol";
+import { BUILD_COSTS } from "@colony/shared/buildings";
 import type {
   Cost, CraftRecipe, DifficultyTuning, MobKindConfig, PoiSiteKind, RaidFactionEntry, RaidFactionId,
   RaidFormationShape, ResourceKey, TileCoord, WildlifeMode,
@@ -256,11 +257,11 @@ export const SIEGE_UNIT_COST: Record<SiegeKind, Partial<Record<"wood" | "iron" |
 export const SIEGE_LABEL: Record<SiegeKind, string> = { batteringRam: "Battering Ram", catapult: "Catapult" };
 // Building costs: Stables (per level, like the Hall of the Sworn's iron + rock, plus wood) and the Workshop.
 export const STABLES_COSTS = [
-  { wood: 20, rock: 10, iron: 10 },
+  { ...BUILD_COSTS[TileType.Stables] },
   { wood: 30, rock: 20, iron: 20 },
   { wood: 45, rock: 30, iron: 30 },
 ];
-export const SIEGE_WORKSHOP_COST = { wood: 30, iron: 15, rock: 15 };
+export const SIEGE_WORKSHOP_COST = { ...BUILD_COSTS[TileType.SiegeWorkshop] };
 // Siege mobs pay this much more gold.
 export const SIEGE_GOLD_MULT = 2;
 // ---- Armour & weapons (ROADMAP "Armour & weapons — landed 2026-10-28") ----
@@ -551,31 +552,31 @@ export const STARVATION_DAMAGE = 10;
 // together only at the two respawn windows, dawn (cycle tick 0) and dusk (the last daylight tick,
 // DAY_TICKS - 1, so "day-only respawns" still holds); see respawnWindowAt / processRespawnQueue.
 export const RESPAWN_FOOD_COST = 5;
-export const ARCHER_WOOD_COST = 10;
-export const KNIGHT_IRON_COST = 10;
-export const KNIGHT_ROCK_COST = 5;
+export const ARCHER_WOOD_COST = BUILD_COSTS[TileType.ArcherPost].wood;
+export const KNIGHT_IRON_COST = BUILD_COSTS[TileType.KnightPost].iron;
+export const KNIGHT_ROCK_COST = BUILD_COSTS[TileType.KnightPost].rock;
 // Walls & gates (2026-10-23): walls 3x their old 1 wood / 1 rock. Full repair = REPAIR_COST_FRACTION
 // (0.3) of this, i.e. 1 wood / 1 rock per wall, 3 wood + 2 rock per gate.
-export const WOOD_WALL_COST = 3;
-export const STONE_WALL_COST = 3;
-export const GATE_WOOD_COST = 10;
-export const GATE_ROCK_COST = 5;
+export const WOOD_WALL_COST = BUILD_COSTS[TileType.Wall].wood;
+export const STONE_WALL_COST = BUILD_COSTS[TileType.StoneWall].rock;
+export const GATE_WOOD_COST = BUILD_COSTS[TileType.Gate].wood;
+export const GATE_ROCK_COST = BUILD_COSTS[TileType.Gate].rock;
 // Houses got costlier with barracks housing (2026-10-29): 10 wood -> 20 wood + 5 rock to build; the
 // upgrades' wood doubled and they take rock too (placementCost).
-export const HOUSE_WOOD_COST = 20;
-export const HOUSE_ROCK_COST = 5;
-export const BARN_WOOD_COST = 15;
-export const CHURCH_WOOD_COST = 15;
-export const CRAFT_BUILDING_WOOD_COST = 10;
-export const CRAFT_BUILDING_IRON_COST = 5;
-export const SHOP_WOOD_COST = 15;
-export const TAVERN_WOOD_COST = 20;
-export const TAVERN_ROCK_COST = 10;
-export const MILITIA_WOOD_COST = 5;
-export const MILITIA_IRON_COST = 5;
-export const WARD_STONE_WOOD_COST = 20;
-export const FOOD_HUT_WOOD_COST = 15;
-export const WARD_STONE_TOOLS_COST = 10;
+export const HOUSE_WOOD_COST = BUILD_COSTS[TileType.House].wood;
+export const HOUSE_ROCK_COST = BUILD_COSTS[TileType.House].rock;
+export const BARN_WOOD_COST = BUILD_COSTS[TileType.BarnPost].wood;
+export const CHURCH_WOOD_COST = BUILD_COSTS[TileType.ChurchPost].wood;
+export const CRAFT_BUILDING_WOOD_COST = BUILD_COSTS[TileType.Blacksmith].wood!;
+export const CRAFT_BUILDING_IRON_COST = BUILD_COSTS[TileType.Blacksmith].iron!;
+export const SHOP_WOOD_COST = BUILD_COSTS[TileType.Market].wood!;
+export const TAVERN_WOOD_COST = BUILD_COSTS[TileType.Tavern].wood;
+export const TAVERN_ROCK_COST = BUILD_COSTS[TileType.Tavern].rock;
+export const MILITIA_WOOD_COST = BUILD_COSTS[TileType.MilitiaPost].wood;
+export const MILITIA_IRON_COST = BUILD_COSTS[TileType.MilitiaPost].iron;
+export const WARD_STONE_WOOD_COST = BUILD_COSTS[TileType.WardStone].wood;
+export const FOOD_HUT_WOOD_COST = BUILD_COSTS[TileType.HunterHut].wood!;
+export const WARD_STONE_TOOLS_COST = BUILD_COSTS[TileType.WardStone].tools;
 export const PLAYER_ATTACK_DAMAGE = 15;
 export const PLAYER_ATTACK_RANGE = TILE_SIZE * 1.3;
 export const PLAYER_ATTACK_COOLDOWN_TICKS = Math.round(TICK_RATE * 0.5);
@@ -1368,8 +1369,8 @@ export const IN_PLACE_UPGRADE_TILES: TileType[] = [
   TileType.Tower,
   TileType.Keep,
 ];
-export const BUILDERS_GUILD_WOOD_COST = 15;
-export const TOWN_CENTER_COST: Cost = { wood: 60, rock: 30, iron: 20 };
+export const BUILDERS_GUILD_WOOD_COST = BUILD_COSTS[TileType.BuildersGuild].wood;
+export const TOWN_CENTER_COST: Cost = { ...BUILD_COSTS[TileType.TownCenter] };
 // Upgrading a Town Center to level 2 / level 3.
 export const TOWN_CENTER_UPGRADE_COSTS: Cost[] = [
   { wood: 80, rock: 60, iron: 40 },
@@ -1377,7 +1378,7 @@ export const TOWN_CENTER_UPGRADE_COSTS: Cost[] = [
 ];
 // The Keep: build (level 1), then upgrade to level 2 / level 3.
 export const KEEP_COSTS: Cost[] = [
-  { wood: 60, rock: 40, iron: 20 },
+  { ...BUILD_COSTS[TileType.Keep] },
   { wood: 90, rock: 70, iron: 40 },
   { wood: 130, rock: 100, iron: 70, tools: 10 },
 ];
@@ -1394,8 +1395,8 @@ export const POI_TILES = new Set<TileType>([
 // to BUILDER_MAX_PER_SITE builders and scaled by builderRate (happiness, Town Center, Guild).
 export const BUILD_SECONDS_WALL = 4;
 // Roads: cheap ground tiles, built by builders like everything else (one tile per placement).
-export const ROAD_ROCK_COST = 1;
-export const COBBLE_ROAD_ROCK_COST = 2;
+export const ROAD_ROCK_COST = BUILD_COSTS[TileType.Road].rock;
+export const COBBLE_ROAD_ROCK_COST = BUILD_COSTS[TileType.CobbleRoad].rock;
 export const BUILD_SECONDS_ROAD = 4;
 export const BUILD_SECONDS_COBBLE_ROAD = 6;
 export const BUILD_SECONDS_HOUSE = 10;
@@ -1420,7 +1421,7 @@ export const TOWER_STATS = [
 ];
 // Cost to build (level 1), then to upgrade to level 2 / level 3.
 export const TOWER_COSTS: Cost[] = [
-  { wood: 20, rock: 15 },
+  { ...BUILD_COSTS[TileType.Tower] },
   { wood: 30, rock: 30 },
   { wood: 45, rock: 50 },
 ];

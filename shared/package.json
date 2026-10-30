@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./protocol": "./src/protocol.ts",
-    "./formation": "./src/formation.ts"
+    "./formation": "./src/formation.ts",
+    "./buildings": "./src/buildings.ts"
   }
 }

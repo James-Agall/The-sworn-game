@@ -2,3 +2,4 @@
 // (as "@colony/shared/protocol" / "@colony/shared/formation", or everything from "@colony/shared").
 export * from "./protocol.js";
 export * from "./formation.js";
+export * from "./buildings.js";
