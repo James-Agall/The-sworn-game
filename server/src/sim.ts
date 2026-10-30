@@ -21,6 +21,7 @@ import {
 } from "./combat.js";
 import { updateSiegeWorkshops } from "./siege.js";
 import { updateMob } from "./mobs.js";
+import { updateSites } from "./sites.js";
 import { updateConstructionSites } from "./construction.js";
 import { updatePlayerMorale, updateRegiments } from "./tactics.js";
 import { spawnRaid, updateRaidGroups } from "./raids.js";
@@ -162,6 +163,7 @@ export function stepSimulation() {
   respawnDeadPlayers();
   if (state.cycleTick % TICK_RATE === 0) {
     checkBossSightings();
+    updateSites();
     forEachClan(() => evaluateGoals());
   }
   if (state.cycleTick % FIGHT_SCAN_TICKS === 0) scanFights();

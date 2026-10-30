@@ -23,7 +23,7 @@ import {
   ownerSiteIds, playerMorale, raidGroups, regiments, repairPaid, repairQueue, respawnQueue, routedUnits, siegeEvents,
   siegeWorkshops, spellCooldowns, spellEvents, spellStatuses, state, summonedUntil, tacticsEvents, tickDurationsMs,
   tileOwner, towerCooldowns, towerEvents, walledSites, wildlife,
-  sites,
+  sites, players,
 } from "./state.js";
 import {
   getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, setOwner, siteNumber, tileIndex, tileOfPixel,
@@ -308,12 +308,21 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         return {
           ...st, hearth: hearth ? { hp: hearth.hp, maxHp: hearth.maxHp, destroyed: hearth.destroyed } : null,
           keepTile: state.tiles[tileIndex(st.keepX, st.keepY)],
-          alive: members.map((m) => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, active: m.guardianActive })),
+          // The nearest living player / colonist (Chebyshev tiles from the keep): what keeps it awake.
+          nearestUnit: [...Array.from(players.values(), (p) => ({ who: "player", x: p.x, y: p.y, dead: p.dead })), ...Array.from(colonists.values(), (u) => ({ who: u.kind, x: u.x, y: u.y, dead: u.hp <= 0 }))]
+            .filter((u) => !u.dead).map((u) => ({ who: u.who, d: Math.round(Math.max(Math.abs(u.x / TILE_SIZE - st.keepX), Math.abs(u.y / TILE_SIZE - st.keepY))) }))
+            .sort((a, b) => a.d - b.d)[0] ?? null,
+          alive: members.map((m) => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp, active: m.guardianActive, postX: m.postX, postY: m.postY, target: m.targetType })),
         };
       }),
       grounds: state.siteGrounds.reduce((n, v) => n + v, 0),
       worldSize: state.WORLD_TILES_X,
     });
+  } else if (msg.op === "siteSet" && typeof msg.siteId === "string") {
+    // Forts phase B: overwrite numeric SiteState fields (lastSimTick to fake a long sleep, kiteHits, ...).
+    const st = sites.get(msg.siteId);
+    if (st) for (const [k, v] of Object.entries(msg.fields ?? {})) if (typeof v === "number" && typeof (st as unknown as Record<string, unknown>)[k] !== "object") (st as unknown as Record<string, unknown>)[k] = v;
+    reply({ found: !!st });
   } else if (msg.op === "setOwner" && typeof msg.tx === "number" && typeof msg.ty === "number") {
     // Forts phase A: one tile's owner (siteId string, or null for the colony).
     if (inBounds(msg.tx, msg.ty)) setOwner(tileIndex(msg.tx, msg.ty), siteNumber(typeof msg.siteId === "string" ? msg.siteId : null, true));

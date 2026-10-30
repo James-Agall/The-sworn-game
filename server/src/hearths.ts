@@ -26,7 +26,7 @@ import { grantTieredEquipment, heroRelicForHearth, weaponDamageMult } from "./he
 import { spellBuffDamageMult } from "./spells.js";
 import { leaveOrderGroup } from "./orders.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
-import { onFortKeepDestroyed } from "./sites.js";
+import { onFortKeepDestroyed, plunderSiteStock, siteName } from "./sites.js";
 
 export function hearthEvent(siteId: string, type: string, detail?: string) {
   hearthEvents.push({ tick: state.cycleTick, type, siteId, detail });
@@ -182,7 +182,7 @@ export function destroyHearth(h: HearthState, attackerKey?: string) {
     }
   }
   const g = Math.max(1, h.garrison);
-  const loot = {
+  const loot: Record<string, number> = {
     gold: HEARTH_LOOT_PER_GUARDIAN.gold * g,
     wood: HEARTH_LOOT_PER_GUARDIAN.wood * g,
     rock: HEARTH_LOOT_PER_GUARDIAN.rock * g,
@@ -192,12 +192,18 @@ export function destroyHearth(h: HearthState, attackerKey?: string) {
   state.stock.wood += loot.wood;
   state.stock.rock += loot.rock;
   state.stock.iron += loot.iron;
+  // Forts phase B: a fort's keep also yields SITE_LOOT_STOCK_SHARE of its stockpile, and the toast names it.
+  const fortName = h.siteKind === "fort" ? siteName(h.siteId) : undefined;
+  if (h.siteKind === "fort") {
+    for (const [k, v] of Object.entries(plunderSiteStock(h.siteId))) loot[k] = (loot[k] ?? 0) + (v ?? 0);
+  }
   // Armour & weapons: 1 + floor(garrison / 2) pieces of a weighted random tier.
   const gear = grantTieredEquipment(1 + Math.floor(g / 2), "hearth");
   hearthEvent(h.siteId, "destroyed", `${members.length} routed; loot ${JSON.stringify(loot)}; gear ${gear}`);
+  const extra = Object.entries(loot).filter(([k]) => !["gold", "wood", "rock", "iron"].includes(k)).map(([k, v]) => `, ${v} ${k}`).join("");
   broadcastEvent(
     "milestone",
-    `The ${h.faction} camp breaks and scatters! Plundered ${loot.gold} gold, ${loot.wood} wood, ${loot.rock} rock, ${loot.iron} iron, ${gear}`
+    `${fortName ? `${fortName} falls!` : `The ${h.faction} camp breaks and scatters!`} Plundered ${loot.gold} gold, ${loot.wood} wood, ${loot.rock} rock, ${loot.iron} iron${extra}, ${gear}`
   );
   // Hero phases 1-2: RELIC_HEARTH_CHANCE of a relic (after the plunder toast).
   heroRelicForHearth(attackerKey);

@@ -15,7 +15,9 @@ import {
   MOB_ATTACK_COOLDOWN_TICKS, MOB_BODY_RADIUS, MOB_BODY_RADIUS_MAX, MOB_BUILDING_AGGRO_TILES, MOB_KIND_CONFIG,
   MOB_REPATH_TICKS, MOB_ROOM_DETOUR_PX, MOB_SIZE_DAMAGE_PER_SCALE, MOB_SIZE_HP_PER_SCALE, MOB_SIZE_SPEED_PER_SCALE,
   PLAYER_BODY_RADIUS, POISON_DAMAGE_PER_TICK, POISON_DURATION_TICKS, QUEUE_STANDOFF_PX, RANGED_KITE_TILES,
-  ROUTE_NODE_BUDGET, RUX_FEINT_TICKS, SIEGE_GOLD_MULT, SLOT_CLOSE_IN_PX, TROLL_REGEN_DELAY_TICKS,
+  ROUTE_NODE_BUDGET, RUX_FEINT_TICKS, SIEGE_GOLD_MULT, SITE_CALM_SCAN_TILES, SITE_CHASE_EXTRA_TILES,
+  SITE_HEAL_CALM_TICKS, SITE_HEAL_PER_SEC, SITE_HEAL_RADIUS_TILES, SITE_RESET_CALM_TICKS, SITE_RETURN_IGNORE_TICKS,
+  SITE_RETURN_SPEED_MULT, SLOT_CLOSE_IN_PX, TROLL_REGEN_DELAY_TICKS,
   TROLL_REGEN_PER_TICK, VHORRUN_WITHDRAW_TARGET_HP, VHORRUN_WITHDRAW_TICKS, clampWorldSize,
 } from "./constants.js";
 import {
@@ -31,7 +33,8 @@ import {
   mobTargetNeedsRepick, releaseSlot, targetHasRoom, unitSlotPoint,
 } from "./combat.js";
 import { siegeEvent, takeChargeBonus, trackCharge, updateSiegeMob } from "./siege.js";
-import { mobTactic, regimentKey, tacticsEvent } from "./tactics.js";
+import { clearMobTarget, mobTactic, regimentKey, tacticsEvent } from "./tactics.js";
+import { siteLeash, type SiteLeash } from "./sites.js";
 import { stepRaidMobToward } from "./raids.js";
 import { playerMaxHp } from "./heroes.js";
 import { resetWorld } from "./saves.js";
@@ -493,6 +496,10 @@ export function updateMob(mob: Mob, dt: number) {
     return;
   }
 
+  // Forts phase B: a site guardian keeps to a short leash round its home (walk back, heal, fall asleep).
+  const leash = siteLeash(mob);
+  if (leash && leashStep(mob, leash, dt)) return;
+
   // Vhorrun withdrawing after winning an exchange: back away from where the fight was, then return.
   // A goblin wolf rider after its charge landed: rides off (hit and run), then comes back at its target.
   if ((mob.mark === HungerMark.Vhorrun || mob.kind === "goblinRider") && state.cycleTick < mob.withdrawUntilTick) {
@@ -523,9 +530,16 @@ export function updateMob(mob: Mob, dt: number) {
   // Gunne / Gorrath keep re-checking for a weaker / stronger victim.
   if ((mob.mark === HungerMark.Gunne || mob.mark === HungerMark.Gorrath) && state.cycleTick % MARK_RETARGET_TICKS === 0) targetPos = null;
 
+  // Leash: a target beyond leash + SITE_CHASE_EXTRA_TILES of home is dropped; new picks (once a second)
+  // only within the leash.
+  if (leash && targetPos && Math.hypot(targetPos.x - leash.cx, targetPos.y - leash.cy) > leash.leashPx + SITE_CHASE_EXTRA_TILES * TILE_SIZE) targetPos = null;
   if (!targetPos && hold) return;
   if (!targetPos) {
-    const picked = pickMobTarget(mob);
+    let picked = leash && state.cycleTick % TICK_RATE !== 0 ? null : pickMobTarget(mob);
+    if (picked && leash) {
+      const at = resolveTargetPosition(picked.type, picked.id, mob);
+      if (!at || Math.hypot(at.x - leash.cx, at.y - leash.cy) > leash.leashPx) picked = null;
+    }
     releaseSlot(mob.id);
     if (picked) {
       mob.targetType = picked.type;
@@ -533,8 +547,9 @@ export function updateMob(mob: Mob, dt: number) {
       mob.approachFor = picked.approach ? picked.id : null;
       mob.approachX = picked.approach?.x ?? -1;
       mob.approachY = picked.approach?.y ?? -1;
-      // A fresh building route starts now (the old path led to the previous target).
-      if (picked.approach) {
+      // A fresh building route starts now (the old path led to the previous target; a leashed guardian's
+      // path led home).
+      if (picked.approach || leash) {
         mob.path = [];
         mob.repathCooldown = 0;
       }
@@ -545,7 +560,10 @@ export function updateMob(mob: Mob, dt: number) {
     }
   }
 
-  if (!targetPos) return;
+  if (!targetPos) {
+    if (leash && Math.hypot(leash.px - mob.x, leash.py - mob.y) > TILE_SIZE * 0.5) walkMobTo(mob, leash.px, leash.py, mob.speed * SITE_RETURN_SPEED_MULT, dt);
+    return;
+  }
 
   // Rux mid-feint: falls back from the target it just closed on.
   if (mob.mark === HungerMark.Rux && state.cycleTick < mob.feintUntilTick) {
@@ -681,4 +699,64 @@ export function updateMob(mob: Mob, dt: number) {
     }
     advanceAlongPath(mob, dt, mob.speed);
   }
+}
+
+// ---- Forts phase B stage 2: the site-guardian leash ----
+
+function colonyUnitNear(x: number, y: number, r: number): boolean {
+  for (const p of players.values()) if (!p.dead && !state.testPlayersIgnored && Math.abs(p.x - x) <= r && Math.abs(p.y - y) <= r && Math.hypot(p.x - x, p.y - y) <= r) return true;
+  for (const c of colonists.values()) if (c.hp > 0 && Math.abs(c.x - x) <= r && Math.abs(c.y - y) <= r && Math.hypot(c.x - x, c.y - y) <= r) return true;
+  return false;
+}
+
+// Path-follows to (x, y) (straight steps for the last tile).
+function walkMobTo(mob: Mob, x: number, y: number, speed: number, dt: number) {
+  if (Math.hypot(x - mob.x, y - mob.y) <= TILE_SIZE * 1.5) {
+    mob.path = [];
+    stepRaidMobToward(mob, x, y, speed, dt);
+    return;
+  }
+  if (mob.path.length === 0 && mob.repathCooldown <= 0) {
+    mob.path = findPath(tileOfPixel(mob.x, mob.y), tileOfPixel(x, y)) ?? [];
+    mob.repathCooldown = MOB_REPATH_TICKS;
+  } else if (mob.repathCooldown > 0) {
+    mob.repathCooldown--;
+  }
+  advanceAlongPath(mob, dt, speed);
+}
+
+// The leash part of updateMob for a site guardian; true = it handled the mob this tick. Once a second:
+// heal SITE_HEAL_PER_SEC near home after SITE_HEAL_CALM_TICKS with no hostile within SITE_CALM_SCAN_TILES
+// and no damage, and fall dormant again after SITE_RESET_CALM_TICKS of that. Past leash +
+// SITE_CHASE_EXTRA_TILES + 1 (unless `free`): drop the target and walk home, ignoring targets for
+// SITE_RETURN_IGNORE_TICKS.
+function leashStep(mob: Mob, leash: SiteLeash, dt: number): boolean {
+  const now = state.cycleTick;
+  const atHome = Math.min(Math.hypot(mob.x - leash.px, mob.y - leash.py), Math.hypot(mob.x - leash.cx, mob.y - leash.cy)) <= SITE_HEAL_RADIUS_TILES * TILE_SIZE;
+  if (now % TICK_RATE === 0) {
+    if (mob.leashCalmSinceTick === undefined || colonyUnitNear(mob.x, mob.y, SITE_CALM_SCAN_TILES * TILE_SIZE)) mob.leashCalmSinceTick = now;
+    const calm = now - Math.max(mob.leashCalmSinceTick, mob.lastDamagedTick);
+    if (atHome && calm >= SITE_HEAL_CALM_TICKS && mob.hp < mob.maxHp) mob.hp = Math.min(mob.maxHp, mob.hp + mob.maxHp * SITE_HEAL_PER_SEC);
+    if (atHome && calm >= SITE_RESET_CALM_TICKS && mob.leashReturnUntilTick === undefined && mob.targetType !== "building" && mob.targetType !== "townCenter") {
+      clearMobTarget(mob);
+      mob.guardianActive = false;
+      mob.leashCalmSinceTick = undefined;
+      return true;
+    }
+  }
+  if (mob.leashReturnUntilTick !== undefined) {
+    if (now < mob.leashReturnUntilTick && Math.hypot(leash.px - mob.x, leash.py - mob.y) > TILE_SIZE) {
+      walkMobTo(mob, leash.px, leash.py, mob.speed * SITE_RETURN_SPEED_MULT, dt);
+      return true;
+    }
+    mob.leashReturnUntilTick = undefined;
+  }
+  if (!leash.free && Math.hypot(mob.x - leash.cx, mob.y - leash.cy) > leash.leashPx + (SITE_CHASE_EXTRA_TILES + 1) * TILE_SIZE) {
+    clearMobTarget(mob);
+    mob.repathCooldown = 0;
+    mob.leashReturnUntilTick = now + SITE_RETURN_IGNORE_TICKS;
+    walkMobTo(mob, leash.px, leash.py, mob.speed * SITE_RETURN_SPEED_MULT, dt);
+    return true;
+  }
+  return false;
 }

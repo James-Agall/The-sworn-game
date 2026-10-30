@@ -239,6 +239,8 @@ export function spawnGuardian(kind: MobKind, tile: TileCoord, siteId: string, si
     groupId: null,
     passive: false,
     ...MOB_MARK_DEFAULTS,
+    postX: center.x,
+    postY: center.y,
   };
   applyMobSize(mob, rollSize);
   mobs.set(mob.id, mob);

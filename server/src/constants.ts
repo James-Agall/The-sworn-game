@@ -1369,6 +1369,42 @@ export const SITE_FORT_PLACE_ATTEMPTS = 600;
 export const SITE_POI_CLEARANCE_TILES = 4;
 // Keep (= hearth) HP by tier 1-4.
 export const SITE_KEEP_HP_BY_TIER = [200, 350, 550, 800];
+// Stage 2, sleeping sites: a fort simulates (towers, gates, refills) only while a living player or colonist is
+// within this Chebyshev radius of its keep (3 chunks of 32).
+export const SITE_AWAKE_RADIUS_TILES = 96;
+// Provoke: a player / colonist within this far of the keep, or SITE_AGGRO_EDGE_TILES of its rectangle, wakes
+// the whole garrison (as damage does).
+export const SITE_AGGRO_TILES = 12;
+export const SITE_AGGRO_EDGE_TILES = 3;
+// Defender leash (site guardians only, never raid mobs): chase only within this many tiles of home (fort: the
+// yard tile below the keep; other sites: the mob's own post), drop a target beyond leash +
+// SITE_CHASE_EXTRA_TILES, walk home x SITE_RETURN_SPEED_MULT ignoring targets for SITE_RETURN_IGNORE_TICKS.
+// The Castle Ruin (boss track) has no leash.
+export const SITE_LEASH_TILES: Partial<Record<PoiSiteKind, number>> = { fort: 16, encampment: 12, ruin: 12, miniBoss: 14 };
+export const SITE_CHASE_EXTRA_TILES = 2;
+export const SITE_RETURN_SPEED_MULT = 1.2;
+export const SITE_RETURN_IGNORE_TICKS = 2 * TICK_RATE;
+// Healing at home: within SITE_HEAL_RADIUS_TILES of home with no hostile within SITE_CALM_SCAN_TILES and no
+// damage for SITE_HEAL_CALM_TICKS: +SITE_HEAL_PER_SEC of max HP per second. After SITE_RESET_CALM_TICKS calm a
+// guardian goes dormant again.
+export const SITE_HEAL_RADIUS_TILES = 6;
+export const SITE_CALM_SCAN_TILES = 10;
+export const SITE_HEAL_CALM_TICKS = 5 * TICK_RATE;
+export const SITE_HEAL_PER_SEC = 0.04;
+export const SITE_RESET_CALM_TICKS = 20 * TICK_RATE;
+// Anti-kite (forts): SITE_KITE_HITS hits on its mobs from attackers beyond the leash ring (decaying 1 per
+// SITE_KITE_DECAY_TICKS) start a surge: leash +SITE_SURGE_LEASH_TILES, towers +SITE_SURGE_TOWER_RANGE_TILES
+// range, melee defenders stop returning, for SITE_SURGE_TICKS; then SITE_SURGE_COOLDOWN_TICKS.
+export const SITE_KITE_HITS = 3;
+export const SITE_KITE_DECAY_TICKS = 4 * TICK_RATE;
+export const SITE_SURGE_TICKS = 8 * TICK_RATE;
+export const SITE_SURGE_COOLDOWN_TICKS = 12 * TICK_RATE;
+export const SITE_SURGE_LEASH_TILES = 6;
+export const SITE_SURGE_TOWER_RANGE_TILES = 2;
+// Garrison refill on waking (not cleared): one guardian per SITE_REFILL_TICKS slept, up to the max.
+export const SITE_REFILL_TICKS = 60 * TICK_RATE;
+// Clearing (keep razed): this share of the fort's stockpile is plundered on top of the hearth loot.
+export const SITE_LOOT_STOCK_SHARE = 0.5;
 export const WARLORD_HP_MULT = 4.5;
 export const WARLORD_DAMAGE_MULT = 2;
 // On top of the usual goldForKill.

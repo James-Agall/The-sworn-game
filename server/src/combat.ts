@@ -29,6 +29,7 @@ import {
   findTownCenterAt, isHouseTile, isWardPriest, queueRespawn, spawnPointNearTownCenter, townCenterMaxHp,
 } from "./colonists.js";
 import { isGuardOrMilitiaKind, isSiegeKind } from "./units.js";
+import { noteSiteHit, siteNumAsleep, siteTowerRangeBonus } from "./sites.js";
 import { activateGuardianSite, goldForKill, isDormantGuardian, keyToTile } from "./mobs.js";
 import {
   currentBuildingLevel, demolishTile, destroyTownCenter, syncGuardBonusesAround, tryLevelUpInPlace,
@@ -192,6 +193,7 @@ export function approachGoal(
 export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
   if (attackerKey) recordFightHit(mob, mob.x, mob.y, attackerKey, amount);
   if (isDormantGuardian(mob)) activateGuardianSite(mob.siteId!);
+  if (attackerKey && mob.siteKind === "fort") noteSiteHit(mob, attackerKey);
   // Hitting any member of a raid group (passive or marching) turns the whole group on its attackers.
   if (mob.groupId !== null) {
     const group = raidGroups.get(mob.groupId);
@@ -636,6 +638,8 @@ export function updateGates(forceOverrunCheck = false) {
     for (const id of Array.from(mobsWithoutRoute)) if (!mobs.has(id)) mobsWithoutRoute.delete(id);
   }
   for (const [index, g] of gates) {
+    // Forts phase B: a sleeping fort's gates do not tick.
+    if (siteNumAsleep(ownerAt(index))) continue;
     const tx = index % state.WORLD_TILES_X;
     const ty = Math.floor(index / state.WORLD_TILES_X);
     const c = tileToPixelCenter({ x: tx, y: ty });
@@ -746,7 +750,9 @@ export function updateTowers() {
     const cy = ty * TILE_SIZE + TILE_SIZE / 2;
     // Forts phase A: an NPC site's tower shoots the colony (players and colonists) instead of mobs.
     if (isHostileOwner(ownerAt(i))) {
-      if (siteTowerShot(key, cx, cy, stats.rangeTiles * TILE_SIZE, stats.damage)) towerCooldowns.set(key, towerCooldownTicks(level));
+      // Forts phase B: a sleeping fort's towers do not fire; its anti-kite surge adds range.
+      if (siteNumAsleep(ownerAt(i))) continue;
+      if (siteTowerShot(key, cx, cy, (stats.rangeTiles + siteTowerRangeBonus(ownerAt(i))) * TILE_SIZE, stats.damage)) towerCooldowns.set(key, towerCooldownTicks(level));
       else towerCooldowns.set(key, 0);
       continue;
     }

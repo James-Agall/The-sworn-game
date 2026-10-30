@@ -205,6 +205,12 @@ export interface Mob {
   approachY?: number;
   // Scale pass: the mob's rolled size (MOB_SIZE_RANGE, see applyMobSize); missing = 1 (old saves too).
   scale?: number;
+  // Forts phase B stage 2, site-guardian leash: its post (spawn point; leash home for non-fort sites), the
+  // tick its walk home stops ignoring targets (set = walking home), and the last tick a hostile was near.
+  postX?: number;
+  postY?: number;
+  leashReturnUntilTick?: number;
+  leashCalmSinceTick?: number;
 }
 // Ruins and encampments are the small scattered sites; "castleRuin" is the one Castle Ruin and
 // "miniBoss" a mini-boss pack (ROADMAP Phase 5). All share the dormant-until-provoked wake mechanic.
@@ -271,6 +277,10 @@ export interface SiteState {
   cleared: boolean;
   captured: boolean;
   capturedBy?: number;
+  // Stage 2 anti-kite: hits from beyond the leash ring (decaying), the surge window and its cooldown.
+  kiteHits?: number;
+  surgeUntilTick?: number;
+  surgeCooldownUntilTick?: number;
 }
 export interface RespawnRequest {
   tx: number;

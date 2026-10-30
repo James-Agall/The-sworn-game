@@ -117,6 +117,8 @@ try {
   await hook("killColonists", { kind: "knight" });
   const own1 = (await hook("spawnMob", { kind: "orc", tx: S.x - 1, ty: S.y, siteId: site.siteId })).id;
   const foreign = (await hook("spawnMob", { kind: "orc", tx: S.x + 1, ty: S.y + 1 })).id;
+  // Forts phase B: site mobs are leashed (12 tiles round their post), so give it a target just outside.
+  await hook("spawnSoldier", { kind: "knight", x: px(G.x + Math.sign(G.x - S.x) * 4), y: px(G.y + Math.sign(G.y - S.y) * 4), stance: "defensive" });
   let left = false;
   let opened = false;
   for (let i = 0; i < 30 && !left; i++) {
@@ -131,6 +133,7 @@ try {
   result(!!fm && inBox(fm, S.x, S.y, 1), `a foreign mob inside stays walled in (at ${fm && [Math.floor(fm.x / TILE), Math.floor(fm.y / TILE)]})`);
   await hook("damageMob", { mobId: own1, amount: 1e6 });
   await hook("damageMob", { mobId: foreign, amount: 1e6 });
+  await hook("killColonists", { kind: "knight" });
   await ff(2);
 
   // ---- T: the tower shoots a knight ----

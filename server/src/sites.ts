@@ -1,19 +1,23 @@
 // sites.ts: Forts phase B (PLAN-forts-diplomacy-moats.md §2, §8): stamped NPC forts. SiteState records, the
 // ASCII template stamper (SITE_TEMPLATES), world-gen placement, the reserved-grounds mask, save / load.
-// Stage 1: stamping + placement + saves only; dormancy / leash / capture build on these records later.
+// Stage 2: sleeping sites (updateSites), the site-guardian leash (siteLeash), anti-kite surge, loot share.
 import { randomUUID } from "node:crypto";
-import { TileType, type MobKind } from "@colony/shared/protocol";
-import type { SiteState, SiteTemplate, SiteTemplateId, TileCoord } from "./types.js";
+import { TILE_SIZE, TileType, type MobKind } from "@colony/shared/protocol";
+import type { Mob, ResourceKey, SiteState, SiteTemplate, SiteTemplateId, TileCoord } from "./types.js";
 import {
+  SITE_AGGRO_EDGE_TILES, SITE_AGGRO_TILES, SITE_AWAKE_RADIUS_TILES, SITE_KITE_DECAY_TICKS, SITE_KITE_HITS,
+  SITE_LEASH_TILES, SITE_LOOT_STOCK_SHARE, SITE_REFILL_TICKS, SITE_SURGE_COOLDOWN_TICKS, SITE_SURGE_LEASH_TILES,
+  SITE_SURGE_TICKS, SITE_SURGE_TOWER_RANGE_TILES,
   SITE_APRON_TILES, SITE_FORT_COUNT_AT_512, SITE_FORT_COUNT_EXP, SITE_FORT_LANDMARK_CLEARANCE_TILES,
   SITE_FORT_MIN_WORLD_TILES, SITE_FORT_PLACE_ATTEMPTS, SITE_FORT_SPACING_TILES, SITE_FORT_START_CLEARANCE_TILES,
   SITE_KEEP_HP_BY_TIER, SITE_ORC_RING_FRACTION, SITE_TEMPLATES, SITE_TEMPLATE_TILES,
 } from "./constants.js";
-import { buildingHp, buildingLevel, constructionSites, farmPlots, gates, hearths, mobs, sites, state } from "./state.js";
+import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, players, sites, state } from "./state.js";
 import { inBounds, resourceKey, setOwner, siteNumber, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { isInAbbeyGrounds, isInCastleRuinGrounds, shuffled, spawnGuardian } from "./worldgen.js";
 import { registerHearth } from "./hearths.js";
-import { broadcastTileUpdate } from "./net.js";
+import { broadcastEvent, broadcastTileUpdate } from "./net.js";
+import { activateGuardianSite } from "./mobs.js";
 
 // Ground the test-hook stamper may clear (world-gen only ever stamps onto Empty).
 const CLEARABLE_TILES = new Set<number>([
@@ -309,4 +313,140 @@ export function onFortKeepDestroyed(siteId: string) {
   s.cleared = true;
   state.tiles[tileIndex(s.keepX, s.keepY)] = TileType.RuinedKeep;
   broadcastTileUpdate(s.keepX, s.keepY, TileType.RuinedKeep);
+}
+
+// ---- Stage 2: sleeping sites, leash, anti-kite, loot ----
+
+// Once a second (sim.ts): a site is awake while a living player or colonist (any clan) is within
+// SITE_AWAKE_RADIUS_TILES (Chebyshev) of its keep; waking runs catchUpSite. An awake, uncleared site is
+// provoked (its whole garrison wakes) by a player / colonist within SITE_AGGRO_TILES of the keep or
+// SITE_AGGRO_EDGE_TILES of its rectangle; it stops being provoked once every guardian is dormant again.
+export function updateSites() {
+  if (sites.size === 0) return;
+  const now = state.cycleTick;
+  const anchors: { x: number; y: number; player: boolean }[] = [];
+  for (const p of players.values()) if (!p.dead) anchors.push({ x: p.x / TILE_SIZE, y: p.y / TILE_SIZE, player: true });
+  for (const c of colonists.values()) if (c.hp > 0) anchors.push({ x: c.x / TILE_SIZE, y: c.y / TILE_SIZE, player: false });
+  for (const s of sites.values()) {
+    s.garrison = s.garrison.filter((id) => mobs.has(id));
+    if (s.captured) {
+      s.awake = false;
+      continue;
+    }
+    let awake = false;
+    let provoke = false;
+    const kx = s.keepX + 0.5;
+    const ky = s.keepY + 0.5;
+    for (const a of anchors) {
+      if (Math.max(Math.abs(a.x - kx), Math.abs(a.y - ky)) > SITE_AWAKE_RADIUS_TILES) continue;
+      awake = true;
+      if (s.cleared || (a.player && state.testPlayersIgnored)) continue;
+      const e = SITE_AGGRO_EDGE_TILES;
+      if (Math.hypot(a.x - kx, a.y - ky) <= SITE_AGGRO_TILES || (a.x >= s.x0 - e && a.x <= s.x1 + 1 + e && a.y >= s.y0 - e && a.y <= s.y1 + 1 + e)) {
+        provoke = true;
+        break;
+      }
+    }
+    if (awake && !s.awake) catchUpSite(s, now);
+    s.awake = awake;
+    if (awake) s.lastSimTick = now;
+    const garrison = s.garrison.map((id) => mobs.get(id)!);
+    if (provoke && awake) {
+      if (garrison.some((m) => !m.guardianActive)) activateGuardianSite(s.id);
+      s.provoked = true;
+    } else if (s.provoked && garrison.every((m) => !m.guardianActive)) s.provoked = false;
+    if ((s.kiteHits ?? 0) > 0 && now % SITE_KITE_DECAY_TICKS === 0) s.kiteHits!--;
+  }
+}
+
+// On waking: one guardian back per SITE_REFILL_TICKS slept (missing kinds of the roster first), up to
+// garrisonMax, dormant on the site's posts. Cleared / captured sites never refill.
+export function catchUpSite(s: SiteState, now: number) {
+  if (s.cleared || s.captured) return;
+  let n = Math.floor((now - s.lastSimTick) / SITE_REFILL_TICKS);
+  if (n <= 0) return;
+  const living = new Map<MobKind, number>();
+  for (const id of s.garrison) {
+    const m = mobs.get(id);
+    if (m) living.set(m.kind, (living.get(m.kind) ?? 0) + 1);
+  }
+  let k = 0;
+  for (const [kind, want] of Object.entries(s.garrisonRoster) as [MobKind, number][]) {
+    for (let have = living.get(kind) ?? 0; have < want && n > 0 && s.garrison.length < s.garrisonMax; have++, n--) {
+      const post = s.posts[k++ % Math.max(1, s.posts.length)];
+      const tile = post === undefined ? { x: s.keepX, y: s.keepY + 1 } : { x: post % state.WORLD_TILES_X, y: Math.floor(post / state.WORLD_TILES_X) };
+      s.garrison.push(spawnGuardian(kind, tile, s.id, "fort").id);
+    }
+  }
+}
+
+// True when `num` is a fort's owner-map number and that fort is asleep (its towers / gates do not tick).
+export function siteNumAsleep(num: number): boolean {
+  if (num === 0) return false;
+  const s = siteByNum(num);
+  return !!s && !s.awake;
+}
+
+// Extra tower range (tiles) for a fort's towers during its anti-kite surge.
+export function siteTowerRangeBonus(num: number): number {
+  const s = num === 0 ? undefined : siteByNum(num);
+  return s && (s.surgeUntilTick ?? 0) > state.cycleTick ? SITE_SURGE_TOWER_RANGE_TILES : 0;
+}
+
+// A site guardian's leash: chase only within `leashPx` of (cx, cy); walk back to its post (px, py).
+// `free` = a melee fort defender during the anti-kite surge (does not turn back). Null = no leash (raid
+// mobs, the Castle Ruin, a broken / captured fort).
+export interface SiteLeash { cx: number; cy: number; px: number; py: number; leashPx: number; free: boolean }
+export function siteLeash(mob: Mob): SiteLeash | null {
+  if (mob.siteId === null || mob.siteKind === null) return null;
+  const tiles = SITE_LEASH_TILES[mob.siteKind];
+  if (tiles === undefined) return null;
+  if (mob.postX === undefined || mob.postY === undefined) {
+    mob.postX = mob.x;
+    mob.postY = mob.y;
+  }
+  if (mob.siteKind !== "fort") return { cx: mob.postX, cy: mob.postY, px: mob.postX, py: mob.postY, leashPx: tiles * TILE_SIZE, free: false };
+  const s = sites.get(mob.siteId);
+  if (!s || s.cleared || s.captured) return null;
+  const surge = (s.surgeUntilTick ?? 0) > state.cycleTick;
+  return {
+    cx: s.homeX, cy: s.homeY, px: mob.postX, py: mob.postY,
+    leashPx: (tiles + (surge ? SITE_SURGE_LEASH_TILES : 0)) * TILE_SIZE, free: surge && mob.melee,
+  };
+}
+
+// damageMob: a fort guardian hit by a player / colonist standing beyond the leash ring counts a kite hit;
+// SITE_KITE_HITS of them start the surge (then a cooldown).
+export function noteSiteHit(mob: Mob, attackerKey: string) {
+  if (mob.siteKind !== "fort" || mob.siteId === null) return;
+  const s = sites.get(mob.siteId);
+  if (!s || s.cleared || s.captured) return;
+  const a = attackerKey.startsWith("p:") ? players.get(attackerKey.slice(2)) : attackerKey.startsWith("c:") ? colonists.get(attackerKey.slice(2)) : undefined;
+  if (!a || Math.hypot(a.x - s.homeX, a.y - s.homeY) <= (SITE_LEASH_TILES.fort ?? 0) * TILE_SIZE) return;
+  s.kiteHits = (s.kiteHits ?? 0) + 1;
+  const now = state.cycleTick;
+  if (s.kiteHits < SITE_KITE_HITS || now < (s.surgeCooldownUntilTick ?? 0)) return;
+  s.kiteHits = 0;
+  s.surgeUntilTick = now + SITE_SURGE_TICKS;
+  s.surgeCooldownUntilTick = s.surgeUntilTick + SITE_SURGE_COOLDOWN_TICKS;
+  broadcastEvent("raid", `${s.name} sallies out against the skirmishers!`);
+}
+
+// destroyHearth on a fort keep: SITE_LOOT_STOCK_SHARE of its stockpile goes to the current clan's stock.
+export function plunderSiteStock(siteId: string): Partial<Record<ResourceKey, number>> {
+  const s = sites.get(siteId);
+  const loot: Partial<Record<ResourceKey, number>> = {};
+  if (!s) return loot;
+  for (const [k, v] of Object.entries(s.stock) as [ResourceKey, number][]) {
+    const take = Math.floor((v ?? 0) * SITE_LOOT_STOCK_SHARE);
+    if (take <= 0) continue;
+    loot[k] = take;
+    s.stock[k] = v - take;
+    state.stock[k] = (state.stock[k] ?? 0) + take;
+  }
+  return loot;
+}
+
+export function siteName(siteId: string): string | undefined {
+  return sites.get(siteId)?.name;
 }
