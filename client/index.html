@@ -1121,6 +1121,11 @@
       #bp-gate-state { font-size: 12.5px; color: var(--ink-soft); }
       #bp-siege-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
       #bp-siege-row[hidden] { display: none; }
+      #bp-wagon-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-wagon-row[hidden] { display: none; }
+      #bp-wagon-row > div, #bp-wagon-dests { flex-basis: 100%; }
+      #bp-wagon-dests { margin: 0; padding-left: 16px; font-size: 12px; }
+      #bp-wagon-dests .off { opacity: 0.6; }
       #bp-forge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
       #bp-forge-row[hidden] { display: none; }
       #bp-forge-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
@@ -1529,6 +1534,15 @@
         <span id="bp-heroes-state"></span>
       </div>
       <div id="bp-spells-row" hidden></div>
+      <div id="bp-wagon-row" hidden>
+        <div id="bp-wagon-status"></div>
+        <div id="bp-wagon-escort"></div>
+        <select id="bp-wagon-dest" title="Where the next trip goes (Auto: best gold for the danger)"></select>
+        <button id="bp-wagon-send" class="econ-btn">Send trader now</button>
+        <button id="bp-wagon-recall" class="econ-btn">Recall</button>
+        <button id="bp-wagon-auto" class="econ-btn" title="Leave every morning with the surplus goods">Auto-send: On</button>
+        <ul id="bp-wagon-dests"></ul>
+      </div>
       <div id="bp-trade-row" hidden>
         <button id="bp-trade-open" class="econ-btn">Trade</button><span id="bp-trade-state"></span>
       </div>

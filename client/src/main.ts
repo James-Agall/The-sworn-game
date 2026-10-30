@@ -838,7 +838,19 @@ const TILE_LEVEL_ART: Partial<Record<TileType, string[]>> = {
   [TileType.Stables]: ["stables", "stablesLv2", "stablesLv3"],
   // SPRITES.md #54: Lv2 Smithy, Lv3 Armoury.
   [TileType.Blacksmith]: ["blacksmith", "blacksmithLv2", "blacksmithLv3"],
+  // Forts phase E (SPRITES.md #66): Trading Post Lv2 / Lv3.
+  [TileType.GoldShop]: ["tradingPost", "tradingPostLv2", "tradingPostLv3"],
 };
+// Forts phase E (SPRITES.md #63-#66, optional): per-level trader wagon art; until it lands, the cart prop
+// tinted and sized by level (brown hand cart / green covered wagon / iron-grey caravan), bobbing as it rolls.
+const WAGON_ART_URLS = [1, 2, 3].map((l) => ({
+  walk: frameUrls(`traderWagon${l}Walk`, 4),
+  idle: artUrl(`traderWagon${l}Idle`),
+  hit: frameUrls(`traderWagon${l}Hit`, 2),
+}));
+const WAGON_STANDIN_TINT = [0xc8955a, 0x9cc27a, 0xa8b2c0];
+const WAGON_HEIGHT = [24, 30, 36];
+const WAGON_DANGER_COLORS = { safe: 0x6fd36a, risky: 0xf0a030, deadly: 0xe04040 } as const;
 // SPRITES.md #53: a Blacksmith the server reports forging (snapshot `forgeBusy`) loops these frames (one
 // shared canvas), only while it shows its level-1 look (Lv2 / Lv3 art stays static). Loaded optionally.
 const BLACKSMITH_FORGE_URLS = frameUrls("blacksmithForge", 4);
@@ -1304,6 +1316,7 @@ async function main() {
     ...Object.values(COLONIST_OPTIONAL_ANIM_URLS).flatMap((a) => [...a!.walk, ...a!.action, ...a!.carry]),
     ...Object.values(COLONIST_TIER_ANIM_URLS).flatMap((tiers) => tiers.flatMap((a) => [...a.walk, ...a.action])),
     ...BLACKSMITH_FORGE_URLS,
+    ...WAGON_ART_URLS.flatMap((u) => [...u.walk, u.idle, ...u.hit]),
     ...[...Object.values(TILE_OPTIONAL_ART), ...Object.values(TILE_OPTIONAL_ALT_ART)].map((name) => `/sprites/${name}.png`),
     ...Object.values(FARM_STAGE_ART).flatMap((stages) => Object.values(stages!).map(artUrl)),
     ...Object.values(TILE_LEVEL_ART).flatMap((names) => names!.map(artUrl)),
@@ -1437,6 +1450,14 @@ async function main() {
     });
   }
   const TOWN_CENTER_MARKER_TEXTURE = optionalTextures[TOWN_CENTER_MARKER_URL];
+  // Forts phase E: a level's wagon art only when its walk + idle frames all loaded (hit frames optional).
+  const WAGON_TEXTURES = WAGON_ART_URLS.map((u) => {
+    const walk = u.walk.map((x) => optionalTextures[x]);
+    const idle = optionalTextures[u.idle];
+    if (!idle || !walk.every(Boolean)) return null;
+    const hit = u.hit.map((x) => optionalTextures[x]);
+    return { walk, idle, hit: hit.every(Boolean) ? hit : null };
+  });
   const DEER_FALLEN_TEXTURE = optionalTextures[DEER_FALLEN_URL];
   const TILE_ANIM_TEXTURES = new Map<number, { frames: Texture[]; frameMs: number; phased: boolean }>(
     Object.entries(TILE_ANIM).map(([tile, a]) => [
@@ -2163,6 +2184,8 @@ async function main() {
   // World-space overlays: parented to worldLayer so they follow the camera automatically.
   const selectionRings = new Graphics();
   const roleRings = new Graphics();
+  // Forts phase E: the own clan's trader wagons' remaining routes, coloured by danger.
+  const wagonRoutes = new Graphics();
   const dragBox = new Graphics();
 
   // Multi-tile footprints (shared FOOTPRINT_BY_TILE): derived from the tiles alone. The anchor (top-left)
@@ -2970,6 +2993,10 @@ async function main() {
     entry.sprite.position.set(c.x, c.y);
     entry.hpBar.position.set(c.x, c.y - 18);
 
+    if (c.kind === "wagon") {
+      showWagon(c, entry);
+      return;
+    }
     let hidden = false;
     if (HIDE_AT_POST_KINDS.has(c.kind)) {
       const postCenterX = c.postX * tileSize + tileSize / 2;
@@ -3033,6 +3060,70 @@ async function main() {
       entry.sprite.tint = battered && !posed ? BATTERED_TINT : c.kind === "hero" ? HERO_TINT : c.summoned ? SUMMON_TINT : (COLONIST_TINT.get(vk) ?? 0xffffff);
     }
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
+  }
+
+  // Forts phase E: a trader wagon: its level's art (walk while rolling, hit flash after losing HP) or the
+  // tinted, bobbing cart stand-in; a label with level, escort count and destination; facing like units.
+  const wagonLook = new Map<string, { lastX: number; lastY: number; lastHp: number; hitUntil: number }>();
+  function showWagon(c: ColonistSnapshot, entry: EntityVisual) {
+    const w = c.wagon;
+    const lv = Math.min(3, Math.max(1, w?.level ?? 1));
+    const now = performance.now();
+    let look = wagonLook.get(c.id);
+    if (!look) {
+      look = { lastX: c.x, lastY: c.y, lastHp: c.hp, hitUntil: 0 };
+      wagonLook.set(c.id, look);
+    }
+    const moved = Math.hypot(c.x - look.lastX, c.y - look.lastY) > 0.3;
+    if (c.hp < look.lastHp) look.hitUntil = now + 300;
+    look.lastX = c.x;
+    look.lastY = c.y;
+    look.lastHp = c.hp;
+    const hit = now < look.hitUntil;
+    if (entry.sprite instanceof Sprite) {
+      const art = WAGON_TEXTURES[lv - 1];
+      const frame = Math.floor(now / 160);
+      const texture = art ? (hit && art.hit ? art.hit[frame % 2] : moved ? art.walk[frame % 4] : art.idle) : COLONIST_TEXTURES.wagon;
+      entry.sprite.texture = texture;
+      entry.sprite.anchor.set(0.5);
+      entry.sprite.scale.set(WAGON_HEIGHT[lv - 1] / texture.height);
+      entry.sprite.tint = hit ? 0xff8080 : art ? 0xffffff : WAGON_STANDIN_TINT[lv - 1];
+      if (!art && moved) entry.sprite.position.y += Math.sin(now / 90) * 1.2;
+      applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
+    }
+    entry.hpBar.position.set(c.x, c.y - WAGON_HEIGHT[lv - 1] / 2 - 4);
+    const where = w && w.leg !== "home" ? ` · ${w.leg === "back" ? "home from" : w.leg === "camp" ? "camped," : "to"} ${w.dest}` : "";
+    const text = `Trader Lv${lv} · ${w?.escorts ?? 0} escort${w?.escorts === 1 ? "" : "s"}${where}`;
+    if (!entry.heroLabel) {
+      entry.heroLabel = new Text({
+        text,
+        style: { fontFamily: "Palatino Linotype, Palatino, Georgia, serif", fontSize: 10, fontWeight: "bold", fill: 0xf3da98, stroke: { color: 0x000000, width: 3 } },
+      });
+      entry.heroLabel.anchor.set(0.5, 1);
+      worldLayer.addChild(entry.heroLabel);
+    } else if (entry.heroLabel.text !== text) entry.heroLabel.text = text;
+    entry.heroLabel.style.fill = hit ? 0xff8080 : w && w.leg !== "home" ? WAGON_DANGER_COLORS[w.danger] : 0xf3da98;
+    entry.heroLabel.position.set(c.x, c.y - WAGON_HEIGHT[lv - 1] / 2 - 8);
+  }
+  function drawWagonRoutes(colonists: ColonistSnapshot[]) {
+    wagonRoutes.clear();
+    for (const c of colonists) {
+      const r = c.wagon?.route;
+      if (!r || r.length < 2 || (c.clan ?? 0) !== myClan) continue;
+      const color = WAGON_DANGER_COLORS[c.wagon!.danger];
+      // Dashed: every other leg of the downsampled path.
+      let px = c.x;
+      let py = c.y;
+      for (let i = 0; i + 1 < r.length; i += 2) {
+        const x = r[i] * tileSize + tileSize / 2;
+        const y = r[i + 1] * tileSize + tileSize / 2;
+        if ((i / 2) % 2 === 0) wagonRoutes.moveTo(px, py).lineTo(x, y);
+        px = x;
+        py = y;
+      }
+      wagonRoutes.stroke({ width: 2, color, alpha: 0.6 });
+    }
+    for (const id of Array.from(wagonLook.keys())) if (!colonists.some((c) => c.id === id)) wagonLook.delete(id);
   }
 
   // Cavalry charge, inferred client-side (snapshots carry no charge flag): distance ridden in one
@@ -3934,6 +4025,16 @@ async function main() {
       if (!explored[tileOf(c.y) * worldTilesX + tileOf(c.x)]) continue;
       ctx.fillRect(Math.round(toMap(c.x) - u), Math.round(toMap(c.y) - u), 2 * u, 2 * u);
     }
+    // Forts phase E: own trader wagons on the road, a bigger gold dot with a dark rim.
+    for (const c of colonists) {
+      if (!c.wagon || c.wagon.leg === "home" || (c.clan ?? 0) !== myClan) continue;
+      const r = 2.5 * u;
+      ctx.fillStyle = "#1a0f06";
+      ctx.fillRect(toMap(c.x) - r - u, toMap(c.y) - r - u, 2 * (r + u), 2 * (r + u));
+      ctx.fillStyle = "#f1c40f";
+      ctx.fillRect(toMap(c.x) - r, toMap(c.y) - r, 2 * r, 2 * r);
+    }
+    ctx.fillStyle = "#f3da98";
 
     for (const m of mobs) {
       const mx = tileOf(m.x);
@@ -5037,6 +5138,73 @@ async function main() {
   let bpSpellsKey = "";
   // Forts phase D: a human settlement's Trade button and the trade panel (fed by the same buildingInfo
   // refresh while open; closes with the building panel).
+  // Forts phase E: the Trading Post's trader wagon (status, escort, destinations, send / recall / auto).
+  const bpWagonRowEl = document.getElementById("bp-wagon-row")!;
+  const bpWagonStatusEl = document.getElementById("bp-wagon-status")!;
+  const bpWagonEscortEl = document.getElementById("bp-wagon-escort")!;
+  const bpWagonDestEl = document.getElementById("bp-wagon-dest") as HTMLSelectElement;
+  const bpWagonSendBtn = document.getElementById("bp-wagon-send") as HTMLButtonElement;
+  const bpWagonRecallBtn = document.getElementById("bp-wagon-recall") as HTMLButtonElement;
+  const bpWagonAutoBtn = document.getElementById("bp-wagon-auto") as HTMLButtonElement;
+  const bpWagonDestsEl = document.getElementById("bp-wagon-dests")!;
+  let bpWagonAuto = true;
+  let bpWagonDestKey = "";
+  const ESCORT_LABEL: Partial<Record<ColonistKind, string>> = { militia: "Militia", spearman: "Spearman", pikeman: "Pikeman", cavalry: "Cavalry" };
+  function renderTradingPost(tp: BuildingInfo["tradingPost"]) {
+    bpWagonRowEl.hidden = !tp;
+    if (!tp) return;
+    const w = tp.wagon;
+    bpWagonStatusEl.textContent = `${w ? `Wagon HP ${w.hp}/${w.maxHp} · ` : ""}${tp.status}`;
+    bpWagonEscortEl.textContent = `Escort: ${tp.escorts.map((e) => `${ESCORT_LABEL[e.kind] ?? e.kind}${e.alive ? "" : " (fallen)"}`).join(", ")}`;
+    const key = tp.destinations.map((d) => `${d.id}:${d.ok}`).join("|");
+    if (key !== bpWagonDestKey) {
+      bpWagonDestKey = key;
+      const keep = bpWagonDestEl.value;
+      bpWagonDestEl.replaceChildren(
+        new Option("Auto (best)", "auto"),
+        ...tp.destinations.filter((d) => d.ok).map((d) => new Option(d.name, d.id))
+      );
+      bpWagonDestEl.value = Array.from(bpWagonDestEl.options).some((o) => o.value === keep) ? keep : "auto";
+    }
+    bpWagonSendBtn.disabled = !tp.canSend;
+    bpWagonSendBtn.title = tp.sendReason;
+    bpWagonRecallBtn.disabled = !tp.canRecall;
+    bpWagonAuto = tp.auto;
+    bpWagonAutoBtn.textContent = `Auto-send: ${tp.auto ? "On" : "Off"}`;
+    bpWagonDestsEl.replaceChildren(
+      ...(tp.destinations.length > 0 ? tp.destinations : [null]).map((d) => {
+        const li = document.createElement("li");
+        if (!d) {
+          li.textContent = "No destinations yet: befriend a settlement (Friendly) or found another Town Center";
+          return li;
+        }
+        const own = d.kind === "own" ? " (own, half value)" : "";
+        li.textContent = d.ok
+          ? `${d.name}${own}: ${d.dist} tiles, ${d.danger ?? "road not scouted"}, ~${d.profit} gold`
+          : `${d.name}${own}: ${d.reason}`;
+        if (!d.ok) li.className = "off";
+        return li;
+      })
+    );
+  }
+  bpWagonSendBtn.addEventListener("click", () => {
+    bpWagonSendBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "wagonCommand", tileX: infoTile.tx, tileY: infoTile.ty, cmd: "sendNow", dest: bpWagonDestEl.value || "auto" });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
+  bpWagonRecallBtn.addEventListener("click", () => {
+    bpWagonRecallBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "wagonCommand", tileX: infoTile.tx, tileY: infoTile.ty, cmd: "recall" });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
+  bpWagonAutoBtn.addEventListener("click", () => {
+    bpWagonAutoBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "wagonCommand", tileX: infoTile.tx, tileY: infoTile.ty, cmd: "auto", value: !bpWagonAuto });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
   const bpTradeRowEl = document.getElementById("bp-trade-row")!;
   const bpTradeBtn = document.getElementById("bp-trade-open") as HTMLButtonElement;
   const bpTradeStateEl = document.getElementById("bp-trade-state")!;
@@ -5257,6 +5425,7 @@ async function main() {
       bpKeepBtn.disabled = !info.keep.enabled;
       bpKeepStateEl.textContent = info.keep.reason ? `${info.keep.cost} (${info.keep.reason})` : info.keep.cost;
     }
+    renderTradingPost(info.tradingPost);
     bpTradeRowEl.hidden = !info.trade;
     if (info.trade) {
       bpTradeBtn.textContent = tradeOpen ? "Close trade" : "Trade";
@@ -6313,6 +6482,7 @@ async function main() {
       worldLayer.addChild(cursorHighlight);
       worldLayer.addChild(formationMarker);
       worldLayer.addChild(lineGuide);
+      worldLayer.addChild(wagonRoutes);
       worldLayer.addChild(selectionRings);
       worldLayer.addChild(roleRings);
       worldLayer.addChild(dragBox);
@@ -6369,6 +6539,7 @@ async function main() {
       latestColonists = message.colonists;
       latestMobs = message.mobs;
       drawRoleRings();
+      drawWagonRoutes(message.colonists);
       latestTaskForces = message.taskForces;
       const counts = { knight: 0, archer: 0, militia: 0, bishop: 0, cavalry: 0, siege: 0, hero: 0 };
       const alive = new Set<string>();
