@@ -101,6 +101,38 @@ world-gen settlements: 256 has 2-4, 512 about 10).
    (cost 80 wood + 80 rock + 20 iron); afterwards every OTHER settlement's relation drops 25 (see their panels).
 8. **Save / load** with a settlement hostile and one razed: both come back the same (workers reappear when you get near).
 
+## 6b. Relations and trade (phase D)
+Same server as §6 (`COLONY_TEST_HOOKS=1`, scratch `COLONY_SAVE_DIR`, a settlement found or stamped with
+`node stamp-site.mjs hearthmoor 0 60`). `node stamp-site.mjs relation <name> <value>` sets your clan's relation to it.
+1. **Tier shown**: click any building of the settlement. Bonuses read "Relation 0: Neutral". Hover its flag on the
+   minimap: "<name>: Neutral (relation 0)". The flag is white at Neutral.
+2. **Trade panel**: walk to within ~6 tiles of its walls (or inside). The panel has a "Trade" button ("Neutral prices");
+   click it: a second parchment panel opens to its left with Grain / Meat / Fruit / Wool / Wood / Rock / Iron / Cloth /
+   Tools, their stock (e.g. Grain 80/200), the buy price, +1 / +10 buttons, the sell price, -1 / -10 buttons, and their
+   purse. Walk away (beyond ~6 tiles): the buttons grey out and the panel says "Walk up to the walls".
+3. **Buy**: with gold in stock press Grain +10: toast "Bought 10 grain from <name> for 30 gold (relation +1.5)", your
+   grain +10, their stock 70/200, the grain buy price ticks up a little. Press +10 four more times: after 40 units that day
+   the button greys ("0 more today"). Sell -10 grain back: you get less gold than you paid (sell price < buy price).
+4. **Relation cap**: keep trading big lots: the relation climbs about +6 in a game day at most (later trades show
+   smaller "+0.x" gains, then none). Watch the relation in the panel header.
+5. **Better prices**: `node stamp-site.mjs relation <name> 30` -> toast "<name> is now Friendly toward you (30): better
+   prices", the flag turns light green, Grain buy 2.38 (was 2.80), sell up from 1.20 to 1.38, header "15% better
+   prices". At 70: "Allied", flag blue, buy 1.96 / sell 1.56. At 100: toast "... Vassal-ready ...: they would swear
+   fealty", flag gold; set 80: still Vassal-ready; set 65: back to Allied (hysteresis at 70).
+6. **Refusals**: set -30: "Wary", flag orange, panel "Wary: no trade until relations reach Neutral", all buttons grey.
+   Set -60: "Hostile: they refuse to trade", flag red. Attack a guard (it takes up arms): "Up in arms: they refuse to trade".
+7. **Production**: note their Grain stock, wait for dawn: Hearthmoor +20 grain (+8 fruit, +6 meat, +4 wool, +10 gold),
+   Ironhold +8 iron / +15 rock / +1 tools, Riverwatch a bit of everything; goods they do not make (e.g. wood you sold to
+   Hearthmoor) drop ~10% a dawn.
+8. **Defend / clear camps**: with relation at Neutral, kill night raiders or goblins within ~20 tiles of its walls:
+   relation creeps up (+1 a kill, at most ~8 a day). Destroy a bandit / orc camp or fort keep within ~60 tiles of it:
+   toast "<name> thanks you for clearing the camp (relation +15)" (+5 for settlements up to ~120 tiles away). This also
+   works while Hostile (the way back).
+9. **Drift**: set 20 and leave it alone for 3+ game days: it slides 1 a dawn back toward 0 (negative values recover the
+   same way).
+10. **Save / load**: trade a bit, set a relation, save to slot 1, change things, load: relation, tier flag, their stock
+    and today's remaining caps come back as saved.
+
 ## 7. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.
    Every unit should walk round the idle ones and stop exactly on its slot; nobody left a tile or two short in

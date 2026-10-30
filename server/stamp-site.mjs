@@ -5,6 +5,7 @@
 // Forts phase C: hearthmoor / ironhold / riverwatch stamp a neutral human settlement.
 // dx / dy: offset of the fort centre from the first Town Center in tiles (default 30, 0); it looks up to 45
 // tiles around that spot for clear ground. "list" only prints the forts world-gen placed.
+// Forts phase D: `node stamp-site.mjs relation <settlement name> <value>` sets clan 0's relation (-100..100) to it.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -29,7 +30,16 @@ const hook = async (op, args = {}) => {
 await new Promise((r) => ws.on("open", r));
 while (!snap) await sleep(20);
 const tc = snap.townCenters[0];
-if (template !== "list") {
+if (template === "relation") {
+  const name = process.argv[3];
+  const value = Number(process.argv[4]);
+  const target = (await hook("sitesState"))?.sites.find((x) => x.name.toLowerCase() === String(name).toLowerCase());
+  if (!target || !Number.isFinite(value)) console.log(`Usage: relation <settlement name> <value>; no settlement "${name}"`);
+  else {
+    const r = await hook("diploSet", { siteId: target.id, relation: value });
+    console.log(`${target.name}: relation ${r.relation} (${r.tier})`);
+  }
+} else if (template !== "list") {
   const r = await hook("stampSite", { template, dx, dy, search: 45 });
   if (!r) {
     console.log("No reply: is the server running with COLONY_TEST_HOOKS=1?");

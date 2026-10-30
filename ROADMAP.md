@@ -2098,6 +2098,45 @@ Four user asks in one pass. Constants: `FOOTPRINT_*` / `FORGE_AUTO_*` / `GEAR_PI
    holds the target of each (use - / + to change it) and pauses when iron / wood would drop under 20. Save, load:
    still On.
 
+## Forts phase D — landed 2026-10-30 (relations and direct trade)
+
+Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §4 / §5 (direct trade only; wagons are phase E) / §10 "D".
+Commits "Phase D stage 1-3". Test `server/trade-test.mjs` (port 22140, 22/22). Browser checklist: MANUAL-TESTS.md §6b.
+- **Module** `server/src/diplomacy.ts`; tuning in constants.ts ("Forts phase D" block). Relations stay the phase C hook
+  (`relationOf` / `adjustRelation` over `Clan.relations[site number]`, per CLAN), now fractional (2 decimals);
+  `adjustRelation` calls `onRelationChanged` (bumps `state.relationsVersion`, keeps the vassal flag, toasts tier changes
+  to that clan). Per-clan day counters in `SiteState.diplo[clanId]` (`SiteDiplo`: day, bought / sold per good,
+  tradeGain, defendGain, lastGainDay, vassal), saved with the site.
+- **Tiers** (`RelationTier`, shared `RELATION_TIER_NAMES`): Hostile <= -50 < Wary <= -10 < Neutral < 25 <= Friendly
+  < 60 <= Allied; reaching 100 sets `vassal` ("Vassal-ready"), kept while >= 70. Vassal mechanics are phase F.
+- **Gains** (none from Hostile or while the settlement is up in arms against that clan): trade +1 per 20 gold traded
+  either way, cap +6 / day / settlement; killing any non-settlement mob within 20 tiles of its walls +1, cap +8 / day
+  (`noteHostileKill` from damageMob); both diminish as the day's cap fills (x max(0.2, 1 - used / cap)). Clearing a
+  bandit / orc camp or fort keep (`noteCampCleared` from destroyHearth): +15 within 60 tiles of a settlement's keep, +5
+  within 120, uncapped and also from Hostile. Self-made fights do not pay: the settlement's own folk never count.
+  Drift (`settlementsDawn`): no gain for 3 days -> 1 a dawn toward 0. Losses unchanged from phase C.
+- **Direct trade** (`tradeWithSite {tileX, tileY, good, qty 1-50, side}`, `BuildingInfo.trade`): goods grain / meat /
+  fruit / wool / wood / rock / iron / clothes ("Cloth") / tools for gold. Buy = base x 1.4 x discount x (1 + 0.01 x
+  bought today); sell = base x 0.6 x (2 - discount) x (1 - 0.01 x sold today), floor 0.3 x base; discount Neutral 1,
+  Friendly 0.85, Allied 0.7, Vassal-ready 0.65 (buy > sell at every tier). Limits: 40 units per good per direction per
+  day; their stock (buy); their stock cap 200 and their gold purse (sell; cap 600 gold). Needs the player or one of the
+  clan's colonists within 6 tiles of the walls; refused when Wary / Hostile / up in arms. Gold integer: buy rounds up,
+  sell down. Refusals go to the sender only, trades are toasted to the clan.
+- **Production** at dawn (all standing settlements, asleep or not): Hearthmoor grain 20 / fruit 8 / meat 6 / wool 4,
+  Ironhold iron 8 / rock 15 / tools 1, Riverwatch a mix; + gold 10 / 10 / 25; capped 200; goods it does not make lose 10%.
+- **Snapshot** `relations` (per player, the clan's, every sighted standing settlement, resent on `relationsVersion`).
+- **Client**: settlement panels show "Relation N: <Tier>" and a Trade button; the trade panel (parchment, left of the
+  building panel) lists goods with stock, prices, +1 / +10 / -1 / -10 and the reason when it can't trade; minimap
+  settlement flags take the tier colour (red / orange / white / light green / blue / gold); minimap hover tooltip names
+  any fort flag with its tier.
+- **Saves** additive: clan 0's relations now saved at top level `relations` (they were not saved in phase C: fixed);
+  `diplo` and the settlement stock ride on the saved sites.
+- **Helper**: `node stamp-site.mjs relation <name> <value>`; test hook `diploSet {siteId, clan?, relation?, stock?}`.
+- **Deviations from the plan**: tier discounts instead of the continuous `f` formula and a 1% (not 3%) per-unit day step;
+  gates still open by day for everyone (phase C rule), not only at Friendly; a Hostile-tier settlement does not attack on
+  sight (only a provoked one fights); no Allied guard help, no gift gold, no help requests (phase D2 quests); range is
+  "near the walls" (not the market tile); no Trading Post link (wagons, phase E).
+
 ## Forts phase C — landed 2026-10-30 (human settlements: Hearthmoor, Ironhold, Riverwatch)
 
 Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §3 / §8 / §10 "C". Commits "Forts phase C stage 1 / 2 / 3". Browser
