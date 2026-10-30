@@ -852,6 +852,7 @@
       .reg-name { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 12px; }
       .reg-meta { display: flex; justify-content: space-between; gap: 4px; font-size: 11px; }
       .reg-role { font-weight: 700; text-shadow: 0 0 2px rgba(0, 0, 0, 0.6); }
+      .reg-roleicon { width: 14px; height: 14px; vertical-align: -3px; margin-right: 2px; }
       .reg-order { font-weight: 700; color: #00e5ff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.8); white-space: nowrap; }
       .reg-flags { font-weight: 700; color: #ffb02e; text-shadow: 0 0 2px rgba(0, 0, 0, 0.8); white-space: nowrap; }
       .reg-hp { grid-column: 1 / 3; height: 5px; margin-top: 3px; background: #550000; border: 1px solid var(--wood-dark); }
@@ -1108,6 +1109,9 @@
       .qp-quest { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(74, 42, 20, 0.35); }
       .qp-quest .qp-name { font-weight: bold; }
       .qp-quest .qp-name::before { content: "! "; color: #b8860b; }
+      /* Batch 2 sprites (SPRITES.md #67 / #80 / #81): small inline UI icons; the quest seal replaces the glyph. */
+      .ui-ico { width: 18px; height: 18px; vertical-align: -4px; margin-right: 4px; }
+      .qp-quest .qp-name.has-icon::before { content: none; }
       .qp-quest.accepted .qp-name::before { content: "\2713  "; color: #2e7d32; }
       .qp-quest .qp-text { font-size: 12.5px; margin: 2px 0; }
       .qp-quest .qp-meta { font-size: 12.5px; color: var(--ink-soft); }

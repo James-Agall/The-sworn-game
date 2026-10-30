@@ -5,6 +5,10 @@
 import type { CombatRole } from "@colony/shared/protocol";
 
 export type CardTab = "all" | "melee" | "ranged" | "cavalry" | "siege" | "heroes";
+// Strategy mode regiment role -> ui-role<Name>.png (SPRITES.md #82).
+const ROLE_ICON: Record<CombatRole, string> = {
+  frontline: "Infantry", ranged: "Archers", fast: "Cavalry", shock: "Knights", siege: "Siege", caster: "Clergy",
+};
 const TABS: { key: CardTab; label: string }[] = [
   { key: "all", label: "All" },
   { key: "melee", label: "Melee" },
@@ -130,12 +134,14 @@ export class RegimentCardBar {
       const moraleColor = (c.morale ?? 100) >= 40 ? "#5aa9ff" : (c.morale ?? 100) >= 15 ? "#ffb02e" : "#ff3b2a";
       const stateText = c.moraleState === "routing" ? "Routing" : c.moraleState === "wavering" ? "Wavering" : c.outflanked ? "Outflanked" : "";
       const hpColor = c.hpFrac > 0.6 ? "#3bd16f" : c.hpFrac > 0.3 ? "#e2b23a" : "#d0452f";
+      // Batch 2 (SPRITES.md #82): role icon ahead of the role label (removes itself if the file is missing).
+      const roleIcon = c.hero ? "Heroes" : c.roleLabel === "Healer" ? "Clergy" : c.role ? ROLE_ICON[c.role] : "";
       el.innerHTML =
         (c.slot ? `<span class="reg-slot">${c.slot}</span>` : "") +
         `<img class="reg-icon" src="${c.icon}" alt="" />` +
         (c.stance ? `<img class="reg-stance" src="/sprites/icon-stance-${c.stance}.png" alt="" />` : "") +
         `<span class="reg-name"></span>` +
-        `<span class="reg-meta"><span class="reg-count">${c.count}/${c.maxCount}</span><span class="reg-role" style="color:${c.roleColor}">${c.roleLabel}</span>${c.order ? `<span class="reg-order">${c.order}</span>` : ""}${c.flags ? `<span class="reg-flags">${c.flags}</span>` : ""}</span>` +
+        `<span class="reg-meta"><span class="reg-count">${c.count}/${c.maxCount}</span>${roleIcon ? `<img class="reg-roleicon" src="/sprites/ui-role${roleIcon}.png" alt="" onerror="this.remove()" />` : ""}<span class="reg-role" style="color:${c.roleColor}">${c.roleLabel}</span>${c.order ? `<span class="reg-order">${c.order}</span>` : ""}${c.flags ? `<span class="reg-flags">${c.flags}</span>` : ""}</span>` +
         `<span class="reg-hp"><span style="width:${hp}%;background:${hpColor}"></span></span>` +
         (c.morale !== undefined ? `<span class="reg-morale"><span style="width:${c.morale}%;background:${moraleColor}"></span></span>` : "") +
         (stateText ? `<span class="reg-mstate">${stateText}</span>` : "");

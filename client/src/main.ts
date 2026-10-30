@@ -494,7 +494,8 @@ const CHARGE_DUST_MS = 200;
 // A destroyed siege engine leaves its wreck at the spot for this long (fading over the last quarter).
 const SIEGE_WRECK_URLS: Record<"colonist" | "mob", Partial<Record<string, string>>> = {
   colonist: { batteringRam: "/sprites/batteringRamDestroyed.png", catapult: "/sprites/catapultDestroyed.png" },
-  mob: { batteringRam: "/sprites/mobBatteringRamDestroyed.png", catapult: "/sprites/mobCatapultDestroyed.png" },
+  // Batch 2 (SPRITES.md #83): the goblin wolf rider leaves its last death frame (wolf down) the same way.
+  mob: { batteringRam: "/sprites/mobBatteringRamDestroyed.png", catapult: "/sprites/mobCatapultDestroyed.png", goblinRider: "/sprites/goblinRiderDeath2.png" },
 };
 const SIEGE_WRECK_MS = 4000;
 const COLONIST_STANDIN_TINT: Partial<Record<ColonistKind, number>> = {
@@ -609,6 +610,9 @@ const MOB_OPTIONAL_VARIANT_URLS: Partial<Record<MobKind, { walk: string[]; actio
   // Goblin wolf rider (SPRITES.md #83).
   goblinRider: { walk: frameUrls("goblinRiderWalk", 4), action: frameUrls("goblinRiderAttack", 3) },
 };
+// Batch 2 (SPRITES.md #83): veteran wolf riders (darker fur, bone trophies) for Hunger-marked riders, only
+// with the base set loaded. The sheet has no veteran attack row: VetAttack is its levelled-spear charge row.
+const GOBLIN_RIDER_VET_URLS = { walk: frameUrls("goblinRiderVetWalk", 4), action: frameUrls("goblinRiderVetAttack", 3) };
 // The Ogre Warlord boss (an ogre with boss "warlord"; SPRITES.md #15), loaded optionally: without it the
 // boss stays the plain ogre set drawn BOSS_RENDER_SCALE larger. Walk / attack as usual; standing still it
 // shows `idle`, and plays its `roar` when first seen and then every WARLORD_ROAR_EVERY_MS while idle.
@@ -749,6 +753,31 @@ const TILE_OPTIONAL_ART: Partial<Record<TileType, string>> = {
   [TileType.SiteKeep]: "siteKeep",
   [TileType.RuinedKeep]: "ruinedKeep",
 };
+// Batch 2 (SPRITES.md #71 / #74 / #77), loaded optionally: fort tiles drawn per site faction (snapshot
+// `sites` via siteOwners / the keep position): the razed keep (bandit wood / orc / human stone), the
+// rebuild-to-capture scaffold (a Town Center construction site on a fort keep), camp tents (beige / green /
+// red by faction, upright or long by position hash) and fallen-wall rubble (wood for bandit / orc forts,
+// stone for human settlements). Missing files keep TILE_SPRITE_FILES / TILE_OPTIONAL_ART above.
+const SITE_KEEP_RUIN_ART: Record<SiteFaction, string> = { bandit: "keepRuinWood", orc: "keepRuinOrc", human: "keepRuinStone" };
+const SITE_TENT_ART: Record<SiteFaction, string[]> = {
+  bandit: ["tentVertical", "tentHorizontal"],
+  orc: ["tentVertical_green", "tentHorizontal_green"],
+  human: ["tentVertical_red", "tentHorizontal_red"],
+};
+const SITE_RUBBLE_ART = { wood: ["rubbleWood0", "rubbleWood1", "rubbleWood2"], stone: ["rubbleStone0", "rubbleStone1", "rubbleStone2"] };
+const KEEP_SCAFFOLD_ART = "keepScaffold";
+// Minimap quest markers (SPRITES.md #81), optional: a missing file never completes, so the diamond stays.
+const QUEST_MARKER_IMAGES = (() => {
+  const img = (name: string) => Object.assign(new Image(), { src: `/sprites/${name}.png` });
+  return { fresh: img("ui-questNew"), active: img("ui-questActive") };
+})();
+const SITE_VARIANT_ART_NAMES = [
+  ...Object.values(SITE_KEEP_RUIN_ART),
+  ...Object.values(SITE_TENT_ART).flat(),
+  ...SITE_RUBBLE_ART.wood,
+  ...SITE_RUBBLE_ART.stone,
+  KEEP_SCAFFOLD_ART,
+];
 // Alternate looks picked per tile by a stable position hash (half the fruit trees are pear/plum).
 const TILE_OPTIONAL_ALT_ART: Partial<Record<TileType, string>> = {
   [TileType.FruitTree]: "pearTreeRipe",
@@ -846,12 +875,13 @@ const TILE_LEVEL_ART: Partial<Record<TileType, string[]>> = {
   // Forts phase E (SPRITES.md #66): Trading Post Lv2 / Lv3.
   [TileType.GoldShop]: ["tradingPost", "tradingPostLv2", "tradingPostLv3"],
 };
-// Forts phase E (SPRITES.md #63-#66, optional): per-level trader wagon art; until it lands, the cart prop
-// tinted and sized by level (brown hand cart / green covered wagon / iron-grey caravan), bobbing as it rolls.
+// Forts phase E (SPRITES.md #63-#66, optional): per-level trader wagon art (batch 2 sheet: 6 move frames,
+// 1 hit frame, one shared canvas per level); until it lands, the cart prop tinted and sized by level (brown
+// hand cart / green covered wagon / iron-grey caravan), bobbing as it rolls.
 const WAGON_ART_URLS = [1, 2, 3].map((l) => ({
-  walk: frameUrls(`traderWagon${l}Walk`, 4),
+  walk: frameUrls(`traderWagon${l}Walk`, 6),
   idle: artUrl(`traderWagon${l}Idle`),
-  hit: frameUrls(`traderWagon${l}Hit`, 2),
+  hit: frameUrls(`traderWagon${l}Hit`, 1),
 }));
 const WAGON_STANDIN_TINT = [0xc8955a, 0x9cc27a, 0xa8b2c0];
 const WAGON_HEIGHT = [24, 30, 36];
@@ -1325,6 +1355,7 @@ async function main() {
     ...[...Object.values(TILE_OPTIONAL_ART), ...Object.values(TILE_OPTIONAL_ALT_ART)].map((name) => `/sprites/${name}.png`),
     ...Object.values(FARM_STAGE_ART).flatMap((stages) => Object.values(stages!).map(artUrl)),
     ...Object.values(TILE_LEVEL_ART).flatMap((names) => names!.map(artUrl)),
+    ...SITE_VARIANT_ART_NAMES.map(artUrl),
     TOWN_CENTER_MARKER_URL,
     DEER_FALLEN_URL,
     ...Object.values(WILDLIFE_OPTIONAL_URLS).flatMap((a) => [...a.walk, ...a.idle, ...a.run]),
@@ -1332,6 +1363,8 @@ async function main() {
     CHARGE_DUST_URL,
     ...Object.values(SIEGE_WRECK_URLS).flatMap((byKind) => Object.values(byKind) as string[]),
     ...Object.values(MOB_OPTIONAL_VARIANT_URLS).flatMap((v) => [...v!.walk, ...v!.action]),
+    ...GOBLIN_RIDER_VET_URLS.walk,
+    ...GOBLIN_RIDER_VET_URLS.action,
     ...WARLORD_URLS.walk,
     ...WARLORD_URLS.action,
     ...WARLORD_URLS.roar,
@@ -1643,6 +1676,13 @@ async function main() {
     MOB_VARIANTS[kind as MobKind] = [{ idle: anim.walk[0], idleScale: anim.scale, anim }];
     MOB_OWN_ART.add(kind);
   }
+  const GOBLIN_RIDER_VET: MobVariant | null =
+    MOB_OWN_ART.has("goblinRider") && [...GOBLIN_RIDER_VET_URLS.walk, ...GOBLIN_RIDER_VET_URLS.action].every((u) => optionalTextures[u])
+      ? (() => {
+          const anim = buildAnimSet(GOBLIN_RIDER_VET_URLS, MOB_VISUALS.goblinRider.radius * MOB_SPRITE_SIZE_PER_RADIUS, true, optionalTextures);
+          return { idle: anim.walk[0], idleScale: anim.scale, anim };
+        })()
+      : null;
   const SIEGE_WRECK_TEXTURES = {
     colonist: Object.fromEntries(Object.entries(SIEGE_WRECK_URLS.colonist).map(([k, u]) => [k, optionalTextures[u!]])),
     mob: Object.fromEntries(Object.entries(SIEGE_WRECK_URLS.mob).map(([k, u]) => [k, optionalTextures[u!]])),
@@ -2021,8 +2061,24 @@ async function main() {
 
   // Forts phase C: remember which site numbers are human settlements (their tiles get HUMAN_SITE_TINT);
   // repaint the tiles of a settlement the first time it shows up.
+  let fortMarkersKey = "";
   function syncFortMarkers(list: SiteSnapshot[]) {
     fortMarkers = list;
+    // Batch 2: faction-dependent fort art (siteVariantTexture) redraws once the site list is known / changes.
+    const key = list.map((f) => `${f.num}:${f.faction}:${f.keepX},${f.keepY}`).join("|");
+    if (key !== fortMarkersKey) {
+      fortMarkersKey = key;
+      if (tiles.length > 0) {
+        for (const f of list) setTileSprite(f.keepX, f.keepY, tiles[f.keepY * worldTilesX + f.keepX]);
+        for (const index of siteOwners.keys()) {
+          const t = tiles[index];
+          if (t === TileType.Tent || t === TileType.Rubble || t === TileType.RuinedKeep) {
+            const { tx, ty } = indexToTile(index);
+            setTileSprite(tx, ty, t);
+          }
+        }
+      }
+    }
     const fresh = new Set<number>();
     for (const f of list) if (f.faction === "human" && f.num !== undefined && !humanSiteNums.has(f.num)) fresh.add(f.num);
     if (fresh.size === 0) return;
@@ -2215,9 +2271,35 @@ async function main() {
   // Single source of truth for tileSpriteLayer: shows `tile`'s art at (tx, ty), or clears the
   // slot back to bare floor if it has none (Empty, anything unmapped). A construction site draws the
   // building it will become, faded; leveled buildings and farms pick their tier / stage art.
+  // The faction of the fort / settlement that owns this tile (or whose keep stands on it), if known.
+  function siteFactionAt(index: number, tx: number, ty: number): SiteFaction | undefined {
+    const num = siteOwners.get(index);
+    return fortMarkers.find((f) => (num !== undefined && f.num === num) || (f.keepX === tx && f.keepY === ty))?.faction;
+  }
+  // Batch 2 per-faction fort art (SITE_KEEP_RUIN_ART etc.), or undefined for the usual tile art.
+  function siteVariantTexture(index: number, tx: number, ty: number, tile: number): Texture | undefined {
+    const hash = tx * 7 + ty * 13;
+    if (tile === TileType.RuinedKeep || tile === TileType.Tent || tile === TileType.Rubble) {
+      const faction = siteFactionAt(index, tx, ty);
+      const name =
+        tile === TileType.RuinedKeep
+          ? SITE_KEEP_RUIN_ART[faction ?? "bandit"]
+          : tile === TileType.Tent
+            ? SITE_TENT_ART[faction ?? "bandit"][hash % 2]
+            : SITE_RUBBLE_ART[faction === "human" || faction === undefined ? "stone" : "wood"][hash % 3];
+      return optionalTextures[artUrl(name)];
+    }
+    return undefined;
+  }
   function setTileSprite(tx: number, ty: number, tile: number) {
     const index = ty * worldTilesX + tx;
     const site = tile === TileType.ConstructionSite ? constructionSites.get(index) : undefined;
+    // Rebuilding a razed fort keep (rebuildKeep: a Town Center site on the keep tile) shows the scaffold.
+    const scaffold =
+      site && site.target === TileType.TownCenter && fortMarkers.some((f) => f.keepX === tx && f.keepY === ty)
+        ? optionalTextures[artUrl(KEEP_SCAFFOLD_ART)]
+        : undefined;
+    const siteArt = scaffold ?? (site ? undefined : siteVariantTexture(index, tx, ty, tile));
     const artTile = site ? site.target : tile;
     const level = site ? 1 : (buildingLevels.get(index) ?? 1);
     const stage = farmStages.get(index);
@@ -2239,7 +2321,8 @@ async function main() {
           ? IRON_ORE_VARIANTS[(tx * 7 + ty * 13) % IRON_ORE_VARIANTS.length]
           : forging
             ? tileAnimTexture(index, tile, performance.now())
-            : (stageTexture ??
+            : (siteArt ??
+            stageTexture ??
             levelTexture ??
             (TILE_ALT_TEXTURES.has(tile) && (tx * 7 + ty * 13) % 2 === 1
               ? TILE_ALT_TEXTURES.get(tile)
@@ -2262,17 +2345,17 @@ async function main() {
       tileSprites.set(index, sprite);
     }
     sprite.rotation = 0;
-    sprite.alpha = tile === TileType.ConstructionSite ? CONSTRUCTION_ALPHA : 1;
+    sprite.alpha = tile === TileType.ConstructionSite && !scaffold ? CONSTRUCTION_ALPHA : 1;
     sprite.tint =
-      tile === TileType.ConstructionSite
+      tile === TileType.ConstructionSite && !scaffold
         ? CONSTRUCTION_TINT
-        : stageTexture || levelTexture
+        : siteArt || stageTexture || levelTexture
           ? 0xffffff
           : (TILE_TINT.get(tile) ?? 0xffffff);
     if (fireTier(damagedBuildings.get(index) ?? 1000) > 0) sprite.tint = SOOT_TINT;
     else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = humanSiteNums.has(siteOwners.get(index)!) ? HUMAN_SITE_TINT : FOREIGN_TINT;
     else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
-    if (artTile === TileType.TownCenter) {
+    if (artTile === TileType.TownCenter && !scaffold) {
       const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
       sprite.anchor.set(fit.anchor.x, fit.anchor.y);
       sprite.scale.set((tileSize * fit.widthTiles) / texture.width);
@@ -2292,14 +2375,15 @@ async function main() {
       return;
     }
     sprite.anchor.set(0.5, 1);
-    const fillTile = TILE_SPRITE_FILL_TILE.has(artTile);
+    const fitTile = scaffold ? TileType.RuinedKeep : artTile;
+    const fillTile = TILE_SPRITE_FILL_TILE.has(fitTile);
     const naturalScale = fillTile
       ? Math.max(tileSize / texture.width, tileSize / texture.height)
       : Math.min(
           (tileSize * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width,
           (tileSize * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height
-        ) * (TILE_SPRITE_SIZE_FACTOR[artTile as TileType] ?? 1) * (BUILDING_VISUAL_SCALE[artTile as TileType] ?? 1);
-    const minHeight = levelTexture ? TILE_LEVEL_MIN_HEIGHT.get(`${artTile}:${level}`) : TILE_MIN_RENDER_HEIGHT.get(artTile);
+        ) * (TILE_SPRITE_SIZE_FACTOR[fitTile as TileType] ?? 1) * (BUILDING_VISUAL_SCALE[fitTile as TileType] ?? 1);
+    const minHeight = scaffold ? undefined : levelTexture ? TILE_LEVEL_MIN_HEIGHT.get(`${artTile}:${level}`) : TILE_MIN_RENDER_HEIGHT.get(artTile);
     const scale = wallArt
       ? tileSize / WALL_ART_PX_PER_TILE
       : minHeight
@@ -3088,7 +3172,7 @@ async function main() {
     if (entry.sprite instanceof Sprite) {
       const art = WAGON_TEXTURES[lv - 1];
       const frame = Math.floor(now / 160);
-      const texture = art ? (hit && art.hit ? art.hit[frame % 2] : moved ? art.walk[frame % 4] : art.idle) : COLONIST_TEXTURES.wagon;
+      const texture = art ? (hit && art.hit ? art.hit[frame % art.hit.length] : moved ? art.walk[frame % art.walk.length] : art.idle) : COLONIST_TEXTURES.wagon;
       entry.sprite.texture = texture;
       entry.sprite.anchor.set(0.5);
       entry.sprite.scale.set(WAGON_HEIGHT[lv - 1] / texture.height);
@@ -3252,7 +3336,7 @@ async function main() {
     const variants = m.boss === "warlord" && WARLORD_VARIANT ? [WARLORD_VARIANT] : MOB_VARIANTS[m.kind];
     const woundSize = (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS * MOB_WOUND_SIZE_FACTOR;
     if (variants) {
-      upsertVariantMob(m, variants[stableHash(m.id) % variants.length]);
+      upsertVariantMob(m, m.kind === "goblinRider" && m.mark && GOBLIN_RIDER_VET ? GOBLIN_RIDER_VET : variants[stableHash(m.id) % variants.length]);
       const entry = mobSprites.get(m.id)!;
       updateWound(entry, m.hp, m.maxHp, m.x, m.y, woundSize, WOUND_LARGE_KINDS.has(m.kind), !entry.sprite.visible);
       updateMarkVisuals(entry, m);
@@ -3430,7 +3514,7 @@ async function main() {
     for (const id of Array.from(warlordRoar.keys())) {
       if (!seenIds.has(id)) warlordRoar.delete(id);
     }
-    for (const m of snapshot) if (m.kind === "batteringRam" || m.kind === "catapult") siegeIds.mob.set(m.id, m.kind);
+    for (const m of snapshot) if (SIEGE_WRECK_URLS.mob[m.kind]) siegeIds.mob.set(m.id, m.kind);
     pruneFacing(mobFacing, seenIds);
     for (const m of snapshot) upsertMob(m);
   }
@@ -3980,6 +4064,12 @@ async function main() {
       const qx = (q.x + 0.5) * s;
       const qy = (q.y + 0.5) * s;
       const r = 4.5 * u;
+      // Batch 2 (SPRITES.md #81): the quest seal icon once it has loaded, else the drawn diamond.
+      const seal = q.accepted ? QUEST_MARKER_IMAGES.active : QUEST_MARKER_IMAGES.fresh;
+      if (seal.complete && seal.naturalWidth > 0) {
+        ctx.drawImage(seal, qx - 2.2 * r, qy - 2.2 * r, 4.4 * r, 4.4 * r);
+        continue;
+      }
       ctx.beginPath();
       ctx.moveTo(qx, qy - r - u);
       ctx.lineTo(qx + r + u, qy);
@@ -5168,12 +5258,26 @@ async function main() {
   const bpWagonDestsEl = document.getElementById("bp-wagon-dests")!;
   let bpWagonAuto = true;
   let bpWagonDestKey = "";
+  // Batch 2 (SPRITES.md #67 / #80): a small optional icon (/sprites/ui-<icon>.png) ahead of a panel line's
+  // text; the img is made once per icon and removes itself if the file is missing, leaving just the text.
+  function setIconText(el: HTMLElement, icon: string, text: string) {
+    if (el.dataset.icon !== icon) {
+      el.dataset.icon = icon;
+      const img = document.createElement("img");
+      img.className = "ui-ico";
+      img.alt = "";
+      img.src = `/sprites/ui-${icon}.png`;
+      img.onerror = () => img.remove();
+      el.replaceChildren(img, document.createTextNode(text));
+    } else if (el.lastChild!.textContent !== text) el.lastChild!.textContent = text;
+  }
+  const relIcon = (tier: keyof typeof RELATION_TIER_NAMES) => `rel${Object.keys(RELATION_TIER_NAMES).indexOf(tier)}`;
   const ESCORT_LABEL: Partial<Record<ColonistKind, string>> = { militia: "Militia", spearman: "Spearman", pikeman: "Pikeman", cavalry: "Cavalry" };
   function renderTradingPost(tp: BuildingInfo["tradingPost"]) {
     bpWagonRowEl.hidden = !tp;
     if (!tp) return;
     const w = tp.wagon;
-    bpWagonStatusEl.textContent = `${w ? `Wagon HP ${w.hp}/${w.maxHp} · ` : ""}${tp.status}`;
+    setIconText(bpWagonStatusEl, w && w.hp < w.maxHp ? "tradeAlert" : "tradeRoute", `${w ? `Wagon HP ${w.hp}/${w.maxHp} · ` : ""}${tp.status}`);
     bpWagonEscortEl.textContent = `Escort: ${tp.escorts.map((e) => `${ESCORT_LABEL[e.kind] ?? e.kind}${e.alive ? "" : " (fallen)"}`).join(", ")}`;
     const key = tp.destinations.map((d) => `${d.id}:${d.ok}`).join("|");
     if (key !== bpWagonDestKey) {
@@ -5237,17 +5341,17 @@ async function main() {
   function renderVassal(v: BuildingInfo["vassal"]) {
     bpVassalRowEl.hidden = !v;
     if (!v) return;
-    bpVassalPowerEl.textContent = `Your vassal. Power: yours ${v.clanPower}, theirs ${v.sitePower} (they break free if stronger than you)`;
+    setIconText(bpVassalPowerEl, "vassal", `Your vassal. Power: yours ${v.clanPower}, theirs ${v.sitePower} (they break free if stronger than you)`);
     bpVassalCallBtn.disabled = !v.canCall;
     bpVassalCallBtn.title = v.canCall ? `${v.levySize} levies join you for a day${strategyCam.inStrategy && selectedIds.size > 0 ? " and follow your selected army" : " and follow you"}` : v.callReason;
     bpVassalDismissBtn.hidden = v.levyOnField === 0 || v.levyReturning;
-    bpVassalLevyEl.textContent = `Levy: ${v.levyStatus}${v.canCall ? ` (${v.levySize} would march)` : ""}`;
+    setIconText(bpVassalLevyEl, "callToArms", `Levy: ${v.levyStatus}${v.canCall ? ` (${v.levySize} would march)` : ""}`);
     bpVassalTax = v.tax;
     bpVassalTaxBtn.textContent = `Demand tribute: ${v.tax ? "On" : "Off"}`;
     bpVassalTaxBtn.disabled = !v.tax && !v.canTax;
     bpVassalTaxBtn.title = v.canTax || v.tax ? "Take a share of their stock and purse every 2 days (costs relation)" : v.taxReason;
     bpVassalTaxStateEl.textContent = v.canTax ? `Estimate: ${v.estimate}` : v.taxReason;
-    bpVassalLedgerEl.textContent = `Tribute: last ${v.lastTax} · next ${v.nextTax} · total ${v.taxGoldTotal} gold`;
+    setIconText(bpVassalLedgerEl, "tribute", `Tribute: last ${v.lastTax} · next ${v.nextTax} · total ${v.taxGoldTotal} gold`);
   }
   bpVassalCallBtn.addEventListener("click", () => {
     bpVassalCallBtn.blur();
@@ -5293,7 +5397,7 @@ async function main() {
     if (!trade || !tradeOpen) return;
     tpNameEl.textContent = `Trade: ${trade.siteName}`;
     const pct = Math.round((1 - trade.discount) * 100);
-    tpRelationEl.textContent = `${RELATION_TIER_NAMES[trade.tier]} (relation ${trade.relation})${pct > 0 ? ` · ${pct}% better prices` : ""} · their purse ${trade.gold} gold`;
+    setIconText(tpRelationEl, relIcon(trade.tier), `${RELATION_TIER_NAMES[trade.tier]} (relation ${trade.relation})${pct > 0 ? ` · ${pct}% better prices` : ""} · their purse ${trade.gold} gold`);
     tpReasonEl.textContent = trade.reason;
     tpReasonEl.hidden = trade.reason === "";
     // Rebuild the rows only when something changed (the panel refreshes every second; keeps clicks landing).
@@ -5375,14 +5479,23 @@ async function main() {
           el.className = `qp-quest${q.accepted ? " accepted" : ""}`;
           el.dataset.questId = String(q.id);
           const name = document.createElement("div");
-          name.className = "qp-name";
-          name.textContent = q.title;
+          name.className = "qp-name has-icon";
+          // Batch 2 (SPRITES.md #81): new / accepted quest seal; without the file the CSS "!" / tick shows.
+          const seal = document.createElement("img");
+          seal.className = "ui-ico";
+          seal.alt = "";
+          seal.src = q.accepted ? "/sprites/ui-questActive.png" : "/sprites/ui-questNew.png";
+          seal.onerror = () => {
+            seal.remove();
+            name.classList.remove("has-icon");
+          };
+          name.append(seal, q.title);
           const text = document.createElement("div");
           text.className = "qp-text";
           text.textContent = q.text;
           const meta = document.createElement("div");
           meta.className = "qp-meta";
-          meta.textContent = questMeta(q);
+          setIconText(meta, "reward", questMeta(q));
           const time = document.createElement("div");
           time.className = "qp-meta qp-time";
           const btns = document.createElement("div");
@@ -5494,7 +5607,7 @@ async function main() {
     bpTradeRowEl.hidden = !info.trade;
     if (info.trade) {
       bpTradeBtn.textContent = tradeOpen ? "Close trade" : "Trade";
-      bpTradeStateEl.textContent = info.trade.canTrade ? `${RELATION_TIER_NAMES[info.trade.tier]} prices` : info.trade.reason;
+      setIconText(bpTradeStateEl, info.trade.canTrade ? relIcon(info.trade.tier) : "relation", info.trade.canTrade ? `${RELATION_TIER_NAMES[info.trade.tier]} prices` : info.trade.reason);
     } else tradeOpen = false;
     renderTrade(info.trade);
     bpGateRowEl.hidden = !info.gate;

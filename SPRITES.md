@@ -380,6 +380,39 @@ excluded by crop bands, frames split by connected figure so overlapping spears/l
   sheet's 18px 9-slice `border-image` frame (the labels sit inside the ring, hidden); `ui-slotSocket.png` (76x76; its
   baked helmet is hidden the same way) is the 10px-slice rim of every `.hs-socket`. The DOM slots are unchanged.
 
+### Batch 2 (2026-10-30 sheets, wired 2026-10-30)
+
+Cut from five poster sheets (copied to `art-sources/`): background flood-filled away, captions excluded, each set
+normalised to one canvas per animation row with a bottom-centre anchor, kept at source pixel scale (like every other
+sprite; the code scales). `effectsd/Parchment Heraldry Icon Grid-1.png` is painted, not pixel art: not used.
+
+- `Medieval Caravan Sprite Sheet.png` (#63-#65): `traderWagon{1,2,3}Walk0-5` (6 move frames), `Hit0`, `Destroyed`,
+  one canvas per level; `Idle` = a copy of Walk1 (the sheet has no idle; Walk0 is drawn slightly smaller than the
+  rest). Wired via `WAGON_ART_URLS` (walk / hit counts follow the arrays). `Destroyed` is staged only (wagons have no
+  wreck hook yet).
+- `Medieval Trading Post Pixel Art Assets.png`: `tradingPostLv2`, `tradingPostLv3` (#66, `TILE_LEVEL_ART`), and the
+  #67 icons `ui-tradeRoute` (wagon status line; `ui-tradeAlert` instead while the wagon is below full HP),
+  `ui-tradeProfit` (staged), `ui-relation` (settlement Trade line when trade is refused). 64x64 like `ui-spell*`.
+- `Fantasy Pixel-Art Camp Asset Sprite Sheet.png`: `keepRuinWood/Orc/Stone` (#77; a RuinedKeep tile drawn by its
+  site's faction: bandit / orc / human), `keepScaffold` (shown instead of the faded Town Center while a razed keep is
+  rebuilt to capture it), `tentVertical`, `tentHorizontal` + `_green` / `_red` (part of #74; Tent tiles by faction:
+  bandit beige, orc green, human red, upright or long by position hash). Staged only (no hook yet): `clanEmblem0-5`,
+  `clanBanner0-2` (#78, greyscale for tinting), `ui-warband`, `campFounding0-3` (#79).
+- `Pixel Fantasy Game UI and Goblin Rider Sprite Sheet-2.png`: goblin wolf rider (#83) `goblinRiderWalk0-3`,
+  `Attack0-2` (wired via `MOB_OPTIONAL_VARIANT_URLS`), `Death0-2` (Death2, the wolf down, is left as a fading wreck
+  like the siege engines), `goblinRiderVetWalk0-3` / `VetAttack0-2` (Hunger-marked riders); staged: `Charge0-2`,
+  `Idle` (= Walk0), `Hit`, `VetDeath0-1`. #80: `ui-rel0-5` (hostile..vassal; trade panel relation line and the
+  settlement Trade line), `ui-tribute` / `ui-callToArms` / `ui-vassal` (vassal rows). #81: `ui-questNew` /
+  `ui-questActive` (quest list seal and minimap marker), `ui-reward` (quest reward line); staged `ui-questPanel`,
+  `ui-questEntry`. #82: `ui-role{Infantry,Archers,Cavalry,Knights,Siege,Clergy,Heroes}` on the regiment cards;
+  staged `ui-order{AttackMove,Hold,Retreat,Charge,Bombard,HoldFire,Skirmish,Cycle}`, `ui-shape{Line,Block,Wedge,
+  Loose}`, `ui-regimentFlag0-2`, `ui-regimentBanner`, `ui-regimentCard`.
+- `Fantasy Wall and Moat Tileset Atlas.png`: `rubbleWood0-2` / `rubbleStone0-2` (#71; fallen NPC walls, wood at
+  bandit / orc forts, stone at human settlements) wired. Staged under their final names (phase H): `moat_00-15`,
+  `moatRipple0-2`, `moatDigging` (#72), `drawbridge{Wood,Iron}{H,V}{Lowered,Raised,Damaged,Destroyed}` (#73); staged
+  for later: `{wood,stone}WallBreached{H,V,Corner}`, `gate{Wood,Stone}Breached`. NOT used (see below):
+  `{wood,stone}Wall{,Dmg}B2_00-15`, `gate{Wood,WoodDmg,Stone,StoneDmg}VSide{Closed,Open,Damaged,Overrun}`.
+
 - `art-sources/Fantasy Game Effect Sprite Sheet.png` (in Downloads, not copied): a lower-quality duplicate of VFX
   sheet 2 with stray gate art. Ignored.
 
@@ -494,45 +527,7 @@ their connected sides, and the #62 "Breached" (~15% HP) sheets.
 
 ## New requests (2026-10-30 batch) — trader wagons & Trading Post levels
 
-The Trading Post (`TileType.GoldShop`) sends a trader wagon to friendly settlements (see PLAN-forts-diplomacy-moats.md).
-The wagon grows with the Trading Post level and carries a bigger escort at each level (Lv1: 2 militia + 1 spearman;
-Lv2: 4 spearmen; Lv3: 4 pikemen + 1 cavalry rider). The escorts reuse the existing militia / spearman / pikeman /
-cavalry sprites; only the wagons and Trading Post art are new. Until the art arrives the client draws a tinted cart
-placeholder.
-
-### 63. Trader wagon, Lv1 — small hand cart (move, idle, hit, wrecked)
-> Pixel art, chunky 16-bit retro style, thick dark-ink outline, flat shading, 3/4 top-down view matching the existing
-> rams / catapults / cavalry sprites. A small two-wheeled wooden hand cart pulled by a single donkey, loaded with a few
-> sacks and crates under a tied tarp, a driver in a plain tunic walking at its head. One sheet, one row per animation,
-> facing RIGHT (the game mirrors it): **move 4 frames** (wheels turning, donkey legs and driver walking), **idle 1
-> frame**, **hit 2 frames** (cart jolts, sacks spill), **wrecked 1 frame** (broken wheel, scattered sacks, donkey gone).
-> Match the scale of the existing Spearman sprite for the driver. **About 56x40 px per frame.** Transparent background,
-> clean PNG, no text. Files: `traderWagon1Walk0-3.png`, `traderWagon1Idle.png`, `traderWagon1Hit0-1.png`,
-> `traderWagon1Destroyed.png`.
-
-### 64. Trader wagon, Lv2 — covered wagon
-> Same style, view, facing and frame layout as #63, a clear step up: a four-wheeled covered merchant wagon with a
-> canvas hood, painted trim and a hanging lantern, pulled by two horses, a driver on the bench. Visibly bigger and
-> richer than #63 but not armoured. Move 4 / idle 1 / hit 2 / wrecked 1. **About 84x52 px per frame.** Files:
-> `traderWagon2Walk0-3.png`, `traderWagon2Idle.png`, `traderWagon2Hit0-1.png`, `traderWagon2Destroyed.png`.
-
-### 65. Trader wagon, Lv3 — armoured merchant caravan wagon
-> Same style, view, facing and frame layout, the grandest: a long reinforced wagon with iron-banded wooden walls, a
-> peaked roof, a banner on a pole in the colony's colours and a guard seat at the rear, pulled by four horses in two
-> pairs, loot chests visible on the roof rack. Move 4 / idle 1 / hit 2 / wrecked 1. **About 120x64 px per frame.**
-> Files: `traderWagon3Walk0-3.png`, `traderWagon3Idle.png`, `traderWagon3Hit0-1.png`, `traderWagon3Destroyed.png`.
-
-### 66. Trading Post — Lv2 / Lv3 upgraded art
-> Match the existing Trading Post (`GoldShop`) sprite. Lv2: a larger two-storey shop with a loading dock, a hitched
-> empty cart beside it and a hanging sign. Lv3: a walled market yard with a covered stall row, stacked crates and
-> barrels, a flag on the roof, and a small stable for the caravan horses. Same tile footprint as the current sprite,
-> same camera angle. **About 64x64 px each.** Files: `tradingPostLv2.png`, `tradingPostLv3.png`.
-
-### 67. Trade UI & map icons (32x32)
-> A small icon set in the game's parchment UI style: a wagon-wheel / route marker for the minimap and map (trade route
-> destination), a coin-purse "profit" icon, a "wagon under attack" crossed-swords-on-wheel alert icon, and a
-> "relation" handshake icon. 32x32 each, transparent PNGs. Files: `ui-tradeRoute.png`, `ui-tradeProfit.png`,
-> `ui-tradeAlert.png`, `ui-relation.png`.
+#63-#67 were delivered and wired on 2026-10-30 (see "Already sourced", Batch 2); prompts removed.
 
 ## New requests (2026-10-30 batch) — everything else the roadmap needs
 
@@ -554,6 +549,16 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > frame.** Files: `fx-chargeDust0-3.png`. Replaces the single-frame placeholder (#43).
 
 ### Walls, moats and drawbridges
+
+> **Batch 2 review (2026-10-30):** the delivered #70 redraw is WORSE than the 2026-10-28 atlas and is not used:
+> the pieces are ~30-40 px compact posts and clumps at a smaller scale than the current set, the masks don't follow
+> the N=1/E=2/S=4/W=8 order (1 and 2 are horizontal runs, 5 and 10 are lone posts), and the corner / T / cross
+> pieces don't reach the tile edges, so neither runs nor junctions would connect. The side-on gates are the right
+> idea but at the same smaller scale, so they would not meet the current walls. Staged as `*B2_NN` /
+> `gate*VSide*` only. Still wanted: everything in #70 below, drawn at the current atlas scale (~84x95 per piece).
+> #71 breached pieces share that scale (staged); #71 rubble, #72 and #73 were delivered (moat masks are unverified
+> until phase H wires them). Still missing: #74 camp props other than the tents (and the camp-stage emblems),
+> #75 the whole orc set, #76 the settlement buildings, #68, #69.
 
 ### 70. Wall piece redraws (fixes the delivered atlas)
 > Match the delivered `woodWall_00..15` / `stoneWall_00..15` atlas look. Redraw only what is wrong: (1) corner,
@@ -611,63 +616,9 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > `settleMill.png`, `settleHall.png`, `settleGuardhouse.png`, `settleWell.png`, `settleSign.png`,
 > `settleBoard.png`, `settleSmithy.png`, `settleFarm.png`, `settleDock.png`, `settleKeep.png`.
 
-### 77. Fort keep ruin and rebuild
-> Match #74/#75/#76 keeps. A **destroyed keep ruin** (collapsed walls, scorched stone, broken banner) for each of
-> wood-fort, orc and stone-fort keeps, and a **rebuilding scaffold** stage (timber frame around the half-built
-> keep) the player sees while rebuilding it to capture the fort. Files: `keepRuinWood.png`, `keepRuinOrc.png`,
-> `keepRuinStone.png`, `keepScaffold.png`.
-
-### 78. Clan banners and emblems
-> A set of **6 clan emblems** (simple heraldic shapes: wolf, tower, sun, axe, oak, raven) as 32x32 icons, plus a
-> **banner flag** (about 24x32) drawn on greyscale so the game can tint it per clan colour, in a pole-mounted
-> waving 3-frame loop. Files: `clanEmblem0-5.png`, `clanBanner0-2.png`.
-
-### 79. Wandering warband
-> Match the existing bandit and orc mobs. A small marching column marker for the map ("a warband is on the move"): an
-> icon (32x32) plus a **camp-founding animation, 4 frames** (tents being raised and a fire lit, from bare ground to
-> a tiny camp). Files: `ui-warband.png`, `campFounding0-3.png`.
-
-### Diplomacy, quests and trade UI
-
-### 80. Relation tiers, tribute and call-to-arms icons (32x32)
-> Parchment UI style, matching the #67 icons. Six **relation tier** icons: hostile (broken seal), wary, neutral,
-> friendly, allied, vassal (crown over a banner). Plus a **tribute / tax** coin-stack-and-chest icon, a **call to
-> arms** war-horn icon, and a **vassal banner** badge. Files: `ui-rel0-5.png`, `ui-tribute.png`, `ui-callToArms.png`,
-> `ui-vassal.png`.
-
-### 81. Quest UI
-> Parchment skin matching the character sheet (#58). **Quest panel frame** (about 320x400 px: list of scroll entries
-> on the left, a detail pane with reward line on the right), a **quest scroll** entry background, and map/minimap
-> markers (32x32): new quest (scroll with an exclamation seal), active quest, completed (green seal), failed (red
-> seal), and a **gold reward** coin icon. Files: `ui-questPanel.png`, `ui-questEntry.png`, `ui-questNew.png`,
-> `ui-questActive.png`, `ui-questDone.png`, `ui-questFailed.png`, `ui-reward.png`.
-
-### Strategy mode UI
-
-### 82. Strategy mode icon set (32x32 unless noted)
-> Parchment UI style, matching the existing control-button look. **Regiment role icons:** infantry, archers, cavalry,
-> knights, siege, clergy, heroes. **Order icons:** attack-move, hold, retreat, follow, charge, bombard, hold fire,
-> skirmish, cycle charge, formation shape (line / block / wedge / loose, one icon each). **State glyphs (16x16):**
-> wavering, routing, outflanked. **Time controls (24x24):** pause, quarter speed, half speed, normal, double speed.
-> **Regiment banner pole and cloth** (about 24x40, greyscale for tinting by regiment colour), and a **regiment card
-> frame** (about 120x64 px with a slot for an icon, name, count, HP bar and morale bar). Files:
-> `ui-role{Infantry,Archers,Cavalry,Knights,Siege,Clergy,Heroes}.png`,
-> `ui-order{AttackMove,Hold,Retreat,Follow,Charge,Bombard,HoldFire,Skirmish,Cycle}.png`,
-> `ui-shape{Line,Block,Wedge,Loose}.png`, `ui-state{Wavering,Routing,Outflanked}.png`,
-> `ui-time{Pause,Quarter,Half,Normal,Double}.png`, `ui-regimentBanner.png`, `ui-regimentCard.png`.
-
-### Monster cavalry — goblin wolf rider
-
-### 83. Goblin wolf rider (monster cavalry), full set
-> Match the existing `goblin` and `wolf` sprites for style and scale (a goblin sitting on the wolf's back, bigger
-> than either alone but not as large as an ogre). A small goblin in ragged leather with a crooked spear or short
-> sword, hunched low over a snarling grey wolf with a rope bridle. One sheet, one row per animation, facing RIGHT
-> (the game mirrors it): **walk 4 frames** (loping wolf gait), **gallop / charge 3 frames** (stretched out, goblin
-> leaning forward with the spear levelled), **attack 3 frames** (spear thrust, wolf snapping), **idle 1 frame**,
-> **hit 1 frame**, **death 3 frames** (wolf collapses, goblin tumbles off). Also a **veteran** palette variant (darker
-> fur, bone trophies on the goblin) for elite riders. **About 64x48 px per frame.** Files: `goblinRiderWalk0-3.png`,
-> `goblinRiderCharge0-2.png`, `goblinRiderAttack0-2.png`, `goblinRiderIdle.png`, `goblinRiderHit.png`,
-> `goblinRiderDeath0-2.png`, and the veteran set `goblinRiderVetWalk0-3.png`, `goblinRiderVetAttack0-2.png`.
+#77-#83 were delivered on 2026-10-30 (see "Already sourced", Batch 2); prompts removed. Still missing from those
+prompts: #82 the Follow order icon, the state glyphs (wavering / routing / outflanked) and the time-control icons;
+#83 has no veteran attack row (the veteran charge row stands in) and no separate idle frame.
 
 ## Regenerate (2026-10-29 delivery review)
 

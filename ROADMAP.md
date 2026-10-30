@@ -2098,6 +2098,26 @@ Four user asks in one pass. Constants: `FOOTPRINT_*` / `FORGE_AUTO_*` / `GEAR_PI
    holds the target of each (use - / + to change it) and pauses when iron / wood would drop under 20. Save, load:
    still On.
 
+## Delivered sprite sheets (batch 2) wired — 2026-10-30
+
+Client-only (no server / protocol change). Sheets in `art-sources/`, what came from where and what is still missing
+in SPRITES.md "Already sourced → Batch 2" and the #70 review note. Every file is optional-loaded with the old
+stand-in as fallback. Browser checklist (MANUAL-TESTS.md §6g; Creative mode is the fastest way to set these up):
+- [ ] Trader wagon Lv1 / Lv2 / Lv3 (Trading Post levels 1-3, Send trader now): donkey cart / covered wagon /
+  armoured caravan roll with 6 frames, face their direction, flash the hit frame when struck, idle when stopped.
+- [ ] Trading Post Lv2 / Lv3 art after upgrading (never smaller than the level before).
+- [ ] Goblin wolf riders (Creative: enemies): loping walk, spear attack near units, a downed wolf left behind for a
+  few seconds on death; Hunger-marked riders use the darker veteran set.
+- [ ] Raze a bandit / orc fort keep and a human settlement keep: wood / orc / stone ruin; press Rebuild: the
+  scaffold shows (full colour) until the Town Center completes. Fort tents: beige (bandit), green (orc), red (human),
+  some upright and some long. Fallen NPC walls: wood rubble at forts, stone rubble at settlements.
+- [ ] Panels: trade panel relation line has the tier shield, the settlement's Trade line too; Trading Post wagon
+  status has the wheel (crossed-swords cart while the wagon is damaged); vassal rows show banner / horn / chest.
+- [ ] Quests: list entries show the new / active seal instead of "!" / tick, reward line has the coin, minimap quest
+  markers are the seals.
+- [ ] Strategy mode cards: role icon before the role label (sword, bow, horse, helm, catapult, cross, banner).
+- Not used: the redrawn wall atlas (#70) tiles worse than the current one (see SPRITES.md); walls / gates unchanged.
+
 ## Creative mode — landed 2026-10-30 (test environment)
 
 Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creative mode stage 1-3". Test

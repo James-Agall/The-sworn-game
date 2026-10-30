@@ -284,6 +284,10 @@ Quick scenarios (each takes under a minute):
 - Ogre Warlord + 10 rux-marked trolls vs 50 T3 knights and the three hero classes.
 - Day 20 midnight + Raid now day 20: a full late-game night raid against your base.
 
+## 6g. Batch 2 sprites (wagons, trading post, goblin rider, keeps, tents, UI icons)
+
+- Creative mode makes this quick: follow ROADMAP.md "Delivered sprite sheets (batch 2) wired" (browser checklist).
+
 ## 7. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.
    Every unit should walk round the idle ones and stop exactly on its slot; nobody left a tile or two short in
