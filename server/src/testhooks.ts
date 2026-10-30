@@ -57,6 +57,7 @@ import { grantTome, isSpellId, learnSpell, spellBookSnapshot } from "./spells.js
 import { stepSimulation } from "./sim.js";
 import { broadcastTileUpdate, fightsForPlayer } from "./net.js";
 import { tierOf } from "./diplomacy.js";
+import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
@@ -330,6 +331,19 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     if (st && typeof msg.relation === "number") adjustRelation(clan, st.id, msg.relation - relationOf(clan, st.id));
     if (st && msg.stock && typeof msg.stock === "object") for (const [k, v] of Object.entries(msg.stock as Record<string, unknown>)) if (typeof v === "number") st.stock[k as ResourceKey] = v;
     reply({ found: !!st, relation: st ? relationOf(clan, st.id) : null, tier: st ? tierOf(clan, st) : null, diplo: st?.diplo?.[clan] ?? null, stock: st ? { ...st.stock } : null });
+  } else if (msg.op === "questPost" && typeof msg.siteId === "string" && typeof msg.kind === "string") {
+    // Forts phase D2: post a quest of kind defend / clearCamp / deliver from the settlement to clan (default 0)
+    // now, ignoring chance, cooldown and the per-settlement cap (still refused by a Hostile / fallen one).
+    const r = forcePostQuest(msg.siteId, typeof msg.clan === "number" ? msg.clan : 0, msg.kind as "defend" | "clearCamp" | "deliver");
+    reply(typeof r === "string" ? { quest: null, problem: r } : { quest: { ...r } });
+  } else if (msg.op === "questScan") {
+    // Forts phase D2: one posting scan with every roll succeeding and no cooldown (the other rules apply).
+    reply({ posted: scanQuests(true).map((q) => ({ ...q })) });
+  } else if (msg.op === "questState") {
+    // Forts phase D2: every open quest (raw) + clan's snapshot list; {id, expiresTick?} edits one first.
+    const q = quests.find((o) => o.id === msg.id);
+    if (q && typeof msg.expiresTick === "number") q.expiresTick = msg.expiresTick;
+    reply({ quests: quests.map((o) => ({ ...o })), snapshot: questsForSnapshot(typeof msg.clan === "number" ? msg.clan : 0), cycleTick: state.cycleTick });
   } else if (msg.op === "siteSet" && typeof msg.siteId === "string") {
     // Forts phase B: overwrite numeric SiteState fields (lastSimTick to fake a long sleep, kiteHits, ...).
     const st = sites.get(msg.siteId);

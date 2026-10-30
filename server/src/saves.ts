@@ -24,6 +24,7 @@ import { isDifficulty } from "./mobs.js";
 import { clearPlayerMorale } from "./tactics.js";
 import { backfillHearths } from "./hearths.js";
 import { restoreSites, sitesForSave } from "./sites.js";
+import { questsForSave, restoreQuests } from "./quests.js";
 import { evaluateGoals } from "./goals.js";
 import { playerMaxHp, resetEquipment, restoreHeroProfiles, serializeHeroProfiles } from "./heroes.js";
 import { clearSpellState, unslowedSpeed } from "./spells.js";
@@ -43,6 +44,7 @@ export function resetClans() {
 export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown) {
   resetClans();
   withClan(clans[0], () => resetWorldInner(nextDifficulty, nextSize));
+  restoreQuests(undefined);
 }
 
 function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
@@ -193,6 +195,8 @@ function snapshotWorldInner() {
     ownerSites: [...ownerSiteIds] as string[] | undefined,
     // Forts phase B: SiteState per stamped fort (optional: old saves have no forts).
     sites: sitesForSave() as SiteState[] | undefined,
+    // Forts phase D2: open settlement quests (optional: older saves have none).
+    quests: questsForSave() as ReturnType<typeof questsForSave> | undefined,
     stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
@@ -286,6 +290,8 @@ export function applyWorld(s: WorldState) {
     if (owned[i] < state.tiles.length && owned[i + 1] > 0 && owned[i + 1] < clans.length) tileClan.set(owned[i], owned[i + 1]);
   }
   for (const clan of clans.slice(1)) withClan(clan, () => evaluateGoals(true));
+  // Forts phase D2: after the sites and clans (quests of missing ones are dropped).
+  restoreQuests(s.quests);
 }
 
 function applyWorldInner(s: WorldState) {

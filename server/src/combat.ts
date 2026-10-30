@@ -45,6 +45,7 @@ import { absorbWithWard, isSummoned, spellDamageTakenMult } from "./spells.js";
 import { broadcastEvent, broadcastTileUpdate, recordFightHit } from "./net.js";
 import { clanIdAtIndex, enterClan, resetClan, townCentersOfClan } from "./clans.js";
 import { noteHostileKill } from "./diplomacy.js";
+import { noteQuestKill } from "./quests.js";
 
 export function getMobById(id: string): Mob | undefined {
   return mobs.get(id);
@@ -225,6 +226,7 @@ export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
     dropEquipmentFor(mob);
     heroRewardsForKill(mob, attackerKey);
     noteHostileKill(mob, attackerKey);
+    noteQuestKill(mob, attackerKey);
     if (mob.boss) onBossKilled(mob);
   }
 }

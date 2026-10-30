@@ -8,7 +8,7 @@ import type { HearthState, Mob, Player, SiteDiplo, SiteState } from "./types.js"
 import {
   DAY_TICKS, NIGHT_TICKS, RELATION_ALLIED_MIN, RELATION_CAMP_FAR_BONUS, RELATION_CAMP_FAR_TILES, RELATION_CAMP_NEAR_BONUS,
   RELATION_CAMP_NEAR_TILES, RELATION_DEFEND_DAILY_CAP, RELATION_DEFEND_RANGE_TILES, RELATION_DIMINISH_FLOOR,
-  RELATION_DRIFT_PER_DAY, RELATION_FRIENDLY_MIN, RELATION_IDLE_DAYS, RELATION_MAX, RELATION_NEUTRAL, RELATION_NEUTRAL_MIN,
+  RELATION_DRIFT_PER_DAY, RELATION_FRIENDLY_MIN, RELATION_IDLE_DAYS, RELATION_MAX, RELATION_NEUTRAL, RELATION_NEUTRAL_MIN, RELATION_QUEST_DAILY_CAP,
   RELATION_TRADE_DAILY_CAP, RELATION_VASSAL_KEEP, RELATION_WARY_MIN, SETTLEMENT_CONSUME_FRACTION, SETTLEMENT_GOLD_CAP,
   SETTLEMENT_PRODUCTION, SETTLEMENT_STOCK_CAP, TRADE_BASE_PRICE, TRADE_BUY_MARKUP, TRADE_DAILY_CAP_PER_GOOD, TRADE_DAY_STEP,
   TRADE_GOLD_PER_RELATION, TRADE_MAX_QTY, TRADE_RANGE_TILES, TRADE_SELL_FACTOR, TRADE_SELL_FLOOR, TRADE_TIER_DISCOUNT,
@@ -22,7 +22,7 @@ export function gameDay(): number {
   return Math.floor(state.cycleTick / (DAY_TICKS + NIGHT_TICKS));
 }
 
-const standingTown = (s: SiteState | undefined): s is SiteState => !!s && s.faction === "human" && !s.cleared && !s.captured;
+export const standingTown = (s: SiteState | undefined): s is SiteState => !!s && s.faction === "human" && !s.cleared && !s.captured;
 
 export function relationTier(value: number, vassal?: boolean): RelationTier {
   if (vassal) return "vassal";
@@ -39,7 +39,7 @@ export function diploOf(s: SiteState, clanId: number): SiteDiplo {
   const day = gameDay();
   let d = s.diplo[clanId];
   if (!d) d = s.diplo[clanId] = { day, bought: {}, sold: {}, tradeGain: 0, defendGain: 0, lastGainDay: 0 };
-  if (d.day !== day) Object.assign(d, { day, bought: {}, sold: {}, tradeGain: 0, defendGain: 0 });
+  if (d.day !== day) Object.assign(d, { day, bought: {}, sold: {}, tradeGain: 0, defendGain: 0, questGain: 0 });
   return d;
 }
 
@@ -67,26 +67,27 @@ export function onRelationChanged(clanId: number, s: SiteState, before: number, 
   withClan(clanById(clanId), () => broadcastEvent(up ? "milestone" : "raid", `${s.name} is now ${RELATION_TIER_NAMES[t1]} toward you (${Math.round(after)})${extra}`));
 }
 
-// A capped, diminishing gain (trade / defence). None from Hostile or while the settlement is up in arms
-// against this clan.
-function gainRelation(clanId: number, s: SiteState, raw: number, kind: "trade" | "defend"): number {
+// A capped, diminishing gain (trade / defence / quest). None from Hostile or while the settlement is up in
+// arms against this clan.
+export function gainRelation(clanId: number, s: SiteState, raw: number, kind: "trade" | "defend" | "quest"): number {
   if (!standingTown(s) || raw <= 0) return 0;
   if (relationTier(relationOf(clanId, s.id)) === "hostile") return 0;
   if (s.provoked && s.hostileClans?.includes(clanId)) return 0;
   const d = diploOf(s, clanId);
-  const cap = kind === "trade" ? RELATION_TRADE_DAILY_CAP : RELATION_DEFEND_DAILY_CAP;
-  const used = kind === "trade" ? d.tradeGain : d.defendGain;
+  const cap = kind === "trade" ? RELATION_TRADE_DAILY_CAP : kind === "defend" ? RELATION_DEFEND_DAILY_CAP : RELATION_QUEST_DAILY_CAP;
+  const used = kind === "trade" ? d.tradeGain : kind === "defend" ? d.defendGain : d.questGain ?? 0;
   const g = Math.min(cap - used, raw * Math.max(RELATION_DIMINISH_FLOOR, 1 - used / cap));
   if (g <= 0) return 0;
   if (kind === "trade") d.tradeGain += g;
-  else d.defendGain += g;
+  else if (kind === "defend") d.defendGain += g;
+  else d.questGain = used + g;
   d.lastGainDay = d.day;
   adjustRelation(clanId, s.id, g);
   return g;
 }
 
 // Tiles from (tx, ty) to the settlement's rectangle (0 inside).
-function tilesToWalls(s: SiteState, tx: number, ty: number): number {
+export function tilesToWalls(s: SiteState, tx: number, ty: number): number {
   return Math.max(s.x0 - tx, 0, tx - s.x1, s.y0 - ty, ty - s.y1);
 }
 
@@ -163,7 +164,7 @@ function batchGold(good: TradeGood, side: "buy" | "sell", tier: RelationTier, n0
 }
 
 // The player (or one of the clan's living colonists) within TRADE_RANGE_TILES of the walls.
-function clanInRange(s: SiteState, clanId: number, player?: Player): boolean {
+export function clanInRange(s: SiteState, clanId: number, player?: Player): boolean {
   const near = (x: number, y: number) => tilesToWalls(s, Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)) <= TRADE_RANGE_TILES;
   if (player && !player.dead && near(player.x, player.y)) return true;
   for (const u of colonists.values()) if ((u.clan ?? 0) === clanId && u.hp > 0 && near(u.x, u.y)) return true;

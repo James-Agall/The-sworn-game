@@ -1668,6 +1668,35 @@ export const SETTLEMENT_PRODUCTION: Partial<Record<SiteTemplateId, Partial<Recor
   riverwatch: { grain: 10, wood: 15, iron: 3, fruit: 4, meat: 3, wool: 3, clothes: 2, gold: 25 },
 };
 export const SETTLEMENT_CONSUME_FRACTION = 0.1;
+// ---- Forts phase D2: settlement help quests (quests.ts) ----
+// Every QUEST_SCAN_TICKS each standing, sighted settlement may post (chance QUEST_POST_CHANCE) one quest to
+// each clan that is not Hostile to it and that it is not up in arms against: at most QUEST_MAX_PER_SITE open
+// per settlement per clan, and none sooner than QUEST_COOLDOWN_TICKS after its last one to that clan.
+export const QUEST_SCAN_TICKS = TICK_RATE * 30;
+export const QUEST_POST_CHANCE = 0.2;
+export const QUEST_MAX_PER_SITE = 2;
+export const QUEST_COOLDOWN_TICKS = DAY_TICKS + NIGHT_TICKS;
+// Expiry (defend quests expire at the next dawn instead).
+export const QUEST_EXPIRE_TICKS = 3 * (DAY_TICKS + NIGHT_TICKS);
+// clearCamp: a standing bandit / orc camp or fort keep within this many tiles of the settlement's keep.
+export const QUEST_CAMP_RANGE_TILES = 60;
+// defend (only at night): at least QUEST_DEFEND_MIN_MOBS hostile mobs (no site) within QUEST_DEFEND_RANGE_TILES
+// of its walls; the clan must kill need = min(those, QUEST_DEFEND_MAX_NEED) of them within that range.
+export const QUEST_DEFEND_RANGE_TILES = 30;
+export const QUEST_DEFEND_MIN_MOBS = 3;
+export const QUEST_DEFEND_MAX_NEED = 6;
+// deliver: a good the settlement does not make and has under QUEST_DELIVER_SHORT of; qty by template.
+export const QUEST_DELIVER_SHORT = 20;
+export const QUEST_DELIVER_QTY: Partial<Record<SiteTemplateId, number>> = { hearthmoor: 20, ironhold: 20, riverwatch: 30 };
+// Gold: clearCamp 60 + 6 per garrison guardian, defend 20 per kill needed, deliver 2x the goods' base price;
+// times the tier factor. Relation: gain on completion (capped by RELATION_QUEST_DAILY_CAP, diminishing like
+// trade), loss on failure / abandon / ignoring it (expired unaccepted).
+export const QUEST_TIER_REWARD = { wary: 0.8, neutral: 1, friendly: 1.15, allied: 1.3, vassal: 1.4, hostile: 0 } as const;
+export const QUEST_RELATION_GAIN = { defend: 8, clearCamp: 10, deliver: 6 } as const;
+export const RELATION_QUEST_DAILY_CAP = 12;
+export const QUEST_FAIL_PENALTY = 8;
+export const QUEST_ABANDON_PENALTY = 5;
+export const QUEST_IGNORE_PENALTY = 3;
 // Cosmetic workers: pause at each end of the walk (ticks, random up to x2), walk speed factor.
 export const SETTLEMENT_WORKER_PAUSE_TICKS = 6 * TICK_RATE;
 export const SETTLEMENT_WORKER_SPEED_MULT = 0.7;

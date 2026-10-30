@@ -17,6 +17,9 @@ export interface Player {
   clanTilesVersion?: number;
   // Forts phase D: the relationsVersion of the last `relations` this player was sent.
   relationsVersion?: number;
+  // Forts phase D2: the quests version / tick of the last `quests` this player was sent.
+  questsVersion?: number;
+  questsSentTick?: number;
   id: string;
   x: number;
   y: number;
@@ -317,6 +320,10 @@ export interface SiteDiplo {
   defendGain: number;
   lastGainDay: number;
   vassal?: boolean;
+  // Forts phase D2: relation gained from quests today (daily cap) and the earliest tick the settlement may
+  // post this clan another quest (cooldown).
+  questGain?: number;
+  questNextTick?: number;
 }
 export interface RespawnRequest {
   tx: number;

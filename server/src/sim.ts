@@ -32,6 +32,7 @@ import { updateOrderGroups } from "./orders.js";
 import { broadcastEvent, scanFights } from "./net.js";
 import { clanTownCenters, enterClan, forEachClan, resetClan } from "./clans.js";
 import { settlementsDawn } from "./diplomacy.js";
+import { updateQuests } from "./quests.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
@@ -53,6 +54,9 @@ export function stepSimulation() {
 
   if (nightNow && !state.wasNight) broadcastEvent("night", "Night falls");
   state.wasNight = nightNow;
+
+  // Forts phase D2: settlement quests (expiry, defend results at dawn, the posting scan).
+  updateQuests();
 
   // Clans: with several clans each clan's happiness is recomputed once a second (one map scan per clan).
   if (clans.length === 1) state.colonyHappiness = computeColonyHappiness();

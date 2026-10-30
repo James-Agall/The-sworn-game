@@ -171,6 +171,35 @@ export interface SiteRelationSnapshot {
 // Forts phase D: goods a settlement trades for gold (direct trade, `tradeWithSite`).
 export type TradeGood = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "clothes" | "tools";
 export const TRADE_GOODS: TradeGood[] = ["grain", "meat", "fruit", "wool", "wood", "rock", "iron", "clothes", "tools"];
+// Forts phase D2: settlement help quests, posted per clan by a standing, non-hostile settlement (server
+// quests.ts). Snapshot `quests` (per player, the clan's open quests; resent when one changed and once a second).
+//   defend    - "Defend <name> tonight": kill `need` hostile mobs near its walls before dawn, keep standing.
+//   clearCamp - "Clear the camp near <name>": destroy the bandit / orc camp or fort keep at (x, y).
+//   deliver   - "Deliver N <good> to <name>": hand `qty` of `good` over from the clan stock near its walls.
+export type QuestKind = "defend" | "clearCamp" | "deliver";
+export interface QuestSnapshot {
+  id: number;
+  kind: QuestKind;
+  siteNum: number;
+  siteName: string;
+  title: string;
+  text: string;
+  // Gold paid on completion; relation gained (before the daily cap) / lost when it fails or is ignored.
+  reward: number;
+  relation: number;
+  penalty: number;
+  // Game ticks until it expires (TICK_RATE a second).
+  ticksLeft: number;
+  accepted: boolean;
+  // Map marker tile (the camp for clearCamp, the settlement's keep otherwise).
+  x: number;
+  y: number;
+  good?: TradeGood;
+  qty?: number;
+  // defend: kills so far / needed.
+  progress?: number;
+  need?: number;
+}
 // Clans (ROADMAP "Clans — landed"): snapshot `clanTiles` is flattened [tile index, clan id] pairs, one per
 // player building of any clan, sent only while there are 2+ clans and only when it changed (a full
 // replacement). Missing (or a single-clan game) = clan 0.
@@ -962,6 +991,11 @@ export type ClientMessage =
   // Forts phase D: buy / sell qty (1..50) of a good at the human settlement owning tile (tileX, tileY), for gold
   // from / to the sender clan's stock (server checks range, tier, stock, purse and daily caps).
   | { type: "tradeWithSite"; tileX: number; tileY: number; good: TradeGood; qty: number; side: "buy" | "sell" }
+  // Forts phase D2: accept / abandon one of the sender clan's settlement quests (abandoning costs relation);
+  // deliverQuest hands a deliver quest's goods over (player or a colonist near the walls, goods in stock).
+  | { type: "acceptQuest"; questId: number }
+  | { type: "abandonQuest"; questId: number }
+  | { type: "deliverQuest"; questId: number }
   // Starts building one siege engine at the Siege Workshop at the tile (building info panel button).
   | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
   // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).
@@ -1098,6 +1132,8 @@ export type ServerMessage =
       // Forts phase D: this player's clan's relation to each standing human settlement (per player, only
       // when it changed; a full replacement).
       relations?: SiteRelationSnapshot[];
+      // Forts phase D2: this player's clan's open settlement quests (per player; a full replacement).
+      quests?: QuestSnapshot[];
       // Clans (only while there are 2+): this player's clan id, every clan, and the clan of every player
       // building (CLAN_TILE_SNAPSHOT_STRIDE; per player, only when changed). The economy / army / population
       // / goal fields of this snapshot are the receiving player's clan's.
