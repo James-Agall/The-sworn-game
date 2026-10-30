@@ -232,6 +232,58 @@ on + one collected now), `node stamp-site.mjs levy <name>` (the levy's day ends 
    second clan (`?clan=new`) sees it as at most Allied ("Vassal of <clan>" in the panel, bronze minimap flag).
 11. **Save / load** with a levy on the field and tribute on: still a vassal, tribute still on, the levy still yours.
 
+## 6f. Creative mode (test environment)
+Start the game as usual (server + client), then on the main menu press **Creative** (or open the client URL with
+`?mode=creative`: New Game then reads "New Game (Creative)"). This restarts the world as a creative game for everyone
+connected. A creative game saves (autosave and manual Save) ONLY to the "Creative" slot, so your normal Autosave /
+Slot 1-3 are never touched; the Load list shows it as "Creative · Creative · Day N ...".
+1. **Mode check**: top bar shows a **Creative** button (it is absent in a normal New Game). Stock line shows 999999
+   of every good and gold; the armoury 9999 per tier. Place any building: it appears at once (no builders), stock
+   stays 999999. Upgrade it: instant. Queue 20 forge items / a siege engine / recruit a hero: each done in a tick.
+   The population counter reads x/9999 (no caps, no "garrison full").
+2. **Panel**: press Creative. Tabs: Yours / Enemies / Neutrals / Armies / World / Tools; a Help list at the bottom.
+   "Place: At centre" uses the camera centre; "At click" waits for your next left-click on the map (toast "Click on
+   the map to place it"). Typing numbers in the panel must not trigger game hotkeys.
+3. **Yours**: spawn 10 knights Level 3 Gear T3 in a line: 10 knights appear in a line, with T3 armour / weapon rings;
+   select them and command them as usual. Try cavalry, rams, catapults and each hero class (hero sheet lists them).
+   Spawned units never respawn and die without a toast.
+4. **Enemies**: spawn every kind once (goblin wolf rider, troll, ogre, siege ram / catapult ...); Mark: rux on 10
+   goblins (sigils show); Warlord on an ogre = Ogre Warlord (boss bar); Elite = mini-boss. "As site guardians" adds
+   the kind to the fort / settlement nearest the point (stamp one first, World tab).
+5. **Armies**: Faction greenskinWarband, size 500, Line: a raid group appears already engaged and marches / fights.
+   "All goblin" + size 500 gives a pure goblin army.
+6. **Neutrals**: Test clan soldier, knight x10, Dummy: grey-clan knights stand still. With soldiers selected,
+   a plain right-click on one only moves them there. **Ctrl+right-click** it: your soldiers attack it (works with the toggle off;
+   toast "N units attacking"). Tools > **Allow attacking neutrals: ON**: your soldiers now attack Test clan units on
+   their own, and your rider's own attack hits them; Aggressive Test clan soldiers fight back. Turn it
+   off: your units stop picking them (forced targets stay). Settlement folk (townGuard ...): Dummy ones stand still
+   even when hit; Aggressive guards wake and fight when hit or while the toggle is on. Wildlife: Ctrl+right-click a
+   deer to send soldiers after it. "Respawn last" clears the neutrals and spawns the last neutral batch again;
+   "Clear neutrals" removes all.
+7. **World**: Day 10 + "noon": the clock jumps (toast "Day 10, noon"); "midnight": night falls. "Raid now" day 15: a
+   day-15 raid spawns at the edges and departs at once. Stamp each template (thornwick / grakkar forts, hearthmoor /
+   ironhold / riverwatch settlements) at the centre: "Stamped <name>" or "No room: ..." (pan to open ground).
+   "Trading Post + wagon" places a post with its wagon. Relation 100 / Vassalise / Free and Quest Post act on the
+   human settlement nearest the point (toast names it; the settlement panel agrees).
+8. **Tools**: Godmode ON: monsters hit you for nothing. Heal all: every unit, rider and Town Center full HP. Kill all
+   monsters: every monster dies (settlement folk and neutrals stay). Clear wildlife. Tab = Command view (free camera).
+9. **Saves**: Menu > Save: toast "Game saved to Creative". Settings shows only the Creative save row. Return to menu:
+   the Load list shows your normal saves unchanged plus "Creative". Load the Creative save: creative again (button,
+   999999). Then New Game (not Creative): a normal world, no Creative button, normal stock.
+10. **Normal game guard**: in a normal game nothing creative exists (no button; the server refuses creative messages).
+
+Quick scenarios (each takes under a minute):
+- 500 goblins (Enemies, Line, Count 100 x5 or Armies "All goblin" 500) facing 500 of your soldiers (Yours, knights
+  x100 x5, Line) 15 tiles apart: select yours, attack-move into them. (1000 vs 1000 works but the server slows to
+  about 0.8x speed.)
+- Stamp a thornwick fort, spawn 20 battering rams (Yours, Count 10 twice) and 100 knights next to it, order the rams
+  onto its gate / walls, watch the breach and the guardians wake; add orc guardians with "As site guardians".
+- Stamp hearthmoor, Vassalise it, open its panel and press Call to arms: the levy marches out as your units.
+- Stamp riverwatch, Relation -100 (panel: Hostile), spawn 100 knights, attack it and take its keep.
+- Test clan: 100 Aggressive knights in a Line vs 100 of yours with Allow attacking ON: a clan-vs-clan battle.
+- Ogre Warlord + 10 rux-marked trolls vs 50 T3 knights and the three hero classes.
+- Day 20 midnight + Raid now day 20: a full late-game night raid against your base.
+
 ## 7. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.
    Every unit should walk round the idle ones and stop exactly on its slot; nobody left a tile or two short in

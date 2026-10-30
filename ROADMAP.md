@@ -2098,6 +2098,43 @@ Four user asks in one pass. Constants: `FOOTPRINT_*` / `FORGE_AUTO_*` / `GEAR_PI
    holds the target of each (use - / + to change it) and pauses when iron / wood would drop under 20. Save, load:
    still On.
 
+## Creative mode — landed 2026-10-30 (test environment)
+
+Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creative mode stage 1-3". Test
+`server/creative-test.mjs` (runner, world 80, ~10 s). Browser checklist + quick scenarios: MANUAL-TESTS.md §6f.
+- **Flag**: `state.creative` (world, saved as `creative` in the world state; old saves false). Only a `restart`
+  with `creative: true` turns it on (main menu Creative / `?mode=creative`; the client sends it on the first welcome
+  after New Game / Creative when the world's mode differs); a plain restart is a normal game; handleSetDifficulty's
+  regeneration keeps the current mode. `welcome.creative` and snapshot `creative: {allowAttack}` tell the client.
+- **Central rules** (server/src/creative.ts): `topUpCreative` refills every clan's stock to 999999 and armoury to 9999
+  after every tick (sim.ts) and every message (index.ts); construction.ts `canAfford` = true / `spend` = no-op;
+  instant build = `state.instantBuild` (set by a creative restart, restored after); no caps =
+  `settlementStatsAll` sets cap / garrisonCap / troopCap to 9999.
+- **Protocol** (additive): `creativeSpawn {side, kind, count 1..1000, x, y px, formation, level, gear, heroClass,
+  stance, mark, boss, faction, aggressive}` with side own | enemy | army | guardians | neutral | folk | wildlife;
+  `creativeSet {op}` allowAttack | godmode | heal | killMobs | clearNeutrals | clearWildlife | setTime {day, phase} |
+  raid {day} | stamp {template, tier} | tradingPost | relation {value, vassal} | quest {kind} | forceAttack
+  {unitIds, targetType c | w, targetId}; answered by `creativeResult {op, ok, text, ...}`; refused ("Not a creative
+  game") unless the flag is set; handler exceptions are caught (never crash the server).
+- **Neutrals**: the "Test clan" (a real clan with no Town Center, made on first use, saved with the clans);
+  `Colonist.creativeSpawned` (no respawn / death toast / gear pickup), `creativeDummy` (never acts),
+  `creativeTarget` (forced or auto colonist / wildlife target). Settlement folk without a settlement:
+  `Mob.creativeNeutral {dummy, awake}` (passive, skipped by soldiers / towers until awake or the toggle is on; a hit
+  wakes a non-dummy). Hostility rule `clansHostile(a, b)` = creative && allowAttack && a != b (first step toward
+  clan-vs-clan combat): `creativeFightStep` (top of updateGuardColonist) fights forced targets always and, with the
+  toggle on and no monster to fight, the nearest hostile-clan unit (grid scan spread over 10 ticks);
+  handlePlayerAttack hits hostile-clan units; player `creativeGod` skips damagePlayer.
+- **Saves**: slot "creative" (SAVE_SLOTS, label "Creative", SaveInfo.creative); `slotForSave` sends every creative
+  save (autosave, shutdown save, manual) there, so creative never overwrites a normal save.
+- **Shared helpers**: spawnSoldierAt / spawnMobAt / spawnRaidGroupAt / stampSiteSearch / placeTradingPost /
+  forceVassal live in creative.ts; the testhooks spawnSoldier / spawnMob / spawnRaidGroup / stampSite / wagonPost /
+  vassalSet handlers call them.
+- **Client** (client/src/creative.ts): Creative top-bar button + parchment panel (tabs Yours / Enemies / Neutrals /
+  Armies / World / Tools, At centre / At click placement, help list); Ctrl+right-click force-attack; save panel shows
+  only the Creative row in a creative game.
+- **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
+  approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
+
 ## Forts phase F — landed 2026-10-30 (vassals: fealty, call to arms, tribute)
 
 Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §6 / §10 "F" + the user spec (2026-10-30). Commits "Phase F stage
