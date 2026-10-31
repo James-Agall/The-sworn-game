@@ -316,6 +316,33 @@ days, cap 1 at 160 / 2 at 256 / 4 at 512); creative buttons make it instant.
 9. **Save / load** with a warband on the move: it is still there after loading (re-appears as bodies within 1 s if near).
 Automated: `npm test -- warbands-test` (19 checks, ~1 min).
 
+## Moats and drawbridges (phase H)
+
+Use a **Creative** game (§6f: instant build, free stock) or a normal game with builders and wood / iron. Tools are in
+the **Combat** tab: **Moat** (`,`) and **Drawbridge** (`/`).
+1. **Dig**: pick Moat and right-drag a line near (not touching) your Town Center: every tile under the pointer gets
+   dug, diagonal drags fill the corner tile too (no diagonal gaps). Normal games: a dig site per tile, 5 s each, 1
+   wood. Art: connected moat water (moat_00-15; if a tile looks wrong / a piece faces the wrong way note the mask); a
+   tile next to the Town Center is refused ("Too close to the Town Center for a moat").
+2. **Drawbridge**: pick Drawbridge and right-click a moat tile (bare ground is refused: "A drawbridge goes on a moat
+   tile"). 25 wood + 10 iron. It shows raised; walk a soldier up: it lowers (art "Lowered"), raises ~2 s after he
+   leaves. Left-click it: the info panel has the gate Lock row (Auto / Locked open / Locked closed).
+3. **Barrier**: drag a closed moat ring around a few buildings with one drawbridge, put a Tower inside. Raid now
+   (Creative World > Raid now) or spawn enemies outside: they stop at the water and batter the drawbridge; the tower
+   and archers shoot across. Soldiers ordered across walk over the lowered bridge. A ram breaks the drawbridge: the
+   tile is water again (no rubble).
+4. **No drawbridge**: demolish the drawbridge (it goes back to moat) so the ring is fully closed. Enemies pick a moat
+   tile and "fill" it (takes a while), it turns into rubble and they walk in.
+5. **Formation on the water**: select a few soldiers and right-click the middle of a moat: they line up on the bank
+   they came from, not in / across the water.
+6. **Fill**: Demolish on a moat tile fills it at once (bare ground).
+7. **Forts**: Creative > grow an orc (Grakkar) camp to tier 4: the moat row before its south gate now has a real
+   drawbridge (raised; your army must break or overrun it). Riverwatch settlements have moats N and S with
+   drawbridges in front of both gates (open to you by day like its gates).
+8. **Save / load**: moats, drawbridges and their lock survive.
+
+Automated: `npm test -- moats-test` (18 checks).
+
 ## 7. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.
    Every unit should walk round the idle ones and stop exactly on its slot; nobody left a tile or two short in

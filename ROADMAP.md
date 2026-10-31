@@ -2155,6 +2155,44 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Phase H — landed 2026-10-31 (moats and drawbridges)
+
+Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §9 / §10 "H". Commits "Phase H stage 1-3". Test
+`server/moats-test.mjs` (port 22180, 18/18, ~2 min). Browser checklist: MANUAL-TESTS.md "Moats and drawbridges (phase H)".
+- **Tiles** (shared/src/protocol.ts): `TileType.Moat = 75` (in isSolidTile: blocks every ground walker; projectiles
+  are untouched, the sim has no line of sight) and `Drawbridge = 76`. New `isGateTile(t)` (Gate or Drawbridge) replaces
+  the `=== TileType.Gate` checks in pathing (isWalkableTile, advanceAlongPath, collidesAt), the gate registry /
+  updateGates / locks / overrun, breach search, damage, siege, tactics barriers, goals, vassal power and the stamper.
+  Costs in shared/src/buildings.ts BUILD_COSTS: Moat 1 wood, Drawbridge 25 wood + 10 iron. Tuning in constants.ts
+  ("Moats & drawbridges" block).
+- **Moat**: placed on Empty (dig site 5 s; instant in creative), not within 1 tile of a Town Center; demolish fills it
+  (Empty). Clan-owned like other buildings. Not a mob building target, not attacked by soldiers or catapult target picks.
+- **Drawbridge**: only on a Moat tile (dig site 8 s); then it IS a gate (GateState in `gates`, lowered = open, raised =
+  closed, Auto / Locked open / Locked closed panel, friendly units lower it at 1.5 tiles, 2 s close delay, overrun,
+  breach cost, 450 HP). Destroyed or demolished it leaves the Moat (no rubble, gate record dropped).
+- **Breach / fill**: while the colony has no drawbridge at all, the mobs' breach search crosses its Moat tiles at cost
+  30 and the mob fills the first one (MOAT_FILL_HP 300 of damage, then Rubble). With a drawbridge they breach that.
+- **Movement**: stepRaidMobToward and nudgeBody refuse a diagonal step between two solid tiles touching at a corner
+  (moat or wall lines have no squeeze). findPath is 4-neighbour already.
+- **Formation slots** (orders.ts formGroupAt): a slot on a non-walkable tile moves to the nearest walkable tile within 3
+  that the regiment walks to without going round (BFS from the members' centroid; tiles more than 6 steps further than
+  the closest one are the far bank), else it stays.
+- **Raid anchors**: raidAnchorWithinPathBudget passes the colony's walls, gates, drawbridges and moats (raids breach /
+  fill them), so a fully moated base still gets anchors at full distance.
+- **Forts**: template `~` is a real Moat and `D` a site Drawbridge (registered as a closed gate, owned by the site): Grakkar
+  tier 4's moat row and Riverwatch's N / S moats. NPC drawbridges follow the NPC gate rules (own mobs, overrun,
+  settlements open by day; destroyed -> Moat, owner cleared).
+- **Client**: Combat tools Moat (`,`) and Drawbridge (`/`); right-drag with Moat digs a 4-connected line (diagonal steps add
+  the orthogonal tile). Art optional-loads `moat_00-15` (mask N=1 E=2 S=4 W=8 over moat / drawbridge neighbours),
+  `moatDigging` (dig site) and `drawbridgeWood{H,V}{Lowered,Raised,Damaged}` (H when the moat runs N-S); fallbacks are
+  tinted water / the closed gate. Drawbridge info panel = the gate lock row; minimap moat colour.
+- **Saves**: nothing new (tiles + the existing `gates` records).
+- **Not done**: `MOB_IGNORES_MOAT` hook (no flyer exists; would need a mover-kind flag in isWalkableTile); slot snapping
+  in the client ghost (planOrderFormation walkable callback), so the ghost may still show slots on water; moat fill
+  build time for builders (fill is instant); iron drawbridge art; ripple animation (moatRipple0-2 staged unused);
+  Riverwatch's third moat side. The test's raid-anchor and diagonal-squeeze checks are light (no anchor check; the
+  squeeze check only watches one goblin).
+
 ## Phase G — landed 2026-10-31 (wandering warbands found camps; camps grow and punish neglect)
 
 Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §7 / §10 "G" + decision 4 (no camp budding: warbands wander in
