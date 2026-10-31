@@ -144,6 +144,21 @@ const TOOLS: ToolDef[] = [
     cost: `${buildCostText(TileType.Gate)}. 450 HP. Opens for your units, closed to monsters (lock it from its info panel); anyone may pass while it's open`,
     category: "combat",
   },
+  // Moats & drawbridges (phase H): , and / are free keys. Right-drag lays a 4-connected moat line.
+  {
+    tile: TileType.Moat,
+    label: "Moat",
+    key: ",",
+    cost: `${buildCostText(TileType.Moat)} per tile (5 s dig). Water no one can walk through (arrows fly over it); right-drag to dig a line. Demolish fills it`,
+    category: "combat",
+  },
+  {
+    tile: TileType.Drawbridge,
+    label: "Drawbridge",
+    key: "/",
+    cost: `${buildCostText(TileType.Drawbridge)}, on a moat tile. 450 HP. A gate over the water: lowers for your units, raised against monsters (lock it from its info panel)`,
+    category: "combat",
+  },
   { tile: TileType.LumberjackPost, label: "Lumberjack", key: "3", cost: "Free (upgradeable)", category: "farming" },
   { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: "Free, within 2 tiles of a Barn (up to 8 per Barn)", category: "farming" },
   { tile: TileType.KnightPost, label: "Hall of the Sworn", key: "5", cost: `${buildCostText(TileType.KnightPost)} (upgradeable)`, category: "combat" },
@@ -699,6 +714,9 @@ const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.Rock]: "rock",
   [TileType.IronOre]: "ironOre",
   [TileType.Water]: "waterTile",
+  // Phase H stand-ins (moat: tinted water; drawbridge: the gate) until the moat_* / drawbridge* art loads.
+  [TileType.Moat]: "waterTile",
+  [TileType.Drawbridge]: "gateWoodClosed",
   [TileType.RuinWall1]: "ruinWall1",
   [TileType.RuinWall2]: "ruinWall2",
   [TileType.RuinArch]: "stoneArch",
@@ -794,6 +812,19 @@ const GATE_ART_STATES = ["Closed", "Open", "Damaged", "Overrun"] as const;
 type GateArtState = (typeof GATE_ART_STATES)[number];
 const gateArtUrl = (material: "Wood" | "Stone", orient: "H" | "V", state: GateArtState) =>
   `/sprites/gate${material}${orient}${state}.png`;
+// Moats & drawbridges (SPRITES.md #72 / #73, phase H), loaded optionally: 16 moat pieces by the mask of
+// moat / drawbridge neighbours (N=1 E=2 S=4 W=8), the dig-site art, and drawbridges per orientation x state
+// (H spans a north-south moat, V an east-west one). A missing piece set keeps the tinted water stand-in.
+const moatPieceUrl = (mask: number) => `/sprites/moat_${String(mask).padStart(2, "0")}.png`;
+const MOAT_DIGGING_URL = "/sprites/moatDigging.png";
+const DRAWBRIDGE_ART_STATES = ["Lowered", "Raised", "Damaged"] as const;
+type DrawbridgeArtState = (typeof DRAWBRIDGE_ART_STATES)[number];
+const drawbridgeArtUrl = (orient: "H" | "V", state: DrawbridgeArtState) => `/sprites/drawbridgeWood${orient}${state}.png`;
+const MOAT_ART_URLS = [
+  ...Array.from({ length: 16 }, (_, mask) => moatPieceUrl(mask)),
+  MOAT_DIGGING_URL,
+  ...(["H", "V"] as const).flatMap((o) => DRAWBRIDGE_ART_STATES.map((st) => drawbridgeArtUrl(o, st))),
+];
 const WALL_ART_URLS = [
   ...WALL_PIECE_SETS.flatMap((set) => Array.from({ length: 16 }, (_, mask) => wallPieceUrl(set, mask))),
   ...(["Wood", "Stone"] as const).flatMap((m) => (["H", "V"] as const).flatMap((o) => GATE_ART_STATES.map((s) => gateArtUrl(m, o, s)))),
@@ -807,6 +838,7 @@ const WALL_ART_PX_PER_TILE = 68;
 // Multiplicative tints that tell a stand-in apart from the building/prop whose art it borrows.
 const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.Rubble]: 0x9a9088,
+  [TileType.Moat]: 0x7894a0,
   [TileType.Tent]: 0xc8a070,
   [TileType.SiteKeep]: 0xb08870,
   [TileType.RuinedKeep]: 0x807468,
@@ -982,7 +1014,7 @@ const MOB_WOUND_SIZE_FACTOR = 0.55;
 const WOUND_LARGE_KINDS = new Set<MobKind>(["orc", "armoredOrc", "troll", "ogre"]);
 // Ground-like tile art that should cover its tile exactly (flush, no overhang into neighbors)
 // instead of the bottom-anchored max-box fit buildings use, and always sit under other tile art.
-const TILE_SPRITE_FILL_TILE = new Set<number>([TileType.Water, TileType.Road, TileType.CobbleRoad]);
+const TILE_SPRITE_FILL_TILE = new Set<number>([TileType.Water, TileType.Road, TileType.CobbleRoad, TileType.Moat, TileType.Drawbridge]);
 // Road autotile, by the mask of orthogonal road neighbours (N=1, E=2, S=4, W=8; Road and Cobble Road
 // connect to each other): [art, clockwise quarter turns]. The delivered road-* files don't all match
 // their names (straightH, tJunctionB and some dead ends/corners are drawn with other connections), so
@@ -1372,6 +1404,7 @@ async function main() {
     ...BOULDER_URLS,
     ...BOULDER_IMPACT_URLS,
     ...WALL_ART_URLS,
+    ...MOAT_ART_URLS,
   ]);
   // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
   // and each URL should be requested once and resolve to one shared Texture.
@@ -1457,6 +1490,8 @@ async function main() {
     const pieces = Array.from({ length: 16 }, (_, mask) => optionalTextures[wallPieceUrl(set, mask)]);
     if (pieces.every(Boolean)) WALL_PIECE_TEXTURES.set(set, pieces);
   }
+  const MOAT_PIECES = Array.from({ length: 16 }, (_, mask) => optionalTextures[moatPieceUrl(mask)]);
+  const MOAT_PIECE_TEXTURES = MOAT_PIECES.every(Boolean) ? MOAT_PIECES : undefined;
   const SWAMP_FLOOR_TEXTURE = loadedTextures["/sprites/swampFloor.png"];
   const NATURE_DECOR_TEXTURES = NATURE_DECOR.map((d) => ({ texture: loadedTextures[d.url], height: d.height }));
   // tile -> FarmStage -> texture, only for stage art that loaded.
@@ -2111,7 +2146,7 @@ async function main() {
     const prev = gateFlags;
     gateFlags = next;
     for (const index of new Set([...prev.keys(), ...next.keys()])) {
-      if (shown(prev.get(index)) === shown(next.get(index)) || tiles[index] !== TileType.Gate) continue;
+      if (shown(prev.get(index)) === shown(next.get(index)) || (tiles[index] !== TileType.Gate && tiles[index] !== TileType.Drawbridge)) continue;
       const { tx, ty } = indexToTile(index);
       setTileSprite(tx, ty, tiles[index]);
     }
@@ -2309,8 +2344,11 @@ async function main() {
       tile === TileType.Blacksmith && BLACKSMITH_FORGE_TEXTURES !== undefined && forgeBusy.has(index) && (level === 1 || !levelTexture);
     const gateOpen = tile === TileType.Gate && ((gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
     const wallArt = wallArtFor(tx, ty, artTile, !!site);
+    const moatArt = moatArtFor(tx, ty, artTile, !!site);
     const texture = tile === TileType.BuildingPart
       ? undefined
+      : moatArt
+      ? moatArt
       : wallArt
       ? wallArt
       : gateOpen
@@ -2345,11 +2383,11 @@ async function main() {
       tileSprites.set(index, sprite);
     }
     sprite.rotation = 0;
-    sprite.alpha = tile === TileType.ConstructionSite && !scaffold ? CONSTRUCTION_ALPHA : 1;
+    sprite.alpha = tile === TileType.ConstructionSite && !scaffold && !moatArt ? CONSTRUCTION_ALPHA : 1;
     sprite.tint =
-      tile === TileType.ConstructionSite && !scaffold
+      tile === TileType.ConstructionSite && !scaffold && !moatArt
         ? CONSTRUCTION_TINT
-        : siteArt || stageTexture || levelTexture
+        : siteArt || stageTexture || levelTexture || moatArt
           ? 0xffffff
           : (TILE_TINT.get(tile) ?? 0xffffff);
     if (fireTier(damagedBuildings.get(index) ?? 1000) > 0) sprite.tint = SOOT_TINT;
@@ -2405,6 +2443,27 @@ async function main() {
   }
 
   const isWallTile = (t: number) => t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate;
+  const isMoatTile = (t: number) => t === TileType.Moat || t === TileType.Drawbridge;
+
+  // Moat piece / drawbridge art (SPRITES.md #72-73) for (tx, ty), or undefined for the stand-in. A moat
+  // being dug shows the dig site; a drawbridge is lowered while its gate is open (or overrun).
+  function moatArtFor(tx: number, ty: number, artTile: number, site: boolean): Texture | undefined {
+    if (!isMoatTile(artTile)) return undefined;
+    if (site) return artTile === TileType.Moat ? optionalTextures[MOAT_DIGGING_URL] : undefined;
+    const n = tileAt(tx, ty - 1);
+    const e = tileAt(tx + 1, ty);
+    const s = tileAt(tx, ty + 1);
+    const w = tileAt(tx - 1, ty);
+    if (artTile === TileType.Moat) {
+      return MOAT_PIECE_TEXTURES?.[(isMoatTile(n) ? 1 : 0) | (isMoatTile(e) ? 2 : 0) | (isMoatTile(s) ? 4 : 0) | (isMoatTile(w) ? 8 : 0)];
+    }
+    const index = ty * worldTilesX + tx;
+    const orient = isMoatTile(n) || isMoatTile(s) ? "H" : "V";
+    const flags = gateFlags.get(index) ?? 0;
+    const damaged = (damagedBuildings.get(index) ?? 1000) < WALL_DAMAGED_PERMILLE;
+    const state: DrawbridgeArtState = flags & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN) ? "Lowered" : damaged ? "Damaged" : "Raised";
+    return optionalTextures[drawbridgeArtUrl(orient, state)];
+  }
 
   // Connector piece / oriented gate art (SPRITES.md #59-62) for a wall or gate at (tx, ty), or
   // undefined to use the single-sprite fallback. Sites draw undamaged.
@@ -2832,7 +2891,7 @@ async function main() {
     // Neighbouring roads re-pick their autotile piece (this tile may have become / stopped being road),
     // and neighbouring walls / gates their connector piece / orientation.
     for (const [nx, ny] of [[tx, ty - 1], [tx + 1, ty], [tx, ty + 1], [tx - 1, ty]]) {
-      if (isRoadAt(nx, ny) || isWallTile(tileAt(nx, ny))) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
+      if (isRoadAt(nx, ny) || isWallTile(tileAt(nx, ny)) || isMoatTile(tileAt(nx, ny))) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
     }
     // A part tile appearing / going away re-fits the multi-tile art of the anchors up / left of it.
     for (const [nx, ny] of [[tx - 1, ty], [tx, ty - 1], [tx - 1, ty - 1]]) {
@@ -3893,6 +3952,7 @@ async function main() {
     [Biome.Swamp]: 0x4c5a44,
   };
   const MINIMAP_WATER = 0x3d5f73;
+  const MINIMAP_MOAT = 0x2f4f5f;
   const MINIMAP_TREE = 0x3c5428;
   const MINIMAP_ROCK = 0x8d8a80;
   const MINIMAP_IRON = 0x7d5644;
@@ -3937,7 +3997,10 @@ async function main() {
       case TileType.Wall:
       case TileType.StoneWall:
       case TileType.Gate:
+      case TileType.Drawbridge:
         return MINIMAP_WALL;
+      case TileType.Moat:
+        return MINIMAP_MOAT;
       case TileType.Road:
       case TileType.CobbleRoad:
         return MINIMAP_ROAD;
@@ -5192,7 +5255,7 @@ async function main() {
     TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery,
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
-    TileType.Gate, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
+    TileType.Gate, TileType.Drawbridge, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
     TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
@@ -7910,15 +7973,32 @@ async function main() {
     if (!tile) return;
     if (socket.readyState !== socket.OPEN) return;
     const value = e.button === 2 ? currentTool : TileType.Empty;
-    if (value !== TileType.Empty) {
-      pendingPlacements.set(tile.tileY * worldTilesX + tile.tileX, { tile: value, at: performance.now() });
-    }
-    socket.send(
-      JSON.stringify({ type: "setTile", tileX: tile.tileX, tileY: tile.tileY, tile: value })
-    );
+    placeTile(tile.tileX, tile.tileY, value);
+    if (value === TileType.Moat) moatDrag = { pointerId: e.pointerId, x: tile.tileX, y: tile.tileY };
   });
 
+  function placeTile(tileX: number, tileY: number, value: number) {
+    if (value !== TileType.Empty) {
+      pendingPlacements.set(tileY * worldTilesX + tileX, { tile: value, at: performance.now() });
+    }
+    socket.send(JSON.stringify({ type: "setTile", tileX, tileY, tile: value }));
+  }
+  // Phase H: right-dragging the Moat tool digs every tile the pointer crosses, 4-connected (a diagonal
+  // step adds the orthogonal tile between), so the line has no corner gaps.
+  let moatDrag: { pointerId: number; x: number; y: number } | null = null;
+  function extendMoatDrag(worldX: number, worldY: number) {
+    const drag = moatDrag;
+    const tile = drag ? pointerTile(worldX, worldY) : null;
+    if (!drag || !tile || socket.readyState !== socket.OPEN || currentTool !== TileType.Moat) return;
+    while (drag.x !== tile.tileX || drag.y !== tile.tileY) {
+      if (Math.abs(tile.tileX - drag.x) >= Math.abs(tile.tileY - drag.y)) drag.x += Math.sign(tile.tileX - drag.x);
+      else drag.y += Math.sign(tile.tileY - drag.y);
+      placeTile(drag.x, drag.y, TileType.Moat);
+    }
+  }
+
   app.canvas.addEventListener("pointerup", (e) => {
+    if (moatDrag && e.pointerId === moatDrag.pointerId) moatDrag = null;
     if (e.button === 2 && orderPress && e.pointerId === orderPress.pointerId) {
       const press = orderPress;
       cancelOrderPress();
@@ -8036,6 +8116,7 @@ async function main() {
   });
 
   app.canvas.addEventListener("pointercancel", (e) => {
+    if (moatDrag && e.pointerId === moatDrag.pointerId) moatDrag = null;
     if (leftPress && e.pointerId === leftPress.pointerId) cancelLeftPress();
     if (orderPress && e.pointerId === orderPress.pointerId) cancelOrderPress();
     if (panDrag && e.pointerId === panDrag.pointerId) cancelPanDrag();
@@ -8052,6 +8133,7 @@ async function main() {
     }
     const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
     const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
+    if (moatDrag && e.pointerId === moatDrag.pointerId) extendMoatDrag(x, y);
     if (orderPress && e.pointerId === orderPress.pointerId) {
       if (
         !orderPress.dragging &&
