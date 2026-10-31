@@ -49,6 +49,11 @@ const A = { x: TCT.x - 26, y: TCT.y };
 for (let dy = -10; dy <= 10; dy++) for (let dx = -10; dx <= 10; dx++) send({ type: "testHook", op: "setTileRaw", tx: A.x + dx, ty: A.y + dy, tile: T.Empty });
 await hook("setTileRaw", { tx: A.x, ty: A.y, tile: T.Empty });
 const px = (tx) => tx * TILE + TILE / 2;
+// World-gen guardians (a ruin's skeletons, a camp's bandits) can stand in or near the arena: a dormant one
+// woke on the leash knight and killed it. Clear every mob within 16 tiles first.
+for (const m of (await hook("raidState")).mobs) {
+  if (Math.hypot(m.x - px(A.x), m.y - px(A.y)) <= 16 * TILE) await hook("damageMob", { mobId: m.id, amount: 1e6 });
+}
 
 // 1. Separation: two knights spawned on one point end at least a body apart.
 const k1 = (await hook("spawnSoldier", { kind: "knight", x: px(A.x - 6), y: px(A.y - 6) })).id;
@@ -64,8 +69,13 @@ await hook("killColonists", { kind: "knight" });
 await hook("ignorePlayers", { value: false });
 await hook("teleportPlayer", { x: px(A.x + 4), y: px(A.y + 4) });
 const gob = [];
-for (let i = 0; i < 5; i++) gob.push((await hook("spawnMob", { kind: "goblin", tx: A.x + 7, ty: A.y + 4 })).id);
-await ff(50);
+const gobRange = new Map(); // scale pass: a goblin's melee reach grows with its rolled size (tiles)
+for (let i = 0; i < 5; i++) {
+  const g = await hook("spawnMob", { kind: "goblin", tx: A.x + 7, ty: A.y + 4 });
+  gob.push(g.id);
+  gobRange.set(g.id, g.range);
+}
+await ff(80);
 bs = await body();
 const P = { x: px(A.x + 4), y: px(A.y + 4) };
 const onMe = bs.slots.filter(([, s]) => s.key === `p:${myId}`);
@@ -77,7 +87,7 @@ const angles = gm.map((m) => Math.atan2(m.y - P.y, m.x - P.x)).sort((a, b) => a 
 let maxGap = 0;
 for (let i = 0; i < angles.length; i++) maxGap = Math.max(maxGap, ((angles[(i + 1) % angles.length] - angles[i]) + 2 * Math.PI) % (2 * Math.PI) || 2 * Math.PI);
 const spread = 360 - (maxGap * 180) / Math.PI;
-const inRange = gm.filter((m) => Math.hypot(m.x - P.x, m.y - P.y) <= TILE * 0.8 + 0.5).length;
+const inRange = gm.filter((m) => Math.hypot(m.x - P.x, m.y - P.y) <= TILE * (gobRange.get(m.id) ?? 0.8) + 0.5).length;
 if (process.env.DEBUG) for (const m of gm) info(`slot-goblin ${m.id.slice(0, 6)} at ${(m.x - P.x).toFixed(1)},${(m.y - P.y).toFixed(1)} from me (d ${Math.hypot(m.x - P.x, m.y - P.y).toFixed(1)}), target ${m.targetType} ${m.targetId?.slice(0, 6)}, slot ${JSON.stringify(bs.slots.find(([id]) => id === m.id)?.[1])}`);
 result(onMe.length === 5 && slotIdx.size === 5 && minPair >= 13 && spread >= 120 && inRange === 5,
   `5 goblins on one player: ${slotIdx.size} distinct slots, ${inRange} in strike range, closest pair ${minPair.toFixed(1)} px, angular spread ${spread.toFixed(0)} deg`);
