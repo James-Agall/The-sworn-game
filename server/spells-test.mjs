@@ -185,7 +185,13 @@ try {
   await c.hookCall("damageMob", { mobId: far.id, amount: 1e7 });
 
   // ---- spell power: the Abbey Emberstaff (+40%) ----
-  const staff = (await c.hookCall("grantRelic", { relicId: "abbeyEmberstaff" })).item;
+  // A troll killed above can already have dropped the Emberstaff as a random relic (grantRelic then refuses a
+  // second copy): use the one in the pack, or the one already worn.
+  let staff = (await c.hookCall("grantRelic", { relicId: "abbeyEmberstaff" })).item;
+  if (!staff) {
+    const prof = (await c.hookCall("heroState")).profile;
+    staff = [...prof.inventory, ...Object.values(prof.equipment ?? {})].find((i) => i?.relicId === "abbeyEmberstaff");
+  }
   await send({ type: "equipItem", itemId: staff.id, slot: "weapon" });
   await c.hookCall("spellConfig", { resetCooldowns: true });
   await c.freshSnap();

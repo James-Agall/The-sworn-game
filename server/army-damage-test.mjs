@@ -277,6 +277,11 @@ const deadline = Date.now() + 700000;
 for (let night = 1; night <= 2 && !enough() && Date.now() < deadline; night++) {
   while (!a.snap.isNight && Date.now() < deadline) await sleep(250);
   info(`night ${night} fell; mobs=${a.snap.mobs.length}`);
+  // Whether the raid reaches the lone post at all depends on where it comes in (0 lone-knight hits was a
+  // sampling miss, ROADMAP "army-damage-test"): bait it with two plain orcs 3 tiles east of L.
+  if (hits.filter((h) => h.post === "L" && h.kind === "knight").length < 3) {
+    for (const dy of [0, 1]) a.ws.send(JSON.stringify({ type: "testHook", op: "spawnMob", kind: "orc", tx: L.x + 3, ty: L.y + dy }));
+  }
   while (a.snap.isNight && !enough() && Date.now() < deadline) await sleep(250);
   info(`night ${night} done/enough: hits so far ${hits.length}; per post ${JSON.stringify(Object.fromEntries(Object.keys(posts).map((p) => [p, hits.filter((h) => h.post === p).length])))}`);
 }

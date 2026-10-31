@@ -255,7 +255,8 @@ if (ONLY.has("B")) {
     const watch = (s) => {
       minPlayerHp = Math.min(minPlayerHp, a.me(s).hp);
       for (const m of s.mobs) {
-        if (guardianIds.has(m.id)) continue;
+        // Forts phase C: a settlement's folk (town* kinds: workers walking home at night) are not raiders.
+        if (guardianIds.has(m.id) || m.kind.startsWith("town")) continue;
         const e = seen.get(m.id);
         if (!e) seen.set(m.id, { first: { x: m.x, y: m.y }, last: { x: m.x, y: m.y }, kind: m.kind });
         else e.last = { x: m.x, y: m.y };
@@ -372,7 +373,8 @@ if (ONLY.has("C")) {
     const watch = (s) => {
       minPlayerHp = Math.min(minPlayerHp, a.me(s).hp);
       for (const m of s.mobs) {
-        if (guardianIds.has(m.id)) continue;
+        // Forts phase C: a settlement's folk (town* kinds: workers walking home at night) are not raiders.
+        if (guardianIds.has(m.id) || m.kind.startsWith("town")) continue;
         const e = seen.get(m.id);
         if (!e) seen.set(m.id, { first: { x: m.x, y: m.y }, firstAt: Date.now(), last: { x: m.x, y: m.y }, kind: m.kind });
         else e.last = { x: m.x, y: m.y };

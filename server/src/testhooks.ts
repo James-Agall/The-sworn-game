@@ -52,7 +52,7 @@ import { placementCost, resolveTownCenterPlacement } from "./construction.js";
 import { regimentKey } from "./tactics.js";
 import { createRaidMob, spawnRaid } from "./raids.js";
 import { damageHearth } from "./hearths.js";
-import { GOALS, nightsSurvived } from "./goals.js";
+import { GOALS, nightsSurvived, refreshGoalSnapshot } from "./goals.js";
 import {
   grantRelic, heroKey, heroProfileOf, heroProfileSnapshot, heroSheetsSnapshot, isEquippedKind, pickHeroName,
   playerAttackCooldownTicks, playerMaxHp, spawnHeroColonist,
@@ -691,6 +691,12 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const h = hearths.get(msg.siteId);
     if (h) damageHearth(h, msg.amount, "test");
     reply({ found: !!h, hp: h?.hp ?? null, destroyed: h?.destroyed ?? null });
+  } else if (msg.op === "setGoalIndex" && typeof msg.index === "number") {
+    // Skip (or rewind) the goal track without paying rewards: exact stock checks after a first building /
+    // worker / soldier otherwise see the early goals' payouts (index 3 = past "Arm a unit").
+    state.goalIndex = Math.max(0, Math.min(GOALS.length, Math.floor(msg.index)));
+    refreshGoalSnapshot();
+    reply({ goalIndex: state.goalIndex });
   } else if (msg.op === "goalState") {
     // Goal track, the Castle Ruin and every boss / Castle Ruin guardian (goals-castle-test).
     reply({

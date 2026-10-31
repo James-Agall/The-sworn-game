@@ -3,8 +3,9 @@
 // that still has a free bed (House 1, BigHouse 3, HouseLevel2 5 beds); whoever is left over, or everyone
 // when there are no houses, shelters at the Town Center. `sheltered` is true only while a civilian is
 // within 1.5 tiles of its own shelter, and goes false at dawn.
-//   Day 1:   9 civilians (4 farms, Tailor, Luxury Workshop, Blacksmith, 2 Lumberjacks) + a Knight Post
-//            (mob bait) at a production site away from the TC. No houses.
+//   Day 1:   9 civilians (Orchard + Cotton Farm, Tailor, Luxury Workshop, Blacksmith, 4 Lumberjacks) + a Knight
+//            Post (mob bait) at a production site away from the TC, plus the starting builder. No houses.
+//            (Pastures / Wool Farms are 2x2 since 2026-10-30 and would not fit the ring.)
 //   Night 1: with zero houses, every civilian ends at the TC, sheltered=true.
 //   Dawn 1:  sheltered goes false for everyone.
 //   Day 2:   3 houses at a separate site: H1 House -> BigHouse -> HouseLevel2 when goods allow, H2 + H3 Houses.
@@ -31,7 +32,8 @@ const T = {
   Pasture: 21, Orchard: 22, WoolFarm: 23, CottonFarm: 24, TailorShop: 25, Blacksmith: 26, LuxuryWorkshop: 27,
 };
 const BEDS = { [T.House]: 1, [T.BigHouse]: 3, [T.HouseLevel2]: 5 };
-const CIVILIAN = new Set(["lumberjack", "farmer", "ironMiner", "rockMiner", "farmhand", "artisan"]);
+// The colony's starting builder shelters like any civilian (it takes a bed too).
+const CIVILIAN = new Set(["lumberjack", "farmer", "ironMiner", "rockMiner", "farmhand", "artisan", "builder"]);
 const TILE = 32;
 
 function connect() {
@@ -207,7 +209,7 @@ if (!P) {
 result(await ensureAt(a, P), `walked to production site (${P.x},${P.y}), ${Math.hypot(P.x - TC.x, P.y - TC.y).toFixed(1)} tiles from the TC`);
 // Outer ring (distance 2) minus (0,-2)/(0,+2), which stay open as exits; inner ring stays walkable.
 const prodPlan = [
-  [T.Pasture, -2, -1], [T.Orchard, -2, 0], [T.WoolFarm, -2, 1], [T.CottonFarm, -1, 2],
+  [T.Lumberjack, -2, -1], [T.Orchard, -2, 0], [T.Lumberjack, -2, 1], [T.CottonFarm, -1, 2],
   [T.TailorShop, 1, 2], [T.LuxuryWorkshop, 2, 1], [T.Blacksmith, -1, -2],
   [T.Lumberjack, 1, -2], [T.Lumberjack, 2, -1], [T.KnightPost, 2, 0],
 ];

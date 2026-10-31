@@ -45,7 +45,7 @@ const SOLDIER = new Set(["knight", "archer", "militia", "spearman", "pikeman"]);
 const MILITIA_LINE = new Set(["militia", "spearman", "pikeman"]);
 
 function connect() {
-  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: [], tileUpdates: [], onSnap: null };
+  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: [], tileUpdates: [], onSnap: null, hookResults: new Map() };
   c.ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
     if (m.type === "welcome") {
@@ -60,12 +60,21 @@ function connect() {
       const prev = c.snap;
       c.snap = m;
       if (c.onSnap && prev) c.onSnap(prev, m);
+    } else if (m.type === "testHookResult") {
+      c.hookResults.set(m.op, m);
     } else if (m.type === "tileUpdate") {
       c.tileUpdates.push({ ...m, at: Date.now() });
       c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX] = m.tile;
     }
   });
   c.send = (m) => c.ws.send(JSON.stringify(m));
+  // Test hooks (the runner boots this server with COLONY_TEST_HOOKS=1).
+  c.hook = async (op, args = {}) => {
+    c.hookResults.delete(op);
+    c.send({ type: "testHook", op, ...args });
+    for (let i = 0; i < 300 && !c.hookResults.has(op); i++) await sleep(10);
+    return c.hookResults.get(op);
+  };
   c.me = () => c.snap.players.find((p) => p.id === c.welcome.id);
   c.meTile = () => ({ x: Math.floor(c.me().x / TILE), y: Math.floor(c.me().y / TILE) });
   c.W = () => c.welcome.worldTilesX;
@@ -263,13 +272,18 @@ async function restart(c, label) {
   // A fresh world starts with its own world-gen ruin/encampment guardians, so "mobs cleared" means
   // none of the pre-restart mobs (incl. deserters) survived it.
   const carried = s.mobs.filter((m) => mobIdsBefore.has(m.id)).length;
-  result(s.alcohol === 0 && s.colonists.length === 0 && militia === 0 && carried === 0 && !s.isNight,
+  // A fresh colony starts with one builder (population 1/12).
+  const startOk = s.colonists.length === 1 && s.colonists[0].kind === "builder";
+  result(s.alcohol === 0 && startOk && militia === 0 && carried === 0 && !s.isNight,
     `${label} restart: alcohol=${s.alcohol} colony colonists=${s.colonists.length} militiaLine=${militia} pre-restart mobs(incl. deserters) carried over=${carried} day=${!s.isNight}`);
   // The only colonists a fresh world has are Saint Wren's Abbey's three world-gen clergy (none if no Abbey fit).
   const hasAbbey = c.tiles.includes(ABBEY_HALL);
   result(s.clergy.length === (hasAbbey ? 3 : 0) && s.clergy.every((k) => k.kind === "bishop"),
     `${label} restart: only the Abbey's world-gen clergy remain (${s.clergy.length} bishops at the AbbeyHall, expected ${hasAbbey ? 3 : 0})`);
   checkHappinessFormula(c, `${label} post-restart`);
+  // Past the first goals ("Place a building" +20 wood, "Assign a worker" +20 wood +10 rock, "Arm a unit"
+  // +15 iron): their payouts would land inside the exact cost checks below.
+  await c.hook("setGoalIndex", { index: 3 });
 }
 
 const a = connect();
@@ -292,13 +306,14 @@ await restart(a, "(A0)");
     const P = (dx, dy) => ({ x: s.x + dx, y: s.y + dy });
     const M = P(-1, -1);
     let w0 = a.snap.wood, i0 = a.snap.iron;
+    const pop0 = a.snap.population; // the starting builder
     let r = await placeExpectAt(a, M.x, M.y, T.MilitiaPost);
     await sleep(150);
     let g = atPost(a, M);
     result(r.hit[0]?.tile === T.MilitiaPost && g.length === 2 && g.every((k) => k.kind === "militia" && k.maxHp === 30 && k.hp === 30),
       `(c) Militia Camp placed -> ${g.length} units [${g.map((k) => `${k.kind}:${k.hp}/${k.maxHp}`).join(", ")}]`);
     result(a.snap.wood === w0 - 5 && a.snap.iron === i0 - 5, `(c) Militia Camp cost: wood ${w0}->${a.snap.wood}, iron ${i0}->${a.snap.iron} (-5/-5)`);
-    result(a.snap.population === 0, `(c) militia are population-exempt (pop=${a.snap.population}/${a.snap.populationCap})`);
+    result(a.snap.population === pop0, `(c) militia are population-exempt (pop=${a.snap.population}/${a.snap.populationCap}, ${pop0} before)`);
     const firstIds = g.map((k) => k.id);
 
     w0 = a.snap.wood; i0 = a.snap.iron;
@@ -319,7 +334,7 @@ await restart(a, "(A0)");
     result(ups1.some((u) => u.tileX === M.x && u.tileY === M.y && u.tile === T.MilitiaCamp3) && a.tileAt(M.x, M.y) === T.MilitiaCamp3, `(c) third placement -> MilitiaCamp3 (tile=${a.tileAt(M.x, M.y)})`);
     result(g.length === 10 && g.every((k) => k.kind === "pikeman" && k.maxHp === 80 && k.hp === 80),
       `(c) tier 3: ${g.length} units, kinds=${[...new Set(g.map((k) => k.kind))]}, hp=${[...new Set(g.map((k) => `${k.hp}/${k.maxHp}`))]}`);
-    result(a.snap.population === 0, `(c) still population-exempt at tier 3 (pop=${a.snap.population})`);
+    result(a.snap.population === pop0, `(c) still population-exempt at tier 3 (pop=${a.snap.population})`);
 
     // Commandable: move order + task force assignment are accepted by the server for the militia line.
     const ids = g.map((k) => k.id);
@@ -388,9 +403,9 @@ await restart(a, "(B0)");
     }
     checkHappinessFormula(a, "(b) mid-phase");
 
-    // Wait for enough wood for House #3 + Tavern (10 + 20) and rock (10).
-    info(`waiting for wood >= 30 (wood=${a.snap.wood})`);
-    const enough = await waitFor(a, (sn) => sn.wood >= 30, 150000);
+    // Wait for enough wood for House #3 + Tavern (20 + 20) and rock (5 + 10).
+    info(`waiting for wood >= 40 (wood=${a.snap.wood})`);
+    const enough = await waitFor(a, (sn) => sn.wood >= 40, 240000);
     result(enough, `(B) lumberjack accumulated wood=${a.snap.wood}`);
     if (enough) {
       await ensureAt(a, s);
@@ -401,8 +416,8 @@ await restart(a, "(B0)");
       r = await placeExpectAt(a, T1.x, T1.y, T.Tavern);
       await sleep(200);
       const tav = atPost(a, T1);
-      result(r.hit[0]?.tile === T.Tavern && tav.length === 1 && tav[0].kind === "artisan" && a.snap.wood === w1 - 20 && a.snap.rock === k1 - 10,
-        `(d) Tavern placed -> ${tav[0]?.kind}; wood ${w1}->${a.snap.wood} (-20), rock ${k1}->${a.snap.rock} (-10)`);
+      result(r.hit[0]?.tile === T.Tavern && tav.length === 1 && tav[0].kind === "artisan" && a.snap.wood >= w1 - 20 && a.snap.wood <= w1 - 20 + 6 && a.snap.rock === k1 - 10,
+        `(d) Tavern placed -> ${tav[0]?.kind}; wood ${w1}->${a.snap.wood} (-20, + a lumberjack delivery landing in the window), rock ${k1}->${a.snap.rock} (-10)`);
       const hAfter = checkHappinessFormula(a, "(d) after Tavern");
       result(a.snap.happiness > hBefore.value && hAfter.tavernScore === 100,
         `(d) happiness rose ${hBefore.value} -> ${a.snap.happiness} with Tavern covering ${hAfter.posts}/${hAfter.posts} posts (all within 6 tiles)`);
@@ -447,11 +462,20 @@ await restart(a, "(C0)");
       events.push({ at: next.at, dawn: prev.isNight && !next.isNight, happinessPrev: prev.happiness, gone, newMobs });
     };
     let lowSeen = false;
-    // Day 60s + night 40s: each low-happiness dawn deserts each soldier with 15% chance, so watch up to 3 dawns.
-    const until = Date.now() + 330000;
-    while (Date.now() < until) {
-      await sleep(250);
-      if (a.snap.happiness < 35) lowSeen = true;
+    // Each low-happiness dawn deserts each soldier with 15% chance, so watch up to 6 dawns. Days are 300 s +
+    // 75 s nights: once the grain is gone, skip (setCycleTick) to 4 s before each dawn instead of waiting.
+    const rs = await a.hook("raidState");
+    const cycle = rs.dayTicks + rs.nightTicks;
+    await waitFor(a, (sn) => sn.grain === 0, 120000);
+    for (let dawn = 0; dawn < 6; dawn++) {
+      const now = (await a.hook("raidState")).cycleTick;
+      await a.hook("setCycleTick", { tick: (Math.floor(now / cycle) + 1) * cycle - 80 });
+      const until = Date.now() + 8000;
+      while (Date.now() < until) {
+        await sleep(250);
+        if (a.snap.happiness < 35) lowSeen = true;
+        if (events.some((ev) => ev.dawn && ev.newMobs.length > 0)) break;
+      }
       if (events.some((ev) => ev.dawn && ev.newMobs.length > 0)) break;
     }
     a.onSnap = null;

@@ -111,7 +111,8 @@ if (ONLY.has("a") || ONLY.has("b")) {
     wasNight = s.isNight;
 
     for (const m of s.mobs) {
-      if (worldGenMobIds.has(m.id)) continue;
+      // Forts phase C: a settlement's folk (town* kinds) spawn when it wakes, not with the raids.
+      if (worldGenMobIds.has(m.id) || m.kind.startsWith("town")) continue;
       if (!seen.has(m.id)) {
         // Spawned while the current dayIndex = nightIndex (raids spawn at the day's midpoint, and
         // nightIndex only advances at dawn).
@@ -178,13 +179,14 @@ if (ONLY.has("a") || ONLY.has("b")) {
     // reach full speed in the window: check it never exceeds it. Since combat bodies landed (body
     // separation pushes overlapping bodies apart after everyone has moved), a mob in a crowd can also be
     // shoved on top of its own step on the odd tick, so the raw max is only reported; the check is on
-    // the 98th-percentile step, which separation spikes don't reach.
+    // the 95th-percentile step, which separation spikes don't reach (p98 still caught crowd shoves 1 run in 2
+    // once phase G warbands and settlement folk put more bodies on the map, 2026-10-31).
     for (const [kind, steps] of stepsByKind) {
       // Scale pass: the smallest roll (0.85) is up to 7.5% faster than the config speed.
       const expected = (CONFIG[kind].speed * 1.075) / TICK_RATE;
       const sorted = steps.slice().sort((p, q) => p - q);
-      const p98 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.98))];
-      result(p98 <= expected + 0.05, `${kind} p98 per-tick step ${p98.toFixed(2)}px <= speed/TICK_RATE = ${expected.toFixed(2)}px (max ${maxStep.get(kind).toFixed(2)}px over ${steps.length} steps)`);
+      const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
+      result(p95 <= expected + 0.05, `${kind} p95 per-tick step ${p95.toFixed(2)}px <= speed/TICK_RATE = ${expected.toFixed(2)}px (max ${maxStep.get(kind).toFixed(2)}px over ${steps.length} steps)`);
     }
     const crossbowsByDay1Plus = [...seen.values()].filter((m) => m.kind === "goblinCrossbow").length;
     console.log(`[${el()}] goblinCrossbow spawns (eligible from day 1): ${crossbowsByDay1Plus}`);

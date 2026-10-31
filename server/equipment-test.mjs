@@ -105,6 +105,9 @@ try {
   // Idle soldiers re-arm from the stock since 2026-10-30 (farm-gear-test covers it): off here, so the exact
   // stock checks below only see spawns, drops and loot.
   await c.hookCall("gearPickupConfig", { enabled: false });
+  // Past the first goals ("Place a building" +20 wood, "Assign a worker" +20 wood +10 rock, "Arm a unit"
+  // +15 iron): their payouts would land inside the exact forge-cost checks.
+  await c.hookCall("setGoalIndex", { index: 3 });
   await c.hookCall("setStock", { stock: { wood: 1000, rock: 1000, iron: 1000, tools: 0, grain: 2000, gold: 500 } });
   let snap = await c.freshSnap();
   const tc = { x: snap.townCenters[0].x, y: snap.townCenters[0].y };
@@ -175,7 +178,20 @@ try {
   await c.hookCall("setEquipment", { armour: [1, 2, 0], weapon: [1, 1, 0] });
 
   // ---- E: spawning takes the best tier ----
-  const spot = { x: (tc.x + 10) * TILE + 16, y: tc.y * TILE + 16 };
+  // Random worlds: the nominal spots can be water / trees (spawnSoldier then refuses); take the nearest run
+  // of `len` Empty tiles in a row instead.
+  const emptyRowNear = (cx, cy, len) => {
+    for (let r = 0; r < 12; r++)
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = cx + dx;
+          const y = cy + dy;
+          if (Array.from({ length: len }, (_, i) => c.tileAt(x + i, y)).every((t) => t === T.Empty)) return { x: x * TILE + 16, y: y * TILE + 16 };
+        }
+    return { x: cx * TILE + 16, y: cy * TILE + 16 };
+  };
+  const spot = emptyRowNear(tc.x + 10, tc.y, 3);
   const k1 = (await c.hookCall("spawnSoldier", { kind: "knight", x: spot.x, y: spot.y })).id;
   es = await c.hookCall("equipState");
   let u = es.units.find((x) => x.id === k1);
@@ -200,7 +216,7 @@ try {
 
   // ---- D: damage multipliers ----
   await c.hookCall("setEquipment", { armour: [0, 0, 1], weapon: [0, 0, 1] });
-  const far = { x: (tc.x - 12) * TILE + 16, y: (tc.y + 8) * TILE + 16 };
+  const far = emptyRowNear(tc.x - 12, tc.y + 8, 2);
   const k3 = (await c.hookCall("spawnSoldier", { kind: "knight", x: far.x, y: far.y, stance: "aggressive" })).id;
   es = await c.hookCall("equipState");
   u = es.units.find((x) => x.id === k3);
@@ -224,7 +240,8 @@ try {
   // ---- L: drops ----
   await c.hookCall("equipConfig", { dropChance: 1 });
   await c.hookCall("setEquipment", { armour: [0, 0, 0], weapon: [0, 0, 0] });
-  const mt = { tx: tc.x - 20, ty: tc.y - 20 };
+  const mtPx = emptyRowNear(tc.x - 20, tc.y - 20, 1);
+  const mt = { tx: Math.floor(mtPx.x / TILE), ty: Math.floor(mtPx.y / TILE) };
   const ev1 = c.events.length;
   const orc = await c.hookCall("spawnMob", { kind: "armoredOrc", ...mt });
   await c.hookCall("damageMob", { mobId: orc.id, amount: 100000 });

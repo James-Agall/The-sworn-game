@@ -25,7 +25,7 @@ const TILE = 32;
 const REACH = TILE * 2.5;
 
 function connect() {
-  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, firstSnap: null, tiles: [], tileUpdates: [], snaps: [] };
+  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, firstSnap: null, tiles: [], tileUpdates: [], snaps: [], hookResults: new Map() };
   c.ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
     if (m.type === "welcome") {
@@ -43,12 +43,20 @@ function connect() {
       }
       c.snap = m;
       if (c.recordSnaps) c.snaps.push(m);
+    } else if (m.type === "testHookResult") {
+      c.hookResults.set(m.op, m);
     } else if (m.type === "tileUpdate") {
       c.tileUpdates.push({ ...m, prev: c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX], at: Date.now() });
       c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX] = m.tile;
     }
   });
   c.send = (m) => c.ws.send(JSON.stringify(m));
+  c.hook = async (op, args = {}) => {
+    c.hookResults.delete(op);
+    c.send({ type: "testHook", op, ...args });
+    for (let i = 0; i < 300 && !c.hookResults.has(op); i++) await sleep(10);
+    return c.hookResults.get(op);
+  };
   c.me = () => c.snap.players.find((p) => p.id === c.welcome.id);
   c.meTile = () => ({ x: Math.floor(c.me().x / TILE), y: Math.floor(c.me().y / TILE) });
   c.W = () => c.welcome.worldTilesX;
@@ -304,7 +312,10 @@ let ljPos = null, houses1 = [];
     }
     await sleep(300);
     result(placed === 3 && knights().length === 4, `(3) 3 houses around the KnightPost accepted (${placed}); knights=${knights().length} (expected 4 = 1 + 3)`);
-    result(a.snap.populationCap === capK + 8, `(3) cap ${capK}->${a.snap.populationCap} (expected +8 = 3 houses + 3 house-post pairs + 2 diagonal house-house pairs)`);
+    // The housing gain is +8; the effective cap is clamped by the Town Center's tier ceiling (20 at Lv1).
+    const tierCap = a.snap.townCenters[0]?.populationTierCap ?? Infinity;
+    const wantCap = Math.min(capK + 8, tierCap);
+    result(a.snap.populationCap === wantCap, `(3) cap ${capK}->${a.snap.populationCap} (expected min(+8, tier cap ${tierCap}) = ${wantCap}: 3 houses + 3 house-post pairs + 2 diagonal house-house pairs)`);
     const last = N.find((p) => a.tileAt(p.x, p.y) === T.Empty);
     if (last && !(last.x === s.x && last.y === s.y)) {
       // The knights idle on their post's only open side, and a tile with a colonist on it is rejected
@@ -339,12 +350,14 @@ let ljPos = null, houses1 = [];
 // ---- (4) night shelter: a worker goes to a nearby house with a free bed ----
 // (Overflow to the Town Center when beds run out is NOT covered here.)
 if (ljPos) {
-  // Need a night with >= 10s left (night is the last 40% of the 100s cycle): if the current night is
-  // nearly over, wait for the next one.
-  const since = Date.now();
-  const nightLeftS = () => (1 - a.snap.cycleProgress) * 100;
-  while (!(a.snap.isNight && nightLeftS() >= 10) && Date.now() - since < 150000) await sleep(250);
-  await sleep(6000);
+  // Days are 300 s + 75 s nights: skip (setCycleTick) to 2 s before nightfall, then give the lumberjack
+  // 10 s of night to walk to a bed.
+  const rs = await a.hook("raidState");
+  const cycle = rs.dayTicks + rs.nightTicks;
+  const day0 = Math.floor(rs.cycleTick / cycle) * cycle;
+  await a.hook("setCycleTick", { tick: (rs.cycleTick % cycle < rs.dayTicks ? day0 : day0 + cycle) + rs.dayTicks - 40 });
+  while (!a.snap.isNight) await sleep(100);
+  await sleep(10000);
   const lj = a.snap.colonists.find((k) => k.kind === "lumberjack" && k.postX === ljPos.x && k.postY === ljPos.y);
   // Beds go to the nearest free house, which may be any house built above (each has 1 bed).
   for (let y = 0; y < a.H(); y++) for (let x = 0; x < a.W(); x++) if (a.tileAt(x, y) === T.House && !houses1.some((h) => h.x === x && h.y === y)) houses1.push({ x, y });

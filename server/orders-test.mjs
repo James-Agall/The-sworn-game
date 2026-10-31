@@ -130,7 +130,7 @@ try {
   const span = Math.max(...ys) - Math.min(...ys);
   // formation.ts for 9 units, normal stance (33.6 px spacing): 6 front cols 38.4 px apart (192 px), archers
   // a 5-wide rear line 2.5 tiles (80 px) behind.
-  result(kn.every((u) => Math.abs(u.rallyX - A.x) < 0.5) && Math.abs(span - 192) < 1, `line: knights on the front line, 192 px wide (span ${span.toFixed(1)})`);
+  result(kn.every((u) => Math.abs(u.rallyX - A.x) < 0.5) && Math.abs(span - 192) < 1, `line: knights on the front line, 192 px wide (span ${span.toFixed(1)}; ${kn.length} knights, rallyX off ${kn.map((u) => (u.rallyX - A.x).toFixed(1)).join("/")}, rallyY ${ys.map((y) => ((y - A.y) / 38.4).toFixed(2)).join("/")}, hp ${kn.map((u) => u.hp).join("/")})`);
   result(ar.every((u) => Math.abs(u.rallyX - (A.x - dir * 80)) < 0.5), "line: archers on the rear line 80 px behind");
   result(units.every((u) => Math.hypot(u.x - u.rallyX, u.y - u.rallyY) < 4), "line: every unit stands on its slot");
   let gs = await groups();

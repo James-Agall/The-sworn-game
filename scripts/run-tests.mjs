@@ -74,7 +74,7 @@ const TIMEOUT_S = {
   "abbey-ward": 1200,
   "army-damage": 1000,
   "halflatch-ward-lapse": 1200,
-  "gravestone-events": 900,
+  "gravestone-events": 1200,
   "ward-priest-patrol": 900,
 };
 

@@ -21,6 +21,13 @@ const BASE = {
   giantSpider: [35, 7], darkShaman: [25, 12], troll: [120, 16], ogre: [220, 28], banditClubman: [30, 7],
   banditArcher: [25, 8], banditElite: [70, 14],
 };
+// Scale pass: every mob rolls a size (raidState / spawnMob `scale`); its hp is base x scale
+// (MOB_SIZE_HP_PER_SCALE 1) and its damage base x (1 + (scale - 1) x 0.5), each rounded, before the mark's
+// x1.5 / x1.25. Compare within rounding.
+const sizedHp = (kind, scale) => BASE[kind][0] * (1 + (scale - 1));
+const sizedDmg = (kind, scale) => BASE[kind][1] * (1 + (scale - 1) * 0.5);
+const nearHp = (m, mult) => Math.abs(m.maxHp - sizedHp(m.kind, m.scale ?? 1) * mult) <= 1 + 0.5 * mult;
+const nearDmg = (m, mult) => Math.abs(m.damage - sizedDmg(m.kind, m.scale ?? 1) * mult) <= 0.15 + 0.5 * mult;
 
 const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, tiles: [], events: [], hook: new Map() };
 c.ws.on("message", (raw) => {
@@ -159,7 +166,7 @@ result(snap.isPaused, "world paused for the test");
   await hook("setColonistHp", { id: wounded.id, hp: Math.round(wounded.maxHp * 0.3) });
   const gunne = await hook("spawnMob", { kind: "goblin", tx: spawn.x, ty: spawn.y, mark: 5 });
   const plain = await hook("spawnMob", { kind: "goblin", tx: spawn.x, ty: spawn.y });
-  result(gunne.mark === 5 && gunne.maxHp === Math.round(18 * 1.5) && gunne.damage === Math.round(4 * 1.25), `marked goblin hp ${gunne.maxHp} dmg ${gunne.damage} (x1.5 / x1.25)`);
+  result(gunne.mark === 5 && nearHp({ ...gunne, kind: "goblin" }, 1.5) && nearDmg({ ...gunne, kind: "goblin" }, 1.25), `marked goblin hp ${gunne.maxHp} dmg ${gunne.damage} at size ${gunne.scale} (x1.5 / x1.25)`);
   await ff(1);
   const rs = await hook("raidState");
   const g = rs.mobs.find((m) => m.id === gunne.id);
@@ -208,11 +215,11 @@ result(snap.isPaused, "world paused for the test");
   const marked = raiders.filter((m) => m.mark > 0);
   const cap = Math.max(1, Math.floor(raiders.length / 5));
   result(raiders.length > 0 && marked.length === cap, `day ${day}: ${raiders.length} raiders, ${marked.length} marked (cap ${cap})`);
-  const boosted = marked.every((m) => m.maxHp === Math.round(BASE[m.kind][0] * 1.5) && m.damage === Math.round(BASE[m.kind][1] * 1.25) && m.hp === m.maxHp);
+  const boosted = marked.every((m) => nearHp(m, 1.5) && nearDmg(m, 1.25) && m.hp === m.maxHp);
   result(boosted, `marked raiders have x1.5 hp / x1.25 damage (${marked.map((m) => `${m.kind}:${m.mark}`).join(", ")})`);
   // Siege engines (batteringRam / catapult, Cavalry & siege) ride along unmarked with derived stats: skip them.
-  const unboosted = raiders.filter((m) => !m.mark && BASE[m.kind]).every((m) => m.maxHp === BASE[m.kind][0]);
-  result(unboosted, "unmarked raiders keep base hp");
+  const unboosted = raiders.filter((m) => !m.mark && BASE[m.kind]).every((m) => m.maxHp === Math.max(1, Math.round(sizedHp(m.kind, m.scale ?? 1))));
+  result(unboosted, "unmarked raiders keep base hp (x their size)");
   snap = await freshSnap();
   const inSnap = snap.mobs.filter((m) => m.mark);
   result(inSnap.length === marked.length, `snapshot shows ${inSnap.length} marked mobs`);

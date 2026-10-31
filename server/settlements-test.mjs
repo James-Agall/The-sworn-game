@@ -145,10 +145,23 @@ const raid = await hook("raidState");
 await hook("setCycleTick", { tick: raid.dayTicks + TICK * 5 });
 await tp(gx, gy - 3);
 await ff(TICK * 3);
-await tp(gx, gy - 1);
-await ff(TICK);
-await sleep(150);
-result(((gateFlags(gi) ?? 0) & GATE_FLAG_OPEN) === 0, `O ... and stays shut at night (flags ${gateFlags(gi)})`);
+// The gate still opens at night for the settlement's own awake folk (a worker walking home through it):
+// only judge it while none of them is within the 1.5-tile open range (retry a few seconds).
+const ownNearGate = (st) => st.alive.some((m) => Math.hypot(m.x - (gx + 0.5) * TILE, m.y - (gy + 0.5) * TILE) <= TILE * 2);
+let nightFlags = null;
+for (let i = 0; i < 10; i++) {
+  await tp(gx, gy - 1);
+  await ff(TICK);
+  await sleep(150);
+  if (ownNearGate(await siteOf(id))) {
+    await tp(gx, gy - 3);
+    await ff(TICK * 3);
+    continue;
+  }
+  nightFlags = gateFlags(gi) ?? 0;
+  break;
+}
+result(nightFlags !== null && (nightFlags & GATE_FLAG_OPEN) === 0, `O ... and stays shut at night (flags ${nightFlags})`);
 await hook("setCycleTick", { tick: TICK * 20 });
 
 // ---- A: attack wakes the garrison, relation hook ----

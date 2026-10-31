@@ -159,9 +159,19 @@ result(breweries.every((t) => tileAt(t.x, t.y) === T.Brewery),
   `A: 3 Breweries placed ${breweries.map((t) => `(${t.x},${t.y})`).join(" ")}; grain=${a.snap.grain}, artisans=${a.snap.colonists.filter((c) => c.kind === "artisan").length}`);
 
 // ---------------------------------------------------------------- run until D resolves
-const deadline = Date.now() + 10 * 60000;
+const deadline = Date.now() + 15 * 60000;
 let lastLog = 0;
+const hpCut = new Set();
 while ((!first || first.removedOnDawn === null) && Date.now() < deadline) {
+  // Days are 300 s + 75 s nights: two starving dawns (20 hp) no longer fit the run. Once the food is gone,
+  // cut each artisan to one starving dawn's damage (10) so the next dawn kills them by starvation.
+  if (a.snap.grain + a.snap.meat + a.snap.fruit === 0) {
+    for (const c of a.snap.colonists) {
+      if (c.kind !== "artisan" || hpCut.has(c.id) || c.hp <= 10) continue;
+      hpCut.add(c.id);
+      a.send({ type: "testHook", op: "setColonistHp", id: c.id, hp: 10 });
+    }
+  }
   if (Date.now() - lastLog > 15000) {
     lastLog = Date.now();
     const art = a.snap.colonists.filter((c) => c.kind === "artisan").map((c) => c.hp);

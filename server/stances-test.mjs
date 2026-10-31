@@ -107,11 +107,14 @@ try {
   const archers = [await spawn1("archer", px(8, -6)), await spawn1("archer", px(8, -5))];
   settings(archers, { holdFire: true });
   await ff(2);
-  const skA = await mob("skeleton", 13, -6);
+  const skSpawn = await c.hook("spawnMob", { kind: "skeleton", tx: tc.x + dir * 13, ty: tc.y - 6 });
+  const skA = skSpawn.id;
   await ff(50);
   let st = await state();
   const hpA0 = st.mobs.find((m) => m.id === skA)?.hp;
-  result(hpA0 === 50 && st.colonists.filter((u) => archers.includes(u.id)).every((u) => !u.targetMobId), `hold fire: the skeleton is untouched (hp ${hpA0})`);
+  // Scale pass: the skeleton's HP is 50 x its rolled size, so compare against its own maxHp.
+  const maxA = skSpawn.maxHp;
+  result(hpA0 !== undefined && hpA0 === maxA && st.colonists.filter((u) => archers.includes(u.id)).every((u) => !u.targetMobId), `hold fire: the skeleton is untouched (hp ${hpA0}/${maxA})`);
   await sleep(150);
   const snapFlag = c.snap.colonists.find((u) => u.id === archers[0])?.holdFire === true;
   result(snapFlag, "hold fire: the snapshot carries holdFire");

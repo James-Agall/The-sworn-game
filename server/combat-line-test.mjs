@@ -156,6 +156,11 @@ for (const g of st.groups) {
     if (!m) continue;
     const ex = leader.x - fy * off.x - fx * off.y;
     const ey = leader.y + fx * off.x - fy * off.y;
+    // A slot on a blocked tile (tree, rock, water) or off the map cannot be held: the follower stands as
+    // near as it can, so it says nothing about the formation code.
+    const stx = Math.floor(ex / 32);
+    const sty = Math.floor(ey / 32);
+    if (stx < 0 || sty < 0 || stx >= W || sty >= c.welcome.worldTilesY || c.welcome.tiles[sty * W + stx] !== T.Empty) continue;
     total++;
     if (Math.hypot(m.x - ex, m.y - ey) <= 24) ok++;
     if (process.env.DEBUG) info(`group ${g.id.slice(0, 6)} ${g.faction ?? ""} ${m.kind} off ${Math.hypot(m.x - ex, m.y - ey).toFixed(0)} px (row ${off.row}, offset ${off.x.toFixed(0)},${off.y.toFixed(0)}; leader ${leader.kind} ${leader.x.toFixed(0)},${leader.y.toFixed(0)}; heading ${fx.toFixed(2)},${fy.toFixed(2)})`);
