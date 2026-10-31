@@ -321,8 +321,8 @@ Automated: `npm test -- warbands-test` (19 checks, ~1 min).
 Use a **Creative** game (§6f: instant build, free stock) or a normal game with builders and wood / iron. Tools are in
 the **Combat** tab: **Moat** (`,`) and **Drawbridge** (`/`).
 1. **Dig**: pick Moat and right-drag a line near (not touching) your Town Center: every tile under the pointer gets
-   dug, diagonal drags fill the corner tile too (no diagonal gaps). Normal games: a dig site per tile, 5 s each, 1
-   wood. Art: connected moat water (moat_00-15; if a tile looks wrong / a piece faces the wrong way note the mask); a
+   dug, diagonal drags fill the corner tile too (no diagonal gaps). Normal games: a dig site per tile, 5 s each, 4
+   wood (phase I; was 1). Art: connected moat water (moat_00-15; if a tile looks wrong / a piece faces the wrong way note the mask); a
    tile next to the Town Center is refused ("Too close to the Town Center for a moat").
 2. **Drawbridge**: pick Drawbridge and right-click a moat tile (bare ground is refused: "A drawbridge goes on a moat
    tile"). 25 wood + 10 iron. It shows raised; walk a soldier up: it lowers (art "Lowered"), raises ~2 s after he
@@ -342,6 +342,16 @@ the **Combat** tab: **Moat** (`,`) and **Drawbridge** (`/`).
 8. **Save / load**: moats, drawbridges and their lock survive.
 
 Automated: `npm test -- moats-test` (18 checks).
+
+## 6i. Tuning pass (phase I)
+
+Short checks of the phase I numbers (ROADMAP "Phase I — landed"). A normal game is best (Creative hides costs).
+1. **Moat cost**: the Moat tool's cost text reads "4 wood"; digging a tile takes 4 wood from the stock.
+2. **Iron price**: at a Neutral settlement's trade panel iron costs about 2.5 gold to buy and sells for about 1.1
+   (was 4.2 / 1.8). Buy 5 iron at your Trading Post (8 gold), sell it to a Friendly / Allied settlement: you get less
+   than 8 gold back (no buy-at-the-post, sell-to-the-village profit).
+3. **Settlement purse**: note a Hearthmoor / Ironhold settlement's gold in its trade panel, sleep past a dawn: it
+   rises by about 20 (Riverwatch about 35; was 10 / 10 / 25), up to 600.
 
 ## 7. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.

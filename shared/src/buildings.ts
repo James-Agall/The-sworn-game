@@ -16,8 +16,9 @@ export const BUILD_COSTS = {
   [TileType.Wall]: { wood: 3 },
   [TileType.StoneWall]: { rock: 3 },
   [TileType.Gate]: { wood: 10, rock: 5 },
-  // Moats & drawbridges (phase H): a moat tile is dug for 1 wood, a drawbridge goes on a moat tile.
-  [TileType.Moat]: { wood: 1 },
+  // Moats & drawbridges (phase H): a drawbridge goes on a moat tile. Phase I: moat 1 -> 4 wood (it never
+  // breaks and mobs never target it, so it must not undercut a 3-wood wall).
+  [TileType.Moat]: { wood: 4 },
   [TileType.Drawbridge]: { wood: 25, iron: 10 },
   [TileType.Road]: { rock: 1 },
   [TileType.CobbleRoad]: { rock: 2 },

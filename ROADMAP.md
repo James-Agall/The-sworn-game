@@ -2155,6 +2155,35 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Phase I — landed 2026-10-31 (tuning pass, constants only)
+
+Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §10 "I". Done without the user's playtest, so only numbers with
+a structural problem (an exploit, an undercost, a bottleneck) changed; the rest was reviewed and left for the playtest.
+Browser checklist: MANUAL-TESTS.md §6i. Tests: `npm test -- moats-test trade-test wagons-test quests-test`.
+
+| Constant | Before | After | Why |
+|---|---|---|---|
+| `BUILD_COSTS[Moat]` (shared/src/buildings.ts) | 1 wood | 4 wood | a moat never breaks and is no mob target (they only fill it while the colony has no drawbridge, 300 HP), so it must not cost a third of a 200 HP wood wall (3 wood) |
+| `TRADE_BASE_PRICE.iron` | 3 | 1.8 | sell price is base x 0.6 x (2 - discount), up to x0.81 for a vassal; the Trading Post sells iron at 1.6 a unit (`GOLD_SHOP_PRICES` 8 / 5), so at 3 (sell 1.8-2.43) iron bought at the post resold at a profit at every tier. At 1.8 the best sell is 1.46. Every other good already sells below the post price. Deliver-quest iron rewards (2 x base x qty) drop with it |
+| `SETTLEMENT_PRODUCTION` gold (Hearthmoor / Ironhold / Riverwatch) | 10 / 10 / 25 a dawn | 20 / 20 / 35 | the purse pays for everything the colony sells and for wagon cargo; at 10 a day a settlement could absorb a tenth of a Lv1 wagon's 80-gold cargo per day, and the trade relation cap (6 = 120 gold traded a day) was out of reach once the starting purse was spent. Cap `SETTLEMENT_GOLD_CAP` 600 unchanged |
+
+Reviewed, unchanged (revisit after the playtest):
+- **Raid size** `RAID_BASE_SIZE` 5 + `RAID_SIZE_PER_DAY` 2 x day (uncapped): the long-days caveat (raids relatively
+  easier per hour) still holds; camp punishment (`CAMP_RAID_*`, +10% per tier-3 camp, cap +40%; 3 x tier + day / 4,
+  cap 24) stacks on top on 512 maps (4 camps) and is the intended cost of ignoring them.
+- **Camp / warband growth** `CAMP_GROWTH_DAYS` 4 / 5, `WARBAND_*` (first day 2, every 3-4 days, 5 + day / 5 cap 9):
+  a tier is ~25-37 real minutes; first punishment raid ~day 10-12. No evidence either way.
+- **Settlement garrisons / guards** (`townGuard` 40 HP etc., template rosters): not changed.
+- **Quest rewards** (defend 20 gold per kill needed, clearCamp 60 + 6 per guardian, deliver 2 x base): the numbers sit
+  in quests.ts `postQuest`, not constants.ts; generous on purpose (defend at most 6 kills, once a day). Moving them to
+  constants is a data-tables job, not done here.
+- **Vassal tax** (`TAX_*`, 10-40% every 2 days, relation 3-6): self-limiting (a 40% tax settles the purse at ~5 x the
+  daily production), relation gains outpace the cost.
+- **Moat / drawbridge** other numbers (dig 5 s / 8 s, `MOAT_FILL_HP` 300, drawbridge 25 wood + 10 iron, 450 HP).
+- **Scale-pass HP** (`MOB_SIZE_HP_PER_SCALE` 1, damage 0.5, speed -0.5; ranges 0.85-1.2 / 0.93-1.08): the mean
+  hp x damage stays ~1.02, as designed.
+- **Not done**: perf on 512 with 30 sites / 3 wagons (needs a benchmark run), minimap icons, leash values.
+
 ## Phase H — landed 2026-10-31 (moats and drawbridges)
 
 Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §9 / §10 "H". Commits "Phase H stage 1-3". Test

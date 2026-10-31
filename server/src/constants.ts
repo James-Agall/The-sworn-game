@@ -1706,8 +1706,10 @@ export const RELATION_DRIFT_PER_DAY = 1;
 // Direct trade: base price (gold per unit). Colony buys at base x TRADE_BUY_MARKUP x discount x (1 +
 // TRADE_DAY_STEP x boughtToday); sells at base x TRADE_SELL_FACTOR x (2 - discount) x (1 - TRADE_DAY_STEP x
 // soldToday) (floor TRADE_SELL_FLOOR x base); discount by tier below. Buy > sell at every tier.
+// Phase I: iron 3 -> 1.8. Sell price tops out at base x 0.6 x 1.35 (vassal), and the Trading Post sells iron at
+// 1.6 a unit (GOLD_SHOP_PRICES), so at 3 iron bought there could be resold at a profit at every tier.
 export const TRADE_BASE_PRICE: Record<"wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "clothes" | "tools", number> = {
-  wood: 1, rock: 1.5, iron: 3, grain: 2, meat: 3, fruit: 3, wool: 2, clothes: 6, tools: 8,
+  wood: 1, rock: 1.5, iron: 1.8, grain: 2, meat: 3, fruit: 3, wool: 2, clothes: 6, tools: 8,
 };
 export const TRADE_BUY_MARKUP = 1.4;
 export const TRADE_SELL_FACTOR = 0.6;
@@ -1725,9 +1727,10 @@ export const SETTLEMENT_GOLD_CAP = 600;
 // Daily production at dawn (capped); goods a settlement does not produce are used up by
 // SETTLEMENT_CONSUME_FRACTION a dawn (so it buys them again).
 export const SETTLEMENT_PRODUCTION: Partial<Record<SiteTemplateId, Partial<Record<ResourceKey, number>>>> = {
-  hearthmoor: { grain: 20, fruit: 8, meat: 6, wool: 4, gold: 10 },
-  ironhold: { iron: 8, rock: 15, tools: 1, gold: 10 },
-  riverwatch: { grain: 10, wood: 15, iron: 3, fruit: 4, meat: 3, wool: 3, clothes: 2, gold: 25 },
+  // Phase I: gold 10 / 10 / 25 -> 20 / 20 / 35 (the purse pays for sales, wagons and quests; 10 a day starved trade).
+  hearthmoor: { grain: 20, fruit: 8, meat: 6, wool: 4, gold: 20 },
+  ironhold: { iron: 8, rock: 15, tools: 1, gold: 20 },
+  riverwatch: { grain: 10, wood: 15, iron: 3, fruit: 4, meat: 3, wool: 3, clothes: 2, gold: 35 },
 };
 export const SETTLEMENT_CONSUME_FRACTION = 0.1;
 // ---- Forts phase D2: settlement help quests (quests.ts) ----

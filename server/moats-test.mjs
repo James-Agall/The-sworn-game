@@ -1,7 +1,7 @@
 // Scripted test: moats & drawbridges (forts plan §9 / phase H). Self-contained: boots its OWN 128x128 server
 // with COLONY_TEST_HOOKS=1 on PORT (default 22180) and a temp COLONY_SAVE_DIR, kills its process group after.
 // Run from server/: `node moats-test.mjs`.
-//   P placement: moat 1 wood (not next to the Town Center), drawbridge 25 wood + 10 iron only on a moat, fill = Empty
+//   P placement: moat 4 wood (not next to the Town Center), drawbridge 25 wood + 10 iron only on a moat, fill = Empty
 //   K a raised drawbridge auto-lowers for a knight beside it, raises again when it leaves
 //   B a mob outside a moat ring with a drawbridge storms the drawbridge and stays out; a tower shoots across
 //   R a battering ram breaks the drawbridge -> the tile is Moat again (no gate record)
@@ -118,13 +118,13 @@ await raw(H.x, H.y, T.House);
 await raw(DB.x + 8, DB.y, T.Tower);
 for (const r of ring) await place(r.x, r.y, T.Moat);
 let st = await stock();
-result(ring.every((r) => tileAt(r.x, r.y) === T.Moat) && st.wood === 200 - ring.length, `P: ${ring.length} moat tiles dug for 1 wood each (wood ${st.wood})`);
+result(ring.every((r) => tileAt(r.x, r.y) === T.Moat) && st.wood === 200 - 4 * ring.length, `P: ${ring.length} moat tiles dug for 4 wood each (wood ${st.wood})`);
 await place(H.x + 6, H.y + 6, T.Drawbridge);
 result(tileAt(H.x + 6, H.y + 6) === T.Empty, `P: a drawbridge on bare ground is refused`);
 await place(DB.x, DB.y, T.Drawbridge);
 st = await stock();
 let g = await gateOf(DB.x, DB.y);
-result(tileAt(DB.x, DB.y) === T.Drawbridge && st.wood === 200 - ring.length - 25 && st.iron === 10 && !!g && g.hp?.max === 450,
+result(tileAt(DB.x, DB.y) === T.Drawbridge && st.wood === 200 - 4 * ring.length - 25 && st.iron === 10 && !!g && g.hp?.max === 450,
   `P: drawbridge on the moat for 25 wood + 10 iron, a gate record with 450 HP (wood ${st.wood}, iron ${st.iron})`);
 await tp(tc.x + 2, tc.y + 2);
 await place(tc.x + 1, tc.y, T.Moat);

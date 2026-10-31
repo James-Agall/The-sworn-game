@@ -155,7 +155,7 @@ result(p?.wagon?.leg === "back" && samples > 0 && maxEscortGap <= 8, `T escorts 
 const sold = p?.lastTrip?.sold ?? {};
 let expect = 0;
 for (const [g, n] of Object.entries(sold)) {
-  const base = { wood: 1, rock: 1.5, iron: 3, grain: 2, meat: 3, fruit: 3, wool: 2, clothes: 6, tools: 8 }[g] ?? 0;
+  const base = { wood: 1, rock: 1.5, iron: 1.8, grain: 2, meat: 3, fruit: 3, wool: 2, clothes: 6, tools: 8 }[g] ?? 0;
   let sum = 0;
   for (let i = 0; i < n; i++) sum += Math.max(base * 0.3, base * 0.6 * 1.15 * (1 - 0.01 * i));
   expect += Math.floor(sum);
