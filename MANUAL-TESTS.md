@@ -288,6 +288,34 @@ Quick scenarios (each takes under a minute):
 
 - Creative mode makes this quick: follow ROADMAP.md "Delivered sprite sheets (batch 2) wired" (browser checklist).
 
+## 6h. Warbands and camp growth (phase G)
+
+Use a **Creative** game (§6f), 256 or 512 map. Normal games spawn warbands by themselves from day 2 (one every 3-4
+days, cap 1 at 160 / 2 at 256 / 4 at 512); creative buttons make it instant.
+1. **Spawn**: Creative > World > Warband "bandit" > **Spawn (camps at click)**, then click open ground 70+ tiles from
+   your Town Center. Toast "A bandit warband (N tiles away) heads for the click". Nothing shows yet if it is far from
+   all your units (it walks abstractly).
+2. **On the move**: walk your hero towards the map edge nearest the click. Within ~96 tiles 5-9 bandits appear,
+   walking in a loose pack along a route; within ~20 tiles the toast "A bandit warband is on the move to the ...".
+   They do not attack you on their own. Walk away past ~100 tiles: they vanish (abstract again) and reappear further
+   on when you come back.
+3. **Turns to fight**: shoot one, or step within 5 tiles: toast "The bandit warband turns to fight!", they attack
+   like normal raiders.
+4. **Settle**: spawn another and wait (Day/time buttons or just a minute or two). On arrival a tier-1 camp is stamped:
+   fence ring, tents, campfire, keep; toast "A warband has settled at <name> Palisade" if you saw it. It appears on
+   the minimap once its keep is explored.
+5. **Growth**: click **Grow camp** near it: tier 2 (wood walls, gate, tower), toast "<name> has grown (tier 2)";
+   again: tier 3 (more towers/tents, more garrison, keep 550 HP). Orc ("orc" faction, Grakkar) camps go to tier 4 and
+   dig the moat row before the south gate. Natural growth: Day + 5 (setTime) then walk near it: it catches up.
+6. **Raids**: with a tier-3 camp within ~140 tiles of your Town Center, set the time to dawn and fast-play past noon (camp
+   raids spawn at the raid hour with the normal raid; World > Raid now does NOT include them): toast "Raiders muster at <name>", a
+   group of 9+ comes from the camp's side after nightfall.
+7. **Quests**: a human settlement within 60 tiles of a tier-3 camp posts "Clear the camp" quests much more often.
+8. **Clear**: raze the keep (normal fort rules). It stops growing. After 10 game days a later warband may re-settle
+   the same spot (the ruin is replaced by a fresh tier-1 camp).
+9. **Save / load** with a warband on the move: it is still there after loading (re-appears as bodies within 1 s if near).
+Automated: `npm test -- warbands-test` (19 checks, ~1 min).
+
 ## 7. Units settling on their slots (fix 9ee5a7f)
 1. Select a mixed squad (knights + archers), right-drag a line next to troops already standing idle on their slots.
    Every unit should walk round the idle ones and stop exactly on its slot; nobody left a tile or two short in

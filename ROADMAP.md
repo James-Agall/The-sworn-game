@@ -2155,6 +2155,43 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Phase G — landed 2026-10-31 (wandering warbands found camps; camps grow and punish neglect)
+
+Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §7 / §10 "G" + decision 4 (no camp budding: warbands wander in
+and settle). Commits "Phase G stage 1-3". Test `server/warbands-test.mjs` (port 21660, 19/19, ~1 min). Browser
+checklist: MANUAL-TESTS.md §6h.
+- **Module** `server/src/warbands.ts`; growth / raid-bonus / quest helpers in `sites.ts` (catchUpCampGrowth,
+  applySiteTier, overgrownCampNear, campRaidBonus); tuning in constants.ts ("Forts phase G" block).
+- **Warbands**: spawned at dawn (from day 2, every 3-4 days) while warbands + standing founded camps < cap
+  (round(4 x (size/512)^1.2): 512 4, 256 2, 160 1, none < 128); bandit (Thornwick) or, from day 4, greenskin
+  (Grakkar); 5 + day/5 mobs (cap 9). Camp spot: centre 70-170 tiles from the nearest Town Center (2nd pass >= 60),
+  >= 40 from every site keep / other warband target, siteFitProblem clearable; razed founded camps past the
+  10-day cooldown are preferred (re-settle). Spawn tile: the map edge nearest the spot, >= 60 from every Town Center.
+  Route: findPath segments every 24 tiles (straight-line fallback). Abstract (no mobs) while no player / colonist is
+  within 96 tiles: idx advances by slowest speed x 0.6 per second; bodies (createRaidMob, `Mob.warbandId`, skipped by
+  updateMob, driven by stepWarbandMobs) within 96, abstract again past 104. Toast "A <faction> warband is on the
+  move to the <dir>" within 20 tiles; hit / unit within 5 tiles: dissolves into ordinary hostile mobs. Stuck 15 s:
+  leader hops 3 route tiles. Arrival: stampSiteSearch (12 tiles) at tier 1, garrison = the warband, `founded`;
+  failing that re-target (3 tries) or disband. Toast "A warband has settled at X" when it was sighted.
+- **Growth** (founded camps only; world-gen forts do not grow): one tier per 4 (bandit) / 5 (orc) days + 0/1 dice
+  per (site, tier), lazily: while awake each second, on waking, and at raid spawn time. Paused while provoked;
+  stops when cleared / captured. applySiteTier lays only the cells that change (on Empty / Rubble / own tiles, never
+  under a body), new gates closed, keep max HP by tier (damage fraction kept), garrison roster to 5/8/12/18
+  (template proportions; catchUpSite refills on waking). Thornwick caps at 3, Grakkar 4 (moat row).
+- **Punishment**: spawnCampRaids at the normal raid hour per clan: tier 3 every 2nd night ((day + num) even), tier 4
+  every night, 3 x tier + day/4 (cap 24) of its faction at the nearest Town Center within 140 if it is the active
+  clan's; mustered outside the walls on the TC side (else randomRaidAnchor), passive until raidDepartureTick.
+  spawnRaid size x (1 + 0.1 per tier-3+ camp within 150 tiles, cap 0.4). Settlements within 60 of a tier-3+ camp
+  post quests x3 as often, clearCamp first. (Relation loss for never-cleared camps, gatherer patrols and monster
+  packs were not done.)
+- **Saves**: optional `warbands` {nextSpawnDay, list (route flattened, roster)}; bodies are dropped on load (abstract,
+  re-materialise next second); `SiteState.founded / clearedTick`; flag testWarbandsEnabled.
+- **Tests / tools**: auto-spawn is off with COLONY_TEST_HOOKS unless hook `setWarbands {enabled}`; hooks
+  `spawnWarband`, `warbandsState`, `growSite {siteId, days | tiers | found | clearedDaysAgo}`, `campRaids {day}`.
+  Creative World tab: Warband row (spawn camping at click, grow nearest camp). `npm test -- sites-test settlements`:
+  sites-test passes; settlements-test "O ... stays shut at night" is the known flaky check (passed 1 of 3 runs here,
+  passes without phase G too).
+
 ## Forts phase F — landed 2026-10-30 (vassals: fealty, call to arms, tribute)
 
 Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §6 / §10 "F" + the user spec (2026-10-30). Commits "Phase F stage
