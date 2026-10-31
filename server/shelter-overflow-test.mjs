@@ -282,7 +282,7 @@ result(await ensureAt(a, Hs), `walked to house site (${Hs.x},${Hs.y}), ${Math.hy
 const H1 = { x: Hs.x - 2, y: Hs.y - 1 }, H2 = { x: Hs.x + 2, y: Hs.y - 1 }, H3 = { x: Hs.x, y: Hs.y + 2 };
 const houses = [H1, H2, H3];
 for (const h of [H2, H3, H1]) {
-  while (a.snap.wood < 10 && !a.snap.isNight) await sleep(250);
+  while ((a.snap.wood < 20 || a.snap.rock < 5) && !a.snap.isNight) await sleep(250);
   result(await placeExpect(a, h.x, h.y, T.House), `House placed at (${h.x},${h.y}) (wood now ${a.snap.wood})`);
 }
 // Slow farming: the day-1 farms only deliver after 3 days of tending, so the goods the two house upgrades
@@ -291,15 +291,16 @@ for (const h of [H2, H3, H1]) {
 {
   const st = (await a.hook("setStock", { stock: {} })).stock;
   await a.hook("setStock", {
-    stock: { grain: st.grain + 10, meat: st.meat + 10, fruit: st.fruit + 40, clothes: st.clothes + 5, tools: st.tools + 2, luxuryItems: st.luxuryItems + 1 },
+    stock: { grain: st.grain + 10, meat: st.meat + 10, fruit: st.fruit + 40, clothes: st.clothes + 5, tools: st.tools + 2, luxuryItems: st.luxuryItems + 1, rock: st.rock + 40 },
   });
 }
 // Upgrade H1 as far as the goods allow before night (leave ~6s of day so the result settles).
 const dayLeft = () => !a.snap.isNight && a.snap.cycleProgress < a.snap.dayFraction - 0.03;
 const goods = () => `grain=${a.snap.grain} meat=${a.snap.meat} fruit=${a.snap.fruit} clothes=${a.snap.clothes} tools=${a.snap.tools} lux=${a.snap.luxuryItems} wood=${a.snap.wood}`;
 for (const [from, to, can] of [
-  [T.House, T.BigHouse, (s) => s.grain >= 1 && s.meat >= 1 && s.fruit >= 1 && s.clothes >= 2 && s.wood >= 10],
-  [T.BigHouse, T.HouseLevel2, (s) => s.grain >= 2 && s.meat >= 2 && s.fruit >= 2 && s.clothes >= 3 && s.tools >= 2 && s.luxuryItems >= 1 && s.wood >= 10],
+  // HOUSE_UPGRADE_COSTS: Lv2 20 wood + 10 rock + goods, Lv3 30 wood + 15 rock + goods + 2 tools + 1 luxury.
+  [T.House, T.BigHouse, (s) => s.grain >= 1 && s.meat >= 1 && s.fruit >= 1 && s.clothes >= 2 && s.wood >= 20 && s.rock >= 10],
+  [T.BigHouse, T.HouseLevel2, (s) => s.grain >= 2 && s.meat >= 2 && s.fruit >= 2 && s.clothes >= 3 && s.tools >= 2 && s.luxuryItems >= 1 && s.wood >= 30 && s.rock >= 15],
 ]) {
   if (a.tileAt(H1.x, H1.y) !== from) break;
   while (dayLeft() && !can(a.snap)) await sleep(250);

@@ -10,9 +10,11 @@
 //   D: lumberjacks for wood over day 1, then Barn+plot (grain), 4 farms, Tailor (clothes), House -> BigHouse upgrade
 //      with exact goods deduction.
 //   Final: restart clears everything.
-// Current-server notes: restart stock is wood 80 / iron 60 / rock 60 / grain 60; the Town Center alone gives a
-// population cap of 10 (+ houses + neighbourhood pairs), so "full population" is reached with filler Lumberjack
-// Posts at a separate site; gold per kill scales with the mob (goldForKill). Saint Wren's Abbey clergy
+// Current-server notes (2026-10-31): restart stock is wood 80 / iron 60 / rock 60 / grain 60 and the colony
+// starts with one builder; the Town Center alone gives a population cap of 12 (+ houses + neighbourhood pairs,
+// clamped by the tier ceiling), so "full population" is reached with filler Lumberjack Posts at a separate
+// site; houses cost 20 wood + 5 rock; Pastures / Wool Farms are 2x2 and yield per footprint tile; the first
+// goals' payouts are skipped (setGoalIndex) so exact stock deltas hold; gold per kill scales with the mob (goldForKill). Saint Wren's Abbey clergy
 // (world-gen bishops posted at the AbbeyHall) are not the colony's: they are filtered out of every snapshot's
 // `colonists` (kept in `clergy`), exactly as the server's population does. Run with COLONY_WORLD_SIZE=80.
 import WebSocket from "ws";
@@ -188,6 +190,10 @@ async function walkPath(c, path, timeoutMs = 30000) {
 }
 
 async function ensureAt(c, s) {
+  // Teleport first (test hook): this test is about the economy, and walks across a map with settlements and
+  // warbands on it stalled (0 filler sites reached, 2026-10-31). The walk below is the fallback.
+  await c.hook("teleportPlayer", { x: s.x * TILE + 16, y: s.y * TILE + 16 });
+  await sleep(150);
   for (let attempt = 0; attempt < 3; attempt++) {
     const t = c.meTile();
     const me = c.me();
@@ -308,9 +314,18 @@ function reachableCount(c, from, blockedKey, limit) {
 }
 async function fillPopulationToCap(c, label, avoid, minDist = 10) {
   const posts = [];
-  for (let round = 0; round < 3 && c.snap.population < c.snap.populationCap; round++) {
-    const s = findSite(c, [...avoid, ...posts.map((p) => p.site)], minDist);
-    if (!s || !(await ensureAt(c, s))) break;
+  const tried = [];
+  for (let round = 0; round < 6 && c.snap.population < c.snap.populationCap; round++) {
+    const s = findSite(c, [...avoid, ...tried, ...posts.map((p) => p.site)], minDist);
+    if (!s) {
+      info(`${label} no further 5x5 site >= ${minDist} tiles from the used ones (round ${round})`);
+      break;
+    }
+    tried.push(s);
+    if (!(await ensureAt(c, s))) {
+      info(`${label} could not stand at (${s.x},${s.y}); trying another site`);
+      continue;
+    }
     for (let pass = 0; pass < 2; pass++)
       for (const [dx, dy] of RING) {
         if (c.snap.population >= c.snap.populationCap) break;
@@ -347,12 +362,12 @@ async function clearFillers(c, posts) {
   if (left) info(`clearFillers: ${left} filler post(s) could not be reached and remain`);
 }
 
-// populationCap(): Town Center base 10 + 1/3/5 per House/BigHouse/HouseLevel2 + neighbourhood bonus (+1 per
+// populationCap(): Town Center base 12 + 1/3/5 per House/BigHouse/HouseLevel2 + neighbourhood bonus (+1 per
 // 8-neighbour pair of house/house, counted once, or house/workplace-or-unit building).
 const HOUSE_CAP = { 13: 1, 14: 3, 15: 5 };
 const SYNERGY_BUILDINGS = new Set([3, 16, 9, 10, 20, 21, 22, 23, 24, 25, 26, 27, 30, 31, 49, 5, 17, 18, 6, 19, 32, 33, 34]);
 function expectedCap(c) {
-  let cap = 10;
+  let cap = 12;
   for (let y = 0; y < c.H(); y++)
     for (let x = 0; x < c.W(); x++) {
       const t = c.tileAt(x, y);
@@ -365,7 +380,8 @@ function expectedCap(c) {
         else if (HOUSE_CAP[n] && (dy > 0 || (dy === 0 && dx > 0))) cap++;
       }
     }
-  return cap;
+  // Clamped by the Town Center tier ceiling (20 at Lv1).
+  return Math.min(cap, c.snap.townCenters?.[0]?.populationTierCap ?? Infinity);
 }
 
 // First tile in `list` that is currently Empty with no colonist on it.
@@ -383,12 +399,15 @@ async function restartAndCheck(c, label) {
   result(bad.length === 0, `${label} restart resets all 12 resources (${fmt(s)})${bad.length ? " MISMATCH: " + bad.join(",") : ""}`);
   result(s.marketBuilt === false && s.goldShopBuilt === false, `${label} restart resets marketBuilt=${s.marketBuilt} goldShopBuilt=${s.goldShopBuilt}`);
   const fa = s.colonists.filter((k) => k.kind === "farmhand" || k.kind === "artisan");
-  result(s.colonists.length === 0 && fa.length === 0, `${label} restart leaves no colony colonists (total=${s.colonists.length}, farmhand/artisan=${fa.length})`);
+  result(s.colonists.length === 1 && s.colonists[0].kind === "builder" && fa.length === 0,
+    `${label} restart leaves only the starting builder (total=${s.colonists.length} ${s.colonists.map((k) => k.kind)}, farmhand/artisan=${fa.length})`);
   // The only colonists a fresh world has are Saint Wren's Abbey's three world-gen clergy (none if no Abbey fit).
   const hasAbbey = c.tiles.includes(ABBEY_HALL);
   result(s.clergy.length === (hasAbbey ? 3 : 0) && s.clergy.every((k) => k.kind === "bishop"),
     `${label} restart: only the Abbey's world-gen clergy remain (${s.clergy.length} bishops at the AbbeyHall, expected ${hasAbbey ? 3 : 0})`);
   result(s.food === undefined, `${label} snapshot no longer carries retired 'food' field (food=${s.food})`);
+  // Past the first goals ("Place a building" +20 wood, "Assign a worker" +20 wood +10 rock, "Arm a unit" +15 iron).
+  await c.hook("setGoalIndex", { index: 3 });
 }
 
 const a = connect();
@@ -422,15 +441,18 @@ await restartAndCheck(a, "(A0)");
     await placeExpectAt(a, H3.x, H3.y, T.House);
     await placeExpectAt(a, H4.x, H4.y, T.House);
     await sleep(150);
-    // Cap = Town Center base 10 + 4 houses + neighbourhood pairs (H1/H2 and H3/H4 touch); 4 x 10 wood spent.
-    result(a.snap.populationCap === expectedCap(a) && a.snap.populationCap === 16 && a.snap.wood === 80 - 40,
-      `(A) 4 houses: popCap=${a.snap.populationCap} (expected ${expectedCap(a)} = 10 + 4 + 2 house pairs) wood=${a.snap.wood} (expected 40)`);
+    // Cap = Town Center base 12 + 4 houses + neighbourhood pairs (H1/H2 and H3/H4 touch); 4 x (20 wood + 5 rock).
+    result(a.snap.populationCap === expectedCap(a) && a.snap.populationCap === 18 && a.snap.wood === 80 - 80 && a.snap.rock === 60 - 20,
+      `(A) 4 houses: popCap=${a.snap.populationCap} (expected ${expectedCap(a)} = 12 + 4 + 2 house pairs) wood=${a.snap.wood} (expected 0) rock=${a.snap.rock} (expected 40)`);
+    // The 2x2 paddocks cost 10 wood each; the houses took it all.
+    await a.hook("setStock", { stock: { wood: 40 } });
 
+    // Pastures / Wool Farms are 2x2 (anchor = top-left): they take the two lower corners of the 5x5 box.
     const farms = [
-      { name: "Pasture", tile: T.Pasture, pos: P(0, -2), res: "meat" },
-      { name: "Orchard", tile: T.Orchard, pos: P(0, 2), res: "fruit" },
-      { name: "WoolFarm", tile: T.WoolFarm, pos: P(-1, 1), res: "wool" },
-      { name: "CottonFarm", tile: T.CottonFarm, pos: P(1, 1), res: "cotton" },
+      { name: "Pasture", tile: T.Pasture, pos: P(1, 1), res: "meat", tiles: 4 },
+      { name: "Orchard", tile: T.Orchard, pos: P(0, -2), res: "fruit", tiles: 1 },
+      { name: "WoolFarm", tile: T.WoolFarm, pos: P(-2, 1), res: "wool", tiles: 4 },
+      { name: "CottonFarm", tile: T.CottonFarm, pos: P(0, 2), res: "cotton", tiles: 1 },
     ];
     const firstChange = {};
     a.onSnap = (prev, next) => {
@@ -459,7 +481,7 @@ await restartAndCheck(a, "(A0)");
     });
     info(`(a/b) fast-forwarded ${ff.ran} ticks (${(ff.ran / 2000).toFixed(1)} days) to the first batches: ${JSON.stringify(firstBatch)}`);
     for (const f of farms) {
-      result(firstBatch[f.res] === 90, `(a/b) ${f.name} -> ${f.res} first delivery 0 -> ${firstBatch[f.res]} in one batch (FARMHAND_YIELD_PER_CYCLE = 90)`);
+      result(firstBatch[f.res] === 90 * f.tiles, `(a/b) ${f.name} -> ${f.res} first delivery 0 -> ${firstBatch[f.res]} in one batch (FARMHAND_YIELD_PER_CYCLE 90 x ${f.tiles} footprint tile(s))`);
     }
     result(ff.ok, `(a/b) all four farm resources produced: ${farms.map((f) => `${f.res}=${a.snap[f.res]}`).join(" ")}`);
     // If that ended at night, skip to the next dawn; the farmhands then walk back from their shelter.
@@ -473,34 +495,37 @@ await restartAndCheck(a, "(A0)");
     await waitFor(a, () => kinds(a, "farmhand").every((k) => k.state === "farming"), 15000);
     const states = kinds(a, "farmhand").map((k) => k.state);
     result(states.length === 4 && states.every((st) => st === "farming"), `(a/b) farmhand states: ${states.join(",")}`);
-    result(a.snap.population === 4 && a.snap.populationCap === expectedCap(a),
-      `(A) population ${a.snap.population}/${a.snap.populationCap} (expected 4 / ${expectedCap(a)}: farms beside houses add neighbourhood pairs)`);
+    result(a.snap.population === 5 && a.snap.populationCap === expectedCap(a),
+      `(A) population ${a.snap.population}/${a.snap.populationCap} (expected 5 = 4 farmhands + the builder / ${expectedCap(a)}: farms beside houses add neighbourhood pairs)`);
 
     // Reach full population: fill the remaining slots with filler Lumberjack Posts at a separate site.
-    const fillers = await fillPopulationToCap(a, "(A)", [s], 12);
+    const fillers = await fillPopulationToCap(a, "(A)", [s], 8);
+    // A round can run out of reachable 5x5 sites one slot short: one more pass, closer in.
+    if (a.snap.population < a.snap.populationCap) fillers.push(...(await fillPopulationToCap(a, "(A) top-up", [s, ...fillers.map((p) => p.site)], 5)));
     const fullPop = a.snap.population;
     result(fullPop === a.snap.populationCap && kinds(a, "farmhand").length === 4,
       `(A) population filled to the cap: ${fullPop}/${a.snap.populationCap} (4 farmhands + ${fillers.length} fillers)`);
     await ensureAt(a, s);
 
     // Pop gate: a 5th non-adjacent farm at full population is rejected.
-    const X = P(1, -1);
+    const X = P(2, -2);
     let ups = await act(a, X.x, X.y, T.Orchard);
     result(!ups.some((u) => u.tileX === X.x && u.tileY === X.y) && kinds(a, "farmhand").length === 4,
       `(A) population-gated: 5th farm (Orchard at (${X.x},${X.y}), not next to an Orchard) rejected at full pop`);
     // Same-type placement ON the existing building at full pop upgrades it in place (no tileUpdate, no new worker).
-    const U = P(0, -2); // the Pasture itself
+    const U = P(1, 1); // the Pasture's anchor
     const evSince = Date.now();
     ups = await act(a, U.x, U.y, T.Pasture);
     const upEv = a.events.filter((e) => e.at >= evSince && e.category === "upgrade").map((e) => e.text);
     result(!ups.some((u) => u.tileX === U.x && u.tileY === U.y) && a.tileAt(U.x, U.y) === T.Pasture && kinds(a, "farmhand").length === 4 && a.snap.population === fullPop &&
       upEv.includes("Pasture upgraded to level 2"),
       `(A) Pasture placed ON the Pasture at full pop -> in-place upgrade (tile ${a.tileAt(U.x, U.y)}, farmhands=${kinds(a, "farmhand").length}, pop=${a.snap.population}, events=${JSON.stringify(upEv)})`);
-    // Placed on an empty tile next to a Pasture it is a new standalone building, so it is population-gated.
+    // Placed on an empty tile next to an Orchard it is a new standalone building, so it is population-gated
+    // (no 2x2 Pasture fits beside the Pasture any more).
     const N = P(1, -2);
-    ups = await act(a, N.x, N.y, T.Pasture);
+    ups = await act(a, N.x, N.y, T.Orchard);
     result(!ups.some((u) => u.tileX === N.x && u.tileY === N.y) && kinds(a, "farmhand").length === 4,
-      `(A) Pasture on an empty tile next to a Pasture at full pop is a new building and rejected (farmhands=${kinds(a, "farmhand").length})`);
+      `(A) Orchard on an empty tile next to the Orchard at full pop is a new building and rejected (farmhands=${kinds(a, "farmhand").length})`);
   }
 }
 
@@ -522,8 +547,8 @@ await restartAndCheck(a, "(B0)");
     w0 = a.snap.wood;
     let r = await placeExpectAt(a, M.x, M.y, T.Market);
     await sleep(100);
-    result(r.hit[0]?.tile === T.Market && a.snap.marketBuilt === true && a.snap.wood === w0 - 15 && a.snap.colonists.length === 0,
-      `(f) Market placed: marketBuilt=${a.snap.marketBuilt}, wood ${w0}->${a.snap.wood} (-15), no worker spawned (colonists=${a.snap.colonists.length}), pop=${a.snap.population}`);
+    result(r.hit[0]?.tile === T.Market && a.snap.marketBuilt === true && a.snap.wood === w0 - 15 && a.snap.colonists.length === 1,
+      `(f) Market placed: marketBuilt=${a.snap.marketBuilt}, wood ${w0}->${a.snap.wood} (-15), no worker spawned (colonists=${a.snap.colonists.length}: the builder), pop=${a.snap.population}`);
 
     w0 = a.snap.wood; i0 = a.snap.iron;
     a.send({ type: "exchangeResource", from: "wood", to: "iron" });
@@ -556,8 +581,8 @@ await restartAndCheck(a, "(B0)");
     const placedAt = Date.now();
     await sleep(100);
     const art = atPost(a, "artisan", B);
-    result(r.hit[0]?.tile === T.Blacksmith && art.length === 1 && a.snap.population === 1,
-      `(c) Blacksmith placed: artisan spawned=${art.length} state=${art[0]?.state} pop=${a.snap.population}; cost wood ${w0}->${a.snap.wood} iron ${i0}->${a.snap.iron}`);
+    result(r.hit[0]?.tile === T.Blacksmith && art.length === 1 && a.snap.population === 2,
+      `(c) Blacksmith placed: artisan spawned=${art.length} state=${art[0]?.state} pop=${a.snap.population} (+ the builder); cost wood ${w0}->${a.snap.wood} iron ${i0}->${a.snap.iron}`);
     result(a.snap.wood === w0 - 10 && a.snap.iron === i0 - 5, `(c) Blacksmith cost exactly 10 wood + 5 iron`);
     const woodAfterBuild = a.snap.wood; // expected 2-4 -> makes that many tools then stalls
     info(`(c) wood after build = ${woodAfterBuild}, iron = ${a.snap.iron}, isNight=${a.snap.isNight}`);
@@ -624,9 +649,16 @@ await restartAndCheck(a, "(C0)");
       goldExpected += exp;
       if (dGold !== exp) mismatches++;
     };
-    info(`(e) waiting for night + mob kills (isNight=${a.snap.isNight})...`);
-    // Day is 60s, night 40s: allow up to two nights of kills.
-    const gotGold = await waitFor(a, (sn) => sn.gold >= 15, 200000);
+    // Days are 300 s now, so rather than waiting for a raid, goblins are spawned in the auto-defend's reach
+    // (testHook spawnMob): the player's own blows kill them and pay goldForKill each.
+    info(`(e) spawning goblins next to the player for live kills`);
+    // A goblin pays 3 gold; the Gold Shop checks below need >= 15.
+    for (let i = 0; i < 6; i++) {
+      const me = a.meTile();
+      await a.hook("spawnMob", { kind: "goblin", tx: me.x + 1, ty: me.y });
+      await waitFor(a, (sn) => !sn.mobs.some((m) => m.kind === "goblin" && Math.hypot(m.x - a.me().x, m.y - a.me().y) < TILE * 3), 20000);
+    }
+    const gotGold = await waitFor(a, (sn) => sn.gold >= 15, 20000);
     await sleep(200);
     a.onSnap = null;
     result(gotGold && kills > 0 && goldGained === goldExpected && mismatches === 0,
@@ -685,45 +717,14 @@ await restartAndCheck(a, "(D0)");
   if (s) {
     const P = (dx, dy) => ({ x: s.x + dx, y: s.y + dy });
     const H1 = P(-2, 0), H2 = P(-2, -1);
-    const L1 = P(0, -2), L2 = P(0, 2);
-    const spare = [P(2, 0), P(2, 1), P(2, -1), P(1, 1), P(-1, 1), P(1, -1), P(-1, -1), P(1, 2), P(-1, 2), P(2, 2)];
     await placeExpectAt(a, H1.x, H1.y, T.House);
     await placeExpectAt(a, H2.x, H2.y, T.House);
-    await placeExpectAt(a, L1.x, L1.y, T.Lumberjack);
-    await placeExpectAt(a, L2.x, L2.y, T.Lumberjack);
-    info(`(D) 2 houses + 2 lumberjacks; wood=${a.snap.wood}; banking wood (need 45) — spans a night`);
-    const enoughWood = await waitFor(a, (sn) => sn.wood >= 45 && !sn.isNight, 110000);
-    info(`(D) wood=${a.snap.wood} isNight=${a.snap.isNight} enough=${enoughWood}`);
-    await ensureAt(a, s);
-    await placeExpectAt(a, L1.x, L1.y, T.Empty);
-    await placeExpectAt(a, L2.x, L2.y, T.Empty);
-    const H3 = pickEmpty(a, spare);
-    await placeExpectAt(a, H3.x, H3.y, T.House); // goods still 0 -> plain cap house
-    const Barn = P(0, -2), Plot = P(1, -2);
-    await placeExpectAt(a, Barn.x, Barn.y, T.Barn);
-    await placeExpectAt(a, Plot.x, Plot.y, T.FarmPlot);
-    info(`(D) pop ${a.snap.population}/${a.snap.populationCap}, wood=${a.snap.wood}`);
-    // Pasture + Orchard in the two free slots.
-    const F1 = P(0, 2), F2 = pickEmpty(a, spare.filter((p) => !(p.x === H3.x && p.y === H3.y)));
-    info(`(D) H3=(${H3.x},${H3.y}) F2=(${F2.x},${F2.y}) pop ${a.snap.population}/${a.snap.populationCap}`);
-    await placeExpectAt(a, F1.x, F1.y, T.Pasture);
-    await placeExpectAt(a, F2.x, F2.y, T.Orchard);
-    // A skipped day's raid would otherwise turn up in real time mid-phase (passive raiders marching on
-    // the colony after the fast-forward); this phase is about goods, so raids stay off until it ends.
+    // Phase A covers the farms; here the goods the Lv2 house needs are granted (testHook setStock): meat and
+    // fruit for the upgrade, wool and cotton for the Tailor, wood / rock for HOUSE_UPGRADE_COSTS[0].
     raidsWanted = false;
-    const ffMF = await fastForwardUntil(a, (st) => st.meat >= 2 && st.fruit >= 2, 10 * 2000);
-    info(`(D) fast-forwarded ${ffMF.ran} ticks for meat/fruit: meat=${a.snap.meat} fruit=${a.snap.fruit}`);
-    await ensureAt(a, s);
-    await placeExpectAt(a, F1.x, F1.y, T.Empty);
-    await placeExpectAt(a, F2.x, F2.y, T.Empty);
-    await placeExpectAt(a, F1.x, F1.y, T.WoolFarm);
-    await placeExpectAt(a, F2.x, F2.y, T.CottonFarm);
-    const ffWC = await fastForwardUntil(a, (st) => st.wool >= 2 && st.cotton >= 2, 10 * 2000);
-    info(`(D) fast-forwarded ${ffWC.ran} ticks for wool/hemp: wool=${a.snap.wool} cotton=${a.snap.cotton}`);
-    // Fast-forwarding moves everyone along (the player too, if a walk was cut short): get back in reach.
-    await ensureAt(a, s);
-    await placeExpectAt(a, F1.x, F1.y, T.Empty);
-    await placeExpectAt(a, F2.x, F2.y, T.Empty);
+    await a.hook("setRaids", { enabled: false });
+    await a.hook("setStock", { stock: { wood: 60, rock: 40, meat: 2, fruit: 2, wool: 3, cotton: 3 } });
+    const F1 = P(0, 2), F2 = P(2, 1);
     const wool0 = a.snap.wool, cotton0 = a.snap.cotton;
     const clothEvents = [];
     a.onSnap = (prev, next) => {
@@ -746,14 +747,15 @@ await restartAndCheck(a, "(D0)");
     const nAfter = a.snap;
     result(!!up && up.tileX === H1.x && up.tileY === H1.y && !ups.some((u) => u.tile === T.House),
       `(d-after) House placed ON H1 with goods -> H1 (${H1.x},${H1.y}) upgraded to BigHouse in place; no new House tile written`);
-    result(nAfter.grain === b.grain - 1 && nAfter.meat === b.meat - 1 && nAfter.fruit === b.fruit - 1 && nAfter.clothes === b.clothes - 2 && nAfter.wood === b.wood - 10,
-      `(d-after) deductions: grain ${b.grain}->${nAfter.grain} (-1), meat ${b.meat}->${nAfter.meat} (-1), fruit ${b.fruit}->${nAfter.fruit} (-1), clothes ${b.clothes}->${nAfter.clothes} (-2), wood ${b.wood}->${nAfter.wood} (-10 flat House cost)`);
+    // HOUSE_UPGRADE_COSTS[0]: 20 wood + 10 rock + 1 grain / meat / fruit + 2 clothes.
+    result(nAfter.grain === b.grain - 1 && nAfter.meat === b.meat - 1 && nAfter.fruit === b.fruit - 1 && nAfter.clothes === b.clothes - 2 && nAfter.wood === b.wood - 20 && nAfter.rock === b.rock - 10,
+      `(d-after) deductions: grain ${b.grain}->${nAfter.grain} (-1), meat ${b.meat}->${nAfter.meat} (-1), fruit ${b.fruit}->${nAfter.fruit} (-1), clothes ${b.clothes}->${nAfter.clothes} (-2), wood ${b.wood}->${nAfter.wood} (-20), rock ${b.rock}->${nAfter.rock} (-10)`);
     a.send({ type: "pause" });
     await waitFor(a, (sn) => !sn.isPaused, 2000);
     raidsWanted = true;
     await a.hook("setRaids", { enabled: true });
     // Leave a farmhand alive for the final reset check.
-    await placeExpectAt(a, F2.x, F2.y, T.Pasture);
+    await placeExpectAt(a, F2.x, F2.y, T.Orchard);
     await sleep(200);
     info(`(D) end state: ${fmt(a.snap)} marketBuilt=${a.snap.marketBuilt} goldShopBuilt=${a.snap.goldShopBuilt} farmhands=${kinds(a, "farmhand").length} artisans=${kinds(a, "artisan").length}`);
   }

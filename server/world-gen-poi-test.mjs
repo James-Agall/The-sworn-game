@@ -290,7 +290,8 @@ if (ONLY.has("A")) {
   result(encKinds.size >= 2, `encampments field a mix of bandit kinds (${encKinds.size} distinct)`);
   const bandits = a.snap.mobs.filter((m) => m.kind in BANDIT_MAX_HP);
   const banditCounts = Object.fromEntries(Object.keys(BANDIT_MAX_HP).map((k) => [k, bandits.filter((m) => m.kind === k).length]));
-  result(bandits.every((m) => m.maxHp === BANDIT_MAX_HP[m.kind] && m.hp === m.maxHp), `bandit maxHp matches kind (clubman 30 / archer 25 / elite 70): ${JSON.stringify(banditCounts)}`);
+  // Scale pass: bandits roll a size (snapshot `scale`, omitted = 1) and their HP is base x size.
+  result(bandits.every((m) => m.maxHp === Math.max(1, Math.round(BANDIT_MAX_HP[m.kind] * (m.scale ?? 1))) && m.hp === m.maxHp), `bandit maxHp matches kind x size (clubman 30 / archer 25 / elite 70): ${JSON.stringify(banditCounts)}`);
   result(sites.flatMap((s) => s.mobs).every((m) => m.dTiles <= 2 * Math.SQRT2 + 0.01), `every guardian stands within its site's 5x5 footprint`);
   const allMobTilesWalkable = a.snap.mobs.every((m) => walkable(tileOf(m).x, tileOf(m).y));
   result(allMobTilesWalkable, `every guardian stands on a walkable tile`);
@@ -308,9 +309,11 @@ if (ONLY.has("B")) {
   await a.hook("setInstantBuild", { enabled: true }); // placements would otherwise be builder-built sites
   const me = tileOf(a.me());
   let placed = null;
-  for (const [dx, dy] of [[0, 2], [2, 0], [0, -2], [-2, 0], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+  // Pastures are 2x2 (anchor = top-left): the whole block must be Empty Plains, off the player's tile.
+  const freePlains = (x, y) => tileAt(x, y) === T.Empty && biomeAt(x, y) === BIOME.Plains && !(x === me.x && y === me.y);
+  for (const [dx, dy] of [[0, 1], [1, 0], [0, -2], [-2, 0], [1, 1], [-2, 1], [1, -2], [-2, -2]]) {
     const t = { x: me.x + dx, y: me.y + dy };
-    if (tileAt(t.x, t.y) === T.Empty && biomeAt(t.x, t.y) === BIOME.Plains) { placed = t; break; }
+    if ([[0, 0], [1, 0], [0, 1], [1, 1]].every(([ox, oy]) => freePlains(t.x + ox, t.y + oy))) { placed = t; break; }
   }
   if (!placed) {
     result(false, "B: no empty Plains tile next to spawn for a Pasture");
@@ -337,7 +340,9 @@ if (ONLY.has("B")) {
       const now = (await a.hook("farmState")).farmhands.find((f) => f.id === fh.id);
       await a.nextSnap();
       delivered = a.snap.meat > meat0;
-      if (delivered) result(a.snap.meat - meat0 === K.FARMHAND_YIELD_PER_CYCLE.meat, `B: the cycle delivered +${a.snap.meat - meat0} meat in one batch (expected +${K.FARMHAND_YIELD_PER_CYCLE.meat}); next cycle ${now.cycleTicksRemaining}t`);
+      // A 2x2 Pasture yields per footprint tile (x4).
+      const want = 4 * K.FARMHAND_YIELD_PER_CYCLE.meat;
+      if (delivered) result(a.snap.meat - meat0 === want, `B: the cycle delivered +${a.snap.meat - meat0} meat in one batch (expected +${want}: 2x2 Pasture); next cycle ${now.cycleTicksRemaining}t`);
     }
     if (!delivered) result(false, `B: no meat after 6 game days`);
     a.send({ type: "pause" });
