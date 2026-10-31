@@ -27,6 +27,7 @@ import { armyRegimentsNow, colonistRole, dropGuardTarget, isGuardOrMilitiaKind, 
 import { releaseSlot } from "./combat.js";
 import { catapultImpact } from "./siege.js";
 import { isDormantGuardian } from "./mobs.js";
+import { isWalkableTile } from "./pathfinding.js";
 import { isRoutedUnit, moraleDamageMult, regimentKey } from "./tactics.js";
 import { attackObjectiveAt, damageHearth, nearestHostileStructure, sendAgainstHearth } from "./hearths.js";
 import { weaponDamageMult } from "./heroes.js";
@@ -334,6 +335,65 @@ export function startGroupOrder(units: Colonist[], order: ArmyOrder) {
 }
 
 // Slots from formation.ts at (x, y); nearest-to-its-slot units start first, the rest staggered.
+// Phase H: a formation slot on a moat / wall / building moves to the nearest walkable tile within
+// SLOT_SNAP_TILES that is reachable on foot from the members' centroid (the regiment's side of the water);
+// a slot with no such tile keeps its spot (the unit stops at the nearest point it can reach).
+const SLOT_SNAP_TILES = 3;
+function snapSlotsToBank(targets: Map<string, { x: number; y: number }>, members: Colonist[]) {
+  const bad = Array.from(targets.values()).filter((s) => !isWalkableTile(Math.floor(s.x / TILE_SIZE), Math.floor(s.y / TILE_SIZE)));
+  if (bad.length === 0) return;
+  const c = centroidOf(members);
+  const a = tileOfPixel(c.x, c.y);
+  let r = SLOT_SNAP_TILES;
+  for (const s of targets.values()) r = Math.max(r, Math.abs(Math.floor(s.x / TILE_SIZE) - a.x), Math.abs(Math.floor(s.y / TILE_SIZE) - a.y));
+  r += SLOT_SNAP_TILES;
+  // Walking distance (tiles) from the centroid. Of the tiles near the slot only those walked to within
+  // 2 x SLOT_SNAP_TILES of the closest-walked one count (the regiment's own bank, not the far bank reached
+  // around the end of the moat); the nearest of those wins.
+  const walked = new Map<number, number>();
+  if (isWalkableTile(a.x, a.y)) {
+    const queue = [a];
+    walked.set(tileIndex(a.x, a.y), 0);
+    for (let head = 0; head < queue.length; head++) {
+      const t = queue[head];
+      const d = walked.get(tileIndex(t.x, t.y))!;
+      for (const n of [{ x: t.x + 1, y: t.y }, { x: t.x - 1, y: t.y }, { x: t.x, y: t.y + 1 }, { x: t.x, y: t.y - 1 }]) {
+        if (Math.abs(n.x - a.x) > r || Math.abs(n.y - a.y) > r || !isWalkableTile(n.x, n.y) || walked.has(tileIndex(n.x, n.y))) continue;
+        walked.set(tileIndex(n.x, n.y), d + 1);
+        queue.push(n);
+      }
+    }
+  }
+  for (const s of bad) {
+    const st = tileOfPixel(s.x, s.y);
+    const near: { c: { x: number; y: number }; w: number }[] = [];
+    for (let dy = -SLOT_SNAP_TILES; dy <= SLOT_SNAP_TILES; dy++) {
+      for (let dx = -SLOT_SNAP_TILES; dx <= SLOT_SNAP_TILES; dx++) {
+        const tx = st.x + dx;
+        const ty = st.y + dy;
+        if (!inBounds(tx, ty)) continue;
+        const w = walked.size > 0 ? walked.get(tileIndex(tx, ty)) : isWalkableTile(tx, ty) ? 0 : undefined;
+        if (w !== undefined) near.push({ c: tileToPixelCenter({ x: tx, y: ty }), w });
+      }
+    }
+    const minW = Math.min(...near.map((n) => n.w));
+    let best: { x: number; y: number } | null = null;
+    let bestScore = Infinity;
+    for (const { c, w } of near) {
+      if (w > minW + 2 * SLOT_SNAP_TILES) continue;
+      const score = Math.hypot(c.x - s.x, c.y - s.y) + w * 0.001;
+      if (score < bestScore) {
+        bestScore = score;
+        best = c;
+      }
+    }
+    if (best) {
+      s.x = best.x;
+      s.y = best.y;
+    }
+  }
+}
+
 export function formGroupAt(g: OrderGroup, members: Colonist[], x: number, y: number, facing: number | undefined, width: number | undefined) {
   const plan = planOrderFormation(members, x, y, facing, width);
   g.facing = Math.atan2(plan.fy, plan.fx);
@@ -347,6 +407,7 @@ export function formGroupAt(g: OrderGroup, members: Colonist[], x: number, y: nu
     const s = plan.targets.get(c.id)!;
     return Math.hypot(s.x - c.x, s.y - c.y);
   };
+  snapSlotsToBank(plan.targets, members);
   const order = members.slice().sort((a, b) => toSlot(a) - toSlot(b));
   const stepMs = order.length > 1 ? Math.min(ORDER_DISPATCH_STEP_MS, ORDER_DISPATCH_MAX_SPREAD_MS / (order.length - 1)) : 0;
   const squad = order.length > 1 ? g.id : null;

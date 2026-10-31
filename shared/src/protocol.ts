@@ -107,7 +107,12 @@ export enum TileType {
   // Forts phase A (2026-10-29): what a destroyed NPC-owned wall or gate leaves behind. Walkable (NOT in
   // isSolidTile): a breach gap. The player may clear it (demolish -> Empty).
   Rubble = 74,
-  // 75 / 76 reserved for Moat / Drawbridge (forts plan phase H).
+  // Moats & drawbridges (forts plan phase H, 2026-10-31). Moat: a dug water barrier, solid to every ground
+  // walker (in isSolidTile), never to projectiles; demolishing fills it (-> Empty). Drawbridge: placed on a
+  // Moat tile, a gate in everything but looks (isGateTile: gate state `gates`, lowered = open, raised =
+  // closed); destroyed or demolished it leaves the Moat.
+  Moat = 75,
+  Drawbridge = 76,
   // Forts phase B (2026-10-30): an NPC fort's keep / chief hall (its hearth: HP in the snapshot `hearths`),
   // what it leaves when razed (a clan can later rebuild it into an outpost), and the forts' tents (NPC
   // decor, damageable). All solid.
@@ -288,8 +293,14 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.SiteKeep ||
     tile === TileType.RuinedKeep ||
     tile === TileType.Tent ||
+    tile === TileType.Moat ||
     tile === TileType.BuildingPart
   );
+}
+
+// A gate-like tile: its passability is gate state (`gates`), not isSolidTile (phase H: drawbridges too).
+export function isGateTile(tile: number): boolean {
+  return tile === TileType.Gate || tile === TileType.Drawbridge;
 }
 
 export type ColonistKind =

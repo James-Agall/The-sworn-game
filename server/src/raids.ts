@@ -2,7 +2,7 @@
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { noteRaidAnchor } from "./wagons.js";
 import { randomUUID } from "node:crypto";
-import { type MobKind, type SiegeKind, TILE_SIZE, TICK_RATE, SIEGE_KINDS, HungerMark } from "@colony/shared/protocol";
+import { type MobKind, type SiegeKind, TILE_SIZE, TICK_RATE, SIEGE_KINDS, HungerMark, TileType, isGateTile } from "@colony/shared/protocol";
 import type {
   Mob, RaidEdge, RaidFactionEntry, RaidFactionId, RaidFormationShape, RaidGroup, TileCoord,
 } from "./types.js";
@@ -17,7 +17,7 @@ import {
   RAID_WEDGE_LOOSENESS,
 } from "./constants.js";
 import { colonists, mobs, players, raidGroups, state } from "./state.js";
-import { biomeSpeedMultiplier, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
+import { biomeSpeedMultiplier, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { randInt, randRange } from "./worldgen.js";
 import { TOWN_CENTER_TILE, activeWardSources, isWarded, nearestTownCenter } from "./colonists.js";
@@ -55,6 +55,15 @@ export function raidBox() {
     y1: Math.min(state.WORLD_TILES_Y - 1, c.y + state.raidSpawnDist),
   };
 }
+// Phase H: the colony's walls, gates, drawbridges and moats count as passable here (the raid breaches or
+// fills them), so a fully walled / moated base still gets anchors at the full distance.
+function raidReachPassable(x: number, y: number): boolean {
+  if (isWalkableTile(x, y)) return true;
+  if (!inBounds(x, y) || ownerAt(tileIndex(x, y)) !== 0) return false;
+  const t = state.tiles[tileIndex(x, y)];
+  return t === TileType.Wall || t === TileType.StoneWall || t === TileType.Moat || isGateTile(t);
+}
+
 export function raidAnchorWithinPathBudget(anchor: TileCoord): boolean {
   const own = clanTownCenters();
   const goals = own.length > 0 ? own : [TOWN_CENTER_TILE];
@@ -66,7 +75,7 @@ export function raidAnchorWithinPathBudget(anchor: TileCoord): boolean {
     const t = queue[head];
     if (near(t)) return true;
     for (const n of [{ x: t.x + 1, y: t.y }, { x: t.x - 1, y: t.y }, { x: t.x, y: t.y + 1 }, { x: t.x, y: t.y - 1 }]) {
-      if (!isWalkableTile(n.x, n.y)) continue;
+      if (!raidReachPassable(n.x, n.y)) continue;
       const k = tileIndex(n.x, n.y);
       if (seen.has(k)) continue;
       seen.add(k);
@@ -582,7 +591,14 @@ export function stepRaidMobToward(m: { x: number; y: number }, tx: number, ty: n
   const step = Math.min(d, speed * biomeSpeedMultiplier(m.x, m.y) * dt);
   const nx = m.x + (dx / d) * step;
   const ny = m.y + (dy / d) * step;
-  if (!isWalkableTile(Math.floor(nx / TILE_SIZE), Math.floor(ny / TILE_SIZE))) return false;
+  const ntx = Math.floor(nx / TILE_SIZE);
+  const nty = Math.floor(ny / TILE_SIZE);
+  if (!isWalkableTile(ntx, nty)) return false;
+  // Phase H: a diagonal step never squeezes between two solid tiles touching at a corner (a diagonal
+  // moat or wall line has no gap).
+  const otx = Math.floor(m.x / TILE_SIZE);
+  const oty = Math.floor(m.y / TILE_SIZE);
+  if (ntx !== otx && nty !== oty && !isWalkableTile(ntx, oty) && !isWalkableTile(otx, nty)) return false;
   m.x = nx;
   m.y = ny;
   return true;

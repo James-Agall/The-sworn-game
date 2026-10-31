@@ -1,6 +1,6 @@
 // tiles.ts: Tile helpers: indices, bounds, biomes, roads, building levels, the owner map, day/night.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { TileType, TILE_SIZE, PLAYER_HALF_SIZE, isSolidTile, Biome, isRoadTile } from "@colony/shared/protocol";
+import { TileType, TILE_SIZE, PLAYER_HALF_SIZE, isSolidTile, isGateTile, Biome, isRoadTile } from "@colony/shared/protocol";
 import type { TileCoord } from "./types.js";
 import {
   DAY_TICKS, FARM_PRODUCE_BY_TILE, HILLS_MINING_BONUS, LEVEL_BONUS_PER_STEP, NIGHT_TICKS, PLAINS_FARMING_BONUS,
@@ -66,7 +66,7 @@ export function collidesAt(px: number, py: number): boolean {
   for (const ox of offsets) {
     for (const oy of offsets) {
       const t = tileAtPixel(px + ox, py + oy);
-      if (isSolidTile(t) || (t === TileType.Gate && !isWalkablePixel(px + ox, py + oy))) return true;
+      if (isSolidTile(t) || (isGateTile(t) && !isWalkablePixel(px + ox, py + oy))) return true;
     }
   }
   return false;

@@ -3,7 +3,7 @@
 import { hostileColonistInReach, wakeNeutral } from "./creative.js";
 import { noteWagonHit, onWagonDestroyed } from "./wagons.js";
 import {
-  TILE_SIZE, HungerMark, TileType, isSolidTile, PLAYER_HALF_SIZE, TICK_RATE, GATE_FLAG_OPEN, GATE_FLAG_LOCK_OPEN,
+  TILE_SIZE, HungerMark, TileType, isGateTile, isSolidTile, PLAYER_HALF_SIZE, TICK_RATE, GATE_FLAG_OPEN, GATE_FLAG_LOCK_OPEN,
   GATE_FLAG_LOCK_CLOSED, GATE_FLAG_OVERRUN, GATE_FLAG_FOREIGN,
 } from "@colony/shared/protocol";
 import type { Colonist, Cost, GateState, Mob, Player, TileCoord, TownCenter, Wildlife } from "./types.js";
@@ -12,7 +12,7 @@ import {
   BUILDING_HP_GATE, BUILDING_HP_LEVEL_MULT, BUILDING_HP_SMALL, BUILDING_HP_STONE_WALL, BUILDING_HP_WALL,
   BUILDING_HP_WORKPLACE, BUILDING_NAMES, FORAGE_TILES, GATE_CLOSE_DELAY_TICKS, GATE_OPEN_RANGE_PX,
   GATE_OVERRUN_RANGE_TILES, GATE_TOWER_RANGE_TILES, GOBLIN_RIDER_DAMAGE_TAKEN, GORRATH_FURY_DAMAGE_TAKEN,
-  GORRATH_FURY_HP_FRACTION, GORRATH_FURY_TICKS, MOB_REPATH_TICKS, PLAYER_ATTACK_RANGE, RING_8, TOWER_COSTS,
+  GORRATH_FURY_HP_FRACTION, GORRATH_FURY_TICKS, MOAT_FILL_HP, MOB_REPATH_TICKS, PLAYER_ATTACK_RANGE, RING_8, TOWER_COSTS,
   TOWER_STATS,
 } from "./constants.js";
 import {
@@ -416,6 +416,7 @@ export function isDamageableBuilding(t: TileType): boolean {
     }
     // Gates aren't solid tiles (their passability is gate state) but take damage like a wall.
     state.damageableLut[TileType.Gate] = 1;
+    state.damageableLut[TileType.Drawbridge] = 1;
   }
   return state.damageableLut[t] === 1;
 }
@@ -423,7 +424,9 @@ export function isDamageableBuilding(t: TileType): boolean {
 export function buildingBaseHp(t: TileType): number {
   if (t === TileType.Wall) return BUILDING_HP_WALL;
   if (t === TileType.StoneWall) return BUILDING_HP_STONE_WALL;
-  if (t === TileType.Gate) return BUILDING_HP_GATE;
+  if (isGateTile(t)) return BUILDING_HP_GATE;
+  // Phase H: a moat's "HP" is how much filling the breach search's mobs must do.
+  if (t === TileType.Moat) return MOAT_FILL_HP;
   if (
     BIG_BUILD_TILES.has(t) || t === TileType.CastleLevel2 || t === TileType.CastleLevel3 || t === TileType.Stables ||
     isTowerTile(t) || t === TileType.MilitiaCamp3
@@ -495,6 +498,11 @@ export function damageBuilding(tx: number, ty: number, amount: number) {
       broadcastTileUpdate(tx, ty, TileType.Rubble);
     }
   }
+  // Phase H: a moat the mobs filled is walkable Rubble (a destroyed drawbridge is back to Moat: demolishTile).
+  if (t === TileType.Moat) {
+    state.tiles[index] = TileType.Rubble;
+    broadcastTileUpdate(tx, ty, TileType.Rubble);
+  }
   syncGuardBonusesAround(tx, ty);
   broadcastEvent("death", `${BUILDING_NAMES[t] ?? "A building"} destroyed`);
 }
@@ -555,13 +563,13 @@ export function gatePassable(index: number, hostile: boolean): boolean {
   return !g || g.open || g.lock !== "closed";
 }
 
-// A wall or a gate mobs can't walk through right now (the breach search's obstacles).
+// A wall or a gate mobs can't walk through right now (the breach search's obstacles; phase H: moats too).
 // Forts phase A: mobs only breach the colony's walls / gates (owner 0); NPC-owned ones are solid to them.
 export function isBreachObstacle(tx: number, ty: number): boolean {
   if (!inBounds(tx, ty)) return false;
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
   if (ownerAt(tileIndex(tx, ty)) !== 0) return false;
-  return isWallTile(t) || (t === TileType.Gate && !gatePassable(tileIndex(tx, ty), true));
+  return isWallTile(t) || t === TileType.Moat || (isGateTile(t) && !gatePassable(tileIndex(tx, ty), true));
 }
 
 // Forts phase A: the colony's breach obstacles: walls / gates of a hostile site.
@@ -569,7 +577,7 @@ export function isColonyBreachObstacle(tx: number, ty: number): boolean {
   if (!inBounds(tx, ty)) return false;
   const i = tileIndex(tx, ty);
   const t = state.tiles[i] as TileType;
-  return isHostileOwner(ownerAt(i)) && (isWallTile(t) || (t === TileType.Gate && !gatePassable(i, false)));
+  return isHostileOwner(ownerAt(i)) && (isWallTile(t) || (isGateTile(t) && !gatePassable(i, false)));
 }
 
 // Route cost of breaking through the wall / closed gate at a tile (integer: routeToBuilding's heap needs it).
@@ -587,7 +595,7 @@ export function mobTargetNeedsRepick(mob: Mob): boolean {
     return true;
   }
   const tile = mob.targetType === "building" && mob.targetId ? keyToTile(mob.targetId) : null;
-  return !!tile && state.tiles[tileIndex(tile.x, tile.y)] === TileType.Gate && gatePassable(tileIndex(tile.x, tile.y), true);
+  return !!tile && isGateTile(state.tiles[tileIndex(tile.x, tile.y)]) && gatePassable(tileIndex(tile.x, tile.y), true);
 }
 
 export function friendlyNearGate(cx: number, cy: number, owner = 0): boolean {
@@ -664,8 +672,8 @@ export function evaluateGateOverrun(index: number, g: GateState) {
 // Once per tick: registry upkeep, auto open / close, and (once a second) the overrun check.
 export function updateGates(forceOverrunCheck = false) {
   if (state.gateTilesDirty) {
-    for (let i = 0; i < state.tiles.length; i++) if (state.tiles[i] === TileType.Gate) gateAt(i);
-    for (const index of Array.from(gates.keys())) if (state.tiles[index] !== TileType.Gate) gates.delete(index);
+    for (let i = 0; i < state.tiles.length; i++) if (isGateTile(state.tiles[i])) gateAt(i);
+    for (const index of Array.from(gates.keys())) if (!isGateTile(state.tiles[index])) gates.delete(index);
     state.gateTilesDirty = false;
   }
   if (state.cycleTick % TICK_RATE === 0) {
@@ -707,7 +715,7 @@ export function gatesForSnapshot(): number[] {
 }
 
 export function handleSetGateLock(tx: number, ty: number, lock: unknown) {
-  if (!inBounds(tx, ty) || state.tiles[tileIndex(tx, ty)] !== TileType.Gate || ownerAt(tileIndex(tx, ty)) !== 0) return;
+  if (!inBounds(tx, ty) || !isGateTile(state.tiles[tileIndex(tx, ty)]) || ownerAt(tileIndex(tx, ty)) !== 0) return;
   if (lock !== "auto" && lock !== "open" && lock !== "closed") return;
   const g = gateAt(tileIndex(tx, ty));
   g.lock = lock;

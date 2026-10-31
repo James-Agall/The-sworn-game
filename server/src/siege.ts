@@ -1,6 +1,6 @@
 // siege.ts: Cavalry charges, siege strikes, the Siege Workshop, and the raids' siege engines.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { TILE_SIZE, type SiegeKind, type BuildingInfo, SIEGE_KINDS, TileType } from "@colony/shared/protocol";
+import { TILE_SIZE, type SiegeKind, type BuildingInfo, SIEGE_KINDS, TileType, isGateTile } from "@colony/shared/protocol";
 import type { Mob, PickedTarget } from "./types.js";
 import {
   CATAPULT_BUILDING_MULT, CATAPULT_MIN_RANGE, CATAPULT_RELOAD_TICKS, CATAPULT_SPLASH_PX,
@@ -212,12 +212,12 @@ export function pickCatapultShot(mob: Mob): { x: number; y: number } | null {
   let bestScore = Infinity;
   for (let y = here.y - r; y <= here.y + r; y++) {
     for (let x = here.x - r; x <= here.x + r; x++) {
-      if (!inBounds(x, y) || !structureHp(x, y)) continue;
+      if (!inBounds(x, y) || !structureHp(x, y) || state.tiles[tileIndex(x, y)] === TileType.Moat) continue;
       const c = tileToPixelCenter({ x, y });
       const d = Math.hypot(c.x - mob.x, c.y - mob.y);
       if (d < CATAPULT_MIN_RANGE || d > mob.range || isWarded(c.x, c.y, wards)) continue;
       const t = state.tiles[tileIndex(x, y)] as TileType;
-      const cls = isTowerTile(t) ? 0 : isWallTile(t) || t === TileType.Gate ? 1 : 2;
+      const cls = isTowerTile(t) ? 0 : isWallTile(t) || isGateTile(t) ? 1 : 2;
       const score = cls * 1e6 + d;
       if (score < bestScore) {
         bestScore = score;
@@ -295,7 +295,7 @@ export function updateSiegeMob(mob: Mob, dt: number, hold: boolean) {
   let targetPos = mob.targetType ? resolveTargetPosition(mob.targetType, mob.targetId, mob) : null;
   const onGate = mob.targetType === "building" && mob.targetId !== null && (() => {
     const t = keyToTile(mob.targetId!);
-    return !!t && state.tiles[tileIndex(t.x, t.y)] === TileType.Gate;
+    return !!t && isGateTile(state.tiles[tileIndex(t.x, t.y)]);
   })();
   if (targetPos && mobTargetNeedsRepick(mob)) targetPos = null;
   if (targetPos && !onGate && state.cycleTick % SIEGE_RETARGET_TICKS === 0) targetPos = null;

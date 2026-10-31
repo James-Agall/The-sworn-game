@@ -1,6 +1,6 @@
 // pathfinding.ts: Walkability, A* paths, path following, and body separation (spatial hash).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { TileType, isSolidTile, TILE_SIZE } from "@colony/shared/protocol";
+import { TileType, isGateTile, isSolidTile, TILE_SIZE } from "@colony/shared/protocol";
 import type { Body, Mob, TileCoord } from "./types.js";
 import {
   COLONIST_BODY_RADIUS, PATH_NODE_BUDGET, PATH_WAYPOINT_TOLERANCE_PX, SEPARATION_ITERATIONS,
@@ -20,7 +20,7 @@ export function isWalkableTile(tx: number, ty: number): boolean {
   if (!inBounds(tx, ty)) return false;
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
   // Gates: passable by their state, from the current mover's side (hostileMover).
-  if (t === TileType.Gate) return gatePassable(tileIndex(tx, ty), state.hostileMover);
+  if (isGateTile(t)) return gatePassable(tileIndex(tx, ty), state.hostileMover);
   return !isSolidTile(t);
 }
 
@@ -96,7 +96,7 @@ export function advanceAlongPath(
   if (entity.path.length === 0) return;
   // A gate on the path closed (or was locked) since it was planned: drop the path so the mover replans.
   const nextTile = entity.path[0];
-  if (inBounds(nextTile.x, nextTile.y) && state.tiles[tileIndex(nextTile.x, nextTile.y)] === TileType.Gate && !isWalkableTile(nextTile.x, nextTile.y)) {
+  if (inBounds(nextTile.x, nextTile.y) && isGateTile(state.tiles[tileIndex(nextTile.x, nextTile.y)]) && !isWalkableTile(nextTile.x, nextTile.y)) {
     entity.path = [];
     return;
   }
@@ -169,7 +169,9 @@ export function nudgeBody(b: Body, dx: number, dy: number) {
   state.moverOwner = b.mob === true ? siteNumber((b.e as Mob).siteId) : 0;
   const nx = b.e.x + dx;
   const ny = b.e.y + dy;
-  if (isWalkablePixel(nx, ny)) {
+  // Phase H: never nudged through the corner between two diagonal solid tiles (moat / wall lines).
+  const cornerCut = !isWalkablePixel(nx, b.e.y) && !isWalkablePixel(b.e.x, ny);
+  if (!cornerCut && isWalkablePixel(nx, ny)) {
     b.e.x = nx;
     b.e.y = ny;
   } else if (isWalkablePixel(nx, b.e.y)) {

@@ -2,15 +2,15 @@
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { tradingPostInfo } from "./wagons.js";
 import {
-  TileType, isSolidTile, TICK_RATE, type GameEventCategory, type ServerMessage, type BuildingInfo, TILE_SIZE, Biome,
+  TileType, isGateTile, isSolidTile, TICK_RATE, type GameEventCategory, type ServerMessage, type BuildingInfo, TILE_SIZE, Biome,
   isRoadTile, RELATION_TIER_NAMES,
 } from "@colony/shared/protocol";
-import { footprintOf, footprintPartOffsets } from "@colony/shared/buildings";
+import { BUILD_COSTS, footprintOf, footprintPartOffsets } from "@colony/shared/buildings";
 import type { ConstructionSiteState, Cost, Player, ResourceKey, TileCoord, TownCenter } from "./types.js";
 import {
   ABBEY_GROUNDS_RADIUS, ARCHER_WOOD_COST, BARN_WOOD_COST, BIG_BUILD_TILES, BLACKSMITH_TOOLS_STOCK_CAP,
   BREAKABLE_TILES, BUILDERS_GUILD_WOOD_COST, BUILDER_MAX_PER_SITE, BUILDING_NAMES, BUILD_SECONDS_BIG,
-  BUILD_SECONDS_COBBLE_ROAD, BUILD_SECONDS_DEFAULT, BUILD_SECONDS_GATE, BUILD_SECONDS_HOUSE, BUILD_SECONDS_ROAD,
+  BUILD_SECONDS_COBBLE_ROAD, BUILD_SECONDS_DEFAULT, BUILD_SECONDS_DRAWBRIDGE, BUILD_SECONDS_GATE, BUILD_SECONDS_MOAT, BUILD_SECONDS_HOUSE, BUILD_SECONDS_ROAD,
   BUILD_SECONDS_TOWN_CENTER, BUILD_SECONDS_WALL, CATAPULT_RANGE, CAVALRY_CHARGE_MULT, CAVALRY_CHARGE_TILES,
   CHURCH_WOOD_COST, COBBLE_ROAD_ROCK_COST, CRAFT_BUILDING_IRON_COST, CRAFT_BUILDING_TILES, CRAFT_BUILDING_WOOD_COST,
   FOOD_HUT_WOOD_COST, GATE_ROCK_COST, GATE_WOOD_COST, HERO_POPULATION_COST, HOUSE_ROCK_COST, HOUSE_WOOD_COST,
@@ -480,6 +480,9 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
       return { rock: STONE_WALL_COST };
     case TileType.Gate:
       return { wood: GATE_WOOD_COST, rock: GATE_ROCK_COST };
+    case TileType.Moat:
+    case TileType.Drawbridge:
+      return { ...BUILD_COSTS[tile] };
     case TileType.Road:
       return { rock: ROAD_ROCK_COST };
     case TileType.CobbleRoad:
@@ -603,6 +606,10 @@ export function buildTicksFor(tile: TileType, level: number): number {
       ? BUILD_SECONDS_WALL
       : tile === TileType.Gate
       ? BUILD_SECONDS_GATE
+      : tile === TileType.Moat
+      ? BUILD_SECONDS_MOAT
+      : tile === TileType.Drawbridge
+      ? BUILD_SECONDS_DRAWBRIDGE
       : tile === TileType.House
         ? BUILD_SECONDS_HOUSE
         : tile === TileType.TownCenter
@@ -719,7 +726,13 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
     removeColonistForPost(tx, ty);
   }
   buildingLevel.delete(resourceKey(tx, ty));
-  if (current === TileType.Gate) gates.delete(tileIndex(tx, ty));
+  if (isGateTile(current)) gates.delete(tileIndex(tx, ty));
+  // Phase H: a drawbridge comes down (demolished or destroyed) to the moat it spanned.
+  if (current === TileType.Drawbridge) {
+    state.tiles[tileIndex(tx, ty)] = TileType.Moat;
+    broadcastTileUpdate(tx, ty, TileType.Moat);
+    return;
+  }
   if (current === TileType.SiegeWorkshop) siegeWorkshops.delete(resourceKey(tx, ty));
   if (current === TileType.FarmPlot) {
     farmPlots.delete(resourceKey(tx, ty));
@@ -884,6 +897,18 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
       return;
     }
     if (tilesOfType(TileType.ChurchPost).length === 0) return;
+  } else if (tile === TileType.Drawbridge) {
+    // Phase H: a drawbridge spans a moat tile.
+    if (current !== TileType.Moat) {
+      sendEvent(player, "build", "A drawbridge goes on a moat tile");
+      return;
+    }
+  } else if (tile === TileType.Moat) {
+    if (current !== TileType.Empty) return;
+    if (state.townCenters.some((tc) => Math.max(Math.abs(tc.x - tx), Math.abs(tc.y - ty)) <= 1)) {
+      sendEvent(player, "build", "Too close to the Town Center for a moat");
+      return;
+    }
   } else if (tile === TileType.TownCenter) {
     if (current !== TileType.Empty) return;
     if (townCenterTooClose(tx, ty)) {
@@ -1387,7 +1412,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     name: tc?.name ?? name,
     tile: t,
     level,
-    maxLevel: t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate || t === TileType.SiegeWorkshop || t === TileType.Market || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
+    maxLevel: t === TileType.Wall || t === TileType.StoneWall || isGateTile(t) || t === TileType.Moat || t === TileType.SiegeWorkshop || t === TileType.Market || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
     hp: hpState ? Math.ceil(hpState.hp) : null,
     maxHp: hpState ? hpState.max : null,
     staffing,
@@ -1395,7 +1420,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     upgrade,
     construction: site ? Math.min(1, site.progress / site.totalTicks) : null,
     repair,
-    ...(t === TileType.Gate ? { gate: (({ open, lock, overrun }) => ({ open, lock, overrun }))(gateAt(tileIndex(tx, ty))) } : {}),
+    ...(isGateTile(t) ? { gate: (({ open, lock, overrun }) => ({ open, lock, overrun }))(gateAt(tileIndex(tx, ty))) } : {}),
     ...(t === TileType.SiegeWorkshop ? { siege: siegeWorkshopInfo(tx, ty) } : {}),
     ...(t === TileType.Blacksmith ? { forge: blacksmithForgeInfo(tx, ty) } : {}),
     ...(t === TileType.Keep ? { heroes: keepHeroInfo(tx, ty) } : {}),

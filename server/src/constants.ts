@@ -991,6 +991,18 @@ export const BREACH_HP_PER_TILE = 25;
 export const BREACH_TOWER_PENALTY_TILES = 12;
 export const BUILD_SECONDS_GATE = 8;
 export const ROUTE_NODE_BUDGET = 120000;
+// ---- Moats & drawbridges (forts plan §9 / phase H, 2026-10-31) ----
+// Moat (TileType.Moat): solid to every ground walker, no effect on projectiles. A builder digs a tile in
+// BUILD_SECONDS_MOAT; demolishing fills it at once (-> Empty). Not on a tile next to a Town Center.
+// Drawbridge (TileType.Drawbridge): built on a Moat tile, a gate in every rule (isGateTile: lowered = open,
+// raised = closed, locks, overrun, breach cost, HP BUILDING_HP_GATE); destroyed it leaves the Moat.
+// Breach (anti-cheese): while the colony has no drawbridge at all, the mobs' breach search also crosses its
+// Moat tiles at MOAT_BREACH_STEP_COST and the mob "fills" the first one (MOAT_FILL_HP of work, then Rubble),
+// so a closed moat ring never makes a base immune; with a drawbridge they breach that (cost as a gate).
+export const BUILD_SECONDS_MOAT = 5;
+export const BUILD_SECONDS_DRAWBRIDGE = 8;
+export const MOAT_FILL_HP = 300;
+export const MOAT_BREACH_STEP_COST = 30;
 // ---- Monster tactics: flanking, wall cover, morale & rout (ROADMAP "Monster tactics") ----
 // A regiment is every mob sharing regimentKey: a raid group (groupId, then regimentId once it broke
 // up) or a POI site (siteId; future horde / fort sites use the same key). updateRegiments evaluates
@@ -1235,9 +1247,9 @@ export const CASTLE_RUIN_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] =
 // ---- Forts phase B (PLAN-forts-diplomacy-moats.md §2, §8, §10 "B"): stamped NPC forts ----
 // Legend of the fort templates (SITE_TEMPLATES): # wood wall, G gate, T tower, K keep / chief hall (the
 // site's hearth), H tent, C campfire, s stockpile crate, p pen fence, f farm plot (decor: no barn), F forge
-// (cart placeholder), M ore heap (barrel placeholder), ~ moat (tier 4 only; Water until phase H), D drawbridge (tier 4 only;
-// open ground until phase H), "." open ground (left Empty and unowned, inside the reserved grounds).
-// Every stamped (non-"." / non-"D") cell is owned by the site.
+// (cart placeholder), M ore heap (barrel placeholder), ~ moat (phase H: a real Moat tile), D drawbridge
+// (phase H: a site gate on the moat), "." open ground (left Empty and unowned, inside the reserved grounds).
+// Every stamped (non-".") cell is owned by the site.
 export const SITE_TEMPLATE_TILES: Record<string, TileType> = {
   "#": TileType.Wall,
   G: TileType.Gate,
@@ -1251,7 +1263,8 @@ export const SITE_TEMPLATE_TILES: Record<string, TileType> = {
   F: TileType.PropCart,
   // Ore heap decor (not real IronOre: colonists' resource searches would try to reach it inside the walls).
   M: TileType.PropBarrel,
-  "~": TileType.Water,
+  "~": TileType.Moat,
+  D: TileType.Drawbridge,
 };
 // Forts phase C: human settlement symbols (SiteTemplate.symbols, over SITE_TEMPLATE_TILES): stone walls,
 // houses, a forge (Blacksmith), real ore / rock (inside the reserved grounds: no player mine can go there),
@@ -1908,6 +1921,8 @@ export const PLACEABLE_TILES = [
   TileType.Stables,
   TileType.SiegeWorkshop,
   TileType.Keep,
+  TileType.Moat,
+  TileType.Drawbridge,
 ];
 export const BREAKABLE_TILES = [
   // Forts phase A: a fallen NPC wall's rubble can be cleared.
@@ -1959,6 +1974,9 @@ export const BREAKABLE_TILES = [
   // Wild forage can be cleared like any other obstacle (it simply stops being food).
   ...FORAGE_TILES,
   TileType.Gate,
+  // Phase H: filling a moat (-> Empty); a drawbridge comes down to its Moat.
+  TileType.Moat,
+  TileType.Drawbridge,
 ];
 export const POPULATION_GATED_TILES = [
   TileType.LumberjackPost,
@@ -2173,6 +2191,8 @@ export const BUILDING_NAMES: Partial<Record<TileType, string>> = {
   [TileType.Wall]: "Wood Wall",
   [TileType.StoneWall]: "Stone Wall",
   [TileType.Gate]: "Gate",
+  [TileType.Moat]: "Moat",
+  [TileType.Drawbridge]: "Drawbridge",
   // Forts phase B.
   [TileType.Tent]: "Tent",
   [TileType.SiteKeep]: "Chief's hall",

@@ -34,7 +34,7 @@ import { isTowerTile, releaseSlot } from "./combat.js";
 import { spawnGuardian } from "./worldgen.js";
 import { releaseResourceReservation } from "./economy.js";
 
-const WALLISH = new Set<number>([...WALL_TILES, TileType.Gate]);
+const WALLISH = new Set<number>([...WALL_TILES, TileType.Gate, TileType.Drawbridge]);
 const days = (ticks: number) => `${(Math.max(0, ticks) / GAME_DAY_TICKS).toFixed(1)} days`;
 
 function vstate(s: SiteState): VassalState {

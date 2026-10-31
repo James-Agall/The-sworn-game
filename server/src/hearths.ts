@@ -55,6 +55,8 @@ export function standingHearthAt(tx: number, ty: number): HearthState | undefine
 
 export function hostileStructureAt(index: number): boolean {
   if (!isHostileOwner(ownerAt(index))) return false;
+  // Phase H: a fort's moat is a barrier, not something to attack.
+  if (state.tiles[index] === TileType.Moat) return false;
   return structureHp(index % state.WORLD_TILES_X, Math.floor(index / state.WORLD_TILES_X)) !== null;
 }
 

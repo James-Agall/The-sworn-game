@@ -1,6 +1,6 @@
 // goals.ts: The goal track.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { TileType } from "@colony/shared/protocol";
+import { TileType, isGateTile } from "@colony/shared/protocol";
 import type { GoalDef, ResourceKey } from "./types.js";
 import { GAME_DAY_TICKS, GOAL_WORKER_KINDS, VISION_BUILDING_TILES } from "./constants.js";
 import { colonists, constructionSites, state, tileOwner } from "./state.js";
@@ -26,7 +26,7 @@ export function anyPlayerBuilding(): boolean {
     // Forts phase B: an NPC fort's walls / towers are not the colony's.
     if (tileOwner.size > 0 && tileOwner.has(i)) continue;
     const t = state.tiles[i] as TileType;
-    if (t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate) return true;
+    if (t === TileType.Wall || t === TileType.StoneWall || isGateTile(t)) return true;
     if (t !== TileType.TownCenter && VISION_BUILDING_TILES.has(t)) return true;
   }
   return false;

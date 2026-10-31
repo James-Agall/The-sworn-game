@@ -2,11 +2,11 @@
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import {
   mobSizeScale, HungerMark, HUNGER_MARK_NAMES, type MobKind, type Difficulty, MOB_SIZE_RANGE, TILE_SIZE, TileType,
-  TICK_RATE, isSolidTile,
+  TICK_RATE, isGateTile, isSolidTile,
 } from "@colony/shared/protocol";
 import type { Colonist, Mob, MobTargetType, PickedTarget, Player, TileCoord } from "./types.js";
 import {
-  ARCHER_FRONT_RANK_SCAN_TILES, BREACH_DETOUR_FACTOR, BREACH_MIN_ROUTE_TILES, BREACH_WALL_COST,
+  ARCHER_FRONT_RANK_SCAN_TILES, BREACH_DETOUR_FACTOR, BREACH_MIN_ROUTE_TILES, BREACH_WALL_COST, MOAT_BREACH_STEP_COST,
   BUILDING_TARGET_CANDIDATES, COLONIST_BODY_RADIUS, DARK_SHAMAN_HEAL_AMOUNT, DARK_SHAMAN_HEAL_COOLDOWN_TICKS,
   DARK_SHAMAN_HEAL_RANGE, DAY_TICKS, GOBLIN_RIDER_WITHDRAW_TICKS, GOLD_PER_KILL_BASE_DIVISOR, GOLD_PER_KILL_MIN,
   GORRATH_SCAN_RANGE_TILES, GUNNE_SCAN_RANGE_TILES, HUNGER_MARK_CHANCE_MAX, HUNGER_MARK_CHANCE_MAX_DAY,
@@ -21,7 +21,7 @@ import {
   TROLL_REGEN_PER_TICK, VHORRUN_WITHDRAW_TARGET_HP, VHORRUN_WITHDRAW_TICKS, clampWorldSize,
 } from "./constants.js";
 import {
-  attackerSlots, colonists, mobs, mobsAttackingThisTick, mobsWithoutRoute, players, state, tileOwner,
+  attackerSlots, colonists, gates, mobs, mobsAttackingThisTick, mobsWithoutRoute, players, state, tileOwner,
 } from "./state.js";
 import { inBounds, isHostileOwner, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
@@ -305,7 +305,7 @@ export function buildingTargetCandidates(): TileCoord[] {
     for (let i = 0; i < state.tiles.length; i++) {
       const t = state.tiles[i] as TileType;
       // Forts phase A: mobs never go for an NPC site's buildings (no NPC-vs-NPC fighting in v1).
-      if (isDamageableBuilding(t) && !isWallTile(t) && t !== TileType.Gate && ownerAt(i) === 0) state.buildingTargetTiles.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
+      if (isDamageableBuilding(t) && !isWallTile(t) && !isGateTile(t) && t !== TileType.Moat && ownerAt(i) === 0) state.buildingTargetTiles.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
     }
     state.buildingTargetsDirty = false;
     state.buildingTargetsBuiltTick = state.cycleTick;
@@ -350,6 +350,9 @@ export function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCo
     }
     return top;
   };
+  // Phase H anti-cheese: with no colony drawbridge at all, the mobs' breach search may fill moat tiles.
+  let moatFill = !colony && wallCost > 0;
+  if (moatFill) for (const gi of gates.keys()) if (state.tiles[gi] === TileType.Drawbridge && ownerAt(gi) === 0) moatFill = false;
   // Settled-node budget (see PATH_NODE_BUDGET); a 160 map has only 25.6k tiles, so it never bites there.
   let settled = 0;
   while (heap.length > 0) {
@@ -372,10 +375,11 @@ export function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCo
       // Gates: an open (or overrun) gate is ground; a closed one is solid, or a breach obstacle like a wall.
       const own = tileOwner.size === 0 ? 0 : ownerAt(ni);
       const breachable = wallCost > 0 && (colony ? isHostileOwner(own) : own === 0);
+      // Phase H: ... or fills the colony's moat tiles (MOAT_BREACH_STEP_COST each) while it has no drawbridge.
       const step =
-        t === TileType.Gate
+        isGateTile(t)
           ? gatePassable(ni, !colony) ? 1 : breachable ? breachStepCost(nx, ny) : 0
-          : !isSolidTile(t) ? 1 : breachable && isWallTile(t) ? breachStepCost(nx, ny) : 0;
+          : !isSolidTile(t) ? 1 : breachable && isWallTile(t) ? breachStepCost(nx, ny) : breachable && moatFill && t === TileType.Moat ? MOAT_BREACH_STEP_COST : 0;
       if (step === 0) continue;
       const next = cost + step;
       if (next >= state.routeCost[ni]) continue;

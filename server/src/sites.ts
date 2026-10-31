@@ -2,7 +2,7 @@
 // ASCII template stamper (SITE_TEMPLATES), world-gen placement, the reserved-grounds mask, save / load.
 // Stage 2: sleeping sites (updateSites), the site-guardian leash (siteLeash), anti-kite surge, loot share.
 import { randomUUID } from "node:crypto";
-import { TICK_RATE, TILE_SIZE, TileType, type MobKind } from "@colony/shared/protocol";
+import { TICK_RATE, TILE_SIZE, TileType, isGateTile, type MobKind } from "@colony/shared/protocol";
 import type { Mob, ResourceKey, SiteState, SiteTemplate, SiteTemplateId, SiteWorkerRole, TileCoord } from "./types.js";
 import {
   SITE_AGGRO_EDGE_TILES, SITE_AGGRO_TILES, SITE_AWAKE_RADIUS_TILES, SITE_KITE_DECAY_TICKS, SITE_KITE_HITS,
@@ -50,7 +50,7 @@ export function validateTemplate(t: SiteTemplate) {
     for (let x = 0; x < w; x++) {
       const c = t.rows[y][x];
       if (c === ".") continue;
-      if (c !== "D" && symbolTile(t, c) === undefined) throw new Error(`site template ${t.id}: unknown "${c}" at ${x},${y}`);
+      if (symbolTile(t, c) === undefined) throw new Error(`site template ${t.id}: unknown "${c}" at ${x},${y}`);
       const tier = Number(t.tiers[y][x]);
       if (!(tier >= 1 && tier <= t.maxTier)) throw new Error(`site template ${t.id}: no tier at ${x},${y}`);
       if (c === "K") keeps++;
@@ -152,7 +152,7 @@ function setTile(x: number, y: number, tile: TileType, broadcast: boolean) {
   buildingLevel.delete(key);
   farmPlots.delete(key);
   const i = tileIndex(x, y);
-  if (tile !== TileType.Gate) gates.delete(i);
+  if (!isGateTile(tile)) gates.delete(i);
   state.tiles[i] = tile;
   if (broadcast) broadcastTileUpdate(x, y, tile);
 }
@@ -187,11 +187,11 @@ export function stampSiteTemplate(
       const x = x0 + rx;
       const y = y0 + ry;
       const c = cellAtTier(t, rx, ry, tier);
-      if (c === "." || c === "D") continue;
+      if (c === ".") continue;
       const tile = symbolTile(t, c)!;
       setTile(x, y, tile, broadcast);
       setOwner(tileIndex(x, y), num);
-      if (tile === TileType.Gate) {
+      if (isGateTile(tile)) {
         gates.set(tileIndex(x, y), { open: false, lock: "auto", clearTicks: 0, overrun: false });
         gateCells.push({ x, y });
       } else if (tile === TileType.SiteKeep) keep = { x, y };
@@ -850,7 +850,7 @@ export function applySiteTier(s: SiteState, tier: number) {
     for (let rx = 0; rx < w; rx++) {
       const before = cellAtTier(t, rx, ry, old);
       const after = cellAtTier(t, rx, ry, tier);
-      if (before === after || after === "." || after === "D") continue;
+      if (before === after || after === ".") continue;
       const x = s.x0 + rx;
       const y = s.y0 + ry;
       const i = tileIndex(x, y);
@@ -860,7 +860,7 @@ export function applySiteTier(s: SiteState, tier: number) {
       const tile = symbolTile(t, after)!;
       setTile(x, y, tile, true);
       setOwner(i, s.num);
-      if (tile === TileType.Gate) gates.set(i, { open: false, lock: "auto", clearTicks: 0, overrun: false });
+      if (isGateTile(tile)) gates.set(i, { open: false, lock: "auto", clearTicks: 0, overrun: false });
     }
   }
   s.tier = tier;

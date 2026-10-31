@@ -1,6 +1,6 @@
 // tactics.ts: Monster tactics (regiments, flanking, cover, morale, routs) and player regiment morale.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { HungerMark, TILE_SIZE, TileType } from "@colony/shared/protocol";
+import { HungerMark, TILE_SIZE, TileType, isGateTile } from "@colony/shared/protocol";
 import type {
   Colonist, EnemyUnit, Mob, MobTargetType, OrderGroup, PlayerMoraleState, RegimentState, TileCoord,
 } from "./types.js";
@@ -119,7 +119,7 @@ export function walledEnclosure(start: TileCoord): { tiles: TileCoord[]; barrier
       } else {
         barrierSeen.add(idx);
         const tt = state.tiles[idx] as TileType;
-        if (isWallTile(tt) || tt === TileType.Gate) barriers.push(n);
+        if (isWallTile(tt) || isGateTile(tt)) barriers.push(n);
       }
     }
   }
@@ -152,7 +152,7 @@ export function assignShelterPosts(reg: RegimentState, members: Mob[], e: { tile
   reg.posts.clear();
   const used = new Set<string>();
   const barrierKeys = new Set(e.barriers.map((b) => resourceKey(b.x, b.y)));
-  const gatesIn = e.barriers.filter((b) => state.tiles[tileIndex(b.x, b.y)] === TileType.Gate);
+  const gatesIn = e.barriers.filter((b) => isGateTile(state.tiles[tileIndex(b.x, b.y)]));
   const enemyTile = { x: ex / TILE_SIZE, y: ey / TILE_SIZE };
   const byWall = e.tiles
     .filter((t) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => barrierKeys.has(resourceKey(t.x + dx, t.y + dy))))
@@ -526,7 +526,7 @@ export function playerMoraleResist(members: Colonist[], cx: number, cy: number):
     for (let dx = -PLAYER_MORALE_WALL_TILES; dx <= PLAYER_MORALE_WALL_TILES; dx++) {
       if (!inBounds(t.x + dx, t.y + dy)) continue;
       const tt = state.tiles[tileIndex(t.x + dx, t.y + dy)] as TileType;
-      if (isWallTile(tt) || tt === TileType.Gate) {
+      if (isWallTile(tt) || isGateTile(tt)) {
         walls = true;
         break;
       }
