@@ -250,10 +250,20 @@ if (ONLY.has("B")) {
     result(dAbbey <= WARD_RADIUS_TILES - 1, `B: player stands at (${meTile.x},${meTile.y}), ${dAbbey.toFixed(1)} tiles from the Abbey center (ward radius ${WARD_RADIUS_TILES})`);
     // Track night mobs from first sighting.
     const seen = new Map();
-    let minPlayerHp = a.me().hp;
+    // The walk in can cost HP (a boar, a fort tower on the way): judge the ward from the HP it starts with.
+    const hpInWard = a.me().hp;
+    let minPlayerHp = hpInWard;
     let tcHpAtNight = null;
+    const hitLog = [];
     const watch = (s) => {
-      minPlayerHp = Math.min(minPlayerHp, a.me(s).hp);
+      const meS = a.me(s);
+      if (meS.hp < minPlayerHp && hitLog.length < 5) {
+        // Who hit: effects ending on the player, and every mob within 3 tiles.
+        const fx = (s.effects ?? []).filter((e) => Math.hypot(e.toX - meS.x, e.toY - meS.y) < TILE).map((e) => `effect from (${(e.fromX / TILE).toFixed(1)},${(e.fromY / TILE).toFixed(1)})`);
+        const near = s.mobs.filter((m) => Math.hypot(m.x - meS.x, m.y - meS.y) < 3 * TILE).map((m) => `${m.kind}${guardianIds.has(m.id) ? "(world-gen)" : ""}`);
+        hitLog.push(`hp ${minPlayerHp}->${meS.hp} at (${(meS.x / TILE).toFixed(1)},${(meS.y / TILE).toFixed(1)}): ${[...fx, ...near].join(", ") || "no effect / mob near"}`);
+      }
+      minPlayerHp = Math.min(minPlayerHp, meS.hp);
       for (const m of s.mobs) {
         // Forts phase C: a settlement's folk (town* kinds: workers walking home at night) are not raiders.
         if (guardianIds.has(m.id) || m.kind.startsWith("town")) continue;
@@ -285,7 +295,7 @@ if (ONLY.has("B")) {
     info(`B: night mobs: ${rows.join("; ")}`);
     result(seen.size >= 2 && towardTc >= 1 && towardPlayer === 0,
       `B: ${seen.size} night mobs; of those that moved >=2 tiles, ${towardTc} headed for the Town Center and ${towardPlayer} for the player (an unwarded player would be every mob's first pick)`);
-    result(minPlayerHp === 100, `B: player inside the Abbey ward never took damage (min hp ${minPlayerHp})`);
+    result(minPlayerHp === hpInWard, `B: player inside the Abbey ward never took damage (min hp ${minPlayerHp}, ${hpInWard} on arrival)${hitLog.length ? ": " + hitLog.join(" | ") : ""}`);
     info(`B: Town Center hp ${tcHpAtNight} -> ${a.snap.townCenterHp} (unwarded, so it may be hit)`);
   }
 }

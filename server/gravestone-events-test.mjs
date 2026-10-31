@@ -92,7 +92,8 @@ a.listeners.push((s, prev, evs) => {
   if (!prev) return;
   const nightEvs = evs.filter((e) => e.category === "night").length;
   const dawnEvs = evs.filter((e) => e.category === "dawn").length;
-  const deathEvs = evs.filter((e) => e.category === "death");
+  // A raid razing a building ("Brewery destroyed") also posts in the "death" category but leaves no gravestone.
+  const deathEvs = evs.filter((e) => e.category === "death" && !/ destroyed\b/.test(e.text));
   stats.nightEvents += nightEvs;
   stats.dawnEvents += dawnEvs;
   stats.deathEvents += deathEvs.length;

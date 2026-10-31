@@ -461,6 +461,9 @@ await restart(a, "(C0)");
       const newMobs = next.mobs.filter((m) => !prevMobIds.has(m.id));
       events.push({ at: next.at, dawn: prev.isNight && !next.isNight, happinessPrev: prev.happiness, gone, newMobs });
     };
+    // A desertion = a dawn tick where a soldier vanished and a new mob stands where it was (any other new mob that
+    // tick, or a soldier killed at dawn, is not one).
+    const isDesertion = (ev) => ev.dawn && ev.newMobs.some((m) => ev.gone.some((k) => Math.hypot(m.x - k.x, m.y - k.y) < 1));
     let lowSeen = false;
     // Each low-happiness dawn deserts each soldier with 15% chance, so watch up to 6 dawns. Days are 300 s +
     // 75 s nights: once the grain is gone, skip (setCycleTick) to 4 s before each dawn instead of waiting.
@@ -474,19 +477,20 @@ await restart(a, "(C0)");
       while (Date.now() < until) {
         await sleep(250);
         if (a.snap.happiness < 35) lowSeen = true;
-        if (events.some((ev) => ev.dawn && ev.newMobs.length > 0)) break;
+        if (events.some(isDesertion)) break;
       }
-      if (events.some((ev) => ev.dawn && ev.newMobs.length > 0)) break;
+      if (events.some(isDesertion)) break;
     }
     a.onSnap = null;
     info(`happiness now ${a.snap.happiness} (foodTypes grain=${a.snap.grain} meat=${a.snap.meat} fruit=${a.snap.fruit}); low(<35) seen=${lowSeen}`);
-    const des = events.filter((ev) => ev.dawn && ev.newMobs.length > 0);
+    const des = events.filter(isDesertion);
     if (des.length) {
       const ev = des[0];
-      const deserterMobs = ev.newMobs.filter((m) => m.maxHp === 80 && m.hp === 80);
+      // maxHp 80 (the pikeman's); hp may already be chipped by a loyal pikeman in alert range on the same tick.
+      const deserterMobs = ev.newMobs.filter((m) => m.maxHp === 80 && m.hp <= 80);
       const posMatch = ev.gone.every((k) => deserterMobs.some((m) => Math.hypot(m.x - k.x, m.y - k.y) < 1));
       result(deserterMobs.length === ev.gone.length && posMatch,
-        `(e) at dawn (prev-tick happiness ${ev.happinessPrev} < 35): ${ev.gone.length} ${[...new Set(ev.gone.map((k) => k.kind))]} vanished and ${deserterMobs.length} new mob(s) with hp/maxHp 80/80 appeared at their exact positions`);
+        `(e) at dawn (prev-tick happiness ${ev.happinessPrev} < 35): ${ev.gone.length} ${[...new Set(ev.gone.map((k) => k.kind))]} vanished and ${deserterMobs.length} new mob(s) with maxHp 80 appeared at their exact positions [${ev.newMobs.map((m) => `${m.kind} ${m.hp}/${m.maxHp}`).join(", ")}]`);
       // Dormant: the deserter mob does not move on its own. (Loyal pikemen in range may attack it - that's expected.)
       const id = deserterMobs[0].id;
       const p0 = deserterMobs[0];

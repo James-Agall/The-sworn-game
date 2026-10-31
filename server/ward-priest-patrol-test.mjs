@@ -147,7 +147,8 @@ result(stocked || (a.snap.tools >= 20 && a.snap.wood >= NEED_WOOD),
   const before = { wood: a.snap.wood, tools: a.snap.tools, bishops: bishops().length };
   setTile(s1, T.WardStone);
   await sleep(500);
-  result(tileAt(s1.x, s1.y) === T.Empty && a.snap.wood === before.wood && a.snap.tools === before.tools && bishops().length === 0,
+  // A lumberjack delivery can land in the window: no cost paid = wood did not drop.
+  result(tileAt(s1.x, s1.y) === T.Empty && a.snap.wood >= before.wood && a.snap.tools === before.tools && bishops().length === 0,
     `B: no Church -> Ward Stone refused silently (tile ${tileAt(s1.x, s1.y)}, wood ${before.wood}->${a.snap.wood}, tools ${before.tools}->${a.snap.tools}, bishops ${bishops().length})`);
 }
 

@@ -7,7 +7,7 @@
 //      target, so the player never takes damage and the Town Center is never hit. No halfLatch exists.
 //   C) Lapse, live: the Ward Priest can't be hurt by mobs (pickMobTarget only picks guards/militia,
 //      and he's warded anyway), so the only live death is starvation. Once food runs out he takes 10
-//      damage every dawn (the test cuts his HP to 10 once the food is gone, so the next dawn kills him). His death doesn't drop the ward at
+//      damage every dawn, which the Church's healing undoes, so once the food is gone the test kills him (testHook). His death doesn't drop the ward at
 //      once: the stone stays warded until WARD_GRACE_TICKS (1200) after his last completed tending,
 //      i.e. 1000-1201 ticks after his death. Then exactly one halfLatch appears, at the stone's tile
 //      center, with the MOB_KIND_CONFIG stats (12 hp).
@@ -183,12 +183,15 @@ const drainDeadline = Date.now() + 12 * 60000;
 let lastLog = 0;
 let hpCut = false;
 while (!death && Date.now() < drainDeadline) {
-  // Days are 300 s + 75 s nights: three starving dawns no longer fit the run. Once the food is gone, cut his
-  // HP to one starving dawn's damage (10) so the next dawn still kills him by starvation.
-  if (!hpCut && food() === 0) {
+  // He no longer starves to death: days are 300 s + 75 s nights (three starving dawns do not fit the run) and
+  // the Church's prayers heal his starvation damage back (2026-10-31: 25 hp after two starving dawns). What
+  // this test is about is the lapse after his death, so once the food is gone he is killed (testHook
+  // damageColonist) and his respawn still can't be paid for.
+  // After one full night with the ward up (B needs it).
+  if (!hpCut && food() === 0 && nightsSeen >= 1 && !a.snap.isNight) {
     hpCut = true;
-    a.send({ type: "testHook", op: "setColonistHp", id: warder.id, hp: 10 });
-    info("C: food is gone; Ward Priest HP set to 10 (one starving dawn)");
+    a.send({ type: "testHook", op: "damageColonist", id: warder.id, amount: 1000 });
+    info("C: food is gone; Ward Priest killed by testHook (no starvation death with Church healing)");
   }
   if (Date.now() - lastLog > 15000) {
     lastLog = Date.now();
@@ -202,7 +205,7 @@ if (!death) {
   process.exit(1);
 }
 result(!death.snap.mobs.some((m) => m.kind === "halfLatch"),
-  `C: priest starved (last hp ${death.prevWarderHp}, food ${food(death.snap)}); the ward does NOT lapse on his death tick (no halfLatch yet)`);
+  `C: priest died (last hp ${death.prevWarderHp}, food ${food(death.snap)}); the ward does NOT lapse on his death tick (no halfLatch yet)`);
 const hlSeenAtDeath = [...firstSeen.values()].filter((e) => e.kind === "halfLatch").length;
 let lapse = null;
 a.listeners.push((s) => {
