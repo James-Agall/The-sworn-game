@@ -29,6 +29,7 @@ import {
 } from "./mobs.js";
 import { broadcastEvent } from "./net.js";
 import { clanTownCenters } from "./clans.js";
+import { campRaidBonus } from "./sites.js";
 
 // ---- Raid waves ----
 // spawnRaid runs once per day at the day's midpoint and puts the whole of tonight's raid on the map
@@ -259,7 +260,8 @@ export function raidDepartureTick(from: TileCoord, group: RaidGroup, nightfallTi
 
 export function spawnRaid(dayIndex: number) {
   const nightfallTick = dayIndex * (DAY_TICKS + NIGHT_TICKS) + DAY_TICKS;
-  const total = raidSizeForDay(dayIndex);
+  // Forts phase G: overgrown (tier 3+) founded camps near this clan swell its night raid.
+  const total = Math.round(raidSizeForDay(dayIndex) * (1 + campRaidBonus()));
   const eligibleDeserters = Array.from(mobs.values()).filter(
     (m) =>
       m.isDeserter &&

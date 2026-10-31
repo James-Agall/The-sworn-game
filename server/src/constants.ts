@@ -1594,6 +1594,54 @@ export const SITE_SURGE_TOWER_RANGE_TILES = 2;
 export const SITE_REFILL_TICKS = 60 * TICK_RATE;
 // Clearing (keep razed): this share of the fort's stockpile is plundered on top of the hearth loot.
 export const SITE_LOOT_STOCK_SHARE = 0.5;
+
+// ---- Forts phase G: wandering warbands found camps; camps grow and punish neglect (warbands.ts) ----
+// At most round(WARBAND_COUNT_AT_512 x (size / 512)^WARBAND_COUNT_EXP) warbands + standing founded camps
+// (512: 4, 256: 2, 160: 1; none below SITE_FORT_MIN_WORLD_TILES). At dawn of WARBAND_FIRST_DAY or later, once
+// the next spawn day has come, one warband spawns at the map edge (never within WARBAND_CLAN_CLEARANCE_TILES of a
+// Town Center); the next one is WARBAND_SPAWN_DAYS (+0..1) days later.
+export const WARBAND_COUNT_AT_512 = 4;
+export const WARBAND_COUNT_EXP = 1.2;
+export const WARBAND_FIRST_DAY = 2;
+export const WARBAND_SPAWN_DAYS = 3;
+export const WARBAND_CLAN_CLEARANCE_TILES = 60;
+// Where it settles: the camp's centre WARBAND_SETTLE_MIN..MAX tiles from the nearest Town Center, at least
+// SITE_FORT_SPACING_TILES from every other site's keep, on clearable natural ground (siteFitProblem clearable).
+export const WARBAND_SETTLE_MIN_TC_TILES = 70;
+export const WARBAND_SETTLE_MAX_TC_TILES = 170;
+export const WARBAND_SETTLE_ATTEMPTS = 400;
+// Size at spawn: WARBAND_SIZE_BASE + day / WARBAND_SIZE_DAYS_PER_MOB, at most WARBAND_SIZE_MAX.
+export const WARBAND_SIZE_BASE = 5;
+export const WARBAND_SIZE_DAYS_PER_MOB = 5;
+export const WARBAND_SIZE_MAX = 9;
+// Walk pace (x the slowest member's speed); the route is findPath segments of WARBAND_SEGMENT_TILES.
+export const WARBAND_PACE = 0.6;
+export const WARBAND_SEGMENT_TILES = 24;
+// Bodies only while a player / colonist is within WARBAND_AWAKE_TILES (Chebyshev); abstract again past
+// WARBAND_SLEEP_TILES. "A warband is on the move" once one comes within WARBAND_SIGHT_TILES; it turns to fight
+// (dissolves into ordinary hostile mobs) when hit or when a unit comes within WARBAND_ENGAGE_TILES.
+export const WARBAND_AWAKE_TILES = 96;
+export const WARBAND_SLEEP_TILES = 104;
+export const WARBAND_SIGHT_TILES = 20;
+export const WARBAND_ENGAGE_TILES = 5;
+// Camp growth: a founded camp goes up one tier every CAMP_GROWTH_DAYS (+0..1, dice per site and tier) game
+// days, up to its template's maxTier, applied lazily; paused while provoked, stops once cleared / captured.
+export const CAMP_GROWTH_DAYS: Record<"bandit" | "orc", number> = { bandit: 4, orc: 5 };
+export const CAMP_GARRISON_BY_TIER = [5, 8, 12, 18];
+// Raids: a tier CAMP_RAID_MIN_TIER camp raids every 2nd night, tier 4 every night: 3 x tier + day / 4 mobs
+// (cap CAMP_RAID_SIZE_CAP) at the nearest Town Center within CAMP_RAID_RANGE_TILES (only that Town Center's clan).
+export const CAMP_RAID_MIN_TIER = 3;
+export const CAMP_RAID_RANGE_TILES = 140;
+export const CAMP_RAID_SIZE_CAP = 24;
+// Each tier 3+ camp within CAMP_RAID_BONUS_RANGE_TILES of a clan's Town Center adds CAMP_RAID_BONUS_PER_CAMP
+// to that clan's night raid size (cap CAMP_RAID_BONUS_MAX).
+export const CAMP_RAID_BONUS_PER_CAMP = 0.1;
+export const CAMP_RAID_BONUS_MAX = 0.4;
+export const CAMP_RAID_BONUS_RANGE_TILES = 150;
+// Settlements within QUEST_CAMP_RANGE_TILES of a tier 3+ camp roll quests x CAMP_QUEST_CHANCE_MULT, camp first.
+export const CAMP_QUEST_CHANCE_MULT = 3;
+// A razed founded camp's spot may be re-settled after this many game days.
+export const CAMP_RESETTLE_COOLDOWN_DAYS = 10;
 // ---- Forts phase C: human settlements (PLAN-forts-diplomacy-moats.md §3, §8, §10 "C") ----
 // World-gen: round(SETTLEMENT_COUNT_AT_512 x (size / 512)^SITE_FORT_COUNT_EXP) settlements (512: 10, 256: 4,
 // 160: 2; none < SITE_FORT_MIN_WORLD_TILES), split floor(n / 4) Riverwatch, round(n x 0.3) Ironhold, the rest

@@ -273,6 +273,9 @@ export interface Mob {
   workB?: number;
   workLeg?: number;
   workWaitUntilTick?: number;
+  // Forts phase G (warbands.ts): a member of a wandering warband on the move (warbands.ts drives it, not
+  // updateMob, until the warband settles or turns to fight).
+  warbandId?: string;
 }
 // Ruins and encampments are the small scattered sites; "castleRuin" is the one Castle Ruin and
 // "miniBoss" a mini-boss pack (ROADMAP Phase 5). All share the dormant-until-provoked wake mechanic.
@@ -362,6 +365,10 @@ export interface SiteState {
   // liege's book: tribute on / off, the tribute ledger, the levy on the field and the call-to-arms cooldown.
   vassalOf?: number | null;
   vassal?: VassalState;
+  // Forts phase G: a camp a wandering warband founded (it grows tier by tier and raids at tier 3+); the tick
+  // its keep was razed (a later warband may re-settle the spot after CAMP_RESETTLE_COOLDOWN_DAYS).
+  founded?: boolean;
+  clearedTick?: number;
 }
 export interface VassalState {
   tax: boolean;

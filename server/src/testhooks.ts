@@ -9,7 +9,8 @@ import {
   MOB_ROLE, type ColonistKind, type Stance, type EquipSlot, HERO_CLASSES, type HeroClass,
 } from "@colony/shared/protocol";
 import type { Player, RaidGroup, ResourceKey, SiteTemplateId, TileCoord } from "./types.js";
-import { adjustRelation, relationOf, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
+import { adjustRelation, applySiteTier, catchUpCampGrowth, relationOf, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
+import { spawnCampRaids, spawnWarband, warbandsDebug } from "./warbands.js";
 import {
   ARMOUR_DAMAGE_TAKEN_MULT, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, DAY_LENGTH_SCALE, DAY_TICKS,
   DESERTER_ACTIVATION_TICKS, DUSK_RESPAWN_CYCLE_TICK, FARMHAND_CYCLE_TICKS, FARMHAND_YIELD_PER_CYCLE,
@@ -292,6 +293,37 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     });
     if (!r.site) reply({ site: null, problem: r.problem, x0: r.x0, y0: r.y0 });
     else reply({ site: { ...r.site } });
+  } else if (msg.op === "setWarbands") {
+    // Forts phase G: let the dawn timer spawn warbands in this scripted test (off by default with test hooks).
+    state.testWarbandsEnabled = msg.enabled === true;
+    reply({ enabled: state.testWarbandsEnabled });
+  } else if (msg.op === "spawnWarband") {
+    // Forts phase G: {faction?: "bandit" | "orc", x0?, y0? (camp top-left), atX?, atY? (spawn tile), size?}.
+    const at = typeof msg.atX === "number" && typeof msg.atY === "number" ? { x: Math.floor(msg.atX), y: Math.floor(msg.atY) } : undefined;
+    const w = spawnWarband({
+      faction: msg.faction === "orc" ? "orc" : msg.faction === "bandit" ? "bandit" : undefined,
+      x0: typeof msg.x0 === "number" ? msg.x0 : undefined, y0: typeof msg.y0 === "number" ? msg.y0 : undefined,
+      at, size: typeof msg.size === "number" ? msg.size : undefined,
+    });
+    reply(typeof w === "string" ? { warband: null, problem: w } : { warband: warbandsDebug().warbands.find((b) => b.id === w.id) });
+  } else if (msg.op === "warbandsState") {
+    reply(warbandsDebug());
+  } else if (msg.op === "growSite" && typeof msg.siteId === "string") {
+    // Forts phase G: {siteId, days?} ages a founded camp's growth clock by `days` and catches up (lazy growth);
+    // {tiers?} lays that many tiers on any fort at once; {found: true} marks any fort a founded camp; {clearedDaysAgo?} backdates a razed camp's cooldown.
+    const st = sites.get(msg.siteId);
+    if (!st) return reply({ found: false });
+    if (msg.found === true) st.founded = true;
+    if (typeof msg.days === "number") st.growthTick -= Math.floor(msg.days * GAME_DAY_TICKS);
+    const gained = typeof msg.tiers === "number" ? (applySiteTier(st, st.tier + Math.floor(msg.tiers)), Math.floor(msg.tiers)) : catchUpCampGrowth(st);
+    if (typeof msg.clearedDaysAgo === "number" && st.clearedTick !== undefined) st.clearedTick = state.cycleTick - Math.floor(msg.clearedDaysAgo * GAME_DAY_TICKS);
+    const hearth = hearths.get(st.id);
+    reply({ found: true, gained, tier: st.tier, garrisonMax: st.garrisonMax, roster: st.garrisonRoster, keepMaxHp: hearth?.maxHp ?? null, growthTick: st.growthTick, clearedTick: st.clearedTick ?? null });
+  } else if (msg.op === "campRaids") {
+    // Forts phase G: run the founded camps' raid spawn for clan 0 now (day = this day unless {day}).
+    const day = typeof msg.day === "number" ? Math.floor(msg.day) : Math.floor(state.cycleTick / GAME_DAY_TICKS);
+    const groups = spawnCampRaids(day);
+    reply({ groups: groups.map((g) => ({ id: g.id, faction: g.faction, size: g.memberIds.length, aggroTick: g.aggroTick, kinds: g.memberIds.map((id) => mobs.get(id)?.kind) })) });
   } else if (msg.op === "sitesState") {
     // Forts phase B: every fort with its hearth (keep) and living garrison.
     reply({

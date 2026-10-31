@@ -36,6 +36,7 @@ import { settlementsDawn } from "./diplomacy.js";
 import { updateQuests } from "./quests.js";
 import { updateWagons } from "./wagons.js";
 import { updateVassals, vassalsDawn } from "./vassals.js";
+import { spawnCampRaids, stepWarbandMobs, updateWarbands, warbandsDawn } from "./warbands.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
@@ -54,6 +55,8 @@ export function stepSimulation() {
     settlementsDawn();
     // Forts phase F: fealty at relation 100, breakaways, tribute.
     vassalsDawn();
+    // Forts phase G: a wandering warband now and then.
+    warbandsDawn();
     state.autosaveDue = true;
   }
 
@@ -74,7 +77,11 @@ export function stepSimulation() {
     // Clans: every clan with a Town Center gets its own raid on the shared schedule (clan 0 always).
     if (!state.testRaidsDisabled) {
       forEachClan((clan) => {
-        if (clan.id === 0 || clanTownCenters().length > 0) spawnRaid(dayIndex);
+        if (clan.id === 0 || clanTownCenters().length > 0) {
+          spawnRaid(dayIndex);
+          // Forts phase G: overgrown founded camps raid their nearest clan too.
+          spawnCampRaids(dayIndex);
+        }
       });
     }
   }
@@ -146,12 +153,14 @@ export function stepSimulation() {
   withHostileMover(() => {
     updateRegiments();
     updateRaidGroups(dt);
+    // Forts phase G: warbands on the move (their members skip updateMob).
+    stepWarbandMobs(dt);
     for (const mob of mobs.values()) {
       // Forts phase A: a site's own mobs pass its gates.
       state.moverOwner = tileOwner.size === 0 ? 0 : siteNumber(mob.siteId);
       // Forts phase C: a human settlement's cosmetic workers walk their loop instead.
       if (mob.siteWorker) updateSiteWorker(mob, dt);
-      else updateMob(mob, dt);
+      else if (!mob.warbandId) updateMob(mob, dt);
     }
     state.moverOwner = 0;
   });
@@ -180,6 +189,7 @@ export function stepSimulation() {
   if (state.cycleTick % TICK_RATE === 0) {
     checkBossSightings();
     updateSites();
+    updateWarbands();
     updateVassals();
     forEachClan(() => evaluateGoals());
   }

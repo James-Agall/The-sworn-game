@@ -2,7 +2,7 @@
 // ASCII template stamper (SITE_TEMPLATES), world-gen placement, the reserved-grounds mask, save / load.
 // Stage 2: sleeping sites (updateSites), the site-guardian leash (siteLeash), anti-kite surge, loot share.
 import { randomUUID } from "node:crypto";
-import { TILE_SIZE, TileType, type MobKind } from "@colony/shared/protocol";
+import { TICK_RATE, TILE_SIZE, TileType, type MobKind } from "@colony/shared/protocol";
 import type { Mob, ResourceKey, SiteState, SiteTemplate, SiteTemplateId, SiteWorkerRole, TileCoord } from "./types.js";
 import {
   SITE_AGGRO_EDGE_TILES, SITE_AGGRO_TILES, SITE_AWAKE_RADIUS_TILES, SITE_KITE_DECAY_TICKS, SITE_KITE_HITS,
@@ -13,17 +13,19 @@ import {
   SITE_KEEP_HP_BY_TIER, SITE_ORC_RING_FRACTION, SITE_TEMPLATES, SITE_TEMPLATE_TILES,
   RELATION_ATTACK_PENALTY, RELATION_CONQUEROR_PENALTY, RELATION_MAX, RELATION_MIN, RELATION_NEUTRAL, RELATION_RAZE_PENALTY,
   SETTLEMENT_HOSTILE_TICKS, SETTLEMENT_WORKER_PAUSE_TICKS, SETTLEMENT_WORKER_SPEED_MULT,
+  CAMP_GARRISON_BY_TIER, CAMP_GROWTH_DAYS, CAMP_RAID_BONUS_MAX, CAMP_RAID_BONUS_PER_CAMP, CAMP_RAID_BONUS_RANGE_TILES,
+  CAMP_RAID_MIN_TIER, GAME_DAY_TICKS, QUEST_CAMP_RANGE_TILES,
   SETTLEMENT_COUNT_AT_512, SETTLEMENT_INNER_RING_FRACTION, SETTLEMENT_PLACE_ATTEMPTS, SETTLEMENT_SPACING_TILES, SETTLEMENT_START_CLEARANCE_TILES,
 } from "./constants.js";
 import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, players, sites, state, tileOwner } from "./state.js";
 import { inBounds, isNightNow, resourceKey, setOwner, siteNumber, tileIndex, tileToPixelCenter } from "./tiles.js";
-import { clanById, setTileClan } from "./clans.js";
+import { clanById, clanTownCenters, setTileClan } from "./clans.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import type { SiteSnapshot } from "@colony/shared/protocol";
 import { isInAbbeyGrounds, isInCastleRuinGrounds, shuffled, spawnGuardian } from "./worldgen.js";
 import { registerHearth } from "./hearths.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
-import { activateGuardianSite, walkMobTo } from "./mobs.js";
+import { activateGuardianSite, hashString01, walkMobTo } from "./mobs.js";
 import { onRelationChanged } from "./diplomacy.js";
 import { noteLiegeHit } from "./vassals.js";
 
@@ -160,7 +162,8 @@ function setTile(x: number, y: number, tile: TileType, broadcast: boolean) {
 // keep as the site's hearth, spawns the dormant garrison on yard tiles near the keep and adds the SiteState.
 // The caller has checked siteFitProblem. `broadcast`: send tile updates (a live world; not world-gen).
 export function stampSiteTemplate(
-  templateId: SiteTemplateId, x0: number, y0: number, opts: { tier?: number; name?: string; broadcast?: boolean } = {},
+  templateId: SiteTemplateId, x0: number, y0: number,
+  opts: { tier?: number; name?: string; broadcast?: boolean; garrison?: Partial<Record<MobKind, number>> } = {},
 ): SiteState {
   const t = SITE_TEMPLATES[templateId];
   validateTemplate(t);
@@ -222,7 +225,9 @@ export function stampSiteTemplate(
     yard.filter((p) => !gateCells.some((g) => Math.max(Math.abs(g.x - p.x), Math.abs(g.y - p.y)) <= 1)),
   ).sort((p, q) => Math.round(Math.hypot(p.x - keep.x, p.y - keep.y) / 3) - Math.round(Math.hypot(q.x - keep.x, q.y - keep.y) / 3));
   const kinds: MobKind[] = [];
-  for (const [kind, n] of Object.entries(t.garrison) as [MobKind, number][]) for (let k = 0; k < n; k++) kinds.push(kind);
+  // Phase G: a warband-founded camp's garrison is the warband itself.
+  const roster = opts.garrison ?? t.garrison;
+  for (const [kind, n] of Object.entries(roster) as [MobKind, number][]) for (let k = 0; k < n; k++) kinds.push(kind);
   const garrison: string[] = [];
   const used: number[] = [];
   kinds.forEach((kind, k) => {
@@ -239,7 +244,7 @@ export function stampSiteTemplate(
     id, num, kind: "fort", faction: t.faction, template: t.id, name: opts.name ?? pickSiteName(t),
     x0, y0, x1: x0 + w - 1, y1: y0 + h - 1, apron: a, keepX: keep.x, keepY: keep.y, homeX: home.x, homeY: home.y,
     tier, growthTick: state.cycleTick, awake: false, lastSimTick: state.cycleTick, provoked: false,
-    stock: { ...t.stock }, garrisonRoster: { ...t.garrison }, garrisonMax: kinds.length, garrison, workers: [], posts: used,
+    stock: { ...t.stock }, garrisonRoster: { ...roster }, garrisonMax: kinds.length, garrison, workers: [], posts: used,
     sighted: false, cleared: false, captured: false,
   };
   sites.set(id, site);
@@ -374,6 +379,7 @@ export function onFortKeepDestroyed(siteId: string) {
   if (!s) return;
   s.cleared = true;
   s.sighted = true;
+  if (s.founded) s.clearedTick = state.cycleTick;
   state.ownerVersion++;
   state.relationsVersion++;
   state.tiles[tileIndex(s.keepX, s.keepY)] = TileType.RuinedKeep;
@@ -429,6 +435,11 @@ export function updateSites() {
       state.ownerVersion++;
       if (human) broadcastEvent("build", `You sight the ${SITE_TEMPLATES[s.template].noun ?? "village"} of ${s.name}`);
       else broadcastEvent("raid", `${s.name} sighted (${s.faction === "orc" ? "orc stockade" : "bandit palisade"})`);
+    }
+    // Phase G: a founded camp grows lazily (on waking and while watched); its clock stands still under attack.
+    if (s.founded && !s.cleared) {
+      if (awake && s.provoked) s.growthTick = Math.min(now, s.growthTick + TICK_RATE);
+      else if (awake) catchUpCampGrowth(s, now);
     }
     if (awake && !s.awake) {
       catchUpSite(s, now);
@@ -774,4 +785,118 @@ export function updateSiteWorker(mob: Mob, dt: number) {
   mob.workWaitUntilTick = 0;
   mob.workLeg = leg === 0 ? 1 : 0;
   if (mob.workLeg === 0 && mob.siteWorker === "farm") mob.workA = pick(workSpots(s).farm) ?? mob.workA;
+}
+
+// ---- Forts phase G: founded camps grow (lazily) and punish neglect ----
+
+// Game days a founded camp needs to go from `tier` to the next: CAMP_GROWTH_DAYS + a 0 / 1 dice per (site, tier).
+export function campGrowthDays(s: SiteState, tier: number): number {
+  return (CAMP_GROWTH_DAYS[s.faction as "bandit" | "orc"] ?? CAMP_GROWTH_DAYS.bandit) + (hashString01(`${s.id}:${tier}`) < 0.5 ? 0 : 1);
+}
+
+// Lazy growth: every whole growth period since growthTick is one tier up (to the template's maxTier).
+// Returns the tiers gained (0 = none).
+export function catchUpCampGrowth(s: SiteState, now = state.cycleTick): number {
+  if (!s.founded || s.cleared || s.captured) return 0;
+  const max = SITE_TEMPLATES[s.template].maxTier;
+  let tier = s.tier;
+  while (tier < max) {
+    const need = campGrowthDays(s, tier) * GAME_DAY_TICKS;
+    if (now - s.growthTick < need) break;
+    s.growthTick += need;
+    tier++;
+  }
+  if (tier === max) s.growthTick = Math.max(s.growthTick, now - GAME_DAY_TICKS);
+  if (tier <= s.tier) return 0;
+  const gained = tier - s.tier;
+  applySiteTier(s, tier);
+  return gained;
+}
+
+// Largest-remainder split of `n` garrison places in the template's garrison proportions.
+function scaleRoster(base: Partial<Record<MobKind, number>>, n: number): Partial<Record<MobKind, number>> {
+  const entries = Object.entries(base) as [MobKind, number][];
+  const total = entries.reduce((a, [, v]) => a + v, 0) || 1;
+  const out: Partial<Record<MobKind, number>> = {};
+  const rest = entries.map(([k, v]) => {
+    const exact = (v * n) / total;
+    out[k] = Math.floor(exact);
+    return { k, r: exact - Math.floor(exact) };
+  });
+  let left = n - Object.values(out).reduce((a, v) => a + (v ?? 0), 0);
+  for (const { k } of rest.sort((a, b) => b.r - a.r)) if (left-- > 0) out[k] = (out[k] ?? 0) + 1;
+  return out;
+}
+
+// Lays the template cells that change between the site's tier and `tier` (only onto Empty / Rubble ground or
+// the site's own tiles, never under a body), registers new gates (closed), raises the keep's max HP (same
+// damage fraction) and the garrison roster (CAMP_GARRISON_BY_TIER; catchUpSite refills it on waking).
+export function applySiteTier(s: SiteState, tier: number) {
+  const t = SITE_TEMPLATES[s.template];
+  tier = Math.max(1, Math.min(t.maxTier, tier));
+  const old = s.tier;
+  if (tier === old) return;
+  const occupied = new Set<number>();
+  const inRect = (x: number, y: number) => {
+    const tx = Math.floor(x / TILE_SIZE);
+    const ty = Math.floor(y / TILE_SIZE);
+    if (tx >= s.x0 && tx <= s.x1 && ty >= s.y0 && ty <= s.y1) occupied.add(tileIndex(tx, ty));
+  };
+  for (const p of players.values()) if (!p.dead) inRect(p.x, p.y);
+  for (const c of colonists.values()) inRect(c.x, c.y);
+  for (const m of mobs.values()) inRect(m.x, m.y);
+  const { w, h } = templateSize(t);
+  for (let ry = 0; ry < h; ry++) {
+    for (let rx = 0; rx < w; rx++) {
+      const before = cellAtTier(t, rx, ry, old);
+      const after = cellAtTier(t, rx, ry, tier);
+      if (before === after || after === "." || after === "D") continue;
+      const x = s.x0 + rx;
+      const y = s.y0 + ry;
+      const i = tileIndex(x, y);
+      const cur = state.tiles[i];
+      if (tileOwner.get(i) !== s.num && cur !== TileType.Empty && cur !== TileType.Rubble) continue;
+      if (occupied.has(i)) continue;
+      const tile = symbolTile(t, after)!;
+      setTile(x, y, tile, true);
+      setOwner(i, s.num);
+      if (tile === TileType.Gate) gates.set(i, { open: false, lock: "auto", clearTicks: 0, overrun: false });
+    }
+  }
+  s.tier = tier;
+  state.gateTilesDirty = true;
+  state.buildingTargetsDirty = true;
+  state.ownerVersion++;
+  const hearth = hearths.get(s.id);
+  if (hearth && !hearth.destroyed) {
+    const frac = hearth.maxHp > 0 ? hearth.hp / hearth.maxHp : 1;
+    hearth.maxHp = SITE_KEEP_HP_BY_TIER[tier - 1] ?? hearth.maxHp;
+    hearth.hp = Math.max(1, Math.round(frac * hearth.maxHp));
+  }
+  const max = Math.max(s.garrisonMax, CAMP_GARRISON_BY_TIER[tier - 1] ?? s.garrisonMax);
+  const scaled = scaleRoster(t.garrison, max);
+  for (const k of Object.keys(scaled) as MobKind[]) s.garrisonRoster[k] = Math.max(s.garrisonRoster[k] ?? 0, scaled[k] ?? 0);
+  s.garrisonMax = Math.max(max, Object.values(s.garrisonRoster).reduce((a, v) => a + (v ?? 0), 0));
+  if (s.sighted) broadcastEvent("raid", `${s.name} has grown (tier ${tier})`);
+}
+
+const isOvergrown = (s: SiteState) => !!s.founded && !s.cleared && !s.captured && s.tier >= CAMP_RAID_MIN_TIER;
+
+// quests.ts: a tier 3+ founded camp within QUEST_CAMP_RANGE_TILES of settlement `town`.
+export function overgrownCampNear(town: SiteState): SiteState | undefined {
+  for (const s of sites.values()) {
+    if (isOvergrown(s) && Math.hypot(s.keepX - town.keepX, s.keepY - town.keepY) <= QUEST_CAMP_RANGE_TILES) return s;
+  }
+  return undefined;
+}
+
+// raids.ts spawnRaid: the active clan's night raid grows CAMP_RAID_BONUS_PER_CAMP per tier 3+ founded camp within
+// CAMP_RAID_BONUS_RANGE_TILES of one of its Town Centers (cap CAMP_RAID_BONUS_MAX).
+export function campRaidBonus(): number {
+  const tcs = clanTownCenters();
+  let n = 0;
+  for (const s of sites.values()) {
+    if (isOvergrown(s) && tcs.some((tc) => Math.hypot(tc.x - s.keepX, tc.y - s.keepY) <= CAMP_RAID_BONUS_RANGE_TILES)) n++;
+  }
+  return Math.min(CAMP_RAID_BONUS_MAX, n * CAMP_RAID_BONUS_PER_CAMP);
 }

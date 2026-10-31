@@ -10,11 +10,11 @@ import type { HearthState, Mob, Player, SiteState } from "./types.js";
 import {
   DAY_TICKS, NIGHT_TICKS, QUEST_ABANDON_PENALTY, QUEST_CAMP_RANGE_TILES, QUEST_COOLDOWN_TICKS, QUEST_DEFEND_MAX_NEED,
   QUEST_DEFEND_MIN_MOBS, QUEST_DEFEND_RANGE_TILES, QUEST_DELIVER_QTY, QUEST_DELIVER_SHORT, QUEST_EXPIRE_TICKS,
-  QUEST_FAIL_PENALTY, QUEST_IGNORE_PENALTY, QUEST_MAX_PER_SITE, QUEST_POST_CHANCE, QUEST_RELATION_GAIN, QUEST_SCAN_TICKS,
+  CAMP_QUEST_CHANCE_MULT, QUEST_FAIL_PENALTY, QUEST_IGNORE_PENALTY, QUEST_MAX_PER_SITE, QUEST_POST_CHANCE, QUEST_RELATION_GAIN, QUEST_SCAN_TICKS,
   QUEST_TIER_REWARD, SETTLEMENT_PRODUCTION, SETTLEMENT_STOCK_CAP, TRADE_BASE_PRICE, TRADE_RANGE_TILES,
 } from "./constants.js";
 import { clans, hearths, mobs, sites, state } from "./state.js";
-import { adjustRelation, attackerClan } from "./sites.js";
+import { adjustRelation, attackerClan, overgrownCampNear } from "./sites.js";
 import { clanById, withClan } from "./clans.js";
 import { broadcastEvent } from "./net.js";
 import { isNightNow } from "./tiles.js";
@@ -174,9 +174,12 @@ export function scanQuests(force = false): Quest[] {
     if (!standingTown(s) || !s.sighted) continue;
     for (const clan of clans) {
       if (postBlock(s, clan.id) || openFor(clan.id, s.id).length >= QUEST_MAX_PER_SITE) continue;
-      if (!force && ((s.diplo?.[clan.id]?.questNextTick ?? 0) > state.cycleTick || Math.random() >= QUEST_POST_CHANCE)) continue;
+      // Forts phase G: an overgrown camp nearby: posts more often, and asks for the camp first.
+      const hot = !!overgrownCampNear(s);
+      const chance = QUEST_POST_CHANCE * (hot ? CAMP_QUEST_CHANCE_MULT : 1);
+      if (!force && ((s.diplo?.[clan.id]?.questNextTick ?? 0) > state.cycleTick || Math.random() >= chance)) continue;
       // Defence first when it is needed tonight; else a camp or a shortage, in random order.
-      const kinds: QuestKind[] = Math.random() < 0.5 ? ["clearCamp", "deliver"] : ["deliver", "clearCamp"];
+      const kinds: QuestKind[] = hot || Math.random() < 0.5 ? ["clearCamp", "deliver"] : ["deliver", "clearCamp"];
       if (isNightNow()) kinds.unshift("defend");
       for (const kind of kinds) {
         const q = postQuest(s, clan.id, kind);

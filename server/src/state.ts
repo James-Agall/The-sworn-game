@@ -240,6 +240,8 @@ export interface TesthooksFields {
   // testHook "setRaids" {enabled:false} skips the midday raid spawn of every day that passes while it is
   // off (economy tests fast-forward days).
   testRaidsDisabled: boolean;
+  // Forts phase G: warbands spawn on their own in normal games; with COLONY_TEST_HOOKS only after setWarbands.
+  testWarbandsEnabled: boolean;
   // testHook "ignorePlayers" {value:true}: mobs never target players (so a test client standing in the
   // world doesn't draw every mob away from the buildings).
   testPlayersIgnored: boolean;
@@ -500,6 +502,7 @@ const initial: Partial<ServerState> = {
   testForceDeserterRoll: null,
   testHoldRaidAggro: false,
   testRaidsDisabled: false,
+  testWarbandsEnabled: false,
   testPlayersIgnored: false,
   // SavesFields
   anyPlayerSinceBoot: false,

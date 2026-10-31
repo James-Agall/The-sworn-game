@@ -27,7 +27,8 @@ import { applyHungerMark } from "./mobs.js";
 import { makeBoss, spawnGuardian } from "./worldgen.js";
 import { createRaidMob, spawnRaid } from "./raids.js";
 import { damageWildlife, spawnWildlifeAt } from "./wildlife.js";
-import { adjustRelation, relationOf, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
+import { adjustRelation, applySiteTier, relationOf, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
+import { spawnWarband } from "./warbands.js";
 import { forcePostQuest } from "./quests.js";
 import { endVassalage } from "./vassals.js";
 import { refreshTradingPost, scanTradingPosts } from "./wagons.js";
@@ -127,7 +128,8 @@ export function spawnRaidGroupAt(
 // A fort / settlement template stamped with its top-left at (x0, y0), else the nearest fitting top-left within
 // `search` tiles (rings outward). Clears natural ground; refuses over buildings / other grounds.
 export function stampSiteSearch(
-  template: SiteTemplateId, x0: number, y0: number, search: number, opts: { tier?: number; name?: string } = {},
+  template: SiteTemplateId, x0: number, y0: number, search: number,
+  opts: { tier?: number; name?: string; garrison?: Partial<Record<MobKind, number>> } = {},
 ): { site: SiteState; problem: null } | { site: null; problem: string; x0: number; y0: number } {
   const t = SITE_TEMPLATES[template];
   let problem = siteFitProblem(t, x0, y0, true);
@@ -535,6 +537,27 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
     const r = stampSiteSearch(id, tile.x - (w >> 1), tile.y - (h >> 1), 30, { tier: typeof msg.tier === "number" ? msg.tier : undefined });
     if (!r.site) reply(false, `No room: ${r.problem}`);
     else reply(true, `Stamped ${r.site.name}`, { siteId: r.site.id });
+  } else if (op === "warband") {
+    // Forts phase G: a warband from the nearest map edge that will camp at the click.
+    const t = SITE_TEMPLATES[msg.faction === "orc" ? "grakkar" : "thornwick"];
+    const { w, h } = templateSize(t);
+    const tile = tileOfPixel(x, y);
+    if (!inBounds(tile.x, tile.y)) return reply(false, "Off the map");
+    const r = spawnWarband({ faction: msg.faction === "orc" ? "orc" : "bandit", x0: tile.x - (w >> 1), y0: tile.y - (h >> 1) });
+    reply(typeof r !== "string", typeof r === "string" ? `No warband: ${r}` : `A ${r.faction} warband (${r.route.length} tiles away) heads for the click`);
+  } else if (op === "growCamp") {
+    // Forts phase G: the bandit / orc fort nearest the click goes up one tier (and keeps growing from now on).
+    let best: SiteState | undefined;
+    for (const s of sites.values()) {
+      if (s.faction === "human" || s.cleared || s.captured) continue;
+      if (!best || Math.hypot(s.keepX * TILE_SIZE - x, s.keepY * TILE_SIZE - y) < Math.hypot(best.keepX * TILE_SIZE - x, best.keepY * TILE_SIZE - y)) best = s;
+    }
+    if (!best) return reply(false, "No standing camp or fort");
+    if (best.tier >= SITE_TEMPLATES[best.template].maxTier) return reply(false, `${best.name} is already at its top tier (${best.tier})`);
+    best.founded = true;
+    best.growthTick = state.cycleTick;
+    applySiteTier(best, best.tier + 1);
+    reply(true, `${best.name} grows to tier ${best.tier}`);
   } else if (op === "tradingPost") {
     const tile = tileOfPixel(x, y);
     if (!inBounds(tile.x, tile.y)) return reply(false, "Off the map");

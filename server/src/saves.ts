@@ -27,6 +27,7 @@ import { backfillHearths } from "./hearths.js";
 import { restoreSites, sitesForSave } from "./sites.js";
 import { questsForSave, restoreQuests } from "./quests.js";
 import { restoreWagons, wagonsForSave } from "./wagons.js";
+import { restoreWarbands, warbandsForSave } from "./warbands.js";
 import { evaluateGoals } from "./goals.js";
 import { playerMaxHp, resetEquipment, restoreHeroProfiles, serializeHeroProfiles } from "./heroes.js";
 import { clearSpellState, unslowedSpeed } from "./spells.js";
@@ -88,6 +89,7 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   state.taskForceMax.clear();
   clearOrderGroups();
   restoreWagons(undefined);
+  restoreWarbands(undefined);
   clearPlayerMorale();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
@@ -211,6 +213,8 @@ function snapshotWorldInner() {
     // Forts phase E: Trading Posts (auto-send, rebuild timers) and recent raid anchors (optional; the wagons
     // themselves are colonists).
     tradingPosts: wagonsForSave() as ReturnType<typeof wagonsForSave> | undefined,
+    // Forts phase G: warbands on the move (abstract) and the spawn timer (optional: older saves have none).
+    warbands: warbandsForSave() as ReturnType<typeof warbandsForSave> | undefined,
     stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
@@ -266,6 +270,7 @@ function snapshotWorldInner() {
       testForceDeserterRoll: state.testForceDeserterRoll,
       testHoldRaidAggro: state.testHoldRaidAggro,
       testRaidsDisabled: state.testRaidsDisabled,
+      testWarbandsEnabled: state.testWarbandsEnabled as boolean | undefined,
       testWildlifeRespawnDisabled: state.testWildlifeRespawnDisabled,
       testForceMarkChance: state.testForceMarkChance,
       instantBuild: state.instantBuild,
@@ -408,11 +413,14 @@ function applyWorldInner(s: WorldState) {
   for (let i = 0; i + 1 < owners.length; i += 2) if (owners[i] < state.tiles.length && owners[i + 1] > 0) tileOwner.set(owners[i], owners[i + 1]);
   // Forts phase B: stamped forts (saves without them have none). After the owners (site numbers).
   restoreSites(s.sites);
+  // Forts phase G: after the mobs (warband bodies are dropped; warbands come back abstract).
+  restoreWarbands(s.warbands);
   // After the owners: a fort's campfires (owned tiles) never get a backfilled hearth.
   backfillHearths();
   state.testForceDeserterRoll = s.flags.testForceDeserterRoll;
   state.testHoldRaidAggro = s.flags.testHoldRaidAggro;
   state.testRaidsDisabled = s.flags.testRaidsDisabled;
+  state.testWarbandsEnabled = s.flags.testWarbandsEnabled ?? false;
   state.testWildlifeRespawnDisabled = s.flags.testWildlifeRespawnDisabled;
   state.testForceMarkChance = s.flags.testForceMarkChance;
   state.instantBuild = s.flags.instantBuild;
