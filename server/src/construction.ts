@@ -41,7 +41,8 @@ import {
   highestTownCenterLevel, houseCapacity, houseOccupancy, isAbbeyClergy, isHouseTile, isMilitaryTile,
   isSynergyBuilding, placementNeedsNewWorkerSlot, productionSpeedMultiplier, removeColonistForPost, repairCost,
   settlementBlocker, settlementKeyNear, settlementStats, settlementTierCap, siteBuilderCount, spawnColonistForPost,
-  spawnExtraGuards, tilesOfType, topUpTownCenterBuilders, townCenterBonus, townCenterMaxHp, unpaidRepairHp,
+  colonyChurches, spawnExtraGuards, tilesOfType, topUpTownCenterBuilders, townCenterBonus, townCenterMaxHp,
+  unpaidRepairHp,
   updateWardPriestPresence,
 } from "./colonists.js";
 import {
@@ -895,7 +896,7 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
       sendEvent(player, "build", "Only the colony (the first clan) can raise Ward Stones");
       return;
     }
-    if (tilesOfType(TileType.ChurchPost).length === 0) return;
+    if (colonyChurches().length === 0) return;
   } else if (tile === TileType.Drawbridge) {
     // Phase H: a drawbridge spans a moat tile.
     if (current !== TileType.Moat) {

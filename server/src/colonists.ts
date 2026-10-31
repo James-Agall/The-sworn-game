@@ -1371,6 +1371,12 @@ export function tilesOfType(type: TileType): TileCoord[] {
   return found;
 }
 
+// The colony's own Churches (clan 0, no NPC owner): a human settlement's church (forts phase C) or another
+// clan's does not summon the Ward Priest or allow a Ward Stone.
+export function colonyChurches(): TileCoord[] {
+  return tilesOfType(TileType.ChurchPost).filter((t) => ownerAt(tileIndex(t.x, t.y)) === 0 && clanIdAt(t.x, t.y) === 0);
+}
+
 // Least-recently tended first (never-tended counts as oldest), nearest breaks ties.
 export function nextWardStoneFor(c: Colonist, stones: TileCoord[], skip: TileCoord | null = null): TileCoord | null {
   let best: TileCoord | null = null;
@@ -1412,7 +1418,7 @@ export function updateWardPriestPresence() {
     if (state.tiles[tileIndex(tx, ty)] !== TileType.WardStone) wardStoneLastTended.delete(key);
   }
   const stones = tilesOfType(TileType.WardStone);
-  const church = tilesOfType(TileType.ChurchPost)[0] ?? null;
+  const church = colonyChurches()[0] ?? null;
   const priest = state.wardPriestId ? colonists.get(state.wardPriestId) : undefined;
   if (state.wardPriestId && !priest) {
     state.wardPriestId = null;
