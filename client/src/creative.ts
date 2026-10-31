@@ -259,6 +259,12 @@ export function setupCreative(deps: CreativeDeps) {
     const tpl = select(TEMPLATES);
     const tier = select(["1", "2", "3"], (o) => `Tier ${o}`);
     p.append(el("div", "", { class: "cr-sec" }), row("Stamp", tpl, tier, button("Stamp", () => at((x, y) => deps.send({ type: "creativeSet", op: "stamp", template: tpl.value, tier: Number(tier.value), x, y })))));
+    // Forts phase G: a warband from the nearest map edge that camps at the click; grow the nearest camp / fort.
+    const wbFaction = select(["bandit", "orc"]);
+    p.append(row("Warband", wbFaction,
+      button("Spawn (camps at click)", () => at((x, y) => deps.send({ type: "creativeSet", op: "warband", faction: wbFaction.value, x, y }))),
+      button("Grow camp", () => at((x, y) => deps.send({ type: "creativeSet", op: "growCamp", x, y }))),
+    ));
     p.append(row("Trade", button("Trading Post + wagon", () => at((x, y) => deps.send({ type: "creativeSet", op: "tradingPost", x, y, level: 1 })))));
     const rel = el("input", "", { type: "number", min: "-100", max: "100", value: "100" });
     p.append(el("div", "", { class: "cr-sec" }), row("Relation", rel,
