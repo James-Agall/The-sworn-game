@@ -7,7 +7,7 @@ import {
   type EquipSlot, type BossTier, type Difficulty, TileType, WildlifeState, type RegimentClass, type ArmyOrderKind,
   type CombatRole, type SaveSlot, type ItemSlotKind, type ItemStats, type SpellId, FIGHT_WINDOW_SECONDS,
 } from "@colony/shared/protocol";
-import { BUILD_COSTS } from "@colony/shared/buildings";
+import { BLACKSMITH_TOOLS_STOCK_CAP as SHARED_BLACKSMITH_TOOLS_STOCK_CAP, BUILD_COSTS } from "@colony/shared/buildings";
 import type {
   Cost, CraftRecipe, DifficultyTuning, MobKindConfig, PoiSiteKind, RaidFactionEntry, RaidFactionId,
   RaidFormationShape, ResourceKey, SiteTemplate, SiteTemplateId, TileCoord, WildlifeMode,
@@ -601,6 +601,11 @@ export const GATE_ROCK_COST = BUILD_COSTS[TileType.Gate].rock;
 // upgrades' wood doubled and they take rock too (placementCost).
 export const HOUSE_WOOD_COST = BUILD_COSTS[TileType.House].wood;
 export const HOUSE_ROCK_COST = BUILD_COSTS[TileType.House].rock;
+// Upgrades: [House -> BigHouse (Lv2), BigHouse -> Lv3 house].
+export const HOUSE_UPGRADE_COSTS: Cost[] = [
+  { wood: HOUSE_WOOD_COST, rock: 10, grain: 1, meat: 1, fruit: 1, clothes: 2 },
+  { wood: 30, rock: 15, grain: 2, meat: 2, fruit: 2, clothes: 3, tools: 2, luxuryItems: 1 },
+];
 export const BARN_WOOD_COST = BUILD_COSTS[TileType.BarnPost].wood;
 export const CHURCH_WOOD_COST = BUILD_COSTS[TileType.ChurchPost].wood;
 export const CRAFT_BUILDING_WOOD_COST = BUILD_COSTS[TileType.Blacksmith].wood!;
@@ -698,7 +703,7 @@ export const FARM_PRODUCE_BY_TILE: Partial<Record<TileType, "meat" | "fruit" | "
 };
 // Tools are only spent on a few upgrades, so an uncapped Blacksmith turned ~10 wood + 10 iron a game
 // minute into a tools pile forever (the "wood slowly depleting" report, 2026-10-29).
-export const BLACKSMITH_TOOLS_STOCK_CAP = 30;
+export const BLACKSMITH_TOOLS_STOCK_CAP = SHARED_BLACKSMITH_TOOLS_STOCK_CAP;
 export const CRAFT_RECIPES: Partial<Record<TileType, CraftRecipe>> = {
   [TileType.TailorShop]: { inputs: { wool: 1, cotton: 1 }, output: "clothes" },
   [TileType.Blacksmith]: { inputs: { iron: 1, wood: 1 }, output: "tools", stockCap: BLACKSMITH_TOOLS_STOCK_CAP },
@@ -1756,6 +1761,12 @@ export const QUEST_DELIVER_QTY: Partial<Record<SiteTemplateId, number>> = { hear
 // Gold: clearCamp 60 + 6 per garrison guardian, defend 20 per kill needed, deliver 2x the goods' base price;
 // times the tier factor. Relation: gain on completion (capped by RELATION_QUEST_DAILY_CAP, diminishing like
 // trade), loss on failure / abandon / ignoring it (expired unaccepted).
+export const QUEST_DEFEND_REWARD_PER_KILL = 20;
+export const QUEST_CLEAR_CAMP_REWARD_BASE = 60;
+export const QUEST_CLEAR_CAMP_REWARD_PER_GUARDIAN = 6;
+export const QUEST_DELIVER_REWARD_PRICE_MULT = 2;
+// deliver qty for a template not in QUEST_DELIVER_QTY.
+export const QUEST_DELIVER_DEFAULT_QTY = 20;
 export const QUEST_TIER_REWARD = { wary: 0.8, neutral: 1, friendly: 1.15, allied: 1.3, vassal: 1.4, hostile: 0 } as const;
 export const QUEST_RELATION_GAIN = { defend: 8, clearCamp: 10, deliver: 6 } as const;
 export const RELATION_QUEST_DAILY_CAP = 12;

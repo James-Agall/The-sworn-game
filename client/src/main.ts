@@ -49,7 +49,10 @@ import type {
 } from "@colony/shared/protocol";
 import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-window ETA
 import { RELATION_TIER_NAMES } from "@colony/shared/protocol"; // forts phase D: relation tier labels
-import { buildCostText, FOOTPRINT_BY_TILE, footprintAnchorOf, footprintOf, footprintPartOffsets, placedFootprintAt } from "@colony/shared/buildings";
+import {
+  BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FOOTPRINT_BY_TILE, footprintAnchorOf, footprintOf, footprintPartOffsets,
+  placedFootprintAt,
+} from "@colony/shared/buildings";
 import type { Footprint } from "@colony/shared/buildings";
 import {
   Biome,
@@ -229,7 +232,7 @@ const TOOLS: ToolDef[] = [
     tile: TileType.Blacksmith,
     label: "Blacksmith",
     key: "k",
-    cost: `${buildCostText(TileType.Blacksmith)} (upgradeable). Crafts 1 Iron + 1 Wood → 1 Tools, idles at 30 tools`,
+    cost: `${buildCostText(TileType.Blacksmith)} (upgradeable). Crafts 1 Iron + 1 Wood → 1 Tools, idles at ${BLACKSMITH_TOOLS_STOCK_CAP} tools`,
     category: "industry",
   },
   {

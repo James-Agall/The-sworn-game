@@ -50,6 +50,9 @@ export const BUILD_COSTS = {
   [TileType.Brewery]: CRAFT_BUILDING,
 } satisfies Partial<Record<TileType, BuildCost>>;
 
+// A Blacksmith stops crafting tools while the stock holds this many (server constants.ts; client tool text).
+export const BLACKSMITH_TOOLS_STOCK_CAP = 30;
+
 // "10 wood + 5 rock" ("Free" for a tile with no entry).
 export function buildCostText(tile: TileType): string {
   const cost: BuildCost = (BUILD_COSTS as Partial<Record<TileType, BuildCost>>)[tile] ?? {};

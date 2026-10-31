@@ -8,7 +8,9 @@
 import { TILE_SIZE, TRADE_GOODS, type QuestKind, type QuestSnapshot, type TradeGood } from "@colony/shared/protocol";
 import type { HearthState, Mob, Player, SiteState } from "./types.js";
 import {
-  DAY_TICKS, NIGHT_TICKS, QUEST_ABANDON_PENALTY, QUEST_CAMP_RANGE_TILES, QUEST_COOLDOWN_TICKS, QUEST_DEFEND_MAX_NEED,
+  DAY_TICKS, NIGHT_TICKS, QUEST_ABANDON_PENALTY, QUEST_CAMP_RANGE_TILES, QUEST_CLEAR_CAMP_REWARD_BASE,
+  QUEST_CLEAR_CAMP_REWARD_PER_GUARDIAN, QUEST_COOLDOWN_TICKS, QUEST_DEFEND_MAX_NEED, QUEST_DEFEND_REWARD_PER_KILL,
+  QUEST_DELIVER_DEFAULT_QTY, QUEST_DELIVER_REWARD_PRICE_MULT,
   QUEST_DEFEND_MIN_MOBS, QUEST_DEFEND_RANGE_TILES, QUEST_DELIVER_QTY, QUEST_DELIVER_SHORT, QUEST_EXPIRE_TICKS,
   CAMP_QUEST_CHANCE_MULT, QUEST_FAIL_PENALTY, QUEST_IGNORE_PENALTY, QUEST_MAX_PER_SITE, QUEST_POST_CHANCE, QUEST_RELATION_GAIN, QUEST_SCAN_TICKS,
   QUEST_TIER_REWARD, SETTLEMENT_PRODUCTION, SETTLEMENT_STOCK_CAP, TRADE_BASE_PRICE, TRADE_RANGE_TILES,
@@ -110,16 +112,17 @@ function postQuest(s: SiteState, clanId: number, kind: QuestKind): Quest | strin
     const near = hostileMobsNear(s, QUEST_DEFEND_RANGE_TILES).length;
     if (near < QUEST_DEFEND_MIN_MOBS) return `only ${near} hostile mobs near it`;
     const need = Math.min(near, QUEST_DEFEND_MAX_NEED);
-    q = { ...base, expiresTick: nextDawnTick(), reward: Math.round(20 * need * factor), kills: 0, need };
+    q = { ...base, expiresTick: nextDawnTick(), reward: Math.round(QUEST_DEFEND_REWARD_PER_KILL * need * factor), kills: 0, need };
   } else if (kind === "clearCamp") {
     const h = campNear(s, clanId);
     if (!h) return `no camp within ${QUEST_CAMP_RANGE_TILES} tiles`;
-    q = { ...base, x: h.x, y: h.y, targetId: h.siteId, reward: Math.round((60 + 6 * h.garrison) * factor) };
+    const reward = QUEST_CLEAR_CAMP_REWARD_BASE + QUEST_CLEAR_CAMP_REWARD_PER_GUARDIAN * h.garrison;
+    q = { ...base, x: h.x, y: h.y, targetId: h.siteId, reward: Math.round(reward * factor) };
   } else {
     const good = shortGood(s, clanId);
     if (!good) return "it lacks nothing";
-    const qty = QUEST_DELIVER_QTY[s.template] ?? 20;
-    q = { ...base, good, qty, reward: Math.round(2 * TRADE_BASE_PRICE[good] * qty * factor) };
+    const qty = QUEST_DELIVER_QTY[s.template] ?? QUEST_DELIVER_DEFAULT_QTY;
+    q = { ...base, good, qty, reward: Math.round(QUEST_DELIVER_REWARD_PRICE_MULT * TRADE_BASE_PRICE[good] * qty * factor) };
   }
   nextQuestId++;
   quests.push(q);
