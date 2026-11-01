@@ -55,6 +55,10 @@ started is killed (process groups, then anything still listening on its ports). 
 `/tmp/colony-test-logs/<file>.log`. The whole suite takes about an hour (several suites play through real-time days);
 known failures are listed in ROADMAP.md "Known failing tests".
 
+`npm run smoke` is the fast alternative (about 15 s): `server/smoke-test.mjs` boots ONE creative-mode server (private port
+from 31900, scratch save dir, test hooks) and runs one short check per system on it (build, moat/drawbridge, settlement,
+trade, quests, wagon, vassal, warband, raid, units, creative, save/load). Use `npm test` for the thorough per-feature suites.
+
 ## Colony rules
 
 - **Starting stockpile:** the colony starts with 80 wood, 40 grain, 60 iron, and 60 rock (raised for the bigger map, since the first resource nodes are a longer walk away), so several starter buildings can go up immediately without waiting on gathering.
