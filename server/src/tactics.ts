@@ -690,6 +690,30 @@ export function updatePlayerMorale() {
   }
 }
 
+// Fleeing (rout / leave): straight away (or sliding along one axis round an obstacle) with no path search; only a mob
+// blocked both ways searches a path, at most FLEE_PATHS_PER_TICK a tick (the rest wait a tick), so a regiment of
+// 125 breaking at once does not run 125 map-edge searches in one tick (a 0.9-3.4 s spike, battle engine phase 3).
+const FLEE_PATHS_PER_TICK = 4;
+let fleePathTick = -1;
+let fleePaths = 0;
+function fleeStep(mob: Mob, gx: number, gy: number, speed: number, dt: number): boolean {
+  if (mob.path.length === 0) {
+    if (stepRaidMobToward(mob, gx, gy, speed, dt)) return true;
+    const dx = gx - mob.x, dy = gy - mob.y;
+    if (Math.abs(dx) > 1 && stepRaidMobToward(mob, mob.x + Math.sign(dx) * TILE_SIZE, mob.y, speed, dt)) return true;
+    if (Math.abs(dy) > 1 && stepRaidMobToward(mob, mob.x, mob.y + Math.sign(dy) * TILE_SIZE, speed, dt)) return true;
+    if (mob.repathCooldown <= 0) {
+      if (fleePathTick !== state.cycleTick) {
+        fleePathTick = state.cycleTick;
+        fleePaths = 0;
+      }
+      if (fleePaths >= FLEE_PATHS_PER_TICK) return true;
+      fleePaths++;
+    }
+  }
+  return walkMobTo(mob, gx, gy, speed, dt);
+}
+
 // Walks `mob` to (gx, gy) along a path (repathed every MOB_REPATH_TICKS); false when no route exists.
 export function walkMobTo(mob: Mob, gx: number, gy: number, speed: number, dt: number): boolean {
   if (mob.path.length === 0) {
@@ -745,7 +769,7 @@ export function mobTactic(mob: Mob, dt: number): "handled" | "hold" | null {
       if (key) tacticsEvent(key, "despawn", mob.kind);
       return "handled";
     }
-    if (!walkMobTo(mob, gx, gy, mob.speed * ROUT_SPEED_FACTOR, dt)) {
+    if (!fleeStep(mob, gx, gy, mob.speed * ROUT_SPEED_FACTOR, dt)) {
       const threat = nearestMeleeSoldier(mob.x, mob.y, TILE_SIZE * 1.2);
       if (threat) return null;
       stepRaidMobToward(mob, gx, gy, mob.speed * ROUT_SPEED_FACTOR, dt);
@@ -761,7 +785,7 @@ export function mobTactic(mob: Mob, dt: number): "handled" | "hold" | null {
     const home = Math.hypot(reg.homeX - mob.x, reg.homeY - mob.y) <= TILE_SIZE * 1.5;
     // Cornered (an attacker on it and nowhere left to run): it fights back.
     if (home) return threat ? null : "handled";
-    if (!walkMobTo(mob, reg.homeX, reg.homeY, mob.speed * ROUT_SPEED_FACTOR, dt)) {
+    if (!fleeStep(mob, reg.homeX, reg.homeY, mob.speed * ROUT_SPEED_FACTOR, dt)) {
       if (threat) return null;
       mob.tactic = null;
     }

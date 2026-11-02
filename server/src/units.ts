@@ -599,6 +599,14 @@ export function updateGuardColonist(c: Colonist, dt: number) {
   const slot = meleeMover
     ? unitSlotPoint(c.id, c.x, c.y, COLONIST_BODY_RADIUS, stats.range, `m:${target.id}`, target.x, target.y, targetR, meleeAttackerCap(targetR))
     : null;
+  // Battle engine (rear ranks, docs PLAN-large-battles.md §3): a spear / pike with no free place round its
+  // target strikes it over the front rank from up to polearmReachPx beyond its range, at REAR_RANK_DAMAGE_MULT.
+  if (meleeMover && !slot && dist > stats.range && dist <= stats.range + polearmReachPx(c)) {
+    c.state = "attacking";
+    c.path = [];
+    guardStrike(c, target, stats, REAR_RANK_DAMAGE_MULT);
+    return;
+  }
   if (meleeMover && !slot && dist > stats.range) {
     // Queue: the target already has its share of attackers. Uncommanded, give it up and hold this
     // unit's own slot (rescanned after the repath cooldown); commanded, close to a stand-off behind
@@ -647,14 +655,14 @@ export function updateGuardColonist(c: Colonist, dt: number) {
 }
 
 // One blow / arrow at `target` when the cooldown allows.
-export function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown: number; melee: boolean }) {
+export function guardStrike(c: Colonist, target: Mob, stats: { damage: number; cooldown: number; melee: boolean }, mult = 1) {
   if (c.attackCooldownTicks > 0) {
     c.attackCooldownTicks--;
     return;
   }
   // Armour & weapons: the weapon tier multiplies every blow (charge x2 etc. stack on top).
   // Battle engine phase 3: x1.25 / x1.5 on a formed mob regiment's flank / rear.
-  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id) * moraleDamageMult(c) * directionMultOnMob(c.x, c.y, target);
+  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id) * moraleDamageMult(c) * directionMultOnMob(c.x, c.y, target) * mult;
   if ((c.weaponTier ?? 0) > 0) equipEvent({ type: "hit", id: c.id, tier: c.weaponTier, amount: damage, detail: String(damage / weaponDamageMult(c)) });
   // Cavalry & siege: the catapult lobs a splashing boulder (never inside its minimum range), the ram
   // barely scratches units, a rider's charge doubles its first blow.
@@ -836,6 +844,8 @@ export function pickGuardTarget(c: Colonist, stats: { range: number; melee: bool
   const pairedId = stats.melee ? pairedTargetOf(c.id) : undefined;
   const paired = pairedId ? mobs.get(pairedId) : undefined;
   if (paired && reachable(paired) !== null && (!queues || targetHasRoom(c.id, `m:${paired.id}`, meleeAttackerCap(mobBodyRadius(paired))))) return paired;
+  // Rear ranks: a spear / pike may take a foe whose ring is full when it can reach it over the front rank.
+  const over = stats.melee ? polearmReachPx(c) : 0;
   const rearRank = !stats.melee && hasFriendlyFrontline(c);
   let best: Mob | null = null;
   let bestDist = Infinity;
@@ -845,11 +855,18 @@ export function pickGuardTarget(c: Colonist, stats: { range: number; melee: bool
     const du = Math.hypot(m.x - c.x, m.y - c.y);
     const score = rearRank && du <= stats.range ? du - (engagedWithFrontline(m) ? 2e6 : 1e6) : ds;
     if (score >= bestDist) continue;
-    if (queues && !targetHasRoom(c.id, `m:${m.id}`, meleeAttackerCap(mobBodyRadius(m)))) continue;
+    if (queues && !targetHasRoom(c.id, `m:${m.id}`, meleeAttackerCap(mobBodyRadius(m))) && !(over > 0 && du <= stats.range + over)) continue;
     best = m;
     bestDist = score;
   }
   return best;
+}
+
+// Rear ranks: how far beyond its melee range a spear (one rank) / pike (two ranks) strikes over the front rank.
+const POLEARM_REACH_TILES: Partial<Record<string, number>> = { spearman: 1, pikeman: 1.75 };
+const REAR_RANK_DAMAGE_MULT = 0.75;
+export function polearmReachPx(c: Colonist): number {
+  return (POLEARM_REACH_TILES[c.kind] ?? 0) * TILE_SIZE;
 }
 
 // The slot leash (LINE_LEASH_TILES by stance; a regiment on a Hold order: HOLD_LEASH_TILES; a ranged

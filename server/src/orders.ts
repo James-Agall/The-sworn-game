@@ -5,7 +5,7 @@ import {
   FORMATION_SHAPES, type FormationShape, type ArmyOrderGroupSnapshot, type EnemyRegimentSnapshot, ENEMY_CELL_TILES,
   type CombatRole,
 } from "@colony/shared/protocol";
-import { planOrderFormation } from "@colony/shared/formation";
+import { FORMATION_SPACING_TILES, LINE_MAX_DEPTH_ROWS, groupStance, planOrderFormation } from "@colony/shared/formation";
 import type { Colonist, Mob, OrderGroup, Player } from "./types.js";
 import {
   ARMY_ORDER_KINDS, ARMY_REGIMENT_REFRESH_TICKS, ATTACK_MOVE_RESUME_TICKS, CATAPULT_BUILDING_MULT,
@@ -281,17 +281,16 @@ export function handleRegimentOrder(player: Player, msg: { regimentIds?: unknown
   if ((order.kind === "attack" || order.kind === "charge") && !mobs.has(order.targetId!)) return;
   if (order.kind === "attackHearth" && !attackObjectiveAt(order.tileX!, order.tileY!)) return;
   if (order.kind === "follow" && (!followTargetPos(order.targetId!) || ids.has(order.targetId!))) return;
+  // Battle engine: more than COMPANY_MAX units march and fight as several companies side by side.
+  if (units.length > COMPANY_MAX) {
+    issueCompanies(units, order, msg.queue === true);
+    return;
+  }
   // The same units as an existing group: Shift appends to its queue (a hold / follow / finished order
   // gives way at once), a plain order replaces its orders but keeps its formation memory.
   const prev = orderGroupOfUnit.get(units[0].id);
-  const same = !!prev && prev.unitIds.size === units.length && units.every((c) => orderGroupOfUnit.get(c.id) === prev);
-  if (prev && same) {
-    if (msg.queue === true && prev.current && prev.current.kind !== "hold" && prev.current.kind !== "follow" && prev.current.kind !== "bombard") {
-      if (prev.queue.length < ARMY_ORDER_QUEUE_MAX) prev.queue.push(order);
-      return;
-    }
-    if (msg.queue !== true) prev.queue = [];
-    startArmyOrder(prev, order);
+  if (prev && prev.unitIds.size === units.length && units.every((c) => orderGroupOfUnit.get(c.id) === prev)) {
+    queueOrStart(prev, order, msg.queue === true);
     return;
   }
   for (const c of units) leaveOrderGroup(c.id);
@@ -302,6 +301,79 @@ export function handleRegimentOrder(player: Player, msg: { regimentIds?: unknown
   orderGroups.set(g.id, g);
   for (const c of units) orderGroupOfUnit.set(c.id, g);
   startArmyOrder(g, order);
+}
+
+// Shift appends to the group's queue (a hold / follow / finished order gives way at once), a plain order
+// replaces its orders but keeps its formation memory.
+function queueOrStart(prev: OrderGroup, order: ArmyOrder, queue: boolean) {
+  if (queue && prev.current && prev.current.kind !== "hold" && prev.current.kind !== "follow" && prev.current.kind !== "bombard") {
+    if (prev.queue.length < ARMY_ORDER_QUEUE_MAX) prev.queue.push(order);
+    return;
+  }
+  if (!queue) prev.queue = [];
+  startArmyOrder(prev, order);
+}
+
+// Battle engine (docs PLAN-large-battles.md §10, max regiment size): an order to more than COMPANY_MAX units goes
+// to companies of at most COMPANY_MAX, side by side across the facing. The same units as an exact set of existing
+// companies re-use them (each keeps its remembered slots); otherwise they are split by where they stand across
+// the facing. Wide-line rule: a company's share of a dragged line that is too short for a LINE_MAX_DEPTH_ROWS-deep
+// line forms a block instead, so a 1000-unit line becomes a row of company blocks, not a 350-tile string.
+export const COMPANY_MAX = 150;
+const COMPANY_GAP_TILES = 2;
+function issueCompanies(units: Colonist[], order: ArmyOrder, queue: boolean) {
+  const c0 = centroidOf(units);
+  const positional = order.x !== undefined && order.y !== undefined;
+  const target = positional ? { x: order.x!, y: order.y! } : order.targetId ? mobs.get(order.targetId) ?? null : null;
+  const f = order.facing ?? (target && Math.hypot(target.x - c0.x, target.y - c0.y) >= 1 ? Math.atan2(target.y - c0.y, target.x - c0.x) : 0);
+  const lx = -Math.sin(f), ly = Math.cos(f);
+  const across = (p: { x: number; y: number }) => p.x * lx + p.y * ly;
+  const groups = new Set<OrderGroup>();
+  for (const c of units) {
+    const g = orderGroupOfUnit.get(c.id);
+    if (g) groups.add(g);
+  }
+  let covered = groups.size > 1;
+  let sum = 0;
+  for (const g of groups) {
+    sum += g.unitIds.size;
+    if (g.unitIds.size > COMPANY_MAX) covered = false;
+  }
+  covered = covered && sum === units.length && units.every((c) => orderGroupOfUnit.has(c.id));
+  let companies: { g: OrderGroup | null; members: Colonist[] }[];
+  if (covered) {
+    companies = Array.from(groups, (g) => ({ g, members: groupMembers(g) })).filter((k) => k.members.length > 0);
+  } else {
+    const sorted = units.slice().sort((a, b) => across(a) - across(b));
+    const k = Math.ceil(units.length / COMPANY_MAX);
+    companies = [];
+    for (let i = 0; i < k; i++) companies.push({ g: null, members: sorted.slice(Math.floor((i * units.length) / k), Math.floor(((i + 1) * units.length) / k)) });
+  }
+  companies.sort((a, b) => across(centroidOf(a.members)) - across(centroidOf(b.members)));
+  const orders = companies.map(() => ({ ...order }));
+  if (positional) {
+    const spacing = FORMATION_SPACING_TILES[groupStance(units)];
+    const fronts = companies.map((k, i) => {
+      const n = k.members.length;
+      const share = order.width !== undefined ? (order.width * n) / units.length : undefined;
+      const line = share !== undefined && share >= (Math.ceil(n / LINE_MAX_DEPTH_ROWS) - 1) * spacing;
+      orders[i].width = line ? share : undefined;
+      orders[i].facing = f;
+      return line ? share! : Math.ceil(Math.sqrt(n)) * spacing;
+    });
+    const total = fronts.reduce((a, w) => a + w, 0) + COMPANY_GAP_TILES * (fronts.length - 1);
+    let at = -total / 2;
+    fronts.forEach((w, i) => {
+      const o = (at + w / 2) * TILE_SIZE;
+      orders[i].x = clamp(order.x! + lx * o, 1, state.WORLD_TILES_X * TILE_SIZE - 1);
+      orders[i].y = clamp(order.y! + ly * o, 1, state.WORLD_TILES_Y * TILE_SIZE - 1);
+      at += w + COMPANY_GAP_TILES;
+    });
+  }
+  companies.forEach((k, i) => {
+    if (k.g) queueOrStart(k.g, orders[i], queue);
+    else startGroupOrder(k.members, orders[i]);
+  });
 }
 
 // Forts phase E: a trader wagon's escort as one order group on a persistent follow order (no player, no
