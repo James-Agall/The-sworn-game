@@ -145,6 +145,13 @@ export const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
   batteringRam: "/sprites/cart.png",
   catapult: "/sprites/crate.png",
   goblinRider: "/sprites/wolf.png",
+  // Settlement folk have no art of their own; borrow the colonist sprites (tinted via MOB_TINT below).
+  townGuard: "/sprites/militia.png",
+  townArcher: "/sprites/archer.png",
+  townKnight: "/sprites/knight.png",
+  townFarmer: "/sprites/farmer.png",
+  townMiner: "/sprites/rockMiner.png",
+  townPriest: "/sprites/bishop.png",
 };
 // Tints for mob kinds drawn with borrowed (placeholder) art. The goblin wolf rider is the wolf set tinted
 // warm brown until its own set (SPRITES.md #83, MOB_OPTIONAL_VARIANT_URLS) lands.
