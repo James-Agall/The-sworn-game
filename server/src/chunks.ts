@@ -289,8 +289,8 @@ export function updateChunkStates(force = false) {
   // Multi-source Chebyshev distance (in chunks, capped at CHUNK_FAR) from every anchor chunk.
   const anchorChunks = new Set<number>();
   for (const p of players.values()) if (!p.dead) anchorChunks.add(chunkAtPixel(p.x, p.y));
-  // Phase 3: a far unescorted wagon on a dice-resolved trip (wagon.abstract) is not an anchor.
-  for (const c of colonists.values()) if (c.hp > 0 && !c.wagon?.abstract) anchorChunks.add(chunkAtPixel(c.x, c.y));
+  // Phase 3: a far wagon convoy on a dice-resolved leg (ghost: the wagon and its escort) is not an anchor.
+  for (const c of colonists.values()) if (c.hp > 0 && !c.ghost) anchorChunks.add(chunkAtPixel(c.x, c.y));
   for (const tc of state.townCenters) anchorChunks.add(chunkAtPixel((tc.x + 0.5) * TILE_PX, (tc.y + 0.5) * TILE_PX));
   for (const g of raidGroups.values()) {
     for (const id of g.memberIds) {

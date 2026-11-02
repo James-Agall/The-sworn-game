@@ -142,6 +142,9 @@ export interface Colonist {
   cycleTicksTotal: number;
   // Forts phase E: trader wagons only (kind "wagon"; postX / postY = its Trading Post). Saved with the colonist.
   wagon?: WagonState;
+  // World streaming phase 3: travelling abstractly with a far wagon convoy (the wagon and its escort): no chunk
+  // anchor, no updateColonist; wagons.ts moves it. Missing = a normal unit.
+  ghost?: boolean;
   // Forts phase F: a vassal's levy (vassals.ts): the settlement it came from, the garrison mob kind it turns
   // back into at home, and true once it marches home (no orders then). Saved with the colonist.
   // Creative mode: spawned from the creative panel (never respawns, no death toast); a dummy stands still and
@@ -172,10 +175,10 @@ export interface WagonState {
   alertTick?: number;
   // Fled home (escort wiped): full speed.
   fleeing?: boolean;
-  // World streaming phase 3: far from everyone and unescorted, the trip is dice-resolved (abstract.ts): the
-  // wagon is no chunk anchor and ghost-steps along its path (acc = tiles owed, walked = tiles walked); a
-  // `delayUntil` roll holds it before arrival.
-  abstract?: { acc: number; walked: number; delayUntil?: number };
+  // World streaming phase 3: far from everyone, the leg is dice-resolved (wagons.ts stepAbstractWagon): the convoy
+  // ghost-steps along the path (acc = tiles owed, walked = tiles walked, hp = the convoy's hp when it went
+  // abstract); a `delayUntil` roll holds it before arrival.
+  abstract?: { acc: number; walked: number; hp: number; delayUntil?: number };
 }
 // One Trading Post (key "x,y"): auto-send, the wagon's id, when a lost wagon may be replaced, the last game day
 // a trip left, and the level its roster was last set up for.

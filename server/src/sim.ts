@@ -151,6 +151,8 @@ export function stepSimulation() {
   lap("brain");
   // Clans: each colonist works for (and pays from / delivers to) its own clan.
   for (const colonist of colonists.values()) {
+    // World streaming phase 3: a far wagon convoy's units are moved by wagons.ts.
+    if (colonist.ghost) continue;
     enterClan(colonist.clan);
     updateColonist(colonist, dt);
   }

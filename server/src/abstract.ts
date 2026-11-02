@@ -68,6 +68,8 @@ export const abstractStats = {
   wildParked: 0, wildUnparked: 0, wildBorn: 0, wildDied: 0, wildLost: 0, wildRespawnedCold: 0,
   chunksWoken: 0, forageCaughtUp: 0, raidsMaterialised: 0, raidsLost: 0,
 };
+// Far wagon convoys (wagons.ts stepAbstractWagon).
+export const wagonAbstractStats = { trips: 0, arrived: 0, delayed: 0, waylaid: 0, woke: 0 };
 // Wildlife catch-up: daily approach rate toward the per-chunk level, and that level as a multiple of cap / chunks.
 const WILD_DAILY_RATE = 0.15;
 const WILD_CHUNK_LEVEL = 3;
@@ -169,6 +171,20 @@ function updateAbstractRaids(dtTicks: number) {
   }
 }
 
+// A ghost (far convoy unit) whose wagon is gone, real again or never abstract (streaming off) is a normal unit again.
+function sweepGhosts() {
+  let any = false;
+  for (const c of colonists.values()) if (c.ghost) any = true;
+  if (!any) return;
+  const abstractPosts = new Set<string>();
+  if (streamingOn()) for (const c of colonists.values()) if (c.kind === "wagon" && c.wagon?.abstract && c.hp > 0) abstractPosts.add(`${c.postX},${c.postY}`);
+  for (const c of colonists.values()) {
+    if (!c.ghost || abstractPosts.has(`${c.postX},${c.postY}`)) continue;
+    delete c.ghost;
+    if (c.wagon) delete c.wagon.abstract;
+  }
+}
+
 function materialiseRaid(r: AbstractRaid) {
   abstractRaids.delete(r.id);
   const at = standTile(r.x, r.y);
@@ -189,6 +205,7 @@ export function updateAbstractWorld() {
   const dtTicks = Math.max(0, state.cycleTick - lastPassTick);
   lastPassTick = state.cycleTick;
   if (abstractRaids.size > 0) updateAbstractRaids(dtTicks);
+  sweepGhosts();
   if (!streamingOn()) {
     if (cold.size > 0) for (const [c, rec] of Array.from(cold)) wakeChunk(c, rec);
     return;
@@ -286,6 +303,7 @@ export function clearAbstractWorld() {
   parkedMobs.clear();
   Object.assign(parkedWild, zeroWild());
   for (const k of Object.keys(abstractStats) as (keyof typeof abstractStats)[]) abstractStats[k] = 0;
+  for (const k of Object.keys(wagonAbstractStats) as (keyof typeof wagonAbstractStats)[]) wagonAbstractStats[k] = 0;
   lastPass = -1;
   resetChunkStates();
 }
@@ -371,11 +389,14 @@ export function auditWorld(): { ok: boolean; problems: string[]; counts: Record<
     }
   }
   for (const r of abstractRaids.values()) if (r.kinds.length === 0) p(`empty abstract raid ${r.id}`);
-  for (const c of colonists.values()) if (c.wagon?.abstract && c.wagon.leg !== "out" && c.wagon.leg !== "back") p(`abstract wagon ${c.id} on leg ${c.wagon.leg}`);
+  for (const c of colonists.values()) {
+    if (c.wagon?.abstract && (!c.ghost || (c.wagon.leg !== "out" && c.wagon.leg !== "back"))) p(`abstract wagon ${c.id} on leg ${c.wagon.leg}, ghost ${!!c.ghost}`);
+  }
   const wildTotal = WILDLIFE_KINDS.reduce((a, k) => a + parkedWild[k], 0);
   return {
     ok: problems.length === 0,
     problems,
-    counts: { coldChunks: cold.size, parkedMobs: parkedMobs.size, abstractRaids: abstractRaids.size, warbands: warbands.size, liveMobs: mobs.size, parkedWildlife: wildTotal, liveWildlife: wildlife.size, ...abstractStats },
+    counts: { coldChunks: cold.size, parkedMobs: parkedMobs.size, abstractRaids: abstractRaids.size, warbands: warbands.size,
+      ghosts: Array.from(colonists.values()).filter((c) => c.ghost).length, ...Object.fromEntries(Object.entries(wagonAbstractStats).map(([k, v]) => [`wagon_${k}`, v])), liveMobs: mobs.size, parkedWildlife: wildTotal, liveWildlife: wildlife.size, ...abstractStats },
   };
 }

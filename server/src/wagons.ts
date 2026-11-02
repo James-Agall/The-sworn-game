@@ -15,7 +15,9 @@ import {
   WAGON_INTERNAL_VALUE, WAGON_LEVELS, WAGON_LOSS_RELATION, WAGON_MAX_TRIP_TILES, WAGON_RAID_MEMORY_DAYS, WAGON_UNLOAD_TICKS,
   WAGON_ALERT_TICKS, dt,
 } from "./constants.js";
-import { colonists, hearths, mobs, sites, state, tradingPosts } from "./state.js";
+import { colonists, hearths, mobs, players, sites, state, tradingPosts } from "./state.js";
+import { CHUNK_ACTIVATE, CHUNK_TILES, streamingOn } from "./chunks.js";
+import { hashId, wagonAbstractStats, worldRng } from "./abstract.js";
 import { getBuildingLevel, inBounds, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { respawnWindowAt, settlementKeyNear, spawnColonistForPost, tilesOfType, trySpendFood } from "./colonists.js";
@@ -608,16 +610,127 @@ export function refreshTradingPost(key: string) {
   withClan(clanById(post.clan), () => updatePost(key, post, false));
 }
 
+// ---- World streaming phase 3: far convoys (PLAN-world-streaming.md §4 traders) ----
+// On the road (out / back, not fleeing) with every escort close by and no player, Town Center or other unit within
+// WAGON_ABSTRACT_FAR_TILES, the convoy goes abstract (ghost: no chunk anchor, no unit AI): once a second it steps
+// its path at the wagon's speed (not at night) with the escort carried along. It becomes real again in an ACTIVE
+// chunk or when hit; at the end of the path one seeded dice roll from the route's danger and the escort: arrives,
+// delayed, or waylaid (half the cargo / takings lost). Nothing abstract kills the convoy (player units).
+// Abstract past the ACTIVE radius of everyone else (+1 chunk), real again inside it.
+const WAGON_ABSTRACT_FAR_TILES = (CHUNK_ACTIVATE + 1) * CHUNK_TILES;
+const WAGON_ABSTRACT_NEAR_TILES = CHUNK_ACTIVATE * CHUNK_TILES;
+const WAGON_ABSTRACT_LOSS: Record<DangerBand, number> = { safe: 0.03, risky: 0.15, deadly: 0.35 };
+const WAGON_ABSTRACT_DELAY = 0.15;
+
+function convoyOf(w: Colonist): Colonist[] {
+  return [w, ...escortsAt(w.postX, w.postY)];
+}
+
+// A live player, a Town Center or a unit outside the convoy (not itself a ghost) within `tiles` (Chebyshev).
+function anchorWithin(w: Colonist, convoy: Colonist[], tiles: number): boolean {
+  const r = tiles * TILE_SIZE;
+  const near = (x: number, y: number) => Math.max(Math.abs(x - w.x), Math.abs(y - w.y)) <= r;
+  for (const p of players.values()) if (!p.dead && near(p.x, p.y)) return true;
+  for (const tc of state.townCenters) if (near((tc.x + 0.5) * TILE_SIZE, (tc.y + 0.5) * TILE_SIZE)) return true;
+  const ids = new Set(convoy.map((u) => u.id));
+  for (const c of colonists.values()) if (c.hp > 0 && !c.ghost && !ids.has(c.id) && near(c.x, c.y)) return true;
+  return false;
+}
+
+function setGhost(units: Colonist[], on: boolean) {
+  for (const u of units) {
+    if (on) u.ghost = true;
+    else delete u.ghost;
+  }
+}
+
+function wakeConvoy(w: Colonist & { wagon: NonNullable<Colonist["wagon"]> }) {
+  delete w.wagon.abstract;
+  setGhost(convoyOf(w), false);
+}
+
+// True while the convoy is abstract (moveWagon skipped this tick).
+function stepAbstractWagon(w: Colonist & { wagon: NonNullable<Colonist["wagon"]> }): boolean {
+  const wg = w.wagon;
+  const second = state.cycleTick % TICK_RATE === 0;
+  if (!wg.abstract) {
+    if (!second || (wg.leg !== "out" && wg.leg !== "back") || wg.fleeing || w.path.length === 0) return false;
+    if (wg.alertTick !== undefined && state.cycleTick - wg.alertTick < WAGON_ALERT_TICKS * 2) return false;
+    const convoy = convoyOf(w);
+    if (convoy.some((u) => Math.max(Math.abs(u.x - w.x), Math.abs(u.y - w.y)) > 8 * TILE_SIZE)) return false;
+    if (anchorWithin(w, convoy, WAGON_ABSTRACT_FAR_TILES)) return false;
+    wg.abstract = { acc: 0, walked: 0, hp: convoy.reduce((a, u) => a + u.hp, 0) };
+    setGhost(convoy, true);
+    wagonAbstractStats.trips++;
+    return true;
+  }
+  if (!second) return true;
+  const convoy = convoyOf(w);
+  // Hit, or someone within the ACTIVE radius: real again where it stands (abstract past FAR: hysteresis).
+  if (convoy.reduce((a, u) => a + u.hp, 0) < wg.abstract.hp || anchorWithin(w, convoy, WAGON_ABSTRACT_NEAR_TILES)) {
+    wagonAbstractStats.woke++;
+    wakeConvoy(w);
+    return false;
+  }
+  if (wg.abstract.delayUntil !== undefined) {
+    if (state.cycleTick < wg.abstract.delayUntil) return true;
+    wagonAbstractStats.arrived++;
+    wakeConvoy(w);
+    return false;
+  }
+  if (!isNightNow()) {
+    wg.abstract.acc += (COLONIST_SPEED * tier(wg.level).speed) / TILE_SIZE;
+    while (wg.abstract.acc >= 1 && w.path.length > 0) {
+      const t = w.path.shift()!;
+      const p = tileToPixelCenter(t);
+      w.x = p.x;
+      w.y = p.y;
+      wg.abstract.acc--;
+      wg.abstract.walked++;
+    }
+    convoy.forEach((u, i) => {
+      if (u === w) return;
+      u.x = w.x + Math.cos(i * 2.1) * TILE_SIZE;
+      u.y = w.y + Math.sin(i * 2.1) * TILE_SIZE;
+      u.path = [];
+    });
+  }
+  if (w.path.length > 0) return true;
+  // The end of the leg: one roll (seeded by the wagon, the day and the distance walked).
+  const rng = worldRng(hashId(w.id), gameDay(), wg.abstract.walked);
+  const escortShare = Math.min(1, (convoy.length - 1) / Math.max(1, tier(wg.level).escort.length));
+  const loss = WAGON_ABSTRACT_LOSS[dangerBand(wg.danger)] * (1 - 0.75 * escortShare);
+  const u = rng();
+  withClan(clanById(w.clan ?? 0), () => {
+    if (u < loss) {
+      const bag = wg.leg === "out" ? wg.cargo : wg.proceeds;
+      for (const k of Object.keys(bag) as ResourceKey[]) bag[k] = Math.floor((bag[k] ?? 0) / 2);
+      if (wg.leg === "out") wg.value = Math.floor(wg.value / 2);
+      wagonAbstractStats.waylaid++;
+      broadcastEvent("raid", `Our trader wagon was waylaid ${nearestPlaceName(Math.floor(w.x / TILE_SIZE), Math.floor(w.y / TILE_SIZE))}: half its ${wg.leg === "out" ? "goods" : "takings"} are lost`);
+    }
+  });
+  if (u >= loss && u < loss + WAGON_ABSTRACT_DELAY) {
+    wg.abstract.delayUntil = state.cycleTick + Math.floor(GAME_DAY_TICKS / 6);
+    wagonAbstractStats.delayed++;
+    return true;
+  }
+  wagonAbstractStats.arrived++;
+  wakeConvoy(w);
+  return false;
+}
+
 // sim.ts, every tick: wagons move; posts are looked after once a second and at the dawn / dusk windows.
 export function updateWagons() {
   if (state.cycleTick % SCAN_TICKS === 0) scanTradingPosts();
   if (tradingPosts.size === 0) return;
   const windowNow = !isNightNow() && respawnWindowAt(state.cycleTick) !== null;
   const slow = windowNow || state.cycleTick % TICK_RATE === 0;
+  const streaming = streamingOn();
   for (const [key, post] of tradingPosts) {
     enterClan(post.clan);
     const w = wagonOfPost(post);
-    if (w) moveWagon(w, post);
+    if (w && !(streaming && stepAbstractWagon(w))) moveWagon(w, post);
     if (slow) updatePost(key, post, windowNow);
   }
   resetClan();

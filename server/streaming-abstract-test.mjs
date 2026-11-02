@@ -4,7 +4,8 @@
 //  2. teleporting into a COLD corner wakes it (records gone, entities back, audit clean)
 //  3. after a game day away, a woken chunk's animals are caught up (born / died) within the caps
 //  4. save -> load keeps the abstract counts (parked animals / mobs) and the audit clean
-//  5. warbands / camp raids (phase 3b) and wagons (3c) — see the checks below
+//  5. a warband has bodies only while its chunk is ACTIVE; a camp raid mustering outside ACTIVE chunks is abstract
+//  6. a wagon convoy past the 128-tile radius goes abstract (ghost) and its leg is dice-resolved
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -159,7 +160,9 @@ await check("warband: abstract while COLD, bodies when its chunk is ACTIVE, abst
   await tp(home.x, home.y);
   await ff(300);
   await pickCorner();
-  const sp = await hook("spawnWarband", { faction: "bandit", x0: corner.x - 6, y0: corner.y - 6, atX: corner.x, atY: corner.y, size: 4 });
+  // Its camp 60 tiles along the map edge from the COLD corner it spawns at (it must not settle during the check).
+  const campX = corner.x < W / 2 ? corner.x + 60 : corner.x - 60;
+  const sp = await hook("spawnWarband", { faction: "bandit", x0: campX, y0: corner.y - 6, atX: corner.x, atY: corner.y, size: 4 });
   const w0 = sp?.warband;
   if (!w0) return `spawn failed: ${sp?.problem}`;
   await ff(25);
@@ -196,13 +199,55 @@ await check("camp raid mustering outside ACTIVE chunks is abstract, materialises
   if (!site) return "no camp spot whose muster point is outside the ACTIVE chunks";
   await hook("growSite", { siteId: site.id, found: true, tiers: 3 });
   const before = (await audit()).counts;
-  const cr = await hook("campRaids", { day: 4 });
+  // Tier 3 camps raid every 2nd night (by day + site number): one of days 4 / 5 is its night.
+  let cr = await hook("campRaids", { day: 4 });
+  if (cr.groups.length === 0 && (await audit()).counts.abstractRaids === before.abstractRaids) cr = await hook("campRaids", { day: 5 });
   const mid = (await audit()).counts;
   await tp(muster.x, muster.y);
   await ff(25);
   const r = await audit();
   return [cr.groups.length === 0 && mid.abstractRaids === before.abstractRaids + 1 && r.counts.abstractRaids === before.abstractRaids && r.counts.raidsMaterialised === before.raidsMaterialised + 1 && r.ok,
     `${site.name} at ${Math.round(Math.hypot(tc.x - site.keepX, tc.y - site.keepY))} tiles: real groups ${cr.groups.length}, abstract ${before.abstractRaids} -> ${mid.abstractRaids} -> ${r.counts.abstractRaids}, materialised ${r.counts.raidsMaterialised - before.raidsMaterialised}; ${fmt(r)}`];
+});
+
+// ---- phase 3c: a far wagon convoy is dice-resolved ----
+await check("wagon convoy: abstract past the ACTIVE radius, resolved at the end of the leg (audit clean)", async () => {
+  await tp(home.x, home.y);
+  let town = null;
+  // Straight out along an axis (Chebyshev distance is what the 128-tile abstract radius measures).
+  for (const [dx, dy] of [[148, 0], [-148, 0], [0, 148], [0, -148], [146, 20], [-146, -20], [20, 146], [-20, -146]]) {
+    const st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 8 });
+    const s = st?.site;
+    const d = s ? Math.hypot(tc.x - s.keepX, tc.y - s.keepY) : 0;
+    if (s && d <= 153 && Math.max(Math.abs(tc.x - s.keepX), Math.abs(tc.y - s.keepY)) >= 141) { town = s; break; }
+  }
+  if (!town) return "no settlement spot 141-153 tiles out";
+  await tp(town.keepX, town.keepY + 3);
+  await ff(40);
+  await hook("diploSet", { siteId: town.id, relation: 30, stock: { gold: 800 } });
+  await tp(home.x, home.y);
+  await hook("setStock", { stock: { wood: 300, grain: 200, gold: 0 } });
+  // The post on the far side of the Town Center: the trip ends ~140 tiles out, past the 128-tile abstract radius.
+  const dd = Math.hypot(town.keepX - tc.x, town.keepY - tc.y);
+  const px = Math.round(tc.x - ((town.keepX - tc.x) / dd) * 6) + 1, py = Math.round(tc.y - ((town.keepY - tc.y) / dd) * 6) + 1;
+  await hook("wagonPost", { tx: px, ty: py, level: 1, auto: false });
+  await ff(21);
+  const sent = await hook("wagonSend", { tx: px, ty: py, dest: `s:${town.id}` });
+  if (sent.problem) return `send: ${sent.problem}`;
+  let maxGhosts = 0;
+  let bad = null;
+  let r = null;
+  for (let i = 0; i < 20; i++) {
+    await ff(400);
+    r = await audit();
+    maxGhosts = Math.max(maxGhosts, r.counts.ghosts);
+    if (!r.ok && !bad) bad = fmt(r);
+    const p = (await hook("wagonState")).posts.find((q) => q.key === `${px},${py}`);
+    if (r.counts.wagon_trips >= 2 && (p?.wagon?.leg === "home" || r.counts.wagon_arrived >= 2)) break;
+  }
+  const c2 = r.counts;
+  return [!bad && c2.wagon_trips >= 1 && c2.wagon_arrived + c2.wagon_delayed + c2.wagon_woke >= 1,
+    `trips ${c2.wagon_trips}, arrived ${c2.wagon_arrived}, delayed ${c2.wagon_delayed}, waylaid ${c2.wagon_waylaid}, woke ${c2.wagon_woke}, max ghosts ${maxGhosts}; ${bad ?? fmt(r)}`];
 });
 
 console.log(failed.length === 0 ? `ALL PASS (${passed} checks)` : `${failed.length} FAILED (${failed.join("; ")}), ${passed} passed`);
