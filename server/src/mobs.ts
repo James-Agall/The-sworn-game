@@ -1,6 +1,6 @@
 // mobs.ts: Mob kinds, sizes, hunger marks, difficulty, targeting, building routing and the mob tick.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { colonistsNear, directionMultOnColonist, pairedTargetOf } from "./battle.js";
+import { bracedAgainst, colonistsNear, directionMultOnColonist, pairedTargetOf } from "./battle.js";
 import {
   mobSizeScale, HungerMark, HUNGER_MARK_NAMES, type MobKind, type Difficulty, MOB_SIZE_RANGE, TILE_SIZE, TileType,
   TICK_RATE, isGateTile, isSolidTile,
@@ -9,7 +9,7 @@ import type { Colonist, Mob, MobTargetType, PickedTarget, Player, TileCoord } fr
 import {
   ARCHER_FRONT_RANK_SCAN_TILES, BREACH_DETOUR_FACTOR, BREACH_MIN_ROUTE_TILES, BREACH_WALL_COST, MOAT_BREACH_STEP_COST,
   BUILDING_TARGET_CANDIDATES, COLONIST_BODY_RADIUS, DARK_SHAMAN_HEAL_AMOUNT, DARK_SHAMAN_HEAL_COOLDOWN_TICKS,
-  DARK_SHAMAN_HEAL_RANGE, DAY_TICKS, GOBLIN_RIDER_WITHDRAW_TICKS, GOLD_PER_KILL_BASE_DIVISOR, GOLD_PER_KILL_MIN,
+  DARK_SHAMAN_HEAL_RANGE, DAY_TICKS, MOB_ANTI_CAVALRY_MULT, GOBLIN_RIDER_WITHDRAW_TICKS, GOLD_PER_KILL_BASE_DIVISOR, GOLD_PER_KILL_MIN,
   GORRATH_SCAN_RANGE_TILES, GUNNE_SCAN_RANGE_TILES, HUNGER_MARK_CHANCE_MAX, HUNGER_MARK_CHANCE_MAX_DAY,
   HUNGER_MARK_CHANCE_START, HUNGER_MARK_DAMAGE_MULT, HUNGER_MARK_GOLD_MULT, HUNGER_MARK_HP_MULT, HUNGER_MARK_MIN_DAY,
   MARK_RETARGET_TICKS, MOB_AGGRO_DROP_FACTOR, MOB_AGGRO_RANGE_GUARD_TILES, WAGON_AGGRO_BONUS_TILES, MOB_AGGRO_RANGE_PLAYER_TILES,
@@ -199,9 +199,10 @@ export function pickMobTarget(mob: Mob): PickedTarget | null {
   const wagonBonus = WAGON_AGGRO_BONUS_TILES * TILE_SIZE;
   const bandit = mob.kind === "banditClubman" || mob.kind === "banditArcher";
   // Battle engine phase 3: the soldier the regiment's brain paired this front-rank mob with (contact line).
-  const pairedId = mob.melee ? pairedTargetOf(mob.id) : undefined;
+  // Phase 4: a ranged mob's volley target (the regiment's foe, spread), while in range.
+  const pairedId = pairedTargetOf(mob.id);
   const paired = pairedId ? colonists.get(pairedId) : undefined;
-  if (paired && !isWarded(paired.x, paired.y, wards) && Math.hypot(paired.x - mob.x, paired.y - mob.y) < bestGuardDist && targetHasRoom(mob.id, `c:${paired.id}`, guardCap)) {
+  if (paired && !isWarded(paired.x, paired.y, wards) && Math.hypot(paired.x - mob.x, paired.y - mob.y) < bestGuardDist && (mob.melee ? targetHasRoom(mob.id, `c:${paired.id}`, guardCap) : Math.hypot(paired.x - mob.x, paired.y - mob.y) <= mob.range)) {
     return { type: "colonist", id: paired.id };
   }
   for (const c of colonistsNear(mob.x, mob.y, MOB_AGGRO_RANGE_GUARD_TILES * TILE_SIZE + wagonBonus)) {
@@ -687,7 +688,10 @@ export function updateMob(mob: Mob, dt: number) {
       // unit, and it then withdraws for GOBLIN_RIDER_WITHDRAW_TICKS before riding in again.
       let blow = mob.damage;
       if (mob.kind === "goblinRider" && (mob.targetType === "colonist" || mob.targetType === "player")) {
-        const mult = takeChargeBonus(mob);
+        // Phase 4: a braced spear / pike (a formed regiment, the rider in its front arc) takes no charge bonus.
+        const struckC = mob.targetType === "colonist" && mob.targetId ? colonists.get(mob.targetId) : undefined;
+        const braced = !!struckC && bracedAgainst(mob.x, mob.y, struckC);
+        const mult = braced ? (takeChargeBonus(mob), 1) : takeChargeBonus(mob);
         siegeEvent(mult > 1 ? "riderCharge" : "riderHit", mob.id, blow * mult);
         if (mult > 1) {
           blow *= mult;
@@ -708,7 +712,7 @@ export function updateMob(mob: Mob, dt: number) {
             c.poisonDamagePerTick = POISON_DAMAGE_PER_TICK;
           }
           // Battle engine phase 3: x1.25 / x1.5 on a formed regiment's flank / rear.
-          damageColonist(c, blow * directionMultOnColonist(mob.x, mob.y, c));
+          damageColonist(c, blow * directionMultOnColonist(mob.x, mob.y, c) * (c.kind === "cavalry" ? MOB_ANTI_CAVALRY_MULT[mob.kind] ?? 1 : 1));
           if (mob.mark === HungerMark.Vhorrun && c.hp > 0 && c.hp < c.maxHp * VHORRUN_WITHDRAW_TARGET_HP) {
             startVhorrunWithdraw(mob, targetPos);
           }

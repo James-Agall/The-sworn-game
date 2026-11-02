@@ -8,7 +8,7 @@
 // per-unit code is doing) and nearest hostile regiment. Later phases move decisions up into this tick.
 import { TICK_RATE, TILE_SIZE, type ArmyOrder } from "@colony/shared/protocol";
 import type { BattleRegiment, BattleRegimentState, Colonist, FormationMarch, Mob, OrderGroup } from "./types.js";
-import { COLONIST_BODY_RADIUS, MORALE_MAX, RETREAT_SPEED_FACTOR, dt } from "./constants.js";
+import { COLONIST_BODY_RADIUS, MORALE_MAX, RETREAT_SPEED_FACTOR, SKIRMISH_DRIFT_TILES, SKIRMISH_KITE_TILES, dt } from "./constants.js";
 import {
   battleRegiments, colonists, commandedTargets, mobs, moraleRegimentOfUnit, orderGroupOfUnit, orderGroups, playerMorale,
   regiments, routedUnits, squadMarchSpeed, state,
@@ -17,7 +17,7 @@ import { regimentKey } from "./tactics.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { clamp, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { unitStats } from "./units.js";
-import { rallyUnit } from "./orders.js";
+import { formGroupAt, rallyUnit } from "./orders.js";
 
 // Brain ticks per second (4 Hz at TICK_RATE 20) and the scan radius for the nearest hostile regiment.
 export const BRAIN_TICKS = Math.max(1, Math.round(TICK_RATE / 4));
@@ -50,6 +50,7 @@ export function noteRegimentOrder(g: OrderGroup, order: ArmyOrder | null) {
     battleRegiments.set(g.id, r);
   }
   r.order = order;
+  g.skirmishFrom = undefined;
 }
 
 // The state a player order group is in, from its order and what its members do.
@@ -162,6 +163,7 @@ function brainTick(r: BattleRegiment) {
     setState(r, groupState(g, members));
     r.targetRegimentId = nearestHostile(r);
     clanEdge(r, members);
+    skirmishFallBack(r, g, members);
   } else {
     const members = (npcMembers.get(r.id) ?? []).filter((m) => mobs.has(m.id) && m.hp > 0);
     if (members.length === 0) return;
@@ -579,12 +581,47 @@ const pairedTarget = new Map<string, string>();
 const pairsOf = new Map<string, string[]>();
 export const pairedTargetOf = (id: string) => pairedTarget.get(id);
 
+// Phase 4, VOLLEYS: a regiment's ranged members (rangeOf > 0) each get a target in the foe regiment within their
+// range, spread at most RANGED_PAIR_CAP to a foe (nearest first): the regiment shoots at the regiment it faces,
+// across its whole depth, instead of every archer picking the nearest mob. Runs for any regiment of at least
+// VOLLEY_MIN_MEMBERS, before contact; the pickers take a volley pair only while it is in range.
+const VOLLEY_MIN_MEMBERS = 4;
+const RANGED_PAIR_CAP = 3;
 type Body = { id: string; x: number; y: number };
-function updateEdge<A extends Body, B extends Body>(r: BattleRegiment, own: A[], foes: B[], frontOk: (a: A) => boolean, foeOk: (b: B) => boolean) {
+function updateVolleys<A extends Body, B extends Body>(r: BattleRegiment, own: A[], foes: B[], rangeOf: (a: A) => number, foeOk: (b: B) => boolean, ids: string[]) {
+  r.volleys = 0;
+  if (own.length < VOLLEY_MIN_MEMBERS || foes.length === 0) return;
+  const shooters = own.filter((a) => rangeOf(a) > 0);
+  if (shooters.length === 0) return;
+  const targets = foes.filter(foeOk);
+  const load = new Array<number>(targets.length).fill(0);
+  for (const a of shooters) {
+    const range = rangeOf(a);
+    let best = -1, bestD = range;
+    for (let i = 0; i < targets.length; i++) {
+      if (load[i] >= RANGED_PAIR_CAP) continue;
+      const dd = Math.hypot(targets[i].x - a.x, targets[i].y - a.y);
+      if (dd <= bestD) {
+        bestD = dd;
+        best = i;
+      }
+    }
+    if (best < 0) continue;
+    load[best]++;
+    pairedTarget.set(a.id, targets[best].id);
+    ids.push(a.id);
+    r.volleys++;
+  }
+}
+
+function updateEdge<A extends Body, B extends Body>(r: BattleRegiment, own: A[], foes: B[], frontOk: (a: A) => boolean, foeOk: (b: B) => boolean, rangeOf: (a: A) => number) {
   for (const id of pairsOf.get(r.id) ?? []) pairedTarget.delete(id);
   pairsOf.delete(r.id);
   r.edge = null;
   const o = r.targetRegimentId ? battleRegiments.get(r.targetRegimentId) : undefined;
+  const ids: string[] = [];
+  if (o) updateVolleys(r, own, foes, rangeOf, foeOk, ids);
+  if (ids.length > 0) pairsOf.set(r.id, ids);
   if (!o || own.length < EDGE_MIN_MEMBERS || foes.length === 0) return;
   let nx = o.anchorX - r.anchorX, ny = o.anchorY - r.anchorY;
   const d = Math.hypot(nx, ny);
@@ -604,7 +641,7 @@ function updateEdge<A extends Body, B extends Body>(r: BattleRegiment, own: A[],
   const theirs = foes.filter((b) => proj(b) <= foeFront + FRONT_DEPTH_PX && foeOk(b));
   if (front.length === 0 || theirs.length === 0) return;
   const load = new Array<number>(theirs.length).fill(0);
-  const ids: string[] = [];
+  const volleys = ids.length;
   for (const a of front) {
     let best = -1, bestD = Infinity;
     for (let i = 0; i < theirs.length; i++) {
@@ -621,7 +658,7 @@ function updateEdge<A extends Body, B extends Body>(r: BattleRegiment, own: A[],
     ids.push(a.id);
   }
   pairsOf.set(r.id, ids);
-  r.edge.pairs = ids.length;
+  r.edge.pairs = ids.length - volleys;
 }
 
 // Called from brainTick: player regiments pair their melee soldiers, mob regiments their melee mobs.
@@ -629,12 +666,16 @@ function clanEdge(r: BattleRegiment, members: Colonist[]) {
   const foes = r.targetRegimentId ? (npcMembers.get(r.targetRegimentId) ?? []).filter((m) => mobs.has(m.id) && m.hp > 0) : [];
   updateEdge(r, members, foes,
     (c) => unitStats(c).melee && !routedUnits.has(c.id) && !commandedTargets.has(c.id),
-    (m) => !m.passive && m.tactic !== "rout" && m.tactic !== "leave");
+    (m) => !m.passive && m.tactic !== "rout" && m.tactic !== "leave",
+    (c) => {
+      const st = unitStats(c);
+      return st.melee || c.holdFire || c.kind === "catapult" || routedUnits.has(c.id) || commandedTargets.has(c.id) ? 0 : st.range;
+    });
 }
 function npcEdge(r: BattleRegiment, members: Mob[]) {
   const o = r.targetRegimentId ? battleRegiments.get(r.targetRegimentId) : undefined;
   const foes = o && o.owner.kind === "clan" ? (groupMembersOf.get(o.id) ?? []).filter((c) => colonists.has(c.id)) : [];
-  updateEdge(r, members, foes, (m) => m.melee && !m.passive, (c) => !routedUnits.has(c.id));
+  updateEdge(r, members, foes, (m) => m.melee && !m.passive, (c) => !routedUnits.has(c.id), (m) => (m.melee || m.passive ? 0 : m.range));
 }
 
 // FLANK / REAR. A blow on a member of a formed regiment (at least FLANK_MIN_MEMBERS, not routing) from outside its
@@ -663,4 +704,50 @@ export function directionMultOnColonist(fromX: number, fromY: number, c: Colonis
 export function directionMultOnMob(fromX: number, fromY: number, m: Mob): number {
   const key = regimentKey(m);
   return directionMult(fromX, fromY, m, regimentFacing(key ? "n:" + key : null));
+}
+
+// Phase 4, ANTI-CAVALRY: a spear / pike in a formed regiment (regimentFacing set) struck from its front arc is
+// braced: a charging rider gets no charge bonus on it (mobs.ts). Spears / pikes already hit riders harder
+// (GOBLIN_RIDER_DAMAGE_TAKEN) and town spearmen hit the player's cavalry harder (MOB_ANTI_CAVALRY_MULT).
+export function bracedAgainst(fromX: number, fromY: number, c: Colonist): boolean {
+  if (c.kind !== "spearman" && c.kind !== "pikeman") return false;
+  const facing = regimentFacing(orderGroupOfUnit.get(c.id)?.id);
+  return facing !== null && directionMult(fromX, fromY, c, facing) === 1;
+}
+
+// Phase 4, SKIRMISH: a regiment of skirmishing ranged soldiers only falls back SKIRMISH_STEP_TILES as a block
+// (formGroupAt: the same slots and facing) when a foe melee unit comes within SKIRMISH_KITE_TILES of its edge, at
+// most every SKIRMISH_STEP_TICKS and no further than SKIRMISH_DRIFT_TILES from where its order formed it; only
+// while standing (no order, hold, or a finished move). Single archers still kite on their own (units.ts kiteStep).
+const SKIRMISH_STEP_TILES = 3;
+const SKIRMISH_STEP_TICKS = TICK_RATE * 2;
+function skirmishFallBack(r: BattleRegiment, g: OrderGroup, members: Colonist[]) {
+  if (!g.lastAt || g.march || members.length < VOLLEY_MIN_MEMBERS) return;
+  const o = g.current;
+  if (o && o.kind !== "hold" && o.kind !== "move") return;
+  if (state.cycleTick - (g.skirmishAt ?? -Infinity) < SKIRMISH_STEP_TICKS) return;
+  if (!members.every((c) => c.skirmish && !unitStats(c).melee && c.kind !== "catapult" && !routedUnits.has(c.id))) return;
+  const foes = r.targetRegimentId ? npcMembers.get(r.targetRegimentId) : undefined;
+  if (!foes) return;
+  let radius = 0;
+  for (const c of members) radius = Math.max(radius, Math.hypot(c.x - r.anchorX, c.y - r.anchorY));
+  let threat: Mob | null = null;
+  let best = radius + SKIRMISH_KITE_TILES * TILE_SIZE;
+  for (const m of foes) {
+    if (!m.melee || m.passive || m.hp <= 0 || m.tactic === "rout" || m.tactic === "leave") continue;
+    const d = Math.hypot(m.x - r.anchorX, m.y - r.anchorY);
+    if (d < best) {
+      best = d;
+      threat = m;
+    }
+  }
+  if (!threat || best < 1) return;
+  const from = (g.skirmishFrom ??= { ...g.lastAt });
+  const k = (SKIRMISH_STEP_TILES * TILE_SIZE) / best;
+  const x = g.lastAt.x + (r.anchorX - threat.x) * k;
+  const y = g.lastAt.y + (r.anchorY - threat.y) * k;
+  if (Math.hypot(x - from.x, y - from.y) > SKIRMISH_DRIFT_TILES * TILE_SIZE || !walkablePx(x, y)) return;
+  g.skirmishAt = state.cycleTick;
+  formGroupAt(g, members, x, y, g.facing, g.width);
+  g.skirmishFrom = from;
 }

@@ -595,6 +595,9 @@ export interface OrderGroup {
   // its width / shape) and the formation march in progress.
   slotTable?: { offsets: Map<string, { ox: number; oy: number }>; width?: number; shape: string };
   march?: FormationMarch;
+  // Battle engine phase 4: a skirmishing regiment's fall-back origin (where its order formed it) and last step tick.
+  skirmishFrom?: { x: number; y: number };
+  skirmishAt?: number;
 }
 export interface FormationMarch {
   offsets: Map<string, { ox: number; oy: number }>;
@@ -649,6 +652,8 @@ export interface BattleRegiment {
   targetRegimentId: string | null;
   // Phase 3: the engagement edge with targetRegimentId (midpoint, unit normal toward the enemy, front-rank pairs).
   edge?: { x: number; y: number; nx: number; ny: number; foe: string; pairs: number } | null;
+  // Phase 4: ranged members given a volley target in targetRegimentId this brain tick.
+  volleys?: number;
   // The brain tick phase (0..BRAIN_TICKS-1): regiments are evaluated staggered.
   phase: number;
   lastBrainTick: number;

@@ -841,9 +841,11 @@ export function pickGuardTarget(c: Colonist, stats: { range: number; melee: bool
     return ds;
   };
   // Battle engine phase 3: the foe the regiment's brain paired this front-rank soldier with (contact line).
-  const pairedId = stats.melee ? pairedTargetOf(c.id) : undefined;
+  // Phase 4: a ranged soldier's volley target (the regiment's foe, spread), while in bow range.
+  const pairedId = pairedTargetOf(c.id);
   const paired = pairedId ? mobs.get(pairedId) : undefined;
-  if (paired && reachable(paired) !== null && (!queues || targetHasRoom(c.id, `m:${paired.id}`, meleeAttackerCap(mobBodyRadius(paired))))) return paired;
+  if (paired && !stats.melee && reachable(paired) !== null && Math.hypot(paired.x - c.x, paired.y - c.y) <= stats.range) return paired;
+  if (paired && stats.melee && reachable(paired) !== null && (!queues || targetHasRoom(c.id, `m:${paired.id}`, meleeAttackerCap(mobBodyRadius(paired))))) return paired;
   // Rear ranks: a spear / pike may take a foe whose ring is full when it can reach it over the front rank.
   const over = stats.melee ? polearmReachPx(c) : 0;
   const rearRank = !stats.melee && hasFriendlyFrontline(c);
