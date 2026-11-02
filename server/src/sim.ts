@@ -36,6 +36,7 @@ import { updateBattleBrains, updateFormationMarch } from "./battle.js";
 import { broadcastEvent, scanFights } from "./net.js";
 import { clanTownCenters, enterClan, forEachClan, resetClan } from "./clans.js";
 import { settlementsDawn } from "./diplomacy.js";
+import { strifeDawn } from "./strife.js";
 import { updateQuests } from "./quests.js";
 import { updateWagons } from "./wagons.js";
 import { updateVassals, vassalsDawn } from "./vassals.js";
@@ -65,6 +66,8 @@ export function stepSimulation() {
     vassalsDawn();
     // Forts phase G: a wandering warband now and then.
     warbandsDawn();
+    // World streaming phase 5: abstract camp / settlement strife out of sight.
+    strifeDawn();
     state.autosaveDue = true;
   }
 

@@ -184,6 +184,18 @@ export const TRADE_GOODS: TradeGood[] = ["grain", "meat", "fruit", "wool", "wood
 //   clearCamp - "Clear the camp near <name>": destroy the bandit / orc camp or fort keep at (x, y).
 //   deliver   - "Deliver N <good> to <name>": hand `qty` of `good` over from the clan stock near its walls.
 export type QuestKind = "defend" | "clearCamp" | "deliver";
+// World streaming phase 5: the chronicle (news feed of what happened out of sight).
+export type ChronicleKind = "raid" | "wagon" | "camp" | "settlement" | "feud";
+export interface ChronicleEntry {
+  id: number;
+  // Game day (1-based) it happened.
+  day: number;
+  kind: ChronicleKind;
+  text: string;
+  // Tile it happened at (omitted: nowhere in particular).
+  x?: number;
+  y?: number;
+}
 export interface QuestSnapshot {
   id: number;
   kind: QuestKind;
@@ -1116,7 +1128,9 @@ export type ClientMessage =
   | { type: "loadGame"; slot: SaveSlot }
   | { type: "listSaves" }
   // World streaming phase 4: chunk ids (cy * chunksX + cx, STREAM_CHUNK_TILES) a chunked client still needs.
-  | { type: "requestChunks"; chunks: number[] };
+  | { type: "requestChunks"; chunks: number[] }
+  // World streaming phase 5: the player has read the chronicle up to this entry id.
+  | { type: "chronicleSeen"; id: number };
 
 export type ServerMessage =
   | {
@@ -1247,6 +1261,9 @@ export type ServerMessage =
   // World streaming phase 4: requested chunks, each its tiles / biomes (base64, row by row, the chunk's own
   // width: edge chunks are narrower).
   | { type: "chunks"; chunks: { c: number; tiles: string; biomes: string }[] }
+  // World streaming phase 5: chronicle entries. full: the whole list (after each welcome; replaces the old
+  // one) with since = the last id this profile read; else new entries to append.
+  | { type: "chronicle"; entries: ChronicleEntry[]; since?: number; full?: boolean }
   // Tile indices newly explored since the last one (batched a few times a second, never empty).
   | { type: "explored"; tiles: number[] }
   | { type: "buildingInfo"; tileX: number; tileY: number; info: BuildingInfo | null }

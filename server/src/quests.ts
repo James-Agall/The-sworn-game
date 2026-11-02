@@ -40,6 +40,8 @@ export interface Quest {
   qty?: number;
   kills?: number;
   need?: number;
+  // World streaming phase 5: a "help us" clearCamp (the camp threatens to overrun the settlement by expiresTick).
+  help?: boolean;
 }
 
 export const quests: Quest[] = [];
@@ -135,6 +137,7 @@ function postQuest(s: SiteState, clanId: number, kind: QuestKind): Quest | strin
 
 function questTitle(q: Quest, s: SiteState): string {
   if (q.kind === "defend") return `Defend ${s.name} tonight`;
+  if (q.kind === "clearCamp" && q.help) return `Help ${s.name}: break ${q.targetId ? sites.get(q.targetId)?.name ?? "the camp" : "the camp"}`;
   if (q.kind === "clearCamp") return `Clear the camp near ${s.name}`;
   return `Deliver ${q.qty} ${GOOD_LABEL[q.good ?? "grain"]} to ${s.name}`;
 }
@@ -144,6 +147,7 @@ function questText(q: Quest, s: SiteState): string {
   if (q.kind === "clearCamp") {
     const h = q.targetId ? hearths.get(q.targetId) : undefined;
     const d = h ? Math.round(Math.hypot(h.x - s.keepX, h.y - s.keepY)) : 0;
+    if (q.help) return `${s.name} is besieged by raiders from a ${h?.faction ?? "bandit"} ${h?.siteKind === "fort" ? "fort" : "camp"} ${d} tiles away and may fall by day ${Math.floor(q.expiresTick / (DAY_TICKS + NIGHT_TICKS)) + 1}. Destroy its ${h?.siteKind === "fort" ? "keep" : "hearth"} with your own folk.`;
     return `A ${h?.faction ?? "bandit"} ${h?.siteKind === "fort" ? "fort" : "camp"} lies ${d} tiles from ${s.name}. Destroy its ${h?.siteKind === "fort" ? "keep" : "hearth"} with your own folk.`;
   }
   return `${s.name} is short of ${GOOD_LABEL[q.good ?? "grain"]}. Bring ${q.qty} from your stock: stand within ${TRADE_RANGE_TILES} tiles of its walls and press Deliver.`;
@@ -195,6 +199,26 @@ export function scanQuests(force = false): Quest[] {
     }
   }
   return posted;
+}
+
+// World streaming phase 5 (strife.ts): a settlement under abstract siege asks every clan to break the camp before
+// `until` (ignores chance, cooldown and the per-settlement cap; one per clan per camp).
+export function postHelpQuest(s: SiteState, clanId: number, campId: string, until: number): Quest | string {
+  const block = postBlock(s, clanId);
+  if (block) return block;
+  const h = hearths.get(campId);
+  if (!h || h.destroyed) return "no standing camp";
+  if (quests.some((q) => q.clan === clanId && q.targetId === campId)) return "already asked";
+  const now = state.cycleTick;
+  const reward = Math.round(1.5 * (QUEST_CLEAR_CAMP_REWARD_BASE + QUEST_CLEAR_CAMP_REWARD_PER_GUARDIAN * h.garrison) * QUEST_TIER_REWARD[tierOf(clanId, s)]);
+  const q: Quest = {
+    id: nextQuestId++, clan: clanId, siteId: s.id, kind: "clearCamp", postedTick: now, expiresTick: until, accepted: false,
+    relation: QUEST_RELATION_GAIN.clearCamp, x: h.x, y: h.y, targetId: campId, reward, help: true,
+  };
+  quests.push(q);
+  bump();
+  toClan(clanId, "raid", `${s.name} begs for help: ${questTitle(q, s)} (${q.reward} gold). Open Quests to accept`);
+  return q;
 }
 
 // Test hook questPost: post one quest of `kind` now (ignores chance, cooldown and the per-settlement cap).

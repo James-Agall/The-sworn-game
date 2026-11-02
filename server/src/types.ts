@@ -378,6 +378,8 @@ export interface SiteState {
   // its keep was razed (a later warband may re-settle the spot after CAMP_RESETTLE_COOLDOWN_DAYS).
   founded?: boolean;
   clearedTick?: number;
+  // World streaming phase 5 (strife.ts): besieged by the camp `by` (a site id) until fallTick.
+  threat?: { by: string; fallTick: number };
 }
 export interface VassalState {
   tax: boolean;

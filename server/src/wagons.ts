@@ -18,6 +18,7 @@ import {
 import { colonists, hearths, mobs, players, sites, state, tradingPosts } from "./state.js";
 import { CHUNK_ACTIVATE, CHUNK_TILES, streamingOn } from "./chunks.js";
 import { hashId, wagonAbstractStats, worldRng } from "./abstract.js";
+import { chronicle } from "./chronicle.js";
 import { getBuildingLevel, inBounds, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { respawnWindowAt, settlementKeyNear, spawnColonistForPost, tilesOfType, trySpendFood } from "./colonists.js";
@@ -712,15 +713,19 @@ function stepAbstractWagon(w: Colonist & { wagon: NonNullable<Colonist["wagon"]>
       for (const k of Object.keys(bag) as ResourceKey[]) bag[k] = Math.floor((bag[k] ?? 0) / 2);
       if (wg.leg === "out") wg.value = Math.floor(wg.value / 2);
       wagonAbstractStats.waylaid++;
-      broadcastEvent("raid", `Our trader wagon was waylaid ${nearestPlaceName(Math.floor(w.x / TILE_SIZE), Math.floor(w.y / TILE_SIZE))}: half its ${wg.leg === "out" ? "goods" : "takings"} are lost`);
+      const where = nearestPlaceName(Math.floor(w.x / TILE_SIZE), Math.floor(w.y / TILE_SIZE));
+      broadcastEvent("raid", `Our trader wagon was waylaid ${where}: half its ${wg.leg === "out" ? "goods" : "takings"} are lost`);
+      chronicle("wagon", `A trader wagon was waylaid ${where}; half its ${wg.leg === "out" ? "goods" : "takings"} were lost`, { x: w.x / TILE_SIZE, y: w.y / TILE_SIZE });
     }
   });
   if (u >= loss && u < loss + WAGON_ABSTRACT_DELAY) {
     wg.abstract.delayUntil = state.cycleTick + Math.floor(GAME_DAY_TICKS / 6);
     wagonAbstractStats.delayed++;
+    chronicle("wagon", `A trader wagon was held up ${nearestPlaceName(Math.floor(w.x / TILE_SIZE), Math.floor(w.y / TILE_SIZE))}`, { x: w.x / TILE_SIZE, y: w.y / TILE_SIZE });
     return true;
   }
   wagonAbstractStats.arrived++;
+  if (wg.leg === "out") chronicle("wagon", `A trader wagon reached ${nearestPlaceName(Math.floor(w.x / TILE_SIZE), Math.floor(w.y / TILE_SIZE)).replace(/^near /, "")} safely`, { x: w.x / TILE_SIZE, y: w.y / TILE_SIZE });
   wakeConvoy(w);
   return false;
 }

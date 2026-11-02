@@ -11,6 +11,7 @@
 // Dice: worldRng(worldNoiseSalt, chunk / site / wagon id, day), so a reload or replay rolls the same outcome.
 // Conservation: every entity is in exactly one form; auditWorld (test hook) checks it.
 import { randomUUID } from "node:crypto";
+import { chronicle } from "./chronicle.js";
 import { type MobKind, type WildlifeKind, TICK_RATE, TILE_SIZE, WILDLIFE_KINDS } from "@colony/shared/protocol";
 import type { RaidFactionId, TileCoord } from "./types.js";
 import { GAME_DAY_TICKS, MOB_KIND_CONFIG, NIGHT_TICKS, RAID_ARRIVAL_WINDOW_FRACTION, RAID_TRAVEL_SLACK } from "./constants.js";
@@ -95,6 +96,13 @@ export function forageFrozen(index: number): boolean {
 }
 
 // warbands.ts removeSite: a site going away takes its parked guardians with it.
+// World streaming phase 5 (strife.ts): one parked mob dies in an abstract fight.
+export function dropParkedMob(id: string) {
+  if (!parkedMobs.delete(id)) return;
+  for (const rec of cold.values()) rec.mobIds.delete(id);
+  abstractStats.mobsDropped++;
+}
+
 export function dropParkedSiteMobs(siteId: string) {
   for (const rec of cold.values()) {
     for (const id of rec.mobIds) {
@@ -134,6 +142,7 @@ export function addAbstractRaid(r: { faction: RaidFactionId; kinds: MobKind[]; x
   const aggroTick = state.testHoldRaidAggro ? r.nightfall : Math.max(state.cycleTick, Math.floor(arrival - travel));
   const rec: AbstractRaid = { id: `araid:${randomUUID()}`, faction: r.faction, kinds: [...r.kinds], x: r.x, y: r.y, tx: r.tx, ty: r.ty, edge: r.edge, clan: r.clan, aggroTick, pace };
   abstractRaids.set(rec.id, rec);
+  chronicle("raid", `Raiders (${rec.kinds.length}) set out from afar toward ${r.clan === 0 ? "the colony" : "a clan"}`, { x: r.x, y: r.y });
   return rec;
 }
 

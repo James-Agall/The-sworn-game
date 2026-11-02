@@ -54,6 +54,7 @@ import { stepSimulation } from "./sim.js";
 import {
   handleLoadGame, handleSaveGame, listSaves, resetWorld, runDueAutosave, saveOnShutdown, sendTo,
 } from "./saves.js";
+import { markChronicleSeen } from "./chronicle.js";
 import { broadcastEvent, flushExplored, handleSetView, httpServer, sendChunks, sendWelcome, updateVision, withPlayerFights, wss } from "./net.js";
 import { handleTestHook } from "./testhooks.js";
 import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creative.js";
@@ -308,6 +309,8 @@ function handleMessage(player: Player, message: ClientMessage) {
     void listSaves().then((saves) => sendTo(player, { type: "saveList", saves }));
   } else if (message.type === "requestChunks") {
     sendChunks(player, message.chunks);
+  } else if (message.type === "chronicleSeen") {
+    markChronicleSeen(player, message.id);
   }
 }
 

@@ -98,6 +98,7 @@ import type { BannerGroup, LodBand, UnitDot, VisionSource } from "./strategy/lod
 import { RegimentCardBar } from "./strategy/cards";
 import type { RegimentCard } from "./strategy/cards";
 import type { ArmyRegimentSnapshot, RegimentClass } from "@colony/shared/protocol";
+import type { ChronicleEntry } from "@colony/shared/protocol";
 import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind, FormationShape } from "@colony/shared/protocol";
 import { FORMATION_SHAPES } from "@colony/shared/protocol";
 import { ORDER_COLORS, ORDER_LABEL, OrderMarkers } from "./strategy/orders";
@@ -4604,6 +4605,77 @@ async function main() {
     questsBtn.blur();
     setQuestPanelOpen(questPanelEl.hidden);
   });
+
+  // ---- World streaming phase 5: the chronicle (server `chronicle` messages) ----
+  const chroniclePanelEl = document.getElementById("chronicle-panel")!;
+  const chronicleListEl = document.getElementById("cp-list")!;
+  const chronicleEmptyEl = document.getElementById("cp-empty")!;
+  const chronicleBtn = document.getElementById("chronicle-btn") as HTMLButtonElement;
+  let chronicleEntries: ChronicleEntry[] = [];
+  // Entries with an id above this arrived "while you were away" (the profile's read mark on the server).
+  let chronicleAwaySince = 0;
+  let chronicleRead = 0;
+  function onChronicle(m: { entries: ChronicleEntry[]; since?: number; full?: boolean }) {
+    if (m.full) {
+      chronicleEntries = [...m.entries];
+      chronicleAwaySince = chronicleRead = m.since ?? 0;
+      const away = chronicleEntries.filter((e) => e.id > chronicleAwaySince).length;
+      if (away > 0) pushEventToast("milestone", `While you were away: ${away} entr${away === 1 ? "y" : "ies"} in the Chronicle`);
+    } else {
+      chronicleEntries.push(...m.entries);
+      if (chronicleEntries.length > 120) chronicleEntries.splice(0, chronicleEntries.length - 120);
+    }
+    renderChronicle();
+  }
+  function renderChronicle() {
+    const open = !chroniclePanelEl.hidden;
+    const last = chronicleEntries.length ? chronicleEntries[chronicleEntries.length - 1].id : 0;
+    if (open && last > chronicleRead) {
+      chronicleRead = last;
+      sendMessage({ type: "chronicleSeen", id: last });
+    }
+    const unread = chronicleEntries.filter((e) => e.id > chronicleRead).length;
+    chronicleBtn.textContent = unread > 0 ? `Chronicle (${unread})` : "Chronicle";
+    chronicleBtn.classList.toggle("has-new", unread > 0);
+    if (!open) return;
+    chronicleEmptyEl.hidden = chronicleEntries.length > 0;
+    chronicleListEl.replaceChildren();
+    // Newest first: the "while you were away" block, then the rest under "Earlier".
+    type Section = "" | "away" | "earlier";
+    let section = "" as Section;
+    for (const e of [...chronicleEntries].reverse()) {
+      const away = e.id > chronicleAwaySince;
+      const want: Section = away ? "away" : section === "away" ? "earlier" : section;
+      if (want !== section) {
+        const h = document.createElement("div");
+        h.className = "cp-head";
+        h.textContent = want === "away" ? "While you were away" : "Earlier";
+        chronicleListEl.append(h);
+        section = want;
+      }
+      const row = document.createElement("div");
+      row.className = `cp-entry${away ? " new" : ""}`;
+      const day = document.createElement("span");
+      day.className = "cp-day";
+      day.textContent = `Day ${e.day}`;
+      row.append(day, e.text);
+      chronicleListEl.append(row);
+    }
+  }
+  function setChroniclePanelOpen(open: boolean) {
+    chroniclePanelEl.hidden = !open;
+    // Closing it: what was read is no longer "while you were away".
+    if (!open) chronicleAwaySince = chronicleRead;
+    renderChronicle();
+  }
+  chronicleBtn.addEventListener("click", () => {
+    chronicleBtn.blur();
+    setChroniclePanelOpen(chroniclePanelEl.hidden);
+  });
+  document.getElementById("cp-close")!.addEventListener("click", () => setChroniclePanelOpen(false));
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !chroniclePanelEl.hidden) setChroniclePanelOpen(false);
+  });
   document.getElementById("qp-close")!.addEventListener("click", () => setQuestPanelOpen(false));
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !questPanelEl.hidden) setQuestPanelOpen(false);
@@ -5901,6 +5973,8 @@ async function main() {
       markExplored(message.tiles);
     } else if (message.type === "chunks") {
       applyStreamChunks(message.chunks);
+    } else if (message.type === "chronicle") {
+      onChronicle(message);
     } else if (message.type === "buildingInfo") {
       if (!infoTile || infoTile.tx !== message.tileX || infoTile.ty !== message.tileY) return;
       if (message.info) renderBuildingInfo(message.info);

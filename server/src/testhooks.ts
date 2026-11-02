@@ -6,6 +6,8 @@ import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, 
 import { clanById, clanIdAt, withClan } from "./clans.js";
 import { auditWorld } from "./abstract.js";
 import { currentWorldSeed, dropBaseCache } from "./worldbase.js";
+import { strifeDawn, strifeStats } from "./strife.js";
+import { chronicleEntries } from "./chronicle.js";
 import { isSaveSlot, saveFileFor, savePath } from "./saves.js";
 import { promises as fsp } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -576,6 +578,13 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // World streaming phase 3: far wagon convoys go abstract past `far` tiles from everyone, real within `near`.
     setWagonAbstractRadius(msg.far, msg.near);
     reply({ far: msg.far, near: msg.near });
+  } else if (msg.op === "strifeDawn") {
+    // World streaming phase 5: one dawn of abstract strife now ({forceRaid, forceSiege, forceFall}).
+    strifeDawn({ forceRaid: !!msg.forceRaid, forceSiege: !!msg.forceSiege, forceFall: !!msg.forceFall });
+    reply({ stats: { ...strifeStats }, threats: [...sites.values()].filter((s) => s.threat).map((s) => ({ id: s.id, ...s.threat })), quests: quests.filter((q) => q.help).map((q) => ({ id: q.id, siteId: q.siteId, targetId: q.targetId, clan: q.clan })), cleared: [...sites.values()].filter((s) => s.faction === "human" && s.cleared).map((s) => s.id) });
+  } else if (msg.op === "chronicle") {
+    // World streaming phase 5: the chronicle as saved.
+    reply({ entries: chronicleEntries() });
   } else if (msg.op === "dropBaseCache") {
     // World streaming phase 4: forget the base layer (memory + cache files): the next diff load regenerates it.
     void dropBaseCache().then(() => reply({ ok: true }));

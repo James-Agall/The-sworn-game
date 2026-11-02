@@ -1,6 +1,7 @@
 // sites.ts: Forts phase B (PLAN-forts-diplomacy-moats.md §2, §8): stamped NPC forts. SiteState records, the
 // ASCII template stamper (SITE_TEMPLATES), world-gen placement, the reserved-grounds mask, save / load.
 // Stage 2: sleeping sites (updateSites), the site-guardian leash (siteLeash), anti-kite surge, loot share.
+import { chronicle } from "./chronicle.js";
 import { randomUUID } from "node:crypto";
 import { TICK_RATE, TILE_SIZE, TileType, isGateTile, type MobKind } from "@colony/shared/protocol";
 import type { Mob, ResourceKey, SiteState, SiteTemplate, SiteTemplateId, SiteWorkerRole, TileCoord } from "./types.js";
@@ -814,6 +815,7 @@ export function catchUpCampGrowth(s: SiteState, now = state.cycleTick): number {
   if (tier <= s.tier) return 0;
   const gained = tier - s.tier;
   applySiteTier(s, tier);
+  chronicle("camp", `${s.sighted ? s.name : "A distant camp"} grew to tier ${tier}`, s.sighted ? { x: s.keepX, y: s.keepY } : undefined);
   return gained;
 }
 

@@ -29,6 +29,7 @@ import { addAbstractRaid, dropParkedSiteMobs } from "./abstract.js";
 import { ChunkState, chunkStateAtPixel, isColdAtPixel, streamingOn } from "./chunks.js";
 import { walkMobTo } from "./mobs.js";
 import { broadcastEvent } from "./net.js";
+import { chronicle } from "./chronicle.js";
 
 export type WarbandFaction = "bandit" | "orc";
 export interface Warband {
@@ -322,7 +323,9 @@ function settle(w: Warband) {
   warbands.delete(w.id);
   site.founded = true;
   site.growthTick = site.lastSimTick = state.cycleTick;
-  if (w.sighted || state.explored[tileIndex(site.keepX, site.keepY)]) broadcastEvent("raid", `A warband has settled at ${site.name}`);
+  const seen = w.sighted || state.explored[tileIndex(site.keepX, site.keepY)];
+  if (seen) broadcastEvent("raid", `A warband has settled at ${site.name}`);
+  chronicle("camp", seen ? `A ${FACTIONS[w.faction].label} warband settled at ${site.name}` : `Rumour: a ${FACTIONS[w.faction].label} warband has made camp somewhere in the wilds`, seen ? { x: site.keepX, y: site.keepY } : undefined);
 }
 
 function compass(from: TileCoord, to: TileCoord): string {

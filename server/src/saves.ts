@@ -20,6 +20,7 @@ import { markTileRegistryStale, setTile, streamingOn } from "./chunks.js";
 import { clearOwners, isNightNow, tileIndex } from "./tiles.js";
 import { initialStock } from "./economy.js";
 import { generateWorld, setWorldSize } from "./worldgen.js";
+import { chronicleForSave, restoreChronicle } from "./chronicle.js";
 import {
   type TileDiffs, deflateBase64, diffTilesForSave, expandTiles, forgetWorldSeed, inflateBase64, loadBase, pruneBaseFiles, regeneratedBaseMatches,
 } from "./worldbase.js";
@@ -96,6 +97,7 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   restoreWagons(undefined);
   restoreWarbands(undefined);
   clearAbstractWorld();
+  restoreChronicle(undefined);
   clearPlayerMorale();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
@@ -231,6 +233,8 @@ function snapshotWorldInner() {
     warbands: warbandsForSave() as ReturnType<typeof warbandsForSave> | undefined,
     // World streaming phase 3: COLD chunk records (animal counts, since ticks); optional.
     abstractWorld: abstractForSave() as ReturnType<typeof abstractForSave> | undefined,
+    // World streaming phase 5: the chronicle and each profile's read mark (optional).
+    chronicle: chronicleForSave() as ReturnType<typeof chronicleForSave> | undefined,
     stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
@@ -436,6 +440,7 @@ function applyWorldInner(s: WorldState) {
   restoreWarbands(s.warbands);
   // World streaming phase 3: after the mobs / wildlife (saves without it: no COLD records).
   restoreAbstract(s.abstractWorld);
+  restoreChronicle(s.chronicle);
   // After the owners: a fort's campfires (owned tiles) never get a backfilled hearth.
   backfillHearths();
   state.testForceDeserterRoll = s.flags.testForceDeserterRoll;

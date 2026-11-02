@@ -1103,6 +1103,23 @@
         font-size: 14px;
       }
       #quest-panel[hidden] { display: none; }
+      /* World streaming phase 5: the chronicle (news of what happened out of sight), styled like the quests. */
+      #chronicle-btn.has-new { box-shadow: inset 0 0 0 2px #f1c40f; }
+      #chronicle-panel {
+        position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 21;
+        width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 120px); overflow-y: auto; padding: 12px 14px;
+        color: var(--ink); background: var(--burn-lg), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 3px; box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif); font-size: 14px;
+      }
+      #chronicle-panel[hidden] { display: none; }
+      #cp-title { font-size: 19px; font-weight: bold; }
+      #cp-close { font: inherit; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--ink); background: none; border: 0; cursor: pointer; }
+      #cp-empty, #cp-foot { font-size: 12.5px; color: var(--ink-soft); }
+      .cp-head { margin-top: 10px; font-weight: bold; font-size: 13px; color: #8b2a1a; }
+      .cp-entry { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(74, 42, 20, 0.25); font-size: 13px; }
+      .cp-entry .cp-day { color: var(--ink-soft); font-size: 12px; margin-right: 6px; }
+      .cp-entry.new { background: rgba(241, 196, 15, 0.12); }
       #qp-title { font-size: 19px; font-weight: bold; }
       #qp-close { font: inherit; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--ink); background: none; border: 0; cursor: pointer; }
       #qp-empty, #qp-foot { font-size: 12.5px; color: var(--ink-soft); }
@@ -1469,6 +1486,7 @@
       </span>
       <button id="hero-btn" class="control-btn" title="Character sheet (` key)">Hero</button>
       <button id="quests-btn" class="control-btn" title="Settlement quests: help requests from nearby villages">Quests</button>
+      <button id="chronicle-btn" class="control-btn" title="Chronicle: news from the wider world (raids, caravans, camps, settlements)">Chronicle</button>
       <div id="menu-dropdown">
         <button id="menu-btn" class="control-btn" aria-haspopup="true" aria-expanded="false">Menu &#x25BE;</button>
         <div id="menu-dropdown-list" role="menu" hidden>
@@ -1581,6 +1599,12 @@
       <div id="qp-empty" class="bp-row">No settlement needs you right now. Villages you have sighted post requests for help from time to time.</div>
       <div id="qp-list"></div>
       <div id="qp-foot" class="bp-row">Completing a quest pays gold and earns relation (up to 12 a day). Failing, abandoning or ignoring one costs relation.</div>
+    </div>
+    <div id="chronicle-panel" role="dialog" aria-label="Chronicle" hidden>
+      <div class="bp-head"><span id="cp-title">Chronicle</span><button id="cp-close" aria-label="Close">×</button></div>
+      <div id="cp-empty" class="bp-row">Nothing of note has reached you yet. News from far-off camps, caravans and settlements is written here.</div>
+      <div id="cp-list"></div>
+      <div id="cp-foot" class="bp-row">Most recent first. Entries marked "while you were away" arrived since you last read the chronicle.</div>
     </div>
     <div id="game-over" hidden>
       <div class="menu-scroll" role="dialog" aria-modal="true" aria-label="Game over">

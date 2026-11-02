@@ -1,9 +1,12 @@
-// Scripted test: world streaming phases 4-5. ONE private server (256 by default) with COLONY_STREAMING=1, test
+// Scripted test: world streaming phases 4-5. ONE private server (512 by default) with COLONY_STREAMING=1, test
 // hooks and a scratch save dir. Checks:
 //  1. a streamed save stores seed + per-chunk tile diffs (no full arrays) and a base cache file
 //  2. load from memory / the cache file / a regeneration from the seed gives the same tiles, biomes, explored
 //  3. a full-array (old format) save still loads
 //  4. a `?chunks=1` client gets a chunked welcome (no arrays, RLE explored, minimap summary) and chunks on request
+//  5. abstract strife: a COLD camp besieges a COLD settlement, which posts a "help us" quest first (chronicled)
+//  6. the siege falls the settlement only after the telegraph; audit clean
+//  7. the chronicle survives save -> load and arrives after the welcome with the read mark
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -16,7 +19,7 @@ const DIR = path.dirname(fileURLToPath(import.meta.url));
 const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_modules/.bin/tsx")].find((p) => existsSync(p));
 const TILE = 32;
 const DAY = 20 * 375; // a whole game day (day + night)
-const SIZE = Number(process.env.STREAM_TEST_SIZE ?? 256);
+const SIZE = Number(process.env.STREAM_TEST_SIZE ?? 512);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const portFree = (port) => new Promise((res) => { const s = net.createServer(); s.once("error", () => res(false)); s.listen(port, () => s.close(() => res(true))); });
 let PORT = 32600;
@@ -166,6 +169,43 @@ await check("chunked client: chunked welcome + chunks on request match the full 
   const fullKb = (JSON.stringify(full).length / 1024).toFixed(1);
   return [w.tiles.length === 0 && w.explored === "" && i === n && bad === 0 && got.chunks.length === 3 && mism === 0 && cells === Math.ceil(W / f) ** 2,
     `explored runs cover ${i}/${n} (${bad} wrong), ${got.chunks.length} chunks (${mism} wrong tiles), minimap ${cells} cells at f=${f}; welcome ${welcomeKb} KiB vs full ${fullKb} KiB`];
+});
+
+await check("strife: a COLD camp besieges a COLD settlement; 'help us' quest posted first", async () => {
+  await hook("setTileRaw", { tx: 0, ty: 0, tile: 0 });
+  await ff(40);
+  const r = await hook("strifeDawn", { forceRaid: true, forceSiege: true });
+  const ch = await hook("chronicle");
+  const siegeLines = ch.entries.filter((e) => e.kind === "settlement" && /besiege/.test(e.text));
+  const helpFor = new Set(r.quests.map((q) => q.siteId));
+  return [r.threats.length > 0 && r.threats.every((t) => helpFor.has(t.id)) && siegeLines.length === r.threats.length && r.cleared.length === 0,
+    `${r.threats.length} sieges, ${r.quests.length} help quests, ${siegeLines.length} chronicle lines (${siegeLines[0]?.text ?? "-"}), stats ${JSON.stringify(r.stats)}`];
+});
+
+await check("strife: the siege falls the settlement after the telegraph (audit clean)", async () => {
+  const before = await hook("strifeDawn");
+  const r = await hook("strifeDawn", { forceFall: true });
+  const ch = await hook("chronicle");
+  const a = await audit();
+  const fell = ch.entries.filter((e) => /has fallen/.test(e.text)).length;
+  return [before.threats.length > 0 && r.cleared.length === before.threats.length && fell === r.cleared.length && r.threats.length === 0 && a.ok,
+    `${before.threats.length} besieged -> ${r.cleared.length} fallen, ${fell} chronicle lines; audit ${a.ok ? "ok" : a.problems.slice(0, 2).join("; ")}`];
+});
+
+await check("chronicle survives save -> load; sent after welcome with the read mark", async () => {
+  const n = (await hook("chronicle")).entries.length;
+  send({ type: "chronicleSeen", id: 2 });
+  const r = await save("slot3");
+  const ws3msgs = [];
+  const l = await load("slot3");
+  const after = (await hook("chronicle")).entries.length;
+  const ws3 = new WebSocket(`ws://localhost:${PORT}`);
+  ws3.on("message", (raw) => { const m = JSON.parse(raw.toString()); if (m.type === "welcome" || m.type === "chronicle") ws3msgs.push(m); });
+  await until(() => ws3msgs.some((m) => m.type === "chronicle"), 30000);
+  ws3.close();
+  const msg = ws3msgs.find((m) => m.type === "chronicle");
+  return [r?.ok && l?.ok && n > 0 && after === n && ws3msgs[0]?.type === "welcome" && msg?.full && msg.entries.length === n && msg.since === 2,
+    `${n} entries, after load ${after}; second client got ${ws3msgs.map((m) => m.type).join(",")} (since ${msg?.since})`];
 });
 
 console.log(`\n${passed} passed, ${failed.length} failed${failed.length ? ": " + failed.join(", ") : ""}`);

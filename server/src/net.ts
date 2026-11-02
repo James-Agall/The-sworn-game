@@ -18,6 +18,7 @@ import { clamp } from "./tiles.js";
 import { TOWN_CENTER_TILE, isAbbeyClergy } from "./colonists.js";
 import { listSaves, sendTo } from "./saves.js";
 import { streamingOn } from "./chunks.js";
+import { sendChronicle } from "./chronicle.js";
 import {
   MAX_CHUNKS_PER_REQUEST, STREAM_CHUNK_TILES, encodeByteRuns, encodeMaskRuns, minimapCellClass, minimapFactor,
 } from "@colony/shared/streaming";
@@ -198,6 +199,7 @@ export function sendWelcome(player: Player) {
     ...(state.creative ? { creative: true } : {}),
   };
   player.socket.send(JSON.stringify(welcome));
+  sendChronicle(player);
 }
 
 export function clearFights() {
