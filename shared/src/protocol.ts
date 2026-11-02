@@ -481,7 +481,8 @@ export interface ColonistSnapshot {
   postY: number;
   stance: Stance;
   // True once a civilian has reached its night shelter (a house, or the Town Center) and should be drawn "inside".
-  sheltered: boolean;
+  // Battle engine phase 7: left out (false) in a big battle's snapshot.
+  sheltered?: boolean;
   // Armour & weapons: the tier (1-3) a knight / spearman / pikeman / cavalry spawned with; omitted = 0 (unequipped).
   armourTier?: number;
   weaponTier?: number;

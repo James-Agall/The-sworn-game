@@ -1888,6 +1888,52 @@ async function main() {
     }
   });
 
+  // Battle engine phase 7: dot LOD for huge fights, behind the URL flag ?battleLod=1 (MANUAL-TESTS.md). With more
+  // than BATTLE_LOD_UNITS soldiers + mobs drawn and the camera zoomed out below BATTLE_LOD_ZOOM, every soldier /
+  // mob is one dot in a single Graphics (its clan's colour; mobs red) and its sprite, hp bar and wound are hidden;
+  // zooming back in (or fewer units) shows them again. Off by default until checked in a browser.
+  const BATTLE_LOD = new URLSearchParams(location.search).get("battleLod") === "1";
+  const BATTLE_LOD_UNITS = 400;
+  const BATTLE_LOD_ZOOM = 0.6;
+  const lodDots = new Graphics();
+  // Ids whose visuals the LOD hid (restored when it switches off; workers are never touched, their own
+  // hide-at-post / shelter rules stay).
+  const lodHidden = new Set<string>();
+  if (BATTLE_LOD) worldLayer.addChild(lodDots);
+  const lodHide = (e: EntityVisual) => {
+    e.sprite.visible = false;
+    e.hpBar.visible = false;
+    if (e.wound) e.wound.visible = false;
+  };
+  app.ticker.add(() => {
+    if (!BATTLE_LOD) return;
+    lodDots.clear();
+    const on = colonistSprites.size + mobSprites.size > BATTLE_LOD_UNITS && camZoom < BATTLE_LOD_ZOOM;
+    if (!on) {
+      for (const id of lodHidden) {
+        const e = colonistSprites.get(id) ?? mobSprites.get(id);
+        if (!e) continue;
+        e.sprite.visible = true;
+        e.hpBar.visible = true;
+      }
+      lodHidden.clear();
+      return;
+    }
+    for (const c of latestColonists) {
+      if (WORKER_KINDS.has(c.kind) || c.kind === "wagon") continue;
+      const e = colonistSprites.get(c.id);
+      if (!e) continue;
+      lodDots.circle(e.sprite.position.x, e.sprite.position.y, 6).fill(clanColors.get(c.clan ?? 0) ?? 0x4a90e2);
+      lodHide(e);
+      lodHidden.add(c.id);
+    }
+    for (const [id, e] of mobSprites) {
+      lodDots.circle(e.sprite.position.x, e.sprite.position.y, 6).fill(0xd0342c);
+      lodHide(e);
+      lodHidden.add(id);
+    }
+  });
+
   // Health-based wound decal over a unit (light < 66% hp, bleeding < 40%, heavy < 20%). The sprite is
   // created once, on the unit's first damaged snapshot, then only repositioned/retextured; healthy or
   // hidden units just hide it.

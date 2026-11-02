@@ -12,6 +12,7 @@ import type { Player } from "./types.js";
 import {
   DAY_TICKS, NIGHT_TICKS, PLAYER_COLORS, PORT, SNAPSHOT_CULL_MIN_WORLD, SNAPSHOT_VIEW_TILES, TEST_HOOKS,
   TICK_DURATION_SAMPLES,
+  BIG_BATTLE_SNAPSHOT_UNITS,
 } from "./constants.js";
 import {
   clans, colonists, gravestones, lap, lapReset, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
@@ -356,18 +357,23 @@ setInterval(() => {
     dead: p.dead,
     ...(p.clan ? { clan: p.clan } : {}),
   }));
+  // Battle engine phase 7 (snapshot LOD): with more than BIG_BATTLE_SNAPSHOT_UNITS soldiers / mobs on the map,
+  // positions, mob hp and effect points go out rounded to 0.1 px and a false `sheltered` is left out (~20% of a
+  // 1000 vs 1000 snapshot); smaller games are sent exactly as before.
+  const big = colonists.size + mobs.size > BIG_BATTLE_SNAPSHOT_UNITS;
+  const q = big ? (v: number) => Math.round(v * 10) / 10 : (v: number) => v;
   const colonistsNow = Array.from(colonists.values()).map((c): ColonistSnapshot => ({
       id: c.id,
       kind: c.kind,
-      x: c.x,
-      y: c.y,
+      x: q(c.x),
+      y: q(c.y),
       state: c.state,
       hp: c.hp,
       maxHp: c.maxHp,
       postX: c.postX,
       postY: c.postY,
       stance: c.stance,
-      sheltered: isAtShelter(c),
+      ...(isAtShelter(c) ? { sheltered: true } : big ? {} : { sheltered: false }),
       ...(c.armourTier ? { armourTier: c.armourTier } : {}),
       ...(c.weaponTier ? { weaponTier: c.weaponTier } : {}),
       ...(c.kind === "hero" ? { heroName: c.heroName, heroClass: c.heroClass, heroLevel: heroProfileFor(heroKey(c.id)).level } : {}),
@@ -382,9 +388,9 @@ setInterval(() => {
   const mobsNow = Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,
       kind: m.kind,
-      x: m.x,
-      y: m.y,
-      hp: m.hp,
+      x: q(m.x),
+      y: q(m.y),
+      hp: q(m.hp),
       maxHp: m.maxHp,
       ...(m.mark !== HungerMark.None ? { mark: m.mark } : {}),
       ...(m.boss ? { boss: m.boss } : {}),
@@ -434,7 +440,7 @@ setInterval(() => {
       ...(state.pausedBy ? { pausedBy: state.pausedBy } : {}),
       timeScale: state.timeScale,
       ...(state.timeScaleBy ? { timeScaleBy: state.timeScaleBy } : {}),
-      effects: state.pendingEffects,
+      effects: big ? state.pendingEffects.map((e) => ({ ...e, fromX: q(e.fromX), fromY: q(e.fromY), toX: q(e.toX), toY: q(e.toY) })) : state.pendingEffects,
       // The clan's first standing Town Center (the starting one unless it fell); townCenters has them all.
       townCenterHp: ownTownCenters[0] ? Math.max(0, ownTownCenters[0].hp) : 0,
       townCenterMaxHp: townCenterMaxHp(ownTownCenters[0]?.level ?? 1),

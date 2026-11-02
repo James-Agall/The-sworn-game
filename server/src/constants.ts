@@ -430,6 +430,8 @@ export const MOB_SIZE_SPEED_PER_SCALE = -0.5;
 // run. Pikemen / spearmen hit it harder (GOBLIN_RIDER_DAMAGE_TAKEN).
 export const GOBLIN_RIDER_WITHDRAW_TICKS = Math.round(TICK_RATE * 1.5);
 export const GOBLIN_RIDER_DAMAGE_TAKEN: Partial<Record<ColonistKind, number>> = { pikeman: 1.6, spearman: 1.3 };
+// Battle engine phase 7: above this many soldiers + mobs the snapshot is sent compacted (index.ts).
+export const BIG_BATTLE_SNAPSHOT_UNITS = 400;
 // Battle engine phase 4 (anti-cavalry): mob spearmen hit the player's cavalry harder.
 export const MOB_ANTI_CAVALRY_MULT: Partial<Record<MobKind, number>> = { townGuard: 1.3 };
 // ---- Raid waves: tuning ----

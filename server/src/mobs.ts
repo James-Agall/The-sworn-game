@@ -1,6 +1,6 @@
 // mobs.ts: Mob kinds, sizes, hunger marks, difficulty, targeting, building routing and the mob tick.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { bracedAgainst, colonistsNear, directionMultOnColonist, fatigueDamageMultOnMob, pairedTargetOf } from "./battle.js";
+import { bracedAgainst, regimentFoeFor, colonistsNear, directionMultOnColonist, fatigueDamageMultOnMob, pairedTargetOf } from "./battle.js";
 import {
   mobSizeScale, HungerMark, HUNGER_MARK_NAMES, type MobKind, type Difficulty, MOB_SIZE_RANGE, TILE_SIZE, TileType,
   TICK_RATE, isGateTile, isSolidTile,
@@ -235,6 +235,9 @@ export function pickMobTarget(mob: Mob): PickedTarget | null {
   }
   if (bestPlayer) return { type: "player", id: bestPlayer.id };
 
+  // Battle engine phase 7: an engaged regiment's mob closes on the regiment it fights instead.
+  const foe = regimentFoeFor(mob);
+  if (foe && !isWarded(foe.x, foe.y, wards)) return { type: "colonist", id: foe.id };
   // No guard / player to fight: the nearest unwarded building (Town Centers included).
   // Battle engine phase 3: re-picked from the same tile within BUILDING_PICK_CACHE_TICKS, the last answer is
   // reused while its target still resolves (each pick is up to 2 x BUILDING_TARGET_CANDIDATES Dijkstra searches;

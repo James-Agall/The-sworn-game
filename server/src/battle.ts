@@ -861,3 +861,25 @@ function skirmishFallBack(r: BattleRegiment, g: OrderGroup, members: Colonist[])
   formGroupAt(g, members, x, y, g.facing, g.width);
   g.skirmishFrom = from;
 }
+
+// Phase 7 (LOD for huge fights): a mob of an engaged regiment with nothing in aggro range does not look for a
+// building (each pick is Dijkstra searches: 2-3 s of a 30 s 1000 vs 1000 profile); it closes on the nearest
+// soldier of the regiment its regiment fights (the rear ranks follow the front instead of wandering off).
+export function regimentFoeFor(m: Mob): Colonist | null {
+  const key = regimentKey(m);
+  const r = key ? battleRegiments.get("n:" + key) : undefined;
+  if (!r || !r.targetRegimentId || (r.state !== "engaged" && !r.edge)) return null;
+  const foes = groupMembersOf.get(r.targetRegimentId);
+  if (!foes) return null;
+  let best: Colonist | null = null;
+  let bestD = BRAIN_SCAN_TILES * TILE_SIZE;
+  for (const c of foes) {
+    if (c.hp <= 0 || colonists.get(c.id) !== c) continue;
+    const d = Math.hypot(c.x - m.x, c.y - m.y);
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return best;
+}
