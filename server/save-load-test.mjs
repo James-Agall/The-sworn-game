@@ -214,7 +214,7 @@ try {
   writeFileSync(path.join(dirA, "slot2.json"), JSON.stringify({ ...file, version: 999 }));
   // Saves bring their own world size now (a different supported size is loaded, resizing the world), so the
   // guard is against an unsupported size.
-  writeFileSync(path.join(dirA, "slot3.json"), JSON.stringify({ ...file, worldSize: 999 }));
+  writeFileSync(path.join(dirA, "slot3.json"), JSON.stringify({ ...file, worldSize: 9999 }));
   const bad1 = c.wait((m) => m.type === "saveResult");
   c.send({ type: "loadGame", slot: "slot2" });
   const b1 = await bad1;
@@ -222,7 +222,7 @@ try {
   const bad2 = c.wait((m) => m.type === "saveResult");
   c.send({ type: "loadGame", slot: "slot3" });
   const b2 = await bad2;
-  result(!b2.ok && /unsupported world size \(999\)/.test(b2.error ?? ""), `unsupported world size refused: ${b2.error}`);
+  result(!b2.ok && /unsupported world size \(9999\)/.test(b2.error ?? ""), `unsupported world size refused: ${b2.error}`);
   const listed = await (await fetch(`http://localhost:${PORT_A}/saves`)).json();
   result(
     // The 7100-tick fast-forward crossed a dawn, so the autosave is listed too.
