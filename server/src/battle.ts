@@ -11,9 +11,10 @@ import type { BattleRegiment, BattleRegimentState, Colonist, FormationMarch, Mob
 import { COLONIST_BODY_RADIUS, MORALE_MAX, RETREAT_SPEED_FACTOR, SKIRMISH_DRIFT_TILES, SKIRMISH_KITE_TILES, dt } from "./constants.js";
 import {
   battleRegiments, colonists, commandedTargets, mobs, moraleRegimentOfUnit, orderGroupOfUnit, orderGroups, playerMorale,
-  regiments, routedUnits, squadMarchSpeed, state,
+  raidGroups, regiments, routedUnits, squadMarchSpeed, state,
 } from "./state.js";
-import { regimentKey } from "./tactics.js";
+import { regimentKey, startRout, tacticsEvent } from "./tactics.js";
+import { engageRaidGroup } from "./raids.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { clamp, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { unitStats } from "./units.js";
@@ -105,6 +106,80 @@ export function updateBattleBrains() {
   for (const r of battleRegiments.values()) {
     if (r.phase !== phase) continue;
     brainTick(r);
+  }
+  if (phase === BRAIN_TICKS - 1 && state.cycleTick % COMMANDER_TICKS[state.difficulty] === COMMANDER_TICKS[state.difficulty] - 1) updateCommanders();
+}
+
+// ---- Phase 6: enemy battle plans (docs PLAN-large-battles.md §5), a commander layer above the mob regiments ----
+// An ARMY is a cluster of siteless (raid / horde) mob regiments whose anchors are within ARMY_CLUSTER_TILES of
+// one another (a site's garrison is one regiment already: tactics.ts handles it alone). For armies of two or more
+// regiments the commander, every COMMANDER_TICKS (its reaction time by difficulty):
+//  - commits the reserve: while one of its regiments is in contact and wavering (morale under the difficulty's
+//    line, or outnumbered), its passive raid groups (still standing in formation) engage at once (engageRaidGroup);
+//  - retreats the army: in contact with its strength under ARMY_BREAK_FRACTION of its peak, every regiment routs
+//    (tactics.ts startRout: raids leave the map, others fall back home).
+// Flanking, wall cover and the per-regiment morale / rout stay in tactics.ts (the regiments' own behaviours).
+// Difficulty changes reaction time and aggressiveness only (when it commits / gives up), never unit stats.
+const ARMY_CLUSTER_TILES = 25;
+const COMMANDER_TICKS: Record<string, number> = { easy: TICK_RATE * 2, normal: TICK_RATE, hard: TICK_RATE / 2 };
+const ARMY_BREAK_FRACTION: Record<string, number> = { easy: 0.4, normal: 0.3, hard: 0.2 };
+const RESERVE_MORALE: Record<string, number> = { easy: 40, normal: 55, hard: 70 };
+export function updateCommanders() {
+  const npc: BattleRegiment[] = [];
+  for (const r of battleRegiments.values()) {
+    r.army = undefined;
+    if (r.owner.kind !== "npc" || r.owner.siteId !== null || r.memberIds.length === 0) continue;
+    r.peakStrength = Math.max(r.peakStrength ?? 0, r.strength);
+    npc.push(r);
+  }
+  // Clusters (union by distance; O(regiments^2), a few dozen at most).
+  for (const r of npc) {
+    if (r.army) continue;
+    r.army = r.id;
+    const queue = [r];
+    for (let i = 0; i < queue.length; i++) {
+      for (const o of npc) {
+        if (o.army || Math.hypot(o.anchorX - queue[i].anchorX, o.anchorY - queue[i].anchorY) > ARMY_CLUSTER_TILES * TILE_SIZE) continue;
+        o.army = r.id;
+        queue.push(o);
+      }
+    }
+    if (queue.length >= 2) commandArmy(queue);
+  }
+}
+
+function commandArmy(army: BattleRegiment[]) {
+  const d = state.difficulty;
+  let strength = 0, peak = 0;
+  let contact: BattleRegiment | null = null;
+  let wavering = false;
+  for (const r of army) {
+    strength += r.strength;
+    peak += r.peakStrength ?? r.strength;
+    const reg = regiments.get(r.id.slice(2));
+    if (!reg || reg.routed || r.state !== "engaged") continue;
+    contact ??= r;
+    if (reg.morale < RESERVE_MORALE[d] || reg.ratio < 1) wavering = true;
+  }
+  if (!contact) return;
+  const foe = contact.targetRegimentId ? battleRegiments.get(contact.targetRegimentId) : undefined;
+  if (peak > 0 && strength < peak * ARMY_BREAK_FRACTION[d]) {
+    for (const r of army) {
+      const reg = regiments.get(r.id.slice(2));
+      if (!reg || reg.routed) continue;
+      const members = (npcMembers.get(r.id) ?? []).filter((m) => mobs.has(m.id) && m.hp > 0);
+      if (members.length === 0) continue;
+      tacticsEvent(reg.id, "armyRetreat", `${Math.round((100 * strength) / peak)}%`);
+      startRout(reg, members, foe?.anchorX ?? r.anchorX, foe?.anchorY ?? r.anchorY);
+    }
+    return;
+  }
+  if (!wavering) return;
+  for (const r of army) {
+    const group = raidGroups.get(r.id.slice(2));
+    if (!group || group.engagedTick !== undefined || group.state !== "passive") continue;
+    engageRaidGroup(group);
+    tacticsEvent(group.id, "reserveCommitted", contact.id.slice(2));
   }
 }
 

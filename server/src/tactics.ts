@@ -228,9 +228,12 @@ const LEADER_LOST_MORALE = 20;
 function shakeMobRegiments(fromId: string, amount: number, self: boolean) {
   if (state.testMoraleFrozen) return;
   const at = battleRegiments.get("n:" + fromId);
-  if (!at) return;
+  const from = regiments.get(fromId);
+  if (!at || !from) return;
   for (const reg of regiments.values()) {
     if (reg.routed || (reg.id === fromId && !self)) continue;
+    // Allies: raid / horde regiments among themselves (a site's garrison is one regiment).
+    if (reg.id !== fromId && !(reg.raid && from.raid)) continue;
     const b = battleRegiments.get("n:" + reg.id);
     if (!b || Math.hypot(b.anchorX - at.anchorX, b.anchorY - at.anchorY) > MORALE_CASCADE_TILES * TILE_SIZE) continue;
     reg.morale = Math.max(0, reg.morale - amount);

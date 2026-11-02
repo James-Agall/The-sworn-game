@@ -658,6 +658,9 @@ export interface BattleRegiment {
   volleys?: number;
   // Phase 5: 0 (fresh) .. 1 (spent); marching / charging / fighting build it, standing recovers it.
   fatigue?: number;
+  // Phase 6: the highest strength seen, and the enemy army (commander layer) it belongs to this cycle.
+  peakStrength?: number;
+  army?: string;
   // The brain tick phase (0..BRAIN_TICKS-1): regiments are evaluated staggered.
   phase: number;
   lastBrainTick: number;
