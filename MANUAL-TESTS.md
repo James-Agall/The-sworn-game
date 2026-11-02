@@ -390,6 +390,21 @@ Short checks of the phase I numbers (ROADMAP "Phase I — landed"). A normal gam
 4. 512 map: wildlife far away still wanders when you walk up to it, forts / camps still wake when you approach and
    sleep when you leave (phase 2 freezing is off below 768 tiles; nothing should differ).
 
+## World streaming phase 3 (abstract records; off below 768 tiles, so normal games look exactly as before)
+To see it on a 512 map, start the server with `COLONY_TEST_HOOKS=1 COLONY_STREAMING=1 COLONY_WORLD_SIZE=512` (and a
+scratch `COLONY_SAVE_DIR`), then open the client as usual.
+1. Walk (or teleport in creative) 200+ tiles from the Town Center toward a far ruin / fort: the guardians, animals and
+   any stray mobs there should be standing where they were when you arrive (no pop-in on screen, nothing missing).
+2. Stay away a whole game day, then return to a far wood: a few animals more (or fewer) than before is expected;
+   never a sudden herd. Picked berry bushes far away should have regrown on your return.
+3. A warband marching far away: no bodies on the minimap / screen until you get within ~3 chunks; it should be
+   further along its route, not back at the start.
+4. A tier-3 founded camp 130+ tiles out raids at night: the raiders appear walking in from its direction (not at
+   the camp) once they near your ACTIVE area; "Raiders muster at ..." toast as before.
+5. A trader wagon on a 150-tile trip: it should arrive and come home as before, occasionally late, rarely with a
+   "waylaid: half its goods are lost" toast. Its escort should still be with it when you meet it on the road.
+6. Save far from home, load: the far world is still there (forts, animals) after the load.
+
 ## Battle engine phase 2 (formation march, strategy-mode orders)
 1. Strategy mode: select a regiment of 20+ soldiers, order a move 10+ tiles away. The block should walk as one
    rectangle (no streaming / mixing), turn smoothly at corners, and form up on the target facing the drag direction.

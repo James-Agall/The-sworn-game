@@ -2236,6 +2236,51 @@ Plan: docs PLAN-large-battles.md §8 phase 1. No behaviour change.
   40): standing 12.7 ms avg; marching **1222 ms avg, p95 1979 ms**, settling 2083 ms, all of it in `colonists`
   (per-unit `findPath` in `returnToRally`: CPU profile 12 s of 14 s sim). Brain cost 0.4-0.8 ms.
 
+## World streaming — landed (phase 3) 2026-11-02 (abstract records + catch-up)
+Plan: `~/docs/colony2d/PLAN-world-streaming.md` §4-5, §9 phase 3. All of it is off below 768 tiles (`streamingOn()`;
+`COLONY_STREAMING=1` with test hooks forces it), so 160/256/512 behave as before. New module `server/src/abstract.ts`.
+- **(a) COLD chunks (`updateAbstractWorld`, after each re-classification):** idle free mobs (`mobFrozenByStreaming`:
+  dormant guardians, fort / camp / settlement garrisons, strays; not site workers) are PARKED: moved unchanged from `mobs`
+  to `parkedMobs` (state.ts) and put back when the chunk leaves COLD. Site garrisons keep parked ids (updateSites
+  filter, catchUpSite living count, sitePower, the keep panel count); `removeSite` drops parked guardians; quests' threat
+  scan counts parked strays. The existing site catch-up (garrison refill / camp growth on waking, global dawn production)
+  does the rest. Animals become per-chunk counts; on waking a closed-form catch-up (logistic toward ~3 x cap / chunks
+  per chunk, `0.15`/day, never above the global cap) spawns real animals inside the chunk. Respawn counts parked
+  animals toward the caps and puts an animal due on a COLD tile into that chunk's count. Forage regrowth timers in COLD
+  chunks stand still and are advanced by the elapsed ticks on waking.
+- **Dice:** `worldRng(worldNoiseSalt, keys...)` (mulberry32): chunk + day for wildlife, wagon id + day + tiles walked for
+  convoys; a reload rolls the same.
+- **(b) Warbands / raids:** with streaming on a warband has bodies exactly while its tile's chunk is ACTIVE (abstract
+  again once COLD). A camp raid whose muster point is outside the ACTIVE chunks is an abstract record (kinds, position,
+  departure tick, pace) that marches straight at its Town Center after departure and materialises as a real raid group
+  (`musterRaidGroup`, factored out of `spawnCampRaids`) in the first ACTIVE chunk (or within 24 tiles of the target).
+- **(c) Wagons:** a convoy on the road (out / back, not fleeing, escort within 8 tiles) with no player, Town Center or
+  other unit within 128 tiles goes abstract: `ghost` on the wagon and escort (no chunk anchor, skipped by updateColonist),
+  stepped along its path once a second (not at night), real again within 96 tiles or when any convoy hp is lost. At the
+  end of the leg one roll: waylaid (half the cargo / takings; safe 3% / risky 15% / deadly 35%, x(1 - 0.75 x escort
+  share)), delayed (15%, 1/6 day), else arrives. Nothing abstract kills a player unit. Trips are capped at 160 tiles, so
+  on today's maps only the far end of long trips is abstract. `sweepGhosts` clears orphan ghosts.
+- **(d) WARM band:** an idle free mob in a WARM chunk runs 1 tick in 4 (staggered by id) with 4 x dt; WARM wildlife takes
+  the COLD fast path (WARM is 97+ tiles out, past the 64-tile dormancy).
+- **Saves:** parked mobs are saved with the live ones (re-parked after a load); optional `abstractWorld` holds the COLD
+  chunk records (since tick, animal counts) and abstract raids. Old saves load as before.
+- **World audit:** test hook `auditWorld` (`{ok, problems, counts}`): no mob both live and parked or in two chunk records,
+  parked mobs inside their chunk, animal totals = records and within caps, no mob in two garrisons / raid groups, warband
+  bodies only while materialised, raids in one form, abstract wagons ghosted on out / back, transition ledger balances.
+  Smoke check 12 runs it. `chunkState {list: true}` lists COLD chunks; `wagonAbstractRadius {far, near}` (tests).
+- **Benchmark** (ms per tick over 1200 ticks, fast-forward, fresh normal world, same machine, 2 runs each; phase 2 tree in
+  a worktree vs this): 512 (off) 0.8-2.0 vs 0.7 (world-to-world variance, same code path); 1024 2.7-4.0 vs 2.0-2.04, with
+  ~1000 of ~1270 mobs and ~165 of ~210 animals parked (77-98 ACTIVE / 98-135 WARM / 790-850 COLD chunks). Worldgen at
+  1024 ~40 s. RSS unchanged (the tsx wrapper's figure).
+- Tests: `server/streaming-abstract-test.mjs` (512, `COLONY_STREAMING=1`, 7 checks: parking, waking, a day's catch-up,
+  save / load, warband, camp raid, wagon convoy) passes; smoke passes (known flakes: settlement stamp, raid 10 left alive,
+  warband never settled, all seen on the phase 2 tree too); with `COLONY_STREAMING=1` smoke fails only the off-check
+  (expected) plus those flakes; wagons-test passes in both modes; sites-test and save-load-test pass. hunting-foraging
+  fails 5 placement checks on the phase 2 tree as well (pre-existing).
+- Not done (phase 4+): settlement vs settlement / camp abstract raids and sieges, a "while you were away" chronicle,
+  diff-log saves, chunked transfer, minimap summary, map-size menu above 512; abstract raids on the clan from the map
+  edge (night raids already spawn inside the colony's raid box).
+
 ## World streaming — landed (phase 2) 2026-11-02 (chunk manager)
 Plan: `~/docs/colony2d/PLAN-world-streaming.md` §9 phase 2. Off below 768 tiles, so 160/256/512 behave exactly as before.
 - **Chunk states (`chunks.ts` bottom):** `updateChunkStates()` runs at the top of every `stepSimulation` and re-classifies
