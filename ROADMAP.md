@@ -2155,6 +2155,84 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Battle engine — landed (phase 7) 2026-11-02 (rear mobs follow the fight, snapshot compaction, client dot LOD)
+Plan: docs PLAN-large-battles.md §3 (LOD), §8 phase 7.
+- **Rear mobs (`battle.ts regimentFoeFor`, `mobs.ts pickMobTarget`):** a mob of an engaged regiment with nothing in
+  aggro range closes on the nearest soldier of the regiment its regiment fights instead of picking a building
+  (Dijkstra; 2-3 s of a 30 s 1000 vs 1000 profile). Mobs 13-25 ms -> **3-8 ms** a tick in the regiment battle.
+- **Snapshot compaction (`index.ts`):** above BIG_BATTLE_SNAPSHOT_UNITS (400) soldiers + mobs, positions, mob hp
+  and effect points are rounded to 0.1 px and a false `sheltered` is left out (protocol: optional). Smaller games
+  are byte-for-byte as before. The 256 map already culls mobs to the view (SNAPSHOT_CULL_MIN_WORLD).
+- **Client dot LOD (`main.ts`, flag `?battleLod=1`, off by default):** > 400 units and the camera below zoom 0.6:
+  soldiers / mobs drawn as dots in one Graphics (clan colour / red), sprites, hp bars, wounds hidden; workers
+  untouched. Needs a browser check (MANUAL-TESTS "Battle engine phases 4-7" 9) before it becomes the default.
+- **Benchmark (256 map, bench4.mjs, 1000 soldiers in 8 x 125 attack-move into 1000 goblins, 3 s windows):**
+  goblins in 8 regiments: **15.5-21.7 ms avg, p95 32-53** (one window 27.5 / 68 while three regiments broke),
+  max tick 37-113 ms; free goblins: 22.7-26.2 ms avg, p95 32-43. Snapshot **243-342 KB** (colonists ~155 KB,
+  mobs 60-95 KB, order groups + army regiments ~75 KB): the 250 KB target is NOT met mid-battle.
+- Not done: delta / binary snapshots and short unit ids (the real snapshot fix), culling own colonists to the view,
+  server-side LOD integration (lower update rate / no separation for far units: not needed for the tick budget
+  yet), sprite animation LOD, making the dot LOD the default.
+
+## Battle engine — landed (phase 6) 2026-11-02 (enemy commander layer)
+Plan: docs PLAN-large-battles.md §5, §8 phase 6.
+- **Armies (`battle.ts updateCommanders`):** siteless mob regiments (raids, hordes, test regiments) whose anchors are
+  within 25 tiles of one another form an army (re-clustered each run); a site's garrison is one regiment already.
+- **Commander (armies of 2+, every 1 s; easy 2 s, hard 0.5 s):** in contact under 30% of its peak strength (easy 40%,
+  hard 20%) the whole army routs (tactics.ts `startRout`; raids leave the map; event `armyRetreat`); while one of
+  its regiments is in contact and wavering (morale < 55, easy 40, hard 70, or outnumbered) its passive raid groups
+  engage at once (`engageRaidGroup`, event `reserveCommitted`). Flanking, wall cover, per-regiment morale / rout
+  stay in tactics.ts. Difficulty changes reaction time and when it commits / gives up, never unit stats.
+- Probe (scratchpad probe6.mjs): 3 regiments, 80 soldiers; at 18% of the army's peak the two unbroken regiments
+  retreat together. The reserve commit was not exercised (spawnRaidGroup spawns engaged groups).
+- Not done: deployment in lines by role, peeling a flank group at army level, leader-death retreat at army level
+  (per-regiment leader loss is phase 5), army peak counts only regiments still alive (a wiped-out regiment drops
+  out of both sums).
+
+## Battle engine — landed (phase 5) 2026-11-02 (morale cascade, leaders, fatigue, rally re-form)
+Plan: docs PLAN-large-battles.md §3 (morale, fatigue), §8 phase 5.
+- **Rout cascade (`tactics.ts shakeMobRegiments` / `shakePlayerRegiments`):** a regiment that breaks costs the allied
+  regiments within 10 tiles 15 morale (raid / horde regiments among themselves) or 10 (the player's regiments);
+  they can break in turn (event `shaken`).
+- **Leaders:** a regiment whose morale anchor (boss / marked leader) falls loses 20 morale with its neighbours, once
+  (`leaderLost`); a dying hero costs the player's regiments within 10 tiles 20.
+- **Fatigue (`battle.ts updateFatigue`, per regiment):** march / advance / flank fill it over 180 s, fight / charge /
+  rout over 90 s, standing empties it over 40 s; past 0.5 the regiment is winded (blows down to x0.8, soldiers'
+  speed down to x0.75 at full). Mobs: damage only. A march block's pace is set when it starts.
+- **Rally / re-form:** a player rout group keeps its pre-rout slot table (`rallyTable`); on rally it re-forms into
+  it where it stands (fresh plan if members died).
+- testHook `tacticsState {setMorale}`. Probe: forcing one of two neighbouring goblin regiments to 0 -> rout, the
+  other drops 100 -> 85.
+- Not done: banners, fear of big monsters, morale hits by blow direction, mob rally re-form into slots.
+
+## Battle engine — landed (phase 4 + cleanup) 2026-11-02 (cheap routs, companies, rear ranks, volleys, anti-cavalry)
+Plan: docs PLAN-large-battles.md §3, §8 phase 4; cleanup of the phase 2-3 "not done" lists.
+- **Cheap rout fleeing (`tactics.ts fleeStep`):** routing / leaving mobs step straight away (or slide on one axis)
+  and only search a path when blocked, at most 4 searches a tick. A goblin regiment breaking: max tick
+  **0.9-3.4 s -> 100-150 ms**.
+- **Companies (`orders.ts issueCompanies`):** an order to more than COMPANY_MAX (150) units goes to companies side by
+  side across the facing (split by where they stand); the same units as an exact set of companies re-use them
+  (remembered slots kept). Wide-line rule: a company whose share of a dragged line is too short for a 3-deep line
+  forms a block. The 1000-unit width-40 line: 7 company blocks, 7-10 ms a tick marching, **987/994 on their slots**
+  6 s after arrival (was not settling).
+- **Rear ranks (`units.ts`):** a spearman / pikeman with no free place round its target strikes it over the front
+  rank (reach +1 / +1.75 tiles, x0.75 damage).
+- **Volleys (`battle.ts updateVolleys`):** ranged members of a regiment (>= 4) get a target in the foe regiment in
+  range, at most 3 shooters a foe, both sides, before contact; `BattleRegiment.volleys`.
+- **Skirmish (`skirmishFallBack`):** an all-skirmisher ranged regiment standing (no order / hold / move) steps back 3
+  tiles as a block when foe melee comes within SKIRMISH_KITE_TILES of its edge (every 2 s, at most 8 tiles).
+  Probe: 30 archers fell back 6.9 tiles while killing 7 of 20 goblins.
+- **Anti-cavalry:** a spear / pike of a formed regiment struck from its front arc is braced (`bracedAgainst`: a
+  rider's charge bonus is spent for nothing); town spearmen hit the player's cavalry x1.3. Spears / pikes already
+  hit riders x1.3 / x1.6. Siege engines already march in the block (catapult rear rank, ram front; block pace = the
+  slowest member).
+- Benchmark (bench4, regiments): 17.6-24.2 ms avg, p95 39-53.
+- Tests (every stage): smoke passes (one run before phase 4 had the known settlement-stamp / raid flakes); tactics,
+  raid-morale, player-morale, battle-discipline, regiment-test, formation, orders, combat-line, scale-rider,
+  raid-timing, raid-waves pass. combat-line is flaky at HEAD too (3 runs at 2f51cc9: 1 fail, different checks).
+- Not done: accuracy by range / cover, ammo, staggered volley timing, cavalry charge-and-withdraw at regiment level,
+  braced bonus for mob spears.
+
 ## Battle engine — landed (phase 3) 2026-11-02 (contact lines, flank / rear bonuses)
 Plan: docs PLAN-large-battles.md §8 phase 3.
 - **Spatial buckets (`battle.ts` `mobsNear` / `colonistsNear`):** 4-tile cells of mobs and soldiers, rebuilt lazily once

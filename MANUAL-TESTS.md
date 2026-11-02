@@ -447,3 +447,25 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
 3. A big battle (100+ per side, test hooks / creative): no long freezes while it is fighting; note any stutter when an
    enemy regiment breaks and flees (known: a rout of 100+ is a one-off spike).
 
+## Battle engine phases 4-7 (cleanup, volleys, morale cascade, enemy commander, LOD)
+1. A routing enemy regiment of 100+: no freeze when it breaks (was a 1-3 s spike); the fleeing mobs run straight away
+   and slide round trees / walls instead of all stopping to think.
+2. Select 200+ soldiers and drag a line: they should split into companies of up to 150 (two or more regiment cards),
+   standing side by side as blocks along the line, not one 300-tile string. Order them again: the same companies
+   keep their places.
+3. Spearmen / pikemen behind a front rank: the second rank should strike over the front (strike effects from the
+   second row), not stand idle.
+4. 20+ archers in front of an enemy regiment: arrows spread over the enemy regiment (not all on one mob). Turn on
+   Skirmish for an archer-only regiment standing still: when enemy melee closes in, the whole block steps back
+   together (a few tiles at a time, at most 8 tiles from where you put it).
+5. A goblin wolf rider charging a formed spear / pike regiment from the front: no doubled charge hit (watch the
+   spearman's hp). From the side it still lands double.
+6. Two or more enemy regiments side by side: when one breaks, the one next to it should waver / break sooner
+   ("shaken"). A raid army that has lost about 70% of its strength should flee as a whole.
+7. A routed regiment of yours, after it rallies at the Town Center: it should re-form into its old ranks / width.
+8. A long fight (a minute or more): the regiments slow down a little and hit a little softer when winded (subtle).
+9. Dot LOD (flagged): open the client with `?battleLod=1`, spawn 400+ units (creative / test hooks), zoom the
+   strategy camera far out (below 0.6): every soldier / mob becomes a coloured dot (your clan's colour, red for
+   enemies), hp bars hidden; zooming in brings the sprites back. Check the frame rate with and without the flag,
+   and that workers and sheltered civilians are unaffected. Without the flag nothing should change.
+
