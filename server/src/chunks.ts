@@ -342,6 +342,15 @@ export function mobFrozenByStreaming(m: { x: number; y: number; groupId: string 
   return !m.groupId && !m.warbandId && !m.targetId && isColdAtPixel(m.x, m.y);
 }
 
+// Phase 3 (d): the WARM band's low-rate tick. An idle free mob in a WARM chunk runs one tick in WARM_TICK_EVERY
+// (staggered by id) with that many ticks of dt: no per-tick targeting / pathing, same distance walked. Returns the
+// dt multiplier, 0 = skip this tick (always 1 outside WARM, so never below 768 tiles).
+export const WARM_TICK_EVERY = 4;
+export function warmMobStride(m: { id: string; x: number; y: number; groupId: string | null; warbandId?: string; targetId: string | null }): number {
+  if (m.groupId || m.warbandId || m.targetId || chunkStateAtPixel(m.x, m.y) !== ChunkState.Warm) return 1;
+  return (state.cycleTick + m.id.charCodeAt(m.id.length - 1)) % WARM_TICK_EVERY === 0 ? WARM_TICK_EVERY : 0;
+}
+
 // Test hook 'chunkState' / benchmarks.
 export function chunkStateSummary(): { on: boolean; chunksX: number; chunksY: number; active: number; warm: number; cold: number } {
   let active = 0;

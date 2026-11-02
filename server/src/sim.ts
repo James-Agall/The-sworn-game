@@ -7,7 +7,7 @@ import {
   TREE_RESPAWN_INTERVAL_TICKS, dt,
 } from "./constants.js";
 import { clans, colonists, gravestones, lap, lapReset, mobs, players, state, tileOwner } from "./state.js";
-import { mobFrozenByStreaming, updateChunkStates } from "./chunks.js";
+import { mobFrozenByStreaming, updateChunkStates, warmMobStride } from "./chunks.js";
 import { updateAbstractWorld } from "./abstract.js";
 import { biomeSpeedMultiplier, clamp, collidesAt, isNightNow, roadSpeedMultiplier, siteNumber } from "./tiles.js";
 import { separateBodies } from "./pathfinding.js";
@@ -177,11 +177,14 @@ export function stepSimulation() {
     for (const mob of mobs.values()) {
       // World streaming phase 2: an idle free mob in a COLD chunk stands still (never on 160-512 maps).
       if (mobFrozenByStreaming(mob)) continue;
+      // Phase 3: an idle free mob in a WARM chunk runs at a low rate (WARM_TICK_EVERY ticks of dt at once).
+      const stride = warmMobStride(mob);
+      if (stride === 0) continue;
       // Forts phase A: a site's own mobs pass its gates.
       state.moverOwner = tileOwner.size === 0 ? 0 : siteNumber(mob.siteId);
       // Forts phase C: a human settlement's cosmetic workers walk their loop instead.
-      if (mob.siteWorker) updateSiteWorker(mob, dt);
-      else if (!mob.warbandId) updateMob(mob, dt);
+      if (mob.siteWorker) updateSiteWorker(mob, dt * stride);
+      else if (!mob.warbandId) updateMob(mob, dt * stride);
     }
     state.moverOwner = 0;
   });

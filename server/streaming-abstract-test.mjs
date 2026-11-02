@@ -213,21 +213,25 @@ await check("camp raid mustering outside ACTIVE chunks is abstract, materialises
 // ---- phase 3c: a far wagon convoy is dice-resolved ----
 await check("wagon convoy: abstract past the ACTIVE radius, resolved at the end of the leg (audit clean)", async () => {
   await tp(home.x, home.y);
+  // Trips are capped at 160 tiles, barely past the 128-tile radius: shrink it so the middle of the trip is abstract.
+  await hook("wagonAbstractRadius", { far: 64, near: 48 });
   let town = null;
   // Straight out along an axis (Chebyshev distance is what the 128-tile abstract radius measures).
-  for (const [dx, dy] of [[148, 0], [-148, 0], [0, 148], [0, -148], [146, 20], [-146, -20], [20, 146], [-20, -146]]) {
+  const spots = [];
+  for (const off of [0, 25, -25, 50, -50]) spots.push([140, off], [-140, off], [off, 140], [off, -140]);
+  for (const [dx, dy] of spots) {
     const st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 8 });
     const s = st?.site;
     const d = s ? Math.hypot(tc.x - s.keepX, tc.y - s.keepY) : 0;
-    if (s && d <= 153 && Math.max(Math.abs(tc.x - s.keepX), Math.abs(tc.y - s.keepY)) >= 141) { town = s; break; }
+    if (s && d <= 150 && d >= 110) { town = s; break; }
   }
-  if (!town) return "no settlement spot 141-153 tiles out";
+  if (!town) return "no settlement spot 110-150 tiles out";
   await tp(town.keepX, town.keepY + 3);
   await ff(40);
   await hook("diploSet", { siteId: town.id, relation: 30, stock: { gold: 800 } });
   await tp(home.x, home.y);
   await hook("setStock", { stock: { wood: 300, grain: 200, gold: 0 } });
-  // The post on the far side of the Town Center: the trip ends ~140 tiles out, past the 128-tile abstract radius.
+  // The post on the far side of the Town Center (a longer trip).
   const dd = Math.hypot(town.keepX - tc.x, town.keepY - tc.y);
   const px = Math.round(tc.x - ((town.keepX - tc.x) / dd) * 6) + 1, py = Math.round(tc.y - ((town.keepY - tc.y) / dd) * 6) + 1;
   await hook("wagonPost", { tx: px, ty: py, level: 1, auto: false });

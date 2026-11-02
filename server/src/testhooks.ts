@@ -1,6 +1,6 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, wagonDebugState } from "./wagons.js";
+import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
 import { buildingLevel, tradingPosts } from "./state.js";
 import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, pathCacheStats, setTile, updateChunkStates } from "./chunks.js";
 import { clanById, clanIdAt, withClan } from "./clans.js";
@@ -565,6 +565,10 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const sum = chunkStateSummary();
     const coldList = msg.list ? Array.from({ length: sum.chunksX * sum.chunksY }, (_, i) => i).filter((i) => chunkStateOf(i) === 0) : undefined;
     reply({ ...sum, at, coldList });
+  } else if (msg.op === "wagonAbstractRadius" && typeof msg.far === "number" && typeof msg.near === "number") {
+    // World streaming phase 3: far wagon convoys go abstract past `far` tiles from everyone, real within `near`.
+    setWagonAbstractRadius(msg.far, msg.near);
+    reply({ far: msg.far, near: msg.near });
   } else if (msg.op === "auditWorld") {
     // World streaming phase 3: no duplicated / vanished entities across live and abstract forms.
     reply(auditWorld());

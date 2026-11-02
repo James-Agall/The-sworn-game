@@ -616,9 +616,14 @@ export function refreshTradingPost(key: string) {
 // its path at the wagon's speed (not at night) with the escort carried along. It becomes real again in an ACTIVE
 // chunk or when hit; at the end of the path one seeded dice roll from the route's danger and the escort: arrives,
 // delayed, or waylaid (half the cargo / takings lost). Nothing abstract kills the convoy (player units).
-// Abstract past the ACTIVE radius of everyone else (+1 chunk), real again inside it.
-const WAGON_ABSTRACT_FAR_TILES = (CHUNK_ACTIVATE + 1) * CHUNK_TILES;
-const WAGON_ABSTRACT_NEAR_TILES = CHUNK_ACTIVATE * CHUNK_TILES;
+// Abstract past the ACTIVE radius of everyone else (+1 chunk), real again inside it (test hook wagonAbstractRadius
+// shrinks them so a short trip can be checked).
+let WAGON_ABSTRACT_FAR_TILES = (CHUNK_ACTIVATE + 1) * CHUNK_TILES;
+let WAGON_ABSTRACT_NEAR_TILES = CHUNK_ACTIVATE * CHUNK_TILES;
+export function setWagonAbstractRadius(far: number, near: number) {
+  WAGON_ABSTRACT_FAR_TILES = Math.max(near + 1, far);
+  WAGON_ABSTRACT_NEAR_TILES = near;
+}
 const WAGON_ABSTRACT_LOSS: Record<DangerBand, number> = { safe: 0.03, risky: 0.15, deadly: 0.35 };
 const WAGON_ABSTRACT_DELAY = 0.15;
 
