@@ -1,5 +1,6 @@
 // units.ts: Soldiers: unit stats, posts and garrisons, rally/return, guard AI, bishops, task forces, army regiment derivation.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { marchSteerStep } from "./battle.js";
 import {
   type SiegeKind, type ColonistKind, TileType, type ArmyRegimentSnapshot, type RegimentClass, type CombatRole,
   unitRole, HERO_CLASS_ROLE, TILE_SIZE, TICK_RATE, HungerMark, isRearRole, MOB_ROLE,
@@ -378,6 +379,8 @@ export function armyRegimentsForSnapshot(): ArmyRegimentSnapshot[] | undefined {
 // of every unit halting wherever it first comes within 1.5 tiles. A solid rally tile is the unit's
 // own building (the spawn default): keep the garrison behaviour of loitering within 1.5 tiles of it.
 export function returnToRally(c: Colonist, dt: number, speed: number) {
+  // Battle engine phase 2: a member of a marching block steers straight at its moving slot.
+  if (marchSteerStep(c, dt, speed)) return;
   const rallyTile = { x: c.rallyTileX, y: c.rallyTileY };
   const here = tileOfPixel(c.x, c.y);
 

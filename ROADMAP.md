@@ -2155,6 +2155,38 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Battle engine — landed (phase 2) 2026-11-02 (formation march)
+Plan: docs PLAN-large-battles.md §8 phase 2 = PLAN-formation-march.md phases 1-2.
+- **Anchor + slot table (`battle.ts` bottom):** an order group's move to a point at least 4 tiles away marches as one
+  block (`startFormationMarch`, called by `formGroupAt`): ONE `findPath` for the anchor (front centre), string-pulled to
+  its corners; every member steers straight at anchor + R(heading) x its own offset (`marchSteerStep` from
+  `returnToRally`; slide along one axis round a tree, else its own path, re-planned at most every 0.5 s). Rally points
+  stay the FINAL slots (tests, client, leash read the destination as before); the moving slot lives in `marchSteer`.
+- **Speed / catch-up / stragglers:** block speed = slowest member x 0.95; behind its slot (> 1.5 body widths) +25%,
+  ahead x0.8. The anchor waits until the block has formed (<= 20% lagging); afterwards lag only slows it (x0.4).
+  Lagging 6 s and > 4 tiles off = straggler, no longer counted.
+- **Turning:** the heading wheels at 90 deg/s, the anchor halts while off by > 60 deg; the last 2 tiles turn to the
+  ordered facing.
+- **Narrowing:** corridor half-width across the heading at the anchor and 2 / 4 tiles ahead (a wall = 3 blocked tiles in
+  a row); files fold into up to 8 strips one behind another (same slots, derived offsets) and widen after the choke.
+  Folding applies after 0.5 s, widening after 3-8 s (the folded column's length / speed), least change over the window.
+- **Settle:** at the anchor's arrival members steer (no path search) to their bank-snapped final slots; within a tile
+  (or after 10 s) they are handed to the old rally logic. (Handing 1000 at once was a 1.2 s tick of findPath.)
+- **Remembered slots:** `g.slotTable` (local offsets, width, shape); a new order to the same members with the same
+  width / shape re-uses each member's slot turned to the new facing, so the block does not mix up again.
+- Routed members, retreat speed (x RETREAT_SPEED_FACTOR), attack-move contact (`stopFormationMarch` then halt),
+  new orders (`startArmyOrder` stops the march) are wired. `tryGrowTree` builds the occupied-tile set once (was a
+  600 ms spike with 1000 soldiers).
+- **Benchmark** (256 map, scratchpad bench3.mjs: 1000 spawnSoldier, 8 regiments x 125 ordered 25 tiles east as
+  blocks): standing 10.7 ms; marching **20-23 ms avg, p95 23-41 ms** (phase 1: 1222 ms avg, p95 1979); arrival 33-35 s,
+  999/1000 on their final slot 6 s later. One 1000-unit line (width 40 = a 200-file, 350-tile line under
+  LINE_MAX_DEPTH_ROWS 3) marches at ~17 ms but folds to 8 strips everywhere and does not settle well (see below).
+  1000 vs 1000 goblins attack-move (phase 3 baseline): **264 ms avg, 242 ms of it in `mobs`**.
+- Tests: smoke all pass; tactics, raid-morale, player-morale, battle-discipline, regiment-test, formation, orders pass.
+- Not done: sub-blocks (companies <= 150) for huge groups; U-turn about-face (ranks reverse); gate queueing; blocked
+  anchor re-route / "blocked" flag; save of slot tables / marches (a march is dropped on load, units re-plan); casualty
+  close-up (phase 5).
+
 ## Battle engine — landed (phase 1) 2026-11-02 (regiment store + brain skeleton)
 Plan: docs PLAN-large-battles.md §8 phase 1. No behaviour change.
 - `server/src/battle.ts`: persistent regiment store `battleRegiments` (state.ts). Every player order group (g<N>)

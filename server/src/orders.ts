@@ -31,7 +31,7 @@ import { isWalkableTile } from "./pathfinding.js";
 import { isRoutedUnit, moraleDamageMult, regimentKey } from "./tactics.js";
 import { attackObjectiveAt, damageHearth, nearestHostileStructure, sendAgainstHearth } from "./hearths.js";
 import { weaponDamageMult } from "./heroes.js";
-import { noteRegimentOrder } from "./battle.js";
+import { noteRegimentOrder, slotOffsets, slotPoint, startFormationMarch, stopFormationMarch } from "./battle.js";
 import { spellBuffDamageMult } from "./spells.js";
 import { COLONIST_VISION_OFFSETS, PLAYER_VISION_OFFSETS, fightThreatOf } from "./net.js";
 
@@ -396,10 +396,27 @@ function snapSlotsToBank(targets: Map<string, { x: number; y: number }>, members
 }
 
 export function formGroupAt(g: OrderGroup, members: Colonist[], x: number, y: number, facing: number | undefined, width: number | undefined) {
-  const plan = planOrderFormation(members, x, y, facing, width);
+  // Battle engine phase 2: the same members in the same width / shape keep their remembered slots (the table
+  // turned to the new facing); anything else is planned afresh by formation.ts.
+  const shape = members[0]?.shape ?? "line";
+  const table = g.slotTable;
+  let plan: { targets: Map<string, { x: number; y: number }>; fx: number; fy: number };
+  if (table && table.width === width && table.shape === shape && table.offsets.size === members.length && members.every((c) => table.offsets.has(c.id))) {
+    let f = facing;
+    if (f === undefined) {
+      const c = centroidOf(members);
+      f = Math.hypot(x - c.x, y - c.y) >= 1 ? Math.atan2(y - c.y, x - c.x) : g.facing ?? 0;
+    }
+    const targets = new Map<string, { x: number; y: number }>();
+    for (const [id, o] of table.offsets) targets.set(id, slotPoint(o, x, y, f));
+    plan = { targets, fx: Math.cos(f), fy: Math.sin(f) };
+  } else {
+    plan = planOrderFormation(members, x, y, facing, width);
+  }
   g.facing = Math.atan2(plan.fy, plan.fx);
   g.width = width;
   g.lastAt = { x, y };
+  g.slotTable = { offsets: slotOffsets(plan.targets, x, y, g.facing), width, shape };
   const slots = Array.from(plan.targets.values());
   const c0 = centroidOf(slots);
   g.destX = c0.x;
@@ -408,7 +425,18 @@ export function formGroupAt(g: OrderGroup, members: Colonist[], x: number, y: nu
     const s = plan.targets.get(c.id)!;
     return Math.hypot(s.x - c.x, s.y - c.y);
   };
+  const raw = new Map(Array.from(plan.targets, ([id, s]) => [id, { x: s.x, y: s.y }]));
   snapSlotsToBank(plan.targets, members);
+  // Battle engine phase 2: a group with a march ahead of it marches as one block (battle.ts); short moves and
+  // single units are dispatched as before.
+  if (startFormationMarch(g, members, raw, plan.targets, x, y, g.facing)) {
+    for (const c of members) {
+      pendingRallies.delete(c.id);
+      const s = plan.targets.get(c.id)!;
+      rallyUnit(c, s.x, s.y, null);
+    }
+    return;
+  }
   const order = members.slice().sort((a, b) => toSlot(a) - toSlot(b));
   const stepMs = order.length > 1 ? Math.min(ORDER_DISPATCH_STEP_MS, ORDER_DISPATCH_MAX_SPREAD_MS / (order.length - 1)) : 0;
   const squad = order.length > 1 ? g.id : null;
@@ -428,6 +456,7 @@ export function formGroupAt(g: OrderGroup, members: Colonist[], x: number, y: nu
 
 export function startArmyOrder(g: OrderGroup, order: ArmyOrder) {
   g.current = order;
+  stopFormationMarch(g);
   noteRegimentOrder(g, order);
   g.engaged = false;
   g.clearSince = -1;
@@ -703,7 +732,10 @@ export function updateAttackMove(g: OrderGroup, members: Colonist[]) {
     const shift = Math.max(0, contact.d - reach * 0.8);
     const dx = ((contact.mob.x - contact.member.x) / (contact.d || 1)) * shift;
     const dy = ((contact.mob.y - contact.member.y) / (contact.d || 1)) * shift;
-    if (!g.engaged || shift > TILE_SIZE / 2) for (const c of members) haltUnit(c, dx, dy);
+    if (!g.engaged || shift > TILE_SIZE / 2) {
+      stopFormationMarch(g);
+      for (const c of members) haltUnit(c, dx, dy);
+    }
   }
   g.engaged = true;
   if (contact || fighting) {

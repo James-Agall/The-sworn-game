@@ -31,7 +31,7 @@ import { evaluateGoals } from "./goals.js";
 import { heroProfileOf, updateForges, updateGearPickup, updateHeroRecruits } from "./heroes.js";
 import { spellBuffSpeedMult, updateSpellStatuses } from "./spells.js";
 import { updateOrderGroups } from "./orders.js";
-import { updateBattleBrains } from "./battle.js";
+import { updateBattleBrains, updateFormationMarch } from "./battle.js";
 import { broadcastEvent, scanFights } from "./net.js";
 import { clanTownCenters, enterClan, forEachClan, resetClan } from "./clans.js";
 import { settlementsDawn } from "./diplomacy.js";
@@ -140,6 +140,8 @@ export function stepSimulation() {
   updatePlayerMorale();
   updateOrderGroups();
   updateSquadMarch();
+  // Battle engine phase 2: marching blocks move their anchors and their members' slot targets.
+  updateFormationMarch();
   lap("orders");
   // Battle engine phase 1: the regiment brains (4 Hz, staggered; read-only for now).
   updateBattleBrains();

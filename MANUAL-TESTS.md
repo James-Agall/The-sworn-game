@@ -390,3 +390,11 @@ Short checks of the phase I numbers (ROADMAP "Phase I — landed"). A normal gam
 4. 512 map: wildlife far away still wanders when you walk up to it, forts / camps still wake when you approach and
    sleep when you leave (phase 2 freezing is off below 768 tiles; nothing should differ).
 
+## Battle engine phase 2 (formation march, strategy-mode orders)
+1. Strategy mode: select a regiment of 20+ soldiers, order a move 10+ tiles away. The block should walk as one
+   rectangle (no streaming / mixing), turn smoothly at corners, and form up on the target facing the drag direction.
+2. Order the same regiment again (same width): each soldier should keep its place in the block (watch one unit).
+3. Order a wide line through a gap between buildings or forest: it should narrow into strips and widen after the gap.
+4. Attack-move into enemies: the block stops on contact and fights as before; a new order mid-march re-routes cleanly.
+5. Retreat a marching regiment: it heads back to the Town Center at retreat speed.
+

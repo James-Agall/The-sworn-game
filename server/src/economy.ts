@@ -1,6 +1,6 @@
 // economy.ts: Stock, gathering, tree growth, synergies, crafting recipes, farms and farm stages, markets.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { TileType, type ColonistKind, FarmStage } from "@colony/shared/protocol";
+import { TILE_SIZE, TileType, type ColonistKind, FarmStage } from "@colony/shared/protocol";
 import type { Colonist, FarmPlotState, ResourceKey, TileCoord } from "./types.js";
 import {
   ARMY_SYNERGY_PER_NEIGHBOUR, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, CHOP_TICKS, CRAFT_TICKS, EXCHANGE_RATES,
@@ -80,11 +80,16 @@ export function isAdjacentToPlayerOrPost(tx: number, ty: number): boolean {
 export function tryGrowTree() {
   if (countTilesOfType(TileType.Tree) >= state.MAX_TREES) return;
   const candidates: TileCoord[] = [];
+  // Battle engine phase 2: the occupied tiles once (tileOccupiedByEntity per tile was O(tiles x colonists), a
+  // 600 ms spike with 1000 soldiers on the map); same tiles, same result.
+  const occupied = new Set<number>();
+  for (const p of players.values()) occupied.add(tileIndex(Math.floor(p.x / TILE_SIZE), Math.floor(p.y / TILE_SIZE)));
+  for (const c of colonists.values()) occupied.add(tileIndex(Math.floor(c.x / TILE_SIZE), Math.floor(c.y / TILE_SIZE)));
   for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
     for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
       if (
         state.tiles[tileIndex(tx, ty)] === TileType.Empty &&
-        !tileOccupiedByEntity(tx, ty) &&
+        !occupied.has(tileIndex(tx, ty)) &&
         !isAdjacentToPlayerOrPost(tx, ty) &&
         !isInReservedGrounds(tx, ty)
       ) {

@@ -580,6 +580,35 @@ export interface OrderGroup {
   followAt: { x: number; y: number } | null;
   // Phase 4: the front centre the group last formed at (a shape change re-forms there).
   lastAt?: { x: number; y: number };
+  // Battle engine phase 2 (battle.ts): the members' remembered slots (local offsets of the last formation, with
+  // its width / shape) and the formation march in progress.
+  slotTable?: { offsets: Map<string, { ox: number; oy: number }>; width?: number; shape: string };
+  march?: FormationMarch;
+}
+export interface FormationMarch {
+  offsets: Map<string, { ox: number; oy: number }>;
+  finals: Map<string, { x: number; y: number }>;
+  // Anchor route corners (pixels), the anchor, its heading and the final facing (radians).
+  path: { x: number; y: number }[];
+  ax: number;
+  ay: number;
+  heading: number;
+  facing: number;
+  speed: number;
+  // Narrowing: the strips the files are folded into (1 = full width), the block's half width / depth (px).
+  fold: number;
+  foldWant: number;
+  foldSince: number;
+  halfWidth: number;
+  depth: number;
+  // First tick each member lagged (straggler rule); the last tick's lagging count and whether the block waited.
+  lagSince: Map<string, number>;
+  lagging?: number;
+  waiting?: boolean;
+  // Formed up once (from then on lag only slows the anchor).
+  formed: boolean;
+  // Tick the anchor arrived (members settling into their final slots).
+  settleSince?: number;
 }
 // Battle engine (docs PLAN-large-battles.md): a regiment as a persistent entity with a brain. Phase 1 wraps the
 // player's order groups (id g<N>) and the mob regiments of tactics.ts (regimentKey ids) without changing what
