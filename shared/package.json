@@ -6,6 +6,7 @@
     ".": "./src/index.ts",
     "./protocol": "./src/protocol.ts",
     "./formation": "./src/formation.ts",
-    "./buildings": "./src/buildings.ts"
+    "./buildings": "./src/buildings.ts",
+    "./streaming": "./src/streaming.ts"
   }
 }

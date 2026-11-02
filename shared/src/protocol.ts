@@ -1114,7 +1114,9 @@ export type ClientMessage =
   // loadGame replaces the shared world for everyone connected.
   | { type: "saveGame"; slot: SaveSlot }
   | { type: "loadGame"; slot: SaveSlot }
-  | { type: "listSaves" };
+  | { type: "listSaves" }
+  // World streaming phase 4: chunk ids (cy * chunksX + cx, STREAM_CHUNK_TILES) a chunked client still needs.
+  | { type: "requestChunks"; chunks: number[] };
 
 export type ServerMessage =
   | {
@@ -1123,10 +1125,16 @@ export type ServerMessage =
       tileSize: number;
       worldTilesX: number;
       worldTilesY: number;
+      // World streaming phase 4: empty when `chunked` is set (the client asks for chunks instead).
       tiles: number[];
       biomes: number[];
       // Explored-tile bitset, base64: bit (i & 7) of byte (i >> 3) is tile index i (y * worldTilesX + x).
+      // Empty when `chunked` is set (see exploredRuns).
       explored: string;
+      // World streaming phase 4 (a `?chunks=1` client on a streamed world): tiles / biomes come as
+      // `chunks` replies to `requestChunks`; exploredRuns = encodeMaskRuns of the explored mask; minimap =
+      // encodeByteRuns of one MinimapClass per minimapFactor x minimapFactor cell (shared/streaming.ts).
+      chunked?: { chunkTiles: number; minimapFactor: number; minimap: string; exploredRuns: string };
       difficulty: Difficulty;
       // Centre tile of this world's Castle Ruin (null if world-gen couldn't fit one, or an old save).
       // The minimap marks it once that tile is explored.
@@ -1236,6 +1244,9 @@ export type ServerMessage =
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).
   | { type: "event"; category: GameEventCategory; text: string }
+  // World streaming phase 4: requested chunks, each its tiles / biomes (base64, row by row, the chunk's own
+  // width: edge chunks are narrower).
+  | { type: "chunks"; chunks: { c: number; tiles: string; biomes: string }[] }
   // Tile indices newly explored since the last one (batched a few times a second, never empty).
   | { type: "explored"; tiles: number[] }
   | { type: "buildingInfo"; tileX: number; tileY: number; info: BuildingInfo | null }

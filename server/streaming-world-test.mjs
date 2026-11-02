@@ -3,6 +3,7 @@
 //  1. a streamed save stores seed + per-chunk tile diffs (no full arrays) and a base cache file
 //  2. load from memory / the cache file / a regeneration from the seed gives the same tiles, biomes, explored
 //  3. a full-array (old format) save still loads
+//  4. a `?chunks=1` client gets a chunked welcome (no arrays, RLE explored, minimap summary) and chunks on request
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -124,6 +125,47 @@ await check("an old full-array save still loads", async () => {
   const h = await hook("tileHash");
   return [r?.ok && typeof f.tiles === "string" && l?.ok && same(before, h) && h.seed === null,
     `full tiles ${typeof f.tiles}, load ${l?.ok} ${l?.error ?? ""}, same ${same(before, h)}, seed after ${h.seed}`];
+});
+
+const varints = (b64) => { const s = Buffer.from(b64, "base64"); const out = []; let n = 0, mul = 1; for (const b of s) { n += (b & 0x7f) * mul; if (b & 0x80) mul *= 128; else { out.push(n); n = 0; mul = 1; } } return out; };
+await check("chunked client: chunked welcome + chunks on request match the full arrays", async () => {
+  c.welcome = null;
+  await hook("tileHash"); // settle
+  // A full welcome on the main socket for reference (reconnect).
+  c.ws.close();
+  connect();
+  await new Promise((res) => c.ws.once("open", res));
+  await until(() => c.welcome, 60000);
+  const full = c.welcome;
+  const ws2 = new WebSocket(`ws://localhost:${PORT}/?chunks=1`);
+  const got = { welcome: null, chunks: [] };
+  ws2.on("message", (raw) => { const m = JSON.parse(raw.toString()); if (m.type === "welcome") got.welcome = m; else if (m.type === "chunks") got.chunks.push(...m.chunks); });
+  await until(() => got.welcome, 60000);
+  const w = got.welcome;
+  const n = W * W;
+  // Explored runs vs the full bitset.
+  const bits = Buffer.from(full.explored, "base64");
+  let i = 0, v = 0, bad = 0;
+  for (const run of varints(w.chunked.exploredRuns)) { for (let k = 0; k < run; k++, i++) if (((bits[i >> 3] >> (i & 7)) & 1) !== v) bad++; v ^= 1; }
+  const cx = Math.ceil(W / 32);
+  const ids = [0, cx * cx - 1, Math.floor(tc.y / 32) * cx + Math.floor(tc.x / 32)];
+  ws2.send(JSON.stringify({ type: "requestChunks", chunks: ids }));
+  await until(() => got.chunks.length >= 3, 10000);
+  let mism = 0;
+  for (const ch of got.chunks) {
+    const x0 = (ch.c % cx) * 32, y0 = Math.floor(ch.c / cx) * 32, cw = Math.min(32, W - x0);
+    const t = Buffer.from(ch.tiles, "base64"), b = Buffer.from(ch.biomes, "base64");
+    for (let k = 0; k < t.length; k++) { const j = (y0 + Math.floor(k / cw)) * W + x0 + (k % cw); if (t[k] !== full.tiles[j] || b[k] !== full.biomes[j]) mism++; }
+  }
+  const mm = varints(w.chunked.minimap);
+  let cells = 0;
+  for (let k = 0; k < mm.length; k += 2) cells += mm[k];
+  const f = w.chunked.minimapFactor;
+  ws2.close();
+  const welcomeKb = (JSON.stringify(w).length / 1024).toFixed(1);
+  const fullKb = (JSON.stringify(full).length / 1024).toFixed(1);
+  return [w.tiles.length === 0 && w.explored === "" && i === n && bad === 0 && got.chunks.length === 3 && mism === 0 && cells === Math.ceil(W / f) ** 2,
+    `explored runs cover ${i}/${n} (${bad} wrong), ${got.chunks.length} chunks (${mism} wrong tiles), minimap ${cells} cells at f=${f}; welcome ${welcomeKb} KiB vs full ${fullKb} KiB`];
 });
 
 console.log(`\n${passed} passed, ${failed.length} failed${failed.length ? ": " + failed.join(", ") : ""}`);

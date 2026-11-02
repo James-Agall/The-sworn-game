@@ -200,3 +200,24 @@ export function expandTiles(b: Base, diffs: [number, string, 1?][]): { tiles: st
   base = b;
   return { tiles: Buffer.from(tiles).toString("base64"), biomes: Buffer.from(b.biomes).toString("base64") };
 }
+
+// After a streamed save: cache files that no slot (and not the world in memory) names are deleted.
+export async function pruneBaseFiles(slotFiles: string[]) {
+  const keep = new Set<string>();
+  if (base) keep.add(path.basename(baseFile(base.seed, base.size)));
+  for (const f of slotFiles) {
+    try {
+      const file = JSON.parse(await fsp.readFile(f, "utf8"));
+      if (typeof file?.state?.seed === "number") keep.add(`base-${file.state.seed}-${file.worldSize}-v${file.state.worldgenVersion}.bin.gz`);
+    } catch {
+      /* empty / unreadable slot */
+    }
+  }
+  try {
+    for (const f of await fsp.readdir(SAVE_DIR)) {
+      if (f.startsWith("base-") && f.endsWith(".bin.gz") && !keep.has(f)) await fsp.rm(path.join(SAVE_DIR, f), { force: true });
+    }
+  } catch {
+    /* no save dir */
+  }
+}

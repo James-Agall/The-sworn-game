@@ -21,7 +21,7 @@ import { clearOwners, isNightNow, tileIndex } from "./tiles.js";
 import { initialStock } from "./economy.js";
 import { generateWorld, setWorldSize } from "./worldgen.js";
 import {
-  type TileDiffs, deflateBase64, diffTilesForSave, expandTiles, forgetWorldSeed, inflateBase64, loadBase, regeneratedBaseMatches,
+  type TileDiffs, deflateBase64, diffTilesForSave, expandTiles, forgetWorldSeed, inflateBase64, loadBase, pruneBaseFiles, regeneratedBaseMatches,
 } from "./worldbase.js";
 import { civilianPopulationUsed, getColonistsAtPost, settlementOf, spawnPointNearTownCenter } from "./colonists.js";
 import { guardStats } from "./units.js";
@@ -550,6 +550,7 @@ export async function writeSave(slot: SaveSlot): Promise<string | null> {
     const tmp = `${savePath(slot)}.tmp`;
     await fsp.writeFile(tmp, json);
     await fsp.rename(tmp, savePath(slot));
+    if (layer) await pruneBaseFiles(SAVE_SLOTS.map(savePath));
     console.log(
       `[save] ${slot}: ${(json.length / 1024).toFixed(1)} KiB${layer ? ` (${layer.tileDiffs.length} diff chunks)` : ""}, snapshot+stringify ${syncMs.toFixed(1)} ms (blocks the tick), total ${(performance.now() - t0).toFixed(1)} ms`
     );

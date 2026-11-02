@@ -13,10 +13,14 @@ import {
   FIGHT_MAX_HITS, FIGHT_MAX_TRACKED, FIGHT_RAID_LABELS, FIGHT_WINDOW_TICKS, SET_VIEW_MIN_MS,
   STRATEGY_VIEW_MARGIN_TILES, STRATEGY_VIEW_MAX_HALF_TILES, VISION_BUILDING_TILES,
 } from "./constants.js";
-import { clans, colonists, players, state, tileClan } from "./state.js";
+import { clans, colonists, players, state, tileClan, tileOwner } from "./state.js";
 import { clamp } from "./tiles.js";
 import { TOWN_CENTER_TILE, isAbbeyClergy } from "./colonists.js";
-import { listSaves } from "./saves.js";
+import { listSaves, sendTo } from "./saves.js";
+import { streamingOn } from "./chunks.js";
+import {
+  MAX_CHUNKS_PER_REQUEST, STREAM_CHUNK_TILES, encodeByteRuns, encodeMaskRuns, minimapCellClass, minimapFactor,
+} from "@colony/shared/streaming";
 import { isClanOwnableTile, setTileClan } from "./clans.js";
 
 // ---- Fog of war (minimap only) ----
@@ -138,16 +142,57 @@ export const httpServer = createServer((req, res) => {
 });
 export const wss = new WebSocketServer({ server: httpServer });
 
+// World streaming phase 4: a chunked client (`?chunks=1`) on a streamed world gets no full arrays: the explored
+// mask run-length encoded and the minimap summary; tiles / biomes follow per chunk (sendChunks).
+function chunkedWelcomeFields(): { chunked: NonNullable<Extract<ServerMessage, { type: "welcome" }>["chunked"]> } {
+  const W = state.WORLD_TILES_X;
+  const H = state.WORLD_TILES_Y;
+  const f = minimapFactor(Math.max(W, H));
+  const cw = Math.ceil(W / f);
+  const ch = Math.ceil(H / f);
+  const cells = new Uint8Array(cw * ch);
+  const owned = (i: number) => tileOwner.has(i);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) cells[y * cw + x] = minimapCellClass(state.tiles, state.biomes, W, H, x, y, f, owned);
+  return { chunked: { chunkTiles: STREAM_CHUNK_TILES, minimapFactor: f, minimap: encodeByteRuns(cells), exploredRuns: encodeMaskRuns(state.explored) } };
+}
+
+export function sendChunks(player: Player, ids: unknown) {
+  if (!Array.isArray(ids)) return;
+  const W = state.WORLD_TILES_X;
+  const H = state.WORLD_TILES_Y;
+  const cx = Math.ceil(W / STREAM_CHUNK_TILES);
+  const cy = Math.ceil(H / STREAM_CHUNK_TILES);
+  const out: { c: number; tiles: string; biomes: string }[] = [];
+  for (const c of ids.slice(0, MAX_CHUNKS_PER_REQUEST)) {
+    if (!Number.isInteger(c) || c < 0 || c >= cx * cy) continue;
+    const x0 = (c % cx) * STREAM_CHUNK_TILES;
+    const y0 = Math.floor(c / cx) * STREAM_CHUNK_TILES;
+    const w = Math.min(STREAM_CHUNK_TILES, W - x0);
+    const h = Math.min(STREAM_CHUNK_TILES, H - y0);
+    const t = Buffer.alloc(w * h);
+    const b = Buffer.alloc(w * h);
+    for (let y = 0; y < h; y++) {
+      const row = (y0 + y) * W + x0;
+      t.set(state.tiles.subarray(row, row + w), y * w);
+      b.set(state.biomes.subarray(row, row + w), y * w);
+    }
+    out.push({ c, tiles: t.toString("base64"), biomes: b.toString("base64") });
+  }
+  if (out.length) sendTo(player, { type: "chunks", chunks: out });
+}
+
 export function sendWelcome(player: Player) {
+  const chunked = !!player.chunked && streamingOn();
   const welcome: ServerMessage = {
     type: "welcome",
     id: player.id,
     tileSize: TILE_SIZE,
     worldTilesX: state.WORLD_TILES_X,
     worldTilesY: state.WORLD_TILES_Y,
-    tiles: Array.from(state.tiles),
-    biomes: Array.from(state.biomes),
-    explored: packExplored(),
+    tiles: chunked ? [] : Array.from(state.tiles),
+    biomes: chunked ? [] : Array.from(state.biomes),
+    explored: chunked ? "" : packExplored(),
+    ...(chunked ? chunkedWelcomeFields() : {}),
     difficulty: state.difficulty,
     castleRuin: state.castleRuinCenter,
     ...(state.creative ? { creative: true } : {}),

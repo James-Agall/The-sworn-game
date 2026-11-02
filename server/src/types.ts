@@ -48,6 +48,8 @@ export interface Player {
   orderWindowCount: number;
   // Creative mode: this player takes no damage (creativeSet godmode).
   creativeGod?: boolean;
+  // World streaming phase 4: connected with `?chunks=1` (takes a chunked welcome on streamed worlds).
+  chunked?: boolean;
 }
 export interface TileCoord {
   x: number;

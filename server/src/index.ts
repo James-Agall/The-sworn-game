@@ -54,7 +54,7 @@ import { stepSimulation } from "./sim.js";
 import {
   handleLoadGame, handleSaveGame, listSaves, resetWorld, runDueAutosave, saveOnShutdown, sendTo,
 } from "./saves.js";
-import { broadcastEvent, flushExplored, handleSetView, httpServer, sendWelcome, updateVision, withPlayerFights, wss } from "./net.js";
+import { broadcastEvent, flushExplored, handleSetView, httpServer, sendChunks, sendWelcome, updateVision, withPlayerFights, wss } from "./net.js";
 import { handleTestHook } from "./testhooks.js";
 import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creative.js";
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
@@ -96,6 +96,7 @@ wss.on("connection", (socket, req) => {
     viewSetAt: 0,
     orderWindowAt: 0,
     orderWindowCount: 0,
+    chunked: new URL(req.url ?? "/", "http://localhost").searchParams.get("chunks") === "1",
   };
   // Clans: `?clan=new` founds the player's own clan (a new Town Center and stock elsewhere on the map),
   // `?clan=<id>` joins that clan if it exists; anything else (or no room to found one) joins clan 0. Done
@@ -305,6 +306,8 @@ function handleMessage(player: Player, message: ClientMessage) {
     void handleLoadGame(player, message.slot);
   } else if (message.type === "listSaves") {
     void listSaves().then((saves) => sendTo(player, { type: "saveList", saves }));
+  } else if (message.type === "requestChunks") {
+    sendChunks(player, message.chunks);
   }
 }
 

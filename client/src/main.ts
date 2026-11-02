@@ -105,6 +105,9 @@ import { BAND_COLORS, enemyBannerLabel, IntelOverlay, strengthBand } from "./str
 import type { ObjectiveMarker, Threat } from "./strategy/intel";
 import type { EnemyRegimentSnapshot } from "@colony/shared/protocol";
 import { TIME_SCALES } from "@colony/shared/protocol";
+import {
+  MAX_CHUNKS_PER_REQUEST, MinimapClass, decodeByteRuns, decodeMaskRuns, minimapCellClass, minimapClassOf,
+} from "@colony/shared/streaming";
 
 import { type ToolCategory, TOOL_CATEGORIES, TOOLS } from "./tools";
 import {
@@ -677,6 +680,15 @@ async function main() {
   let tiles: number[] = [];
   // Biome per tile from `welcome`; static for the life of a world.
   let biomes: number[] = [];
+  // World streaming phase 4: a chunked welcome (streamed world) sends tiles / biomes per 32x32 chunk on
+  // request; until a chunk arrives its tiles read Empty / Plains, its floor is not built and the minimap shows
+  // the welcome's downscaled summary (cells = one MinimapClass per f x f tiles, cellSeen = any tile explored).
+  let streamed: { chunkTiles: number; chunksX: number; chunksY: number; f: number; cw: number; ch: number; cells: Uint8Array; cellSeen: Uint8Array } | null = null;
+  let chunkLoaded = new Uint8Array(0);
+  const chunkRequestedAt = new Map<number, number>();
+  let chunkRequestAt = 0;
+  const chunkOfTile = (tx: number, ty: number) =>
+    streamed ? Math.floor(ty / streamed.chunkTiles) * streamed.chunksX + Math.floor(tx / streamed.chunkTiles) : 0;
 
   const playerSprites = new Map<string, EntityVisual>();
   const colonistSprites = new Map<string, EntityVisual>();
@@ -1421,6 +1433,8 @@ async function main() {
         let chunk = floorChunks.get(key);
         if (!chunk) {
           if (!visible) continue;
+          // World streaming phase 4: not before its stream chunk's biomes have arrived.
+          if (streamed && !chunkLoaded[chunkOfTile(cx * FLOOR_CHUNK_TILES, cy * FLOOR_CHUNK_TILES)]) continue;
           chunk = buildFloorChunk(cx, cy);
           floorChunks.set(key, chunk);
         }
@@ -1441,9 +1455,14 @@ async function main() {
   function setDecorSprites() {
     for (const s of decorSprites.values()) s.destroy();
     decorSprites.clear();
-    for (let x = 0; x < worldTilesX; x++) {
-      for (let y = 0; y < worldTilesY; y++) {
+    // World streaming phase 4: chunked worlds add decor per arriving chunk (addDecorIn).
+    if (!streamed) addDecorIn(0, 0, worldTilesX, worldTilesY);
+  }
+  function addDecorIn(x0: number, y0: number, w: number, h: number) {
+    for (let x = x0; x < x0 + w; x++) {
+      for (let y = y0; y < y0 + h; y++) {
         const index = y * worldTilesX + x;
+        if (decorSprites.has(index)) continue;
         if ((biomes[index] ?? Biome.Plains) !== Biome.Plains) continue;
         if (tileHash01(x, y, 1) * NATURE_DECOR_ONE_IN >= 1) continue;
         const variant = NATURE_DECOR_TEXTURES[Math.floor(tileHash01(x, y, 2) * NATURE_DECOR_TEXTURES.length)];
@@ -1710,9 +1729,16 @@ async function main() {
   function redrawGrid() {
     setFloorSprites();
     setDecorSprites();
-    for (let x = 0; x < worldTilesX; x++) {
-      for (let y = 0; y < worldTilesY; y++) {
-        setTileSprite(x, y, tiles[y * worldTilesX + x] ?? TileType.Empty);
+    if (streamed) {
+      // Every tile reads Empty until its chunk arrives: only clear what the previous world drew.
+      for (const index of [...tileSprites.keys()]) {
+        if (index < worldTilesX * worldTilesY) setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), TileType.Empty);
+      }
+    } else {
+      for (let x = 0; x < worldTilesX; x++) {
+        for (let y = 0; y < worldTilesY; y++) {
+          setTileSprite(x, y, tiles[y * worldTilesX + x] ?? TileType.Empty);
+        }
       }
     }
     // Drop slots past the end of the map in case a new welcome shrank it.
@@ -2770,7 +2796,91 @@ async function main() {
     );
     strategyAfterCamera();
     updateFloorChunks();
+    requestStreamChunks();
   });
+
+  // World streaming phase 4: ask for the chunks the camera (one chunk margin) and the rider (2 chunks) need,
+  // 5 times a second, at most MAX_CHUNKS_PER_REQUEST at a time; an unanswered request is retried after 3 s.
+  // The Map band draws the summary minimap instead, so it asks only for the rider's chunks.
+  function requestStreamChunks() {
+    const sm = streamed;
+    if (!sm || socket.readyState !== socket.OPEN) return;
+    const now = performance.now();
+    if (now - chunkRequestAt < 200) return;
+    chunkRequestAt = now;
+    const span = sm.chunkTiles * tileSize;
+    const want: number[] = [];
+    const add = (x0: number, x1: number, y0: number, y1: number) => {
+      for (let cy = Math.max(0, y0); cy <= Math.min(sm.chunksY - 1, y1); cy++) {
+        for (let cx = Math.max(0, x0); cx <= Math.min(sm.chunksX - 1, x1); cx++) {
+          const c = cy * sm.chunksX + cx;
+          if (chunkLoaded[c] || now - (chunkRequestedAt.get(c) ?? -Infinity) < 3000 || want.includes(c)) continue;
+          want.push(c);
+        }
+      }
+    };
+    const mine = myId ? playerSprites.get(myId) : undefined;
+    if (mine) {
+      const pcx = Math.floor(mine.sprite.position.x / span);
+      const pcy = Math.floor(mine.sprite.position.y / span);
+      add(pcx - 2, pcx + 2, pcy - 2, pcy + 2);
+    }
+    if (strategyBand !== "map") {
+      add(
+        Math.floor(-worldLayer.position.x / camZoom / span) - 1,
+        Math.floor((app.screen.width - worldLayer.position.x) / camZoom / span) + 1,
+        Math.floor(-worldLayer.position.y / camZoom / span) - 1,
+        Math.floor((app.screen.height - worldLayer.position.y) / camZoom / span) + 1,
+      );
+    }
+    const batch = want.slice(0, MAX_CHUNKS_PER_REQUEST);
+    if (!batch.length) return;
+    for (const c of batch) chunkRequestedAt.set(c, now);
+    sendMessage({ type: "requestChunks", chunks: batch });
+  }
+
+  function applyStreamChunks(list: { c: number; tiles: string; biomes: string }[]) {
+    const sm = streamed;
+    if (!sm) return;
+    for (const { c, tiles: t64, biomes: b64 } of list) {
+      if (c < 0 || c >= chunkLoaded.length) continue;
+      const x0 = (c % sm.chunksX) * sm.chunkTiles;
+      const y0 = Math.floor(c / sm.chunksX) * sm.chunkTiles;
+      const w = Math.min(sm.chunkTiles, worldTilesX - x0);
+      const h = Math.min(sm.chunkTiles, worldTilesY - y0);
+      const t = atob(t64);
+      const b = atob(b64);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y0 + y) * worldTilesX + x0 + x;
+          tiles[i] = t.charCodeAt(y * w + x);
+          biomes[i] = b.charCodeAt(y * w + x);
+        }
+      }
+      chunkLoaded[c] = 1;
+      chunkRequestedAt.delete(c);
+      // The chunk's sprites, plus a 3-tile band up / left and 1 tile right / down (autotiled roads / walls and
+      // multi-tile art reaching across the chunk edge).
+      for (let y = Math.max(0, y0 - 3); y < Math.min(worldTilesY, y0 + h + 1); y++) {
+        for (let x = Math.max(0, x0 - 3); x < Math.min(worldTilesX, x0 + w + 1); x++) {
+          const inside = x >= x0 && x < x0 + w && y >= y0 && y < y0 + h;
+          if (!inside && !chunkLoaded[chunkOfTile(x, y)]) continue;
+          setTileSprite(x, y, tiles[y * worldTilesX + x]);
+        }
+      }
+      addDecorIn(x0, y0, w, h);
+      // Floor chunks under it rebuild with the real biomes (built lazily by updateFloorChunks).
+      const fcx = Math.ceil(worldTilesX / FLOOR_CHUNK_TILES);
+      for (let fy = Math.floor(y0 / FLOOR_CHUNK_TILES); fy * FLOOR_CHUNK_TILES < y0 + h; fy++) {
+        for (let fx = Math.floor(x0 / FLOOR_CHUNK_TILES); fx * FLOOR_CHUNK_TILES < x0 + w; fx++) {
+          const key = fy * fcx + fx;
+          floorChunks.get(key)?.destroy({ children: true });
+          floorChunks.delete(key);
+        }
+      }
+      for (let y = y0; y < y0 + h; y += sm.f) for (let x = x0; x < x0 + w; x += sm.f) paintMinimapTile(y * worldTilesX + x);
+    }
+  }
 
   // ---- Fog-of-war minimap (DOM canvas, bottom-right; the main view is never fogged) ----
   // Static layer: one pixel per tile in an offscreen canvas, rebuilt whole only on `welcome` and
@@ -2858,8 +2968,43 @@ async function main() {
     return MINIMAP_BUILDING;
   }
 
+  const MINIMAP_CLASS_COLOR: Record<number, number> = {
+    [MinimapClass.Plains]: MINIMAP_BIOME[Biome.Plains], [MinimapClass.Hills]: MINIMAP_BIOME[Biome.Hills],
+    [MinimapClass.Swamp]: MINIMAP_BIOME[Biome.Swamp], [MinimapClass.Water]: MINIMAP_WATER, [MinimapClass.Moat]: MINIMAP_MOAT,
+    [MinimapClass.Tree]: MINIMAP_TREE, [MinimapClass.Rock]: MINIMAP_ROCK, [MinimapClass.Iron]: MINIMAP_IRON,
+    [MinimapClass.Wall]: MINIMAP_WALL, [MinimapClass.Road]: MINIMAP_ROAD, [MinimapClass.Building]: MINIMAP_BUILDING,
+    [MinimapClass.Ruin]: MINIMAP_RUIN, [MinimapClass.Camp]: MINIMAP_CAMP, [MinimapClass.Abbey]: MINIMAP_ABBEY,
+  };
+  // World streaming phase 4: one minimap pixel per f x f cell. A loaded chunk's cell is recomputed from its
+  // tiles; elsewhere a structure arriving by tileUpdate overrides the welcome's summary.
+  function paintMinimapCell(index: number) {
+    const sm = streamed!;
+    const tx = index % worldTilesX;
+    const ty = Math.floor(index / worldTilesX);
+    const cx = Math.floor(tx / sm.f);
+    const cy = Math.floor(ty / sm.f);
+    const cell = cy * sm.cw + cx;
+    if (chunkLoaded[chunkOfTile(tx, ty)]) {
+      sm.cells[cell] = minimapCellClass(tiles, biomes, worldTilesX, worldTilesY, cx, cy, sm.f, (i) => siteOwners.has(i));
+    } else {
+      const k = minimapClassOf(tiles[index] ?? 0, biomes[index] ?? 0, siteOwners.has(index));
+      if (k >= MinimapClass.Wall) sm.cells[cell] = k;
+    }
+    if (explored[index]) sm.cellSeen[cell] = 1;
+    paintMinimapPixel(cell, sm.cellSeen[cell] ? MINIMAP_CLASS_COLOR[sm.cells[cell]] : MINIMAP_UNEXPLORED);
+  }
+  function paintMinimapPixel(pixel: number, color: number) {
+    const o = pixel * 4;
+    minimapImage!.data[o] = color >> 16;
+    minimapImage!.data[o + 1] = (color >> 8) & 0xff;
+    minimapImage!.data[o + 2] = color & 0xff;
+    minimapImage!.data[o + 3] = 255;
+    minimapStaticDirty = true;
+  }
+
   function paintMinimapTile(index: number) {
     if (!minimapImage) return;
+    if (streamed) return paintMinimapCell(index);
     const color = minimapTileColor(index);
     const o = index * 4;
     minimapImage.data[o] = color >> 16;
@@ -2872,24 +3017,38 @@ async function main() {
   // `welcome` (join or restart): unpack the bitset and rebuild the whole static layer once.
   function resetMinimap(packedExplored: string) {
     const count = worldTilesX * worldTilesY;
-    const bytes = atob(packedExplored);
-    explored = new Uint8Array(count);
-    for (let i = 0; i < count; i++) explored[i] = (bytes.charCodeAt(i >> 3) >> (i & 7)) & 1;
-    minimapCssPerTile = Math.max(1, Math.round(MINIMAP_TARGET_CSS_PX / Math.max(worldTilesX, worldTilesY)));
+    if (streamed) {
+      explored = decodeMaskRuns(packedExplored, count);
+    } else {
+      const bytes = atob(packedExplored);
+      explored = new Uint8Array(count);
+      for (let i = 0; i < count; i++) explored[i] = (bytes.charCodeAt(i >> 3) >> (i & 7)) & 1;
+    }
+    // World streaming phase 4: a streamed world's minimap is one CSS px per summary cell (1 / f px per tile).
+    minimapCssPerTile = streamed ? 1 / streamed.f : Math.max(1, Math.round(MINIMAP_TARGET_CSS_PX / Math.max(worldTilesX, worldTilesY)));
     minimapDpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
     const scale = minimapCssPerTile * minimapDpr;
-    minimapEl.width = worldTilesX * scale;
-    minimapEl.height = worldTilesY * scale;
+    minimapEl.width = Math.ceil(worldTilesX * scale);
+    minimapEl.height = Math.ceil(worldTilesY * scale);
     minimapEl.style.width = `${worldTilesX * minimapCssPerTile}px`;
     minimapEl.style.height = `${worldTilesY * minimapCssPerTile}px`;
-    minimapStatic.width = worldTilesX;
-    minimapStatic.height = worldTilesY;
-    minimapImage = minimapStaticCtx.createImageData(worldTilesX, worldTilesY);
-    for (let i = 0; i < count; i++) paintMinimapTile(i);
+    if (streamed) {
+      const sm = streamed;
+      for (let i = 0; i < count; i++) if (explored[i]) sm.cellSeen[Math.floor(Math.floor(i / worldTilesX) / sm.f) * sm.cw + Math.floor((i % worldTilesX) / sm.f)] = 1;
+      minimapStatic.width = sm.cw;
+      minimapStatic.height = sm.ch;
+      minimapImage = minimapStaticCtx.createImageData(sm.cw, sm.ch);
+      for (let c = 0; c < sm.cw * sm.ch; c++) paintMinimapPixel(c, sm.cellSeen[c] ? MINIMAP_CLASS_COLOR[sm.cells[c]] : MINIMAP_UNEXPLORED);
+    } else {
+      minimapStatic.width = worldTilesX;
+      minimapStatic.height = worldTilesY;
+      minimapImage = minimapStaticCtx.createImageData(worldTilesX, worldTilesY);
+      for (let i = 0; i < count; i++) paintMinimapTile(i);
+    }
     // The canvas was resized: a fresh texture for the strategic map sprite.
     if (strategicMapSprite.texture !== Texture.EMPTY) strategicMapSprite.texture.destroy(true);
     strategicMapSprite.texture = new Texture({ source: new CanvasSource({ resource: minimapStatic, scaleMode: "nearest" }) });
-    strategicMapSprite.scale.set(tileSize);
+    strategicMapSprite.scale.set(tileSize * (streamed?.f ?? 1));
     strategicMapDirty = true;
   }
 
@@ -4721,6 +4880,8 @@ async function main() {
   const wsParams = new URLSearchParams();
   if (profileId) wsParams.set("profile", profileId);
   if (clanParam()) wsParams.set("clan", clanParam());
+  // World streaming phase 4: take chunked welcomes on streamed (768+ tile) worlds.
+  wsParams.set("chunks", "1");
   const socket = new WebSocket(wsParams.toString() ? `${SERVER_URL}/?${wsParams}` : SERVER_URL);
 
   const pauseBtn = document.getElementById("pause-btn") as HTMLButtonElement;
@@ -5548,12 +5709,29 @@ async function main() {
       tileSize = message.tileSize;
       worldTilesX = message.worldTilesX;
       worldTilesY = message.worldTilesY;
-      tiles = message.tiles;
-      biomes = message.biomes;
+      const ck = message.chunked;
+      chunkRequestedAt.clear();
+      if (ck) {
+        const f = ck.minimapFactor;
+        const cw = Math.ceil(worldTilesX / f);
+        const ch = Math.ceil(worldTilesY / f);
+        streamed = {
+          chunkTiles: ck.chunkTiles, chunksX: Math.ceil(worldTilesX / ck.chunkTiles), chunksY: Math.ceil(worldTilesY / ck.chunkTiles),
+          f, cw, ch, cells: decodeByteRuns(ck.minimap, cw * ch), cellSeen: new Uint8Array(cw * ch),
+        };
+        chunkLoaded = new Uint8Array(streamed.chunksX * streamed.chunksY);
+        tiles = new Array(worldTilesX * worldTilesY).fill(TileType.Empty);
+        biomes = new Array(worldTilesX * worldTilesY).fill(Biome.Plains);
+      } else {
+        streamed = null;
+        chunkLoaded = new Uint8Array(0);
+        tiles = message.tiles;
+        biomes = message.biomes;
+      }
       castleRuinTile = message.castleRuin ?? null;
       lastGoalIndex = -1;
       clearFightArrows();
-      resetMinimap(message.explored);
+      resetMinimap(ck ? ck.exploredRuns : message.explored);
       suppressDeathPoofs = true;
       resetSoundState();
       bloodOnNewGravestones = false;
@@ -5721,6 +5899,8 @@ async function main() {
       soundOnEvent(message.category, message.text);
     } else if (message.type === "explored") {
       markExplored(message.tiles);
+    } else if (message.type === "chunks") {
+      applyStreamChunks(message.chunks);
     } else if (message.type === "buildingInfo") {
       if (!infoTile || infoTile.tx !== message.tileX || infoTile.ty !== message.tileY) return;
       if (message.info) renderBuildingInfo(message.info);
