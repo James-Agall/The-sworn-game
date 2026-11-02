@@ -244,13 +244,26 @@ let chunkState = new Uint8Array(0);
 // Tick each chunk last qualified for its current state (grace timer start).
 let chunkHeldTick = new Int32Array(0);
 let chunkClassifiedTick = -Infinity;
+// Bumped by every re-classification (phase 3's abstract.ts runs its park / unpark pass after each one).
+export let chunkClassifyCount = 0;
 const CHUNK_FAR = 255;
+
+// Phase 3: a new world / a loaded save starts unclassified (the next tick classifies from COLD at once).
+export function resetChunkStates() {
+  chunkState = new Uint8Array(0);
+  chunkClassifiedTick = -Infinity;
+}
+
+export function chunkStateOf(c: number): ChunkState {
+  if (chunkState.length !== chunksX * chunksY || chunkState.length === 0) return ChunkState.Active;
+  return chunkState[c] as ChunkState;
+}
 
 export function streamingOn(): boolean {
   return STREAMING_FORCED || state.WORLD_TILES_X >= STREAMING_MIN_WORLD_TILES;
 }
 
-function chunkAtPixel(px: number, py: number): number {
+export function chunkAtPixel(px: number, py: number): number {
   const cx = Math.min(chunksX - 1, Math.max(0, Math.floor(px / (TILE_PX * CHUNK_TILES))));
   const cy = Math.min(chunksY - 1, Math.max(0, Math.floor(py / (TILE_PX * CHUNK_TILES))));
   return cy * chunksX + cx;
@@ -268,6 +281,7 @@ export function updateChunkStates(force = false) {
   }
   if (!force && now - chunkClassifiedTick < 20 && now >= chunkClassifiedTick) return;
   chunkClassifiedTick = now;
+  chunkClassifyCount++;
   if (!streamingOn()) {
     chunkState.fill(ChunkState.Active);
     return;
@@ -275,7 +289,8 @@ export function updateChunkStates(force = false) {
   // Multi-source Chebyshev distance (in chunks, capped at CHUNK_FAR) from every anchor chunk.
   const anchorChunks = new Set<number>();
   for (const p of players.values()) if (!p.dead) anchorChunks.add(chunkAtPixel(p.x, p.y));
-  for (const c of colonists.values()) if (c.hp > 0) anchorChunks.add(chunkAtPixel(c.x, c.y));
+  // Phase 3: a far unescorted wagon on a dice-resolved trip (wagon.abstract) is not an anchor.
+  for (const c of colonists.values()) if (c.hp > 0 && !c.wagon?.abstract) anchorChunks.add(chunkAtPixel(c.x, c.y));
   for (const tc of state.townCenters) anchorChunks.add(chunkAtPixel((tc.x + 0.5) * TILE_PX, (tc.y + 0.5) * TILE_PX));
   for (const g of raidGroups.values()) {
     for (const id of g.memberIds) {

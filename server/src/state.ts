@@ -598,6 +598,9 @@ state.siteGrounds = new Uint8Array(state.WORLD_TILES_X * state.WORLD_TILES_Y);
 export const players = new Map<string, Player>();
 export const colonists = new Map<string, Colonist>();
 export const mobs = new Map<string, Mob>();
+// World streaming phase 3 (abstract.ts): idle mobs parked out of COLD chunks, by id (each mob is in exactly one
+// of `mobs` / `parkedMobs`). Site garrisons keep listing parked ids.
+export const parkedMobs = new Map<string, Mob>();
 
 // -- respawn --
 export const respawnQueue: RespawnRequest[] = [];

@@ -17,7 +17,7 @@ import {
   CAMP_RAID_MIN_TIER, GAME_DAY_TICKS, QUEST_CAMP_RANGE_TILES,
   SETTLEMENT_COUNT_AT_512, SETTLEMENT_INNER_RING_FRACTION, SETTLEMENT_PLACE_ATTEMPTS, SETTLEMENT_SPACING_TILES, SETTLEMENT_START_CLEARANCE_TILES,
 } from "./constants.js";
-import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, players, sites, state, tileOwner } from "./state.js";
+import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, parkedMobs, players, sites, state, tileOwner } from "./state.js";
 import { isColdAtPixel, setTile as setTileRaw } from "./chunks.js";
 import { inBounds, isNightNow, resourceKey, setOwner, siteNumber, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { clanById, clanTownCenters, setTileClan } from "./clans.js";
@@ -367,7 +367,7 @@ export function restoreSites(list: SiteState[] | undefined) {
     const num = siteNumber(s.id, true);
     sites.set(s.id, {
       ...s, num, stock: { ...s.stock }, garrisonRoster: { ...s.garrisonRoster },
-      garrison: (s.garrison ?? []).filter((m) => mobs.has(m)), workers: (s.workers ?? []).filter((m) => mobs.has(m)), posts: [...(s.posts ?? [])],
+      garrison: (s.garrison ?? []).filter((m) => mobs.has(m) || parkedMobs.has(m)), workers: (s.workers ?? []).filter((m) => mobs.has(m)), posts: [...(s.posts ?? [])],
       awake: false,
     });
   }
@@ -406,7 +406,8 @@ export function updateSites() {
   for (const p of players.values()) if (!p.dead) anchors.push({ x: p.x / TILE_SIZE, y: p.y / TILE_SIZE, player: true });
   for (const c of colonists.values()) if (c.hp > 0) anchors.push({ x: c.x / TILE_SIZE, y: c.y / TILE_SIZE, player: false });
   for (const s of sites.values()) {
-    s.garrison = s.garrison.filter((id) => mobs.has(id));
+    // World streaming phase 3: parked (COLD chunk) guardians still belong to the garrison.
+    s.garrison = s.garrison.filter((id) => mobs.has(id) || parkedMobs.has(id));
     if (s.captured) {
       s.awake = false;
       continue;
@@ -450,7 +451,7 @@ export function updateSites() {
     } else if (!awake && s.awake && human) despawnSiteWorkers(s);
     s.awake = awake;
     if (awake) s.lastSimTick = now;
-    const garrison = s.garrison.map((id) => mobs.get(id)!);
+    const garrison = s.garrison.flatMap((id) => mobs.get(id) ?? []);
     if (provoke && awake) {
       if (garrison.some((m) => !m.guardianActive)) activateGuardianSite(s.id);
       s.provoked = true;
@@ -467,7 +468,7 @@ export function catchUpSite(s: SiteState, now: number) {
   if (n <= 0) return;
   const living = new Map<MobKind, number>();
   for (const id of s.garrison) {
-    const m = mobs.get(id);
+    const m = mobs.get(id) ?? parkedMobs.get(id);
     if (m) living.set(m.kind, (living.get(m.kind) ?? 0) + 1);
   }
   let k = 0;

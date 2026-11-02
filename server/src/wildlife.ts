@@ -15,6 +15,7 @@ import {
   colonists, forageRegrow, players, reservedResourceTiles, scaledCount, scaledCountSub, state, wildlife,
 } from "./state.js";
 import { isColdAtPixel, setTile } from "./chunks.js";
+import { forageFrozen, parkRespawnedWildlife, parkedWildlifeCount } from "./abstract.js";
 import {
   biomeAt, biomeSpeedMultiplier, clamp, getBuildingLevel, inBounds, levelBonus, resourceKey, tileIndex, tileOfPixel,
   tileToPixelCenter,
@@ -137,6 +138,8 @@ export function updateWildlifeRespawn() {
   state.wildlifeRespawnCooldown = WILDLIFE_RESPAWN_INTERVAL_TICKS;
   const counts: Record<WildlifeKind, number> = { deer: 0, rabbit: 0, boar: 0, pheasant: 0 };
   for (const a of wildlife.values()) counts[a.kind]++;
+  // World streaming phase 3: animals held as COLD chunk counts count toward the cap.
+  for (const kind of WILDLIFE_KINDS) counts[kind] += parkedWildlifeCount(kind);
   let best: WildlifeKind | null = null;
   let bestRatio = 1;
   for (const kind of WILDLIFE_KINDS) {
@@ -150,7 +153,7 @@ export function updateWildlifeRespawn() {
   }
   if (!best) return;
   const tile = pickWildlifeSpawnTile(best, true);
-  if (tile) spawnWildlifeAt(best, tile.x, tile.y);
+  if (tile && !parkRespawnedWildlife(best, tile.x, tile.y)) spawnWildlifeAt(best, tile.x, tile.y);
 }
 
 export function isWalkablePixel(px: number, py: number): boolean {
@@ -332,7 +335,8 @@ export function updateForageRegrow() {
       continue;
     }
     if (ticks > 1) {
-      forageRegrow.set(index, ticks - 1);
+      // World streaming phase 3: frozen in a COLD chunk (abstract.ts catches it up on waking).
+      if (!forageFrozen(index)) forageRegrow.set(index, ticks - 1);
       continue;
     }
     forageRegrow.delete(index);

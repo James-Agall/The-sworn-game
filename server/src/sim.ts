@@ -8,6 +8,7 @@ import {
 } from "./constants.js";
 import { clans, colonists, gravestones, lap, lapReset, mobs, players, state, tileOwner } from "./state.js";
 import { mobFrozenByStreaming, updateChunkStates } from "./chunks.js";
+import { updateAbstractWorld } from "./abstract.js";
 import { biomeSpeedMultiplier, clamp, collidesAt, isNightNow, roadSpeedMultiplier, siteNumber } from "./tiles.js";
 import { separateBodies } from "./pathfinding.js";
 import { tryGrowTree, tryGrowTreesNearLumberjackPosts, updateFarmPlots } from "./economy.js";
@@ -46,6 +47,8 @@ export function stepSimulation() {
   state.cycleTick++;
   // World streaming phase 2: ACTIVE / WARM / COLD chunks (re-classified once a second).
   updateChunkStates();
+  // Phase 3: park / wake COLD chunks' mobs, animals and regrowth after each re-classification.
+  updateAbstractWorld();
   const nightNow = isNightNow();
 
   if (!nightNow && state.wasNight) {

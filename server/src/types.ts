@@ -172,6 +172,10 @@ export interface WagonState {
   alertTick?: number;
   // Fled home (escort wiped): full speed.
   fleeing?: boolean;
+  // World streaming phase 3: far from everyone and unescorted, the trip is dice-resolved (abstract.ts): the
+  // wagon is no chunk anchor and ghost-steps along its path (acc = tiles owed, walked = tiles walked); a
+  // `delayUntil` roll holds it before arrival.
+  abstract?: { acc: number; walked: number; delayUntil?: number };
 }
 // One Trading Post (key "x,y"): auto-send, the wagon's id, when a lost wagon may be replaced, the last game day
 // a trip left, and the level its roster was last set up for.

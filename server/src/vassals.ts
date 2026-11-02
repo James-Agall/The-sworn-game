@@ -21,7 +21,7 @@ import {
   RELATION_ATTACK_PENALTY, RELATION_MAX, RELATION_VASSAL_KEEP, TAX_INTERVAL_DAYS, TAX_POWER_MIN, TAX_RELATION_COST,
   TAX_SHARE_BASE, TAX_SHARE_MAX, VASSAL_HIT_COOLDOWN_TICKS, WALL_TILES,
 } from "./constants.js";
-import { clans, colonists, mobs, sites, state } from "./state.js";
+import { clans, colonists, mobs, parkedMobs, sites, state } from "./state.js";
 import { tileIndicesOfAny } from "./chunks.js";
 import { getBuildingLevel, ownerAt, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { clanById, clanIdAtIndex, withClan } from "./clans.js";
@@ -75,7 +75,7 @@ export function clanPower(clanId: number): number {
 export function sitePower(s: SiteState): number {
   let p = 0;
   for (const id of s.garrison) {
-    const m = mobs.get(id);
+    const m = mobs.get(id) ?? parkedMobs.get(id);
     if (m && m.hp > 0) p += m.hp * m.damage;
   }
   for (let y = s.y0; y <= s.y1; y++) {

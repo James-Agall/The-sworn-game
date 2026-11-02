@@ -25,6 +25,7 @@ import {
 } from "./raids.js";
 import { catchUpCampGrowth, isInSiteGrounds, rebuildSiteGrounds, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
 import { stampSiteSearch } from "./creative.js";
+import { dropParkedSiteMobs } from "./abstract.js";
 import { walkMobTo } from "./mobs.js";
 import { broadcastEvent } from "./net.js";
 
@@ -285,6 +286,7 @@ function disband(w: Warband) {
 // The camp site of a razed founded camp goes (its leftover mobs, hearth, grounds) before a warband re-settles it.
 function removeSite(s: SiteState) {
   for (const m of Array.from(mobs.values())) if (m.siteId === s.id) mobs.delete(m.id);
+  dropParkedSiteMobs(s.id);
   hearths.delete(s.id);
   sites.delete(s.id);
   state.ownerVersion++;

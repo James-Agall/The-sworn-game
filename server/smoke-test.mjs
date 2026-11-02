@@ -438,6 +438,12 @@ await check("world streaming: chunk manager off on small maps", async () => {
   return [r?.on === false && r?.cold === 0 && r?.warm === 0 && r?.active === r?.chunksX * r?.chunksY && r?.at === 2, `on ${r?.on}, ${r?.chunksX}x${r?.chunksY} chunks: ${r?.active} active / ${r?.warm} warm / ${r?.cold} cold`];
 });
 
+// 12. world streaming phase 3: every entity is in exactly one form (live or abstract record) after everything above
+await check("world streaming: world audit (no duplicated / vanished entities)", async () => {
+  const r = await hook("auditWorld");
+  return [r?.ok === true, `${r?.problems?.length ?? "?"} problems${r?.problems?.length ? ": " + r.problems.slice(0, 3).join("; ") : ""}; ${JSON.stringify(r?.counts ?? {})}`];
+});
+
 const secs = ((Date.now() - t0) / 1000).toFixed(1);
 console.log(failed.length === 0 ? `ALL PASS (${passed} checks, ${secs}s)` : `${failed.length} FAILED (${failed.join("; ")}), ${passed} passed, ${secs}s`);
 c.ws.close();

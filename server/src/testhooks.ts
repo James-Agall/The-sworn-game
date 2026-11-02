@@ -2,8 +2,9 @@
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, wagonDebugState } from "./wagons.js";
 import { buildingLevel, tradingPosts } from "./state.js";
-import { auditTileRegistry, chunkStateAtPixel, chunkStateSummary, pathCacheStats, setTile, updateChunkStates } from "./chunks.js";
+import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, pathCacheStats, setTile, updateChunkStates } from "./chunks.js";
 import { clanById, clanIdAt, withClan } from "./clans.js";
+import { auditWorld } from "./abstract.js";
 import { randomUUID } from "node:crypto";
 import {
   TileType, type WildlifeKind, WILDLIFE_KINDS, type MobKind, HungerMark, TILE_SIZE, SIEGE_KINDS, COLONIST_ROLE,
@@ -560,7 +561,13 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // World streaming phase 2: chunk state counts (force re-classifies now) and the state at {x, y} (pixels).
     if (msg.force) updateChunkStates(true);
     const at = typeof msg.x === "number" && typeof msg.y === "number" ? chunkStateAtPixel(msg.x, msg.y) : null;
-    reply({ ...chunkStateSummary(), at });
+    // Phase 3: `list` adds the COLD chunk ids.
+    const sum = chunkStateSummary();
+    const coldList = msg.list ? Array.from({ length: sum.chunksX * sum.chunksY }, (_, i) => i).filter((i) => chunkStateOf(i) === 0) : undefined;
+    reply({ ...sum, at, coldList });
+  } else if (msg.op === "auditWorld") {
+    // World streaming phase 3: no duplicated / vanished entities across live and abstract forms.
+    reply(auditWorld());
   } else if (msg.op === "auditRegistry") {
     // World streaming phase 1: registry vs a fresh full scan (0 = consistent) and the path cache counters.
     reply({ bad: auditTileRegistry(), pathHits: pathCacheStats.hits, pathMisses: pathCacheStats.misses, pathMismatches: pathCacheStats.mismatches });

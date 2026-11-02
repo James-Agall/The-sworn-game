@@ -27,7 +27,7 @@ import {
 } from "./constants.js";
 import {
   buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, minesPlacedOnOre, players, repairPaid,
-  repairQueue, respawnQueue, siegeWorkshops, state, towerCooldowns, hearths, mobs,
+  repairQueue, respawnQueue, siegeWorkshops, state, towerCooldowns, hearths, mobs, parkedMobs,
 } from "./state.js";
 import { setTile } from "./chunks.js";
 import {
@@ -1201,7 +1201,7 @@ function siteTileInfo(tx: number, ty: number, t: TileType, forPlayer?: Player): 
   const label = t === TileType.SiteKeep ? "Keep" : t === TileType.RuinedKeep ? "Ruined keep" : t === TileType.Tent ? "Tent" : BUILDING_NAMES[t] ?? "Wall";
   const hearth = t === TileType.SiteKeep ? hearths.get(s.id) : undefined;
   const hp = hearth ? { hp: Math.max(0, Math.round(hearth.hp)), max: hearth.maxHp } : structureHp(tx, ty);
-  const living = s.garrison.filter((id) => mobs.has(id)).length;
+  const living = s.garrison.filter((id) => mobs.has(id) || parkedMobs.has(id)).length;
   const human = s.faction === "human";
   const noun = SITE_TEMPLATES[s.template].noun ?? "village";
   const bonuses = [

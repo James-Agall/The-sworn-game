@@ -15,7 +15,7 @@ import {
   CAMP_QUEST_CHANCE_MULT, QUEST_FAIL_PENALTY, QUEST_IGNORE_PENALTY, QUEST_MAX_PER_SITE, QUEST_POST_CHANCE, QUEST_RELATION_GAIN, QUEST_SCAN_TICKS,
   QUEST_TIER_REWARD, SETTLEMENT_PRODUCTION, SETTLEMENT_STOCK_CAP, TRADE_BASE_PRICE, TRADE_RANGE_TILES,
 } from "./constants.js";
-import { clans, hearths, mobs, sites, state } from "./state.js";
+import { clans, hearths, mobs, parkedMobs, sites, state } from "./state.js";
 import { adjustRelation, attackerClan, overgrownCampNear } from "./sites.js";
 import { clanById, withClan } from "./clans.js";
 import { broadcastEvent } from "./net.js";
@@ -71,7 +71,8 @@ function postBlock(s: SiteState | undefined, clanId: number): string {
 
 function hostileMobsNear(s: SiteState, range: number): Mob[] {
   const out: Mob[] = [];
-  for (const m of mobs.values()) {
+  // World streaming phase 3: parked strays (COLD chunks) still threaten their settlement.
+  for (const map of [mobs, parkedMobs]) for (const m of map.values()) {
     if (m.hp <= 0 || m.siteId) continue;
     if (tilesToWalls(s, Math.floor(m.x / TILE_SIZE), Math.floor(m.y / TILE_SIZE)) <= range) out.push(m);
   }

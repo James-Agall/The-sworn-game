@@ -13,7 +13,7 @@ import {
 } from "./constants.js";
 import {
   type Clan, buildingHp, buildingLevel, clans, colonists, makeClan, tileClan, constructionSites, farmPlots, forageRegrow, forgeAuto, gates, gravestones,
-  hearths, heroProfiles, heroRecruits, minesPlacedOnOre, mobs, mobsWithoutRoute, ownerSiteIds, players, raidGroups,
+  hearths, heroProfiles, heroRecruits, minesPlacedOnOre, mobs, parkedMobs, mobsWithoutRoute, ownerSiteIds, players, raidGroups,
   regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, state, summonedUntil, tileOwner, towerCooldowns, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
 } from "./state.js";
 import { markTileRegistryStale, setTile } from "./chunks.js";
@@ -29,6 +29,7 @@ import { restoreSites, sitesForSave } from "./sites.js";
 import { questsForSave, restoreQuests } from "./quests.js";
 import { restoreWagons, wagonsForSave } from "./wagons.js";
 import { restoreWarbands, warbandsForSave } from "./warbands.js";
+import { abstractForSave, clearAbstractWorld, restoreAbstract } from "./abstract.js";
 import { evaluateGoals } from "./goals.js";
 import { playerMaxHp, resetEquipment, restoreHeroProfiles, serializeHeroProfiles } from "./heroes.js";
 import { clearSpellState, unslowedSpeed } from "./spells.js";
@@ -91,6 +92,7 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   clearOrderGroups();
   restoreWagons(undefined);
   restoreWarbands(undefined);
+  clearAbstractWorld();
   clearPlayerMorale();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
@@ -216,6 +218,8 @@ function snapshotWorldInner() {
     tradingPosts: wagonsForSave() as ReturnType<typeof wagonsForSave> | undefined,
     // Forts phase G: warbands on the move (abstract) and the spawn timer (optional: older saves have none).
     warbands: warbandsForSave() as ReturnType<typeof warbandsForSave> | undefined,
+    // World streaming phase 3: COLD chunk records (animal counts, since ticks); optional.
+    abstractWorld: abstractForSave() as ReturnType<typeof abstractForSave> | undefined,
     stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
@@ -245,7 +249,8 @@ function snapshotWorldInner() {
     townCenters: state.townCenters,
     // Hero phase 4: summons aren't saved; a slowed mob is saved at its own speed.
     colonists: Array.from(colonists.values()).filter((c) => !summonedUntil.has(c.id)),
-    mobs: Array.from(mobs.values(), (m) => (unslowedSpeed(m) === m.speed ? m : { ...m, speed: unslowedSpeed(m) })),
+    // World streaming phase 3: parked (COLD chunk) mobs are saved with the live ones and re-parked after a load.
+    mobs: [...Array.from(mobs.values(), (m) => (unslowedSpeed(m) === m.speed ? m : { ...m, speed: unslowedSpeed(m) })), ...parkedMobs.values()],
     wildlife: Array.from(wildlife.values()),
     respawnQueue,
     farmPlots: Array.from(farmPlots),
@@ -417,6 +422,8 @@ function applyWorldInner(s: WorldState) {
   restoreSites(s.sites);
   // Forts phase G: after the mobs (warband bodies are dropped; warbands come back abstract).
   restoreWarbands(s.warbands);
+  // World streaming phase 3: after the mobs / wildlife (saves without it: no COLD records).
+  restoreAbstract(s.abstractWorld);
   // After the owners: a fort's campfires (owned tiles) never get a backfilled hearth.
   backfillHearths();
   state.testForceDeserterRoll = s.flags.testForceDeserterRoll;
