@@ -405,6 +405,32 @@ scratch `COLONY_SAVE_DIR`), then open the client as usual.
    "waylaid: half its goods are lost" toast. Its escort should still be with it when you meet it on the road.
 6. Save far from home, load: the far world is still there (forts, animals) after the load.
 
+## World streaming phase 4 (diff saves, chunked transfer, Vast 1024 maps)
+Normal sizes (up to 512) should look and save exactly as before. For the new path pick **Vast** (1024) in the menu
+(generation takes one to several minutes; the page waits on the welcome), or a 512 server with
+`COLONY_TEST_HOOKS=1 COLONY_STREAMING=1` and a scratch `COLONY_SAVE_DIR`.
+1. Vast map: the ground, trees, decor and buildings around the Town Center appear within a second of the welcome;
+   walk / pan the camera: new ground fills in at the screen edge with no grass-then-swap flicker and no holes.
+   Roads and walls that cross a 32-tile chunk edge join up (no broken autotile pieces at the seam).
+2. Minimap on Vast: about 512 px across (one pixel per 2x2 tiles), fog clears as you explore; explored far-off
+   areas show forests / water / forts even before you have been near them; buildings you place show up.
+3. Strategy mode at Vast: zoom all the way out (Map band) - the summary map covers the whole world, lined up with the
+   flags / Town Center markers; zoom back in anywhere: the ground there loads.
+4. Save on Vast, load: the world comes back the same (your buildings, roads, cleared trees, explored fog). The save
+   dir holds the slot plus one `base-<seed>-1024-v1.bin.gz`; the slot file should be well under the old size.
+5. 512 normal game: save / load / restart behave as before (old full-array saves still load).
+
+## World streaming phase 5 (chronicle, abstract strife)
+1. A **Chronicle** button sits next to Quests. Open it: newest first; "While you were away" heads entries that
+   arrived since you last read it; closing it clears the badge. Reconnect (reload the page): a "While you were away:
+   N entries" toast when something happened meanwhile.
+2. Vast (or streamed 512) map, play a few days far from the edges: entries appear for far trader wagons (reached /
+   held up / waylaid), raiders setting out, a warband settling (a "Rumour" if unseen), camps growing a tier.
+3. Rare: "Raiders from X besiege Y; it begs the clans for help" + a Quests entry "Help Y: break X" (reward ~1.5x a
+   normal camp quest, deadline 2 days). Break the camp in time: "The siege of Y is lifted". Ignore it: Y may fall
+   ("Y has fallen ...", its keep a ruin on the map) or "held out". Walking near Y lifts the siege (never falls in
+   front of you). A settlement that is your vassal is never raided this way.
+
 ## Battle engine phase 2 (formation march, strategy-mode orders)
 1. Strategy mode: select a regiment of 20+ soldiers, order a move 10+ tiles away. The block should walk as one
    rectangle (no streaming / mixing), turn smoothly at corners, and form up on the target facing the drag direction.

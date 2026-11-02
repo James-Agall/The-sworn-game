@@ -2236,6 +2236,66 @@ Plan: docs PLAN-large-battles.md §8 phase 1. No behaviour change.
   40): standing 12.7 ms avg; marching **1222 ms avg, p95 1979 ms**, settling 2083 ms, all of it in `colonists`
   (per-unit `findPath` in `returnToRally`: CPU profile 12 s of 14 s sim). Brain cost 0.4-0.8 ms.
 
+## World streaming — landed (phase 5) 2026-11-02 (chronicle + abstract strife)
+Plan: `~/docs/colony2d/PLAN-world-streaming.md` §4 (settlements vs camps), §8 (news feed), §9 phase 5.
+- **Chronicle (`server/src/chronicle.ts`):** a world log (last 120, saved as optional `chronicle` with each profile's
+  read mark). Every welcome is followed by `chronicle {full, since}`; new entries go out as they happen; the client's
+  `chronicleSeen` moves the mark. Sources: abstract wagon legs (reached / held up / waylaid), abstract raids setting
+  out, warbands settling ("Rumour" when unseen), camp tier growth, strife (below). Client: a **Chronicle** button next
+  to Quests and a parchment panel, "While you were away" above "Earlier", a toast on join when there is news.
+- **Strife (`server/src/strife.ts`, at dawn, streaming on only):** a standing bandit / orc camp or fort whose keep
+  chunk is COLD rolls `0.05 + 0.02 x (tier - 1)` a day to raid the nearest standing, non-vassal human settlement within
+  140 tiles that is COLD too. Strength = living garrison x (1 + 0.25 x (tier - 1)) vs garrison + 4 (walls). Lost roll:
+  repelled (the camp loses 1-2 parked members). Won: sacked (25% of the settlement's stock to the camp, 1-2 parked
+  defenders die) or, at 1.5x the defender's strength, a **siege**: `threat {by, fallTick = +2 days}` on the site and a
+  "help us" quest to every clan (`postHelpQuest`: a clearCamp of that camp, 1.5x reward, deadline = fallTick). At
+  the deadline, if the camp still stands and the settlement is still COLD: 50% falls (keep -> RuinedKeep, hearth out,
+  parked garrison dropped, no relation cost), else "held out". Anyone coming near (not COLD) or the camp's end lifts
+  the siege. Neighbouring COLD settlements within 110 tiles feud at 1% a pair a day (10% stock, never a fall). Dice
+  are `worldRng(site id, day)`; parked deaths go through `dropParkedMob` so the audit ledger balances.
+- Test hooks `strifeDawn {forceRaid, forceSiege, forceFall}`, `chronicle`. Tests: `server/streaming-world-test.mjs`
+  checks 5-7 (siege + help quest first, fall after the telegraph with a clean audit, chronicle across save / load and
+  after a welcome).
+- Not done: tuning (needs play), a world-audit hook in creative mode, settlement regrowth after a fall.
+
+## World streaming — landed (phase 4) 2026-11-02 (diff saves, chunked transfer, Vast maps)
+Plan: §5-7, §9 phase 4. Only streamed worlds (>= 768 tiles, or `COLONY_STREAMING=1` with test hooks) change.
+- **Diff-log saves (`server/src/worldbase.ts`):** `generateWorld(seed?)` runs on a seeded Math.random (mulberry32) and
+  captures the BASE layer (tiles + biomes after worldgen). A streamed save stores `seed`, `worldgenVersion`,
+  `baseSum` (FNV of the base) and `tileDiffs` ([chunk, base64 (u16 pos, u8 tile)...] or the whole 32x32 chunk past
+  340 changes) plus `exploredZ` (raw-deflated bitset) instead of `tiles` / `biomes` / `explored`. The base comes back
+  from memory, then `base-<seed>-<size>-v<ver>.bin.gz` in the save dir (written once per world, pruned when no slot
+  names it), then a seeded regeneration checked against `baseSum` (refused with a message if worldgen changed and the
+  cache file is gone). Worlds without a seed (loaded from a full-array save) keep saving full arrays; full-array saves
+  load through the old reader unchanged. Entities are still saved whole (parked mobs included).
+- **Chunked transfer:** the browser connects with `?chunks=1`; on a streamed world its welcome has empty arrays and
+  `chunked {chunkTiles 32, minimapFactor, minimap, exploredRuns}` (shared/src/streaming.ts: varint RLE of the explored
+  mask; one MinimapClass per f x f cell, f = ceil(size / 512)). The client asks for the camera's chunks (+1) and the
+  rider's (+-2) 5x a second (`requestChunks`, <= 64, retried after 3 s; the Map band asks only for the rider's) and
+  builds tile sprites, decor, floor and minimap cells per arriving chunk (plus a 3-tile seam band for autotiles /
+  multi-tile art). The streamed minimap is one CSS px per cell. Test clients (no `?chunks=1`) and every world below
+  768 get the old full welcome.
+- **Menu:** Vast (1024) added; server cap 1024 (2048 test-only via `COLONY_TEST_MAX_WORLD_SIZE`).
+- **Benchmarks** (fresh normal world, this WSL box; ms per tick over 1200 fast-forward ticks after 100):
+
+  | size | worldgen s | ms/tick (ff) | live avg tick ms | snapshot KB | welcome KB chunked / full | save KB | RSS MB |
+  |---|---|---|---|---|---|---|---|
+  | 1024 run 1 | 580 (outlier world) | 5.53 | 5.23 | 6.0 | 108.5 / 4335 | 1005 | 183 |
+  | 1024 run 2 | 75 | 5.38 | 4.88 | 7.5 | 106.8 / 4332 | 1046 | 191 |
+  | 2048 | > 1600 (still generating after 27 min; aborted) | - | - | - | - | - | - |
+
+  Seeded vs unseeded worldgen is the same speed (512: 5.0 vs 5.2 s; 1024 side by side: 80 vs 82 s). Worldgen
+  time varies hugely by seed at 1024 (75-580 s) and is the blocker for 2048, so 2048 stays off the menu; the per-tick
+  cost, snapshot size and memory at 1024 are fine. The 1024 save is ~1 MB, almost all entities (tile diffs are a few
+  chunks); the full welcome (4.3 MB of JSON) drops to ~107 KB.
+- Tests: `server/streaming-world-test.mjs` (512, `COLONY_STREAMING=1`) checks 1-4 (diff save shape, memory / cache
+  file / regeneration loads identical, old full-array save loads, chunked welcome + chunks match the full arrays);
+  smoke, save-load-test (its unsupported-size guard moved to 9999), sites-test, wagons-test (and with
+  `COLONY_STREAMING=1`: one run hit the known random settlement-stamp flake, the rerun passed), streaming-abstract-test
+  all pass.
+- Not done: delta snapshots, per-chunk entity saves for COLD chunks (parked mobs are whole objects), a loading screen
+  for the long Vast worldgen, 2048 on the menu.
+
 ## World streaming — landed (phase 3) 2026-11-02 (abstract records + catch-up)
 Plan: `~/docs/colony2d/PLAN-world-streaming.md` §4-5, §9 phase 3. All of it is off below 768 tiles (`streamingOn()`;
 `COLONY_STREAMING=1` with test hooks forces it), so 160/256/512 behave as before. New module `server/src/abstract.ts`.
