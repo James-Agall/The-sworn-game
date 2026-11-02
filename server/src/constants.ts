@@ -18,7 +18,8 @@ import type {
 // setWorldSize() (below, once every size-dependent module value is declared) re-allocates them all.
 export const MIN_WORLD_SIZE = 64;
 // World streaming benchmarks: COLONY_TEST_MAX_WORLD_SIZE (with COLONY_TEST_HOOKS=1) lifts the cap, e.g. to 1024.
-export const MAX_WORLD_SIZE = process.env.COLONY_TEST_HOOKS === "1" ? Math.max(512, Number(process.env.COLONY_TEST_MAX_WORLD_SIZE) || 0) : 512;
+// World streaming phase 4: 1024 (streamed) is on the menu; 2048 stays test-only (worldgen benchmarks).
+export const MAX_WORLD_SIZE = process.env.COLONY_TEST_HOOKS === "1" ? Math.max(1024, Number(process.env.COLONY_TEST_MAX_WORLD_SIZE) || 0) : 1024;
 export const clampWorldSize = (n: number) => Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, Math.round(n)));
 // Things that cost CPU every tick (wildlife) or are expensive to populate (POIs and their guardians,
 // mini-bosses) scale by area only up to the 160x160 tuning (scale 4); beyond that, as the 4th root, so a

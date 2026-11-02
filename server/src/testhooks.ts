@@ -551,6 +551,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       maxMs: sorted[sorted.length - 1] ?? 0,
       mobs: mobs.size,
       groups: raidGroups.size,
+      // World streaming phase 4 benchmarks: resident set / heap of this process.
+      rssMb: Math.round(process.memoryUsage().rss / 1048576),
+      heapMb: Math.round(process.memoryUsage().heapUsed / 1048576),
       // Battle engine phase 1: average ms per tick by system (sim systems per sim step, snapshot per send).
       systems: Object.fromEntries(Array.from(systemMs, ([k, v]) => [k, Math.round((v / Math.max(1, sorted.length)) * 100) / 100])),
     });

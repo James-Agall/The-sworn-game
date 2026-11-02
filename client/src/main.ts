@@ -7260,7 +7260,7 @@ function renderClanChoice() {
     btn.setAttribute("aria-checked", String(btn.dataset.clan === preferredClan));
   });
 }
-const MAP_SIZES = [64, 96, 160, 256, 384, 512];
+const MAP_SIZES = [64, 96, 160, 256, 384, 512, 1024];
 // undefined until the player picks one: then the server keeps its own default (COLONY_WORLD_SIZE or 160).
 let preferredWorldSize: number | undefined;
 function renderMapSizeChoice(value: number | undefined) {
