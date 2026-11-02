@@ -154,6 +154,57 @@ await check("save -> load keeps the abstract records (audit clean)", async () =>
     `parked animals ${before.parkedWildlife} -> ${r.counts.parkedWildlife}, mobs ${before.parkedMobs} -> ${r.counts.parkedMobs}; ${fmt(r)}`];
 });
 
+// ---- phase 3b: warbands and camp raids ----
+await check("warband: abstract while COLD, bodies when its chunk is ACTIVE, abstract again after", async () => {
+  await tp(home.x, home.y);
+  await ff(300);
+  await pickCorner();
+  const sp = await hook("spawnWarband", { faction: "bandit", x0: corner.x - 6, y0: corner.y - 6, atX: corner.x, atY: corner.y, size: 4 });
+  const w0 = sp?.warband;
+  if (!w0) return `spawn failed: ${sp?.problem}`;
+  await ff(25);
+  const a = (await hook("warbandsState")).warbands.find((w) => w.id === w0.id);
+  await tp(a.tile.x, a.tile.y);
+  await ff(25);
+  const b = (await hook("warbandsState")).warbands.find((w) => w.id === w0.id);
+  await tp(home.x, home.y);
+  await ff(260);
+  const d = (await hook("warbandsState")).warbands.find((w) => w.id === w0.id);
+  const r = await audit();
+  return [a && !a.materialised && b?.materialised && b.members === 4 && d && !d.materialised && r.ok,
+    `COLD ${a?.materialised}, ACTIVE ${b?.materialised} (${b?.members} bodies), back home ${d?.materialised}; ${fmt(r)}`];
+});
+
+await check("camp raid mustering outside ACTIVE chunks is abstract, materialises in an ACTIVE chunk", async () => {
+  await tp(home.x, home.y);
+  await ff(25);
+  let site = null;
+  let muster = null;
+  for (const [dx, dy] of [[136, 0], [-136, 0], [0, 136], [0, -136]]) {
+    const st = await hook("stampSite", { template: "thornwick", dx, dy, search: 8, tier: 1 });
+    if (!st?.site) continue;
+    const s = st.site;
+    const dist = Math.hypot(tc.x - s.keepX, tc.y - s.keepY);
+    const m = { x: Math.round(s.keepX + ((tc.x - s.keepX) / dist) * 14), y: Math.round(s.keepY + ((tc.y - s.keepY) / dist) * 14) };
+    const cs = await hook("chunkState", { x: m.x * TILE, y: m.y * TILE });
+    if (dist <= 140 && cs.at !== 2) {
+      site = s;
+      muster = m;
+      break;
+    }
+  }
+  if (!site) return "no camp spot whose muster point is outside the ACTIVE chunks";
+  await hook("growSite", { siteId: site.id, found: true, tiers: 3 });
+  const before = (await audit()).counts;
+  const cr = await hook("campRaids", { day: 4 });
+  const mid = (await audit()).counts;
+  await tp(muster.x, muster.y);
+  await ff(25);
+  const r = await audit();
+  return [cr.groups.length === 0 && mid.abstractRaids === before.abstractRaids + 1 && r.counts.abstractRaids === before.abstractRaids && r.counts.raidsMaterialised === before.raidsMaterialised + 1 && r.ok,
+    `${site.name} at ${Math.round(Math.hypot(tc.x - site.keepX, tc.y - site.keepY))} tiles: real groups ${cr.groups.length}, abstract ${before.abstractRaids} -> ${mid.abstractRaids} -> ${r.counts.abstractRaids}, materialised ${r.counts.raidsMaterialised - before.raidsMaterialised}; ${fmt(r)}`];
+});
+
 console.log(failed.length === 0 ? `ALL PASS (${passed} checks)` : `${failed.length} FAILED (${failed.join("; ")}), ${passed} passed`);
 c.ws.close();
 process.exit(failed.length === 0 ? 0 : 1);

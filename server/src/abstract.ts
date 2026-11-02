@@ -10,9 +10,16 @@
 //  - Forage regrowth: timers in COLD chunks stand still (wildlife.ts) and are caught up by the elapsed ticks.
 // Dice: worldRng(worldNoiseSalt, chunk / site / wagon id, day), so a reload or replay rolls the same outcome.
 // Conservation: every entity is in exactly one form; auditWorld (test hook) checks it.
-import { type WildlifeKind, WILDLIFE_KINDS } from "@colony/shared/protocol";
-import { GAME_DAY_TICKS } from "./constants.js";
-import { forageRegrow, mobs, parkedMobs, sites, state, wildlife } from "./state.js";
+import { randomUUID } from "node:crypto";
+import { type MobKind, type WildlifeKind, TICK_RATE, TILE_SIZE, WILDLIFE_KINDS } from "@colony/shared/protocol";
+import type { RaidFactionId, TileCoord } from "./types.js";
+import { GAME_DAY_TICKS, MOB_KIND_CONFIG, NIGHT_TICKS, RAID_ARRIVAL_WINDOW_FRACTION, RAID_TRAVEL_SLACK } from "./constants.js";
+import { colonists, forageRegrow, mobs, parkedMobs, raidGroups, sites, state, wildlife } from "./state.js";
+import { musterRaidGroup, warbands } from "./warbands.js";
+import { clanById, withClan } from "./clans.js";
+import { inBounds } from "./tiles.js";
+import { isWalkableTile } from "./pathfinding.js";
+import { isInSiteGrounds } from "./sites.js";
 import {
   CHUNK_TILES, ChunkState, chunkAtPixel, chunkClassifyCount, chunkCounts, chunkOfIndex, chunkStateOf, mobFrozenByStreaming,
   resetChunkStates, streamingOn,
@@ -59,7 +66,7 @@ let lastPass = -1;
 export const abstractStats = {
   mobsParked: 0, mobsUnparked: 0, mobsDropped: 0,
   wildParked: 0, wildUnparked: 0, wildBorn: 0, wildDied: 0, wildLost: 0, wildRespawnedCold: 0,
-  chunksWoken: 0, forageCaughtUp: 0,
+  chunksWoken: 0, forageCaughtUp: 0, raidsMaterialised: 0, raidsLost: 0,
 };
 // Wildlife catch-up: daily approach rate toward the per-chunk level, and that level as a multiple of cap / chunks.
 const WILD_DAILY_RATE = 0.15;
@@ -97,10 +104,91 @@ export function dropParkedSiteMobs(siteId: string) {
   }
 }
 
+// ---- abstract raids (phase 3b): a camp raid mustering in a COLD chunk ----
+// It waits at its muster tile until its departure tick, then marches straight at the Town Center it was sent to
+// at its slowest kind's pace; it becomes a real raid group (musterRaidGroup) once its tile is in an ACTIVE chunk
+// (or it is about to arrive). Nothing abstract fights: it only moves.
+export interface AbstractRaid {
+  id: string;
+  faction: RaidFactionId;
+  kinds: MobKind[];
+  x: number;
+  y: number;
+  tx: number;
+  ty: number;
+  edge: string;
+  clan: number;
+  aggroTick: number;
+  // Tiles per tick while marching.
+  pace: number;
+}
+export const abstractRaids = new Map<string, AbstractRaid>();
+
+export function addAbstractRaid(r: { faction: RaidFactionId; kinds: MobKind[]; x: number; y: number; tx: number; ty: number; edge: string; nightfall: number; clan: number }) {
+  const slowest = Math.max(1, Math.min(...r.kinds.map((k) => MOB_KIND_CONFIG[k].speed)));
+  const pace = slowest / TILE_SIZE / TICK_RATE / RAID_TRAVEL_SLACK;
+  const travel = Math.hypot(r.tx - r.x, r.ty - r.y) * 1.3 / pace;
+  const arrival = r.nightfall + Math.floor(Math.random() * NIGHT_TICKS * RAID_ARRIVAL_WINDOW_FRACTION);
+  const aggroTick = state.testHoldRaidAggro ? r.nightfall : Math.max(state.cycleTick, Math.floor(arrival - travel));
+  const rec: AbstractRaid = { id: `araid:${randomUUID()}`, faction: r.faction, kinds: [...r.kinds], x: r.x, y: r.y, tx: r.tx, ty: r.ty, edge: r.edge, clan: r.clan, aggroTick, pace };
+  abstractRaids.set(rec.id, rec);
+  return rec;
+}
+
+// The walkable tile nearest (x, y) outside site grounds (ring search), null when none within 12 tiles.
+function standTile(x: number, y: number): TileCoord | null {
+  const cx = Math.round(x);
+  const cy = Math.round(y);
+  for (let r = 0; r <= 12; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const p = { x: cx + dx, y: cy + dy };
+        if (inBounds(p.x, p.y) && isWalkableTile(p.x, p.y) && !isInSiteGrounds(p.x, p.y)) return p;
+      }
+    }
+  }
+  return null;
+}
+
+// Once a second (the park pass): march, then materialise in ACTIVE chunks.
+function updateAbstractRaids(dtTicks: number) {
+  const now = state.cycleTick;
+  for (const r of Array.from(abstractRaids.values())) {
+    if (now >= r.aggroTick) {
+      const d = Math.hypot(r.tx - r.x, r.ty - r.y);
+      const step = Math.min(d, r.pace * dtTicks);
+      if (d > 0) {
+        r.x += ((r.tx - r.x) / d) * step;
+        r.y += ((r.ty - r.y) / d) * step;
+      }
+    }
+    const near = Math.hypot(r.tx - r.x, r.ty - r.y) <= 24;
+    if (!near && streamingOn() && chunkStateOf(chunkAtPixel((r.x + 0.5) * TILE_SIZE, (r.y + 0.5) * TILE_SIZE)) !== ChunkState.Active) continue;
+    materialiseRaid(r);
+  }
+}
+
+function materialiseRaid(r: AbstractRaid) {
+  abstractRaids.delete(r.id);
+  const at = standTile(r.x, r.y);
+  if (!at) {
+    abstractStats.raidsLost++;
+    return;
+  }
+  const clan = clanById(r.clan);
+  withClan(clan, () => musterRaidGroup(at, r.kinds, r.faction, r.edge, r.aggroTick));
+  abstractStats.raidsMaterialised++;
+}
+
 // sim.ts after updateChunkStates: one park / wake pass per re-classification.
+let lastPassTick = 0;
 export function updateAbstractWorld() {
   if (chunkClassifyCount === lastPass) return;
   lastPass = chunkClassifyCount;
+  const dtTicks = Math.max(0, state.cycleTick - lastPassTick);
+  lastPassTick = state.cycleTick;
+  if (abstractRaids.size > 0) updateAbstractRaids(dtTicks);
   if (!streamingOn()) {
     if (cold.size > 0) for (const [c, rec] of Array.from(cold)) wakeChunk(c, rec);
     return;
@@ -193,6 +281,8 @@ function wakeChunk(c: number, rec: ColdChunk) {
 // ---- new world / saves ----
 export function clearAbstractWorld() {
   cold.clear();
+  abstractRaids.clear();
+  lastPassTick = state.cycleTick;
   parkedMobs.clear();
   Object.assign(parkedWild, zeroWild());
   for (const k of Object.keys(abstractStats) as (keyof typeof abstractStats)[]) abstractStats[k] = 0;
@@ -204,6 +294,7 @@ export function clearAbstractWorld() {
 export function abstractForSave() {
   return {
     chunks: Array.from(cold, ([c, r]) => [c, r.since, ...WILDLIFE_KINDS.map((k) => r.wild[k])]),
+    raids: Array.from(abstractRaids.values(), (r) => ({ ...r, kinds: [...r.kinds] })),
   };
 }
 
@@ -219,6 +310,8 @@ export function restoreAbstract(saved: ReturnType<typeof abstractForSave> | unde
     });
     cold.set(c, rec);
   }
+  for (const r of saved?.raids ?? []) if (r.kinds.length > 0) abstractRaids.set(r.id, { ...r, kinds: [...r.kinds] });
+  lastPassTick = state.cycleTick;
 }
 
 // ---- test hook 'auditWorld': no duplicated / vanished entities ----
@@ -258,10 +351,31 @@ export function auditWorld(): { ok: boolean; problems: string[]; counts: Record<
   if (abstractStats.mobsParked - abstractStats.mobsUnparked - abstractStats.mobsDropped !== parkedMobs.size) {
     p(`mob ledger: parked ${abstractStats.mobsParked} - unparked ${abstractStats.mobsUnparked} - dropped ${abstractStats.mobsDropped} != ${parkedMobs.size}`);
   }
+  // Warbands: bodies only while materialised, every body's warband exists; raids: one form each.
+  for (const w of warbands.values()) {
+    if (w.materialised) for (const id of w.memberIds) if (!mobs.has(id)) p(`warband ${w.id} member ${id} not live`);
+  }
+  for (const map of [mobs, parkedMobs]) {
+    for (const m of map.values()) {
+      if (m.warbandId && !warbands.get(m.warbandId)?.materialised) p(`mob ${m.id} of missing / abstract warband ${m.warbandId}`);
+      if (m.groupId && !raidGroups.has(m.groupId) && map === parkedMobs) p(`parked raid mob ${m.id}`);
+    }
+  }
+  const inGroup = new Map<string, string>();
+  for (const g of raidGroups.values()) {
+    if (abstractRaids.has(g.id)) p(`raid ${g.id} both abstract and real`);
+    for (const id of g.memberIds) {
+      if (inGroup.has(id)) p(`mob ${id} in raid groups ${inGroup.get(id)} and ${g.id}`);
+      inGroup.set(id, g.id);
+      if (parkedMobs.has(id)) p(`raid member ${id} parked`);
+    }
+  }
+  for (const r of abstractRaids.values()) if (r.kinds.length === 0) p(`empty abstract raid ${r.id}`);
+  for (const c of colonists.values()) if (c.wagon?.abstract && c.wagon.leg !== "out" && c.wagon.leg !== "back") p(`abstract wagon ${c.id} on leg ${c.wagon.leg}`);
   const wildTotal = WILDLIFE_KINDS.reduce((a, k) => a + parkedWild[k], 0);
   return {
     ok: problems.length === 0,
     problems,
-    counts: { coldChunks: cold.size, parkedMobs: parkedMobs.size, liveMobs: mobs.size, parkedWildlife: wildTotal, liveWildlife: wildlife.size, ...abstractStats },
+    counts: { coldChunks: cold.size, parkedMobs: parkedMobs.size, abstractRaids: abstractRaids.size, warbands: warbands.size, liveMobs: mobs.size, parkedWildlife: wildTotal, liveWildlife: wildlife.size, ...abstractStats },
   };
 }

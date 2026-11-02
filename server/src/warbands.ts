@@ -25,7 +25,8 @@ import {
 } from "./raids.js";
 import { catchUpCampGrowth, isInSiteGrounds, rebuildSiteGrounds, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
 import { stampSiteSearch } from "./creative.js";
-import { dropParkedSiteMobs } from "./abstract.js";
+import { addAbstractRaid, dropParkedSiteMobs } from "./abstract.js";
+import { ChunkState, chunkStateAtPixel, isColdAtPixel, streamingOn } from "./chunks.js";
 import { walkMobTo } from "./mobs.js";
 import { broadcastEvent } from "./net.js";
 
@@ -376,6 +377,7 @@ export function updateWarbands() {
   for (const p of players.values()) if (!p.dead) anchors.push({ x: p.x / TILE_SIZE, y: p.y / TILE_SIZE });
   for (const c of colonists.values()) if (c.hp > 0) anchors.push({ x: c.x / TILE_SIZE, y: c.y / TILE_SIZE });
   const tc = state.townCenters[0];
+  const streaming = streamingOn();
   for (const w of Array.from(warbands.values())) {
     if (w.materialised) {
       w.memberIds = w.memberIds.filter((id) => mobs.has(id));
@@ -390,10 +392,11 @@ export function updateWarbands() {
       const speed = Math.min(...(Object.keys(w.roster) as MobKind[]).map((k) => MOB_KIND_CONFIG[k].speed));
       w.idx = Math.min(w.route.length - 1, w.idx + (speed * WARBAND_PACE) / TILE_SIZE);
       pos = warbandTile(w);
-      if (near() <= WARBAND_AWAKE_TILES) materialise(w);
+      // World streaming phase 3: with streaming on, bodies exactly while its chunk is ACTIVE (abstract when COLD).
+      if (streaming ? chunkStateAtPixel((pos.x + 0.5) * TILE_SIZE, (pos.y + 0.5) * TILE_SIZE) === ChunkState.Active : near() <= WARBAND_AWAKE_TILES) materialise(w);
     } else {
       const d = near();
-      if (d > WARBAND_SLEEP_TILES) dematerialise(w);
+      if (streaming ? isColdAtPixel((pos.x + 0.5) * TILE_SIZE, (pos.y + 0.5) * TILE_SIZE) : d > WARBAND_SLEEP_TILES) dematerialise(w);
       else if (d <= WARBAND_ENGAGE_TILES || members(w).some((m) => m.lastDamagedTick > w.wokeTick)) {
         engage(w);
         continue;
@@ -464,36 +467,50 @@ export function spawnCampRaids(dayIndex: number): RaidGroup[] {
     const faction = FACTIONS[s.faction as WarbandFaction] ?? FACTIONS.bandit;
     const size = Math.min(CAMP_RAID_SIZE_CAP, 3 * s.tier + Math.floor(dayIndex / 4));
     const edge = compass(tc, anchor).split("-")[0];
-    const group: RaidGroup = {
-      id: randomUUID(), faction: faction.raid, isHorde: false,
-      edge: (["north", "south", "east", "west"].includes(edge) ? edge : "north") as RaidEdge,
-      memberIds: [], homes: new Map(), aggroTick: nightfall, state: "passive", leaderId: null, offsets: new Map(), repathCooldown: 0,
-    };
-    const seen = new Set<number>([tileIndex(anchor.x, anchor.y)]);
-    const queue = [anchor];
-    const tiles: TileCoord[] = [];
-    for (let head = 0; head < queue.length && tiles.length < size && head < 600; head++) {
-      const t = queue[head];
-      tiles.push(t);
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const p = { x: t.x + ox, y: t.y + oy };
-        if (!isWalkableTile(p.x, p.y) || isInSiteGrounds(p.x, p.y) || seen.has(tileIndex(p.x, p.y))) continue;
-        seen.add(tileIndex(p.x, p.y));
-        queue.push(p);
-      }
+    const kinds = Array.from({ length: size }, () => pickRaidFactionKind(faction.raid, dayIndex, {}));
+    // World streaming phase 3: mustering outside the ACTIVE chunks, the raid is an abstract record that marches by
+    // ETA and materialises (musterRaidGroup) when it reaches an ACTIVE chunk (abstract.ts).
+    if (streamingOn() && chunkStateAtPixel((anchor.x + 0.5) * TILE_SIZE, (anchor.y + 0.5) * TILE_SIZE) !== ChunkState.Active) {
+      addAbstractRaid({ faction: faction.raid, kinds, x: anchor.x, y: anchor.y, tx: tc.x, ty: tc.y, edge, nightfall, clan: state.clan.id });
+      broadcastEvent("raid", s.sighted ? `Raiders muster at ${s.name}` : `Raiders muster to the ${compass(tc, anchor)}`);
+      continue;
     }
-    for (let i = 0; i < size; i++) {
-      const tile = tiles[i % tiles.length];
-      const m = createRaidMob(pickRaidFactionKind(faction.raid, dayIndex, {}), tile, group.id);
-      group.memberIds.push(m.id);
-      group.homes.set(m.id, tile);
-    }
+    const group = musterRaidGroup(anchor, kinds, faction.raid, edge, nightfall);
     if (!state.testHoldRaidAggro) group.aggroTick = raidDepartureTick(anchor, group, nightfall);
-    raidGroups.set(group.id, group);
     out.push(group);
     broadcastEvent("raid", s.sighted ? `Raiders muster at ${s.name}` : `Raiders muster to the ${compass(tc, anchor)}`);
   }
   return out;
+}
+
+// A camp raid's group on the ground: `kinds` round `anchor` (flood fill outside site grounds), passive until aggroTick.
+export function musterRaidGroup(anchor: TileCoord, kinds: MobKind[], faction: RaidFactionId, edge: string, aggroTick: number): RaidGroup {
+  const group: RaidGroup = {
+    id: randomUUID(), faction, isHorde: false,
+    edge: (["north", "south", "east", "west"].includes(edge) ? edge : "north") as RaidEdge,
+    memberIds: [], homes: new Map(), aggroTick, state: "passive", leaderId: null, offsets: new Map(), repathCooldown: 0,
+  };
+  const seen = new Set<number>([tileIndex(anchor.x, anchor.y)]);
+  const queue = [anchor];
+  const tiles: TileCoord[] = [];
+  for (let head = 0; head < queue.length && tiles.length < kinds.length && head < 600; head++) {
+    const t = queue[head];
+    tiles.push(t);
+    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const p = { x: t.x + ox, y: t.y + oy };
+      if (!isWalkableTile(p.x, p.y) || isInSiteGrounds(p.x, p.y) || seen.has(tileIndex(p.x, p.y))) continue;
+      seen.add(tileIndex(p.x, p.y));
+      queue.push(p);
+    }
+  }
+  for (let i = 0; i < kinds.length; i++) {
+    const tile = tiles[i % tiles.length];
+    const m = createRaidMob(kinds[i], tile, group.id);
+    group.memberIds.push(m.id);
+    group.homes.set(m.id, tile);
+  }
+  raidGroups.set(group.id, group);
+  return group;
 }
 
 // ---- Saves (optional `warbands`; old saves have none) and the debug view ----
