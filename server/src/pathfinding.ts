@@ -11,6 +11,9 @@ import {
   biomeSpeedMultiplier, inBounds, roadSpeedMultiplier, siteNumber, tileIndex, tileToPixelCenter,
 } from "./tiles.js";
 import { isWalkablePixel } from "./wildlife.js";
+import { cachedPath, pathCacheKey, pathCacheStats, storePath } from "./chunks.js";
+
+const VERIFY_PATH_CACHE = process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_PATH_CACHE_VERIFY === "1";
 import { isWardPriest } from "./colonists.js";
 import { isGuardOrMilitiaKind } from "./units.js";
 import { gatePassable } from "./combat.js";
@@ -20,9 +23,14 @@ export function isWalkableTile(tx: number, ty: number): boolean {
   if (!inBounds(tx, ty)) return false;
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
   // Gates: passable by their state, from the current mover's side (hostileMover).
-  if (isGateTile(t)) return gatePassable(tileIndex(tx, ty), state.hostileMover);
+  if (isGateTile(t)) {
+    sawGate = true;
+    return gatePassable(tileIndex(tx, ty), state.hostileMover);
+  }
   return !isSolidTile(t);
 }
+// Set when isWalkableTile looked at a gate: findPath does not cache that search.
+let sawGate = false;
 
 export function findAdjacentWalkable(tx: number, ty: number): TileCoord | null {
   const neighbors = [
@@ -49,7 +57,29 @@ export function adjacentTilesOfType(tx: number, ty: number, type: TileType): Til
 // blocked (optional, forts phase E wagon detours): extra tiles this search treats as unwalkable.
 export function findPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: number) => boolean): TileCoord[] | null {
   if (start.x === goal.x && start.y === goal.y) return [];
+  // World streaming phase 1: an unchanged region gives the same answer as last time (see chunks.ts).
+  const cacheable = !blocked && inBounds(start.x, start.y) && inBounds(goal.x, goal.y);
+  const ck = cacheable ? pathCacheKey(tileIndex(start.x, start.y), tileIndex(goal.x, goal.y), state.hostileMover) : 0;
+  if (cacheable) {
+    const hit = cachedPath(ck);
+    if (hit !== undefined) {
+      // Test runs with COLONY_PATH_CACHE_VERIFY=1: every hit is checked against a fresh search.
+      if (VERIFY_PATH_CACHE) {
+        const fresh = searchPath(start, goal, blocked).path;
+        if (JSON.stringify(fresh) !== JSON.stringify(hit)) pathCacheStats.mismatches++;
+      }
+      return hit;
+    }
+  }
+  const prevSawGate = sawGate;
+  sawGate = false;
+  const result = searchPath(start, goal, blocked);
+  if (cacheable && !sawGate) storePath(ck, result.path, result.visited);
+  sawGate = prevSawGate || sawGate;
+  return result.path;
+}
 
+function searchPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: number) => boolean): { path: TileCoord[] | null; visited: Set<number> } {
   const key = (t: TileCoord) => t.y * state.WORLD_TILES_X + t.x;
   const visited = new Set<number>([key(start)]);
   const parent = new Map<number, TileCoord>();
@@ -58,7 +88,7 @@ export function findPath(start: TileCoord, goal: TileCoord, blocked?: (x: number
   // Node budget: a request can never stall a tick on a huge map (a 160 map has 25.6k tiles in all, so
   // it is never reached there). Over budget = no path, like an unreachable goal.
   for (let head = 0; head < queue.length; head++) {
-    if (head > PATH_NODE_BUDGET) return null;
+    if (head > PATH_NODE_BUDGET) return { path: null, visited };
     const current = queue[head];
     const neighbors = [
       { x: current.x + 1, y: current.y },
@@ -80,12 +110,12 @@ export function findPath(start: TileCoord, goal: TileCoord, blocked?: (x: number
           path.unshift(back);
           back = parent.get(key(back))!;
         }
-        return path;
+        return { path, visited };
       }
       queue.push(n);
     }
   }
-  return null;
+  return { path: null, visited };
 }
 
 export function advanceAlongPath(

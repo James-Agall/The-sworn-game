@@ -18,6 +18,7 @@ import {
   WARLORD_DAMAGE_MULT, WARLORD_HP_MULT, WARLORD_REWARD, clampWorldSize,
 } from "./constants.js";
 import { colonists, hearths, mobs, players, scaledCount, scaledCountSub, state } from "./state.js";
+import { markTileRegistryStale, setTile } from "./chunks.js";
 import { clearOwners, inBounds, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { WILDLIFE_CONFIG, generateForage, spawnInitialWildlife } from "./wildlife.js";
 import {
@@ -43,7 +44,7 @@ export function scatterResourceTiles(tileType: TileType, count: number) {
     if (isInReservedGrounds(tx, ty)) continue;
     const idx = tileIndex(tx, ty);
     if (state.tiles[idx] === TileType.Empty) {
-      state.tiles[idx] = tileType;
+      setTile(idx, tileType);
       placed++;
     }
   }
@@ -181,7 +182,7 @@ export function generatePonds() {
         const idx = tileIndex(tx, ty);
         if (state.tiles[idx] !== TileType.Empty) continue;
         const jitter = edgeJitter(tx, ty, POND_NOISE_CELL_TILES, state.worldNoiseSalt + 1) * POND_EDGE_JITTER_TILES;
-        if (Math.hypot(dx, dy) <= radius + jitter) state.tiles[idx] = TileType.Water;
+        if (Math.hypot(dx, dy) <= radius + jitter) setTile(idx, TileType.Water);
       }
     }
   }
@@ -275,10 +276,10 @@ export function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord)
   const extraCount = siteKind === "ruin" ? randInt(0, 2) : randInt(1, 3);
   const extraPool = siteKind === "ruin" ? RUIN_EXTRAS : ENCAMPMENT_EXTRAS;
   const decorations: TileCoord[] = [center];
-  state.tiles[tileIndex(center.x, center.y)] = centerpiece;
+  setTile(tileIndex(center.x, center.y), centerpiece);
   for (const offset of shuffled(NEIGHBORS_8).slice(0, extraCount)) {
     const t = { x: center.x + offset.x, y: center.y + offset.y };
-    state.tiles[tileIndex(t.x, t.y)] = extraPool[randInt(0, extraPool.length - 1)];
+    setTile(tileIndex(t.x, t.y), extraPool[randInt(0, extraPool.length - 1)]);
     decorations.push(t);
   }
 
@@ -332,7 +333,7 @@ export function placeAbbey(placedSites: TileCoord[]) {
       const tile = ABBEY_LAYOUT_TILES[ABBEY_LAYOUT[ry][rx]];
       if (tile === undefined) continue;
       const t = { x: center.x + rx - ABBEY_FOOTPRINT_RADIUS, y: center.y + ry - ABBEY_FOOTPRINT_RADIUS };
-      state.tiles[tileIndex(t.x, t.y)] = tile;
+      setTile(tileIndex(t.x, t.y), tile);
       if (tile === TileType.AbbeyHall) hall = t;
     }
   }
@@ -390,7 +391,7 @@ export function placeCastleRuin(placedSites: TileCoord[]) {
     for (let rx = 0; rx < CASTLE_RUIN_LAYOUT[ry].length; rx++) {
       const t = { x: center.x + rx - CASTLE_RUIN_FOOTPRINT_RADIUS, y: center.y + ry - CASTLE_RUIN_FOOTPRINT_RADIUS };
       const tile = CASTLE_RUIN_LAYOUT_TILES[CASTLE_RUIN_LAYOUT[ry][rx]];
-      if (tile !== undefined) state.tiles[tileIndex(t.x, t.y)] = tile;
+      if (tile !== undefined) setTile(tileIndex(t.x, t.y), tile);
       // Guardians stand on the open ground inside the walls (not in the gate gaps, not on the boss).
       else if (CASTLE_RUIN_LAYOUT[ry][rx] === "." && rx > 0 && ry > 0 && rx < CASTLE_RUIN_LAYOUT.length - 1 && ry < CASTLE_RUIN_LAYOUT.length - 1) open.push(t);
     }
@@ -508,6 +509,7 @@ export function setWorldSize(size: number) {
 export function generateWorld() {
   const genStart = performance.now();
   state.tiles.fill(TileType.Empty);
+  markTileRegistryStale();
   state.biomes.fill(Biome.Plains);
   state.worldNoiseSalt = Math.floor(Math.random() * 0x7fffffff);
   state.abbeyCenter = null;
@@ -516,7 +518,7 @@ export function generateWorld() {
   clearOwners();
   clearSites();
   resetGoals();
-  state.tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
+  setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
   state.townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
   generateBiomes();
   generatePonds();

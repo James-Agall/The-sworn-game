@@ -2155,6 +2155,35 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## World streaming — landed (phase 1) 2026-11-02 (registries and caches)
+Plan: `~/docs/colony2d/PLAN-world-streaming.md` §9 phase 1. No streaming yet; behaviour unchanged at 160/256/512.
+- **Tile registry (`server/src/chunks.ts`):** every tile write goes through `setTile(index, tile)` (the ~70 direct
+  `state.tiles[i] = t` writes were converted); bulk writes (worldgen's fill, save load) call `markTileRegistryStale()`
+  and a new `state.tiles` array is noticed by itself (rebuild on the next query). It keeps per-type index sets (all types
+  but Empty / Water), per-type counts, per-chunk (32x32) structure counts and a per-chunk `regionVersion` bumped on every
+  tile change. `tileIndicesOf(t)` returns ascending indices (= row-major scan order); `byColumn()` re-sorts for the old
+  `for tx { for ty }` scans, so tie-breaks and random picks see the same order as before.
+- **Full-map scans replaced:** `updateTowers` (was every tick), `updateGates` registry refresh, `settlementStatsAll`,
+  `neighbourhoodPopulationBonus`, `assignShelter`, `countTilesOfType` (happiness, tree regrowth caps), the happiness tavern
+  scan, `tilesOfType` (ward priest, churches, gold shops, keeps), `planRouteToNearestResource`, `anyPlayerBuilding`
+  (goals), `clanPower`, `buildingTargetCandidates`, `clanTilesForSnapshot`, the hearth campfire scan, lumberjack regrowth.
+  Left as full scans: `tryGrowTree` (picks among Empty tiles), worldgen, save migration, test hooks.
+- **Cached paths:** `findPath` results (no `blocked` filter) are cached by (start, goal, mover side) in a bounded LRU
+  (`PATH_CACHE_MAX` 4096, paths as tile-index arrays). An entry stores the regionVersion of every chunk the search
+  VISITED (plus edge neighbours), so a hit is exactly what a fresh search would return; searches that looked at a gate
+  (state-dependent passability) are never cached. Applies to every caller, civilians included.
+- **Checks:** test hook `auditRegistry` (registry vs a fresh full scan, path cache hits / misses / wrong) and a 14th
+  smoke check; `COLONY_PATH_CACHE_VERIFY=1` (with test hooks) re-runs every cache hit as a fresh search and counts
+  mismatches (0 in smoke runs). `COLONY_TEST_MAX_WORLD_SIZE` (test hooks only) lifts the 512 cap for benchmarks.
+- **Benchmark** (fresh normal world, fast-forward, ms per tick, this WSL box, noisy by world): 512: before 5.8-8.3,
+  after 0.9-4.8; 1024 (test-only size): before 26.8, after 3.8. Worldgen 1024 takes ~65-70 s (not addressed; phase 4).
+  Before the change about 85% of the 512 tick was the scans above (profile: happiness 1.3 s, towers 0.8 s, ward priest
+  0.5 s, goals 0.5 s over 660 ticks).
+- Tests run: smoke (x4 all pass), towers-farms, gates-walls, settlement-pop, economy-goods, houses-barns-castles,
+  ward-priest-patrol, goals-castle pass; clans-test is flaky on the base commit too (2/9 baseline runs fail with the
+  same knight / clan-tiles symptoms).
+- Browser checklist: see MANUAL-TESTS.md "World streaming".
+
 ## Phase I — landed 2026-10-31 (tuning pass, constants only)
 
 Plan `~/docs/colony2d/PLAN-forts-diplomacy-moats.md` §10 "I". Done without the user's playtest, so only numbers with

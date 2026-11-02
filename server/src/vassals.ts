@@ -22,6 +22,7 @@ import {
   TAX_SHARE_BASE, TAX_SHARE_MAX, VASSAL_HIT_COOLDOWN_TICKS, WALL_TILES,
 } from "./constants.js";
 import { clans, colonists, mobs, sites, state } from "./state.js";
+import { tileIndicesOfAny } from "./chunks.js";
 import { getBuildingLevel, ownerAt, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { clanById, clanIdAtIndex, withClan } from "./clans.js";
 import { broadcastEvent } from "./net.js";
@@ -35,6 +36,7 @@ import { spawnGuardian } from "./worldgen.js";
 import { releaseResourceReservation } from "./economy.js";
 
 const WALLISH = new Set<number>([...WALL_TILES, TileType.Gate, TileType.Drawbridge]);
+const POWER_TILES = [TileType.Tower, ...WALLISH] as TileType[];
 const days = (ticks: number) => `${(Math.max(0, ticks) / GAME_DAY_TICKS).toFixed(1)} days`;
 
 function vstate(s: SiteState): VassalState {
@@ -59,7 +61,7 @@ export function clanPower(clanId: number): number {
       add(c.clan ?? 0, c.hp * unitStats(c).damage);
     }
     const W = state.WORLD_TILES_X;
-    for (let i = 0; i < state.tiles.length; i++) {
+    for (const i of tileIndicesOfAny(POWER_TILES)) {
       const t = state.tiles[i] as TileType;
       const tower = isTowerTile(t);
       if (!tower && !WALLISH.has(t)) continue;

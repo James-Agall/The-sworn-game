@@ -25,6 +25,7 @@ import {
   buildingHp, colonists, constructionSites, farmPlots, mobs, repairPaid, repairQueue, reservedResourceTiles,
   clans, respawnQueue, state, summonedUntil, tileClan, wardStoneLastTended, wardStonesActiveLastTick,
 } from "./state.js";
+import { byColumn, setTile, tileCountOf, tileIndicesOf, tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import {
   biomeSpeedMultiplier, getBuildingLevel, inBounds, isNightNow, levelBonus, ownerAt, resourceKey,
   roadSpeedMultiplier, tileIndex, tileOfPixel, tileToPixelCenter,
@@ -99,11 +100,7 @@ export function spawnPointNearTownCenter(near?: { x: number; y: number; clan?: n
 }
 
 export function countTilesOfType(tileType: TileType): number {
-  let count = 0;
-  for (let i = 0; i < state.tiles.length; i++) {
-    if (state.tiles[i] === tileType) count++;
-  }
-  return count;
+  return tileCountOf(tileType);
 }
 
 export function computeColonyHappiness(): number {
@@ -119,10 +116,10 @@ export function computeColonyHappiness(): number {
   }
 
   const tavernTiles: TileCoord[] = [];
-  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
-      if (state.tiles[tileIndex(tx, ty)] === TileType.Tavern && clanIdAt(tx, ty) === state.clan.id) tavernTiles.push({ x: tx, y: ty });
-    }
+  for (const i of byColumn(tileIndicesOf(TileType.Tavern))) {
+    const tx = i % state.WORLD_TILES_X;
+    const ty = Math.floor(i / state.WORLD_TILES_X);
+    if (clanIdAt(tx, ty) === state.clan.id) tavernTiles.push({ x: tx, y: ty });
   }
   let tavernCoverageScore = 0;
   if (posts.size > 0 && tavernTiles.length > 0) {
@@ -260,6 +257,7 @@ export function settlementStats(): SettlementStat[] {
 // Per-settlement population of every clan in one map pass (clan id -> its settlements, numbered 1.. per
 // clan): units by stored settlement, queued worker slots, and the cap = the housing-derived capacity (base +
 // houses + neighbourhood bonus nearest to it, among the tile's own clan's Town Centers) clamped by the tier cap.
+let STAT_TILES: TileType[] | null = null;
 export function settlementStatsAll(): Map<number, SettlementStat[]> {
   const byClan = new Map<number, SettlementStat[]>();
   const numberIn = new Map<number, number>();
@@ -297,7 +295,8 @@ export function settlementStatsAll(): Map<number, SettlementStat[]> {
     const tc = nearestTownCenter(p.x, p.y, townCentersOfClan(clanId));
     return tc ? statOf.get(tc) : undefined;
   };
-  for (let i = 0; i < state.tiles.length; i++) {
+  STAT_TILES ??= tileTypesWhere((t) => isHouseTile(t) || t === TileType.Keep || isMilitaryTile(t));
+  for (const i of tileIndicesOfAny(STAT_TILES)) {
     const t = state.tiles[i] as TileType;
     // Forts phase C: an NPC settlement's houses / keep house nobody of a clan (until captured).
     if (ownerAt(i) !== 0) continue;
@@ -389,6 +388,7 @@ export function populationCap(): number {
 export function isHouseTile(t: TileType): boolean {
   return t === TileType.House || t === TileType.BigHouse || t === TileType.HouseLevel2;
 }
+const HOUSE_TILES = [TileType.House, TileType.BigHouse, TileType.HouseLevel2];
 
 export function isMilitaryTile(t: TileType): boolean {
   return (
@@ -413,25 +413,24 @@ export function isSynergyBuilding(t: TileType): boolean {
 // the colony faster, so neighbourhoods are worth building.
 export function neighbourhoodPopulationBonus(onBonus?: (tx: number, ty: number) => void): number {
   let bonus = 0;
-  for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
-    for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
-      if (!isHouseTile(state.tiles[tileIndex(tx, ty)] as TileType)) continue;
-      for (const [dx, dy] of NEIGHBOURS_8) {
-        const nx = tx + dx;
-        const ny = ty + dy;
-        if (!inBounds(nx, ny)) continue;
-        const n = state.tiles[tileIndex(nx, ny)] as TileType;
-        // Clans: a pair only counts inside one clan.
-        if (tileClan.size > 0 && clanIdAt(nx, ny) !== clanIdAt(tx, ty)) continue;
-        if (isSynergyBuilding(n)) {
-          bonus++;
-          onBonus?.(tx, ty);
-        }
-        // House-house pairs are seen from both ends; count each once (the "later" tile in scan order).
-        else if (isHouseTile(n) && (dy > 0 || (dy === 0 && dx > 0))) {
-          bonus++;
-          onBonus?.(tx, ty);
-        }
+  for (const i of tileIndicesOfAny(HOUSE_TILES)) {
+    const tx = i % state.WORLD_TILES_X;
+    const ty = Math.floor(i / state.WORLD_TILES_X);
+    for (const [dx, dy] of NEIGHBOURS_8) {
+      const nx = tx + dx;
+      const ny = ty + dy;
+      if (!inBounds(nx, ny)) continue;
+      const n = state.tiles[tileIndex(nx, ny)] as TileType;
+      // Clans: a pair only counts inside one clan.
+      if (tileClan.size > 0 && clanIdAt(nx, ny) !== clanIdAt(tx, ty)) continue;
+      if (isSynergyBuilding(n)) {
+        bonus++;
+        onBonus?.(tx, ty);
+      }
+      // House-house pairs are seen from both ends; count each once (the "later" tile in scan order).
+      else if (isHouseTile(n) && (dy > 0 || (dy === 0 && dx > 0))) {
+        bonus++;
+        onBonus?.(tx, ty);
       }
     }
   }
@@ -778,12 +777,10 @@ export function planRouteToNearestResource(
   resourceTile: TileType
 ): { path: TileCoord[]; resX: number; resY: number } | null {
   const spots: TileCoord[] = [];
-  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
-      if (state.tiles[tileIndex(tx, ty)] === resourceTile && !reservedResourceTiles.has(resourceKey(tx, ty))) {
-        spots.push({ x: tx, y: ty });
-      }
-    }
+  for (const i of byColumn(tileIndicesOf(resourceTile))) {
+    const tx = i % state.WORLD_TILES_X;
+    const ty = Math.floor(i / state.WORLD_TILES_X);
+    if (!reservedResourceTiles.has(resourceKey(tx, ty))) spots.push({ x: tx, y: ty });
   }
   spots.sort((a, b) => {
     const da = (a.x - c.x / TILE_SIZE) ** 2 + (a.y - c.y / TILE_SIZE) ** 2;
@@ -926,7 +923,7 @@ export function updateGathererColonist(c: Colonist, dt: number) {
       if (c.chopTicksRemaining <= 0) {
         const idx = tileIndex(c.targetResourceX, c.targetResourceY);
         if (c.kind === "lumberjack" && state.tiles[idx] === resourceTile) {
-          state.tiles[idx] = TileType.Empty;
+          setTile(idx, TileType.Empty);
           broadcastTileUpdate(c.targetResourceX, c.targetResourceY, TileType.Empty);
         }
         releaseResourceReservation(c);
@@ -1276,19 +1273,19 @@ export function assignShelter(c: Colonist) {
   c.homeTileX = -1;
   c.homeTileY = -1;
   let bestD = Infinity;
-  for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
-    for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
-      const cap = houseCapacity(state.tiles[tileIndex(tx, ty)] as TileType);
-      if (cap === 0) continue;
-      if (clanIdAt(tx, ty) !== (c.clan ?? 0)) continue;
-      const center = tileToPixelCenter({ x: tx, y: ty });
-      const d = Math.hypot(c.x - center.x, c.y - center.y);
-      if (d >= bestD) continue;
-      if (houseOccupancy(tx, ty) >= cap) continue;
-      bestD = d;
-      c.homeTileX = tx;
-      c.homeTileY = ty;
-    }
+  for (const i of tileIndicesOfAny(HOUSE_TILES)) {
+    const tx = i % state.WORLD_TILES_X;
+    const ty = Math.floor(i / state.WORLD_TILES_X);
+    const cap = houseCapacity(state.tiles[i] as TileType);
+    if (cap === 0) continue;
+    if (clanIdAt(tx, ty) !== (c.clan ?? 0)) continue;
+    const center = tileToPixelCenter({ x: tx, y: ty });
+    const d = Math.hypot(c.x - center.x, c.y - center.y);
+    if (d >= bestD) continue;
+    if (houseOccupancy(tx, ty) >= cap) continue;
+    bestD = d;
+    c.homeTileX = tx;
+    c.homeTileY = ty;
   }
 }
 
@@ -1364,11 +1361,7 @@ export function isWardPriest(c: Colonist): boolean {
 }
 
 export function tilesOfType(type: TileType): TileCoord[] {
-  const found: TileCoord[] = [];
-  for (let i = 0; i < state.tiles.length; i++) {
-    if (state.tiles[i] === type) found.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
-  }
-  return found;
+  return tileIndicesOf(type).map((i) => ({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) }));
 }
 
 // The colony's own Churches (clan 0, no NPC owner): a human settlement's church (forts phase C) or another

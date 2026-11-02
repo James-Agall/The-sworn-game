@@ -12,6 +12,7 @@ import {
   colonists, commandedTargets, hearthEvents, hearths, mobs, ownerSiteIds, regiments, state, structureBreach,
   tileOwner,
 } from "./state.js";
+import { setTile, tileIndicesOf } from "./chunks.js";
 import { inBounds, isHostileOwner, ownerAt, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { armyDamageMultiplier } from "./economy.js";
@@ -100,7 +101,7 @@ export function backfillHearths() {
     else sites.set(m.siteId, [m]);
   }
   const campfires: TileCoord[] = [];
-  for (let i = 0; i < state.tiles.length; i++) {
+  for (const i of tileIndicesOf(TileType.PropCampfire)) {
     // Forts phase B: a fort's campfires are decor (its hearth is the keep, saved with the site).
     if (state.tiles[i] === TileType.PropCampfire && !claimed.has(i) && !tileOwner.has(i)) campfires.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
   }
@@ -149,13 +150,13 @@ export function destroyHearth(h: HearthState, attackerKey?: string) {
   if (h.siteKind === "fort") onFortKeepDestroyed(h.siteId);
   else {
     // The fire burns out: the hearth tile becomes scorched rubble, the camp's props around it burn away.
-    state.tiles[tileIndex(h.x, h.y)] = TileType.RuinRubble;
+    setTile(tileIndex(h.x, h.y), TileType.RuinRubble);
     broadcastTileUpdate(h.x, h.y, TileType.RuinRubble);
     for (const o of NEIGHBORS_8) {
       const x = h.x + o.x;
       const y = h.y + o.y;
       if (!inBounds(x, y) || !ENCAMPMENT_EXTRAS.includes(state.tiles[tileIndex(x, y)] as TileType)) continue;
-      state.tiles[tileIndex(x, y)] = TileType.Empty;
+      setTile(tileIndex(x, y), TileType.Empty);
       broadcastTileUpdate(x, y, TileType.Empty);
       const p = tileToPixelCenter({ x, y });
       state.pendingEffects.push({ fromX: p.x, fromY: p.y, toX: p.x, toY: p.y, boulder: true });

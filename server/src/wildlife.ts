@@ -14,6 +14,7 @@ import {
 import {
   colonists, forageRegrow, players, reservedResourceTiles, scaledCount, scaledCountSub, state, wildlife,
 } from "./state.js";
+import { setTile } from "./chunks.js";
 import {
   biomeAt, biomeSpeedMultiplier, clamp, getBuildingLevel, inBounds, levelBonus, resourceKey, tileIndex, tileOfPixel,
   tileToPixelCenter,
@@ -303,7 +304,7 @@ export function scatterForage(tile: TileType, count: number, isValid: (tx: numbe
     if (isInReservedGrounds(tx, ty)) continue;
     if (Math.hypot(tx - TOWN_CENTER_TILE.x, ty - TOWN_CENTER_TILE.y) < FORAGE_MIN_TOWN_CENTER_DIST_TILES) continue;
     if (!isValid(tx, ty)) continue;
-    state.tiles[tileIndex(tx, ty)] = tile;
+    setTile(tileIndex(tx, ty), tile);
     placed++;
   }
 }
@@ -333,7 +334,7 @@ export function updateForageRegrow() {
       continue;
     }
     forageRegrow.delete(index);
-    state.tiles[index] = ripe;
+    setTile(index, ripe);
     broadcastTileUpdate(index % state.WORLD_TILES_X, Math.floor(index / state.WORLD_TILES_X), ripe);
   }
 }
@@ -519,7 +520,7 @@ export function updateForager(c: Colonist, dt: number) {
       const index = tileIndex(c.targetResourceX, c.targetResourceY);
       const ripe = state.tiles[index] as TileType;
       const picked = FORAGE_RIPE_TO_PICKED[ripe]!;
-      state.tiles[index] = picked;
+      setTile(index, picked);
       broadcastTileUpdate(c.targetResourceX, c.targetResourceY, picked);
       forageRegrow.set(index, FORAGE_REGROW_TICKS);
       c.carryAmount += FORAGE_FRUIT_YIELD[ripe] ?? 0;

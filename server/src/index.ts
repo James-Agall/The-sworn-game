@@ -16,6 +16,7 @@ import {
 import {
   clans, colonists, gravestones, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
 } from "./state.js";
+import { setTile } from "./chunks.js";
 import { anchorOfTile, clamp, inBounds, isNightNow, ownerAt, tileIndex } from "./tiles.js";
 import "./pathfinding.js";
 import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchangeResource } from "./economy.js";
@@ -58,7 +59,7 @@ import { handleTestHook } from "./testhooks.js";
 import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creative.js";
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
 
-state.tiles[tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y)] = TileType.TownCenter;
+setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 
 generateWorld();
 httpServer.listen(PORT);

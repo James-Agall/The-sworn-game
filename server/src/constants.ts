@@ -17,7 +17,8 @@ import type {
 // The size is chosen per world (main menu / restart / save); COLONY_WORLD_SIZE is only the boot default.
 // setWorldSize() (below, once every size-dependent module value is declared) re-allocates them all.
 export const MIN_WORLD_SIZE = 64;
-export const MAX_WORLD_SIZE = 512;
+// World streaming benchmarks: COLONY_TEST_MAX_WORLD_SIZE (with COLONY_TEST_HOOKS=1) lifts the cap, e.g. to 1024.
+export const MAX_WORLD_SIZE = process.env.COLONY_TEST_HOOKS === "1" ? Math.max(512, Number(process.env.COLONY_TEST_MAX_WORLD_SIZE) || 0) : 512;
 export const clampWorldSize = (n: number) => Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, Math.round(n)));
 // Things that cost CPU every tick (wildlife) or are expensive to populate (POIs and their guardians,
 // mini-bosses) scale by area only up to the 160x160 tuning (scale 4); beyond that, as the 4th root, so a

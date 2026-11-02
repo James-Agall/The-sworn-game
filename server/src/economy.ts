@@ -12,6 +12,7 @@ import {
   STARTING_ROCK, STARTING_WOOD,
 } from "./constants.js";
 import { colonists, farmPlots, players, reservedResourceTiles, state, wildlife } from "./state.js";
+import { byColumn, setTile, tileIndicesOf } from "./chunks.js";
 import {
   biomeProductionFactor, getBuildingLevel, inBounds, levelBonus, resourceKey, tileIndex, tileOccupiedByEntity,
   tileOfPixel,
@@ -93,18 +94,14 @@ export function tryGrowTree() {
   }
   if (candidates.length === 0) return;
   const spot = candidates[Math.floor(Math.random() * candidates.length)];
-  state.tiles[tileIndex(spot.x, spot.y)] = TileType.Tree;
+  setTile(tileIndex(spot.x, spot.y), TileType.Tree);
   broadcastTileUpdate(spot.x, spot.y, TileType.Tree);
 }
 
 export function tryGrowTreesNearLumberjackPosts() {
   if (countTilesOfType(TileType.Tree) >= state.MAX_TREES) return;
-  const posts: TileCoord[] = [];
-  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
-      if (state.tiles[tileIndex(tx, ty)] === TileType.LumberjackPost) posts.push({ x: tx, y: ty });
-    }
-  }
+  const W = state.WORLD_TILES_X;
+  const posts: TileCoord[] = byColumn(tileIndicesOf(TileType.LumberjackPost)).map((i) => ({ x: i % W, y: Math.floor(i / W) }));
   for (const post of posts) {
     if (countTilesOfType(TileType.Tree) >= state.MAX_TREES) return;
     const candidates: TileCoord[] = [];
@@ -122,7 +119,7 @@ export function tryGrowTreesNearLumberjackPosts() {
     }
     if (candidates.length === 0) continue;
     const spot = candidates[Math.floor(Math.random() * candidates.length)];
-    state.tiles[tileIndex(spot.x, spot.y)] = TileType.Tree;
+    setTile(tileIndex(spot.x, spot.y), TileType.Tree);
     broadcastTileUpdate(spot.x, spot.y, TileType.Tree);
   }
 }

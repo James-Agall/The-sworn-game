@@ -2,6 +2,7 @@
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, wagonDebugState } from "./wagons.js";
 import { buildingLevel, tradingPosts } from "./state.js";
+import { auditTileRegistry, pathCacheStats, setTile } from "./chunks.js";
 import { clanById, clanIdAt, withClan } from "./clans.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -245,7 +246,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "setTileRaw" && typeof msg.tx === "number" && typeof msg.ty === "number" && typeof msg.tile === "number") {
     // World editing for tests (forage plants next to a hut, clearing obstacles). No placement rules.
     if (inBounds(msg.tx, msg.ty)) {
-      state.tiles[tileIndex(msg.tx, msg.ty)] = msg.tile;
+      setTile(tileIndex(msg.tx, msg.ty), msg.tile);
       broadcastTileUpdate(msg.tx, msg.ty, msg.tile as TileType);
     }
     reply({ tile: state.tiles[tileIndex(msg.tx, msg.ty)] });
@@ -269,7 +270,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         const t = !ring ? (dx === 0 && dy === 0 && msg.tower !== false ? TileType.Tower : TileType.Empty)
           : dx === -2 && dy === 0 ? TileType.Gate : msg.stone ? TileType.StoneWall : TileType.Wall;
         buildingHp.delete(resourceKey(x, y));
-        state.tiles[i] = t;
+        setTile(i, t);
         broadcastTileUpdate(x, y, t);
         setOwner(i, t === TileType.Empty ? 0 : num);
         if (t === TileType.Gate) gate = { x, y };
@@ -546,6 +547,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       groups: raidGroups.size,
     });
     if (msg.reset) tickDurationsMs.length = 0;
+  } else if (msg.op === "auditRegistry") {
+    // World streaming phase 1: registry vs a fresh full scan (0 = consistent) and the path cache counters.
+    reply({ bad: auditTileRegistry(), pathHits: pathCacheStats.hits, pathMisses: pathCacheStats.misses, pathMismatches: pathCacheStats.mismatches });
   } else if (msg.op === "spawnSoldier" && typeof msg.kind === "string" && typeof msg.x === "number" && typeof msg.y === "number") {
     // A soldier standing at pixel (x, y) with its rally slot there (post = that tile; no building).
     // Clans: the soldier is the requesting player's clan's. Heroes: the spawnHero hook.

@@ -17,6 +17,7 @@ import {
   buildingLevel, clans, colonists, makeClan, mobs, players, raidGroups, sites, state, tradingPosts, wildlife,
   type Clan,
 } from "./state.js";
+import { setTile } from "./chunks.js";
 import { inBounds, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import { releaseResourceReservation } from "./economy.js";
@@ -150,7 +151,7 @@ export function stampSiteSearch(
 // A Trading Post at (tx, ty) (rule-free) at `level`, registered now and looked after once (roster + wagon).
 export function placeTradingPost(tx: number, ty: number, level: number, auto?: unknown) {
   if (!inBounds(tx, ty)) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.GoldShop;
+  setTile(tileIndex(tx, ty), TileType.GoldShop);
   broadcastTileUpdate(tx, ty, TileType.GoldShop);
   buildingLevel.set(resourceKey(tx, ty), level);
   scanTradingPosts();

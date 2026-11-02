@@ -4,6 +4,7 @@ import { TileType, isGateTile } from "@colony/shared/protocol";
 import type { GoalDef, ResourceKey } from "./types.js";
 import { GAME_DAY_TICKS, GOAL_WORKER_KINDS, VISION_BUILDING_TILES } from "./constants.js";
 import { colonists, constructionSites, state, tileOwner } from "./state.js";
+import { tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import { formatReward, grantReward } from "./worldgen.js";
 import { isSoldierKind } from "./units.js";
 import { broadcastEvent } from "./net.js";
@@ -17,11 +18,13 @@ export function nightsSurvived(): number {
 
 // Any player-placed structure: a queued construction, a built building (Town Centers beyond the
 // starting one count), or a wall.
+let ANY_BUILDING_TILES: TileType[] | null = null;
 export function anyPlayerBuilding(): boolean {
   // Clans: the active clan's structures only (its first Town Center is its starting one).
   if (clanTownCenters().length > 1) return true;
   for (const site of constructionSites.values()) if (clanIdAt(site.tx, site.ty) === state.clan.id) return true;
-  for (let i = 0; i < state.tiles.length; i++) {
+  ANY_BUILDING_TILES ??= tileTypesWhere((t) => t === TileType.Wall || t === TileType.StoneWall || isGateTile(t) || (t !== TileType.TownCenter && VISION_BUILDING_TILES.has(t)));
+  for (const i of tileIndicesOfAny(ANY_BUILDING_TILES)) {
     if (clanIdAtIndex(i) !== state.clan.id) continue;
     // Forts phase B: an NPC fort's walls / towers are not the colony's.
     if (tileOwner.size > 0 && tileOwner.has(i)) continue;

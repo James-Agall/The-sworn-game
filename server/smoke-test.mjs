@@ -426,6 +426,12 @@ await check("save/load: round trip preserves the stamped site", async () => {
   return [!!after && after.name === before.name && keepBack && !!c.snap.creative, `slot ${slot}, site ${after?.name}, keep tile ${tileAt(site.keepX, site.keepY)} (was ${before.keepTile}), creative ${!!c.snap.creative}`];
 });
 
+// 10. world streaming: the tile registry matches a full scan after everything above (incl. the load), and paths hit the cache
+await check("world streaming: registry audit + path cache", async () => {
+  const r = await hook("auditRegistry");
+  return [r?.bad === 0 && r?.pathHits > 0 && !r?.pathMismatches, `mismatches ${r?.bad}, path cache hits ${r?.pathHits} / misses ${r?.pathMisses} / wrong ${r?.pathMismatches} (counted only with COLONY_PATH_CACHE_VERIFY=1)`];
+});
+
 const secs = ((Date.now() - t0) / 1000).toFixed(1);
 console.log(failed.length === 0 ? `ALL PASS (${passed} checks, ${secs}s)` : `${failed.length} FAILED (${failed.join("; ")}), ${passed} passed, ${secs}s`);
 c.ws.close();

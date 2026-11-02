@@ -18,6 +18,7 @@ import {
   SETTLEMENT_COUNT_AT_512, SETTLEMENT_INNER_RING_FRACTION, SETTLEMENT_PLACE_ATTEMPTS, SETTLEMENT_SPACING_TILES, SETTLEMENT_START_CLEARANCE_TILES,
 } from "./constants.js";
 import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, players, sites, state, tileOwner } from "./state.js";
+import { setTile as setTileRaw } from "./chunks.js";
 import { inBounds, isNightNow, resourceKey, setOwner, siteNumber, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { clanById, clanTownCenters, setTileClan } from "./clans.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
@@ -153,7 +154,7 @@ function setTile(x: number, y: number, tile: TileType, broadcast: boolean) {
   farmPlots.delete(key);
   const i = tileIndex(x, y);
   if (!isGateTile(tile)) gates.delete(i);
-  state.tiles[i] = tile;
+  setTileRaw(i, tile);
   if (broadcast) broadcastTileUpdate(x, y, tile);
 }
 
@@ -382,7 +383,7 @@ export function onFortKeepDestroyed(siteId: string) {
   if (s.founded) s.clearedTick = state.cycleTick;
   state.ownerVersion++;
   state.relationsVersion++;
-  state.tiles[tileIndex(s.keepX, s.keepY)] = TileType.RuinedKeep;
+  setTileRaw(tileIndex(s.keepX, s.keepY), TileType.RuinedKeep);
   broadcastTileUpdate(s.keepX, s.keepY, TileType.RuinedKeep);
   // Forts phase C: razing a human settlement's keep: its folk flee (the rout) and the clan pays in relation.
   if (s.faction === "human") {

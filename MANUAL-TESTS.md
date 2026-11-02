@@ -380,3 +380,11 @@ Short checks of the phase I numbers (ROADMAP "Phase I — landed"). A normal gam
 - Known failing or flaky (do not worry): see `ROADMAP.md`, "Known failing tests" and "Full-suite run after the server
   split".
 - No health bars except the red boss bar; fainter green selection rings; smaller banners (strategy mode).
+
+## World streaming (phases 1-2, server-side; should look exactly as before)
+1. 512 map, normal game: build houses, a tavern, towers, walls with a gate; population caps, happiness and tower
+   fire behave as before; workers still walk to trees / ore / farms and back (paths are cached now).
+2. Demolish a wall a worker walks around, or build a wall across a worker's route: the worker re-routes at once
+   (no walking through the new wall, takes the shortcut through the gap).
+3. Save, load, keep playing a day: houses still count toward the cap, towers still fire.
+

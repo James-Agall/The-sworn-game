@@ -19,6 +19,7 @@ import {
   attackerSlots, buildingHp, chargeRuns, colonists, gates, gravestones, hearths, mobs, mobsWithoutRoute, ownerSiteIds, players,
   raidGroups, slotClaims, state, summonedUntil, towerCooldowns, towerEvents, wildlife,
 } from "./state.js";
+import { setTile, tileIndicesOf, tileIndicesOfAny } from "./chunks.js";
 import {
   getBuildingLevel, inBounds, isHostileOwner, ownerAt, resourceKey, setOwner, siteNumber, tileIndex, tileOfPixel,
   tileToPixelCenter,
@@ -494,13 +495,13 @@ export function damageBuilding(tx: number, ty: number, amount: number) {
     // the ground is nobody's now.
     setOwner(index, 0);
     if (isWallTile(t) || t === TileType.Gate) {
-      state.tiles[index] = TileType.Rubble;
+      setTile(index, TileType.Rubble);
       broadcastTileUpdate(tx, ty, TileType.Rubble);
     }
   }
   // Phase H: a moat the mobs filled is walkable Rubble (a destroyed drawbridge is back to Moat: demolishTile).
   if (t === TileType.Moat) {
-    state.tiles[index] = TileType.Rubble;
+    setTile(index, TileType.Rubble);
     broadcastTileUpdate(tx, ty, TileType.Rubble);
   }
   syncGuardBonusesAround(tx, ty);
@@ -672,7 +673,7 @@ export function evaluateGateOverrun(index: number, g: GateState) {
 // Once per tick: registry upkeep, auto open / close, and (once a second) the overrun check.
 export function updateGates(forceOverrunCheck = false) {
   if (state.gateTilesDirty) {
-    for (let i = 0; i < state.tiles.length; i++) if (isGateTile(state.tiles[i])) gateAt(i);
+    for (const i of tileIndicesOfAny([TileType.Gate, TileType.Drawbridge])) gateAt(i);
     for (const index of Array.from(gates.keys())) if (!isGateTile(state.tiles[index])) gates.delete(index);
     state.gateTilesDirty = false;
   }
@@ -763,7 +764,7 @@ export function resolveTowerPlacement(tx: number, ty: number) {
     tryLevelUpInPlace(tx, ty, [TileType.Tower]);
     return;
   }
-  state.tiles[tileIndex(tx, ty)] = TileType.Tower;
+  setTile(tileIndex(tx, ty), TileType.Tower);
   broadcastTileUpdate(tx, ty, TileType.Tower);
   towerCooldowns.delete(resourceKey(tx, ty));
 }
@@ -776,7 +777,8 @@ export function isTowerTarget(m: Mob): boolean {
 
 // Once per tick, after the mobs have moved.
 export function updateTowers() {
-  for (let i = 0; i < state.tiles.length; i++) {
+  // World streaming phase 1: the tower index, not a full-map scan.
+  for (const i of tileIndicesOf(TileType.Tower)) {
     if (!isTowerTile(state.tiles[i] as TileType)) continue;
     const tx = i % state.WORLD_TILES_X;
     const ty = Math.floor(i / state.WORLD_TILES_X);

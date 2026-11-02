@@ -29,6 +29,7 @@ import {
   buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, minesPlacedOnOre, players, repairPaid,
   repairQueue, respawnQueue, siegeWorkshops, state, towerCooldowns, hearths, mobs,
 } from "./state.js";
+import { setTile } from "./chunks.js";
 import {
   anchorOfTile, biomeAt, biomeProductionFactor, getBuildingLevel, inBounds, levelBonus, ownerAt, placedFootprint,
   resourceKey, setOwner, tileIndex, tileOfPixel, tileToPixelCenter,
@@ -105,7 +106,7 @@ export function resolveStablesPlacement(tx: number, ty: number) {
     announceUpgrade(TileType.Stables, level);
     return;
   }
-  state.tiles[tileIndex(tx, ty)] = TileType.Stables;
+  setTile(tileIndex(tx, ty), TileType.Stables);
   broadcastTileUpdate(tx, ty, TileType.Stables);
   spawnColonistForPost(tx, ty, "cavalry", 1);
 }
@@ -157,38 +158,38 @@ export function canAffordHouseUpgrade(current: TileType): boolean {
 export function resolveHousePlacement(tx: number, ty: number) {
   const current = state.tiles[tileIndex(tx, ty)] as TileType;
   if (current === TileType.BigHouse) {
-    state.tiles[tileIndex(tx, ty)] = TileType.HouseLevel2;
+    setTile(tileIndex(tx, ty), TileType.HouseLevel2);
     broadcastTileUpdate(tx, ty, TileType.HouseLevel2);
     announceUpgrade(TileType.House, 3);
     return;
   }
   if (current === TileType.House) {
-    state.tiles[tileIndex(tx, ty)] = TileType.BigHouse;
+    setTile(tileIndex(tx, ty), TileType.BigHouse);
     broadcastTileUpdate(tx, ty, TileType.BigHouse);
     announceUpgrade(TileType.House, 2);
     return;
   }
-  state.tiles[tileIndex(tx, ty)] = TileType.House;
+  setTile(tileIndex(tx, ty), TileType.House);
   broadcastTileUpdate(tx, ty, TileType.House);
 }
 
 export function resolveKnightPlacement(tx: number, ty: number) {
   const current = state.tiles[tileIndex(tx, ty)] as TileType;
   if (current === TileType.CastleLevel2) {
-    state.tiles[tileIndex(tx, ty)] = TileType.CastleLevel3;
+    setTile(tileIndex(tx, ty), TileType.CastleLevel3);
     broadcastTileUpdate(tx, ty, TileType.CastleLevel3);
     upgradeKnightAt(tx, ty, 3);
     announceUpgrade(TileType.KnightPost, 3);
     return;
   }
   if (current === TileType.KnightPost) {
-    state.tiles[tileIndex(tx, ty)] = TileType.CastleLevel2;
+    setTile(tileIndex(tx, ty), TileType.CastleLevel2);
     broadcastTileUpdate(tx, ty, TileType.CastleLevel2);
     upgradeKnightAt(tx, ty, 2);
     announceUpgrade(TileType.KnightPost, 2);
     return;
   }
-  state.tiles[tileIndex(tx, ty)] = TileType.KnightPost;
+  setTile(tileIndex(tx, ty), TileType.KnightPost);
   broadcastTileUpdate(tx, ty, TileType.KnightPost);
   spawnColonistForPost(tx, ty, "knight", 1);
 }
@@ -196,20 +197,20 @@ export function resolveKnightPlacement(tx: number, ty: number) {
 export function resolveMilitiaPlacement(tx: number, ty: number) {
   const current = state.tiles[tileIndex(tx, ty)] as TileType;
   if (current === TileType.MilitiaCamp2) {
-    state.tiles[tileIndex(tx, ty)] = TileType.MilitiaCamp3;
+    setTile(tileIndex(tx, ty), TileType.MilitiaCamp3);
     broadcastTileUpdate(tx, ty, TileType.MilitiaCamp3);
     upgradeMilitiaAt(tx, ty, 3);
     announceUpgrade(TileType.MilitiaPost, 3);
     return;
   }
   if (current === TileType.MilitiaPost) {
-    state.tiles[tileIndex(tx, ty)] = TileType.MilitiaCamp2;
+    setTile(tileIndex(tx, ty), TileType.MilitiaCamp2);
     broadcastTileUpdate(tx, ty, TileType.MilitiaCamp2);
     upgradeMilitiaAt(tx, ty, 2);
     announceUpgrade(TileType.MilitiaPost, 2);
     return;
   }
-  state.tiles[tileIndex(tx, ty)] = TileType.MilitiaPost;
+  setTile(tileIndex(tx, ty), TileType.MilitiaPost);
   broadcastTileUpdate(tx, ty, TileType.MilitiaPost);
   spawnColonistForPost(tx, ty, "militia", 1);
   spawnColonistForPost(tx, ty, "militia", 1);
@@ -224,7 +225,7 @@ export function resolveArcherPlacement(tx: number, ty: number) {
     announceUpgrade(here, newLevel);
     return;
   }
-  state.tiles[tileIndex(tx, ty)] = TileType.ArcherPost;
+  setTile(tileIndex(tx, ty), TileType.ArcherPost);
   broadcastTileUpdate(tx, ty, TileType.ArcherPost);
   spawnColonistForPost(tx, ty, "archer", 1);
 }
@@ -244,7 +245,7 @@ export function resolveMinePlacement(
     spawnColonistForPost(tx, ty, minerKind);
     return;
   }
-  state.tiles[tileIndex(tx, ty)] = mineType;
+  setTile(tileIndex(tx, ty), mineType);
   broadcastTileUpdate(tx, ty, mineType);
   if (current === oreType) minesPlacedOnOre.add(resourceKey(tx, ty));
   spawnColonistForPost(tx, ty, minerKind);
@@ -253,7 +254,7 @@ export function resolveMinePlacement(
 export function resolveLumberjackPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.LumberjackPost]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.LumberjackPost;
+  setTile(tileIndex(tx, ty), TileType.LumberjackPost);
   broadcastTileUpdate(tx, ty, TileType.LumberjackPost);
   spawnColonistForPost(tx, ty, "lumberjack");
 }
@@ -261,7 +262,7 @@ export function resolveLumberjackPlacement(tx: number, ty: number) {
 export function resolveBarnPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.BarnPost]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.BarnPost;
+  setTile(tileIndex(tx, ty), TileType.BarnPost);
   broadcastTileUpdate(tx, ty, TileType.BarnPost);
   spawnColonistForPost(tx, ty, "farmer");
 }
@@ -269,7 +270,7 @@ export function resolveBarnPlacement(tx: number, ty: number) {
 export function resolveChurchPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.ChurchPost]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.ChurchPost;
+  setTile(tileIndex(tx, ty), TileType.ChurchPost);
   broadcastTileUpdate(tx, ty, TileType.ChurchPost);
   spawnColonistForPost(tx, ty, "bishop");
 }
@@ -277,7 +278,7 @@ export function resolveChurchPlacement(tx: number, ty: number) {
 export function resolvePasturePlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Pasture]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.Pasture;
+  setTile(tileIndex(tx, ty), TileType.Pasture);
   broadcastTileUpdate(tx, ty, TileType.Pasture);
   spawnColonistForPost(tx, ty, "farmhand");
 }
@@ -285,7 +286,7 @@ export function resolvePasturePlacement(tx: number, ty: number) {
 export function resolveOrchardPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Orchard]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.Orchard;
+  setTile(tileIndex(tx, ty), TileType.Orchard);
   broadcastTileUpdate(tx, ty, TileType.Orchard);
   spawnColonistForPost(tx, ty, "farmhand");
 }
@@ -293,7 +294,7 @@ export function resolveOrchardPlacement(tx: number, ty: number) {
 export function resolveWoolFarmPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.WoolFarm]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.WoolFarm;
+  setTile(tileIndex(tx, ty), TileType.WoolFarm);
   broadcastTileUpdate(tx, ty, TileType.WoolFarm);
   spawnColonistForPost(tx, ty, "farmhand");
 }
@@ -301,7 +302,7 @@ export function resolveWoolFarmPlacement(tx: number, ty: number) {
 export function resolveCottonFarmPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.CottonFarm]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.CottonFarm;
+  setTile(tileIndex(tx, ty), TileType.CottonFarm);
   broadcastTileUpdate(tx, ty, TileType.CottonFarm);
   spawnColonistForPost(tx, ty, "farmhand");
 }
@@ -309,7 +310,7 @@ export function resolveCottonFarmPlacement(tx: number, ty: number) {
 export function resolveTailorShopPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.TailorShop]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.TailorShop;
+  setTile(tileIndex(tx, ty), TileType.TailorShop);
   broadcastTileUpdate(tx, ty, TileType.TailorShop);
   spawnColonistForPost(tx, ty, "artisan");
 }
@@ -317,7 +318,7 @@ export function resolveTailorShopPlacement(tx: number, ty: number) {
 export function resolveBlacksmithPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Blacksmith]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.Blacksmith;
+  setTile(tileIndex(tx, ty), TileType.Blacksmith);
   broadcastTileUpdate(tx, ty, TileType.Blacksmith);
   spawnColonistForPost(tx, ty, "artisan");
 }
@@ -325,7 +326,7 @@ export function resolveBlacksmithPlacement(tx: number, ty: number) {
 export function resolveLuxuryWorkshopPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.LuxuryWorkshop]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.LuxuryWorkshop;
+  setTile(tileIndex(tx, ty), TileType.LuxuryWorkshop);
   broadcastTileUpdate(tx, ty, TileType.LuxuryWorkshop);
   spawnColonistForPost(tx, ty, "artisan");
 }
@@ -333,7 +334,7 @@ export function resolveLuxuryWorkshopPlacement(tx: number, ty: number) {
 export function resolveBreweryPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Brewery]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.Brewery;
+  setTile(tileIndex(tx, ty), TileType.Brewery);
   broadcastTileUpdate(tx, ty, TileType.Brewery);
   spawnColonistForPost(tx, ty, "artisan");
 }
@@ -341,7 +342,7 @@ export function resolveBreweryPlacement(tx: number, ty: number) {
 export function resolveTavernPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Tavern]);
   if (upgraded) return;
-  state.tiles[tileIndex(tx, ty)] = TileType.Tavern;
+  setTile(tileIndex(tx, ty), TileType.Tavern);
   broadcastTileUpdate(tx, ty, TileType.Tavern);
   spawnColonistForPost(tx, ty, "artisan");
 }
@@ -358,7 +359,7 @@ export function resolveFoodHutPlacement(tx: number, ty: number, hutType: TileTyp
     spawnColonistForPost(tx, ty, kind);
     return;
   }
-  state.tiles[tileIndex(tx, ty)] = hutType;
+  setTile(tileIndex(tx, ty), hutType);
   broadcastTileUpdate(tx, ty, hutType);
   spawnColonistForPost(tx, ty, kind);
 }
@@ -376,7 +377,7 @@ export function resolveTownCenterPlacement(tx: number, ty: number) {
     topUpTownCenterBuilders(existing);
     return;
   }
-  state.tiles[tileIndex(tx, ty)] = TileType.TownCenter;
+  setTile(tileIndex(tx, ty), TileType.TownCenter);
   const tc: TownCenter = { x: tx, y: ty, level: 1, hp: townCenterMaxHp(1), ...(clanIdAt(tx, ty) ? { clan: clanIdAt(tx, ty) } : {}) };
   // Forts phase B: a Town Center on a razed fort's keep tile captures the fort (its outpost).
   const fort = siteAtKeep(tx, ty);
@@ -393,7 +394,7 @@ export function destroyTownCenter(tc: TownCenter) {
   state.townCenters = state.townCenters.filter((t) => t !== tc);
   const key = resourceKey(tc.x, tc.y);
   constructionSites.delete(key);
-  state.tiles[tileIndex(tc.x, tc.y)] = TileType.Empty;
+  setTile(tileIndex(tc.x, tc.y), TileType.Empty);
   broadcastTileUpdate(tc.x, tc.y, TileType.Empty);
   broadcastEvent(
     "death",
@@ -632,7 +633,7 @@ export function startConstruction(tx: number, ty: number, tile: TileType, curren
   };
   constructionSites.set(resourceKey(tx, ty), site);
   if (!upgrade) {
-    state.tiles[tileIndex(tx, ty)] = TileType.ConstructionSite;
+    setTile(tileIndex(tx, ty), TileType.ConstructionSite);
     broadcastTileUpdate(tx, ty, TileType.ConstructionSite);
   }
 }
@@ -645,7 +646,7 @@ export function completeConstruction(key: string, site: ConstructionSiteState) {
     if (state.tiles[index] !== site.prevTile) return;
   } else {
     if (state.tiles[index] !== TileType.ConstructionSite) return;
-    state.tiles[index] = site.prevTile;
+    setTile(index, site.prevTile);
   }
   resolvePlacement(site.tx, site.ty, site.target, site.prevTile);
   syncGuardBonusesAround(site.tx, site.ty);
@@ -717,7 +718,7 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
   if (current === TileType.ConstructionSite) {
     // Ore / rock under an unfinished mine comes back.
     const revert = site && !site.upgrade ? site.prevTile : TileType.Empty;
-    state.tiles[tileIndex(tx, ty)] = revert;
+    setTile(tileIndex(tx, ty), revert);
     broadcastTileUpdate(tx, ty, revert);
     return;
   }
@@ -729,7 +730,7 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
   if (isGateTile(current)) gates.delete(tileIndex(tx, ty));
   // Phase H: a drawbridge comes down (demolished or destroyed) to the moat it spanned.
   if (current === TileType.Drawbridge) {
-    state.tiles[tileIndex(tx, ty)] = TileType.Moat;
+    setTile(tileIndex(tx, ty), TileType.Moat);
     broadcastTileUpdate(tx, ty, TileType.Moat);
     return;
   }
@@ -741,7 +742,7 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
     const key = resourceKey(tx, ty);
     const revert = minesPlacedOnOre.has(key) ? TileType.IronOre : TileType.Empty;
     minesPlacedOnOre.delete(key);
-    state.tiles[tileIndex(tx, ty)] = revert;
+    setTile(tileIndex(tx, ty), revert);
     broadcastTileUpdate(tx, ty, revert);
     return;
   }
@@ -749,12 +750,12 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
     const key = resourceKey(tx, ty);
     const revert = minesPlacedOnOre.has(key) ? TileType.Rock : TileType.Empty;
     minesPlacedOnOre.delete(key);
-    state.tiles[tileIndex(tx, ty)] = revert;
+    setTile(tileIndex(tx, ty), revert);
     broadcastTileUpdate(tx, ty, revert);
     return;
   }
   if (isTowerTile(current)) towerCooldowns.delete(resourceKey(tx, ty));
-  state.tiles[tileIndex(tx, ty)] = TileType.Empty;
+  setTile(tileIndex(tx, ty), TileType.Empty);
   broadcastTileUpdate(tx, ty, TileType.Empty);
 }
 
@@ -764,7 +765,7 @@ export function clearFootprintParts(tx: number, ty: number) {
   const fp = placedFootprint(tx, ty);
   if (fp.w === 1 && fp.h === 1) return;
   for (const [dx, dy] of footprintPartOffsets(fp)) {
-    state.tiles[tileIndex(tx + dx, ty + dy)] = TileType.Empty;
+    setTile(tileIndex(tx + dx, ty + dy), TileType.Empty);
     broadcastTileUpdate(tx + dx, ty + dy, TileType.Empty);
   }
 }
@@ -801,7 +802,7 @@ export function stampFootprintParts(tile: TileType, tx: number, ty: number, clan
   for (const [dx, dy] of footprintPartOffsets(footprintOf(tile))) {
     const i = tileIndex(tx + dx, ty + dy);
     buildingHp.delete(resourceKey(tx + dx, ty + dy));
-    state.tiles[i] = TileType.BuildingPart;
+    setTile(i, TileType.BuildingPart);
     setTileClan(i, clanId);
     broadcastTileUpdate(tx + dx, ty + dy, TileType.BuildingPart);
   }
@@ -840,7 +841,7 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     if (anchor.x === tx && anchor.y === ty) {
       // An orphan part (its anchor is gone some other way): demolishing clears it.
       if (tile === TileType.Empty && ownerAt(tileIndex(tx, ty)) === 0 && !isForeignClanTile(tx, ty, player.clan)) {
-        state.tiles[tileIndex(tx, ty)] = TileType.Empty;
+        setTile(tileIndex(tx, ty), TileType.Empty);
         broadcastTileUpdate(tx, ty, TileType.Empty);
       }
       return;
@@ -1024,7 +1025,7 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
       tryLevelUpInPlace(tx, ty, [TileType.Keep]);
       return;
     }
-    state.tiles[tileIndex(tx, ty)] = TileType.Keep;
+    setTile(tileIndex(tx, ty), TileType.Keep);
     broadcastTileUpdate(tx, ty, TileType.Keep);
     return;
   }
@@ -1040,7 +1041,7 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     // Checked by handleSetTileInner just before (Farm Plots are placed instantly).
     const barn = barnForNewFarmPlot(tx, ty);
     if (!barn) return;
-    state.tiles[tileIndex(tx, ty)] = tile;
+    setTile(tileIndex(tx, ty), tile);
     broadcastTileUpdate(tx, ty, tile);
     farmPlots.set(resourceKey(tx, ty), newFarmPlot(barn.x, barn.y));
     return;
@@ -1058,7 +1059,7 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     return;
   }
   if (tile === TileType.WardStone) {
-    state.tiles[tileIndex(tx, ty)] = tile;
+    setTile(tileIndex(tx, ty), tile);
     broadcastTileUpdate(tx, ty, tile);
     if (state.wardPriestId === null && state.wardPriestRespawnTicks < 0) updateWardPriestPresence();
     return;
@@ -1116,7 +1117,7 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     return;
   }
   if (tile === TileType.Market) {
-    state.tiles[tileIndex(tx, ty)] = tile;
+    setTile(tileIndex(tx, ty), tile);
     broadcastTileUpdate(tx, ty, tile);
     state.marketBuilt = true;
     return;
@@ -1126,13 +1127,13 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
       tryLevelUpInPlace(tx, ty, [TileType.GoldShop]);
       return;
     }
-    state.tiles[tileIndex(tx, ty)] = tile;
+    setTile(tileIndex(tx, ty), tile);
     broadcastTileUpdate(tx, ty, tile);
     state.goldShopBuilt = true;
     return;
   }
 
-  state.tiles[tileIndex(tx, ty)] = tile;
+  setTile(tileIndex(tx, ty), tile);
   broadcastTileUpdate(tx, ty, tile);
 }
 
@@ -1167,7 +1168,7 @@ export function handleRebuildKeep(player: Player, tx: number, ty: number) {
   setTileClan(tileIndex(tx, ty), player.clan);
   buildingHp.delete(resourceKey(tx, ty));
   if (state.instantBuild) {
-    state.tiles[tileIndex(tx, ty)] = TileType.Empty;
+    setTile(tileIndex(tx, ty), TileType.Empty);
     resolvePlacement(tx, ty, TileType.TownCenter, TileType.Empty);
   } else {
     startConstruction(tx, ty, TileType.TownCenter, TileType.RuinedKeep, false);

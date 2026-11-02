@@ -9,6 +9,7 @@ import { TileType } from "@colony/shared/protocol";
 import type { Colonist, Player, TownCenter } from "./types.js";
 import { BREAKABLE_TILES, GAME_DAY_TICKS, TOWN_CENTER_MIN_SPACING_TILES } from "./constants.js";
 import { type Clan, clans, makeClan, state, tileClan, tileOwner } from "./state.js";
+import { setTile, tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import { initialStock } from "./economy.js";
 import { isInReservedGrounds } from "./worldgen.js";
 import { topUpTownCenterBuilders, townCenterMaxHp } from "./colonists.js";
@@ -160,7 +161,7 @@ export function foundClan(player: Player): Clan | null {
   player.clan = id;
   withClan(clan, () => {
     setTileClan(spot.y * state.WORLD_TILES_X + spot.x, id);
-    state.tiles[spot.y * state.WORLD_TILES_X + spot.x] = TileType.TownCenter;
+    setTile(spot.y * state.WORLD_TILES_X + spot.x, TileType.TownCenter);
     const tc: TownCenter = { x: spot.x, y: spot.y, level: 1, hp: townCenterMaxHp(1), clan: id };
     state.townCenters.push(tc);
     broadcastTileUpdate(spot.x, spot.y, TileType.TownCenter);
@@ -175,7 +176,7 @@ export function foundClan(player: Player): Clan | null {
 // Snapshot `clanTiles`: [tile index, clan id] for every clan-ownable tile (clan 0's included), one map pass.
 export function clanTilesForSnapshot(): number[] {
   const out: number[] = [];
-  for (let i = 0; i < state.tiles.length; i++) {
+  for (const i of tileIndicesOfAny(tileTypesWhere(isClanOwnableTile))) {
     if (isClanOwnableTile(state.tiles[i] as TileType) && !tileOwner.has(i)) out.push(i, clanIdAtIndex(i));
   }
   return out;

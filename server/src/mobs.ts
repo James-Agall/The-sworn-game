@@ -23,6 +23,7 @@ import {
 import {
   attackerSlots, colonists, gates, mobs, mobsAttackingThisTick, mobsWithoutRoute, players, state, tileOwner,
 } from "./state.js";
+import { tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import { inBounds, isHostileOwner, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { activeWardSources, isWarded } from "./colonists.js";
@@ -298,11 +299,13 @@ export function mobApproach(mob: Mob | undefined, targetId: string | null): Tile
   const y = mob.approachY ?? -1;
   return isWalkableTile(x, y) ? { x, y } : null;
 }
+let BUILDING_TARGET_TYPES: TileType[] | null = null;
 export function buildingTargetCandidates(): TileCoord[] {
   // Also rebuilt every few seconds, in case some code path changed a tile without a tileUpdate.
   if (state.buildingTargetsDirty || state.cycleTick - state.buildingTargetsBuiltTick > TICK_RATE * 5 || state.cycleTick < state.buildingTargetsBuiltTick) {
     state.buildingTargetTiles = [];
-    for (let i = 0; i < state.tiles.length; i++) {
+    BUILDING_TARGET_TYPES ??= tileTypesWhere((t) => isDamageableBuilding(t) && !isWallTile(t) && !isGateTile(t) && t !== TileType.Moat);
+    for (const i of tileIndicesOfAny(BUILDING_TARGET_TYPES)) {
       const t = state.tiles[i] as TileType;
       // Forts phase A: mobs never go for an NPC site's buildings (no NPC-vs-NPC fighting in v1).
       if (isDamageableBuilding(t) && !isWallTile(t) && !isGateTile(t) && t !== TileType.Moat && ownerAt(i) === 0) state.buildingTargetTiles.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });

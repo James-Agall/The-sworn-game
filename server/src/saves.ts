@@ -16,6 +16,7 @@ import {
   hearths, heroProfiles, heroRecruits, minesPlacedOnOre, mobs, mobsWithoutRoute, ownerSiteIds, players, raidGroups,
   regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, state, summonedUntil, tileOwner, towerCooldowns, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
 } from "./state.js";
+import { markTileRegistryStale, setTile } from "./chunks.js";
 import { clearOwners, isNightNow, tileIndex } from "./tiles.js";
 import { initialStock } from "./economy.js";
 import { generateWorld, setWorldSize } from "./worldgen.js";
@@ -319,6 +320,7 @@ export function applyWorld(s: WorldState) {
 
 function applyWorldInner(s: WorldState) {
   state.tiles.set(Buffer.from(s.tiles, "base64"));
+  markTileRegistryStale();
   state.biomes.set(Buffer.from(s.biomes, "base64"));
   const bits = Buffer.from(s.explored, "base64");
   for (let i = 0; i < state.explored.length; i++) state.explored[i] = (bits[i >> 3] >> (i & 7)) & 1;
@@ -450,7 +452,7 @@ export function migrateArcherTowers() {
   for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
     for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
       if ((state.tiles[tileIndex(tx, ty)] as TileType) !== TileType.ArcherTower) continue;
-      state.tiles[tileIndex(tx, ty)] = TileType.ArcherPost;
+      setTile(tileIndex(tx, ty), TileType.ArcherPost);
       for (const c of getColonistsAtPost(tx, ty)) {
         if (c.kind !== "archer") continue;
         const stats = guardStats("archer", c.castleLevel);
