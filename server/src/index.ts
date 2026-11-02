@@ -14,7 +14,7 @@ import {
   TICK_DURATION_SAMPLES,
 } from "./constants.js";
 import {
-  clans, colonists, gravestones, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
+  clans, colonists, gravestones, lap, lapReset, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
 } from "./state.js";
 import { setTile } from "./chunks.js";
 import { anchorOfTile, clamp, inBounds, isNightNow, ownerAt, tileIndex } from "./tiles.js";
@@ -330,6 +330,7 @@ setInterval(() => {
   }
 
   // Outside the pause gate so a player joining mid-pause still gets their surroundings.
+  lapReset();
   updateVision();
   flushExplored();
 
@@ -531,6 +532,7 @@ setInterval(() => {
       player.socket.send(withPlayerHeroes(withPlayerProfile(withPlayerFights(payload, player), player), player));
     }
   }
+  lap("snapshot");
   if (TEST_HOOKS) {
     tickDurationsMs.push(performance.now() - tickStart);
     if (tickDurationsMs.length > TICK_DURATION_SAMPLES) tickDurationsMs.shift();

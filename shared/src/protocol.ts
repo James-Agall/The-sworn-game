@@ -451,6 +451,8 @@ export interface ArmyOrderGroupSnapshot {
   width?: number;
   // attackMove: halted and fighting.
   engaged?: boolean;
+  // Battle engine phase 1: the regiment brain's state (idle / hold / march / advance / engaged / charge / ...).
+  brain?: string;
 }
 
 export interface ColonistSnapshot {

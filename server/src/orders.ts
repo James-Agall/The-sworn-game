@@ -16,7 +16,7 @@ import {
   STANCES, STANCE_ALERT_RANGE_TILES, STRUCTURE_TARGET_PREFIX,
 } from "./constants.js";
 import {
-  chargeCycle, chargeRuns, colonists, commandedTargets, hearths, mobs, orderGroupOfUnit, orderGroups, pendingRallies,
+  battleRegiments, chargeCycle, chargeRuns, colonists, commandedTargets, hearths, mobs, orderGroupOfUnit, orderGroups, pendingRallies,
   clans, players, regiments, state, tileOwner,
 } from "./state.js";
 import { clamp, inBounds, isNightNow, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
@@ -31,6 +31,7 @@ import { isWalkableTile } from "./pathfinding.js";
 import { isRoutedUnit, moraleDamageMult, regimentKey } from "./tactics.js";
 import { attackObjectiveAt, damageHearth, nearestHostileStructure, sendAgainstHearth } from "./hearths.js";
 import { weaponDamageMult } from "./heroes.js";
+import { noteRegimentOrder } from "./battle.js";
 import { spellBuffDamageMult } from "./spells.js";
 import { COLONIST_VISION_OFFSETS, PLAYER_VISION_OFFSETS, fightThreatOf } from "./net.js";
 
@@ -427,6 +428,7 @@ export function formGroupAt(g: OrderGroup, members: Colonist[], x: number, y: nu
 
 export function startArmyOrder(g: OrderGroup, order: ArmyOrder) {
   g.current = order;
+  noteRegimentOrder(g, order);
   g.engaged = false;
   g.clearSince = -1;
   g.followAt = null;
@@ -827,6 +829,8 @@ export function orderGroupsForSnapshot(): ArmyOrderGroupSnapshot[] | undefined {
     ...(g.facing !== undefined ? { facing: g.facing } : {}),
     ...(g.width !== undefined ? { width: g.width } : {}),
     ...(g.engaged ? { engaged: true } : {}),
+    // Battle engine phase 1: the regiment brain's state (MARCH, ENGAGED, ...).
+    ...(battleRegiments.has(g.id) ? { brain: battleRegiments.get(g.id)!.state } : {}),
   }));
   const signature = JSON.stringify(list);
   state.orderGroupTicks++;

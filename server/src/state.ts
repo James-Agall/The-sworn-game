@@ -6,7 +6,7 @@ import {
 } from "@colony/shared/protocol";
 import type {
   ResourceKey, ActiveFight, Body, ChargeRun, Colonist, ConstructionSiteState, FarmPlotState, FightHit, ForgeQueueState, GateState,
-  HearthState, HeroProfile, HeroRecruit, Mob, OrderGroup, Player, PlayerMoraleState, RaidGroup, RegimentState,
+  BattleRegiment, HearthState, HeroProfile, HeroRecruit, Mob, OrderGroup, Player, PlayerMoraleState, RaidGroup, RegimentState,
   RespawnRequest, SiegeWorkshopState, SiteState, SpellStatus, TileCoord, TownCenter, TradingPostState, Wildlife,
 } from "./types.js";
 import {
@@ -685,6 +685,8 @@ export const commandedTargets = new Map<string, string>();
 export const chargeCycle = new Map<string, { phase: "in" | "out"; readyTick: number; since: number }>();
 export const orderGroups = new Map<string, OrderGroup>();
 export const orderGroupOfUnit = new Map<string, OrderGroup>();
+// Battle engine phase 1 (battle.ts): the persistent regiment store, by id.
+export const battleRegiments = new Map<string, BattleRegiment>();
 // Staggered start: unit id -> the slot it heads for once cycleTick reaches `at`.
 export const pendingRallies = new Map<string, { at: number; x: number; y: number; group: string; squad: string | null }>();
 
@@ -731,6 +733,20 @@ export const hearthEvents: Array<{ tick: number; type: string; siteId: string; d
 
 // -- testhooks --
 export const tickDurationsMs: number[] = [];
+// Battle engine phase 1: per-system milliseconds summed since the last tickStats reset (test hooks only).
+export const systemMs = new Map<string, number>();
+const LAPS = process.env.COLONY_TEST_HOOKS === "1";
+let lapAt = 0;
+// lap(name): the time since the previous lap (or lapReset) is booked to `name`.
+export function lapReset() {
+  if (LAPS) lapAt = performance.now();
+}
+export function lap(name: string) {
+  if (!LAPS) return;
+  const now = performance.now();
+  systemMs.set(name, (systemMs.get(name) ?? 0) + now - lapAt);
+  lapAt = now;
+}
 
 // -- construction --
 export const constructionSites = new Map<string, ConstructionSiteState>();

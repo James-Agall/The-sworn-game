@@ -26,7 +26,7 @@ import {
   attackerSlots, buildingHp, colonists, constructionSites, equipEvents, farmPlots, forageRegrow,
   forgeAuto, forgeQueues, gates, hearthEvents, hearths, heroEvents, heroProfiles, heroRecruits, mobs, moraleRegimentOfUnit,
   ownerSiteIds, playerMorale, raidGroups, regiments, repairPaid, repairQueue, respawnQueue, routedUnits, siegeEvents,
-  siegeWorkshops, spellCooldowns, spellEvents, spellStatuses, state, summonedUntil, tacticsEvents, tickDurationsMs,
+  siegeWorkshops, spellCooldowns, spellEvents, spellStatuses, state, summonedUntil, systemMs, tacticsEvents, tickDurationsMs,
   tileOwner, towerCooldowns, towerEvents, walledSites, wildlife,
   sites, players,
 } from "./state.js";
@@ -60,6 +60,7 @@ import {
 } from "./heroes.js";
 import { grantTome, isSpellId, learnSpell, spellBookSnapshot } from "./spells.js";
 import { stepSimulation } from "./sim.js";
+import { battleRegimentsForTest } from "./battle.js";
 import { broadcastTileUpdate, fightsForPlayer } from "./net.js";
 import { tierOf } from "./diplomacy.js";
 import { endVassalage, forceTribute, updateVassals, vassalDebugState, vassalsDawn } from "./vassals.js";
@@ -545,8 +546,16 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       maxMs: sorted[sorted.length - 1] ?? 0,
       mobs: mobs.size,
       groups: raidGroups.size,
+      // Battle engine phase 1: average ms per tick by system (sim systems per sim step, snapshot per send).
+      systems: Object.fromEntries(Array.from(systemMs, ([k, v]) => [k, Math.round((v / Math.max(1, sorted.length)) * 100) / 100])),
     });
-    if (msg.reset) tickDurationsMs.length = 0;
+    if (msg.reset) {
+      tickDurationsMs.length = 0;
+      systemMs.clear();
+    }
+  } else if (msg.op === "battleRegiments") {
+    // Battle engine phase 1: the regiment store (state, order, anchor, strength, morale, target, member count).
+    reply({ regiments: battleRegimentsForTest() });
   } else if (msg.op === "chunkState") {
     // World streaming phase 2: chunk state counts (force re-classifies now) and the state at {x, y} (pixels).
     if (msg.force) updateChunkStates(true);

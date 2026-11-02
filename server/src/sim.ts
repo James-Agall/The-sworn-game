@@ -6,7 +6,7 @@ import {
   DAY_TICKS, FIGHT_SCAN_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS, NIGHT_TICKS, RAID_SPAWN_CYCLE_TICK,
   TREE_RESPAWN_INTERVAL_TICKS, dt,
 } from "./constants.js";
-import { clans, colonists, gravestones, mobs, players, state, tileOwner } from "./state.js";
+import { clans, colonists, gravestones, lap, lapReset, mobs, players, state, tileOwner } from "./state.js";
 import { mobFrozenByStreaming, updateChunkStates } from "./chunks.js";
 import { biomeSpeedMultiplier, clamp, collidesAt, isNightNow, roadSpeedMultiplier, siteNumber } from "./tiles.js";
 import { separateBodies } from "./pathfinding.js";
@@ -31,6 +31,7 @@ import { evaluateGoals } from "./goals.js";
 import { heroProfileOf, updateForges, updateGearPickup, updateHeroRecruits } from "./heroes.js";
 import { spellBuffSpeedMult, updateSpellStatuses } from "./spells.js";
 import { updateOrderGroups } from "./orders.js";
+import { updateBattleBrains } from "./battle.js";
 import { broadcastEvent, scanFights } from "./net.js";
 import { clanTownCenters, enterClan, forEachClan, resetClan } from "./clans.js";
 import { settlementsDawn } from "./diplomacy.js";
@@ -41,6 +42,7 @@ import { spawnCampRaids, stepWarbandMobs, updateWarbands, warbandsDawn } from ".
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
+  lapReset();
   state.cycleTick++;
   // World streaming phase 2: ACTIVE / WARM / COLD chunks (re-classified once a second).
   updateChunkStates();
@@ -134,15 +136,21 @@ export function stepSimulation() {
     if (!collidesAt(player.x, nextY)) player.y = nextY;
   }
 
+  lap("misc");
   updatePlayerMorale();
   updateOrderGroups();
   updateSquadMarch();
+  lap("orders");
+  // Battle engine phase 1: the regiment brains (4 Hz, staggered; read-only for now).
+  updateBattleBrains();
+  lap("brain");
   // Clans: each colonist works for (and pays from / delivers to) its own clan.
   for (const colonist of colonists.values()) {
     enterClan(colonist.clan);
     updateColonist(colonist, dt);
   }
   resetClan();
+  lap("colonists");
   // Forts phase E: trader wagons (movement, trips, post rosters).
   updateWagons();
   updateConstructionSites();
@@ -152,6 +160,7 @@ export function stepSimulation() {
   updateHeroRecruits();
   updateSpellStatuses();
 
+  lap("misc");
   // Walls & gates: mobs and wildlife move and path from the hostile side of every gate.
   withHostileMover(() => {
     updateRegiments();
@@ -169,8 +178,10 @@ export function stepSimulation() {
     }
     state.moverOwner = 0;
   });
+  lap("mobs");
   updateTowers();
   separateBodies();
+  lap("separate");
   if (state.cycleTick % TICK_RATE === 0) pruneSlotClaims();
   withHostileMover(() => updateWildlife(dt));
   updateWildlifeRespawn();
@@ -200,4 +211,5 @@ export function stepSimulation() {
   }
   if (state.cycleTick % FIGHT_SCAN_TICKS === 0) scanFights();
   if (state.creative) topUpCreative();
+  lap("misc");
 }

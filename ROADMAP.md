@@ -2155,6 +2155,22 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Battle engine — landed (phase 1) 2026-11-02 (regiment store + brain skeleton)
+Plan: docs PLAN-large-battles.md §8 phase 1. No behaviour change.
+- `server/src/battle.ts`: persistent regiment store `battleRegiments` (state.ts). Every player order group (g<N>)
+  and every mob regiment (tactics.ts `regimentKey`, stored as `n:<key>`) is a BattleRegiment: owner (clan / NPC
+  site), members, anchor, facing, width, shape, ORDER, STATE (the plan's state machine: idle / hold / march /
+  advance / engaged / charge / siege / flank / shelter / garrison / wavering / routing), morale (from the player /
+  mob morale models), strength (hp x damage) and the nearest hostile regiment.
+- Brain tick at 4 Hz (BRAIN_TICKS = 5), staggered by a per-regiment phase; membership synced once per cycle.
+  ORDER plumbing: `startArmyOrder` hands the order to the regiment (`noteRegimentOrder`).
+- Order-group snapshot carries `brain` (the regiment's state) for the card. testHook `battleRegiments`.
+- Per-system timings: `tickStats` now returns `systems` (avg ms per tick: misc, orders, brain, colonists, mobs,
+  separate, snapshot) via `lap()` in state.ts (test hooks only).
+- Benchmark baseline (256 map, test hooks, `bench2.mjs` pattern: spawnSoldier x1000 + regimentOrder move, width
+  40): standing 12.7 ms avg; marching **1222 ms avg, p95 1979 ms**, settling 2083 ms, all of it in `colonists`
+  (per-unit `findPath` in `returnToRally`: CPU profile 12 s of 14 s sim). Brain cost 0.4-0.8 ms.
+
 ## World streaming — landed (phase 2) 2026-11-02 (chunk manager)
 Plan: `~/docs/colony2d/PLAN-world-streaming.md` §9 phase 2. Off below 768 tiles, so 160/256/512 behave exactly as before.
 - **Chunk states (`chunks.ts` bottom):** `updateChunkStates()` runs at the top of every `stepSimulation` and re-classifies

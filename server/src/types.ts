@@ -581,6 +581,35 @@ export interface OrderGroup {
   // Phase 4: the front centre the group last formed at (a shape change re-forms there).
   lastAt?: { x: number; y: number };
 }
+// Battle engine (docs PLAN-large-battles.md): a regiment as a persistent entity with a brain. Phase 1 wraps the
+// player's order groups (id g<N>) and the mob regiments of tactics.ts (regimentKey ids) without changing what
+// they do: the brain only reads their state on its own tick.
+export type BattleRegimentState =
+  | "idle" | "hold" | "march" | "deploy" | "advance" | "engaged" | "charge" | "skirmish" | "flank" | "rally"
+  | "wavering" | "routing" | "shelter" | "siege" | "garrison";
+export interface BattleRegiment {
+  id: string;
+  // A clan's order group, or an NPC regiment (site garrison / raid / camp) by its regimentKey.
+  owner: { kind: "clan"; clan: number } | { kind: "npc"; siteId: string | null };
+  memberIds: string[];
+  // Front centre, heading (radians), width (tiles, undefined = block) and shape of the formation.
+  anchorX: number;
+  anchorY: number;
+  facing: number;
+  width?: number;
+  shape: string;
+  order: ArmyOrder | null;
+  state: BattleRegimentState;
+  stateSince: number;
+  morale: number;
+  // Sum of hp x damage of the members (as the enemy banner's power).
+  strength: number;
+  // The nearest hostile regiment within the brain's scan (null = none).
+  targetRegimentId: string | null;
+  // The brain tick phase (0..BRAIN_TICKS-1): regiments are evaluated staggered.
+  phase: number;
+  lastBrainTick: number;
+}
 export type RaidEdge = "north" | "south" | "east" | "west";
 export type RaidGroupState = "passive" | "marching";
 export interface RaidGroup {
