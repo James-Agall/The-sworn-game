@@ -471,6 +471,13 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     state.testMoraleFrozen = msg.freezeMorale === true;
     reply({ freezeMorale: state.testMoraleFrozen });
   } else if (msg.op === "tacticsState") {
+    // Battle engine phase 5: setMorale {regimentKey: value} forces a mob regiment's morale first.
+    if (msg.setMorale && typeof msg.setMorale === "object") {
+      for (const [id, v] of Object.entries(msg.setMorale as Record<string, unknown>)) {
+        const reg = regiments.get(id);
+        if (reg && typeof v === "number") reg.morale = Math.max(0, Math.min(MORALE_MAX, v));
+      }
+    }
     reply({
       cycleTick: state.cycleTick,
       regiments: Array.from(regiments.values()).map((r) => ({

@@ -161,6 +161,7 @@ function brainTick(r: BattleRegiment) {
     const mreg = playerMorale.get(moraleRegimentOfUnit.get(members[0].id) ?? "");
     r.morale = mreg ? mreg.morale : MORALE_MAX;
     setState(r, groupState(g, members));
+    updateFatigue(r);
     r.targetRegimentId = nearestHostile(r);
     clanEdge(r, members);
     skirmishFallBack(r, g, members);
@@ -172,12 +173,46 @@ function brainTick(r: BattleRegiment) {
     const reg = regiments.get(r.id.slice(2));
     r.morale = reg ? reg.morale : MORALE_MAX;
     setState(r, npcState(r, members));
+    updateFatigue(r);
     r.targetRegimentId = nearestHostile(r);
     // Phase 3: a mob regiment faces the regiment it is going for (its flanks / rear are the other sides).
     const o = r.targetRegimentId ? battleRegiments.get(r.targetRegimentId) : undefined;
     if (o) r.facing = Math.atan2(o.anchorY - r.anchorY, o.anchorX - r.anchorX);
     npcEdge(r, members);
   }
+}
+
+// Phase 5, FATIGUE (per regiment, per brain tick): marching / advancing / flanking fill it over FATIGUE_MARCH_S,
+// fighting / charging / routing over FATIGUE_FIGHT_S; standing (idle / hold / garrison / shelter) empties it over
+// FATIGUE_REST_S. Past FATIGUE_WINDED a regiment is winded: blows down to x(1 - FATIGUE_DAMAGE_LOSS) and soldiers'
+// speed to x(1 - FATIGUE_SPEED_LOSS) at full fatigue (short fights never reach it).
+const FATIGUE_MARCH_S = 180;
+const FATIGUE_FIGHT_S = 90;
+const FATIGUE_REST_S = 40;
+const FATIGUE_WINDED = 0.5;
+const FATIGUE_DAMAGE_LOSS = 0.2;
+const FATIGUE_SPEED_LOSS = 0.25;
+function updateFatigue(r: BattleRegiment) {
+  const s = (BRAIN_TICKS / TICK_RATE);
+  const st = r.state;
+  const rate = st === "march" || st === "advance" || st === "flank" ? 1 / FATIGUE_MARCH_S
+    : st === "engaged" || st === "charge" || st === "routing" || st === "wavering" || st === "siege" ? 1 / FATIGUE_FIGHT_S
+    : -1 / FATIGUE_REST_S;
+  r.fatigue = clamp((r.fatigue ?? 0) + rate * s, 0, 1);
+}
+function windedOf(id: string | null | undefined): number {
+  const f = id ? battleRegiments.get(id)?.fatigue ?? 0 : 0;
+  return f <= FATIGUE_WINDED ? 0 : (f - FATIGUE_WINDED) / (1 - FATIGUE_WINDED);
+}
+export function fatigueDamageMultOnColonist(c: Colonist): number {
+  return 1 - FATIGUE_DAMAGE_LOSS * windedOf(orderGroupOfUnit.get(c.id)?.id);
+}
+export function fatigueSpeedMult(c: Colonist): number {
+  return 1 - FATIGUE_SPEED_LOSS * windedOf(orderGroupOfUnit.get(c.id)?.id);
+}
+export function fatigueDamageMultOnMob(m: Mob): number {
+  const key = regimentKey(m);
+  return 1 - FATIGUE_DAMAGE_LOSS * windedOf(key ? "n:" + key : null);
 }
 
 // O(regiments): the nearest regiment of the other side (clan vs npc; clan vs another clan) within the scan.

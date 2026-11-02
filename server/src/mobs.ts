@@ -1,6 +1,6 @@
 // mobs.ts: Mob kinds, sizes, hunger marks, difficulty, targeting, building routing and the mob tick.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { bracedAgainst, colonistsNear, directionMultOnColonist, pairedTargetOf } from "./battle.js";
+import { bracedAgainst, colonistsNear, directionMultOnColonist, fatigueDamageMultOnMob, pairedTargetOf } from "./battle.js";
 import {
   mobSizeScale, HungerMark, HUNGER_MARK_NAMES, type MobKind, type Difficulty, MOB_SIZE_RANGE, TILE_SIZE, TileType,
   TICK_RATE, isGateTile, isSolidTile,
@@ -686,7 +686,8 @@ export function updateMob(mob: Mob, dt: number) {
       if (mob.targetId) recordMobStrike(mob, hit.x, hit.y);
       // Goblin wolf rider: a charge (a straight run of CAVALRY_CHARGE_TILES) doubles its first blow on a
       // unit, and it then withdraws for GOBLIN_RIDER_WITHDRAW_TICKS before riding in again.
-      let blow = mob.damage;
+      // Battle engine phase 5: a winded regiment hits softer.
+      let blow = mob.damage * fatigueDamageMultOnMob(mob);
       if (mob.kind === "goblinRider" && (mob.targetType === "colonist" || mob.targetType === "player")) {
         // Phase 4: a braced spear / pike (a formed regiment, the rider in its front arc) takes no charge bonus.
         const struckC = mob.targetType === "colonist" && mob.targetId ? colonists.get(mob.targetId) : undefined;

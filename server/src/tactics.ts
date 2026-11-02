@@ -24,7 +24,7 @@ import {
   TACTICS_EVAL_TICKS, TACTICS_OUTNUMBERED_RATIO, TACTICS_SCAN_TILES, TACTICS_SPREAD_CAP_TILES,
 } from "./constants.js";
 import {
-  colonists, mobs, mobsWithoutRoute, moraleRegimentOfUnit, orderGroupOfUnit, orderGroups, playerMorale, players,
+  battleRegiments, colonists, mobs, mobsWithoutRoute, moraleRegimentOfUnit, orderGroupOfUnit, orderGroups, playerMorale, players,
   raidGroups, regiments, routedUnits, state, tacticsEvents, walledSites,
 } from "./state.js";
 import { inBounds, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
@@ -42,7 +42,7 @@ import {
 import { isDormantGuardian } from "./mobs.js";
 import { raidGroupMembers, releaseRaidMob, stepRaidMobToward } from "./raids.js";
 import { playerDamage } from "./heroes.js";
-import { centroidOf, leaveOrderGroup, rallyUnit, startArmyOrder } from "./orders.js";
+import { centroidOf, formGroupAt, leaveOrderGroup, rallyUnit, startArmyOrder } from "./orders.js";
 import { broadcastEvent } from "./net.js";
 
 export function regimentKey(m: Mob): string | null {
@@ -218,11 +218,52 @@ export function clearMobTarget(m: Mob) {
   releaseSlot(m.id);
 }
 
+// Battle engine phase 5 (docs PLAN-large-battles.md §3, morale): a regiment that breaks shakes the allied
+// regiments within MORALE_CASCADE_TILES of it (ROUT_CASCADE_MORALE; they can break in turn); a fallen leader
+// (a regiment's morale anchor, or a hero) shakes its own regiment and its neighbours (LEADER_LOST_MORALE).
+const MORALE_CASCADE_TILES = 10;
+const ROUT_CASCADE_MORALE = 15;
+const PLAYER_ROUT_CASCADE_MORALE = 10;
+const LEADER_LOST_MORALE = 20;
+function shakeMobRegiments(fromId: string, amount: number, self: boolean) {
+  if (state.testMoraleFrozen) return;
+  const at = battleRegiments.get("n:" + fromId);
+  if (!at) return;
+  for (const reg of regiments.values()) {
+    if (reg.routed || (reg.id === fromId && !self)) continue;
+    const b = battleRegiments.get("n:" + reg.id);
+    if (!b || Math.hypot(b.anchorX - at.anchorX, b.anchorY - at.anchorY) > MORALE_CASCADE_TILES * TILE_SIZE) continue;
+    reg.morale = Math.max(0, reg.morale - amount);
+    if (reg.id !== fromId) tacticsEvent(reg.id, "shaken", `${fromId} ${amount}`);
+  }
+}
+function shakePlayerRegiments(x: number, y: number, amount: number, except: string | null) {
+  if (state.testMoraleFrozen) return;
+  const sums = new Map<string, { x: number; y: number; n: number }>();
+  for (const [id, regId] of moraleRegimentOfUnit) {
+    if (regId === except) continue;
+    const c = colonists.get(id);
+    if (!c) continue;
+    const s = sums.get(regId) ?? { x: 0, y: 0, n: 0 };
+    s.x += c.x;
+    s.y += c.y;
+    s.n++;
+    sums.set(regId, s);
+  }
+  for (const [regId, s] of sums) {
+    const reg = playerMorale.get(regId);
+    if (!reg || !reg.active || reg.routed || Math.hypot(s.x / s.n - x, s.y / s.n - y) > MORALE_CASCADE_TILES * TILE_SIZE) continue;
+    reg.morale = Math.max(0, reg.morale - amount);
+    tacticsEvent(regId, "shaken", `${except ?? "leader"} ${amount}`);
+  }
+}
+
 export function startRout(reg: RegimentState, members: Mob[], ex: number, ey: number, toast = true) {
   reg.routed = true;
   reg.sheltering = false;
   reg.flankIds = [];
   tacticsEvent(reg.id, "rout", `morale ${reg.morale.toFixed(0)}`);
+  shakeMobRegiments(reg.id, ROUT_CASCADE_MORALE, false);
   // A raid group still (partly) in formation breaks up at once; the raid's bookkeeping drops it.
   const group = raidGroups.get(reg.id);
   if (group) {
@@ -353,6 +394,11 @@ export function evaluateRegiment(reg: RegimentState, members: Mob[]) {
   // Morale.
   const anchored = members.some(isMoraleAnchor);
   if (anchored) reg.hadAnchor = true;
+  else if (reg.hadAnchor && !reg.leaderLost) {
+    reg.leaderLost = true;
+    tacticsEvent(reg.id, "leaderLost");
+    shakeMobRegiments(reg.id, LEADER_LOST_MORALE, true);
+  }
   if (contact && reg.firstContactTick === -Infinity) reg.firstContactTick = state.cycleTick;
   if (!state.testMoraleFrozen) {
     let delta = 0;
@@ -475,6 +521,7 @@ export function moraleUnit(c: Colonist): boolean {
 }
 
 export function notePlayerCasualty(c: Colonist) {
+  if (c.kind === "hero") shakePlayerRegiments(c.x, c.y, LEADER_LOST_MORALE, null);
   const reg = playerMorale.get(moraleRegimentOfUnit.get(c.id) ?? "");
   if (!reg || !isGuardOrMilitiaKind(c.kind) || c.kind === "hero" || isSiegeKind(c.kind)) return;
   const role = colonistRole(c) ?? "frontline";
@@ -556,6 +603,11 @@ export function startPlayerRout(reg: PlayerMoraleState, members: Colonist[]) {
   reg.routedTick = state.cycleTick;
   tacticsEvent(reg.id, "playerRout", `morale ${reg.morale.toFixed(0)}`);
   moraleToast(reg, `${reg.name} is routing!`, true);
+  const c0 = centroidOf(members);
+  shakePlayerRegiments(c0.x, c0.y, PLAYER_ROUT_CASCADE_MORALE, reg.id);
+  // Phase 5: the slots the regiment held (one order group with exactly these members), to re-form into.
+  const prev = orderGroupOfUnit.get(members[0]?.id ?? "");
+  const rallyTable = prev && prev.unitIds.size === members.length && members.every((c) => orderGroupOfUnit.get(c.id) === prev) ? prev.slotTable : undefined;
   for (const c of members) {
     routedUnits.set(c.id, { reg: reg.id, hadGroup: orderGroupOfUnit.has(c.id), rallyX: c.rallyX, rallyY: c.rallyY });
     leaveOrderGroup(c.id);
@@ -567,6 +619,7 @@ export function startPlayerRout(reg: PlayerMoraleState, members: Colonist[]) {
   };
   orderGroups.set(g.id, g);
   for (const c of members) orderGroupOfUnit.set(c.id, g);
+  g.rallyTable = rallyTable;
   startArmyOrder(g, { kind: "retreat" });
 }
 
@@ -639,6 +692,19 @@ export function evaluatePlayerRegiment(reg: PlayerMoraleState, members: Colonist
     tacticsEvent(reg.id, "playerRally", `morale ${reg.morale.toFixed(0)}`);
     moraleToast(reg, `${reg.name} rallies`, true);
     for (const [id, r] of routedUnits) if (r.reg === reg.id) releaseRoutedUnit(id, r);
+    // Phase 5: the rout group (still together, its retreat done) re-forms where it stands, in its old slots.
+    const g = orderGroupOfUnit.get(members[0]?.id ?? "");
+    if (g && g.rallyTable && (!g.current || g.current.kind === "retreat") && !g.march) {
+      const table = g.rallyTable;
+      g.rallyTable = undefined;
+      const ms = members.filter((c) => orderGroupOfUnit.get(c.id) === g);
+      if (ms.length >= 2) {
+        g.slotTable = table;
+        const at = centroidOf(ms);
+        formGroupAt(g, ms, at.x, at.y, g.facing, table.width);
+        tacticsEvent(reg.id, "playerReform", `${ms.length}`);
+      }
+    }
   }
 }
 

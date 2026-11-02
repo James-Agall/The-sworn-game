@@ -598,6 +598,8 @@ export interface OrderGroup {
   // Battle engine phase 4: a skirmishing regiment's fall-back origin (where its order formed it) and last step tick.
   skirmishFrom?: { x: number; y: number };
   skirmishAt?: number;
+  // Phase 5: a rout group's pre-rout slot table; the regiment re-forms into it when it rallies.
+  rallyTable?: { offsets: Map<string, { ox: number; oy: number }>; width?: number; shape: string };
 }
 export interface FormationMarch {
   offsets: Map<string, { ox: number; oy: number }>;
@@ -654,6 +656,8 @@ export interface BattleRegiment {
   edge?: { x: number; y: number; nx: number; ny: number; foe: string; pairs: number } | null;
   // Phase 4: ranged members given a volley target in targetRegimentId this brain tick.
   volleys?: number;
+  // Phase 5: 0 (fresh) .. 1 (spent); marching / charging / fighting build it, standing recovers it.
+  fatigue?: number;
   // The brain tick phase (0..BRAIN_TICKS-1): regiments are evaluated staggered.
   phase: number;
   lastBrainTick: number;
@@ -694,6 +698,8 @@ export interface PickedTarget {
 export interface RegimentState {
   id: string;
   morale: number;
+  // Battle engine phase 5: its morale anchor (boss / marked leader) has fallen (the shock is dealt once).
+  leaderLost?: boolean;
   peak: number;
   routed: boolean;
   // A raid regiment (no site): routing makes it leave the map instead of falling back home.

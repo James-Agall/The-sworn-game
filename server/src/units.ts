@@ -1,6 +1,6 @@
 // units.ts: Soldiers: unit stats, posts and garrisons, rally/return, guard AI, bishops, task forces, army regiment derivation.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { directionMultOnMob, marchSteerStep, mobsNear, pairedTargetOf } from "./battle.js";
+import { directionMultOnMob, fatigueDamageMultOnColonist, fatigueSpeedMult, marchSteerStep, mobsNear, pairedTargetOf } from "./battle.js";
 import {
   type SiegeKind, type ColonistKind, TileType, type ArmyRegimentSnapshot, type RegimentClass, type CombatRole,
   unitRole, HERO_CLASS_ROLE, TILE_SIZE, TICK_RATE, HungerMark, isRearRole, MOB_ROLE,
@@ -480,6 +480,9 @@ export function updateGuardColonist(c: Colonist, dt: number) {
   // Creative mode: forced / clan-vs-clan targets (creative.ts).
   if (state.creative && creativeFightStep(c, dt)) return;
   let stats = unitStats(c);
+  // Battle engine phase 5: a winded regiment moves slower.
+  const winded = fatigueSpeedMult(c);
+  if (winded < 1) stats = { ...stats, speed: stats.speed * winded };
   if (c.kind === "cavalry") trackCharge(c);
 
   let target = c.targetMobId ? getMobById(c.targetMobId) : undefined;
@@ -662,7 +665,7 @@ export function guardStrike(c: Colonist, target: Mob, stats: { damage: number; c
   }
   // Armour & weapons: the weapon tier multiplies every blow (charge x2 etc. stack on top).
   // Battle engine phase 3: x1.25 / x1.5 on a formed mob regiment's flank / rear.
-  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id) * moraleDamageMult(c) * directionMultOnMob(c.x, c.y, target) * mult;
+  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id) * moraleDamageMult(c) * directionMultOnMob(c.x, c.y, target) * fatigueDamageMultOnColonist(c) * mult;
   if ((c.weaponTier ?? 0) > 0) equipEvent({ type: "hit", id: c.id, tier: c.weaponTier, amount: damage, detail: String(damage / weaponDamageMult(c)) });
   // Cavalry & siege: the catapult lobs a splashing boulder (never inside its minimum range), the ram
   // barely scratches units, a rider's charge doubles its first blow.
