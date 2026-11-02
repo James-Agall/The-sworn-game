@@ -387,4 +387,6 @@ Short checks of the phase I numbers (ROADMAP "Phase I — landed"). A normal gam
 2. Demolish a wall a worker walks around, or build a wall across a worker's route: the worker re-routes at once
    (no walking through the new wall, takes the shortcut through the gap).
 3. Save, load, keep playing a day: houses still count toward the cap, towers still fire.
+4. 512 map: wildlife far away still wanders when you walk up to it, forts / camps still wake when you approach and
+   sleep when you leave (phase 2 freezing is off below 768 tiles; nothing should differ).
 

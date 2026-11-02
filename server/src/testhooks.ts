@@ -2,7 +2,7 @@
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, wagonDebugState } from "./wagons.js";
 import { buildingLevel, tradingPosts } from "./state.js";
-import { auditTileRegistry, pathCacheStats, setTile } from "./chunks.js";
+import { auditTileRegistry, chunkStateAtPixel, chunkStateSummary, pathCacheStats, setTile, updateChunkStates } from "./chunks.js";
 import { clanById, clanIdAt, withClan } from "./clans.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -547,6 +547,11 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       groups: raidGroups.size,
     });
     if (msg.reset) tickDurationsMs.length = 0;
+  } else if (msg.op === "chunkState") {
+    // World streaming phase 2: chunk state counts (force re-classifies now) and the state at {x, y} (pixels).
+    if (msg.force) updateChunkStates(true);
+    const at = typeof msg.x === "number" && typeof msg.y === "number" ? chunkStateAtPixel(msg.x, msg.y) : null;
+    reply({ ...chunkStateSummary(), at });
   } else if (msg.op === "auditRegistry") {
     // World streaming phase 1: registry vs a fresh full scan (0 = consistent) and the path cache counters.
     reply({ bad: auditTileRegistry(), pathHits: pathCacheStats.hits, pathMisses: pathCacheStats.misses, pathMismatches: pathCacheStats.mismatches });

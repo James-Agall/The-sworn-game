@@ -7,6 +7,7 @@ import {
   TREE_RESPAWN_INTERVAL_TICKS, dt,
 } from "./constants.js";
 import { clans, colonists, gravestones, mobs, players, state, tileOwner } from "./state.js";
+import { mobFrozenByStreaming, updateChunkStates } from "./chunks.js";
 import { biomeSpeedMultiplier, clamp, collidesAt, isNightNow, roadSpeedMultiplier, siteNumber } from "./tiles.js";
 import { separateBodies } from "./pathfinding.js";
 import { tryGrowTree, tryGrowTreesNearLumberjackPosts, updateFarmPlots } from "./economy.js";
@@ -41,6 +42,8 @@ import { spawnCampRaids, stepWarbandMobs, updateWarbands, warbandsDawn } from ".
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
   state.cycleTick++;
+  // World streaming phase 2: ACTIVE / WARM / COLD chunks (re-classified once a second).
+  updateChunkStates();
   const nightNow = isNightNow();
 
   if (!nightNow && state.wasNight) {
@@ -156,6 +159,8 @@ export function stepSimulation() {
     // Forts phase G: warbands on the move (their members skip updateMob).
     stepWarbandMobs(dt);
     for (const mob of mobs.values()) {
+      // World streaming phase 2: an idle free mob in a COLD chunk stands still (never on 160-512 maps).
+      if (mobFrozenByStreaming(mob)) continue;
       // Forts phase A: a site's own mobs pass its gates.
       state.moverOwner = tileOwner.size === 0 ? 0 : siteNumber(mob.siteId);
       // Forts phase C: a human settlement's cosmetic workers walk their loop instead.

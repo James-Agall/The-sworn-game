@@ -432,6 +432,12 @@ await check("world streaming: registry audit + path cache", async () => {
   return [r?.bad === 0 && r?.pathHits > 0 && !r?.pathMismatches, `mismatches ${r?.bad}, path cache hits ${r?.pathHits} / misses ${r?.pathMisses} / wrong ${r?.pathMismatches} (counted only with COLONY_PATH_CACHE_VERIFY=1)`];
 });
 
+// 11. world streaming phase 2: a 160 map keeps every chunk ACTIVE (nothing freezes below 768 tiles)
+await check("world streaming: chunk manager off on small maps", async () => {
+  const r = await hook("chunkState", { force: true, x: 2 * TILE, y: 2 * TILE });
+  return [r?.on === false && r?.cold === 0 && r?.warm === 0 && r?.active === r?.chunksX * r?.chunksY && r?.at === 2, `on ${r?.on}, ${r?.chunksX}x${r?.chunksY} chunks: ${r?.active} active / ${r?.warm} warm / ${r?.cold} cold`];
+});
+
 const secs = ((Date.now() - t0) / 1000).toFixed(1);
 console.log(failed.length === 0 ? `ALL PASS (${passed} checks, ${secs}s)` : `${failed.length} FAILED (${failed.join("; ")}), ${passed} passed, ${secs}s`);
 c.ws.close();

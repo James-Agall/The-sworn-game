@@ -3,9 +3,9 @@
 // settlementStats / updateTowers / tilesOfType), per-type counts, per-chunk structure counts and the
 // per-chunk regionVersion (bumped on any tile change in the chunk; cached paths check it). Bulk writes
 // (worldgen fill, save load) call markTileRegistryStale(); a new state.tiles array is noticed by itself.
-// Imports only state and the shared protocol at runtime.
-import { TileType } from "@colony/shared/protocol";
-import { state } from "./state.js";
+// Phase 2 adds the chunk manager (bottom). Imports only state and the shared protocol at runtime.
+import { TileType, TILE_SIZE as TILE_PX } from "@colony/shared/protocol";
+import { colonists, mobs, players, raidGroups, state } from "./state.js";
 
 export const CHUNK_TILES = 32;
 
@@ -223,4 +223,119 @@ export function storePath(key: number, path: readonly { x: number; y: number }[]
   pathCache.delete(key);
   pathCache.set(key, { epoch: tileRegistryEpoch(), path: path ? Int32Array.from(path, (p) => p.y * W + p.x) : null, chunks, versions });
   if (pathCache.size > PATH_CACHE_MAX) pathCache.delete(pathCache.keys().next().value!);
+}
+
+// ---- chunk manager (phase 2): ACTIVE / WARM / COLD ----
+// Classified once a second from anchors (live players, living colonists incl. wagons, Town Centers, raid
+// groups' members) by Chebyshev chunk distance d: d <= CHUNK_ACTIVATE -> ACTIVE, d <= CHUNK_WARM -> WARM,
+// else COLD. Hysteresis: an ACTIVE chunk stays ACTIVE while d <= CHUNK_DEACTIVATE, and any demotion waits
+// CHUNK_GRACE_TICKS. Only worlds of STREAMING_MIN_WORLD_TILES+ freeze anything (COLONY_STREAMING=1 forces it
+// on in tests), so 160 / 256 / 512 maps behave exactly as before; there every chunk reads ACTIVE.
+// COLD: idle free mobs (no raid group / warband / target) and wildlife stand still; sites there are asleep
+// (the existing ~96-tile site dormancy). WARM: everything still runs (the band that hides pop-in).
+export const enum ChunkState { Cold = 0, Warm = 1, Active = 2 }
+export const CHUNK_ACTIVATE = 3;
+export const CHUNK_DEACTIVATE = 5;
+export const CHUNK_WARM = 5;
+export const CHUNK_GRACE_TICKS = 20 * 10;
+export const STREAMING_MIN_WORLD_TILES = 768;
+const STREAMING_FORCED = process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_STREAMING === "1";
+let chunkState = new Uint8Array(0);
+// Tick each chunk last qualified for its current state (grace timer start).
+let chunkHeldTick = new Int32Array(0);
+let chunkClassifiedTick = -Infinity;
+const CHUNK_FAR = 255;
+
+export function streamingOn(): boolean {
+  return STREAMING_FORCED || state.WORLD_TILES_X >= STREAMING_MIN_WORLD_TILES;
+}
+
+function chunkAtPixel(px: number, py: number): number {
+  const cx = Math.min(chunksX - 1, Math.max(0, Math.floor(px / (TILE_PX * CHUNK_TILES))));
+  const cy = Math.min(chunksY - 1, Math.max(0, Math.floor(py / (TILE_PX * CHUNK_TILES))));
+  return cy * chunksX + cx;
+}
+
+// Re-classifies every chunk (sim calls it each tick; it works once a second, or at once with force).
+export function updateChunkStates(force = false) {
+  ensureTileRegistry();
+  const n = chunksX * chunksY;
+  const now = state.cycleTick;
+  if (chunkState.length !== n) {
+    chunkState = new Uint8Array(n).fill(ChunkState.Cold);
+    chunkHeldTick = new Int32Array(n).fill(now);
+    force = true;
+  }
+  if (!force && now - chunkClassifiedTick < 20 && now >= chunkClassifiedTick) return;
+  chunkClassifiedTick = now;
+  if (!streamingOn()) {
+    chunkState.fill(ChunkState.Active);
+    return;
+  }
+  // Multi-source Chebyshev distance (in chunks, capped at CHUNK_FAR) from every anchor chunk.
+  const anchorChunks = new Set<number>();
+  for (const p of players.values()) if (!p.dead) anchorChunks.add(chunkAtPixel(p.x, p.y));
+  for (const c of colonists.values()) if (c.hp > 0) anchorChunks.add(chunkAtPixel(c.x, c.y));
+  for (const tc of state.townCenters) anchorChunks.add(chunkAtPixel((tc.x + 0.5) * TILE_PX, (tc.y + 0.5) * TILE_PX));
+  for (const g of raidGroups.values()) {
+    for (const id of g.memberIds) {
+      const m = mobs.get(id);
+      if (m) anchorChunks.add(chunkAtPixel(m.x, m.y));
+    }
+  }
+  const dist = new Uint8Array(n).fill(CHUNK_FAR);
+  const R = CHUNK_WARM + 2;
+  for (const a of anchorChunks) {
+    const ax = a % chunksX;
+    const ay = Math.floor(a / chunksX);
+    for (let y = Math.max(0, ay - R); y <= Math.min(chunksY - 1, ay + R); y++) {
+      for (let x = Math.max(0, ax - R); x <= Math.min(chunksX - 1, ax + R); x++) {
+        const d = Math.max(Math.abs(x - ax), Math.abs(y - ay));
+        const c = y * chunksX + x;
+        if (d < dist[c]) dist[c] = d;
+      }
+    }
+  }
+  for (let c = 0; c < n; c++) {
+    const d = dist[c];
+    const cur = chunkState[c] as ChunkState;
+    let want = d <= CHUNK_ACTIVATE ? ChunkState.Active : d <= CHUNK_WARM ? ChunkState.Warm : ChunkState.Cold;
+    if (cur === ChunkState.Active && d <= CHUNK_DEACTIVATE) want = ChunkState.Active;
+    if (want >= cur) {
+      // Promotion is immediate; holding the state restarts the grace timer.
+      chunkState[c] = want;
+      chunkHeldTick[c] = now;
+    } else if (now - chunkHeldTick[c] >= CHUNK_GRACE_TICKS || now < chunkHeldTick[c]) {
+      chunkState[c] = want;
+      chunkHeldTick[c] = now;
+    }
+  }
+}
+
+export function chunkStateAtPixel(px: number, py: number): ChunkState {
+  if (chunkState.length !== chunksX * chunksY || chunkState.length === 0) return ChunkState.Active;
+  return chunkState[chunkAtPixel(px, py)] as ChunkState;
+}
+
+export function isColdAtPixel(px: number, py: number): boolean {
+  return chunkStateAtPixel(px, py) === ChunkState.Cold;
+}
+
+// A mob that stands still this tick: an idle free mob in a COLD chunk (raid groups, warbands and anything
+// with a target are on a mission and keep running).
+export function mobFrozenByStreaming(m: { x: number; y: number; groupId: string | null; warbandId?: string; targetId: string | null }): boolean {
+  return !m.groupId && !m.warbandId && !m.targetId && isColdAtPixel(m.x, m.y);
+}
+
+// Test hook 'chunkState' / benchmarks.
+export function chunkStateSummary(): { on: boolean; chunksX: number; chunksY: number; active: number; warm: number; cold: number } {
+  let active = 0;
+  let warm = 0;
+  let cold = 0;
+  for (const s of chunkState) {
+    if (s === ChunkState.Active) active++;
+    else if (s === ChunkState.Warm) warm++;
+    else cold++;
+  }
+  return { on: streamingOn(), chunksX, chunksY, active, warm, cold };
 }

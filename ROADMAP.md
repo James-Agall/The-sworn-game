@@ -2155,6 +2155,29 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## World streaming — landed (phase 2) 2026-11-02 (chunk manager)
+Plan: `~/docs/colony2d/PLAN-world-streaming.md` §9 phase 2. Off below 768 tiles, so 160/256/512 behave exactly as before.
+- **Chunk states (`chunks.ts` bottom):** `updateChunkStates()` runs at the top of every `stepSimulation` and re-classifies
+  once a second. Anchors: live players, living colonists (wagons included), every Town Center (clan settlements are
+  pinned) and raid groups' members. Chebyshev chunk distance d from the nearest anchor chunk: d <= 3 ACTIVE, d <= 5 WARM,
+  else COLD. Hysteresis: ACTIVE holds while d <= 5, and any demotion waits `CHUNK_GRACE_TICKS` (10 s); promotion is
+  immediate. A fresh world starts COLD and is classified on its first tick.
+- **Who follows it:** idle free mobs (no raid group, warband or target) in a COLD chunk skip `updateMob` /
+  `updateSiteWorker` (resident but frozen); wildlife in a COLD chunk is skipped before the per-anchor dormancy test (COLD is
+  160+ tiles out, past the 64-tile dormancy, so this is a fast path); `updateSites` treats a COLD keep as asleep without
+  looping over every anchor (COLD is past the 96-tile site wake radius). WARM still runs at full rate (no low-rate tick
+  yet: mob timers are per-call, a stretched dt would change combat / movement).
+- **On / off:** `streamingOn()` = world >= `STREAMING_MIN_WORLD_TILES` (768), or `COLONY_STREAMING=1` with test hooks.
+  Test hook `chunkState` ({force, x, y}: counts and the state at a pixel); smoke check 15 asserts a 160 map is all ACTIVE.
+- **Benchmark** (ms per tick, fast-forward, fresh normal world): 512 2.9-3.0 (streaming off, as phase 1); 1024 3.85
+  (98 ACTIVE / 124 WARM / 802 COLD of 1024 chunks), the same as phase 1's 3.8: on a fresh 1024 world nearly every far
+  mob is already a dormant site guardian and far wildlife was already dormant, so the remaining cost is elsewhere (phase
+  3's unloading is where 1024+ saves memory / snapshot work). Worldgen at 1024 is still ~65 s.
+- Tests: smoke all pass (and with `COLONY_STREAMING=1` only the known random settlement-stamp flake + the off-check
+  fail), sites, hunting-foraging pass.
+- Not done (phase 3+): abstract records / unloading, catch-up dice, WARM low-rate ticking, diff-log saves, chunked
+  transfer, map-size menu above 512.
+
 ## World streaming — landed (phase 1) 2026-11-02 (registries and caches)
 Plan: `~/docs/colony2d/PLAN-world-streaming.md` §9 phase 1. No streaming yet; behaviour unchanged at 160/256/512.
 - **Tile registry (`server/src/chunks.ts`):** every tile write goes through `setTile(index, tile)` (the ~70 direct

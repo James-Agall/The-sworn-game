@@ -14,7 +14,7 @@ import {
 import {
   colonists, forageRegrow, players, reservedResourceTiles, scaledCount, scaledCountSub, state, wildlife,
 } from "./state.js";
-import { setTile } from "./chunks.js";
+import { isColdAtPixel, setTile } from "./chunks.js";
 import {
   biomeAt, biomeSpeedMultiplier, clamp, getBuildingLevel, inBounds, levelBonus, resourceKey, tileIndex, tileOfPixel,
   tileToPixelCenter,
@@ -224,6 +224,8 @@ export function updateWildlife(dt: number) {
   for (const a of wildlife.values()) {
     const config = WILDLIFE_CONFIG[a.kind];
     if (a.attackCooldownTicks > 0) a.attackCooldownTicks--;
+    // World streaming phase 2: a COLD chunk (5+ chunks from every anchor) is past the dormancy radius anyway.
+    if (isColdAtPixel(a.x, a.y)) continue;
     if (!anchors.some((p) => Math.abs(p.x - a.x) < dormantDist && Math.abs(p.y - a.y) < dormantDist)) continue;
     // Something was built on top of it (placement only checks players/colonists): step off.
     const here = tileOfPixel(a.x, a.y);

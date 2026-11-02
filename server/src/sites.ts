@@ -18,7 +18,7 @@ import {
   SETTLEMENT_COUNT_AT_512, SETTLEMENT_INNER_RING_FRACTION, SETTLEMENT_PLACE_ATTEMPTS, SETTLEMENT_SPACING_TILES, SETTLEMENT_START_CLEARANCE_TILES,
 } from "./constants.js";
 import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, players, sites, state, tileOwner } from "./state.js";
-import { setTile as setTileRaw } from "./chunks.js";
+import { isColdAtPixel, setTile as setTileRaw } from "./chunks.js";
 import { inBounds, isNightNow, resourceKey, setOwner, siteNumber, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { clanById, clanTownCenters, setTileClan } from "./clans.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
@@ -419,7 +419,9 @@ export function updateSites() {
     let provoke = false;
     const kx = s.keepX + 0.5;
     const ky = s.keepY + 0.5;
-    for (const a of anchors) {
+    // World streaming phase 2: a site in a COLD chunk is asleep without checking every anchor.
+    const cold = isColdAtPixel(kx * TILE_SIZE, ky * TILE_SIZE);
+    for (const a of cold ? [] : anchors) {
       if (Math.max(Math.abs(a.x - kx), Math.abs(a.y - ky)) > SITE_AWAKE_RADIUS_TILES) continue;
       awake = true;
       if (s.cleared || (a.player && state.testPlayersIgnored) || (human && !s.provoked)) continue;
