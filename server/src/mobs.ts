@@ -1,5 +1,6 @@
 // mobs.ts: Mob kinds, sizes, hunger marks, difficulty, targeting, building routing and the mob tick.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { colonistsNear, directionMultOnColonist, pairedTargetOf } from "./battle.js";
 import {
   mobSizeScale, HungerMark, HUNGER_MARK_NAMES, type MobKind, type Difficulty, MOB_SIZE_RANGE, TILE_SIZE, TileType,
   TICK_RATE, isGateTile, isSolidTile,
@@ -197,7 +198,13 @@ export function pickMobTarget(mob: Mob): PickedTarget | null {
   // bandits go for one in range before anything else (loot).
   const wagonBonus = WAGON_AGGRO_BONUS_TILES * TILE_SIZE;
   const bandit = mob.kind === "banditClubman" || mob.kind === "banditArcher";
-  for (const c of colonists.values()) {
+  // Battle engine phase 3: the soldier the regiment's brain paired this front-rank mob with (contact line).
+  const pairedId = mob.melee ? pairedTargetOf(mob.id) : undefined;
+  const paired = pairedId ? colonists.get(pairedId) : undefined;
+  if (paired && !isWarded(paired.x, paired.y, wards) && Math.hypot(paired.x - mob.x, paired.y - mob.y) < bestGuardDist && targetHasRoom(mob.id, `c:${paired.id}`, guardCap)) {
+    return { type: "colonist", id: paired.id };
+  }
+  for (const c of colonistsNear(mob.x, mob.y, MOB_AGGRO_RANGE_GUARD_TILES * TILE_SIZE + wagonBonus)) {
     const wagon = c.kind === "wagon";
     if (!wagon && !isGuardOrMilitiaKind(c.kind)) continue;
     if (isWarded(c.x, c.y, wards)) continue;
@@ -228,15 +235,27 @@ export function pickMobTarget(mob: Mob): PickedTarget | null {
   if (bestPlayer) return { type: "player", id: bestPlayer.id };
 
   // No guard / player to fight: the nearest unwarded building (Town Centers included).
-  return pickBuildingTarget(mob, wards);
+  // Battle engine phase 3: re-picked from the same tile within BUILDING_PICK_CACHE_TICKS, the last answer is
+  // reused while its target still resolves (each pick is up to 2 x BUILDING_TARGET_CANDIDATES Dijkstra searches;
+  // regiment mobs re-picking every tick made a 1000-mob battle 50-100 ms of routeToBuilding per tick).
+  const tile = tileIndex(Math.floor(mob.x / TILE_SIZE), Math.floor(mob.y / TILE_SIZE));
+  const cached = buildingPickCache.get(mob.id);
+  if (cached && cached.tile === tile && state.cycleTick - cached.tick < BUILDING_PICK_CACHE_TICKS && cached.tick <= state.cycleTick
+    && (cached.pick === null || resolveTargetPosition(cached.pick.type, cached.pick.id) !== null)) return cached.pick;
+  if (buildingPickCache.size > 4096) buildingPickCache.clear();
+  const pick = pickBuildingTarget(mob, wards);
+  buildingPickCache.set(mob.id, { tick: state.cycleTick, tile, pick });
+  return pick;
 }
+const BUILDING_PICK_CACHE_TICKS = TICK_RATE;
+const buildingPickCache = new Map<string, { tick: number; tile: number; pick: PickedTarget | null }>();
 
 // True while a guard / militia / player is targetable (unwarded) within the mob's aggro range: a mob on
 // a building drops it then.
 export function unitInAggroRange(mob: Mob, wards: TileCoord[]): boolean {
   const guardPx = MOB_AGGRO_RANGE_GUARD_TILES * TILE_SIZE;
   const playerPx = MOB_AGGRO_RANGE_PLAYER_TILES * TILE_SIZE;
-  for (const c of colonists.values()) {
+  for (const c of colonistsNear(mob.x, mob.y, guardPx + WAGON_AGGRO_BONUS_TILES * TILE_SIZE)) {
     const reach = c.kind === "wagon" ? guardPx + WAGON_AGGRO_BONUS_TILES * TILE_SIZE : guardPx;
     if ((c.kind === "wagon" || isGuardOrMilitiaKind(c.kind)) && Math.hypot(c.x - mob.x, c.y - mob.y) <= reach && !isWarded(c.x, c.y, wards)) return true;
   }
@@ -317,13 +336,24 @@ export function buildingTargetCandidates(): TileCoord[] {
 }
 // colony = true (forts phase A): the colony's side: gates by gatePassable(_, false), and only a hostile
 // site's walls / gates are breachable; false: the mobs' side, only the colony's (owner 0) are.
+let routeCostArr: Float64Array | null = null;
+const routeTouched: number[] = [];
 export function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: number, colony = false): TileCoord[] | null {
   const n = state.tiles.length;
   const s = tileIndex(start.x, start.y);
   const isGoal = (i: number) => Math.abs((i % state.WORLD_TILES_X) - gx) + Math.abs(Math.floor(i / state.WORLD_TILES_X) - gy) === 1;
   if (isGoal(s)) return [];
-  state.routeCost.fill(Infinity);
+  // Only the cells the last search touched are reset (was a fill of the whole map per call: 65k cells at 256,
+  // per mob re-pick); a new routeCost array (world gen / load) is filled once.
+  if (routeCostArr !== state.routeCost) {
+    state.routeCost.fill(Infinity);
+    routeCostArr = state.routeCost;
+  } else {
+    for (const i of routeTouched) state.routeCost[i] = Infinity;
+  }
+  routeTouched.length = 0;
   state.routeCost[s] = 0;
+  routeTouched.push(s);
   const heap: number[] = [s];
   const push = (v: number) => {
     let i = heap.push(v) - 1;
@@ -387,6 +417,7 @@ export function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCo
       const next = cost + step;
       if (next >= state.routeCost[ni]) continue;
       state.routeCost[ni] = next;
+      routeTouched.push(ni);
       state.routeParent[ni] = idx;
       push(next * n + ni);
     }
@@ -676,7 +707,8 @@ export function updateMob(mob: Mob, dt: number) {
             c.poisonTicksRemaining = POISON_DURATION_TICKS;
             c.poisonDamagePerTick = POISON_DAMAGE_PER_TICK;
           }
-          damageColonist(c, blow);
+          // Battle engine phase 3: x1.25 / x1.5 on a formed regiment's flank / rear.
+          damageColonist(c, blow * directionMultOnColonist(mob.x, mob.y, c));
           if (mob.mark === HungerMark.Vhorrun && c.hp > 0 && c.hp < c.maxHp * VHORRUN_WITHDRAW_TARGET_HP) {
             startVhorrunWithdraw(mob, targetPos);
           }

@@ -398,3 +398,11 @@ Short checks of the phase I numbers (ROADMAP "Phase I — landed"). A normal gam
 4. Attack-move into enemies: the block stops on contact and fights as before; a new order mid-march re-routes cleanly.
 5. Retreat a marching regiment: it heads back to the Town Center at retreat speed.
 
+## Battle engine phase 3 (contact lines, flank / rear)
+1. Creative: two regiments of 15+ soldiers vs a camp / raid of 15+: the lines meet and each front soldier fights the
+   enemy in front of it (no whole regiment piling on one mob); the rear ranks join as before.
+2. Send a second regiment round the side of an enemy regiment that is fighting your first: its blows should land
+   harder (the fight ends visibly faster than a frontal one).
+3. A big battle (100+ per side, test hooks / creative): no long freezes while it is fighting; note any stutter when an
+   enemy regiment breaks and flees (known: a rout of 100+ is a one-off spike).
+

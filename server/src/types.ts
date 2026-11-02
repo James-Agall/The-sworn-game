@@ -605,8 +605,9 @@ export interface FormationMarch {
   lagSince: Map<string, number>;
   lagging?: number;
   waiting?: boolean;
-  // Formed up once (from then on lag only slows the anchor).
+  // Formed up once (from then on lag only slows the anchor); the tick the march started.
   formed: boolean;
+  since: number;
   // Tick the anchor arrived (members settling into their final slots).
   settleSince?: number;
 }
@@ -635,6 +636,8 @@ export interface BattleRegiment {
   strength: number;
   // The nearest hostile regiment within the brain's scan (null = none).
   targetRegimentId: string | null;
+  // Phase 3: the engagement edge with targetRegimentId (midpoint, unit normal toward the enemy, front-rank pairs).
+  edge?: { x: number; y: number; nx: number; ny: number; foe: string; pairs: number } | null;
   // The brain tick phase (0..BRAIN_TICKS-1): regiments are evaluated staggered.
   phase: number;
   lastBrainTick: number;

@@ -1,6 +1,6 @@
 // units.ts: Soldiers: unit stats, posts and garrisons, rally/return, guard AI, bishops, task forces, army regiment derivation.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { marchSteerStep } from "./battle.js";
+import { directionMultOnMob, marchSteerStep, mobsNear, pairedTargetOf } from "./battle.js";
 import {
   type SiegeKind, type ColonistKind, TileType, type ArmyRegimentSnapshot, type RegimentClass, type CombatRole,
   unitRole, HERO_CLASS_ROLE, TILE_SIZE, TICK_RATE, HungerMark, isRearRole, MOB_ROLE,
@@ -653,7 +653,8 @@ export function guardStrike(c: Colonist, target: Mob, stats: { damage: number; c
     return;
   }
   // Armour & weapons: the weapon tier multiplies every blow (charge x2 etc. stack on top).
-  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id) * moraleDamageMult(c);
+  // Battle engine phase 3: x1.25 / x1.5 on a formed mob regiment's flank / rear.
+  let damage = stats.damage * armyDamageMultiplier(c.postX, c.postY) * weaponDamageMult(c) * spellBuffDamageMult("c:" + c.id) * moraleDamageMult(c) * directionMultOnMob(c.x, c.y, target);
   if ((c.weaponTier ?? 0) > 0) equipEvent({ type: "hit", id: c.id, tier: c.weaponTier, amount: damage, detail: String(damage / weaponDamageMult(c)) });
   // Cavalry & siege: the catapult lobs a splashing boulder (never inside its minimum range), the ram
   // barely scratches units, a rider's charge doubles its first blow.
@@ -817,20 +818,31 @@ export function pickGuardTarget(c: Colonist, stats: { range: number; melee: bool
   const queues = stats.melee && stats.speed > 0;
   // Regiments: a ranged soldier behind a front rank ranks enemies already in bow range first (those
   // fighting a front-rank soldier before the rest, nearest to the archer first), then the slot rule.
+  // A mob this unit may take on (null), else its distance from the unit's slot.
+  const reachable = (m: Mob): number | null => {
+    const du = Math.hypot(m.x - c.x, m.y - c.y);
+    if (du > (m.mark === HungerMark.Morvain ? alertPx * MORVAIN_DETECTION_FACTOR : alertPx)) return null;
+    // Monster tactics, pursuit safety: a routed / leaving mob is only fought within attack range, never
+    // chased, so a broken enemy doesn't pull the line apart.
+    if ((m.tactic === "rout" || m.tactic === "leave") && du > stats.range) return null;
+    const ds = Math.hypot(m.x - c.rallyX, m.y - c.rallyY);
+    if (ds > reachPx) return null;
+    // Forts phase F: never a neutral settlement's own folk (a vassal's levy marches out among them).
+    if (m.siteId !== null && siteIdNeutral(m.siteId)) return null;
+    if (isSleepingNeutral(m)) return null;
+    return ds;
+  };
+  // Battle engine phase 3: the foe the regiment's brain paired this front-rank soldier with (contact line).
+  const pairedId = stats.melee ? pairedTargetOf(c.id) : undefined;
+  const paired = pairedId ? mobs.get(pairedId) : undefined;
+  if (paired && reachable(paired) !== null && (!queues || targetHasRoom(c.id, `m:${paired.id}`, meleeAttackerCap(mobBodyRadius(paired))))) return paired;
   const rearRank = !stats.melee && hasFriendlyFrontline(c);
   let best: Mob | null = null;
   let bestDist = Infinity;
-  for (const m of mobs.values()) {
+  for (const m of mobsNear(c.x, c.y, alertPx)) {
+    const ds = reachable(m);
+    if (ds === null) continue;
     const du = Math.hypot(m.x - c.x, m.y - c.y);
-    if (du > (m.mark === HungerMark.Morvain ? alertPx * MORVAIN_DETECTION_FACTOR : alertPx)) continue;
-    // Monster tactics, pursuit safety: a routed / leaving mob is only fought within attack range, never
-    // chased, so a broken enemy doesn't pull the line apart.
-    if ((m.tactic === "rout" || m.tactic === "leave") && du > stats.range) continue;
-    const ds = Math.hypot(m.x - c.rallyX, m.y - c.rallyY);
-    if (ds > reachPx) continue;
-    // Forts phase F: never a neutral settlement's own folk (a vassal's levy marches out among them).
-    if (m.siteId !== null && siteIdNeutral(m.siteId)) continue;
-    if (isSleepingNeutral(m)) continue;
     const score = rearRank && du <= stats.range ? du - (engagedWithFrontline(m) ? 2e6 : 1e6) : ds;
     if (score >= bestDist) continue;
     if (queues && !targetHasRoom(c.id, `m:${m.id}`, meleeAttackerCap(mobBodyRadius(m)))) continue;

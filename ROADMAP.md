@@ -2155,6 +2155,39 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Battle engine — landed (phase 3) 2026-11-02 (contact lines, flank / rear bonuses)
+Plan: docs PLAN-large-battles.md §8 phase 3.
+- **Spatial buckets (`battle.ts` `mobsNear` / `colonistsNear`):** 4-tile cells of mobs and soldiers, rebuilt lazily once
+  per tick; queries return a superset (1-tile slack), callers keep their exact distance tests. Used by
+  `pickGuardTarget`, `attackMoveContact`, `pickMobTarget` and `unitInAggroRange` (were full-map loops per unit).
+- **Engagement edges (brain, 4 Hz):** a regiment of >= 12 whose nearest hostile regiment's front is within 6 tiles
+  of its own gets `edge` (midpoint, normal toward the enemy, foe, pairs). Its melee front rank (within 1.25 tiles
+  of the front-most member, not routed / commanded) is paired greedily with the opposing front rank (nearest foe,
+  at most 2 per foe); mob regiments pair their melee front with the soldiers the same way. `pickGuardTarget` /
+  `pickMobTarget` take a still-valid pair in O(1) and scan only otherwise. Smaller skirmishes are unchanged.
+  A mob regiment now faces the regiment it goes for (`facing`), so it has flanks.
+- **Direction bonus:** a blow on a member of a formed regiment (>= 6, not routing) from outside its 120-degree front arc
+  is x1.25 (flank), from behind (beyond 120 deg off its facing) x1.5 (`directionMult*`: soldier -> mob in `guardStrike`,
+  mob -> soldier in `updateMob`). The cavalry / wolf-rider charge bonus already existed (`takeChargeBonus`).
+- **Mob AI cost fixes:** `routeToBuilding` resets only the cells its last search touched (was `fill` of the whole map
+  per call); `pickMobTarget` re-uses its last building pick from the same tile for 1 s while the target still
+  resolves (regiment mobs re-picked every tick: 50-116 ms per tick of Dijkstra in a 1000-mob fight).
+  `updateAttackMove` skips the contact scan while an engaged group fights.
+- **Fixes to phase 2:** a marching group whose members start fighting before the group's contact scan now halts (the
+  block marched on to the destination); a block that cannot form up starts after 5 s; attack-move "fighting" counts
+  only members attacking / engaging (a stale target on an idle member kept the group from ever resuming).
+- **Benchmark** (256 map, scratchpad bench4.mjs: 1000 soldiers in 8 regiments of 125 attack-move into 1000 goblins,
+  3 s windows): free goblins (no regiment): phase 2 37-47 ms avg (p95 70-120) -> **20-27 ms avg, p95 29-52**;
+  goblins in 8 regiments (edges + pairs active, 12-16 edges, 21-56 pairs): before the pick cache 70-152 ms avg ->
+  **17-29 ms avg, p95 32-56**, except a 0.9-3.4 s spike when a goblin regiment routs (every member runs `findPath`
+  to the map edge in `tactics.ts walkMobTo`; phase 5 work). 1000 marching unchanged (20-23 ms).
+- Tests: smoke passes (its known flakes: the settlement stamp chain + raid kill check, warband; same at phase 1);
+  tactics, raid-morale, player-morale, battle-discipline, regiment-test, formation, orders, combat-line pass
+  (orders-test's "line: knights" / "queue: empty at the end" flake at phase 1 too).
+- Not done: rear-rank roles (rear ranks still scan, spears / pikes do not strike over the front rank), re-pairing on a
+  death between brain ticks (the next scan or brain tick covers it), clan vs clan edges, morale hits by direction,
+  cheap rout fleeing.
+
 ## Battle engine — landed (phase 2) 2026-11-02 (formation march)
 Plan: docs PLAN-large-battles.md §8 phase 2 = PLAN-formation-march.md phases 1-2.
 - **Anchor + slot table (`battle.ts` bottom):** an order group's move to a point at least 4 tiles away marches as one

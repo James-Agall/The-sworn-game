@@ -10,8 +10,8 @@ import { TICK_RATE, TILE_SIZE, type ArmyOrder } from "@colony/shared/protocol";
 import type { BattleRegiment, BattleRegimentState, Colonist, FormationMarch, Mob, OrderGroup } from "./types.js";
 import { COLONIST_BODY_RADIUS, MORALE_MAX, RETREAT_SPEED_FACTOR, dt } from "./constants.js";
 import {
-  battleRegiments, colonists, mobs, moraleRegimentOfUnit, orderGroups, playerMorale, regiments, routedUnits,
-  squadMarchSpeed, state,
+  battleRegiments, colonists, commandedTargets, mobs, moraleRegimentOfUnit, orderGroupOfUnit, orderGroups, playerMorale,
+  regiments, routedUnits, squadMarchSpeed, state,
 } from "./state.js";
 import { regimentKey } from "./tactics.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
@@ -137,7 +137,12 @@ function syncRegiments() {
   for (const [id, members] of npcMembers) {
     if (!battleRegiments.has(id)) battleRegiments.set(id, newRegiment(id, { kind: "npc", siteId: members[0].siteId }));
   }
-  for (const id of battleRegiments.keys()) if (!groupMembersOf.has(id) && !npcMembers.has(id)) battleRegiments.delete(id);
+  for (const id of battleRegiments.keys()) {
+    if (groupMembersOf.has(id) || npcMembers.has(id)) continue;
+    battleRegiments.delete(id);
+    for (const u of pairsOf.get(id) ?? []) pairedTarget.delete(u);
+    pairsOf.delete(id);
+  }
 }
 
 function brainTick(r: BattleRegiment) {
@@ -155,6 +160,8 @@ function brainTick(r: BattleRegiment) {
     const mreg = playerMorale.get(moraleRegimentOfUnit.get(members[0].id) ?? "");
     r.morale = mreg ? mreg.morale : MORALE_MAX;
     setState(r, groupState(g, members));
+    r.targetRegimentId = nearestHostile(r);
+    clanEdge(r, members);
   } else {
     const members = (npcMembers.get(r.id) ?? []).filter((m) => mobs.has(m.id) && m.hp > 0);
     if (members.length === 0) return;
@@ -163,8 +170,12 @@ function brainTick(r: BattleRegiment) {
     const reg = regiments.get(r.id.slice(2));
     r.morale = reg ? reg.morale : MORALE_MAX;
     setState(r, npcState(r, members));
+    r.targetRegimentId = nearestHostile(r);
+    // Phase 3: a mob regiment faces the regiment it is going for (its flanks / rear are the other sides).
+    const o = r.targetRegimentId ? battleRegiments.get(r.targetRegimentId) : undefined;
+    if (o) r.facing = Math.atan2(o.anchorY - r.anchorY, o.anchorX - r.anchorX);
+    npcEdge(r, members);
   }
-  r.targetRegimentId = nearestHostile(r);
 }
 
 // O(regiments): the nearest regiment of the other side (clan vs npc; clan vs another clan) within the scan.
@@ -225,6 +236,7 @@ const MARCH_LOOKAHEAD_TILES = [0, 2, 4];
 const MARCH_SETTLE_PX = TILE_SIZE;
 const MARCH_SETTLE_TICKS = TICK_RATE * 10;
 const MARCH_LAG_SLOW_FACTOR = 0.4;
+const MARCH_FORM_MAX_TICKS = TICK_RATE * 5;
 
 // Units steering in a march this tick -> their moving slot (returnToRally steers them straight at it; their rally
 // point stays the final slot, so everything reading rallyX / rallyY sees the destination as before), and their
@@ -304,7 +316,7 @@ export function startFormationMarch(g: OrderGroup, members: Colonist[], targets:
     }
   }
   g.march = {
-    offsets, finals, path, ax: s0.x, ay: s0.y, heading, facing, fold: 1, formed: false, foldWant: 1, foldSince: state.cycleTick,
+    offsets, finals, path, ax: s0.x, ay: s0.y, heading, facing, fold: 1, formed: false, since: state.cycleTick, foldWant: 1, foldSince: state.cycleTick,
     // A retreat runs RETREAT_SPEED_FACTOR faster (its members' speed is scaled the same in updateGuardColonist).
     speed: speed * MARCH_SPEED_FACTOR * (g.current?.kind === "retreat" ? RETREAT_SPEED_FACTOR : 1),
     lagSince: new Map(), halfWidth: Math.max(TILE_SIZE, ...Array.from(offsets.values(), (o) => Math.abs(o.ox))),
@@ -412,7 +424,8 @@ export function updateFormationMarch() {
     // Not yet formed up: the anchor waits for the block; formed, a lagging block only slows it (a re-fold or a
     // choke must not freeze the march).
     const lag = lagging > Math.max(0, counted * MARCH_WAIT_FRACTION);
-    if (!lag) m.formed = true;
+    // A block that cannot form up (members stuck between the lag and straggler distances) goes after MARCH_FORM_MAX_TICKS.
+    if (!lag || state.cycleTick - m.since >= MARCH_FORM_MAX_TICKS) m.formed = true;
     const wait = (lag && !m.formed) || Math.abs(angleDiff(want, m.heading)) > MARCH_HALT_TURN_RAD;
     m.lagging = lagging;
     m.waiting = wait;
@@ -511,4 +524,143 @@ export function marchSteerStep(c: Colonist, dt: number, speed: number): boolean 
   if (c.path.length > 0) advanceAlongPath(c, dt, speed);
   c.state = "returning";
   return true;
+}
+
+// ---- Phase 3: contact lines (docs PLAN-large-battles.md §3) ----
+// Spatial buckets of mobs and soldiers (GRID_CELL_PX), rebuilt lazily once per tick: target scans read the cells
+// near them instead of every unit on the map. A query returns a superset (GRID_SLACK_PX covers movement since the
+// rebuild); callers keep their exact distance tests, so results only differ on exact ties.
+const GRID_CELL_PX = TILE_SIZE * 4;
+const GRID_SLACK_PX = TILE_SIZE;
+type Grid<T> = { tick: number; cells: Map<number, T[]> };
+const mobGrid: Grid<Mob> = { tick: -1, cells: new Map() };
+const colonistGrid: Grid<Colonist> = { tick: -1, cells: new Map() };
+const cellKey = (cx: number, cy: number) => (cy + 1) * 65536 + (cx + 1);
+function rebuild<T extends { x: number; y: number }>(g: Grid<T>, all: Iterable<T>) {
+  g.tick = state.cycleTick;
+  g.cells.clear();
+  for (const u of all) {
+    const k = cellKey(Math.floor(u.x / GRID_CELL_PX), Math.floor(u.y / GRID_CELL_PX));
+    const list = g.cells.get(k);
+    if (list) list.push(u);
+    else g.cells.set(k, [u]);
+  }
+}
+function near<T extends { id: string; x: number; y: number }>(g: Grid<T>, live: Map<string, T>, x: number, y: number, r: number): T[] {
+  if (g.tick !== state.cycleTick) rebuild(g, live.values());
+  const out: T[] = [];
+  const rr = r + GRID_SLACK_PX;
+  const x0 = Math.floor((x - rr) / GRID_CELL_PX), x1 = Math.floor((x + rr) / GRID_CELL_PX);
+  const y0 = Math.floor((y - rr) / GRID_CELL_PX), y1 = Math.floor((y + rr) / GRID_CELL_PX);
+  for (let cy = y0; cy <= y1; cy++) {
+    for (let cx = x0; cx <= x1; cx++) {
+      const list = g.cells.get(cellKey(cx, cy));
+      if (!list) continue;
+      for (const u of list) if (live.get(u.id) === u) out.push(u);
+    }
+  }
+  return out;
+}
+// Mobs / colonists within about `r` px of (x, y) (a superset: filter by exact distance).
+export const mobsNear = (x: number, y: number, r: number) => near(mobGrid, mobs, x, y, r);
+export const colonistsNear = (x: number, y: number, r: number) => near(colonistGrid, colonists, x, y, r);
+
+// ENGAGEMENT EDGES. Per brain tick, a regiment of at least EDGE_MIN_MEMBERS whose nearest hostile regiment's front
+// is within EDGE_CONTACT_TILES of its own front gets an edge (midpoint + normal toward the enemy) and pairs its
+// melee front rank (within FRONT_DEPTH_PX of the front-most member) with the opposing front rank: each soldier to
+// the nearest foe on the edge that has fewer than EDGE_PAIR_CAP partners. pickGuardTarget / pickMobTarget take the
+// pair when it is still valid (O(1)) and only scan otherwise. Small skirmishes (below EDGE_MIN_MEMBERS) are unchanged.
+const EDGE_MIN_MEMBERS = 12;
+const EDGE_CONTACT_TILES = 6;
+const FRONT_DEPTH_PX = TILE_SIZE * 1.25;
+const EDGE_PAIR_CAP = 2;
+// unit id (colonist or mob) -> its paired foe's id; per regiment, the ids it paired (cleared on its next tick).
+const pairedTarget = new Map<string, string>();
+const pairsOf = new Map<string, string[]>();
+export const pairedTargetOf = (id: string) => pairedTarget.get(id);
+
+type Body = { id: string; x: number; y: number };
+function updateEdge<A extends Body, B extends Body>(r: BattleRegiment, own: A[], foes: B[], frontOk: (a: A) => boolean, foeOk: (b: B) => boolean) {
+  for (const id of pairsOf.get(r.id) ?? []) pairedTarget.delete(id);
+  pairsOf.delete(r.id);
+  r.edge = null;
+  const o = r.targetRegimentId ? battleRegiments.get(r.targetRegimentId) : undefined;
+  if (!o || own.length < EDGE_MIN_MEMBERS || foes.length === 0) return;
+  let nx = o.anchorX - r.anchorX, ny = o.anchorY - r.anchorY;
+  const d = Math.hypot(nx, ny);
+  if (d < 1) return;
+  nx /= d;
+  ny /= d;
+  const proj = (u: Body) => u.x * nx + u.y * ny;
+  let ownFront = -Infinity, foeFront = Infinity;
+  for (const a of own) ownFront = Math.max(ownFront, proj(a));
+  for (const b of foes) foeFront = Math.min(foeFront, proj(b));
+  if (foeFront - ownFront > EDGE_CONTACT_TILES * TILE_SIZE) return;
+  const mid = (ownFront + foeFront) / 2;
+  // The edge point: the regiment's anchor moved onto the midline.
+  const ap = proj({ id: "", x: r.anchorX, y: r.anchorY });
+  r.edge = { x: r.anchorX + nx * (mid - ap), y: r.anchorY + ny * (mid - ap), nx, ny, foe: o.id, pairs: 0 };
+  const front = own.filter((a) => proj(a) >= ownFront - FRONT_DEPTH_PX && frontOk(a));
+  const theirs = foes.filter((b) => proj(b) <= foeFront + FRONT_DEPTH_PX && foeOk(b));
+  if (front.length === 0 || theirs.length === 0) return;
+  const load = new Array<number>(theirs.length).fill(0);
+  const ids: string[] = [];
+  for (const a of front) {
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < theirs.length; i++) {
+      if (load[i] >= EDGE_PAIR_CAP) continue;
+      const dd = Math.hypot(theirs[i].x - a.x, theirs[i].y - a.y);
+      if (dd < bestD) {
+        bestD = dd;
+        best = i;
+      }
+    }
+    if (best < 0) break;
+    load[best]++;
+    pairedTarget.set(a.id, theirs[best].id);
+    ids.push(a.id);
+  }
+  pairsOf.set(r.id, ids);
+  r.edge.pairs = ids.length;
+}
+
+// Called from brainTick: player regiments pair their melee soldiers, mob regiments their melee mobs.
+function clanEdge(r: BattleRegiment, members: Colonist[]) {
+  const foes = r.targetRegimentId ? (npcMembers.get(r.targetRegimentId) ?? []).filter((m) => mobs.has(m.id) && m.hp > 0) : [];
+  updateEdge(r, members, foes,
+    (c) => unitStats(c).melee && !routedUnits.has(c.id) && !commandedTargets.has(c.id),
+    (m) => !m.passive && m.tactic !== "rout" && m.tactic !== "leave");
+}
+function npcEdge(r: BattleRegiment, members: Mob[]) {
+  const o = r.targetRegimentId ? battleRegiments.get(r.targetRegimentId) : undefined;
+  const foes = o && o.owner.kind === "clan" ? (groupMembersOf.get(o.id) ?? []).filter((c) => colonists.has(c.id)) : [];
+  updateEdge(r, members, foes, (m) => m.melee && !m.passive, (c) => !routedUnits.has(c.id));
+}
+
+// FLANK / REAR. A blow on a member of a formed regiment (at least FLANK_MIN_MEMBERS, not routing) from outside its
+// front arc hits harder: front (within 60 deg of its facing) x1, flank x1.25, rear (beyond 120 deg) x1.5.
+const FLANK_MIN_MEMBERS = 6;
+export const FLANK_MULT = 1.25;
+export const REAR_MULT = 1.5;
+const COS_60 = 0.5;
+function regimentFacing(id: string | null | undefined): number | null {
+  const r = id ? battleRegiments.get(id) : undefined;
+  if (!r || r.memberIds.length < FLANK_MIN_MEMBERS || r.state === "routing") return null;
+  return r.facing;
+}
+export function directionMult(fromX: number, fromY: number, def: { x: number; y: number }, facing: number | null): number {
+  if (facing === null) return 1;
+  const dx = fromX - def.x, dy = fromY - def.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 1) return 1;
+  const cos = (dx * Math.cos(facing) + dy * Math.sin(facing)) / d;
+  return cos >= COS_60 ? 1 : cos <= -COS_60 ? REAR_MULT : FLANK_MULT;
+}
+// The multiplier for a blow from (fromX, fromY) on a soldier / on a mob.
+export function directionMultOnColonist(fromX: number, fromY: number, c: Colonist): number {
+  return directionMult(fromX, fromY, c, regimentFacing(orderGroupOfUnit.get(c.id)?.id));
+}
+export function directionMultOnMob(fromX: number, fromY: number, m: Mob): number {
+  const key = regimentKey(m);
+  return directionMult(fromX, fromY, m, regimentFacing(key ? "n:" + key : null));
 }

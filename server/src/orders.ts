@@ -31,7 +31,7 @@ import { isWalkableTile } from "./pathfinding.js";
 import { isRoutedUnit, moraleDamageMult, regimentKey } from "./tactics.js";
 import { attackObjectiveAt, damageHearth, nearestHostileStructure, sendAgainstHearth } from "./hearths.js";
 import { weaponDamageMult } from "./heroes.js";
-import { noteRegimentOrder, slotOffsets, slotPoint, startFormationMarch, stopFormationMarch } from "./battle.js";
+import { mobsNear, noteRegimentOrder, slotOffsets, slotPoint, startFormationMarch, stopFormationMarch } from "./battle.js";
 import { spellBuffDamageMult } from "./spells.js";
 import { COLONIST_VISION_OFFSETS, PLAYER_VISION_OFFSETS, fightThreatOf } from "./net.js";
 
@@ -689,7 +689,7 @@ export function attackMoveContact(members: Colonist[]): { mob: Mob; member: Colo
   for (const c of members) spread = Math.max(spread, Math.abs(c.x - c0.x), Math.abs(c.y - c0.y));
   const box = spread + STANCE_ALERT_RANGE_TILES.aggressive * TILE_SIZE;
   let best: { mob: Mob; member: Colonist; d: number } | null = null;
-  for (const m of mobs.values()) {
+  for (const m of mobsNear(c0.x, c0.y, box * Math.SQRT2)) {
     if (Math.abs(m.x - c0.x) > box || Math.abs(m.y - c0.y) > box) continue;
     if (m.hp <= 0 || m.passive || isDormantGuardian(m) || m.tactic === "rout" || m.tactic === "leave") continue;
     for (const c of members) {
@@ -701,8 +701,12 @@ export function attackMoveContact(members: Colonist[]): { mob: Mob; member: Colo
 }
 
 export function updateAttackMove(g: OrderGroup, members: Colonist[]) {
-  const contact = attackMoveContact(members);
-  const fighting = members.some((c) => !!c.targetMobId && mobs.has(c.targetMobId));
+  // A member counts as fighting while it closes on / strikes its target (a stale target on an idle member
+  // kept the group "fighting" forever, so it never resumed).
+  const fighting = members.some((c) => !!c.targetMobId && mobs.has(c.targetMobId) && (c.state === "attacking" || c.state === "engaging"));
+  // Battle engine phase 3: an engaged group that is fighting does not need the contact scan (every branch below
+  // reads it only when not fighting or not yet engaged).
+  const contact = fighting && g.engaged ? null : attackMoveContact(members);
   // Forts phase A: with no enemy in reach, a hostile site's structure within the alert range of the group
   // is attacked (walls on the way get breached); the march resumes once it falls, as after a fight.
   if (!contact && !fighting && tileOwner.size > 0) {
@@ -725,7 +729,13 @@ export function updateAttackMove(g: OrderGroup, members: Colonist[]) {
     if (groupArrived(g, members)) finishArmyOrder(g, members);
     return;
   }
-  if (contact && !fighting && (!g.engaged || !members.some((c) => c.state === "returning"))) {
+  // Battle engine phase 2 fix: members already trading blows when the group first notices (a marching block
+  // meets the enemy between contact scans) halt the group too, so the rest stop with them.
+  if (!g.engaged && fighting && !contact) {
+    stopFormationMarch(g);
+    for (const c of members) haltUnit(c);
+  }
+  if (contact && (!fighting || !g.engaged) && (!g.engaged || !members.some((c) => c.state === "returning"))) {
     // Halt (first contact) or close in: the whole group shifts toward the enemy until its nearest member
     // has it inside its slot's reach, keeping the formation's shape; then battle discipline fights.
     const reach = LINE_LEASH_TILES[contact.member.stance] * TILE_SIZE + unitStats(contact.member).range;
