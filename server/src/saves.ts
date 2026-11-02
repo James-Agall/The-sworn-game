@@ -16,10 +16,13 @@ import {
   hearths, heroProfiles, heroRecruits, minesPlacedOnOre, mobs, parkedMobs, mobsWithoutRoute, ownerSiteIds, players, raidGroups,
   regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, state, summonedUntil, tileOwner, towerCooldowns, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
 } from "./state.js";
-import { markTileRegistryStale, setTile } from "./chunks.js";
+import { markTileRegistryStale, setTile, streamingOn } from "./chunks.js";
 import { clearOwners, isNightNow, tileIndex } from "./tiles.js";
 import { initialStock } from "./economy.js";
 import { generateWorld, setWorldSize } from "./worldgen.js";
+import {
+  type TileDiffs, deflateBase64, diffTilesForSave, expandTiles, forgetWorldSeed, inflateBase64, loadBase, regeneratedBaseMatches,
+} from "./worldbase.js";
 import { civilianPopulationUsed, getColonistsAtPost, settlementOf, spawnPointNearTownCenter } from "./colonists.js";
 import { guardStats } from "./units.js";
 import { isDifficulty } from "./mobs.js";
@@ -195,9 +198,17 @@ function snapshotWorldInner() {
   return {
     clans: clans.slice(1).map(snapshotClan) as ReturnType<typeof snapshotClan>[] | undefined,
     tileClans: Array.from(tileClan).flat() as number[] | undefined,
-    tiles: Buffer.from(state.tiles).toString("base64"),
-    biomes: Buffer.from(state.biomes).toString("base64"),
-    explored: packExplored(),
+    // World streaming phase 4: a streamed save drops tiles / biomes / explored for the fields below
+    // (saveFileFor); the old full arrays stay the format of every other save.
+    tiles: Buffer.from(state.tiles).toString("base64") as string | undefined,
+    biomes: Buffer.from(state.biomes).toString("base64") as string | undefined,
+    explored: packExplored() as string | undefined,
+    seed: undefined as number | undefined,
+    worldgenVersion: undefined as number | undefined,
+    baseSum: undefined as number | undefined,
+    tileDiffs: undefined as TileDiffs["tileDiffs"] | undefined,
+    // Raw-deflated explored bitset, base64.
+    exploredZ: undefined as string | undefined,
     worldNoiseSalt: state.worldNoiseSalt,
     abbeyCenter: state.abbeyCenter,
     castleRuinCenter: state.castleRuinCenter,
@@ -324,10 +335,11 @@ export function applyWorld(s: WorldState) {
 }
 
 function applyWorldInner(s: WorldState) {
-  state.tiles.set(Buffer.from(s.tiles, "base64"));
+  // readSave expanded a streamed save's diffs into full arrays first (expandStreamedSave).
+  state.tiles.set(Buffer.from(s.tiles!, "base64"));
   markTileRegistryStale();
-  state.biomes.set(Buffer.from(s.biomes, "base64"));
-  const bits = Buffer.from(s.explored, "base64");
+  state.biomes.set(Buffer.from(s.biomes!, "base64"));
+  const bits = s.exploredZ ? Buffer.from(inflateBase64(s.exploredZ)) : Buffer.from(s.explored!, "base64");
   for (let i = 0; i < state.explored.length; i++) state.explored[i] = (bits[i >> 3] >> (i & 7)) & 1;
   state.worldNoiseSalt = s.worldNoiseSalt;
   state.abbeyCenter = s.abbeyCenter;
@@ -501,7 +513,13 @@ export function migrateSaveDayLength(oldDay: number, oldNight: number) {
   console.log(`[load] day length ${oldDay}+${oldNight} -> ${DAY_TICKS}+${NIGHT_TICKS} ticks: cycleTick moved by ${delta}`);
 }
 
-export function saveFileFor(slot: SaveSlot): SaveFile {
+export function saveFileFor(slot: SaveSlot, layer: TileDiffs | null = null): SaveFile {
+  const world = snapshotWorld();
+  if (layer) {
+    const bits = Buffer.from(world.explored!, "base64");
+    world.tiles = world.biomes = world.explored = undefined;
+    Object.assign(world, layer, { exploredZ: deflateBase64(bits) });
+  }
   return {
     version: SAVE_VERSION,
     savedAt: new Date().toISOString(),
@@ -511,7 +529,7 @@ export function saveFileFor(slot: SaveSlot): SaveFile {
     worldSize: state.WORLD_TILES_X,
     label: SAVE_SLOT_LABELS[slot],
     ...(state.creative ? { creative: true } : {}),
-    state: snapshotWorld(),
+    state: world,
   };
 }
 
@@ -524,14 +542,16 @@ export function saveToSlot(slot: SaveSlot): Promise<string | null> {
 export async function writeSave(slot: SaveSlot): Promise<string | null> {
   try {
     const t0 = performance.now();
-    const json = JSON.stringify(saveFileFor(slot));
+    // World streaming phase 4: streamed worlds with a seeded base save diffs (writes the base cache file once).
+    const layer = streamingOn() ? await diffTilesForSave() : null;
+    const json = JSON.stringify(saveFileFor(slot, layer));
     const syncMs = performance.now() - t0;
     await fsp.mkdir(SAVE_DIR, { recursive: true });
     const tmp = `${savePath(slot)}.tmp`;
     await fsp.writeFile(tmp, json);
     await fsp.rename(tmp, savePath(slot));
     console.log(
-      `[save] ${slot}: ${(json.length / 1024).toFixed(1)} KiB, snapshot+stringify ${syncMs.toFixed(1)} ms (blocks the tick), total ${(performance.now() - t0).toFixed(1)} ms`
+      `[save] ${slot}: ${(json.length / 1024).toFixed(1)} KiB${layer ? ` (${layer.tileDiffs.length} diff chunks)` : ""}, snapshot+stringify ${syncMs.toFixed(1)} ms (blocks the tick), total ${(performance.now() - t0).toFixed(1)} ms`
     );
     return null;
   } catch (err) {
@@ -567,6 +587,9 @@ export async function readSave(slot: SaveSlot): Promise<string | null> {
       wildlife.clear();
       setWorldSize(file.worldSize);
     }
+    const expandError = await expandStreamedSave(file);
+    if (expandError) return expandError;
+    if (!file.state.tileDiffs) forgetWorldSeed();
     applyWorld(file.state);
     respawnPlayersAndWelcome();
     broadcastEvent("build", "Game loaded");
@@ -575,6 +598,27 @@ export async function readSave(slot: SaveSlot): Promise<string | null> {
   } finally {
     state.simHeldForLoad = false;
   }
+}
+
+// World streaming phase 4: a diff save's base comes from memory / the cache file, else from regenerating the
+// seed (whose side effects the following applyWorld overwrites). Fills file.state.tiles / biomes in place.
+async function expandStreamedSave(file: SaveFile): Promise<string | null> {
+  const s = file.state;
+  if (!s.tileDiffs || s.seed === undefined || s.baseSum === undefined) return null;
+  let b = await loadBase(s.seed, file.worldSize, s.baseSum);
+  if (!b) {
+    const t0 = performance.now();
+    colonists.clear();
+    mobs.clear();
+    wildlife.clear();
+    generateWorld(s.seed);
+    if (!regeneratedBaseMatches(s.seed, s.baseSum)) return "Save's base world could not be rebuilt (its cache file is missing and worldgen has changed)";
+    console.log(`[load] base world regenerated from seed ${s.seed} in ${(performance.now() - t0).toFixed(0)} ms`);
+    b = await loadBase(s.seed, file.worldSize, s.baseSum);
+    if (!b) return "Save's base world could not be rebuilt";
+  }
+  Object.assign(s, expandTiles(b, s.tileDiffs));
+  return null;
 }
 
 export async function listSaves(): Promise<SaveInfo[]> {

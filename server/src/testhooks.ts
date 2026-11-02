@@ -5,6 +5,9 @@ import { buildingLevel, tradingPosts } from "./state.js";
 import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, pathCacheStats, setTile, updateChunkStates } from "./chunks.js";
 import { clanById, clanIdAt, withClan } from "./clans.js";
 import { auditWorld } from "./abstract.js";
+import { currentWorldSeed, dropBaseCache } from "./worldbase.js";
+import { isSaveSlot, saveFileFor, savePath } from "./saves.js";
+import { promises as fsp } from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
   TileType, type WildlifeKind, WILDLIFE_KINDS, type MobKind, HungerMark, TILE_SIZE, SIEGE_KINDS, COLONIST_ROLE,
@@ -22,6 +25,7 @@ import {
   LEGACY_NIGHT_TICKS, MOB_KIND_CONFIG, MORALE_MAX, NIGHT_TICKS, RAID_FACTIONS, RESPAWN_FOOD_COST, STANCES,
   TOWER_COSTS, TOWER_STATS, WEAPON_DAMAGE_MULT,
   SITE_TEMPLATES,
+  SAVE_DIR,
 } from "./constants.js";
 import {
   attackerSlots, buildingHp, colonists, constructionSites, equipEvents, farmPlots, forageRegrow,
@@ -569,6 +573,19 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // World streaming phase 3: far wagon convoys go abstract past `far` tiles from everyone, real within `near`.
     setWagonAbstractRadius(msg.far, msg.near);
     reply({ far: msg.far, near: msg.near });
+  } else if (msg.op === "dropBaseCache") {
+    // World streaming phase 4: forget the base layer (memory + cache files): the next diff load regenerates it.
+    void dropBaseCache().then(() => reply({ ok: true }));
+  } else if (msg.op === "writeFullSave" && typeof msg.slot === "string" && isSaveSlot(msg.slot)) {
+    // World streaming phase 4: a save in the old full-array format (the migration path's input).
+    const slot = msg.slot;
+    void fsp.mkdir(SAVE_DIR, { recursive: true })
+      .then(() => fsp.writeFile(savePath(slot), JSON.stringify(saveFileFor(slot, null))))
+      .then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String(e) }));
+  } else if (msg.op === "tileHash") {
+    // World streaming phase 4: FNV of tiles / biomes / explored, to compare a world across save -> load.
+    const h = (a: Uint8Array) => { let x = 0x811c9dc5; for (let i = 0; i < a.length; i++) x = Math.imul(x ^ a[i], 0x01000193); return x >>> 0; };
+    reply({ tiles: h(state.tiles), biomes: h(state.biomes), explored: h(state.explored), seed: currentWorldSeed() });
   } else if (msg.op === "auditWorld") {
     // World streaming phase 3: no duplicated / vanished entities across live and abstract forms.
     reply(auditWorld());

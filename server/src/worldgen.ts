@@ -30,6 +30,7 @@ import { registerHearth } from "./hearths.js";
 import { evaluateGoals, resetGoals } from "./goals.js";
 import { grantTieredEquipment } from "./heroes.js";
 import { broadcastEvent, resetExplored } from "./net.js";
+import { withWorldSeed } from "./worldbase.js";
 
 export function scatterResourceTiles(tileType: TileType, count: number) {
   const spawnTx = Math.floor(state.WORLD_TILES_X / 2);
@@ -506,7 +507,12 @@ export function setWorldSize(size: number) {
   state.MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCountSub(1.25));
 }
 
-export function generateWorld() {
+// World streaming phase 4: seeded (worldbase.ts), so a streamed save can store the seed + tile diffs.
+export function generateWorld(seed?: number) {
+  withWorldSeed(seed, generateWorldInner);
+}
+
+function generateWorldInner() {
   const genStart = performance.now();
   state.tiles.fill(TileType.Empty);
   markTileRegistryStale();
