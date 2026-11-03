@@ -2155,6 +2155,101 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Village life — landed (phase 4, part) 2026-11-03 (villagers help build)
+
+Plan: `docs/colony2d/PLAN-village-life.md`. Done: an adult free villager works its clan's construction sites like a
+builder at `VILLAGER_BUILD_RATE` (0.5 of a builder's rate) and counts as a builder for "No builders available"
+(`updateVillager` -> `updateBuilder`, `builderRate`, `anyBuilderAlive` in colonists.ts). Deaths are permanent since
+phase 1. **Not done (phase 4 remainder):** the levy (call civilians to fight with militia stats for a limited time,
+survivors revert) and the raid rebalance for a fixed population. Trader-wagon escorts (wagons.ts), the Ward Priest,
+siege engines, vassal levies and heroes still spawn as before (not people).
+
+## Village life — landed (phase 3) 2026-11-03 (training)
+
+- Soldier posts are never staffed for free (outside creative): a new / upgraded unit building or a dead soldier
+  leaves a vacancy that only training fills (`staffPost` / `processRespawnQueue` skip soldier kinds).
+- A unit building's panel (Hall / castles, Archery Range, Militia Camp line, Stables) has **Train unit**
+  (`trainUnit` message, `people.ts` `trainInfo` / `handleTrainUnit`; `BuildingInfo.train`). Needs a free adult
+  villager, a troop slot (troops + trainees < the building's capacity) and one weapon + one armour of the
+  building's tier from the stock (both are taken at the start). Timer `TRAIN_DAYS_BY_LEVEL` = 1 / 1.25 / 1.5 days of
+  daylight ticks (training pauses at night while the trainee shelters). The trainee walks to the building; when done
+  it becomes the soldier there (same person and id; equipped kinds wear the tier it paid for, `noEquip` spawn). A
+  building lost or switched mid-training refunds the gear and sends the villager home.
+- Autocraft: no new code; Blacksmith autocraft (forge target) keeps the tier stock that training draws on. The refusal
+  reason says which tier is missing.
+- Creative mode: Train unit is instant and free (no villager or gear).
+- Smoke: "training: gear + villager required, 1-day timer, trainee becomes the knight".
+
+## Village life — landed (phase 2) 2026-11-03 (growth)
+
+All in `server/src/people.ts`, run from `sim.ts` (dawn pass, per-tick training, aging once a second).
+- Homes (`assignHomes`, every dawn): beds = Town Center base (+ level bonus), houses 1/3/5, Keep 10 per level; anyone
+  whose home is gone or full moves to the nearest bed with room (`person.homeX/Y`, -1 = homeless). Informational for
+  now (night shelter still uses the old logic).
+- Births: at dawn a settlement under its cap with 2+ adults and `BIRTH_MIN_FOOD` (20) food has `BIRTH_CHANCE_PER_DAWN`
+  (0.5) of a child, `BIRTH_COOLDOWN_DAYS` (2) apart (`TownCenter.lastBirthTick`, saved). The child is a villager
+  with `person.child` and two parents; drawn at 0.65 scale; can't work, train or build.
+- Aging: a child grows up `CHILD_MATURE_DAYS` (6 game days) after birth (toast).
+- Immigrants: at dawn, chance `IMMIGRANTS_PER_WEEK / 7` x happiness factor (0 at <= 40 %, 1 at 100 %), so about
+  2 a week in a happy colony; only into a settlement with room.
+- Prisoners: destroying a camp / fort / lair hearth (not a human settlement) frees 1-3 (`PRISONERS_PER_CAMP`)
+  villagers for the attacker's clan at its nearest Town Center, even past the cap.
+- Smoke: "people growth: birth, child grows up, immigrant, freed prisoners".
+
+## Village life — landed (phase 1) 2026-11-03 (people model)
+
+- Every civilian, bishop and soldier is a person (`Colonist.person`: name, birth tick, home, parents, origin; the
+  job is the unit's kind / post). New kind `villager` = a free person posted at a Town Center (farmer art).
+- New world (and a new clan): `spawnStartingPeople` = the Town Center builder + 9 free villagers (10 people,
+  `STARTING_PEOPLE`).
+- Nobody is spawned on demand: `staffPost` (all construction.ts post spawns, Town Center builders, unit building
+  top-ups) takes the nearest free villager of the clan and turns that person into the worker (same id, position and
+  hp share, `transplantPerson`), or leaves a vacancy in `respawnQueue`. `processRespawnQueue` fills vacancies from
+  free villagers once a second by day. No dawn/dusk respawn windows and no food cost for units any more (heroes still
+  come back at a window for gold). The dead stay dead.
+- Demolishing a post sends its people back to the village (`releaseToVillage`, gear back to the stock).
+- Population: every person counts (soldiers again, children and trainees too); the cap is houses + Town Centers +
+  Keeps (`KEEP_POPULATION_PER_LEVEL` 0 -> 10, also raising the tier ceiling); military buildings no longer add
+  neighbourhood housing. Placing a workplace no longer needs population room (its worker is an existing person).
+  The garrison cap (unit buildings' headcounts) is unchanged.
+- Old saves: every civilian / bishop / soldier without a person becomes an adult person ("migrated"); old respawn
+  entries become vacancies.
+- Snapshot: `people` (free / children / training / vacancies; the HUD line that was the respawn window), and per
+  unit `name`, `child`, `training` (0-1).
+- Creative mode is unchanged (posts and vacancies spawn fresh units, no caps).
+- Test hook `peopleState` (flip creative, clear, spawn villagers / children, forced dawn, rescue, finish training,
+  trainInfo). Smoke: "people: 10 at start, a post takes a free villager, the dead stay dead".
+
+### Population: what counts (2026-11-03)
+
+| Unit / building | Population used | Cap added |
+|---|---|---|
+| Free villager, child, trainee | 1 | - |
+| Worker (lumberjack, farmer, miners, farmhand, artisan, hunter, forager, builder), bishop | 1 | - |
+| Soldier (militia line, archer, knight, cavalry) | 1 (was 0, housed by its building) | - |
+| Hero | 2 (`HERO_POPULATION_COST`) | - |
+| Siege engine | `SIEGE_POPULATION_COST` | - |
+| Abbey clergy, summoned skeletons, vassal levies, trader wagons | 0 | - |
+| Town Center | - | 12 base (+5 per level above 1; +5 for every Town Center after the clan's first) |
+| House / Big House / Lv3 house | - | 1 / 3 / 5, +1 per house-house or house-workplace neighbour pair |
+| Keep | - | 10 per level (also raises the tier ceiling by the same) |
+| Militia camps, archery range, castles, stables | - | 0 (no longer count for neighbour pairs either) |
+
+Effective cap per settlement = min(housing, tier ceiling 20 / 30 / 40 + Keep bonus). The cap limits births and
+immigrants only; existing people are never removed for being over it.
+
+### Known failing tests after village life (2026-11-03)
+
+Run and failing by design: `day-respawn-test` (dawn/dusk respawn windows removed), `settlement-pop-test`
+(placement no longer gated by population, soldiers count, Keep adds population), `camp-hearth-test` ("12 knight
+posts placed, each +1 knight": posts no longer come with a free soldier). Passing: save-load, starting-stock,
+builders-towncenter, town-center, equipment. Not run but expected stale (they place workplaces / unit buildings and
+expect a unit to appear, count population, or wait on respawns): army-damage, cavalry-siege, economy, economy-goods,
+formation, happiness-militia-tavern, houses-barns-castles, hero, hunger-roads, industrial-synergy,
+regiment-groups, shelter-overflow, synergies, towers-farms, upgrades-church, gravestone-events,
+halflatch-ward-lapse. Cheapest fix for most: switch them to creative mode or spawn units with the `spawnSoldier`
+hook / `peopleState { spawn }` before placing posts.
+
 ## Battle engine — landed (phase 7) 2026-11-02 (rear mobs follow the fight, snapshot compaction, client dot LOD)
 Plan: docs PLAN-large-battles.md §3 (LOD), §8 phase 7.
 - **Rear mobs (`battle.ts regimentFoeFor`, `mobs.ts pickMobTarget`):** a mob of an engaged regiment with nothing in

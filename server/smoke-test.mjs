@@ -26,8 +26,7 @@ const portFree = (port) =>
     s.once("error", () => res(false));
     s.listen(port, () => s.close(() => res(true)));
   });
-// A random start (it was always 31900): two smoke runs at once (other agents on this machine) raced for one port and
-// the second client drove the first run's server.
+// A random start (it was always 31900): fewer port races between smoke runs started at once on this machine.
 let PORT = 33000 + Math.floor(Math.random() * 4000);
 while (!(await portFree(PORT))) PORT++;
 const saveDir = mkdtempSync(path.join(tmpdir(), "colony-smoke-"));

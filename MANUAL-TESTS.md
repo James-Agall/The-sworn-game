@@ -469,3 +469,19 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
    enemies), hp bars hidden; zooming in brings the sprites back. Check the frame rate with and without the flag,
    and that workers and sheltered civilians are unaffected. Without the flag nothing should change.
 
+## Village life phases 1-4 (people, growth, training, villagers build)
+1. New normal game: 10 people (1 builder + 9 villagers in farmer clothes idling around the Town Center); the HUD line
+   under the population reads "Villagers: 9 free · 0 children · 0 training · 0 posts open".
+2. Place a Lumberjack Post: a villager walks over and becomes the lumberjack (free count drops by 1). Place more
+   workplaces than you have free villagers: the extras show as "posts open" and get staffed as villagers free up.
+3. Let a worker die (raid): nobody respawns at dawn or dusk; another free villager takes the post if one exists.
+4. Demolish a workplace: its worker turns back into a free villager.
+5. Place a Militia Camp / Archery Range / Hall: no soldier appears. Click it: "Train ..." button, refused with "No free
+   villager" or "Needs a T1 weapon and T1 armour". Forge a weapon + armour (Blacksmith), click Train: a villager walks
+   to the building, the panel shows "1 in training"; about one day later (daylight) it becomes the soldier.
+6. Place a House with no builder alive: the free villagers build it (slower than a builder).
+7. Over several days with food and free beds: a child is born (smaller villager, toast with parents' names) and grows
+   up 6 days later; with high happiness an immigrant arrives now and then (toast).
+8. Destroy a bandit camp's hearth: 1-3 freed prisoners join (toast with names).
+9. Load an old save: everyone is still there; workers and soldiers keep working; the HUD shows the villager line.
+10. Creative mode: posts still fill instantly, Train unit is instant and free.
