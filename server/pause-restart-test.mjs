@@ -176,8 +176,8 @@ result(w.tiles[wallSpot.y * W + wallSpot.x] !== T.Wall && w.tiles[knightSpot.y *
 // ruins, encampments and the Abbey, with counts scaled by world size.)
 
 const s = await a.nextSnaps(1);
-result(s.wood === 80 && s.grain === 60 && s.iron === 60 && s.rock === 60,
-  `post-restart stock wood=${s.wood} grain=${s.grain} iron=${s.iron} rock=${s.rock} (expected 80/60/60/60)`);
+result(s.wood === 80 && s.grain === 80 && s.iron === 60 && s.rock === 60,
+  `post-restart stock wood=${s.wood} grain=${s.grain} iron=${s.iron} rock=${s.rock} (expected 80/80/60/60)`);
 // The fresh colony has only its starting builder (Town Center base population 12).
 result(s.population === 1 && s.populationCap === 12, `post-restart population=${s.population}/${s.populationCap} (expected 1/12)`);
 result(s.townCenterHp === 1000, `post-restart townCenterHp=${s.townCenterHp} (expected 1000)`);

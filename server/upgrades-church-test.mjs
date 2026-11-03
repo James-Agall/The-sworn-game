@@ -364,7 +364,7 @@ if (a.snap.players.length !== 1 || a.firstSnap.populationCap > 12 || a.firstSnap
   process.exit(2);
 }
 
-// ---------------- (f) church population gating at a full cap ----------------
+// ---------------- (f) church at a full cap (village life: not gated) ----------------
 {
   const s = await gotoNewSite(a, "(f)");
   if (s) {
@@ -376,10 +376,11 @@ if (a.snap.players.length !== 1 || a.firstSnap.populationCap > 12 || a.firstSnap
     await ensureAt(a, s);
     const w0 = a.snap.wood;
     const r = await act(a, C.x, C.y, T.Church, 700);
-    // A filler's +3 wood deposit may land in the window, so "unchanged" means no -15 Church charge.
-    const dw = a.snap.wood - w0;
-    result(full && w0 >= 15 && r.filter((u) => u.tileX === C.x && u.tileY === C.y).length === 0 && kinds(a, "bishop").length === 0 && dw >= 0 && dw % 3 === 0,
-      `(f) Church at full pop ${a.snap.population}/${a.snap.populationCap} with wood=${w0} (affordable) is rejected: no tileUpdate, no bishop, no Church charge (wood ${w0}->${a.snap.wood})`);
+    // Village life (2026-11-03): placement is never population-gated any more, so the Church is placed (with its
+    // bishop) even at a full cap. Break it again so the later sections start from no Church.
+    result(full && w0 >= 15 && r.some((u) => u.tileX === C.x && u.tileY === C.y && u.tile === T.Church) && kinds(a, "bishop").length === 1,
+      `(f) Church at full pop ${a.snap.population}/${a.snap.populationCap} is placed (no population gate), bishops=${kinds(a, "bishop").length}`);
+    await act(a, C.x, C.y, T.Empty, 700);
     await clearFillers(a, fillers);
     // Only the starting builder is left.
     result(a.snap.population === 1 && kinds(a, "lumberjack").length === 0,

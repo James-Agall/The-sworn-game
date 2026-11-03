@@ -37,37 +37,43 @@ const DEFAULT_TIMEOUT_S = 900;
 // (COLONY_INSTANT_BUILD=1, see ROADMAP "Builders, construction ..."); the builder suites test construction itself.
 const W80 = { COLONY_WORLD_SIZE: "80" };
 const INSTANT = { COLONY_INSTANT_BUILD: "1" };
+// LEGACY: suites written before village life (2026-11-03): one starting builder, posts staffed by fresh units
+// (state.legacyStaff). Tests of the people rules themselves run without it.
+const LEGACY = { COLONY_LEGACY_STAFF: "1" };
 const SERVER_ENV = {
   "abbey-ward": INSTANT,
-  "army-damage": { ...W80, ...INSTANT },
+  "army-damage": { ...W80, ...INSTANT, ...LEGACY },
   "builders-farmers": W80,
   "builders-towncenter": W80,
   "building-damage": { ...W80, ...INSTANT },
   creative: W80,
   difficulty: W80,
-  economy: INSTANT,
-  "economy-goods": { ...W80, ...INSTANT },
+  economy: { ...INSTANT, ...LEGACY },
+  "economy-goods": { ...W80, ...INSTANT, ...LEGACY },
   "gates-walls": W80,
-  "gravestone-events": INSTANT,
+  "gravestone-events": { ...INSTANT, ...LEGACY },
   "halflatch-ward-lapse": INSTANT,
   "happiness-militia-tavern": { ...W80, ...INSTANT },
-  "houses-barns-castles": { ...W80, ...INSTANT },
+  "houses-barns-castles": { ...W80, ...INSTANT, ...LEGACY },
   "hunger-roads": W80,
   "hunting-foraging": { ...W80, ...INSTANT },
-  "industrial-synergy": { ...W80, ...INSTANT },
-  "pause-restart": INSTANT,
+  "industrial-synergy": { ...W80, ...INSTANT, ...LEGACY },
+  "pause-restart": { ...INSTANT, ...LEGACY },
   "raid-waves": W80,
   "shelter-overflow": { ...W80, ...INSTANT },
   "slow-farming": W80,
   "starting-stock": INSTANT,
-  synergies: { ...W80, ...INSTANT },
+  synergies: { ...W80, ...INSTANT, ...LEGACY },
   "tile-sprites-roundtrip": INSTANT,
-  "towers-farms": W80,
+  "towers-farms": { ...W80, ...LEGACY },
   "town-center": INSTANT,
-  "upgrades-church": { ...W80, ...INSTANT },
+  "upgrades-church": { ...W80, ...INSTANT, ...LEGACY },
   "walls-regrow": INSTANT,
   "ward-priest-patrol": INSTANT,
   "world-gen-poi": W80,
+  formation: LEGACY,
+  hero: LEGACY,
+  "regiment-groups": LEGACY,
 };
 // Per-test timeouts (seconds) for the long ones; --timeout overrides all.
 const TIMEOUT_S = {
@@ -203,8 +209,9 @@ for (const t of selected) {
   let tail = [];
   try {
     const env = { ...process.env, PORT: String(base), PORT_A: String(base), PORT_B: String(base + 1), PORT_C: String(base + 2) };
+    // Self-booting tests that spread process.env into their server get SERVER_ENV that way (e.g. LEGACY).
+    if (isServerTest) Object.assign(env, SERVER_ENV[t.name] ?? {});
     if (isServerTest && !selfServer) {
-      Object.assign(env, SERVER_ENV[t.name] ?? {});
       server = await bootServer(base, { COLONY_SAVE_DIR: saveDir, ...(SERVER_ENV[t.name] ?? {}) }, log);
     }
     const proc = spawn(process.execPath, [t.file], { cwd: t.dir, env, stdio: ["ignore", "pipe", "pipe"], detached: true });

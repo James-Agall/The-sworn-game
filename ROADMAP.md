@@ -2267,15 +2267,29 @@ immigrants only; existing people are never removed for being over it.
 
 ### Known failing tests after village life (2026-11-03)
 
-Run and failing by design: `day-respawn-test` (dawn/dusk respawn windows removed), `settlement-pop-test`
-(placement no longer gated by population, soldiers count, Keep adds population), `camp-hearth-test` ("12 knight
-posts placed, each +1 knight": posts no longer come with a free soldier). Passing: save-load, starting-stock,
-builders-towncenter, town-center, equipment. Not run but expected stale (they place workplaces / unit buildings and
-expect a unit to appear, count population, or wait on respawns): army-damage, cavalry-siege, economy, economy-goods,
-formation, happiness-militia-tavern, houses-barns-castles, hero, hunger-roads, industrial-synergy,
-regiment-groups, shelter-overflow, synergies, towers-farms, upgrades-church, gravestone-events,
-halflatch-ward-lapse. Cheapest fix for most: switch them to creative mode or spawn units with the `spawnSoldier`
-hook / `peopleState { spawn }` before placing posts.
+Stale-test cleanup done 2026-11-03. Suites written before village life now run with **`COLONY_LEGACY_STAFF=1`**
+(`state.legacyStaff`, honoured only with `COLONY_TEST_HOOKS=1`; set per suite by `scripts/run-tests.mjs` LEGACY):
+a new world starts with just its builder and a placed or vacant post gets a fresh unit (soldiers too, by day), as
+before village life. Placement is still never population-gated, soldiers still count, military buildings add no
+housing, raids still scale with population. Tests of the people rules run without it.
+
+| test | fix | status |
+|---|---|---|
+| day-respawn, settlement-pop, camp-hearth | rewritten for vacancies / no free soldiers / Keep beds | pass |
+| economy, formation, industrial-synergy, regiment-groups, towers-farms, pause-restart | LEGACY only | pass |
+| economy-goods | LEGACY; grain 80; Orchard at full pop is placed (no gate) | pass |
+| hero | LEGACY (runner now passes SERVER_ENV to self-booting tests); stock top-up before C | pass |
+| houses-barns-castles | LEGACY; (c) rewritten: no placement gate, knights count | pass |
+| synergies | LEGACY; house-camp pair adds no housing | pass |
+| upgrades-church | LEGACY; (f) Church at full pop is placed, then broken | pass |
+| army-damage | LEGACY; orc bait for the clustered knight (raids are small for 1 person) | pass |
+| gravestone-events | LEGACY; hp cut to STARVATION_DAMAGE 5, one artisan only | pass |
+| starting-stock, town-center | grain 80 | pass |
+| smoke | - | pass |
+
+Not touched (other uncommitted work, owner to fix): cavalry-siege, halflatch-ward-lapse, happiness-militia-tavern,
+hunger-roads, shelter-overflow, warbands. Not run since village life: the rest of the suite (abbey-ward, clans,
+quests, sites, spells, tactics, vassals, wagons, ward-priest-patrol, ...).
 
 ## Battle engine — landed (phase 7) 2026-11-02 (rear mobs follow the fight, snapshot compaction, client dot LOD)
 Plan: docs PLAN-large-battles.md §3 (LOD), §8 phase 7.

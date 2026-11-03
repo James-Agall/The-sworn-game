@@ -152,8 +152,8 @@ if (ONLY.has("a")) {
 
 if (ONLY.has("b")) {
   const { wood, grain, iron, rock, townCenterHp, townCenterMaxHp } = a.firstSnap;
-  result(wood === 80 && grain === 60 && iron === 60 && rock === 60,
-    `(b) first snapshot stock wood=${wood} grain=${grain} iron=${iron} rock=${rock} (expected 80/60/60/60)`);
+  result(wood === 80 && grain === 80 && iron === 60 && rock === 60,
+    `(b) first snapshot stock wood=${wood} grain=${grain} iron=${iron} rock=${rock} (expected 80/80/60/60)`);
   result(townCenterHp === 1000 && townCenterMaxHp === 1000,
     `(b) townCenterHp=${townCenterHp} townCenterMaxHp=${townCenterMaxHp} (expected 1000/1000: Town Center Lv1)`);
 }

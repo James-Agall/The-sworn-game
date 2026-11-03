@@ -264,13 +264,14 @@ export function transplantPerson(from: Colonist, to: Colonist) {
 export function spawnStartingPeople(tc: TownCenter) {
   const b = spawnColonistForPost(tc.x, tc.y, "builder");
   b.person = newPerson("start");
+  if (state.legacyStaff) return;
   for (let i = 1; i < STARTING_PEOPLE; i++) spawnVillager(tc, newPerson("start"));
 }
 
 // Fill a post with a free villager of its clan, or leave a vacancy (filled later by processRespawnQueue). Non-people
 // (engines, heroes, wagons) and creative mode spawn as before.
 export function staffPost(tx: number, ty: number, kind: ColonistKind, castleLevel = 1): Colonist | null {
-  if (state.creative || !isPersonKind(kind) || kind === "villager") return spawnColonistForPost(tx, ty, kind, castleLevel);
+  if (state.creative || state.legacyStaff || !isPersonKind(kind) || kind === "villager") return spawnColonistForPost(tx, ty, kind, castleLevel);
   const clan = clanIdAt(tx, ty);
   // Phase 3: a soldier post is never staffed for free; it waits for "Train unit" (people.ts).
   const v = isSoldierKind(kind) ? undefined : freeVillagerFor(clan, tx, ty);
@@ -807,9 +808,10 @@ export function processRespawnQueue() {
     // Village life: a vacancy is filled by a free villager of its clan (checked once a second), never respawned.
     if (state.cycleTick % VACANCY_FILL_INTERVAL_TICKS !== 0) continue;
     // Phase 3: soldier posts are filled by training only (people.ts), not by a passing villager.
-    if (!state.creative && isSoldierKind(req.kind)) continue;
-    const villager = state.creative ? undefined : freeVillagerFor(req.clan ?? clanIdAt(req.tx, req.ty), req.tx, req.ty);
-    if (state.creative || villager) {
+    const free = state.creative || state.legacyStaff;
+    if (!free && isSoldierKind(req.kind)) continue;
+    const villager = free ? undefined : freeVillagerFor(req.clan ?? clanIdAt(req.tx, req.ty), req.tx, req.ty);
+    if (free || villager) {
       const castleLevel =
         req.kind === "knight"
           ? castleLevelForTile(currentTile)

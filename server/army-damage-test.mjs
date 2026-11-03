@@ -282,6 +282,11 @@ for (let night = 1; night <= 2 && !enough() && Date.now() < deadline; night++) {
   if (hits.filter((h) => h.post === "L" && h.kind === "knight").length < 3) {
     for (const dy of [0, 1]) a.ws.send(JSON.stringify({ type: "testHook", op: "spawnMob", kind: "orc", tx: L.x + 3, ty: L.y + dy }));
   }
+  // Village life: raids scale with the population (a 1-person test colony draws a couple of raiders), so the
+  // clustered post needs its own bait too: two orcs west of the Blacksmith.
+  if (hits.filter((h) => h.post === "K" && h.kind === "knight").length < 3) {
+    for (const dy of [0, 1]) a.ws.send(JSON.stringify({ type: "testHook", op: "spawnMob", kind: "orc", tx: K.x - 4, ty: K.y + dy }));
+  }
   while (a.snap.isNight && !enough() && Date.now() < deadline) await sleep(250);
   info(`night ${night} done/enough: hits so far ${hits.length}; per post ${JSON.stringify(Object.fromEntries(Object.keys(posts).map((p) => [p, hits.filter((h) => h.post === p).length])))}`);
 }

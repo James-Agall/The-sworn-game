@@ -44,7 +44,7 @@ const SOLID = new Set([...Array.from({ length: 49 }, (_, i) => i + 1).filter((t)
 const TILE = 32;
 const PLAYER_ATTACK_RANGE = TILE * 1.3;
 const RES_KEYS = ["wood", "iron", "rock", "grain", "meat", "fruit", "wool", "cotton", "clothes", "tools", "luxuryItems", "gold"];
-const RESET_VALUES = { wood: 80, iron: 60, rock: 60, grain: 60, meat: 0, fruit: 0, wool: 0, cotton: 0, clothes: 0, tools: 0, luxuryItems: 0, gold: 0 };
+const RESET_VALUES = { wood: 80, iron: 60, rock: 60, grain: 80, meat: 0, fruit: 0, wool: 0, cotton: 0, clothes: 0, tools: 0, luxuryItems: 0, gold: 0 };
 
 function connect() {
   const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: [], tileUpdates: [], events: [], onSnap: null, hooks: [] };
@@ -520,12 +520,12 @@ await restartAndCheck(a, "(A0)");
     result(!ups.some((u) => u.tileX === U.x && u.tileY === U.y) && a.tileAt(U.x, U.y) === T.Pasture && kinds(a, "farmhand").length === 4 && a.snap.population === fullPop &&
       upEv.includes("Pasture upgraded to level 2"),
       `(A) Pasture placed ON the Pasture at full pop -> in-place upgrade (tile ${a.tileAt(U.x, U.y)}, farmhands=${kinds(a, "farmhand").length}, pop=${a.snap.population}, events=${JSON.stringify(upEv)})`);
-    // Placed on an empty tile next to an Orchard it is a new standalone building, so it is population-gated
-    // (no 2x2 Pasture fits beside the Pasture any more).
+    // Placed on an empty tile next to an Orchard it is a new standalone building. Village life (2026-11-03): placement
+    // is never population-gated any more (an unstaffed post is a vacancy), so it is placed with its own farmhand.
     const N = P(1, -2);
     ups = await act(a, N.x, N.y, T.Orchard);
-    result(!ups.some((u) => u.tileX === N.x && u.tileY === N.y) && kinds(a, "farmhand").length === 4,
-      `(A) Orchard on an empty tile next to the Orchard at full pop is a new building and rejected (farmhands=${kinds(a, "farmhand").length})`);
+    result(ups.some((u) => u.tileX === N.x && u.tileY === N.y) && kinds(a, "farmhand").length === 5,
+      `(A) Orchard on an empty tile next to the Orchard at full pop is a new building, placed (no population gate; farmhands=${kinds(a, "farmhand").length})`);
   }
 }
 

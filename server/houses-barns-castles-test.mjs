@@ -441,7 +441,7 @@ const H1 = {}, H2 = {};
   }
 }
 
-// ---------------- (c) population gating ----------------
+// ---------------- (c) population (village life: no placement gate) ----------------
 const L = [];
 let sixth = null;
 {
@@ -454,6 +454,7 @@ let sixth = null;
     const freeExtra = (p) => a.tileAt(p.x, p.y) === T.Empty && !colonistOnTile(a, p.x, p.y) && !houseNear(p.x, p.y);
     const pickSixth = () => (freeExtra(sixth) ? sixth : RING.map(([dx, dy]) => ({ x: siteA.x + dx, y: siteA.y + dy })).find(freeExtra) ?? sixth);
     let okAll = true;
+    const pop0 = a.snap.population;
     for (const [i, p] of L.entries()) {
       const r = await placeExpectAt(a, p.x, p.y, T.Lumberjack, p.x, p.y, T.Lumberjack);
       await sleep(100);
@@ -461,9 +462,9 @@ let sixth = null;
       info(`(c) lumberjack ${i + 1} at (${p.x},${p.y}): ${r.hit.length ? "placed" : "REJECTED"}; pop=${a.snap.population}/${a.snap.populationCap}`);
       lumberjackPosts.push(p);
     }
-    // + the starting builder.
-    result(okAll && a.snap.population === 6,
-      `(c) 5 lumberjack posts placed; pop=${a.snap.population}/${a.snap.populationCap} (expected 6: 5 + the starting builder)`);
+    // Village life: soldiers count too (the knights from (f)), so +5 on whatever was there.
+    result(okAll && a.snap.population === pop0 + 5,
+      `(c) 5 lumberjack posts placed; pop=${a.snap.population}/${a.snap.populationCap} (expected ${pop0 + 5}: ${pop0} + 5)`);
     // The cap is no longer just the houses: Town Center base 12 + houses + neighbourhood pairs. Check it against
     // the formula, then fill the remaining slots with filler Lumberjack Posts at a separate site.
     const capNow = expectedCap(a);
@@ -476,23 +477,18 @@ let sixth = null;
     await ensureAt(a, siteA);
     sixth = pickSixth();
     while (colonistOnTile(a, sixth.x, sixth.y)) await sleep(100);
+    // Village life (2026-11-03): placement is never population-gated any more (outside the legacy test staffing an
+    // unstaffed post is a vacancy), so the extra lumberjack at the cap is accepted.
     const pre = a.tileAt(sixth.x, sixth.y);
-    const rej = await act(a, sixth.x, sixth.y, T.Lumberjack, 800);
-    result(pre === T.Empty && rej.filter((u) => u.tileX === sixth.x && u.tileY === sixth.y && u.tile === T.Lumberjack).length === 0 && a.snap.population === cap,
-      `(c) extra lumberjack at (${sixth.x},${sixth.y}) rejected at cap (updates there=${rej.filter((u) => u.tileX === sixth.x && u.tileY === sixth.y && u.tile === T.Lumberjack).length}, pop=${a.snap.population}/${cap})`);
-    // Also gated: Iron/Rock Mine and Barn at cap — Barn checked here (wood permitting) on an empty tile.
-    const br = await act(a, siteA.x - 1, siteA.y - 2, T.Barn, 600);
-    result(br.filter((u) => u.tileX === siteA.x - 1 && u.tileY === siteA.y - 2).length === 0,
-      `(c) Barn also rejected at cap (wood=${a.snap.wood}; ${a.snap.wood >= 15 ? "affordable, so rejection is the pop gate" : "NOTE: also unaffordable, so not conclusive"})`);
-    const brk = await act(a, L[0].x, L[0].y, T.Empty);
-    await sleep(100);
-    result(brk.some((u) => u.tileX === L[0].x && u.tileY === L[0].y && u.tile === T.Empty) && a.snap.population === cap - 1,
-      `(c) broke lumberjack at (${L[0].x},${L[0].y}); pop=${a.snap.population} (expected ${cap - 1})`);
-    lumberjackPosts.shift();
-    sixth = pickSixth();
     const r6 = await placeExpectAt(a, sixth.x, sixth.y, T.Lumberjack, sixth.x, sixth.y, T.Lumberjack);
     await sleep(100);
-    result(r6.hit.length === 1 && a.snap.population === cap, `(c) extra lumberjack now accepted; pop=${a.snap.population}/${a.snap.populationCap}`);
+    result(pre === T.Empty && r6.hit.length === 1 && a.snap.population === cap + 1,
+      `(c) extra lumberjack at (${sixth.x},${sixth.y}) accepted at the cap (no population gate), pop=${a.snap.population}/${cap}`);
+    const brk = await act(a, L[0].x, L[0].y, T.Empty);
+    await sleep(100);
+    result(brk.some((u) => u.tileX === L[0].x && u.tileY === L[0].y && u.tile === T.Empty) && a.snap.population === cap,
+      `(c) broke lumberjack at (${L[0].x},${L[0].y}); pop=${a.snap.population} (expected ${cap})`);
+    lumberjackPosts.shift();
     lumberjackPosts.push(sixth);
     // Fillers done: break them so the rest of the run sees only this site's 5 lumberjacks.
     await clearFillers(a, fillers);

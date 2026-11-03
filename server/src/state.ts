@@ -266,6 +266,10 @@ export interface ConstructionFields {
   // COLONY_INSTANT_BUILD=1 (or testHook "setInstantBuild") skips construction entirely, for the scripted
   // tests written before builders existed: every placement resolves on the spot, no builder needed.
   instantBuild: boolean;
+  // COLONY_LEGACY_STAFF=1 (test hooks only): the staffing rules before village life, for the scripted tests written
+  // before it. A new world starts with just its builder, and a placed or vacant post gets a fresh unit (soldiers too,
+  // by day) instead of a free villager. Births, immigrants, food and raids are unchanged.
+  legacyStaff: boolean;
   // Creative mode (main menu "Creative" / ?mode=creative, set by a restart with creative: true; saved, old
   // saves false): infinite stock, instant build, no population caps, the creative panel's commands.
   creative: boolean;
@@ -513,6 +517,7 @@ const initial: Partial<ServerState> = {
   shuttingDown: false,
   // ConstructionFields
   instantBuild: process.env.COLONY_INSTANT_BUILD === "1",
+  legacyStaff: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_LEGACY_STAFF === "1",
   creative: false,
   creativeAllowAttack: false,
   // EquipmentFields

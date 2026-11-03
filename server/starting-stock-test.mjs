@@ -56,8 +56,8 @@ console.log(`[${el()}] connected; world ${W}x${welcome.worldTilesY}, rock deposi
 
 // (a) starting stockpile (STARTING_WOOD / IRON / ROCK / GRAIN)
 const { wood, grain, iron, rock } = firstSnap;
-result(wood === 80 && grain === 60 && iron === 60 && rock === 60,
-  `first snapshot stock wood=${wood} grain=${grain} iron=${iron} rock=${rock} (expected 80/60/60/60)`);
+result(wood === 80 && grain === 80 && iron === 60 && rock === 60,
+  `first snapshot stock wood=${wood} grain=${grain} iron=${iron} rock=${rock} (expected 80/80/60/60)`);
 
 const me = () => snap.players.find((p) => p.id === welcome.id);
 // Empty tiles within reach (2.5 tiles) of the player, excluding its own tile; outer ring first.

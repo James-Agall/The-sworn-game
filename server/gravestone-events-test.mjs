@@ -165,12 +165,15 @@ let lastLog = 0;
 const hpCut = new Set();
 while ((!first || first.removedOnDawn === null) && Date.now() < deadline) {
   // Days are 300 s + 75 s nights: two starving dawns (20 hp) no longer fit the run. Once the food is gone,
-  // cut each artisan to one starving dawn's damage (10) so the next dawn kills them by starvation.
+  // cut each artisan to one starving dawn's damage (STARVATION_DAMAGE, 5 since 2026-11-03) so the next dawn kills
+  // them by starvation.
   if (a.snap.grain + a.snap.meat + a.snap.fruit === 0) {
     for (const c of a.snap.colonists) {
-      if (c.kind !== "artisan" || hpCut.has(c.id) || c.hp <= 10) continue;
+      // One artisan only: artisans share a post tile, and two starving at the same dawn on the same spot leave
+      // look-alike stones (same x, y, variant) that the per-tick bookkeeping below can't tell apart.
+      if (c.kind !== "artisan" || hpCut.size > 0 || c.hp <= 5) continue;
       hpCut.add(c.id);
-      a.send({ type: "testHook", op: "setColonistHp", id: c.id, hp: 10 });
+      a.send({ type: "testHook", op: "setColonistHp", id: c.id, hp: 5 });
     }
   }
   if (Date.now() - lastLog > 15000) {

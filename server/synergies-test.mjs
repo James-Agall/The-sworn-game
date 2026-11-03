@@ -284,7 +284,8 @@ let ljPos = null, houses1 = [];
     await sleep(300);
     const n1 = atPost().length;
     result(n1 === 3, `(2) House placed next to the camp: ${n1} units (expected 3 = 2 + 1 per adjacent house)`);
-    result(a.snap.populationCap === cap0 + 5 + 2, `(2) cap ${a.snap.populationCap} (expected ${cap0 + 7}: earlier +5, this house +1, house-camp pair +1)`);
+    // Village life: military buildings no longer add housing, so the house-camp pair adds nothing.
+    result(a.snap.populationCap === cap0 + 5 + 1, `(2) cap ${a.snap.populationCap} (expected ${cap0 + 6}: earlier +5, this house +1, no house-camp pair)`);
   }
 }
 

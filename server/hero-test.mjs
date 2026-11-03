@@ -184,6 +184,8 @@ try {
   }
   ki = await info();
   result(ki?.level === 3 && ki.heroes.cap === 3, `Keep upgraded to Lv ${ki?.level}: cap ${ki?.heroes?.cap}`);
+  // Village life: the Keep adds beds again, so P needed ~20 filler huts and the wood ran low; top the stock up.
+  await c.hookCall("setStock", { stock: { gold: 2000, iron: 500, wood: 500, rock: 500 } });
   await recruit("marksman");
   await recruit("mage");
   st = await hs();
