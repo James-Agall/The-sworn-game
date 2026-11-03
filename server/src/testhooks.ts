@@ -48,6 +48,7 @@ import { WILDLIFE_CONFIG, WILDLIFE_RESPAWN_INTERVAL_TICKS, damageWildlife, spawn
 import {
   TOWN_CENTER_TILE, civilianPopulationUsed, findTownCenterAt, happinessSpeedMultiplier, populationCap,
   productionSpeedMultiplier, respawnWindowAt, respawnWindowSnapshot, settlementKeyNear, spawnColonistForPost, townCenterBonus,
+  newPerson, peopleSnapshot, spawnVillager,
 } from "./colonists.js";
 import { colonistRole, guardStats, isGuardOrMilitiaKind, isSiegeKind, unitStats } from "./units.js";
 import {
@@ -820,6 +821,27 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       barnMaxFarmPlots: BARN_MAX_FARM_PLOTS,
       barnFarmRadiusTiles: BARN_FARM_RADIUS_TILES,
       cycleTick: state.cycleTick,
+    });
+  } else if (msg.op === "peopleState") {
+    // Village life: optionally flip creative mode (to test the real people rules in a creative world) and/or add
+    // free villagers (`spawn`, children with `child: true`) at the first Town Center; then the people summary.
+    if (typeof msg.creative === "boolean") state.creative = msg.creative;
+    const tc = state.townCenters.find((t) => (t.clan ?? 0) === (player.clan ?? 0));
+    const n = Math.max(0, Math.min(50, Math.floor(Number(msg.spawn) || 0)));
+    for (let i = 0; tc && i < n; i++) {
+      const p = newPerson("immigrant", msg.child === true ? state.cycleTick : undefined);
+      if (msg.child === true) p.child = true;
+      withClan(clanById(player.clan ?? 0), () => spawnVillager(tc, p));
+    }
+    reply({
+      creative: state.creative,
+      people: withClan(clanById(player.clan ?? 0), () => peopleSnapshot()),
+      population: civilianPopulationUsed(),
+      cap: populationCap(),
+      vacancies: respawnQueue.filter((q) => !q.hero).map((q) => ({ ...q })),
+      persons: Array.from(colonists.values())
+        .filter((c) => c.person)
+        .map((c) => ({ id: c.id, kind: c.kind, name: c.person!.name, child: !!c.person!.child, born: c.person!.born, parents: c.person!.parents ?? [], origin: c.person!.origin, training: c.training ?? null, postX: c.postX, postY: c.postY, hp: c.hp })),
     });
   } else if (msg.op === "respawnState") {
     // Long days & dawn/dusk respawn windows (day-respawn-test).

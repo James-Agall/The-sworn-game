@@ -41,7 +41,7 @@ import {
   anyBuilderAlive, findTownCenterAt, garrisonBlocker, getColonistsAtPost, happinessSpeedMultiplier,
   highestTownCenterLevel, houseCapacity, houseOccupancy, isAbbeyClergy, isHouseTile, isMilitaryTile,
   isSynergyBuilding, placementNeedsNewWorkerSlot, productionSpeedMultiplier, removeColonistForPost, repairCost,
-  settlementBlocker, settlementKeyNear, settlementStats, settlementTierCap, siteBuilderCount, spawnColonistForPost,
+  settlementBlocker, settlementKeyNear, settlementStats, settlementTierCap, siteBuilderCount, staffPost, vacancyCountAt,
   colonyChurches, spawnExtraGuards, tilesOfType, topUpTownCenterBuilders, townCenterBonus, townCenterMaxHp,
   unpaidRepairHp,
   updateWardPriestPresence,
@@ -101,14 +101,14 @@ export function resolveStablesPlacement(tx: number, ty: number) {
       c.maxHp = stats.maxHp;
       c.hp = stats.maxHp;
     }
-    let have = getColonistsAtPost(tx, ty).filter((c) => c.kind === "cavalry").length;
-    for (; have < cavalryCountForLevel(level); have++) spawnColonistForPost(tx, ty, "cavalry", level);
+    let have = getColonistsAtPost(tx, ty).filter((c) => c.kind === "cavalry").length + vacancyCountAt(tx, ty);
+    for (; have < cavalryCountForLevel(level); have++) staffPost(tx, ty, "cavalry", level);
     announceUpgrade(TileType.Stables, level);
     return;
   }
   setTile(tileIndex(tx, ty), TileType.Stables);
   broadcastTileUpdate(tx, ty, TileType.Stables);
-  spawnColonistForPost(tx, ty, "cavalry", 1);
+  staffPost(tx, ty, "cavalry", 1);
 }
 
 export function upgradeMilitiaAt(tx: number, ty: number, level: number) {
@@ -126,8 +126,9 @@ export function upgradeMilitiaAt(tx: number, ty: number, level: number) {
   for (const c of colonists.values()) {
     if (isMilitiaLineKind(c.kind) && c.postX === tx && c.postY === ty) currentCount++;
   }
+  currentCount += vacancyCountAt(tx, ty);
   for (let i = currentCount; i < targetCount; i++) {
-    spawnColonistForPost(tx, ty, newKind, level);
+    staffPost(tx, ty, newKind, level);
   }
 }
 
@@ -191,7 +192,7 @@ export function resolveKnightPlacement(tx: number, ty: number) {
   }
   setTile(tileIndex(tx, ty), TileType.KnightPost);
   broadcastTileUpdate(tx, ty, TileType.KnightPost);
-  spawnColonistForPost(tx, ty, "knight", 1);
+  staffPost(tx, ty, "knight", 1);
 }
 
 export function resolveMilitiaPlacement(tx: number, ty: number) {
@@ -212,8 +213,8 @@ export function resolveMilitiaPlacement(tx: number, ty: number) {
   }
   setTile(tileIndex(tx, ty), TileType.MilitiaPost);
   broadcastTileUpdate(tx, ty, TileType.MilitiaPost);
-  spawnColonistForPost(tx, ty, "militia", 1);
-  spawnColonistForPost(tx, ty, "militia", 1);
+  staffPost(tx, ty, "militia", 1);
+  staffPost(tx, ty, "militia", 1);
 }
 
 export function resolveArcherPlacement(tx: number, ty: number) {
@@ -227,7 +228,7 @@ export function resolveArcherPlacement(tx: number, ty: number) {
   }
   setTile(tileIndex(tx, ty), TileType.ArcherPost);
   broadcastTileUpdate(tx, ty, TileType.ArcherPost);
-  spawnColonistForPost(tx, ty, "archer", 1);
+  staffPost(tx, ty, "archer", 1);
 }
 
 export function resolveMinePlacement(
@@ -242,13 +243,13 @@ export function resolveMinePlacement(
     const currentLevel = getBuildingLevel(tx, ty);
     buildingLevel.set(resourceKey(tx, ty), currentLevel + 1);
     announceUpgrade(mineType, currentLevel + 1);
-    spawnColonistForPost(tx, ty, minerKind);
+    staffPost(tx, ty, minerKind);
     return;
   }
   setTile(tileIndex(tx, ty), mineType);
   broadcastTileUpdate(tx, ty, mineType);
   if (current === oreType) minesPlacedOnOre.add(resourceKey(tx, ty));
-  spawnColonistForPost(tx, ty, minerKind);
+  staffPost(tx, ty, minerKind);
 }
 
 export function resolveLumberjackPlacement(tx: number, ty: number) {
@@ -256,7 +257,7 @@ export function resolveLumberjackPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.LumberjackPost);
   broadcastTileUpdate(tx, ty, TileType.LumberjackPost);
-  spawnColonistForPost(tx, ty, "lumberjack");
+  staffPost(tx, ty, "lumberjack");
 }
 
 export function resolveBarnPlacement(tx: number, ty: number) {
@@ -264,7 +265,7 @@ export function resolveBarnPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.BarnPost);
   broadcastTileUpdate(tx, ty, TileType.BarnPost);
-  spawnColonistForPost(tx, ty, "farmer");
+  staffPost(tx, ty, "farmer");
 }
 
 export function resolveChurchPlacement(tx: number, ty: number) {
@@ -272,7 +273,7 @@ export function resolveChurchPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.ChurchPost);
   broadcastTileUpdate(tx, ty, TileType.ChurchPost);
-  spawnColonistForPost(tx, ty, "bishop");
+  staffPost(tx, ty, "bishop");
 }
 
 export function resolvePasturePlacement(tx: number, ty: number) {
@@ -280,7 +281,7 @@ export function resolvePasturePlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.Pasture);
   broadcastTileUpdate(tx, ty, TileType.Pasture);
-  spawnColonistForPost(tx, ty, "farmhand");
+  staffPost(tx, ty, "farmhand");
 }
 
 export function resolveOrchardPlacement(tx: number, ty: number) {
@@ -288,7 +289,7 @@ export function resolveOrchardPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.Orchard);
   broadcastTileUpdate(tx, ty, TileType.Orchard);
-  spawnColonistForPost(tx, ty, "farmhand");
+  staffPost(tx, ty, "farmhand");
 }
 
 export function resolveWoolFarmPlacement(tx: number, ty: number) {
@@ -296,7 +297,7 @@ export function resolveWoolFarmPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.WoolFarm);
   broadcastTileUpdate(tx, ty, TileType.WoolFarm);
-  spawnColonistForPost(tx, ty, "farmhand");
+  staffPost(tx, ty, "farmhand");
 }
 
 export function resolveCottonFarmPlacement(tx: number, ty: number) {
@@ -304,7 +305,7 @@ export function resolveCottonFarmPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.CottonFarm);
   broadcastTileUpdate(tx, ty, TileType.CottonFarm);
-  spawnColonistForPost(tx, ty, "farmhand");
+  staffPost(tx, ty, "farmhand");
 }
 
 export function resolveTailorShopPlacement(tx: number, ty: number) {
@@ -312,7 +313,7 @@ export function resolveTailorShopPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.TailorShop);
   broadcastTileUpdate(tx, ty, TileType.TailorShop);
-  spawnColonistForPost(tx, ty, "artisan");
+  staffPost(tx, ty, "artisan");
 }
 
 export function resolveBlacksmithPlacement(tx: number, ty: number) {
@@ -320,7 +321,7 @@ export function resolveBlacksmithPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.Blacksmith);
   broadcastTileUpdate(tx, ty, TileType.Blacksmith);
-  spawnColonistForPost(tx, ty, "artisan");
+  staffPost(tx, ty, "artisan");
 }
 
 export function resolveLuxuryWorkshopPlacement(tx: number, ty: number) {
@@ -328,7 +329,7 @@ export function resolveLuxuryWorkshopPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.LuxuryWorkshop);
   broadcastTileUpdate(tx, ty, TileType.LuxuryWorkshop);
-  spawnColonistForPost(tx, ty, "artisan");
+  staffPost(tx, ty, "artisan");
 }
 
 export function resolveBreweryPlacement(tx: number, ty: number) {
@@ -336,7 +337,7 @@ export function resolveBreweryPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.Brewery);
   broadcastTileUpdate(tx, ty, TileType.Brewery);
-  spawnColonistForPost(tx, ty, "artisan");
+  staffPost(tx, ty, "artisan");
 }
 
 export function resolveTavernPlacement(tx: number, ty: number) {
@@ -344,7 +345,7 @@ export function resolveTavernPlacement(tx: number, ty: number) {
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.Tavern);
   broadcastTileUpdate(tx, ty, TileType.Tavern);
-  spawnColonistForPost(tx, ty, "artisan");
+  staffPost(tx, ty, "artisan");
 }
 
 // Hunter's Hut / Forager's Hut: like a mine, every level adds one more worker (so each placement,
@@ -356,12 +357,12 @@ export function resolveFoodHutPlacement(tx: number, ty: number, hutType: TileTyp
     const currentLevel = getBuildingLevel(tx, ty);
     buildingLevel.set(resourceKey(tx, ty), currentLevel + 1);
     announceUpgrade(hutType, currentLevel + 1);
-    spawnColonistForPost(tx, ty, kind);
+    staffPost(tx, ty, kind);
     return;
   }
   setTile(tileIndex(tx, ty), hutType);
   broadcastTileUpdate(tx, ty, hutType);
-  spawnColonistForPost(tx, ty, kind);
+  staffPost(tx, ty, kind);
 }
 
 // A new Town Center (instant when none stands or no builder is alive; see handleSetTileInner), or a
@@ -435,7 +436,7 @@ export function syncGuardBonusAt(tx: number, ty: number) {
   if (!slots) return;
   let have = troopsAtPost(tx, ty, slots.kind);
   for (const q of respawnQueue) if (q.tx === tx && q.ty === ty) have++;
-  for (let i = have; i < slots.cap; i++) spawnColonistForPost(tx, ty, slots.kind, slots.level);
+  for (let i = have; i < slots.cap; i++) staffPost(tx, ty, slots.kind, slots.level);
 }
 
 export function syncGuardBonusesAround(tx: number, ty: number) {
@@ -930,13 +931,7 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
 
   const cost = placementCost(tile, current, tx, ty);
   if (!canAfford(cost)) return;
-  if (POPULATION_GATED_TILES.includes(tile) && placementNeedsNewWorkerSlot(tile, tx, ty)) {
-    const full = settlementBlocker(tx, ty);
-    if (full) {
-      sendEvent(player, "build", full);
-      return;
-    }
-  }
+  // Village life: a workplace no longer needs population room (its worker is an existing person, or it waits).
   const garrison = garrisonGain(tile, current, tx, ty);
   if (garrison > 0) {
     const full = garrisonBlocker(tx, ty, garrison);
@@ -1363,8 +1358,6 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
       if (site) reason = "Upgrade under way";
       else if (!canAfford(cost)) reason = "Not enough resources";
       else if (!isInPlaceUpgrade(placeTile, t, tx, ty)) reason = "Can't upgrade yet";
-      else if (POPULATION_GATED_TILES.includes(placeTile) && placementNeedsNewWorkerSlot(placeTile, tx, ty) && settlementBlocker(tx, ty))
-        reason = settlementBlocker(tx, ty);
       else if (garrisonGain(placeTile, t, tx, ty) > 0 && garrisonBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty)))
         reason = garrisonBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty));
       else if (!state.instantBuild && !anyBuilderAlive() && placeTile !== TileType.TownCenter) reason = "No builders available";

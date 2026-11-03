@@ -497,6 +497,7 @@ export const COLONIST_KINDS: ColonistKind[] = [
   "batteringRam",
   "catapult",
   "wagon",
+  "villager",
 ];
 // Rendered heights (px); width follows each texture's aspect ratio.
 export const COLONIST_SPRITE_HEIGHT = 28;

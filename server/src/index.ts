@@ -24,7 +24,7 @@ import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchan
 import { generateWorld } from "./worldgen.js";
 import { wildlifeForSnapshot } from "./wildlife.js";
 import {
-  TOWN_CENTER_TILE, civilianPopulationUsed, handleRepairBuilding, isAtShelter, respawnWindowSnapshot,
+  TOWN_CENTER_TILE, civilianPopulationUsed, handleRepairBuilding, isAtShelter, peopleSnapshot, respawnWindowSnapshot,
   settlementStatsAll, spawnPointNearTownCenter, townCenterMaxHp,
 } from "./colonists.js";
 import { armyRegimentsForSnapshot, pruneTaskForces, taskForcesForSnapshot } from "./units.js";
@@ -384,6 +384,9 @@ setInterval(() => {
       ...(c.shape ? { shape: c.shape } : {}),
       ...(c.clan ? { clan: c.clan } : {}),
       ...(c.wagon ? { wagon: wagonSnapshot(c) } : {}),
+      ...(c.person ? { name: c.person.name } : {}),
+      ...(c.person?.child ? { child: true } : {}),
+      ...(c.training ? { training: 1 - c.training.ticksLeft / c.training.ticksTotal } : {}),
     }));
   const mobsNow = Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,
@@ -446,6 +449,7 @@ setInterval(() => {
       townCenterMaxHp: townCenterMaxHp(ownTownCenters[0]?.level ?? 1),
       population: civilianPopulationUsed(),
       populationCap: settlementStatsNow.reduce((n, st) => n + st.cap, 0),
+      people: peopleSnapshot(),
       taskForces: taskForcesForSnapshot(),
       armyRegiments: armyRegimentsForSnapshot(),
       orderGroups: orderGroupsForSnapshot(),

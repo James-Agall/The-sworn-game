@@ -338,7 +338,9 @@ export type ColonistKind =
   // Hero phase 3 (2026-10-28): a named, levelled hero recruited at a Keep (class in ColonistSnapshot.heroClass).
   | "hero"
   // Forts phase E: a Trading Post's trader wagon (ColonistSnapshot.wagon); not commandable, no population.
-  | "wagon";
+  | "wagon"
+  // Village life phase 1 (2026-11-03): a free person (no job yet; ColonistSnapshot.child for a child).
+  | "villager";
 
 // Hero phase 3: the three hero classes and the regiment role each fights in.
 export type HeroClass = "champion" | "marksman" | "mage";
@@ -503,6 +505,20 @@ export interface ColonistSnapshot {
   // night); dest = destination name; cargo = gold value carried; danger band of the route; escorts alive;
   // route = the remaining path as tile points (every 4th tile) while on the road.
   wagon?: WagonSnapshot;
+  // Village life: the person's name (people only), a child (villager kind), and a villager in training at a unit
+  // building (0..1 progress).
+  name?: string;
+  child?: boolean;
+  training?: number;
+}
+
+// Village life: the active clan's people beyond its posted units.
+export interface PeopleSnapshot {
+  free: number;
+  children: number;
+  training: number;
+  // Posts with nobody (respawnQueue entries, heroes excluded); soldier posts wait for training.
+  vacancies: number;
 }
 
 export type WagonLeg = "home" | "out" | "unload" | "back" | "camp";
@@ -1197,6 +1213,8 @@ export type ServerMessage =
       townCenterMaxHp: number;
       population: number;
       populationCap: number;
+      // Village life: free villagers, children, trainees and open posts (omitted by older servers).
+      people?: PeopleSnapshot;
       taskForces: Record<string, string[]>;
       // Strategy mode phase 2: every player regiment; sent when membership / names change and every 10th
       // tick otherwise (omitted in between and by older servers: keep the last one).

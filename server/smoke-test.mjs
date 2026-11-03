@@ -15,7 +15,7 @@ const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_mo
 const TILE = 32;
 const TICK = 20;
 const DAY = TICK * 300;
-const T = { Empty: 0, Wall: 1, House: 13, Pasture: 21, Gate: 70, Moat: 75, Drawbridge: 76 };
+const T = { Empty: 0, Wall: 1, LumberjackPost: 3, KnightPost: 5, House: 13, Pasture: 21, Gate: 70, Moat: 75, Drawbridge: 76 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();
 
@@ -141,6 +141,7 @@ if (!bootOk) {
   console.log("FAIL boot: server did not come up in creative mode");
   process.exit(1);
 }
+const bootPeople = { ...(c.snap.people ?? {}), persons: (c.snap.colonists ?? []).filter((u) => u.name).length };
 send({ type: "pause", paused: true });
 await hook("setRaids", { enabled: false });
 await hook("ignorePlayers", { value: true });
@@ -406,6 +407,40 @@ await check("creative: spawn enemy/neutral and force-attack", async () => {
   await creative({ type: "creativeSet", op: "killMobs" });
   await creative({ type: "creativeSet", op: "clearNeutrals" });
   return [spawnedEnemies && untouched && fa?.ok && hit, `enemies ${r?.ids?.length}, dummy untouched ${untouched}, forceAttack ${fa?.ok}, hit ${hit} (hp ${dummy?.hp ?? "dead"})`];
+});
+
+// 8b. village life phase 1: a fixed population (creative switched off for the check)
+await check("people: 10 at start, a post takes a free villager, the dead stay dead", async () => {
+  const start = bootPeople.persons === 10 && bootPeople.free === 9;
+  await hook("peopleState", { creative: false, spawn: 2 });
+  await hook("setInstantBuild", { enabled: true });
+  const L = { x: tc.x - 6, y: tc.y + 9 };
+  await clearBox(L.x, L.y, 2);
+  await place(L.x, L.y, T.LumberjackPost);
+  await ff(TICK + 1);
+  const at = (ps) => ps.persons.filter((p) => p.kind === "lumberjack" && p.postX === L.x && p.postY === L.y);
+  let ps = await hook("peopleState");
+  const first = at(ps)[0];
+  const took = !!first && ps.people.free === 1;
+  await hook("damageColonist", { id: first?.id ?? "", amount: 1e6 });
+  await ff(TICK * 2 + 1);
+  ps = await hook("peopleState");
+  const second = at(ps)[0];
+  const refilled = !!second && second.id !== first?.id && ps.people.free === 0 && !ps.persons.some((p) => p.id === first?.id);
+  await hook("damageColonist", { id: second?.id ?? "", amount: 1e6 });
+  // Across a dusk and a dawn (the old respawn windows), by time travel (a whole day of ticks is too slow here).
+  await hook("setCycleTick", { tick: DAY - 3 });
+  await ff(TICK * 2);
+  await hook("setCycleTick", { tick: 2 * DAY + TICK * 150 - 3 });
+  await ff(TICK * 3);
+  ps = await hook("peopleState");
+  const stayDead = at(ps).length === 0 && ps.vacancies.some((q) => q.tx === L.x && q.ty === L.y);
+  await place(L.x, L.y, T.Empty);
+  ps = await hook("peopleState", { creative: true });
+  const dropped = !ps.vacancies.some((q) => q.tx === L.x && q.ty === L.y);
+  await hook("setInstantBuild", { enabled: false });
+  return [start && took && refilled && stayDead && dropped,
+    `boot ${bootPeople.persons} people (${bootPeople.free} free), took ${took}, refilled ${refilled}, stay dead ${stayDead}, vacancy dropped on demolish ${dropped}`];
 });
 
 // 9. save/load round trip keeps a stamped site (creative games save to the "creative" slot)

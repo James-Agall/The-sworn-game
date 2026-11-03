@@ -723,9 +723,9 @@ export const TOWN_CENTER_BASE_POPULATION = 12;
 export const TOWN_CENTER_EXTRA_POPULATION = 5;
 // Settlement population ceiling per Town Center tier (index = level - 1). Tune here.
 export const SETTLEMENT_POP_CAP_BY_TIER = [20, 30, 40];
-// The Keep no longer adds to the civilian population cap (user, 2026-10-30): its whole +10 per level goes to
-// soldiers, via KEEP_GARRISON_PER_LEVEL below. Kept as a constant at 0 so the civilian maths stays in one place.
-export const KEEP_POPULATION_PER_LEVEL = 0;
+// Village life (2026-11-03): soldiers are people again and the Keep houses them: +10 population per Keep level
+// (it was 0 from 2026-10-30, when soldiers lived in their unit buildings). Also raises the tier ceiling.
+export const KEEP_POPULATION_PER_LEVEL = 10;
 export const KEEP_MIN_TOWN_CENTER_LEVEL = 2;
 // Synergy bonuses count all eight surrounding tiles (diagonals too), so buildings can be packed
 // into solid blocks. Spawn-space checks still use the four orthogonal tiles units actually spawn on.
@@ -2257,3 +2257,30 @@ export const STRATEGY_VIEW_MAX_HALF_TILES = 140;
 export const STRATEGY_VIEW_MARGIN_TILES = 4;
 export const SET_VIEW_MIN_MS = 100;
 export const dt = 1 / TICK_RATE;
+
+// ---- Village life (2026-11-03, docs/colony2d/PLAN-village-life.md) ----
+// Phase 1: the colony starts with this many people (the Town Center builder + free villagers). Nobody is spawned on
+// demand: a new or emptied post is a vacancy (respawnQueue) filled by a free villager; the dead stay dead.
+export const STARTING_PEOPLE = 10;
+// A person is a child for this many game days after birth (children don't work or train).
+export const CHILD_MATURE_DAYS = 6;
+// Vacancies are matched to free villagers this often (ticks).
+export const VACANCY_FILL_INTERVAL_TICKS = TICK_RATE;
+// Phase 2: births. At each dawn a settlement with a free bed and >= 2 free-or-working adults has this chance of a
+// child (BIRTH_COOLDOWN_DAYS apart per settlement) while the colony holds BIRTH_MIN_FOOD food.
+export const BIRTH_CHANCE_PER_DAWN = 0.5;
+export const BIRTH_COOLDOWN_DAYS = 2;
+export const BIRTH_MIN_FOOD = 20;
+// Immigrants: ~IMMIGRANTS_PER_WEEK at happiness 100, none below IMMIGRATION_MIN_HAPPINESS (linear in between),
+// accumulated at each dawn and only arriving where a settlement has a free bed.
+export const IMMIGRANTS_PER_WEEK = 2;
+export const IMMIGRATION_MIN_HAPPINESS = 40;
+// Prisoners freed when a bandit / monster camp or lair falls (they join even past the housing cap).
+export const PRISONERS_PER_CAMP: [number, number] = [1, 3];
+// Phase 3: training a soldier at a unit building takes one free adult villager + one weapon and one armour of the
+// building's tier, and TRAIN_DAYS_BY_LEVEL[level - 1] game days.
+export const TRAIN_DAYS_BY_LEVEL = [1, 1.25, 1.5];
+export const PERSON_NAMES = [
+  "Ada", "Bram", "Cora", "Dunstan", "Edda", "Fenn", "Gwen", "Hal", "Isolde", "Jory", "Kit", "Leof", "Mara", "Ned",
+  "Orla", "Piers", "Quinn", "Rowan", "Sela", "Tam", "Una", "Wat", "Wynn", "Yara", "Alder", "Bess", "Cuthbert", "Dora",
+];

@@ -194,6 +194,8 @@ export const COLONIST_ANIM_URLS: Record<Exclude<ColonistKind, "hero">, { walk: s
   catapult: { walk: [artUrl("crate")], action: [artUrl("crate")] },
   // Forts phase E: the trader wagon's stand-in is the cart prop (per-level art: WAGON_ART_URLS).
   wagon: { walk: [artUrl("cart")], action: [artUrl("cart")] },
+  // Village life: a free villager borrows the farmer's walk.
+  villager: { walk: frameUrls("farmerWalk", 4), action: frameUrls("farmerWalk", 4) },
 };
 // Dedicated art for kinds still on stand-ins. Loaded separately and optionally (loadOptionalTextures):
 // when every frame of a set loads it replaces the stand-in set and its tint; missing files are fine.
@@ -260,6 +262,7 @@ export const COLONIST_STATIC_URL_OVERRIDES: Partial<Record<ColonistKind, string>
   batteringRam: "/sprites/cart.png",
   catapult: "/sprites/crate.png",
   wagon: "/sprites/cart.png",
+  villager: "/sprites/farmer.png",
 };
 // Player (mounted knight): walk + 2-frame lance attack, idle = walk frame 0. The walk row carries
 // the banner, the attack row doesn't; both canvases are centered on the horse's body (not the

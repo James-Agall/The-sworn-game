@@ -24,7 +24,7 @@ import { chronicleForSave, restoreChronicle } from "./chronicle.js";
 import {
   type TileDiffs, deflateBase64, diffTilesForSave, expandTiles, forgetWorldSeed, inflateBase64, loadBase, pruneBaseFiles, regeneratedBaseMatches,
 } from "./worldbase.js";
-import { civilianPopulationUsed, getColonistsAtPost, settlementOf, spawnPointNearTownCenter } from "./colonists.js";
+import { civilianPopulationUsed, getColonistsAtPost, isAbbeyClergy, isPersonKind, newPerson, settlementOf, spawnPointNearTownCenter } from "./colonists.js";
 import { guardStats } from "./units.js";
 import { isDifficulty } from "./mobs.js";
 import { clearPlayerMorale } from "./tactics.js";
@@ -389,6 +389,10 @@ function applyWorldInner(s: WorldState) {
   // Saves from before settlements: attach every unit to the Town Center nearest its post (never rejects).
   for (const c of colonists.values()) {
     settlementOf(c);
+    // Village life: saves from before people: every civilian / bishop / soldier becomes a person (an adult).
+    if (!c.person && isPersonKind(c.kind) && !c.levyOf && !c.creativeSpawned && !summonedUntil.has(c.id) && !isAbbeyClergy(c)) {
+      c.person = newPerson("migrated");
+    }
   }
   refill(mobs, s.mobs.map((m): [string, Mob] => [m.id, m]));
   refill(wildlife, s.wildlife.map((a): [number, Wildlife] => [a.id, a]));

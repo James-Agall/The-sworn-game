@@ -2121,6 +2121,8 @@ async function main() {
       // transition (i.e. every time they started or stopped moving).
       // The couched-lance pose and the battered pose are base-set art, so a tier set keeps its own frames.
       showAnimFrame(entry.sprite, set, charging && mode === "walk" && !tierSet ? CAVALRY_CHARGE_TEXTURE! : (frame ?? set.walk[0]));
+      // Village life: a child villager is drawn smaller.
+      if (c.child) entry.sprite.scale.set(set.scale * 0.65);
       if (charging && mode === "walk" && !hidden) spawnChargeDust(c.id, c.x, c.y + (set.refHeight * set.scale) / 2, stepX);
       const battered = BATTERED_TINT_KINDS.has(vk) && c.hp < c.maxHp * BATTERED_HP_FRACTION;
       const posed = battered && !frame && !tierSet && showBatteredPose(entry.sprite, set, vk, COLONIST_SPRITE_HEIGHT);
@@ -5995,7 +5997,11 @@ async function main() {
       syncTimeControls(message.isPaused, message.pausedBy, message.timeScale ?? 1, message.timeScaleBy, message.players);
       syncGoal(message.goal);
       // Long days: dawn/dusk respawn windows (cycle lengths come from the server, never hard-coded).
-      if (message.respawn) {
+      if (message.people) {
+        // Village life: nobody respawns; open posts wait for free villagers (soldier posts for training).
+        const p = message.people;
+        statRespawnEl.textContent = `Villagers: ${p.free} free · ${p.children} children · ${p.training} training · ${p.vacancies} posts open`;
+      } else if (message.respawn) {
         const r = message.respawn;
         const secs = Math.ceil(r.ticksToWindow / TICK_RATE);
         const eta = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;

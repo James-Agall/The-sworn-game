@@ -22,7 +22,7 @@ import { markTileRegistryStale, setTile } from "./chunks.js";
 import { clearOwners, inBounds, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { WILDLIFE_CONFIG, generateForage, spawnInitialWildlife } from "./wildlife.js";
 import {
-  TOWN_CENTER_TILE, isAbbeyClergy, spawnColonistForPost, topUpTownCenterBuilders, townCenterMaxHp,
+  TOWN_CENTER_TILE, isAbbeyClergy, spawnColonistForPost, spawnStartingPeople, townCenterMaxHp,
 } from "./colonists.js";
 import { applyMobSize } from "./mobs.js";
 import { clearSites, generateForts, generateSettlements, isInSiteGrounds, nearSiteGrounds } from "./sites.js";
@@ -544,6 +544,6 @@ function generateWorldInner() {
   generateMiniBossSites(randInt(state.MINI_BOSS_SITE_COUNT_MIN, state.MINI_BOSS_SITE_COUNT_MAX), placedSites);
   spawnInitialWildlife();
   resetExplored();
-  topUpTownCenterBuilders(state.townCenters[0]);
+  spawnStartingPeople(state.townCenters[0]);
   console.log(`[world] generated ${state.WORLD_TILES_X}x${state.WORLD_TILES_Y} in ${(performance.now() - genStart).toFixed(0)} ms`);
 }

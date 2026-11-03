@@ -12,7 +12,7 @@ import { type Clan, clans, makeClan, state, tileClan, tileOwner } from "./state.
 import { setTile, tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import { initialStock } from "./economy.js";
 import { isInReservedGrounds } from "./worldgen.js";
-import { topUpTownCenterBuilders, townCenterMaxHp } from "./colonists.js";
+import { spawnStartingPeople, townCenterMaxHp } from "./colonists.js";
 import { townCenterSpotOk } from "./construction.js";
 import { refreshGoalSnapshot } from "./goals.js";
 import { START_VISION_OFFSETS, broadcastTileUpdate, revealAround } from "./net.js";
@@ -166,7 +166,7 @@ export function foundClan(player: Player): Clan | null {
     state.townCenters.push(tc);
     broadcastTileUpdate(spot.x, spot.y, TileType.TownCenter);
     revealAround(spot.x, spot.y, START_VISION_OFFSETS);
-    topUpTownCenterBuilders(tc);
+    spawnStartingPeople(tc);
     refreshGoalSnapshot();
   });
   state.heroRosterVersion++;

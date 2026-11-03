@@ -55,9 +55,32 @@ export interface TileCoord {
   x: number;
   y: number;
 }
+// Village life phase 1: the person behind a colony unit. Born = cycleTick of birth (adults from before the
+// game get a negative one); home = the house / Town Center / Keep tile they sleep in (-1 = none yet);
+// parents = colonist ids. Missing on non-people (heroes, engines, wagons, levies, clergy, summons).
+export interface Person {
+  name: string;
+  born: number;
+  homeX: number;
+  homeY: number;
+  parents?: string[];
+  child?: boolean;
+  origin?: "start" | "born" | "immigrant" | "rescued" | "migrated";
+}
+// Village life phase 3: a villager training at a unit building (becomes `kind` there when ticksLeft hits 0).
+export interface Training {
+  tx: number;
+  ty: number;
+  kind: ColonistKind;
+  level: number;
+  ticksLeft: number;
+  ticksTotal: number;
+}
 export interface Colonist {
   id: string;
   kind: ColonistKind;
+  person?: Person;
+  training?: Training;
   postX: number;
   postY: number;
   x: number;

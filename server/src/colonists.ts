@@ -4,7 +4,7 @@ import { CREATIVE_CAP } from "./creative.js";
 import { randomUUID } from "node:crypto";
 import { TileType, type ColonistKind, TILE_SIZE, TICK_RATE } from "@colony/shared/protocol";
 import type {
-  Colonist, ConstructionSiteState, Cost, Mob, Player, ResourceKey, RespawnWindow, SettlementStat, TileCoord,
+  Colonist, ConstructionSiteState, Cost, Mob, Person, Player, ResourceKey, RespawnWindow, SettlementStat, TileCoord,
   TownCenter,
 } from "./types.js";
 import {
@@ -19,7 +19,7 @@ import {
   SETTLEMENT_POP_CAP_BY_TIER, SIEGE_POPULATION_COST, STARVATION_DAMAGE, TAVERN_HAPPINESS_RADIUS_TILES,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
   TOWN_CENTER_LEVEL_POPULATION_BONUS, TOWN_CENTER_MAX_HP_BY_LEVEL, WARD_GRACE_TICKS, WARD_RADIUS_TILES,
-  WARD_TEND_TICKS,
+  WARD_TEND_TICKS, CHILD_MATURE_DAYS, PERSON_NAMES, STARTING_PEOPLE, VACANCY_FILL_INTERVAL_TICKS,
 } from "./constants.js";
 import {
   buildingHp, colonists, constructionSites, farmPlots, mobs, repairPaid, repairQueue, reservedResourceTiles,
@@ -30,7 +30,7 @@ import {
   biomeSpeedMultiplier, getBuildingLevel, inBounds, isNightNow, levelBonus, ownerAt, resourceKey,
   roadSpeedMultiplier, tileIndex, tileOfPixel, tileToPixelCenter,
 } from "./tiles.js";
-import { advanceAlongPath, findAdjacentWalkable, findPath } from "./pathfinding.js";
+import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import {
   depositGatheredResource, effectiveChopTicks, effectiveCraftTicks, effectiveFarmhandCycleTicks,
   industrialSynergyMultiplier, isBarnStaffed, releaseResourceReservation, } from "./economy.js";
@@ -47,7 +47,7 @@ import {
 } from "./construction.js";
 import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroColonist } from "./heroes.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
-import { clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan } from "./clans.js";
+import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -194,15 +194,132 @@ export function isCivilianKind(kind: ColonistKind): boolean {
     kind === "artisan" ||
     kind === "hunter" ||
     kind === "forager" ||
-    kind === "builder"
+    kind === "builder" ||
+    kind === "villager"
   );
 }
 
-// Civilians and bishops count toward their settlement's population; siege engines and heroes at their
-// cost (populationCostOf), Abbey clergy not at all. Soldiers did from 2026-10-28; since the barracks-housing
-// rework (2026-10-29) each unit building houses its own troops instead (unitBuildingSlots).
+// Civilians, bishops and (village life, 2026-11-03: every soldier is a person again) soldiers count toward their
+// settlement's population; siege engines and heroes at their cost (populationCostOf), Abbey clergy not at all.
 export function consumesPopulation(kind: ColonistKind): boolean {
-  return isCivilianKind(kind) || kind === "bishop";
+  return isPersonKind(kind);
+}
+
+// ---- Village life phase 1 (2026-11-03): people ----
+// Every civilian, bishop and soldier is a person (Colonist.person). Nobody is spawned on demand: staffPost fills a
+// post from the clan's free villagers (kind "villager", posted at a Town Center) or leaves a vacancy in respawnQueue;
+// processRespawnQueue fills vacancies as villagers come free; a dead person stays dead. Creative mode spawns freely.
+export function isPersonKind(kind: ColonistKind): boolean {
+  return isCivilianKind(kind) || kind === "bishop" || isSoldierKind(kind);
+}
+
+export function isFreeVillager(c: Colonist): boolean {
+  return c.kind === "villager" && !c.person?.child && !c.training && !c.creativeDummy && !c.levyOf;
+}
+
+// The clan's free adult villager nearest a tile (any settlement).
+export function freeVillagerFor(clanId: number, tx: number, ty: number): Colonist | undefined {
+  let best: Colonist | undefined;
+  let bestD = Infinity;
+  for (const c of colonists.values()) {
+    if ((c.clan ?? 0) !== clanId || !isFreeVillager(c)) continue;
+    const d = (c.postX - tx) ** 2 + (c.postY - ty) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
+export function newPerson(origin: Person["origin"], born = state.cycleTick - (CHILD_MATURE_DAYS + Math.floor(Math.random() * 30)) * GAME_DAY_TICKS): Person {
+  const name = PERSON_NAMES[Math.floor(Math.random() * PERSON_NAMES.length)];
+  return { name, born, homeX: -1, homeY: -1, origin };
+}
+
+export function personAgeDays(p: Person): number {
+  return (state.cycleTick - p.born) / GAME_DAY_TICKS;
+}
+
+export function spawnVillager(tc: { x: number; y: number }, person: Person): Colonist {
+  const c = spawnColonistForPost(tc.x, tc.y, "villager");
+  c.person = person;
+  return c;
+}
+
+// The person `from` (deleted) becomes the freshly made unit `to`: same id, person, position and hp share.
+export function transplantPerson(from: Colonist, to: Colonist) {
+  releaseResourceReservation(from);
+  colonists.delete(from.id);
+  colonists.delete(to.id);
+  to.id = from.id;
+  to.person = from.person;
+  to.x = from.x;
+  to.y = from.y;
+  if (from.maxHp > 0) to.hp = Math.max(1, Math.round((to.maxHp * from.hp) / from.maxHp));
+  colonists.set(to.id, to);
+}
+
+// The world's first Town Center (and a new clan's): its builder plus free villagers, STARTING_PEOPLE in all.
+export function spawnStartingPeople(tc: TownCenter) {
+  const b = spawnColonistForPost(tc.x, tc.y, "builder");
+  b.person = newPerson("start");
+  for (let i = 1; i < STARTING_PEOPLE; i++) spawnVillager(tc, newPerson("start"));
+}
+
+// Fill a post with a free villager of its clan, or leave a vacancy (filled later by processRespawnQueue). Non-people
+// (engines, heroes, wagons) and creative mode spawn as before.
+export function staffPost(tx: number, ty: number, kind: ColonistKind, castleLevel = 1): Colonist | null {
+  if (state.creative || !isPersonKind(kind) || kind === "villager") return spawnColonistForPost(tx, ty, kind, castleLevel);
+  const clan = clanIdAt(tx, ty);
+  const v = freeVillagerFor(clan, tx, ty);
+  if (!v) {
+    respawnQueue.push({ tx, ty, kind, ticksRemaining: 0, ...(clan ? { clan } : {}) });
+    return null;
+  }
+  const c = spawnColonistForPost(tx, ty, kind, castleLevel);
+  transplantPerson(v, c);
+  return c;
+}
+
+// A person whose post is gone goes back to the village (a free villager at the nearest Town Center of its clan),
+// handing equipped gear back to the stock; with no Town Center left they leave.
+export function releaseToVillage(c: Colonist) {
+  const tc = nearestTownCenter(c.x, c.y, townCentersOfClan(c.clan ?? 0));
+  if (c.armourTier || c.weaponTier) {
+    withClan(clanById(c.clan ?? 0), () => {
+      if (c.armourTier) state.equipment.armour[c.armourTier - 1]++;
+      if (c.weaponTier) state.equipment.weapon[c.weaponTier - 1]++;
+    });
+  }
+  if (!tc) {
+    releaseResourceReservation(c);
+    colonists.delete(c.id);
+    return;
+  }
+  const v = spawnColonistForPost(tc.x, tc.y, "villager");
+  const person = c.person ?? newPerson("migrated");
+  transplantPerson(c, v);
+  v.person = person;
+}
+
+// The snapshot's `people` (protocol PeopleSnapshot), for the active clan.
+export function peopleSnapshot() {
+  const out = { free: 0, children: 0, training: 0, vacancies: 0 };
+  for (const c of colonists.values()) {
+    if (c.kind !== "villager" || !inClan(c)) continue;
+    if (c.person?.child) out.children++;
+    else if (c.training) out.training++;
+    else out.free++;
+  }
+  for (const q of respawnQueue) if (!q.hero && (q.clan ?? clanIdAt(q.tx, q.ty)) === state.clan.id) out.vacancies++;
+  return out;
+}
+
+export function vacancyCountAt(tx: number, ty: number): number {
+  let n = 0;
+  for (const q of respawnQueue) if (q.tx === tx && q.ty === ty && !q.hero) n++;
+  return n;
 }
 
 // Saint Wren's Abbey's resident clergy: colonists only so the existing bishop code can drive them.
@@ -346,9 +463,6 @@ export function settlementStatsAll(): Map<number, SettlementStat[]> {
     if (garrison > 0) {
       const s = statNear(site.tx, site.ty);
       if (s) s.garrisonBase += garrison;
-    } else if (POPULATION_GATED_TILES.includes(site.target) && placementNeedsNewWorkerSlot(site.target, site.tx, site.ty)) {
-      const s = statNear(site.tx, site.ty);
-      if (s) s.pending++;
     }
   }
   for (const s of stats) s.cap = Math.min(s.housingCap, s.tierCap + s.keepBonus);
@@ -423,7 +537,8 @@ export function neighbourhoodPopulationBonus(onBonus?: (tx: number, ty: number) 
       const n = state.tiles[tileIndex(nx, ny)] as TileType;
       // Clans: a pair only counts inside one clan.
       if (tileClan.size > 0 && clanIdAt(nx, ny) !== clanIdAt(tx, ty)) continue;
-      if (isSynergyBuilding(n)) {
+      // Village life: military buildings no longer add housing (houses + Town Centers + Keeps only).
+      if (isSynergyBuilding(n) && !isMilitaryTile(n)) {
         bonus++;
         onBonus?.(tx, ty);
       }
@@ -521,6 +636,8 @@ export function spawnColonistForPost(
 }
 
 export function queueRespawn(c: Colonist) {
+  // Village life: a dead villager leaves no vacancy; a dead worker / soldier leaves one (filled by another person).
+  if (c.kind === "villager") return;
   // ticksRemaining is unused since dawn/dusk respawn windows (kept so old and new saves share a shape).
   respawnQueue.push({
     tx: c.postX, ty: c.postY, kind: c.kind, ticksRemaining: 0, ...(c.clan ? { clan: c.clan } : {}),
@@ -532,6 +649,12 @@ export function removeColonistForPost(tx: number, ty: number) {
   for (const [id, c] of colonists) {
     // Heroes never despawn: a lost Keep leaves them posted at its tile (they respawn there too).
     if (c.postX === tx && c.postY === ty && c.kind !== "hero") {
+      // Village life: its people go back to the village (a villager posted at this Town Center stays put).
+      if (c.kind === "villager") continue;
+      if (c.person && !state.creative) {
+        releaseToVillage(c);
+        continue;
+      }
       releaseResourceReservation(c);
       colonists.delete(id);
     }
@@ -575,8 +698,9 @@ export function spawnExtraGuards(
   for (const c of colonists.values()) {
     if (c.kind === kind && c.postX === tx && c.postY === ty) currentCount++;
   }
+  currentCount += vacancyCountAt(tx, ty);
   for (let i = currentCount; i < targetCount; i++) {
-    spawnColonistForPost(tx, ty, kind, newLevel);
+    staffPost(tx, ty, kind, newLevel);
   }
 }
 // Each Town Center keeps one builder per level (1 / 2 / 3) posted at it; the colony starts with one.
@@ -587,7 +711,7 @@ export function topUpTownCenterBuilders(tc: TownCenter) {
   let have = 0;
   for (const c of colonists.values()) if (c.kind === "builder" && c.postX === tc.x && c.postY === tc.y) have++;
   for (const q of respawnQueue) if (q.kind === "builder" && q.tx === tc.x && q.ty === tc.y) have++;
-  for (let i = have; i < tc.level; i++) spawnColonistForPost(tc.x, tc.y, "builder");
+  for (let i = have; i < tc.level; i++) staffPost(tc.x, tc.y, "builder");
 }
 
 export function respawnWindowAt(tick: number): RespawnWindow | null {
@@ -672,13 +796,10 @@ export function processRespawnQueue() {
         continue;
       }
     }
-    if (!windowNow) continue;
-    // A settlement at its cap makes its dead civilians wait for the next window (soldiers use their building).
-    if (consumesPopulation(req.kind) && settlementBlocker(req.tx, req.ty) !== "") {
-      continue;
-    }
-    if (trySpendFood(RESPAWN_FOOD_COST)) {
-      state.respawnWindowSpawned++;
+    // Village life: a vacancy is filled by a free villager of its clan (checked once a second), never respawned.
+    if (state.cycleTick % VACANCY_FILL_INTERVAL_TICKS !== 0) continue;
+    const villager = state.creative ? undefined : freeVillagerFor(req.clan ?? clanIdAt(req.tx, req.ty), req.tx, req.ty);
+    if (state.creative || villager) {
       const castleLevel =
         req.kind === "knight"
           ? castleLevelForTile(currentTile)
@@ -688,7 +809,8 @@ export function processRespawnQueue() {
           ? militiaLevelForTile(currentTile)
           : 1;
       const spawnKind = isMilitiaLineKind(req.kind) ? militiaKindForLevel(castleLevel) : req.kind;
-      spawnColonistForPost(req.tx, req.ty, spawnKind, castleLevel);
+      const unit = spawnColonistForPost(req.tx, req.ty, spawnKind, castleLevel);
+      if (villager) transplantPerson(villager, unit);
       respawnQueue.splice(i, 1);
     }
   }
@@ -1547,6 +1669,40 @@ export function spawnHalfLatch(tile: TileCoord) {
   mobs.set(mob.id, mob);
 }
 
+// A free villager (or child) idles about its Town Center, strolling to a nearby tile now and then.
+export function updateVillager(c: Colonist, dt: number) {
+  if (c.path.length > 0) {
+    advanceAlongPath(c, dt, COLONIST_SPEED * 0.6);
+    c.state = c.path.length > 0 ? "returning" : "idle";
+    return;
+  }
+  c.state = "idle";
+  if (c.idleCooldown > 0) {
+    c.idleCooldown--;
+    return;
+  }
+  c.idleCooldown = TICK_RATE * (6 + Math.floor(Math.random() * 10));
+  // Its Town Center fell: move to the nearest one still standing.
+  if (!findTownCenterAt(c.postX, c.postY)) {
+    const tc = nearestTownCenter(c.x, c.y, townCentersOfClan(c.clan ?? 0));
+    if (tc) {
+      c.postX = tc.x;
+      c.postY = tc.y;
+      c.settlementId = resourceKey(tc.x, tc.y);
+    }
+  }
+  for (let tries = 0; tries < 4; tries++) {
+    const tx = c.postX + Math.floor(Math.random() * 9) - 4;
+    const ty = c.postY + Math.floor(Math.random() * 9) - 4;
+    if (!inBounds(tx, ty) || !isWalkableTile(tx, ty)) continue;
+    const path = findPath(tileOfPixel(c.x, c.y), { x: tx, y: ty });
+    if (path && path.length <= 14) {
+      c.path = path;
+      return;
+    }
+  }
+}
+
 export function updateColonist(c: Colonist, dt: number) {
   if (c.poisonTicksRemaining > 0) {
     c.poisonTicksRemaining--;
@@ -1628,6 +1784,9 @@ export function updateColonist(c: Colonist, dt: number) {
       break;
     case "builder":
       updateBuilder(c, dt);
+      break;
+    case "villager":
+      updateVillager(c, dt);
       break;
     case "knight":
     case "cavalry":
