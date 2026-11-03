@@ -1,7 +1,7 @@
 // Scripted test: knight posts fill the settlement's garrison ceiling, Town Center spacing, camp hearths.
 // Self-contained: boots its OWN 160x160 server with COLONY_TEST_HOOKS=1 on PORT (default 21610) and a
 // temp COLONY_SAVE_DIR, kills its process group after. Run from server/: `node camp-hearth-test.mjs`.
-//   P knight posts fill settlement 1's garrison (each post +1 knight; soldiers no longer use population, see
+//   P knight posts fill settlement 1's garrison (village life: no free knight; soldiers no longer use population, see
 //     ROADMAP "Pop cap rework") until one is refused with "Settlement 1 garrison full"; a knight-post upgrade
 //     (+2 base knights) is refused too.
 //   S a second Town Center inside the spacing is refused (message names the distance), outside accepted.
@@ -139,14 +139,15 @@ try {
     if (c.tileAt(spot.x, spot.y) === T.KnightPost) {
       placed++;
       posts.push(spot);
-      if (s1().pop !== before.pop || knights() !== before.k + 1) deltasOk = false;
+      // Village life: a knight post comes with no knight (trained from villagers), so nothing changes.
+      if (s1().pop !== before.pop || knights() !== before.k) deltasOk = false;
     } else {
       const text = c.events.slice(before.ev).find((t) => /^Settlement/.test(t));
       if (text) refused = text;
     }
   }
   const tc = () => c.snap.townCenters[0];
-  result(placed > 0 && deltasOk, `${placed} knight posts placed, each +1 knight and settlement population unchanged (now ${JSON.stringify(s1())})`);
+  result(placed > 0 && deltasOk, `${placed} knight posts placed, no free knight and settlement population unchanged (now ${JSON.stringify(s1())})`);
   result(!!refused && /^Settlement 1 garrison full \(\d+\/\d+ soldiers\)/.test(refused), `knight post refused when the garrison is full: "${refused}"`);
   result(tc().garrisonBase === tc().garrisonCap && placed === tc().garrisonCap,
     `settlement 1 garrison exactly at its ceiling (${tc().garrisonBase}/${tc().garrisonCap}, ${placed} posts)`);

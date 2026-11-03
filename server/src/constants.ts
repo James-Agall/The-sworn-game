@@ -43,7 +43,8 @@ export const STARTING_IRON = 60;
 export const STARTING_ROCK = 60;
 // 60 (was 40): fields and animal farms now take ~3 days to deliver their first batch, so the
 // opening stock has to carry a ~20-consumer colony through 3 dawns (see FARM_* / FARMHAND_*).
-export const STARTING_GRAIN = 60;
+// Village life tuning 2026-11-03: 60 -> 80 (10 people eat 38 a dawn from day 0; 80 covers two dawns).
+export const STARTING_GRAIN = 80;
 // ---- Building hit points (mobs damage buildings; builders repair them) ----
 // Max HP by building class, times BUILDING_HP_LEVEL_MULT[level - 1]. Town Centers keep their own HP
 // (TOWN_CENTER_MAX_HP_BY_LEVEL). Classes: see buildingBaseHp.
@@ -440,12 +441,13 @@ export const MOB_ANTI_CAVALRY_MULT: Partial<Record<MobKind, number>> = { townGua
 // times the population factor, times the difficulty spawnCount (rounded, min 1). No cap.
 // Village life phase 4 (2026-11-03, fixed population): was 5 + 2 / day at any size. The population factor is the
 // clan's people / RAID_POP_REFERENCE, clamped to [RAID_POP_FACTOR_MIN, RAID_POP_FACTOR_MAX_BY_TIER[highest Town
-// Center level - 1]]: a 10-person village faces 2 raiders on night 0 and 5 on night 5 (was 5 / 15); a 40-person
+// Center level - 1]]: a 10-person village faces 2 raiders on night 0 and 4 on night 5 (was 5 / 15); a 40-person
 // tier-3 town on day 20 faces 46 (was 45).
 export const RAID_BASE_SIZE = 3;
 export const RAID_SIZE_PER_DAY = 1;
-export const RAID_POP_REFERENCE = 15;
-export const RAID_POP_FACTOR_MIN = 0.5;
+// Tuning pass 2026-11-03 (first 10 days): reference 15 -> 20, floor 0.5 -> 0.4.
+export const RAID_POP_REFERENCE = 20;
+export const RAID_POP_FACTOR_MIN = 0.4;
 export const RAID_POP_FACTOR_MAX_BY_TIER = [1.5, 2, 2.5];
 // The horde (one big group) takes this share of the raid, rolled uniformly in [MIN, MAX] and rounded
 // up, so it is always at least half. The rest split into random groups of GROUP_SIZE_MIN..MAX.
@@ -594,7 +596,8 @@ export const FARMHAND_YIELD_PER_CYCLE: Record<"meat" | "fruit" | "wool" | "cotto
 // Long days: upkeep stays 1 per colonist per 100 s of real time, so a long day costs 3.75 (rounded up
 // for the whole colony at dawn; see applyDailyFoodConsumption).
 export const FOOD_PER_COLONIST_PER_DAY = 1 * DAY_LENGTH_SCALE;
-export const STARVATION_DAMAGE = 10;
+// Village life tuning 2026-11-03: 10 -> 5 (with no respawn, two hungry dawns wiped out a whole 20 hp village).
+export const STARVATION_DAMAGE = 5;
 // Long days: replaces the old 5 s RESPAWN_DELAY_TICKS. Dead units wait in respawnQueue and come back
 // together only at the two respawn windows, dawn (cycle tick 0) and dusk (the last daylight tick,
 // DAY_TICKS - 1, so "day-only respawns" still holds); see respawnWindowAt / processRespawnQueue.
@@ -2281,7 +2284,8 @@ export const BIRTH_MIN_FOOD = 20;
 // Immigrants: ~IMMIGRANTS_PER_WEEK at happiness 100, none below IMMIGRATION_MIN_HAPPINESS (linear in between),
 // accumulated at each dawn and only arriving where a settlement has a free bed.
 export const IMMIGRANTS_PER_WEEK = 2;
-export const IMMIGRATION_MIN_HAPPINESS = 40;
+// Tuning 2026-11-03: 40 -> 25 (a fresh colony sits at 43-57 %, which gave almost no immigrants).
+export const IMMIGRATION_MIN_HAPPINESS = 25;
 // Prisoners freed when a bandit / monster camp or lair falls (they join even past the housing cap).
 export const PRISONERS_PER_CAMP: [number, number] = [1, 3];
 // Phase 3: training a soldier at a unit building takes one free adult villager + one weapon and one armour of the

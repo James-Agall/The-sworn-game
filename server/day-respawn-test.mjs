@@ -1,13 +1,13 @@
-// Scripted test: long days & dawn/dusk-only respawns (ROADMAP "Long days & dawn/dusk respawns").
+// Scripted test: long days & vacancies (was dawn/dusk-only respawns) (ROADMAP "Long days & dawn/dusk respawns").
 // Self-contained: boots its OWN private server (tsx, COLONY_TEST_HOOKS=1, COLONY_WORLD_SIZE=80,
 // COLONY_SAVE_DIR = a temp dir) on PORT (default 19760). Run from server/: `node day-respawn-test.mjs`.
 //   A) constants: 300 s day, 60-90 s night, upkeep 3.75 a day, rescaled night goals (1/2/4/7/10).
-//   B) a builder killed mid-day stays queued until the dusk window (DAY_TICKS - 1), then respawns with
-//      a "Reinforcements arrive at dusk" toast; the snapshot shows waiting count + next window ETA.
-//   C) one killed at night waits for the dawn window (cycle tick 0) and comes back with a dawn toast.
-//   D) with no food the window passes and the unit keeps waiting; fed, it returns at the next window.
+//   Village life (2026-11-03): the dawn/dusk respawn windows are gone; a dead worker leaves a vacancy.
+//   B) a builder killed mid-day: its post is filled by a free villager within a second (no toast, no window).
+//   C) one killed at night: the vacancy waits for dawn, then a villager takes it.
+//   D) with no free villager the vacancy waits across a dusk and a dawn.
 //   E) the queue survives save -> restart -> load; an old-format save (no dayTicks, old 1200+800
-//      cycle) loads with its day number and night phase kept and its queue intact.
+//      cycle) loads with its day number and night phase kept and its queue intact; a villager fills it at dawn.
 import WebSocket from "ws";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -108,7 +108,6 @@ try {
   const CYCLE = K.DAY_TICKS + K.NIGHT_TICKS;
   result(K.DAY_TICKS === 300 * TICK_RATE, `A: day = ${K.DAY_TICKS / TICK_RATE} s (300)`);
   result(K.NIGHT_TICKS >= 60 * TICK_RATE && K.NIGHT_TICKS <= 90 * TICK_RATE, `A: night = ${K.NIGHT_TICKS / TICK_RATE} s (60-90)`);
-  result(st.duskTick === K.DAY_TICKS - 1, `A: dusk window at cycle tick ${st.duskTick} (last daylight tick)`);
   result(Math.abs(K.FOOD_PER_COLONIST_PER_DAY - 3.75) < 1e-9, `A: upkeep ${K.FOOD_PER_COLONIST_PER_DAY}/colonist/day (= 1 per 100 s, as before)`);
   result(K.FARM_GROW_TICKS === 3 * (K.LEGACY_DAY_TICKS + K.LEGACY_NIGHT_TICKS), `A: farm grow stays ${K.FARM_GROW_TICKS / TICK_RATE} s of real time`);
   const nightGoals = st.goalTitles.filter((t) => t.startsWith("Survive"));
@@ -120,65 +119,45 @@ try {
 
   const builders = () => st.colonists.filter((x) => x.kind === "builder").length;
   const ff = async (ticks) => (await c.hook("fastForward", { ticks })).cycleTick;
-  const toastsSince = (n) => c.events.slice(n).filter((t) => t.startsWith("Reinforcements arrive"));
 
-  // ---- B) killed mid-day -> dusk window
+  // Village life (2026-11-03): no respawn windows any more. A dead worker's post is a vacancy that a free villager
+  // fills by day (once a second); at night the vacancy waits for dawn; with no free villager it waits for good.
+  const villagers = () => st.colonists.filter((x) => x.kind === "villager").length;
+  // ---- B) killed mid-day -> refilled within a second by a free villager
   await c.hook("setCycleTick", { tick: CYCLE + 100 });
   st = await c.hook("respawnState");
   const startBuilders = builders();
+  const v0 = villagers();
   const killed = (await c.hook("killColonists", { kind: "builder" })).killed;
   result(killed >= 1, `B: killed ${killed} builder(s)`);
   await ff(1);
   st = await c.hook("respawnState");
-  result(st.queue.length === killed && builders() === 0, `B: queued ${st.queue.length}, none respawned after 1 tick (old 5 s delay is gone too)`);
-  await ff(TICK_RATE * 10);
+  result(st.queue.length === killed && builders() === 0, `B: queued ${st.queue.length}, none back after 1 tick`);
+  await ff(TICK_RATE + 1);
   st = await c.hook("respawnState");
-  result(st.queue.length === killed && builders() === 0, `B: still queued 10 s later (cycle tick ${st.cycleTick % CYCLE})`);
-  await c.nextSnap();
-  await c.nextSnap();
-  const r = c.snap.respawn;
-  result(
-    r && r.waiting === killed && r.nextWindow === "dusk" && r.ticksToWindow > 0 && r.ticksToWindow < K.DAY_TICKS && r.dayTicks === K.DAY_TICKS && r.nightTicks === K.NIGHT_TICKS,
-    `B: snapshot respawn = ${JSON.stringify(r)}`
-  );
-  let tick = (await c.hook("respawnState")).cycleTick;
-  let ev0 = c.events.length;
-  await ff(st.duskTick - (tick % CYCLE) - 1);
-  st = await c.hook("respawnState");
-  result(st.queue.length === killed && toastsSince(ev0).length === 0, `B: one tick before dusk (${st.cycleTick % CYCLE}) still queued, no toast`);
-  await ff(1);
-  st = await c.hook("respawnState");
-  result(st.window === "dusk" && st.queue.length === 0 && builders() === startBuilders, `B: at dusk (${st.cycleTick % CYCLE}) the batch respawned: ${builders()}/${startBuilders} builders`);
-  result(toastsSince(ev0).length === 1 && toastsSince(ev0)[0].startsWith("Reinforcements arrive at dusk"), `B: toast ${JSON.stringify(toastsSince(ev0))}`);
+  result(st.queue.length === 0 && builders() === startBuilders && villagers() === v0 - killed, `B: a free villager took the post within 1 s (${builders()} builders, villagers ${v0} -> ${villagers()})`);
 
-  // ---- C) killed at night -> dawn window
-  await ff(TICK_RATE * 5);
+  // ---- C) killed at night -> filled at dawn
+  let tick = (await c.hook("respawnState")).cycleTick;
+  await ff(K.DAY_TICKS + 5 - (tick % CYCLE));
   st = await c.hook("respawnState");
   result(st.isNight, `C: night now (cycle tick ${st.cycleTick % CYCLE})`);
   await c.hook("killColonists", { kind: "builder" });
   tick = (await c.hook("respawnState")).cycleTick;
-  ev0 = c.events.length;
   await ff(CYCLE - (tick % CYCLE) - 1);
   st = await c.hook("respawnState");
-  result(st.queue.length === killed && builders() === 0 && toastsSince(ev0).length === 0, `C: last night tick: still ${st.queue.length} queued`);
-  await ff(1);
+  result(st.queue.length === killed && builders() === 0, `C: last night tick: still ${st.queue.length} queued`);
+  await ff(TICK_RATE + 1);
   st = await c.hook("respawnState");
-  result(st.window === "dawn" && st.queue.length === 0 && builders() === startBuilders, `C: at dawn (${st.cycleTick % CYCLE}) the batch respawned`);
-  result(toastsSince(ev0).length === 1 && toastsSince(ev0)[0].startsWith("Reinforcements arrive at dawn"), `C: toast ${JSON.stringify(toastsSince(ev0))}`);
+  result(st.queue.length === 0 && builders() === startBuilders, `C: filled at dawn (${st.cycleTick % CYCLE})`);
 
-  // ---- D) no food: the window passes, the unit keeps waiting
-  await ff(TICK_RATE * 2);
+  // ---- D) no free villager: the vacancy waits across dusk and dawn, food or not
+  await c.hook("killColonists", { kind: "villager" });
   await c.hook("killColonists", { kind: "builder" });
-  await c.hook("setStock", { stock: { grain: 0, meat: 0, fruit: 0 } });
   tick = (await c.hook("respawnState")).cycleTick;
-  await ff(st.duskTick - (tick % CYCLE));
+  await ff(CYCLE - (tick % CYCLE) + TICK_RATE * 2);
   st = await c.hook("respawnState");
-  result(st.window === "dusk" && st.queue.length === killed && builders() === 0, `D: dusk without food: ${st.queue.length} still queued`);
-  await c.hook("setStock", { stock: { grain: 500 } });
-  tick = st.cycleTick;
-  await ff(CYCLE - (tick % CYCLE));
-  st = await c.hook("respawnState");
-  result(st.window === "dawn" && st.queue.length === 0 && builders() === startBuilders, `D: fed, they return at the next dawn`);
+  result(st.queue.length === killed && builders() === 0, `D: no villager: ${st.queue.length} still queued after a dusk and a dawn`);
 
   // ---- E) save / load
   await ff(TICK_RATE * 20);
@@ -215,10 +194,13 @@ try {
   const want = 3 * CYCLE + K.DAY_TICKS + Math.floor(K.NIGHT_TICKS / 2);
   result(lr.ok && Math.abs(st.cycleTick - want) < 40 && st.isNight, `E: old save loads at day 4 mid-night: cycle tick ${st.cycleTick} (~${want}), night ${st.isNight}`);
   result(st.queue.length === killed, `E: old save keeps its queue (${st.queue.length})`);
-  ev0 = c.events.length;
-  await ff(CYCLE - (st.cycleTick % CYCLE));
+  await c.hook("peopleState", { spawn: killed });
+  await ff(TICK_RATE * 2);
   st = await c.hook("respawnState");
-  result(st.queue.length === 0 && builders() === startBuilders && toastsSince(ev0).length === 1, `E: the old save's queue respawns at the next dawn`);
+  result(st.queue.length === killed, `E: night: the vacancy waits even with a free villager (${st.queue.length})`);
+  await ff(CYCLE - (st.cycleTick % CYCLE) + TICK_RATE + 1);
+  st = await c.hook("respawnState");
+  result(st.queue.length === 0 && builders() === startBuilders, `E: the old save's vacancy is filled at dawn by the villager`);
   result(!/Error|TypeError/.test(log), `no exceptions in the server log`);
   c.ws.close();
 } catch (err) {

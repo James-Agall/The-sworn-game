@@ -1,8 +1,8 @@
 // Scripted test: per-settlement population caps. Self-contained: boots its OWN 160x160 server with
 // COLONY_TEST_HOOKS=1 on PORT (default 21620) and a temp COLONY_SAVE_DIR, kills its process group after.
 // Run from server/: `node settlement-pop-test.mjs`.
-//   two Town Centers; fill settlement 1 -> next worker post refused with "Settlement 1 full (n/cap)",
-//   settlement 2 still accepts; upgrading TC 1 raises its cap and the refused placement now works;
+//   two Town Centers; village life: worker posts are never refused for population (an unstaffed one is a vacancy),
+//   unit buildings start empty; upgrading TC 1 raises its cap; the Keep adds +10 beds and garrison per level;
 //   per-settlement counts add up to the total; save/load keeps the assignments.
 //   tier caps 20/30/40; the Keep (separate building): refused at Town Center level 1, allowed at 2,
 //   levels 1..3 add +10/+20/+30 to the soldier garrison cap (not the civilian cap), demolishing removes it, save/load keeps it.
@@ -186,7 +186,8 @@ try {
     result(camps.length === 6 && refusedCamp && /^Settlement 2 garrison full \(12\/12 soldiers\)/.test(refusedCamp.text),
       `6 Militia Camps fit the level-1 garrison, the 7th is refused: "${refusedCamp?.text}" (${camps.length} placed)`);
     result(tcs().population === pop0, `soldiers don't use settlement population (${pop0} -> ${tcs().population})`);
-    result(tcs().troops === 12 && tcs().troopCap === 12 && tcs().garrisonBase === 12 && tcs().garrisonCap === 12,
+    // Village life: a new unit building comes with no soldiers (they are trained from villagers).
+    result(tcs().troops === 0 && tcs().troopCap === 12 && tcs().garrisonBase === 12 && tcs().garrisonCap === 12,
       `settlement 2 troops ${tcs().troops}/${tcs().troopCap}, garrison ${tcs().garrisonBase}/${tcs().garrisonCap}`);
     // A house next to the first camp gives it one more troop slot, filled at once.
     const camp = camps[0];
@@ -202,28 +203,26 @@ try {
       if (c.tileAt(hx, hy) === T.House) { houseOk = true; break; }
     }
     await c.freshSnap();
-    result(houseOk && posted(camp) === 3 && tcs().troopCap >= 13 && tcs().garrisonBase === 12,
-      `adjacent house: camp fields ${posted(camp)} (2 + 1), troops ${tcs().troops}/${tcs().troopCap}, garrison still ${tcs().garrisonBase}`);
+    result(houseOk && posted(camp) === 0 && tcs().troopCap >= 13 && tcs().garrisonBase === 12,
+      `adjacent house: one more troop slot, no free soldier (camp fields ${posted(camp)}), troops ${tcs().troops}/${tcs().troopCap}, garrison still ${tcs().garrisonBase}`);
   }
 
-  // Fill settlement 1 until a post is refused.
+  // Village life: placing a workplace never needs population room. Its worker is an existing free villager; with
+  // none left it stays an open post (a vacancy) and the population does not change.
+  const popBefore = c.snap.population;
+  let placedHuts = 0;
   let refused = null;
-  for (let i = 0; i < 25 && !refused; i++) {
+  for (let i = 0; i < 14 && !refused; i++) {
     const r = await tryHut(c, tc1.x, tc1.y);
-    if (r.r === "refused") refused = r;
-    else if (r.r === "none") await tele(c, tc1.x + (i % 2 ? 4 : -4), tc1.y + (i % 3) * 2 - 2);
+    if (r.r === "placed") placedHuts++;
+    else if (r.r === "refused") refused = r;
+    else await tele(c, tc1.x + (i % 2 ? 4 : -4), tc1.y + (i % 3) * 2 - 2);
   }
   snap = await c.freshSnap();
   const s1 = state()[0];
-  result(refused && /^Settlement 1 full \(\d+\/\d+\)/.test(refused.text), `settlement 1 refused a worker post: "${refused?.text}"`);
-  result(s1.pop === s1.cap, `settlement 1 is exactly at its cap (${s1.pop}/${s1.cap})`);
-
-  // Settlement 2 still accepts.
-  const before2 = state()[1].pop;
-  const r2 = await tryHut(c, tc2.x, tc2.y);
-  await c.freshSnap();
-  result(r2.r === "placed" && state()[1].pop === before2 + 1, `settlement 2 still accepts a post (${before2} -> ${state()[1].pop})`);
-  result(state()[0].pop === s1.pop, "settlement 1 count unchanged by settlement 2's hut");
+  result(!refused && placedHuts >= 10 && (c.snap.people?.vacancies ?? 0) > 0,
+    `settlement 1: ${placedHuts} worker posts placed past the free villagers, none refused, ${c.snap.people?.vacancies} open`);
+  result(c.snap.population === popBefore, `placing posts leaves the population at ${popBefore} (now ${c.snap.population})`);
 
   // Counts add up to the total.
   const sum = c.snap.townCenters.reduce((n, t) => n + t.population, 0);
@@ -236,8 +235,6 @@ try {
   await c.freshSnap();
   const up = state()[0];
   result(c.snap.townCenters[0].level === 2 && up.cap > s1.cap && up.tier === 30, `upgrading TC 1 raised its cap ${s1.cap} -> ${up.cap} (tier ceiling ${up.tier})`);
-  const again = await tryHut(c, tc1.x, tc1.y);
-  result(again.r === "placed", `the previously refused post now succeeds (${again.r})`);
 
   // Tier 3 ceiling is 40.
   await tele(c, tc1.x + 1, tc1.y);
@@ -278,9 +275,10 @@ try {
     return 1;
   };
   const capNow = () => state()[1].cap;
-  // The Keep no longer raises the civilian cap (2026-10-30); its +10 per level goes to the soldier garrison.
+  // Village life: the Keep is housing again (+10 beds and tier ceiling per level) and adds +10 per level to the
+  // soldier garrison.
   const garrNow = () => c.snap.townCenters[1].garrisonCap;
-  result(capNow() === base2.cap && !(c.snap.townCenters[1].populationKeepBonus > 0) && garrNow() === garr0 + 10, `Keep Lv1 civilian cap ${base2.cap} -> ${capNow()} (unchanged), garrison ${garr0} -> ${garrNow()} (+10)`);
+  result(capNow() === base2.cap + 10 && garrNow() === garr0 + 10, `Keep Lv1 civilian cap ${base2.cap} -> ${capNow()} (+10), garrison ${garr0} -> ${garrNow()} (+10)`);
   // A second Keep in the same settlement is refused.
   const k2 = await keepAt(tc2);
   result(k2 && !k2.placed && /already has a Keep/.test(k2.text), `second Keep refused: "${k2?.text}"`);
@@ -290,7 +288,7 @@ try {
     c.send({ type: "upgradeBuilding", tileX: keepSpot.x, tileY: keepSpot.y });
     await c.freshSnap();
     await c.freshSnap();
-    result(capNow() === base2.cap && garrNow() === garr0 + 10 * n && lvl(keepSpot.x, keepSpot.y) === n, `Keep Lv${n} civilian cap ${capNow()} (unchanged), garrison +${garrNow() - garr0}, level ${lvl(keepSpot.x, keepSpot.y)}`);
+    result(capNow() === base2.cap + 10 * n && garrNow() === garr0 + 10 * n && lvl(keepSpot.x, keepSpot.y) === n, `Keep Lv${n} civilian cap ${capNow()} (+${capNow() - base2.cap}), garrison +${garrNow() - garr0}, level ${lvl(keepSpot.x, keepSpot.y)}`);
   }
 
   // Save / load round trip keeps assignments (and the Keep).
@@ -307,7 +305,7 @@ try {
   await sleep(500);
   await c.freshSnap();
   result(c.saves[1]?.ok === true && JSON.stringify(state()) === snapState, `load restored per-settlement counts ${snapState} -> ${JSON.stringify(state())}`);
-  result(c.tileAt(keepSpot.x, keepSpot.y) === T.Keep && lvl(keepSpot.x, keepSpot.y) === 3 && capNow() === base2.cap && garrNow() === garr0 + 30, `load kept the Keep at level 3 (cap ${capNow()})`);
+  result(c.tileAt(keepSpot.x, keepSpot.y) === T.Keep && lvl(keepSpot.x, keepSpot.y) === 3 && capNow() === base2.cap + 30 && garrNow() === garr0 + 30, `load kept the Keep at level 3 (cap ${capNow()})`);
 
   // Demolishing the Keep removes its bonus.
   await tele(c, keepSpot.x + 1, keepSpot.y);
