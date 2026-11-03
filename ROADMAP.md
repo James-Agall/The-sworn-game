@@ -2291,6 +2291,30 @@ Not touched (other uncommitted work, owner to fix): cavalry-siege, halflatch-war
 hunger-roads, shelter-overflow, warbands. Not run since village life: the rest of the suite (abbey-ward, clans,
 quests, sites, spells, tactics, vassals, wagons, ward-priest-patrol, ...).
 
+### Village life tuning: first 10 days (2026-11-03, constants only)
+
+Probe (scratch, not committed): new normal game on the 80 map, instant build, opening Hunter's Hut + Forager's Hut +
+Lumberjack + 2 Cottages, idle player (nobody fights), fast-forward 10 dawns. Map and raid entry vary a lot, so
+read the runs as ranges.
+
+| constant | before | after | why |
+|---|---|---|---|
+| STARTING_GRAIN | 60 | 80 | 10 people eat 38 a dawn from day 0; 80 covers two dawns before huts pay off |
+| STARVATION_DAMAGE | 10 | 5 | no respawn: two hungry dawns killed a whole 20 hp village at once; now four |
+| RAID_POP_REFERENCE / RAID_POP_FACTOR_MIN | 15 / 0.5 | 20 / 0.4 | night raids for a 10-12 person village ~25% smaller |
+| IMMIGRATION_MIN_HAPPINESS | 40 | 25 | a fresh colony sits at 43-57% happiness: ~no immigrants |
+| IMMIGRANTS_PER_WEEK | 2 | 3 | still 0-1 immigrant in 10 days at 43-57% after the floor change |
+
+- Before (2 runs): raids 2,3,4,5,6,6,7,8,9 by night; huts fall nights 2-4, Town Center on night 5 in one run; food
+  out day 7-8 and the whole village starves on the next two dawns (wiped out by day 9 in both). Growth 10 -> 11-12
+  (births only, 0 immigrants).
+- After (4 runs): raids 2,2,3,3,4,5,5,6,7,8; huts last to nights 3-7; with a food hut standing, food climbs
+  +40..+80 a day (140-430 by day 4); with none, 80 grain lasts two dawns and the village dies four dawns after it
+  runs out (day 9-10). Growth 10 -> 10-14 (1-3 births, 0-2 immigrants).
+- Open: an undefended colony still loses its Town Center to 3-4 raiders some nights (the levy and the player are the
+  answer; not tuned). Births stay the main growth (50% a dawn, 2-day cooldown); happiness drops from 70% to 43% by
+  day 3 in every run and to 30% once food is gone.
+
 ## Battle engine — landed (phase 7) 2026-11-02 (rear mobs follow the fight, snapshot compaction, client dot LOD)
 Plan: docs PLAN-large-battles.md §3 (LOD), §8 phase 7.
 - **Rear mobs (`battle.ts regimentFoeFor`, `mobs.ts pickMobTarget`):** a mob of an engaged regiment with nothing in

@@ -2283,7 +2283,8 @@ export const BIRTH_COOLDOWN_DAYS = 2;
 export const BIRTH_MIN_FOOD = 20;
 // Immigrants: ~IMMIGRANTS_PER_WEEK at happiness 100, none below IMMIGRATION_MIN_HAPPINESS (linear in between),
 // accumulated at each dawn and only arriving where a settlement has a free bed.
-export const IMMIGRANTS_PER_WEEK = 2;
+// Tuning 2026-11-03: 2 -> 3 (10-day probes: 0-1 immigrant at the fresh colony's 43-57 % happiness).
+export const IMMIGRANTS_PER_WEEK = 3;
 // Tuning 2026-11-03: 40 -> 25 (a fresh colony sits at 43-57 %, which gave almost no immigrants).
 export const IMMIGRATION_MIN_HAPPINESS = 25;
 // Prisoners freed when a bandit / monster camp or lair falls (they join even past the housing cap).
