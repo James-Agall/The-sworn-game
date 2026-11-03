@@ -2280,6 +2280,8 @@ export const PRISONERS_PER_CAMP: [number, number] = [1, 3];
 // Phase 3: training a soldier at a unit building takes one free adult villager + one weapon and one armour of the
 // building's tier, and TRAIN_DAYS_BY_LEVEL[level - 1] game days.
 export const TRAIN_DAYS_BY_LEVEL = [1, 1.25, 1.5];
+// Phase 4: free villagers help on construction sites at this fraction of a builder's rate.
+export const VILLAGER_BUILD_RATE = 0.5;
 export const PERSON_NAMES = [
   "Ada", "Bram", "Cora", "Dunstan", "Edda", "Fenn", "Gwen", "Hal", "Isolde", "Jory", "Kit", "Leof", "Mara", "Ned",
   "Orla", "Piers", "Quinn", "Rowan", "Sela", "Tam", "Una", "Wat", "Wynn", "Yara", "Alder", "Bess", "Cuthbert", "Dora",

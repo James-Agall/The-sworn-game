@@ -19,7 +19,7 @@ import {
   SETTLEMENT_POP_CAP_BY_TIER, SIEGE_POPULATION_COST, STARVATION_DAMAGE, TAVERN_HAPPINESS_RADIUS_TILES,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
   TOWN_CENTER_LEVEL_POPULATION_BONUS, TOWN_CENTER_MAX_HP_BY_LEVEL, WARD_GRACE_TICKS, WARD_RADIUS_TILES,
-  WARD_TEND_TICKS, CHILD_MATURE_DAYS, PERSON_NAMES, STARTING_PEOPLE, VACANCY_FILL_INTERVAL_TICKS,
+  WARD_TEND_TICKS, VILLAGER_BUILD_RATE, CHILD_MATURE_DAYS, PERSON_NAMES, STARTING_PEOPLE, VACANCY_FILL_INTERVAL_TICKS,
 } from "./constants.js";
 import {
   buildingHp, colonists, constructionSites, farmPlots, mobs, repairPaid, repairQueue, reservedResourceTiles,
@@ -1080,7 +1080,8 @@ export function updateGathererColonist(c: Colonist, dt: number) {
 }
 
 export function anyBuilderAlive(): boolean {
-  for (const c of colonists.values()) if (c.kind === "builder" && inClan(c)) return true;
+  // Village life phase 4: a free adult villager can build too (at VILLAGER_BUILD_RATE).
+  for (const c of colonists.values()) if ((c.kind === "builder" || isFreeVillager(c)) && inClan(c)) return true;
   return false;
 }
 
@@ -1096,6 +1097,8 @@ export function siteBuilderCount(key: string, onlyWorking = false): number {
 // bonus, plus its Guild's level and industrial synergy for a Guild builder.
 export function builderRate(c: Colonist): number {
   let rate = productionSpeedMultiplier();
+  // Village life phase 4: a free villager lends a hand at reduced speed.
+  if (c.kind === "villager") rate *= VILLAGER_BUILD_RATE;
   if (state.tiles[tileIndex(c.postX, c.postY)] === TileType.BuildersGuild) {
     rate *= (1 + levelBonus(getBuildingLevel(c.postX, c.postY))) * industrialSynergyMultiplier(c.postX, c.postY);
   }
@@ -1674,12 +1677,23 @@ export function spawnHalfLatch(tile: TileCoord) {
   mobs.set(mob.id, mob);
 }
 
+function clanHasSite(clanId: number): boolean {
+  for (const site of constructionSites.values()) if (clanIdAt(site.tx, site.ty) === clanId) return true;
+  return false;
+}
+
 // A free villager (or child) idles about its Town Center, strolling to a nearby tile now and then.
 export function updateVillager(c: Colonist, dt: number) {
   // Phase 3: a trainee goes to its unit building and trains there (people.ts updateTraining counts it down).
   if (c.training) {
     updateStationaryWorkerReturning(c, dt);
     c.state = c.path.length > 0 ? "returning" : "idle";
+    return;
+  }
+  // Phase 4: an adult with nothing to do helps on its clan's construction sites (builderRate: reduced speed).
+  // Checked before the stroll below, which would clobber the builder's states.
+  if (!c.person?.child && (c.buildSiteKey || clanHasSite(c.clan ?? 0))) {
+    updateBuilder(c, dt);
     return;
   }
   if (c.path.length > 0) {

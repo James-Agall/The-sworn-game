@@ -3,7 +3,7 @@
 // waited for; checks assert on state. A check that throws FAILs on its own and the rest still run.
 // Exit code 0 only if every check passed.
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, openSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -26,14 +26,16 @@ const portFree = (port) =>
     s.once("error", () => res(false));
     s.listen(port, () => s.close(() => res(true)));
   });
-// A random start (not always 31900): two smoke runs at once (other agents on this machine) must not share a server.
-let PORT = 31900 + Math.floor(Math.random() * 500);
+// A random start (it was always 31900): two smoke runs at once (other agents on this machine) raced for one port and
+// the second client drove the first run's server.
+let PORT = 33000 + Math.floor(Math.random() * 4000);
 while (!(await portFree(PORT))) PORT++;
 const saveDir = mkdtempSync(path.join(tmpdir(), "colony-smoke-"));
 const server = spawn(TSX, ["src/index.ts"], {
   cwd: DIR,
   env: { ...process.env, PORT: String(PORT), COLONY_TEST_HOOKS: "1", COLONY_SAVE_DIR: saveDir },
-  stdio: "ignore",
+  // SMOKE_LOG=<file>: the server's stdout / stderr go there (debugging a failed run).
+  stdio: process.env.SMOKE_LOG ? ["ignore", openSync(process.env.SMOKE_LOG, "w"), openSync(process.env.SMOKE_LOG, "a")] : "ignore",
   detached: true,
 });
 const cleanup = () => {
@@ -502,6 +504,24 @@ await check("training: gear + villager required, 1-day timer, trainee becomes th
   await hook("peopleState", { creative: true });
   return [noFreeKnight && noVillager && noGear && timer && paid && done,
     `post left open ${noFreeKnight}, refused w/o villager ${noVillager}, w/o gear ${noGear}, 1-day timer ${timer}, gear paid ${paid}, became knight ${done}`];
+});
+
+// 8e. village life phase 4: with no builder, free villagers raise a construction site (at half speed)
+await check("villagers help build", async () => {
+  await hook("peopleState", { creative: false, clear: true, spawn: 2 });
+  await hook("setCycleTick", { tick: 3 * (DAY + TICK * 75) + TICK * 10 });
+  await hook("setInstantBuild", { enabled: false });
+  const B = { x: tc.x + 3, y: tc.y - 9 };
+  await clearBox(B.x, B.y, 2);
+  await place(B.x, B.y, T.House, T.House).catch(() => {});
+  const site = async () => (await hook("constructionState")).sites.find((x) => x.tx === B.x && x.ty === B.y);
+  const s0 = await site();
+  await ff(TICK * 30);
+  const s1 = await site();
+  const grew = !!s0 && (!s1 || s1.progress > s0.progress);
+  await raw(B.x, B.y, T.Empty);
+  await hook("peopleState", { creative: true });
+  return [grew, `site ${!!s0}, progress ${s0?.progress ?? "-"} -> ${s1 ? s1.progress : "done"}`];
 });
 
 // 9. save/load round trip keeps a stamped site (creative games save to the "creative" slot)
