@@ -4342,6 +4342,11 @@ async function main() {
   const bpTrainRowEl = document.getElementById("bp-train-row")!;
   const bpTrainBtn = document.getElementById("bp-train") as HTMLButtonElement;
   const bpTrainStateEl = document.getElementById("bp-train-state")!;
+  // Village life phase 4: a Town Center's Call to arms / Stand down button (callVillagers) and its levy line.
+  const bpLevyRowEl = document.getElementById("bp-levy-row")!;
+  const bpLevyBtn = document.getElementById("bp-levy") as HTMLButtonElement;
+  const bpLevyStateEl = document.getElementById("bp-levy-state")!;
+  let shownLevyOnField = 0;
   // Armour & weapons: the Blacksmith's two forge buttons (queueForge) and its queue line.
   const bpForgeRowEl = document.getElementById("bp-forge-row")!;
   const bpForgeStateEl = document.getElementById("bp-forge-state")!;
@@ -4808,6 +4813,15 @@ async function main() {
       bpGateBtn.textContent = `Lock: ${GATE_LOCK_LABEL[info.gate.lock]}`;
       bpGateStateEl.textContent = info.gate.overrun ? "Overrun!" : info.gate.open ? "Open" : "Closed";
     }
+    bpLevyRowEl.hidden = !info.levy;
+    if (info.levy) {
+      const l = info.levy;
+      shownLevyOnField = l.onField;
+      bpLevyBtn.disabled = l.onField === 0 && l.reason !== "";
+      bpLevyBtn.textContent = l.onField > 0 ? `Stand down (${l.onField})` : `Call to arms (${l.ready} villagers)`;
+      bpLevyBtn.title = l.onField > 0 ? "Send the levy back to work now" : l.reason || "Civilians fight as militia for half a day, then go back to work";
+      bpLevyStateEl.textContent = l.onField > 0 ? `${l.onField} levies on the field, ${Math.ceil(l.ticksLeft / 20)} s left` : l.reason || `${l.ready} adult civilians would take up spears`;
+    }
     bpTrainRowEl.hidden = !info.train;
     if (info.train) {
       const t = info.train;
@@ -4910,6 +4924,12 @@ async function main() {
       window.setTimeout(requestBuildingInfo, 150);
     });
   }
+  bpLevyBtn.addEventListener("click", () => {
+    bpLevyBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "callVillagers", tileX: infoTile.tx, tileY: infoTile.ty, ...(shownLevyOnField > 0 ? { dismiss: true } : {}) });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
   bpTrainBtn.addEventListener("click", () => {
     bpTrainBtn.blur();
     if (!infoTile) return;

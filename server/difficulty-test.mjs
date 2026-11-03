@@ -31,7 +31,8 @@ const DAY0 = {
   banditClubman: { maxHp: 30, damage: 7 },
   banditArcher: { maxHp: 25, damage: 8 },
 };
-const RAID_BASE_SIZE = 5;
+// Village life phase 4: RAID_BASE_SIZE 3, times the people factor clamp(people / 15, 0.5, 1.5 at tier 1).
+const RAID_BASE_SIZE = 3;
 
 function client(label) {
   const c = { label, ws: new WebSocket(URL), welcomes: [], snap: null, snapCount: 0 };
@@ -126,8 +127,9 @@ const dayMobIds = new Set(a.snap.mobs.map((m) => m.id));
 while (a.snap.cycleProgress < a.snap.dayFraction / 2) await a.nextSnaps(1);
 await a.nextSnaps(3);
 const raidCount = a.snap.mobs.filter((m) => !dayMobIds.has(m.id)).length;
-const expectedRaid = Math.max(1, Math.round(RAID_BASE_SIZE * HARD.spawnCount));
-result(raidCount === expectedRaid, `day-0 raid at the day midpoint = ${raidCount} mobs (expected round(${RAID_BASE_SIZE} x ${HARD.spawnCount}) = ${expectedRaid})`);
+const popFactor = Math.min(1.5, Math.max(0.5, a.snap.population / 15));
+const expectedRaid = Math.max(1, Math.round(RAID_BASE_SIZE * popFactor * HARD.spawnCount));
+result(raidCount === expectedRaid, `day-0 raid at the day midpoint = ${raidCount} mobs (expected round(${RAID_BASE_SIZE} x ${popFactor.toFixed(2)} x ${HARD.spawnCount}) = ${expectedRaid})`);
 while (!a.snap.isNight) await a.nextSnaps(1);
 console.log(`[${el()}] night fell; ${dayMobIds.size} world-gen (guardian) mobs excluded`);
 

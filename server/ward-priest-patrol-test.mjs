@@ -3,10 +3,10 @@
 //   B) Church gate: with no Church anywhere, a Ward Stone placement is a silent no-op (tile stays
 //      Empty, no wood/tools spent).
 //   C) Never-tended stone isn't warded: Church + Ward Stone S1 -> a Ward Priest (bishop, post = S1)
-//      spawns next to the Church, not at the stone. The Church is demolished before he can finish a
+//      (village life: a free villager taking the post, wherever it was). The Church is demolished before he can finish a
 //      10s tending, which dismisses him (no Church). S1 was never tended, so it was never warded:
 //      no halfLatch for 65s (> the 60s grace). No priest reappears and S2 can't be placed meanwhile.
-//   D) Rebuilt Church -> exactly one priest again, at the Church. S2 placed apart from S1: still one
+//   D) Rebuilt Church -> exactly one priest again. S2 placed apart from S1: still one
 //      priest (only the Church bishop besides him). Over ~50s he alternates S1 <-> S2: "patrolling"
 //      between them, "warding" within 1.5 tiles of a stone for ~10s (WARD_TEND_TICKS = 200 ticks)
 //      before moving on. Not commandable: a live commandMove is ignored.
@@ -165,8 +165,8 @@ await a.nextSnap();
   result(tileAt(s1.x, s1.y) === T.WardStone && ps.length === 1 && p && same({ x: p.postX, y: p.postY }, s1),
     `C: Church + S1 -> ${ps.length} Ward Priest, post (${p?.postX},${p?.postY}); church bishop present: ${!!churchBishop0}`);
   if (p) {
-    result(dist(p, center(church)) <= TILE * 1.6 && dist(p, center(s1)) > dist(p, center(church)),
-      `C: he spawned at the Church (${(dist(p, center(church)) / TILE).toFixed(2)} tiles from it, ${(dist(p, center(s1)) / TILE).toFixed(2)} from S1)`);
+    // Village life phase 4: the priest is a free villager taking the post (a named person), not a fresh spawn at the Church.
+    result(!!p.name, `C: he is a villager of the colony (${p.name ?? "no name"})`);
   }
 }
 await sleep(2000);
@@ -197,8 +197,7 @@ await a.nextSnap();
 await a.nextSnap();
 {
   const ps = priests();
-  result(ps.length === 1 && dist(ps[0], center(church)) <= TILE * 1.6,
-    `D: Church rebuilt -> ${ps.length} priest, ${ps[0] ? (dist(ps[0], center(church)) / TILE).toFixed(2) : "?"} tiles from the Church`);
+  result(ps.length === 1, `D: Church rebuilt -> ${ps.length} priest`);
 }
 setTile(s2, T.WardStone);
 await sleep(500);

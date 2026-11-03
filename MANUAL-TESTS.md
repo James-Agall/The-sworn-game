@@ -469,7 +469,7 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
    enemies), hp bars hidden; zooming in brings the sprites back. Check the frame rate with and without the flag,
    and that workers and sheltered civilians are unaffected. Without the flag nothing should change.
 
-## Village life phases 1-4 (people, growth, training, villagers build)
+## Village life phases 1-4 (people, growth, training, villagers build, levy, raids, beds)
 1. New normal game: 10 people (1 builder + 9 villagers in farmer clothes idling around the Town Center); the HUD line
    under the population reads "Villagers: 9 free · 0 children · 0 training · 0 posts open".
 2. Place a Lumberjack Post: a villager walks over and becomes the lumberjack (free count drops by 1). Place more
@@ -485,3 +485,12 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
 8. Destroy a bandit camp's hearth: 1-3 freed prisoners join (toast with names).
 9. Load an old save: everyone is still there; workers and soldiers keep working; the HUD shows the villager line.
 10. Creative mode: posts still fill instantly, Train unit is instant and free.
+11. Phase 4 levy: click your Town Center: "Call to arms (N villagers)". Press it: every adult villager and worker of
+    that settlement turns into militia (spears) around the Town Center; the button reads "Stand down (N)" with a
+    countdown. Press Stand down (or wait half a day): survivors go back to the jobs they had; a killed one stays dead
+    and its workplace shows a post open. Pressing again within a day is refused ("Called too recently").
+12. Phase 4 raids: a fresh game's first nights bring only 2-5 raiders; a bigger town gets bigger raids.
+13. Phase 4 beds: at nightfall each villager walks to its own house (or the Town Center / Keep it was given), not
+    the nearest one.
+14. Phase 4: a Trading Post's escorts and the Ward Priest are villagers taking the post (free count drops); with no
+    free villager the escort roster / priest waits.

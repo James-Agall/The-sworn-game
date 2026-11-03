@@ -1,20 +1,23 @@
 // people.ts: Village life (docs/colony2d/PLAN-village-life.md). Phase 2: homes, children, aging, immigrants and
 // rescued prisoners; phase 3: training soldiers at unit buildings from a free villager + tier-matched gear.
 // The person model itself (Colonist.person, free villagers, staffPost / vacancies) lives in colonists.ts.
-import { TileType, type ColonistKind } from "@colony/shared/protocol";
+import { TICK_RATE, TileType, type ColonistKind } from "@colony/shared/protocol";
 import type { Colonist, HearthState, Player, TownCenter } from "./types.js";
 import {
   BIRTH_CHANCE_PER_DAWN, BIRTH_COOLDOWN_DAYS, BIRTH_MIN_FOOD, CHILD_MATURE_DAYS, DAY_TICKS, GAME_DAY_TICKS,
   IMMIGRANTS_PER_WEEK, IMMIGRATION_MIN_HAPPINESS, KEEP_POPULATION_PER_LEVEL, PRISONERS_PER_CAMP,
-  TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_LEVEL_POPULATION_BONUS, TRAIN_DAYS_BY_LEVEL,
+  TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_LEVEL_POPULATION_BONUS, TRAIN_DAYS_BY_LEVEL, VILLAGE_LEVY_COOLDOWN_TICKS,
+  VILLAGE_LEVY_TICKS,
 } from "./constants.js";
 import { colonists, respawnQueue, sites, state } from "./state.js";
-import { getBuildingLevel, inBounds, isNightNow, resourceKey, tileToPixelCenter } from "./tiles.js";
+import { getBuildingLevel, inBounds, isNightNow, resourceKey, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { tileIndicesOfAny } from "./chunks.js";
 import {
-  freeVillagerFor, houseCapacity, isHouseTile, nearestTownCenter, newPerson, personAgeDays, settlementOf,
-  settlementStats, spawnColonistForPost, spawnVillager, transplantPerson,
+  findTownCenterAt, freeVillagerFor, houseCapacity, isCivilianKind, isHouseTile, isValidPostTile, nearestTownCenter,
+  newPerson, personAgeDays, releaseToVillage, settlementOf, settlementStats, spawnColonistForPost, spawnVillager,
+  transplantPerson,
 } from "./colonists.js";
+import { leaveOrderGroup } from "./orders.js";
 import { isSoldierKind, troopsAtPost, unitBuildingSlots } from "./units.js";
 import { clanIdAt, clanTownCenters, forEachClan, inClan, townCentersOfClan, withClan, clanById } from "./clans.js";
 import { broadcastEvent } from "./net.js";
@@ -254,4 +257,90 @@ function cancelTraining(c: Colonist) {
     c.postX = tc.x;
     c.postY = tc.y;
   }
+}
+
+// ---- Phase 4: the levy ----
+// A Town Center's "Call to arms": every adult civilian of that settlement (free villagers and workers, not children,
+// trainees or bishops) becomes a militiaman posted at the Town Center for VILLAGE_LEVY_TICKS; survivors then go back
+// to their old job (Colonist.callUp: kind + post), or to the village if that post is gone. The dead stay dead.
+const levyCandidate = (c: Colonist, tc: TownCenter) =>
+  isAdult(c) && isCivilianKind(c.kind) && !c.training && !c.callUp && !c.creativeDummy && !c.levyOf && inClan(c) && settlementOf(c) === tc;
+
+export interface VillageLevyInfo {
+  ready: number;
+  onField: number;
+  ticksLeft: number;
+  reason: string;
+}
+
+// The levy row of the active clan's Town Center at (tx, ty) ("" reason = can call now).
+export function villageLevyInfo(tx: number, ty: number): VillageLevyInfo | null {
+  const tc = findTownCenterAt(tx, ty);
+  if (!tc || (tc.clan ?? 0) !== state.clan.id) return null;
+  let ready = 0;
+  let onField = 0;
+  let until = 0;
+  for (const c of colonists.values()) {
+    if (c.callUp && inClan(c) && settlementOf(c) === tc) {
+      onField++;
+      until = Math.max(until, c.callUp.untilTick);
+    } else if (levyCandidate(c, tc)) ready++;
+  }
+  const info = { ready, onField, ticksLeft: Math.max(0, until - state.cycleTick), reason: "" };
+  if (onField > 0) info.reason = "The levy is on the field";
+  else if (ready === 0) info.reason = "No villagers to call";
+  else if (state.cycleTick < (tc.levyReadyTick ?? 0)) info.reason = `Called too recently: ready in ${Math.ceil(((tc.levyReadyTick ?? 0) - state.cycleTick) / TICK_RATE)} s`;
+  return info;
+}
+
+export function handleCallVillagers(player: Player, tx: unknown, ty: unknown, dismiss: unknown) {
+  if (typeof tx !== "number" || typeof ty !== "number" || !Number.isInteger(tx) || !Number.isInteger(ty)) return;
+  withClan(clanById(player.clan ?? 0), () => {
+    const tc = findTownCenterAt(tx, ty);
+    const info = villageLevyInfo(tx, ty);
+    if (!tc || !info) return;
+    if (dismiss === true) {
+      let n = 0;
+      for (const c of Array.from(colonists.values())) if (c.callUp && inClan(c) && settlementOf(c) === tc) (standDown(c), n++);
+      sendEvent(player, "build", n ? `The levy stands down: ${n} go back to work` : "No levy on the field");
+      return;
+    }
+    if (info.reason) {
+      sendEvent(player, "build", `Cannot call to arms: ${info.reason}`);
+      return;
+    }
+    const until = state.cycleTick + VILLAGE_LEVY_TICKS;
+    let n = 0;
+    for (const c of Array.from(colonists.values())) {
+      if (!levyCandidate(c, tc)) continue;
+      const prev = { kind: c.kind, postX: c.postX, postY: c.postY };
+      const u = spawnColonistForPost(tc.x, tc.y, "militia", 1, true);
+      transplantPerson(c, u);
+      u.callUp = { ...prev, untilTick: until };
+      u.settlementId = resourceKey(tc.x, tc.y);
+      if (c.clan) u.clan = c.clan;
+      n++;
+    }
+    tc.levyReadyTick = state.cycleTick + VILLAGE_LEVY_COOLDOWN_TICKS;
+    broadcastEvent("milestone", `${settlementLabel(tc)} answers the call to arms: ${n} villagers take up spears`);
+  });
+}
+
+// The levy is over for c: back to its old job (same person and id), or a free villager if the post is gone.
+function standDown(c: Colonist) {
+  const cu = c.callUp!;
+  leaveOrderGroup(c.id);
+  withClan(clanById(c.clan ?? 0), () => {
+    const t = state.tiles[tileIndex(cu.postX, cu.postY)] as TileType;
+    if (cu.kind !== "villager" && inBounds(cu.postX, cu.postY) && isValidPostTile(cu.kind, t) && clanIdAt(cu.postX, cu.postY) === (c.clan ?? 0)) {
+      const w = spawnColonistForPost(cu.postX, cu.postY, cu.kind);
+      transplantPerson(c, w);
+      if (c.clan) w.clan = c.clan;
+    } else releaseToVillage(c);
+  });
+}
+
+// Once a second: levies whose time is up stand down.
+export function updateVillageLevy() {
+  for (const c of Array.from(colonists.values())) if (c.callUp && state.cycleTick >= c.callUp.untilTick) standDown(c);
 }

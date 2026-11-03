@@ -9,7 +9,7 @@ import type {
 import {
   DAY_TICKS, DESERTER_ACTIVATION_TICKS, DESERTER_WAVE_CHANCE, DIFFICULTY_TUNING, HUNGER_MARK_RAIDERS_PER_MARK,
   MOB_KIND_CONFIG, MOB_MARK_DEFAULTS, MOB_REPATH_TICKS, MOB_SPEED, NIGHT_TICKS, RAID_ARRIVAL_WINDOW_FRACTION,
-  RAID_BASE_SIZE, RAID_EDGE_BAND_TILES, RAID_ENGAGE_RANGE_TILES, RAID_FACTIONS, RAID_FOLLOWER_CATCHUP,
+  RAID_BASE_SIZE, RAID_POP_FACTOR_MAX_BY_TIER, RAID_POP_FACTOR_MIN, RAID_POP_REFERENCE, RAID_EDGE_BAND_TILES, RAID_ENGAGE_RANGE_TILES, RAID_FACTIONS, RAID_FOLLOWER_CATCHUP,
   RAID_FORMATION_SHAPE, RAID_FORMATION_SPACING_BODIES, RAID_GROUP_SIZE_MAX, RAID_GROUP_SIZE_MIN,
   RAID_HEADING_SMOOTHING, RAID_HORDE_SHARE_MAX, RAID_HORDE_SHARE_MIN, RAID_LOITER_CHANCE_PER_TICK,
   RAID_LOITER_RADIUS_TILES, RAID_MARCH_REPATH_TICKS, RAID_REACH_BUDGET, RAID_REACH_RADIUS, RAID_REAR_RANK_TILES,
@@ -20,7 +20,7 @@ import { colonists, mobs, players, raidGroups, state } from "./state.js";
 import { biomeSpeedMultiplier, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { randInt, randRange } from "./worldgen.js";
-import { TOWN_CENTER_TILE, activeWardSources, isWarded, nearestTownCenter } from "./colonists.js";
+import { TOWN_CENTER_TILE, activeWardSources, civilianPopulationUsed, highestTownCenterLevel, isWarded, nearestTownCenter } from "./colonists.js";
 import { isGuardOrMilitiaKind, isRearMob, isSiegeKind, mobRole } from "./units.js";
 import { raidSiegeCap } from "./siege.js";
 import {
@@ -41,8 +41,15 @@ import { campRaidBonus } from "./sites.js";
 //              within RAID_ENGAGE_RANGE_TILES of the colony or a target, the group dissolves and each
 //              member falls back to updateMob's normal per-mob targeting (as does a damaged group).
 
+// Village life phase 4: scaled by the active clan's people and capped by its settlement tier (constants.ts).
+export function raidPopulationFactor(): number {
+  const tier = Math.min(Math.max(highestTownCenterLevel(), 1), RAID_POP_FACTOR_MAX_BY_TIER.length);
+  const f = civilianPopulationUsed() / RAID_POP_REFERENCE;
+  return Math.min(RAID_POP_FACTOR_MAX_BY_TIER[tier - 1], Math.max(RAID_POP_FACTOR_MIN, f));
+}
+
 export function raidSizeForDay(dayIndex: number): number {
-  const base = RAID_BASE_SIZE + RAID_SIZE_PER_DAY * dayIndex;
+  const base = (RAID_BASE_SIZE + RAID_SIZE_PER_DAY * dayIndex) * raidPopulationFactor();
   return Math.max(1, Math.round(base * DIFFICULTY_TUNING[state.difficulty].spawnCount));
 }
 // Clans: spawnRaid runs once per clan; the raid box and goals are that (active) clan's Town Centers.

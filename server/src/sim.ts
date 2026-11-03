@@ -41,7 +41,7 @@ import { updateQuests } from "./quests.js";
 import { updateWagons } from "./wagons.js";
 import { updateVassals, vassalsDawn } from "./vassals.js";
 import { spawnCampRaids, stepWarbandMobs, updateWarbands, warbandsDawn } from "./warbands.js";
-import { peopleDawn, updateAging, updateTraining } from "./people.js";
+import { assignHomes, peopleDawn, updateAging, updateTraining, updateVillageLevy } from "./people.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
@@ -74,7 +74,11 @@ export function stepSimulation() {
     state.autosaveDue = true;
   }
 
-  if (nightNow && !state.wasNight) broadcastEvent("night", "Night falls");
+  if (nightNow && !state.wasNight) {
+    broadcastEvent("night", "Night falls");
+    // Village life phase 4: beds for anyone who arrived since dawn, before they walk home to them.
+    forEachClan(() => assignHomes());
+  }
   state.wasNight = nightNow;
 
   // Forts phase D2: settlement quests (expiry, defend results at dawn, the posting scan).
@@ -210,7 +214,10 @@ export function stepSimulation() {
   processRespawnQueue();
   // Village life: trainees count down; children grow up (once a second).
   updateTraining();
-  if (state.cycleTick % TICK_RATE === 0) updateAging();
+  if (state.cycleTick % TICK_RATE === 0) {
+    updateAging();
+    updateVillageLevy();
+  }
   updateWardPriestPresence();
   // Dawn/dusk respawn windows: one toast per batch.
   if (state.respawnWindowSpawned > 0) {

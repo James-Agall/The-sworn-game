@@ -523,6 +523,35 @@ await check("villagers help build", async () => {
   return [grew, `site ${!!s0}, progress ${s0?.progress ?? "-"} -> ${s1 ? s1.progress : "done"}`];
 });
 
+// 8f. village life phase 4: the levy (civilians fight as militia, survivors go back to their jobs) + raid scaling
+await check("levy: call to arms, a death, survivors revert; raid scales with people", async () => {
+  await hook("peopleState", { creative: false, clear: true, spawn: 3 });
+  await hook("setCycleTick", { tick: 4 * (DAY + TICK * 75) + TICK * 10 });
+  await hook("setInstantBuild", { enabled: true });
+  const L = { x: tc.x - 6, y: tc.y + 9 };
+  await clearBox(L.x, L.y, 2);
+  await place(L.x, L.y, T.LumberjackPost);
+  await ff(TICK + 1);
+  const raid10 = (await hook("raidSize", { dayIndex: 5 })).size;
+  let ps = await hook("peopleState", { levyAt: tc });
+  const levied = ps.persons.filter((p) => p.kind === "militia");
+  const called = levied.length === 3 && ps.levyInfo?.onField === 3;
+  await hook("damageColonist", { id: levied[0]?.id ?? "", amount: 1e6 });
+  await ff(2);
+  await hook("peopleState", { levyExpire: true });
+  await ff(TICK + 1);
+  ps = await hook("peopleState");
+  const back = ps.persons.filter((p) => levied.some((l) => l.id === p.id));
+  const reverted = back.length === 2 && back.every((p) => p.kind === "villager" || p.kind === "lumberjack");
+  const job = ps.persons.some((p) => p.kind === "lumberjack" && p.postX === L.x) || ps.vacancies.some((q) => q.tx === L.x && q.ty === L.y);
+  await hook("peopleState", { spawn: 30 });
+  const raid33 = (await hook("raidSize", { dayIndex: 5 })).size;
+  await place(L.x, L.y, T.Empty);
+  await hook("setInstantBuild", { enabled: false });
+  await hook("peopleState", { creative: true });
+  return [called && reverted && job && raid33 > raid10, `levied ${levied.length}, survivors back ${back.map((p) => p.kind).join(",")}, job kept ${job}, day-5 raid ${raid10} (3 people) -> ${raid33} (33)`];
+});
+
 // 9. save/load round trip keeps a stamped site (creative games save to the "creative" slot)
 await check("save/load: round trip preserves the stamped site", async () => {
   if (!site) return "no site";

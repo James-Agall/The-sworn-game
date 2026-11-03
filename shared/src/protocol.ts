@@ -975,6 +975,9 @@ export interface BuildingInfo {
   // Village life phase 3: unit buildings only: the soldier it trains, troops / trainees / capacity, training
   // days, and why "Train unit" is refused ("" = allowed).
   train?: { kind: ColonistKind; level: number; troops: number; training: number; cap: number; days: number; reason: string };
+  // Village life phase 4: own Town Centers only: civilians ready to be levied, levies on the field, ticks until they
+  // stand down, and why "Call to arms" is refused ("" = allowed).
+  levy?: { ready: number; onField: number; ticksLeft: number; reason: string };
   forge?: {
     tier: number;
     queue: { slot: EquipSlot; tier: number }[];
@@ -1118,6 +1121,9 @@ export type ClientMessage =
   | { type: "queueForge"; tileX: number; tileY: number; slot: EquipSlot }
   // Village life phase 3: train one soldier at a unit building (a free villager + tier gear, ~1 day).
   | { type: "trainUnit"; tileX: number; tileY: number }
+  // Village life phase 4: call the Town Center's adult civilians to arms as militia for half a day (dismiss: stand
+  // them down early).
+  | { type: "callVillagers"; tileX: number; tileY: number; dismiss?: boolean }
   // Forge autocraft (2026-10-30, additive): turns the Blacksmith's autocraft on / off and optionally sets its
   // stock target (items of each slot at its tier, 1..FORGE_AUTO_TARGET_MAX); saved per Blacksmith.
   | { type: "setForgeAuto"; tileX: number; tileY: number; on: boolean; target?: number }

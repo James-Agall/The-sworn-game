@@ -21,7 +21,7 @@ import { hashId, wagonAbstractStats, worldRng } from "./abstract.js";
 import { chronicle } from "./chronicle.js";
 import { getBuildingLevel, inBounds, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
-import { respawnWindowAt, settlementKeyNear, spawnColonistForPost, tilesOfType, trySpendFood } from "./colonists.js";
+import { freeVillagerFor, respawnWindowAt, settlementKeyNear, spawnColonistForPost, tilesOfType, transplantPerson, trySpendFood } from "./colonists.js";
 import { ensureFollowGroup, leaveOrderGroup, rallyUnit } from "./orders.js";
 import { batchGold, diploOf, gainRelation, gameDay, standingTown, tierOf } from "./diplomacy.js";
 import { adjustRelation } from "./sites.js";
@@ -108,6 +108,8 @@ function spawnWagon(post: TradingPostState, tx: number, ty: number, lv: number):
 }
 
 // Missing escorts of the roster: free on a new post / upgrade, else food per head (RESPAWN_FOOD_COST).
+// Village life phase 4: outside creative each escort is a free villager of the clan taking up the post (no food);
+// with none free the roster waits.
 function topUpEscorts(tx: number, ty: number, lv: number, free: boolean): number {
   const have = escortsAt(tx, ty).map((c) => c.kind);
   let added = 0;
@@ -115,6 +117,13 @@ function topUpEscorts(tx: number, ty: number, lv: number, free: boolean): number
     const i = have.indexOf(kind);
     if (i >= 0) {
       have.splice(i, 1);
+      continue;
+    }
+    if (!state.creative) {
+      const v = freeVillagerFor(clanIdAt(tx, ty), tx, ty);
+      if (!v) break;
+      transplantPerson(v, spawnColonistForPost(tx, ty, kind, lv));
+      added++;
       continue;
     }
     if (!free && !trySpendFood(RESPAWN_FOOD_COST)) break;

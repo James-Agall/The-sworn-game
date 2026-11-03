@@ -24,7 +24,9 @@ const info = (msg) => console.log(`info [${el()}] ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TILE = 32;
 // Mirror of server RAID_BASE_SIZE / RAID_SIZE_PER_DAY / RAID_EDGE_BAND_TILES / RAID_LOITER_RADIUS_TILES.
-const raidSize = (day) => 5 + 2 * day;
+// Village life phase 4: the size also scales with the colony's people and tier, so it is asked of the server
+// (testhook raidSize) right after each raid spawns.
+const raidSizeOf = async (day) => (await hook("raidSize", { dayIndex: day })).size;
 const EDGE_BAND = 3;
 const LOITER = 3;
 
@@ -120,7 +122,8 @@ function checkGroups(label, day, mobsInRaid, state) {
 // ---- Day 0 raid ----
 const r0 = await raidAtDay(0);
 const raid0 = r0.fresh;
-result(raid0.length === raidSize(0), `day-0 raid spawned ${raid0.length} mobs (expected ${raidSize(0)})`);
+const want0 = await raidSizeOf(0);
+result(raid0.length === want0, `day-0 raid spawned ${raid0.length} mobs (expected ${want0})`);
 result(st.cycleTick % CYCLE >= MID && st.cycleTick % CYCLE < MID + 12, `raid spawned at the day midpoint (cycle tick ${st.cycleTick % CYCLE}, midpoint ${MID})`);
 result(raid0.every(onEdge), `all raid mobs on the map edge band (${raid0.map((m) => `${tileOf(m).x},${tileOf(m).y}`).join(" ")})`);
 result(raid0.every((m) => m.passive && m.groupId), `all raid mobs passive and grouped`);
@@ -184,7 +187,7 @@ const marchEvent = c.events.find((e) => e.category === "raid" && e.text === "The
 if (hordeDamaged) info(`the horde was the group aggro'd by damage (the only group), so it never marched; march event ${marchEvent ? "seen" : "not seen"}`);
 else result(!!marchEvent, `"The horde marches on the colony" announced (events since nightfall: ${nightEvents.map((e) => e.text).join(" | ")})`);
 
-// ---- Day 1 = 7, no cap ----
+// ---- Days 1 / 20 / 50: population-scaled size, no cap ----
 await hook("holdRaidAggro", { value: false });
 for (const day of [1, 20, 50]) {
   const r = await raidAtDay(day);
@@ -193,7 +196,8 @@ for (const day of [1, 20, 50]) {
   const hi = day * CYCLE + DAY + Math.floor((st.nightTicks * 2) / 3); // arrival-timed departures (see raid-timing-test.mjs)
   result(groupsNow.every((g) => g.aggroTick >= lo && g.aggroTick < hi),
     `day ${day}: every group's aggro tick lies between the spawn and the end of the arrival window (${groupsNow.map((g) => g.aggroTick - lo).join(",")} ticks after spawn; window ends at +${hi - lo})`);
-  result(r.fresh.length === raidSize(day), `day-${day} raid = ${r.fresh.length} (expected ${raidSize(day)})`);
+  const want = await raidSizeOf(day);
+  result(r.fresh.length === want, `day-${day} raid = ${r.fresh.length} (expected ${want})`);
   // A group whose random aggro time fell in the first few ticks may already be marching off the edge.
   const marching = new Set(r.state.groups.filter((g) => g.state !== "passive").map((g) => g.id));
   const held = r.fresh.filter((m) => !marching.has(m.groupId));
@@ -215,11 +219,12 @@ let r = await raidAtDay(12);
 let deserters = st.mobs.filter((m) => added.includes(m.id) && inRaid(m));
 let fresh = r.fresh;
 let horde = st.groups.find((g) => g.isHorde);
-result(deserters.length === 3 && fresh.length === raidSize(12) - 3,
-  `deserter night day 12: ${deserters.length} deserters + ${fresh.length} fresh = ${deserters.length + fresh.length} (expected ${raidSize(12)})`);
+const want12 = await raidSizeOf(12);
+result(deserters.length === 3 && fresh.length === want12 - 3,
+  `deserter night day 12: ${deserters.length} deserters + ${fresh.length} fresh = ${deserters.length + fresh.length} (expected ${want12})`);
 if (horde) {
-  result(added.every((id) => horde.memberIds.includes(id)) && horde.memberIds.length * 2 >= raidSize(12),
-    `deserters are the horde's core (horde ${horde.memberIds.length}/${raidSize(12)})`);
+  result(added.every((id) => horde.memberIds.includes(id)) && horde.memberIds.length * 2 >= want12,
+    `deserters are the horde's core (horde ${horde.memberIds.length}/${want12})`);
 } else info("horde already aggro'd before inspection; horde-core check skipped this run");
 // Siege engines (batteringRam / catapult) are the bandit faction's non-core extras since Cavalry & siege.
 const SIEGE = new Set(["batteringRam", "catapult"]);

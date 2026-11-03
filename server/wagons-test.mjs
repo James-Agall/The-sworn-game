@@ -78,6 +78,8 @@ while (!c.snap) await sleep(20);
 send({ type: "pause", paused: true });
 await hook("setRaids", { enabled: false });
 for (const kind of new Set((c.snap.colonists ?? []).map((u) => u.kind))) await hook("killColonists", { kind });
+// Village life phase 4: escorts are free villagers taking up the post: give the colony enough of them.
+await hook("peopleState", { spawn: 20 });
 await hook("setCycleTick", { tick: TICK * 5 });
 
 let st = null;

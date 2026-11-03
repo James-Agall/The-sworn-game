@@ -81,6 +81,9 @@ export interface Colonist {
   kind: ColonistKind;
   person?: Person;
   training?: Training;
+  // Village life phase 4: a civilian called to arms (people.ts levy) fights as militia until untilTick, then goes
+  // back to its old job (kind + post) if it survives.
+  callUp?: { kind: ColonistKind; postX: number; postY: number; untilTick: number };
   postX: number;
   postY: number;
   x: number;
@@ -495,6 +498,8 @@ export interface TownCenter {
   name?: string;
   // Village life phase 2: cycleTick of its last birth (BIRTH_COOLDOWN_DAYS).
   lastBirthTick?: number;
+  // Village life phase 4: when its villagers may next be called to arms (VILLAGE_LEVY_COOLDOWN_TICKS).
+  levyReadyTick?: number;
 }
 // Difficulty (chosen on the client's main menu). Scales RAID-WAVE mobs only (createRaidMob and the
 // raid size); POI guardians, deserters and the Half-Latch are untouched.

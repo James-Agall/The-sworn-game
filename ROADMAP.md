@@ -2155,14 +2155,41 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Village life — landed (phase 4, rest) 2026-11-03 (levy, raid rebalance, home beds, people for escorts / priest)
+
+- **Levy (`people.ts` `villageLevyInfo` / `handleCallVillagers` / `updateVillageLevy`):** an own Town Center's panel
+  has **Call to arms (N villagers)** (`callVillagers` message, `BuildingInfo.levy`). Every adult civilian of that
+  settlement (free villagers and workers; not children, trainees, bishops) becomes a militiaman posted at the Town
+  Center (same person and id, hp share kept, `Colonist.callUp` = old kind + post + end tick) for
+  `VILLAGE_LEVY_TICKS` (half a game day: a whole night). Then, or on **Stand down**, survivors go back to their old
+  job (post still valid) or to the village. One call per `VILLAGE_LEVY_COOLDOWN_TICKS` (1 game day). A levy killed
+  in the fight is dead for good and leaves its old job as a vacancy (`queueRespawn`). The vassal call-to-arms is
+  unchanged (it calls another settlement's garrison mobs, not people).
+- **Raid rebalance (constants only + one factor):** size = (`RAID_BASE_SIZE` 3 + `RAID_SIZE_PER_DAY` 1 x day) x
+  people factor x difficulty (was 5 + 2 x day). People factor = the clan's population / `RAID_POP_REFERENCE` (15),
+  clamped to [`RAID_POP_FACTOR_MIN` 0.5, `RAID_POP_FACTOR_MAX_BY_TIER` 1.5 / 2 / 2.5 by highest Town Center level].
+  10 people: night 0 = 2 raiders (was 5), night 5 = 5 (was 15); 40 people at tier 3, day 20 = 46 (was 45).
+  Frequency unchanged (every night; overgrown camps every 2nd). Test hook `raidSize { dayIndex }`; `spawnRaidNow`
+  replies `size`.
+- **Night shelter in home beds (`colonists.ts assignShelter`):** a person sleeps at its own home (`person.homeX/Y`:
+  house, Keep or Town Center) while it stands; `assignHomes` also runs at nightfall (new arrivals). Without a home,
+  the old nearest-free-bed search.
+- **Moved onto people:** trader-wagon escorts (`wagons.ts topUpEscorts`: a free villager takes each escort slot, no
+  food; none free = the roster waits) and the Ward Priest (a free villager by day, no food / respawn window; a
+  dismissed priest goes back to the village). Creative mode spawns both as before.
+- **Not moved (documented):** siege engines (crew abstract, `SIEGE_POPULATION_COST`, built at the workshop), vassal
+  levies (another settlement's garrison), heroes (recruited for gold, return at a window for gold), Abbey clergy,
+  summoned skeletons.
+- Smoke: "levy: call to arms, a death, survivors revert; raid scales with people". Tests updated: wagons
+  (villagers granted), ward-priest-patrol (priest is a villager, not spawned at the Church), raid-waves and
+  difficulty (new raid size).
+
 ## Village life — landed (phase 4, part) 2026-11-03 (villagers help build)
 
 Plan: `docs/colony2d/PLAN-village-life.md`. Done: an adult free villager works its clan's construction sites like a
 builder at `VILLAGER_BUILD_RATE` (0.5 of a builder's rate) and counts as a builder for "No builders available"
 (`updateVillager` -> `updateBuilder`, `builderRate`, `anyBuilderAlive` in colonists.ts). Deaths are permanent since
-phase 1. **Not done (phase 4 remainder):** the levy (call civilians to fight with militia stats for a limited time,
-survivors revert) and the raid rebalance for a fixed population. Trader-wagon escorts (wagons.ts), the Ward Priest,
-siege engines, vassal levies and heroes still spawn as before (not people).
+phase 1. The rest of phase 4 landed later the same day (section above).
 
 ## Village life — landed (phase 3) 2026-11-03 (training)
 

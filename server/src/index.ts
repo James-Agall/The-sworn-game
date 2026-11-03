@@ -60,7 +60,7 @@ import { broadcastEvent, flushExplored, handleSetView, httpServer, sendChunks, s
 import { handleTestHook } from "./testhooks.js";
 import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creative.js";
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
-import { handleTrainUnit } from "./people.js";
+import { handleCallVillagers, handleTrainUnit } from "./people.js";
 
 setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 
@@ -154,7 +154,7 @@ function clearCreativeTargets(player: Player, ids: unknown) {
 }
 
 // Clans: tile actions (upgrade, repair, gate lock, siege / forge queue, recruit, learn) only on own buildings.
-const TILE_ACTIONS = new Set(["trainUnit", "upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "setForgeAuto", "recruitHero", "learnSpell", "wagonCommand"]);
+const TILE_ACTIONS = new Set(["trainUnit", "callVillagers", "upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "setForgeAuto", "recruitHero", "learnSpell", "wagonCommand"]);
 
 function handleMessage(player: Player, message: ClientMessage) {
   const socket = player.socket;
@@ -281,6 +281,9 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "trainUnit") {
     // Village life phase 3: train one soldier at a unit building.
     handleTrainUnit(player, message.tileX, message.tileY);
+  } else if (message.type === "callVillagers") {
+    // Village life phase 4: the levy (people.ts).
+    handleCallVillagers(player, message.tileX, message.tileY, message.dismiss);
   } else if (message.type === "queueForge") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleQueueForge(message.tileX, message.tileY, message.slot);

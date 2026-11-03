@@ -62,7 +62,7 @@ import { clanPower, sitePower, vassalInfoFor } from "./vassals.js";
 import { captureSite, isInSiteGrounds, nearSiteGrounds, rebuildKeepBlocker, relationOf, siteAtKeep, siteByNum } from "./sites.js";
 import { SITE_TEMPLATES } from "./constants.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
-import { trainInfo } from "./people.js";
+import { trainInfo, villageLevyInfo } from "./people.js";
 
 export function upgradeKnightAt(tx: number, ty: number, level: number) {
   const stats = guardStats("knight", level);
@@ -1419,6 +1419,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     ...(t === TileType.SiegeWorkshop ? { siege: siegeWorkshopInfo(tx, ty) } : {}),
     ...(t === TileType.Blacksmith ? { forge: blacksmithForgeInfo(tx, ty) } : {}),
     ...(unitBuildingSlots(tx, ty) ? { train: trainInfo(tx, ty)! } : {}),
+    ...(t === TileType.TownCenter && villageLevyInfo(tx, ty) ? { levy: villageLevyInfo(tx, ty)! } : {}),
     ...(t === TileType.Keep ? { heroes: keepHeroInfo(tx, ty) } : {}),
     ...(t === TileType.ChurchPost ? { spellShop: churchSpellShop(forPlayer) } : {}),
     ...(t === TileType.GoldShop ? { tradingPost: tradingPostInfo(tx, ty) } : {}),

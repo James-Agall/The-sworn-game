@@ -641,6 +641,11 @@ export function spawnColonistForPost(
 export function queueRespawn(c: Colonist) {
   // Village life: a dead villager leaves no vacancy; a dead worker / soldier leaves one (filled by another person).
   if (c.kind === "villager") return;
+  // Phase 4: a levied civilian killed in the fight leaves its old job open (none if it was a free villager).
+  if (c.callUp) {
+    if (c.callUp.kind !== "villager") respawnQueue.push({ tx: c.callUp.postX, ty: c.callUp.postY, kind: c.callUp.kind, ticksRemaining: 0, ...(c.clan ? { clan: c.clan } : {}) });
+    return;
+  }
   // ticksRemaining is unused since dawn/dusk respawn windows (kept so old and new saves share a shape).
   respawnQueue.push({
     tx: c.postX, ty: c.postY, kind: c.kind, ticksRemaining: 0, ...(c.clan ? { clan: c.clan } : {}),
@@ -1398,10 +1403,24 @@ export function houseOccupancy(tx: number, ty: number): number {
 
 // Each civilian sleeps in the nearest house with a free bed; anyone left over (or with no house
 // at all) uses the nearest standing Town Center (with none, they just wait where they are). Beds are a house's tier capacity (1 / 3 / 5).
+// Village life phase 4: a person sleeps in its own bed (person.homeX/Y from people.ts assignHomes: a house, Keep or
+// Town Center) while that home stands; the nearest-free-bed search below is the fallback.
+function isHomeTile(c: Colonist, tx: number, ty: number): boolean {
+  if (!inBounds(tx, ty) || clanIdAt(tx, ty) !== (c.clan ?? 0)) return false;
+  const t = state.tiles[tileIndex(tx, ty)] as TileType;
+  return houseCapacity(t) > 0 || t === TileType.Keep || t === TileType.TownCenter;
+}
+
 export function assignShelter(c: Colonist) {
   c.shelterAssigned = true;
   c.homeTileX = -1;
   c.homeTileY = -1;
+  const home = c.person;
+  if (home && home.homeX >= 0 && isHomeTile(c, home.homeX, home.homeY)) {
+    c.homeTileX = home.homeX;
+    c.homeTileY = home.homeY;
+    return;
+  }
   let bestD = Infinity;
   for (const i of tileIndicesOfAny(HOUSE_TILES)) {
     const tx = i % state.WORLD_TILES_X;
@@ -1433,7 +1452,7 @@ export function isAtShelter(c: Colonist): boolean {
 
 export function updateShelteringCivilian(c: Colonist, dt: number) {
   // (Re)assign on first night tick, and if the house was demolished or replaced mid-night.
-  if (!c.shelterAssigned || (c.homeTileX >= 0 && houseCapacity(state.tiles[tileIndex(c.homeTileX, c.homeTileY)] as TileType) === 0)) {
+  if (!c.shelterAssigned || (c.homeTileX >= 0 && !isHomeTile(c, c.homeTileX, c.homeTileY))) {
     assignShelter(c);
     c.path = [];
   }
@@ -1534,7 +1553,8 @@ export function assignWardPriestTarget(c: Colonist, stone: TileCoord) {
 // Once per tick: forget tend records of demolished stones, then keep exactly one Ward Priest alive
 // while a Church and at least one Ward Stone exist (dismissed otherwise). A first priest, or one
 // re-summoned after a dismissal, appears at once; one that died waits for the next dawn/dusk respawn
-// window and pays RESPAWN_FOOD_COST, matching processRespawnQueue.
+// window and pays RESPAWN_FOOD_COST, matching processRespawnQueue. Village life phase 4: outside creative the
+// priest is always a free villager taking the post (by day, no food), and goes back to the village when dismissed.
 export function updateWardPriestPresence() {
   for (const key of wardStoneLastTended.keys()) {
     const [tx, ty] = key.split(",").map(Number);
@@ -1550,19 +1570,28 @@ export function updateWardPriestPresence() {
   }
   state.wardPriestAwaitingWindow = false;
   if (priest && (stones.length === 0 || !church)) {
-    colonists.delete(priest.id);
+    // Village life phase 4: a dismissed priest goes back to the village (creative: just leaves).
+    if (state.creative || !priest.person) colonists.delete(priest.id);
+    else releaseToVillage(priest);
     state.wardPriestId = null;
     return;
   }
   if (priest || stones.length === 0 || !church) return;
   state.wardPriestAwaitingWindow = state.wardPriestRespawnTicks >= 0;
-  if (settlementBlocker(church.x, church.y) !== "") return;
-  if (state.wardPriestRespawnTicks >= 0) {
+  // A fresh priest (creative) needs population room; a villager taking the post is already counted.
+  if (state.creative && settlementBlocker(church.x, church.y) !== "") return;
+  // Village life phase 4: outside creative the Ward Priest is a free villager of the clan taking the post (by day,
+  // no food, no respawn window); with none free the post waits.
+  const v = state.creative ? undefined : freeVillagerFor(clanIdAt(church.x, church.y), church.x, church.y);
+  if (!state.creative && (!v || isNightNow())) return;
+  if (state.creative && state.wardPriestRespawnTicks >= 0) {
     if (isNightNow() || !respawnWindowAt(state.cycleTick) || !trySpendFood(RESPAWN_FOOD_COST)) return;
     state.wardPriestAwaitingWindow = false;
     state.respawnWindowSpawned++;
   }
+  state.wardPriestAwaitingWindow = false;
   const spawned = spawnColonistForPost(church.x, church.y, "bishop");
+  if (v) transplantPerson(v, spawned);
   state.wardPriestId = spawned.id;
   state.wardPriestRespawnTicks = -1;
   assignWardPriestTarget(spawned, nextWardStoneFor(spawned, stones)!);

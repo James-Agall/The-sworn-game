@@ -437,9 +437,16 @@ export const MOB_ANTI_CAVALRY_MULT: Partial<Record<MobKind, number>> = { townGua
 // ---- Raid waves: tuning ----
 // Halfway through each day the whole of tonight's raid spawns at once at the map edge, in passive
 // groups (see spawnRaid / updateRaidGroups). Raid size = RAID_BASE_SIZE + RAID_SIZE_PER_DAY * dayIndex,
-// times the difficulty spawnCount (rounded, min 1). No cap.
-export const RAID_BASE_SIZE = 5;
-export const RAID_SIZE_PER_DAY = 2;
+// times the population factor, times the difficulty spawnCount (rounded, min 1). No cap.
+// Village life phase 4 (2026-11-03, fixed population): was 5 + 2 / day at any size. The population factor is the
+// clan's people / RAID_POP_REFERENCE, clamped to [RAID_POP_FACTOR_MIN, RAID_POP_FACTOR_MAX_BY_TIER[highest Town
+// Center level - 1]]: a 10-person village faces 2 raiders on night 0 and 5 on night 5 (was 5 / 15); a 40-person
+// tier-3 town on day 20 faces 46 (was 45).
+export const RAID_BASE_SIZE = 3;
+export const RAID_SIZE_PER_DAY = 1;
+export const RAID_POP_REFERENCE = 15;
+export const RAID_POP_FACTOR_MIN = 0.5;
+export const RAID_POP_FACTOR_MAX_BY_TIER = [1.5, 2, 2.5];
 // The horde (one big group) takes this share of the raid, rolled uniformly in [MIN, MAX] and rounded
 // up, so it is always at least half. The rest split into random groups of GROUP_SIZE_MIN..MAX.
 export const RAID_HORDE_SHARE_MIN = 0.5;
@@ -2282,6 +2289,11 @@ export const PRISONERS_PER_CAMP: [number, number] = [1, 3];
 export const TRAIN_DAYS_BY_LEVEL = [1, 1.25, 1.5];
 // Phase 4: free villagers help on construction sites at this fraction of a builder's rate.
 export const VILLAGER_BUILD_RATE = 0.5;
+// Phase 4: the levy. A Town Center's "Call to arms" turns its adult civilians (free villagers and workers) into
+// militia for VILLAGE_LEVY_TICKS (half a game day: a whole night); survivors then go back to their old jobs. Next
+// call VILLAGE_LEVY_COOLDOWN_TICKS after the last one.
+export const VILLAGE_LEVY_TICKS = Math.round(GAME_DAY_TICKS / 2);
+export const VILLAGE_LEVY_COOLDOWN_TICKS = GAME_DAY_TICKS;
 export const PERSON_NAMES = [
   "Ada", "Bram", "Cora", "Dunstan", "Edda", "Fenn", "Gwen", "Hal", "Isolde", "Jory", "Kit", "Leof", "Mara", "Ned",
   "Orla", "Piers", "Quinn", "Rowan", "Sela", "Tam", "Una", "Wat", "Wynn", "Yara", "Alder", "Bess", "Cuthbert", "Dora",

@@ -59,7 +59,7 @@ import { raidSiegeCap } from "./siege.js";
 import { applyHungerMark, mobBodyRadius, rollMobSize } from "./mobs.js";
 import { placementCost, resolveTownCenterPlacement } from "./construction.js";
 import { regimentKey } from "./tactics.js";
-import { createRaidMob, spawnRaid } from "./raids.js";
+import { createRaidMob, raidSizeForDay, spawnRaid } from "./raids.js";
 import { damageHearth } from "./hearths.js";
 import { GOALS, nightsSurvived, refreshGoalSnapshot } from "./goals.js";
 import {
@@ -74,7 +74,7 @@ import { tierOf } from "./diplomacy.js";
 import { endVassalage, forceTribute, updateVassals, vassalDebugState, vassalsDawn } from "./vassals.js";
 import { forceVassal, placeTradingPost, spawnMobAt, spawnRaidGroupAt, spawnSoldierAt, stampSiteSearch } from "./creative.js";
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
-import { peopleDawnForClan, rescuePrisoners, trainInfo } from "./people.js";
+import { handleCallVillagers, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
@@ -449,9 +449,13 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // Cavalry & siege: raids pick orc / bandit factions and take their siege engines first (up to the caps).
     state.testForceRaidSiege = msg.value === true;
     reply({ value: state.testForceRaidSiege });
+  } else if (msg.op === "raidSize" && typeof msg.dayIndex === "number") {
+    // Village life phase 4: tonight's raid size for a day (population- and tier-scaled), for the player's clan.
+    reply({ size: withClan(clanById(player.clan ?? 0), () => raidSizeForDay(Math.max(0, Math.floor(msg.dayIndex as number)))) });
   } else if (msg.op === "spawnRaidNow" && typeof msg.dayIndex === "number") {
+    const size = raidSizeForDay(Math.max(0, Math.floor(msg.dayIndex)));
     spawnRaid(Math.max(0, Math.floor(msg.dayIndex)));
-    reply({ groups: raidGroups.size, caps: Object.fromEntries(SIEGE_KINDS.map((k) => [k, raidSiegeCap(Math.floor(msg.dayIndex as number), k)])) });
+    reply({ size, groups: raidGroups.size, caps: Object.fromEntries(SIEGE_KINDS.map((k) => [k, raidSiegeCap(Math.floor(msg.dayIndex as number), k)])) });
   } else if (msg.op === "siegeState") {
     reply({
       cycleTick: state.cycleTick,
@@ -848,9 +852,15 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       rescuePrisoners({ siteId: "", siteKind: "encampment", x: r.x, y: r.y } as unknown as import("./types.js").HearthState, `p:${player.id}`);
     }
     if (msg.finishTraining === true) for (const c of colonists.values()) if (c.training) c.training.ticksLeft = 1;
+    // Phase 4: `levyAt` {x, y, dismiss?} presses a Town Center's Call to arms / Stand down; `levyExpire` ends every
+    // levy at the next once-a-second pass.
+    const la = msg.levyAt as { x: number; y: number; dismiss?: boolean } | undefined;
+    if (la) handleCallVillagers(player, la.x, la.y, la.dismiss === true);
+    if (msg.levyExpire === true) for (const c of colonists.values()) if (c.callUp) c.callUp.untilTick = state.cycleTick;
     const ta = msg.trainAt as { x: number; y: number } | undefined;
     reply({
       trainInfo: ta ? withClan(pc, () => trainInfo(ta.x, ta.y)) : null,
+      levyInfo: la ? withClan(pc, () => villageLevyInfo(la.x, la.y)) : null,
       creative: state.creative,
       people: withClan(clanById(player.clan ?? 0), () => peopleSnapshot()),
       population: civilianPopulationUsed(),
