@@ -3,13 +3,16 @@
 // gates, hand crafting, the `progression` snapshot and old-save grandfathering.
 import { TICK_RATE, TileType, type ProgressionSnapshot } from "@colony/shared/protocol";
 import {
-  type ItemId, type ProgressContext, type Recipe, MAX_QUALITY, PROGRESSION, PROGRESSION_BUILDING_LABEL, recipeById,
-  recipeCostText, unmetRequirements,
+  type ItemId, type Profession, type ProgressContext, type Recipe, MAX_QUALITY, PROFESSION_LABEL, PROGRESSION,
+  PROGRESSION_BUILDING_LABEL, QUALITY_GRADES, TIER_SPEED_BONUS, WORKER_XP_LEVELS, levelForXp, recipeById, recipeCostText,
+  unmetRequirements, xpToNext,
 } from "@colony/shared/progression";
-import type { Player, ResourceKey } from "./types.js";
-import { type Clan, type ClanProgress, newClanProgress, state } from "./state.js";
+import type { Colonist, Player, ResourceKey } from "./types.js";
+import { type Clan, type ClanProgress, colonists, newClanProgress, state } from "./state.js";
+import { getBuildingLevel, isNightNow, tileIndex } from "./tiles.js";
 import { tileIndicesOf } from "./chunks.js";
-import { clanIdAtIndex } from "./clans.js";
+import { clanById, clanIdAtIndex, withClan } from "./clans.js";
+import { broadcastEvent } from "./net.js";
 import { GAME_DAY_TICKS, UPGRADE_NAMES } from "./constants.js";
 import { currentBuildingLevel, sendEvent } from "./construction.js";
 
@@ -90,25 +93,116 @@ function buildingLabel(tile: TileType): string {
 export function progressionBlocker(tile: TileType, current: TileType, tx: number, ty: number, upgradeInPlace: boolean): string {
   if (gatesOpen()) return "";
   const row = PROGRESSION.buildings[tile];
-  if (!row) return "";
   if (!upgradeInPlace) {
+    if (!row) return "";
     if (!row.requires || state.progress.unlocked.includes(tile)) return "";
     const unmet = unmetRequirements(row.requires, progressContext());
     return unmet.length > 0 ? `${buildingLabel(tile)} needs: ${unmet.join(", ")}` : "";
   }
   const next = currentBuildingLevel(tx, ty, current) + 1;
-  const req = row.levels?.[next as 2 | 3];
-  const unmet = unmetRequirements(req, progressContext());
+  const unmet = unmetUpgrade(tx, ty, current, next);
   return unmet.length > 0 ? `Level ${next} ${buildingLabel(tile)} needs: ${unmet.join(", ")}` : "";
 }
 
-// Building info lines (null: nothing to show): the tree gate on the next level.
+// Unmet gates for raising the station at (tx, ty) to `next`: the table's `levels` row, and (phase 2) the
+// upgrade-by-worker rule: a staffed station's best worker must already be level `next`.
+function unmetUpgrade(tx: number, ty: number, t: TileType, next: number): string[] {
+  const prof = PROGRESSION.stations[t];
+  const ctx = { ...progressContext(), workerLevel: prof ? workerLevelAt(tx, ty) : undefined };
+  const req = { ...(PROGRESSION.buildings[t]?.levels?.[next as 2 | 3] ?? {}), ...(prof ? { workerLevel: next } : {}) };
+  return unmetRequirements(req, ctx, prof ? PROFESSION_LABEL[prof] : "Worker");
+}
+
+// Building info lines (null: nothing to show): each worker's profession level and XP, the tier the station works
+// at (speed, quality), and the tree gates on the next level.
 export function progressionInfo(tx: number, ty: number, t: TileType): string[] | null {
-  const row = PROGRESSION.buildings[t];
-  if (!row?.levels || gatesOpen()) return null;
-  const next = currentBuildingLevel(tx, ty, t) + 1;
-  const unmet = unmetRequirements(row.levels[next as 2 | 3], progressContext());
-  return unmet.length > 0 ? [`Level ${next} needs: ${unmet.join(", ")}`] : null;
+  const prof = PROGRESSION.stations[t];
+  const lines: string[] = [];
+  const level = currentBuildingLevel(tx, ty, t);
+  if (prof) {
+    const workers = workersAt(tx, ty);
+    for (const c of workers) {
+      const xp = Math.floor(c.person!.xp?.[prof] ?? 0);
+      const toNext = xpToNext(xp);
+      lines.push(`${c.person!.name}: ${PROFESSION_LABEL[prof]} L${levelForXp(xp)} (${xp} XP${toNext === null ? ", master" : `, ${toNext} to next`})`);
+    }
+    const tier = Math.min(level, workerLevelAt(tx, ty));
+    if (workers.length > 0) lines.push(`Works at tier ${tier} of ${level}: speed x${tierSpeed(tier).toFixed(2)}, quality ${QUALITY_GRADES[Math.min(tier, MAX_QUALITY) - 1].label}`);
+  }
+  if (!gatesOpen() && level < 3 && (prof || PROGRESSION.buildings[t]?.levels)) {
+    const unmet = unmetUpgrade(tx, ty, t, level + 1);
+    if (unmet.length > 0) lines.push(`Level ${level + 1} needs: ${unmet.join(", ")}`);
+  }
+  return lines.length > 0 ? lines : null;
+}
+
+// ---- workers (phase 2): XP per profession, levels, the tier a station works at ----
+function workersAt(tx: number, ty: number): Colonist[] {
+  const out: Colonist[] = [];
+  for (const c of colonists.values()) if (c.postX === tx && c.postY === ty && c.person && !c.training && !c.callUp) out.push(c);
+  return out;
+}
+
+export function professionOf(c: Colonist): Profession | undefined {
+  if (c.postX < 0 || c.postY < 0 || c.postX >= state.WORLD_TILES_X || c.postY >= state.WORLD_TILES_Y) return undefined;
+  return PROGRESSION.stations[state.tiles[tileIndex(c.postX, c.postY)] as TileType];
+}
+
+export function workerLevel(c: Colonist): number {
+  const prof = professionOf(c);
+  return prof ? levelForXp(c.person?.xp?.[prof] ?? 0) : 1;
+}
+
+// The best level among the station's workers (0: nobody posted).
+export function workerLevelAt(tx: number, ty: number): number {
+  let best = 0;
+  for (const c of workersAt(tx, ty)) best = Math.max(best, workerLevel(c));
+  return best;
+}
+
+function tierSpeed(tier: number): number {
+  return 1 + TIER_SPEED_BONUS * (Math.max(1, tier) - 1);
+}
+
+// The tier a worker runs its station at: min(station level, worker level), capped at 3 (= its output quality).
+export function effectiveTier(c: Colonist): number {
+  return Math.min(getBuildingLevel(c.postX, c.postY), workerLevel(c), MAX_QUALITY);
+}
+
+// Work-timer step per tick (1 = as before the tree): +25% per effective tier above 1. Off with COLONY_UNLOCK_ALL.
+export function workSpeed(c: Colonist): number {
+  if (state.testUnlockAll || !c.person) return 1;
+  return tierSpeed(effectiveTier(c));
+}
+
+// Once a second: every person working a station gains 1 XP in its profession (not at night, sheltering, a child,
+// a trainee or levied). A level-up toasts the clan.
+export function updateWorkerXp() {
+  if (isNightNow()) return;
+  for (const c of colonists.values()) {
+    if (!c.person || c.person.child || c.training || c.callUp || c.sheltering || c.state === "idle") continue;
+    const prof = professionOf(c);
+    if (!prof) continue;
+    const xp = (c.person.xp ??= {});
+    const before = levelForXp(xp[prof] ?? 0);
+    xp[prof] = (xp[prof] ?? 0) + 1;
+    const after = levelForXp(xp[prof]!);
+    if (after > before) {
+      const name = c.person.name;
+      withClan(clanById(c.clan ?? 0), () => broadcastEvent("build", `${name} is now a level-${after} ${PROFESSION_LABEL[prof]}`));
+    }
+  }
+}
+
+// Old saves (grandfathering): a worker with no XP in its profession gets the XP of its station's level, so every
+// station keeps working at the tier it had.
+function grandfatherWorkers(clanId: number) {
+  for (const c of colonists.values()) {
+    if ((c.clan ?? 0) !== clanId || !c.person) continue;
+    const prof = professionOf(c);
+    if (!prof || c.person.xp?.[prof] !== undefined) continue;
+    (c.person.xp ??= {})[prof] = WORKER_XP_LEVELS[Math.min(getBuildingLevel(c.postX, c.postY), WORKER_XP_LEVELS.length) - 1];
+  }
 }
 
 // An accepted placement: the building type stays unlocked from now on.
@@ -173,8 +267,10 @@ function buildSnapshot(): ProgressionSnapshot {
         rows.push({ tile, unmet });
       }
     }
-    rows.sort((a, b) => a.unmet.length - b.unmet.length);
     const handLabels = new Set(PROGRESSION.recipes.filter((r) => r.station === "hand").map((r) => PROGRESSION.items[r.output].label));
+    // Nearest first: fewest unmet gates; a gate you can craft by hand right now counts half.
+    const distance = (r: { unmet: string[] }) => r.unmet.reduce((n, u) => n + (handLabels.has(u) ? 0.5 : 1), 0);
+    rows.sort((a, b) => distance(a) - distance(b));
     for (const row of rows.slice(0, 4)) {
       const how = row.unmet.map((u) => (handLabels.has(u) ? `${u} (craft by hand)` : u));
       next.push(`${buildingLabel(row.tile)}: needs ${how.join(", ")}`);
@@ -202,6 +298,7 @@ export function restoreProgress(c: Clan, saved: ClanProgress | undefined) {
     return;
   }
   c.progress = newClanProgress();
+  grandfatherWorkers(c.id);
   for (const key of Object.keys(PROGRESSION.buildings)) {
     const tile = Number(key) as TileType;
     if (tileIndicesOf(tile).some((i) => clanIdAtIndex(i) === c.id)) c.progress.unlocked.push(tile);

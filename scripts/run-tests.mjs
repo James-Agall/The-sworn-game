@@ -65,6 +65,7 @@ const SERVER_ENV = {
   "hunting-foraging": { ...W80, ...INSTANT },
   "industrial-synergy": { ...W80, ...INSTANT, ...LEGACY },
   "pause-restart": { ...INSTANT, ...LEGACY },
+  progression: { ...W80, ...INSTANT },
   "raid-waves": W80,
   "shelter-overflow": { ...W80, ...INSTANT },
   "slow-farming": W80,

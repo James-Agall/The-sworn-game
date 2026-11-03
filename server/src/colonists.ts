@@ -48,6 +48,7 @@ import {
 import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroColonist } from "./heroes.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
+import { workSpeed } from "./progression.js";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -934,7 +935,7 @@ export function planRouteToNearestResource(
 
 export function updateStationaryMiner(c: Colonist, dt: number) {
   c.state = "mining";
-  c.chopTicksRemaining--;
+  c.chopTicksRemaining -= workSpeed(c);
   if (c.chopTicksRemaining <= 0) {
     depositGatheredResource(c.kind);
     c.chopTicksRemaining = effectiveChopTicks(c.postX, c.postY);
@@ -996,7 +997,7 @@ export function updateFarmhand(c: Colonist) {
   const resource = FARM_PRODUCE_BY_TILE[state.tiles[tileIndex(c.postX, c.postY)] as TileType];
   if (!resource) return;
   c.state = "farming";
-  c.chopTicksRemaining--;
+  c.chopTicksRemaining -= workSpeed(c);
   if (c.chopTicksRemaining <= 0) {
     // 2x2 pastures yield per tile of their footprint (footprintYieldMult; legacy 1x1 = x1).
     state.stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource] * footprintYieldMult(c.postX, c.postY);
@@ -1014,7 +1015,7 @@ export function updateArtisan(c: Colonist) {
   );
   if (!inputsReady) return; // don't tick the timer down while waiting on materials
   if (recipe.stockCap !== undefined && state.stock[recipe.output] >= recipe.stockCap) return; // enough in store
-  c.chopTicksRemaining--;
+  c.chopTicksRemaining -= workSpeed(c);
   if (c.chopTicksRemaining <= 0) {
     for (const [key, amount] of Object.entries(recipe.inputs)) {
       state.stock[key as ResourceKey] -= amount ?? 0;
@@ -1053,7 +1054,7 @@ export function updateGathererColonist(c: Colonist, dt: number) {
       break;
     }
     case "gathering": {
-      c.chopTicksRemaining--;
+      c.chopTicksRemaining -= workSpeed(c);
       if (c.chopTicksRemaining <= 0) {
         const idx = tileIndex(c.targetResourceX, c.targetResourceY);
         if (c.kind === "lumberjack" && state.tiles[idx] === resourceTile) {

@@ -1,5 +1,7 @@
 // heroes.ts: Hero phases 1-4 support: equipment, hero profiles, items, relics, recruitable heroes, Blacksmith forging.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { gatesOpen, workerLevelAt } from "./progression.js";
+import { smithLevelForGearTier } from "@colony/shared/progression";
 import { randomUUID } from "node:crypto";
 import {
   type ColonistKind, type EquipSlot, HungerMark, type Equipment, GEAR_SLOTS, PLAYER_MAX_HP, type HeroStats,
@@ -666,9 +668,19 @@ export function blacksmithStaffed(tx: number, ty: number): boolean {
   return false;
 }
 
+// Progression tree phase 2 (smith training): a level-1 smith makes tools only; tier-1/2 gear needs a level-2 smith,
+// tier 3 a level-3 one ("" = the posted smith may forge this Blacksmith's tier).
+function smithLevelBlocker(tx: number, ty: number): string {
+  if (gatesOpen()) return "";
+  const need = smithLevelForGearTier(getBuildingLevel(tx, ty));
+  return workerLevelAt(tx, ty) < need ? `Needs a level-${need} Smith (train one here: tools give XP)` : "";
+}
+
 // Why the Blacksmith at (tx, ty) can't queue `slot` now ("" = it can).
 export function forgeQueueBlocker(tx: number, ty: number, slot: EquipSlot): string {
   if (!blacksmithStaffed(tx, ty)) return "No smith at work";
+  const smithBlock = smithLevelBlocker(tx, ty);
+  if (smithBlock) return smithBlock;
   if ((forgeQueues.get(resourceKey(tx, ty))?.queue.length ?? 0) >= FORGE_QUEUE_CAP) return `Queue full (${FORGE_QUEUE_CAP})`;
   if (!canAfford(forgeCost(slot, getBuildingLevel(tx, ty)))) return "Not enough resources";
   return "";
@@ -761,6 +773,8 @@ function affordableAboveReserve(cost: Cost): boolean {
 // What autocraft at the Blacksmith (tx, ty) would queue right now (in the active clan), and a status line.
 export function autoForgePlan(tx: number, ty: number, target: number): { slot: EquipSlot | null; status: string } {
   if (!blacksmithStaffed(tx, ty)) return { slot: null, status: "No smith at work" };
+  const smithBlock = smithLevelBlocker(tx, ty);
+  if (smithBlock) return { slot: null, status: smithBlock };
   const queued = forgeQueues.get(resourceKey(tx, ty))?.queue.length ?? 0;
   if (queued > 0) return { slot: null, status: `Busy (queue ${queued})` };
   const tier = getBuildingLevel(tx, ty);

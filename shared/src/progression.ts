@@ -154,6 +154,11 @@ export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
   [TileType.SiegeWorkshop]: "Siege Workshop",
 };
 
+// Smith training (plan §2): a level-1 smith makes tools only; forging tier-1/2 gear needs level 2, tier 3 level 3.
+export function smithLevelForGearTier(tier: number): number {
+  return Math.max(2, tier);
+}
+
 export interface ProgressContext {
   // Items in stock, all grades summed.
   items: Partial<Record<ItemId, number>>;

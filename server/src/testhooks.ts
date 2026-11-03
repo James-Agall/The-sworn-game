@@ -1,6 +1,6 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { addItem, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
+import { addItem, professionOf, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
 import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
 import { buildingLevel, newClanProgress, tradingPosts } from "./state.js";
@@ -881,6 +881,14 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     if (msg.reset === true) pc.progress = newClanProgress();
     // `grandfather`: what a load of a save from before the tree does (every owned gated type stays unlocked).
     if (msg.grandfather === true) restoreProgress(pc, undefined);
+    // `xpAt` {x, y, xp}: every worker posted there gets `xp` in its profession (phase 2).
+    const xa = msg.xpAt as { x: number; y: number; xp: number } | undefined;
+    if (xa) {
+      for (const c of colonists.values()) {
+        const prof = c.postX === xa.x && c.postY === xa.y && c.person ? professionOf(c) : undefined;
+        if (prof) (c.person!.xp ??= {})[prof] = Number(xa.xp) || 0;
+      }
+    }
     const items = (msg.items ?? {}) as Record<string, number>;
     withClan(pc, () => {
       for (const [id, n] of Object.entries(items)) if (id in PROGRESSION.items) addItem(id as ItemId, Number(n) || 0, Number(msg.quality) || 1);

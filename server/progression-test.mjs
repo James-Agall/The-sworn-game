@@ -1,0 +1,133 @@
+// Scripted test: the progression tree (ROADMAP "Progression tree — landed"). Needs a private server with
+// COLONY_TEST_HOOKS=1, a scratch COLONY_SAVE_DIR, instant build, NOT COLONY_UNLOCK_ALL (scripts/run-tests.mjs gives
+// all of that). Checks: a new game's kit and locks; a hand craft; placing a locked building is refused; a station
+// upgrade needs its worker's next level (phase 2); a level-1 smith can't forge gear; the tier speed line; the tree
+// survives save / load; old saves are grandfathered.
+import WebSocket from "ws";
+
+const ws = new WebSocket(`ws://localhost:${process.env.PORT ?? 8080}`);
+const TILE = 32;
+const T = { Empty: 0, Lumberjack: 3, Hunter: 50, Blacksmith: 26, KnightPost: 5 };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const c = { welcome: null, snap: null, tiles: [], W: 0, events: [], hooks: new Map(), saves: [], info: undefined };
+let fails = 0;
+const result = (ok, msg) => {
+  if (!ok) fails++;
+  console.log(`${ok ? "PASS" : "FAIL"} ${msg}`);
+};
+const send = (m) => ws.send(JSON.stringify(m));
+const until = async (fn, ms = 5000) => {
+  for (const end = Date.now() + ms; Date.now() < end; await sleep(20)) if (fn()) return true;
+  return !!fn();
+};
+const hook = async (op, args = {}) => {
+  c.hooks.delete(op);
+  send({ type: "testHook", op, ...args });
+  await until(() => c.hooks.has(op), 5000);
+  return c.hooks.get(op);
+};
+ws.on("message", (raw) => {
+  const m = JSON.parse(raw.toString());
+  if (m.type === "welcome") {
+    c.welcome = m;
+    c.snap = null;
+    c.W = m.worldTilesX;
+    c.tiles = [...m.tiles];
+  } else if (m.type === "snapshot") c.snap = m;
+  else if (m.type === "tileUpdate") c.tiles[m.tileY * c.W + m.tileX] = m.tile;
+  else if (m.type === "event") c.events.push(m.text);
+  else if (m.type === "testHookResult") c.hooks.set(m.op, m);
+  else if (m.type === "saveResult") c.saves.push(m);
+  else if (m.type === "buildingInfo") c.info = m.info;
+});
+await new Promise((res, rej) => { ws.once("open", res); ws.once("error", rej); });
+await until(() => c.welcome && c.snap, 20000);
+// A fresh normal game (no creative), raids off, daytime.
+c.welcome = null;
+send({ type: "restart", difficulty: "normal" });
+await until(() => c.welcome && c.snap, 30000);
+await hook("setRaids", { enabled: false });
+await hook("setCycleTick", { tick: 20 * 10 });
+const tileAt = (x, y) => c.tiles[y * c.W + x];
+const tp = (tx, ty) => hook("teleportPlayer", { x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 });
+const place = async (x, y, tile, want = tile) => {
+  await tp(x - 1, y - 1);
+  send({ type: "setTile", tileX: x, tileY: y, tile });
+  await until(() => tileAt(x, y) === want, 1500);
+};
+const info = async (x, y) => {
+  c.info = undefined;
+  send({ type: "buildingInfo", tileX: x, tileY: y });
+  await until(() => c.info !== undefined, 3000);
+  return c.info;
+};
+const tc = c.snap.townCenters[0];
+const B = { x: tc.x + 6, y: tc.y + 4 };
+for (let y = B.y - 2; y <= B.y + 2; y++) for (let x = B.x - 2; x <= B.x + 8; x++) send({ type: "testHook", op: "setTileRaw", tx: x, ty: y, tile: T.Empty });
+await hook("setStock", { stock: { wood: 500, rock: 500, iron: 500 } });
+
+// 1. kit and locks
+const r0 = await hook("progression", {});
+const s0 = c.snap.progression;
+result(!r0.open && r0.items.stoneAxe === 1 && r0.items.stonePick === 1, `new game: gates on, starter kit ${JSON.stringify(r0.items)}`);
+result(!!s0 && (s0.locked[T.Hunter] ?? []).includes("Stone knife") && !s0.locked[T.Lumberjack], `snapshot locks: ${JSON.stringify(s0?.locked)}`);
+result(s0.next.length > 0 && s0.crafts.some((r) => r.id === "stoneKnife" && r.ok), `next steps "${s0.next[0]}", ${s0.crafts.length} hand recipes`);
+
+// 2. locked placement, craft, unlock
+let ev = c.events.length;
+await place(B.x, B.y, T.Hunter, T.Hunter);
+result(tileAt(B.x, B.y) === T.Empty && c.events.slice(ev).some((e) => /Hunter's Hut needs: Stone knife/.test(e)), `locked Hunter's Hut refused: ${c.events.slice(ev).join(" | ")}`);
+const woodBefore = c.snap.wood;
+send({ type: "craftItem", recipe: "stoneKnife" });
+await until(() => (c.snap.progression?.items?.stoneKnife?.[0] ?? 0) === 1, 3000);
+result(c.snap.progression.items.stoneKnife?.[0] === 1 && c.snap.wood === woodBefore - 1, `knife crafted (wood ${woodBefore} -> ${c.snap.wood})`);
+await place(B.x, B.y, T.Hunter);
+result(tileAt(B.x, B.y) === T.Hunter, `Hunter's Hut built once the knife is in stock`);
+
+// 3. upgrade-by-worker (phase 2)
+const L = { x: B.x + 3, y: B.y };
+await place(L.x, L.y, T.Lumberjack);
+await until(() => c.snap.colonists.some((u) => u.kind === "lumberjack" && u.postX === L.x && u.postY === L.y), 5000);
+ev = c.events.length;
+send({ type: "upgradeBuilding", tileX: L.x, tileY: L.y });
+await sleep(400);
+let lvl = c.snap.buildingLevels?.[L.y * c.W + L.x];
+const inf0 = await info(L.x, L.y);
+result(c.events.slice(ev).some((e) => /needs: Woodcutter level 2/.test(e)) && (inf0.progression ?? []).some((l) => /Woodcutter L1/.test(l)),
+  `lumberjack upgrade refused at worker L1: ${c.events.slice(ev).join(" | ")}; info ${JSON.stringify(inf0.progression)}`);
+await hook("progression", { xpAt: { x: L.x, y: L.y, xp: 100 } });
+send({ type: "upgradeBuilding", tileX: L.x, tileY: L.y });
+await sleep(400);
+const inf1 = await info(L.x, L.y);
+result(inf1.level === 2 && (inf1.progression ?? []).some((l) => /tier 2 of 2: speed x1\.25/.test(l)), `upgraded with a level-2 woodcutter: level ${inf1.level}, ${JSON.stringify(inf1.progression)}`);
+
+// 4. smith training: a level-1 smith makes tools, not gear
+const S = { x: B.x + 6, y: B.y };
+await place(S.x, S.y, T.Blacksmith);
+await until(() => c.snap.colonists.some((u) => u.kind === "artisan" && u.postX === S.x && u.postY === S.y), 5000);
+const f0 = (await info(S.x, S.y)).forge;
+result(f0 && f0.options.every((o) => !o.enabled && /level-2 Smith/.test(o.reason)), `level-1 smith can't forge: ${f0?.options.map((o) => o.reason).join(" / ")}`);
+await hook("progression", { xpAt: { x: S.x, y: S.y, xp: 100 } });
+const f1 = (await info(S.x, S.y)).forge;
+result(f1 && f1.options.some((o) => o.enabled), `level-2 smith can forge T1: ${f1?.options.map((o) => o.reason || "ok").join(" / ")}`);
+
+// 5. the Hall of the Sworn opened with the Blacksmith (building gate)
+result(!c.snap.progression.locked[T.KnightPost] || (await hook("progression", {})).snapshot.locked[T.KnightPost] === undefined, `Hall of the Sworn unlocked by the Blacksmith`);
+
+// 6. save / load round trip, then grandfathering
+await hook("progression", { items: { timberProps: 2 }, quality: 2 });
+send({ type: "saveGame", slot: "slot1" });
+await until(() => c.saves.length > 0, 5000);
+await hook("progression", { reset: true });
+c.welcome = null;
+send({ type: "loadGame", slot: "slot1" });
+await until(() => c.welcome && c.snap, 15000);
+const r1 = await hook("progression", {});
+result(r1.unlocked.includes(T.Hunter) && r1.items.stoneKnife === 1 && r1.snapshot.items.timberProps?.[1] === 2, `tree survives save/load: ${JSON.stringify(r1.items)} unlocked ${r1.unlocked}`);
+const r2 = await hook("progression", { grandfather: true });
+result(r2.unlocked.includes(T.Lumberjack) && r2.unlocked.includes(T.Hunter) && r2.items.stoneAxe === 1,
+  `grandfathered: owned gated types unlocked ${r2.unlocked}`);
+
+console.log(fails === 0 ? "ALL PASS" : `${fails} FAILED`);
+ws.close();
+process.exit(fails === 0 ? 0 : 1);

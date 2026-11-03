@@ -1,5 +1,6 @@
 // types.ts: Shared interfaces and type aliases for the server simulation.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import type { Profession } from "@colony/shared/progression";
 import type { WebSocket } from "ws";
 import type {
   ColonistKind, Stance, FormationShape, HeroClass, MobKind, BossTier, HungerMark, GateLock, WildlifeKind, ArmyOrder,
@@ -66,6 +67,9 @@ export interface Person {
   parents?: string[];
   child?: boolean;
   origin?: "start" | "born" | "immigrant" | "rescued" | "migrated";
+  // Progression tree phase 2: XP per profession (one point a second at work; shared WORKER_XP_LEVELS). Saved with
+  // the colonist.
+  xp?: Partial<Record<Profession, number>>;
 }
 // Village life phase 3: a villager training at a unit building (becomes `kind` there when ticksLeft hits 0).
 export interface Training {

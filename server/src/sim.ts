@@ -42,6 +42,7 @@ import { updateWagons } from "./wagons.js";
 import { updateVassals, vassalsDawn } from "./vassals.js";
 import { spawnCampRaids, stepWarbandMobs, updateWarbands, warbandsDawn } from "./warbands.js";
 import { assignHomes, peopleDawn, updateAging, updateTraining, updateVillageLevy } from "./people.js";
+import { updateWorkerXp } from "./progression.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
@@ -217,6 +218,8 @@ export function stepSimulation() {
   if (state.cycleTick % TICK_RATE === 0) {
     updateAging();
     updateVillageLevy();
+    // Progression tree phase 2: worker XP.
+    updateWorkerXp();
   }
   updateWardPriestPresence();
   // Dawn/dusk respawn windows: one toast per batch.

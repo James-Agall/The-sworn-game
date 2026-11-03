@@ -2155,6 +2155,29 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Progression tree — landed (phase 2) 2026-11-03 (worker XP and levels)
+
+- **XP per profession (`Person.xp`, saved with the colonist):** every person working a station (shared
+  `PROGRESSION.stations`: woodcutter, miner, farmer, farmhand, tailor, smith, jeweler, brewer, innkeeper, hunter,
+  forager) gains 1 XP a second of daylight work (`progression.ts updateWorkerXp`, from the once-a-second pass in
+  sim.ts; not sheltering / idle / a child / training / levied). Levels at 0 / 100 / 300 / 700 XP
+  (`WORKER_XP_LEVELS`); a level-up toasts "X is now a level-2 Smith". XP stays with the person across jobs.
+- **Station tier:** a worker runs its station at tier min(station level, worker level) (`effectiveTier`): +25% work
+  speed per tier above 1 (`workSpeed`, on the lumberjack / miner / farmhand / artisan timers) and that output
+  quality grade (used by phase 3's crafted items). A level-1 worker on a level-3 station works at tier 1.
+- **Upgrade-by-worker:** raising a station to level N needs a worker posted there of level N (on top of materials and
+  the table's `levels` gates); an empty station can't be raised. Refusal / info panel: "Level 2 Lumberjack needs:
+  Woodcutter level 2".
+- **Smith training:** a level-1 smith makes tools only; forging tier-1/2 gear needs a level-2 smith, tier 3 a level-3
+  one (`smithLevelForGearTier`; forge buttons and autocraft show "Needs a level-2 Smith").
+- **Info panel:** each worker's name, profession level and XP to next; "Works at tier T of N: speed xS, quality Q";
+  the next level's gates.
+- **Old saves:** a worker with no XP in its profession gets its station level's XP (it keeps the tier it had).
+- `COLONY_UNLOCK_ALL` also switches the tier speed and the smith gear gate off (older suites keep their rates).
+- Test: `progression-test.mjs` (runner: W80 + instant build, no unlock): kit / locks / next steps, locked placement +
+  craft, upgrade refused at worker L1 and allowed at L2 (speed x1.25), level-1 smith can't forge, Hall unlocked by
+  the Blacksmith, save / load round trip, grandfathering. Test hook `progression` `xpAt {x, y, xp}`.
+
 ## Progression tree — landed (phase 1) 2026-11-03 (data model, gates, needs UI)
 
 Plan: `docs/colony2d/PLAN-progression-tree.md`.

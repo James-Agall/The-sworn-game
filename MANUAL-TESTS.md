@@ -507,3 +507,12 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
    timber props by hand (8 wood).
 6. Creative game: everything open; Creative panel > Tools > "Unlock all (tree): off" makes the gates apply.
 7. Load an old save: everything you had built stays buildable.
+
+## Progression tree (phase 2: worker levels)
+1. Build a Lumberjack; click it: "Name: Woodcutter L1 (n XP, m to next)" and "Works at tier 1 of 1". The XP climbs
+   about 1 a second by day.
+2. Upgrade it straight away: refused, "Level 2 Lumberjack needs: Woodcutter level 2". After ~100 s of work (toast
+   "Name is now a level-2 Woodcutter") the upgrade goes through; the panel then says "tier 2 of 2: speed x1.25".
+3. Build a Blacksmith: Forge Armour / Weapon are greyed "Needs a level-2 Smith" while the new smith makes tools; once
+   the smith reaches level 2 the T1 forge buttons work.
+4. Fire a level-2 worker by demolishing and rebuild: the same person keeps its XP if it takes the job again.
