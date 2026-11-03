@@ -3923,6 +3923,18 @@ async function main() {
       const fine = grades.slice(1).some((n) => n > 0) ? ` (${grades.map((n, i) => (n > 0 ? `${n} ${QUALITY_GRADES[i].label}` : "")).filter(Boolean).join(", ")})` : "";
       return `${label} ${total}${fine}`;
     });
+    if (p.prospect) {
+      const b = document.createElement("button");
+      b.className = "econ-btn";
+      b.textContent = p.prospect.label;
+      b.disabled = !p.prospect.ok;
+      b.title = p.prospect.reason;
+      b.addEventListener("click", () => {
+        sendMessage({ type: "prospect" });
+        b.blur();
+      });
+      progressCraftsEl.append(b);
+    }
     progressItemsEl.textContent = owned.length > 0 ? `Items: ${owned.join(", ")}` : "Items: none";
   }
 
@@ -4367,7 +4379,7 @@ async function main() {
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
     TileType.Gate, TileType.Drawbridge, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
-    TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent,
+    TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent, TileType.CharcoalBurner, TileType.Bloomery,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
   const bpNameEl = document.getElementById("bp-name")!;

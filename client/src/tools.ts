@@ -128,6 +128,21 @@ export const TOOLS: ToolDef[] = [
     cost: `${buildCostText(TileType.LuxuryWorkshop)} (upgradeable). Crafts 1 Rock + 1 Fruit → 1 Luxury Item`,
     category: "industry",
   },
+  // Progression tree phase 3: the metal chain (z / x were free).
+  {
+    tile: TileType.CharcoalBurner,
+    label: "Charcoal Burner",
+    key: "z",
+    cost: `${buildCostText(TileType.CharcoalBurner)} (upgradeable). Burns 6 Wood → 3 Charcoal (slow)`,
+    category: "industry",
+  },
+  {
+    tile: TileType.Bloomery,
+    label: "Bloomery",
+    key: "x",
+    cost: `${buildCostText(TileType.Bloomery)} (level 2+: Blast furnace). Smelts 3 Iron + 2 Charcoal → Iron bloom; casts the anvil, hammer & tongs a Blacksmith needs`,
+    category: "industry",
+  },
   { tile: TileType.Market, label: "Bazaar", key: "m", cost: buildCostText(TileType.Market), category: "trade" },
   { tile: TileType.GoldShop, label: "Trading Post", key: "g", cost: buildCostText(TileType.GoldShop), category: "trade" },
   {

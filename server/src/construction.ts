@@ -342,6 +342,15 @@ export function resolveBreweryPlacement(tx: number, ty: number) {
   staffPost(tx, ty, "artisan");
 }
 
+// Progression tree phase 3: the metal chain's artisan stations (Charcoal Burner, Bloomery).
+export function resolveStationPlacement(tx: number, ty: number, tile: TileType) {
+  const upgraded = tryLevelUpInPlace(tx, ty, [tile]);
+  if (upgraded) return;
+  setTile(tileIndex(tx, ty), tile);
+  broadcastTileUpdate(tx, ty, tile);
+  staffPost(tx, ty, "artisan");
+}
+
 export function resolveTavernPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Tavern]);
   if (upgraded) return;
@@ -489,6 +498,12 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.Moat:
     case TileType.Drawbridge:
       return { ...BUILD_COSTS[tile] };
+    // Progression tree phase 3: an upgrade costs the build cost again (x the new level).
+    case TileType.CharcoalBurner:
+    case TileType.Bloomery: {
+      const mult = levelAfterPlacement(tile, current, tx, ty);
+      return Object.fromEntries(Object.entries(BUILD_COSTS[tile]).map(([k, n]) => [k, n * mult]));
+    }
     case TileType.Road:
       return { rock: ROAD_ROCK_COST };
     case TileType.CobbleRoad:
@@ -1103,6 +1118,10 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
   }
   if (tile === TileType.Tavern) {
     resolveTavernPlacement(tx, ty);
+    return;
+  }
+  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery) {
+    resolveStationPlacement(tx, ty, tile);
     return;
   }
   if (tile === TileType.HunterHut) {

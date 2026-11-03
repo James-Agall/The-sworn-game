@@ -351,6 +351,9 @@ export interface ClanFields {
 export interface ClanProgress {
   items: Partial<Record<ItemId, number[]>>;
   unlocked: number[];
+  // Phase 3: surveyed circles [x, y, r, ...] (deposit richness known inside) and a survey under way.
+  prospected?: number[];
+  prospecting?: { x: number; y: number; untilTick: number };
 }
 export function newClanProgress(): ClanProgress {
   const items: ClanProgress["items"] = {};

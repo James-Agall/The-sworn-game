@@ -1,6 +1,6 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { addItem, professionOf, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
+import { addItem, itemCount, professionOf, takeItem, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
 import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
 import { buildingLevel, newClanProgress, tradingPosts } from "./state.js";
@@ -891,7 +891,13 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     }
     const items = (msg.items ?? {}) as Record<string, number>;
     withClan(pc, () => {
-      for (const [id, n] of Object.entries(items)) if (id in PROGRESSION.items) addItem(id as ItemId, Number(n) || 0, Number(msg.quality) || 1);
+      // A negative count takes that many (poorest grade first; all of them when short).
+      for (const [id, n] of Object.entries(items)) {
+        if (!(id in PROGRESSION.items)) continue;
+        const k = Number(n) || 0;
+        if (k >= 0) addItem(id as ItemId, k, Number(msg.quality) || 1);
+        else takeItem(id as ItemId, Math.min(-k, itemCount(id as ItemId)));
+      }
     });
     resetProgressCache();
     reply(withClan(pc, () => ({ ...progressionDebug(), snapshot: progressionSnapshot() })));

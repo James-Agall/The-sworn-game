@@ -84,6 +84,9 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   // Cavalry & siege stand-ins, used only if stables / siegeWorkshop art is missing (TILE_OPTIONAL_ART).
   [TileType.Stables]: "castleLv2",
   [TileType.SiegeWorkshop]: "blacksmith",
+  // Progression tree phase 3 stand-ins (tinted; SPRITES.md "Progression tree").
+  [TileType.CharcoalBurner]: "campfire",
+  [TileType.Bloomery]: "blacksmith",
 };
 // Dedicated art per tile (SPRITES.md #30-#32), loaded optionally: a file that exists replaces the
 // TILE_SPRITE_FILES stand-in above and drops its tint; a missing one keeps the stand-in.
@@ -183,6 +186,8 @@ export const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.MushroomPatchPicked]: 0x8a8a70,
   [TileType.Stables]: 0xd8c0a0,
   [TileType.SiegeWorkshop]: 0xc8a888,
+  [TileType.CharcoalBurner]: 0x6a5a50,
+  [TileType.Bloomery]: 0xd08060,
 };
 // Looping tile animations (client-side, cosmetic). All frames of a loop share one canvas, so the
 // box-fit scale setTileSprite computes from frame 0 stays valid for every frame. One shared clock

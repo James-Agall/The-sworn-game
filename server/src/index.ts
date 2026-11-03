@@ -61,7 +61,7 @@ import { handleTestHook } from "./testhooks.js";
 import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creative.js";
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
 import { handleCallVillagers, handleTrainUnit } from "./people.js";
-import { handleCraftItem, progressionSnapshot } from "./progression.js";
+import { handleCraftItem, handleProspect, progressionSnapshot } from "./progression.js";
 
 setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 
@@ -322,6 +322,8 @@ function handleMessage(player: Player, message: ClientMessage) {
     markChronicleSeen(player, message.id);
   } else if (message.type === "craftItem") {
     handleCraftItem(player, message.recipe);
+  } else if (message.type === "prospect") {
+    handleProspect(player);
   }
 }
 

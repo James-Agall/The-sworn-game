@@ -2155,6 +2155,40 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Progression tree — landed (phase 3) 2026-11-03 (stone age + metal chain)
+
+- **New stations (TileType 100 / 101, artisan posts, upgradeable to 3, stand-in art):** **Charcoal Burner**
+  (15 wood + 5 rock; needs a stone axe + a Lumberjack): 6 wood -> 3 charcoal per 90 s batch (cap 40). **Bloomery**
+  (10 wood + 25 rock; needs bellows + 2 charcoal + a Charcoal Burner): first casts an **anvil** (4 blooms) and
+  **hammer & tongs** (2 blooms + 2 wood), one each, then smelts **iron blooms** (3 iron + 2 charcoal, 40 s, cap 20).
+  Level 2+ is the **Blast furnace** (needs a Blacksmith standing and a level-2 smelter): its blooms come out Good /
+  Fine (output grade = the tier it works at). Upgrades cost the build cost x the new level.
+- **Station recipes** (`PROGRESSION.recipes` with a TileType station; `progression.ts updateStationWork`, called by
+  `updateArtisan`): the artisan takes the inputs when a batch starts and works the first recipe that is ready and
+  under its cap, at the tier speed; jobs in progress are not saved. Info panel: "Making: X (n%)" or "Idle: Iron
+  bloom: short of Charcoal; Anvil: 1 in store (enough)".
+- **Hides:** a hunter's carcass brought home, a player's kill and every pasture meat cycle add a hide; **bellows** are
+  hand-made (4 wood + 2 hides).
+- **Blacksmith** now needs an anvil + hammer & tongs in stock and a Bloomery standing (the Hall of the Sworn, Stables
+  and Siege Workshop follow it). Its tools recipe, forge queue and autocraft are unchanged; smith training (phase 2)
+  gates the gear.
+- **Mining tiers:** surface Quarry / Iron Mine with the stone pick; level 2 (shaft) needs timber props; level 3 a
+  Blacksmith; each level also needs the miner's level (phase 2).
+- **Deposits and prospecting:** every ore / stone tile has a richness 1-3 (stable hash of the tile and the world salt:
+  50% poor, 35% fair, 15% rich). Build panel **Send a prospector** (needs a stone pick + knife): a 150 s survey of 16
+  tiles round the nearest Town Center, then a report toast ("3 rich, 5 fair, 9 poor deposits nearby"); a mine on a
+  surveyed fair / rich deposit yields +50% / +100% (`depositBonus`); its info panel shows "Deposit: rich (3/3)" or
+  "unknown". Surveys are saved (`ClanProgress.prospected` / `prospecting`).
+- **New game:** still playable from the kit: Lumberjack (axe) -> Charcoal Burner; Hunter's Hut (knife by hand) or a
+  Pasture -> hides -> bellows -> Bloomery -> anvil + tools -> Blacksmith (~starting iron covers it). Soldiers need
+  gear, so they now come after the Blacksmith; the levy and towers defend before that.
+- **Not done (later phases / open):** hazards (cave-ins, flooding, bad air), Mine Foreman, crusher / washing, coal
+  seams, copper / tin / bronze, flux and steel, quality-3 steel -> better gear, deposit markers on the map
+  (SPRITES.md #84 lists the art), carts / rails.
+- Test: `progression-test.mjs` adds Blacksmith locked -> charcoal -> bellows -> Bloomery (anvil, tools) -> Blacksmith
+  built; Blast furnace makes Good blooms; prospecting reports and is saved. Test hook `progression` `items` takes a
+  negative count to remove. Smoke asserts the Bloomery's bellows gate.
+
 ## Progression tree — landed (phase 2) 2026-11-03 (worker XP and levels)
 
 - **XP per profession (`Person.xp`, saved with the colonist):** every person working a station (shared

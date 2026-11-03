@@ -124,6 +124,10 @@ export enum TileType {
   // (placing the anchor stamps them, demolishing it clears them). The client draws nothing here (the
   // anchor's art spans the block) and maps clicks to the anchor (footprintAnchorOf).
   BuildingPart = 90,
+  // Progression tree phase 3 (2026-11-03): artisan stations of the metal chain (shared/src/progression.ts recipes).
+  // Charcoal Burner: wood -> charcoal. Bloomery (level 2+ = Blast furnace): iron + charcoal -> blooms, anvil, tools.
+  CharcoalBurner = 100,
+  Bloomery = 101,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -273,6 +277,8 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.Market ||
     tile === TileType.GoldShop ||
     tile === TileType.Brewery ||
+    tile === TileType.CharcoalBurner ||
+    tile === TileType.Bloomery ||
     tile === TileType.Tavern ||
     tile === TileType.MilitiaPost ||
     tile === TileType.MilitiaCamp2 ||
@@ -949,6 +955,8 @@ export interface ProgressionSnapshot {
   locked: Record<number, string[]>;
   next: string[];
   crafts: { id: string; label: string; cost: string; ok: boolean }[];
+  // Phase 3: the Send a prospector button (reason: why it is refused, "" = allowed).
+  prospect?: { label: string; ok: boolean; reason: string };
 }
 
 // Reply to a `buildingInfo` request; every number is computed by the server's own formulas.
@@ -1173,7 +1181,9 @@ export type ClientMessage =
   // World streaming phase 5: the player has read the chronicle up to this entry id.
   | { type: "chronicleSeen"; id: number }
   // Progression tree: craft one hand recipe (PROGRESSION.recipes, station "hand") from the stock.
-  | { type: "craftItem"; recipe: string };
+  | { type: "craftItem"; recipe: string }
+  // Progression tree phase 3: send a prospector to survey around the nearest Town Center.
+  | { type: "prospect" };
 
 export type ServerMessage =
   | {

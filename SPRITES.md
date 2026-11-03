@@ -616,6 +616,15 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > `settleMill.png`, `settleHall.png`, `settleGuardhouse.png`, `settleWell.png`, `settleSign.png`,
 > `settleBoard.png`, `settleSmithy.png`, `settleFarm.png`, `settleDock.png`, `settleKeep.png`.
 
+### 84. Progression tree stations and items (2026-11-03)
+> Match the existing blacksmith and lumberjack post art. **Charcoal burner** (a turf-covered earth clamp with smoke
+> and a stack of logs; levels 1-3 bigger), **bloomery** (squat clay-and-stone shaft furnace with bellows; level 2-3
+> a taller stone **blast furnace** with a chimney). Item icons for the Build panel (32 px): stone axe, stone pick,
+> stone knife, timber props, hide, bellows, charcoal, iron bloom, anvil, hammer & tongs. Files:
+> `charcoalBurner.png`, `bloomery.png`, `blastFurnace.png`, `item{StoneAxe,StonePick,StoneKnife,TimberProps,Hide,
+> Bellows,Charcoal,IronBloom,Anvil,SmithTools}.png`. Stand-ins now: the campfire prop tinted dark brown and the
+> blacksmith tinted red (`client/src/worldVisuals.ts` TILE_STANDIN_TINT); items are text only.
+
 #77-#83 were delivered on 2026-10-30 (see "Already sourced", Batch 2); prompts removed. Still missing from those
 prompts: #82 the Follow order icon, the state glyphs (wavering / routing / outflanked) and the time-control icons;
 #83 has no veteran attack row (the veteran charge row stands in) and no separate idle frame.

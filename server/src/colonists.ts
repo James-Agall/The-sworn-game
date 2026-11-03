@@ -48,7 +48,8 @@ import {
 import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroColonist } from "./heroes.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
-import { workSpeed } from "./progression.js";
+import { addItem, depositBonus, updateStationWork, workSpeed } from "./progression.js";
+import { stationRecipes } from "@colony/shared/progression";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -177,7 +178,7 @@ export function isValidPostTile(kind: ColonistKind, t: TileType): boolean {
   // Not WardStone: the Ward Priest respawns through updateWardPriestPresence instead.
   if (kind === "bishop") return t === TileType.ChurchPost;
   if (kind === "farmhand") return FARM_PRODUCE_BY_TILE[t] !== undefined;
-  if (kind === "artisan") return CRAFT_RECIPES[t] !== undefined;
+  if (kind === "artisan") return CRAFT_RECIPES[t] !== undefined || stationRecipes(t).length > 0;
   if (kind === "hunter") return t === TileType.HunterHut;
   if (kind === "forager") return t === TileType.ForagerHut;
   // The colony's starting builders are posted at a Town Center, the rest at a Builders' Guild.
@@ -566,7 +567,7 @@ export function placementNeedsNewWorkerSlot(tile: TileType, tx: number, ty: numb
   if (tile === TileType.BarnPost) return findUpgradeTargetFor(tx, ty, TileType.BarnPost) === null;
   if (tile === TileType.ChurchPost) return findUpgradeTargetFor(tx, ty, TileType.ChurchPost) === null;
   if (tile === TileType.WardStone) return state.wardPriestId === null;
-  if (FARM_PRODUCE_BY_TILE[tile] !== undefined || CRAFT_RECIPES[tile] !== undefined) {
+  if (FARM_PRODUCE_BY_TILE[tile] !== undefined || CRAFT_RECIPES[tile] !== undefined || stationRecipes(tile).length > 0) {
     return findUpgradeTargetFor(tx, ty, tile) === null;
   }
   return true;
@@ -938,6 +939,8 @@ export function updateStationaryMiner(c: Colonist, dt: number) {
   c.chopTicksRemaining -= workSpeed(c);
   if (c.chopTicksRemaining <= 0) {
     depositGatheredResource(c.kind);
+    // Progression tree phase 3: a prospected fair / rich deposit yields more.
+    depositBonus(c, c.kind === "ironMiner" ? "iron" : "rock");
     c.chopTicksRemaining = effectiveChopTicks(c.postX, c.postY);
   }
 }
@@ -1001,12 +1004,16 @@ export function updateFarmhand(c: Colonist) {
   if (c.chopTicksRemaining <= 0) {
     // 2x2 pastures yield per tile of their footprint (footprintYieldMult; legacy 1x1 = x1).
     state.stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource] * footprintYieldMult(c.postX, c.postY);
+    // Progression tree phase 3: a pasture's animals also give a hide.
+    if (resource === "meat") addItem("hide", 1);
     c.chopTicksRemaining = effectiveFarmhandCycleTicks(c.postX, c.postY);
     c.cycleTicksTotal = c.chopTicksRemaining;
   }
 }
 
 export function updateArtisan(c: Colonist) {
+  // Progression tree phase 3: a station of the tree works its PROGRESSION recipes instead.
+  if (updateStationWork(c)) return;
   const recipe = CRAFT_RECIPES[state.tiles[tileIndex(c.postX, c.postY)] as TileType];
   if (!recipe) return;
   c.state = "crafting";

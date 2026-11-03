@@ -6,7 +6,8 @@
 import { TileType } from "./protocol.js";
 
 export type ItemId =
-  | "stoneAxe" | "stonePick" | "stoneKnife" | "timberProps";
+  | "stoneAxe" | "stonePick" | "stoneKnife" | "timberProps" | "hide" | "bellows"
+  | "charcoal" | "ironBloom" | "anvil" | "smithTools";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "tools";
 
@@ -62,7 +63,7 @@ export interface Recipe {
 }
 
 export type Profession =
-  | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "jeweler"
+  | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "smelter" | "collier" | "jeweler"
   | "brewer" | "innkeeper" | "hunter" | "forager";
 
 // Worker XP: one point per second at work. Level L needs WORKER_XP_LEVELS[L - 1] XP (level 1 at 0).
@@ -85,16 +86,28 @@ export function xpToNext(xp: number): number | null {
 
 export const PROGRESSION = {
   items: {
-    stoneAxe: { label: "Stone axe", desc: "Knapped flint on a haft. Fells trees: Lumberjack, Wooden House." },
+    stoneAxe: { label: "Stone axe", desc: "Knapped flint on a haft. Fells trees: Lumberjack, Wooden House, Charcoal Burner." },
     stonePick: { label: "Stone pick", desc: "Opens surface outcrops: Quarry and Iron Mine; with a knife, prospecting." },
-    stoneKnife: { label: "Stone knife", desc: "Skins game: Hunter's Hut." },
+    stoneKnife: { label: "Stone knife", desc: "Skins game: Hunter's Hut (hides). With a pick, prospecting." },
     timberProps: { label: "Timber props", desc: "Pit supports: a mine can be sunk to level 2 (shaft)." },
+    hide: { label: "Hide", desc: "From hunters' kills and pastures. Bellows leather." },
+    bellows: { label: "Bellows", desc: "Leather and wood. Blows the Bloomery." },
+    charcoal: { label: "Charcoal", desc: "Burned slowly from wood at the Charcoal Burner. Smelting fuel." },
+    ironBloom: { label: "Iron bloom", desc: "Smelted at the Bloomery from iron ore and charcoal; a Blast furnace (level 2+) makes better grades." },
+    anvil: { label: "Anvil", desc: "Cast at the Bloomery. With hammer and tongs, a Blacksmith can be built." },
+    smithTools: { label: "Hammer & tongs", desc: "Forged at the Bloomery. A Blacksmith needs them." },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
     { id: "stonePick", label: "Knap a stone pick", output: "stonePick", amount: 1, stock: { wood: 2, rock: 4 }, station: "hand" },
     { id: "stoneKnife", label: "Knap a stone knife", output: "stoneKnife", amount: 1, stock: { wood: 1, rock: 2 }, station: "hand" },
     { id: "timberProps", label: "Cut timber props", output: "timberProps", amount: 1, stock: { wood: 8 }, station: "hand" },
+    { id: "bellows", label: "Sew bellows", output: "bellows", amount: 1, stock: { wood: 4 }, items: { hide: 2 }, station: "hand" },
+    { id: "charcoal", label: "Burn charcoal", output: "charcoal", amount: 3, stock: { wood: 6 }, station: TileType.CharcoalBurner, seconds: 90, cap: 40 },
+    // Bloomery: the anvil and the smith's tools first (one each is enough), then blooms.
+    { id: "anvil", label: "Cast an anvil", output: "anvil", amount: 1, items: { ironBloom: 4 }, station: TileType.Bloomery, seconds: 60, cap: 1 },
+    { id: "smithTools", label: "Forge hammer & tongs", output: "smithTools", amount: 1, stock: { wood: 2 }, items: { ironBloom: 2 }, station: TileType.Bloomery, seconds: 40, cap: 1 },
+    { id: "ironBloom", label: "Smelt an iron bloom", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { charcoal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
   ] as Recipe[],
   // What each building needs. Buildings not listed are open from the start.
   buildings: {
@@ -109,6 +122,13 @@ export const PROGRESSION = {
       requires: { items: { stonePick: 1 } },
       levels: { 2: { items: { timberProps: 1 } }, 3: { buildings: [{ tile: TileType.Blacksmith }] } },
     },
+    [TileType.CharcoalBurner]: { requires: { items: { stoneAxe: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
+    [TileType.Bloomery]: {
+      requires: { items: { bellows: 1, charcoal: 2 }, buildings: [{ tile: TileType.CharcoalBurner }] },
+      // Level 2 is the Blast furnace (better blooms): iron tools (a Blacksmith) first.
+      levels: { 2: { buildings: [{ tile: TileType.Blacksmith }] } },
+    },
+    [TileType.Blacksmith]: { requires: { items: { anvil: 1, smithTools: 1 }, buildings: [{ tile: TileType.Bloomery }] } },
     [TileType.KnightPost]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
     [TileType.Stables]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
     [TileType.SiegeWorkshop]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
@@ -125,6 +145,8 @@ export const PROGRESSION = {
     [TileType.CottonFarm]: "farmhand",
     [TileType.TailorShop]: "tailor",
     [TileType.Blacksmith]: "smith",
+    [TileType.Bloomery]: "smelter",
+    [TileType.CharcoalBurner]: "collier",
     [TileType.LuxuryWorkshop]: "jeweler",
     [TileType.Brewery]: "brewer",
     [TileType.Tavern]: "innkeeper",
@@ -137,13 +159,15 @@ export const PROGRESSION = {
 
 export const PROFESSION_LABEL: Record<Profession, string> = {
   woodcutter: "Woodcutter", miner: "Miner", farmer: "Farmer", farmhand: "Farmhand", tailor: "Tailor", smith: "Smith",
-  jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
+  smelter: "Smelter", collier: "Collier", jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
   hunter: "Hunter", forager: "Forager",
 };
 
 // Names for the buildings the table refers to (needs text).
 export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
   [TileType.LumberjackPost]: "Lumberjack",
+  [TileType.CharcoalBurner]: "Charcoal Burner",
+  [TileType.Bloomery]: "Bloomery",
   [TileType.Blacksmith]: "Blacksmith",
   [TileType.House]: "Wooden House",
   [TileType.HunterHut]: "Hunter's Hut",

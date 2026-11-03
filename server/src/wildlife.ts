@@ -1,5 +1,6 @@
 // wildlife.ts: Hunting & foraging: Hunter's / Forager's Hut workers, wild game, wild forage.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { addItem } from "./progression.js";
 import { type WildlifeKind, WILDLIFE_KINDS, TileType, Biome, TILE_SIZE } from "@colony/shared/protocol";
 import type { Colonist, TileCoord, Wildlife, WildlifeConfig } from "./types.js";
 import {
@@ -369,6 +370,8 @@ export function startCarryingHome(c: Colonist) {
 }
 
 export function depositCarried(c: Colonist, resource: "meat" | "fruit") {
+  // Progression tree phase 3: a hunter's kill also brings a hide home.
+  if (resource === "meat" && c.carryAmount > 0) addItem("hide", 1);
   state.stock[resource] += c.carryAmount;
   c.carryAmount = 0;
   c.state = "idle";

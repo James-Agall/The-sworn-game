@@ -515,4 +515,19 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
    "Name is now a level-2 Woodcutter") the upgrade goes through; the panel then says "tier 2 of 2: speed x1.25".
 3. Build a Blacksmith: Forge Armour / Weapon are greyed "Needs a level-2 Smith" while the new smith makes tools; once
    the smith reaches level 2 the T1 forge buttons work.
-4. Fire a level-2 worker by demolishing and rebuild: the same person keeps its XP if it takes the job again.
+4. XP belongs to the person: demolish a workplace and the freed villager keeps its XP (shown again if it takes the
+   same kind of job).
+
+## Progression tree (phase 3: stone age and the metal chain)
+1. New normal game: Blacksmith is locked ("Needs: Anvil, Hammer & tongs, a Bloomery"); Charcoal Burner (Industry, Z)
+   needs a Lumberjack; Bloomery (X) needs Bellows, 2 Charcoal and a Charcoal Burner.
+2. Build a Lumberjack, then a Charcoal Burner (dark campfire stand-in): its info shows "Making: Charcoal (n%)"; after
+   ~90 s "Items: ... Charcoal 3".
+3. Knap a stone knife, build a Hunter's Hut (or a Pasture): each kill brought home adds a Hide. With 2 hides, "Sew
+   bellows (4 wood + 2 Hide)".
+4. Build the Bloomery (reddish blacksmith stand-in): it casts an Anvil, then Hammer & tongs, then Iron blooms (uses
+   iron + charcoal). The Blacksmith unlocks once anvil + tools are in the items list.
+5. With the Blacksmith up and the smelter at level 2, upgrade the Bloomery: blooms now show "(n Good)" in the items.
+6. "Send a prospector" in the Build panel (needs pick + knife): after ~150 s a report toast; click a Quarry / Iron Mine
+   in range: "Deposit: rich (3/3), +100% yield" (or fair / poor); outside the survey "unknown".
+7. Old save with a Blacksmith: it stays buildable (grandfathered), forging still works.

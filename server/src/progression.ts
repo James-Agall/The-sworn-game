@@ -5,13 +5,13 @@ import { TICK_RATE, TileType, type ProgressionSnapshot } from "@colony/shared/pr
 import {
   type ItemId, type Profession, type ProgressContext, type Recipe, MAX_QUALITY, PROFESSION_LABEL, PROGRESSION,
   PROGRESSION_BUILDING_LABEL, QUALITY_GRADES, TIER_SPEED_BONUS, WORKER_XP_LEVELS, levelForXp, recipeById, recipeCostText,
-  unmetRequirements, xpToNext,
+  stationRecipes, unmetRequirements, xpToNext,
 } from "@colony/shared/progression";
 import type { Colonist, Player, ResourceKey } from "./types.js";
 import { type Clan, type ClanProgress, colonists, newClanProgress, state } from "./state.js";
-import { getBuildingLevel, isNightNow, tileIndex } from "./tiles.js";
+import { getBuildingLevel, isNightNow, tileIndex, tileOfPixel } from "./tiles.js";
 import { tileIndicesOf } from "./chunks.js";
-import { clanById, clanIdAtIndex, withClan } from "./clans.js";
+import { clanById, clanIdAtIndex, forEachClan, townCentersOfClan, withClan } from "./clans.js";
 import { broadcastEvent } from "./net.js";
 import { GAME_DAY_TICKS, UPGRADE_NAMES } from "./constants.js";
 import { currentBuildingLevel, sendEvent } from "./construction.js";
@@ -127,6 +127,12 @@ export function progressionInfo(tx: number, ty: number, t: TileType): string[] |
       lines.push(`${c.person!.name}: ${PROFESSION_LABEL[prof]} L${levelForXp(xp)} (${xp} XP${toNext === null ? ", master" : `, ${toNext} to next`})`);
     }
     const tier = Math.min(level, workerLevelAt(tx, ty));
+    for (const c of workers) {
+      const job = stationJobs.get(c.id);
+      if (job) lines.push(`Making: ${PROGRESSION.items[job.recipe.output].label} (${Math.round(100 * (1 - job.left / job.total))}%)`);
+    }
+    if (workers.length > 0 && stationRecipes(t).length > 0 && ![...workers].some((c) => stationJobs.has(c.id))) lines.push(`Idle: ${stationIdleReason(t)}`);
+    if (t === TileType.IronMinePost || t === TileType.RockMinePost) lines.push(depositLine(tx, ty));
     if (workers.length > 0) lines.push(`Works at tier ${tier} of ${level}: speed x${tierSpeed(tier).toFixed(2)}, quality ${QUALITY_GRADES[Math.min(tier, MAX_QUALITY) - 1].label}`);
   }
   if (!gatesOpen() && level < 3 && (prof || PROGRESSION.buildings[t]?.levels)) {
@@ -192,6 +198,137 @@ export function updateWorkerXp() {
       withClan(clanById(c.clan ?? 0), () => broadcastEvent("build", `${name} is now a level-${after} ${PROFESSION_LABEL[prof]}`));
     }
   }
+}
+
+// ---- station recipes (phase 3): an artisan at a tree station works the first recipe it can ----
+interface StationJob { recipe: Recipe; left: number; total: number }
+// Colonist id -> its job in progress (not saved: a load restarts every station's current batch).
+const stationJobs = new Map<string, StationJob>();
+
+function recipeReady(r: Recipe): boolean {
+  if (r.cap !== undefined && itemCount(r.output) >= r.cap) return false;
+  if (!state.creative) for (const [k, n] of Object.entries(r.stock ?? {})) if (state.stock[k as ResourceKey] < (n ?? 0)) return false;
+  for (const [id, n] of Object.entries(r.items ?? {}) as [ItemId, number][]) if (itemCount(id) < n) return false;
+  return true;
+}
+
+// "Iron bloom: short of Charcoal; Anvil: 1 in store (enough)".
+function stationIdleReason(t: TileType): string {
+  const parts = stationRecipes(t).map((r) => {
+    const name = PROGRESSION.items[r.output].label;
+    if (r.cap !== undefined && itemCount(r.output) >= r.cap) return `${name}: ${itemCount(r.output)} in store (enough)`;
+    const short = Object.entries(r.stock ?? {}).filter(([k, n]) => !state.creative && state.stock[k as ResourceKey] < (n ?? 0)).map(([k]) => k);
+    for (const [id, n] of Object.entries(r.items ?? {}) as [ItemId, number][]) if (itemCount(id) < n) short.push(PROGRESSION.items[id].label);
+    return short.length > 0 ? `${name}: short of ${short.join(", ")}` : `${name}: ready`;
+  });
+  return parts.join("; ");
+}
+
+// Called by updateArtisan; false when the post is not a tree station (the old CRAFT_RECIPES path runs).
+export function updateStationWork(c: Colonist): boolean {
+  const recipes = stationRecipes(state.tiles[tileIndex(c.postX, c.postY)]);
+  if (recipes.length === 0) return false;
+  c.state = "crafting";
+  let job = stationJobs.get(c.id);
+  if (!job) {
+    const r = recipes.find((rc) => (rc.workerLevel ?? 1) <= workerLevel(c) && recipeReady(rc));
+    if (!r) {
+      c.state = "idle";
+      return true;
+    }
+    // Inputs are taken when the batch starts.
+    if (!state.creative) for (const [k, n] of Object.entries(r.stock ?? {})) state.stock[k as ResourceKey] -= n ?? 0;
+    for (const [id, n] of Object.entries(r.items ?? {}) as [ItemId, number][]) takeItem(id, n);
+    const total = state.instantBuild ? 1 : Math.max(1, Math.round((r.seconds ?? 30) * TICK_RATE));
+    job = { recipe: r, left: total, total };
+    stationJobs.set(c.id, job);
+  }
+  job.left -= workSpeed(c);
+  if (job.left <= 0) {
+    stationJobs.delete(c.id);
+    // Output grade = the tier the station works at (a Blast furnace with a level-2 smelter makes Good blooms).
+    addItem(job.recipe.output, job.recipe.amount, effectiveTier(c));
+  }
+  return true;
+}
+
+// ---- deposits and prospecting (phase 3) ----
+// Every ore / stone deposit has a richness 1-3 (a stable hash of its tile; 50% poor, 35% fair, 15% rich), hidden
+// until a prospector has surveyed it. A known fair / rich deposit yields +50% / +100% to its mine.
+export const PROSPECT_RADIUS_TILES = 16;
+export const PROSPECT_TICKS = TICK_RATE * 150;
+const RICHNESS_LABEL = ["poor", "fair", "rich"];
+
+export function depositRichness(x: number, y: number): number {
+  let h = (x * 374761393 + y * 668265263 + state.worldNoiseSalt * 2147483647) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  const u = ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  return u < 0.5 ? 1 : u < 0.85 ? 2 : 3;
+}
+
+export function depositKnown(x: number, y: number): boolean {
+  const p = state.progress.prospected ?? [];
+  for (let i = 0; i + 2 < p.length; i += 3) if (Math.hypot(p[i] - x, p[i + 1] - y) <= p[i + 2]) return true;
+  return false;
+}
+
+function depositLine(tx: number, ty: number): string {
+  if (!depositKnown(tx, ty)) return "Deposit: unknown (send a prospector from the Build panel)";
+  const r = depositRichness(tx, ty);
+  return `Deposit: ${RICHNESS_LABEL[r - 1]} (${r}/3)${r > 1 ? `, +${(r - 1) * 50}% yield` : ""}`;
+}
+
+// Mine yield bonus: called after each load a miner delivers; a known fair deposit adds 1 every 2nd load, a rich one
+// 1 every load.
+const richCarry = new Map<string, number>();
+export function depositBonus(c: Colonist, resource: "iron" | "rock") {
+  if (!depositKnown(c.postX, c.postY)) return;
+  const extra = (richCarry.get(c.id) ?? 0) + (depositRichness(c.postX, c.postY) - 1) * 0.5;
+  const whole = Math.floor(extra);
+  richCarry.set(c.id, extra - whole);
+  state.stock[resource] += whole;
+}
+
+function prospectShort(): string {
+  if (state.progress.prospecting) return "A prospector is already out";
+  if (!gatesOpen() && (itemCount("stonePick") < 1 || itemCount("stoneKnife") < 1)) return "Needs a Stone pick and a Stone knife";
+  if (townCentersOfClan(state.clan.id).length === 0) return "No Town Center";
+  return "";
+}
+
+// `prospect` message: a prospector surveys PROSPECT_RADIUS_TILES around the player's nearest Town Center for
+// PROSPECT_TICKS; then every deposit there shows its richness.
+export function handleProspect(player: Player) {
+  const why = prospectShort();
+  if (why) {
+    sendEvent(player, "build", why);
+    return;
+  }
+  const at = tileOfPixel(player.x, player.y);
+  const tc = townCentersOfClan(state.clan.id).sort((a, b) => Math.hypot(a.x - at.x, a.y - at.y) - Math.hypot(b.x - at.x, b.y - at.y))[0];
+  state.progress.prospecting = { x: tc.x, y: tc.y, untilTick: state.cycleTick + (state.instantBuild ? TICK_RATE : PROSPECT_TICKS) };
+  snapshotDirty.add(state.clan.id);
+  sendEvent(player, "build", `A prospector sets out from ${tc.name ?? "the Town Center"}`);
+}
+
+// Once a second: a prospector whose survey is done reports.
+export function updateProspecting() {
+  forEachClan(() => {
+    const job = state.progress.prospecting;
+    if (!job || state.cycleTick < job.untilTick) return;
+    state.progress.prospecting = undefined;
+    (state.progress.prospected ??= []).push(job.x, job.y, PROSPECT_RADIUS_TILES);
+    const counts = [0, 0, 0];
+    for (const t of [TileType.IronOre, TileType.Rock, TileType.IronMinePost, TileType.RockMinePost]) {
+      for (const i of tileIndicesOf(t)) {
+        const x = i % state.WORLD_TILES_X;
+        const y = Math.floor(i / state.WORLD_TILES_X);
+        if (Math.hypot(x - job.x, y - job.y) <= PROSPECT_RADIUS_TILES) counts[depositRichness(x, y) - 1]++;
+      }
+    }
+    snapshotDirty.add(state.clan.id);
+    broadcastEvent("build", `Prospector's report: ${counts[2]} rich, ${counts[1]} fair, ${counts[0]} poor deposits nearby (click a mine to see its richness)`);
+  });
 }
 
 // Old saves (grandfathering): a worker with no XP in its profession gets the XP of its station's level, so every
@@ -280,12 +417,19 @@ function buildSnapshot(): ProgressionSnapshot {
   const crafts = PROGRESSION.recipes
     .filter((r) => r.station === "hand")
     .map((r) => ({ id: r.id, label: r.label, cost: recipeCostText(r), ok: recipeShort(r) === "" }));
-  return { open, items, locked, next, crafts };
+  const why = prospectShort();
+  const prospect = { label: state.progress.prospecting ? "Prospector out surveying" : "Send a prospector (stone pick + knife)", ok: why === "", reason: why };
+  return { open, items, locked, next, crafts, prospect };
 }
 
 // ---- saves ----
 export function progressForSave(c: Clan): ClanProgress {
-  return { items: Object.fromEntries(Object.entries(c.progress.items).map(([k, v]) => [k, [...(v ?? [])]])), unlocked: [...c.progress.unlocked] };
+  return {
+    items: Object.fromEntries(Object.entries(c.progress.items).map(([k, v]) => [k, [...(v ?? [])]])),
+    unlocked: [...c.progress.unlocked],
+    prospected: [...(c.progress.prospected ?? [])],
+    ...(c.progress.prospecting ? { prospecting: { ...c.progress.prospecting } } : {}),
+  };
 }
 
 // Saves from before the tree are grandfathered: every gated building type the clan owns stays unlocked, and the
@@ -293,7 +437,7 @@ export function progressForSave(c: Clan): ClanProgress {
 export function restoreProgress(c: Clan, saved: ClanProgress | undefined) {
   snapshotCache.delete(c.id);
   if (saved) {
-    c.progress = { items: {}, unlocked: [...(saved.unlocked ?? [])] };
+    c.progress = { items: {}, unlocked: [...(saved.unlocked ?? [])], prospected: [...(saved.prospected ?? [])], prospecting: saved.prospecting };
     for (const [k, v] of Object.entries(saved.items ?? {})) c.progress.items[k as ItemId] = [0, 1, 2].map((i) => v?.[i] ?? 0);
     return;
   }
@@ -308,9 +452,11 @@ export function restoreProgress(c: Clan, saved: ClanProgress | undefined) {
 export function resetProgressCache() {
   snapshotCache.clear();
   snapshotDirty.clear();
+  stationJobs.clear();
+  richCarry.clear();
 }
 
 // testHook "progression": the active clan's tree state.
 export function progressionDebug() {
-  return { open: gatesOpen(), unlocked: [...state.progress.unlocked], items: itemTotals(), ctx: progressContext() };
+  return { open: gatesOpen(), unlocked: [...state.progress.unlocked], items: itemTotals(), ctx: progressContext(), prospected: [...(state.progress.prospected ?? [])] };
 }

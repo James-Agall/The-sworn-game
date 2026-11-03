@@ -7,7 +7,7 @@ import WebSocket from "ws";
 
 const ws = new WebSocket(`ws://localhost:${process.env.PORT ?? 8080}`);
 const TILE = 32;
-const T = { Empty: 0, Lumberjack: 3, Hunter: 50, Blacksmith: 26, KnightPost: 5 };
+const T = { Empty: 0, Lumberjack: 3, Hunter: 50, Blacksmith: 26, KnightPost: 5, Charcoal: 100, Bloomery: 101 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const c = { welcome: null, snap: null, tiles: [], W: 0, events: [], hooks: new Map(), saves: [], info: undefined };
 let fails = 0;
@@ -50,10 +50,13 @@ await hook("setRaids", { enabled: false });
 await hook("setCycleTick", { tick: 20 * 10 });
 const tileAt = (x, y) => c.tiles[y * c.W + x];
 const tp = (tx, ty) => hook("teleportPlayer", { x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 });
-const place = async (x, y, tile, want = tile) => {
+// A placement is refused while someone stands on the tile (villagers wander): retry a few times when it should land.
+const place = async (x, y, tile, want = tile, tries = want === tile ? 8 : 1) => {
   await tp(x - 1, y - 1);
-  send({ type: "setTile", tileX: x, tileY: y, tile });
-  await until(() => tileAt(x, y) === want, 1500);
+  for (let i = 0; i < tries && tileAt(x, y) !== want; i++) {
+    send({ type: "setTile", tileX: x, tileY: y, tile });
+    await until(() => tileAt(x, y) === want, tries > 1 ? 400 : 1500);
+  }
 };
 const info = async (x, y) => {
   c.info = undefined;
@@ -63,7 +66,7 @@ const info = async (x, y) => {
 };
 const tc = c.snap.townCenters[0];
 const B = { x: tc.x + 6, y: tc.y + 4 };
-for (let y = B.y - 2; y <= B.y + 2; y++) for (let x = B.x - 2; x <= B.x + 8; x++) send({ type: "testHook", op: "setTileRaw", tx: x, ty: y, tile: T.Empty });
+for (let y = B.y - 2; y <= B.y + 4; y++) for (let x = B.x - 2; x <= B.x + 10; x++) send({ type: "testHook", op: "setTileRaw", tx: x, ty: y, tile: T.Empty });
 await hook("setStock", { stock: { wood: 500, rock: 500, iron: 500 } });
 
 // 1. kit and locks
@@ -101,15 +104,64 @@ await sleep(400);
 const inf1 = await info(L.x, L.y);
 result(inf1.level === 2 && (inf1.progression ?? []).some((l) => /tier 2 of 2: speed x1\.25/.test(l)), `upgraded with a level-2 woodcutter: level ${inf1.level}, ${JSON.stringify(inf1.progression)}`);
 
-// 4. smith training: a level-1 smith makes tools, not gear
+// 3b. the metal chain (phase 3): Charcoal Burner -> charcoal; bellows from hides; Bloomery -> anvil, hammer & tongs,
+// blooms; then the Blacksmith unlocks. (Instant build also makes a station batch take one tick.)
 const S = { x: B.x + 6, y: B.y };
+ev = c.events.length;
+await place(S.x, S.y, T.Blacksmith, T.Blacksmith);
+result(tileAt(S.x, S.y) === T.Empty && c.events.slice(ev).some((e) => /Blacksmith needs: Anvil, Hammer & tongs, a Bloomery/.test(e)), `Blacksmith locked: ${c.events.slice(ev).join(" | ")}`);
+const CB = { x: B.x, y: B.y + 3 };
+const BL = { x: B.x + 3, y: B.y + 3 };
+await place(CB.x, CB.y, T.Charcoal);
+await until(() => c.snap.colonists.some((u) => u.kind === "artisan" && u.postX === CB.x && u.postY === CB.y), 5000);
+// Fast-forward until the worker has walked over and burned a batch (walking takes sim ticks).
+const items = () => c.snap.progression?.items ?? {};
+for (let i = 0; i < 20 && (items().charcoal?.[0] ?? 0) < 6; i++) await hook("fastForward", { ticks: 100 }), await sleep(100);
+result(tileAt(CB.x, CB.y) === T.Charcoal && (items().charcoal?.[0] ?? 0) >= 6, `Charcoal Burner burns charcoal: ${JSON.stringify(items().charcoal)}`);
+ev = c.events.length;
+await place(BL.x, BL.y, T.Bloomery, T.Bloomery);
+result(tileAt(BL.x, BL.y) === T.Empty && c.events.slice(ev).some((e) => /Bloomery needs: Bellows/.test(e)), `Bloomery locked without bellows`);
+await hook("progression", { items: { hide: 2 } });
+send({ type: "craftItem", recipe: "bellows" });
+await until(() => (items().bellows?.[0] ?? 0) === 1, 3000);
+await place(BL.x, BL.y, T.Bloomery);
+await until(() => c.snap.colonists.some((u) => u.kind === "artisan" && u.postX === BL.x && u.postY === BL.y), 5000);
+for (let i = 0; i < 20 && !((items().anvil?.[0] ?? 0) === 1 && (items().smithTools?.[0] ?? 0) === 1); i++) await hook("fastForward", { ticks: 100 }), await sleep(100);
+result((items().anvil?.[0] ?? 0) === 1 && (items().smithTools?.[0] ?? 0) === 1 && c.snap.iron < 500,
+  `Bloomery: anvil ${items().anvil}, tools ${items().smithTools}, blooms ${items().ironBloom}, charcoal ${items().charcoal}, iron ${c.snap.iron}, smelter ${JSON.stringify(c.snap.colonists.filter((u) => u.postX === BL.x && u.postY === BL.y).map((u) => [u.kind, u.state, Math.round(u.x / 32), Math.round(u.y / 32)]))}`);
+const blInfo = await info(BL.x, BL.y);
+result((blInfo.progression ?? []).some((l) => /Smelter L1/.test(l)) && (blInfo.progression ?? []).some((l) => /Level 2 needs: a Blacksmith, Smelter level 2/.test(l)),
+  `Bloomery info: ${JSON.stringify(blInfo.progression)}`);
+
+// 4. smith training: a level-1 smith makes tools, not gear
 await place(S.x, S.y, T.Blacksmith);
+result(tileAt(S.x, S.y) === T.Blacksmith, "Blacksmith built once the anvil, hammer & tongs and a Bloomery exist");
 await until(() => c.snap.colonists.some((u) => u.kind === "artisan" && u.postX === S.x && u.postY === S.y), 5000);
 const f0 = (await info(S.x, S.y)).forge;
 result(f0 && f0.options.every((o) => !o.enabled && /level-2 Smith/.test(o.reason)), `level-1 smith can't forge: ${f0?.options.map((o) => o.reason).join(" / ")}`);
 await hook("progression", { xpAt: { x: S.x, y: S.y, xp: 100 } });
 const f1 = (await info(S.x, S.y)).forge;
 result(f1 && f1.options.some((o) => o.enabled), `level-2 smith can forge T1: ${f1?.options.map((o) => o.reason || "ok").join(" / ")}`);
+
+// 4b. Blast furnace: with a Blacksmith and a level-2 smelter the Bloomery reaches level 2 and makes Good blooms
+await hook("progression", { xpAt: { x: BL.x, y: BL.y, xp: 100 }, items: { ironBloom: -100 } });
+ev = c.events.length;
+send({ type: "upgradeBuilding", tileX: BL.x, tileY: BL.y });
+await sleep(400);
+const goodBefore = items().ironBloom?.[1] ?? 0;
+for (let i = 0; i < 20 && (items().ironBloom?.[1] ?? 0) <= goodBefore; i++) await hook("fastForward", { ticks: 50 }), await sleep(100);
+const blLevel = (await info(BL.x, BL.y)).level;
+result(blLevel === 2 && (items().ironBloom?.[1] ?? 0) > goodBefore, `Blast furnace (level ${blLevel}) makes Good blooms: ${JSON.stringify(items().ironBloom)} ${c.events.slice(ev).join(" | ")}`);
+
+// 4c. prospecting: needs pick + knife (both in stock); reports after the survey; deposits then show richness
+ev = c.events.length;
+await tp(tc.x + 1, tc.y + 1);
+send({ type: "prospect" });
+await sleep(200);
+await hook("fastForward", { ticks: 40 });
+await until(() => c.events.slice(ev).some((e) => /Prospector's report/.test(e)), 3000);
+const pr = await hook("progression", {});
+result(c.events.slice(ev).some((e) => /Prospector's report: \d+ rich/.test(e)) && pr.prospected?.length === 3, `prospecting: ${c.events.slice(ev).join(" | ")}`);
 
 // 5. the Hall of the Sworn opened with the Blacksmith (building gate)
 result(!c.snap.progression.locked[T.KnightPost] || (await hook("progression", {})).snapshot.locked[T.KnightPost] === undefined, `Hall of the Sworn unlocked by the Blacksmith`);

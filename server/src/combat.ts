@@ -1,5 +1,6 @@
 // combat.ts: Damage (mobs, players, colonists, buildings), engagement slots, attack effects, player attacks, walls & gates, towers.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { addItem } from "./progression.js";
 import { hostileColonistInReach, wakeNeutral } from "./creative.js";
 import { noteWagonHit, onWagonDestroyed } from "./wagons.js";
 import {
@@ -369,7 +370,10 @@ export function handlePlayerAttack(attacker: Player) {
     // A player's kill is dressed on the spot: the meat goes straight to the stockpile.
     state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: bestAnimal.x, toY: bestAnimal.y, melee: true });
     const meat = WILDLIFE_CONFIG[bestAnimal.kind].meat;
-    if (damageWildlife(bestAnimal, damage, attacker.x, attacker.y, null)) state.stock.meat += meat;
+    if (damageWildlife(bestAnimal, damage, attacker.x, attacker.y, null)) {
+      state.stock.meat += meat;
+      addItem("hide", 1);
+    }
     return;
   }
 

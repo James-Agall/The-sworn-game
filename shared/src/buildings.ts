@@ -48,6 +48,9 @@ export const BUILD_COSTS = {
   [TileType.Blacksmith]: CRAFT_BUILDING,
   [TileType.LuxuryWorkshop]: CRAFT_BUILDING,
   [TileType.Brewery]: CRAFT_BUILDING,
+  // Progression tree phase 3: the metal chain's stations.
+  [TileType.CharcoalBurner]: { wood: 15, rock: 5 },
+  [TileType.Bloomery]: { wood: 10, rock: 25 },
 } satisfies Partial<Record<TileType, BuildCost>>;
 
 // A Blacksmith stops crafting tools while the stock holds this many (server constants.ts; client tool text).
