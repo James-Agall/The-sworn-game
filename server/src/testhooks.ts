@@ -1,5 +1,6 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { peopleDawnForClan, rescuePrisoners, trainInfo } from "./people.js";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
 import { buildingLevel, tradingPosts } from "./state.js";
 import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, pathCacheStats, setTile, updateChunkStates } from "./chunks.js";
@@ -48,7 +49,7 @@ import { WILDLIFE_CONFIG, WILDLIFE_RESPAWN_INTERVAL_TICKS, damageWildlife, spawn
 import {
   TOWN_CENTER_TILE, civilianPopulationUsed, findTownCenterAt, happinessSpeedMultiplier, populationCap,
   productionSpeedMultiplier, respawnWindowAt, respawnWindowSnapshot, settlementKeyNear, spawnColonistForPost, townCenterBonus,
-  newPerson, peopleSnapshot, spawnVillager,
+  newPerson, peopleSnapshot, populationCostOf, spawnVillager,
 } from "./colonists.js";
 import { colonistRole, guardStats, isGuardOrMilitiaKind, isSiegeKind, unitStats } from "./units.js";
 import {
@@ -826,6 +827,11 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // Village life: optionally flip creative mode (to test the real people rules in a creative world) and/or add
     // free villagers (`spawn`, children with `child: true`) at the first Town Center; then the people summary.
     if (typeof msg.creative === "boolean") state.creative = msg.creative;
+    // `clear`: every unit that takes population (any clan) is removed outright, and the open posts with them.
+    if (msg.clear === true) {
+      for (const c of Array.from(colonists.values())) if (populationCostOf(c) > 0) colonists.delete(c.id);
+      for (let i = respawnQueue.length - 1; i >= 0; i--) if (!respawnQueue[i].hero) respawnQueue.splice(i, 1);
+    }
     const tc = state.townCenters.find((t) => (t.clan ?? 0) === (player.clan ?? 0));
     const n = Math.max(0, Math.min(50, Math.floor(Number(msg.spawn) || 0)));
     for (let i = 0; tc && i < n; i++) {
@@ -833,7 +839,18 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       if (msg.child === true) p.child = true;
       withClan(clanById(player.clan ?? 0), () => spawnVillager(tc, p));
     }
+    // `dawn` runs the clan's dawn pass with forced dice ({ birth, immigrant }); `rescueAt` frees a camp's prisoners
+    // at a tile; `finishTraining` ends every training next tick; `trainAt` returns that building's trainInfo.
+    const pc = clanById(player.clan ?? 0);
+    if (msg.dawn && typeof msg.dawn === "object") withClan(pc, () => peopleDawnForClan(msg.dawn as { birth?: boolean; immigrant?: boolean }));
+    if (msg.rescueAt && typeof msg.rescueAt === "object") {
+      const r = msg.rescueAt as { x: number; y: number };
+      rescuePrisoners({ siteId: "", siteKind: "encampment", x: r.x, y: r.y } as unknown as import("./types.js").HearthState, `p:${player.id}`);
+    }
+    if (msg.finishTraining === true) for (const c of colonists.values()) if (c.training) c.training.ticksLeft = 1;
+    const ta = msg.trainAt as { x: number; y: number } | undefined;
     reply({
+      trainInfo: ta ? withClan(pc, () => trainInfo(ta.x, ta.y)) : null,
       creative: state.creative,
       people: withClan(clanById(player.clan ?? 0), () => peopleSnapshot()),
       population: civilianPopulationUsed(),

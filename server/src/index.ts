@@ -1,6 +1,7 @@
 // index.ts: boot and wiring. Imports every server module in evaluation order (types, constants and state
 // first; see ROADMAP "Server module split"), generates the world, starts the HTTP/WebSocket server (net.ts),
 // routes client messages, and runs the tick loop (stepSimulation in sim.ts) that sends the snapshots.
+import { handleTrainUnit } from "./people.js";
 import { handleWagonCommand, wagonSnapshot } from "./wagons.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -153,7 +154,7 @@ function clearCreativeTargets(player: Player, ids: unknown) {
 }
 
 // Clans: tile actions (upgrade, repair, gate lock, siege / forge queue, recruit, learn) only on own buildings.
-const TILE_ACTIONS = new Set(["upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "setForgeAuto", "recruitHero", "learnSpell", "wagonCommand"]);
+const TILE_ACTIONS = new Set(["trainUnit", "upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "setForgeAuto", "recruitHero", "learnSpell", "wagonCommand"]);
 
 function handleMessage(player: Player, message: ClientMessage) {
   const socket = player.socket;
@@ -277,6 +278,9 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "queueSiege") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleQueueSiege(message.tileX, message.tileY, message.kind);
+  } else if (message.type === "trainUnit") {
+    // Village life phase 3: train one soldier at a unit building.
+    handleTrainUnit(player, message.tileX, message.tileY);
   } else if (message.type === "queueForge") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleQueueForge(message.tileX, message.tileY, message.slot);

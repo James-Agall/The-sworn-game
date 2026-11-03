@@ -272,7 +272,8 @@ export function spawnStartingPeople(tc: TownCenter) {
 export function staffPost(tx: number, ty: number, kind: ColonistKind, castleLevel = 1): Colonist | null {
   if (state.creative || !isPersonKind(kind) || kind === "villager") return spawnColonistForPost(tx, ty, kind, castleLevel);
   const clan = clanIdAt(tx, ty);
-  const v = freeVillagerFor(clan, tx, ty);
+  // Phase 3: a soldier post is never staffed for free; it waits for "Train unit" (people.ts).
+  const v = isSoldierKind(kind) ? undefined : freeVillagerFor(clan, tx, ty);
   if (!v) {
     respawnQueue.push({ tx, ty, kind, ticksRemaining: 0, ...(clan ? { clan } : {}) });
     return null;
@@ -573,7 +574,9 @@ export function spawnColonistForPost(
   tx: number,
   ty: number,
   kind: ColonistKind,
-  castleLevel = 1
+  castleLevel = 1,
+  // Village life phase 3: a trained soldier brings its own gear (no stock draw).
+  noEquip = false
 ): Colonist {
   const isGuard = isGuardOrMilitiaKind(kind);
   const stationary = isStationaryMinerKind(kind) || kind === "farmhand";
@@ -631,7 +634,7 @@ export function spawnColonistForPost(
   };
   colonist.cycleTicksTotal = colonist.chopTicksRemaining;
   colonists.set(colonist.id, colonist);
-  if (isEquippedKind(kind)) equipNewUnit(colonist);
+  if (isEquippedKind(kind) && !noEquip) equipNewUnit(colonist);
   return colonist;
 }
 
@@ -798,6 +801,8 @@ export function processRespawnQueue() {
     }
     // Village life: a vacancy is filled by a free villager of its clan (checked once a second), never respawned.
     if (state.cycleTick % VACANCY_FILL_INTERVAL_TICKS !== 0) continue;
+    // Phase 3: soldier posts are filled by training only (people.ts), not by a passing villager.
+    if (!state.creative && isSoldierKind(req.kind)) continue;
     const villager = state.creative ? undefined : freeVillagerFor(req.clan ?? clanIdAt(req.tx, req.ty), req.tx, req.ty);
     if (state.creative || villager) {
       const castleLevel =
@@ -1671,6 +1676,12 @@ export function spawnHalfLatch(tile: TileCoord) {
 
 // A free villager (or child) idles about its Town Center, strolling to a nearby tile now and then.
 export function updateVillager(c: Colonist, dt: number) {
+  // Phase 3: a trainee goes to its unit building and trains there (people.ts updateTraining counts it down).
+  if (c.training) {
+    updateStationaryWorkerReturning(c, dt);
+    c.state = c.path.length > 0 ? "returning" : "idle";
+    return;
+  }
   if (c.path.length > 0) {
     advanceAlongPath(c, dt, COLONIST_SPEED * 0.6);
     c.state = c.path.length > 0 ? "returning" : "idle";

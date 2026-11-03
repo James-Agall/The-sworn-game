@@ -1,5 +1,6 @@
 // construction.ts: Placement rules and costs, construction sites, upgrades, demolition, building info panel.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { trainInfo } from "./people.js";
 import { tradingPostInfo } from "./wagons.js";
 import {
   TileType, isGateTile, isSolidTile, TICK_RATE, type GameEventCategory, type ServerMessage, type BuildingInfo, TILE_SIZE, Biome,
@@ -1417,6 +1418,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     ...(isGateTile(t) ? { gate: (({ open, lock, overrun }) => ({ open, lock, overrun }))(gateAt(tileIndex(tx, ty))) } : {}),
     ...(t === TileType.SiegeWorkshop ? { siege: siegeWorkshopInfo(tx, ty) } : {}),
     ...(t === TileType.Blacksmith ? { forge: blacksmithForgeInfo(tx, ty) } : {}),
+    ...(unitBuildingSlots(tx, ty) ? { train: trainInfo(tx, ty)! } : {}),
     ...(t === TileType.Keep ? { heroes: keepHeroInfo(tx, ty) } : {}),
     ...(t === TileType.ChurchPost ? { spellShop: churchSpellShop(forPlayer) } : {}),
     ...(t === TileType.GoldShop ? { tradingPost: tradingPostInfo(tx, ty) } : {}),

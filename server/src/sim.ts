@@ -36,6 +36,7 @@ import { updateBattleBrains, updateFormationMarch } from "./battle.js";
 import { broadcastEvent, scanFights } from "./net.js";
 import { clanTownCenters, enterClan, forEachClan, resetClan } from "./clans.js";
 import { settlementsDawn } from "./diplomacy.js";
+import { peopleDawn, updateAging, updateTraining } from "./people.js";
 import { strifeDawn } from "./strife.js";
 import { updateQuests } from "./quests.js";
 import { updateWagons } from "./wagons.js";
@@ -60,6 +61,8 @@ export function stepSimulation() {
       applyDailyFoodConsumption();
       applyMoraleCheck();
     });
+    // Village life phase 2: homes, births, immigrants.
+    peopleDawn();
     // Forts phase D: settlement production / consumption and relation drift.
     settlementsDawn();
     // Forts phase F: fealty at relation 100, breakaways, tribute.
@@ -205,6 +208,9 @@ export function stepSimulation() {
   updateFarmPlots();
   updateForageRegrow();
   processRespawnQueue();
+  // Village life: trainees count down; children grow up (once a second).
+  updateTraining();
+  if (state.cycleTick % TICK_RATE === 0) updateAging();
   updateWardPriestPresence();
   // Dawn/dusk respawn windows: one toast per batch.
   if (state.respawnWindowSpawned > 0) {

@@ -4338,6 +4338,10 @@ async function main() {
   const bpSiegeBtns = new Map<SiegeKind, HTMLButtonElement>(
     SIEGE_KINDS.map((kind) => [kind, document.getElementById(`bp-siege-${kind}`) as HTMLButtonElement])
   );
+  // Village life phase 3: a unit building's Train unit button (trainUnit) and its troops / reason line.
+  const bpTrainRowEl = document.getElementById("bp-train-row")!;
+  const bpTrainBtn = document.getElementById("bp-train") as HTMLButtonElement;
+  const bpTrainStateEl = document.getElementById("bp-train-state")!;
   // Armour & weapons: the Blacksmith's two forge buttons (queueForge) and its queue line.
   const bpForgeRowEl = document.getElementById("bp-forge-row")!;
   const bpForgeStateEl = document.getElementById("bp-forge-state")!;
@@ -4804,6 +4808,15 @@ async function main() {
       bpGateBtn.textContent = `Lock: ${GATE_LOCK_LABEL[info.gate.lock]}`;
       bpGateStateEl.textContent = info.gate.overrun ? "Overrun!" : info.gate.open ? "Open" : "Closed";
     }
+    bpTrainRowEl.hidden = !info.train;
+    if (info.train) {
+      const t = info.train;
+      const name = t.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
+      bpTrainBtn.disabled = t.reason !== "";
+      bpTrainBtn.textContent = `Train ${name} (T${t.level} weapon + armour, ${t.days} day${t.days === 1 ? "" : "s"})`;
+      bpTrainBtn.title = t.reason;
+      bpTrainStateEl.textContent = `Troops ${t.troops}/${t.cap}${t.training ? ` · ${t.training} in training` : ""}${t.reason ? ` · ${t.reason}` : ""}`;
+    }
     bpSiegeRowEl.hidden = !info.siege;
     if (info.siege) {
       for (const opt of info.siege.options) {
@@ -4897,6 +4910,12 @@ async function main() {
       window.setTimeout(requestBuildingInfo, 150);
     });
   }
+  bpTrainBtn.addEventListener("click", () => {
+    bpTrainBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "trainUnit", tileX: infoTile.tx, tileY: infoTile.ty });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
   for (const [slot, btn] of bpForgeBtns) {
     btn.addEventListener("click", () => {
       btn.blur();

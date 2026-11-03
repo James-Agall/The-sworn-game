@@ -972,6 +972,9 @@ export interface BuildingInfo {
   };
   // Blacksmiths only (Armour & weapons): the tier it forges (= its level), its queue (first = in progress,
   // progress 0-1), the queue cap, and a button per slot (see queueForge).
+  // Village life phase 3: unit buildings only: the soldier it trains, troops / trainees / capacity, training
+  // days, and why "Train unit" is refused ("" = allowed).
+  train?: { kind: ColonistKind; level: number; troops: number; training: number; cap: number; days: number; reason: string };
   forge?: {
     tier: number;
     queue: { slot: EquipSlot; tier: number }[];
@@ -1113,6 +1116,8 @@ export type ClientMessage =
   | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
   // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).
   | { type: "queueForge"; tileX: number; tileY: number; slot: EquipSlot }
+  // Village life phase 3: train one soldier at a unit building (a free villager + tier gear, ~1 day).
+  | { type: "trainUnit"; tileX: number; tileY: number }
   // Forge autocraft (2026-10-30, additive): turns the Blacksmith's autocraft on / off and optionally sets its
   // stock target (items of each slot at its tier, 1..FORGE_AUTO_TARGET_MAX); saved per Blacksmith.
   | { type: "setForgeAuto"; tileX: number; tileY: number; on: boolean; target?: number }

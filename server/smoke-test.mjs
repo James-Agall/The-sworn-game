@@ -26,7 +26,8 @@ const portFree = (port) =>
     s.once("error", () => res(false));
     s.listen(port, () => s.close(() => res(true)));
   });
-let PORT = 31900;
+// A random start (not always 31900): two smoke runs at once (other agents on this machine) must not share a server.
+let PORT = 31900 + Math.floor(Math.random() * 500);
 while (!(await portFree(PORT))) PORT++;
 const saveDir = mkdtempSync(path.join(tmpdir(), "colony-smoke-"));
 const server = spawn(TSX, ["src/index.ts"], {
@@ -412,6 +413,10 @@ await check("creative: spawn enemy/neutral and force-attack", async () => {
 // 8b. village life phase 1: a fixed population (creative switched off for the check)
 await check("people: 10 at start, a post takes a free villager, the dead stay dead", async () => {
   const start = bootPeople.persons === 10 && bootPeople.free === 9;
+  // Vacancies fill by day only: start in the morning.
+  await hook("setCycleTick", { tick: 2 * (DAY + TICK * 75) + TICK * 10 });
+  await ff(2);
+  await hook("killColonists", { kind: "villager" });
   await hook("peopleState", { creative: false, spawn: 2 });
   await hook("setInstantBuild", { enabled: true });
   const L = { x: tc.x - 6, y: tc.y + 9 };
@@ -441,6 +446,62 @@ await check("people: 10 at start, a post takes a free villager, the dead stay de
   await hook("setInstantBuild", { enabled: false });
   return [start && took && refilled && stayDead && dropped,
     `boot ${bootPeople.persons} people (${bootPeople.free} free), took ${took}, refilled ${refilled}, stay dead ${stayDead}, vacancy dropped on demolish ${dropped}`];
+});
+
+// 8c. village life phase 2: a birth, growing up, an immigrant, freed prisoners (creative off)
+await check("people growth: birth, child grows up, immigrant, freed prisoners", async () => {
+  // Everyone out (creative-spawned soldiers count toward the housing cap too), then two adults.
+  await hook("peopleState", { creative: false, clear: true, spawn: 2 });
+  let ps = await hook("peopleState", { dawn: { birth: true } });
+  const kid = ps.persons.find((p) => p.child);
+  const born = !!kid && kid.parents.length === 2 && ps.people.children === 1;
+  await hook("setCycleTick", { tick: (kid?.born ?? 0) + 6 * (DAY + TICK * 75) + 5 });
+  await ff(TICK + 1);
+  ps = await hook("peopleState");
+  const grown = ps.persons.some((p) => p.id === kid?.id && !p.child) && ps.people.children === 0;
+  const before = ps.persons.length;
+  ps = await hook("peopleState", { dawn: { immigrant: true } });
+  const immigrant = ps.persons.filter((p) => p.origin === "immigrant").length >= 3 && ps.persons.length >= before + 1;
+  ps = await hook("peopleState", { rescueAt: { x: tc.x + 20, y: tc.y } });
+  const rescued = ps.persons.filter((p) => p.origin === "rescued").length;
+  await hook("peopleState", { creative: true });
+  return [born && grown && immigrant && rescued >= 1 && rescued <= 3, `born ${born} (${kid?.name}), grown ${grown}, immigrant ${immigrant}, ${rescued} rescued, pop ${ps.population}/${ps.cap}`];
+});
+
+// 8d. village life phase 3: Train unit needs a free villager + tier gear, takes a day, makes the soldier
+await check("training: gear + villager required, 1-day timer, trainee becomes the knight", async () => {
+  await hook("peopleState", { creative: false });
+  for (const k of ["villager", "knight"]) await hook("killColonists", { kind: k });
+  await hook("setInstantBuild", { enabled: true });
+  const K = { x: tc.x + 6, y: tc.y + 9 };
+  await clearBox(K.x, K.y, 2);
+  await place(K.x, K.y, T.KnightPost);
+  await ff(2);
+  let ps = await hook("peopleState", { trainAt: K });
+  const noFreeKnight = !ps.persons.some((p) => p.kind === "knight" && p.postX === K.x) && ps.vacancies.some((q) => q.tx === K.x && q.ty === K.y);
+  const noVillager = /No free villager/.test(ps.trainInfo?.reason ?? "");
+  await hook("peopleState", { spawn: 1 });
+  await hook("setEquipment", { armour: [0, 0, 0], weapon: [0, 0, 0] });
+  ps = await hook("peopleState", { trainAt: K });
+  const noGear = /T1 weapon/.test(ps.trainInfo?.reason ?? "");
+  await hook("setEquipment", { armour: [1, 0, 0], weapon: [1, 0, 0] });
+  await hook("setInstantBuild", { enabled: false });
+  send({ type: "trainUnit", tileX: K.x, tileY: K.y });
+  await sleep(150);
+  ps = await hook("peopleState", { trainAt: K });
+  const trainee = ps.persons.find((p) => p.training);
+  const timer = trainee?.training?.ticksTotal === DAY && ps.people.training === 1;
+  const eq = await hook("setEquipment", {});
+  const paid = eq.equipment.armour[0] === 0 && eq.equipment.weapon[0] === 0;
+  await hook("peopleState", { finishTraining: true });
+  await ff(2);
+  ps = await hook("peopleState");
+  const knight = ps.persons.find((p) => p.id === trainee?.id);
+  const done = knight?.kind === "knight" && knight.postX === K.x && !ps.vacancies.some((q) => q.tx === K.x && q.ty === K.y);
+  await place(K.x, K.y, T.Empty);
+  await hook("peopleState", { creative: true });
+  return [noFreeKnight && noVillager && noGear && timer && paid && done,
+    `post left open ${noFreeKnight}, refused w/o villager ${noVillager}, w/o gear ${noGear}, 1-day timer ${timer}, gear paid ${paid}, became knight ${done}`];
 });
 
 // 9. save/load round trip keeps a stamped site (creative games save to the "creative" slot)

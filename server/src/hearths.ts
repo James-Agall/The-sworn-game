@@ -1,5 +1,6 @@
 // hearths.ts: Camp hearths: POI hearth structures, their damage and destruction, attacking them.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { rescuePrisoners } from "./people.js";
 import { randomUUID } from "node:crypto";
 import { type MobKind, TileType, TILE_SIZE } from "@colony/shared/protocol";
 import type { AttackObjective, Colonist, HearthState, Mob, PoiSiteKind, TileCoord } from "./types.js";
@@ -144,6 +145,8 @@ export function destroyHearth(h: HearthState, attackerKey?: string) {
   // Forts phase D: settlements near a fallen bandit / orc camp or fort are grateful.
   noteCampCleared(h, attackerKey);
   noteQuestCampCleared(h, attackerKey);
+  // Village life phase 2: the camp's prisoners are freed and join the attacker's colony.
+  rescuePrisoners(h, attackerKey);
   const centre = tileToPixelCenter(h);
   state.pendingEffects.push({ fromX: centre.x, fromY: centre.y, toX: centre.x, toY: centre.y, boulder: true });
   // Forts phase B: a fort's keep falls to a RuinedKeep (the site is cleared; its other tiles stand).

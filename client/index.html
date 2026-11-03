@@ -1145,7 +1145,9 @@
       #bp-gate-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
       #bp-gate-row[hidden] { display: none; }
       #bp-gate-state { font-size: 12.5px; color: var(--ink-soft); }
-      #bp-siege-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-siege-row, #bp-train-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-train-row[hidden] { display: none; }
+      #bp-train-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
       #bp-siege-row[hidden] { display: none; }
       #bp-wagon-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
       #bp-wagon-row[hidden] { display: none; }
@@ -1541,6 +1543,10 @@
       </div>
       <div id="bp-gate-row" hidden>
         <button id="bp-gate-lock" class="econ-btn">Lock: Auto</button><span id="bp-gate-state"></span>
+      </div>
+      <div id="bp-train-row" hidden>
+        <button id="bp-train" class="econ-btn">Train unit</button>
+        <span id="bp-train-state"></span>
       </div>
       <div id="bp-siege-row" hidden>
         <button id="bp-siege-batteringRam" class="econ-btn">Build Ram</button>
