@@ -1,0 +1,200 @@
+// Natural progression tree (docs/colony2d/PLAN-progression-tree.md; ROADMAP "Progression tree — landed").
+// PROGRESSION is the one source of truth for items, recipes, quality grades, professions and what each building
+// requires. The server checks placements / upgrades / crafts against it (server/src/progression.ts); the client
+// builds its locked "needs: X" build-menu text, Next steps and Craft-by-hand panel from the server's
+// `progression` snapshot, which is computed from this table.
+import { TileType } from "./protocol.js";
+
+export type ItemId =
+  | "stoneAxe" | "stonePick" | "stoneKnife" | "timberProps";
+
+export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "tools";
+
+export interface ItemDef {
+  label: string;
+  desc: string;
+}
+
+// Quality grade 1-3 of a crafted item (index = grade - 1). A station's output grade is its effective tier
+// (min(station level, worker level), capped at 3).
+export const QUALITY_GRADES = [
+  { grade: 1, label: "Poor", value: 1 },
+  { grade: 2, label: "Good", value: 1.25 },
+  { grade: 3, label: "Fine", value: 1.5 },
+] as const;
+export const MAX_QUALITY = 3;
+
+export interface Requires {
+  // Items that must be in stock (any grade). Not consumed: a tool in the store opens the building for good.
+  items?: Partial<Record<ItemId, number>>;
+  // Buildings of at least `level` (default 1) standing in the clan's lands.
+  buildings?: { tile: TileType; level?: number }[];
+  // The assigned worker's level (station upgrades always need level = the new tier; see WORKER_LEVEL_RULE).
+  workerLevel?: number;
+  // Days the clan has existed.
+  days?: number;
+}
+
+export interface BuildingReq {
+  // To place the first one (sticky: once placed, the building type stays unlocked).
+  requires?: Requires;
+  // Extra gates for upgrading to level 2 / 3 (checked on every upgrade).
+  levels?: Partial<Record<2 | 3, Requires>>;
+}
+
+export interface Recipe {
+  id: string;
+  label: string;
+  output: ItemId;
+  amount: number;
+  // Stock resources and items used up.
+  stock?: Partial<Record<StockKey, number>>;
+  items?: Partial<Record<ItemId, number>>;
+  // "hand": crafted at once from the build panel (the knapping spot, no building). Otherwise the station tile:
+  // its artisan works the first recipe whose inputs are ready and whose output is under `cap`.
+  station: "hand" | TileType;
+  // Work seconds at a station (scaled by the station's speed); hand recipes are instant.
+  seconds?: number;
+  // A station stops making this while the stock holds this many (all grades).
+  cap?: number;
+  // Station recipes: the worker level needed (default 1).
+  workerLevel?: number;
+}
+
+export type Profession =
+  | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "jeweler"
+  | "brewer" | "innkeeper" | "hunter" | "forager";
+
+// Worker XP: one point per second at work. Level L needs WORKER_XP_LEVELS[L - 1] XP (level 1 at 0).
+export const WORKER_XP_LEVELS = [0, 100, 300, 700];
+export const WORKER_MAX_LEVEL = WORKER_XP_LEVELS.length;
+// A station's effective tier = min(station level, worker level): +25% speed per tier above 1.
+export const TIER_SPEED_BONUS = 0.25;
+
+export function levelForXp(xp: number): number {
+  let level = 1;
+  for (let i = 1; i < WORKER_XP_LEVELS.length; i++) if (xp >= WORKER_XP_LEVELS[i]) level = i + 1;
+  return level;
+}
+
+// XP still needed for the next level (null at the top).
+export function xpToNext(xp: number): number | null {
+  const next = WORKER_XP_LEVELS[levelForXp(xp)];
+  return next === undefined ? null : next - xp;
+}
+
+export const PROGRESSION = {
+  items: {
+    stoneAxe: { label: "Stone axe", desc: "Knapped flint on a haft. Fells trees: Lumberjack, Wooden House." },
+    stonePick: { label: "Stone pick", desc: "Opens surface outcrops: Quarry and Iron Mine; with a knife, prospecting." },
+    stoneKnife: { label: "Stone knife", desc: "Skins game: Hunter's Hut." },
+    timberProps: { label: "Timber props", desc: "Pit supports: a mine can be sunk to level 2 (shaft)." },
+  } satisfies Record<ItemId, ItemDef>,
+  recipes: [
+    { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
+    { id: "stonePick", label: "Knap a stone pick", output: "stonePick", amount: 1, stock: { wood: 2, rock: 4 }, station: "hand" },
+    { id: "stoneKnife", label: "Knap a stone knife", output: "stoneKnife", amount: 1, stock: { wood: 1, rock: 2 }, station: "hand" },
+    { id: "timberProps", label: "Cut timber props", output: "timberProps", amount: 1, stock: { wood: 8 }, station: "hand" },
+  ] as Recipe[],
+  // What each building needs. Buildings not listed are open from the start.
+  buildings: {
+    [TileType.LumberjackPost]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.House]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.HunterHut]: { requires: { items: { stoneKnife: 1 } } },
+    [TileType.RockMinePost]: {
+      requires: { items: { stonePick: 1 } },
+      levels: { 2: { items: { timberProps: 1 } }, 3: { buildings: [{ tile: TileType.Blacksmith }] } },
+    },
+    [TileType.IronMinePost]: {
+      requires: { items: { stonePick: 1 } },
+      levels: { 2: { items: { timberProps: 1 } }, 3: { buildings: [{ tile: TileType.Blacksmith }] } },
+    },
+    [TileType.KnightPost]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
+    [TileType.Stables]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
+    [TileType.SiegeWorkshop]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
+  } as Partial<Record<TileType, BuildingReq>>,
+  // The profession a station's workers train in (XP per profession per person).
+  stations: {
+    [TileType.LumberjackPost]: "woodcutter",
+    [TileType.IronMinePost]: "miner",
+    [TileType.RockMinePost]: "miner",
+    [TileType.BarnPost]: "farmer",
+    [TileType.Pasture]: "farmhand",
+    [TileType.Orchard]: "farmhand",
+    [TileType.WoolFarm]: "farmhand",
+    [TileType.CottonFarm]: "farmhand",
+    [TileType.TailorShop]: "tailor",
+    [TileType.Blacksmith]: "smith",
+    [TileType.LuxuryWorkshop]: "jeweler",
+    [TileType.Brewery]: "brewer",
+    [TileType.Tavern]: "innkeeper",
+    [TileType.HunterHut]: "hunter",
+    [TileType.ForagerHut]: "forager",
+  } as Partial<Record<TileType, Profession>>,
+  // A new game's starting kit (plan open question: small kit, 1 stone axe + 1 pick).
+  starterKit: { stoneAxe: 1, stonePick: 1 } as Partial<Record<ItemId, number>>,
+};
+
+export const PROFESSION_LABEL: Record<Profession, string> = {
+  woodcutter: "Woodcutter", miner: "Miner", farmer: "Farmer", farmhand: "Farmhand", tailor: "Tailor", smith: "Smith",
+  jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
+  hunter: "Hunter", forager: "Forager",
+};
+
+// Names for the buildings the table refers to (needs text).
+export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
+  [TileType.LumberjackPost]: "Lumberjack",
+  [TileType.Blacksmith]: "Blacksmith",
+  [TileType.House]: "Wooden House",
+  [TileType.HunterHut]: "Hunter's Hut",
+  [TileType.RockMinePost]: "Quarry",
+  [TileType.IronMinePost]: "Iron Mine",
+  [TileType.KnightPost]: "Hall of the Sworn",
+  [TileType.Stables]: "Stables",
+  [TileType.SiegeWorkshop]: "Siege Workshop",
+};
+
+export interface ProgressContext {
+  // Items in stock, all grades summed.
+  items: Partial<Record<ItemId, number>>;
+  // Highest standing level per building type (missing = none standing).
+  buildings: Partial<Record<number, number>>;
+  // Days since the clan was founded.
+  day: number;
+  // The assigned worker's level (upgrades only).
+  workerLevel?: number;
+}
+
+// Human-readable unmet gates of `req` ("Stone axe", "a Lumberjack", "Smith level 2"); empty = all met.
+export function unmetRequirements(req: Requires | undefined, ctx: ProgressContext, professionLabel = "Worker"): string[] {
+  if (!req) return [];
+  const out: string[] = [];
+  for (const [id, n] of Object.entries(req.items ?? {}) as [ItemId, number][]) {
+    if ((ctx.items[id] ?? 0) < n) out.push(n > 1 ? `${n} ${PROGRESSION.items[id].label}` : PROGRESSION.items[id].label);
+  }
+  for (const b of req.buildings ?? []) {
+    const lvl = b.level ?? 1;
+    if ((ctx.buildings[b.tile] ?? 0) < lvl) {
+      const name = PROGRESSION_BUILDING_LABEL[b.tile] ?? "building";
+      out.push(lvl > 1 ? `a level-${lvl} ${name}` : `a ${name}`);
+    }
+  }
+  if (req.workerLevel !== undefined && (ctx.workerLevel ?? 0) < req.workerLevel) out.push(`${professionLabel} level ${req.workerLevel}`);
+  if (req.days !== undefined && ctx.day < req.days) out.push(`day ${req.days}`);
+  return out;
+}
+
+export function recipeById(id: string): Recipe | undefined {
+  return PROGRESSION.recipes.find((r) => r.id === id);
+}
+
+export function stationRecipes(tile: number): Recipe[] {
+  return PROGRESSION.recipes.filter((r) => r.station === tile);
+}
+
+// "2 wood + 3 rock + 2 Hide".
+export function recipeCostText(r: Recipe): string {
+  const parts = Object.entries(r.stock ?? {}).map(([k, n]) => `${n} ${k}`);
+  for (const [id, n] of Object.entries(r.items ?? {}) as [ItemId, number][]) parts.push(`${n} ${PROGRESSION.items[id].label}`);
+  return parts.join(" + ") || "Free";
+}

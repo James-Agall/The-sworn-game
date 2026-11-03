@@ -940,6 +940,17 @@ export interface TownCenterSnapshot {
   garrisonCap?: number;
 }
 
+// Progression tree (shared/src/progression.ts): the active clan's items (count per quality grade 1-3), the
+// building types still locked and what each needs, the Next steps lines and the hand recipes.
+export interface ProgressionSnapshot {
+  // true: no gates (creative "unlock all", or the test-only unlock).
+  open: boolean;
+  items: Record<string, number[]>;
+  locked: Record<number, string[]>;
+  next: string[];
+  crafts: { id: string; label: string; cost: string; ok: boolean }[];
+}
+
 // Reply to a `buildingInfo` request; every number is computed by the server's own formulas.
 export interface BuildingInfo {
   name: string;
@@ -978,6 +989,8 @@ export interface BuildingInfo {
   // Village life phase 4: own Town Centers only: civilians ready to be levied, levies on the field, ticks until they
   // stand down, and why "Call to arms" is refused ("" = allowed).
   levy?: { ready: number; onField: number; ticksLeft: number; reason: string };
+  // Progression tree: stations / workplaces: worker levels, effective tier, upgrade gates (display lines).
+  progression?: string[];
   forge?: {
     tier: number;
     queue: { slot: EquipSlot; tier: number }[];
@@ -1158,7 +1171,9 @@ export type ClientMessage =
   // World streaming phase 4: chunk ids (cy * chunksX + cx, STREAM_CHUNK_TILES) a chunked client still needs.
   | { type: "requestChunks"; chunks: number[] }
   // World streaming phase 5: the player has read the chronicle up to this entry id.
-  | { type: "chronicleSeen"; id: number };
+  | { type: "chronicleSeen"; id: number }
+  // Progression tree: craft one hand recipe (PROGRESSION.recipes, station "hand") from the stock.
+  | { type: "craftItem"; recipe: string };
 
 export type ServerMessage =
   | {
@@ -1226,6 +1241,8 @@ export type ServerMessage =
       populationCap: number;
       // Village life: free villagers, children, trainees and open posts (omitted by older servers).
       people?: PeopleSnapshot;
+      // Progression tree (omitted by older servers: everything unlocked).
+      progression?: ProgressionSnapshot;
       taskForces: Record<string, string[]>;
       // Strategy mode phase 2: every player regiment; sent when membership / names change and every 10th
       // tick otherwise (omitted in between and by older servers: keep the last one).
@@ -1254,7 +1271,7 @@ export type ServerMessage =
       // Dawn/dusk respawn windows (long days): see RespawnWindowSnapshot.
       respawn?: RespawnWindowSnapshot;
       // Creative mode only: the world's creative toggles.
-      creative?: { allowAttack: boolean };
+      creative?: { allowAttack: boolean; unlockAll?: boolean };
       // Off-screen fight notifiers: active fights relevant to THIS player (per-player field, omitted
       // when there are none). See FightSnapshot.
       fights?: FightSnapshot[];

@@ -40,6 +40,12 @@ const INSTANT = { COLONY_INSTANT_BUILD: "1" };
 // LEGACY: suites written before village life (2026-11-03): one starting builder, posts staffed by fresh units
 // (state.legacyStaff). Tests of the people rules themselves run without it.
 const LEGACY = { COLONY_LEGACY_STAFF: "1" };
+// UNLOCK: suites written before the progression tree (2026-11-03) assume every building and upgrade is open:
+// COLONY_UNLOCK_ALL=1 (state.testUnlockAll, honoured only with COLONY_TEST_HOOKS=1) switches the tree's gates and
+// worker-tier speed off. Every server suite gets it (serverEnvFor) except the tree's own (TREE_SUITES).
+const UNLOCK = { COLONY_UNLOCK_ALL: "1" };
+const TREE_SUITES = new Set(["progression"]);
+const serverEnvFor = (name) => ({ ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}) });
 const SERVER_ENV = {
   "abbey-ward": INSTANT,
   "army-damage": { ...W80, ...INSTANT, ...LEGACY },
@@ -210,9 +216,9 @@ for (const t of selected) {
   try {
     const env = { ...process.env, PORT: String(base), PORT_A: String(base), PORT_B: String(base + 1), PORT_C: String(base + 2) };
     // Self-booting tests that spread process.env into their server get SERVER_ENV that way (e.g. LEGACY).
-    if (isServerTest) Object.assign(env, SERVER_ENV[t.name] ?? {});
+    if (isServerTest) Object.assign(env, serverEnvFor(t.name));
     if (isServerTest && !selfServer) {
-      server = await bootServer(base, { COLONY_SAVE_DIR: saveDir, ...(SERVER_ENV[t.name] ?? {}) }, log);
+      server = await bootServer(base, { COLONY_SAVE_DIR: saveDir, ...serverEnvFor(t.name) }, log);
     }
     const proc = spawn(process.execPath, [t.file], { cwd: t.dir, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
     started.add(proc);

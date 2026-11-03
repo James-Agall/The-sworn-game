@@ -494,3 +494,16 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
     the nearest one.
 14. Phase 4: a Trading Post's escorts and the Ward Priest are villagers taking the post (free count drops); with no
     free villager the escort roster / priest waits.
+
+## Progression tree (phase 1: gates and the Next steps panel)
+1. New normal game, open the Build panel: under the cost line a **Next steps** list, **Craft by hand** buttons and
+   "Items: Stone axe 1, Stone pick 1".
+2. Hunter's Hut, Hall of the Sworn, Stables, Siege Workshop show dashed with "(locked)"; selecting one says
+   "Locked. Needs: ...". Placing it toasts "Hunter's Hut needs: Stone knife".
+3. Click "Knap a stone knife (1 wood + 2 rock)": toast "Crafted: Stone knife", items list updates, the Hunter's Hut
+   unlocks and can be built. Lumberjack, Wooden House, Quarry, Iron Mine work from the start (starter kit).
+4. Build a Blacksmith: the Hall of the Sworn / Stables / Siege Workshop unlock.
+5. Click a Quarry: its info lists "Level 2 needs: Timber props"; Upgrade is refused with that reason until you cut
+   timber props by hand (8 wood).
+6. Creative game: everything open; Creative panel > Tools > "Unlock all (tree): off" makes the gates apply.
+7. Load an old save: everything you had built stays buildable.

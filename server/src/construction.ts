@@ -63,6 +63,7 @@ import { captureSite, isInSiteGrounds, nearSiteGrounds, rebuildKeepBlocker, rela
 import { SITE_TEMPLATES } from "./constants.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
 import { trainInfo, villageLevyInfo } from "./people.js";
+import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
 
 export function upgradeKnightAt(tx: number, ty: number, level: number) {
   const stats = guardStats("knight", level);
@@ -930,6 +931,13 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     if (current !== TileType.Empty) return;
   }
 
+  // Progression tree: tools, buildings and (phase 2) worker levels gate new buildings and upgrades.
+  const locked = progressionBlocker(tile, current, tx, ty, upgradeInPlace);
+  if (locked) {
+    sendEvent(player, "build", locked);
+    return;
+  }
+
   const cost = placementCost(tile, current, tx, ty);
   if (!canAfford(cost)) return;
   // Village life: a workplace no longer needs population room (its worker is an existing person, or it waits).
@@ -974,6 +982,7 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   }
 
   spend(cost);
+  markUnlocked(tile);
   // A new building (e.g. a house over a cleared, damaged tile) starts at full HP.
   if (!upgradeInPlace) {
     buildingHp.delete(siteKey);
@@ -1356,7 +1365,9 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     } else {
       const cost = placementCost(placeTile, t, tx, ty);
       let reason = "";
+      const treeBlock = isInPlaceUpgrade(placeTile, t, tx, ty) ? progressionBlocker(placeTile, t, tx, ty, true) : "";
       if (site) reason = "Upgrade under way";
+      else if (treeBlock) reason = treeBlock;
       else if (!canAfford(cost)) reason = "Not enough resources";
       else if (!isInPlaceUpgrade(placeTile, t, tx, ty)) reason = "Can't upgrade yet";
       else if (garrisonGain(placeTile, t, tx, ty) > 0 && garrisonBlocker(tx, ty, garrisonGain(placeTile, t, tx, ty)))
@@ -1423,6 +1434,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     ...(t === TileType.Keep ? { heroes: keepHeroInfo(tx, ty) } : {}),
     ...(t === TileType.ChurchPost ? { spellShop: churchSpellShop(forPlayer) } : {}),
     ...(t === TileType.GoldShop ? { tradingPost: tradingPostInfo(tx, ty) } : {}),
+    ...(progressionInfo(tx, ty, t) ? { progression: progressionInfo(tx, ty, t)! } : {}),
   };
 }
 

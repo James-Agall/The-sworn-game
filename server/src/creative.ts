@@ -479,6 +479,10 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
     }
     if (!state.creativeAllowAttack) for (const c of colonists.values()) if (c.creativeTarget && !c.creativeTarget.forced) c.creativeTarget = undefined;
     reply(true, `Attacking neutral units ${state.creativeAllowAttack ? "ALLOWED (clans hostile)" : "off"}`, { on: state.creativeAllowAttack });
+  } else if (op === "unlockAll") {
+    // Progression tree: on (default) = creative ignores the tree; off = the tree's gates apply, to test it.
+    state.creativeUnlockAll = msg.on === true;
+    reply(true, `Progression tree: ${state.creativeUnlockAll ? "everything unlocked" : "gates apply"}`, { on: state.creativeUnlockAll });
   } else if (op === "godmode") {
     player.creativeGod = msg.on === true;
     if (player.creativeGod) player.hp = playerMaxHp(player);

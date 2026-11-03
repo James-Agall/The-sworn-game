@@ -242,6 +242,28 @@
         text-align: left;
       }
 
+      /* Progression tree: a locked tool (needs a tool / building first). Still selectable, to read its needs. */
+      .tool-btn.locked {
+        opacity: 0.55;
+        border-style: dashed;
+      }
+      .tool-btn.locked::after {
+        content: " (locked)";
+        font-size: 12px;
+      }
+      #progress-panel {
+        font-size: 13px;
+        line-height: 1.4;
+        margin-bottom: 12px;
+        border-bottom: 3px double rgba(90, 52, 24, 0.55);
+        padding-bottom: 10px;
+        color: var(--ink);
+      }
+      #progress-panel b { display: block; margin-top: 4px; }
+      #progress-panel ul { margin: 2px 0; padding-left: 18px; }
+      #progress-crafts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+      #progress-crafts button { font-size: 12px; padding: 4px 8px; }
+
       #build-category-tabs {
         display: flex;
         flex-wrap: wrap;
@@ -1629,6 +1651,13 @@
     <div id="build-panel" class="collapsed">
       <div id="build-category-tabs"></div>
       <div id="build-requirements">Select a tool to see its cost.</div>
+      <div id="progress-panel" hidden>
+        <b>Next steps</b>
+        <ul id="progress-next"></ul>
+        <b>Craft by hand</b>
+        <div id="progress-crafts"></div>
+        <div id="progress-items"></div>
+      </div>
       <div id="toolbar"></div>
     </div>
     <div id="minimap-frame"><canvas id="minimap" width="160" height="160" aria-label="Minimap"></canvas></div>

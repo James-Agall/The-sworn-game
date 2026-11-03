@@ -32,7 +32,8 @@ while (!(await portFree(PORT))) PORT++;
 const saveDir = mkdtempSync(path.join(tmpdir(), "colony-smoke-"));
 const server = spawn(TSX, ["src/index.ts"], {
   cwd: DIR,
-  env: { ...process.env, PORT: String(PORT), COLONY_TEST_HOOKS: "1", COLONY_SAVE_DIR: saveDir },
+  // COLONY_UNLOCK_ALL: the checks below predate the progression tree (its own check switches the unlock off).
+  env: { ...process.env, PORT: String(PORT), COLONY_TEST_HOOKS: "1", COLONY_SAVE_DIR: saveDir, COLONY_UNLOCK_ALL: "1" },
   // SMOKE_LOG=<file>: the server's stdout / stderr go there (debugging a failed run).
   stdio: process.env.SMOKE_LOG ? ["ignore", openSync(process.env.SMOKE_LOG, "w"), openSync(process.env.SMOKE_LOG, "a")] : "ignore",
   detached: true,
@@ -568,6 +569,38 @@ await check("save/load: round trip preserves the stamped site", async () => {
   const after = (await hook("sitesState")).sites.find((s) => s.id === sid);
   const keepBack = tileAt(site.keepX, site.keepY) === before.keepTile;
   return [!!after && after.name === before.name && keepBack && !!c.snap.creative, `slot ${slot}, site ${after?.name}, keep tile ${tileAt(site.keepX, site.keepY)} (was ${before.keepTile}), creative ${!!c.snap.creative}`];
+});
+
+// Progression tree: test unlock and creative "Unlock all" off = the tree's gates apply; a knapped knife opens the Hunter's Hut.
+await check("progression: locked needs, hand craft unlocks, sticky unlock", async () => {
+  const P = { HunterHut: 50, KnightPost: 5 };
+  await clearBox(H.x, H.y, 4);
+  const r0 = await hook("progression", { unlockAll: false, creativeUnlockAll: false, reset: true });
+  const s0 = r0.snapshot;
+  const needsKnife = (s0.locked[P.HunterHut] ?? []).includes("Stone knife");
+  const axeOpen = !s0.locked[3] && !s0.open;
+  const ev0 = c.events.length;
+  await place(H.x, H.y, P.HunterHut, P.HunterHut);
+  const refused = tileAt(H.x, H.y) === T.Empty && /needs: Stone knife/.test(events(ev0));
+  send({ type: "craftItem", recipe: "stoneKnife" });
+  await until(() => (c.snap.progression?.items?.stoneKnife?.[0] ?? 0) >= 1, 3000);
+  const crafted = (c.snap.progression?.items?.stoneKnife?.[0] ?? 0) >= 1;
+  await place(H.x, H.y, P.HunterHut);
+  // (Built at once, or a construction site if an earlier check switched instant build off.)
+  const built = [P.HunterHut, 59].includes(tileAt(H.x, H.y));
+  const ev1 = c.events.length;
+  await place(H.x + 2, H.y, P.KnightPost, P.KnightPost);
+  // The building gate: the Hall of the Sworn is locked exactly while no Blacksmith (tile 26) stands.
+  const smithStands = !!r0.ctx.buildings[26];
+  const knightRefused = smithStands
+    ? !s0.locked[P.KnightPost]
+    : tileAt(H.x + 2, H.y) === T.Empty && /needs: a Blacksmith/.test(events(ev1));
+  const r1 = await hook("progression", {});
+  const sticky = r1.unlocked.includes(P.HunterHut) && !r1.snapshot.locked[P.HunterHut];
+  await hook("progression", { unlockAll: true, creativeUnlockAll: true });
+  await clearBox(H.x, H.y, 4);
+  return [needsKnife && axeOpen && refused && crafted && built && knightRefused && sticky,
+    `needsKnife ${needsKnife}, axe open ${axeOpen}, refused ${refused}, crafted ${crafted}, built ${built}, knight refused ${knightRefused}, sticky ${sticky}; next: ${s0.next.join(" / ")}`];
 });
 
 // 10. world streaming: the tile registry matches a full scan after everything above (incl. the load), and paths hit the cache

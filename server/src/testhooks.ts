@@ -1,7 +1,9 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { addItem, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
+import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
-import { buildingLevel, tradingPosts } from "./state.js";
+import { buildingLevel, newClanProgress, tradingPosts } from "./state.js";
 import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, pathCacheStats, setTile, updateChunkStates } from "./chunks.js";
 import { clanById, clanIdAt, withClan } from "./clans.js";
 import { auditWorld } from "./abstract.js";
@@ -870,6 +872,21 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         .filter((c) => c.person)
         .map((c) => ({ id: c.id, kind: c.kind, name: c.person!.name, child: !!c.person!.child, born: c.person!.born, parents: c.person!.parents ?? [], origin: c.person!.origin, training: c.training ?? null, postX: c.postX, postY: c.postY, hp: c.hp })),
     });
+  } else if (msg.op === "progression") {
+    // Progression tree: `unlockAll` sets the test-only unlock (COLONY_UNLOCK_ALL); `creativeUnlockAll` the creative
+    // toggle; `reset` = a new game's tree (starter kit, nothing unlocked); `items` {id: n} adds items at `quality`.
+    const pc = clanById(player.clan ?? 0);
+    if (typeof msg.unlockAll === "boolean") state.testUnlockAll = msg.unlockAll;
+    if (typeof msg.creativeUnlockAll === "boolean") state.creativeUnlockAll = msg.creativeUnlockAll;
+    if (msg.reset === true) pc.progress = newClanProgress();
+    // `grandfather`: what a load of a save from before the tree does (every owned gated type stays unlocked).
+    if (msg.grandfather === true) restoreProgress(pc, undefined);
+    const items = (msg.items ?? {}) as Record<string, number>;
+    withClan(pc, () => {
+      for (const [id, n] of Object.entries(items)) if (id in PROGRESSION.items) addItem(id as ItemId, Number(n) || 0, Number(msg.quality) || 1);
+    });
+    resetProgressCache();
+    reply(withClan(pc, () => ({ ...progressionDebug(), snapshot: progressionSnapshot() })));
   } else if (msg.op === "respawnState") {
     // Long days & dawn/dusk respawn windows (day-respawn-test).
     reply({

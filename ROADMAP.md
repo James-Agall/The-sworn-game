@@ -2155,6 +2155,33 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Progression tree — landed (phase 1) 2026-11-03 (data model, gates, needs UI)
+
+Plan: `docs/colony2d/PLAN-progression-tree.md`.
+- **One table (`shared/src/progression.ts` `PROGRESSION`):** items (stone axe / pick / knife, timber props), recipes
+  (hand = the knapping spot, no building; station recipes come in phase 3), quality grades 1-3 (`QUALITY_GRADES`),
+  professions per station, and per building `requires {items, buildings, workerLevel, days}` plus per-level gates
+  (`levels`). Items are gates, not costs: a tool in the store opens a building and is never used up.
+- **Gates now:** Lumberjack + Wooden House need a stone axe; Quarry / Iron Mine a stone pick (level 2: timber props,
+  level 3: a Blacksmith standing); Hunter's Hut a stone knife; Hall of the Sworn, Stables, Siege Workshop a Blacksmith.
+  Everything else is open. A new game's starter kit: 1 stone axe + 1 stone pick (so the opening is unchanged apart
+  from the Hunter's Hut, whose knife is 1 wood + 2 rock by hand).
+- **Server (`server/src/progression.ts`):** clan items per grade + the sticky `unlocked` list (`ClanFields.progress`,
+  saved per clan); `progressionBlocker` in `handleSetTileInner` (new buildings and in-place upgrades; the refusal
+  toasts "X needs: ..."; the info panel's Upgrade shows it); `craftItem` message (`handleCraftItem`); the
+  `progression` snapshot (open, items, locked needs, Next steps, hand recipes; recomputed once a second).
+- **Client:** locked build tools are dashed + "(locked)", hover / requirements line say "Locked. Needs: ...". The build
+  panel has a **Next steps** list (the 4 nearest locked buildings and what they need, "(craft by hand)" where it
+  applies), **Craft by hand** buttons and the item list. Building info lists the next level's tree gate.
+- **Creative:** ignores the tree; Tools tab **Unlock all (tree): ON / off** (`creativeSet unlockAll`, saved) turns the
+  gates on to test it.
+- **Old saves:** grandfathered (`restoreProgress` with no saved `progress`): every gated building type the clan owns
+  stays unlocked, plus the starter kit.
+- **Tests:** `COLONY_UNLOCK_ALL=1` (`state.testUnlockAll`, test hooks only) = the rules before the tree; the runner sets
+  it for every server suite except the tree's own (`TREE_SUITES`), the smoke server too. Test hook `progression`
+  (`unlockAll`, `creativeUnlockAll`, `reset`, `grandfather`, `items` + `quality`). Smoke: "progression: locked needs,
+  hand craft unlocks, sticky unlock".
+
 ## Village life — landed (phase 4, rest) 2026-11-03 (levy, raid rebalance, home beds, people for escorts / priest)
 
 - **Levy (`people.ts` `villageLevyInfo` / `handleCallVillagers` / `updateVillageLevy`):** an own Town Center's panel

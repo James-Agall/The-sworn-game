@@ -54,6 +54,8 @@ import {
   placedFootprintAt,
 } from "@colony/shared/buildings";
 import type { Footprint } from "@colony/shared/buildings";
+import { type ItemId, PROGRESSION, QUALITY_GRADES } from "@colony/shared/progression";
+import type { ProgressionSnapshot } from "@colony/shared/protocol";
 import {
   Biome,
   BOSS_RENDER_SCALE,
@@ -3865,8 +3867,63 @@ async function main() {
     if (tile !== TileType.TownCenter && !isRoadTile(tile)) placementGhost.visible = false;
     configurePlacementGhost(tile);
     refreshToolbarSelection();
-    const def = TOOLS.find((t) => t.tile === tile);
-    buildRequirementsEl.textContent = def && def.cost ? def.cost : "No requirements.";
+    refreshBuildRequirements();
+  }
+
+  function refreshBuildRequirements() {
+    const def = TOOLS.find((t) => t.tile === currentTool);
+    const text = def && def.cost ? def.cost : "No requirements.";
+    const needs = progressionLocked[currentTool];
+    buildRequirementsEl.textContent = needs ? `Locked. Needs: ${needs.join(", ")}. ${text}` : text;
+  }
+
+  // ---- Progression tree (shared/src/progression.ts; the server's `progression` snapshot) ----
+  let progressionLocked: Record<number, string[]> = {};
+  let progressionSig = "";
+  const progressPanelEl = document.getElementById("progress-panel")!;
+  const progressNextEl = document.getElementById("progress-next")!;
+  const progressCraftsEl = document.getElementById("progress-crafts")!;
+  const progressItemsEl = document.getElementById("progress-items")!;
+  function applyProgression(p: ProgressionSnapshot | undefined) {
+    const sig = p ? JSON.stringify(p) : "";
+    if (sig === progressionSig) return;
+    progressionSig = sig;
+    progressionLocked = p && !p.open ? p.locked : {};
+    for (const [tile, btn] of toolButtonEls) {
+      const needs = progressionLocked[tile];
+      btn.classList.toggle("locked", !!needs);
+      btn.title = needs ? `Locked. Needs: ${needs.join(", ")}` : "";
+    }
+    refreshBuildRequirements();
+    progressPanelEl.hidden = !p;
+    if (!p) return;
+    progressNextEl.replaceChildren(
+      ...(p.open ? ["Everything is unlocked."] : p.next).map((text) => {
+        const li = document.createElement("li");
+        li.textContent = text;
+        return li;
+      })
+    );
+    progressCraftsEl.replaceChildren(
+      ...p.crafts.map((c) => {
+        const b = document.createElement("button");
+        b.className = "econ-btn";
+        b.textContent = `${c.label} (${c.cost})`;
+        b.disabled = !c.ok;
+        b.addEventListener("click", () => {
+          sendMessage({ type: "craftItem", recipe: c.id });
+          b.blur();
+        });
+        return b;
+      })
+    );
+    const owned = Object.entries(p.items).map(([id, grades]) => {
+      const label = PROGRESSION.items[id as ItemId]?.label ?? id;
+      const total = grades.reduce((a, b) => a + b, 0);
+      const fine = grades.slice(1).some((n) => n > 0) ? ` (${grades.map((n, i) => (n > 0 ? `${n} ${QUALITY_GRADES[i].label}` : "")).filter(Boolean).join(", ")})` : "";
+      return `${label} ${total}${fine}`;
+    });
+    progressItemsEl.textContent = owned.length > 0 ? `Items: ${owned.join(", ")}` : "Items: none";
   }
 
   setupToolbar();
@@ -4776,7 +4833,8 @@ async function main() {
       const label = info.tile === TileType.ConstructionSite ? "Under construction" : "Upgrading";
       bpConstructionEl.textContent = `${label}: ${Math.round(info.construction * 100)}%`;
     }
-    const items = info.bonuses.length > 0 ? info.bonuses : ["None yet"];
+    const lines = [...info.bonuses, ...(info.progression ?? [])];
+    const items = lines.length > 0 ? lines : ["None yet"];
     bpBonusesEl.replaceChildren(
       ...items.map((text) => {
         const li = document.createElement("li");
@@ -5918,6 +5976,7 @@ async function main() {
       strategyOnWelcome();
     } else if (message.type === "snapshot") {
       creativeUi.onSnapshot(message);
+      applyProgression(message.progression);
       interpBeforeSnapshot();
       syncPlayers(message.players);
       latestPlayersForSpells = message.players;

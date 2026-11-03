@@ -61,6 +61,7 @@ import { handleTestHook } from "./testhooks.js";
 import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creative.js";
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
 import { handleCallVillagers, handleTrainUnit } from "./people.js";
+import { handleCraftItem, progressionSnapshot } from "./progression.js";
 
 setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 
@@ -319,6 +320,8 @@ function handleMessage(player: Player, message: ClientMessage) {
     sendChunks(player, message.chunks);
   } else if (message.type === "chronicleSeen") {
     markChronicleSeen(player, message.id);
+  } else if (message.type === "craftItem") {
+    handleCraftItem(player, message.recipe);
   }
 }
 
@@ -457,6 +460,7 @@ setInterval(() => {
       population: civilianPopulationUsed(),
       populationCap: settlementStatsNow.reduce((n, st) => n + st.cap, 0),
       people: peopleSnapshot(),
+      progression: progressionSnapshot(),
       taskForces: taskForcesForSnapshot(),
       armyRegiments: armyRegimentsForSnapshot(),
       orderGroups: orderGroupsForSnapshot(),
@@ -494,7 +498,7 @@ setInterval(() => {
       goal: state.goalSnapshot,
       gates: world.gates,
       respawn: respawnWindowSnapshot(),
-      ...(state.creative ? { creative: { allowAttack: state.creativeAllowAttack } } : {}),
+      ...(state.creative ? { creative: { allowAttack: state.creativeAllowAttack, unlockAll: state.creativeUnlockAll } } : {}),
       ...(clans.length > 1 ? { clanId: state.clan.id, clans: clansNow } : {}),
     };
   };

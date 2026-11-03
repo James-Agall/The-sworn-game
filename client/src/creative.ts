@@ -53,6 +53,7 @@ const CSS = `
 export function setupCreative(deps: CreativeDeps) {
   let on = false;
   let allowAttack = false;
+  let unlockAll = true;
   let godmode = false;
   let atClick = false;
   // A spawn / stamp waiting for the next map click (At click).
@@ -279,15 +280,19 @@ export function setupCreative(deps: CreativeDeps) {
   // ---- Tools ----
   const godBtn = button("Godmode: off", () => deps.send({ type: "creativeSet", op: "godmode", on: !godmode }));
   const atkBtn = button("Allow attacking neutrals: off", () => deps.send({ type: "creativeSet", op: "allowAttack", on: !allowAttack }));
+  // Progression tree: on = creative ignores the tree (default); off = its gates apply, to test it.
+  const unlockBtn = button("Unlock all (tree): ON", () => deps.send({ type: "creativeSet", op: "unlockAll", on: !unlockAll }));
   const syncToggles = () => {
     godBtn.textContent = `Godmode: ${godmode ? "ON" : "off"}`;
     godBtn.classList.toggle("on", godmode);
     atkBtn.textContent = `Allow attacking neutrals: ${allowAttack ? "ON" : "off"}`;
     atkBtn.classList.toggle("on", allowAttack);
+    unlockBtn.textContent = `Unlock all (tree): ${unlockAll ? "ON" : "off"}`;
+    unlockBtn.classList.toggle("on", unlockAll);
   };
   {
     const p = page("Tools");
-    p.append(row("Player", godBtn), row("Neutrals", atkBtn));
+    p.append(row("Player", godBtn), row("Neutrals", atkBtn), row("Progression", unlockBtn));
     p.append(row("World",
       button("Heal all", () => deps.send({ type: "creativeSet", op: "heal" })),
       button("Kill all monsters", () => deps.send({ type: "creativeSet", op: "killMobs" })),
@@ -315,11 +320,13 @@ export function setupCreative(deps: CreativeDeps) {
         pending = null;
       }
     },
-    onSnapshot(snap: { creative?: { allowAttack: boolean }; wildlife?: number[] }) {
+    onSnapshot(snap: { creative?: { allowAttack: boolean; unlockAll?: boolean }; wildlife?: number[] }) {
       wildlifeFlat = snap.wildlife ?? [];
       const a = snap.creative?.allowAttack ?? false;
-      if (a !== allowAttack) {
+      const u = snap.creative?.unlockAll ?? true;
+      if (a !== allowAttack || u !== unlockAll) {
         allowAttack = a;
+        unlockAll = u;
         syncToggles();
       }
     },

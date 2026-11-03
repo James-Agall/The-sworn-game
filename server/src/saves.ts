@@ -15,7 +15,9 @@ import {
   type Clan, buildingHp, buildingLevel, clans, colonists, makeClan, tileClan, constructionSites, farmPlots, forageRegrow, forgeAuto, gates, gravestones,
   hearths, heroProfiles, heroRecruits, minesPlacedOnOre, mobs, parkedMobs, mobsWithoutRoute, ownerSiteIds, players, raidGroups,
   regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, state, summonedUntil, tileOwner, towerCooldowns, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
+  type ClanProgress, newClanProgress,
 } from "./state.js";
+import { progressForSave, resetProgressCache, restoreProgress } from "./progression.js";
 import { markTileRegistryStale, setTile, streamingOn } from "./chunks.js";
 import { clearOwners, isNightNow, tileIndex } from "./tiles.js";
 import { initialStock } from "./economy.js";
@@ -56,6 +58,7 @@ export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown, creativ
   const wasCreative = state.creative;
   state.creative = creative;
   state.creativeAllowAttack = false;
+  state.creativeUnlockAll = true;
   if (creative) state.instantBuild = true;
   else if (wasCreative) state.instantBuild = process.env.COLONY_INSTANT_BUILD === "1";
   resetClans();
@@ -110,6 +113,9 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   clearSpellState();
 
   Object.assign(state.stock, initialStock());
+  // Progression tree: a new game starts with the starter kit and nothing unlocked.
+  state.progress = newClanProgress();
+  resetProgressCache();
   resetEquipment();
   if (state.creative) topUpCreative();
   heroProfiles.clear();
@@ -193,6 +199,8 @@ export function snapshotClan(c: Clan) {
     goals: { goalIndex: c.goalIndex, castleCleared: c.castleCleared, campsDestroyed: c.campsDestroyed },
     marketBuilt: c.marketBuilt, goldShopBuilt: c.goldShopBuilt, colonyHappiness: c.colonyHappiness,
     taskForces: Array.from(c.taskForces),
+    // Progression tree (optional: older saves are grandfathered).
+    progress: progressForSave(c) as ClanProgress | undefined,
   };
 }
 
@@ -300,6 +308,9 @@ function snapshotWorldInner() {
     // Creative mode (optional: older saves are normal games).
     creative: state.creative as boolean | undefined,
     creativeAllowAttack: state.creativeAllowAttack as boolean | undefined,
+    creativeUnlockAll: state.creativeUnlockAll as boolean | undefined,
+    // Progression tree: clan 0's items and unlocked types (optional: older saves are grandfathered).
+    progress: progressForSave(clans[0]) as ClanProgress | undefined,
   };
 }
 
@@ -336,6 +347,10 @@ export function applyWorld(s: WorldState) {
   // Forts phase D2: after the sites and clans (quests of missing ones are dropped).
   restoreQuests(s.quests);
   restoreWagons(s.tradingPosts);
+  // Progression tree: after the tiles and clan tiles (grandfathering looks at what each clan owns).
+  resetProgressCache();
+  restoreProgress(clans[0], s.progress);
+  (s.clans ?? []).forEach((sc, i) => clans[i + 1] && restoreProgress(clans[i + 1], sc.progress));
 }
 
 function applyWorldInner(s: WorldState) {
@@ -457,6 +472,7 @@ function applyWorldInner(s: WorldState) {
   state.testPlayersIgnored = s.flags.testPlayersIgnored ?? false;
   state.creative = s.creative ?? false;
   state.creativeAllowAttack = s.creativeAllowAttack ?? false;
+  state.creativeUnlockAll = s.creativeUnlockAll ?? true;
   towerCooldowns.clear();
   migrateSaveDayLength(s.dayTicks ?? LEGACY_DAY_TICKS, s.nightTicks ?? LEGACY_NIGHT_TICKS);
   evaluateGoals(!s.goals);

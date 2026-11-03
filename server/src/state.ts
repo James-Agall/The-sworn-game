@@ -4,6 +4,7 @@ import {
   DEFAULT_WORLD_TILES, TILE_SIZE, TileType, Biome, type AttackEffect, type EquipmentStock, type Difficulty,
   type GravestoneSnapshot, type GoalSnapshot, type EquipSlot, type SpellId,
 } from "@colony/shared/protocol";
+import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import type {
   ResourceKey, ActiveFight, Body, ChargeRun, Colonist, ConstructionSiteState, FarmPlotState, FightHit, ForgeQueueState, GateState,
   BattleRegiment, HearthState, HeroProfile, HeroRecruit, Mob, OrderGroup, Player, PlayerMoraleState, RaidGroup, RegimentState,
@@ -275,6 +276,11 @@ export interface ConstructionFields {
   creative: boolean;
   // Creative: clans (and creative neutrals) are hostile to each other while on (creativeSet allowAttack).
   creativeAllowAttack: boolean;
+  // Progression tree: creative "Unlock all" (default on: creative ignores the tree; off tests it). Saved.
+  creativeUnlockAll: boolean;
+  // COLONY_UNLOCK_ALL=1 (test hooks only; testHook "progression"): the rules before the progression tree, for the
+  // suites written before it (scripts/run-tests.mjs): no building / upgrade / forge gates and no worker-tier speed.
+  testUnlockAll: boolean;
 }
 
 export interface EquipmentFields {
@@ -338,6 +344,18 @@ export interface ClanFields {
   // Task force hotkey slots (1-9) -> unit ids, and the size each was assigned at (not saved).
   taskForces: Map<number, string[]>;
   taskForceMax: Map<number, number>;
+  // Progression tree (shared/src/progression.ts): items in stock (count per quality grade 1-3) and the building
+  // types ever unlocked (placed once: they stay open). Saved; old saves are grandfathered (progression.ts).
+  progress: ClanProgress;
+}
+export interface ClanProgress {
+  items: Partial<Record<ItemId, number[]>>;
+  unlocked: number[];
+}
+export function newClanProgress(): ClanProgress {
+  const items: ClanProgress["items"] = {};
+  for (const [id, n] of Object.entries(PROGRESSION.starterKit) as [ItemId, number][]) items[id] = [n, 0, 0];
+  return { items, unlocked: [] };
 }
 export interface Clan extends ClanFields {
   id: number;
@@ -352,7 +370,7 @@ export interface Clan extends ClanFields {
 export const CLAN_FIELD_KEYS: readonly (keyof ClanFields)[] = [
   "stock", "equipment", "marketBuilt", "goldShopBuilt", "colonyHappiness", "goalIndex", "goalSnapshot",
   "castleCleared", "campsDestroyed", "armyRegimentSignature", "armyRegimentTicks", "orderGroupSignature",
-  "orderGroupTicks", "taskForces", "taskForceMax",
+  "orderGroupTicks", "taskForces", "taskForceMax", "progress",
 ];
 export interface ClanStateFields {
   // The active clan (see ClanFields). Never null: clan 0 when no context is set.
@@ -383,6 +401,7 @@ export function makeClan(id: number, name: string, color: number, foundedDay = 0
     orderGroupTicks: 0,
     taskForces: new Map(),
     taskForceMax: new Map(),
+    progress: newClanProgress(),
   };
 }
 
@@ -520,6 +539,8 @@ const initial: Partial<ServerState> = {
   legacyStaff: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_LEGACY_STAFF === "1",
   creative: false,
   creativeAllowAttack: false,
+  creativeUnlockAll: true,
+  testUnlockAll: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_UNLOCK_ALL === "1",
   // EquipmentFields
   lastUnequippedToastTick: -Infinity,
   equipDropToasted: false,
