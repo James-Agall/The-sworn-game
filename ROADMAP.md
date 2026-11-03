@@ -2155,6 +2155,29 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Progression tree — landed (phase 4) 2026-11-03 (food chain)
+
+- **Farm fields need a plow:** the Barn (farm plots hang off it) needs a **wooden plow** (hand: 6 wood + 2 rock). The
+  iron plow from the smith is not done.
+- **Wheat gruel** (hand: 3 grain + 1 wood -> 3 gruel): 1.2 food each, no happiness bonus (the grain food before a
+  mill).
+- **Mill** (TileType 102, 20 wood + 10 rock; needs a **millstone** (hand: 12 rock) + a Barn; profession miller):
+  2 grain -> 2 flour per 20 s (cap 40).
+- **Bakery** (TileType 103, 10 wood + 15 rock; needs a **clay oven** (hand: 8 rock + 4 wood) + a Mill; profession
+  baker): 2 flour -> 2 **flatbread** (20 s). A level-2 baker first cultures a **sourdough starter** (1 flour, 900 s =
+  3 game days of work, kept: recipes can `need` an item without using it up), then bakes 2 flour -> 2 **bread** (40 s)
+  while it is in stock. Output grade = the bakery's working tier.
+- **Eating (`colonists.ts applyDailyFoodConsumption` -> `progression.ts eatFoodItems`):** at dawn bread (3 food),
+  flatbread (2), gruel (1.2) are eaten before grain / meat / fruit.
+- **Happiness (`computeColonyHappiness` + `foodHappinessBonus`):** while baked food is in store: bread +8 (+2 per
+  grade above Poor of the best bread), else flatbread +3, on top of the existing grain / meat / fruit variety score.
+  Off with `COLONY_UNLOCK_ALL`.
+- Client: Mill and Bakery under Farming (no hotkey left: tools with key "" are button-only), stand-in art.
+- **Not done:** the starter spoiling when the bakery is untended or lost to a raid / fire, pasture fences / livestock,
+  dairy, smokehouse, orchard years, brewery hops, salt, cellar, food quality -> sickness, an iron plow.
+- Test: `progression-test.mjs` adds Barn locked -> plow -> Barn; millstone + clay oven -> Mill + Bakery (flour,
+  flatbread); level-2 baker -> starter kept -> bread; dawn eats bread before grain.
+
 ## Progression tree — landed (phase 3) 2026-11-03 (stone age + metal chain)
 
 - **New stations (TileType 100 / 101, artisan posts, upgradeable to 3, stand-in art):** **Charcoal Burner**

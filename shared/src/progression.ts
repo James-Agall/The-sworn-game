@@ -7,7 +7,8 @@ import { TileType } from "./protocol.js";
 
 export type ItemId =
   | "stoneAxe" | "stonePick" | "stoneKnife" | "timberProps" | "hide" | "bellows"
-  | "charcoal" | "ironBloom" | "anvil" | "smithTools";
+  | "charcoal" | "ironBloom" | "anvil" | "smithTools"
+  | "woodenPlow" | "millstone" | "clayOven" | "flour" | "gruel" | "flatbread" | "sourdoughStarter" | "bread";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "tools";
 
@@ -51,6 +52,8 @@ export interface Recipe {
   // Stock resources and items used up.
   stock?: Partial<Record<StockKey, number>>;
   items?: Partial<Record<ItemId, number>>;
+  // Items that must be in stock but are not used up (a sourdough starter is kept).
+  needs?: Partial<Record<ItemId, number>>;
   // "hand": crafted at once from the build panel (the knapping spot, no building). Otherwise the station tile:
   // its artisan works the first recipe whose inputs are ready and whose output is under `cap`.
   station: "hand" | TileType;
@@ -63,7 +66,7 @@ export interface Recipe {
 }
 
 export type Profession =
-  | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "smelter" | "collier" | "jeweler"
+  | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "smelter" | "collier" | "miller" | "baker" | "jeweler"
   | "brewer" | "innkeeper" | "hunter" | "forager";
 
 // Worker XP: one point per second at work. Level L needs WORKER_XP_LEVELS[L - 1] XP (level 1 at 0).
@@ -96,6 +99,14 @@ export const PROGRESSION = {
     ironBloom: { label: "Iron bloom", desc: "Smelted at the Bloomery from iron ore and charcoal; a Blast furnace (level 2+) makes better grades." },
     anvil: { label: "Anvil", desc: "Cast at the Bloomery. With hammer and tongs, a Blacksmith can be built." },
     smithTools: { label: "Hammer & tongs", desc: "Forged at the Bloomery. A Blacksmith needs them." },
+    woodenPlow: { label: "Wooden plow", desc: "Breaks the ground: a Barn (farm fields) can be built." },
+    millstone: { label: "Millstone", desc: "A dressed grinding stone: the Mill needs one." },
+    clayOven: { label: "Clay oven", desc: "Stone and clay: the Bakery needs one." },
+    flour: { label: "Flour", desc: "Ground from grain at the Mill." },
+    gruel: { label: "Wheat gruel", desc: "Grain boiled over the fire: filling, dull (no happiness bonus)." },
+    flatbread: { label: "Flatbread", desc: "Quick bread from the Bakery: good food, a small happiness bonus." },
+    sourdoughStarter: { label: "Sourdough starter", desc: "A level-2 baker cultures it over ~3 days; kept, it lets the Bakery bake bread." },
+    bread: { label: "Bread", desc: "The best food: most filling, the biggest happiness bonus (more for Good / Fine)." },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -103,10 +114,19 @@ export const PROGRESSION = {
     { id: "stoneKnife", label: "Knap a stone knife", output: "stoneKnife", amount: 1, stock: { wood: 1, rock: 2 }, station: "hand" },
     { id: "timberProps", label: "Cut timber props", output: "timberProps", amount: 1, stock: { wood: 8 }, station: "hand" },
     { id: "bellows", label: "Sew bellows", output: "bellows", amount: 1, stock: { wood: 4 }, items: { hide: 2 }, station: "hand" },
+    { id: "woodenPlow", label: "Carve a wooden plow", output: "woodenPlow", amount: 1, stock: { wood: 6, rock: 2 }, station: "hand" },
+    { id: "millstone", label: "Dress a millstone", output: "millstone", amount: 1, stock: { rock: 12 }, station: "hand" },
+    { id: "clayOven", label: "Build a clay oven", output: "clayOven", amount: 1, stock: { rock: 8, wood: 4 }, station: "hand" },
+    { id: "gruel", label: "Boil wheat gruel", output: "gruel", amount: 3, stock: { grain: 3, wood: 1 }, station: "hand" },
     { id: "charcoal", label: "Burn charcoal", output: "charcoal", amount: 3, stock: { wood: 6 }, station: TileType.CharcoalBurner, seconds: 90, cap: 40 },
     // Bloomery: the anvil and the smith's tools first (one each is enough), then blooms.
     { id: "anvil", label: "Cast an anvil", output: "anvil", amount: 1, items: { ironBloom: 4 }, station: TileType.Bloomery, seconds: 60, cap: 1 },
     { id: "smithTools", label: "Forge hammer & tongs", output: "smithTools", amount: 1, stock: { wood: 2 }, items: { ironBloom: 2 }, station: TileType.Bloomery, seconds: 40, cap: 1 },
+    { id: "flour", label: "Grind flour", output: "flour", amount: 2, stock: { grain: 2 }, station: TileType.Mill, seconds: 20, cap: 40 },
+    // Bakery: the starter first once the baker is level 2 (a ~3-day culture), then bread while it is kept, else flatbread.
+    { id: "sourdoughStarter", label: "Culture a sourdough starter", output: "sourdoughStarter", amount: 1, items: { flour: 1 }, station: TileType.Bakery, seconds: 900, cap: 1, workerLevel: 2 },
+    { id: "bread", label: "Bake bread", output: "bread", amount: 2, items: { flour: 2 }, needs: { sourdoughStarter: 1 }, station: TileType.Bakery, seconds: 40, cap: 40 },
+    { id: "flatbread", label: "Bake flatbread", output: "flatbread", amount: 2, items: { flour: 2 }, station: TileType.Bakery, seconds: 20, cap: 40 },
     { id: "ironBloom", label: "Smelt an iron bloom", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { charcoal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
   ] as Recipe[],
   // What each building needs. Buildings not listed are open from the start.
@@ -130,6 +150,10 @@ export const PROGRESSION = {
     },
     [TileType.Blacksmith]: { requires: { items: { anvil: 1, smithTools: 1 }, buildings: [{ tile: TileType.Bloomery }] } },
     [TileType.KnightPost]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
+    // Phase 4: food. Farm fields need a Barn, the Barn a plow.
+    [TileType.BarnPost]: { requires: { items: { woodenPlow: 1 } } },
+    [TileType.Mill]: { requires: { items: { millstone: 1 }, buildings: [{ tile: TileType.BarnPost }] } },
+    [TileType.Bakery]: { requires: { items: { clayOven: 1 }, buildings: [{ tile: TileType.Mill }] } },
     [TileType.Stables]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
     [TileType.SiegeWorkshop]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
   } as Partial<Record<TileType, BuildingReq>>,
@@ -147,6 +171,8 @@ export const PROGRESSION = {
     [TileType.Blacksmith]: "smith",
     [TileType.Bloomery]: "smelter",
     [TileType.CharcoalBurner]: "collier",
+    [TileType.Mill]: "miller",
+    [TileType.Bakery]: "baker",
     [TileType.LuxuryWorkshop]: "jeweler",
     [TileType.Brewery]: "brewer",
     [TileType.Tavern]: "innkeeper",
@@ -159,7 +185,7 @@ export const PROGRESSION = {
 
 export const PROFESSION_LABEL: Record<Profession, string> = {
   woodcutter: "Woodcutter", miner: "Miner", farmer: "Farmer", farmhand: "Farmhand", tailor: "Tailor", smith: "Smith",
-  smelter: "Smelter", collier: "Collier", jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
+  smelter: "Smelter", collier: "Collier", miller: "Miller", baker: "Baker", jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
   hunter: "Hunter", forager: "Forager",
 };
 
@@ -168,6 +194,9 @@ export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
   [TileType.LumberjackPost]: "Lumberjack",
   [TileType.CharcoalBurner]: "Charcoal Burner",
   [TileType.Bloomery]: "Bloomery",
+  [TileType.BarnPost]: "Barn",
+  [TileType.Mill]: "Mill",
+  [TileType.Bakery]: "Bakery",
   [TileType.Blacksmith]: "Blacksmith",
   [TileType.House]: "Wooden House",
   [TileType.HunterHut]: "Hunter's Hut",
@@ -225,5 +254,14 @@ export function stationRecipes(tile: number): Recipe[] {
 export function recipeCostText(r: Recipe): string {
   const parts = Object.entries(r.stock ?? {}).map(([k, n]) => `${n} ${k}`);
   for (const [id, n] of Object.entries(r.items ?? {}) as [ItemId, number][]) parts.push(`${n} ${PROGRESSION.items[id].label}`);
+  for (const id of Object.keys(r.needs ?? {}) as ItemId[]) parts.push(`a ${PROGRESSION.items[id].label} (kept)`);
   return parts.join(" + ") || "Free";
 }
+
+// Phase 4: food items eaten at dawn before grain / meat / fruit (food units each; bread most filling) and their
+// colony happiness bonus while in stock (bread +2 per grade above Poor).
+export const FOOD_ITEMS: { id: ItemId; food: number; happiness: number }[] = [
+  { id: "bread", food: 3, happiness: 8 },
+  { id: "flatbread", food: 2, happiness: 3 },
+  { id: "gruel", food: 1.2, happiness: 0 },
+];

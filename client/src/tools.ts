@@ -143,6 +143,21 @@ export const TOOLS: ToolDef[] = [
     cost: `${buildCostText(TileType.Bloomery)} (level 2+: Blast furnace). Smelts 3 Iron + 2 Charcoal → Iron bloom; casts the anvil, hammer & tongs a Blacksmith needs`,
     category: "industry",
   },
+  // Phase 4: food. No free key left for these two (key "": button only).
+  {
+    tile: TileType.Mill,
+    label: "Mill",
+    key: "",
+    cost: `${buildCostText(TileType.Mill)} (upgradeable). Grinds 2 Grain → 2 Flour`,
+    category: "farming",
+  },
+  {
+    tile: TileType.Bakery,
+    label: "Bakery",
+    key: "",
+    cost: `${buildCostText(TileType.Bakery)} (upgradeable). Bakes 2 Flour → 2 Flatbread; a level-2 baker cultures a sourdough starter (~3 days), then bakes Bread`,
+    category: "farming",
+  },
   { tile: TileType.Market, label: "Bazaar", key: "m", cost: buildCostText(TileType.Market), category: "trade" },
   { tile: TileType.GoldShop, label: "Trading Post", key: "g", cost: buildCostText(TileType.GoldShop), category: "trade" },
   {

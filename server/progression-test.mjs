@@ -7,7 +7,7 @@ import WebSocket from "ws";
 
 const ws = new WebSocket(`ws://localhost:${process.env.PORT ?? 8080}`);
 const TILE = 32;
-const T = { Empty: 0, Lumberjack: 3, Hunter: 50, Blacksmith: 26, KnightPost: 5, Charcoal: 100, Bloomery: 101 };
+const T = { Empty: 0, Lumberjack: 3, Hunter: 50, Blacksmith: 26, KnightPost: 5, Barn: 16, Charcoal: 100, Bloomery: 101, Mill: 102, Bakery: 103 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const c = { welcome: null, snap: null, tiles: [], W: 0, events: [], hooks: new Map(), saves: [], info: undefined };
 let fails = 0;
@@ -66,8 +66,8 @@ const info = async (x, y) => {
 };
 const tc = c.snap.townCenters[0];
 const B = { x: tc.x + 6, y: tc.y + 4 };
-for (let y = B.y - 2; y <= B.y + 4; y++) for (let x = B.x - 2; x <= B.x + 10; x++) send({ type: "testHook", op: "setTileRaw", tx: x, ty: y, tile: T.Empty });
-await hook("setStock", { stock: { wood: 500, rock: 500, iron: 500 } });
+for (let y = B.y - 2; y <= B.y + 7; y++) for (let x = B.x - 2; x <= B.x + 10; x++) send({ type: "testHook", op: "setTileRaw", tx: x, ty: y, tile: T.Empty });
+await hook("setStock", { stock: { wood: 500, rock: 500, iron: 500, grain: 500 } });
 
 // 1. kit and locks
 const r0 = await hook("progression", {});
@@ -162,6 +162,42 @@ await hook("fastForward", { ticks: 40 });
 await until(() => c.events.slice(ev).some((e) => /Prospector's report/.test(e)), 3000);
 const pr = await hook("progression", {});
 result(c.events.slice(ev).some((e) => /Prospector's report: \d+ rich/.test(e)) && pr.prospected?.length === 3, `prospecting: ${c.events.slice(ev).join(" | ")}`);
+
+// 4d. food chain (phase 4): plow -> Barn; millstone -> Mill (flour); clay oven -> Bakery (flatbread); a level-2
+// baker cultures the sourdough starter, then bakes bread; bread is eaten first at dawn.
+const BA = { x: B.x, y: B.y + 6 };
+const MI = { x: B.x + 3, y: B.y + 6 };
+const BK = { x: B.x + 6, y: B.y + 6 };
+ev = c.events.length;
+await place(BA.x, BA.y, T.Barn, T.Barn);
+const barnLocked = tileAt(BA.x, BA.y) === T.Empty && c.events.slice(ev).some((e) => /Barn needs: Wooden plow/.test(e));
+send({ type: "craftItem", recipe: "woodenPlow" });
+await until(() => (items().woodenPlow?.[0] ?? 0) === 1, 3000);
+await place(BA.x, BA.y, T.Barn);
+result(barnLocked && tileAt(BA.x, BA.y) === T.Barn, `Barn needs a wooden plow (craft by hand), then builds`);
+send({ type: "craftItem", recipe: "millstone" });
+send({ type: "craftItem", recipe: "clayOven" });
+await until(() => (items().millstone?.[0] ?? 0) === 1 && (items().clayOven?.[0] ?? 0) === 1, 3000);
+await place(MI.x, MI.y, T.Mill);
+await place(BK.x, BK.y, T.Bakery);
+for (let i = 0; i < 20 && (items().flatbread?.[0] ?? 0) < 2; i++) await hook("fastForward", { ticks: 100 }), await sleep(100);
+result(tileAt(MI.x, MI.y) === T.Mill && tileAt(BK.x, BK.y) === T.Bakery && (items().flatbread?.[0] ?? 0) >= 2,
+  `Mill + Bakery: flour ${items().flour}, flatbread ${items().flatbread}`);
+await hook("progression", { xpAt: { x: BK.x, y: BK.y, xp: 100 } });
+for (let i = 0; i < 30 && (items().bread?.[0] ?? 0) < 4; i++) await hook("fastForward", { ticks: 100 }), await sleep(100);
+result((items().sourdoughStarter?.[0] ?? 0) === 1 && (items().bread?.[0] ?? 0) >= 4, `level-2 baker: starter ${items().sourdoughStarter} (kept), bread ${items().bread}`);
+// Dawn: bread first. Mill and Bakery starved first (no grain, no flour) so only eating moves the counts.
+await hook("setStock", { stock: { grain: 0, meat: 0, fruit: 0 } });
+await hook("progression", { items: { flour: -100, flatbread: -100 } });
+await hook("fastForward", { ticks: 5 });
+await sleep(300);
+const breadBefore = (items().bread ?? []).reduce((a, b) => a + b, 0);
+const grainBefore = c.snap.grain;
+await hook("setCycleTick", { tick: 20 * 375 - 3 });
+await hook("fastForward", { ticks: 6 });
+await sleep(300);
+const breadAfter = (items().bread ?? []).reduce((a, b) => a + b, 0);
+result(breadAfter < breadBefore && breadAfter > 0 && c.snap.grain === 0, `dawn eats bread first: bread ${breadBefore} -> ${breadAfter}, grain ${grainBefore} -> ${c.snap.grain}`);
 
 // 5. the Hall of the Sworn opened with the Blacksmith (building gate)
 result(!c.snap.progression.locked[T.KnightPost] || (await hook("progression", {})).snapshot.locked[T.KnightPost] === undefined, `Hall of the Sworn unlocked by the Blacksmith`);

@@ -128,6 +128,9 @@ export enum TileType {
   // Charcoal Burner: wood -> charcoal. Bloomery (level 2+ = Blast furnace): iron + charcoal -> blooms, anvil, tools.
   CharcoalBurner = 100,
   Bloomery = 101,
+  // Phase 4 (food): Mill: grain -> flour. Bakery: flour -> flatbread; a level-2 baker's sourdough starter -> bread.
+  Mill = 102,
+  Bakery = 103,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -279,6 +282,8 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.Brewery ||
     tile === TileType.CharcoalBurner ||
     tile === TileType.Bloomery ||
+    tile === TileType.Mill ||
+    tile === TileType.Bakery ||
     tile === TileType.Tavern ||
     tile === TileType.MilitiaPost ||
     tile === TileType.MilitiaCamp2 ||

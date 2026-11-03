@@ -3809,7 +3809,7 @@ async function main() {
     for (const tool of TOOLS) {
       const btn = document.createElement("button");
       btn.className = "tool-btn";
-      btn.textContent = `${tool.label} (${tool.key})`;
+      btn.textContent = tool.key ? `${tool.label} (${tool.key})` : tool.label;
       btn.addEventListener("click", () => {
         selectTool(tool.tile, true);
         btn.blur();
@@ -4379,7 +4379,7 @@ async function main() {
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
     TileType.Gate, TileType.Drawbridge, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
-    TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent, TileType.CharcoalBurner, TileType.Bloomery,
+    TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
   const bpNameEl = document.getElementById("bp-name")!;
@@ -6227,7 +6227,7 @@ async function main() {
     // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool. Nor does a plain
     // digit that recalls a control group in strategy mode.
     if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e) || strategyOrderKey(e) || strategySettingKey(e)) return;
-    const match = TOOLS.find((t) => t.key === key);
+    const match = key ? TOOLS.find((t) => t.key === key) : undefined;
     if (match) {
       if (match.tile !== TileType.Empty && match.category !== activeCategory) {
         activeCategory = match.category;

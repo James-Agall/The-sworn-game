@@ -500,7 +500,9 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
       return { ...BUILD_COSTS[tile] };
     // Progression tree phase 3: an upgrade costs the build cost again (x the new level).
     case TileType.CharcoalBurner:
-    case TileType.Bloomery: {
+    case TileType.Bloomery:
+    case TileType.Mill:
+    case TileType.Bakery: {
       const mult = levelAfterPlacement(tile, current, tx, ty);
       return Object.fromEntries(Object.entries(BUILD_COSTS[tile]).map(([k, n]) => [k, n * mult]));
     }
@@ -1120,7 +1122,7 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     resolveTavernPlacement(tx, ty);
     return;
   }
-  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery) {
+  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery) {
     resolveStationPlacement(tx, ty, tile);
     return;
   }

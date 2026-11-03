@@ -87,6 +87,8 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   // Progression tree phase 3 stand-ins (tinted; SPRITES.md "Progression tree").
   [TileType.CharcoalBurner]: "campfire",
   [TileType.Bloomery]: "blacksmith",
+  [TileType.Mill]: "barn",
+  [TileType.Bakery]: "tavern",
 };
 // Dedicated art per tile (SPRITES.md #30-#32), loaded optionally: a file that exists replaces the
 // TILE_SPRITE_FILES stand-in above and drops its tint; a missing one keeps the stand-in.
@@ -188,6 +190,8 @@ export const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.SiegeWorkshop]: 0xc8a888,
   [TileType.CharcoalBurner]: 0x6a5a50,
   [TileType.Bloomery]: 0xd08060,
+  [TileType.Mill]: 0xe0d8b0,
+  [TileType.Bakery]: 0xf0b880,
 };
 // Looping tile animations (client-side, cosmetic). All frames of a loop share one canvas, so the
 // box-fit scale setTileSprite computes from frame 0 stays valid for every frame. One shared clock

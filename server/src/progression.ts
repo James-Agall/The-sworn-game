@@ -5,7 +5,7 @@ import { TICK_RATE, TileType, type ProgressionSnapshot } from "@colony/shared/pr
 import {
   type ItemId, type Profession, type ProgressContext, type Recipe, MAX_QUALITY, PROFESSION_LABEL, PROGRESSION,
   PROGRESSION_BUILDING_LABEL, QUALITY_GRADES, TIER_SPEED_BONUS, WORKER_XP_LEVELS, levelForXp, recipeById, recipeCostText,
-  stationRecipes, unmetRequirements, xpToNext,
+  FOOD_ITEMS, stationRecipes, unmetRequirements, xpToNext,
 } from "@colony/shared/progression";
 import type { Colonist, Player, ResourceKey } from "./types.js";
 import { type Clan, type ClanProgress, colonists, newClanProgress, state } from "./state.js";
@@ -208,7 +208,7 @@ const stationJobs = new Map<string, StationJob>();
 function recipeReady(r: Recipe): boolean {
   if (r.cap !== undefined && itemCount(r.output) >= r.cap) return false;
   if (!state.creative) for (const [k, n] of Object.entries(r.stock ?? {})) if (state.stock[k as ResourceKey] < (n ?? 0)) return false;
-  for (const [id, n] of Object.entries(r.items ?? {}) as [ItemId, number][]) if (itemCount(id) < n) return false;
+  for (const [id, n] of Object.entries({ ...(r.items ?? {}), ...(r.needs ?? {}) }) as [ItemId, number][]) if (itemCount(id) < n) return false;
   return true;
 }
 
@@ -218,7 +218,7 @@ function stationIdleReason(t: TileType): string {
     const name = PROGRESSION.items[r.output].label;
     if (r.cap !== undefined && itemCount(r.output) >= r.cap) return `${name}: ${itemCount(r.output)} in store (enough)`;
     const short = Object.entries(r.stock ?? {}).filter(([k, n]) => !state.creative && state.stock[k as ResourceKey] < (n ?? 0)).map(([k]) => k);
-    for (const [id, n] of Object.entries(r.items ?? {}) as [ItemId, number][]) if (itemCount(id) < n) short.push(PROGRESSION.items[id].label);
+    for (const [id, n] of Object.entries({ ...(r.items ?? {}), ...(r.needs ?? {}) }) as [ItemId, number][]) if (itemCount(id) < n) short.push(PROGRESSION.items[id].label);
     return short.length > 0 ? `${name}: short of ${short.join(", ")}` : `${name}: ready`;
   });
   return parts.join("; ");
@@ -250,6 +250,30 @@ export function updateStationWork(c: Colonist): boolean {
     addItem(job.recipe.output, job.recipe.amount, effectiveTier(c));
   }
   return true;
+}
+
+// ---- food (phase 4) ----
+// Dawn: food items are eaten before grain / meat / fruit, best first. Returns the food units still needed.
+export function eatFoodItems(needed: number): number {
+  for (const f of FOOD_ITEMS) {
+    while (needed > 0 && itemCount(f.id) > 0) {
+      takeItem(f.id, 1);
+      needed -= f.food;
+    }
+  }
+  return Math.max(0, Math.ceil(needed));
+}
+
+// Colony happiness bonus from baked food in store (a variety bonus on top of grain / meat / fruit): bread +8
+// (+2 per grade above Poor of the best bread), flatbread +3. 0 with COLONY_UNLOCK_ALL.
+export function foodHappinessBonus(): number {
+  if (state.testUnlockAll) return 0;
+  let bonus = 0;
+  for (const f of FOOD_ITEMS) if (itemCount(f.id) > 0) bonus = Math.max(bonus, f.happiness);
+  const bread = state.progress.items.bread ?? [];
+  const best = bread[2] > 0 ? 3 : bread[1] > 0 ? 2 : 1;
+  if (itemCount("bread") > 0) bonus += (best - 1) * 2;
+  return bonus;
 }
 
 // ---- deposits and prospecting (phase 3) ----

@@ -624,6 +624,10 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > `charcoalBurner.png`, `bloomery.png`, `blastFurnace.png`, `item{StoneAxe,StonePick,StoneKnife,TimberProps,Hide,
 > Bellows,Charcoal,IronBloom,Anvil,SmithTools}.png`. Stand-ins now: the campfire prop tinted dark brown and the
 > blacksmith tinted red (`client/src/worldVisuals.ts` TILE_STANDIN_TINT); items are text only.
+> Phase 4 (food): **mill** (timber watermill / post windmill, levels 1-3), **bakery** (cottage with a domed clay
+> oven and chimney smoke), item icons wooden plow, millstone, clay oven, flour sack, gruel bowl, flatbread, sourdough
+> crock, bread loaf. Files: `mill.png`, `bakery.png`, `item{WoodenPlow,Millstone,ClayOven,Flour,Gruel,Flatbread,
+> SourdoughStarter,Bread}.png`. Stand-ins: the barn tinted pale (mill) and the tavern tinted warm (bakery).
 
 #77-#83 were delivered on 2026-10-30 (see "Already sourced", Batch 2); prompts removed. Still missing from those
 prompts: #82 the Follow order icon, the state glyphs (wavering / routing / outflanked) and the time-control icons;

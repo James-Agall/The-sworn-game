@@ -48,7 +48,7 @@ import {
 import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroColonist } from "./heroes.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
-import { addItem, depositBonus, updateStationWork, workSpeed } from "./progression.js";
+import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
@@ -133,7 +133,7 @@ export function computeColonyHappiness(): number {
     tavernCoverageScore = (covered / posts.size) * 100;
   }
 
-  const happiness = foodVarietyScore * 0.4 + sceneryScore * 0.3 + tavernCoverageScore * 0.3;
+  const happiness = foodVarietyScore * 0.4 + sceneryScore * 0.3 + tavernCoverageScore * 0.3 + foodHappinessBonus();
   return Math.max(0, Math.min(100, Math.round(happiness)));
 }
 
@@ -848,7 +848,8 @@ export function applyDailyFoodConsumption() {
   const consumers = Array.from(colonists.values()).filter((c) => !isAbbeyClergy(c) && inClan(c));
   const consumerCount = consumers.length;
   if (consumerCount === 0) return;
-  let needed = Math.ceil(consumerCount * FOOD_PER_COLONIST_PER_DAY);
+  // Progression tree phase 4: bread / flatbread / gruel first.
+  let needed = eatFoodItems(Math.ceil(consumerCount * FOOD_PER_COLONIST_PER_DAY));
   for (const key of ["grain", "meat", "fruit"] as const) {
     if (needed <= 0) break;
     const take = Math.min(state.stock[key], needed);

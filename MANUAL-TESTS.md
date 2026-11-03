@@ -531,3 +531,13 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
 6. "Send a prospector" in the Build panel (needs pick + knife): after ~150 s a report toast; click a Quarry / Iron Mine
    in range: "Deposit: rich (3/3), +100% yield" (or fair / poor); outside the survey "unknown".
 7. Old save with a Blacksmith: it stays buildable (grandfathered), forging still works.
+
+## Progression tree (phase 4: food)
+1. New game: Barn is locked ("Needs: Wooden plow"); "Carve a wooden plow (6 wood + 2 rock)" unlocks it. Farm plots
+   work as before once the Barn stands.
+2. "Boil wheat gruel (3 grain + 1 wood)": Items shows Wheat gruel 3; the next dawn it is eaten first.
+3. Dress a millstone (12 rock), build a Mill (Farming tab, pale barn stand-in): flour appears in Items. Build a clay
+   oven (8 rock + 4 wood) and a Bakery (warm tavern stand-in): flatbread appears; happiness rises a few points.
+4. Once the baker reaches level 2 (info panel), the Bakery spends ~3 game days on "Making: Sourdough starter"; then
+   it bakes Bread (the starter stays in Items). Bread in store gives a bigger happiness bump; Good / Fine bread more.
+5. At dawn with bread in store, bread goes down before grain.
