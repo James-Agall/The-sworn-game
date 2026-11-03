@@ -36,12 +36,12 @@ import { updateBattleBrains, updateFormationMarch } from "./battle.js";
 import { broadcastEvent, scanFights } from "./net.js";
 import { clanTownCenters, enterClan, forEachClan, resetClan } from "./clans.js";
 import { settlementsDawn } from "./diplomacy.js";
-import { peopleDawn, updateAging, updateTraining } from "./people.js";
 import { strifeDawn } from "./strife.js";
 import { updateQuests } from "./quests.js";
 import { updateWagons } from "./wagons.js";
 import { updateVassals, vassalsDawn } from "./vassals.js";
 import { spawnCampRaids, stepWarbandMobs, updateWarbands, warbandsDawn } from "./warbands.js";
+import { peopleDawn, updateAging, updateTraining } from "./people.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {

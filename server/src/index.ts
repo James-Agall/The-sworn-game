@@ -1,7 +1,6 @@
 // index.ts: boot and wiring. Imports every server module in evaluation order (types, constants and state
 // first; see ROADMAP "Server module split"), generates the world, starts the HTTP/WebSocket server (net.ts),
 // routes client messages, and runs the tick loop (stepSimulation in sim.ts) that sends the snapshots.
-import { handleTrainUnit } from "./people.js";
 import { handleWagonCommand, wagonSnapshot } from "./wagons.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -61,6 +60,7 @@ import { broadcastEvent, flushExplored, handleSetView, httpServer, sendChunks, s
 import { handleTestHook } from "./testhooks.js";
 import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creative.js";
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
+import { handleTrainUnit } from "./people.js";
 
 setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 

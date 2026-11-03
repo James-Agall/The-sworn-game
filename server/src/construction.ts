@@ -1,6 +1,5 @@
 // construction.ts: Placement rules and costs, construction sites, upgrades, demolition, building info panel.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { trainInfo } from "./people.js";
 import { tradingPostInfo } from "./wagons.js";
 import {
   TileType, isGateTile, isSolidTile, TICK_RATE, type GameEventCategory, type ServerMessage, type BuildingInfo, TILE_SIZE, Biome,
@@ -63,6 +62,7 @@ import { clanPower, sitePower, vassalInfoFor } from "./vassals.js";
 import { captureSite, isInSiteGrounds, nearSiteGrounds, rebuildKeepBlocker, relationOf, siteAtKeep, siteByNum } from "./sites.js";
 import { SITE_TEMPLATES } from "./constants.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
+import { trainInfo } from "./people.js";
 
 export function upgradeKnightAt(tx: number, ty: number, level: number) {
   const stats = guardStats("knight", level);

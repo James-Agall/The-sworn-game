@@ -1,6 +1,5 @@
 // hearths.ts: Camp hearths: POI hearth structures, their damage and destruction, attacking them.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { rescuePrisoners } from "./people.js";
 import { randomUUID } from "node:crypto";
 import { type MobKind, TileType, TILE_SIZE } from "@colony/shared/protocol";
 import type { AttackObjective, Colonist, HearthState, Mob, PoiSiteKind, TileCoord } from "./types.js";
@@ -31,6 +30,7 @@ import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { noteSettlementAttacked, onFortKeepDestroyed, plunderSiteStock, siteIdNeutral, siteName, siteNumNeutral } from "./sites.js";
 import { noteCampCleared } from "./diplomacy.js";
 import { noteQuestCampCleared } from "./quests.js";
+import { rescuePrisoners } from "./people.js";
 
 export function hearthEvent(siteId: string, type: string, detail?: string) {
   hearthEvents.push({ tick: state.cycleTick, type, siteId, detail });
