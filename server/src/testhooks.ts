@@ -1,5 +1,6 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { childrenOf, spouseOf } from "./family.js";
 import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleInteract, heroLifeDebug, lifeOf, setNeedsOverride } from "./herolife.js";
 import { addItem, itemCount, professionOf, takeItem, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
 import { type ItemId, PROGRESSION } from "@colony/shared/progression";
@@ -541,9 +542,28 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       // Family: `flags` merges NPC flags (e.g. courtship points); `tpPriest` stands the hero on the nearest
       // settlement priest; `familyReset` makes the hero single again.
       if (msg.flags && typeof msg.flags === "object") Object.assign(life.flags, msg.flags as Record<string, number>);
-      if (msg.familyReset === true) delete life.family;
+      if (msg.familyReset === true) life.family = { selfId: `hero-test-${state.cycleTick}-${Math.floor(Math.random() * 1e6)}`, gen: 1 };
+      // `growChildren`: the hero's children come of age now; `spouseKin` (site id): the spouse married in from there.
+      if (msg.growChildren === true) for (const k of childrenOf(player)) Object.assign(k.person!, { child: false, born: state.cycleTick - 7 * GAME_DAY_TICKS });
+      if (typeof msg.spouseKin === "string") {
+        const sp = spouseOf(player);
+        if (sp) sp.person!.kinOf = msg.spouseKin;
+        if (life.family) life.family.spouseKin = msg.spouseKin;
+      }
       if (msg.tpPriest === true) {
-        const pr = Array.from(mobs.values()).filter((m) => m.siteWorker === "priest").sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y))[0];
+        // The priest farthest from its keep (so the Elder is not the nearer NPC).
+        const fromKeep = (m: { x: number; y: number; siteId?: string | null }) => {
+          const s = sites.get(m.siteId ?? "");
+          return s ? Math.hypot(m.x / TILE_SIZE - s.keepX, m.y / TILE_SIZE - s.keepY) : 0;
+        };
+        const pr = Array.from(mobs.values()).filter((m) => m.siteWorker === "priest").sort((a, b) => fromKeep(b) - fromKeep(a))[0];
+        const ps = pr ? sites.get(pr.siteId ?? "") : undefined;
+        // Too close to the keep: step the priest out to 6 tiles from it (the Elder would answer first).
+        if (pr && ps && fromKeep(pr) < 6) {
+          const kx = (ps.keepX + 0.5) * TILE_SIZE, ky = (ps.keepY + 0.5) * TILE_SIZE;
+          const d = Math.max(1, Math.hypot(pr.x - kx, pr.y - ky));
+          Object.assign(pr, { x: kx + ((pr.x - kx) / d) * 6 * TILE_SIZE, y: ky + ((pr.y - ky) / d || 1) * 6 * TILE_SIZE });
+        }
         if (pr) Object.assign(player, { x: pr.x, y: pr.y });
       }
       if (msg.interact === true) handleInteract(player);

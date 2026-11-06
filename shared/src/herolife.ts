@@ -266,6 +266,8 @@ export interface HeroFamilyData {
   lastBirthTick?: number;
   // The hero married in from this settlement (an Elder's kin who took over as hero): the bond holds.
   kinOf?: string;
+  // The spouse married in from this settlement (for the in-laws' grief when the spouse dies).
+  spouseKin?: string;
 }
 // Courtship points (+1 time together, +2 a gift, each once a game day per person) needed to propose.
 export const COURT_NEEDED = 4;
@@ -322,6 +324,7 @@ export function sanitizeFamily(raw: unknown): HeroFamilyData | undefined {
   const b = r.betrothed as Record<string, unknown> | undefined;
   if (b && str(b.key) && str(b.name)) out.betrothed = { key: b.key as string, name: b.name as string };
   if (str(r.kinOf)) out.kinOf = str(r.kinOf);
+  if (str(r.spouseKin)) out.spouseKin = str(r.spouseKin);
   if (typeof r.lastBirthTick === "number" && Number.isFinite(r.lastBirthTick)) out.lastBirthTick = r.lastBirthTick;
   return out;
 }

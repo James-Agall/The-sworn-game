@@ -849,6 +849,57 @@ await check("family: a child of the hero couple, creative family", async () => {
   return [ok, `spouse ${fam2?.spouse?.name}, born at dawn ${born} (${kid?.name}, talent ${JSON.stringify(kp?.talent)}), creative ${cr?.text}, children ${fam2?.children.length}`];
 });
 
+// Family phase 4: the heir picker puts the eldest adult child first, then the spouse; a family heir keeps 80% gold
+// and 60% of the skills and becomes the family's new self (the spouse is now a parent). Fallout: a spouse's death =
+// widowed; parting with an Elder's kin sends them home and costs the relation (a feud).
+await check("family: succession order + inheritance, widowed, parting", async () => {
+  await hook("heroLife", { familyReset: true });
+  await hook("peopleState", { creative: true });
+  const cr = await creative({ type: "creativeSet", op: "family", count: 1 });
+  const [spId, kidId] = cr?.ids ?? [];
+  await hook("heroLife", { growChildren: true, skills: { woodcutting: 400 } });
+  await hook("peopleState", { creative: false });
+  await hook("setStock", { stock: { gold: 100 } });
+  await hook("heroDeath", { legacy: false });
+  await hook("damagePlayer", { amount: 1e6 });
+  await snapNow();
+  const me = () => c.snap.players.find((p) => p.id === c.welcome.id);
+  const heirs = me()?.heirs ?? [];
+  const order = heirs[0]?.id === kidId && heirs[1]?.id === spId && /your child, the heir/.test(heirs[0]?.name ?? "");
+  send({ type: "chooseHeir", id: kidId });
+  await until(() => me()?.dead === false, 3000);
+  const gold = (await stock()).gold;
+  const r = await hook("heroLife", {});
+  const inherit = gold === 80 && r.life.skills.woodcutting === 240 && r.life.family?.selfId === kidId && r.life.family.gen === 2 && r.family.parents.some((x) => x.id === spId);
+  await hook("peopleState", { creative: true });
+  const cr2 = await creative({ type: "creativeSet", op: "family", spouse: true });
+  await hook("peopleState", { creative: false });
+  let n = c.events.length;
+  await hook("damageColonist", { id: cr2?.ids?.[0], amount: 1e6 });
+  await ff(40);
+  await until(() => events(n).includes("widowed"), 3000);
+  const widowed = events(n).includes("widowed") && !(await hook("heroLife", {})).family.spouse;
+  await hook("peopleState", { creative: true });
+  const cr3 = await creative({ type: "creativeSet", op: "family", spouse: true });
+  await hook("peopleState", { creative: false });
+  let parted = false, relAfter = null;
+  if (site) {
+    await hook("heroLife", { spouseKin: sid });
+    await rel(70);
+    await snapNow();
+    const u = c.snap.colonists.find((x) => x.id === cr3?.ids?.[0]);
+    if (u) await hook("teleportPlayer", { x: u.x, y: u.y });
+    await talkOpen();
+    const d = await talkPick(/part ways/);
+    relAfter = (await hook("diploSet", { siteId: sid })).relation;
+    const ps = await hook("peopleState", {});
+    parted = /goes home/.test(d?.dialogue?.text ?? "") && relAfter <= 10 && !ps.persons.some((x) => x.id === cr3.ids[0]);
+    await talkPick(/Farewell/);
+  }
+  await hook("peopleState", { creative: true });
+  return [order && inherit && widowed && parted, `order ${order} (${heirs.slice(0, 2).map((h) => h.name).join(" / ")}), inherit ${inherit} (gold ${gold}, woodcutting ${r.life.skills.woodcutting}, gen ${r.life.family?.gen}), widowed ${widowed}, parted ${parted} (relation ${relAfter})`];
+});
+
 // Solo hero phase 4: a Solo New Game (a restart for everyone, normal mode): no Town Center or people of your own, a
 // little gold, the hero near a human settlement; "found a camp" places a Town Center and two settlers join. Runs last
 // before the world audits (they then audit the Solo world).

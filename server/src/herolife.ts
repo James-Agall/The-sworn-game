@@ -31,9 +31,10 @@ import { forcePostQuest, handleQuestMessage, quests, questsForSnapshot } from ".
 import { addItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
 import { heroProfileOf, playerMaxHp } from "./heroes.js";
 import {
-  bringKinHome, cachedFamilySnapshot, courtable, familyOf, familySnapshot, heroTaken, kinBond, marry, resetFamilyCache,
+  bringKinHome, cachedFamilySnapshot, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
 } from "./family.js";
 import { handleCallToArms } from "./vassals.js";
+import { heirOrderNames } from "./people.js";
 
 // ---- profile state ----
 export function lifeOf(player: Player): HeroLife {
@@ -334,6 +335,8 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
       return courtAction(p, t, c.action, String(c.arg ?? ""));
     case "marry":
       return wedding(p, t);
+    case "part":
+      return sayThen(p, t, partWays(p));
     case "kinLevy": {
       if (!s) return closeTalk(p);
       const why = handleCallToArms(p, s, {});
@@ -368,6 +371,7 @@ function familyChoices(p: Player, t: Talk): ChoiceRt[] {
     out.push({ label: `Marry us: ${f.betrothed.name} and I (${CEREMONY_FEE} gold).`, action: "marry", disabled: (state.stock.gold ?? 0) < CEREMONY_FEE ? `Needs ${CEREMONY_FEE} gold` : undefined });
   }
   if (t.role === "folk" && c && !heroTaken(p) && courtable(p, c)) out.push(...courtChoices(p, `c:${c.id}`, c.person!.name));
+  if (t.role === "folk" && c && kinRelation(p, c) === "spouse") out.push({ label: "We should part ways.", action: "part" });
   return out;
 }
 
@@ -1034,5 +1038,5 @@ export function fillHeroPack(p: Player) {
 }
 export function heroLifeDebug(p: Player) {
   const b = busy.get(p.id);
-  return { life: lifeOf(p), snap: lifeSnapshot(p), family: familySnapshot(p), needsOn: needsOn(), talking: b?.talk ? { role: b.talk.role, name: b.talk.name, choices: b.talk.choices.map((c) => c.label) } : null, speed: heroSpeedMult(p) };
+  return { life: lifeOf(p), snap: lifeSnapshot(p), family: familySnapshot(p, heirOrderNames), needsOn: needsOn(), talking: b?.talk ? { role: b.talk.role, name: b.talk.name, choices: b.talk.choices.map((c) => c.label) } : null, speed: heroSpeedMult(p) };
 }

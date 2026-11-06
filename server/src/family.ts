@@ -2,11 +2,15 @@
 // landed"). The hero is a person (HeroLife.family, saved with the hero profile): `selfId` is what other persons'
 // `parents` / `spouse` point at. Children and siblings are derived from the living colonists. Dialogue for courtship
 // and marriage lives in herolife.ts and calls the state changes here.
-import { CHILD_TALENT_SHARE, COURT_NEEDED, HERO_BIRTH_CHANCE, HERO_BIRTH_COOLDOWN_DAYS, KIN_LABEL, MARRIAGE_RELATION_JUMP, NEED_MAX, type FamilyMemberSnapshot, type FamilySnapshot, type HeroFamilyData, type KinRelation } from "@colony/shared/herolife";
+import { BLOOD_CLAIM_RELATION, CHILD_TALENT_SHARE, COURT_NEEDED, FEUD_DAYS, MARRIAGE_BREAK_RELATION, SPOUSE_DEATH_RELATION, HERO_BIRTH_CHANCE, HERO_BIRTH_COOLDOWN_DAYS, KIN_LABEL, MARRIAGE_RELATION_JUMP, NEED_MAX, type FamilyMemberSnapshot, type FamilySnapshot, type HeroFamilyData, type KinRelation } from "@colony/shared/herolife";
 import type { Colonist, Player, SiteState } from "./types.js";
 import { colonists, players, sites, state } from "./state.js";
 import { GAME_DAY_TICKS, RELATION_ALLIED_MIN } from "./constants.js";
-import { nearestTownCenter, newPerson, personAgeDays, settlementOf, settlementStats, spawnVillager } from "./colonists.js";
+import { nearestTownCenter, newPerson, personAgeDays, queueRespawn, settlementOf, settlementStats, spawnVillager } from "./colonists.js";
+import { clanById, withClan } from "./clans.js";
+import { releaseResourceReservation } from "./economy.js";
+import { leaveOrderGroup } from "./orders.js";
+import { gameDay, standingTown } from "./diplomacy.js";
 import { heroProfileOf } from "./heroes.js";
 import { adjustRelation, relationOf } from "./sites.js";
 import { broadcastEvent } from "./net.js";
@@ -70,11 +74,8 @@ const member = (c: Colonist): FamilyMemberSnapshot => ({
   ...(c.person!.kinOf && sites.get(c.person!.kinOf) ? { from: sites.get(c.person!.kinOf)!.name } : {}),
 });
 
-// Succession order hook (people.ts heirChoicesFor sets it); here only for the panel's heir line.
-let heirOrder: (p: Player) => { name: string; rel: KinRelation | null }[] = () => [];
-export function setHeirOrderSource(fn: typeof heirOrder) {
-  heirOrder = fn;
-}
+// The succession order (people.ts heirOrderNames, passed in to avoid an import cycle); for the panel's heir line.
+export type HeirOrder = (p: Player) => { name: string; rel: KinRelation | null }[];
 
 // Courtship flags in HeroLife.flags: "court:<key>" = points (key "c:<colonistId>" / "s:<siteId>").
 export function courtNameOf(key: string): string {
@@ -83,7 +84,7 @@ export function courtNameOf(key: string): string {
   return s ? `kin of ${s.name}` : "someone";
 }
 
-export function familySnapshot(p: Player): FamilySnapshot {
+export function familySnapshot(p: Player, heirOrder: HeirOrder): FamilySnapshot {
   const f = familyOf(p);
   const flags = heroProfileOf(p).life?.flags ?? {};
   const sp = spouseOf(p);
@@ -109,8 +110,84 @@ const cache = new Map<string, FamilySnapshot>();
 export function cachedFamilySnapshot(p: Player): FamilySnapshot | undefined {
   return cache.get(p.id);
 }
-export function updateFamily() {
-  for (const p of players.values()) cache.set(p.id, familySnapshot(p));
+export function updateFamily(heirOrder: HeirOrder) {
+  for (const p of players.values()) {
+    widowCheck(p);
+    cache.set(p.id, familySnapshot(p, heirOrder));
+  }
+}
+
+// The spouse is gone (died): widowed; an in-law settlement mourns and the marriage bond ends.
+function widowCheck(p: Player) {
+  const f = heroProfileOf(p).life?.family;
+  if (!f?.spouse || spouseOf(p) || heroWithSelf(f.spouse)) return;
+  const name = f.spouseName ?? "Your spouse";
+  const s = f.spouseKin ? sites.get(f.spouseKin) : undefined;
+  delete f.spouse;
+  delete f.spouseName;
+  delete f.spouseKin;
+  withClan(clanById(p.clan ?? 0), () => {
+    if (standingTown(s)) adjustRelation(p.clan ?? 0, s.id, SPOUSE_DEATH_RELATION);
+    broadcastEvent("death", `${name} has died: ${heroName(p)} is widowed${standingTown(s) ? `; ${s.name} mourns (relation ${SPOUSE_DEATH_RELATION}) and the marriage bond ends` : ""}`);
+  });
+}
+
+// "We should part ways" (run in the clan context): the marriage ends; an Elder's kin goes home and their settlement
+// turns on you (relation MARRIAGE_BREAK_RELATION, no courtship there for FEUD_DAYS).
+export function partWays(p: Player): string {
+  const sp = spouseOf(p);
+  const f = familyOf(p);
+  if (!sp) return "You are not married";
+  const s = sp.person!.kinOf ? sites.get(sp.person!.kinOf) : undefined;
+  delete sp.person!.spouse;
+  delete f.spouse;
+  delete f.spouseName;
+  delete f.spouseKin;
+  if (s) {
+    releaseResourceReservation(sp);
+    leaveOrderGroup(sp.id);
+    if (sp.kind !== "villager") queueRespawn(sp);
+    colonists.delete(sp.id);
+    const flags = heroProfileOf(p).life?.flags;
+    if (flags) flags[`feud:${s.id}`] = gameDay() + FEUD_DAYS;
+    if (standingTown(s)) adjustRelation(p.clan ?? 0, s.id, MARRIAGE_BREAK_RELATION);
+  }
+  const text = `${heroName(p)} and ${sp.person!.name} part ways${s ? `: ${sp.person!.name} goes home to ${s.name}, and ${s.name} will not forget it (relation ${MARRIAGE_BREAK_RELATION}, a feud)` : ""}`;
+  broadcastEvent(s ? "raid" : "build", text);
+  return text;
+}
+
+// people.ts handleChooseHeir: the heir becomes the family's new self (their parents and spouse carry over; the old
+// hero's other children become siblings). A child of an in-law marriage taking over: that settlement's blood claim.
+export function succeedFamily(p: Player, c: Colonist) {
+  const old = familyOf(p);
+  const life = heroProfileOf(p).life!;
+  const clan = p.clan ?? 0;
+  const claims = new Set<string>();
+  if (c.person?.parents?.includes(old.selfId)) {
+    if (old.kinOf) claims.add(old.kinOf);
+    for (const id of c.person.parents) {
+      const k = colonists.get(id)?.person?.kinOf;
+      if (k) claims.add(k);
+    }
+  }
+  const spouse = c.person?.spouse && c.person.spouse !== old.selfId ? colonists.get(c.person.spouse) : undefined;
+  const next: HeroFamilyData = { selfId: c.id, gen: old.gen + 1, name: c.person?.name ?? c.heroName ?? "The heir" };
+  if (c.person?.parents?.length) next.parents = [...c.person.parents];
+  if (spouse?.person?.spouse === c.id) {
+    next.spouse = spouse.id;
+    next.spouseName = spouse.person.name;
+    if (spouse.person.kinOf) next.spouseKin = spouse.person.kinOf;
+  }
+  if (c.person?.kinOf) next.kinOf = c.person.kinOf;
+  life.family = next;
+  for (const k of Object.keys(life.flags)) if (k.startsWith("court")) delete life.flags[k];
+  for (const id of claims) {
+    const s = sites.get(id);
+    if (!standingTown(s)) continue;
+    adjustRelation(clan, s.id, BLOOD_CLAIM_RELATION);
+    broadcastEvent("milestone", `${next.name} carries the blood of ${s.name}: they rejoice (relation +${BLOOD_CLAIM_RELATION})`);
+  }
 }
 export function resetFamilyCache() {
   cache.clear();
@@ -151,6 +228,8 @@ export function marry(p: Player, c: Colonist, s?: SiteState) {
   f.spouseName = c.person!.name;
   delete f.betrothed;
   c.person!.spouse = f.selfId;
+  if (s) f.spouseKin = s.id;
+  else delete f.spouseKin;
   const flags = heroProfileOf(p).life?.flags;
   if (flags) for (const k of Object.keys(flags)) if (k.startsWith("court")) delete flags[k];
   if (s) {

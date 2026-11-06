@@ -27,7 +27,8 @@ import { sendEvent } from "./construction.js";
 import { heroKey, heroProfileFor, heroProfileOf, playerMaxHp, recomputeHeroProfile } from "./heroes.js";
 import { releaseResourceReservation } from "./economy.js";
 import { isSummoned } from "./spells.js";
-import { heroBirthsDawn } from "./family.js";
+import { heroBirthsDawn, kinRelation, succeedFamily } from "./family.js";
+import { FAMILY_HEIR_GOLD_SHARE, FAMILY_HEIR_SKILL_SHARE, KIN_LABEL, type HeroSkill, type KinRelation } from "@colony/shared/herolife";
 
 const isAdult = (c: Colonist) => !!c.person && !c.person.child;
 
@@ -363,6 +364,23 @@ export function heirCandidates(clan: number): Colonist[] {
   return out;
 }
 
+// Family (PLAN-family-and-succession.md): eldest adult child, spouse, sibling (eldest first), parent, then everyone
+// else in the old order.
+const KIN_RANK: Record<KinRelation, number> = { child: 0, spouse: 1, sibling: 2, parent: 3 };
+export function rankedHeirs(player: Player): { c: Colonist; rel: KinRelation | null }[] {
+  return heirCandidates(player.clan ?? 0)
+    .map((c, i) => ({ c, rel: kinRelation(player, c), i }))
+    .sort((a, b) => {
+      const ra = a.rel ? KIN_RANK[a.rel] : 9;
+      const rb = b.rel ? KIN_RANK[b.rel] : 9;
+      if (ra !== rb) return ra - rb;
+      return ra < 9 ? (a.c.person?.born ?? 0) - (b.c.person?.born ?? 0) : a.i - b.i;
+    });
+}
+export function heirOrderNames(p: Player): { name: string; rel: KinRelation | null }[] {
+  return rankedHeirs(p).map((h) => ({ name: h.c.person?.name ?? h.c.heroName ?? h.c.kind, rel: h.rel }));
+}
+
 export function heirSnapshot(clan: number): HeirCandidateSnapshot[] {
   return heirCandidates(clan).map((c) => ({
     id: c.id,
@@ -403,7 +421,12 @@ function canRevive(player: Player): boolean {
 // The heir picker's rows: "Resurrect at the Church" first when it can be paid, then the heirs.
 export function heirChoicesFor(player: Player): HeirCandidateSnapshot[] {
   const r = reviveOption(player);
-  const out = heirSnapshot(player.clan ?? 0);
+  const all = heirSnapshot(player.clan ?? 0);
+  const out: HeirCandidateSnapshot[] = rankedHeirs(player).map((h, i) => {
+    const base = all.find((x) => x.id === h.c.id)!;
+    const tags = [...(h.rel ? [`your ${KIN_LABEL[h.rel].toLowerCase()}`] : []), ...(i === 0 ? ["the heir"] : [])];
+    return tags.length ? { ...base, name: `${base.name} (${tags.join(", ")})` } : base;
+  });
   if (r && canRevive(player)) out.unshift({ id: "church", name: `Resurrect at the Church (${r.cost} gold, skills -${Math.round(r.loss * 100)}%)`, kind: "church" });
   return out;
 }
@@ -444,10 +467,20 @@ export function handleChooseHeir(player: Player, id: unknown) {
   }
   withClan(clanById(player.clan ?? 0), () => {
     const name = c.person?.name ?? c.heroName ?? "An heir";
+    // Family heirs (child / spouse / sibling / parent) inherit more; skills share too, the heir's talent if higher.
+    const kin = kinRelation(player, c) !== null;
+    const skillShare = kin ? FAMILY_HEIR_SKILL_SHARE : HEIR_SKILL_SHARE;
     const prof = heroProfileOf(player);
-    prof.xp = Math.floor(prof.xp * HEIR_SKILL_SHARE);
+    prof.xp = Math.floor(prof.xp * skillShare);
+    if (prof.life) {
+      const sk = prof.life.skills;
+      for (const k of new Set([...Object.keys(sk), ...Object.keys(c.person?.talent ?? {})]) as Set<HeroSkill>) {
+        sk[k] = Math.max(Math.floor((sk[k] ?? 0) * skillShare), c.person?.talent?.[k] ?? 0);
+      }
+    }
     recomputeHeroProfile(prof);
-    state.stock.gold = Math.floor((state.stock.gold ?? 0) * HEIR_GOLD_SHARE);
+    state.stock.gold = Math.floor((state.stock.gold ?? 0) * (kin ? FAMILY_HEIR_GOLD_SHARE : HEIR_GOLD_SHARE));
+    succeedFamily(player, c);
     releaseResourceReservation(c);
     leaveOrderGroup(c.id);
     if (c.kind !== "hero" && c.kind !== "villager") queueRespawn(c);
