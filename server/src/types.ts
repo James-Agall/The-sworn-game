@@ -1,6 +1,7 @@
 // types.ts: Shared interfaces and type aliases for the server simulation.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import type { Profession } from "@colony/shared/progression";
+import type { HeroSkill, PackGood, PersonalBuild } from "@colony/shared/herolife";
 import type { WebSocket } from "ws";
 import type {
   ColonistKind, Stance, FormationShape, HeroClass, MobKind, BossTier, HungerMark, GateLock, WildlifeKind, ArmyOrder,
@@ -884,6 +885,18 @@ export interface HeroProfile {
   spellSlots: (SpellId | null)[];
   spellAuto: boolean;
   spellGrants: number;
+  // Solo hero (herolife.ts): pack, needs, skills, NPC flags, personal builds. Created on first use; saved.
+  life?: HeroLife;
+}
+export interface HeroLife {
+  pack: Partial<Record<PackGood, number>>;
+  food: number;
+  rest: number;
+  // XP per hero skill (WORKER_XP_LEVELS).
+  skills: Partial<Record<HeroSkill, number>>;
+  // NPC / dialogue flags: "gift:<siteId>" = game day of the last gift, "rumour:<siteId>", "met:<siteId>", ...
+  flags: Record<string, number>;
+  builds: { kind: PersonalBuild; x: number; y: number }[];
 }
 export interface HeroRecruit {
   id: string;

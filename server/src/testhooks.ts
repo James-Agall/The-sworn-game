@@ -1,11 +1,12 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleInteract, heroLifeDebug, lifeOf, setNeedsOverride } from "./herolife.js";
 import { addItem, itemCount, professionOf, takeItem, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
 import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
 import { buildingLevel, newClanProgress, tradingPosts } from "./state.js";
 import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, pathCacheStats, setTile, updateChunkStates } from "./chunks.js";
-import { clanById, clanIdAt, withClan } from "./clans.js";
+import { clanById, clanIdAt, clanOf, withClan } from "./clans.js";
 import { auditWorld } from "./abstract.js";
 import { currentWorldSeed, dropBaseCache } from "./worldbase.js";
 import { strifeDawn, strifeStats } from "./strife.js";
@@ -526,6 +527,23 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "damagePlayer" && typeof msg.amount === "number") {
     damagePlayer(player, msg.amount);
     reply({ hp: player.hp, dead: player.dead });
+  } else if (msg.op === "heroLife") {
+    // Solo hero: `needs` true / false / null (= the default rule) overrides needs; food / rest / pack / skills set
+    // them; `interact` / `choice` / `stop` / `action` (+ build) act as the messages; replies the life + talk state.
+    if ("needs" in msg) setNeedsOverride(typeof msg.needs === "boolean" ? msg.needs : null);
+    withClan(clanOf(player), () => {
+      const life = lifeOf(player);
+      if (typeof msg.food === "number") life.food = msg.food;
+      if (typeof msg.rest === "number") life.rest = msg.rest;
+      if (msg.pack && typeof msg.pack === "object") life.pack = { ...(msg.pack as Record<string, number>) };
+      if (msg.skills && typeof msg.skills === "object") life.skills = { ...(msg.skills as Record<string, number>) };
+      if (msg.flagsClear === true) life.flags = {};
+      if (msg.interact === true) handleInteract(player);
+      if (typeof msg.choice === "number") handleDialogueChoice(player, msg.choice);
+      if (msg.stop === true) handleGatherStop(player);
+      if (typeof msg.action === "string") handleHeroAction(player, msg.action, msg.build);
+    });
+    reply(heroLifeDebug(player));
   } else if (msg.op === "heroDeath") {
     // Village life phase 5: `legacy` sets the old instant-respawn rule (COLONY_HERO_RESPAWN); `clan` moves this player
     // to that clan id (e.g. one with nobody in it, for game over); `revive` brings a dead player back where it lies.

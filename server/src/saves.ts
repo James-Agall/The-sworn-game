@@ -1,5 +1,6 @@
 // saves.ts: Save files: snapshot/apply world, migrations, slots, autosave, restart.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { resetHeroLifeSessions } from "./herolife.js";
 import { topUpCreative } from "./creative.js";
 import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -119,6 +120,7 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   resetEquipment();
   if (state.creative) topUpCreative();
   heroProfiles.clear();
+  resetHeroLifeSessions();
   heroRecruits.length = 0;
   state.heroRosterVersion++;
   state.marketBuilt = false;

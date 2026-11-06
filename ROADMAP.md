@@ -2155,6 +2155,64 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Solo hero — landed (phases 1-3) 2026-11-06 (talk, gather, needs, skills, station work, masters, builds, Church)
+
+Plan: `docs/colony2d/PLAN-solo-hero.md` phases 1-3 + "Death, resurrection and heirs" (the Church part). Data:
+`shared/src/herolife.ts`; server: `server/src/herolife.ts` (state on `HeroProfile.life`, saved with the profile; old
+saves: none = fresh); client: `client/src/herolife.ts` (own DOM, hooked from main.ts in three places).
+- **E = interact (held):** the server picks, in order: an NPC within 2.5 tiles (talk), a tree / rock / iron ore /
+  ripe forage / water tile next to the hero (gather while E is held; `gatherStop` on release), an own recipe station
+  within 2 tiles (work it as its worker; E again or moving stops). Nothing: `interactNone` and the client opens the
+  building panel as Enter does (Enter is unchanged).
+- **Dialogue (phase 1):** panel bottom-centre: portrait (initial on a colour), name / role / settlement / tier, short
+  lines, 2-6 numbered choices (keys 1-6, Esc = farewell). Role trees in `DIALOGUE` (text per relation tier, choices
+  gated by tier): **Elder** (talking at a human settlement's keep): trade (opens the settlement's trade panel), "do you
+  need help" (posts a quest now if its cooldown / cap allow, `forcePostQuest`), gift (20 gold, relation +3, x1.25 per
+  speech level above 1, once a game day), masters, alliance (at Friendly: relation >= 50 - 5 per speech level above 1
+  jumps it to Allied, one ask a day). **Trader** (the settlement's first worker): trade, sell the pack (existing
+  prices / caps / purse via `handleTradeWithSite`), rumours. **Villager** (its other workers): rumours, "who is in
+  charge", lodging at Friendly+ (rest to full, +20 food, once a day). **Priest** (its priest worker) = quest giver:
+  open quests as choices (accept; deliver takes the good from the pack first), ask for work, rumours. **Your people**
+  (own adults): how they fare (profession level, home, food in store). Rumours name the nearest camp and the nearest
+  other settlement (bearing + distance) and reveal both on the minimap. NPC flags (`met:`, `gift:`, `rumour:`,
+  `lodging:`, `ally:` + site id = game day) live in `life.flags`. Talk closes when you walk away.
+- **Pack and needs (phase 2):** goods wood / stone / iron ore / grain / meat / fruit / fish, weights 1 / 2 / 2 / .5,
+  cap 40 (full = no more gathering; over half full slows to x0.75 at full). Hero bar: Food and Rest meters, load,
+  status line; **Pack** button: contents, Eat / Rest / Deposit, Build by hand, skills. Food -100 per 1.5 game days,
+  rest -100 per day awake; Rest action +1/s (x2 by an own campfire, x3 by a lean-to or the Town Center); the pack's
+  food is eaten automatically below 50 (and near home / a chest, from the stores: bread, flatbread, gruel, meat,
+  fruit, grain). Below 25: x0.8 speed each and no natural healing. Natural healing (new): fed and rested and unhurt for
+  8 s, +0.5% max HP a second (x4 resting). Needs never kill. **Off** in creative and with `COLONY_UNLOCK_ALL` (older
+  suites), so no older test sees them; test hook `heroLife {needs}` forces them.
+- **Gathering:** chop (2 wood / 3 s, stone axe in the stores; 25% the tree falls), quarry (1 stone / 3 s) and ore
+  (1 iron / 4 s) with a stone pick, forage (2 fruit / 2 s, the plant goes picked and regrows as for foragers), fish
+  (1 fish / 5 s at water). Deposit at an own Town Center or storage chest (fish keeps as meat).
+- **Skills (phase 3):** woodcutting, mining, foraging, fishing, farming, hunting, building, smithing, smelting,
+  charcoal burning, milling, baking, trading, speech. Same XP as workers (1 a second of work; levels 0 / 100 / 300 /
+  700) and +25% speed per level. Gathering gives its skill, a wildlife kill hunting (10), builds building (10), trade /
+  sales trading, talk speech. **Station work:** E at an own Charcoal Burner / Bloomery / Mill / Bakery: the hero is
+  its worker: the first ready station recipe at the hero's skill level, inputs from the stores, speed and output grade
+  from min(station level, skill level), 1 XP a second (alongside any NPC worker there). **Masters:** an Elder's "Who
+  could teach me a trade?" lists 3 skills (stable per settlement): 30 gold per level up to level 2.
+- **Personal builds:** campfire (5 wood + 2 stone), lean-to (12 wood), storage chest (8 wood) on a free tile next to
+  the hero, paid from the pack then the stores; at most 6. They are the world-gen prop tiles (PropCampfire / Tent /
+  PropCrate, existing art), not clan buildings: nothing else uses them (no upkeep, raids ignore them).
+- **Church resurrection:** a fallen hero whose clan has a Church and the gold sees "Resurrect at the Church (N gold,
+  skills -X%)" first in the heir picker (`chooseHeir {id: "church"}`). Cost (40 + 20 x hero level) x 1 / .85 / .7 and
+  loss 30 / 20 / 10% of the hero XP and every hero skill by the best own Church's level; rises next to it. No Church /
+  gold and no heir = game over as before.
+- **Creative:** needs off; `creativeSet heroSkills {level}` (all hero skills) and `heroPack` (no UI buttons yet).
+- **Not done:** farming by hand (no harvest action; the skill exists), smithing at the Blacksmith (its forge queue has
+  no worker hook), tailoring / brewing, named heroes / companions (phase 5), "found a camp" / Solo start (phase 4),
+  cooking at the campfire, NPC portraits art, quest chains per hero, items in the pack (tools stay clan items).
+- Smoke: "solo hero: talk to a settlement elder", "gather, needs, deposit", "station work, master, personal build",
+  "resurrection at a Church". `SMOKE_ONLY=<text>` runs only matching checks. Headless Playwright (scratch build):
+  New Game, Pack panel, E next to a villager opens the dialogue, 1 picks; no page errors (two pre-existing sprite 404s).
+- builders-towncenter-test: confirmed pre-existing: it fails identically (3 FAIL lines: "no builders" x2, "second Town
+  Center placed") at 8589b27, the commit before ce3c3c1.
+
+**Manual browser check:** MANUAL-TESTS.md "Solo hero (phases 1-3)".
+
 ## Village life — landed (phase 5/6) 2026-11-06 (adventure camera, mode toggle, hero death + heirs, creative people)
 
 Plan: `docs/colony2d/PLAN-village-life.md` phases 5-6; party commands per PLAN-solo-hero.md "Refinement"; heirs per

@@ -8,6 +8,7 @@
     "./formation": "./src/formation.ts",
     "./buildings": "./src/buildings.ts",
     "./progression": "./src/progression.ts",
+    "./herolife": "./src/herolife.ts",
     "./streaming": "./src/streaming.ts"
   }
 }

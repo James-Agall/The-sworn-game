@@ -1,3 +1,4 @@
+import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, PersonalBuild } from "./herolife.js";
 export const TICK_RATE = 20;
 export const TILE_SIZE = 32;
 // Server-side default; the live size is overridable (COLONY_WORLD_SIZE) and sent in `welcome`.
@@ -1190,7 +1191,13 @@ export type ClientMessage =
   // Progression tree: craft one hand recipe (PROGRESSION.recipes, station "hand") from the stock.
   | { type: "craftItem"; recipe: string }
   // Progression tree phase 3: send a prospector to survey around the nearest Town Center.
-  | { type: "prospect" };
+  | { type: "prospect" }
+  // Solo hero phase 1-3 (herolife): E next to an NPC talks, next to a tree / rock / ore / forage / water gathers
+  // (held: gatherStop on release), next to an own recipe station works it; dialogue choices by index; hero actions.
+  | { type: "interact" }
+  | { type: "gatherStop" }
+  | { type: "dialogueChoice"; choice: number }
+  | { type: "heroAction"; action: HeroActionKind; build?: PersonalBuild };
 
 export type ServerMessage =
   | {
@@ -1318,6 +1325,8 @@ export type ServerMessage =
       profile?: HeroProfileSnapshot;
       // Hero phase 3: the colony's heroes (sheet tabs); appended per player only when it changed.
       heroes?: HeroSheetSnapshot[];
+      // Solo hero: this player's pack, needs, skills and current action (per player, only when it changed).
+      life?: HeroLifeSnapshot;
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).
@@ -1336,7 +1345,11 @@ export type ServerMessage =
   // Reply to saveGame / loadGame, to the requesting client only (`action` says which).
   // Creative mode: the answer to a creativeSpawn / creativeSet (text is toasted; ids = spawned unit ids).
   | { type: "creativeResult"; op: string; ok: boolean; text: string; [key: string]: unknown }
-  | { type: "saveResult"; ok: boolean; error?: string; slot: SaveSlot; action: "save" | "load" };
+  | { type: "saveResult"; ok: boolean; error?: string; slot: SaveSlot; action: "save" | "load" }
+  // Solo hero: a conversation node (close: the conversation ended; openTrade: open that settlement's trade panel).
+  | { type: "dialogue"; dialogue?: DialogueSnapshot; close?: boolean; openTrade?: { tileX: number; tileY: number } }
+  // Solo hero: E found nothing to talk to / gather / work (the client falls back to the building panel).
+  | { type: "interactNone" };
 
 export interface PlayerSnapshot {
   id: string;

@@ -60,8 +60,9 @@ import { broadcastEvent, flushExplored, handleSetView, httpServer, sendChunks, s
 import { handleTestHook } from "./testhooks.js";
 import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creative.js";
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
-import { handleCallVillagers, handleChooseHeir, handleTrainUnit, heirSnapshot } from "./people.js";
+import { handleCallVillagers, handleChooseHeir, handleTrainUnit, heirChoicesFor } from "./people.js";
 import { handleCraftItem, handleProspect, progressionSnapshot } from "./progression.js";
+import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleInteract, withPlayerLife } from "./herolife.js";
 
 setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 
@@ -327,6 +328,15 @@ function handleMessage(player: Player, message: ClientMessage) {
     handleCraftItem(player, message.recipe);
   } else if (message.type === "prospect") {
     handleProspect(player);
+  } else if (message.type === "interact") {
+    // Solo hero (herolife.ts): talk / gather / work.
+    handleInteract(player);
+  } else if (message.type === "gatherStop") {
+    handleGatherStop(player);
+  } else if (message.type === "dialogueChoice") {
+    handleDialogueChoice(player, message.choice);
+  } else if (message.type === "heroAction") {
+    handleHeroAction(player, message.action, message.build);
   }
 }
 
@@ -371,7 +381,7 @@ setInterval(() => {
     maxHp: playerMaxHp(p),
     dead: p.dead,
     ...(p.clan ? { clan: p.clan } : {}),
-    ...(p.dead && p.heirPending ? { heirs: heirSnapshot(p.clan ?? 0) } : {}),
+    ...(p.dead && p.heirPending ? { heirs: heirChoicesFor(p) } : {}),
   }));
   // Battle engine phase 7 (snapshot LOD): with more than BIG_BATTLE_SNAPSHOT_UNITS soldiers / mobs on the map,
   // positions, mob hp and effect points go out rounded to 0.1 px and a false `sheltered` is left out (~20% of a
@@ -562,7 +572,7 @@ setInterval(() => {
         clanTilesJson ??= JSON.stringify(clanTilesForSnapshot());
         payload = payload.slice(0, -1) + ',"clanTiles":' + clanTilesJson + "}";
       }
-      player.socket.send(withPlayerHeroes(withPlayerProfile(withPlayerFights(payload, player), player), player));
+      player.socket.send(withPlayerLife(withPlayerHeroes(withPlayerProfile(withPlayerFights(payload, player), player), player), player));
     }
   }
   lap("snapshot");

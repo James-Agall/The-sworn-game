@@ -3,6 +3,7 @@
 // canAfford / spend in construction.ts), instant build (state.instantBuild), no population / garrison caps
 // (colonists.ts settlementStatsAll), and the creative panel's commands (creativeSpawn / creativeSet, refused in
 // normal games). Also home of the spawn / stamp helpers the COLONY_TEST_HOOKS handlers share (testhooks.ts).
+import { fillHeroPack, setHeroSkills } from "./herolife.js";
 import { randomUUID } from "node:crypto";
 import {
   type ColonistKind, type HeroClass, HERO_CLASSES, HungerMark, type MobKind, type Stance, TILE_SIZE, TileType,
@@ -487,6 +488,14 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
     player.creativeGod = msg.on === true;
     if (player.creativeGod) player.hp = playerMaxHp(player);
     reply(true, `Godmode ${player.creativeGod ? "on" : "off"}`, { on: player.creativeGod });
+  } else if (op === "heroSkills") {
+    // Solo hero: every hero skill to `level` (1-4); creative skips the hero's needs anyway.
+    const lv = Math.max(1, Math.min(4, Math.floor(Number(msg.level) || 4)));
+    setHeroSkills(player, lv);
+    reply(true, `Hero skills set to level ${lv}`, { level: lv });
+  } else if (op === "heroPack") {
+    fillHeroPack(player);
+    reply(true, "Hero pack filled (wood, stone, food)");
   } else if (op === "heal") {
     for (const c of colonists.values()) c.hp = c.maxHp;
     for (const p of players.values()) if (!p.dead) p.hp = playerMaxHp(p);

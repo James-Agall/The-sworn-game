@@ -12,6 +12,9 @@ import {
   Texture,
 } from "pixi.js";
 import { setupCreative } from "./creative";
+import { type HeroLifeUi, setupHeroLife } from "./herolife";
+// Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
+const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 import type {
   ClientMessage,
   SiteFaction,
@@ -5127,7 +5130,7 @@ async function main() {
         const b = document.createElement("button");
         b.className = "menu-btn secondary heir-btn";
         const role = h.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
-        b.textContent = `${h.name}: ${role}${h.heroLevel ? `, level ${h.heroLevel}` : ""}${h.ageDays !== undefined ? `, ${h.ageDays} days old` : ""}`;
+        b.textContent = h.id === "church" ? h.name : `${h.name}: ${role}${h.heroLevel ? `, level ${h.heroLevel}` : ""}${h.ageDays !== undefined ? `, ${h.ageDays} days old` : ""}`;
         b.addEventListener("click", () => {
           b.blur();
           sendMessage({ type: "chooseHeir", id: h.id });
@@ -6040,6 +6043,7 @@ async function main() {
       interpBeforeSnapshot();
       syncPlayers(message.players);
       latestPlayersForSpells = message.players;
+      if (message.life) heroLifeRef.ui?.onLife(message.life);
       syncColonists(message.colonists, message.isNight);
       syncMobs(message.mobs);
       interpAfterSnapshot();
@@ -6185,6 +6189,8 @@ async function main() {
       applyStreamChunks(message.chunks);
     } else if (message.type === "chronicle") {
       onChronicle(message);
+    } else if (message.type === "dialogue" || message.type === "interactNone") {
+      heroLifeRef.ui?.onMessage(message);
     } else if (message.type === "buildingInfo") {
       if (!infoTile || infoTile.tx !== message.tileX || infoTile.ty !== message.tileY) return;
       if (message.info) renderBuildingInfo(message.info);
@@ -6656,6 +6662,13 @@ async function main() {
     if (best) openBuildingInfo(best.tx, best.ty);
     else pushEventToast("build", "Nothing to interact with nearby");
   }
+  // Solo hero: E (talk / gather / work), the dialogue panel, needs and the Pack panel.
+  heroLifeRef.ui = setupHeroLife({
+    send: sendMessage,
+    openBuildingInfo,
+    fallbackInteract: adventureInteract,
+    blocked: () => strategyCam.inStrategy || !myId || !heroModal.hidden,
+  });
   function partyCommand(cmd: "followMe" | "hold" | "shape") {
     if (!partyCommandsOn() || !myId) return;
     if (cmd === "followMe") sendRegimentOrder({ kind: "follow", targetId: `p:${myId}` }, false);

@@ -564,3 +564,29 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
    and gold is halved. With no adults left (kill them in creative first), dying shows the game-over screen.
 8. Creative mode > World > People: Immigrants adds adults at your Town Center, Children adds babies (Pop rises).
    Creative works the same in both views.
+
+## Solo hero (phases 1-3): talk, gather, needs, skills
+1. New Game (normal, not creative). Hero bar: Food / Rest meters and a load "0/40" under the XP bar, a **Pack**
+   button. Pack opens a panel right of the hero bar (pack, Eat / Rest / Deposit, Build by hand, Skills).
+2. Walk next to one of your villagers and press **E**: a dialogue panel (initial portrait, name, "Your people") with
+   "How do you fare?" / "Farewell." Keys 1-2 pick; Esc closes. Walk away while it is open: it closes.
+3. Next to a tree, **hold E**: a ring fills over the hero ("Chopping"); every ~3 s 2 wood go in the pack, it repeats
+   while held, stops on release or moving. Same on a rock (stone), iron ore, a berry bush / fruit tree / mushrooms
+   (fruit; the plant shows picked) and at a pond (fish). Pack panel counts go up; Skills shows Woodcutting etc.
+4. Fill the pack past 20 weight: the hero walks slower ("Heavy load"); at 40 gathering refuses. Walk to the Town
+   Center, Pack > Deposit: the stock panel's wood / rock go up.
+5. Find a human settlement (Hearthmoor etc.), stand by its keep, E: the Elder greets you by relation tier. Try: Let's
+   trade (trade panel opens), Do you need help (a quest is posted or "nothing new"), a gift (20 gold; relation up; the
+   choice then shows "Already gave a gift today"), Who could teach me a trade (3 masters, 30 gold a level).
+   E next to the settlement's walking folk: trader (Buy what I carry), villagers (news: the minimap reveals the camp /
+   town named), the priest (quests: accept from the dialogue).
+6. Pack > Build: Campfire / Lean-to / Storage chest appear next to you (wood from the pack or the stores). Rest next
+   to the lean-to: Rest climbs fast. Deposit next to the chest works away from the Town Center.
+7. Needs: after a game day without eating the Food meter drains; carry fruit / meat and it is eaten below half. Below a
+   quarter "Hungry" / "Tired" show and you walk slower; HP no longer comes back on its own (it does when fed + rested).
+8. Build a Mill (with grain in store), stand next to it, E: "You take up the work..."; the ring shows "Grind flour";
+   flour appears in the items, Skills shows Milling. Moving stops it.
+9. With a Church and gold, die (creative is easier: godmode off): the picker's first row is "Resurrect at the Church
+   (N gold, skills -X%)"; you rise next to the Church with less gold and skills.
+10. Creative world: the Food / Rest meters are greyed (needs off).
+

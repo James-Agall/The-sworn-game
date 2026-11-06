@@ -43,6 +43,7 @@ import { updateVassals, vassalsDawn } from "./vassals.js";
 import { spawnCampRaids, stepWarbandMobs, updateWarbands, warbandsDawn } from "./warbands.js";
 import { assignHomes, peopleDawn, updateAging, updateTraining, updateVillageLevy } from "./people.js";
 import { updateProspecting, updateWorkerXp } from "./progression.js";
+import { heroSpeedMult, updateHeroLife } from "./herolife.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
@@ -133,7 +134,7 @@ export function stepSimulation() {
     const length = Math.hypot(dx, dy) || 1;
     const normDx = dx / length;
     const normDy = dy / length;
-    const playerSpeed = PLAYER_SPEED * heroProfileOf(player).stats.moveSpeedMult * spellBuffSpeedMult("p:" + player.id) * biomeSpeedMultiplier(player.x, player.y) * roadSpeedMultiplier(player.x, player.y);
+    const playerSpeed = PLAYER_SPEED * heroProfileOf(player).stats.moveSpeedMult * spellBuffSpeedMult("p:" + player.id) * biomeSpeedMultiplier(player.x, player.y) * roadSpeedMultiplier(player.x, player.y) * heroSpeedMult(player);
 
     const nextX = clamp(
       player.x + normDx * playerSpeed * dt,
@@ -223,6 +224,8 @@ export function stepSimulation() {
     updateProspecting();
   }
   updateWardPriestPresence();
+  // Solo hero: gathering, station work, needs.
+  updateHeroLife();
   // Dawn/dusk respawn windows: one toast per batch.
   if (state.respawnWindowSpawned > 0) {
     broadcastEvent(

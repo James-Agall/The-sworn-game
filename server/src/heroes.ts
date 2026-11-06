@@ -2,6 +2,7 @@
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { gatesOpen, workerLevelAt } from "./progression.js";
 import { smithLevelForGearTier } from "@colony/shared/progression";
+import { sanitizeHeroLife } from "@colony/shared/herolife";
 import { randomUUID } from "node:crypto";
 import {
   type ColonistKind, type EquipSlot, HungerMark, type Equipment, GEAR_SLOTS, PLAYER_MAX_HP, type HeroStats,
@@ -453,6 +454,8 @@ export function serializeHeroProfiles() {
     ...(p.heroClass ? { heroClass: p.heroClass, heroName: p.heroName } : {}),
     // Hero phase 4 (old saves: none learned; restore then grants the level-ups already earned).
     spells: p.spells, spellSlots: p.spellSlots, spellAuto: p.spellAuto, spellGrants: p.spellGrants,
+    // Solo hero (herolife.ts; old saves: none).
+    ...(p.life ? { life: p.life } : {}),
   }));
 }
 
@@ -474,6 +477,8 @@ export function restoreHeroProfiles(saved: unknown) {
       : undefined;
     const prof = newHeroProfile(raw.key, eq, hero ? [] : inv, xp, hero);
     restoreSpellBook(prof, raw);
+    const life = sanitizeHeroLife(raw.life);
+    if (life) prof.life = life;
     heroProfiles.set(raw.key, prof);
   }
 }

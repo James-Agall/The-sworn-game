@@ -205,7 +205,7 @@ interface StationJob { recipe: Recipe; left: number; total: number }
 // Colonist id -> its job in progress (not saved: a load restarts every station's current batch).
 const stationJobs = new Map<string, StationJob>();
 
-function recipeReady(r: Recipe): boolean {
+export function recipeReady(r: Recipe): boolean {
   if (r.cap !== undefined && itemCount(r.output) >= r.cap) return false;
   if (!state.creative) for (const [k, n] of Object.entries(r.stock ?? {})) if (state.stock[k as ResourceKey] < (n ?? 0)) return false;
   for (const [id, n] of Object.entries({ ...(r.items ?? {}), ...(r.needs ?? {}) }) as [ItemId, number][]) if (itemCount(id) < n) return false;
@@ -213,7 +213,7 @@ function recipeReady(r: Recipe): boolean {
 }
 
 // "Iron bloom: short of Charcoal; Anvil: 1 in store (enough)".
-function stationIdleReason(t: TileType): string {
+export function stationIdleReason(t: TileType): string {
   const parts = stationRecipes(t).map((r) => {
     const name = PROGRESSION.items[r.output].label;
     if (r.cap !== undefined && itemCount(r.output) >= r.cap) return `${name}: ${itemCount(r.output)} in store (enough)`;

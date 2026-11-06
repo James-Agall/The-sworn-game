@@ -371,14 +371,47 @@ export function heirSnapshot(clan: number): HeirCandidateSnapshot[] {
   }));
 }
 
-// The player's hero fell (combat.ts damagePlayer): dead, then an heir choice, or game over with nobody to take over.
+// Solo hero: resurrection at the clan's Church (PLAN-solo-hero.md "Death, resurrection and heirs"). The best-tier own
+// Church; gold = (REVIVE_GOLD_BASE + REVIVE_GOLD_PER_LEVEL x hero level) x the tier's price factor; the hero's XP and
+// each hero skill lose the tier's share. Null: no Church of the clan stands.
+const REVIVE_GOLD_BASE = 40;
+const REVIVE_GOLD_PER_LEVEL = 20;
+const REVIVE_PRICE = [1, 0.85, 0.7];
+const REVIVE_LOSS = [0.3, 0.2, 0.1];
+export function reviveOption(player: Player): { x: number; y: number; cost: number; loss: number } | null {
+  const clan = player.clan ?? 0;
+  let best: { x: number; y: number; lvl: number } | null = null;
+  const W = state.WORLD_TILES_X;
+  for (const i of tileIndicesOfAny([TileType.ChurchPost])) {
+    const x = i % W;
+    const y = Math.floor(i / W);
+    if (clanIdAt(x, y) !== clan) continue;
+    const lvl = Math.max(1, Math.min(3, getBuildingLevel(x, y)));
+    if (!best || lvl > best.lvl) best = { x, y, lvl };
+  }
+  if (!best) return null;
+  const level = heroProfileOf(player).level;
+  return { x: best.x, y: best.y, cost: Math.round((REVIVE_GOLD_BASE + REVIVE_GOLD_PER_LEVEL * level) * REVIVE_PRICE[best.lvl - 1]), loss: REVIVE_LOSS[best.lvl - 1] };
+}
+function canRevive(player: Player): boolean {
+  const r = reviveOption(player);
+  return !!r && (clanById(player.clan ?? 0).stock.gold ?? 0) >= r.cost;
+}
+// The heir picker's rows: "Resurrect at the Church" first when it can be paid, then the heirs.
+export function heirChoicesFor(player: Player): HeirCandidateSnapshot[] {
+  const r = reviveOption(player);
+  const out = heirSnapshot(player.clan ?? 0);
+  if (r && canRevive(player)) out.unshift({ id: "church", name: `Resurrect at the Church (${r.cost} gold, skills -${Math.round(r.loss * 100)}%)`, kind: "church" });
+  return out;
+}
+
+// The player's hero fell (combat.ts damagePlayer): dead, then a Church resurrection or an heir choice, or game over
+// with no Church / gold and nobody to take over.
 export function onHeroDeath(player: Player) {
   player.hp = 0;
   player.dead = true;
   player.input = { dx: 0, dy: 0 };
-  // TODO(resurrection, PLAN-solo-hero.md): offer revival at a reachable Church for gold (skill loss) here, before the
-  // heir choice. Not built yet.
-  if (heirCandidates(player.clan ?? 0).length > 0) {
+  if (canRevive(player) || heirCandidates(player.clan ?? 0).length > 0) {
     player.heirPending = true;
     sendEvent(player, "death", "You have fallen. Choose an heir to carry on");
   } else {
@@ -390,7 +423,7 @@ export function onHeroDeath(player: Player) {
 // Every tick: a player choosing an heir whose last candidate died meanwhile is game over.
 export function updateHeirChoices() {
   for (const p of players.values()) {
-    if (!p.dead || !p.heirPending || heirCandidates(p.clan ?? 0).length > 0) continue;
+    if (!p.dead || !p.heirPending || heirCandidates(p.clan ?? 0).length > 0 || canRevive(p)) continue;
     p.heirPending = false;
     broadcastEvent("death", "No heir is left to carry on: game over");
   }
@@ -400,6 +433,7 @@ export function updateHeirChoices() {
 // with HEIR_SKILL_SHARE of the hero's XP and HEIR_GOLD_SHARE of the clan's gold. Gear on the hero profile stays.
 export function handleChooseHeir(player: Player, id: unknown) {
   if (!player.dead || !player.heirPending || typeof id !== "string") return;
+  if (id === "church") return reviveAtChurch(player);
   const c = colonists.get(id);
   if (!c || !heirCandidates(player.clan ?? 0).includes(c)) {
     sendEvent(player, "build", "That heir can no longer take over");
@@ -425,5 +459,30 @@ export function handleChooseHeir(player: Player, id: unknown) {
     player.attackCooldownTicks = 0;
     player.poisonTicksRemaining = 0;
     broadcastEvent("milestone", `${name} takes up the hero's mantle`);
+  });
+}
+
+// `chooseHeir {id: "church"}`: pay the Church, lose the tier's share of XP and of every hero skill, rise next to it.
+function reviveAtChurch(player: Player) {
+  const r = reviveOption(player);
+  withClan(clanById(player.clan ?? 0), () => {
+    if (!r || (state.stock.gold ?? 0) < r.cost) {
+      sendEvent(player, "build", "The Church cannot raise you (no Church or not enough gold)");
+      return;
+    }
+    state.stock.gold -= r.cost;
+    const prof = heroProfileOf(player);
+    prof.xp = Math.floor(prof.xp * (1 - r.loss));
+    for (const k of Object.keys(prof.life?.skills ?? {}) as (keyof NonNullable<typeof prof.life>["skills"])[]) prof.life!.skills[k] = Math.floor(prof.life!.skills[k]! * (1 - r.loss));
+    recomputeHeroProfile(prof);
+    const at = tileToPixelCenter({ x: r.x, y: r.y + 1 });
+    player.x = at.x;
+    player.y = at.y;
+    player.dead = false;
+    player.heirPending = false;
+    player.hp = playerMaxHp(player);
+    player.attackCooldownTicks = 0;
+    player.poisonTicksRemaining = 0;
+    broadcastEvent("milestone", `The hero is raised at the Church (${r.cost} gold; skills -${Math.round(r.loss * 100)}%)`);
   });
 }

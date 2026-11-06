@@ -46,7 +46,7 @@ process.on("exit", cleanup);
 process.on("SIGINT", () => process.exit(130));
 
 // ---- client ----
-const c = { ws: null, welcome: null, snap: null, tiles: [], W: 0, events: [], hooks: new Map(), results: [], saves: [], saveList: null, info: undefined };
+const c = { ws: null, welcome: null, snap: null, tiles: [], W: 0, events: [], hooks: new Map(), results: [], saves: [], saveList: null, info: undefined, dialogues: [], life: null };
 function connect() {
   c.ws = new WebSocket(`ws://localhost:${PORT}`);
   c.ws.on("message", (raw) => {
@@ -64,6 +64,8 @@ function connect() {
     else if (m.type === "saveResult") c.saves.push(m);
     else if (m.type === "saveList") c.saveList = m.saves;
     else if (m.type === "buildingInfo") c.info = m.info;
+    else if (m.type === "dialogue") c.dialogues.push(m);
+    if (m.type === "snapshot" && m.life) c.life = m.life;
   });
 }
 const send = (m) => c.ws.send(JSON.stringify(m));
@@ -108,7 +110,9 @@ const events = (from) => c.events.slice(from).join(" | ");
 // ---- check harness ----
 let passed = 0;
 const failed = [];
+// SMOKE_ONLY=<text>: run only the checks whose name contains it (debugging one system).
 const check = async (name, fn) => {
+  if (process.env.SMOKE_ONLY && !name.includes(process.env.SMOKE_ONLY)) return;
   const t = Date.now();
   let ok = false;
   let detail = "";
@@ -634,6 +638,148 @@ await check("hero death: heir choice, then game over with no heir; creative peop
   const ps = await hook("peopleState", { creative: false });
   const spawned = kids?.ok && adults?.ok && kids.ids.every((id) => ps.persons.some((p) => p.id === id && p.child)) && ps.persons.some((p) => p.id === adults.ids[0] && !p.child && p.origin === "immigrant");
   return [spawned && pending && risen && gold === 50 && over, `pending ${pending} (${heirs.length} heirs), risen as ${heir?.name} ${risen}, gold 101 -> ${gold}, game over without heirs ${over}, creative people ${spawned}`];
+});
+
+// Solo hero phase 1: E next to a settlement's keep opens the elder's dialogue (tier text, 2-6 choices); a gift pays
+// gold and raises the relation (once a day); asking for work posts / lists quests; Farewell closes.
+const lastDialogue = async (n) => {
+  await until(() => c.dialogues.length > n, 2000);
+  return c.dialogues[c.dialogues.length - 1];
+};
+const pick = (d, re) => d?.dialogue?.choices.findIndex((ch) => re.test(ch.label)) ?? -1;
+await check("solo hero: talk to a settlement elder (gift, work, farewell)", async () => {
+  const st = await hook("sitesState");
+  const town = st.sites.find((x) => x.faction === "human" && !x.cleared && !x.captured);
+  if (!town) return [false, "no human settlement"];
+  await hook("peopleState", { creative: false });
+  await hook("setStock", { stock: { gold: 100 } });
+  await hook("heroLife", { flagsClear: true });
+  await tp(town.keepX, town.keepY + 1);
+  let n = c.dialogues.length;
+  await hook("heroLife", { interact: true });
+  const d0 = await lastDialogue(n);
+  const opened = d0?.dialogue?.npc.role === "leader" && d0.dialogue.choices.length >= 2 && d0.dialogue.choices.length <= 6;
+  n = c.dialogues.length;
+  await hook("heroLife", { choice: pick(d0, /gift/i) });
+  const d1 = await lastDialogue(n);
+  const gold = (await stock()).gold;
+  const gifted = /relation \+/.test(d1?.dialogue?.text ?? "") && gold === 80;
+  n = c.dialogues.length;
+  await hook("heroLife", { choice: pick(d1, /^Back/) });
+  const d2 = await lastDialogue(n);
+  const giftOff = !!d2?.dialogue?.choices[pick(d2, /gift/i)]?.disabled;
+  n = c.dialogues.length;
+  const w = pick(d2, /help/i);
+  if (w >= 0) await hook("heroLife", { choice: w });
+  const d3 = w >= 0 ? await lastDialogue(n) : null;
+  const work = w < 0 || /gold|Nothing|work|Come back/i.test(d3?.dialogue?.text ?? "");
+  n = c.dialogues.length;
+  await hook("heroLife", { choice: pick(d3 ?? d2, /Farewell/) });
+  const d4 = await lastDialogue(n);
+  await hook("peopleState", { creative: true });
+  return [opened && gifted && giftOff && work && d4?.close === true,
+    `opened ${opened} ("${d0?.dialogue?.text?.slice(0, 50)}", ${d0?.dialogue?.choices.length} choices), gift ${gifted} (gold ${gold}), gift once a day ${giftOff}, work ${work} (${w < 0 ? "not offered at this tier" : d3?.dialogue?.text?.slice(0, 40)}), closed ${d4?.close}`];
+});
+
+// Solo hero phase 2: hold E at a tree gathers wood into the pack (woodcutting XP); needs: hungry = slow, the pack's
+// food is eaten automatically; deposit at the Town Center empties the pack into the stores.
+await check("solo hero: gather, needs, deposit", async () => {
+  const tc = c.snap.townCenters[0];
+  const gx = tc.x + 6, gy = tc.y + 6;
+  await clearBox(gx, gy, 2);
+  await raw(gx + 1, gy, 2);
+  await tp(gx, gy);
+  await hook("heroLife", { pack: {}, skills: {}, needs: false });
+  await hook("heroLife", { interact: true });
+  await ff(4 * TICK);
+  const a = await hook("heroLife", { stop: true });
+  const wood = a.life.pack.wood ?? 0;
+  const xp = a.life.skills.woodcutting ?? 0;
+  await hook("heroLife", { needs: true, food: 10, rest: 80, pack: { meat: 1 } });
+  const slow = (await hook("heroLife", {})).speed;
+  await ff(TICK + 1);
+  const b = await hook("heroLife", {});
+  const ate = b.life.food > 10 && !(b.life.pack.meat > 0);
+  await snapNow();
+  const snapLife = !!c.life && typeof c.life.food === "number" && Array.isArray(c.life.skills);
+  await hook("heroLife", { needs: null, pack: { wood: 3 } });
+  await tp(tc.x, tc.y + 2);
+  const w0 = (await stock()).wood;
+  await hook("heroLife", { action: "deposit" });
+  const d = await hook("heroLife", {});
+  await clearBox(gx, gy, 2);
+  return [wood >= 2 && xp >= 3 && slow < 0.85 && ate && snapLife && !(d.life.pack.wood > 0),
+    `wood ${wood}, woodcutting XP ${xp}, hungry speed x${slow?.toFixed(2)}, auto-ate ${ate} (food ${b.life.food?.toFixed(1)}), snapshot life ${snapLife}, deposited ${!(d.life.pack.wood > 0)} (stock wood ${w0} in creative)`];
+});
+
+// Solo hero phase 3: the hero works an own Mill as its worker (flour, milling XP); a master teaches a skill to level 2
+// for gold; a campfire is built by hand from the pack.
+await check("solo hero: station work, master, personal build", async () => {
+  const tc = c.snap.townCenters[0];
+  const mx = tc.x - 6, my = tc.y + 6;
+  await clearBox(mx, my, 2);
+  await raw(mx, my, 102);
+  await tp(mx + 1, my + 1);
+  const f0 = (await hook("progression", {})).ctx.items.flour ?? 0;
+  await hook("heroLife", { interact: true, skills: {} });
+  await ff(21 * TICK);
+  const r = await hook("heroLife", {});
+  const f1 = (await hook("progression", {})).ctx.items.flour ?? 0;
+  const worked = f1 > f0 && (r.life.skills.milling ?? 0) >= 15;
+  await hook("heroLife", { action: "stopWork" });
+  await hook("heroLife", { pack: { wood: 5, rock: 2 } });
+  await hook("peopleState", { creative: false });
+  await hook("heroLife", { action: "build", build: "campfire" });
+  const b = await hook("heroLife", {});
+  const built = b.life.builds.some((x) => x.kind === "campfire") && !(b.life.pack.wood > 0);
+  // Master: an elder's "Who could teach me a trade?" (Neutral+), then the first learnable skill.
+  const st = await hook("sitesState");
+  const town = st.sites.find((x) => x.faction === "human" && !x.cleared && !x.captured);
+  await hook("diploSet", { siteId: town.id, relation: 30 });
+  await hook("setStock", { stock: { gold: 200 } });
+  await tp(town.keepX, town.keepY + 1);
+  let n = c.dialogues.length;
+  await hook("heroLife", { interact: true });
+  const d0 = await lastDialogue(n);
+  n = c.dialogues.length;
+  const ti = pick(d0, /teach/i);
+  if (ti >= 0) await hook("heroLife", { choice: ti });
+  const d1 = ti >= 0 ? await lastDialogue(n) : null;
+  const li = d1 ? d1.dialogue.choices.findIndex((ch) => /^Learn/.test(ch.label) && !ch.disabled) : -1;
+  n = c.dialogues.length;
+  if (li >= 0) await hook("heroLife", { choice: li });
+  const d2 = li >= 0 ? await lastDialogue(n) : null;
+  const learned = /is now level 2/.test(d2?.dialogue?.text ?? "") && (await stock()).gold < 200;
+  await hook("heroLife", { choice: pick(d2 ?? d1 ?? d0, /Farewell/) });
+  await hook("peopleState", { creative: true });
+  await clearBox(mx, my, 2);
+  return [worked && built && learned, `worked ${worked} (flour ${f0} -> ${f1}, milling XP ${r.life.skills.milling}), campfire ${built}, master ${learned} (${d2?.dialogue?.text?.slice(0, 60) ?? (ti < 0 ? "no teach choice: " + d0?.dialogue?.choices.map((x) => x.label).join("/") : "no learn choice")})`];
+});
+
+// Solo hero: a fallen hero with a Church of the clan and the gold is offered resurrection first (heir picker row
+// "church"); it costs gold and a share of every skill, and the hero rises at the Church.
+await check("solo hero: resurrection at a Church", async () => {
+  const tc = c.snap.townCenters[0];
+  const cx = tc.x + 6, cy = tc.y - 6;
+  await clearBox(cx, cy, 1);
+  await raw(cx, cy, 20);
+  await hook("peopleState", { creative: false });
+  await hook("setStock", { stock: { gold: 500 } });
+  await hook("heroLife", { skills: { woodcutting: 100 } });
+  await hook("heroDeath", { legacy: false });
+  await hook("damagePlayer", { amount: 1e6 });
+  await snapNow();
+  const me = () => c.snap.players.find((p) => p.id === c.welcome.id);
+  const offer = me()?.heirs?.[0];
+  send({ type: "chooseHeir", id: "church" });
+  await until(() => me()?.dead === false, 3000);
+  const gold = (await stock()).gold;
+  const r = await hook("heroLife", {});
+  const ok = offer?.id === "church" && me()?.dead === false && gold < 500 && r.life.skills.woodcutting === 70 && Math.hypot(me().x / TILE - cx, me().y / TILE - cy) < 3;
+  await raw(cx, cy, T.Empty);
+  await hook("heroDeath", { revive: true });
+  await hook("peopleState", { creative: true });
+  return [ok, `offer "${offer?.name}", risen ${me()?.dead === false}, gold 500 -> ${gold}, woodcutting XP 100 -> ${r.life.skills.woodcutting}`];
 });
 
 // 10. world streaming: the tile registry matches a full scan after everything above (incl. the load), and paths hit the cache
