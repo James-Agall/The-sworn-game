@@ -1087,7 +1087,8 @@ async function main() {
       const tier = fireTier(permille);
       if (tier !== o.tier) {
         o.tier = tier;
-        o.flame.visible = tier > 0;
+        // A camp hearth is already a fire: its damage shows on the HP bar only (no second flame growing on top).
+        o.flame.visible = tier > 0 && tiles[index] !== TileType.PropCampfire;
         o.flame.scale.set(FIRE_FLAME_WIDTH[tier] / FIRE_FRAMES[0].width);
         o.flame.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize - tileSize * 0.3);
         o.flame.zIndex = index + 0.5;
@@ -1271,7 +1272,7 @@ async function main() {
         : siteArt || stageTexture || levelTexture || moatArt
           ? 0xffffff
           : (TILE_TINT.get(tile) ?? 0xffffff);
-    if (fireTier(damagedBuildings.get(index) ?? 1000) > 0) sprite.tint = SOOT_TINT;
+    if (fireTier(damagedBuildings.get(index) ?? 1000) > 0 && tile !== TileType.PropCampfire) sprite.tint = SOOT_TINT;
     else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = humanSiteNums.has(siteOwners.get(index)!) ? HUMAN_SITE_TINT : FOREIGN_TINT;
     else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
     if (artTile === TileType.TownCenter && !scaffold) {
@@ -1693,21 +1694,6 @@ async function main() {
       const n = Math.min(CAPTIVES_SHOWN, flat[i + 2] ?? 0);
       const hx = (index % worldTilesX) + 0.5;
       const hy = Math.floor(index / worldTilesX) + 0.5;
-      // A guarded hearth (guards still standing: it can't be struck yet) carries a small grey shield.
-      if (flat[i + 3] === 1) {
-        const key = `${index}:guard`;
-        seen.add(key);
-        if (!captiveSprites.has(key)) {
-          const box = new Container();
-          const shield = new Graphics();
-          shield.poly([-5, -6, 5, -6, 5, 0, 0, 6, -5, 0]).fill({ color: 0x8a8f99 }).stroke({ width: 1.5, color: 0x2b2b2b });
-          box.addChild(shield);
-          box.position.set(hx * tileSize, (hy - 0.9) * tileSize);
-          box.zIndex = critterZ(hx * tileSize, (hy + 0.5) * tileSize);
-          tileSpriteLayer.addChild(box);
-          captiveSprites.set(key, box);
-        }
-      }
       for (let k = 0; k < n; k++) {
         const key = `${index}:${k}:${waiting ? "w" : "c"}`;
         seen.add(key);

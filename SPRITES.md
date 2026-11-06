@@ -635,7 +635,7 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > hearths until freed), plus a **freed** pose (standing, rope gone, 1 frame) for the ones waiting at a burnt camp.
 > Files: `prisoner.png`, `prisonerIdle0-1.png`, `prisonerFreed.png`. Stand-in now: the villager sprite
 > (`farmer.png`) tinted grey with a drawn rope loop at the wrists (`client/src/main.ts` syncCaptives); the freed ones
-> are the villager tinted pale, untied. A guarded hearth shows a small drawn grey shield (no art requested).
+> are the villager tinted pale, untied.
 
 ### 86. Pasture animals: cow, pig and sheep pastures (2026-11-06)
 > Match the existing `pasture` / `pastureFat` / `sheepPasture*` art (same fenced 2x2 paddock, drawn on one canvas

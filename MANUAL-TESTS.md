@@ -636,15 +636,16 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
 5. Click your own hero (adventure or strategy view), the Hero button or the ` key: one sheet opens, pack and armoury
    on the left, equipment / stats / needs / spells / skills in the middle, family on the right. The hero bar's Pack
    and Family buttons open the same sheet; there are no separate floating panels any more.
-6. Walk to a bandit camp: grey captives with a rope loop stand around its fire, and a small grey shield floats over
-   a hearth while its guards live. Strike the fire with guards alive: "Defeat the guards first" and no damage. Kill
+6. Walk to a bandit camp: grey captives with a rope loop stand around its fire. Strike the fire with guards alive:
+   "Defeat the guards first" and no damage. Kill
    the guards and walk up to the fire: the prisoners are freed ("Prisoners freed: ... join ..."); with no free
    beds the rest wait at the camp (pale, untied figures) and arrive at dawn once you build houses / a Keep.
 7. A new world has 2-3 small camps 20-34 tiles from the start and noticeably more camps overall.
 8. Militia Camp with no weapons or armour in stock: "Train militia (unarmed: no gear in stock, ...)" is enabled and
    takes one free adult; with a T1 weapon + armour in stock the button says "takes T1 weapon + armour" and uses them.
    Archery Range / Hall of the Sworn / higher militia tiers still need their tier's gear.
-9. Raze a warband-founded camp, wait several days: nothing is re-stamped on its ruin (no small campfire growing back).
+9. Kill a camp's guards and strike its fire a few times: only the HP bar above it drops; the fire itself looks the
+   same (no second, growing flame on top of it, no soot tint) until it burns out to rubble.
 
 
 ## Night shelter, pasture animals, 2x2 orchards, couples (2026-11-06)
