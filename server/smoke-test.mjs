@@ -604,6 +604,38 @@ await check("progression: locked needs, hand craft unlocks, sticky unlock", asyn
     `needsKnife ${needsKnife}, axe open ${axeOpen}, refused ${refused}, crafted ${crafted}, built ${built}, knight refused ${knightRefused}, sticky ${sticky}; next: ${s0.next.join(" / ")}`];
 });
 
+// Village life phase 5: a fallen hero picks an heir (XP and gold halved, the heir leaves the village); with nobody to
+// carry on it is game over (no heirs in the snapshot).
+await check("hero death: heir choice, then game over with no heir; creative people", async () => {
+  await hook("peopleState", { creative: false, spawn: 2 });
+  await hook("setStock", { stock: { gold: 101 } });
+  await hook("heroDeath", { legacy: false });
+  await hook("damagePlayer", { amount: 1e6 });
+  let s = await snapNow();
+  const me = () => c.snap.players.find((p) => p.id === c.welcome.id);
+  const heirs = me()?.heirs ?? [];
+  const pending = me()?.dead === true && heirs.length > 0;
+  const heir = heirs.find((h) => h.kind === "villager") ?? heirs[0];
+  const at = s.colonists.find((u) => u.id === heir?.id);
+  send({ type: "chooseHeir", id: heir?.id ?? "" });
+  await until(() => me()?.dead === false, 3000);
+  s = await snapNow();
+  const risen = me()?.dead === false && !me()?.heirs && !s.colonists.some((u) => u.id === heir?.id) && !!at && Math.hypot(me().x - at.x, me().y - at.y) < TILE;
+  const gold = (await stock()).gold;
+  await hook("heroDeath", { clan: 77 });
+  await hook("damagePlayer", { amount: 1e6 });
+  await snapNow();
+  const over = me()?.dead === true && !me()?.heirs;
+  await hook("heroDeath", { clan: 0, revive: true });
+  // Phase 6: creative "people" spawns children / immigrants at the Town Center.
+  await hook("peopleState", { creative: true });
+  const kids = await creative({ type: "creativeSet", op: "people", count: 2, child: true });
+  const adults = await creative({ type: "creativeSet", op: "people", count: 1 });
+  const ps = await hook("peopleState", { creative: false });
+  const spawned = kids?.ok && adults?.ok && kids.ids.every((id) => ps.persons.some((p) => p.id === id && p.child)) && ps.persons.some((p) => p.id === adults.ids[0] && !p.child && p.origin === "immigrant");
+  return [spawned && pending && risen && gold === 50 && over, `pending ${pending} (${heirs.length} heirs), risen as ${heir?.name} ${risen}, gold 101 -> ${gold}, game over without heirs ${over}, creative people ${spawned}`];
+});
+
 // 10. world streaming: the tile registry matches a full scan after everything above (incl. the load), and paths hit the cache
 await check("world streaming: registry audit + path cache", async () => {
   const r = await hook("auditRegistry");

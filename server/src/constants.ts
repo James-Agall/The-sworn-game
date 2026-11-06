@@ -2331,3 +2331,7 @@ export const PERSON_NAMES = [
   "Ada", "Bram", "Cora", "Dunstan", "Edda", "Fenn", "Gwen", "Hal", "Isolde", "Jory", "Kit", "Leof", "Mara", "Ned",
   "Orla", "Piers", "Quinn", "Rowan", "Sela", "Tam", "Una", "Wat", "Wynn", "Yara", "Alder", "Bess", "Cuthbert", "Dora",
 ];
+// Village life phase 5: hero death -> heir. The heir keeps this share of the hero's XP (level re-derived) and of the
+// clan's gold (the rest is the cost of the succession).
+export const HEIR_SKILL_SHARE = 0.5;
+export const HEIR_GOLD_SHARE = 0.5;

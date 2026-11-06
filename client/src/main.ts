@@ -95,6 +95,7 @@ import type { FormationPlan } from "@colony/shared/formation";
 import type { SpellId, SpellBookSnapshot } from "@colony/shared/protocol";
 import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
 import { EDGE_SCROLL_PX, PAN_SCREEN_PX_PER_S, StrategyCamera, TACTICAL_ZOOM, WHEEL_ZOOM_STEP } from "./strategy/camera";
+import { ADVENTURE_CAM_PREF, AdventureCamera, PARTY_COMMAND_MAX, START_STRATEGY_PREF, readAdventurePrefs } from "./adventure";
 import { drawUnitDots, lodBand, StrategyBanners, StrategyFog } from "./strategy/lod";
 import type { BannerGroup, LodBand, UnitDot, VisionSource } from "./strategy/lod";
 import { RegimentCardBar } from "./strategy/cards";
@@ -161,6 +162,15 @@ let pendingLoadSlot: SaveSlot | null = null;
 // Creative mode: the menu's game mode (Creative button / ?mode=creative), enforced on the first welcome after
 // New Game / Creative (never after Continue / Load: a save brings its own mode).
 let preferredCreative = new URLSearchParams(location.search).get("mode") === "creative";
+// Village life phase 5: the close adventure camera (on unless ?camera=classic / the setting) and whether a game
+// starts in strategy view (?view=strategy / the setting). Read once; the settings apply from the next page load.
+const adventurePrefs = readAdventurePrefs(location.search, (key) => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+});
 let enforceGameMode = false;
 
 
@@ -660,6 +670,11 @@ async function main() {
   // Strategy mode phase 1: the zoom is variable (TACTICAL_ZOOM unless the strategy camera is active).
   let camZoom = TACTICAL_ZOOM;
   const strategyCam = new StrategyCamera();
+  // Village life phase 5: the adventure camera (adventure.ts) while the strategy camera is off; a start in strategy
+  // view waits for the first frame with the rider.
+  const advCam = new AdventureCamera();
+  let pendingStartStrategy = false;
+  const homeZoom = () => (adventurePrefs.on ? advCam.zoom : TACTICAL_ZOOM);
   // LOD band drawn this frame ("tactical" whenever the strategy camera is inactive).
   let strategyBand: LodBand = "tactical";
   // Map band unit dots and the regiment banners (strategy mode only; see strategy/lod.ts).
@@ -2837,14 +2852,25 @@ async function main() {
     if (!myId) return;
     const mine = playerSprites.get(myId);
     if (!mine) return;
+    if (pendingStartStrategy && !strategyCam.active) {
+      pendingStartStrategy = false;
+      toggleStrategy();
+    }
+    strategyCam.homeZoom = homeZoom();
     const sv = strategyCameraView(mine.sprite.position.x, mine.sprite.position.y);
-    const focus = sv ?? fightPeekFocus(mine.sprite.position.x, mine.sprite.position.y);
-    camZoom = sv ? sv.zoom : TACTICAL_ZOOM;
+    const now = performance.now();
+    let focus = sv ?? fightPeekFocus(mine.sprite.position.x, mine.sprite.position.y);
+    // Adventure camera: a smooth follow of the rider (or the fight peek); synced to the strategy view while that
+    // drives the camera so the hand-back glides.
+    if (sv) advCam.sync(sv.x, sv.y, now);
+    else if (adventurePrefs.on) focus = advCam.follow(focus.x, focus.y, now);
+    camZoom = sv ? sv.zoom : homeZoom();
     worldLayer.scale.set(camZoom);
-    worldLayer.position.set(
-      app.screen.width / 2 - focus.x * camZoom,
-      app.screen.height / 2 - focus.y * camZoom
-    );
+    const camX = app.screen.width / 2 - focus.x * camZoom;
+    const camY = app.screen.height / 2 - focus.y * camZoom;
+    // Whole screen pixels at close zoom, so the pixel art doesn't shimmer while the camera glides.
+    if (adventurePrefs.on && !sv) worldLayer.position.set(Math.round(camX), Math.round(camY));
+    else worldLayer.position.set(camX, camY);
     strategyAfterCamera();
     updateFloorChunks();
     requestStreamChunks();
@@ -5085,8 +5111,30 @@ async function main() {
     statBuildersEl.textContent = `Builders  ${working}/${total} working`;
   }
   const gameOverEl = document.getElementById("game-over")!;
+  // Village life phase 5: a dead rider with `heirs` picks one (heir picker); dead without heirs is game over.
+  const heirPickerEl = document.getElementById("heir-picker")!;
+  const heirListEl = document.getElementById("heir-list")!;
+  let heirListKey = "";
   function refreshGameOver(me: PlayerSnapshot | undefined) {
-    gameOverEl.hidden = !(me?.dead && latestTownCenters.length === 0);
+    const heirs = me?.dead ? me.heirs ?? [] : [];
+    gameOverEl.hidden = !(me?.dead && heirs.length === 0);
+    heirPickerEl.hidden = heirs.length === 0;
+    const key = JSON.stringify(heirs);
+    if (key === heirListKey) return;
+    heirListKey = key;
+    heirListEl.replaceChildren(
+      ...heirs.map((h) => {
+        const b = document.createElement("button");
+        b.className = "menu-btn secondary heir-btn";
+        const role = h.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
+        b.textContent = `${h.name}: ${role}${h.heroLevel ? `, level ${h.heroLevel}` : ""}${h.ageDays !== undefined ? `, ${h.ageDays} days old` : ""}`;
+        b.addEventListener("click", () => {
+          b.blur();
+          sendMessage({ type: "chooseHeir", id: h.id });
+        });
+        return b;
+      })
+    );
   }
   document.getElementById("game-over-restart")!.addEventListener("click", (e) => {
     (e.currentTarget as HTMLButtonElement).blur();
@@ -6226,7 +6274,7 @@ async function main() {
     keys.add(key);
     // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool. Nor does a plain
     // digit that recalls a control group in strategy mode.
-    if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e) || strategyOrderKey(e) || strategySettingKey(e)) return;
+    if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e) || strategyOrderKey(e) || strategySettingKey(e) || adventurePartyKey(e)) return;
     const match = key ? TOOLS.find((t) => t.key === key) : undefined;
     if (match) {
       if (match.tile !== TileType.Empty && match.category !== activeCategory) {
@@ -6560,6 +6608,98 @@ async function main() {
     dotsDirty = true;
   }
 
+  // ---- Village life phase 5: adventure view (close camera, adventure.ts). Compact hero bar (HP, XP, Attack / Interact),
+  // Enter interacts with the building next to the rider, and a small-party command bar: Follow me / Hold / Shape
+  // (Shift+G / H / Q) on the regiment order plumbing, right-click moves / attacks as ever. More than
+  // PARTY_COMMAND_MAX commandable units or a task force selected shows the strategy hint instead.
+  const heroBarName = document.getElementById("hb-name")!;
+  const heroBarHp = document.getElementById("hb-hp")!;
+  const heroBarHpText = document.getElementById("hb-hp-text")!;
+  const heroBarXp = document.getElementById("hb-xp")!;
+  const INTERACT_RANGE_TILES = 2;
+  function partyCommandsOn(): boolean {
+    return adventurePrefs.on && !strategyCam.active && !document.body.classList.contains("party-large") && selectedCommandable().length > 0;
+  }
+  function refreshAdventureHud() {
+    if (!adventurePrefs.on) return;
+    const units = selectedCommandable();
+    const large = units.length > PARTY_COMMAND_MAX || units.some((u) => regimentOfUnit.get(u.id)?.id.startsWith("tf"));
+    if (document.body.classList.contains("party-large") !== large) document.body.classList.toggle("party-large", large);
+    const me = latestPlayersForSpells.find((p) => p.id === myId);
+    if (!me) return;
+    const hpFrac = me.maxHp > 0 ? Math.max(0, Math.min(1, me.hp / me.maxHp)) : 0;
+    heroBarHp.style.width = `${hpFrac * 100}%`;
+    heroBarHpText.textContent = me.dead ? "Fallen" : `${Math.ceil(me.hp)} / ${me.maxHp}`;
+    const prof = heroProfile;
+    const next = prof?.nextLevelXp ?? null;
+    const xpFrac = prof && next !== null && next > prof.levelXp ? (prof.xp - prof.levelXp) / (next - prof.levelXp) : 1;
+    heroBarXp.style.width = `${Math.max(0, Math.min(1, xpFrac)) * 100}%`;
+    const name = `Hero, level ${prof?.level ?? 1}`;
+    if (heroBarName.textContent !== name) heroBarName.textContent = name;
+  }
+  window.setInterval(refreshAdventureHud, 150);
+  function adventureInteract() {
+    const me = latestPlayersForSpells.find((p) => p.id === myId);
+    if (!me || me.dead) return;
+    const mx = Math.floor(me.x / tileSize);
+    const my = Math.floor(me.y / tileSize);
+    let best: { tx: number; ty: number; d: number } | null = null;
+    for (let ty = my - INTERACT_RANGE_TILES; ty <= my + INTERACT_RANGE_TILES; ty++) {
+      for (let tx = mx - INTERACT_RANGE_TILES; tx <= mx + INTERACT_RANGE_TILES; tx++) {
+        if (tx < 0 || ty < 0 || tx >= worldTilesX || ty >= worldTilesY) continue;
+        const i = ty * worldTilesX + tx;
+        if (!INFO_TILES.has(tiles[i]) && !siteOwners.has(i)) continue;
+        const d = Math.hypot((tx + 0.5) * tileSize - me.x, (ty + 0.5) * tileSize - me.y);
+        if (!best || d < best.d) best = { tx, ty, d };
+      }
+    }
+    if (best) openBuildingInfo(best.tx, best.ty);
+    else pushEventToast("build", "Nothing to interact with nearby");
+  }
+  function partyCommand(cmd: "followMe" | "hold" | "shape") {
+    if (!partyCommandsOn() || !myId) return;
+    if (cmd === "followMe") sendRegimentOrder({ kind: "follow", targetId: `p:${myId}` }, false);
+    else if (cmd === "hold") issueOrder("hold", false);
+    else applyStrategySetting("shape");
+  }
+  commandBarEl.addEventListener("click", (e) => {
+    if (strategyCam.inStrategy) return;
+    const btn = (e.target as HTMLElement).closest<HTMLElement>(".cmd-btn");
+    if (btn?.dataset.party === "followMe") partyCommand("followMe");
+    else if (btn?.dataset.order === "hold") partyCommand("hold");
+    else if (btn?.dataset.setting === "shape") partyCommand("shape");
+  });
+  document.getElementById("hb-attack")!.addEventListener("click", (e) => {
+    (e.currentTarget as HTMLButtonElement).blur();
+    if (strategyCam.inStrategy || socket.readyState !== socket.OPEN) return;
+    socket.send(JSON.stringify({ type: "attack" }));
+    if (myId) triggerPlayerAttackAnim(myId);
+    sound.play("sword_swing");
+  });
+  document.getElementById("hb-interact")!.addEventListener("click", (e) => {
+    (e.currentTarget as HTMLButtonElement).blur();
+    adventureInteract();
+  });
+  // Shift+G / H / Q with a small party selected in adventure view (else the key is a build hotkey as ever).
+  function adventurePartyKey(e: KeyboardEvent): "followMe" | "hold" | "shape" | null {
+    if (!e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || !partyCommandsOn()) return null;
+    return ({ g: "followMe", h: "hold", q: "shape" } as const)[e.key.toLowerCase() as "g" | "h" | "q"] ?? null;
+  }
+  window.addEventListener("keydown", (e) => {
+    if (!adventurePrefs.on || strategyCam.active || !myId || e.repeat) return;
+    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      // Not while a button / field has focus (menus, panels) or a dialog is up.
+      if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select, button")) return;
+      e.preventDefault();
+      adventureInteract();
+      return;
+    }
+    const cmd = adventurePartyKey(e);
+    if (!cmd) return;
+    e.preventDefault();
+    partyCommand(cmd);
+  });
+
   // Camera ticker hook: pans from keys / screen edge, then the view to draw (null = follow the rider).
   function strategyCameraView(riderX: number, riderY: number): { x: number; y: number; zoom: number } | null {
     const now = performance.now();
@@ -6614,8 +6754,11 @@ async function main() {
       applyStrategyVisibility();
       document.body.classList.toggle("strategy-mode", active);
     }
-    const label = strategyCam.inStrategy ? "Exit" : "Command";
+    const label = strategyCam.inStrategy ? (adventurePrefs.on ? "Adventure" : "Exit") : adventurePrefs.on ? "Strategy" : "Command";
     if (strategyBtn.textContent !== label) strategyBtn.textContent = label;
+    // Village life phase 5: adventure-view UI (hero bar, party command bar) via body.adventure-mode.
+    const adventure = adventurePrefs.on && !active;
+    if (document.body.classList.contains("adventure-mode") !== adventure) document.body.classList.toggle("adventure-mode", adventure);
     sendStrategyView();
   }
 
@@ -6945,6 +7088,8 @@ async function main() {
       viewSent = null;
     }
     strategyCam.reset();
+    advCam.sync(NaN, NaN, performance.now());
+    pendingStartStrategy = adventurePrefs.startStrategy;
     cancelPanDrag();
     strategyFog.reset(worldTilesX, worldTilesY, tileSize);
     strategyBanners.clear();
@@ -7023,7 +7168,13 @@ async function main() {
   app.canvas.addEventListener(
     "wheel",
     (e) => {
-      if (!strategyCam.inStrategy) return;
+      if (!strategyCam.inStrategy) {
+        // Adventure camera: the wheel nudges the close zoom (no zoom-out to strategy: that is Tab).
+        if (!adventurePrefs.on || strategyCam.active) return;
+        e.preventDefault();
+        advCam.zoomBy(WHEEL_ZOOM_STEP ** -Math.max(-3, Math.min(3, (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY) / 100)));
+        return;
+      }
       e.preventDefault();
       const rect = app.canvas.getBoundingClientRect();
       const notches = Math.max(-3, Math.min(3, (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY) / 100));
@@ -7628,6 +7779,17 @@ function setupMainMenu() {
   });
 
   minimapBox.checked = load("sworn.minimap");
+  // Village life phase 5: camera settings (read at page load by readAdventurePrefs, so they apply after a reload).
+  const adventureCamBox = document.getElementById("set-adventure-cam") as HTMLInputElement;
+  const startStrategyBox = document.getElementById("set-start-strategy") as HTMLInputElement;
+  adventureCamBox.checked = load(ADVENTURE_CAM_PREF);
+  try {
+    startStrategyBox.checked = localStorage.getItem(START_STRATEGY_PREF) === "on";
+  } catch {
+    startStrategyBox.checked = false;
+  }
+  adventureCamBox.addEventListener("change", () => save(ADVENTURE_CAM_PREF, adventureCamBox.checked));
+  startStrategyBox.addEventListener("change", () => save(START_STRATEGY_PREF, startStrategyBox.checked));
   eventsBox.checked = load("sworn.events");
   apply();
   minimapBox.addEventListener("change", () => {

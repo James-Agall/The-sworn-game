@@ -1204,6 +1204,52 @@
         font-family: var(--font-serif);
       }
       #game-over[hidden] { display: none; }
+      /* Village life phase 5: the heir picker (a dead hero with adults left to carry on). */
+      #heir-picker {
+        position: fixed;
+        inset: 0;
+        z-index: 90;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(18, 11, 5, 0.65);
+        font-family: var(--font-serif);
+      }
+      #heir-picker[hidden] { display: none; }
+      #heir-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+      #heir-list .heir-btn { width: 100%; text-align: left; }
+      /* Village life phase 5: adventure view (close camera): compact hero bar bottom-left, party commands. */
+      #hero-bar {
+        position: fixed;
+        left: 16px;
+        bottom: 16px;
+        z-index: 9;
+        display: none;
+        flex-direction: column;
+        gap: 4px;
+        width: 220px;
+        padding: 6px 8px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        font-size: 12px;
+      }
+      body.adventure-mode #hero-bar { display: flex; }
+      #hero-bar .hb-meter { position: relative; height: 10px; background: rgba(0, 0, 0, 0.35); border-radius: 2px; overflow: hidden; }
+      #hero-bar .hb-meter.xp { height: 5px; }
+      #hero-bar .hb-fill { position: absolute; inset: 0 auto 0 0; width: 0; }
+      #hb-hp { background: #3bd16f; }
+      #hb-xp { background: #f2c94c; }
+      #hb-hp-text { position: absolute; inset: 0; font-size: 9px; line-height: 10px; text-align: center; color: #fff; text-shadow: 0 0 2px #000; }
+      #hero-bar .hb-keys { display: flex; gap: 4px; align-items: center; }
+      #hero-bar .hb-keys .cmd-btn { padding: 2px 6px; font-size: 11px; }
+      #hero-bar .hb-hint { margin-left: auto; opacity: 0.7; font-size: 10px; }
+      #command-bar .adventure-only { display: none; }
+      body.adventure-mode:not(.party-large) #command-bar .adventure-only:not(.cmd-hint),
+      body.adventure-mode:not(.party-large) #command-bar .strategy-only.party-ok { display: flex; }
+      body.adventure-mode.party-large #command-bar .cmd-hint { display: flex; align-items: center; font-size: 12px; opacity: 0.8; }
       #stat-builders { font-size: 12.5px; color: var(--ink-soft); }
       body.hide-minimap #minimap-frame { display: none; }
       body.hide-events #event-feed { display: none; }
@@ -1462,6 +1508,8 @@
           <div class="menu-section">Display</div>
           <label class="menu-setting"><span>Show minimap</span><input type="checkbox" id="set-minimap" checked /></label>
           <label class="menu-setting"><span>Show event notifications</span><input type="checkbox" id="set-events" checked /></label>
+          <label class="menu-setting" title="Close top-down camera locked on your hero (off: the older, wider tactical camera). Applies after a reload"><span>Close adventure camera</span><input type="checkbox" id="set-adventure-cam" checked /></label>
+          <label class="menu-setting" title="Start each game in the bird's-eye strategy view (Tab toggles). Applies after a reload"><span>Start in strategy view</span><input type="checkbox" id="set-start-strategy" /></label>
           <div class="menu-section">Sound</div>
           <label class="menu-setting"><span>Master</span><input type="range" id="set-vol-master" min="0" max="100" step="1" /></label>
           <label class="menu-setting"><span>Music</span><input type="range" id="set-vol-music" min="0" max="100" step="1" /></label>
@@ -1488,7 +1536,10 @@
       <button class="cmd-btn" data-stance="aggressive" title="Aggressive (E)"><img src="/sprites/icon-stance-aggressive.png" alt="" />Aggressive<kbd>E</kbd></button>
       <span class="cmd-sep strategy-only"></span>
       <button class="cmd-btn strategy-only" data-order="attackMove" title="Attack-move: then right-click / right-drag the ground; halts and fights what it meets (Shift+F, or Ctrl+right-click)"><span class="cmd-glyph">&#x2694;</span>Atk-move<kbd>Shift+F</kbd></button>
-      <button class="cmd-btn strategy-only" data-order="hold" title="Hold position: stand and fight from the slot (Shift+H; Shift+click queues)"><span class="cmd-glyph">&#x25C6;</span>Hold<kbd>Shift+H</kbd></button>
+      <span class="cmd-sep adventure-only"></span>
+      <button class="cmd-btn adventure-only" data-party="followMe" title="Follow me: the selected party follows your hero (Shift+G). Right-click the ground to move, an enemy to attack it"><span class="cmd-glyph">&#x27A4;</span>Follow me<kbd>Shift+G</kbd></button>
+      <span class="cmd-hint adventure-only">Large force: Tab for full regiment orders</span>
+      <button class="cmd-btn strategy-only party-ok" data-order="hold" title="Hold position: stand and fight from the slot (Shift+H; Shift+click queues)"><span class="cmd-glyph">&#x25C6;</span>Hold<kbd>Shift+H</kbd></button>
       <button class="cmd-btn strategy-only" data-order="retreat" title="Retreat to the nearest Town Center, fighting only when cornered (Shift+R; Shift+click queues)"><span class="cmd-glyph">&#x21B6;</span>Retreat<kbd>Shift+R</kbd></button>
       <button class="cmd-btn strategy-only" data-order="follow" title="Follow: then right-click a friendly unit or rider (Shift+G)"><span class="cmd-glyph">&#x27A4;</span>Follow<kbd>Shift+G</kbd></button>
       <button class="cmd-btn strategy-only" data-order="charge" title="Charge: then right-click an enemy; knights / cavalry / champions run at it at full speed (Shift+C)"><span class="cmd-glyph">&#x21E2;</span>Charge<kbd>Shift+C</kbd></button>
@@ -1497,12 +1548,22 @@
       <button class="cmd-btn strategy-only" data-setting="holdFire" title="Hold fire: archers, catapults and hero auto-spells only shoot what they are ordered to (Shift+T)"><span class="cmd-glyph">&#x2298;</span>Hold fire<kbd>Shift+T</kbd></button>
       <button class="cmd-btn strategy-only" data-setting="skirmish" title="Skirmish: ranged units back off from melee within 4 tiles (Shift+V)"><span class="cmd-glyph">&#x21C4;</span>Skirmish<kbd>Shift+V</kbd></button>
       <button class="cmd-btn strategy-only" data-setting="cycleCharge" title="Cycle charge: on a charge order, cavalry withdraw after the blow and charge again (Alt+C)"><span class="cmd-glyph">&#x21BB;</span>Cycle<kbd>Alt+C</kbd></button>
-      <button class="cmd-btn strategy-only" data-setting="shape" title="Formation shape: Line / Block / Wedge / Loose (Shift+Q cycles)"><span class="cmd-glyph">&#x25B3;</span><span class="cmd-shape">Shape</span><kbd>Shift+Q</kbd></button>
+      <button class="cmd-btn strategy-only party-ok" data-setting="shape" title="Formation shape: Line / Block / Wedge / Loose (Shift+Q cycles)"><span class="cmd-glyph">&#x25B3;</span><span class="cmd-shape">Shape</span><kbd>Shift+Q</kbd></button>
     </div>
     <div id="spell-bar" hidden></div>
+    <div id="hero-bar">
+      <div id="hb-name">Hero</div>
+      <div class="hb-meter"><div id="hb-hp" class="hb-fill"></div><span id="hb-hp-text"></span></div>
+      <div class="hb-meter xp"><div id="hb-xp" class="hb-fill"></div></div>
+      <div class="hb-keys">
+        <button class="cmd-btn" id="hb-attack" title="Swing at the nearest enemy (Space)">Attack<kbd>Space</kbd></button>
+        <button class="cmd-btn" id="hb-interact" title="Open the building next to you (Enter)">Interact<kbd>Enter</kbd></button>
+        <span class="hb-hint">Tab: strategy</span>
+      </div>
+    </div>
     <div id="time-status" hidden></div>
     <div id="control-buttons">
-      <button id="strategy-btn" class="control-btn" title="Strategy view: bird's-eye camera (Tab)">Command</button>
+      <button id="strategy-btn" class="control-btn" title="Toggle the bird's-eye strategy view and the close adventure view (Tab)">Command</button>
       <button id="pause-btn" class="control-btn" title="Pause / resume for everyone (Shift+Space)">Pause</button>
       <span id="time-controls">
         <button class="control-btn" data-scale="0.25" title="Quarter speed for everyone (Shift+[ slower, Shift+] faster)">&#xBC;</button>
@@ -1640,10 +1701,17 @@
       <div id="cp-list"></div>
       <div id="cp-foot" class="bp-row">Most recent first. Entries marked "while you were away" arrived since you last read the chronicle.</div>
     </div>
+    <div id="heir-picker" hidden>
+      <div class="menu-scroll" role="dialog" aria-modal="true" aria-label="Choose an heir">
+        <h1 class="menu-title">The Hero Has Fallen</h1>
+        <p class="menu-sub">Choose an heir to carry on. They keep half the hero's experience and half the colony's gold.</p>
+        <div id="heir-list"></div>
+      </div>
+    </div>
     <div id="game-over" hidden>
       <div class="menu-scroll" role="dialog" aria-modal="true" aria-label="Game over">
         <h1 class="menu-title">The Colony Has Fallen</h1>
-        <p class="menu-sub">You fell, and no Town Center stands for you to rise again at.</p>
+        <p class="menu-sub">You fell, and nobody is left to carry on.</p>
         <button id="game-over-restart" class="menu-btn">Restart</button>
       </div>
     </div>

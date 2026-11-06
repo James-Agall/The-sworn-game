@@ -51,6 +51,7 @@ import { clanIdAtIndex, enterClan, resetClan, townCentersOfClan } from "./clans.
 import { noteHostileKill } from "./diplomacy.js";
 import { noteQuestKill } from "./quests.js";
 import { noteLevyDied } from "./vassals.js";
+import { onHeroDeath, updateHeirChoices } from "./people.js";
 
 export function getMobById(id: string): Mob | undefined {
   return mobs.get(id);
@@ -248,6 +249,11 @@ export function damagePlayer(player: Player, amount: number) {
   player.hp -= absorbWithWard("p:" + player.id, amount * mult);
   if (player.hp <= 0) {
     player.poisonTicksRemaining = 0;
+    // Village life phase 5: heir choice or game over (people.ts); the instant respawn below is the legacy rule.
+    if (!state.legacyHeroRespawn) {
+      onHeroDeath(player);
+      return;
+    }
     if (townCentersOfClan(player.clan).length > 0) {
       player.hp = playerMaxHp(player);
       const spawn = spawnPointNearTownCenter(player);
@@ -263,6 +269,8 @@ export function damagePlayer(player: Player, amount: number) {
 }
 
 export function respawnDeadPlayers() {
+  // Village life phase 5: the dead stay dead (heir or game over), except under the legacy rule.
+  if (!state.legacyHeroRespawn) return updateHeirChoices();
   if (state.townCenters.length === 0) return;
   for (const p of players.values()) {
     if (!p.dead || townCentersOfClan(p.clan).length === 0) continue;

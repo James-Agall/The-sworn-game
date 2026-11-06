@@ -541,3 +541,26 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
 4. Once the baker reaches level 2 (info panel), the Bakery spends ~3 game days on "Making: Sourdough starter"; then
    it bakes Bread (the starter stays in Items). Bread in store gives a bigger happiness bump; Good / Fine bread more.
 5. At dawn with bread in store, bread goes down before grain.
+
+## Village life: adventure view and heirs (phases 5-6)
+1. New Game: the camera is close on your rider (houses fill a good part of the screen), follows smoothly while you
+   walk with WASD, never scrolls at the screen edge. Pixel art stays crisp (no shimmer / blur while moving).
+2. Wheel zooms a little in / out (not out to the map). Tab (or the top-bar "Strategy" button) eases out to the
+   strategy view; Tab / "Adventure" eases back in to the close camera on the rider. Check the minimap, fog (strategy
+   only) and that the floor has no holes at the screen edges at both zooms, also on a Huge / Giant map. Note any FPS
+   drop at close zoom.
+3. Hero bar bottom-left: level, green HP (drops when hit), yellow XP bar, Attack / Interact buttons. Walk next to the
+   Town Center and press Enter: its info panel opens; away from buildings: "Nothing to interact with nearby".
+4. Select 2-3 soldiers (creative spawn or trained): the command bar shows Follow me / Hold / Shape next to the
+   stances. Follow me: they trail you; Hold: they stop; Shape cycles Line / Block / Wedge / Loose. Shift+G / H / Q do
+   the same; with nothing selected G / H / Q still pick the Trading Post / Cottage / their build tool. Right-click
+   ground / an enemy moves / attacks them.
+5. Box-select 9+ soldiers: those buttons hide and "Large force: Tab for full regiment orders" shows.
+6. Settings: untick "Close adventure camera", reload: the old wider camera and "Command" button are back. Tick
+   "Start in strategy view", reload, New Game: the game opens in strategy view. Also try `?camera=classic` and
+   `?view=strategy` in the URL.
+7. Die (walk into a camp without godmode): "The Hero Has Fallen" lists your adults (name, job, age). Pick one: you
+   rise where they stood, they are gone from the village (their job shows open), your level may drop (half the XP)
+   and gold is halved. With no adults left (kill them in creative first), dying shows the game-over screen.
+8. Creative mode > World > People: Immigrants adds adults at your Town Center, Children adds babies (Pop rises).
+   Creative works the same in both views.

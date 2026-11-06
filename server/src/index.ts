@@ -60,7 +60,7 @@ import { broadcastEvent, flushExplored, handleSetView, httpServer, sendChunks, s
 import { handleTestHook } from "./testhooks.js";
 import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creative.js";
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
-import { handleCallVillagers, handleTrainUnit } from "./people.js";
+import { handleCallVillagers, handleChooseHeir, handleTrainUnit, heirSnapshot } from "./people.js";
 import { handleCraftItem, handleProspect, progressionSnapshot } from "./progression.js";
 
 setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
@@ -279,6 +279,9 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "queueSiege") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleQueueSiege(message.tileX, message.tileY, message.kind);
+  } else if (message.type === "chooseHeir") {
+    // Village life phase 5: a dead hero's successor.
+    handleChooseHeir(player, message.id);
   } else if (message.type === "trainUnit") {
     // Village life phase 3: train one soldier at a unit building.
     handleTrainUnit(player, message.tileX, message.tileY);
@@ -368,6 +371,7 @@ setInterval(() => {
     maxHp: playerMaxHp(p),
     dead: p.dead,
     ...(p.clan ? { clan: p.clan } : {}),
+    ...(p.dead && p.heirPending ? { heirs: heirSnapshot(p.clan ?? 0) } : {}),
   }));
   // Battle engine phase 7 (snapshot LOD): with more than BIG_BATTLE_SNAPSHOT_UNITS soldiers / mobs on the map,
   // positions, mob hp and effect points go out rounded to 0.1 px and a false `sheltered` is left out (~20% of a

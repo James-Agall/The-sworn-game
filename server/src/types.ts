@@ -33,6 +33,8 @@ export interface Player {
   poisonDamagePerTick: number;
   // Killed while no Town Center stood: no respawn until one is (re)built (see respawnDeadPlayers).
   dead: boolean;
+  // Village life phase 5: dead and waiting for the player to pick an heir (people.ts onHeroDeath / handleChooseHeir).
+  heirPending?: boolean;
   // Hero phases 1-2: the persistent profile (gear, inventory, XP) this session plays as: the ws URL's
   // `?profile=` (the client's stored id), else "default". Several sessions with one key share it.
   profileKey: string;

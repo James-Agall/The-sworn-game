@@ -76,7 +76,7 @@ import { tierOf } from "./diplomacy.js";
 import { endVassalage, forceTribute, updateVassals, vassalDebugState, vassalsDawn } from "./vassals.js";
 import { forceVassal, placeTradingPost, spawnMobAt, spawnRaidGroupAt, spawnSoldierAt, stampSiteSearch } from "./creative.js";
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
-import { handleCallVillagers, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
+import { handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
@@ -526,6 +526,17 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "damagePlayer" && typeof msg.amount === "number") {
     damagePlayer(player, msg.amount);
     reply({ hp: player.hp, dead: player.dead });
+  } else if (msg.op === "heroDeath") {
+    // Village life phase 5: `legacy` sets the old instant-respawn rule (COLONY_HERO_RESPAWN); `clan` moves this player
+    // to that clan id (e.g. one with nobody in it, for game over); `revive` brings a dead player back where it lies.
+    if (typeof msg.legacy === "boolean") state.legacyHeroRespawn = msg.legacy;
+    if (typeof msg.clan === "number") player.clan = msg.clan;
+    if (msg.revive === true) {
+      player.dead = false;
+      player.heirPending = false;
+      player.hp = playerMaxHp(player);
+    }
+    reply({ legacy: state.legacyHeroRespawn, dead: player.dead, heirPending: !!player.heirPending, hp: player.hp, x: player.x, y: player.y, heirs: heirSnapshot(player.clan ?? 0) });
   } else if (msg.op === "damageTownCenter" && typeof msg.tx === "number" && typeof msg.ty === "number" && typeof msg.amount === "number") {
     const tc = findTownCenterAt(msg.tx, msg.ty);
     if (tc) damageTownCenter(tc, msg.amount);

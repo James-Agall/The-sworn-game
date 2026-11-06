@@ -1147,6 +1147,8 @@ export type ClientMessage =
   | { type: "queueForge"; tileX: number; tileY: number; slot: EquipSlot }
   // Village life phase 3: train one soldier at a unit building (a free villager + tier gear, ~1 day).
   | { type: "trainUnit"; tileX: number; tileY: number }
+  // Village life phase 5: a dead hero's player picks the colonist `id` (snapshot heirs) to carry on as the hero.
+  | { type: "chooseHeir"; id: string }
   // Village life phase 4: call the Town Center's adult civilians to arms as militia for half a day (dismiss: stand
   // them down early).
   | { type: "callVillagers"; tileX: number; tileY: number; dismiss?: boolean }
@@ -1347,6 +1349,18 @@ export interface PlayerSnapshot {
   dead: boolean;
   // Clans: the player's clan (omitted = 0).
   clan?: number;
+  // Village life phase 5: set while dead and choosing an heir (adult villagers / companions of the clan); a dead
+  // player without it is game over.
+  heirs?: HeirCandidateSnapshot[];
+}
+
+// Village life phase 5: one adult who can take over as the hero.
+export interface HeirCandidateSnapshot {
+  id: string;
+  name: string;
+  kind: string;
+  ageDays?: number;
+  heroLevel?: number;
 }
 
 // "creative": creative-mode games save (auto and manual) only here, never over a normal game's slots.

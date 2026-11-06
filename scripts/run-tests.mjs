@@ -44,8 +44,12 @@ const LEGACY = { COLONY_LEGACY_STAFF: "1" };
 // COLONY_UNLOCK_ALL=1 (state.testUnlockAll, honoured only with COLONY_TEST_HOOKS=1) switches the tree's gates and
 // worker-tier speed off. Every server suite gets it (serverEnvFor) except the tree's own (TREE_SUITES).
 const UNLOCK = { COLONY_UNLOCK_ALL: "1" };
+// HERO_RESPAWN: suites written before village life phase 5 (2026-11-06) expect a fallen rider to rise at once at a
+// Town Center: COLONY_HERO_RESPAWN=1 (state.legacyHeroRespawn, test hooks only). Every suite gets it; the smoke test
+// (its own server) runs the heir rule.
+const HERO_RESPAWN = { COLONY_HERO_RESPAWN: "1" };
 const TREE_SUITES = new Set(["progression"]);
-const serverEnvFor = (name) => ({ ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}) });
+const serverEnvFor = (name) => ({ ...HERO_RESPAWN, ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}) });
 const SERVER_ENV = {
   "abbey-ward": INSTANT,
   "army-damage": { ...W80, ...INSTANT, ...LEGACY },

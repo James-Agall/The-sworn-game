@@ -2,19 +2,20 @@
 // rescued prisoners; phase 3: training soldiers at unit buildings from a free villager + tier-matched gear.
 // The person model itself (Colonist.person, free villagers, staffPost / vacancies) lives in colonists.ts.
 import { TICK_RATE, TileType, type ColonistKind } from "@colony/shared/protocol";
+import type { HeirCandidateSnapshot } from "@colony/shared/protocol";
 import type { Colonist, HearthState, Player, TownCenter } from "./types.js";
 import {
-  BIRTH_CHANCE_PER_DAWN, BIRTH_COOLDOWN_DAYS, BIRTH_MIN_FOOD, CHILD_MATURE_DAYS, DAY_TICKS, GAME_DAY_TICKS,
+  BIRTH_CHANCE_PER_DAWN, BIRTH_COOLDOWN_DAYS, BIRTH_MIN_FOOD, HEIR_GOLD_SHARE, HEIR_SKILL_SHARE, CHILD_MATURE_DAYS, DAY_TICKS, GAME_DAY_TICKS,
   IMMIGRANTS_PER_WEEK, IMMIGRATION_MIN_HAPPINESS, KEEP_POPULATION_PER_LEVEL, PRISONERS_PER_CAMP,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_LEVEL_POPULATION_BONUS, TRAIN_DAYS_BY_LEVEL, VILLAGE_LEVY_COOLDOWN_TICKS,
   VILLAGE_LEVY_TICKS,
 } from "./constants.js";
-import { colonists, respawnQueue, sites, state } from "./state.js";
+import { chargeRuns, colonists, players, respawnQueue, sites, state } from "./state.js";
 import { getBuildingLevel, inBounds, isNightNow, resourceKey, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { tileIndicesOfAny } from "./chunks.js";
 import {
   findTownCenterAt, freeVillagerFor, houseCapacity, isCivilianKind, isHouseTile, isValidPostTile, nearestTownCenter,
-  newPerson, personAgeDays, releaseToVillage, settlementOf, settlementStats, spawnColonistForPost, spawnVillager,
+  newPerson, personAgeDays, queueRespawn, releaseToVillage, settlementOf, settlementStats, spawnColonistForPost, spawnVillager,
   transplantPerson,
 } from "./colonists.js";
 import { leaveOrderGroup } from "./orders.js";
@@ -23,6 +24,9 @@ import { clanIdAt, clanTownCenters, forEachClan, inClan, townCentersOfClan, with
 import { broadcastEvent } from "./net.js";
 import { attackerClan } from "./sites.js";
 import { sendEvent } from "./construction.js";
+import { heroKey, heroProfileFor, heroProfileOf, playerMaxHp, recomputeHeroProfile } from "./heroes.js";
+import { releaseResourceReservation } from "./economy.js";
+import { isSummoned } from "./spells.js";
 
 const isAdult = (c: Colonist) => !!c.person && !c.person.child;
 
@@ -343,4 +347,83 @@ function standDown(c: Colonist) {
 // Once a second: levies whose time is up stand down.
 export function updateVillageLevy() {
   for (const c of Array.from(colonists.values())) if (c.callUp && state.cycleTick >= c.callUp.untilTick) standDown(c);
+}
+
+// ---- Phase 5: hero death and heirs (PLAN-village-life.md rule 6, PLAN-solo-hero.md "Death, resurrection and heirs") ----
+// Who can take over as the hero: a living adult of the player's clan (villager, worker or soldier with a person
+// record; not a trainee) or a companion hero. Wagons, summons and vassal levies never.
+export function heirCandidates(clan: number): Colonist[] {
+  const out: Colonist[] = [];
+  for (const c of colonists.values()) {
+    if ((c.clan ?? 0) !== clan || c.hp <= 0 || c.training || c.levyOf || c.kind === "wagon" || isSummoned(c)) continue;
+    if (c.kind === "hero" || isAdult(c)) out.push(c);
+  }
+  return out;
+}
+
+export function heirSnapshot(clan: number): HeirCandidateSnapshot[] {
+  return heirCandidates(clan).map((c) => ({
+    id: c.id,
+    name: c.person?.name ?? c.heroName ?? c.kind,
+    kind: c.kind,
+    ...(c.person ? { ageDays: Math.floor(personAgeDays(c.person)) } : {}),
+    ...(c.kind === "hero" ? { heroLevel: heroProfileFor(heroKey(c.id)).level } : {}),
+  }));
+}
+
+// The player's hero fell (combat.ts damagePlayer): dead, then an heir choice, or game over with nobody to take over.
+export function onHeroDeath(player: Player) {
+  player.hp = 0;
+  player.dead = true;
+  player.input = { dx: 0, dy: 0 };
+  // TODO(resurrection, PLAN-solo-hero.md): offer revival at a reachable Church for gold (skill loss) here, before the
+  // heir choice. Not built yet.
+  if (heirCandidates(player.clan ?? 0).length > 0) {
+    player.heirPending = true;
+    sendEvent(player, "death", "You have fallen. Choose an heir to carry on");
+  } else {
+    player.heirPending = false;
+    broadcastEvent("death", "The hero has fallen and nobody is left to carry on: game over");
+  }
+}
+
+// Every tick: a player choosing an heir whose last candidate died meanwhile is game over.
+export function updateHeirChoices() {
+  for (const p of players.values()) {
+    if (!p.dead || !p.heirPending || heirCandidates(p.clan ?? 0).length > 0) continue;
+    p.heirPending = false;
+    broadcastEvent("death", "No heir is left to carry on: game over");
+  }
+}
+
+// `chooseHeir`: the colonist leaves its post (a worker / soldier leaves a vacancy) and the player rises in its place
+// with HEIR_SKILL_SHARE of the hero's XP and HEIR_GOLD_SHARE of the clan's gold. Gear on the hero profile stays.
+export function handleChooseHeir(player: Player, id: unknown) {
+  if (!player.dead || !player.heirPending || typeof id !== "string") return;
+  const c = colonists.get(id);
+  if (!c || !heirCandidates(player.clan ?? 0).includes(c)) {
+    sendEvent(player, "build", "That heir can no longer take over");
+    return;
+  }
+  withClan(clanById(player.clan ?? 0), () => {
+    const name = c.person?.name ?? c.heroName ?? "An heir";
+    const prof = heroProfileOf(player);
+    prof.xp = Math.floor(prof.xp * HEIR_SKILL_SHARE);
+    recomputeHeroProfile(prof);
+    state.stock.gold = Math.floor((state.stock.gold ?? 0) * HEIR_GOLD_SHARE);
+    releaseResourceReservation(c);
+    leaveOrderGroup(c.id);
+    if (c.kind !== "hero" && c.kind !== "villager") queueRespawn(c);
+    colonists.delete(c.id);
+    chargeRuns.delete(c.id);
+    if (c.kind === "hero") state.heroRosterVersion++;
+    player.x = c.x;
+    player.y = c.y;
+    player.dead = false;
+    player.heirPending = false;
+    player.hp = playerMaxHp(player);
+    player.attackCooldownTicks = 0;
+    player.poisonTicksRemaining = 0;
+    broadcastEvent("milestone", `${name} takes up the hero's mantle`);
+  });
 }

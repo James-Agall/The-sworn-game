@@ -163,6 +163,7 @@ export function respawnPlayersAndWelcome() {
     player.poisonDamagePerTick = 0;
     player.input = { dx: 0, dy: 0 };
     player.dead = false;
+    player.heirPending = false;
   }
 
   for (const player of players.values()) {

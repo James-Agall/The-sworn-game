@@ -4,7 +4,7 @@
 //
 // The camera keeps a logical target (x, y = world px at the screen centre, zoom); pan / zoom / jumps move
 // the target at once and the drawn view follows it closely (FOLLOW_RATE). Entering and exiting ease the
-// displayed view from where it was to the target over TRANSITION_MS; on exit the target is the rider's live position at the tactical zoom, and once that
+// displayed view from where it was to the target over TRANSITION_MS; on exit the target is the rider's live position at the home zoom (homeZoom), and once that
 // transition ends the camera is inactive (main.ts follows the rider again).
 
 export const TACTICAL_ZOOM = 1.3;
@@ -43,6 +43,8 @@ export class StrategyCamera {
   private worldW = 1;
   private worldH = 1;
   minZoom = 0.1;
+  // Village life phase 5: the zoom the exit transition eases back to (the adventure camera's, else TACTICAL_ZOOM).
+  homeZoom = TACTICAL_ZOOM;
 
   // In strategy mode for input purposes (build off, rider idle, pan keys): not while easing back out.
   get inStrategy(): boolean {
@@ -119,7 +121,7 @@ export class StrategyCamera {
   // `rider` is the exit target while easing back.
   view(now: number, rider: { x: number; y: number }): CamView | null {
     if (!this.active) return null;
-    const to: CamView = this.exiting ? { x: rider.x, y: rider.y, zoom: TACTICAL_ZOOM } : this.target;
+    const to: CamView = this.exiting ? { x: rider.x, y: rider.y, zoom: this.homeZoom } : this.target;
     const dt = Math.min(0.1, Math.max(0, (now - this.lastAt) / 1000));
     this.lastAt = now;
     const k = 1 - Math.exp(-FOLLOW_RATE * dt);

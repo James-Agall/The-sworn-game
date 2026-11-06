@@ -255,6 +255,9 @@ export function setupCreative(deps: CreativeDeps) {
     const p = page("World");
     const day = el("input", "", { type: "number", min: "1", value: "1" });
     p.append(row("Day", day, ...["dawn", "noon", "dusk", "night", "midnight"].map((ph) => button(ph, () => deps.send({ type: "creativeSet", op: "setTime", day: Number(day.value) || undefined, phase: ph })))));
+    // Village life phase 6: people arriving at your nearest Town Center (adult immigrants or newborn children).
+    const peopleN = el("input", "", { type: "number", min: "1", max: "20", value: "3" });
+    p.append(row("People", peopleN, button("Immigrants", () => deps.send({ type: "creativeSet", op: "people", count: Number(peopleN.value) || 1 })), button("Children", () => deps.send({ type: "creativeSet", op: "people", count: Number(peopleN.value) || 1, child: true }))));
     const raidDay = el("input", "", { type: "number", min: "1", value: "10" });
     p.append(row("Raid", el("span", "day"), raidDay, button("Raid now", () => deps.send({ type: "creativeSet", op: "raid", day: Number(raidDay.value) || 1 }))));
     const tpl = select(TEMPLATES);

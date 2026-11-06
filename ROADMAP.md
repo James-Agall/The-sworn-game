@@ -2155,6 +2155,49 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Village life — landed (phase 5/6) 2026-11-06 (adventure camera, mode toggle, hero death + heirs, creative people)
+
+Plan: `docs/colony2d/PLAN-village-life.md` phases 5-6; party commands per PLAN-solo-hero.md "Refinement"; heirs per
+"Death, resurrection and heirs".
+- **Adventure camera (`client/src/adventure.ts`, hooks in main.ts):** the default view is now a close top-down camera
+  (`ADVENTURE_ZOOM` 2.4, was the 1.3 tactical zoom), same 2D art, locked on the hero with a smooth exponential follow
+  (no edge scrolling; a jump of 20+ tiles snaps). The wheel nudges it within 1.6-3.2. The layer is placed on whole
+  screen pixels so pixel art doesn't shimmer. One live world: Tab / the top-bar button ("Strategy" <-> "Adventure")
+  toggles the strategy camera as before; leaving strategy eases back to the adventure zoom (`StrategyCamera.homeZoom`).
+  Floor chunks, sprite culling, fog and the minimap already work off the drawn view, so nothing changed there.
+- **Old behaviour reachable:** `?camera=classic` (or Settings > "Close adventure camera" off, applies after a reload)
+  = the old tactical camera, labels and HUD. `?view=strategy` (or "Start in strategy view") enters strategy view on
+  the first frame of every game; `?view=adventure` / `?camera=adventure` force the other way.
+- **Adventure HUD (`body.adventure-mode`):** compact hero bar bottom-left (level, HP, XP to next level, Attack =
+  Space, Interact = Enter, "Tab: strategy"). The spell bar (Shift+1-4 / F1-4) is the hotbar. **Enter** opens the info
+  panel of the nearest building / fort tile within 2 tiles of the hero.
+- **Small-party command bar:** with commandable units selected in adventure view the command bar adds **Follow me**
+  (regiment order follow `p:<you>`), **Hold** and **Shape** (Shift+G / H / Q; the build hotkeys G / H / Q stay
+  plain letters). Right-click ground / enemy still moves / attacks the selection. More than `PARTY_COMMAND_MAX` (8)
+  selected or any task-force member: these hide and "Large force: Tab for full regiment orders" shows instead. Full
+  regiment orders (atk-move, retreat, charge, bombard, toggles, line drags, queues) stay strategy-only.
+- **Hero death (server `people.ts` `onHeroDeath` / `handleChooseHeir` / `heirCandidates`; combat.ts
+  `damagePlayer`):** a fallen hero no longer rises at a Town Center. With a living adult of the clan (villager,
+  worker, soldier with a person record, not a trainee; or a companion hero) the player is dead with
+  `heirPending`; the snapshot player carries `heirs` and the client shows **The Hero Has Fallen** with one button per
+  candidate. `chooseHeir {id}`: that colonist leaves the world (a worker / soldier leaves a vacancy), the player
+  rises in its place at full HP with `HEIR_SKILL_SHARE` (0.5) of the hero XP (level re-derived; gear and spells stay)
+  and the clan keeps `HEIR_GOLD_SHARE` (0.5) of its gold. Nobody left (or the last candidate dies while choosing,
+  `updateHeirChoices`) = game over overlay ("nobody is left to carry on"). A load / restart revives as before.
+  Church resurrection is a TODO hook in `onHeroDeath` (not built).
+- **Legacy rule for old suites:** `COLONY_HERO_RESPAWN=1` (test hooks only, `state.legacyHeroRespawn`) keeps the old
+  instant respawn; `scripts/run-tests.mjs` gives it to every suite (`HERO_RESPAWN`); smoke runs the new rule. Test
+  hook `heroDeath {legacy?, clan?, revive?}`.
+- **Creative (phase 6):** World tab "People" row: N **Immigrants** (adults) or N **Children** (newborn) arrive at your
+  nearest Town Center (`creativeSet people {count, child?}`). Creative works the same in both views.
+- Smoke: "hero death: heir choice, then game over with no heir; creative people". Headless Playwright run (scratch
+  build): New Game shows the adventure view and hero bar, Tab -> strategy -> Tab back, `?view=strategy` and
+  `?camera=classic` behave, no page errors.
+- Known: builders-towncenter-test crashes earlier than its death steps (its "no builders" checks predate
+  villagers-help-build), unrelated to this change.
+
+**Manual browser check (village life phase 5/6):** see MANUAL-TESTS.md "Village life: adventure view and heirs".
+
 ## Progression tree — landed (phase 4) 2026-11-03 (food chain)
 
 - **Farm fields need a plow:** the Barn (farm plots hang off it) needs a **wooden plow** (hand: 6 wood + 2 rock). The

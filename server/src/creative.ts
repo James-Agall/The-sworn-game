@@ -21,7 +21,7 @@ import { setTile } from "./chunks.js";
 import { inBounds, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import { releaseResourceReservation } from "./economy.js";
-import { settlementKeyNear, spawnColonistForPost, townCenterMaxHp } from "./colonists.js";
+import { nearestTownCenter, newPerson, settlementKeyNear, spawnColonistForPost, spawnVillager, townCenterMaxHp } from "./colonists.js";
 import { isGuardOrMilitiaKind, pickGuardTarget, unitStats } from "./units.js";
 import { approachGoal, damageColonist, damageMob, releaseSlot } from "./combat.js";
 import { applyHungerMark } from "./mobs.js";
@@ -464,7 +464,7 @@ export function handleCreativeSpawn(player: Player, msg: Record<string, unknown>
 const timePhases = (): Record<string, number> => ({ dawn: 1, noon: Math.floor(DAY_TICKS / 2), dusk: DAY_TICKS - TICK_RATE * 5, night: DAY_TICKS + 1, midnight: DAY_TICKS + Math.floor(NIGHT_TICKS / 2) });
 
 // creativeSet {op, ...}: allowAttack {on} | godmode {on} | heal | killMobs | clearNeutrals | clearWildlife |
-// setTime {day?, phase?} | raid {day?} | stamp {template, x, y} | tradingPost {x, y, level?} |
+// setTime {day?, phase?} | people {count, child?} | raid {day?} | stamp {template, x, y} | tradingPost {x, y, level?} |
 // relation {x, y, value?, vassal?} | quest {x, y, kind} | forceAttack {unitIds, targetType: "c" | "w", targetId}.
 export function handleCreativeSet(player: Player, msg: Record<string, unknown>, reply: Reply) {
   const op = msg.op;
@@ -527,6 +527,21 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
     state.cycleTick = day * GAME_DAY_TICKS + within;
     state.wasNight = isNightNow();
     reply(true, `Day ${day + 1}, ${typeof msg.phase === "string" ? msg.phase : "same time"}`, { cycleTick: state.cycleTick });
+  } else if (op === "people") {
+    // Village life phase 6: `count` (1-20) people at the player's nearest own Town Center: adult immigrants, or
+    // newborn children with `child: true`.
+    const clan = player.clan ?? 0;
+    const tc = nearestTownCenter(player.x, player.y, state.townCenters.filter((t) => (t.clan ?? 0) === clan));
+    const n = Math.max(1, Math.min(20, Math.floor(Number(msg.count) || 1)));
+    const child = msg.child === true;
+    if (!tc) return reply(false, "No Town Center of yours to arrive at");
+    const ids = withClan(clanById(clan), () =>
+      Array.from({ length: n }, () => {
+        const person = child ? { ...newPerson("born", state.cycleTick), child: true } : newPerson("immigrant");
+        return spawnVillager(tc, person).id;
+      })
+    );
+    reply(true, `${n} ${child ? (n === 1 ? "child" : "children") : n === 1 ? "immigrant" : "immigrants"} arrived`, { ids });
   } else if (op === "raid") {
     const day = Number.isFinite(Number(msg.day)) ? Math.max(0, Math.floor(Number(msg.day)) - 1) : Math.floor(state.cycleTick / GAME_DAY_TICKS);
     const before = new Set(raidGroups.keys());

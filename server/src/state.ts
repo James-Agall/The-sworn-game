@@ -281,6 +281,10 @@ export interface ConstructionFields {
   // COLONY_UNLOCK_ALL=1 (test hooks only; testHook "progression"): the rules before the progression tree, for the
   // suites written before it (scripts/run-tests.mjs): no building / upgrade / forge gates and no worker-tier speed.
   testUnlockAll: boolean;
+  // COLONY_HERO_RESPAWN=1 (test hooks only; testHook "heroDeath"): the hero death rule before village life phase 5,
+  // for the suites written before it: a fallen rider rises at once at a Town Center (none standing = dead until one
+  // is built). Off: the heir choice (people.ts onHeroDeath).
+  legacyHeroRespawn: boolean;
 }
 
 export interface EquipmentFields {
@@ -544,6 +548,7 @@ const initial: Partial<ServerState> = {
   creativeAllowAttack: false,
   creativeUnlockAll: true,
   testUnlockAll: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_UNLOCK_ALL === "1",
+  legacyHeroRespawn: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_HERO_RESPAWN === "1",
   // EquipmentFields
   lastUnequippedToastTick: -Infinity,
   equipDropToasted: false,
