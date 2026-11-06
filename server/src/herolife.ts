@@ -512,7 +512,7 @@ function showQuests(p: Player, t: Talk, s: SiteState, head: string) {
 
 // The 3 skills this settlement's masters teach (stable per settlement).
 function mastersAt(s: SiteState): HeroSkill[] {
-  const pool = HERO_SKILLS.filter((k) => k !== "speech");
+  const pool = HERO_SKILLS.filter((k) => k !== "speech" && k !== "spellcasting");
   const out: HeroSkill[] = [];
   for (let i = 0; out.length < 3; i++) {
     const k = pool[hashOf(s.id + i) % pool.length];

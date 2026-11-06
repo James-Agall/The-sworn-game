@@ -4,6 +4,9 @@
 //   L level 2 auto-learns the player's first spell (Fire Bolt) into slot 1; T a tome teaches and is consumed;
 //   C the Church sells Heal / Ward for gold; S setSpellSlot validates; then every spell's effect, cooldown,
 //   range, spell power, a hero's Auto Heal and save / load of learned spells and slots.
+//   K cooldowns are the table's x2 (SPELL_COOLDOWN_SCALE); the Spellcasting skill gains XP per cast (= the
+//   spell's table cooldown), toasts its level-ups, scales effect (+8%/level) and cuts cooldown (-5%/level),
+//   and is kept by save / load.
 import WebSocket from "ws";
 import { spawn } from "node:child_process";
 import { mkdtempSync, existsSync } from "node:fs";
@@ -173,6 +176,8 @@ try {
   s = await cast(0, { targetId: troll.id });
   const hp1 = await mobHp(troll.id);
   result(near(hp0 - hp1, 30, 0.5), `Fire Bolt hits for 30 (${hp0} -> ${hp1})`);
+  result(s.player.cooldowns.fireBolt > 150 && s.player.cooldowns.fireBolt <= 160 && s.player.castXp === 4 && s.player.castLevel === 1,
+    `K: Fire Bolt cooldown is 8 s (x2: ${s.player.cooldowns.fireBolt} ticks left), +4 Spellcasting XP (${s.player.castXp}), level ${s.player.castLevel}`);
   s = await cast(0, { targetId: troll.id });
   result(lastEvent(s, "refuse")?.detail.includes("cooldown"), `second immediate Fire Bolt refused: "${lastEvent(s, "refuse")?.detail}"`);
   await c.hookCall("fastForward", { ticks: 70 });
@@ -267,7 +272,8 @@ try {
   result(ks?.buffDamage === 0.25 && ks?.buffSpeed === 0.15 && s.statuses["p:" + s.player.id]?.buffDamage === 0.25,
     `Rally Banner buffs the knight and the player (+25% damage, +15% speed)`);
 
-  // ---- Summon ----
+  // ---- Summon ---- (Spellcasting XP reset: the casts above reached level 2, which would lengthen it)
+  await c.hookCall("heroLife", { skills: {} });
   await c.hookCall("grantSpell", { spellId: "summon" });
   await send({ type: "setSpellSlot", slot: 0, spellId: "summon" });
   await killAll();
@@ -283,6 +289,30 @@ try {
   s = await st();
   result(s.summons.length === 0 && !c.snap.colonists.some((x) => x.summoned) && !!lastEvent(s, "expire"), `the summons crumble after 40 s (${JSON.stringify(s.summons)}, expire ${!!lastEvent(s, "expire")}, snap ${c.snap.colonists.filter((x) => x.summoned).length})`);
 
+  // ---- K: Spellcasting skill ----
+  await c.hookCall("heroLife", { skills: { spellcasting: 96 } });
+  await send({ type: "setSpellSlot", slot: 0, spellId: "fireBolt" });
+  await c.hookCall("spellConfig", { resetCooldowns: true });
+  await stand(arena.tx, arena.ty);
+  const k1 = await c.hookCall("spawnMob", { kind: "troll", tx: arena.tx + 3, ty: arena.ty });
+  c.events.length = 0;
+  s = await cast(0, { targetId: k1.id });
+  const k1hp = await mobHp(k1.id);
+  result(s.player.castLevel === 2 && s.player.castXp === 100 && near(k1.hp - k1hp, 30, 0.5) && c.events.some((t) => t.includes("Spellcasting is now level 2")),
+    `K: a cast at 96 XP reaches Spellcasting 2 (XP ${s.player.castXp}, toast ${c.events.some((t) => t.includes("Spellcasting is now level 2"))}); that cast still hits at level 1 (${k1.hp - k1hp})`);
+  await c.hookCall("heroLife", { skills: { spellcasting: 700 } });
+  await c.hookCall("spellConfig", { resetCooldowns: true });
+  // (The cast event's amount: the troll's HP also drops by the level-2 bolt's burn meanwhile.)
+  s = await cast(0, { targetId: k1.id });
+  const bolt = lastEvent(s, "cast")?.amount;
+  const bs = s.statuses["m:" + k1.id];
+  result(s.player.castLevel === 4 && near(bolt, 37.2, 0.01) && near(bs?.burnPerSec, 3.72, 0.01) && near(bs.burnUntil - s.spellTick, 3 * 20 * 1.24, 3),
+    `K: Spellcasting 4 Fire Bolt hits for ${bolt} (30 x1.24), burns ${bs?.burnPerSec}/s for ${bs ? bs.burnUntil - s.spellTick : "?"} more ticks (3 s x1.24)`);
+  result(s.player.cooldowns.fireBolt > 126 && s.player.cooldowns.fireBolt <= 136,
+    `K: Spellcasting 4 cooldown 6.8 s (8 s x0.85: ${s.player.cooldowns.fireBolt} ticks left)`);
+  await c.hookCall("damageMob", { mobId: k1.id, amount: 1e7 });
+  const castXpSaved = (await st()).player.castXp;
+
   // ---- Hero Auto: a mage heals a wounded ally ----
   const hero = await c.hookCall("spawnHero", { heroClass: "mage", x: px(arena.tx + 1), y: px(arena.ty - 1), stance: "defensive" });
   await c.hookCall("grantSpell", { spellId: "heal", heroId: hero.id });
@@ -293,6 +323,7 @@ try {
   const ka = (await c.hookCall("bodyState")).colonists.find((k) => k.id === knight.id)?.hp;
   const heroBook = s.heroes.find((h) => h.key === "hero:" + hero.id);
   const heroCast = s.events.find((e) => e.type === "cast" && e.key === "hero:" + hero.id && e.spell === "heal");
+  result(heroBook.castXp === 8 && heroBook.castLevel === 1, `the mage gains Spellcasting XP too (${heroBook.castXp} for a Heal)`);
   result(!!heroCast && near(heroCast.amount, 56.25) && near(ka - kb, 56.25, 0.5) && heroBook.auto && near(heroBook.spellPowerMult, 1.25),
     `mage (spell power x${heroBook?.spellPowerMult}) auto-casts Heal on the wounded knight: ${kb} -> ${ka} (45 x1.25)`);
   await send({ type: "setSpellAuto", heroId: hero.id, auto: false });
@@ -313,6 +344,7 @@ try {
   result(c.saves[0]?.ok && c.saves[1]?.ok && JSON.stringify([s.player.learned, s.player.slots]) === saved &&
     JSON.stringify(s.heroes.find((h) => h.key === "hero:" + hero.id)?.learned) === savedHero && s.heroes.find((h) => h.key === "hero:" + hero.id)?.auto === false,
     `save/load keeps learned spells ${s.player.learned} and slots ${s.player.slots}; the hero's book (${savedHero}, Auto off)`);
+  result(s.player.castXp === castXpSaved && s.player.castLevel === 4, `K: save/load keeps Spellcasting XP ${s.player.castXp} (level ${s.player.castLevel})`);
 } finally {
   killServer();
 }

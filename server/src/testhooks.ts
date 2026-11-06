@@ -768,8 +768,8 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // Hero phase 4: this player's / every hero's spell book, statuses, summons, recent spell events.
     reply({
       spellTick: state.spellTick,
-      player: { key: player.profileKey, ...spellBookSnapshot(heroProfileOf(player)), spellPowerMult: heroProfileOf(player).stats.spellPowerMult, hp: player.hp, maxHp: playerMaxHp(player), x: player.x, y: player.y, id: player.id },
-      heroes: Array.from(heroProfiles.values()).filter((p) => p.heroClass).map((p) => ({ key: p.key, level: p.level, spellPowerMult: p.stats.spellPowerMult, ...spellBookSnapshot(p) })),
+      player: { key: player.profileKey, ...spellBookSnapshot(heroProfileOf(player)), castXp: heroProfileOf(player).life?.skills.spellcasting ?? 0, spellPowerMult: heroProfileOf(player).stats.spellPowerMult, hp: player.hp, maxHp: playerMaxHp(player), x: player.x, y: player.y, id: player.id },
+      heroes: Array.from(heroProfiles.values()).filter((p) => p.heroClass).map((p) => ({ key: p.key, level: p.level, spellPowerMult: p.stats.spellPowerMult, castXp: p.life?.skills.spellcasting ?? 0, ...spellBookSnapshot(p) })),
       statuses: Object.fromEntries(spellStatuses),
       summons: Array.from(summonedUntil, ([id, until]) => ({ id, until, alive: colonists.has(id) })),
       population: civilianPopulationUsed(),

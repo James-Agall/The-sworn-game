@@ -1,7 +1,7 @@
 // Solo hero (docs/colony2d/PLAN-solo-hero.md; ROADMAP "Solo hero — landed"): the data the server and client share
 // for the playable hero: pack goods and carry weight, needs, skills by use, gather sources, personal builds and the
 // role dialogue trees. Server: server/src/herolife.ts. Client: client/src/herolife.ts.
-import { TileType, type RelationTier } from "./protocol.js";
+import { SPELL_COOLDOWN_SCALE, SPELLS, type SpellId, TileType, type RelationTier } from "./protocol.js";
 import { type ItemId, WORKER_XP_LEVELS } from "./progression.js";
 
 // ---- pack (carried goods) ----
@@ -26,16 +26,32 @@ export const AUTO_EAT_BELOW = 50;
 // ---- skills (by use; same XP pace and levels as settlement workers: WORKER_XP_LEVELS) ----
 export type HeroSkill =
   | "woodcutting" | "mining" | "foraging" | "fishing" | "farming" | "hunting" | "building"
-  | "smithing" | "smelting" | "charcoal" | "milling" | "baking" | "trading" | "speech";
+  | "smithing" | "smelting" | "charcoal" | "milling" | "baking" | "trading" | "speech" | "spellcasting";
 export const HERO_SKILLS: HeroSkill[] = [
   "woodcutting", "mining", "foraging", "fishing", "farming", "hunting", "building",
-  "smithing", "smelting", "charcoal", "milling", "baking", "trading", "speech",
+  "smithing", "smelting", "charcoal", "milling", "baking", "trading", "speech", "spellcasting",
 ];
 export const HERO_SKILL_LABEL: Record<HeroSkill, string> = {
   woodcutting: "Woodcutting", mining: "Mining", foraging: "Foraging", fishing: "Fishing", farming: "Farming",
   hunting: "Hunting", building: "Building", smithing: "Smithing", smelting: "Smelting", charcoal: "Charcoal burning",
-  milling: "Milling", baking: "Baking", trading: "Trading", speech: "Speech",
+  milling: "Milling", baking: "Baking", trading: "Trading", speech: "Speech", spellcasting: "Spellcasting",
 };
+// Spellcasting (2026-11-06): XP per cast = the spell's table cooldown in seconds (costlier spells teach more).
+// Each level above 1: +8% spell effect (damage / heal / shield / burn, durations, radii) and -5% cooldown,
+// never below 40% of the base cooldown.
+export const SPELLCASTING_EFFECT_PER_LEVEL = 0.08;
+export const SPELLCASTING_COOLDOWN_PER_LEVEL = 0.05;
+export const SPELLCASTING_COOLDOWN_FLOOR = 0.4;
+export function spellcastingEffectMult(level: number): number {
+  return 1 + SPELLCASTING_EFFECT_PER_LEVEL * Math.max(0, level - 1);
+}
+export function spellcastingCooldownMult(level: number): number {
+  return Math.max(SPELLCASTING_COOLDOWN_FLOOR, 1 - SPELLCASTING_COOLDOWN_PER_LEVEL * Math.max(0, level - 1));
+}
+// Seconds between casts of `id` at a Spellcasting level.
+export function spellCooldownSeconds(id: SpellId, level: number): number {
+  return SPELLS[id].cooldown * SPELL_COOLDOWN_SCALE * spellcastingCooldownMult(level);
+}
 // Station the hero can work (as the worker) -> the skill it levels. Only stations with station recipes produce.
 export const STATION_SKILL: Partial<Record<TileType, HeroSkill>> = {
   [TileType.CharcoalBurner]: "charcoal",

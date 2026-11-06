@@ -5,6 +5,10 @@ import {
   type HeroClass, type SpellId, SPELL_IDS, type SpellBookSnapshot, SPELLS, SPELL_SLOT_COUNT, type GearItem,
   type BuildingInfo, TileType, TICK_RATE, TILE_SIZE, unitRole, type Stance,
 } from "@colony/shared/protocol";
+import {
+  HERO_SKILL_LABEL, NEED_MAX, spellCooldownSeconds, spellcastingEffectMult,
+} from "@colony/shared/herolife";
+import { levelForXp } from "@colony/shared/progression";
 import type {
   Colonist, FriendlyUnit, HeroProfile, Mob, Player, SpellCaster, SpellStatus, SpellTarget,
 } from "./types.js";
@@ -46,7 +50,25 @@ export function spellBookSnapshot(prof: HeroProfile): SpellBookSnapshot {
   const cooldowns: Partial<Record<SpellId, number>> = {};
   const cd = spellCooldowns.get(prof.key);
   if (cd) for (const id of SPELL_IDS) if ((cd[id] ?? 0) > state.spellTick) cooldowns[id] = cd[id]! - state.spellTick;
-  return { learned: [...prof.spells], slots: [...prof.spellSlots], auto: !!prof.heroClass && prof.spellAuto, cooldowns };
+  return { learned: [...prof.spells], slots: [...prof.spellSlots], auto: !!prof.heroClass && prof.spellAuto, cooldowns, castLevel: spellcastingLevel(prof) };
+}
+
+// Spellcasting hero skill: lives in the profile's generic skill map (prof.life.skills), so heirs / Church revival
+// skill loss and save/load apply as for any skill (old saves: no XP = level 1, no bonus).
+export function spellcastingLevel(prof: HeroProfile): number {
+  return levelForXp(prof.life?.skills.spellcasting ?? 0);
+}
+
+export function gainSpellcasting(prof: HeroProfile, xp: number) {
+  const life = (prof.life ??= { pack: {}, food: NEED_MAX, rest: NEED_MAX, skills: {}, flags: {}, builds: [] });
+  const before = spellcastingLevel(prof);
+  life.skills.spellcasting = (life.skills.spellcasting ?? 0) + xp;
+  const after = spellcastingLevel(prof);
+  if (after === before) return;
+  touchSpellProfile(prof);
+  const text = `${prof.heroClass ? `${profileLabel(prof)}'s ` : ""}${HERO_SKILL_LABEL.spellcasting} is now level ${after}`;
+  if (prof.heroClass) broadcastEvent("milestone", text);
+  else sendHeroEvent(prof, "milestone", text);
 }
 
 // Marks a profile for resending (spell book / cooldown changes) without re-deriving its stats.
@@ -325,8 +347,12 @@ export function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarg
   if (left > 0) return `${def.name} is on cooldown (${Math.ceil(left / TICK_RATE)} s)`;
   const rangePx = def.range * TILE_SIZE + SPELL_RANGE_SLACK_PX;
   const inRange = (x: number, y: number) => Math.hypot(x - caster.x, y - caster.y) <= rangePx;
-  const sp = caster.prof.stats.spellPowerMult;
+  // Spellcasting skill: scales amounts, durations and radii (not ranges or percentages).
+  const castLevel = spellcastingLevel(caster.prof);
+  const fxMult = spellcastingEffectMult(castLevel);
+  const sp = caster.prof.stats.spellPowerMult * fxMult;
   const ticks = (s?: number) => Math.round((s ?? 0) * TICK_RATE);
+  const durTicks = (s?: number) => ticks((s ?? 0) * fxMult);
   let fx: { x: number; y: number };
   if (def.targeting === "enemy") {
     const mob = target.targetId ? mobs.get(target.targetId) : undefined;
@@ -337,14 +363,14 @@ export function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarg
       damageMob(mob, def.power * sp, caster.attackerKey);
       if (mobs.has(mob.id)) {
         const s = statusAt("m:" + mob.id);
-        s.burnUntil = state.spellTick + ticks(def.duration);
+        s.burnUntil = state.spellTick + durTicks(def.duration);
         s.burnNext = state.spellTick + TICK_RATE;
         s.burnPerSec = (def.burnPerSec ?? 0) * sp;
         s.burnBy = caster.attackerKey;
       }
     } else if (id === "curse") {
       const s = statusAt("m:" + mob.id);
-      s.curseUntil = state.spellTick + ticks(def.duration);
+      s.curseUntil = state.spellTick + durTicks(def.duration);
       s.curseBonus = def.damageTakenBonus ?? 0;
     }
   } else if (def.targeting === "ally" || def.targeting === "self") {
@@ -360,24 +386,24 @@ export function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarg
     } else if (id === "ward") {
       const s = statusAt(friendlyKey(ally));
       s.shield = def.power * sp;
-      s.shieldUntil = state.spellTick + ticks(def.duration);
+      s.shieldUntil = state.spellTick + durTicks(def.duration);
     }
   } else {
     if (typeof target.x !== "number" || typeof target.y !== "number" || !Number.isFinite(target.x) || !Number.isFinite(target.y)) return "No spot targeted";
     if (!inRange(target.x, target.y)) return `Out of range (${def.range} tiles)`;
     fx = { x: target.x, y: target.y };
-    const radiusPx = (def.radius ?? 0) * TILE_SIZE;
+    const radiusPx = (def.radius ?? 0) * TILE_SIZE * fxMult;
     if (id === "thunder" || id === "frost") {
       const hit = Array.from(mobs.values()).filter((m) => Math.hypot(m.x - fx.x, m.y - fx.y) <= radiusPx);
       for (const m of hit) {
         damageMob(m, def.power * sp, caster.attackerKey);
-        if (id === "frost" && mobs.has(m.id)) slowMob(m, def.slow ?? 0, ticks(def.duration));
+        if (id === "frost" && mobs.has(m.id)) slowMob(m, def.slow ?? 0, durTicks(def.duration));
       }
       spellEvent({ type: "aoe", key: caster.prof.key, spell: id, amount: hit.length });
     } else if (id === "rallyBanner") {
       const buff = (key: string) => {
         const s = statusAt(key);
-        s.buffUntil = state.spellTick + ticks(def.duration);
+        s.buffUntil = state.spellTick + durTicks(def.duration);
         s.buffDamage = def.buffDamage ?? 0;
         s.buffSpeed = def.buffSpeed ?? 0;
       };
@@ -401,7 +427,7 @@ export function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarg
         const p = { x: fx.x + (i === 0 ? -8 : 8), y: fx.y };
         if (isWalkableTile(tileOfPixel(p.x, p.y).x, tileOfPixel(p.x, p.y).y)) Object.assign(c, { x: p.x, y: p.y });
         Object.assign(c, { rallyTileX: tile.x, rallyTileY: tile.y, rallyX: c.x, rallyY: c.y, stance: "aggressive" as Stance });
-        summonedUntil.set(c.id, state.spellTick + ticks(def.duration));
+        summonedUntil.set(c.id, state.spellTick + durTicks(def.duration));
         spellEvent({ type: "summon", key: "c:" + c.id });
       }
     }
@@ -411,8 +437,9 @@ export function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarg
     cd = {};
     spellCooldowns.set(caster.prof.key, cd);
   }
-  cd[id] = state.spellTick + ticks(def.cooldown);
+  cd[id] = state.spellTick + ticks(spellCooldownSeconds(id, castLevel));
   touchSpellProfile(caster.prof);
+  gainSpellcasting(caster.prof, def.cooldown);
   state.pendingEffects.push({ fromX: caster.x, fromY: caster.y, toX: fx.x, toY: fx.y, spell: id });
   spellEvent({ type: "cast", key: caster.prof.key, spell: id, amount: def.power * sp, detail: target.targetId ?? (target.x !== undefined ? `${Math.round(target.x)},${Math.round(target.y ?? 0)}` : "self") });
   return "";

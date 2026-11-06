@@ -663,6 +663,9 @@ export const SPELLS: Record<SpellId, SpellDef> = {
   curse: { id: "curse", name: "Curse", targeting: "enemy", range: 8, cooldown: 16, power: 0, duration: 8, damageTakenBonus: 0.3, icon: "ui-spell7", glyph: "☽", color: "#6b2f8a", text: "Curses an enemy: it takes +30% damage for 8 s" },
 };
 export const SPELL_IDS = Object.keys(SPELLS) as SpellId[];
+// Every spell's real cooldown is its table `cooldown` x this (2026-11-06: x2, the one tuning knob; fire bolt
+// 4 -> 8 s ... summon 45 -> 90 s). The Spellcasting hero skill then shortens it (shared/src/herolife.ts).
+export const SPELL_COOLDOWN_SCALE = 2;
 export const SPELL_SLOT_COUNT = 4;
 // Snapshot form of a profile's spell book. cooldowns: ticks (TICK_RATE / s) left per spell at send time.
 export interface SpellBookSnapshot {
@@ -671,6 +674,8 @@ export interface SpellBookSnapshot {
   // Heroes only: auto-cast slotted spells (players never auto-cast).
   auto: boolean;
   cooldowns: Partial<Record<SpellId, number>>;
+  // Spellcasting skill level of this profile (1 = untrained; old servers: absent = 1).
+  castLevel?: number;
 }
 // Hero phase 3: snapshot `heroes`, one per hero of the colony (alive, waiting to respawn or still being
 // recruited), sent per player only when the roster changed. `profile.inventory` is always empty: heroes

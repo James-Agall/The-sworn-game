@@ -58,6 +58,7 @@ import {
 } from "@colony/shared/buildings";
 import type { Footprint } from "@colony/shared/buildings";
 import { type ChainStep, type ItemId, PROGRESSION, PROGRESSION_BUILDING_LABEL, QUALITY_GRADES } from "@colony/shared/progression";
+import { spellCooldownSeconds, spellcastingCooldownMult, spellcastingEffectMult } from "@colony/shared/herolife"; // Spellcasting skill
 import type { ProgressionSnapshot } from "@colony/shared/protocol";
 import {
   Biome,
@@ -5752,23 +5753,32 @@ async function main() {
   }
   function spellText(id: SpellId, spellPower: number): string {
     const def = SPELLS[id];
+    // Durations / radii in the text stay the table's; the Spellcasting line in the tooltip gives the bonus.
     const n = (v: number) => String(Math.round(v * spellPower * 10) / 10);
     return def.text.replace("{power}", n(def.power)).replace("{burn}", n(def.burnPerSec ?? 0));
   }
-  function showSpellTip(e: MouseEvent, id: SpellId, spellPower: number, hint: string) {
+  function showSpellTip(e: MouseEvent, id: SpellId, spellPower: number, hint: string, castLevel = 1) {
     const def = SPELLS[id];
+    const fx = spellcastingEffectMult(castLevel);
+    const cdSec = Math.round(spellCooldownSeconds(id, castLevel) * 10) / 10;
     hsTip.replaceChildren();
     const name = document.createElement("b");
     name.textContent = def.name;
     const meta = document.createElement("div");
     meta.className = "tier";
-    meta.textContent = `${TARGETING_LABEL[def.targeting]} · range ${def.range} tiles · cooldown ${def.cooldown} s`;
+    meta.textContent = `${TARGETING_LABEL[def.targeting]} · range ${def.range} tiles · cooldown ${cdSec} s`;
     const body = document.createElement("div");
-    body.textContent = spellText(id, spellPower) + (def.power > 0 && Math.abs(spellPower - 1) > 1e-6 ? ` (spell power x${spellPower.toFixed(2)})` : "");
+    const power = spellPower * fx;
+    body.textContent = spellText(id, power) + (def.power > 0 && Math.abs(power - 1) > 1e-6 ? ` (spell power x${power.toFixed(2)})` : "");
+    const skill = document.createElement("div");
+    skill.className = "tier";
+    skill.textContent = castLevel > 1
+      ? `Spellcasting L${castLevel}: +${Math.round((fx - 1) * 100)}% effect, duration and radius; cooldown ${cdSec} s (base ${spellCooldownSeconds(id, 1)} s)`
+      : "Spellcasting L1: cast spells to train it (+8% effect, -5% cooldown per level)";
     const foot = document.createElement("div");
     foot.className = "tier";
     foot.textContent = hint;
-    hsTip.append(name, meta, body, foot);
+    hsTip.append(name, meta, body, skill, foot);
     hsTip.hidden = false;
     hsTip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 270)}px`;
     hsTip.style.top = `${Math.min(e.clientY + 14, window.innerHeight - hsTip.offsetHeight - 8)}px`;
@@ -5855,7 +5865,7 @@ async function main() {
           pickedSpell = null;
         } else if (id) sendMessage({ type: "setSpellSlot", slot: i, spellId: null, ...heroArg });
       });
-      el.addEventListener("mousemove", (e) => (id ? showSpellTip(e, id, prof.stats.spellPowerMult, pickedSpell ? `Click to put ${SPELLS[pickedSpell].name} here` : "Click to empty the slot") : pickedSpell ? showSpellTip(e, pickedSpell, prof.stats.spellPowerMult, `Click to put it in slot ${i + 1}`) : hideItemTip()));
+      el.addEventListener("mousemove", (e) => (id ? showSpellTip(e, id, prof.stats.spellPowerMult, pickedSpell ? `Click to put ${SPELLS[pickedSpell].name} here` : "Click to empty the slot", prof.spells?.castLevel) : pickedSpell ? showSpellTip(e, pickedSpell, prof.stats.spellPowerMult, `Click to put it in slot ${i + 1}`, prof.spells?.castLevel) : hideItemTip()));
       el.addEventListener("mouseleave", hideItemTip);
       spells.append(el);
     }
@@ -5884,7 +5894,14 @@ async function main() {
       ["Move speed", mult(s.moveSpeedMult)],
       ["Attack speed", mult(s.attackSpeedMult)],
       ["Spell power", mult(s.spellPowerMult)],
+      ["Spellcasting", castText(prof.spells?.castLevel ?? 1)],
     ];
+    function castText(lv: number): HTMLElement {
+      const el = document.createElement("span");
+      el.textContent = lv > 1 ? `L${lv} (+${Math.round((spellcastingEffectMult(lv) - 1) * 100)}% effect, -${Math.round((1 - spellcastingCooldownMult(lv)) * 100)}% cooldown)` : "L1";
+      if (lv > 1) el.className = "up";
+      return el;
+    }
     hsStats.replaceChildren();
     for (const [label, value] of rows) {
       const l = document.createElement("span");
@@ -5914,7 +5931,7 @@ async function main() {
         pickedSpell = pickedSpell === id ? null : id;
         renderHeroSheet(true);
       });
-      el.addEventListener("mousemove", (e) => showSpellTip(e, id, prof.stats.spellPowerMult, pickedSpell === id ? "Now click a spell slot (click again to cancel)" : "Click, then click a spell slot"));
+      el.addEventListener("mousemove", (e) => showSpellTip(e, id, prof.stats.spellPowerMult, pickedSpell === id ? "Now click a spell slot (click again to cancel)" : "Click, then click a spell slot", prof.spells?.castLevel));
       el.addEventListener("mouseleave", hideItemTip);
       hsSpellbook.append(el);
     }
@@ -5942,7 +5959,7 @@ async function main() {
         hsInv.append(
           makeSocket(null, item, {
             onClick: known ? undefined : () => sendMessage({ type: "useTome", itemId: item.id, ...heroArg }),
-            tip: (e) => showSpellTip(e, spellId, prof.stats.spellPowerMult, known ? `${item.name}: already known${hero ? ` by ${hero.name}` : ""}` : `${item.name}: click to Learn${hero ? ` (${hero.name})` : ""}`),
+            tip: (e) => showSpellTip(e, spellId, prof.stats.spellPowerMult, known ? `${item.name}: already known${hero ? ` by ${hero.name}` : ""}` : `${item.name}: click to Learn${hero ? ` (${hero.name})` : ""}`, prof.spells?.castLevel),
           })
         );
         continue;
@@ -6045,7 +6062,7 @@ async function main() {
     const book = heroProfile?.spells;
     spellBarEl.hidden = !book || book.learned.length === 0;
     if (!book) return;
-    const key = JSON.stringify([book.slots, spellAim, heroProfile?.stats.spellPowerMult]);
+    const key = JSON.stringify([book.slots, spellAim, heroProfile?.stats.spellPowerMult, book.castLevel]);
     if (key !== spellBarKey) {
       spellBarKey = key;
       book.slots.forEach((id, i) => {
@@ -6059,7 +6076,7 @@ async function main() {
         const cd = document.createElement("div");
         cd.className = "spell-cd";
         b.append(k, cd);
-        b.onmousemove = id ? (e) => showSpellTip(e, id, heroProfile?.stats.spellPowerMult ?? 1, `Shift+${i + 1} or F${i + 1}`) : null;
+        b.onmousemove = id ? (e) => showSpellTip(e, id, heroProfile?.stats.spellPowerMult ?? 1, `Shift+${i + 1} or F${i + 1}`, book.castLevel) : null;
         b.onmouseleave = hideItemTip;
       });
     }
@@ -6067,7 +6084,7 @@ async function main() {
       const cd = spellBtns[i].querySelector<HTMLElement>(".spell-cd");
       if (!cd) return;
       const left = id ? spellCooldownMs(id) : 0;
-      cd.style.height = id && left > 0 ? `${Math.min(100, (left / (SPELLS[id].cooldown * 1000)) * 100)}%` : "0";
+      cd.style.height = id && left > 0 ? `${Math.min(100, (left / (spellCooldownSeconds(id, book.castLevel ?? 1) * 1000)) * 100)}%` : "0";
       cd.textContent = left > 0 ? String(Math.ceil(left / 1000)) : "";
     });
   }

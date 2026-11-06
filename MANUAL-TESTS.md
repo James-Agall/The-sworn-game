@@ -668,3 +668,8 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     **Confirm demolish Wooden House** and Cancel appears (bottom centre); Cancel or Esc keeps the building, Confirm
     demolishes it. Wood / stone walls, moats and roads (and trees, rocks) still go at once, no box. Creative too.
 
+11. Spell cooldowns x2 + Spellcasting skill (2026-11-06): hover a spell in the spell bar / hero sheet: Fire Bolt now
+    says "cooldown 8 s" (was 4) and a "Spellcasting L1: cast spells to train it" line. Cast spells (creative Hero
+    skills sets it to level 4 too): at Spellcasting 2 a toast "Spellcasting is now level 2" shows, the skill appears
+    in the hero sheet's Skills list and the Stats "Spellcasting" row, and tooltips show +8% effect / shorter cooldown
+    per level (L4: Fire Bolt 37.2 damage, cooldown 6.8 s). Load an old save: Spellcasting starts untrained.
