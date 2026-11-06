@@ -106,7 +106,7 @@ export function biomeProductionFactor(tx: number, ty: number): number {
   if ((tile === TileType.IronMinePost || tile === TileType.RockMinePost) && biome === Biome.Hills) {
     return 1 - HILLS_MINING_BONUS;
   }
-  if ((tile === TileType.FarmPlot || FARM_PRODUCE_BY_TILE[tile] !== undefined) && biome === Biome.Plains) {
+  if ((tile === TileType.FarmPlot || tile === TileType.CottonFarm || FARM_PRODUCE_BY_TILE[tile] !== undefined) && biome === Biome.Plains) {
     return 1 - PLAINS_FARMING_BONUS;
   }
   return 1;

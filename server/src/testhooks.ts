@@ -24,7 +24,7 @@ import { adjustRelation, applySiteTier, catchUpCampGrowth, relationOf, siteFitPr
 import { spawnCampRaids, spawnWarband, warbandsDebug } from "./warbands.js";
 import {
   ARMOUR_DAMAGE_TAKEN_MULT, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, DAY_LENGTH_SCALE, DAY_TICKS,
-  DESERTER_ACTIVATION_TICKS, DUSK_RESPAWN_CYCLE_TICK, FARMHAND_CYCLE_TICKS, FARMHAND_YIELD_PER_CYCLE,
+  DESERTER_ACTIVATION_TICKS, DUSK_RESPAWN_CYCLE_TICK, FARMHAND_CYCLE_TICKS, FARMHAND_YIELD_PER_CYCLE, HEMP_GROW_TICKS, HEMP_YIELD_PER_HARVEST,
   FARM_FALLOW_TICKS, FARM_GROW_TICKS, FARM_HARVESTS_BEFORE_FALLOW, FARM_HARVEST_TICKS, FARM_SOWN_FRACTION,
   FARM_YIELD_PER_HARVEST, FOOD_PER_COLONIST_PER_DAY, FORAGE_FRUIT_YIELD, FORAGE_PICKED_TO_RIPE, FORAGE_REGROW_TICKS,
   FORAGE_RIPE_TO_PICKED, GAME_DAY_TICKS, HERO_KEY_PREFIX, LEGACY_DAY_TICKS, LEGACY_GAME_DAY_TICKS,
@@ -78,7 +78,7 @@ import { tierOf } from "./diplomacy.js";
 import { endVassalage, forceTribute, updateVassals, vassalDebugState, vassalsDawn } from "./vassals.js";
 import { forceVassal, placeTradingPost, spawnMobAt, spawnRaidGroupAt, spawnSoldierAt, stampSiteSearch } from "./creative.js";
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
-import { FOOD_OUTPUT_MULT, FOOD_TIME_MULT, PASTURE_YIELDS } from "@colony/shared/buildings";
+import { BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, FOOD_TIME_MULT, PASTURE_YIELDS } from "@colony/shared/buildings";
 import { handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
@@ -204,6 +204,11 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         FARMHAND_CYCLE_TICKS,
         FARMHAND_YIELD_PER_CYCLE,
         PASTURE_YIELDS,
+        BARN_FIELD_RADIUS_TILES,
+        BARN_FARMERS_BY_LEVEL,
+        FIELDS_PER_FARMER,
+        HEMP_GROW_TICKS,
+        HEMP_YIELD_PER_HARVEST,
         FOOD_OUTPUT_MULT,
         FOOD_TIME_MULT,
         DAY_TICKS,

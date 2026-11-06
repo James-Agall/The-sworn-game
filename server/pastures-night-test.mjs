@@ -164,10 +164,18 @@ try {
     { name: "Sheep Pasture", tile: T.WoolFarm, meat: 200, wool: 180, hide: 0 },
   ];
   for (const a of animals) {
-    const ps = await findSpot(2, 2);
+    // A strolling villager on the block refuses it: wait a little, or try another spot.
+    let ps = await findSpot(2, 2);
     const ev0 = c.events.length;
-    for (let i = 0; i < 3 && c.tileAt(ps.x, ps.y) !== a.tile; i++) await place(ps.x, ps.y, a.tile);
-    if (c.tileAt(ps.x, ps.y) !== a.tile) info(`${a.name} at (${ps.x},${ps.y}) not placed: ${JSON.stringify(c.events.slice(ev0))}`);
+    for (let i = 0; i < 6 && c.tileAt(ps.x, ps.y) !== a.tile; i++) {
+      if (i === 3) ps = await findSpot(2, 2);
+      await place(ps.x, ps.y, a.tile);
+      if (c.tileAt(ps.x, ps.y) !== a.tile) await c.hookCall("fastForward", { ticks: 100 });
+    }
+    if (c.tileAt(ps.x, ps.y) !== a.tile) {
+      const on = c.snap.colonists.filter((u) => Math.floor(u.x / TILE) - ps.x >= 0 && Math.floor(u.x / TILE) - ps.x <= 1 && Math.floor(u.y / TILE) - ps.y >= 0 && Math.floor(u.y / TILE) - ps.y <= 1);
+      info(`${a.name} at (${ps.x},${ps.y}) not placed: ${JSON.stringify(c.events.slice(ev0).slice(-1))}; on the block: ${JSON.stringify(on.map((u) => [u.kind, u.state, u.postX, u.postY]))}; me ${JSON.stringify(c.snap.players.map((p) => [Math.floor(p.x / TILE), Math.floor(p.y / TILE)]))}`);
+    }
     result(block(ps).join() === `${a.tile},${T.BuildingPart},${T.BuildingPart},${T.BuildingPart}`, `(P) ${a.name} is 2x2: ${block(ps).join()}`);
     const pi = await c.buildingInfo(ps.x, ps.y);
     result(pi?.name === a.name, `(P) its panel reads "${pi?.name}" (${pi?.bonuses.find((b) => /Each batch/.test(b))})`);
@@ -180,6 +188,82 @@ try {
     result(ok && st.meat <= a.meat && st.meat >= a.meat - 30 && st.wool === a.wool && dh === a.hide,
       `(P) ${a.name} batch: meat ${st.meat} (want ${a.meat}), wool ${st.wool} (want ${a.wool}), hide +${dh} (want ${a.hide})`);
     await place(ps.x, ps.y, T.Empty);
+  }
+
+  // ---- F: farm labour (fields tended by a Barn's farmers) ----
+  {
+    await c.hookCall("progression", { unlockAll: true });
+    await c.hookCall("peopleState", { spawn: 4 });
+    const K = (await c.hookCall("farmState")).constants ?? {};
+    const R = K.BARN_FIELD_RADIUS_TILES ?? 8, PER = K.FIELDS_PER_FARMER ?? 4;
+    const bs = await findSpot(1, 1);
+    await place(bs.x, bs.y, 16);
+    await c.hookCall("fastForward", { ticks: 60 });
+    const placeAt = async (x, y, tile) => {
+      await c.hookCall("teleportPlayer", { x: (x - 1) * TILE + 16, y: y * TILE + 16 });
+      await c.freshSnap();
+      await place(x, y, tile);
+    };
+    // Nearest offsets first; the first two fields placed are Hemp Fields (so they are among the tended ones).
+    const fields = [];
+    const offsets = [];
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (dx || dy) offsets.push([dx, dy]);
+    offsets.sort((p, q) => Math.hypot(...p) - Math.hypot(...q));
+    for (const [dx, dy] of offsets) {
+      if (fields.length >= 12) break;
+      const x = bs.x + dx, y = bs.y + dy;
+      if (c.tileAt(x, y) !== T.Empty || c.tileAt(x - 1, y) !== T.Empty) continue;
+      const want = fields.length < 2 ? 24 : 4;
+      await placeAt(x, y, want);
+      if (c.tileAt(x, y) === want) fields.push({ x, y, hemp: want === 24 });
+    }
+    await c.hookCall("fastForward", { ticks: 40 });
+    let fs = await c.hookCall("farmState");
+    const farmers = fs.farmers ?? (await c.freshSnap()).colonists.filter((u) => u.kind === "farmer" && u.postX === bs.x && u.postY === bs.y).length;
+    const mine = fs.plots.filter((q) => q.barnX === bs.x && q.barnY === bs.y);
+    const hemp = fs.plots.filter((q) => q.crop === "hemp" && q.barnX === bs.x);
+    const hempPlaced = fields.filter((f) => f.hemp).length;
+    result(farmers >= 1 && mine.length === Math.min(fields.length, farmers * PER) && hempPlaced >= 1 && hemp.length === hempPlaced,
+      `(F) a Barn with ${farmers} farmer(s) tends ${mine.length} of ${fields.length} fields (cap ${farmers} x ${PER}); hemp tended ${hemp.length}/${hempPlaced} (the nearest fields first)`);
+    const idle = fields.find((f) => !mine.some((q) => q.key === `${f.x},${f.y}`));
+    if (idle) {
+      const why = (await c.buildingInfo(idle.x, idle.y))?.staffing ?? "";
+      result(/Not tended/.test(why), `(F) a field over the Barn's capacity is not tended: "${why}"`);
+    }
+    // Far from any Barn: "No barn in range", and it does not grow.
+    let lone = null;
+    for (let d = R + 2; d <= R + 8 && !lone; d++)
+      for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d], [d, d], [-d, -d], [d, -d], [-d, d]]) {
+        const x = bs.x + dx, y = bs.y + dy;
+        const nearBarn = [...Array(2 * R + 1).keys()].some((i) => [...Array(2 * R + 1).keys()].some((j) => c.tileAt(x - R + i, y - R + j) === 16));
+        if (c.tileAt(x, y) === T.Empty && c.tileAt(x - 1, y) === T.Empty && !nearBarn) {
+          lone = { x, y };
+          break;
+        }
+      }
+    if (lone) {
+      await placeAt(lone.x, lone.y, 4);
+      await c.hookCall("fastForward", { ticks: 40 });
+      const g0 = (await c.hookCall("farmState")).plots.find((q) => q.key === `${lone.x},${lone.y}`);
+      await c.hookCall("fastForward", { ticks: 400 });
+      const g1 = (await c.hookCall("farmState")).plots.find((q) => q.key === `${lone.x},${lone.y}`);
+      const why = (await c.buildingInfo(lone.x, lone.y))?.staffing ?? "";
+      result(g0 && g1 && g0.barnX === -1 && g1.growTicksRemaining === g0.growTicksRemaining && /No barn in range/.test(why),
+        `(F) a field ${Math.max(Math.abs(lone.x - bs.x), Math.abs(lone.y - bs.y))} tiles from the Barn: "${why}", grow ${g0?.growTicksRemaining} -> ${g1?.growTicksRemaining}`);
+    } else info(`(F) no spot beyond ${R} tiles of the Barn found: far-field check skipped`);
+    // Save / load: the fields come back and are re-assigned to the Barn (migrateFarmLabour + assignFieldsToBarns).
+    c.send({ type: "saveGame", slot: "slot1" });
+    for (let i = 0; i < 300 && c.saves.length < 1; i++) await sleep(20);
+    c.send({ type: "loadGame", slot: "slot1" });
+    for (let i = 0; i < 300 && c.saves.length < 2; i++) await sleep(20);
+    await sleep(300);
+    await c.hookCall("fastForward", { ticks: 40 });
+    fs = await c.hookCall("farmState");
+    const again = fs.plots.filter((q) => q.barnX === bs.x && q.barnY === bs.y).length;
+    result(c.saves[1]?.ok && again === mine.length && !fs.farmhands.some((f) => c.tileAt(f.postX, f.postY) === 24),
+      `(F) after save / load: ${again} fields tended again (was ${mine.length}), no farmhand on a Hemp Field`);
+    const bi = await c.buildingInfo(bs.x, bs.y);
+    result(/Farmers \d+\/\d+/.test(bi?.staffing ?? "") && bi.bonuses.some((b) => new RegExp(`within ${R} tiles`).test(b)), `(F) Barn panel: "${bi?.staffing}" / ${bi?.bonuses.find((b) => /within/.test(b))}`);
   }
 
   // ---- N: night shelter ----

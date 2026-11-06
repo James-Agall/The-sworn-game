@@ -1,9 +1,9 @@
 // economy.ts: Stock, gathering, tree growth, synergies, crafting recipes, farms and farm stages, markets.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { TILE_SIZE, TileType, type ColonistKind, FarmStage } from "@colony/shared/protocol";
+import { TICK_RATE, TILE_SIZE, TileType, type ColonistKind, FarmStage } from "@colony/shared/protocol";
 import type { Colonist, FarmPlotState, ResourceKey, TileCoord } from "./types.js";
 import {
-  ARMY_SYNERGY_PER_NEIGHBOUR, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, CHOP_TICKS, CRAFT_TICKS, EXCHANGE_RATES,
+  ARMY_SYNERGY_PER_NEIGHBOUR, BARN_FARMERS_BY_LEVEL, BARN_FARM_RADIUS_TILES, CHOP_TICKS, FIELDS_PER_FARMER, HEMP_GROW_TICKS, HEMP_YIELD_PER_HARVEST, CRAFT_TICKS, EXCHANGE_RATES,
   FARMHAND_CYCLE_TICKS, FOOD_FARM_TILES, FOOD_TIME_MULT, FARM_FALLOW_TICKS, FARM_GROW_TICKS, FARM_HARVESTED_SHOW_TICKS, FARM_HARVESTS_BEFORE_FALLOW,
   FARM_HARVEST_TICKS, FARM_SOWN_FRACTION, FARM_SPROUTING_FRACTION, FARM_YIELD_PER_HARVEST, GOLD_SHOP_PRICES,
   HEMP_GROWING_FROM, HEMP_RIPE_FROM, INDUSTRIAL_SYNERGY_PER_BUILDING, INDUSTRIAL_SYNERGY_RADIUS, INDUSTRIAL_TILES,
@@ -185,11 +185,26 @@ export function effectiveCraftTicks(tx: number, ty: number): number {
   return Math.max(1, Math.round((CRAFT_TICKS * (1 - levelBonus(level))) / (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty))));
 }
 
+// Set after a load (or a new field) so the next tick assigns fields before anything grows.
+let farmFieldsDirty = true;
+export function markFarmFieldsDirty() {
+  farmFieldsDirty = true;
+}
+
 export function isBarnStaffed(bx: number, by: number): boolean {
-  for (const c of colonists.values()) {
-    if (c.kind === "farmer" && c.postX === bx && c.postY === by) return true;
-  }
-  return false;
+  return barnFarmerCount(bx, by) > 0;
+}
+
+export function barnFarmerCount(bx: number, by: number): number {
+  let n = 0;
+  for (const c of colonists.values()) if (c.kind === "farmer" && c.postX === bx && c.postY === by) n++;
+  return n;
+}
+
+// Farmers a Barn employs at its level (BARN_FARMERS_BY_LEVEL).
+export function barnFarmerCap(bx: number, by: number): number {
+  const level = Math.min(Math.max(getBuildingLevel(bx, by), 1), BARN_FARMERS_BY_LEVEL.length);
+  return BARN_FARMERS_BY_LEVEL[level - 1];
 }
 
 export function farmPlotCountForBarn(bx: number, by: number): number {
@@ -198,21 +213,68 @@ export function farmPlotCountForBarn(bx: number, by: number): number {
   return n;
 }
 
-// The Barn a new Farm Plot at (tx, ty) would belong to: the nearest one within BARN_FARM_RADIUS_TILES
-// that still has room (fewer than BARN_MAX_FARM_PLOTS plots), else null (the plot can't go there).
-export function barnForNewFarmPlot(tx: number, ty: number): TileCoord | null {
-  let best: TileCoord | null = null;
-  let bestD = Infinity;
+// Farm labour (2026-11-06): every field goes to the nearest staffed Barn of its clan within BARN_FARM_RADIUS_TILES
+// (Chebyshev) that still has room (farmers x FIELDS_PER_FARMER fields); fields are served nearest first (ties by
+// key), so the same fields keep their Barn from one pass to the next. A field left over gets barnX -1 and does not grow.
+export function assignFieldsToBarns() {
+  const barns: { x: number; y: number; clan: number; room: number }[] = [];
+  for (const i of tileIndicesOf(TileType.BarnPost)) {
+    const x = i % state.WORLD_TILES_X;
+    const y = Math.floor(i / state.WORLD_TILES_X);
+    const room = barnFarmerCount(x, y) * FIELDS_PER_FARMER;
+    if (room > 0) barns.push({ x, y, clan: clanIdAt(x, y), room });
+  }
+  // Nearest fields first (to any staffed Barn), ties by key, so a full Barn keeps its closest fields.
+  const near = new Map<string, number>();
+  for (const key of farmPlots.keys()) {
+    const [px, py] = key.split(",").map(Number);
+    let d = Infinity;
+    for (const b of barns) d = Math.min(d, Math.hypot(b.x - px, b.y - py));
+    near.set(key, d);
+  }
+  const keys = Array.from(farmPlots.keys()).sort((a, b) => near.get(a)! - near.get(b)! || (a < b ? -1 : a > b ? 1 : 0));
+  for (const key of keys) {
+    const plot = farmPlots.get(key)!;
+    const [px, py] = key.split(",").map(Number);
+    // A field that is gone (raided, overbuilt) drops its record.
+    const t = inBounds(px, py) ? state.tiles[tileIndex(px, py)] : -1;
+    if (t !== (plot.crop === "hemp" ? TileType.CottonFarm : TileType.FarmPlot)) {
+      farmPlots.delete(key);
+      continue;
+    }
+    const clan = clanIdAt(px, py);
+    let best: (typeof barns)[number] | null = null;
+    let bestD = Infinity;
+    for (const b of barns) {
+      if (b.room <= 0 || b.clan !== clan) continue;
+      if (Math.max(Math.abs(b.x - px), Math.abs(b.y - py)) > BARN_FARM_RADIUS_TILES) continue;
+      const d = Math.hypot(b.x - px, b.y - py);
+      if (d < bestD) {
+        bestD = d;
+        best = b;
+      }
+    }
+    if (best) best.room--;
+    plot.barnX = best ? best.x : -1;
+    plot.barnY = best ? best.y : -1;
+  }
+}
+
+// Why the field at (tx, ty) is not tended ("" = a Barn tends it): no Barn of its clan within range, or every Barn in
+// range is unstaffed / already tending all the fields its farmers can.
+export function fieldStatus(tx: number, ty: number): string {
+  const plot = farmPlots.get(resourceKey(tx, ty));
+  if (!plot) return "";
+  if (plot.barnX >= 0) return "";
+  const clan = clanIdAt(tx, ty);
   for (let y = ty - BARN_FARM_RADIUS_TILES; y <= ty + BARN_FARM_RADIUS_TILES; y++) {
     for (let x = tx - BARN_FARM_RADIUS_TILES; x <= tx + BARN_FARM_RADIUS_TILES; x++) {
-      if (!inBounds(x, y) || state.tiles[tileIndex(x, y)] !== TileType.BarnPost) continue;
-      const d = Math.hypot(x - tx, y - ty);
-      if (d >= bestD || farmPlotCountForBarn(x, y) >= BARN_MAX_FARM_PLOTS) continue;
-      bestD = d;
-      best = { x, y };
+      if (inBounds(x, y) && state.tiles[tileIndex(x, y)] === TileType.BarnPost && clanIdAt(x, y) === clan) {
+        return "Not tended: the Barns in range have no farmer free (each farmer keeps " + FIELDS_PER_FARMER + " fields)";
+      }
     }
   }
-  return best;
+  return "No barn in range";
 }
 
 export function farmPlotIndices(state: FarmPlotState["state"]): number[] {
@@ -244,10 +306,11 @@ export function sowFarmPlot(plot: FarmPlotState, ticks: number) {
   plot.growTicksTotal = ticks;
 }
 
-export function newFarmPlot(barnX: number, barnY: number): FarmPlotState {
+export function newFarmPlot(crop?: "hemp"): FarmPlotState {
   const plot: FarmPlotState = {
-    barnX,
-    barnY,
+    barnX: -1,
+    barnY: -1,
+    ...(crop ? { crop } : {}),
     growTicksRemaining: 0,
     growTicksTotal: 0,
     harvestTicksRemaining: 0,
@@ -256,35 +319,49 @@ export function newFarmPlot(barnX: number, barnY: number): FarmPlotState {
     harvestedTicksRemaining: 0,
     state: "sown",
   };
-  // The first sowing is the flat FARM_GROW_TICKS (as before: the plot's multipliers apply from the
-  // second cycle on).
-  sowFarmPlot(plot, FARM_GROW_TICKS);
+  // The first sowing is the flat grow time (as before: the plot's multipliers apply from the second cycle on).
+  sowFarmPlot(plot, cropGrowTicks(plot));
   return plot;
 }
 
+// Grain: FARM_GROW_TICKS (food balance included); hemp: HEMP_GROW_TICKS.
+function cropGrowTicks(plot: FarmPlotState): number {
+  return plot.crop === "hemp" ? HEMP_GROW_TICKS : FARM_GROW_TICKS;
+}
+
 export function updateFarmPlots() {
+  // Farm labour: fields are (re)assigned to Barns once a second (and on the first tick after a load).
+  if (state.cycleTick % TICK_RATE === 0 || farmFieldsDirty) {
+    farmFieldsDirty = false;
+    assignFieldsToBarns();
+  }
   for (const [plotKey, plot] of farmPlots) {
     // A resting field recovers on its own; only re-sowing it needs the farmer.
     if (plot.state === "fallow" && plot.fallowTicksRemaining > 0) plot.fallowTicksRemaining--;
     if (plot.harvestedTicksRemaining > 0) plot.harvestedTicksRemaining--;
-    if (state.tiles[tileIndex(plot.barnX, plot.barnY)] !== TileType.BarnPost) continue;
-    if (!isBarnStaffed(plot.barnX, plot.barnY)) continue;
+    // No Barn tends it (none in range, or all full): it does not grow.
+    if (plot.barnX < 0 || state.tiles[tileIndex(plot.barnX, plot.barnY)] !== TileType.BarnPost) continue;
     const [plotX, plotY] = plotKey.split(",").map(Number);
     if (plot.state === "fallow") {
-      if (plot.fallowTicksRemaining <= 0) sowFarmPlot(plot, effectiveFarmPlotTicks(FARM_GROW_TICKS, plotX, plotY, plot));
+      if (plot.fallowTicksRemaining <= 0) sowFarmPlot(plot, effectiveFarmPlotTicks(cropGrowTicks(plot), plotX, plotY, plot));
     } else if (plot.state === "harvesting") {
       plot.harvestTicksRemaining--;
       if (plot.harvestTicksRemaining <= 0) {
-        // Clans: the barn's clan gets the grain.
+        plot.harvestedTicksRemaining = FARM_HARVESTED_SHOW_TICKS;
+        // Clans: the barn's clan gets the crop. Hemp never lies fallow.
+        if (plot.crop === "hemp") {
+          clanById(clanIdAt(plot.barnX, plot.barnY)).stock.cotton += HEMP_YIELD_PER_HARVEST;
+          sowFarmPlot(plot, effectiveFarmPlotTicks(cropGrowTicks(plot), plotX, plotY, plot));
+          continue;
+        }
         clanById(clanIdAt(plot.barnX, plot.barnY)).stock.grain += FARM_YIELD_PER_HARVEST;
         plot.harvestsSinceFallow++;
-        plot.harvestedTicksRemaining = FARM_HARVESTED_SHOW_TICKS;
         if (plot.harvestsSinceFallow >= FARM_HARVESTS_BEFORE_FALLOW) {
           plot.harvestsSinceFallow = 0;
           plot.state = "fallow";
           plot.fallowTicksRemaining = FARM_FALLOW_TICKS;
         } else {
-          sowFarmPlot(plot, effectiveFarmPlotTicks(FARM_GROW_TICKS, plotX, plotY, plot));
+          sowFarmPlot(plot, effectiveFarmPlotTicks(cropGrowTicks(plot), plotX, plotY, plot));
         }
       }
     } else {
@@ -308,6 +385,11 @@ export function farmPlotProgress(plot: FarmPlotState): number {
 
 export function farmPlotStage(plot: FarmPlotState): FarmStage {
   if (plot.state === "harvesting") return FarmStage.Ripe;
+  // Hemp has only the Sown / Growing / Ripe art.
+  if (plot.crop === "hemp") {
+    const h = farmPlotProgress(plot);
+    return h < HEMP_GROWING_FROM ? FarmStage.Sown : h < HEMP_RIPE_FROM ? FarmStage.Growing : FarmStage.Ripe;
+  }
   if (plot.state === "fallow") return FarmStage.Fallow;
   if (plot.harvestedTicksRemaining > 0) return FarmStage.Harvested;
   const p = farmPlotProgress(plot);

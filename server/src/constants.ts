@@ -7,8 +7,11 @@ import {
   type EquipSlot, type BossTier, type Difficulty, TileType, WildlifeState, type RegimentClass, type ArmyOrderKind,
   type CombatRole, type SaveSlot, type ItemSlotKind, type ItemStats, type SpellId, FIGHT_WINDOW_SECONDS,
 } from "@colony/shared/protocol";
-import { BLACKSMITH_TOOLS_STOCK_CAP as SHARED_BLACKSMITH_TOOLS_STOCK_CAP, BUILD_COSTS, FOOD_OUTPUT_MULT, FOOD_TIME_MULT } from "@colony/shared/buildings";
-export { FOOD_OUTPUT_MULT, FOOD_TIME_MULT };
+import {
+  BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, BLACKSMITH_TOOLS_STOCK_CAP as SHARED_BLACKSMITH_TOOLS_STOCK_CAP, BUILD_COSTS, FIELDS_PER_FARMER,
+  FOOD_OUTPUT_MULT, FOOD_TIME_MULT,
+} from "@colony/shared/buildings";
+export { BARN_FARMERS_BY_LEVEL, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, FOOD_TIME_MULT };
 import type {
   Cost, CraftRecipe, DifficultyTuning, MobKindConfig, PoiSiteKind, RaidFactionEntry, RaidFactionId,
   RaidFormationShape, ResourceKey, SiteTemplate, SiteTemplateId, TileCoord, WildlifeMode,
@@ -576,11 +579,12 @@ export const FARM_FALLOW_TICKS = FARM_FALLOW_DAYS * LEGACY_GAME_DAY_TICKS;
 // 5 * 24 / 18 = 6.67 grain per plot per legacy day (was 10), so a full Barn yields ~53 instead of 40.
 // Food balance (2026-11-06): x FOOD_OUTPUT_MULT, 24 -> 12.
 export const FARM_YIELD_PER_HARVEST = Math.round(24 * FOOD_OUTPUT_MULT);
-// Farm Plots per Barn (was 4: the orthogonally adjacent tiles). A new plot may go anywhere within
-// BARN_FARM_RADIUS_TILES (Chebyshev) of a Barn with fewer than BARN_MAX_FARM_PLOTS plots; it belongs to
-// the nearest such Barn.
-export const BARN_MAX_FARM_PLOTS = 8;
-export const BARN_FARM_RADIUS_TILES = 2;
+// Farm labour (2026-11-06, shared BARN_FIELD_RADIUS_TILES / BARN_FARMERS_BY_LEVEL / FIELDS_PER_FARMER): a field
+// (Farm Plot or Hemp Field) can go anywhere; each second economy.ts assignFieldsToBarns gives it to the nearest
+// staffed Barn of its clan within the radius that still has farmer capacity (was: placed within 2 tiles of a Barn
+// with fewer than 8 plots, which owned it for good). BARN_MAX_FARM_PLOTS is the level-1 capacity, for reference.
+export const BARN_FARM_RADIUS_TILES = BARN_FIELD_RADIUS_TILES;
+export const BARN_MAX_FARM_PLOTS = BARN_FARMERS_BY_LEVEL[0] * FIELDS_PER_FARMER;
 // Pasture / Orchard / Sheep Pasture / Hemp Field: the farmhand tends all day as before (works only by
 // day, shelters at night), but the produce lands once per cycle of FARMHAND_CYCLE_DAYS days of tending.
 // The old rate was 1 unit per CHOP_TICKS (2 s) of tending = DAY_TICKS / CHOP_TICKS = 30 a day, so a
@@ -736,7 +740,6 @@ export const FARM_PRODUCE_BY_TILE: Partial<Record<TileType, "meat" | "fruit" | "
   [TileType.PigPasture]: "meat",
   [TileType.Orchard]: "fruit",
   [TileType.WoolFarm]: "wool",
-  [TileType.CottonFarm]: "cotton",
 };
 // Tools are only spent on a few upgrades, so an uncapped Blacksmith turned ~10 wood + 10 iron a game
 // minute into a tools pile forever (the "wood slowly depleting" report, 2026-10-29).
@@ -829,6 +832,11 @@ export const FARM_HARVESTED_SHOW_TICKS = TICK_RATE * 8;
 export const FARM_SPROUTING_FRACTION = 2 / 3; // grain: sown < 1/3 <= sprouting < 2/3 <= growing
 export const HEMP_GROWING_FROM = 1 / 3;
 export const HEMP_RIPE_FROM = 2 / 3;
+// Hemp Fields are barn-tended fields since 2026-11-06 (no farmhand of their own): a crop grows HEMP_GROW_TICKS
+// (the old farmhand cycle, day and night) and its harvest gives HEMP_YIELD_PER_HARVEST hemp (the old batch); no
+// fallow. Hemp is not food: FOOD_OUTPUT_MULT / FOOD_TIME_MULT do not apply.
+export const HEMP_GROW_TICKS = FARMHAND_CYCLE_DAYS * LEGACY_GAME_DAY_TICKS;
+export const HEMP_YIELD_PER_HARVEST = FARMHAND_YIELD_PER_CYCLE.cotton;
 export const PASTURE_FAT_FROM = 0.7;
 export const SHEEP_WOOLLY_FROM = 0.25; // sheared right after the wool batch lands
 export const SHEEP_READY_FROM = 0.8;

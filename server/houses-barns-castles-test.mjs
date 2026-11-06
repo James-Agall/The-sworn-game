@@ -580,18 +580,20 @@ let sixth = null;
     const farmers0 = kinds(a, "farmer").length;
     const pop0 = a.snap.population;
     const w0 = a.snap.wood;
-    // Farm before any barn nearby -> rejected.
-    const pre = await act(a, Fadj.x, Fadj.y, T.FarmPlot, 600);
-    result(pre.filter((u) => u.tileX === Fadj.x && u.tileY === Fadj.y).length === 0,
-      `(d) Farm Plot with no Barn anywhere adjacent: rejected`);
+    // Farm labour (2026-11-06): a field may go anywhere (it just does not grow until a staffed Barn is in range).
+    const pre = await act(a, Ffar.x, Ffar.y, T.FarmPlot, 600);
+    result(pre.some((u) => u.tileX === Ffar.x && u.tileY === Ffar.y && u.tile === T.FarmPlot),
+      `(d) Farm Plot with no Barn yet: placed (untended until a Barn is in range)`);
     const pb = await placeExpectAt(a, B.x, B.y, T.Barn, B.x, B.y, T.Barn);
     await sleep(150);
-    result(pb.hit.length === 1 && pb.hit[0].tile === T.Barn && kinds(a, "farmer").length === farmers0 + 1 && a.snap.population === pop0 + 1,
+    // A Barn employs 2 farmers at level 1 (BARN_FARMERS_BY_LEVEL; fewer when no free villager is left).
+    result(pb.hit.length === 1 && pb.hit[0].tile === T.Barn && kinds(a, "farmer").length >= farmers0 + 1 && a.snap.population >= pop0 + 1,
       `(d) Barn at (${B.x},${B.y}) -> ${JSON.stringify(pb.hit.map((u) => u.tile))} (expected [16]); farmers=${kinds(a, "farmer").length}; pop ${pop0}->${a.snap.population}; wood ${w0}->${a.snap.wood} (expected -15)`);
-    const rf = await act(a, Ffar.x, Ffar.y, T.FarmPlot, 600);
-    result(rf.filter((u) => u.tileX === Ffar.x && u.tileY === Ffar.y).length === 0,
-      `(d) Farm Plot at (${Ffar.x},${Ffar.y}), 3 tiles from the Barn (outside its radius): rejected`);
-    // Plots may go anywhere within BARN_FARM_RADIUS_TILES 2 (Chebyshev) of a Barn (was: orthogonally adjacent).
+    await a.hook("fastForward", { ticks: 40 });
+    const farPlot = (await a.hook("farmState")).plots.find((q) => q.key === `${Ffar.x},${Ffar.y}`);
+    result(farPlot?.barnX === B.x && farPlot?.barnY === B.y,
+      `(d) the earlier Farm Plot at (${Ffar.x},${Ffar.y}) is now tended by the new Barn (within its ${"8"}-tile radius)`);
+    // Fields go anywhere; a Barn tends those within BARN_FARM_RADIUS_TILES (Chebyshev).
     const rd = await act(a, Fdiag.x, Fdiag.y, T.FarmPlot, 600);
     result(rd.some((u) => u.tileX === Fdiag.x && u.tileY === Fdiag.y && u.tile === T.FarmPlot),
       `(d) Farm Plot at (${Fdiag.x},${Fdiag.y}), DIAGONAL to the Barn (within its radius): accepted`);
@@ -603,9 +605,10 @@ let sixth = null;
     // and the real stock is put back afterwards.
     const keepGrain = (await a.hook("setStock", { stock: {} })).stock.grain;
     await a.hook("setStock", { stock: { grain: 5000 } });
+    const farmersAfterBarn = kinds(a, "farmer").length;
     const pf = await placeExpectAt(a, Fadj.x, Fadj.y, T.FarmPlot, Fadj.x, Fadj.y, T.FarmPlot);
     result(pf.hit.length === 1 && pf.hit[0].tile === T.FarmPlot, `(d) Farm Plot adjacent to Barn at (${Fadj.x},${Fadj.y}) accepted (tile 4)`);
-    result(kinds(a, "farmer").length === farmers0 + 1, `(d) Farm Plot spawned no colonist (farmers still ${kinds(a, "farmer").length})`);
+    result(kinds(a, "farmer").length === farmersAfterBarn, `(d) Farm Plot spawned no colonist (farmers still ${kinds(a, "farmer").length})`);
     // The first grow phase is the flat FARM_GROW_TICKS (3 days); the harvest phase is scaled by the plot's
     // biome (Plains -20%), happiness speed and the Barn's industrial synergy; a harvest yields
     // FARM_YIELD_PER_HARVEST grain at once.

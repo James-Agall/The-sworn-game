@@ -483,8 +483,11 @@ export interface RespawnRequest {
 // "harvesting" is the ripe crop being cut; "fallow" is the rest after FARM_HARVESTS_BEFORE_FALLOW
 // harvests. See updateFarmPlots.
 export interface FarmPlotState {
+  // The Barn tending it now (economy.ts assignFieldsToBarns, re-picked every second); -1 = none.
   barnX: number;
   barnY: number;
+  // "hemp" for a Hemp Field (2026-11-06); missing = grain (Farm Plot).
+  crop?: "hemp";
   growTicksRemaining: number;
   // Length of the current grow phase, so the sown -> growing split can be told apart.
   growTicksTotal: number;

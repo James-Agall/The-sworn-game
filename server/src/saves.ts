@@ -19,15 +19,16 @@ import {
   type ClanProgress, newClanProgress,
 } from "./state.js";
 import { progressForSave, resetProgressCache, restoreProgress } from "./progression.js";
-import { markTileRegistryStale, setTile, streamingOn } from "./chunks.js";
-import { clearOwners, isNightNow, tileIndex } from "./tiles.js";
-import { initialStock } from "./economy.js";
+import { markTileRegistryStale, setTile, streamingOn, tileIndicesOf } from "./chunks.js";
+import { clearOwners, isNightNow, resourceKey, tileIndex } from "./tiles.js";
+import { initialStock, markFarmFieldsDirty, newFarmPlot } from "./economy.js";
+import { topUpBarnFarmers } from "./construction.js";
 import { generateWorld, setWorldSize } from "./worldgen.js";
 import { chronicleForSave, restoreChronicle } from "./chronicle.js";
 import {
   type TileDiffs, deflateBase64, diffTilesForSave, expandTiles, forgetWorldSeed, inflateBase64, loadBase, pruneBaseFiles, regeneratedBaseMatches,
 } from "./worldbase.js";
-import { civilianPopulationUsed, getColonistsAtPost, isAbbeyClergy, isPersonKind, newPerson, settlementOf, spawnPointNearTownCenter } from "./colonists.js";
+import { civilianPopulationUsed, getColonistsAtPost, releaseToVillage, isAbbeyClergy, isPersonKind, newPerson, settlementOf, spawnPointNearTownCenter } from "./colonists.js";
 import { guardStats } from "./units.js";
 import { isDifficulty } from "./mobs.js";
 import { clearPlayerMorale } from "./tactics.js";
@@ -42,7 +43,7 @@ import { playerMaxHp, resetEquipment, restoreHeroProfiles, serializeHeroProfiles
 import { clearSpellState, unslowedSpeed } from "./spells.js";
 import { clearOrderGroups } from "./orders.js";
 import { broadcastEvent, clearFights, packExplored, sendWelcome } from "./net.js";
-import { clanOf, resetClan, withClan } from "./clans.js";
+import { clanById, clanIdAt, clanOf, resetClan, withClan } from "./clans.js";
 
 // Clans: a restart / load is clan 0's world again (every founded clan is dropped, every player rejoins clan 0).
 export function resetClans() {
@@ -432,6 +433,7 @@ function applyWorldInner(s: WorldState) {
   refill(buildingHp, s.buildingHp ?? []);
   refill(repairPaid, s.repairPaid ?? []);
   migrateArcherTowers();
+  migrateFarmLabour();
   repairQueue.length = 0;
   repairQueue.push(...(s.repairQueue ?? []));
   state.buildingTargetsDirty = true;
@@ -499,6 +501,26 @@ function applyWorldInner(s: WorldState) {
   state.timeScale = 1;
   state.timeScaleBy = null;
   state.simAccum = 0;
+}
+
+// Farm labour (2026-11-06): Hemp Fields lose their farmhand (released to the village) and become Barn-tended fields
+// (a fresh hemp record each); every Barn is topped up to its level's farmers (vacancies, filled by free villagers).
+// Grain plots keep their records: economy.ts assignFieldsToBarns re-picks their Barn on the next tick.
+export function migrateFarmLabour() {
+  for (const c of Array.from(colonists.values())) {
+    if (c.kind !== "farmhand" || (state.tiles[tileIndex(c.postX, c.postY)] as TileType) !== TileType.CottonFarm) continue;
+    releaseToVillage(c);
+  }
+  for (const i of tileIndicesOf(TileType.CottonFarm)) {
+    const key = resourceKey(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X));
+    if (!farmPlots.has(key)) farmPlots.set(key, newFarmPlot("hemp"));
+  }
+  for (const i of tileIndicesOf(TileType.BarnPost)) {
+    const x = i % state.WORLD_TILES_X;
+    const y = Math.floor(i / state.WORLD_TILES_X);
+    withClan(clanById(clanIdAt(x, y)), () => topUpBarnFarmers(x, y));
+  }
+  markFarmFieldsDirty();
 }
 
 // The wall-mounted Archer Tower is gone: an old save's ArcherTower tile becomes a plain Archery Range

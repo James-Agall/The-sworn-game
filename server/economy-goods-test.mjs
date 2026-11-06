@@ -2,7 +2,8 @@
 // and restart reset of all new state. Self-contained: every phase begins with a `restart`, so it does not need a
 // fresh server, but it does need to be the ONLY connected player (restart resets the world for everyone).
 //
-//   A: 4 houses (incl. gate-before: House next to House stays a fresh House), 4 farms -> meat/fruit/wool/cotton,
+//   A: 4 houses (incl. gate-before: House next to House stays a fresh House), 3 farms -> meat/fruit/wool (hemp is
+//      Barn-tended since 2026-11-06),
 //      pop-gate rejection at full pop, same-type placement ON the building upgrades in place at full pop.
 //   B: Market (exchange rejected before, accepted after), Blacksmith artisan: tools +1 / iron -1 / wood -1 atomically,
 //      stalls with wood=0 (state stays "crafting", tools frozen), resumes after replenishing via the Market.
@@ -456,7 +457,7 @@ await restartAndCheck(a, "(A0)");
       { name: "Pasture", tile: T.Pasture, pos: P(1, 1), res: "meat", tiles: 4, perTile: [60, 50, 110] },
       { name: "Orchard", tile: T.Orchard, pos: P(-1, -2), res: "fruit", tiles: 4, perTile: [45] },
       { name: "WoolFarm", tile: T.WoolFarm, pos: P(-2, 1), res: "wool", tiles: 4, perTile: [45] },
-      { name: "CottonFarm", tile: T.CottonFarm, pos: P(0, 2), res: "cotton", tiles: 1 },
+      // The Hemp Field has no farmhand since the farm-labour change (2026-11-06): a Barn's farmers tend it.
     ];
     const firstChange = {};
     a.onSnap = (prev, next) => {
@@ -488,7 +489,7 @@ await restartAndCheck(a, "(A0)");
       const per = f.perTile ?? [90];
       result(per.some((n) => firstBatch[f.res] === n * f.tiles), `(a/b) ${f.name} -> ${f.res} first delivery 0 -> ${firstBatch[f.res]} in one batch (${per.join(" / ")} x ${f.tiles} footprint tile(s))`);
     }
-    result(ff.ok, `(a/b) all four farm resources produced: ${farms.map((f) => `${f.res}=${a.snap[f.res]}`).join(" ")}`);
+    result(ff.ok, `(a/b) all three farm resources produced: ${farms.map((f) => `${f.res}=${a.snap[f.res]}`).join(" ")}`);
     // If that ended at night, skip to the next dawn; the farmhands then walk back from their shelter.
     if (a.snap.isNight) {
       await a.setPaused(true);
@@ -499,37 +500,37 @@ await restartAndCheck(a, "(A0)");
     }
     await waitFor(a, () => kinds(a, "farmhand").every((k) => k.state === "farming"), 15000);
     const states = kinds(a, "farmhand").map((k) => k.state);
-    result(states.length === 4 && states.every((st) => st === "farming"), `(a/b) farmhand states: ${states.join(",")}`);
-    result(a.snap.population === 5 && a.snap.populationCap === expectedCap(a),
-      `(A) population ${a.snap.population}/${a.snap.populationCap} (expected 5 = 4 farmhands + the builder / ${expectedCap(a)}: farms beside houses add neighbourhood pairs)`);
+    result(states.length === 3 && states.every((st) => st === "farming"), `(a/b) farmhand states: ${states.join(",")}`);
+    result(a.snap.population === 4 && a.snap.populationCap === expectedCap(a),
+      `(A) population ${a.snap.population}/${a.snap.populationCap} (expected 4 = 3 farmhands + the builder / ${expectedCap(a)}: farms beside houses add neighbourhood pairs)`);
 
     // Reach full population: fill the remaining slots with filler Lumberjack Posts at a separate site.
     const fillers = await fillPopulationToCap(a, "(A)", [s], 8);
     // A round can run out of reachable 5x5 sites one slot short: one more pass, closer in.
     if (a.snap.population < a.snap.populationCap) fillers.push(...(await fillPopulationToCap(a, "(A) top-up", [s, ...fillers.map((p) => p.site)], 5)));
     const fullPop = a.snap.population;
-    result(fullPop === a.snap.populationCap && kinds(a, "farmhand").length === 4,
-      `(A) population filled to the cap: ${fullPop}/${a.snap.populationCap} (4 farmhands + ${fillers.length} fillers)`);
+    result(fullPop === a.snap.populationCap && kinds(a, "farmhand").length === 3,
+      `(A) population filled to the cap: ${fullPop}/${a.snap.populationCap} (3 farmhands + ${fillers.length} fillers)`);
     await ensureAt(a, s);
 
     // Pop gate: a 5th non-adjacent farm at full population is rejected.
     const X = P(2, -2);
     let ups = await act(a, X.x, X.y, T.Orchard);
-    result(!ups.some((u) => u.tileX === X.x && u.tileY === X.y) && kinds(a, "farmhand").length === 4,
+    result(!ups.some((u) => u.tileX === X.x && u.tileY === X.y) && kinds(a, "farmhand").length === 3,
       `(A) population-gated: 5th farm (Orchard at (${X.x},${X.y}), not next to an Orchard) rejected at full pop`);
     // Same-type placement ON the existing building at full pop upgrades it in place (no tileUpdate, no new worker).
     const U = P(1, 1); // the Pasture's anchor
     const evSince = Date.now();
     ups = await act(a, U.x, U.y, T.Pasture);
     const upEv = a.events.filter((e) => e.at >= evSince && e.category === "upgrade").map((e) => e.text);
-    result(!ups.some((u) => u.tileX === U.x && u.tileY === U.y) && a.tileAt(U.x, U.y) === T.Pasture && kinds(a, "farmhand").length === 4 && a.snap.population === fullPop &&
+    result(!ups.some((u) => u.tileX === U.x && u.tileY === U.y) && a.tileAt(U.x, U.y) === T.Pasture && kinds(a, "farmhand").length === 3 && a.snap.population === fullPop &&
       upEv.includes("Cow Pasture upgraded to level 2"),
       `(A) Pasture placed ON the Pasture at full pop -> in-place upgrade (tile ${a.tileAt(U.x, U.y)}, farmhands=${kinds(a, "farmhand").length}, pop=${a.snap.population}, events=${JSON.stringify(upEv)})`);
     // Placed on an empty tile next to an Orchard it is a new standalone building. Village life (2026-11-03): placement
     // is never population-gated any more (an unstaffed post is a vacancy), so it is placed with its own farmhand.
     const N = P(1, -2);
     ups = await act(a, N.x, N.y, T.Orchard);
-    result(ups.some((u) => u.tileX === N.x && u.tileY === N.y) && kinds(a, "farmhand").length === 5,
+    result(ups.some((u) => u.tileX === N.x && u.tileY === N.y) && kinds(a, "farmhand").length === 4,
       `(A) Orchard on an empty tile next to the Orchard at full pop is a new building, placed (no population gate; farmhands=${kinds(a, "farmhand").length})`);
   }
 }
@@ -760,6 +761,8 @@ await restartAndCheck(a, "(D0)");
     raidsWanted = true;
     await a.hook("setRaids", { enabled: true });
     // Leave a farmhand alive for the final reset check.
+    // A Hemp Field has no farmhand since 2026-11-06 (Barn-tended), so the farmhand left alive is the Tailor's artisan
+    // check's: this only places the field.
     await placeExpectAt(a, F2.x, F2.y, T.CottonFarm); // 1x1 (Orchards are 2x2 since 2026-11-06)
     await sleep(200);
     info(`(D) end state: ${fmt(a.snap)} marketBuilt=${a.snap.marketBuilt} goldShopBuilt=${a.snap.goldShopBuilt} farmhands=${kinds(a, "farmhand").length} artisans=${kinds(a, "artisan").length}`);

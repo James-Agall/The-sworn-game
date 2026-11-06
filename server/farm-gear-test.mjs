@@ -3,7 +3,8 @@
 // Self-contained: boots its OWN 96x96 server with COLONY_TEST_HOOKS=1 on PORT (default 22310; the test runner
 // passes one from its block) and a temp COLONY_SAVE_DIR, kills its process group after.
 // Run from server/: `node farm-gear-test.mjs`.
-//   H a Hemp Field is walkable (a soldier can stand on it; a Pasture tile can't) and its farmhand delivers hemp.
+//   H a Hemp Field is walkable (a soldier can stand on it; a Pasture tile can't); it has no worker of its own, a
+//     nearby Barn's farmers tend it (farm labour, 2026-11-06) and it delivers its hemp.
 //   P a Pasture takes a clear 2x2 block (refused when a part tile is taken), costs 10 wood, stamps 3 part tiles,
 //     a part tile opens the same info panel, one tending cycle pays 4 x 120 x 0.5 meat (cows, food balance 2026-11-06), demolishing a part clears all 4.
 //   G already-spawned soldiers pick up stock gear: knight > pikeman > spearman, lower tier first, never down,
@@ -24,7 +25,7 @@ const result = (ok, msg) => {
   console.log(`${ok ? "PASS" : "FAIL"} ${msg}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const T = { Empty: 0, Wall: 1, Pasture: 21, CottonFarm: 24, Blacksmith: 26, BuildingPart: 90 };
+const T = { Empty: 0, Wall: 1, BarnPost: 16, Pasture: 21, CottonFarm: 24, Blacksmith: 26, BuildingPart: 90 };
 const TILE = 32;
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_modules/.bin/tsx")].find((p) => existsSync(p));
@@ -147,8 +148,17 @@ try {
   result(c.tileAt(hs.x, hs.y) === T.CottonFarm, `(H) Hemp Field placed at (${hs.x},${hs.y})`);
   const onHemp = await c.hookCall("spawnSoldier", { kind: "spearman", x: hs.x * TILE + 16, y: hs.y * TILE + 16 });
   result(!!onHemp.id, `(H) a soldier can stand on the Hemp Field (walkable): id ${onHemp.id}`);
-  const fhHemp = (await c.hookCall("farmState")).farmhands.find((f) => f.postX === hs.x && f.postY === hs.y);
-  result(!!fhHemp, `(H) the Hemp Field has its farmhand (${fhHemp?.cycleTicksRemaining}t to its first batch)`);
+  // Farm labour (2026-11-06): no farmhand of its own; a Barn's farmers tend it (a Barn next to it).
+  let fs = await c.hookCall("farmState");
+  const fhHemp = fs.farmhands.find((f) => f.postX === hs.x && f.postY === hs.y);
+  const lonely = (await c.buildingInfo(hs.x, hs.y))?.staffing;
+  result(!fhHemp && /No barn in range/.test(lonely ?? ""), `(H) the Hemp Field has no worker of its own and no Barn yet: "${lonely}"`);
+  await c.hookCall("progression", { unlockAll: true });
+  await place(hs.x, hs.y + 1, T.BarnPost);
+  await c.hookCall("fastForward", { ticks: 40 });
+  fs = await c.hookCall("farmState");
+  const hp = fs.plots.find((q) => q.key === `${hs.x},${hs.y}`);
+  result(hp?.crop === "hemp" && hp.barnX === hs.x && hp.barnY === hs.y + 1, `(H) the Barn below tends it: ${JSON.stringify(hp && { crop: hp.crop, barnX: hp.barnX, barnY: hp.barnY })}`);
   await c.hookCall("setStock", { stock: { cotton: 0 } });
   const hempOk = await ffUntil(async () => (await stockOf(c)).cotton > 0, 40000, 1000);
   const cotton = (await stockOf(c)).cotton;

@@ -53,7 +53,7 @@ import type {
 import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-window ETA
 import { RELATION_TIER_NAMES } from "@colony/shared/protocol"; // forts phase D: relation tier labels
 import {
-  BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FOOTPRINT_BY_TILE, footprintAnchorOf, footprintOf, footprintPartOffsets,
+  BARN_FIELD_RADIUS_TILES, BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FOOTPRINT_BY_TILE, footprintAnchorOf, footprintOf, footprintPartOffsets,
   placedFootprintAt,
 } from "@colony/shared/buildings";
 import type { Footprint } from "@colony/shared/buildings";
@@ -8036,6 +8036,18 @@ async function main() {
     cursorHighlight
       .rect(tile.tileX * tileSize, tile.tileY * tileSize, ghost.w * tileSize, ghost.h * tileSize)
       .stroke({ width: 2, color: blocked ? 0xff5040 : 0xffffff, alpha: blocked ? 0.85 : 0.6 });
+    // Farm labour (2026-11-06): a Barn tends the fields within BARN_FIELD_RADIUS_TILES. Placing a Barn shows its
+    // square; placing a Farm / Hemp Field shows the squares of the Barns near the cursor (none = "No barn in range").
+    const R = BARN_FIELD_RADIUS_TILES;
+    const barnSquare = (bx: number, by: number, alpha: number) =>
+      cursorHighlight.rect((bx - R) * tileSize, (by - R) * tileSize, (2 * R + 1) * tileSize, (2 * R + 1) * tileSize)
+        .stroke({ width: 1.5, color: 0xe8c860, alpha });
+    if (currentTool === TileType.BarnPost) barnSquare(tile.tileX, tile.tileY, 0.7);
+    else if (currentTool === TileType.FarmPlot || currentTool === TileType.CottonFarm) {
+      for (let y = tile.tileY - R; y <= tile.tileY + R; y++)
+        for (let x = tile.tileX - R; x <= tile.tileX + R; x++)
+          if (footTile(x, y) === TileType.BarnPost) barnSquare(x, y, 0.45);
+    }
   });
 }
 

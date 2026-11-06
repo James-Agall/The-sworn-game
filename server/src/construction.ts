@@ -8,7 +8,7 @@ import {
 import { BUILD_COSTS, FOOD_OUTPUT_MULT, footprintOf, footprintPartOffsets, PASTURE_YIELDS } from "@colony/shared/buildings";
 import type { ConstructionSiteState, Cost, Player, ResourceKey, TileCoord, TownCenter } from "./types.js";
 import {
-  ABBEY_GROUNDS_RADIUS, ARCHER_WOOD_COST, BARN_WOOD_COST, BIG_BUILD_TILES, BLACKSMITH_TOOLS_STOCK_CAP,
+  ABBEY_GROUNDS_RADIUS, ARCHER_WOOD_COST, BARN_FARM_RADIUS_TILES, BARN_WOOD_COST, FIELDS_PER_FARMER, BIG_BUILD_TILES, BLACKSMITH_TOOLS_STOCK_CAP,
   BREAKABLE_TILES, BUILDERS_GUILD_WOOD_COST, BUILDER_MAX_PER_SITE, BUILDING_NAMES, BUILD_SECONDS_BIG,
   BUILD_SECONDS_COBBLE_ROAD, BUILD_SECONDS_DEFAULT, BUILD_SECONDS_DRAWBRIDGE, BUILD_SECONDS_GATE, BUILD_SECONDS_MOAT, BUILD_SECONDS_HOUSE, BUILD_SECONDS_ROAD,
   BUILD_SECONDS_TOWN_CENTER, BUILD_SECONDS_WALL, CATAPULT_RANGE, CAVALRY_CHARGE_MULT, CAVALRY_CHARGE_TILES,
@@ -36,7 +36,7 @@ import {
 } from "./tiles.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import {
-  armyDamageMultiplier, barnForNewFarmPlot, industrialSynergyMultiplier, newFarmPlot, } from "./economy.js";
+  armyDamageMultiplier, barnFarmerCap, barnFarmerCount, farmPlotCountForBarn, fieldStatus, industrialSynergyMultiplier, markFarmFieldsDirty, newFarmPlot, } from "./economy.js";
 import {
   anyBuilderAlive, findTownCenterAt, garrisonBlocker, getColonistsAtPost, happinessSpeedMultiplier,
   highestTownCenterLevel, houseCapacity, houseOccupancy, isAbbeyClergy, isHouseTile, isMilitaryTile,
@@ -262,12 +262,21 @@ export function resolveLumberjackPlacement(tx: number, ty: number) {
   staffPost(tx, ty, "lumberjack");
 }
 
+// Farm labour (2026-11-06): a Barn employs BARN_FARMERS_BY_LEVEL farmers (a level-up adds the difference).
 export function resolveBarnPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.BarnPost]);
-  if (upgraded) return;
-  setTile(tileIndex(tx, ty), TileType.BarnPost);
-  broadcastTileUpdate(tx, ty, TileType.BarnPost);
-  staffPost(tx, ty, "farmer");
+  if (!upgraded) {
+    setTile(tileIndex(tx, ty), TileType.BarnPost);
+    broadcastTileUpdate(tx, ty, TileType.BarnPost);
+  }
+  topUpBarnFarmers(tx, ty);
+  markFarmFieldsDirty();
+}
+
+// Queues (or staffs) farmers until the Barn's farmers plus the vacancies queued for it reach its level's count.
+export function topUpBarnFarmers(tx: number, ty: number) {
+  const queued = respawnQueue.filter((q) => q.kind === "farmer" && q.tx === tx && q.ty === ty).length;
+  for (let n = barnFarmerCount(tx, ty) + queued; n < barnFarmerCap(tx, ty); n++) staffPost(tx, ty, "farmer");
 }
 
 export function resolveChurchPlacement(tx: number, ty: number) {
@@ -310,12 +319,14 @@ export function resolveWoolFarmPlacement(tx: number, ty: number) {
   staffPost(tx, ty, "farmhand");
 }
 
+// Farm labour (2026-11-06): a Hemp Field is a field like a Farm Plot: no farmhand of its own, tended by a Barn's
+// farmers (economy.ts assignFieldsToBarns). It has no levels.
 export function resolveCottonFarmPlacement(tx: number, ty: number) {
-  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.CottonFarm]);
-  if (upgraded) return;
+  if (state.tiles[tileIndex(tx, ty)] === TileType.CottonFarm) return;
   setTile(tileIndex(tx, ty), TileType.CottonFarm);
   broadcastTileUpdate(tx, ty, TileType.CottonFarm);
-  staffPost(tx, ty, "farmhand");
+  farmPlots.set(resourceKey(tx, ty), newFarmPlot("hemp"));
+  markFarmFieldsDirty();
 }
 
 export function resolveTailorShopPlacement(tx: number, ty: number) {
@@ -768,7 +779,7 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
     return;
   }
   if (current === TileType.SiegeWorkshop) siegeWorkshops.delete(resourceKey(tx, ty));
-  if (current === TileType.FarmPlot) {
+  if (current === TileType.FarmPlot || current === TileType.CottonFarm) {
     farmPlots.delete(resourceKey(tx, ty));
   }
   if (current === TileType.IronMinePost) {
@@ -920,7 +931,6 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     if (current !== TileType.Rock) return;
   } else if (tile === TileType.FarmPlot) {
     if (current !== TileType.Empty) return;
-    if (barnForNewFarmPlot(tx, ty) === null) return;
   } else if (tile === TileType.ArcherPost) {
     if (current !== TileType.Empty) return;
   } else if (tile === TileType.WardStone) {
@@ -1073,12 +1083,11 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     return;
   }
   if (tile === TileType.FarmPlot) {
-    // Checked by handleSetTileInner just before (Farm Plots are placed instantly).
-    const barn = barnForNewFarmPlot(tx, ty);
-    if (!barn) return;
+    // Farm labour (2026-11-06): a field may go anywhere; it grows while a staffed Barn in range tends it.
     setTile(tileIndex(tx, ty), tile);
     broadcastTileUpdate(tx, ty, tile);
-    farmPlots.set(resourceKey(tx, ty), newFarmPlot(barn.x, barn.y));
+    farmPlots.set(resourceKey(tx, ty), newFarmPlot());
+    markFarmFieldsDirty();
     return;
   }
   if (tile === TileType.BarnPost) {
@@ -1353,6 +1362,18 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     }
   }
   if (t === TileType.ChurchPost) bonuses.push(`Heals ${healAmountFor(tx, ty)} per prayer`);
+  // Farm labour (2026-11-06): a Barn's farmers tend the fields within its radius; a field shows who tends it.
+  if (t === TileType.BarnPost) {
+    const farmers = barnFarmerCount(tx, ty);
+    staffing = `Farmers ${farmers}/${barnFarmerCap(tx, ty)}`;
+    bonuses.push(`Tends Farm Plots and Hemp Fields within ${BARN_FARM_RADIUS_TILES} tiles: ${farmPlotCountForBarn(tx, ty)}/${farmers * FIELDS_PER_FARMER} fields (${FIELDS_PER_FARMER} per farmer)`);
+  }
+  if (t === TileType.FarmPlot || t === TileType.CottonFarm) {
+    const plot = farmPlots.get(resourceKey(tx, ty));
+    const why = fieldStatus(tx, ty);
+    staffing = why || (plot ? `Tended by the Barn at (${plot.barnX}, ${plot.barnY})` : "No barn in range");
+    bonuses.push(`Needs a staffed Barn within ${BARN_FARM_RADIUS_TILES} tiles (the Barn's farmers tend it)`);
+  }
   if (t === TileType.Pasture || t === TileType.WoolFarm || t === TileType.PigPasture) {
     const fp = placedFootprint(tx, ty);
     bonuses.push(fp.w > 1 ? `${fp.w}x${fp.h} paddock: x${footprintYieldMult(tx, ty)} produce per batch` : "Old 1x1 pasture: x1 produce (new pastures are 2x2, x4)");
@@ -1467,7 +1488,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     name: tc?.name ?? name,
     tile: t,
     level,
-    maxLevel: t === TileType.Wall || t === TileType.StoneWall || isGateTile(t) || t === TileType.Moat || t === TileType.SiegeWorkshop || t === TileType.Market || t === TileType.WardStone || t === TileType.FarmPlot || isRoadTile(t) ? 1 : 3,
+    maxLevel: t === TileType.Wall || t === TileType.StoneWall || isGateTile(t) || t === TileType.Moat || t === TileType.SiegeWorkshop || t === TileType.Market || t === TileType.WardStone || t === TileType.FarmPlot || t === TileType.CottonFarm || isRoadTile(t) ? 1 : 3,
     hp: hpState ? Math.ceil(hpState.hp) : null,
     maxHp: hpState ? hpState.max : null,
     staffing,

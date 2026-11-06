@@ -2155,6 +2155,21 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Farm labour — landed 2026-11-06 (fields tended by Barns)
+
+Farm Plots (grain) and Hemp Fields have no workers of their own any more. A Barn employs `BARN_FARMERS_BY_LEVEL`
+= 2 / 3 / 4 farmers (by level) and its farmers tend the fields within `BARN_FIELD_RADIUS_TILES` = 8 tiles
+(Chebyshev), each farmer keeping `FIELDS_PER_FARMER` = 4 fields productive (a level-1 Barn: 8 fields, level 3: 16).
+All three are in `shared/src/buildings.ts`. `economy.ts assignFieldsToBarns` re-assigns every second, nearest fields
+first; a field with no staffed Barn of its clan in range ("No barn in range") or past every Barn's capacity ("Not
+tended") does not grow. Fields may be placed anywhere (was: within 2 tiles of a Barn, 8 per Barn). Hemp grows
+`HEMP_GROW_TICKS` (the old 3-day farmhand cycle, day and night) and yields 90 hemp per harvest, no fallow; it is not
+food, so the food-balance multipliers do not touch it. The Barn panel shows farmers and fields, a field shows its
+Barn or why it is idle, the Barn / Farm / Hemp tools draw the 8-tile square. Old saves: Hemp Field farmhands go
+back to the village, each Hemp Field gets a field record, every Barn is topped up to its farmer count
+(`saves.ts migrateFarmLabour`). Pastures and Orchards keep their own farmhand (the same farmhand-per-building
+mechanism the Hemp Field used, but animal / orchard husbandry was left out of this change on purpose).
+
 ## Food balance — landed 2026-11-06 (half food output, double grow / cycle time)
 
 Every food producer except hunting and foraging makes half as much and takes twice as long. The two named

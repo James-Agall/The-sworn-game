@@ -33,7 +33,7 @@ import {
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import {
   depositGatheredResource, effectiveChopTicks, effectiveCraftTicks, effectiveFarmhandCycleTicks,
-  industrialSynergyMultiplier, isBarnStaffed, releaseResourceReservation, } from "./economy.js";
+  barnFarmerCap, barnFarmerCount, industrialSynergyMultiplier, isBarnStaffed, releaseResourceReservation, } from "./economy.js";
 import { updateForager, updateHunter } from "./wildlife.js";
 import {
   garrisonGain, guardStats, isGuardOrMilitiaKind, isMilitiaLineKind, isSiegeKind, isSoldierKind, militiaKindForLevel,
@@ -795,8 +795,8 @@ export function processRespawnQueue() {
       respawnQueue.splice(i, 1);
       continue;
     }
-    // A barn only ever has one farmer: drop a queued replacement if one is already there.
-    if (req.kind === "farmer" && isBarnStaffed(req.tx, req.ty)) {
+    // Farm labour (2026-11-06): a barn employs barnFarmerCap farmers: drop a queued one beyond that.
+    if (req.kind === "farmer" && barnFarmerCount(req.tx, req.ty) >= barnFarmerCap(req.tx, req.ty)) {
       respawnQueue.splice(i, 1);
       continue;
     }

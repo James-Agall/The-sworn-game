@@ -101,6 +101,15 @@ export const FOOTPRINT_BY_TILE: Partial<Record<TileType, Footprint>> = {
 export const FOOD_OUTPUT_MULT = 0.5;
 export const FOOD_TIME_MULT = 2;
 
+// ---- Farm labour (2026-11-06): fields have no workers of their own ----
+// Farm Plots (grain) and Hemp Fields are tended by the farmers of a staffed Barn within BARN_FIELD_RADIUS_TILES
+// (Chebyshev). A Barn employs BARN_FARMERS_BY_LEVEL[level - 1] farmers and each keeps FIELDS_PER_FARMER fields
+// productive, so a Barn with N farmers tends at most N x FIELDS_PER_FARMER fields (the nearest first). A field with
+// no such Barn ("No barn in range", or every Barn in range already full) does not grow.
+export const BARN_FIELD_RADIUS_TILES = 8;
+export const BARN_FARMERS_BY_LEVEL = [2, 3, 4];
+export const FIELDS_PER_FARMER = 4;
+
 export interface PastureYield {
   meat: number;
   wool?: number;

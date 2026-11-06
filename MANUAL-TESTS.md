@@ -673,3 +673,8 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     skills sets it to level 4 too): at Spellcasting 2 a toast "Spellcasting is now level 2" shows, the skill appears
     in the hero sheet's Skills list and the Stats "Spellcasting" row, and tooltips show +8% effect / shorter cooldown
     per level (L4: Fire Bolt 37.2 damage, cooldown 6.8 s). Load an old save: Spellcasting starts untrained.
+6. Farm labour (2026-11-06): pick the Barn tool: an 8-tile square follows the cursor; the Farm / Hemp tools show the
+   squares of nearby Barns. A Farm or Hemp Field far from any Barn: its panel says "No barn in range" and it stays
+   sown. Build a Barn: 2 farmers come (3 / 4 at levels 2 / 3) and walk out to the fields; the Barn panel reads
+   "Farmers 2/2" and "... 8/8 fields (4 per farmer)"; a 9th field nearby says "Not tended". No field has a worker.
+   Load an old save with Hemp Fields: their farmhands become free villagers and the fields grow once a Barn is near.

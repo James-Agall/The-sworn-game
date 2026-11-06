@@ -1,5 +1,7 @@
 // Build tool definitions: categories and the toolbar list (split out of main.ts, no behaviour change).
-import { BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FOOD_OUTPUT_MULT, PASTURE_YIELDS } from "@colony/shared/buildings";
+import {
+  BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, PASTURE_YIELDS,
+} from "@colony/shared/buildings";
 import { TileType } from "@colony/shared/protocol";
 
 export type ToolCategory = "combat" | "farming" | "industry" | "civic" | "trade";
@@ -58,7 +60,7 @@ export const TOOLS: ToolDef[] = [
     category: "combat",
   },
   { tile: TileType.LumberjackPost, label: "Lumberjack", key: "3", cost: "Free (upgradeable)", category: "farming" },
-  { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: "Free, within 2 tiles of a Barn (up to 8 per Barn)", category: "farming" },
+  { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: `Free. Needs: a Barn nearby (its farmers tend fields within ${BARN_FIELD_RADIUS_TILES} tiles; no workers of its own)`, category: "farming" },
   { tile: TileType.KnightPost, label: "Hall of the Sworn", key: "5", cost: `${buildCostText(TileType.KnightPost)} (upgradeable)`, category: "combat" },
   { tile: TileType.ArcherPost, label: "Archery Range", key: "6", cost: `${buildCostText(TileType.ArcherPost)} (upgradeable)`, category: "combat" },
   // Cavalry & siege (2026-10-27): ; and ' are the last free keys.
@@ -95,7 +97,7 @@ export const TOOLS: ToolDef[] = [
   { tile: TileType.RockMinePost, label: "Quarry", key: "8", cost: "Free, on ore; place on a mine to upgrade", category: "industry" },
   { tile: TileType.Empty, label: "Demolish", key: "9", cost: "", category: "farming" },
   { tile: TileType.House, label: "Cottage", key: "h", cost: `${buildCostText(TileType.House)} (+1 pop per adjacent house or workplace; +1 troop slot to each adjacent unit building; upgrade by placing on it)`, category: "civic" },
-  { tile: TileType.BarnPost, label: "Barn", key: "b", cost: `${buildCostText(TileType.BarnPost)} (upgradeable)`, category: "farming" },
+  { tile: TileType.BarnPost, label: "Barn", key: "b", cost: `${buildCostText(TileType.BarnPost)} (upgradeable). ${BARN_FARMERS_BY_LEVEL.join(" / ")} farmers by level, each tends ${FIELDS_PER_FARMER} Farm / Hemp fields within ${BARN_FIELD_RADIUS_TILES} tiles`, category: "farming" },
   { tile: TileType.ChurchPost, label: "Church", key: "c", cost: `${buildCostText(TileType.ChurchPost)} (upgradeable)`, category: "civic" },
   // w/a/s/d are movement keys, so the farm hotkeys avoid them.
   // Pasture animals (2026-11-06, shared PASTURE_YIELDS): the Pasture is the Cow pasture; pigs have no free hotkey.
@@ -103,7 +105,7 @@ export const TOOLS: ToolDef[] = [
   { tile: TileType.PigPasture, label: "Pig pasture", key: "", cost: `${buildCostText(TileType.PigPasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.PigPasture)}`, category: "farming" },
   { tile: TileType.Orchard, label: "Orchard (Fruit)", key: "o", cost: `${buildCostText(TileType.Orchard)}, 2x2 (the tile you place on is its top-left corner; upgradeable)`, category: "farming" },
   { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: `${buildCostText(TileType.WoolFarm)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.WoolFarm)}`, category: "farming" },
-  { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: "Free (upgradeable; walkable like a Farm Plot)", category: "farming" },
+  { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: `Free; walkable like a Farm Plot. Needs: a Barn nearby (tended by its farmers within ${BARN_FIELD_RADIUS_TILES} tiles)`, category: "farming" },
   {
     tile: TileType.HunterHut,
     label: "Hunter's Hut",
