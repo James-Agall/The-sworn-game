@@ -50,6 +50,7 @@ import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
 import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
+import { PASTURE_YIELDS } from "@colony/shared/buildings";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -1004,10 +1005,17 @@ export function updateFarmhand(c: Colonist) {
   c.state = "farming";
   c.chopTicksRemaining -= workSpeed(c);
   if (c.chopTicksRemaining <= 0) {
-    // 2x2 pastures yield per tile of their footprint (footprintYieldMult; legacy 1x1 = x1).
-    state.stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource] * footprintYieldMult(c.postX, c.postY);
-    // Progression tree phase 3: a pasture's animals also give a hide.
-    if (resource === "meat") addItem("hide", 1);
+    // 2x2 farms yield per tile of their footprint (footprintYieldMult; legacy 1x1 = x1).
+    const mult = footprintYieldMult(c.postX, c.postY);
+    // Pasture animals (2026-11-06, shared PASTURE_YIELDS): cows meat + hide, pigs the most meat, sheep wool + meat.
+    const animals = PASTURE_YIELDS[state.tiles[tileIndex(c.postX, c.postY)] as TileType];
+    if (animals) {
+      state.stock.meat += animals.meat * mult;
+      if (animals.wool) state.stock.wool += animals.wool * mult;
+      if (animals.hide) addItem("hide", animals.hide * mult);
+    } else {
+      state.stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource] * mult;
+    }
     c.chopTicksRemaining = effectiveFarmhandCycleTicks(c.postX, c.postY);
     c.cycleTicksTotal = c.chopTicksRemaining;
   }
@@ -1450,16 +1458,64 @@ export function assignShelter(c: Colonist) {
   }
 }
 
+// Night shelter (2026-11-06): with no bed, the nearest own Town Center or Keep; with neither (a solo hero's
+// people before a camp), the nearest campfire within NIGHT_CAMPFIRE_RADIUS_TILES (they sleep out by the fire).
+const NIGHT_CAMPFIRE_RADIUS_TILES = 40;
+function nearestOwnTile(c: Colonist, types: TileType[], maxTiles = Infinity, anyClan = false): TileCoord | null {
+  let best: TileCoord | null = null;
+  let bestD = maxTiles * TILE_SIZE;
+  for (const i of tileIndicesOfAny(types)) {
+    const tx = i % state.WORLD_TILES_X;
+    const ty = Math.floor(i / state.WORLD_TILES_X);
+    if (!anyClan && clanIdAt(tx, ty) !== (c.clan ?? 0)) continue;
+    const center = tileToPixelCenter({ x: tx, y: ty });
+    const d = Math.hypot(c.x - center.x, c.y - center.y);
+    if (d >= bestD) continue;
+    bestD = d;
+    best = { x: tx, y: ty };
+  }
+  return best;
+}
+
 export function shelterTileFor(c: Colonist): TileCoord | null {
-  return c.homeTileX >= 0 ? { x: c.homeTileX, y: c.homeTileY } : nearestTownCenter(c.x, c.y, townCentersOfClan(c.clan));
+  if (c.homeTileX >= 0) return { x: c.homeTileX, y: c.homeTileY };
+  const tc = nearestTownCenter(c.x, c.y, townCentersOfClan(c.clan));
+  const keep = nearestOwnTile(c, [TileType.Keep]);
+  if (tc && keep) {
+    const a = tileToPixelCenter(tc);
+    const b = tileToPixelCenter(keep);
+    return Math.hypot(c.x - a.x, c.y - a.y) <= Math.hypot(c.x - b.x, c.y - b.y) ? { x: tc.x, y: tc.y } : keep;
+  }
+  if (tc) return { x: tc.x, y: tc.y };
+  if (keep) return keep;
+  return nearestOwnTile(c, [TileType.PropCampfire], NIGHT_CAMPFIRE_RADIUS_TILES, true);
+}
+
+// True while the shelter is a building (a bed, Town Center or Keep): the person is indoors (hidden on the
+// client). A campfire is slept out by in the open.
+function shelterIsIndoors(t: TileCoord): boolean {
+  return state.tiles[tileIndex(t.x, t.y)] !== TileType.PropCampfire;
 }
 
 export function isAtShelter(c: Colonist): boolean {
   if (!c.sheltering || !c.shelterAssigned) return false;
   const shelter = shelterTileFor(c);
-  if (!shelter) return false;
+  if (!shelter || !shelterIsIndoors(shelter)) return false;
   const center = tileToPixelCenter(shelter);
   return Math.hypot(c.x - center.x, c.y - center.y) <= TILE_SIZE * 1.5;
+}
+
+// A path to any walkable tile around (tx, ty) (the 4 sides first, then the corners: all within the 1.5-tile
+// arrival radius), or null when none can be reached.
+function pathToAround(c: Colonist, tx: number, ty: number): TileCoord[] | null {
+  const start = tileOfPixel(c.x, c.y);
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const n = { x: tx + dx, y: ty + dy };
+    if (!inBounds(n.x, n.y) || !isWalkableTile(n.x, n.y)) continue;
+    const path = findPath(start, n);
+    if (path && path.length > 0) return path;
+  }
+  return null;
 }
 
 export function updateShelteringCivilian(c: Colonist, dt: number) {
@@ -1474,18 +1530,35 @@ export function updateShelteringCivilian(c: Colonist, dt: number) {
   const dist = Math.hypot(c.x - center.x, c.y - center.y);
   if (dist > TILE_SIZE * 1.5) {
     if (c.path.length === 0) {
-      const approach = findAdjacentWalkable(target.x, target.y);
-      const start = tileOfPixel(c.x, c.y);
-      const path = approach ? findPath(start, approach) : null;
-      c.path = path ?? [];
+      c.path = pathToAround(c, target.x, target.y) ?? [];
       if (c.path.length === 0 && c.homeTileX >= 0) {
-        // Can't reach the house: fall back to the Town Center.
+        // Can't reach the house: fall back to the Town Center / Keep.
         c.homeTileX = -1;
         c.homeTileY = -1;
         return;
       }
+      if (c.path.length === 0) {
+        // Walled off from every shelter (or standing on a building): rather than idle outside all night, it
+        // finds its way in. Put on the shelter's centre; at dawn it steps out to a free tile (leaveShelter).
+        c.x = center.x;
+        c.y = center.y;
+        return;
+      }
     }
     advanceAlongPath(c, dt, COLONIST_SPEED);
+  }
+}
+
+// Dawn: a person put inside a building (updateShelteringCivilian) steps out onto a walkable tile beside it.
+function leaveShelter(c: Colonist) {
+  const t = tileOfPixel(c.x, c.y);
+  if (!inBounds(t.x, t.y) || isWalkableTile(t.x, t.y)) return;
+  for (const [dx, dy] of [[0, 1], [1, 0], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    if (!inBounds(t.x + dx, t.y + dy) || !isWalkableTile(t.x + dx, t.y + dy)) continue;
+    const p = tileToPixelCenter({ x: t.x + dx, y: t.y + dy });
+    c.x = p.x;
+    c.y = p.y;
+    return;
   }
 }
 
@@ -1810,6 +1883,7 @@ export function updateColonist(c: Colonist, dt: number) {
       c.homeTileX = -1;
       c.homeTileY = -1;
       c.path = [];
+      leaveShelter(c);
     }
     if (c.sheltering) {
       updateShelteringCivilian(c, dt);

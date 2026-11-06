@@ -1,5 +1,5 @@
 // Build tool definitions: categories and the toolbar list (split out of main.ts, no behaviour change).
-import { BLACKSMITH_TOOLS_STOCK_CAP, buildCostText } from "@colony/shared/buildings";
+import { BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, PASTURE_YIELDS } from "@colony/shared/buildings";
 import { TileType } from "@colony/shared/protocol";
 
 export type ToolCategory = "combat" | "farming" | "industry" | "civic" | "trade";
@@ -21,6 +21,14 @@ export const TOOL_CATEGORIES: { key: ToolCategory; label: string }[] = [
   { key: "civic", label: "Civic" },
   { key: "trade", label: "Trade" },
 ];
+
+// "Each 3-day batch: 480 meat + 4 hide" for a complete 2x2 pasture (x4 its per-tile PASTURE_YIELDS).
+function pastureYieldText(tile: TileType): string {
+  const y = PASTURE_YIELDS[tile];
+  if (!y) return "";
+  const parts = [`${y.meat * 4} meat`, ...(y.wool ? [`${y.wool * 4} wool`] : []), ...(y.hide ? [`${y.hide * 4} hide`] : [])];
+  return `Each batch: ${parts.join(" + ")}`;
+}
 
 export const TOOLS: ToolDef[] = [
   { tile: TileType.Wall, label: "Wood Wall", key: "1", cost: `${buildCostText(TileType.Wall)}. 200 HP`, category: "combat" },
@@ -89,9 +97,11 @@ export const TOOLS: ToolDef[] = [
   { tile: TileType.BarnPost, label: "Barn", key: "b", cost: `${buildCostText(TileType.BarnPost)} (upgradeable)`, category: "farming" },
   { tile: TileType.ChurchPost, label: "Church", key: "c", cost: `${buildCostText(TileType.ChurchPost)} (upgradeable)`, category: "civic" },
   // w/a/s/d are movement keys, so the farm hotkeys avoid them.
-  { tile: TileType.Pasture, label: "Pasture (Meat)", key: "p", cost: `${buildCostText(TileType.Pasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable)`, category: "farming" },
-  { tile: TileType.Orchard, label: "Orchard (Fruit)", key: "o", cost: "Free (upgradeable)", category: "farming" },
-  { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: `${buildCostText(TileType.WoolFarm)}, 2x2 (the tile you place on is its top-left corner; upgradeable)`, category: "farming" },
+  // Pasture animals (2026-11-06, shared PASTURE_YIELDS): the Pasture is the Cow pasture; pigs have no free hotkey.
+  { tile: TileType.Pasture, label: "Cow pasture", key: "p", cost: `${buildCostText(TileType.Pasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.Pasture)}`, category: "farming" },
+  { tile: TileType.PigPasture, label: "Pig pasture", key: "", cost: `${buildCostText(TileType.PigPasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.PigPasture)}`, category: "farming" },
+  { tile: TileType.Orchard, label: "Orchard (Fruit)", key: "o", cost: `${buildCostText(TileType.Orchard)}, 2x2 (the tile you place on is its top-left corner; upgradeable)`, category: "farming" },
+  { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: `${buildCostText(TileType.WoolFarm)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.WoolFarm)}`, category: "farming" },
   { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: "Free (upgradeable; walkable like a Farm Plot)", category: "farming" },
   {
     tile: TileType.HunterHut,

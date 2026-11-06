@@ -132,6 +132,9 @@ export enum TileType {
   // Phase 4 (food): Mill: grain -> flour. Bakery: flour -> flatbread; a level-2 baker's sourdough starter -> bread.
   Mill = 102,
   Bakery = 103,
+  // Pig Pasture (2026-11-06): a 2x2 pasture of pigs (the most meat, no hide). TileType.Pasture is the Cow Pasture
+  // (meat + hide; old saves' pastures are cows).
+  PigPasture = 104,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -272,6 +275,7 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.ArcherTower ||
     tile === TileType.ChurchPost ||
     tile === TileType.Pasture ||
+    tile === TileType.PigPasture ||
     tile === TileType.Orchard ||
     tile === TileType.WoolFarm ||
     // Hemp Field (TileType.CottonFarm) is walkable since 2026-10-30, like a Farm Plot.

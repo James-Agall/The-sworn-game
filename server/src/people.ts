@@ -5,7 +5,7 @@ import { TICK_RATE, TileType, type ColonistKind } from "@colony/shared/protocol"
 import type { HeirCandidateSnapshot } from "@colony/shared/protocol";
 import type { Colonist, HearthState, Player, TownCenter } from "./types.js";
 import {
-  BIRTH_CHANCE_PER_DAWN, BIRTH_COOLDOWN_DAYS, BIRTH_MIN_FOOD, HEIR_GOLD_SHARE, HEIR_SKILL_SHARE, CHILD_MATURE_DAYS, DAY_TICKS, GAME_DAY_TICKS,
+  BIRTH_CHANCE_PER_COUPLE, BIRTH_MIN_FOOD, COUPLE_BIRTH_COOLDOWN_DAYS, HEIR_GOLD_SHARE, HEIR_SKILL_SHARE, CHILD_MATURE_DAYS, DAY_TICKS, GAME_DAY_TICKS,
   IMMIGRANTS_PER_WEEK, IMMIGRATION_MIN_HAPPINESS, KEEP_POPULATION_PER_LEVEL, PRISONERS_PER_CAMP,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_LEVEL_POPULATION_BONUS, TRAIN_DAYS_BY_LEVEL, VILLAGE_LEVY_COOLDOWN_TICKS,
   VILLAGE_LEVY_TICKS,
@@ -85,6 +85,32 @@ function bornChild(tc: TownCenter, parents: Colonist[]): Colonist {
   return spawnVillager(tc, p);
 }
 
+// Couples (2026-11-06): a settlement's adults pair up and stay paired (Person.partner, the other's colonist id) while
+// both live in the same settlement; the widowed, newcomers and the moved re-pair with another unpaired adult at
+// dawn. The hero's family (a person with a hero spouse, family.ts) has its own birth rules and never pairs here.
+function settlementCouples(adults: Colonist[]): [Colonist, Colonist][] {
+  const here = new Set(adults.filter((c) => !c.person!.spouse && c.kind !== "hero"));
+  const couples: [Colonist, Colonist][] = [];
+  const single: Colonist[] = [];
+  for (const c of [...here].sort((x, y) => (x.id < y.id ? -1 : 1))) {
+    const pid = c.person!.partner;
+    const mate = pid ? colonists.get(pid) : undefined;
+    if (mate && here.has(mate) && mate.person!.partner === c.id) {
+      if (c.id < mate.id) couples.push([c, mate]);
+      continue;
+    }
+    c.person!.partner = undefined;
+    single.push(c);
+  }
+  for (let i = 0; i + 1 < single.length; i += 2) {
+    const [a, b] = [single[i], single[i + 1]];
+    a.person!.partner = b.id;
+    b.person!.partner = a.id;
+    couples.push([a, b]);
+  }
+  return couples;
+}
+
 // Births and immigrants, once per dawn for the active clan. `force` (test hooks / creative) skips the dice.
 export function peopleDawnForClan(force: { birth?: boolean; immigrant?: boolean; heroBirth?: boolean } = {}) {
   assignHomes();
@@ -92,19 +118,22 @@ export function peopleDawnForClan(force: { birth?: boolean; immigrant?: boolean;
   const food = state.stock.grain + state.stock.meat + state.stock.fruit;
   const stats = settlementStats();
   for (const st of stats) {
-    if (st.used >= st.cap && !state.creative) continue;
     const tc = st.tc;
-    if (!force.birth && (tc.lastBirthTick !== undefined && state.cycleTick - tc.lastBirthTick < BIRTH_COOLDOWN_DAYS * GAME_DAY_TICKS)) continue;
-    if (!force.birth && (food < BIRTH_MIN_FOOD || Math.random() >= BIRTH_CHANCE_PER_DAWN)) continue;
     const adults = Array.from(colonists.values()).filter((c) => isAdult(c) && inClan(c) && settlementOf(c) === tc);
-    if (adults.length < 2) continue;
-    const a = adults[Math.floor(Math.random() * adults.length)];
-    const others = adults.filter((c) => c !== a);
-    const b = others[Math.floor(Math.random() * others.length)];
-    const child = bornChild(tc, [a, b]);
-    tc.lastBirthTick = state.cycleTick;
-    st.used++;
-    broadcastEvent("build", `A child is born in ${settlementLabel(tc)}: ${child.person!.name}, to ${a.person!.name} and ${b.person!.name}`);
+    for (const [a, b] of settlementCouples(adults)) {
+      if (st.used >= st.cap && !state.creative) break;
+      const last = Math.max(a.person!.lastBirthTick ?? -Infinity, b.person!.lastBirthTick ?? -Infinity);
+      if (!force.birth && state.cycleTick - last < COUPLE_BIRTH_COOLDOWN_DAYS * GAME_DAY_TICKS) continue;
+      if (!force.birth && (food < BIRTH_MIN_FOOD || Math.random() >= BIRTH_CHANCE_PER_COUPLE)) continue;
+      const child = bornChild(tc, [a, b]);
+      a.person!.lastBirthTick = state.cycleTick;
+      b.person!.lastBirthTick = state.cycleTick;
+      tc.lastBirthTick = state.cycleTick;
+      st.used++;
+      broadcastEvent("build", `A child is born in ${settlementLabel(tc)}: ${child.person!.name}, to ${a.person!.name} and ${b.person!.name}`);
+      // A forced birth (test hooks / creative) is one child per settlement, as before.
+      if (force.birth) break;
+    }
   }
   // Immigrants: ~IMMIGRANTS_PER_WEEK a week at happiness 100, none at or below IMMIGRATION_MIN_HAPPINESS.
   const happy = Math.max(0, (state.colonyHappiness - IMMIGRATION_MIN_HAPPINESS) / (100 - IMMIGRATION_MIN_HAPPINESS));

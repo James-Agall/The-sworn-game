@@ -2097,7 +2097,8 @@ async function main() {
     // they've arrived (updateShelteringCivilian, TILE_SIZE*1.5 radius) - once they've actually arrived, they should read as having
     // gone inside it, the same way a worker disappears into its own post above, not stand
     // visibly idling next to the flag all night.
-    if (WORKER_KINDS.has(c.kind) && isNight && c.sheltered) hidden = true;
+    // Free villagers and children too (2026-11-06): every person indoors at night, none left standing outside.
+    if ((WORKER_KINDS.has(c.kind) || c.kind === "villager") && isNight && c.sheltered) hidden = true;
     entry.sprite.visible = !hidden;
     entry.hpBar.visible = !hidden;
     updateWound(entry, c.hp, c.maxHp, c.x, c.y - 2, COLONIST_WOUND_SIZE, false, hidden);
@@ -4405,7 +4406,7 @@ async function main() {
     TileType.TownCenter, TileType.House, TileType.BigHouse, TileType.HouseLevel2, TileType.BarnPost,
     TileType.LumberjackPost, TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3,
     TileType.ArcherPost, TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost,
-    TileType.Pasture, TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop,
+    TileType.Pasture, TileType.PigPasture, TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop,
     TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery,
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,

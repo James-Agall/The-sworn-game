@@ -616,3 +616,16 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
    "(generation 2)", the old spouse is under Parents.
 6. Talk to your spouse: "We should part ways." An in-law spouse leaves and that settlement's relation drops sharply.
 
+## Night shelter, pasture animals, 2x2 orchards, couples (2026-11-06)
+Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, temp saves).
+1. Night shelter: start a game, let dusk fall (or creative time skip). Every worker, free villager and child walks to
+   its house / Town Center / Keep and disappears inside; nobody stands idle in the open all night. At dawn they come
+   back out and the workers go back to their posts. A villager walled in (walls round it) still vanishes indoors.
+2. Build menu, Farming: "Cow pasture" (p) and "Pig pasture" (no hotkey) are both 2x2; the Pig pasture shows the cow
+   pasture art tinted pink (stand-in). Their info panels read "Cow Pasture" / "Pig Pasture" with "Each batch: 480
+   meat + 4 hide" / "640 meat"; the Sheep Pasture "400 meat + 360 wool". An old save's pastures are Cow Pastures.
+3. Orchard: the ghost is 2x2, it costs 10 wood and its art spans the block (like the pastures); the info panel says
+   "2x2 orchard: x4 produce per batch". An old save's 1x1 orchard reads "Old 1x1 orchard: x1".
+4. Births: with room in the houses and 20+ food, several children can be born the same dawn in a big village (each
+   couple 30% a dawn, at most one child per couple every 5 days); the toast names both parents. Births stop at the
+   population cap.

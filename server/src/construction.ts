@@ -5,7 +5,7 @@ import {
   TileType, isGateTile, isSolidTile, TICK_RATE, type GameEventCategory, type ServerMessage, type BuildingInfo, TILE_SIZE, Biome,
   isRoadTile, RELATION_TIER_NAMES,
 } from "@colony/shared/protocol";
-import { BUILD_COSTS, footprintOf, footprintPartOffsets } from "@colony/shared/buildings";
+import { BUILD_COSTS, footprintOf, footprintPartOffsets, PASTURE_YIELDS } from "@colony/shared/buildings";
 import type { ConstructionSiteState, Cost, Player, ResourceKey, TileCoord, TownCenter } from "./types.js";
 import {
   ABBEY_GROUNDS_RADIUS, ARCHER_WOOD_COST, BARN_WOOD_COST, BIG_BUILD_TILES, BLACKSMITH_TOOLS_STOCK_CAP,
@@ -17,7 +17,7 @@ import {
   HOUSE_WOOD_COST,
   INDUSTRIAL_TILES, IN_PLACE_UPGRADE_TILES, KEEP_COSTS, KEEP_GARRISON_PER_LEVEL, KEEP_MIN_TOWN_CENTER_LEVEL,
   KEEP_POPULATION_PER_LEVEL, KNIGHT_IRON_COST, KNIGHT_ROCK_COST, MILITIA_IRON_COST, MILITIA_WOOD_COST, NEIGHBOURS_8,
-  NO_COLONIST_TILES, PASTURE_WOOD_COST, PLACEABLE_TILES, SHEEP_PASTURE_WOOD_COST, FOOTPRINT_YIELD_PER_TILE, POI_TILES, POPULATION_GATED_TILES, RAM_UNIT_MULT, REACH, ROAD_ROCK_COST,
+  NO_COLONIST_TILES, ORCHARD_WOOD_COST, PASTURE_WOOD_COST, PIG_PASTURE_WOOD_COST, PLACEABLE_TILES, SHEEP_PASTURE_WOOD_COST, FOOTPRINT_YIELD_PER_TILE, POI_TILES, POPULATION_GATED_TILES, RAM_UNIT_MULT, REACH, ROAD_ROCK_COST,
   SHOP_WOOD_COST, SIEGE_BUILDING_MULT, SIEGE_BUILD_TICKS, SIEGE_POPULATION_COST, SIEGE_WORKSHOP_CAP,
   SIEGE_WORKSHOP_COST, STABLES_COSTS, STONE_WALL_COST, TAVERN_ROCK_COST, TAVERN_WOOD_COST,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_COST, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
@@ -286,6 +286,14 @@ export function resolvePasturePlacement(tx: number, ty: number) {
   staffPost(tx, ty, "farmhand");
 }
 
+export function resolvePigPasturePlacement(tx: number, ty: number) {
+  const upgraded = tryLevelUpInPlace(tx, ty, [TileType.PigPasture]);
+  if (upgraded) return;
+  setTile(tileIndex(tx, ty), TileType.PigPasture);
+  broadcastTileUpdate(tx, ty, TileType.PigPasture);
+  staffPost(tx, ty, "farmhand");
+}
+
 export function resolveOrchardPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Orchard]);
   if (upgraded) return;
@@ -531,6 +539,11 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
       return current === tile ? {} : { wood: PASTURE_WOOD_COST };
     case TileType.WoolFarm:
       return current === tile ? {} : { wood: SHEEP_PASTURE_WOOD_COST };
+    case TileType.PigPasture:
+      return current === tile ? {} : { wood: PIG_PASTURE_WOOD_COST };
+    // 2x2 orchards (2026-11-06), like the pastures.
+    case TileType.Orchard:
+      return current === tile ? {} : { wood: ORCHARD_WOOD_COST };
     case TileType.ChurchPost:
       return { wood: CHURCH_WOOD_COST };
     case TileType.WardStone:
@@ -1090,6 +1103,10 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     resolvePasturePlacement(tx, ty);
     return;
   }
+  if (tile === TileType.PigPasture) {
+    resolvePigPasturePlacement(tx, ty);
+    return;
+  }
   if (tile === TileType.Orchard) {
     resolveOrchardPlacement(tx, ty);
     return;
@@ -1336,9 +1353,19 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     }
   }
   if (t === TileType.ChurchPost) bonuses.push(`Heals ${healAmountFor(tx, ty)} per prayer`);
-  if (t === TileType.Pasture || t === TileType.WoolFarm) {
+  if (t === TileType.Pasture || t === TileType.WoolFarm || t === TileType.PigPasture) {
     const fp = placedFootprint(tx, ty);
     bonuses.push(fp.w > 1 ? `${fp.w}x${fp.h} paddock: x${footprintYieldMult(tx, ty)} produce per batch` : "Old 1x1 pasture: x1 produce (new pastures are 2x2, x4)");
+    const y = PASTURE_YIELDS[t];
+    if (y) {
+      const m = footprintYieldMult(tx, ty);
+      const parts = [`${y.meat * m} meat`, ...(y.wool ? [`${y.wool * m} wool`] : []), ...(y.hide ? [`${y.hide * m} hide`] : [])];
+      bonuses.push(`Each batch: ${parts.join(" + ")}`);
+    }
+  }
+  if (t === TileType.Orchard) {
+    const fp = placedFootprint(tx, ty);
+    bonuses.push(fp.w > 1 ? `${fp.w}x${fp.h} orchard: x${footprintYieldMult(tx, ty)} produce per batch` : "Old 1x1 orchard: x1 produce (new orchards are 2x2, x4)");
   }
   if (t === TileType.BuildersGuild) bonuses.push(`${level} builder${level === 1 ? "" : "s"} (one per level)`);
   if (t === TileType.Stables) {

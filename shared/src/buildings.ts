@@ -36,6 +36,9 @@ export const BUILD_COSTS = {
   // 2x2 pastures (2026-10-30): were free as 1x1s; the four-tile paddock needs fencing. Upgrades stay free.
   [TileType.Pasture]: { wood: 10 },
   [TileType.WoolFarm]: { wood: 10 },
+  // Pig Pasture and the 2x2 Orchard (2026-11-06): the same fencing as the 2x2 pastures.
+  [TileType.PigPasture]: { wood: 10 },
+  [TileType.Orchard]: { wood: 10 },
   [TileType.ChurchPost]: { wood: 15 },
   [TileType.WardStone]: { wood: 20, tools: 10 },
   [TileType.BuildersGuild]: { wood: 15 },
@@ -79,6 +82,26 @@ export interface Footprint {
 export const FOOTPRINT_BY_TILE: Partial<Record<TileType, Footprint>> = {
   [TileType.Pasture]: { w: 2, h: 2 },
   [TileType.WoolFarm]: { w: 2, h: 2 },
+  // 2026-11-06: Pig Pasture, and Orchards 4x the area (2x2, like the pastures; old saves' orchards stay 1x1, x1).
+  [TileType.PigPasture]: { w: 2, h: 2 },
+  [TileType.Orchard]: { w: 2, h: 2 },
+};
+
+// ---- Pasture animals (2026-11-06): the balance numbers for every pasture, in one place ----
+// Per footprint tile per farmhand cycle (FARMHAND_CYCLE_DAYS; a complete 2x2 yields x4, a legacy 1x1 x1). The old
+// meat Pasture gave 90 meat + 1 hide a cycle per tile; now every pasture gives more meat than that:
+//  - Cow Pasture (TileType.Pasture; old saves' pastures are cows): meat + hide.
+//  - Pig Pasture: the most meat, no hide.
+//  - Sheep Pasture (TileType.WoolFarm): wool as before (the Tailor's input) + meat.
+export interface PastureYield {
+  meat: number;
+  wool?: number;
+  hide?: number;
+}
+export const PASTURE_YIELDS: Partial<Record<TileType, PastureYield>> = {
+  [TileType.Pasture]: { meat: 120, hide: 1 },
+  [TileType.PigPasture]: { meat: 160 },
+  [TileType.WoolFarm]: { meat: 100, wool: 90 },
 };
 // Largest w / h in FOOTPRINT_BY_TILE (bounds the anchor search).
 export const FOOTPRINT_MAX_SIDE = 2;

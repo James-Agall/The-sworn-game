@@ -447,10 +447,13 @@ await restartAndCheck(a, "(A0)");
     // The 2x2 paddocks cost 10 wood each; the houses took it all.
     await a.hook("setStock", { stock: { wood: 40 } });
 
-    // Pastures / Wool Farms are 2x2 (anchor = top-left): they take the two lower corners of the 5x5 box.
+    // Pastures / Wool Farms are 2x2 (anchor = top-left): they take the two lower corners of the 5x5 box; Orchards
+    // are 2x2 too since 2026-11-06 (top-left of the box, beside the player's column).
+    // Per-tile batch: 90 (FARMHAND_YIELD_PER_CYCLE), but pastures use PASTURE_YIELDS (2026-11-06): cows 120 meat,
+    // sheep 90 wool + 100 meat. Both pastures deliver meat, so the first meat batch is the cows', the sheep's or both.
     const farms = [
-      { name: "Pasture", tile: T.Pasture, pos: P(1, 1), res: "meat", tiles: 4 },
-      { name: "Orchard", tile: T.Orchard, pos: P(0, -2), res: "fruit", tiles: 1 },
+      { name: "Pasture", tile: T.Pasture, pos: P(1, 1), res: "meat", tiles: 4, perTile: [120, 100, 220] },
+      { name: "Orchard", tile: T.Orchard, pos: P(-1, -2), res: "fruit", tiles: 4 },
       { name: "WoolFarm", tile: T.WoolFarm, pos: P(-2, 1), res: "wool", tiles: 4 },
       { name: "CottonFarm", tile: T.CottonFarm, pos: P(0, 2), res: "cotton", tiles: 1 },
     ];
@@ -481,7 +484,8 @@ await restartAndCheck(a, "(A0)");
     });
     info(`(a/b) fast-forwarded ${ff.ran} ticks (${(ff.ran / 2000).toFixed(1)} days) to the first batches: ${JSON.stringify(firstBatch)}`);
     for (const f of farms) {
-      result(firstBatch[f.res] === 90 * f.tiles, `(a/b) ${f.name} -> ${f.res} first delivery 0 -> ${firstBatch[f.res]} in one batch (FARMHAND_YIELD_PER_CYCLE 90 x ${f.tiles} footprint tile(s))`);
+      const per = f.perTile ?? [90];
+      result(per.some((n) => firstBatch[f.res] === n * f.tiles), `(a/b) ${f.name} -> ${f.res} first delivery 0 -> ${firstBatch[f.res]} in one batch (${per.join(" / ")} x ${f.tiles} footprint tile(s))`);
     }
     result(ff.ok, `(a/b) all four farm resources produced: ${farms.map((f) => `${f.res}=${a.snap[f.res]}`).join(" ")}`);
     // If that ended at night, skip to the next dawn; the farmhands then walk back from their shelter.
@@ -518,7 +522,7 @@ await restartAndCheck(a, "(A0)");
     ups = await act(a, U.x, U.y, T.Pasture);
     const upEv = a.events.filter((e) => e.at >= evSince && e.category === "upgrade").map((e) => e.text);
     result(!ups.some((u) => u.tileX === U.x && u.tileY === U.y) && a.tileAt(U.x, U.y) === T.Pasture && kinds(a, "farmhand").length === 4 && a.snap.population === fullPop &&
-      upEv.includes("Pasture upgraded to level 2"),
+      upEv.includes("Cow Pasture upgraded to level 2"),
       `(A) Pasture placed ON the Pasture at full pop -> in-place upgrade (tile ${a.tileAt(U.x, U.y)}, farmhands=${kinds(a, "farmhand").length}, pop=${a.snap.population}, events=${JSON.stringify(upEv)})`);
     // Placed on an empty tile next to an Orchard it is a new standalone building. Village life (2026-11-03): placement
     // is never population-gated any more (an unstaffed post is a vacancy), so it is placed with its own farmhand.
@@ -755,7 +759,7 @@ await restartAndCheck(a, "(D0)");
     raidsWanted = true;
     await a.hook("setRaids", { enabled: true });
     // Leave a farmhand alive for the final reset check.
-    await placeExpectAt(a, F2.x, F2.y, T.Orchard);
+    await placeExpectAt(a, F2.x, F2.y, T.CottonFarm); // 1x1 (Orchards are 2x2 since 2026-11-06)
     await sleep(200);
     info(`(D) end state: ${fmt(a.snap)} marketBuilt=${a.snap.marketBuilt} goldShopBuilt=${a.snap.goldShopBuilt} farmhands=${kinds(a, "farmhand").length} artisans=${kinds(a, "artisan").length}`);
   }

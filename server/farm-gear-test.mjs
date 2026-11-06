@@ -5,7 +5,7 @@
 // Run from server/: `node farm-gear-test.mjs`.
 //   H a Hemp Field is walkable (a soldier can stand on it; a Pasture tile can't) and its farmhand delivers hemp.
 //   P a Pasture takes a clear 2x2 block (refused when a part tile is taken), costs 10 wood, stamps 3 part tiles,
-//     a part tile opens the same info panel, one tending cycle pays 4 x 90 meat, demolishing a part clears all 4.
+//     a part tile opens the same info panel, one tending cycle pays 4 x 120 meat (cows, 2026-11-06), demolishing a part clears all 4.
 //   G already-spawned soldiers pick up stock gear: knight > pikeman > spearman, lower tier first, never down,
 //     the old piece goes back to the stock; the snapshot tier changes and a toast fires.
 //   Q the forge queue holds 20.
@@ -174,11 +174,11 @@ try {
   const onPart = await c.hookCall("spawnSoldier", { kind: "spearman", x: (ps.x + 1) * TILE + 16, y: (ps.y + 1) * TILE + 16 });
   result(!onPart.id, `(P) part tiles are solid like the Pasture (no soldier spawns there)`);
   const partInfo = await c.buildingInfo(ps.x + 1, ps.y + 1);
-  result(partInfo?.name === "Pasture" && partInfo.bonuses.some((b) => /2x2 paddock: x4/.test(b)), `(P) a part tile opens the Pasture's panel: ${partInfo?.name} / ${partInfo?.bonuses.find((b) => /paddock/.test(b))}`);
+  result(partInfo?.name === "Cow Pasture" && partInfo.bonuses.some((b) => /2x2 paddock: x4/.test(b)), `(P) a part tile opens the Pasture's panel: ${partInfo?.name} / ${partInfo?.bonuses.find((b) => /paddock/.test(b))}`);
   await c.hookCall("setStock", { stock: { meat: 0 } });
   const meatOk = await ffUntil(async () => (await stockOf(c)).meat > 0, 40000, 1000);
   const meat = (await stockOf(c)).meat;
-  result(meatOk && meat === 360, `(P) one tending cycle pays 4 x 90 = 360 meat (got ${meat})`);
+  result(meatOk && meat === 480, `(P) one tending cycle pays 4 x 120 = 480 meat (cows, PASTURE_YIELDS since 2026-11-06; got ${meat})`);
   await c.hookCall("teleportPlayer", { x: (ps.x + 2) * TILE + 16, y: (ps.y + 1) * TILE + 16 });
   await c.freshSnap();
   await place(ps.x + 1, ps.y + 1, T.Empty);

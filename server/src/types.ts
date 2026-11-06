@@ -78,6 +78,10 @@ export interface Person {
   spouse?: string;
   kinOf?: string;
   talent?: Partial<Record<HeroSkill, number>>;
+  // Couples (2026-11-06): the partner's colonist id (people.ts settlementCouples; missing on old saves = unpaired,
+  // paired at the next dawn) and the cycleTick of this person's last child (COUPLE_BIRTH_COOLDOWN_DAYS).
+  partner?: string;
+  lastBirthTick?: number;
 }
 // Village life phase 3: a villager training at a unit building (becomes `kind` there when ticksLeft hits 0).
 export interface Training {
@@ -510,7 +514,7 @@ export interface TownCenter {
   clan?: number;
   // Forts phase B: a captured fort's outpost name.
   name?: string;
-  // Village life phase 2: cycleTick of its last birth (BIRTH_COOLDOWN_DAYS).
+  // Village life phase 2: cycleTick of its last birth (informational since couples, 2026-11-06: the cooldown is per couple, Person.lastBirthTick).
   lastBirthTick?: number;
   // Village life phase 4: when its villagers may next be called to arms (VILLAGE_LEVY_COOLDOWN_TICKS).
   levyReadyTick?: number;

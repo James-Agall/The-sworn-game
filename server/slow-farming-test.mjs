@@ -9,7 +9,7 @@
 //      re-sowing uses the scaled grow time (level / biome / happiness / industrial synergy);
 //   C) after FARM_HARVESTS_BEFORE_FALLOW harvests the plot goes fallow (fallowFarmPlots) for exactly
 //      FARM_FALLOW_TICKS, then re-sows itself;
-//   D) a Pasture delivers its whole batch (FARMHAND_YIELD_PER_CYCLE.meat) once per cycle of tending, its
+//   D) a (Cow) Pasture delivers its whole batch (PASTURE_YIELDS[Pasture].meat x4 since 2026-11-06) once per cycle of tending, its
 //      cycle is the scaled FARMHAND_CYCLE_TICKS, tending only advances by day, and nothing lands early.
 // Runtime ~30-60 s (fast-forwards ~20 game days).
 import WebSocket from "ws";
@@ -224,13 +224,15 @@ while (elapsed < 6 * DAY) {
   lastMeat = meat;
   if (meatSteps.length >= 2) break;
 }
+// Pasture animals (2026-11-06): the Pasture is the Cow pasture, its meat from PASTURE_YIELDS.
+const PASTURE_MEAT = K.PASTURE_YIELDS?.[21]?.meat ?? K.FARMHAND_YIELD_PER_CYCLE.meat;
 info(`(D) meat deliveries (ticks after the first night, delta): ${JSON.stringify(meatSteps)}`);
-result(meatSteps.length >= 1 && meatSteps[0].d === K.FARMHAND_YIELD_PER_CYCLE.meat * PASTURE_YIELD_MULT,
-  `(D) first delivery is the whole batch: +${meatSteps[0]?.d} meat (expected +${K.FARMHAND_YIELD_PER_CYCLE.meat} x${PASTURE_YIELD_MULT})`);
+result(meatSteps.length >= 1 && meatSteps[0].d === PASTURE_MEAT * PASTURE_YIELD_MULT,
+  `(D) first delivery is the whole batch: +${meatSteps[0]?.d} meat (expected +${PASTURE_MEAT} x${PASTURE_YIELD_MULT})`);
 // A cycle of eCycle daytime ticks spans eCycle / DAY_TICKS days on the clock (nights don't count).
 const gapDays = meatSteps.length >= 2 ? (meatSteps[1].at - meatSteps[0].at) / DAY : NaN;
 const cycleDays = eCycle / K.DAY_TICKS;
-result(meatSteps.length >= 2 && meatSteps[1].d === K.FARMHAND_YIELD_PER_CYCLE.meat * PASTURE_YIELD_MULT && Math.abs(gapDays - cycleDays) <= 0.5,
+result(meatSteps.length >= 2 && meatSteps[1].d === PASTURE_MEAT * PASTURE_YIELD_MULT && Math.abs(gapDays - cycleDays) <= 0.5,
   `(D) next batch is another +${meatSteps[1]?.d} one cycle later: ${gapDays.toFixed(2)} days apart (cycle = ${cycleDays.toFixed(2)} days of tending), nothing in between`);
 
 console.log(`\n${fails === 0 ? "ALL PASS" : `${fails} FAIL(S)`} [${el()}]`);

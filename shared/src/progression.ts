@@ -164,6 +164,7 @@ export const PROGRESSION = {
     [TileType.RockMinePost]: "miner",
     [TileType.BarnPost]: "farmer",
     [TileType.Pasture]: "farmhand",
+    [TileType.PigPasture]: "farmhand",
     [TileType.Orchard]: "farmhand",
     [TileType.WoolFarm]: "farmhand",
     [TileType.CottonFarm]: "farmhand",

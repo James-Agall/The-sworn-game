@@ -320,7 +320,7 @@ export function farmhandProgress(c: Colonist): number {
 
 export function farmhandFarmStage(tile: TileType, p: number): FarmStage | null {
   if (tile === TileType.CottonFarm) return p < HEMP_GROWING_FROM ? FarmStage.Sown : p < HEMP_RIPE_FROM ? FarmStage.Growing : FarmStage.Ripe;
-  if (tile === TileType.Pasture) return p < PASTURE_FAT_FROM ? FarmStage.Growing : FarmStage.Fat;
+  if (tile === TileType.Pasture || tile === TileType.PigPasture) return p < PASTURE_FAT_FROM ? FarmStage.Growing : FarmStage.Fat;
   if (tile === TileType.WoolFarm) return p < SHEEP_WOOLLY_FROM ? FarmStage.Sheared : p < SHEEP_READY_FROM ? FarmStage.Woolly : FarmStage.Ripe;
   if (tile === TileType.Orchard) {
     return p < ORCHARD_BLOSSOM_UNTIL ? FarmStage.Blossoming : p < ORCHARD_FRUITING_FROM ? FarmStage.Growing : FarmStage.Fruiting;

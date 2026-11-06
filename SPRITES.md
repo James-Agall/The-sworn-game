@@ -629,6 +629,19 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > crock, bread loaf. Files: `mill.png`, `bakery.png`, `item{WoodenPlow,Millstone,ClayOven,Flour,Gruel,Flatbread,
 > SourdoughStarter,Bread}.png`. Stand-ins: the barn tinted pale (mill) and the tavern tinted warm (bakery).
 
+### 86. Pasture animals: cow, pig and sheep pastures (2026-11-06)
+> Match the existing `pasture` / `pastureFat` / `sheepPasture*` art (same fenced 2x2 paddock, drawn on one canvas
+> and scaled across the 2x2 block like the other pastures). **Cow pasture**: the current Pasture art already shows
+> brown-and-white cows and stays as the Cow pasture (`pasture`, `pastureGrowing`, `pastureFat`); optional
+> cow-specific redraws `cowPasture.png` / `cowPastureGrowing.png` / `cowPastureFat.png` (2-3 cows, a hide drying
+> on the fence). **Pig pasture** (new, TileType.PigPasture = 104): muddy pen with a wallow, a trough and a lean-to
+> sty, 3-4 pink pigs; states like the cow pasture: `pigPasture.png` (empty pen), `pigPastureGrowing.png` (piglets),
+> `pigPastureFat.png` (fat pigs, last 30% of the cycle). Optional unit loop for later: pigs rooting, 2 frames of
+> 32x24 (`pigRoot0-1.png`). **Sheep pasture** now also gives meat (wool + meat): no new art needed; optional
+> `sheepPastureReady` variant with a shearing stool. Stand-in now: the Pig pasture uses `pastureFat` tinted pink
+> (`client/src/worldVisuals.ts` TILE_STANDIN_TINT 0xffa8b8); a `pigPasture.png` dropped in `client/public/sprites/`
+> replaces it automatically (TILE_OPTIONAL_ART). The 2x2 Orchard reuses the `orchard*` art scaled across the block.
+
 #77-#83 were delivered on 2026-10-30 (see "Already sourced", Batch 2); prompts removed. Still missing from those
 prompts: #82 the Follow order icon, the state glyphs (wavering / routing / outflanked) and the time-control icons;
 #83 has no veteran attack row (the veteran charge row stands in) and no separate idle frame.

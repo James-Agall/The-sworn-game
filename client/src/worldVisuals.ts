@@ -89,6 +89,8 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.Bloomery]: "blacksmith",
   [TileType.Mill]: "barn",
   [TileType.Bakery]: "tavern",
+  // Pig Pasture (2026-11-06) stand-in: the fat (cow) pasture tinted pink until pigPasture art lands (SPRITES.md #86).
+  [TileType.PigPasture]: "pastureFat",
 };
 // Dedicated art per tile (SPRITES.md #30-#32), loaded optionally: a file that exists replaces the
 // TILE_SPRITE_FILES stand-in above and drops its tint; a missing one keeps the stand-in.
@@ -106,6 +108,7 @@ export const TILE_OPTIONAL_ART: Partial<Record<TileType, string>> = {
   [TileType.Tent]: "siteTent",
   [TileType.SiteKeep]: "siteKeep",
   [TileType.RuinedKeep]: "ruinedKeep",
+  [TileType.PigPasture]: "pigPasture",
 };
 // Batch 2 (SPRITES.md #71 / #74 / #77), loaded optionally: fort tiles drawn per site faction (snapshot
 // `sites` via siteOwners / the keep position): the razed keep (bandit wood / orc / human stone), the
@@ -192,6 +195,7 @@ export const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.Bloomery]: 0xd08060,
   [TileType.Mill]: 0xe0d8b0,
   [TileType.Bakery]: 0xf0b880,
+  [TileType.PigPasture]: 0xffa8b8,
 };
 // Looping tile animations (client-side, cosmetic). All frames of a loop share one canvas, so the
 // box-fit scale setTileSprite computes from frame 0 stays valid for every frame. One shared clock

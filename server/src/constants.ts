@@ -605,6 +605,8 @@ export const RESPAWN_FOOD_COST = 5;
 export const ARCHER_WOOD_COST = BUILD_COSTS[TileType.ArcherPost].wood;
 export const PASTURE_WOOD_COST = BUILD_COSTS[TileType.Pasture].wood;
 export const SHEEP_PASTURE_WOOD_COST = BUILD_COSTS[TileType.WoolFarm].wood;
+export const PIG_PASTURE_WOOD_COST = BUILD_COSTS[TileType.PigPasture].wood;
+export const ORCHARD_WOOD_COST = BUILD_COSTS[TileType.Orchard].wood;
 export const KNIGHT_IRON_COST = BUILD_COSTS[TileType.KnightPost].iron;
 export const KNIGHT_ROCK_COST = BUILD_COSTS[TileType.KnightPost].rock;
 // Walls & gates (2026-10-23): walls 3x their old 1 wood / 1 rock. Full repair = REPAIR_COST_FRACTION
@@ -663,6 +665,7 @@ export const POST_TILE_TYPES = [
   TileType.CastleLevel3,
   TileType.ChurchPost,
   TileType.Pasture,
+  TileType.PigPasture,
   TileType.Orchard,
   TileType.WoolFarm,
   TileType.CottonFarm,
@@ -702,6 +705,7 @@ export const INDUSTRIAL_TILES: TileType[] = [
   TileType.IronMinePost,
   TileType.RockMinePost,
   TileType.Pasture,
+  TileType.PigPasture,
   TileType.Orchard,
   TileType.WoolFarm,
   TileType.CottonFarm,
@@ -721,6 +725,7 @@ export const INDUSTRIAL_TILES: TileType[] = [
 export const ARMY_SYNERGY_PER_NEIGHBOUR = 0.05;
 export const FARM_PRODUCE_BY_TILE: Partial<Record<TileType, "meat" | "fruit" | "wool" | "cotton">> = {
   [TileType.Pasture]: "meat",
+  [TileType.PigPasture]: "meat",
   [TileType.Orchard]: "fruit",
   [TileType.WoolFarm]: "wool",
   [TileType.CottonFarm]: "cotton",
@@ -787,7 +792,8 @@ export const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
   [TileType.LumberjackPost]: "Lumberjack",
   [TileType.BarnPost]: "Barn",
   [TileType.ChurchPost]: "Church",
-  [TileType.Pasture]: "Pasture",
+  [TileType.Pasture]: "Cow Pasture",
+  [TileType.PigPasture]: "Pig Pasture",
   [TileType.Orchard]: "Orchard",
   [TileType.WoolFarm]: "Sheep Pasture",
   [TileType.CottonFarm]: "Hemp Field",
@@ -1897,7 +1903,7 @@ export const VISION_BUILDING_TILES = new Set<TileType>([
   TileType.TownCenter,
   TileType.House, TileType.BigHouse, TileType.HouseLevel2, TileType.BarnPost, TileType.LumberjackPost,
   TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3, TileType.ArcherPost,
-  TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost, TileType.Pasture,
+  TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost, TileType.Pasture, TileType.PigPasture,
   TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop, TileType.Blacksmith,
   TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery,
   TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
@@ -1941,6 +1947,7 @@ export const PLACEABLE_TILES = [
   TileType.RockMinePost,
   TileType.ChurchPost,
   TileType.Pasture,
+  TileType.PigPasture,
   TileType.Orchard,
   TileType.WoolFarm,
   TileType.CottonFarm,
@@ -1992,6 +1999,7 @@ export const BREAKABLE_TILES = [
   TileType.RockMinePost,
   TileType.ChurchPost,
   TileType.Pasture,
+  TileType.PigPasture,
   TileType.Orchard,
   TileType.WoolFarm,
   TileType.CottonFarm,
@@ -2035,6 +2043,7 @@ export const POPULATION_GATED_TILES = [
   TileType.RockMinePost,
   TileType.ChurchPost,
   TileType.Pasture,
+  TileType.PigPasture,
   TileType.Orchard,
   TileType.WoolFarm,
   TileType.CottonFarm,
@@ -2058,6 +2067,7 @@ export const IN_PLACE_UPGRADE_TILES: TileType[] = [
   TileType.BarnPost,
   TileType.ChurchPost,
   TileType.Pasture,
+  TileType.PigPasture,
   TileType.Orchard,
   TileType.WoolFarm,
   TileType.CottonFarm,
@@ -2304,10 +2314,12 @@ export const STARTING_PEOPLE = 10;
 export const CHILD_MATURE_DAYS = 6;
 // Vacancies are matched to free villagers this often (ticks).
 export const VACANCY_FILL_INTERVAL_TICKS = TICK_RATE;
-// Phase 2: births. At each dawn a settlement with a free bed and >= 2 free-or-working adults has this chance of a
-// child (BIRTH_COOLDOWN_DAYS apart per settlement) while the colony holds BIRTH_MIN_FOOD food.
-export const BIRTH_CHANCE_PER_DAWN = 0.5;
-export const BIRTH_COOLDOWN_DAYS = 2;
+// Phase 2: births (couples since 2026-11-06; was one 50% roll per settlement, 2 days apart). At each dawn a
+// settlement's adults pair up into couples (people.ts settlementCouples, stable Person.partner); each couple rolls
+// BIRTH_CHANCE_PER_COUPLE for a child, at most once per COUPLE_BIRTH_COOLDOWN_DAYS, while the settlement has a free
+// bed (several births a dawn, stopping at the cap) and the colony holds BIRTH_MIN_FOOD food.
+export const BIRTH_CHANCE_PER_COUPLE = 0.3;
+export const COUPLE_BIRTH_COOLDOWN_DAYS = 5;
 export const BIRTH_MIN_FOOD = 20;
 // Immigrants: ~IMMIGRANTS_PER_WEEK at happiness 100, none below IMMIGRATION_MIN_HAPPINESS (linear in between),
 // accumulated at each dawn and only arriving where a settlement has a free bed.

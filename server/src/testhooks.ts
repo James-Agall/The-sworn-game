@@ -78,6 +78,7 @@ import { tierOf } from "./diplomacy.js";
 import { endVassalage, forceTribute, updateVassals, vassalDebugState, vassalsDawn } from "./vassals.js";
 import { forceVassal, placeTradingPost, spawnMobAt, spawnRaidGroupAt, spawnSoldierAt, stampSiteSearch } from "./creative.js";
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
+import { PASTURE_YIELDS } from "@colony/shared/buildings";
 import { handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
@@ -202,6 +203,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         FARM_YIELD_PER_HARVEST,
         FARMHAND_CYCLE_TICKS,
         FARMHAND_YIELD_PER_CYCLE,
+        PASTURE_YIELDS,
         DAY_TICKS,
         NIGHT_TICKS,
         LEGACY_GAME_DAY_TICKS,
@@ -927,7 +929,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       vacancies: respawnQueue.filter((q) => !q.hero).map((q) => ({ ...q })),
       persons: Array.from(colonists.values())
         .filter((c) => c.person)
-        .map((c) => ({ id: c.id, kind: c.kind, name: c.person!.name, child: !!c.person!.child, born: c.person!.born, parents: c.person!.parents ?? [], origin: c.person!.origin, spouse: c.person!.spouse ?? null, kinOf: c.person!.kinOf ?? null, talent: c.person!.talent ?? null, training: c.training ?? null, postX: c.postX, postY: c.postY, hp: c.hp })),
+        .map((c) => ({ id: c.id, kind: c.kind, name: c.person!.name, child: !!c.person!.child, born: c.person!.born, parents: c.person!.parents ?? [], origin: c.person!.origin, spouse: c.person!.spouse ?? null, partner: c.person!.partner ?? null, lastBirthTick: c.person!.lastBirthTick ?? null, kinOf: c.person!.kinOf ?? null, talent: c.person!.talent ?? null, training: c.training ?? null, postX: c.postX, postY: c.postY, hp: c.hp })),
     });
   } else if (msg.op === "progression") {
     // Progression tree: `unlockAll` sets the test-only unlock (COLONY_UNLOCK_ALL); `creativeUnlockAll` the creative
