@@ -821,7 +821,8 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     });
   } else if (msg.op === "damageHearth" && typeof msg.siteId === "string" && typeof msg.amount === "number") {
     const h = hearths.get(msg.siteId);
-    if (h) damageHearth(h, msg.amount, "test");
+    // asPlayer: struck by the requesting player (the guards rule applies), else the test bypass.
+    if (h) damageHearth(h, msg.amount, msg.asPlayer === true ? `p:${player.id}` : "test");
     reply({ found: !!h, hp: h?.hp ?? null, destroyed: h?.destroyed ?? null });
   } else if (msg.op === "setGoalIndex" && typeof msg.index === "number") {
     // Skip (or rewind) the goal track without paying rewards: exact stock checks after a first building /

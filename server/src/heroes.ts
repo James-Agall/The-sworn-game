@@ -21,7 +21,7 @@ import {
   HERO_NAMES, HERO_POPULATION_COST, HERO_RECRUIT_COST, HERO_RECRUIT_TICKS, HERO_RESPAWN_FEE_BASE,
   HERO_RESPAWN_FEE_PER_LEVEL, HERO_XP_BOSS, HERO_XP_MARKED_MULT, HERO_XP_PER_KILL, PLAIN_GEAR,
   PLAYER_ATTACK_COOLDOWN_TICKS, PLAYER_ATTACK_DAMAGE, RELIC_CATALOGUE, RELIC_ELITE_MOB_CHANCE, RELIC_HEARTH_CHANCE,
-  TEST_HOOKS, TOME_ELITE_CHANCE, TOME_HEARTH_CHANCE, WEAPON_DAMAGE_MULT,
+  TEST_HOOKS, TOME_ELITE_CHANCE, TOME_HEARTH_CHANCE, UNARMED_MILITIA_DAMAGE_MULT, WEAPON_DAMAGE_MULT,
 } from "./constants.js";
 import {
   colonists, equipEvents, forgeAuto, forgeQueues, heroEvents, heroProfiles, heroRecruits, players, respawnQueue,
@@ -130,6 +130,7 @@ export function updateGearPickup() {
 }
 
 export function weaponDamageMult(c: Colonist): number {
+  if (c.unarmed && !c.weaponTier) return UNARMED_MILITIA_DAMAGE_MULT;
   return WEAPON_DAMAGE_MULT[c.weaponTier ?? 0] ?? 1;
 }
 

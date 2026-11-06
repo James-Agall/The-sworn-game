@@ -203,8 +203,14 @@ try {
   // Forts phase B: fort keeps are hearths too (siteKind "fort"); this section is about the loose camps.
   const camp = hs.hearths.find((h) => h.siteKind === "encampment" && !h.destroyed && h.guardians.length >= 2 && h.guardians.every((g) => !g.active));
   result(!!camp && camp.hp === 150 && camp.tile === T.PropCampfire && /bandit/.test(camp.faction), `${total} hearths; picked ${camp?.faction} camp at (${camp?.x},${camp?.y}) hp ${camp?.hp}, ${camp?.guardians.length} guardians`);
+  // Snapshot `hearths`: [tile index, hp permille (-1 = a fallen camp with freed prisoners waiting), prisoners, guarded].
+  const standingIn = (flat) => {
+    const out = new Set();
+    for (let i = 0; i + 4 <= flat.length; i += 4) if (flat[i + 1] >= 0) out.add(flat[i]);
+    return out;
+  };
   const snapH = (await c.freshSnap()).hearths ?? [];
-  result(snapH.includes(camp.y * c.W() + camp.x), "snapshot `hearths` lists it");
+  result(standingIn(snapH).has(camp.y * c.W() + camp.x), "snapshot `hearths` lists it");
   // A knight next to it, ordered to attack.
   let approach = null;
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
@@ -213,7 +219,8 @@ try {
       break;
     }
   }
-  // Six knights (they fight the guardians the approach wakes first, then the hearth).
+  // Six knights (they fight the guardians the approach wakes first, then the hearth: it can't be struck while a guard
+  // of the camp still stands within HEARTH_GUARD_RADIUS_TILES).
   const ids = [];
   for (let i = 0; i < 6; i++) {
     const k = await c.hookCall("spawnSoldier", { kind: "knight", x: approach.x * TILE + 16 + (i % 3) * 6 - 6, y: approach.y * TILE + 16 + Math.floor(i / 3) * 6 - 3 });
@@ -221,7 +228,7 @@ try {
   }
   c.send({ type: "commandAttackHearth", unitIds: ids, tileX: camp.x, tileY: camp.y });
   let hit = null;
-  for (let i = 0; i < 300 && !hit; i++) {
+  for (let i = 0; i < 600 && !hit; i++) {
     await sleep(100);
     const st = await c.hookCall("hearthState");
     const h = st.hearths.find((x) => x.siteId === camp.siteId);
@@ -256,7 +263,7 @@ try {
   result(goal.stock.gold - goldBefore === loot, `loot ${goal.stock.gold - goldBefore} gold (= 15 x garrison ${camp.garrison})`);
   result(/^The bandit camp breaks and scatters!/.test(toast), `toast: "${toast}"`);
   result(hs.campsDestroyed === 1 && goal.campsDestroyed === 1, `campsDestroyed ${hs.campsDestroyed}`);
-  result(!(c.snap.hearths ?? []).includes(camp.y * c.W() + camp.x), "snapshot `hearths` drops it");
+  result(!standingIn(c.snap.hearths ?? []).has(camp.y * c.W() + camp.x), "snapshot `hearths` drops it");
   // Fled guardians are gone within ~60 s.
   await c.hookCall("fastForward", { ticks: 65 * 20 });
   hs = await c.hookCall("hearthState");

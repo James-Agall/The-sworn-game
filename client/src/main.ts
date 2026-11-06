@@ -1679,6 +1679,68 @@ async function main() {
   const wildlifeSprites = new Map<number, { sprite: Sprite; kind: WildlifeKind; lastX: number; phase: number }>();
   // `flat` is the snapshot's flattened list (WILDLIFE_SNAPSHOT_STRIDE numbers per animal). An animal
   // that disappears was killed (nothing else removes one), so it leaves a small blood stain.
+  // Prisoners (snapshot `hearths`: [index, permille, prisoners, guarded]): stand-in captives at camp hearths, the
+  // villager art tinted grey with a rope loop at the wrists (SPRITES.md "Prisoner / captive" is pending). At most
+  // CAPTIVES_SHOWN per camp; a fallen camp (permille -1) shows the freed ones still waiting for beds, untied.
+  const CAPTIVES_SHOWN = 6;
+  const CAPTIVE_TINT = 0x9aa0ac;
+  const captiveSprites = new Map<string, Container>();
+  function syncCaptives(flat: number[]) {
+    const seen = new Set<string>();
+    for (let i = 0; i + HEARTH_SNAPSHOT_STRIDE <= flat.length; i += HEARTH_SNAPSHOT_STRIDE) {
+      const index = flat[i];
+      const waiting = flat[i + 1] < 0;
+      const n = Math.min(CAPTIVES_SHOWN, flat[i + 2] ?? 0);
+      const hx = (index % worldTilesX) + 0.5;
+      const hy = Math.floor(index / worldTilesX) + 0.5;
+      // A guarded hearth (guards still standing: it can't be struck yet) carries a small grey shield.
+      if (flat[i + 3] === 1) {
+        const key = `${index}:guard`;
+        seen.add(key);
+        if (!captiveSprites.has(key)) {
+          const box = new Container();
+          const shield = new Graphics();
+          shield.poly([-5, -6, 5, -6, 5, 0, 0, 6, -5, 0]).fill({ color: 0x8a8f99 }).stroke({ width: 1.5, color: 0x2b2b2b });
+          box.addChild(shield);
+          box.position.set(hx * tileSize, (hy - 0.9) * tileSize);
+          box.zIndex = critterZ(hx * tileSize, (hy + 0.5) * tileSize);
+          tileSpriteLayer.addChild(box);
+          captiveSprites.set(key, box);
+        }
+      }
+      for (let k = 0; k < n; k++) {
+        const key = `${index}:${k}:${waiting ? "w" : "c"}`;
+        seen.add(key);
+        if (captiveSprites.has(key)) continue;
+        // A ring around the fire, 1.3 tiles out, evenly spaced from a per-camp start angle.
+        const a = (index % 7) * 0.9 + (k / Math.max(n, 1)) * Math.PI * 2;
+        const x = (hx + Math.cos(a) * 1.3) * tileSize;
+        const y = (hy + Math.sin(a) * 1.3) * tileSize;
+        const box = new Container();
+        const tex = COLONIST_TEXTURES.villager;
+        const body = new Sprite(tex);
+        body.anchor.set(0.5, 1);
+        body.scale.set(COLONIST_SPRITE_HEIGHT / tex.height);
+        body.tint = waiting ? 0xd8d0c0 : CAPTIVE_TINT;
+        box.addChild(body);
+        if (!waiting) {
+          const rope = new Graphics();
+          rope.ellipse(0, -COLONIST_SPRITE_HEIGHT * 0.42, 5, 2.5).stroke({ width: 1.5, color: 0x5a3a1a });
+          box.addChild(rope);
+        }
+        box.position.set(x, y + tileSize * 0.2);
+        box.zIndex = critterZ(x, y);
+        tileSpriteLayer.addChild(box);
+        captiveSprites.set(key, box);
+      }
+    }
+    for (const [key, box] of captiveSprites) {
+      if (seen.has(key)) continue;
+      box.destroy({ children: true });
+      captiveSprites.delete(key);
+    }
+  }
+
   function syncWildlife(flat: number[]) {
     const seen = new Set<number>();
     const now = performance.now();
@@ -4929,8 +4991,14 @@ async function main() {
       const t = info.train;
       const name = t.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
       bpTrainBtn.disabled = t.reason !== "";
-      bpTrainBtn.textContent = `Train ${name} (T${t.level} weapon + armour, ${t.days} day${t.days === 1 ? "" : "s"})`;
-      bpTrainBtn.title = t.reason;
+      // Basic militia need no gear: unarmed (weaker, no armour) unless a T1 weapon + armour are in stock.
+      const gear = t.gearOptional ? (t.geared ? "takes T1 weapon + armour" : "unarmed: no gear in stock") : `T${t.level} weapon + armour`;
+      bpTrainBtn.textContent = `Train ${name} (${gear}, ${t.days} day${t.days === 1 ? "" : "s"})`;
+      bpTrainBtn.title =
+        t.reason ||
+        (t.gearOptional
+          ? "Takes one free adult civilian. Basic militia train without gear; with a T1 weapon + armour in stock they take them (unarmed militia hit softer and have no armour)"
+          : `Takes one free adult civilian and a T${t.level} weapon + armour`);
       bpTrainStateEl.textContent = `Troops ${t.troops}/${t.cap}${t.training ? ` · ${t.training} in training` : ""}${t.reason ? ` · ${t.reason}` : ""}`;
     }
     bpSiegeRowEl.hidden = !info.siege;
@@ -6088,7 +6156,8 @@ async function main() {
       latestTownCenters = message.townCenters;
       latestHearths = new Set();
       const hearthFlat = message.hearths ?? [];
-      for (let i = 0; i + HEARTH_SNAPSHOT_STRIDE <= hearthFlat.length; i += HEARTH_SNAPSHOT_STRIDE) latestHearths.add(hearthFlat[i]);
+      for (let i = 0; i + HEARTH_SNAPSHOT_STRIDE <= hearthFlat.length; i += HEARTH_SNAPSHOT_STRIDE) if (hearthFlat[i + 1] >= 0) latestHearths.add(hearthFlat[i]);
+      syncCaptives(hearthFlat);
       syncTownCenterBars(message.townCenters);
       syncWildlife(message.wildlife);
       // Dawn wipes the blood, the same boundary at which the server clears the gravestones.

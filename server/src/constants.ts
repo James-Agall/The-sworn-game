@@ -282,6 +282,8 @@ export const EQUIPPED_KINDS: ColonistKind[] = ["knight", "spearman", "pikeman", 
 // Indexed by tier 0..3 (0 = unequipped).
 export const WEAPON_DAMAGE_MULT = [1, 1.2, 1.4, 1.7];
 export const ARMOUR_DAMAGE_TAKEN_MULT = [1, 0.85, 0.7, 0.55];
+// Basic militia trained with no gear (Colonist.unarmed) hit this much softer (fists and clubs).
+export const UNARMED_MILITIA_DAMAGE_MULT = 0.6;
 // Blacksmith forging: the tier forged = the Blacksmith's level. Indexed by tier - 1.
 export const FORGE_ARMOUR_IRON = [3, 5, 8];
 export const FORGE_WEAPON_IRON = [2, 4, 6];
@@ -1238,6 +1240,10 @@ export const SITE_KIND_HAS_HEARTH: Partial<Record<PoiSiteKind, { hasHearth: bool
   fort: { hasHearth: true, hp: 350 },
 };
 export const HEARTH_DEFAULT_HP = 150;
+// A camp hearth can't be damaged while a living guard of its site stands this close (tiles): defeat the guards first.
+export const HEARTH_GUARD_RADIUS_TILES = 10;
+// A hero this close (tiles) to an unguarded camp hearth frees its prisoners on the spot.
+export const PRISONER_WALKUP_TILES = 2;
 export const HEARTH_LOOT_PER_GUARDIAN = { gold: 15, wood: 10, rock: 5, iron: 5 };
 // Aggressive-stance soldiers with no enemy in reach go for a standing hearth this close to them.
 export const HEARTH_AUTO_TARGET_TILES = 8;
@@ -2327,8 +2333,18 @@ export const BIRTH_MIN_FOOD = 20;
 export const IMMIGRANTS_PER_WEEK = 3;
 // Tuning 2026-11-03: 40 -> 25 (a fresh colony sits at 43-57 %, which gave almost no immigrants).
 export const IMMIGRATION_MIN_HAPPINESS = 25;
-// Prisoners freed when a bandit / monster camp or lair falls (they join even past the housing cap).
-export const PRISONERS_PER_CAMP: [number, number] = [1, 3];
+// Prisoners held at a bandit / monster camp or fort hearth (rolled when the hearth is registered, saved with it):
+// PRISONERS_PER_CAMP, +1 per PRISONER_DISTANCE_STEP_TILES from the start (at most +PRISONER_DISTANCE_MAX_BONUS).
+// Freed when it falls; they join only where there is room (houses + Town Centers + Keeps), the rest wait at the
+// burnt-out camp (HearthState.prisonersWaiting) and come in at dawn as beds open up.
+// Tuning 2026-11-06: [1, 3] -> [2, 4], plus the distance bonus (getting people was too hard).
+export const PRISONERS_PER_CAMP: [number, number] = [2, 4];
+export const PRISONER_DISTANCE_STEP_TILES = 35;
+export const PRISONER_DISTANCE_MAX_BONUS = 3;
+// A few small camps (with prisoners) a short march from the start: NEAR_START_CAMPS of them, NEAR_START_CAMP_RING
+// tiles from the first Town Center (not scaled with the map).
+export const NEAR_START_CAMPS: [number, number] = [2, 3];
+export const NEAR_START_CAMP_RING: [number, number] = [20, 34];
 // Phase 3: training a soldier at a unit building takes one free adult villager + one weapon and one armour of the
 // building's tier, and TRAIN_DAYS_BY_LEVEL[level - 1] game days.
 export const TRAIN_DAYS_BY_LEVEL = [1, 1.25, 1.5];

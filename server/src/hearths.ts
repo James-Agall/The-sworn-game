@@ -4,12 +4,13 @@ import { randomUUID } from "node:crypto";
 import { type MobKind, TileType, TILE_SIZE } from "@colony/shared/protocol";
 import type { AttackObjective, Colonist, HearthState, Mob, PoiSiteKind, TileCoord } from "./types.js";
 import {
-  BREACH_WALL_COST, CATAPULT_BUILDING_MULT, ENCAMPMENT_EXTRAS, HEARTH_AUTO_TARGET_TILES, HEARTH_DEFAULT_HP,
+  BREACH_WALL_COST, CATAPULT_BUILDING_MULT, ENCAMPMENT_EXTRAS, HEARTH_AUTO_TARGET_TILES, HEARTH_DEFAULT_HP, HEARTH_GUARD_RADIUS_TILES,
+  PRISONER_WALKUP_TILES,
   HEARTH_LOOT_PER_GUARDIAN, LINE_LEASH_TILES, NEIGHBORS_8, POI_SITE_FOOTPRINT_RADIUS, RAID_LEAVE_MAX_TICKS,
   SIEGE_BUILDING_MULT, SITE_KIND_HAS_HEARTH, STRUCTURE_TARGET_PREFIX, TACTICS_SCAN_TILES,
 } from "./constants.js";
 import {
-  colonists, commandedTargets, hearthEvents, hearths, mobs, ownerSiteIds, regiments, state, structureBreach,
+  colonists, commandedTargets, hearthEvents, hearths, mobs, ownerSiteIds, players, regiments, state, structureBreach,
   tileOwner,
 } from "./state.js";
 import { setTile, tileIndicesOf } from "./chunks.js";
@@ -27,10 +28,11 @@ import { grantTieredEquipment, heroRelicForHearth, weaponDamageMult } from "./he
 import { spellBuffDamageMult } from "./spells.js";
 import { leaveOrderGroup } from "./orders.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
+import { sendEvent } from "./construction.js";
 import { noteSettlementAttacked, onFortKeepDestroyed, plunderSiteStock, siteIdNeutral, siteName, siteNumNeutral } from "./sites.js";
 import { noteCampCleared } from "./diplomacy.js";
 import { noteQuestCampCleared } from "./quests.js";
-import { rescuePrisoners } from "./people.js";
+import { rescuePrisoners, rollPrisoners } from "./people.js";
 
 export function hearthEvent(siteId: string, type: string, detail?: string) {
   hearthEvents.push({ tick: state.cycleTick, type, siteId, detail });
@@ -47,6 +49,7 @@ export function registerHearth(siteId: string, siteKind: PoiSiteKind, center: Ti
   const maxHp = SITE_KIND_HAS_HEARTH[siteKind]?.hp ?? HEARTH_DEFAULT_HP;
   hearths.set(siteId, {
     siteId, siteKind, x: center.x, y: center.y, hp: maxHp, maxHp, destroyed: false, faction: campFaction(kinds), garrison: kinds.length,
+    prisoners: rollPrisoners(center),
   });
 }
 
@@ -128,9 +131,35 @@ export function backfillHearths() {
   }
 }
 
-// Damage to a hearth from the colony's side; wakes its guardians (they defend it).
+// True while a living guard of the hearth's site stands within HEARTH_GUARD_RADIUS_TILES of it (the hearth can't be
+// damaged until they are beaten). A COLD camp's guards are parked, but nobody is there to strike it either.
+export function hearthGuarded(h: HearthState): boolean {
+  const c = tileToPixelCenter(h);
+  const r = HEARTH_GUARD_RADIUS_TILES * TILE_SIZE;
+  for (const m of mobs.values()) {
+    if (m.siteId === h.siteId && m.hp > 0 && Math.abs(m.x - c.x) <= r && Math.abs(m.y - c.y) <= r && Math.hypot(m.x - c.x, m.y - c.y) <= r) return true;
+  }
+  return false;
+}
+
+// "Defeat the guards first" at most every few seconds per player.
+const guardedToastTick = new Map<string, number>();
+function refuseGuarded(h: HearthState, attackerKey?: string) {
+  activateGuardianSite(h.siteId);
+  if (!attackerKey?.startsWith("p:")) return;
+  const player = players.get(attackerKey.slice(2));
+  if (!player || state.cycleTick - (guardedToastTick.get(player.id) ?? -Infinity) < 60) return;
+  guardedToastTick.set(player.id, state.cycleTick);
+  sendEvent(player, "build", "Defeat the guards first: the camp's hearth is protected while they stand");
+}
+
+// Damage to a hearth from the colony's side; wakes its guardians (they defend it). Refused while it is guarded.
 export function damageHearth(h: HearthState, amount: number, attackerKey?: string) {
   if (h.destroyed || amount <= 0) return;
+  if (attackerKey !== "test" && hearthGuarded(h)) {
+    refuseGuarded(h, attackerKey);
+    return;
+  }
   noteSettlementAttacked(h.siteId, attackerKey);
   activateGuardianSite(h.siteId);
   h.hp -= amount;
@@ -227,9 +256,24 @@ export function destroyHearth(h: HearthState, attackerKey?: string) {
 export function hearthsForSnapshot(): number[] {
   const out: number[] = [];
   for (const h of hearths.values()) {
-    if (!h.destroyed) out.push(tileIndex(h.x, h.y), Math.max(0, Math.floor((h.hp / h.maxHp) * 1000)));
+    if (!h.destroyed) out.push(tileIndex(h.x, h.y), Math.max(0, Math.floor((h.hp / h.maxHp) * 1000)), h.prisoners ?? 0, hearthGuarded(h) ? 1 : 0);
+    // A fallen camp where freed prisoners still wait for beds (permille -1: not a target).
+    else if (h.prisonersWaiting) out.push(tileIndex(h.x, h.y), -1, h.prisonersWaiting, 0);
   }
   return out;
+}
+
+// Once a second: a hero next to an unguarded camp hearth that holds prisoners frees them (no need to burn it).
+export function updatePrisonerWalkUp() {
+  for (const player of players.values()) {
+    if (player.dead) continue;
+    for (const h of hearths.values()) {
+      if (h.destroyed || !h.prisoners) continue;
+      const c = tileToPixelCenter(h);
+      if (Math.hypot(player.x - c.x, player.y - c.y) > (PRISONER_WALKUP_TILES + 0.5) * TILE_SIZE || hearthGuarded(h)) continue;
+      rescuePrisoners(h, "p:" + player.id);
+    }
+  }
 }
 
 // The orthogonal walkable neighbour of a hearth nearest (px, py), else any walkable neighbour.

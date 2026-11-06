@@ -11,7 +11,7 @@ import {
   BIOME_SEED_RADIUS_MAX, BIOME_SEED_RADIUS_MIN, BOSS_EQUIP_LOOT, CASTLE_RUIN_FOOTPRINT_RADIUS,
   CASTLE_RUIN_GROUNDS_RADIUS, CASTLE_RUIN_GUARDIANS_MAX, CASTLE_RUIN_GUARDIANS_MIN, CASTLE_RUIN_GUARDIAN_WEIGHTS,
   CASTLE_RUIN_LAYOUT, CASTLE_RUIN_LAYOUT_TILES, CASTLE_RUIN_SPAWN_DIST_FRACTIONS, ELITE_DAMAGE_MULT, ELITE_HP_MULT,
-  ELITE_REWARD, ENCAMPMENT_EXTRAS, ENCAMPMENT_GUARDIAN_WEIGHTS, MINI_BOSS_KINDS, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS,
+  ELITE_REWARD, ENCAMPMENT_EXTRAS, NEAR_START_CAMP_RING, NEAR_START_CAMPS, ENCAMPMENT_GUARDIAN_WEIGHTS, MINI_BOSS_KINDS, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS,
   NEIGHBORS_8, POI_SITE_FOOTPRINT_RADIUS, POI_SITE_MIN_SPACING, POI_SITE_WATER_CLEARANCE, POND_EDGE_JITTER_TILES,
   POND_MIN_SPACING, POND_NOISE_CELL_TILES, POND_RADIUS_MAX, POND_RADIUS_MIN, RUIN_CENTERPIECES, RUIN_EXTRAS,
   RUIN_GUARDIAN_WEIGHTS, SITE_KIND_HAS_HEARTH, SITE_POI_CLEARANCE_TILES, SPAWN_CLEAR_RADIUS_TILES, SPAWN_PLAINS_RADIUS_TILES,
@@ -303,6 +303,21 @@ export function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord)
   if (SITE_KIND_HAS_HEARTH[siteKind]?.hasHearth) registerHearth(siteId, siteKind, center, kinds);
 }
 
+// A few small encampments (prisoners to free) a short march from the start, NEAR_START_CAMP_RING tiles out.
+export function generateNearStartCamps(placedSites: TileCoord[]) {
+  const [lo, hi] = NEAR_START_CAMP_RING;
+  const want = randInt(NEAR_START_CAMPS[0], NEAR_START_CAMPS[1]);
+  for (let i = 0, attempts = 0; i < want && attempts < 400; attempts++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = randRange(lo, hi);
+    const t = { x: Math.round(TOWN_CENTER_TILE.x + Math.cos(a) * r), y: Math.round(TOWN_CENTER_TILE.y + Math.sin(a) * r) };
+    if (!inBounds(t.x, t.y) || placedSites.some((o) => tileDistance(o, t) < POI_SITE_MIN_SPACING) || !poiSiteSpotOk(t)) continue;
+    placedSites.push(t);
+    placePoiSite("encampment", t);
+    i++;
+  }
+}
+
 export function generatePoiSites(siteKind: "ruin" | "encampment", count: number, placedSites: TileCoord[]) {
   for (let i = 0; i < count; i++) {
     const center = pickScatteredTile(
@@ -501,8 +516,9 @@ export function setWorldSize(size: number) {
   state.POND_COUNT_MAX = scaledCount(12);
   state.RUIN_SITE_COUNT_MIN = scaledCountSub(6);
   state.RUIN_SITE_COUNT_MAX = scaledCountSub(10);
-  state.ENCAMPMENT_SITE_COUNT_MIN = scaledCountSub(6);
-  state.ENCAMPMENT_SITE_COUNT_MAX = scaledCountSub(10);
+  // Tuning 2026-11-06: 6-10 -> 9-14 (more camps holding prisoners).
+  state.ENCAMPMENT_SITE_COUNT_MIN = scaledCountSub(9);
+  state.ENCAMPMENT_SITE_COUNT_MAX = scaledCountSub(14);
   state.MINI_BOSS_SITE_COUNT_MIN = Math.max(1, scaledCountSub(0.75));
   state.MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCountSub(1.25));
 }
@@ -540,6 +556,7 @@ function generateWorldInner() {
   scatterResourceTiles(TileType.Rock, state.ROCK_COUNT);
   generateForage();
   generatePoiSites("ruin", randInt(state.RUIN_SITE_COUNT_MIN, state.RUIN_SITE_COUNT_MAX), placedSites);
+  generateNearStartCamps(placedSites);
   generatePoiSites("encampment", randInt(state.ENCAMPMENT_SITE_COUNT_MIN, state.ENCAMPMENT_SITE_COUNT_MAX), placedSites);
   generateMiniBossSites(randInt(state.MINI_BOSS_SITE_COUNT_MIN, state.MINI_BOSS_SITE_COUNT_MAX), placedSites);
   spawnInitialWildlife();

@@ -930,7 +930,8 @@ export const CONSTRUCTION_SNAPSHOT_STRIDE = 5;
 export const DAMAGED_BUILDING_SNAPSHOT_STRIDE = 2;
 // `hearths` is flattened [tile index, hp permille 0-1000] pairs, one per standing camp hearth (damaged
 // ones are also in `damagedBuildings`, which draws their HP bar).
-export const HEARTH_SNAPSHOT_STRIDE = 2;
+// [tile index, hp permille (-1: a fallen camp where freed prisoners wait), prisoners, guarded 0/1] per hearth.
+export const HEARTH_SNAPSHOT_STRIDE = 4;
 
 export interface TownCenterSnapshot {
   // Forts phase B: a captured fort's outpost ("Thornwick Palisade Outpost"); omitted for ordinary ones.
@@ -1003,7 +1004,8 @@ export interface BuildingInfo {
   // progress 0-1), the queue cap, and a button per slot (see queueForge).
   // Village life phase 3: unit buildings only: the soldier it trains, troops / trainees / capacity, training
   // days, and why "Train unit" is refused ("" = allowed).
-  train?: { kind: ColonistKind; level: number; troops: number; training: number; cap: number; days: number; reason: string };
+  // gearOptional: basic militia train without gear (weaker, unarmed) and take a T1 weapon + armour if in stock.
+  train?: { kind: ColonistKind; level: number; troops: number; training: number; cap: number; days: number; reason: string; gearOptional?: boolean; geared?: boolean };
   // Village life phase 4: own Town Centers only: civilians ready to be levied, levies on the field, ticks until they
   // stand down, and why "Call to arms" is refused ("" = allowed).
   levy?: { ready: number; onField: number; ticksLeft: number; reason: string };

@@ -7,16 +7,17 @@ import type { Colonist, HearthState, Player, TownCenter } from "./types.js";
 import {
   BIRTH_CHANCE_PER_COUPLE, BIRTH_MIN_FOOD, COUPLE_BIRTH_COOLDOWN_DAYS, HEIR_GOLD_SHARE, HEIR_SKILL_SHARE, CHILD_MATURE_DAYS, DAY_TICKS, GAME_DAY_TICKS,
   IMMIGRANTS_PER_WEEK, IMMIGRATION_MIN_HAPPINESS, KEEP_POPULATION_PER_LEVEL, PRISONERS_PER_CAMP,
+  PRISONER_DISTANCE_MAX_BONUS, PRISONER_DISTANCE_STEP_TILES,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_LEVEL_POPULATION_BONUS, TRAIN_DAYS_BY_LEVEL, VILLAGE_LEVY_COOLDOWN_TICKS,
   VILLAGE_LEVY_TICKS,
 } from "./constants.js";
-import { chargeRuns, colonists, players, respawnQueue, sites, state } from "./state.js";
+import { chargeRuns, colonists, hearths, players, respawnQueue, sites, state } from "./state.js";
 import { getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { tileIndicesOfAny } from "./chunks.js";
 import {
   findTownCenterAt, freeVillagerFor, houseCapacity, isCivilianKind, isHouseTile, isValidPostTile, nearestTownCenter,
   newPerson, personAgeDays, queueRespawn, releaseToVillage, settlementOf, settlementStats, spawnColonistForPost, spawnVillager,
-  transplantPerson,
+  TOWN_CENTER_TILE, transplantPerson,
 } from "./colonists.js";
 import { leaveOrderGroup } from "./orders.js";
 import { isSoldierKind, troopsAtPost, unitBuildingSlots } from "./units.js";
@@ -144,6 +145,7 @@ export function peopleDawnForClan(force: { birth?: boolean; immigrant?: boolean;
       broadcastEvent("build", `${v.person!.name} arrives from afar and settles in ${settlementLabel(room.tc)}`);
     }
   }
+  prisonersDawnForClan();
 }
 
 export function peopleDawn() {
@@ -159,21 +161,71 @@ export function updateAging() {
   }
 }
 
-// A bandit / monster camp, fort or lair falls: its prisoners (PRISONERS_PER_CAMP) are freed and join the attacker's
-// clan at its nearest Town Center (even past the housing cap). Human settlements hold no prisoners.
+// Prisoners a camp hearth at `at` holds: PRISONERS_PER_CAMP, more the farther it is from the start.
+export function rollPrisoners(at: { x: number; y: number }): number {
+  const [lo, hi] = PRISONERS_PER_CAMP;
+  const far = Math.hypot(at.x - TOWN_CENTER_TILE.x, at.y - TOWN_CENTER_TILE.y);
+  return lo + Math.floor(Math.random() * (hi - lo + 1)) + Math.min(PRISONER_DISTANCE_MAX_BONUS, Math.floor(far / PRISONER_DISTANCE_STEP_TILES));
+}
+
+// Up to `n` freed prisoners join the active clan where there is room (houses + Town Centers + Keeps; creative
+// ignores the cap), nearest to (px, py) first. Returns their names.
+function admitPrisoners(n: number, px: number, py: number): { names: string[]; where: TownCenter | null } {
+  const names: string[] = [];
+  let where: TownCenter | null = null;
+  const stats = settlementStats().map((st) => ({ tc: st.tc, room: state.creative ? n : Math.max(0, st.cap - st.used) }));
+  stats.sort((a, b) => {
+    const ca = tileToPixelCenter(a.tc);
+    const cb = tileToPixelCenter(b.tc);
+    return Math.hypot(ca.x - px, ca.y - py) - Math.hypot(cb.x - px, cb.y - py);
+  });
+  for (const st of stats) {
+    while (names.length < n && st.room > 0) {
+      names.push(spawnVillager(st.tc, newPerson("rescued")).person!.name);
+      st.room--;
+      where ??= st.tc;
+    }
+  }
+  return { names, where };
+}
+
+// A bandit / monster camp, fort or lair falls: its prisoners (HearthState.prisoners) are freed and join the
+// attacker's clan where it has beds; the rest wait at the fallen camp (prisonersWaiting) and come in at dawn
+// (prisonersDawnForClan). Human settlements hold no prisoners.
 export function rescuePrisoners(h: HearthState, attackerKey?: string) {
   if (h.siteKind === "fort" && sites.get(h.siteId)?.faction === "human") return;
   const clanId = attackerClan(attackerKey);
+  if (townCentersOfClan(clanId).length === 0) return;
+  const n = h.prisoners ?? rollPrisoners(h);
+  if (n <= 0) return;
+  h.prisoners = 0;
   const p = tileToPixelCenter(h);
-  const tc = nearestTownCenter(p.x, p.y, townCentersOfClan(clanId));
-  if (!tc) return;
-  const [lo, hi] = PRISONERS_PER_CAMP;
-  const n = lo + Math.floor(Math.random() * (hi - lo + 1));
   withClan(clanById(clanId), () => {
-    const names: string[] = [];
-    for (let i = 0; i < n; i++) names.push(spawnVillager(tc, newPerson("rescued")).person!.name);
-    broadcastEvent("build", `Prisoners freed: ${names.join(", ")} join ${settlementLabel(tc)}`);
+    const { names, where } = admitPrisoners(n, p.x, p.y);
+    const left = n - names.length;
+    if (names.length > 0) broadcastEvent("build", `Prisoners freed: ${names.join(", ")} join ${settlementLabel(where!)}`);
+    if (left > 0) {
+      h.prisonersWaiting = left;
+      h.prisonersClan = clanId;
+      broadcastEvent("build", `${left} freed prisoner${left > 1 ? "s wait" : " waits"} at the camp: build houses (or a Keep) and they will come at dawn`);
+    }
   });
+}
+
+// Dawn, per clan: freed prisoners waiting at fallen camps come in while there is room.
+export function prisonersDawnForClan() {
+  for (const h of hearths.values()) {
+    if (!h.prisonersWaiting || h.prisonersClan !== state.clan.id) continue;
+    const p = tileToPixelCenter(h);
+    const { names, where } = admitPrisoners(h.prisonersWaiting, p.x, p.y);
+    if (names.length === 0) continue;
+    h.prisonersWaiting -= names.length;
+    if (h.prisonersWaiting <= 0) {
+      h.prisonersWaiting = undefined;
+      h.prisonersClan = undefined;
+    }
+    broadcastEvent("build", `Freed prisoners arrive: ${names.join(", ")} settle in ${settlementLabel(where!)}`);
+  }
 }
 
 // ---- Phase 3: training ----
@@ -191,6 +243,9 @@ export interface TrainInfo {
   cap: number;
   days: number;
   reason: string;
+  // Basic militia (level 1): gear is optional; geared = a T1 weapon + armour are in stock and will be taken.
+  gearOptional: boolean;
+  geared: boolean;
 }
 
 // What "Train unit" at the unit building (tx, ty) would do for the active clan, and why it can't ("" = it can).
@@ -201,18 +256,23 @@ export function trainInfo(tx: number, ty: number): TrainInfo | null {
   const level = Math.min(Math.max(slots.level, 1), 3);
   const troops = troopsAtPost(tx, ty, slots.kind);
   const training = traineesAt(tx, ty);
-  const info = { kind: slots.kind, level, troops, training, cap: slots.cap, days: TRAIN_DAYS_BY_LEVEL[level - 1], reason: "" };
+  const hasGear = state.equipment.weapon[level - 1] >= 1 && state.equipment.armour[level - 1] >= 1;
+  const gearOptional = slots.kind === "militia";
+  const info: TrainInfo = {
+    kind: slots.kind, level, troops, training, cap: slots.cap, days: TRAIN_DAYS_BY_LEVEL[level - 1], reason: "", gearOptional, geared: hasGear,
+  };
   if (clanIdAt(tx, ty) !== state.clan.id) info.reason = "Not your building";
   else if (troops + training >= slots.cap) info.reason = `Barracks full (${troops + training}/${slots.cap})`;
   else if (state.creative) info.reason = "";
   else if (!freeVillagerFor(state.clan.id, tx, ty)) info.reason = "No free villager";
-  else if (state.equipment.weapon[level - 1] < 1 || state.equipment.armour[level - 1] < 1) info.reason = `Needs a T${level} weapon and T${level} armour (forge them at a Blacksmith)`;
+  else if (!gearOptional && !hasGear) info.reason = `Needs a T${level} weapon and T${level} armour (forge them at a Blacksmith)`;
   return info;
 }
 
-function finishTraining(c: Colonist | null, tx: number, ty: number, kind: ColonistKind, level: number) {
+function finishTraining(c: Colonist | null, tx: number, ty: number, kind: ColonistKind, level: number, unarmed = false) {
   const unit = spawnColonistForPost(tx, ty, kind, level, true);
-  if (EQUIPPED.has(kind)) {
+  if (unarmed) unit.unarmed = true;
+  else if (EQUIPPED.has(kind) || kind === "militia") {
     unit.armourTier = level;
     unit.weaponTier = level;
   }
@@ -242,14 +302,18 @@ export function handleTrainUnit(player: Player, tx: unknown, ty: unknown) {
       return;
     }
     const v = freeVillagerFor(state.clan.id, tx, ty)!;
-    state.equipment.weapon[info.level - 1]--;
-    state.equipment.armour[info.level - 1]--;
+    // Basic militia take a T1 weapon + armour when the stock has them, else they train unarmed.
+    const unarmed = !info.geared;
+    if (!unarmed) {
+      state.equipment.weapon[info.level - 1]--;
+      state.equipment.armour[info.level - 1]--;
+    }
     const ticks = Math.round(info.days * DAY_TICKS * (state.instantBuild ? 0 : 1)) || 1;
-    v.training = { tx, ty, kind: info.kind, level: info.level, ticksLeft: ticks, ticksTotal: ticks };
+    v.training = { tx, ty, kind: info.kind, level: info.level, ticksLeft: ticks, ticksTotal: ticks, ...(unarmed ? { unarmed } : {}) };
     v.postX = tx;
     v.postY = ty;
     v.path = [];
-    sendEvent(player, "build", `${v.person?.name ?? "A villager"} begins training (${info.days} day${info.days === 1 ? "" : "s"})`);
+    sendEvent(player, "build", `${v.person?.name ?? "A villager"} begins training${unarmed ? " (unarmed: no weapon or armour in stock)" : ""} (${info.days} day${info.days === 1 ? "" : "s"})`);
   });
 }
 
@@ -270,7 +334,7 @@ export function updateTraining() {
     withClan(clanById(c.clan ?? 0), () => {
       const name = c.person?.name ?? "A recruit";
       const kind = slots!.kind;
-      finishTraining(c, t.tx, t.ty, kind, t.level);
+      finishTraining(c, t.tx, t.ty, kind, t.level, t.unarmed === true && kind === "militia");
       broadcastEvent("build", `${name} finished training: a new ${kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase())}`);
     });
   }
@@ -283,10 +347,12 @@ function sameLine(a: ColonistKind, b: ColonistKind): boolean {
 
 function cancelTraining(c: Colonist) {
   const t = c.training!;
-  withClan(clanById(c.clan ?? 0), () => {
-    state.equipment.weapon[t.level - 1]++;
-    state.equipment.armour[t.level - 1]++;
-  });
+  if (!t.unarmed) {
+    withClan(clanById(c.clan ?? 0), () => {
+      state.equipment.weapon[t.level - 1]++;
+      state.equipment.armour[t.level - 1]++;
+    });
+  }
   c.training = undefined;
   const tc = nearestTownCenter(c.x, c.y, townCentersOfClan(c.clan ?? 0));
   if (tc) {

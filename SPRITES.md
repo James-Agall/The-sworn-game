@@ -629,6 +629,14 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > crock, bread loaf. Files: `mill.png`, `bakery.png`, `item{WoodenPlow,Millstone,ClayOven,Flour,Gruel,Flatbread,
 > SourdoughStarter,Bread}.png`. Stand-ins: the barn tinted pale (mill) and the tavern tinted warm (bakery).
 
+### 85. Prisoner / captive (2026-11-06)
+> Match the existing villager / farmer art (28 px tall, feet at the bottom edge). A **captive villager** kneeling or
+> standing with wrists bound by a rope (idle: 2 frames, a slow sway; no walk row needed: captives stand at camp
+> hearths until freed), plus a **freed** pose (standing, rope gone, 1 frame) for the ones waiting at a burnt camp.
+> Files: `prisoner.png`, `prisonerIdle0-1.png`, `prisonerFreed.png`. Stand-in now: the villager sprite
+> (`farmer.png`) tinted grey with a drawn rope loop at the wrists (`client/src/main.ts` syncCaptives); the freed ones
+> are the villager tinted pale, untied. A guarded hearth shows a small drawn grey shield (no art requested).
+
 ### 86. Pasture animals: cow, pig and sheep pastures (2026-11-06)
 > Match the existing `pasture` / `pastureFat` / `sheepPasture*` art (same fenced 2x2 paddock, drawn on one canvas
 > and scaled across the 2x2 block like the other pastures). **Cow pasture**: the current Pasture art already shows

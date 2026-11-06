@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { TILE_SIZE, type MobKind } from "@colony/shared/protocol";
 import type { Mob, RaidEdge, RaidFactionId, RaidGroup, SiteState, SiteTemplateId, TileCoord } from "./types.js";
 import {
-  CAMP_RAID_MIN_TIER, CAMP_RAID_RANGE_TILES, CAMP_RAID_SIZE_CAP, CAMP_RESETTLE_COOLDOWN_DAYS, DAY_TICKS, GAME_DAY_TICKS,
+  CAMP_RAID_MIN_TIER, CAMP_RAID_RANGE_TILES, CAMP_RAID_SIZE_CAP, DAY_TICKS, GAME_DAY_TICKS,
   MOB_KIND_CONFIG, MOB_REPATH_TICKS, RAID_FACTIONS, SITE_APRON_TILES, SITE_FORT_MIN_WORLD_TILES, SITE_FORT_SPACING_TILES, SITE_TEMPLATES,
   TEST_HOOKS, WARBAND_AWAKE_TILES, WARBAND_CLAN_CLEARANCE_TILES, WARBAND_COUNT_AT_512, WARBAND_COUNT_EXP,
   WARBAND_ENGAGE_TILES, WARBAND_FIRST_DAY, WARBAND_PACE, WARBAND_SEGMENT_TILES, WARBAND_SETTLE_ATTEMPTS,
@@ -106,21 +106,13 @@ export function warbandTile(w: Warband): TileCoord {
   return w.route[Math.max(0, Math.min(w.route.length - 1, Math.floor(w.idx)))] ?? { x: 0, y: 0 };
 }
 
-// A camp spot for template `t`: a razed founded camp past its cooldown (first), else
-// rejection sampling: centre WARBAND_SETTLE_MIN..MAX tiles from the nearest Town Center (the max only for the first
+// A camp spot for template `t` (2026-11-06: a razed camp is never re-settled; its ruin stays a ruin, nothing grows
+// back on it): rejection sampling: centre WARBAND_SETTLE_MIN..MAX tiles from the nearest Town Center (the max only for the first
 // half of the attempts; a second pass allows WARBAND_CLAN_CLEARANCE_TILES), SITE_FORT_SPACING_TILES from every
 // site's keep and every other warband's target, clearable natural ground (siteFitProblem clearable).
 function pickCampSpot(id: SiteTemplateId): { x0: number; y0: number; resettle?: string } | null {
   const t = SITE_TEMPLATES[id];
   const { w, h } = templateSize(t);
-  const now = state.cycleTick;
-  const claimed = new Set(Array.from(warbands.values(), (b) => b.resettle).filter(Boolean));
-  const old = Array.from(sites.values()).filter((s) => s.founded && s.cleared && !s.captured && s.template === id && !claimed.has(s.id)
-    && now - (s.clearedTick ?? now) >= CAMP_RESETTLE_COOLDOWN_DAYS * GAME_DAY_TICKS);
-  if (old.length > 0) {
-    const s = old[Math.floor(Math.random() * old.length)];
-    return { x0: s.x0, y0: s.y0, resettle: s.id };
-  }
   const targets = Array.from(warbands.values(), (b) => ({ x: b.x0 + (w >> 1), y: b.y0 + (h >> 1) }));
   for (const min of [WARBAND_SETTLE_MIN_TC_TILES, WARBAND_CLAN_CLEARANCE_TILES]) {
     for (let attempt = 0; attempt < WARBAND_SETTLE_ATTEMPTS; attempt++) {

@@ -12,7 +12,7 @@ import { CHUNK_TILES } from "./chunks.js";
 import { state } from "./state.js";
 
 // Bump when worldgen changes what a seed produces (old diff saves then need their base cache file).
-export const WORLDGEN_VERSION = 1;
+export const WORLDGEN_VERSION = 2;
 // A chunk with more changed tiles than this is stored whole (1024 bytes) instead of as (u16 pos, u8 tile).
 const CHUNK_FULL_AT = 340;
 

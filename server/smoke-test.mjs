@@ -15,7 +15,7 @@ const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_mo
 const TILE = 32;
 const TICK = 20;
 const DAY = TICK * 300;
-const T = { Empty: 0, Wall: 1, LumberjackPost: 3, KnightPost: 5, House: 13, Pasture: 21, Gate: 70, Moat: 75, Drawbridge: 76 };
+const T = { Empty: 0, Wall: 1, LumberjackPost: 3, KnightPost: 5, House: 13, MilitiaPost: 32, Pasture: 21, Gate: 70, Moat: 75, Drawbridge: 76 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();
 
@@ -218,7 +218,7 @@ spots.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
 for (const [dx, dy] of spots) {
   const cx = tc.x + dx, cy = tc.y + dy;
   if (cx < 12 || cy < 12 || cx > c.W - 13 || cy > c.W - 13) continue;
-  await clearBox(cx, cy, 11);
+  await clearBox(cx, cy, 16);
   const st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 0 });
   if (st?.site) { site = st.site; break; }
   stampProblem += `[${dx},${dy}: ${st?.problem ?? "no reply"}] `;
@@ -471,7 +471,7 @@ await check("people growth: birth, child grows up, immigrant, freed prisoners", 
   ps = await hook("peopleState", { rescueAt: { x: tc.x + 20, y: tc.y } });
   const rescued = ps.persons.filter((p) => p.origin === "rescued").length;
   await hook("peopleState", { creative: true });
-  return [born && grown && immigrant && rescued >= 1 && rescued <= 3, `born ${born} (${kid?.name}), grown ${grown}, immigrant ${immigrant}, ${rescued} rescued, pop ${ps.population}/${ps.cap}`];
+  return [born && grown && immigrant && rescued >= 1 && rescued <= 4, `born ${born} (${kid?.name}), grown ${grown}, immigrant ${immigrant}, ${rescued} rescued, pop ${ps.population}/${ps.cap}`];
 });
 
 // 8d. village life phase 3: Train unit needs a free villager + tier gear, takes a day, makes the soldier
@@ -508,6 +508,70 @@ await check("training: gear + villager required, 1-day timer, trainee becomes th
   await hook("peopleState", { creative: true });
   return [noFreeKnight && noVillager && noGear && timer && paid && done,
     `post left open ${noFreeKnight}, refused w/o villager ${noVillager}, w/o gear ${noGear}, 1-day timer ${timer}, gear paid ${paid}, became knight ${done}`];
+});
+
+// 8d2. basic militia train with no gear (unarmed, nothing taken); with T1 gear in stock they take it.
+await check("training: basic militia need no gear (unarmed), take T1 gear when stocked", async () => {
+  await hook("peopleState", { creative: false });
+  for (const k of ["villager", "militia"]) await hook("killColonists", { kind: k });
+  await hook("setInstantBuild", { enabled: true });
+  const M = { x: tc.x + 6, y: tc.y + 9 };
+  await clearBox(M.x, M.y, 2);
+  await place(M.x, M.y, T.MilitiaPost);
+  await ff(2);
+  await hook("peopleState", { spawn: 2 });
+  await hook("setEquipment", { armour: [0, 0, 0], weapon: [0, 0, 0] });
+  let ps = await hook("peopleState", { trainAt: M });
+  const open = ps.trainInfo?.reason === "" && ps.trainInfo?.gearOptional === true && ps.trainInfo?.geared === false;
+  await hook("setInstantBuild", { enabled: false });
+  send({ type: "trainUnit", tileX: M.x, tileY: M.y });
+  await sleep(150);
+  ps = await hook("peopleState", { trainAt: M });
+  const unarmed = ps.persons.find((p) => p.training)?.training?.unarmed === true;
+  await hook("setEquipment", { armour: [1, 0, 0], weapon: [1, 0, 0] });
+  ps = await hook("peopleState", { trainAt: M });
+  const geared = ps.trainInfo?.geared === true;
+  send({ type: "trainUnit", tileX: M.x, tileY: M.y });
+  await sleep(150);
+  const eq = await hook("setEquipment", {});
+  const took = eq.equipment.armour[0] === 0 && eq.equipment.weapon[0] === 0;
+  await hook("peopleState", { finishTraining: true });
+  await ff(2);
+  ps = await hook("peopleState");
+  const militia = ps.persons.filter((p) => p.kind === "militia" && p.postX === M.x).length;
+  await place(M.x, M.y, T.Empty);
+  await hook("peopleState", { creative: true });
+  return [open && unarmed && geared && took && militia === 2, `no-gear ok ${open}, unarmed trainee ${unarmed}, geared offer ${geared}, gear taken ${took}, militia ${militia}`];
+});
+
+// 8d3. camp hearths: protected while guards stand ("Defeat the guards first"); once they are dead the hearth can be
+// struck, and a hero walking up frees its prisoners (visible in the snapshot `hearths`: [index, permille, prisoners, guarded]).
+await check("camp hearth: guarded until the guards fall, walk-up frees the prisoners", async () => {
+  // (Earlier checks clear the map's mobs: post a fresh guard of the site next to its fire.)
+  let h = (await hook("hearthState")).hearths.find((x) => !x.destroyed && x.siteKind === "encampment" && x.prisoners > 0);
+  if (!h) return "no encampment with prisoners";
+  await hook("spawnMob", { kind: "banditClubman", tx: h.x + 2, ty: h.y, siteId: h.siteId });
+  h = (await hook("hearthState")).hearths.find((x) => x.siteId === h.siteId);
+  const ev0 = c.events.length;
+  let r = await hook("damageHearth", { siteId: h.siteId, amount: 10, asPlayer: true });
+  await sleep(100);
+  const refused = r.hp === h.hp && /Defeat the guards first/.test(events(ev0));
+  const idx = h.y * c.W + h.x;
+  const flat = c.snap.hearths ?? [];
+  let snapGuarded = false;
+  for (let i = 0; i + 4 <= flat.length; i += 4) if (flat[i] === idx) snapGuarded = flat[i + 1] >= 0 && flat[i + 2] === h.prisoners && flat[i + 3] === 1;
+  for (const g of h.guardians) await hook("damageMob", { mobId: g.id, amount: 99999 });
+  await ff(2);
+  r = await hook("damageHearth", { siteId: h.siteId, amount: 10, asPlayer: true });
+  const struck = r.hp < h.hp;
+  const ps0 = (await hook("peopleState")).persons.filter((p) => p.origin === "rescued").length;
+  await tp(h.x + 1, h.y);
+  await ff(TICK * 2);
+  const after = (await hook("hearthState")).hearths.find((x) => x.siteId === h.siteId);
+  const ps1 = (await hook("peopleState")).persons.filter((p) => p.origin === "rescued").length;
+  const freed = after.prisoners === 0 && ps1 >= ps0 + h.prisoners;
+  await tp(tc.x, tc.y + 3);
+  return [refused && snapGuarded && struck && freed, `refused while guarded ${refused}, snapshot guarded ${snapGuarded}, struck after ${struck}, ${h.prisoners} prisoners freed by walking up ${freed} (${ps0}->${ps1})`];
 });
 
 // 8e. village life phase 4: with no builder, free villagers raise a construction site (at half speed)

@@ -91,6 +91,8 @@ export interface Training {
   level: number;
   ticksLeft: number;
   ticksTotal: number;
+  // Basic militia trained without gear (none was taken from the stock: nothing to refund).
+  unarmed?: boolean;
 }
 export interface Colonist {
   id: string;
@@ -160,6 +162,8 @@ export interface Colonist {
   // Missing in old saves = 0 (unequipped, today's stats).
   armourTier?: number;
   weaponTier?: number;
+  // A basic militiaman trained with no weapon or armour: fists and clubs (UNARMED_MILITIA_DAMAGE_MULT), no armour.
+  unarmed?: boolean;
   // Hero phase 3: heroes only (kind "hero"). The colonist id is the hero's stable id (profile "hero:<id>",
   // which holds its XP / level / equipment). Missing on every other unit and in old saves.
   heroClass?: HeroClass;
@@ -808,6 +812,11 @@ export interface HearthState {
   faction: string;
   // Guardians the site was stamped with (scales the loot).
   garrison: number;
+  // Prisoners held here (rolled at registration; missing on old saves: rolled when it falls).
+  prisoners?: number;
+  // Freed prisoners still waiting at the fallen camp for a bed, and the clan they are joining.
+  prisonersWaiting?: number;
+  prisonersClan?: number;
 }
 export interface AttackObjective {
   id: string;
