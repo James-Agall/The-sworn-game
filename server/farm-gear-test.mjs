@@ -5,7 +5,7 @@
 // Run from server/: `node farm-gear-test.mjs`.
 //   H a Hemp Field is walkable (a soldier can stand on it; a Pasture tile can't) and its farmhand delivers hemp.
 //   P a Pasture takes a clear 2x2 block (refused when a part tile is taken), costs 10 wood, stamps 3 part tiles,
-//     a part tile opens the same info panel, one tending cycle pays 4 x 120 meat (cows, 2026-11-06), demolishing a part clears all 4.
+//     a part tile opens the same info panel, one tending cycle pays 4 x 120 x 0.5 meat (cows, food balance 2026-11-06), demolishing a part clears all 4.
 //   G already-spawned soldiers pick up stock gear: knight > pikeman > spearman, lower tier first, never down,
 //     the old piece goes back to the stock; the snapshot tier changes and a toast fires.
 //   Q the forge queue holds 20.
@@ -165,7 +165,8 @@ try {
   const ps = await findSpot(2, 2);
   const woodBefore = (await stockOf(c)).wood;
   const evPlace = c.events.length;
-  await place(ps.x, ps.y, T.Pasture);
+  // A strolling villager on a part tile refuses the block for a moment: retry a couple of times.
+  for (let i = 0; i < 3 && c.tileAt(ps.x, ps.y) !== T.Pasture; i++) await place(ps.x, ps.y, T.Pasture);
   await c.freshSnap();
   const woodPaid = woodBefore + goalWood(c, evPlace) - (await stockOf(c)).wood;
   const block = [c.tileAt(ps.x, ps.y), c.tileAt(ps.x + 1, ps.y), c.tileAt(ps.x, ps.y + 1), c.tileAt(ps.x + 1, ps.y + 1)];
@@ -176,9 +177,10 @@ try {
   const partInfo = await c.buildingInfo(ps.x + 1, ps.y + 1);
   result(partInfo?.name === "Cow Pasture" && partInfo.bonuses.some((b) => /2x2 paddock: x4/.test(b)), `(P) a part tile opens the Pasture's panel: ${partInfo?.name} / ${partInfo?.bonuses.find((b) => /paddock/.test(b))}`);
   await c.hookCall("setStock", { stock: { meat: 0 } });
-  const meatOk = await ffUntil(async () => (await stockOf(c)).meat > 0, 40000, 1000);
+  const meatOk = await ffUntil(async () => (await stockOf(c)).meat > 0, 80000, 1000);
   const meat = (await stockOf(c)).meat;
-  result(meatOk && meat === 480, `(P) one tending cycle pays 4 x 120 = 480 meat (cows, PASTURE_YIELDS since 2026-11-06; got ${meat})`);
+  // (a dawn in the same fast-forward step may feed a little of it to the colony)
+  result(meatOk && meat <= 240 && meat >= 225, `(P) one tending cycle pays 4 x 120 x 0.5 = 240 meat (cows, PASTURE_YIELDS x FOOD_OUTPUT_MULT; got ${meat})`);
   await c.hookCall("teleportPlayer", { x: (ps.x + 2) * TILE + 16, y: (ps.y + 1) * TILE + 16 });
   await c.freshSnap();
   await place(ps.x + 1, ps.y + 1, T.Empty);

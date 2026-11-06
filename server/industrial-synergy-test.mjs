@@ -32,7 +32,7 @@ const T = {
 const INDUSTRIAL = new Set([3, 16, 9, 10, 21, 22, 23, 24, 25, 26, 27, 30, 50, 51]);
 const TILE = 32;
 const PLAINS = 0;
-const FARM_GROW_TICKS = 6000; // 3 game days (FARM_GROW_DAYS * (DAY + NIGHT) ticks)
+const FARM_GROW_TICKS = 12000; // 6 legacy game days (FARM_GROW_DAYS 3 x FOOD_TIME_MULT 2, 2026-11-06)
 const FARM_HARVEST_TICKS = 40; // TICK_RATE * 2
 const CYCLE_TICKS = 2000; // (DAY 60s + NIGHT 40s) * 20 ticks/s
 

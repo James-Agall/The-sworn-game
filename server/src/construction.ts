@@ -5,7 +5,7 @@ import {
   TileType, isGateTile, isSolidTile, TICK_RATE, type GameEventCategory, type ServerMessage, type BuildingInfo, TILE_SIZE, Biome,
   isRoadTile, RELATION_TIER_NAMES,
 } from "@colony/shared/protocol";
-import { BUILD_COSTS, footprintOf, footprintPartOffsets, PASTURE_YIELDS } from "@colony/shared/buildings";
+import { BUILD_COSTS, FOOD_OUTPUT_MULT, footprintOf, footprintPartOffsets, PASTURE_YIELDS } from "@colony/shared/buildings";
 import type { ConstructionSiteState, Cost, Player, ResourceKey, TileCoord, TownCenter } from "./types.js";
 import {
   ABBEY_GROUNDS_RADIUS, ARCHER_WOOD_COST, BARN_WOOD_COST, BIG_BUILD_TILES, BLACKSMITH_TOOLS_STOCK_CAP,
@@ -1359,7 +1359,8 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     const y = PASTURE_YIELDS[t];
     if (y) {
       const m = footprintYieldMult(tx, ty);
-      const parts = [`${y.meat * m} meat`, ...(y.wool ? [`${y.wool * m} wool`] : []), ...(y.hide ? [`${y.hide * m} hide`] : [])];
+      const n = (v: number) => Math.round(v * m * FOOD_OUTPUT_MULT);
+      const parts = [`${n(y.meat)} meat`, ...(y.wool ? [`${n(y.wool)} wool`] : []), ...(y.hide ? [`${n(y.hide)} hide`] : [])];
       bonuses.push(`Each batch: ${parts.join(" + ")}`);
     }
   }

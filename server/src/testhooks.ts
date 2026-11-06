@@ -78,7 +78,7 @@ import { tierOf } from "./diplomacy.js";
 import { endVassalage, forceTribute, updateVassals, vassalDebugState, vassalsDawn } from "./vassals.js";
 import { forceVassal, placeTradingPost, spawnMobAt, spawnRaidGroupAt, spawnSoldierAt, stampSiteSearch } from "./creative.js";
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
-import { PASTURE_YIELDS } from "@colony/shared/buildings";
+import { FOOD_OUTPUT_MULT, FOOD_TIME_MULT, PASTURE_YIELDS } from "@colony/shared/buildings";
 import { handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
@@ -204,6 +204,8 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         FARMHAND_CYCLE_TICKS,
         FARMHAND_YIELD_PER_CYCLE,
         PASTURE_YIELDS,
+        FOOD_OUTPUT_MULT,
+        FOOD_TIME_MULT,
         DAY_TICKS,
         NIGHT_TICKS,
         LEGACY_GAME_DAY_TICKS,
@@ -972,7 +974,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       duskTick: DUSK_RESPAWN_CYCLE_TICK,
       wardPriestRespawnTicks: state.wardPriestRespawnTicks,
       constants: {
-        DAY_TICKS, NIGHT_TICKS, GAME_DAY_TICKS, LEGACY_DAY_TICKS, LEGACY_NIGHT_TICKS, DAY_LENGTH_SCALE,
+        DAY_TICKS, NIGHT_TICKS, GAME_DAY_TICKS, LEGACY_DAY_TICKS, LEGACY_NIGHT_TICKS, DAY_LENGTH_SCALE, FOOD_TIME_MULT,
         FOOD_PER_COLONIST_PER_DAY, FARM_GROW_TICKS, FARMHAND_CYCLE_TICKS, FORAGE_REGROW_TICKS,
         WILDLIFE_RESPAWN_INTERVAL_TICKS, DESERTER_ACTIVATION_TICKS, RESPAWN_FOOD_COST,
       },

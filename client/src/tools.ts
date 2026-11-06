@@ -1,5 +1,5 @@
 // Build tool definitions: categories and the toolbar list (split out of main.ts, no behaviour change).
-import { BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, PASTURE_YIELDS } from "@colony/shared/buildings";
+import { BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FOOD_OUTPUT_MULT, PASTURE_YIELDS } from "@colony/shared/buildings";
 import { TileType } from "@colony/shared/protocol";
 
 export type ToolCategory = "combat" | "farming" | "industry" | "civic" | "trade";
@@ -22,11 +22,12 @@ export const TOOL_CATEGORIES: { key: ToolCategory; label: string }[] = [
   { key: "trade", label: "Trade" },
 ];
 
-// "Each 3-day batch: 480 meat + 4 hide" for a complete 2x2 pasture (x4 its per-tile PASTURE_YIELDS).
+// "Each batch: 240 meat + 2 hide" for a complete 2x2 pasture (x4 its per-tile PASTURE_YIELDS, x FOOD_OUTPUT_MULT).
 function pastureYieldText(tile: TileType): string {
   const y = PASTURE_YIELDS[tile];
   if (!y) return "";
-  const parts = [`${y.meat * 4} meat`, ...(y.wool ? [`${y.wool * 4} wool`] : []), ...(y.hide ? [`${y.hide * 4} hide`] : [])];
+  const n = (v: number) => Math.round(v * 4 * FOOD_OUTPUT_MULT);
+  const parts = [`${n(y.meat)} meat`, ...(y.wool ? [`${n(y.wool)} wool`] : []), ...(y.hide ? [`${n(y.hide)} hide`] : [])];
   return `Each batch: ${parts.join(" + ")}`;
 }
 

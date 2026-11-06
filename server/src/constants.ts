@@ -7,7 +7,8 @@ import {
   type EquipSlot, type BossTier, type Difficulty, TileType, WildlifeState, type RegimentClass, type ArmyOrderKind,
   type CombatRole, type SaveSlot, type ItemSlotKind, type ItemStats, type SpellId, FIGHT_WINDOW_SECONDS,
 } from "@colony/shared/protocol";
-import { BLACKSMITH_TOOLS_STOCK_CAP as SHARED_BLACKSMITH_TOOLS_STOCK_CAP, BUILD_COSTS } from "@colony/shared/buildings";
+import { BLACKSMITH_TOOLS_STOCK_CAP as SHARED_BLACKSMITH_TOOLS_STOCK_CAP, BUILD_COSTS, FOOD_OUTPUT_MULT, FOOD_TIME_MULT } from "@colony/shared/buildings";
+export { FOOD_OUTPUT_MULT, FOOD_TIME_MULT };
 import type {
   Cost, CraftRecipe, DifficultyTuning, MobKindConfig, PoiSiteKind, RaidFactionEntry, RaidFactionId,
   RaidFormationShape, ResourceKey, SiteTemplate, SiteTemplateId, TileCoord, WildlifeMode,
@@ -561,7 +562,8 @@ export const LEGACY_GAME_DAY_TICKS = LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS;
 // (once its Barn is staffed). Grow and harvest are scaled by the Barn's level, the plot's biome,
 // happiness and the Barn's industrial synergy; fallow is a flat rest.
 export const FARM_GROW_DAYS = 3;
-export const FARM_GROW_TICKS = FARM_GROW_DAYS * LEGACY_GAME_DAY_TICKS;
+// Food balance (2026-11-06): x FOOD_TIME_MULT (shared/buildings.ts), 3 -> 6 legacy days.
+export const FARM_GROW_TICKS = FARM_GROW_DAYS * LEGACY_GAME_DAY_TICKS * FOOD_TIME_MULT;
 // The first third of the grow phase reads as freshly sown soil (snapshot sownFarmPlots).
 export const FARM_SOWN_FRACTION = 1 / 3;
 export const FARM_HARVEST_TICKS = TICK_RATE * 2;
@@ -572,7 +574,8 @@ export const FARM_FALLOW_TICKS = FARM_FALLOW_DAYS * LEGACY_GAME_DAY_TICKS;
 // rotation is 5 x 3 grow days + 3 fallow days = 18 legacy days. 24 per harvest (was 36, cut a third on
 // 2026-10-23 when a Barn's plot cap doubled from 4 to BARN_MAX_FARM_PLOTS 8) gives a long-run
 // 5 * 24 / 18 = 6.67 grain per plot per legacy day (was 10), so a full Barn yields ~53 instead of 40.
-export const FARM_YIELD_PER_HARVEST = 24;
+// Food balance (2026-11-06): x FOOD_OUTPUT_MULT, 24 -> 12.
+export const FARM_YIELD_PER_HARVEST = Math.round(24 * FOOD_OUTPUT_MULT);
 // Farm Plots per Barn (was 4: the orthogonally adjacent tiles). A new plot may go anywhere within
 // BARN_FARM_RADIUS_TILES (Chebyshev) of a Barn with fewer than BARN_MAX_FARM_PLOTS plots; it belongs to
 // the nearest such Barn.
@@ -585,6 +588,9 @@ export const BARN_FARM_RADIUS_TILES = 2;
 // by the building's level, biome, happiness and industrial synergy exactly like the old unit timer.
 export const FARMHAND_CYCLE_DAYS = 3;
 export const FARMHAND_CYCLE_TICKS = FARMHAND_CYCLE_DAYS * LEGACY_DAY_TICKS;
+// Food balance (2026-11-06): the farmhand farms that make food (or the food animals' wool / hide) run
+// FOOD_TIME_MULT longer cycles and deliver FOOD_OUTPUT_MULT of the batch; the Hemp Field is unchanged.
+export const FOOD_FARM_TILES = new Set<TileType>([TileType.Pasture, TileType.PigPasture, TileType.WoolFarm, TileType.Orchard]);
 // 2x2 pastures (2026-10-30, FOOTPRINT_BY_TILE): a complete multi-tile farm yields this many batches' worth
 // per cycle per tile of its footprint (same per-tile productivity: a 2x2 Pasture / Sheep Pasture delivers
 // 4 x 90 = 360 per cycle, one farmhand). Legacy 1x1 pastures keep x1.

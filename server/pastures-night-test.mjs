@@ -1,9 +1,9 @@
 // Scripted test (2026-11-06): pasture animals + 2x2 orchards, villagers indoors at night, couples' births.
 // Self-contained: boots its OWN 96x96 server with COLONY_TEST_HOOKS=1 on PORT (default 22330) and a temp
 // COLONY_SAVE_DIR, kills its process group after. Run from server/: `node pastures-night-test.mjs`.
-//   O an Orchard takes a clear 2x2 block (3 part tiles, 10 wood) and pays 4 x 90 fruit a cycle.
-//   P a Pig pasture (2x2) pays the most meat (4 x 160) and no hide; a Cow pasture 4 x 120 meat + 4 hides; a Sheep
-//     pasture 4 x 90 wool + 4 x 100 meat (PASTURE_YIELDS); the info panel names them Cow / Pig Pasture.
+//   O an Orchard takes a clear 2x2 block (3 part tiles, 10 wood) and pays 4 x 90 x 0.5 fruit a cycle.
+//   P a Pig pasture (2x2) pays the most meat and no hide; a Cow pasture meat + hides; a Sheep pasture wool + meat
+//     (PASTURE_YIELDS x 4 tiles x FOOD_OUTPUT_MULT); the info panel names them Cow / Pig Pasture.
 //   N at night every person (workers, free villagers, children) ends up indoors (snapshot `sheltered`), none in the
 //     open; at dawn nobody is sheltered and the workers go back to work.
 //   C births come from couples: adults pair up (mutual Person.partner, stable over dawns), a couple that just had a
@@ -151,16 +151,17 @@ try {
   const oInfo = await c.buildingInfo(os.x + 1, os.y + 1);
   result(oInfo?.name === "Orchard" && oInfo.bonuses.some((b) => /2x2 orchard: x4/.test(b)), `(O) a part tile opens the Orchard's panel: ${oInfo?.bonuses.find((b) => /orchard/.test(b))}`);
   await c.hookCall("setStock", { stock: { fruit: 0 } });
-  const fruitOk = await ffUntil(async () => (await stockOf(c)).fruit > 0, 40000, 1000);
+  const fruitOk = await ffUntil(async () => (await stockOf(c)).fruit > 0, 80000, 1000);
   const fruit = (await stockOf(c)).fruit;
-  result(fruitOk && fruit === 360, `(O) one tending cycle pays 4 x 90 = 360 fruit (got ${fruit})`);
+  result(fruitOk && fruit === 180, `(O) one tending cycle pays 4 x 90 x 0.5 = 180 fruit (food balance; got ${fruit})`);
   await place(os.x, os.y, T.Empty);
 
   // ---- P: pasture animals, one at a time ----
   const animals = [
-    { name: "Cow Pasture", tile: T.Pasture, meat: 480, wool: 0, hide: 4 },
-    { name: "Pig Pasture", tile: T.PigPasture, meat: 640, wool: 0, hide: 0 },
-    { name: "Sheep Pasture", tile: T.WoolFarm, meat: 400, wool: 360, hide: 0 },
+    // PASTURE_YIELDS x 4 tiles x FOOD_OUTPUT_MULT 0.5 (food balance, 2026-11-06).
+    { name: "Cow Pasture", tile: T.Pasture, meat: 240, wool: 0, hide: 2 },
+    { name: "Pig Pasture", tile: T.PigPasture, meat: 320, wool: 0, hide: 0 },
+    { name: "Sheep Pasture", tile: T.WoolFarm, meat: 200, wool: 180, hide: 0 },
   ];
   for (const a of animals) {
     const ps = await findSpot(2, 2);
@@ -172,11 +173,11 @@ try {
     result(pi?.name === a.name, `(P) its panel reads "${pi?.name}" (${pi?.bonuses.find((b) => /Each batch/.test(b))})`);
     await c.hookCall("setStock", { stock: { meat: 0, wool: 0 } });
     const h0 = await hides();
-    const ok = await ffUntil(async () => (await stockOf(c)).meat > 0, 40000, 1000);
+    const ok = await ffUntil(async () => (await stockOf(c)).meat > 0, 80000, 1000);
     const st = await stockOf(c);
     const dh = (await hides()) - h0;
     // (a dawn in the same fast-forward step may feed a few of it to the colony)
-    result(ok && st.meat <= a.meat && st.meat >= a.meat - 15 && st.wool === a.wool && dh === a.hide,
+    result(ok && st.meat <= a.meat && st.meat >= a.meat - 30 && st.wool === a.wool && dh === a.hide,
       `(P) ${a.name} batch: meat ${st.meat} (want ${a.meat}), wool ${st.wool} (want ${a.wool}), hide +${dh} (want ${a.hide})`);
     await place(ps.x, ps.y, T.Empty);
   }

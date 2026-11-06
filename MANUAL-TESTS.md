@@ -654,10 +654,17 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
    its house / Town Center / Keep and disappears inside; nobody stands idle in the open all night. At dawn they come
    back out and the workers go back to their posts. A villager walled in (walls round it) still vanishes indoors.
 2. Build menu, Farming: "Cow pasture" (p) and "Pig pasture" (no hotkey) are both 2x2; the Pig pasture shows the cow
-   pasture art tinted pink (stand-in). Their info panels read "Cow Pasture" / "Pig Pasture" with "Each batch: 480
-   meat + 4 hide" / "640 meat"; the Sheep Pasture "400 meat + 360 wool". An old save's pastures are Cow Pastures.
+   pasture art tinted pink (stand-in). Their info panels read "Cow Pasture" / "Pig Pasture" with "Each batch: 240
+   meat + 2 hide" / "320 meat"; the Sheep Pasture "200 meat + 180 wool" (after the food balance, item 5). An old save's pastures are Cow Pastures.
 3. Orchard: the ghost is 2x2, it costs 10 wood and its art spans the block (like the pastures); the info panel says
    "2x2 orchard: x4 produce per batch". An old save's 1x1 orchard reads "Old 1x1 orchard: x1".
 4. Births: with room in the houses and 20+ food, several children can be born the same dawn in a big village (each
    couple 30% a dawn, at most one child per couple every 5 days); the toast names both parents. Births stop at the
    population cap.
+5. Food balance (2026-11-06, FOOD_OUTPUT_MULT 0.5 / FOOD_TIME_MULT 2): a Farm Plot gives +12 grain after ~6 legacy
+   days of growing; pastures / orchards deliver half the old batch ("Each batch: 240 meat + 2 hide" for cows) about
+   twice as rarely; hunters, foragers and the Hemp Field are unchanged.
+10. Select Demolish (Break) and click your own House / Barn / Gate etc.: a small "Demolish Wooden House?" box with
+    **Confirm demolish Wooden House** and Cancel appears (bottom centre); Cancel or Esc keeps the building, Confirm
+    demolishes it. Wood / stone walls, moats and roads (and trees, rocks) still go at once, no box. Creative too.
+

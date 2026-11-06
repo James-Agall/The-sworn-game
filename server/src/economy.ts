@@ -4,7 +4,7 @@ import { TILE_SIZE, TileType, type ColonistKind, FarmStage } from "@colony/share
 import type { Colonist, FarmPlotState, ResourceKey, TileCoord } from "./types.js";
 import {
   ARMY_SYNERGY_PER_NEIGHBOUR, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, CHOP_TICKS, CRAFT_TICKS, EXCHANGE_RATES,
-  FARMHAND_CYCLE_TICKS, FARM_FALLOW_TICKS, FARM_GROW_TICKS, FARM_HARVESTED_SHOW_TICKS, FARM_HARVESTS_BEFORE_FALLOW,
+  FARMHAND_CYCLE_TICKS, FOOD_FARM_TILES, FOOD_TIME_MULT, FARM_FALLOW_TICKS, FARM_GROW_TICKS, FARM_HARVESTED_SHOW_TICKS, FARM_HARVESTS_BEFORE_FALLOW,
   FARM_HARVEST_TICKS, FARM_SOWN_FRACTION, FARM_SPROUTING_FRACTION, FARM_YIELD_PER_HARVEST, GOLD_SHOP_PRICES,
   HEMP_GROWING_FROM, HEMP_RIPE_FROM, INDUSTRIAL_SYNERGY_PER_BUILDING, INDUSTRIAL_SYNERGY_RADIUS, INDUSTRIAL_TILES,
   LUMBERJACK_TREE_RADIUS, LUMBERJACK_WOOD_PER_TRIP, NEIGHBOURS_8, ORCHARD_BLOSSOM_UNTIL, ORCHARD_FRUITING_FROM,
@@ -173,7 +173,9 @@ export function effectiveFarmhandCycleTicks(tx: number, ty: number): number {
   const level = getBuildingLevel(tx, ty);
   return Math.max(
     1,
-    Math.round((FARMHAND_CYCLE_TICKS * (1 - levelBonus(level)) * biomeProductionFactor(tx, ty)) /
+    // Food balance (2026-11-06): food farms x FOOD_TIME_MULT.
+    Math.round((FARMHAND_CYCLE_TICKS * (FOOD_FARM_TILES.has(state.tiles[tileIndex(tx, ty)] as TileType) ? FOOD_TIME_MULT : 1) *
+        (1 - levelBonus(level)) * biomeProductionFactor(tx, ty)) /
         (productionSpeedMultiplier() * industrialSynergyMultiplier(tx, ty)))
   );
 }

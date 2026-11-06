@@ -450,11 +450,12 @@ await restartAndCheck(a, "(A0)");
     // Pastures / Wool Farms are 2x2 (anchor = top-left): they take the two lower corners of the 5x5 box; Orchards
     // are 2x2 too since 2026-11-06 (top-left of the box, beside the player's column).
     // Per-tile batch: 90 (FARMHAND_YIELD_PER_CYCLE), but pastures use PASTURE_YIELDS (2026-11-06): cows 120 meat,
-    // sheep 90 wool + 100 meat. Both pastures deliver meat, so the first meat batch is the cows', the sheep's or both.
+    // sheep 90 wool + 100 meat, and food farms deliver half (FOOD_OUTPUT_MULT 0.5, 2026-11-06; hemp stays 90). Both
+    // pastures deliver meat, so the first meat batch is the cows', the sheep's or both.
     const farms = [
-      { name: "Pasture", tile: T.Pasture, pos: P(1, 1), res: "meat", tiles: 4, perTile: [120, 100, 220] },
-      { name: "Orchard", tile: T.Orchard, pos: P(-1, -2), res: "fruit", tiles: 4 },
-      { name: "WoolFarm", tile: T.WoolFarm, pos: P(-2, 1), res: "wool", tiles: 4 },
+      { name: "Pasture", tile: T.Pasture, pos: P(1, 1), res: "meat", tiles: 4, perTile: [60, 50, 110] },
+      { name: "Orchard", tile: T.Orchard, pos: P(-1, -2), res: "fruit", tiles: 4, perTile: [45] },
+      { name: "WoolFarm", tile: T.WoolFarm, pos: P(-2, 1), res: "wool", tiles: 4, perTile: [45] },
       { name: "CottonFarm", tile: T.CottonFarm, pos: P(0, 2), res: "cotton", tiles: 1 },
     ];
     const firstChange = {};
@@ -479,7 +480,7 @@ await restartAndCheck(a, "(A0)");
       `(a/b) no produce in the first seconds (slow farming: ${farms.map((f) => `${f.res}=${a.snap[f.res]}`).join(" ")})`);
     a.onSnap = null;
     const firstBatch = {};
-    const ff = await fastForwardUntil(a, (st) => farms.every((f) => st[f.res] >= 1), 10 * 2000, (st) => {
+    const ff = await fastForwardUntil(a, (st) => farms.every((f) => st[f.res] >= 1), 20 * 2000, (st) => {
       for (const f of farms) if (firstBatch[f.res] === undefined && st[f.res] > 0) firstBatch[f.res] = st[f.res];
     });
     info(`(a/b) fast-forwarded ${ff.ran} ticks (${(ff.ran / 2000).toFixed(1)} days) to the first batches: ${JSON.stringify(firstBatch)}`);

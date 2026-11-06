@@ -109,7 +109,7 @@ try {
   result(K.DAY_TICKS === 300 * TICK_RATE, `A: day = ${K.DAY_TICKS / TICK_RATE} s (300)`);
   result(K.NIGHT_TICKS >= 60 * TICK_RATE && K.NIGHT_TICKS <= 90 * TICK_RATE, `A: night = ${K.NIGHT_TICKS / TICK_RATE} s (60-90)`);
   result(Math.abs(K.FOOD_PER_COLONIST_PER_DAY - 3.75) < 1e-9, `A: upkeep ${K.FOOD_PER_COLONIST_PER_DAY}/colonist/day (= 1 per 100 s, as before)`);
-  result(K.FARM_GROW_TICKS === 3 * (K.LEGACY_DAY_TICKS + K.LEGACY_NIGHT_TICKS), `A: farm grow stays ${K.FARM_GROW_TICKS / TICK_RATE} s of real time`);
+  result(K.FARM_GROW_TICKS === 3 * (K.FOOD_TIME_MULT ?? 1) * (K.LEGACY_DAY_TICKS + K.LEGACY_NIGHT_TICKS), `A: farm grow stays ${K.FARM_GROW_TICKS / TICK_RATE} s of real time (x FOOD_TIME_MULT since 2026-11-06)`);
   const nightGoals = st.goalTitles.filter((t) => t.startsWith("Survive"));
   result(
     JSON.stringify(nightGoals) === JSON.stringify(["Survive the first night", "Survive 2 nights", "Survive 4 nights", "Survive 7 nights", "Survive 10 nights"]),

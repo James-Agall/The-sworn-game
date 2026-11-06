@@ -43,6 +43,7 @@ c.ws.on("message", (raw) => {
     c.snapCount++;
   } else if (m.type === "tileUpdate") c.tiles[m.tileY * c.W + m.tileX] = m.tile;
   else if (m.type === "testHookResult") c.hooks.push(m);
+  else if (m.type === "event") (c.events ??= []).push(m.text);
 });
 const send = (m) => c.ws.send(JSON.stringify(m));
 const snaps = async (n) => {
@@ -99,7 +100,7 @@ const P = { x: Math.floor(me.x / TILE), y: Math.floor(me.y / TILE) };
 const B = { x: P.x, y: P.y - 2 };
 const plot = { x: P.x + 1, y: P.y - 2 };
 // Pastures are 2x2 since 2026-10-30 (anchor = the placed top-left tile; parts right / below it), x4 produce.
-const pasture = { x: P.x - 2, y: P.y - 1 };
+let pasture = { x: P.x - 2, y: P.y - 1 };
 const PASTURE_YIELD_MULT = 4;
 const pastureBlock = [pasture, { x: pasture.x + 1, y: pasture.y }, { x: pasture.x, y: pasture.y + 1 }, { x: pasture.x + 1, y: pasture.y + 1 }];
 for (const t of [B, plot, ...pastureBlock]) await hook("setTileRaw", { tx: t.x, ty: t.y, tile: T.Empty });
@@ -125,10 +126,13 @@ info(`constants: grow ${K.FARM_GROW_TICKS}t harvest ${K.FARM_HARVEST_TICKS}t sow
 const DAY = K.DAY_TICKS + K.NIGHT_TICKS;
 // Long days (2026-10-23): farm timers stay in real time, counted in legacy 100 s days.
 const LDAY = (K.LEGACY_GAME_DAY_TICKS ?? DAY);
-result(K.FARM_GROW_TICKS === 3 * LDAY && K.FARM_FALLOW_TICKS === 3 * LDAY && K.FARM_HARVESTS_BEFORE_FALLOW === 5,
-  `constants: grow = 3 legacy days (${K.FARM_GROW_TICKS}t), fallow = 3 days (${K.FARM_FALLOW_TICKS}t), fallow after 5 harvests`);
-result(K.FARM_YIELD_PER_HARVEST * K.FARM_HARVESTS_BEFORE_FALLOW / ((K.FARM_GROW_TICKS * K.FARM_HARVESTS_BEFORE_FALLOW + K.FARM_FALLOW_TICKS) / LDAY) === 20 / 3,
-  `constants: long-run grain per plot-day = 5 x ${K.FARM_YIELD_PER_HARVEST} / 18 legacy days = 6.67 (was 10; Barns now hold 8 plots, not 4)`);
+// Food balance (2026-11-06): grow x FOOD_TIME_MULT (3 -> 6 legacy days), grain per harvest x FOOD_OUTPUT_MULT (24 -> 12).
+const FT = K.FOOD_TIME_MULT ?? 1;
+result(K.FARM_GROW_TICKS === 3 * FT * LDAY && K.FARM_FALLOW_TICKS === 3 * LDAY && K.FARM_HARVESTS_BEFORE_FALLOW === 5,
+  `constants: grow = ${3 * FT} legacy days (${K.FARM_GROW_TICKS}t), fallow = 3 days (${K.FARM_FALLOW_TICKS}t), fallow after 5 harvests`);
+const perDay = K.FARM_YIELD_PER_HARVEST * K.FARM_HARVESTS_BEFORE_FALLOW / ((K.FARM_GROW_TICKS * K.FARM_HARVESTS_BEFORE_FALLOW + K.FARM_FALLOW_TICKS) / LDAY);
+result(Math.abs(perDay - 60 / 33) < 1e-9,
+  `constants: long-run grain per plot-day = 5 x ${K.FARM_YIELD_PER_HARVEST} / 33 legacy days = ${perDay.toFixed(2)} (was 6.67 before the food balance)`);
 
 // ---- A) sown -> growing -> ripe on the flat first grow ----
 result(p && p.state === "sown" && p.growTicksRemaining <= K.FARM_GROW_TICKS && p.growTicksTotal === K.FARM_GROW_TICKS,
@@ -196,11 +200,31 @@ result(p.state === "sown" && p.growTicksTotal === expectedTicks(K.FARM_GROW_TICK
 let tick = await ff(0);
 await ff(DAY - (tick % DAY));
 await hook("setStock", { stock: { meat: 0 } });
-result(await place(pasture.x, pasture.y, T.Pasture), `(D) Pasture placed at (${pasture.x},${pasture.y})`);
+// Village life: free villagers idle about here; the 2x2 block must have nobody standing on it, so take the first
+// clear, unoccupied block near the player (the clock is paused: nobody moves meanwhile).
+{
+  const occupied = new Set(c.snap.colonists.map((u) => `${Math.floor(u.x / TILE)},${Math.floor(u.y / TILE)}`));
+  const free = (x, y) => c.tiles[y * c.W + x] === T.Empty && !occupied.has(`${x},${y}`) && !(x === P.x && y === P.y);
+  outer: for (let r = 1; r < 8; r++)
+    for (let dy = -r; dy <= r; dy++)
+      for (let dx = -r; dx <= r; dx++) {
+        const x = P.x + dx, y = P.y + dy;
+        if ([[0, 0], [1, 0], [0, 1], [1, 1]].every(([ox, oy]) => free(x + ox, y + oy))) {
+          pasture = { x, y };
+          break outer;
+        }
+      }
+}
+let pastureOk = await place(pasture.x, pasture.y, T.Pasture);
+for (let i = 0; i < 5 && !pastureOk; i++) {
+  await ff(20);
+  pastureOk = c.tiles[pasture.y * c.W + pasture.x] === T.Pasture || (send({ type: "setTile", tileX: pasture.x, tileY: pasture.y, tile: T.Pasture }), await ff(2), await snaps(1), c.tiles[pasture.y * c.W + pasture.x] === T.Pasture);
+}
+result(pastureOk, `(D) Pasture placed at (${pasture.x},${pasture.y})${pastureOk ? "" : ` (events: ${JSON.stringify((c.events ?? []).slice(-3))})`}`);
 await snaps(2);
 ({ st } = await farmState());
 let fh = st.farmhands.find((f) => f.postX === pasture.x && f.postY === pasture.y);
-const eCycle = Math.max(1, Math.round((K.FARMHAND_CYCLE_TICKS * biomeFactor(pasture.x, pasture.y)) / (happinessMult(st.happiness) * industrialSynergy(pasture.x, pasture.y))));
+const eCycle = Math.max(1, Math.round((K.FARMHAND_CYCLE_TICKS * FT * biomeFactor(pasture.x, pasture.y)) / (happinessMult(st.happiness) * industrialSynergy(pasture.x, pasture.y))));
 result(fh && fh.cycleTicksRemaining === eCycle,
   `(D) farmhand cycle ${fh?.cycleTicksRemaining}t ~= scaled ${K.FARMHAND_CYCLE_TICKS}t x plains/happiness/synergy = ${eCycle}t (${(eCycle / K.DAY_TICKS).toFixed(2)} days of tending)`);
 // Through the next night the cycle must not advance.
@@ -216,7 +240,7 @@ result(atNight === laterNight, `(D) no tending at night: cycle ${atNight}t -> ${
 let meatSteps = [];
 let lastMeat = (await hook("setStock", { stock: {} })).stock.meat;
 let elapsed = 0;
-while (elapsed < 6 * DAY) {
+while (elapsed < 14 * DAY) {
   await ff(100);
   elapsed += 100;
   const meat = (await hook("setStock", { stock: {} })).stock.meat;
@@ -225,7 +249,7 @@ while (elapsed < 6 * DAY) {
   if (meatSteps.length >= 2) break;
 }
 // Pasture animals (2026-11-06): the Pasture is the Cow pasture, its meat from PASTURE_YIELDS.
-const PASTURE_MEAT = K.PASTURE_YIELDS?.[21]?.meat ?? K.FARMHAND_YIELD_PER_CYCLE.meat;
+const PASTURE_MEAT = (K.PASTURE_YIELDS?.[21]?.meat ?? K.FARMHAND_YIELD_PER_CYCLE.meat) * (K.FOOD_OUTPUT_MULT ?? 1);
 info(`(D) meat deliveries (ticks after the first night, delta): ${JSON.stringify(meatSteps)}`);
 result(meatSteps.length >= 1 && meatSteps[0].d === PASTURE_MEAT * PASTURE_YIELD_MULT,
   `(D) first delivery is the whole batch: +${meatSteps[0]?.d} meat (expected +${PASTURE_MEAT} x${PASTURE_YIELD_MULT})`);

@@ -10,7 +10,7 @@ import type {
 import {
   BISHOP_MAX_HP, BISHOP_SPEED, BUILDER_IDLE_RETRY_TICKS, BUILDER_MAX_PER_SITE, BUILDER_ROUTE_CANDIDATES,
   BUILDER_WORK_RANGE_PX, CIVILIAN_MAX_HP, COLONIST_SPEED, CRAFT_RECIPES, DAY_TICKS, DUSK_RESPAWN_CYCLE_TICK,
-  FARMER_PLOT_DWELL_TICKS, FARMHAND_YIELD_PER_CYCLE, FARM_PRODUCE_BY_TILE, FOOD_PER_COLONIST_PER_DAY, GAME_DAY_TICKS,
+  FARMER_PLOT_DWELL_TICKS, FARMHAND_YIELD_PER_CYCLE, FOOD_FARM_TILES, FOOD_OUTPUT_MULT, FARM_PRODUCE_BY_TILE, FOOD_PER_COLONIST_PER_DAY, GAME_DAY_TICKS,
   GARRISON_LOITER_PX, GATHER_RESOURCE_TILE, HAPPINESS_DESERTION_CHANCE, HAPPINESS_DESERTION_THRESHOLD,
   HAPPINESS_MUTINY_THRESHOLD, HAPPINESS_SCENERY_TREE_BASELINE, HERO_POPULATION_COST, IDLE_RETRY_TICKS,
   KEEP_GARRISON_PER_LEVEL, KEEP_POPULATION_PER_LEVEL, MOB_ATTACK_RANGE, MOB_DAMAGE, MOB_KIND_CONFIG,
@@ -1008,13 +1008,16 @@ export function updateFarmhand(c: Colonist) {
     // 2x2 farms yield per tile of their footprint (footprintYieldMult; legacy 1x1 = x1).
     const mult = footprintYieldMult(c.postX, c.postY);
     // Pasture animals (2026-11-06, shared PASTURE_YIELDS): cows meat + hide, pigs the most meat, sheep wool + meat.
-    const animals = PASTURE_YIELDS[state.tiles[tileIndex(c.postX, c.postY)] as TileType];
+    const tile = state.tiles[tileIndex(c.postX, c.postY)] as TileType;
+    // Food balance (2026-11-06): food farms deliver FOOD_OUTPUT_MULT of the batch (hemp is not food).
+    const out = (n: number) => Math.round(n * mult * (FOOD_FARM_TILES.has(tile) ? FOOD_OUTPUT_MULT : 1));
+    const animals = PASTURE_YIELDS[tile];
     if (animals) {
-      state.stock.meat += animals.meat * mult;
-      if (animals.wool) state.stock.wool += animals.wool * mult;
-      if (animals.hide) addItem("hide", animals.hide * mult);
+      state.stock.meat += out(animals.meat);
+      if (animals.wool) state.stock.wool += out(animals.wool);
+      if (animals.hide) addItem("hide", out(animals.hide));
     } else {
-      state.stock[resource] += FARMHAND_YIELD_PER_CYCLE[resource] * mult;
+      state.stock[resource] += out(FARMHAND_YIELD_PER_CYCLE[resource]);
     }
     c.chopTicksRemaining = effectiveFarmhandCycleTicks(c.postX, c.postY);
     c.cycleTicksTotal = c.chopTicksRemaining;

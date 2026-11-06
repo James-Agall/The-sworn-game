@@ -93,6 +93,14 @@ export const FOOTPRINT_BY_TILE: Partial<Record<TileType, Footprint>> = {
 //  - Cow Pasture (TileType.Pasture; old saves' pastures are cows): meat + hide.
 //  - Pig Pasture: the most meat, no hide.
 //  - Sheep Pasture (TileType.WoolFarm): wool as before (the Tailor's input) + meat.
+// ---- Food balance (2026-11-06): every food producer except hunting and foraging ----
+// Applied in one place each: FOOD_OUTPUT_MULT to grain per harvest (server constants FARM_YIELD_PER_HARVEST) and to
+// every food farmhand batch (orchard fruit, pasture meat / hide / wool: colonists.ts updateFarmhand);
+// FOOD_TIME_MULT to the crop grow time (FARM_GROW_TICKS) and to the food farms' farmhand cycle
+// (economy.ts effectiveFarmhandCycleTicks). Hemp, hunters, foragers and the hero's own gathering are unchanged.
+export const FOOD_OUTPUT_MULT = 0.5;
+export const FOOD_TIME_MULT = 2;
+
 export interface PastureYield {
   meat: number;
   wool?: number;

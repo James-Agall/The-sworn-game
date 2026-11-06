@@ -2155,6 +2155,25 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Food balance — landed 2026-11-06 (half food output, double grow / cycle time)
+
+Every food producer except hunting and foraging makes half as much and takes twice as long. The two named
+multipliers live in `shared/src/buildings.ts`: `FOOD_OUTPUT_MULT = 0.5` and `FOOD_TIME_MULT = 2`. Each is applied in
+one place: grain per harvest and crop grow time (server `FARM_YIELD_PER_HARVEST`, `FARM_GROW_TICKS`), and the food
+farmhand farms (orchard and all pastures, `FOOD_FARM_TILES`: cycle in `effectiveFarmhandCycleTicks`, batch in
+`updateFarmhand`). The hemp field, hunters, foragers, the hero's own gathering / fishing, fallow time and the
+Mill / Bakery / Brewery / gruel recipes are unchanged (their inputs are already halved). Saves keep their plots and
+cycles in flight and get the new numbers from the next sowing / cycle.
+
+| Producer | Before | After |
+|---|---|---|
+| Farm Plot | 24 grain / harvest, grows 3 legacy days | 12 grain / harvest, grows 6 days |
+| Orchard (2x2) | 360 fruit / 3-day cycle | 180 fruit / 6-day cycle |
+| Cow pasture (2x2) | 480 meat + 4 hide / 3 days | 240 meat + 2 hide / 6 days |
+| Pig pasture (2x2) | 640 meat / 3 days | 320 meat / 6 days |
+| Sheep pasture (2x2) | 400 meat + 360 wool / 3 days | 200 meat + 180 wool / 6 days |
+| Long-run grain per plot per legacy day | 6.67 | 1.82 |
+
 ## Family — landed (phases 1-4) 2026-11-06 (relationships, marriage, children, succession)
 
 Plan: `docs/colony2d/PLAN-family-and-succession.md` (defaults there). Server `server/src/family.ts` (state changes,
