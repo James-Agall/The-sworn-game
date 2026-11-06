@@ -1140,6 +1140,14 @@
       .craft-in .short { color: var(--mood-bad); font-weight: 600; }
       .craft-needs { font-size: 12px; color: var(--mood-bad); font-style: italic; }
       .craft-foot, #craft-items { font-size: 12px; color: var(--ink-soft); margin-top: 10px; }
+      /* Demolish confirm (own buildings; walls / moats / roads stay instant). Above the command bar, bottom centre. */
+      #demolish-confirm {
+        position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); z-index: 23;
+        display: flex; align-items: center; gap: 8px; padding: 8px 12px; max-width: calc(100vw - 32px); box-sizing: border-box;
+        background: var(--burn-sm), var(--paper); background-color: var(--parch-mid); border: 1px solid var(--wood-dark); border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 4px 14px rgba(0, 0, 0, 0.6); font-family: var(--font-serif); color: var(--ink); font-size: 14px;
+      }
+      #demolish-confirm[hidden] { display: none; }
       /* Next steps bar (top centre) and its Progression dropdown. The player bar and toasts sit below it. */
       #next-bar {
         position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 9;
@@ -1789,6 +1797,11 @@
       <div id="craft-list"></div>
       <div id="craft-items" class="bp-row"></div>
       <div class="bp-row craft-foot">Hand crafts are made at once from your stores (Shift+C). Hides come from a Hunter's Hut's kills (also pasture animals and game you hunt yourself).</div>
+    </div>
+    <div id="demolish-confirm" role="dialog" aria-label="Confirm demolish" hidden>
+      <span id="demolish-confirm-text"></span>
+      <button id="demolish-confirm-ok" class="econ-btn">Confirm demolish</button>
+      <button id="demolish-confirm-cancel" class="econ-btn">Cancel</button>
     </div>
     <div id="next-bar" hidden>
       <span class="nb-label">Next</span>

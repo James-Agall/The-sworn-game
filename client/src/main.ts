@@ -7729,8 +7729,59 @@ async function main() {
     if (!tile) return;
     if (socket.readyState !== socket.OPEN) return;
     const value = e.button === 2 ? currentTool : TileType.Empty;
+    if (value === TileType.Empty) {
+      requestDemolish([{ x: tile.tileX, y: tile.tileY }]);
+      return;
+    }
     placeTile(tile.tileX, tile.tileY, value);
     if (value === TileType.Moat) moatDrag = { pointerId: e.pointerId, x: tile.tileX, y: tile.tileY };
+  });
+
+  // Demolishing your own building asks first ("Confirm demolish <name>", Cancel / Esc). Instant as before: walls,
+  // moats, roads, natural tiles and anything not built from the Build menu (camp hearths are attacked, not demolished).
+  // A list (a future batch) gets one confirm with its count.
+  const DEMOLISH_INSTANT = new Set<number>([TileType.Wall, TileType.StoneWall, TileType.Moat, TileType.Road, TileType.CobbleRoad]);
+  const demolishConfirmEl = document.getElementById("demolish-confirm")!;
+  const demolishConfirmText = document.getElementById("demolish-confirm-text")!;
+  const demolishConfirmBtn = document.getElementById("demolish-confirm-ok") as HTMLButtonElement;
+  let pendingDemolish: { x: number; y: number }[] = [];
+  function demolishLabel(x: number, y: number): string | null {
+    const a = anchorOfClient(x, y);
+    const index = a.y * worldTilesX + a.x;
+    const t = tiles[index];
+    if (t === TileType.Empty || DEMOLISH_INSTANT.has(t) || siteOwners.has(index)) return null;
+    return TOOLS.find((tool) => tool.tile === t && tool.tile !== TileType.Empty)?.label ?? null;
+  }
+  function sendDemolish(list: { x: number; y: number }[]) {
+    if (socket.readyState !== socket.OPEN) return;
+    for (const t of list) socket.send(JSON.stringify({ type: "setTile", tileX: t.x, tileY: t.y, tile: TileType.Empty }));
+  }
+  function closeDemolishConfirm() {
+    pendingDemolish = [];
+    demolishConfirmEl.hidden = true;
+  }
+  function requestDemolish(list: { x: number; y: number }[]) {
+    const named = list.map((t) => ({ t, label: demolishLabel(t.x, t.y) }));
+    sendDemolish(named.filter((n) => n.label === null).map((n) => n.t));
+    const ask = named.filter((n) => n.label !== null);
+    if (ask.length === 0) return;
+    pendingDemolish = ask.map((n) => n.t);
+    const label = ask.length === 1 ? ask[0].label! : `${ask.length} buildings`;
+    demolishConfirmText.textContent = `Demolish ${label}?`;
+    demolishConfirmBtn.textContent = `Confirm demolish ${label}`;
+    demolishConfirmEl.hidden = false;
+  }
+  demolishConfirmBtn.addEventListener("click", () => {
+    demolishConfirmBtn.blur();
+    sendDemolish(pendingDemolish);
+    closeDemolishConfirm();
+  });
+  document.getElementById("demolish-confirm-cancel")!.addEventListener("click", (e) => {
+    (e.currentTarget as HTMLButtonElement).blur();
+    closeDemolishConfirm();
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !demolishConfirmEl.hidden) closeDemolishConfirm();
   });
 
   function placeTile(tileX: number, tileY: number, value: number) {
@@ -7872,10 +7923,7 @@ async function main() {
     // Nothing selectable under the cursor: original left-click behaviour (break tile).
     setSelection([]);
     if (!tile || showInfo) return;
-    if (socket.readyState !== socket.OPEN) return;
-    socket.send(
-      JSON.stringify({ type: "setTile", tileX: tile.tileX, tileY: tile.tileY, tile: TileType.Empty })
-    );
+    requestDemolish([{ x: tile.tileX, y: tile.tileY }]);
   });
 
   app.canvas.addEventListener("pointercancel", (e) => {
