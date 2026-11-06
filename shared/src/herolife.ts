@@ -222,13 +222,17 @@ export interface HeroLifeSnapshot {
   // Why the hero is slow / not healing ("Hungry", "Tired", "Heavy load").
   slow?: string[];
   builds: number;
+  // Solo hero phase 4: the clan has no Town Center (the Pack panel offers "Found a camp").
+  canFound?: boolean;
 }
 export interface DialogueSnapshot {
   npc: { name: string; role: NpcRole; roleLabel: string; site?: string; tier?: RelationTier; color: number };
   text: string;
   choices: { label: string; disabled?: string }[];
 }
-export type HeroActionKind = "eat" | "rest" | "deposit" | "build" | "stopWork";
+export type HeroActionKind = "eat" | "rest" | "deposit" | "build" | "stopWork" | "foundCamp";
+// Solo hero phase 4: founding a camp (a Town Center where you stand; two settlers join) costs this (pack, then stores).
+export const FOUND_CAMP_COST: Partial<Record<PackGood, number>> = { wood: 20, rock: 10 };
 
 // Save / load: a HeroLife from untrusted saved data (null: none / malformed). Kept here (pure) so heroes.ts restores
 // it without importing the server module.

@@ -7,7 +7,7 @@
 // per-session transient work lives here. Messages run in the sender's clan context (index.ts handleMessage).
 import { TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, type TradeGood, type RelationTier } from "@colony/shared/protocol";
 import {
-  ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
+  ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, FOUND_CAMP_COST, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
   MASTER_FEE, MASTER_MAX_LEVEL, NEED_LOW, NEED_MAX, NPC_ROLE_LABEL, PACK_CAP, PACK_FOOD, PACK_GOODS, PACK_LABEL,
   PACK_WEIGHT, PERSONAL_BUILDS, PERSONAL_BUILD_MAX, STATION_SKILL, TALK_RANGE_TILES, TREE_FELL_CHANCE,
   type DialogueAction, type DialogueSnapshot, type GatherKind, type HeroLifeSnapshot, type HeroSkill, type NpcRole,
@@ -17,12 +17,15 @@ import { type ItemId, type Recipe, PROFESSION_LABEL, levelForXp, stationRecipes,
 import type { Colonist, HeroLife, Mob, Player, SiteState } from "./types.js";
 import { FORAGE_RIPE_TO_PICKED, FORAGE_REGROW_TICKS, QUEST_MAX_PER_SITE, RELATION_ALLIED_MIN } from "./constants.js";
 import { colonists, forageRegrow, hearths, mobs, players, sites, state } from "./state.js";
-import { anchorOfTile, getBuildingLevel, inBounds, isNightNow, tileIndex } from "./tiles.js";
+import { anchorOfTile, getBuildingLevel, inBounds, isNightNow, ownerAt, tileIndex } from "./tiles.js";
+import { isWalkableTile } from "./pathfinding.js";
+import { resolveTownCenterPlacement } from "./construction.js";
+import { newPerson, spawnVillager } from "./colonists.js";
 import { setTile } from "./chunks.js";
 import { broadcastTileUpdate, circleOffsets, revealAround } from "./net.js";
 import { sendTo } from "./saves.js";
-import { clanIdAt, clanOf, clanTownCenters, withClan } from "./clans.js";
-import { gameDay, handleTradeWithSite, standingTown, tierOf } from "./diplomacy.js";
+import { clanIdAt, clanOf, clanTownCenters, townCentersOfClan, withClan } from "./clans.js";
+import { gameDay, handleTradeWithSite, standingTown, tierOf, tilesToWalls } from "./diplomacy.js";
 import { adjustRelation, relationOf } from "./sites.js";
 import { forcePostQuest, handleQuestMessage, quests, questsForSnapshot } from "./quests.js";
 import { addItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
@@ -569,6 +572,7 @@ export function handleHeroAction(p: Player, action: unknown, build: unknown) {
     return toast(p, n > 0 ? `Deposited ${n} goods into your stores` : "Your pack is empty");
   }
   if (action === "build" && typeof build === "string" && build in PERSONAL_BUILDS) return personalBuild(p, build as PersonalBuild);
+  if (action === "foundCamp") return foundCamp(p);
 }
 
 // One unit of the best food: from the pack, else (near home / a chest) from the clan stock. True if eaten.
@@ -609,38 +613,85 @@ function personalBuild(p: Player, kind: PersonalBuild) {
   const def = PERSONAL_BUILDS[kind];
   life.builds = life.builds.filter((b) => state.tiles[tileIndex(b.x, b.y)] === PERSONAL_BUILDS[b.kind].tile);
   if (life.builds.length >= PERSONAL_BUILD_MAX) return toast(p, `You can keep at most ${PERSONAL_BUILD_MAX} personal builds`);
-  // Paid from the pack first, then the stores.
-  for (const [g, n] of Object.entries(def.cost) as [PackGood, number][]) {
-    const have = (life.pack[g] ?? 0) + (g === "fish" ? 0 : state.stock[g] ?? 0);
-    if (have < n && !state.creative) return toast(p, `A ${def.label.toLowerCase()} needs ${Object.entries(def.cost).map(([k, v]) => `${v} ${k}`).join(" + ")}`);
-  }
-  const mx = Math.floor(p.x / TILE_SIZE);
-  const my = Math.floor(p.y / TILE_SIZE);
-  let spot: { x: number; y: number } | null = null;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
-    const x = mx + dx;
-    const y = my + dy;
-    if (inBounds(x, y) && state.tiles[tileIndex(x, y)] === TileType.Empty && !colonistOn(x, y)) {
-      spot = { x, y };
-      break;
-    }
-  }
+  if (!canPay(life, def.cost)) return toast(p, `A ${def.label.toLowerCase()} needs ${costText(def.cost)}`);
+  const spot = freeSpotNextTo(p);
   if (!spot) return toast(p, "No free ground next to you");
-  if (!state.creative) {
-    for (const [g, n0] of Object.entries(def.cost) as [PackGood, number][]) {
-      let n = n0;
-      const fromPack = Math.min(n, life.pack[g] ?? 0);
-      if (fromPack > 0) life.pack[g]! -= fromPack;
-      if (life.pack[g] === 0) delete life.pack[g];
-      n -= fromPack;
-      if (n > 0 && g !== "fish") state.stock[g] -= n;
-    }
-  }
+  pay(life, def.cost);
   setTile(tileIndex(spot.x, spot.y), def.tile);
   broadcastTileUpdate(spot.x, spot.y, def.tile);
   life.builds.push({ kind, x: spot.x, y: spot.y });
   gainSkill(p, "building", 10);
   toast(p, `You build a ${def.label.toLowerCase()}`);
+}
+
+// Costs are paid from the pack first, then the stores (creative: free).
+const costText = (cost: Partial<Record<PackGood, number>>) => Object.entries(cost).map(([k, v]) => `${v} ${k}`).join(" + ");
+function canPay(life: HeroLife, cost: Partial<Record<PackGood, number>>): boolean {
+  if (state.creative) return true;
+  return (Object.entries(cost) as [PackGood, number][]).every(([g, n]) => (life.pack[g] ?? 0) + (g === "fish" ? 0 : state.stock[g] ?? 0) >= n);
+}
+function pay(life: HeroLife, cost: Partial<Record<PackGood, number>>) {
+  if (state.creative) return;
+  for (const [g, n0] of Object.entries(cost) as [PackGood, number][]) {
+    const fromPack = Math.min(n0, life.pack[g] ?? 0);
+    if (fromPack > 0) life.pack[g]! -= fromPack;
+    if (life.pack[g] === 0) delete life.pack[g];
+    if (n0 - fromPack > 0 && g !== "fish") state.stock[g] -= n0 - fromPack;
+  }
+}
+// An empty, unclaimed tile next to the hero with nobody standing on it.
+function freeSpotNextTo(p: Player): { x: number; y: number } | null {
+  const mx = Math.floor(p.x / TILE_SIZE);
+  const my = Math.floor(p.y / TILE_SIZE);
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const x = mx + dx;
+    const y = my + dy;
+    if (inBounds(x, y) && state.tiles[tileIndex(x, y)] === TileType.Empty && ownerAt(tileIndex(x, y)) === 0 && !colonistOn(x, y)) return { x, y };
+  }
+  return null;
+}
+
+// ---- Solo start and founding a camp (phase 4) ----
+// resetWorld with `solo` (clan 0 context, after the world is generated): the Town Center and the starting people go,
+// the stores hold a little food and gold, the kit is a stone axe, pick and knife, and the hero starts a short walk
+// from the human settlement nearest the map centre.
+export function applySoloStart() {
+  for (const tc of state.townCenters) setTile(tileIndex(tc.x, tc.y), TileType.Empty);
+  state.townCenters = [];
+  for (const c of Array.from(colonists.values())) if ((c.clan ?? 0) === 0 && c.person) colonists.delete(c.id);
+  for (const k of Object.keys(state.stock) as (keyof typeof state.stock)[]) state.stock[k] = 0;
+  Object.assign(state.stock, { gold: 30, meat: 3, fruit: 3 });
+  addItem("stoneKnife", 1);
+  const cx = state.WORLD_TILES_X / 2;
+  const cy = state.WORLD_TILES_Y / 2;
+  let town: SiteState | null = null;
+  for (const s of sites.values()) if (standingTown(s) && (!town || Math.hypot(s.keepX - cx, s.keepY - cy) < Math.hypot(town.keepX - cx, town.keepY - cy))) town = s;
+  state.soloSpawn = null;
+  if (!town) return;
+  for (let r = 6; r <= 30 && !state.soloSpawn; r++) {
+    for (let a = 0; a < 24 && !state.soloSpawn; a++) {
+      const x = Math.round(town.keepX + r * Math.cos((a * Math.PI) / 12));
+      const y = Math.round(town.keepY + r * Math.sin((a * Math.PI) / 12));
+      if (inBounds(x, y) && isWalkableTile(x, y) && ownerAt(tileIndex(x, y)) === 0 && tilesToWalls(town, x, y) >= town.apron + 2) state.soloSpawn = { x, y };
+    }
+  }
+  if (state.soloSpawn) revealAround(state.soloSpawn.x, state.soloSpawn.y, circleOffsets(10));
+}
+
+// Hero action "foundCamp": with no Town Center of your own, a Town Center next to the hero (FOUND_CAMP_COST) and two
+// settlers who join it; from then on the settlement rules (raids, immigrants, builders) apply.
+function foundCamp(p: Player) {
+  if (clanTownCenters().length > 0) return toast(p, "You already have a Town Center");
+  const life = lifeOf(p);
+  if (!canPay(life, FOUND_CAMP_COST)) return toast(p, `Founding a camp needs ${costText(FOUND_CAMP_COST)}`);
+  const spot = freeSpotNextTo(p);
+  if (!spot) return toast(p, "No free, unclaimed ground next to you");
+  pay(life, FOUND_CAMP_COST);
+  resolveTownCenterPlacement(spot.x, spot.y);
+  const tc = state.townCenters.find((t) => t.x === spot.x && t.y === spot.y);
+  if (tc) for (let i = 0; i < 2; i++) spawnVillager(tc, newPerson("immigrant"));
+  gainSkill(p, "building", 25);
+  toast(p, "You found a camp: two settlers join you");
 }
 
 function colonistOn(tx: number, ty: number): boolean {
@@ -805,6 +856,8 @@ export function noteHeroHunt(p: Player) {
   gainSkill(p, "hunting", 10);
 }
 
+const clanTownCentersOf = (p: Player) => townCentersOfClan(p.clan ?? 0);
+
 // ---- snapshot ----
 function lifeSnapshot(p: Player): HeroLifeSnapshot {
   const life = lifeOf(p);
@@ -829,6 +882,7 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
     ...(b?.resting ? { resting: true } : {}),
     ...(slow.length ? { slow } : {}),
     builds: life.builds.length,
+    ...(clanTownCentersOf(p).length === 0 ? { canFound: true } : {}),
   };
 }
 

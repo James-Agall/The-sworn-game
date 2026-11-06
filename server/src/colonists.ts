@@ -96,7 +96,8 @@ export function spawnPointNearTownCenter(near?: { x: number; y: number; clan?: n
   // Clans: a player respawns at its own clan's Town Centers (else the active clan's).
   const list = near?.clan !== undefined ? townCentersOfClan(near.clan) : clanTownCenters();
   const tc = near ? nearestTownCenter(near.x, near.y, list) : list[0] ?? null;
-  const tile = tc ?? TOWN_CENTER_TILE;
+  // Solo hero phase 4: before a camp is founded the hero spawns at the Solo start spot.
+  const tile = tc ?? state.soloSpawn ?? TOWN_CENTER_TILE;
   const approach = findAdjacentWalkable(tile.x, tile.y);
   return tileToPixelCenter(approach ?? tile);
 }

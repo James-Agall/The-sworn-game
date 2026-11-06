@@ -1090,7 +1090,7 @@ export type ClientMessage =
   | { type: "setTimeScale"; scale: number }
   // Optional difficulty: the restarting client's choice becomes the new world's difficulty.
   // creative (optional): the new world is a creative-mode game (main menu "Creative" / ?mode=creative).
-  | { type: "restart"; difficulty?: Difficulty; worldSize?: number; creative?: boolean }
+  | { type: "restart"; difficulty?: Difficulty; worldSize?: number; creative?: boolean; solo?: boolean }
   // Creative mode only (refused in normal games with a creativeResult ok: false): spawn units / set world state.
   // Fields per side / op: see the server's creative.ts handleCreativeSpawn / handleCreativeSet.
   | { type: "creativeSpawn"; side: CreativeSpawnSide; kind: string; count: number; x: number; y: number; formation?: "none" | "line" | "block" | "column"; level?: number; gear?: number; heroClass?: HeroClass; stance?: Stance; mark?: number; boss?: "elite" | "warlord"; faction?: string; aggressive?: boolean }

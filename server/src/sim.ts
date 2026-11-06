@@ -97,7 +97,8 @@ export function stepSimulation() {
     // Clans: every clan with a Town Center gets its own raid on the shared schedule (clan 0 always).
     if (!state.testRaidsDisabled) {
       forEachClan((clan) => {
-        if (clan.id === 0 || clanTownCenters().length > 0) {
+        // Solo hero phase 4: a Solo hero without a camp is not raided (the world's camps and warbands still roam).
+        if ((clan.id === 0 && !state.solo) || clanTownCenters().length > 0) {
           spawnRaid(dayIndex);
           // Forts phase G: overgrown founded camps raid their nearest clan too.
           spawnCampRaids(dayIndex);

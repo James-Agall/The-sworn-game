@@ -141,6 +141,9 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
       el("button", { "data-act": "rest", class: "cmd-btn", title: "Sit and rest; faster by a campfire, lean-to or home. Move to stop" }, life.resting ? "Get up" : "Rest"),
       el("button", { "data-act": "deposit", class: "cmd-btn", title: "Empty the pack into your stores (at a Town Center or storage chest)" }, "Deposit"),
     );
+    if (life.canFound) {
+      acts.appendChild(el("button", { "data-act": "foundCamp", class: "cmd-btn", title: "Found a camp here: a Town Center next to you and two settlers join (20 wood + 10 stone, pack first)" }, "Found a camp"));
+    }
     panel.appendChild(acts);
     panel.appendChild(el("h4", {}, `Build by hand (${life.builds} placed)`));
     const builds = el("div", { class: "hl-actions" });
@@ -255,7 +258,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
         ring.style.setProperty("--p", `${Math.round(job.p * 100)}%`);
         ringLabel.textContent = job.label;
       }
-      const key = JSON.stringify([l.pack, l.skills, l.builds, l.resting, l.weight]);
+      const key = JSON.stringify([l.pack, l.skills, l.builds, l.resting, l.weight, l.canFound]);
       if (key !== lastPanel) {
         lastPanel = key;
         renderPanel();

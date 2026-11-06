@@ -11,7 +11,7 @@ import {
   VILLAGE_LEVY_TICKS,
 } from "./constants.js";
 import { chargeRuns, colonists, players, respawnQueue, sites, state } from "./state.js";
-import { getBuildingLevel, inBounds, isNightNow, resourceKey, tileIndex, tileToPixelCenter } from "./tiles.js";
+import { getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { tileIndicesOfAny } from "./chunks.js";
 import {
   findTownCenterAt, freeVillagerFor, houseCapacity, isCivilianKind, isHouseTile, isValidPostTile, nearestTownCenter,
@@ -385,7 +385,8 @@ export function reviveOption(player: Player): { x: number; y: number; cost: numb
   for (const i of tileIndicesOfAny([TileType.ChurchPost])) {
     const x = i % W;
     const y = Math.floor(i / W);
-    if (clanIdAt(x, y) !== clan) continue;
+    // A settlement's own Church (site-owned tile) is not the clan's.
+    if (clanIdAt(x, y) !== clan || ownerAt(i) !== 0) continue;
     const lvl = Math.max(1, Math.min(3, getBuildingLevel(x, y)));
     if (!best || lvl > best.lvl) best = { x, y, lvl };
   }

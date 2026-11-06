@@ -165,6 +165,8 @@ let pendingLoadSlot: SaveSlot | null = null;
 // Creative mode: the menu's game mode (Creative button / ?mode=creative), enforced on the first welcome after
 // New Game / Creative (never after Continue / Load: a save brings its own mode).
 let preferredCreative = new URLSearchParams(location.search).get("mode") === "creative";
+// Solo hero phase 4: the menu's "New Game (Solo)" (or ?mode=solo): start as the hero alone, no settlement.
+let preferredSolo = new URLSearchParams(location.search).get("mode") === "solo";
 // Village life phase 5: the close adventure camera (on unless ?camera=classic / the setting) and whether a game
 // starts in strategy view (?view=strategy / the setting). Read once; the settings apply from the next page load.
 const adventurePrefs = readAdventurePrefs(location.search, (key) => {
@@ -5141,7 +5143,7 @@ async function main() {
   }
   document.getElementById("game-over-restart")!.addEventListener("click", (e) => {
     (e.currentTarget as HTMLButtonElement).blur();
-    sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: creativeUi.on });
+    sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: creativeUi.on, solo: preferredSolo && !creativeUi.on });
   });
 
   // ---- Networking ----
@@ -5235,7 +5237,7 @@ async function main() {
     restartBtn.blur();
     if (!window.confirm("Restart the world for everyone connected?")) return;
     if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: creativeUi.on }));
+      socket.send(JSON.stringify({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: creativeUi.on, solo: preferredSolo && !creativeUi.on }));
     }
   });
 
@@ -5975,6 +5977,9 @@ async function main() {
         // Continue / Load Game: the save brings its own difficulty (no claim), then a fresh welcome.
         sendMessage({ type: "loadGame", slot: pendingLoadSlot });
         pendingLoadSlot = null;
+      } else if (enforceGameMode && preferredSolo) {
+        // Solo hero phase 4: a Solo New Game always starts a fresh Solo world (a restart for everyone).
+        sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, solo: true });
       } else if (enforceGameMode && !!message.creative !== preferredCreative) {
         // Creative mode: New Game / Creative from the menu start a world of that mode (a restart for everyone).
         sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: preferredCreative });
@@ -7866,9 +7871,10 @@ function setupMainMenu() {
   const closeModal = () => {
     settingsModal.hidden = true;
   };
-  const startGame = (loadSlot: SaveSlot | null, creative = preferredCreative) => {
+  const startGame = (loadSlot: SaveSlot | null, creative = preferredCreative, solo = false) => {
     pendingLoadSlot = loadSlot;
     preferredCreative = creative;
+    preferredSolo = solo && !creative;
     enforceGameMode = loadSlot === null;
     sound.unlock();
     menu.hidden = true;
@@ -7887,6 +7893,7 @@ function setupMainMenu() {
   document.getElementById("menu-start")!.addEventListener("click", () => startGame(null));
   // Creative mode: a new creative world (infinite resources, instant build, the Creative panel).
   document.getElementById("menu-creative")!.addEventListener("click", () => startGame(null, true));
+  document.getElementById("menu-solo")!.addEventListener("click", () => startGame(null, false, true));
   if (preferredCreative) document.getElementById("menu-start")!.textContent = "New Game (Creative)";
   document.getElementById("menu-continue")!.addEventListener("click", () => startGame("autosave"));
   const loadPanel = document.getElementById("menu-load-panel")!;

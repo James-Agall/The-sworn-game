@@ -590,3 +590,13 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
    (N gold, skills -X%)"; you rise next to the Church with less gold and skills.
 10. Creative world: the Food / Rest meters are greyed (needs off).
 
+## Solo hero (phase 4): Solo start, found a camp
+1. Main menu: **New Game (Solo)**. The world restarts; you stand alone a short walk from a human settlement (visible
+   nearby). No Town Center, no villagers; the stock panel shows 30 gold, 3 meat, 3 fruit.
+2. Walk into the settlement: talk to the Elder / trader / villagers (phase 1-3 checks work here too). Gather wood and
+   stone (hold E) until the pack holds 20 wood + 10 stone.
+3. Pack panel: **Found a camp** is listed; click it on open ground away from the settlement: a Town Center appears next
+   to you and two settlers walk out; the button disappears. The first night after that a raid may come (none before).
+4. Restart (Menu): still a Solo world. Save and load a Solo game before founding: still no Town Center, you spawn at
+   the same start spot.
+

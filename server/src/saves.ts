@@ -1,6 +1,6 @@
 // saves.ts: Save files: snapshot/apply world, migrations, slots, autosave, restart.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { resetHeroLifeSessions } from "./herolife.js";
+import { applySoloStart, resetHeroLifeSessions } from "./herolife.js";
 import { topUpCreative } from "./creative.js";
 import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -55,9 +55,11 @@ export function resetClans() {
 
 // creative: the new world's creative flag (a restart without it is a normal game; handleSetDifficulty's
 // regeneration keeps the current one).
-export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown, creative = false) {
+export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown, creative = false, solo = false) {
   const wasCreative = state.creative;
   state.creative = creative;
+  state.solo = solo && !creative;
+  state.soloSpawn = null;
   state.creativeAllowAttack = false;
   state.creativeUnlockAll = true;
   if (creative) state.instantBuild = true;
@@ -146,6 +148,8 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   state.timeScaleBy = null;
   state.simAccum = 0;
 
+  // Solo hero phase 4: no Town Center or people of your own, a few tools, near a settlement.
+  if (state.solo) applySoloStart();
   respawnPlayersAndWelcome();
 }
 
@@ -312,6 +316,9 @@ function snapshotWorldInner() {
     creative: state.creative as boolean | undefined,
     creativeAllowAttack: state.creativeAllowAttack as boolean | undefined,
     creativeUnlockAll: state.creativeUnlockAll as boolean | undefined,
+    // Solo hero phase 4 (optional: older saves are settlement games).
+    solo: state.solo as boolean | undefined,
+    soloSpawn: state.soloSpawn as { x: number; y: number } | null | undefined,
     // Progression tree: clan 0's items and unlocked types (optional: older saves are grandfathered).
     progress: progressForSave(clans[0]) as ClanProgress | undefined,
   };
@@ -476,6 +483,8 @@ function applyWorldInner(s: WorldState) {
   state.creative = s.creative ?? false;
   state.creativeAllowAttack = s.creativeAllowAttack ?? false;
   state.creativeUnlockAll = s.creativeUnlockAll ?? true;
+  state.solo = s.solo ?? false;
+  state.soloSpawn = s.soloSpawn ?? null;
   towerCooldowns.clear();
   migrateSaveDayLength(s.dayTicks ?? LEGACY_DAY_TICKS, s.nightTicks ?? LEGACY_NIGHT_TICKS);
   evaluateGoals(!s.goals);

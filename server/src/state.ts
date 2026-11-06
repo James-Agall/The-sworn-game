@@ -278,6 +278,10 @@ export interface ConstructionFields {
   creativeAllowAttack: boolean;
   // Progression tree: creative "Unlock all" (default on: creative ignores the tree; off tests it). Saved.
   creativeUnlockAll: boolean;
+  // Solo hero phase 4: a Solo start (just the hero, no Town Center until a camp is founded; saved) and where the hero
+  // spawns while clan 0 has no Town Center.
+  solo: boolean;
+  soloSpawn: { x: number; y: number } | null;
   // COLONY_UNLOCK_ALL=1 (test hooks only; testHook "progression"): the rules before the progression tree, for the
   // suites written before it (scripts/run-tests.mjs): no building / upgrade / forge gates and no worker-tier speed.
   testUnlockAll: boolean;
@@ -547,6 +551,8 @@ const initial: Partial<ServerState> = {
   creative: false,
   creativeAllowAttack: false,
   creativeUnlockAll: true,
+  solo: false,
+  soloSpawn: null,
   testUnlockAll: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_UNLOCK_ALL === "1",
   legacyHeroRespawn: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_HERO_RESPAWN === "1",
   // EquipmentFields

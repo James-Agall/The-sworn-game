@@ -782,6 +782,32 @@ await check("solo hero: resurrection at a Church", async () => {
   return [ok, `offer "${offer?.name}", risen ${me()?.dead === false}, gold 500 -> ${gold}, woodcutting XP 100 -> ${r.life.skills.woodcutting}`];
 });
 
+// Solo hero phase 4: a Solo New Game (a restart for everyone, normal mode): no Town Center or people of your own, a
+// little gold, the hero near a human settlement; "found a camp" places a Town Center and two settlers join. Runs last
+// before the world audits (they then audit the Solo world).
+await check("solo hero: Solo start and found a camp", async () => {
+  c.welcome = null;
+  send({ type: "restart", difficulty: "normal", solo: true });
+  await until(() => c.welcome && c.snap && !c.snap.creative, 30000);
+  await snapNow();
+  const s0 = c.snap;
+  const me = () => c.snap.players.find((p) => p.id === c.welcome.id);
+  const st = await hook("sitesState");
+  const near = st.sites.some((x) => x.faction === "human" && Math.hypot(x.keepX - me().x / TILE, x.keepY - me().y / TILE) < 34);
+  const alone = s0.townCenters.length === 0 && !s0.colonists.some((u) => u.name && !u.clan) && s0.gold === 30;
+  await snapNow();
+  const offer = c.life?.canFound === true;
+  await hook("heroLife", { pack: { wood: 20, rock: 10 } });
+  await hook("heroLife", { action: "foundCamp" });
+  await snapNow();
+  await snapNow();
+  const tcs = c.snap.townCenters.length;
+  const people = c.snap.colonists.filter((u) => u.name && !u.clan).length;
+  const after = await hook("heroLife", {});
+  return [alone && near && offer && tcs === 1 && people >= 2 && !(after.life.pack.wood > 0) && !after.snap.canFound,
+    `alone ${alone} (TCs ${s0.townCenters.length}, gold ${s0.gold}), near a settlement ${near}, canFound ${offer}, founded: ${tcs} TC, ${people} people`];
+});
+
 // 10. world streaming: the tile registry matches a full scan after everything above (incl. the load), and paths hit the cache
 await check("world streaming: registry audit + path cache", async () => {
   const r = await hook("auditRegistry");

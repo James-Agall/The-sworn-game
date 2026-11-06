@@ -2155,6 +2155,29 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Solo hero — landed (phase 4) 2026-11-06 (Solo start, found a camp)
+
+- **Menu "New Game (Solo)"** (or `?mode=solo`): on the first welcome the client sends `restart {solo: true}` (a fresh
+  world for everyone, like New Game / Creative). Restart / game-over Restart keep the mode.
+- **Solo world (`resetWorld(..., solo)` -> `herolife.ts applySoloStart`, `state.solo` / `state.soloSpawn`, saved;
+  older saves = settlement):** the world is generated as usual, then clan 0's Town Center and starting people are
+  removed; stores: 30 gold, 3 meat, 3 fruit, nothing else; kit: stone axe + pick (starter kit) + a stone knife. The hero
+  spawns (and respawns via `spawnPointNearTownCenter`) at a walkable, unclaimed tile 6-30 tiles from the keep of the
+  human settlement nearest the map centre (fallback: the map centre), revealed for 10 tiles. NPC settlements, camps,
+  warbands, quests, trade and wildlife run as normal; the nightly raid is skipped while a Solo clan has no Town Center
+  (`sim.ts`), so the world is not attacking an empty map centre.
+- **Found a camp (Pack panel button while the clan has no Town Center; `heroAction foundCamp`):** 20 wood + 10 stone
+  (pack first, then stores) places a Town Center on a free unclaimed tile next to the hero
+  (`resolveTownCenterPlacement`) and two settlers (immigrant adults) join it; from then on the normal settlement rules
+  apply (raids, immigrants, builders, strategy view). Works in settlement games too after losing every Town Center.
+- **Death in Solo:** Church resurrection needs an own Church; no Church / gold and no heir (Solo has nobody until a camp
+  grows) = game over (plan "Answers").
+- **Not done:** raids that hunt the lone hero, solo-specific worldgen (start resource spot), companions / named heroes
+  (phase 5), the strategy view is reachable but shows nothing of yours before a camp.
+- Smoke: "solo hero: Solo start and found a camp" (runs last, so the world audits then audit a Solo world).
+- Known smoke flake (pre-existing, also at ce3c3c1: 1 of 5 runs): "settlement: stamped with a keep and garrison"
+  sometimes finds no free spot on a random world, and the 5 settlement checks after it then report "no site".
+
 ## Solo hero — landed (phases 1-3) 2026-11-06 (talk, gather, needs, skills, station work, masters, builds, Church)
 
 Plan: `docs/colony2d/PLAN-solo-hero.md` phases 1-3 + "Death, resurrection and heirs" (the Church part). Data:

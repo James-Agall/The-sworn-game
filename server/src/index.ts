@@ -201,7 +201,7 @@ function handleMessage(player: Player, message: ClientMessage) {
     state.timeScaleBy = player.id;
     state.simAccum = 0;
   } else if (message.type === "restart") {
-    resetWorld(message.difficulty, message.worldSize, message.creative === true);
+    resetWorld(message.difficulty, message.worldSize, message.creative === true, message.solo === true);
   } else if (message.type === "setDifficulty") {
     handleSetDifficulty(message.difficulty, message.worldSize);
   } else if (message.type === "creativeSpawn" || message.type === "creativeSet") {
