@@ -2206,6 +2206,48 @@ kin helpers, snapshot); dialogue in `herolife.ts`; heir order / inheritance in `
 
 **Manual browser check:** MANUAL-TESTS.md "Family: marriage, children, succession".
 
+## Isometric view — in progress 2026-11-06 (render-only, `?view=iso`)
+
+**Why.** The building art is isometric (2:1 diamonds) but the world is drawn flat top-down, so walls, moats and
+roads run straight across / down the screen next to diamond-shaped buildings. The iso view draws the same square
+grid as a diamond grid: a grid-axis wall, road or moat shows as a screen diagonal. Client only: the server, the
+sim, the shared package and the protocol stay a square grid (TILE_SIZE 32), and the classic top-down view stays
+the default.
+
+**Switch.** `?view=iso` (or `?iso=1`; `?iso=0` forces classic) or Settings > Display > "Isometric view"
+(localStorage `sworn.isoView`, applies after a reload like the other camera settings). The minimap stays top-down.
+
+**Mapping.** World px (x, y) -> iso px ((x - y) * 0.75, (x + y) * 0.375): one 32 px tile becomes a 48 x 24 diamond
+(2:1). Measured on the sprites (bottom outline slopes, `client/public/sprites`): cottage 0.51 / -0.52, hunter hut
+0.48 / -0.35, castle keep 0.34 / -0.49, i.e. 2:1 art. A 1x1 building is drawn ~45 px wide (1.4 tiles box fit), which
+fills a 48 px diamond, so no art is rescaled.
+
+**How (client/src/iso.ts).**
+- `worldLayer` gets camera x M (an affine skew, `setFromMatrix`), so everything flat on the ground becomes a
+  diamond / ellipse for free: floor, roads, cobble, water, moats, drawbridges, blood, selection / role rings,
+  range circles, tile hover, footprints, fog, night, LOD dots.
+- Upright things (buildings, props, decor, gravestones, units, fx, hp bars, labels, banners) are billboarded:
+  their local transform is pre-multiplied by M^-1, so the art is drawn unskewed at its projected ground point.
+  Parts hung off a unit (hp bar, labels, sigil, wound, marker ring) take the unit as their ground point, so their
+  "y - k" offsets stay straight up the screen.
+- Depth: upright things are attached to one Pixi `RenderLayer` sorted by x + y of their ground point (a building's
+  is its footprint centre), placed where the tile layer was, so a unit behind a house is hidden by it.
+- Inverse mapping for picking (`screenToWorld`), the strategy camera's pan / zoom-about-cursor / clamp, WASD
+  (W = screen up = world (-1, -1)), chunk culling from the 4 unprojected screen corners, facing from screen x.
+
+**Art.** `art-sources/` has no true-iso wall / road / moat / ground pieces: the wall + gate atlases ("Fantasy
+Wall and Moat Tileset Atlas", "Pixel Art Wall and Gate Tileset Atlas", "Wooden and Stone Medieval Gates",
+"Medieval Gate Sprite Sheet") are 3/4 front-view connector pieces for a square grid; the moat 16-piece set,
+drawbridges, road-* pieces, cobble and floors are top-down squares; "Isometric Castle Ruin and Gate Sprite Sheet"
+has front-facing iso gates (one direction only). So: roads, cobble, moats, drawbridges, water and floor reuse
+their top-down pieces drawn flat under M (same autotile masks: ROAD_AUTOTILE + rotation, moat N/E/S/W mask);
+walls and gates are procedural extruded prisms per N/E/S/W connector mask (stone / wood, damaged, gate open /
+closed / overrun, H / V), cached as textures. Pending real art is listed in SPRITES.md.
+
+**Phases.** 0 survey + this plan; 1 prototype render (transform, billboards, depth sort, procedural walls);
+2 input & UI (picking, rings, drag-select, previews, camera, WASD, facing, fx, culling); 3 polish (perf, classic
+regression, build, smoke, MANUAL-TESTS checklist, SPRITES pending list).
+
 ## Solo hero — landed (phase 4) 2026-11-06 (Solo start, found a camp)
 
 - **Menu "New Game (Solo)"** (or `?mode=solo`): on the first welcome the client sends `restart {solo: true}` (a fresh
