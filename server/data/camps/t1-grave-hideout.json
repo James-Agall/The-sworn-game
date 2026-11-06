@@ -1,0 +1,25 @@
+{
+  "id": "t1-grave-hideout",
+  "name": "Graveyard hideout",
+  "tier": 1,
+  "weight": 2,
+  "minStartDist": 0,
+  "guards": [
+    2,
+    3
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".........",
+    "..r...+..",
+    ".r.g.....",
+    "...b.T...",
+    ".g..H.p..",
+    "...p.c.g.",
+    ".+...p...",
+    "..x...r..",
+    "........."
+  ]
+}

@@ -1259,6 +1259,19 @@ export const HEARTH_GUARD_RADIUS_TILES = 10;
 // A hero this close (tiles) to an unguarded camp hearth frees its prisoners on the spot.
 export const PRISONER_WALKUP_TILES = 2;
 export const HEARTH_LOOT_PER_GUARDIAN = { gold: 15, wood: 10, rock: 5, iron: 5 };
+// ---- Bandit camp templates (shared/src/camps.ts, server/src/camps.ts, server/data/camps/*.json) ----
+// A templated camp's hearth HP by camp tier (tier 1 = the old encampment's 150).
+export const CAMP_HEARTH_HP_BY_TIER = [150, 200, 260];
+// "g" (any) guard slots: weighted kinds by camp tier (tier 2 = the old ENCAMPMENT_GUARDIAN_WEIGHTS).
+export const CAMP_GUARD_WEIGHTS_BY_TIER: { kind: MobKind; weight: number }[][] = [
+  [{ kind: "banditClubman", weight: 5 }, { kind: "banditArcher", weight: 3 }],
+  [{ kind: "banditClubman", weight: 5 }, { kind: "banditArcher", weight: 3 }, { kind: "banditElite", weight: 1 }],
+  [{ kind: "banditClubman", weight: 4 }, { kind: "banditArcher", weight: 3 }, { kind: "banditElite", weight: 2 }],
+];
+// Each loot chest ("L") adds this to the plunder when the camp's hearth falls.
+export const CAMP_CHEST_LOOT = { gold: 25, wood: 10, rock: 0, iron: 5 };
+// World-gen clamps a template's minStartDist to this fraction of the world's width (small worlds).
+export const CAMP_MIN_START_DIST_MAX_FRACTION = 0.35;
 // Aggressive-stance soldiers with no enemy in reach go for a standing hearth this close to them.
 export const HEARTH_AUTO_TARGET_TILES = 8;
 // Forts phase A: what the attackHearth order / commandAttackHearth (generalised "attack structure") can

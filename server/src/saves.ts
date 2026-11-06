@@ -665,7 +665,7 @@ export async function readSave(slot: SaveSlot): Promise<string | null> {
 async function expandStreamedSave(file: SaveFile): Promise<string | null> {
   const s = file.state;
   if (!s.tileDiffs || s.seed === undefined || s.baseSum === undefined) return null;
-  let b = await loadBase(s.seed, file.worldSize, s.baseSum);
+  let b = await loadBase(s.seed, file.worldSize, s.baseSum, s.worldgenVersion);
   if (!b) {
     const t0 = performance.now();
     colonists.clear();

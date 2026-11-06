@@ -820,6 +820,12 @@ export interface HearthState {
   // Freed prisoners still waiting at the fallen camp for a bed, and the clan they are joining.
   prisonersWaiting?: number;
   prisonersClan?: number;
+  // Camp templates (camps.ts; missing on old saves and non-template sites): the template id, its tier, its loot
+  // chests and the radius its props burn in when the hearth falls.
+  campTemplate?: string;
+  campTier?: number;
+  campChests?: number;
+  campRadius?: number;
 }
 export interface AttackObjective {
   id: string;

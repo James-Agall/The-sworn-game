@@ -1,0 +1,27 @@
+{
+  "id": "t2-wagon-laager",
+  "name": "Wagon laager",
+  "tier": 2,
+  "weight": 3,
+  "minStartDist": 28,
+  "guards": [
+    3,
+    5
+  ],
+  "entrance": "E",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    "...........",
+    "...ccccc...",
+    "..c.....c..",
+    ".c..TpT..c.",
+    ".c.g...g.ca",
+    ".c..pHp....",
+    ".c.g.L.g.ca",
+    ".c..p.x..c.",
+    "..c.....c..",
+    "...ccccc...",
+    "..........."
+  ]
+}

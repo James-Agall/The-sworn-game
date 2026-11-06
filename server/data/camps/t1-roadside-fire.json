@@ -1,0 +1,23 @@
+{
+  "id": "t1-roadside-fire",
+  "name": "Roadside fire",
+  "tier": 1,
+  "weight": 3,
+  "minStartDist": 0,
+  "guards": [
+    2,
+    4
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".......",
+    "..b.c..",
+    ".g...g.",
+    ".p.Hp..",
+    ".g.x.g.",
+    "...p...",
+    "......."
+  ]
+}

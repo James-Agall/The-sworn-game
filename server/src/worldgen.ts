@@ -11,7 +11,7 @@ import {
   BIOME_SEED_RADIUS_MAX, BIOME_SEED_RADIUS_MIN, BOSS_EQUIP_LOOT, CASTLE_RUIN_FOOTPRINT_RADIUS,
   CASTLE_RUIN_GROUNDS_RADIUS, CASTLE_RUIN_GUARDIANS_MAX, CASTLE_RUIN_GUARDIANS_MIN, CASTLE_RUIN_GUARDIAN_WEIGHTS,
   CASTLE_RUIN_LAYOUT, CASTLE_RUIN_LAYOUT_TILES, CASTLE_RUIN_SPAWN_DIST_FRACTIONS, ELITE_DAMAGE_MULT, ELITE_HP_MULT,
-  ELITE_REWARD, ENCAMPMENT_EXTRAS, NEAR_START_CAMP_RING, NEAR_START_CAMPS, ENCAMPMENT_GUARDIAN_WEIGHTS, MINI_BOSS_KINDS, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS,
+  CAMP_MIN_START_DIST_MAX_FRACTION, ELITE_REWARD, ENCAMPMENT_EXTRAS, NEAR_START_CAMP_RING, NEAR_START_CAMPS, ENCAMPMENT_GUARDIAN_WEIGHTS, MINI_BOSS_KINDS, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS,
   NEIGHBORS_8, POI_SITE_FOOTPRINT_RADIUS, POI_SITE_MIN_SPACING, POI_SITE_WATER_CLEARANCE, POND_EDGE_JITTER_TILES,
   POND_MIN_SPACING, POND_NOISE_CELL_TILES, POND_RADIUS_MAX, POND_RADIUS_MIN, RUIN_CENTERPIECES, RUIN_EXTRAS,
   RUIN_GUARDIAN_WEIGHTS, SITE_KIND_HAS_HEARTH, SITE_POI_CLEARANCE_TILES, SPAWN_CLEAR_RADIUS_TILES, SPAWN_PLAINS_RADIUS_TILES,
@@ -31,6 +31,8 @@ import { evaluateGoals, resetGoals } from "./goals.js";
 import { grantTieredEquipment } from "./heroes.js";
 import { broadcastEvent, resetExplored } from "./net.js";
 import { withWorldSeed } from "./worldbase.js";
+import { campGroundClearable, campPool, pickCampTemplate, pickCampTransform, stampCamp } from "./camps.js";
+import { campRadius, type CampTemplate } from "@colony/shared/camps";
 
 export function scatterResourceTiles(tileType: TileType, count: number) {
   const spawnTx = Math.floor(state.WORLD_TILES_X / 2);
@@ -269,8 +271,14 @@ export function pickEncampmentGuardianKind(): MobKind {
 
 // One POI site: a centerpiece decoration tile, 0-3 extra decorations on its 8 neighbors, and a
 // group of dormant guardians standing on free tiles next to that cluster, all sharing one siteId.
-// Ruins and encampments differ only in the decoration tiles and guardian kinds.
+// Ruins and encampments differ only in the decoration tiles and guardian kinds. (World-gen's bandit camps are
+// templated since 2026-11-06: generateCampSites / stampCamp; an "encampment" here stamps a tier-1 template.)
 export function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord) {
+  if (siteKind === "encampment") {
+    const t = pickCampTemplate(campPool(1));
+    stampCamp(t, center, pickCampTransform(t));
+    return;
+  }
   const siteId = randomUUID();
   const centerpiece =
     siteKind === "ruin" ? RUIN_CENTERPIECES[randInt(0, RUIN_CENTERPIECES.length - 1)] : TileType.PropCampfire;
@@ -303,18 +311,80 @@ export function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord)
   if (SITE_KIND_HAS_HEARTH[siteKind]?.hasHearth) registerHearth(siteId, siteKind, center, kinds);
 }
 
-// A few small encampments (prisoners to free) a short march from the start, NEAR_START_CAMP_RING tiles out.
+// Camp templates: a spot for a camp of footprint radius r: the footprint on the map and only open or natural
+// ground (trees, rock, ore, forage: stampCamp clears them) outside every reserved grounds, no water within r + 1,
+// and off the forts' grounds by SITE_POI_CLEARANCE_TILES.
+export function campSpotOk(t: TileCoord, r: number): boolean {
+  for (let dy = -r - 1; dy <= r + 1; dy++) {
+    for (let dx = -r - 1; dx <= r + 1; dx++) {
+      const x = t.x + dx;
+      const y = t.y + dy;
+      const inFootprint = Math.max(Math.abs(dx), Math.abs(dy)) <= r;
+      if (!inBounds(x, y)) {
+        if (inFootprint) return false;
+        continue;
+      }
+      const tile = state.tiles[tileIndex(x, y)];
+      if (tile === TileType.Water) return false;
+      if (inFootprint && (!campGroundClearable(tile) || isInReservedGrounds(x, y))) return false;
+    }
+  }
+  return !nearSiteGrounds(t.x, t.y, SITE_POI_CLEARANCE_TILES + r);
+}
+
+// Centre spacing a camp of radius r keeps from every placed site (bigger camps need more room).
+function campSpacing(r: number): number {
+  return POI_SITE_MIN_SPACING + Math.max(0, r - POI_SITE_FOOTPRINT_RADIUS);
+}
+
+// After stamping: the centre (and, for a big camp, four points inside its corners, so later POIs' centre
+// spacing keeps them out of its open ground too).
+function noteCampPlaced(placedSites: TileCoord[], c: TileCoord, r: number) {
+  placedSites.push(c);
+  if (r <= 5) return;
+  const k = r - 3;
+  for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) placedSites.push({ x: c.x + sx * k, y: c.y + sy * k });
+}
+
+// A few small camps (tier-1 templates; prisoners to free) a short march from the start, NEAR_START_CAMP_RING tiles out.
 export function generateNearStartCamps(placedSites: TileCoord[]) {
   const [lo, hi] = NEAR_START_CAMP_RING;
   const want = randInt(NEAR_START_CAMPS[0], NEAR_START_CAMPS[1]);
+  const pool = campPool(1);
+  let tpl = pickCampTemplate(pool);
   for (let i = 0, attempts = 0; i < want && attempts < 400; attempts++) {
     const a = Math.random() * Math.PI * 2;
     const r = randRange(lo, hi);
     const t = { x: Math.round(TOWN_CENTER_TILE.x + Math.cos(a) * r), y: Math.round(TOWN_CENTER_TILE.y + Math.sin(a) * r) };
-    if (!inBounds(t.x, t.y) || placedSites.some((o) => tileDistance(o, t) < POI_SITE_MIN_SPACING) || !poiSiteSpotOk(t)) continue;
-    placedSites.push(t);
-    placePoiSite("encampment", t);
+    const cr = campRadius(tpl);
+    if (!inBounds(t.x, t.y) || placedSites.some((o) => tileDistance(o, t) < campSpacing(cr)) || !campSpotOk(t, cr)) continue;
+    stampCamp(tpl, t, pickCampTransform(tpl));
+    noteCampPlaced(placedSites, t, cr);
+    tpl = pickCampTemplate(pool);
     i++;
+  }
+}
+
+// The scattered bandit camps: per camp a weighted template (every tier), then a spot at least its minStartDist
+// (clamped on small worlds) from the start; a template that finds no room gives way to another pick (3 tries).
+export function generateCampSites(count: number, placedSites: TileCoord[]) {
+  const pool = campPool();
+  const maxStart = Math.floor(state.WORLD_TILES_X * CAMP_MIN_START_DIST_MAX_FRACTION);
+  for (let i = 0; i < count; i++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const tpl: CampTemplate = pickCampTemplate(pool);
+      const cr = campRadius(tpl);
+      const center = pickScatteredTile(
+        Math.max(SPAWN_CLEAR_RADIUS_TILES + cr, Math.min(tpl.minStartDist, maxStart)),
+        campSpacing(cr),
+        placedSites,
+        (t) => campSpotOk(t, cr)
+      );
+      if (!center) continue;
+      stampCamp(tpl, center, pickCampTransform(tpl));
+      noteCampPlaced(placedSites, center, cr);
+      break;
+    }
   }
 }
 
@@ -557,7 +627,7 @@ function generateWorldInner() {
   generateForage();
   generatePoiSites("ruin", randInt(state.RUIN_SITE_COUNT_MIN, state.RUIN_SITE_COUNT_MAX), placedSites);
   generateNearStartCamps(placedSites);
-  generatePoiSites("encampment", randInt(state.ENCAMPMENT_SITE_COUNT_MIN, state.ENCAMPMENT_SITE_COUNT_MAX), placedSites);
+  generateCampSites(randInt(state.ENCAMPMENT_SITE_COUNT_MIN, state.ENCAMPMENT_SITE_COUNT_MAX), placedSites);
   generateMiniBossSites(randInt(state.MINI_BOSS_SITE_COUNT_MIN, state.MINI_BOSS_SITE_COUNT_MAX), placedSites);
   spawnInitialWildlife();
   resetExplored();

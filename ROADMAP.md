@@ -2155,6 +2155,46 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Bandit camp templates — landed 2026-11-06 (data-driven camps; camp editor in creative mode)
+
+World-gen's bandit camps (the "encampment" POI: hearth, guards, prisoners) are stamped from **templates** instead of
+one fixed campfire-and-props layout. Format, legend, transforms and validation: `shared/src/camps.ts`; store,
+stamper and world-gen pick: `server/src/camps.ts`; built-ins: `server/data/camps/*.json` (a broken built-in fails
+the boot), user templates: `server/data/camps/user/*.json` (invalid ones are skipped with a warning; with
+`COLONY_TEST_HOOKS=1` the user folder is `<COLONY_SAVE_DIR>/camps-user`, `COLONY_CAMP_USER_DIR` overrides).
+
+- **Template**: `id`, `name`, `tier` 1-3, `weight` (world-gen pick weight, 0 = editor / stamp only), `minStartDist`
+  (tiles from the start, clamped to `CAMP_MIN_START_DIST_MAX_FRACTION` = 0.35 of the world width), `guards`
+  [min, max], `entrance` N/E/S/W, `rotate` / `mirror` (world-gen may turn / flip it), `rows` (5-31 each way).
+  Legend: `.` open ground, `H` hearth (exactly one; the camp's origin), `#` palisade (fence), `T` tent, `W` watch
+  post (lantern), `x` crate, `b` barrel, `c` cart, `r` rubble, `+` grave, `L` loot chest (a crate + loot slot),
+  `g` guard (kind by tier), `m` / `a` / `e` clubman / archer / elite guard, `p` prisoner. Validation: rectangular,
+  known symbols, one hearth, >= 1 guard slot, guards max <= slots, <= 12 prisoner / 8 loot slots, and the outside
+  must reach a side of the hearth and every guard slot (4-way walking).
+- **Stamping** (`stampCamp`): clears natural ground (trees, rock, ore, forage) in the footprint square, lays the
+  tiles, spawns randInt(min, max) dormant guards on shuffled guard slots ("g" by `CAMP_GUARD_WEIGHTS_BY_TIER`),
+  registers the hearth with `CAMP_HEARTH_HP_BY_TIER` = 150 / 200 / 260, prisoners = the old roll capped by the
+  prisoner slots, and the new optional HearthState fields `campTemplate`, `campTier`, `campChests`, `campRadius`.
+  Guards-first, walk-up prisoner release and rout are unchanged. When the hearth falls, crates / barrels / carts /
+  fences / tents / watch posts within `campRadius` burn away and each loot chest adds `CAMP_CHEST_LOOT`
+  (25 gold, 10 wood, 5 iron). Old saves (no camp fields) keep the old 8-neighbour burn and loot.
+- **World-gen**: near-start camps use tier-1 templates; the scattered camps pick a weighted template from every
+  tier, then a spot at least its `minStartDist` out with the footprint on open / natural ground, no water within
+  radius + 1 and centre spacing `POI_SITE_MIN_SPACING + (radius - 2)` (a big camp also reserves four points inside
+  its corners). Picks, transforms and guard rolls all run on the seeded `Math.random`, so a seed + template pool
+  reproduces the same camps. `WORLDGEN_VERSION` 2 -> 3; the base cache file is now named by the save's own
+  `worldgenVersion` (a v2 diff save still loads from its v2 cache file). A user template with weight > 0 joins the
+  pool for new worlds: editing it changes what a seed makes, so older diff saves of such worlds need their base
+  cache file (kept next to the saves) to load.
+- **Built-ins (10)**: tier 1 `t1-roadside-fire` (the old layout, fixed), `t1-tent-circle`, `t1-captive-pen`,
+  `t1-grave-hideout`; tier 2 (minStartDist 28) `t2-palisade-ring`, `t2-watch-crossroads`, `t2-wagon-laager`; tier 3
+  (minStartDist 50) `t3-bandit-stockade`, `t3-raider-warcamp`, `t3-twin-palisade`.
+- **Known limits**: the watch post is decor (a firing tower would need site ownership and its own art); prisoners
+  are still drawn as the stand-in group at the hearth, not on their slots; the `entrance` is metadata (validation
+  checks reachability, not the side).
+- Test: `server/camp-templates-test.mjs` (in-process under tsx, no ports): every template x transform on a scratch
+  map, seed determinism, tiers, burn + chest loot, the user store.
+
 ## Farm labour — landed 2026-11-06 (fields tended by Barns)
 
 Farm Plots (grain) and Hemp Fields have no workers of their own any more. A Barn employs `BARN_FARMERS_BY_LEVEL`

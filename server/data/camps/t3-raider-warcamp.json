@@ -1,0 +1,29 @@
+{
+  "id": "t3-raider-warcamp",
+  "name": "Raider warcamp",
+  "tier": 3,
+  "weight": 2,
+  "minStartDist": 50,
+  "guards": [
+    6,
+    9
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".............",
+    "..W...a...W..",
+    ".T.T.....T.T.",
+    "..g..ccc..g..",
+    ".T....e....T.",
+    "..x...p...b..",
+    ".g..p.H.p..g.",
+    "..L..ppp..L..",
+    ".T....e....T.",
+    "..g..bcb..g..",
+    ".T.T.....T.T.",
+    "..W...a...W..",
+    "............."
+  ]
+}

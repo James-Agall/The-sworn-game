@@ -1,0 +1,27 @@
+{
+  "id": "t2-watch-crossroads",
+  "name": "Watch-post crossroads",
+  "tier": 2,
+  "weight": 3,
+  "minStartDist": 28,
+  "guards": [
+    4,
+    6
+  ],
+  "entrance": "S",
+  "rotate": false,
+  "mirror": true,
+  "rows": [
+    "...........",
+    "..W.....W..",
+    "...a...a...",
+    "..cc...bb..",
+    "...T.g.T...",
+    ".g..pHp..g.",
+    "...TpppT...",
+    "..xx.L.cc..",
+    "...g...g...",
+    "..W.....W..",
+    "..........."
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "id": "t2-palisade-ring",
+  "name": "Palisade ring",
+  "tier": 2,
+  "weight": 3,
+  "minStartDist": 28,
+  "guards": [
+    4,
+    6
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    "...........",
+    ".####W####.",
+    ".#T..p..T#.",
+    ".#.g...g.#.",
+    ".#..ppp..#.",
+    ".#.g.H.g.#.",
+    ".#..x.L..#.",
+    ".#T.....T#.",
+    ".###.g.###.",
+    "....a.a....",
+    "..........."
+  ]
+}

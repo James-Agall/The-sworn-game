@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { type MobKind, TileType, TILE_SIZE } from "@colony/shared/protocol";
 import type { AttackObjective, Colonist, HearthState, Mob, PoiSiteKind, TileCoord } from "./types.js";
 import {
-  BREACH_WALL_COST, CATAPULT_BUILDING_MULT, ENCAMPMENT_EXTRAS, HEARTH_AUTO_TARGET_TILES, HEARTH_DEFAULT_HP, HEARTH_GUARD_RADIUS_TILES,
+  BREACH_WALL_COST, CAMP_CHEST_LOOT, CATAPULT_BUILDING_MULT, ENCAMPMENT_EXTRAS, HEARTH_AUTO_TARGET_TILES, HEARTH_DEFAULT_HP, HEARTH_GUARD_RADIUS_TILES,
   PRISONER_WALKUP_TILES,
   HEARTH_LOOT_PER_GUARDIAN, LINE_LEASH_TILES, NEIGHBORS_8, POI_SITE_FOOTPRINT_RADIUS, RAID_LEAVE_MAX_TICKS,
   SIEGE_BUILDING_MULT, SITE_KIND_HAS_HEARTH, STRUCTURE_TARGET_PREFIX, TACTICS_SCAN_TILES,
@@ -45,13 +45,25 @@ export function campFaction(kinds: MobKind[]): string {
   return "enemy";
 }
 
-export function registerHearth(siteId: string, siteKind: PoiSiteKind, center: TileCoord, kinds: MobKind[]) {
-  const maxHp = SITE_KIND_HAS_HEARTH[siteKind]?.hp ?? HEARTH_DEFAULT_HP;
+// `camp`: a templated bandit camp (camps.ts stampCamp): its HP by tier, prisoners capped by its prisoner slots,
+// loot chests and the radius its props burn in when it falls.
+export function registerHearth(
+  siteId: string, siteKind: PoiSiteKind, center: TileCoord, kinds: MobKind[],
+  camp?: { template: string; tier: number; hp: number; prisonerSlots: number; chests: number; radius: number },
+) {
+  const maxHp = camp?.hp ?? SITE_KIND_HAS_HEARTH[siteKind]?.hp ?? HEARTH_DEFAULT_HP;
+  const prisoners = rollPrisoners(center);
   hearths.set(siteId, {
     siteId, siteKind, x: center.x, y: center.y, hp: maxHp, maxHp, destroyed: false, faction: campFaction(kinds), garrison: kinds.length,
-    prisoners: rollPrisoners(center),
+    prisoners: camp ? Math.min(camp.prisonerSlots, prisoners) : prisoners,
+    ...(camp ? { campTemplate: camp.template, campTier: camp.tier, campChests: camp.chests, campRadius: camp.radius } : {}),
   });
 }
+
+// What a fallen camp's fire spreads to: the old camp's props (8 neighbours), or a templated camp's props, tents
+// and watch posts within its radius.
+const CAMP_BURNABLE = new Set<number>([...ENCAMPMENT_EXTRAS, TileType.Tent, TileType.PropLanternPost]);
+const CAMP_BURN_EFFECTS_MAX = 12;
 
 export function standingHearthAt(tx: number, ty: number): HearthState | undefined {
   for (const h of hearths.values()) if (!h.destroyed && h.x === tx && h.y === ty) return h;
@@ -184,12 +196,19 @@ export function destroyHearth(h: HearthState, attackerKey?: string) {
     // The fire burns out: the hearth tile becomes scorched rubble, the camp's props around it burn away.
     setTile(tileIndex(h.x, h.y), TileType.RuinRubble);
     broadcastTileUpdate(h.x, h.y, TileType.RuinRubble);
-    for (const o of NEIGHBORS_8) {
+    const r = h.campRadius ?? 0;
+    const around = r > 0 ? [] as TileCoord[] : NEIGHBORS_8;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (dx !== 0 || dy !== 0) around.push({ x: dx, y: dy });
+    let effects = 0;
+    for (const o of around) {
       const x = h.x + o.x;
       const y = h.y + o.y;
-      if (!inBounds(x, y) || !ENCAMPMENT_EXTRAS.includes(state.tiles[tileIndex(x, y)] as TileType)) continue;
+      if (!inBounds(x, y)) continue;
+      const tile = state.tiles[tileIndex(x, y)] as TileType;
+      if (r > 0 ? !CAMP_BURNABLE.has(tile) : !ENCAMPMENT_EXTRAS.includes(tile)) continue;
       setTile(tileIndex(x, y), TileType.Empty);
       broadcastTileUpdate(x, y, TileType.Empty);
+      if (effects++ >= CAMP_BURN_EFFECTS_MAX) continue;
       const p = tileToPixelCenter({ x, y });
       state.pendingEffects.push({ fromX: p.x, fromY: p.y, toX: p.x, toY: p.y, boulder: true });
     }
@@ -231,6 +250,9 @@ export function destroyHearth(h: HearthState, attackerKey?: string) {
     rock: HEARTH_LOOT_PER_GUARDIAN.rock * g,
     iron: HEARTH_LOOT_PER_GUARDIAN.iron * g,
   };
+  // Camp templates: each loot chest adds CAMP_CHEST_LOOT.
+  const chests = h.campChests ?? 0;
+  for (const k of ["gold", "wood", "rock", "iron"] as const) loot[k] += CAMP_CHEST_LOOT[k] * chests;
   state.stock.gold += loot.gold;
   state.stock.wood += loot.wood;
   state.stock.rock += loot.rock;

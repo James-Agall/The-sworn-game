@@ -11,12 +11,14 @@ import { SAVE_DIR } from "./constants.js";
 import { CHUNK_TILES } from "./chunks.js";
 import { state } from "./state.js";
 
-// Bump when worldgen changes what a seed produces (old diff saves then need their base cache file).
-export const WORLDGEN_VERSION = 2;
+// Bump when worldgen changes what a seed produces (old diff saves then need their base cache file, which is
+// named by the save's own worldgenVersion). 3: bandit camp templates (2026-11-06).
+export const WORLDGEN_VERSION = 3;
 // A chunk with more changed tiles than this is stored whole (1024 bytes) instead of as (u16 pos, u8 tile).
 const CHUNK_FULL_AT = 340;
 
-interface Base { seed: number; size: number; tiles: Uint8Array; biomes: Uint8Array; sum: number }
+// version: the worldgen version that made it (a base loaded for an older save keeps that save's version).
+interface Base { seed: number; size: number; tiles: Uint8Array; biomes: Uint8Array; sum: number; version: number }
 let base: Base | null = null;
 // The seed of the world now in memory (null: no regenerable base, e.g. loaded from a full-array save).
 let worldSeed: number | null = null;
@@ -48,7 +50,7 @@ export function withWorldSeed(seed: number | undefined, fn: () => void) {
     Math.random = real;
   }
   worldSeed = s;
-  base = { seed: s, size: state.WORLD_TILES_X, tiles: state.tiles.slice(), biomes: state.biomes.slice(), sum: 0 };
+  base = { seed: s, size: state.WORLD_TILES_X, tiles: state.tiles.slice(), biomes: state.biomes.slice(), sum: 0, version: WORLDGEN_VERSION };
   base.sum = checksum(base.tiles, base.biomes);
 }
 
@@ -74,8 +76,8 @@ function checksum(tiles: Uint8Array, biomes: Uint8Array): number {
   return h >>> 0;
 }
 
-function baseFile(seed: number, size: number): string {
-  return path.join(SAVE_DIR, `base-${seed}-${size}-v${WORLDGEN_VERSION}.bin.gz`);
+function baseFile(seed: number, size: number, version = WORLDGEN_VERSION): string {
+  return path.join(SAVE_DIR, `base-${seed}-${size}-v${version}.bin.gz`);
 }
 
 export function deflateBase64(bytes: Uint8Array): string {
@@ -99,7 +101,7 @@ export async function diffTilesForSave(): Promise<TileDiffs | null> {
   if (worldSeed === null || !base || base.seed !== worldSeed || base.size !== state.WORLD_TILES_X) return null;
   if (!sameBytes(state.biomes, base.biomes)) return null;
   // The cache file first: a diff save is only as good as its base.
-  const file = baseFile(base.seed, base.size);
+  const file = baseFile(base.seed, base.size, base.version);
   try {
     await fsp.access(file);
   } catch {
@@ -110,7 +112,7 @@ export async function diffTilesForSave(): Promise<TileDiffs | null> {
     await fsp.writeFile(`${file}.tmp`, gzipSync(raw));
     await fsp.rename(`${file}.tmp`, file);
   }
-  return { seed: base.seed, worldgenVersion: WORLDGEN_VERSION, baseSum: base.sum, tileDiffs: encodeDiffs(base.tiles, state.tiles) };
+  return { seed: base.seed, worldgenVersion: base.version, baseSum: base.sum, tileDiffs: encodeDiffs(base.tiles, state.tiles) };
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -172,13 +174,14 @@ function applyDiffs(tiles: Uint8Array, diffs: [number, string, 1?][]) {
   }
 }
 
-// Load side: the base for (seed, size), from memory or the cache file; null = the caller regenerates it.
-export async function loadBase(seed: number, size: number, sum: number): Promise<Base | null> {
+// Load side: the base for (seed, size), from memory or the cache file of the save's worldgen `version`; null =
+// the caller regenerates it.
+export async function loadBase(seed: number, size: number, sum: number, version = WORLDGEN_VERSION): Promise<Base | null> {
   if (base && base.seed === seed && base.size === size && base.sum === sum) return base;
   try {
-    const raw = new Uint8Array(gunzipSync(await fsp.readFile(baseFile(seed, size))));
+    const raw = new Uint8Array(gunzipSync(await fsp.readFile(baseFile(seed, size, version))));
     const cells = size * size;
-    const b: Base = { seed, size, tiles: raw.slice(0, cells), biomes: raw.slice(cells, cells * 2), sum: 0 };
+    const b: Base = { seed, size, tiles: raw.slice(0, cells), biomes: raw.slice(cells, cells * 2), sum: 0, version };
     b.sum = checksum(b.tiles, b.biomes);
     if (b.sum === sum) return (base = b);
   } catch {
@@ -204,7 +207,7 @@ export function expandTiles(b: Base, diffs: [number, string, 1?][]): { tiles: st
 // After a streamed save: cache files that no slot (and not the world in memory) names are deleted.
 export async function pruneBaseFiles(slotFiles: string[]) {
   const keep = new Set<string>();
-  if (base) keep.add(path.basename(baseFile(base.seed, base.size)));
+  if (base) keep.add(path.basename(baseFile(base.seed, base.size, base.version)));
   for (const f of slotFiles) {
     try {
       const file = JSON.parse(await fsp.readFile(f, "utf8"));

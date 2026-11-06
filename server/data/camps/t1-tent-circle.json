@@ -1,0 +1,25 @@
+{
+  "id": "t1-tent-circle",
+  "name": "Tent circle",
+  "tier": 1,
+  "weight": 3,
+  "minStartDist": 0,
+  "guards": [
+    2,
+    4
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".........",
+    "...T.T...",
+    ".T.g.g.T.",
+    ".........",
+    ".g.pHp.g.",
+    "....p....",
+    ".T.....T.",
+    "...cLb...",
+    "........."
+  ]
+}

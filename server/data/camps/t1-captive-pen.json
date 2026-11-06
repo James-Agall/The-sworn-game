@@ -1,0 +1,25 @@
+{
+  "id": "t1-captive-pen",
+  "name": "Captive pen",
+  "tier": 1,
+  "weight": 3,
+  "minStartDist": 0,
+  "guards": [
+    2,
+    3
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".........",
+    "..#####..",
+    "..#ppp#..",
+    "..#####..",
+    ".g..H..g.",
+    "...x.b...",
+    "..g...g..",
+    ".....c...",
+    "........."
+  ]
+}

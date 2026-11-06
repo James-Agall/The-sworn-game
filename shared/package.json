@@ -9,6 +9,7 @@
     "./buildings": "./src/buildings.ts",
     "./progression": "./src/progression.ts",
     "./herolife": "./src/herolife.ts",
-    "./streaming": "./src/streaming.ts"
+    "./streaming": "./src/streaming.ts",
+    "./camps": "./src/camps.ts"
   }
 }
