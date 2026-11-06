@@ -2155,6 +2155,38 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Family — landed (phases 1-4) 2026-11-06 (relationships, marriage, children, succession)
+
+Plan: `docs/colony2d/PLAN-family-and-succession.md` (defaults there). Server `server/src/family.ts` (state changes,
+kin helpers, snapshot); dialogue in `herolife.ts`; heir order / inheritance in `people.ts`; data in
+`shared/src/herolife.ts`.
+- **Data (1):** the hero is a person: `HeroLife.family` (selfId, gen, name, parents, spouse, spouseKin, kinOf,
+  betrothed; saved with the profile, `sanitizeFamily`; old saves start fresh). `Person` gains `spouse`, `kinOf`,
+  `talent`. Children / siblings are derived from living colonists' `parents`.
+- **Marriage (2):** court an unmarried adult of your people (talk: "Spend time with X" +1 / "A gift" 15 gold +2, once a
+  game day each) or a friendly Elder's kin ("Speak of family"); 4 points unlock "Will you marry me?" (an Elder's kin
+  costs a 60 gold bride gift to the settlement). Betrothed: any priest (settlement priest or own bishop) offers "Marry
+  us" (10 gold); an Elder's kin moves to your nearest Town Center. Diplomatic marriage: relation +25 and at least
+  Allied, family (vassal) trade prices, "Kin, we need your spears" = the vassal levy for in-laws (`VassalState.kinClan`).
+- **Children (3):** the hero couple: at dawn chance 0.5, 2 days apart, spouse's settlement under its cap; child talent =
+  25% of the hero's skills, 25% of the spouse's profession XP; grows up in 6 days. Hero bar **Family** panel (spouse /
+  betrothed / courting, children, parents, siblings, succession order). Creative World tab "Family": Spouse / Hero child
+  (`creativeSet family {spouse?, count?}`).
+- **Succession (4):** heir picker order eldest adult child, spouse, sibling, parent, then others ("(your child, the
+  heir)" in the row); family heirs keep 80% gold and 60% XP + hero skills (non-family 50% / 50%, skills now share too),
+  the heir's talent if higher; the heir becomes the family's new self (gen +1). A child of an in-law marriage taking over
+  = +20 relation there. Fallout: spouse dies = widowed (in-laws -15, bond ends); "We should part ways" (talk to the
+  spouse) = an Elder's kin goes home, relation -60, no courtship there for 10 days.
+- Smoke: "family: court an Elder's kin, wed at a priest, marriage alliance", "a child of the hero couple, creative
+  family", "succession order + inheritance, widowed, parting". Test hooks: heroLife `flags`, `familyReset`, `tpPriest`,
+  `growChildren`, `spouseKin`; peopleState `dawn.heroBirth`.
+- Pre-existing: vassals-test fails "C regiment ... population 8 -> 11" identically at 1ef6e7c (before this work).
+- **Not done:** marrying named companion heroes / other clans' leaders, NPC-NPC marriages, scandals / rival suitors,
+  inheriting a settlement on the in-law Elder's death; the E-target bias can pick the Elder over a priest standing near
+  the keep (walk to the priest).
+
+**Manual browser check:** MANUAL-TESTS.md "Family: marriage, children, succession".
+
 ## Solo hero — landed (phase 4) 2026-11-06 (Solo start, found a camp)
 
 - **Menu "New Game (Solo)"** (or `?mode=solo`): on the first welcome the client sends `restart {solo: true}` (a fresh

@@ -600,3 +600,19 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
 4. Restart (Menu): still a Solo world. Save and load a Solo game before founding: still no Town Center, you spawn at
    the same start spot.
 
+## Family: marriage, children, succession (phases 1-4)
+1. New Game. Hero bar: a **Family** button next to Pack; it opens a panel ("Unwed", Succession list of your people).
+2. Walk to one of your villagers, E: "Spend time with X" and "A gift for X (15 gold)" are listed; both raise the
+   courtship (shown in the reply and the Family panel); each greys out for the rest of the day. "Will you marry me?"
+   is greyed until 4.
+3. Raise a settlement to Friendly (gifts / trade), E at its keep: "Speak of family." names the Elder's kin with the
+   same three choices (bride gift 60 gold). After a proposal, talk to that settlement's priest (or your own Church's
+   bishop): "Marry us" (10 gold). The kin appears at your Town Center; the Family panel shows the spouse "of <town>";
+   the settlement is Allied and its trade prices drop; "Speak of family" now offers "Kin, we need your spears"
+   (levies follow you).
+4. Creative, World tab "Family": Spouse, then Hero child twice: the panel lists the spouse and two children.
+5. Let the hero die (with an adult child: creative child + wait 6 days, or skip to the order check): the heir picker
+   lists "(your child, the heir)" first, then the spouse. Pick the child: the Family panel title is the child's name
+   "(generation 2)", the old spouse is under Parents.
+6. Talk to your spouse: "We should part ways." An in-law spouse leaves and that settlement's relation drops sharply.
+
