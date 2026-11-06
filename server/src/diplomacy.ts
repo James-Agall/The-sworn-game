@@ -18,6 +18,7 @@ import { adjustRelation, attackerClan, relationOf } from "./sites.js";
 import { clanById, withClan } from "./clans.js";
 import { broadcastEvent } from "./net.js";
 import { endVassalage, tryVassalise } from "./vassals.js";
+import { kinBond } from "./family.js";
 
 export function gameDay(): number {
   return Math.floor(state.cycleTick / (DAY_TICKS + NIGHT_TICKS));
@@ -149,6 +150,12 @@ export function settlementsDawn() {
   }
 }
 
+// Family: kin by a diplomatic marriage (family.ts kinBond) trade at vassal (family) prices unless relations soured.
+function priceTierOf(clanId: number, s: SiteState): RelationTier {
+  const t = tierOf(clanId, s);
+  return t !== "hostile" && t !== "wary" && kinBond(s, clanId) ? "vassal" : t;
+}
+
 function discountOf(tier: RelationTier): number {
   return tier === "vassal" || tier === "allied" || tier === "friendly" ? TRADE_TIER_DISCOUNT[tier] : TRADE_TIER_DISCOUNT.neutral;
 }
@@ -192,17 +199,18 @@ export function tradeInfoFor(s: SiteState, player?: Player): BuildingInfo["trade
   if (!standingTown(s)) return undefined;
   const clanId = player?.clan ?? 0;
   const tier = tierOf(clanId, s);
+  const pt = priceTierOf(clanId, s);
   const d = diploOf(s, clanId);
   const reason = tradeProblem(s, clanId, player);
   return {
-    siteName: s.name, relation: Math.round(relationOf(clanId, s.id)), tier, discount: discountOf(tier),
+    siteName: s.name, relation: Math.round(relationOf(clanId, s.id)), tier, discount: discountOf(pt),
     gold: Math.floor(s.stock.gold ?? 0), canTrade: reason === "", reason,
     goods: TRADE_GOODS.map((good) => {
       const stock = Math.floor(s.stock[good] ?? 0);
       return {
         good, stock, cap: SETTLEMENT_STOCK_CAP,
-        buy: round2(unitPrice(good, "buy", tier, d.bought[good] ?? 0)),
-        sell: round2(unitPrice(good, "sell", tier, d.sold[good] ?? 0)),
+        buy: round2(unitPrice(good, "buy", pt, d.bought[good] ?? 0)),
+        sell: round2(unitPrice(good, "sell", pt, d.sold[good] ?? 0)),
         buyLeft: Math.max(0, Math.min(stock, TRADE_DAILY_CAP_PER_GOOD - (d.bought[good] ?? 0))),
         sellLeft: Math.max(0, Math.min(SETTLEMENT_STOCK_CAP - stock, TRADE_DAILY_CAP_PER_GOOD - (d.sold[good] ?? 0))),
       };
@@ -219,7 +227,7 @@ export function handleTradeWithSite(player: Player | undefined, s: SiteState | u
   const g = good as TradeGood;
   const problem = tradeProblem(s, clanId, player);
   if (problem) return { ok: false, text: problem };
-  const tier = tierOf(clanId, s);
+  const tier = priceTierOf(clanId, s);
   const d = diploOf(s, clanId);
   const theirs = Math.floor(s.stock[g] ?? 0);
   let qty: number;

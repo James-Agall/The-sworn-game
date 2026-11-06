@@ -436,6 +436,8 @@ export interface VassalState {
   // Set while the levy marches home: by then it is back in the garrison regardless.
   levyReturnByTick?: number;
   leashToastTick?: number;
+  // Family: a levy called by an in-law clan (a diplomatic marriage, family.ts kinBond), not the liege.
+  kinClan?: number;
   // Game day of the last "would swear fealty but your army is too weak" toast (not yet a vassal).
   refusedDay?: number;
   lastHitTick?: number;

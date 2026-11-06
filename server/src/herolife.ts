@@ -7,7 +7,7 @@
 // per-session transient work lives here. Messages run in the sender's clan context (index.ts handleMessage).
 import { TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, type TradeGood, type RelationTier } from "@colony/shared/protocol";
 import {
-  ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, FOUND_CAMP_COST, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
+  ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, BRIDE_GIFT_GOLD, CEREMONY_FEE, COURT_GIFT_GOLD, COURT_NEEDED, FOUND_CAMP_COST, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
   MASTER_FEE, MASTER_MAX_LEVEL, NEED_LOW, NEED_MAX, NPC_ROLE_LABEL, PACK_CAP, PACK_FOOD, PACK_GOODS, PACK_LABEL,
   PACK_WEIGHT, PERSONAL_BUILDS, PERSONAL_BUILD_MAX, STATION_SKILL, TALK_RANGE_TILES, TREE_FELL_CHANCE,
   type DialogueAction, type DialogueSnapshot, type GatherKind, type HeroLifeSnapshot, type HeroSkill, type NpcRole,
@@ -30,7 +30,10 @@ import { adjustRelation, relationOf } from "./sites.js";
 import { forcePostQuest, handleQuestMessage, quests, questsForSnapshot } from "./quests.js";
 import { addItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
 import { heroProfileOf, playerMaxHp } from "./heroes.js";
-import { cachedFamilySnapshot, resetFamilyCache } from "./family.js";
+import {
+  bringKinHome, cachedFamilySnapshot, courtable, familyOf, familySnapshot, heroTaken, kinBond, marry, resetFamilyCache,
+} from "./family.js";
+import { handleCallToArms } from "./vassals.js";
 
 // ---- profile state ----
 export function lifeOf(player: Player): HeroLife {
@@ -194,6 +197,10 @@ function renderTalk(p: Player, t: Talk, nodeId: string, prefix = "") {
   t.choices = node.choices
     .filter((c) => !c.tiers || (tier && c.tiers.includes(tier)))
     .map((c) => ({ label: fill(c.label, t, tier), next: c.next, action: c.action, disabled: c.action ? actionBlock(p, t, c.action) || undefined : undefined }));
+  if (nodeId === "start") {
+    const extra = familyChoices(p, t);
+    if (extra.length) t.choices.splice(t.choices.length - 1, 0, ...extra);
+  }
   sendTalk(p, t, (prefix ? prefix + "\n\n" : "") + fill(raw, t, tier));
 }
 
@@ -319,7 +326,118 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
       return s ? learnSkill(p, t, s, c.arg as HeroSkill) : closeTalk(p);
     case "fare":
       return sayThen(p, t, fareOf(t));
+    case "kin":
+      return s ? showKin(p, t, s, "") : closeTalk(p);
+    case "court":
+    case "courtGift":
+    case "propose":
+      return courtAction(p, t, c.action, String(c.arg ?? ""));
+    case "marry":
+      return wedding(p, t);
+    case "kinLevy": {
+      if (!s) return closeTalk(p);
+      const why = handleCallToArms(p, s, {});
+      return sayThen(p, t, why ? `"${why}."` : `"For family, we march." The ${s.name} levy follows you.`);
+    }
   }
+}
+
+// ---- family: courtship, proposal, ceremony (family.ts holds the state changes) ----
+const kinNameOf = (s: SiteState) => nameFor(`${s.id}:kin`);
+
+function courtChoices(p: Player, key: string, name: string, s?: SiteState): ChoiceRt[] {
+  const life = lifeOf(p);
+  const day = gameDay();
+  const gold = state.stock.gold ?? 0;
+  const pts = life.flags[`court:${key}`] ?? 0;
+  return [
+    { label: `Spend time with ${name}.`, action: "court", arg: key, disabled: life.flags[`courtDay:${key}`] === day ? "You spent time together today" : undefined },
+    { label: `A gift for ${name} (${COURT_GIFT_GOLD} gold).`, action: "courtGift", arg: key,
+      disabled: life.flags[`courtGiftDay:${key}`] === day ? "Already gave a gift today" : gold < COURT_GIFT_GOLD ? `Needs ${COURT_GIFT_GOLD} gold` : undefined },
+    { label: `Will you marry me?${s ? ` (${BRIDE_GIFT_GOLD} gold bride gift)` : ""}`, action: "propose", arg: key,
+      disabled: pts < COURT_NEEDED ? `Courtship ${pts} / ${COURT_NEEDED}` : s && gold < BRIDE_GIFT_GOLD ? `Needs ${BRIDE_GIFT_GOLD} gold` : undefined },
+  ];
+}
+
+// Extra start choices: courting one of your own people, "Marry us" from a priest when betrothed.
+function familyChoices(p: Player, t: Talk): ChoiceRt[] {
+  const out: ChoiceRt[] = [];
+  const f = familyOf(p);
+  const c = t.colonistId ? colonists.get(t.colonistId) : undefined;
+  if (f.betrothed && (t.role === "questGiver" || c?.kind === "bishop")) {
+    out.push({ label: `Marry us: ${f.betrothed.name} and I (${CEREMONY_FEE} gold).`, action: "marry", disabled: (state.stock.gold ?? 0) < CEREMONY_FEE ? `Needs ${CEREMONY_FEE} gold` : undefined });
+  }
+  if (t.role === "folk" && c && !heroTaken(p) && courtable(p, c)) out.push(...courtChoices(p, `c:${c.id}`, c.person!.name));
+  return out;
+}
+
+function showKin(p: Player, t: Talk, s: SiteState, head: string) {
+  const life = lifeOf(p);
+  const f = familyOf(p);
+  const name = kinNameOf(s);
+  const pre = head ? head + "\n\n" : "";
+  if ((life.flags[`feud:${s.id}`] ?? 0) > gameDay()) return sayThen(p, t, `${pre}"After what you did? No one of my house will have you."`);
+  if (kinBond(s, p.clan)) return sayThen(p, t, `${pre}"We are family now. Our spears are yours when you need them."`, [{ label: "Kin, we need your spears.", action: "kinLevy" }]);
+  if (f.betrothed?.key === `s:${s.id}`) return sayThen(p, t, `${pre}"${name} waits for the wedding. Find a priest to bless it."`);
+  if (heroTaken(p)) return sayThen(p, t, `${pre}"You are spoken for already."`);
+  return sayThen(p, t, `${pre}"My kin ${name} is unwed. Win their heart, and a bride gift, and our houses are joined."`, courtChoices(p, `s:${s.id}`, name, s));
+}
+
+function courtAction(p: Player, t: Talk, a: "court" | "courtGift" | "propose", key: string) {
+  const life = lifeOf(p);
+  const f = familyOf(p);
+  const day = gameDay();
+  const s = key.startsWith("s:") ? sites.get(key.slice(2)) : undefined;
+  const c = key.startsWith("c:") ? colonists.get(key.slice(2)) : undefined;
+  const name = s ? kinNameOf(s) : c?.person?.name ?? "";
+  const back = (msg: string) => (s ? showKin(p, t, s, msg) : renderTalk(p, t, "start", msg));
+  if ((s && !standingTown(s)) || (!s && !(c && courtable(p, c))) || heroTaken(p)) return sayThen(p, t, "That cannot be now.");
+  const pk = `court:${key}`;
+  if (a === "court") {
+    life.flags[`courtDay:${key}`] = day;
+    life.flags[pk] = (life.flags[pk] ?? 0) + 1;
+    gainSkill(p, "speech", 5);
+    return back(`You walk and talk with ${name} a while. (courtship ${life.flags[pk]} / ${COURT_NEEDED})`);
+  }
+  if (a === "courtGift") {
+    state.stock.gold -= COURT_GIFT_GOLD;
+    if (s) s.stock.gold = (s.stock.gold ?? 0) + COURT_GIFT_GOLD;
+    life.flags[`courtGiftDay:${key}`] = day;
+    life.flags[pk] = (life.flags[pk] ?? 0) + 2;
+    gainSkill(p, "speech", 5);
+    return back(`${name} smiles at the gift. (courtship ${life.flags[pk]} / ${COURT_NEEDED})`);
+  }
+  if (s) {
+    state.stock.gold -= BRIDE_GIFT_GOLD;
+    s.stock.gold = (s.stock.gold ?? 0) + BRIDE_GIFT_GOLD;
+  }
+  f.betrothed = { key, name };
+  gainSkill(p, "speech", 20);
+  return back(`"Yes!" You are betrothed to ${name}${s ? ` (bride gift ${BRIDE_GIFT_GOLD} gold paid to ${s.name})` : ""}. Find a priest to wed you.`);
+}
+
+// The ceremony at a priest (a settlement's or your own Church's bishop).
+function wedding(p: Player, t: Talk) {
+  const f = familyOf(p);
+  const b = f.betrothed;
+  if (!b) return renderTalk(p, t, "start");
+  const s = b.key.startsWith("s:") ? sites.get(b.key.slice(2)) : undefined;
+  let c = b.key.startsWith("c:") ? colonists.get(b.key.slice(2)) : undefined;
+  if (b.key.startsWith("s:") ? !standingTown(s) : !(c && courtable(p, c))) {
+    delete f.betrothed;
+    return sayThen(p, t, `"I am sorry. That match can no longer be."`);
+  }
+  if ((state.stock.gold ?? 0) < CEREMONY_FEE) return sayThen(p, t, `"The ceremony is ${CEREMONY_FEE} gold."`);
+  if (s) {
+    c = bringKinHome(p, b.name) ?? undefined;
+    if (!c) return sayThen(p, t, `"Where would you take ${b.name}? You have no home (Town Center) of your own."`);
+  }
+  state.stock.gold -= CEREMONY_FEE;
+  const at = siteOf(t);
+  if (at) at.stock.gold = (at.stock.gold ?? 0) + CEREMONY_FEE;
+  marry(p, c!, s);
+  gainSkill(p, "speech", 10);
+  return sayThen(p, t, `"Before all here, I bless this union." You and ${b.name} are wed${s ? `; ${s.name} is now bound to you by marriage` : ""}.`);
 }
 
 function fareOf(t: Talk): string {
@@ -916,5 +1034,5 @@ export function fillHeroPack(p: Player) {
 }
 export function heroLifeDebug(p: Player) {
   const b = busy.get(p.id);
-  return { life: lifeOf(p), snap: lifeSnapshot(p), needsOn: needsOn(), talking: b?.talk ? { role: b.talk.role, name: b.talk.name, choices: b.talk.choices.map((c) => c.label) } : null, speed: heroSpeedMult(p) };
+  return { life: lifeOf(p), snap: lifeSnapshot(p), family: familySnapshot(p), needsOn: needsOn(), talking: b?.talk ? { role: b.talk.role, name: b.talk.name, choices: b.talk.choices.map((c) => c.label) } : null, speed: heroSpeedMult(p) };
 }

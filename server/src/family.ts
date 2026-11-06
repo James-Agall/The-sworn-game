@@ -2,11 +2,14 @@
 // landed"). The hero is a person (HeroLife.family, saved with the hero profile): `selfId` is what other persons'
 // `parents` / `spouse` point at. Children and siblings are derived from the living colonists. Dialogue for courtship
 // and marriage lives in herolife.ts and calls the state changes here.
-import { COURT_NEEDED, KIN_LABEL, NEED_MAX, type FamilyMemberSnapshot, type FamilySnapshot, type HeroFamilyData, type KinRelation } from "@colony/shared/herolife";
-import type { Colonist, Player } from "./types.js";
-import { colonists, players, sites } from "./state.js";
-import { personAgeDays } from "./colonists.js";
+import { COURT_NEEDED, KIN_LABEL, MARRIAGE_RELATION_JUMP, NEED_MAX, type FamilyMemberSnapshot, type FamilySnapshot, type HeroFamilyData, type KinRelation } from "@colony/shared/herolife";
+import type { Colonist, Player, SiteState } from "./types.js";
+import { colonists, players, sites, state } from "./state.js";
+import { RELATION_ALLIED_MIN } from "./constants.js";
+import { nearestTownCenter, newPerson, personAgeDays, spawnVillager } from "./colonists.js";
 import { heroProfileOf } from "./heroes.js";
+import { adjustRelation, relationOf } from "./sites.js";
+import { broadcastEvent } from "./net.js";
 
 export function familyOf(p: Player): HeroFamilyData {
   const prof = heroProfileOf(p);
@@ -111,4 +114,49 @@ export function updateFamily() {
 }
 export function resetFamilyCache() {
   cache.clear();
+}
+
+export const heroName = (p: Player) => familyOf(p).name ?? "The hero";
+
+// A diplomatic marriage binds the settlement to the clan while the in-law spouse lives in it (or took over as hero).
+export function kinBond(s: SiteState, clanId: number): boolean {
+  for (const c of colonists.values()) if (c.person?.kinOf === s.id && c.person.spouse && c.hp > 0 && (c.clan ?? 0) === clanId) return true;
+  for (const p of players.values()) if ((p.clan ?? 0) === clanId && heroProfileOf(p).life?.family?.kinOf === s.id) return true;
+  return false;
+}
+
+// Can the hero court this colonist: an unmarried adult of the clan, not close kin, not a companion hero / trainee.
+export function courtable(p: Player, c: Colonist): boolean {
+  return !!c.person && !c.person.child && !c.person.spouse && c.kind !== "hero" && !c.training && !c.levyOf && (c.clan ?? 0) === (p.clan ?? 0) && c.hp > 0 && !kinRelation(p, c);
+}
+
+// Married or betrothed (to a living spouse): no more courting.
+export function heroTaken(p: Player): boolean {
+  return !!spouseOf(p) || !!familyOf(p).betrothed;
+}
+
+// An Elder's kin moves to the clan's Town Center nearest the hero (run in the clan context). Null: no Town Center.
+export function bringKinHome(p: Player, name: string): Colonist | null {
+  const tc = nearestTownCenter(p.x, p.y, state.townCenters.filter((t) => (t.clan ?? 0) === (p.clan ?? 0)));
+  if (!tc) return null;
+  const person = newPerson("immigrant");
+  person.name = name;
+  return spawnVillager(tc, person);
+}
+
+// The wedding (run in the clan context): both sides point at each other; an Elder's kin binds their settlement.
+export function marry(p: Player, c: Colonist, s?: SiteState) {
+  const f = familyOf(p);
+  f.spouse = c.id;
+  f.spouseName = c.person!.name;
+  delete f.betrothed;
+  c.person!.spouse = f.selfId;
+  const flags = heroProfileOf(p).life?.flags;
+  if (flags) for (const k of Object.keys(flags)) if (k.startsWith("court")) delete flags[k];
+  if (s) {
+    c.person!.kinOf = s.id;
+    const clan = p.clan ?? 0;
+    adjustRelation(clan, s.id, Math.max(MARRIAGE_RELATION_JUMP, RELATION_ALLIED_MIN - relationOf(clan, s.id)));
+  }
+  broadcastEvent("milestone", `${heroName(p)} and ${c.person!.name} are wed${s ? `: ${s.name} is bound to you by marriage` : ""}`);
 }

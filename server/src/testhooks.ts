@@ -538,6 +538,14 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       if (msg.pack && typeof msg.pack === "object") life.pack = { ...(msg.pack as Record<string, number>) };
       if (msg.skills && typeof msg.skills === "object") life.skills = { ...(msg.skills as Record<string, number>) };
       if (msg.flagsClear === true) life.flags = {};
+      // Family: `flags` merges NPC flags (e.g. courtship points); `tpPriest` stands the hero on the nearest
+      // settlement priest; `familyReset` makes the hero single again.
+      if (msg.flags && typeof msg.flags === "object") Object.assign(life.flags, msg.flags as Record<string, number>);
+      if (msg.familyReset === true) delete life.family;
+      if (msg.tpPriest === true) {
+        const pr = Array.from(mobs.values()).filter((m) => m.siteWorker === "priest").sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y))[0];
+        if (pr) Object.assign(player, { x: pr.x, y: pr.y });
+      }
       if (msg.interact === true) handleInteract(player);
       if (typeof msg.choice === "number") handleDialogueChoice(player, msg.choice);
       if (msg.stop === true) handleGatherStop(player);

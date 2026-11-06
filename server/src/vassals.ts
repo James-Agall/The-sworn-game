@@ -13,6 +13,7 @@
 //                 POWER_PER_WALL per wall / gate tile it owns.
 // Per-tick cost: updateVassals runs at 1 Hz and only touches settlements with a levy on the field; clan power
 // is a map scan cached POWER_CACHE_TICKS and only computed for panels, calls and the dawn pass.
+import { kinBond } from "./family.js";
 import { TILE_SIZE, TRADE_GOODS, TileType, type ArmyOrder, type BuildingInfo } from "@colony/shared/protocol";
 import type { Colonist, Mob, Player, ResourceKey, SiteState, VassalState } from "./types.js";
 import {
@@ -280,7 +281,7 @@ function clampToLeash(s: SiteState, x: number, y: number, maxTiles: number): { x
 }
 
 function callProblem(s: SiteState, clanId: number): string {
-  if (s.vassalOf !== clanId) return "Not your vassal";
+  if (s.vassalOf !== clanId && !kinBond(s, clanId)) return "Not your vassal";
   const v = vstate(s);
   if (v.levyIds.length > 0) return v.levyReturnByTick ? "The levy is marching home" : "The levy is already on the field";
   if (state.cycleTick < v.levyCooldownUntilTick) return `Called too recently: ready in ${days(v.levyCooldownUntilTick - state.cycleTick)}`;
@@ -314,6 +315,7 @@ export function handleCallToArms(player: Player | undefined, s: SiteState | unde
   Object.assign(v, {
     levyIds: units.map((c) => c.id), levyUntilTick: state.cycleTick + LEVY_DURATION_TICKS,
     levyCooldownUntilTick: state.cycleTick + LEVY_COOLDOWN_TICKS, levyCalled: units.length, levyLost: 0, levyReturnByTick: undefined,
+    kinClan: s.vassalOf === clanId ? undefined : clanId,
   });
   const follow = typeof msg.followId === "string" && msg.followId.length <= 80 ? msg.followId : null;
   const followOk = (id: string) => {
@@ -398,9 +400,10 @@ export function updateVassals() {
       v.levyIds = [];
       continue;
     }
-    if (!v.levyReturnByTick && (state.cycleTick >= v.levyUntilTick || s.vassalOf == null)) {
+    const liege = s.vassalOf ?? v.kinClan;
+    if (!v.levyReturnByTick && (state.cycleTick >= v.levyUntilTick || liege == null)) {
       sendLevyHome(s);
-      if (s.vassalOf != null) withClan(clanById(s.vassalOf), () => broadcastEvent("build", `The ${s.name} levy's service is over: it marches home`));
+      if (liege != null) withClan(clanById(liege), () => broadcastEvent("build", `The ${s.name} levy's service is over: it marches home`));
     }
     const late = v.levyReturnByTick !== undefined && state.cycleTick >= v.levyReturnByTick;
     for (const id of alive) {
@@ -414,15 +417,16 @@ export function updateVassals() {
       leaveOrderGroup(c.id);
       const p = clampToLeash(s, c.x, c.y, LEVY_MAX_TILES - 10);
       rallyUnit(c, p.x, p.y, null);
-      if (s.vassalOf != null && (v.leashToastTick === undefined || state.cycleTick - v.leashToastTick > 30 * 20)) {
+      if (liege != null && (v.leashToastTick === undefined || state.cycleTick - v.leashToastTick > 30 * 20)) {
         v.leashToastTick = state.cycleTick;
-        withClan(clanById(s.vassalOf), () => broadcastEvent("build", `The ${s.name} levy will not march beyond ${LEVY_MAX_TILES} tiles of its walls`));
+        withClan(clanById(liege), () => broadcastEvent("build", `The ${s.name} levy will not march beyond ${LEVY_MAX_TILES} tiles of its walls`));
       }
     }
     v.levyIds = v.levyIds.filter((id) => colonists.has(id));
     if (v.levyIds.length === 0) {
       v.levyReturnByTick = undefined;
-      if (s.vassalOf != null) withClan(clanById(s.vassalOf), () => broadcastEvent("build", `The ${s.name} levy is home`));
+      v.kinClan = undefined;
+      if (liege != null) withClan(clanById(liege), () => broadcastEvent("build", `The ${s.name} levy is home`));
     }
   }
 }

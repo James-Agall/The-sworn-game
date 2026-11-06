@@ -101,7 +101,9 @@ export const PERSONAL_BUILD_MAX = 6;
 // ---- dialogue ----
 export type NpcRole = "leader" | "trader" | "villager" | "questGiver" | "folk";
 export type DialogueAction =
-  | "bye" | "trade" | "sellPack" | "askWork" | "quests" | "gift" | "rumour" | "alliance" | "train" | "fare" | "lodging";
+  | "bye" | "trade" | "sellPack" | "askWork" | "quests" | "gift" | "rumour" | "alliance" | "train" | "fare" | "lodging"
+  // Family: the Elder's kin (courtship / the in-law levy), courting, proposing, the ceremony, parting.
+  | "kin" | "court" | "courtGift" | "propose" | "marry" | "kinLevy" | "part";
 export interface DialogueChoiceDef {
   label: string;
   next?: string;
@@ -134,6 +136,7 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
         { label: "A gift for {site} (20 gold).", action: "gift" },
         { label: "Who could teach me a trade?", action: "train", tiers: TRADING },
         { label: "Let us stand together: an alliance.", action: "alliance", tiers: ["friendly"] },
+        { label: "Speak of family.", action: "kin", tiers: ["friendly", "allied", "vassal"] },
         BYE,
       ],
     },
@@ -261,6 +264,8 @@ export interface HeroFamilyData {
   // Betrothed (proposal accepted, ceremony pending): a courtship key ("c:<colonistId>" or "s:<siteId>") + name.
   betrothed?: { key: string; name: string };
   lastBirthTick?: number;
+  // The hero married in from this settlement (an Elder's kin who took over as hero): the bond holds.
+  kinOf?: string;
 }
 // Courtship points (+1 time together, +2 a gift, each once a game day per person) needed to propose.
 export const COURT_NEEDED = 4;
@@ -316,6 +321,7 @@ export function sanitizeFamily(raw: unknown): HeroFamilyData | undefined {
   if (str(r.spouseName)) out.spouseName = str(r.spouseName);
   const b = r.betrothed as Record<string, unknown> | undefined;
   if (b && str(b.key) && str(b.name)) out.betrothed = { key: b.key as string, name: b.name as string };
+  if (str(r.kinOf)) out.kinOf = str(r.kinOf);
   if (typeof r.lastBirthTick === "number" && Number.isFinite(r.lastBirthTick)) out.lastBirthTick = r.lastBirthTick;
   return out;
 }

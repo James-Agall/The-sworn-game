@@ -782,6 +782,53 @@ await check("solo hero: resurrection at a Church", async () => {
   return [ok, `offer "${offer?.name}", risen ${me()?.dead === false}, gold 500 -> ${gold}, woodcutting XP 100 -> ${r.life.skills.woodcutting}`];
 });
 
+// Family phase 2: court an Elder's kin (Speak of family), propose with a bride gift, wed at a priest; the marriage
+// binds the settlement (Allied at once; the in-law levy is offered).
+const talkPick = async (re) => {
+  const n = c.dialogues.length;
+  const d = c.dialogues[c.dialogues.length - 1];
+  await hook("heroLife", { choice: pick(d, re) });
+  return lastDialogue(n);
+};
+const talkOpen = async () => {
+  const n = c.dialogues.length;
+  await hook("heroLife", { interact: true });
+  return lastDialogue(n);
+};
+await check("family: court an Elder's kin, wed at a priest, marriage alliance", async () => {
+  if (!site) return "no site";
+  await hook("peopleState", { creative: false });
+  await hook("setStock", { stock: { gold: 500 } });
+  await hook("heroLife", { flagsClear: true, familyReset: true });
+  await rel(30);
+  await tp(site.keepX, site.keepY + 1);
+  await talkOpen();
+  const k0 = await talkPick(/family/i);
+  const k1 = await talkPick(/Spend time/);
+  const courted = /courtship 1 \/ 4/.test(k1?.dialogue?.text ?? "") && !!k1.dialogue.choices[pick(k1, /Spend time/)]?.disabled;
+  await hook("heroLife", { flags: { [`court:s:${sid}`]: 4 } });
+  await talkPick(/^Back/);
+  await talkPick(/family/i);
+  const k2 = await talkPick(/marry me/);
+  const betrothed = /betrothed/.test(k2?.dialogue?.text ?? "");
+  await talkPick(/Farewell/);
+  await hook("heroLife", { tpPriest: true });
+  const pr = await talkOpen();
+  const w = await talkPick(/Marry us/);
+  const wed = /are wed/.test(w?.dialogue?.text ?? "");
+  await talkPick(/Farewell/);
+  const fam = (await hook("heroLife", {})).family;
+  const r = await hook("diploSet", { siteId: sid });
+  await tp(site.keepX, site.keepY + 1);
+  await talkOpen();
+  const k3 = await talkPick(/family/i);
+  const levyOffered = pick(k3, /spears/) >= 0;
+  await talkPick(/Farewell/);
+  await hook("peopleState", { creative: true });
+  const ok = !!k0 && courted && betrothed && pr?.dialogue?.npc.role === "questGiver" && wed && fam?.spouse?.from === site.name && r.relation >= 60 && levyOffered;
+  return [ok, `courted ${courted}, betrothed ${betrothed}, priest ${pr?.dialogue?.npc.role}, wed ${wed} ("${w?.dialogue?.text?.slice(0, 60)}"), spouse ${fam?.spouse?.name} from ${fam?.spouse?.from}, relation ${Math.round(r.relation)}, levy offered ${levyOffered}`];
+});
+
 // Solo hero phase 4: a Solo New Game (a restart for everyone, normal mode): no Town Center or people of your own, a
 // little gold, the hero near a human settlement; "found a camp" places a Town Center and two settlers join. Runs last
 // before the world audits (they then audit the Solo world).
