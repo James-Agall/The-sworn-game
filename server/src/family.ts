@@ -2,11 +2,11 @@
 // landed"). The hero is a person (HeroLife.family, saved with the hero profile): `selfId` is what other persons'
 // `parents` / `spouse` point at. Children and siblings are derived from the living colonists. Dialogue for courtship
 // and marriage lives in herolife.ts and calls the state changes here.
-import { COURT_NEEDED, KIN_LABEL, MARRIAGE_RELATION_JUMP, NEED_MAX, type FamilyMemberSnapshot, type FamilySnapshot, type HeroFamilyData, type KinRelation } from "@colony/shared/herolife";
+import { CHILD_TALENT_SHARE, COURT_NEEDED, HERO_BIRTH_CHANCE, HERO_BIRTH_COOLDOWN_DAYS, KIN_LABEL, MARRIAGE_RELATION_JUMP, NEED_MAX, type FamilyMemberSnapshot, type FamilySnapshot, type HeroFamilyData, type KinRelation } from "@colony/shared/herolife";
 import type { Colonist, Player, SiteState } from "./types.js";
 import { colonists, players, sites, state } from "./state.js";
-import { RELATION_ALLIED_MIN } from "./constants.js";
-import { nearestTownCenter, newPerson, personAgeDays, spawnVillager } from "./colonists.js";
+import { GAME_DAY_TICKS, RELATION_ALLIED_MIN } from "./constants.js";
+import { nearestTownCenter, newPerson, personAgeDays, settlementOf, settlementStats, spawnVillager } from "./colonists.js";
 import { heroProfileOf } from "./heroes.js";
 import { adjustRelation, relationOf } from "./sites.js";
 import { broadcastEvent } from "./net.js";
@@ -159,4 +159,58 @@ export function marry(p: Player, c: Colonist, s?: SiteState) {
     adjustRelation(clan, s.id, Math.max(MARRIAGE_RELATION_JUMP, RELATION_ALLIED_MIN - relationOf(clan, s.id)));
   }
   broadcastEvent("milestone", `${heroName(p)} and ${c.person!.name} are wed${s ? `: ${s.name} is bound to you by marriage` : ""}`);
+}
+
+// A child of the hero and the spouse (run in the clan context), at the spouse's settlement: a newborn villager
+// (village-life aging) with a share of the hero's skills as talent and of the spouse's profession XP.
+export function heroChild(p: Player, sp: Colonist): Colonist | null {
+  const tc = settlementOf(sp) ?? nearestTownCenter(p.x, p.y, state.townCenters.filter((t) => (t.clan ?? 0) === (p.clan ?? 0)));
+  if (!tc) return null;
+  const f = familyOf(p);
+  const person = newPerson("born", state.cycleTick);
+  person.child = true;
+  person.parents = [f.selfId, sp.id];
+  const talent: Record<string, number> = {};
+  for (const [k, v] of Object.entries(heroProfileOf(p).life?.skills ?? {})) if (v && v > 0) talent[k] = Math.floor(v * CHILD_TALENT_SHARE);
+  if (Object.keys(talent).length) person.talent = talent;
+  const xp: Record<string, number> = {};
+  for (const [k, v] of Object.entries(sp.person?.xp ?? {})) if (v && v > 0) xp[k] = Math.floor(v * CHILD_TALENT_SHARE);
+  if (Object.keys(xp).length) person.xp = xp;
+  f.lastBirthTick = state.cycleTick;
+  const c = spawnVillager(tc, person);
+  broadcastEvent("milestone", `A child is born to ${heroName(p)} and ${sp.person!.name}: ${person.name}`);
+  return c;
+}
+
+// people.ts dawn pass (clan context): the hero couple may have a child (`force` skips the dice and cooldown).
+export function heroBirthsDawn(force = false) {
+  for (const p of players.values()) {
+    if ((p.clan ?? 0) !== state.clan.id || p.dead) continue;
+    const sp = spouseOf(p);
+    if (!sp || sp.person!.child) continue;
+    const f = familyOf(p);
+    if (!force && f.lastBirthTick !== undefined && state.cycleTick - f.lastBirthTick < HERO_BIRTH_COOLDOWN_DAYS * GAME_DAY_TICKS) continue;
+    if (!force && Math.random() >= HERO_BIRTH_CHANCE) continue;
+    const st = settlementStats().find((x) => x.tc === settlementOf(sp));
+    if (st && st.used >= st.cap && !state.creative && !force) continue;
+    heroChild(p, sp);
+  }
+}
+
+// Creative: an instant spouse (a new adult at the nearest Town Center) and / or newborn children of the couple.
+export function creativeFamily(p: Player, spouse: boolean, children: number): { ok: boolean; text: string; ids: string[] } {
+  const ids: string[] = [];
+  let sp = spouseOf(p);
+  if (!sp && (spouse || children > 0)) {
+    const tc = nearestTownCenter(p.x, p.y, state.townCenters.filter((t) => (t.clan ?? 0) === (p.clan ?? 0)));
+    if (!tc) return { ok: false, text: "No Town Center of yours", ids };
+    sp = spawnVillager(tc, newPerson("immigrant"));
+    marry(p, sp);
+    ids.push(sp.id);
+  }
+  for (let i = 0; sp && i < children; i++) {
+    const c = heroChild(p, sp);
+    if (c) ids.push(c.id);
+  }
+  return { ok: true, text: `Family: spouse ${sp?.person?.name ?? "none"}, ${children} child(ren) born`, ids };
 }

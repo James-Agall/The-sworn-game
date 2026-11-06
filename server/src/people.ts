@@ -27,6 +27,7 @@ import { sendEvent } from "./construction.js";
 import { heroKey, heroProfileFor, heroProfileOf, playerMaxHp, recomputeHeroProfile } from "./heroes.js";
 import { releaseResourceReservation } from "./economy.js";
 import { isSummoned } from "./spells.js";
+import { heroBirthsDawn } from "./family.js";
 
 const isAdult = (c: Colonist) => !!c.person && !c.person.child;
 
@@ -84,8 +85,9 @@ function bornChild(tc: TownCenter, parents: Colonist[]): Colonist {
 }
 
 // Births and immigrants, once per dawn for the active clan. `force` (test hooks / creative) skips the dice.
-export function peopleDawnForClan(force: { birth?: boolean; immigrant?: boolean } = {}) {
+export function peopleDawnForClan(force: { birth?: boolean; immigrant?: boolean; heroBirth?: boolean } = {}) {
   assignHomes();
+  heroBirthsDawn(force.heroBirth === true);
   const food = state.stock.grain + state.stock.meat + state.stock.fruit;
   const stats = settlementStats();
   for (const st of stats) {

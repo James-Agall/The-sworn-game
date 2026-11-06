@@ -258,6 +258,8 @@ export function setupCreative(deps: CreativeDeps) {
     // Village life phase 6: people arriving at your nearest Town Center (adult immigrants or newborn children).
     const peopleN = el("input", "", { type: "number", min: "1", max: "20", value: "3" });
     p.append(row("People", peopleN, button("Immigrants", () => deps.send({ type: "creativeSet", op: "people", count: Number(peopleN.value) || 1 })), button("Children", () => deps.send({ type: "creativeSet", op: "people", count: Number(peopleN.value) || 1, child: true }))));
+    // Family: marry the hero at once (a new adult) / newborn children of the hero couple.
+    p.append(row("Family", button("Spouse", () => deps.send({ type: "creativeSet", op: "family", spouse: true })), button("Hero child", () => deps.send({ type: "creativeSet", op: "family", count: 1 }))));
     const raidDay = el("input", "", { type: "number", min: "1", value: "10" });
     p.append(row("Raid", el("span", "day"), raidDay, button("Raid now", () => deps.send({ type: "creativeSet", op: "raid", day: Number(raidDay.value) || 1 }))));
     const tpl = select(TEMPLATES);

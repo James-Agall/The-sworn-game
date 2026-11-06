@@ -829,6 +829,26 @@ await check("family: court an Elder's kin, wed at a priest, marriage alliance", 
   return [ok, `courted ${courted}, betrothed ${betrothed}, priest ${pr?.dialogue?.npc.role}, wed ${wed} ("${w?.dialogue?.text?.slice(0, 60)}"), spouse ${fam?.spouse?.name} from ${fam?.spouse?.from}, relation ${Math.round(r.relation)}, levy offered ${levyOffered}`];
 });
 
+// Family phase 3: the wed couple has a child at dawn (parents: hero + spouse, talent from the hero's skills); creative
+// adds an instant spouse / children.
+await check("family: a child of the hero couple, creative family", async () => {
+  await hook("heroLife", { familyReset: true });
+  await hook("peopleState", { creative: true });
+  const sp = await creative({ type: "creativeSet", op: "family", spouse: true });
+  await hook("peopleState", { creative: false });
+  await hook("heroLife", { skills: { woodcutting: 400 } });
+  const ps = await hook("peopleState", { dawn: { heroBirth: true } });
+  const fam = (await hook("heroLife", {})).family;
+  const kid = fam?.children[0];
+  const kp = ps.persons.find((x) => x.id === kid?.id);
+  const born = !!kp && kp.child && kp.parents.length === 2 && kp.talent?.woodcutting === 100 && kp.parents.includes(sp?.ids?.[0]);
+  await hook("peopleState", { creative: true });
+  const cr = await creative({ type: "creativeSet", op: "family", count: 2 });
+  const fam2 = (await hook("heroLife", {})).family;
+  const ok = born && sp?.ok && cr?.ok && cr.ids.length === 2 && fam2?.spouse?.id === sp.ids[0] && fam2.children.length === 3;
+  return [ok, `spouse ${fam2?.spouse?.name}, born at dawn ${born} (${kid?.name}, talent ${JSON.stringify(kp?.talent)}), creative ${cr?.text}, children ${fam2?.children.length}`];
+});
+
 // Solo hero phase 4: a Solo New Game (a restart for everyone, normal mode): no Town Center or people of your own, a
 // little gold, the hero near a human settlement; "found a camp" places a Town Center and two settlers join. Runs last
 // before the world audits (they then audit the Solo world).

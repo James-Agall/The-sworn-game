@@ -885,7 +885,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // `dawn` runs the clan's dawn pass with forced dice ({ birth, immigrant }); `rescueAt` frees a camp's prisoners
     // at a tile; `finishTraining` ends every training next tick; `trainAt` returns that building's trainInfo.
     const pc = clanById(player.clan ?? 0);
-    if (msg.dawn && typeof msg.dawn === "object") withClan(pc, () => peopleDawnForClan(msg.dawn as { birth?: boolean; immigrant?: boolean }));
+    if (msg.dawn && typeof msg.dawn === "object") withClan(pc, () => peopleDawnForClan(msg.dawn as { birth?: boolean; immigrant?: boolean; heroBirth?: boolean }));
     if (msg.rescueAt && typeof msg.rescueAt === "object") {
       const r = msg.rescueAt as { x: number; y: number };
       rescuePrisoners({ siteId: "", siteKind: "encampment", x: r.x, y: r.y } as unknown as import("./types.js").HearthState, `p:${player.id}`);
@@ -907,7 +907,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       vacancies: respawnQueue.filter((q) => !q.hero).map((q) => ({ ...q })),
       persons: Array.from(colonists.values())
         .filter((c) => c.person)
-        .map((c) => ({ id: c.id, kind: c.kind, name: c.person!.name, child: !!c.person!.child, born: c.person!.born, parents: c.person!.parents ?? [], origin: c.person!.origin, training: c.training ?? null, postX: c.postX, postY: c.postY, hp: c.hp })),
+        .map((c) => ({ id: c.id, kind: c.kind, name: c.person!.name, child: !!c.person!.child, born: c.person!.born, parents: c.person!.parents ?? [], origin: c.person!.origin, spouse: c.person!.spouse ?? null, kinOf: c.person!.kinOf ?? null, talent: c.person!.talent ?? null, training: c.training ?? null, postX: c.postX, postY: c.postY, hp: c.hp })),
     });
   } else if (msg.op === "progression") {
     // Progression tree: `unlockAll` sets the test-only unlock (COLONY_UNLOCK_ALL); `creativeUnlockAll` the creative

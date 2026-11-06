@@ -7,6 +7,7 @@ import {
   type PersonalBuild,
 } from "@colony/shared/herolife";
 import type { ServerMessage } from "@colony/shared/protocol";
+import type { FamilyMemberSnapshot } from "@colony/shared/herolife";
 
 export interface HeroLifeDeps {
   send: (msg: object) => void;
@@ -48,14 +49,15 @@ const CSS = `
 #hl-food { background: #e69138; }
 #hl-rest { background: #6fa8dc; }
 #hl-status { font-size: 10px; color: #8b1a1a; min-height: 0; }
-#hl-panel { position: fixed; left: 276px; bottom: 16px; z-index: 12; width: 250px; max-height: 60vh; overflow-y: auto; padding: 8px 10px;
+#hl-panel, #hl-family { position: fixed; left: 276px; bottom: 16px; z-index: 12; width: 250px; max-height: 60vh; overflow-y: auto; padding: 8px 10px;
   background: var(--burn-sm, none), var(--paper, #e8d9b5); background-color: var(--parch-mid, #e2cfa2); border: 1px solid var(--wood-dark, #4a2f18);
   border-radius: 3px; box-shadow: 0 3px 10px rgba(0,0,0,.55); font-size: 12px; }
-#hl-panel[hidden] { display: none; }
-#hl-panel h4 { margin: 6px 0 3px; font-family: var(--font-serif, serif); }
-#hl-panel .hl-row { display: flex; justify-content: space-between; }
-#hl-panel .hl-actions { display: flex; flex-wrap: wrap; gap: 3px; }
-#hl-panel .hl-actions button { font-size: 11px; padding: 2px 6px; }
+#hl-panel[hidden], #hl-family[hidden] { display: none; }
+#hl-panel h4, #hl-family h4 { margin: 6px 0 3px; font-family: var(--font-serif, serif); }
+#hl-panel .hl-row, #hl-family .hl-row { display: flex; justify-content: space-between; }
+#hl-panel .hl-actions, #hl-family .hl-actions { display: flex; flex-wrap: wrap; gap: 3px; }
+#hl-panel .hl-actions button, #hl-family .hl-actions button { font-size: 11px; padding: 2px 6px; }
+#hl-family { left: 532px; }
 `;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, text = ""): HTMLElementTagNameMap[K] {
@@ -100,10 +102,12 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
   needs.append(el("span", {}, "Food"), foodM, el("span", {}, "Rest"), restM, loadT);
   const status = el("div", { id: "hl-status" });
   const packBtn = el("button", { class: "cmd-btn", id: "hl-pack-btn", title: "Your pack, skills and hero actions (eat, rest, deposit, build)" }, "Pack");
+  const famBtn = el("button", { class: "cmd-btn", id: "hl-family-btn", title: "Your family: spouse, children, kin and the succession order" }, "Family");
   if (bar) {
     bar.insertBefore(needs, bar.querySelector(".hb-keys"));
     bar.insertBefore(status, bar.querySelector(".hb-keys"));
     bar.querySelector(".hb-keys")?.insertBefore(packBtn, bar.querySelector(".hb-hint"));
+    bar.querySelector(".hb-keys")?.insertBefore(famBtn, bar.querySelector(".hb-hint"));
     const interactBtn = document.getElementById("hb-interact");
     if (interactBtn) interactBtn.title = "Talk / gather (hold) / work next to you (E); Enter opens the building";
   }
@@ -117,6 +121,44 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
     panel.hidden = !panel.hidden;
     renderPanel();
   });
+
+  // Family panel (docs PLAN-family-and-succession.md): read-only; courtship and marriage happen in dialogue.
+  const famPanel = el("div", { id: "hl-family", hidden: "" });
+  document.body.appendChild(famPanel);
+  famBtn.addEventListener("click", () => {
+    famBtn.blur();
+    famPanel.hidden = !famPanel.hidden;
+    renderFamily();
+  });
+  function renderFamily() {
+    const f = life?.family;
+    if (famPanel.hidden || !f) return;
+    famPanel.textContent = "";
+    famPanel.appendChild(el("h4", {}, `${f.name}${f.gen > 1 ? ` (generation ${f.gen})` : ""}`));
+    const row = (a: string, b: string) => {
+      const r = el("div", { class: "hl-row" });
+      r.append(el("span", {}, a), el("span", {}, b));
+      famPanel.appendChild(r);
+    };
+    const who = (m: FamilyMemberSnapshot) => `${m.ageDays ?? 0} days${m.child ? ", a child" : ""}${m.from ? `, of ${m.from}` : ""}`;
+    if (f.spouse) row(`Spouse: ${f.spouse.name}`, who(f.spouse));
+    else if (f.betrothed) row(`Betrothed: ${f.betrothed}`, "find a priest");
+    else row("Unwed", "");
+    for (const c of f.courting) row(`Courting ${c.name}`, `${c.points} / ${c.need}`);
+    const list = (title: string, ms: FamilyMemberSnapshot[]) => {
+      if (ms.length === 0) return;
+      famPanel.appendChild(el("h4", {}, title));
+      for (const m of ms) row(m.name, who(m));
+    };
+    list("Children", f.children);
+    list("Parents", f.parents);
+    list("Siblings", f.siblings);
+    famPanel.appendChild(el("h4", {}, "Succession"));
+    famPanel.appendChild(el("div", {}, f.heirs.length ? f.heirs.map((h, i) => `${i + 1}. ${h}`).join("  ") : "Nobody: your line ends with you."));
+    if (!f.spouse && !f.betrothed) {
+      famPanel.appendChild(el("div", { class: "hl-hint" }, "Court one of your people by talking to them (E), or ask a friendly Elder to \"Speak of family\"."));
+    }
+  }
   panel.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-act]");
     if (!b) return;
@@ -233,6 +275,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
   });
 
   let lastPanel = "";
+  let lastFamily = "";
   return {
     onMessage(m) {
       if (m.type === "dialogue") {
@@ -257,6 +300,11 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
       if (job) {
         ring.style.setProperty("--p", `${Math.round(job.p * 100)}%`);
         ringLabel.textContent = job.label;
+      }
+      const fk = JSON.stringify(l.family ?? null);
+      if (fk !== lastFamily) {
+        lastFamily = fk;
+        renderFamily();
       }
       const key = JSON.stringify([l.pack, l.skills, l.builds, l.resting, l.weight, l.canFound]);
       if (key !== lastPanel) {

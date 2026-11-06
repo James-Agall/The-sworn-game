@@ -23,6 +23,7 @@ import { inBounds, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelC
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import { releaseResourceReservation } from "./economy.js";
 import { nearestTownCenter, newPerson, settlementKeyNear, spawnColonistForPost, spawnVillager, townCenterMaxHp } from "./colonists.js";
+import { creativeFamily } from "./family.js";
 import { isGuardOrMilitiaKind, pickGuardTarget, unitStats } from "./units.js";
 import { approachGoal, damageColonist, damageMob, releaseSlot } from "./combat.js";
 import { applyHungerMark } from "./mobs.js";
@@ -536,6 +537,11 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
     state.cycleTick = day * GAME_DAY_TICKS + within;
     state.wasNight = isNightNow();
     reply(true, `Day ${day + 1}, ${typeof msg.phase === "string" ? msg.phase : "same time"}`, { cycleTick: state.cycleTick });
+  } else if (op === "family") {
+    // Family: `spouse` marries the hero to a new adult at once; `count` newborn children of the couple (a spouse
+    // first if needed).
+    const r = withClan(clanById(player.clan ?? 0), () => creativeFamily(player, msg.spouse === true, Math.max(0, Math.min(10, Math.floor(Number(msg.count) || 0)))));
+    reply(r.ok, r.text, { ids: r.ids });
   } else if (op === "people") {
     // Village life phase 6: `count` (1-20) people at the player's nearest own Town Center: adult immigrants, or
     // newborn children with `child: true`.
