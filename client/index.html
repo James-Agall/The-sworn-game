@@ -659,11 +659,11 @@
       #boss-bar {
         position: fixed;
         left: 50%;
-        bottom: 92px;
+        top: 88px;
         transform: translateX(-50%);
-        width: min(420px, calc(100vw - 32px));
+        width: min(300px, calc(100vw - 32px));
         z-index: 9;
-        padding: 6px 12px 8px;
+        padding: 4px 10px 6px;
         background: var(--burn-sm), var(--paper);
         background-color: var(--parch-mid);
         border: 1px solid var(--wood-dark);
@@ -828,7 +828,6 @@
       #build-panel:not(.collapsed) ~ #regiment-cards { right: 514px; }
       body.strategy-mode #command-bar { bottom: 136px; }
       body.strategy-mode #spell-bar { bottom: 216px; }
-      body.strategy-mode #boss-bar { bottom: 292px; }
       .reg-tabs { display: flex; gap: 4px; }
       .reg-tab {
         padding: 1px 8px;
@@ -1188,6 +1187,7 @@
         #next-bar { top: 52px; }
         #progress-tree { top: 86px; }
         #player-bar { top: 88px; }
+        #boss-bar { top: 132px; }
         #event-feed { top: 126px; }
       }
       /* Resources (goods) panel: collapsible groups listing every resource, item and piece of gear. */
