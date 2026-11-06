@@ -1,7 +1,7 @@
 // types.ts: Shared interfaces and type aliases for the server simulation.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import type { Profession } from "@colony/shared/progression";
-import type { HeroSkill, PackGood, PersonalBuild } from "@colony/shared/herolife";
+import type { HeroFamilyData, HeroSkill, PackGood, PersonalBuild } from "@colony/shared/herolife";
 import type { WebSocket } from "ws";
 import type {
   ColonistKind, Stance, FormationShape, HeroClass, MobKind, BossTier, HungerMark, GateLock, WildlifeKind, ArmyOrder,
@@ -73,6 +73,11 @@ export interface Person {
   // Progression tree phase 2: XP per profession (one point a second at work; shared WORKER_XP_LEVELS). Saved with
   // the colonist.
   xp?: Partial<Record<Profession, number>>;
+  // Family (docs PLAN-family-and-succession.md): the spouse's person id (a colonist id or a hero's family selfId),
+  // the human settlement this person married in from, and hero-skill XP inherited from a hero parent at birth.
+  spouse?: string;
+  kinOf?: string;
+  talent?: Partial<Record<HeroSkill, number>>;
 }
 // Village life phase 3: a villager training at a unit building (becomes `kind` there when ticksLeft hits 0).
 export interface Training {
@@ -897,6 +902,8 @@ export interface HeroLife {
   // NPC / dialogue flags: "gift:<siteId>" = game day of the last gift, "rumour:<siteId>", "met:<siteId>", ...
   flags: Record<string, number>;
   builds: { kind: PersonalBuild; x: number; y: number }[];
+  // Family: the hero as a person (family.ts). Created on first use; saved.
+  family?: HeroFamilyData;
 }
 export interface HeroRecruit {
   id: string;

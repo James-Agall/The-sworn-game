@@ -30,6 +30,7 @@ import { adjustRelation, relationOf } from "./sites.js";
 import { forcePostQuest, handleQuestMessage, quests, questsForSnapshot } from "./quests.js";
 import { addItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
 import { heroProfileOf, playerMaxHp } from "./heroes.js";
+import { cachedFamilySnapshot, resetFamilyCache } from "./family.js";
 
 // ---- profile state ----
 export function lifeOf(player: Player): HeroLife {
@@ -883,6 +884,7 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
     ...(slow.length ? { slow } : {}),
     builds: life.builds.length,
     ...(clanTownCentersOf(p).length === 0 ? { canFound: true } : {}),
+    ...(cachedFamilySnapshot(p) ? { family: cachedFamilySnapshot(p) } : {}),
   };
 }
 
@@ -898,6 +900,7 @@ export function withPlayerLife(payload: string, p: Player): string {
 // A new world / load: transient work is dropped and every player's life is resent.
 export function resetHeroLifeSessions() {
   busy.clear();
+  resetFamilyCache();
 }
 
 // ---- creative / test hooks ----

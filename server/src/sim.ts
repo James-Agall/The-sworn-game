@@ -41,6 +41,7 @@ import { updateQuests } from "./quests.js";
 import { updateWagons } from "./wagons.js";
 import { updateVassals, vassalsDawn } from "./vassals.js";
 import { spawnCampRaids, stepWarbandMobs, updateWarbands, warbandsDawn } from "./warbands.js";
+import { updateFamily } from "./family.js";
 import { assignHomes, peopleDawn, updateAging, updateTraining, updateVillageLevy } from "./people.js";
 import { updateProspecting, updateWorkerXp } from "./progression.js";
 import { heroSpeedMult, updateHeroLife } from "./herolife.js";
@@ -219,6 +220,7 @@ export function stepSimulation() {
   updateTraining();
   if (state.cycleTick % TICK_RATE === 0) {
     updateAging();
+    updateFamily();
     updateVillageLevy();
     // Progression tree phase 2: worker XP.
     updateWorkerXp();

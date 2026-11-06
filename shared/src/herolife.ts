@@ -224,6 +224,8 @@ export interface HeroLifeSnapshot {
   builds: number;
   // Solo hero phase 4: the clan has no Town Center (the Pack panel offers "Found a camp").
   canFound?: boolean;
+  // Family panel (recomputed once a second).
+  family?: FamilySnapshot;
 }
 export interface DialogueSnapshot {
   npc: { name: string; role: NpcRole; roleLabel: string; site?: string; tier?: RelationTier; color: number };
@@ -243,6 +245,79 @@ export interface HeroLifeData {
   skills: Partial<Record<HeroSkill, number>>;
   flags: Record<string, number>;
   builds: { kind: PersonalBuild; x: number; y: number }[];
+  family?: HeroFamilyData;
+}
+
+// ---- family, marriage and succession (docs/colony2d/PLAN-family-and-succession.md) ----
+// The hero as a person: `selfId` is the id other persons' `parents` / `spouse` point at. Children and siblings are
+// derived from the living colonists (never stored).
+export interface HeroFamilyData {
+  selfId: string;
+  gen: number;
+  name?: string;
+  parents?: string[];
+  spouse?: string;
+  spouseName?: string;
+  // Betrothed (proposal accepted, ceremony pending): a courtship key ("c:<colonistId>" or "s:<siteId>") + name.
+  betrothed?: { key: string; name: string };
+  lastBirthTick?: number;
+}
+// Courtship points (+1 time together, +2 a gift, each once a game day per person) needed to propose.
+export const COURT_NEEDED = 4;
+export const COURT_GIFT_GOLD = 15;
+// Paid to the settlement when proposing to an Elder's kin.
+export const BRIDE_GIFT_GOLD = 60;
+export const CEREMONY_FEE = 10;
+// A diplomatic marriage: the relation jump (and at least Allied); the in-laws' grief when the spouse dies; the feud
+// when the marriage is ended (relation loss + days with no courtship there); a child of the marriage taking over.
+export const MARRIAGE_RELATION_JUMP = 25;
+export const SPOUSE_DEATH_RELATION = -15;
+export const MARRIAGE_BREAK_RELATION = -60;
+export const FEUD_DAYS = 10;
+export const BLOOD_CLAIM_RELATION = 20;
+// Children of the hero couple: a chance each dawn, days apart; the share of the parents' XP a child starts with.
+export const HERO_BIRTH_CHANCE = 0.5;
+export const HERO_BIRTH_COOLDOWN_DAYS = 2;
+export const CHILD_TALENT_SHARE = 0.25;
+// Inheritance: a family heir (child / spouse / sibling) vs anyone else.
+export const FAMILY_HEIR_GOLD_SHARE = 0.8;
+export const FAMILY_HEIR_SKILL_SHARE = 0.6;
+export type KinRelation = "child" | "spouse" | "sibling" | "parent";
+export const KIN_LABEL: Record<KinRelation, string> = { child: "Child", spouse: "Spouse", sibling: "Sibling", parent: "Parent" };
+export interface FamilyMemberSnapshot {
+  id: string;
+  name: string;
+  ageDays?: number;
+  child?: boolean;
+  // Married in from this settlement (an Elder's kin).
+  from?: string;
+}
+export interface FamilySnapshot {
+  name: string;
+  gen: number;
+  spouse?: FamilyMemberSnapshot;
+  betrothed?: string;
+  courting: { name: string; points: number; need: number }[];
+  children: FamilyMemberSnapshot[];
+  parents: FamilyMemberSnapshot[];
+  siblings: FamilyMemberSnapshot[];
+  // Heir order (names with their relation), first = the heir.
+  heirs: string[];
+}
+export function sanitizeFamily(raw: unknown): HeroFamilyData | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.selfId !== "string" || r.selfId.length > 80) return undefined;
+  const str = (v: unknown) => (typeof v === "string" && v.length <= 80 ? v : undefined);
+  const out: HeroFamilyData = { selfId: r.selfId, gen: typeof r.gen === "number" && r.gen >= 1 ? Math.floor(r.gen) : 1 };
+  if (str(r.name)) out.name = str(r.name);
+  if (Array.isArray(r.parents)) out.parents = r.parents.filter((x): x is string => typeof x === "string" && x.length <= 80).slice(0, 2);
+  if (str(r.spouse)) out.spouse = str(r.spouse);
+  if (str(r.spouseName)) out.spouseName = str(r.spouseName);
+  const b = r.betrothed as Record<string, unknown> | undefined;
+  if (b && str(b.key) && str(b.name)) out.betrothed = { key: b.key as string, name: b.name as string };
+  if (typeof r.lastBirthTick === "number" && Number.isFinite(r.lastBirthTick)) out.lastBirthTick = r.lastBirthTick;
+  return out;
 }
 export function sanitizeHeroLife(raw: unknown): HeroLifeData | null {
   if (!raw || typeof raw !== "object") return null;
@@ -266,5 +341,6 @@ export function sanitizeHeroLife(raw: unknown): HeroLifeData | null {
     ? (r.builds as Record<string, unknown>[]).filter((b) => b && (b.kind as string) in PERSONAL_BUILDS && Number.isInteger(b.x) && Number.isInteger(b.y))
         .slice(0, PERSONAL_BUILD_MAX).map((b) => ({ kind: b.kind as PersonalBuild, x: b.x as number, y: b.y as number }))
     : [];
-  return { pack, food: num(r.food, 0, NEED_MAX, NEED_MAX), rest: num(r.rest, 0, NEED_MAX, NEED_MAX), skills, flags, builds };
+  const family = sanitizeFamily(r.family);
+  return { pack, food: num(r.food, 0, NEED_MAX, NEED_MAX), rest: num(r.rest, 0, NEED_MAX, NEED_MAX), skills, flags, builds, ...(family ? { family } : {}) };
 }
