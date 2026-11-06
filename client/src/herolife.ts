@@ -15,6 +15,8 @@ export interface HeroLifeDeps {
   fallbackInteract: () => void;
   // Strategy view / a typing field / a modal: E does nothing.
   blocked: () => boolean;
+  // Opens the one hero sheet (pack left, character centre, family right): the hero bar's Pack / Family buttons.
+  openSheet: () => void;
 }
 
 export interface HeroLifeUi {
@@ -49,15 +51,8 @@ const CSS = `
 #hl-food { background: #e69138; }
 #hl-rest { background: #6fa8dc; }
 #hl-status { font-size: 10px; color: #8b1a1a; min-height: 0; }
-#hl-panel, #hl-family { position: fixed; left: 276px; bottom: 16px; z-index: 12; width: 250px; max-height: 60vh; overflow-y: auto; padding: 8px 10px;
-  background: var(--burn-sm, none), var(--paper, #e8d9b5); background-color: var(--parch-mid, #e2cfa2); border: 1px solid var(--wood-dark, #4a2f18);
-  border-radius: 3px; box-shadow: 0 3px 10px rgba(0,0,0,.55); font-size: 12px; }
-#hl-panel[hidden], #hl-family[hidden] { display: none; }
-#hl-panel h4, #hl-family h4 { margin: 6px 0 3px; font-family: var(--font-serif, serif); }
-#hl-panel .hl-row, #hl-family .hl-row { display: flex; justify-content: space-between; }
-#hl-panel .hl-actions, #hl-family .hl-actions { display: flex; flex-wrap: wrap; gap: 3px; }
-#hl-panel .hl-actions button, #hl-family .hl-actions button { font-size: 11px; padding: 2px 6px; }
-#hl-family { left: 532px; }
+#hs-needs .hl-food { background: #e69138; }
+#hs-needs .hl-rest { background: #6fa8dc; }
 `;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, text = ""): HTMLElementTagNameMap[K] {
@@ -101,8 +96,8 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
   const loadT = el("span", {}, "0/40");
   needs.append(el("span", {}, "Food"), foodM, el("span", {}, "Rest"), restM, loadT);
   const status = el("div", { id: "hl-status" });
-  const packBtn = el("button", { class: "cmd-btn", id: "hl-pack-btn", title: "Your pack, skills and hero actions (eat, rest, deposit, build)" }, "Pack");
-  const famBtn = el("button", { class: "cmd-btn", id: "hl-family-btn", title: "Your family: spouse, children, kin and the succession order" }, "Family");
+  const packBtn = el("button", { class: "cmd-btn", id: "hl-pack-btn", title: "Hero sheet: your pack, skills and hero actions (eat, rest, deposit, build)" }, "Pack");
+  const famBtn = el("button", { class: "cmd-btn", id: "hl-family-btn", title: "Hero sheet: your family, spouse, children, kin and the succession order" }, "Family");
   if (bar) {
     bar.insertBefore(needs, bar.querySelector(".hb-keys"));
     bar.insertBefore(status, bar.querySelector(".hb-keys"));
@@ -112,28 +107,29 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
     if (interactBtn) interactBtn.title = "Talk / gather (hold) / work next to you (E); Enter opens the building";
   }
 
-  // Pack panel.
-  const panel = el("div", { id: "hl-panel", hidden: "" });
-  document.body.appendChild(panel);
+  // The hero sheet's columns (index.html #hero-modal): pack and actions left, needs + skills centre, family right.
+  const host = (id: string) => document.getElementById(id) ?? document.body.appendChild(el("div", { id, class: "hl-box", hidden: "" }));
+  const panel = host("hs-life");
+  const needsBox = host("hs-needs");
+  const skillsBox = host("hs-skills");
+  const famPanel = host("hs-family");
   let life: HeroLifeSnapshot | null = null;
-  packBtn.addEventListener("click", () => {
-    packBtn.blur();
-    panel.hidden = !panel.hidden;
-    renderPanel();
-  });
+  for (const b of [packBtn, famBtn]) {
+    b.addEventListener("click", () => {
+      b.blur();
+      deps.openSheet();
+    });
+  }
 
-  // Family panel (docs PLAN-family-and-succession.md): read-only; courtship and marriage happen in dialogue.
-  const famPanel = el("div", { id: "hl-family", hidden: "" });
-  document.body.appendChild(famPanel);
-  famBtn.addEventListener("click", () => {
-    famBtn.blur();
-    famPanel.hidden = !famPanel.hidden;
-    renderFamily();
-  });
+  // Family (docs PLAN-family-and-succession.md): read-only; courtship and marriage happen in dialogue.
   function renderFamily() {
-    const f = life?.family;
-    if (famPanel.hidden || !f) return;
     famPanel.textContent = "";
+    famPanel.appendChild(el("div", { class: "menu-section" }, "Family"));
+    const f = life?.family;
+    if (!f) {
+      famPanel.appendChild(el("div", {}, "No family yet."));
+      return;
+    }
     famPanel.appendChild(el("h4", {}, `${f.name}${f.gen > 1 ? ` (generation ${f.gen})` : ""}`));
     const row = (a: string, b: string) => {
       const r = el("div", { class: "hl-row" });
@@ -166,10 +162,27 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
     deps.send({ type: "heroAction", action: b.dataset.act, ...(b.dataset.build ? { build: b.dataset.build } : {}) });
   });
 
+  function renderNeeds() {
+    needsBox.textContent = "";
+    if (!life) return;
+    needsBox.appendChild(el("div", { class: "menu-section" }, "Needs"));
+    for (const [label, v, cls] of [["Food", life.food, "hl-food"], ["Rest", life.rest, "hl-rest"]] as const) {
+      const r = el("div", { class: "hl-row" });
+      r.append(el("span", {}, label), el("span", {}, `${Math.round(v)}%`));
+      const m = el("div", { class: "hb-meter" });
+      const f = el("div", { class: `hb-fill ${cls}` });
+      f.style.width = `${v}%`;
+      m.appendChild(f);
+      needsBox.append(r, m);
+    }
+    const st = [...(life.slow ?? []), ...(life.resting ? ["Resting"] : [])].join(", ");
+    needsBox.appendChild(el("div", {}, life.needs ? st || "Fed and rested" : "Needs are off in this game"));
+  }
+
   function renderPanel() {
-    if (panel.hidden || !life) return;
+    if (!life) return;
     panel.textContent = "";
-    panel.appendChild(el("h4", {}, `Pack (${life.weight} / ${life.cap})`));
+    panel.appendChild(el("h4", {}, `Carried goods (${life.weight} / ${life.cap})`));
     const goods = PACK_GOODS.filter((g) => (life!.pack[g] ?? 0) > 0);
     if (goods.length === 0) panel.appendChild(el("div", {}, "Empty"));
     for (const g of goods) {
@@ -194,13 +207,14 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
       builds.appendChild(el("button", { "data-act": "build", "data-build": k, class: "cmd-btn", title: `${d.desc} Costs ${cost} (pack first, then stores).` }, d.label));
     }
     panel.appendChild(builds);
-    panel.appendChild(el("h4", {}, "Skills"));
+    skillsBox.textContent = "";
+    skillsBox.appendChild(el("div", { class: "menu-section" }, "Skills"));
     const known = life.skills.filter((s) => s.xp > 0);
-    if (known.length === 0) panel.appendChild(el("div", {}, "None yet: gather, craft at stations, trade and talk to learn."));
+    if (known.length === 0) skillsBox.appendChild(el("div", {}, "None yet: gather, craft at stations, trade and talk to learn."));
     for (const s of known) {
       const r = el("div", { class: "hl-row" });
       r.append(el("span", {}, `${HERO_SKILL_LABEL[s.id]} L${s.level}`), el("span", {}, s.next === null ? "master" : `${s.next} to next`));
-      panel.appendChild(r);
+      skillsBox.appendChild(r);
     }
   }
 
@@ -275,6 +289,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
   });
 
   let lastPanel = "";
+  let lastNeeds = "";
   let lastFamily = "";
   return {
     onMessage(m) {
@@ -294,6 +309,11 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
       loadT.textContent = `${l.weight}/${l.cap}`;
       const st = [...(l.slow ?? []), ...(l.resting ? ["Resting"] : [])].join(", ");
       if (status.textContent !== st) status.textContent = st;
+      const nk = JSON.stringify([Math.round(l.food), Math.round(l.rest), st, l.needs]);
+      if (nk !== lastNeeds) {
+        lastNeeds = nk;
+        renderNeeds();
+      }
       const job = l.gather ?? l.work;
       ring.hidden = !job;
       ringLabel.hidden = !job;

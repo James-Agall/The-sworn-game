@@ -5,7 +5,7 @@ import { TICK_RATE, TileType, type ProgressionSnapshot } from "@colony/shared/pr
 import {
   type ItemId, type Profession, type ProgressContext, type Recipe, MAX_QUALITY, PROFESSION_LABEL, PROGRESSION,
   PROGRESSION_BUILDING_LABEL, QUALITY_GRADES, TIER_SPEED_BONUS, WORKER_XP_LEVELS, levelForXp, recipeById, recipeCostText,
-  FOOD_ITEMS, stationRecipes, unmetRequirements, xpToNext,
+  FOOD_ITEMS, chainBuildingTiles, stationRecipes, unmetRequirements, xpToNext,
 } from "@colony/shared/progression";
 import type { Colonist, Player, ResourceKey } from "./types.js";
 import { type Clan, type ClanProgress, colonists, newClanProgress, state } from "./state.js";
@@ -410,6 +410,8 @@ export function progressionSnapshot(): ProgressionSnapshot {
   return snap;
 }
 
+const CHAIN_TILES = chainBuildingTiles();
+
 function buildSnapshot(): ProgressionSnapshot {
   const open = gatesOpen();
   const items: Record<string, number[]> = {};
@@ -433,17 +435,22 @@ function buildSnapshot(): ProgressionSnapshot {
     const distance = (r: { unmet: string[] }) => r.unmet.reduce((n, u) => n + (handLabels.has(u) ? 0.5 : 1), 0);
     rows.sort((a, b) => distance(a) - distance(b));
     for (const row of rows.slice(0, 4)) {
-      const how = row.unmet.map((u) => (handLabels.has(u) ? `${u} (craft by hand)` : u));
+      const how = row.unmet.map((u) => (handLabels.has(u) ? `${u} (craft by hand)` : u === PROGRESSION.items.hide.label || u.endsWith(` ${PROGRESSION.items.hide.label}`) ? `${u} (Hunter's Hut kills)` : u));
       next.push(`${buildingLabel(row.tile)}: needs ${how.join(", ")}`);
     }
     if (rows.length === 0) next.push("Every building in the tree is open. Train your workers to raise station tiers.");
   }
   const crafts = PROGRESSION.recipes
     .filter((r) => r.station === "hand")
-    .map((r) => ({ id: r.id, label: r.label, cost: recipeCostText(r), ok: recipeShort(r) === "" }));
+    .map((r) => {
+      const why = recipeShort(r);
+      return { id: r.id, label: r.label, cost: recipeCostText(r), ok: why === "", ...(why ? { why } : {}) };
+    });
+  const built: number[] = [];
+  for (const t of CHAIN_TILES) if (tileIndicesOf(t).some((i) => clanIdAtIndex(i) === state.clan.id)) built.push(t);
   const why = prospectShort();
   const prospect = { label: state.progress.prospecting ? "Prospector out surveying" : "Send a prospector (stone pick + knife)", ok: why === "", reason: why };
-  return { open, items, locked, next, crafts, prospect };
+  return { open, items, locked, next, crafts, prospect, built };
 }
 
 // ---- saves ----

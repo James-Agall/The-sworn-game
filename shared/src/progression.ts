@@ -15,6 +15,8 @@ export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "
 export interface ItemDef {
   label: string;
   desc: string;
+  // Goods panel group: food, material (inputs, fuel, hides) or tool (kept tools and fittings).
+  group: "food" | "material" | "tool";
 }
 
 // Quality grade 1-3 of a crafted item (index = grade - 1). A station's output grade is its effective tier
@@ -65,6 +67,22 @@ export interface Recipe {
   workerLevel?: number;
 }
 
+// One step of a Progression panel chain: a building type or an item.
+export type ChainStep = { building: TileType; item?: undefined } | { item: ItemId; building?: undefined };
+export interface ProgressionChain {
+  id: string;
+  label: string;
+  steps: ChainStep[];
+}
+
+// Building types the chains name (the server reports which of them stand: snapshot `built`).
+export function chainBuildingTiles(): TileType[] {
+  const set = new Set<TileType>();
+  for (const c of PROGRESSION.chains) for (const st of c.steps) if (st.building !== undefined) set.add(st.building);
+  for (const r of PROGRESSION.recipes) if (r.station !== "hand") set.add(r.station);
+  return [...set];
+}
+
 export type Profession =
   | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "smelter" | "collier" | "miller" | "baker" | "jeweler"
   | "brewer" | "innkeeper" | "hunter" | "forager";
@@ -89,24 +107,24 @@ export function xpToNext(xp: number): number | null {
 
 export const PROGRESSION = {
   items: {
-    stoneAxe: { label: "Stone axe", desc: "Knapped flint on a haft. Fells trees: Lumberjack, Wooden House, Charcoal Burner." },
-    stonePick: { label: "Stone pick", desc: "Opens surface outcrops: Quarry and Iron Mine; with a knife, prospecting." },
-    stoneKnife: { label: "Stone knife", desc: "Skins game: Hunter's Hut (hides). With a pick, prospecting." },
-    timberProps: { label: "Timber props", desc: "Pit supports: a mine can be sunk to level 2 (shaft)." },
-    hide: { label: "Hide", desc: "From hunters' kills and pastures. Bellows leather." },
-    bellows: { label: "Bellows", desc: "Leather and wood. Blows the Bloomery." },
-    charcoal: { label: "Charcoal", desc: "Burned slowly from wood at the Charcoal Burner. Smelting fuel." },
-    ironBloom: { label: "Iron bloom", desc: "Smelted at the Bloomery from iron ore and charcoal; a Blast furnace (level 2+) makes better grades." },
-    anvil: { label: "Anvil", desc: "Cast at the Bloomery. With hammer and tongs, a Blacksmith can be built." },
-    smithTools: { label: "Hammer & tongs", desc: "Forged at the Bloomery. A Blacksmith needs them." },
-    woodenPlow: { label: "Wooden plow", desc: "Breaks the ground: a Barn (farm fields) can be built." },
-    millstone: { label: "Millstone", desc: "A dressed grinding stone: the Mill needs one." },
-    clayOven: { label: "Clay oven", desc: "Stone and clay: the Bakery needs one." },
-    flour: { label: "Flour", desc: "Ground from grain at the Mill." },
-    gruel: { label: "Wheat gruel", desc: "Grain boiled over the fire: filling, dull (no happiness bonus)." },
-    flatbread: { label: "Flatbread", desc: "Quick bread from the Bakery: good food, a small happiness bonus." },
-    sourdoughStarter: { label: "Sourdough starter", desc: "A level-2 baker cultures it over ~3 days; kept, it lets the Bakery bake bread." },
-    bread: { label: "Bread", desc: "The best food: most filling, the biggest happiness bonus (more for Good / Fine)." },
+    stoneAxe: { label: "Stone axe", desc: "Knapped flint on a haft. Fells trees: Lumberjack, Wooden House, Charcoal Burner.", group: "tool" },
+    stonePick: { label: "Stone pick", desc: "Opens surface outcrops: Quarry and Iron Mine; with a knife, prospecting.", group: "tool" },
+    stoneKnife: { label: "Stone knife", desc: "Skins game: Hunter's Hut (hides). With a pick, prospecting.", group: "tool" },
+    timberProps: { label: "Timber props", desc: "Pit supports: a mine can be sunk to level 2 (shaft).", group: "tool" },
+    hide: { label: "Hide", desc: "From a Hunter's Hut's kills (also pasture animals and game you hunt yourself). Bellows leather.", group: "material" },
+    bellows: { label: "Bellows", desc: "Leather and wood. Blows the Bloomery.", group: "tool" },
+    charcoal: { label: "Charcoal", desc: "Burned slowly from wood at the Charcoal Burner. Smelting fuel.", group: "material" },
+    ironBloom: { label: "Iron bloom", desc: "Smelted at the Bloomery from iron ore and charcoal; a Blast furnace (level 2+) makes better grades.", group: "material" },
+    anvil: { label: "Anvil", desc: "Cast at the Bloomery. With hammer and tongs, a Blacksmith can be built.", group: "tool" },
+    smithTools: { label: "Hammer & tongs", desc: "Forged at the Bloomery. A Blacksmith needs them.", group: "tool" },
+    woodenPlow: { label: "Wooden plow", desc: "Breaks the ground: a Barn (farm fields) can be built.", group: "tool" },
+    millstone: { label: "Millstone", desc: "A dressed grinding stone: the Mill needs one.", group: "tool" },
+    clayOven: { label: "Clay oven", desc: "Stone and clay: the Bakery needs one.", group: "tool" },
+    flour: { label: "Flour", desc: "Ground from grain at the Mill.", group: "food" },
+    gruel: { label: "Wheat gruel", desc: "Grain boiled over the fire: filling, dull (no happiness bonus).", group: "food" },
+    flatbread: { label: "Flatbread", desc: "Quick bread from the Bakery: good food, a small happiness bonus.", group: "food" },
+    sourdoughStarter: { label: "Sourdough starter", desc: "A level-2 baker cultures it over ~3 days; kept, it lets the Bakery bake bread.", group: "food" },
+    bread: { label: "Bread", desc: "The best food: most filling, the biggest happiness bonus (more for Good / Fine).", group: "food" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -180,6 +198,16 @@ export const PROGRESSION = {
     [TileType.HunterHut]: "hunter",
     [TileType.ForagerHut]: "forager",
   } as Partial<Record<TileType, Profession>>,
+  // The Progression panel's chains (order only: every step's needs come from `buildings` / `recipes` above).
+  chains: [
+    { id: "stone", label: "Stone age", steps: [{ item: "stoneAxe" }, { item: "stoneKnife" }, { item: "stonePick" }, { building: TileType.LumberjackPost }, { building: TileType.House }, { building: TileType.HunterHut }, { item: "hide" }] },
+    { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "timberProps" }] },
+    { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }] },
+    { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },
+    { id: "cloth", label: "Cloth", steps: [{ building: TileType.WoolFarm }, { building: TileType.CottonFarm }, { building: TileType.TailorShop }] },
+    { id: "military", label: "Military", steps: [{ building: TileType.MilitiaPost }, { building: TileType.ArcherPost }, { building: TileType.KnightPost }, { building: TileType.Stables }, { building: TileType.SiegeWorkshop }] },
+    { id: "faith", label: "Faith", steps: [{ building: TileType.ChurchPost }, { building: TileType.WardStone }] },
+  ] as ProgressionChain[],
   // A new game's starting kit (plan open question: small kit, 1 stone axe + 1 pick).
   starterKit: { stoneAxe: 1, stonePick: 1 } as Partial<Record<ItemId, number>>,
 };

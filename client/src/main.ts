@@ -57,7 +57,7 @@ import {
   placedFootprintAt,
 } from "@colony/shared/buildings";
 import type { Footprint } from "@colony/shared/buildings";
-import { type ItemId, PROGRESSION, QUALITY_GRADES } from "@colony/shared/progression";
+import { type ChainStep, type ItemId, PROGRESSION, PROGRESSION_BUILDING_LABEL, QUALITY_GRADES } from "@colony/shared/progression";
 import type { ProgressionSnapshot } from "@colony/shared/protocol";
 import {
   Biome,
@@ -3675,7 +3675,8 @@ async function main() {
   const statArmyEl = document.getElementById("stat-army")!;
   const statSelectedEl = document.getElementById("stat-selected")!;
 
-  const goodsValueEls = new Map<GoodKey, HTMLSpanElement>();
+  // The latest stock numbers (the Crafting panel's have / need counts).
+  const latestStock: Partial<Record<GoodKey, number>> = {};
   const workerCountEls = new Map<string, HTMLSpanElement>();
   const goodsWorkerEls = new Map<GoodKey, HTMLSpanElement>();
   // Which goods group a worker's job feeds: Food (barn farmers, pastures, orchards), Materials
@@ -3770,38 +3771,128 @@ async function main() {
       el.textContent = total > 0 ? ` ${resWorking.get(res) ?? 0}/${total}` : "";
     }
   }
+  // Resources panel: every stock resource (GOODS_GROUPS), every progression item (PROGRESSION.items, by its `group`)
+  // and the armoury's gear, in collapsible groups (folded state and "hide empty" remembered per browser).
   const goodsListEl = document.getElementById("goods-list")!;
-  for (const group of GOODS_GROUPS) {
+  const GOODS_FOLD_PREF = "sworn.goodsFolded";
+  const GOODS_HIDE_ZERO_PREF = "sworn.goodsHideZero";
+  const readPref = (k: string): string | null => {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  };
+  const writePref = (k: string, v: string) => {
+    try {
+      localStorage.setItem(k, v);
+    } catch {
+      /* storage blocked: the panel still works */
+    }
+  };
+  let foldedGroups = new Set<string>();
+  try {
+    foldedGroups = new Set(JSON.parse(readPref(GOODS_FOLD_PREF) ?? "[]") as string[]);
+  } catch {
+    foldedGroups = new Set();
+  }
+  // Every row by key: a stock resource ("wood"), an item ("item:hide") or gear ("gear:armour:1").
+  const goodsRows = new Map<string, { row: HTMLDivElement; value: HTMLSpanElement }>();
+  function setGoodCount(key: string, n: number) {
+    const r = goodsRows.get(key);
+    if (!r) return;
+    const text = String(n);
+    if (r.value.textContent !== text) r.value.textContent = text;
+    r.row.classList.toggle("zero", n <= 0);
+  }
+  const showAllBtn = document.createElement("button");
+  showAllBtn.id = "goods-show-all";
+  const applyHideZero = (hide: boolean) => {
+    goodsListEl.classList.toggle("hide-zero", hide);
+    showAllBtn.textContent = hide ? "Show all (incl. none in stock)" : "Hide empty";
+  };
+  applyHideZero(readPref(GOODS_HIDE_ZERO_PREF) === "1");
+  showAllBtn.addEventListener("click", () => {
+    const hide = !goodsListEl.classList.contains("hide-zero");
+    applyHideZero(hide);
+    writePref(GOODS_HIDE_ZERO_PREF, hide ? "1" : "0");
+    showAllBtn.blur();
+  });
+  goodsListEl.appendChild(showAllBtn);
+  const ITEM_GROUP_HEADING: Record<"food" | "material" | "tool", string> = { food: "Food", material: "Materials", tool: "Crafted" };
+  const groupRows: { heading: string; label: string; rows: { key: string; label: string; icon?: string; good?: GoodKey }[] }[] = GOODS_GROUPS.map((g) => ({
+    heading: g.heading,
+    label: g.heading === "Crafted" ? "Crafted & tools" : g.heading,
+    // The resource is Hemp (internal key "cotton" is kept so the protocol stays unchanged).
+    rows: g.goods.map((good) => ({ key: good.key, label: good.label, icon: `/sprites/icon-${good.key === "cotton" ? "hemp" : good.key}.png`, good: good.key })),
+  }));
+  for (const [id, def] of Object.entries(PROGRESSION.items) as [ItemId, (typeof PROGRESSION.items)[ItemId]][]) {
+    groupRows.find((g) => g.heading === ITEM_GROUP_HEADING[def.group])!.rows.push({ key: `item:${id}`, label: def.label });
+  }
+  groupRows.push({
+    heading: "Gear",
+    label: "Gear (armoury)",
+    rows: [1, 2, 3].flatMap((t) => [
+      { key: `gear:weapon:${t}`, label: `Weapons T${t}` },
+      { key: `gear:armour:${t}`, label: `Armour T${t}` },
+    ]),
+  });
+  for (const group of groupRows) {
     const heading = document.createElement("div");
-    heading.className = "econ-heading";
-    heading.textContent = group.heading;
+    heading.className = "econ-heading econ-fold";
+    heading.append(group.label);
+    heading.title = "Click to fold / unfold";
     const workerCount = document.createElement("span");
     workerCount.className = "econ-workers";
     workerCount.title = "Workers working / assigned";
     heading.appendChild(workerCount);
-    workerCountEls.set(group.heading, workerCount);
-    goodsListEl.appendChild(heading);
-    for (const good of group.goods) {
+    if (group.heading !== "Gear") workerCountEls.set(group.heading, workerCount);
+    const body = document.createElement("div");
+    body.className = "econ-group";
+    const setFolded = (folded: boolean) => {
+      body.hidden = folded;
+      heading.classList.toggle("folded", folded);
+    };
+    setFolded(foldedGroups.has(group.heading));
+    heading.addEventListener("click", () => {
+      const folded = !body.hidden;
+      setFolded(folded);
+      if (folded) foldedGroups.add(group.heading);
+      else foldedGroups.delete(group.heading);
+      writePref(GOODS_FOLD_PREF, JSON.stringify([...foldedGroups]));
+    });
+    goodsListEl.append(heading, body);
+    for (const good of group.rows) {
       const row = document.createElement("div");
-      row.className = "econ-row";
+      row.className = "econ-row zero";
       const label = document.createElement("span");
       label.className = "econ-label";
-      const icon = document.createElement("img");
-      icon.className = "econ-icon";
-      // The resource is Hemp (internal key "cotton" is kept so the protocol stays unchanged).
-      icon.src = `/sprites/icon-${good.key === "cotton" ? "hemp" : good.key}.png`;
-      icon.alt = "";
-      label.append(icon, good.label);
-      const workers = document.createElement("span");
-      workers.className = "econ-workers-row";
-      workers.title = "Workers working / assigned to this resource";
-      label.append(workers);
-      goodsWorkerEls.set(good.key, workers);
+      if (good.icon) {
+        const icon = document.createElement("img");
+        icon.className = "econ-icon";
+        icon.src = good.icon;
+        icon.alt = "";
+        label.append(icon);
+      } else {
+        // Items have no icon art yet: a lettered chip stands in.
+        const glyph = document.createElement("span");
+        glyph.className = "econ-glyph";
+        glyph.textContent = good.label.charAt(0);
+        label.append(glyph);
+      }
+      label.append(good.label);
+      if (good.good) {
+        const workers = document.createElement("span");
+        workers.className = "econ-workers-row";
+        workers.title = "Workers working / assigned to this resource";
+        label.append(workers);
+        goodsWorkerEls.set(good.good, workers);
+      }
       const value = document.createElement("span");
       value.textContent = "0";
       row.append(label, value);
-      goodsListEl.appendChild(row);
-      goodsValueEls.set(good.key, value);
+      body.appendChild(row);
+      goodsRows.set(good.key, { row, value });
     }
   }
 
@@ -3883,7 +3974,11 @@ async function main() {
   }
 
   function refreshEconomyPanel(snap: Extract<ServerMessage, { type: "snapshot" }>) {
-    for (const [key, el] of goodsValueEls) el.textContent = String(snap[key]);
+    for (const g of GOODS_GROUPS) for (const good of g.goods) {
+      setGoodCount(good.key, snap[good.key]);
+      latestStock[good.key] = snap[good.key];
+    }
+    if (!craftPanelEl.hidden) renderCraftPanel();
     // Sections stay hidden (not greyed out) until their building exists.
     marketSection.hidden = !snap.marketBuilt;
     goldShopSection.hidden = !snap.goldShopBuilt;
@@ -3972,16 +4067,30 @@ async function main() {
   }
 
   // ---- Progression tree (shared/src/progression.ts; the server's `progression` snapshot) ----
+  // The Build panel keeps the locked "needs: X" tool text and the prospector; hand crafting is the Crafting panel
+  // (Craft button / Shift+C); the nearest goals are the Next steps bar (top centre) and its Progression dropdown.
   let progressionLocked: Record<number, string[]> = {};
   let progressionSig = "";
+  let latestProgression: ProgressionSnapshot | undefined;
   const progressPanelEl = document.getElementById("progress-panel")!;
-  const progressNextEl = document.getElementById("progress-next")!;
   const progressCraftsEl = document.getElementById("progress-crafts")!;
-  const progressItemsEl = document.getElementById("progress-items")!;
+  const nextBarEl = document.getElementById("next-bar")!;
+  const nextBarTextEl = document.getElementById("next-bar-text")!;
+  const nextBarToggle = document.getElementById("next-bar-toggle") as HTMLButtonElement;
+  const progressTreeEl = document.getElementById("progress-tree")!;
+  const craftPanelEl = document.getElementById("craft-panel")!;
+  const craftListEl = document.getElementById("craft-list")!;
+  const craftItemsEl = document.getElementById("craft-items")!;
+  const craftBtn = document.getElementById("craft-btn") as HTMLButtonElement;
+  const itemTotal = (p: ProgressionSnapshot | undefined, id: ItemId) => (p?.items[id] ?? []).reduce((a, b) => a + b, 0);
+  const STOCK_LABEL: Record<string, string> = Object.fromEntries(GOODS_GROUPS.flatMap((g) => g.goods.map((good) => [good.key, good.label])));
+  const progressionBuildingLabel = (t: TileType) => PROGRESSION_BUILDING_LABEL[t] ?? TOOLS.find((tool) => tool.tile === t)?.label ?? "a building";
+
   function applyProgression(p: ProgressionSnapshot | undefined) {
     const sig = p ? JSON.stringify(p) : "";
     if (sig === progressionSig) return;
     progressionSig = sig;
+    latestProgression = p;
     progressionLocked = p && !p.open ? p.locked : {};
     for (const [tile, btn] of toolButtonEls) {
       const needs = progressionLocked[tile];
@@ -3989,34 +4098,17 @@ async function main() {
       btn.title = needs ? `Locked. Needs: ${needs.join(", ")}` : "";
     }
     refreshBuildRequirements();
-    progressPanelEl.hidden = !p;
-    if (!p) return;
-    progressNextEl.replaceChildren(
-      ...(p.open ? ["Everything is unlocked."] : p.next).map((text) => {
-        const li = document.createElement("li");
-        li.textContent = text;
-        return li;
-      })
-    );
-    progressCraftsEl.replaceChildren(
-      ...p.crafts.map((c) => {
-        const b = document.createElement("button");
-        b.className = "econ-btn";
-        b.textContent = `${c.label} (${c.cost})`;
-        b.disabled = !c.ok;
-        b.addEventListener("click", () => {
-          sendMessage({ type: "craftItem", recipe: c.id });
-          b.blur();
-        });
-        return b;
-      })
-    );
-    const owned = Object.entries(p.items).map(([id, grades]) => {
-      const label = PROGRESSION.items[id as ItemId]?.label ?? id;
-      const total = grades.reduce((a, b) => a + b, 0);
-      const fine = grades.slice(1).some((n) => n > 0) ? ` (${grades.map((n, i) => (n > 0 ? `${n} ${QUALITY_GRADES[i].label}` : "")).filter(Boolean).join(", ")})` : "";
-      return `${label} ${total}${fine}`;
-    });
+    for (const id of Object.keys(PROGRESSION.items) as ItemId[]) setGoodCount(`item:${id}`, itemTotal(p, id));
+    progressPanelEl.hidden = !p?.prospect;
+    nextBarEl.hidden = !p;
+    if (!p) {
+      progressTreeEl.hidden = true;
+      return;
+    }
+    const next = p.open ? ["Everything is unlocked."] : p.next;
+    nextBarTextEl.textContent = next.slice(0, 2).join("  ·  ");
+    nextBarTextEl.title = `${next.join("\n")}\n(click for the whole progression)`;
+    progressCraftsEl.replaceChildren();
     if (p.prospect) {
       const b = document.createElement("button");
       b.className = "econ-btn";
@@ -4029,8 +4121,178 @@ async function main() {
       });
       progressCraftsEl.append(b);
     }
-    progressItemsEl.textContent = owned.length > 0 ? `Items: ${owned.join(", ")}` : "Items: none";
+    if (!craftPanelEl.hidden) renderCraftPanel();
+    if (!progressTreeEl.hidden) renderProgressTree();
   }
+
+  // Crafting panel: every hand recipe with each input's have / need, a Craft button, and "needs: X" when it can't.
+  let craftSig = "";
+  function renderCraftPanel(force = false) {
+    const p = latestProgression;
+    const sig = `${progressionSig}|${JSON.stringify(latestStock)}`;
+    if (!force && sig === craftSig) return;
+    craftSig = sig;
+    craftListEl.replaceChildren();
+    if (!p) {
+      craftListEl.textContent = "Nothing to craft yet.";
+      return;
+    }
+    for (const r of PROGRESSION.recipes.filter((rc) => rc.station === "hand")) {
+      const c = p.crafts.find((x) => x.id === r.id);
+      const row = document.createElement("div");
+      row.className = "craft-row";
+      const main = document.createElement("div");
+      main.className = "craft-main";
+      const name = document.createElement("div");
+      name.className = "craft-name";
+      name.textContent = r.label;
+      const have = document.createElement("span");
+      have.className = "craft-have";
+      have.textContent = `(${itemTotal(p, r.output)} in store${r.amount > 1 ? `, makes ${r.amount}` : ""})`;
+      have.title = PROGRESSION.items[r.output].desc;
+      name.append(have);
+      const inputs = document.createElement("div");
+      inputs.className = "craft-in";
+      const parts: [string, number, number][] = [
+        ...(Object.entries(r.stock ?? {}) as [string, number][]).map(([k, n]): [string, number, number] => [STOCK_LABEL[k] ?? k, latestStock[k as GoodKey] ?? 0, n]),
+        ...(Object.entries(r.items ?? {}) as [ItemId, number][]).map(([id, n]): [string, number, number] => [PROGRESSION.items[id].label, itemTotal(p, id), n]),
+      ];
+      parts.forEach(([label, got, need], i) => {
+        const span = document.createElement("span");
+        span.textContent = `${label} ${Math.floor(got)}/${need}`;
+        if (got < need) span.className = "short";
+        inputs.append(...(i > 0 ? [" + "] : []), span);
+      });
+      main.append(name, inputs);
+      const ok = p.open || (c?.ok ?? false);
+      if (!ok) {
+        const why = c?.why ?? "";
+        const needs = document.createElement("div");
+        needs.className = "craft-needs";
+        needs.textContent = `needs: ${why.replace(/^Needs /, "").replace(/^Not enough (.*)$/, "more $1") || "its inputs"}`;
+        main.append(needs);
+      }
+      const b = document.createElement("button");
+      b.className = "econ-btn";
+      b.textContent = "Craft";
+      b.disabled = !ok;
+      b.addEventListener("click", () => {
+        sendMessage({ type: "craftItem", recipe: r.id });
+        b.blur();
+      });
+      row.append(main, b);
+      craftListEl.append(row);
+    }
+    const owned = Object.entries(p.items).map(([id, grades]) => {
+      const label = PROGRESSION.items[id as ItemId]?.label ?? id;
+      const total = grades.reduce((a, b) => a + b, 0);
+      const fine = grades.slice(1).some((n) => n > 0) ? ` (${grades.map((n, i) => (n > 0 ? `${n} ${QUALITY_GRADES[i].label}` : "")).filter(Boolean).join(", ")})` : "";
+      return `${label} ${total}${fine}`;
+    });
+    craftItemsEl.textContent = owned.length > 0 ? `Items in store: ${owned.join(", ")}` : "Items in store: none";
+  }
+  function setCraftPanelOpen(open: boolean) {
+    craftPanelEl.hidden = !open;
+    craftBtn.classList.toggle("active", open);
+    if (open) renderCraftPanel(true);
+  }
+  craftBtn.addEventListener("click", () => {
+    craftBtn.blur();
+    setCraftPanelOpen(craftPanelEl.hidden);
+  });
+  document.getElementById("craft-close")!.addEventListener("click", () => setCraftPanelOpen(false));
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !craftPanelEl.hidden) setCraftPanelOpen(false);
+    if (e.key === "Escape" && !progressTreeEl.hidden) setProgressTreeOpen(false);
+    if (e.code !== "KeyC" || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
+    if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select")) return;
+    // Strategy mode with soldiers selected: Shift+C is Charge.
+    if (strategyOrderKey(e)) return;
+    e.preventDefault();
+    setCraftPanelOpen(craftPanelEl.hidden);
+  });
+
+  // Progression dropdown: every chain of PROGRESSION.chains, each step done / available / locked with its needs.
+  function chainStepState(p: ProgressionSnapshot, st: ChainStep): { label: string; cls: "done" | "avail" | "locked"; note: string } {
+    const built = new Set(p.built ?? []);
+    if (st.building !== undefined) {
+      const label = progressionBuildingLabel(st.building);
+      if (built.has(st.building)) return { label, cls: "done", note: "built" };
+      const needs = p.open ? undefined : p.locked[st.building];
+      return needs ? { label, cls: "locked", note: `needs: ${needs.join(", ")}` } : { label, cls: "avail", note: "can be built" };
+    }
+    const id = st.item;
+    const label = PROGRESSION.items[id].label;
+    const have = itemTotal(p, id);
+    if (have > 0) return { label, cls: "done", note: `${have} in store` };
+    const r = PROGRESSION.recipes.find((rc) => rc.output === id);
+    if (!r) return { label, cls: "avail", note: PROGRESSION.items[id].desc.split(".")[0] };
+    if (r.station === "hand") {
+      const c = p.crafts.find((x) => x.id === r.id);
+      if (p.open || c?.ok) return { label, cls: "avail", note: `craft by hand: ${c?.cost ?? ""}` };
+      if (c?.why?.startsWith("Needs ")) return { label, cls: "locked", note: `needs: ${c.why.slice(6)}` };
+      return { label, cls: "avail", note: `craft by hand: ${c?.cost ?? ""} (${(c?.why ?? "").toLowerCase()})` };
+    }
+    const station = progressionBuildingLabel(r.station);
+    const lvl = r.workerLevel && r.workerLevel > 1 ? `, a level-${r.workerLevel} worker` : "";
+    const kept = Object.keys(r.needs ?? {}).map((k) => `, a ${PROGRESSION.items[k as ItemId].label}`).join("");
+    if (p.open || built.has(r.station)) return { label, cls: "avail", note: `made at the ${station}${lvl}${kept}` };
+    return { label, cls: "locked", note: `needs: a ${station}${lvl}${kept}` };
+  }
+  function renderProgressTree() {
+    const p = latestProgression;
+    progressTreeEl.replaceChildren();
+    if (!p) return;
+    const legend = document.createElement("div");
+    legend.className = "pt-legend";
+    for (const [cls, text] of [["done", "done"], ["avail", "available now"], ["locked", "locked (needs shown)"]]) {
+      const item = document.createElement("span");
+      const sw = document.createElement("span");
+      sw.className = `pt-swatch ${cls}`;
+      item.append(sw, text);
+      legend.append(item);
+    }
+    progressTreeEl.append(legend);
+    for (const chain of PROGRESSION.chains) {
+      const box = document.createElement("div");
+      box.className = "pt-chain";
+      const name = document.createElement("div");
+      name.className = "pt-name";
+      name.textContent = chain.label;
+      const steps = document.createElement("div");
+      steps.className = "pt-steps";
+      chain.steps.forEach((st, i) => {
+        const s = chainStepState(p, st);
+        if (i > 0) {
+          const arrow = document.createElement("span");
+          arrow.className = "pt-arrow";
+          arrow.textContent = "\u2192";
+          steps.append(arrow);
+        }
+        const chip = document.createElement("div");
+        chip.className = `pt-step ${s.cls}`;
+        const b = document.createElement("b");
+        b.textContent = s.label;
+        const small = document.createElement("small");
+        small.textContent = s.note;
+        chip.append(b, small);
+        chip.title = `${s.label}: ${s.note}`;
+        steps.append(chip);
+      });
+      box.append(name, steps);
+      progressTreeEl.append(box);
+    }
+  }
+  function setProgressTreeOpen(open: boolean) {
+    progressTreeEl.hidden = !open;
+    nextBarToggle.setAttribute("aria-expanded", String(open));
+    if (open) renderProgressTree();
+  }
+  nextBarToggle.addEventListener("click", () => {
+    nextBarToggle.blur();
+    setProgressTreeOpen(progressTreeEl.hidden);
+  });
+  nextBarTextEl.addEventListener("click", () => setProgressTreeOpen(progressTreeEl.hidden));
 
   setupToolbar();
   setupCategoryTabs();
@@ -5328,6 +5590,10 @@ async function main() {
   function refreshEquipmentLine(eq: EquipmentStock | undefined) {
     statEquipmentEl.hidden = !eq;
     if (!eq) return;
+    for (let t = 1; t <= 3; t++) {
+      setGoodCount(`gear:weapon:${t}`, eq.weapon[t - 1] ?? 0);
+      setGoodCount(`gear:armour:${t}`, eq.armour[t - 1] ?? 0);
+    }
     const key = `${eq.armour.join("/")}|${eq.weapon.join("/")}`;
     if (key === equipmentLineKey) return;
     equipmentLineKey = key;
@@ -6356,6 +6622,8 @@ async function main() {
     // Ctrl/Alt + digit is reserved for task forces; never let it change the build tool. Nor does a plain
     // digit that recalls a control group in strategy mode.
     if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e) || strategyOrderKey(e) || strategySettingKey(e) || adventurePartyKey(e)) return;
+    // Shift+C opens the Crafting panel (not the C build tool).
+    if (e.shiftKey && e.code === "KeyC") return;
     const match = key ? TOOLS.find((t) => t.key === key) : undefined;
     if (match) {
       if (match.tile !== TileType.Empty && match.category !== activeCategory) {
@@ -6743,6 +7011,7 @@ async function main() {
     openBuildingInfo,
     fallbackInteract: adventureInteract,
     blocked: () => strategyCam.inStrategy || !myId || !heroModal.hidden,
+    openSheet: () => setHeroSheetOpen(true),
   });
   function partyCommand(cmd: "followMe" | "hold" | "shape") {
     if (!partyCommandsOn() || !myId) return;
@@ -7579,6 +7848,13 @@ async function main() {
       y,
       Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / camZoom)
     );
+    // Clicking your own hero (closer than any unit) opens the hero sheet, in adventure and strategy view alike.
+    const meHit = latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead);
+    const heroHitPx = Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / camZoom);
+    if (meHit && Math.hypot(meHit.x - x, meHit.y - y) <= heroHitPx && (!unit || Math.hypot(meHit.x - x, meHit.y - y) < Math.hypot(unit.x - x, unit.y - y))) {
+      setHeroSheetOpen(true);
+      return;
+    }
     if (unit) {
       // Strategy mode: a unit stands for its whole regiment (Alt+click = just that unit), Shift adds.
       if (strategyCam.inStrategy) {

@@ -965,7 +965,10 @@ export interface ProgressionSnapshot {
   items: Record<string, number[]>;
   locked: Record<number, string[]>;
   next: string[];
-  crafts: { id: string; label: string; cost: string; ok: boolean }[];
+  // why: the short reason a hand craft is refused now ("" = it can be made).
+  crafts: { id: string; label: string; cost: string; ok: boolean; why?: string }[];
+  // Building types of the progression chains / recipe stations that stand in the clan's lands (Progression panel).
+  built?: number[];
   // Phase 3: the Send a prospector button (reason: why it is refused, "" = allowed).
   prospect?: { label: string; ok: boolean; reason: string };
 }

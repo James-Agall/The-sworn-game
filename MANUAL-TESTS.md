@@ -601,7 +601,7 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
    the same start spot.
 
 ## Family: marriage, children, succession (phases 1-4)
-1. New Game. Hero bar: a **Family** button next to Pack; it opens a panel ("Unwed", Succession list of your people).
+1. New Game. Hero bar: a **Family** button next to Pack; it opens the hero sheet (family in the right column) ("Unwed", Succession list of your people).
 2. Walk to one of your villagers, E: "Spend time with X" and "A gift for X (15 gold)" are listed; both raise the
    courtship (shown in the reply and the Family panel); each greys out for the rest of the day. "Will you marry me?"
    is greyed until 4.
@@ -615,6 +615,37 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
    lists "(your child, the heir)" first, then the spouse. Pick the child: the Family panel title is the child's name
    "(generation 2)", the old spouse is under Parents.
 6. Talk to your spouse: "We should part ways." An in-law spouse leaves and that settlement's relation drops sharply.
+
+## Crafting, Next steps, Progression, Resources, hero sheet, prisoners (2026-11-06)
+1. New Game. Top centre: a slim **Next** bar with the nearest goals (e.g. "Hunter's Hut: needs Stone knife (craft by
+   hand)"); the health bar sits just below it, toasts below that. Narrow window (< 1400 px): the bar drops under the
+   Menu buttons and nothing overlaps. Adventure view (close camera): the bar stays at the top, the hero bar and
+   party commands stay at the bottom.
+2. Click **Progression ▾** (or the bar's text): a dropdown lists Stone age, Mining & ore, Metal, Food (plow -> Barn ->
+   gruel -> millstone -> Mill -> flour -> clay oven -> Bakery -> flatbread -> sourdough -> bread), Cloth, Military
+   and Faith as arrow chains. Green = done, gold = available now, dashed = locked with "needs: ...". Knap a stone
+   knife: its chip turns green and Hunter's Hut turns gold. Esc closes it.
+3. **Craft** button (top right) or **Shift+C**: the Crafting panel lists every hand recipe with have/need per input
+   (short ones in red), "needs: ..." under the ones you can't make, and a Craft button; crafting a knife updates the
+   counts at once. The Build panel no longer has Next steps or Craft by hand; the prospector button is still there.
+   Shift+C with soldiers selected in strategy view still means Charge; plain C is still the build tool.
+4. Colony (left) panel: Food / Materials / Crafted & tools / Gear groups list every resource, every progression
+   item (Hide, Bellows, Charcoal, Flour, Bread, ...) and armour / weapons per tier; empty rows are dimmed. Click a
+   group header to fold it (stays folded after a reload); "Hide empty" hides the zero rows. Kill a deer with a
+   Hunter's Hut working: Hide goes up in Materials.
+5. Click your own hero (adventure or strategy view), the Hero button or the ` key: one sheet opens, pack and armoury
+   on the left, equipment / stats / needs / spells / skills in the middle, family on the right. The hero bar's Pack
+   and Family buttons open the same sheet; there are no separate floating panels any more.
+6. Walk to a bandit camp: grey captives with a rope loop stand around its fire, and a small grey shield floats over
+   a hearth while its guards live. Strike the fire with guards alive: "Defeat the guards first" and no damage. Kill
+   the guards and walk up to the fire: the prisoners are freed ("Prisoners freed: ... join ..."); with no free
+   beds the rest wait at the camp (pale, untied figures) and arrive at dawn once you build houses / a Keep.
+7. A new world has 2-3 small camps 20-34 tiles from the start and noticeably more camps overall.
+8. Militia Camp with no weapons or armour in stock: "Train militia (unarmed: no gear in stock, ...)" is enabled and
+   takes one free adult; with a T1 weapon + armour in stock the button says "takes T1 weapon + armour" and uses them.
+   Archery Range / Hall of the Sworn / higher militia tiers still need their tier's gear.
+9. Raze a warband-founded camp, wait several days: nothing is re-stamped on its ruin (no small campfire growing back).
+
 
 ## Night shelter, pasture animals, 2x2 orchards, couples (2026-11-06)
 Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, temp saves).
