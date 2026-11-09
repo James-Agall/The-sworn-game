@@ -5,11 +5,14 @@ import {
 import { TileType } from "@colony/shared/protocol";
 import { ROOM_TOOL_STONE, ROOM_TOOL_WOOD } from "@colony/shared/structures";
 import {
+  CROP_LABEL, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT,
+} from "@colony/shared/zones";
+import {
   ROOM_BARRACKS_MIN_BEDS, ROOM_BEAUTY_POINTS, ROOM_WARMTH_AREA_TILES, ROOM_WARMTH_PER_HEARTH, ROOM_WARMTH_PER_LAMP, ROOM_WORKBENCH_MAX,
   ROOM_WORKBENCH_SPEED,
 } from "@colony/shared/rooms";
 
-export type ToolCategory = "structure" | "combat" | "farming" | "industry" | "civic" | "trade";
+export type ToolCategory = "structure" | "zones" | "combat" | "farming" | "industry" | "civic" | "trade";
 
 export interface ToolDef {
   tile: TileType;
@@ -20,6 +23,8 @@ export interface ToolDef {
   // Modular building phase 1: how a right-drag paints (blueprint orders, placeStructure): a straight wall line, a
   // filled rectangle, or a room outline. Without it a tool places one tile per click as before.
   drag?: "line" | "rect" | "room";
+  // Modular building phase 3: retired from new play (Farm Plot, Hemp Field): shown only in creative mode.
+  legacy?: boolean;
 }
 
 // Break has no category of its own — it's pinned so it's always visible regardless of
@@ -31,6 +36,7 @@ export const TOOL_CATEGORIES: { key: ToolCategory; label: string }[] = [
   { key: "civic", label: "Civic" },
   { key: "trade", label: "Trade" },
   { key: "structure", label: "Structure" },
+  { key: "zones", label: "Zones" },
 ];
 
 // "Each batch: 240 meat + 2 hide" for a complete 2x2 pasture (x4 its per-tile PASTURE_YIELDS, x FOOD_OUTPUT_MULT).
@@ -66,6 +72,13 @@ export const TOOLS: ToolDef[] = [
   { tile: TileType.Workbench, label: "Workbench", key: "", cost: `${buildCostText(TileType.Workbench)}. Makes a room a workshop; stations in it work +${Math.round(ROOM_WORKBENCH_SPEED * 100)}% faster per bench (up to ${ROOM_WORKBENCH_MAX})`, category: "structure" },
   { tile: TileType.Statue, label: "Statue", key: "", cost: `${buildCostText(TileType.Statue)}. Needs a Quarry. Beauty +${ROOM_BEAUTY_POINTS[TileType.Statue]}`, category: "structure" },
   { tile: TileType.WeaponRack, label: "Weapon Rack", key: "", cost: `${buildCostText(TileType.WeaponRack)}. Needs an Iron Mine. ${ROOM_BARRACKS_MIN_BEDS}+ beds and a rack in a room = barracks (soldiers' morale)`, category: "structure" },
+  // Modular building phase 3 (shared/src/zones.ts): zones. Right-drag paints a rectangle (Shift: erases).
+  { tile: ZONE_TOOL_WHEAT as TileType, label: "Wheat field", key: "", cost: `Growing zone, free. Idle villagers / Barn farmers till, sow, tend and harvest each tile; 4 tiles grow what a Farm Plot did (${CROP_LABEL.wheat})`, category: "zones", drag: "rect" },
+  { tile: ZONE_TOOL_HEMP as TileType, label: "Hemp field", key: "", cost: `Growing zone, free: hemp for cloth (4 tiles = an old Hemp Field)`, category: "zones", drag: "rect" },
+  { tile: ZONE_TOOL_STOCKPILE as TileType, label: "Stockpile", key: "", cost: "Storage zone, free: haulers bring loose goods (harvests) to the nearest stockpile whose filters take them. Set filters in the zone list", category: "zones", drag: "rect" },
+  { tile: ZONE_TOOL_HOME as TileType, label: "Home area", key: "", cost: "Idle villagers stroll here instead of round the Town Center", category: "zones", drag: "rect" },
+  { tile: ZONE_TOOL_ANIMAL as TileType, label: "Animal area", key: "", cost: "Placeholder for a later phase (animals in buildings): no effect yet", category: "zones", drag: "rect" },
+  { tile: ZONE_TOOL_ERASE as TileType, label: "Erase zone", key: "", cost: "Right-drag removes zone tiles (any of your zones; the selected one only, if one is selected)", category: "zones", drag: "rect" },
   // Walls & gates (2026-10-23). Every letter is taken (and [ is the Tower), so the gate uses ].
   {
     tile: TileType.Gate,
@@ -90,7 +103,7 @@ export const TOOLS: ToolDef[] = [
     category: "combat",
   },
   { tile: TileType.LumberjackPost, label: "Lumberjack", key: "3", cost: "Free (upgradeable)", category: "farming" },
-  { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: `Free. Needs: a Barn nearby (its farmers tend fields within ${BARN_FIELD_RADIUS_TILES} tiles; no workers of its own)`, category: "farming" },
+  { tile: TileType.FarmPlot, label: "Farm", key: "4", cost: `Free. Needs: a Barn nearby (its farmers tend fields within ${BARN_FIELD_RADIUS_TILES} tiles; no workers of its own). Retired: creative mode only (paint a Growing zone)`, category: "farming", legacy: true },
   { tile: TileType.KnightPost, label: "Hall of the Sworn", key: "5", cost: `${buildCostText(TileType.KnightPost)} (upgradeable)`, category: "combat" },
   { tile: TileType.ArcherPost, label: "Archery Range", key: "6", cost: `${buildCostText(TileType.ArcherPost)} (upgradeable)`, category: "combat" },
   // Cavalry & siege (2026-10-27): ; and ' are the last free keys.
@@ -127,7 +140,7 @@ export const TOOLS: ToolDef[] = [
   { tile: TileType.RockMinePost, label: "Quarry", key: "8", cost: "Free, on ore; place on a mine to upgrade", category: "industry" },
   { tile: TileType.Empty, label: "Demolish", key: "9", cost: "", category: "farming" },
   { tile: TileType.House, label: "Cottage", key: "h", cost: `${buildCostText(TileType.House)} (+1 pop per adjacent house or workplace; +1 troop slot to each adjacent unit building; upgrade by placing on it)`, category: "civic" },
-  { tile: TileType.BarnPost, label: "Barn", key: "b", cost: `${buildCostText(TileType.BarnPost)} (upgradeable). ${BARN_FARMERS_BY_LEVEL.join(" / ")} farmers by level, each tends ${FIELDS_PER_FARMER} Farm / Hemp fields within ${BARN_FIELD_RADIUS_TILES} tiles`, category: "farming" },
+  { tile: TileType.BarnPost, label: "Barn", key: "b", cost: `${buildCostText(TileType.BarnPost)} (upgradeable). ${BARN_FARMERS_BY_LEVEL.join(" / ")} farmers by level: they tend old Farm / Hemp fields within ${BARN_FIELD_RADIUS_TILES} tiles, else work Growing zones (full speed). Food and cloth are hauled here when no stockpile takes them`, category: "farming" },
   { tile: TileType.ChurchPost, label: "Church", key: "c", cost: `${buildCostText(TileType.ChurchPost)} (upgradeable)`, category: "civic" },
   // w/a/s/d are movement keys, so the farm hotkeys avoid them.
   // Pasture animals (2026-11-06, shared PASTURE_YIELDS): the Pasture is the Cow pasture; pigs have no free hotkey.
@@ -135,7 +148,7 @@ export const TOOLS: ToolDef[] = [
   { tile: TileType.PigPasture, label: "Pig pasture", key: "", cost: `${buildCostText(TileType.PigPasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.PigPasture)}`, category: "farming" },
   { tile: TileType.Orchard, label: "Orchard (Fruit)", key: "o", cost: `${buildCostText(TileType.Orchard)}, 2x2 (the tile you place on is its top-left corner; upgradeable)`, category: "farming" },
   { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: `${buildCostText(TileType.WoolFarm)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.WoolFarm)}`, category: "farming" },
-  { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: `Free; walkable like a Farm Plot. Needs: a Barn nearby (tended by its farmers within ${BARN_FIELD_RADIUS_TILES} tiles)`, category: "farming" },
+  { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: `Free; walkable like a Farm Plot. Needs: a Barn nearby (tended by its farmers within ${BARN_FIELD_RADIUS_TILES} tiles). Retired: creative mode only (paint a Growing zone)`, category: "farming", legacy: true },
   {
     tile: TileType.HunterHut,
     label: "Hunter's Hut",

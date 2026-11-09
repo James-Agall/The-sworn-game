@@ -26,6 +26,7 @@ import { topUpBarnFarmers } from "./construction.js";
 import { generateWorld, setWorldSize } from "./worldgen.js";
 import { chronicleForSave, restoreChronicle } from "./chronicle.js";
 import { restoreRooms, roomsForSave } from "./structures.js";
+import { type ZonesSave, restoreZones, zonesForSave } from "./zones.js";
 import {
   type TileDiffs, deflateBase64, diffTilesForSave, expandTiles, forgetWorldSeed, inflateBase64, loadBase, pruneBaseFiles, regeneratedBaseMatches,
 } from "./worldbase.js";
@@ -107,6 +108,7 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   clearAbstractWorld();
   restoreChronicle(undefined);
   restoreRooms(undefined);
+  restoreZones(undefined);
   clearPlayerMorale();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
@@ -255,6 +257,8 @@ function snapshotWorldInner() {
     chronicle: chronicleForSave() as ReturnType<typeof chronicleForSave> | undefined,
     // Modular building phase 2: [room id, dirt] of every dirty room (optional).
     roomDirt: roomsForSave() as [number, number][] | undefined,
+    // Modular building phase 3 (optional).
+    zones: zonesForSave() as ZonesSave | undefined,
     stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
@@ -478,6 +482,8 @@ function applyWorldInner(s: WorldState) {
   restoreChronicle(s.chronicle);
   // Modular building phase 2: room dirt by room id (optional: older saves have clean rooms).
   restoreRooms(s.roomDirt);
+  // Modular building phase 3: zones, crops, loose goods (optional: older saves have none).
+  restoreZones(s.zones);
   // After the owners: a fort's campfires (owned tiles) never get a backfilled hearth.
   backfillHearths();
   state.testForceDeserterRoll = s.flags.testForceDeserterRoll;

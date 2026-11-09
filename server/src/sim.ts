@@ -46,6 +46,7 @@ import { updateFamily } from "./family.js";
 import { assignHomes, heirOrderNames, peopleDawn, updateAging, updateTraining, updateVillageLevy } from "./people.js";
 import { updateProspecting, updateWorkerXp } from "./progression.js";
 import { updateRooms } from "./structures.js";
+import { updateZones } from "./zones.js";
 import { heroSpeedMult, updateHeroLife } from "./herolife.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
@@ -218,6 +219,8 @@ export function stepSimulation() {
   updateFarmPlots();
   // Modular building phase 2: room dirt, cleaning and stats (once a second).
   updateRooms();
+  // Modular building phase 3: growing-zone crops (once a second).
+  updateZones();
   updateForageRegrow();
   processRespawnQueue();
   // Village life: trainees count down; children grow up (once a second).

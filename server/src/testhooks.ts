@@ -51,6 +51,7 @@ import {
   workshopEffectAt,
 } from "./structures.js";
 import { computeColonyHappiness } from "./colonists.js";
+import { debugSetCrops, updateZones, zonesDebug, zonesSnapshotFor } from "./zones.js";
 import { farmPlotProgress, farmhandProgress, releaseResourceReservation } from "./economy.js";
 import { makeBoss } from "./worldgen.js";
 import { WILDLIFE_CONFIG, WILDLIFE_RESPAWN_INTERVAL_TICKS, damageWildlife, spawnWildlifeAt } from "./wildlife.js";
@@ -1035,6 +1036,24 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       roomHappiness: roomHappinessBonus(),
       barracksMorale: barracksMoraleMult(0),
       homes: Array.from(colonists.values()).filter((c) => c.person && c.person.homeX >= 0 && state.tiles[c.person.homeY * W + c.person.homeX] === TileType.Bed).map((c) => ({ id: c.id, x: c.person!.homeX, y: c.person!.homeY })),
+    });
+  } else if (msg.op === "zoneState") {
+    // Modular building phase 3: zones, crop stage counts, piles, jobs and the stock; setCrops {stage, tended, zoneId?}
+    // sets every crop of a growing zone (or all); tickZones: run the once-a-second crop update now; freeVillagers:
+    // how many free villagers (zone workers) there are.
+    const sc = msg.setCrops as { stage: number; tended?: boolean; zoneId?: number } | undefined;
+    if (sc) debugSetCrops(sc.stage, !!sc.tended, sc.zoneId);
+    if (msg.tickZones) {
+      const t = state.cycleTick;
+      state.cycleTick = Math.ceil(t / 20) * 20;
+      updateZones();
+      state.cycleTick = t;
+    }
+    reply({
+      ...zonesDebug(),
+      stock: { ...clanById(player.clan ?? 0).stock },
+      freeVillagers: Array.from(colonists.values()).filter((c) => c.kind === "villager" && !c.person?.child && (c.clan ?? 0) === (player.clan ?? 0)).length,
+      snapshot: zonesSnapshotFor(player.clan ?? 0),
     });
   } else if (msg.op === "assignHomes") {
     assignHomes();

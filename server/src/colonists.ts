@@ -19,7 +19,7 @@ import {
   SETTLEMENT_POP_CAP_BY_TIER, SIEGE_POPULATION_COST, STARVATION_DAMAGE, TAVERN_HAPPINESS_RADIUS_TILES,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
   TOWN_CENTER_LEVEL_POPULATION_BONUS, TOWN_CENTER_MAX_HP_BY_LEVEL, WARD_GRACE_TICKS, WARD_RADIUS_TILES,
-  WARD_TEND_TICKS, VILLAGER_BUILD_RATE, CHILD_MATURE_DAYS, PERSON_NAMES, STARTING_PEOPLE, VACANCY_FILL_INTERVAL_TICKS,
+  WARD_TEND_TICKS, VILLAGER_BUILD_RATE, ZONE_FARMER_WORK_RATE, ZONE_HOME_WANDER_TILES, ZONE_VILLAGER_WORK_RATE, CHILD_MATURE_DAYS, PERSON_NAMES, STARTING_PEOPLE, VACANCY_FILL_INTERVAL_TICKS,
 } from "./constants.js";
 import {
   buildingHp, colonists, constructionSites, farmPlots, mobs, repairPaid, repairQueue, reservedResourceTiles,
@@ -52,6 +52,7 @@ import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, updateStationW
 import { stationRecipes } from "@colony/shared/progression";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
 import { isUsableBed, roomHappinessBonus, usableBedIndices } from "./structures.js";
+import { cancelZoneJob, hasZoneJob, homeAreaTileNear, updateZoneWorker } from "./zones.js";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -955,6 +956,11 @@ export function updateStationaryMiner(c: Colonist, dt: number) {
   }
 }
 export function updateFarmer(c: Colonist, dt: number) {
+  // Modular building phase 3: a farmer busy with a growing-zone job finishes it (away from the Barn meanwhile).
+  if (hasZoneJob(c)) {
+    c.farmTouring = updateZoneWorker(c, dt, ZONE_FARMER_WORK_RATE) && hasZoneJob(c);
+    return;
+  }
   if (c.farmPlotKey) {
     const plotTile = keyToTile(c.farmPlotKey);
     if (!plotTile || !farmPlots.has(c.farmPlotKey)) {
@@ -984,6 +990,8 @@ export function updateFarmer(c: Colonist, dt: number) {
   for (const [key, plot] of farmPlots) if (plot.barnX === c.postX && plot.barnY === c.postY) keys.push(key);
   if (keys.length === 0) {
     c.farmTouring = false;
+    // Modular building phase 3: no old field to tend: the Barn's farmer works the clan's growing zones (and hauls).
+    if (updateZoneWorker(c, dt, ZONE_FARMER_WORK_RATE)) c.farmTouring = hasZoneJob(c);
     return;
   }
   keys.sort();
@@ -1819,9 +1827,13 @@ export function updateVillager(c: Colonist, dt: number) {
   // Phase 4: an adult with nothing to do helps on its clan's construction sites (builderRate: reduced speed).
   // Checked before the stroll below, which would clobber the builder's states.
   if (!c.person?.child && (c.buildSiteKey || clanHasSite(c.clan ?? 0))) {
+    if (hasZoneJob(c)) cancelZoneJob(c);
     updateBuilder(c, dt);
     return;
   }
+  // Modular building phase 3 (TEMPORARY until phase 4's work priorities): an idle adult works the clan's zones
+  // (till / sow / tend / harvest, haul loose goods) at ZONE_VILLAGER_WORK_RATE.
+  if (!c.person?.child && updateZoneWorker(c, dt, ZONE_VILLAGER_WORK_RATE)) return;
   if (c.path.length > 0) {
     advanceAlongPath(c, dt, COLONIST_SPEED * 0.6);
     c.state = c.path.length > 0 ? "returning" : "idle";
@@ -1840,6 +1852,15 @@ export function updateVillager(c: Colonist, dt: number) {
       c.postX = tc.x;
       c.postY = tc.y;
       c.settlementId = resourceKey(tc.x, tc.y);
+    }
+  }
+  // Modular building phase 3: with a home area nearby, idle villagers stroll inside it.
+  const home = homeAreaTileNear(c.clan ?? 0, c.postX, c.postY, ZONE_HOME_WANDER_TILES);
+  if (home) {
+    const path = findPath(tileOfPixel(c.x, c.y), home);
+    if (path && path.length <= ZONE_HOME_WANDER_TILES * 2) {
+      c.path = path;
+      return;
     }
   }
   for (let tries = 0; tries < 4; tries++) {
@@ -1886,6 +1907,7 @@ export function updateColonist(c: Colonist, dt: number) {
       // made them play their static work pose the whole walk home instead of a walk animation -
       // looked exactly like they weren't actually heading to the Town Center.
       c.state = "idle";
+      cancelZoneJob(c);
       c.path = [];
       c.farmPlotKey = null;
       c.farmTouring = false;

@@ -1005,6 +1005,12 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     if (current !== TileType.Empty && !(isFloorTile(current) && isRoomStationTile(tile))) return;
   }
 
+  // Modular building phase 3: new Farm Plots / Hemp Fields are retired (growing zones replace them; old ones keep
+  // working). Creative mode still places them.
+  if (!upgradeInPlace && (tile === TileType.FarmPlot || tile === TileType.CottonFarm) && !state.creative && !state.legacyBuild) {
+    sendEvent(player, "build", "Farm Plots and Hemp Fields are retired: paint a Growing zone instead (Build menu, Zones tab)");
+    return;
+  }
   // Modular building phase 2: "needs a roofed room" (shared ROOM_REQUIRED_STATIONS) for NEW stations; creative mode,
   // upgrades in place and old buildings are exempt.
   if (!upgradeInPlace && ROOM_REQUIRED_STATIONS.includes(tile) && !state.creative && !state.legacyBuild && !roomAt(tx, ty)) {

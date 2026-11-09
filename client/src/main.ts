@@ -13,6 +13,11 @@ import {
 } from "pixi.js";
 import { setupCreative } from "./creative";
 import { makeStructureTextures } from "./structureArt";
+import { setupZones } from "./zones";
+import {
+  ZONE_KIND_COLOR, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT, isZoneTool,
+  type ZoneKind,
+} from "@colony/shared/zones";
 import {
   NEW_STRUCTURE_TILES, ROOM_TOOL_STONE, ROOM_TOOL_WOOD, findRooms, isDoorTile, isFloorTile, isFurnitureTile, isRoomBoundaryTile, isStructureTile,
   isWindowTile, isStoneStructure, rectOutline, rectTiles, wallLineTiles, type Room,
@@ -740,6 +745,10 @@ async function main() {
   // under Town Center / buildings / entities. Hidden whenever its tile isn't Empty.
   const decorSpriteLayer = new Container();
   worldLayer.addChild(decorSpriteLayer);
+  // Modular building phase 3: growing-zone crops and loose goods (ground), then the zone overlay, under buildings.
+  const zonesUi = setupZones({ tileSize: () => tileSize, worldTilesX: () => worldTilesX, send: (m) => sendMessage(m) });
+  worldLayer.addChild(zonesUi.ground);
+  worldLayer.addChild(zonesUi.overlay);
   const decorSprites = new Map<number, Sprite>();
   // Also in decorSpriteLayer (over the floor, under buildings and every unit), keyed by position +
   // variant since the server sends no id.
@@ -1156,7 +1165,8 @@ async function main() {
       roofRooms.push(c);
     });
   }
-  const isStructureTool = (t: number) => isStructureTile(t) || t === ROOM_TOOL_WOOD || t === ROOM_TOOL_STONE;
+  // Modular building phase 3: zone tools drag like structure tools (a rectangle), but send zoneEdit.
+  const isStructureTool = (t: number) => isStructureTile(t) || t === ROOM_TOOL_WOOD || t === ROOM_TOOL_STONE || isZoneTool(t);
   app.ticker.add(() => {
     const now = performance.now();
     if (roofDirty && now - roofComputedAt > 300 && tiles.length > 0) {
@@ -4074,6 +4084,8 @@ async function main() {
   // ---- Toolbar (real DOM elements, not canvas-drawn) ----
 
   let currentTool: TileType = TileType.Wall;
+  // Phase 3: a creative world shows the retired build tools.
+  let creativeWorld = false;
   const toolButtonEls = new Map<TileType, HTMLButtonElement>();
   let activeCategory: ToolCategory = TOOL_CATEGORIES[0].key;
   const categoryTabEls = new Map<ToolCategory, HTMLButtonElement>();
@@ -4123,9 +4135,11 @@ async function main() {
     for (const tool of TOOLS) {
       const btn = toolButtonEls.get(tool.tile);
       if (!btn) continue;
-      const visible = tool.tile === TileType.Empty || tool.category === activeCategory;
+      // Phase 3: retired tools (Farm Plot, Hemp Field) only in creative mode.
+      const visible = (tool.tile === TileType.Empty || tool.category === activeCategory) && (!tool.legacy || creativeWorld);
       btn.style.display = visible ? "" : "none";
     }
+    zonesUi.setActive(activeCategory === "zones" || isZoneTool(currentTool));
   }
 
   function refreshToolbarSelection() {
@@ -4136,6 +4150,7 @@ async function main() {
 
   function selectTool(tile: TileType, fromUser = false) {
     currentTool = tile;
+    zonesUi.setActive(activeCategory === "zones" || isZoneTool(tile));
     // Picking something to build puts the units down, so right-click places instead of giving orders.
     if (fromUser && tile !== TileType.Empty && selectedIds.size > 0) setSelection([]);
     if (tile !== TileType.TownCenter && !isRoadTile(tile)) placementGhost.visible = false;
@@ -6535,6 +6550,9 @@ async function main() {
       }
       enforceGameMode = false;
       creativeUi.onWelcome(message.creative === true);
+      creativeWorld = message.creative === true;
+      refreshToolbarVisibility();
+      zonesUi.reset();
       sendMessage({ type: "listSaves" });
       setActiveDifficulty(message.difficulty);
       tileSize = message.tileSize;
@@ -6605,6 +6623,7 @@ async function main() {
       syncConstructionSites(message.constructionSites);
       syncDamagedBuildings(message.damagedBuildings);
       syncGates(message.gates);
+      zonesUi.apply(message.zones);
       if (message.sites) syncFortMarkers(message.sites);
       if (message.relations) siteRelations = new Map(message.relations.map((r) => [r.num, r]));
       if (message.respawn) questCycleTicks = message.respawn.dayTicks + message.respawn.nightTicks;
@@ -8022,6 +8041,12 @@ async function main() {
     }
     socket.send(JSON.stringify({ type: "setTile", tileX, tileY, tile: value }));
   }
+  // Modular building phase 3: what each zone tool paints.
+  const ZONE_TOOL_KIND: Record<number, { kind: ZoneKind; crop?: "wheat" | "hemp" }> = {
+    [ZONE_TOOL_WHEAT]: { kind: "growing", crop: "wheat" }, [ZONE_TOOL_HEMP]: { kind: "growing", crop: "hemp" },
+    [ZONE_TOOL_STOCKPILE]: { kind: "stockpile" }, [ZONE_TOOL_HOME]: { kind: "home" }, [ZONE_TOOL_ANIMAL]: { kind: "animal" },
+    [ZONE_TOOL_ERASE]: { kind: "growing" },
+  };
   // Modular building phase 1: a structure tool's right press, until release.
   let structDrag: { pointerId: number; tool: TileType; x0: number; y0: number; x1: number; y1: number } | null = null;
   // The tile a structure tool places (room tools: their wall) and the tiles the drag covers.
@@ -8054,7 +8079,20 @@ async function main() {
     if (structDrag && e.pointerId === structDrag.pointerId) {
       const plan = structDragPlan(structDrag);
       structDrag = null;
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "placeStructure", tile: plan.tile, tiles: plan.list.flatMap((p) => [p.x, p.y]) }));
+      const flat = plan.list.flatMap((p) => [p.x, p.y]);
+      if (isZoneTool(plan.tile)) {
+        // Phase 3: paint (extending the selected zone of the same kind / crop) or erase (Shift, or the Erase tool).
+        const sel = zonesUi.selected();
+        if ((plan.tile as number) === ZONE_TOOL_ERASE || e.shiftKey) {
+          sendMessage({ type: "zoneEdit", op: "erase", tiles: flat, ...((plan.tile as number) === ZONE_TOOL_ERASE && sel ? { zoneId: sel.id } : {}) });
+        } else {
+          const z = ZONE_TOOL_KIND[plan.tile];
+          const extend = sel && sel.kind === z.kind && (z.kind !== "growing" || sel.crop === z.crop);
+          sendMessage({ type: "zoneEdit", op: "paint", tiles: flat, kind: z.kind, ...(z.crop ? { crop: z.crop } : {}), ...(extend ? { zoneId: sel.id } : {}) });
+        }
+        return;
+      }
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "placeStructure", tile: plan.tile, tiles: flat }));
       return;
     }
     if (e.button === 2 && orderPress && e.pointerId === orderPress.pointerId) {
@@ -8262,8 +8300,10 @@ async function main() {
     if (structDrag && e.pointerId === structDrag.pointerId && tile) {
       structDrag.x1 = tile.tileX;
       structDrag.y1 = tile.tileY;
+      const zt = isZoneTool(structDrag.tool) ? ZONE_TOOL_KIND[structDrag.tool] : undefined;
+      const color = !zt ? 0x9fd0ff : (structDrag.tool as number) === ZONE_TOOL_ERASE || e.shiftKey ? 0xff6060 : ZONE_KIND_COLOR[zt.kind];
       for (const p of structDragPlan(structDrag).list) {
-        cursorHighlight.rect(p.x * tileSize, p.y * tileSize, tileSize, tileSize).fill({ color: 0x9fd0ff, alpha: 0.25 }).stroke({ width: 1, color: 0x9fd0ff, alpha: 0.7 });
+        cursorHighlight.rect(p.x * tileSize, p.y * tileSize, tileSize, tileSize).fill({ color, alpha: 0.25 }).stroke({ width: 1, color, alpha: 0.7 });
       }
     }
     placementGhost.visible =

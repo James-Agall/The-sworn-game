@@ -1,4 +1,5 @@
 import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, PersonalBuild } from "./herolife.js";
+import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
 export const TICK_RATE = 20;
 export const TILE_SIZE = 32;
 // Server-side default; the live size is overridable (COLONY_WORLD_SIZE) and sent in `welcome`.
@@ -1155,6 +1156,14 @@ export type ClientMessage =
   // A construction site's blueprint: toggle its priority (builders take priority sites first) or cancel it
   // (structure pieces refund their materials).
   | { type: "siteOrder"; tileX: number; tileY: number; action: "priority" | "cancel" }
+  // Modular building phase 3 (shared/src/zones.ts): zones. paint: add tiles (flattened [x, y, ...]) to zone `zoneId`,
+  // or to a new zone of `kind` (+ crop) when zoneId is missing; erase: take tiles out of whatever own zone holds them;
+  // rename / setCrop / setFilters / delete: one zone. Tiles within ZONE_EDIT_RANGE_TILES of the hero or an own Town
+  // Center, at most ZONE_EDIT_MAX_TILES per message.
+  | {
+      type: "zoneEdit"; op: "paint" | "erase" | "rename" | "setCrop" | "setFilters" | "delete"; zoneId?: number; kind?: ZoneKind;
+      tiles?: number[]; name?: string; crop?: CropId; filters?: StockCategory[];
+    }
   | { type: "attack" }
   // paused (strategy mode phase 5, optional): set it instead of toggling. Global: applies to everyone.
   | { type: "pause"; paused?: boolean }
@@ -1387,6 +1396,8 @@ export type ServerMessage =
       relations?: SiteRelationSnapshot[];
       // Forts phase D2: this player's clan's open settlement quests (per player; a full replacement).
       quests?: QuestSnapshot[];
+      // Modular building phase 3: the clan's zones, crop stages and loose goods (resent when they change).
+      zones?: ZonesSnapshot;
       // Clans (only while there are 2+): this player's clan id, every clan, and the clan of every player
       // building (CLAN_TILE_SNAPSHOT_STRIDE; per player, only when changed). The economy / army / population
       // / goal fields of this snapshot are the receiving player's clan's.

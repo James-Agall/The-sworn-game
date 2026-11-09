@@ -42,9 +42,13 @@ const hook = async (op, args = {}) => {
 };
 const setTile = (x, y, tile) => hook("setTileRaw", { tx: x, ty: y, tile });
 const flat = (list) => list.flatMap((p) => [p.x, p.y]);
+// A blueprint order (instant build); a tile a wandering villager happened to stand on (placement refuses it) is
+// written directly instead, so the layout is always complete.
 const place = async (tile, list) => {
   send({ type: "placeStructure", tile, tiles: flat(list) });
   await hook("fastForward", { ticks: 1 });
+  const st = await hook("structureState", { at: list });
+  for (let k = 0; k < list.length; k++) if (st.tiles[k] !== tile) await setTile(list[k].x, list[k].y, tile);
 };
 // One building via setTile (the hero stands next to it: setTile has a reach limit).
 const placeOne = async (x, y, tile) => {
@@ -77,8 +81,8 @@ await hook("setCycleTick", { tick: 0 });
 await hook("setStock", { stock: { wood: 2000, rock: 2000, iron: 200, wool: 200 } });
 
 const tc = (await hook("constructionState")).townCenters[0];
-// A clear 30 x 22 yard east of the Town Center.
-const O = { x: tc.x + 4, y: tc.y - 10 };
+// A clear 30 x 22 yard east of the Town Center (out of the villagers' stroll range round it).
+const O = { x: tc.x + 7, y: tc.y - 10 };
 for (let y = O.y; y < O.y + 22; y++) for (let x = O.x; x < O.x + 30; x++) await setTile(x, y, T.Empty);
 await hook("teleportPlayer", { x: (O.x + 15) * TILE + 16, y: (O.y + 21) * TILE + 16 });
 

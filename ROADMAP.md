@@ -2155,6 +2155,56 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Modular building — landed (phase 3) 2026-11-09 (zones: growing, stockpile, home, animal; hauling)
+Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 3. Shared: `shared/src/zones.ts` (kinds, crops, filters, RLE,
+snapshot types); server: `server/src/zones.ts`; numbers: `server/src/constants.ts` ZONE_* (next to the farm numbers).
+- **Zones** are painted tile sets per clan, a layer beside the tiles (no setTile / chunk versions / diff log, so
+  streaming and the tile registry are untouched): one zone per tile; saved as `zones` {nextId, zones (RLE tiles,
+  name, crop, filters, stockpile tally), crops [tile, stage, progress, tended], piles [tile, good, amount, clan]}
+  (optional: older saves have none). `zoneEdit` (paint / erase / rename / setCrop / setFilters / delete; <= 400 tiles,
+  within 40 tiles of the hero or an own Town Center). The clan's zones go to its players in the snapshot (`zones`),
+  resent at most twice a second when anything drawn changed.
+- **Growing zone** (wheat -> grain, hemp -> cotton; no vegetables exist yet): natural open ground only. Per tile:
+  untilled -> till (3 s) -> tilled -> sow (2 s) -> sown -> growing (from 1/3 of the grow time) -> ripe -> harvest
+  (2 s) -> a pile of loose goods on the tile, back to tilled. One tend (2 s) per crop doubles its growth (untended:
+  x0.5, ZONE_UNTENDED_GROWTH). Grow time = the old field's: wheat FARM_GROW_TICKS (6 legacy days = 600 s, includes
+  FOOD_TIME_MULT), hemp HEMP_GROW_TICKS (3 legacy days = 300 s). **Yield per tile per harvest: wheat 2.73 grain**
+  (FARM_YIELD_PER_HARVEST 12, already x FOOD_OUTPUT_MULT, / 4 tiles x the fallow factor 30/33: zone tiles never lie
+  fallow), **hemp 22.5 cotton** (90 / 4). So 4 zone tiles = one Farm Plot / Hemp Field over the long run (1.82 grain per
+  plot per legacy day), but they need labour per tile instead of a quarter of a Barn farmer. Fractions add up in the
+  pile; haulers carry whole units. Built over: the crop is gone (the tile stays in the zone, inactive).
+- **Stockpile zone**: filters food / wood / stone / ore / metal / cloth / tools / weapons / armour / other ("Everything"
+  toggles all; default all). Haulers carry a pile (up to 30) to the nearest stockpile tile whose filters take it; with
+  none, to the nearest own **Barn** (food, cloth) or else a Town Center. Delivered goods enter the clan's stock there
+  (stock counts include zone contents); the stockpile keeps a tally ("Stored: ...", shown as min(tally, stock), since
+  the stock spends from one pool). Only harvests make loose goods for now (every other producer still adds straight to
+  the stock).
+- **Home area**: idle free villagers stroll to a home-area tile within 16 tiles of their Town Center instead of a
+  random spot. **Animal area**: placeholder (no logic) for phase 5d.
+- **Workers (TEMPORARY until phase 4 priorities)**: every free adult villager takes zone jobs at half speed
+  (ZONE_VILLAGER_WORK_RATE 0.5) when no construction needs it; every Barn farmer with no old field to tend works zones
+  at full speed (ZONE_FARMER_WORK_RATE 1). Job order: harvest, haul, sow, till, tend; nearest first within 40 tiles;
+  one worker per tile (reservations); night shelter drops the job (carried goods are put down as a pile).
+- **Old model (migration rule)**: existing Farm Plots, Hemp Fields and the Barn-radius farming (f34e13c) keep working
+  unchanged in old saves (grandfathered). New Farm Plots / Hemp Fields are refused outside creative mode ("retired:
+  paint a Growing zone"); their tools only show in creative. **Barns** stay as they are (build, upgrade, 2/3/4 farmer
+  job slots): their farmers tend old fields in range first and otherwise work growing zones; a Barn is also a drop-off
+  for food and cloth when no stockpile takes them. Old buildings are never removed. Pastures / orchards untouched.
+- **UI**: Build menu **Zones** tab: Wheat field, Hemp field, Stockpile, Home area, Animal area, Erase zone. Right-drag
+  paints a rectangle (extends the selected zone of that kind / crop, else a new zone, which becomes selected); Shift +
+  right-drag (or the Erase tool) erases. While the tab is open: translucent overlays with edges, and the zone list
+  (select, rename, delete, crop picker, stockpile filters + stored counts, loose goods waiting). Crops and piles are
+  always drawn on the ground.
+- **Art**: procedural stand-ins (`client/src/zones.ts`); real art SPRITES.md #92 (zones UI) / #93 (soil and crops).
+- **Tests**: `server/zones-test.mjs` (`npm test -- zones`): retired Farm Plot, paint / erase, villagers till / sow /
+  tend, harvest -> haul to a Town Center (wood-only stockpile) then into a food stockpile, hemp, home / animal areas,
+  rename / delete, snapshot, save / load. Older suites run with `COLONY_LEGACY_BUILD=1` (runner) so they may still place
+  Farm Plots.
+- **Known gaps (phase 3)**: no seasons / watering (phase 5); haulers carry nothing visible; only harvests make loose goods
+  (the rest of the economy is still a global stock); a stockpile has no capacity; the tally does not shrink when the
+  stock is spent (capped in the display); zones of other clans are not drawn; the zone list is a simple floating panel;
+  idle builders do not take zone jobs.
+
 ## Modular building — landed (phase 2) 2026-11-09 (rooms and quality: furniture, roles, stats, effects)
 Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 2. Every room number is a named constant in
 `shared/src/rooms.ts` (roles, stats, score weights, tiers, effects, the room-gated stations).

@@ -684,6 +684,30 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Modular building phase 3: zones (2026-11-09)
+Automated: `npm test -- zones`.
+1. New game (creative off). Farming tab: no Farm / Hemp Field tool any more (Barn still there). Build menu **Zones** tab:
+   Wheat field, Hemp field, Stockpile, Home area, Animal area, Erase zone. Opening the tab shows the zone list panel
+   (right) and the overlays.
+2. Wheat field: right-drag a 4x3 rectangle on grass near the Town Center: a green translucent area with an edge; trees /
+   buildings inside are skipped. The list shows "Wheat field 1, Growing zone, 12 tiles" (selected).
+3. Close the menu and watch: free villagers walk over, the tiles turn to tilled soil (furrows), then seed dots, then green
+   sprouts (a few minutes), then gold when ripe (~10 min real time at 1x; creative fast-forward helps).
+4. Ripe tiles get harvested: a small yellow sack appears on the tile; a villager carries it off to the Town Center (no
+   stockpile yet): Grain in the stock goes up by whole units.
+5. Stockpile: right-drag a 3x3 area: amber overlay. In the list untick "Everything", tick Food: the next harvest is
+   carried to the stockpile ("Stored: N grain") and the stock still counts it. Untick Food: haulers go to the Town Center
+   (or the nearest Barn) again.
+6. Shift + right-drag across part of the wheat field (or the Erase tool): those tiles leave the zone (crops gone).
+   Rename / Delete in the list work. Switch the crop to Hemp: sown tiles go back to tilled; hemp ripens into dark green
+   and its harvest adds Cotton (cloth).
+7. Home area: paint a patch away from the Town Center: idle villagers wander there during the day. Animal area: paints,
+   no effect (placeholder).
+8. Barn: a Barn with no old fields: its farmers work the growing zone (faster than villagers). An old save with Farm Plots
+   and Barns: the fields still grow and are tended as before; the Barn panel is unchanged.
+9. Save, reload: zones, crop stages, sacks and stored counts come back. An older save loads with no zones.
+10. Creative mode: the Farm / Hemp Field tools are back and place as before.
+
 ## Modular building phase 2: rooms and quality (2026-11-09)
 Automated: `npm test -- rooms`.
 1. New game. Build a Wood Room (5x4) with a door and a Bed. Left-click bare ground inside: the panel shows **Room:

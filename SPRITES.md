@@ -689,11 +689,19 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > crafting, mining, woodcutting, hunting, cooking, doctor, fighting, research/learning, plus priority number badges 1-4
 > and an 'off' mark. Hauling carry sprites: villager carrying a sack/crate/log/stone (4 dirs, 2 frames).
 
+> **Phase 3 stand-ins in use (2026-11-09, `client/src/zones.ts`, drawn with Graphics):** zone overlays are flat
+> translucent fills + 2 px edge lines in 4 colours (growing green, stockpile amber, home blue, animal purple); loose goods
+> are a rounded square "sack" tinted per good; the Zones tab uses text buttons (no icons); haulers show no carried load.
+
 ### 93. Farming tiles and crops by season (phase 3 + 5) — 32x32
 > Soil: untilled grass, tilled, tilled+watered (dark), tilled in frost. Crop growth stages (5 each: seed, sprout, young,
 > mature, ready) for wheat, flax/hemp, vegetables, berries, root crop, with spring/summer/autumn variants and a
 > withered/dead stage. Seed bag item icon, watering can/hoe/axe/pickaxe/scythe tool icons (hero tools), tool-use swing
 > animation for the hero (4 dirs x 3 frames per tool). Scarecrow, sprinkler, fence post/gate (wood).
+
+> **Phase 3 stand-ins in use (2026-11-09, `client/src/zones.ts` draw):** tilled soil = brown tile with 4 furrow lines;
+> sown = pale seed dots; growing = green sprout bars; ripe = gold (wheat) / dark green (hemp) blocks. One look for both
+> crops until ripe; no watered / withered / seasonal variants yet.
 
 ### 94. Seasons and weather (phase 5b)
 > Four ground/tree tint sets or separate tile variants (spring blossom, summer green, autumn orange/red leaves, winter

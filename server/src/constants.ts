@@ -845,6 +845,40 @@ export const HEMP_RIPE_FROM = 2 / 3;
 // fallow. Hemp is not food: FOOD_OUTPUT_MULT / FOOD_TIME_MULT do not apply.
 export const HEMP_GROW_TICKS = FARMHAND_CYCLE_DAYS * LEGACY_GAME_DAY_TICKS;
 export const HEMP_YIELD_PER_HARVEST = FARMHAND_YIELD_PER_CYCLE.cotton;
+// ---- Modular building phase 3: zones (shared/src/zones.ts, server/src/zones.ts) ----
+// A growing-zone tile is a quarter of a Farm Plot: ZONE_TILES_PER_FARM_PLOT tiles grow what one plot (or Hemp Field)
+// does over the same grow time (FARM_GROW_TICKS already carries FOOD_TIME_MULT, FARM_YIELD_PER_HARVEST
+// FOOD_OUTPUT_MULT). Zone tiles never lie fallow: the plot's fallow rest is folded into the wheat yield instead
+// (ZONE_FALLOW_FACTOR = 5 harvests' grow time / (that + the fallow) = 30 / 33).
+export const ZONE_TILES_PER_FARM_PLOT = 4;
+export const ZONE_FALLOW_FACTOR =
+  (FARM_HARVESTS_BEFORE_FALLOW * FARM_GROW_TICKS) / (FARM_HARVESTS_BEFORE_FALLOW * FARM_GROW_TICKS + FARM_FALLOW_TICKS);
+export const ZONE_CROP_GROW_TICKS: Record<"wheat" | "hemp", number> = { wheat: FARM_GROW_TICKS, hemp: HEMP_GROW_TICKS };
+// Per tile per harvest (fractions add up in the tile's pile; haulers carry whole units).
+export const ZONE_CROP_YIELD: Record<"wheat" | "hemp", number> = {
+  wheat: (FARM_YIELD_PER_HARVEST * ZONE_FALLOW_FACTOR) / ZONE_TILES_PER_FARM_PLOT,
+  hemp: HEMP_YIELD_PER_HARVEST / ZONE_TILES_PER_FARM_PLOT,
+};
+// Work per job, in ticks at work rate 1.
+export const ZONE_TILL_TICKS = TICK_RATE * 3;
+export const ZONE_SOW_TICKS = TICK_RATE * 2;
+export const ZONE_TEND_TICKS = TICK_RATE * 2;
+export const ZONE_HARVEST_TICKS = FARM_HARVEST_TICKS;
+export const ZONE_HAUL_TICKS = TICK_RATE / 2;
+// A crop nobody tended grows at this rate (one tend per crop: full speed).
+export const ZONE_UNTENDED_GROWTH = 0.5;
+// TEMPORARY until phase 4's work priorities: free villagers work zones at this rate, Barn farmers with no old field
+// to tend at full rate.
+export const ZONE_VILLAGER_WORK_RATE = 0.5;
+export const ZONE_FARMER_WORK_RATE = 1;
+// Jobs within this many tiles of the worker; the best few are path-checked; an idle worker looks again this often.
+export const ZONE_JOB_RANGE_TILES = 40;
+export const ZONE_JOB_ROUTE_CANDIDATES = 4;
+export const ZONE_JOB_RETRY_TICKS = TICK_RATE * 2;
+// Most a hauler carries per trip.
+export const ZONE_HAUL_CARRY = 30;
+// Home area: idle villagers stroll to a home-area tile within this many tiles of their Town Center.
+export const ZONE_HOME_WANDER_TILES = 16;
 export const PASTURE_FAT_FROM = 0.7;
 export const SHEEP_WOOLLY_FROM = 0.25; // sheared right after the wool batch lands
 export const SHEEP_READY_FROM = 0.8;

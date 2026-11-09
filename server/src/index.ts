@@ -42,6 +42,7 @@ import { siteByNum, sitesForSnapshot } from "./sites.js";
 import { handleTradeWithSite, relationsForSnapshot } from "./diplomacy.js";
 import { handleCallToArms, handleSetTax } from "./vassals.js";
 import { handleQuestMessage, hasQuestsFor, questsForSnapshot, questsVersion } from "./quests.js";
+import { handleZoneEdit, zonesPayloadFor } from "./zones.js";
 import "./goals.js";
 import {
   forgeBusyForSnapshot, handleEquipItem, handleQueueForge, handleSetForgeAuto, handleRecruitHero, handleTakeFromArmoury,
@@ -194,6 +195,8 @@ function handleMessage(player: Player, message: ClientMessage) {
     handlePlaceStructure(player, message.tile, message.tiles);
   } else if (message.type === "siteOrder") {
     handleSiteOrder(player, message.tileX, message.tileY, message.action);
+  } else if (message.type === "zoneEdit") {
+    handleZoneEdit(player, message as unknown as Record<string, unknown>);
   } else if (message.type === "attack") {
     handlePlayerAttack(player);
   } else if (message.type === "setView") {
@@ -572,6 +575,11 @@ setInterval(() => {
         player.questsVersion = questsVersion;
         player.questsSentTick = state.cycleTick;
         payload = payload.slice(0, -1) + ',"quests":' + JSON.stringify(questsForSnapshot(player.clan)) + "}";
+      }
+      // Modular building phase 3: the clan's zones, crops and loose goods, resent when they changed.
+      if (snapshot.type === "snapshot") {
+        const zonesJson = zonesPayloadFor(player);
+        if (zonesJson !== null) payload = payload.slice(0, -1) + ',"zones":' + zonesJson + "}";
       }
       // Clans: every player building's clan (CLAN_TILE_SNAPSHOT_STRIDE), resent when it changed.
       if (clans.length > 1 && player.clanTilesVersion !== state.clanTilesVersion) {
