@@ -650,6 +650,62 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > (`client/src/worldVisuals.ts` TILE_STANDIN_TINT 0xffa8b8); a `pigPasture.png` dropped in `client/public/sprites/`
 > replaces it automatically (TILE_OPTIONAL_ART). The 2x2 Orchard reuses the `orchard*` art scaled across the block.
 
+### RimWorld / Stardew systems (PLAN-rimworld-stardew.md, 2026-11-09)
+> View is flat top-down / 3/4, art tile-aligned on the 32px grid (NOT isometric). Everything below is drawn in code as
+> procedural stand-ins first (coloured blocks, edge shading); these are the real-art requests. Match the existing
+> Stardew-like palette of the roads/walls. Numbers #90+ so they do not collide with parallel entries.
+
+### 90. Modular structure tiles (phase 1) — 32x32 each, autotiled
+> **Walls** (wood plank, wood palisade, stone block, reinforced stone): 16-piece connection mask set each (isolated,
+> end x4, straight x2, corner x4, T x4, cross), top-down with a visible front face (~8px) so they read as 3/4.
+> **Damaged/breached** states (50% cracked, rubble) per material. **Doors** (wood, iron-bound): closed, open, broken,
+> both orientations. **Windows** (shutters, glass): in wall, both orientations. **Floors**: packed dirt, wood planks,
+> flagstone, cobble, carpet/rug (red, blue); 4 variants each to avoid tiling. **Roofs**: thatch, wood shingle, clay
+> tile, slate; seamless, with a ridge line variant and an eave edge piece; plus a 50% faded cutaway version used when
+> the hero is inside. **Blueprint ghosts**: translucent blue overlay for planned wall/floor/door/window/roof, and a
+> scaffold/construction-in-progress overlay (2 frames).
+
+### 91. Furniture and room items (phase 2) — 32x32 or 32x64 (2 tiles)
+> Bed (single, double; wood, straw pallet), table (small, long), chair/stool, bench, chest, shelf, wardrobe, hearth/fireplace
+> (lit/unlit), lamp/candle stand (lit/unlit), rug, banner, statue/trophy (beauty), workbench, cooking pot/stove, barrel,
+> sack pile, weapon rack, armour stand, altar, well. Each with a 2-frame idle where it has fire/light. Room-quality
+> HUD icons (16px): room size, beauty, cleanliness, warmth, wealth; room-role badges: bedroom, kitchen, workshop, hall,
+> barracks, storeroom, hospital, church.
+
+### 92. Zones, hauling and job priorities (phases 3-4) — UI + overlays
+> Zone overlay tiles (32x32 translucent, edge-tiled, 6 colours): growing zone, stockpile zone, home area, pasture/animal
+> area, no-go/forbidden; zone placement cursor icons. Stockpile filter icons (16px): food, wood, stone, ore, metal,
+> cloth, tools, weapons, armour, medicine, everything. Work-priority table icons (24px): farming, hauling, building,
+> crafting, mining, woodcutting, hunting, cooking, doctor, fighting, research/learning, plus priority number badges 1-4
+> and an 'off' mark. Hauling carry sprites: villager carrying a sack/crate/log/stone (4 dirs, 2 frames).
+
+### 93. Farming tiles and crops by season (phase 3 + 5) — 32x32
+> Soil: untilled grass, tilled, tilled+watered (dark), tilled in frost. Crop growth stages (5 each: seed, sprout, young,
+> mature, ready) for wheat, flax/hemp, vegetables, berries, root crop, with spring/summer/autumn variants and a
+> withered/dead stage. Seed bag item icon, watering can/hoe/axe/pickaxe/scythe tool icons (hero tools), tool-use swing
+> animation for the hero (4 dirs x 3 frames per tool). Scarecrow, sprinkler, fence post/gate (wood).
+
+### 94. Seasons and weather (phase 5b)
+> Four ground/tree tint sets or separate tile variants (spring blossom, summer green, autumn orange/red leaves, winter
+> snow-covered grass, trees, rocks, roofs). Weather overlays: rain (streak particles + puddle ripples), snow, fog,
+> storm flash; calendar HUD icons (season emblem x4, weather x4, festival marker). Day-of-season strip. Frozen water tile.
+
+### 95. Interiors (phase 5c) — tile sets 32x32
+> Interior floor + back-wall + side-wall pieces for: house/cottage, tavern, shop, church, barracks, smithy, bakery,
+> barn, castle hall; door-in-wall and 'exit mat' tile; interior lighting overlay (warm vignette); stairs up/down.
+> Cutaway wall pieces so a room can be seen into from the front.
+
+### 96. Animals living in buildings (phase 5d)
+> Buildings: chicken coop, barn (cow/horse), pig sty, sheep pen, stable, each with empty/occupied states and door
+> open/closed. Animal sprites (idle 2f, walk 4f x 4 dirs, eat/graze 2f, sleep 1f): chicken, rooster, chick, cow, calf,
+> pig, piglet, sheep (shorn/woolly), lamb, horse, foal, dog, cat. Items/icons: egg, milk bucket, wool bundle, hay bale,
+> feed trough, water trough, shearing shears, milk pail. Needs icons (hunger, thirst, happy, sick).
+
+### 97. Hero and villager life (phases 4-5)
+> Villager task animations (4 dirs x 4 frames): sowing, watering, harvesting, hauling, building (hammer), chopping,
+> mining, cooking, sleeping in bed (top-down lying), eating at table, sitting. Hero stamina/energy bar and tool
+> hotbar UI frame, inventory slot frames, 'tired' and 'hungry' status icons.
+
 #77-#83 were delivered on 2026-10-30 (see "Already sourced", Batch 2); prompts removed. Still missing from those
 prompts: #82 the Follow order icon, the state glyphs (wavering / routing / outflanked) and the time-control icons;
 #83 has no veteran attack row (the veteran charge row stands in) and no separate idle frame.
