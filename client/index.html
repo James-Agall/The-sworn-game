@@ -368,6 +368,11 @@
         font-weight: 600;
       }
 
+      /* Stardew phase 5b: the calendar row under the sundial (season emblem, date, weather). */
+      .cal-cell { display: flex; align-items: center; gap: 5px; }
+      #stat-calendar img { width: 18px; height: 18px; flex: none; }
+      #stat-calendar img[hidden] { display: none; }
+      #stat-weather { opacity: 0.85; }
       #stat-time {
         font-weight: 600;
       }
@@ -1933,6 +1938,10 @@
             <span id="stat-time">Day</span>
           </span>
           <span id="stat-happiness">Happiness: 100%</span></div>
+        <div class="econ-row" id="stat-calendar" title="Calendar: 4 seasons of 7 days. Crops grow only in their season (wheat spring to mid-autumn, hemp summer); winter stops outdoor crops and the first frost kills growing ones unless roofed. Rain waters every unroofed crop.">
+          <span class="cal-cell"><img id="cal-season-icon" alt="" /><span id="stat-date">Spring 1, Year 1</span></span>
+          <span class="cal-cell"><img id="cal-weather-icon" alt="" /><span id="stat-weather">Clear</span></span>
+        </div>
         <div id="stat-army">Knights 0  Archers 0  Militia 0  Bishops 0</div>
         <div id="stat-equipment" title="Armour and weapons in stock by tier (T1/T2/T3). Knights, spearmen, pikemen and cavalry take the best of each when they muster; with none they fight unequipped. Forge more at a Blacksmith (tier = its level), or loot armoured foes and camps."></div>
         <div id="stat-builders" title="Builders working / total">Builders 0/0</div>

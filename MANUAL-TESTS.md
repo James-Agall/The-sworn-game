@@ -684,6 +684,32 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Stardew phase 5b: seasons, calendar, weather (2026-11-09)
+Automated: `npm test -- calendar`.
+1. New game: under the sundial a row reads "Spring 1, Year 1" with a spring emblem and "Clear". The grass has a light
+   spring tint.
+2. Creative game > Creative > World: **Season** Summer / Autumn / Winter: the date jumps (e.g. "Autumn 1, Year 1"), the
+   emblem changes, the grass and trees tint (autumn: warm orange trees; winter: pale blue-grey). An event "Autumn
+   begins (Year 1)" shows.
+3. **Weather** rain: streaks fall over the screen with a light haze; storm: heavier slanted rain + occasional white
+   flashes; snow: drifting flakes; fog: a grey veil that eases in. "auto" returns to the rolled weather. The row shows
+   the word (only rain has an icon yet). Weather overlay: off hides the effect (stays off after a reload); switching
+   to the strategy view (Tab) hides it too.
+4. Spring: paint a Wheat field and a Hemp field; wheat sprouts and grows, hemp stays sown ("waits for summer").
+   Hero: sow hemp with the seed bag in spring: toast "Sown, but hemp grows only summer ...".
+5. Set weather rain: within a second every outdoor sown / growing tile darkens (watered). Next dawn (Creative Day +
+   dawn, or wait): they are dry again and villagers go round tending.
+6. Build a small wall room with a door over grass (Structure tab), stand inside and till + sow wheat there with the
+   hoe. Set Winter: event "Frost: N growing crops died"; the outdoor fields go back to tilled soil, a ripe tile stays
+   ripe, the crop inside the room survives and keeps growing slowly (about half speed); rain does not water it.
+7. Winter, night (Creative Day + night), the hero standing in the open: the Rest need falls faster than on a summer
+   night; resting beside a campfire / in a warm bedroom (Room panel warmth 50+) does not suffer. Colony happiness
+   dips a few points on winter nights unless people have warm rooms / shelter.
+8. Winter: picked berry bushes stay picked; an Orchard's farmhand produces no fruit in spring / winter (Summer / Autumn
+   it does).
+9. Save, change the season, load: the date and a creative weather come back. An older save loads on the calendar day
+   matching its day count (day 9 = Summer 2, Year 1).
+
 ## Stardew phase 5a: hero tools on tiles (2026-11-09)
 Automated: `npm test -- hero-tools`.
 1. New game, adventure view, Build panel closed. Above the spell bar: a 6-slot hotbar (hoe, can, seed bag, scythe, axe,

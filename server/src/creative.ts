@@ -39,6 +39,8 @@ import { broadcastTileUpdate } from "./net.js";
 import { pickHeroName, playerMaxHp, spawnHeroColonist, weaponDamageMult } from "./heroes.js";
 import { clanById, withClan } from "./clans.js";
 import { campTemplateById, campTemplates, deleteUserCamp, saveUserCamp, stampCampLive, userCampDir } from "./camps.js";
+import { calendarSnapshot, setCalendar, setWeatherOverride } from "./calendar.js";
+import { WEATHER_LABEL, calendarLabel } from "@colony/shared/calendar";
 
 export const CREATIVE_STOCK = 999999;
 export const CREATIVE_EQUIPMENT = 9999;
@@ -467,7 +469,7 @@ export function handleCreativeSpawn(player: Player, msg: Record<string, unknown>
 const timePhases = (): Record<string, number> => ({ dawn: 1, noon: Math.floor(DAY_TICKS / 2), dusk: DAY_TICKS - TICK_RATE * 5, night: DAY_TICKS + 1, midnight: DAY_TICKS + Math.floor(NIGHT_TICKS / 2) });
 
 // creativeSet {op, ...}: allowAttack {on} | godmode {on} | heal | killMobs | clearNeutrals | clearWildlife |
-// setTime {day?, phase?} | people {count, child?} | raid {day?} | stamp {template, x, y} | tradingPost {x, y, level?} |
+// setTime {day?, phase?} | calendar {season?, day?, weather?} | people {count, child?} | raid {day?} | stamp {template, x, y} | tradingPost {x, y, level?} |
 // relation {x, y, value?, vassal?} | quest {x, y, kind} | forceAttack {unitIds, targetType: "c" | "w", targetId} |
 // campList | campSave {template} | campDelete {id} | campStamp {template | id, x, y, transform?} (camp editor).
 export function handleCreativeSet(player: Player, msg: Record<string, unknown>, reply: Reply) {
@@ -539,6 +541,14 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
     state.cycleTick = day * GAME_DAY_TICKS + within;
     state.wasNight = isNightNow();
     reply(true, `Day ${day + 1}, ${typeof msg.phase === "string" ? msg.phase : "same time"}`, { cycleTick: state.cycleTick });
+  } else if (op === "calendar") {
+    // Stardew phase 5b: {season? (0-3), day? (1..DAYS_PER_SEASON), weather? (a kind | "auto")}.
+    const season = Number.isInteger(msg.season) ? Number(msg.season) : undefined;
+    const day = Number.isInteger(msg.day) ? Number(msg.day) : undefined;
+    if (season !== undefined || day !== undefined) setCalendar(season, day);
+    if (typeof msg.weather === "string") setWeatherOverride(msg.weather === "auto" ? null : msg.weather);
+    const snap = calendarSnapshot();
+    reply(true, `${calendarLabel(snap)}, ${WEATHER_LABEL[snap.weather]}`, { calendar: snap });
   } else if (op === "family") {
     // Family: `spouse` marries the hero to a new adult at once; `count` newborn children of the couple (a spouse
     // first if needed).

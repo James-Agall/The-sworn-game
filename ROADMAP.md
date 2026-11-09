@@ -2155,6 +2155,59 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Stardew layer — landed (phase 5b) 2026-11-09 (seasons, calendar, weather)
+Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 5b. Shared: `shared/src/calendar.ts` (EVERY seasonal / weather
+number, the calendar maths, the weather roll, client tints / particle caps); server: `server/src/calendar.ts`
+(calendarNow / weatherNow / rainingNow / winterNow / cropGrowthMult / updateCalendar / setCalendar); client:
+`client/src/weather.ts` (overlay), main.ts (calendar row, season tints), creative.ts (World tab controls).
+- **Calendar**: 4 seasons x DAYS_PER_SEASON 7 = a 28-day year on the existing game-day clock (GAME_DAY_TICKS 375 s;
+  a day starts at dawn). Calendar day = floor(cycleTick / GAME_DAY_TICKS) + `state.calendarOffset`. Saved as top-level
+  `calendar {offset, weather?}` (optional: an older save's day count maps straight onto the calendar, day 1 = Spring 1,
+  Year 1). Snapshot `calendar {year, season, day, weather, daysPerSeason, off?}` every snapshot.
+- **Weather**: one spell a day, rolled from (world salt `worldNoiseSalt`, calendar day) by `weatherForDay` (pure, shared:
+  a reload / replay sees the same sky). Odds per season WEATHER_WEIGHTS (spring clear .5 / rain .3 / storm .08 / fog .12;
+  summer .65 / .15 / .15 / .05; autumn .45 / .3 / .1 / .15; winter clear .45 / snow .4 / fog .15). A spell starts in the
+  first half of the day (WEATHER_LATEST_START .5) and lasts WEATHER_MIN_LEN .25 .. WEATHER_MAX_LEN .6 of the day; fog is
+  a morning spell from dawn (FOG_MIN_LEN .15 .. FOG_MAX_LEN .35). Year 1 Spring 1 is always clear. Outside the spell =
+  clear. Creative / test hooks override one calendar day's weather (`weatherOverride`, saved).
+- **Crops** (zone tiles + hero plots; growth once a second in zones.ts updateZones): CROP_SEASONS in season units
+  [from, to): wheat [0, 2.5) = spring, summer, first half of autumn; hemp [1, 2) = summer. Out of season or in winter
+  an outdoor crop stops (keeps its progress); villagers do not tend a crop that cannot grow. **Greenhouse rule**: a crop
+  tile inside a roofed room (structures.ts roomAtIndex: enclosed by walls + door) grows in ANY season at
+  GREENHOUSE_GROWTH_MULT 0.5 of its speed, is never frost-killed and is not watered by rain (water it by hand).
+  **Frost**: the first day of winter turns every unroofed sown / growing crop back to tilled soil (a hero plot loses its
+  crop); ripe crops survive until harvested. Event "Winter begins (Year N)" + "Frost: N growing crops died".
+- **Watering**: CROP_WATER_RESETS_DAILY: every dawn (new calendar day) every crop is dry again (the 5a gap closed);
+  villagers re-tend, the hero waters again. While it rains / storms (WATERING_WEATHER) every unroofed sown / growing
+  crop counts as watered for the rest of the day. The can works as before.
+- **Winter**: old Farm Plots (Barn fields) stop growing and the old Hemp Field farmhand stops; wild forage (berry bushes,
+  fruit trees) does not regrow (WINTER_FORAGE_REGROWS false; their timers wait); hunting unchanged. Orchards bear fruit
+  only in ORCHARD_FRUIT_SEASONS summer + autumn (the farmhand's cycle waits otherwise); pastures unchanged.
+  **Cold (mild, no deaths)**: on a winter night colony happiness loses up to WINTER_COLD_HAPPINESS 6 points x the share
+  of the clan's people neither with a home bed in a warm room (warmth >= ROOM_WARM_THRESHOLD 50) nor sheltered (house /
+  Town Center); the bedroom sleep bonus counts x WINTER_ROOM_HAPPINESS_MULT 1.5 all winter. The hero on a winter night
+  outside a warm room with no shelter (campfire / lean-to / home): rest drains x WINTER_COLD_REST_DECAY_MULT 1.5 and
+  resting recovers x WINTER_COLD_REST_GAIN_MULT 0.5; resting in a warm room in winter x WINTER_WARM_ROOM_REST_MULT 1.25.
+- **Client**: a calendar row under the sundial (season emblem icon, "Spring 3, Year 1", weather icon + word); season
+  tints (SEASON_GROUND_TINT on the floor + scatter containers, SEASON_TREE_TINT multiplied into tree / fruit tree
+  sprites); weather overlay (screen-space Graphics: rain WEATHER_RAIN_DROPS 160 / storm 240 streaks + a light haze,
+  storm flashes WEATHER_STORM_FLASH_PER_S 0.12, snow WEATHER_SNOW_FLAKES 140, fog veil WEATHER_FOG_ALPHA 0.28), off
+  while the tab is hidden, in the strategy view, or with Creative > World > "Weather overlay: off" (saved in
+  localStorage). Creative World tab: Season buttons (+ day of season), Day of season Set, Weather auto / kinds
+  (`creativeSet {op: "calendar", season?, day?, weather?}`). Sowing out of season toasts "Sown, but wheat grows only ...".
+- **Streaming**: the calendar is global; zones / crops are a global layer (COLD chunks change nothing). COLD chunk forage
+  catch-up (abstract.ts) does NOT know about winter (a woken chunk's timers catch up the elapsed ticks); acceptable.
+- **Tests**: `server/calendar-test.mjs` (`npm test -- calendar`, the only suite with seasons on): mapping, deterministic
+  weather (salt / day, clear first day, snow only in winter), override, wheat / hemp season gating, greenhouse half
+  speed, daily water reset, rain watering (not roofed), late-autumn stop, frost (ripe + roofed survive), winter stop +
+  sowing warning, the hero's winter rest drain, save / load. Every older suite runs with COLONY_NO_SEASONS=1
+  (`state.seasonsOff`, test hooks only, set by scripts/run-tests.mjs): no seasonal effects. The smoke test runs with
+  seasons on (it starts on Spring 1).
+- **Known gaps (5b)**: day / night lengths do not change with the season (DAY_TICKS / NIGHT_TICKS are constants used
+  by raids, wagons, quests, respawn windows; skipped); snow does not slow movement (optional, skipped); no festivals /
+  market days; no frozen water; no seasonal crop art or withered stage (tints / Graphics stand-ins, SPRITES.md); the
+  villagers' own night cold is happiness only (no per-villager needs); clan settlements / NPC forts ignore seasons.
+
 ## Stardew layer — landed (phase 5a) 2026-11-09 (hero tools on tiles, energy)
 Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 5a. Shared: `shared/src/herolife.ts` (HERO_TOOLS, TOOL_*, ENERGY_*,
 WATER_CAN_CHARGES, SEED_ITEM), `shared/src/progression.ts` (items / hand recipes / starter kit); server:

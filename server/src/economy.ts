@@ -21,6 +21,7 @@ import { isInReservedGrounds } from "./worldgen.js";
 import { countTilesOfType, isMilitaryTile, productionSpeedMultiplier, townCenterBonus } from "./colonists.js";
 import { broadcastTileUpdate } from "./net.js";
 import { clanById, clanIdAt } from "./clans.js";
+import { winterNow } from "./calendar.js";
 
 export function initialStock(): Record<ResourceKey, number> {
   return {
@@ -365,6 +366,8 @@ export function updateFarmPlots() {
         }
       }
     } else {
+      // Stardew phase 5b: old fields do not grow in winter.
+      if (winterNow()) continue;
       plot.growTicksRemaining--;
       if (plot.state === "sown" && plot.growTicksRemaining <= plot.growTicksTotal * (1 - FARM_SOWN_FRACTION)) {
         plot.state = "growing";

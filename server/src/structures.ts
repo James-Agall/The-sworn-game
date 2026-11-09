@@ -22,6 +22,8 @@ import { inBounds, ownerAt, tileIndex } from "./tiles.js";
 import { structureHp } from "./combat.js";
 import { BUILDING_NAMES } from "./constants.js";
 import { clanIdAtIndex } from "./clans.js";
+import { winterNow } from "./calendar.js";
+import { ROOM_WARM_THRESHOLD, WINTER_ROOM_HAPPINESS_MULT } from "@colony/shared/calendar";
 
 export interface RoomRec extends Room {
   // Traffic / blood dirt 0-100 (saved by room id).
@@ -232,7 +234,15 @@ export function roomHappinessBonus(): number {
     sleep += sleepQualityAt(c.person.homeX, c.person.homeY);
   }
   const kitchen = bestOfRole("kitchen", clan);
-  return (people > 0 ? (ROOM_SLEEP_HAPPINESS_MAX * sleep) / people : 0) + (kitchen ? (ROOM_DINING_HAPPINESS_MAX * kitchen.stats.score) / 100 : 0);
+  // Stardew phase 5b: a good bedroom counts more in winter.
+  const sleepMult = winterNow() ? WINTER_ROOM_HAPPINESS_MULT : 1;
+  return (people > 0 ? (ROOM_SLEEP_HAPPINESS_MAX * sleep * sleepMult) / people : 0) + (kitchen ? (ROOM_DINING_HAPPINESS_MAX * kitchen.stats.score) / 100 : 0);
+}
+
+// Stardew phase 5b: a tile inside a room whose warmth is at least ROOM_WARM_THRESHOLD.
+export function warmRoomAt(tx: number, ty: number): boolean {
+  const r = roomAt(tx, ty);
+  return !!r && r.stats.warmth >= ROOM_WARM_THRESHOLD;
 }
 
 // Hero resting inside a bedroom / barracks: the rest-gain multiplier (0 = not in one).

@@ -27,6 +27,8 @@ import {
 } from "@colony/shared/structures";
 import { type HeroLifeUi, setupHeroLife } from "./herolife";
 import { setupHeroTools } from "./herotools";
+import { setupWeatherOverlay } from "./weather";
+import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
@@ -1305,6 +1307,26 @@ async function main() {
     }
     return undefined;
   }
+  // Stardew phase 5b: season tints (ground layers: their container tint; trees: per sprite in setTileSprite).
+  const SEASON_TREE_TILES = new Set<number>([TileType.Tree, TileType.FruitTree, TileType.FruitTreePicked]);
+  let seasonTreeTint = 0xffffff;
+  let shownSeason = -1;
+  const mulTint = (a: number, b: number) =>
+    (Math.round((((a >> 16) & 255) * ((b >> 16) & 255)) / 255) << 16) |
+    (Math.round((((a >> 8) & 255) * ((b >> 8) & 255)) / 255) << 8) |
+    Math.round(((a & 255) * (b & 255)) / 255);
+  function applySeason(season: number) {
+    if (season === shownSeason) return;
+    shownSeason = season;
+    const name = SEASONS[season] ?? "summer";
+    floorSpriteLayer.tint = SEASON_GROUND_TINT[name];
+    decorSpriteLayer.tint = SEASON_GROUND_TINT[name];
+    seasonTreeTint = SEASON_TREE_TINT[name];
+    for (const index of tileSprites.keys()) {
+      const t = tiles[index];
+      if (SEASON_TREE_TILES.has(t)) setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), t);
+    }
+  }
   function setTileSprite(tx: number, ty: number, tile: number) {
     const index = ty * worldTilesX + tx;
     const site = tile === TileType.ConstructionSite ? constructionSites.get(index) : undefined;
@@ -1375,6 +1397,8 @@ async function main() {
     if (fireTier(damagedBuildings.get(index) ?? 1000) > 0 && tile !== TileType.PropCampfire) sprite.tint = SOOT_TINT;
     else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = humanSiteNums.has(siteOwners.get(index)!) ? HUMAN_SITE_TINT : FOREIGN_TINT;
     else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
+    // Stardew phase 5b: trees take the season's tint.
+    else if (SEASON_TREE_TILES.has(tile)) sprite.tint = mulTint(sprite.tint as number, seasonTreeTint);
     if (structArt) {
       sprite.zIndex = index;
       if (structArt.place === "flat") {
@@ -3052,6 +3076,7 @@ async function main() {
     if (sv) advCam.sync(sv.x, sv.y, now);
     else if (adventurePrefs.on) focus = advCam.follow(focus.x, focus.y, now);
     camZoom = sv ? sv.zoom : homeZoom();
+    weatherUi.setSuppressed(!!sv);
     worldLayer.scale.set(camZoom);
     const camX = app.screen.width / 2 - focus.x * camZoom;
     const camY = app.screen.height / 2 - focus.y * camZoom;
@@ -3722,6 +3747,44 @@ async function main() {
   });
   pausedBanner.anchor.set(0.5);
   pausedBanner.visible = false;
+  // Stardew phase 5b: the weather overlay (screen space, over the world, under the banner and the DOM HUD).
+  const WEATHER_OVERLAY_PREF = "colony.weatherOverlay";
+  const weatherUi = setupWeatherOverlay(() => app.screen);
+  try {
+    weatherUi.setEnabled(localStorage.getItem(WEATHER_OVERLAY_PREF) !== "0");
+  } catch {
+    // Storage blocked: on.
+  }
+  app.stage.addChild(weatherUi.layer);
+  app.ticker.add((ticker) => weatherUi.update(ticker.deltaMS));
+  const calendarEl = {
+    seasonIcon: document.getElementById("cal-season-icon") as HTMLImageElement | null,
+    weatherIcon: document.getElementById("cal-weather-icon") as HTMLImageElement | null,
+    date: document.getElementById("stat-date"),
+    weather: document.getElementById("stat-weather"),
+  };
+  for (const img of [calendarEl.seasonIcon, calendarEl.weatherIcon]) img?.addEventListener("error", () => (img.hidden = true));
+  let shownCalendar = "";
+  function refreshCalendar(cal: CalendarSnapshot | undefined) {
+    if (!cal) return;
+    applySeason(cal.season);
+    weatherUi.set(cal.weather);
+    const key = `${cal.year}/${cal.season}/${cal.day}/${cal.weather}`;
+    if (key === shownCalendar) return;
+    shownCalendar = key;
+    const season = SEASONS[cal.season];
+    if (calendarEl.date) calendarEl.date.textContent = calendarLabel(cal);
+    if (calendarEl.weather) calendarEl.weather.textContent = WEATHER_LABEL[cal.weather];
+    if (calendarEl.seasonIcon) {
+      calendarEl.seasonIcon.hidden = false;
+      calendarEl.seasonIcon.src = `/sprites/icons/season_${season}.png`;
+    }
+    // Only rain has a staged icon (SPRITES.md); the others show the word alone.
+    if (calendarEl.weatherIcon) {
+      calendarEl.weatherIcon.hidden = false;
+      calendarEl.weatherIcon.src = `/sprites/icons/weather_${cal.weather}.png`;
+    }
+  }
   app.stage.addChild(pausedBanner);
 
   app.ticker.add(() => {
@@ -4059,6 +4122,17 @@ async function main() {
     centre: () => ({ x: (app.screen.width / 2 - worldLayer.position.x) / camZoom, y: (app.screen.height / 2 - worldLayer.position.y) / camZoom }),
     toast: (ok, text) => pushEventToast(ok ? "build" : "death", text),
     selectedIds: () => Array.from(selectedIds),
+    weatherOverlay: {
+      get: () => weatherUi.isEnabled(),
+      set: (on) => {
+        weatherUi.setEnabled(on);
+        try {
+          localStorage.setItem(WEATHER_OVERLAY_PREF, on ? "1" : "0");
+        } catch {
+          // Storage blocked: this session only.
+        }
+      },
+    },
   });
 
   function makeEconButton(container: HTMLElement, text: string, onClick: () => void): HTMLButtonElement {
@@ -6734,6 +6808,7 @@ async function main() {
       refreshSettlementPanel(message.townCenters);
       setActiveDifficulty(message.difficulty);
       statTimeEl.textContent = message.isNight ? "Night" : "Day";
+      refreshCalendar(message.calendar);
       sundialEl.classList.toggle("night", message.isNight);
       sundialHandEl.setAttribute("transform", `rotate(${message.cycleProgress * 360})`);
       if (message.dayFraction !== sundialDayFraction) {

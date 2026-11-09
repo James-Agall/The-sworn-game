@@ -802,6 +802,18 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > (32x32 slots, transparent between slots); an empty stamina bar frame + separate fill strip; a faced-tile cursor
 > (32x32 corner brackets); seed bag icons per crop (wheat, hemp).
 
+> **Stardew phase 5b (seasons / weather, 2026-11-09) wiring:** the calendar row under the sundial uses the staged
+> `icons/season_<season>.png` (32x32 at 18 px) and `icons/weather_rain.png`; the other weather kinds hide their icon and
+> show the word. Seasons are TINTS (shared/src/calendar.ts SEASON_GROUND_TINT / SEASON_TREE_TINT on the grass floor /
+> scatter containers and on tree sprites); the staged `seasons/` tree / ground pngs are not used (single opaque tiles
+> that do not match the floor's two-texture variety or the tree art's size). Weather is a procedural screen overlay
+> (rain / storm streaks, snow dots, fog veil, storm flash); the staged `weather/` pngs are opaque baked tiles (reference
+> only). **Still needed for 5b:** weather icons 32x32 for clear (sun), storm, snow, fog (matching `weather_rain`);
+> seasonal floor variants (2 textures each for spring flowers, autumn leaves, winter snow) at the grass floor's size;
+> seasonal tree variants (blossom / autumn / bare+snow) for every tree texture (same canvas and anchor as the current
+> trees); a frozen water tile set; a withered / frost-killed crop stage; optional puddle and snow-cover ground overlays
+> (transparent 32x32, 2-3 variants each); a soft transparent rain-streak / snowflake particle sprite (8x16 / 8x8).
+
 #77-#83 were delivered on 2026-10-30 (see "Already sourced", Batch 2); prompts removed. Still missing from those
 prompts: #82 the Follow order icon, the state glyphs (wavering / routing / outflanked) and the time-control icons;
 #83 has no veteran attack row (the veteran charge row stands in) and no separate idle frame.

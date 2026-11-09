@@ -95,6 +95,12 @@ export interface SimFields {
 
 export interface TimeFields {
   cycleTick: number;
+  // Stardew phase 5b (calendar.ts): calendar day = floor(cycleTick / GAME_DAY_TICKS) + calendarOffset (saved; creative
+  // set season / day moves it); calendarLastDay = the calendar day the last tick saw (day-change detection, not saved);
+  // weatherOverride = creative weather for one calendar day (saved).
+  calendarOffset: number;
+  calendarLastDay: number;
+  weatherOverride: { kind: string; day: number } | null;
 }
 
 export interface HeroesFields {
@@ -292,6 +298,9 @@ export interface ConstructionFields {
   // Modular building phases 2-3 (COLONY_LEGACY_BUILD=1, test hooks only): suites written before rooms and zones may
   // still place Bakeries / Blacksmiths outside a roofed room and new Farm Plots / Hemp Fields (normal play: no).
   legacyBuild: boolean;
+  // Stardew phase 5b (COLONY_NO_SEASONS=1, test hooks only; testHook "calendar" {off}): suites written before seasons
+  // run with no seasonal effects (no crop seasons, frost, rain watering, daily water reset, winter cold).
+  seasonsOff: boolean;
 }
 
 export interface EquipmentFields {
@@ -489,6 +498,9 @@ const initial: Partial<ServerState> = {
   wasNight: false,
   // TimeFields
   cycleTick: 0,
+  calendarOffset: 0,
+  calendarLastDay: -1,
+  weatherOverride: null,
   // HeroesFields
   heroRosterVersion: 0,
   heroProfileVersionCounter: 0,
@@ -559,6 +571,7 @@ const initial: Partial<ServerState> = {
   testUnlockAll: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_UNLOCK_ALL === "1",
   legacyHeroRespawn: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_HERO_RESPAWN === "1",
   legacyBuild: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_LEGACY_BUILD === "1",
+  seasonsOff: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_NO_SEASONS === "1",
   // EquipmentFields
   lastUnequippedToastTick: -Infinity,
   equipDropToasted: false,

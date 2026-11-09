@@ -5,7 +5,7 @@
 // hero's pack (carry weight), mild needs (food + rest slow you and block healing, never kill), skills by use (worker
 // XP pace), personal builds (campfire, lean-to, storage chest). State: HeroProfile.life (saved with the profile);
 // per-session transient work lives here. Messages run in the sender's clan context (index.ts handleMessage).
-import { heroRestMultAt } from "./structures.js";
+import { heroRestMultAt, roomAtIndex, warmRoomAt } from "./structures.js";
 import { TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, type TradeGood, type RelationTier } from "@colony/shared/protocol";
 import {
   ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, BRIDE_GIFT_GOLD, CEREMONY_FEE, COURT_GIFT_GOLD, COURT_NEEDED, FOUND_CAMP_COST, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
@@ -40,6 +40,8 @@ import {
 } from "./family.js";
 import { handleCallToArms } from "./vassals.js";
 import { heirOrderNames } from "./people.js";
+import { cropGrowthMult, winterNow } from "./calendar.js";
+import { cropSeasonLabel, WINTER_COLD_REST_DECAY_MULT, WINTER_COLD_REST_GAIN_MULT, WINTER_WARM_ROOM_REST_MULT } from "@colony/shared/calendar";
 
 // ---- profile state ----
 export function lifeOf(player: Player): HeroLife {
@@ -743,6 +745,11 @@ function stepTool(p: Player, b: Busy, t: ToolJob) {
     life.pack[g] = (life.pack[g] ?? 0) + n;
     toast(p, `+${n} ${PACK_LABEL[g].toLowerCase()}`);
   }
+  // Stardew phase 5b: sown out of season (or in winter, outdoors): it waits.
+  if (t.act === "sow") {
+    const crop = heroZoneCrop(i, clan) ?? t.crop;
+    if (cropGrowthMult(crop, roomAtIndex(i) !== null) <= 0) toast(p, `Sown, but ${crop} grows only ${cropSeasonLabel(crop).toLowerCase()} (and not outdoors in winter)`);
+  }
   spendEnergy(life, ENERGY_COST[t.act]);
   gainSkill(p, "farming", Math.max(1, ENERGY_COST[t.act]));
 }
@@ -978,6 +985,14 @@ function shelterMult(p: Player): number {
   return m;
 }
 
+// Stardew phase 5b: winter rest multipliers (gain while resting, decay otherwise); 1 / 1 outside winter.
+function coldMult(p: Player): { gain: number; decay: number } {
+  if (!winterNow()) return { gain: 1, decay: 1 };
+  if (warmRoomAt(Math.floor(p.x / TILE_SIZE), Math.floor(p.y / TILE_SIZE))) return { gain: WINTER_WARM_ROOM_REST_MULT, decay: 1 };
+  if (!isNightNow() || shelterMult(p) > 1) return { gain: 1, decay: 1 };
+  return { gain: WINTER_COLD_REST_GAIN_MULT, decay: WINTER_COLD_REST_DECAY_MULT };
+}
+
 // ---- per tick (sim.ts) ----
 const FOOD_DECAY_PER_S = 100 / (1.5 * 375);
 const REST_DECAY_PER_S = 100 / 375;
@@ -1095,11 +1110,13 @@ function stepNeeds(p: Player, b: Busy) {
   if (!needsOn()) return;
   const life = lifeOf(p);
   life.food = Math.max(0, life.food - FOOD_DECAY_PER_S);
+  // Stardew phase 5b: a winter night out in the cold (no warm room, no shelter) tires the hero; a warm room rests more.
+  const cold = coldMult(p);
   if (b.resting) {
-    const mult = shelterMult(p);
+    const mult = shelterMult(p) * cold.gain;
     life.rest = Math.min(NEED_MAX, life.rest + REST_GAIN_PER_S * mult);
     addEnergy(life, ENERGY_REST_PER_S * mult);
-  } else life.rest = Math.max(0, life.rest - REST_DECAY_PER_S);
+  } else life.rest = Math.max(0, life.rest - REST_DECAY_PER_S * cold.decay);
   if (life.food < AUTO_EAT_BELOW) eatOnce(p, false);
   // Natural healing: fed, rested and out of the fight for a while (x4 resting).
   const ok = life.food >= NEED_LOW && life.rest >= NEED_LOW;

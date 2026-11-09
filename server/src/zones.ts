@@ -24,6 +24,8 @@ import { inBounds, ownerAt, tileIndex, tileOfPixel } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { clanById, clanIdAt, isForeignClanTile, townCentersOfClan } from "./clans.js";
 import { tileIndicesOf } from "./chunks.js";
+import { roomAtIndex } from "./structures.js";
+import { cropGrowthMult, rainingNow } from "./calendar.js";
 
 export interface ZoneRec {
   id: number;
@@ -203,6 +205,7 @@ export function handleZoneEdit(player: Player, m: Record<string, unknown>) {
 // ---- crops (once a second) ----
 export function updateZones() {
   if (state.cycleTick % TICK_RATE !== 0) return;
+  const raining = rainingNow();
   for (const [i, c] of crops) {
     if (state.tiles[i] !== TileType.Empty || (!zoneOfTile.has(i) && c.plot === undefined)) {
       // Built over (or the zone went): the crop is gone.
@@ -212,8 +215,17 @@ export function updateZones() {
     }
     if (c.stage !== CropStage.Sown && c.stage !== CropStage.Growing) continue;
     const z = zones.get(zoneOfTile.get(i) ?? -1);
-    const grow = ZONE_CROP_GROW_TICKS[c.crop ?? z?.crop ?? "wheat"];
-    c.progress += TICK_RATE * (c.tended ? 1 : ZONE_UNTENDED_GROWTH);
+    const cropId = c.crop ?? z?.crop ?? "wheat";
+    const grow = ZONE_CROP_GROW_TICKS[cropId];
+    // Stardew phase 5b: rain waters every unroofed crop for the day; the season (or a roof: greenhouse) sets the speed.
+    const roofed = roomAtIndex(i) !== null;
+    if (!roofed && !c.tended && raining) {
+      c.tended = true;
+      bump();
+    }
+    const season = cropGrowthMult(cropId, roofed);
+    if (season <= 0) continue;
+    c.progress += TICK_RATE * season * (c.tended ? 1 : ZONE_UNTENDED_GROWTH);
     const stage = c.progress >= grow ? CropStage.Ripe : c.progress >= grow * CROP_SOWN_FRACTION ? CropStage.Growing : CropStage.Sown;
     if (stage !== c.stage) {
       c.stage = stage;
@@ -226,6 +238,25 @@ export function updateZones() {
     jobs.delete(id);
     if (reserved.get(job.tile) === id) reserved.delete(job.tile);
   }
+}
+
+// Stardew phase 5b (calendar.ts): every dawn the crops need water again (rain or the hero / villagers).
+export function resetCropWatering() {
+  let n = 0;
+  for (const c of crops.values()) if (c.tended) (c.tended = false), n++;
+  if (n > 0) bump();
+}
+// The first day of winter: sown / growing crops outside a roofed room die back to tilled soil (a hero plot loses its
+// crop; ripe crops wait to be harvested). Returns how many died.
+export function frostCrops(): number {
+  let n = 0;
+  for (const [i, c] of crops) {
+    if ((c.stage !== CropStage.Sown && c.stage !== CropStage.Growing) || roomAtIndex(i) !== null) continue;
+    Object.assign(c, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined });
+    n++;
+  }
+  if (n > 0) bump();
+  return n;
 }
 
 // ---- piles ----
@@ -320,7 +351,8 @@ function jobFor(i: number, z: ZoneRec): JobKind | null {
   if (stage === CropStage.Ripe) return "harvest";
   if (stage === CropStage.Tilled) return "sow";
   if (stage === CropStage.Untilled) return "till";
-  if (!c!.tended) return "tend";
+  // Stardew phase 5b: no tending a crop that cannot grow now (out of season / winter, outdoors).
+  if (!c!.tended && cropGrowthMult(c!.crop ?? z.crop ?? "wheat", roomAtIndex(i) !== null) > 0) return "tend";
   return null;
 }
 const JOB_ORDER: Record<JobKind, number> = { harvest: 0, haul: 1, sow: 2, till: 3, tend: 4 };

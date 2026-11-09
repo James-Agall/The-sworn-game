@@ -87,6 +87,8 @@ import { forceVassal, placeTradingPost, spawnMobAt, spawnRaidGroupAt, spawnSoldi
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
 import { BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, FOOD_TIME_MULT, PASTURE_YIELDS } from "@colony/shared/buildings";
 import { assignHomes, handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
+import { calendarDayNow, calendarNow, calendarSnapshot, rainingNow, setCalendar, setWeatherOverride, updateCalendar, winterNow } from "./calendar.js";
+import { weatherForDay } from "@colony/shared/calendar";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
@@ -1043,6 +1045,30 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       roomHappiness: roomHappinessBonus(),
       barracksMorale: barracksMoraleMult(0),
       homes: Array.from(colonists.values()).filter((c) => c.person && c.person.homeX >= 0 && state.tiles[c.person.homeY * W + c.person.homeX] === TileType.Bed).map((c) => ({ id: c.id, x: c.person!.homeX, y: c.person!.homeY })),
+    });
+  } else if (msg.op === "calendar") {
+    // Stardew phase 5b: off (bool: seasons off / on), set {season?, day?, year?}, weather (kind | "auto"), salt (the
+    // world salt), update (run updateCalendar now). Replies the snapshot, the offset, the day's spell and the next
+    // `forecast` days' spells (deterministic checks).
+    if (typeof msg.off === "boolean") state.seasonsOff = msg.off;
+    if (typeof msg.salt === "number") state.worldNoiseSalt = msg.salt;
+    const st = msg.set as { season?: number; day?: number; year?: number } | undefined;
+    if (st) setCalendar(st.season, st.day, st.year);
+    if (typeof msg.weather === "string") setWeatherOverride(msg.weather === "auto" ? null : msg.weather);
+    if (msg.update) updateCalendar();
+    const today = calendarDayNow();
+    const n = Math.max(0, Math.min(400, Number(msg.forecast) || 0));
+    reply({
+      calendar: calendarSnapshot(),
+      date: calendarNow(),
+      offset: state.calendarOffset,
+      lastDay: state.calendarLastDay,
+      salt: state.worldNoiseSalt,
+      today: weatherForDay(state.worldNoiseSalt, today),
+      forecast: Array.from({ length: n }, (_, k) => weatherForDay(state.worldNoiseSalt, k)),
+      winter: winterNow(),
+      raining: rainingNow(),
+      happiness: state.colonyHappiness,
     });
   } else if (msg.op === "zoneState") {
     // Modular building phase 3: zones, crop stage counts, piles, jobs and the stock; setCrops {stage, tended, zoneId?}

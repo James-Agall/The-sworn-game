@@ -4,6 +4,7 @@
 // action is a creativeSpawn / creativeSet message; the server answers with creativeResult (toasted). Compact and
 // robust rather than pretty.
 import { setupCampEditor } from "./campEditor";
+import { DAYS_PER_SEASON, SEASON_LABEL, SEASONS, WEATHER_KINDS } from "@colony/shared/calendar";
 import { HUNGER_MARK_NAMES, MOB_ROLE, WILDLIFE_KINDS, WILDLIFE_SNAPSHOT_STRIDE, type ColonistSnapshot } from "@colony/shared/protocol";
 
 export interface CreativeDeps {
@@ -12,6 +13,8 @@ export interface CreativeDeps {
   centre(): { x: number; y: number };
   toast(ok: boolean, text: string): void;
   selectedIds(): string[];
+  // Stardew phase 5b: the client-only weather overlay toggle.
+  weatherOverlay?: { get(): boolean; set(on: boolean): void };
 }
 
 const OWN_KINDS = ["knight", "archer", "militia", "spearman", "pikeman", "cavalry", "batteringRam", "catapult", "hero:champion", "hero:marksman", "hero:mage"];
@@ -266,6 +269,22 @@ export function setupCreative(deps: CreativeDeps) {
     const p = page("World");
     const day = el("input", "", { type: "number", min: "1", value: "1" });
     p.append(row("Day", day, ...["dawn", "noon", "dusk", "night", "midnight"].map((ph) => button(ph, () => deps.send({ type: "creativeSet", op: "setTime", day: Number(day.value) || undefined, phase: ph })))));
+    // Stardew phase 5b: season / day of season / today's weather (auto = the rolled weather), the overlay toggle.
+    const calDay = el("input", "", { type: "number", min: "1", max: String(DAYS_PER_SEASON), value: "1" });
+    p.append(row("Season", ...SEASONS.map((sn, i) => button(SEASON_LABEL[sn], () => deps.send({ type: "creativeSet", op: "calendar", season: i, day: Number(calDay.value) || 1 })))));
+    p.append(row("Day of season", calDay, button("Set", () => deps.send({ type: "creativeSet", op: "calendar", day: Math.max(1, Math.min(DAYS_PER_SEASON, Number(calDay.value) || 1)) }))));
+    p.append(row("Weather", button("auto", () => deps.send({ type: "creativeSet", op: "calendar", weather: "auto" })),
+      ...WEATHER_KINDS.map((k) => button(k, () => deps.send({ type: "creativeSet", op: "calendar", weather: k })))));
+    if (deps.weatherOverlay) {
+      const wo = deps.weatherOverlay;
+      const woBtn = button(`Weather overlay: ${wo.get() ? "on" : "off"}`, () => {
+        wo.set(!wo.get());
+        woBtn.textContent = `Weather overlay: ${wo.get() ? "on" : "off"}`;
+        woBtn.classList.toggle("on", wo.get());
+      });
+      woBtn.classList.toggle("on", wo.get());
+      p.append(row("", woBtn));
+    }
     // Village life phase 6: people arriving at your nearest Town Center (adult immigrants or newborn children).
     const peopleN = el("input", "", { type: "number", min: "1", max: "20", value: "3" });
     p.append(row("People", peopleN, button("Immigrants", () => deps.send({ type: "creativeSet", op: "people", count: Number(peopleN.value) || 1 })), button("Children", () => deps.send({ type: "creativeSet", op: "people", count: Number(peopleN.value) || 1, child: true }))));

@@ -47,6 +47,7 @@ import { assignHomes, heirOrderNames, peopleDawn, updateAging, updateTraining, u
 import { updateProspecting, updateWorkerXp } from "./progression.js";
 import { updateRooms } from "./structures.js";
 import { updateZones } from "./zones.js";
+import { updateCalendar } from "./calendar.js";
 import { updateWorkAssignments } from "./work.js";
 import { heroSpeedMult, updateHeroLife } from "./herolife.js";
 
@@ -87,6 +88,8 @@ export function stepSimulation() {
     forEachClan(() => assignHomes());
   }
   state.wasNight = nightNow;
+  // Stardew phase 5b: a new calendar day (watering resets, the first frost of winter).
+  updateCalendar();
 
   // Forts phase D2: settlement quests (expiry, defend results at dawn, the posting scan).
   updateQuests();

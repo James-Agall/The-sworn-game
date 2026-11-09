@@ -1,3 +1,4 @@
+import type { CalendarSnapshot } from "./calendar.js";
 import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, PersonalBuild } from "./herolife.js";
 import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
 import type { WorkTabSnapshot, WorkType } from "./work.js";
@@ -933,7 +934,9 @@ export type GameEventCategory =
   // Phase 5: a goal completed / a boss or mini-boss sighted or slain.
   | "milestone" | "boss"
   // Strategy mode phase 6: a player regiment wavers, routs or rallies.
-  | "morale";
+  | "morale"
+  // Stardew phase 5b: a new season, the first frost.
+  | "season";
 
 // Per-tile art stage of a farm-type building (snapshot `farmStages`). Grain plots: Sown -> Sprouting ->
 // Growing -> Ripe (being cut) -> Harvested (briefly) / Fallow. Hemp: Sown/Growing/Ripe. Pasture:
@@ -1387,6 +1390,8 @@ export type ServerMessage =
       respawn?: RespawnWindowSnapshot;
       // Creative mode only: the world's creative toggles.
       creative?: { allowAttack: boolean; unlockAll?: boolean };
+      // Stardew phase 5b: the date and the weather now (shared/src/calendar.ts).
+      calendar?: CalendarSnapshot;
       // Off-screen fight notifiers: active fights relevant to THIS player (per-player field, omitted
       // when there are none). See FightSnapshot.
       fights?: FightSnapshot[];

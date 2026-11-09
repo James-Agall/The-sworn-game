@@ -55,6 +55,7 @@ import {
   handleRegimentOrder, handleRegimentSettings, orderGroupsForSnapshot,
 } from "./orders.js";
 import { stepSimulation } from "./sim.js";
+import { calendarSnapshot } from "./calendar.js";
 import {
   handleLoadGame, handleSaveGame, listSaves, resetWorld, runDueAutosave, saveOnShutdown, sendTo,
 } from "./saves.js";
@@ -387,6 +388,7 @@ setInterval(() => {
 
   const night = isNightNow();
   forEachClan(() => pruneTaskForces());
+  const calendarNowSnap = calendarSnapshot();
 
   // Clans: the world part of the snapshot is built once; the clan part (stock, population, army, goals,
   // ...) once per clan, under that clan's context. One clan: one snapshot, as before.
@@ -484,6 +486,7 @@ setInterval(() => {
       isNight: night,
       cycleProgress: (state.cycleTick % (DAY_TICKS + NIGHT_TICKS)) / (DAY_TICKS + NIGHT_TICKS),
       dayFraction: DAY_TICKS / (DAY_TICKS + NIGHT_TICKS),
+      calendar: calendarNowSnap,
       isPaused: state.isPaused,
       ...(state.pausedBy ? { pausedBy: state.pausedBy } : {}),
       timeScale: state.timeScale,

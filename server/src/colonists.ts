@@ -51,9 +51,11 @@ import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, 
 import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
-import { isUsableBed, roomHappinessBonus, usableBedIndices } from "./structures.js";
+import { isUsableBed, roomHappinessBonus, usableBedIndices, warmRoomAt } from "./structures.js";
 import { cancelZoneJob, hasZoneJob, homeAreaTileNear, updateZoneWorker } from "./zones.js";
 import { chooseWorkerFor, releaseVillagerForPost, skillSpeed, startPriorityShift, updateVillagerWork, workPriority } from "./work.js";
+import { orchardFruitsNow, winterNow } from "./calendar.js";
+import { WINTER_COLD_HAPPINESS } from "@colony/shared/calendar";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -139,8 +141,23 @@ export function computeColonyHappiness(): number {
   }
 
   // Modular building phase 2: bedrooms (residents' sleep) and the best kitchen (meals), shared/src/rooms.ts.
-  const happiness = foodVarietyScore * 0.4 + sceneryScore * 0.3 + tavernCoverageScore * 0.3 + foodHappinessBonus() + roomHappinessBonus();
+  const happiness = foodVarietyScore * 0.4 + sceneryScore * 0.3 + tavernCoverageScore * 0.3 + foodHappinessBonus() + roomHappinessBonus() - winterColdPenalty();
   return Math.max(0, Math.min(100, Math.round(happiness)));
+}
+
+// Stardew phase 5b: on a winter night, up to WINTER_COLD_HAPPINESS points x the share of the clan's people neither
+// with a home bed in a warm room nor sheltered (in a house / the Town Center). Mild: happiness only.
+function winterColdPenalty(): number {
+  if (!winterNow() || !isNightNow()) return 0;
+  const clan = state.clan.id;
+  let people = 0;
+  let cold = 0;
+  for (const c of colonists.values()) {
+    if (!c.person || (c.clan ?? 0) !== clan) continue;
+    people++;
+    if (!warmRoomAt(c.person.homeX, c.person.homeY) && !isAtShelter(c)) cold++;
+  }
+  return people > 0 ? (WINTER_COLD_HAPPINESS * cold) / people : 0;
 }
 
 export function happinessSpeedMultiplier(): number {
@@ -1030,6 +1047,9 @@ export function updateFarmhand(c: Colonist) {
   const resource = FARM_PRODUCE_BY_TILE[state.tiles[tileIndex(c.postX, c.postY)] as TileType];
   if (!resource) return;
   c.state = "farming";
+  // Stardew phase 5b: orchards bear only in summer / autumn, the old Hemp Field stops in winter (the cycle waits).
+  const farmTile = state.tiles[tileIndex(c.postX, c.postY)] as TileType;
+  if ((farmTile === TileType.Orchard && !orchardFruitsNow()) || (farmTile === TileType.CottonFarm && winterNow())) return;
   c.chopTicksRemaining -= workSpeed(c);
   if (c.chopTicksRemaining <= 0) {
     // 2x2 farms yield per tile of their footprint (footprintYieldMult; legacy 1x1 = x1).

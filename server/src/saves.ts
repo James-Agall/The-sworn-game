@@ -143,6 +143,9 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
 
   state.cycleTick = 0;
   state.wasNight = false;
+  state.calendarOffset = 0;
+  state.calendarLastDay = -1;
+  state.weatherOverride = null;
   raidGroups.clear();
   regiments.clear();
   walledSites.clear();
@@ -282,6 +285,9 @@ function snapshotWorldInner() {
     dayTicks: DAY_TICKS as number,
     nightTicks: NIGHT_TICKS as number,
     wasNight: state.wasNight,
+    // Stardew phase 5b: the calendar offset and a creative weather override (optional: older saves = 0 / none).
+    calendar: { offset: state.calendarOffset, ...(state.weatherOverride ? { weather: state.weatherOverride } : {}) } as
+      { offset: number; weather?: { kind: string; day: number } } | undefined,
     raidSpawnedForDay: state.raidSpawnedForDay,
     treeRespawnCooldown: state.treeRespawnCooldown,
     lumberjackTreeGrowCooldown: state.lumberjackTreeGrowCooldown,
@@ -415,6 +421,10 @@ function applyWorldInner(s: WorldState) {
   state.difficultyClaimed = true;
   state.cycleTick = s.cycleTick;
   state.wasNight = s.wasNight;
+  state.calendarOffset = Math.floor(s.calendar?.offset ?? 0);
+  state.weatherOverride = s.calendar?.weather ?? null;
+  // A load is not a new day (no daily water reset / frost from the jump).
+  state.calendarLastDay = -1;
   state.raidSpawnedForDay = s.raidSpawnedForDay;
   state.treeRespawnCooldown = s.treeRespawnCooldown;
   state.lumberjackTreeGrowCooldown = s.lumberjackTreeGrowCooldown;

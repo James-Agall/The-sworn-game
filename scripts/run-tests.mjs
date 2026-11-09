@@ -55,8 +55,13 @@ const TREE_SUITES = new Set(["progression", "hero-tools"]);
 // open. Every suite gets it except the rooms / zones suites (ROOM_SUITES), which test the new rules.
 const LEGACY_BUILD = { COLONY_LEGACY_BUILD: "1" };
 const ROOM_SUITES = new Set(["rooms", "zones", "work-priorities"]);
+// NO_SEASONS: suites written before Stardew phase 5b (2026-11-09) expect crops to grow in any season, no rain watering
+// and no daily water reset: COLONY_NO_SEASONS=1 (state.seasonsOff, test hooks only). Every suite gets it except the
+// calendar suite (SEASON_SUITES). The smoke test (its own server) runs with seasons on.
+const NO_SEASONS = { COLONY_NO_SEASONS: "1" };
+const SEASON_SUITES = new Set(["calendar"]);
 const serverEnvFor = (name) => ({
-  ...HERO_RESPAWN, ...(ROOM_SUITES.has(name) ? {} : LEGACY_BUILD), ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}),
+  ...HERO_RESPAWN, ...(SEASON_SUITES.has(name) ? {} : NO_SEASONS), ...(ROOM_SUITES.has(name) ? {} : LEGACY_BUILD), ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}),
 });
 const SERVER_ENV = {
   "abbey-ward": INSTANT,
@@ -74,6 +79,7 @@ const SERVER_ENV = {
   zones: W80,
   "work-priorities": W80,
   "hero-tools": W80,
+  calendar: W80,
   "gravestone-events": { ...INSTANT, ...LEGACY },
   "halflatch-ward-lapse": INSTANT,
   "happiness-militia-tavern": { ...W80, ...INSTANT },
