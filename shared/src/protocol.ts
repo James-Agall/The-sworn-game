@@ -1,4 +1,4 @@
-import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, PersonalBuild } from "./herolife.js";
+import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, PersonalBuild } from "./herolife.js";
 import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
 import type { WorkTabSnapshot, WorkType } from "./work.js";
 export const TICK_RATE = 20;
@@ -1282,7 +1282,10 @@ export type ClientMessage =
   | { type: "prospect" }
   // Solo hero phase 1-3 (herolife): E next to an NPC talks, next to a tree / rock / ore / forage / water gathers
   // (held: gatherStop on release), next to an own recipe station works it; dialogue choices by index; hero actions.
-  | { type: "interact" }
+  // Stardew phase 5a: `tool` / `tx` / `ty` / `crop`: the hotbar tool in hand and the faced tile (the tool is used there
+  // when no NPC is in range); heroTool uses it without talking (Space / left click).
+  | { type: "interact"; tool?: HeroTool; tx?: number; ty?: number; crop?: CropId }
+  | { type: "heroTool"; tool: HeroTool; tx: number; ty: number; crop?: CropId }
   | { type: "gatherStop" }
   | { type: "dialogueChoice"; choice: number }
   | { type: "heroAction"; action: HeroActionKind; build?: PersonalBuild };

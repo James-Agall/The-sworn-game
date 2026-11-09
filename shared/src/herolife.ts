@@ -3,14 +3,16 @@
 // role dialogue trees. Server: server/src/herolife.ts. Client: client/src/herolife.ts.
 import { SPELL_COOLDOWN_SCALE, SPELLS, type SpellId, TileType, type RelationTier } from "./protocol.js";
 import { type ItemId, WORKER_XP_LEVELS } from "./progression.js";
+import type { CropId } from "./zones.js";
 
 // ---- pack (carried goods) ----
-export type PackGood = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "fish";
-export const PACK_GOODS: PackGood[] = ["wood", "rock", "iron", "grain", "meat", "fruit", "fish"];
+// cotton (Stardew phase 5a): hemp fibre the hero harvests (the stock's cotton when deposited).
+export type PackGood = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "fish" | "cotton";
+export const PACK_GOODS: PackGood[] = ["wood", "rock", "iron", "grain", "meat", "fruit", "fish", "cotton"];
 export const PACK_LABEL: Record<PackGood, string> = {
-  wood: "Wood", rock: "Stone", iron: "Iron ore", grain: "Grain", meat: "Meat", fruit: "Fruit", fish: "Fish",
+  wood: "Wood", rock: "Stone", iron: "Iron ore", grain: "Grain", meat: "Meat", fruit: "Fruit", fish: "Fish", cotton: "Hemp fibre",
 };
-export const PACK_WEIGHT: Record<PackGood, number> = { wood: 1, rock: 2, iron: 2, grain: 0.5, meat: 0.5, fruit: 0.5, fish: 0.5 };
+export const PACK_WEIGHT: Record<PackGood, number> = { wood: 1, rock: 2, iron: 2, grain: 0.5, meat: 0.5, fruit: 0.5, fish: 0.5, cotton: 0.5 };
 // Carry capacity (weight units). Over half full the hero slows down, to x0.75 when full; full = no more gathering.
 export const PACK_CAP = 40;
 // Food value of one unit eaten from the pack (needs are 0-100).
@@ -98,6 +100,35 @@ export function gatherKindOf(tile: TileType, ripeForage: boolean): GatherKind | 
 }
 // Chance a chopped tree falls (the tile clears) on each yield.
 export const TREE_FELL_CHANCE = 0.25;
+
+// ---- Stardew phase 5a: tools on tiles (docs/colony2d/PLAN-rimworld-stardew.md) ----
+// The hotbar (keys 1-6): each slot acts on the tile the hero faces (one tile away). Tools are clan items (kept); seed
+// bags are used up one per sown tile. Axe / pick reuse the gather rules (GATHER chop / quarry / mine).
+export type HeroTool = "hoe" | "wateringCan" | "seeds" | "scythe" | "axe" | "pick";
+export const HERO_TOOLS: HeroTool[] = ["hoe", "wateringCan", "seeds", "scythe", "axe", "pick"];
+export const HERO_TOOL_LABEL: Record<HeroTool, string> = {
+  hoe: "Hoe", wateringCan: "Watering can", seeds: "Seed bag", scythe: "Scythe", axe: "Axe", pick: "Pickaxe",
+};
+// The clan item each tool needs in the stores (seeds: SEED_ITEM of the chosen crop).
+export const HERO_TOOL_ITEM: Record<Exclude<HeroTool, "seeds">, ItemId> = {
+  hoe: "hoe", wateringCan: "wateringCan", scythe: "scythe", axe: "stoneAxe", pick: "stonePick",
+};
+export const SEED_ITEM: Record<CropId, ItemId> = { wheat: "wheatSeeds", hemp: "hempSeeds" };
+// What a tool use does on a tile ("harvest" with no scythe = by hand, slower).
+export type ToolAct = "till" | "sow" | "water" | "refill" | "harvest";
+export const TOOL_ACT_LABEL: Record<ToolAct, string> = { till: "Tilling", sow: "Sowing", water: "Watering", refill: "Filling the can", harvest: "Harvesting" };
+// Work seconds per use (at Farming level 1; +25% speed a level, half speed with no energy).
+export const TOOL_SECONDS: Record<ToolAct, number> = { till: 1, sow: 0.5, water: 0.5, refill: 1, harvest: 0.5 };
+export const HAND_HARVEST_SECONDS = 1.5;
+// Watering can: uses per fill (refill at a water tile).
+export const WATER_CAN_CHARGES = 20;
+// Energy (stamina, 0-ENERGY_MAX): each use costs this; at 0 the hero works at ENERGY_EMPTY_SPEED (never blocked).
+export const ENERGY_MAX = 100;
+export const ENERGY_COST: Record<ToolAct | "chop" | "mine", number> = { till: 3, sow: 1, water: 1, refill: 0, harvest: 2, chop: 3, mine: 3 };
+export const ENERGY_EMPTY_SPEED = 0.5;
+// Recovery: per second resting (x the shelter multiplier: campfire, lean-to, home, a bedroom), and per food point eaten.
+export const ENERGY_REST_PER_S = 2;
+export const ENERGY_PER_FOOD = 0.4;
 
 // ---- personal builds (by hand, next to the hero) ----
 export type PersonalBuild = "campfire" | "leanTo" | "chest";
@@ -234,8 +265,11 @@ export interface HeroLifeSnapshot {
   // false: needs are off (creative, older test suites).
   needs: boolean;
   skills: { id: HeroSkill; level: number; xp: number; next: number | null }[];
-  // Hold-E progress (0-1) and what is being done.
+  // Hold-E progress (0-1) and what is being done (also a tool use).
   gather?: { label: string; p: number };
+  // Stardew phase 5a: energy (stamina) and the watering can's charges.
+  energy: number;
+  water: number;
   work?: { label: string; p: number };
   resting?: boolean;
   // Why the hero is slow / not healing ("Hungry", "Tired", "Heavy load").
@@ -261,6 +295,9 @@ export interface HeroLifeData {
   pack: Partial<Record<PackGood, number>>;
   food: number;
   rest: number;
+  // Stardew phase 5a (optional: older saves have none = full).
+  energy?: number;
+  water?: number;
   skills: Partial<Record<HeroSkill, number>>;
   flags: Record<string, number>;
   builds: { kind: PersonalBuild; x: number; y: number }[];
@@ -367,5 +404,7 @@ export function sanitizeHeroLife(raw: unknown): HeroLifeData | null {
         .slice(0, PERSONAL_BUILD_MAX).map((b) => ({ kind: b.kind as PersonalBuild, x: b.x as number, y: b.y as number }))
     : [];
   const family = sanitizeFamily(r.family);
-  return { pack, food: num(r.food, 0, NEED_MAX, NEED_MAX), rest: num(r.rest, 0, NEED_MAX, NEED_MAX), skills, flags, builds, ...(family ? { family } : {}) };
+  const energy = typeof r.energy === "number" ? { energy: num(r.energy, 0, ENERGY_MAX, ENERGY_MAX) } : {};
+  const water = typeof r.water === "number" ? { water: Math.floor(num(r.water, 0, WATER_CAN_CHARGES, WATER_CAN_CHARGES)) } : {};
+  return { pack, food: num(r.food, 0, NEED_MAX, NEED_MAX), rest: num(r.rest, 0, NEED_MAX, NEED_MAX), ...energy, ...water, skills, flags, builds, ...(family ? { family } : {}) };
 }

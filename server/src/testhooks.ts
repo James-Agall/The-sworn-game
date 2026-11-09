@@ -1,7 +1,7 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { childrenOf, spouseOf } from "./family.js";
-import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleInteract, heroLifeDebug, lifeOf, setNeedsOverride } from "./herolife.js";
+import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, heroLifeDebug, lifeOf, setNeedsOverride } from "./herolife.js";
 import { addItem, itemCount, professionOf, takeItem, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
 import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
@@ -51,7 +51,7 @@ import {
   workshopEffectAt,
 } from "./structures.js";
 import { computeColonyHappiness } from "./colonists.js";
-import { debugSetCrops, updateZones, zonesDebug, zonesSnapshotFor } from "./zones.js";
+import { debugSetCropAt, debugSetCrops, updateZones, zonesDebug, zonesSnapshotFor } from "./zones.js";
 import { updateWorkAssignments, workDebug, workTabFor } from "./work.js";
 import { farmPlotProgress, farmhandProgress, releaseResourceReservation } from "./economy.js";
 import { makeBoss } from "./worldgen.js";
@@ -552,6 +552,10 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       const life = lifeOf(player);
       if (typeof msg.food === "number") life.food = msg.food;
       if (typeof msg.rest === "number") life.rest = msg.rest;
+      // Stardew phase 5a: energy / water set them; `use` {tool, tx, ty, crop} = the heroTool message, `interactWith`
+      // {tool?, tx, ty, crop?} = interact with a tool in hand.
+      if (typeof msg.energy === "number") life.energy = msg.energy;
+      if (typeof msg.water === "number") life.water = msg.water;
       if (msg.pack && typeof msg.pack === "object") life.pack = { ...(msg.pack as Record<string, number>) };
       if (msg.skills && typeof msg.skills === "object") life.skills = { ...(msg.skills as Record<string, number>) };
       if (msg.flagsClear === true) life.flags = {};
@@ -583,6 +587,8 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         if (pr) Object.assign(player, { x: pr.x, y: pr.y });
       }
       if (msg.interact === true) handleInteract(player);
+      if (msg.interactWith && typeof msg.interactWith === "object") handleInteract(player, msg.interactWith as Record<string, unknown>);
+      if (msg.use && typeof msg.use === "object") handleHeroTool(player, msg.use as Record<string, unknown>);
       if (typeof msg.choice === "number") handleDialogueChoice(player, msg.choice);
       if (msg.stop === true) handleGatherStop(player);
       if (typeof msg.action === "string") handleHeroAction(player, msg.action, msg.build);
@@ -1044,6 +1050,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // how many free villagers (zone workers) there are.
     const sc = msg.setCrops as { stage: number; tended?: boolean; zoneId?: number } | undefined;
     if (sc) debugSetCrops(sc.stage, !!sc.tended, sc.zoneId);
+    // Stardew phase 5a: setCropAt {x, y, stage?, progress?, tended?} sets one crop tile.
+    const ca = msg.setCropAt as { x: number; y: number; stage?: number; progress?: number; tended?: boolean } | undefined;
+    if (ca && Number.isInteger(ca.x) && Number.isInteger(ca.y)) debugSetCropAt(ca.y * state.WORLD_TILES_X + ca.x, ca);
     if (msg.tickZones) {
       const t = state.cycleTick;
       state.cycleTick = Math.ceil(t / 20) * 20;

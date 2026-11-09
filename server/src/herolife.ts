@@ -11,9 +11,13 @@ import {
   ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, BRIDE_GIFT_GOLD, CEREMONY_FEE, COURT_GIFT_GOLD, COURT_NEEDED, FOUND_CAMP_COST, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
   MASTER_FEE, MASTER_MAX_LEVEL, NEED_LOW, NEED_MAX, NPC_ROLE_LABEL, PACK_CAP, PACK_FOOD, PACK_GOODS, PACK_LABEL,
   PACK_WEIGHT, PERSONAL_BUILDS, PERSONAL_BUILD_MAX, STATION_SKILL, TALK_RANGE_TILES, TREE_FELL_CHANCE,
-  type DialogueAction, type DialogueSnapshot, type GatherKind, type HeroLifeSnapshot, type HeroSkill, type NpcRole,
-  type PackGood, type PersonalBuild, gatherKindOf, skillSpeed, skillXpFor,
+  ENERGY_COST, ENERGY_EMPTY_SPEED, ENERGY_MAX, ENERGY_PER_FOOD, ENERGY_REST_PER_S, HAND_HARVEST_SECONDS, HERO_TOOLS, HERO_TOOL_ITEM,
+  SEED_ITEM, TOOL_ACT_LABEL, TOOL_SECONDS, WATER_CAN_CHARGES,
+  type DialogueAction, type DialogueSnapshot, type GatherKind, type HeroLifeSnapshot, type HeroSkill, type HeroTool, type NpcRole,
+  type PackGood, type PersonalBuild, type ToolAct, gatherKindOf, skillSpeed, skillXpFor,
 } from "@colony/shared/herolife";
+import { CROPS, CropStage, type CropId } from "@colony/shared/zones";
+import { heroCropStage, heroFarmApply, heroFarmCheck, heroZoneCrop } from "./zones.js";
 import { type ItemId, type Recipe, PROFESSION_LABEL, levelForXp, stationRecipes, xpToNext } from "@colony/shared/progression";
 import type { Colonist, HeroLife, Mob, Player, SiteState } from "./types.js";
 import { FORAGE_RIPE_TO_PICKED, FORAGE_REGROW_TICKS, QUEST_MAX_PER_SITE, RELATION_ALLIED_MIN } from "./constants.js";
@@ -72,11 +76,34 @@ export function needsOn(): boolean {
   return needsOverride ?? (!state.creative && !state.testUnlockAll);
 }
 
+// Stardew phase 5a: energy (stamina; missing = full) and the watering can's charges (missing = full).
+export const energyOf = (life: HeroLife) => life.energy ?? ENERGY_MAX;
+const waterOf = (life: HeroLife) => life.water ?? WATER_CAN_CHARGES;
+function addEnergy(life: HeroLife, d: number) {
+  life.energy = Math.max(0, Math.min(ENERGY_MAX, energyOf(life) + d));
+}
+// Work speed from energy: half at 0 (never blocked; off with needs).
+const energySpeed = (life: HeroLife) => (needsOn() && energyOf(life) <= 0 ? ENERGY_EMPTY_SPEED : 1);
+function spendEnergy(life: HeroLife, n: number) {
+  if (needsOn() && n > 0) addEnergy(life, -n);
+}
+
 // ---- per-session transient state ----
 interface GatherJob {
   tx: number;
   ty: number;
   kind: GatherKind;
+  left: number;
+  total: number;
+  // A tool use (Space / click): one yield, then stop.
+  once?: boolean;
+}
+// Stardew phase 5a: one tool use on a tile (till / sow / water / refill / harvest).
+interface ToolJob {
+  tx: number;
+  ty: number;
+  act: ToolAct;
+  crop: CropId;
   left: number;
   total: number;
 }
@@ -106,6 +133,7 @@ interface Talk {
 }
 interface Busy {
   gather?: GatherJob;
+  tool?: ToolJob;
   work?: WorkJob;
   resting?: boolean;
   talk?: Talk;
@@ -298,6 +326,7 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
     case "lodging":
       if (s) life.flags[`lodging:${s.id}`] = day;
       life.rest = NEED_MAX;
+      life.energy = ENERGY_MAX;
       life.food = Math.min(NEED_MAX, life.food + 20);
       return sayThen(p, t, `"Take the bed by the hearth, and some stew." You feel rested.`);
     case "alliance": {
@@ -589,14 +618,22 @@ function sellPack(p: Player, s: SiteState): string {
 }
 
 // ---- interact (E) ----
-export function handleInteract(p: Player) {
+// Stardew phase 5a: `m` carries the hotbar tool in hand and the faced tile. Talking comes first; then the tool on the
+// faced tile (or a ripe crop there by hand); then the old gather / station rules; the tool's refusal is shown last.
+export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
   if (p.dead) return;
   const b = busyOf(p);
   const target = findTalkTarget(p);
   if (target) {
     b.gather = undefined;
+    b.tool = undefined;
     b.resting = false;
     return startTalk(p, target);
+  }
+  let toolWhy = "";
+  if (Number.isInteger(m.tx) && Number.isInteger(m.ty)) {
+    toolWhy = useTool(p, (HERO_TOOLS as unknown[]).includes(m.tool) ? (m.tool as HeroTool) : null, m.tx as number, m.ty as number, m.crop, false);
+    if (toolWhy === "") return;
   }
   const src = findGatherSource(p);
   if (src) return startGather(p, src.tx, src.ty, src.kind);
@@ -610,7 +647,104 @@ export function handleInteract(p: Player) {
     b.resting = false;
     return toast(p, `You take up the work at the ${HERO_SKILL_LABEL[b.work.skill].toLowerCase()} station (move to stop)`);
   }
+  if (toolWhy && toolWhy !== "-") return toast(p, toolWhy);
   sendTo(p, { type: "interactNone" });
+}
+
+// Space / left click with a hotbar tool: the tool on the faced tile only (no talk, no fallback).
+export function handleHeroTool(p: Player, m: Record<string, unknown>) {
+  if (p.dead || !(HERO_TOOLS as unknown[]).includes(m.tool) || !Number.isInteger(m.tx) || !Number.isInteger(m.ty)) return;
+  const why = useTool(p, m.tool as HeroTool, m.tx as number, m.ty as number, m.crop, true);
+  if (why && why !== "-") toast(p, why);
+}
+
+// The tool (null = bare hands: harvest a ripe crop) on tile (tx, ty), which must touch the hero's tile. "" = started;
+// "-" = nothing for this tool there (no message); else why not.
+function useTool(p: Player, tool: HeroTool | null, tx: number, ty: number, cropArg: unknown, once: boolean): string {
+  const mx = Math.floor(p.x / TILE_SIZE);
+  const my = Math.floor(p.y / TILE_SIZE);
+  if (!inBounds(tx, ty) || Math.max(Math.abs(tx - mx), Math.abs(ty - my)) > 1) return "-";
+  const b = busyOf(p);
+  const life = lifeOf(p);
+  const clan = p.clan ?? 0;
+  const i = tileIndex(tx, ty);
+  const tile = state.tiles[i] as TileType;
+  const has = (t: Exclude<HeroTool, "seeds">) => gatesOpen() || itemCount(HERO_TOOL_ITEM[t]) > 0;
+  const need = (label: string) => `You need a ${label} in your stores (craft one by hand)`;
+  if (tool === "axe" || tool === "pick") {
+    const kind = gatherKindOf(tile, false);
+    if (tool === "axe" ? kind !== "chop" : kind !== "quarry" && kind !== "mine") return tool === "axe" ? "Nothing to chop there" : "No rock or ore there";
+    const why = gatherBlock(p, kind!);
+    if (why) return why;
+    startGather(p, tx, ty, kind!);
+    if (b.gather) b.gather.once = once;
+    b.tool = undefined;
+    return "";
+  }
+  let act: ToolAct;
+  let crop: CropId = CROPS.includes(cropArg as CropId) ? (cropArg as CropId) : "wheat";
+  if (tool === "wateringCan" && tile === TileType.Water) {
+    if (!has("wateringCan")) return need("watering can");
+    if (waterOf(life) >= WATER_CAN_CHARGES) return "Your watering can is full";
+    act = "refill";
+  } else if (tool === null || tool === "scythe") {
+    if (heroCropStage(i) !== CropStage.Ripe) return tool === null ? "-" : "Nothing ripe there";
+    if (tool === "scythe" && !has("scythe")) return need("scythe");
+    act = "harvest";
+  } else {
+    act = tool === "hoe" ? "till" : tool === "wateringCan" ? "water" : "sow";
+    // Hands on a ripe crop harvest it whatever the tool.
+    if (heroCropStage(i) === CropStage.Ripe && act !== "till") act = "harvest";
+    else if (tool !== "seeds" && !has(tool)) return need(tool === "hoe" ? "hoe" : "watering can");
+  }
+  if (act !== "refill") {
+    const why = heroFarmCheck(act as "till" | "sow" | "water" | "harvest", i, clan);
+    if (why) return why;
+  }
+  if (act === "water" && waterOf(life) <= 0) return "Your watering can is empty: fill it at water (river or lake)";
+  if (act === "sow") {
+    crop = heroZoneCrop(i, clan) ?? crop;
+    if (!heroZoneCrop(i, clan) && !gatesOpen() && itemCount(SEED_ITEM[crop]) <= 0) return `No ${crop} seeds in your stores (craft them by hand)`;
+  }
+  if (act === "harvest" && packWeight(life) + PACK_WEIGHT.grain * 6 > PACK_CAP) return "Your pack is full: deposit it at a Town Center or chest, or sell it";
+  const secs = act === "harvest" && tool !== "scythe" ? HAND_HARVEST_SECONDS : TOOL_SECONDS[act];
+  const total = Math.max(1, Math.round(secs * TICK_RATE));
+  b.tool = { tx, ty, act, crop, left: total, total };
+  b.gather = undefined;
+  b.work = undefined;
+  b.resting = false;
+  return "";
+}
+
+function stepTool(p: Player, b: Busy, t: ToolJob) {
+  if (tileCenterDist(p, t.tx, t.ty) > 2.2) {
+    b.tool = undefined;
+    return;
+  }
+  const life = lifeOf(p);
+  t.left -= skillSpeed(skillLevel(life, "farming")) * energySpeed(life);
+  if (t.left > 0) return;
+  b.tool = undefined;
+  const clan = p.clan ?? 0;
+  const i = tileIndex(t.tx, t.ty);
+  if (t.act === "refill") {
+    life.water = WATER_CAN_CHARGES;
+    return toast(p, "You fill the watering can");
+  }
+  // The tile may have changed meanwhile (a villager, a building).
+  const why = heroFarmCheck(t.act, i, clan);
+  if (why) return toast(p, why);
+  if (t.act === "sow" && !heroZoneCrop(i, clan) && !gatesOpen() && !takeItem(SEED_ITEM[t.crop], 1)) return toast(p, `No ${t.crop} seeds left`);
+  if (t.act === "water") life.water = Math.max(0, waterOf(life) - 1);
+  const got = heroFarmApply(t.act, i, clan, t.crop);
+  if (got) {
+    const g: PackGood = got.res === "grain" ? "grain" : "cotton";
+    const n = Math.max(1, Math.round(got.n));
+    life.pack[g] = (life.pack[g] ?? 0) + n;
+    toast(p, `+${n} ${PACK_LABEL[g].toLowerCase()}`);
+  }
+  spendEnergy(life, ENERGY_COST[t.act]);
+  gainSkill(p, "farming", Math.max(1, ENERGY_COST[t.act]));
 }
 
 function findGatherSource(p: Player): { tx: number; ty: number; kind: GatherKind } | null {
@@ -657,6 +791,7 @@ function startGather(p: Player, tx: number, ty: number, kind: GatherKind) {
   if (why) return toast(p, why);
   const total = Math.round(GATHER[kind].seconds * TICK_RATE);
   b.gather = { tx, ty, kind, left: total, total };
+  b.tool = undefined;
   b.work = undefined;
   b.resting = false;
 }
@@ -679,6 +814,7 @@ export function handleHeroAction(p: Player, action: unknown, build: unknown) {
   if (action === "rest") {
     b.resting = !b.resting;
     b.gather = undefined;
+    b.tool = undefined;
     b.work = undefined;
     return toast(p, b.resting ? "You sit down to rest (move to stop)" : "You get up");
   }
@@ -712,6 +848,7 @@ function eatOnce(p: Player, manual: boolean): boolean {
       life.pack[g]! -= 1;
       if (life.pack[g] === 0) delete life.pack[g];
       life.food = Math.min(NEED_MAX, life.food + v);
+      addEnergy(life, v * ENERGY_PER_FOOD);
       return true;
     }
   }
@@ -719,6 +856,7 @@ function eatOnce(p: Player, manual: boolean): boolean {
   for (const f of [{ id: "bread" as ItemId, v: 35 }, { id: "flatbread" as ItemId, v: 25 }, { id: "gruel" as ItemId, v: 15 }]) {
     if (itemCount(f.id) > 0 && takeItem(f.id, 1)) {
       life.food = Math.min(NEED_MAX, life.food + f.v);
+      addEnergy(life, f.v * ENERGY_PER_FOOD);
       return true;
     }
   }
@@ -726,6 +864,7 @@ function eatOnce(p: Player, manual: boolean): boolean {
     if ((state.stock[k] ?? 0) >= 1) {
       state.stock[k] -= 1;
       life.food = Math.min(NEED_MAX, life.food + v);
+      addEnergy(life, v * ENERGY_PER_FOOD);
       return true;
     }
   }
@@ -853,6 +992,7 @@ export function updateHeroLife() {
     if (p.dead) {
       if (b) {
         b.gather = undefined;
+        b.tool = undefined;
         b.work = undefined;
         b.resting = false;
         if (b.talk) closeTalk(p);
@@ -876,6 +1016,7 @@ function stepPlayer(p: Player, b: Busy, second: boolean) {
   }
   if (b.talk && second && !talkInRange(p, b.talk)) closeTalk(p);
   if (b.gather) stepGather(p, b, b.gather);
+  if (b.tool) stepTool(p, b, b.tool);
   if (b.work) stepWork(p, b, b.work);
   if (second) stepNeeds(p, b);
 }
@@ -889,10 +1030,11 @@ function stepGather(p: Player, b: Busy, g: GatherJob) {
   }
   const def = GATHER[g.kind];
   const life = lifeOf(p);
-  g.left -= skillSpeed(skillLevel(life, def.skill));
+  g.left -= skillSpeed(skillLevel(life, def.skill)) * energySpeed(life);
   if (g.left > 0) return;
   life.pack[def.good] = (life.pack[def.good] ?? 0) + def.amount;
   gainSkill(p, def.skill, def.seconds);
+  spendEnergy(life, g.kind === "chop" ? ENERGY_COST.chop : g.kind === "mine" || g.kind === "quarry" ? ENERGY_COST.mine : 0);
   if (g.kind === "chop" && Math.random() < TREE_FELL_CHANCE) {
     setTile(i, TileType.Empty);
     broadcastTileUpdate(g.tx, g.ty, TileType.Empty);
@@ -901,6 +1043,10 @@ function stepGather(p: Player, b: Busy, g: GatherJob) {
     setTile(i, picked);
     broadcastTileUpdate(g.tx, g.ty, picked);
     forageRegrow.set(i, FORAGE_REGROW_TICKS);
+  }
+  if (g.once) {
+    b.gather = undefined;
+    return;
   }
   // Held: the next one starts at once if the source and the pack allow it.
   const why = gatherBlock(p, g.kind);
@@ -949,8 +1095,11 @@ function stepNeeds(p: Player, b: Busy) {
   if (!needsOn()) return;
   const life = lifeOf(p);
   life.food = Math.max(0, life.food - FOOD_DECAY_PER_S);
-  if (b.resting) life.rest = Math.min(NEED_MAX, life.rest + REST_GAIN_PER_S * shelterMult(p));
-  else life.rest = Math.max(0, life.rest - REST_DECAY_PER_S);
+  if (b.resting) {
+    const mult = shelterMult(p);
+    life.rest = Math.min(NEED_MAX, life.rest + REST_GAIN_PER_S * mult);
+    addEnergy(life, ENERGY_REST_PER_S * mult);
+  } else life.rest = Math.max(0, life.rest - REST_DECAY_PER_S);
   if (life.food < AUTO_EAT_BELOW) eatOnce(p, false);
   // Natural healing: fed, rested and out of the fight for a while (x4 resting).
   const ok = life.food >= NEED_LOW && life.rest >= NEED_LOW;
@@ -992,6 +1141,7 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
   if (needsOn() && life.food < NEED_LOW) slow.push("Hungry");
   if (needsOn() && life.rest < NEED_LOW) slow.push("Tired");
   if (packWeight(life) / PACK_CAP > 0.5) slow.push("Heavy load");
+  if (needsOn() && energyOf(life) <= 0) slow.push("Exhausted (half-speed work)");
   return {
     pack: life.pack,
     weight: packWeight(life),
@@ -1004,6 +1154,9 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
       return { id, level: levelForXp(xp), xp, next: xpToNext(xp) };
     }),
     ...(b?.gather ? { gather: { label: GATHER[b.gather.kind].label, p: Math.round(100 * (1 - b.gather.left / b.gather.total)) / 100 } } : {}),
+    ...(b?.tool ? { gather: { label: TOOL_ACT_LABEL[b.tool.act], p: Math.round(100 * (1 - b.tool.left / b.tool.total)) / 100 } } : {}),
+    energy: Math.round(energyOf(life)),
+    water: waterOf(life),
     ...(b?.work ? { work: { label: b.work.job ? b.work.job.recipe.label : `Idle: ${b.work.idle ?? "..."}`, p: b.work.job ? Math.round(100 * (1 - b.work.job.left / b.work.job.total)) / 100 : 0 } } : {}),
     ...(b?.resting ? { resting: true } : {}),
     ...(slow.length ? { slow } : {}),
@@ -1038,8 +1191,10 @@ export function fillHeroPack(p: Player) {
   life.pack = { wood: 10, rock: 5, meat: 4, fruit: 4 };
   life.food = NEED_MAX;
   life.rest = NEED_MAX;
+  life.energy = ENERGY_MAX;
+  life.water = WATER_CAN_CHARGES;
 }
 export function heroLifeDebug(p: Player) {
   const b = busy.get(p.id);
-  return { life: lifeOf(p), snap: lifeSnapshot(p), family: familySnapshot(p, heirOrderNames), needsOn: needsOn(), talking: b?.talk ? { role: b.talk.role, name: b.talk.name, choices: b.talk.choices.map((c) => c.label) } : null, speed: heroSpeedMult(p) };
+  return { life: lifeOf(p), snap: lifeSnapshot(p), tool: b?.tool ? { act: b.tool.act, left: b.tool.left, total: b.tool.total } : null, gathering: b?.gather ? { kind: b.gather.kind, once: !!b.gather.once } : null, family: familySnapshot(p, heirOrderNames), needsOn: needsOn(), talking: b?.talk ? { role: b.talk.role, name: b.talk.name, choices: b.talk.choices.map((c) => c.label) } : null, speed: heroSpeedMult(p) };
 }

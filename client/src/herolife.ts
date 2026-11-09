@@ -17,6 +17,8 @@ export interface HeroLifeDeps {
   blocked: () => boolean;
   // Opens the one hero sheet (pack left, character centre, family right): the hero bar's Pack / Family buttons.
   openSheet: () => void;
+  // Stardew phase 5a (herotools.ts): the hotbar tool in hand and the faced tile, sent with E.
+  interactFields?: () => object;
 }
 
 export interface HeroLifeUi {
@@ -53,6 +55,7 @@ const CSS = `
 #hl-status { font-size: 10px; color: #8b1a1a; min-height: 0; }
 #hs-needs .hl-food { background: #e69138; }
 #hs-needs .hl-rest { background: #6fa8dc; }
+#hs-needs .hl-energy { background: #5cc34a; }
 `;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, text = ""): HTMLElementTagNameMap[K] {
@@ -166,7 +169,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
     needsBox.textContent = "";
     if (!life) return;
     needsBox.appendChild(el("div", { class: "menu-section" }, "Needs"));
-    for (const [label, v, cls] of [["Food", life.food, "hl-food"], ["Rest", life.rest, "hl-rest"]] as const) {
+    for (const [label, v, cls] of [["Food", life.food, "hl-food"], ["Rest", life.rest, "hl-rest"], ["Energy", life.energy, "hl-energy"]] as const) {
       const r = el("div", { class: "hl-row" });
       r.append(el("span", {}, label), el("span", {}, `${Math.round(v)}%`));
       const m = el("div", { class: "hb-meter" });
@@ -274,7 +277,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
       if (deps.blocked()) return;
       e.preventDefault();
       eDown = true;
-      deps.send({ type: "interact" });
+      deps.send({ type: "interact", ...(deps.interactFields?.() ?? {}) });
     },
     true,
   );
@@ -309,7 +312,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
       loadT.textContent = `${l.weight}/${l.cap}`;
       const st = [...(l.slow ?? []), ...(l.resting ? ["Resting"] : [])].join(", ");
       if (status.textContent !== st) status.textContent = st;
-      const nk = JSON.stringify([Math.round(l.food), Math.round(l.rest), st, l.needs]);
+      const nk = JSON.stringify([Math.round(l.food), Math.round(l.rest), Math.round(l.energy), st, l.needs]);
       if (nk !== lastNeeds) {
         lastNeeds = nk;
         renderNeeds();

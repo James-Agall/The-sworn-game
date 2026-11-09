@@ -48,7 +48,8 @@ const UNLOCK = { COLONY_UNLOCK_ALL: "1" };
 // Town Center: COLONY_HERO_RESPAWN=1 (state.legacyHeroRespawn, test hooks only). Every suite gets it; the smoke test
 // (its own server) runs the heir rule.
 const HERO_RESPAWN = { COLONY_HERO_RESPAWN: "1" };
-const TREE_SUITES = new Set(["progression"]);
+// hero-tools: the tool gates (a scythe must be in the stores) and energy need gates and needs on.
+const TREE_SUITES = new Set(["progression", "hero-tools"]);
 // LEGACY_BUILD: suites written before modular building phases 2-3 (2026-11-09) place Bakeries / Blacksmiths outside a
 // roofed room and new Farm Plots / Hemp Fields: COLONY_LEGACY_BUILD=1 (state.legacyBuild, test hooks only) keeps that
 // open. Every suite gets it except the rooms / zones suites (ROOM_SUITES), which test the new rules.
@@ -72,6 +73,7 @@ const SERVER_ENV = {
   rooms: W80,
   zones: W80,
   "work-priorities": W80,
+  "hero-tools": W80,
   "gravestone-events": { ...INSTANT, ...LEGACY },
   "halflatch-ward-lapse": INSTANT,
   "happiness-militia-tavern": { ...W80, ...INSTANT },

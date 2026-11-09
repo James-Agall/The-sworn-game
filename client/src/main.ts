@@ -26,8 +26,10 @@ import {
   isWindowTile, isStoneStructure, rectOutline, rectTiles, wallLineTiles, type Room,
 } from "@colony/shared/structures";
 import { type HeroLifeUi, setupHeroLife } from "./herolife";
+import { setupHeroTools } from "./herotools";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
+const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
 import type {
   ClientMessage,
   SiteFaction,
@@ -6641,7 +6643,10 @@ async function main() {
       interpBeforeSnapshot();
       syncPlayers(message.players);
       latestPlayersForSpells = message.players;
-      if (message.life) heroLifeRef.ui?.onLife(message.life);
+      if (message.life) {
+        heroLifeRef.ui?.onLife(message.life);
+        heroToolsRef.ui?.onLife(message.life);
+      }
       syncColonists(message.colonists, message.isNight);
       syncMobs(message.mobs);
       interpAfterSnapshot();
@@ -6942,6 +6947,12 @@ async function main() {
       e.preventDefault();
       // The rider stands idle in strategy mode.
       if (strategyCam.inStrategy) return;
+      // Stardew phase 5a: with a hotbar tool in hand, Space uses it on the faced tile (the swing stands in for the
+      // tool animations, SPRITES.md).
+      if (heroToolsRef.ui?.useKey()) {
+        if (myId) triggerPlayerAttackAnim(myId);
+        return;
+      }
       if (socket.readyState === socket.OPEN) {
         socket.send(JSON.stringify({ type: "attack" }));
         // Immediate feedback even when the swing hits nothing (no server effect then).
@@ -7266,6 +7277,29 @@ async function main() {
     if (best) openBuildingInfo(best.tx, best.ty);
     else pushEventToast("build", "Nothing to interact with nearby");
   }
+  // Stardew phase 5a (herotools.ts): the tool hotbar, the faced-tile highlight and the energy bar.
+  const heroTools = setupHeroTools({
+    send: sendMessage,
+    active: () => !strategyCam.inStrategy && !!myId && heroModal.hidden && !!latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead),
+    buildOpen: () => !buildPanel.classList.contains("collapsed"),
+    talking: () => !(document.getElementById("hl-dialogue")?.hidden ?? true),
+    hero: () => latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead) ?? null,
+    tileSize: () => tileSize,
+    worldTilesX: () => worldTilesX,
+    worldTilesY: () => worldTilesY,
+    tileAt: (i) => tiles[i] ?? TileType.Empty,
+    cropAt: (i) => zonesUi.cropAt(i),
+    itemCount: (id) => itemTotal(latestProgression, id),
+    gatesOpen: () => latestProgression?.open === true,
+  });
+  worldLayer.addChild(heroTools.highlight);
+  app.ticker.add(() => {
+    heroTools.frame(performance.now());
+    // Keep the highlight over the ground layers that are added later.
+    if (heroTools.highlight.parent === worldLayer && worldLayer.getChildIndex(heroTools.highlight) < worldLayer.children.length - 1) {
+      worldLayer.setChildIndex(heroTools.highlight, worldLayer.children.length - 1);
+    }
+  });
   // Solo hero: E (talk / gather / work), the dialogue panel, needs and the Pack panel.
   heroLifeRef.ui = setupHeroLife({
     send: sendMessage,
@@ -7273,7 +7307,9 @@ async function main() {
     fallbackInteract: adventureInteract,
     blocked: () => strategyCam.inStrategy || !myId || !heroModal.hidden,
     openSheet: () => setHeroSheetOpen(true),
+    interactFields: () => heroTools.interactFields(),
   });
+  heroToolsRef.ui = heroTools;
   function partyCommand(cmd: "followMe" | "hold" | "shape") {
     if (!partyCommandsOn() || !myId) return;
     if (cmd === "followMe") sendRegimentOrder({ kind: "follow", targetId: `p:${myId}` }, false);
@@ -7787,6 +7823,11 @@ async function main() {
     "wheel",
     (e) => {
       if (!strategyCam.inStrategy) {
+        // Stardew phase 5a: Shift+wheel cycles the tool hotbar.
+        if (e.shiftKey && heroToolsRef.ui?.wheel(e.deltaY || e.deltaX)) {
+          e.preventDefault();
+          return;
+        }
         // Adventure camera: the wheel nudges the close zoom (no zoom-out to strategy: that is Tab).
         if (!adventurePrefs.on || strategyCam.active) return;
         e.preventDefault();
@@ -7921,6 +7962,11 @@ async function main() {
     if (spellAim && e.button === 0 && spellAimClick(x, y)) return;
     if (spellAim && e.button === 2) {
       setSpellAim(null);
+      return;
+    }
+    // Stardew phase 5a: a left click on a tile next to the hero with a hotbar tool in hand uses it there.
+    if (e.button === 0 && !strategyCam.inStrategy && selectedIds.size === 0 && buildPanel.classList.contains("collapsed") && heroToolsRef.ui?.click(x, y)) {
+      if (myId) triggerPlayerAttackAnim(myId);
       return;
     }
     if (e.button === 0) {
@@ -8286,6 +8332,7 @@ async function main() {
     }
     const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
     const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
+    heroToolsRef.ui?.mouse(x, y);
     if (moatDrag && e.pointerId === moatDrag.pointerId) extendMoatDrag(x, y);
     if (orderPress && e.pointerId === orderPress.pointerId) {
       if (

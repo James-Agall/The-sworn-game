@@ -65,7 +65,7 @@ import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creativ
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
 import { handleCallVillagers, handleChooseHeir, handleTrainUnit, heirChoicesFor } from "./people.js";
 import { handleCraftItem, handleProspect, progressionSnapshot } from "./progression.js";
-import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleInteract, withPlayerLife } from "./herolife.js";
+import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, withPlayerLife } from "./herolife.js";
 
 setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 
@@ -346,8 +346,10 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "prospect") {
     handleProspect(player);
   } else if (message.type === "interact") {
-    // Solo hero (herolife.ts): talk / gather / work.
-    handleInteract(player);
+    // Solo hero (herolife.ts): talk / a hotbar tool on the faced tile / gather / work.
+    handleInteract(player, message);
+  } else if (message.type === "heroTool") {
+    handleHeroTool(player, message);
   } else if (message.type === "gatherStop") {
     handleGatherStop(player);
   } else if (message.type === "dialogueChoice") {

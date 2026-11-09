@@ -39,7 +39,12 @@ export interface ZoneRec {
 interface CropRec {
   stage: number;
   progress: number;
+  // Tended by a villager or watered by the hero: full growth speed (else ZONE_UNTENDED_GROWTH).
   tended: boolean;
+  // Stardew phase 5a: a hero plot (tilled by the hero outside every zone): the owning clan, and the crop sown on it.
+  // A plot inside a zone (painted over it later) grows its own crop until harvested, then follows the zone.
+  plot?: number;
+  crop?: CropId;
 }
 interface Pile {
   res: string;
@@ -99,7 +104,8 @@ function removeTile(i: number) {
   const id = zoneOfTile.get(i);
   if (id === undefined) return;
   zoneOfTile.delete(i);
-  crops.delete(i);
+  // A hero plot outlives the zone painted over it.
+  if (crops.get(i)?.plot === undefined) crops.delete(i);
   const z = zones.get(id);
   if (z) {
     z.tiles.delete(i);
@@ -177,7 +183,7 @@ export function handleZoneEdit(player: Player, m: Record<string, unknown>) {
         own.crop = m.crop as CropId;
         for (const i of own.tiles) {
           const c = crops.get(i);
-          if (c && c.stage > CropStage.Tilled) crops.set(i, { stage: CropStage.Tilled, progress: 0, tended: false });
+          if (c && c.stage > CropStage.Tilled) Object.assign(c, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined });
         }
       }
       break;
@@ -198,15 +204,15 @@ export function handleZoneEdit(player: Player, m: Record<string, unknown>) {
 export function updateZones() {
   if (state.cycleTick % TICK_RATE !== 0) return;
   for (const [i, c] of crops) {
-    if (state.tiles[i] !== TileType.Empty || !zoneOfTile.has(i)) {
+    if (state.tiles[i] !== TileType.Empty || (!zoneOfTile.has(i) && c.plot === undefined)) {
       // Built over (or the zone went): the crop is gone.
       crops.delete(i);
       bump();
       continue;
     }
     if (c.stage !== CropStage.Sown && c.stage !== CropStage.Growing) continue;
-    const z = zones.get(zoneOfTile.get(i)!);
-    const grow = ZONE_CROP_GROW_TICKS[z?.crop ?? "wheat"];
+    const z = zones.get(zoneOfTile.get(i) ?? -1);
+    const grow = ZONE_CROP_GROW_TICKS[c.crop ?? z?.crop ?? "wheat"];
     c.progress += TICK_RATE * (c.tended ? 1 : ZONE_UNTENDED_GROWTH);
     const stage = c.progress >= grow ? CropStage.Ripe : c.progress >= grow * CROP_SOWN_FRACTION ? CropStage.Growing : CropStage.Sown;
     if (stage !== c.stage) {
@@ -493,15 +499,18 @@ export function updateZoneWorker(c: Colonist, dt: number, rate: number, filter: 
       crops.set(i, { stage: CropStage.Tilled, progress: 0, tended: false });
       break;
     case "sow":
-      crops.set(i, { stage: CropStage.Sown, progress: 0, tended: false });
+      // (A hero plot inside the zone stays a plot; it now grows the zone's crop.)
+      if (crop) Object.assign(crop, { stage: CropStage.Sown, progress: 0, tended: false, crop: undefined });
+      else crops.set(i, { stage: CropStage.Sown, progress: 0, tended: false });
       break;
     case "tend":
       if (crop) crop.tended = true;
       break;
     case "harvest": {
-      const cropId = z?.crop ?? "wheat";
+      const cropId = crop?.crop ?? z?.crop ?? "wheat";
       // Back to tilled soil: sow again.
-      crops.set(i, { stage: CropStage.Tilled, progress: 0, tended: false });
+      if (crop) Object.assign(crop, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined });
+      else crops.set(i, { stage: CropStage.Tilled, progress: 0, tended: false });
       addPile(i, CROP_RESOURCE[cropId], ZONE_CROP_YIELD[cropId], clan);
       break;
     }
@@ -556,9 +565,11 @@ export function zonesSnapshotFor(clan: number): ZonesSnapshot {
     });
     for (const i of z.tiles) {
       const c = crops.get(i);
-      if (c && c.stage > 0) out.crops.push(i, c.stage);
+      if (c && c.stage > 0) out.crops.push(i, cropCode(c));
     }
   }
+  // Stardew phase 5a: the clan's hero plots outside every zone.
+  for (const [i, c] of crops) if (c.plot === clan && !zoneOfTile.has(i) && c.stage > 0) out.crops.push(i, cropCode(c));
   for (const [i, p] of piles) if (p.clan === clan && p.n >= 1) out.piles.push(i, (PILE_RESOURCES as readonly string[]).indexOf(p.res), Math.floor(p.n));
   return out;
 }
@@ -596,7 +607,11 @@ export function zonesForSave() {
       id: z.id, clan: z.clan, kind: z.kind, name: z.name, crop: z.crop, filters: z.filters, stored: z.stored,
       tiles: rleEncode(Array.from(z.tiles).sort((a, b) => a - b)),
     })),
-    crops: Array.from(crops, ([i, c]) => [i, c.stage, Math.round(c.progress), c.tended ? 1 : 0]),
+    // Hero plots add [plot clan, crop index or -1] (older saves: 4-tuples, zone tiles only).
+    crops: Array.from(crops, ([i, c]) => {
+      const base = [i, c.stage, Math.round(c.progress), c.tended ? 1 : 0];
+      return c.plot === undefined ? base : [...base, c.plot, c.crop ? CROPS.indexOf(c.crop) : -1];
+    }),
     piles: savedPiles,
   };
 }
@@ -623,9 +638,87 @@ export function restoreZones(s: ZonesSave | undefined) {
     if (rec.tiles.size > 0) zones.set(rec.id, rec);
     nextZoneId = Math.max(nextZoneId, rec.id + 1);
   }
-  for (const [i, stage, progress, tended] of s?.crops ?? []) if (zoneOfTile.has(i)) crops.set(i, { stage, progress, tended: tended === 1 });
+  for (const [i, stage, progress, tended, plot, cropIdx] of s?.crops ?? []) {
+    if (!Number.isInteger(i) || i < 0 || i >= state.tiles.length) continue;
+    const rec: CropRec = { stage, progress, tended: tended === 1 };
+    if (typeof plot === "number") {
+      rec.plot = plot;
+      if (typeof cropIdx === "number" && CROPS[cropIdx]) rec.crop = CROPS[cropIdx];
+    } else if (!zoneOfTile.has(i)) continue;
+    crops.set(i, rec);
+  }
   for (const [i, res, n, clan] of s?.piles ?? []) if (i >= 0 && i < state.tiles.length) piles.set(i, { res, n, clan });
   bump();
+}
+
+// ---- Stardew phase 5a: hero tools on tiles (herolife.ts) ----
+// The hero tills, sows, waters and harvests the tile it faces. Inside an own GROWING zone it works that zone's tile
+// (the zone's crop; villagers with farming priority may tend / harvest it too). Anywhere else on open, unclaimed ground
+// it makes a HERO PLOT: a crop tile owned by the hero's clan with its own crop, which villagers never touch (their
+// jobs only walk zones), grows like a zone tile (half speed unless watered) and is saved with the crops.
+export type HeroFarmAct = "till" | "sow" | "water" | "harvest";
+
+// Snapshot code of a crop tile: stage (bits 0-2), tended / watered (bit 3), a plot's own crop index + 1 (bits 4+).
+function cropCode(c: CropRec): number {
+  return c.stage | (c.tended ? 8 : 0) | (c.crop ? (CROPS.indexOf(c.crop) + 1) << 4 : 0);
+}
+
+function heroZoneAt(i: number): ZoneRec | undefined {
+  const id = zoneOfTile.get(i);
+  return id === undefined ? undefined : zones.get(id);
+}
+
+// The crop an own growing zone at i grows (the hero sows that, with no seed used), or null outside zones.
+export function heroZoneCrop(i: number, clan: number): CropId | null {
+  const z = heroZoneAt(i);
+  return z && z.clan === clan && z.kind === "growing" ? z.crop ?? "wheat" : null;
+}
+
+// Crop stage at i (0 = untilled) for the hero's tool choice.
+export function heroCropStage(i: number): number {
+  return crops.get(i)?.stage ?? CropStage.Untilled;
+}
+
+// Why the hero cannot do `act` at tile i ("" = it can).
+export function heroFarmCheck(act: HeroFarmAct, i: number, clan: number): string {
+  const x = i % W();
+  const y = Math.floor(i / W());
+  if (!inBounds(x, y)) return "Out of bounds";
+  const z = heroZoneAt(i);
+  if (z && z.clan !== clan) return "That field is another clan's";
+  if (z && z.kind !== "growing") return `Not in a ${ZONE_KIND_LABEL[z.kind].toLowerCase()}`;
+  const c = crops.get(i);
+  if (c?.plot !== undefined && c.plot !== clan) return "That plot is another clan's";
+  if (state.tiles[i] !== TileType.Empty || ownerAt(i) !== 0) return act === "till" ? "Only open ground can be tilled" : "No soil there";
+  if (isForeignClanTile(x, y, clan)) return "That is another clan's land";
+  const stage = c?.stage ?? CropStage.Untilled;
+  switch (act) {
+    case "till":
+      return stage === CropStage.Untilled ? "" : "Already tilled";
+    case "sow":
+      return stage === CropStage.Tilled ? "" : stage === CropStage.Untilled ? "Till the soil first (hoe)" : "Already sown";
+    case "water":
+      return stage === CropStage.Untilled ? "Nothing to water: till it first" : stage === CropStage.Ripe ? "Ripe: harvest it" : c!.tended ? "Already watered" : "";
+    case "harvest":
+      return stage === CropStage.Ripe ? "" : "Nothing ripe there";
+  }
+}
+
+// Does it (heroFarmCheck first). Harvest returns the yield (the hero's pack takes it).
+export function heroFarmApply(act: HeroFarmAct, i: number, clan: number, crop: CropId): { res: "grain" | "cotton"; crop: CropId; n: number } | null {
+  const z = heroZoneAt(i);
+  const c = crops.get(i);
+  let out: { res: "grain" | "cotton"; crop: CropId; n: number } | null = null;
+  if (act === "till") crops.set(i, { stage: CropStage.Tilled, progress: 0, tended: false, ...(z ? {} : { plot: clan }) });
+  else if (c && act === "sow") Object.assign(c, { stage: CropStage.Sown, progress: 0, crop: z ? undefined : crop });
+  else if (c && act === "water") c.tended = true;
+  else if (c && act === "harvest") {
+    const id = c.crop ?? z?.crop ?? "wheat";
+    out = { res: CROP_RESOURCE[id], crop: id, n: ZONE_CROP_YIELD[id] };
+    Object.assign(c, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined });
+  }
+  bump();
+  return out;
 }
 
 // ---- test hooks ----
@@ -645,8 +738,19 @@ export function zonesDebug() {
     stages,
     piles: Array.from(piles, ([i, p]) => ({ x: i % W(), y: Math.floor(i / W()), res: p.res, n: p.n, clan: p.clan })),
     jobs: Array.from(jobs, ([id, j]) => ({ id, kind: j.kind, phase: j.phase, carry: j.carry ?? null })),
+    // Stardew phase 5a: every crop tile the hero made or touched outside zones, and hero plots inside them.
+    plots: Array.from(crops).filter(([, c]) => c.plot !== undefined).map(([i, c]) => ({ x: i % W(), y: Math.floor(i / W()), clan: c.plot, stage: c.stage, progress: c.progress, tended: c.tended, crop: c.crop ?? null, inZone: zoneOfTile.has(i) })),
     version,
   };
+}
+// One crop tile: stage / progress / tended (Stardew phase 5a tests).
+export function debugSetCropAt(i: number, set: { stage?: number; progress?: number; tended?: boolean }) {
+  const c = crops.get(i);
+  if (!c) return;
+  if (typeof set.stage === "number") c.stage = set.stage;
+  if (typeof set.progress === "number") c.progress = set.progress;
+  if (typeof set.tended === "boolean") c.tended = set.tended;
+  bump();
 }
 // Sets every crop of the zone at (x, y) (or all) to `stage` (Ripe: grown; Sown / Growing: progress at that stage).
 export function debugSetCrops(stage: number, tended: boolean, zoneId?: number) {

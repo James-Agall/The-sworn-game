@@ -934,6 +934,9 @@ export interface HeroLife {
   pack: Partial<Record<PackGood, number>>;
   food: number;
   rest: number;
+  // Stardew phase 5a: energy (stamina; missing = full) and the watering can's charges (missing = full).
+  energy?: number;
+  water?: number;
   // XP per hero skill (WORKER_XP_LEVELS).
   skills: Partial<Record<HeroSkill, number>>;
   // NPC / dialogue flags: "gift:<siteId>" = game day of the last gift, "rumour:<siteId>", "met:<siteId>", ...

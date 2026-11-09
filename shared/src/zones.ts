@@ -85,7 +85,8 @@ export interface ZoneSnapshot {
 }
 export interface ZonesSnapshot {
   zones: ZoneSnapshot[];
-  // Crop tiles with a stage > 0, flattened [tile, stage, ...].
+  // Crop tiles with a stage > 0 (zone tiles, then the clan's hero plots outside zones), flattened [tile, code, ...]: code =
+  // stage (bits 0-2) | 8 if tended / watered | (a hero plot's own crop index + 1) << 4 (Stardew phase 5a).
   crops: number[];
   // Loose goods, flattened [tile, PILE_RESOURCES index, amount (floored), ...].
   piles: number[];

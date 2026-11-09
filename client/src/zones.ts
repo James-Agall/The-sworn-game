@@ -18,6 +18,8 @@ export interface ZonesUi {
   setActive(on: boolean): void;
   selected(): ZoneSnapshot | null;
   reset(): void;
+  // Stardew phase 5a: the crop tile at index i (zone tile or hero plot), for the hotbar hints.
+  cropAt(i: number): { stage: number; watered: boolean } | null;
 }
 
 const PILE_COLOR: Record<string, number> = {
@@ -32,6 +34,7 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
   ground.addChild(cropG, pileG);
   const overlay = new Graphics();
   let latest: ZonesSnapshot = { zones: [], crops: [], piles: [] };
+  const cropCodes = new Map<number, number>();
   let active = false;
   let selectedId: number | null = null;
   let knownIds = new Set<number>();
@@ -179,15 +182,21 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
         if (z.crop) cropOf.set(i, z.crop);
       }
     }
-    // Crops (stand-ins: tilled soil, seeds, sprouts, ripe heads).
+    // Crops (stand-ins: tilled soil, seeds, sprouts, ripe heads). Code: stage (bits 0-2), tended / watered (bit 3,
+    // darker soil), a hero plot's own crop index + 1 (bits 4+).
+    cropCodes.clear();
     for (let k = 0; k + 1 < latest.crops.length; k += 2) {
       const i = latest.crops[k];
-      const stage = latest.crops[k + 1];
+      const code = latest.crops[k + 1];
+      cropCodes.set(i, code);
+      const stage = code & 7;
+      const watered = (code & 8) !== 0;
+      const own = code >> 4 ? CROPS[(code >> 4) - 1] : undefined;
       const x = (i % W) * ts;
       const y = Math.floor(i / W) * ts;
-      cropG.rect(x + 1, y + 1, ts - 2, ts - 2).fill({ color: 0x6b4a2a, alpha: 0.9 });
-      for (let r = 0; r < 4; r++) cropG.rect(x + 3, y + 5 + r * 7, ts - 6, 2).fill({ color: 0x4a3018, alpha: 0.9 });
-      const hemp = cropOf.get(i) === "hemp";
+      cropG.rect(x + 1, y + 1, ts - 2, ts - 2).fill({ color: watered ? 0x4a3220 : 0x6b4a2a, alpha: 0.9 });
+      for (let r = 0; r < 4; r++) cropG.rect(x + 3, y + 5 + r * 7, ts - 6, 2).fill({ color: watered ? 0x2e1e10 : 0x4a3018, alpha: 0.9 });
+      const hemp = (own ?? cropOf.get(i)) === "hemp";
       if (stage === CropStage.Sown) {
         for (let r = 0; r < 4; r++) for (let q = 0; q < 4; q++) cropG.rect(x + 5 + q * 7, y + 4 + r * 7, 2, 2).fill(0xd8c890);
       } else if (stage === CropStage.Growing) {
@@ -253,6 +262,10 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
     },
     selected() {
       return latest.zones.find((q) => q.id === selectedId) ?? null;
+    },
+    cropAt(i) {
+      const code = cropCodes.get(i);
+      return code === undefined ? null : { stage: code & 7, watered: (code & 8) !== 0 };
     },
     reset() {
       latest = { zones: [], crops: [], piles: [] };

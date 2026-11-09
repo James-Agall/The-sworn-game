@@ -792,6 +792,16 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > 11. **Animals** (#96): idle 2f, walk 4 dirs x 4f, eat / sleep for each animal; piglet, lamb, shorn sheep, calf;
 >     buildings empty + occupied, stable; feed trough.
 
+> **Stardew phase 5a (hero tools, 2026-11-09) wiring:** the hotbar uses the staged `icons/tool_*` (hoe, watering can,
+> seed bag, scythe, axe, pickaxe) and the Resources panel shows them for the new items. Not used: `ui/hotbar_a.png` /
+> `hotbar_b.png` (5 slots, one with a baked-in pickaxe / highlight; the hotbar needs 6) and `ui/stamina_bar.png` (fill
+> baked in) - the frame and the energy bar are CSS stand-ins. Tilled / watered soil and hero-plot crops are the Graphics
+> stand-ins of the zones layer (watered = darker soil). **Still needed for 5a:** hero tool swing animations on the
+> EXISTING hero sprite, 4 directions x 3-4 frames each: hoe swing, watering can pour, sowing (scatter), scythe sweep,
+> axe chop, pickaxe strike (today the sword swing stands in on Space / click, plus the progress ring); a 6-slot empty hotbar frame + selected-slot frame
+> (32x32 slots, transparent between slots); an empty stamina bar frame + separate fill strip; a faced-tile cursor
+> (32x32 corner brackets); seed bag icons per crop (wheat, hemp).
+
 #77-#83 were delivered on 2026-10-30 (see "Already sourced", Batch 2); prompts removed. Still missing from those
 prompts: #82 the Follow order icon, the state glyphs (wavering / routing / outflanked) and the time-control icons;
 #83 has no veteran attack row (the veteran charge row stands in) and no separate idle frame.

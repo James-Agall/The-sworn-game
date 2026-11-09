@@ -58,6 +58,12 @@ export const ITEM_ICON: Record<string, string> = {
   "item:stonePick": iconUrl("tool_pickaxe"),
   "item:smithTools": iconUrl("stock_tools"),
   "item:flour": iconUrl("tool_seedbag"),
+  // Stardew phase 5a: the hero's farming tools and seed bags.
+  "item:hoe": iconUrl("tool_hoe"),
+  "item:wateringCan": iconUrl("tool_watering_can"),
+  "item:scythe": iconUrl("tool_scythe"),
+  "item:wheatSeeds": iconUrl("tool_seedbag"),
+  "item:hempSeeds": iconUrl("tool_seedbag"),
   ...Object.fromEntries([1, 2, 3].flatMap((t) => [[`gear:weapon:${t}`, iconUrl("stock_weapons")], [`gear:armour:${t}`, iconUrl("stock_armour")]])),
 };
 // An <img> for a small HUD icon that removes itself if the file is missing.

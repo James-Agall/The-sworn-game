@@ -2155,6 +2155,54 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Stardew layer — landed (phase 5a) 2026-11-09 (hero tools on tiles, energy)
+Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 5a. Shared: `shared/src/herolife.ts` (HERO_TOOLS, TOOL_*, ENERGY_*,
+WATER_CAN_CHARGES, SEED_ITEM), `shared/src/progression.ts` (items / hand recipes / starter kit); server:
+`server/src/herolife.ts` (useTool / stepTool, energy), `server/src/zones.ts` (hero plots: heroFarmCheck / heroFarmApply);
+client: `client/src/herotools.ts` (hotbar, facing, highlight, energy bar).
+- **Hotbar** (adventure view): 1 hoe, 2 watering can, 3 seed bag (press 3 again: wheat / hemp), 4 scythe, 5 axe, 6 pickaxe;
+  the same key again puts the tool away, Esc too; Shift+wheel cycles. Plain digits drive the hotbar only while the Build
+  panel is closed (open: they stay build hotkeys). Icons: spriteRegistry `tool_*`; frame is CSS. Hidden in strategy view.
+- **Facing / target**: the hero faces the way it last moved, or the mouse when that moved later; the faced tile (one
+  tile away, 8 directions) is outlined (gold when the tool has something to do there, with a hint line "Hoe: Till (E /
+  Space / click)"). The server checks the tile touches the hero's tile (Chebyshev 1).
+- **Use**: E keeps its priority (an NPC in range talks first); then the tool on the faced tile (bare hands: a ripe crop is
+  harvested); then the old gather / station rules; the tool's refusal is shown only when nothing else applies. Space (with
+  a tool in hand; else it attacks) and a left click on a tile next to the hero (no selection, Build panel closed) use the
+  tool without talking (`heroTool` message). Progress shows on the existing hold-E ring.
+- **Tools**: HOE tills open grass (TileType.Empty, unowned, not another clan's land / zone) in 1 s; SEED BAG sows a tilled
+  tile in 0.5 s, one seed item used; WATERING CAN waters a tilled / sown / growing tile (0.5 s, one of WATER_CAN_CHARGES =
+  20 charges; on a Water tile it refills in 1 s); SCYTHE harvests a ripe tile in 0.5 s, by hand 1.5 s (HAND_HARVEST_SECONDS);
+  AXE / PICK reuse GATHER chop / quarry / mine (tool gates, pack cap, progress ring) with one yield per Space / click (E held
+  repeats as before). Times x skillSpeed(Farming level) and x ENERGY_EMPTY_SPEED 0.5 at 0 energy.
+- **Hero plots vs zones**: tilling inside an own GROWING zone works that zone's tile (it sows the zone's crop, no seed
+  used; villagers with farming priority tend / harvest it as usual). Tilled anywhere else = a HERO PLOT: a crop record with
+  the owning clan and its own crop, grown by the same once-a-second crop update (ZONE_CROP_GROW_TICKS, half speed
+  ZONE_UNTENDED_GROWTH unless watered = tended); villager zone jobs never see it (they only walk zones). A zone painted over
+  a plot keeps the plot (its crop) until harvested; erasing the zone leaves the plot. Harvest yields ZONE_CROP_YIELD
+  (rounded, min 1) into the PACK: wheat -> grain, hemp -> "Hemp fibre" (new pack good `cotton`, weight 0.5, deposits as
+  the stock's cotton). Built over = gone.
+- **Items** (PROGRESSION): hoe (2 wood + 2 rock), watering can (4 wood), scythe (2 wood + 3 rock), wheat seeds x4 (2 grain),
+  hemp seeds x4 (2 cotton), all hand recipes (Craft panel). Tool gate = the item in the clan stores (as axe / pick);
+  gates open (creative unlock / COLONY_UNLOCK_ALL) = free, seeds not used. **Starter kit** now stone axe, stone pick, hoe,
+  watering can and 8 wheat seeds (new games only; old saves keep their items).
+- **Energy** (HeroLife.energy, 0-ENERGY_MAX 100, HUD bar under the hotbar + the hero sheet's Needs): ENERGY_COST till 3,
+  sow 1, water 1, harvest 2, chop 3, quarry / mine 3 (per yield); at 0 work (tools, gathering) runs at half speed, never
+  blocked, status "Exhausted"; movement unaffected. Recovers ENERGY_REST_PER_S 2 x the shelter multiplier per second
+  resting (campfire / lean-to / home / bedroom), ENERGY_PER_FOOD 0.4 per food point eaten, full with village lodging. Only
+  while needs are on (off in creative / unlock-all). Skill: farming XP = the energy cost (min 1) per use; axe / pick train
+  woodcutting / mining via the gather rules.
+- **Saves / streaming**: `life.energy` / `life.water` are optional (older saves: full). Crop save tuples gain
+  [plot clan, crop index] for plots (older 4-tuples load as zone tiles). Zones / crops are a global layer (no chunks), so
+  plots grow in COLD chunks like zone crops. Snapshot `zones.crops` codes: stage | 8 watered | (plot crop + 1) << 4.
+- **Tests**: `server/hero-tools-test.mjs` (`npm test -- hero-tools`, gates and needs on): starter kit, till / sow / water /
+  half-speed unwatered growth, hand and scythe harvest, no-hemp-seed and no-scythe gates, empty can + refill, one chop,
+  energy drain / half speed / rest / eat, a till in a growing zone, villagers leave plots alone, save / load.
+- **Known gaps (5a)**: no tool swing animations (the sword swing plays on Space / click as a stand-in, plus the progress
+  ring; SPRITES.md); no Well tile (refill at Water only);
+  watering does not reset daily (phase 5b weather / days); hotbar not usable from strategy view; no hoe on dirt roads /
+  floors (grass only); villagers never harvest hero plots outside zones (by design) so an absent hero's ripe plot waits.
+
 ## Modular building — landed (phase 4) 2026-11-09 (job priorities: the Work tab)
 Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 4. Shared: `shared/src/work.ts` (work types, labels, professions per
 type, defaults, Work tab types); server: `server/src/work.ts`; numbers: `server/src/constants.ts` ZONE_PRIORITY_WORK_RATE /

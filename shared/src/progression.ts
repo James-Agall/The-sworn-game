@@ -8,7 +8,9 @@ import { TileType } from "./protocol.js";
 export type ItemId =
   | "stoneAxe" | "stonePick" | "stoneKnife" | "timberProps" | "hide" | "bellows"
   | "charcoal" | "ironBloom" | "anvil" | "smithTools"
-  | "woodenPlow" | "millstone" | "clayOven" | "flour" | "gruel" | "flatbread" | "sourdoughStarter" | "bread";
+  | "woodenPlow" | "millstone" | "clayOven" | "flour" | "gruel" | "flatbread" | "sourdoughStarter" | "bread"
+  // Stardew phase 5a: the hero's farming tools (kept) and seed bags (one used per sown tile).
+  | "hoe" | "wateringCan" | "scythe" | "wheatSeeds" | "hempSeeds";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "tools";
 
@@ -125,6 +127,11 @@ export const PROGRESSION = {
     flatbread: { label: "Flatbread", desc: "Quick bread from the Bakery: good food, a small happiness bonus.", group: "food" },
     sourdoughStarter: { label: "Sourdough starter", desc: "A level-2 baker cultures it over ~3 days; kept, it lets the Bakery bake bread.", group: "food" },
     bread: { label: "Bread", desc: "The best food: most filling, the biggest happiness bonus (more for Good / Fine).", group: "food" },
+    hoe: { label: "Hoe", desc: "The hero tills grass into soil (hotbar 1): a hero plot, or a tile of your growing zone.", group: "tool" },
+    wateringCan: { label: "Watering can", desc: "The hero waters tilled soil and crops (hotbar 2): watered crops grow at full speed. Refill at water.", group: "tool" },
+    scythe: { label: "Scythe", desc: "The hero harvests ripe crops quickly (hotbar 4); by hand is slower.", group: "tool" },
+    wheatSeeds: { label: "Wheat seeds", desc: "A seed bag: the hero sows one per tilled tile (hotbar 3).", group: "material" },
+    hempSeeds: { label: "Hemp seeds", desc: "A seed bag: the hero sows one per tilled tile (hotbar 3, press again for hemp).", group: "material" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -135,6 +142,11 @@ export const PROGRESSION = {
     { id: "woodenPlow", label: "Carve a wooden plow", output: "woodenPlow", amount: 1, stock: { wood: 6, rock: 2 }, station: "hand" },
     { id: "millstone", label: "Dress a millstone", output: "millstone", amount: 1, stock: { rock: 12 }, station: "hand" },
     { id: "clayOven", label: "Build a clay oven", output: "clayOven", amount: 1, stock: { rock: 8, wood: 4 }, station: "hand" },
+    { id: "hoe", label: "Make a hoe", output: "hoe", amount: 1, stock: { wood: 2, rock: 2 }, station: "hand" },
+    { id: "wateringCan", label: "Make a watering can", output: "wateringCan", amount: 1, stock: { wood: 4 }, station: "hand" },
+    { id: "scythe", label: "Knap a scythe", output: "scythe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
+    { id: "wheatSeeds", label: "Sort wheat seed", output: "wheatSeeds", amount: 4, stock: { grain: 2 }, station: "hand" },
+    { id: "hempSeeds", label: "Save hemp seed", output: "hempSeeds", amount: 4, stock: { cotton: 2 }, station: "hand" },
     { id: "gruel", label: "Boil wheat gruel", output: "gruel", amount: 3, stock: { grain: 3, wood: 1 }, station: "hand" },
     { id: "charcoal", label: "Burn charcoal", output: "charcoal", amount: 3, stock: { wood: 6 }, station: TileType.CharcoalBurner, seconds: 90, cap: 40 },
     // Bloomery: the anvil and the smith's tools first (one each is enough), then blooms.
@@ -229,8 +241,9 @@ export const PROGRESSION = {
     { id: "military", label: "Military", steps: [{ building: TileType.MilitiaPost }, { building: TileType.ArcherPost }, { building: TileType.KnightPost }, { building: TileType.Stables }, { building: TileType.SiegeWorkshop }] },
     { id: "faith", label: "Faith", steps: [{ building: TileType.ChurchPost }, { building: TileType.WardStone }] },
   ] as ProgressionChain[],
-  // A new game's starting kit (plan open question: small kit, 1 stone axe + 1 pick).
-  starterKit: { stoneAxe: 1, stonePick: 1 } as Partial<Record<ItemId, number>>,
+  // A new game's starting kit (plan open question: small kit, 1 stone axe + 1 pick). Stardew phase 5a: a hoe, a
+  // watering can and a few wheat seeds, so a solo hero can farm from day one.
+  starterKit: { stoneAxe: 1, stonePick: 1, hoe: 1, wateringCan: 1, wheatSeeds: 8 } as Partial<Record<ItemId, number>>,
 };
 
 export const PROFESSION_LABEL: Record<Profession, string> = {

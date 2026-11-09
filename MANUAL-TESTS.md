@@ -684,6 +684,30 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Stardew phase 5a: hero tools on tiles (2026-11-09)
+Automated: `npm test -- hero-tools`.
+1. New game, adventure view, Build panel closed. Above the spell bar: a 6-slot hotbar (hoe, can, seed bag, scythe, axe,
+   pickaxe) with an Energy bar under it. Scythe is dim (none in stores); the seed slot reads W8, the can 20.
+2. Press 1 (hoe): the slot glows gold. Walk a step: the tile in front of the hero gets a gold outline on grass ("Hoe: Till
+   (E / Space / click)"); a white faint outline over a tree / building. Move the mouse around the hero: the outline follows
+   the mouse. Press 1 again or Esc: tool away, no outline.
+3. Hoe in hand, press Space on grass: a short ring "Tilling", then a tilled brown tile. Energy drops a little.
+4. Press 3: seed bag (W). Space: seed dots appear; W8 -> W7. Press 3 again: H0 (hemp); Space on tilled soil: "No hemp
+   seeds in your stores (craft them by hand)".
+5. Press 2 (can): Space on the sown tile: the soil darkens (watered); the can count drops 20 -> 19. Walk to a river / lake,
+   face the water: "Fill the can" -> back to 20.
+6. Left-click a grass tile right next to the hero with the hoe: it tills that tile (a click farther away selects / does
+   what it did before). With the Build panel open, digits still pick build tools.
+7. Craft > Knap a scythe (2 wood + 3 stone). Creative fast-forward (or wait) until a plot is gold (ripe): scythe (4) + Space
+   harvests quickly; with no tool in hand, E on a ripe tile harvests slowly. Grain appears in the Pack.
+8. Spam tools until Energy is 0: the bar is red, status "Exhausted (half-speed work)", tools still work but the ring fills
+   slower. Rest (Pack > Rest, by a campfire is faster) or eat: the bar refills.
+9. Axe (5) facing a tree: Space chops once (2 wood) and stops; E held keeps chopping as before. Pick (6) facing a rock: one
+   stone.
+10. Paint a Wheat field, stand at its edge with the hoe: tilling inside the zone makes zone soil (villagers sow it, no seed
+    used if you sow it). Tilled plots outside zones are never touched by villagers.
+11. Next to an NPC, E still talks (the tool is not used). Save, reload: plots (stage, watered), energy and the can come back.
+
 ## Modular building phase 4: job priorities (2026-11-09)
 Automated: `npm test -- work-priorities`.
 1. New game. Top bar **Work**: a table of your adults (the child from a dawn birth is not in it). Default mode: every
