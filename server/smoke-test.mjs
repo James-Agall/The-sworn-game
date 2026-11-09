@@ -544,6 +544,48 @@ await check("training: basic militia need no gear (unarmed), take T1 gear when s
   return [open && unarmed && geared && took && militia === 2, `no-gear ok ${open}, unarmed trainee ${unarmed}, geared offer ${geared}, gear taken ${took}, militia ${militia}`];
 });
 
+// 8d2b. batch training: a level-1 Militia Camp trains 2 at a time (TRAIN_SLOTS_PER_LEVEL x level), more wait; a
+// batch it can't pay is refused, "max" queues what it can, Cancel sends the last-queued home.
+await check("training: batch queue (x N / max), 2 at a time, waiting + cancel", async () => {
+  await hook("peopleState", { creative: false });
+  for (const k of ["villager", "militia"]) await hook("killColonists", { kind: k });
+  await hook("setInstantBuild", { enabled: true });
+  const M = { x: tc.x + 6, y: tc.y + 9 };
+  await clearBox(M.x, M.y, 2);
+  await place(M.x, M.y, T.MilitiaPost);
+  await raw(M.x - 1, M.y, T.House);
+  await raw(M.x + 1, M.y, T.House);
+  await ff(2);
+  await hook("setInstantBuild", { enabled: false });
+  await hook("peopleState", { spawn: 3 });
+  await hook("setEquipment", { armour: [0, 0, 0], weapon: [0, 0, 0] });
+  let ps = await hook("peopleState", { trainAt: M });
+  const capOk = ps.trainInfo?.cap === 4 && ps.trainInfo?.slots === 2 && ps.trainInfo?.max === 3;
+  const ev0 = c.events.length;
+  send({ type: "trainUnit", tileX: M.x, tileY: M.y, count: 4 });
+  await sleep(150);
+  ps = await hook("peopleState", { trainAt: M });
+  const refused = ps.trainInfo.training === 0 && /Cannot train 4/.test(events(ev0));
+  send({ type: "trainUnit", tileX: M.x, tileY: M.y, count: "max" });
+  await sleep(150);
+  await ff(2);
+  ps = await hook("peopleState", { trainAt: M });
+  const queued = ps.trainInfo.training === 3 && ps.trainInfo.waiting === 1 && ps.people.free === 0;
+  send({ type: "trainUnit", tileX: M.x, tileY: M.y, cancel: true });
+  await sleep(150);
+  ps = await hook("peopleState", { trainAt: M });
+  const cancelled = ps.trainInfo.training === 2 && ps.trainInfo.waiting === 0 && ps.people.free === 1;
+  await hook("peopleState", { finishTraining: true });
+  await ff(2);
+  ps = await hook("peopleState");
+  const militia = ps.persons.filter((p) => p.kind === "militia" && p.postX === M.x).length;
+  for (const [x, y] of [[M.x - 1, M.y], [M.x + 1, M.y]]) await raw(x, y, T.Empty);
+  await place(M.x, M.y, T.Empty);
+  await hook("peopleState", { creative: true });
+  return [capOk && refused && queued && cancelled && militia === 2,
+    `cap 4 / 2 at a time / max 3 ${capOk}, x4 refused ${refused}, max queued 3 (1 waiting) ${queued}, cancel ${cancelled}, militia ${militia}`];
+});
+
 // 8d3. camp hearths: protected while guards stand ("Defeat the guards first"); once they are dead the hearth can be
 // struck, and a hero walking up frees its prisoners (visible in the snapshot `hearths`: [index, permille, prisoners, guarded]).
 await check("camp hearth: guarded until the guards fall, walk-up frees the prisoners", async () => {

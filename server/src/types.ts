@@ -93,6 +93,8 @@ export interface Training {
   ticksTotal: number;
   // Basic militia trained without gear (none was taken from the stock: nothing to refund).
   unarmed?: boolean;
+  // Queued past the building's training places (TRAIN_SLOTS_PER_LEVEL x level): the clock waits (missing = training).
+  waiting?: boolean;
 }
 export interface Colonist {
   id: string;

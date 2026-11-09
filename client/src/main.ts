@@ -5248,7 +5248,23 @@ async function main() {
         (t.gearOptional
           ? "Takes one free adult civilian. Basic militia train without gear; with a T1 weapon + armour in stock they take them (unarmed militia hit softer and have no armour)"
           : `Takes one free adult civilian and a T${t.level} weapon + armour`);
-      bpTrainStateEl.textContent = `Troops ${t.troops}/${t.cap}${t.training ? ` · ${t.training} in training` : ""}${t.reason ? ` · ${t.reason}` : ""}`;
+      // Batch training: x5 / x10 / Max queue several at once (each a free adult + gear up front); Cancel sends the
+      // last-queued trainee home with a refund.
+      const max = t.max ?? (t.reason ? 0 : 1);
+      for (const [n, b] of bpTrainBatchBtns) {
+        b.disabled = t.reason !== "" || (n === "max" ? max < 1 : max < n);
+        b.textContent = n === "max" ? `Max (${max})` : `x${n}`;
+        b.title = t.reason || (n === "max" ? `Train ${max} now (as many as room, free adults and gear allow)` : `Train ${n} at once`);
+      }
+      bpTrainCancelBtn.disabled = t.training === 0;
+      const queue = t.queue ?? [];
+      const busy = queue.filter((q) => !q.waiting).map((q) => `${q.name} ${Math.round(q.progress * 100)}%`);
+      const waiting = t.waiting ?? 0;
+      bpTrainStateEl.textContent =
+        `Troops ${t.troops}/${t.cap}` +
+        (t.training ? ` · ${t.training - waiting} training${t.slots ? ` (${t.slots} at a time)` : ""}${waiting ? `, ${waiting} waiting` : ""}` : "") +
+        (busy.length ? ` · ${busy.slice(0, 6).join(", ")}${busy.length > 6 ? ", ..." : ""}` : "") +
+        (t.reason ? ` · ${t.reason}` : "");
     }
     bpSiegeRowEl.hidden = !info.siege;
     if (info.siege) {
@@ -5477,6 +5493,28 @@ async function main() {
   } catch {
     profileId = "";
   }
+  const bpTrainBatchBtns: [number | "max", HTMLButtonElement][] = ([5, 10, "max"] as const).map((n) => {
+    const b = document.createElement("button");
+    b.className = "econ-btn";
+    b.addEventListener("click", () => {
+      b.blur();
+      if (!infoTile) return;
+      sendMessage({ type: "trainUnit", tileX: infoTile.tx, tileY: infoTile.ty, count: n });
+      window.setTimeout(requestBuildingInfo, 150);
+    });
+    return [n, b];
+  });
+  const bpTrainCancelBtn = document.createElement("button");
+  bpTrainCancelBtn.className = "econ-btn";
+  bpTrainCancelBtn.textContent = "Cancel one";
+  bpTrainCancelBtn.title = "Send the last-queued trainee home (waiting ones first): the adult and the gear come back";
+  bpTrainCancelBtn.addEventListener("click", () => {
+    bpTrainCancelBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "trainUnit", tileX: infoTile.tx, tileY: infoTile.ty, cancel: true });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
+  bpTrainBtn.after(...bpTrainBatchBtns.map(([, b]) => b), bpTrainCancelBtn);
   const wsParams = new URLSearchParams();
   if (profileId) wsParams.set("profile", profileId);
   if (clanParam()) wsParams.set("clan", clanParam());

@@ -1013,7 +1013,9 @@ export interface BuildingInfo {
   // Village life phase 3: unit buildings only: the soldier it trains, troops / trainees / capacity, training
   // days, and why "Train unit" is refused ("" = allowed).
   // gearOptional: basic militia train without gear (weaker, unarmed) and take a T1 weapon + armour if in stock.
-  train?: { kind: ColonistKind; level: number; troops: number; training: number; cap: number; days: number; reason: string; gearOptional?: boolean; geared?: boolean };
+  train?: { kind: ColonistKind; level: number; troops: number; training: number; cap: number; days: number; reason: string; gearOptional?: boolean; geared?: boolean;
+    // Batch training: places training at once, how many wait, what "Max" would queue, each trainee's progress.
+    slots?: number; waiting?: number; max?: number; queue?: { name: string; progress: number; waiting: boolean }[] };
   // Village life phase 4: own Town Centers only: civilians ready to be levied, levies on the field, ticks until they
   // stand down, and why "Call to arms" is refused ("" = allowed).
   levy?: { ready: number; onField: number; ticksLeft: number; reason: string };
@@ -1161,7 +1163,7 @@ export type ClientMessage =
   // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).
   | { type: "queueForge"; tileX: number; tileY: number; slot: EquipSlot }
   // Village life phase 3: train one soldier at a unit building (a free villager + tier gear, ~1 day).
-  | { type: "trainUnit"; tileX: number; tileY: number }
+  | { type: "trainUnit"; tileX: number; tileY: number; count?: number | "max"; cancel?: boolean }
   // Village life phase 5: a dead hero's player picks the colonist `id` (snapshot heirs) to carry on as the hero.
   | { type: "chooseHeir"; id: string }
   // Village life phase 4: call the Town Center's adult civilians to arms as militia for half a day (dismiss: stand

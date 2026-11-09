@@ -8,14 +8,14 @@ import {
   BIRTH_CHANCE_PER_COUPLE, BIRTH_MIN_FOOD, COUPLE_BIRTH_COOLDOWN_DAYS, HEIR_GOLD_SHARE, HEIR_SKILL_SHARE, CHILD_MATURE_DAYS, DAY_TICKS, GAME_DAY_TICKS,
   IMMIGRANTS_PER_WEEK, IMMIGRATION_MIN_HAPPINESS, KEEP_POPULATION_PER_LEVEL, PRISONERS_PER_CAMP,
   PRISONER_DISTANCE_MAX_BONUS, PRISONER_DISTANCE_STEP_TILES,
-  TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_LEVEL_POPULATION_BONUS, TRAIN_DAYS_BY_LEVEL, VILLAGE_LEVY_COOLDOWN_TICKS,
+  TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_LEVEL_POPULATION_BONUS, TRAIN_BATCH_MAX, TRAIN_DAYS_BY_LEVEL, TRAIN_SLOTS_PER_LEVEL, VILLAGE_LEVY_COOLDOWN_TICKS,
   VILLAGE_LEVY_TICKS,
 } from "./constants.js";
 import { chargeRuns, colonists, hearths, players, respawnQueue, sites, state } from "./state.js";
 import { getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { tileIndicesOfAny } from "./chunks.js";
 import {
-  findTownCenterAt, freeVillagerFor, houseCapacity, isCivilianKind, isHouseTile, isValidPostTile, nearestTownCenter,
+  findTownCenterAt, freeVillagerFor, houseCapacity, isFreeVillager, isCivilianKind, isHouseTile, isValidPostTile, nearestTownCenter,
   newPerson, personAgeDays, queueRespawn, releaseToVillage, settlementOf, settlementStats, spawnColonistForPost, spawnVillager,
   TOWN_CENTER_TILE, transplantPerson,
 } from "./colonists.js";
@@ -246,6 +246,22 @@ export interface TrainInfo {
   // Basic militia (level 1): gear is optional; geared = a T1 weapon + armour are in stock and will be taken.
   gearOptional: boolean;
   geared: boolean;
+  // Batch training: places training at once, trainees waiting for one, how many one "Max" click would queue, and
+  // each trainee (progress 0-1, waiting).
+  slots: number;
+  waiting: number;
+  max: number;
+  queue: { name: string; progress: number; waiting: boolean }[];
+}
+
+function freeVillagerCount(clanId: number): number {
+  let n = 0;
+  for (const c of colonists.values()) if ((c.clan ?? 0) === clanId && isFreeVillager(c)) n++;
+  return n;
+}
+
+function traineesListAt(tx: number, ty: number): Colonist[] {
+  return Array.from(colonists.values()).filter((c) => c.training && c.training.tx === tx && c.training.ty === ty);
 }
 
 // What "Train unit" at the unit building (tx, ty) would do for the active clan, and why it can't ("" = it can).
@@ -258,9 +274,17 @@ export function trainInfo(tx: number, ty: number): TrainInfo | null {
   const training = traineesAt(tx, ty);
   const hasGear = state.equipment.weapon[level - 1] >= 1 && state.equipment.armour[level - 1] >= 1;
   const gearOptional = slots.kind === "militia";
+  const list = traineesListAt(tx, ty);
+  const gearSets = Math.min(state.equipment.weapon[level - 1], state.equipment.armour[level - 1]);
+  const room = Math.max(0, slots.cap - troops - training);
   const info: TrainInfo = {
     kind: slots.kind, level, troops, training, cap: slots.cap, days: TRAIN_DAYS_BY_LEVEL[level - 1], reason: "", gearOptional, geared: hasGear,
+    slots: TRAIN_SLOTS_PER_LEVEL * level,
+    waiting: list.filter((c) => c.training!.waiting).length,
+    max: state.creative ? Math.min(room, TRAIN_BATCH_MAX) : Math.min(room, freeVillagerCount(state.clan.id), gearOptional ? TRAIN_BATCH_MAX : gearSets, TRAIN_BATCH_MAX),
+    queue: list.map((c) => ({ name: c.person?.name ?? "Recruit", progress: 1 - c.training!.ticksLeft / Math.max(1, c.training!.ticksTotal), waiting: !!c.training!.waiting })),
   };
+  if (clanIdAt(tx, ty) !== state.clan.id) info.max = 0;
   if (clanIdAt(tx, ty) !== state.clan.id) info.reason = "Not your building";
   else if (troops + training >= slots.cap) info.reason = `Barracks full (${troops + training}/${slots.cap})`;
   else if (state.creative) info.reason = "";
@@ -287,33 +311,64 @@ function finishTraining(c: Colonist | null, tx: number, ty: number, kind: Coloni
 }
 const EQUIPPED = new Set<ColonistKind>(["knight", "spearman", "pikeman", "cavalry"]);
 
-export function handleTrainUnit(player: Player, tx: unknown, ty: unknown) {
+// `trainUnit` {count?: number | "max", cancel?: true}: queue `count` trainees (default 1) at once, each taking a free
+// adult and (but basic militia) a tier weapon + armour up front, or refuse naming what's short; "max" queues as many
+// as can be paid. `cancel` sends the last-queued trainee (waiting ones first) home with a refund.
+export function handleTrainUnit(player: Player, tx: unknown, ty: unknown, count?: unknown, cancel?: unknown) {
   if (typeof tx !== "number" || typeof ty !== "number" || !Number.isInteger(tx) || !Number.isInteger(ty)) return;
   withClan(clanById(player.clan ?? 0), () => {
+    if (cancel === true) {
+      if (clanIdAt(tx, ty) !== state.clan.id) return;
+      const list = traineesListAt(tx, ty);
+      const c = [...list].reverse().find((x) => x.training!.waiting) ?? list[list.length - 1];
+      if (!c) return;
+      cancelTraining(c);
+      sendEvent(player, "build", `${c.person?.name ?? "A recruit"} leaves training (gear back in the armoury)`);
+      return;
+    }
     const info = trainInfo(tx, ty);
     if (!info) return;
-    if (info.reason) {
-      sendEvent(player, "build", `Cannot train: ${info.reason}`);
+    const want = count === "max" ? info.max : typeof count === "number" && Number.isInteger(count) ? Math.min(Math.max(count, 1), TRAIN_BATCH_MAX) : 1;
+    if (info.reason || want <= 0) {
+      sendEvent(player, "build", `Cannot train: ${info.reason || "nobody can be trained now"}`);
+      return;
+    }
+    if (want > info.max) {
+      const free = freeVillagerCount(state.clan.id);
+      const gear = Math.min(state.equipment.weapon[info.level - 1], state.equipment.armour[info.level - 1]);
+      const room = info.cap - info.troops - info.training;
+      sendEvent(player, "build", `Cannot train ${want}: room for ${room}, ${free} free adult${free === 1 ? "" : "s"}${info.gearOptional ? "" : `, ${gear} T${info.level} gear set${gear === 1 ? "" : "s"}`} (Max trains ${info.max})`);
       return;
     }
     // Creative mode: instant, free, no villager needed.
     if (state.creative) {
-      finishTraining(null, tx, ty, info.kind, info.level);
+      for (let i = 0; i < want; i++) finishTraining(null, tx, ty, info.kind, info.level);
       return;
     }
-    const v = freeVillagerFor(state.clan.id, tx, ty)!;
-    // Basic militia take a T1 weapon + armour when the stock has them, else they train unarmed.
-    const unarmed = !info.geared;
-    if (!unarmed) {
-      state.equipment.weapon[info.level - 1]--;
-      state.equipment.armour[info.level - 1]--;
-    }
     const ticks = Math.round(info.days * DAY_TICKS * (state.instantBuild ? 0 : 1)) || 1;
-    v.training = { tx, ty, kind: info.kind, level: info.level, ticksLeft: ticks, ticksTotal: ticks, ...(unarmed ? { unarmed } : {}) };
-    v.postX = tx;
-    v.postY = ty;
-    v.path = [];
-    sendEvent(player, "build", `${v.person?.name ?? "A villager"} begins training${unarmed ? " (unarmed: no weapon or armour in stock)" : ""} (${info.days} day${info.days === 1 ? "" : "s"})`);
+    let active = traineesListAt(tx, ty).filter((c) => !c.training!.waiting).length;
+    let unarmedN = 0;
+    const names: string[] = [];
+    for (let i = 0; i < want; i++) {
+      const v = freeVillagerFor(state.clan.id, tx, ty);
+      if (!v) break;
+      // Basic militia take a T1 weapon + armour while the stock has them, else they train unarmed.
+      const unarmed = !(state.equipment.weapon[info.level - 1] >= 1 && state.equipment.armour[info.level - 1] >= 1);
+      if (!unarmed) {
+        state.equipment.weapon[info.level - 1]--;
+        state.equipment.armour[info.level - 1]--;
+      } else unarmedN++;
+      const waiting = active >= info.slots;
+      if (!waiting) active++;
+      v.training = { tx, ty, kind: info.kind, level: info.level, ticksLeft: ticks, ticksTotal: ticks, ...(unarmed ? { unarmed } : {}), ...(waiting ? { waiting } : {}) };
+      v.postX = tx;
+      v.postY = ty;
+      v.path = [];
+      names.push(v.person?.name ?? "A villager");
+    }
+    const who = names.length === 1 ? names[0] : `${names.length} recruits`;
+    const waitN = traineesListAt(tx, ty).filter((c) => c.training!.waiting).length;
+    sendEvent(player, "build", `${who} begin${names.length === 1 ? "s" : ""} training${unarmedN > 0 ? ` (${unarmedN} unarmed: no weapon or armour in stock)` : ""} (${info.days} day${info.days === 1 ? "" : "s"} each${waitN > 0 ? `, ${waitN} waiting for a place` : ""})`);
   });
 }
 
@@ -321,6 +376,9 @@ export function handleTrainUnit(player: Player, tx: unknown, ty: unknown) {
 // changed line) goes back to the village and the gear returns to the stock.
 export function updateTraining() {
   const night = isNightNow();
+  // Batch training: trainees in training per building (waiting ones step up, in queue order, as places open).
+  const active = new Map<number, number>();
+  for (const c of colonists.values()) if (c.training && !c.training.waiting) active.set(tileIndex(c.training.tx, c.training.ty), (active.get(tileIndex(c.training.tx, c.training.ty)) ?? 0) + 1);
   for (const c of Array.from(colonists.values())) {
     const t = c.training;
     if (!t) continue;
@@ -328,6 +386,13 @@ export function updateTraining() {
     if (!slots || !sameLine(slots.kind, t.kind)) {
       cancelTraining(c);
       continue;
+    }
+    if (t.waiting) {
+      const key = tileIndex(t.tx, t.ty);
+      const n = active.get(key) ?? 0;
+      if (n >= TRAIN_SLOTS_PER_LEVEL * Math.min(Math.max(slots.level, 1), 3)) continue;
+      t.waiting = undefined;
+      active.set(key, n + 1);
     }
     if (!night) t.ticksLeft--;
     if (t.ticksLeft > 0) continue;

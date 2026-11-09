@@ -287,8 +287,8 @@ function handleMessage(player: Player, message: ClientMessage) {
     // Village life phase 5: a dead hero's successor.
     handleChooseHeir(player, message.id);
   } else if (message.type === "trainUnit") {
-    // Village life phase 3: train one soldier at a unit building.
-    handleTrainUnit(player, message.tileX, message.tileY);
+    // Village life phase 3: train soldiers at a unit building (count: a batch or "max"; cancel: send one home).
+    handleTrainUnit(player, message.tileX, message.tileY, message.count, message.cancel);
   } else if (message.type === "callVillagers") {
     // Village life phase 4: the levy (people.ts).
     handleCallVillagers(player, message.tileX, message.tileY, message.dismiss);

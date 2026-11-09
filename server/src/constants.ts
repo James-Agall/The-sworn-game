@@ -2375,6 +2375,11 @@ export const NEAR_START_CAMP_RING: [number, number] = [20, 34];
 // Phase 3: training a soldier at a unit building takes one free adult villager + one weapon and one armour of the
 // building's tier, and TRAIN_DAYS_BY_LEVEL[level - 1] game days.
 export const TRAIN_DAYS_BY_LEVEL = [1, 1.25, 1.5];
+// Batch training (2026-11-06): a unit building trains TRAIN_SLOTS_PER_LEVEL x its level at once (2 / 4 / 6); more
+// queued trainees wait (their clock stands still) and step up as places open. One click queues at most
+// TRAIN_BATCH_MAX ("Max" = as many as room, free adults and gear allow).
+export const TRAIN_SLOTS_PER_LEVEL = 2;
+export const TRAIN_BATCH_MAX = 50;
 // Phase 4: free villagers help on construction sites at this fraction of a builder's rate.
 export const VILLAGER_BUILD_RATE = 0.5;
 // Phase 4: the levy. A Town Center's "Call to arms" turns its adult civilians (free villagers and workers) into

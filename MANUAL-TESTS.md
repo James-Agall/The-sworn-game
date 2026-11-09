@@ -678,3 +678,9 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
    sown. Build a Barn: 2 farmers come (3 / 4 at levels 2 / 3) and walk out to the fields; the Barn panel reads
    "Farmers 2/2" and "... 8/8 fields (4 per farmer)"; a 9th field nearby says "Not tended". No field has a worker.
    Load an old save with Hemp Fields: their farmhands become free villagers and the fields grow once a Barn is near.
+11. Batch training: a Militia Camp (level 1) with two Houses beside it and 3+ free adults: its panel shows x1 / x5 /
+    x10 / **Max (3)** and **Cancel one**. x5 is refused ("Cannot train 5: room for 4, 3 free adults ..."); Max queues
+    3: the state line reads "2 training (2 at a time), 1 waiting" with each trainee's percent; Cancel one sends the
+    waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
+    trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
+
