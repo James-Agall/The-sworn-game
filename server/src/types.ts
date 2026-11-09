@@ -55,6 +55,25 @@ export interface Player {
   creativeGod?: boolean;
   // World streaming phase 4: connected with `?chunks=1` (takes a chunked welcome on streamed worlds).
   chunked?: boolean;
+  // Stardew phase 5c (interiors.ts): inside a prefab building's interior (transient, never saved). x / y are
+  // interior px; the world x / y stay at the door. Not set = in the world.
+  interior?: PlayerInterior;
+  // Interiors: the tick of the last bump-enter attempt / exit (INTERIOR_BUMP_COOLDOWN_TICKS).
+  interiorBumpTick?: number;
+}
+export interface PlayerInterior {
+  // The building's anchor "x,y" (also its chest key), tile and level when entered.
+  key: string;
+  tx: number;
+  ty: number;
+  tile: number;
+  level: number;
+  templateId: string;
+  x: number;
+  y: number;
+  // Last `interior` view JSON sent (resent only on change) and the next refresh tick.
+  sent: string;
+  nextRefresh: number;
 }
 export interface TileCoord {
   x: number;

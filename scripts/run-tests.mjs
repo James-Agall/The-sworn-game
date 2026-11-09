@@ -80,6 +80,7 @@ const SERVER_ENV = {
   "work-priorities": W80,
   "hero-tools": W80,
   calendar: W80,
+  interiors: INSTANT,
   "gravestone-events": { ...INSTANT, ...LEGACY },
   "halflatch-ward-lapse": INSTANT,
   "happiness-militia-tavern": { ...W80, ...INSTANT },

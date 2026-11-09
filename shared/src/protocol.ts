@@ -2,6 +2,7 @@ import type { CalendarSnapshot } from "./calendar.js";
 import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, PersonalBuild } from "./herolife.js";
 import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
 import type { WorkTabSnapshot, WorkType } from "./work.js";
+import type { InteriorView } from "./interiors.js";
 export const TICK_RATE = 20;
 export const TILE_SIZE = 32;
 // Server-side default; the live size is overridable (COLONY_WORLD_SIZE) and sent in `welcome`.
@@ -1291,7 +1292,9 @@ export type ClientMessage =
   | { type: "heroTool"; tool: HeroTool; tx: number; ty: number; crop?: CropId }
   | { type: "gatherStop" }
   | { type: "dialogueChoice"; choice: number }
-  | { type: "heroAction"; action: HeroActionKind; build?: PersonalBuild };
+  | { type: "heroAction"; action: HeroActionKind; build?: PersonalBuild }
+  // Stardew phase 5c: leave the interior (Esc near the exit mat; walking onto the mat leaves by itself).
+  | { type: "interiorExit" };
 
 export type ServerMessage =
   | {
@@ -1448,6 +1451,9 @@ export type ServerMessage =
   | { type: "dialogue"; dialogue?: DialogueSnapshot; close?: boolean; openTrade?: { tileX: number; tileY: number } }
   // Solo hero: E found nothing to talk to / gather / work (the client falls back to the building panel).
   | { type: "interactNone" }
+  // Stardew phase 5c: the interior the hero is in (view; refreshed when its NPCs / chest / threat change), or null
+  // when the hero is back in the world.
+  | { type: "interior"; view: InteriorView | null }
   // Modular building phase 4: the Work tab table (reply to workTab / workSet / workMode).
   | { type: "workTab"; tab: WorkTabSnapshot };
 
@@ -1465,6 +1471,9 @@ export interface PlayerSnapshot {
   // Village life phase 5: set while dead and choosing an heir (adult villagers / companions of the clan); a dead
   // player without it is game over.
   heirs?: HeirCandidateSnapshot[];
+  // Stardew phase 5c: inside a building interior (key = its anchor "x,y"; x / y = interior px). The world x / y stay
+  // at the door; the world view hides the rider.
+  inside?: { key: string; x: number; y: number };
 }
 
 // Village life phase 5: one adult who can take over as the hero.

@@ -15,6 +15,7 @@
     "./rooms": "./src/rooms.ts",
     "./zones": "./src/zones.ts",
     "./work": "./src/work.ts",
-    "./calendar": "./src/calendar.ts"
+    "./calendar": "./src/calendar.ts",
+    "./interiors": "./src/interiors.ts"
   }
 }

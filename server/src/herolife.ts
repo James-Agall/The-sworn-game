@@ -42,6 +42,7 @@ import { handleCallToArms } from "./vassals.js";
 import { heirOrderNames } from "./people.js";
 import { cropGrowthMult, winterNow } from "./calendar.js";
 import { cropSeasonLabel, WINTER_COLD_REST_DECAY_MULT, WINTER_COLD_REST_GAIN_MULT, WINTER_WARM_ROOM_REST_MULT } from "@colony/shared/calendar";
+import { interiorFurnitureChoice, interiorInteract, interiorRestMult, tryEnterAtDoor } from "./interiors.js";
 
 // ---- profile state ----
 export function lifeOf(player: Player): HeroLife {
@@ -117,12 +118,20 @@ interface WorkJob {
   job?: { recipe: Recipe; left: number; total: number };
   idle?: string;
 }
-interface ChoiceRt {
+export interface ChoiceRt {
   label: string;
   disabled?: string;
   next?: string;
   action?: DialogueAction | "accept" | "deliver" | "learn" | "back";
   arg?: number | string;
+}
+// Stardew phase 5c: a talk inside a building interior (the NPC / bed / chest stands at interior px x / y of the
+// interior `key`; range is measured there) and the building it is in (openBuilding).
+export interface TalkInside {
+  key: string;
+  x: number;
+  y: number;
+  anchor: { x: number; y: number };
 }
 interface Talk {
   role: NpcRole;
@@ -132,6 +141,7 @@ interface Talk {
   mobId?: string;
   color: number;
   choices: ChoiceRt[];
+  inside?: TalkInside;
 }
 interface Busy {
   gather?: GatherJob;
@@ -150,7 +160,7 @@ function busyOf(p: Player): Busy {
   return b;
 }
 
-const toast = (p: Player, text: string) => sendTo(p, { type: "event", category: "build", text });
+export const toast = (p: Player, text: string) => sendTo(p, { type: "event", category: "build", text });
 const tileCenterDist = (p: Player, tx: number, ty: number) => Math.hypot((tx + 0.5) * TILE_SIZE - p.x, (ty + 0.5) * TILE_SIZE - p.y) / TILE_SIZE;
 
 // ---- names (stable per NPC id) ----
@@ -160,16 +170,18 @@ function hashOf(s: string): number {
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   return h >>> 0;
 }
-const nameFor = (id: string) => NAMES[hashOf(id) % NAMES.length];
+export const nameFor = (id: string) => NAMES[hashOf(id) % NAMES.length];
+export const talkColorFor = (name: string) => [0xc9a227, 0x6aa84f, 0x8e7cc3, 0xe69138, 0x3d85c6][hashOf(name) % 5];
 
 // ---- talk ----
-interface Target {
+export interface Target {
   role: NpcRole;
   name: string;
   d: number;
   site?: SiteState;
   mob?: Mob;
   colonist?: Colonist;
+  inside?: TalkInside;
 }
 function findTalkTarget(p: Player): Target | null {
   let best: Target | null = null;
@@ -246,7 +258,7 @@ function sendTalk(p: Player, t: Talk, text: string) {
   sendTo(p, { type: "dialogue", dialogue });
 }
 
-function closeTalk(p: Player, extra: { openTrade?: { tileX: number; tileY: number } } = {}) {
+export function closeTalk(p: Player, extra: { openTrade?: { tileX: number; tileY: number } } = {}) {
   busyOf(p).talk = undefined;
   sendTo(p, { type: "dialogue", close: true, ...extra });
 }
@@ -257,10 +269,10 @@ function sayThen(p: Player, t: Talk, text: string, more: ChoiceRt[] = []) {
   sendTalk(p, t, text);
 }
 
-function startTalk(p: Player, target: Target) {
+export function startTalk(p: Player, target: Target) {
   const t: Talk = {
     role: target.role, name: target.name, siteId: target.site?.id, mobId: target.mob?.id, colonistId: target.colonist?.id,
-    color: [0xc9a227, 0x6aa84f, 0x8e7cc3, 0xe69138, 0x3d85c6][hashOf(target.name) % 5], choices: [],
+    color: talkColorFor(target.name), choices: [], ...(target.inside ? { inside: target.inside } : {}),
   };
   busyOf(p).talk = t;
   const life = lifeOf(p);
@@ -268,8 +280,23 @@ function startTalk(p: Player, target: Target) {
   renderTalk(p, t, "start");
 }
 
+// Stardew phase 5c: a bed / chest inside an interior, spoken to like an NPC (choices built by interiors.ts).
+export function furnitureTalk(p: Player, name: string, text: string, choices: ChoiceRt[], inside: TalkInside) {
+  const b = busyOf(p);
+  const t: Talk = b.talk?.role === "furniture" && b.talk.name === name ? b.talk : { role: "furniture", name, color: 0x8a5a2b, choices: [], inside };
+  t.choices = [...choices, { label: "Close.", action: "bye" }];
+  b.talk = t;
+  sendTalk(p, t, text);
+}
+
 // Still in talking range of the NPC (it may walk off or die).
 function talkInRange(p: Player, t: Talk): boolean {
+  // Stardew phase 5c: inside an interior the distance is measured there (the NPC's world body may be anywhere).
+  if (t.inside || p.interior) {
+    const s = t.siteId ? sites.get(t.siteId) : undefined;
+    return !!t.inside && p.interior?.key === t.inside.key && Math.hypot(t.inside.x - p.interior.x, t.inside.y - p.interior.y) / TILE_SIZE <= TALK_RANGE_TILES + 2
+      && (!t.colonistId || (colonists.get(t.colonistId)?.hp ?? 0) > 0) && (!t.siteId || standingTown(s));
+  }
   if (t.colonistId) {
     const c = colonists.get(t.colonistId);
     return !!c && Math.hypot(c.x - p.x, c.y - p.y) / TILE_SIZE <= TALK_RANGE_TILES + 2;
@@ -369,6 +396,14 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
       return wedding(p, t);
     case "part":
       return sayThen(p, t, partWays(p));
+    // Stardew phase 5c (interiors): the building's own panel (shop, forge, ...), the bed and the chest.
+    case "openBuilding":
+      return t.inside ? closeTalk(p, { openTrade: { tileX: t.inside.anchor.x, tileY: t.inside.anchor.y } }) : closeTalk(p);
+    case "sleep":
+    case "nap":
+    case "chestPut":
+    case "chestTake":
+      return interiorFurnitureChoice(p, c.action, c.arg);
     case "kinLevy": {
       if (!s) return closeTalk(p);
       const why = handleCallToArms(p, s, {});
@@ -399,7 +434,7 @@ function familyChoices(p: Player, t: Talk): ChoiceRt[] {
   const out: ChoiceRt[] = [];
   const f = familyOf(p);
   const c = t.colonistId ? colonists.get(t.colonistId) : undefined;
-  if (f.betrothed && (t.role === "questGiver" || c?.kind === "bishop")) {
+  if (f.betrothed && (t.role === "questGiver" || t.role === "priest" || c?.kind === "bishop")) {
     out.push({ label: `Marry us: ${f.betrothed.name} and I (${CEREMONY_FEE} gold).`, action: "marry", disabled: (state.stock.gold ?? 0) < CEREMONY_FEE ? `Needs ${CEREMONY_FEE} gold` : undefined });
   }
   if (t.role === "folk" && c && !heroTaken(p) && courtable(p, c)) out.push(...courtChoices(p, `c:${c.id}`, c.person!.name));
@@ -478,7 +513,8 @@ function wedding(p: Player, t: Talk) {
 
 function fareOf(t: Talk): string {
   const c = t.colonistId ? colonists.get(t.colonistId) : undefined;
-  if (!c?.person) return "They have gone.";
+  if (!c) return "They have gone.";
+  if (!c.person) return `"The work keeps me busy. The stores hold ${Math.floor(state.stock.grain + state.stock.meat + state.stock.fruit)} food."`;
   const prof = professionOf(c);
   const work = prof ? `a level-${workerLevel(c)} ${PROFESSION_LABEL[prof]}` : `a ${c.kind}`;
   const home = c.person.homeX >= 0 ? "a roof over my head" : "no bed of my own yet";
@@ -624,6 +660,8 @@ function sellPack(p: Player, s: SiteState): string {
 // faced tile (or a ripe crop there by hand); then the old gather / station rules; the tool's refusal is shown last.
 export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
   if (p.dead) return;
+  // Stardew phase 5c: inside an interior E talks / uses the bed or chest / leaves.
+  if (p.interior) return interiorInteract(p);
   const b = busyOf(p);
   const target = findTalkTarget(p);
   if (target) {
@@ -632,6 +670,8 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
     b.resting = false;
     return startTalk(p, target);
   }
+  // Stardew phase 5c: nobody to talk to: at a prefab building's door E enters it (walking into it always does).
+  if (tryEnterAtDoor(p, false)) return;
   let toolWhy = "";
   if (Number.isInteger(m.tx) && Number.isInteger(m.ty)) {
     toolWhy = useTool(p, (HERO_TOOLS as unknown[]).includes(m.tool) ? (m.tool as HeroTool) : null, m.tx as number, m.ty as number, m.crop, false);
@@ -655,6 +695,7 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
 
 // Space / left click with a hotbar tool: the tool on the faced tile only (no talk, no fallback).
 export function handleHeroTool(p: Player, m: Record<string, unknown>) {
+  if (p.interior) return toast(p, "Your tools have no use indoors");
   if (p.dead || !(HERO_TOOLS as unknown[]).includes(m.tool) || !Number.isInteger(m.tx) || !Number.isInteger(m.ty)) return;
   const why = useTool(p, m.tool as HeroTool, m.tx as number, m.ty as number, m.crop, true);
   if (why && why !== "-") toast(p, why);
@@ -982,12 +1023,15 @@ function shelterMult(p: Player): number {
   if (m < 3 && nearOwnStore(p, 2)) m = 3;
   // Modular building phase 2: resting in a bedroom (x its quality, shared/src/rooms.ts).
   m = Math.max(m, heroRestMultAt(p.x, p.y));
+  // Stardew phase 5c: in your own house / hall interior (your bed).
+  m = Math.max(m, interiorRestMult(p));
   return m;
 }
 
 // Stardew phase 5b: winter rest multipliers (gain while resting, decay otherwise); 1 / 1 outside winter.
 function coldMult(p: Player): { gain: number; decay: number } {
-  if (!winterNow()) return { gain: 1, decay: 1 };
+  // Stardew phase 5c: indoors (any building interior) is out of the cold.
+  if (!winterNow() || p.interior) return { gain: 1, decay: 1 };
   if (warmRoomAt(Math.floor(p.x / TILE_SIZE), Math.floor(p.y / TILE_SIZE))) return { gain: WINTER_WARM_ROOM_REST_MULT, decay: 1 };
   if (!isNightNow() || shelterMult(p) > 1) return { gain: 1, decay: 1 };
   return { gain: WINTER_COLD_REST_GAIN_MULT, decay: WINTER_COLD_REST_DECAY_MULT };
@@ -1190,6 +1234,30 @@ export function withPlayerLife(payload: string, p: Player): string {
   if (json === b.sent) return payload;
   b.sent = json;
   return payload.slice(0, -1) + ',"life":' + json + "}";
+}
+
+// Stardew phase 5c: entering / leaving an interior drops gathering, tool use, station work and the conversation.
+export function stopHeroBusy(p: Player) {
+  const b = busy.get(p.id);
+  if (!b) return;
+  b.gather = undefined;
+  b.tool = undefined;
+  b.work = undefined;
+  b.resting = false;
+  if (b.talk) closeTalk(p);
+}
+// Interiors: the bed's nap (resting, x the bed's multiplier) / a full night's sleep.
+export function setHeroResting(p: Player, on: boolean) {
+  const b = busyOf(p);
+  b.resting = on;
+  b.gather = undefined;
+  b.tool = undefined;
+  b.work = undefined;
+}
+export function restHeroFully(p: Player) {
+  const life = lifeOf(p);
+  life.rest = NEED_MAX;
+  life.energy = ENERGY_MAX;
 }
 
 // A new world / load: transient work is dropped and every player's life is resent.

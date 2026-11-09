@@ -83,7 +83,7 @@ export function playerForceNear(cx: number, cy: number, radiusPx: number): { hp:
   }
   if (!state.testPlayersIgnored) {
     for (const p of players.values()) {
-      if (p.dead || Math.hypot(p.x - cx, p.y - cy) > radiusPx) continue;
+      if (p.dead || p.interior || Math.hypot(p.x - cx, p.y - cy) > radiusPx) continue;
       hp += p.hp;
       dmg += playerDamage(p);
       units.push({ type: "player", id: p.id, x: p.x, y: p.y, rear: false });
@@ -817,7 +817,7 @@ export function nearestPlayerUnitWithin(mob: Mob, radiusPx: number): { type: Mob
   if (!state.testPlayersIgnored) {
     for (const p of players.values()) {
       const d = Math.hypot(p.x - mob.x, p.y - mob.y);
-      if (!p.dead && d <= bestD) {
+      if (!p.dead && !p.interior && d <= bestD) {
         bestD = d;
         best = { type: "player", id: p.id };
       }

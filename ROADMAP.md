@@ -2155,6 +2155,67 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Stardew layer — landed (phase 5c) 2026-11-09 (building interiors)
+Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 5c. Shared: `shared/src/interiors.ts` (EVERY interior number, the
+templates, the legend, the pure map builder, the wire types); server: `server/src/interiors.ts` (enter / exit, movement on
+the interior grid, NPC binding, bed, chest, refresh, saves); client: `client/src/interior.ts` (the room view, HUD, Esc).
+- **Which buildings**: prefab buildings only (INTERIOR_TEMPLATE_BY_TILE): House / House level 2 / Big House -> house
+  (level 1 / 2 / 3), Tavern, Church + the Abbey hall -> church, Blacksmith -> smithy, Bakery, Market / Gold Shop -> shop,
+  Militia camps 1-3 -> barracks, Town Center / castles / Keep / a settlement's keep -> great hall, Barn -> barn (storage).
+  Player-built modular rooms (phases 1-2) are never entered (roof cutaway as before). Access: your clan's buildings; a
+  standing human settlement's buildings unless it is hostile ("The door is barred"); the Abbey; never another clan's.
+- **Templates** (data: `INTERIOR_TEMPLATES`, ASCII rows over `INTERIOR_LEGEND`, like the camp templates): house 11x7,
+  tavern 13x9, church 11x11, smithy 11x7, bakery 9x7, shop 11x8, barracks 13x8, great hall 15x11, barn 11x7. Legend:
+  `#` wall, `.` floor, `E` exit mat (one, in the bottom wall), furniture letters (bed, chest, table, chair, hearth, lamp,
+  rug, shelf, wardrobe, counter, altar, pew, anvil, oven, barrel, crates, sacks, hay, weapon rack, armour stand, banner,
+  statue, high seat, forge, stall, workbench, candelabra), NPC slots `1` keeper / priest / Elder, `2` a hall's trader, `v`
+  residents / patrons. `minLevel` pieces show from building level 2 / 3 (lamps, rugs, wardrobe, candelabra, extra beds,
+  statues). Built lazily per template + level (`buildInteriorMap`, pure), cached, never saved or streamed.
+- **Enter**: the door is the tile below the (1x1) building. Walking north into the building from its door tile enters
+  (INTERIOR_BUMP_COOLDOWN_TICKS 30 between tries); E at the door enters when nobody is in talking range (talking keeps
+  priority, so a settlement keep's door talks to its Elder: walk in instead). Refused while a hostile mob (raiders,
+  camp guards awake, monsters; not settlement workers / sleeping creative neutrals) is within INTERIOR_ENEMY_BLOCK_TILES 6
+  of the door. Inside: `Player.interior {key "x,y", tx, ty, tile, level, templateId, x, y}` (transient, not saved); the
+  world x / y stay at the door; the hero spawns on the tile above the mat.
+- **Inside**: movement on the interior's own collision grid (walls, nothing, solid furniture; chairs / rugs walkable) at
+  INTERIOR_SPEED_MULT 0.75 x the usual speed; the world sim runs on (time, raids, seasons). Nothing targets or hurts a hero
+  inside (mob / tower / tactics / siege target pickers skip it, damagePlayer ignores it); attacks / spells / hotbar tools
+  are refused; it does not occupy its door tile (placement) and never blocked pathing. Walking onto the mat leaves (back
+  at the door, or the nearest free tile); Esc within INTERIOR_ESC_EXIT_TILES 2.2 of the mat leaves (`interiorExit`). The
+  building gone / taken over: out with a toast; upgraded: the new level's room. Load / new world: everyone outside.
+- **People** (refreshed every INTERIOR_REFRESH_TICKS 20, the view resent only when it changed): own buildings bind the
+  colonists POSTED there (slot 1 / 2 first, then `v`) and the people whose HOME it is; roles: bishop -> "priest" (new
+  dialogue: resurrection info, fare; "Marry us" when betrothed), posted -> "keeper" (new: "Show me the work here." opens
+  the building's panel, fare), residents -> "folk" (the usual: fare, courting). The Abbey binds its clergy as priests. A
+  settlement building binds its roles without needing the cosmetic worker mobs (COLD safe): keep = Elder + trader, Church
+  = Brother (the quest giver), Market / Tavern / Smithy / Bakery / Barn = trader, houses / tavern = villagers; all the
+  existing dialogue (trade, sell the pack, quests, rumours, masters via the Elder, gifts, lodging). E inside picks the
+  nearest of: NPC within TALK_RANGE_TILES 2.5, a bed / chest within INTERIOR_USE_RANGE_TILES 1.6, the mat.
+- **Bed** (own house or own great hall): a "furniture" dialogue. "Sleep until dawn" (night only, no hostiles near the
+  door): rest + energy full; with no other hero connected the clock jumps to the tick before dawn (the dawn step runs as
+  ever), otherwise the night goes on. "Lie down" = resting with INTERIOR_BED_REST_MULT 3 (like the home shelter). Indoors
+  counts as out of the winter cold.
+- **Chest** (own buildings with a chest; Barn = storage): pack <-> chest by dialogue (store everything / take everything
+  / per good), capacity INTERIOR_CHEST_CAP 200 weight (Barn INTERIOR_BARN_CHEST_CAP 600); the pack stays capped at
+  PACK_CAP. Saved as top-level `interiorChests` [[anchor "x,y", goods]] (optional: older saves have none).
+- **Client** (`interior.ts`): on `interior {view}` the world layer is hidden and a room layer drawn over it (floors from
+  the wired floor art, code-drawn 3/4 walls and mat, furniture from the wired / extra atlas art or stand-in blocks, NPC
+  sprites with name labels, the hero at its snapshot `inside` position, eased), camera at INTERIOR_ZOOM 2.4 following the
+  hero (a room smaller than the screen is centred), warm vignette INTERIOR_VIGNETTE_ALPHA 0.6, a INTERIOR_FADE_MS 260 fade
+  on enter and exit. HUD: title, a red "Raiders near the door!" bar (hostiles within INTERIOR_THREAT_ALERT_TILES 12 of the
+  door), the exit hint near the mat; event toasts and the hero bar stay. Strategy view (Tab) refused inside, world clicks
+  ignored, the hotbar selects but has no faced tile, weather overlay off. Other heroes in the same building are drawn;
+  a hero inside is hidden on everyone's world map and minimap. Snapshot `players[].inside {key, x, y}`.
+- **Tests**: `server/interiors-test.mjs` (`npm test -- interiors`, default 160 map): E / bump enter, view, world body at
+  the door, collision (wall, hearth, bed), no damage inside, chest store / take, bed nap / sleep to dawn, mat / Esc exit,
+  refused near a goblin, Town Center hall people + dialogue, a settlement Market trader + Church priest, a hostile
+  settlement's barred door, chest save / load (outside after a load). Test hook `interior` (enter / exit / at / find).
+- **Known gaps (5c)**: only 1x1 prefab buildings have doors (all eligible types are 1x1); one template per type with
+  level pieces (no random variation); NPCs stand still on their slots (no walking / sitting animations); a tavern's own
+  patrons are not drawn (only its keeper); no stairs / upper floors; resurrection itself is still the heir picker on
+  death (the priest only explains it); interior art is stand-in / atlas pieces (SPRITES.md #95); crops lose the skipped
+  night's growth when sleeping to dawn (the clock jumps).
+
 ## Stardew layer — landed (phase 5b) 2026-11-09 (seasons, calendar, weather)
 Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 5b. Shared: `shared/src/calendar.ts` (EVERY seasonal / weather
 number, the calendar maths, the weather roll, client tints / particle caps); server: `server/src/calendar.ts`

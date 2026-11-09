@@ -50,6 +50,7 @@ import { updateZones } from "./zones.js";
 import { updateCalendar } from "./calendar.js";
 import { updateWorkAssignments } from "./work.js";
 import { heroSpeedMult, updateHeroLife } from "./herolife.js";
+import { stepInteriorMovement, tryEnterAtDoor, updateInteriors } from "./interiors.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 export function stepSimulation() {
@@ -139,6 +140,11 @@ export function stepSimulation() {
     }
 
     if (player.dead) continue;
+    // Stardew phase 5c: inside a building interior the hero walks its own small map (the world body waits at the door).
+    if (player.interior) {
+      stepInteriorMovement(player);
+      continue;
+    }
     const { dx, dy } = player.input;
     const length = Math.hypot(dx, dy) || 1;
     const normDx = dx / length;
@@ -158,6 +164,8 @@ export function stepSimulation() {
       state.worldHeight - PLAYER_HALF_SIZE
     );
     if (!collidesAt(player.x, nextY)) player.y = nextY;
+    // Stardew phase 5c: walking north into a prefab building from its door tile enters it.
+    else if (normDy < -0.5) tryEnterAtDoor(player, true);
   }
 
   lap("misc");
@@ -243,6 +251,8 @@ export function stepSimulation() {
   updateWardPriestPresence();
   // Solo hero: gathering, station work, needs.
   updateHeroLife();
+  // Stardew phase 5c: interiors (buildings gone / upgraded, NPC / chest / threat refresh).
+  updateInteriors();
   // Dawn/dusk respawn windows: one toast per batch.
   if (state.respawnWindowSpawned > 0) {
     broadcastEvent(

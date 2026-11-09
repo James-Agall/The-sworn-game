@@ -684,6 +684,33 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Stardew phase 5c: building interiors (2026-11-09)
+Automated: `npm test -- interiors`.
+1. New game, adventure view. Walk to the tile just below your Town Center (its door side) and keep walking up into it
+   (or press E there with nobody close enough to talk to): a short fade to black, then a stone great hall: walls, floor,
+   a long table, banners, hearths, a red mat at the bottom; a title "Your great hall" at the top; the world, the weather
+   and your hero on the map are hidden. The hero walks with WASD; tables, hearths and walls block; chairs and rugs do not.
+2. Your Town Center's people stand inside with name labels (its builder / workers by the high seat, the people who live
+   there by the beds). Walk up to one and press E: the usual dialogue ("Show me the work here." opens the Town Center
+   panel, "How do you fare?"). Tab does nothing but a toast ("Step outside ...").
+3. Walk onto the red mat: fade, you stand at the door outside. Go in again, stand near the mat and press Esc: out. Esc in
+   the middle of the room does not leave (the client only sends it near the mat).
+4. Build a House, go in (walk north into it from the tile below it): a small wooden room with a bed, hearth, table and a
+   chest. Pack something (gather wood), E at the chest: "Store everything" / "Take ..." choices; the chest keeps its
+   goods. Save, load: the hero is outside, the chest still holds them.
+5. E at the bed by day: "Sleep until dawn" is greyed ("It is still day"), "Lie down for a while": resting, the Rest and
+   Energy bars fill fast. At night (Creative > Day + night, or wait) "Sleep until dawn": dawn breaks at once, Rest and
+   Energy full (with a second player connected the night is not skipped).
+6. Upgrade the House (House level 2 / Big House): more beds, lamps, rugs, a wardrobe appear inside.
+7. A friendly settlement: its Market / Tavern / Smithy (trader at the counter: trade, buy what I carry), Church (Brother
+   at the altar: quests), keep (Elder + trader), houses (a villager). No chest of yours there, no bed. A hostile
+   settlement: "The door is barred to you".
+8. Go into your house with a goblin or a raid near (Creative spawn a few tiles away): refused ("Enemies are too close").
+   Inside when a raid comes close: a red "Raiders near the door!" bar; nothing can hurt you inside; the raid's event
+   toasts still show. Leave to fight.
+9. Two browsers: while one hero is inside, the other sees no rider at that door (minimap dot hidden too).
+10. Player-built rooms (Structure tab walls + door) are NOT entered: they keep the roof cutaway as before.
+
 ## Stardew phase 5b: seasons, calendar, weather (2026-11-09)
 Automated: `npm test -- calendar`.
 1. New game: under the sundial a row reads "Spring 1, Year 1" with a spring emblem and "Clear". The grass has a light

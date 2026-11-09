@@ -28,10 +28,13 @@ import {
 import { type HeroLifeUi, setupHeroLife } from "./herolife";
 import { setupHeroTools } from "./herotools";
 import { setupWeatherOverlay } from "./weather";
+import { type InteriorUi, setupInterior } from "./interior";
 import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
+// Stardew phase 5c: the building interior view (interior.ts), set up after the world layer.
+const interiorRef: { ui: InteriorUi | null } = { ui: null };
 import type {
   ClientMessage,
   SiteFaction,
@@ -2236,10 +2239,11 @@ async function main() {
       entry.marker = marker;
     }
     entry.sprite.position.set(p.x, p.y);
-    // A rider with no Town Center to respawn at is gone until one is built (game over overlay).
-    entry.sprite.visible = !p.dead;
-    entry.hpBar.visible = !p.dead;
-    if (entry.marker) entry.marker.visible = !p.dead;
+    // A rider with no Town Center to respawn at is gone until one is built (game over overlay). Stardew phase 5c: a
+    // hero inside a building interior is hidden on the world map (its body waits at the door).
+    entry.sprite.visible = !p.dead && !p.inside;
+    entry.hpBar.visible = !p.dead && !p.inside;
+    if (entry.marker) entry.marker.visible = !p.dead && !p.inside;
     entry.marker?.position.set(p.x, p.y + PLAYER_SPRITE_HEIGHT * 0.4);
     // Just above the (taller) sprite's top edge instead of the old fixed -20.
     entry.hpBar.position.set(p.x, p.y - PLAYER_SPRITE_HEIGHT / 2 - 4);
@@ -3076,7 +3080,7 @@ async function main() {
     if (sv) advCam.sync(sv.x, sv.y, now);
     else if (adventurePrefs.on) focus = advCam.follow(focus.x, focus.y, now);
     camZoom = sv ? sv.zoom : homeZoom();
-    weatherUi.setSuppressed(!!sv);
+    weatherUi.setSuppressed(!!sv || !!interiorRef.ui?.active());
     worldLayer.scale.set(camZoom);
     const camX = app.screen.width / 2 - focus.x * camZoom;
     const camY = app.screen.height / 2 - focus.y * camZoom;
@@ -6639,6 +6643,8 @@ async function main() {
     const message: ServerMessage = JSON.parse(event.data);
     if (message.type === "welcome") {
       myId = message.id;
+      // A new / loaded world: everyone starts outside.
+      interiorRef.ui?.reset();
       if (pendingLoadSlot) {
         // Continue / Load Game: the save brings its own difficulty (no claim), then a fresh welcome.
         sendMessage({ type: "loadGame", slot: pendingLoadSlot });
@@ -6716,6 +6722,7 @@ async function main() {
       applyProgression(message.progression);
       interpBeforeSnapshot();
       syncPlayers(message.players);
+      interiorRef.ui?.onPlayers(message.players);
       latestPlayersForSpells = message.players;
       if (message.life) {
         heroLifeRef.ui?.onLife(message.life);
@@ -6871,6 +6878,8 @@ async function main() {
       onChronicle(message);
     } else if (message.type === "workTab") {
       workUi.onTab(message.tab);
+    } else if (message.type === "interior") {
+      interiorRef.ui?.onMessage(message.view);
     } else if (message.type === "dialogue" || message.type === "interactNone") {
       heroLifeRef.ui?.onMessage(message);
     } else if (message.type === "buildingInfo") {
@@ -7279,6 +7288,11 @@ async function main() {
   });
 
   function toggleStrategy() {
+    // Stardew phase 5c: no strategy view from inside a building.
+    if (interiorRef.ui?.active() && !strategyCam.inStrategy) {
+      pushEventToast("build", "Step outside to use the strategy view");
+      return;
+    }
     const now = performance.now();
     armOrder(null);
     if (strategyCam.inStrategy) {
@@ -7358,7 +7372,8 @@ async function main() {
     active: () => !strategyCam.inStrategy && !!myId && heroModal.hidden && !!latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead),
     buildOpen: () => !buildPanel.classList.contains("collapsed"),
     talking: () => !(document.getElementById("hl-dialogue")?.hidden ?? true),
-    hero: () => latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead) ?? null,
+    // Stardew phase 5c: indoors the hotbar still selects, but there is no faced world tile.
+    hero: () => (interiorRef.ui?.active() ? null : latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead) ?? null),
     tileSize: () => tileSize,
     worldTilesX: () => worldTilesX,
     worldTilesY: () => worldTilesY,
@@ -7368,6 +7383,21 @@ async function main() {
     gatesOpen: () => latestProgression?.open === true,
   });
   worldLayer.addChild(heroTools.highlight);
+  interiorRef.ui = setupInterior({
+    app,
+    worldLayer,
+    structure: STRUCTURE_TEXTURES,
+    playerTexture: PLAYER_TEXTURE,
+    playerHeight: PLAYER_SPRITE_HEIGHT,
+    npcTexture: (kind) => COLONIST_TEXTURES[kind as ColonistKind],
+    npcHeight: COLONIST_SPRITE_HEIGHT,
+    send: sendMessage,
+    myId: () => myId,
+    onChange: () => {
+      setSelection([]);
+      closeBuildingInfo();
+    },
+  });
   app.ticker.add(() => {
     heroTools.frame(performance.now());
     // Keep the highlight over the ground layers that are added later.
@@ -7542,7 +7572,7 @@ async function main() {
     // Phase 5: every summarised enemy regiment (also those beyond the snapshot's mob cull).
     for (const e of enemyRegiments) dots.push({ x: e.x, y: e.y, color: 0xff3b2a, r: 3 + Math.min(4, Math.sqrt(e.count)), ring: true });
     for (const p of latestPlayersForSpells) {
-      if (!p.dead) dots.push({ x: p.x, y: p.y, color: p.id === myId ? 0xffffff : p.color, r: 4, ring: true });
+      if (!p.dead && !p.inside) dots.push({ x: p.x, y: p.y, color: p.id === myId ? 0xffffff : p.color, r: 4, ring: true });
     }
     drawUnitDots(strategyDots, camZoom, dots);
     dotsZoom = camZoom;
@@ -8021,6 +8051,8 @@ async function main() {
   }
 
   app.canvas.addEventListener("pointerdown", (e) => {
+    // Stardew phase 5c: the world is hidden while inside a building (no world clicks).
+    if (interiorRef.ui?.active()) return;
     const rect = app.canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
     const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;

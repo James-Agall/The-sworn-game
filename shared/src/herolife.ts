@@ -146,11 +146,15 @@ export const PERSONAL_BUILDS: Record<PersonalBuild, PersonalBuildDef> = {
 export const PERSONAL_BUILD_MAX = 6;
 
 // ---- dialogue ----
-export type NpcRole = "leader" | "trader" | "villager" | "questGiver" | "folk";
+// Stardew phase 5c (interiors): "priest" at a Church altar, "keeper" at an own building's counter (smith, baker, ...),
+// "furniture" = a bed / chest spoken to like an NPC (its choices are built by the server).
+export type NpcRole = "leader" | "trader" | "villager" | "questGiver" | "folk" | "priest" | "keeper" | "furniture";
 export type DialogueAction =
   | "bye" | "trade" | "sellPack" | "askWork" | "quests" | "gift" | "rumour" | "alliance" | "train" | "fare" | "lodging"
   // Family: the Elder's kin (courtship / the in-law levy), courting, proposing, the ceremony, parting.
-  | "kin" | "court" | "courtGift" | "propose" | "marry" | "kinLevy" | "part";
+  | "kin" | "court" | "courtGift" | "propose" | "marry" | "kinLevy" | "part"
+  // Stardew phase 5c (interiors): open the building's panel, the bed (sleep to dawn / nap), the chest (store / take).
+  | "openBuilding" | "sleep" | "nap" | "chestPut" | "chestTake";
 export interface DialogueChoiceDef {
   label: string;
   next?: string;
@@ -235,6 +239,36 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
       ],
     },
   },
+  // Stardew phase 5c: a priest at the altar (a Church of yours or the Abbey). "Marry us" is added when betrothed.
+  priest: {
+    start: {
+      text: { default: "{npc} looks up from the altar. \"Peace be with you, child. What brings you to the house of the Saint?\"" },
+      choices: [
+        { label: "Tell me about resurrection.", next: "rez" },
+        { label: "How do you fare?", action: "fare" },
+        BYE,
+      ],
+    },
+    rez: {
+      text: { default: "\"Should you fall, the Church may call you back, for an offering of gold and some of what you have learned. Without a Church, your heir must carry on.\"" },
+      choices: [{ label: "I understand.", next: "start" }, BYE],
+    },
+  },
+  // Stardew phase 5c: whoever works an own building (smith, baker, trader, tavern keeper, ...).
+  keeper: {
+    start: {
+      text: { default: "{npc} looks up from the counter. \"Welcome. What can I do for you?\"" },
+      choices: [
+        { label: "Show me the work here.", action: "openBuilding" },
+        { label: "How do you fare?", action: "fare" },
+        BYE,
+      ],
+    },
+  },
+  // Stardew phase 5c: a bed / chest (the server builds the choices; this node is never shown as is).
+  furniture: {
+    start: { text: { default: "" }, choices: [BYE] },
+  },
   // One of your own people.
   folk: {
     start: {
@@ -244,7 +278,8 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
   },
 };
 export const NPC_ROLE_LABEL: Record<NpcRole, string> = {
-  leader: "Elder", trader: "Trader", villager: "Villager", questGiver: "Priest", folk: "Your people",
+  leader: "Elder", trader: "Trader", villager: "Villager", questGiver: "Priest", folk: "Your people", priest: "Priest",
+  keeper: "Keeper", furniture: "",
 };
 // Gift: gold, the relation it buys and one gift per settlement per game day.
 export const GIFT_GOLD = 20;

@@ -1,6 +1,7 @@
 // saves.ts: Save files: snapshot/apply world, migrations, slots, autosave, restart.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { applySoloStart, resetHeroLifeSessions } from "./herolife.js";
+import { type InteriorChestsSave, interiorChestsForSave, resetInteriors, restoreInteriorChests } from "./interiors.js";
 import { topUpCreative } from "./creative.js";
 import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -130,6 +131,8 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   if (state.creative) topUpCreative();
   heroProfiles.clear();
   resetHeroLifeSessions();
+  // Stardew phase 5c: chest contents (interiors themselves are never saved).
+  resetInteriors();
   heroRecruits.length = 0;
   state.heroRosterVersion++;
   state.marketBuilt = false;
@@ -180,6 +183,8 @@ export function respawnPlayersAndWelcome() {
     player.input = { dx: 0, dy: 0 };
     player.dead = false;
     player.heirPending = false;
+    // Stardew phase 5c: everyone starts a new / loaded world outside.
+    player.interior = undefined;
   }
 
   for (const player of players.values()) {
@@ -264,6 +269,8 @@ function snapshotWorldInner() {
     roomDirt: roomsForSave() as [number, number][] | undefined,
     // Modular building phase 3 (optional).
     zones: zonesForSave() as ZonesSave | undefined,
+    // Stardew phase 5c: [building anchor "x,y", goods] per non-empty interior chest (optional: older saves have none).
+    interiorChests: interiorChestsForSave() as InteriorChestsSave | undefined,
     // Modular building phase 4: the clans in manual work-priority mode (optional: older saves are all default mode;
     // the priorities themselves are Person.work, saved with the colonists).
     workManual: workForSave() as number[] | undefined,
@@ -499,6 +506,8 @@ function applyWorldInner(s: WorldState) {
   restoreRooms(s.roomDirt);
   // Modular building phase 3: zones, crops, loose goods (optional: older saves have none).
   restoreZones(s.zones);
+  // Stardew phase 5c: interior chests (optional).
+  restoreInteriorChests(s.interiorChests);
   // Modular building phase 4: work mode (runtime jobs are re-decided).
   restoreWork(s.workManual);
   // After the owners: a fort's campfires (owned tiles) never get a backfilled hearth.

@@ -170,7 +170,8 @@ export function pickMarkedUnitTarget(mob: Mob, wards: TileCoord[]): { type: MobT
     if (isGuardOrMilitiaKind(c.kind)) consider("colonist", c.id, c.x, c.y, c.hp, c.maxHp);
   }
   for (const p of players.values()) {
-    if (!p.dead) consider("player", p.id, p.x, p.y, p.hp, playerMaxHp(p));
+    // Stardew phase 5c: a hero inside a building interior cannot be targeted (mobs never enter).
+    if (!p.dead && !p.interior) consider("player", p.id, p.x, p.y, p.hp, playerMaxHp(p));
   }
   return best;
 }
@@ -226,7 +227,7 @@ export function pickMobTarget(mob: Mob): PickedTarget | null {
   let bestPlayer: Player | null = null;
   let bestPlayerDist = MOB_AGGRO_RANGE_PLAYER_TILES * TILE_SIZE;
   for (const p of players.values()) {
-    if (p.dead || state.testPlayersIgnored || isWarded(p.x, p.y, wards)) continue;
+    if (p.dead || p.interior || state.testPlayersIgnored || isWarded(p.x, p.y, wards)) continue;
     const d = Math.hypot(p.x - mob.x, p.y - mob.y);
     if (d < bestPlayerDist) {
       bestPlayerDist = d;
@@ -264,7 +265,7 @@ export function unitInAggroRange(mob: Mob, wards: TileCoord[]): boolean {
     if ((c.kind === "wagon" || isGuardOrMilitiaKind(c.kind)) && Math.hypot(c.x - mob.x, c.y - mob.y) <= reach && !isWarded(c.x, c.y, wards)) return true;
   }
   for (const p of players.values()) {
-    if (!p.dead && !state.testPlayersIgnored && Math.hypot(p.x - mob.x, p.y - mob.y) <= playerPx && !isWarded(p.x, p.y, wards)) return true;
+    if (!p.dead && !p.interior && !state.testPlayersIgnored && Math.hypot(p.x - mob.x, p.y - mob.y) <= playerPx && !isWarded(p.x, p.y, wards)) return true;
   }
   return false;
 }
@@ -761,7 +762,7 @@ export function updateMob(mob: Mob, dt: number) {
 // ---- Forts phase B stage 2: the site-guardian leash ----
 
 function colonyUnitNear(x: number, y: number, r: number): boolean {
-  for (const p of players.values()) if (!p.dead && !state.testPlayersIgnored && Math.abs(p.x - x) <= r && Math.abs(p.y - y) <= r && Math.hypot(p.x - x, p.y - y) <= r) return true;
+  for (const p of players.values()) if (!p.dead && !p.interior && !state.testPlayersIgnored && Math.abs(p.x - x) <= r && Math.abs(p.y - y) <= r && Math.hypot(p.x - x, p.y - y) <= r) return true;
   for (const c of colonists.values()) if (c.hp > 0 && Math.abs(c.x - x) <= r && Math.abs(c.y - y) <= r && Math.hypot(c.x - x, c.y - y) <= r) return true;
   return false;
 }

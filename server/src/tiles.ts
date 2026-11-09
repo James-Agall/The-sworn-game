@@ -114,6 +114,8 @@ export function biomeProductionFactor(tx: number, ty: number): number {
 
 export function tileOccupiedByEntity(tx: number, ty: number): boolean {
   for (const p of players.values()) {
+    // Stardew phase 5c: a hero inside a building does not stand on its door.
+    if (p.interior) continue;
     const t = tileOfPixel(p.x, p.y);
     if (t.x === tx && t.y === ty) return true;
   }

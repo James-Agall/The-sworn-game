@@ -244,7 +244,8 @@ export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
 // A killed player respawns at the standing Town Center nearest where they fell. With none standing
 // they stay dead (game over for them) until someone builds one: see respawnDeadPlayers.
 export function damagePlayer(player: Player, amount: number) {
-  if (player.dead || player.creativeGod) return;
+  // Stardew phase 5c: nothing reaches a hero inside a building interior.
+  if (player.dead || player.creativeGod || player.interior) return;
   // Hero gear: every blow / poison tick the player takes is scaled (equipment survives death).
   const mult = heroProfileOf(player).stats.damageTakenMult;
   if (mult !== 1) heroEvent({ type: "taken", key: player.profileKey, amount: amount * mult, detail: String(amount) });
@@ -337,7 +338,7 @@ export function damageColonist(colonist: Colonist, amount: number) {
 }
 
 export function handlePlayerAttack(attacker: Player) {
-  if (attacker.dead || attacker.attackCooldownTicks > 0) return;
+  if (attacker.dead || attacker.interior || attacker.attackCooldownTicks > 0) return;
   attacker.attackCooldownTicks = playerAttackCooldownTicks(attacker);
   const damage = playerDamage(attacker);
 
@@ -346,7 +347,7 @@ export function handlePlayerAttack(attacker: Player) {
   let bestDist = Infinity;
 
   for (const p of players.values()) {
-    if (p.id === attacker.id || p.dead) continue;
+    if (p.id === attacker.id || p.dead || p.interior) continue;
     const d = Math.hypot(p.x - attacker.x, p.y - attacker.y);
     if (d <= PLAYER_ATTACK_RANGE && d < bestDist) {
       bestDist = d;
@@ -857,7 +858,7 @@ export function siteTowerShot(key: string, cx: number, cy: number, range: number
   let colonist: Colonist | null = null;
   if (!state.testPlayersIgnored) {
     for (const p of players.values()) {
-      const d = p.dead ? Infinity : Math.hypot(p.x - cx, p.y - cy);
+      const d = p.dead || p.interior ? Infinity : Math.hypot(p.x - cx, p.y - cy);
       if (d <= bestD) {
         bestD = d;
         player = p;

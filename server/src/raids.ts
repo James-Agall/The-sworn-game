@@ -583,7 +583,7 @@ export function raidGroupShouldEngage(leader: Mob, goal: { x: number; y: number 
     if (Math.hypot(c.x - leader.x, c.y - leader.y) <= range && !isWarded(c.x, c.y, wards)) return true;
   }
   for (const p of players.values()) {
-    if (p.dead) continue;
+    if (p.dead || p.interior) continue;
     if (Math.hypot(p.x - leader.x, p.y - leader.y) <= range && !isWarded(p.x, p.y, wards)) return true;
   }
   return false;

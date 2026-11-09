@@ -814,6 +814,22 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > trees); a frozen water tile set; a withered / frost-killed crop stage; optional puddle and snow-cover ground overlays
 > (transparent 32x32, 2-3 variants each); a soft transparent rain-streak / snowflake particle sprite (8x16 / 8x8).
 
+> **Stardew phase 5c (interiors, 2026-11-09) wiring:** `client/src/interior.ts` tiles each room procedurally: floors are
+> the wired `structure/floor_wood_*` / `floor_stone_*` (dirt = a flat stand-in colour), walls are drawn in code (a top
+> cap, a plank / stone-course face toward the room), the exit mat is a drawn red rug, the warm vignette is a canvas
+> radial gradient. Furniture uses the wired furniture pngs (bed, chest, table, chair, lamp, rug, shelf, statue, weapon
+> rack, workbench) and, loaded on demand, the extra atlas pieces (`structure/extra/`: fireplace_lit_b, wardrobe,
+> altar_candles, bench as pews, oven_round, barrel, crates_barrels_stack, sacks_pile, hay_pile_crate, armor_stand,
+> banner_red, stove_iron as the forge, stall_market_red, candelabra_b, bed_blue_double), each scaled into one tile.
+> Counter, anvil and high seat are coloured stand-in blocks. NPCs reuse the colonist sprites (settlement NPCs: the
+> villager / bishop art). The staged whole-room paintings (`art-sources/rimworld-stardew/normalised/builder/
+> interior_room_*`) do not fit the template grids: not used. **Still needed for 5c (#95):** per building type, 32x32
+> interior wall sets on transparency (back wall with a face, side walls / caps, inner corners, a door-in-wall for the
+> exit, wood / stone / plaster variants for house, tavern, shop, church, barracks, smithy, bakery, barn, great hall);
+> an exit mat / threshold tile; a dirt floor tile (2-3 variants) matching the wood / stone floors; a shop counter
+> (1x1 pieces: end, middle, corner), an anvil, a high seat / throne, a church pew and altar sized to one tile; a
+> transparent warm lighting overlay (vignette + window light shafts); stairs up / down (later).
+
 #77-#83 were delivered on 2026-10-30 (see "Already sourced", Batch 2); prompts removed. Still missing from those
 prompts: #82 the Follow order icon, the state glyphs (wavering / routing / outflanked) and the time-control icons;
 #83 has no veteran attack row (the veteran charge row stands in) and no separate idle frame.

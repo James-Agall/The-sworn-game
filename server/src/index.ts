@@ -67,6 +67,7 @@ import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, 
 import { handleCallVillagers, handleChooseHeir, handleTrainUnit, heirChoicesFor } from "./people.js";
 import { handleCraftItem, handleProspect, progressionSnapshot } from "./progression.js";
 import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, withPlayerLife } from "./herolife.js";
+import { handleInteriorExit, playerInside } from "./interiors.js";
 
 setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 
@@ -187,6 +188,8 @@ function handleMessage(player: Player, message: ClientMessage) {
     return;
   }
 
+  // Stardew phase 5c: inside a building interior there is nothing to swing at or cast on.
+  if (player.interior && (message.type === "attack" || message.type === "castSpell")) return;
   if (message.type === "input") {
     const dx = clamp(message.dx, -1, 1);
     const dy = clamp(message.dy, -1, 1);
@@ -357,6 +360,8 @@ function handleMessage(player: Player, message: ClientMessage) {
     handleDialogueChoice(player, message.choice);
   } else if (message.type === "heroAction") {
     handleHeroAction(player, message.action, message.build);
+  } else if (message.type === "interiorExit") {
+    handleInteriorExit(player);
   }
 }
 
@@ -403,6 +408,7 @@ setInterval(() => {
     dead: p.dead,
     ...(p.clan ? { clan: p.clan } : {}),
     ...(p.dead && p.heirPending ? { heirs: heirChoicesFor(p) } : {}),
+    ...(p.interior ? { inside: playerInside(p) } : {}),
   }));
   // Battle engine phase 7 (snapshot LOD): with more than BIG_BATTLE_SNAPSHOT_UNITS soldiers / mobs on the map,
   // positions, mob hp and effect points go out rounded to 0.1 px and a false `sheltered` is left out (~20% of a

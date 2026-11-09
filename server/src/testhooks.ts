@@ -6,6 +6,7 @@ import { addItem, itemCount, professionOf, takeItem, progressionDebug, progressi
 import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
 import { buildingLevel, newClanProgress, tradingPosts } from "./state.js";
+import { tileIndicesOf } from "./chunks.js";
 import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, pathCacheStats, setTile, updateChunkStates } from "./chunks.js";
 import { clanById, clanIdAt, clanOf, withClan } from "./clans.js";
 import { auditWorld } from "./abstract.js";
@@ -89,6 +90,7 @@ import { BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, FIELDS_PER_FARMER, FOOD
 import { assignHomes, handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
 import { calendarDayNow, calendarNow, calendarSnapshot, rainingNow, setCalendar, setWeatherOverride, updateCalendar, winterNow } from "./calendar.js";
 import { weatherForDay } from "@colony/shared/calendar";
+import { enterInterior, exitInterior, handleInteriorExit, interiorDebug } from "./interiors.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
@@ -540,6 +542,8 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     state.instantBuild = msg.enabled === true;
     reply({ enabled: state.instantBuild });
   } else if (msg.op === "teleportPlayer" && typeof msg.x === "number" && typeof msg.y === "number") {
+    // Stardew phase 5c: a teleport is always to the world.
+    player.interior = undefined;
     player.x = msg.x;
     player.y = msg.y;
     reply({ x: player.x, y: player.y });
@@ -1108,6 +1112,27 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         work: c.person!.work ?? null, site: c.buildSiteKey ?? null, x: c.x, y: c.y,
       })),
     });
+  } else if (msg.op === "interior") {
+    // Stardew phase 5c: `enter` {tx, ty} enters that building (reply `why`: "" = in), `exit` true leaves at once,
+    // `escExit` true = the interiorExit message, `at` {x, y} (interior px) stands the hero there; replies the state.
+    let why: string | undefined;
+    withClan(clanOf(player), () => {
+      if (msg.enter && typeof msg.enter === "object") {
+        const e = msg.enter as { tx?: unknown; ty?: unknown };
+        if (typeof e.tx === "number" && typeof e.ty === "number") why = enterInterior(player, e.tx, e.ty);
+      }
+      if (msg.at && typeof msg.at === "object" && player.interior) {
+        const a = msg.at as { x?: unknown; y?: unknown };
+        if (typeof a.x === "number" && typeof a.y === "number") Object.assign(player.interior, { x: a.x, y: a.y });
+      }
+      if (msg.escExit === true) handleInteriorExit(player);
+      if (msg.exit === true) exitInterior(player);
+    });
+    // `find` (a TileType): every building of that type with its owner site number and clan.
+    const found = typeof msg.find === "number"
+      ? Array.from(tileIndicesOf(msg.find as TileType), (i) => ({ tx: i % state.WORLD_TILES_X, ty: Math.floor(i / state.WORLD_TILES_X), owner: ownerAt(i), clan: clanIdAt(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X)) }))
+      : undefined;
+    reply({ ...(why !== undefined ? { why } : {}), ...(found ? { found } : {}), ...interiorDebug(player), world: { x: player.x, y: player.y }, cycleTick: state.cycleTick, night: isNightNow() });
   } else if (msg.op === "assignHomes") {
     assignHomes();
     reply({});

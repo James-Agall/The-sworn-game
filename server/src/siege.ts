@@ -99,7 +99,7 @@ export function catapultImpact(fx: number, fy: number, tx: number, ty: number, d
     hits++;
   }
   for (const p of players.values()) {
-    if (p.dead || state.testPlayersIgnored || Math.hypot(p.x - tx, p.y - ty) > CATAPULT_SPLASH_PX) continue;
+    if (p.dead || p.interior || state.testPlayersIgnored || Math.hypot(p.x - tx, p.y - ty) > CATAPULT_SPLASH_PX) continue;
     damagePlayer(p, damage);
     hits++;
   }
@@ -228,7 +228,7 @@ export function pickCatapultShot(mob: Mob): { x: number; y: number } | null {
   if (best) return best;
   const units: { x: number; y: number }[] = [];
   for (const c of colonists.values()) if (!isAbbeyClergy(c) && !isWarded(c.x, c.y, wards)) units.push(c);
-  for (const p of players.values()) if (!p.dead && !state.testPlayersIgnored && !isWarded(p.x, p.y, wards)) units.push(p);
+  for (const p of players.values()) if (!p.dead && !p.interior && !state.testPlayersIgnored && !isWarded(p.x, p.y, wards)) units.push(p);
   let bestCount = 0;
   for (const u of units) {
     const d = Math.hypot(u.x - mob.x, u.y - mob.y);
