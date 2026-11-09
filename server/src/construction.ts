@@ -11,7 +11,7 @@ import {
   ABBEY_GROUNDS_RADIUS, ARCHER_WOOD_COST, BARN_FARM_RADIUS_TILES, BARN_WOOD_COST, FIELDS_PER_FARMER, BIG_BUILD_TILES, BLACKSMITH_TOOLS_STOCK_CAP,
   BREAKABLE_TILES, BUILDERS_GUILD_WOOD_COST, BUILDER_MAX_PER_SITE, BUILDING_NAMES, BUILD_SECONDS_BIG,
   BUILD_SECONDS_COBBLE_ROAD, BUILD_SECONDS_DEFAULT, BUILD_SECONDS_DRAWBRIDGE, BUILD_SECONDS_GATE, BUILD_SECONDS_MOAT, BUILD_SECONDS_HOUSE, BUILD_SECONDS_ROAD,
-  BUILD_SECONDS_TOWN_CENTER, BUILD_SECONDS_WALL, BUILD_SECONDS_BED, BUILD_SECONDS_DOOR, BUILD_SECONDS_FLOOR, BUILD_SECONDS_WINDOW, CATAPULT_RANGE, CAVALRY_CHARGE_MULT, CAVALRY_CHARGE_TILES,
+  BUILD_SECONDS_TOWN_CENTER, BUILD_SECONDS_WALL, BUILD_SECONDS_BED, BUILD_SECONDS_FURNITURE, BUILD_SECONDS_DOOR, BUILD_SECONDS_FLOOR, BUILD_SECONDS_WINDOW, CATAPULT_RANGE, CAVALRY_CHARGE_MULT, CAVALRY_CHARGE_TILES,
   CHURCH_WOOD_COST, COBBLE_ROAD_ROCK_COST, CRAFT_BUILDING_IRON_COST, CRAFT_BUILDING_TILES, CRAFT_BUILDING_WOOD_COST,
   FOOD_HUT_WOOD_COST, GATE_ROCK_COST, GATE_WOOD_COST, HERO_POPULATION_COST, HOUSE_ROCK_COST, HOUSE_UPGRADE_COSTS,
   HOUSE_WOOD_COST,
@@ -65,10 +65,11 @@ import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, rese
 import { trainInfo, villageLevyInfo } from "./people.js";
 import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
 import {
-  STRUCTURE_ORDER_MAX_TILES, STRUCTURE_ORDER_RANGE_TILES, isDoorTile, isFloorTile, isStructureTile,
+  STRUCTURE_ORDER_MAX_TILES, STRUCTURE_ORDER_RANGE_TILES, isDoorTile, isFloorTile, isFurnitureTile, isRoomStationTile, isStructureTile,
   isWindowTile, structurePlacementOk,
 } from "@colony/shared/structures";
-import { roomAt, roomInfoLines } from "./structures.js";
+import { ROOM_REQUIRED_STATIONS } from "@colony/shared/rooms";
+import { roomAt, roomInfoAt, roomInfoLines } from "./structures.js";
 
 export function upgradeKnightAt(tx: number, ty: number, level: number) {
   const stats = guardStats("knight", level);
@@ -512,6 +513,8 @@ export function handleSetTile(player: Player, tx: number, ty: number, tile: Tile
 }
 
 export function placementCost(tile: TileType, current: TileType, tx: number, ty: number): Cost {
+  // Modular building phase 2: furniture (shared BUILD_COSTS).
+  if (isFurnitureTile(tile)) return { ...BUILD_COSTS[tile as keyof typeof BUILD_COSTS] };
   switch (tile) {
     case TileType.Wall:
       return { wood: WOOD_WALL_COST };
@@ -657,7 +660,9 @@ export function currentBuildingLevel(tx: number, ty: number, t: TileType): numbe
 
 export function buildTicksFor(tile: TileType, level: number): number {
   const base =
-    isFloorTile(tile)
+    isFurnitureTile(tile)
+      ? BUILD_SECONDS_FURNITURE
+      : isFloorTile(tile)
       ? BUILD_SECONDS_FLOOR
       : isDoorTile(tile)
       ? BUILD_SECONDS_DOOR
@@ -996,7 +1001,15 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     // Modular building phase 1: on bare ground or a floor; a door / window may replace a wall.
     if (!structurePlacementOk(tile, current)) return;
   } else {
-    if (current !== TileType.Empty) return;
+    // Modular building phase 2: a station that may stand in a room may go on a floor too (the floor goes).
+    if (current !== TileType.Empty && !(isFloorTile(current) && isRoomStationTile(tile))) return;
+  }
+
+  // Modular building phase 2: "needs a roofed room" (shared ROOM_REQUIRED_STATIONS) for NEW stations; creative mode,
+  // upgrades in place and old buildings are exempt.
+  if (!upgradeInPlace && ROOM_REQUIRED_STATIONS.includes(tile) && !state.creative && !state.legacyBuild && !roomAt(tx, ty)) {
+    sendEvent(player, "build", `${BUILDING_NAMES[tile] ?? "This"} needs a roofed room: build walls and a door round the spot first (up to 144 tiles inside)`);
+    return;
   }
 
   // Progression tree: tools, buildings and (phase 2) worker levels gate new buildings and upgrades.
@@ -1398,10 +1411,19 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
       ...(!site.upgrade
         ? { blueprint: { priority: !!site.priority, refund: site.paid && isStructureTile(site.target) ? formatCost(site.paid) : "Nothing" } }
         : {}),
+      ...(roomAt(tx, ty) ? { room: roomInfoAt(tx, ty)! } : {}),
     };
   }
   const name = BUILDING_NAMES[t];
-  if (!name) return null;
+  const roomInfo = roomInfoAt(tx, ty);
+  // Modular building phase 2: bare ground / a road inside a room opens the Room panel.
+  if (!name) {
+    if (!roomInfo) return null;
+    return {
+      name: roomInfo.roleLabel, tile: t, level: 1, maxLevel: 1, hp: null, maxHp: null, staffing: `${roomInfo.tier} room`,
+      bonuses: [], upgrade: null, construction: null, repair: null, room: roomInfo,
+    };
+  }
   const level = currentBuildingLevel(tx, ty, t);
   const tc = t === TileType.TownCenter ? findTownCenterAt(tx, ty) : undefined;
   const posted = Array.from(colonists.values()).filter((c) => c.postX === tx && c.postY === ty && !isAbbeyClergy(c));
@@ -1574,6 +1596,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
   }
 
   return {
+    ...(roomInfo ? { room: roomInfo } : {}),
     name: tc?.name ?? name,
     tile: t,
     level,

@@ -684,6 +684,25 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Modular building phase 2: rooms and quality (2026-11-09)
+Automated: `npm test -- rooms`.
+1. New game. Build a Wood Room (5x4) with a door and a Bed. Left-click bare ground inside: the panel shows **Room:
+   Bedroom, Decent (~51/100)** with Size / Beauty / Cleanliness / Warmth bars (hover a bar: what it counts), the
+   contents ("1 Bed"), the effects ("Sleep quality ...", "A hero resting here ...") and tips (lay a floor, add a hearth).
+2. Structure tab: Table, Chair, Chest, Shelf, Hearth (Quarry), Lamp (Iron Mine), Rug (Sheep Pasture; right-drag fills),
+   Workbench, Statue (Quarry), Weapon Rack (Iron Mine). Each has stand-in art. Lay a Wood Floor, a Rug and a Lamp in the
+   bedroom: Beauty and Warmth go up, the score climbs (re-click or keep the panel open: it refreshes every second).
+3. Roles: a room with a Table + Hearth says **Kitchen / dining**; a Workbench makes it a **Workshop**; 3 beds + a Weapon
+   Rack a **Barracks**; a Chest a **Storeroom**; a big room (>= 30 tiles inside) with a rug a **Hall**.
+4. Bakery / Blacksmith (with creative off): placing one in the open says "needs a roofed room"; build a small room first
+   and place it inside (on bare ground or a floor): it goes up and the room becomes a Workshop ("Station speed x...").
+   An old save's Bakery / Blacksmith out in the open keeps working; upgrading it works as before.
+5. Walk the hero in and out of a room for a while: its Cleanliness drops a little, then recovers when nobody is inside.
+6. Happiness: with a kitchen standing, the colony happiness (top bar) is a few points higher than before it was built.
+7. Hero: rest (heroAction rest) inside a nice bedroom: the rest bar fills faster than outside.
+8. Save, reload: the room panel shows the same role / stats (dirt kept). An older save loads unchanged.
+9. Creative mode: the Bakery / Blacksmith place anywhere.
+
 ## Modular building phase 1 (2026-11-09)
 Automated: `npm test -- structures`.
 1. New game. Build menu: a **Structure** tab holds Wood / Stone Wall (keys 1 / 2 still work), Wood / Stone Room,

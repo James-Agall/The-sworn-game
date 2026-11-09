@@ -36,6 +36,18 @@ let roomVersion = 0;
 export function tileRoomVersion(): number {
   return roomVersion;
 }
+// Modular building phase 2: the room-relevant tiles written since structures.ts last looked (it re-floods only round
+// them: incremental room recompute). Too many (a bulk edit) and it just recomputes everything.
+const ROOM_DIRTY_MAX = 4096;
+let roomDirty: number[] = [];
+let roomDirtyOverflow = false;
+// The dirty tiles since the last call, or null when a full recompute is due (overflow).
+export function takeRoomDirtyTiles(): number[] | null {
+  const out = roomDirtyOverflow ? null : roomDirty;
+  roomDirty = [];
+  roomDirtyOverflow = false;
+  return out;
+}
 
 export function chunkOfIndex(i: number): number {
   const W = state.WORLD_TILES_X;
@@ -86,7 +98,12 @@ export function setTile(i: number, t: TileType) {
   }
   const c = chunkOfIndex(i);
   regionVersion[c]++;
-  if (isRoomBoundaryTile(old) || isRoomBoundaryTile(t) || isRoomInteriorTile(old) !== isRoomInteriorTile(t) || old === TileType.Bed || t === TileType.Bed) roomVersion++;
+  // Phase 2: any write touching a room tile (furniture in / out changes its contents and stats too).
+  if (isRoomBoundaryTile(old) || isRoomBoundaryTile(t) || isRoomInteriorTile(old) || isRoomInteriorTile(t)) {
+    roomVersion++;
+    if (roomDirty.length < ROOM_DIRTY_MAX) roomDirty.push(i);
+    else roomDirtyOverflow = true;
+  }
   if (!NATURAL[old]) chunkStructures[c]--;
   if (!NATURAL[t]) chunkStructures[c]++;
 }

@@ -52,6 +52,7 @@ import { clanIdAtIndex, enterClan, resetClan, townCentersOfClan } from "./clans.
 import { noteHostileKill } from "./diplomacy.js";
 import { noteQuestKill } from "./quests.js";
 import { noteLevyDied } from "./vassals.js";
+import { noteRoomBlood } from "./structures.js";
 import { onHeroDeath, updateHeirChoices } from "./people.js";
 
 export function getMobById(id: string): Mob | undefined {
@@ -226,6 +227,7 @@ export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
     mob.furyUntilTick = state.cycleTick + GORRATH_FURY_TICKS;
   }
   if (mob.hp <= 0) {
+    noteRoomBlood(mob.x, mob.y);
     gravestones.push({ x: mob.x, y: mob.y, variant: Math.random() < 0.5 ? 0 : 1 });
     mobs.delete(mob.id);
     chargeRuns.delete(mob.id);
@@ -318,6 +320,7 @@ export function damageColonist(colonist: Colonist, amount: number) {
     return;
   }
   if (colonist.hp <= 0) {
+    noteRoomBlood(colonist.x, colonist.y);
     gravestones.push({ x: colonist.x, y: colonist.y, variant: Math.random() < 0.5 ? 0 : 1 });
     // Creative mode: spawned units die quietly and never respawn.
     if (!colonist.creativeSpawned) broadcastEvent("death", colonistDeathText(colonist));

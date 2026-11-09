@@ -2165,6 +2165,8 @@ export const BUILD_SECONDS_FLOOR = 2;
 export const BUILD_SECONDS_DOOR = 6;
 export const BUILD_SECONDS_WINDOW = 5;
 export const BUILD_SECONDS_BED = 5;
+// Modular building phase 2: furniture.
+export const BUILD_SECONDS_FURNITURE = 4;
 // Roads: cheap ground tiles, built by builders like everything else (one tile per placement).
 export const ROAD_ROCK_COST = BUILD_COSTS[TileType.Road].rock;
 export const COBBLE_ROAD_ROCK_COST = BUILD_COSTS[TileType.CobbleRoad].rock;
@@ -2317,6 +2319,16 @@ export const BUILDING_NAMES: Partial<Record<TileType, string>> = {
   [TileType.WoodFloor]: "Wood Floor",
   [TileType.StoneFloor]: "Stone Floor",
   [TileType.Bed]: "Bed",
+  [TileType.Table]: "Table",
+  [TileType.Chair]: "Chair",
+  [TileType.Chest]: "Chest",
+  [TileType.Shelf]: "Shelf",
+  [TileType.Hearth]: "Hearth",
+  [TileType.Lamp]: "Lamp",
+  [TileType.Rug]: "Rug",
+  [TileType.Workbench]: "Workbench",
+  [TileType.Statue]: "Statue",
+  [TileType.WeaponRack]: "Weapon Rack",
   // Forts phase B.
   [TileType.Tent]: "Tent",
   [TileType.SiteKeep]: "Chief's hall",

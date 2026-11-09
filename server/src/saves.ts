@@ -25,6 +25,7 @@ import { initialStock, markFarmFieldsDirty, newFarmPlot } from "./economy.js";
 import { topUpBarnFarmers } from "./construction.js";
 import { generateWorld, setWorldSize } from "./worldgen.js";
 import { chronicleForSave, restoreChronicle } from "./chronicle.js";
+import { restoreRooms, roomsForSave } from "./structures.js";
 import {
   type TileDiffs, deflateBase64, diffTilesForSave, expandTiles, forgetWorldSeed, inflateBase64, loadBase, pruneBaseFiles, regeneratedBaseMatches,
 } from "./worldbase.js";
@@ -105,6 +106,7 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   restoreWarbands(undefined);
   clearAbstractWorld();
   restoreChronicle(undefined);
+  restoreRooms(undefined);
   clearPlayerMorale();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
@@ -251,6 +253,8 @@ function snapshotWorldInner() {
     abstractWorld: abstractForSave() as ReturnType<typeof abstractForSave> | undefined,
     // World streaming phase 5: the chronicle and each profile's read mark (optional).
     chronicle: chronicleForSave() as ReturnType<typeof chronicleForSave> | undefined,
+    // Modular building phase 2: [room id, dirt] of every dirty room (optional).
+    roomDirt: roomsForSave() as [number, number][] | undefined,
     stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
@@ -472,6 +476,8 @@ function applyWorldInner(s: WorldState) {
   // World streaming phase 3: after the mobs / wildlife (saves without it: no COLD records).
   restoreAbstract(s.abstractWorld);
   restoreChronicle(s.chronicle);
+  // Modular building phase 2: room dirt by room id (optional: older saves have clean rooms).
+  restoreRooms(s.roomDirt);
   // After the owners: a fort's campfires (owned tiles) never get a backfilled hearth.
   backfillHearths();
   state.testForceDeserterRoll = s.flags.testForceDeserterRoll;

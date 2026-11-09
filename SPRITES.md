@@ -678,6 +678,10 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > HUD icons (16px): room size, beauty, cleanliness, warmth, wealth; room-role badges: bedroom, kitchen, workshop, hall,
 > barracks, storeroom, hospital, church.
 
+> **Phase 2 stand-ins in use (2026-11-09, `client/src/structureArt.ts` furnitureTex, procedural 32x32, pending the art
+> above):** table, chair, chest, shelf, hearth (lit, no animation), lamp (with a glow disc), rug (one tile, tiles side by
+> side), workbench, statue, weapon rack. The Room panel draws its stats as plain coloured bars (no icons / role badges yet).
+
 ### 92. Zones, hauling and job priorities (phases 3-4) — UI + overlays
 > Zone overlay tiles (32x32 translucent, edge-tiled, 6 colours): growing zone, stockpile zone, home area, pasture/animal
 > area, no-go/forbidden; zone placement cursor icons. Stockpile filter icons (16px): food, wood, stone, ore, metal,

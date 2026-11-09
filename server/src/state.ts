@@ -289,6 +289,9 @@ export interface ConstructionFields {
   // for the suites written before it: a fallen rider rises at once at a Town Center (none standing = dead until one
   // is built). Off: the heir choice (people.ts onHeroDeath).
   legacyHeroRespawn: boolean;
+  // Modular building phases 2-3 (COLONY_LEGACY_BUILD=1, test hooks only): suites written before rooms and zones may
+  // still place Bakeries / Blacksmiths outside a roofed room and new Farm Plots / Hemp Fields (normal play: no).
+  legacyBuild: boolean;
 }
 
 export interface EquipmentFields {
@@ -555,6 +558,7 @@ const initial: Partial<ServerState> = {
   soloSpawn: null,
   testUnlockAll: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_UNLOCK_ALL === "1",
   legacyHeroRespawn: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_HERO_RESPAWN === "1",
+  legacyBuild: process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_LEGACY_BUILD === "1",
   // EquipmentFields
   lastUnequippedToastTick: -Infinity,
   equipDropToasted: false,

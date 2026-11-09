@@ -14,7 +14,7 @@ import {
 import { setupCreative } from "./creative";
 import { makeStructureTextures } from "./structureArt";
 import {
-  NEW_STRUCTURE_TILES, ROOM_TOOL_STONE, ROOM_TOOL_WOOD, findRooms, isDoorTile, isFloorTile, isRoomBoundaryTile, isStructureTile,
+  NEW_STRUCTURE_TILES, ROOM_TOOL_STONE, ROOM_TOOL_WOOD, findRooms, isDoorTile, isFloorTile, isFurnitureTile, isRoomBoundaryTile, isStructureTile,
   isWindowTile, isStoneStructure, rectOutline, rectTiles, wallLineTiles, type Room,
 } from "@colony/shared/structures";
 import { type HeroLifeUi, setupHeroLife } from "./herolife";
@@ -1413,6 +1413,7 @@ async function main() {
   function structureArtFor(tx: number, ty: number, artTile: number, site: boolean): Texture | undefined {
     if (isFloorTile(artTile)) return STRUCTURE_TEXTURES.floor.get(artTile);
     if (artTile === TileType.Bed) return STRUCTURE_TEXTURES.bed;
+    if (isFurnitureTile(artTile)) return STRUCTURE_TEXTURES.furniture(artTile);
     if (!isDoorTile(artTile) && !isWindowTile(artTile)) return undefined;
     const horizontal = isWallTile(tileAt(tx - 1, ty)) || isWallTile(tileAt(tx + 1, ty)) || !(isWallTile(tileAt(tx, ty - 1)) || isWallTile(tileAt(tx, ty + 1)));
     const stone = isStoneStructure(artTile);
@@ -4850,6 +4851,54 @@ async function main() {
   bpPriorityBtn.className = bpCancelBtn.className = "econ-btn";
   bpBlueprintRowEl.append(bpPriorityBtn, bpCancelBtn);
   bpGateRowEl.after(bpBlueprintRowEl);
+  // Modular building phase 2: the Room section (role, stats, score, effects, tips) for anything inside a room.
+  const bpRoomEl = document.createElement("div");
+  bpRoomEl.style.cssText = "display: none; margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 6px;";
+  bpBonusesEl.before(bpRoomEl);
+  const ROOM_STAT_TIPS: Record<string, string> = {
+    Size: "Tiles for its role (a bedroom wants 6 per bed, a kitchen / workshop 12, a hall 30)",
+    Beauty: "Furniture (rugs, statues, lamps), wood / stone floors; bare ground is ugly",
+    Cleanliness: "Dirt from people walking through and blood; swept clean over time; damaged walls count as rubble",
+    Warmth: "Hearths, lamps and ovens / forges; a stone roof helps, windows lose heat; one hearth warms 16 tiles best",
+  };
+  function renderRoom(room: BuildingInfo["room"]) {
+    bpRoomEl.style.display = room ? "block" : "none";
+    if (!room) return;
+    const head = document.createElement("div");
+    head.className = "menu-section";
+    head.textContent = `Room: ${room.roleLabel}, ${room.tier} (${room.score}/100)`;
+    head.title = "Score = 15% size + 35% beauty + 25% cleanliness + 25% warmth";
+    const stats = document.createElement("div");
+    stats.style.cssText = "display: grid; grid-template-columns: auto 1fr auto; gap: 2px 6px; align-items: center; font-size: 12px;";
+    for (const [label, v] of [["Size", room.size], ["Beauty", room.beauty], ["Cleanliness", room.cleanliness], ["Warmth", room.warmth]] as const) {
+      const name = document.createElement("span");
+      name.textContent = label;
+      name.title = ROOM_STAT_TIPS[label];
+      const bar = document.createElement("div");
+      bar.style.cssText = "height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden;";
+      bar.title = ROOM_STAT_TIPS[label];
+      const fill = document.createElement("div");
+      fill.style.cssText = `height: 100%; width: ${v}%; background: ${v >= 70 ? "#7fc97f" : v >= 40 ? "#e0c060" : "#e07060"};`;
+      bar.append(fill);
+      const num = document.createElement("span");
+      num.textContent = String(v);
+      stats.append(name, bar, num);
+    }
+    const list = (items: string[], color: string) => {
+      const ul = document.createElement("ul");
+      ul.style.cssText = `margin: 4px 0 0 0; padding-left: 16px; font-size: 12px; color: ${color};`;
+      for (const t of items) {
+        const li = document.createElement("li");
+        li.textContent = t;
+        ul.append(li);
+      }
+      return ul;
+    };
+    const contents = document.createElement("div");
+    contents.style.cssText = "font-size: 12px; opacity: 0.8; margin-top: 4px;";
+    contents.textContent = `Contents: ${room.contents}`;
+    bpRoomEl.replaceChildren(head, stats, contents, list(room.effects, "#bfe3bf"), ...(room.tips.length ? [list(room.tips.map((t) => `Tip: ${t}`), "#f0d890")] : []));
+  }
   for (const [btn, action] of [[bpPriorityBtn, "priority"], [bpCancelBtn, "cancel"]] as const) {
     btn.addEventListener("click", () => {
       btn.blur();
@@ -5334,6 +5383,7 @@ async function main() {
       setIconText(bpTradeStateEl, info.trade.canTrade ? relIcon(info.trade.tier) : "relation", info.trade.canTrade ? `${RELATION_TIER_NAMES[info.trade.tier]} prices` : info.trade.reason);
     } else tradeOpen = false;
     renderTrade(info.trade);
+    renderRoom(info.room);
     bpBlueprintRowEl.style.display = info.blueprint ? "flex" : "none";
     if (info.blueprint) {
       bpPriorityBtn.textContent = info.blueprint.priority ? "Priority: on" : "Priority: off";
@@ -8123,6 +8173,11 @@ async function main() {
 
     // Nothing selectable under the cursor: original left-click behaviour (break tile).
     setSelection([]);
+    // Modular building phase 2: bare ground / a road inside a room opens the Room panel.
+    if (tile && !showInfo && currentTool !== TileType.Empty && roofTileRoom.has(tile.tileY * worldTilesX + tile.tileX)) {
+      openBuildingInfo(tile.tileX, tile.tileY);
+      return;
+    }
     if (!tile || showInfo) return;
     requestDemolish([{ x: tile.tileX, y: tile.tileY }]);
   });

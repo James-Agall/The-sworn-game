@@ -49,7 +49,14 @@ const UNLOCK = { COLONY_UNLOCK_ALL: "1" };
 // (its own server) runs the heir rule.
 const HERO_RESPAWN = { COLONY_HERO_RESPAWN: "1" };
 const TREE_SUITES = new Set(["progression"]);
-const serverEnvFor = (name) => ({ ...HERO_RESPAWN, ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}) });
+// LEGACY_BUILD: suites written before modular building phases 2-3 (2026-11-09) place Bakeries / Blacksmiths outside a
+// roofed room and new Farm Plots / Hemp Fields: COLONY_LEGACY_BUILD=1 (state.legacyBuild, test hooks only) keeps that
+// open. Every suite gets it except the rooms / zones suites (ROOM_SUITES), which test the new rules.
+const LEGACY_BUILD = { COLONY_LEGACY_BUILD: "1" };
+const ROOM_SUITES = new Set(["rooms", "zones"]);
+const serverEnvFor = (name) => ({
+  ...HERO_RESPAWN, ...(ROOM_SUITES.has(name) ? {} : LEGACY_BUILD), ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}),
+});
 const SERVER_ENV = {
   "abbey-ward": INSTANT,
   "army-damage": { ...W80, ...INSTANT, ...LEGACY },
@@ -62,6 +69,8 @@ const SERVER_ENV = {
   "economy-goods": { ...W80, ...INSTANT, ...LEGACY },
   "gates-walls": W80,
   structures: W80,
+  rooms: W80,
+  zones: W80,
   "gravestone-events": { ...INSTANT, ...LEGACY },
   "halflatch-ward-lapse": INSTANT,
   "happiness-militia-tavern": { ...W80, ...INSTANT },

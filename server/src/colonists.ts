@@ -51,7 +51,7 @@ import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, 
 import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
-import { isUsableBed, usableBedIndices } from "./structures.js";
+import { isUsableBed, roomHappinessBonus, usableBedIndices } from "./structures.js";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -136,7 +136,8 @@ export function computeColonyHappiness(): number {
     tavernCoverageScore = (covered / posts.size) * 100;
   }
 
-  const happiness = foodVarietyScore * 0.4 + sceneryScore * 0.3 + tavernCoverageScore * 0.3 + foodHappinessBonus();
+  // Modular building phase 2: bedrooms (residents' sleep) and the best kitchen (meals), shared/src/rooms.ts.
+  const happiness = foodVarietyScore * 0.4 + sceneryScore * 0.3 + tavernCoverageScore * 0.3 + foodHappinessBonus() + roomHappinessBonus();
   return Math.max(0, Math.min(100, Math.round(happiness)));
 }
 

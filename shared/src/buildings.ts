@@ -5,7 +5,7 @@
 // Town Center levels) are still server-only, in constants.ts.
 import { TileType } from "./protocol.js";
 
-export type BuildCost = Partial<Record<"wood" | "rock" | "iron" | "tools", number>>;
+export type BuildCost = Partial<Record<"wood" | "rock" | "iron" | "tools" | "wool", number>>;
 
 const CRAFT_BUILDING: BuildCost = { wood: 10, iron: 5 };
 const FOOD_HUT: BuildCost = { wood: 15 };
@@ -24,6 +24,17 @@ export const BUILD_COSTS = {
   [TileType.WoodFloor]: { wood: 1 },
   [TileType.StoneFloor]: { rock: 1 },
   [TileType.Bed]: { wood: 6 },
+  // Modular building phase 2 (shared/src/rooms.ts): furniture.
+  [TileType.Table]: { wood: 4 },
+  [TileType.Chair]: { wood: 2 },
+  [TileType.Chest]: { wood: 4 },
+  [TileType.Shelf]: { wood: 3 },
+  [TileType.Hearth]: { rock: 8 },
+  [TileType.Lamp]: { wood: 1, iron: 1 },
+  [TileType.Rug]: { wool: 4 },
+  [TileType.Workbench]: { wood: 6 },
+  [TileType.Statue]: { rock: 12 },
+  [TileType.WeaponRack]: { wood: 4, iron: 1 },
   // Moats & drawbridges (phase H): a drawbridge goes on a moat tile. Phase I: moat 1 -> 4 wood (it never
   // breaks and mobs never target it, so it must not undercut a 3-wood wall).
   [TileType.Moat]: { wood: 4 },

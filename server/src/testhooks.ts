@@ -46,7 +46,11 @@ import {
   tileToPixelCenter,
 } from "./tiles.js";
 import { findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
-import { allRooms, isRoofed } from "./structures.js";
+import {
+  allRooms, barracksMoraleMult, forceFullRoomRecompute, heroRestMultAt, isRoofed, roomHappinessBonus, setRoomDirtAt, roomInfoAt, roomRecomputeStats, sleepQualityAt, updateRooms,
+  workshopEffectAt,
+} from "./structures.js";
+import { computeColonyHappiness } from "./colonists.js";
 import { farmPlotProgress, farmhandProgress, releaseResourceReservation } from "./economy.js";
 import { makeBoss } from "./worldgen.js";
 import { WILDLIFE_CONFIG, WILDLIFE_RESPAWN_INTERVAL_TICKS, damageWildlife, spawnWildlifeAt } from "./wildlife.js";
@@ -993,6 +997,44 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         }
       }),
       sites: Array.from(constructionSites.values()).map((site) => ({ x: site.tx, y: site.ty, target: site.target, priority: !!site.priority, paid: site.paid ?? null })),
+    });
+  } else if (msg.op === "roomState") {
+    // Modular building phase 2: room records (role, stats, dirt), the recompute counters, effects at given tiles
+    // [{x, y}] and the clan's happiness parts. setDirt {x, y, dirt}: set the dirt of the room at (x, y); tickRooms:
+    // run the once-a-second room update now.
+    if (msg.fullRecompute) forceFullRoomRecompute();
+    const home = msg.setHome as { id?: string; x: number; y: number } | undefined;
+    if (home) {
+      const who = home.id ? colonists.get(home.id) : Array.from(colonists.values()).find((c) => c.person && !c.person.child && (c.clan ?? 0) === 0);
+      if (who?.person) {
+        who.person.homeX = home.x;
+        who.person.homeY = home.y;
+      }
+    }
+    const sd = msg.setDirt as { x: number; y: number; dirt: number } | undefined;
+    if (sd) setRoomDirtAt(sd.x, sd.y, sd.dirt);
+    if (msg.tickRooms) {
+      const t = state.cycleTick;
+      state.cycleTick = Math.ceil(t / 20) * 20;
+      updateRooms();
+      state.cycleTick = t;
+    }
+    const at = (Array.isArray(msg.at) ? msg.at : []) as { x: number; y: number }[];
+    const W = state.WORLD_TILES_X;
+    reply({
+      rooms: allRooms().map((r) => ({ id: r.id, x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, tiles: r.tiles.length, dirt: r.dirt, counts: r.counts, ...r.stats })),
+      recompute: { ...roomRecomputeStats },
+      at: at.map((p) => ({
+        info: roomInfoAt(p.x, p.y),
+        workshop: workshopEffectAt(p.x, p.y),
+        heroRest: heroRestMultAt(p.x * TILE_SIZE + 16, p.y * TILE_SIZE + 16),
+        sleep: sleepQualityAt(p.x, p.y),
+      })),
+      happiness: state.colonyHappiness,
+      happinessNow: computeColonyHappiness(),
+      roomHappiness: roomHappinessBonus(),
+      barracksMorale: barracksMoraleMult(0),
+      homes: Array.from(colonists.values()).filter((c) => c.person && c.person.homeX >= 0 && state.tiles[c.person.homeY * W + c.person.homeX] === TileType.Bed).map((c) => ({ id: c.id, x: c.person!.homeX, y: c.person!.homeY })),
     });
   } else if (msg.op === "assignHomes") {
     assignHomes();

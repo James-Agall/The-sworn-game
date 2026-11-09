@@ -4,6 +4,10 @@ import {
 } from "@colony/shared/buildings";
 import { TileType } from "@colony/shared/protocol";
 import { ROOM_TOOL_STONE, ROOM_TOOL_WOOD } from "@colony/shared/structures";
+import {
+  ROOM_BARRACKS_MIN_BEDS, ROOM_BEAUTY_POINTS, ROOM_WARMTH_AREA_TILES, ROOM_WARMTH_PER_HEARTH, ROOM_WARMTH_PER_LAMP, ROOM_WORKBENCH_MAX,
+  ROOM_WORKBENCH_SPEED,
+} from "@colony/shared/rooms";
 
 export type ToolCategory = "structure" | "combat" | "farming" | "industry" | "civic" | "trade";
 
@@ -51,6 +55,17 @@ export const TOOLS: ToolDef[] = [
   { tile: TileType.WoodFloor, label: "Wood Floor", key: "", cost: `${buildCostText(TileType.WoodFloor)} per tile. Right-drag fills a rectangle`, category: "structure", drag: "rect" },
   { tile: TileType.StoneFloor, label: "Stone Floor", key: "", cost: `${buildCostText(TileType.StoneFloor)} per tile. Needs a Quarry. Right-drag fills a rectangle`, category: "structure", drag: "rect" },
   { tile: TileType.Bed, label: "Bed", key: "", cost: `${buildCostText(TileType.Bed)}. In a roofed room: +1 population and a home for one (a bedroom with N beds = N slots)`, category: "structure" },
+  // Modular building phase 2 (shared/src/rooms.ts): furniture sets a room's role and stats (click inside a room).
+  { tile: TileType.Table, label: "Table", key: "", cost: `${buildCostText(TileType.Table)}. Table + Hearth in a room = kitchen / dining (meals: +happiness). Beauty +${ROOM_BEAUTY_POINTS[TileType.Table]}`, category: "structure" },
+  { tile: TileType.Chair, label: "Chair", key: "", cost: `${buildCostText(TileType.Chair)}. Beauty +${ROOM_BEAUTY_POINTS[TileType.Chair]}`, category: "structure" },
+  { tile: TileType.Chest, label: "Chest", key: "", cost: `${buildCostText(TileType.Chest)}. Makes a room a storeroom`, category: "structure" },
+  { tile: TileType.Shelf, label: "Shelf", key: "", cost: `${buildCostText(TileType.Shelf)}. Makes a room a storeroom. Beauty +${ROOM_BEAUTY_POINTS[TileType.Shelf]}`, category: "structure" },
+  { tile: TileType.Hearth, label: "Hearth", key: "", cost: `${buildCostText(TileType.Hearth)}. Needs a Quarry. Warmth +${ROOM_WARMTH_PER_HEARTH} (in a ${ROOM_WARMTH_AREA_TILES}-tile room); with a table: kitchen`, category: "structure" },
+  { tile: TileType.Lamp, label: "Lamp", key: "", cost: `${buildCostText(TileType.Lamp)}. Needs an Iron Mine. Warmth +${ROOM_WARMTH_PER_LAMP}, beauty +${ROOM_BEAUTY_POINTS[TileType.Lamp]}`, category: "structure" },
+  { tile: TileType.Rug, label: "Rug", key: "", cost: `${buildCostText(TileType.Rug)} per tile. Needs a Sheep Pasture. Beauty +${ROOM_BEAUTY_POINTS[TileType.Rug]}. Right-drag fills a rectangle`, category: "structure", drag: "rect" },
+  { tile: TileType.Workbench, label: "Workbench", key: "", cost: `${buildCostText(TileType.Workbench)}. Makes a room a workshop; stations in it work +${Math.round(ROOM_WORKBENCH_SPEED * 100)}% faster per bench (up to ${ROOM_WORKBENCH_MAX})`, category: "structure" },
+  { tile: TileType.Statue, label: "Statue", key: "", cost: `${buildCostText(TileType.Statue)}. Needs a Quarry. Beauty +${ROOM_BEAUTY_POINTS[TileType.Statue]}`, category: "structure" },
+  { tile: TileType.WeaponRack, label: "Weapon Rack", key: "", cost: `${buildCostText(TileType.WeaponRack)}. Needs an Iron Mine. ${ROOM_BARRACKS_MIN_BEDS}+ beds and a rack in a room = barracks (soldiers' morale)`, category: "structure" },
   // Walls & gates (2026-10-23). Every letter is taken (and [ is the Tower), so the gate uses ].
   {
     tile: TileType.Gate,
@@ -146,7 +161,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Blacksmith,
     label: "Blacksmith",
     key: "k",
-    cost: `${buildCostText(TileType.Blacksmith)} (upgradeable). Crafts 1 Iron + 1 Wood → 1 Tools, idles at ${BLACKSMITH_TOOLS_STOCK_CAP} tools`,
+    cost: `${buildCostText(TileType.Blacksmith)} (upgradeable). Needs a roofed room (build it inside walls + a door). Crafts 1 Iron + 1 Wood → 1 Tools, idles at ${BLACKSMITH_TOOLS_STOCK_CAP} tools`,
     category: "industry",
   },
   {
@@ -183,7 +198,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Bakery,
     label: "Bakery",
     key: "",
-    cost: `${buildCostText(TileType.Bakery)} (upgradeable). Bakes 2 Flour → 2 Flatbread; a level-2 baker cultures a sourdough starter (~3 days), then bakes Bread`,
+    cost: `${buildCostText(TileType.Bakery)} (upgradeable). Needs a roofed room (build it inside walls + a door). Bakes 2 Flour → 2 Flatbread; a level-2 baker cultures a sourdough starter (~3 days), then bakes Bread`,
     category: "farming",
   },
   { tile: TileType.Market, label: "Bazaar", key: "m", cost: buildCostText(TileType.Market), category: "trade" },

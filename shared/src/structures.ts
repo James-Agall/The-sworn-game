@@ -20,10 +20,28 @@ export const STRUCTURE_ORDER_MAX_TILES = 400;
 export const ROOM_TOOL_WOOD = 200 as TileType;
 export const ROOM_TOOL_STONE = 201 as TileType;
 
+// Modular building phase 2: furniture (walkable 1x1 pieces; shared/src/rooms.ts gives them their room effects).
+export const FURNITURE_TILES: readonly TileType[] = [
+  TileType.Table, TileType.Chair, TileType.Chest, TileType.Shelf, TileType.Hearth, TileType.Lamp, TileType.Rug,
+  TileType.Workbench, TileType.Statue, TileType.WeaponRack,
+];
+export function isFurnitureTile(t: number): boolean {
+  return t >= TileType.Table && t <= TileType.WeaponRack;
+}
+// Modular building phase 2: production stations that may stand inside a room (it becomes a workshop / church).
+// They are ordinary 1x1 buildings; anything else (houses, posts, farms) still means "not a room".
+export const ROOM_STATION_TILES: readonly TileType[] = [
+  TileType.Blacksmith, TileType.TailorShop, TileType.LuxuryWorkshop, TileType.Brewery, TileType.Bloomery,
+  TileType.CharcoalBurner, TileType.Mill, TileType.Bakery, TileType.Tavern, TileType.ChurchPost,
+];
+export function isRoomStationTile(t: number): boolean {
+  return (ROOM_STATION_TILES as readonly number[]).includes(t);
+}
+
 // Every tile a placeStructure order may place.
 export const STRUCTURE_TILES: readonly TileType[] = [
   TileType.Wall, TileType.StoneWall, TileType.WoodDoor, TileType.StoneDoor, TileType.WoodWindow, TileType.StoneWindow,
-  TileType.WoodFloor, TileType.StoneFloor, TileType.Bed,
+  TileType.WoodFloor, TileType.StoneFloor, TileType.Bed, ...FURNITURE_TILES,
 ];
 // The new phase-1 pieces (walls predate them).
 export const NEW_STRUCTURE_TILES: readonly TileType[] = STRUCTURE_TILES.filter((t) => t !== TileType.Wall && t !== TileType.StoneWall);
@@ -49,7 +67,8 @@ export function isRoomBoundaryTile(t: number): boolean {
 }
 // May stand inside a room.
 export function isRoomInteriorTile(t: number): boolean {
-  return t === TileType.Empty || isFloorTile(t) || t === TileType.Bed || t === TileType.ConstructionSite || t === TileType.Road || t === TileType.CobbleRoad;
+  return t === TileType.Empty || isFloorTile(t) || t === TileType.Bed || t === TileType.ConstructionSite || t === TileType.Road || t === TileType.CobbleRoad ||
+    isFurnitureTile(t) || isRoomStationTile(t);
 }
 // What a piece may be placed on (besides Empty): floors are re-laid over the other floor; walls, doors, windows
 // and beds go over a floor; a door or window may replace a wall (cutting an opening).
@@ -62,8 +81,15 @@ export function structurePlacementOk(tile: number, current: number): boolean {
 }
 
 export interface Room {
+  // Modular building phase 2: the room's id = its smallest tile index (stable while the room stands; the same on
+  // server and client).
+  id: number;
   // Interior tile indices, ascending.
   tiles: number[];
+  // Phase 2: how many interior tiles hold each tile type (furniture, beds, floors, stations; Empty too), and how many
+  // windows its boundary has.
+  counts: Record<number, number>;
+  windows: number;
   // Bed tile indices inside.
   beds: number[];
   // Stone roof (tile) when stone pieces make up at least half of the boundary, else thatch.
@@ -108,6 +134,7 @@ function floodRoom(W: number, H: number, tileAt: (i: number) => number, start: n
   let ok = true;
   let stoneN = 0;
   let woodN = 0;
+  let windows = 0;
   for (let head = 0; head < queue.length; head++) {
     const i = queue[head];
     const x = i % W;
@@ -126,6 +153,7 @@ function floodRoom(W: number, H: number, tileAt: (i: number) => number, start: n
       if (isRoomBoundaryTile(t)) {
         if (isStoneStructure(t)) stoneN++;
         else woodN++;
+        if (isWindowTile(t)) windows++;
         continue;
       }
       const prev = seen.get(n);
@@ -147,6 +175,7 @@ function floodRoom(W: number, H: number, tileAt: (i: number) => number, start: n
   queue.sort((a, b) => a - b);
   let x0 = W, y0 = H, x1 = 0, y1 = 0;
   const beds: number[] = [];
+  const counts: Record<number, number> = {};
   for (const i of queue) {
     const x = i % W;
     const y = Math.floor(i / W);
@@ -154,9 +183,20 @@ function floodRoom(W: number, H: number, tileAt: (i: number) => number, start: n
     if (y < y0) y0 = y;
     if (x > x1) x1 = x;
     if (y > y1) y1 = y;
-    if (tileAt(i) === TileType.Bed) beds.push(i);
+    const t = tileAt(i);
+    counts[t] = (counts[t] ?? 0) + 1;
+    if (t === TileType.Bed) beds.push(i);
   }
-  return { tiles: queue, beds, stone: stoneN >= woodN && stoneN > 0, x0, y0, x1, y1 };
+  return { id: queue[0], tiles: queue, counts, windows, beds, stone: stoneN >= woodN && stoneN > 0, x0, y0, x1, y1 };
+}
+
+// Modular building phase 2 (incremental recompute): the room containing interior tile `start`, or null, plus every
+// tile the flood visited (a rejected flood stops after ROOM_MAX_TILES + 1). Same rule as findRooms: a 4-connected
+// non-boundary region of at most ROOM_MAX_TILES interior tiles that never reaches the map edge.
+export function floodRoomAt(W: number, H: number, tileAt: (i: number) => number, start: number): { room: Room | null; visited: number[] } {
+  const seen = new Map<number, number>();
+  const room = floodRoom(W, H, tileAt, start, seen, 1);
+  return { room, visited: Array.from(seen.keys()) };
 }
 
 // ---- build-tool shapes (client painting; the server just gets the tile list) ----

@@ -1,5 +1,6 @@
 // Modular building phase 1: procedural stand-in art (flat top-down, tile-aligned, 32 px) for the room pieces, drawn
-// on canvases at startup. Every texture here is pending real art (SPRITES.md "Modular building phase 1").
+// on canvases at startup. Every texture here is pending real art (SPRITES.md "Modular building phase 1"; phase 2's
+// furniture: SPRITES.md #91).
 import { Texture } from "pixi.js";
 import { TileType } from "@colony/shared/protocol";
 
@@ -128,9 +129,93 @@ function roofTex(stone: boolean): Texture {
   });
 }
 
+// Modular building phase 2: furniture stand-ins (SPRITES.md #91), one flat 32 px piece each.
+function furnitureTex(t: TileType): Texture {
+  return make((g) => {
+    const W = WOOD;
+    switch (t) {
+      case TileType.Table:
+        block(g, 3, 7, 26, 18, W.fill, W.light, W.dark);
+        g.fillStyle = "#e8e2d0";
+        g.fillRect(12, 12, 8, 6);
+        break;
+      case TileType.Chair:
+        block(g, 9, 6, 14, 4, W.dark, W.fill, "#2e1a08");
+        block(g, 9, 11, 14, 14, W.fill, W.light, W.dark);
+        break;
+      case TileType.Chest:
+        block(g, 4, 8, 24, 18, "#7a4a20", "#9a6a38", "#4a2a10");
+        g.fillStyle = "#c9a640";
+        g.fillRect(4, 14, 24, 2);
+        g.fillRect(14, 15, 4, 5);
+        break;
+      case TileType.Shelf:
+        block(g, 2, 4, 28, 24, W.dark, W.fill, "#2e1a08");
+        g.fillStyle = W.light;
+        for (const y of [11, 19]) g.fillRect(3, y, 26, 2);
+        g.fillStyle = "#c46a3a";
+        g.fillRect(5, 6, 4, 5);
+        g.fillStyle = "#4a6fa5";
+        g.fillRect(18, 13, 6, 6);
+        break;
+      case TileType.Hearth:
+        block(g, 2, 2, 28, 28, STONE.fill, STONE.light, STONE.dark);
+        g.fillStyle = "#2a2220";
+        g.fillRect(8, 8, 16, 16);
+        g.fillStyle = "#e0702a";
+        g.fillRect(11, 14, 10, 8);
+        g.fillStyle = "#f5c04a";
+        g.fillRect(14, 12, 4, 8);
+        break;
+      case TileType.Lamp:
+        g.fillStyle = "rgba(255, 220, 120, 0.25)";
+        g.beginPath();
+        g.arc(16, 16, 14, 0, Math.PI * 2);
+        g.fill();
+        block(g, 13, 18, 6, 10, "#4a4a50", "#6a6a70", "#2a2a30");
+        g.fillStyle = "#f5d060";
+        g.fillRect(12, 8, 8, 10);
+        break;
+      case TileType.Rug:
+        g.fillStyle = "#8a2a2a";
+        g.fillRect(2, 5, 28, 22);
+        g.strokeStyle = "#d4a040";
+        g.lineWidth = 2;
+        g.strokeRect(5, 8, 22, 16);
+        g.fillStyle = "#d4a040";
+        g.fillRect(14, 14, 4, 4);
+        break;
+      case TileType.Workbench:
+        block(g, 2, 8, 28, 16, "#7a5a3a", "#9a7a5a", "#4a3a2a");
+        g.fillStyle = "#9a9ca1";
+        g.fillRect(6, 11, 8, 3);
+        g.fillRect(20, 12, 3, 9);
+        break;
+      case TileType.Statue:
+        g.fillStyle = "rgba(0,0,0,0.25)";
+        g.fillRect(8, 24, 18, 5);
+        block(g, 8, 22, 16, 6, STONE.dark, STONE.fill, "#3c3e43");
+        block(g, 12, 6, 8, 16, "#c8cacf", "#e2e4e8", "#8d8f94");
+        g.fillStyle = "#c8cacf";
+        g.fillRect(13, 2, 6, 6);
+        break;
+      case TileType.WeaponRack:
+        block(g, 3, 6, 26, 4, W.fill, W.light, W.dark);
+        block(g, 3, 22, 26, 4, W.fill, W.light, W.dark);
+        g.fillStyle = "#b4b6ba";
+        for (const x of [7, 14, 21]) g.fillRect(x, 3, 2, 26);
+        g.fillStyle = "#6b4423";
+        for (const x of [7, 14, 21]) g.fillRect(x, 20, 2, 8);
+        break;
+    }
+  });
+}
+
 export interface StructureTextures {
   floor: Map<number, Texture>;
   bed: Texture;
+  // Phase 2: furniture by tile type.
+  furniture: (t: number) => Texture;
   // [stone][horizontal]
   window: (stone: boolean, horizontal: boolean) => Texture;
   door: (stone: boolean, horizontal: boolean, open: boolean) => Texture;
@@ -148,6 +233,7 @@ export function makeStructureTextures(): StructureTextures {
   return {
     floor: floors,
     bed: bedTex(),
+    furniture: (t) => memo(`f${t}`, () => furnitureTex(t as TileType)),
     window: (stone, h) => memo(`w${+stone}${+h}`, () => windowTex(h, stone)),
     door: (stone, h, open) => memo(`d${+stone}${+h}${+open}`, () => doorTex(h, stone, open)),
     roof: (stone) => memo(`r${+stone}`, () => roofTex(stone)),

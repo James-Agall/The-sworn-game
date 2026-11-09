@@ -1,5 +1,6 @@
 // tactics.ts: Monster tactics (regiments, flanking, cover, morale, routs) and player regiment morale.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { barracksMoraleMult } from "./structures.js";
 import { HungerMark, TILE_SIZE, TileType, isGateTile } from "@colony/shared/protocol";
 import type {
   Colonist, EnemyUnit, Mob, MobTargetType, OrderGroup, PlayerMoraleState, RegimentState, TileCoord,
@@ -569,6 +570,8 @@ export function playerMoraleResist(members: Colonist[], cx: number, cy: number):
     }
   }
   if (anchored) k *= PLAYER_MORALE_ANCHOR_RESIST;
+  // Modular building phase 2: a good barracks steadies the clan's soldiers.
+  k *= barracksMoraleMult(members[0]?.clan ?? 0);
   const t = tileOfPixel(cx, cy);
   if (livingTowersNear(t.x, t.y, PLAYER_MORALE_TOWER_TILES, 0).length > 0) k *= PLAYER_MORALE_TOWER_RESIST;
   let walls = false;

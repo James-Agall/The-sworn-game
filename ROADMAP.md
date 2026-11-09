@@ -2155,6 +2155,49 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Modular building — landed (phase 2) 2026-11-09 (rooms and quality: furniture, roles, stats, effects)
+Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 2. Every room number is a named constant in
+`shared/src/rooms.ts` (roles, stats, score weights, tiers, effects, the room-gated stations).
+- **Room records** (`server/src/structures.ts`): id = the room's smallest tile index (same on server and client), tiles,
+  contents (tile-type counts), windows, dirt, cached stats. **Incremental**: `chunks.ts setTile` logs every tile write
+  that touches a room tile (boundary or interior, so furniture in / out too); the next query re-floods only from those
+  tiles and their neighbours (`floodRoomAt`, at most 145 tiles per seed) after dropping the rooms they belonged to. A
+  full recompute runs only on a new tile registry (new world / load) or a bulk edit (> 4096 dirty tiles). No per-tick
+  map scan. A room may now hold furniture and the production stations in `ROOM_STATION_TILES` (Blacksmith, Tailor,
+  Jeweler, Brewery, Bloomery, Charcoal Burner, Mill, Bakery, Tavern, Church); anything else still means "no room".
+- **Furniture** (tiles 117-126, Structure tab, `placeStructure`, walkable 1x1, on ground or a floor): Table, Chair,
+  Chest, Shelf, Hearth, Lamp, Rug (right-drag fills), Workbench, Statue, Weapon Rack. Costs in shared `BUILD_COSTS`,
+  4 s to build; progression: wood pieces the stone axe, Hearth / Statue a Quarry, Lamp / Weapon Rack an Iron Mine, Rug
+  a Sheep Pasture. Room stations may also go on a floor tile now (the floor goes).
+- **Roles** (`roomRole`, first match): church (Church inside), workshop (a station or a Workbench), barracks (>= 3 beds +
+  a Weapon Rack), bedroom (a bed), kitchen / dining (table + hearth), hall (>= 30 tiles + table or rug), storeroom
+  (chest / shelf), else "Empty room". No hospital (no medicine system yet).
+- **Stats** 0-100: size (tiles / what the role wants: 6 per bed, 4 per barracks bed, 12 kitchen / workshop, 30 hall),
+  beauty (50 + furniture / floor points per tile x 60; bare ground -0.4 a tile), cleanliness (100 - dirt; dirt +0.12/s per
+  unit inside per 12 tiles, -0.08/s swept, +30 per death inside, bare ground never below 40 x its share, -8 per damaged
+  wall piece), warmth (20 + stone roof 10 + hearth 45 / lamp 10 / oven or forge 30 per 16 tiles, +3 per rug, -4 per
+  window). Score = 15% size + 35% beauty + 25% cleanliness + 25% warmth; tiers Awful < 20 < Poor < 40 < Decent < 55 <
+  Good < 70 < Excellent < 85 < Superb. q = (score - 50) / 50. A bare room with one bed scores ~51 (neutral).
+- **Effects**: bedroom / barracks residents (a person whose home is a bed there) sleep at q: colony happiness + 10 x the
+  mean q over the clan's people (`roomHappinessBonus`); a hero resting in one recovers x (3 + 2q) (`heroRestMultAt`,
+  herolife shelterMult); a workshop's stations work x (1 + 0.25 max(0, q) + 0.1 per Workbench, up to 2; never slower) and at score 70+ make
+  output one grade better (progression.ts updateStationWork); the best kitchen adds 8 x score / 100 happiness (meals);
+  the best barracks cuts the clan's morale drain by 0.3 x score / 100 (tactics.ts playerMoraleResist).
+- **"Needs a roofed room"** (`ROOM_REQUIRED_STATIONS`): only the **Bakery** and the **Blacksmith**, only NEW placements,
+  only with creative mode off. Existing ones (old saves), upgrades in place and creative mode are exempt. The build menu
+  text says so. Test suites written before this get `COLONY_LEGACY_BUILD=1` from the runner (state.legacyBuild).
+- **UI**: clicking anything in a room (a piece of furniture, a station, a bed, or bare ground / floor inside) opens the
+  building panel with a **Room** section: role, tier and score, four stat bars (tooltips explain each), contents,
+  effects at this quality and up to four tips. Furniture tool tooltips give their beauty / warmth numbers.
+- **Saves**: `roomDirt` [room id, dirt] (optional; older saves load with clean rooms). Roles and stats are derived.
+- **Art**: procedural stand-ins (`structureArt.ts furnitureTex`); real art SPRITES.md #91.
+- **Tests**: `server/rooms-test.mjs` (`npm test -- rooms`): roles, stats, incremental == full recompute, dirt / cleaning /
+  traffic, sleep / kitchen happiness, hero rest, workshop speed, the Bakery gate, save / load.
+- **Known gaps (phase 2)**: furniture is 1x1 and walkable (no 2-tile beds / tables, nothing blocks); dirt is per room,
+  not per tile (no visible dirt); temperature is a static "warmth" (no seasons until phase 5b); stations outside a room
+  keep working as before (no penalty); hall / storeroom / chapel have no effect yet; the hero's sleep needs no bed of
+  its own (any bedroom works).
+
 ## Modular building — landed (phase 1) 2026-11-09 (walls, doors, windows, floors, beds, derived roofs)
 Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 1. The isometric view (below) is abandoned: its uncommitted
 files were deleted. View stays flat top-down.

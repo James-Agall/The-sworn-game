@@ -15,6 +15,7 @@ import { clanById, clanIdAtIndex, forEachClan, townCentersOfClan, withClan } fro
 import { broadcastEvent } from "./net.js";
 import { GAME_DAY_TICKS, UPGRADE_NAMES } from "./constants.js";
 import { currentBuildingLevel, sendEvent } from "./construction.js";
+import { workshopEffectAt } from "./structures.js";
 
 // True when no gate applies: creative with "Unlock all" on, or the test-only unlock (COLONY_UNLOCK_ALL).
 export function gatesOpen(): boolean {
@@ -243,11 +244,14 @@ export function updateStationWork(c: Colonist): boolean {
     job = { recipe: r, left: total, total };
     stationJobs.set(c.id, job);
   }
-  job.left -= workSpeed(c);
+  // Modular building phase 2: a station in a workshop room works faster (or slower) by the room's quality.
+  const room = workshopEffectAt(c.postX, c.postY);
+  job.left -= workSpeed(c) * room.speed;
   if (job.left <= 0) {
     stationJobs.delete(c.id);
-    // Output grade = the tier the station works at (a Blast furnace with a level-2 smelter makes Good blooms).
-    addItem(job.recipe.output, job.recipe.amount, effectiveTier(c));
+    // Output grade = the tier the station works at (a Blast furnace with a level-2 smelter makes Good blooms); a
+    // good workshop room adds a grade (at most Fine).
+    addItem(job.recipe.output, job.recipe.amount, Math.min(3, effectiveTier(c) + room.grade));
   }
   return true;
 }

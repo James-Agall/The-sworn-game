@@ -183,6 +183,18 @@ export const PROGRESSION = {
     [TileType.StoneDoor]: { requires: { buildings: [{ tile: TileType.RockMinePost }] } },
     [TileType.StoneWindow]: { requires: { buildings: [{ tile: TileType.RockMinePost }] } },
     [TileType.StoneFloor]: { requires: { buildings: [{ tile: TileType.RockMinePost }] } },
+    // Modular building phase 2: furniture. Wood pieces need the stone axe; stone ones a Quarry; the lamp and the
+    // weapon rack iron (an Iron Mine); the rug wool (a Sheep Pasture).
+    [TileType.Table]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.Chair]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.Chest]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.Shelf]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.Workbench]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.Hearth]: { requires: { buildings: [{ tile: TileType.RockMinePost }] } },
+    [TileType.Statue]: { requires: { buildings: [{ tile: TileType.RockMinePost }] } },
+    [TileType.Lamp]: { requires: { buildings: [{ tile: TileType.IronMinePost }] } },
+    [TileType.WeaponRack]: { requires: { buildings: [{ tile: TileType.IronMinePost }] } },
+    [TileType.Rug]: { requires: { buildings: [{ tile: TileType.WoolFarm }] } },
   } as Partial<Record<TileType, BuildingReq>>,
   // The profession a station's workers train in (XP per profession per person).
   stations: {

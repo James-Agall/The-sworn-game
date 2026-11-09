@@ -146,6 +146,18 @@ export enum TileType {
   WoodFloor = 114,
   StoneFloor = 115,
   Bed = 116,
+  // Modular building phase 2 (2026-11-09, shared/src/rooms.ts): furniture. Walkable 1x1 pieces placed like the other
+  // structure pieces (placeStructure, on ground or a floor); inside a roofed room they set its role and stats.
+  Table = 117,
+  Chair = 118,
+  Chest = 119,
+  Shelf = 120,
+  Hearth = 121,
+  Lamp = 122,
+  Rug = 123,
+  Workbench = 124,
+  Statue = 125,
+  WeaponRack = 126,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -993,6 +1005,24 @@ export interface ProgressionSnapshot {
 }
 
 // Reply to a `buildingInfo` request; every number is computed by the server's own formulas.
+// Modular building phase 2: a room's role, stats (0-100) and effects for the Room panel.
+export interface RoomInfo {
+  id: number;
+  role: string;
+  roleLabel: string;
+  size: number;
+  beauty: number;
+  cleanliness: number;
+  warmth: number;
+  score: number;
+  tier: string;
+  // What the room does for the colony at this quality (one line each).
+  effects: string[];
+  // Cheapest improvements first.
+  tips: string[];
+  // Furniture / stations inside, e.g. "2 Bed, 1 Lamp".
+  contents: string;
+}
 export interface BuildingInfo {
   name: string;
   tile: TileType;
@@ -1015,6 +1045,8 @@ export interface BuildingInfo {
   gate?: { open: boolean; lock: GateLock; overrun: boolean };
   // Construction sites only (modular building phase 1): the blueprint's priority and what cancelling refunds.
   blueprint?: { priority: boolean; refund: string };
+  // Modular building phase 2: the roofed room this tile is in (shared/src/rooms.ts roomStats), else absent.
+  room?: RoomInfo;
   // Siege Workshops only: what is being built (null: idle), its progress 0-1, engines alive / cap, and a
   // build button per engine (see queueSiege).
   siege?: {

@@ -5,6 +5,7 @@
 // hero's pack (carry weight), mild needs (food + rest slow you and block healing, never kill), skills by use (worker
 // XP pace), personal builds (campfire, lean-to, storage chest). State: HeroProfile.life (saved with the profile);
 // per-session transient work lives here. Messages run in the sender's clan context (index.ts handleMessage).
+import { heroRestMultAt } from "./structures.js";
 import { TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, type TradeGood, type RelationTier } from "@colony/shared/protocol";
 import {
   ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, BRIDE_GIFT_GOLD, CEREMONY_FEE, COURT_GIFT_GOLD, COURT_NEEDED, FOUND_CAMP_COST, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
@@ -833,6 +834,8 @@ function shelterMult(p: Player): number {
     if (b.kind === "campfire" && d <= 3) m = Math.max(m, 2);
   }
   if (m < 3 && nearOwnStore(p, 2)) m = 3;
+  // Modular building phase 2: resting in a bedroom (x its quality, shared/src/rooms.ts).
+  m = Math.max(m, heroRestMultAt(p.x, p.y));
   return m;
 }
 
