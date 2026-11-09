@@ -174,6 +174,15 @@ export const PROGRESSION = {
     [TileType.Bakery]: { requires: { items: { clayOven: 1 }, buildings: [{ tile: TileType.Mill }] } },
     [TileType.Stables]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
     [TileType.SiegeWorkshop]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
+    // Modular building phase 1: wood pieces need the stone axe (like the Wooden House), stone pieces a Quarry.
+    // (The old Wood / Stone Wall stay ungated, as before.)
+    [TileType.WoodDoor]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.WoodWindow]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.WoodFloor]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.Bed]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.StoneDoor]: { requires: { buildings: [{ tile: TileType.RockMinePost }] } },
+    [TileType.StoneWindow]: { requires: { buildings: [{ tile: TileType.RockMinePost }] } },
+    [TileType.StoneFloor]: { requires: { buildings: [{ tile: TileType.RockMinePost }] } },
   } as Partial<Record<TileType, BuildingReq>>,
   // The profession a station's workers train in (XP per profession per person).
   stations: {

@@ -10,6 +10,7 @@
     "./progression": "./src/progression.ts",
     "./herolife": "./src/herolife.ts",
     "./streaming": "./src/streaming.ts",
-    "./camps": "./src/camps.ts"
+    "./camps": "./src/camps.ts",
+    "./structures": "./src/structures.ts"
   }
 }

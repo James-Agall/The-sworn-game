@@ -16,6 +16,14 @@ export const BUILD_COSTS = {
   [TileType.Wall]: { wood: 3 },
   [TileType.StoneWall]: { rock: 3 },
   [TileType.Gate]: { wood: 10, rock: 5 },
+  // Modular building phase 1 (2026-11-09, shared/src/structures.ts): room pieces.
+  [TileType.WoodDoor]: { wood: 5 },
+  [TileType.StoneDoor]: { wood: 2, rock: 4 },
+  [TileType.WoodWindow]: { wood: 4 },
+  [TileType.StoneWindow]: { rock: 4 },
+  [TileType.WoodFloor]: { wood: 1 },
+  [TileType.StoneFloor]: { rock: 1 },
+  [TileType.Bed]: { wood: 6 },
   // Moats & drawbridges (phase H): a drawbridge goes on a moat tile. Phase I: moat 1 -> 4 wood (it never
   // breaks and mobs never target it, so it must not undercut a 3-wood wall).
   [TileType.Moat]: { wood: 4 },

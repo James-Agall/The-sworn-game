@@ -12,6 +12,11 @@ import {
   Texture,
 } from "pixi.js";
 import { setupCreative } from "./creative";
+import { makeStructureTextures } from "./structureArt";
+import {
+  NEW_STRUCTURE_TILES, ROOM_TOOL_STONE, ROOM_TOOL_WOOD, findRooms, isDoorTile, isFloorTile, isRoomBoundaryTile, isStructureTile,
+  isWindowTile, isStoneStructure, rectOutline, rectTiles, wallLineTiles, type Room,
+} from "@colony/shared/structures";
 import { type HeroLifeUi, setupHeroLife } from "./herolife";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
@@ -352,6 +357,8 @@ async function main() {
   ];
   const HILLS_FLOOR_TEXTURE = loadedTextures["/sprites/hillsFloor.png"];
   const GATE_OPEN_TEXTURE = loadedTextures["/sprites/gateWoodOpen.png"];
+  // Modular building phase 1: procedural stand-ins for doors, windows, floors, beds and roofs (structureArt.ts).
+  const STRUCTURE_TEXTURES = makeStructureTextures();
   // Only complete 16-piece sets (see WALL_PIECE_SETS).
   const WALL_PIECE_TEXTURES = new Map<WallPieceSet, Texture[]>();
   for (const set of WALL_PIECE_SETS) {
@@ -822,6 +829,8 @@ async function main() {
   let damagedBuildings = new Map<number, number>();
   // Walls & gates: snapshot `gates`, tile index -> GATE_FLAG_* bits (see syncGates).
   let gateFlags = new Map<number, number>();
+  // Modular building phase 1: the roofs need recomputing (a tile changed / the map or a chunk arrived).
+  let roofDirty = true;
   // Forts phase A: NPC-owned tiles (snapshot `siteTiles`, only sent when it changed): tile index -> site
   // number. Drawn tinted (FOREIGN_TINT), red on the minimap; right-click with soldiers = attack it.
   let siteOwners = new Map<number, number>();
@@ -1028,7 +1037,7 @@ async function main() {
     const prev = gateFlags;
     gateFlags = next;
     for (const index of new Set([...prev.keys(), ...next.keys()])) {
-      if (shown(prev.get(index)) === shown(next.get(index)) || (tiles[index] !== TileType.Gate && tiles[index] !== TileType.Drawbridge)) continue;
+      if (shown(prev.get(index)) === shown(next.get(index)) || (tiles[index] !== TileType.Gate && tiles[index] !== TileType.Drawbridge && !isDoorTile(tiles[index]))) continue;
       const { tx, ty } = indexToTile(index);
       setTileSprite(tx, ty, tiles[index]);
     }
@@ -1111,6 +1120,66 @@ async function main() {
   const nightOverlay = new Graphics();
   nightOverlay.alpha = 0;
   worldLayer.addChild(nightOverlay);
+
+  // ---- Modular building phase 1: roofs ----
+  // Every room (shared findRooms over the client's tiles, the same rule the server counts beds by) gets roof
+  // tiles, kept on top of the world (units inside are covered); the hero's own room fades out, and every roof is
+  // see-through while a Structure tool is in hand.
+  const roofLayer = new Container();
+  let roofRooms: Container[] = [];
+  let roofTileRoom = new Map<number, number>();
+  let roofComputedAt = -Infinity;
+  function rebuildRoofs() {
+    for (const c of roofRooms) c.destroy({ children: true });
+    roofRooms = [];
+    roofTileRoom = new Map();
+    const boundary: number[] = [];
+    for (let i = 0; i < tiles.length; i++) if (isRoomBoundaryTile(tiles[i])) boundary.push(i);
+    const rooms: Room[] = findRooms(worldTilesX, worldTilesY, (i) => tiles[i] ?? TileType.Empty, boundary);
+    rooms.forEach((room, n) => {
+      const c = new Container();
+      const texture = STRUCTURE_TEXTURES.roof(room.stone);
+      for (const i of room.tiles) {
+        roofTileRoom.set(i, n);
+        const sprite = new Sprite(texture);
+        sprite.position.set((i % worldTilesX) * tileSize, Math.floor(i / worldTilesX) * tileSize);
+        sprite.scale.set(tileSize / texture.width);
+        c.addChild(sprite);
+      }
+      // Eaves: a dark line round the roof's box (rooms are mostly rectangles).
+      const eaves = new Graphics();
+      eaves
+        .rect(room.x0 * tileSize, room.y0 * tileSize, (room.x1 - room.x0 + 1) * tileSize, (room.y1 - room.y0 + 1) * tileSize)
+        .stroke({ width: 2, color: 0x3a2410, alpha: 0.8 });
+      c.addChild(eaves);
+      roofLayer.addChild(c);
+      roofRooms.push(c);
+    });
+  }
+  const isStructureTool = (t: number) => isStructureTile(t) || t === ROOM_TOOL_WOOD || t === ROOM_TOOL_STONE;
+  app.ticker.add(() => {
+    const now = performance.now();
+    if (roofDirty && now - roofComputedAt > 300 && tiles.length > 0) {
+      roofDirty = false;
+      roofComputedAt = now;
+      rebuildRoofs();
+    }
+    roofLayer.visible = strategyBand !== "map";
+    const me = latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead);
+    const heroRoom = me ? roofTileRoom.get(Math.floor(me.y / tileSize) * worldTilesX + Math.floor(me.x / tileSize)) : undefined;
+    const building = isStructureTool(currentTool);
+    roofRooms.forEach((c, n) => {
+      const want = n === heroRoom ? 0.12 : building ? 0.45 : 0.95;
+      c.alpha += (want - c.alpha) * 0.2;
+    });
+    // Units are added to the world as they appear: keep the roofs over them, and the cursor / selection over the roofs.
+    if (roofRooms.length > 0 && worldLayer.children[worldLayer.children.length - 4] !== roofLayer) {
+      worldLayer.addChild(roofLayer);
+      worldLayer.addChild(cursorHighlight);
+      worldLayer.addChild(selectionRings);
+      worldLayer.addChild(dragBox);
+    }
+  });
   // Strategy mode fog (only while the strategy camera is active; the tactical view stays unfogged).
   const strategyFog = new StrategyFog();
   worldLayer.addChild(strategyFog.sprite);
@@ -1228,8 +1297,11 @@ async function main() {
     const gateOpen = tile === TileType.Gate && ((gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
     const wallArt = wallArtFor(tx, ty, artTile, !!site);
     const moatArt = moatArtFor(tx, ty, artTile, !!site);
+    const structArt = structureArtFor(tx, ty, artTile, !!site);
     const texture = tile === TileType.BuildingPart
       ? undefined
+      : structArt
+      ? structArt
       : moatArt
       ? moatArt
       : wallArt
@@ -1276,6 +1348,14 @@ async function main() {
     if (fireTier(damagedBuildings.get(index) ?? 1000) > 0 && tile !== TileType.PropCampfire) sprite.tint = SOOT_TINT;
     else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = humanSiteNums.has(siteOwners.get(index)!) ? HUMAN_SITE_TINT : FOREIGN_TINT;
     else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
+    if (structArt) {
+      // Flat, tile-aligned stand-in art: floors under everything, pieces sorted with their row.
+      sprite.anchor.set(0, 0);
+      sprite.scale.set(tileSize / structArt.width);
+      sprite.position.set(tx * tileSize, ty * tileSize);
+      sprite.zIndex = isFloorTile(artTile) ? -1 : index;
+      return;
+    }
     if (artTile === TileType.TownCenter && !scaffold) {
       const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
       sprite.anchor.set(fit.anchor.x, fit.anchor.y);
@@ -1325,7 +1405,21 @@ async function main() {
     }
   }
 
-  const isWallTile = (t: number) => t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate;
+  // Modular building phase 1: doors and windows join the wall runs.
+  const isWallTile = (t: number) => t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate || isDoorTile(t) || isWindowTile(t);
+
+  // Modular building phase 1: the procedural texture for a door / window / floor / bed at (tx, ty), else undefined.
+  // Doors and windows run along the wall they sit in (east-west unless walls are only north / south).
+  function structureArtFor(tx: number, ty: number, artTile: number, site: boolean): Texture | undefined {
+    if (isFloorTile(artTile)) return STRUCTURE_TEXTURES.floor.get(artTile);
+    if (artTile === TileType.Bed) return STRUCTURE_TEXTURES.bed;
+    if (!isDoorTile(artTile) && !isWindowTile(artTile)) return undefined;
+    const horizontal = isWallTile(tileAt(tx - 1, ty)) || isWallTile(tileAt(tx + 1, ty)) || !(isWallTile(tileAt(tx, ty - 1)) || isWallTile(tileAt(tx, ty + 1)));
+    const stone = isStoneStructure(artTile);
+    if (isWindowTile(artTile)) return STRUCTURE_TEXTURES.window(stone, horizontal);
+    const flags = site ? 0 : (gateFlags.get(ty * worldTilesX + tx) ?? 0);
+    return STRUCTURE_TEXTURES.door(stone, horizontal, (flags & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0);
+  }
   const isMoatTile = (t: number) => t === TileType.Moat || t === TileType.Drawbridge;
 
   // Moat piece / drawbridge art (SPRITES.md #72-73) for (tx, ty), or undefined for the stand-in. A moat
@@ -1351,7 +1445,7 @@ async function main() {
   // Connector piece / oriented gate art (SPRITES.md #59-62) for a wall or gate at (tx, ty), or
   // undefined to use the single-sprite fallback. Sites draw undamaged.
   function wallArtFor(tx: number, ty: number, artTile: number, site: boolean): Texture | undefined {
-    if (!isWallTile(artTile)) return undefined;
+    if (!isWallTile(artTile) || isDoorTile(artTile) || isWindowTile(artTile)) return undefined;
     const index = ty * worldTilesX + tx;
     const damaged = !site && (damagedBuildings.get(index) ?? 1000) < WALL_DAMAGED_PERMILLE;
     const n = tileAt(tx, ty - 1);
@@ -1373,7 +1467,7 @@ async function main() {
       (damaged ? WALL_PIECE_TEXTURES.get(wood ? "woodWallDmg" : "stoneWallDmg") : undefined) ??
       WALL_PIECE_TEXTURES.get(wood ? "woodWall" : "stoneWall");
     if (!pieces) return undefined;
-    const joins = (t: number) => t === artTile || t === TileType.Gate;
+    const joins = (t: number) => t === artTile || t === TileType.Gate || isDoorTile(t) || isWindowTile(t);
     return pieces[(joins(n) ? 1 : 0) | (joins(e) ? 2 : 0) | (joins(s) ? 4 : 0) | (joins(w) ? 8 : 0)];
   }
 
@@ -1799,6 +1893,7 @@ async function main() {
 
   // Full-map path (welcome, incl. restart).
   function redrawGrid() {
+    roofDirty = true;
     setFloorSprites();
     setDecorSprites();
     if (streamed) {
@@ -1829,6 +1924,7 @@ async function main() {
   function setTileLocal(tx: number, ty: number, tile: number) {
     const index = ty * worldTilesX + tx;
     tiles[index] = tile;
+    roofDirty = true;
     setTileSprite(tx, ty, tile);
     const decor = decorSprites.get(index);
     if (decor) decor.visible = tile === TileType.Empty;
@@ -2991,6 +3087,7 @@ async function main() {
       }
       chunkLoaded[c] = 1;
       chunkRequestedAt.delete(c);
+      roofDirty = true;
       // The chunk's sprites, plus a 3-tile band up / left and 1 tile right / down (autotiled roads / walls and
       // multi-tile art reaching across the chunk edge).
       for (let y = Math.max(0, y0 - 3); y < Math.min(worldTilesY, y0 + h + 1); y++) {
@@ -4723,6 +4820,7 @@ async function main() {
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
     TileType.Gate, TileType.Drawbridge, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
     TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery,
+    ...NEW_STRUCTURE_TILES,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
   const bpNameEl = document.getElementById("bp-name")!;
@@ -4744,6 +4842,22 @@ async function main() {
   const GATE_LOCK_NEXT: Record<GateLock, GateLock> = { auto: "open", open: "closed", closed: "auto" };
   const GATE_LOCK_LABEL: Record<GateLock, string> = { auto: "Auto", open: "Locked open", closed: "Locked closed" };
   let shownGateLock: GateLock = "auto";
+  // Modular building phase 1: a blueprint's Priority / Cancel buttons (siteOrder).
+  const bpBlueprintRowEl = document.createElement("div");
+  bpBlueprintRowEl.style.cssText = "display: none; align-items: center; gap: 8px; margin-top: 8px;";
+  const bpPriorityBtn = document.createElement("button");
+  const bpCancelBtn = document.createElement("button");
+  bpPriorityBtn.className = bpCancelBtn.className = "econ-btn";
+  bpBlueprintRowEl.append(bpPriorityBtn, bpCancelBtn);
+  bpGateRowEl.after(bpBlueprintRowEl);
+  for (const [btn, action] of [[bpPriorityBtn, "priority"], [bpCancelBtn, "cancel"]] as const) {
+    btn.addEventListener("click", () => {
+      btn.blur();
+      if (!infoTile) return;
+      sendMessage({ type: "siteOrder", tileX: infoTile.tx, tileY: infoTile.ty, action });
+      window.setTimeout(requestBuildingInfo, 150);
+    });
+  }
   // Cavalry & siege: the Siege Workshop's two build buttons (queueSiege) and its status line.
   const bpSiegeRowEl = document.getElementById("bp-siege-row")!;
   const bpSiegeStateEl = document.getElementById("bp-siege-state")!;
@@ -5220,6 +5334,12 @@ async function main() {
       setIconText(bpTradeStateEl, info.trade.canTrade ? relIcon(info.trade.tier) : "relation", info.trade.canTrade ? `${RELATION_TIER_NAMES[info.trade.tier]} prices` : info.trade.reason);
     } else tradeOpen = false;
     renderTrade(info.trade);
+    bpBlueprintRowEl.style.display = info.blueprint ? "flex" : "none";
+    if (info.blueprint) {
+      bpPriorityBtn.textContent = info.blueprint.priority ? "Priority: on" : "Priority: off";
+      bpPriorityBtn.title = "Builders take priority blueprints first";
+      bpCancelBtn.textContent = `Cancel (refund ${info.blueprint.refund})`;
+    }
     bpGateRowEl.hidden = !info.gate;
     if (info.gate) {
       shownGateLock = info.gate.lock;
@@ -7788,6 +7908,13 @@ async function main() {
       requestDemolish([{ x: tile.tileX, y: tile.tileY }]);
       return;
     }
+    // Modular building phase 1: structure tools order blueprints (placeStructure) on release: one tile, or the
+    // dragged line / rectangle / room outline.
+    if (isStructureTool(value)) {
+      structDrag = { pointerId: e.pointerId, tool: value, x0: tile.tileX, y0: tile.tileY, x1: tile.tileX, y1: tile.tileY };
+      app.canvas.setPointerCapture(e.pointerId);
+      return;
+    }
     placeTile(tile.tileX, tile.tileY, value);
     if (value === TileType.Moat) moatDrag = { pointerId: e.pointerId, x: tile.tileX, y: tile.tileY };
   });
@@ -7795,7 +7922,7 @@ async function main() {
   // Demolishing your own building asks first ("Confirm demolish <name>", Cancel / Esc). Instant as before: walls,
   // moats, roads, natural tiles and anything not built from the Build menu (camp hearths are attacked, not demolished).
   // A list (a future batch) gets one confirm with its count.
-  const DEMOLISH_INSTANT = new Set<number>([TileType.Wall, TileType.StoneWall, TileType.Moat, TileType.Road, TileType.CobbleRoad]);
+  const DEMOLISH_INSTANT = new Set<number>([TileType.Wall, TileType.StoneWall, TileType.Moat, TileType.Road, TileType.CobbleRoad, ...NEW_STRUCTURE_TILES]);
   const demolishConfirmEl = document.getElementById("demolish-confirm")!;
   const demolishConfirmText = document.getElementById("demolish-confirm-text")!;
   const demolishConfirmBtn = document.getElementById("demolish-confirm-ok") as HTMLButtonElement;
@@ -7845,6 +7972,19 @@ async function main() {
     }
     socket.send(JSON.stringify({ type: "setTile", tileX, tileY, tile: value }));
   }
+  // Modular building phase 1: a structure tool's right press, until release.
+  let structDrag: { pointerId: number; tool: TileType; x0: number; y0: number; x1: number; y1: number } | null = null;
+  // The tile a structure tool places (room tools: their wall) and the tiles the drag covers.
+  function structDragPlan(d: NonNullable<typeof structDrag>): { tile: TileType; list: { x: number; y: number }[] } {
+    const mode = TOOLS.find((t) => t.tile === d.tool)?.drag;
+    const tile = d.tool === ROOM_TOOL_WOOD ? TileType.Wall : d.tool === ROOM_TOOL_STONE ? TileType.StoneWall : d.tool;
+    const list =
+      mode === "line" ? wallLineTiles(d.x0, d.y0, d.x1, d.y1)
+      : mode === "rect" ? rectTiles(d.x0, d.y0, d.x1, d.y1)
+      : mode === "room" ? rectOutline(d.x0, d.y0, d.x1, d.y1)
+      : [{ x: d.x1, y: d.y1 }];
+    return { tile, list: list.slice(0, 400) };
+  }
   // Phase H: right-dragging the Moat tool digs every tile the pointer crosses, 4-connected (a diagonal
   // step adds the orthogonal tile between), so the line has no corner gaps.
   let moatDrag: { pointerId: number; x: number; y: number } | null = null;
@@ -7861,6 +8001,12 @@ async function main() {
 
   app.canvas.addEventListener("pointerup", (e) => {
     if (moatDrag && e.pointerId === moatDrag.pointerId) moatDrag = null;
+    if (structDrag && e.pointerId === structDrag.pointerId) {
+      const plan = structDragPlan(structDrag);
+      structDrag = null;
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "placeStructure", tile: plan.tile, tiles: plan.list.flatMap((p) => [p.x, p.y]) }));
+      return;
+    }
     if (e.button === 2 && orderPress && e.pointerId === orderPress.pointerId) {
       const press = orderPress;
       cancelOrderPress();
@@ -7983,6 +8129,7 @@ async function main() {
 
   app.canvas.addEventListener("pointercancel", (e) => {
     if (moatDrag && e.pointerId === moatDrag.pointerId) moatDrag = null;
+    if (structDrag && e.pointerId === structDrag.pointerId) structDrag = null;
     if (leftPress && e.pointerId === leftPress.pointerId) cancelLeftPress();
     if (orderPress && e.pointerId === orderPress.pointerId) cancelOrderPress();
     if (panDrag && e.pointerId === panDrag.pointerId) cancelPanDrag();
@@ -8056,6 +8203,14 @@ async function main() {
     }
     cursorHighlight.clear();
     const tile = pointerTile(x, y);
+    // Modular building phase 1: the dragged blueprint shape.
+    if (structDrag && e.pointerId === structDrag.pointerId && tile) {
+      structDrag.x1 = tile.tileX;
+      structDrag.y1 = tile.tileY;
+      for (const p of structDragPlan(structDrag).list) {
+        cursorHighlight.rect(p.x * tileSize, p.y * tileSize, tileSize, tileSize).fill({ color: 0x9fd0ff, alpha: 0.25 }).stroke({ width: 1, color: 0x9fd0ff, alpha: 0.7 });
+      }
+    }
     placementGhost.visible =
       !!tile && ((currentTool === TileType.TownCenter && !!TOWN_CENTER_MARKER_TEXTURE) || isRoadTile(currentTool));
     if (!tile) return;

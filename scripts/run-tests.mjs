@@ -61,6 +61,7 @@ const SERVER_ENV = {
   economy: { ...INSTANT, ...LEGACY },
   "economy-goods": { ...W80, ...INSTANT, ...LEGACY },
   "gates-walls": W80,
+  structures: W80,
   "gravestone-events": { ...INSTANT, ...LEGACY },
   "halflatch-ward-lapse": INSTANT,
   "happiness-militia-tavern": { ...W80, ...INSTANT },

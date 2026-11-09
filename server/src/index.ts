@@ -33,7 +33,7 @@ import { damagedBuildingsForSnapshot, gatesForSnapshot, handlePlayerAttack, hand
 import { handleQueueSiege } from "./siege.js";
 import { handleSetDifficulty } from "./mobs.js";
 import {
-  buildingInfoFor, buildingLevelsForSnapshot, handleRebuildKeep, constructionSitesForSnapshot, handleSetTile, handleUpgradeBuilding,
+  buildingInfoFor, buildingLevelsForSnapshot, handleRebuildKeep, constructionSitesForSnapshot, handleSetTile, handleUpgradeBuilding, handlePlaceStructure, handleSiteOrder,
 } from "./construction.js";
 import "./tactics.js";
 import "./raids.js";
@@ -190,6 +190,10 @@ function handleMessage(player: Player, message: ClientMessage) {
     player.input = { dx, dy };
   } else if (message.type === "setTile") {
     handleSetTile(player, message.tileX, message.tileY, message.tile);
+  } else if (message.type === "placeStructure") {
+    handlePlaceStructure(player, message.tile, message.tiles);
+  } else if (message.type === "siteOrder") {
+    handleSiteOrder(player, message.tileX, message.tileY, message.action);
   } else if (message.type === "attack") {
     handlePlayerAttack(player);
   } else if (message.type === "setView") {

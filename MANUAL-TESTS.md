@@ -684,6 +684,29 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Modular building phase 1 (2026-11-09)
+Automated: `npm test -- structures`.
+1. New game. Build menu: a **Structure** tab holds Wood / Stone Wall (keys 1 / 2 still work), Wood / Stone Room,
+   Wood / Stone Door, Wood / Stone Window, Wood / Stone Floor, Bed. Combat no longer lists the walls; nothing else moved.
+2. Wood Room: right-drag a 5x4 rectangle a few tiles away (further than you could click before): a blue outline
+   previews it; on release blueprints appear, wood leaves the stock, builders walk over and raise the walls.
+3. Wood Door: right-click a wall tile of the room: the wall becomes a door blueprint, then a door. Walk into it: it
+   opens (leaf swung) and closes behind you. Wood Floor: right-drag inside: planks fill the room. Bed: place 2 inside.
+4. Once the walls and door stand, a thatch roof covers the room (units inside hidden under it). Walk the hero in:
+   that roof fades out; walk out: it comes back. With any Structure tool selected all roofs are see-through.
+5. Click the Town Center: the population cap went up by 2 (one per bed). Click a bed / wall: its info lists the room
+   (size, roof, beds). A bed out in the open adds nothing ("Not in a roofed room").
+6. Place a few blueprints, click one: **Priority: off** / **Cancel (refund ...)** buttons. Toggle priority (builders go
+   there first), cancel one: it vanishes and the wood comes back.
+7. Wood Window: cut one into a wall: the room keeps its roof. Stone Room + Stone Door (needs a Quarry): tile roof.
+8. At night, wait for a raid: monsters do not walk through the closed door; they break it (or a window / wall) to get in.
+   After it breaks the roof goes (the room is open); rebuild the door and the roof is back.
+9. Old walls, gates, moats and drawbridges still place and work as before; a gate in a small empty walled square makes
+   it a roofed room (expected).
+10. Save, reload: rooms, roofs, doors, beds and the population cap are the same. Load an older save: it loads unchanged.
+11. Creative mode: Structure pieces build at once, free; progression: in a normal new game Stone Door / Window / Floor
+    show "Locked. Needs: Quarry" until one stands.
+
 ## Bandit camp templates + camp editor (2026-11-09)
 Automated: `cd server && node camp-templates-test.mjs` (in-process, no ports, scratch folders).
 1. New game (any size): walk / scout to a few bandit camps. They are no longer all a campfire with 1-3 props: you

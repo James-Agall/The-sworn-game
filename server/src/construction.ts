@@ -11,7 +11,7 @@ import {
   ABBEY_GROUNDS_RADIUS, ARCHER_WOOD_COST, BARN_FARM_RADIUS_TILES, BARN_WOOD_COST, FIELDS_PER_FARMER, BIG_BUILD_TILES, BLACKSMITH_TOOLS_STOCK_CAP,
   BREAKABLE_TILES, BUILDERS_GUILD_WOOD_COST, BUILDER_MAX_PER_SITE, BUILDING_NAMES, BUILD_SECONDS_BIG,
   BUILD_SECONDS_COBBLE_ROAD, BUILD_SECONDS_DEFAULT, BUILD_SECONDS_DRAWBRIDGE, BUILD_SECONDS_GATE, BUILD_SECONDS_MOAT, BUILD_SECONDS_HOUSE, BUILD_SECONDS_ROAD,
-  BUILD_SECONDS_TOWN_CENTER, BUILD_SECONDS_WALL, CATAPULT_RANGE, CAVALRY_CHARGE_MULT, CAVALRY_CHARGE_TILES,
+  BUILD_SECONDS_TOWN_CENTER, BUILD_SECONDS_WALL, BUILD_SECONDS_BED, BUILD_SECONDS_DOOR, BUILD_SECONDS_FLOOR, BUILD_SECONDS_WINDOW, CATAPULT_RANGE, CAVALRY_CHARGE_MULT, CAVALRY_CHARGE_TILES,
   CHURCH_WOOD_COST, COBBLE_ROAD_ROCK_COST, CRAFT_BUILDING_IRON_COST, CRAFT_BUILDING_TILES, CRAFT_BUILDING_WOOD_COST,
   FOOD_HUT_WOOD_COST, GATE_ROCK_COST, GATE_WOOD_COST, HERO_POPULATION_COST, HOUSE_ROCK_COST, HOUSE_UPGRADE_COSTS,
   HOUSE_WOOD_COST,
@@ -64,6 +64,11 @@ import { SITE_TEMPLATES } from "./constants.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
 import { trainInfo, villageLevyInfo } from "./people.js";
 import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
+import {
+  STRUCTURE_ORDER_MAX_TILES, STRUCTURE_ORDER_RANGE_TILES, isDoorTile, isFloorTile, isStructureTile,
+  isWindowTile, structurePlacementOk,
+} from "@colony/shared/structures";
+import { roomAt, roomInfoLines } from "./structures.js";
 
 export function upgradeKnightAt(tx: number, ty: number, level: number) {
   const stats = guardStats("knight", level);
@@ -517,6 +522,15 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.Moat:
     case TileType.Drawbridge:
       return { ...BUILD_COSTS[tile] };
+    // Modular building phase 1: room pieces (shared BUILD_COSTS).
+    case TileType.WoodDoor:
+    case TileType.StoneDoor:
+    case TileType.WoodWindow:
+    case TileType.StoneWindow:
+    case TileType.WoodFloor:
+    case TileType.StoneFloor:
+    case TileType.Bed:
+      return { ...BUILD_COSTS[tile] };
     // Progression tree phase 3: an upgrade costs the build cost again (x the new level).
     case TileType.CharcoalBurner:
     case TileType.Bloomery:
@@ -643,7 +657,15 @@ export function currentBuildingLevel(tx: number, ty: number, t: TileType): numbe
 
 export function buildTicksFor(tile: TileType, level: number): number {
   const base =
-    tile === TileType.Road
+    isFloorTile(tile)
+      ? BUILD_SECONDS_FLOOR
+      : isDoorTile(tile)
+      ? BUILD_SECONDS_DOOR
+      : isWindowTile(tile)
+      ? BUILD_SECONDS_WINDOW
+      : tile === TileType.Bed
+      ? BUILD_SECONDS_BED
+      : tile === TileType.Road
       ? BUILD_SECONDS_ROAD
       : tile === TileType.CobbleRoad
         ? BUILD_SECONDS_COBBLE_ROAD
@@ -914,6 +936,9 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
 
   if (tile === TileType.Empty) {
     if (!BREAKABLE_TILES.includes(current)) return;
+    // Modular building phase 1: cancelling a structure blueprint gives its materials back.
+    const site = current === TileType.ConstructionSite ? constructionSites.get(siteKey) : undefined;
+    if (site && !site.upgrade && site.paid && isStructureTile(site.target)) refund(site.paid);
     demolishTile(tx, ty, current);
     return;
   }
@@ -967,6 +992,9 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
       sendEvent(player, "build", keepBlock);
       return;
     }
+  } else if (isStructureTile(tile)) {
+    // Modular building phase 1: on bare ground or a floor; a door / window may replace a wall.
+    if (!structurePlacementOk(tile, current)) return;
   } else {
     if (current !== TileType.Empty) return;
   }
@@ -1035,6 +1063,62 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     resolvePlacement(tx, ty, tile, current);
   } else {
     startConstruction(tx, ty, tile, current, upgradeInPlace);
+    const site = constructionSites.get(siteKey);
+    if (site && !state.creative) site.paid = cost;
+  }
+}
+
+function refund(cost: Cost) {
+  if (state.creative) return;
+  for (const [key, amount] of Object.entries(cost)) state.stock[key as ResourceKey] += amount ?? 0;
+}
+
+// ---- Modular building phase 1: blueprint orders ----
+// True when (tx, ty) is close enough to the player (or one of its clan's Town Centers) for a blueprint order.
+function inOrderRange(player: Player, tx: number, ty: number): boolean {
+  const r = STRUCTURE_ORDER_RANGE_TILES;
+  const p = tileOfPixel(player.x, player.y);
+  if (Math.max(Math.abs(p.x - tx), Math.abs(p.y - ty)) <= r) return true;
+  return townCentersOfClan(player.clan).some((tc) => Math.max(Math.abs(tc.x - tx), Math.abs(tc.y - ty)) <= r);
+}
+
+// placeStructure: one piece (or Empty: cancel / clear) on many tiles. Each tile follows the setTile rules; one
+// summary toast says how many blueprints went down.
+export function handlePlaceStructure(player: Player, tile: unknown, flat: unknown) {
+  if (player.dead || typeof tile !== "number" || !Array.isArray(flat)) return;
+  if (tile !== TileType.Empty && !isStructureTile(tile)) return;
+  const n = Math.min(flat.length >> 1, STRUCTURE_ORDER_MAX_TILES);
+  let placed = 0;
+  let tried = 0;
+  for (let k = 0; k < n; k++) {
+    const tx = flat[2 * k];
+    const ty = flat[2 * k + 1];
+    if (!Number.isInteger(tx) || !Number.isInteger(ty) || !inBounds(tx, ty) || !inOrderRange(player, tx, ty)) continue;
+    const before = state.tiles[tileIndex(tx, ty)];
+    if (tile === TileType.Empty) {
+      // Clearing: blueprints and structure pieces only (a drag never sweeps up other buildings).
+      if (before !== TileType.ConstructionSite && !isStructureTile(before)) continue;
+      if (before === TileType.ConstructionSite && !isStructureTile(constructionSites.get(resourceKey(tx, ty))?.target ?? -1)) continue;
+    } else if (before === tile) continue;
+    tried++;
+    handleSetTile(player, tx, ty, tile as TileType, true);
+    if (state.tiles[tileIndex(tx, ty)] !== before) placed++;
+  }
+  if (tried > 1 || (tried === 1 && placed === 0)) {
+    const what = tile === TileType.Empty ? "cleared" : state.instantBuild ? "built" : "blueprints placed";
+    sendEvent(player, "build", `${BUILDING_NAMES[tile as TileType] ?? "Structure"}: ${placed} ${what}${placed < tried ? `, ${tried - placed} refused (cost, ground, tree or locked)` : ""}`);
+  }
+}
+
+// siteOrder: priority toggle / cancel on a construction site.
+export function handleSiteOrder(player: Player, tx: unknown, ty: unknown, action: unknown) {
+  if (!Number.isInteger(tx) || !Number.isInteger(ty) || !inBounds(tx as number, ty as number)) return;
+  const site = constructionSites.get(resourceKey(tx as number, ty as number));
+  if (!site || isForeignClanTile(site.tx, site.ty, player.clan) || ownerAt(tileIndex(site.tx, site.ty)) !== 0) return;
+  if (action === "priority") {
+    site.priority = !site.priority;
+  } else if (action === "cancel" && !site.upgrade) {
+    handleSetTileInner(player, site.tx, site.ty, TileType.Empty, true);
   }
 }
 
@@ -1311,6 +1395,9 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
       upgrade: null,
       construction: Math.min(1, site.progress / site.totalTicks),
       repair: null,
+      ...(!site.upgrade
+        ? { blueprint: { priority: !!site.priority, refund: site.paid && isStructureTile(site.target) ? formatCost(site.paid) : "Nothing" } }
+        : {}),
     };
   }
   const name = BUILDING_NAMES[t];
@@ -1362,6 +1449,8 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     }
   }
   if (t === TileType.ChurchPost) bonuses.push(`Heals ${healAmountFor(tx, ty)} per prayer`);
+  // Modular building phase 1: room pieces (and anything in a room) say which room they make.
+  if (isStructureTile(t) || roomAt(tx, ty)) bonuses.push(...roomInfoLines(tx, ty));
   // Farm labour (2026-11-06): a Barn's farmers tend the fields within its radius; a field shows who tends it.
   if (t === TileType.BarnPost) {
     const farmers = barnFarmerCount(tx, ty);
@@ -1488,7 +1577,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     name: tc?.name ?? name,
     tile: t,
     level,
-    maxLevel: t === TileType.Wall || t === TileType.StoneWall || isGateTile(t) || t === TileType.Moat || t === TileType.SiegeWorkshop || t === TileType.Market || t === TileType.WardStone || t === TileType.FarmPlot || t === TileType.CottonFarm || isRoadTile(t) ? 1 : 3,
+    maxLevel: t === TileType.Wall || t === TileType.StoneWall || isStructureTile(t) || isGateTile(t) || t === TileType.Moat || t === TileType.SiegeWorkshop || t === TileType.Market || t === TileType.WardStone || t === TileType.FarmPlot || t === TileType.CottonFarm || isRoadTile(t) ? 1 : 3,
     hp: hpState ? Math.ceil(hpState.hp) : null,
     maxHp: hpState ? hpState.max : null,
     staffing,

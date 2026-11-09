@@ -51,6 +51,7 @@ import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, 
 import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
+import { isUsableBed, usableBedIndices } from "./structures.js";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -452,6 +453,11 @@ export function settlementStatsAll(): Map<number, SettlementStat[]> {
     const s = statNear(tx, ty);
     if (s) s.housingCap++;
   });
+  // Modular building phase 1: every bed in a roofed room (a built bedroom) is one more home.
+  for (const i of usableBedIndices()) {
+    const s = statNear(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X), clanIdAtIndex(i));
+    if (s) s.housingCap++;
+  }
   for (const c of colonists.values()) {
     // Forts phase F: a vassal's levy counts nowhere (not population, not troops).
     if (c.levyOf) continue;
@@ -1143,8 +1149,9 @@ export function planBuildSite(c: Colonist): { key: string; path: TileCoord[] } |
     const center = tileToPixelCenter({ x: site.tx, y: site.ty });
     candidates.push({ key, site, d: Math.hypot(center.x - c.x, center.y - c.y), n });
   }
-  // Spread out: the site with the fewest builders already on it first, ties nearest.
-  candidates.sort((p, q) => p.n - q.n || p.d - q.d);
+  // Spread out: the site with the fewest builders already on it first, ties nearest. Modular building phase 1:
+  // the player's priority blueprints come before all others.
+  candidates.sort((p, q) => (q.site.priority ? 1 : 0) - (p.site.priority ? 1 : 0) || p.n - q.n || p.d - q.d);
   const start = tileOfPixel(c.x, c.y);
   for (const { key, site } of candidates.slice(0, BUILDER_ROUTE_CANDIDATES)) {
     const center = tileToPixelCenter({ x: site.tx, y: site.ty });
@@ -1431,7 +1438,7 @@ export function houseOccupancy(tx: number, ty: number): number {
 function isHomeTile(c: Colonist, tx: number, ty: number): boolean {
   if (!inBounds(tx, ty) || clanIdAt(tx, ty) !== (c.clan ?? 0)) return false;
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
-  return houseCapacity(t) > 0 || t === TileType.Keep || t === TileType.TownCenter;
+  return houseCapacity(t) > 0 || t === TileType.Keep || t === TileType.TownCenter || isUsableBed(tx, ty);
 }
 
 export function assignShelter(c: Colonist) {
@@ -1445,10 +1452,11 @@ export function assignShelter(c: Colonist) {
     return;
   }
   let bestD = Infinity;
-  for (const i of tileIndicesOfAny(HOUSE_TILES)) {
+  // Modular building phase 1: a bed in a roofed room sleeps one.
+  for (const i of [...tileIndicesOfAny(HOUSE_TILES), ...usableBedIndices()]) {
     const tx = i % state.WORLD_TILES_X;
     const ty = Math.floor(i / state.WORLD_TILES_X);
-    const cap = houseCapacity(state.tiles[i] as TileType);
+    const cap = state.tiles[i] === TileType.Bed ? 1 : houseCapacity(state.tiles[i] as TileType);
     if (cap === 0) continue;
     if (clanIdAt(tx, ty) !== (c.clan ?? 0)) continue;
     const center = tileToPixelCenter({ x: tx, y: ty });

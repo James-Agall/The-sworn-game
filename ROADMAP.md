@@ -2155,6 +2155,38 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Modular building — landed (phase 1) 2026-11-09 (walls, doors, windows, floors, beds, derived roofs)
+Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 1. The isometric view (below) is abandoned: its uncommitted
+files were deleted. View stays flat top-down.
+- **Pieces** (one tile layer, so the setTile registry, chunk versions, diff-log saves and the path cache all apply as
+  is): walls are the existing Wood Wall / Stone Wall tiles; new `WoodDoor`/`StoneDoor` (110/111, gate tiles: the gate
+  state machine, open for the colony, shut to mobs until broken, lockable), `WoodWindow`/`StoneWindow` (112/113, solid
+  wall pieces, breached like walls), `WoodFloor`/`StoneFloor` (114/115, walkable ground) and `Bed` (116, walkable).
+  Costs in shared `BUILD_COSTS`, HP doors 160/500, windows 120/500. A door or window may replace a wall; walls,
+  doors, windows and beds go over floors.
+- **Rooms and roofs** (`shared/src/structures.ts` findRooms, server `src/structures.ts`): a 4-connected area of at most
+  144 tiles holding only ground / floor / beds / blueprints, closed by walls, windows, doors or gates, is a room and is
+  roofed (thatch, or tile when stone pieces are the majority). Roofs are derived, never saved (old saves get roofs for
+  their small empty enclosures; walled compounds with buildings or trees in them do not). Server recomputes on a room-
+  relevant tile write (`chunks.ts tileRoomVersion`); `isRoofed` / `roomAt` are the queries. Client draws roof tiles on top
+  of the world, fades the hero's own room and shows all roofs see-through while a Structure tool is selected.
+- **Houses**: each bed in a roofed room is +1 settlement housing (`settlementStatsAll`) and a home slot (`assignHomes`,
+  `assignShelter`). Prefab cottages, Town Centers and Keeps work as before.
+- **Build orders**: Build menu **Structure** tab (Wood / Stone Wall moved here from Combat; Wood / Stone Room rectangle
+  tools; doors, windows, floors, bed). Right-drag paints a straight wall / window line, a filled floor rectangle or a room
+  outline; release sends one `placeStructure` order (no 2.5-tile reach: within 40 tiles of the hero or an own Town
+  Center, at most 400 tiles). Materials leave the stock at once; builders (and idle villagers at reduced speed) work the
+  blueprints; `siteOrder` priority (builders take priority sites first) and cancel (structure blueprints refund) from
+  the blueprint's info panel.
+- **Progression**: wood pieces need the stone axe, stone pieces a Quarry (new rows in `PROGRESSION.buildings`; the old
+  walls stay ungated).
+- **Art**: procedural stand-ins (`client/src/structureArt.ts`); real art request is SPRITES.md #90.
+- **Tests**: `server/structures-test.mjs` (`npm test -- structures`).
+- **Known gaps (phase 1)**: roofs have no HP of their own (they go when the room opens); floors under a wall are lost
+  when the wall is demolished; the old wall art is 3/4 sprite art while doors / windows are flat stand-ins; a room
+  needs every interior tile clear (no furniture besides beds until phase 2); the client recomputes roofs with a
+  full-map boundary scan (throttled, fine up to 512, may want the server's incremental approach for bigger maps).
+
 ## Bandit camp templates — landed 2026-11-06 (data-driven camps; camp editor in creative mode)
 
 World-gen's bandit camps (the "encampment" POI: hearth, guards, prisoners) are stamped from **templates** instead of

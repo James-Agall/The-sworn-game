@@ -135,6 +135,17 @@ export enum TileType {
   // Pig Pasture (2026-11-06): a 2x2 pasture of pigs (the most meat, no hide). TileType.Pasture is the Cow Pasture
   // (meat + hide; old saves' pastures are cows).
   PigPasture = 104,
+  // Modular building phase 1 (2026-11-09, shared/src/structures.ts): player-built room pieces. The walls are the
+  // existing Wall (wood) / StoneWall. Doors are gate tiles (isGateTile: gate state `gates`, open for the colony's
+  // units, closed to mobs until broken); windows are solid wall pieces; floors and beds are walkable ground. A
+  // roof is not a tile: it is derived (findRooms) over every small enclosed room.
+  WoodDoor = 110,
+  StoneDoor = 111,
+  WoodWindow = 112,
+  StoneWindow = 113,
+  WoodFloor = 114,
+  StoneFloor = 115,
+  Bed = 116,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -322,13 +333,16 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.RuinedKeep ||
     tile === TileType.Tent ||
     tile === TileType.Moat ||
-    tile === TileType.BuildingPart
+    tile === TileType.BuildingPart ||
+    tile === TileType.WoodWindow ||
+    tile === TileType.StoneWindow
   );
 }
 
-// A gate-like tile: its passability is gate state (`gates`), not isSolidTile (phase H: drawbridges too).
+// A gate-like tile: its passability is gate state (`gates`), not isSolidTile (phase H: drawbridges too;
+// modular building: room doors).
 export function isGateTile(tile: number): boolean {
-  return tile === TileType.Gate || tile === TileType.Drawbridge;
+  return tile === TileType.Gate || tile === TileType.Drawbridge || tile === TileType.WoodDoor || tile === TileType.StoneDoor;
 }
 
 export type ColonistKind =
@@ -999,6 +1013,8 @@ export interface BuildingInfo {
   repair: { cost: string; enabled: boolean; reason: string } | null;
   // Gates only: the current state and lock (see setGateLock).
   gate?: { open: boolean; lock: GateLock; overrun: boolean };
+  // Construction sites only (modular building phase 1): the blueprint's priority and what cancelling refunds.
+  blueprint?: { priority: boolean; refund: string };
   // Siege Workshops only: what is being built (null: idle), its progress 0-1, engines alive / cap, and a
   // build button per engine (see queueSiege).
   siege?: {
@@ -1099,6 +1115,14 @@ export type ClientMessage =
   | { type: "join"; name?: string }
   | { type: "input"; dx: number; dy: number }
   | { type: "setTile"; tileX: number; tileY: number; tile: TileType }
+  // Modular building phase 1: blueprints for a structure piece (shared/src/structures.ts STRUCTURE_TILES, or
+  // Empty to cancel blueprints) on many tiles at once, flattened [x, y, ...] (a painted wall line, a room
+  // outline, a floor rectangle). No reach limit: tiles within STRUCTURE_ORDER_RANGE_TILES of the hero or an own
+  // Town Center. Each tile follows the setTile rules (cost, progression, builders).
+  | { type: "placeStructure"; tile: TileType; tiles: number[] }
+  // A construction site's blueprint: toggle its priority (builders take priority sites first) or cancel it
+  // (structure pieces refund their materials).
+  | { type: "siteOrder"; tileX: number; tileY: number; action: "priority" | "cancel" }
   | { type: "attack" }
   // paused (strategy mode phase 5, optional): set it instead of toggling. Global: applies to everyone.
   | { type: "pause"; paused?: boolean }

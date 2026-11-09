@@ -665,6 +665,12 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > the hero is inside. **Blueprint ghosts**: translucent blue overlay for planned wall/floor/door/window/roof, and a
 > scaffold/construction-in-progress overlay (2 frames).
 
+> **Phase 1 stand-ins in use (2026-11-09, `client/src/structureArt.ts`, all procedural 32x32, pending the art above):**
+> wood / stone floor; wood / stone window (horizontal + vertical); wood / stone door (horizontal + vertical, open +
+> closed); bed; thatch roof and clay-tile roof (plain tile, no ridge / eave pieces yet, faded by alpha when inside).
+> Walls keep their existing 16-piece art; doors and windows join it. Still missing entirely: door broken state,
+> window damaged state, blueprint ghost tiles (a construction site shows the faded piece), roof ridge / eave pieces.
+
 ### 91. Furniture and room items (phase 2) — 32x32 or 32x64 (2 tiles)
 > Bed (single, double; wood, straw pallet), table (small, long), chair/stool, bench, chest, shelf, wardrobe, hearth/fireplace
 > (lit/unlit), lamp/candle stand (lit/unlit), rug, banner, statue/trophy (beauty), workbench, cooking pot/stove, barrel,

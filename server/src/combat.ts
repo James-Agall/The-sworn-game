@@ -12,7 +12,7 @@ import type { Colonist, Cost, GateState, Mob, Player, TileCoord, TownCenter, Wil
 import {
   BIG_BUILD_TILES, BREACH_HP_PER_TILE, BREACH_TOWER_PENALTY_TILES, BREAKABLE_TILES, BUILDING_HP_BIG,
   BUILDING_HP_GATE, BUILDING_HP_LEVEL_MULT, BUILDING_HP_SMALL, BUILDING_HP_STONE_WALL, BUILDING_HP_WALL,
-  BUILDING_HP_WORKPLACE, BUILDING_NAMES, FORAGE_TILES, GATE_CLOSE_DELAY_TICKS, GATE_OPEN_RANGE_PX,
+  BUILDING_HP_WORKPLACE, BUILDING_HP_STONE_DOOR, BUILDING_HP_STONE_WINDOW, BUILDING_HP_WOOD_DOOR, BUILDING_HP_WOOD_WINDOW, BUILDING_NAMES, FORAGE_TILES, GATE_CLOSE_DELAY_TICKS, GATE_OPEN_RANGE_PX,
   GATE_OVERRUN_RANGE_TILES, GATE_TOWER_RANGE_TILES, GOBLIN_RIDER_DAMAGE_TAKEN, GORRATH_FURY_DAMAGE_TAKEN,
   GORRATH_FURY_HP_FRACTION, GORRATH_FURY_TICKS, MOAT_FILL_HP, MOB_REPATH_TICKS, PLAYER_ATTACK_RANGE, RING_8, TOWER_COSTS,
   TOWER_STATS,
@@ -420,8 +420,9 @@ export function damageTownCenter(tc: TownCenter, amount: number) {
   if (tc.hp <= 0) destroyTownCenter(tc);
 }
 
+// Modular building phase 1: windows are wall pieces (solid, breached like walls, never a mob's target).
 export function isWallTile(t: TileType): boolean {
-  return t === TileType.Wall || t === TileType.StoneWall;
+  return t === TileType.Wall || t === TileType.StoneWall || t === TileType.WoodWindow || t === TileType.StoneWindow;
 }
 export function isDamageableBuilding(t: TileType): boolean {
   if (!state.damageableLut) {
@@ -432,6 +433,9 @@ export function isDamageableBuilding(t: TileType): boolean {
     // Gates aren't solid tiles (their passability is gate state) but take damage like a wall.
     state.damageableLut[TileType.Gate] = 1;
     state.damageableLut[TileType.Drawbridge] = 1;
+    // Modular building phase 1: room doors are gates.
+    state.damageableLut[TileType.WoodDoor] = 1;
+    state.damageableLut[TileType.StoneDoor] = 1;
   }
   return state.damageableLut[t] === 1;
 }
@@ -439,6 +443,10 @@ export function isDamageableBuilding(t: TileType): boolean {
 export function buildingBaseHp(t: TileType): number {
   if (t === TileType.Wall) return BUILDING_HP_WALL;
   if (t === TileType.StoneWall) return BUILDING_HP_STONE_WALL;
+  if (t === TileType.WoodDoor) return BUILDING_HP_WOOD_DOOR;
+  if (t === TileType.StoneDoor) return BUILDING_HP_STONE_DOOR;
+  if (t === TileType.WoodWindow) return BUILDING_HP_WOOD_WINDOW;
+  if (t === TileType.StoneWindow) return BUILDING_HP_STONE_WINDOW;
   if (isGateTile(t)) return BUILDING_HP_GATE;
   // Phase H: a moat's "HP" is how much filling the breach search's mobs must do.
   if (t === TileType.Moat) return MOAT_FILL_HP;
@@ -687,7 +695,7 @@ export function evaluateGateOverrun(index: number, g: GateState) {
 // Once per tick: registry upkeep, auto open / close, and (once a second) the overrun check.
 export function updateGates(forceOverrunCheck = false) {
   if (state.gateTilesDirty) {
-    for (const i of tileIndicesOfAny([TileType.Gate, TileType.Drawbridge])) gateAt(i);
+    for (const i of tileIndicesOfAny([TileType.Gate, TileType.Drawbridge, TileType.WoodDoor, TileType.StoneDoor])) gateAt(i);
     for (const index of Array.from(gates.keys())) if (!isGateTile(state.tiles[index])) gates.delete(index);
     state.gateTilesDirty = false;
   }

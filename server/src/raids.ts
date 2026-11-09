@@ -68,7 +68,7 @@ function raidReachPassable(x: number, y: number): boolean {
   if (isWalkableTile(x, y)) return true;
   if (!inBounds(x, y) || ownerAt(tileIndex(x, y)) !== 0) return false;
   const t = state.tiles[tileIndex(x, y)];
-  return t === TileType.Wall || t === TileType.StoneWall || t === TileType.Moat || isGateTile(t);
+  return t === TileType.Wall || t === TileType.StoneWall || t === TileType.WoodWindow || t === TileType.StoneWindow || t === TileType.Moat || isGateTile(t);
 }
 
 export function raidAnchorWithinPathBudget(anchor: TileCoord): boolean {

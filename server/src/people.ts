@@ -14,6 +14,7 @@ import {
 import { chargeRuns, colonists, hearths, players, respawnQueue, sites, state } from "./state.js";
 import { getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { tileIndicesOfAny } from "./chunks.js";
+import { usableBedIndices } from "./structures.js";
 import {
   findTownCenterAt, freeVillagerFor, houseCapacity, isFreeVillager, isCivilianKind, isHouseTile, isValidPostTile, nearestTownCenter,
   newPerson, personAgeDays, queueRespawn, releaseToVillage, settlementOf, settlementStats, spawnColonistForPost, spawnVillager,
@@ -48,6 +49,12 @@ export function assignHomes() {
     if (clanIdAt(x, y) !== state.clan.id) continue;
     const t = state.tiles[i] as TileType;
     beds.set(resourceKey(x, y), { x, y, free: isHouseTile(t) ? houseCapacity(t) : KEEP_POPULATION_PER_LEVEL * getBuildingLevel(x, y) });
+  }
+  // Modular building phase 1: each bed in a roofed room (a built bedroom) is one person's home.
+  for (const i of usableBedIndices()) {
+    const x = i % state.WORLD_TILES_X;
+    const y = Math.floor(i / state.WORLD_TILES_X);
+    if (clanIdAt(x, y) === state.clan.id) beds.set(resourceKey(x, y), { x, y, free: 1 });
   }
   const homeless: Colonist[] = [];
   for (const c of colonists.values()) {

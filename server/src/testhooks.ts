@@ -45,14 +45,15 @@ import {
   getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, setOwner, siteNumber, tileIndex, tileOfPixel,
   tileToPixelCenter,
 } from "./tiles.js";
-import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
+import { findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
+import { allRooms, isRoofed } from "./structures.js";
 import { farmPlotProgress, farmhandProgress, releaseResourceReservation } from "./economy.js";
 import { makeBoss } from "./worldgen.js";
 import { WILDLIFE_CONFIG, WILDLIFE_RESPAWN_INTERVAL_TICKS, damageWildlife, spawnWildlifeAt } from "./wildlife.js";
 import {
   TOWN_CENTER_TILE, civilianPopulationUsed, findTownCenterAt, happinessSpeedMultiplier, populationCap,
   productionSpeedMultiplier, respawnWindowAt, respawnWindowSnapshot, settlementKeyNear, spawnColonistForPost, townCenterBonus,
-  newPerson, peopleSnapshot, populationCostOf, spawnVillager,
+  newPerson, peopleSnapshot, populationCostOf, spawnVillager, settlementStats,
 } from "./colonists.js";
 import { colonistRole, guardStats, isGuardOrMilitiaKind, isSiegeKind, unitStats } from "./units.js";
 import {
@@ -79,7 +80,7 @@ import { endVassalage, forceTribute, updateVassals, vassalDebugState, vassalsDaw
 import { forceVassal, placeTradingPost, spawnMobAt, spawnRaidGroupAt, spawnSoldierAt, stampSiteSearch } from "./creative.js";
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
 import { BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, FOOD_TIME_MULT, PASTURE_YIELDS } from "@colony/shared/buildings";
-import { handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
+import { assignHomes, handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
@@ -968,6 +969,34 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     });
     resetProgressCache();
     reply(withClan(pc, () => ({ ...progressionDebug(), snapshot: progressionSnapshot() })));
+  } else if (msg.op === "structureState") {
+    // Modular building phase 1: rooms (roofed areas), whether given tiles are roofed, settlement housing, and
+    // optional path probes [{from: {x, y}, to: {x, y}, hostile}] (friendly units path through doors, mobs do not).
+    const W = state.WORLD_TILES_X;
+    const at = (Array.isArray(msg.at) ? msg.at : []) as { x: number; y: number }[];
+    const probes = (Array.isArray(msg.paths) ? msg.paths : []) as { from: TileCoord; to: TileCoord; hostile?: boolean }[];
+    reply({
+      rooms: allRooms().map((r) => ({ size: r.tiles.length, beds: r.beds.map((i) => ({ x: i % W, y: Math.floor(i / W) })), stone: r.stone, x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 })),
+      roofed: at.map((p) => isRoofed(p.x, p.y)),
+      tiles: at.map((p) => (inBounds(p.x, p.y) ? state.tiles[tileIndex(p.x, p.y)] : -1)),
+      settlements: settlementStats().map((st) => ({ x: st.tc.x, y: st.tc.y, cap: st.cap, housingCap: st.housingCap, used: st.used, tierCap: st.tierCap })),
+      populationCap: populationCap(),
+      homes: Array.from(colonists.values()).filter((c) => c.person && c.person.homeX >= 0).map((c) => ({ id: c.id, x: c.person!.homeX, y: c.person!.homeY })),
+      paths: probes.map((p) => {
+        const prev = state.hostileMover;
+        state.hostileMover = !!p.hostile;
+        try {
+          const path = findPath(p.from, p.to);
+          return path ? path.length : null;
+        } finally {
+          state.hostileMover = prev;
+        }
+      }),
+      sites: Array.from(constructionSites.values()).map((site) => ({ x: site.tx, y: site.ty, target: site.target, priority: !!site.priority, paid: site.paid ?? null })),
+    });
+  } else if (msg.op === "assignHomes") {
+    assignHomes();
+    reply({});
   } else if (msg.op === "respawnState") {
     // Long days & dawn/dusk respawn windows (day-respawn-test).
     reply({

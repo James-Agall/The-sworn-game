@@ -42,7 +42,14 @@ export function minimapClassOf(tile: number, biome: number, owned: boolean): Min
     case TileType.StoneWall:
     case TileType.Gate:
     case TileType.Drawbridge:
+    case TileType.WoodDoor:
+    case TileType.StoneDoor:
+    case TileType.WoodWindow:
+    case TileType.StoneWindow:
       return MinimapClass.Wall;
+    case TileType.WoodFloor:
+    case TileType.StoneFloor:
+      return MinimapClass.Road;
     case TileType.Moat: return MinimapClass.Moat;
     case TileType.Road:
     case TileType.CobbleRoad:

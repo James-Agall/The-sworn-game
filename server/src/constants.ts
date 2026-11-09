@@ -12,6 +12,7 @@ import {
   FOOD_OUTPUT_MULT, FOOD_TIME_MULT,
 } from "@colony/shared/buildings";
 export { BARN_FARMERS_BY_LEVEL, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, FOOD_TIME_MULT };
+import { NEW_STRUCTURE_TILES } from "@colony/shared/structures";
 import type {
   Cost, CraftRecipe, DifficultyTuning, MobKindConfig, PoiSiteKind, RaidFactionEntry, RaidFactionId,
   RaidFormationShape, ResourceKey, SiteTemplate, SiteTemplateId, TileCoord, WildlifeMode,
@@ -57,6 +58,11 @@ export const STARTING_GRAIN = 80;
 export const BUILDING_HP_WALL = 200;
 export const BUILDING_HP_STONE_WALL = 900;
 export const BUILDING_HP_GATE = 450;
+// Modular building phase 1: doors and windows (floors and beds are walkable and never targeted).
+export const BUILDING_HP_WOOD_DOOR = 160;
+export const BUILDING_HP_STONE_DOOR = 500;
+export const BUILDING_HP_WOOD_WINDOW = 120;
+export const BUILDING_HP_STONE_WINDOW = 500;
 export const BUILDING_HP_SMALL = 120;
 export const BUILDING_HP_WORKPLACE = 180;
 export const BUILDING_HP_BIG = 250;
@@ -776,7 +782,8 @@ export const NEIGHBOURS_8: ReadonlyArray<readonly [number, number]> = [
 // Keep level (garrisonBlocker). House extras ride on top of that ceiling.
 export const SETTLEMENT_GARRISON_CAP_BY_TIER = [12, 24, 40];
 export const KEEP_GARRISON_PER_LEVEL = 10;
-export const WALL_TILES = [TileType.Wall, TileType.StoneWall];
+// Modular building phase 1: windows are wall pieces (solid, breached like walls).
+export const WALL_TILES = [TileType.Wall, TileType.StoneWall, TileType.WoodWindow, TileType.StoneWindow];
 export const NO_COLONIST_TILES = [
   TileType.ConstructionSite,
   TileType.Wall,
@@ -789,6 +796,7 @@ export const NO_COLONIST_TILES = [
   TileType.Road,
   TileType.CobbleRoad,
   TileType.Keep,
+  ...NEW_STRUCTURE_TILES,
 ];
 // Event-feed names for tier upgrades, matching the client's build-panel labels.
 export const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
@@ -2009,6 +2017,8 @@ export const PLACEABLE_TILES = [
   TileType.Keep,
   TileType.Moat,
   TileType.Drawbridge,
+  // Modular building phase 1: doors, windows, floors, beds (walls are above).
+  ...NEW_STRUCTURE_TILES,
 ];
 export const BREAKABLE_TILES = [
   // Forts phase A: a fallen NPC wall's rubble can be cleared.
@@ -2068,6 +2078,7 @@ export const BREAKABLE_TILES = [
   // Phase H: filling a moat (-> Empty); a drawbridge comes down to its Moat.
   TileType.Moat,
   TileType.Drawbridge,
+  ...NEW_STRUCTURE_TILES,
 ];
 export const POPULATION_GATED_TILES = [
   TileType.LumberjackPost,
@@ -2149,6 +2160,11 @@ export const POI_TILES = new Set<TileType>([
 // Base build time (seconds) per level; an upgrade to level n takes n times as long. Split between up
 // to BUILDER_MAX_PER_SITE builders and scaled by builderRate (happiness, Town Center, Guild).
 export const BUILD_SECONDS_WALL = 4;
+// Modular building phase 1: floors are quick, doors / windows / beds take a little longer than a wall.
+export const BUILD_SECONDS_FLOOR = 2;
+export const BUILD_SECONDS_DOOR = 6;
+export const BUILD_SECONDS_WINDOW = 5;
+export const BUILD_SECONDS_BED = 5;
 // Roads: cheap ground tiles, built by builders like everything else (one tile per placement).
 export const ROAD_ROCK_COST = BUILD_COSTS[TileType.Road].rock;
 export const COBBLE_ROAD_ROCK_COST = BUILD_COSTS[TileType.CobbleRoad].rock;
@@ -2294,6 +2310,13 @@ export const BUILDING_NAMES: Partial<Record<TileType, string>> = {
   [TileType.Gate]: "Gate",
   [TileType.Moat]: "Moat",
   [TileType.Drawbridge]: "Drawbridge",
+  [TileType.WoodDoor]: "Wood Door",
+  [TileType.StoneDoor]: "Stone Door",
+  [TileType.WoodWindow]: "Wood Window",
+  [TileType.StoneWindow]: "Stone Window",
+  [TileType.WoodFloor]: "Wood Floor",
+  [TileType.StoneFloor]: "Stone Floor",
+  [TileType.Bed]: "Bed",
   // Forts phase B.
   [TileType.Tent]: "Tent",
   [TileType.SiteKeep]: "Chief's hall",

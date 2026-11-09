@@ -874,6 +874,10 @@ export interface ConstructionSiteState {
   // Builder work accumulated (each working builder adds builderRate per tick) / needed.
   progress: number;
   totalTicks: number;
+  // Modular building phase 1 (optional: older saves have neither): what the placement paid (a cancelled structure
+  // blueprint refunds it) and the player's priority flag (builders take priority sites first).
+  paid?: Cost;
+  priority?: boolean;
 }
 // Cavalry charge runs: where the rider's current straight run began (ax, ay), its last position, ticks
 // stood still, and the tick its next charge may land. Not saved.

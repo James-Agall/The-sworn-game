@@ -3,8 +3,9 @@ import {
   BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, PASTURE_YIELDS,
 } from "@colony/shared/buildings";
 import { TileType } from "@colony/shared/protocol";
+import { ROOM_TOOL_STONE, ROOM_TOOL_WOOD } from "@colony/shared/structures";
 
-export type ToolCategory = "combat" | "farming" | "industry" | "civic" | "trade";
+export type ToolCategory = "structure" | "combat" | "farming" | "industry" | "civic" | "trade";
 
 export interface ToolDef {
   tile: TileType;
@@ -12,6 +13,9 @@ export interface ToolDef {
   key: string;
   cost: string;
   category: ToolCategory;
+  // Modular building phase 1: how a right-drag paints (blueprint orders, placeStructure): a straight wall line, a
+  // filled rectangle, or a room outline. Without it a tool places one tile per click as before.
+  drag?: "line" | "rect" | "room";
 }
 
 // Break has no category of its own — it's pinned so it's always visible regardless of
@@ -22,6 +26,7 @@ export const TOOL_CATEGORIES: { key: ToolCategory; label: string }[] = [
   { key: "industry", label: "Industry" },
   { key: "civic", label: "Civic" },
   { key: "trade", label: "Trade" },
+  { key: "structure", label: "Structure" },
 ];
 
 // "Each batch: 240 meat + 2 hide" for a complete 2x2 pasture (x4 its per-tile PASTURE_YIELDS, x FOOD_OUTPUT_MULT).
@@ -34,8 +39,18 @@ function pastureYieldText(tile: TileType): string {
 }
 
 export const TOOLS: ToolDef[] = [
-  { tile: TileType.Wall, label: "Wood Wall", key: "1", cost: `${buildCostText(TileType.Wall)}. 200 HP`, category: "combat" },
-  { tile: TileType.StoneWall, label: "Stone Wall", key: "2", cost: `${buildCostText(TileType.StoneWall)}. 900 HP`, category: "combat" },
+  // Modular building phase 1: walls are the Structure section's wall pieces (right-drag paints a straight line).
+  { tile: TileType.Wall, label: "Wood Wall", key: "1", cost: `${buildCostText(TileType.Wall)}. 200 HP. Right-drag paints a line`, category: "structure", drag: "line" },
+  { tile: TileType.StoneWall, label: "Stone Wall", key: "2", cost: `${buildCostText(TileType.StoneWall)}. 900 HP. Right-drag paints a line`, category: "structure", drag: "line" },
+  { tile: ROOM_TOOL_WOOD, label: "Wood Room", key: "", cost: `Right-drag a rectangle: wood wall outline (${buildCostText(TileType.Wall)} per tile). An enclosed room (up to 144 tiles inside, nothing but floor / beds) gets a roof`, category: "structure", drag: "room" },
+  { tile: ROOM_TOOL_STONE, label: "Stone Room", key: "", cost: `Right-drag a rectangle: stone wall outline (${buildCostText(TileType.StoneWall)} per tile)`, category: "structure", drag: "room" },
+  { tile: TileType.WoodDoor, label: "Wood Door", key: "", cost: `${buildCostText(TileType.WoodDoor)}. 160 HP. On ground or cut into a wall: opens for your people, shut to monsters until broken`, category: "structure" },
+  { tile: TileType.StoneDoor, label: "Stone Door", key: "", cost: `${buildCostText(TileType.StoneDoor)}. 500 HP. Needs a Quarry`, category: "structure" },
+  { tile: TileType.WoodWindow, label: "Wood Window", key: "", cost: `${buildCostText(TileType.WoodWindow)}. 120 HP. A wall piece (blocks like a wall); cut into a wall`, category: "structure", drag: "line" },
+  { tile: TileType.StoneWindow, label: "Stone Window", key: "", cost: `${buildCostText(TileType.StoneWindow)}. 500 HP. Needs a Quarry`, category: "structure", drag: "line" },
+  { tile: TileType.WoodFloor, label: "Wood Floor", key: "", cost: `${buildCostText(TileType.WoodFloor)} per tile. Right-drag fills a rectangle`, category: "structure", drag: "rect" },
+  { tile: TileType.StoneFloor, label: "Stone Floor", key: "", cost: `${buildCostText(TileType.StoneFloor)} per tile. Needs a Quarry. Right-drag fills a rectangle`, category: "structure", drag: "rect" },
+  { tile: TileType.Bed, label: "Bed", key: "", cost: `${buildCostText(TileType.Bed)}. In a roofed room: +1 population and a home for one (a bedroom with N beds = N slots)`, category: "structure" },
   // Walls & gates (2026-10-23). Every letter is taken (and [ is the Tower), so the gate uses ].
   {
     tile: TileType.Gate,

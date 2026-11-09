@@ -5,6 +5,7 @@
 // (worldgen fill, save load) call markTileRegistryStale(); a new state.tiles array is noticed by itself.
 // Phase 2 adds the chunk manager (bottom). Imports only state and the shared protocol at runtime.
 import { TileType, TILE_SIZE as TILE_PX } from "@colony/shared/protocol";
+import { isRoomBoundaryTile, isRoomInteriorTile } from "@colony/shared/structures";
 import { colonists, mobs, players, raidGroups, state } from "./state.js";
 
 export const CHUNK_TILES = 32;
@@ -29,6 +30,12 @@ let regionVersion = new Uint32Array(0);
 let chunkStructures = new Uint32Array(0);
 // Bumped by every rebuild: cached paths from before it are dropped.
 let epoch = 0;
+// Modular building phase 1: bumped when a tile write can make or break a room (a boundary piece, or a tile going
+// between room interior and anything else); server structures.ts recomputes its rooms on a change.
+let roomVersion = 0;
+export function tileRoomVersion(): number {
+  return roomVersion;
+}
 
 export function chunkOfIndex(i: number): number {
   const W = state.WORLD_TILES_X;
@@ -79,6 +86,7 @@ export function setTile(i: number, t: TileType) {
   }
   const c = chunkOfIndex(i);
   regionVersion[c]++;
+  if (isRoomBoundaryTile(old) || isRoomBoundaryTile(t) || isRoomInteriorTile(old) !== isRoomInteriorTile(t) || old === TileType.Bed || t === TileType.Bed) roomVersion++;
   if (!NATURAL[old]) chunkStructures[c]--;
   if (!NATURAL[t]) chunkStructures[c]++;
 }
