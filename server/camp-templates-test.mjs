@@ -10,6 +10,8 @@
 //   D generateWorld(seed) twice gives the same tiles and the same camps; another seed differs; every camp hearth
 //     comes from a template; all three tiers appear on a 160 map; an 80 map generates too.
 //   B destroying a templated camp's hearth burns its props within its radius and pays its chests' loot.
+//   E the camp editor's creativeSet ops: campList, campSave (refuses invalid), campStamp at a click (refused on top
+//     of a camp), campDelete (refuses built-ins).
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -173,6 +175,40 @@ async function inner() {
     const want = HEARTH_LOOT_PER_GUARDIAN.gold * Math.max(1, h.garrison) + CAMP_CHEST_LOOT.gold * h.campChests;
     result(before > 0 && count() === 0 && state.tiles[idx(h.x, h.y)] === TileType.RuinRubble, `B ${before} props burned within radius ${r}, hearth to rubble`);
     result(gold === want, `B plunder gold ${gold} (want ${want}, ${h.campChests} chests)`);
+  }
+
+  // ---- E ---- the camp editor's creativeSet ops (index.ts refuses them outside creative games)
+  {
+    const { handleCreativeSet } = await import("./src/creative.ts");
+    gen(4242);
+    const call = (msg) => {
+      let out = null;
+      handleCreativeSet({ id: "p", clan: 0 }, msg, (ok, text, data = {}) => (out = { ok, text, ...data }));
+      return out;
+    };
+    const draft = { ...builtins[0], id: "editor-camp", name: "Editor camp", builtin: undefined, weight: 0 };
+    const list = call({ op: "campList" });
+    result(list.ok && list.templates.length === builtins.length && list.templates.every((t) => t.builtin), `E campList: ${list.templates.length} templates`);
+    const bad = call({ op: "campSave", template: { ...draft, rows: draft.rows.map((r) => r.replace("H", ".")) } });
+    const saved = call({ op: "campSave", template: draft });
+    result(!bad.ok && saved.ok && saved.templates.some((t) => t.id === "editor-camp" && !t.builtin), `E campSave refuses no-hearth, saves a valid one (${bad.text})`);
+    // Find clear ground for the stamp: the first tile whose radius is all open / natural ground.
+    let at = null;
+    const r = campRadius(draft);
+    for (let y = 10; y < W - 10 && !at; y += 3) for (let x = 10; x < W - 10 && !at; x += 3) {
+      let ok = !Array.from(hearths.values()).some((h) => Math.max(Math.abs(h.x - x), Math.abs(h.y - y)) <= r + 1);
+      for (let dy = -r; dy <= r && ok; dy++) for (let dx = -r; dx <= r && ok; dx++) ok = camps.campGroundClearable(state.tiles[idx(x + dx, y + dy)]) && !state.siteGrounds[idx(x + dx, y + dy)];
+      if (ok) at = { x, y };
+    }
+    const before = hearths.size;
+    const st = at && call({ op: "campStamp", id: "editor-camp", x: at.x * 32 + 16, y: at.y * 32 + 16, transform: 1 });
+    const h = st && hearths.get(st.siteId);
+    result(!!st?.ok && hearths.size === before + 1 && h?.x === at.x && h?.y === at.y && state.tiles[idx(at.x, at.y)] === TileType.PropCampfire, `E campStamp places the camp at the click (${st?.text})`);
+    const again = at && call({ op: "campStamp", template: draft, x: at.x * 32 + 16, y: at.y * 32 + 16 });
+    result(!!again && !again.ok, `E campStamp on top of a camp is refused (${again?.text})`);
+    const delB = call({ op: "campDelete", id: builtins[0].id });
+    const del = call({ op: "campDelete", id: "editor-camp" });
+    result(!delB.ok && del.ok && !del.templates.some((t) => t.id === "editor-camp"), "E campDelete: built-in refused, user template deleted");
   }
 
   // ---- 80 map ----

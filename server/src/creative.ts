@@ -38,6 +38,7 @@ import { refreshTradingPost, scanTradingPosts } from "./wagons.js";
 import { broadcastTileUpdate } from "./net.js";
 import { pickHeroName, playerMaxHp, spawnHeroColonist, weaponDamageMult } from "./heroes.js";
 import { clanById, withClan } from "./clans.js";
+import { campTemplateById, campTemplates, deleteUserCamp, saveUserCamp, stampCampLive, userCampDir } from "./camps.js";
 
 export const CREATIVE_STOCK = 999999;
 export const CREATIVE_EQUIPMENT = 9999;
@@ -467,7 +468,8 @@ const timePhases = (): Record<string, number> => ({ dawn: 1, noon: Math.floor(DA
 
 // creativeSet {op, ...}: allowAttack {on} | godmode {on} | heal | killMobs | clearNeutrals | clearWildlife |
 // setTime {day?, phase?} | people {count, child?} | raid {day?} | stamp {template, x, y} | tradingPost {x, y, level?} |
-// relation {x, y, value?, vassal?} | quest {x, y, kind} | forceAttack {unitIds, targetType: "c" | "w", targetId}.
+// relation {x, y, value?, vassal?} | quest {x, y, kind} | forceAttack {unitIds, targetType: "c" | "w", targetId} |
+// campList | campSave {template} | campDelete {id} | campStamp {template | id, x, y, transform?} (camp editor).
 export function handleCreativeSet(player: Player, msg: Record<string, unknown>, reply: Reply) {
   const op = msg.op;
   const x = Number(msg.x);
@@ -624,6 +626,23 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
       n++;
     }
     reply(n > 0, n > 0 ? `${n} unit${n === 1 ? "" : "s"} attacking` : "No soldiers selected", { units: n });
+  } else if (op === "campList") {
+    // Camp editor: every template (built-ins flagged), and where user templates are written.
+    reply(true, `${campTemplates().length} camp templates`, { templates: campTemplates(), userDir: userCampDir(), quiet: msg.quiet === true });
+  } else if (op === "campSave" || op === "campDelete") {
+    const err = op === "campSave" ? saveUserCamp(msg.template) : deleteUserCamp(String(msg.id ?? ""));
+    const id = op === "campSave" ? String((msg.template as { id?: unknown } | null)?.id ?? "") : String(msg.id ?? "");
+    if (err) return reply(false, `${op === "campSave" ? "Not saved" : "Not deleted"}: ${err}`);
+    reply(true, `Camp template ${id} ${op === "campSave" ? "saved" : "deleted"}`, { templates: campTemplates(), id });
+  } else if (op === "campStamp") {
+    // {template (an unsaved draft) | id, x, y (px), transform? 0-7}: the hearth lands on the clicked tile.
+    const t = msg.template && typeof msg.template === "object" ? (msg.template as import("@colony/shared/camps").CampTemplate) : campTemplateById(String(msg.id ?? ""));
+    if (!t) return reply(false, "Unknown camp template");
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return reply(false, "Bad stamp point");
+    const tf = Math.max(0, Math.min(7, Math.floor(Number(msg.transform) || 0)));
+    const r = stampCampLive(t, tileOfPixel(x, y), tf);
+    if (typeof r === "string") return reply(false, `No camp stamped: ${r}`);
+    reply(true, `Stamped camp "${t.name}" (${r.guards.length} guards)`, { siteId: r.siteId, guards: r.guards.length });
   } else {
     reply(false, "Unknown creative op");
   }

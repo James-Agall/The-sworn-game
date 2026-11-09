@@ -684,3 +684,31 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Bandit camp templates + camp editor (2026-11-09)
+Automated: `cd server && node camp-templates-test.mjs` (in-process, no ports, scratch folders).
+1. New game (any size): walk / scout to a few bandit camps. They are no longer all a campfire with 1-3 props: you
+   see tent circles, fenced captive pens, rubble-and-grave hideouts near the start; palisade rings with a lantern
+   watch post, wagon laagers and crossroads camps further out; big stockades / twin palisades / warcamps far out
+   (more guards, elites). Camps are often turned or mirrored. Every camp's hearth can be reached on foot.
+2. Attack a camp: "Defeat the guards first" until its guards fall, then the hearth burns: the camp's crates,
+   barrels, carts, fences, tents and watch posts within its footprint burn away (graves / rubble stay). A camp with
+   a loot chest pays more gold (+25 per chest) in the plunder toast. Walk up to an unguarded hearth: its prisoners
+   are freed (never more than the camp's prisoner slots).
+3. Load an older save (made before this change): it loads; its camps keep their old look and burn as before.
+4. Creative game > Creative > World > Camps: **Camp editor** opens a panel at the top left. The template list shows
+   the 10 built-ins ("name · T1 w3 [built-in]"). Pick one, **Load**: its grid, tier, weight, min dist, guards,
+   entrance arrow and rotate / mirror boxes fill in; the stats line reads its size, radius, guard / prisoner /
+   loot slots; "Valid: ready to save / stamp" shows in green.
+5. Paint: pick a brush (Palisade, Tent, Watch post, Crate, ..., Guard / clubman / archer / elite, Prisoner, Loot
+   chest, Hearth), left-drag on the grid; right-drag erases. Placing a Hearth moves it. Wall the hearth in
+   completely: the red list says "the hearth is walled in"; open a gap: it goes green again. Change Grid size
+   (9x9 ... 31x31): the drawing stays centred. Rotate / Mirror turn the drawing and the entrance arrow.
+6. **Duplicate** a built-in: id becomes "<id>-copy". Edit it, **Save**: toast "Camp template ... saved", it appears
+   in the list as [user], and the file is in `server/data/camps/user/<id>.json` (the panel's last line names the
+   folder). Saving under a built-in's id is refused. **Delete** asks to confirm and removes a user template;
+   built-ins can't be deleted.
+7. **Stamp here**, then click open ground: the drawn camp appears with its hearth on the click (trees / rocks in
+   the way are cleared), guards stand on the guard slots; stamping on water, a building, a fort or another camp is
+   refused with a reason. The stamped camp fights / burns / frees prisoners like a world-gen one.
+8. A user template with weight > 0 is also placed by world-gen in NEW worlds (restart a game and look for it).
+

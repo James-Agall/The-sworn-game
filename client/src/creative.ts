@@ -3,6 +3,7 @@
 // relations, quests) and Tools (godmode, heal, clear, allow attacking neutrals), plus a short help list. Every
 // action is a creativeSpawn / creativeSet message; the server answers with creativeResult (toasted). Compact and
 // robust rather than pretty.
+import { setupCampEditor } from "./campEditor";
 import { HUNGER_MARK_NAMES, MOB_ROLE, WILDLIFE_KINDS, WILDLIFE_SNAPSHOT_STRIDE, type ColonistSnapshot } from "@colony/shared/protocol";
 
 export interface CreativeDeps {
@@ -132,6 +133,16 @@ export function setupCreative(deps: CreativeDeps) {
       fn(c.x, c.y);
     }
   };
+
+  // Camp editor (campEditor.ts): its "Stamp here" waits for the next map click like At click.
+  const campEditor = setupCampEditor({
+    send: deps.send,
+    toast: deps.toast,
+    pickPoint: (fn) => {
+      pending = fn;
+      deps.toast(true, "Click on the map to stamp the camp (its hearth lands on the click)");
+    },
+  });
 
   const title = el("h3");
   title.append(el("span", "Creative mode"), button("×", () => (panel.hidden = true)));
@@ -271,6 +282,7 @@ export function setupCreative(deps: CreativeDeps) {
       button("Spawn (camps at click)", () => at((x, y) => deps.send({ type: "creativeSet", op: "warband", faction: wbFaction.value, x, y }))),
       button("Grow camp", () => at((x, y) => deps.send({ type: "creativeSet", op: "growCamp", x, y }))),
     ));
+    p.append(row("Camps", button("Camp editor", () => campEditor.open())));
     p.append(row("Trade", button("Trading Post + wagon", () => at((x, y) => deps.send({ type: "creativeSet", op: "tradingPost", x, y, level: 1 })))));
     const rel = el("input", "", { type: "number", min: "-100", max: "100", value: "100" });
     p.append(el("div", "", { class: "cr-sec" }), row("Relation", rel,
@@ -322,6 +334,7 @@ export function setupCreative(deps: CreativeDeps) {
       btn.hidden = !creative;
       if (!creative) {
         panel.hidden = true;
+        campEditor.hide();
         pending = null;
       }
     },
@@ -336,6 +349,7 @@ export function setupCreative(deps: CreativeDeps) {
       }
     },
     onResult(m: { op: string; ok: boolean; text: string; on?: unknown }) {
+      if (m.op.startsWith("camp") && campEditor.onResult(m)) return;
       if (m.op === "godmode" && m.ok) {
         godmode = m.on === true;
         syncToggles();

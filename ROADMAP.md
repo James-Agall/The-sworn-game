@@ -2192,8 +2192,18 @@ the boot), user templates: `server/data/camps/user/*.json` (invalid ones are ski
 - **Known limits**: the watch post is decor (a firing tower would need site ownership and its own art); prisoners
   are still drawn as the stand-in group at the hearth, not on their slots; the `entrance` is metadata (validation
   checks reachability, not the side).
+- **Camp editor** (creative mode, 2026-11-09; `client/src/campEditor.ts`, opened from Creative > World > Camps):
+  paint a 9x9-31x31 grid with the legend's brushes (right-drag erases, H moves the hearth), metadata fields,
+  Rotate / Mirror, live stats + validation (the shared validator), template list with tier / weight / built-in,
+  Load / Duplicate / Delete / New, Save (user template) and Stamp here (the draft, hearth on the next map click).
+  Protocol: no new message types, four `creativeSet` ops (refused outside creative games like every creative op):
+  `campList`, `campSave {template}`, `campDelete {id}`, `campStamp {template | id, x, y, transform?}`; the answer
+  is `creativeResult` with `templates` (and `userDir`). `stampCampLive` refuses the map edge, fort / settlement
+  grounds, construction sites, buildings / water / props and other hearths in the footprint, and clears natural
+  ground. Known limits: one brush cell at a time (no fill / line tools), no undo, the preview is the editor grid
+  (not the in-world art).
 - Test: `server/camp-templates-test.mjs` (in-process under tsx, no ports): every template x transform on a scratch
-  map, seed determinism, tiers, burn + chest loot, the user store.
+  map, seed determinism, tiers, burn + chest loot, the user store, the editor's creativeSet ops.
 
 ## Farm labour — landed 2026-11-06 (fields tended by Barns)
 
