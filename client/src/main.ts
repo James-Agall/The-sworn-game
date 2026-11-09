@@ -10,6 +10,7 @@ import {
   Sprite,
   Text,
   Texture,
+  TilingSprite,
 } from "pixi.js";
 import { setupCreative } from "./creative";
 import { makeStructureTextures, type StructureArt } from "./structureArt";
@@ -1151,12 +1152,20 @@ async function main() {
     rooms.forEach((room, n) => {
       const c = new Container();
       const texture = STRUCTURE_TEXTURES.roof(room.stone);
-      for (const i of room.tiles) {
-        roofTileRoom.set(i, n);
-        const sprite = new Sprite(texture);
-        sprite.position.set((i % worldTilesX) * tileSize, Math.floor(i / worldTilesX) * tileSize);
-        sprite.scale.set(tileSize / texture.width);
-        c.addChild(sprite);
+      // One tiling strip per horizontal run of roof tiles, the pattern anchored to the world origin at 1 texel per
+      // world px (a 64 px roof texture spans 2x2 tiles), so the courses run on across tiles instead of repeating
+      // their shading on every tile.
+      for (const i of room.tiles) roofTileRoom.set(i, n);
+      const sorted = [...room.tiles].sort((a, b) => a - b);
+      for (let k = 0; k < sorted.length; ) {
+        let end = k;
+        while (end + 1 < sorted.length && sorted[end + 1] === sorted[end] + 1 && sorted[end + 1] % worldTilesX !== 0) end++;
+        const x = (sorted[k] % worldTilesX) * tileSize, y = Math.floor(sorted[k] / worldTilesX) * tileSize;
+        const strip = new TilingSprite({ texture, width: (end - k + 1) * tileSize, height: tileSize });
+        strip.position.set(x, y);
+        strip.tilePosition.set(-x, -y);
+        c.addChild(strip);
+        k = end + 1;
       }
       // Eaves: a dark line round the roof's box (rooms are mostly rectangles).
       const eaves = new Graphics();
@@ -1180,9 +1189,11 @@ async function main() {
     roofLayer.visible = strategyBand !== "map";
     const me = latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead);
     const heroRoom = me ? roofTileRoom.get(Math.floor(me.y / tileSize) * worldTilesX + Math.floor(me.x / tileSize)) : undefined;
-    const building = isStructureTool(currentTool);
+    // Only while the Build panel is open: currentTool keeps its last pick (Wall at startup) when the panel is shut,
+    // which used to leave every roof see-through all the time.
+    const building = !buildPanel.classList.contains("collapsed") && isStructureTool(currentTool);
     roofRooms.forEach((c, n) => {
-      const want = n === heroRoom ? 0.12 : building ? 0.45 : 0.95;
+      const want = n === heroRoom ? 0.12 : building ? 0.45 : 1;
       c.alpha += (want - c.alpha) * 0.2;
     });
     // Units are added to the world as they appear: keep the roofs over them, and the cursor / selection over the roofs.
