@@ -1,5 +1,6 @@
 import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, PersonalBuild } from "./herolife.js";
 import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
+import type { WorkTabSnapshot, WorkType } from "./work.js";
 export const TICK_RATE = 20;
 export const TILE_SIZE = 32;
 // Server-side default; the live size is overridable (COLONY_WORLD_SIZE) and sent in `welcome`.
@@ -1164,6 +1165,12 @@ export type ClientMessage =
       type: "zoneEdit"; op: "paint" | "erase" | "rename" | "setCrop" | "setFilters" | "delete"; zoneId?: number; kind?: ZoneKind;
       tiles?: number[]; name?: string; crop?: CropId; filters?: StockCategory[];
     }
+  // Modular building phase 4 (shared/src/work.ts): the Work tab. workTab asks for the table (answered with a
+  // workTab message); workSet sets one work type for these people (a cell, or a column's "all"): 0 = off, 1-4 in
+  // manual mode (default mode: any 1-4 = on); workMode switches the clan between default and manual priorities.
+  | { type: "workTab" }
+  | { type: "workSet"; ids: string[]; work: WorkType; priority: number }
+  | { type: "workMode"; manual: boolean }
   | { type: "attack" }
   // paused (strategy mode phase 5, optional): set it instead of toggling. Global: applies to everyone.
   | { type: "pause"; paused?: boolean }
@@ -1432,7 +1439,9 @@ export type ServerMessage =
   // Solo hero: a conversation node (close: the conversation ended; openTrade: open that settlement's trade panel).
   | { type: "dialogue"; dialogue?: DialogueSnapshot; close?: boolean; openTrade?: { tileX: number; tileY: number } }
   // Solo hero: E found nothing to talk to / gather / work (the client falls back to the building panel).
-  | { type: "interactNone" };
+  | { type: "interactNone" }
+  // Modular building phase 4: the Work tab table (reply to workTab / workSet / workMode).
+  | { type: "workTab"; tab: WorkTabSnapshot };
 
 export interface PlayerSnapshot {
   id: string;

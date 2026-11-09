@@ -5,8 +5,8 @@
 // crop state per growing tile and piles per tile, all saved (optional fields: old saves have none). A harvest leaves
 // a pile of loose goods on its tile; a hauler carries it to the nearest stockpile zone whose filters take it (else to
 // the nearest own Barn for food / cloth, else a Town Center) and it enters the clan's stock there (a stockpile keeps a
-// tally of what it received). TEMPORARY until phase 4's work priorities: every free villager (ZONE_VILLAGER_WORK_RATE)
-// and every Barn farmer with no old field to tend (ZONE_FARMER_WORK_RATE) takes zone jobs.
+// tally of what it received). Phase 4 (work.ts): free villagers take zone jobs by their farming / hauling priorities
+// (ZONE_PRIORITY_WORK_RATE), and every Barn farmer with no old field to tend works zones (ZONE_FARMER_WORK_RATE).
 import { TileType } from "@colony/shared/protocol";
 import {
   CROP_RESOURCE, CROP_SOWN_FRACTION, CROPS, CropStage, PILE_RESOURCES, RESOURCE_CATEGORY, STOCK_CATEGORIES, ZONE_EDIT_MAX_TILES,
@@ -320,14 +320,21 @@ function jobFor(i: number, z: ZoneRec): JobKind | null {
 const JOB_ORDER: Record<JobKind, number> = { harvest: 0, haul: 1, sow: 2, till: 3, tend: 4 };
 const JOB_TICKS: Record<JobKind, number> = { harvest: ZONE_HARVEST_TICKS, haul: ZONE_HAUL_TICKS, sow: ZONE_SOW_TICKS, till: ZONE_TILL_TICKS, tend: ZONE_TEND_TICKS };
 
-function planJob(c: Colonist): ZoneJob | null {
+// Phase 4: which zone jobs a worker takes (farm = till / sow / tend / harvest; haul = carry piles).
+export interface ZoneWorkFilter {
+  farm: boolean;
+  haul: boolean;
+}
+const ALL_ZONE_WORK: ZoneWorkFilter = { farm: true, haul: true };
+
+function planJob(c: Colonist, filter: ZoneWorkFilter): ZoneJob | null {
   const clan = c.clan ?? 0;
   const t = tileOfPixel(c.x, c.y);
   const R = ZONE_JOB_RANGE_TILES;
   const cands: { kind: JobKind; tile: number; d: number }[] = [];
   const dist = (i: number) => Math.max(Math.abs((i % W()) - t.x), Math.abs(Math.floor(i / W()) - t.y));
   for (const z of zones.values()) {
-    if (z.clan !== clan || z.kind !== "growing") continue;
+    if (!filter.farm || z.clan !== clan || z.kind !== "growing") continue;
     for (const i of z.tiles) {
       const d = dist(i);
       if (d > R) continue;
@@ -337,7 +344,7 @@ function planJob(c: Colonist): ZoneJob | null {
     }
   }
   for (const [i, p] of piles) {
-    if (p.clan !== clan || p.n < 1) continue;
+    if (!filter.haul || p.clan !== clan || p.n < 1) continue;
     const d = dist(i);
     if (d > R || reservedByOther(i, c.id)) continue;
     cands.push({ kind: "haul", tile: i, d });
@@ -376,17 +383,64 @@ export function hasZoneJob(c: Colonist): boolean {
   return jobs.has(c.id);
 }
 
+// Phase 4: what a worker's zone job is (labels), or undefined.
+export function zoneJobKind(c: Colonist): JobKind | undefined {
+  return jobs.get(c.id)?.kind;
+}
+
+// Phase 4 (work.ts): the distance in tiles (Chebyshev) to the nearest free zone job of that sort within
+// ZONE_JOB_RANGE_TILES of c, or null. No path check (the job itself plans the route).
+export function zoneJobDistance(c: Colonist, sort: "farm" | "haul"): number | null {
+  const clan = c.clan ?? 0;
+  const t = tileOfPixel(c.x, c.y);
+  const R = ZONE_JOB_RANGE_TILES;
+  const dist = (i: number) => Math.max(Math.abs((i % W()) - t.x), Math.abs(Math.floor(i / W()) - t.y));
+  let best: number | null = null;
+  if (sort === "haul") {
+    for (const [i, p] of piles) {
+      if (p.clan !== clan || p.n < 1) continue;
+      const d = dist(i);
+      if (d <= R && (best === null || d < best) && !reservedByOther(i, c.id)) best = d;
+    }
+    return best;
+  }
+  for (const z of zones.values()) {
+    if (z.clan !== clan || z.kind !== "growing") continue;
+    for (const i of z.tiles) {
+      const d = dist(i);
+      if (d > R || (best !== null && d >= best)) continue;
+      if (jobFor(i, z) && !reservedByOther(i, c.id)) best = d;
+    }
+  }
+  return best;
+}
+
+// Phase 4: does the clan have any free zone job of that sort (anywhere)? Used to decide whether a better-priority
+// job is waiting (work.ts), so cheap: the first hit returns.
+export function clanHasZoneWork(clan: number, sort: "farm" | "haul"): boolean {
+  if (sort === "haul") {
+    for (const [i, p] of piles) if (p.clan === clan && p.n >= 1 && !reservedByOther(i, "")) return true;
+    return false;
+  }
+  for (const z of zones.values()) {
+    if (z.clan !== clan || z.kind !== "growing") continue;
+    for (const i of z.tiles) if (jobFor(i, z) && !reservedByOther(i, "")) return true;
+  }
+  return false;
+}
+
 // A worker's zone step: true while it is busy with a zone job (callers skip their own idle behaviour).
-export function updateZoneWorker(c: Colonist, dt: number, rate: number): boolean {
+export function updateZoneWorker(c: Colonist, dt: number, rate: number, filter: ZoneWorkFilter = ALL_ZONE_WORK): boolean {
   let job = jobs.get(c.id);
   if (!job) {
+    if (!filter.farm && !filter.haul) return false;
     if (zones.size === 0 && piles.size === 0) return false;
     const wait = retry.get(c.id) ?? 0;
     if (wait > 0) {
       retry.set(c.id, wait - 1);
       return false;
     }
-    job = planJob(c) ?? undefined;
+    job = planJob(c, filter) ?? undefined;
     if (!job) {
       retry.set(c.id, ZONE_JOB_RETRY_TICKS);
       return false;

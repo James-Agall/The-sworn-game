@@ -52,6 +52,7 @@ import {
 } from "./structures.js";
 import { computeColonyHappiness } from "./colonists.js";
 import { debugSetCrops, updateZones, zonesDebug, zonesSnapshotFor } from "./zones.js";
+import { updateWorkAssignments, workDebug, workTabFor } from "./work.js";
 import { farmPlotProgress, farmhandProgress, releaseResourceReservation } from "./economy.js";
 import { makeBoss } from "./worldgen.js";
 import { WILDLIFE_CONFIG, WILDLIFE_RESPAWN_INTERVAL_TICKS, damageWildlife, spawnWildlifeAt } from "./wildlife.js";
@@ -1054,6 +1055,23 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       stock: { ...clanById(player.clan ?? 0).stock },
       freeVillagers: Array.from(colonists.values()).filter((c) => c.kind === "villager" && !c.person?.child && (c.clan ?? 0) === (player.clan ?? 0)).length,
       snapshot: zonesSnapshotFor(player.clan ?? 0),
+    });
+  } else if (msg.op === "workState") {
+    // Modular building phase 4: the Work tab table, runtime jobs, the post-change log and the open vacancies.
+    // setXp {id, prof, xp}: set a person's profession XP; assignments: run the once-a-second post check now.
+    const sx = msg.setXp as { id: string; prof: string; xp: number } | undefined;
+    const sp = sx ? colonists.get(sx.id)?.person : undefined;
+    if (sx && sp) (sp.xp ??= {})[sx.prof as keyof NonNullable<typeof sp.xp>] = sx.xp;
+    if (msg.assignments) updateWorkAssignments();
+    const clan = player.clan ?? 0;
+    reply({
+      tab: workTabFor(clan),
+      ...workDebug(),
+      vacancies: respawnQueue.filter((q) => !q.hero && (q.clan ?? 0) === clan).map((q) => ({ kind: q.kind, x: q.tx, y: q.ty })),
+      people: Array.from(colonists.values()).filter((c) => c.person && (c.clan ?? 0) === clan).map((c) => ({
+        id: c.id, kind: c.kind, postX: c.postX, postY: c.postY, state: c.state, child: !!c.person!.child, byPriority: !!c.person!.byPriority,
+        work: c.person!.work ?? null, site: c.buildSiteKey ?? null, x: c.x, y: c.y,
+      })),
     });
   } else if (msg.op === "assignHomes") {
     assignHomes();

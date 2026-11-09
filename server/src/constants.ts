@@ -867,10 +867,17 @@ export const ZONE_HARVEST_TICKS = FARM_HARVEST_TICKS;
 export const ZONE_HAUL_TICKS = TICK_RATE / 2;
 // A crop nobody tended grows at this rate (one tend per crop: full speed).
 export const ZONE_UNTENDED_GROWTH = 0.5;
-// TEMPORARY until phase 4's work priorities: free villagers work zones at this rate, Barn farmers with no old field
-// to tend at full rate.
-export const ZONE_VILLAGER_WORK_RATE = 0.5;
+// Phase 4 (job priorities, work.ts): a free villager working zones by its farming / hauling priority works at this
+// rate (was a flat 0.5 for every idle villager in phase 3), farm jobs x (1 + TIER_SPEED_BONUS per farmer skill level
+// above 1); Barn farmers with no old field to tend work zones at full rate (+ the same skill bonus).
+export const ZONE_PRIORITY_WORK_RATE = 1;
 export const ZONE_FARMER_WORK_RATE = 1;
+// Phase 4: a free villager with no job looks for one this often; a worker put on a post by its priorities (not an
+// old / manual assignment) stays at least WORK_MIN_SHIFT_TICKS, then leaves the post for a strictly better-priority
+// job when one is waiting (checked every WORK_RECHECK_TICKS).
+export const WORK_DECIDE_TICKS = TICK_RATE;
+export const WORK_MIN_SHIFT_TICKS = TICK_RATE * 30;
+export const WORK_RECHECK_TICKS = TICK_RATE * 5;
 // Jobs within this many tiles of the worker; the best few are path-checked; an idle worker looks again this often.
 export const ZONE_JOB_RANGE_TILES = 40;
 export const ZONE_JOB_ROUTE_CANDIDATES = 4;

@@ -16,6 +16,7 @@ import { setupCreative } from "./creative";
 import { makeStructureTextures, type StructureArt } from "./structureArt";
 import { ITEM_ICON, ROOM_STAT_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS, iconImg, roomRoleIconUrl } from "./spriteRegistry";
 import { setupZones } from "./zones";
+import { setupWork } from "./work";
 import {
   ZONE_KIND_COLOR, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT, isZoneTool,
   type ZoneKind,
@@ -5278,6 +5279,9 @@ async function main() {
     setQuestPanelOpen(questPanelEl.hidden);
   });
 
+  // ---- Modular building phase 4: the Work tab (job priorities) and the person card (client/src/work.ts) ----
+  const workUi = setupWork({ send: (m) => sendMessage(m), button: document.getElementById("work-btn") as HTMLButtonElement });
+
   // ---- World streaming phase 5: the chronicle (server `chronicle` messages) ----
   const chroniclePanelEl = document.getElementById("chronicle-panel")!;
   const chronicleListEl = document.getElementById("cp-list")!;
@@ -6785,6 +6789,8 @@ async function main() {
       applyStreamChunks(message.chunks);
     } else if (message.type === "chronicle") {
       onChronicle(message);
+    } else if (message.type === "workTab") {
+      workUi.onTab(message.tab);
     } else if (message.type === "dialogue" || message.type === "interactNone") {
       heroLifeRef.ui?.onMessage(message);
     } else if (message.type === "buildingInfo") {
@@ -8205,6 +8211,22 @@ async function main() {
     if (meHit && Math.hypot(meHit.x - x, meHit.y - y) <= heroHitPx && (!unit || Math.hypot(meHit.x - x, meHit.y - y) < Math.hypot(unit.x - x, unit.y - y))) {
       setHeroSheetOpen(true);
       return;
+    }
+    // Modular building phase 4: a click on one of your villagers / workers (not commandable) opens its person card.
+    // (Not on a building: a worker standing at its post must not hide the building's own panel.)
+    const underTile = buildingTileAt(x, y);
+    const onBuilding = !!underTile && INFO_TILES.has(tiles[underTile.tileY * worldTilesX + underTile.tileX]);
+    if (!unit && !strategyCam.inStrategy && !onBuilding) {
+      const person = findNearest(
+        latestColonists.filter((c) => c.name !== undefined && (c.clan ?? 0) === myClan && !isCommandable(c) && !c.sheltered),
+        x,
+        y,
+        UNIT_HIT_RADIUS
+      );
+      if (person) {
+        workUi.showPerson(person.id, person.name ?? "", !!person.child);
+        return;
+      }
     }
     if (unit) {
       // Strategy mode: a unit stands for its whole regiment (Alt+click = just that unit), Shift adds.

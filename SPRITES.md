@@ -695,6 +695,12 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > translucent fills + 2 px edge lines in 4 colours (growing green, stockpile amber, home blue, animal purple); loose goods
 > are a rounded square "sack" tinted per good; the Zones tab uses text buttons (no icons); haulers show no carried load.
 
+> **Phase 4 in use (2026-11-09, `client/src/work.ts`, `spriteRegistry.ts WORK_ICON`):** the Work tab uses the staged
+> `icons/priority_1..4` / `priority_off` badges and `work_building / work_farming / work_mining / work_crafting /
+> work_hauling`. Still pending (substitutes in use): **woodcutting** (`tool_axe`), **hunting** (`stock_food`), **cooking**
+> (`work_harvest`), **fighting** (`stock_weapons`); doctor / research are not game systems yet. Default mode shows a
+> text check mark for "on".
+
 ### 93. Farming tiles and crops by season (phase 3 + 5) — 32x32
 > Soil: untilled grass, tilled, tilled+watered (dark), tilled in frost. Crop growth stages (5 each: seed, sprout, young,
 > mature, ready) for wheat, flax/hemp, vegetables, berries, root crop, with spring/summer/autumn variants and a

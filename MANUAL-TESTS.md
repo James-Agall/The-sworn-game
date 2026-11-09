@@ -684,6 +684,31 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Modular building phase 4: job priorities (2026-11-09)
+Automated: `npm test -- work-priorities`.
+1. New game. Top bar **Work**: a table of your adults (the child from a dawn birth is not in it). Default mode: every
+   cell is a green check; the Town Center builder's Build cell has a green frame ("Builder at Town Center (assigned)").
+   Hover a cell: "Woodcutting: on, skill level 1 ..." plus what the job covers. "Doing now" says Idle / Building ...
+2. Paint a Wheat field (Build > Zones). Within a few seconds villagers walk over and till it; their "Doing now" reads
+   "Farming: tilling". Click the **Farm** column header: everyone off: work on the field stops after the current job.
+   Click it again: back on.
+3. **Manual priorities: on**: the checks become number badges (3 for most, 1 on the builder's Build). Click a cell: 3 -> 4
+   -> off -> 1 -> 2; right-click goes back. Give one villager Farm 1 and everyone else Farm off: only that villager works
+   the field; after a while a superscript 1 (farming XP) appears in its Farm cell.
+4. Place a few wall blueprints (Structure tab) and give villager A Build 1 / Farm 2, villager B Build 2 / Farm 1: A goes
+   to the blueprints, B to the field.
+5. Place a Hunter's Hut: the villager with the best Hunt priority (then the most hunter XP) takes it ("Hunter at Hunter's
+   Hut"). Set that person's Hunt off: they walk back to the village and someone else with Hunt on takes the hut.
+6. Set the builder's Build off: it goes back to the village (the Town Center's builder post is open; with nobody's Build on
+   it stays empty, the blueprints wait). Old saves: workers already on posts stay until their job type is set off.
+7. Fight off for everyone but one villager, then a Town Center's Call to arms: only that one takes up a spear. A unit
+   building's Train shows "No free villager with Fighting on (Work tab)" when nobody has it on.
+8. Click a villager in the world (not on a building): the person card (top right) shows name, role, "Doing now" and its
+   jobs by priority; Work tab opens the table with that row highlighted. Esc closes.
+9. Sort list: "Hunting skill" puts the best hunter first; Shift+click a column header does the same.
+10. Save, change some priorities and switch Manual off, load: the manual mode and the numbers come back. An older save
+    loads in default mode with everyone on.
+
 ## Modular building phase 3: zones (2026-11-09)
 Automated: `npm test -- zones`.
 1. New game (creative off). Farming tab: no Farm / Hemp Field tool any more (Barn still there). Build menu **Zones** tab:
@@ -793,8 +818,9 @@ Art made by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/s
    (candelabra), Rug (red rug with gold border, flat under everything), Workbench, Statue, Weapon Rack. Each sits on
    its tile, upright and bottom-aligned, about one tile wide; tall pieces (shelf, statue, lamp) poke up into the tile
    above like the walls do, never drift off their tile.
-6. Roofs: wood rooms get thatch, stone rooms clay tile; they fade while a Structure tool is in hand and almost
-   vanish when the hero is inside (unchanged code fade).
+6. Roofs: wood rooms get thatch, stone rooms clay tile, fully solid with the Build panel shut (fixed 2026-11-09: they were
+   always at 45%), the pattern running on across tiles (no per-tile banding); they fade while the Build panel is open with
+   a Structure / Zones tool and almost vanish when the hero is inside.
 7. Blueprints (non-creative game, or a cancelled-instant build): a planned door / floor / bed shows its new art
    faded + tinted (the code overlay), not a blue rectangle.
 8. Click a floor inside a room: the Room panel heading has the role badge (bedroom: bed shield, kitchen, workshop,

@@ -53,7 +53,7 @@ const TREE_SUITES = new Set(["progression"]);
 // roofed room and new Farm Plots / Hemp Fields: COLONY_LEGACY_BUILD=1 (state.legacyBuild, test hooks only) keeps that
 // open. Every suite gets it except the rooms / zones suites (ROOM_SUITES), which test the new rules.
 const LEGACY_BUILD = { COLONY_LEGACY_BUILD: "1" };
-const ROOM_SUITES = new Set(["rooms", "zones"]);
+const ROOM_SUITES = new Set(["rooms", "zones", "work-priorities"]);
 const serverEnvFor = (name) => ({
   ...HERO_RESPAWN, ...(ROOM_SUITES.has(name) ? {} : LEGACY_BUILD), ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}),
 });
@@ -71,6 +71,7 @@ const SERVER_ENV = {
   structures: W80,
   rooms: W80,
   zones: W80,
+  "work-priorities": W80,
   "gravestone-events": { ...INSTANT, ...LEGACY },
   "halflatch-ward-lapse": INSTANT,
   "happiness-militia-tavern": { ...W80, ...INSTANT },

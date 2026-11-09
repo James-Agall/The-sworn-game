@@ -16,6 +16,7 @@ import { broadcastEvent } from "./net.js";
 import { GAME_DAY_TICKS, UPGRADE_NAMES } from "./constants.js";
 import { currentBuildingLevel, sendEvent } from "./construction.js";
 import { workshopEffectAt } from "./structures.js";
+import { villagerJobProfession } from "./work.js";
 
 // True when no gate applies: creative with "Unlock all" on, or the test-only unlock (COLONY_UNLOCK_ALL).
 export function gatesOpen(): boolean {
@@ -188,7 +189,8 @@ export function updateWorkerXp() {
   if (isNightNow()) return;
   for (const c of colonists.values()) {
     if (!c.person || c.person.child || c.training || c.callUp || c.sheltering || c.state === "idle") continue;
-    const prof = professionOf(c);
+    // Modular building phase 4: a free villager farming a growing zone trains the farmer skill.
+    const prof = professionOf(c) ?? villagerJobProfession(c);
     if (!prof) continue;
     const xp = (c.person.xp ??= {});
     const before = levelForXp(xp[prof] ?? 0);

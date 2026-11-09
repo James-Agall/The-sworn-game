@@ -1201,6 +1201,48 @@
       .econ-glyph { width: 15px; height: 15px; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border-radius: 2px; background: rgba(94, 50, 20, 0.25); color: var(--ink); }
       #goods-show-all { font: inherit; font-size: 11.5px; padding: 1px 8px; margin-bottom: 4px; cursor: pointer; color: var(--ink); background: rgba(255, 236, 180, 0.35); border: 1px solid var(--wood-dark); border-radius: 3px; }
 
+      /* Modular building phase 4: the Work tab (job priorities) and the person card. */
+      #work-panel {
+        position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 22;
+        width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 120px); overflow: auto; padding: 12px 14px;
+        color: var(--ink); background: var(--burn-lg), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 3px; box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif); font-size: 13px;
+      }
+      #work-panel[hidden], #person-card[hidden] { display: none; }
+      #work-btn.panel-open { box-shadow: inset 0 0 0 2px #f1c40f; }
+      #wp-title { font-size: 19px; font-weight: bold; }
+      #wp-close, #pc-close { font: inherit; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--ink); background: none; border: 0; cursor: pointer; }
+      .wp-bar { display: flex; gap: 12px; align-items: center; margin: 6px 0; }
+      #wp-mode, #pc-open, #wp-sort { font: inherit; font-size: 12px; padding: 2px 8px; color: var(--ink); background: rgba(255, 236, 180, 0.35); border: 1px solid var(--wood-dark); border-radius: 3px; cursor: pointer; }
+      #wp-mode.active { background: rgba(242, 201, 76, 0.6); }
+      #wp-foot { font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+      .wp-grid { border-collapse: collapse; width: 100%; }
+      .wp-grid th { font-size: 11px; font-weight: normal; padding: 2px 3px; cursor: pointer; user-select: none; border-bottom: 1px solid var(--wood-dark); }
+      .wp-grid th.wp-name-h { text-align: left; }
+      .wp-grid td { border-bottom: 1px solid rgba(74, 42, 20, 0.2); padding: 2px 3px; }
+      .wp-grid tr.wp-hl td { background: rgba(241, 196, 15, 0.18); }
+      .wp-name b { display: block; font-size: 13px; }
+      .wp-name small { display: block; font-size: 11px; color: var(--ink-soft); }
+      .wp-cell { text-align: center; cursor: pointer; white-space: nowrap; user-select: none; }
+      .wp-cell:hover { background: rgba(255, 236, 180, 0.45); }
+      .wp-cell.off img { opacity: 0.55; }
+      .wp-cell.assigned { box-shadow: inset 0 0 0 2px rgba(120, 170, 80, 0.8); }
+      .wp-cell sup { font-size: 10px; font-weight: bold; color: #2a5a8a; margin-left: 1px; }
+      .wp-on { display: inline-block; width: 18px; font-weight: bold; color: #3a6a20; }
+      .wp-job { font-size: 11.5px; color: var(--ink-soft); min-width: 120px; }
+      #person-card {
+        position: fixed; right: 16px; top: 140px; z-index: 21; width: 240px; padding: 10px 12px;
+        color: var(--ink); background: var(--burn-lg), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 3px; box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif); font-size: 13px;
+      }
+      #pc-name { font-size: 16px; font-weight: bold; }
+      #pc-role { font-size: 12px; color: var(--ink-soft); }
+      #pc-job { margin: 4px 0; }
+      .pc-chip { display: inline-block; margin: 1px 4px 1px 0; font-size: 11.5px; white-space: nowrap; }
+      #pc-open { margin-top: 6px; }
+      @media (max-width: 600px) { #person-card { right: 8px; left: 8px; width: auto; } }
       /* World streaming phase 5: the chronicle (news of what happened out of sight), styled like the quests. */
       #chronicle-btn.has-new { box-shadow: inset 0 0 0 2px #f1c40f; }
       #chronicle-panel {
@@ -1662,6 +1704,7 @@
       <button id="craft-btn" class="control-btn" title="Crafting: make tools and goods by hand (Shift+C)">Craft</button>
       <button id="hero-btn" class="control-btn" title="Hero sheet: character, pack and family (` key, or click your hero)">Hero</button>
       <button id="quests-btn" class="control-btn" title="Settlement quests: help requests from nearby villages">Quests</button>
+      <button id="work-btn" class="control-btn" title="Work: job priorities per villager (who farms, builds, hauls, cuts wood ...)">Work</button>
       <button id="chronicle-btn" class="control-btn" title="Chronicle: news from the wider world (raids, caravans, camps, settlements)">Chronicle</button>
       <div id="menu-dropdown">
         <button id="menu-btn" class="control-btn" aria-haspopup="true" aria-expanded="false">Menu &#x25BE;</button>
@@ -1809,6 +1852,22 @@
       <button id="next-bar-toggle" aria-expanded="false" aria-controls="progress-tree" title="Every progression chain, step by step">Progression &#x25BE;</button>
     </div>
     <div id="progress-tree" role="dialog" aria-label="Progression" hidden></div>
+    <div id="work-panel" role="dialog" aria-label="Work" hidden>
+      <div class="bp-head"><span id="wp-title">Work</span><button id="wp-close" aria-label="Close">×</button></div>
+      <div class="wp-bar">
+        <button id="wp-mode" title="Off: every job is on or off, priorities follow each person's post and skills. On: set numbers 1 (first) to 4 per job">Manual priorities: off</button>
+        <label>Sort <select id="wp-sort"><option value="name">Name</option></select></label>
+      </div>
+      <div id="wp-table"></div>
+      <div id="wp-foot" class="bp-row">Free villagers take the best-priority job on offer, nearest first; a worker keeps its post while that job is on. Superscript = skill level. Column header: everyone on / off.</div>
+    </div>
+    <div id="person-card" role="dialog" aria-label="Villager" hidden>
+      <div class="bp-head"><span id="pc-name"></span><button id="pc-close" aria-label="Close">×</button></div>
+      <div id="pc-role"></div>
+      <div id="pc-job"></div>
+      <div id="pc-pri"></div>
+      <button id="pc-open">Work tab</button>
+    </div>
     <div id="chronicle-panel" role="dialog" aria-label="Chronicle" hidden>
       <div class="bp-head"><span id="cp-title">Chronicle</span><button id="cp-close" aria-label="Close">×</button></div>
       <div id="cp-empty" class="bp-row">Nothing of note has reached you yet. News from far-off camps, caravans and settlements is written here.</div>

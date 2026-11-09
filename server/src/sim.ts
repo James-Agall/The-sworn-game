@@ -47,6 +47,7 @@ import { assignHomes, heirOrderNames, peopleDawn, updateAging, updateTraining, u
 import { updateProspecting, updateWorkerXp } from "./progression.js";
 import { updateRooms } from "./structures.js";
 import { updateZones } from "./zones.js";
+import { updateWorkAssignments } from "./work.js";
 import { heroSpeedMult, updateHeroLife } from "./herolife.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
@@ -231,6 +232,8 @@ export function stepSimulation() {
     updateVillageLevy();
     // Progression tree phase 2: worker XP.
     updateWorkerXp();
+    // Modular building phase 4: posts whose work type is off are left; priority-placed workers move to better jobs.
+    updateWorkAssignments();
     updateProspecting();
     updatePrisonerWalkUp();
   }

@@ -16,7 +16,7 @@ import { getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, tileIndex
 import { tileIndicesOfAny } from "./chunks.js";
 import { usableBedIndices } from "./structures.js";
 import {
-  findTownCenterAt, freeVillagerFor, houseCapacity, isFreeVillager, isCivilianKind, isHouseTile, isValidPostTile, nearestTownCenter,
+  findTownCenterAt, freeVillagerFor, houseCapacity, isCivilianKind, isHouseTile, isValidPostTile, nearestTownCenter,
   newPerson, personAgeDays, queueRespawn, releaseToVillage, settlementOf, settlementStats, spawnColonistForPost, spawnVillager,
   TOWN_CENTER_TILE, transplantPerson,
 } from "./colonists.js";
@@ -30,6 +30,7 @@ import { heroKey, heroProfileFor, heroProfileOf, playerMaxHp, recomputeHeroProfi
 import { releaseResourceReservation } from "./economy.js";
 import { isSummoned } from "./spells.js";
 import { heroBirthsDawn, kinRelation, succeedFamily } from "./family.js";
+import { freeFighterCount, freeFighterFor, releaseVillagerForPost, workPriority } from "./work.js";
 import { FAMILY_HEIR_GOLD_SHARE, FAMILY_HEIR_SKILL_SHARE, KIN_LABEL, type HeroSkill, type KinRelation } from "@colony/shared/herolife";
 
 const isAdult = (c: Colonist) => !!c.person && !c.person.child;
@@ -261,11 +262,6 @@ export interface TrainInfo {
   queue: { name: string; progress: number; waiting: boolean }[];
 }
 
-function freeVillagerCount(clanId: number): number {
-  let n = 0;
-  for (const c of colonists.values()) if ((c.clan ?? 0) === clanId && isFreeVillager(c)) n++;
-  return n;
-}
 
 function traineesListAt(tx: number, ty: number): Colonist[] {
   return Array.from(colonists.values()).filter((c) => c.training && c.training.tx === tx && c.training.ty === ty);
@@ -288,14 +284,15 @@ export function trainInfo(tx: number, ty: number): TrainInfo | null {
     kind: slots.kind, level, troops, training, cap: slots.cap, days: TRAIN_DAYS_BY_LEVEL[level - 1], reason: "", gearOptional, geared: hasGear,
     slots: TRAIN_SLOTS_PER_LEVEL * level,
     waiting: list.filter((c) => c.training!.waiting).length,
-    max: state.creative ? Math.min(room, TRAIN_BATCH_MAX) : Math.min(room, freeVillagerCount(state.clan.id), gearOptional ? TRAIN_BATCH_MAX : gearSets, TRAIN_BATCH_MAX),
+    max: state.creative ? Math.min(room, TRAIN_BATCH_MAX) : Math.min(room, freeFighterCount(state.clan.id), gearOptional ? TRAIN_BATCH_MAX : gearSets, TRAIN_BATCH_MAX),
     queue: list.map((c) => ({ name: c.person?.name ?? "Recruit", progress: 1 - c.training!.ticksLeft / Math.max(1, c.training!.ticksTotal), waiting: !!c.training!.waiting })),
   };
   if (clanIdAt(tx, ty) !== state.clan.id) info.max = 0;
   if (clanIdAt(tx, ty) !== state.clan.id) info.reason = "Not your building";
   else if (troops + training >= slots.cap) info.reason = `Barracks full (${troops + training}/${slots.cap})`;
   else if (state.creative) info.reason = "";
-  else if (!freeVillagerFor(state.clan.id, tx, ty)) info.reason = "No free villager";
+  // Modular building phase 4: only villagers with fighting on (Work tab) train.
+  else if (!freeFighterFor(state.clan.id, tx, ty)) info.reason = freeVillagerFor(state.clan.id, tx, ty) ? "No free villager with Fighting on (Work tab)" : "No free villager";
   else if (!gearOptional && !hasGear) info.reason = `Needs a T${level} weapon and T${level} armour (forge them at a Blacksmith)`;
   return info;
 }
@@ -341,7 +338,7 @@ export function handleTrainUnit(player: Player, tx: unknown, ty: unknown, count?
       return;
     }
     if (want > info.max) {
-      const free = freeVillagerCount(state.clan.id);
+      const free = freeFighterCount(state.clan.id);
       const gear = Math.min(state.equipment.weapon[info.level - 1], state.equipment.armour[info.level - 1]);
       const room = info.cap - info.troops - info.training;
       sendEvent(player, "build", `Cannot train ${want}: room for ${room}, ${free} free adult${free === 1 ? "" : "s"}${info.gearOptional ? "" : `, ${gear} T${info.level} gear set${gear === 1 ? "" : "s"}`} (Max trains ${info.max})`);
@@ -357,8 +354,9 @@ export function handleTrainUnit(player: Player, tx: unknown, ty: unknown, count?
     let unarmedN = 0;
     const names: string[] = [];
     for (let i = 0; i < want; i++) {
-      const v = freeVillagerFor(state.clan.id, tx, ty);
+      const v = freeFighterFor(state.clan.id, tx, ty);
       if (!v) break;
+      releaseVillagerForPost(v);
       // Basic militia take a T1 weapon + armour while the stock has them, else they train unarmed.
       const unarmed = !(state.equipment.weapon[info.level - 1] >= 1 && state.equipment.armour[info.level - 1] >= 1);
       if (!unarmed) {
@@ -437,8 +435,10 @@ function cancelTraining(c: Colonist) {
 // A Town Center's "Call to arms": every adult civilian of that settlement (free villagers and workers, not children,
 // trainees or bishops) becomes a militiaman posted at the Town Center for VILLAGE_LEVY_TICKS; survivors then go back
 // to their old job (Colonist.callUp: kind + post), or to the village if that post is gone. The dead stay dead.
+// Modular building phase 4: never forced: only people with fighting on (Work tab) answer.
 const levyCandidate = (c: Colonist, tc: TownCenter) =>
-  isAdult(c) && isCivilianKind(c.kind) && !c.training && !c.callUp && !c.creativeDummy && !c.levyOf && inClan(c) && settlementOf(c) === tc;
+  isAdult(c) && isCivilianKind(c.kind) && !c.training && !c.callUp && !c.creativeDummy && !c.levyOf && inClan(c) && settlementOf(c) === tc &&
+  workPriority(c, "fighting") > 0;
 
 export interface VillageLevyInfo {
   ready: number;

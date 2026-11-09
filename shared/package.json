@@ -13,6 +13,7 @@
     "./camps": "./src/camps.ts",
     "./structures": "./src/structures.ts",
     "./rooms": "./src/rooms.ts",
-    "./zones": "./src/zones.ts"
+    "./zones": "./src/zones.ts",
+    "./work": "./src/work.ts"
   }
 }

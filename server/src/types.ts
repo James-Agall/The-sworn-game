@@ -1,6 +1,7 @@
 // types.ts: Shared interfaces and type aliases for the server simulation.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import type { Profession } from "@colony/shared/progression";
+import type { WorkType } from "@colony/shared/work";
 import type { HeroFamilyData, HeroSkill, PackGood, PersonalBuild } from "@colony/shared/herolife";
 import type { WebSocket } from "ws";
 import type {
@@ -82,6 +83,12 @@ export interface Person {
   // paired at the next dawn) and the cycleTick of this person's last child (COUPLE_BIRTH_COOLDOWN_DAYS).
   partner?: string;
   lastBirthTick?: number;
+  // Modular building phase 4 (work.ts): work priorities by work type, 0 = off, 1-4 (manual mode). Missing type =
+  // the default (shared/src/work.ts); in default mode only 0 (off) matters. Missing on old saves = all defaults.
+  work?: Partial<Record<WorkType, number>>;
+  // Phase 4: put on its current post by the work priorities (may leave it for a better job); missing = assigned
+  // (an old save's worker, or placed by hand): keeps the post while its work type is not off.
+  byPriority?: boolean;
 }
 // Village life phase 3: a villager training at a unit building (becomes `kind` there when ticksLeft hits 0).
 export interface Training {

@@ -43,6 +43,7 @@ import { handleTradeWithSite, relationsForSnapshot } from "./diplomacy.js";
 import { handleCallToArms, handleSetTax } from "./vassals.js";
 import { handleQuestMessage, hasQuestsFor, questsForSnapshot, questsVersion } from "./quests.js";
 import { handleZoneEdit, zonesPayloadFor } from "./zones.js";
+import { handleWorkMode, handleWorkSet, sendWorkTab } from "./work.js";
 import "./goals.js";
 import {
   forgeBusyForSnapshot, handleEquipItem, handleQueueForge, handleSetForgeAuto, handleRecruitHero, handleTakeFromArmoury,
@@ -197,6 +198,12 @@ function handleMessage(player: Player, message: ClientMessage) {
     handleSiteOrder(player, message.tileX, message.tileY, message.action);
   } else if (message.type === "zoneEdit") {
     handleZoneEdit(player, message as unknown as Record<string, unknown>);
+  } else if (message.type === "workTab") {
+    sendWorkTab(player);
+  } else if (message.type === "workSet") {
+    handleWorkSet(player, message);
+  } else if (message.type === "workMode") {
+    handleWorkMode(player, message.manual);
   } else if (message.type === "attack") {
     handlePlayerAttack(player);
   } else if (message.type === "setView") {

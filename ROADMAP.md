@@ -2155,6 +2155,55 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Modular building — landed (phase 4) 2026-11-09 (job priorities: the Work tab)
+Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 4. Shared: `shared/src/work.ts` (work types, labels, professions per
+type, defaults, Work tab types); server: `server/src/work.ts`; numbers: `server/src/constants.ts` ZONE_PRIORITY_WORK_RATE /
+WORK_* (next to the zone numbers).
+- **Work types** (column order): building, farming, woodcutting, mining, hunting, cooking, crafting, hauling, fighting.
+  Skills are the existing profession XP levels (WORKER_XP_LEVELS): farming = farmer / farmhand, woodcutting = woodcutter,
+  mining = miner, hunting = hunter / forager, cooking = miller / baker / brewer / innkeeper, crafting = tailor / smith /
+  smelter / collier / jeweler (the best of them); building, hauling, fighting have no skill. No doctor (no medicine system).
+- **Priorities** per adult person (`Person.work`, optional, saved with the colonist): 0 = off, 1 (first) .. 4. Defaults:
+  the person's own post 1, a type with skill level 2+ 2, everything else 3 (so a fresh / old game behaves as before).
+  **Default mode** (clan setting): cells are on / off, the numbers are the defaults (live, they follow skill). **Manual
+  mode**: switching freezes everyone's current values as numbers; back to default keeps only the offs. Saved as top-level
+  `workManual` [clan ids] (optional; old saves = default mode, no `work` = all defaults).
+- **Free villagers** (out of work, re-decided every WORK_DECIDE_TICKS = 1 s and after each job): the best-priority job on
+  offer, ties nearest (Chebyshev tiles): building = a clan construction site with room (< BUILDER_MAX_PER_SITE builders;
+  works at builderRate's VILLAGER_BUILD_RATE 0.5, unchanged), farming = growing-zone till / sow / tend / harvest, hauling =
+  loose goods. **Zone work rate ZONE_PRIORITY_WORK_RATE = 1** (phase 3's temporary flat 0.5 for every idle villager is
+  gone), farm jobs x (1 + 0.25 per farmer skill level above 1); zone farming trains the farmer skill (1 XP / s). No
+  pre-emption mid-job (RimWorld-like): a job runs to its end, then the next decision.
+- **Posts** (the old job slots: Lumber Camp, Quarry, Iron Mine, Barn, pastures, Hunter's / Forager's Hut, stations, Town
+  Center builders) stay valid jobs. A vacancy (placement `staffPost`, or `processRespawnQueue` once a second by day) goes
+  to the free villager with the best priority for its work type, then the most XP, then the nearest; never one with that
+  type off or busy with a strictly better-priority job (`chooseWorkerFor`). Posts with no work type (bishops, the ward
+  priest) take the nearest as before. Such a worker is `byPriority`: after WORK_MIN_SHIFT_TICKS = 30 s it leaves the post
+  (open again) when a strictly better-priority job is waiting (checked every WORK_RECHECK_TICKS = 5 s).
+  **Override**: workers already on a post (old saves, the starting builder) are "assigned" and keep the post while its
+  work type is not off; set it off (anyone) and they go back to the village, and are never put back on it.
+- **Barn farmers** keep their fields / zones; they haul only with hauling on, and farm zones x farming skill speed.
+- **Fighting** is never forced: a Town Center's call to arms and soldier training take only people with fighting on
+  ("No free villager with Fighting on (Work tab)").
+- **UI**: top bar **Work** opens the table (adults of the clan: free villagers, workers, builders, trainees, levied; no
+  children, soldiers, bishops, prisoners): name + role, one cell per type (priority badge 1-4 / off in manual mode, a check
+  / off in default mode; superscript = skill level once it has XP; green frame = its assigned post's type; hover: skill,
+  XP, what the type covers), "Doing now". Click cycles (manual 1 -> 2 -> 3 -> 4 -> off, right-click back; default on / off),
+  a column header sets everyone off (or back on), Shift+header or the Sort list sorts by that skill, "Manual priorities"
+  toggles the mode. Clicking a villager / worker in the world (not on a building) opens its **person card**: name, role,
+  current job, its work types by priority, a Work tab button. Protocol: `workTab` (ask), `workSet {ids, work, priority}`,
+  `workMode {manual}`; reply `workTab {tab}` (fetched once a second while the panel / card is open, nothing in snapshots).
+- **Saves / streaming**: priorities and the mode are saved; runtime jobs (`work.ts` maps) are not (a load re-decides; a
+  villager's saved building site is resumed). No tile scans: sites / zones / piles / the vacancy list only.
+- **Tests**: `server/work-priorities-test.mjs` (`npm test -- work-priorities`): table and defaults, manual mode, farming
+  off / on, priority order (building vs farming), building off, assigned builder override, a post by priority then skill,
+  off -> the next candidate, a priority worker leaving for a better job, fighting off and the levy, back to default mode,
+  save / load. `builders-farmers` / `builders-towncenter` fail identically at 39f305d (before this work).
+- **Known gaps (phase 4)**: no doctor / firefighting / research types; no manual "assign to this building" button (the old
+  assignment is only what a save or the starting builder already has); villagers do not haul while carrying for other
+  jobs (one job at a time); a byPriority worker leaving a Barn / Hunter's Hut drops its in-progress cycle; priorities are
+  not per-settlement (one clan table); the table re-renders on any change (fine to ~100 rows).
+
 ## Modular building — landed (phase 3) 2026-11-09 (zones: growing, stockpile, home, animal; hauling)
 Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 3. Shared: `shared/src/zones.ts` (kinds, crops, filters, RLE,
 snapshot types); server: `server/src/zones.ts`; numbers: `server/src/constants.ts` ZONE_* (next to the farm numbers).
@@ -2181,8 +2230,8 @@ snapshot types); server: `server/src/zones.ts`; numbers: `server/src/constants.t
   the stock).
 - **Home area**: idle free villagers stroll to a home-area tile within 16 tiles of their Town Center instead of a
   random spot. **Animal area**: placeholder (no logic) for phase 5d.
-- **Workers (TEMPORARY until phase 4 priorities)**: every free adult villager takes zone jobs at half speed
-  (ZONE_VILLAGER_WORK_RATE 0.5) when no construction needs it; every Barn farmer with no old field to tend works zones
+- **Workers (superseded by phase 4: free villagers now take zone jobs by priority at ZONE_PRIORITY_WORK_RATE 1)**:
+  every free adult villager took zone jobs at half speed (ZONE_VILLAGER_WORK_RATE 0.5) when no construction needs it; every Barn farmer with no old field to tend works zones
   at full speed (ZONE_FARMER_WORK_RATE 1). Job order: harvest, haul, sow, till, tend; nearest first within 40 tiles;
   one worker per tile (reservations); night shelter drops the job (carried goods are put down as a pile).
 - **Old model (migration rule)**: existing Farm Plots, Hemp Fields and the Barn-radius farming (f34e13c) keep working

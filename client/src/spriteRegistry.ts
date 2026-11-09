@@ -61,6 +61,13 @@ export const ITEM_ICON: Record<string, string> = {
   ...Object.fromEntries([1, 2, 3].flatMap((t) => [[`gear:weapon:${t}`, iconUrl("stock_weapons")], [`gear:armour:${t}`, iconUrl("stock_armour")]])),
 };
 // An <img> for a small HUD icon that removes itself if the file is missing.
+// Work tab (modular building phase 4): a column icon per work type (WorkType), priority badges 1-4 / off.
+export const WORK_ICON: Record<string, string> = {
+  building: iconUrl("work_building"), farming: iconUrl("work_farming"), woodcutting: iconUrl("tool_axe"), mining: iconUrl("work_mining"),
+  hunting: iconUrl("stock_food"), cooking: iconUrl("work_harvest"), crafting: iconUrl("work_crafting"), hauling: iconUrl("work_hauling"),
+  fighting: iconUrl("stock_weapons"),
+};
+export const priorityIconUrl = (p: number): string => iconUrl(p > 0 ? `priority_${p}` : "priority_off");
 export function iconImg(src: string, px: number, title = ""): HTMLImageElement {
   const img = document.createElement("img");
   img.src = src;

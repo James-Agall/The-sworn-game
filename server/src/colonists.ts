@@ -19,7 +19,7 @@ import {
   SETTLEMENT_POP_CAP_BY_TIER, SIEGE_POPULATION_COST, STARVATION_DAMAGE, TAVERN_HAPPINESS_RADIUS_TILES,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
   TOWN_CENTER_LEVEL_POPULATION_BONUS, TOWN_CENTER_MAX_HP_BY_LEVEL, WARD_GRACE_TICKS, WARD_RADIUS_TILES,
-  WARD_TEND_TICKS, VILLAGER_BUILD_RATE, ZONE_FARMER_WORK_RATE, ZONE_HOME_WANDER_TILES, ZONE_VILLAGER_WORK_RATE, CHILD_MATURE_DAYS, PERSON_NAMES, STARTING_PEOPLE, VACANCY_FILL_INTERVAL_TICKS,
+  WARD_TEND_TICKS, VILLAGER_BUILD_RATE, ZONE_FARMER_WORK_RATE, ZONE_HOME_WANDER_TILES, CHILD_MATURE_DAYS, PERSON_NAMES, STARTING_PEOPLE, VACANCY_FILL_INTERVAL_TICKS,
 } from "./constants.js";
 import {
   buildingHp, colonists, constructionSites, farmPlots, mobs, repairPaid, repairQueue, reservedResourceTiles,
@@ -53,6 +53,7 @@ import { stationRecipes } from "@colony/shared/progression";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
 import { isUsableBed, roomHappinessBonus, usableBedIndices } from "./structures.js";
 import { cancelZoneJob, hasZoneJob, homeAreaTileNear, updateZoneWorker } from "./zones.js";
+import { chooseWorkerFor, releaseVillagerForPost, skillSpeed, startPriorityShift, updateVillagerWork, workPriority } from "./work.js";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -281,13 +282,16 @@ export function staffPost(tx: number, ty: number, kind: ColonistKind, castleLeve
   if (state.creative || state.legacyStaff || !isPersonKind(kind) || kind === "villager") return spawnColonistForPost(tx, ty, kind, castleLevel);
   const clan = clanIdAt(tx, ty);
   // Phase 3: a soldier post is never staffed for free; it waits for "Train unit" (people.ts).
-  const v = isSoldierKind(kind) ? undefined : freeVillagerFor(clan, tx, ty);
+  // Modular building phase 4: the free villager with the best priority (then skill, then distance) for its work type.
+  const v = isSoldierKind(kind) ? undefined : chooseWorkerFor(clan, tx, ty, kind);
   if (!v) {
     respawnQueue.push({ tx, ty, kind, ticksRemaining: 0, ...(clan ? { clan } : {}) });
     return null;
   }
+  releaseVillagerForPost(v);
   const c = spawnColonistForPost(tx, ty, kind, castleLevel);
   transplantPerson(v, c);
+  startPriorityShift(v, c);
   return c;
 }
 
@@ -822,7 +826,8 @@ export function processRespawnQueue() {
     // Phase 3: soldier posts are filled by training only (people.ts), not by a passing villager.
     const free = state.creative || state.legacyStaff;
     if (!free && isSoldierKind(req.kind)) continue;
-    const villager = free ? undefined : freeVillagerFor(req.clan ?? clanIdAt(req.tx, req.ty), req.tx, req.ty);
+    // Modular building phase 4: by work priority (chooseWorkerFor), not just the nearest free villager.
+    const villager = free ? undefined : chooseWorkerFor(req.clan ?? clanIdAt(req.tx, req.ty), req.tx, req.ty, req.kind);
     if (free || villager) {
       const castleLevel =
         req.kind === "knight"
@@ -833,8 +838,12 @@ export function processRespawnQueue() {
           ? militiaLevelForTile(currentTile)
           : 1;
       const spawnKind = isMilitiaLineKind(req.kind) ? militiaKindForLevel(castleLevel) : req.kind;
+      if (villager) releaseVillagerForPost(villager);
       const unit = spawnColonistForPost(req.tx, req.ty, spawnKind, castleLevel);
-      if (villager) transplantPerson(villager, unit);
+      if (villager) {
+        transplantPerson(villager, unit);
+        startPriorityShift(villager, unit);
+      }
       respawnQueue.splice(i, 1);
     }
   }
@@ -957,8 +966,11 @@ export function updateStationaryMiner(c: Colonist, dt: number) {
 }
 export function updateFarmer(c: Colonist, dt: number) {
   // Modular building phase 3: a farmer busy with a growing-zone job finishes it (away from the Barn meanwhile).
+  // Phase 4: farm jobs always (it is a farmer), hauling only with hauling on; skill speeds farm work.
+  const zoneFilter = { farm: true, haul: workPriority(c, "hauling") > 0 };
+  const zoneRate = ZONE_FARMER_WORK_RATE * skillSpeed(c, "farming");
   if (hasZoneJob(c)) {
-    c.farmTouring = updateZoneWorker(c, dt, ZONE_FARMER_WORK_RATE) && hasZoneJob(c);
+    c.farmTouring = updateZoneWorker(c, dt, zoneRate, zoneFilter) && hasZoneJob(c);
     return;
   }
   if (c.farmPlotKey) {
@@ -991,7 +1003,7 @@ export function updateFarmer(c: Colonist, dt: number) {
   if (keys.length === 0) {
     c.farmTouring = false;
     // Modular building phase 3: no old field to tend: the Barn's farmer works the clan's growing zones (and hauls).
-    if (updateZoneWorker(c, dt, ZONE_FARMER_WORK_RATE)) c.farmTouring = hasZoneJob(c);
+    if (updateZoneWorker(c, dt, zoneRate, zoneFilter)) c.farmTouring = hasZoneJob(c);
     return;
   }
   keys.sort();
@@ -1811,11 +1823,6 @@ export function spawnHalfLatch(tile: TileCoord) {
   mobs.set(mob.id, mob);
 }
 
-function clanHasSite(clanId: number): boolean {
-  for (const site of constructionSites.values()) if (clanIdAt(site.tx, site.ty) === clanId) return true;
-  return false;
-}
-
 // A free villager (or child) idles about its Town Center, strolling to a nearby tile now and then.
 export function updateVillager(c: Colonist, dt: number) {
   // Phase 3: a trainee goes to its unit building and trains there (people.ts updateTraining counts it down).
@@ -1824,16 +1831,10 @@ export function updateVillager(c: Colonist, dt: number) {
     c.state = c.path.length > 0 ? "returning" : "idle";
     return;
   }
-  // Phase 4: an adult with nothing to do helps on its clan's construction sites (builderRate: reduced speed).
-  // Checked before the stroll below, which would clobber the builder's states.
-  if (!c.person?.child && (c.buildSiteKey || clanHasSite(c.clan ?? 0))) {
-    if (hasZoneJob(c)) cancelZoneJob(c);
-    updateBuilder(c, dt);
-    return;
-  }
-  // Modular building phase 3 (TEMPORARY until phase 4's work priorities): an idle adult works the clan's zones
-  // (till / sow / tend / harvest, haul loose goods) at ZONE_VILLAGER_WORK_RATE.
-  if (!c.person?.child && updateZoneWorker(c, dt, ZONE_VILLAGER_WORK_RATE)) return;
+  // Modular building phase 4 (work.ts): an adult takes the best-priority job on offer (building sites at
+  // builderRate's reduced speed, growing-zone farming, hauling); checked before the stroll below, which would clobber
+  // the job's states. Posts (vacancies) are handed out by chooseWorkerFor.
+  if (!c.person?.child && updateVillagerWork(c, dt)) return;
   if (c.path.length > 0) {
     advanceAlongPath(c, dt, COLONIST_SPEED * 0.6);
     c.state = c.path.length > 0 ? "returning" : "idle";
