@@ -4,6 +4,7 @@
 // (SPRITES.md #92 / #93).
 import { Container, Graphics } from "pixi.js";
 import type { ClientMessage } from "@colony/shared/protocol";
+import { iconImg, stockIconUrl } from "./spriteRegistry";
 import {
   CROP_LABEL, CROPS, CropStage, PILE_RESOURCES, STOCK_CATEGORIES, STOCK_CATEGORY_LABEL, ZONE_KIND_COLOR, ZONE_KIND_LABEL, rleDecode,
   type CropId, type StockCategory, type ZoneSnapshot, type ZonesSnapshot,
@@ -110,7 +111,7 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
         box.style.cssText = "display: flex; flex-wrap: wrap; gap: 2px 8px; margin-top: 3px;";
         const filters = new Set(z.filters ?? []);
         const all = STOCK_CATEGORIES.every((c) => filters.has(c));
-        const mk = (label: string, checked: boolean, onChange: (on: boolean) => void) => {
+        const mk = (label: string, checked: boolean, onChange: (on: boolean) => void, icon?: string) => {
           const l = document.createElement("label");
           const cb = document.createElement("input");
           cb.type = "checkbox";
@@ -118,7 +119,7 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
           cb.addEventListener("click", (e) => e.stopPropagation());
           cb.addEventListener("change", () => onChange(cb.checked));
           l.addEventListener("click", (e) => e.stopPropagation());
-          l.append(cb, label);
+          l.append(cb, ...(icon ? [iconImg(icon, 14), " "] : []), label);
           return l;
         };
         box.append(mk("Everything", all, (on) => opts.send({ type: "zoneEdit", op: "setFilters", zoneId: z.id, filters: on ? [...STOCK_CATEGORIES] : [] })));
@@ -128,7 +129,7 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
             if (on) next.add(c);
             else next.delete(c);
             opts.send({ type: "zoneEdit", op: "setFilters", zoneId: z.id, filters: [...next] as StockCategory[] });
-          }));
+          }, stockIconUrl(c)));
         }
         const stored = Object.entries(z.stored ?? {}).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`).join(", ");
         const st = document.createElement("div");

@@ -12,7 +12,8 @@ import {
   Texture,
 } from "pixi.js";
 import { setupCreative } from "./creative";
-import { makeStructureTextures } from "./structureArt";
+import { makeStructureTextures, type StructureArt } from "./structureArt";
+import { ITEM_ICON, ROOM_STAT_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS, iconImg, roomRoleIconUrl } from "./spriteRegistry";
 import { setupZones } from "./zones";
 import {
   ZONE_KIND_COLOR, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT, isZoneTool,
@@ -283,6 +284,7 @@ async function main() {
     ...BOULDER_IMPACT_URLS,
     ...WALL_ART_URLS,
     ...MOAT_ART_URLS,
+    ...STRUCTURE_ART_URLS,
   ]);
   // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
   // and each URL should be requested once and resolve to one shared Texture.
@@ -362,8 +364,9 @@ async function main() {
   ];
   const HILLS_FLOOR_TEXTURE = loadedTextures["/sprites/hillsFloor.png"];
   const GATE_OPEN_TEXTURE = loadedTextures["/sprites/gateWoodOpen.png"];
-  // Modular building phase 1: procedural stand-ins for doors, windows, floors, beds and roofs (structureArt.ts).
-  const STRUCTURE_TEXTURES = makeStructureTextures();
+  // Modular building: atlas art for doors, windows, floors, furniture and roofs (spriteRegistry.ts), each falling
+  // back to its procedural stand-in (structureArt.ts) when the png is missing.
+  const STRUCTURE_TEXTURES = makeStructureTextures(optionalTextures);
   // Only complete 16-piece sets (see WALL_PIECE_SETS).
   const WALL_PIECE_TEXTURES = new Map<WallPieceSet, Texture[]>();
   for (const set of WALL_PIECE_SETS) {
@@ -1311,7 +1314,7 @@ async function main() {
     const texture = tile === TileType.BuildingPart
       ? undefined
       : structArt
-      ? structArt
+      ? structArt.texture
       : moatArt
       ? moatArt
       : wallArt
@@ -1359,11 +1362,20 @@ async function main() {
     else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = humanSiteNums.has(siteOwners.get(index)!) ? HUMAN_SITE_TINT : FOREIGN_TINT;
     else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
     if (structArt) {
-      // Flat, tile-aligned stand-in art: floors under everything, pieces sorted with their row.
-      sprite.anchor.set(0, 0);
-      sprite.scale.set(tileSize / structArt.width);
-      sprite.position.set(tx * tileSize, ty * tileSize);
-      sprite.zIndex = isFloorTile(artTile) ? -1 : index;
+      sprite.zIndex = index;
+      if (structArt.place === "flat") {
+        // Tile-aligned: floors under everything, rugs just over them, stand-in pieces sorted with their row.
+        sprite.anchor.set(0, 0);
+        sprite.scale.set(tileSize / structArt.texture.width);
+        sprite.position.set(tx * tileSize, ty * tileSize);
+        if (isFloorTile(artTile)) sprite.zIndex = -1;
+        else if (artTile === TileType.Rug) sprite.zIndex = -0.5;
+        return;
+      }
+      // Upright art, bottom-centred like the walls: doors / windows on the wall pieces' scale, furniture at 64 px/tile.
+      sprite.anchor.set(0.5, 1);
+      sprite.scale.set(tileSize / (structArt.place === "wall" ? WALL_ART_PX_PER_TILE : STRUCTURE_ART_PX_PER_TILE));
+      sprite.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize - (structArt.place === "upright" ? tileSize * 0.06 : 0));
       return;
     }
     if (artTile === TileType.TownCenter && !scaffold) {
@@ -1418,12 +1430,11 @@ async function main() {
   // Modular building phase 1: doors and windows join the wall runs.
   const isWallTile = (t: number) => t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate || isDoorTile(t) || isWindowTile(t);
 
-  // Modular building phase 1: the procedural texture for a door / window / floor / bed at (tx, ty), else undefined.
+  // Modular building: the art for a door / window / floor / bed / furniture piece at (tx, ty), else undefined.
   // Doors and windows run along the wall they sit in (east-west unless walls are only north / south).
-  function structureArtFor(tx: number, ty: number, artTile: number, site: boolean): Texture | undefined {
-    if (isFloorTile(artTile)) return STRUCTURE_TEXTURES.floor.get(artTile);
-    if (artTile === TileType.Bed) return STRUCTURE_TEXTURES.bed;
-    if (isFurnitureTile(artTile)) return STRUCTURE_TEXTURES.furniture(artTile);
+  function structureArtFor(tx: number, ty: number, artTile: number, site: boolean): StructureArt | undefined {
+    if (isFloorTile(artTile)) return STRUCTURE_TEXTURES.floor(artTile, ((tx * 73856093) ^ (ty * 19349663)) >>> 0);
+    if (artTile === TileType.Bed || isFurnitureTile(artTile)) return STRUCTURE_TEXTURES.furniture(artTile);
     if (!isDoorTile(artTile) && !isWindowTile(artTile)) return undefined;
     const horizontal = isWallTile(tileAt(tx - 1, ty)) || isWallTile(tileAt(tx + 1, ty)) || !(isWallTile(tileAt(tx, ty - 1)) || isWallTile(tileAt(tx, ty + 1)));
     const stone = isStoneStructure(artTile);
@@ -3922,14 +3933,14 @@ async function main() {
     rows: g.goods.map((good) => ({ key: good.key, label: good.label, icon: `/sprites/icon-${good.key === "cotton" ? "hemp" : good.key}.png`, good: good.key })),
   }));
   for (const [id, def] of Object.entries(PROGRESSION.items) as [ItemId, (typeof PROGRESSION.items)[ItemId]][]) {
-    groupRows.find((g) => g.heading === ITEM_GROUP_HEADING[def.group])!.rows.push({ key: `item:${id}`, label: def.label });
+    groupRows.find((g) => g.heading === ITEM_GROUP_HEADING[def.group])!.rows.push({ key: `item:${id}`, label: def.label, icon: ITEM_ICON[`item:${id}`] });
   }
   groupRows.push({
     heading: "Gear",
     label: "Gear (armoury)",
     rows: [1, 2, 3].flatMap((t) => [
-      { key: `gear:weapon:${t}`, label: `Weapons T${t}` },
-      { key: `gear:armour:${t}`, label: `Armour T${t}` },
+      { key: `gear:weapon:${t}`, label: `Weapons T${t}`, icon: ITEM_ICON[`gear:weapon:${t}`] },
+      { key: `gear:armour:${t}`, label: `Armour T${t}`, icon: ITEM_ICON[`gear:armour:${t}`] },
     ]),
   });
   for (const group of groupRows) {
@@ -3967,6 +3978,7 @@ async function main() {
         icon.className = "econ-icon";
         icon.src = good.icon;
         icon.alt = "";
+        icon.addEventListener("error", () => icon.remove());
         label.append(icon);
       } else {
         // Items have no icon art yet: a lettered chip stands in.
@@ -4881,13 +4893,15 @@ async function main() {
     if (!room) return;
     const head = document.createElement("div");
     head.className = "menu-section";
-    head.textContent = `Room: ${room.roleLabel}, ${room.tier} (${room.score}/100)`;
+    const badge = roomRoleIconUrl(room.role);
+    if (badge) head.append(iconImg(badge, 18, room.roleLabel), " ");
+    head.append(`Room: ${room.roleLabel}, ${room.tier} (${room.score}/100)`);
     head.title = "Score = 15% size + 35% beauty + 25% cleanliness + 25% warmth";
     const stats = document.createElement("div");
     stats.style.cssText = "display: grid; grid-template-columns: auto 1fr auto; gap: 2px 6px; align-items: center; font-size: 12px;";
     for (const [label, v] of [["Size", room.size], ["Beauty", room.beauty], ["Cleanliness", room.cleanliness], ["Warmth", room.warmth]] as const) {
       const name = document.createElement("span");
-      name.textContent = label;
+      name.append(iconImg(ROOM_STAT_ICON[label], 14), " ", label);
       name.title = ROOM_STAT_TIPS[label];
       const bar = document.createElement("div");
       bar.style.cssText = "height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden;";

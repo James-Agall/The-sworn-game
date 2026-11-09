@@ -778,3 +778,31 @@ Automated: `cd server && node camp-templates-test.mjs` (in-process, no ports, sc
    refused with a reason. The stamped camp fights / burns / frees prisoners like a world-gen one.
 8. A user template with weight > 0 is also placed by world-gen in NEW worlds (restart a game and look for it).
 
+
+## RimWorld / Stardew structure art + HUD icons (2026-11-09)
+Art made by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/{structure,icons}/` (registry:
+`client/src/spriteRegistry.ts`). Creative game, Structure tab, near the Town Center:
+1. Right-drag a **Wood Room** and a **Stone Room** (about 7x5). Walls look as before (unchanged autotiling).
+2. Cut a **Wood Door** / **Stone Door** into a south (east-west) wall: a plank door (wood) / an arched door in a stone
+   arch, drawn ON a wall straight at the same height as the neighbouring wall pieces, no gap. A door in a west / east
+   (north-south) wall: the narrow column with a squashed door. Walk the hero through: it shows open (dark doorway
+   with the leaf against the jamb for wood; the swung leaf for stone), then closed again.
+3. **Wood Window** / **Stone Window** in both wall directions: a glazed window set into the wall piece.
+4. **Wood Floor** / **Stone Floor** inside: plank / flagstone tiles, 3 variants mixed per tile, no obvious repeats.
+5. Furniture inside each room: Bed, Table, Chair, Chest, Shelf (bookshelf), Hearth (lit fireplace), Lamp
+   (candelabra), Rug (red rug with gold border, flat under everything), Workbench, Statue, Weapon Rack. Each sits on
+   its tile, upright and bottom-aligned, about one tile wide; tall pieces (shelf, statue, lamp) poke up into the tile
+   above like the walls do, never drift off their tile.
+6. Roofs: wood rooms get thatch, stone rooms clay tile; they fade while a Structure tool is in hand and almost
+   vanish when the hero is inside (unchanged code fade).
+7. Blueprints (non-creative game, or a cancelled-instant build): a planned door / floor / bed shows its new art
+   faded + tinted (the code overlay), not a blue rectangle.
+8. Click a floor inside a room: the Room panel heading has the role badge (bedroom: bed shield, kitchen, workshop,
+   barracks, storeroom, hall, church; a plain "Room" has none); the Size / Beauty / Cleanliness / Warmth rows each
+   have a small icon.
+9. Zones tab > a stockpile zone: each filter checkbox has its icon (food, wood, stone, ore, metal, cloth, tools,
+   weapons, armour; "Everything" / "Other goods" have none).
+10. Resources panel: Stone axe / Stone pick / Hammer & tongs / Flour and the Gear rows (weapons, armour) show icons
+    instead of the lettered chip.
+11. Fallback: rename `client/public/sprites/structure/bed.png` (dev server): the bed falls back to the old
+    procedural blue bed, nothing else breaks; restore it.

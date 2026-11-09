@@ -1,8 +1,11 @@
 // Modular building phase 1: procedural stand-in art (flat top-down, tile-aligned, 32 px) for the room pieces, drawn
-// on canvases at startup. Every texture here is pending real art (SPRITES.md "Modular building phase 1"; phase 2's
-// furniture: SPRITES.md #91).
+// on canvases at startup (SPRITES.md #90 / #91). Since 2026-11-09 the sliced atlas art (spriteRegistry.ts) replaces
+// each piece whose png loaded; a missing file falls back to the stand-in here automatically.
 import { Texture } from "pixi.js";
 import { TileType } from "@colony/shared/protocol";
+import {
+  FLOOR_VARIANTS, STRUCTURE_FURNITURE_ART, structureDoorUrl, structureFloorUrl, structureRoofUrl, structureWindowUrl,
+} from "./spriteRegistry";
 
 const PX = 32;
 type Ctx = CanvasRenderingContext2D;
@@ -211,31 +214,50 @@ function furnitureTex(t: TileType): Texture {
   });
 }
 
+// How a piece is drawn: "flat" fills its tile (floors, rugs, stand-ins); "wall" like a connected wall piece
+// (WALL_ART_PX_PER_TILE, bottom-centred); "upright" bottom-centred at STRUCTURE_ART_PX_PER_TILE (furniture).
+export type StructurePlacement = "flat" | "wall" | "upright";
+export interface StructureArt {
+  texture: Texture;
+  place: StructurePlacement;
+}
+
 export interface StructureTextures {
-  floor: Map<number, Texture>;
-  bed: Texture;
-  // Phase 2: furniture by tile type.
-  furniture: (t: number) => Texture;
-  // [stone][horizontal]
-  window: (stone: boolean, horizontal: boolean) => Texture;
-  door: (stone: boolean, horizontal: boolean, open: boolean) => Texture;
+  // variant: any non-negative per-tile hash (picks one of the floor variants).
+  floor: (t: number, variant: number) => StructureArt | undefined;
+  // Bed and phase 2 furniture by tile type.
+  furniture: (t: number) => StructureArt;
+  window: (stone: boolean, horizontal: boolean) => StructureArt;
+  door: (stone: boolean, horizontal: boolean, open: boolean) => StructureArt;
   roof: (stone: boolean) => Texture;
 }
 
-export function makeStructureTextures(): StructureTextures {
-  const floors = new Map<number, Texture>([[TileType.WoodFloor, floor(false)], [TileType.StoneFloor, floor(true)]]);
+// `art`: the optional textures that loaded (url -> texture); anything missing uses the procedural stand-in.
+export function makeStructureTextures(art: Record<string, Texture>): StructureTextures {
   const cache = new Map<string, Texture>();
   const memo = (key: string, f: () => Texture) => {
     let t = cache.get(key);
     if (!t) cache.set(key, (t = f()));
     return t;
   };
+  const flat = (texture: Texture): StructureArt => ({ texture, place: "flat" });
+  const pick = (url: string | undefined, place: StructurePlacement, fallback: () => StructureArt): StructureArt => {
+    const texture = url ? art[url] : undefined;
+    return texture ? { texture, place } : fallback();
+  };
   return {
-    floor: floors,
-    bed: bedTex(),
-    furniture: (t) => memo(`f${t}`, () => furnitureTex(t as TileType)),
-    window: (stone, h) => memo(`w${+stone}${+h}`, () => windowTex(h, stone)),
-    door: (stone, h, open) => memo(`d${+stone}${+h}${+open}`, () => doorTex(h, stone, open)),
-    roof: (stone) => memo(`r${+stone}`, () => roofTex(stone)),
+    floor: (t, variant) => {
+      if (t !== TileType.WoodFloor && t !== TileType.StoneFloor) return undefined;
+      const stone = t === TileType.StoneFloor;
+      return pick(structureFloorUrl(stone, variant % FLOOR_VARIANTS), "flat", () => flat(memo(`fl${+stone}`, () => floor(stone))));
+    },
+    furniture: (t) => {
+      const fallback = () => flat(t === TileType.Bed ? memo("bed", bedTex) : memo(`f${t}`, () => furnitureTex(t as TileType)));
+      return pick(STRUCTURE_FURNITURE_ART[t as TileType], t === TileType.Rug ? "flat" : "upright", fallback);
+    },
+    window: (stone, h) => pick(structureWindowUrl(stone, h), "wall", () => flat(memo(`w${+stone}${+h}`, () => windowTex(h, stone)))),
+    door: (stone, h, open) =>
+      pick(structureDoorUrl(stone, h, open), "wall", () => flat(memo(`d${+stone}${+h}${+open}`, () => doorTex(h, stone, open)))),
+    roof: (stone) => art[structureRoofUrl(stone)] ?? memo(`r${+stone}`, () => roofTex(stone)),
   };
 }

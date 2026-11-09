@@ -670,6 +670,8 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > closed); bed; thatch roof and clay-tile roof (plain tile, no ridge / eave pieces yet, faded by alpha when inside).
 > Walls keep their existing 16-piece art; doors and windows join it. Still missing entirely: door broken state,
 > window damaged state, blueprint ghost tiles (a construction site shows the faded piece), roof ridge / eave pieces.
+> **2026-11-09: doors, windows, floors, rug, roofs and furniture now use the sliced atlas art; see "#90-#97 delivery
+> status" below (the stand-ins remain as automatic fallbacks).**
 
 ### 91. Furniture and room items (phase 2) — 32x32 or 32x64 (2 tiles)
 > Bed (single, double; wood, straw pallet), table (small, long), chair/stool, bench, chest, shelf, wardrobe, hearth/fireplace
@@ -723,6 +725,66 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > Villager task animations (4 dirs x 4 frames): sowing, watering, harvesting, hauling, building (hammer), chopping,
 > mining, cooking, sleeping in bed (top-down lying), eating at table, sitting. Hero stamina/energy bar and tool
 > hotbar UI frame, inventory slot frames, 'tired' and 'hungry' status icons.
+
+### #90-#97 delivery status (2026-11-09: sliced ChatGPT atlases, `art-sources/rimworld-stardew/`)
+> Processed by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/<group>/`; registry and
+> loaders in `client/src/spriteRegistry.ts`. Every wired file is optional: a missing png falls back to the procedural
+> stand-in (structureArt.ts) or hides its icon. The art is AI-painted (~60-110 px native, not a pixel grid); it was
+> box-downscaled to 64 px per tile (2x the 32 px grid) / 32 px icons with hard alpha and despecked.
+>
+> **Wired:**
+> - #90: wood / stone **doors** (closed + open, H + V) and **windows** (H + V), baked onto the EXISTING wall straights
+>   (`woodWall_10/05`, `stoneWall_10/05`) so they sit in a wall run at the walls' 68 px/tile scale. Wood closed =
+>   `door_wood_plank_closed_a`, wood open = derived doorway (dark opening + leaf), stone = `door_wood_stonearch_closed`
+>   / `_open_a`; windows = `window_wood_glass_a` / `window_stone_arch_a`; V = squashed into the column (edge-on
+>   stand-in). **Floors**: wood (`floor_wood_a_1-3`) and stone (`floor_flagstone_1-3`), 3 variants by tile hash.
+>   **Roofs**: thatch (wood rooms), clay tile (stone rooms), cropped from the slope pieces (one plain tile, no ridge /
+>   eave yet); the cutaway keeps the code alpha fade (the atlas `*_faded` roofs are too rough). Blueprint ghosts keep
+>   the code overlay (faded + tinted piece; the atlas ghosts are opaque blue rectangles).
+> - #91: bed, table, chair, chest, shelf (bookshelf), hearth (lit fireplace), lamp (candelabra), rug, workbench,
+>   statue, weapon rack. Room panel: role badges (bedroom, barracks, kitchen, workshop, hall, storeroom, church) and
+>   stat icons (size, beauty, cleanliness, warmth).
+> - #92: stockpile filter icons in the Zones panel. Resources panel: tool / gear icons (axe, pickaxe, hammer & tongs,
+>   flour sack, weapons, armour). Zone overlays stay Graphics (the atlas zones are opaque baked rectangles).
+>
+> **Staged only** (copied, not used yet): `structure/extra/` (double / red / straw beds, long table, stool, bench,
+> wardrobe, stove, cauldron, oven, braziers, candelabras, lantern, banners, armour stand, altar, well, barrel, sacks,
+> crates, stalls, cart, iron / barred doors, shutters, stained glass, roof corner / ridge / peak pieces, dirt floors,
+> rug variants, scaffold), `structure/roof_slate.png`; `icons/` work types (6), priority 1-4 + off, hero tools (axe,
+> hoe, pickaxe, scythe, seed bag, watering can), item icons (egg, milk, wool, hay, shears, trough), needs (happy,
+> heart, sick, thirst, hungry, tired), season emblems (small + large), rain icon, festival, room wealth / hospital /
+> castle; `seasons/` (4 trees, 4 ground tiles, water), `weather/` (opaque overlays, reference only), `crops/`,
+> `animals/` (17 animals, 4 occupied buildings), `villager/` (task animations: sow, water, harvest, haul sack,
+> hammer, chop, mine, cook, sleep in bed, eat, sit, bowl carry; plus the hat farmer's 2 haul sets), `ui/` (stamina
+> bar, hotbars). The villager animations are NOT wired: they are a different character (curly-haired, ~100 px,
+> one facing) from the colonist sprites, so hauling / building / sleeping frames would visibly swap the person.
+>
+> **Still needed (regenerate in ChatGPT).** Prompt rules for every request: "pixel art on a strict 32x32 px grid
+> (1 art pixel = 1 px, no anti-aliasing, no painterly shading), 1 px dark outline, TRANSPARENT background (no
+> vignette, no checkerboard, no glow backing), ONE asset class per image, laid out on a labelled grid with 8 px
+> gaps, top-down 3/4 view matching the attached wall / colonist sprites":
+> 1. **Wall connection sets** (#90): wood palisade, wood plank, stone block, reinforced stone; all 16 neighbour-mask
+>    pieces each in mask order N=1 E=2 S=4 W=8, plus damaged variants. (Walls currently keep the old art.)
+> 2. **Doors / windows in walls** (#90): per material (wood, stone, iron-bound) a 32x40 piece for H (east-west wall,
+>    face-on) and V (north-south wall, edge-on), states closed / open / broken; windows H / V intact / damaged.
+> 3. **Seamless roofs** (#90): thatch, wood shingle, clay tile, slate as 32x32 seamlessly tiling fills + ridge line,
+>    eave edge (4 sides) and corner pieces; a semi-transparent cutaway version with clean edges.
+> 4. **Floors** (#90): dirt, wood planks, flagstone, cobble, carpet red / blue / green, 4 seamless variants each.
+> 5. **Furniture** (#91): unlit + 2-frame lit idle for hearth / lamp / candle; double bed; crate shelf; hospital
+>    bed; 16 px room HUD icons as flat glyphs (not 60 px shields).
+> 6. **Zone overlays** (#92): truly translucent 32x32 edge-tile sets (fill + 4 edges + 4 corners) per zone colour,
+>    zone cursor icons, stockpile "everything" icon, the 5 missing work icons (woodcutting, hunting, cooking,
+>    doctor, fighting, research).
+> 7. **Hauling / task animations** (#92 / #97) drawn ON THE EXISTING COLONIST SPRITE (same character, size and
+>    palette), 4 directions x 4 frames: carry sack / crate / log / stone, hammer, sow, water, harvest, chop, mine,
+>    cook, sleep in bed (top-down lying), eat, sit.
+> 8. **Crops** (#93): 5 stages for wheat, flax, vegetables, berries, root, with season variants; untilled grass.
+> 9. **Seasons / weather** (#94): snow-covered rocks / roofs, weather as transparent particle frames (rain streaks,
+>    snowflakes, fog wisps, lightning flash), small sun / snow / storm icons.
+> 10. **Interiors** (#95): modular back-wall / side-wall / cutaway pieces per building type, exit mat, lighting
+>     overlays on transparency.
+> 11. **Animals** (#96): idle 2f, walk 4 dirs x 4f, eat / sleep for each animal; piglet, lamb, shorn sheep, calf;
+>     buildings empty + occupied, stable; feed trough.
 
 #77-#83 were delivered on 2026-10-30 (see "Already sourced", Batch 2); prompts removed. Still missing from those
 prompts: #82 the Follow order icon, the state glyphs (wavering / routing / outflanked) and the time-control icons;
