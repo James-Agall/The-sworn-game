@@ -2155,6 +2155,45 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Battle engine — delta snapshots landed 2026-11-10 (mid-battle snapshot under 250 KB)
+Plan: docs PLAN-large-battles.md §6, §7, §8 phase 7 ("delta / binary snapshots and short unit ids" was the not-done
+part of phase 7).
+- **Opt-in per connection (`?delta=1`)**: the browser client asks for it (`?delta=0` in the page URL turns it off for
+  debugging); scripted tests and anything else without the flag get the full snapshot byte-for-byte as before.
+- **Format (shared/src/snapshotDelta.ts, server half server/src/snapshotDelta.ts)**: per connection the server keeps
+  the units and section JSON it last sent. Snapshot `ud` carries a sequence number, `f` on a keyframe (first snapshot
+  after every welcome, a client `resync`, and every 600 sends), short unit numbers instead of uuids (an added row
+  carries both), added rows as arrays (kind / state / stance through a per-connection string table), position-only
+  changes as flat `[n, x, y]`, position + hp as `[n, x, y, hp]`, other field changes as partial objects (null =
+  optional field gone), removal lists, and `k` = the sections left out because their JSON did not change
+  (refilled from the client's cache). armyRegiments / orderGroups are only sent when changed (they were also sent
+  every 10th tick) and their `unitIds` (and taskForces) carry unit numbers. Positions keep the existing 0.1 px big
+  battle rounding: lossless relative to the full snapshot, so rendering is identical.
+- **Client**: `applySnapshotDelta` runs right after JSON.parse and rebuilds `colonists` / `mobs` / the skipped
+  sections, so nothing else in main.ts changed. A sequence gap keeps the last state, sends `resync` once, and the
+  next snapshot is a keyframe. Unchanged units keep the same object between ticks (changed ones are new objects).
+- **Interest management**: mobs / wildlife were already culled to the view on worlds > 192 (a culled mob leaving the
+  view is a removal, coming back an add). Own colonists are not culled and there is no binary encoding: not needed.
+- **Numbers** (`server/snapshot-delta-test.mjs`, 256 map, ~900 militia in 8 regiments attack-moving into 1000 goblins
+  in 8 regiments, 3 s windows, 2 runs each on 256 and 160):
+
+  | | before (full) | after (delta) |
+  |---|---|---|
+  | quiet colony, avg | 19-25 KB (160: 41-43) | 1.4-1.6 KB (160: 2.7) |
+  | mid-battle, avg | 279-289 KB (160: 301-308) | 29-34 KB (160: 29-31) |
+  | mid-battle, max | 306-348 KB (160: 334-367) | 35-43 KB |
+  | keyframe (join / resync / 30 s) | n/a | 167-168 KB (160: 180-181) |
+
+  Before, by section (256, avg): colonists ~144 KB, mobs ~120 KB, orderGroups + armyRegiments ~9 KB avg (~60 KB on
+  every 10th tick), progression 2.5 KB. After: mob moves ~18 KB, colonist moves ~11-13 KB, other changes ~2 KB.
+  Snapshot system time per tick (build + encode + send, one client): delta 3.4-4.3 ms vs full 4.1-4.8 ms.
+- **Test**: `server/snapshot-delta-test.mjs` (own server, PORT default 20712, `DELTA_WORLD` = world size): a delta
+  client and a full client on the same spot; every tick the delta-rebuilt colonists / mobs / sections must hash
+  equal to the full client's copy of the same tick (quiet colony, two battle windows, after a forced gap); every
+  delta-client snapshot (keyframes included) < 250 KB; a dropped snapshot asks for exactly one resync.
+- Not done: binary encoding, culling own colonists to the view, quantising positions coarser than 0.1 px (would
+  change what the client draws), dot-LOD aggregation on the wire.
+
 ## Gap closure G8 — landed 2026-11-10 (blueprints: modular keeps, animal yards, gate passages)
 
 QUEUE "RimWorld/Stardew gap closure" G8 (extends "Building blueprints" and G7). Legend / rules in

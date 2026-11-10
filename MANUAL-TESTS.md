@@ -469,6 +469,17 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
    enemies), hp bars hidden; zooming in brings the sprites back. Check the frame rate with and without the flag,
    and that workers and sheltered civilians are unaffected. Without the flag nothing should change.
 
+## Delta snapshots (2026-11-10; the browser now gets unit changes per tick instead of full snapshots)
+1. Large battle looks identical: creative, 1000 soldiers vs 1000 goblins (or `node snapshot-delta-test.mjs`'s setup);
+   units walk, fight, take hp, die and leave gravestones exactly as before; regiment cards, task forces, selection
+   and orders (click a regiment card, drag a line) all still work. Compare with `?delta=0` (old full snapshots) in a
+   second tab if anything looks off. DevTools > Network > WS: mid-battle frames ~30-45 KB (were ~280-350 KB).
+2. Reconnect resyncs: mid-battle, reload the page (or restart the dev server and let the page reconnect): the army,
+   mobs, buildings, zones, animals, calendar and HUD come back complete on the first frame, no ghost units left over.
+3. Load a save / restart a world mid-battle: the old world's units vanish at once and the new world's appear.
+4. Quiet colony: workers, haulers, livestock, wildlife, interiors (walk into a tavern), day / night and the calendar
+   behave as before.
+
 ## Village life phases 1-4 (people, growth, training, villagers build, levy, raids, beds)
 1. New normal game: 10 people (1 builder + 9 villagers in farmer clothes idling around the Town Center); the HUD line
    under the population reads "Villagers: 9 free · 0 children · 0 training · 0 posts open".
