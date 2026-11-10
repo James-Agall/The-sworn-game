@@ -39,9 +39,11 @@ function seeded(seed: number): () => number {
   };
 }
 
-// Runs fn (generateWorld's body) on a seeded Math.random, then captures the base layer.
+// Runs fn (generateWorld's body) on a seeded Math.random, then captures the base layer. COLONY_WORLD_SEED (tests):
+// every new world uses that seed (a fixed map layout).
 export function withWorldSeed(seed: number | undefined, fn: () => void) {
-  const s = seed ?? Math.floor(Math.random() * 0x7fffffff);
+  const fixed = process.env.COLONY_WORLD_SEED ? Number(process.env.COLONY_WORLD_SEED) : NaN;
+  const s = seed ?? (Number.isFinite(fixed) ? fixed >>> 0 : Math.floor(Math.random() * 0x7fffffff));
   const real = Math.random;
   Math.random = seeded(s);
   try {

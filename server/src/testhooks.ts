@@ -329,6 +329,25 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     });
     if (!r.site) reply({ site: null, problem: r.problem, x0: r.x0, y0: r.y0 });
     else reply({ site: { ...r.site } });
+  } else if (msg.op === "siteFit" && typeof msg.template === "string" && msg.template in SITE_TEMPLATES) {
+    // Dry run of stampSite: {template, x0, y0, search?}: the nearest top-left within `search` tiles where it fits
+    // (clearable ground, off other grounds), else the first problem.
+    const t = SITE_TEMPLATES[msg.template as SiteTemplateId];
+    const x0 = Math.floor(Number(msg.x0)), y0 = Math.floor(Number(msg.y0));
+    const search = typeof msg.search === "number" ? Math.min(60, Math.floor(msg.search)) : 0;
+    let problem: string | null = null;
+    let fit: TileCoord | null = null;
+    for (let r = 0; r <= search && !fit; r++) {
+      for (let dy = -r; dy <= r && !fit; dy++) {
+        for (let dx = -r; dx <= r && !fit; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const p = siteFitProblem(t, x0 + dx, y0 + dy, true);
+          if (!p) fit = { x: x0 + dx, y: y0 + dy };
+          else problem ??= p;
+        }
+      }
+    }
+    reply(fit ? { x0: fit.x, y0: fit.y, problem: null } : { problem });
   } else if (msg.op === "setWarbands") {
     // Forts phase G: let the dawn timer spawn warbands in this scripted test (off by default with test hooks).
     state.testWarbandsEnabled = msg.enabled === true;

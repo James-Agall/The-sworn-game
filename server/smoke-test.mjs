@@ -33,7 +33,8 @@ const saveDir = mkdtempSync(path.join(tmpdir(), "colony-smoke-"));
 const server = spawn(TSX, ["src/index.ts"], {
   cwd: DIR,
   // COLONY_UNLOCK_ALL: the checks below predate the progression tree (its own check switches the unlock off).
-  env: { ...process.env, PORT: String(PORT), COLONY_TEST_HOOKS: "1", COLONY_SAVE_DIR: saveDir, COLONY_UNLOCK_ALL: "1" },
+  // COLONY_WORLD_SEED: one fixed map layout (SMOKE_SEED=<n> tries another), so the checks never meet a random map.
+  env: { ...process.env, PORT: String(PORT), COLONY_TEST_HOOKS: "1", COLONY_SAVE_DIR: saveDir, COLONY_UNLOCK_ALL: "1", COLONY_WORLD_SEED: process.env.SMOKE_SEED ?? "20261110" },
   // SMOKE_LOG=<file>: the server's stdout / stderr go there (debugging a failed run).
   stdio: process.env.SMOKE_LOG ? ["ignore", openSync(process.env.SMOKE_LOG, "w"), openSync(process.env.SMOKE_LOG, "a")] : "ignore",
   detached: true,
@@ -324,18 +325,19 @@ await check("vassal + tax: fealty then tribute", async () => {
 await check("warband: spawn, settle into a camp, grow a tier", async () => {
   await hook("killColonists", { kind: "knight" });
   await tp(tc.x, tc.y + 2);
-  const edges = [{ x: 2, y: tc.y }, { x: c.W - 3, y: tc.y }, { x: tc.x, y: 2 }, { x: tc.x, y: c.W - 3 }]
-    .sort((a, b) => Math.hypot(b.x - tc.x, b.y - tc.y) - Math.hypot(a.x - tc.x, a.y - tc.y));
-  let sp = null;
-  for (const e of edges) {
-    sp = await hook("spawnWarband", { faction: "bandit", atX: e.x, atY: e.y, size: 6 });
+  // A camp spot the stamp is known to fit (siteFit dry run), far from the Town Center and every other site (no
+  // fights on the way), scanning a grid of the map, farthest first; the warband walks in from the nearest edge.
+  const keeps = (await hook("sitesState")).sites.map((s) => [s.keepX, s.keepY]);
+  const cands = [];
+  for (let y = 12; y < c.W - 12; y += 12) for (let x = 12; x < c.W - 12; x += 12) cands.push([x, y]);
+  cands.sort((a, b) => Math.hypot(b[0] - tc.x, b[1] - tc.y) - Math.hypot(a[0] - tc.x, a[1] - tc.y));
+  let sp = { warband: null, problem: "no camp spot fits" };
+  for (const [x, y] of cands) {
+    if (Math.hypot(x - tc.x, y - tc.y) < 40 || keeps.some(([kx, ky]) => Math.hypot(kx - x, ky - y) < 24)) continue;
+    const f = await hook("siteFit", { template: "thornwick", x0: x, y0: y, search: 4 });
+    if (f?.problem !== null) continue;
+    sp = await hook("spawnWarband", { faction: "bandit", size: 6, x0: f.x0, y0: f.y0 });
     if (sp.warband) break;
-  }
-  for (const [fx, fy] of [[0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8], [0.5, 0.15], [0.5, 0.85]]) {
-    if (sp.warband) break;
-    const x0 = Math.floor(c.W * fx), y0 = Math.floor(c.W * fy);
-    await clearBox(x0 + 4, y0 + 4, 8);
-    sp = await hook("spawnWarband", { faction: "bandit", size: 6, x0, y0 });
   }
   const wb = sp.warband;
   if (!wb) return `no warband: ${sp.problem}`;
@@ -753,6 +755,18 @@ const lastDialogue = async (n) => {
   return c.dialogues[c.dialogues.length - 1];
 };
 const pick = (d, re) => d?.dialogue?.choices.findIndex((ch) => re.test(ch.label)) ?? -1;
+// E opens a talk; when several people stand about equally near the server asks "Who do you speak to?" first, so
+// pick the one matching `who` (Elder / Brother / a name) from that chooser.
+const talkOpen = async (who = /./) => {
+  let n = c.dialogues.length;
+  await hook("heroLife", { interact: true });
+  const d = await lastDialogue(n);
+  if (!/Who do you speak to/.test(d?.dialogue?.text ?? "")) return d;
+  n = c.dialogues.length;
+  const i = pick(d, who);
+  await hook("heroLife", { choice: i >= 0 ? i : 0 });
+  return lastDialogue(n);
+};
 await check("solo hero: talk to a settlement elder (gift, work, farewell)", async () => {
   const st = await hook("sitesState");
   const town = st.sites.find((x) => x.faction === "human" && !x.cleared && !x.captured);
@@ -761,9 +775,8 @@ await check("solo hero: talk to a settlement elder (gift, work, farewell)", asyn
   await hook("setStock", { stock: { gold: 100 } });
   await hook("heroLife", { flagsClear: true });
   await tp(town.keepX, town.keepY + 1);
-  let n = c.dialogues.length;
-  await hook("heroLife", { interact: true });
-  const d0 = await lastDialogue(n);
+  const d0 = await talkOpen(/Elder/);
+  let n;
   const opened = d0?.dialogue?.npc.role === "leader" && d0.dialogue.choices.length >= 2 && d0.dialogue.choices.length <= 6;
   n = c.dialogues.length;
   await hook("heroLife", { choice: pick(d0, /gift/i) });
@@ -844,10 +857,8 @@ await check("solo hero: station work, master, personal build", async () => {
   await hook("diploSet", { siteId: town.id, relation: 30 });
   await hook("setStock", { stock: { gold: 200 } });
   await tp(town.keepX, town.keepY + 1);
+  const d0 = await talkOpen(/Elder/);
   let n = c.dialogues.length;
-  await hook("heroLife", { interact: true });
-  const d0 = await lastDialogue(n);
-  n = c.dialogues.length;
   const ti = pick(d0, /teach/i);
   if (ti >= 0) await hook("heroLife", { choice: ti });
   const d1 = ti >= 0 ? await lastDialogue(n) : null;
@@ -896,11 +907,6 @@ const talkPick = async (re) => {
   await hook("heroLife", { choice: pick(d, re) });
   return lastDialogue(n);
 };
-const talkOpen = async () => {
-  const n = c.dialogues.length;
-  await hook("heroLife", { interact: true });
-  return lastDialogue(n);
-};
 await check("family: court an Elder's kin, wed at a priest, marriage alliance", async () => {
   if (!site) return "no site";
   await hook("peopleState", { creative: false });
@@ -908,7 +914,7 @@ await check("family: court an Elder's kin, wed at a priest, marriage alliance", 
   await hook("heroLife", { flagsClear: true, familyReset: true });
   await rel(30);
   await tp(site.keepX, site.keepY + 1);
-  await talkOpen();
+  await talkOpen(/Elder/);
   const k0 = await talkPick(/family/i);
   const k1 = await talkPick(/Spend time/);
   const courted = /courtship 1 \/ 4/.test(k1?.dialogue?.text ?? "") && !!k1.dialogue.choices[pick(k1, /Spend time/)]?.disabled;
@@ -919,14 +925,14 @@ await check("family: court an Elder's kin, wed at a priest, marriage alliance", 
   const betrothed = /betrothed/.test(k2?.dialogue?.text ?? "");
   await talkPick(/Farewell/);
   await hook("heroLife", { tpPriest: true });
-  const pr = await talkOpen();
+  const pr = await talkOpen(/Brother/);
   const w = await talkPick(/Marry us/);
   const wed = /are wed/.test(w?.dialogue?.text ?? "");
   await talkPick(/Farewell/);
   const fam = (await hook("heroLife", {})).family;
   const r = await hook("diploSet", { siteId: sid });
   await tp(site.keepX, site.keepY + 1);
-  await talkOpen();
+  await talkOpen(/Elder/);
   const k3 = await talkPick(/family/i);
   const levyOffered = pick(k3, /spears/) >= 0;
   await talkPick(/Farewell/);
@@ -1004,7 +1010,7 @@ await check("family: succession order + inheritance, widowed, parting", async ()
     await snapNow();
     const u = c.snap.colonists.find((x) => x.id === cr3?.ids?.[0]);
     if (u) await hook("teleportPlayer", { x: u.x, y: u.y });
-    await talkOpen();
+    await talkOpen(new RegExp(u?.name ?? cr3?.text ?? "."));
     const d = await talkPick(/part ways/);
     relAfter = (await hook("diploSet", { siteId: sid })).relation;
     const ps = await hook("peopleState", {});
