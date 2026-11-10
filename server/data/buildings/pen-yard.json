@@ -1,0 +1,16 @@
+{
+  "id": "pen-yard",
+  "name": "Sheep pen with paddock",
+  "buildingType": "sheepPen",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####ffffff",
+    "#x=s#.N...f",
+    "w===w.....f",
+    "##+##ffgfff"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "keep-small",
+  "name": "Keep (small)",
+  "buildingType": "keep",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "hall",
+  "rows": [
+    "%%%%%%%%%%%",
+    "%b=x%%s=x=%",
+    "%===%%====%",
+    "%%D%%%%D%%%",
+    "%=========%",
+    "W=t=tYt=t=W",
+    "%====r====%",
+    "%u=======u%",
+    "%%%%%D%%%%%"
+  ]
+}

@@ -800,6 +800,15 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > towns use the existing moat / drawbridge art (#forts phase H); a settlement **stream** is the plain Water tile (a
 > narrow-stream / ford autotile would read better).
 
+### 105. Modular keeps, yard fences, gate passages (gap closure G8, 2026-11-10)
+> Stand-ins today: the **Keep anchor** in a keep blueprint is the prefab Keep sprite on one tile inside the hall
+> (`castleKeep`), a settlement keep inside a building the SiteKeep stand-in; **yard fences** use the camp / settlement
+> fence prop (`fence.png`, one tile, no joins) and a yard gate is the stone/wood `Gate` art; the **gate passage
+> floor** is the stone floor. Wanted: a 32x32 **throne / lord's seat** (or banner dais) piece for the keep anchor so
+> it reads as furniture in the hall; an autotiled **wooden yard fence** (straight / corner / T / end, 32x32, low
+> rails) plus a **fence gate** (open / closed); an optional cobbled **passage floor** with a portcullis-shadow
+> overlay for gatehouses.
+
 ### #90-#97 delivery status (2026-11-09: sliced ChatGPT atlases, `art-sources/rimworld-stardew/`)
 > Processed by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/<group>/`; registry and
 > loaders in `client/src/spriteRegistry.ts`. Every wired file is optional: a missing png falls back to the procedural

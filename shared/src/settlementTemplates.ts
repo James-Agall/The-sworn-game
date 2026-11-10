@@ -99,6 +99,8 @@ export interface SettlementLayout {
   // Cells covered by a building template (index into t.buildings), -1 elsewhere.
   buildingOf: Int16Array;
   keep: { x: number; y: number } | null;
+  // Gap closure G8: the keep is a keep building template's anchor (inside its hall), not a ground "K".
+  keepInBuilding: boolean;
   slots: { kind: SettlementSlot; x: number; y: number }[];
   // Beds of the buildings (villagers' homes) and NPC slots inside them.
   beds: { x: number; y: number }[];
@@ -119,6 +121,7 @@ export function settlementLayout(t: Pick<SettlementTemplate, "rows" | "buildings
   const npcSlots: SettlementLayout["npcSlots"] = [];
   let keep: SettlementLayout["keep"] = null;
   let keeps = 0;
+  let keepInBuilding = false;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const s = SETTLEMENT_LEGEND[t.rows[y]?.[x] ?? "."];
     if (!s) continue;
@@ -129,7 +132,6 @@ export function settlementLayout(t: Pick<SettlementTemplate, "rows" | "buildings
       keep = { x, y };
     }
   }
-  if (keeps !== 1) errs.push(`exactly one keep K (has ${keeps})`);
   (t.buildings ?? []).forEach((b, k) => {
     const bt = lookup(b.ref);
     if (!bt) {
@@ -150,12 +152,21 @@ export function settlementLayout(t: Pick<SettlementTemplate, "rows" | "buildings
       buildingOf[i] = k;
     }
     for (const c of cells) {
+      // Gap closure G8: a keep template's Keep anchor is the settlement's keep.
+      if (c.tile === TileType.Keep) {
+        tiles[(b.y + c.y) * w + b.x + c.x] = TileType.SiteKeep;
+        keeps++;
+        keep = { x: b.x + c.x, y: b.y + c.y };
+        keepInBuilding = true;
+        continue;
+      }
       tiles[(b.y + c.y) * w + b.x + c.x] = c.tile;
       if (c.tile === TileType.Bed) beds.push({ x: b.x + c.x, y: b.y + c.y });
       if (c.ch === "&") npcSlots.push({ x: b.x + c.x, y: b.y + c.y });
     }
   });
-  return { w, h, tiles, buildingOf, keep, slots, beds, npcSlots, errs };
+  if (keeps !== 1) errs.push(`exactly one keep (a K, or a keep building's anchor) (has ${keeps})`);
+  return { w, h, tiles, buildingOf, keep, keepInBuilding, slots, beds, npcSlots, errs };
 }
 
 // ---- Gap closure G7: whole-settlement rotate / mirror ----
@@ -313,7 +324,7 @@ export function validateSettlementTemplate(t: unknown, lookup: BuildingLookup): 
   }
   if (components !== 1) errs.push(`roads: one connected network (has ${components})`);
   const touchesRoad = (x: number, y: number) => DIRS.some(([dx, dy]) => isRoad(at(x + dx, y + dy)));
-  if (l.keep && !touchesRoad(l.keep.x, l.keep.y)) errs.push("the keep K must touch a road");
+  if (l.keep && !l.keepInBuilding && !touchesRoad(l.keep.x, l.keep.y)) errs.push("the keep K must touch a road");
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (at(x, y) === TileType.Gate && !touchesRoad(x, y)) errs.push(`gate at ${x},${y} touches no road`);
   // Reachability from outside the grid (folk pass gates and doors).
   const seen = new Uint8Array(w * h);

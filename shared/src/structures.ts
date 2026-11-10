@@ -70,10 +70,11 @@ export function furniturePieceAt(tileAt: (x: number, y: number) => number, x: nu
   return { x, y, w: 1, h: 1 };
 }
 // Modular building phase 2: production stations that may stand inside a room (it becomes a workshop / church).
-// They are ordinary 1x1 buildings; anything else (houses, posts, farms) still means "not a room".
+// They are ordinary 1x1 buildings; anything else (houses, posts, farms) still means "not a room". Gap closure G8: the
+// Keep (and a settlement's SiteKeep) may stand in a keep template's hall (its anchor), giving the room no role of its own.
 export const ROOM_STATION_TILES: readonly TileType[] = [
   TileType.Blacksmith, TileType.TailorShop, TileType.LuxuryWorkshop, TileType.Brewery, TileType.Bloomery,
-  TileType.CharcoalBurner, TileType.Mill, TileType.Bakery, TileType.Tavern, TileType.ChurchPost,
+  TileType.CharcoalBurner, TileType.Mill, TileType.Bakery, TileType.Tavern, TileType.ChurchPost, TileType.Keep, TileType.SiteKeep,
 ];
 export function isRoomStationTile(t: number): boolean {
   return (ROOM_STATION_TILES as readonly number[]).includes(t);

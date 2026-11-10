@@ -1,0 +1,18 @@
+{
+  "id": "gatehouse-large",
+  "name": "Gatehouse (passage, two guard rooms)",
+  "buildingType": "gatehouse",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "barracks",
+  "rows": [
+    "%%%%%D%%%%%",
+    "%b=b%,%b=b%",
+    "%b=a%,%a=b%",
+    "%===D,D===%",
+    "%%%%%,%%%%%",
+    "%%%%%D%%%%%"
+  ]
+}

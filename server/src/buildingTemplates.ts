@@ -15,7 +15,7 @@ import { inBounds, ownerAt, resourceKey, tileIndex } from "./tiles.js";
 import { isInSiteGrounds } from "./sites.js";
 import { isForeignClanTile, setTileClan } from "./clans.js";
 import { progressionBlocker } from "./progression.js";
-import { canAfford, formatCost, handleSetTile, inOrderRange, placementCost, resolvePlacement, sendEvent } from "./construction.js";
+import { canAfford, formatCost, handleSetTile, inOrderRange, keepPlacementBlocker, placementCost, resolvePlacement, sendEvent } from "./construction.js";
 import { anyBuilderAlive } from "./colonists.js";
 import { setTile } from "./chunks.js";
 import { broadcastTileUpdate } from "./net.js";
@@ -98,6 +98,11 @@ function blueprintProblem(player: Player, plan: ReturnType<typeof planBuilding>)
       checked.add(p.tile);
       const locked = progressionBlocker(p.tile, TileType.Empty, p.x, p.y, false);
       if (locked) return locked;
+    }
+    // Gap closure G8: a keep template's anchor has the prefab Keep's gates (Town Center level 2, one per settlement).
+    if (p.tile === TileType.Keep) {
+      const keep = keepPlacementBlocker(p.x, p.y);
+      if (keep) return keep;
     }
     for (const [k, v] of Object.entries(placementCost(p.tile, cur, p.x, p.y)) as [ResourceKey, number][]) total[k] = (total[k] ?? 0) + v;
   }

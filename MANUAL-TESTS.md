@@ -684,6 +684,22 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Gap closure G8: keeps, animal yards, gate passages (2026-11-10)
+Automated: `node server/building-templates-test.mjs` (section G), `node server/settlement-templates-test.mjs`.
+1. Normal game, Blueprints tab: "Keep (small)" and "Great keep with towers" show "Needs: a Town Center at level 2".
+   With a level-1 Town Center the order is refused ("Keep needs a Town Center at level 2"); at level 2 the whole keep
+   goes down as blueprints, the Keep tile in the middle of the hall. A second keep near the same Town Center is
+   refused ("This settlement already has a Keep"). When built: the Keep panel works as for a prefab Keep, the hall
+   room reads "hall".
+2. "Chicken coop with yard" (and the sty / pen / livestock yard variants): turn it with R, place it: the fence pieces
+   and the gate are blueprints too (2 wood a fence); built, the yard is fenced with the coop inside and the gate opens.
+3. "Gatehouse (passage, two guard rooms)" and "Double gatehouse": the passage has a door at each end, the guard
+   rooms open into it; the card shows "1 gate passage" / "2 gate passages". Walk through the passage.
+4. Creative > building editor: paint a fence yard onto a house: the validator says only animal houses have yards;
+   remove one end door of a gatehouse passage: it says the passage needs two outside doors.
+5. A new world on a 256 / 512 map may have a **Citadel town**: the Elder is spoken to at the Keep inside the great
+   keep's hall (walk in through its door).
+
 ## Gap closure G7: settlements turned, quest givers, more templates (2026-11-10)
 Automated: `node server/settlement-templates-test.mjs` (sections V, T, S, Q, D).
 1. New game on a 256 / 512 map: visit two or three settlements. Some are turned or mirrored (the keep / gates on a

@@ -1,0 +1,16 @@
+{
+  "id": "sty-yard",
+  "name": "Pig sty with yard",
+  "buildingType": "pigSty",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####fffff",
+    "#x=s#..P.f",
+    "w===w....g",
+    "##+##fffff"
+  ]
+}

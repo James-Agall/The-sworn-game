@@ -1,0 +1,16 @@
+{
+  "id": "livestock-yard",
+  "name": "Livestock barn with yard",
+  "buildingType": "livestockBarn",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####fffffff",
+    "#x=s#......f",
+    "w===w..X...f",
+    "##+##fffgfff"
+  ]
+}

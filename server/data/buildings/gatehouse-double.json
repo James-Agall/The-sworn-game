@@ -1,0 +1,18 @@
+{
+  "id": "gatehouse-double",
+  "name": "Double gatehouse (twin passages)",
+  "buildingType": "gatehouse",
+  "tier": 3,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "barracks",
+  "rows": [
+    "%%%%D%%%%%D%%%%",
+    "%bb%,%b=b%,%bb%",
+    "%ba%,%=a=%,%ab%",
+    "%==D,D=b=D,D==%",
+    "%%%%,%%%%%,%%%%",
+    "%%%%D%%%%%D%%%%"
+  ]
+}

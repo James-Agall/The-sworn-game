@@ -9,6 +9,10 @@
 //   O a blueprint order (placeBlueprint) in a normal game: all-or-nothing checks (in the way, too far, cost), one
 //     construction site per piece paid up front, a station's "needs a roofed room" is met by its own walls, cancel
 //     refunds, and the builders finish every piece; the finished rooms have the template's roles.
+//   G (gap closure G8) keeps (one Keep anchor Y; none elsewhere), fenced animal yards (animal houses only, a gate in,
+//     open ground + the animal house inside), gate passages (two outside doors per passage, guard rooms off it; the
+//     one-door rule kept for ordinary buildings); a keep blueprint has the prefab Keep's gates (Town Center level 2,
+//     one per settlement); a yard blueprint queues its fences and gate and the builders finish it.
 //   E the building editor's creativeSet ops: buildingList, buildingSave (refuses invalid), buildingStamp (instant, the
 //     player's clan), buildingDelete (refuses built-ins).
 import { spawn } from "node:child_process";
@@ -78,6 +82,22 @@ async function inner() {
   refuse(["#####", "#b=b#", "##+##"], { role: "church" }, "a role no room has");
   refuse(["#####", "#b=b#", "##+##"], { doorSide: "N" }, "a door on the wrong side");
   refuse(["#####", "#===#", "##+##"], {}, "a room without a role");
+  // Gap closure G8: keeps, yards, passages.
+  const byId = (id) => builtins.find((t) => t.id === id);
+  for (const id of ["keep-small", "keep-great", "coop-yard", "sty-yard", "pen-yard", "livestock-yard", "gatehouse-large", "gatehouse-double"]) result(!!byId(id), `G built-in ${id}`);
+  const gst = (id) => BT.buildingStats(byId(id));
+  result(gst("coop-yard").yards === 1 && gst("livestock-yard").yards === 1 && gst("gatehouse-large").passages === 1 && gst("gatehouse-double").passages === 2,
+    "G stats: yards / passages counted");
+  const gl = byId("gatehouse-large");
+  refuse(gl.rows.map((r, y) => (y === gl.rows.length - 1 ? r.replace("D", "%") : r)), { buildingType: "gatehouse", role: "barracks" }, "a gate passage with one outside door");
+  refuse(["#####fff", "#b=b#..f", "##+##fgf"], {}, "a fenced yard on a house");
+  const cy = byId("coop-yard");
+  refuse(cy.rows.map((r) => r.replace("g", "f")), { buildingType: "chickenCoop", role: "storeroom" }, "a yard with no gate");
+  refuse(cy.rows.map((r, y) => (y === 2 ? r.slice(0, 5) + "x" + r.slice(6) : r)), { buildingType: "chickenCoop", role: "storeroom" }, "furniture in a yard");
+  const ks = byId("keep-small");
+  refuse(ks.rows.map((r) => r.replace("tYt", "YYt")), { buildingType: "keep", role: "hall" }, "a keep with two Keep anchors");
+  refuse(ks.rows.map((r) => r.replace("Y", "=")), { buildingType: "keep", role: "hall" }, "a keep without its anchor");
+  refuse(ks.rows, { buildingType: "hall", role: "hall" }, "a Keep anchor in a non-keep");
   const user = { ...builtins[0], id: "test-user-building", name: "Test building", builtin: undefined };
   result(bt.saveUserBuilding({ ...user, rows: ["..."] }) !== null, "V an invalid template is refused");
   result(bt.saveUserBuilding({ ...user, id: builtins[0].id }) !== null, "V a built-in's id is refused");
@@ -127,18 +147,29 @@ async function inner() {
   const events = [];
   const player = { id: "p1", clan: 0, dead: false, x: 0, y: 0, socket: { readyState: 1, OPEN: 1, send: (m) => events.push(JSON.parse(m)) } };
   const tc = state.townCenters[0];
+  // Natural clutter only (trees, rocks, bushes, ...): anything the colony built or owns is never cleared.
+  const NATURAL = new Set([TileType.Tree, TileType.Rock, TileType.Bush, TileType.IronOre].filter((t) => t !== undefined));
+  const isSolidBuilt = (t) => !NATURAL.has(t);
   player.x = tc.x * 32 + 16;
   player.y = tc.y * 32 + 16;
-  // A clear spot near the Town Center for a w x h footprint (plus a 2-tile ring).
+  // A clear spot near the Town Center for a w x h footprint (plus a 2-tile ring). Gap closure G8: on a crowded random
+  // map (trees / rocks everywhere) the second pass takes a spot with only natural clutter and clears it.
   const findSpot = (w, h, avoid = []) => {
-    for (let r = 4; r < 30; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-      const c = { x: tc.x + dx, y: tc.y + dy };
-      const x0 = c.x - (w >> 1) - 2;
-      const y0 = c.y - (h >> 1) - 2;
-      let ok = !avoid.some((a) => Math.abs(a.x - c.x) < w + 4 && Math.abs(a.y - c.y) < h + 4);
-      for (let y = y0; y < y0 + h + 4 && ok; y++) for (let x = x0; x < x0 + w + 4 && ok; x++) ok = x > 0 && y > 0 && x < W - 1 && y < W - 1 && state.tiles[idx(x, y)] === TileType.Empty && !constructionSites.has(`${x},${y}`);
-      if (ok) return c;
+    for (const clear of [false, true]) {
+      for (let r = 4; r < 30; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const c = { x: tc.x + dx, y: tc.y + dy };
+        const x0 = c.x - (w >> 1) - 2;
+        const y0 = c.y - (h >> 1) - 2;
+        let ok = !avoid.some((a) => Math.abs(a.x - c.x) < w + 4 && Math.abs(a.y - c.y) < h + 4);
+        for (let y = y0; y < y0 + h + 4 && ok; y++) for (let x = x0; x < x0 + w + 4 && ok; x++) {
+          const t = x > 0 && y > 0 && x < W - 1 && y < W - 1 ? state.tiles[idx(x, y)] : -1;
+          ok = (t === TileType.Empty || (clear && t >= 0 && !isSolidBuilt(t))) && !constructionSites.has(`${x},${y}`);
+        }
+        if (!ok) continue;
+        if (clear) for (let y = y0; y < y0 + h + 4; y++) for (let x = x0; x < x0 + w + 4; x++) if (state.tiles[idx(x, y)] !== TileType.Empty) setTile(idx(x, y), TileType.Empty);
+        return c;
+      }
     }
     return null;
   };
@@ -175,6 +206,30 @@ async function inner() {
   result(okHosp === null && parts.length === 3 && parts.every((p) => state.tiles[idx(p.x, p.y)] === p.tile && !constructionSites.has(`${p.x},${p.y}`)) && bedSites === 3,
     `O infirmary blueprint (turned): ${bedSites} bed sites, ${parts.length} part tiles stamped (${okHosp ?? "ok"})`);
 
+  // Gap closure G8: a keep blueprint (the prefab Keep's gates) and a yard blueprint (fences + gate queued).
+  const keepT = bt.buildingTemplateById("keep-small");
+  const ks0 = findSpot(keepT.rows[0].length, keepT.rows.length, [hs, ss, hsp]);
+  tc.level = 1;
+  const keepLow = bt.handlePlaceBlueprint(player, keepT.id, ks0.x, ks0.y, 0);
+  result(typeof keepLow === "string" && /Town Center at level 2/.test(keepLow), `G keep blueprint refused below Town Center level 2 (${keepLow})`);
+  tc.level = 2;
+  const keepOk = bt.handlePlaceBlueprint(player, keepT.id, ks0.x, ks0.y, 0);
+  const keepPlan = bt.planBuilding(keepT, ks0, 0);
+  const anchor = keepPlan.pieces.find((p) => p.tile === TileType.Keep);
+  result(keepOk === null && constructionSites.get(`${anchor.x},${anchor.y}`)?.target === TileType.Keep && sitesIn(keepPlan) === keepPlan.pieces.length,
+    `G keep blueprint at Town Center level 2: ${sitesIn(keepPlan)}/${keepPlan.pieces.length} sites, the anchor a Keep site (${keepOk ?? "ok"})`);
+  const ks1 = findSpot(keepT.rows[0].length, keepT.rows.length, [hs, ss, hsp, ks0]);
+  const keepTwo = ks1 ? bt.handlePlaceBlueprint(player, keepT.id, ks1.x, ks1.y, 0) : "no spot";
+  result(typeof keepTwo === "string" && /already has a Keep/.test(keepTwo), `G a second keep in the settlement is refused (${keepTwo})`);
+  const coop = bt.buildingTemplateById("coop-yard");
+  const cs0 = findSpot(coop.rows.length, coop.rows[0].length, [hs, ss, hsp, ks0, ...(ks1 ? [ks1] : [])]);
+  const okCoop = bt.handlePlaceBlueprint(player, coop.id, cs0.x, cs0.y, 3);
+  const coopPlan = bt.planBuilding(coop, cs0, 3);
+  const fences = coopPlan.pieces.filter((p) => p.tile === TileType.PropFence);
+  result(okCoop === null && fences.length > 0 && fences.every((p) => constructionSites.get(`${p.x},${p.y}`)?.target === TileType.PropFence)
+    && coopPlan.pieces.some((p) => p.tile === TileType.Gate && constructionSites.get(`${p.x},${p.y}`)?.target === TileType.Gate),
+    `G yard blueprint (turned): ${fences.length} fence + gate sites (${okCoop ?? "ok"})`);
+
   // Cancel one wall: refunded.
   const wall = housePlan.pieces.find((p) => p.tile === TileType.Wall);
   const w1 = state.stock.wood;
@@ -185,7 +240,7 @@ async function inner() {
   result(constructionSites.has(`${wall.x},${wall.y}`), "O re-ordering the blueprint fills the gap only");
   const builders = Array.from(colonists.values()).filter((c) => c.kind === "builder").length;
   let ticks = 0;
-  const pending = () => sitesIn(housePlan) + sitesIn(smithPlan);
+  const pending = () => sitesIn(housePlan) + sitesIn(smithPlan) + sitesIn(coopPlan);
   while (pending() > 0 && ticks < 60000) {
     for (let i = 0; i < 500; i++) stepSimulation();
     ticks += 500;
@@ -194,6 +249,8 @@ async function inner() {
   const roomsOf = (plan) => allRooms().filter((r) => r.x0 >= plan.x0 && r.y0 >= plan.y0 && r.x1 < plan.x0 + plan.w && r.y1 < plan.y0 + plan.h).map((r) => r.stats.role);
   result(sorted(roomsOf(housePlan)) === sorted(BT.buildingRoomRoles(house)), `O built house rooms: ${sorted(roomsOf(housePlan))}`);
   result(sorted(roomsOf(smithPlan)) === "workshop" && state.tiles[idx(forge.x, forge.y)] === TileType.Blacksmith, `O built smithy: ${sorted(roomsOf(smithPlan))}, forge stands`);
+  result(sorted(roomsOf(coopPlan)) === "storeroom" && fences.every((p) => state.tiles[idx(p.x, p.y)] === TileType.PropFence) && coopPlan.pieces.some((p) => state.tiles[idx(p.x, p.y)] === TileType.ChickenCoop),
+    `G built coop + yard: ${sorted(roomsOf(coopPlan))}, fences and the coop stand`);
 
   // ---- E ----
   const call = (msg) => {

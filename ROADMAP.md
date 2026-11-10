@@ -2155,6 +2155,43 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Gap closure G8 — landed 2026-11-10 (blueprints: modular keeps, animal yards, gate passages)
+
+QUEUE "RimWorld/Stardew gap closure" G8 (extends "Building blueprints" and G7). Legend / rules in
+`shared/src/buildingTemplates.ts`; the blueprint gate in `server/src/buildingTemplates.ts`; the settlement keep in
+`shared/src/settlementTemplates.ts`; 8 new built-ins (55 in all) + `town-citadel` (15 settlement templates).
+- **Modular keep** (building type `keep`, role hall): legend `Y` = the **Keep anchor** (the single-tile Keep /
+  town center building, `TileType.Keep`), standing in the great hall like a station (`ROOM_STATION_TILES` now has
+  Keep and SiteKeep, so a hall round it is still a room); the rest is ordinary walls / rooms. Rule: a keep has exactly
+  one `Y`, no other type has one. Built-ins `keep-small` (11x9: chamber, store, hall with the anchor) and
+  `keep-great` (15x12: barracks, store, kitchen, a 78-tile hall, four corner towers). **Blueprints tab**: listed under
+  "Keep (town center)" with "Needs: a Town Center at level 2 (one Keep per settlement)"; the order checks the prefab
+  Keep's gates up front (`keepPlacementBlocker`: Town Center level 2, no Keep built or queued in that settlement), so
+  it is refused whole rather than leaving a keepless shell; the anchor costs what the prefab Keep costs. **In a
+  settlement** the anchor is stamped as the SiteKeep and is the settlement's keep (`settlementLayout.keepInBuilding`;
+  one keep in all: a ground `K` or one anchor; a building-held keep needs no road beside it, its door does).
+  `town-citadel` (15 buildings round `keep-great`) uses it. `WORLDGEN_VERSION` 7 -> 8.
+- **Animal yards**: legend `f` = **yard fence** (`TileType.PropFence`, now player-buildable: 2 wood, in
+  `PLACEABLE_TILES`). In the validator fences stop the outside flood; an enclosed non-room area touching a fence is a
+  **yard**: open ground and the animal house annex only, at most 144 tiles, entered by a gate `g` (gates now walk like
+  doors in the validator) or a door; only chicken coop / pig sty / sheep pen / livestock barn / stables / barn
+  (`YARD_BUILDING_TYPES`). In game a yard is plain fenced ground (not a room). Built-ins `coop-yard`, `sty-yard`,
+  `pen-yard`, `livestock-yard`. Stats / Blueprints card show "1 yard".
+- **Gate passages**: legend `,` = **gate passage floor** (stone floor). A room with passage floor is a passage: it
+  needs no role and exactly **two outside doors** (one per end); guard rooms open into it; besides passages a
+  building may have at most one other outside door; the door side means "some outside door faces it". Ordinary
+  buildings keep the one-outside-door rule. Built-ins `gatehouse-large` (one passage, a barracks either side) and
+  `gatehouse-double` (two passages, three guard rooms).
+- **Tests**: `server/building-templates-test.mjs` G (new built-ins, yard / passage stats, refusals: one-door passage,
+  a yard on a house, a yard without a gate, furniture in a yard, two / no anchors, an anchor in a hall; a keep order
+  refused at Town Center level 1, accepted at 2 with the anchor a Keep site, a second keep refused; a turned coop-yard
+  order queues its fences + gate and the builders finish it); S stamps all 55 templates x transforms (440).
+  `findSpot` now clears natural clutter when a random map has no clear spot. Settlement test: the citadel's keep is
+  its keep building's anchor.
+- **Skipped**: player custom-blueprint sharing (out of scope); the hospital / apothecary templates already existed
+  (G1); animals do not pen themselves in a yard (the annex prefab keeps its own animals); a fence piece has no build
+  menu entry of its own (blueprints only).
+
 ## Gap closure G7 — landed 2026-11-10 (settlements: turned / mirrored, a real quest giver, 14 templates)
 
 QUEUE "RimWorld/Stardew gap closure" G7 (extends "Settlement templates — landed" below). Format / transforms in

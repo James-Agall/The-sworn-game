@@ -18,7 +18,7 @@ export type BuildingDoorSide = CampEntrance;
 export const BUILDING_TYPES = [
   "house", "longhouse", "tavern", "church", "abbey", "blacksmith", "bakery", "market", "barracks", "hall", "granary",
   "barn", "stables", "chickenCoop", "livestockBarn", "pigSty", "sheepPen", "mill", "brewery", "tailor", "library",
-  "watchtower", "gatehouse", "hospital",
+  "watchtower", "gatehouse", "hospital", "keep",
 ] as const;
 export type BuildingType = (typeof BUILDING_TYPES)[number];
 export const BUILDING_TYPE_LABEL: Record<BuildingType, string> = {
@@ -26,8 +26,10 @@ export const BUILDING_TYPE_LABEL: Record<BuildingType, string> = {
   bakery: "Bakery", market: "Market / shop", barracks: "Barracks", hall: "Great hall", granary: "Granary", barn: "Barn",
   stables: "Stables", chickenCoop: "Chicken coop", livestockBarn: "Livestock barn", pigSty: "Pig sty", sheepPen: "Sheep pen",
   mill: "Mill", brewery: "Brewery", tailor: "Tailor", library: "Library / scribe", watchtower: "Watchtower", gatehouse: "Gatehouse",
-  hospital: "Hospital / apothecary",
+  hospital: "Hospital / apothecary", keep: "Keep (town center)",
 };
+// Gap closure G8: building types whose templates may have a fenced animal yard (fence symbol "f").
+export const YARD_BUILDING_TYPES: readonly BuildingType[] = ["chickenCoop", "pigSty", "sheepPen", "livestockBarn", "stables", "barn"];
 
 export interface BuildingTemplate {
   id: string;
@@ -49,7 +51,7 @@ export interface BuildingTemplate {
 
 // What a symbol is: a wall piece, a door, a window, a floor, furniture (beds too), a station (stands inside a
 // room), an annex (a prefab building outside the rooms) or nothing.
-export type BuildingPieceKind = "none" | "wall" | "door" | "window" | "floor" | "furniture" | "station" | "annex";
+export type BuildingPieceKind = "none" | "wall" | "door" | "window" | "floor" | "furniture" | "station" | "annex" | "fence";
 export interface BuildingSymbol {
   label: string;
   // Tile placed there (undefined: nothing; the cell stays open ground / bare floor).
@@ -62,6 +64,8 @@ export interface BuildingSymbol {
   // Gap closure G1: a 2-tile piece: two adjacent cells of the symbol (side by side or one above the other) make one
   // piece (pairs are read left to right, top to bottom; the top-left cell is its anchor, the other its part tile).
   cells?: 2;
+  // Gap closure G8: a gate passage floor (a room of it may have two outside doors, one at each end).
+  passage?: true;
 }
 
 export const BUILDING_LEGEND: Record<string, BuildingSymbol> = {
@@ -113,6 +117,12 @@ export const BUILDING_LEGEND: Record<string, BuildingSymbol> = {
   // Slots (laid as a wood floor): where a posted worker / a resident or settlement NPC stands.
   "@": { label: "Worker slot", tile: TileType.WoodFloor, kind: "floor", slot: "worker", color: "#2060c0" },
   "&": { label: "NPC / resident slot", tile: TileType.WoodFloor, kind: "floor", slot: "npc", color: "#20a060" },
+  // Gap closure G8: the Keep anchor (a "keep" template has exactly one: the single-tile Keep / town center building,
+  // standing in its hall like a station; in a settlement it becomes the settlement's keep), the yard fence of an animal
+  // house (encloses a yard with a gate "g"; animal houses only) and the gate passage floor (a gatehouse's road through).
+  Y: { label: "Keep anchor (Keep / town center: exactly one in a keep)", tile: TileType.Keep, kind: "station", color: "#c02020" },
+  f: { label: "Yard fence (animal houses)", tile: TileType.PropFence, kind: "fence", color: "#9a7040" },
+  ",": { label: "Gate passage floor (two outside doors)", tile: TileType.StoneFloor, kind: "floor", passage: true, color: "#c8c0a8" },
 };
 
 // Client-only build tool (never sent as a tile): the Blueprints tab's "place the picked template" tool.
@@ -125,13 +135,14 @@ const ROLES: RoomRole[] = ["bedroom", "barracks", "kitchen", "workshop", "hall",
 const SIDE_STEP: Record<BuildingDoorSide, [number, number]> = { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] };
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
-// Solid pieces (block walking): walls, windows, gates are boundaries; stations and annexes are buildings. Doors are
-// passable for the owner (gate tiles); furniture, beds and floors are walkable.
+// Solid pieces (block walking): walls, windows, gates are boundaries; stations and annexes are buildings; fences.
+// Doors are passable for the owner (gate tiles); furniture, beds and floors are walkable. Gap closure G8: a gate
+// ("g", e.g. a yard's) passes too, like a door.
 function symbolSolid(s: BuildingSymbol): boolean {
-  return s.kind === "wall" || s.kind === "window" || s.kind === "station" || s.kind === "annex";
+  return s.kind === "wall" || s.kind === "window" || s.kind === "station" || s.kind === "annex" || s.kind === "fence";
 }
 function symbolWalkable(s: BuildingSymbol): boolean {
-  return !symbolSolid(s);
+  return s.tile === TileType.Gate || !symbolSolid(s);
 }
 
 // Gap closure G1: the tile of every cell (undefined: nothing), with 2-tile pieces paired (anchor + part tile), and the
@@ -200,6 +211,9 @@ export interface BuildingStats {
   workerSlots: number;
   npcSlots: number;
   pieces: number;
+  // Gap closure G8: fenced yards and gate passages.
+  yards: number;
+  passages: number;
   // Materials: the sum of the pieces' BUILD_COSTS.
   cost: BuildCost;
   // Progression gates of its pieces (labels, e.g. "Stone axe", "a Quarry").
@@ -241,8 +255,11 @@ interface Analysis {
   h: number;
   errs: string[];
   rooms: BuildingRoomInfo[];
-  // Per grid cell: room index, -1 outside, -2 boundary, -3 enclosed non-room.
+  // Per grid cell: room index, -1 outside, -2 boundary, -3 enclosed non-room, -4 fence, -5 a fenced yard.
   regionOf: Int32Array;
+  // Gap closure G8: fenced animal yards and gate passages (rooms with a passage floor).
+  yards: number;
+  passages: number;
 }
 
 // The rooms (shared findRooms on the grid with a one-tile open apron) and the checks of validateBuildingTemplate.
@@ -270,10 +287,11 @@ function analyse(rows: string[], doorSide: BuildingDoorSide | undefined): Analys
     for (const i of r.tiles) regionOf[(Math.floor(i / PW) - 1) * w + (i % PW) - 1] = k;
   });
   const sym = (x: number, y: number) => BUILDING_LEGEND[rows[y][x]];
-  // Outside: flood the non-boundary cells from the apron.
+  // Outside: flood the non-boundary cells from the apron (fences stop it: what they enclose is a yard).
   const queue: number[] = [];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     if (isRoomBoundaryTile(sym(x, y).tile ?? TileType.Empty)) regionOf[y * w + x] = -2;
+    else if (sym(x, y).kind === "fence") regionOf[y * w + x] = -4;
     else if ((x === 0 || y === 0 || x === w - 1 || y === h - 1) && regionOf[y * w + x] === -3) {
       regionOf[y * w + x] = -1;
       queue.push(y * w + x);
@@ -291,6 +309,43 @@ function analyse(rows: string[], doorSide: BuildingDoorSide | undefined): Analys
       queue.push(ny * w + nx);
     }
   }
+  // Gap closure G8: an enclosed non-room area touching a fence is a yard: open ground and annexes (the animal house)
+  // only, at most 144 tiles, entered through a gate / door (checked with the reachability below).
+  const yardCells: number[][] = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (regionOf[y * w + x] !== -3) continue;
+    const comp: number[] = [];
+    let fenced = false;
+    const stack = [y * w + x];
+    const mark = new Set(stack);
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      comp.push(cur);
+      for (const [dx, dy] of DIRS) {
+        const nx = (cur % w) + dx;
+        const ny = Math.floor(cur / w) + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const n = ny * w + nx;
+        if (regionOf[n] === -4) fenced = true;
+        if (regionOf[n] === -3 && !mark.has(n)) {
+          mark.add(n);
+          stack.push(n);
+        }
+      }
+    }
+    if (!fenced) {
+      for (const i of comp) regionOf[i] = -6;
+      continue;
+    }
+    for (const i of comp) regionOf[i] = -5;
+    yardCells.push(comp);
+    if (comp.length > 144) errs.push(`the yard at ${x},${y} is over 144 tiles`);
+    for (const i of comp) {
+      const s = sym(i % w, Math.floor(i / w));
+      if (s.kind !== "none" && s.kind !== "annex") errs.push(`${s.label} at ${i % w},${Math.floor(i / w)}: a yard holds only open ground and the animal house`);
+    }
+  }
+  for (let i = 0; i < w * h; i++) if (regionOf[i] === -6) regionOf[i] = -3;
   const enclosed: string[] = [];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const reg = regionOf[y * w + x];
@@ -301,29 +356,46 @@ function analyse(rows: string[], doorSide: BuildingDoorSide | undefined): Analys
   }
   if (enclosed.length > 0) errs.push(`enclosed area at ${enclosed[0]} is not a valid room (only floors, beds, furniture and stations inside; at most 144 tiles)`);
   if (rooms.length === 0) errs.push("no room: enclose an area with walls and a door");
-  // Doors: each touches a room; exactly one opens to the outside, on the door side.
-  const outsideDoors: { x: number; y: number }[] = [];
+  // Gap closure G8: gate passages: rooms with a passage floor. Each has exactly two outside doors (one at each end);
+  // the guard rooms either side open into it.
+  const passageRoom = new Set<number>();
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (regionOf[y * w + x] >= 0 && sym(x, y).passage) passageRoom.add(regionOf[y * w + x]);
+  // Doors: each touches a room (or a yard); exactly one opens to the outside, on the door side (a building with
+  // passages: two per passage, plus at most one other).
+  const outsideDoors: { x: number; y: number; passage: number }[] = [];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     if (sym(x, y).kind !== "door") continue;
     let room = false;
     let out = false;
+    let passage = -1;
     for (const [dx, dy] of DIRS) {
       const nx = x + dx;
       const ny = y + dy;
       const reg = nx < 0 || ny < 0 || nx >= w || ny >= h ? -1 : regionOf[ny * w + nx];
-      if (reg >= 0) room = true;
+      if (reg >= 0 || reg === -5) room = true;
+      if (reg >= 0 && passageRoom.has(reg)) passage = reg;
       if (reg === -1) out = true;
     }
     if (!room) errs.push(`door at ${x},${y} opens into no room`);
-    if (out) outsideDoors.push({ x, y });
+    if (out) outsideDoors.push({ x, y, passage });
   }
-  if (outsideDoors.length !== 1) errs.push(`exactly one outside door (has ${outsideDoors.length})`);
-  else if (doorSide) {
-    const [dx, dy] = SIDE_STEP[doorSide];
-    const d = outsideDoors[0];
+  const faces = (d: { x: number; y: number }, side: BuildingDoorSide) => {
+    const [dx, dy] = SIDE_STEP[side];
     const nx = d.x + dx;
     const ny = d.y + dy;
-    if (!(nx < 0 || ny < 0 || nx >= w || ny >= h || regionOf[ny * w + nx] === -1)) errs.push(`the outside door at ${d.x},${d.y} does not face ${doorSide}`);
+    return nx < 0 || ny < 0 || nx >= w || ny >= h || regionOf[ny * w + nx] === -1;
+  };
+  const plain = outsideDoors.filter((d) => d.passage < 0);
+  if (passageRoom.size === 0) {
+    if (outsideDoors.length !== 1) errs.push(`exactly one outside door (has ${outsideDoors.length})`);
+    else if (doorSide && !faces(outsideDoors[0], doorSide)) errs.push(`the outside door at ${outsideDoors[0].x},${outsideDoors[0].y} does not face ${doorSide}`);
+  } else {
+    for (const r of passageRoom) {
+      const n = outsideDoors.filter((d) => d.passage === r).length;
+      if (n !== 2) errs.push(`a gate passage (room ${r + 1}) needs exactly two outside doors, one at each end (has ${n})`);
+    }
+    if (plain.length > 1) errs.push(`at most one outside door besides the gate passages (has ${plain.length})`);
+    if (doorSide && !outsideDoors.some((d) => faces(d, doorSide))) errs.push(`no outside door faces ${doorSide}`);
   }
   // Reachability: walk from the open apron through doors over walkable cells (stations and annexes are solid).
   const seen = new Uint8Array(w * h);
@@ -366,9 +438,10 @@ function analyse(rows: string[], doorSide: BuildingDoorSide | undefined): Analys
   if (pockets > 0) errs.push(`${pockets} floor tile(s) inside cut off from the door`);
   rooms.forEach((r, k) => {
     if (!reachedRoom.has(k)) errs.push(`a ${r.role} (room ${k + 1}) has no way in from the door`);
-    if (r.role === "room") errs.push(`room ${k + 1} (${r.tiles} tiles) has no role: give it a bed, table + hearth, station, chest or shelf`);
+    if (r.role === "room" && !passageRoom.has(k)) errs.push(`room ${k + 1} (${r.tiles} tiles) has no role: give it a bed, table + hearth, station, chest or shelf`);
   });
-  return { w, h, errs, rooms, regionOf };
+  for (const comp of yardCells) if (!comp.some((i) => seen[i])) errs.push(`the yard at ${comp[0] % w},${Math.floor(comp[0] / w)} has no gate "g" (or door) in`);
+  return { w, h, errs, rooms, regionOf, yards: yardCells.length, passages: passageRoom.size };
 }
 
 export function buildingStats(t: Pick<BuildingTemplate, "rows">): BuildingStats {
@@ -386,7 +459,7 @@ export function buildingStats(t: Pick<BuildingTemplate, "rows">): BuildingStats 
     if (s.slot === "npc") npcSlots++;
   }));
   return {
-    w: a.w, h: a.h, rooms: a.rooms, beds: a.rooms.reduce((n, r) => n + r.beds, 0), workerSlots, npcSlots, pieces,
+    w: a.w, h: a.h, rooms: a.rooms, beds: a.rooms.reduce((n, r) => n + r.beds, 0), workerSlots, npcSlots, pieces, yards: a.yards, passages: a.passages,
     cost: buildingCost(t), needs: buildingNeeds(t),
   };
 }
@@ -421,6 +494,10 @@ export function validateBuildingTemplate(t: unknown): string[] {
   if (errs.length > 0) return errs;
   const a = analyse(rows, o.doorSide as BuildingDoorSide);
   errs.push(...a.errs);
+  // Gap closure G8: the Keep anchor (one per keep, none elsewhere); yards on animal houses only.
+  const anchors = rows.reduce((n, r) => n + [...r].filter((ch) => BUILDING_LEGEND[ch]?.tile === TileType.Keep).length, 0);
+  if (o.buildingType === "keep" ? anchors !== 1 : anchors !== 0) errs.push(`${o.buildingType === "keep" ? "a keep has exactly one" : "only a keep has a"} Keep anchor Y (has ${anchors})`);
+  if (a.yards > 0 && !YARD_BUILDING_TYPES.includes(o.buildingType as BuildingType)) errs.push("only animal houses (coop, sty, pen, livestock barn, stables, barn) have fenced yards");
   if (a.errs.length === 0 && !a.rooms.some((r) => r.role === o.role)) errs.push(`no room resolves to "${o.role}" (rooms: ${a.rooms.map((r) => r.role).join(", ")})`);
   return errs;
 }

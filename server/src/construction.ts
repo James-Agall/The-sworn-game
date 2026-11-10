@@ -530,6 +530,7 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
       return { wood: GATE_WOOD_COST, rock: GATE_ROCK_COST };
     case TileType.Moat:
     case TileType.Drawbridge:
+    case TileType.PropFence:
       return { ...BUILD_COSTS[tile] };
     // Modular building phase 1: room pieces (shared BUILD_COSTS).
     case TileType.WoodDoor:

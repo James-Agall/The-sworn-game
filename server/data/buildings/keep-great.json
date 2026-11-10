@@ -1,0 +1,24 @@
+{
+  "id": "keep-great",
+  "name": "Great keep with towers",
+  "buildingType": "keep",
+  "tier": 3,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "hall",
+  "rows": [
+    "T%%%%%%%%%%%%%T",
+    "%b=b=b%x=s%h=t%",
+    "%=a===%===%c==%",
+    "%=====%===%===%",
+    "%%%D%%%%D%%%D%%",
+    "%=============%",
+    "W=u=========u=W",
+    "%==t=t=Y=t=t==%",
+    "%=============%",
+    "W====r===r====W",
+    "%=============%",
+    "T%%%%%%D%%%%%%T"
+  ]
+}

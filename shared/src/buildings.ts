@@ -43,6 +43,8 @@ export const BUILD_COSTS = {
   // breaks and mobs never target it, so it must not undercut a 3-wood wall).
   [TileType.Moat]: { wood: 4 },
   [TileType.Drawbridge]: { wood: 25, iron: 10 },
+  // Gap closure G8: a yard fence piece of an animal-house blueprint (the settlement / camp fence prop, now buildable).
+  [TileType.PropFence]: { wood: 2 },
   [TileType.Road]: { rock: 1 },
   [TileType.CobbleRoad]: { rock: 2 },
   [TileType.KnightPost]: { iron: 10, rock: 5 },

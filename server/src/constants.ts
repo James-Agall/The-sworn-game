@@ -2082,6 +2082,8 @@ export const PLACEABLE_TILES = [
   TileType.Keep,
   TileType.Moat,
   TileType.Drawbridge,
+  // Gap closure G8: yard fences (animal-house blueprints).
+  TileType.PropFence,
   // Modular building phase 1: doors, windows, floors, beds (walls are above).
   ...NEW_STRUCTURE_TILES,
 ];

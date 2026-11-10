@@ -81,6 +81,11 @@ async function inner() {
   result(noQuest.length === 0, `V every built-in has a quest giver slot q${noQuest.length ? ": missing " + noQuest.map((t) => t.id).join(",") : ""}`);
   result(builtins.some((t) => t.rows.some((r) => r.includes("~"))) && builtins.some((t) => t.rows.some((r) => r.includes("R")) && /hill/.test(t.id))
     && builtins.some((t) => t.tier === 3 && t.rows.some((r) => r.includes("m")) && t.rows.some((r) => r.includes("H"))), "V a riverside, a hillside and a moated town (drawbridges) among the built-ins");
+  // Gap closure G8: a town whose keep is a keep building template's anchor (no ground K).
+  const citadel = builtins.find((t) => t.tier === 3 && t.buildings.some((b) => lookup(b.ref)?.buildingType === "keep"));
+  const cl = citadel && ST.settlementLayout(citadel, lookup);
+  result(!!cl && cl.keepInBuilding && !citadel.rows.some((r) => r.includes("K")) && cl.tiles[cl.keep.y * cl.w + cl.keep.x] === TileType.SiteKeep,
+    `V a town keeps its anchor in a keep building (${citadel?.id}: keep at ${cl?.keep.x},${cl?.keep.y})`);
   result(builtins.some((t) => t.rotate === false) && ST.settlementTransforms(builtins.find((t) => t.rotate === false), lookup).every((k) => (k & 3) === 0), "V a rotate:false template is only ever mirrored");
 
   // ---- T ---- whole-settlement transforms.
@@ -191,7 +196,7 @@ async function inner() {
     }
     if (comps !== 1) prob(`${comps} road networks`);
     const k = idx(s.keepX, s.keepY);
-    if (![k + 1, k - 1, k + W, k - W].some(isRoad)) prob("keep off the road");
+    if (!l.keepInBuilding && ![k + 1, k - 1, k + W, k - W].some(isRoad)) prob("keep off the road");
     // On foot from outside the grounds, by day (neutral gates open, doors pass).
     const outside = { x: x0 - 2, y: y0 - 2 };
     const reach = (x, y) => !!findPath(outside, { x, y });

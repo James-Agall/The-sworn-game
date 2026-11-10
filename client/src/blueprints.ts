@@ -130,14 +130,16 @@ export function setupBlueprints(deps: BlueprintsDeps) {
       name.textContent = `${t.name}${t.builtin ? "" : " (user)"}`;
       const meta = document.createElement("div");
       meta.style.opacity = "0.8";
-      meta.textContent = `${BUILDING_TYPE_LABEL[t.buildingType]} · tier ${t.tier} · ${st.w}x${st.h} · ${st.rooms.map((r) => r.role).join(" + ")}${st.beds ? ` · ${st.beds} beds` : ""}`;
+      meta.textContent = `${BUILDING_TYPE_LABEL[t.buildingType]} · tier ${t.tier} · ${st.w}x${st.h} · ${st.rooms.map((r) => r.role).join(" + ")}${st.beds ? ` · ${st.beds} beds` : ""}${st.yards ? ` · ${st.yards} yard` : ""}${st.passages ? ` · ${st.passages} gate passage${st.passages > 1 ? "s" : ""}` : ""}`;
       const cost = document.createElement("div");
       cost.textContent = `Cost: ${buildingCostText(st.cost)}`;
       text.append(name, meta, cost);
-      if (st.needs.length) {
+      // Gap closure G8: a keep template's anchor has the prefab Keep's gates (checked by the server on order).
+      const needList = t.buildingType === "keep" ? [...st.needs, "a Town Center at level 2 (one Keep per settlement)"] : st.needs;
+      if (needList.length) {
         const needs = document.createElement("div");
         needs.style.color = "#ffcf80";
-        needs.textContent = `Needs: ${st.needs.join(", ")}`;
+        needs.textContent = `Needs: ${needList.join(", ")}`;
         text.append(needs);
       }
       row.append(thumb, text);
