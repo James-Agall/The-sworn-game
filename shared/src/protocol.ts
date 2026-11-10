@@ -2,7 +2,7 @@ import type { AnimalHouseInfo, LivestockSnapshot, Species } from "./animals.js";
 import type { CalendarSnapshot } from "./calendar.js";
 import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, PersonalBuild } from "./herolife.js";
 import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
-import type { WorkTabSnapshot, WorkType } from "./work.js";
+import type { BuildingPostsInfo, WorkPostOption, WorkTabSnapshot, WorkType } from "./work.js";
 import type { InteriorView } from "./interiors.js";
 export const TICK_RATE = 20;
 export const TILE_SIZE = 32;
@@ -1077,6 +1077,8 @@ export interface BuildingInfo {
   blueprint?: { priority: boolean; refund: string };
   // Modular building phase 2: the roofed room this tile is in (shared/src/rooms.ts roomStats), else absent.
   room?: RoomInfo;
+  // Gap closure G3: your building's work posts (workers, open slots, free villagers to assign), else absent.
+  posts?: BuildingPostsInfo;
   // Siege Workshops only: what is being built (null: idle), its progress 0-1, engines alive / cap, and a
   // build button per engine (see queueSiege).
   siege?: {
@@ -1208,6 +1210,11 @@ export type ClientMessage =
   | { type: "workTab" }
   | { type: "workSet"; ids: string[]; work: WorkType; priority: number }
   | { type: "workMode"; manual: boolean }
+  // Gap closure G3: hand-assign a free villager to the post at a building (pinned until unassigned / work type off),
+  // send a post worker back to the village, or ask for the open posts near a person (answered with workPosts).
+  | { type: "assignWorker"; id: string; tileX: number; tileY: number }
+  | { type: "unassignWorker"; id: string }
+  | { type: "workPosts"; id: string }
   | { type: "attack" }
   // paused (strategy mode phase 5, optional): set it instead of toggling. Global: applies to everyone.
   | { type: "pause"; paused?: boolean }
@@ -1494,7 +1501,9 @@ export type ServerMessage =
   // when the hero is back in the world.
   | { type: "interior"; view: InteriorView | null }
   // Modular building phase 4: the Work tab table (reply to workTab / workSet / workMode).
-  | { type: "workTab"; tab: WorkTabSnapshot };
+  | { type: "workTab"; tab: WorkTabSnapshot }
+  // Gap closure G3: the posts a person could be assigned to (reply to workPosts).
+  | { type: "workPosts"; id: string; posts: WorkPostOption[] };
 
 export interface PlayerSnapshot {
   id: string;

@@ -4,12 +4,16 @@
 // (all off, or all back on), hover a cell for the skill. Sorting by name or by the skill in a work type; a toggle
 // switches between default and manual priorities. Also the small person card a click on a villager / worker opens
 // (name, role, current job, priorities). The table is fetched with `workTab` once a second while either is open.
+// Gap closure G3: the card's "Assign to..." lists nearby open posts (workPosts) for a free villager, "Unassign" sends a
+// post worker back to the village; hand-assigned (pinned) workers carry a ⚑ in their post's cell.
 import type { ClientMessage } from "@colony/shared/protocol";
-import { WORK_HELP, WORK_LABEL, WORK_PRIORITY_MAX, WORK_SHORT, WORK_TYPES, type WorkTabRow, type WorkTabSnapshot } from "@colony/shared/work";
+import { WORK_HELP, WORK_LABEL, WORK_PRIORITY_MAX, WORK_SHORT, WORK_TYPES, type WorkPostOption, type WorkTabRow, type WorkTabSnapshot } from "@colony/shared/work";
 import { WORK_ICON, iconImg, priorityIconUrl } from "./spriteRegistry";
 
 export interface WorkUi {
   onTab(tab: WorkTabSnapshot): void;
+  // Reply to workPosts: the open posts near the person on the card.
+  onPosts(id: string, posts: WorkPostOption[]): void;
   toggle(): void;
   setOpen(open: boolean): void;
   isOpen(): boolean;
@@ -27,6 +31,11 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
   const modeBtn = document.getElementById("wp-mode") as HTMLButtonElement;
   const sortSel = document.getElementById("wp-sort") as HTMLSelectElement;
   const card = document.getElementById("person-card")!;
+  const assignBtn = document.getElementById("pc-assign") as HTMLButtonElement;
+  const unassignBtn = document.getElementById("pc-unassign") as HTMLButtonElement;
+  const postsEl = document.getElementById("pc-posts")!;
+  // The card's "Assign to..." list: open for this person id (null = closed).
+  let postsFor: string | null = null;
   let tab: WorkTabSnapshot | null = null;
   let open = false;
   let cardId: string | null = null;
@@ -52,6 +61,23 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
   document.getElementById("wp-close")!.addEventListener("click", () => setOpen(false));
   document.getElementById("pc-close")!.addEventListener("click", () => hidePerson());
   document.getElementById("pc-open")!.addEventListener("click", () => setOpen(true));
+  assignBtn.addEventListener("click", () => {
+    assignBtn.blur();
+    if (!cardId) return;
+    if (postsFor === cardId) {
+      postsFor = null;
+      postsEl.hidden = true;
+      return;
+    }
+    postsFor = cardId;
+    postsEl.hidden = false;
+    postsEl.textContent = "Looking for open posts...";
+    opts.send({ type: "workPosts", id: cardId });
+  });
+  unassignBtn.addEventListener("click", () => {
+    unassignBtn.blur();
+    if (cardId) opts.send({ type: "unassignWorker", id: cardId });
+  });
   window.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (open) setOpen(false);
@@ -92,7 +118,7 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
     const p = r.pri[ti];
     const skill = r.skill[ti] > 0 ? `skill level ${r.skill[ti]} (${SKILL_WORD[r.skill[ti]]}, ${Math.floor(r.xp[ti])} XP)` : "no skill (anyone can)";
     const prio = p > 0 ? (tab?.manual ? `priority ${p}` : "on") : "off";
-    const assigned = r.assigned === t ? "\nAssigned post: kept while this is not off" : "";
+    const assigned = r.assigned === t ? (r.pinned ? "\nAssigned by hand: kept until unassigned or this is off" : "\nAssigned post: kept while this is not off") : "";
     const how = tab?.manual ? "Click: next priority (1 first .. 4, off) · right-click: back" : "Click: on / off (Manual priorities for numbers)";
     return `${r.name} · ${WORK_LABEL[t]}: ${prio}, ${skill}${assigned}\n${WORK_HELP[t]}\n${how}`;
   }
@@ -166,6 +192,12 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
           badge.textContent = "✓";
         }
         td.append(badge);
+        if (r.pinned && r.assigned === t) {
+          const pin = document.createElement("span");
+          pin.className = "wp-pin";
+          pin.textContent = "⚑";
+          td.append(pin);
+        }
         // Skill level next to the badge once the person has any XP in it (everyone starts at level 1).
         if (r.skill[ti] > 0 && r.xp[ti] > 0) {
           const sk = document.createElement("sup");
@@ -202,8 +234,16 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
       role.textContent = cardFallback.child ? "A child: too young to work" : "Not on the work roster (a soldier, priest or levy)";
       job.textContent = "";
       pri.replaceChildren();
+      assignBtn.hidden = unassignBtn.hidden = postsEl.hidden = true;
       return;
     }
+    // G3: free villagers can be assigned to a post, post workers unassigned (levied / training people neither).
+    const free = r.role === "Free villager";
+    assignBtn.hidden = !free;
+    unassignBtn.hidden = !r.assigned;
+    unassignBtn.title = "Back to the village: the post opens for someone else";
+    if (!free && postsFor === r.id) postsFor = null;
+    postsEl.hidden = postsFor !== r.id;
     role.textContent = r.role;
     job.textContent = `Doing now: ${r.job}`;
     pri.replaceChildren();
@@ -220,6 +260,7 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
   }
 
   function showPerson(id: string, name: string, child: boolean) {
+    if (cardId !== id) postsFor = null;
     cardId = id;
     cardFallback = { name, child };
     syncPoll();
@@ -227,6 +268,7 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
   }
   function hidePerson() {
     cardId = null;
+    postsFor = null;
     syncPoll();
     render();
   }
@@ -239,6 +281,31 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
       tabSig = sig;
       tab = t;
       render();
+    },
+    onPosts(id, posts) {
+      if (id !== postsFor) return;
+      postsEl.replaceChildren();
+      if (posts.length === 0) {
+        postsEl.textContent = "No open post nearby for the jobs this person has on.";
+        return;
+      }
+      for (const p of posts) {
+        const line = document.createElement("div");
+        line.className = "bpw-line";
+        const span = document.createElement("span");
+        span.append(iconImg(WORK_ICON[p.work], 14), ` ${p.name} · ${p.dist} tiles${p.skill > 0 ? ` · skill ${p.skill}` : ""}`);
+        span.title = p.bump ? "Full: a worker placed by priorities gives way" : `${p.open} open`;
+        const b = document.createElement("button");
+        b.className = "econ-btn";
+        b.textContent = p.bump ? "Replace" : "Assign";
+        b.addEventListener("click", () => {
+          postsFor = null;
+          postsEl.hidden = true;
+          opts.send({ type: "assignWorker", id, tileX: p.tx, tileY: p.ty });
+        });
+        line.append(span, b);
+        postsEl.append(line);
+      }
     },
     toggle: () => setOpen(!open),
     setOpen,

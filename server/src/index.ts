@@ -46,7 +46,7 @@ import { handleTradeWithSite, relationsForSnapshot } from "./diplomacy.js";
 import { handleCallToArms, handleSetTax } from "./vassals.js";
 import { handleQuestMessage, hasQuestsFor, questsForSnapshot, questsVersion } from "./quests.js";
 import { handleZoneEdit, zoneCarryOf, zonesPayloadFor } from "./zones.js";
-import { handleWorkMode, handleWorkSet, sendWorkTab } from "./work.js";
+import { handleAssignWorker, handleUnassignWorker, handleWorkMode, handleWorkPosts, handleWorkSet, sendWorkTab } from "./work.js";
 import "./goals.js";
 import {
   forgeBusyForSnapshot, handleEquipItem, handleQueueForge, handleSetForgeAuto, handleRecruitHero, handleTakeFromArmoury,
@@ -217,6 +217,12 @@ function handleMessage(player: Player, message: ClientMessage) {
     handleWorkSet(player, message);
   } else if (message.type === "workMode") {
     handleWorkMode(player, message.manual);
+  } else if (message.type === "assignWorker") {
+    handleAssignWorker(player, message);
+  } else if (message.type === "unassignWorker") {
+    handleUnassignWorker(player, message);
+  } else if (message.type === "workPosts") {
+    handleWorkPosts(player, message);
   } else if (message.type === "attack") {
     handlePlayerAttack(player);
   } else if (message.type === "setView") {

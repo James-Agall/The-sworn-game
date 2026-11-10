@@ -12,20 +12,27 @@
 //    it goes back to the village (the post is open again). A worker put on its post by priorities (byPriority) also
 //    leaves after WORK_MIN_SHIFT_TICKS when a strictly better-priority job is waiting.
 //  - Fighting: a Town Center's call to arms and soldier training only take people with fighting on.
+//  - Gap closure G3: a free villager can be put on a post by hand (assignWorkerTo: building panel / person card). It is
+//    pinned (Person.pinned): never moved by priorities, takes the slot of a priority-placed worker if none is open,
+//    and stays until Unassign (unassignWorker: back to the village, not refilled onto that post by priorities for
+//    WORK_UNASSIGN_HOLD_TICKS) or its work type is set off. Sleep, meals and shelter are unchanged.
 // Runtime job state is not saved (a load re-decides); priorities and the mode are.
 import { animalJobDistance, animalJobLabel, cancelAnimalJob, clanHasAnimalWork, hasAnimalJob, updateAnimalJob } from "./animals.js";
 import { TileType, type ColonistKind } from "@colony/shared/protocol";
 import { PROFESSION_LABEL, PROGRESSION, PROGRESSION_BUILDING_LABEL, TIER_SPEED_BONUS, levelForXp, type Profession } from "@colony/shared/progression";
 import {
+  WORK_POST_CANDIDATES_MAX, WORK_POST_OPTIONS_MAX, type BuildingPostsInfo, type WorkPostOption,
   PROFESSION_WORK, WORK_DEFAULT, WORK_DEFAULT_ASSIGNED, WORK_DEFAULT_LEVEL_SKILLED, WORK_DEFAULT_SKILLED, WORK_LABEL,
   WORK_PRIORITY_MAX, WORK_PROFESSIONS, WORK_TYPES, type WorkTabRow, type WorkTabSnapshot, type WorkType,
 } from "@colony/shared/work";
 import type { Colonist, Person, Player } from "./types.js";
 import { colonists, constructionSites, respawnQueue, state } from "./state.js";
-import { BUILDER_MAX_PER_SITE, WORK_DECIDE_TICKS, WORK_MIN_SHIFT_TICKS, WORK_RECHECK_TICKS, ZONE_PRIORITY_WORK_RATE } from "./constants.js";
+import { BUILDER_MAX_PER_SITE, WORK_DECIDE_TICKS, WORK_MIN_SHIFT_TICKS, WORK_RECHECK_TICKS, WORK_UNASSIGN_HOLD_TICKS, ZONE_PRIORITY_WORK_RATE } from "./constants.js";
 import { clanById, clanIdAt, withClan } from "./clans.js";
-import { inBounds, tileIndex, tileOfPixel } from "./tiles.js";
-import { freeVillagerFor, isCivilianKind, isFreeVillager, queueRespawn, releaseToVillage, updateBuilder } from "./colonists.js";
+import { anchorOfTile, inBounds, tileIndex, tileOfPixel } from "./tiles.js";
+import {
+  freeVillagerFor, isCivilianKind, isFreeVillager, queueRespawn, releaseToVillage, spawnColonistForPost, transplantPerson, updateBuilder,
+} from "./colonists.js";
 import { cancelZoneJob, clanHasZoneWork, hasZoneJob, updateZoneWorker, zoneJobDistance, zoneJobKind } from "./zones.js";
 
 // ---- mode (saved: the clans in manual mode) ----
@@ -231,7 +238,7 @@ export function chooseWorkerFor(clanId: number, tx: number, ty: number, kind: Co
   let best: Colonist | undefined;
   let bestKey: [number, number, number] | null = null;
   for (const c of colonists.values()) {
-    if ((c.clan ?? 0) !== clanId || !isFreeVillager(c)) continue;
+    if ((c.clan ?? 0) !== clanId || !isFreeVillager(c) || heldOffPost(c.id, tx, ty)) continue;
     const p = workPriority(c, t);
     if (p === 0 || currentJobPriority(c) < p) continue;
     const key: [number, number, number] = [p, -typeXp(c.person!, t), (c.postX - tx) ** 2 + (c.postY - ty) ** 2];
@@ -272,6 +279,7 @@ export function startPriorityShift(v: Colonist, unit: Colonist) {
   decideWait.delete(v.id);
   if (!unit.person || workTypeOfPost(unit.kind, unit.postX, unit.postY) === undefined) return;
   unit.person.byPriority = true;
+  delete unit.person.pinned;
   shiftStart.set(unit.id, state.cycleTick);
 }
 // Called before the villager is transplanted (its zone job / site must be released while it is still a villager).
@@ -283,6 +291,7 @@ export function releaseVillagerForPost(v: Colonist) {
 function leavePost(c: Colonist, why: string) {
   const name = c.person?.name ?? "A worker";
   c.person!.byPriority = undefined;
+  delete c.person!.pinned;
   shiftStart.delete(c.id);
   withClan(clanById(c.clan ?? 0), () => {
     queueRespawn(c);
@@ -327,10 +336,11 @@ export function updateWorkAssignments() {
   for (const id of villagerJobs.keys()) if (!colonists.has(id)) villagerJobs.delete(id);
   for (const id of decideWait.keys()) if (!colonists.has(id)) decideWait.delete(id);
   for (const id of shiftStart.keys()) if (!colonists.has(id)) shiftStart.delete(id);
+  for (const [id, h] of heldOff) if (h.until <= state.cycleTick || !colonists.has(id)) heldOff.delete(id);
 }
 
 // ---- labels ----
-function postLabel(c: Colonist): string {
+function postLabel(c: { postX: number; postY: number }): string {
   if (!inBounds(c.postX, c.postY)) return "";
   const tile = state.tiles[tileIndex(c.postX, c.postY)] as TileType;
   if (tile === TileType.TownCenter) return "Town Center";
@@ -343,7 +353,7 @@ export function workRoleLabel(c: Colonist): string {
   if (c.kind === "villager") return "Free villager";
   const prof = PROGRESSION.stations[inBounds(c.postX, c.postY) ? (state.tiles[tileIndex(c.postX, c.postY)] as TileType) : TileType.Empty];
   const what = c.kind === "builder" ? "Builder" : prof ? PROFESSION_LABEL[prof] : c.kind;
-  return `${what} at ${postLabel(c)}${c.person?.byPriority ? "" : " (assigned)"}`;
+  return `${what} at ${postLabel(c)}${c.person?.pinned ? " (assigned)" : ""}`;
 }
 const ZONE_JOB_LABEL: Record<string, string> = { till: "tilling", sow: "sowing", tend: "tending crops", harvest: "harvesting", haul: "hauling goods" };
 export function workJobLabel(c: Colonist): string {
@@ -387,6 +397,7 @@ export function workTabFor(clan: number): WorkTabSnapshot {
       skill: WORK_TYPES.map((t) => workSkill(p, t)),
       xp: WORK_TYPES.map((t) => typeXp(p, t)),
       ...(assigned ? { assigned } : {}),
+      ...(assigned && p.pinned ? { pinned: true } : {}),
     };
   });
   return { manual: manualClans.has(clan), rows };
@@ -444,6 +455,157 @@ export function handleWorkMode(player: Player, manual: unknown) {
   sendWorkTab(player);
 }
 
+// ---- gap closure G3: hand-assigned posts ----
+// Runtime: people sent back with Unassign, kept off that post by the priorities until `until`.
+const heldOff = new Map<string, { tx: number; ty: number; until: number }>();
+function heldOffPost(id: string, tx: number, ty: number): boolean {
+  const h = heldOff.get(id);
+  return !!h && h.tx === tx && h.ty === ty && h.until > state.cycleTick;
+}
+
+interface PostSlots {
+  tx: number;
+  ty: number;
+  kind: ColonistKind;
+  work: WorkType;
+  open: number;
+  workers: Colonist[];
+}
+// A worker that holds a post slot (not levied, training or a creative dummy).
+function isPostWorker(c: Colonist): boolean {
+  return !!c.person && !c.person.child && c.kind !== "villager" && isCivilianKind(c.kind) && !c.callUp && !c.training && !c.levyOf && !c.creativeDummy;
+}
+// The clan's work posts by anchor tile: open slots (vacancies) and the workers on them. `only` limits it to one tile.
+function clanPosts(clan: number, only?: { tx: number; ty: number }): Map<string, PostSlots> {
+  const out = new Map<string, PostSlots>();
+  const slot = (tx: number, ty: number, kind: ColonistKind): PostSlots | undefined => {
+    if (only && (only.tx !== tx || only.ty !== ty)) return undefined;
+    const work = workTypeOfPost(kind, tx, ty);
+    if (!work) return undefined;
+    const key = `${tx},${ty}`;
+    let p = out.get(key);
+    if (!p) out.set(key, (p = { tx, ty, kind, work, open: 0, workers: [] }));
+    return p;
+  };
+  for (const q of respawnQueue) {
+    if (q.hero || q.kind === "villager" || !isCivilianKind(q.kind) || (q.clan ?? clanIdAt(q.tx, q.ty)) !== clan) continue;
+    const p = slot(q.tx, q.ty, q.kind);
+    if (p) p.open++;
+  }
+  for (const c of colonists.values()) {
+    if ((c.clan ?? 0) !== clan || !isPostWorker(c)) continue;
+    slot(c.postX, c.postY, c.kind)?.workers.push(c);
+  }
+  return out;
+}
+function postRole(p: PostSlots): string {
+  if (p.kind === "builder") return "Builder";
+  const prof = PROGRESSION.stations[state.tiles[tileIndex(p.tx, p.ty)] as TileType];
+  return prof ? PROFESSION_LABEL[prof] : p.kind;
+}
+function postName(p: PostSlots): string {
+  return postLabel({ postX: p.tx, postY: p.ty });
+}
+const dist2 = (c: Colonist, tx: number, ty: number) => {
+  const t = tileOfPixel(c.x, c.y);
+  return (t.x - tx) ** 2 + (t.y - ty) ** 2;
+};
+
+// BuildingInfo.posts for the building at (tx, ty) (an anchor), or undefined when it has no work posts.
+export function buildingPostsInfo(clan: number, tx: number, ty: number): BuildingPostsInfo | undefined {
+  const p = clanPosts(clan, { tx, ty }).get(`${tx},${ty}`);
+  if (!p) return undefined;
+  const t = p.work;
+  const candidates = Array.from(colonists.values())
+    .filter((c) => (c.clan ?? 0) === clan && isFreeVillager(c) && !!c.person && workPriority(c, t) > 0)
+    .map((c) => ({ c, skill: workSkill(c.person!, t), xp: typeXp(c.person!, t), d: dist2(c, tx, ty) }))
+    .sort((a, b) => b.xp - a.xp || a.d - b.d)
+    .slice(0, WORK_POST_CANDIDATES_MAX)
+    .map(({ c, skill }) => ({ id: c.id, name: c.person!.name, skill, job: workJobLabel(c) }));
+  return {
+    work: t, role: postRole(p), open: p.open,
+    workers: p.workers.map((w) => ({ id: w.id, name: w.person!.name, skill: workSkill(w.person!, t), pinned: !!w.person!.pinned })),
+    candidates,
+    canAssign: p.open > 0 || p.workers.some((w) => w.person!.byPriority && !w.person!.pinned),
+  };
+}
+
+// Hand-assign the free villager `id` to the post at (tx, ty): "" when done, else why not.
+export function assignWorkerTo(clan: number, id: string, tx: number, ty: number): string {
+  if (!inBounds(tx, ty)) return "No building there";
+  ({ x: tx, y: ty } = anchorOfTile(tx, ty));
+  if (clanIdAt(tx, ty) !== clan) return "Not your building";
+  const v = colonists.get(id);
+  if (!v || (v.clan ?? 0) !== clan || !v.person) return "Not one of your people";
+  const name = v.person.name;
+  if (v.person.child) return `${name} is too young to work`;
+  if (!isFreeVillager(v)) return `${name} is not a free villager (already working a post, training, levied or a soldier)`;
+  const p = clanPosts(clan, { tx, ty }).get(`${tx},${ty}`);
+  if (!p) return "This building has no work posts";
+  if (workPriority(v, p.work) === 0) return `${WORK_LABEL[p.work]} is off for ${name}`;
+  if (p.open === 0) {
+    const bump = p.workers.find((w) => w.person!.byPriority && !w.person!.pinned);
+    if (!bump) return `No free slot at ${postName(p)}: every worker there is assigned by hand`;
+    leavePost(bump, `gives the post at ${postName(p)} to ${name}`);
+  }
+  const qi = respawnQueue.findIndex((q) => !q.hero && q.tx === tx && q.ty === ty && q.kind === p.kind);
+  if (qi < 0) return `No free slot at ${postName(p)}`;
+  respawnQueue.splice(qi, 1);
+  stopVillagerJob(v);
+  decideWait.delete(v.id);
+  heldOff.delete(v.id);
+  const unit = withClan(clanById(clan), () => spawnColonistForPost(tx, ty, p.kind));
+  transplantPerson(v, unit);
+  unit.person!.byPriority = undefined;
+  unit.person!.pinned = true;
+  shiftStart.delete(unit.id);
+  workLog.push(`${name}: assigned to ${postName(p)} by hand`);
+  return "";
+}
+
+// Send the post worker `id` back to the village (its post opens; priorities do not put it back there for a while).
+export function unassignWorker(clan: number, id: string): string {
+  const c = colonists.get(id);
+  if (!c || (c.clan ?? 0) !== clan || !c.person) return "Not one of your people";
+  if (!isPostWorker(c) || !assignedWorkType(c)) return `${c.person.name} has no post to leave`;
+  heldOff.set(c.id, { tx: c.postX, ty: c.postY, until: state.cycleTick + WORK_UNASSIGN_HOLD_TICKS });
+  leavePost(c, `unassigned from ${postLabel(c)}`);
+  return "";
+}
+
+// The posts near person `id` it could be assigned to: an open slot or a priority-placed worker to replace.
+export function workPostsFor(clan: number, id: string): WorkPostOption[] {
+  const v = colonists.get(id);
+  if (!v || (v.clan ?? 0) !== clan || !v.person || !isFreeVillager(v)) return [];
+  const out: WorkPostOption[] = [];
+  for (const p of clanPosts(clan).values()) {
+    const bump = p.open === 0 && p.workers.some((w) => w.person!.byPriority && !w.person!.pinned);
+    if ((p.open === 0 && !bump) || workPriority(v, p.work) === 0) continue;
+    out.push({
+      tx: p.tx, ty: p.ty, name: `${postRole(p)} at ${postName(p)}`, work: p.work, open: p.open, bump,
+      dist: Math.round(Math.sqrt(dist2(v, p.tx, p.ty))), skill: workSkill(v.person, p.work),
+    });
+  }
+  return out.sort((a, b) => a.dist - b.dist).slice(0, WORK_POST_OPTIONS_MAX);
+}
+
+export function handleAssignWorker(player: Player, m: { id?: unknown; tileX?: unknown; tileY?: unknown }) {
+  if (typeof m.id !== "string" || typeof m.tileX !== "number" || typeof m.tileY !== "number") return;
+  const why = assignWorkerTo(player.clan ?? 0, m.id, Math.floor(m.tileX), Math.floor(m.tileY));
+  if (why) send(player, { type: "event", category: "build", text: why });
+  sendWorkTab(player);
+}
+export function handleUnassignWorker(player: Player, m: { id?: unknown }) {
+  if (typeof m.id !== "string") return;
+  const why = unassignWorker(player.clan ?? 0, m.id);
+  if (why) send(player, { type: "event", category: "build", text: why });
+  sendWorkTab(player);
+}
+export function handleWorkPosts(player: Player, m: { id?: unknown }) {
+  if (typeof m.id !== "string") return;
+  send(player, { type: "workPosts", id: m.id, posts: workPostsFor(player.clan ?? 0, m.id) });
+}
+
 // ---- saves ----
 export function workForSave(): number[] | undefined {
   return manualClans.size ? Array.from(manualClans) : undefined;
@@ -454,6 +616,7 @@ export function restoreWork(manual: number[] | undefined) {
   villagerJobs.clear();
   decideWait.clear();
   shiftStart.clear();
+  heldOff.clear();
   workLog.length = 0;
 }
 

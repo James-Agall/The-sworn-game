@@ -684,6 +684,19 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Gap closure G3: hand-assign workers (2026-11-10)
+Automated: `npm test -- work-priorities`.
+1. Build a Hunter's Hut (or Lumber Camp) with 2+ free villagers. Click it: the panel has a **Workers** section: the
+   worker (or "1 open post") and **Assign worker ▾**. Open it: free villagers with their hunting skill and what they
+   do now. Pick one: they walk to the hut; the panel line reads "⚑ Name: Hunter, ... (assigned)".
+2. Work tab: that person's Hunting cell has a ⚑ and the role says "(assigned)". In Manual priorities give them
+   farming 1 with a growing zone waiting: after a minute they are still at the hut (a priority-placed worker would go).
+3. Click **Unassign**: they go back to the village; someone else fills the hut, not them.
+4. Click a free villager: the person card has **Assign to...**: nearby posts (with distance and skill) open for jobs
+   they have on; "Replace" where the worker was placed by priorities. Pick one. Click a worker: **Unassign**.
+5. Set the assigned person's Hunting off in the Work tab: they leave the hut. Save and load with someone assigned: the
+   ⚑ is still there.
+
 ## Gap closure G2: stockpile capacity and overflow (2026-11-10)
 Automated: `npm test -- zones`.
 1. Paint a 1-tile food stockpile next to a wheat field and a bigger one farther away. Harvest: the zone list shows the

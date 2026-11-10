@@ -2,7 +2,8 @@
 // (children left out, defaults by post / skill), manual mode, "off" disables a job, the best priority wins (building
 // vs farming), a post goes to the best priority then the best skill, an assigned worker leaves its post only when its
 // work type is off, a priority-placed worker leaves for a better job after its shift, fighting off = no levy, back to
-// default mode, save / load.
+// default mode, gap closure G3 hand assignment (assign / unassign, pinned beats priorities, validation, the
+// person card's open posts, work type off), save / load (manual mode, numbers, the pin).
 // Needs a FRESH private server WITHOUT COLONY_LEGACY_BUILD / LEGACY_STAFF: `npm test -- work-priorities` (boots one:
 // world 80, test hooks, unlock-all, scratch save dir).
 import WebSocket from "ws";
@@ -18,10 +19,10 @@ const result = (ok, msg) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T = { Empty: 0, Wall: 1, HunterHut: 50 };
 const TILE = 32;
-const TYPES = ["building", "farming", "woodcutting", "mining", "hunting", "cooking", "crafting", "hauling", "fighting"];
+const TYPES = ["building", "farming", "woodcutting", "mining", "hunting", "cooking", "crafting", "animals", "hauling", "fighting"];
 const col = (t) => TYPES.indexOf(t);
 
-const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, tab: null, events: [], hook: new Map(), save: null, welcomes: 0 };
+const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, tab: null, events: [], hook: new Map(), save: null, welcomes: 0, info: null, posts: null };
 c.ws.on("message", (raw) => {
   const m = JSON.parse(raw.toString());
   if (m.type === "welcome") {
@@ -32,6 +33,8 @@ c.ws.on("message", (raw) => {
   else if (m.type === "event") c.events.push(m.text);
   else if (m.type === "testHookResult") c.hook.set(m.op, m);
   else if (m.type === "saveResult") c.save = m;
+  else if (m.type === "buildingInfo") c.info = m.info;
+  else if (m.type === "workPosts") c.posts = m;
 });
 const send = (m) => c.ws.send(JSON.stringify(m));
 const hook = async (op, args = {}) => {
@@ -204,6 +207,73 @@ result(!tab.manual && row(tab, V3).pri[col("hunting")] === 2 && row(tab, V1).pri
 tab = await setWork([V1], "building", 2);
 result(row(tab, V1).pri[col("building")] === 3, `default mode: a cell is on / off (V1 building back on = ${row(tab, V1).pri[col("building")]})`);
 
+// 13. Gap closure G3: hand-assign workers. V1 to the Hunter's Hut by hand: pinned, its role says "(assigned)", a
+// priority-placed hunter there gives way.
+const people = async () => (await ws()).people;
+const kindOf = async (id) => (await people()).find((p) => p.id === id)?.kind;
+const lastEvent = () => c.events[c.events.length - 1] ?? "";
+const act = async (m) => {
+  const n = c.events.length;
+  tab = await tabAfter(m);
+  return c.events.length > n ? lastEvent() : "";
+};
+const info = async (x, y) => {
+  c.info = null;
+  send({ type: "buildingInfo", tileX: x, tileY: y });
+  for (let i = 0; i < 300 && !c.info; i++) await sleep(10);
+  return c.info;
+};
+await setWork([V1, V2], "hunting", 3);
+let hi = await info(hut.x, hut.y);
+result(hi?.posts?.work === "hunting" && hi.posts.canAssign && hi.posts.candidates.some((x) => x.id === V1),
+  `hut panel: posts ${hi?.posts ? `${hi.posts.role} open ${hi.posts.open}, workers ${hi.posts.workers.length}, ${hi.posts.candidates.length} candidates` : "missing"}`);
+let why = await act({ type: "assignWorker", id: V1, tileX: hut.x, tileY: hut.y });
+s = await ws();
+result(s.people.find((p) => p.id === V1)?.kind === "hunter" && s.people.filter((p) => p.kind === "hunter").length === 1 && row(tab, V1)?.pinned && /\(assigned\)/.test(row(tab, V1)?.role),
+  `V1 assigned by hand: ${row(tab, V1)?.role} pinned ${row(tab, V1)?.pinned} ${why}`);
+hi = await info(hut.x, hut.y);
+result(hi?.posts?.workers.length === 1 && hi.posts.workers[0].id === V1 && hi.posts.workers[0].pinned && !hi.posts.canAssign,
+  `hut panel: V1 pinned, no slot to assign (canAssign ${hi?.posts?.canAssign})`);
+
+// 14. Validation: the child, a worker on a post and a full post (pinned worker) are refused.
+why = await act({ type: "assignWorker", id: child.id, tileX: hut.x, tileY: hut.y });
+result(/too young/.test(why), `child refused: "${why}"`);
+why = await act({ type: "assignWorker", id: V1, tileX: hut.x, tileY: hut.y });
+result(/not a free villager/.test(why), `worker on a post refused: "${why}"`);
+why = await act({ type: "assignWorker", id: V2, tileX: hut.x, tileY: hut.y });
+result(/No free slot/.test(why) && (await kindOf(V2)) === "villager", `full post (pinned worker) refused: "${why}"`);
+c.posts = null;
+send({ type: "workPosts", id: V2 });
+for (let i = 0; i < 300 && !c.posts; i++) await sleep(10);
+result(c.posts && !c.posts.posts.some((p) => p.tx === hut.x && p.ty === hut.y), `person card posts for V2: ${c.posts?.posts.length} (the full hut left out)`);
+
+// 15. Pinned beats priorities: manual mode, V1 hunting 3 / farming 1 with farm work waiting: still a hunter after the
+// minimum shift (a priority-placed worker left in step 9).
+await tabAfter({ type: "workMode", manual: true });
+await setWork([V1], "hunting", 3);
+await setWork([V1], "farming", 1);
+send({ type: "zoneEdit", op: "paint", kind: "growing", crop: "wheat", tiles: rect(O.x + 1, O.y + 10, O.x + 8, O.y + 11) });
+s = await runUntil(() => false, 1000, 100);
+result(s.people.find((p) => p.id === V1)?.kind === "hunter", `pinned V1 keeps the hut past its shift (log ${s.log.slice(-1)})`);
+
+// 16. Unassign: V1 back to the village, the post opens, and priorities do not put V1 straight back there.
+why = await act({ type: "unassignWorker", id: V1 });
+s = await runUntil((q) => q.people.some((p) => p.kind === "hunter"), 300, 20);
+const h2 = s.people.find((p) => p.kind === "hunter");
+result((await kindOf(V1)) === "villager" && !row(tab, V1)?.pinned && h2?.id !== V1,
+  `unassigned: V1 ${await kindOf(V1)}, hut ${h2 ? (h2.id === V1 ? "V1 again" : "refilled by someone else") : "open"} ${why}`);
+
+// 17. Work type off ends a hand assignment: V1 assigned again (the hold only stops priorities), hunting off -> leaves.
+why = await act({ type: "assignWorker", id: V1, tileX: hut.x, tileY: hut.y });
+const pinnedAgain = (await kindOf(V1)) === "hunter" && row(tab, V1)?.pinned;
+await setWork([V1], "hunting", 0);
+s = await ws({ assignments: true });
+result(pinnedAgain && s.people.find((p) => p.id === V1)?.kind === "villager", `re-assigned (${pinnedAgain}) then hunting off: V1 ${s.people.find((p) => p.id === V1)?.kind}`);
+await setWork([V1], "hunting", 3);
+await tabAfter({ type: "workMode", manual: false });
+why = await act({ type: "assignWorker", id: V1, tileX: hut.x, tileY: hut.y });
+result((await kindOf(V1)) === "hunter" && row(tab, V1)?.pinned, `V1 pinned to the hut for the save ${why}`);
+
 // 12. Save / load: manual mode and the numbers come back.
 await tabAfter({ type: "workMode", manual: true });
 await setWork([V1], "woodcutting", 4);
@@ -220,6 +290,7 @@ for (let i = 0; i < 300 && (!c.save || c.welcomes === w0); i++) await sleep(10);
 send({ type: "pause", paused: true });
 tab = await tabAfter({ type: "workTab" });
 result(tab.manual && row(tab, V1)?.pri[col("woodcutting")] === 4, `loaded: manual ${tab.manual}, V1 woodcutting ${row(tab, V1)?.pri[col("woodcutting")]}`);
+result(row(tab, V1)?.pinned && /Hunter/.test(row(tab, V1)?.role ?? ""), `loaded: V1 still hand-assigned (${row(tab, V1)?.role})`);
 
 console.log(fails === 0 ? "ALL PASS" : `${fails} FAILED`);
 c.ws.close();

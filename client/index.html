@@ -1233,6 +1233,12 @@
       .wp-cell:hover { background: rgba(255, 236, 180, 0.45); }
       .wp-cell.off img { opacity: 0.55; }
       .wp-cell.assigned { box-shadow: inset 0 0 0 2px rgba(120, 170, 80, 0.8); }
+      .wp-pin { font-size: 11px; color: #7a3a10; margin-left: 1px; }
+      #bp-work-row[hidden], #bp-work-cands[hidden], #pc-posts[hidden] { display: none; }
+      .bpw-line { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 12.5px; }
+      .bpw-line > span { flex: 1; }
+      .bpw-line .econ-btn, #pc-posts .econ-btn { padding: 1px 6px; font-size: 12px; }
+      #bp-work-cands, #pc-posts { max-height: 180px; overflow-y: auto; margin-top: 4px; }
       .wp-cell sup { font-size: 10px; font-weight: bold; color: #2a5a8a; margin-left: 1px; }
       .wp-on { display: inline-block; width: 18px; font-weight: bold; color: #3a6a20; }
       .wp-job { font-size: 11.5px; color: var(--ink-soft); min-width: 120px; }
@@ -1760,6 +1766,12 @@
       <div id="bp-staffing" class="bp-row"></div>
       <div id="bp-hp" class="bp-row" hidden></div>
       <div id="bp-construction" class="bp-row" hidden></div>
+      <div id="bp-work-row" hidden>
+        <div class="menu-section" style="margin-top: 8px">Workers</div>
+        <div id="bp-work-list"></div>
+        <button id="bp-work-assign" class="econ-btn">Assign worker</button>
+        <div id="bp-work-cands" hidden></div>
+      </div>
       <div class="menu-section" style="margin-top: 8px">Bonuses</div>
       <ul id="bp-bonuses"></ul>
       <div id="bp-upgrade-row" hidden>
@@ -1871,6 +1883,9 @@
       <div id="pc-role"></div>
       <div id="pc-job"></div>
       <div id="pc-pri"></div>
+      <div id="pc-posts" hidden></div>
+      <button id="pc-assign" hidden>Assign to...</button>
+      <button id="pc-unassign" hidden>Unassign</button>
       <button id="pc-open">Work tab</button>
     </div>
     <div id="chronicle-panel" role="dialog" aria-label="Chronicle" hidden>

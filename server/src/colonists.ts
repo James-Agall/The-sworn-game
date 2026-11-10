@@ -344,6 +344,8 @@ export function releaseToVillage(c: Colonist) {
   const person = c.person ?? newPerson("migrated");
   transplantPerson(c, v);
   v.person = person;
+  // Gap closure G3: off its post, so no longer hand-assigned.
+  delete person.pinned;
 }
 
 // The snapshot's `people` (protocol PeopleSnapshot), for the active clan.

@@ -63,8 +63,55 @@ export interface WorkTabRow {
   xp: number[];
   // The work type of the post this person is assigned to (an override), if any.
   assigned?: WorkType;
+  // Gap closure G3: put on that post by hand (pinned: priorities never move it; only Unassign or the work type off).
+  pinned?: boolean;
 }
 export interface WorkTabSnapshot {
   manual: boolean;
   rows: WorkTabRow[];
 }
+
+// ---- gap closure G3: hand-assigned workers (building panel "Assign worker", person card "Assign to...") ----
+// A hand assignment pins the person to the post: priority-based filling never moves it (no "better job" leave), a
+// priority-placed worker gives up its slot to it, and it stays until Unassign or its work type is set off. Unassigned
+// people are not put back on that post by priorities for WORK_UNASSIGN_HOLD_TICKS (server constants).
+export interface PostWorkerInfo {
+  id: string;
+  name: string;
+  // Skill level in the post's work type (0 = no skill for it).
+  skill: number;
+  pinned: boolean;
+}
+export interface PostCandidateInfo {
+  id: string;
+  name: string;
+  skill: number;
+  // What it is doing now ("Idle", "Hauling", ...).
+  job: string;
+}
+// BuildingInfo.posts: the building's work posts (stations, camps, huts, barns, Town Center builders).
+export interface BuildingPostsInfo {
+  work: WorkType;
+  // The post's job ("Hunter", "Builder", ...).
+  role: string;
+  open: number;
+  workers: PostWorkerInfo[];
+  // Free adult villagers of the clan with this work type on (best skill first, then nearest; capped).
+  candidates: PostCandidateInfo[];
+  // A free slot can be made: an open one, or a worker placed by priorities who gives way.
+  canAssign: boolean;
+}
+// Reply to `workPosts` {id}: the posts near that person it could be assigned to (nearest first; capped).
+export interface WorkPostOption {
+  tx: number;
+  ty: number;
+  name: string;
+  work: WorkType;
+  open: number;
+  // No open slot: a priority-placed worker would give way.
+  bump: boolean;
+  dist: number;
+  skill: number;
+}
+export const WORK_POST_OPTIONS_MAX = 12;
+export const WORK_POST_CANDIDATES_MAX = 12;

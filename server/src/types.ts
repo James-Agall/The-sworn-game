@@ -108,6 +108,9 @@ export interface Person {
   // Phase 4: put on its current post by the work priorities (may leave it for a better job); missing = assigned
   // (an old save's worker, or placed by hand): keeps the post while its work type is not off.
   byPriority?: boolean;
+  // Gap closure G3 (work.ts assignWorkerTo): put on its post by hand. Pinned: never leaves it for a better job and is
+  // never displaced by priorities; cleared when it leaves the post (Unassign, work type off, post gone).
+  pinned?: boolean;
 }
 // Village life phase 3: a villager training at a unit building (becomes `kind` there when ticksLeft hits 0).
 export interface Training {

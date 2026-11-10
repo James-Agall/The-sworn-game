@@ -20,6 +20,7 @@ import { setupZones } from "./zones";
 import { setupBlueprints } from "./blueprints";
 import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
 import { setupWork } from "./work";
+import { WORK_LABEL } from "@colony/shared/work";
 import {
   ZONE_KIND_COLOR, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT, isZoneTool,
   type ZoneKind, RESOURCE_CATEGORY,
@@ -5528,6 +5529,7 @@ async function main() {
     if (infoTile) sendMessage({ type: "buildingInfo", tileX: infoTile.tx, tileY: infoTile.ty });
   }
   function openBuildingInfo(tx: number, ty: number) {
+    if (infoTile?.tx !== tx || infoTile?.ty !== ty) bpWorkCandsOpen = false;
     infoTile = { tx, ty };
     tradeOpen = false;
     requestBuildingInfo();
@@ -5538,8 +5540,85 @@ async function main() {
     tradeOpen = false;
     tradePanelEl.hidden = true;
   }
+  // Gap closure G3: the building's workers (Unassign) and an "Assign worker" list of free villagers.
+  const bpWorkRowEl = document.getElementById("bp-work-row")!;
+  const bpWorkListEl = document.getElementById("bp-work-list")!;
+  const bpWorkAssignBtn = document.getElementById("bp-work-assign") as HTMLButtonElement;
+  const bpWorkCandsEl = document.getElementById("bp-work-cands")!;
+  let bpWorkCandsOpen = false;
+  let bpWorkSig = "";
+  const skillText = (n: number) => (n > 0 ? `skill ${n}` : "no skill needed");
+  function workAction(msg: ClientMessage) {
+    sendMessage(msg);
+    window.setTimeout(requestBuildingInfo, 150);
+  }
+  bpWorkAssignBtn.addEventListener("click", () => {
+    bpWorkAssignBtn.blur();
+    bpWorkCandsOpen = !bpWorkCandsOpen;
+    bpWorkSig = "";
+    requestBuildingInfo();
+  });
+  function renderWorkPosts(posts: BuildingInfo["posts"]) {
+    bpWorkRowEl.hidden = !posts;
+    if (!posts || !infoTile) {
+      bpWorkCandsOpen = false;
+      bpWorkSig = "";
+      return;
+    }
+    // Refreshed once a second: only rebuild on a change (keeps the hovered button).
+    const sig = JSON.stringify([posts, bpWorkCandsOpen, infoTile]);
+    if (sig === bpWorkSig) return;
+    bpWorkSig = sig;
+    const { tx, ty } = infoTile;
+    const line = (text: string, title: string, btn?: [string, () => void]) => {
+      const div = document.createElement("div");
+      div.className = "bpw-line";
+      const span = document.createElement("span");
+      span.textContent = text;
+      span.title = title;
+      div.append(span);
+      if (btn) {
+        const b = document.createElement("button");
+        b.className = "econ-btn";
+        b.textContent = btn[0];
+        b.addEventListener("click", btn[1]);
+        div.append(b);
+      }
+      return div;
+    };
+    bpWorkListEl.replaceChildren(
+      ...posts.workers.map((w) =>
+        line(
+          `${w.pinned ? "⚑ " : ""}${w.name}: ${posts.role}, ${skillText(w.skill)}${w.pinned ? " (assigned)" : ""}`,
+          w.pinned ? "Assigned by hand: stays until unassigned or its work type is set off" : "Placed by work priorities (gives way to a hand-assigned worker)",
+          ["Unassign", () => workAction({ type: "unassignWorker", id: w.id })]
+        )
+      ),
+      ...(posts.open > 0 ? [line(`${posts.open} open post${posts.open === 1 ? "" : "s"} (${posts.role})`, "Filled by work priorities, or assign someone by hand")] : [])
+    );
+    bpWorkAssignBtn.disabled = !posts.canAssign || posts.candidates.length === 0;
+    bpWorkAssignBtn.title = !posts.canAssign
+      ? "Every worker here is assigned by hand: unassign one first"
+      : posts.candidates.length === 0
+        ? `No free adult villager with ${WORK_LABEL[posts.work]} on`
+        : "Pick a free villager: pinned to this post until unassigned (beats work priorities)";
+    bpWorkAssignBtn.textContent = bpWorkCandsOpen ? "Assign worker ▴" : "Assign worker ▾";
+    bpWorkCandsEl.hidden = !bpWorkCandsOpen || bpWorkAssignBtn.disabled;
+    bpWorkCandsEl.replaceChildren(
+      ...posts.candidates.map((c) =>
+        line(`${c.name}: ${WORK_LABEL[posts.work]} ${skillText(c.skill)} · ${c.job}`, "Free villager", [
+          "Assign",
+          () => {
+            bpWorkCandsOpen = false;
+            workAction({ type: "assignWorker", id: c.id, tileX: tx, tileY: ty });
+          },
+        ])
+      )
+    );
+  }
   function renderBuildingInfo(info: BuildingInfo) {
     bpNameEl.textContent = info.name;
+    renderWorkPosts(info.posts);
     bpLevelEl.textContent = info.maxLevel > 1 ? `Lv ${info.level}/${info.maxLevel}` : "";
     bpStaffingEl.textContent = info.staffing;
     bpHpEl.hidden = info.hp === null;
@@ -6957,6 +7036,8 @@ async function main() {
       onChronicle(message);
     } else if (message.type === "workTab") {
       workUi.onTab(message.tab);
+    } else if (message.type === "workPosts") {
+      workUi.onPosts(message.id, message.posts);
     } else if (message.type === "interior") {
       interiorRef.ui?.onMessage(message.view);
     } else if (message.type === "dialogue" || message.type === "interactNone") {

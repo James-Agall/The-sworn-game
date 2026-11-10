@@ -65,6 +65,7 @@ import { captureSite, isInSiteGrounds, nearSiteGrounds, rebuildKeepBlocker, rela
 import { SITE_TEMPLATES } from "./constants.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
 import { trainInfo, villageLevyInfo } from "./people.js";
+import { buildingPostsInfo } from "./work.js";
 import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
 import {
   STRUCTURE_ORDER_MAX_TILES, STRUCTURE_ORDER_RANGE_TILES, isDoorTile, isFloorTile, isFurnitureTile, isRoomStationTile, isStructureTile,
@@ -1677,8 +1678,11 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     };
   }
 
+  // Gap closure G3: the building's work posts (assign / unassign workers by hand).
+  const posts = forPlayer ? buildingPostsInfo(forPlayer.clan ?? 0, tx, ty) : undefined;
   return {
     ...(roomInfo ? { room: roomInfo } : {}),
+    ...(posts ? { posts } : {}),
     name: tc?.name ?? name,
     tile: t,
     level,

@@ -891,6 +891,9 @@ export const ZONE_FARMER_WORK_RATE = 1;
 export const WORK_DECIDE_TICKS = TICK_RATE;
 export const WORK_MIN_SHIFT_TICKS = TICK_RATE * 30;
 export const WORK_RECHECK_TICKS = TICK_RATE * 5;
+// Gap closure G3: a person sent back to the village with Unassign is not put back on that same post by the
+// priorities for this long (else the best-priority villager, usually the same one, refills it at once).
+export const WORK_UNASSIGN_HOLD_TICKS = GAME_DAY_TICKS;
 // Jobs within this many tiles of the worker; the best few are path-checked; an idle worker looks again this often.
 export const ZONE_JOB_RANGE_TILES = 40;
 export const ZONE_JOB_ROUTE_CANDIDATES = 4;

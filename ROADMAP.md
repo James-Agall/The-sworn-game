@@ -2155,6 +2155,27 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Gap closure G3 — landed 2026-11-10 (hand-assign workers)
+
+QUEUE "RimWorld/Stardew gap closure" G3. Logic in `server/src/work.ts` (assignWorkerTo / unassignWorker / workPostsFor /
+buildingPostsInfo), types in `shared/src/work.ts`, protocol `assignWorker` {id, tileX, tileY}, `unassignWorker` {id},
+`workPosts` {id} (reply `workPosts`), `BuildingInfo.posts`.
+- **Posts**: any building post with a work type (stations, camps, huts, Barns, Town Center / Builders' Guild builders):
+  open slots = its vacancies in the respawn queue, workers = the clan's post workers there.
+- **Assign** (building panel "Assign worker", person card "Assign to..."): a free adult villager of the same clan (not
+  a child, trainee, levy, soldier; prisoners are not colonists) with that work type on. No open slot: a worker placed
+  by priorities gives way (back to the village); a post full of hand-assigned workers refuses. The person is
+  **pinned** (`Person.pinned`, saved with the person): priorities never move it (no "better job" leave) and the Work
+  table shows ⚑ in its post's cell, its role reads "... (assigned)". Sleep, meals and shelter are unchanged.
+- **Ends** on Unassign (back to the village; the post opens and priorities do not put that person back on it for
+  `WORK_UNASSIGN_HOLD_TICKS` = one game day), its work type set off, or the post gone (releaseToVillage clears the pin).
+- **Person card**: "Assign to..." lists up to `WORK_POST_OPTIONS_MAX` (12) nearest open posts for the jobs it has on
+  ("Replace" where a priority-placed worker gives way); "Unassign" for a post worker. The building panel lists up to
+  `WORK_POST_CANDIDATES_MAX` (12) candidates, best skill first.
+- **Tests**: `server/work-priorities-test.mjs` sections 13-17 + the save / load pin. Run: `npm test -- work-priorities`.
+- **Skipped**: animal houses (their chores are free-villager jobs, not posts) and infirmary beds (patients, not
+  workers) have no assign list.
+
 ## Gap closure G2 — landed 2026-11-10 (stockpile capacity, overflow, tallies, visible loads)
 
 QUEUE "RimWorld/Stardew gap closure" G2. Numbers in `shared/src/zones.ts`; logic in `server/src/zones.ts`.
