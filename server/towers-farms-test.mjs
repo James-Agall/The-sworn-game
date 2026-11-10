@@ -135,7 +135,7 @@ const near = (await hook("towerState", { tx: TX + 2, ty: TY, radius: 3 })).near;
 const far = (await hook("towerState", { tx: TX + 10, ty: TY, radius: 3 })).near;
 result(near.length === 1 && near[0].level === 3 && far.length === 0, `livingTowersNear: ${near.length} near, ${far.length} far (expected 1, 0)`);
 
-// ---- Barn: 8 plots within 2 tiles, not a 9th; leaner yield ----
+// ---- Barn: a level-1 Barn's 2 farmers tend the 8 nearest fields; fields go anywhere (farm labour 2026-11-06) ----
 const BX = 20, BY = 20;
 result(await placeAt(BX, BY, T.BarnPost), "Barn placed");
 const spots = [[-2, -2], [-1, -2], [0, -2], [1, -2], [2, -2], [-2, 0], [2, 0], [0, 2], [1, 2]];
@@ -143,11 +143,15 @@ let placed = 0;
 for (const [dx, dy] of spots.slice(0, 8)) if (await placeAt(BX + dx, BY + dy, T.FarmPlot, BX + dx, BY + dy)) placed++;
 result(placed === 8, `${placed}/8 farm plots placed within 2 tiles of the Barn`);
 const [nx, ny] = spots[8];
-result(!(await placeAt(BX + nx, BY + ny, T.FarmPlot, BX + nx, BY + ny)), "9th plot rejected (Barn full)");
-result(!(await placeAt(BX + 3, BY + 3, T.FarmPlot, BX + 3, BY + 3)), "plot 3 tiles from any Barn rejected");
+result(await placeAt(BX + nx, BY + ny, T.FarmPlot, BX + nx, BY + ny), "a 9th plot is placed (fields go anywhere; the Barn tends what it can)");
+result(await placeAt(BX + 3, BY + 3, T.FarmPlot, BX + 3, BY + 3), "a plot 3 tiles from the Barn is placed too");
+await hook("fastForward", { ticks: 25 });
 const farm = await hook("farmState");
-result(farm.plots.filter((p) => p.barnX === BX && p.barnY === BY).length === 8, "8 plots belong to the Barn");
-result(farm.constants.FARM_YIELD_PER_HARVEST === 24, `FARM_YIELD_PER_HARVEST ${farm.constants.FARM_YIELD_PER_HARVEST} (expected 24)`);
+const tended = farm.plots.filter((p) => p.barnX === BX && p.barnY === BY);
+const farFirst = tended.some((p) => p.key === `${BX + 3},${BY + 3}`);
+result(tended.length === 8 && !farFirst, `the Barn's 2 farmers x 4 fields tend the 8 nearest plots (${tended.length}, farthest included: ${farFirst})`);
+// Food balance (2026-11-06): FOOD_OUTPUT_MULT 0.5 halves the 24-grain harvest.
+result(farm.constants.FARM_YIELD_PER_HARVEST === 12, `FARM_YIELD_PER_HARVEST ${farm.constants.FARM_YIELD_PER_HARVEST} (expected 12)`);
 
 // ---- The Archery Range still trains an archer (independent of the Tower) ----
 const AX = 30, AY = 30;

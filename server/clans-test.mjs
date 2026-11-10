@@ -117,7 +117,8 @@ try {
   const dist = tc1 ? Math.hypot(tc1.x - tc0.x, tc1.y - tc0.y) : 0;
   result(C.snap.townCenters.length === 1 && dist >= 24, `clan 1 has its own Town Center ${dist.toFixed(1)} tiles from clan 0's`);
   result(C.snap.wood === 80 && C.snap.iron === 60 && C.snap.rock === 60, `clan 1 starts with the starting stock (wood ${C.snap.wood})`);
-  result(C.snap.population === 1 && C.snap.populationCap === 12, `clan 1 population ${C.snap.population}/${C.snap.populationCap} (its own builder, own cap)`);
+  // Village life (2026-11-03): a new clan starts with STARTING_PEOPLE (10: its builder + 9 villagers).
+  result(C.snap.population === 10 && C.snap.populationCap === 12, `clan 1 population ${C.snap.population}/${C.snap.populationCap} (its own builder + villagers, own cap)`);
   result(C.snap.goal.index === 0, `clan 1 goal track from the start (${C.snap.goal.title})`);
   result(A.snap.clanId === 0 && A.snap.clans?.length === 2 && A.snap.wood === 123 && A.snap.townCenters.length === 1,
     `clan 0 unchanged: wood ${A.snap.wood}, ${A.snap.townCenters.length} Town Center, ${A.snap.clans?.length} clans listed`);

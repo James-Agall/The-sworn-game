@@ -86,8 +86,12 @@ for (const kind of new Set((c.snap.colonists ?? []).map((u) => u.kind))) await h
 await hook("setCycleTick", { tick: TICK * 5 });
 
 let st = null;
-for (const [dx, dy] of [[0, 45], [45, 0], [0, -45], [-45, 0], [45, 45], [-45, -45]]) {
-  st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 25 });
+// World-gen forts crowd the map now: try a grid of spots (nearest first) until one is clear of their grounds.
+const spots = [];
+for (let dx = -100; dx <= 100; dx += 20) for (let dy = -100; dy <= 100; dy += 20) if (Math.hypot(dx, dy) >= 40) spots.push([dx, dy]);
+spots.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+for (const [dx, dy] of spots) {
+  st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 10 });
   if (st?.site) break;
 }
 const site = st?.site;

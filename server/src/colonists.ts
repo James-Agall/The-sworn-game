@@ -365,6 +365,8 @@ export function isAbbeyClergy(c: Colonist): boolean {
 // What one unit counts for in population: civilians/bishops 1 (not Abbey clergy), siege engines and heroes
 // their cost, soldiers 0 (housed by their unit building).
 export function populationCostOf(c: Colonist): number {
+  // Forts phase F: a vassal's levy counts nowhere (settlementStats skips it too; the snapshot's population counted it).
+  if (c.levyOf) return 0;
   if (isSiegeKind(c.kind)) return SIEGE_POPULATION_COST;
   if (c.kind === "hero") return HERO_POPULATION_COST;
   // Hero phase 4: summoned skeletons count for nothing.
