@@ -54,7 +54,7 @@ import {
   setHallGathered, spoilFood, storeroomProtectionOf, usableBedIndices,
 } from "./structures.js";
 import { colonyHappinessParts, computeColonyHappiness } from "./colonists.js";
-import { debugSetCropAt, debugSetCrops, updateZones, zonesDebug, zonesSnapshotFor } from "./zones.js";
+import { debugAddPile, debugSetCropAt, debugSetCrops, updateZones, zoneCarryOf, zonesDebug, zonesSnapshotFor } from "./zones.js";
 import { updateWorkAssignments, workDebug, workTabFor } from "./work.js";
 import { farmPlotProgress, farmhandProgress, releaseResourceReservation } from "./economy.js";
 import { makeBoss } from "./worldgen.js";
@@ -1146,6 +1146,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // Stardew phase 5a: setCropAt {x, y, stage?, progress?, tended?} sets one crop tile.
     const ca = msg.setCropAt as { x: number; y: number; stage?: number; progress?: number; tended?: boolean } | undefined;
     if (ca && Number.isInteger(ca.x) && Number.isInteger(ca.y)) debugSetCropAt(ca.y * state.WORLD_TILES_X + ca.x, ca);
+    // Gap closure G2: addPile {x, y, res, n} drops loose goods (the player's clan's).
+    const ap = msg.addPile as { x: number; y: number; res: string; n: number } | undefined;
+    if (ap && Number.isInteger(ap.x) && Number.isInteger(ap.y)) debugAddPile(ap.y * state.WORLD_TILES_X + ap.x, ap.res, ap.n, player.clan ?? 0);
     if (msg.tickZones) {
       const t = state.cycleTick;
       state.cycleTick = Math.ceil(t / 20) * 20;
@@ -1157,6 +1160,8 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       stock: { ...clanById(player.clan ?? 0).stock },
       freeVillagers: Array.from(colonists.values()).filter((c) => c.kind === "villager" && !c.person?.child && (c.clan ?? 0) === (player.clan ?? 0)).length,
       snapshot: zonesSnapshotFor(player.clan ?? 0),
+      // Gap closure G2: haulers carrying a load (the colonist snapshot's `haul`).
+      haulers: Array.from(colonists.values()).filter((c) => zoneCarryOf(c)).map((c) => ({ id: c.id, haul: zoneCarryOf(c) })),
     });
   } else if (msg.op === "workState") {
     // Modular building phase 4: the Work tab table, runtime jobs, the post-change log and the open vacancies.

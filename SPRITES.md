@@ -765,6 +765,13 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > (64x64, a white chest with a red cross or herb bundles), plus a Room panel icon `room_infirmary.png` (32x32) and an
 > item icon for **herbs**. No staged art covers these yet.
 
+### 101. Hauler loads (gap closure G2, 2026-11-10)
+> Zone haulers now show what they carry with tiny Graphics stand-ins above the head (`client/src/main.ts`
+> drawHaulLoad): a sack (food / cloth), a log (wood), two stones (stone / ore), a crate (anything else). The staged
+> `villager/haul_sack_1..5.png` frames (#97) are a full-body carry animation for one character only; wanted instead (or
+> as well): 16x16 load icons `load_{sack,log,stones,crate}.png`, or carry frames per villager look so the body anim can
+> be swapped while hauling.
+
 ### #90-#97 delivery status (2026-11-09: sliced ChatGPT atlases, `art-sources/rimworld-stardew/`)
 > Processed by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/<group>/`; registry and
 > loaders in `client/src/spriteRegistry.ts`. Every wired file is optional: a missing png falls back to the procedural

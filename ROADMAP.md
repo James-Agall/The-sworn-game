@@ -2155,6 +2155,28 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Gap closure G2 — landed 2026-11-10 (stockpile capacity, overflow, tallies, visible loads)
+
+QUEUE "RimWorld/Stardew gap closure" G2. Numbers in `shared/src/zones.ts`; logic in `server/src/zones.ts`.
+- **Capacity**: `STOCKPILE_CAPACITY_PER_TILE` = 40 weight per tile, x `STOCKPILE_STOREROOM_CAPACITY_MULT` (1.5) for a
+  tile inside a storeroom room (G1). A unit weighs `STOCK_WEIGHT[res]` (1; gold 0.1, luxury items 0.5). No per-filter
+  caps (skipped).
+- **Overflow**: a hauler picks the nearest stockpile whose filters take the good AND that has room (stored + loads
+  already on their way); it carries no more than fits. No stockpile with room: an own Barn (food / cloth) or a Town
+  Center as before (stock, no tally). A load that no longer fits on arrival (another hauler filled it) goes into the
+  stock untallied.
+- **Tally model** (the simplest consistent one): a stockpile's tally is what is physically stored there, a share of the
+  clan stock. Once a second each clan's net outflow of a good (last second's stock + deliveries - now) is taken from
+  the stockpiles first, **oldest stockpile (lowest zone id) first**; and the tallies of a good never add up to more than
+  the stock. Deliveries and goods that arrive elsewhere (Town Center, workers) do not touch tallies. Not saved beyond
+  the tallies themselves (a load re-baselines).
+- **Visible loads**: the colonist snapshot carries `haul` (the good) while a zone hauler carries; the client draws a
+  small Graphics sack (food / cloth), log (wood), stones (stone / ore) or crate (anything else) above its head.
+- **Zone list**: each stockpile shows a fill bar and "used / capacity" (snapshot `capacity` / `used`).
+- **Tests**: `server/zones-test.mjs` section 9 (capacity, overflow 40 + 20, hauler load, tallies shrink oldest first,
+  never above the stock). Run: `npm test -- zones`.
+- **Skipped / later**: per-filter caps; the staged `haul_sack` villager frames (Graphics icons instead).
+
 ## Gap closure G1 — landed 2026-11-10 (room effects, 2-tile furniture, infirmary + healing)
 
 QUEUE "RimWorld/Stardew gap closure" G1. Every number lives in `shared/src/rooms.ts` (server effects, Room panel text).

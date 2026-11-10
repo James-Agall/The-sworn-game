@@ -8,6 +8,7 @@ import { ROOM_TOOL_STONE, ROOM_TOOL_WOOD } from "@colony/shared/structures";
 import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
 import {
   CROP_LABEL, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT,
+  STOCKPILE_CAPACITY_PER_TILE, STOCKPILE_STOREROOM_CAPACITY_MULT,
 } from "@colony/shared/zones";
 import {
   ROOM_BARRACKS_MIN_BEDS, ROOM_BEAUTY_POINTS, ROOM_WARMTH_AREA_TILES, ROOM_WARMTH_PER_HEARTH, ROOM_WARMTH_PER_LAMP, ROOM_WORKBENCH_MAX,
@@ -96,7 +97,7 @@ export const TOOLS: ToolDef[] = [
   // Modular building phase 3 (shared/src/zones.ts): zones. Right-drag paints a rectangle (Shift: erases).
   { tile: ZONE_TOOL_WHEAT as TileType, label: "Wheat field", key: "", cost: `Growing zone, free. Idle villagers / Barn farmers till, sow, tend and harvest each tile; 4 tiles grow what a Farm Plot did (${CROP_LABEL.wheat})`, category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_HEMP as TileType, label: "Hemp field", key: "", cost: `Growing zone, free: hemp for cloth (4 tiles = an old Hemp Field)`, category: "zones", drag: "rect" },
-  { tile: ZONE_TOOL_STOCKPILE as TileType, label: "Stockpile", key: "", cost: "Storage zone, free: haulers bring loose goods (harvests) to the nearest stockpile whose filters take them. Set filters in the zone list", category: "zones", drag: "rect" },
+  { tile: ZONE_TOOL_STOCKPILE as TileType, label: "Stockpile", key: "", cost: `Storage zone, free: haulers bring loose goods (harvests) to the nearest stockpile whose filters take them and that has room (${STOCKPILE_CAPACITY_PER_TILE} per tile, x${STOCKPILE_STOREROOM_CAPACITY_MULT} inside a storeroom; full: the next one, else the Town Center). Set filters in the zone list`, category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_HOME as TileType, label: "Home area", key: "", cost: "Idle villagers stroll here instead of round the Town Center", category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_ANIMAL as TileType, label: "Animal area", key: "", cost: "Placeholder for a later phase (animals in buildings): no effect yet", category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_ERASE as TileType, label: "Erase zone", key: "", cost: "Right-drag removes zone tiles (any of your zones; the selected one only, if one is selected)", category: "zones", drag: "rect" },

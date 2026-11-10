@@ -146,6 +146,46 @@ await edit({ op: "rename", zoneId: home.id, name: "Village green" });
 s = await zs();
 result(s.zones.find((z) => z.id === home.id)?.name === "Village green" && s.zones.some((z) => z.kind === "animal" && z.size === 9), `home area renamed, animal area 9 tiles`);
 
+// 9. Gap closure G2: stockpile capacity (40 / tile), overflow to the next stockpile with room, haulers show their
+// load, the tally shrinks when the stock is spent (oldest stockpile first) and never exceeds the stock.
+await edit({ op: "setFilters", zoneId: pile.id, filters: ["wood"] });
+await edit({ op: "paint", kind: "stockpile", tiles: rect(O.x + 2, O.y + 8, O.x + 2, O.y + 8) });
+s = await zs();
+const s1 = s.zones.filter((z) => z.kind === "stockpile").sort((a, b) => b.id - a.id)[0];
+await edit({ op: "paint", kind: "stockpile", tiles: rect(O.x + 8, O.y + 8, O.x + 9, O.y + 8) });
+s = await zs();
+const s2 = s.zones.filter((z) => z.kind === "stockpile").sort((a, b) => b.id - a.id)[0];
+await edit({ op: "setFilters", zoneId: s1.id, filters: ["food"] });
+await edit({ op: "setFilters", zoneId: s2.id, filters: ["food"] });
+s = await zs();
+result(s.zones.find((z) => z.id === s1.id).capacity === 40 && s.zones.find((z) => z.id === s2.id).capacity === 80 && s.zones.find((z) => z.id === pile.id).capacity === 360,
+  `capacity 40 / tile: ${s.zones.filter((z) => z.kind === "stockpile").map((z) => `${z.size} tiles = ${z.capacity}`).join(", ")}`);
+await hook("setCycleTick", { tick: 0 });
+await zs({ addPile: { x: O.x + 1, y: O.y + 8, res: "grain", n: 60 } });
+let sawHauler = null;
+for (let t = 0; t < 3000 && !sawHauler; t += 10) {
+  await hook("fastForward", { ticks: 10 });
+  const q = await zs();
+  if (q.haulers.length > 0) sawHauler = q.haulers[0];
+}
+result(sawHauler?.haul === "grain", `a hauler shows its load in the snapshot: ${JSON.stringify(sawHauler)}`);
+s = await runUntil((q) => q.piles.every((p) => p.n < 1) && q.jobs.every((j) => !j.carry), 12000);
+const st1 = s.zones.find((z) => z.id === s1.id);
+const st2 = s.zones.find((z) => z.id === s2.id);
+result((st1.stored.grain ?? 0) === 40 && (st2.stored.grain ?? 0) === 20, `60 grain: the near 1-tile stockpile fills to ${st1.stored.grain ?? 0}/40, the overflow goes on: ${st2.stored.grain ?? 0} in the next`);
+const snapS1 = s.snapshot.zones.find((z) => z.id === s1.id);
+result(snapS1?.capacity === 40 && snapS1?.used === 40, `zone list fill bar data: ${snapS1?.used}/${snapS1?.capacity}`);
+const tally = (q) => q.zones.filter((z) => z.kind === "stockpile").reduce((n, z) => n + (z.stored.grain ?? 0), 0);
+s = await zs({ tickZones: true });
+const t0g = tally(s);
+const oldest0 = s.zones.find((z) => z.id === pile.id).stored.grain ?? 0;
+await hook("setStock", { stock: { grain: s.stock.grain - 25 } });
+s = await zs({ tickZones: true });
+result(tally(s) === t0g - 25 && (s.zones.find((z) => z.id === pile.id).stored.grain ?? 0) === Math.max(0, oldest0 - 25), `spending 25 grain shrinks the tallies ${t0g} -> ${tally(s)} (oldest stockpile first: ${oldest0} -> ${s.zones.find((z) => z.id === pile.id).stored.grain ?? 0})`);
+await hook("setStock", { stock: { grain: 10 } });
+s = await zs({ tickZones: true });
+result(tally(s) <= 10, `stock down to 10: tallies ${tally(s)} (never above the stock)`);
+
 // 8. Save / load keeps zones, crops, piles and tallies.
 await zs({ setCrops: { stage: 3, tended: false, zoneId: grow.id } });
 s = await zs();

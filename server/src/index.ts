@@ -45,7 +45,7 @@ import { siteByNum, sitesForSnapshot } from "./sites.js";
 import { handleTradeWithSite, relationsForSnapshot } from "./diplomacy.js";
 import { handleCallToArms, handleSetTax } from "./vassals.js";
 import { handleQuestMessage, hasQuestsFor, questsForSnapshot, questsVersion } from "./quests.js";
-import { handleZoneEdit, zonesPayloadFor } from "./zones.js";
+import { handleZoneEdit, zoneCarryOf, zonesPayloadFor } from "./zones.js";
 import { handleWorkMode, handleWorkSet, sendWorkTab } from "./work.js";
 import "./goals.js";
 import {
@@ -452,6 +452,7 @@ setInterval(() => {
       ...(c.person ? { name: c.person.name } : {}),
       ...(c.person?.child ? { child: true } : {}),
       ...(c.training ? { training: 1 - c.training.ticksLeft / c.training.ticksTotal } : {}),
+      ...(zoneCarryOf(c) ? { haul: zoneCarryOf(c) } : {}),
     }));
   const mobsNow = Array.from(mobs.values()).map((m): MobSnapshot => ({
       id: m.id,

@@ -38,6 +38,22 @@ export const RESOURCE_CATEGORY: Record<string, StockCategory> = {
 // Loose goods on the wire / in saves: an index into this list.
 export const PILE_RESOURCES = ["grain", "meat", "fruit", "wood", "rock", "iron", "wool", "cotton", "clothes", "tools", "luxuryItems", "gold", "alcohol"] as const;
 
+// ---- Gap closure G2 (2026-11-10): stockpile capacity, overflow, tallies ----
+// A stockpile holds STOCKPILE_CAPACITY_PER_TILE weight per tile (x STOCKPILE_STOREROOM_CAPACITY_MULT for a tile inside a
+// storeroom room: shelves and chests). A unit of a good weighs STOCK_WEIGHT[res] (default 1). A hauler takes a load to
+// the nearest stockpile whose filters take it AND that has room for it (loads already on their way count), carrying no
+// more than fits; with none, to an own Barn (food / cloth) or a Town Center as before (stock, no tally). A load that no
+// longer fits when it arrives goes into the stock untallied (as if left at the Town Center).
+// Tally model: a stockpile's tally is what is physically stored there, a share of the clan stock. Once a second the
+// clan's net outflow of each good (stock fell by more than the deliveries added) is taken from the stockpiles first,
+// oldest stockpile (lowest id) first; and the tallies of a good never add up to more than the stock of it.
+export const STOCKPILE_CAPACITY_PER_TILE = 40;
+export const STOCKPILE_STOREROOM_CAPACITY_MULT = 1.5;
+export const STOCK_WEIGHT: Partial<Record<string, number>> = { gold: 0.1, luxuryItems: 0.5 };
+export function stockWeight(res: string): number {
+  return STOCK_WEIGHT[res] ?? 1;
+}
+
 // Most tiles one zoneEdit may name (like a structure order) and how far from the hero / an own Town Center.
 export const ZONE_EDIT_MAX_TILES = 400;
 export const ZONE_EDIT_RANGE_TILES = 40;
@@ -82,6 +98,9 @@ export interface ZoneSnapshot {
   tiles: number[];
   // Stockpiles: goods delivered here still in the stock, by resource.
   stored?: Record<string, number>;
+  // Gap closure G2: stockpiles: capacity and the weight stored (the zone list's fill bar).
+  capacity?: number;
+  used?: number;
 }
 export interface ZonesSnapshot {
   zones: ZoneSnapshot[];

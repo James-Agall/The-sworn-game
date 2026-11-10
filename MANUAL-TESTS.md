@@ -684,6 +684,15 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Gap closure G2: stockpile capacity and overflow (2026-11-10)
+Automated: `npm test -- zones`.
+1. Paint a 1-tile food stockpile next to a wheat field and a bigger one farther away. Harvest: the zone list shows the
+   small one's bar fill to 40 / 40 (red, "full"); the rest of the harvest goes to the bigger one.
+2. Watch a hauler walk with a load: a sack (grain), a log (wood) or a crate floats above its head.
+3. Spend grain (craft gruel, feed people overnight): the stockpiles' "Stored" counts go down (the oldest stockpile
+   first). Spend the stock to 0: every tally reads 0.
+4. A stockpile painted inside a storeroom (a room with a chest / shelf) holds 60 per tile instead of 40.
+
 ## Gap closure G1: room effects, 2-tile furniture, infirmary (2026-11-10)
 Automated: `npm test -- rooms` and `cd server && node building-templates-test.mjs`.
 1. Build tab: pick **Bed**: the ghost is 2 tiles tall; press **R**: 2 wide. Place one in a room on a floor; the art

@@ -22,7 +22,7 @@ import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
 import { setupWork } from "./work";
 import {
   ZONE_KIND_COLOR, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT, isZoneTool,
-  type ZoneKind,
+  type ZoneKind, RESOURCE_CATEGORY,
 } from "@colony/shared/zones";
 import {
   NEW_STRUCTURE_TILES, ROOM_TOOL_STONE, ROOM_TOOL_WOOD, findRooms, isDoorTile, isFloorTile, isFurnitureTile, isRoomBoundaryTile, isStructureTile,
@@ -2081,6 +2081,7 @@ async function main() {
       entry.markLabel?.destroy();
       entry.bossLabel?.destroy();
       entry.heroLabel?.destroy();
+      entry.load?.destroy();
       map.delete(id);
     }
   }
@@ -2095,9 +2096,28 @@ async function main() {
   let interpIntervalMs = 1000 / TICK_RATE;
   const interpMaps = [playerSprites, colonistSprites, mobSprites];
 
+  // Gap closure G2: the hauler's load icon by the good's stockpile category (Graphics stand-in for the staged
+  // haul_sack villager frames, SPRITES.md #101).
+  function drawHaulLoad(g: Graphics, res: string) {
+    const cat = RESOURCE_CATEGORY[res] ?? "other";
+    if (cat === "wood") {
+      g.roundRect(-7, -3, 14, 6, 3).fill(0x8a5a2b).stroke({ width: 1, color: 0x4a2a10 });
+      g.circle(6, 0, 2).fill(0xd8b078);
+    } else if (cat === "stone" || cat === "ore" || cat === "metal") {
+      g.circle(-3, 1, 3.5).fill(cat === "ore" ? 0x8a6a5a : 0x9a9ca1).stroke({ width: 1, color: 0x55575c });
+      g.circle(3, 0, 3).fill(cat === "ore" ? 0x7a5a4a : 0xb0b2b6).stroke({ width: 1, color: 0x55575c });
+    } else if (cat === "food" || cat === "cloth") {
+      g.ellipse(0, 1, 6, 5).fill(cat === "food" ? 0xc8a868 : 0xd8d0c0).stroke({ width: 1, color: 0x6a5030 });
+      g.rect(-2, -5, 4, 2).fill(0x6a5030);
+    } else {
+      g.rect(-5, -5, 10, 10).fill(0xa87038).stroke({ width: 1, color: 0x4a2a10 });
+      g.moveTo(-5, -5).lineTo(5, 5).moveTo(5, -5).lineTo(-5, 5).stroke({ width: 1, color: 0x4a2a10 });
+    }
+  }
+
   function shiftVisual(e: EntityVisual, dx: number, dy: number) {
     if (dx === 0 && dy === 0) return;
-    for (const part of [e.sprite, e.hpBar, e.marker, e.wound, e.aura, e.sigil, e.markLabel, e.bossLabel, e.heroLabel]) {
+    for (const part of [e.sprite, e.hpBar, e.marker, e.wound, e.aura, e.sigil, e.markLabel, e.bossLabel, e.heroLabel, e.load]) {
       if (part) part.position.set(part.position.x + dx, part.position.y + dy);
     }
   }
@@ -2347,6 +2367,19 @@ async function main() {
     entry.sprite.visible = !hidden;
     entry.hpBar.visible = !hidden;
     updateWound(entry, c.hp, c.maxHp, c.x, c.y - 2, COLONIST_WOUND_SIZE, false, hidden);
+    // Gap closure G2: a zone hauler carries its load visibly (a small sack / log / stone / crate above its head).
+    if (c.haul) {
+      if (!entry.load) {
+        entry.load = new Graphics();
+        worldLayer.addChild(entry.load);
+      }
+      if (entry.loadKind !== c.haul) {
+        entry.loadKind = c.haul;
+        drawHaulLoad(entry.load.clear(), c.haul);
+      }
+      entry.load.position.set(c.x, c.y - 20);
+      entry.load.visible = !hidden;
+    } else if (entry.load) entry.load.visible = false;
     if (c.kind === "hero") {
       const text = `${c.heroName ?? "Hero"} · Lv ${c.heroLevel ?? 1}`;
       if (!entry.heroLabel) {

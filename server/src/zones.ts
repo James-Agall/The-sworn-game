@@ -10,11 +10,12 @@
 import { TileType } from "@colony/shared/protocol";
 import {
   CROP_RESOURCE, CROP_SOWN_FRACTION, CROPS, CropStage, PILE_RESOURCES, RESOURCE_CATEGORY, STOCK_CATEGORIES, ZONE_EDIT_MAX_TILES,
+  STOCKPILE_CAPACITY_PER_TILE, STOCKPILE_STOREROOM_CAPACITY_MULT, stockWeight,
   ZONE_EDIT_RANGE_TILES, ZONE_KIND_LABEL, ZONE_KINDS, rleDecode, rleEncode, type CropId, type StockCategory, type ZoneKind,
   type ZonesSnapshot,
 } from "@colony/shared/zones";
 import type { Colonist, Player, ResourceKey, TileCoord } from "./types.js";
-import { colonists, state } from "./state.js";
+import { clans, colonists, state } from "./state.js";
 import {
   COLONIST_SPEED, ZONE_CROP_GROW_TICKS, ZONE_CROP_YIELD, ZONE_HARVEST_TICKS, ZONE_HAUL_CARRY, ZONE_HAUL_TICKS, ZONE_JOB_RANGE_TILES,
   ZONE_JOB_RETRY_TICKS, ZONE_JOB_ROUTE_CANDIDATES, ZONE_SOW_TICKS, ZONE_TEND_TICKS, ZONE_TILL_TICKS, ZONE_UNTENDED_GROWTH,
@@ -234,6 +235,7 @@ export function updateZones() {
       bump();
     }
   }
+  reconcileTallies();
   // Workers that are gone (died, left the clan): their reservations go.
   for (const [id, job] of jobs) {
     if (colonists.has(id)) continue;
@@ -285,21 +287,77 @@ function addPile(i: number, res: string, n: number, clan: number) {
   stock[res] = (stock[res] ?? 0) + n;
 }
 
+// ---- gap closure G2: capacity, overflow, tallies ----
+export function zoneCapacity(z: ZoneRec): number {
+  if (z.kind !== "stockpile") return 0;
+  let cap = 0;
+  for (const i of z.tiles) cap += STOCKPILE_CAPACITY_PER_TILE * (roomAtIndex(i)?.stats.role === "storeroom" ? STOCKPILE_STOREROOM_CAPACITY_MULT : 1);
+  return cap;
+}
+export function zoneUsed(z: ZoneRec): number {
+  let w = 0;
+  for (const [k, v] of Object.entries(z.stored)) w += (v ?? 0) * stockWeight(k);
+  return w;
+}
+// Weight on its way to zone `id` (loads being carried there).
+function zoneIncoming(id: number): number {
+  let w = 0;
+  for (const j of jobs.values()) if (j.zoneId === id && j.carry) w += j.carry.n * stockWeight(j.carry.res);
+  return w;
+}
+// Units of `res` zone z can still take (stored and incoming loads counted).
+function zoneRoomFor(z: ZoneRec, res: string): number {
+  return Math.max(0, Math.floor((zoneCapacity(z) - zoneUsed(z) - zoneIncoming(z.id)) / stockWeight(res)));
+}
+// Per clan: last second's stock and the deliveries since (net outflow = last + delivered - now).
+const lastStock = new Map<number, Record<string, number>>();
+const deliveredSince = new Map<number, Record<string, number>>();
+function reconcileTallies() {
+  for (const clan of clans) {
+    const stock = clan.stock as Record<string, number>;
+    const last = lastStock.get(clan.id);
+    const got = deliveredSince.get(clan.id) ?? {};
+    const piles = Array.from(zones.values()).filter((z) => z.clan === clan.id && z.kind === "stockpile").sort((a, b) => a.id - b.id);
+    for (const res of PILE_RESOURCES) {
+      let take = last ? Math.max(0, (last[res] ?? 0) + (got[res] ?? 0) - (stock[res] ?? 0)) : 0;
+      let total = 0;
+      for (const z of piles) total += z.stored[res] ?? 0;
+      take = Math.max(take, total - Math.max(0, stock[res] ?? 0));
+      for (const z of piles) {
+        if (take <= 0) break;
+        const have = z.stored[res] ?? 0;
+        if (have <= 0) continue;
+        const n = Math.min(have, take);
+        z.stored[res] = have - n;
+        if (z.stored[res]! <= 1e-9) delete z.stored[res];
+        take -= n;
+        bump();
+      }
+    }
+    lastStock.set(clan.id, { ...stock });
+    deliveredSince.set(clan.id, {});
+  }
+}
+
 function acceptsRes(z: ZoneRec, res: string): boolean {
   return z.kind === "stockpile" && (z.filters ?? []).includes(RESOURCE_CATEGORY[res] ?? "other");
 }
 
 // The nearest place a hauler takes `res` from tile `from`: a matching stockpile tile, else an own Barn (food / cloth),
 // else an own Town Center. dest = tile index (walk onto it, or beside a building).
-function haulDestination(res: string, clan: number, from: number): { dest: number; zoneId?: number } | null {
+// Gap closure G2: a stockpile with no room left is skipped (the next matching one, else the hubs); `room` = units it
+// can still take.
+function haulDestination(res: string, clan: number, from: number): { dest: number; zoneId?: number; room?: number } | null {
   const fx = from % W();
   const fy = Math.floor(from / W());
-  let best: { dest: number; zoneId?: number; d: number } | null = null;
+  let best: { dest: number; zoneId?: number; room?: number; d: number } | null = null;
   for (const z of zones.values()) {
     if (z.clan !== clan || !acceptsRes(z, res)) continue;
+    const room = zoneRoomFor(z, res);
+    if (room < 1) continue;
     for (const i of z.tiles) {
       const d = Math.max(Math.abs((i % W()) - fx), Math.abs(Math.floor(i / W()) - fy));
-      if (!best || d < best.d) best = { dest: i, zoneId: z.id, d };
+      if (!best || d < best.d) best = { dest: i, zoneId: z.id, room, d };
     }
   }
   if (best) return best;
@@ -318,9 +376,16 @@ function deliver(job: ZoneJob, clan: number) {
   const carry = job.carry!;
   const stock = clanById(clan).stock as Record<string, number>;
   stock[carry.res] = (stock[carry.res] ?? 0) + carry.n;
+  const got = deliveredSince.get(clan) ?? {};
+  got[carry.res] = (got[carry.res] ?? 0) + carry.n;
+  deliveredSince.set(clan, got);
   const z = job.zoneId !== undefined ? zones.get(job.zoneId) : undefined;
-  if (z) z.stored[carry.res] = (z.stored[carry.res] ?? 0) + carry.n;
+  // Gap closure G2: what no longer fits is stock without a tally (left at the Town Center).
   job.carry = undefined;
+  if (z) {
+    const fit = Math.min(carry.n, Math.max(0, Math.floor((zoneCapacity(z) - zoneUsed(z) - zoneIncoming(z.id)) / stockWeight(carry.res))));
+    if (fit > 0) z.stored[carry.res] = (z.stored[carry.res] ?? 0) + fit;
+  }
   bump();
 }
 
@@ -552,8 +617,9 @@ export function updateZoneWorker(c: Colonist, dt: number, rate: number, filter: 
     case "haul": {
       const p = piles.get(i);
       if (!p) break;
-      const n = Math.min(ZONE_HAUL_CARRY, Math.floor(p.n));
       const to = haulDestination(p.res, clan, i);
+      // Gap closure G2: no more than the stockpile can still take.
+      const n = Math.min(ZONE_HAUL_CARRY, Math.floor(p.n), to?.room ?? Infinity);
       if (!to || n < 1) break;
       const path = pathTo(c, to.dest);
       if (!path) break;
@@ -617,7 +683,8 @@ export function zonesSnapshotFor(clan: number): ZonesSnapshot {
     for (const [k, v] of Object.entries(z.stored)) if ((v ?? 0) >= 1) stored[k] = Math.floor(Math.min(v ?? 0, stock[k] ?? 0));
     out.zones.push({
       id: z.id, kind: z.kind, name: z.name, ...(z.crop ? { crop: z.crop } : {}), ...(z.filters ? { filters: z.filters } : {}),
-      tiles: rleEncode(Array.from(z.tiles).sort((a, b) => a - b)), ...(z.kind === "stockpile" ? { stored } : {}),
+      tiles: rleEncode(Array.from(z.tiles).sort((a, b) => a - b)),
+      ...(z.kind === "stockpile" ? { stored, capacity: Math.round(zoneCapacity(z)), used: Math.round(zoneUsed(z)) } : {}),
     });
     for (const i of z.tiles) {
       const c = crops.get(i);
@@ -681,6 +748,8 @@ export function restoreZones(s: ZonesSave | undefined) {
   jobs.clear();
   reserved.clear();
   retry.clear();
+  lastStock.clear();
+  deliveredSince.clear();
   nextZoneId = s?.nextId ?? 1;
   for (const z of s?.zones ?? []) {
     const rec: ZoneRec = { id: z.id, clan: z.clan, kind: z.kind, name: z.name, tiles: new Set(), stored: { ...(z.stored ?? {}) } };
@@ -778,7 +847,17 @@ export function heroFarmApply(act: HeroFarmAct, i: number, clan: number, crop: C
   return out;
 }
 
+// Gap closure G2: the load a zone hauler is carrying (a stock resource key), or undefined (colonist snapshot).
+export function zoneCarryOf(c: Colonist): string | undefined {
+  const j = jobs.get(c.id);
+  return j?.phase === "carry" && j.carry ? j.carry.res : undefined;
+}
+
 // ---- test hooks ----
+// Gap closure G2: drop loose goods on a tile (haul tests).
+export function debugAddPile(i: number, res: string, n: number, clan: number) {
+  addPile(i, res, n, clan);
+}
 export function zonesDebug() {
   const stages = [0, 0, 0, 0, 0];
   let tended = 0;
@@ -791,7 +870,10 @@ export function zonesDebug() {
   }
   return {
     tended,
-    zones: Array.from(zones.values()).map((z) => ({ id: z.id, clan: z.clan, kind: z.kind, name: z.name, crop: z.crop, filters: z.filters, size: z.tiles.size, stored: z.stored })),
+    zones: Array.from(zones.values()).map((z) => ({
+      id: z.id, clan: z.clan, kind: z.kind, name: z.name, crop: z.crop, filters: z.filters, size: z.tiles.size, stored: z.stored,
+      ...(z.kind === "stockpile" ? { capacity: zoneCapacity(z), used: zoneUsed(z) } : {}),
+    })),
     stages,
     piles: Array.from(piles, ([i, p]) => ({ x: i % W(), y: Math.floor(i / W()), res: p.res, n: p.n, clan: p.clan })),
     jobs: Array.from(jobs, ([id, j]) => ({ id, kind: j.kind, phase: j.phase, carry: j.carry ?? null })),

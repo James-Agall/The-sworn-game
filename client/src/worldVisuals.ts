@@ -499,6 +499,9 @@ export interface EntityVisual {
   bossLabel?: Text;
   // Hero phase 3: heroes only, "Name · Lv N" above the HP bar.
   heroLabel?: Text;
+  // Gap closure G2: a zone hauler's load drawn above its head (sack / log / stone / crate), and which good it shows.
+  load?: Graphics;
+  loadKind?: string;
   // Strategy mode phase 5: snapshot interpolation, from (fx, fy) to the snapshot position (tx, ty); every
   // part is drawn offset by (ox, oy) from where the snapshot sync put it (see interpBeforeSnapshot).
   ip?: { fx: number; fy: number; tx: number; ty: number; ox: number; oy: number };

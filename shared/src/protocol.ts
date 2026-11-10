@@ -578,6 +578,8 @@ export interface ColonistSnapshot {
   name?: string;
   child?: boolean;
   training?: number;
+  // Gap closure G2: a zone hauler's load (a stock resource key, shared/src/zones.ts PILE_RESOURCES) while it carries.
+  haul?: string;
 }
 
 // Village life: the active clan's people beyond its posted units.

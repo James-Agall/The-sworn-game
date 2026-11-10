@@ -139,7 +139,20 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
         st.style.cssText = "opacity: 0.8; margin-top: 2px;";
         st.textContent = `Stored: ${stored || "nothing yet"}`;
         st.title = "Goods haulers brought here that are still in the stock (the stock counts include them)";
-        row.append(box, st);
+        // Gap closure G2: fill bar (weight stored / capacity: 40 per tile, more inside a storeroom).
+        const cap = z.capacity ?? 0;
+        const used = z.used ?? 0;
+        const frac = cap > 0 ? Math.min(1, used / cap) : 0;
+        const bar = document.createElement("div");
+        bar.style.cssText = "position: relative; height: 8px; margin-top: 3px; background: rgba(0,0,0,0.35); border: 1px solid rgba(224,176,64,0.6); border-radius: 2px;";
+        const fill = document.createElement("div");
+        fill.style.cssText = `height: 100%; width: ${Math.round(frac * 100)}%; background: ${frac >= 1 ? "#d05040" : frac >= 0.8 ? "#e0a040" : "#e0c060"};`;
+        bar.append(fill);
+        bar.title = `${used} / ${cap} stored${frac >= 1 ? ": full, haulers take the next stockpile with room (else the Town Center / Barn)" : ""}`;
+        const capText = document.createElement("div");
+        capText.style.cssText = "opacity: 0.8; font-size: 11px;";
+        capText.textContent = `${used} / ${cap}${frac >= 1 ? " (full)" : ""}`;
+        row.append(box, st, bar, capText);
       }
       if (z.kind === "animal") {
         const n = document.createElement("div");
