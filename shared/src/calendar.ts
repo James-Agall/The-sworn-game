@@ -144,10 +144,26 @@ export const WINTER_ROOM_HAPPINESS_MULT = 1.5;
 export const WINTER_COLD_REST_DECAY_MULT = 1.5;
 export const WINTER_COLD_REST_GAIN_MULT = 0.5;
 export const WINTER_WARM_ROOM_REST_MULT = 1.25;
-// Wild forage (berry bushes, fruit trees) regrows this much slower in winter. Hunting unchanged.
+// Wild forage (berry bushes, fruit trees) regrows this much slower in winter (G4: also in a COLD chunk's catch-up, per
+// winter day it was away). Hunting unchanged.
 // Phase 6 balance (2026-11-10): was "no regrowth at all" (0): a colony living on its Forager's Hut ran out of fruit in
 // the first winter's 5th day; a quarter keeps a trickle so a lean winter is not a starving one.
 export const WINTER_FORAGE_REGROW_MULT = 0.25;
+
+// ---- gap closure G4: day length by season, snow, cold catch-up ----
+// Daylight per season as a multiple of the base day (server DAY_TICKS); the whole 24 h cycle (GAME_DAY_TICKS) never
+// changes, so night = cycle - daylight (summer nights are short, winter nights long) and calendar math stays valid.
+// The length changes only at dawn (a calendar day starts at cycle tick 0).
+export const SEASON_DAYLIGHT_MULT: Record<Season, number> = { spring: 1, summer: 1.15, autumn: 1, winter: 0.85 };
+// Daylight ticks of absolute calendar day `absDay`, from the base daylight and the whole cycle (night >= 1/20 cycle;
+// with the server numbers 300 s + 75 s: summer 345 s day / 30 s night, winter 255 s / 120 s).
+export function seasonDayTicks(baseDayTicks: number, gameDayTicks: number, absDay: number): number {
+  const mult = SEASON_DAYLIGHT_MULT[SEASONS[calendarOf(absDay).season]];
+  return Math.max(1, Math.min(Math.round(gameDayTicks * 0.95), Math.round(baseDayTicks * mult)));
+}
+// Snow on the ground slows every unit outdoors (not in a roofed room) to this; roads are cleared (no slow-down).
+export const SNOW_SPEED_MULT = 0.9;
+export const SNOW_ROADS_CLEAR = true;
 
 // ---- client look ----
 // Multiply tints per season for the grass floor / scatter and for trees.

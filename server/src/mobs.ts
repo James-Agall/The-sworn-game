@@ -9,7 +9,7 @@ import type { Colonist, Mob, MobTargetType, PickedTarget, Player, TileCoord } fr
 import {
   ARCHER_FRONT_RANK_SCAN_TILES, BREACH_DETOUR_FACTOR, BREACH_MIN_ROUTE_TILES, BREACH_WALL_COST, MOAT_BREACH_STEP_COST,
   BUILDING_TARGET_CANDIDATES, COLONIST_BODY_RADIUS, DARK_SHAMAN_HEAL_AMOUNT, DARK_SHAMAN_HEAL_COOLDOWN_TICKS,
-  DARK_SHAMAN_HEAL_RANGE, DAY_TICKS, MOB_ANTI_CAVALRY_MULT, GOBLIN_RIDER_WITHDRAW_TICKS, GOLD_PER_KILL_BASE_DIVISOR, GOLD_PER_KILL_MIN,
+  DARK_SHAMAN_HEAL_RANGE, MOB_ANTI_CAVALRY_MULT, GOBLIN_RIDER_WITHDRAW_TICKS, GOLD_PER_KILL_BASE_DIVISOR, GOLD_PER_KILL_MIN,
   GORRATH_SCAN_RANGE_TILES, GUNNE_SCAN_RANGE_TILES, HUNGER_MARK_CHANCE_MAX, HUNGER_MARK_CHANCE_MAX_DAY,
   HUNGER_MARK_CHANCE_START, HUNGER_MARK_DAMAGE_MULT, HUNGER_MARK_GOLD_MULT, HUNGER_MARK_HP_MULT, HUNGER_MARK_MIN_DAY,
   MARK_RETARGET_TICKS, MOB_AGGRO_DROP_FACTOR, MOB_AGGRO_RANGE_GUARD_TILES, WAGON_AGGRO_BONUS_TILES, MOB_AGGRO_RANGE_PLAYER_TILES,
@@ -25,7 +25,7 @@ import {
   attackerSlots, colonists, gates, mobs, mobsAttackingThisTick, mobsWithoutRoute, players, state, tileOwner,
 } from "./state.js";
 import { tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
-import { inBounds, isHostileOwner, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
+import { inBounds, isHostileOwner, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter, dayTicksFor } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { activeWardSources, isWarded } from "./colonists.js";
 import { isGuardOrMilitiaKind, isRearColonist, isRearMob, isSiegeKind, nearestMeleeSoldier } from "./units.js";
@@ -85,7 +85,7 @@ export function isDifficulty(value: unknown): value is Difficulty {
 }
 export function handleSetDifficulty(value: unknown, worldSize?: unknown) {
   if (!isDifficulty(value)) return;
-  const soloFirstDay = players.size <= 1 && state.cycleTick < DAY_TICKS;
+  const soloFirstDay = players.size <= 1 && state.cycleTick < dayTicksFor(0);
   if (state.difficultyClaimed && !soloFirstDay) return;
   // New Game with a different map size: regenerate the (still unclaimed / first-day solo) world at it.
   if (typeof worldSize === "number" && Number.isFinite(worldSize) && clampWorldSize(worldSize) !== state.WORLD_TILES_X) {

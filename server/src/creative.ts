@@ -11,7 +11,7 @@ import {
 } from "@colony/shared/protocol";
 import type { Colonist, Mob, Player, RaidFactionId, RaidGroup, SiteState, SiteTemplateId, TileCoord } from "./types.js";
 import {
-  DAY_TICKS, GAME_DAY_TICKS, MOB_KIND_CONFIG, NIGHT_TICKS, PLAYER_ATTACK_RANGE, RAID_FACTIONS, SITE_TEMPLATES,
+  GAME_DAY_TICKS, MOB_KIND_CONFIG, PLAYER_ATTACK_RANGE, RAID_FACTIONS, SITE_TEMPLATES,
   STANCES, STANCE_ALERT_RANGE_TILES, LINE_LEASH_TILES,
 } from "./constants.js";
 import {
@@ -19,7 +19,7 @@ import {
   type Clan,
 } from "./state.js";
 import { setTile } from "./chunks.js";
-import { inBounds, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
+import { inBounds, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter, dayTicksFor } from "./tiles.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import { releaseResourceReservation } from "./economy.js";
 import { nearestTownCenter, newPerson, settlementKeyNear, spawnColonistForPost, spawnVillager, townCenterMaxHp } from "./colonists.js";
@@ -470,7 +470,11 @@ export function handleCreativeSpawn(player: Player, msg: Record<string, unknown>
 }
 
 // A function (not a const): this module may evaluate before constants.js in the import cycle.
-const timePhases = (): Record<string, number> => ({ dawn: 1, noon: Math.floor(DAY_TICKS / 2), dusk: DAY_TICKS - TICK_RATE * 5, night: DAY_TICKS + 1, midnight: DAY_TICKS + Math.floor(NIGHT_TICKS / 2) });
+// Gap closure G4: from that day's seasonal daylight.
+const timePhases = (dayIndex: number): Record<string, number> => {
+  const d = dayTicksFor(dayIndex);
+  return { dawn: 1, noon: Math.floor(d / 2), dusk: d - TICK_RATE * 5, night: d + 1, midnight: d + Math.floor((GAME_DAY_TICKS - d) / 2) };
+};
 
 // creativeSet {op, ...}: allowAttack {on} | godmode {on} | heal | killMobs | clearNeutrals | clearWildlife |
 // setTime {day?, phase?} | calendar {season?, day?, weather?} | people {count, child?} | raid {day?} | stamp {template, x, y} | tradingPost {x, y, level?} |
@@ -542,7 +546,7 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
     reply(true, `Cleared ${n} animals`);
   } else if (op === "setTime") {
     const day = Number.isFinite(Number(msg.day)) ? Math.max(0, Math.floor(Number(msg.day)) - 1) : Math.floor(state.cycleTick / GAME_DAY_TICKS);
-    const phases = timePhases();
+    const phases = timePhases(day);
     const within = typeof msg.phase === "string" && msg.phase in phases ? phases[msg.phase] : state.cycleTick % GAME_DAY_TICKS;
     state.cycleTick = day * GAME_DAY_TICKS + within;
     state.wasNight = isNightNow();

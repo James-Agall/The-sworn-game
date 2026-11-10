@@ -1,9 +1,10 @@
 // tiles.ts: Tile helpers: indices, bounds, biomes, roads, building levels, the owner map, day/night.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { TileType, TILE_SIZE, PLAYER_HALF_SIZE, isSolidTile, isGateTile, Biome, isRoadTile } from "@colony/shared/protocol";
+import { SNOW_ROADS_CLEAR, SNOW_SPEED_MULT, seasonDayTicks } from "@colony/shared/calendar";
 import type { TileCoord } from "./types.js";
 import {
-  DAY_TICKS, FARM_PRODUCE_BY_TILE, HILLS_MINING_BONUS, LEVEL_BONUS_PER_STEP, NIGHT_TICKS, PLAINS_FARMING_BONUS,
+  DAY_TICKS, FARM_PRODUCE_BY_TILE, GAME_DAY_TICKS, HILLS_MINING_BONUS, LEVEL_BONUS_PER_STEP, PLAINS_FARMING_BONUS,
   ROAD_SPEED_BONUS, SWAMP_SPEED_PENALTY,
 } from "./constants.js";
 import { buildingLevel, colonists, constructionSites, ownerSiteIds, players, state, structureBreach, tileOwner } from "./state.js";
@@ -11,6 +12,7 @@ import {
   FOOTPRINT_BY_TILE, footprintAnchorOf, placedFootprintAt, type Footprint,
 } from "@colony/shared/buildings";
 import { isWalkablePixel } from "./wildlife.js";
+import { isRoofed } from "./structures.js";
 
 export function ownerAt(index: number): number {
   return tileOwner.size === 0 ? 0 : (tileOwner.get(index) ?? 0);
@@ -90,9 +92,17 @@ export function biomeAt(tx: number, ty: number): Biome {
 
 // Movement multiplier for any entity (player, colonist, mob), from the biome of the tile it is
 // standing on right now (not where it is heading).
+// Gap closure G4: snowing right now (seasons on; set every tick by calendar.ts updateCalendar).
+let snowSlow = false;
+export function setSnowSlow(on: boolean) {
+  snowSlow = on;
+}
 export function biomeSpeedMultiplier(px: number, py: number): number {
   const t = tileOfPixel(px, py);
-  return biomeAt(t.x, t.y) === Biome.Swamp ? 1 - SWAMP_SPEED_PENALTY : 1;
+  const biome = biomeAt(t.x, t.y) === Biome.Swamp ? 1 - SWAMP_SPEED_PENALTY : 1;
+  // Snow slows everyone outdoors (roads are cleared; roofed rooms are indoors).
+  if (snowSlow && !(SNOW_ROADS_CLEAR && isRoadTile(tileAtPixel(px, py))) && !isRoofed(t.x, t.y)) return biome * SNOW_SPEED_MULT;
+  return biome;
 }
 export function roadSpeedMultiplier(px: number, py: number): number {
   return isRoadTile(tileAtPixel(px, py)) ? 1 + ROAD_SPEED_BONUS : 1;
@@ -128,9 +138,24 @@ export function tileOccupiedByEntity(tx: number, ty: number): boolean {
 export function resourceKey(tx: number, ty: number): string {
   return `${tx},${ty}`;
 }
+// Gap closure G4: daylight varies by season (shared SEASON_DAYLIGHT_MULT); the cycle (GAME_DAY_TICKS) is fixed.
+// dayIndex = floor(cycleTick / GAME_DAY_TICKS) (the calendar day minus the calendar offset). Seasons off (the older
+// test suites, COLONY_NO_SEASONS): always DAY_TICKS / NIGHT_TICKS.
+export function dayTicksFor(dayIndex: number): number {
+  return state.seasonsOff ? DAY_TICKS : seasonDayTicks(DAY_TICKS, GAME_DAY_TICKS, dayIndex + state.calendarOffset);
+}
+export function nightTicksFor(dayIndex: number): number {
+  return GAME_DAY_TICKS - dayTicksFor(dayIndex);
+}
+export function dayIndexAt(tick: number): number {
+  return Math.floor(tick / GAME_DAY_TICKS);
+}
+// Daylight ticks of the day `tick` falls in (default: now).
+export function dayTicksAt(tick = state.cycleTick): number {
+  return dayTicksFor(dayIndexAt(tick));
+}
 export function isNightNow(): boolean {
-  const t = state.cycleTick % (DAY_TICKS + NIGHT_TICKS);
-  return t >= DAY_TICKS;
+  return state.cycleTick % GAME_DAY_TICKS >= dayTicksAt();
 }
 
 export function levelBonus(level: number, step = LEVEL_BONUS_PER_STEP): number {

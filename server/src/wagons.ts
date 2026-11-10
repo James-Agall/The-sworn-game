@@ -9,7 +9,7 @@
 import { TICK_RATE, TILE_SIZE, TRADE_GOODS, TileType, type BuildingInfo, type DangerBand, type TradeGood, type WagonSnapshot } from "@colony/shared/protocol";
 import type { Colonist, ResourceKey, SiteState, TileCoord, TradingPostState } from "./types.js";
 import {
-  COLONIST_SPEED, DAY_TICKS, GAME_DAY_TICKS, RESPAWN_FOOD_COST, SETTLEMENT_GOLD_CAP, SETTLEMENT_STOCK_CAP, TRADE_BASE_PRICE,
+  COLONIST_SPEED, GAME_DAY_TICKS, RESPAWN_FOOD_COST, SETTLEMENT_GOLD_CAP, SETTLEMENT_STOCK_CAP, TRADE_BASE_PRICE,
   TRADE_DAILY_CAP_PER_GOOD, TRADE_GOLD_PER_RELATION, WAGON_CLAN_CAP, WAGON_DANGER_COST, WAGON_DANGER_DEADLY, WAGON_DANGER_RISKY,
   WAGON_DELIVERY_RELATION, WAGON_EXPORT_RESERVE, WAGON_HAZARD_BOSS, WAGON_HAZARD_CAMP, WAGON_HAZARD_RAID, WAGON_HAZARD_SITE,
   WAGON_INTERNAL_VALUE, WAGON_LEVELS, WAGON_LOSS_RELATION, WAGON_MAX_TRIP_TILES, WAGON_RAID_MEMORY_DAYS, WAGON_UNLOAD_TICKS,
@@ -19,7 +19,7 @@ import { colonists, hearths, mobs, players, sites, state, tradingPosts } from ".
 import { CHUNK_ACTIVATE, CHUNK_TILES, streamingOn } from "./chunks.js";
 import { hashId, wagonAbstractStats, worldRng } from "./abstract.js";
 import { chronicle } from "./chronicle.js";
-import { getBuildingLevel, inBounds, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
+import { getBuildingLevel, inBounds, isNightNow, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter, dayTicksAt } from "./tiles.js";
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { freeVillagerFor, respawnWindowAt, settlementKeyNear, spawnColonistForPost, tilesOfType, transplantPerson, trySpendFood } from "./colonists.js";
 import { ensureFollowGroup, leaveOrderGroup, rallyUnit } from "./orders.js";
@@ -601,7 +601,7 @@ function updatePost(key: string, post: TradingPostState, windowNow: boolean) {
   const wg = w.wagon;
   if (wg.leg === "home") {
     if (w.hp < w.maxHp) w.hp = Math.min(w.maxHp, w.hp + w.maxHp * 0.02);
-    if (post.auto && !night && state.cycleTick % GAME_DAY_TICKS < DAY_TICKS * AUTO_DEPART_UNTIL) sendWagon(key, "auto", false);
+    if (post.auto && !night && state.cycleTick % GAME_DAY_TICKS < dayTicksAt() * AUTO_DEPART_UNTIL) sendWagon(key, "auto", false);
     return;
   }
   // On the road: keep the escort on its follow order (respawned / loaded / re-ordered units rejoin it).

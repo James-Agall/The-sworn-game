@@ -684,6 +684,17 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Gap closure G4: season polish (2026-11-10)
+Automated: `npm test -- calendar`.
+1. Creative: Calendar to Summer 2, setTime noon. Watch the sundial: the day arc is larger than in spring; night comes
+   late (about 345 s of daylight) and is short (30 s). Villagers shelter later.
+2. Calendar to Winter 2: the day arc is smaller; night falls ~45 s earlier than in spring and lasts 120 s. Raids
+   still march at nightfall; the dawn / dusk "next window" countdown matches the earlier dusk.
+3. Winter with weather Snow: walk the hero across grass, then along a road, then into a roofed room: grass is a little
+   slower (x0.9), the road and the room are not. Units and raiders also slow down in the snow.
+4. (768+ map) Pick berry bushes far from home in late autumn, leave the area for a few winter days, come back: they
+   are still mostly bare (winter regrowth is a quarter); in summer the same trip finds them ripe.
+
 ## Gap closure G3: hand-assign workers (2026-11-10)
 Automated: `npm test -- work-priorities`.
 1. Build a Hunter's Hut (or Lumber Camp) with 2+ free villagers. Click it: the panel has a **Workers** section: the

@@ -11,12 +11,12 @@ import type {
 } from "./types.js";
 import {
   BISHOP_MAX_HP, BISHOP_SPEED, BUILDER_IDLE_RETRY_TICKS, BUILDER_MAX_PER_SITE, BUILDER_ROUTE_CANDIDATES,
-  BUILDER_WORK_RANGE_PX, CIVILIAN_MAX_HP, COLONIST_SPEED, CRAFT_RECIPES, DAY_TICKS, DUSK_RESPAWN_CYCLE_TICK,
+  BUILDER_WORK_RANGE_PX, CIVILIAN_MAX_HP, COLONIST_SPEED, CRAFT_RECIPES,
   FARMER_PLOT_DWELL_TICKS, FARMHAND_YIELD_PER_CYCLE, FOOD_FARM_TILES, FOOD_OUTPUT_MULT, FARM_PRODUCE_BY_TILE, FOOD_PER_COLONIST_PER_DAY, GAME_DAY_TICKS,
   GARRISON_LOITER_PX, GATHER_RESOURCE_TILE, HAPPINESS_DESERTION_CHANCE, HAPPINESS_DESERTION_THRESHOLD,
   HAPPINESS_MUTINY_THRESHOLD, HAPPINESS_SCENERY_TREE_BASELINE, HERO_POPULATION_COST, IDLE_RETRY_TICKS,
   KEEP_GARRISON_PER_LEVEL, KEEP_POPULATION_PER_LEVEL, MOB_ATTACK_RANGE, MOB_DAMAGE, MOB_KIND_CONFIG,
-  MOB_MARK_DEFAULTS, MOB_SPEED, NEIGHBOURS_8, NIGHT_TICKS, POPULATION_GATED_TILES, PRODUCTION_HAPPINESS_FLOOR,
+  MOB_MARK_DEFAULTS, MOB_SPEED, NEIGHBOURS_8, POPULATION_GATED_TILES, PRODUCTION_HAPPINESS_FLOOR,
   REPAIR_COST_FRACTION, REPAIR_MOB_CLEARANCE_TILES, REPAIR_SECONDS_FULL, REPAIR_SHORT_TOAST_TICKS, RESPAWN_FOOD_COST,
   SETTLEMENT_POP_CAP_BY_TIER, SIEGE_POPULATION_COST, STARVATION_DAMAGE, TAVERN_HAPPINESS_RADIUS_TILES,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
@@ -30,7 +30,7 @@ import {
 import { byColumn, setTile, tileCountOf, tileIndicesOf, tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import {
   biomeSpeedMultiplier, getBuildingLevel, inBounds, isNightNow, levelBonus, ownerAt, resourceKey,
-  roadSpeedMultiplier, tileIndex, tileOfPixel, tileToPixelCenter,
+  roadSpeedMultiplier, tileIndex, tileOfPixel, tileToPixelCenter, dayTicksAt,
 } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import {
@@ -773,17 +773,20 @@ export function topUpTownCenterBuilders(tc: TownCenter) {
   for (let i = have; i < tc.level; i++) staffPost(tc.x, tc.y, "builder");
 }
 
+// Gap closure G4: dusk = the last tick of that day's seasonal daylight (= DUSK_RESPAWN_CYCLE_TICK with seasons off).
+function duskTickOf(tick: number): number {
+  return dayTicksAt(tick) - 1;
+}
 export function respawnWindowAt(tick: number): RespawnWindow | null {
   const t = tick % GAME_DAY_TICKS;
-  return t === 0 ? "dawn" : t === DUSK_RESPAWN_CYCLE_TICK ? "dusk" : null;
+  return t === 0 ? "dawn" : t === duskTickOf(tick) ? "dusk" : null;
 }
 
 // The first window strictly after `tick`, and how many ticks away it is.
 export function nextRespawnWindow(tick: number): { window: RespawnWindow; ticks: number } {
   const t = tick % GAME_DAY_TICKS;
-  return t < DUSK_RESPAWN_CYCLE_TICK
-    ? { window: "dusk", ticks: DUSK_RESPAWN_CYCLE_TICK - t }
-    : { window: "dawn", ticks: GAME_DAY_TICKS - t };
+  const dusk = duskTickOf(tick);
+  return t < dusk ? { window: "dusk", ticks: dusk - t } : { window: "dawn", ticks: GAME_DAY_TICKS - t };
 }
 
 // The snapshot's `respawn` (protocol RespawnWindowSnapshot).
@@ -796,8 +799,8 @@ export function respawnWindowSnapshot() {
       (state.wardPriestAwaitingWindow && state.clan.id === 0 ? 1 : 0),
     nextWindow: next.window,
     ticksToWindow: next.ticks,
-    dayTicks: DAY_TICKS,
-    nightTicks: NIGHT_TICKS,
+    dayTicks: dayTicksAt(),
+    nightTicks: GAME_DAY_TICKS - dayTicksAt(),
   };
 }
 

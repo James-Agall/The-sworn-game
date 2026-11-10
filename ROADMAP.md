@@ -2155,6 +2155,29 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Gap closure G4 — landed 2026-11-10 (season polish: day length, snow, cold forage catch-up)
+
+QUEUE "RimWorld/Stardew gap closure" G4. Numbers in `shared/src/calendar.ts`.
+- **Day length by season**: `SEASON_DAYLIGHT_MULT` spring 1, summer 1.15, autumn 1, winter 0.85 of the base daylight
+  (`DAY_TICKS`, 300 s): summer 345 s day / 30 s night, winter 255 s / 120 s. The whole cycle `GAME_DAY_TICKS` (375 s)
+  never changes, so the calendar, quests, diplomacy days and every "per day" timer stay valid; the length changes at
+  dawn. `seasonDayTicks` (shared) and `server/src/tiles.ts` `dayTicksFor(dayIndex)` / `nightTicksFor` / `dayTicksAt(tick)`
+  (dayIndex = floor(cycleTick / GAME_DAY_TICKS)). Consumers moved to it: `isNightNow` (shelter, hero rest, wagons,
+  quests, sites, interiors, animals, respawn waits), the raid spawn (midday of today's daylight), raid nightfall and
+  arrival window (raids.ts, warbands.ts, abstract.ts), the dawn / dusk respawn windows and their snapshot, the hall
+  dusk, wagon auto-departure, the solo first-day check, creative setTime phases, and the snapshot `dayFraction` (the
+  sundial's day / night arcs and the night overlay follow it). Seasons off (`COLONY_NO_SEASONS`, every pre-5b suite):
+  always the old `DAY_TICKS` / `NIGHT_TICKS`. Training days (people.ts) and old-save migration keep the base constant.
+- **Snow**: while it snows (seasons on), every unit outdoors (player, colonists, soldiers, mobs, raiders, wildlife)
+  moves x `SNOW_SPEED_MULT` (0.9) via `biomeSpeedMultiplier`; roads are cleared (`SNOW_ROADS_CLEAR`) and roofed rooms
+  are indoors. The flag is refreshed once a second (calendar.ts `snowSlowNow`, tiles.ts `setSnowSlow`).
+- **COLD chunk catch-up**: forage regrowth on waking advances by `forageRegrowTicksBetween(since, now)` (calendar.ts):
+  winter days count x `WINTER_FORAGE_REGROW_MULT` (0.25, the warm-chunk rate), the rest in full.
+- **Tests**: `server/calendar-test.mjs` sections 12-14 (daylight per season, winter night / dusk / sundial share, summer
+  still light, seasons off = constants, snow x0.9 outdoors vs road / room x1, forage catch-up). Run: `npm test -- calendar`.
+- **Skipped**: a smooth (per-day) daylight curve (steps per season); snow depth / drifts; COLD-chunk catch-up of crops
+  (zones are only in warm player land).
+
 ## Gap closure G3 — landed 2026-11-10 (hand-assign workers)
 
 QUEUE "RimWorld/Stardew gap closure" G3. Logic in `server/src/work.ts` (assignWorkerTo / unassignWorker / workPostsFor /

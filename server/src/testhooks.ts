@@ -26,7 +26,7 @@ import { adjustRelation, applySiteTier, catchUpCampGrowth, relationOf, siteFitPr
 import { spawnCampRaids, spawnWarband, warbandsDebug } from "./warbands.js";
 import {
   ARMOUR_DAMAGE_TAKEN_MULT, BARN_FARM_RADIUS_TILES, BARN_MAX_FARM_PLOTS, DAY_LENGTH_SCALE, DAY_TICKS,
-  DESERTER_ACTIVATION_TICKS, DUSK_RESPAWN_CYCLE_TICK, FARMHAND_CYCLE_TICKS, FARMHAND_YIELD_PER_CYCLE, HEMP_GROW_TICKS, HEMP_YIELD_PER_HARVEST,
+  DESERTER_ACTIVATION_TICKS, FARMHAND_CYCLE_TICKS, FARMHAND_YIELD_PER_CYCLE, HEMP_GROW_TICKS, HEMP_YIELD_PER_HARVEST,
   FARM_FALLOW_TICKS, FARM_GROW_TICKS, FARM_HARVESTS_BEFORE_FALLOW, FARM_HARVEST_TICKS, FARM_SOWN_FRACTION,
   FARM_YIELD_PER_HARVEST, FOOD_PER_COLONIST_PER_DAY, FORAGE_FRUIT_YIELD, FORAGE_PICKED_TO_RIPE, FORAGE_REGROW_TICKS,
   FORAGE_RIPE_TO_PICKED, GAME_DAY_TICKS, HERO_KEY_PREFIX, LEGACY_DAY_TICKS, LEGACY_GAME_DAY_TICKS,
@@ -45,7 +45,7 @@ import {
 } from "./state.js";
 import {
   getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, setOwner, siteNumber, tileIndex, tileOfPixel,
-  tileToPixelCenter,
+  tileToPixelCenter, dayTicksAt, setSnowSlow, biomeSpeedMultiplier,
 } from "./tiles.js";
 import { findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import {
@@ -90,7 +90,7 @@ import { forceVassal, placeTradingPost, spawnMobAt, spawnRaidGroupAt, spawnSoldi
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
 import { BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, FOOD_TIME_MULT, PASTURE_YIELDS } from "@colony/shared/buildings";
 import { assignHomes, handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
-import { calendarDayNow, calendarNow, calendarSnapshot, rainingNow, setCalendar, setWeatherOverride, updateCalendar, winterNow } from "./calendar.js";
+import { calendarDayNow, calendarNow, calendarSnapshot, rainingNow, setCalendar, setWeatherOverride, updateCalendar, winterNow, snowSlowNow, forageRegrowTicksBetween } from "./calendar.js";
 import { weatherForDay } from "@colony/shared/calendar";
 import { enterInterior, exitInterior, handleInteriorExit, interiorDebug } from "./interiors.js";
 
@@ -104,8 +104,8 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "raidState") {
     reply({
       cycleTick: state.cycleTick,
-      dayTicks: DAY_TICKS,
-      nightTicks: NIGHT_TICKS,
+      dayTicks: dayTicksAt(),
+      nightTicks: GAME_DAY_TICKS - dayTicksAt(),
       worldTiles: state.WORLD_TILES_X,
       groups: Array.from(raidGroups.values()).map((g) => ({
         id: g.id,
@@ -1123,6 +1123,11 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     if (st) setCalendar(st.season, st.day, st.year);
     if (typeof msg.weather === "string") setWeatherOverride(msg.weather === "auto" ? null : msg.weather);
     if (msg.update) updateCalendar();
+    // Gap closure G4: refresh the snow flag now (updateCalendar does it once a second); speedAt {x, y} (pixels): the
+    // terrain / snow move-speed factor there; forageBetween [from, to]: winter-aware forage regrowth ticks.
+    setSnowSlow(snowSlowNow());
+    const sa = msg.speedAt as { x?: unknown; y?: unknown } | undefined;
+    const fb = msg.forageBetween as unknown;
     const today = calendarDayNow();
     const n = Math.max(0, Math.min(400, Number(msg.forecast) || 0));
     reply({
@@ -1135,6 +1140,13 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       forecast: Array.from({ length: n }, (_, k) => weatherForDay(state.worldNoiseSalt, k)),
       winter: winterNow(),
       raining: rainingNow(),
+      // Gap closure G4: today's daylight / night ticks and whether snow slows units now.
+      dayTicks: dayTicksAt(),
+      nightTicks: GAME_DAY_TICKS - dayTicksAt(),
+      isNight: isNightNow(),
+      snowSlow: snowSlowNow(),
+      ...(sa && typeof sa.x === "number" && typeof sa.y === "number" ? { speed: biomeSpeedMultiplier(sa.x, sa.y) } : {}),
+      ...(Array.isArray(fb) && fb.length === 2 ? { forage: forageRegrowTicksBetween(Number(fb[0]), Number(fb[1])) } : {}),
       happiness: state.colonyHappiness,
     });
   } else if (msg.op === "zoneState") {
@@ -1229,7 +1241,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       queue: respawnQueue.map((q) => ({ ...q })),
       respawn: respawnWindowSnapshot(),
       window: respawnWindowAt(state.cycleTick),
-      duskTick: DUSK_RESPAWN_CYCLE_TICK,
+      duskTick: dayTicksAt() - 1,
       wardPriestRespawnTicks: state.wardPriestRespawnTicks,
       constants: {
         DAY_TICKS, NIGHT_TICKS, GAME_DAY_TICKS, LEGACY_DAY_TICKS, LEGACY_NIGHT_TICKS, DAY_LENGTH_SCALE, FOOD_TIME_MULT,

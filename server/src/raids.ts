@@ -7,17 +7,17 @@ import type {
   Mob, RaidEdge, RaidFactionEntry, RaidFactionId, RaidFormationShape, RaidGroup, TileCoord,
 } from "./types.js";
 import {
-  DAY_TICKS, DESERTER_ACTIVATION_TICKS, DESERTER_WAVE_CHANCE, DIFFICULTY_TUNING, HUNGER_MARK_RAIDERS_PER_MARK,
-  MOB_KIND_CONFIG, MOB_MARK_DEFAULTS, MOB_REPATH_TICKS, MOB_SPEED, NIGHT_TICKS, RAID_ARRIVAL_WINDOW_FRACTION,
+  DESERTER_ACTIVATION_TICKS, DESERTER_WAVE_CHANCE, DIFFICULTY_TUNING, HUNGER_MARK_RAIDERS_PER_MARK,
+  MOB_KIND_CONFIG, MOB_MARK_DEFAULTS, MOB_REPATH_TICKS, MOB_SPEED, RAID_ARRIVAL_WINDOW_FRACTION,
   RAID_BASE_SIZE, RAID_POP_FACTOR_MAX_BY_TIER, RAID_POP_FACTOR_MIN, RAID_POP_REFERENCE, RAID_EDGE_BAND_TILES, RAID_ENGAGE_RANGE_TILES, RAID_FACTIONS, RAID_FOLLOWER_CATCHUP,
   RAID_FORMATION_SHAPE, RAID_FORMATION_SPACING_BODIES, RAID_GROUP_SIZE_MAX, RAID_GROUP_SIZE_MIN,
   RAID_HEADING_SMOOTHING, RAID_HORDE_SHARE_MAX, RAID_HORDE_SHARE_MIN, RAID_LOITER_CHANCE_PER_TICK,
   RAID_LOITER_RADIUS_TILES, RAID_MARCH_REPATH_TICKS, RAID_REACH_BUDGET, RAID_REACH_RADIUS, RAID_REAR_RANK_TILES,
   RAID_RELEASE_ROW_TICKS, RAID_SIZE_PER_DAY, RAID_SPAWN_DIST_STEPS, RAID_TRAVEL_MARGIN_TICKS, RAID_TRAVEL_SLACK,
-  RAID_WEDGE_LOOSENESS,
+  RAID_WEDGE_LOOSENESS, GAME_DAY_TICKS,
 } from "./constants.js";
 import { colonists, mobs, players, raidGroups, state } from "./state.js";
-import { biomeSpeedMultiplier, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
+import { biomeSpeedMultiplier, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter, dayIndexAt, dayTicksFor, nightTicksFor } from "./tiles.js";
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { randInt, randRange } from "./worldgen.js";
 import { TOWN_CENTER_TILE, activeWardSources, civilianPopulationUsed, highestTownCenterLevel, isWarded, nearestTownCenter } from "./colonists.js";
@@ -270,12 +270,13 @@ export function raidDepartureTick(from: TileCoord, group: RaidGroup, nightfallTi
   const slowest = Math.max(1, Math.min(...speeds));
   const px = Math.max(0, routeTiles - RAID_ENGAGE_RANGE_TILES) * TILE_SIZE;
   const travel = Math.ceil(((px * RAID_TRAVEL_SLACK) / slowest) * TICK_RATE) + RAID_TRAVEL_MARGIN_TICKS;
-  const arrival = nightfallTick + Math.floor(Math.random() * NIGHT_TICKS * RAID_ARRIVAL_WINDOW_FRACTION);
+  const arrival = nightfallTick + Math.floor(Math.random() * nightTicksFor(dayIndexAt(nightfallTick)) * RAID_ARRIVAL_WINDOW_FRACTION);
   return Math.max(state.cycleTick, arrival - travel);
 }
 
 export function spawnRaid(dayIndex: number) {
-  const nightfallTick = dayIndex * (DAY_TICKS + NIGHT_TICKS) + DAY_TICKS;
+  // Gap closure G4: nightfall of that day's seasonal daylight.
+  const nightfallTick = dayIndex * GAME_DAY_TICKS + dayTicksFor(dayIndex);
   // Forts phase G: overgrown (tier 3+) founded camps near this clan swell its night raid.
   const total = Math.round(raidSizeForDay(dayIndex) * (1 + campRaidBonus()));
   const eligibleDeserters = Array.from(mobs.values()).filter(

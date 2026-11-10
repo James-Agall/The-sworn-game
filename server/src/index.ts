@@ -11,15 +11,15 @@ import {
 } from "@colony/shared/protocol";
 import type { Player } from "./types.js";
 import {
-  DAY_TICKS, NIGHT_TICKS, PLAYER_COLORS, PORT, SNAPSHOT_CULL_MIN_WORLD, SNAPSHOT_VIEW_TILES, TEST_HOOKS,
+  PLAYER_COLORS, PORT, SNAPSHOT_CULL_MIN_WORLD, SNAPSHOT_VIEW_TILES, TEST_HOOKS,
   TICK_DURATION_SAMPLES,
-  BIG_BATTLE_SNAPSHOT_UNITS,
+  BIG_BATTLE_SNAPSHOT_UNITS, GAME_DAY_TICKS,
 } from "./constants.js";
 import {
   clans, colonists, gravestones, lap, lapReset, mobs, players, state, summonedUntil, tickDurationsMs, tileOwner,
 } from "./state.js";
 import { setTile } from "./chunks.js";
-import { anchorOfTile, clamp, inBounds, isNightNow, ownerAt, tileIndex } from "./tiles.js";
+import { anchorOfTile, clamp, inBounds, isNightNow, ownerAt, tileIndex, dayTicksAt } from "./tiles.js";
 import "./pathfinding.js";
 import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchangeResource } from "./economy.js";
 import { generateWorld } from "./worldgen.js";
@@ -509,8 +509,9 @@ setInterval(() => {
       marketBuilt: state.marketBuilt,
       goldShopBuilt: state.goldShopBuilt,
       isNight: night,
-      cycleProgress: (state.cycleTick % (DAY_TICKS + NIGHT_TICKS)) / (DAY_TICKS + NIGHT_TICKS),
-      dayFraction: DAY_TICKS / (DAY_TICKS + NIGHT_TICKS),
+      cycleProgress: (state.cycleTick % GAME_DAY_TICKS) / GAME_DAY_TICKS,
+      // Gap closure G4: today's seasonal daylight share (the sundial redraws its day / night arcs on a change).
+      dayFraction: dayTicksAt() / GAME_DAY_TICKS,
       calendar: calendarNowSnap,
       isPaused: state.isPaused,
       ...(state.pausedBy ? { pausedBy: state.pausedBy } : {}),

@@ -7,18 +7,20 @@
 //    then refills by elapsed time as before.
 //  - Wildlife: animals in a COLD chunk become a per-kind COUNT; on waking the count is caught up in closed form
 //    (logistic toward a per-chunk level, never above the global cap) and real animals spawn inside the chunk.
-//  - Forage regrowth: timers in COLD chunks stand still (wildlife.ts) and are caught up by the elapsed ticks.
+//  - Forage regrowth: timers in COLD chunks stand still (wildlife.ts) and are caught up by the elapsed ticks (gap
+//    closure G4: winter ticks count x WINTER_FORAGE_REGROW_MULT, as in a warm chunk; calendar.ts forageRegrowTicksBetween).
 // Dice: worldRng(worldNoiseSalt, chunk / site / wagon id, day), so a reload or replay rolls the same outcome.
 // Conservation: every entity is in exactly one form; auditWorld (test hook) checks it.
 import { randomUUID } from "node:crypto";
 import { chronicle } from "./chronicle.js";
 import { type MobKind, type WildlifeKind, TICK_RATE, TILE_SIZE, WILDLIFE_KINDS } from "@colony/shared/protocol";
 import type { RaidFactionId, TileCoord } from "./types.js";
-import { GAME_DAY_TICKS, MOB_KIND_CONFIG, NIGHT_TICKS, RAID_ARRIVAL_WINDOW_FRACTION, RAID_TRAVEL_SLACK } from "./constants.js";
+import { GAME_DAY_TICKS, MOB_KIND_CONFIG, RAID_ARRIVAL_WINDOW_FRACTION, RAID_TRAVEL_SLACK } from "./constants.js";
 import { colonists, forageRegrow, mobs, parkedMobs, raidGroups, sites, state, wildlife } from "./state.js";
 import { musterRaidGroup, warbands } from "./warbands.js";
 import { clanById, withClan } from "./clans.js";
-import { inBounds } from "./tiles.js";
+import { dayIndexAt, inBounds, nightTicksFor } from "./tiles.js";
+import { forageRegrowTicksBetween } from "./calendar.js";
 import { isWalkableTile } from "./pathfinding.js";
 import { isInSiteGrounds } from "./sites.js";
 import {
@@ -138,7 +140,7 @@ export function addAbstractRaid(r: { faction: RaidFactionId; kinds: MobKind[]; x
   const slowest = Math.max(1, Math.min(...r.kinds.map((k) => MOB_KIND_CONFIG[k].speed)));
   const pace = slowest / TILE_SIZE / TICK_RATE / RAID_TRAVEL_SLACK;
   const travel = Math.hypot(r.tx - r.x, r.ty - r.y) * 1.3 / pace;
-  const arrival = r.nightfall + Math.floor(Math.random() * NIGHT_TICKS * RAID_ARRIVAL_WINDOW_FRACTION);
+  const arrival = r.nightfall + Math.floor(Math.random() * nightTicksFor(dayIndexAt(r.nightfall)) * RAID_ARRIVAL_WINDOW_FRACTION);
   const aggroTick = state.testHoldRaidAggro ? r.nightfall : Math.max(state.cycleTick, Math.floor(arrival - travel));
   const rec: AbstractRaid = { id: `araid:${randomUUID()}`, faction: r.faction, kinds: [...r.kinds], x: r.x, y: r.y, tx: r.tx, ty: r.ty, edge: r.edge, clan: r.clan, aggroTick, pace };
   abstractRaids.set(rec.id, rec);
@@ -296,9 +298,10 @@ function wakeChunk(c: number, rec: ColdChunk) {
     }
   }
   if (elapsed > 0) {
+    const grown = forageRegrowTicksBetween(rec.since, now);
     for (const [i, ticks] of forageRegrow) {
       if (chunkOfIndex(i) !== c) continue;
-      forageRegrow.set(i, Math.max(1, ticks - elapsed));
+      forageRegrow.set(i, Math.max(1, ticks - grown));
       abstractStats.forageCaughtUp++;
     }
   }

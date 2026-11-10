@@ -20,14 +20,14 @@ import {
   ROOM_INFIRMARY_PRIEST_RANGE_TILES, ROOM_STOREROOM_PROTECT_MAX, chapelHasDevotions, infirmaryHealMult, storeroomProtection,
   FOOD_SPOIL_PER_DAY, FOOD_SPOIL_RESOURCES, RAID_THEFT_RESOURCES, RAID_THEFT_SHARE,
 } from "@colony/shared/rooms";
-import { DAY_TICKS, GAME_DAY_TICKS } from "./constants.js";
+import { GAME_DAY_TICKS } from "./constants.js";
 import { clanById, withClan } from "./clans.js";
 import { itemCount, takeItem } from "./progression.js";
 import type { ItemId } from "@colony/shared/progression";
 import type { RoomInfo } from "@colony/shared/protocol";
 import { colonists, players, state } from "./state.js";
 import { tileIndicesOfAny, tileRegistryEpoch, takeRoomDirtyTiles, tileTypesWhere } from "./chunks.js";
-import { inBounds, ownerAt, tileIndex } from "./tiles.js";
+import { inBounds, ownerAt, tileIndex, dayTicksAt } from "./tiles.js";
 import { structureHp } from "./combat.js";
 import { BUILDING_NAMES } from "./constants.js";
 import { clanIdAtIndex } from "./clans.js";
@@ -211,7 +211,8 @@ export function updateRooms() {
 // Dusk: the last ROOM_HALL_DUSK_SECONDS of the day (villagers' free time before night).
 export function isDuskNow(): boolean {
   const t = state.cycleTick % GAME_DAY_TICKS;
-  return t >= DAY_TICKS - ROOM_HALL_DUSK_SECONDS * TICK_RATE && t < DAY_TICKS;
+  const day = dayTicksAt();
+  return t >= day - ROOM_HALL_DUSK_SECONDS * TICK_RATE && t < day;
 }
 // Per clan: the most of its people seen in its best hall this dusk, and during the dusk before.
 const hallGather = new Map<number, { now: number; last: number; wasDusk: boolean }>();

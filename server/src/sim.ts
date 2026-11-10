@@ -5,13 +5,13 @@ import { topUpCreative } from "./creative.js";
 import { updatePrisonerWalkUp } from "./hearths.js";
 import { TICK_RATE, PLAYER_SPEED, PLAYER_HALF_SIZE } from "@colony/shared/protocol";
 import {
-  DAY_TICKS, FIGHT_SCAN_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS, NIGHT_TICKS, RAID_SPAWN_CYCLE_TICK,
-  TREE_RESPAWN_INTERVAL_TICKS, dt,
+  FIGHT_SCAN_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS,
+  TREE_RESPAWN_INTERVAL_TICKS, dt, GAME_DAY_TICKS,
 } from "./constants.js";
 import { clans, colonists, gravestones, lap, lapReset, mobs, players, state, tileOwner } from "./state.js";
 import { mobFrozenByStreaming, updateChunkStates, warmMobStride } from "./chunks.js";
 import { updateAbstractWorld } from "./abstract.js";
-import { biomeSpeedMultiplier, clamp, collidesAt, isNightNow, roadSpeedMultiplier, siteNumber } from "./tiles.js";
+import { biomeSpeedMultiplier, clamp, collidesAt, isNightNow, roadSpeedMultiplier, siteNumber, dayIndexAt, dayTicksFor } from "./tiles.js";
 import { separateBodies } from "./pathfinding.js";
 import { tryGrowTree, tryGrowTreesNearLumberjackPosts, updateFarmPlots } from "./economy.js";
 import { checkBossSightings } from "./worldgen.js";
@@ -100,8 +100,10 @@ export function stepSimulation() {
   if (clans.length === 1) state.colonyHappiness = computeColonyHappiness();
   else if (state.cycleTick % TICK_RATE === 0) forEachClan((clan) => (clan.colonyHappiness = computeColonyHappiness()));
 
-  const dayIndex = Math.floor(state.cycleTick / (DAY_TICKS + NIGHT_TICKS));
-  if (!nightNow && state.cycleTick % (DAY_TICKS + NIGHT_TICKS) >= RAID_SPAWN_CYCLE_TICK && state.raidSpawnedForDay !== dayIndex) {
+  const dayIndex = dayIndexAt(state.cycleTick);
+  // Gap closure G4: midday of today's seasonal daylight (= RAID_SPAWN_CYCLE_TICK with seasons off).
+  const raidTick = Math.floor(dayTicksFor(dayIndex) / 2);
+  if (!nightNow && state.cycleTick % GAME_DAY_TICKS >= raidTick && state.raidSpawnedForDay !== dayIndex) {
     state.raidSpawnedForDay = dayIndex;
     // With raids switched off by a test the day's raid is skipped for good, not deferred to re-enabling.
     // Clans: every clan with a Town Center gets its own raid on the shared schedule (clan 0 always).

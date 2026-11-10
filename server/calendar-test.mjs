@@ -3,7 +3,9 @@
 // first day, snow only in winter, a creative override), crop season gating (wheat in spring, hemp only in summer),
 // rain watering unroofed crops (not roofed ones), the daily water reset, winter stopping outdoor growth, the first
 // frost killing unroofed growing crops (ripe and roofed survive; roofed = greenhouse at half speed in any season),
-// the winter cold on the hero's rest, the snapshot field and save / load of the calendar.
+// the winter cold on the hero's rest, gap closure G4 (daylight by season with a fixed 24 h cycle, night / dusk /
+// sundial follow it, seasons off = the old constants, snow slows units outdoors but not on roads / indoors, winter-aware
+// COLD-chunk forage catch-up), the snapshot field and save / load of the calendar.
 // Needs a FRESH private server WITH seasons (no COLONY_NO_SEASONS): `npm test -- calendar`.
 import WebSocket from "ws";
 
@@ -16,7 +18,7 @@ const result = (ok, msg) => {
   console.log(`${ok ? "PASS" : "FAIL"} [${el()}] ${msg}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const T = { Empty: 0, Wall: 1, WoodDoor: 110 };
+const T = { Empty: 0, Wall: 1, Road: 60, WoodDoor: 110 };
 const TILE = 32;
 const GAME_DAY = 20 * (300 + 75);
 const DAY = 20 * 300;
@@ -226,7 +228,8 @@ const restDrop = async () => {
   await ff(40);
   return 80 - (await life()).life.rest;
 };
-const nightTick = (day) => (day * GAME_DAY) + DAY + 200;
+// Late night (G4: summer nights are short, so not DAY + 200).
+const nightTick = (day) => (day * GAME_DAY) + GAME_DAY - 450;
 await hook("setCycleTick", { tick: nightTick(1) });
 await cal({ set: { season: 1, day: 3 }, update: true });
 const summerDrop = await restDrop();
@@ -235,6 +238,64 @@ await cal({ set: { season: 3, day: 3 }, update: true });
 const winterDrop = await restDrop();
 result(summerDrop > 0 && Math.abs(winterDrop / summerDrop - 1.5) < 0.05, `winter night out in the cold: rest drains ${winterDrop.toFixed(2)} vs ${summerDrop.toFixed(2)}`);
 await life({ needs: false });
+
+// 12. Gap closure G4: daylight by season (spring x1, summer x1.15, winter x0.85); the 24 h cycle stays GAME_DAY.
+const SEASON_DAY = [DAY, Math.round(DAY * 1.15), DAY, Math.round(DAY * 0.85)];
+let lenOk = true;
+for (let season = 0; season < 4; season++) {
+  await hook("setCycleTick", { tick: GAME_DAY + 100 });
+  C = await cal({ set: { season, day: 2 }, update: true });
+  if (C.dayTicks !== SEASON_DAY[season] || C.dayTicks + C.nightTicks !== GAME_DAY) {
+    lenOk = false;
+    console.log(`  season ${season}: day ${C.dayTicks} night ${C.nightTicks}`);
+  }
+}
+result(lenOk, `daylight by season ${SEASON_DAY.join(" / ")} ticks, day + night = ${GAME_DAY}`);
+// Winter: dark at DAY - 500 (it would be day by the old constant); summer: still light at DAY + 500.
+await hook("setCycleTick", { tick: GAME_DAY + DAY - 500 });
+C = await cal({ set: { season: 3, day: 2 }, update: true });
+const rs = await hook("respawnState");
+await ff(1);
+await sleep(150);
+result(C.isNight && rs.isNight && rs.duskTick === SEASON_DAY[3] - 1 && Math.abs(c.snap.dayFraction - SEASON_DAY[3] / GAME_DAY) < 1e-6,
+  `winter: night at ${DAY - 500} (dusk window ${rs.duskTick}, sundial day share ${c.snap.dayFraction?.toFixed(3)})`);
+await hook("setCycleTick", { tick: GAME_DAY + DAY + 500 });
+C = await cal({ set: { season: 1, day: 2 }, update: true });
+result(!C.isNight && C.dayTicks === SEASON_DAY[1], `summer: still day at ${DAY + 500}`);
+// Seasons off (the older suites' runner switch): the old constants in any season.
+C = await cal({ off: true });
+await hook("setCycleTick", { tick: GAME_DAY + DAY - 500 });
+C = await cal({ set: { season: 3, day: 2 } });
+result(C.dayTicks === DAY && C.nightTicks === GAME_DAY - DAY && !C.isNight, `seasons off: ${C.dayTicks} + ${C.nightTicks}, day at ${DAY - 500} in winter`);
+await cal({ off: false });
+
+// 13. Snow slows units outdoors x0.9; a road and a roofed room are exempt; clear weather none.
+await setTile(H.x - 2, H.y + 3, T.Road);
+await ff(1);
+const px = (p) => ({ x: p.x * TILE + 16, y: p.y * TILE + 16 });
+const speeds = async (weather) => {
+  await cal({ set: { season: 3, day: 3 }, weather });
+  const out = [];
+  for (const p of [{ x: H.x, y: H.y + 3 }, { x: H.x - 2, y: H.y + 3 }, GH]) out.push((await cal({ speedAt: px(p) })).speed);
+  return out;
+};
+const clear = await speeds("clear");
+const snow = await speeds("snow");
+C = await cal();
+result(C.snowSlow && Math.abs(snow[0] / clear[0] - 0.9) < 1e-6 && snow[1] === clear[1] && snow[2] === clear[2],
+  `snow: outdoors x${(snow[0] / clear[0]).toFixed(2)}, road x${(snow[1] / clear[1]).toFixed(2)}, indoors x${(snow[2] / clear[2]).toFixed(2)}`);
+await cal({ weather: "auto" });
+
+// 14. COLD-chunk forage catch-up: a winter day regrows a quarter; summer in full (days of the current year).
+await hook("setCycleTick", { tick: 100 });
+C = await cal({ set: { season: 0, day: 1, year: 1 } });
+const off0 = C.offset;
+const startOf = (season, day) => (season * 7 + day - 1 - off0) * GAME_DAY;
+const fw = (await cal({ forageBetween: [startOf(3, 2), startOf(3, 3)] })).forage;
+const fs = (await cal({ forageBetween: [startOf(1, 2), startOf(1, 3)] })).forage;
+const fx = (await cal({ forageBetween: [startOf(2, 7), startOf(3, 2)] })).forage;
+result(fw === GAME_DAY / 4 && fs === GAME_DAY && fx === GAME_DAY + GAME_DAY / 4,
+  `forage catch-up: winter day ${fw}, summer day ${fs}, autumn->winter ${fx} (of ${GAME_DAY} a day)`);
 
 // 11. Save / load keeps the calendar offset and a creative weather override.
 await hook("setCycleTick", { tick: 2 * GAME_DAY + 100 });
