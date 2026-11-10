@@ -64,10 +64,10 @@ const serverEnvFor = (name) => ({
   ...HERO_RESPAWN, ...(SEASON_SUITES.has(name) ? {} : NO_SEASONS), ...(ROOM_SUITES.has(name) ? {} : LEGACY_BUILD), ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}),
 });
 const SERVER_ENV = {
-  "abbey-ward": INSTANT,
+  "abbey-ward": { ...INSTANT, ...LEGACY },
   "army-damage": { ...W80, ...INSTANT, ...LEGACY },
   "builders-farmers": W80,
-  "builders-towncenter": W80,
+  "builders-towncenter": { ...W80, ...LEGACY },
   "building-damage": { ...W80, ...INSTANT },
   creative: W80,
   difficulty: W80,

@@ -700,7 +700,8 @@ let b = null;
     const Fp = { x: s.x + 1, y: s.y - 1 };
     const pb = await placeExpectAt(a, B.x, B.y, T.Barn, B.x, B.y);
     await sleep(150);
-    result(pb.hit.length === 1 && kinds(a, "farmer").length === 1, `(g) Barn placed; farmers=${kinds(a, "farmer").length}; pop=${a.snap.population}/${a.snap.populationCap}`);
+    // Farm labour (2026-11-06): a level-1 Barn employs BARN_FARMERS_BY_LEVEL[0] = 2 farmers.
+    result(pb.hit.length === 1 && kinds(a, "farmer").length === 2, `(g) Barn placed; farmers=${kinds(a, "farmer").length}; pop=${a.snap.population}/${a.snap.populationCap}`);
     // Slow farming: paused before planting and moved on with testHook fastForward (raids off while days
     // are skipped). A harvest yields FARM_YIELD_PER_HARVEST grain at once; the first grow phase is the flat
     // FARM_GROW_TICKS (3 days), every later grow + harvest phase is scaled by the plot's biome (Plains
