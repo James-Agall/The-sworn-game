@@ -123,7 +123,7 @@ export interface ChoiceRt {
   label: string;
   disabled?: string;
   next?: string;
-  action?: DialogueAction | "accept" | "deliver" | "learn" | "back";
+  action?: DialogueAction | "accept" | "deliver" | "learn" | "back" | "pick";
   arg?: number | string;
 }
 // Stardew phase 5c: a talk inside a building interior (the NPC / bed / chest stands at interior px x / y of the
@@ -143,6 +143,8 @@ interface Talk {
   color: number;
   choices: ChoiceRt[];
   inside?: TalkInside;
+  // Phase 6: the people offered by the "who do you speak to?" chooser.
+  picks?: Target[];
 }
 interface Busy {
   gather?: GatherJob;
@@ -184,14 +186,17 @@ export interface Target {
   colonist?: Colonist;
   inside?: TalkInside;
 }
-function findTalkTarget(p: Player): Target | null {
-  let best: Target | null = null;
+// Phase 6: everyone in talking range, nearest first. The Elder is measured to the keep tile's edge (the keep is one
+// tile), every NPC / villager to its body, so a priest standing at the keep answers when it is the nearer one.
+const TALK_TIE_TILES = 0.35;
+function talkTargets(p: Player): Target[] {
+  const out: Target[] = [];
   const offer = (t: Target) => {
-    if (t.d <= TALK_RANGE_TILES && (!best || t.d < best.d)) best = t;
+    if (t.d <= TALK_RANGE_TILES) out.push(t);
   };
   for (const s of sites.values()) {
     if (!standingTown(s)) continue;
-    offer({ role: "leader", name: `Elder ${nameFor(s.id)}`, d: tileCenterDist(p, s.keepX, s.keepY) - 1.5, site: s });
+    offer({ role: "leader", name: `Elder ${nameFor(s.id)}`, d: Math.max(0, tileCenterDist(p, s.keepX, s.keepY) - 0.5), site: s });
   }
   for (const m of mobs.values()) {
     if (!m.siteWorker || !m.siteId) continue;
@@ -204,7 +209,19 @@ function findTalkTarget(p: Player): Target | null {
     if (!c.person || c.person.child || (c.clan ?? 0) !== p.clan || c.hp <= 0) continue;
     offer({ role: "folk", name: c.person.name, d: Math.hypot(c.x - p.x, c.y - p.y) / TILE_SIZE, colonist: c });
   }
-  return best;
+  return out.sort((a, b) => a.d - b.d);
+}
+
+// Two or more people about equally near: ask which one (the choice opens a talk with that one).
+function startTalkChooser(p: Player, ts: Target[]) {
+  const first = ts[0];
+  const t: Talk = {
+    role: first.role, name: first.name, siteId: first.site?.id, mobId: first.mob?.id, colonistId: first.colonist?.id,
+    color: talkColorFor(first.name), choices: [], picks: ts,
+  };
+  t.choices = [...ts.map((x, i) => ({ label: `Speak to ${x.name}.`, action: "pick" as const, arg: i })), { label: "Never mind.", action: "bye" }];
+  busyOf(p).talk = t;
+  sendTalk(p, t, "Who do you speak to?");
 }
 
 function fill(text: string, t: Talk, tier?: RelationTier): string {
@@ -333,6 +350,10 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
       return closeTalk(p);
     case "back":
       return renderTalk(p, t, "start");
+    case "pick": {
+      const x = t.picks?.[Number(c.arg)];
+      return x ? startTalk(p, x) : closeTalk(p);
+    }
     case "trade":
       if (!s) return closeTalk(p);
       gainSkill(p, "trading", 2);
@@ -664,12 +685,13 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
   // Stardew phase 5c: inside an interior E talks / uses the bed or chest / leaves.
   if (p.interior) return interiorInteract(p);
   const b = busyOf(p);
-  const target = findTalkTarget(p);
-  if (target) {
+  const near = talkTargets(p);
+  if (near.length) {
     b.gather = undefined;
     b.tool = undefined;
     b.resting = false;
-    return startTalk(p, target);
+    const tied = near.filter((x) => x.d - near[0].d <= TALK_TIE_TILES);
+    return tied.length > 1 ? startTalkChooser(p, tied) : startTalk(p, near[0]);
   }
   // Stardew phase 5c: nobody to talk to: at a prefab building's door E enters it (walking into it always does).
   if (tryEnterAtDoor(p, false)) return;

@@ -935,6 +935,15 @@ await check("family: court an Elder's kin, wed at a priest, marriage alliance", 
   return [ok, `courted ${courted}, betrothed ${betrothed}, priest ${pr?.dialogue?.npc.role}, wed ${wed} ("${w?.dialogue?.text?.slice(0, 60)}"), spouse ${fam?.spouse?.name} from ${fam?.spouse?.from}, relation ${Math.round(r.relation)}, levy offered ${levyOffered}`];
 });
 
+// Phase 6 (priest-talk fix): a priest standing at the keep, nearer the hero than the keep, answers E (not the Elder).
+await check("talk: the nearest NPC answers (priest at the keep)", async () => {
+  if (!site) return "no site";
+  await hook("heroLife", { tpPriest: "keep" });
+  const d = await talkOpen();
+  await talkPick(/Farewell|Never mind/);
+  return [d?.dialogue?.npc.role === "questGiver", `E beside the priest at the keep talked to ${d?.dialogue?.npc.name} (${d?.dialogue?.npc.role})`];
+});
+
 // Family phase 3: the wed couple has a child at dawn (parents: hero + spouse, talent from the hero's skills); creative
 // adds an instant spouse / children.
 await check("family: a child of the hero couple, creative family", async () => {

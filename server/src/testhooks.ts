@@ -577,7 +577,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         if (sp) sp.person!.kinOf = msg.spouseKin;
         if (life.family) life.family.spouseKin = msg.spouseKin;
       }
-      if (msg.tpPriest === true) {
+      if (msg.tpPriest === true || msg.tpPriest === "keep") {
         // The priest farthest from its keep (so the Elder is not the nearer NPC).
         const fromKeep = (m: { x: number; y: number; siteId?: string | null }) => {
           const s = sites.get(m.siteId ?? "");
@@ -591,7 +591,17 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
           const d = Math.max(1, Math.hypot(pr.x - kx, pr.y - ky));
           Object.assign(pr, { x: kx + ((pr.x - kx) / d) * 6 * TILE_SIZE, y: ky + ((pr.y - ky) / d || 1) * 6 * TILE_SIZE });
         }
-        if (pr) Object.assign(player, { x: pr.x, y: pr.y });
+        // Phase 6 (priest-talk fix): `tpPriest: "keep"` stands the priest 1.2 tiles from its keep (the side farthest
+        // from the other NPCs) and the hero 0.3 tiles beyond it, so the priest is the nearest NPC though the Elder (the
+        // keep) is in range too.
+        if (pr && ps && msg.tpPriest === "keep") {
+          const kx = (ps.keepX + 0.5) * TILE_SIZE, ky = (ps.keepY + 0.5) * TILE_SIZE;
+          const others = Array.from(mobs.values()).filter((m) => m !== pr && m.siteWorker);
+          const clear = ([dx, dy]: number[]) => Math.min(1e9, ...others.map((m) => Math.hypot(m.x - kx - dx * 1.5 * TILE_SIZE, m.y - ky - dy * 1.5 * TILE_SIZE)));
+          const [dx, dy] = [[0, 1], [1, 0], [0, -1], [-1, 0]].sort((a, b) => clear(b) - clear(a))[0];
+          Object.assign(pr, { x: kx + dx * 1.2 * TILE_SIZE, y: ky + dy * 1.2 * TILE_SIZE, path: [] });
+          Object.assign(player, { x: kx + dx * 1.5 * TILE_SIZE, y: ky + dy * 1.5 * TILE_SIZE });
+        } else if (pr) Object.assign(player, { x: pr.x, y: pr.y });
       }
       if (msg.interact === true) handleInteract(player);
       if (msg.interactWith && typeof msg.interactWith === "object") handleInteract(player, msg.interactWith as Record<string, unknown>);
