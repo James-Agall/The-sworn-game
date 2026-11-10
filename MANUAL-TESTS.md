@@ -762,6 +762,12 @@ below; ROADMAP "RimWorld/Stardew — phase 6" has what was tuned.
     the coop fills the feeder / trough; next dawn E collects eggs (Resources > Food).
 12. **Save / load**: save, change a few things, load: rooms, zones and crops, work priorities, the calendar date, animals
     and the hero's energy come back.
+13. **Blueprints** (2026-11-10): Build > Blueprints > Cottage (2 beds), right-click near the Town Center (R / M turn /
+    mirror the ghost): every piece becomes a blueprint, the builders raise it; it becomes a roofed bedroom.
+14. **Settlements** (2026-11-10): scout to the nearest human settlement: houses, roads, a well and fields round the keep
+    (a village has a palisade and gate, a town stone walls and a plaza). The Elder still answers at the keep.
+15. **Save / load again** with a blueprint half built and a settlement sighted: the sites, the settlement (name,
+    relation, garrison) and its buildings come back.
 
 ## Stardew phase 5d: animals living in buildings (2026-11-10)
 Normal (non-creative) game, near the Town Center. Have gold (Trading Post / Tavern) and some grain; craft Carpenter's
