@@ -8,7 +8,7 @@ import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
 import { buildingLevel, newClanProgress, tradingPosts } from "./state.js";
 import { tileIndicesOf } from "./chunks.js";
-import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, pathCacheStats, setTile, updateChunkStates } from "./chunks.js";
+import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, pathCacheStats, resetChunkStates, setTile, updateChunkStates } from "./chunks.js";
 import { clanById, clanIdAt, clanOf, withClan } from "./clans.js";
 import { auditWorld } from "./abstract.js";
 import { currentWorldSeed, dropBaseCache } from "./worldbase.js";
@@ -698,7 +698,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     reply({ regiments: battleRegimentsForTest() });
   } else if (msg.op === "chunkState") {
     // World streaming phase 2: chunk state counts (force re-classifies now) and the state at {x, y} (pixels).
-    if (msg.force) updateChunkStates(true);
+    // {reset: true}: forget every chunk's state (no hysteresis / grace left over) and classify afresh from the anchors.
+    if (msg.reset) resetChunkStates();
+    if (msg.force || msg.reset) updateChunkStates(true);
     const at = typeof msg.x === "number" && typeof msg.y === "number" ? chunkStateAtPixel(msg.x, msg.y) : null;
     // Phase 3: `list` adds the COLD chunk ids.
     const sum = chunkStateSummary();

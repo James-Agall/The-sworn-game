@@ -26,7 +26,8 @@ while (!(await portFree(PORT))) PORT++;
 const saveDir = mkdtempSync(path.join(tmpdir(), "colony-stream-"));
 const server = spawn(TSX, ["src/index.ts"], {
   cwd: DIR,
-  env: { ...process.env, PORT: String(PORT), COLONY_TEST_HOOKS: "1", COLONY_STREAMING: "1", COLONY_SAVE_DIR: saveDir, COLONY_WORLD_SIZE: String(SIZE), COLONY_TEST_MAX_WORLD_SIZE: "2048" },
+  // COLONY_WORLD_SEED: a fixed map (STREAM_SEED=<n> tries another), so the camp / settlement spots below are the same every run.
+  env: { ...process.env, PORT: String(PORT), COLONY_TEST_HOOKS: "1", COLONY_STREAMING: "1", COLONY_SAVE_DIR: saveDir, COLONY_WORLD_SIZE: String(SIZE), COLONY_TEST_MAX_WORLD_SIZE: "2048", COLONY_WORLD_SEED: process.env.STREAM_SEED ?? "21" },
   stdio: "ignore",
   detached: true,
 });
@@ -56,6 +57,8 @@ const ff = (ticks) => hook("fastForward", { ticks });
 const tp = (tx, ty) => hook("teleportPlayer", { x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 });
 const audit = () => hook("auditWorld");
 
+// Watchdog: the whole suite normally takes a few minutes; never hang the runner.
+setTimeout(() => { console.log(`FAIL watchdog: still running after 600 s (passed ${passed}, failed ${failed.join("; ") || "-"})`); process.exit(1); }, 600000).unref();
 let passed = 0;
 const failed = [];
 const check = async (name, fn) => {
@@ -181,10 +184,23 @@ await check("warband: abstract while COLD, bodies when its chunk is ACTIVE, abst
 await check("camp raid mustering outside ACTIVE chunks is abstract, materialises in an ACTIVE chunk", async () => {
   await tp(home.x, home.y);
   await ff(25);
+  // The Town Center sits on a chunk edge, so the only chunks within camp raid range (140) but outside ACTIVE are 4
+  // chunks out; wandering colonists (anchors) and hysteresis (ACTIVE holds to 5 chunks) keep those ACTIVE. So: no
+  // colonists, and the chunk states classified afresh from the player + Town Center alone.
+  for (const kind of new Set((c.snap.colonists ?? []).map((u) => u.kind))) await hook("killColonists", { kind });
+  await hook("chunkState", { reset: true });
   let site = null;
   let muster = null;
-  for (const [dx, dy] of [[136, 0], [-136, 0], [0, 136], [0, -136]]) {
-    const st = await hook("stampSite", { template: "thornwick", dx, dy, search: 8, tier: 1 });
+  // A ring of candidate spots 128-138 tiles out (every 15 degrees); a candidate is stamped only when its muster point
+  // is outside the ACTIVE chunks (checked first, then again for the stamped keep).
+  const cands = [];
+  for (const r of [136, 132, 128]) for (let deg = 0; deg < 360; deg += 15) cands.push([Math.round(r * Math.cos((deg * Math.PI) / 180)), Math.round(r * Math.sin((deg * Math.PI) / 180))]);
+  for (const [dx, dy] of cands) {
+    const d0 = Math.hypot(dx, dy);
+    const m0 = { x: Math.round(tc.x + dx - (dx / d0) * 14), y: Math.round(tc.y + dy - (dy / d0) * 14) };
+    if (m0.x < 8 || m0.y < 8 || m0.x > W - 8 || m0.y > W - 8) continue;
+    if ((await hook("chunkState", { x: m0.x * TILE, y: m0.y * TILE })).at === 2) continue;
+    const st = await hook("stampSite", { template: "thornwick", dx, dy, search: 4, tier: 1 });
     if (!st?.site) continue;
     const s = st.site;
     const dist = Math.hypot(tc.x - s.keepX, tc.y - s.keepY);
@@ -198,6 +214,7 @@ await check("camp raid mustering outside ACTIVE chunks is abstract, materialises
   }
   if (!site) return "no camp spot whose muster point is outside the ACTIVE chunks";
   await hook("growSite", { siteId: site.id, found: true, tiers: 3 });
+  await hook("chunkState", { reset: true });
   const before = (await audit()).counts;
   // Tier 3 camps raid every 2nd night (by day + site number): one of days 4 / 5 is its night.
   let cr = await hook("campRaids", { day: 4 });
@@ -215,6 +232,8 @@ await check("wagon convoy: abstract past the ACTIVE radius, resolved at the end 
   await tp(home.x, home.y);
   // Trips are capped at 160 tiles, barely past the 128-tile radius: shrink it so the middle of the trip is abstract.
   await hook("wagonAbstractRadius", { far: 64, near: 48 });
+  // Escorts are free villagers (the camp raid check above removed the colonists).
+  await hook("peopleState", { spawn: 10 });
   let town = null;
   // Straight out along an axis (Chebyshev distance is what the 128-tile abstract radius measures).
   const spots = [];

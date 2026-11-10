@@ -31,7 +31,9 @@ const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_mo
 const saveDir = mkdtempSync(path.join(tmpdir(), "wagons-test-"));
 const server = spawn(TSX, ["src/index.ts"], {
   cwd: DIR,
-  env: { ...process.env, PORT: String(PORT), COLONY_WORLD_SIZE: "256", COLONY_TEST_HOOKS: "1", COLONY_SAVE_DIR: saveDir },
+  // COLONY_WORLD_SEED: a fixed map (world-gen forts / ruins crowd a random 256 map: the settlement stamp below failed
+  // on 2 of 3 random maps); WAGONS_SEED=<n> tries another.
+  env: { ...process.env, PORT: String(PORT), COLONY_WORLD_SIZE: "256", COLONY_TEST_HOOKS: "1", COLONY_SAVE_DIR: saveDir, COLONY_WORLD_SEED: process.env.WAGONS_SEED ?? "20261110" },
   stdio: "ignore",
   detached: true,
 });
@@ -88,7 +90,7 @@ const spots = [];
 for (let dx = -70; dx <= 70; dx += 10) for (let dy = -70; dy <= 70; dy += 10) if (Math.hypot(dx, dy) >= 40 && Math.hypot(dx, dy) <= 70) spots.push([dx, dy]);
 spots.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
 for (const [dx, dy] of spots) {
-  st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 60 });
+  st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 12 });
   if (st?.site) break;
 }
 const site = st?.site;

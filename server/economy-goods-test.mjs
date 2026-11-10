@@ -531,10 +531,22 @@ await restartAndCheck(a, "(A0)");
       `(A) Pasture placed ON the Pasture at full pop -> in-place upgrade (tile ${a.tileAt(U.x, U.y)}, farmhands=${kinds(a, "farmhand").length}, pop=${a.snap.population}, events=${JSON.stringify(upEv)})`);
     // Placed on an empty tile next to an Orchard it is a new standalone building. Village life (2026-11-03): placement
     // is never population-gated any more (an unstaffed post is a vacancy), so it is placed with its own farmhand.
-    const N = P(1, -2);
-    ups = await act(a, N.x, N.y, T.Orchard);
-    result(ups.some((u) => u.tileX === N.x && u.tileY === N.y) && kinds(a, "farmhand").length === 4,
-      `(A) Orchard on an empty tile next to the Orchard at full pop is a new building, placed (no population gate; farmhands=${kinds(a, "farmhand").length})`);
+    // Orchards are 2x2: the box has no free 2x2 beside the Orchard (H4 sits at (2,-1)), so it goes at (1,-3)..(2,-2),
+    // its lower-left tile touching the Orchard's top-right; the two tiles outside the box are cleared first, and the
+    // player stands at (1,-1), within reach.
+    const N = P(1, -3);
+    for (const [x, y] of [[N.x, N.y], [N.x + 1, N.y]]) await a.hook("setTileRaw", { tx: x, ty: y, tile: T.Empty });
+    await a.hook("teleportPlayer", { x: s.x * TILE + 1 * TILE + 16, y: (s.y - 1) * TILE + 16 });
+    await sleep(150);
+    // Retries while a walking colonist stands on the 2x2 footprint (placeExpectAt only watches the anchor tile).
+    const foot = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([dx, dy]) => ({ x: N.x + dx, y: N.y + dy }));
+    for (let i = 0; i < 6 && a.tileAt(N.x, N.y) !== T.Orchard; i++) {
+      for (let w = 0; w < 50 && foot.some((t) => colonistOnTile(a, t.x, t.y)); w++) await sleep(100);
+      await act(a, N.x, N.y, T.Orchard);
+    }
+    await waitFor(a, () => kinds(a, "farmhand").length === 4, 3000);
+    result(a.tileAt(N.x, N.y) === T.Orchard && kinds(a, "farmhand").length === 4,
+      `(A) Orchard on an empty tile next to the Orchard at full pop is a new building, placed (no population gate; farmhands=${kinds(a, "farmhand").length}; footprint tiles ${foot.map((t) => a.tileAt(t.x, t.y)).join(",")})`);
   }
 }
 
