@@ -163,12 +163,23 @@ export enum TileType {
   Workbench = 124,
   Statue = 125,
   WeaponRack = 126,
+  // Gap closure G1 (2026-11-10): more furniture. Long Table (2x1, counts as a table), Wardrobe (1x2, storage + beauty)
+  // and the Medicine Chest (1x1: beds + a medicine chest in a roofed room = an infirmary).
+  LongTable = 127,
+  Wardrobe = 128,
+  MedicineChest = 129,
   // Stardew phase 5d (2026-11-10, shared/src/animals.ts): animal houses (1x1, upgradeable). The Livestock Barn is
   // the cows / horses barn (not the farming Barn, BarnPost). Horses also live in the cavalry Stables.
   ChickenCoop = 130,
   LivestockBarn = 131,
   PigSty = 132,
   SheepPen = 133,
+  // Gap closure G1: the second tile of a 2-tile furniture piece (shared/src/structures.ts FURNITURE_FOOTPRINT), named
+  // for where its anchor (the piece's own tile, top-left) is: W = the tile to the west, N = the tile to the north.
+  // Walkable room-interior tiles; never placed directly (placing the anchor stamps it, demolishing either clears both).
+  // The client draws nothing here (the anchor's art spans the piece).
+  FurniturePartW = 134,
+  FurniturePartN = 135,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -1170,7 +1181,9 @@ export type ClientMessage =
   // Empty to cancel blueprints) on many tiles at once, flattened [x, y, ...] (a painted wall line, a room
   // outline, a floor rectangle). No reach limit: tiles within STRUCTURE_ORDER_RANGE_TILES of the hero or an own
   // Town Center. Each tile follows the setTile rules (cost, progression, builders).
-  | { type: "placeStructure"; tile: TileType; tiles: number[] }
+  // Gap closure G1: rot 0 / 1 turns a 2-tile furniture piece (shared/src/structures.ts FURNITURE_FOOTPRINT; the tiles
+  // are anchors, top-left). A Bed sent with no rot stays 1x1.
+  | { type: "placeStructure"; tile: TileType; tiles: number[]; rot?: number }
   // A construction site's blueprint: toggle its priority (builders take priority sites first) or cancel it
   // (structure pieces refund their materials).
   | { type: "siteOrder"; tileX: number; tileY: number; action: "priority" | "cancel" }

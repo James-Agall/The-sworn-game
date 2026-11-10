@@ -35,6 +35,10 @@ export const BUILD_COSTS = {
   [TileType.Workbench]: { wood: 6 },
   [TileType.Statue]: { rock: 12 },
   [TileType.WeaponRack]: { wood: 4, iron: 1 },
+  // Gap closure G1: 2-tile pieces cost as one piece.
+  [TileType.LongTable]: { wood: 7 },
+  [TileType.Wardrobe]: { wood: 6 },
+  [TileType.MedicineChest]: { wood: 5 },
   // Moats & drawbridges (phase H): a drawbridge goes on a moat tile. Phase I: moat 1 -> 4 wood (it never
   // breaks and mobs never target it, so it must not undercut a 3-wood wall).
   [TileType.Moat]: { wood: 4 },

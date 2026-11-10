@@ -2155,6 +2155,45 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Gap closure G1 — landed 2026-11-10 (room effects, 2-tile furniture, infirmary + healing)
+
+QUEUE "RimWorld/Stardew gap closure" G1. Every number lives in `shared/src/rooms.ts` (server effects, Room panel text).
+- **Hall** (social): colony happiness + `ROOM_HALL_HAPPINESS_MAX` (6) x score / 100 of the best hall x the gathering
+  share `ROOM_HALL_BASE_SHARE` (0.25) + 0.75 x min(1, gathered / `ROOM_HALL_GATHER_FULL` (6)). `gathered` = the most of
+  the clan's people seen inside it during the latest **dusk** (last `ROOM_HALL_DUSK_SECONDS` = 60 s of the day; not
+  saved). At dusk an idle villager whose post is within 30 tiles strolls into the best hall (chance 0.6 per stroll).
+- **Storeroom**: each chest / shelf / wardrobe protects `ROOM_STOREROOM_PROTECT_PER_PIECE` (6 %) x (0.5 + score / 100)
+  of the clan stock, all storerooms summed, capped at 60 %. Protection cuts two NEW small losses: **food spoilage**
+  (`FOOD_SPOIL_PER_DAY` 2 % of grain / meat / fruit each new calendar day; only with seasons on, so the pre-seasons test
+  suites are untouched) and **raid theft** (`RAID_THEFT_SHARE` 5 % of grain, meat, fruit, wood, rock, iron, gold,
+  clothes, tools when a bandit wrecks one of the clan's buildings).
+- **Chapel** (the Church altar inside a room): needs a statue or a lamp (devotions). Then faith = colony happiness +
+  `ROOM_CHAPEL_HAPPINESS_MAX` (6) x score / 100 x the share of the clan's people living / posted within 30 tiles; the
+  Priest posted at the altar heals x (1 + 0.5 x max(0, q)); the Church resurrection costs x (1 - 0.3 x score / 100).
+- **Infirmary** (NEW role): beds + a **Medicine Chest** (new 1x1 furniture, needs a Forager's Hut) in a roofed room.
+  Its beds are not homes (no population). Once a second up to one hurt villager / soldier per bed standing inside heals
+  `ROOM_INFIRMARY_HEAL_FRAC_PER_SEC` (1 %) of max HP x max(0.25, 1 + 0.5 q) x 1.5 with a Priest or Forager (herbalist)
+  within 8 tiles x 2 while a dose of **herbs** lasts (one per patient per 30 s, taken from the clan's items). Herbs: a
+  new item, +1 per forager trip home, or the hand recipe "Dry healing herbs" (3 fruit -> 2). Idle villagers under 70 %
+  HP walk to a free infirmary bed within 30 tiles; soldiers heal there when sent (no auto-routing for soldiers yet). The
+  hero resting in an infirmary heals x3 on top of the rest bonus (and rests there like in a bedroom).
+- **2-tile furniture** (`shared/src/structures.ts` FURNITURE_FOOTPRINT): **Bed 1x2**, **Long Table 2x1** (a table for
+  kitchens / halls), **Wardrobe 1x2** (storage). The anchor (top-left) holds the piece's tile; the second tile is a new
+  walkable part tile that names where its anchor is (`FurniturePartW` / `FurniturePartN`), so shape and turn are read
+  from the tiles (no extra save state). Placement checks both tiles (open ground or a floor, nobody standing on it);
+  one cost, one construction site (the part is stamped at once); clicking / dragging Empty over either tile demolishes
+  both; rooms count each piece once (by its anchor). R turns the piece (the client sends `rot` with placeStructure).
+  A Bed sent WITHOUT `rot` stays 1x1 (old blueprint orders, templates' `b`, older tests); old 1x1 beds stay valid. The
+  double bed (2x2) was skipped.
+- **Templates**: legend `B` (2-tile bed), `n` (long table), `d` (wardrobe): two adjacent cells make one piece (paired
+  left-to-right, top-to-bottom; the validator refuses half a piece); `m` medicine chest. New building type `hospital`
+  with two built-ins: `hospital-infirmary` (3 beds, wood) and `hospital-apothecary` (stone infirmary + herb store).
+  Only `tavern-inn` changed (its two stacked tables are one long table); beds were left alone (two beds = two sleepers).
+- **Tests**: `server/rooms-test.mjs` sections 8-9 (2-tile pieces, infirmary + healing + herbs, storeroom spoilage /
+  theft, hall gathering, chapel); `server/building-templates-test.mjs` adds a turned infirmary blueprint order.
+- **Skipped / later**: 2x2 double bed; soldiers auto-walking to the infirmary; a Priest's ward boost (heal only);
+  saving the hall gathering count.
+
 ## Settlement templates — landed 2026-11-10 (neutral hamlets / villages / towns from building templates)
 
 Neutral human settlements are stamped from **settlement templates** that compose the building templates (QUEUE "camp

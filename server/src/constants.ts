@@ -2396,6 +2396,9 @@ export const BUILDING_NAMES: Partial<Record<TileType, string>> = {
   [TileType.Workbench]: "Workbench",
   [TileType.Statue]: "Statue",
   [TileType.WeaponRack]: "Weapon Rack",
+  [TileType.LongTable]: "Long Table",
+  [TileType.Wardrobe]: "Wardrobe",
+  [TileType.MedicineChest]: "Medicine Chest",
   // Forts phase B.
   [TileType.Tent]: "Tent",
   [TileType.SiteKeep]: "Chief's hall",

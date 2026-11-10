@@ -14,7 +14,7 @@ import {
 import { chargeRuns, colonists, hearths, players, respawnQueue, sites, state } from "./state.js";
 import { getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { tileIndicesOfAny } from "./chunks.js";
-import { usableBedIndices } from "./structures.js";
+import { chapelReviveMult, usableBedIndices } from "./structures.js";
 import {
   findTownCenterAt, freeVillagerFor, houseCapacity, isCivilianKind, isHouseTile, isValidPostTile, nearestTownCenter,
   newPerson, personAgeDays, queueRespawn, releaseToVillage, settlementOf, settlementStats, spawnColonistForPost, spawnVillager,
@@ -598,7 +598,9 @@ export function reviveOption(player: Player): { x: number; y: number; cost: numb
   }
   if (!best) return null;
   const level = heroProfileOf(player).level;
-  return { x: best.x, y: best.y, cost: Math.round((REVIVE_GOLD_BASE + REVIVE_GOLD_PER_LEVEL * level) * REVIVE_PRICE[best.lvl - 1]), loss: REVIVE_LOSS[best.lvl - 1] };
+  // Gap closure G1: the clan's best chapel (devotions) discounts it.
+  const price = (REVIVE_GOLD_BASE + REVIVE_GOLD_PER_LEVEL * level) * REVIVE_PRICE[best.lvl - 1] * chapelReviveMult(clan);
+  return { x: best.x, y: best.y, cost: Math.round(price), loss: REVIVE_LOSS[best.lvl - 1] };
 }
 function canRevive(player: Player): boolean {
   const r = reviveOption(player);

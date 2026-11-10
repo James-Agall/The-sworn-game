@@ -26,7 +26,8 @@ import {
 } from "@colony/shared/zones";
 import {
   NEW_STRUCTURE_TILES, ROOM_TOOL_STONE, ROOM_TOOL_WOOD, findRooms, isDoorTile, isFloorTile, isFurnitureTile, isRoomBoundaryTile, isStructureTile,
-  isWindowTile, isStoneStructure, rectOutline, rectTiles, wallLineTiles, type Room,
+  isWindowTile, isStoneStructure, rectOutline, rectTiles, wallLineTiles, type Room, FURNITURE_FOOTPRINT, furnitureFootprint,
+  furniturePieceAt,
 } from "@colony/shared/structures";
 import { type HeroLifeUi, setupHeroLife } from "./herolife";
 import { setupHeroTools } from "./herotools";
@@ -1417,6 +1418,22 @@ async function main() {
     else if (SEASON_TREE_TILES.has(tile)) sprite.tint = mulTint(sprite.tint as number, seasonTreeTint);
     if (structArt) {
       sprite.zIndex = index;
+      // Gap closure G1: a 2-tile furniture piece: its art stretched over both tiles (turned when the piece is turned),
+      // sorted with its bottom-right tile.
+      const piece = FURNITURE_FOOTPRINT[artTile as TileType] ? furniturePieceAt(tileAt, tx, ty) : null;
+      if (piece && piece.w * piece.h > 1) {
+        const def = FURNITURE_FOOTPRINT[artTile as TileType]!;
+        const turned = (piece.w > piece.h) !== (def.w > def.h);
+        const tex = structArt.texture;
+        sprite.anchor.set(0.5, 0.5);
+        sprite.rotation = turned ? Math.PI / 2 : 0;
+        const bw = (turned ? piece.h : piece.w) * tileSize;
+        const bh = (turned ? piece.w : piece.h) * tileSize;
+        sprite.scale.set(bw / tex.width, bh / tex.height);
+        sprite.position.set((tx + piece.w / 2) * tileSize, (ty + piece.h / 2) * tileSize);
+        sprite.zIndex = (ty + piece.h - 1) * worldTilesX + tx + piece.w - 1;
+        return;
+      }
       if (structArt.place === "flat") {
         // Tile-aligned: floors under everything, rugs just over them, stand-in pieces sorted with their row.
         sprite.anchor.set(0, 0);
@@ -2013,6 +2030,11 @@ async function main() {
     // A part tile appearing / going away re-fits the multi-tile art of the anchors up / left of it.
     for (const [nx, ny] of [[tx - 1, ty], [tx, ty - 1], [tx - 1, ty - 1]]) {
       if (footSize(nx, ny)) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
+    }
+    // Gap closure G1: likewise a 2-tile furniture piece's anchor (west / north of a part tile).
+    for (const [nx, ny] of [[tx - 1, ty], [tx, ty - 1]]) {
+      const t = tileAt(nx, ny);
+      if (FURNITURE_FOOTPRINT[t as TileType] || t === TileType.ConstructionSite) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
     }
   }
 
@@ -4202,6 +4224,8 @@ async function main() {
   // ---- Toolbar (real DOM elements, not canvas-drawn) ----
 
   let currentTool: TileType = TileType.Wall;
+  // Gap closure G1: the turn (0 / 1) of the next 2-tile furniture piece (R).
+  let furnitureRot = 0;
   // Phase 3: a creative world shows the retired build tools.
   let creativeWorld = false;
   const toolButtonEls = new Map<TileType, HTMLButtonElement>();
@@ -7009,6 +7033,14 @@ async function main() {
     }
   });
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+  // Gap closure G1: R turns an armed 2-tile furniture piece (before the R build-tool hotkey).
+  window.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey || e.repeat || e.key.toLowerCase() !== "r" || !FURNITURE_FOOTPRINT[currentTool] || buildPanel.classList.contains("collapsed")) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+    furnitureRot = furnitureRot === 0 ? 1 : 0;
+    e.stopImmediatePropagation();
+  }, true);
   // Building templates: R / M turn / mirror the armed blueprint ghost (before the R / M build-tool hotkeys).
   window.addEventListener("keydown", (e) => {
     if (e.ctrlKey || e.altKey || e.metaKey || e.repeat || currentTool !== BLUEPRINT_TOOL || buildPanel.classList.contains("collapsed")) return;
@@ -8312,7 +8344,9 @@ async function main() {
         }
         return;
       }
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "placeStructure", tile: plan.tile, tiles: flat }));
+      // Gap closure G1: 2-tile furniture goes down turned by furnitureRot (R).
+      const rot = FURNITURE_FOOTPRINT[plan.tile] ? { rot: furnitureRot } : {};
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "placeStructure", tile: plan.tile, tiles: flat, ...rot }));
       return;
     }
     if (e.button === 2 && orderPress && e.pointerId === orderPress.pointerId) {
@@ -8550,14 +8584,17 @@ async function main() {
     placementGhost.position.set(tile.tileX * tileSize + tileSize / 2, tile.tileY * tileSize + tileSize / 2);
     // Multi-tile build tools: a w x h ghost from the hovered (top-left) tile, red when a part tile is taken
     // (placing on the same building upgrades it instead, so that stays white).
-    const fp = footprintOf(currentTool);
+    const fp = FURNITURE_FOOTPRINT[currentTool] ? furnitureFootprint(currentTool, furnitureRot) : footprintOf(currentTool);
     const hovered = tiles[tile.tileY * worldTilesX + tile.tileX];
     const upgrading = hovered === currentTool || (hovered === TileType.BuildingPart && (() => {
       const a = anchorOfClient(tile.tileX, tile.tileY);
       return tiles[a.y * worldTilesX + a.x] === currentTool;
     })());
     const blocked = !upgrading && (fp.w > 1 || fp.h > 1) &&
-      footprintPartOffsets(fp).some(([dx, dy]) => footTile(tile.tileX + dx, tile.tileY + dy) !== TileType.Empty);
+      footprintPartOffsets(fp).some(([dx, dy]) => {
+        const t = footTile(tile.tileX + dx, tile.tileY + dy);
+        return t !== TileType.Empty && !(FURNITURE_FOOTPRINT[currentTool] && isFloorTile(t));
+      });
     const ghost = upgrading ? { w: 1, h: 1 } : fp;
     cursorHighlight
       .rect(tile.tileX * tileSize, tile.tileY * tileSize, ghost.w * tileSize, ghost.h * tileSize)

@@ -50,7 +50,8 @@ import {
 import { findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import {
   allRooms, barracksMoraleMult, forceFullRoomRecompute, heroRestMultAt, isRoofed, roomHappinessBonus, setRoomDirtAt, roomInfoAt, roomRecomputeStats, sleepQualityAt, updateRooms,
-  workshopEffectAt,
+  workshopEffectAt, chapelHealMultAt, chapelReviveMult, hallGatherShare, heroInfirmaryHealMult, infirmaryHealRateAt, infirmaryStats, raidTheft,
+  setHallGathered, spoilFood, storeroomProtectionOf, usableBedIndices,
 } from "./structures.js";
 import { colonyHappinessParts, computeColonyHappiness } from "./colonists.js";
 import { debugSetCropAt, debugSetCrops, updateZones, zonesDebug, zonesSnapshotFor } from "./zones.js";
@@ -1059,6 +1060,22 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     }
     const sd = msg.setDirt as { x: number; y: number; dirt: number } | undefined;
     if (sd) setRoomDirtAt(sd.x, sd.y, sd.dirt);
+    // Gap closure G1: hallGathered n (clan 0's dusk gathering), herbs n (added to clan 0's stores), spoil (run the
+    // daily spoilage now), theftAt {x, y} (bandits wrecked a building there), patient {x, y, hpFrac} (a clan-0
+    // villager put there hurt; its HP is replied after any tickRooms).
+    if (typeof msg.hallGathered === "number") setHallGathered(0, msg.hallGathered);
+    if (typeof msg.herbs === "number") withClan(clanById(0), () => addItem("herbs", msg.herbs as number));
+    const spoiled = msg.spoil ? spoilFood(0) : undefined;
+    const ta = msg.theftAt as { x: number; y: number } | undefined;
+    const stolen = ta ? raidTheft(ta.x, ta.y) : undefined;
+    const pt = msg.patient as { x: number; y: number; hpFrac: number; id?: string } | undefined;
+    const patient = pt ? (pt.id ? colonists.get(pt.id) : Array.from(colonists.values()).find((c) => c.kind === "villager" && c.person && !c.person.child && (c.clan ?? 0) === 0)) : undefined;
+    if (pt && patient) {
+      patient.x = pt.x * TILE_SIZE + 16;
+      patient.y = pt.y * TILE_SIZE + 16;
+      patient.path = [];
+      patient.hp = Math.max(1, patient.maxHp * pt.hpFrac);
+    }
     if (msg.tickRooms) {
       const t = state.cycleTick;
       state.cycleTick = Math.ceil(t / 20) * 20;
@@ -1075,7 +1092,21 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         workshop: workshopEffectAt(p.x, p.y),
         heroRest: heroRestMultAt(p.x * TILE_SIZE + 16, p.y * TILE_SIZE + 16),
         sleep: sleepQualityAt(p.x, p.y),
+        infirmaryRate: infirmaryHealRateAt(p.x * TILE_SIZE + 16, p.y * TILE_SIZE + 16),
+        heroHeal: heroInfirmaryHealMult(p.x * TILE_SIZE + 16, p.y * TILE_SIZE + 16),
+        chapelHeal: chapelHealMultAt(p.x, p.y),
+        tile: state.tiles[p.y * W + p.x],
       })),
+      storeroomProtection: storeroomProtectionOf(0),
+      hallShare: hallGatherShare(0),
+      reviveMult: chapelReviveMult(0),
+      infirmary: { ...infirmaryStats },
+      herbs: withClan(clanById(0), () => itemCount("herbs")),
+      usableBeds: usableBedIndices().length,
+      stock: { ...clanById(0).stock },
+      ...(spoiled ? { spoiled } : {}),
+      ...(stolen ? { stolen } : {}),
+      ...(patient ? { patient: { id: patient.id, hp: patient.hp, maxHp: patient.maxHp } } : {}),
       happiness: state.colonyHappiness,
       happinessNow: computeColonyHappiness(),
       roomHappiness: roomHappinessBonus(),

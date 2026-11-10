@@ -29,6 +29,7 @@ import { damageColonist } from "./combat.js";
 import { broadcastTileUpdate } from "./net.js";
 import { winterNow } from "./calendar.js";
 import { WINTER_FORAGE_REGROW_MULT } from "@colony/shared/calendar";
+import { FORAGER_HERBS_PER_TRIP } from "@colony/shared/rooms";
 
 // ---- Hunting & foraging: Hunter's Hut / Forager's Hut workers, wild game, wild forage ----
 // Every tunable lives here. Hunters and foragers are civilians: they only work by day and shelter in
@@ -377,6 +378,8 @@ export function startCarryingHome(c: Colonist) {
 export function depositCarried(c: Colonist, resource: "meat" | "fruit") {
   // Progression tree phase 3: a hunter's kill also brings a hide home.
   if (resource === "meat" && c.carryAmount > 0) addItem("hide", 1);
+  // Gap closure G1: a forager's trip also brings herbs (infirmary medicine).
+  if (resource === "fruit" && c.carryAmount > 0) addItem("herbs", FORAGER_HERBS_PER_TRIP);
   state.stock[resource] += c.carryAmount;
   c.carryAmount = 0;
   c.state = "idle";

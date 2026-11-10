@@ -202,6 +202,27 @@ function furnitureTex(t: TileType): Texture {
         g.fillStyle = "#c8cacf";
         g.fillRect(13, 2, 6, 6);
         break;
+      // Gap closure G1: stand-ins drawn for the piece's default footprint, stretched over its 2 tiles (SPRITES.md).
+      case TileType.LongTable:
+        block(g, 1, 8, 30, 16, W.fill, W.light, W.dark);
+        g.fillStyle = "#e8e2d0";
+        g.fillRect(6, 13, 6, 5);
+        g.fillRect(20, 13, 6, 5);
+        break;
+      case TileType.Wardrobe:
+        block(g, 6, 1, 20, 30, "#6a3a18", "#8a5a30", "#3a1a08");
+        g.fillStyle = "#3a1a08";
+        g.fillRect(15, 3, 2, 26);
+        g.fillStyle = "#d4b25a";
+        g.fillRect(12, 14, 2, 3);
+        g.fillRect(18, 14, 2, 3);
+        break;
+      case TileType.MedicineChest:
+        block(g, 5, 8, 22, 18, "#e8e4d8", "#f8f4ec", "#a8a498");
+        g.fillStyle = "#c03030";
+        g.fillRect(14, 11, 4, 12);
+        g.fillRect(10, 15, 12, 4);
+        break;
       case TileType.WeaponRack:
         block(g, 3, 6, 26, 4, W.fill, W.light, W.dark);
         block(g, 3, 22, 26, 4, W.fill, W.light, W.dark);

@@ -684,6 +684,22 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Gap closure G1: room effects, 2-tile furniture, infirmary (2026-11-10)
+Automated: `npm test -- rooms` and `cd server && node building-templates-test.mjs`.
+1. Build tab: pick **Bed**: the ghost is 2 tiles tall; press **R**: 2 wide. Place one in a room on a floor; the art
+   spans both tiles. Try a spot whose second tile is a wall: refused with a toast. Click the bed's second tile with
+   demolish: the whole bed goes.
+2. **Long Table** (2x1) + a Hearth in a room: Kitchen. **Wardrobe** (1x2) alone in a room: Storeroom.
+3. A room with 2 beds + a **Medicine Chest**: the Room panel says **Infirmary**, "Heals ...% max HP / s". Population
+   drops by those beds. Hurt a villager (fight a raid): it walks to an infirmary bed and its HP climbs. Craft
+   "Dry healing herbs" by hand (3 fruit): herbs disappear while a patient heals (faster).
+4. Rest with the hero (hero rest key) inside the infirmary after taking damage: HP climbs faster than in the open.
+5. A storeroom (chest / shelf): the panel says "Protects N% of the stock". More chests: higher N.
+6. A hall (30+ tiles with a table or rug): the panel shows the social bonus; near dusk villagers stroll into it.
+7. A Church built inside a room: the panel says "No devotions"; add a statue or a lamp: faith / heal / resurrection
+   lines appear. Die with gold: the resurrection price is lower than before.
+8. Blueprints tab: **Hospital / apothecary** has two variants; place one and let the builders finish it.
+
 ## Settlement templates: neutral hamlets, villages, towns (2026-11-10)
 Automated: `cd server && node settlement-templates-test.mjs` (in-process, no ports, scratch folders).
 1. NEW normal game on a 256 or 512 map (older saves keep their old settlements). Scout to a few human settlements:

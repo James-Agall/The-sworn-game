@@ -9,15 +9,20 @@
 import { TileType } from "./protocol.js";
 
 // ---- roles ----
-export type RoomRole = "room" | "bedroom" | "barracks" | "kitchen" | "workshop" | "hall" | "storeroom" | "church";
+export type RoomRole = "room" | "bedroom" | "barracks" | "kitchen" | "workshop" | "hall" | "storeroom" | "church" | "infirmary";
 export const ROOM_ROLE_LABEL: Record<RoomRole, string> = {
   room: "Empty room", bedroom: "Bedroom", barracks: "Barracks", kitchen: "Kitchen / dining", workshop: "Workshop",
-  hall: "Hall", storeroom: "Storeroom", church: "Chapel",
+  hall: "Hall", storeroom: "Storeroom", church: "Chapel", infirmary: "Infirmary",
 };
 // Barracks: at least this many beds plus a Weapon Rack (fewer beds, or no rack: a bedroom).
 export const ROOM_BARRACKS_MIN_BEDS = 3;
 // Hall: at least this many tiles with a table or a rug (and no bed / station).
 export const ROOM_HALL_MIN_TILES = 30;
+// Gap closure G1: tables (a Long Table counts as one), storage pieces (a storeroom), devotional pieces (a chapel's
+// faith needs one beside the altar) and the infirmary's medicine chest.
+export const ROOM_TABLE_TILES: readonly TileType[] = [TileType.Table, TileType.LongTable];
+export const ROOM_STORAGE_TILES: readonly TileType[] = [TileType.Chest, TileType.Shelf, TileType.Wardrobe];
+export const ROOM_DEVOTION_TILES: readonly TileType[] = [TileType.Statue, TileType.Lamp];
 // Stations that heat a room like a hearth (ovens, forges, kilns).
 export const ROOM_HOT_STATIONS: readonly TileType[] = [TileType.Bakery, TileType.Blacksmith, TileType.Bloomery, TileType.CharcoalBurner, TileType.Brewery];
 // Stations (and the Workbench) that make a room a workshop.
@@ -32,6 +37,7 @@ export const ROOM_BARRACKS_TILES_PER_BED = 4;
 export const ROOM_KITCHEN_TILES = 12;
 export const ROOM_WORKSHOP_TILES_WANTED = 12;
 export const ROOM_STOREROOM_TILES = 6;
+export const ROOM_INFIRMARY_TILES_PER_BED = 5;
 export const ROOM_GENERIC_TILES = 9;
 
 // ---- beauty: 50 + (points per tile) x ROOM_BEAUTY_SCALE, clamped 0-100 ----
@@ -40,7 +46,7 @@ export const ROOM_BEAUTY_SCALE = 60;
 export const ROOM_BEAUTY_POINTS: Partial<Record<TileType, number>> = {
   [TileType.Rug]: 3, [TileType.Statue]: 8, [TileType.Lamp]: 1, [TileType.Table]: 1, [TileType.Chair]: 1,
   [TileType.Shelf]: 1, [TileType.Hearth]: 2, [TileType.Bed]: 1, [TileType.Chest]: 0, [TileType.WeaponRack]: 0,
-  [TileType.Workbench]: -1,
+  [TileType.Workbench]: -1, [TileType.LongTable]: 2, [TileType.Wardrobe]: 2, [TileType.MedicineChest]: 1,
 };
 // Floor points per tile (a furniture tile counts its piece's points instead: a table on bare ground is not mud).
 export const ROOM_BEAUTY_WOOD_FLOOR = 0.15;
@@ -97,6 +103,56 @@ export const ROOM_WORKSHOP_GRADE_SCORE = 70;
 export const ROOM_DINING_HAPPINESS_MAX = 8;
 // Barracks: the clan's soldiers lose morale x (1 - ROOM_BARRACKS_MORALE_RESIST x score / 100) of its best barracks.
 export const ROOM_BARRACKS_MORALE_RESIST = 0.3;
+
+// ---- Gap closure G1 (2026-11-10): hall, storeroom, chapel and infirmary effects ----
+// Hall (social room): colony happiness + ROOM_HALL_HAPPINESS_MAX x score / 100 of the clan's best hall x the gathering
+// share: ROOM_HALL_BASE_SHARE + (1 - base) x min(1, gathered / ROOM_HALL_GATHER_FULL), where `gathered` = the most of
+// the clan's people seen inside it during the latest dusk (the last ROOM_HALL_DUSK_SECONDS of the day: their free
+// time). At dusk an idle villager within ROOM_HALL_GATHER_RANGE_TILES strolls into the best hall (chance per stroll).
+export const ROOM_HALL_HAPPINESS_MAX = 6;
+export const ROOM_HALL_BASE_SHARE = 0.25;
+export const ROOM_HALL_GATHER_FULL = 6;
+export const ROOM_HALL_DUSK_SECONDS = 60;
+export const ROOM_HALL_GATHER_CHANCE = 0.6;
+export const ROOM_HALL_GATHER_RANGE_TILES = 30;
+// Storeroom: its goods count as protected. Each storage piece (chest, shelf, wardrobe) protects
+// ROOM_STOREROOM_PROTECT_PER_PIECE x (0.5 + score / 100) of the clan stock (every storeroom adds up, at most
+// ROOM_STOREROOM_PROTECT_MAX). Protection cuts food spoilage (FOOD_SPOIL_PER_DAY of grain / meat / fruit each new
+// calendar day, seasons on) and raid theft (RAID_THEFT_SHARE of every stock good when bandits wreck a building).
+export const ROOM_STOREROOM_PROTECT_PER_PIECE = 0.06;
+export const ROOM_STOREROOM_PROTECT_MAX = 0.6;
+export const FOOD_SPOIL_PER_DAY = 0.02;
+export const FOOD_SPOIL_RESOURCES: readonly string[] = ["grain", "meat", "fruit"];
+export const RAID_THEFT_SHARE = 0.05;
+export const RAID_THEFT_RESOURCES: readonly string[] = ["grain", "meat", "fruit", "wood", "rock", "iron", "gold", "clothes", "tools"];
+// Chapel (the Church altar in a room, plus at least one statue or lamp: devotions): faith gives colony happiness +
+// ROOM_CHAPEL_HAPPINESS_MAX x score / 100 x the share of the clan's people living / posted within
+// ROOM_CHAPEL_RANGE_TILES; the Priest posted at its altar heals x (1 + ROOM_CHAPEL_HEAL_BONUS x max(0, q)); the
+// Church resurrection costs (1 - ROOM_CHAPEL_REVIVE_DISCOUNT x score / 100) of its price.
+export const ROOM_CHAPEL_HAPPINESS_MAX = 6;
+export const ROOM_CHAPEL_RANGE_TILES = 30;
+export const ROOM_CHAPEL_HEAL_BONUS = 0.5;
+export const ROOM_CHAPEL_REVIVE_DISCOUNT = 0.3;
+// Infirmary (beds + a Medicine Chest, roofed): up to one hurt villager / soldier per bed inside heals
+// ROOM_INFIRMARY_HEAL_FRAC_PER_SEC of max HP a second x max(ROOM_INFIRMARY_MIN_MULT, 1 + ROOM_INFIRMARY_QUALITY_MULT x q)
+// x (1 + ROOM_INFIRMARY_PRIEST_BONUS with a Priest / Forager (herbalist) within ROOM_INFIRMARY_PRIEST_RANGE_TILES)
+// x (1 + ROOM_INFIRMARY_MEDICINE_BONUS while a dose of herbs lasts: one is taken from the stores per patient every
+// ROOM_INFIRMARY_MEDICINE_SECONDS of treatment). Idle villagers below ROOM_INFIRMARY_SEEK_HP_FRAC of max HP walk
+// there. The hero resting in one heals x ROOM_INFIRMARY_HERO_HEAL_MULT (on top of the rest bonus).
+export const ROOM_INFIRMARY_HEAL_FRAC_PER_SEC = 0.01;
+export const ROOM_INFIRMARY_MIN_MULT = 0.25;
+export const ROOM_INFIRMARY_QUALITY_MULT = 0.5;
+export const ROOM_INFIRMARY_PRIEST_BONUS = 0.5;
+export const ROOM_INFIRMARY_PRIEST_RANGE_TILES = 8;
+export const ROOM_INFIRMARY_MEDICINE_BONUS = 1;
+export const ROOM_INFIRMARY_MEDICINE_SECONDS = 30;
+export const ROOM_INFIRMARY_MEDICINE_ITEM = "herbs";
+export const ROOM_INFIRMARY_SEEK_HP_FRAC = 0.7;
+export const ROOM_INFIRMARY_SEEK_RANGE_TILES = 30;
+export const ROOM_INFIRMARY_HERO_HEAL_MULT = 3;
+// Herbs a forager's trip home brings with its fruit (the hand recipe "Dry healing herbs" makes them from fruit too).
+export const FORAGER_HERBS_PER_TRIP = 1;
+
 // "Needs a roofed room": NEW placements of these stations must stand inside a roofed room (creative mode and old
 // buildings are exempt; upgrades in place are too).
 export const ROOM_REQUIRED_STATIONS: readonly TileType[] = [TileType.Bakery, TileType.Blacksmith];
@@ -123,17 +179,20 @@ export interface RoomStats {
 }
 
 const n = (counts: Record<number, number>, t: TileType) => counts[t] ?? 0;
+const nAny = (counts: Record<number, number>, list: readonly TileType[]) => list.reduce((s, t) => s + (counts[t] ?? 0), 0);
 const clamp = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
 
 export function roomRole(tiles: number, counts: Record<number, number>): RoomRole {
   if (n(counts, TileType.ChurchPost) > 0) return "church";
   if (ROOM_WORKSHOP_TILES.some((t) => n(counts, t) > 0)) return "workshop";
   const beds = n(counts, TileType.Bed);
+  if (beds > 0 && n(counts, TileType.MedicineChest) > 0) return "infirmary";
   if (beds >= ROOM_BARRACKS_MIN_BEDS && n(counts, TileType.WeaponRack) > 0) return "barracks";
   if (beds > 0) return "bedroom";
-  if (n(counts, TileType.Table) > 0 && n(counts, TileType.Hearth) > 0) return "kitchen";
-  if (tiles >= ROOM_HALL_MIN_TILES && (n(counts, TileType.Table) > 0 || n(counts, TileType.Rug) > 0)) return "hall";
-  if (n(counts, TileType.Chest) + n(counts, TileType.Shelf) > 0) return "storeroom";
+  const tables = nAny(counts, ROOM_TABLE_TILES);
+  if (tables > 0 && n(counts, TileType.Hearth) > 0) return "kitchen";
+  if (tiles >= ROOM_HALL_MIN_TILES && (tables > 0 || n(counts, TileType.Rug) > 0)) return "hall";
+  if (nAny(counts, ROOM_STORAGE_TILES) > 0) return "storeroom";
   return "room";
 }
 
@@ -145,6 +204,7 @@ function wantedTiles(role: RoomRole, beds: number): number {
     case "workshop": return ROOM_WORKSHOP_TILES_WANTED;
     case "hall": return ROOM_HALL_MIN_TILES;
     case "storeroom": return ROOM_STOREROOM_TILES;
+    case "infirmary": return ROOM_INFIRMARY_TILES_PER_BED * Math.max(1, beds);
     default: return ROOM_GENERIC_TILES;
   }
 }
@@ -190,6 +250,9 @@ export function roomStats(r: RoomStatsInput): RoomStats {
   else if (cleanliness < 60) tips.push("Dirty: it is swept clean over time; less traffic through it helps");
   if (role === "room") tips.push("Give it a role: a bed (bedroom), a table + hearth (kitchen), a station or workbench (workshop), a chest (storeroom)");
   if (role === "bedroom" && beds >= ROOM_BARRACKS_MIN_BEDS && n(counts, TileType.WeaponRack) === 0) tips.push("A Weapon Rack makes it a barracks (soldiers' morale)");
+  if (role === "bedroom") tips.push("A Medicine Chest makes it an infirmary (the hurt heal faster in it)");
+  if (role === "church" && nAny(counts, ROOM_DEVOTION_TILES) === 0) tips.unshift("Add a statue or a lamp by the altar: faith needs devotions");
+  if (role === "storeroom") tips.push("More chests / shelves protect more of the stock (spoilage, raid theft)");
   return { role, size, beauty, cleanliness, warmth, score, tier, q: (score - 50) / 50, tips: tips.slice(0, 4) };
 }
 
@@ -213,14 +276,43 @@ export function roomEffectLines(st: RoomStats, counts: Record<number, number>): 
     case "kitchen":
       return [`Meals: +${(ROOM_DINING_HAPPINESS_MAX * st.score / 100).toFixed(1)} colony happiness (the best kitchen counts)`];
     case "hall":
-      return ["A gathering hall (no effect yet)"];
-    case "storeroom":
-      return ["Storage (stockpile zones in it are tidier; no effect yet)"];
-    case "church":
-      return ["A chapel round the church (no extra effect yet)"];
+      return [
+        `Social: up to +${(ROOM_HALL_HAPPINESS_MAX * st.score / 100).toFixed(1)} colony happiness (the best hall counts)`,
+        `Villagers gather here at dusk; ${ROOM_HALL_GATHER_FULL}+ at once for the full bonus (${Math.round(ROOM_HALL_BASE_SHARE * 100)}% without)`,
+      ];
+    case "storeroom": {
+      const p = storeroomProtection(st, counts);
+      return [`Protects ${Math.round(p * 100)}% of the stock from spoilage and raid theft (storerooms add up, at most ${Math.round(ROOM_STOREROOM_PROTECT_MAX * 100)}%)`];
+    }
+    case "church": {
+      if (nAny(counts, ROOM_DEVOTION_TILES) === 0) return ["No devotions: add a statue or a lamp for faith, healing and resurrection effects"];
+      return [
+        `Faith: +${(ROOM_CHAPEL_HAPPINESS_MAX * st.score / 100).toFixed(1)} colony happiness x the share of people within ${ROOM_CHAPEL_RANGE_TILES} tiles`,
+        `The Priest here heals x${(1 + ROOM_CHAPEL_HEAL_BONUS * Math.max(0, st.q)).toFixed(2)}; resurrection ${Math.round(ROOM_CHAPEL_REVIVE_DISCOUNT * st.score)}% cheaper`,
+      ];
+    }
+    case "infirmary":
+      return [
+        `Heals ${(infirmaryHealMult(st) * ROOM_INFIRMARY_HEAL_FRAC_PER_SEC * 100).toFixed(1)}% max HP / s, one patient per bed (x${(1 + ROOM_INFIRMARY_PRIEST_BONUS).toFixed(1)} with a Priest or Forager near, x${1 + ROOM_INFIRMARY_MEDICINE_BONUS} with herbs)`,
+        `Villagers under ${Math.round(ROOM_INFIRMARY_SEEK_HP_FRAC * 100)}% HP rest here; the hero resting here heals x${ROOM_INFIRMARY_HERO_HEAL_MULT}`,
+      ];
     default:
       return ["No role yet: no effect"];
   }
+}
+
+// Storeroom: the share of the stock its storage pieces protect (before the clan-wide cap).
+export function storeroomProtection(st: RoomStats, counts: Record<number, number>): number {
+  if (st.role !== "storeroom") return 0;
+  return nAny(counts, ROOM_STORAGE_TILES) * ROOM_STOREROOM_PROTECT_PER_PIECE * (0.5 + st.score / 100);
+}
+// Infirmary: the room's heal-rate multiplier from its quality (before the Priest / medicine bonuses).
+export function infirmaryHealMult(st: RoomStats): number {
+  return Math.max(ROOM_INFIRMARY_MIN_MULT, 1 + ROOM_INFIRMARY_QUALITY_MULT * st.q);
+}
+// Chapel: has the altar devotions (a statue or a lamp)?
+export function chapelHasDevotions(counts: Record<number, number>): boolean {
+  return nAny(counts, ROOM_DEVOTION_TILES) > 0;
 }
 
 export function roomStationSpeedMult(st: RoomStats, counts: Record<number, number>): number {

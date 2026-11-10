@@ -12,7 +12,7 @@ export type ItemId =
   // Stardew phase 5a: the hero's farming tools (kept) and seed bags (one used per sown tile).
   | "hoe" | "wateringCan" | "scythe" | "wheatSeeds" | "hempSeeds"
   // Stardew phase 5d: animal feed and products (eggs / milk are food), and the tools of the bigger animal houses.
-  | "hay" | "egg" | "milk" | "carpenterTools";
+  | "hay" | "egg" | "milk" | "carpenterTools" | "herbs";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "tools";
 
@@ -138,6 +138,7 @@ export const PROGRESSION = {
     egg: { label: "Eggs", desc: "Laid daily by chickens in a Chicken Coop. Food (eaten at dawn).", group: "food" },
     milk: { label: "Milk", desc: "From cows in a Livestock Barn, daily. Food (eaten at dawn).", group: "food" },
     carpenterTools: { label: "Carpenter's tools", desc: "Saw, adze and mallet: the Livestock Barn, Pig Sty and Sheep Pen need them.", group: "tool" },
+    herbs: { label: "Herbs", desc: "Brought home by foragers, or dried from fruit by hand. Infirmary medicine: patients heal faster.", group: "material" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -154,6 +155,7 @@ export const PROGRESSION = {
     { id: "wheatSeeds", label: "Sort wheat seed", output: "wheatSeeds", amount: 4, stock: { grain: 2 }, station: "hand" },
     { id: "hempSeeds", label: "Save hemp seed", output: "hempSeeds", amount: 4, stock: { cotton: 2 }, station: "hand" },
     { id: "carpenterTools", label: "Make carpenter's tools", output: "carpenterTools", amount: 1, stock: { wood: 6, rock: 4 }, station: "hand" },
+    { id: "herbs", label: "Dry healing herbs", output: "herbs", amount: 2, stock: { fruit: 3 }, station: "hand" },
     { id: "gruel", label: "Boil wheat gruel", output: "gruel", amount: 3, stock: { grain: 3, wood: 1 }, station: "hand" },
     { id: "charcoal", label: "Burn charcoal", output: "charcoal", amount: 3, stock: { wood: 6 }, station: TileType.CharcoalBurner, seconds: 90, cap: 40 },
     // Bloomery: the anvil and the smith's tools first (one each is enough), then blooms.
@@ -214,6 +216,10 @@ export const PROGRESSION = {
     [TileType.Lamp]: { requires: { buildings: [{ tile: TileType.IronMinePost }] } },
     [TileType.WeaponRack]: { requires: { buildings: [{ tile: TileType.IronMinePost }] } },
     [TileType.Rug]: { requires: { buildings: [{ tile: TileType.WoolFarm }] } },
+    // Gap closure G1: the long table and wardrobe are carpentry (stone axe); the medicine chest needs a Forager's Hut.
+    [TileType.LongTable]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.Wardrobe]: { requires: { items: { stoneAxe: 1 } } },
+    [TileType.MedicineChest]: { requires: { items: { stoneAxe: 1 }, buildings: [{ tile: TileType.ForagerHut }] } },
     // Stardew phase 5d: the coop needs the stone axe and a Lumberjack (sawn boards); the bigger houses carpenter's tools.
     [TileType.ChickenCoop]: { requires: { items: { stoneAxe: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
     [TileType.LivestockBarn]: { requires: { items: { carpenterTools: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },

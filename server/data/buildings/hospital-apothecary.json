@@ -1,0 +1,18 @@
+{
+  "id": "hospital-apothecary",
+  "name": "Apothecary (infirmary + herb store)",
+  "buildingType": "hospital",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "infirmary",
+  "rows": [
+    "%%%%%%%%%%%",
+    "%B:B:B%s:x%",
+    "%B:B:B%:::%",
+    "%::m::D:l:%",
+    "W:::::%:x:W",
+    "%%%%D%%%%%%"
+  ]
+}

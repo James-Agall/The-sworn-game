@@ -77,7 +77,7 @@ export const TOOLS: ToolDef[] = [
   { tile: TileType.StoneWindow, label: "Stone Window", key: "", cost: `${buildCostText(TileType.StoneWindow)}. 500 HP. Needs a Quarry`, category: "structure", drag: "line" },
   { tile: TileType.WoodFloor, label: "Wood Floor", key: "", cost: `${buildCostText(TileType.WoodFloor)} per tile. Right-drag fills a rectangle`, category: "structure", drag: "rect" },
   { tile: TileType.StoneFloor, label: "Stone Floor", key: "", cost: `${buildCostText(TileType.StoneFloor)} per tile. Needs a Quarry. Right-drag fills a rectangle`, category: "structure", drag: "rect" },
-  { tile: TileType.Bed, label: "Bed", key: "", cost: `${buildCostText(TileType.Bed)}. In a roofed room: +1 population and a home for one (a bedroom with N beds = N slots)`, category: "structure" },
+  { tile: TileType.Bed, label: "Bed", key: "", cost: `${buildCostText(TileType.Bed)}. 2 tiles (R turns it). In a roofed room: +1 population and a home for one (a bedroom with N beds = N slots)`, category: "structure" },
   // Modular building phase 2 (shared/src/rooms.ts): furniture sets a room's role and stats (click inside a room).
   { tile: TileType.Table, label: "Table", key: "", cost: `${buildCostText(TileType.Table)}. Table + Hearth in a room = kitchen / dining (meals: +happiness). Beauty +${ROOM_BEAUTY_POINTS[TileType.Table]}`, category: "structure" },
   { tile: TileType.Chair, label: "Chair", key: "", cost: `${buildCostText(TileType.Chair)}. Beauty +${ROOM_BEAUTY_POINTS[TileType.Chair]}`, category: "structure" },
@@ -89,6 +89,10 @@ export const TOOLS: ToolDef[] = [
   { tile: TileType.Workbench, label: "Workbench", key: "", cost: `${buildCostText(TileType.Workbench)}. Makes a room a workshop; stations in it work +${Math.round(ROOM_WORKBENCH_SPEED * 100)}% faster per bench (up to ${ROOM_WORKBENCH_MAX})`, category: "structure" },
   { tile: TileType.Statue, label: "Statue", key: "", cost: `${buildCostText(TileType.Statue)}. Needs a Quarry. Beauty +${ROOM_BEAUTY_POINTS[TileType.Statue]}`, category: "structure" },
   { tile: TileType.WeaponRack, label: "Weapon Rack", key: "", cost: `${buildCostText(TileType.WeaponRack)}. Needs an Iron Mine. ${ROOM_BARRACKS_MIN_BEDS}+ beds and a rack in a room = barracks (soldiers' morale)`, category: "structure" },
+  // Gap closure G1: 2-tile furniture (R turns it) and the infirmary's medicine chest.
+  { tile: TileType.LongTable, label: "Long Table", key: "", cost: `${buildCostText(TileType.LongTable)}. 2 tiles (R turns it). Counts as a table (kitchen, hall). Beauty +${ROOM_BEAUTY_POINTS[TileType.LongTable]}`, category: "structure" },
+  { tile: TileType.Wardrobe, label: "Wardrobe", key: "", cost: `${buildCostText(TileType.Wardrobe)}. 2 tiles (R turns it). Storage (a storeroom piece). Beauty +${ROOM_BEAUTY_POINTS[TileType.Wardrobe]}`, category: "structure" },
+  { tile: TileType.MedicineChest, label: "Medicine Chest", key: "", cost: `${buildCostText(TileType.MedicineChest)}. Needs a Forager's Hut. Beds + a medicine chest in a room = infirmary (the hurt heal faster; herbs help)`, category: "structure" },
   // Modular building phase 3 (shared/src/zones.ts): zones. Right-drag paints a rectangle (Shift: erases).
   { tile: ZONE_TOOL_WHEAT as TileType, label: "Wheat field", key: "", cost: `Growing zone, free. Idle villagers / Barn farmers till, sow, tend and harvest each tile; 4 tiles grow what a Farm Plot did (${CROP_LABEL.wheat})`, category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_HEMP as TileType, label: "Hemp field", key: "", cost: `Growing zone, free: hemp for cloth (4 tiles = an old Hemp Field)`, category: "zones", drag: "rect" },

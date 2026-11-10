@@ -34,7 +34,7 @@ import {
 import { setTile } from "./chunks.js";
 import {
   anchorOfTile, biomeAt, biomeProductionFactor, getBuildingLevel, inBounds, levelBonus, ownerAt, placedFootprint,
-  resourceKey, setOwner, tileIndex, tileOfPixel, tileToPixelCenter,
+  resourceKey, setOwner, tileAtOrNone, tileIndex, tileOfPixel, tileToPixelCenter,
 } from "./tiles.js";
 import { findAdjacentWalkable, isWalkableTile } from "./pathfinding.js";
 import {
@@ -68,7 +68,7 @@ import { trainInfo, villageLevyInfo } from "./people.js";
 import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
 import {
   STRUCTURE_ORDER_MAX_TILES, STRUCTURE_ORDER_RANGE_TILES, isDoorTile, isFloorTile, isFurnitureTile, isRoomStationTile, isStructureTile,
-  isWindowTile, structurePlacementOk,
+  isWindowTile, structurePlacementOk, FURNITURE_FOOTPRINT, furnitureFootprint, furniturePartCells, furniturePieceAt, isFurniturePartTile,
 } from "@colony/shared/structures";
 import { ROOM_REQUIRED_STATIONS } from "@colony/shared/rooms";
 import { roomAt, roomInfoAt, roomInfoLines } from "./structures.js";
@@ -507,12 +507,13 @@ export function sealsInSpawner(tx: number, ty: number, tile: TileType): boolean 
 
 // `blueprint`: a piece of a building template order (buildingTemplates.ts): its station's "needs a roofed room" is
 // met by the template's own walls, which are queued in the same order.
-export function handleSetTile(player: Player, tx: number, ty: number, tile: TileType, skipReach = false, blueprint = false) {
+// `rot` (gap closure G1): a 2-tile furniture piece's turn (furnitureFootprint; undefined: a Bed stays 1x1).
+export function handleSetTile(player: Player, tx: number, ty: number, tile: TileType, skipReach = false, blueprint = false, rot?: number) {
   if (player.dead) return;
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
   if (tile !== TileType.Empty && !isSolidTile(state.tiles[tileIndex(tx, ty)] as TileType) && sealsInSpawner(tx, ty, tile)) return;
-  handleSetTileInner(player, tx, ty, tile, skipReach, blueprint);
+  handleSetTileInner(player, tx, ty, tile, skipReach, blueprint, rot);
   syncGuardBonusesAround(tx, ty);
 }
 
@@ -789,6 +790,8 @@ export function sendEvent(player: Player, category: GameEventCategory, text: str
 export function demolishTile(tx: number, ty: number, current: TileType) {
   // A multi-tile building (or its construction site) takes its whole block with it.
   clearFootprintParts(tx, ty);
+  // Gap closure G1: so does a 2-tile furniture piece (its part tiles point at this anchor).
+  clearFurnitureParts(tx, ty);
   const siteKey = resourceKey(tx, ty);
   buildingHp.delete(siteKey);
   repairPaid.delete(siteKey);
@@ -837,6 +840,26 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
   if (isTowerTile(current)) towerCooldowns.delete(resourceKey(tx, ty));
   setTile(tileIndex(tx, ty), TileType.Empty);
   broadcastTileUpdate(tx, ty, TileType.Empty);
+}
+
+// ---- Gap closure G1: 2-tile furniture (shared FURNITURE_FOOTPRINT): the anchor holds the piece ----
+// Clears the part tiles that point at the anchor (tx, ty).
+export function clearFurnitureParts(tx: number, ty: number) {
+  for (const [x, y, part] of [[tx + 1, ty, TileType.FurniturePartW], [tx, ty + 1, TileType.FurniturePartN]] as const) {
+    if (!inBounds(x, y) || state.tiles[tileIndex(x, y)] !== part) continue;
+    setTile(tileIndex(x, y), TileType.Empty);
+    broadcastTileUpdate(x, y, TileType.Empty);
+  }
+}
+// Why a 2-tile `tile` turned `rot` can't take its part tile with its anchor at (tx, ty) ("" = it can): on the map,
+// open ground or a floor, not a fort's / another clan's, no construction site, nobody standing on it.
+function furnitureBlocker(player: Player, tile: TileType, tx: number, ty: number, rot: number | undefined): string {
+  for (const [x, y] of furniturePartCells(tx, ty, furnitureFootprint(tile, rot))) {
+    const bad = !inBounds(x, y) || !structurePlacementOk(tile, state.tiles[tileIndex(x, y)]) || ownerAt(tileIndex(x, y)) !== 0 ||
+      isForeignClanTile(x, y, player.clan) || constructionSites.has(resourceKey(x, y)) || someoneStandsOn(x, y);
+    if (bad) return `${BUILDING_NAMES[tile] ?? "This piece"} needs 2 clear tiles (the one you place on and the one ${x > tx ? "east" : "south"} of it; R turns it)`;
+  }
+  return "";
 }
 
 // ---- Multi-tile footprints (FOOTPRINT_BY_TILE): the anchor is the placed (top-left) tile ----
@@ -908,7 +931,7 @@ export function keepPlacementBlocker(tx: number, ty: number): string {
   return "";
 }
 
-export function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileType, skipReach = false, blueprint = false) {
+export function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileType, skipReach = false, blueprint = false, rot?: number) {
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
 
@@ -928,6 +951,21 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     }
     tx = anchor.x;
     ty = anchor.y;
+  }
+  // Gap closure G1: a 2-tile furniture piece's part tile stands for its anchor too (an orphan part just clears).
+  if (isFurniturePartTile(state.tiles[tileIndex(tx, ty)])) {
+    const a = furniturePieceAt(tileAtOrNone, tx, ty);
+    const at = tileAtOrNone(a.x, a.y);
+    if (at !== TileType.ConstructionSite && FURNITURE_FOOTPRINT[at as TileType] === undefined) {
+      if (tile === TileType.Empty && ownerAt(tileIndex(tx, ty)) === 0 && !isForeignClanTile(tx, ty, player.clan)) {
+        setTile(tileIndex(tx, ty), TileType.Empty);
+        broadcastTileUpdate(tx, ty, TileType.Empty);
+      }
+      return;
+    }
+    if (tile !== TileType.Empty) return;
+    tx = a.x;
+    ty = a.y;
   }
 
   const current = state.tiles[tileIndex(tx, ty)] as TileType;
@@ -1060,6 +1098,15 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
       return;
     }
   }
+  // Gap closure G1: a 2-tile furniture piece needs its second tile clear too (it is one piece: one cost, one site).
+  const furnParts = !upgradeInPlace && isStructureTile(tile) ? furniturePartCells(tx, ty, furnitureFootprint(tile, rot)) : [];
+  if (furnParts.length > 0) {
+    const blocked = furnitureBlocker(player, tile, tx, ty, rot);
+    if (blocked) {
+      sendEvent(player, "build", blocked);
+      return;
+    }
+  }
 
   if (tile !== TileType.FarmPlot && !upgradeInPlace) {
     for (const other of players.values()) {
@@ -1093,6 +1140,11 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     setTileClan(tileIndex(tx, ty), player.clan);
   }
   if (multiTile) stampFootprintParts(tile, tx, ty, player.clan);
+  for (const [x, y, part] of furnParts) {
+    setTile(tileIndex(x, y), part);
+    setTileClan(tileIndex(x, y), player.clan);
+    broadcastTileUpdate(x, y, part);
+  }
   if (instant) {
     resolvePlacement(tx, ty, tile, current);
   } else {
@@ -1118,8 +1170,9 @@ export function inOrderRange(player: Player, tx: number, ty: number): boolean {
 
 // placeStructure: one piece (or Empty: cancel / clear) on many tiles. Each tile follows the setTile rules; one
 // summary toast says how many blueprints went down.
-export function handlePlaceStructure(player: Player, tile: unknown, flat: unknown) {
+export function handlePlaceStructure(player: Player, tile: unknown, flat: unknown, rotIn?: unknown) {
   if (player.dead || typeof tile !== "number" || !Array.isArray(flat)) return;
+  const rot = rotIn === 0 || rotIn === 1 ? rotIn : undefined;
   if (tile !== TileType.Empty && !isStructureTile(tile)) return;
   const n = Math.min(flat.length >> 1, STRUCTURE_ORDER_MAX_TILES);
   let placed = 0;
@@ -1131,11 +1184,11 @@ export function handlePlaceStructure(player: Player, tile: unknown, flat: unknow
     const before = state.tiles[tileIndex(tx, ty)];
     if (tile === TileType.Empty) {
       // Clearing: blueprints and structure pieces only (a drag never sweeps up other buildings).
-      if (before !== TileType.ConstructionSite && !isStructureTile(before)) continue;
+      if (before !== TileType.ConstructionSite && !isStructureTile(before) && !isFurniturePartTile(before)) continue;
       if (before === TileType.ConstructionSite && !isStructureTile(constructionSites.get(resourceKey(tx, ty))?.target ?? -1)) continue;
     } else if (before === tile) continue;
     tried++;
-    handleSetTile(player, tx, ty, tile as TileType, true);
+    handleSetTile(player, tx, ty, tile as TileType, true, false, rot);
     if (state.tiles[tileIndex(tx, ty)] !== before) placed++;
   }
   if (tried > 1 || (tried === 1 && placed === 0)) {

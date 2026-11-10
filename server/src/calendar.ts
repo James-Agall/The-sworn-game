@@ -13,6 +13,8 @@ import { GAME_DAY_TICKS } from "./constants.js";
 import { state } from "./state.js";
 import { broadcastEvent } from "./net.js";
 import { frostCrops, resetCropWatering } from "./zones.js";
+import { spoilFood } from "./structures.js";
+import { clans } from "./state.js";
 
 export function seasonsOn(): boolean {
   return !state.seasonsOff;
@@ -63,6 +65,8 @@ export function updateCalendar() {
   state.calendarLastDay = day;
   if (last < 0 || !seasonsOn()) return;
   if (CROP_WATER_RESETS_DAILY) resetCropWatering();
+  // Gap closure G1: food spoils a little every day (each clan's storerooms protect a share).
+  for (const c of clans) spoilFood(c.id);
   const now = calendarOf(day);
   const before = calendarOf(last);
   if (now.season !== before.season || now.year !== before.year) {

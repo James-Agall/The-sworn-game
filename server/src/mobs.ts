@@ -41,6 +41,7 @@ import { stepRaidMobToward } from "./raids.js";
 import { playerMaxHp } from "./heroes.js";
 import { resetWorld } from "./saves.js";
 import { recordMobStrike } from "./net.js";
+import { raidTheft } from "./structures.js";
 
 export function mobBodyRadius(m: Mob): number {
   return Math.min(MOB_BODY_RADIUS_MAX, (MOB_BODY_RADIUS[m.kind] ?? 8) * mobSizeScale(m));
@@ -738,7 +739,10 @@ export function updateMob(mob: Mob, dt: number) {
         const tc = state.townCenters.find((t) => resourceKey(t.x, t.y) === mob.targetId);
         if (tc) damageTownCenter(tc, mob.damage);
       } else if (mob.targetType === "building" && struck) {
+        const before = state.tiles[tileIndex(struck.x, struck.y)];
         damageBuilding(struck.x, struck.y, mob.damage);
+        // Gap closure G1: bandits who wreck a clan building carry off a share of its stock (storerooms protect some).
+        if ((mob.kind === "banditClubman" || mob.kind === "banditArcher") && state.tiles[tileIndex(struck.x, struck.y)] !== before) raidTheft(struck.x, struck.y);
       }
     }
   } else if (slot) {

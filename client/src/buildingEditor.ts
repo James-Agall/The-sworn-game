@@ -33,7 +33,7 @@ export function setupBuildingEditor(deps: EditorDeps) {
       { key: "name", label: "Name", kind: "text" },
       { key: "buildingType", label: "Type", kind: "select", options: [...BUILDING_TYPES] },
       { key: "tier", label: "Tier", kind: "number", min: 1, max: 3 },
-      { key: "role", label: "Role", kind: "select", options: ["bedroom", "barracks", "kitchen", "workshop", "hall", "storeroom", "church"] },
+      { key: "role", label: "Role", kind: "select", options: ["bedroom", "barracks", "kitchen", "workshop", "hall", "storeroom", "church", "infirmary"] },
       { key: "doorSide", label: "Door", kind: "select", options: ["N", "E", "S", "W"] },
       { key: "rotate", label: "may rotate", kind: "check" },
       { key: "mirror", label: "may mirror", kind: "check" },

@@ -6,7 +6,9 @@ import { TileType } from "@colony/shared/protocol";
 import {
   type BuildingTemplate, buildingBareInterior, buildingCells, buildingOrigin, validateBuildingTemplate,
 } from "@colony/shared/buildingTemplates";
-import { isDoorTile, isFloorTile, isRoomStationTile, isWindowTile, isStructureTile, structurePlacementOk } from "@colony/shared/structures";
+import {
+  FURNITURE_FOOTPRINT, isDoorTile, isFloorTile, isFurniturePartTile, isRoomStationTile, isWindowTile, isStructureTile, structurePlacementOk,
+} from "@colony/shared/structures";
 import type { Cost, Player, ResourceKey, TileCoord } from "./types.js";
 import { constructionSites, state } from "./state.js";
 import { inBounds, ownerAt, resourceKey, tileIndex } from "./tiles.js";
@@ -80,6 +82,11 @@ function blueprintProblem(player: Player, plan: ReturnType<typeof planBuilding>)
     if (isForeignClanTile(p.x, p.y, player.clan)) return "Another clan's land is in the way";
     const cur = state.tiles[i] as TileType;
     if (cur === p.tile) continue;
+    // Gap closure G1: a 2-tile piece's part tile comes with its anchor (no cost, no gate): it just needs the room.
+    if (isFurniturePartTile(p.tile)) {
+      if ((cur !== TileType.Empty && !isFloorTile(cur)) || constructionSites.has(resourceKey(p.x, p.y))) return `Something is in the way at ${p.x},${p.y}`;
+      continue;
+    }
     const site = constructionSites.get(resourceKey(p.x, p.y));
     if (site) {
       if (site.target === p.tile) continue;
@@ -117,12 +124,23 @@ export function handlePlaceBlueprint(player: Player, id: unknown, x: unknown, y:
   let placed = 0;
   let tried = 0;
   const pieces = plan.pieces.slice().sort((a, b) => pieceOrder(a.tile) - pieceOrder(b.tile));
+  // Gap closure G1: 2-tile pieces are ordered at their anchor, turned to match the part tile the plan has beside it.
+  const partAt = new Map(plan.pieces.filter((p) => isFurniturePartTile(p.tile)).map((p) => [`${p.x},${p.y}`, p.tile]));
+  const rotOf = (p: PlannedPiece): number | undefined => {
+    const fp = FURNITURE_FOOTPRINT[p.tile];
+    if (!fp) return undefined;
+    const wide = partAt.get(`${p.x + 1},${p.y}`) === TileType.FurniturePartW;
+    const tall = partAt.get(`${p.x},${p.y + 1}`) === TileType.FurniturePartN;
+    if (!wide && !tall) return undefined;
+    return (wide ? fp.w > 1 : fp.h > 1) ? 0 : 1;
+  };
   for (const p of pieces) {
     const i = tileIndex(p.x, p.y);
+    if (isFurniturePartTile(p.tile)) continue;
     if (state.tiles[i] === p.tile || constructionSites.get(resourceKey(p.x, p.y))?.target === p.tile) continue;
     tried++;
     const before = state.tiles[i];
-    handleSetTile(player, p.x, p.y, p.tile, true, true);
+    handleSetTile(player, p.x, p.y, p.tile, true, true, rotOf(p));
     if (state.tiles[i] !== before) placed++;
   }
   sendEvent(player, "build", `${t.name}: ${placed} ${state.instantBuild ? "pieces built" : "blueprints placed"}${placed < tried ? `, ${tried - placed} refused (someone standing there?)` : ""}`);

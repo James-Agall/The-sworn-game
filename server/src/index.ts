@@ -202,7 +202,7 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "setTile") {
     handleSetTile(player, message.tileX, message.tileY, message.tile);
   } else if (message.type === "placeStructure") {
-    handlePlaceStructure(player, message.tile, message.tiles);
+    handlePlaceStructure(player, message.tile, message.tiles, message.rot);
   } else if (message.type === "blueprintList") {
     sendTo(player, { type: "blueprintList", templates: buildingTemplates() });
   } else if (message.type === "placeBlueprint") {

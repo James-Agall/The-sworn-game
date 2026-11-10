@@ -185,6 +185,78 @@ await place(T.Workbench, [{ x: P.x + 2, y: P.y + 2 }]);
 const rsP2 = await rs({ at: [P] });
 result(rsP2.at[0].workshop.speed > rsP.at[0].workshop.speed, `a workbench speeds it: x${rsP.at[0].workshop.speed.toFixed(2)} -> x${rsP2.at[0].workshop.speed.toFixed(2)}`);
 
+// 8. Gap closure G1. Multi-tile furniture: a 1x2 bed (rot 0) and a turned one (rot 1) take 2 tiles each (anchor + part),
+// count once, refuse a blocked second tile, demolish as one (clicking the part); beds + a Medicine Chest = infirmary
+// (its beds are not homes); patients heal there (faster with herbs); the hero heals x3 resting there.
+T.LongTable = 127; T.Wardrobe = 128; T.MedicineChest = 129; T.PartW = 134; T.PartN = 135; T.ChurchPost = 20;
+const placeRot = async (tile, p, rot) => {
+  send({ type: "placeStructure", tile, tiles: [p.x, p.y], ...(rot === undefined ? {} : { rot }) });
+  await hook("fastForward", { ticks: 1 });
+};
+const tilesAt = async (list) => (await hook("structureState", { at: list })).tiles;
+const I = await room(O.x + 14, O.y + 12, O.x + 19, O.y + 17);
+await place(T.WoodFloor, rect(I.x, I.y, I.x + 3, I.y + 3));
+await placeRot(T.Bed, I, 0);
+await placeRot(T.Bed, { x: I.x + 1, y: I.y }, 1);
+let tl = await tilesAt([I, { x: I.x, y: I.y + 1 }, { x: I.x + 1, y: I.y }, { x: I.x + 2, y: I.y }]);
+result(tl.join(",") === [T.Bed, T.PartN, T.Bed, T.PartW].join(","), `1x2 bed + turned 2x1 bed: tiles ${tl.join(",")}`);
+await placeRot(T.Bed, { x: I.x + 3, y: I.y + 3 }, 0);
+tl = await tilesAt([{ x: I.x + 3, y: I.y + 3 }]);
+result(tl[0] !== T.Bed, `a bed whose second tile is a wall is refused (tile ${tl[0]})`);
+s = await rs({ at: [I] });
+const beds0 = s.usableBeds;
+result(roomOf(s, I).role === "bedroom" && roomOf(s, I).counts[T.Bed] === 2, `2-tile beds count once each: ${roomOf(s, I).counts[T.Bed]} beds, ${roomOf(s, I).role}`);
+// Demolish as one: clear the turned bed by its part tile.
+send({ type: "placeStructure", tile: T.Empty, tiles: [I.x + 2, I.y] });
+await hook("fastForward", { ticks: 1 });
+tl = await tilesAt([{ x: I.x + 1, y: I.y }, { x: I.x + 2, y: I.y }]);
+result(tl.every((t) => t !== T.Bed && t !== T.PartW), `cleared by its part tile: both tiles gone (${tl.join(",")})`);
+await placeRot(T.Bed, { x: I.x + 1, y: I.y }, 1);
+await placeRot(T.LongTable, { x: I.x + 1, y: I.y + 3 });
+tl = await tilesAt([{ x: I.x + 1, y: I.y + 3 }, { x: I.x + 2, y: I.y + 3 }]);
+result(tl.join(",") === [T.LongTable, T.PartW].join(","), `long table 2x1: ${tl.join(",")}`);
+await place(T.MedicineChest, [{ x: I.x + 3, y: I.y }]);
+s = await rs({ at: [I, { x: I.x, y: I.y + 1 }] });
+const inf = roomOf(s, I);
+result(inf.role === "infirmary" && s.usableBeds === beds0 - 2, `beds + medicine chest = infirmary (${inf.role}, score ${inf.score}); home beds ${beds0} -> ${s.usableBeds}`);
+result(s.at[0].infirmaryRate > 0 && s.at[1].infirmaryRate > 0 && s.at[0].heroHeal === 3 && s.at[0].heroRest >= 1,
+  `infirmary heal ${(s.at[0].infirmaryRate * 100).toFixed(2)}%/s (part tile too), hero heal x${s.at[0].heroHeal}, rest x${s.at[0].heroRest.toFixed(2)}`);
+result(s.at[0].info.effects.some((e) => /Heals/.test(e)), `infirmary effects: ${s.at[0].info.effects.join(" | ")}`);
+const herbs0 = s.herbs;
+s = await rs({ patient: { x: I.x, y: I.y, hpFrac: 0.3 }, tickRooms: true });
+const p1 = s.patient;
+const gain1 = p1.hp - p1.maxHp * 0.3;
+result(gain1 > 0, `a patient in an infirmary bed heals ${gain1.toFixed(2)} HP in 1 s (herbs ${herbs0})`);
+s = await rs({ herbs: 3, patient: { id: p1.id, x: I.x, y: I.y, hpFrac: 0.3 }, tickRooms: true });
+const gain2 = s.patient.hp - s.patient.maxHp * 0.3;
+result(s.infirmary.doses >= 1 && (herbs0 > 0 || gain2 > gain1 * 1.5), `with herbs: ${gain2.toFixed(2)} HP (doses ${s.infirmary.doses}, herbs left ${s.herbs})`);
+
+// 9. Storeroom protection (spoilage, raid theft), hall gathering, chapel faith.
+s = await rs();
+const prot0 = s.storeroomProtection;
+await place(T.Shelf, [{ x: S.x + 1, y: S.y }]);
+s = await rs({ at: [S] });
+result(prot0 > 0 && s.storeroomProtection > prot0 && s.at[0].info.effects.some((e) => /Protects/.test(e)), `storeroom protects ${(prot0 * 100).toFixed(1)}% -> ${(s.storeroomProtection * 100).toFixed(1)}% with a shelf`);
+await hook("setStock", { stock: { grain: 1000, wood: 2000, rock: 2000 } });
+s = await rs({ spoil: true });
+result(s.spoiled.grain > 0 && s.spoiled.grain < 20, `daily spoilage: ${s.spoiled.grain} of 1000 grain (2% less protection)`);
+s = await rs({ theftAt: { x: S.x - 1, y: S.y } });
+result((s.stolen.wood ?? 0) > 0 && s.stolen.wood < 100, `raid theft at a storeroom wall: ${JSON.stringify(s.stolen)}`);
+s = await rs({ hallGathered: 0, at: [H] });
+const hall0 = s.roomHappiness;
+s = await rs({ hallGathered: 6 });
+result(s.roomHappiness > hall0 && s.hallShare === 1, `hall: gathering 0 -> 6 at dusk: room happiness ${hall0.toFixed(2)} -> ${s.roomHappiness.toFixed(2)} (share ${s.hallShare})`);
+const Ch = await room(O.x, O.y + 11, O.x + 5, O.y + 16);
+await place(T.StoneFloor, rect(Ch.x, Ch.y, Ch.x + 3, Ch.y + 3));
+await placeOne(Ch.x + 1, Ch.y, T.ChurchPost);
+s = await rs({ at: [{ x: Ch.x + 1, y: Ch.y }] });
+const happyNoDev = s.roomHappiness;
+result(roomOf(s, Ch)?.role === "church" && s.reviveMult === 1 && s.at[0].info.effects.some((e) => /devotions/.test(e)), `chapel without devotions: ${roomOf(s, Ch)?.role}, revive x${s.reviveMult}`);
+await place(T.Statue, [{ x: Ch.x + 3, y: Ch.y + 3 }]);
+await place(T.Lamp, [{ x: Ch.x, y: Ch.y + 3 }]);
+s = await rs({ at: [{ x: Ch.x + 1, y: Ch.y }] });
+result(s.reviveMult < 1 && s.roomHappiness > happyNoDev && s.at[0].chapelHeal >= 1, `chapel with a statue + lamp (score ${roomOf(s, Ch).score}): revive x${s.reviveMult.toFixed(2)}, happiness ${happyNoDev.toFixed(2)} -> ${s.roomHappiness.toFixed(2)}, priest heal x${s.at[0].chapelHeal.toFixed(2)}`);
+
 // 7. Save / load: dirt, roles and stats come back.
 await rs({ setDirt: { ...W, dirt: 33 } });
 s = await rs();

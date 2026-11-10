@@ -164,6 +164,17 @@ async function inner() {
   const smithPlan = bt.planBuilding(smith, ss, 0);
   const forge = smithPlan.pieces.find((p) => p.tile === TileType.Blacksmith);
   result(okSmith === null && constructionSites.get(`${forge.x},${forge.y}`)?.target === TileType.Blacksmith, "O a station blueprint is accepted before its room stands (its own walls are queued)");
+  // Gap closure G1: a template with 2-tile beds (the infirmary, turned): each bed is one site at its anchor, its part
+  // tile stamped with it (no site, no cost of its own).
+  const hosp = bt.buildingTemplateById("hospital-infirmary");
+  const hsp = findSpot(6, 9, [hs, ss]);
+  const okHosp = bt.handlePlaceBlueprint(player, hosp.id, hsp.x, hsp.y, 1);
+  const hPlan = bt.planBuilding(hosp, hsp, 1);
+  const parts = hPlan.pieces.filter((p) => p.tile === TileType.FurniturePartW || p.tile === TileType.FurniturePartN);
+  const bedSites = hPlan.pieces.filter((p) => p.tile === TileType.Bed && constructionSites.get(`${p.x},${p.y}`)?.target === TileType.Bed).length;
+  result(okHosp === null && parts.length === 3 && parts.every((p) => state.tiles[idx(p.x, p.y)] === p.tile && !constructionSites.has(`${p.x},${p.y}`)) && bedSites === 3,
+    `O infirmary blueprint (turned): ${bedSites} bed sites, ${parts.length} part tiles stamped (${okHosp ?? "ok"})`);
+
   // Cancel one wall: refunded.
   const wall = housePlan.pieces.find((p) => p.tile === TileType.Wall);
   const w1 = state.stock.wood;

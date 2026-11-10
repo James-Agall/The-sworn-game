@@ -8,7 +8,7 @@
 // server/data/buildings/*.json, the editor's saves in server/data/buildings/user/*.json; both load at boot.
 import { TileType } from "./protocol.js";
 import { BUILD_COSTS, type BuildCost } from "./buildings.js";
-import { findRooms, isRoomBoundaryTile } from "./structures.js";
+import { findRooms, isFurniturePartTile, isRoomBoundaryTile } from "./structures.js";
 import { type RoomRole, roomRole } from "./rooms.js";
 import { PROGRESSION, type Requires, unmetRequirements } from "./progression.js";
 import { type CampEntrance, transformEntrance, transformRows } from "./camps.js";
@@ -18,7 +18,7 @@ export type BuildingDoorSide = CampEntrance;
 export const BUILDING_TYPES = [
   "house", "longhouse", "tavern", "church", "abbey", "blacksmith", "bakery", "market", "barracks", "hall", "granary",
   "barn", "stables", "chickenCoop", "livestockBarn", "pigSty", "sheepPen", "mill", "brewery", "tailor", "library",
-  "watchtower", "gatehouse",
+  "watchtower", "gatehouse", "hospital",
 ] as const;
 export type BuildingType = (typeof BUILDING_TYPES)[number];
 export const BUILDING_TYPE_LABEL: Record<BuildingType, string> = {
@@ -26,6 +26,7 @@ export const BUILDING_TYPE_LABEL: Record<BuildingType, string> = {
   bakery: "Bakery", market: "Market / shop", barracks: "Barracks", hall: "Great hall", granary: "Granary", barn: "Barn",
   stables: "Stables", chickenCoop: "Chicken coop", livestockBarn: "Livestock barn", pigSty: "Pig sty", sheepPen: "Sheep pen",
   mill: "Mill", brewery: "Brewery", tailor: "Tailor", library: "Library / scribe", watchtower: "Watchtower", gatehouse: "Gatehouse",
+  hospital: "Hospital / apothecary",
 };
 
 export interface BuildingTemplate {
@@ -58,6 +59,9 @@ export interface BuildingSymbol {
   slot?: "worker" | "npc";
   // Editor swatch / thumbnail colour.
   color: string;
+  // Gap closure G1: a 2-tile piece: two adjacent cells of the symbol (side by side or one above the other) make one
+  // piece (pairs are read left to right, top to bottom; the top-left cell is its anchor, the other its part tile).
+  cells?: 2;
 }
 
 export const BUILDING_LEGEND: Record<string, BuildingSymbol> = {
@@ -81,6 +85,11 @@ export const BUILDING_LEGEND: Record<string, BuildingSymbol> = {
   k: { label: "Workbench", tile: TileType.Workbench, kind: "furniture", color: "#705030" },
   u: { label: "Statue", tile: TileType.Statue, kind: "furniture", color: "#e8e8e0" },
   a: { label: "Weapon rack", tile: TileType.WeaponRack, kind: "furniture", color: "#505870" },
+  // Gap closure G1: 2-tile furniture (two cells each) and the medicine chest.
+  B: { label: "Bed, 2 tiles (two cells)", tile: TileType.Bed, kind: "furniture", color: "#e06060", cells: 2 },
+  n: { label: "Long table (two cells)", tile: TileType.LongTable, kind: "furniture", color: "#9a6a3b", cells: 2 },
+  d: { label: "Wardrobe (two cells)", tile: TileType.Wardrobe, kind: "furniture", color: "#7a4a28", cells: 2 },
+  m: { label: "Medicine chest", tile: TileType.MedicineChest, kind: "furniture", color: "#e8f0e0" },
   // Stations: the production building tile itself stands in the room as the station.
   F: { label: "Forge / anvil (Blacksmith)", tile: TileType.Blacksmith, kind: "station", color: "#402020" },
   O: { label: "Oven (Bakery)", tile: TileType.Bakery, kind: "station", color: "#c06030" },
@@ -112,7 +121,7 @@ export const BLUEPRINT_TOOL = 220 as TileType;
 export const BUILDING_SIZE_MIN = 3;
 export const BUILDING_SIZE_MAX = 15;
 const DOOR_SIDES: BuildingDoorSide[] = ["N", "E", "S", "W"];
-const ROLES: RoomRole[] = ["bedroom", "barracks", "kitchen", "workshop", "hall", "storeroom", "church"];
+const ROLES: RoomRole[] = ["bedroom", "barracks", "kitchen", "workshop", "hall", "storeroom", "church", "infirmary"];
 const SIDE_STEP: Record<BuildingDoorSide, [number, number]> = { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] };
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
@@ -123,6 +132,28 @@ function symbolSolid(s: BuildingSymbol): boolean {
 }
 function symbolWalkable(s: BuildingSymbol): boolean {
   return !symbolSolid(s);
+}
+
+// Gap closure G1: the tile of every cell (undefined: nothing), with 2-tile pieces paired (anchor + part tile), and the
+// cells of a 2-tile symbol left without a partner ("half a bed": a validation error; it is laid as a 1x1 piece).
+export function buildingPieceTiles(rows: readonly string[]): { tiles: (TileType | undefined)[][]; unpaired: { x: number; y: number }[] } {
+  const tiles = rows.map((row) => Array.from(row, (ch) => BUILDING_LEGEND[ch]?.tile));
+  const paired = rows.map((row) => new Array<boolean>(row.length).fill(false));
+  const unpaired: { x: number; y: number }[] = [];
+  rows.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      if (BUILDING_LEGEND[row[x]]?.cells !== 2 || paired[y][x]) continue;
+      paired[y][x] = true;
+      if (row[x + 1] === row[x] && !paired[y][x + 1]) {
+        paired[y][x + 1] = true;
+        tiles[y][x + 1] = TileType.FurniturePartW;
+      } else if (rows[y + 1]?.[x] === row[x] && !paired[y + 1][x]) {
+        paired[y + 1][x] = true;
+        tiles[y + 1][x] = TileType.FurniturePartN;
+      } else unpaired.push({ x, y });
+    }
+  });
+  return { tiles, unpaired };
 }
 
 export interface BuildingCell {
@@ -137,9 +168,10 @@ export interface BuildingCell {
 export function buildingCells(t: Pick<BuildingTemplate, "rows">, transform = 0): { w: number; h: number; cells: BuildingCell[] } {
   const rows = transform ? transformRows(t.rows, transform) : t.rows;
   const cells: BuildingCell[] = [];
+  const grid = buildingPieceTiles(rows).tiles;
   rows.forEach((row, y) => {
     for (let x = 0; x < row.length; x++) {
-      const tile = BUILDING_LEGEND[row[x]]?.tile;
+      const tile = grid[y][x];
       if (tile !== undefined) cells.push({ x, y, ch: row[x], tile });
     }
   });
@@ -220,11 +252,13 @@ function analyse(rows: string[], doorSide: BuildingDoorSide | undefined): Analys
   const errs: string[] = [];
   const PW = w + 2;
   const PH = h + 2;
+  const pieces = buildingPieceTiles(rows);
+  for (const u of pieces.unpaired) errs.push(`${BUILDING_LEGEND[rows[u.y][u.x]].label} at ${u.x},${u.y} needs its second cell beside or below it`);
   const tileAt = (i: number) => {
     const x = (i % PW) - 1;
     const y = Math.floor(i / PW) - 1;
     if (x < 0 || y < 0 || x >= w || y >= h) return TileType.Empty;
-    return BUILDING_LEGEND[rows[y][x]]?.tile ?? TileType.Empty;
+    return pieces.tiles[y][x] ?? TileType.Empty;
   };
   const boundary: number[] = [];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (isRoomBoundaryTile(tileAt((y + 1) * PW + x + 1))) boundary.push((y + 1) * PW + x + 1);
@@ -342,13 +376,15 @@ export function buildingStats(t: Pick<BuildingTemplate, "rows">): BuildingStats 
   let workerSlots = 0;
   let npcSlots = 0;
   let pieces = 0;
-  for (const row of t.rows) for (const ch of row) {
+  const grid = buildingPieceTiles(t.rows).tiles;
+  t.rows.forEach((row, y) => Array.from(row).forEach((ch, x) => {
     const s = BUILDING_LEGEND[ch];
-    if (!s) continue;
-    if (s.tile !== undefined) pieces++;
+    if (!s) return;
+    // A 2-tile piece counts once.
+    if (grid[y][x] !== undefined && !isFurniturePartTile(grid[y][x]!)) pieces++;
     if (s.slot === "worker") workerSlots++;
     if (s.slot === "npc") npcSlots++;
-  }
+  }));
   return {
     w: a.w, h: a.h, rooms: a.rooms, beds: a.rooms.reduce((n, r) => n + r.beds, 0), workerSlots, npcSlots, pieces,
     cost: buildingCost(t), needs: buildingNeeds(t),

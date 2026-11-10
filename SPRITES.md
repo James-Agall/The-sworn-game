@@ -757,6 +757,14 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > **signpost / notice board** props for the trader / quest slots (#76), and **lantern posts / fences** in a town
 > palette. No new tile types were added.
 
+### 100. Two-tile furniture and the infirmary (gap closure G1, 2026-11-10)
+> New pieces drawn today by procedural stand-ins (`client/src/structureArt.ts` furnitureTex) stretched over their
+> tiles: **Long Table** (2x1), **Wardrobe** (1x2), **Medicine Chest** (1x1); the **Bed** is now 2 tiles (1x2) and its
+> 1-tile `bed.png` is stretched over both (a turned piece is the same art rotated 90 degrees). Wanted, top-down at
+> 64 px per tile: `bed_long.png` (64x128), `table_long.png` (128x64), `wardrobe.png` (64x128), `medicine_chest.png`
+> (64x64, a white chest with a red cross or herb bundles), plus a Room panel icon `room_infirmary.png` (32x32) and an
+> item icon for **herbs**. No staged art covers these yet.
+
 ### #90-#97 delivery status (2026-11-09: sliced ChatGPT atlases, `art-sources/rimworld-stardew/`)
 > Processed by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/<group>/`; registry and
 > loaders in `client/src/spriteRegistry.ts`. Every wired file is optional: a missing png falls back to the procedural

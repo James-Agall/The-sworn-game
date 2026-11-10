@@ -23,10 +23,51 @@ export const ROOM_TOOL_STONE = 201 as TileType;
 // Modular building phase 2: furniture (walkable 1x1 pieces; shared/src/rooms.ts gives them their room effects).
 export const FURNITURE_TILES: readonly TileType[] = [
   TileType.Table, TileType.Chair, TileType.Chest, TileType.Shelf, TileType.Hearth, TileType.Lamp, TileType.Rug,
-  TileType.Workbench, TileType.Statue, TileType.WeaponRack,
+  TileType.Workbench, TileType.Statue, TileType.WeaponRack, TileType.LongTable, TileType.Wardrobe, TileType.MedicineChest,
 ];
 export function isFurnitureTile(t: number): boolean {
-  return t >= TileType.Table && t <= TileType.WeaponRack;
+  return t >= TileType.Table && t <= TileType.MedicineChest;
+}
+
+// ---- Gap closure G1 (2026-11-10): furniture larger than 1x1 ----
+// A piece listed here covers 2 tiles: its ANCHOR (top-left) holds the piece's TileType (and is what rooms count, so
+// every piece counts once), the other tile a part tile that names where the anchor is (FurniturePartW: west of it,
+// FurniturePartN: north of it), so a piece's shape and turn are read from the tiles alone (no extra state).
+// `rot` 1 turns the default footprint a quarter (w <-> h). A Bed placed with no turn given (old blueprint orders,
+// templates' "b") stays a 1x1 bed; old 1x1 beds stay valid forever.
+export interface FurnitureFootprint {
+  w: number;
+  h: number;
+}
+export const FURNITURE_FOOTPRINT: Partial<Record<TileType, FurnitureFootprint>> = {
+  [TileType.Bed]: { w: 1, h: 2 },
+  [TileType.LongTable]: { w: 2, h: 1 },
+  [TileType.Wardrobe]: { w: 1, h: 2 },
+};
+export function isFurniturePartTile(t: number): boolean {
+  return t === TileType.FurniturePartW || t === TileType.FurniturePartN;
+}
+// The footprint a NEW placement of `tile` takes (rot: 0 / 1, or undefined: a Bed stays 1x1).
+export function furnitureFootprint(tile: number, rot: number | undefined): FurnitureFootprint {
+  const fp = FURNITURE_FOOTPRINT[tile as TileType];
+  if (!fp || (rot === undefined && tile === TileType.Bed)) return { w: 1, h: 1 };
+  return rot === 1 ? { w: fp.h, h: fp.w } : fp;
+}
+// The part tiles of a w x h piece anchored at (x, y): [x, y, part tile] (2-tile pieces only).
+export function furniturePartCells(x: number, y: number, fp: FurnitureFootprint): [number, number, TileType][] {
+  if (fp.w === 2 && fp.h === 1) return [[x + 1, y, TileType.FurniturePartW]];
+  if (fp.w === 1 && fp.h === 2) return [[x, y + 1, TileType.FurniturePartN]];
+  return [];
+}
+// The piece a tile belongs to: its anchor and placed footprint (a part points at its anchor; an anchor's footprint
+// follows its part tiles: none = 1x1). tileAt returns -1 off the map.
+export function furniturePieceAt(tileAt: (x: number, y: number) => number, x: number, y: number): { x: number; y: number; w: number; h: number } {
+  const t = tileAt(x, y);
+  if (t === TileType.FurniturePartW) return { x: x - 1, y, w: 2, h: 1 };
+  if (t === TileType.FurniturePartN) return { x, y: y - 1, w: 1, h: 2 };
+  if (tileAt(x + 1, y) === TileType.FurniturePartW) return { x, y, w: 2, h: 1 };
+  if (tileAt(x, y + 1) === TileType.FurniturePartN) return { x, y, w: 1, h: 2 };
+  return { x, y, w: 1, h: 1 };
 }
 // Modular building phase 2: production stations that may stand inside a room (it becomes a workshop / church).
 // They are ordinary 1x1 buildings; anything else (houses, posts, farms) still means "not a room".
@@ -68,7 +109,7 @@ export function isRoomBoundaryTile(t: number): boolean {
 // May stand inside a room.
 export function isRoomInteriorTile(t: number): boolean {
   return t === TileType.Empty || isFloorTile(t) || t === TileType.Bed || t === TileType.ConstructionSite || t === TileType.Road || t === TileType.CobbleRoad ||
-    isFurnitureTile(t) || isRoomStationTile(t);
+    isFurnitureTile(t) || isFurniturePartTile(t) || isRoomStationTile(t);
 }
 // What a piece may be placed on (besides Empty): floors are re-laid over the other floor; walls, doors, windows
 // and beds go over a floor; a door or window may replace a wall (cutting an opening).

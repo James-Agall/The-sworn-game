@@ -53,7 +53,8 @@ import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, 
 import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
-import { isUsableBed, roomHappinessBonus, usableBedIndices, warmRoomAt } from "./structures.js";
+import { bestHallOf, infirmaryBedNear, isDuskNow, isUsableBed, roomHappinessBonus, usableBedIndices, warmRoomAt } from "./structures.js";
+import { ROOM_HALL_GATHER_CHANCE, ROOM_HALL_GATHER_RANGE_TILES, ROOM_INFIRMARY_SEEK_HP_FRAC, ROOM_INFIRMARY_SEEK_RANGE_TILES } from "@colony/shared/rooms";
 import { cancelZoneJob, hasZoneJob, homeAreaTileNear, updateZoneWorker } from "./zones.js";
 import { chooseWorkerFor, releaseVillagerForPost, skillSpeed, startPriorityShift, updateVillagerWork, workPriority } from "./work.js";
 import { orchardFruitsNow, winterNow } from "./calendar.js";
@@ -1902,6 +1903,27 @@ export function updateVillager(c: Colonist, dt: number) {
       c.postX = tc.x;
       c.postY = tc.y;
       c.settlementId = resourceKey(tc.x, tc.y);
+    }
+  }
+  // Gap closure G1: a hurt villager goes to rest in an infirmary bed; at dusk idle villagers gather in the best hall.
+  if (c.hp < c.maxHp * ROOM_INFIRMARY_SEEK_HP_FRAC) {
+    const bed = infirmaryBedNear(c.clan ?? 0, c.postX, c.postY, ROOM_INFIRMARY_SEEK_RANGE_TILES);
+    const path = bed ? findPath(tileOfPixel(c.x, c.y), bed) : null;
+    if (path) {
+      c.path = path;
+      return;
+    }
+  }
+  if (isDuskNow() && Math.random() < ROOM_HALL_GATHER_CHANCE) {
+    const hall = bestHallOf(c.clan ?? 0);
+    const W = state.WORLD_TILES_X;
+    if (hall && Math.max(Math.abs(hall.x0 - c.postX), Math.abs(hall.y0 - c.postY)) <= ROOM_HALL_GATHER_RANGE_TILES) {
+      const i = hall.tiles[Math.floor(Math.random() * hall.tiles.length)];
+      const path = isWalkableTile(i % W, Math.floor(i / W)) ? findPath(tileOfPixel(c.x, c.y), { x: i % W, y: Math.floor(i / W) }) : null;
+      if (path) {
+        c.path = path;
+        return;
+      }
     }
   }
   // Modular building phase 3: with a home area nearby, idle villagers stroll inside it.

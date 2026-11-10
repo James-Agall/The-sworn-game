@@ -1,5 +1,6 @@
 // units.ts: Soldiers: unit stats, posts and garrisons, rally/return, guard AI, bishops, task forces, army regiment derivation.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { chapelHealMultAt } from "./structures.js";
 import { directionMultOnMob, fatigueDamageMultOnColonist, fatigueSpeedMult, marchSteerStep, mobsNear, pairedTargetOf } from "./battle.js";
 import {
   type SiegeKind, type ColonistKind, TileType, type ArmyRegimentSnapshot, type RegimentClass, type CombatRole,
@@ -935,7 +936,8 @@ export function findNearestInjured(
 
 export function healAmountFor(churchX: number, churchY: number): number {
   const level = getBuildingLevel(churchX, churchY);
-  return Math.round(BISHOP_HEAL_AMOUNT * (1 + (level - 1) * CHURCH_HEAL_BONUS_PER_STEP));
+  // Gap closure G1: a chapel with devotions round the altar heals better.
+  return Math.round(BISHOP_HEAL_AMOUNT * (1 + (level - 1) * CHURCH_HEAL_BONUS_PER_STEP) * chapelHealMultAt(churchX, churchY));
 }
 
 export function updateBishopColonist(c: Colonist, dt: number) {

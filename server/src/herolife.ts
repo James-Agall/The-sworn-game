@@ -6,7 +6,7 @@
 // XP pace), personal builds (campfire, lean-to, storage chest). State: HeroProfile.life (saved with the profile);
 // per-session transient work lives here. Messages run in the sender's clan context (index.ts handleMessage).
 import { heroAnimalInteract } from "./animals.js";
-import { heroRestMultAt, roomAtIndex, warmRoomAt } from "./structures.js";
+import { heroInfirmaryHealMult, heroRestMultAt, roomAtIndex, warmRoomAt } from "./structures.js";
 import { TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, type TradeGood, type RelationTier } from "@colony/shared/protocol";
 import {
   ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, BRIDE_GIFT_GOLD, CEREMONY_FEE, COURT_GIFT_GOLD, COURT_NEEDED, FOUND_CAMP_COST, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
@@ -1192,7 +1192,8 @@ function stepNeeds(p: Player, b: Busy) {
   if (ok && state.cycleTick - b.hurtTick >= HURT_CALM_TICKS) {
     const max = playerMaxHp(p);
     if (p.hp < max) {
-      p.hp = Math.min(max, p.hp + max * REGEN_FRAC_PER_S * (b.resting ? 4 : 1));
+      // Gap closure G1: resting in an infirmary heals faster still.
+      p.hp = Math.min(max, p.hp + max * REGEN_FRAC_PER_S * (b.resting ? 4 * heroInfirmaryHealMult(p.x, p.y) : 1));
       b.lastHp = p.hp;
     }
   }
