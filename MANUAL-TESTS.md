@@ -684,6 +684,36 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## New game smoke checklist (RimWorld / Stardew phase 6, 2026-11-10)
+One pass over every new system in a fresh normal (non-creative) game, ~20 minutes. Details per system in the sections
+below; ROADMAP "RimWorld/Stardew — phase 6" has what was tuned.
+1. **Start**: top bar shows 10 people, about 70% happiness, and Grain 80 / Meat 20 / Fruit 40. Under the sundial:
+   "Spring 1, Year 1". No red errors in the console (F12).
+2. **Structures**: Build > Structure > Wood Room, right-drag a 5x4 room near the Town Center, Wood Door on a wall, Wood
+   Floor inside, two Beds. Builders (and free villagers) raise it; a thatch roof appears; the hero walking in fades it.
+3. **Rooms**: left-click inside: "Room: Bedroom" around 70/100 with a wood floor (a bare one ~53). Click the Town Center:
+   the population cap went up by 2. Next dawn two people move into the beds (the Town Center is only a shelter now) and
+   the happiness goes up a few points.
+4. **Zones**: Build > Zones > Wheat field, right-drag a 4x3 area: villagers till, sow, tend; ripe tiles are harvested and
+   carried to the Town Center (Grain rises in whole units). Add a Stockpile with Food ticked: the next harvest goes there.
+5. **Food**: build a Forager's Hut early. Over the first 3 days nobody starves (no "has died" events) and the three food
+   kinds do not drop to 0 one after another (people eat from every store in proportion now).
+6. **Work tab**: top bar Work: a row per adult, all green checks. Click the Farm header: everyone off, the field work stops;
+   click again: back on. Manual priorities on: number badges; a villager with Farm 1 works the field first.
+7. **Hero tools**: adventure view, keys 1-6 = hoe, can, seeds, scythe, axe, pickaxe. Hoe + Space tills the faced tile,
+   seeds sow (W8 -> W7), can waters (20 -> 19). Energy bar falls; at 0 work is half speed; resting refills it.
+8. **Talking**: at a friendly settlement stand next to the Church priest (Brother ...) at the keep and press E: the
+   priest answers, not the Elder. Stand right at the keep door: the Elder answers. Two people equally close: a "Who do
+   you speak to?" choice.
+9. **Calendar**: Creative game > World > Season Winter: the date reads "Winter 1", the ground tints blue-grey, outdoor crops
+   die to frost (event), berry bushes regrow slowly (a quarter speed), not never. Rain waters outdoor crops.
+10. **Interiors**: walk up into the Town Center from the tile below it: fade into the great hall with your people; E at one
+    talks; walk onto the red mat to leave. A House has a bed (sleep until dawn at night) and a chest.
+11. **Animals**: with gold (Trading Post), Build > Farming > Chicken Coop, buy 2 hens + a rooster in its panel. E next to
+    the coop fills the feeder / trough; next dawn E collects eggs (Resources > Food).
+12. **Save / load**: save, change a few things, load: rooms, zones and crops, work priorities, the calendar date, animals
+    and the hero's energy come back.
+
 ## Stardew phase 5d: animals living in buildings (2026-11-10)
 Normal (non-creative) game, near the Town Center. Have gold (Trading Post / Tavern) and some grain; craft Carpenter's
 tools by hand (6 wood + 4 rock) for the bigger houses.
@@ -755,7 +785,7 @@ Automated: `npm test -- calendar`.
 7. Winter, night (Creative Day + night), the hero standing in the open: the Rest need falls faster than on a summer
    night; resting beside a campfire / in a warm bedroom (Room panel warmth 50+) does not suffer. Colony happiness
    dips a few points on winter nights unless people have warm rooms / shelter.
-8. Winter: picked berry bushes stay picked; an Orchard's farmhand produces no fruit in spring / winter (Summer / Autumn
+8. Winter: picked berry bushes regrow at a quarter speed (phase 6; they used to stay picked); an Orchard's farmhand produces no fruit in spring / winter (Summer / Autumn
    it does).
 9. Save, change the season, load: the date and a creative weather come back. An older save loads on the calendar day
    matching its day count (day 9 = Summer 2, Year 1).

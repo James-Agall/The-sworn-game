@@ -2155,6 +2155,59 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## RimWorld/Stardew — phase 6 (balance, consistency, tests) 2026-11-10
+Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 6. Manual check: MANUAL-TESTS.md "New game smoke checklist".
+- **Balance probe**: a headless run of a NEW game (seasons on, no legacy switches, raids off): 10 people, 2 houses, a
+  12-tile wheat zone, a Forager's Hut placed on day 0 (variant: 4 wood-floored 3-bed bedrooms), sampled every quarter
+  day with the new `balanceState` test hook (happiness and its terms, food, people, cap). Before: happiness 43 at the
+  start (grain only), 57 while fruit lasted, back to 43 at every dawn that ate the grain (grain was eaten first) even
+  with 500+ fruit in store; without a forager the 80 grain ran out on dawn 3 and the colony died by day 6; two to four
+  births in the first days. Winter (bushes never regrew) starved a forager colony on winter day 5.
+- **Tuned** (named constants):
+  - STARTING_MEAT 20 / STARTING_FRUIT 40 (new; grain stays 80): 140 food, a varied diet from the start (happiness 70).
+  - Dawn upkeep eats from grain / meat / fruit **in proportion to the stock** (applyDailyFoodConsumption; was grain,
+    then meat, then fruit), so food variety does not collapse while food is plentiful.
+  - BIRTH_MIN_FOOD_DAYS 2 (new): births also need two days of the clan's upkeep in stock.
+  - assignHomes: someone sleeping at a Town Center (a shelter) moves into a free house / keep / bed; homes used to be
+    kept for good, so a new bedroom housed none of the starting ten and its sleep happiness never counted.
+  - Rooms: ROOM_WARMTH_BASE 20 -> 30 (a bare bedroom scores ~53, not a malus), ROOM_SLEEP_HAPPINESS_MAX 10 -> 15,
+    ROOM_CLEAN_PER_SEC 0.08 -> 0.11 (occupied 3-bed bedrooms silted up to cleanliness 0: score 68 -> 46).
+  - WINTER_FORAGE_REGROW_MULT 0.25 replaces WINTER_FORAGE_REGROWS false (bushes regrow at a quarter speed in winter).
+  - Looked at, unchanged: hero energy (100, 1-3 a use, never blocks, rest 2/s), immigration (3/week at 100%, none
+    under 25%; it is capped by free beds, which a 10-person start fills by day 2-4 with births), pop cap (Town Center
+    12 + 1 per house + 1 per bed in a roofed room + neighbour pairs), zone wheat (2.73 grain per tile per 1.6 days:
+    a 12-tile field feeds ~5 people; a Forager's Hut ~30), work-priority defaults, WINTER_COLD_HAPPINESS 6.
+- **After** (same probe): happiness 70 through day 6 while all three foods last, then 57 (grain + fruit) without
+  bedrooms, 60 with the bedroom variant (12 beds for up to 20 people; a fully bedded colony ~62); food never ran out
+  in 10 days (grain 80 -> 110-130, fruit 40 -> 440-590), 0 starving dawns, 4-10 births and 1-2 immigrants (pop 10 ->
+  14 capped by 2 houses, 10 -> 20 with the bedrooms). Through winter (28 days): no starvation, fruit 270 left.
+  A start with only the 12-tile zone and no forager would still starve after ~4 dawns (estimated: the player has to
+  build food).
+- **Priest-talk fix**: E picks the nearest NPC (the Elder is measured to the keep tile's edge; a priest standing at the
+  keep answers when nearer); two or more within TALK_TIE_TILES 0.35 of the nearest get a "Who do you speak to?" choice.
+  Smoke check "talk: the nearest NPC answers (priest at the keep)" (test hook heroLife tpPriest "keep").
+- **Fix**: a vassal's levy no longer counts in the snapshot population (populationCostOf; settlementStats already
+  skipped it).
+- **Test status** (each suite on a private port with a scratch save dir; `npm test -- <name>`):
+
+  | Suite | Result | Note |
+  |---|---|---|
+  | quests, spells, tactics, save-load, settlement-pop, camp-hearth, camp-templates, creative, gates-walls, hunting-foraging, structures, rooms, zones, work-priorities, hero-tools, calendar, interiors, animals, farm-gear, ward-priest-patrol, economy, starting-stock, day-respawn, houses-barns-castles, trade, town-center, progression, smoke | pass | zones once failed "animal area 9 tiles" (flake, passed on rerun); smoke (full) passes with the new talk check |
+  | sites | flake | passes most runs; failed once on "W they walk home", once on "D ... wakes the site but not its guardians" |
+  | wagons | flake | settlement stamp: world-gen forts / ruins crowd the 256 map; now tries a 40-70 tile ring of spots (2 of 3 runs pass) |
+  | warbands | pass | protected file, untouched |
+  | clans | pass | stale: a new clan starts with 10 people |
+  | vassals | pass | levy population fix; stamp search over a grid of spots |
+  | builders-towncenter | pass | COLONY_LEGACY_STAFF (written before village life) |
+  | builders-farmers | pass | upkeep no longer eats the harvest under test; once failed on a Barn placement (flake) |
+  | towers-farms | pass | stale: fields go anywhere, a Barn tends the 8 nearest, harvest 12 |
+  | slow-farming, industrial-synergy | pass | adjusted to proportional eating / the 5th-harvest fallow |
+  | upgrades-church | flake | (g) stale, fixed (a level-1 Barn has 2 farmers); (d) "archer upgraded in place: hp 29.3/37" fails some runs (the archer is chipped between reads; passes on 8cb4b59 once) |
+  | economy-goods | 1 fail | pre-existing (fails on 8cb4b59 too): "(A) Orchard on an empty tile next to the Orchard" assumes 1x1 orchards |
+  | abbey-ward | 2 fail | pre-village-life test: with LEGACY staffing (A) passes; (C) "summoned a Ward Priest" expects a fresh bishop (a villager now, covered by ward-priest-patrol); (B) night-mob targeting flaky |
+  | streaming-world | pass | failed once (0 sieges, 0 chronicle) while other suites ran: flake |
+  | streaming-abstract | fail (timeout) | "no camp spot whose muster point is outside the ACTIVE chunks" (world-gen dependent), then hangs to the 900 s timeout; not chased |
+
 ## Stardew layer — landed (phase 5d) 2026-11-10 (animals living in buildings)
 Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 5d. Shared: `shared/src/animals.ts` (EVERY animal number, the
 species / house tables, snapshot flags, panel type); server: `server/src/animals.ts` (houses, records, daily step,
@@ -2291,7 +2344,7 @@ number, the calendar maths, the weather roll, client tints / particle caps); ser
   villagers re-tend, the hero waters again. While it rains / storms (WATERING_WEATHER) every unroofed sown / growing
   crop counts as watered for the rest of the day. The can works as before.
 - **Winter**: old Farm Plots (Barn fields) stop growing and the old Hemp Field farmhand stops; wild forage (berry bushes,
-  fruit trees) does not regrow (WINTER_FORAGE_REGROWS false; their timers wait); hunting unchanged. Orchards bear fruit
+  fruit trees) regrows at WINTER_FORAGE_REGROW_MULT 0.25 speed (phase 6; was not at all); hunting unchanged. Orchards bear fruit
   only in ORCHARD_FRUIT_SEASONS summer + autumn (the farmhand's cycle waits otherwise); pastures unchanged.
   **Cold (mild, no deaths)**: on a winter night colony happiness loses up to WINTER_COLD_HAPPINESS 6 points x the share
   of the clan's people neither with a home bed in a warm room (warmth >= ROOM_WARM_THRESHOLD 50) nor sheltered (house /

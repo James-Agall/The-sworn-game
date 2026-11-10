@@ -83,8 +83,12 @@ await hook("peopleState", { spawn: 20 });
 await hook("setCycleTick", { tick: TICK * 5 });
 
 let st = null;
-for (const [dx, dy] of [[0, 50], [50, 0], [0, -50], [-50, 0], [50, 50], [-50, -50]]) {
-  st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 25 });
+// World-gen forts / ruins crowd the map now: try a ring of spots 40-70 tiles out (nearest first) until one fits.
+const spots = [];
+for (let dx = -70; dx <= 70; dx += 10) for (let dy = -70; dy <= 70; dy += 10) if (Math.hypot(dx, dy) >= 40 && Math.hypot(dx, dy) <= 70) spots.push([dx, dy]);
+spots.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+for (const [dx, dy] of spots) {
+  st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 10 });
   if (st?.site) break;
 }
 const site = st?.site;
