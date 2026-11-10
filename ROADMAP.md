@@ -2155,6 +2155,60 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Gap closure G5 — landed 2026-11-10 (interiors: living NPCs, 3 layouts per type, tavern patrons, upper floors)
+
+QUEUE "RimWorld/Stardew gap closure" G5 (extends "Stardew layer — landed (phase 5c)": its "one template per type" gap is
+closed). Numbers in `shared/src/interiors.ts` (G5 block); server `server/src/interiors.ts`, dialogue in herolife.ts;
+client `client/src/interior.ts`.
+- **Layouts**: `INTERIOR_TEMPLATES[type]` is now `INTERIOR_VARIANTS` (3) ASCII layouts per type (house, tavern, church,
+  smithy, bakery, shop, barracks, hall, barn; index 0 = the 5c layout, a few cells fixed), same legend + `U` stairs up
+  / `D` stairs down. `interiorVariantFor(anchor x, y, level)` (FNV hash) picks one: the same building at the same level
+  always gets the same room; an upgrade can change it (house levels still add `q`/`Q`/`l`/`r`/`w` furniture).
+  `validateInteriorTemplate` (shared, every layout in the interiors test): rectangular, known symbols, closed
+  outline, one exit mat in the bottom row (upstairs: one `D`, no mat), every floor tile reachable (through counters
+  for the keeper's side), beds / chests / stairs next to a reachable tile, NPC slots within 2 tiles of where the hero
+  stands, the type's stations `INTERIOR_REQUIRED_PROPS` (smithy forge + anvil, bakery oven + counter, tavern counter /
+  tables / chairs / hearth, church altar + pews, barracks beds + weapon rack, hall high seat + table, barn hay, house
+  bed + hearth; a chest wherever the owner has one), a keeper slot (not houses), tavern >= `INTERIOR_TAVERN_MIN_SEATS`
+  6 seats, stairs where an upper floor exists.
+- **Living NPCs** (server-simulated per room while a hero is inside, never saved): bindings carry an act — keeper
+  (stays at its slot; pose `work` in a smithy / bakery / barn: the client's tool swing, else an idle bob), resident
+  (day: waits `INTERIOR_NPC_WAIT_MIN/MAX_TICKS` 40-140 then walks a BFS path on the interior grid to a tile up to
+  `INTERIOR_NPC_WANDER_TILES` 4 away at `INTERIOR_NPC_SPEED_TILES` 1.4 tiles/s; dusk (`isDuskNow`): its own seat, a
+  chair beside a table, pose `sit`; night: its own bed, pose `sleep`), patron (seated), sleeper (in bed). An NPC within
+  `INTERIOR_NPC_STOP_TILES` 1.3 of a hero stops and turns to them; within `INTERIOR_GREET_RANGE_TILES` 2.5 it says a
+  greeting line by room / role (bubble `INTERIOR_SAY_TICKS` 60, again after `INTERIOR_GREET_COOLDOWN_TICKS` 600).
+  Facing follows movement (l / r / u / d). Message `interiorNpcs {key, storey, npcs: [{id, x, y, face, pose, say?}]}`
+  every `INTERIOR_NPC_SEND_TICKS` 3 when changed; E / talk range use the live positions.
+- **Tavern patrons**: chairs beside tables (`interiorSeats`) seat `INTERIOR_PATRONS_DAY` 2-3 / `_DUSK` 3-5 / `_NIGHT`
+  4-6 (per day + phase hash, capped by seats). Own tavern at dusk / night: your adult villagers (not the hero, not
+  posted there) fill all but one seat, the rest are "X the traveller"; a settlement's tavern: its villagers and
+  travellers. Role `patron` (dialogue `DIALOGUE.patron`): **Heard any rumours?** (`patronRumour`: one of the nearest
+  standing camp, how many camps within 40 tiles, the nearest settlement, the nearest iron ore; picked by patron + day,
+  the place revealed on the minimap; speech +2 once a day per patron) and **Buy yourself a drink** (also on a tavern
+  keeper / trader: `TalkInside.tavern`): `TAVERN_DRINK_GOLD` 3 gold from the stores (to the settlement's purse there),
+  rest +`TAVERN_DRINK_REST` 12, colony happiness +`TAVERN_DRINK_HAPPINESS` 2 for `TAVERN_DRINK_CHEER_TICKS` (120 s;
+  `colonyHappinessParts().drink`, not saved), at most `TAVERN_DRINKS_PER_DAY` 3 a game day.
+- **Upper floors (d)**: tavern / barracks / hall layouts have a `U`; stepping on it (not within
+  `INTERIOR_BUMP_COOLDOWN_TICKS` of the last change) goes to `INTERIOR_UPPER_TEMPLATES[type]` (storey 1: guest rooms /
+  officers' rooms / the chambers, with a bed, a chest (the building's same chest) and `D`); stepping on `D` comes back
+  beside the `U`. Esc upstairs: "Take the stairs down first". By night the hall's Elder / barracks keeper sleeps
+  upstairs (gone from the ground floor; still talkable there) and two travellers sleep in the tavern's guest beds; by
+  day upstairs is empty. `Player.interior.storey` / `variant` are transient like the rest.
+- **Client**: NPCs eased toward the live position; walk = the kind's walk frames (`npcAnim`: COLONIST_ANIMS, stand-in
+  kinds get the still texture + a hop), work = its action frames (else a 2-frame tilt), idle bob `INTERIOR_BOB_PX` 1.5 /
+  `INTERIOR_BOB_MS` 1400, sit 3 px lower and squashed, sleep = rotated across the bed with "z z"; horizontal flip by
+  facing; a speech bubble above the name. Stairs are drawn in code (SPRITES.md #103).
+- **Tests**: `server/interiors-test.mjs` section 11 (`npm test -- interiors`; test hook `interior {variant}` forces a
+  layout, the reply has `live` and `templateErrors`): all layouts valid, house variants 0-2 differ, the pick is stable
+  per building and varies, a settlement house's villager wanders / faces its way / sits at dusk / sleeps at night, a
+  smith works at the anvil and greets, tavern patrons by day / night, rumour, a drink (gold -3, rest +12, happiness
+  part +2), stairs up (guests asleep) / Esc refused / down beside the stairs, own villagers drinking at night.
+- **Skipped / limits**: NPCs pass through each other and the hero (no NPC collision); patrons pop in / out when the
+  phase changes (no walking in from the door); own villagers "at the tavern" are not taken off their world work (the
+  interior is a view); upstairs has no NPC bindings by day; the hall Elder sleeping upstairs means a night visitor
+  climbs the stairs to talk; no art for walking / seated / sleeping poses or stairs (stand-ins, SPRITES.md #103).
+
 ## Gap closure G6 — landed 2026-11-10 (animals: riding, carts, predators, selling, tools, manure, herding)
 
 QUEUE "RimWorld/Stardew gap closure" G6. Numbers in `shared/src/animals.ts` (G6 blocks); logic in `server/src/animals.ts`,

@@ -684,6 +684,24 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Gap closure G5: living interiors (2026-11-10)
+Automated: `npm test -- interiors` (section 11).
+1. Walk into two or three of your Houses (and a settlement's): the rooms differ (3 layouts per type); leaving and
+   entering the same house again shows the same layout.
+2. By day in a settlement's house: the villager strolls about the room, turning left / right as it walks; walk up to
+   it: it stops, faces you and a speech bubble pops up ("Oh! Hello."). It does not walk through walls or furniture.
+3. Late afternoon (dusk) the villager sits at the table; at night it is lying in a bed with "z z" over it.
+4. A Blacksmith / Bakery (yours or a settlement's): the smith / baker stays at the station, swinging (action frames or a
+   tilt); the greeting says "Mind the sparks!" / "Fresh loaves today!".
+5. A Tavern by day: 2-3 patrons seated at the tables; at night 4-6 (in your own tavern most of them are your
+   villagers, plus a traveller). E on a patron: **Heard any rumours?** names a camp / settlement / iron ore with a
+   distance and direction (check the minimap reveal); **Buy yourself a drink (3 gold)**: gold -3, rest goes up, the
+   happiness readout gains ~2 for a couple of minutes; the 4th drink of a day is refused. The barkeep offers the drink
+   too.
+6. Tavern / Barracks / Great hall: walk onto the stairs (drawn steps): "You climb the stairs", a small upper floor. At
+   night the tavern's guest beds have sleeping travellers, the hall's Elder sleeps upstairs. Esc there: "Take the stairs
+   down first"; walk onto the dark stairwell: back down beside the stairs. The chest upstairs is the same chest.
+
 ## Gap closure G6: animals (horses, predators, selling, tools, manure, herding) (2026-11-10)
 Automated: `npm test -- animals` (sections 14-20).
 1. Build a Livestock Barn, buy a stallion (80 gold), wait for day: stand next to it and press E (or **Ride** in the

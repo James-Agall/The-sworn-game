@@ -780,6 +780,18 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > sprite (2 tiles long) for the Trading Post wagon, 32x32 icons `tool_shears.png`, `item_manure.png` (a small dung
 > heap / sack), and optionally a "fleeing" pose or dust puff for frightened animals.
 
+### 103. Living interiors: NPC poses, patrons, stairs (gap closure G5, 2026-11-10)
+> Stand-ins today (`client/src/interior.ts`): indoor NPCs reuse each colonist kind's world walk / action frames
+> (kinds still on a stand-in set get one still frame and a code hop / tilt); **idle** is a code bob; **seated** is the
+> standing sprite 3 px lower and squashed; **asleep** is the standing sprite rotated 90 degrees over the bed with "z z"
+> text; **speech bubbles** are drawn in code; **stairs up / down** are code-drawn steps / a dark stairwell. Wanted:
+> per kind (villager, bishop, knight, militia, baker / smith workers) a 4-direction idle (2 frames) and walk (4 frames)
+> set at indoor scale (32 px tiles, ~40 px tall), a seated-at-table pose (side and back views, with / without a mug),
+> a lying-in-bed pose (or a bed with an occupied blanket overlay for `bed` / `bed_blue_double`), smith hammer swing and
+> baker kneading 2-frame loops, a barkeep wiping the counter, 32x32 `stairs_up_wood`, `stairs_up_stone`,
+> `stairs_down_wood`, `stairs_down_stone` (3/4 view, top of the stairs toward the back wall), and a 9-slice speech
+> bubble.
+
 ### #90-#97 delivery status (2026-11-09: sliced ChatGPT atlases, `art-sources/rimworld-stardew/`)
 > Processed by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/<group>/`; registry and
 > loaders in `client/src/spriteRegistry.ts`. Every wired file is optional: a missing png falls back to the procedural
