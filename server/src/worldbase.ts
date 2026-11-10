@@ -13,7 +13,7 @@ import { state } from "./state.js";
 
 // Bump when worldgen changes what a seed produces (old diff saves then need their base cache file, which is
 // named by the save's own worldgenVersion). 3: bandit camp templates (2026-11-06).
-export const WORLDGEN_VERSION = 4;
+export const WORLDGEN_VERSION = 5;
 // A chunk with more changed tiles than this is stored whole (1024 bytes) instead of as (u16 pos, u8 tile).
 const CHUNK_FULL_AT = 340;
 

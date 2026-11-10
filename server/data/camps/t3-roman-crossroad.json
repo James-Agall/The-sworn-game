@@ -1,0 +1,27 @@
+{
+  "id": "t3-roman-crossroad",
+  "name": "Roman cross-road camp",
+  "tier": 3,
+  "weight": 2,
+  "minStartDist": 50,
+  "guards": [
+    6,
+    8
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".######.######.",
+    "#..W..g.g..W..#",
+    "#.TT.TT.TT.TT.#",
+    "#.TT.TT.TT.TT.#",
+    "#....a.....a..#",
+    ".e.....H.....e.",
+    "#.g.........g.#",
+    "#.TT.TT.TT.TT.#",
+    "#.TT.TT.TT.TT.#",
+    "#..W.......W..#",
+    ".######.######."
+  ]
+}
