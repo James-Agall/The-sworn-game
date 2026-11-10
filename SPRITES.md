@@ -748,6 +748,15 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > material for the thumbnails; and an optional **blueprint ghost** tint / hatch overlay. Files:
 > `station{Forge,Oven,Millstone,Loom,BrewVat,Counter,Altar,Jeweller}.png`, `thumbWall{Wood,Stone}.png`.
 
+### 99. Settlement templates (2026-11-10)
+> Neutral settlements are now built from the modular building templates (#98), so the #76 settlement sprites are
+> needed less: houses, taverns, chapels, smithies are walls / floors / furniture with roofs. Still wanted / stand-ins
+> now: a **well** (today a single Water tile), a **village palisade gate** that matches the wood wall (the stone
+> `Gate` art is used), **market stalls** for a plaza (the Bazaar prefab sprite stands in, #76 `settleMarket.png`),
+> a **town keep / town hall** for the anchor tile (the SiteKeep stand-in; #76 `settleHall.png` / `settleKeep.png`),
+> **signpost / notice board** props for the trader / quest slots (#76), and **lantern posts / fences** in a town
+> palette. No new tile types were added.
+
 ### #90-#97 delivery status (2026-11-09: sliced ChatGPT atlases, `art-sources/rimworld-stardew/`)
 > Processed by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/<group>/`; registry and
 > loaders in `client/src/spriteRegistry.ts`. Every wired file is optional: a missing png falls back to the procedural

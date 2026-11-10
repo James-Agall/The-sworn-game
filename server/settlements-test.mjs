@@ -105,7 +105,7 @@ result(towns.every((s) => s.alive.some((m) => m.kind.startsWith("town")) && !s.p
 await hook("setCycleTick", { tick: TICK * 10 });
 let st = null;
 for (const [dx, dy] of [[0, 60], [60, 0], [0, -60], [-60, 0], [60, 60], [-60, -60]]) {
-  st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 25 });
+  st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 60 });
   if (st?.site) break;
 }
 const site0 = st?.site;

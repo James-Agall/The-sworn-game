@@ -16,7 +16,7 @@ import {
   SETTLEMENT_HOSTILE_TICKS, SETTLEMENT_WORKER_PAUSE_TICKS, SETTLEMENT_WORKER_SPEED_MULT,
   CAMP_GARRISON_BY_TIER, CAMP_GROWTH_DAYS, CAMP_RAID_BONUS_MAX, CAMP_RAID_BONUS_PER_CAMP, CAMP_RAID_BONUS_RANGE_TILES,
   CAMP_RAID_MIN_TIER, GAME_DAY_TICKS, QUEST_CAMP_RANGE_TILES,
-  SETTLEMENT_COUNT_AT_512, SETTLEMENT_INNER_RING_FRACTION, SETTLEMENT_PLACE_ATTEMPTS, SETTLEMENT_SPACING_TILES, SETTLEMENT_START_CLEARANCE_TILES,
+  SETTLEMENT_COUNT_AT_512,
 } from "./constants.js";
 import { buildingHp, buildingLevel, colonists, constructionSites, farmPlots, gates, hearths, mobs, parkedMobs, players, sites, state, tileOwner } from "./state.js";
 import { isColdAtPixel, setTile as setTileRaw } from "./chunks.js";
@@ -67,7 +67,7 @@ export function symbolTile(t: SiteTemplate, c: string): TileType | undefined {
   return t.symbols?.[c] ?? SITE_TEMPLATE_TILES[c];
 }
 
-export function templateSize(t: SiteTemplate): { w: number; h: number } {
+export function templateSize(t: Pick<SiteTemplate, "rows">): { w: number; h: number } {
   return { w: t.rows[0].length, h: t.rows.length };
 }
 
@@ -122,7 +122,7 @@ export function clearSites() {
 // clear of the Abbey / Castle Ruin grounds (plus SITE_FORT_LANDMARK_CLEARANCE_TILES) and of other forts'
 // grounds; every tile Empty (world-gen) or clearable natural ground (`clearable`, the test hook). A reason
 // string when it does not fit, else null.
-export function siteFitProblem(t: SiteTemplate, x0: number, y0: number, clearable = false): string | null {
+export function siteFitProblem(t: Pick<SiteTemplate, "rows">, x0: number, y0: number, clearable = false): string | null {
   const { w, h } = templateSize(t);
   const a = SITE_APRON_TILES;
   if (x0 - a < 1 || y0 - a < 1 || x0 + w - 1 + a > state.WORLD_TILES_X - 2 || y0 + h - 1 + a > state.WORLD_TILES_Y - 2) return "off the map";
@@ -148,7 +148,7 @@ export function siteFitProblem(t: SiteTemplate, x0: number, y0: number, clearabl
   return null;
 }
 
-function setTile(x: number, y: number, tile: TileType, broadcast: boolean) {
+export function setSiteTile(x: number, y: number, tile: TileType, broadcast: boolean) {
   const key = resourceKey(x, y);
   buildingHp.delete(key);
   buildingLevel.delete(key);
@@ -178,7 +178,7 @@ export function stampSiteTemplate(
   for (let y = y0 - a; y <= y0 + h - 1 + a; y++) {
     for (let x = x0 - a; x <= x0 + w - 1 + a; x++) {
       setOwner(tileIndex(x, y), 0);
-      if (state.tiles[tileIndex(x, y)] !== TileType.Empty) setTile(x, y, TileType.Empty, broadcast);
+      if (state.tiles[tileIndex(x, y)] !== TileType.Empty) setSiteTile(x, y, TileType.Empty, broadcast);
     }
   }
   let keep: TileCoord = { x: x0, y: y0 };
@@ -191,7 +191,7 @@ export function stampSiteTemplate(
       const c = cellAtTier(t, rx, ry, tier);
       if (c === ".") continue;
       const tile = symbolTile(t, c)!;
-      setTile(x, y, tile, broadcast);
+      setSiteTile(x, y, tile, broadcast);
       setOwner(tileIndex(x, y), num);
       if (isGateTile(tile)) {
         gates.set(tileIndex(x, y), { open: false, lock: "auto", clearTicks: 0, overrun: false });
@@ -318,41 +318,7 @@ export function settlementCounts(size = state.WORLD_TILES_X): Record<"hearthmoor
   return { hearthmoor: Math.max(0, n - riverwatch - ironhold), ironhold, riverwatch };
 }
 
-// Before generateForts: the human settlements (Riverwatch first, it is the biggest), by rejection sampling:
-// centre >= SETTLEMENT_START_CLEARANCE_TILES from every Town Center (and, for the first half of the attempts,
-// within SETTLEMENT_INNER_RING_FRACTION of the map side of one), >= SETTLEMENT_SPACING_TILES from every other
-// settlement and >= SITE_FORT_SPACING_TILES from every fort, then siteFitProblem (Empty ground, off the
-// Abbey / Castle Ruin / other grounds). One that finds no spot is skipped.
-export function generateSettlements() {
-  const counts = settlementCounts();
-  const inner = state.WORLD_TILES_X * SETTLEMENT_INNER_RING_FRACTION;
-  for (const id of ["riverwatch", "ironhold", "hearthmoor"] as const) {
-    const t = SITE_TEMPLATES[id];
-    validateTemplate(t);
-    const { w, h } = templateSize(t);
-    for (let n = 0; n < counts[id]; n++) {
-      for (let attempt = 0; attempt < SETTLEMENT_PLACE_ATTEMPTS; attempt++) {
-        const x0 = 1 + Math.floor(Math.random() * (state.WORLD_TILES_X - w - 2));
-        const y0 = 1 + Math.floor(Math.random() * (state.WORLD_TILES_Y - h - 2));
-        const cx = x0 + (w >> 1);
-        const cy = y0 + (h >> 1);
-        const dTc = Math.min(...state.townCenters.map((tc) => Math.hypot(tc.x - cx, tc.y - cy)));
-        if (dTc < SETTLEMENT_START_CLEARANCE_TILES || (attempt < SETTLEMENT_PLACE_ATTEMPTS / 2 && dTc > inner)) continue;
-        let spaced = true;
-        for (const s of sites.values()) {
-          const min = s.faction === "human" ? SETTLEMENT_SPACING_TILES : SITE_FORT_SPACING_TILES;
-          if (Math.hypot(s.keepX - cx, s.keepY - cy) < min) {
-            spaced = false;
-            break;
-          }
-        }
-        if (!spaced || siteFitProblem(t, x0, y0) !== null) continue;
-        stampSiteTemplate(id, x0, y0);
-        break;
-      }
-    }
-  }
-}
+// World-gen's human settlements: settlementTemplates.ts generateSettlements (settlement templates, 2026-11-10).
 
 // ---- Saves (optional `sites`; old saves have none) ----
 export function sitesForSave(): SiteState[] {
@@ -738,6 +704,8 @@ function workSpots(s: SiteState): Record<SiteWorkerRole, number[]> {
 const pick = <T>(list: T[]): T | undefined => list[Math.floor(Math.random() * list.length)];
 
 // On waking: the template's workers (farmers / miners / a priest), each on a yard post with a work tile.
+// Settlement templates: homes from the layout's slots: the first worker (the trader) at the trader slot, the priest at
+// the priest slot, everyone else in a bed / villager slot.
 export function spawnSiteWorkers(s: SiteState) {
   despawnSiteWorkers(s);
   const roles = SITE_TEMPLATES[s.template].workers;
@@ -745,7 +713,8 @@ export function spawnSiteWorkers(s: SiteState) {
   const spots = workSpots(s);
   for (const [role, n] of Object.entries(roles) as [SiteWorkerRole, number][]) {
     for (let k = 0; k < n; k++) {
-      const home = pick(s.posts)!;
+      const h = s.homes;
+      const home = (h && (s.workers.length === 0 ? h.trader : role === "priest" ? h.priest : undefined)) ?? pick(h?.villagers.length ? h.villagers : s.posts)!;
       const work = pick(spots[role]) ?? pick(s.posts)!;
       const m = spawnGuardian(WORKER_KIND[role], { x: home % state.WORLD_TILES_X, y: Math.floor(home / state.WORLD_TILES_X) }, s.id, "fort");
       m.siteWorker = role;
@@ -864,7 +833,7 @@ export function applySiteTier(s: SiteState, tier: number) {
       if (tileOwner.get(i) !== s.num && cur !== TileType.Empty && cur !== TileType.Rubble) continue;
       if (occupied.has(i)) continue;
       const tile = symbolTile(t, after)!;
-      setTile(x, y, tile, true);
+      setSiteTile(x, y, tile, true);
       setOwner(i, s.num);
       if (isGateTile(tile)) gates.set(i, { open: false, lock: "auto", clearTicks: 0, overrun: false });
     }

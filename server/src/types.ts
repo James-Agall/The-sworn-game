@@ -454,6 +454,10 @@ export interface SiteState {
   clearedTick?: number;
   // World streaming phase 5 (strife.ts): besieged by the camp `by` (a site id) until fallTick.
   threat?: { by: string; fallTick: number };
+  // Settlement templates (settlementTemplates.ts): the layout it was stamped from (`template` stays the behaviour
+  // profile) and its NPC homes (tile indices): the trader's and the priest's slots, the villagers' beds / slots.
+  layout?: string;
+  homes?: { trader?: number; priest?: number; villagers: number[] };
 }
 export interface VassalState {
   tax: boolean;

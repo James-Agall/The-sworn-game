@@ -684,6 +684,27 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Settlement templates: neutral hamlets, villages, towns (2026-11-10)
+Automated: `cd server && node settlement-templates-test.mjs` (in-process, no ports, scratch folders).
+1. NEW normal game on a 256 or 512 map (older saves keep their old settlements). Scout to a few human settlements:
+   they are no longer a keep in an empty yard. A **hamlet**: dirt roads, 3-5 houses (cottages, huts, a granary / barn
+   or a chapel and smithy), a well, fields. A **village**: a wooden palisade with one gate, a cobbled green with the
+   keep, a chapel, a smithy, a market shop with a stall, a tavern, houses, fields (or ore and rock for a mining
+   village). A **town**: stone walls with two gates and corner towers, a cross of roads, a plaza with 4 market stalls
+   and the keep, a barracks, a bakery / smithy / tailor / brewery, a tavern, a chapel and many houses.
+2. By day the gate opens for you; walk the roads into a house: its roof fades, beds inside. At night the gates shut.
+3. Talk (E) at the keep: the Elder answers as before (relation, trade, quests, lodging, family). The trader stands
+   on the plaza / road near the keep, the Brother near the chapel. Trade, quests, gifts, vassal tribute, levy work as
+   before. Villagers walk between their beds and the fields / ore.
+4. Attack a guard: the settlement turns hostile as before; its guards come from posts by the gates.
+5. Creative > World > Camps > **Settlement editor**: the list shows the 8 built-ins. Load **Village green**: the
+   ground grid plus the buildings drawn over it (blue frames); the stats line reads "Village 27x25 · 9 buildings ·
+   9 beds · slots ...". Pick a building in the Building list, **Place building**, click an open patch: it appears;
+   right-click it: it goes. Put it on a road: the red list says "covers "_" at x,y". Remove the keep: "exactly one
+   keep K". Change the tier to 3: "a town has 15-40 buildings".
+6. **Duplicate**, **Save** (file in `server/data/settlements/user/`), **Stamp here** on open ground: a settlement
+   appears there (neutral, its own name, garrison, Elder at the keep); on top of a fort / camp it is refused.
+
 ## Building templates: Blueprints tab + building editor (2026-11-10)
 Automated: `cd server && node building-templates-test.mjs` (in-process, no ports, scratch folders).
 1. Normal game, Build panel: a new **Blueprints** tab. Opening it shows a list on the right: 45 buildings with a small

@@ -41,6 +41,8 @@ import { clanById, withClan } from "./clans.js";
 import { campTemplateById, campTemplates, deleteUserCamp, saveUserCamp, stampCampLive, userCampDir } from "./camps.js";
 import { buildingTemplateById, buildingTemplates, deleteUserBuilding, saveUserBuilding, stampBuildingLive, userBuildingDir } from "./buildingTemplates.js";
 import type { BuildingTemplate } from "@colony/shared/buildingTemplates";
+import type { SettlementTemplate } from "@colony/shared/settlementTemplates";
+import { deleteUserSettlement, saveUserSettlement, settlementTemplateById, settlementTemplates, stampSettlementLive, userSettlementDir } from "./settlementTemplates.js";
 import { calendarSnapshot, setCalendar, setWeatherOverride } from "./calendar.js";
 import { WEATHER_LABEL, calendarLabel } from "@colony/shared/calendar";
 
@@ -474,7 +476,8 @@ const timePhases = (): Record<string, number> => ({ dawn: 1, noon: Math.floor(DA
 // setTime {day?, phase?} | calendar {season?, day?, weather?} | people {count, child?} | raid {day?} | stamp {template, x, y} | tradingPost {x, y, level?} |
 // relation {x, y, value?, vassal?} | quest {x, y, kind} | forceAttack {unitIds, targetType: "c" | "w", targetId} |
 // campList | campSave {template} | campDelete {id} | campStamp {template | id, x, y, transform?} (camp editor) and the
-// same four for building templates (buildingList / buildingSave / buildingDelete / buildingStamp).
+// same four for building templates (buildingList / buildingSave / buildingDelete / buildingStamp) and settlement
+// templates (settlementList / settlementSave / settlementDelete / settlementStamp).
 export function handleCreativeSet(player: Player, msg: Record<string, unknown>, reply: Reply) {
   const op = msg.op;
   const x = Number(msg.x);
@@ -673,6 +676,22 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
     const r = stampBuildingLive(player, t, tileOfPixel(x, y), tf);
     if (r) return reply(false, `Not stamped: ${r}`);
     reply(true, `Stamped "${t.name}"`);
+  } else if (op === "settlementList") {
+    // Settlement editor: every settlement template, the building templates (its picker) and the user folder.
+    reply(true, `${settlementTemplates().length} settlement templates`, { templates: settlementTemplates(), buildings: buildingTemplates(), userDir: userSettlementDir(), quiet: msg.quiet === true });
+  } else if (op === "settlementSave" || op === "settlementDelete") {
+    const err = op === "settlementSave" ? saveUserSettlement(msg.template) : deleteUserSettlement(String(msg.id ?? ""));
+    const id = op === "settlementSave" ? String((msg.template as { id?: unknown } | null)?.id ?? "") : String(msg.id ?? "");
+    if (err) return reply(false, `${op === "settlementSave" ? "Not saved" : "Not deleted"}: ${err}`);
+    reply(true, `Settlement template ${id} ${op === "settlementSave" ? "saved" : "deleted"}`, { templates: settlementTemplates(), id });
+  } else if (op === "settlementStamp") {
+    // {template (an unsaved draft) | id, x, y (px)}: a neutral settlement centred on the click.
+    const t = msg.template && typeof msg.template === "object" ? (msg.template as SettlementTemplate) : settlementTemplateById(String(msg.id ?? ""));
+    if (!t) return reply(false, "Unknown settlement template");
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return reply(false, "Bad stamp point");
+    const r = stampSettlementLive(t, tileOfPixel(x, y));
+    if (typeof r === "string") return reply(false, `Not stamped: ${r}`);
+    reply(true, `Stamped ${r.name} ("${t.name}")`, { siteId: r.id });
   } else {
     reply(false, "Unknown creative op");
   }

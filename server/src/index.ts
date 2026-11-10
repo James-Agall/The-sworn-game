@@ -25,6 +25,7 @@ import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchan
 import { generateWorld } from "./worldgen.js";
 import { loadCampTemplates } from "./camps.js";
 import { buildingTemplates, handlePlaceBlueprint, loadBuildingTemplates } from "./buildingTemplates.js";
+import { loadSettlementTemplates } from "./settlementTemplates.js";
 import { wildlifeForSnapshot } from "./wildlife.js";
 import {
   TOWN_CENTER_TILE, civilianPopulationUsed, handleRepairBuilding, isAtShelter, peopleSnapshot, respawnWindowSnapshot,
@@ -76,6 +77,7 @@ setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 // Camp templates: a broken built-in fails the boot here, before any world is made.
 loadCampTemplates();
 loadBuildingTemplates();
+loadSettlementTemplates();
 generateWorld();
 httpServer.listen(PORT);
 console.log(`colony2d server listening on ws://localhost:${PORT}`);

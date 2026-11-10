@@ -2155,6 +2155,59 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Settlement templates — landed 2026-11-10 (neutral hamlets / villages / towns from building templates)
+
+Neutral human settlements are stamped from **settlement templates** that compose the building templates (QUEUE "camp
+templates round 2 + neutral settlement templates"; user report "when I went to one it was only a town center").
+Format, legend, composition and validation: `shared/src/settlementTemplates.ts`; store, stamper and world-gen:
+`server/src/settlementTemplates.ts`; built-ins `server/data/settlements/*.json`, user templates
+`server/data/settlements/user/*.json` (test hooks: `<COLONY_SAVE_DIR>/settlements-user`; `COLONY_SETTLEMENT_USER_DIR`).
+
+- **Template**: `id`, `name`, `tier` (1 hamlet 3-5 buildings, 2 village 8-12, 3 town 15+), `weight`, `minStartDist`,
+  `profile` (the old SITE_TEMPLATES entry whose workers / stock / trade / quests / noun / names / rebuild cost it keeps:
+  hearthmoor, ironhold or riverwatch), `garrison` (townGuard / townArcher / townKnight counts, by tier), `rows` (9-31
+  each way, the ground) and `buildings` ([{ref, x, y, transform?}]: building template ids at a top-left offset).
+- **Ground legend**: `.` open ground (unowned), `_` dirt road, `=` cobble road / plaza, `#` palisade, `%` stone wall,
+  `G` gate, `T` tower, `K` keep (exactly one: the anchor), `o` well (water), `f` farm plot, `p` fence, `l` lantern,
+  `x` / `b` / `c` crate / barrel / cart, `$` market stall, `M` / `R` ore / rock; slots `t` trader, `r` priest /
+  Brother, `v` villager, `g` guard, `q` quest giver (the Elder sits at the keep).
+- **Validation**: shape, legend, metadata; the composed layout (one keep, buildings inside the grid on open ground, no
+  overlaps, transforms allowed by the building); the building count of its tier; a trader slot, a guard slot (and
+  one per 3 guards), a bed; the roads one network (gates join it) touching the keep and every gate; every building's
+  door, every bed, every slot and the keep reachable on foot from outside the grid (gates and doors pass).
+- **Stamping** (`stampSettlement`): clears the rectangle + apron, lays every ground and building cell owned by the
+  site (gates and doors registered closed: by day the neutral gates welcome the colony as before), the garrison
+  dormant on the guard slots (cycled when there are more guards than slots), the keep as the hearth (HP by tier
+  200 / 350 / 550). The SiteState is the old one (faction human, kind fort) with `template` = the profile, plus two
+  optional fields: `layout` (the template id) and `homes` (trader / priest slot, villagers' beds and slots; the
+  cosmetic workers live there: the first worker, the trader, on the trader slot, the priest on the priest slot).
+  Every older system keys on the keep tile (relations, trade, quests, levy, vassals, Elder dialogue, capture) and
+  works unchanged; the beds are site-owned, so they never count as the player's homes, and the stations stay inert
+  until a capture. Interiors (5c): prefab tiles inside (market stalls, the Tavern counter, the Church altar, the
+  keep's hall) keep their entry; modular buildings are walked into directly (no interior map).
+- **World-gen** (`generateSettlements`, now in this module; `sites.ts` keeps `settlementCounts`): the same counts as
+  before mapped to tiers (riverwatch -> towns, ironhold -> villages, hearthmoor -> hamlets: 512 = 2 + 3 + 5, 256 =
+  1 + 1 + 2, 160 = 0 + 1 + 1), biggest first, a weighted template of the tier on the seeded `Math.random`, the old
+  spacing rules (>= max(50, minStartDist) from every Town Center, inner ring for the first half of the attempts, 80
+  from other settlements, 40 from forts) and `siteFitProblem`. `WORLDGEN_VERSION` 5 -> 6. The old human ASCII layouts
+  stay in SITE_TEMPLATES for the creative / test-hook "stamp" op (not used by world-gen any more).
+- **Built-ins (8)**: hamlets `hamlet-crossroads`, `hamlet-farmstead`, `hamlet-chapel`; villages (palisade + gate)
+  `village-green`, `village-mining` (ironhold profile, ore inside), `village-mill`; towns (stone walls, 2 gates, 4
+  towers, plaza with 4 stalls, barracks, guilds) `town-crossroads`, `town-garrison` (another layout turned 90 deg).
+- **Editor**: Creative > World > Camps > **Settlement editor** (`client/src/settlementEditor.ts` on
+  `templateEditor.ts`): paint the ground, pick a building template + transform and **Place building** (click = its
+  top-left; right-click a building removes it), the buildings drawn over the grid, live stats / validation, Save /
+  Load / Duplicate / Delete, **Stamp here** (`creativeSet` ops `settlementList` (+ the building list),
+  `settlementSave`, `settlementDelete`, `settlementStamp`). No rotate / mirror of a whole settlement in the editor.
+- **Tests**: `server/settlement-templates-test.mjs` (in-process): validation and refusals, every template stamped
+  (one keep, garrison on slots, roads, doors / beds reachable by day, each building's rooms, NPC homes and workers),
+  world-gen determinism by seed on 256 maps, all three tiers, the save round trip, the editor ops. quests / settlements
+  / vassals / wagons tests: their test-hook stamp search widened to 60 tiles (256 maps are crowded with camps and
+  forts; wagons still fails on some random maps, as before this change).
+- **Known gaps**: settlements are fixed-orientation (no world-gen rotate / mirror); the quest-giver slot is a villager
+  home (quests are still given by the priest); no farm workers on modular barns; no new guard towers fire (the `T`
+  tower is the old site tower).
+
 ## Building templates — landed 2026-11-10 (modular blueprints, Blueprints tab, building editor)
 
 Data-driven building blueprints made of the phase 1-2 modular pieces (QUEUE "modular BUILDING templates"). Format,

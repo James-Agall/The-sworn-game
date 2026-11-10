@@ -25,7 +25,8 @@ import {
   TOWN_CENTER_TILE, isAbbeyClergy, spawnColonistForPost, spawnStartingPeople, townCenterMaxHp,
 } from "./colonists.js";
 import { applyMobSize } from "./mobs.js";
-import { clearSites, generateForts, generateSettlements, isInSiteGrounds, nearSiteGrounds } from "./sites.js";
+import { clearSites, generateForts, isInSiteGrounds, nearSiteGrounds } from "./sites.js";
+import { generateSettlements } from "./settlementTemplates.js";
 import { registerHearth } from "./hearths.js";
 import { evaluateGoals, resetGoals } from "./goals.js";
 import { grantTieredEquipment } from "./heroes.js";

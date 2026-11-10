@@ -88,7 +88,7 @@ const spots = [];
 for (let dx = -70; dx <= 70; dx += 10) for (let dy = -70; dy <= 70; dy += 10) if (Math.hypot(dx, dy) >= 40 && Math.hypot(dx, dy) <= 70) spots.push([dx, dy]);
 spots.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
 for (const [dx, dy] of spots) {
-  st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 10 });
+  st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 60 });
   if (st?.site) break;
 }
 const site = st?.site;

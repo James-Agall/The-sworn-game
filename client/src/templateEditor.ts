@@ -34,7 +34,7 @@ export interface EditorHooks<T extends EditorTemplate> {
   cell?(d: T, x: number, y: number, button: number, start: boolean): boolean;
   // Drawn over the grid cells.
   drawOver?(ctx: CanvasRenderingContext2D, d: T, cs: number, pad: number): void;
-  // creativeResult of another op this editor wants (e.g. the building list for the settlement picker).
+  // Every creativeResult the editor sees (e.g. the building list the settlement picker needs).
   result?(m: Record<string, unknown>): void;
 }
 
@@ -376,10 +376,8 @@ export function setupTemplateEditor<T extends EditorTemplate>(cfg: EditorConfig<
     },
     // creativeResult of one of this editor's ops. True: the toast is not wanted (a quiet list refresh).
     onResult(m: Record<string, unknown> & { op: string; ok: boolean }): boolean {
-      if (!m.op.startsWith(cfg.key)) {
-        cfg.hooks?.result?.(m);
-        return false;
-      }
+      cfg.hooks?.result?.(m);
+      if (!m.op.startsWith(cfg.key)) return false;
       if (Array.isArray(m.templates)) setList(m.templates as T[], typeof m.id === "string" && m.op === op("Save") ? m.id : undefined);
       if (typeof m.userDir === "string") where.textContent = `User templates are saved to ${m.userDir}`;
       return m.op === op("List") && m.ok && m.quiet === true;
