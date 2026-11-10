@@ -50,7 +50,9 @@ priorities, hero tools, seasons/weather, interiors, animals in buildings, bluepr
 7. Commit messages: use your own attribution trailer. Earlier agents used
    `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and a `Claude-Session:` line; those are Claude-specific,
    do not copy them for Codex work.
-8. A REQUIRED sprite file that is missing aborts the whole `Assets.load` in `client/src/main.ts` (this broke map loading
+8. `server/world-gen-poi-test.mjs` connects to the hard-coded port :8080 (the user's live game port). Do NOT run it until it is
+   changed to boot its own server on a private port (open task). Check any older test for a hard-coded 8080 before running it.
+9. A REQUIRED sprite file that is missing aborts the whole `Assets.load` in `client/src/main.ts` (this broke map loading
    once: missing `townPriest.png`). New art must be optional with a procedural/stand-in fallback.
 
 ## 4. Tests
@@ -80,7 +82,8 @@ snapshots, loading screen when it lands). Check `git log origin/main..HEAD`.
   settlements, modular keeps, animal yards, gate passages.
 - Templates: 28 bandit camps (3 tiers), 55 building blueprints, 15 settlement templates (hamlet/village/town), editors in
   Creative mode (camp, building, settlement).
-- An agent may be mid-task on the Vast-map loading screen (+ 2048 map profiling). Check `git status`/`git log`.
+- World generation is 30-500x faster (2048 in ~1.5 s), big maps get a loading screen (`client/src/loadingScreen.ts`, server
+  `loadProgress` messages, cancel for 512+ new games), 2048 is on the menu as "Colossal".
 
 ## 6. Open work for Codex (priority order)
 A. Browser verification of everything unseen. Nothing from phases 1-6, G1-G8, delta snapshots, templates or editors has been
