@@ -772,6 +772,14 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > as well): 16x16 load icons `load_{sack,log,stones,crate}.png`, or carry frames per villager look so the body anim can
 > be swapped while hauling.
 
+### 102. Animals: riding, tools, manure (gap closure G6, 2026-11-10)
+> Stand-ins today: a **mounted hero** is the hero sprite lifted 8 px over the horse's livestock pose (`client/src/
+> animals.ts`, LF_RIDDEN); a **horse cart** has no art (wagons only move faster). Hotbar / item icons: **shears** use
+> `tool_scythe`, the **milk pail** the existing `item_milk_pail`, **manure** the `item_hay_bale`. Wanted: mounted hero
+> walk frames per facing (rider + horse, or a rider-only overlay that sits on `animal_horse_*`), a horse-drawn wagon
+> sprite (2 tiles long) for the Trading Post wagon, 32x32 icons `tool_shears.png`, `item_manure.png` (a small dung
+> heap / sack), and optionally a "fleeing" pose or dust puff for frightened animals.
+
 ### #90-#97 delivery status (2026-11-09: sliced ChatGPT atlases, `art-sources/rimworld-stardew/`)
 > Processed by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/<group>/`; registry and
 > loaders in `client/src/spriteRegistry.ts`. Every wired file is optional: a missing png falls back to the procedural

@@ -2155,7 +2155,47 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
-## Gap closure G4 — landed 2026-11-10 (season polish: day length, snow, cold forage catch-up)
+## Gap closure G6 — landed 2026-11-10 (animals: riding, carts, predators, selling, tools, manure, herding)
+
+QUEUE "RimWorld/Stardew gap closure" G6. Numbers in `shared/src/animals.ts` (G6 blocks); logic in `server/src/animals.ts`,
+hooks in herolife.ts (E / tools / speed / dialogue), zones.ts (fertiliser), wagons.ts (carts), interiors.ts (no riders).
+- **Riding**: E within `MOUNT_RANGE_TILES` (1.5) of an own adult horse outdoors, or **Ride** in the Livestock Barn /
+  Stables panel with the hero within 3 tiles of the house, mounts it (riders map, runtime only: a load dismounts).
+  Mounted: speed x `MOUNT_SPEED_MULT` 1.6 (heroSpeedMult; constant, outdoors only), rest drains x
+  `MOUNT_REST_DECAY_MULT` 0.5, the horse loses `RIDE_HAPPINESS_PER_S` 0.02 happiness a second; no interiors, no
+  tools, gathering, station work or animal chores (E only talks). **X** (client, only while mounted) or heroAction
+  `dismount` gets off; the horse walks home. Dead / gone rider or horse: dismounted. Snapshot: `PlayerSnapshot.mounted`;
+  the ridden horse is a livestock entry at the rider (`LF_RIDDEN`). It still eats from its house.
+- **Carts**: a clan with a Stables holding an adult horse nobody rides moves its trade wagons x `CART_HORSE_SPEED_MULT`
+  1.25 (real and abstract legs). No capacity bonus, no cart art. Horses are bought (80 gold); there are no wild horses.
+- **Hostile mobs**: every `ANIMAL_THREAT_CHECK_TICKS` (5) a hostile mob (not a dormant guardian / settlement worker)
+  within `ANIMAL_KILL_RANGE_TILES` (1) of an animal outdoors kills it ("A wolf killed a ...", the record is gone);
+  within `ANIMAL_THREAT_RANGE_TILES` (6) of a house or its animals outdoors the house's animals flee to the door x
+  `ANIMAL_FLEE_SPEED_MULT` 1.6 and stay inside `ANIMAL_THREAT_HOLD_SECONDS` (20) after the last sighting. Animal houses
+  were already mob building targets (BREAKABLE_TILES); defence is the existing guard / militia / hero fighting.
+- **Selling**: per-animal **Sell (price)** in the panel with an own Market, or a settlement trader (relation neutral+)
+  within `ANIMAL_SELL_TRADER_RANGE_TILES` (4) of the hero; the trader dialogue has **Sell animals.** (up to 8, dearest
+  first). Price = `ANIMAL_PRICE_GOLD` x `ANIMAL_SELL_MULT` 0.6 x (baby 0.5) x (0.6 + 0.4 x happiness / 100) x
+  (0.5 + 0.5 x health / 100), rounded, min 1; gold to the stores (the trader's purse is not charged). A ridden horse
+  cannot be sold or slaughtered.
+- **Shears / milk pail** (hand recipes: shears 2 rock + 1 wood, needs a stone knife; pail 3 wood, needs carpenter's
+  tools; hand recipes now honour `needs`): hotbar 7 / 8, E or Space near an own sheep / cow (outdoors within 1.5
+  tiles, or in a house within 2): when its product is due at the next daily step, takes it now x `HAND_PRODUCT_MULT`
+  1.25 (`handDone`: that step makes nothing). Chores at a Sheep Pen / Livestock Barn take x `KEEPER_TOOL_CHORE_MULT`
+  0.75 while the stores hold its tool.
+- **Manure**: each animal adds `MANURE_PER_DAY` (chicken .1, cow .5, pig .4, sheep .25, horse .5; babies x.5) to its
+  house; whole units wait as the product "manure" (collected with the chores; an item). Hotbar 9 on an own tilled /
+  sown / growing tile fertilises it (one manure) until harvest: growth x (1 + `FERTILISER_GROWTH_BONUS` .25).
+  Villagers sowing a zone tile use one manure from the stores if any. Saved in the crops' tended field (bit 2).
+- **Herding / wandering**: panel **Call them in** / **Let them out** (house `penned`, cleared at dawn): animals walk to
+  the door and go in. A blocked hop tries `WANDER_SIDESTEP_DEGREES` (45, -45, 90, -90) before resting.
+- **Tests**: `server/animals-test.mjs` sections 14-20 (cart x1.25, ride x1.6 + snapshot + no tools + happiness drain +
+  dismount, call in, pail / shears + daily skip + chore speed, manure + fertilise growth 1.25, Market sell price, wolf
+  kill + flee). Run: `npm test -- animals`.
+- **Skipped**: animals following the hero; full pathfinding for wandering (sidestep only); villagers rushing to defend
+  animals specifically; cart capacity bonus; wild horses / taming horses; mounted-hero, cart, shears and manure art
+  (SPRITES.md #102); selling to a trader inside an interior; the trader's purse paying for animals.
+
 
 QUEUE "RimWorld/Stardew gap closure" G4. Numbers in `shared/src/calendar.ts`.
 - **Day length by season**: `SEASON_DAYLIGHT_MULT` spring 1, summer 1.15, autumn 1, winter 0.85 of the base daylight

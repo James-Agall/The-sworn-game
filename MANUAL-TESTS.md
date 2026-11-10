@@ -684,6 +684,27 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Gap closure G6: animals (horses, predators, selling, tools, manure, herding) (2026-11-10)
+Automated: `npm test -- animals` (sections 14-20).
+1. Build a Livestock Barn, buy a stallion (80 gold), wait for day: stand next to it and press E (or **Ride** in the
+   panel): "You mount ...". The hero moves ~1.6x as fast; the horse is drawn under the hero (stand-in). Space / a
+   hotbar tool says "Dismount first (X)"; walking into a door does not enter. Press **X**: you dismount and the horse
+   walks back. The horse's happiness bar drops a little after a long ride.
+2. Build a Stables and buy a horse there; a Trading Post's wagon should now cover a trip noticeably faster (x1.25).
+3. Panel **Call them in**: the house's animals walk to the door and vanish inside; the line reads "0 outdoors";
+   **Let them out** (or the next dawn) sends them grazing again.
+4. Craft **Shears** (needs a stone knife) and a **Milk pail** (needs carpenter's tools) by hand. Hotbar 8 (pail) next
+   to a cow (or the barn): "+1 milk"; again: "nothing ready yet"; the next day's milk is skipped for that cow. Hotbar
+   7 (shears) on a sheep the day before its wool is due: +3 wool. Sheep Pen / Barn chores run a bit faster.
+5. After a day, the Barn panel's "Today" shows manure; E collects it (Resources: Manure). Hotbar 9 (manure) on a
+   tilled / sown hero plot: "Fertilised" (one manure gone); it ripens ~25% sooner than its neighbour. Villagers sowing
+   a growing zone use manure from the stores too.
+6. Each animal row has **Sell (price)**: disabled with a hint until you build a Market (or stand near a settlement's
+   trader): selling adds the gold to your stores. A trader (neutral or better) has **Sell animals.** in the dialogue.
+7. Creative: spawn a wolf next to your coop by day: an animal it reaches dies ("A wolf killed a chicken ...", the
+   record is gone); the rest run inside ("Danger near the Chicken Coop") and stay in ~20 s after it is gone.
+8. Watch animals wander around walls / a building corner: they slide around it instead of freezing.
+
 ## Gap closure G4: season polish (2026-11-10)
 Automated: `npm test -- calendar`.
 1. Creative: Calendar to Summer 2, setTime noon. Watch the sundial: the day arc is larger than in spring; night comes
