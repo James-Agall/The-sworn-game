@@ -1,5 +1,7 @@
 // colonists.ts: Colonists: workers, builders, repair, farmers, housing/shelter, population, settlements, town centers, respawn windows, food, ward priest, the colonist tick.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { NEW_ANIMAL_HOUSE_TILES } from "@colony/shared/animals";
+import { isAnimalHouseTile, updateAnimalKeeper } from "./animals.js";
 import { CREATIVE_CAP } from "./creative.js";
 import { randomUUID } from "node:crypto";
 import { TileType, type ColonistKind, TILE_SIZE, TICK_RATE } from "@colony/shared/protocol";
@@ -200,7 +202,8 @@ export function isValidPostTile(kind: ColonistKind, t: TileType): boolean {
   // Not AbbeyHall: Abbey clergy are world-gen residents and never go through the respawn queue.
   // Not WardStone: the Ward Priest respawns through updateWardPriestPresence instead.
   if (kind === "bishop") return t === TileType.ChurchPost;
-  if (kind === "farmhand") return FARM_PRODUCE_BY_TILE[t] !== undefined;
+  // Stardew phase 5d: a farmhand posted at an animal house is its Animal Keeper.
+  if (kind === "farmhand") return FARM_PRODUCE_BY_TILE[t] !== undefined || NEW_ANIMAL_HOUSE_TILES.includes(t);
   if (kind === "artisan") return CRAFT_RECIPES[t] !== undefined || stationRecipes(t).length > 0;
   if (kind === "hunter") return t === TileType.HunterHut;
   if (kind === "forager") return t === TileType.ForagerHut;
@@ -598,7 +601,7 @@ export function placementNeedsNewWorkerSlot(tile: TileType, tx: number, ty: numb
   if (tile === TileType.BarnPost) return findUpgradeTargetFor(tx, ty, TileType.BarnPost) === null;
   if (tile === TileType.ChurchPost) return findUpgradeTargetFor(tx, ty, TileType.ChurchPost) === null;
   if (tile === TileType.WardStone) return state.wardPriestId === null;
-  if (FARM_PRODUCE_BY_TILE[tile] !== undefined || CRAFT_RECIPES[tile] !== undefined || stationRecipes(tile).length > 0) {
+  if (FARM_PRODUCE_BY_TILE[tile] !== undefined || NEW_ANIMAL_HOUSE_TILES.includes(tile) || CRAFT_RECIPES[tile] !== undefined || stationRecipes(tile).length > 0) {
     return findUpgradeTargetFor(tx, ty, tile) === null;
   }
   return true;
@@ -1963,7 +1966,8 @@ export function updateColonist(c: Colonist, dt: number) {
       updateStationaryMiner(c, dt);
       break;
     case "farmhand":
-      updateFarmhand(c);
+      if (isAnimalHouseTile(state.tiles[tileIndex(c.postX, c.postY)] as TileType)) updateAnimalKeeper(c);
+      else updateFarmhand(c);
       break;
     case "artisan":
       updateArtisan(c);

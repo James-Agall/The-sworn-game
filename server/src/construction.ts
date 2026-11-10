@@ -1,5 +1,7 @@
 // construction.ts: Placement rules and costs, construction sites, upgrades, demolition, building info panel.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { NEW_ANIMAL_HOUSE_TILES, houseKindOfTile } from "@colony/shared/animals";
+import { animalHouseInfo } from "./animals.js";
 import { tradingPostInfo } from "./wagons.js";
 import {
   TileType, isGateTile, isSolidTile, TICK_RATE, type GameEventCategory, type ServerMessage, type BuildingInfo, TILE_SIZE, Biome,
@@ -538,7 +540,12 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.CharcoalBurner:
     case TileType.Bloomery:
     case TileType.Mill:
-    case TileType.Bakery: {
+    case TileType.Bakery:
+    // Stardew phase 5d: animal houses, the same rule.
+    case TileType.ChickenCoop:
+    case TileType.LivestockBarn:
+    case TileType.PigSty:
+    case TileType.SheepPen: {
       const mult = levelAfterPlacement(tile, current, tx, ty);
       return Object.fromEntries(Object.entries(BUILD_COSTS[tile]).map(([k, n]) => [k, n * mult]));
     }
@@ -1011,6 +1018,12 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     sendEvent(player, "build", "Farm Plots and Hemp Fields are retired: paint a Growing zone instead (Build menu, Zones tab)");
     return;
   }
+  // Stardew phase 5d: new pastures are retired (animals live in coops, barns, sties and pens now; old pastures keep
+  // working). Creative mode still places them.
+  if (!upgradeInPlace && (tile === TileType.Pasture || tile === TileType.PigPasture || tile === TileType.WoolFarm) && !state.creative && !state.legacyBuild) {
+    sendEvent(player, "build", "Pastures are retired: build a Chicken Coop, Livestock Barn, Pig Sty or Sheep Pen and buy animals for it");
+    return;
+  }
   // Modular building phase 2: "needs a roofed room" (shared ROOM_REQUIRED_STATIONS) for NEW stations; creative mode,
   // upgrades in place and old buildings are exempt.
   if (!upgradeInPlace && ROOM_REQUIRED_STATIONS.includes(tile) && !state.creative && !state.legacyBuild && !roomAt(tx, ty)) {
@@ -1253,6 +1266,14 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
   }
   if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery) {
     resolveStationPlacement(tx, ty, tile);
+    return;
+  }
+  // Stardew phase 5d: an animal house (level up in place, else its Animal Keeper post).
+  if (NEW_ANIMAL_HOUSE_TILES.includes(tile)) {
+    if (tryLevelUpInPlace(tx, ty, [tile])) return;
+    setTile(tileIndex(tx, ty), tile);
+    broadcastTileUpdate(tx, ty, tile);
+    staffPost(tx, ty, "farmhand");
     return;
   }
   if (tile === TileType.HunterHut) {
@@ -1621,6 +1642,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     ...(t === TileType.TownCenter && villageLevyInfo(tx, ty) ? { levy: villageLevyInfo(tx, ty)! } : {}),
     ...(t === TileType.Keep ? { heroes: keepHeroInfo(tx, ty) } : {}),
     ...(t === TileType.ChurchPost ? { spellShop: churchSpellShop(forPlayer) } : {}),
+    ...(houseKindOfTile(t) && animalHouseInfo(tx, ty) ? { animals: animalHouseInfo(tx, ty)! } : {}),
     ...(t === TileType.GoldShop ? { tradingPost: tradingPostInfo(tx, ty) } : {}),
     ...(progressionInfo(tx, ty, t) ? { progression: progressionInfo(tx, ty, t)! } : {}),
   };

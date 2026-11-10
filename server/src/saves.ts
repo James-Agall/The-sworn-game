@@ -1,5 +1,6 @@
 // saves.ts: Save files: snapshot/apply world, migrations, slots, autosave, restart.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { type LivestockSave, livestockForSave, restoreLivestock } from "./animals.js";
 import { applySoloStart, resetHeroLifeSessions } from "./herolife.js";
 import { type InteriorChestsSave, interiorChestsForSave, resetInteriors, restoreInteriorChests } from "./interiors.js";
 import { topUpCreative } from "./creative.js";
@@ -112,6 +113,7 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   restoreRooms(undefined);
   restoreZones(undefined);
   restoreWork(undefined);
+  restoreLivestock(undefined);
   clearPlayerMorale();
   wardStonesActiveLastTick.clear();
   wardStoneLastTended.clear();
@@ -274,6 +276,8 @@ function snapshotWorldInner() {
     // Modular building phase 4: the clans in manual work-priority mode (optional: older saves are all default mode;
     // the priorities themselves are Person.work, saved with the colonists).
     workManual: workForSave() as number[] | undefined,
+    // Stardew phase 5d: animal houses (feed / water / products waiting) and every animal (optional: older saves none).
+    livestock: livestockForSave() as LivestockSave | undefined,
     stock: { ...state.stock },
     // Armour & weapons (forge queues are not saved: a load starts every Blacksmith idle).
     equipment: { armour: [...state.equipment.armour], weapon: [...state.equipment.weapon] },
@@ -510,6 +514,8 @@ function applyWorldInner(s: WorldState) {
   restoreInteriorChests(s.interiorChests);
   // Modular building phase 4: work mode (runtime jobs are re-decided).
   restoreWork(s.workManual);
+  // Stardew phase 5d: after the tiles (houses are re-found from them).
+  restoreLivestock(s.livestock);
   // After the owners: a fort's campfires (owned tiles) never get a backfilled hearth.
   backfillHearths();
   state.testForceDeserterRoll = s.flags.testForceDeserterRoll;

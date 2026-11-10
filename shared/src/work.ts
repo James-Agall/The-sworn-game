@@ -5,17 +5,17 @@
 import type { Profession } from "./progression.js";
 
 export const WORK_TYPES = [
-  "building", "farming", "woodcutting", "mining", "hunting", "cooking", "crafting", "hauling", "fighting",
+  "building", "farming", "woodcutting", "mining", "hunting", "cooking", "crafting", "animals", "hauling", "fighting",
 ] as const;
 export type WorkType = (typeof WORK_TYPES)[number];
 
 export const WORK_LABEL: Record<WorkType, string> = {
   building: "Building", farming: "Farming", woodcutting: "Woodcutting", mining: "Mining", hunting: "Hunting",
-  cooking: "Cooking", crafting: "Crafting", hauling: "Hauling", fighting: "Fighting",
+  cooking: "Cooking", crafting: "Crafting", animals: "Animals", hauling: "Hauling", fighting: "Fighting",
 };
 // Column headers (the Work tab is narrow).
 export const WORK_SHORT: Record<WorkType, string> = {
-  building: "Build", farming: "Farm", woodcutting: "Wood", mining: "Mine", hunting: "Hunt", cooking: "Cook", crafting: "Craft",
+  building: "Build", farming: "Farm", woodcutting: "Wood", mining: "Mine", hunting: "Hunt", cooking: "Cook", crafting: "Craft", animals: "Anim",
   hauling: "Haul", fighting: "Fight",
 };
 export const WORK_HELP: Record<WorkType, string> = {
@@ -26,6 +26,7 @@ export const WORK_HELP: Record<WorkType, string> = {
   hunting: "Hunter's Hut and Forager's Hut posts",
   cooking: "Mill, Bakery, Brewery and Tavern posts",
   crafting: "Tailor, Blacksmith, Bloomery, Charcoal Burner and Jeweler posts",
+  animals: "Animal houses (coop, barn, sty, pen, stables): fill feeders and troughs, collect eggs / milk / wool",
   hauling: "Carry loose goods (harvests) to stockpiles",
   fighting: "Answer a Town Center's call to arms and train as a soldier (never forced: off = stays home)",
 };
@@ -34,7 +35,7 @@ export const WORK_HELP: Record<WorkType, string> = {
 export const WORK_PROFESSIONS: Record<WorkType, Profession[]> = {
   building: [], farming: ["farmer", "farmhand"], woodcutting: ["woodcutter"], mining: ["miner"], hunting: ["hunter", "forager"],
   cooking: ["miller", "baker", "brewer", "innkeeper"], crafting: ["tailor", "smith", "smelter", "collier", "jeweler"],
-  hauling: [], fighting: [],
+  animals: ["herder"], hauling: [], fighting: [],
 };
 export const PROFESSION_WORK: Record<Profession, WorkType> = Object.fromEntries(
   (Object.entries(WORK_PROFESSIONS) as [WorkType, Profession[]][]).flatMap(([w, ps]) => ps.map((p) => [p, w]))

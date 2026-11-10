@@ -726,6 +726,10 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > open/closed. Animal sprites (idle 2f, walk 4f x 4 dirs, eat/graze 2f, sleep 1f): chicken, rooster, chick, cow, calf,
 > pig, piglet, sheep (shorn/woolly), lamb, horse, foal, dog, cat. Items/icons: egg, milk bucket, wool bundle, hay bale,
 > feed trough, water trough, shearing shears, milk pail. Needs icons (hunger, thirst, happy, sick).
+> **Wired 2026-11-10 (phase 5d)**: one pose each (hen, rooster, chick, cow, calf/foal, pig, sheep a/b, horse brown/grey,
+> pony), the four occupied-state buildings (coop, cow barn, sty, pen), icons egg / hay bale / milk pail and the four need
+> icons. **Still needed**: walk (4 dirs), graze / eat and sleep frames per animal; piglet, lamb, shorn sheep, separate
+> calf; empty vs occupied building states and door open / closed; a Stables animal variant; dog / cat (staged, unused).
 
 ### 97. Hero and villager life (phases 4-5)
 > Villager task animations (4 dirs x 4 frames): sowing, watering, harvesting, hauling, building (hammer), chopping,

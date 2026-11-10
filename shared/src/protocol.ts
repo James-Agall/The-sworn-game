@@ -1,3 +1,4 @@
+import type { AnimalHouseInfo, LivestockSnapshot, Species } from "./animals.js";
 import type { CalendarSnapshot } from "./calendar.js";
 import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, PersonalBuild } from "./herolife.js";
 import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
@@ -162,6 +163,12 @@ export enum TileType {
   Workbench = 124,
   Statue = 125,
   WeaponRack = 126,
+  // Stardew phase 5d (2026-11-10, shared/src/animals.ts): animal houses (1x1, upgradeable). The Livestock Barn is
+  // the cows / horses barn (not the farming Barn, BarnPost). Horses also live in the cavalry Stables.
+  ChickenCoop = 130,
+  LivestockBarn = 131,
+  PigSty = 132,
+  SheepPen = 133,
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -316,6 +323,10 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.Bloomery ||
     tile === TileType.Mill ||
     tile === TileType.Bakery ||
+    tile === TileType.ChickenCoop ||
+    tile === TileType.LivestockBarn ||
+    tile === TileType.PigSty ||
+    tile === TileType.SheepPen ||
     tile === TileType.Tavern ||
     tile === TileType.MilitiaPost ||
     tile === TileType.MilitiaCamp2 ||
@@ -1141,6 +1152,8 @@ export interface BuildingInfo {
     canCall: boolean;
     callReason: string;
   };
+  // Stardew phase 5d: animal houses (coop, livestock barn, sty, pen, stables): animals, feed / water, buy / slaughter.
+  animals?: AnimalHouseInfo;
   // Churches only (hero phase 4): basic spells the requesting player can buy (see learnSpell).
   spellShop?: { spellId: SpellId; label: string; gold: number; enabled: boolean; reason: string }[];
 }
@@ -1209,6 +1222,8 @@ export type ClientMessage =
   | { type: "exchangeResource"; from: "wood" | "iron" | "rock"; to: "wood" | "iron" | "rock" }
   | { type: "buyWithGold"; item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock" }
   | { type: "buildingInfo"; tileX: number; tileY: number }
+  // Stardew phase 5d (shared/src/animals.ts): an animal house's panel buttons.
+  | { type: "animalAction"; tileX: number; tileY: number; op: "buy" | "slaughter" | "rename"; species?: Species; male?: boolean; id?: number; name?: string }
   // Queues the in-place upgrade of the building at the tile (same rules as placing it on itself, no reach limit).
   | { type: "upgradeBuilding"; tileX: number; tileY: number }
   // Pays for the building's missing HP now and makes it the builders' first repair job.
@@ -1416,6 +1431,8 @@ export type ServerMessage =
       quests?: QuestSnapshot[];
       // Modular building phase 3: the clan's zones, crop stages and loose goods (resent when they change).
       zones?: ZonesSnapshot;
+      // Stardew phase 5d: animals outdoors and the clan's animal-house need flags (per player; omitted with none).
+      livestock?: LivestockSnapshot;
       // Clans (only while there are 2+): this player's clan id, every clan, and the clan of every player
       // building (CLAN_TILE_SNAPSHOT_STRIDE; per player, only when changed). The economy / army / population
       // / goal fields of this snapshot are the receiving player's clan's.

@@ -2155,6 +2155,55 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Stardew layer — landed (phase 5d) 2026-11-10 (animals living in buildings)
+Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 5d. Shared: `shared/src/animals.ts` (EVERY animal number, the
+species / house tables, snapshot flags, panel type); server: `server/src/animals.ts` (houses, records, daily step,
+wandering, chores, keeper / villager jobs, hero E, panel, saves); client: `client/src/animals.ts` (livestock sprites,
+house need icons, panel section).
+- **Buildings** (1x1, upgradeable in place; upgrade = build cost x new level): Chicken Coop (TileType 130, 15 wood + 5
+  rock; chickens, 4/8/12), Livestock Barn (131, 30 wood + 10 rock; cows + horses, 4/8/12; NOT the farming Barn), Pig Sty
+  (132, 20 wood + 5 rock; pigs 4/6/8), Sheep Pen (133, 20 wood; sheep 4/8/12). The existing cavalry **Stables** also
+  houses horses (2/4/6, no keeper post; free villagers tend it). Gates (PROGRESSION.buildings): coop = stone axe + a
+  Lumberjack (there is no planks item; the lumber camp stands in); barn / sty / pen = **Carpenter's tools** (new hand
+  item, 6 wood + 4 rock) + a Lumberjack. New Profession `herder` ("Animal Keeper") = the station profession of the four
+  new houses; their post is a `farmhand` posted at the house (isValidPostTile), worked by updateAnimalKeeper.
+- **Animals** are records {id, species, sex, name?, born (calendar day), house, fed, watered, happiness, health, product
+  timer}. Baby until ADULT_AGE_DAYS (chicken 3, cow 7, pig 5, sheep 5, horse 7). Bought adults from the panel
+  (ANIMAL_PRICE_GOLD chicken 15, cow 60, pig 35, sheep 40, horse 80; free in creative), born from pairs, or tamed
+  (TAME_WILD: boar + 5 fruit -> pig, pheasant + 3 grain -> chicken; E within 2 tiles, a house with room within 30).
+- **Daily step** (each new calendar day, catch-up of at most ANIMAL_CATCHUP_MAX_DAYS 7; chunk-independent, so COLD is
+  safe): feed FEED_PER_DAY (chicken .5, cow 2, pig 1.5, sheep 1, horse 2; babies x.5; winter x1.5; grazing an own Animal
+  area within 12 tiles outside winter x(1 - .5)) and water WATER_PER_DAY (same numbers) from the house's feeder / trough
+  (FEEDER_DAYS 3 days of a full house). Happiness moves HAPPINESS_STEP .5 toward 100 x (.4 fed + .3 watered + .15 room
+  (1 - fill x .3) + .15 outdoors (1 grazing / .5 no area / .6 winter)). Fed or watered < .5: health -20 each, else +10;
+  0 = dies. Products (adults, health >= 50, happiness >= 25): hens 1 egg / day, cows 1 milk / day (females only), sheep
+  3 wool / 3 days; x1.5 at happiness 80+, x.5 in winter; grade 1-3 (happiness 60 / 85 + keeper skill 2). Waiting cap 60.
+  Breeding: adult male + female, happiness >= 60, fed >= .9, room: BREED_CHANCE chicken .35, cow .12, pig .25, sheep
+  .15, horse .1 per day; never in winter.
+- **Feed / water**: hay (new item, HAY_PER_WHEAT_HARVEST 1 per wheat harvest from zones / hero plots) = 2 feed, grain = 1
+  (only above GRAIN_FEED_RESERVE 20). A trough within TROUGH_WATER_RANGE_TILES 6 of Water / Moat fills itself daily;
+  otherwise a chore. Chores (feeder < 60%, trough < 60%, products waiting): the keeper post (ANIMAL_CHORE_SECONDS 4 x
+  skill speed, in place), free villagers by the new **animals** work type (walk next to the house, one per house), or the
+  hero with E next to the house / an own animal (all chores at once). Eggs / milk are items (FOOD_ITEMS: milk 1 food, egg
+  .5, +2 happiness) in the Resources tab Food group; wool goes to the stock; hay is a Material.
+- **Slaughter** (panel, adults only): SLAUGHTER_YIELD chicken 4 meat, cow 40 + 2 hide, pig 60, sheep 25 + 1 hide, horse
+  30 + 2 hide. **Rename** (RENAME_MAX_CHARS 20). A demolished house loses its animals.
+- **Wandering** (cosmetic, positions never saved): by day outside winter, in ACTIVE chunks only, straight-line hops to
+  Animal area tiles near the house (else within 3 tiles), ANIMAL_SPEED 16-26 px/s. Snapshot `livestock {a, h}` per
+  player (a: [id, species, x, y, flags] outdoors, culled on big worlds; h: the clan's houses [tile, flags feed low /
+  water low / products / animals]). Client: one staged pose per species (hen / rooster, cow / calf, pig, sheep a / b,
+  horse brown / grey / pony), bob + flip while moving, need icons (hungry / thirst / sick) over animals and houses.
+- **Pastures**: new Cow / Pig / Sheep Pastures are refused outside creative ("Pastures are retired"); the tools are
+  creative-only (`legacy`); existing ones are untouched. The Orchard stays (it is not an animal building).
+- **Saves**: top-level `livestock {nextId, lastDay, houses [key, feed, water, waiting], animals}` (optional).
+- **Tests**: `server/animals-test.mjs` (`npm test -- animals`, 80 map, instant build): coop + capacity, pasture refused,
+  buy / wrong species, panel, hero E (hay), daily eggs + feed, collect, chick born, slaughter rules, rename, winter x1.5
+  feed, animals work off / on (keeper), day boundary, save / load, 100+ animals (400 ticks ~124 ms vs ~73 ms without).
+- **Known gaps (5d)**: no interiors for animal houses; hostile mobs ignore animals; the horses do nothing yet (no mounts);
+  no trader animal sales (gold only, from the panel); tamed wildlife leaves a blood stain on the client; no shears / milk
+  pail tools (by hand); no manure; a demolished house's animals are lost, not rehoused; wandering ignores pathing (short
+  straight hops) and other bodies.
+
 ## Stardew layer — landed (phase 5c) 2026-11-09 (building interiors)
 Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 5c. Shared: `shared/src/interiors.ts` (EVERY interior number, the
 templates, the legend, the pure map builder, the wire types); server: `server/src/interiors.ts` (enter / exit, movement on

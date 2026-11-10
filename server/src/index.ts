@@ -1,6 +1,7 @@
 // index.ts: boot and wiring. Imports every server module in evaluation order (types, constants and state
 // first; see ROADMAP "Server module split"), generates the world, starts the HTTP/WebSocket server (net.ts),
 // routes client messages, and runs the tick loop (stepSimulation in sim.ts) that sends the snapshots.
+import { handleAnimalAction, livestockPayloadFor } from "./animals.js";
 import { handleWagonCommand, wagonSnapshot } from "./wagons.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -269,6 +270,9 @@ function handleMessage(player: Player, message: ClientMessage) {
       info: buildingInfoFor(message.tileX, message.tileY, player),
     };
     socket.send(JSON.stringify(reply));
+  } else if (message.type === "animalAction") {
+    const text = handleAnimalAction(player, message as unknown as Record<string, unknown>);
+    if (text) sendTo(player, { type: "event", category: "build", text });
   } else if (message.type === "upgradeBuilding") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleUpgradeBuilding(player, message.tileX, message.tileY);
@@ -598,6 +602,16 @@ setInterval(() => {
       if (snapshot.type === "snapshot") {
         const zonesJson = zonesPayloadFor(player);
         if (zonesJson !== null) payload = payload.slice(0, -1) + ',"zones":' + zonesJson + "}";
+      }
+      // Stardew phase 5d: animals outdoors (near the player on big worlds) and the clan's house need flags.
+      if (snapshot.type === "snapshot") {
+        const limit = SNAPSHOT_VIEW_TILES * TILE_SIZE;
+        const view = player.view;
+        const nearFn = cull
+          ? (x: number, y: number) => (Math.abs(x - player.x) < limit && Math.abs(y - player.y) < limit) || (!!view && Math.abs(x - view.x) < view.halfW && Math.abs(y - view.y) < view.halfH)
+          : null;
+        const lj = livestockPayloadFor(player, nearFn);
+        if (lj !== null) payload = payload.slice(0, -1) + ',"livestock":' + lj + "}";
       }
       // Clans: every player building's clan (CLAN_TILE_SNAPSHOT_STRIDE), resent when it changed.
       if (clans.length > 1 && player.clanTilesVersion !== state.clanTilesVersion) {

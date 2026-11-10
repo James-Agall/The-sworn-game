@@ -22,7 +22,9 @@ import {
 import { TICK_RATE } from "@colony/shared/protocol";
 import { inBounds, ownerAt, tileIndex, tileOfPixel } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
-import { clanById, clanIdAt, isForeignClanTile, townCentersOfClan } from "./clans.js";
+import { clanById, clanIdAt, isForeignClanTile, townCentersOfClan, withClan } from "./clans.js";
+import { HAY_PER_WHEAT_HARVEST } from "@colony/shared/animals";
+import { addItem } from "./progression.js";
 import { tileIndicesOf } from "./chunks.js";
 import { roomAtIndex } from "./structures.js";
 import { cropGrowthMult, rainingNow } from "./calendar.js";
@@ -544,6 +546,7 @@ export function updateZoneWorker(c: Colonist, dt: number, rate: number, filter: 
       if (crop) Object.assign(crop, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined });
       else crops.set(i, { stage: CropStage.Tilled, progress: 0, tended: false });
       addPile(i, CROP_RESOURCE[cropId], ZONE_CROP_YIELD[cropId], clan);
+      addHay(clan, cropId);
       break;
     }
     case "haul": {
@@ -581,6 +584,27 @@ export function homeAreaTileNear(clan: number, tx: number, ty: number, r: number
   if (list.length === 0) return null;
   const i = list[Math.floor(Math.random() * list.length)];
   return { x: i % W(), y: Math.floor(i / W()) };
+}
+
+// Stardew phase 5d: the clan's Animal area tiles within `r` tiles of (tx, ty) (grazing ground for a house), at most
+// `max` of them.
+export function animalAreaTilesNear(clan: number, tx: number, ty: number, r: number, max = 200): number[] {
+  const list: number[] = [];
+  for (const z of zones.values()) {
+    if (z.clan !== clan || z.kind !== "animal") continue;
+    for (const i of z.tiles) {
+      if (Math.max(Math.abs((i % W()) - tx), Math.abs(Math.floor(i / W()) - ty)) > r) continue;
+      list.push(i);
+      if (list.length >= max) return list;
+    }
+  }
+  return list;
+}
+
+// Stardew phase 5d: a wheat harvest leaves hay (animal feed) in the clan's stores.
+function addHay(clan: number, crop: CropId) {
+  if (crop !== "wheat" || HAY_PER_WHEAT_HARVEST <= 0) return;
+  withClan(clanById(clan), () => addItem("hay", HAY_PER_WHEAT_HARVEST));
 }
 
 // ---- snapshot / saves ----
@@ -747,6 +771,7 @@ export function heroFarmApply(act: HeroFarmAct, i: number, clan: number, crop: C
   else if (c && act === "harvest") {
     const id = c.crop ?? z?.crop ?? "wheat";
     out = { res: CROP_RESOURCE[id], crop: id, n: ZONE_CROP_YIELD[id] };
+    addHay(clan, id);
     Object.assign(c, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined });
   }
   bump();

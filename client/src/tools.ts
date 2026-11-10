@@ -3,6 +3,7 @@ import {
   BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, PASTURE_YIELDS,
 } from "@colony/shared/buildings";
 import { TileType } from "@colony/shared/protocol";
+import { HOUSE_CAPACITY, HOUSE_SPECIES, SPECIES_LABEL, type HouseKind } from "@colony/shared/animals";
 import { ROOM_TOOL_STONE, ROOM_TOOL_WOOD } from "@colony/shared/structures";
 import {
   CROP_LABEL, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT,
@@ -11,6 +12,20 @@ import {
   ROOM_BARRACKS_MIN_BEDS, ROOM_BEAUTY_POINTS, ROOM_WARMTH_AREA_TILES, ROOM_WARMTH_PER_HEARTH, ROOM_WARMTH_PER_LAMP, ROOM_WORKBENCH_MAX,
   ROOM_WORKBENCH_SPEED,
 } from "@colony/shared/rooms";
+
+function animalTool(tile: TileType, kind: HouseKind, label: string, extra: string): ToolDef {
+  const species = HOUSE_SPECIES[kind].map((sp) => SPECIES_LABEL[sp].toLowerCase()).join(" / ");
+  return {
+    tile, label, key: "", category: "farming",
+    cost: `${buildCostText(tile)} (upgradeable: ${HOUSE_CAPACITY[kind].join(" / ")} animals by level). Houses ${species}: buy them in its panel; needs feed (hay / grain) and water; an Animal Keeper post. ${extra}`,
+  };
+}
+const ANIMAL_TOOLS: ToolDef[] = [
+  animalTool(TileType.ChickenCoop, "coop", "Chicken Coop", "Eggs daily."),
+  animalTool(TileType.LivestockBarn, "barn", "Livestock Barn", "Cows give milk daily; horses too (not the farming Barn)."),
+  animalTool(TileType.PigSty, "sty", "Pig Sty", "Pigs: the most meat when slaughtered."),
+  animalTool(TileType.SheepPen, "pen", "Sheep Pen", "Wool every 3 days."),
+];
 
 export type ToolCategory = "structure" | "zones" | "combat" | "farming" | "industry" | "civic" | "trade";
 
@@ -144,11 +159,13 @@ export const TOOLS: ToolDef[] = [
   { tile: TileType.ChurchPost, label: "Church", key: "c", cost: `${buildCostText(TileType.ChurchPost)} (upgradeable)`, category: "civic" },
   // w/a/s/d are movement keys, so the farm hotkeys avoid them.
   // Pasture animals (2026-11-06, shared PASTURE_YIELDS): the Pasture is the Cow pasture; pigs have no free hotkey.
-  { tile: TileType.Pasture, label: "Cow pasture", key: "p", cost: `${buildCostText(TileType.Pasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.Pasture)}`, category: "farming" },
-  { tile: TileType.PigPasture, label: "Pig pasture", key: "", cost: `${buildCostText(TileType.PigPasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.PigPasture)}`, category: "farming" },
+  { tile: TileType.Pasture, label: "Cow pasture", key: "p", cost: `${buildCostText(TileType.Pasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.Pasture)}`, category: "farming", legacy: true },
+  { tile: TileType.PigPasture, label: "Pig pasture", key: "", cost: `${buildCostText(TileType.PigPasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.PigPasture)}`, category: "farming", legacy: true },
   { tile: TileType.Orchard, label: "Orchard (Fruit)", key: "o", cost: `${buildCostText(TileType.Orchard)}, 2x2 (the tile you place on is its top-left corner; upgradeable)`, category: "farming" },
-  { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: `${buildCostText(TileType.WoolFarm)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.WoolFarm)}`, category: "farming" },
+  { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: `${buildCostText(TileType.WoolFarm)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.WoolFarm)}`, category: "farming", legacy: true },
   { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: `Free; walkable like a Farm Plot. Needs: a Barn nearby (tended by its farmers within ${BARN_FIELD_RADIUS_TILES} tiles). Retired: creative mode only (paint a Growing zone)`, category: "farming", legacy: true },
+  // Stardew phase 5d: animals live in buildings (shared/src/animals.ts); pastures are retired (creative only).
+  ...ANIMAL_TOOLS,
   {
     tile: TileType.HunterHut,
     label: "Hunter's Hut",

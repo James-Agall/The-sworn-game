@@ -5,6 +5,7 @@
 // hero's pack (carry weight), mild needs (food + rest slow you and block healing, never kill), skills by use (worker
 // XP pace), personal builds (campfire, lean-to, storage chest). State: HeroProfile.life (saved with the profile);
 // per-session transient work lives here. Messages run in the sender's clan context (index.ts handleMessage).
+import { heroAnimalInteract } from "./animals.js";
 import { heroRestMultAt, roomAtIndex, warmRoomAt } from "./structures.js";
 import { TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, type TradeGood, type RelationTier } from "@colony/shared/protocol";
 import {
@@ -672,6 +673,8 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
   }
   // Stardew phase 5c: nobody to talk to: at a prefab building's door E enters it (walking into it always does).
   if (tryEnterAtDoor(p, false)) return;
+  // Stardew phase 5d: tame a wild animal, or tend an own animal house (feeder, trough, collect).
+  if (heroAnimalInteract(p)) return;
   let toolWhy = "";
   if (Number.isInteger(m.tx) && Number.isInteger(m.ty)) {
     toolWhy = useTool(p, (HERO_TOOLS as unknown[]).includes(m.tool) ? (m.tool as HeroTool) : null, m.tx as number, m.ty as number, m.crop, false);

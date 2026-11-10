@@ -76,6 +76,11 @@ export const BUILD_COSTS = {
   // Phase 4: food.
   [TileType.Mill]: { wood: 20, rock: 10 },
   [TileType.Bakery]: { wood: 10, rock: 15 },
+  // Stardew phase 5d: animal houses (an upgrade costs the build cost again x the new level).
+  [TileType.ChickenCoop]: { wood: 15, rock: 5 },
+  [TileType.LivestockBarn]: { wood: 30, rock: 10 },
+  [TileType.PigSty]: { wood: 20, rock: 5 },
+  [TileType.SheepPen]: { wood: 20 },
 } satisfies Partial<Record<TileType, BuildCost>>;
 
 // A Blacksmith stops crafting tools while the stock holds this many (server constants.ts; client tool text).

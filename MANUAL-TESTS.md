@@ -684,6 +684,29 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Stardew phase 5d: animals living in buildings (2026-11-10)
+Normal (non-creative) game, near the Town Center. Have gold (Trading Post / Tavern) and some grain; craft Carpenter's
+tools by hand (6 wood + 4 rock) for the bigger houses.
+1. Build menu > Farming: **Chicken Coop**, **Livestock Barn**, **Pig Sty**, **Sheep Pen** are there (staged building art;
+   tinted barn stand-in if missing). Cow / Pig / Sheep Pasture tools are gone outside creative; placing one in a normal
+   game toasts "Pastures are retired".
+2. Click the Coop: the panel has an **Animals 0/4** section, feed / water line, "Buy Hen / Buy Rooster (15 gold)". Buy two
+   hens and a rooster: gold drops, list rows show Fed / Watered / Happiness / Health bars and the age in days.
+3. By day the chickens walk around the coop (bob + flip while moving); paint an **Animal area** (Zones tab) within 12
+   tiles: they graze there instead, the panel says "grazing". At night (and all winter) they are indoors (not drawn).
+4. A hunger / thirst icon floats over the coop while the feeder / trough is low, an egg icon while eggs wait.
+5. Stand next to the coop and press **E**: toast "feeder filled ...; trough filled" (hay first, then grain above 20).
+   Next dawn (calendar day): eggs waiting; E again collects them; Resources tab > Food shows Eggs (Materials: Hay).
+6. Work tab: a new **Animals** column (egg icon). Set it off for everyone: the Animal Keeper leaves, nothing refills.
+   On again: the keeper post refills / collects (free villagers too); the keeper gains Animal Keeper XP.
+7. Keep a happy, fed hen + rooster with room: within a few days "A chick was born" (chick sprite, smaller).
+8. **Slaughter** a chick: refused; an adult: meat (cows / sheep / horses also hide). **Rename**: prompt, name shows.
+9. Creative > World > Winter: animals stay in, feeder empties 1.5x faster, fewer eggs, no births.
+10. Livestock Barn: cows (milk daily, Food), horses; Pig Sty: pigs (meat only); Sheep Pen: wool every 3 days. The cavalry
+    **Stables** panel also has the animals section (horses only, no keeper post).
+11. Taming: with a Pig Sty (room) within 30 tiles, stand by a wild boar with 5 fruit in store and press E: it becomes a
+    pig (pheasant + 3 grain -> a chicken in a coop). (Known: the boar leaves a blood stain as if killed.)
+
 ## Stardew phase 5c: building interiors (2026-11-09)
 Automated: `npm test -- interiors`.
 1. New game, adventure view. Walk to the tile just below your Town Center (its door side) and keep walking up into it

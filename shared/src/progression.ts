@@ -10,7 +10,9 @@ export type ItemId =
   | "charcoal" | "ironBloom" | "anvil" | "smithTools"
   | "woodenPlow" | "millstone" | "clayOven" | "flour" | "gruel" | "flatbread" | "sourdoughStarter" | "bread"
   // Stardew phase 5a: the hero's farming tools (kept) and seed bags (one used per sown tile).
-  | "hoe" | "wateringCan" | "scythe" | "wheatSeeds" | "hempSeeds";
+  | "hoe" | "wateringCan" | "scythe" | "wheatSeeds" | "hempSeeds"
+  // Stardew phase 5d: animal feed and products (eggs / milk are food), and the tools of the bigger animal houses.
+  | "hay" | "egg" | "milk" | "carpenterTools";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "tools";
 
@@ -87,7 +89,7 @@ export function chainBuildingTiles(): TileType[] {
 
 export type Profession =
   | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "smelter" | "collier" | "miller" | "baker" | "jeweler"
-  | "brewer" | "innkeeper" | "hunter" | "forager";
+  | "brewer" | "innkeeper" | "hunter" | "forager" | "herder";
 
 // Worker XP: one point per second at work. Level L needs WORKER_XP_LEVELS[L - 1] XP (level 1 at 0).
 export const WORKER_XP_LEVELS = [0, 100, 300, 700];
@@ -132,6 +134,10 @@ export const PROGRESSION = {
     scythe: { label: "Scythe", desc: "The hero harvests ripe crops quickly (hotbar 4); by hand is slower.", group: "tool" },
     wheatSeeds: { label: "Wheat seeds", desc: "A seed bag: the hero sows one per tilled tile (hotbar 3).", group: "material" },
     hempSeeds: { label: "Hemp seeds", desc: "A seed bag: the hero sows one per tilled tile (hotbar 3, press again for hemp).", group: "material" },
+    hay: { label: "Hay", desc: "Straw left by every wheat harvest. Animal feed (2 feed each); grain feeds them too.", group: "material" },
+    egg: { label: "Eggs", desc: "Laid daily by chickens in a Chicken Coop. Food (eaten at dawn).", group: "food" },
+    milk: { label: "Milk", desc: "From cows in a Livestock Barn, daily. Food (eaten at dawn).", group: "food" },
+    carpenterTools: { label: "Carpenter's tools", desc: "Saw, adze and mallet: the Livestock Barn, Pig Sty and Sheep Pen need them.", group: "tool" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -147,6 +153,7 @@ export const PROGRESSION = {
     { id: "scythe", label: "Knap a scythe", output: "scythe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
     { id: "wheatSeeds", label: "Sort wheat seed", output: "wheatSeeds", amount: 4, stock: { grain: 2 }, station: "hand" },
     { id: "hempSeeds", label: "Save hemp seed", output: "hempSeeds", amount: 4, stock: { cotton: 2 }, station: "hand" },
+    { id: "carpenterTools", label: "Make carpenter's tools", output: "carpenterTools", amount: 1, stock: { wood: 6, rock: 4 }, station: "hand" },
     { id: "gruel", label: "Boil wheat gruel", output: "gruel", amount: 3, stock: { grain: 3, wood: 1 }, station: "hand" },
     { id: "charcoal", label: "Burn charcoal", output: "charcoal", amount: 3, stock: { wood: 6 }, station: TileType.CharcoalBurner, seconds: 90, cap: 40 },
     // Bloomery: the anvil and the smith's tools first (one each is enough), then blooms.
@@ -207,6 +214,11 @@ export const PROGRESSION = {
     [TileType.Lamp]: { requires: { buildings: [{ tile: TileType.IronMinePost }] } },
     [TileType.WeaponRack]: { requires: { buildings: [{ tile: TileType.IronMinePost }] } },
     [TileType.Rug]: { requires: { buildings: [{ tile: TileType.WoolFarm }] } },
+    // Stardew phase 5d: the coop needs the stone axe and a Lumberjack (sawn boards); the bigger houses carpenter's tools.
+    [TileType.ChickenCoop]: { requires: { items: { stoneAxe: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
+    [TileType.LivestockBarn]: { requires: { items: { carpenterTools: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
+    [TileType.PigSty]: { requires: { items: { carpenterTools: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
+    [TileType.SheepPen]: { requires: { items: { carpenterTools: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
   } as Partial<Record<TileType, BuildingReq>>,
   // The profession a station's workers train in (XP per profession per person).
   stations: {
@@ -230,6 +242,11 @@ export const PROGRESSION = {
     [TileType.Tavern]: "innkeeper",
     [TileType.HunterHut]: "hunter",
     [TileType.ForagerHut]: "forager",
+    // Stardew phase 5d: the Animal Keeper post of each animal house.
+    [TileType.ChickenCoop]: "herder",
+    [TileType.LivestockBarn]: "herder",
+    [TileType.PigSty]: "herder",
+    [TileType.SheepPen]: "herder",
   } as Partial<Record<TileType, Profession>>,
   // The Progression panel's chains (order only: every step's needs come from `buildings` / `recipes` above).
   chains: [
@@ -239,6 +256,7 @@ export const PROGRESSION = {
     { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },
     { id: "cloth", label: "Cloth", steps: [{ building: TileType.WoolFarm }, { building: TileType.CottonFarm }, { building: TileType.TailorShop }] },
     { id: "military", label: "Military", steps: [{ building: TileType.MilitiaPost }, { building: TileType.ArcherPost }, { building: TileType.KnightPost }, { building: TileType.Stables }, { building: TileType.SiegeWorkshop }] },
+    { id: "animals", label: "Animals", steps: [{ building: TileType.ChickenCoop }, { item: "egg" }, { item: "carpenterTools" }, { building: TileType.LivestockBarn }, { building: TileType.PigSty }, { building: TileType.SheepPen }, { item: "milk" }] },
     { id: "faith", label: "Faith", steps: [{ building: TileType.ChurchPost }, { building: TileType.WardStone }] },
   ] as ProgressionChain[],
   // A new game's starting kit (plan open question: small kit, 1 stone axe + 1 pick). Stardew phase 5a: a hoe, a
@@ -249,7 +267,7 @@ export const PROGRESSION = {
 export const PROFESSION_LABEL: Record<Profession, string> = {
   woodcutter: "Woodcutter", miner: "Miner", farmer: "Farmer", farmhand: "Farmhand", tailor: "Tailor", smith: "Smith",
   smelter: "Smelter", collier: "Collier", miller: "Miller", baker: "Baker", jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
-  hunter: "Hunter", forager: "Forager",
+  hunter: "Hunter", forager: "Forager", herder: "Animal Keeper",
 };
 
 // Names for the buildings the table refers to (needs text).
@@ -268,6 +286,10 @@ export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
   [TileType.KnightPost]: "Hall of the Sworn",
   [TileType.Stables]: "Stables",
   [TileType.SiegeWorkshop]: "Siege Workshop",
+  [TileType.ChickenCoop]: "Chicken Coop",
+  [TileType.LivestockBarn]: "Livestock Barn",
+  [TileType.PigSty]: "Pig Sty",
+  [TileType.SheepPen]: "Sheep Pen",
 };
 
 // Smith training (plan §2): a level-1 smith makes tools only; forging tier-1/2 gear needs level 2, tier 3 level 3.
@@ -327,4 +349,7 @@ export const FOOD_ITEMS: { id: ItemId; food: number; happiness: number }[] = [
   { id: "bread", food: 3, happiness: 8 },
   { id: "flatbread", food: 2, happiness: 3 },
   { id: "gruel", food: 1.2, happiness: 0 },
+  // Stardew phase 5d: animal products.
+  { id: "milk", food: 1, happiness: 2 },
+  { id: "egg", food: 0.5, happiness: 2 },
 ];

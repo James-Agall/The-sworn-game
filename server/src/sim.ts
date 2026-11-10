@@ -1,5 +1,6 @@
 // sim.ts: One simulation tick (stepSimulation: everything the pause freezes); index.ts's tick loop and the fastForward test hook run it.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { updateAnimals } from "./animals.js";
 import { topUpCreative } from "./creative.js";
 import { updatePrisonerWalkUp } from "./hearths.js";
 import { TICK_RATE, PLAYER_SPEED, PLAYER_HALF_SIZE } from "@colony/shared/protocol";
@@ -233,6 +234,8 @@ export function stepSimulation() {
   updateRooms();
   // Modular building phase 3: growing-zone crops (once a second).
   updateZones();
+  // Stardew phase 5d: animal houses (daily needs / products / births, wandering in ACTIVE chunks).
+  updateAnimals(dt);
   updateForageRegrow();
   processRespawnQueue();
   // Village life: trainees count down; children grow up (once a second).

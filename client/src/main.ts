@@ -12,6 +12,7 @@ import {
   Texture,
   TilingSprite,
 } from "pixi.js";
+import { createAnimalPanel, createLivestock } from "./animals";
 import { setupCreative } from "./creative";
 import { makeStructureTextures, type StructureArt } from "./structureArt";
 import { ITEM_ICON, ROOM_STAT_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS, iconImg, roomRoleIconUrl } from "./spriteRegistry";
@@ -1714,6 +1715,7 @@ async function main() {
   }
   const critterZ = (x: number, y: number) =>
     Math.floor(y / tileSize) * worldTilesX + Math.floor(x / tileSize) + 0.5;
+  const livestock = createLivestock({ layer: tileSpriteLayer, tileSize: () => tileSize, worldTilesX: () => worldTilesX, zOf: critterZ });
   function spawnWildlife() {
     for (const c of critters) c.sprite.destroy();
     critters.length = 0;
@@ -4940,6 +4942,7 @@ async function main() {
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
     TileType.Gate, TileType.Drawbridge, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
     TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery,
+    TileType.ChickenCoop, TileType.LivestockBarn, TileType.PigSty, TileType.SheepPen,
     ...NEW_STRUCTURE_TILES,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
@@ -5643,8 +5646,10 @@ async function main() {
         );
       }
     }
+    animalPanel.render(info.animals);
     buildingPanelEl.hidden = false;
   }
+  const animalPanel = createAnimalPanel({ anchor: bpSpellsRowEl, send: (m) => sendMessage(m as never), tile: () => infoTile, refresh: () => requestBuildingInfo() });
   for (const [cls, btn] of bpHeroBtns) {
     btn.addEventListener("click", () => {
       btn.blur();
@@ -6771,6 +6776,8 @@ async function main() {
       syncCaptives(hearthFlat);
       syncTownCenterBars(message.townCenters);
       syncWildlife(message.wildlife);
+      // Stardew phase 5d: livestock outdoors and the clan's animal-house need icons.
+      livestock.sync(message.livestock);
       // Dawn wipes the blood, the same boundary at which the server clears the gravestones.
       if (wasNight && !message.isNight) clearBlood();
       wasNight = message.isNight;

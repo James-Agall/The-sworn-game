@@ -64,13 +64,18 @@ export const ITEM_ICON: Record<string, string> = {
   "item:scythe": iconUrl("tool_scythe"),
   "item:wheatSeeds": iconUrl("tool_seedbag"),
   "item:hempSeeds": iconUrl("tool_seedbag"),
+  // Stardew phase 5d: animal feed and products.
+  "item:hay": iconUrl("item_hay_bale"),
+  "item:egg": iconUrl("item_egg"),
+  "item:milk": iconUrl("item_milk_pail"),
+  "item:carpenterTools": iconUrl("work_crafting"),
   ...Object.fromEntries([1, 2, 3].flatMap((t) => [[`gear:weapon:${t}`, iconUrl("stock_weapons")], [`gear:armour:${t}`, iconUrl("stock_armour")]])),
 };
 // An <img> for a small HUD icon that removes itself if the file is missing.
 // Work tab (modular building phase 4): a column icon per work type (WorkType), priority badges 1-4 / off.
 export const WORK_ICON: Record<string, string> = {
   building: iconUrl("work_building"), farming: iconUrl("work_farming"), woodcutting: iconUrl("tool_axe"), mining: iconUrl("work_mining"),
-  hunting: iconUrl("stock_food"), cooking: iconUrl("work_harvest"), crafting: iconUrl("work_crafting"), hauling: iconUrl("work_hauling"),
+  hunting: iconUrl("stock_food"), cooking: iconUrl("work_harvest"), crafting: iconUrl("work_crafting"), animals: iconUrl("item_egg"), hauling: iconUrl("work_hauling"),
   fighting: iconUrl("stock_weapons"),
 };
 export const priorityIconUrl = (p: number): string => iconUrl(p > 0 ? `priority_${p}` : "priority_off");
@@ -83,6 +88,17 @@ export function iconImg(src: string, px: number, title = ""): HTMLImageElement {
   img.addEventListener("error", () => img.remove());
   return img;
 }
+
+// ---- wired (Stardew phase 5d): livestock, one pose each (bob / flip while moving; SPRITES.md #96) ----
+const A = "/sprites/animals/";
+export const LIVESTOCK_ART: Record<string, { adult: string; male?: string; baby: string; size: number }> = {
+  chicken: { adult: `${A}animal_chicken_hen.png`, male: `${A}animal_chicken_rooster.png`, baby: `${A}animal_chick_a.png`, size: 14 },
+  cow: { adult: `${A}animal_cow.png`, baby: `${A}animal_foal_or_calf.png`, size: 30 },
+  pig: { adult: `${A}animal_pig.png`, baby: `${A}animal_pig.png`, size: 22 },
+  sheep: { adult: `${A}animal_sheep_a.png`, male: `${A}animal_sheep_b.png`, baby: `${A}animal_sheep_a.png`, size: 22 },
+  horse: { adult: `${A}animal_horse_brown.png`, male: `${A}animal_horse_gray.png`, baby: `${A}animal_pony_brown.png`, size: 32 },
+};
+export const NEED_ICON = { hungry: iconUrl("need_hungry"), thirst: iconUrl("need_thirst"), happy: iconUrl("need_happy"), sick: iconUrl("need_sick") };
 
 // ---- staged: copied, not used yet (later phases) ----
 // Load on demand: `await loadStaged(STAGED.villager.sow)` -> textures in frame order (missing files are skipped).

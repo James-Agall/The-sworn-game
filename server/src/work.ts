@@ -13,6 +13,7 @@
 //    leaves after WORK_MIN_SHIFT_TICKS when a strictly better-priority job is waiting.
 //  - Fighting: a Town Center's call to arms and soldier training only take people with fighting on.
 // Runtime job state is not saved (a load re-decides); priorities and the mode are.
+import { animalJobDistance, animalJobLabel, cancelAnimalJob, clanHasAnimalWork, hasAnimalJob, updateAnimalJob } from "./animals.js";
 import { TileType, type ColonistKind } from "@colony/shared/protocol";
 import { PROFESSION_LABEL, PROGRESSION, PROGRESSION_BUILDING_LABEL, TIER_SPEED_BONUS, levelForXp, type Profession } from "@colony/shared/progression";
 import {
@@ -113,6 +114,7 @@ function clanHasWork(clan: number, t: WorkType): boolean {
     for (const [key, site] of constructionSites) if ((siteCounts.get(key) ?? 0) < BUILDER_MAX_PER_SITE && clanIdAt(site.tx, site.ty) === clan) (v = true);
   } else if (t === "hauling") v = clanHasZoneWork(clan, "haul");
   if (!v && t === "farming") v = clanHasZoneWork(clan, "farm");
+  if (!v && t === "animals") v = clanHasAnimalWork(clan);
   if (!v && t !== "fighting") {
     for (const q of respawnQueue) {
       if (q.hero || (q.clan ?? clanIdAt(q.tx, q.ty)) !== clan) continue;
@@ -147,6 +149,7 @@ function currentJobPriority(c: Colonist): number {
 export function stopVillagerJob(c: Colonist) {
   villagerJobs.delete(c.id);
   if (hasZoneJob(c)) cancelZoneJob(c);
+  if (hasAnimalJob(c)) cancelAnimalJob(c);
   if (c.kind === "villager" && (c.buildSiteKey || c.repairKey || BUILD_STATES.has(c.state))) {
     c.buildSiteKey = null;
     c.repairKey = null;
@@ -160,6 +163,8 @@ function runJob(c: Colonist, job: VillagerJob, dt: number): boolean {
     updateBuilder(c, dt);
     return !!c.buildSiteKey || !!c.repairKey || BUILD_STATES.has(c.state);
   }
+  // Stardew phase 5d: animal chores (feeders, troughs, collecting) at the clan's animal houses.
+  if (job.type === "animals") return updateAnimalJob(c, dt, skillSpeed(c, "animals"));
   const farm = job.type === "farming";
   const rate = ZONE_PRIORITY_WORK_RATE * (farm ? skillSpeed(c, "farming") : 1);
   return updateZoneWorker(c, dt, rate, { farm, haul: !farm }) && hasZoneJob(c);
@@ -171,7 +176,7 @@ function decideJob(c: Colonist): VillagerJob | null {
     let best: { type: WorkType; d: number } | null = null;
     for (const t of WORK_TYPES) {
       if (workPriority(c, t) !== p) continue;
-      const d = t === "building" ? siteDistance(c) : t === "farming" ? zoneJobDistance(c, "farm") : t === "hauling" ? zoneJobDistance(c, "haul") : null;
+      const d = t === "building" ? siteDistance(c) : t === "farming" ? zoneJobDistance(c, "farm") : t === "hauling" ? zoneJobDistance(c, "haul") : t === "animals" ? animalJobDistance(c) : null;
       if (d !== null && (!best || d < best.d)) best = { type: t, d };
     }
     if (best) return { type: best.type };
@@ -211,7 +216,9 @@ export function updateVillagerWork(c: Colonist, dt: number): boolean {
 
 // The profession a free villager's job trains (zone farming trains the farmer skill), or undefined.
 export function villagerJobProfession(c: Colonist): Profession | undefined {
-  return villagerJobs.get(c.id)?.type === "farming" && hasZoneJob(c) ? "farmer" : undefined;
+  const t = villagerJobs.get(c.id)?.type;
+  if (t === "animals" && hasAnimalJob(c)) return "herder";
+  return t === "farming" && hasZoneJob(c) ? "farmer" : undefined;
 }
 
 // ---- posts: who fills a vacancy ----
@@ -352,6 +359,7 @@ export function workJobLabel(c: Colonist): string {
   }
   const job = villagerJobs.get(c.id);
   if (!job) return "Idle";
+  if (job.type === "animals") return `Animals: ${animalJobLabel(c) || "looking for chores"}`;
   if (job.type === "building") return c.state === "building" ? "Building" : c.state === "repairing" || c.state === "toRepair" ? "Repairing" : "Going to a building site";
   const zone = zoneJobKind(c);
   return `${WORK_LABEL[job.type]}${zone ? `: ${ZONE_JOB_LABEL[zone]}` : ""}`;
