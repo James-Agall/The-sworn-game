@@ -17,6 +17,7 @@
     "./work": "./src/work.ts",
     "./calendar": "./src/calendar.ts",
     "./interiors": "./src/interiors.ts",
-    "./animals": "./src/animals.ts"
+    "./animals": "./src/animals.ts",
+    "./buildingTemplates": "./src/buildingTemplates.ts"
   }
 }

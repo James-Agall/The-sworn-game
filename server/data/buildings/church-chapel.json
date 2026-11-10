@@ -1,0 +1,18 @@
+{
+  "id": "church-chapel",
+  "name": "Chapel (wood)",
+  "buildingType": "church",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "church",
+  "rows": [
+    "#######",
+    "#==A==#",
+    "w=====w",
+    "#c=c=c#",
+    "#=====#",
+    "###+###"
+  ]
+}

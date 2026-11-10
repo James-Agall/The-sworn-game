@@ -1,0 +1,16 @@
+{
+  "id": "stables-small",
+  "name": "Stables (tack room)",
+  "buildingType": "stables",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####.",
+    "#a=x#E",
+    "w===w.",
+    "##+##."
+  ]
+}

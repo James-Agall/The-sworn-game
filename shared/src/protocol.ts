@@ -1174,6 +1174,11 @@ export type ClientMessage =
   // A construction site's blueprint: toggle its priority (builders take priority sites first) or cancel it
   // (structure pieces refund their materials).
   | { type: "siteOrder"; tileX: number; tileY: number; action: "priority" | "cancel" }
+  // Building templates (shared/src/buildingTemplates.ts): ask for the list (answered with blueprintList), or order one
+  // centred on tile (x, y), turned / mirrored by transform 0-7 (bits 0-1 quarter turns clockwise, bit 2 mirror): every
+  // piece becomes a blueprint through the setTile rules (all or nothing up front: ground, range, cost, progression).
+  | { type: "blueprintList" }
+  | { type: "placeBlueprint"; id: string; x: number; y: number; transform: number }
   // Modular building phase 3 (shared/src/zones.ts): zones. paint: add tiles (flattened [x, y, ...]) to zone `zoneId`,
   // or to a new zone of `kind` (+ crop) when zoneId is missing; erase: take tiles out of whatever own zone holds them;
   // rename / setCrop / setFilters / delete: one zone. Tiles within ZONE_EDIT_RANGE_TILES of the hero or an own Town
@@ -1463,6 +1468,8 @@ export type ServerMessage =
   // Reply to saveGame / loadGame, to the requesting client only (`action` says which).
   // Creative mode: the answer to a creativeSpawn / creativeSet (text is toasted; ids = spawned unit ids).
   | { type: "creativeResult"; op: string; ok: boolean; text: string; [key: string]: unknown }
+  // The building templates (answer to blueprintList), built-ins flagged.
+  | { type: "blueprintList"; templates: import("./buildingTemplates.js").BuildingTemplate[] }
   | { type: "saveResult"; ok: boolean; error?: string; slot: SaveSlot; action: "save" | "load" }
   // Solo hero: a conversation node (close: the conversation ended; openTrade: open that settlement's trade panel).
   | { type: "dialogue"; dialogue?: DialogueSnapshot; close?: boolean; openTrade?: { tileX: number; tileY: number } }

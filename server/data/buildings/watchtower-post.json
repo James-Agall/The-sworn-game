@@ -1,0 +1,16 @@
+{
+  "id": "watchtower-post",
+  "name": "Watch post (tower + guard room)",
+  "buildingType": "watchtower",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "#####",
+    "#b=a#",
+    "w===w",
+    "##+#T"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "house-cottage",
+  "name": "Cottage (2 beds)",
+  "buildingType": "house",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "#####",
+    "#b=b#",
+    "w===w",
+    "#=x=#",
+    "##+##"
+  ]
+}

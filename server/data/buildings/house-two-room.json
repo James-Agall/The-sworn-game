@@ -1,0 +1,17 @@
+{
+  "id": "house-two-room",
+  "name": "Two-room house (3 beds)",
+  "buildingType": "house",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "#########",
+    "#b=b#t=h#",
+    "w===+=c=w",
+    "#b=x#===#",
+    "######+##"
+  ]
+}

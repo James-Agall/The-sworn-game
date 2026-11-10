@@ -1,0 +1,16 @@
+{
+  "id": "mill-small",
+  "name": "Mill (small)",
+  "buildingType": "mill",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "#####",
+    "#M=x#",
+    "w===w",
+    "##+##"
+  ]
+}

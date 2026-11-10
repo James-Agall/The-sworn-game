@@ -1,0 +1,17 @@
+{
+  "id": "house-townhouse",
+  "name": "Stone townhouse (4 beds)",
+  "buildingType": "house",
+  "tier": 3,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "%%%%%%%%%%%",
+    "%b=b%=t=%b%",
+    "W===D=c=D=W",
+    "%=x=%=h=%b%",
+    "%%%%%%D%%%%"
+  ]
+}

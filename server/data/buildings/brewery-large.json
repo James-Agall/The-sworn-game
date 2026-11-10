@@ -1,0 +1,17 @@
+{
+  "id": "brewery-large",
+  "name": "Brewery (large)",
+  "buildingType": "brewery",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "#########",
+    "#V=V#x=x#",
+    "w===+===w",
+    "#=k=#s=x#",
+    "##+######"
+  ]
+}

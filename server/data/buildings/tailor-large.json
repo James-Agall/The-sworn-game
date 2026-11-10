@@ -1,0 +1,17 @@
+{
+  "id": "tailor-large",
+  "name": "Tailor (large)",
+  "buildingType": "tailor",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "#########",
+    "#L=k#b=x#",
+    "w===+===w",
+    "#s=L#===#",
+    "##+######"
+  ]
+}

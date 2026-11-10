@@ -1,0 +1,17 @@
+{
+  "id": "market-shop",
+  "name": "Market shop (1 stall)",
+  "buildingType": "market",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####",
+    "#s=x#",
+    "w=t=w",
+    "##+##",
+    "$...."
+  ]
+}

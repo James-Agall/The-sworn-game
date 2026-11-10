@@ -1,0 +1,17 @@
+{
+  "id": "barracks-militia",
+  "name": "Militia camp (3 beds)",
+  "buildingType": "barracks",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "barracks",
+  "rows": [
+    "#######",
+    "#b=b=b#",
+    "w=====w",
+    "#a===x#",
+    "###+###"
+  ]
+}

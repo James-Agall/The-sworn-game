@@ -1,0 +1,16 @@
+{
+  "id": "tailor-small",
+  "name": "Tailor (small)",
+  "buildingType": "tailor",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "#####",
+    "#L=x#",
+    "w===w",
+    "##+##"
+  ]
+}

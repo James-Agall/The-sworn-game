@@ -39,6 +39,8 @@ import { broadcastTileUpdate } from "./net.js";
 import { pickHeroName, playerMaxHp, spawnHeroColonist, weaponDamageMult } from "./heroes.js";
 import { clanById, withClan } from "./clans.js";
 import { campTemplateById, campTemplates, deleteUserCamp, saveUserCamp, stampCampLive, userCampDir } from "./camps.js";
+import { buildingTemplateById, buildingTemplates, deleteUserBuilding, saveUserBuilding, stampBuildingLive, userBuildingDir } from "./buildingTemplates.js";
+import type { BuildingTemplate } from "@colony/shared/buildingTemplates";
 import { calendarSnapshot, setCalendar, setWeatherOverride } from "./calendar.js";
 import { WEATHER_LABEL, calendarLabel } from "@colony/shared/calendar";
 
@@ -471,7 +473,8 @@ const timePhases = (): Record<string, number> => ({ dawn: 1, noon: Math.floor(DA
 // creativeSet {op, ...}: allowAttack {on} | godmode {on} | heal | killMobs | clearNeutrals | clearWildlife |
 // setTime {day?, phase?} | calendar {season?, day?, weather?} | people {count, child?} | raid {day?} | stamp {template, x, y} | tradingPost {x, y, level?} |
 // relation {x, y, value?, vassal?} | quest {x, y, kind} | forceAttack {unitIds, targetType: "c" | "w", targetId} |
-// campList | campSave {template} | campDelete {id} | campStamp {template | id, x, y, transform?} (camp editor).
+// campList | campSave {template} | campDelete {id} | campStamp {template | id, x, y, transform?} (camp editor) and the
+// same four for building templates (buildingList / buildingSave / buildingDelete / buildingStamp).
 export function handleCreativeSet(player: Player, msg: Record<string, unknown>, reply: Reply) {
   const op = msg.op;
   const x = Number(msg.x);
@@ -653,6 +656,23 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
     const r = stampCampLive(t, tileOfPixel(x, y), tf);
     if (typeof r === "string") return reply(false, `No camp stamped: ${r}`);
     reply(true, `Stamped camp "${t.name}" (${r.guards.length} guards)`, { siteId: r.siteId, guards: r.guards.length });
+  } else if (op === "buildingList") {
+    // Building editor (client buildingEditor in campEditor.ts): every building template, and the user folder.
+    reply(true, `${buildingTemplates().length} building templates`, { templates: buildingTemplates(), userDir: userBuildingDir(), quiet: msg.quiet === true });
+  } else if (op === "buildingSave" || op === "buildingDelete") {
+    const err = op === "buildingSave" ? saveUserBuilding(msg.template) : deleteUserBuilding(String(msg.id ?? ""));
+    const id = op === "buildingSave" ? String((msg.template as { id?: unknown } | null)?.id ?? "") : String(msg.id ?? "");
+    if (err) return reply(false, `${op === "buildingSave" ? "Not saved" : "Not deleted"}: ${err}`);
+    reply(true, `Building template ${id} ${op === "buildingSave" ? "saved" : "deleted"}`, { templates: buildingTemplates(), id });
+  } else if (op === "buildingStamp") {
+    // {template (an unsaved draft) | id, x, y (px), transform? 0-7}: built at once, its footprint centred on the click.
+    const t = msg.template && typeof msg.template === "object" ? (msg.template as BuildingTemplate) : buildingTemplateById(String(msg.id ?? ""));
+    if (!t) return reply(false, "Unknown building template");
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return reply(false, "Bad stamp point");
+    const tf = Math.max(0, Math.min(7, Math.floor(Number(msg.transform) || 0)));
+    const r = stampBuildingLive(player, t, tileOfPixel(x, y), tf);
+    if (r) return reply(false, `Not stamped: ${r}`);
+    reply(true, `Stamped "${t.name}"`);
   } else {
     reply(false, "Unknown creative op");
   }

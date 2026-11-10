@@ -1,0 +1,18 @@
+{
+  "id": "longhouse",
+  "name": "Longhouse (6 beds)",
+  "buildingType": "longhouse",
+  "tier": 3,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "#############",
+    "#b=b=b=b=b=b#",
+    "w===========w",
+    "#=====h=====#",
+    "#t=c=====x=s#",
+    "######+######"
+  ]
+}

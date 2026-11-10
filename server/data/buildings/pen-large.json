@@ -1,0 +1,18 @@
+{
+  "id": "pen-large",
+  "name": "Sheep pen (large)",
+  "buildingType": "sheepPen",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#########",
+    "#b=x#s=x#",
+    "w===+===w",
+    "#===#===#",
+    "######+##",
+    "N.......N"
+  ]
+}

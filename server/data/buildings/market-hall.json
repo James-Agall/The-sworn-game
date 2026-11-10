@@ -1,0 +1,19 @@
+{
+  "id": "market-hall",
+  "name": "Market hall (2 stores, 2 stalls)",
+  "buildingType": "market",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#########",
+    "#s=s#x=x#",
+    "w===+===w",
+    "#=t=#===#",
+    "##+######",
+    ".........",
+    "$.......$"
+  ]
+}

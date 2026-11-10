@@ -1,0 +1,17 @@
+{
+  "id": "granary-small",
+  "name": "Granary",
+  "buildingType": "granary",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####",
+    "#x=x#",
+    "#s=s#",
+    "w===w",
+    "##+##"
+  ]
+}

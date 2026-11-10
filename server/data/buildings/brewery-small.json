@@ -1,0 +1,16 @@
+{
+  "id": "brewery-small",
+  "name": "Brewery (small)",
+  "buildingType": "brewery",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "#####",
+    "#V=x#",
+    "w===w",
+    "##+##"
+  ]
+}

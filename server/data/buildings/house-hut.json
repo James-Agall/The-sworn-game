@@ -1,0 +1,16 @@
+{
+  "id": "house-hut",
+  "name": "Hut (1 bed)",
+  "buildingType": "house",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "#w##",
+    "#b=#",
+    "#==#",
+    "##+#"
+  ]
+}

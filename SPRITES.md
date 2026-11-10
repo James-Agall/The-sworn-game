@@ -736,6 +736,18 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > mining, cooking, sleeping in bed (top-down lying), eating at table, sitting. Hero stamina/energy bar and tool
 > hotbar UI frame, inventory slot frames, 'tired' and 'hungry' status icons.
 
+### 98. Building blueprints (building templates, 2026-11-10)
+> The Blueprints tab's thumbnails and ghost (`client/src/blueprints.ts`) draw floors, beds, furniture, doors and
+> windows with the #90 / #91 piece art; everything else is a stand-in colour block from the legend
+> (`shared/src/buildingTemplates.ts` BUILDING_LEGEND): **walls** (no single-tile wall art outside the autotiler),
+> **stations** standing in a room (forge, oven, mill stone, loom, brew vat, inn counter, altar, jeweller's bench: today
+> the whole prefab building sprite is drawn on that one tile) and **annexes** (market stall, barn, stables, coop, ...).
+> Wanted: 32x32 top-down **station pieces** that read as furniture inside a room (an anvil + forge hearth, a clay oven,
+> a millstone on a frame, a loom, a brew vat, a tavern counter with kegs, an altar, a jeweller's bench), so a modular
+> Blacksmith reads as a room with a forge rather than a house sprite inside a house; a small **wall icon** per wall
+> material for the thumbnails; and an optional **blueprint ghost** tint / hatch overlay. Files:
+> `station{Forge,Oven,Millstone,Loom,BrewVat,Counter,Altar,Jeweller}.png`, `thumbWall{Wood,Stone}.png`.
+
 ### #90-#97 delivery status (2026-11-09: sliced ChatGPT atlases, `art-sources/rimworld-stardew/`)
 > Processed by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/<group>/`; registry and
 > loaders in `client/src/spriteRegistry.ts`. Every wired file is optional: a missing png falls back to the procedural

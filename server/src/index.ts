@@ -24,6 +24,7 @@ import "./pathfinding.js";
 import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchangeResource } from "./economy.js";
 import { generateWorld } from "./worldgen.js";
 import { loadCampTemplates } from "./camps.js";
+import { buildingTemplates, handlePlaceBlueprint, loadBuildingTemplates } from "./buildingTemplates.js";
 import { wildlifeForSnapshot } from "./wildlife.js";
 import {
   TOWN_CENTER_TILE, civilianPopulationUsed, handleRepairBuilding, isAtShelter, peopleSnapshot, respawnWindowSnapshot,
@@ -74,6 +75,7 @@ setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 
 // Camp templates: a broken built-in fails the boot here, before any world is made.
 loadCampTemplates();
+loadBuildingTemplates();
 generateWorld();
 httpServer.listen(PORT);
 console.log(`colony2d server listening on ws://localhost:${PORT}`);
@@ -199,6 +201,10 @@ function handleMessage(player: Player, message: ClientMessage) {
     handleSetTile(player, message.tileX, message.tileY, message.tile);
   } else if (message.type === "placeStructure") {
     handlePlaceStructure(player, message.tile, message.tiles);
+  } else if (message.type === "blueprintList") {
+    sendTo(player, { type: "blueprintList", templates: buildingTemplates() });
+  } else if (message.type === "placeBlueprint") {
+    handlePlaceBlueprint(player, message.id, message.x, message.y, message.transform);
   } else if (message.type === "siteOrder") {
     handleSiteOrder(player, message.tileX, message.tileY, message.action);
   } else if (message.type === "zoneEdit") {

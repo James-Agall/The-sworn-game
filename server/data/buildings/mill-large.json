@@ -1,0 +1,17 @@
+{
+  "id": "mill-large",
+  "name": "Mill (large)",
+  "buildingType": "mill",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "%%%%%%%%%",
+    "%M=M%x=x%",
+    "W===D===W",
+    "%===%s=s%",
+    "%%D%%%%%%"
+  ]
+}

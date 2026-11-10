@@ -1,0 +1,16 @@
+{
+  "id": "coop-small",
+  "name": "Chicken coop (small)",
+  "buildingType": "chickenCoop",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####.",
+    "#x=s#Q",
+    "w===w.",
+    "##+##."
+  ]
+}

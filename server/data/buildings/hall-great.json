@@ -1,0 +1,23 @@
+{
+  "id": "hall-great",
+  "name": "Great hall (keep)",
+  "buildingType": "hall",
+  "tier": 3,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "hall",
+  "rows": [
+    "%%%%%%%%%%%%%",
+    "%b=x%t=h%s=s%",
+    "%===D===D===%",
+    "%%%%%%D%%%%%%",
+    "%u=========u%",
+    "W=t=t=t=t=t=W",
+    "%===========%",
+    "W=c=c=c=c=c=W",
+    "%===========%",
+    "%l=========l%",
+    "%%%%%%D%%%%%%"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "id": "hall-small",
+  "name": "Town hall",
+  "buildingType": "hall",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "hall",
+  "rows": [
+    "###########",
+    "#t=t=t=t=t#",
+    "w=========w",
+    "#c=c=c=c=c#",
+    "w=========w",
+    "#=========#",
+    "#####+#####"
+  ]
+}

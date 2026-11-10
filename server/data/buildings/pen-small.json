@@ -1,0 +1,16 @@
+{
+  "id": "pen-small",
+  "name": "Sheep pen (small)",
+  "buildingType": "sheepPen",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####.",
+    "#x=s#N",
+    "w===w.",
+    "##+##."
+  ]
+}

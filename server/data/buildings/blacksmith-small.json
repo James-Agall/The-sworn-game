@@ -1,0 +1,16 @@
+{
+  "id": "blacksmith-small",
+  "name": "Blacksmith (small)",
+  "buildingType": "blacksmith",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "#####",
+    "#F=x#",
+    "w===w",
+    "##+##"
+  ]
+}

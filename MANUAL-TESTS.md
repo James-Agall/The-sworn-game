@@ -684,6 +684,34 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Building templates: Blueprints tab + building editor (2026-11-10)
+Automated: `cd server && node building-templates-test.mjs` (in-process, no ports, scratch folders).
+1. Normal game, Build panel: a new **Blueprints** tab. Opening it shows a list on the right: 45 buildings with a small
+   picture each (floors, beds, furniture, doors, windows drawn with the piece art; walls / stations as coloured
+   blocks), "House · tier 1 · 5x5 · bedroom · 2 beds", "Cost: 74 wood", and a yellow "Needs: Stone axe" (or a Quarry
+   for stone ones). The type filter at the top narrows the list.
+2. Click **Cottage (2 beds)**: the tool switches to "Place blueprint"; a coloured ghost follows the cursor near the
+   Town Center; over a tree / building its cells go red. **R** turns it (the door moves round), **M** mirrors it; R / M
+   do not switch to the Brewery / Bazaar tools while the blueprint tool is armed.
+3. Right-click on open ground: toast "Cottage (2 beds): 25 blueprints placed"; the stock drops by the cost at once;
+   builders raise it piece by piece (floors / furniture, then doors, windows, walls). When done the roof appears;
+   left-click inside: "Room: Bedroom", population cap +2.
+4. Refusals (one toast, nothing placed): on a tree / building ("Something is in the way at x,y"), more than 40 tiles
+   from the hero and every Town Center ("Too far"), without the materials ("Not enough materials: needs ..."), a
+   stone building before a Quarry ("... needs: a Quarry").
+5. Order **Blacksmith (small)** (needs the Bloomery chain; or in creative): accepted although no room stands yet; the
+   forge goes up inside its own walls and the room reads "Workshop".
+6. Cancel a wall blueprint of an ordered building (right-click a site > Cancel): its 3 wood come back. Order the same
+   blueprint again on the same spot: only the missing wall goes down.
+7. Creative game > Creative > World > Camps > **Building editor**: the list shows the 45 built-ins. Load one: its grid,
+   type, tier, role, door side and boxes fill in; the line under the grid reads its size, rooms, beds, cost, needs;
+   "Valid" in green. Paint: remove the door: the red list says "exactly one outside door (has 0)"; put a chest
+   outside: "Chest at x,y is outside every room". Rotate / Mirror turn the grid and the door side.
+8. **Duplicate**, edit, **Save**: it appears as [user] and in `server/data/buildings/user/<id>.json`; a built-in id is
+   refused; **Delete** removes a user one. **Stamp here**, click open ground: the building appears at once, yours,
+   roofed, with its stations staffed; on top of something it is refused with a reason.
+9. The user template also appears in the Blueprints list after a page reload (the list is fetched once per session).
+
 ## New game smoke checklist (RimWorld / Stardew phase 6, 2026-11-10)
 One pass over every new system in a fresh normal (non-creative) game, ~20 minutes. Details per system in the sections
 below; ROADMAP "RimWorld/Stardew — phase 6" has what was tuned.

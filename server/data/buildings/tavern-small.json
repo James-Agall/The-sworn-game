@@ -1,0 +1,18 @@
+{
+  "id": "tavern-small",
+  "name": "Tavern (small)",
+  "buildingType": "tavern",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "#########",
+    "#t=c=t=c#",
+    "w=======w",
+    "#c=t=c=I#",
+    "#===h===#",
+    "####+####"
+  ]
+}

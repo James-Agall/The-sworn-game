@@ -5,6 +5,7 @@ import {
 import { TileType } from "@colony/shared/protocol";
 import { HOUSE_CAPACITY, HOUSE_SPECIES, SPECIES_LABEL, type HouseKind } from "@colony/shared/animals";
 import { ROOM_TOOL_STONE, ROOM_TOOL_WOOD } from "@colony/shared/structures";
+import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
 import {
   CROP_LABEL, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT,
 } from "@colony/shared/zones";
@@ -27,7 +28,7 @@ const ANIMAL_TOOLS: ToolDef[] = [
   animalTool(TileType.SheepPen, "pen", "Sheep Pen", "Wool every 3 days."),
 ];
 
-export type ToolCategory = "structure" | "zones" | "combat" | "farming" | "industry" | "civic" | "trade";
+export type ToolCategory = "structure" | "blueprints" | "zones" | "combat" | "farming" | "industry" | "civic" | "trade";
 
 export interface ToolDef {
   tile: TileType;
@@ -51,6 +52,7 @@ export const TOOL_CATEGORIES: { key: ToolCategory; label: string }[] = [
   { key: "civic", label: "Civic" },
   { key: "trade", label: "Trade" },
   { key: "structure", label: "Structure" },
+  { key: "blueprints", label: "Blueprints" },
   { key: "zones", label: "Zones" },
 ];
 
@@ -269,6 +271,8 @@ export const TOOLS: ToolDef[] = [
     cost: `${buildCostText(TileType.TownCenter)}, 12+ tiles from other Town Centers and ruins/camps (place on one to upgrade: +5% output and damage per level). Built at once if none stands`,
     category: "civic",
   },
+  // Building templates (shared/src/buildingTemplates.ts): the Blueprints tab's list picks the template.
+  { tile: BLUEPRINT_TOOL, label: "Place blueprint", key: "", cost: "Pick a building template in the Blueprints list; right-click orders it (R rotates, M mirrors). Every piece becomes a blueprint your builders raise one by one: the whole cost is paid up front, cancel a piece to refund it", category: "blueprints" },
   // Every letter is taken (tools, wasd movement, z/x/e stances), so roads use - and =.
   { tile: TileType.Road, label: "Road", key: "-", cost: `${buildCostText(TileType.Road)}. Colonists and you move 25% faster on roads`, category: "civic" },
   { tile: TileType.CobbleRoad, label: "Cobble Road", key: "=", cost: `${buildCostText(TileType.CobbleRoad)}. A paved road (same 25% speed bonus)`, category: "civic" },

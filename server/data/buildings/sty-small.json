@@ -1,0 +1,16 @@
+{
+  "id": "sty-small",
+  "name": "Pig sty (small)",
+  "buildingType": "pigSty",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####.",
+    "#x=s#P",
+    "w===w.",
+    "##+##."
+  ]
+}

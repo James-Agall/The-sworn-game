@@ -1,0 +1,17 @@
+{
+  "id": "library-scriptorium",
+  "name": "Scriptorium (library + desks)",
+  "buildingType": "library",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "%%%%%%%%%%%",
+    "%s=s=s%k=k%",
+    "W=====D===W",
+    "%t=c=t%c=c%",
+    "%%%%D%%%%%%"
+  ]
+}

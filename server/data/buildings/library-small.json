@@ -1,0 +1,17 @@
+{
+  "id": "library-small",
+  "name": "Library",
+  "buildingType": "library",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####",
+    "#s=s#",
+    "w=t=w",
+    "#=c=#",
+    "##+##"
+  ]
+}

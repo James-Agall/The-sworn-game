@@ -1,0 +1,21 @@
+{
+  "id": "tavern-inn",
+  "name": "Inn (taproom, rooms, kitchen)",
+  "buildingType": "tavern",
+  "tier": 3,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "#############",
+    "#b=b=b#t=h=x#",
+    "#=====#==c==#",
+    "##+######+###",
+    "#=====t=t===#",
+    "w=c=t=c=t=c=w",
+    "#=====I=====#",
+    "#=l=========#",
+    "######+######"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "granary-stone",
+  "name": "Stone granary",
+  "buildingType": "granary",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "%%%%%%%",
+    "%x=x=x%",
+    "W=====W",
+    "%s=s=s%",
+    "%%%D%%%"
+  ]
+}

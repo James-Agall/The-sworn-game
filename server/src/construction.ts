@@ -505,12 +505,14 @@ export function sealsInSpawner(tx: number, ty: number, tile: TileType): boolean 
   return false;
 }
 
-export function handleSetTile(player: Player, tx: number, ty: number, tile: TileType, skipReach = false) {
+// `blueprint`: a piece of a building template order (buildingTemplates.ts): its station's "needs a roofed room" is
+// met by the template's own walls, which are queued in the same order.
+export function handleSetTile(player: Player, tx: number, ty: number, tile: TileType, skipReach = false, blueprint = false) {
   if (player.dead) return;
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
   if (tile !== TileType.Empty && !isSolidTile(state.tiles[tileIndex(tx, ty)] as TileType) && sealsInSpawner(tx, ty, tile)) return;
-  handleSetTileInner(player, tx, ty, tile, skipReach);
+  handleSetTileInner(player, tx, ty, tile, skipReach, blueprint);
   syncGuardBonusesAround(tx, ty);
 }
 
@@ -906,7 +908,7 @@ export function keepPlacementBlocker(tx: number, ty: number): string {
   return "";
 }
 
-export function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileType, skipReach = false) {
+export function handleSetTileInner(player: Player, tx: number, ty: number, tile: TileType, skipReach = false, blueprint = false) {
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
 
@@ -1026,7 +1028,7 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   }
   // Modular building phase 2: "needs a roofed room" (shared ROOM_REQUIRED_STATIONS) for NEW stations; creative mode,
   // upgrades in place and old buildings are exempt.
-  if (!upgradeInPlace && ROOM_REQUIRED_STATIONS.includes(tile) && !state.creative && !state.legacyBuild && !roomAt(tx, ty)) {
+  if (!upgradeInPlace && !blueprint && ROOM_REQUIRED_STATIONS.includes(tile) && !state.creative && !state.legacyBuild && !roomAt(tx, ty)) {
     sendEvent(player, "build", `${BUILDING_NAMES[tile] ?? "This"} needs a roofed room: build walls and a door round the spot first (up to 144 tiles inside)`);
     return;
   }
@@ -1107,7 +1109,7 @@ function refund(cost: Cost) {
 
 // ---- Modular building phase 1: blueprint orders ----
 // True when (tx, ty) is close enough to the player (or one of its clan's Town Centers) for a blueprint order.
-function inOrderRange(player: Player, tx: number, ty: number): boolean {
+export function inOrderRange(player: Player, tx: number, ty: number): boolean {
   const r = STRUCTURE_ORDER_RANGE_TILES;
   const p = tileOfPixel(player.x, player.y);
   if (Math.max(Math.abs(p.x - tx), Math.abs(p.y - ty)) <= r) return true;

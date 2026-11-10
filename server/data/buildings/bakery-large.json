@@ -1,0 +1,17 @@
+{
+  "id": "bakery-large",
+  "name": "Bakery (large)",
+  "buildingType": "bakery",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "%%%%%%%%%",
+    "%O=O%x=x%",
+    "W===D===W",
+    "%t=k%s=s%",
+    "%%D%%%%%%"
+  ]
+}

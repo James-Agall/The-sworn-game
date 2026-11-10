@@ -1,0 +1,21 @@
+{
+  "id": "abbey",
+  "name": "Abbey (chapel, dormitory, library)",
+  "buildingType": "abbey",
+  "tier": 3,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "church",
+  "rows": [
+    "%%%%%%%%%%%%%",
+    "%u==A==u%b=b%",
+    "W=======D===W",
+    "%c=c=c=c%b=b%",
+    "%=======%%%%%",
+    "%c=c=c=c%s=s%",
+    "W=======D===W",
+    "%=======%x=t%",
+    "%%%%D%%%%%%%%"
+  ]
+}

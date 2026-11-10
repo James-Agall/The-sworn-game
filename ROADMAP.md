@@ -2155,6 +2155,74 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Building templates — landed 2026-11-10 (modular blueprints, Blueprints tab, building editor)
+
+Data-driven building blueprints made of the phase 1-2 modular pieces (QUEUE "modular BUILDING templates"). Format,
+legend, rooms and validation: `shared/src/buildingTemplates.ts`; store + blueprint order + creative stamper:
+`server/src/buildingTemplates.ts` (store helper `server/src/templateStore.ts`, the camp store's rules made generic);
+built-ins `server/data/buildings/*.json` (a broken one fails the boot), user templates
+`server/data/buildings/user/*.json` (with `COLONY_TEST_HOOKS=1`: `<COLONY_SAVE_DIR>/buildings-user`;
+`COLONY_BUILDING_USER_DIR` overrides).
+
+- **Template**: `id`, `name`, `buildingType` (house, longhouse, tavern, church, abbey, blacksmith, bakery, market,
+  barracks, hall, granary, barn, stables, chickenCoop, livestockBarn, pigSty, sheepPen, mill, brewery, tailor,
+  library, watchtower, gatehouse), `tier` 1-3, `doorSide` N/E/S/W, `rotate` / `mirror`, `role` (the rooms.ts role it
+  produces), `rows` (3-15 each way). Footprint, materials (the pieces' `BUILD_COSTS` summed), needs (the pieces'
+  progression gates), rooms and slot counts are computed from the grid, never stored.
+- **Legend**: `.` open ground / bare floor; `#` wood wall, `%` stone wall, `g` gate; `+` / `D` wood / stone door;
+  `w` / `W` wood / stone window; `=` / `:` wood / stone floor; furniture `b` bed, `t` table, `c` chair, `x` chest,
+  `s` shelf, `h` hearth, `l` lamp, `r` rug, `k` workbench, `u` statue, `a` weapon rack; **stations** (the production
+  building tile itself, standing in the room) `F` forge (Blacksmith), `O` oven (Bakery), `M` mill stone (Mill), `L`
+  loom (Tailor), `V` brew vat (Brewery), `I` inn counter (Tavern), `A` altar (Church), `J` jeweller (Luxury
+  Workshop); **annexes** (prefabs that are not room tiles, standing outside the rooms) `$` market stall, `G` barn,
+  `E` stables, `Q` chicken coop, `X` livestock barn, `P` pig sty, `N` sheep pen, `T` tower, `K` militia post; slots
+  `@` worker, `&` NPC / resident (laid as a wood floor).
+- **Validation** (the shared `validateBuildingTemplate`, run by the store, the editor and the tests): shape and
+  legend; the rooms come from the shared `findRooms` over the grid with an open apron, so they are exactly what the
+  game will see: every enclosed area must be a room (floors / beds / furniture / stations only, <= 144 tiles),
+  furniture / stations / slots inside a room, annexes outside, exactly ONE outside door and on `doorSide`, every
+  door opens into a room, every room and station and annex reachable from outside through doors (stations are
+  solid), no room without a role, and the template's `role` among its rooms' roles.
+- **Built-ins (45)**: houses `house-hut` (1 bed), `house-cottage` (2), `house-two-room` (3 + kitchen),
+  `house-townhouse` (stone, 4, 3 rooms), `longhouse` (6); `tavern-small`, `tavern-inn` (taproom + guest room +
+  kitchen); `church-chapel`, `church-stone`, `abbey` (chapel + dormitory + library); small / large of
+  `blacksmith`, `bakery`, `mill`, `brewery`, `tailor`; `market-shop`, `market-hall`; `barracks-militia`,
+  `barracks-stone` (6 beds + mess); `hall-small`, `hall-great` (keep hall + lord's room + kitchen + store);
+  `granary-small`, `granary-stone`, `barn-small`, `barn-large`; `stables-small`, `stables-large`; small / large
+  `coop`, `livestock`, `sty`, `pen`; `library-small`, `library-scriptorium`; `watchtower-post`,
+  `watchtower-twin`, `gatehouse`. Skipped (cannot be expressed yet): an enclosed animal yard (a fenced pen round an
+  annex is not a room and would fail "every enclosed area is a room"), a second gatehouse (two guard rooms on one
+  passage need two outside doors), Hospital / Apothecary (no healing room role yet), a Keep / Town Center building
+  (the Keep / TC are single-tile prefabs with their own placement rules; the great hall is the modular stand-in).
+- **Player use**: Build menu > **Blueprints** tab: a list (filter by type) with a thumbnail drawn from the ASCII (the
+  structure piece art for floors / beds / furniture / doors / windows, colour blocks for walls, stations and
+  annexes), tier, size, rooms, beds, cost, needs. Picking one arms **Place blueprint**: a ghost follows the cursor
+  (red cells: something in the way), **R** turns it, **M** mirrors it (template flags permitting), right-click orders
+  it centred on the tile. Protocol (additive): `blueprintList` (answered with `blueprintList {templates}`) and
+  `placeBlueprint {id, x, y, transform}`.
+- **Order** (`handlePlaceBlueprint`): all or nothing up front: every piece within `STRUCTURE_ORDER_RANGE_TILES` (40)
+  of the hero / an own Town Center, off fort / settlement grounds and other clans' land, on ground the piece may
+  take (`structurePlacementOk`; stations / annexes on open ground or a floor), the room interiors clear, every
+  piece type unlocked (progression), the summed cost affordable and a builder alive. Then each piece goes through the
+  ordinary `handleSetTile` (cost paid per piece, construction site, priority / cancel with refunds), walls last. A
+  station's "needs a roofed room" (Bakery / Blacksmith) is waived for a blueprint piece (its own walls are queued in
+  the same order). A unit standing on a cell refuses that one piece (toast: "N refused"); re-ordering the same
+  blueprint fills only the gaps. Creative builds it at once (instant build).
+- **Creative**: Creative > World > Camps > **Building editor** (`client/src/buildingEditor.ts` on the generic
+  `client/src/templateEditor.ts`, the camp editor's layout made reusable; the camp editor itself is unchanged): paint,
+  metadata, rotate / mirror (door side follows), live rooms / cost / needs and validation, Load / Duplicate / Delete /
+  New / Save, **Stamp here** builds it at once (`creativeSet` ops `buildingList`, `buildingSave`, `buildingDelete`,
+  `buildingStamp`). Prefab buildings stay as they are (fallback / old behaviour; nothing deleted).
+- **Interiors (5c)**: unchanged. A modular building is walked into directly, so the interior entry rule does not apply
+  to it; a station tile inside it (Tavern counter, Church altar) is still the prefab and keeps its interior entry.
+- **Tests**: `server/building-templates-test.mjs` (in-process, no ports): validates every built-in and the refusals,
+  lays every template x every allowed transform (360 stamps) and checks the server's rooms / roles / reachability,
+  orders a house and a smithy in a normal game (refusals, cost, cancel refund, builders finish, rooms right), and
+  the editor ops.
+- **Known gaps**: worker / NPC slots are data only for a player building (posted workers stand where they always
+  did); the ghost's red cells are a client-side guess (the server re-checks); thumbnails use colour blocks for walls
+  and stations until the structure art covers them (SPRITES.md #98).
+
 ## RimWorld/Stardew — phase 6 (balance, consistency, tests) 2026-11-10
 Plan: `~/docs/colony2d/PLAN-rimworld-stardew.md` phase 6. Manual check: MANUAL-TESTS.md "New game smoke checklist".
 - **Balance probe**: a headless run of a NEW game (seasons on, no legacy switches, raids off): 10 people, 2 houses, a

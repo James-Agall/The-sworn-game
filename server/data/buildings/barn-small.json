@@ -1,0 +1,16 @@
+{
+  "id": "barn-small",
+  "name": "Barn (feed store)",
+  "buildingType": "barn",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#####.",
+    "#x=x#G",
+    "w===w.",
+    "##+##."
+  ]
+}

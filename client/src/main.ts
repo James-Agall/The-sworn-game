@@ -17,6 +17,8 @@ import { setupCreative } from "./creative";
 import { makeStructureTextures, type StructureArt } from "./structureArt";
 import { ITEM_ICON, ROOM_STAT_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS, iconImg, roomRoleIconUrl } from "./spriteRegistry";
 import { setupZones } from "./zones";
+import { setupBlueprints } from "./blueprints";
+import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
 import { setupWork } from "./work";
 import {
   ZONE_KIND_COLOR, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT, isZoneTool,
@@ -762,6 +764,16 @@ async function main() {
   const zonesUi = setupZones({ tileSize: () => tileSize, worldTilesX: () => worldTilesX, send: (m) => sendMessage(m) });
   worldLayer.addChild(zonesUi.ground);
   worldLayer.addChild(zonesUi.overlay);
+  // Building templates: the Blueprints tab's panel and ghost (blueprints.ts).
+  const blueprintsUi = setupBlueprints({
+    send: (m) => sendMessage(m),
+    tileSize: () => tileSize,
+    tileAt: (x, y) => (x < 0 || y < 0 || x >= worldTilesX || y >= worldTilesY ? -1 : tiles[y * worldTilesX + x]),
+    textures: STRUCTURE_TEXTURES,
+    arm: () => {
+      if (currentTool !== BLUEPRINT_TOOL) selectTool(BLUEPRINT_TOOL, true);
+    },
+  });
   const decorSprites = new Map<number, Sprite>();
   // Also in decorSpriteLayer (over the floor, under buildings and every unit), keyed by position +
   // variant since the server sends no id.
@@ -1187,7 +1199,7 @@ async function main() {
     });
   }
   // Modular building phase 3: zone tools drag like structure tools (a rectangle), but send zoneEdit.
-  const isStructureTool = (t: number) => isStructureTile(t) || t === ROOM_TOOL_WOOD || t === ROOM_TOOL_STONE || isZoneTool(t);
+  const isStructureTool = (t: number) => isStructureTile(t) || t === ROOM_TOOL_WOOD || t === ROOM_TOOL_STONE || isZoneTool(t) || t === BLUEPRINT_TOOL;
   app.ticker.add(() => {
     const now = performance.now();
     if (roofDirty && now - roofComputedAt > 300 && tiles.length > 0) {
@@ -4246,6 +4258,7 @@ async function main() {
       btn.style.display = visible ? "" : "none";
     }
     zonesUi.setActive(activeCategory === "zones" || isZoneTool(currentTool));
+    blueprintsUi.setActive(activeCategory === "blueprints" || currentTool === BLUEPRINT_TOOL);
   }
 
   function refreshToolbarSelection() {
@@ -4257,6 +4270,7 @@ async function main() {
   function selectTool(tile: TileType, fromUser = false) {
     currentTool = tile;
     zonesUi.setActive(activeCategory === "zones" || isZoneTool(tile));
+    blueprintsUi.setActive(activeCategory === "blueprints" || tile === BLUEPRINT_TOOL);
     // Picking something to build puts the units down, so right-click places instead of giving orders.
     if (fromUser && tile !== TileType.Empty && selectedIds.size > 0) setSelection([]);
     if (tile !== TileType.TownCenter && !isRoadTile(tile)) placementGhost.visible = false;
@@ -6714,6 +6728,7 @@ async function main() {
       syncTownCenterBars([]);
       worldLayer.addChild(siteOverlay);
       worldLayer.addChild(placementGhost);
+      worldLayer.addChild(blueprintsUi.overlay);
       worldLayer.addChild(cursorHighlight);
       worldLayer.addChild(formationMarker);
       worldLayer.addChild(lineGuide);
@@ -6895,6 +6910,8 @@ async function main() {
       else closeBuildingInfo();
     } else if (message.type === "creativeResult") {
       creativeUi.onResult(message);
+    } else if (message.type === "blueprintList") {
+      blueprintsUi.setList(message.templates);
     } else if (message.type === "saveList") {
       renderSavePanel(message.saves);
     } else if (message.type === "saveResult") {
@@ -6992,6 +7009,13 @@ async function main() {
     }
   });
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+  // Building templates: R / M turn / mirror the armed blueprint ghost (before the R / M build-tool hotkeys).
+  window.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey || e.repeat || currentTool !== BLUEPRINT_TOOL || buildPanel.classList.contains("collapsed")) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+    if (blueprintsUi.key(e.key.toLowerCase())) e.stopImmediatePropagation();
+  }, true);
 
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
@@ -8168,6 +8192,11 @@ async function main() {
       requestDemolish([{ x: tile.tileX, y: tile.tileY }]);
       return;
     }
+    // Building templates: the picked blueprint, centred on the tile.
+    if (value === BLUEPRINT_TOOL) {
+      blueprintsUi.place(tile.tileX, tile.tileY);
+      return;
+    }
     // Modular building phase 1: structure tools order blueprints (placeStructure) on release: one tile, or the
     // dragged line / rectangle / room outline.
     if (isStructureTool(value)) {
@@ -8504,6 +8533,7 @@ async function main() {
     }
     cursorHighlight.clear();
     const tile = pointerTile(x, y);
+    blueprintsUi.hover(currentTool === BLUEPRINT_TOOL && tile && !buildPanel.classList.contains("collapsed") ? { x: tile.tileX, y: tile.tileY } : null);
     // Modular building phase 1: the dragged blueprint shape.
     if (structDrag && e.pointerId === structDrag.pointerId && tile) {
       structDrag.x1 = tile.tileX;

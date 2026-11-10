@@ -1,0 +1,19 @@
+{
+  "id": "barracks-stone",
+  "name": "Stone barracks (6 beds, mess)",
+  "buildingType": "barracks",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "barracks",
+  "rows": [
+    "%%%%%%%%%%%",
+    "%b=b=b=b=a%",
+    "W=========W",
+    "%b=b=====a%",
+    "%%%%%D%%%%%",
+    "%t=h=====x%",
+    "%%%%%D%%%%%"
+  ]
+}

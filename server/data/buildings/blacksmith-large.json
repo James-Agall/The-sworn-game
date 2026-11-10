@@ -1,0 +1,17 @@
+{
+  "id": "blacksmith-large",
+  "name": "Blacksmith (large)",
+  "buildingType": "blacksmith",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "%%%%%%%%%",
+    "%F=k%x=s%",
+    "W===D===W",
+    "%a==%===%",
+    "%%D%%%%%%"
+  ]
+}

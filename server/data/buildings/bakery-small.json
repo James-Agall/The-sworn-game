@@ -1,0 +1,16 @@
+{
+  "id": "bakery-small",
+  "name": "Bakery (small)",
+  "buildingType": "bakery",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "workshop",
+  "rows": [
+    "#####",
+    "#O=x#",
+    "w===w",
+    "##+##"
+  ]
+}

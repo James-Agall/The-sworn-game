@@ -1,0 +1,20 @@
+{
+  "id": "church-stone",
+  "name": "Stone church",
+  "buildingType": "church",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "church",
+  "rows": [
+    "%%%%%%%%%",
+    "%u==A==u%",
+    "W=======W",
+    "%c=c=c=c%",
+    "%=======%",
+    "W=c=c=c=W",
+    "%=======%",
+    "%%%%D%%%%"
+  ]
+}

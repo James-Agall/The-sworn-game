@@ -1,0 +1,18 @@
+{
+  "id": "coop-large",
+  "name": "Chicken coop (large)",
+  "buildingType": "chickenCoop",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "storeroom",
+  "rows": [
+    "#########",
+    "#b=x#s=x#",
+    "w===+===w",
+    "#===#===#",
+    "######+##",
+    "Q.......Q"
+  ]
+}
