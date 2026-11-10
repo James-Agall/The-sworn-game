@@ -115,6 +115,13 @@ export function countTilesOfType(tileType: TileType): number {
 }
 
 export function computeColonyHappiness(): number {
+  const h = colonyHappinessParts();
+  const happiness = h.foodVariety + h.scenery + h.tavern + h.food + h.rooms - h.winterCold;
+  return Math.max(0, Math.min(100, Math.round(happiness)));
+}
+
+// The weighted terms of colony happiness (computeColonyHappiness sums them; the balanceState test hook reports them).
+export function colonyHappinessParts() {
   const foodTypesAvailable = (["grain", "meat", "fruit"] as const).filter((k) => state.stock[k] > 0).length;
   const foodVarietyScore = (foodTypesAvailable / 3) * 100;
 
@@ -143,8 +150,10 @@ export function computeColonyHappiness(): number {
   }
 
   // Modular building phase 2: bedrooms (residents' sleep) and the best kitchen (meals), shared/src/rooms.ts.
-  const happiness = foodVarietyScore * 0.4 + sceneryScore * 0.3 + tavernCoverageScore * 0.3 + foodHappinessBonus() + roomHappinessBonus() - winterColdPenalty();
-  return Math.max(0, Math.min(100, Math.round(happiness)));
+  return {
+    foodVariety: foodVarietyScore * 0.4, scenery: sceneryScore * 0.3, tavern: tavernCoverageScore * 0.3,
+    food: foodHappinessBonus(), rooms: roomHappinessBonus(), winterCold: winterColdPenalty(),
+  };
 }
 
 // Stardew phase 5b: on a winter night, up to WINTER_COLD_HAPPINESS points x the share of the clan's people neither
@@ -891,11 +900,26 @@ export function applyDailyFoodConsumption() {
   if (consumerCount === 0) return;
   // Progression tree phase 4: bread / flatbread / gruel first.
   let needed = eatFoodItems(Math.ceil(consumerCount * FOOD_PER_COLONIST_PER_DAY));
-  for (const key of ["grain", "meat", "fruit"] as const) {
-    if (needed <= 0) break;
-    const take = Math.min(state.stock[key], needed);
-    state.stock[key] -= take;
-    needed -= take;
+  // Phase 6 balance (2026-11-10): eaten in proportion to the stock (was grain, then meat, then fruit), so a big fruit
+  // store no longer leaves the grain / meat at 0 every dawn (food variety is a third of colony happiness).
+  const kinds = ["grain", "meat", "fruit"] as const;
+  const total = kinds.reduce((n, k) => n + Math.max(0, state.stock[k]), 0);
+  if (total > 0 && needed > 0) {
+    const share = Math.min(needed, total);
+    let left = share;
+    for (const key of kinds) {
+      const take = Math.min(state.stock[key], Math.floor((share * Math.max(0, state.stock[key])) / total));
+      state.stock[key] -= take;
+      left -= take;
+    }
+    // Rounding leftovers from the biggest store first.
+    for (const key of [...kinds].sort((a, b) => state.stock[b] - state.stock[a])) {
+      if (left <= 0) break;
+      const take = Math.min(state.stock[key], left);
+      state.stock[key] -= take;
+      left -= take;
+    }
+    needed -= share - left;
   }
   if (needed > 0) {
     for (const c of consumers) {

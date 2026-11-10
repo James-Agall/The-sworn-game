@@ -223,12 +223,23 @@ async function measureCycle(c) {
   };
   await c.setPaused(true);
   let { st, p } = await plot();
+  // A field rests (fallow) after FARM_HARVESTS_BEFORE_FALLOW harvests; wait it out (+2: it re-sows the tick after).
+  // Phase 6: the new game's happier start (~70) grows faster in the real-time gaps, so phase 3 can land on the rest.
+  if (p.state === "fallow") {
+    await c.hook("fastForward", { ticks: p.fallowTicksRemaining + 2 });
+    ({ st, p } = await plot());
+  }
   if (p.state !== "harvesting") {
     await c.hook("fastForward", { ticks: p.growTicksRemaining });
     ({ st, p } = await plot());
   }
   await c.hook("fastForward", { ticks: p.harvestTicksRemaining });
   ({ st, p } = await plot());
+  // The 5th harvest sends the field fallow: the next grow starts when it re-sows.
+  if (p.state === "fallow") {
+    await c.hook("fastForward", { ticks: p.fallowTicksRemaining + 2 });
+    ({ st, p } = await plot());
+  }
   const grow = p.state === "sown" ? p.growTicksTotal : -1;
   const hGrow = st.happiness;
   await c.hook("fastForward", { ticks: p.growTicksRemaining });

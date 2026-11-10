@@ -126,7 +126,9 @@ for (let t = 0; t < DAY; t += 5) {
 result(visited.size === 2, `farmer stood on both plots during a day (visited ${[...visited].join(" ")})`);
 result(farmingSeen, "farmer shows the farming work state at a plot");
 // Yield per harvest unchanged: grain comes from updateFarmPlots only.
-await hook("setStock", { stock: { grain: 0 } });
+// The grow time spans a dawn: plenty of meat / fruit so the colony's upkeep (eaten in proportion to the stock since
+// phase 6) leaves the harvested grain alone.
+await hook("setStock", { stock: { grain: 0, meat: 100000, fruit: 100000 } });
 await ff(K.FARM_GROW_TICKS + K.FARM_HARVEST_TICKS + 10);
 const grain = (await hook("setStock", { stock: {} })).stock.grain;
 console.log(`info grain after one grow+harvest: ${grain} (expect ${2 * K.FARM_YIELD_PER_HARVEST} minus consumption)`);

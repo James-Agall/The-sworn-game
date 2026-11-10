@@ -52,7 +52,9 @@ export const ROOM_BEAUTY_BARE_GROUND = -0.4;
 export const ROOM_DIRT_PER_VISITOR_SEC = 0.12;
 export const ROOM_DIRT_AREA_TILES = 12;
 // Dirt cleaned away every second (people sweep up).
-export const ROOM_CLEAN_PER_SEC = 0.08;
+// Phase 6 balance (2026-11-10): 0.08 -> 0.11: a 3-bed bedroom whose residents (and their children) are home a
+// good part of the day silted up to cleanliness ~0 (score 68 -> 46); now it holds unless it is occupied ~half the time.
+export const ROOM_CLEAN_PER_SEC = 0.11;
 // A death inside (blood) adds this much dirt at once.
 export const ROOM_DIRT_BLOOD = 30;
 // Bare ground never gets cleaner than this x its bare share (mud).
@@ -61,7 +63,8 @@ export const ROOM_DIRT_BARE_FLOOR = 40;
 export const ROOM_DIRT_PER_DAMAGED_WALL = 8;
 
 // ---- warmth: base + heat per source (x ROOM_WARMTH_AREA_TILES / tiles, so a hearth warms a small room more) ----
-export const ROOM_WARMTH_BASE = 20;
+// Phase 6 balance (2026-11-10): 20 -> 30, so a plain bedroom (bed, no floor) is not a happiness malus (q ~0).
+export const ROOM_WARMTH_BASE = 30;
 export const ROOM_WARMTH_STONE_ROOF = 10;
 export const ROOM_WARMTH_AREA_TILES = 16;
 export const ROOM_WARMTH_PER_HEARTH = 45;
@@ -78,7 +81,9 @@ export const ROOM_TIERS: readonly [number, string][] = [[20, "Awful"], [40, "Poo
 // ---- effects (q = (score - 50) / 50, -1..1) ----
 // Bedroom / barracks: each resident (a person whose home is a bed in it) sleeps at q; colony happiness gets
 // ROOM_SLEEP_HAPPINESS_MAX x the mean q over the clan's people (people housed elsewhere count 0).
-export const ROOM_SLEEP_HAPPINESS_MAX = 10;
+// Phase 6 balance (2026-11-10): 10 -> 15 (a wood-floored bedroom for everyone: +6, so a fed, housed colony on two
+// foods sits above 60 %).
+export const ROOM_SLEEP_HAPPINESS_MAX = 15;
 // Hero resting in a bedroom: rest gain x (ROOM_HERO_REST_MULT + ROOM_HERO_REST_QUALITY_MULT x q) (at least 1).
 export const ROOM_HERO_REST_MULT = 3;
 export const ROOM_HERO_REST_QUALITY_MULT = 2;

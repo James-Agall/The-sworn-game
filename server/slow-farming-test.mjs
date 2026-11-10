@@ -244,7 +244,8 @@ while (elapsed < 14 * DAY) {
   await ff(100);
   elapsed += 100;
   const meat = (await hook("setStock", { stock: {} })).stock.meat;
-  if (meat !== lastMeat) meatSteps.push({ at: elapsed, d: meat - lastMeat });
+  // Deliveries only: since phase 6 the dawn upkeep eats from every food store in proportion (meat drops a little).
+  if (meat > lastMeat) meatSteps.push({ at: elapsed, d: meat - lastMeat });
   lastMeat = meat;
   if (meatSteps.length >= 2) break;
 }

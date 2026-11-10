@@ -52,7 +52,7 @@ import {
   allRooms, barracksMoraleMult, forceFullRoomRecompute, heroRestMultAt, isRoofed, roomHappinessBonus, setRoomDirtAt, roomInfoAt, roomRecomputeStats, sleepQualityAt, updateRooms,
   workshopEffectAt,
 } from "./structures.js";
-import { computeColonyHappiness } from "./colonists.js";
+import { colonyHappinessParts, computeColonyHappiness } from "./colonists.js";
 import { debugSetCropAt, debugSetCrops, updateZones, zonesDebug, zonesSnapshotFor } from "./zones.js";
 import { updateWorkAssignments, workDebug, workTabFor } from "./work.js";
 import { farmPlotProgress, farmhandProgress, releaseResourceReservation } from "./economy.js";
@@ -1151,6 +1151,19 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "assignHomes") {
     assignHomes();
     reply({});
+  } else if (msg.op === "balanceState") {
+    // Phase 6 balance runs: happiness and its terms, food stock, people, population and cap, under the player's clan.
+    withClan(clanById(player.clan ?? 0), () => {
+      const people = Array.from(colonists.values()).filter((c) => c.person && (c.clan ?? 0) === (player.clan ?? 0));
+      reply({
+        cycleTick: state.cycleTick, day: state.cycleTick / GAME_DAY_TICKS, isNight: isNightNow(),
+        happiness: state.colonyHappiness, parts: colonyHappinessParts(),
+        stock: { ...state.stock }, items: { ...state.progress.items },
+        people: people.length, children: people.filter((c) => c.person!.child).length,
+        minHp: people.reduce((m, c) => Math.min(m, c.hp / Math.max(1, c.maxHp)), 1),
+        population: civilianPopulationUsed(), cap: populationCap(),
+      });
+    });
   } else if (msg.op === "respawnState") {
     // Long days & dawn/dusk respawn windows (day-respawn-test).
     reply({

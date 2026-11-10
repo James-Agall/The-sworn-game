@@ -28,7 +28,7 @@ import { TOWN_CENTER_TILE, productionSpeedMultiplier } from "./colonists.js";
 import { damageColonist } from "./combat.js";
 import { broadcastTileUpdate } from "./net.js";
 import { winterNow } from "./calendar.js";
-import { WINTER_FORAGE_REGROWS } from "@colony/shared/calendar";
+import { WINTER_FORAGE_REGROW_MULT } from "@colony/shared/calendar";
 
 // ---- Hunting & foraging: Hunter's Hut / Forager's Hut workers, wild game, wild forage ----
 // Every tunable lives here. Hunters and foragers are civilians: they only work by day and shelter in
@@ -331,8 +331,9 @@ export function generateForage() {
 
 // Picked plants count down to ripe; an entry whose tile was cleared (demolished) is dropped.
 export function updateForageRegrow() {
-  // Stardew phase 5b: picked bushes / fruit trees wait for spring (WINTER_FORAGE_REGROWS).
-  const frozenAll = !WINTER_FORAGE_REGROWS && winterNow();
+  // Stardew phase 5b: picked bushes / fruit trees regrow slower in winter (WINTER_FORAGE_REGROW_MULT; 0 = not at all).
+  const slow = winterNow() ? Math.round(1 / Math.max(1e-6, WINTER_FORAGE_REGROW_MULT)) : 1;
+  const frozenAll = slow > 1e5 || state.cycleTick % slow !== 0;
   for (const [index, ticks] of forageRegrow) {
     const tile = state.tiles[index] as TileType;
     const ripe = FORAGE_PICKED_TO_RIPE[tile];

@@ -45,7 +45,8 @@ const SOLID = new Set([...Array.from({ length: 49 }, (_, i) => i + 1).filter((t)
 const TILE = 32;
 const PLAYER_ATTACK_RANGE = TILE * 1.3;
 const RES_KEYS = ["wood", "iron", "rock", "grain", "meat", "fruit", "wool", "cotton", "clothes", "tools", "luxuryItems", "gold"];
-const RESET_VALUES = { wood: 80, iron: 60, rock: 60, grain: 80, meat: 0, fruit: 0, wool: 0, cotton: 0, clothes: 0, tools: 0, luxuryItems: 0, gold: 0 };
+// Phase 6 balance (2026-11-10): a new game starts with STARTING_MEAT 20 / STARTING_FRUIT 40 too.
+const RESET_VALUES = { wood: 80, iron: 60, rock: 60, grain: 80, meat: 20, fruit: 40, wool: 0, cotton: 0, clothes: 0, tools: 0, luxuryItems: 0, gold: 0 };
 
 function connect() {
   const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: [], tileUpdates: [], events: [], onSnap: null, hooks: [] };
@@ -445,8 +446,10 @@ await restartAndCheck(a, "(A0)");
     // Cap = Town Center base 12 + 4 houses + neighbourhood pairs (H1/H2 and H3/H4 touch); 4 x (20 wood + 5 rock).
     result(a.snap.populationCap === expectedCap(a) && a.snap.populationCap === 18 && a.snap.wood === 80 - 80 && a.snap.rock === 60 - 20,
       `(A) 4 houses: popCap=${a.snap.populationCap} (expected ${expectedCap(a)} = 12 + 4 + 2 house pairs) wood=${a.snap.wood} (expected 0) rock=${a.snap.rock} (expected 40)`);
-    // The 2x2 paddocks cost 10 wood each; the houses took it all.
-    await a.hook("setStock", { stock: { wood: 40 } });
+    // The 2x2 paddocks cost 10 wood each; the houses took it all. No meat / fruit (the new game's starting stores) so the
+    // first batches below are measured from 0.
+    await a.hook("setStock", { stock: { wood: 40, meat: 0, fruit: 0 } });
+    await sleep(300);
 
     // Pastures / Wool Farms are 2x2 (anchor = top-left): they take the two lower corners of the 5x5 box; Orchards
     // are 2x2 too since 2026-11-06 (top-left of the box, beside the player's column).

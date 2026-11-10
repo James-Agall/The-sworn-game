@@ -50,6 +50,11 @@ export const STARTING_ROCK = 60;
 // opening stock has to carry a ~20-consumer colony through 3 dawns (see FARM_* / FARMHAND_*).
 // Village life tuning 2026-11-03: 60 -> 80 (10 people eat 38 a dawn from day 0; 80 covers two dawns).
 export const STARTING_GRAIN = 80;
+// Phase 6 balance (2026-11-10): some gathered fruit and smoked meat too, so a new colony starts with a varied diet
+// (happiness ~70 instead of 43) and 140 food: 10 people (38 a dawn) plus the first births last 3 dawns before the
+// first growing-zone harvest or Forager's Hut batch.
+export const STARTING_FRUIT = 40;
+export const STARTING_MEAT = 20;
 // ---- Building hit points (mobs damage buildings; builders repair them) ----
 // Max HP by building class, times BUILDING_HP_LEVEL_MULT[level - 1]. Town Centers keep their own HP
 // (TOWN_CENTER_MAX_HP_BY_LEVEL). Classes: see buildingBaseHp.
@@ -2451,6 +2456,9 @@ export const VACANCY_FILL_INTERVAL_TICKS = TICK_RATE;
 export const BIRTH_CHANCE_PER_COUPLE = 0.3;
 export const COUPLE_BIRTH_COOLDOWN_DAYS = 5;
 export const BIRTH_MIN_FOOD = 20;
+// Phase 6 balance (2026-11-10): and at least this many days of the colony's upkeep (people x FOOD_PER_COLONIST_PER_DAY):
+// a 10-person start no longer has 2-4 babies in its first days while its 80 grain runs out.
+export const BIRTH_MIN_FOOD_DAYS = 2;
 // Immigrants: ~IMMIGRANTS_PER_WEEK at happiness 100, none below IMMIGRATION_MIN_HAPPINESS (linear in between),
 // accumulated at each dawn and only arriving where a settlement has a free bed.
 // Tuning 2026-11-03: 2 -> 3 (10-day probes: 0-1 immigrant at the fresh colony's 43-57 % happiness).

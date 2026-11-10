@@ -5,7 +5,7 @@ import { TICK_RATE, TileType, type ColonistKind } from "@colony/shared/protocol"
 import type { HeirCandidateSnapshot } from "@colony/shared/protocol";
 import type { Colonist, HearthState, Player, TownCenter } from "./types.js";
 import {
-  BIRTH_CHANCE_PER_COUPLE, BIRTH_MIN_FOOD, COUPLE_BIRTH_COOLDOWN_DAYS, HEIR_GOLD_SHARE, HEIR_SKILL_SHARE, CHILD_MATURE_DAYS, DAY_TICKS, GAME_DAY_TICKS,
+  BIRTH_CHANCE_PER_COUPLE, BIRTH_MIN_FOOD, BIRTH_MIN_FOOD_DAYS, FOOD_PER_COLONIST_PER_DAY, COUPLE_BIRTH_COOLDOWN_DAYS, HEIR_GOLD_SHARE, HEIR_SKILL_SHARE, CHILD_MATURE_DAYS, DAY_TICKS, GAME_DAY_TICKS,
   IMMIGRANTS_PER_WEEK, IMMIGRATION_MIN_HAPPINESS, KEEP_POPULATION_PER_LEVEL, PRISONERS_PER_CAMP,
   PRISONER_DISTANCE_MAX_BONUS, PRISONER_DISTANCE_STEP_TILES,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_LEVEL_POPULATION_BONUS, TRAIN_BATCH_MAX, TRAIN_DAYS_BY_LEVEL, TRAIN_SLOTS_PER_LEVEL, VILLAGE_LEVY_COOLDOWN_TICKS,
@@ -57,20 +57,35 @@ export function assignHomes() {
     const y = Math.floor(i / state.WORLD_TILES_X);
     if (clanIdAt(x, y) === state.clan.id) beds.set(resourceKey(x, y), { x, y, free: 1 });
   }
+  // Phase 6: a Town Center is only a shelter: people sleeping there move into a free house / keep / bed once there
+  // is one (homes used to be kept for good, so a new bedroom housed nobody of the starting ten).
+  const tcKeys = new Set(clanTownCenters().map((tc) => resourceKey(tc.x, tc.y)));
   const homeless: Colonist[] = [];
+  const atTc: Colonist[] = [];
   for (const c of colonists.values()) {
     if (!c.person || !inClan(c)) continue;
-    const b = beds.get(resourceKey(c.person.homeX, c.person.homeY));
-    if (b && b.free > 0) b.free--;
+    const key = resourceKey(c.person.homeX, c.person.homeY);
+    const b = beds.get(key);
+    if (b && tcKeys.has(key)) atTc.push(c);
+    else if (b && b.free > 0) b.free--;
     else homeless.push(c);
   }
   const open = Array.from(beds.values());
+  let roomy = open.reduce((n, b) => n + (tcKeys.has(resourceKey(b.x, b.y)) ? 0 : Math.max(0, b.free)), 0) - homeless.length;
+  for (const c of atTc) {
+    const b = beds.get(resourceKey(c.person!.homeX, c.person!.homeY))!;
+    if (roomy > 0 || b.free <= 0) {
+      homeless.push(c);
+      roomy--;
+    } else b.free--;
+  }
   for (const c of homeless) {
     let best: { x: number; y: number; free: number } | undefined;
     let bestD = Infinity;
     for (const b of open) {
       if (b.free <= 0) continue;
-      const d = (b.x - c.postX) ** 2 + (b.y - c.postY) ** 2;
+      // A real home (house, keep, bed) before a Town Center shelter.
+      const d = (b.x - c.postX) ** 2 + (b.y - c.postY) ** 2 + (tcKeys.has(resourceKey(b.x, b.y)) ? 1e9 : 0);
       if (d < bestD) {
         bestD = d;
         best = b;
@@ -125,6 +140,10 @@ export function peopleDawnForClan(force: { birth?: boolean; immigrant?: boolean;
   assignHomes();
   heroBirthsDawn(force.heroBirth === true);
   const food = state.stock.grain + state.stock.meat + state.stock.fruit;
+  // Phase 6 balance: births wait for BIRTH_MIN_FOOD_DAYS of the clan's upkeep in stock.
+  let eaters = 0;
+  for (const c of colonists.values()) if (c.person && inClan(c)) eaters++;
+  const birthFood = Math.max(BIRTH_MIN_FOOD, eaters * FOOD_PER_COLONIST_PER_DAY * BIRTH_MIN_FOOD_DAYS);
   const stats = settlementStats();
   for (const st of stats) {
     const tc = st.tc;
@@ -133,7 +152,7 @@ export function peopleDawnForClan(force: { birth?: boolean; immigrant?: boolean;
       if (st.used >= st.cap && !state.creative) break;
       const last = Math.max(a.person!.lastBirthTick ?? -Infinity, b.person!.lastBirthTick ?? -Infinity);
       if (!force.birth && state.cycleTick - last < COUPLE_BIRTH_COOLDOWN_DAYS * GAME_DAY_TICKS) continue;
-      if (!force.birth && (food < BIRTH_MIN_FOOD || Math.random() >= BIRTH_CHANCE_PER_COUPLE)) continue;
+      if (!force.birth && (food < birthFood || Math.random() >= BIRTH_CHANCE_PER_COUPLE)) continue;
       const child = bornChild(tc, [a, b]);
       a.person!.lastBirthTick = state.cycleTick;
       b.person!.lastBirthTick = state.cycleTick;

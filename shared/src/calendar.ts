@@ -144,8 +144,10 @@ export const WINTER_ROOM_HAPPINESS_MULT = 1.5;
 export const WINTER_COLD_REST_DECAY_MULT = 1.5;
 export const WINTER_COLD_REST_GAIN_MULT = 0.5;
 export const WINTER_WARM_ROOM_REST_MULT = 1.25;
-// Wild forage (berry bushes, fruit trees) does not regrow in winter (picked plants wait for spring). Hunting unchanged.
-export const WINTER_FORAGE_REGROWS = false;
+// Wild forage (berry bushes, fruit trees) regrows this much slower in winter. Hunting unchanged.
+// Phase 6 balance (2026-11-10): was "no regrowth at all" (0): a colony living on its Forager's Hut ran out of fruit in
+// the first winter's 5th day; a quarter keeps a trickle so a lean winter is not a starving one.
+export const WINTER_FORAGE_REGROW_MULT = 0.25;
 
 // ---- client look ----
 // Multiply tints per season for the grass floor / scatter and for trees.
