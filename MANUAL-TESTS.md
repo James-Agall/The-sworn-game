@@ -407,7 +407,7 @@ scratch `COLONY_SAVE_DIR`), then open the client as usual.
 
 ## World streaming phase 4 (diff saves, chunked transfer, Vast 1024 maps)
 Normal sizes (up to 512) should look and save exactly as before. For the new path pick **Vast** (1024) in the menu
-(generation takes one to several minutes; the page waits on the welcome), or a 512 server with
+(generation now takes about a second, behind the loading screen), or a 512 server with
 `COLONY_TEST_HOOKS=1 COLONY_STREAMING=1` and a scratch `COLONY_SAVE_DIR`.
 1. Vast map: the ground, trees, decor and buildings around the Town Center appear within a second of the welcome;
    walk / pan the camera: new ground fills in at the screen edge with no grass-then-swap flicker and no holes.
@@ -419,6 +419,22 @@ Normal sizes (up to 512) should look and save exactly as before. For the new pat
 4. Save on Vast, load: the world comes back the same (your buildings, roads, cleared trees, explored fog). The save
    dir holds the slot plus one `base-<seed>-1024-v1.bin.gz`; the slot file should be well under the old size.
 5. 512 normal game: save / load / restart behave as before (old full-array saves still load).
+
+## Loading screen (Giant / Vast / Colossal maps)
+Worldgen is now about 0.5 s at 1024 and 1.5 s at 2048 on the WSL box, so the screen may only flash on a fast PC; a
+slower one (or Colossal) shows it longer.
+1. Settings > Map size: **Vast**, New Game: a parchment loading screen ("Forging a new world", "Vast map, 1024 x 1024
+   tiles") covers the old world at once, the bar moves forward (never back), the stage list ticks off Generating
+   terrain, Placing settlements and forts, Planting forests ..., Placing camps ..., Releasing wildlife ..., Saving
+   base cache, Sending map to your browser, Starting; it fades out on your hero with the ground already drawn.
+2. Tips: a "Tip" line with a real game tip; on a slow load it changes every ~6 s with a short fade.
+3. Map size **Colossal**: a red "Colossal: long load, needs a strong PC" note under Map size; New Game makes a
+   2048 x 2048 world (sub line says so); the minimap / strategy Map band cover it; walking around stays smooth.
+4. Cancel: start a Colossal New Game and press **Cancel** while the bar is in the generation stages (Back to menu once
+   it is sending the map): you land back on the main menu; New Game again works. (A second browser tab connected
+   to the same server instead gets the small stand-in world.)
+5. Load Game of a Vast save: "Loading your world" with Reading the save -> Sending map -> Starting.
+6. Medium / Large maps: no loading screen (too quick to need one).
 
 ## World streaming phase 5 (chronicle, abstract strife)
 1. A **Chronicle** button sits next to Quests. Open it: newest first; "While you were away" heads entries that

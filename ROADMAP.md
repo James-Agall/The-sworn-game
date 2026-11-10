@@ -2155,6 +2155,67 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## World streaming — loading screen, fast worldgen, 2048 on the menu — landed 2026-11-10
+Closes the phase 4 "not done" items "a loading screen for the long Vast worldgen" and "2048 on the menu".
+- **Worldgen profile** (CPU profile, 1024 seed 1: 42 s total): `generateBiomes` was 38 s, a nearest-seed scan of
+  every biome seed for every tile (O(tiles x seeds), ~1600 seeds at 1024, ~6500 at 2048). Now the seeds sit in a
+  grid of (radius max + jitter)-sized cells and a tile looks at its 3x3 cells (same answer: only the nearest seed within
+  radius + jitter matters; ties break on the lower index with the same Math.hypot as before). Then
+  `pickScatteredTile`'s spacing check (`tooClose`: a WeakMap'd grid per `avoid` array, appended incrementally) and
+  `edgeJitter`'s per-call closure (hoisted `smooth`). **Same worlds per seed** (base checksums unchanged at 256 / 512,
+  mob / site counts unchanged at 1024 / 2048), so `WORLDGEN_VERSION` stays 8. No worker_threads (not needed).
+
+  | size | before | after | after, by stage (ms) |
+  |---|---|---|---|
+  | 256 | 0.3 s | 0.1 s | |
+  | 512 | 3.0 s | 0.2-0.3 s | |
+  | 1024 (3 seeds) | 41.6 / 40.9 / 40.0 s | 0.45-0.97 s | biomes 230-590, ponds 16-136, settlements 40-95, forts 60-127, rest < 40 |
+  | 2048 (3 seeds) | 717 s (seed 1) | 1.37-1.50 s | biomes ~950, ponds 45-60, settlements 120-165, forts 180-250, rest < 45 |
+
+  The stage times print with every generation (`[world] generated ... (biomes N, ponds N, ...)`).
+- **Tick at 2048** (same benchmark as phase 4: fresh world, raids on, 1200 fast-forward ticks after 100, then 20 s
+  live with a chunked + delta client): `tryGrowTree` listed every open tile as an object every 8 s (a 0.6 s spike
+  at 2048, 0.15 s at 1024; most of the GC) and `rebuildBodyHash` filled the whole-map cell array every tick. Now tree
+  regrowth tries up to 256 random tiles (uniform over the same candidates) before an exact count-and-pick scan, and
+  the body hash resets only the cells it filled.
+
+  | size | ff ms/tick | live avg / p95 / max ms | RSS MB | snapshot KB | chunked welcome KB | 25 chunks | save / load |
+  |---|---|---|---|---|---|---|---|
+  | 1024 before | 3.93 | 4.7 / 6.1 / 343 | 262 | 1.2 | 110 | 68 KB, 4 ms | 136 / 153 ms, 1.3 MB |
+  | 1024 after | 0.61 | 2.5 / 4.8 / 11 | 151 | 1.3 | 110 | 68 KB, 3 ms | 114 / 137 ms, 1.4 MB |
+  | 2048 before | 13.1 | 13.7 / 11.5 / 1421 | 747 | 1.0 | 162 | 68 KB, 4 ms | 354 / 438 ms, 2.9 MB |
+  | 2048 after | 1.15 | 3.2 / 7.7 / 17 | 215 | 1.2 | 170 | 68 KB, 3 ms | 265 / 301 ms, 2.7 MB + 675 KB base |
+
+  So 2048 is on the menu (`MAX_WORLD_SIZE` 2048) as **Colossal** (the name "Huge" is already 384) with a red
+  "long load, needs a strong PC" note; the browser holds two 4M-entry tile arrays for it.
+- **Loading progress (server)**: a world job (`worldJob` in worldgen.ts) wraps a restart / New Game size change
+  (`resetWorld`, now async and `serialized` after any save / load in flight) and a load (`loadFromSlot`). While it
+  runs the tick loop is skipped, client messages and new connections queue in index.ts (`deferred`, drained in order
+  by the next tick; `cancelLoad` alone goes through) and `generateWorld` yields (`setImmediate`) between stages and
+  every 128 biome rows. Math.random is the real one during a yield and the seeded one again after it
+  (`yieldWorldgen`), so seeds still make the same worlds. Each yield sends `loadProgress {stage, pct, size, kind,
+  cancellable?}` to every socket (`LOAD_STAGES` in shared/src/streaming.ts: read, terrain, settlements, resources,
+  camps, wildlife, cache, starting; pct never goes back; "starting" at 100 right before the welcome). A socket that
+  connects mid-job gets the latest one at once. Streamed worlds write the base cache file right after generation
+  ("Saving base cache", async gzip), so the first save no longer has to. There is no road-building stage (roads come
+  with the settlement / fort templates), so the stage names follow the code instead of the brief.
+- **Cancel**: a New Game of `LOADING_SCREEN_MIN_WORLD_TILES` (512)+ is cancellable until the world is made; the
+  next yield throws `WorldgenCancelled`, everyone gets `loadProgress {stage: "cancelled"}` and the server makes a
+  stand-in world (the previous size if under 512, else 160) the usual way. Loads are not cancellable (the old world is
+  gone by the time the size is known).
+- **Loading screen (client, `client/src/loadingScreen.ts`)**: shown on a loadProgress for 512+ worlds: title (Forging
+  a new world / Loading your world), "Vast map, 1024 x 1024 tiles", a seal-red bar with percent, the current stage,
+  the stage list (done / active), a tip that changes every 6 s (13 tips from seasons, the Work tab, zones, quest
+  givers, prisoners, horses / carts, the Castle Ruin, the Chronicle, strife, weather), Cancel / Back to menu. Server
+  stages fill 0-85 %; "Sending map to your browser" fills to 98 % as the 5x5 chunks around the hero arrive (a full
+  welcome is one step); "Starting" ends it at the first snapshot (or after 20 s whatever happens).
+- Tests: `server/loading-progress-test.mjs` (own server, port 22410, ~2 s): 256 restart progress in order to 100,
+  cancel of a 1024 New Game -> "cancelled" + the 256 stand-in, a mid-generation message answered after the welcome,
+  512 save + load progress. world-512-test, save-load-test, smoke pass. streaming-world-test checks 5-7 (strife) need a
+  human settlement more than 5 chunks from the Town Center: they failed on several random worlds here and once on the
+  old code too (map flake, see phase 5); with a seed whose map has one they pass. `world-gen-poi-test` talks to
+  :8080 (a live server), so it was not run.
+
 ## Battle engine — delta snapshots landed 2026-11-10 (mid-battle snapshot under 250 KB)
 Plan: docs PLAN-large-battles.md §6, §7, §8 phase 7 ("delta / binary snapshots and short unit ids" was the not-done
 part of phase 7).
@@ -3791,7 +3852,8 @@ Plan: §5-7, §9 phase 4. Only streamed worlds (>= 768 tiles, or `COLONY_STREAMI
   `COLONY_STREAMING=1`: one run hit the known random settlement-stamp flake, the rerun passed), streaming-abstract-test
   all pass.
 - Not done: delta snapshots, per-chunk entity saves for COLD chunks (parked mobs are whole objects), a loading screen
-  for the long Vast worldgen, 2048 on the menu.
+  for the long Vast worldgen, 2048 on the menu. (Loading screen and 2048: done, see "World streaming — loading
+  screen, fast worldgen, 2048 on the menu".)
 
 ## World streaming — landed (phase 3) 2026-11-02 (abstract records + catch-up)
 Plan: `~/docs/colony2d/PLAN-world-streaming.md` §4-5, §9 phase 3. All of it is off below 768 tiles (`streamingOn()`;

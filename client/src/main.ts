@@ -14,6 +14,7 @@ import {
 } from "pixi.js";
 import { createAnimalPanel, createLivestock } from "./animals";
 import { setupCreative } from "./creative";
+import { createLoadingScreen } from "./loadingScreen";
 import { makeStructureTextures, type StructureArt } from "./structureArt";
 import { ITEM_ICON, ROOM_STAT_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS, iconImg, roomRoleIconUrl } from "./spriteRegistry";
 import { setupZones } from "./zones";
@@ -3187,7 +3188,30 @@ async function main() {
     strategyAfterCamera();
     updateFloorChunks();
     requestStreamChunks();
+    if (loadingUi.active()) reportMapProgress(mine.sprite.position.x, mine.sprite.position.y);
   });
+
+  // Loading screen "Sending map to your browser": the chunks around the hero (the 5x5 block requestStreamChunks
+  // asks for first) loaded so far; a full-welcome world has nothing left to fetch.
+  function reportMapProgress(px: number, py: number) {
+    const sm = streamed;
+    if (!sm) {
+      loadingUi.onMapProgress(0, 0, loadingSnapshotSeen);
+      return;
+    }
+    const span = sm.chunkTiles * tileSize;
+    const pcx = Math.floor(px / span);
+    const pcy = Math.floor(py / span);
+    let wanted = 0;
+    let loaded = 0;
+    for (let cy = Math.max(0, pcy - 2); cy <= Math.min(sm.chunksY - 1, pcy + 2); cy++) {
+      for (let cx = Math.max(0, pcx - 2); cx <= Math.min(sm.chunksX - 1, pcx + 2); cx++) {
+        wanted++;
+        if (chunkLoaded[cy * sm.chunksX + cx]) loaded++;
+      }
+    }
+    loadingUi.onMapProgress(loaded, wanted, loadingSnapshotSeen);
+  }
 
   // World streaming phase 4: ask for the chunks the camera (one chunk margin) and the rider (2 chunks) need,
   // 5 times a second, at most MAX_CHUNKS_PER_REQUEST at a time; an unanswered request is retried after 3 s.
@@ -6002,6 +6026,13 @@ async function main() {
   if (DELTA_SNAPSHOTS) wsParams.set("delta", "1");
   const deltaState = newDeltaClientState();
   const socket = new WebSocket(wsParams.toString() ? `${SERVER_URL}/?${wsParams}` : SERVER_URL);
+  // Loading screen (loadingScreen.ts): big worlds being made / loaded / sent. Cancel asks the server to stop; the
+  // menu is a page reload, as with the in-game Menu button.
+  const loadingUi = createLoadingScreen({
+    onCancel: () => sendMessage({ type: "cancelLoad" }),
+    onBackToMenu: () => location.reload(),
+  });
+  let loadingSnapshotSeen = false;
 
   const pauseBtn = document.getElementById("pause-btn") as HTMLButtonElement;
   const restartBtn = document.getElementById("restart-btn") as HTMLButtonElement;
@@ -6880,6 +6911,7 @@ async function main() {
         tiles = message.tiles;
         biomes = message.biomes;
       }
+      if (loadingUi.onWelcome(worldTilesX, !!ck)) loadingSnapshotSeen = false;
       castleRuinTile = message.castleRuin ?? null;
       lastGoalIndex = -1;
       clearFightArrows();
@@ -6911,6 +6943,7 @@ async function main() {
       worldLayer.addChild(dragBox);
       strategyOnWelcome();
     } else if (message.type === "snapshot") {
+      loadingSnapshotSeen = true;
       creativeUi.onSnapshot(message);
       applyProgression(message.progression);
       interpBeforeSnapshot();
@@ -7068,6 +7101,8 @@ async function main() {
       soundOnEvent(message.category, message.text);
     } else if (message.type === "explored") {
       markExplored(message.tiles);
+    } else if (message.type === "loadProgress") {
+      loadingUi.onProgress(message);
     } else if (message.type === "chunks") {
       applyStreamChunks(message.chunks);
     } else if (message.type === "chronicle") {
@@ -8801,13 +8836,15 @@ function renderClanChoice() {
     btn.setAttribute("aria-checked", String(btn.dataset.clan === preferredClan));
   });
 }
-const MAP_SIZES = [64, 96, 160, 256, 384, 512, 1024];
+const MAP_SIZES = [64, 96, 160, 256, 384, 512, 1024, 2048];
 // undefined until the player picks one: then the server keeps its own default (COLONY_WORLD_SIZE or 160).
 let preferredWorldSize: number | undefined;
 function renderMapSizeChoice(value: number | undefined) {
   document.querySelectorAll<HTMLButtonElement>("#set-mapsize button").forEach((btn) => {
     btn.setAttribute("aria-checked", String(Number(btn.dataset.size) === (value ?? 160)));
   });
+  // 2048: long load, needs a strong PC.
+  document.getElementById("set-mapsize-warn")!.hidden = value !== 2048;
 }
 let gameStarted = false;
 // The world's active difficulty as the server reports it (null until the first welcome).

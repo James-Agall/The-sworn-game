@@ -893,6 +893,64 @@
       .reg-card.routing .reg-mstate { color: #ff6a4f; }
       @keyframes reg-rout-pulse { from { background: rgba(208, 69, 47, 0.15); } to { background: rgba(208, 69, 47, 0.45); } }
 
+      /* Loading screen (client/src/loadingScreen.ts): over everything while a big world is made / loaded / sent. */
+      #loading-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 120;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(ellipse at 50% 40%, #3a2a18 0%, #120b05 80%);
+        font-family: var(--font-serif);
+      }
+      #loading-screen[hidden] { display: none; }
+      #loading-screen .menu-scroll { width: min(460px, calc(100vw - 32px)); }
+      #loading-sub { margin-bottom: 18px; }
+      #loading-bar {
+        position: relative;
+        height: 18px;
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        background: rgba(46, 26, 12, 0.25);
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+      }
+      #loading-fill {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(180deg, #a3332a, var(--seal) 55%, var(--seal-dark));
+        transition: width 0.35s ease-out;
+      }
+      .loading-line { display: flex; justify-content: space-between; gap: 12px; margin: 7px 2px 0; font-size: 14px; }
+      #loading-pct { font-variant-numeric: tabular-nums; font-weight: bold; }
+      #loading-stages { list-style: none; margin: 14px 0 0; padding: 0; text-align: left; font-size: 13.5px; }
+      #loading-stages li { padding: 3px 4px 3px 24px; position: relative; color: var(--ink-faint); }
+      #loading-stages li::before { content: "\25CB"; position: absolute; left: 5px; }
+      #loading-stages li.active { color: var(--ink); font-weight: bold; }
+      #loading-stages li.active::before { content: "\25C9"; color: var(--seal); }
+      #loading-stages li.done { color: var(--ink-soft); }
+      #loading-stages li.done::before { content: "\2713"; color: var(--mood-good); }
+      .loading-tip {
+        margin: 16px 0 0;
+        padding: 10px 12px;
+        min-height: 3.6em;
+        text-align: left;
+        font-size: 13.5px;
+        font-style: italic;
+        border-top: 1px solid rgba(90, 52, 24, 0.35);
+      }
+      .loading-tip b { font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; color: var(--ink-faint); margin-right: 6px; }
+      #loading-tip.tip-in { animation: loading-tip-in 0.6s ease-out; }
+      @keyframes loading-tip-in { from { opacity: 0; } to { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) {
+        #loading-fill { transition: none; }
+        #loading-tip.tip-in { animation: none; }
+      }
+      /* Eight map sizes: the chips wrap onto two rows. */
+      #set-mapsize { flex-wrap: wrap; justify-content: flex-end; max-width: 236px; }
+      .size-warn { display: block; margin-top: 3px; font-size: 11.5px; font-style: italic; color: var(--mood-bad); }
+      .size-warn[hidden] { display: none; }
       /* Main menu: full-screen title over the (not yet started) game. */
       #main-menu {
         position: fixed;
@@ -1598,6 +1656,17 @@
   </head>
   <body>
     <div id="app"></div>
+    <div id="loading-screen" hidden role="dialog" aria-modal="true" aria-labelledby="loading-title" aria-busy="false">
+      <div class="menu-scroll">
+        <h1 id="loading-title" class="menu-title">Forging a new world</h1>
+        <p id="loading-sub" class="menu-sub"></p>
+        <div id="loading-bar" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="loading-fill"></div></div>
+        <div class="loading-line"><span id="loading-stage" aria-live="polite"></span><span id="loading-pct">0%</span></div>
+        <ol id="loading-stages"></ol>
+        <p class="loading-tip"><b>Tip</b><span id="loading-tip"></span></p>
+        <button id="loading-cancel" class="menu-btn secondary">Cancel</button>
+      </div>
+    </div>
     <div id="main-menu">
       <div class="menu-scroll">
         <h1 class="menu-title">The Sworn Game</h1>
@@ -1635,7 +1704,7 @@
             </div>
           </div>
           <div class="menu-setting">
-            <span>Map size<small id="set-mapsize-note" class="set-note">Used by New Game and Restart</small></span>
+            <span>Map size<small id="set-mapsize-note" class="set-note">Used by New Game and Restart</small><small id="set-mapsize-warn" class="size-warn" hidden>Colossal: long load, needs a strong PC</small></span>
             <div id="set-mapsize" class="seg" role="radiogroup" aria-label="Map size">
               <button type="button" role="radio" data-size="64">Tiny</button>
               <button type="button" role="radio" data-size="96">Small</button>
@@ -1643,7 +1712,8 @@
               <button type="button" role="radio" data-size="256">Large</button>
               <button type="button" role="radio" data-size="384">Huge</button>
               <button type="button" role="radio" data-size="512">Giant</button>
-              <button type="button" role="radio" data-size="1024" title="A streamed world: far regions run abstractly. Generating it takes one to several minutes">Vast</button>
+              <button type="button" role="radio" data-size="1024" title="A streamed world: far regions run abstractly. A loading screen shows while it is made">Vast</button>
+              <button type="button" role="radio" data-size="2048" title="2048 x 2048, streamed. Long load, needs a strong PC">Colossal</button>
             </div>
           </div>
           <div class="menu-section">Display</div>
