@@ -1,0 +1,28 @@
+{
+  "id": "t3-raider-bazaar",
+  "name": "Raider bazaar",
+  "tier": 3,
+  "weight": 2,
+  "minStartDist": 50,
+  "guards": [
+    7,
+    10
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".............",
+    ".W.........W.",
+    "..T.x.b.x.T..",
+    ".c.g.....g.c.",
+    "..x..ppp..x..",
+    ".g...pHp...g.",
+    "..b..ppp..b..",
+    ".c.g..L..g.c.",
+    "..T.e...e.T..",
+    "...a.....a...",
+    ".W.........W.",
+    "............."
+  ]
+}

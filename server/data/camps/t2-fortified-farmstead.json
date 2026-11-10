@@ -1,0 +1,27 @@
+{
+  "id": "t2-fortified-farmstead",
+  "name": "Fortified farmstead",
+  "tier": 2,
+  "weight": 3,
+  "minStartDist": 28,
+  "guards": [
+    4,
+    6
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".............",
+    ".###########.",
+    ".#T..x..b.T#.",
+    ".#.g.....g.#.",
+    ".#...pHp...#.",
+    ".#.g..p..g.#.",
+    ".#...x.L...#.",
+    ".#T.......T#.",
+    ".#####.#####.",
+    "....a...a....",
+    "............."
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "id": "t2-quarry-outpost",
+  "name": "Quarry outpost",
+  "tier": 2,
+  "weight": 3,
+  "minStartDist": 28,
+  "guards": [
+    4,
+    6
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    "...........",
+    ".rr.....rr.",
+    ".r.W...W.r.",
+    "...g...g...",
+    ".T..pHp..T.",
+    "...x.p.L...",
+    "..g..e..g..",
+    ".T.......T.",
+    "..rr...rr..",
+    "....a.a....",
+    "..........."
+  ]
+}

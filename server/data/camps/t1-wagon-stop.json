@@ -1,0 +1,23 @@
+{
+  "id": "t1-wagon-stop",
+  "name": "Wagon stop",
+  "tier": 1,
+  "weight": 3,
+  "minStartDist": 0,
+  "guards": [
+    2,
+    4
+  ],
+  "entrance": "E",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".........",
+    ".cc...cc.",
+    ".g.....g.",
+    "..xTHTb..",
+    ".g..p..g.",
+    "..c.p.c..",
+    "........."
+  ]
+}

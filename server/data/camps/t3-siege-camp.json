@@ -1,0 +1,28 @@
+{
+  "id": "t3-siege-camp",
+  "name": "Siege camp",
+  "tier": 3,
+  "weight": 2,
+  "minStartDist": 50,
+  "guards": [
+    7,
+    9
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    "...............",
+    ".W.cc.....cc.W.",
+    "..T.........T..",
+    ".c..g.e.g....c.",
+    ".x...ppp..x.T..",
+    "..g..pHp..g....",
+    ".....ppp.......",
+    ".T..g.L.g...T..",
+    ".b.cc...cc.b...",
+    "...a.e.e.a.....",
+    ".W.....a....W..",
+    "..............."
+  ]
+}

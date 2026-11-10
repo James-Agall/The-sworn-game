@@ -1,0 +1,23 @@
+{
+  "id": "t1-hunters-lean",
+  "name": "Hunters' lean-to",
+  "tier": 1,
+  "weight": 3,
+  "minStartDist": 0,
+  "guards": [
+    2,
+    3
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".........",
+    "..T...T..",
+    ".g..c..g.",
+    "...pHp...",
+    ".g.....x.",
+    "..b..T...",
+    "........."
+  ]
+}

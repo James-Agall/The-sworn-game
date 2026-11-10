@@ -1,0 +1,25 @@
+{
+  "id": "t1-forest-camp",
+  "name": "Forest camp",
+  "tier": 1,
+  "weight": 3,
+  "minStartDist": 0,
+  "guards": [
+    2,
+    4
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    "...........",
+    ".T..b...T..",
+    "...g...g...",
+    ".x.......x.",
+    "....pHp....",
+    ".g..p...g..",
+    "..T.....T..",
+    "....L......",
+    "..........."
+  ]
+}

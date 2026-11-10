@@ -1,0 +1,25 @@
+{
+  "id": "t1-ruined-chapel",
+  "name": "Ruined chapel camp",
+  "tier": 1,
+  "weight": 2,
+  "minStartDist": 0,
+  "guards": [
+    2,
+    3
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".........",
+    ".r.r.....",
+    "..rrr.g..",
+    ".r..+.r..",
+    ".g..H..g.",
+    "..x..p...",
+    "...r.....",
+    "..b...T..",
+    "........."
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "t2-longhouse",
+  "name": "Raider longhouse",
+  "tier": 2,
+  "weight": 3,
+  "minStartDist": 28,
+  "guards": [
+    4,
+    6
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    ".............",
+    ".W.........W.",
+    ".###########.",
+    ".#T.g.x.g.T#.",
+    ".#..pHp....#.",
+    ".#...p...L.#.",
+    ".#T.g...g.T#.",
+    ".####...####.",
+    "..a.......a..",
+    "............."
+  ]
+}

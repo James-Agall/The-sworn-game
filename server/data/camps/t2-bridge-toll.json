@@ -1,0 +1,27 @@
+{
+  "id": "t2-bridge-toll",
+  "name": "Bridge toll",
+  "tier": 2,
+  "weight": 3,
+  "minStartDist": 28,
+  "guards": [
+    3,
+    5
+  ],
+  "entrance": "S",
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    "...........",
+    "...W...W...",
+    "..xx...xx..",
+    "..cc.g.cc..",
+    ".a.........",
+    "...T.pHp.T.",
+    ".a..g.p.g..",
+    "..cc...cc..",
+    "..xx.L.xx..",
+    "...b...b...",
+    "..........."
+  ]
+}
