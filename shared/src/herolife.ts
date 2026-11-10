@@ -154,7 +154,7 @@ export const PERSONAL_BUILD_MAX = 6;
 // Stardew phase 5c (interiors): "priest" at a Church altar, "keeper" at an own building's counter (smith, baker, ...),
 // "furniture" = a bed / chest spoken to like an NPC (its choices are built by the server).
 // Gap closure G5: "patron" = someone drinking in a tavern (rumours, buy a drink).
-export type NpcRole = "leader" | "trader" | "villager" | "questGiver" | "folk" | "priest" | "keeper" | "furniture" | "patron";
+export type NpcRole = "leader" | "trader" | "villager" | "questGiver" | "folk" | "priest" | "keeper" | "furniture" | "patron" | "herald";
 export type DialogueAction =
   | "bye" | "trade" | "sellPack" | "askWork" | "quests" | "gift" | "rumour" | "alliance" | "train" | "fare" | "lodging"
   // Family: the Elder's kin (courtship / the in-law levy), courting, proposing, the ceremony, parting.
@@ -250,6 +250,27 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
       ],
     },
   },
+  // Gap closure G7: a settlement's own quest giver (the template's quest slot "q"): the reeve of a hamlet, the bailiff
+  // of a village, the herald of a town. {line} / {lore} are its settlement type's lines (HERALD_LINES).
+  herald: {
+    start: {
+      text: {
+        hostile: "{npc} rolls up the notices and turns their back on you.",
+        default: "{line}",
+      },
+      choices: [
+        { label: "What work is posted?", action: "quests", tiers: NOT_HOSTILE },
+        { label: "Anything new on the board?", action: "askWork", tiers: NOT_HOSTILE },
+        { label: "Tell me about {site}.", next: "lore", tiers: NOT_HOSTILE },
+        { label: "Any word of danger nearby?", action: "rumour", tiers: NOT_HOSTILE },
+        BYE,
+      ],
+    },
+    lore: {
+      text: { default: "{lore}" },
+      choices: [{ label: "And the work?", next: "start" }, BYE],
+    },
+  },
   // Stardew phase 5c: a priest at the altar (a Church of yours or the Abbey). "Marry us" is added when betrothed.
   priest: {
     start: {
@@ -301,7 +322,25 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
 };
 export const NPC_ROLE_LABEL: Record<NpcRole, string> = {
   leader: "Elder", trader: "Trader", villager: "Villager", questGiver: "Priest", folk: "Your people", priest: "Priest",
-  keeper: "Keeper", furniture: "", patron: "Patron",
+  keeper: "Keeper", furniture: "", patron: "Patron", herald: "Quest giver",
+};
+// Gap closure G7: the quest giver's title, greeting and lore by settlement tier (1 hamlet, 2 village, 3 town).
+export const HERALD_LINES: Record<1 | 2 | 3, { title: string; line: string; lore: string }> = {
+  1: {
+    title: "Reeve",
+    line: "{npc} leans on a fence post, a scrap of bark in hand. \"Not much of a board in {site}, but folk here need a hand. Want to hear?\"",
+    lore: "\"{site}? A few roofs and a lot of mud. We keep the fields, the fields keep us, and the woods keep the wolves. Mostly.\"",
+  },
+  2: {
+    title: "Bailiff",
+    line: "{npc} taps the notice board by the green. \"The elder posts the village's needs here, and pays fair. Looking for work?\"",
+    lore: "\"{site} grew round the mill and the market. Good harvests, a busy inn, and more mouths each spring than the last.\"",
+  },
+  3: {
+    title: "Herald",
+    line: "{npc} unrolls a sealed scroll. \"Hear ye: {site} seeks able hands. The town pays in good coin. Will you take the charge?\"",
+    lore: "\"{site} stands behind stone walls for a reason. Trade comes through our gates, and trouble follows it. The watch can't be everywhere.\"",
+  },
 };
 // Gift: gold, the relation it buys and one gift per settlement per game day.
 export const GIFT_GOLD = 20;
@@ -336,6 +375,9 @@ export interface HeroLifeSnapshot {
   canFound?: boolean;
   // Family panel (recomputed once a second).
   family?: FamilySnapshot;
+  // Gap closure G7: the quest givers (mob ids) with a quest for this player's clan: one waiting to be accepted, or
+  // the board has new work to ask for (the client draws a "!" over them).
+  questMarks?: string[];
 }
 export interface DialogueSnapshot {
   npc: { name: string; role: NpcRole; roleLabel: string; site?: string; tier?: RelationTier; color: number };

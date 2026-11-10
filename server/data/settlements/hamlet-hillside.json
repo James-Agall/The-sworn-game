@@ -1,0 +1,50 @@
+{
+  "id": "hamlet-hillside",
+  "name": "Hillside hamlet",
+  "tier": 1,
+  "weight": 2,
+  "minStartDist": 20,
+  "profile": "hearthmoor",
+  "garrison": {
+    "townGuard": 2,
+    "townArcher": 1
+  },
+  "rotate": true,
+  "mirror": true,
+  "rows": [
+    "RR.RRR...RR..RRR.RR",
+    "R...R....RM...R...R",
+    "R........g.........",
+    "........._.........",
+    "........._.........",
+    "........._.........",
+    "........._.........",
+    "........._.........",
+    "........t_.........",
+    "__________K........",
+    "........v_q........",
+    "........._.........",
+    ".ffffff.._.........",
+    ".pppppp.._.........",
+    ".ffffff.._.........",
+    ".pppppp.._.........",
+    "........._g........"
+  ],
+  "buildings": [
+    {
+      "ref": "house-hut",
+      "x": 2,
+      "y": 3
+    },
+    {
+      "ref": "house-cottage",
+      "x": 12,
+      "y": 2
+    },
+    {
+      "ref": "house-two-room",
+      "x": 10,
+      "y": 11
+    }
+  ]
+}

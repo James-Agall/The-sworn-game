@@ -201,6 +201,7 @@ export const MOB_BODY_RADIUS: Record<MobKind, number> = {
   townFarmer: 7,
   townMiner: 7,
   townPriest: 7,
+  townHerald: 7,
 };
 // Scale pass: the body grows with the mob's size (mobSizeScale: kind x roll x boss tier), capped so a
 // boss still fits the one-cell neighbour scan of separateBodies.
@@ -432,6 +433,8 @@ export const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
   townFarmer: { maxHp: 20, damage: 2, speed: 55, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
   townMiner: { maxHp: 24, damage: 3, speed: 55, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
   townPriest: { maxHp: 18, damage: 1, speed: 50, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
+  // Gap closure G7: the settlement's quest giver (reeve / bailiff / herald).
+  townHerald: { maxHp: 22, damage: 1, speed: 50, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
 };
 // ---- Scale pass: size variation ----
 // Every mob of a MOB_SIZE_RANGE kind rolls a size s, deterministically from its id (so a save can

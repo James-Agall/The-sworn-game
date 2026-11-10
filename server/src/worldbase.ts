@@ -12,8 +12,9 @@ import { CHUNK_TILES } from "./chunks.js";
 import { state } from "./state.js";
 
 // Bump when worldgen changes what a seed produces (old diff saves then need their base cache file, which is
-// named by the save's own worldgenVersion). 3: bandit camp templates (2026-11-06).
-export const WORLDGEN_VERSION = 6;
+// named by the save's own worldgenVersion). 3: bandit camp templates (2026-11-06). 7: gap closure G7 (settlements
+// turned / mirrored, quest slots, 6 more settlement templates).
+export const WORLDGEN_VERSION = 7;
 // A chunk with more changed tiles than this is stored whole (1024 bytes) instead of as (u16 pos, u8 tile).
 const CHUNK_FULL_AT = 340;
 

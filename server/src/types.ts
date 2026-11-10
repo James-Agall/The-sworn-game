@@ -399,7 +399,8 @@ export interface SiteTemplate {
   noun?: string;
 }
 // Forts phase C: a human settlement worker's walk loop (farm plots / ore / church and back).
-export type SiteWorkerRole = "farm" | "mine" | "priest";
+// Gap closure G7: "herald" = the settlement's quest giver (stands at the template's quest slot "q", never walks off).
+export type SiteWorkerRole = "farm" | "mine" | "priest" | "herald";
 export interface SiteState {
   // = the mobs' siteId (and the hearth's); num = its owner-map site number (ownerSiteIds index + 1).
   id: string;
@@ -465,7 +466,8 @@ export interface SiteState {
   // Settlement templates (settlementTemplates.ts): the layout it was stamped from (`template` stays the behaviour
   // profile) and its NPC homes (tile indices): the trader's and the priest's slots, the villagers' beds / slots.
   layout?: string;
-  homes?: { trader?: number; priest?: number; villagers: number[] };
+  // Gap closure G7: `quest` = the quest giver's slot (its own NPC, the "herald" worker).
+  homes?: { trader?: number; priest?: number; quest?: number; villagers: number[] };
 }
 export interface VassalState {
   tax: boolean;

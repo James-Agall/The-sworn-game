@@ -134,6 +134,7 @@ export const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
   townFarmer: { color: 0x8a7a4a, radius: 8 },
   townMiner: { color: 0x6a6a6a, radius: 8 },
   townPriest: { color: 0xd8d0b8, radius: 8 },
+  townHerald: { color: 0xc8a040, radius: 8 },
 };
 export const MOB_KINDS = Object.keys(MOB_VISUALS) as MobKind[];
 // Mob kinds whose texture isn't /sprites/<kind>.png.
@@ -152,6 +153,8 @@ export const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
   townFarmer: "/sprites/farmer.png",
   townMiner: "/sprites/rockMiner.png",
   townPriest: "/sprites/bishop.png",
+  // Gap closure G7: the quest giver borrows the artisan (gold tint) until it has art (SPRITES.md #104).
+  townHerald: "/sprites/artisan.png",
 };
 // Tints for mob kinds drawn with borrowed (placeholder) art. The goblin wolf rider is the wolf set tinted
 // warm brown until its own set (SPRITES.md #83, MOB_OPTIONAL_VARIANT_URLS) lands.
@@ -159,6 +162,7 @@ export const MOB_TINT: Partial<Record<MobKind, number>> = {
   batteringRam: 0xb07a4a, catapult: 0x9a7048, goblinRider: 0xd89a60,
   // Forts phase C: settlement guards in blue livery (borrowed colonist art); workers lightly cooled.
   townGuard: 0x9ab4ff, townArcher: 0x9ab4ff, townKnight: 0x9ab4ff, townFarmer: 0xd8e0ff, townMiner: 0xd8e0ff, townPriest: 0xd8e0ff,
+  townHerald: 0xffd890,
 };
 
 export const artUrl = (name: string) => `/sprites/${name}.png`;
@@ -332,6 +336,7 @@ export const MOB_VARIANT_URLS: Partial<Record<MobKind, MobVariantUrls[]>> = {
   townFarmer: [{ walk: frameUrls("farmerWalk", 4), action: frameUrls("farmerHarvest", 3) }],
   townMiner: [{ walk: frameUrls("ironMinerWalk", 4), action: frameUrls("ironMinerMine", 3) }],
   townPriest: [{ walk: frameUrls("bishopWalk", 4), action: frameUrls("bishopHeal", 3) }],
+  townHerald: [{ walk: frameUrls("artisanWalk", 4), action: frameUrls("artisanCraft", 3) }],
   // The monster roster: one look each, 4 walk + 3 attack frames, idle = walk frame 0. The static
   // /sprites/<kind>.png stays as the fallback texture only.
   goblin: [{ walk: frameUrls("goblinWalk", 4), action: frameUrls("goblinAttack", 3) }],

@@ -681,12 +681,12 @@ function calmSettlement(s: SiteState) {
   broadcastEvent("build", `${s.name} lays down its arms`);
 }
 
-const WORKER_KIND: Record<SiteWorkerRole, MobKind> = { farm: "townFarmer", mine: "townMiner", priest: "townPriest" };
+const WORKER_KIND: Record<SiteWorkerRole, MobKind> = { farm: "townFarmer", mine: "townMiner", priest: "townPriest", herald: "townHerald" };
 
 // Work tiles of a settlement by role (walkable tile indices): farm plots, a tile next to each ore / rock
 // tile, next to the church; shelter = the yard posts.
 function workSpots(s: SiteState): Record<SiteWorkerRole, number[]> {
-  const out: Record<SiteWorkerRole, number[]> = { farm: [], mine: [], priest: [] };
+  const out: Record<SiteWorkerRole, number[]> = { farm: [], mine: [], priest: [], herald: [] };
   for (let y = s.y0; y <= s.y1; y++) {
     for (let x = s.x0; x <= s.x1; x++) {
       const i = tileIndex(x, y);
@@ -705,12 +705,14 @@ const pick = <T>(list: T[]): T | undefined => list[Math.floor(Math.random() * li
 
 // On waking: the template's workers (farmers / miners / a priest), each on a yard post with a work tile.
 // Settlement templates: homes from the layout's slots: the first worker (the trader) at the trader slot, the priest at
-// the priest slot, everyone else in a bed / villager slot.
+// the priest slot, everyone else in a bed / villager slot. Gap closure G7: a settlement with a quest slot also gets its
+// quest giver (the "herald" worker), who stays on that slot (work tile = home).
 export function spawnSiteWorkers(s: SiteState) {
   despawnSiteWorkers(s);
   const roles = SITE_TEMPLATES[s.template].workers;
   if (!roles || s.cleared || s.captured || s.posts.length === 0) return;
   const spots = workSpots(s);
+  const quest = s.homes?.quest;
   for (const [role, n] of Object.entries(roles) as [SiteWorkerRole, number][]) {
     for (let k = 0; k < n; k++) {
       const h = s.homes;
@@ -724,6 +726,14 @@ export function spawnSiteWorkers(s: SiteState) {
       m.workWaitUntilTick = state.cycleTick + Math.floor(Math.random() * SETTLEMENT_WORKER_PAUSE_TICKS);
       s.workers.push(m.id);
     }
+  }
+  if (quest !== undefined) {
+    const m = spawnGuardian(WORKER_KIND.herald, { x: quest % state.WORLD_TILES_X, y: Math.floor(quest / state.WORLD_TILES_X) }, s.id, "fort");
+    m.siteWorker = "herald";
+    m.workA = quest;
+    m.workB = quest;
+    m.workLeg = 1;
+    s.workers.push(m.id);
   }
 }
 

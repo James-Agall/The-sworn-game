@@ -2155,6 +2155,42 @@ Spec: QUEUE.md "CREATIVE MODE (test environment)" + addenda 1-2. Commits "Creati
 - **Known limits**: 1000 vs 1000 runs the sim at ~0.8x (tick ~64 ms); clan-vs-clan fighting uses a simple
   approach-and-strike loop (no regiment slots / morale between clans); Test clan workers and wagons are always dummies.
 
+## Gap closure G7 — landed 2026-11-10 (settlements: turned / mirrored, a real quest giver, 14 templates)
+
+QUEUE "RimWorld/Stardew gap closure" G7 (extends "Settlement templates — landed" below). Format / transforms in
+`shared/src/settlementTemplates.ts`; world-gen in `server/src/settlementTemplates.ts`; the quest giver in
+`server/src/sites.ts` (spawn), `server/src/herolife.ts` (talk, "!" marks) and `shared/src/herolife.ts` (dialogue).
+- **Whole-settlement rotate / mirror**: templates gain `rotate` / `mirror` (omitted / normalised: true).
+  `transformSettlement(t, tf)` turns the ground rows (`transformRows`) and every building ref (its footprint's new
+  top-left via `transformPoint`, its transform composed with the settlement's: `composeTransforms`, mirror first then
+  quarter turns), so the keep anchor, every slot (trader / priest / quest / villager / guard), beds, NPC slots and doors
+  follow. `settlementTransforms(t)` = the codes its flags allow (and each building's own flags). World-gen picks the
+  template, then one of its transforms on the same seeded `Math.random` (deterministic per seed);
+  `WORLDGEN_VERSION` 6 -> 7. `hamlet-riverside` is `rotate: false` (its stream runs north-south; mirrored only). The
+  creative "Stamp here" stamps as drawn; the editor has **may turn** / **may mirror** checkboxes.
+- **Quest giver** (the `q` slot; each built-in has one): its own NPC, `siteWorker: "herald"`, mob kind `townHerald`
+  (borrowed artisan art, gold tint), spawned with the workers on `homes.quest` and standing there day and night (work
+  tile = home). The `q` slot is no longer a villager home or the priest's fallback. Role `herald`
+  (label "Quest giver"), name by tier: **Reeve** (hamlet), **Bailiff** (village), **Herald** (town)
+  (`HERALD_LINES`: a greeting and a "Tell me about {site}" lore line each). Choices: **What work is posted?**
+  (`quests`: the settlement's quests, accept / deliver), **Anything new on the board?** (`askWork`: posts one now,
+  past the cooldown), lore, rumour. The priest / Brother keeps both quest choices too (unchanged). **"!" marker**:
+  `HeroLifeSnapshot.questMarks` (herolife `questMarksFor`): the herald's mob id while the clan has an unaccepted
+  quest there, or the board is open (fewer than `QUEST_MAX_PER_SITE` open and past the clan's quest cooldown); never
+  when hostile or asleep. The client draws a bobbing gold "!" over that mob (`updateQuestMark`).
+- **Templates**: 14 built-ins (5 hamlets, 5 villages, 4 towns), new: `hamlet-riverside` (a stream `~` down the east
+  side, mill + barn, fields by the water), `hamlet-hillside` (rock / ore ridge, fenced terraces), `village-hillside`
+  (ironhold: outcrops inside the palisade, terraced plots), `village-ford` (a stream through the middle, the high road
+  fords it, a shallow ford at the south), `town-moat` (stone walls in a moat ring `m`, four gates with drawbridges
+  `H`), `town-market` (palisade, a 9x9 market square with six stalls). Ground legend adds `~` water, `m` moat, `H`
+  drawbridge. `q` was added to `hamlet-chapel` and `hamlet-farmstead`.
+- **Tests**: `server/settlement-templates-test.mjs` (V: 4+ per tier, quest slot each, riverside / hillside / moat;
+  T: 106 turned / mirrored layouts valid and tile-for-tile the moved original; S: each template stamped turned, the
+  herald on the turned quest slot; Q: herald talk / board / "!" / priest kept; D: world-gen turns settlements).
+- **Skipped**: the creative stamp has no transform picker; the herald has no interior binding (the `q` slot is a
+  ground slot, outdoors); the "!" means "the board is open", not a
+  guarantee that askWork finds a job (a settlement lacking nothing and with no camp near says so).
+
 ## Gap closure G5 — landed 2026-11-10 (interiors: living NPCs, 3 layouts per type, tavern patrons, upper floors)
 
 QUEUE "RimWorld/Stardew gap closure" G5 (extends "Stardew layer — landed (phase 5c)": its "one template per type" gap is

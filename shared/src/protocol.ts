@@ -773,7 +773,9 @@ export type MobKind =
   | "townKnight"
   | "townFarmer"
   | "townMiner"
-  | "townPriest";
+  | "townPriest"
+  // Gap closure G7: a settlement's quest giver (reeve / bailiff / herald), standing at the quest slot.
+  | "townHerald";
 
 // Regiments & roles (ROADMAP "Regiments & roles"): every combat unit kind fights in a role.
 //   frontline - the melee line: holds the front rank and engages what is in front of its slot.
@@ -808,6 +810,7 @@ export const MOB_ROLE: Record<MobKind, CombatRole> = {
   townFarmer: "frontline",
   townMiner: "frontline",
   townPriest: "frontline",
+  townHerald: "frontline",
 };
 // Soldier kinds only (civilians and bishops have no combat role).
 export const COLONIST_ROLE: Partial<Record<ColonistKind, CombatRole>> = {

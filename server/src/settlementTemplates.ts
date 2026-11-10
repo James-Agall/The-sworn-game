@@ -13,7 +13,7 @@
 import { randomUUID } from "node:crypto";
 import { TileType, isGateTile, type MobKind } from "@colony/shared/protocol";
 import {
-  type SettlementTemplate, settlementLayout, validateSettlementTemplate,
+  type SettlementTemplate, settlementLayout, settlementTransforms, transformSettlement, validateSettlementTemplate,
 } from "@colony/shared/settlementTemplates";
 import type { SiteState, TileCoord } from "./types.js";
 import {
@@ -35,6 +35,7 @@ const store = makeTemplateStore<SettlementTemplate>({
   normalise: (o) => ({
     id: o.id, name: o.name, tier: o.tier, weight: o.weight, minStartDist: o.minStartDist, profile: o.profile,
     garrison: { ...o.garrison }, rows: o.rows.slice(), buildings: o.buildings.map((b) => ({ ref: b.ref, x: b.x, y: b.y, ...(b.transform ? { transform: b.transform } : {}) })),
+    rotate: o.rotate !== false, mirror: o.mirror !== false,
   }),
 });
 
@@ -116,7 +117,8 @@ export function stampSettlement(t: SettlementTemplate, x0: number, y0: number, o
     .find((p) => inBounds(p.x, p.y) && (state.tiles[tileIndex(p.x, p.y)] === TileType.Road || state.tiles[tileIndex(p.x, p.y)] === TileType.CobbleRoad)) ?? { x: keep.x, y: keep.y + 1 };
   const slot = (kind: string) => l.slots.find((s) => s.kind === kind);
   const trader = slot("trader");
-  const priest = slot("priest") ?? slot("quest");
+  const priest = slot("priest");
+  const quest = slot("quest");
   const site: SiteState = {
     id, num, kind: "fort", faction: "human", template: t.profile, name: opts.name ?? pickSiteName(profile),
     x0, y0, x1: x0 + l.w - 1, y1: y0 + l.h - 1, apron: a, keepX: keep.x, keepY: keep.y,
@@ -128,7 +130,8 @@ export function stampSettlement(t: SettlementTemplate, x0: number, y0: number, o
     homes: {
       ...(trader ? { trader: at(trader) } : {}),
       ...(priest ? { priest: at(priest) } : {}),
-      villagers: [...l.beds, ...l.npcSlots, ...l.slots.filter((s) => s.kind === "villager" || s.kind === "quest")].map(at),
+      ...(quest ? { quest: at(quest) } : {}),
+      villagers: [...l.beds, ...l.npcSlots, ...l.slots.filter((s) => s.kind === "villager")].map(at),
     },
   };
   sites.set(id, site);
@@ -137,7 +140,8 @@ export function stampSettlement(t: SettlementTemplate, x0: number, y0: number, o
 }
 
 // World-gen, before generateForts: every settlement of settlementCounts() (towns, then villages, then hamlets: the
-// biggest pick their ground first), a weighted template of its tier, by rejection sampling: centre >= the template's
+// biggest pick their ground first), a weighted template of its tier turned / mirrored as a whole (gap closure G7: one
+// of settlementTransforms, on the same seeded Math.random), by rejection sampling: centre >= the template's
 // minStartDist (at least SETTLEMENT_START_CLEARANCE_TILES, at most 0.35 of the map side) from every Town Center (and,
 // for the first half of the attempts, within SETTLEMENT_INNER_RING_FRACTION of the map side of one),
 // >= SETTLEMENT_SPACING_TILES from every other settlement and >= SITE_FORT_SPACING_TILES from every fort, then
@@ -150,7 +154,9 @@ export function generateSettlements() {
     const pool = settlementPool(tier);
     if (pool.length === 0) continue;
     for (let n = 0; n < count; n++) {
-      const t = pickSettlementTemplate(pool);
+      const picked = pickSettlementTemplate(pool);
+      const tfs = settlementTransforms(picked, buildingTemplateById);
+      const t = transformSettlement(picked, tfs[Math.floor(Math.random() * tfs.length)] ?? 0, buildingTemplateById);
       const w = t.rows[0].length;
       const h = t.rows.length;
       const minStart = Math.max(SETTLEMENT_START_CLEARANCE_TILES, Math.min(t.minStartDist, state.WORLD_TILES_X * 0.35));

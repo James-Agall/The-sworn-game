@@ -14,7 +14,7 @@ import {
   MASTER_FEE, MASTER_MAX_LEVEL, NEED_LOW, NEED_MAX, NPC_ROLE_LABEL, PACK_CAP, PACK_FOOD, PACK_GOODS, PACK_LABEL,
   PACK_WEIGHT, PERSONAL_BUILDS, PERSONAL_BUILD_MAX, STATION_SKILL, TALK_RANGE_TILES, TREE_FELL_CHANCE,
   ENERGY_COST, ENERGY_EMPTY_SPEED, ENERGY_MAX, ENERGY_PER_FOOD, ENERGY_REST_PER_S, HAND_HARVEST_SECONDS, HERO_TOOLS, HERO_TOOL_ITEM,
-  SEED_ITEM, TOOL_ACT_LABEL, TOOL_SECONDS, WATER_CAN_CHARGES,
+  SEED_ITEM, TOOL_ACT_LABEL, TOOL_SECONDS, WATER_CAN_CHARGES, HERALD_LINES,
   type DialogueAction, type DialogueSnapshot, type GatherKind, type HeroLifeSnapshot, type HeroSkill, type HeroTool, type NpcRole,
   type PackGood, type PersonalBuild, type ToolAct, gatherKindOf, skillSpeed, skillXpFor,
 } from "@colony/shared/herolife";
@@ -46,6 +46,7 @@ import { heirOrderNames } from "./people.js";
 import { cropGrowthMult, winterNow } from "./calendar.js";
 import { cropSeasonLabel, WINTER_COLD_REST_DECAY_MULT, WINTER_COLD_REST_GAIN_MULT, WINTER_WARM_ROOM_REST_MULT } from "@colony/shared/calendar";
 import { interiorFurnitureChoice, interiorInteract, interiorRestMult, tryEnterAtDoor } from "./interiors.js";
+import { settlementTemplateById } from "./settlementTemplates.js";
 
 // ---- profile state ----
 export function lifeOf(player: Player): HeroLife {
@@ -206,8 +207,9 @@ function talkTargets(p: Player): Target[] {
     if (!m.siteWorker || !m.siteId) continue;
     const s = sites.get(m.siteId);
     if (!standingTown(s)) continue;
-    const role: NpcRole = m.siteWorker === "priest" ? "questGiver" : s.workers[0] === m.id ? "trader" : "villager";
-    offer({ role, name: `${role === "questGiver" ? "Brother " : ""}${nameFor(m.id)}`, d: Math.hypot(m.x - p.x, m.y - p.y) / TILE_SIZE, site: s, mob: m });
+    const role: NpcRole = m.siteWorker === "priest" ? "questGiver" : m.siteWorker === "herald" ? "herald" : s.workers[0] === m.id ? "trader" : "villager";
+    const name = role === "herald" ? `${heraldLines(s).title} ${nameFor(`${s.id}:herald`)}` : `${role === "questGiver" ? "Brother " : ""}${nameFor(m.id)}`;
+    offer({ role, name, d: Math.hypot(m.x - p.x, m.y - p.y) / TILE_SIZE, site: s, mob: m });
   }
   for (const c of colonists.values()) {
     if (!c.person || c.person.child || (c.clan ?? 0) !== p.clan || c.hp <= 0) continue;
@@ -228,9 +230,34 @@ function startTalkChooser(p: Player, ts: Target[]) {
   sendTalk(p, t, "Who do you speak to?");
 }
 
+// Gap closure G7: the quest giver's lines by its settlement's tier (hamlet reeve / village bailiff / town herald).
+export function heraldLines(s: SiteState | undefined): (typeof HERALD_LINES)[1] {
+  const tier = (s?.layout ? settlementTemplateById(s.layout)?.tier : undefined) ?? 2;
+  return HERALD_LINES[Math.max(1, Math.min(3, tier)) as 1 | 2 | 3];
+}
+
 function fill(text: string, t: Talk, tier?: RelationTier): string {
-  const site = t.siteId ? sites.get(t.siteId)?.name ?? "" : "";
-  return text.replaceAll("{npc}", t.name).replaceAll("{site}", site).replaceAll("{tier}", tier ?? "");
+  const s = t.siteId ? sites.get(t.siteId) : undefined;
+  if (t.role === "herald") {
+    const h = heraldLines(s);
+    text = text.replaceAll("{line}", h.line).replaceAll("{lore}", h.lore);
+  }
+  return text.replaceAll("{npc}", t.name).replaceAll("{site}", s?.name ?? "").replaceAll("{tier}", tier ?? "");
+}
+
+// Gap closure G7: the quest givers showing a "!" to this clan: a quest of theirs waits to be accepted, or the board is
+// open (under QUEST_MAX_PER_SITE open quests and past the settlement's quest cooldown for the clan). Not when hostile.
+export function questMarksFor(clan: number): string[] {
+  const out: string[] = [];
+  for (const s of sites.values()) {
+    if (s.homes?.quest === undefined || !s.awake || !standingTown(s) || tierOf(clan, s) === "hostile") continue;
+    const m = s.workers.map((id) => mobs.get(id)).find((w) => w?.siteWorker === "herald");
+    if (!m) continue;
+    const mine = quests.filter((q) => q.clan === clan && q.siteId === s.id);
+    const board = mine.length < QUEST_MAX_PER_SITE && (s.diplo?.[clan]?.questNextTick ?? 0) <= state.cycleTick;
+    if (board || mine.some((q) => !q.accepted)) out.push(m.id);
+  }
+  return out;
 }
 
 function siteOf(t: Talk): SiteState | undefined {
@@ -1349,6 +1376,7 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
   if (needsOn() && life.rest < NEED_LOW) slow.push("Tired");
   if (packWeight(life) / PACK_CAP > 0.5) slow.push("Heavy load");
   if (needsOn() && energyOf(life) <= 0) slow.push("Exhausted (half-speed work)");
+  const questMarks = questMarksFor(p.clan ?? 0);
   return {
     pack: life.pack,
     weight: packWeight(life),
@@ -1370,6 +1398,7 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
     builds: life.builds.length,
     ...(clanTownCentersOf(p).length === 0 ? { canFound: true } : {}),
     ...(cachedFamilySnapshot(p) ? { family: cachedFamilySnapshot(p) } : {}),
+    ...(questMarks.length ? { questMarks } : {}),
   };
 }
 

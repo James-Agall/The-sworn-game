@@ -8,6 +8,7 @@
 // server/data/settlements/*.json, the editor's saves in server/data/settlements/user/*.json.
 import { TileType, isGateTile, isSolidTile } from "./protocol.js";
 import { type BuildingTemplate, buildingCells } from "./buildingTemplates.js";
+import { transformRows } from "./camps.js";
 
 export type SettlementProfile = "hearthmoor" | "ironhold" | "riverwatch";
 export const SETTLEMENT_PROFILES: SettlementProfile[] = ["hearthmoor", "ironhold", "riverwatch"];
@@ -37,6 +38,10 @@ export interface SettlementTemplate {
   garrison: Partial<Record<SettlementGuard, number>>;
   rows: string[];
   buildings: SettlementBuildingRef[];
+  // Gap closure G7: whether world-gen may turn / mirror the whole settlement (omitted: true). Off for a layout that
+  // depends on its side (a river / entrance side).
+  rotate?: boolean;
+  mirror?: boolean;
   builtin?: boolean;
 }
 
@@ -59,6 +64,10 @@ export const SETTLEMENT_LEGEND: Record<string, SettlementSymbol> = {
   T: { label: "Tower", tile: TileType.Tower, color: "#404040" },
   K: { label: "Keep / town hall (anchor, the Elder)", tile: TileType.SiteKeep, color: "#c02020" },
   o: { label: "Well", tile: TileType.Water, color: "#4080e0" },
+  // Gap closure G7: water (a stream / pond), a moat and a drawbridge over it (a gate: lowered = open).
+  "~": { label: "Water (stream / pond)", tile: TileType.Water, color: "#3070c8" },
+  m: { label: "Moat", tile: TileType.Moat, color: "#2a5a90" },
+  H: { label: "Drawbridge (over the moat)", tile: TileType.Drawbridge, color: "#8a6a3a" },
   f: { label: "Farm plot", tile: TileType.FarmPlot, color: "#c8b060" },
   p: { label: "Fence", tile: TileType.PropFence, color: "#9a7040" },
   l: { label: "Lantern post", tile: TileType.PropLanternPost, color: "#f0c040" },
@@ -72,7 +81,8 @@ export const SETTLEMENT_LEGEND: Record<string, SettlementSymbol> = {
   r: { label: "Priest / Brother slot", slot: "priest", color: "#f0f0ff" },
   v: { label: "Villager slot", slot: "villager", color: "#20a060" },
   g: { label: "Guard slot", slot: "guard", color: "#c03030" },
-  q: { label: "Quest giver slot", slot: "quest", color: "#a040c0" },
+  // Gap closure G7: the quest giver (reeve / bailiff / herald) stands here: its own NPC, dialogue and quest board.
+  q: { label: "Quest giver slot (reeve / bailiff / herald)", slot: "quest", color: "#a040c0" },
 };
 
 export const SETTLEMENT_SIZE_MIN = 9;
@@ -148,6 +158,67 @@ export function settlementLayout(t: Pick<SettlementTemplate, "rows" | "buildings
   return { w, h, tiles, buildingOf, keep, slots, beds, npcSlots, errs };
 }
 
+// ---- Gap closure G7: whole-settlement rotate / mirror ----
+// Transform codes as for building templates (0-7: bits 0-1 = quarter turns clockwise, bit 2 = mirror left-right first).
+// Where cell (x, y) of a w x h grid lands.
+export function transformPoint(x: number, y: number, w: number, h: number, tf: number): { x: number; y: number } {
+  let px = tf & 4 ? w - 1 - x : x;
+  let py = y;
+  let cw = w;
+  let ch = h;
+  for (let k = 0; k < (tf & 3); k++) {
+    [px, py] = [ch - 1 - py, px];
+    [cw, ch] = [ch, cw];
+  }
+  return { x: px, y: py };
+}
+
+// `outer` applied after `inner` (dihedral group: mirror first, then the turns).
+export function composeTransforms(outer: number, inner: number): number {
+  const ro = outer & 3;
+  const ri = inner & 3;
+  const mo = (outer >> 2) & 1;
+  const mi = (inner >> 2) & 1;
+  const r = (ro + (mo ? 4 - ri : ri)) & 3;
+  return r | ((mo ^ mi) << 2);
+}
+
+// The template turned / mirrored as a whole: the ground rows, every building ref (its footprint's new top-left, its
+// transform composed with the settlement's), so the keep anchor, the NPC / guard / quest slots and the buildings'
+// beds / doors all follow.
+export function transformSettlement<T extends Pick<SettlementTemplate, "rows" | "buildings">>(t: T, tf: number, lookup: BuildingLookup): T {
+  tf &= 7;
+  if (tf === 0) return t;
+  const h = t.rows.length;
+  const w = t.rows[0]?.length ?? 0;
+  const buildings = t.buildings.map((b) => {
+    const bt = lookup(b.ref);
+    const { w: bw, h: bh } = bt ? buildingCells(bt, b.transform ?? 0) : { w: 1, h: 1 };
+    const a = transformPoint(b.x, b.y, w, h, tf);
+    const c = transformPoint(b.x + bw - 1, b.y + bh - 1, w, h, tf);
+    const transform = composeTransforms(tf, b.transform ?? 0);
+    return { ref: b.ref, x: Math.min(a.x, c.x), y: Math.min(a.y, c.y), ...(transform ? { transform } : {}) };
+  });
+  return { ...t, rows: transformRows(t.rows, tf), buildings };
+}
+
+// The transforms world-gen may use for `t` (0 always): its rotate / mirror flags, and every building's composed
+// transform allowed by that building template's own flags.
+export function settlementTransforms(t: Pick<SettlementTemplate, "rows" | "buildings" | "rotate" | "mirror">, lookup: BuildingLookup): number[] {
+  const out: number[] = [];
+  for (let tf = 0; tf < 8; tf++) {
+    if ((tf & 3) && t.rotate === false) continue;
+    if ((tf & 4) && t.mirror === false) continue;
+    const ok = t.buildings.every((b) => {
+      const bt = lookup(b.ref);
+      const c = composeTransforms(tf, b.transform ?? 0);
+      return !bt || ((bt.rotate || (c & 3) === 0) && (bt.mirror || (c & 4) === 0));
+    });
+    if (ok) out.push(tf);
+  }
+  return out;
+}
+
 export interface SettlementStats {
   w: number;
   h: number;
@@ -184,6 +255,7 @@ export function validateSettlementTemplate(t: unknown, lookup: BuildingLookup): 
   if (typeof o.weight !== "number" || !(o.weight >= 0 && o.weight <= 100)) errs.push("weight: 0-100");
   if (typeof o.minStartDist !== "number" || !(o.minStartDist >= 0 && o.minStartDist <= 400)) errs.push("minStartDist: 0-400");
   if (!SETTLEMENT_PROFILES.includes(o.profile as SettlementProfile)) errs.push(`profile: one of ${SETTLEMENT_PROFILES.join(", ")}`);
+  if ((o.rotate !== undefined && typeof o.rotate !== "boolean") || (o.mirror !== undefined && typeof o.mirror !== "boolean")) errs.push("rotate / mirror: true or false");
   const g = o.garrison;
   let guards = 0;
   if (!g || typeof g !== "object" || Object.entries(g).some(([k, v]) => !SETTLEMENT_GUARDS.includes(k as SettlementGuard) || !Number.isInteger(v) || (v as number) < 0)) {

@@ -749,6 +749,8 @@ async function main() {
   const playerSprites = new Map<string, EntityVisual>();
   const colonistSprites = new Map<string, EntityVisual>();
   const mobSprites = new Map<string, EntityVisual>();
+  // Gap closure G7: quest givers with a quest for you (from the snapshot's `life`).
+  let questMarkIds = new Set<string>();
 
   // Grass floor art, one Sprite per tile, alternating two textures for visual variety. Bottom of
   // the stack: everything else (Town Center, buildings, entities) draws over it.
@@ -2086,6 +2088,7 @@ async function main() {
       entry.bossLabel?.destroy();
       entry.heroLabel?.destroy();
       entry.load?.destroy();
+      entry.questMark?.destroy();
       map.delete(id);
     }
   }
@@ -2121,7 +2124,7 @@ async function main() {
 
   function shiftVisual(e: EntityVisual, dx: number, dy: number) {
     if (dx === 0 && dy === 0) return;
-    for (const part of [e.sprite, e.hpBar, e.marker, e.wound, e.aura, e.sigil, e.markLabel, e.bossLabel, e.heroLabel, e.load]) {
+    for (const part of [e.sprite, e.hpBar, e.marker, e.wound, e.aura, e.sigil, e.markLabel, e.bossLabel, e.heroLabel, e.load, e.questMark]) {
       if (part) part.position.set(part.position.x + dx, part.position.y + dy);
     }
   }
@@ -2628,6 +2631,7 @@ async function main() {
       updateWound(entry, m.hp, m.maxHp, m.x, m.y, woundSize, WOUND_LARGE_KINDS.has(m.kind), !entry.sprite.visible);
       updateMarkVisuals(entry, m);
       updateBossVisuals(entry, m);
+      updateQuestMark(entry, m);
       return;
     }
     const visual = MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin;
@@ -2658,7 +2662,24 @@ async function main() {
     updateWound(entry, m.hp, m.maxHp, m.x, m.y, woundSize, WOUND_LARGE_KINDS.has(m.kind), !entry.sprite.visible);
     updateMarkVisuals(entry, m);
     updateBossVisuals(entry, m);
+    updateQuestMark(entry, m);
     if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(mobFacing, m.id, m.x));
+  }
+
+  // Gap closure G7: a gold "!" over a settlement quest giver with a quest for you (HeroLifeSnapshot.questMarks).
+  function updateQuestMark(entry: EntityVisual, m: MobSnapshot) {
+    const on = questMarkIds.has(m.id);
+    if (!on && !entry.questMark) return;
+    if (!entry.questMark) {
+      entry.questMark = new Text({
+        text: "!",
+        style: { fontFamily: "Georgia, serif", fontSize: 16, fontWeight: "bold", fill: 0xffd040, stroke: { color: 0x000000, width: 3 } },
+      });
+      entry.questMark.anchor.set(0.5, 1);
+      worldLayer.addChild(entry.questMark);
+    }
+    entry.questMark.position.set(m.x, entry.hpBar.position.y - 2 + Math.sin(performance.now() / 300) * 1.5);
+    entry.questMark.visible = on && entry.sprite.visible;
   }
 
   // Sigil + name label above a Hunger-marked mob (over its hp bar) and its aura on the ground under it
@@ -6886,6 +6907,7 @@ async function main() {
       interiorRef.ui?.onPlayers(message.players);
       latestPlayersForSpells = message.players;
       if (message.life) {
+        questMarkIds = new Set(message.life.questMarks ?? []);
         heroLifeRef.ui?.onLife(message.life);
         heroToolsRef.ui?.onLife(message.life);
       }
@@ -7729,7 +7751,7 @@ async function main() {
     e.sprite.visible = visible;
     e.hpBar.visible = visible;
     if (visible) return;
-    for (const part of [e.marker, e.wound, e.aura, e.sigil, e.markLabel, e.bossLabel, e.heroLabel]) if (part) part.visible = false;
+    for (const part of [e.marker, e.wound, e.aura, e.sigil, e.markLabel, e.bossLabel, e.heroLabel, e.questMark]) if (part) part.visible = false;
   }
 
   // After each snapshot's syncs (which reset colonist / player visibility) and on a band change. Showing

@@ -792,6 +792,14 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > `stairs_down_wood`, `stairs_down_stone` (3/4 view, top of the stairs toward the back wall), and a 9-slice speech
 > bubble.
 
+### 104. Settlement quest giver and moat towns (gap closure G7, 2026-11-10)
+> The settlement **quest giver** (mob kind `townHerald`: reeve / bailiff / herald) borrows the artisan sprite and
+> walk / craft frames with a gold tint (`client/src/unitVisuals.ts`); the **"!"** over it is a code-drawn text glyph.
+> Wanted: a herald / reeve figure (tabard or a scroll in hand, 4 walk + 2 idle frames, colonist scale), a 16x24
+> `quest_mark.png` (gold "!" on a parchment tag) and optionally a **notice board** prop for the quest slot. Moated
+> towns use the existing moat / drawbridge art (#forts phase H); a settlement **stream** is the plain Water tile (a
+> narrow-stream / ford autotile would read better).
+
 ### #90-#97 delivery status (2026-11-09: sliced ChatGPT atlases, `art-sources/rimworld-stardew/`)
 > Processed by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/<group>/`; registry and
 > loaders in `client/src/spriteRegistry.ts`. Every wired file is optional: a missing png falls back to the procedural

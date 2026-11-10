@@ -684,6 +684,21 @@ Automated: `cd server && node pastures-night-test.mjs` (own server on :22330, te
     waiting one home (free adults +1, gear back). Archery Range / Hall of the Sworn take a tier weapon + armour per
     trainee up front. Save and load mid-training: the queue and the waiting trainee are kept.
 
+## Gap closure G7: settlements turned, quest givers, more templates (2026-11-10)
+Automated: `node server/settlement-templates-test.mjs` (sections V, T, S, Q, D).
+1. New game on a 256 / 512 map: visit two or three settlements. Some are turned or mirrored (the keep / gates on a
+   different side than the editor shows); roads still join the gates, every house door still opens onto ground.
+2. In each settlement find the **quest giver** (gold-tinted artisan near the plaza / keep): a gold "!" bobs over
+   it. E: a hamlet's is "Reeve X", a village's "Bailiff X", a town's "Herald X", each with its own greeting.
+3. **Anything new on the board?**: a quest is posted (or "Nothing new yet"); **What work is posted?** lists it with
+   "I'll do it". Accept it: the "!" disappears once nothing waits and the board is on cooldown (about a day).
+4. The church's Brother still offers the same quests ("What needs doing?").
+5. **Tell me about ...** gives a lore line by settlement type.
+6. Look for the new layouts: a hamlet by a stream (mill, fields over the water), hillside hamlet / village (rocks,
+   fenced terraces), a village with a stream through it (the road fords it), a moated town (moat ring with four
+   drawbridges: walk across a lowered one by day), a market town (big square with stalls).
+7. Creative > Settlement editor: the "may turn" / "may mirror" checkboxes save with a template.
+
 ## Gap closure G5: living interiors (2026-11-10)
 Automated: `npm test -- interiors` (section 11).
 1. Walk into two or three of your Houses (and a settlement's): the rooms differ (3 layouts per type); leaving and

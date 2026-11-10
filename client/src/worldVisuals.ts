@@ -499,6 +499,8 @@ export interface EntityVisual {
   bossLabel?: Text;
   // Hero phase 3: heroes only, "Name · Lv N" above the HP bar.
   heroLabel?: Text;
+  // Gap closure G7: a settlement quest giver's "!" (a quest for you), see updateQuestMark.
+  questMark?: Text;
   // Gap closure G2: a zone hauler's load drawn above its head (sack / log / stone / crate), and which good it shows.
   load?: Graphics;
   loadKind?: string;
