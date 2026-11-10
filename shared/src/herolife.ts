@@ -4,6 +4,7 @@
 import { SPELL_COOLDOWN_SCALE, SPELLS, type SpellId, TileType, type RelationTier } from "./protocol.js";
 import { type ItemId, WORKER_XP_LEVELS } from "./progression.js";
 import type { CropId } from "./zones.js";
+import { TAVERN_DRINK_GOLD } from "./interiors.js";
 
 // ---- pack (carried goods) ----
 // cotton (Stardew phase 5a): hemp fibre the hero harvests (the stock's cotton when deposited).
@@ -152,7 +153,8 @@ export const PERSONAL_BUILD_MAX = 6;
 // ---- dialogue ----
 // Stardew phase 5c (interiors): "priest" at a Church altar, "keeper" at an own building's counter (smith, baker, ...),
 // "furniture" = a bed / chest spoken to like an NPC (its choices are built by the server).
-export type NpcRole = "leader" | "trader" | "villager" | "questGiver" | "folk" | "priest" | "keeper" | "furniture";
+// Gap closure G5: "patron" = someone drinking in a tavern (rumours, buy a drink).
+export type NpcRole = "leader" | "trader" | "villager" | "questGiver" | "folk" | "priest" | "keeper" | "furniture" | "patron";
 export type DialogueAction =
   | "bye" | "trade" | "sellPack" | "askWork" | "quests" | "gift" | "rumour" | "alliance" | "train" | "fare" | "lodging"
   // Family: the Elder's kin (courtship / the in-law levy), courting, proposing, the ceremony, parting.
@@ -160,7 +162,9 @@ export type DialogueAction =
   // Stardew phase 5c (interiors): open the building's panel, the bed (sleep to dawn / nap), the chest (store / take).
   | "openBuilding" | "sleep" | "nap" | "chestPut" | "chestTake"
   // Gap closure G6: a trader lists the clan's animals for sale.
-  | "sellAnimals";
+  | "sellAnimals"
+  // Gap closure G5: a tavern patron's rumour (camps / settlements / ore nearby) and a drink at the tavern.
+  | "patronRumour" | "drink";
 export interface DialogueChoiceDef {
   label: string;
   next?: string;
@@ -276,6 +280,17 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
   furniture: {
     start: { text: { default: "" }, choices: [BYE] },
   },
+  // Gap closure G5: a patron at a tavern table (own or a settlement's tavern).
+  patron: {
+    start: {
+      text: { default: "{npc} looks up from a mug of ale. \"Pull up a stool, friend. Long road?\"" },
+      choices: [
+        { label: "Heard any rumours?", action: "patronRumour" },
+        { label: `Buy yourself a drink (${TAVERN_DRINK_GOLD} gold).`, action: "drink" },
+        BYE,
+      ],
+    },
+  },
   // One of your own people.
   folk: {
     start: {
@@ -286,7 +301,7 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
 };
 export const NPC_ROLE_LABEL: Record<NpcRole, string> = {
   leader: "Elder", trader: "Trader", villager: "Villager", questGiver: "Priest", folk: "Your people", priest: "Priest",
-  keeper: "Keeper", furniture: "",
+  keeper: "Keeper", furniture: "", patron: "Patron",
 };
 // Gift: gold, the relation it buys and one gift per settlement per game day.
 export const GIFT_GOLD = 20;

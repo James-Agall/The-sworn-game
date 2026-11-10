@@ -58,6 +58,7 @@ import { ROOM_HALL_GATHER_CHANCE, ROOM_HALL_GATHER_RANGE_TILES, ROOM_INFIRMARY_S
 import { cancelZoneJob, hasZoneJob, homeAreaTileNear, updateZoneWorker } from "./zones.js";
 import { chooseWorkerFor, releaseVillagerForPost, skillSpeed, startPriorityShift, updateVillagerWork, workPriority } from "./work.js";
 import { orchardFruitsNow, winterNow } from "./calendar.js";
+import { tavernCheerHappiness } from "./herolife.js";
 import { WINTER_COLD_HAPPINESS } from "@colony/shared/calendar";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
@@ -117,7 +118,7 @@ export function countTilesOfType(tileType: TileType): number {
 
 export function computeColonyHappiness(): number {
   const h = colonyHappinessParts();
-  const happiness = h.foodVariety + h.scenery + h.tavern + h.food + h.rooms - h.winterCold;
+  const happiness = h.foodVariety + h.scenery + h.tavern + h.food + h.rooms + h.drink - h.winterCold;
   return Math.max(0, Math.min(100, Math.round(happiness)));
 }
 
@@ -154,6 +155,8 @@ export function colonyHappinessParts() {
   return {
     foodVariety: foodVarietyScore * 0.4, scenery: sceneryScore * 0.3, tavern: tavernCoverageScore * 0.3,
     food: foodHappinessBonus(), rooms: roomHappinessBonus(), winterCold: winterColdPenalty(),
+    // Gap closure G5: a drink bought at a tavern (herolife.ts).
+    drink: tavernCheerHappiness(state.clan.id),
   };
 }
 

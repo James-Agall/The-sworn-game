@@ -1500,6 +1500,8 @@ export type ServerMessage =
   // Stardew phase 5c: the interior the hero is in (view; refreshed when its NPCs / chest / threat change), or null
   // when the hero is back in the world.
   | { type: "interior"; view: InteriorView | null }
+  // Gap closure G5: the interior's NPCs moving (positions / facing / pose / greeting bubble), `storey` 0 / 1.
+  | { type: "interiorNpcs"; key: string; storey: number; npcs: import("./interiors.js").InteriorNpcLive[] }
   // Modular building phase 4: the Work tab table (reply to workTab / workSet / workMode).
   | { type: "workTab"; tab: WorkTabSnapshot }
   // Gap closure G3: the posts a person could be assigned to (reply to workPosts).

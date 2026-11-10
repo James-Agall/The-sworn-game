@@ -6,11 +6,19 @@
 // trader / priest / villagers, and talk through the existing dialogue (herolife.ts). Own buildings have a chest
 // (pack <-> chest, saved per building) and, in a house or your hall, a bed (sleep to dawn / nap). Interiors are not
 // part of the world grid: never saved, never streamed; only chest contents are saved (`interiorChests`).
+// Gap closure G5: a building's layout is one of INTERIOR_VARIANTS per type (interiorVariantFor: anchor + level); the
+// NPCs live (keepers work at their station, residents wander by day / eat at a table at dusk / sleep in a bed at
+// night, tavern patrons sit at the tables; facing, poses and greeting bubbles go out as `interiorNpcs`); the tavern /
+// barracks / hall have an upper floor up the "U" stairs (storey 1: guest rooms / the keepers' bedrooms).
 import {
   INTERIOR_BARN_CHEST_CAP, INTERIOR_BED_REST_MULT, INTERIOR_BUMP_COOLDOWN_TICKS, INTERIOR_CHEST_CAP, INTERIOR_DOOR_REACH_TILES,
-  INTERIOR_ENEMY_BLOCK_TILES, INTERIOR_ESC_EXIT_TILES, INTERIOR_FIXED_LEVEL, INTERIOR_REFRESH_TICKS, INTERIOR_SLEEP_TEMPLATES,
-  INTERIOR_SPEED_MULT, INTERIOR_TEMPLATE_BY_TILE, INTERIOR_THREAT_ALERT_TILES, INTERIOR_USE_RANGE_TILES, buildInteriorMap,
-  interiorSolidGrid, type InteriorMap, type InteriorNpcSnapshot, type InteriorTemplateId, type InteriorView,
+  INTERIOR_ENEMY_BLOCK_TILES, INTERIOR_ESC_EXIT_TILES, INTERIOR_FIXED_LEVEL, INTERIOR_GREET_COOLDOWN_TICKS, INTERIOR_GREET_RANGE_TILES,
+  INTERIOR_NPC_SEND_TICKS, INTERIOR_NPC_SPEED_TILES, INTERIOR_NPC_STOP_TILES, INTERIOR_NPC_WAIT_MAX_TICKS, INTERIOR_NPC_WAIT_MIN_TICKS,
+  INTERIOR_NPC_WANDER_TILES, INTERIOR_PATRONS_DAY, INTERIOR_PATRONS_DUSK, INTERIOR_PATRONS_NIGHT, INTERIOR_REFRESH_TICKS, INTERIOR_SAY_TICKS,
+  INTERIOR_SLEEP_TEMPLATES, INTERIOR_SPEED_MULT, INTERIOR_TEMPLATE_BY_TILE, INTERIOR_THREAT_ALERT_TILES, INTERIOR_UPPER_TEMPLATES,
+  INTERIOR_USE_RANGE_TILES, INTERIOR_VARIANTS, buildInteriorMap, interiorSeats, interiorSolidGrid, interiorVariantFor,
+  validateAllInteriorTemplates, type InteriorFacing, type InteriorMap, type InteriorNpcAct, type InteriorNpcLive,
+  type InteriorNpcPose, type InteriorNpcSnapshot, type InteriorTemplateId, type InteriorView,
 } from "@colony/shared/interiors";
 import { NPC_ROLE_LABEL, PACK_CAP, PACK_GOODS, PACK_LABEL, PACK_WEIGHT, TALK_RANGE_TILES, type NpcRole, type PackGood } from "@colony/shared/herolife";
 import { PLAYER_HALF_SIZE, PLAYER_SPEED, TILE_SIZE, TileType } from "@colony/shared/protocol";
@@ -20,12 +28,13 @@ import { colonists, mobs, players, state } from "./state.js";
 import { anchorOfTile, collidesAt, getBuildingLevel, inBounds, isNightNow, ownerAt, tileIndex } from "./tiles.js";
 import { clanIdAt, clanOf, withClan } from "./clans.js";
 import { siteByNum } from "./sites.js";
-import { standingTown, tierOf } from "./diplomacy.js";
+import { gameDay, standingTown, tierOf } from "./diplomacy.js";
 import { isTowerTarget } from "./combat.js";
 import { isSleepingNeutral } from "./creative.js";
 import { sendTo } from "./saves.js";
 import { heroProfileOf } from "./heroes.js";
 import { isMounted } from "./animals.js";
+import { isDuskNow } from "./structures.js";
 import {
   type ChoiceRt, type TalkInside, closeTalk, furnitureTalk, heroSpeedMult, lifeOf, nameFor, packWeight, restHeroFully,
   setHeroResting, startTalk, stopHeroBusy, talkColorFor, toast,
@@ -36,24 +45,29 @@ const chests = new Map<string, Partial<Record<PackGood, number>>>();
 
 // ---- maps (generated lazily per template + level, never saved) ----
 const maps = new Map<string, { map: InteriorMap; solid: Uint8Array }>();
-function mapFor(id: InteriorTemplateId, level: number) {
-  const k = `${id}:${level}`;
+function mapFor(id: InteriorTemplateId, level: number, variant = 0, storey = 0) {
+  const k = `${id}:${level}:${variant}:${storey}`;
   let m = maps.get(k);
   if (!m) {
-    const map = buildInteriorMap(id, level);
+    const map = buildInteriorMap(id, level, variant, storey);
     maps.set(k, (m = { map, solid: interiorSolidGrid(map) }));
   }
   return m;
 }
+const mapOf = (I: NonNullable<Player["interior"]>) => mapFor(I.templateId as InteriorTemplateId, I.level, I.variant, I.storey);
+
+// Test hook `interior {variant}`: every building uses this layout (null: the deterministic pick).
+let forcedVariant: number | null = null;
 
 // The interior of the building anchored at (tx, ty), if it has one.
-export function interiorTemplateAt(tx: number, ty: number): { id: InteriorTemplateId; tile: TileType; level: number } | null {
+export function interiorTemplateAt(tx: number, ty: number): { id: InteriorTemplateId; tile: TileType; level: number; variant: number } | null {
   if (!inBounds(tx, ty)) return null;
   const tile = state.tiles[tileIndex(tx, ty)] as TileType;
   const id = INTERIOR_TEMPLATE_BY_TILE[tile];
   if (!id) return null;
   const level = Math.max(1, Math.min(3, INTERIOR_FIXED_LEVEL[tile] ?? getBuildingLevel(tx, ty)));
-  return { id, tile, level };
+  const variant = forcedVariant ?? interiorVariantFor(tx, ty, level);
+  return { id, tile, level, variant };
 }
 
 // Who may go in: your own clan's buildings, a friendly human settlement's buildings, the Abbey.
@@ -95,52 +109,332 @@ interface Binding {
   name: string;
   colonistId?: string;
   site?: SiteState;
+  // Gap closure G5: the tile it belongs to (station / slot), its seat (patrons, residents at dusk), its bed.
+  home: { x: number; y: number };
+  seat?: { x: number; y: number; face: InteriorFacing };
+  bed?: { x: number; y: number };
 }
 const px = (t: number) => (t + 0.5) * TILE_SIZE;
+// The keeper of these sleeps upstairs at night (not at the counter); the tavern stays open late.
+const KEEPER_SLEEPS_UP: ReadonlySet<InteriorTemplateId> = new Set(["hall", "barracks"]);
+type DayPhase = "day" | "dusk" | "night";
+const dayPhase = (): DayPhase => (isNightNow() ? "night" : isDuskNow() ? "dusk" : "day");
+function hashOf(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+const bedsOf = (m: InteriorMap) => m.props.filter((q) => q.prop === "bed" || q.prop === "bedFine");
 
-function bindNpcs(p: Player, key: string, tx: number, ty: number, map: InteriorMap, acc: Access): Binding[] {
+// The people inside: bound per storey, time of day and (own buildings) the clan's real people.
+function bindNpcs(p: Player, key: string, tx: number, ty: number, map: InteriorMap, acc: Access, storey = 0): Binding[] {
   const out: Binding[] = [];
-  const slots = (s: "1" | "2" | "v") => map.slots.filter((q) => q.slot === s);
-  const put = (slot: { x: number; y: number }, b: Omit<Binding, "snap">, kind: string) => {
+  if ("refuse" in acc) return out;
+  const id = map.templateId;
+  const phase = dayPhase();
+  const ground = storey > 0 ? mapFor(id, map.level, map.variant, 0).map : map;
+  const slots = (s: "1" | "2" | "v") => ground.slots.filter((q) => q.slot === s);
+  const seen = new Set<string>();
+  const put = (slot: { x: number; y: number }, b: Omit<Binding, "snap" | "home">, kind: string, act: InteriorNpcAct) => {
+    let nid = `${key}:${b.colonistId ?? `${b.role}:${b.name}`}`;
+    while (seen.has(nid)) nid += "'";
+    seen.add(nid);
     out.push({
       ...b,
-      snap: { id: `${key}:${out.length}`, name: b.name, roleLabel: NPC_ROLE_LABEL[b.role], x: slot.x, y: slot.y, color: talkColorFor(b.name), kind },
+      home: { x: slot.x, y: slot.y },
+      snap: { id: nid, name: b.name, roleLabel: NPC_ROLE_LABEL[b.role], x: slot.x, y: slot.y, color: talkColorFor(b.name), kind, act },
     });
   };
-  if ("refuse" in acc) return out;
   if (acc.kind === "site") {
     const s = acc.site;
     const one = slots("1")[0];
-    const id = map.templateId;
     if (one) {
-      if (id === "hall") put(one, { role: "leader", name: `Elder ${nameFor(s.id)}`, site: s }, "villager");
-      else if (id === "church") put(one, { role: "questGiver", name: `Brother ${nameFor(`${s.id}:priest`)}`, site: s }, "bishop");
-      else put(one, { role: "trader", name: nameFor(`${s.id}:${key}:keeper`), site: s }, "villager");
+      if (id === "hall") put(one, { role: "leader", name: `Elder ${nameFor(s.id)}`, site: s }, "villager", "keeper");
+      else if (id === "church") put(one, { role: "questGiver", name: `Brother ${nameFor(`${s.id}:priest`)}`, site: s }, "bishop", "keeper");
+      else put(one, { role: "trader", name: nameFor(`${s.id}:${key}:keeper`), site: s }, "villager", "keeper");
     }
     const two = slots("2")[0];
-    if (two) put(two, { role: "trader", name: nameFor(`${s.id}:trader`), site: s }, "villager");
-    const vs = slots("v").slice(0, id === "tavern" ? 2 : id === "house" || id === "church" ? 1 : 0);
-    vs.forEach((v, i) => put(v, { role: "villager", name: nameFor(`${s.id}:${key}:v${i}`), site: s }, "villager"));
+    if (two) put(two, { role: "trader", name: nameFor(`${s.id}:trader`), site: s }, "villager", "keeper");
+    const vs = slots("v").slice(0, id === "house" || id === "church" ? 1 : 0);
+    vs.forEach((v, i) => put(v, { role: "villager", name: nameFor(`${s.id}:${key}:v${i}`), site: s }, "villager", "resident"));
+  } else {
+    // Own buildings and the Abbey: the people posted here (keeper / priest), then those who live here.
+    const clan = acc.kind === "abbey" ? 0 : p.clan ?? 0;
+    const alive = Array.from(colonists.values()).filter((c) => c.hp > 0 && !c.ghost && (c.clan ?? 0) === clan && c.kind !== "wagon");
+    const posted = alive.filter((c) => c.postX === tx && c.postY === ty).sort((a, b) => (a.id < b.id ? -1 : 1));
+    const residents = alive
+      .filter((c) => c.person && c.person.homeX === tx && c.person.homeY === ty && !posted.includes(c))
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+    const roleOf = (c: (typeof alive)[number], isPosted: boolean): NpcRole =>
+      c.kind === "bishop" || acc.kind === "abbey" ? "priest" : isPosted ? "keeper" : "folk";
+    const queue = [...posted.map((c) => ({ c, posted: true })), ...residents.map((c) => ({ c, posted: false }))];
+    for (const slot of [...slots("1"), ...slots("2"), ...slots("v")]) {
+      const next = queue.shift();
+      if (!next) break;
+      const c = next.c;
+      const act: InteriorNpcAct = slot === slots("1")[0] || slots("2").includes(slot) ? "keeper" : "resident";
+      put(slot, { role: roleOf(c, next.posted), name: c.person?.name ?? nameFor(c.id), colonistId: c.id }, c.kind === "hero" ? "knight" : c.kind, act);
+    }
+    // Gap closure G5 (c): your villagers off duty drink at your tavern at dusk / night.
+    if (id === "tavern" && phase !== "day") {
+      const used = new Set(out.map((b) => b.colonistId));
+      const free = alive
+        .filter((c) => c.person && !c.person.child && !used.has(c.id) && c.kind !== "hero")
+        .sort((a, b) => hashOf(`${a.id}:${gameDay()}`) - hashOf(`${b.id}:${gameDay()}`));
+      patronPool = free.map((c) => ({ name: c.person!.name, colonistId: c.id, kind: c.kind }));
+    }
+  }
+  // Gap closure G5 (c): patrons at the tavern tables (villagers off duty at dusk / night, travellers).
+  if (id === "tavern" && storey === 0) {
+    const seats = interiorSeats(map);
+    const [lo, hi] = phase === "night" ? INTERIOR_PATRONS_NIGHT : phase === "dusk" ? INTERIOR_PATRONS_DUSK : INTERIOR_PATRONS_DAY;
+    const want = Math.min(seats.length, lo + (hashOf(`${key}:${gameDay()}:${phase}`) % (hi - lo + 1)));
+    const pool = acc.kind === "own" ? patronPool : [];
+    patronPool = [];
+    const order = seats.map((q, i) => ({ q, k: hashOf(`${key}:seat${i}:${gameDay()}`) })).sort((a, b) => a.k - b.k).map((x) => x.q);
+    for (let i = 0; i < want; i++) {
+      const seat = order[i];
+      // Keep at least one traveller; the rest are your own folk off duty (when there are any).
+      const own = i < want - 1 ? pool[i] : undefined;
+      const s = acc.kind === "site" ? acc.site : undefined;
+      const name = own?.name ?? (s && i % 2 === 0 ? nameFor(`${s.id}:${key}:patron${i}`) : `${nameFor(`${key}:${gameDay()}:trav${i}`)} the traveller`);
+      put(seat, { role: "patron", name, colonistId: own?.colonistId, site: s, seat }, own?.kind ?? "villager", "patron");
+    }
+  }
+  patronPool = [];
+  if (storey === 0) {
+    // At night the hall's / barracks' keeper is upstairs in bed.
+    if (phase === "night" && KEEPER_SLEEPS_UP.has(id) && INTERIOR_UPPER_TEMPLATES[id]) {
+      const k = out.findIndex((b) => b.snap.act === "keeper" && b.home.x === slots("1")[0]?.x && b.home.y === slots("1")[0]?.y);
+      if (k >= 0) out.splice(k, 1);
+    }
+    // Residents: a bed each (night), a seat each (dusk); patrons have taken the tavern's seats.
+    const beds = bedsOf(map);
+    const seats = interiorSeats(map).filter((q) => !out.some((b) => b.seat && b.seat.x === q.x && b.seat.y === q.y));
+    out.filter((b) => b.snap.act === "resident").forEach((b, i) => {
+      if (beds[i]) b.bed = { x: beds[i].x, y: beds[i].y };
+      if (seats[i]) b.seat = seats[i];
+    });
     return out;
   }
-  // Own buildings and the Abbey: the people posted here (keeper / priest), then those who live here.
-  const clan = acc.kind === "abbey" ? 0 : p.clan ?? 0;
-  const alive = Array.from(colonists.values()).filter((c) => c.hp > 0 && !c.ghost && (c.clan ?? 0) === clan && c.kind !== "wagon");
-  const posted = alive.filter((c) => c.postX === tx && c.postY === ty).sort((a, b) => (a.id < b.id ? -1 : 1));
-  const residents = alive
-    .filter((c) => c.person && c.person.homeX === tx && c.person.homeY === ty && !posted.includes(c))
-    .sort((a, b) => (a.id < b.id ? -1 : 1));
-  const roleOf = (c: (typeof alive)[number], isPosted: boolean): NpcRole =>
-    c.kind === "bishop" || acc.kind === "abbey" ? "priest" : isPosted ? "keeper" : "folk";
-  const queue = [...posted.map((c) => ({ c, posted: true })), ...residents.map((c) => ({ c, posted: false }))];
-  for (const slot of [...slots("1"), ...slots("2"), ...slots("v")]) {
-    const next = queue.shift();
-    if (!next) break;
-    const c = next.c;
-    put(slot, { role: roleOf(c, next.posted), name: c.person?.name ?? nameFor(c.id), colonistId: c.id }, c.kind === "hero" ? "knight" : c.kind);
-  }
-  return out;
+  // Upstairs: by night the keeper of a hall / barracks sleeps here, and travellers in the tavern's guest beds.
+  const up: Binding[] = [];
+  if (phase !== "night") return up;
+  const beds = bedsOf(map);
+  const sleepers = id === "tavern"
+    ? [0, 1].map((i) => ({ b: undefined as Binding | undefined, name: `${nameFor(`${key}:${gameDay()}:guest${i}`)} the traveller` }))
+    : out.filter((b) => b.snap.act === "keeper" && b.home.x === slots("1")[0]?.x && b.home.y === slots("1")[0]?.y).map((b) => ({ b, name: b.name }));
+  sleepers.slice(0, beds.length).forEach((x, i) => {
+    const bed = { x: beds[i].x, y: beds[i].y };
+    const b: Binding = x.b
+      ? { ...x.b, home: bed, bed, snap: { ...x.b.snap, x: bed.x, y: bed.y, act: "sleeper" } }
+      : { role: "patron", name: x.name, home: bed, bed, snap: { id: `${key}:up:${i}`, name: x.name, roleLabel: NPC_ROLE_LABEL.patron, x: bed.x, y: bed.y, color: talkColorFor(x.name), kind: "villager", act: "sleeper" } };
+    up.push(b);
+  });
+  return up;
 }
+// Own tavern patrons (bindNpcs fills it, then uses it straight away).
+let patronPool: { name: string; colonistId: string; kind: string }[] = [];
+
+// ---- living NPCs (gap closure G5 a) ----
+interface LiveNpc {
+  id: string;
+  x: number;
+  y: number;
+  face: InteriorFacing;
+  pose: InteriorNpcPose;
+  path: { x: number; y: number }[];
+  wait: number;
+  seed: number;
+  say?: string;
+  sayUntil: number;
+  greetNext: number;
+  // What it is heading for: "" (wandering), "bed", "seat", "home".
+  goal: string;
+}
+interface LiveRoom {
+  npcs: Map<string, LiveNpc>;
+  binds: Binding[];
+  map: InteriorMap;
+  solid: Uint8Array;
+  tick: number;
+}
+const rooms = new Map<string, LiveRoom>();
+const roomKeyOf = (I: NonNullable<Player["interior"]>) => `${I.key}:${I.storey}`;
+
+function rand(n: LiveNpc): number {
+  n.seed ^= n.seed << 13;
+  n.seed ^= n.seed >>> 17;
+  n.seed ^= n.seed << 5;
+  return ((n.seed >>> 0) % 10000) / 10000;
+}
+
+// Where a binding should be now: its bed (sleeper; resident at night), its seat (patron; resident at dusk), its
+// station (keeper), or nowhere in particular (resident by day).
+function goalOf(b: Binding, phase: DayPhase): { goal: string; at?: { x: number; y: number } } {
+  const act = b.snap.act;
+  if (act === "sleeper" || (act === "resident" && phase === "night" && b.bed)) return { goal: "bed", at: b.bed };
+  if (act === "patron" || (act === "resident" && phase === "dusk" && b.seat)) return { goal: "seat", at: b.seat };
+  if (act === "keeper") return { goal: "home", at: b.home };
+  return { goal: "" };
+}
+
+// Live NPCs for the bindings (kept by id; a new one starts where it should be).
+function syncRoom(rk: string, map: InteriorMap, solid: Uint8Array, binds: Binding[]): LiveRoom {
+  let r = rooms.get(rk);
+  if (!r || r.map !== map) {
+    r = { npcs: new Map(), binds, map, solid, tick: state.cycleTick };
+    rooms.set(rk, r);
+  }
+  r.binds = binds;
+  const phase = dayPhase();
+  const keep = new Set<string>();
+  for (const b of binds) {
+    keep.add(b.snap.id);
+    if (r.npcs.has(b.snap.id)) continue;
+    const g = goalOf(b, phase);
+    const at = g.at ?? b.home;
+    r.npcs.set(b.snap.id, {
+      id: b.snap.id, x: at.x, y: at.y, face: b.seat && g.goal === "seat" ? b.seat.face : "d", pose: "idle", path: [],
+      wait: INTERIOR_NPC_WAIT_MIN_TICKS, seed: hashOf(b.snap.id) | 1, sayUntil: 0, greetNext: 0, goal: g.goal,
+    });
+  }
+  for (const k of r.npcs.keys()) if (!keep.has(k)) r.npcs.delete(k);
+  return r;
+}
+
+// Shortest path on the room grid (4-way) to `to` (which may be a solid bed / chair tile); [] when none.
+function pathTo(r: LiveRoom, from: { x: number; y: number }, to: { x: number; y: number }): { x: number; y: number }[] {
+  const { w, h } = r.map;
+  const s = from.y * w + from.x;
+  const g = to.y * w + to.x;
+  if (s === g) return [];
+  const prev = new Int32Array(w * h).fill(-1);
+  prev[s] = s;
+  const q = [s];
+  for (let qi = 0; qi < q.length; qi++) {
+    const i = q[qi];
+    if (i === g) break;
+    const x = i % w;
+    const y = (i - x) / w;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const j = ny * w + nx;
+      if (prev[j] >= 0 || (r.solid[j] && j !== g) || r.map.cells[j] === "E") continue;
+      prev[j] = i;
+      q.push(j);
+    }
+  }
+  if (prev[g] < 0) return [];
+  const out: { x: number; y: number }[] = [];
+  for (let i = g; i !== s; i = prev[i]) out.push({ x: i % w, y: Math.floor(i / w) });
+  return out.reverse();
+}
+
+const KEEPER_WORKS: ReadonlySet<InteriorTemplateId> = new Set(["smithy", "bakery", "barn"]);
+const GREETS: Record<string, string[]> = {
+  smithy: ["Mind the sparks!", "Need an edge on that?"], bakery: ["Fresh loaves today!", "Mind, the oven's hot."],
+  tavern: ["What'll it be?", "Ale's cold, the fire's warm."], shop: ["Have a look around.", "Fair prices, friend."],
+  hall: ["Welcome to the hall.", "Speak, traveller."], church: ["Peace be with you.", "The Saint watches over us."],
+  barracks: ["At ease.", "Stay sharp out there."], barn: ["Mind the hay.", "Busy day."], house: ["Oh! Hello.", "Make yourself at home."],
+  patron: ["Cheers!", "Another round!", "Evening, stranger.", "Sit, sit!"],
+};
+function greetingFor(b: Binding, room: InteriorTemplateId): string {
+  const list = b.role === "patron" ? GREETS.patron : b.snap.act === "keeper" ? GREETS[room] : ["Good day to you.", "Hello there."];
+  return list[hashOf(b.snap.id) % list.length];
+}
+
+// One tick of a room: walking, waiting, facing / stopping for heroes, greetings.
+function stepRoom(r: LiveRoom, heroes: { x: number; y: number }[]) {
+  const phase = dayPhase();
+  const step = INTERIOR_NPC_SPEED_TILES * dt;
+  for (const b of r.binds) {
+    const n = r.npcs.get(b.snap.id);
+    if (!n) continue;
+    const g = goalOf(b, phase);
+    const cx = Math.round(n.x);
+    const cy = Math.round(n.y);
+    // A new goal (dusk came, night fell): walk there.
+    if (g.goal !== n.goal) {
+      n.goal = g.goal;
+      n.path = g.at ? pathTo(r, { x: cx, y: cy }, g.at) : [];
+      n.wait = 0;
+    }
+    // Nearest hero: stop and turn to them; greet when they come close.
+    let near: { x: number; y: number; d: number } | null = null;
+    for (const h of heroes) {
+      const d = Math.hypot(h.x - n.x, h.y - n.y);
+      if (!near || d < near.d) near = { ...h, d };
+    }
+    const asleep = n.goal === "bed" && n.path.length === 0 && cx === g.at?.x && cy === g.at?.y;
+    if (n.say && state.cycleTick >= n.sayUntil) n.say = undefined;
+    if (near && near.d <= INTERIOR_GREET_RANGE_TILES && !asleep && state.cycleTick >= n.greetNext) {
+      n.say = greetingFor(b, r.map.templateId);
+      n.sayUntil = state.cycleTick + INTERIOR_SAY_TICKS;
+      n.greetNext = state.cycleTick + INTERIOR_GREET_COOLDOWN_TICKS;
+    }
+    const faceTo = (dx: number, dy: number): InteriorFacing => (Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? "l" : "r") : dy < 0 ? "u" : "d");
+    if (near && near.d <= INTERIOR_NPC_STOP_TILES && !asleep && n.pose !== "sit") {
+      n.face = faceTo(near.x - n.x, near.y - n.y);
+      n.pose = b.snap.act === "keeper" && KEEPER_WORKS.has(r.map.templateId) ? "work" : "idle";
+      continue;
+    }
+    if (n.path.length > 0) {
+      const t = n.path[0];
+      const dx = t.x - n.x;
+      const dy = t.y - n.y;
+      const d = Math.hypot(dx, dy);
+      if (d <= step) {
+        n.x = t.x;
+        n.y = t.y;
+        n.path.shift();
+      } else {
+        n.x += (dx / d) * step;
+        n.y += (dy / d) * step;
+      }
+      n.face = faceTo(dx, dy);
+      n.pose = "walk";
+      continue;
+    }
+    // Arrived / standing.
+    if (n.goal === "bed") n.pose = asleep ? "sleep" : "idle";
+    else if (n.goal === "seat") {
+      n.pose = "sit";
+      if (b.seat) n.face = b.seat.face;
+    } else if (n.goal === "home") {
+      n.pose = KEEPER_WORKS.has(r.map.templateId) ? "work" : "idle";
+      if (!near || near.d > INTERIOR_GREET_RANGE_TILES) n.face = "d";
+      else n.face = faceTo(near.x - n.x, near.y - n.y);
+    } else {
+      // Wandering: wait, then walk to a free tile nearby.
+      n.pose = "idle";
+      if (--n.wait > 0) continue;
+      n.wait = INTERIOR_NPC_WAIT_MIN_TICKS + Math.floor(rand(n) * (INTERIOR_NPC_WAIT_MAX_TICKS - INTERIOR_NPC_WAIT_MIN_TICKS));
+      const R = INTERIOR_NPC_WANDER_TILES;
+      for (let tries = 0; tries < 8; tries++) {
+        const tx = cx + Math.round((rand(n) * 2 - 1) * R);
+        const ty = cy + Math.round((rand(n) * 2 - 1) * R);
+        if (tx < 0 || ty < 0 || tx >= r.map.w || ty >= r.map.h) continue;
+        const j = ty * r.map.w + tx;
+        if (r.solid[j] || r.map.cells[j] === "E" || (tx === cx && ty === cy)) continue;
+        const path = pathTo(r, { x: cx, y: cy }, { x: tx, y: ty });
+        if (path.length > 0 && path.length <= R * 2) {
+          n.path = path;
+          break;
+        }
+      }
+    }
+  }
+}
+
+const liveOf = (r: LiveRoom): InteriorNpcLive[] =>
+  r.binds.flatMap((b) => {
+    const n = r.npcs.get(b.snap.id);
+    if (!n) return [];
+    return [{ id: n.id, x: Math.round(n.x * 100) / 100, y: Math.round(n.y * 100) / 100, face: n.face, pose: n.pose, ...(n.say ? { say: n.say } : {}) }];
+  });
 
 // ---- view ----
 function titleFor(map: InteriorMap, acc: Access): string {
@@ -155,9 +449,10 @@ const hasProp = (map: InteriorMap, prop: string) => map.props.some((q) => q.prop
 function viewFor(p: Player): { view: InteriorView; npcs: Binding[]; acc: Access } | null {
   const I = p.interior;
   if (!I) return null;
-  const { map } = mapFor(I.templateId as InteriorTemplateId, I.level);
+  const { map, solid } = mapOf(I);
   const acc = accessFor(p, I.tx, I.ty, I.tile as TileType);
-  const npcs = bindNpcs(p, I.key, I.tx, I.ty, map, acc);
+  const npcs = bindNpcs(p, I.key, I.tx, I.ty, map, acc, I.storey);
+  syncRoom(roomKeyOf(I), map, solid, npcs);
   const own = "kind" in acc && acc.kind === "own";
   const view: InteriorView = {
     key: I.key,
@@ -231,12 +526,12 @@ export function enterInterior(p: Player, tx: number, ty: number): string {
   const near = hostilesNearDoor(tx, ty, INTERIOR_ENEMY_BLOCK_TILES);
   if (near > 0) return `Enemies are too close (${near} within ${INTERIOR_ENEMY_BLOCK_TILES} tiles): you cannot get inside`;
   stopHeroBusy(p);
-  const { map } = mapFor(t.id, t.level);
+  const { map } = mapFor(t.id, t.level, t.variant);
   // The world body waits at the door.
   p.x = px(tx);
   p.y = px(ty + 1);
   p.interior = {
-    key: `${tx},${ty}`, tx, ty, tile: t.tile, level: t.level, templateId: t.id,
+    key: `${tx},${ty}`, tx, ty, tile: t.tile, level: t.level, templateId: t.id, variant: t.variant, storey: 0,
     x: px(map.spawn.x), y: px(map.spawn.y), sent: "", nextRefresh: state.cycleTick + INTERIOR_REFRESH_TICKS,
   };
   sendView(p, true);
@@ -278,7 +573,8 @@ export function exitInterior(p: Player, why = "") {
 export function handleInteriorExit(p: Player) {
   const I = p.interior;
   if (!I) return;
-  const { map } = mapFor(I.templateId as InteriorTemplateId, I.level);
+  const { map } = mapOf(I);
+  if (I.storey > 0) return toast(p, "Take the stairs down first");
   if (Math.hypot(px(map.exit.x) - I.x, px(map.exit.y) - I.y) / TILE_SIZE > INTERIOR_ESC_EXIT_TILES) return toast(p, "Walk to the door mat to leave");
   exitInterior(p);
 }
@@ -288,7 +584,7 @@ export function handleInteriorExit(p: Player) {
 export function stepInteriorMovement(p: Player) {
   const I = p.interior;
   if (!I) return;
-  const { map, solid } = mapFor(I.templateId as InteriorTemplateId, I.level);
+  const { map, solid } = mapOf(I);
   const { dx, dy } = p.input;
   const len = Math.hypot(dx, dy) || 1;
   const speed = PLAYER_SPEED * INTERIOR_SPEED_MULT * heroProfileOf(p).stats.moveSpeedMult * heroSpeedMult(p);
@@ -306,12 +602,67 @@ export function stepInteriorMovement(p: Player) {
   if (!blocked(nx, I.y)) I.x = nx;
   const ny = I.y + (dy / len) * speed * dt;
   if (!blocked(I.x, ny)) I.y = ny;
-  if (Math.floor(I.x / TILE_SIZE) === map.exit.x && Math.floor(I.y / TILE_SIZE) === map.exit.y) exitInterior(p);
+  const mx = Math.floor(I.x / TILE_SIZE);
+  const my = Math.floor(I.y / TILE_SIZE);
+  // Gap closure G5 (d): onto the stairs: the other storey (a fresh arrival ignores the stairs for a moment).
+  if (map.stairs && mx === map.stairs.x && my === map.stairs.y && state.cycleTick - (p.interiorBumpTick ?? -1e9) >= INTERIOR_BUMP_COOLDOWN_TICKS) {
+    changeStorey(p, I.storey > 0 ? 0 : 1);
+    return;
+  }
+  if (I.storey === 0 && mx === map.exit.x && my === map.exit.y) exitInterior(p);
+}
+
+// Up / down the stairs: the hero appears beside the stairs of the other storey.
+export function changeStorey(p: Player, storey: number) {
+  const I = p.interior;
+  if (!I || storey === I.storey || (storey > 0 && !INTERIOR_UPPER_TEMPLATES[I.templateId as InteriorTemplateId])) return;
+  stopHeroBusy(p);
+  I.storey = storey;
+  const { map, solid } = mapOf(I);
+  let at = map.spawn;
+  if (storey === 0 && map.stairs) {
+    const s = map.stairs;
+    at = [[0, 1], [1, 0], [-1, 0], [0, -1]].map(([dx, dy]) => ({ x: s.x + dx, y: s.y + dy }))
+      .find((q) => q.x >= 0 && q.y >= 0 && q.x < map.w && q.y < map.h && !solid[q.y * map.w + q.x] && map.cells[q.y * map.w + q.x] !== "E") ?? map.spawn;
+  }
+  I.x = px(at.x);
+  I.y = px(at.y);
+  I.npcSent = "";
+  p.interiorBumpTick = state.cycleTick;
+  sendView(p, true);
+  toast(p, storey > 0 ? "You climb the stairs" : "You go back down");
 }
 
 // sim.ts, once a tick: dead heroes are put out; every INTERIOR_REFRESH_TICKS the building is re-checked (gone: out;
 // upgraded: the new level's room) and the view is resent if its NPCs / chest / threat changed.
 export function updateInteriors() {
+  // Gap closure G5: the rooms someone is in step once a tick; their NPCs go out every INTERIOR_NPC_SEND_TICKS.
+  const inRoom = new Map<string, Player[]>();
+  for (const p of players.values()) {
+    if (!p.interior || p.dead) continue;
+    const rk = roomKeyOf(p.interior);
+    const list = inRoom.get(rk);
+    if (list) list.push(p);
+    else inRoom.set(rk, [p]);
+  }
+  for (const [rk, r] of rooms) {
+    const ps = inRoom.get(rk);
+    if (!ps) {
+      rooms.delete(rk);
+      continue;
+    }
+    if (r.tick === state.cycleTick) continue;
+    r.tick = state.cycleTick;
+    stepRoom(r, ps.map((q) => ({ x: q.interior!.x / TILE_SIZE - 0.5, y: q.interior!.y / TILE_SIZE - 0.5 })));
+    if (state.cycleTick % INTERIOR_NPC_SEND_TICKS !== 0) continue;
+    const npcs = liveOf(r);
+    const json = JSON.stringify(npcs);
+    for (const q of ps) {
+      if (q.interior!.npcSent === json) continue;
+      q.interior!.npcSent = json;
+      sendTo(q, { type: "interiorNpcs", key: q.interior!.key, storey: q.interior!.storey, npcs });
+    }
+  }
   for (const p of players.values()) {
     const I = p.interior;
     if (!I) continue;
@@ -325,10 +676,11 @@ export function updateInteriors() {
       const t = interiorTemplateAt(I.tx, I.ty);
       if (!t || t.id !== I.templateId) return exitInterior(p, "The building is gone: you are back outside");
       if ("refuse" in accessFor(p, I.tx, I.ty, t.tile)) return exitInterior(p, "You are shown the door");
-      if (t.level !== I.level || t.tile !== I.tile) {
+      if (t.level !== I.level || t.tile !== I.tile || t.variant !== I.variant) {
         I.level = t.level;
         I.tile = t.tile;
-        const { map, solid } = mapFor(t.id, t.level);
+        I.variant = t.variant;
+        const { map, solid } = mapOf(I);
         const cx = Math.floor(I.x / TILE_SIZE);
         const cy = Math.floor(I.y / TILE_SIZE);
         if (cx < 0 || cy < 0 || cx >= map.w || cy >= map.h || solid[cy * map.w + cx]) Object.assign(I, { x: px(map.spawn.x), y: px(map.spawn.y) });
@@ -345,17 +697,21 @@ export function interiorInteract(p: Player) {
   if (!I || !v) return;
   const { map } = v.view;
   const dist = (x: number, y: number) => Math.hypot(px(x) - I.x, px(y) - I.y) / TILE_SIZE;
-  const inside = (x: number, y: number): TalkInside => ({ key: I.key, x: px(x), y: px(y), anchor: { x: I.tx, y: I.ty } });
+  const inside = (x: number, y: number): TalkInside => ({ key: I.key, x: px(x), y: px(y), anchor: { x: I.tx, y: I.ty }, ...(map.templateId === "tavern" ? { tavern: true } : {}) });
+  const live = rooms.get(roomKeyOf(I));
   type Pick = { d: number; run: () => void };
   let best: Pick | null = null;
   const offer = (d: number, run: () => void) => {
     if (!best || d < best.d) best = { d, run };
   };
   for (const b of v.npcs) {
-    const d = dist(b.snap.x, b.snap.y);
+    const n = live?.npcs.get(b.snap.id);
+    const nx = n?.x ?? b.snap.x;
+    const ny = n?.y ?? b.snap.y;
+    const d = dist(nx, ny);
     if (d > TALK_RANGE_TILES) continue;
     const c = b.colonistId ? colonists.get(b.colonistId) : undefined;
-    offer(d, () => startTalk(p, { role: b.role, name: b.name, d, site: b.site, colonist: c, inside: inside(b.snap.x, b.snap.y) }));
+    offer(d, () => startTalk(p, { role: b.role, name: b.name, d, site: b.site, colonist: c, inside: inside(nx, ny) }));
   }
   for (const q of map.props) {
     const d = dist(q.x, q.y);
@@ -507,14 +863,23 @@ export function restoreInteriorChests(data: unknown) {
 }
 export function resetInteriors() {
   chests.clear();
+  rooms.clear();
+}
+
+// Test hook: force one layout everywhere (null / out of range: the deterministic pick).
+export function setForcedInteriorVariant(v: unknown) {
+  forcedVariant = typeof v === "number" && Number.isInteger(v) && v >= 0 && v < INTERIOR_VARIANTS ? v : null;
 }
 
 export function interiorDebug(p: Player) {
   const v = viewFor(p);
   const I = p.interior;
+  const r = I ? rooms.get(roomKeyOf(I)) : undefined;
   return {
-    inside: I ? { key: I.key, x: I.x, y: I.y, templateId: I.templateId, level: I.level } : null,
+    inside: I ? { key: I.key, x: I.x, y: I.y, templateId: I.templateId, level: I.level, variant: I.variant, storey: I.storey } : null,
     view: v?.view ?? null,
+    live: r ? liveOf(r) : [],
     chests: Array.from(chests.entries()),
+    templateErrors: validateAllInteriorTemplates(),
   };
 }

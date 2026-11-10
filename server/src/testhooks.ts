@@ -92,7 +92,7 @@ import { BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, FIELDS_PER_FARMER, FOOD
 import { assignHomes, handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
 import { calendarDayNow, calendarNow, calendarSnapshot, rainingNow, setCalendar, setWeatherOverride, updateCalendar, winterNow, snowSlowNow, forageRegrowTicksBetween } from "./calendar.js";
 import { weatherForDay } from "@colony/shared/calendar";
-import { enterInterior, exitInterior, handleInteriorExit, interiorDebug } from "./interiors.js";
+import { enterInterior, exitInterior, handleInteriorExit, interiorDebug, setForcedInteriorVariant } from "./interiors.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
@@ -1195,7 +1195,10 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "interior") {
     // Stardew phase 5c: `enter` {tx, ty} enters that building (reply `why`: "" = in), `exit` true leaves at once,
     // `escExit` true = the interiorExit message, `at` {x, y} (interior px) stands the hero there; replies the state.
+    // Gap closure G5: `variant` (0..2, null) forces every building's layout; the reply has `live` NPCs and
+    // `templateErrors` (validateAllInteriorTemplates).
     let why: string | undefined;
+    if ("variant" in msg) setForcedInteriorVariant(msg.variant);
     withClan(clanOf(player), () => {
       if (msg.enter && typeof msg.enter === "object") {
         const e = msg.enter as { tx?: unknown; ty?: unknown };

@@ -7045,6 +7045,8 @@ async function main() {
       workUi.onPosts(message.id, message.posts);
     } else if (message.type === "interior") {
       interiorRef.ui?.onMessage(message.view);
+    } else if (message.type === "interiorNpcs") {
+      interiorRef.ui?.onNpcs(message.key, message.storey, message.npcs);
     } else if (message.type === "dialogue" || message.type === "interactNone") {
       heroLifeRef.ui?.onMessage(message);
     } else if (message.type === "buildingInfo") {
@@ -7581,6 +7583,7 @@ async function main() {
     playerTexture: PLAYER_TEXTURE,
     playerHeight: PLAYER_SPRITE_HEIGHT,
     npcTexture: (kind) => COLONIST_TEXTURES[kind as ColonistKind],
+    npcAnim: (kind) => (COLONIST_TINT.has(kind) ? undefined : COLONIST_ANIMS[kind as ColonistKind]),
     npcHeight: COLONIST_SPRITE_HEIGHT,
     send: sendMessage,
     myId: () => myId,

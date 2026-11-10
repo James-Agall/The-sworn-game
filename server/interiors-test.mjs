@@ -5,6 +5,10 @@
 // near it; nothing hurts a hero indoors; entering is refused with enemies near the door; the Town Center hall's
 // people talk through the usual dialogue (keeper: the building panel, folk: "How do you fare?"); a settlement's
 // Market has its trader; chests survive save / load (the hero is outside after a load).
+// Gap closure G5 (section 11): every layout validates, 3 variants per type picked deterministically per building,
+// living NPCs (a resident wanders by day, sits at a table at dusk, sleeps in a bed at night; keepers work at their
+// station; facing follows movement; greeting bubbles), tavern patrons (2-6 seated by time of day, own villagers off
+// duty at night, rumours, buying a drink), the tavern's stairs to its guest rooms.
 // Needs a FRESH private server (default 160 map: its human settlements have Markets): `npm test -- interiors`.
 import WebSocket from "ws";
 
@@ -17,7 +21,7 @@ const result = (ok, msg) => {
   console.log(`${ok ? "PASS" : "FAIL"} [${el()}] ${msg}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const T = { Empty: 0, House: 13, TownCenter: 12, Market: 28, Church: 20 };
+const T = { Empty: 0, House: 13, TownCenter: 12, Market: 28, Church: 20, Blacksmith: 26, Tavern: 31 };
 const TILE = 32;
 const px = (t) => t * TILE + 16;
 
@@ -78,6 +82,8 @@ await hook("setCycleTick", { tick: 0 });
 await life({ needs: true, energy: 100, food: 100, rest: 100, pack: {} });
 
 const W = c.welcome.worldTilesX;
+// Sections 1-10 walk the phase 5c layouts (variant 0) by their tile coordinates.
+await ins({ variant: 0 });
 const tc = (await hook("constructionState")).townCenters[0];
 // A House on cleared ground away from the Town Center; its door is the tile below it.
 const H = { x: Math.max(6, Math.min(W - 10, tc.x + (tc.x < W / 2 ? 12 : -12))), y: Math.max(6, Math.min(W - 10, tc.y + 8)) };
@@ -244,6 +250,169 @@ if (town) {
   const barred = await ins({ enter: { tx: mk.x, ty: mk.y } });
   result(!barred.inside && /barred/.test(barred.why ?? ""), `hostile settlement: ${barred.why}`);
 } else result(false, `no standing human settlement`);
+
+// 11. Gap closure G5.
+{
+  let R = await ins();
+  result(Array.isArray(R.templateErrors) && R.templateErrors.length === 0, `every interior layout validates (${(R.templateErrors ?? []).slice(0, 4).join("; ")})`);
+  // 3 variants of the house, each a different map; with no forcing the pick is stable per building.
+  const sizes = [];
+  for (const vv of [0, 1, 2]) {
+    await ins({ variant: vv, exit: true });
+    R = await ins({ enter: { tx: H.x, ty: H.y } });
+    sizes.push(`${R.view?.map?.variant}:${R.view?.map?.w}x${R.view?.map?.h}`);
+  }
+  await ins({ exit: true, variant: null });
+  result(new Set(sizes).size === 3 && sizes.every((z, i) => z.startsWith(`${i}:`)), `house variants 0-2 are three layouts (${sizes.join(", ")})`);
+  const picks = [];
+  for (const [dx, dy] of [[0, 0], [-3, 3], [3, 3], [-3, -3], [3, -3], [0, 3]]) {
+    const hx = H.x + dx;
+    const hy = H.y + dy;
+    if (dx || dy) await setTile(hx, hy, T.House);
+    const a = await ins({ enter: { tx: hx, ty: hy } });
+    await ins({ exit: true });
+    const b2 = await ins({ enter: { tx: hx, ty: hy } });
+    picks.push([a.inside?.variant, b2.inside?.variant]);
+    await ins({ exit: true });
+    if (dx || dy) await setTile(hx, hy, T.Empty);
+  }
+  result(picks.every(([a, b2]) => a === b2 && a >= 0 && a <= 2) && new Set(picks.map((q) => q[0])).size >= 2, `the pick is deterministic per building and varies between them (${JSON.stringify(picks)})`);
+  await ins({ variant: 0 });
+
+  if (town) {
+    await hook("diploSet", { siteId: town.id, relation: 30 });
+    const liveOf = (R2, name) => {
+      const n = R2.view?.npcs?.find((q) => q.name === name);
+      return n && R2.live.find((q) => q.id === n.id);
+    };
+    // A settlement house: its villager wanders by day, sits at the table at dusk, sleeps in the bed at night.
+    const hs = { x: H.x, y: H.y - 2 };
+    await setTile(hs.x, hs.y, T.House);
+    await hook("setOwner", { tx: hs.x, ty: hs.y, siteId: town.id });
+    await hook("setCycleTick", { tick: 400 });
+    R = await ins({ enter: { tx: hs.x, ty: hs.y } });
+    const res = R.view?.npcs?.find((q) => q.act === "resident");
+    // Stand far from it (the hero stops NPCs close by).
+    await ins({ at: { x: px(9), y: px(4) } });
+    const seenAt = new Set();
+    let walked = null;
+    for (let k = 0; k < 30; k++) {
+      await ff(10);
+      R = await ins();
+      const n = liveOf(R, res?.name);
+      if (!n) break;
+      seenAt.add(`${Math.round(n.x)},${Math.round(n.y)}`);
+      if (n.pose === "walk" && !walked) {
+        await ff(2);
+        const n2 = liveOf(await ins(), res.name);
+        const dx = n2.x - n.x;
+        const dy = n2.y - n.y;
+        const want = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? "l" : "r") : dy < 0 ? "u" : "d";
+        if (Math.hypot(dx, dy) > 0.01) walked = { face: n2.face, want };
+      }
+    }
+    result(!!res && seenAt.size >= 2, `day: the resident ${res?.name} wanders (${seenAt.size} tiles: ${[...seenAt].join(" ")})`);
+    result(!!walked && walked.face === walked.want, `facing follows movement (${JSON.stringify(walked)})`);
+    await hook("setCycleTick", { tick: 5000 });
+    await ff(200);
+    R = await ins();
+    let n = liveOf(R, res?.name);
+    const chair = R.view.map.props.some((q) => q.prop === "chair" && q.x === Math.round(n?.x) && q.y === Math.round(n?.y));
+    result(n?.pose === "sit" && chair, `dusk: at the table (${JSON.stringify(n)})`);
+    await hook("setCycleTick", { tick: 6300 });
+    await ff(200);
+    R = await ins();
+    n = liveOf(R, res?.name);
+    const bed = R.view.map.props.some((q) => (q.prop === "bed" || q.prop === "bedFine") && q.x === Math.round(n?.x) && q.y === Math.round(n?.y));
+    result(n?.pose === "sleep" && bed, `night: asleep in a bed (${JSON.stringify(n)})`);
+    await ins({ exit: true });
+
+    // A settlement smithy: the smith stays at the anvil working; a greeting bubble when the hero comes close.
+    const sm = { x: H.x + 2, y: H.y - 2 };
+    await setTile(sm.x, sm.y, T.Blacksmith);
+    await hook("setOwner", { tx: sm.x, ty: sm.y, siteId: town.id });
+    await hook("setCycleTick", { tick: 400 });
+    R = await ins({ enter: { tx: sm.x, ty: sm.y } });
+    const smith = R.view?.npcs?.find((q) => q.act === "keeper");
+    await ff(60);
+    R = await ins();
+    n = liveOf(R, smith?.name);
+    result(!!smith && n?.pose === "work" && n.x === smith.x && n.y === smith.y && !n.say, `the smith works at the station (${JSON.stringify(n)})`);
+    await ins({ at: { x: px(smith.x), y: px(smith.y + 2) } });
+    await ff(6);
+    n = liveOf(await ins(), smith.name);
+    result(typeof n?.say === "string" && n.say.length > 0, `greeting bubble: "${n?.say}"`);
+    await ins({ exit: true });
+
+    // A settlement tavern: patrons seated by time of day; rumours; a drink; the stairs to the guest rooms.
+    const tv = { x: H.x - 2, y: H.y - 2 };
+    await setTile(tv.x, tv.y, T.Tavern);
+    await hook("setOwner", { tx: tv.x, ty: tv.y, siteId: town.id });
+    R = await ins({ enter: { tx: tv.x, ty: tv.y } });
+    await ff(4);
+    R = await ins();
+    const pats = (R2) => R2.view.npcs.filter((q) => q.roleLabel === "Patron");
+    const seated = pats(R).every((q) => R.live.find((l) => l.id === q.id)?.pose === "sit");
+    result(pats(R).length >= 2 && pats(R).length <= 3 && seated, `tavern by day: ${pats(R).length} patrons seated (${pats(R).map((q) => q.name).join(", ")})`);
+    const pat = pats(R)[0];
+    await ins({ at: { x: px(pat.x), y: px(pat.y + 1) } });
+    await pressE();
+    if (c.dialogue?.dialogue?.npc?.role !== "patron") {
+      // Another patron sat closer: ask for this one.
+      const pick = c.dialogue?.dialogue?.choices?.findIndex((x) => x.label.includes(pat.name));
+      if (pick >= 0) await life({ choice: pick });
+    }
+    let d2 = c.dialogue?.dialogue;
+    result(d2?.npc?.role === "patron" && d2.choices.some((x) => /rumours/.test(x.label)) && d2.choices.some((x) => /drink/.test(x.label)), `patron dialogue: ${d2?.choices?.map((x) => x.label).join(" / ")}`);
+    await life({ choice: d2.choices.findIndex((x) => /rumours/.test(x.label)) });
+    result(/tiles|camps? within|Quiet roads/.test(c.dialogue?.dialogue?.text ?? ""), `rumour: ${c.dialogue?.dialogue?.text}`);
+    await life({ choice: c.dialogue.dialogue.choices.findIndex((x) => /^Back/.test(x.label)) });
+    const g0 = (await hook("setStock", { stock: { gold: 50 } })).stock.gold;
+    await life({ rest: 40 });
+    await life({ choice: c.dialogue.dialogue.choices.findIndex((x) => /drink/.test(x.label)) });
+    const g1 = (await hook("setStock", { stock: {} })).stock.gold;
+    L = await life();
+    result(g0 - g1 === 3 && L.life.rest >= 51 && /ale/.test(c.dialogue?.dialogue?.text ?? ""), `a drink: gold ${g0} -> ${g1}, rest 40 -> ${L.life.rest?.toFixed?.(1)}`);
+    const bal = await hook("balanceState");
+    result((bal?.parts?.drink ?? 0) > 0, `the drink lifts colony happiness (+${bal?.parts?.drink})`);
+    await life({ choice: c.dialogue.dialogue.choices.findIndex((x) => /Farewell/.test(x.label)) });
+    await hook("setCycleTick", { tick: 6300 });
+    await ff(25);
+    R = await ins();
+    result(pats(R).length >= 4 && pats(R).length <= 6, `tavern at night: ${pats(R).length} patrons`);
+    // Upstairs (variant 0: the stairs at 1,7): guests asleep; Esc refused; back down beside the stairs.
+    await ff(35);
+    await ins({ at: { x: px(1), y: px(7) } });
+    await ff(2);
+    R = await ins();
+    const ups = R.view?.npcs ?? [];
+    await ff(4);
+    R = await ins();
+    result(R.inside?.storey === 1 && R.view.map.storey === 1 && ups.length > 0 && R.live.every((q) => q.pose === "sleep"), `up the stairs: ${R.view?.title}, ${ups.length} asleep (${R.live.map((q) => q.pose).join(",")})`);
+    let ev2 = c.events.length;
+    send({ type: "interiorExit" });
+    await sleep(150);
+    R = await ins();
+    result(R.inside?.storey === 1 && /stairs down/.test(eventsSince(ev2)), `Esc upstairs refused (${eventsSince(ev2)})`);
+    const dn = R.view.map.stairs;
+    await ff(35);
+    await ins({ at: { x: px(dn.x), y: px(dn.y) } });
+    await ff(2);
+    R = await ins();
+    result(R.inside?.storey === 0 && Math.abs(R.inside.x - px(1)) + Math.abs(R.inside.y - px(7)) <= TILE + 1, `down again beside the stairs (${R.inside?.x}, ${R.inside?.y})`);
+    await ins({ exit: true });
+    // Your own tavern at night: your villagers off duty drink there.
+    await hook("setOwner", { tx: tv.x, ty: tv.y, siteId: null });
+    await setTile(tv.x, tv.y, T.Empty);
+    await setTile(tv.x, tv.y, T.Tavern);
+    R = await ins({ enter: { tx: tv.x, ty: tv.y } });
+    const own = pats(R).filter((q) => !/traveller/.test(q.name));
+    result(pats(R).length >= 4 && own.length >= 1, `own tavern at night: ${pats(R).length} patrons, ${own.length} of yours (${pats(R).map((q) => q.name).join(", ")})`);
+    await ins({ exit: true });
+    await hook("setCycleTick", { tick: 400 });
+    for (const q of [hs, sm, tv]) await setTile(q.x, q.y, T.Empty);
+  }
+}
 
 // 10. Save / load: the chest is kept; after a load everyone is outside.
 await ins({ enter: { tx: H.x, ty: H.y } });

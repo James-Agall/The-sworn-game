@@ -18,6 +18,7 @@ import {
   type DialogueAction, type DialogueSnapshot, type GatherKind, type HeroLifeSnapshot, type HeroSkill, type HeroTool, type NpcRole,
   type PackGood, type PersonalBuild, type ToolAct, gatherKindOf, skillSpeed, skillXpFor,
 } from "@colony/shared/herolife";
+import { TAVERN_DRINKS_PER_DAY, TAVERN_DRINK_CHEER_TICKS, TAVERN_DRINK_GOLD, TAVERN_DRINK_HAPPINESS, TAVERN_DRINK_REST } from "@colony/shared/interiors";
 import { CROPS, CropStage, type CropId } from "@colony/shared/zones";
 import { heroCropStage, heroFarmApply, heroFarmCheck, heroFertilise, heroZoneCrop } from "./zones.js";
 import { type ItemId, type Recipe, PROFESSION_LABEL, levelForXp, stationRecipes, xpToNext } from "@colony/shared/progression";
@@ -28,7 +29,7 @@ import { anchorOfTile, getBuildingLevel, inBounds, isNightNow, ownerAt, tileInde
 import { isWalkableTile } from "./pathfinding.js";
 import { resolveTownCenterPlacement } from "./construction.js";
 import { newPerson, spawnVillager } from "./colonists.js";
-import { setTile } from "./chunks.js";
+import { setTile, tileIndicesOf } from "./chunks.js";
 import { broadcastTileUpdate, circleOffsets, revealAround } from "./net.js";
 import { sendTo } from "./saves.js";
 import { clanIdAt, clanOf, clanTownCenters, townCentersOfClan, withClan } from "./clans.js";
@@ -134,6 +135,8 @@ export interface TalkInside {
   x: number;
   y: number;
   anchor: { x: number; y: number };
+  // Gap closure G5: inside a tavern (keepers / traders there also sell a drink).
+  tavern?: boolean;
 }
 interface Talk {
   role: NpcRole;
@@ -250,6 +253,10 @@ function actionBlock(p: Player, t: Talk, a: DialogueAction): string {
   if (a === "alliance" && s && life.flags[`ally:${s.id}`] === day) return "Asked today already";
   if (a === "sellPack" && packWeight(life) <= 0) return "Your pack is empty";
   if (a === "sellAnimals" && animalsForSale(p.clan ?? 0).length === 0) return "You have no animals to sell";
+  if (a === "drink") {
+    if (life.flags.drinkDay === day && (life.flags.drinkN ?? 0) >= TAVERN_DRINKS_PER_DAY) return "You have had enough for today";
+    if ((state.stock.gold ?? 0) < TAVERN_DRINK_GOLD) return `Needs ${TAVERN_DRINK_GOLD} gold`;
+  }
   return "";
 }
 
@@ -263,6 +270,10 @@ function renderTalk(p: Player, t: Talk, nodeId: string, prefix = "") {
     .map((c) => ({ label: fill(c.label, t, tier), next: c.next, action: c.action, disabled: c.action ? actionBlock(p, t, c.action) || undefined : undefined }));
   if (nodeId === "start") {
     const extra = familyChoices(p, t);
+    // Gap closure G5: whoever keeps a tavern also pours a drink.
+    if (t.inside?.tavern && (t.role === "keeper" || t.role === "trader")) {
+      extra.push({ label: `Buy a drink (${TAVERN_DRINK_GOLD} gold).`, action: "drink", disabled: actionBlock(p, t, "drink") || undefined });
+    }
     if (extra.length) t.choices.splice(t.choices.length - 1, 0, ...extra);
   }
   sendTalk(p, t, (prefix ? prefix + "\n\n" : "") + fill(raw, t, tier));
@@ -386,6 +397,21 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
       if (s) life.flags[`rumour:${s.id}`] = day;
       gainSkill(p, "speech", 3);
       return sayThen(p, t, rumourAbout(p));
+    // Gap closure G5: a tavern patron's rumour; a drink (gold: rest, a little cheer for the colony).
+    case "patronRumour":
+      if (life.flags[`prumour:${t.name}`] !== day) gainSkill(p, "speech", 2);
+      life.flags[`prumour:${t.name}`] = day;
+      return sayThen(p, t, patronRumour(p, t.name));
+    case "drink": {
+      if (life.flags.drinkDay !== day) life.flags.drinkN = 0;
+      life.flags.drinkDay = day;
+      life.flags.drinkN = (life.flags.drinkN ?? 0) + 1;
+      state.stock.gold -= TAVERN_DRINK_GOLD;
+      if (s) s.stock.gold = (s.stock.gold ?? 0) + TAVERN_DRINK_GOLD;
+      life.rest = Math.min(NEED_MAX, life.rest + TAVERN_DRINK_REST);
+      tavernCheer.set(p.clan ?? 0, state.cycleTick + TAVERN_DRINK_CHEER_TICKS);
+      return sayThen(p, t, `A mug of ale, warm bread on the side. You feel better (rest +${TAVERN_DRINK_REST}; your people's spirits lift a little).`);
+    }
     case "lodging":
       if (s) life.flags[`lodging:${s.id}`] = day;
       life.rest = NEED_MAX;
@@ -588,6 +614,66 @@ function rumourAbout(p: Player): string {
     revealAround(town.s.keepX, town.s.keepY, circleOffsets(4));
   }
   return lines.length ? lines.join(" ") : "\"Quiet roads lately. Can't complain.\"";
+}
+
+// Gap closure G5: a tavern patron's rumour, one of up to four kinds (picked by who tells it and the day): the nearest
+// standing camp, the nearest settlement, the nearest iron ore, how many camps lie within a day's walk. The place
+// named is revealed on the minimap.
+function patronRumour(p: Player, who: string): string {
+  const px = p.x / TILE_SIZE;
+  const py = p.y / TILE_SIZE;
+  const lines: (() => string)[] = [];
+  let camp: { x: number; y: number; d: number; faction: string } | null = null;
+  let campsNear = 0;
+  for (const h of hearths.values()) {
+    if (h.destroyed) continue;
+    const d = Math.hypot(h.x - px, h.y - py);
+    if (d <= 40) campsNear++;
+    if (!camp || d < camp.d) camp = { x: h.x, y: h.y, d, faction: h.faction };
+  }
+  if (camp) {
+    const c = camp;
+    lines.push(() => {
+      revealAround(c.x, c.y, circleOffsets(4));
+      return `"A ${c.faction} camp sits about ${Math.round(c.d)} tiles ${bearing(c.x - px, c.y - py)} of here. Lost a cousin on that road."`;
+    });
+  }
+  if (campsNear > 0) lines.push(() => `"I count ${campsNear} camp${campsNear === 1 ? "" : "s"} within a day's walk. Bar your doors at night."`);
+  let town: { s: SiteState; d: number } | null = null;
+  for (const s of sites.values()) {
+    if (!standingTown(s)) continue;
+    const d = Math.hypot(s.keepX - px, s.keepY - py);
+    if (d > 12 && (!town || d < town.d)) town = { s, d };
+  }
+  if (town) {
+    const tw = town;
+    lines.push(() => {
+      revealAround(tw.s.keepX, tw.s.keepY, circleOffsets(4));
+      return `"Came here by way of ${tw.s.name}, ${Math.round(tw.d)} tiles ${bearing(tw.s.keepX - px, tw.s.keepY - py)}. Fair traders, if you can stand the smell."`;
+    });
+  }
+  let ore: { x: number; y: number; d: number } | null = null;
+  for (const i of tileIndicesOf(TileType.IronOre)) {
+    const x = i % state.WORLD_TILES_X;
+    const y = Math.floor(i / state.WORLD_TILES_X);
+    const d = Math.hypot(x - px, y - py);
+    if (!ore || d < ore.d) ore = { x, y, d };
+  }
+  if (ore) {
+    const o = ore;
+    lines.push(() => {
+      revealAround(o.x, o.y, circleOffsets(3));
+      return `"Miners say there's iron in the rocks ${Math.round(o.d)} tiles ${bearing(o.x - px, o.y - py)}. Rich seam, too."`;
+    });
+  }
+  if (!lines.length) return `"Quiet roads lately. I'd drink to that."`;
+  return lines[hashOf(`${who}:${gameDay()}`) % lines.length]();
+}
+
+// Gap closure G5: a drink lifts the clan's happiness by TAVERN_DRINK_HAPPINESS for a while (colonists.ts).
+const tavernCheer = new Map<number, number>();
+export function tavernCheerHappiness(clan: number): number {
+  return state.cycleTick < (tavernCheer.get(clan) ?? -1) ? TAVERN_DRINK_HAPPINESS : 0;
 }
 
 // The settlement posts this clan a quest now if it can (its cooldown and the per-settlement cap apply).

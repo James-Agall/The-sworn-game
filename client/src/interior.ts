@@ -6,11 +6,14 @@
 // lighting vignette and a fade. The camera follows the hero (a room smaller than the screen is centred). HUD: the
 // room's title, "Raiders near the door" when hostiles are close, the exit hint near the mat. Esc near the mat leaves.
 // The whole-room interior paintings (art-sources builder/interior_room_*) do not fit the template grids: not used.
+// Gap closure G5: NPCs move by `interiorNpcs` (eased), walk with their kind's walk frames, work with its action frames
+// (or a stand-in tool swing), bob when idle, sit lower on a chair, lie across a bed asleep ("z"), face where they go
+// and show a speech bubble when they greet. Stairs ("U" / "D") are drawn in code; upstairs has no exit hint.
 import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { TileType, type PlayerSnapshot } from "@colony/shared/protocol";
 import {
-  INTERIOR_ESC_EXIT_TILES, INTERIOR_FADE_MS, INTERIOR_TILE_PX, INTERIOR_VIGNETTE_ALPHA, INTERIOR_ZOOM, type InteriorMap,
-  type InteriorProp, type InteriorView,
+  INTERIOR_BOB_MS, INTERIOR_BOB_PX, INTERIOR_ESC_EXIT_TILES, INTERIOR_FADE_MS, INTERIOR_TILE_PX, INTERIOR_VIGNETTE_ALPHA,
+  INTERIOR_WALK_FRAME_MS, INTERIOR_WORK_MS, INTERIOR_ZOOM, type InteriorMap, type InteriorNpcLive, type InteriorProp, type InteriorView,
 } from "@colony/shared/interiors";
 import type { StructureTextures } from "./structureArt";
 
@@ -41,6 +44,8 @@ export interface InteriorDeps {
   playerTexture: Texture;
   playerHeight: number;
   npcTexture: (kind: string) => Texture | undefined;
+  // Gap closure G5: the kind's walk / action frames and their scale (missing: the still texture, stand-in motion).
+  npcAnim?: (kind: string) => { walk: Texture[]; action: Texture[]; scale: number } | undefined;
   npcHeight: number;
   send: (msg: object) => void;
   myId: () => string | null;
@@ -51,6 +56,8 @@ export interface InteriorDeps {
 export interface InteriorUi {
   active: () => boolean;
   onMessage: (view: InteriorView | null) => void;
+  // Gap closure G5: message `interiorNpcs`.
+  onNpcs: (key: string, storey: number, npcs: InteriorNpcLive[]) => void;
   onPlayers: (players: PlayerSnapshot[]) => void;
   reset: () => void;
 }
@@ -135,7 +142,38 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   let shown = { x: NaN, y: NaN };
   let fadeT = 0;
 
+  // Gap closure G5: the NPCs drawn (by id): body, name, bubble, eased position, the last live state.
+  interface NpcView {
+    body: Container;
+    label: Text;
+    bubble: Container;
+    bubbleText: Text;
+    zzz: Text;
+    anim?: { walk: Texture[]; action: Texture[]; scale: number };
+    still?: Texture;
+    k: number;
+    right: boolean;
+    sx: number;
+    sy: number;
+    live: InteriorNpcLive;
+    phase: number;
+  }
+  const npcViews = new Map<string, NpcView>();
+  let pendingLive: { key: string; storey: number; npcs: InteriorNpcLive[] } | null = null;
+
   function propSprite(prop: InteriorProp, x: number, y: number): Container {
+    if (prop === "stairsUp" || prop === "stairsDown") {
+      // Stand-in stairs (SPRITES.md): steps rising toward the back wall (up), or a dark stairwell (down).
+      const g = new Graphics();
+      const up = prop === "stairsUp";
+      g.rect(x * T + 2, y * T + 2, T - 4, T - 4).fill(up ? 0x6b4423 : 0x24160a);
+      for (let k = 0; k < 5; k++) {
+        const yy = y * T + 4 + k * 5;
+        g.rect(x * T + 4, yy, T - 8, 3).fill({ color: up ? 0xb07a45 : 0x5a3a1c, alpha: up ? 1 - k * 0.12 : 0.4 + k * 0.12 });
+      }
+      g.zIndex = -1;
+      return g;
+    }
     const tile = PROP_TILE[prop];
     const art = tile !== undefined ? deps.structure.furniture(tile) : undefined;
     const tex = art?.texture ?? (PROP_EXTRA[prop] ? extraTexture(PROP_EXTRA[prop]!) : undefined);
@@ -217,28 +255,121 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       }
     }
     for (const p of m.props) room.addChild(propSprite(p.prop, p.x, p.y));
+    const old = new Map(npcViews);
+    npcViews.clear();
     for (const n of v.npcs) {
-      const tex = deps.npcTexture(n.kind);
+      const anim = deps.npcAnim?.(n.kind);
+      const tex = anim?.walk[0] ?? deps.npcTexture(n.kind);
       let body: Container;
+      let k = 1;
       if (tex) {
         const s = new Sprite(tex);
         s.anchor.set(0.5, 0.85);
-        s.scale.set(deps.npcHeight / tex.height);
+        k = anim ? anim.scale : deps.npcHeight / tex.height;
+        s.scale.set(k);
         body = s;
       } else body = new Graphics().circle(0, -8, 8).fill(n.color);
-      body.position.set((n.x + 0.5) * T, (n.y + 0.5) * T);
-      body.zIndex = (n.y + 0.5) * T;
       room.addChild(body);
       const label = new Text({ text: n.name, style: { fontSize: 9, fill: 0xffffff, fontFamily: "serif", stroke: { color: 0x000000, width: 3 } } });
       label.anchor.set(0.5, 1);
       label.resolution = 3;
-      label.position.set((n.x + 0.5) * T, n.y * T - 6);
       label.zIndex = 1e6;
       room.addChild(label);
+      const bubble = new Container();
+      const bubbleText = new Text({ text: "", style: { fontSize: 8, fill: 0x2a1a0c, fontFamily: "serif" } });
+      bubbleText.anchor.set(0.5, 1);
+      bubbleText.resolution = 3;
+      bubble.addChild(new Graphics(), bubbleText);
+      bubble.zIndex = 1e6 + 1;
+      bubble.visible = false;
+      room.addChild(bubble);
+      const zzz = new Text({ text: "z z", style: { fontSize: 8, fill: 0xdfe8ff, fontFamily: "serif", stroke: { color: 0x000000, width: 2 } } });
+      zzz.anchor.set(0.5, 1);
+      zzz.resolution = 3;
+      zzz.zIndex = 1e6;
+      zzz.visible = false;
+      room.addChild(zzz);
+      const prev = old.get(n.id);
+      const live: InteriorNpcLive = prev?.live ?? { id: n.id, x: n.x, y: n.y, face: "d", pose: "idle" };
+      npcViews.set(n.id, {
+        body, label, bubble, bubbleText, zzz, anim, still: tex, k, right: prev?.right ?? true,
+        sx: prev?.sx ?? live.x, sy: prev?.sy ?? live.y, live, phase: (n.id.length * 97) % 1000,
+      });
     }
+    if (pendingLive && pendingLive.key === v.key && pendingLive.storey === m.storey) applyLive(pendingLive.npcs);
     room.addChild(hero);
     for (const o of others.values()) room.addChild(o);
-    builtKey = `${v.key}:${m.templateId}:${m.level}:${JSON.stringify(v.npcs)}`;
+    builtKey = keyOf(v);
+  }
+  const keyOf = (v: InteriorView) => `${v.key}:${v.map.templateId}:${v.map.level}:${v.map.variant}:${v.map.storey}:${JSON.stringify(v.npcs)}`;
+
+  function applyLive(npcs: InteriorNpcLive[]) {
+    for (const n of npcs) {
+      const nv = npcViews.get(n.id);
+      if (!nv) continue;
+      if (Math.hypot(n.x - nv.sx, n.y - nv.sy) > 3) {
+        nv.sx = n.x;
+        nv.sy = n.y;
+      }
+      if (n.face === "l") nv.right = false;
+      else if (n.face === "r") nv.right = true;
+      if (n.say !== nv.live.say) {
+        nv.bubbleText.text = n.say ?? "";
+        const g = nv.bubble.children[0] as Graphics;
+        g.clear();
+        if (n.say) {
+          const w = nv.bubbleText.width + 8;
+          const h = nv.bubbleText.height + 4;
+          g.roundRect(-w / 2, -h - 1, w, h, 3).fill(0xfff6e0).stroke({ width: 1, color: 0x3a2210 });
+          g.poly([-3, -1, 3, -1, 0, 3]).fill(0xfff6e0);
+        }
+      }
+      nv.live = n;
+    }
+  }
+
+  // Each frame: ease toward the live position, pick the pose's frame, bob / swing / sit / lie down.
+  function animateNpcs(now: number) {
+    for (const nv of npcViews.values()) {
+      const n = nv.live;
+      nv.sx += (n.x - nv.sx) * 0.3;
+      nv.sy += (n.y - nv.sy) * 0.3;
+      let x = (nv.sx + 0.5) * T;
+      let y = (nv.sy + 0.5) * T;
+      const t = now + nv.phase;
+      let tex = nv.still;
+      let rot = 0;
+      let dy = 0;
+      let sy = 1;
+      if (n.pose === "walk") {
+        if (nv.anim?.walk.length) tex = nv.anim.walk[Math.floor(t / INTERIOR_WALK_FRAME_MS) % nv.anim.walk.length];
+        else dy = -Math.abs(Math.sin(t / INTERIOR_WALK_FRAME_MS)) * 2;
+      } else if (n.pose === "work") {
+        // Tool swing: the action frames, else a 2-frame tilt.
+        if (nv.anim?.action.length) tex = nv.anim.action[Math.floor((t / INTERIOR_WORK_MS) * nv.anim.action.length) % nv.anim.action.length];
+        else rot = Math.floor(t / (INTERIOR_WORK_MS / 2)) % 2 ? 0.12 : -0.05;
+      } else if (n.pose === "sit") {
+        dy = 3;
+        sy = 0.86;
+      } else if (n.pose === "sleep") {
+        rot = -Math.PI / 2;
+        y -= 4;
+        x += 2;
+      } else dy = Math.sin((t / INTERIOR_BOB_MS) * Math.PI * 2) * INTERIOR_BOB_PX;
+      const b = nv.body;
+      if (b instanceof Sprite && tex && b.texture !== tex) b.texture = tex;
+      const sxSign = nv.right ? 1 : -1;
+      b.scale.set(nv.k * sxSign, nv.k * sy);
+      b.rotation = rot;
+      b.position.set(x, y + dy);
+      b.zIndex = n.pose === "sleep" ? (nv.sy + 0.5) * T - 8 : y;
+      nv.label.position.set(x, n.pose === "sleep" ? y - 14 : y - 22 + dy);
+      nv.label.visible = n.pose !== "sleep";
+      nv.zzz.visible = n.pose === "sleep";
+      nv.zzz.position.set(x + 6, y - 12 - (Math.floor(t / 600) % 3));
+      nv.bubble.visible = !!n.say && n.pose !== "sleep";
+      nv.bubble.position.set(x, y - 34 + dy);
+    }
   }
 
   let inside = false;
@@ -257,10 +388,13 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   function clearRoom() {
     for (const c of room.removeChildren()) if (c !== hero) c.destroy();
     others.clear();
+    npcViews.clear();
+    pendingLive = null;
   }
 
   function nearExit(): boolean {
     if (!view || !Number.isFinite(target.x)) return false;
+    if (view.map.storey > 0) return false;
     const e = view.map.exit;
     return Math.hypot((e.x + 0.5) * T - target.x, (e.y + 0.5) * T - target.y) / T <= INTERIOR_ESC_EXIT_TILES;
   }
@@ -286,6 +420,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     }
     hero.position.set(shown.x, shown.y);
     hero.zIndex = shown.y;
+    animateNpcs(performance.now());
     const zoom = INTERIOR_ZOOM;
     const m = view.map;
     room.scale.set(zoom);
@@ -321,15 +456,18 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         setInside(false);
         return;
       }
-      const fresh = !view || view.key !== v.key;
+      const fresh = !view || view.key !== v.key || view.map.storey !== v.map.storey;
       view = v;
       titleEl.textContent = v.title;
       threatEl.hidden = v.threat <= 0;
       threatEl.textContent = `Raiders near the door! (${v.threat} hostile${v.threat === 1 ? "" : "s"} close by)`;
-      const key = `${v.key}:${v.map.templateId}:${v.map.level}:${JSON.stringify(v.npcs)}`;
-      if (fresh || key !== builtKey) build(v);
+      if (fresh || keyOf(v) !== builtKey) build(v);
       if (fresh) shown = { x: NaN, y: NaN };
       setInside(true);
+    },
+    onNpcs(key, storey, npcs) {
+      pendingLive = { key, storey, npcs };
+      if (view && view.key === key && view.map.storey === storey) applyLive(npcs);
     },
     onPlayers(players) {
       if (!view) return;

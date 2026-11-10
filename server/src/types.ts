@@ -69,11 +69,16 @@ export interface PlayerInterior {
   tile: number;
   level: number;
   templateId: string;
+  // Gap closure G5: the layout (interiorVariantFor) and the storey (0 ground, 1 upstairs).
+  variant: number;
+  storey: number;
   x: number;
   y: number;
   // Last `interior` view JSON sent (resent only on change) and the next refresh tick.
   sent: string;
   nextRefresh: number;
+  // Last `interiorNpcs` JSON sent.
+  npcSent?: string;
 }
 export interface TileCoord {
   x: number;
