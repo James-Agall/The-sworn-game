@@ -69,6 +69,10 @@ export const ITEM_ICON: Record<string, string> = {
   "item:egg": iconUrl("item_egg"),
   "item:milk": iconUrl("item_milk_pail"),
   "item:carpenterTools": iconUrl("work_crafting"),
+  // Gap closure G6 stand-ins (SPRITES.md: shears / manure icons needed).
+  "item:shears": iconUrl("tool_scythe"),
+  "item:milkPail": iconUrl("item_milk_pail"),
+  "item:manure": iconUrl("item_hay_bale"),
   ...Object.fromEntries([1, 2, 3].flatMap((t) => [[`gear:weapon:${t}`, iconUrl("stock_weapons")], [`gear:armour:${t}`, iconUrl("stock_armour")]])),
 };
 // An <img> for a small HUD icon that removes itself if the file is missing.

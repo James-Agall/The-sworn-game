@@ -24,8 +24,8 @@ import { TICK_RATE } from "@colony/shared/protocol";
 import { inBounds, ownerAt, tileIndex, tileOfPixel } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { clanById, clanIdAt, isForeignClanTile, townCentersOfClan, withClan } from "./clans.js";
-import { HAY_PER_WHEAT_HARVEST } from "@colony/shared/animals";
-import { addItem } from "./progression.js";
+import { FERTILISER_GROWTH_BONUS, HAY_PER_WHEAT_HARVEST } from "@colony/shared/animals";
+import { addItem, gatesOpen, itemCount, takeItem } from "./progression.js";
 import { tileIndicesOf } from "./chunks.js";
 import { roomAtIndex } from "./structures.js";
 import { cropGrowthMult, rainingNow } from "./calendar.js";
@@ -50,6 +50,8 @@ interface CropRec {
   // A plot inside a zone (painted over it later) grows its own crop until harvested, then follows the zone.
   plot?: number;
   crop?: CropId;
+  // Gap closure G6: manured (x (1 + FERTILISER_GROWTH_BONUS) growth) until harvested.
+  fert?: boolean;
 }
 interface Pile {
   res: string;
@@ -228,7 +230,7 @@ export function updateZones() {
     }
     const season = cropGrowthMult(cropId, roofed);
     if (season <= 0) continue;
-    c.progress += TICK_RATE * season * (c.tended ? 1 : ZONE_UNTENDED_GROWTH);
+    c.progress += TICK_RATE * season * (c.tended ? 1 : ZONE_UNTENDED_GROWTH) * (c.fert ? 1 + FERTILISER_GROWTH_BONUS : 1);
     const stage = c.progress >= grow ? CropStage.Ripe : c.progress >= grow * CROP_SOWN_FRACTION ? CropStage.Growing : CropStage.Sown;
     if (stage !== c.stage) {
       c.stage = stage;
@@ -597,18 +599,21 @@ export function updateZoneWorker(c: Colonist, dt: number, rate: number, filter: 
     case "till":
       crops.set(i, { stage: CropStage.Tilled, progress: 0, tended: false });
       break;
-    case "sow":
+    case "sow": {
       // (A hero plot inside the zone stays a plot; it now grows the zone's crop.)
-      if (crop) Object.assign(crop, { stage: CropStage.Sown, progress: 0, tended: false, crop: undefined });
-      else crops.set(i, { stage: CropStage.Sown, progress: 0, tended: false });
+      // Gap closure G6: with manure in the stores the sower fertilises the tile (one manure).
+      const fert = crop?.fert || withClan(clanById(clan), () => itemCount("manure") > 0 && takeItem("manure", 1));
+      if (crop) Object.assign(crop, { stage: CropStage.Sown, progress: 0, tended: false, crop: undefined, fert });
+      else crops.set(i, { stage: CropStage.Sown, progress: 0, tended: false, fert });
       break;
+    }
     case "tend":
       if (crop) crop.tended = true;
       break;
     case "harvest": {
       const cropId = crop?.crop ?? z?.crop ?? "wheat";
       // Back to tilled soil: sow again.
-      if (crop) Object.assign(crop, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined });
+      if (crop) Object.assign(crop, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined, fert: false });
       else crops.set(i, { stage: CropStage.Tilled, progress: 0, tended: false });
       addPile(i, CROP_RESOURCE[cropId], ZONE_CROP_YIELD[cropId], clan);
       addHay(clan, cropId);
@@ -732,7 +737,8 @@ export function zonesForSave() {
     })),
     // Hero plots add [plot clan, crop index or -1] (older saves: 4-tuples, zone tiles only).
     crops: Array.from(crops, ([i, c]) => {
-      const base = [i, c.stage, Math.round(c.progress), c.tended ? 1 : 0];
+      // Gap closure G6: bit 2 of the tended field = fertilised.
+      const base = [i, c.stage, Math.round(c.progress), (c.tended ? 1 : 0) | (c.fert ? 2 : 0)];
       return c.plot === undefined ? base : [...base, c.plot, c.crop ? CROPS.indexOf(c.crop) : -1];
     }),
     piles: savedPiles,
@@ -765,7 +771,7 @@ export function restoreZones(s: ZonesSave | undefined) {
   }
   for (const [i, stage, progress, tended, plot, cropIdx] of s?.crops ?? []) {
     if (!Number.isInteger(i) || i < 0 || i >= state.tiles.length) continue;
-    const rec: CropRec = { stage, progress, tended: tended === 1 };
+    const rec: CropRec = { stage, progress, tended: (tended & 1) === 1, ...((tended & 2) !== 0 ? { fert: true } : {}) };
     if (typeof plot === "number") {
       rec.plot = plot;
       if (typeof cropIdx === "number" && CROPS[cropIdx]) rec.crop = CROPS[cropIdx];
@@ -841,10 +847,25 @@ export function heroFarmApply(act: HeroFarmAct, i: number, clan: number, crop: C
     const id = c.crop ?? z?.crop ?? "wheat";
     out = { res: CROP_RESOURCE[id], crop: id, n: ZONE_CROP_YIELD[id] };
     addHay(clan, id);
-    Object.assign(c, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined });
+    Object.assign(c, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined, fert: false });
   }
   bump();
   return out;
+}
+
+// Gap closure G6: the hero's manure on tile i (tilled / sown / growing, own field or plot): fertilised until harvested,
+// one manure from the stores (free with the gates open and none in store). "" = done, else why not.
+export function heroFertilise(i: number, clan: number): string {
+  const c = crops.get(i);
+  const z = heroZoneAt(i);
+  if (!c || (z && (z.clan !== clan || z.kind !== "growing")) || (c.plot !== undefined && c.plot !== clan) || (!z && c.plot === undefined)) return "Manure goes on your own tilled soil";
+  if (c.stage === CropStage.Ripe) return "Ripe: harvest it";
+  if (c.fert) return "Already fertilised";
+  const ok = withClan(clanById(clan), () => (itemCount("manure") > 0 ? takeItem("manure", 1) : gatesOpen()));
+  if (!ok) return "No manure in your stores (animals make it: collect it at their houses)";
+  c.fert = true;
+  bump();
+  return "";
 }
 
 // Gap closure G2: the load a zone hauler is carrying (a stock resource key), or undefined (colonist snapshot).
@@ -878,7 +899,9 @@ export function zonesDebug() {
     piles: Array.from(piles, ([i, p]) => ({ x: i % W(), y: Math.floor(i / W()), res: p.res, n: p.n, clan: p.clan })),
     jobs: Array.from(jobs, ([id, j]) => ({ id, kind: j.kind, phase: j.phase, carry: j.carry ?? null })),
     // Stardew phase 5a: every crop tile the hero made or touched outside zones, and hero plots inside them.
-    plots: Array.from(crops).filter(([, c]) => c.plot !== undefined).map(([i, c]) => ({ x: i % W(), y: Math.floor(i / W()), clan: c.plot, stage: c.stage, progress: c.progress, tended: c.tended, crop: c.crop ?? null, inZone: zoneOfTile.has(i) })),
+    plots: Array.from(crops).filter(([, c]) => c.plot !== undefined).map(([i, c]) => ({ x: i % W(), y: Math.floor(i / W()), clan: c.plot, stage: c.stage, progress: c.progress, tended: c.tended, crop: c.crop ?? null, inZone: zoneOfTile.has(i), fert: !!c.fert })),
+    // Gap closure G6: fertilised crop tiles.
+    fertilised: Array.from(crops).filter(([, c]) => c.fert).map(([i]) => ({ x: i % W(), y: Math.floor(i / W()) })),
     version,
   };
 }

@@ -28,6 +28,7 @@ import { adjustRelation } from "./sites.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, resetClan, withClan } from "./clans.js";
 import { broadcastEvent } from "./net.js";
 import { canAfford, formatCost, spend } from "./construction.js";
+import { cartHorseMult } from "./animals.js";
 
 const SCAN_TICKS = 10 * TICK_RATE;
 const TRIPS_PER_DAY_AUTO = 1;
@@ -544,7 +545,8 @@ function moveWagon(w: Colonist & { wagon: NonNullable<Colonist["wagon"]> }, post
   const goal = wg.leg === "out" ? wg.route[wg.route.length - 1] : wg.route[0] ?? { x: w.postX, y: w.postY };
   if (w.path.length > 0) {
     w.state = "walking";
-    advanceAlongPath(w, dt, COLONIST_SPEED * tier(wg.level).speed * (wg.fleeing ? 1.3 : 1));
+    // Gap closure G6: a Stables with a horse pulls the cart faster.
+    advanceAlongPath(w, dt, COLONIST_SPEED * tier(wg.level).speed * (wg.fleeing ? 1.3 : 1) * cartHorseMult(w.clan ?? 0));
     return;
   }
   const at = tileOfPixel(w.x, w.y);
@@ -694,7 +696,7 @@ function stepAbstractWagon(w: Colonist & { wagon: NonNullable<Colonist["wagon"]>
     return false;
   }
   if (!isNightNow()) {
-    wg.abstract.acc += (COLONIST_SPEED * tier(wg.level).speed) / TILE_SIZE;
+    wg.abstract.acc += (COLONIST_SPEED * tier(wg.level).speed * cartHorseMult(w.clan ?? 0)) / TILE_SIZE;
     while (wg.abstract.acc >= 1 && w.path.length > 0) {
       const t = w.path.shift()!;
       const p = tileToPixelCenter(t);

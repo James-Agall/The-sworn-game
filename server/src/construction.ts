@@ -1701,7 +1701,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     ...(t === TileType.TownCenter && villageLevyInfo(tx, ty) ? { levy: villageLevyInfo(tx, ty)! } : {}),
     ...(t === TileType.Keep ? { heroes: keepHeroInfo(tx, ty) } : {}),
     ...(t === TileType.ChurchPost ? { spellShop: churchSpellShop(forPlayer) } : {}),
-    ...(houseKindOfTile(t) && animalHouseInfo(tx, ty) ? { animals: animalHouseInfo(tx, ty)! } : {}),
+    ...(houseKindOfTile(t) && animalHouseInfo(tx, ty, forPlayer) ? { animals: animalHouseInfo(tx, ty, forPlayer)! } : {}),
     ...(t === TileType.GoldShop ? { tradingPost: tradingPostInfo(tx, ty) } : {}),
     ...(progressionInfo(tx, ty, t) ? { progression: progressionInfo(tx, ty, t)! } : {}),
   };

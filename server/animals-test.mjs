@@ -2,7 +2,9 @@
 // Coop (instant build), refuses a new Pasture, buys hens + a rooster (gold, capacity), the hero fills the feeder /
 // trough with E (hay), a daily step makes eggs, E collects them, a chick is born, slaughter (adult only) yields meat,
 // winter eats x1.5, the "animals" work type (off: nobody tends; on: chores done), save / load keeps every animal, 100
-// chickens tick cheaply.
+// chickens tick cheaply. Gap closure G6: horse cart x1.25, riding (x1.6, no tools, happiness drain, dismount), "Call
+// them in", milk pail / shears (x1.25 when due), manure + fertilise (+25% growth), selling at a Market, a hostile mob
+// killing an outdoor animal while the rest flee inside.
 // Needs a FRESH private server (80 map, instant build, unlock all): `npm test -- animals`.
 import WebSocket from "ws";
 
@@ -234,6 +236,186 @@ L = await ls();
 const after = L.animals.filter((a) => a.house === key).map((a) => a.id).sort().join(",");
 H = L.houses.find((h) => h.key === key);
 result(before === after && Math.abs(H.feed - feedSaved) < 1e-6 && L.animals.some((a) => a.name === "Henrietta"), `loaded: animals ${after} (was ${before}), feed ${H.feed}`);
+
+// ---- Gap closure G6 ----
+const T6 = { Barn: 131, Pen: 133, Stables: 71, Market: 28 };
+const dayNow = async () => {
+  for (let i = 0; i < 30 && (await hook("respawnState")).isNight; i++) await ff(400);
+};
+const hero = (args = {}) => hook("heroLife", args);
+await dayNow();
+await stock({ gold: 2000, grain: 200 });
+const bk = `${S.x + 2},${S.y}`;
+const pk = `${S.x - 2},${S.y}`;
+const sk = `${S.x - 2},${S.y + 2}`;
+await hook("setTileRaw", { tx: S.x + 2, ty: S.y, tile: T6.Barn });
+await hook("setTileRaw", { tx: S.x - 2, ty: S.y, tile: T6.Pen });
+await hook("setTileRaw", { tx: S.x - 2, ty: S.y + 2, tile: T6.Stables });
+await ff(25);
+await act({ tileX: S.x + 2, tileY: S.y, op: "buy", species: "cow", male: false });
+await act({ tileX: S.x + 2, tileY: S.y, op: "buy", species: "horse", male: true });
+await act({ tileX: S.x - 2, tileY: S.y, op: "buy", species: "sheep", male: false });
+for (const k of [bk, pk, sk]) await ls({ set: { house: k, feed: 50, water: 50 } });
+L = await ls();
+const clan = L.houses.find((h) => h.key === bk)?.clan ?? 0;
+const cowA = L.animals.find((a) => a.house === bk && a.species === "cow");
+const horseA = L.animals.find((a) => a.house === bk && a.species === "horse");
+const sheepA = L.animals.find((a) => a.house === pk && a.species === "sheep");
+result(!!cowA && !!horseA && !!sheepA, `G6 setup: barn cow ${cowA?.id}, horse ${horseA?.id}, pen sheep ${sheepA?.id}`);
+
+// 14. Horse cart: x1.25 for wagons only with a Stables holding a horse.
+const cart0 = L.cartMult[clan];
+await act({ tileX: S.x - 2, tileY: S.y + 2, op: "buy", species: "horse", male: false });
+const cart1 = (await ls()).cartMult[clan];
+result(cart0 === 1 && cart1 === 1.25, `cart: no stable horse x${cart0}, with one x${cart1}`);
+
+// 15. Riding from the Livestock Barn panel: x1.6 speed, the snapshot flag, no tools, happiness drains, dismount.
+await stand(S.x + 2, S.y + 1);
+const sp0 = (await hero()).speed;
+const far = await act({ tileX: S.x - 2, tileY: S.y + 2, op: "ride", id: (await ls()).animals.find((a) => a.house === sk).id });
+const r1 = await act({ tileX: S.x + 2, tileY: S.y, op: "ride", id: horseA.id });
+let H6 = await hero();
+await sleep(250);
+const meSnap = c.snap.players.find((p) => p.id === c.welcome.playerId || p.id === c.welcome.id) ?? c.snap.players[0];
+result(/Stand next to/.test(far) && /You mount/.test(r1) && Math.abs(H6.speed / sp0 - 1.6) < 1e-6 && meSnap?.mounted === true,
+  `ride: far "${far}", "${r1}", speed ${sp0} -> ${H6.speed}, snapshot mounted ${meSnap?.mounted}`);
+n = c.events.length;
+await hero({ use: { tool: "hoe", tx: S.x + 3, ty: S.y + 1 } });
+await waitEvent(n);
+const noTool = eventsSince(n);
+const happy0 = (await ls()).animals.find((a) => a.id === horseA.id).happiness;
+await ff(20 * 10);
+const happy1 = (await ls()).animals.find((a) => a.id === horseA.id).happiness;
+H6 = await hero({ action: "dismount" });
+L = await ls();
+result(/Dismount first/.test(noTool) && happy1 < happy0 && Object.keys(L.riders).length === 0 && Math.abs(H6.speed - sp0) < 1e-6,
+  `mounted: "${noTool}", horse happiness ${happy0.toFixed(2)} -> ${happy1.toFixed(2)}, dismounted speed ${H6.speed}`);
+
+// 16. "Call them in": the barn's and pen's animals walk inside and stay.
+await act({ tileX: S.x + 2, tileY: S.y, op: "herd", on: true });
+await act({ tileX: S.x - 2, tileY: S.y, op: "herd", on: true });
+let inside = false;
+for (let i = 0; i < 30 && !inside; i++) {
+  await ff(20);
+  inside = (await ls()).animals.filter((a) => a.house === bk || a.house === pk).every((a) => !a.outdoors);
+}
+I = await info(S.x + 2, S.y);
+result(inside && I?.animals?.penned === true && I.animals.outdoors === 0, `called in: all inside ${inside}, panel penned ${I?.animals?.penned}`);
+
+// 17. Milk pail / shears (this suite's gates are open: no tool item needed): x1.25 when due, once per product, the
+// daily step then skips it.
+await stand(S.x + 1, S.y + 1);
+await hook("progression", { items: { milkPail: 1, shears: 1 } });
+const milk0 = (await items()).milk ?? 0;
+n = c.events.length;
+await hero({ use: { tool: "milkPail", tx: S.x + 2, ty: S.y + 1 } });
+await waitEvent(n);
+const pail1 = eventsSince(n);
+const milk1 = (await items()).milk ?? 0;
+n = c.events.length;
+await hero({ use: { tool: "milkPail", tx: S.x + 2, ty: S.y + 1 } });
+await waitEvent(n);
+const pail2 = eventsSince(n);
+result(milk1 - milk0 === 1 && /With the milk pail/.test(pail1) && /nothing ready/.test(pail2),
+  `pail: "${pail1}" (milk ${milk0} -> ${milk1}) / again "${pail2}"`);
+await stand(S.x - 1, S.y + 1);
+n = c.events.length;
+await hero({ use: { tool: "shears", tx: S.x - 2, ty: S.y + 1 } });
+await waitEvent(n);
+const notDue = eventsSince(n);
+await ls({ set: { animal: sheepA.id, productDays: 2 } });
+const wool0 = (await stock()).wool;
+n = c.events.length;
+await hero({ use: { tool: "shears", tx: S.x - 2, ty: S.y + 1 } });
+await waitEvent(n);
+const shorn = eventsSince(n);
+const wool1 = (await stock()).wool;
+result(/nothing ready/.test(notDue) && wool1 - wool0 === 3 && /shears/.test(shorn), `shears: not due "${notDue}", shorn "${shorn}" (wool +${wool1 - wool0})`);
+for (const k of [bk, pk]) await ls({ set: { house: k, feed: 50, water: 50 } });
+const milkWait0 = ((await ls()).houses.find((h) => h.key === bk).waiting.milk ?? [0, 0, 0]).reduce((a, b) => a + b, 0);
+L = await ls({ set: { daily: true } });
+H = L.houses.find((h) => h.key === bk);
+const milkWait1 = (H.waiting.milk ?? [0, 0, 0]).reduce((a, b) => a + b, 0);
+const coopTicks = L.houses.find((h) => h.key === key).choreTicks;
+result(milkWait1 === milkWait0 && !L.animals.find((a) => a.id === cowA.id).handDone && H.choreTicks === coopTicks * 0.75,
+  `daily after milking: milk waiting ${milkWait0} -> ${milkWait1}; chores barn ${H.choreTicks} vs coop ${coopTicks} ticks`);
+
+// 18. Manure: the barn's cow + horse make 1 a day; the hero fertilises a plot (+25% growth, one manure each).
+const dung = (H.waiting.manure ?? [0])[0];
+result(dung >= 1 && H.today.manure === 1, `manure waiting at the barn: ${dung} (today ${JSON.stringify(H.today)})`);
+await hook("progression", { items: { hoe: 1, wheatSeeds: 4, manure: 2 } });
+await stand(S.x, S.y - 2);
+const pa = { x: S.x - 1, y: S.y - 2 };
+const pb = { x: S.x + 1, y: S.y - 2 };
+for (const t of [pa, pb]) {
+  await hero({ use: { tool: "hoe", tx: t.x, ty: t.y } });
+  await ff(40);
+  await hero({ use: { tool: "seeds", tx: t.x, ty: t.y, crop: "wheat" } });
+  await ff(30);
+}
+const man0 = (await items()).manure ?? 0;
+n = c.events.length;
+await hero({ use: { tool: "manure", tx: pa.x, ty: pa.y } });
+await waitEvent(n);
+const fert1 = eventsSince(n);
+n = c.events.length;
+await hero({ use: { tool: "manure", tx: pa.x, ty: pa.y } });
+await waitEvent(n);
+const fert2 = eventsSince(n);
+const man1 = (await items()).manure ?? 0;
+for (const t of [pa, pb]) await hook("zoneState", { setCropAt: { x: t.x, y: t.y, stage: 2, progress: 0, tended: false } });
+const Z = await hook("zoneState", { tickZones: true });
+const plotA = Z.plots.find((q) => q.x === pa.x && q.y === pa.y);
+const plotB = Z.plots.find((q) => q.x === pb.x && q.y === pb.y);
+result(/Fertilised/.test(fert1) && /Already/.test(fert2) && man0 - man1 === 1 && plotA?.fert && !plotB?.fert && plotB?.progress > 0 && Math.abs(plotA.progress / plotB.progress - 1.25) < 1e-6,
+  `fertilise: "${fert1}" / "${fert2}", manure ${man0} -> ${man1}, growth ${plotA?.progress} vs ${plotB?.progress}`);
+
+// 19. Selling: refused with no Market / trader near; price = base x 0.6 x happiness / health factors; gold to stores.
+const cowNow = (await ls()).animals.find((a) => a.id === cowA.id);
+const expect = Math.max(1, Math.round(60 * 0.6 * (0.6 + 0.4 * Math.min(100, cowNow.happiness) / 100) * (0.5 + 0.5 * cowNow.health / 100)));
+const noVenue = await act({ tileX: S.x + 2, tileY: S.y, op: "sell", id: cowA.id });
+await hook("setTileRaw", { tx: S.x + 2, ty: S.y + 2, tile: T6.Market });
+await ff(2);
+I = await info(S.x + 2, S.y);
+const panelPrice = I?.animals?.animals.find((a) => a.id === cowA.id)?.price;
+const gold0 = (await stock()).gold;
+const sold = await act({ tileX: S.x + 2, tileY: S.y, op: "sell", id: cowA.id });
+const gold1 = (await stock()).gold;
+L = await ls();
+result(/To sell/.test(noVenue) && I?.animals?.sellVenue === "your Market" && panelPrice === expect && cowNow.price === expect && gold1 - gold0 === expect && !L.animals.some((a) => a.id === cowA.id),
+  `sell: "${noVenue}"; at ${I?.animals?.sellVenue}: price ${panelPrice} (expect ${expect}), "${sold}", gold +${gold1 - gold0}`);
+
+// 20. A hostile mob: kills an animal it reaches outdoors (message, record gone); the house's others flee inside.
+await act({ tileX: S.x + 2, tileY: S.y, op: "herd", on: false });
+await ls({ set: { threat: false } });
+await dayNow();
+await stand(S.x + 10, S.y + 10);
+let prey = null;
+for (let i = 0; i < 60 && !prey; i++) {
+  await ff(20);
+  prey = (await ls()).animals.find((a) => a.outdoors && a.house === key);
+}
+let killed = false;
+let mobId = null;
+let others = [];
+if (prey) {
+  n = c.events.length;
+  mobId = (await hook("spawnMob", { kind: "wolf", tx: Math.floor(prey.x / TILE), ty: Math.floor(prey.y / TILE) })).id;
+  await ff(6);
+  await waitEvent(n);
+  L = await ls();
+  killed = !L.animals.some((a) => a.id === prey.id) && /killed a/.test(eventsSince(n));
+  for (let i = 0; i < 20; i++) {
+    await ff(20);
+    L = await ls();
+    others = L.animals.filter((a) => a.house === key && a.outdoors);
+    if (others.length === 0) break;
+  }
+}
+const thr = L.houses.find((h) => h.key === key)?.threatened;
+result(!!prey && killed && others.length === 0 && thr === true, `predator: prey ${prey?.id} killed ${killed}, coop animals still outdoors ${others.length}, threatened ${thr} (${eventsSince(n).slice(0, 160)})`);
+if (mobId) await hook("damageMob", { mobId, amount: 99999 });
+await ls({ set: { threat: false } });
 
 // 13. 100 chickens (25 coops) tick cheaply.
 const t1 = Date.now();

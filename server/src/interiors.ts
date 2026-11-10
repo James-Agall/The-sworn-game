@@ -25,6 +25,7 @@ import { isTowerTarget } from "./combat.js";
 import { isSleepingNeutral } from "./creative.js";
 import { sendTo } from "./saves.js";
 import { heroProfileOf } from "./heroes.js";
+import { isMounted } from "./animals.js";
 import {
   type ChoiceRt, type TalkInside, closeTalk, furnitureTalk, heroSpeedMult, lifeOf, nameFor, packWeight, restHeroFully,
   setHeroResting, startTalk, stopHeroBusy, talkColorFor, toast,
@@ -221,6 +222,8 @@ export function tryEnterAtDoor(p: Player, bump: boolean): boolean {
 // Puts the hero inside the building anchored at (tx, ty); "" = entered, else why not.
 export function enterInterior(p: Player, tx: number, ty: number): string {
   if (p.dead) return "You cannot";
+  // Gap closure G6: horses stay outside.
+  if (isMounted(p)) return "Dismount first (X): horses stay outside";
   const t = interiorTemplateAt(tx, ty);
   if (!t) return "That building has no way in";
   const acc = accessFor(p, tx, ty, t.tile);

@@ -102,16 +102,20 @@ export function gatherKindOf(tile: TileType, ripeForage: boolean): GatherKind | 
 export const TREE_FELL_CHANCE = 0.25;
 
 // ---- Stardew phase 5a: tools on tiles (docs/colony2d/PLAN-rimworld-stardew.md) ----
-// The hotbar (keys 1-6): each slot acts on the tile the hero faces (one tile away). Tools are clan items (kept); seed
+// The hotbar (keys 1-9): each slot acts on the tile the hero faces (one tile away). Tools are clan items (kept); seed
 // bags are used up one per sown tile. Axe / pick reuse the gather rules (GATHER chop / quarry / mine).
-export type HeroTool = "hoe" | "wateringCan" | "seeds" | "scythe" | "axe" | "pick";
-export const HERO_TOOLS: HeroTool[] = ["hoe", "wateringCan", "seeds", "scythe", "axe", "pick"];
+// Gap closure G6 (keys 7-9): shears (shear a sheep), milk pail (milk a cow), manure (fertilise a tilled / sown tile;
+// one used per tile).
+export type HeroTool = "hoe" | "wateringCan" | "seeds" | "scythe" | "axe" | "pick" | "shears" | "milkPail" | "manure";
+export const HERO_TOOLS: HeroTool[] = ["hoe", "wateringCan", "seeds", "scythe", "axe", "pick", "shears", "milkPail", "manure"];
 export const HERO_TOOL_LABEL: Record<HeroTool, string> = {
   hoe: "Hoe", wateringCan: "Watering can", seeds: "Seed bag", scythe: "Scythe", axe: "Axe", pick: "Pickaxe",
+  shears: "Shears", milkPail: "Milk pail", manure: "Manure",
 };
 // The clan item each tool needs in the stores (seeds: SEED_ITEM of the chosen crop).
 export const HERO_TOOL_ITEM: Record<Exclude<HeroTool, "seeds">, ItemId> = {
   hoe: "hoe", wateringCan: "wateringCan", scythe: "scythe", axe: "stoneAxe", pick: "stonePick",
+  shears: "shears", milkPail: "milkPail", manure: "manure",
 };
 export const SEED_ITEM: Record<CropId, ItemId> = { wheat: "wheatSeeds", hemp: "hempSeeds" };
 // What a tool use does on a tile ("harvest" with no scythe = by hand, slower).
@@ -154,7 +158,9 @@ export type DialogueAction =
   // Family: the Elder's kin (courtship / the in-law levy), courting, proposing, the ceremony, parting.
   | "kin" | "court" | "courtGift" | "propose" | "marry" | "kinLevy" | "part"
   // Stardew phase 5c (interiors): open the building's panel, the bed (sleep to dawn / nap), the chest (store / take).
-  | "openBuilding" | "sleep" | "nap" | "chestPut" | "chestTake";
+  | "openBuilding" | "sleep" | "nap" | "chestPut" | "chestTake"
+  // Gap closure G6: a trader lists the clan's animals for sale.
+  | "sellAnimals";
 export interface DialogueChoiceDef {
   label: string;
   next?: string;
@@ -202,6 +208,7 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
       choices: [
         { label: "Show me your goods.", action: "trade", tiers: TRADING },
         { label: "Buy what I carry.", action: "sellPack", tiers: TRADING },
+        { label: "Sell animals.", action: "sellAnimals", tiers: TRADING },
         { label: "Heard anything on the road?", action: "rumour", tiers: NOT_HOSTILE },
         BYE,
       ],
@@ -320,7 +327,7 @@ export interface DialogueSnapshot {
   text: string;
   choices: { label: string; disabled?: string }[];
 }
-export type HeroActionKind = "eat" | "rest" | "deposit" | "build" | "stopWork" | "foundCamp";
+export type HeroActionKind = "eat" | "rest" | "deposit" | "build" | "stopWork" | "foundCamp" | "dismount";
 // Solo hero phase 4: founding a camp (a Town Center where you stand; two settlers join) costs this (pack, then stores).
 export const FOUND_CAMP_COST: Partial<Record<PackGood, number>> = { wood: 20, rock: 10 };
 

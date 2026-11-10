@@ -2,9 +2,11 @@
 // outdoors (snapshot `livestock.a`: one staged pose each, a small bob and a flip while moving, need icons over hungry /
 // thirsty / sick ones), need icons over the clan's animal houses (`livestock.h`), and the animal-house section of the
 // building panel (BuildingInfo.animals: animals with bars, feed / water, products, buy / slaughter / rename).
+// Gap closure G6: a ridden horse (LF_RIDDEN) is drawn at its rider (stand-in for mounted-hero art, SPRITES.md); the
+// panel adds Sell (price) / Ride per animal and "Call them in" / "Let them out".
 import { Assets, Container, Sprite, Texture } from "pixi.js";
 import {
-  HF_FEED_LOW, HF_PRODUCTS, HF_WATER_LOW, HOUSE_STRIDE, LF_BABY, LF_HUNGRY, LF_MALE, LF_MOVING, LF_SICK, LF_THIRSTY,
+  HF_FEED_LOW, HF_PRODUCTS, HF_WATER_LOW, HOUSE_STRIDE, LF_BABY, LF_HUNGRY, LF_MALE, LF_MOVING, LF_RIDDEN, LF_SICK, LF_THIRSTY,
   LIVESTOCK_STRIDE, SPECIES, type AnimalHouseInfo, type LivestockSnapshot,
 } from "@colony/shared/animals";
 import { LIVESTOCK_ART, NEED_ICON, iconImg, iconUrl } from "./spriteRegistry";
@@ -84,11 +86,13 @@ export function createLivestock(deps: LivestockDeps) {
       const scale = key === "standin" ? size / 16 : size / Math.max(t.width, t.height);
       const moving = (flags & LF_MOVING) !== 0;
       const bob = moving ? Math.abs(Math.sin((now + e.phase) / BOB_MS)) * BOB_PX : 0;
-      e.body.position.set(x, y + ts * 0.2 - bob);
+      // A ridden horse stands under its rider's sprite (the rider is drawn above it).
+      const ridden = (flags & LF_RIDDEN) !== 0;
+      e.body.position.set(x, y + ts * (ridden ? 0.45 : 0.2) - bob);
       if (Math.abs(x - e.lastX) > 0.3) e.body.scale.set(x > e.lastX ? scale : -scale, scale);
       else if (e.body.scale.y !== scale) e.body.scale.set(Math.sign(e.body.scale.x || 1) * scale, scale);
       e.lastX = x;
-      const z = deps.zOf(x, y);
+      const z = deps.zOf(x, y) - (ridden ? 1 : 0);
       if (e.body.zIndex !== z) e.body.zIndex = z;
       const iconUrlNow = iconFor(flags);
       const it = iconUrlNow ? tex.get(iconUrlNow) : undefined;
@@ -231,7 +235,28 @@ export function createAnimalPanel(deps: AnimalPanelDeps) {
         sl.blur();
         if (window.confirm(`Slaughter ${a.name || `the ${a.label.toLowerCase()}`}?`)) act({ op: "slaughter", id: a.id });
       });
-      line.append(ren, sl);
+      const sell = document.createElement("button");
+      sell.className = "econ-btn";
+      sell.textContent = `Sell (${a.price})`;
+      sell.disabled = !info.sellVenue || a.ridden;
+      sell.title = a.ridden ? "Being ridden" : info.sellVenue ? `Sell to ${info.sellVenue} for ${a.price} gold` : info.sellWhy;
+      sell.addEventListener("click", () => {
+        sell.blur();
+        if (window.confirm(`Sell ${a.name || `the ${a.label.toLowerCase()}`} for ${a.price} gold?`)) act({ op: "sell", id: a.id });
+      });
+      line.append(ren, sl, sell);
+      if (a.species === "horse") {
+        const ride = document.createElement("button");
+        ride.className = "econ-btn";
+        ride.textContent = a.ridden ? "Ridden" : "Ride";
+        ride.disabled = a.ride !== "";
+        ride.title = a.ride || "Mount this horse (X dismounts)";
+        ride.addEventListener("click", () => {
+          ride.blur();
+          act({ op: "ride", id: a.id });
+        });
+        line.append(ride);
+      }
       list.append(line);
     }
     if (info.animals.length === 0) list.textContent = "No animals yet: buy some below.";
@@ -256,7 +281,18 @@ export function createAnimalPanel(deps: AnimalPanelDeps) {
       li.textContent = n;
       notes.append(li);
     }
-    row.replaceChildren(head, status, prod, list, buy, notes);
+    const herd = document.createElement("div");
+    herd.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:4px";
+    const call = document.createElement("button");
+    call.className = "econ-btn";
+    call.textContent = info.penned ? "Let them out" : "Call them in";
+    call.title = info.penned ? "The animals may graze again" : "The animals walk back inside and stay in until you let them out (or dawn)";
+    call.addEventListener("click", () => {
+      call.blur();
+      act({ op: "herd", on: !info.penned });
+    });
+    herd.append(call, ` ${info.outdoors} outdoors · ${info.sellVenue ? `selling to ${info.sellVenue}` : info.sellWhy}`);
+    row.replaceChildren(head, status, prod, list, buy, herd, notes);
   }
   return { render };
 }

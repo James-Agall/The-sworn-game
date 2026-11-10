@@ -385,6 +385,8 @@ function recipeShort(r: Recipe): string {
     for (const [k, n] of Object.entries(r.stock ?? {})) if (state.stock[k as ResourceKey] < (n ?? 0)) return `Not enough ${k}`;
   }
   for (const [id, n] of Object.entries(r.items ?? {}) as [ItemId, number][]) if (itemCount(id) < n) return `Needs ${n} ${PROGRESSION.items[id].label}`;
+  // Gap closure G6: kept items a hand recipe needs (shears: a stone knife; milk pail: carpenter's tools).
+  for (const [id, n] of Object.entries(r.needs ?? {}) as [ItemId, number][]) if (itemCount(id) < n) return `Needs a ${PROGRESSION.items[id].label} in the stores`;
   return "";
 }
 

@@ -1522,6 +1522,8 @@ export interface PlayerSnapshot {
   // Stardew phase 5c: inside a building interior (key = its anchor "x,y"; x / y = interior px). The world x / y stay
   // at the door; the world view hides the rider.
   inside?: { key: string; x: number; y: number };
+  // Gap closure G6: riding a horse (livestock draws the horse under the rider; X dismounts).
+  mounted?: boolean;
 }
 
 // Village life phase 5: one adult who can take over as the hero.

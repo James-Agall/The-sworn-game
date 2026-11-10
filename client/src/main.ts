@@ -720,6 +720,9 @@ async function main() {
   app.stage.addChild(worldLayer);
 
   let myId: string | null = null;
+  // Gap closure G6: the own hero rides a horse (snapshot `mounted`), and how far the sprite sits up.
+  let myMounted = false;
+  const MOUNTED_LIFT_PX = 8;
   let tileSize = 32;
   let worldTilesX = 25;
   let worldTilesY = 25;
@@ -2295,7 +2298,9 @@ async function main() {
       worldLayer.addChildAt(marker, worldLayer.getChildIndex(entry.sprite));
       entry.marker = marker;
     }
-    entry.sprite.position.set(p.x, p.y);
+    // Gap closure G6: a mounted hero sits up on its horse (livestock draws the horse under it).
+    entry.sprite.position.set(p.x, p.y - (p.mounted ? MOUNTED_LIFT_PX : 0));
+    if (p.id === myId) myMounted = !!p.mounted;
     // A rider with no Town Center to respawn at is gone until one is built (game over overlay). Stardew phase 5c: a
     // hero inside a building interior is hidden on the world map (its body waits at the door).
     entry.sprite.visible = !p.dead && !p.inside;
@@ -7127,6 +7132,15 @@ async function main() {
   // Refresh the list whenever the Settings modal opens (another player may have saved meanwhile).
   document.getElementById("settings-btn")!.addEventListener("click", () => sendMessage({ type: "listSaves" }));
 
+  // Gap closure G6: X dismounts a mounted hero (before the X build-tool hotkey; only while riding).
+  window.addEventListener("keydown", (e) => {
+    if (!myMounted || e.code !== "KeyX" || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.repeat) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    sendMessage({ type: "heroAction", action: "dismount" });
+  }, true);
   const keys = new Set<string>();
   window.addEventListener("keydown", (e) => {
     const key = e.key.toLowerCase();

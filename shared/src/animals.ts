@@ -112,9 +112,10 @@ export const SICK_HEALTH = 50;
 export const HAPPY_FLAG = 80;
 
 // ---- products ----
-export type ProductId = "egg" | "milk" | "wool";
-export const PRODUCTS: readonly ProductId[] = ["egg", "milk", "wool"];
-export const PRODUCT_LABEL: Record<ProductId, string> = { egg: "Eggs", milk: "Milk", wool: "Wool" };
+// G6: manure waits in the house like a product (MANURE_PER_DAY; grade 1 only).
+export type ProductId = "egg" | "milk" | "wool" | "manure";
+export const PRODUCTS: readonly ProductId[] = ["egg", "milk", "wool", "manure"];
+export const PRODUCT_LABEL: Record<ProductId, string> = { egg: "Eggs", milk: "Milk", wool: "Wool", manure: "Manure" };
 // Adults of a species make `amount` of `product` every `days` calendar days (pigs and horses: nothing); femaleOnly:
 // hens lay, cows give milk (roosters / bulls make nothing), every sheep is shorn.
 export const PRODUCT_OF: Partial<Record<Species, { product: ProductId; days: number; amount: number; femaleOnly: boolean }>> = {
@@ -162,6 +163,68 @@ export const ANIMAL_REST_SECONDS_MIN = 2;
 export const ANIMAL_REST_SECONDS_MAX = 7;
 export const RENAME_MAX_CHARS = 20;
 
+// ---- Gap closure G6: wandering obstacle avoidance, herding ----
+// A blocked hop tries these turns (degrees, in order) before the animal stops and rests.
+export const WANDER_SIDESTEP_DEGREES: readonly number[] = [45, -45, 90, -90];
+// "Call them in" (panel): the house's animals walk back inside and stay in until "Let them out" or the next dawn.
+
+// ---- Gap closure G6: horses (riding, carts) ----
+// E within MOUNT_RANGE_TILES of an own adult horse outdoors mounts it (or "Ride" in the Stables / Livestock Barn panel
+// with the hero within ANIMAL_HERO_RANGE_TILES + 1 of the house). X (or the hero panel) dismounts.
+export const MOUNT_RANGE_TILES = 1.5;
+// Mounted: x MOUNT_SPEED_MULT speed (outdoors; a rider cannot enter interiors or use tools), rest (fatigue) drains
+// x MOUNT_REST_DECAY_MULT, and the horse loses RIDE_HAPPINESS_PER_S happiness per second ridden.
+export const MOUNT_SPEED_MULT = 1.6;
+export const MOUNT_REST_DECAY_MULT = 0.5;
+export const RIDE_HAPPINESS_PER_S = 0.02;
+// Trade wagons of a clan with a Stables holding an adult horse (not ridden) travel x CART_HORSE_SPEED_MULT.
+export const CART_HORSE_SPEED_MULT = 1.25;
+
+// ---- Gap closure G6: hostile mobs vs animals ----
+// Checked every ANIMAL_THREAT_CHECK_TICKS: a hostile mob within ANIMAL_THREAT_RANGE_TILES of a house or of one of its
+// animals outdoors makes the house's animals flee inside (x ANIMAL_FLEE_SPEED_MULT) and stay in for
+// ANIMAL_THREAT_HOLD_SECONDS after the last sighting. A hostile mob within ANIMAL_KILL_RANGE_TILES of an animal
+// outdoors kills it (the record is gone). Animal houses are mob building targets like every other building.
+export const ANIMAL_THREAT_CHECK_TICKS = 5;
+export const ANIMAL_THREAT_RANGE_TILES = 6;
+export const ANIMAL_THREAT_HOLD_SECONDS = 20;
+export const ANIMAL_FLEE_SPEED_MULT = 1.6;
+export const ANIMAL_KILL_RANGE_TILES = 1;
+
+// ---- Gap closure G6: selling ----
+// Sell (panel / trader dialogue) with an own Market, or a settlement trader (relation neutral or better) within
+// ANIMAL_SELL_TRADER_RANGE_TILES of the hero. Price = ANIMAL_PRICE_GOLD x ANIMAL_SELL_MULT x (baby: ANIMAL_SELL_BABY_MULT)
+// x (SELL_HAPPY_BASE + (1 - SELL_HAPPY_BASE) x happiness / 100) x (SELL_HEALTH_BASE + (1 - SELL_HEALTH_BASE) x
+// health / 100), rounded, at least 1. The gold goes to the clan stores.
+export const ANIMAL_SELL_MULT = 0.6;
+export const ANIMAL_SELL_BABY_MULT = 0.5;
+export const SELL_HAPPY_BASE = 0.6;
+export const SELL_HEALTH_BASE = 0.5;
+export const ANIMAL_SELL_TRADER_RANGE_TILES = 4;
+export function animalSellPrice(species: Species, baby: boolean, happiness: number, health: number): number {
+  const h = Math.max(0, Math.min(100, happiness)) / 100;
+  const hp = Math.max(0, Math.min(100, health)) / 100;
+  const p = ANIMAL_PRICE_GOLD[species] * ANIMAL_SELL_MULT * (baby ? ANIMAL_SELL_BABY_MULT : 1) *
+    (SELL_HAPPY_BASE + (1 - SELL_HAPPY_BASE) * h) * (SELL_HEALTH_BASE + (1 - SELL_HEALTH_BASE) * hp);
+  return Math.max(1, Math.round(p));
+}
+
+// ---- Gap closure G6: shears and milk pail (hero hotbar tools) ----
+// E / Space with the tool near an own adult sheep (shears) / cow (pail; cows only) whose product is due at the next
+// daily step takes it now at x HAND_PRODUCT_MULT; that daily step then makes nothing for it. The house's chores take
+// x KEEPER_TOOL_CHORE_MULT time while the clan stores hold the house's tool.
+export const HAND_TOOL_SPECIES: Record<"shears" | "milkPail", Species> = { shears: "sheep", milkPail: "cow" };
+export const HAND_PRODUCT_MULT = 1.25;
+export const HOUSE_HAND_TOOL: Partial<Record<HouseKind, "shears" | "milkPail">> = { pen: "shears", barn: "milkPail" };
+export const KEEPER_TOOL_CHORE_MULT = 0.75;
+
+// ---- Gap closure G6: manure ----
+// Every animal (babies x BABY_NEEDS_MULT) adds this much manure a day to its house (collected with the products; an
+// item). Fertilised soil (the hero's manure tool on a tilled / sown tile, or villagers sowing a zone tile while the
+// stores hold manure: one each) grows x (1 + FERTILISER_GROWTH_BONUS) until harvested.
+export const MANURE_PER_DAY: Record<Species, number> = { chicken: 0.1, cow: 0.5, pig: 0.4, sheep: 0.25, horse: 0.5 };
+export const FERTILISER_GROWTH_BONUS = 0.25;
+
 // ---- snapshot ----
 // Per player `livestock` {a, h}: a = flattened LIVESTOCK_STRIDE numbers per animal outdoors: [id, species code, x, y,
 // flags]; h = flattened [tile index, house flags] for the player's clan's houses.
@@ -173,6 +236,9 @@ export const LF_HUNGRY = 8;
 export const LF_THIRSTY = 16;
 export const LF_SICK = 32;
 export const LF_HAPPY = 64;
+// G6: a horse under a rider (drawn at the rider), and an animal fleeing a hostile mob.
+export const LF_RIDDEN = 128;
+export const LF_FLEEING = 256;
 export const HOUSE_STRIDE = 2;
 export const HF_FEED_LOW = 1;
 export const HF_WATER_LOW = 2;
@@ -190,7 +256,14 @@ export interface AnimalHouseInfo {
   animals: {
     id: number; species: Species; label: string; name: string; baby: boolean; male: boolean; ageDays: number;
     fed: number; watered: number; happiness: number; health: number; product: string;
+    // G6: sell price (gold), ridden by a hero, can be ridden by the viewer now ("" = yes, else why not).
+    price: number; ridden: boolean; ride: string;
   }[];
+  // G6: where the viewer could sell now ("" = nowhere: then `sellWhy`), animals outdoors, called in.
+  sellVenue: string;
+  sellWhy: string;
+  outdoors: number;
+  penned: boolean;
   feed: number;
   feedCap: number;
   water: number;

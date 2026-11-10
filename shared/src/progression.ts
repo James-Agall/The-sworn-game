@@ -12,7 +12,9 @@ export type ItemId =
   // Stardew phase 5a: the hero's farming tools (kept) and seed bags (one used per sown tile).
   | "hoe" | "wateringCan" | "scythe" | "wheatSeeds" | "hempSeeds"
   // Stardew phase 5d: animal feed and products (eggs / milk are food), and the tools of the bigger animal houses.
-  | "hay" | "egg" | "milk" | "carpenterTools" | "herbs";
+  | "hay" | "egg" | "milk" | "carpenterTools" | "herbs"
+  // Gap closure G6: the hero's animal tools and fertiliser.
+  | "shears" | "milkPail" | "manure";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "tools";
 
@@ -139,6 +141,9 @@ export const PROGRESSION = {
     milk: { label: "Milk", desc: "From cows in a Livestock Barn, daily. Food (eaten at dawn).", group: "food" },
     carpenterTools: { label: "Carpenter's tools", desc: "Saw, adze and mallet: the Livestock Barn, Pig Sty and Sheep Pen need them.", group: "tool" },
     herbs: { label: "Herbs", desc: "Brought home by foragers, or dried from fruit by hand. Infirmary medicine: patients heal faster.", group: "material" },
+    shears: { label: "Shears", desc: "The hero shears a sheep whose wool is due (hotbar 7) for x1.25 wool; Sheep Pen chores go faster.", group: "tool" },
+    milkPail: { label: "Milk pail", desc: "The hero milks a cow (hotbar 8) for x1.25 milk; Livestock Barn chores go faster.", group: "tool" },
+    manure: { label: "Manure", desc: "Made daily by animals (collected at their houses). Fertiliser: a tilled / sown tile grows 25% faster (hotbar 9; villagers sowing use it too).", group: "material" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -155,6 +160,8 @@ export const PROGRESSION = {
     { id: "wheatSeeds", label: "Sort wheat seed", output: "wheatSeeds", amount: 4, stock: { grain: 2 }, station: "hand" },
     { id: "hempSeeds", label: "Save hemp seed", output: "hempSeeds", amount: 4, stock: { cotton: 2 }, station: "hand" },
     { id: "carpenterTools", label: "Make carpenter's tools", output: "carpenterTools", amount: 1, stock: { wood: 6, rock: 4 }, station: "hand" },
+    { id: "shears", label: "Knap shears", output: "shears", amount: 1, stock: { rock: 2, wood: 1 }, needs: { stoneKnife: 1 }, station: "hand" },
+    { id: "milkPail", label: "Make a milk pail", output: "milkPail", amount: 1, stock: { wood: 3 }, needs: { carpenterTools: 1 }, station: "hand" },
     { id: "herbs", label: "Dry healing herbs", output: "herbs", amount: 2, stock: { fruit: 3 }, station: "hand" },
     { id: "gruel", label: "Boil wheat gruel", output: "gruel", amount: 3, stock: { grain: 3, wood: 1 }, station: "hand" },
     { id: "charcoal", label: "Burn charcoal", output: "charcoal", amount: 3, stock: { wood: 6 }, station: TileType.CharcoalBurner, seconds: 90, cap: 40 },

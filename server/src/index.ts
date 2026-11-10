@@ -1,7 +1,7 @@
 // index.ts: boot and wiring. Imports every server module in evaluation order (types, constants and state
 // first; see ROADMAP "Server module split"), generates the world, starts the HTTP/WebSocket server (net.ts),
 // routes client messages, and runs the tick loop (stepSimulation in sim.ts) that sends the snapshots.
-import { handleAnimalAction, livestockPayloadFor } from "./animals.js";
+import { handleAnimalAction, isMounted, livestockPayloadFor } from "./animals.js";
 import { handleWagonCommand, wagonSnapshot } from "./wagons.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -427,6 +427,7 @@ setInterval(() => {
     ...(p.clan ? { clan: p.clan } : {}),
     ...(p.dead && p.heirPending ? { heirs: heirChoicesFor(p) } : {}),
     ...(p.interior ? { inside: playerInside(p) } : {}),
+    ...(isMounted(p) ? { mounted: true } : {}),
   }));
   // Battle engine phase 7 (snapshot LOD): with more than BIG_BATTLE_SNAPSHOT_UNITS soldiers / mobs on the map,
   // positions, mob hp and effect points go out rounded to 0.1 px and a false `sheltered` is left out (~20% of a

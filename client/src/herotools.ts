@@ -1,5 +1,5 @@
 // Stardew phase 5a (docs/colony2d/PLAN-rimworld-stardew.md; server/src/herolife.ts useTool): the hero's tool hotbar.
-// Six slots (1-6 or Shift+wheel; the same key again puts the tool away, the seed bag's key toggles wheat / hemp; Esc
+// Nine slots (1-9 or Shift+wheel; gap closure G6 added shears, milk pail and manure as 7-9; the same key again puts the tool away, the seed bag's key toggles wheat / hemp; Esc
 // puts it away): hoe, watering can, seed bag, scythe, axe, pickaxe. The hero faces the way it last moved, or the
 // mouse when that moved last; the faced tile (one tile away) is highlighted, with a short hint. E uses the tool there
 // when no NPC is in range (talking keeps priority, then the old gather / station rules); Space or a left click on
@@ -51,6 +51,8 @@ export interface HeroToolsUi {
 const ICON: Record<HeroTool, string> = {
   hoe: iconUrl("tool_hoe"), wateringCan: iconUrl("tool_watering_can"), seeds: iconUrl("tool_seedbag"), scythe: iconUrl("tool_scythe"),
   axe: iconUrl("tool_axe"), pick: iconUrl("tool_pickaxe"),
+  // Gap closure G6 stand-ins (SPRITES.md: shears / manure icons needed).
+  shears: iconUrl("tool_scythe"), milkPail: iconUrl("item_milk_pail"), manure: iconUrl("item_hay_bale"),
 };
 
 const CSS = `
@@ -131,7 +133,7 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
       s.classList.toggle("on", k === armed);
       const n = t === "seeds" ? deps.itemCount(SEED_ITEM[crop]) : deps.itemCount(HERO_TOOL_ITEM[t]);
       s.classList.toggle("none", !deps.gatesOpen() && n <= 0);
-      countEls[k].textContent = t === "seeds" ? `${crop === "wheat" ? "W" : "H"}${n}` : t === "wateringCan" && life ? String(life.water) : "";
+      countEls[k].textContent = t === "seeds" ? `${crop === "wheat" ? "W" : "H"}${n}` : t === "wateringCan" && life ? String(life.water) : t === "manure" ? String(n) : "";
       s.title = `${HERO_TOOL_LABEL[t]}${t === "seeds" ? ` (${crop}; press ${k + 1} again for ${crop === "wheat" ? "hemp" : "wheat"})` : ""}${!deps.gatesOpen() && n <= 0 ? ": none in your stores (craft by hand)" : ""}`;
     });
   }
@@ -166,6 +168,8 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
         return tile === TileType.Tree ? "Chop" : "";
       case "pick":
         return tile === TileType.Rock || tile === TileType.IronOre ? "Mine" : "";
+      case "manure":
+        return c && stage >= CropStage.Tilled && stage < CropStage.Ripe ? "Fertilise" : "";
       default:
         return "";
     }
@@ -221,7 +225,7 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
         refreshSlots();
         return;
       }
-      const d = /^Digit([1-6])$/.exec(e.code);
+      const d = /^Digit([1-9])$/.exec(e.code);
       if (!d || deps.buildOpen()) return;
       e.preventDefault();
       e.stopImmediatePropagation();

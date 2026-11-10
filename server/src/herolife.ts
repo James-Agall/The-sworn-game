@@ -5,7 +5,8 @@
 // hero's pack (carry weight), mild needs (food + rest slow you and block healing, never kill), skills by use (worker
 // XP pace), personal builds (campfire, lean-to, storage chest). State: HeroProfile.life (saved with the profile);
 // per-session transient work lives here. Messages run in the sender's clan context (index.ts handleMessage).
-import { heroAnimalInteract } from "./animals.js";
+import { animalsForSale, dismountHero, heroAnimalInteract, heroHandProduct, isMounted, sellAnimalTo } from "./animals.js";
+import { MOUNT_REST_DECAY_MULT, MOUNT_SPEED_MULT } from "@colony/shared/animals";
 import { heroInfirmaryHealMult, heroRestMultAt, roomAtIndex, warmRoomAt } from "./structures.js";
 import { TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, type TradeGood, type RelationTier } from "@colony/shared/protocol";
 import {
@@ -18,7 +19,7 @@ import {
   type PackGood, type PersonalBuild, type ToolAct, gatherKindOf, skillSpeed, skillXpFor,
 } from "@colony/shared/herolife";
 import { CROPS, CropStage, type CropId } from "@colony/shared/zones";
-import { heroCropStage, heroFarmApply, heroFarmCheck, heroZoneCrop } from "./zones.js";
+import { heroCropStage, heroFarmApply, heroFarmCheck, heroFertilise, heroZoneCrop } from "./zones.js";
 import { type ItemId, type Recipe, PROFESSION_LABEL, levelForXp, stationRecipes, xpToNext } from "@colony/shared/progression";
 import type { Colonist, HeroLife, Mob, Player, SiteState } from "./types.js";
 import { FORAGE_RIPE_TO_PICKED, FORAGE_REGROW_TICKS, QUEST_MAX_PER_SITE, RELATION_ALLIED_MIN } from "./constants.js";
@@ -123,7 +124,7 @@ export interface ChoiceRt {
   label: string;
   disabled?: string;
   next?: string;
-  action?: DialogueAction | "accept" | "deliver" | "learn" | "back" | "pick";
+  action?: DialogueAction | "accept" | "deliver" | "learn" | "back" | "pick" | "sellAnimal";
   arg?: number | string;
 }
 // Stardew phase 5c: a talk inside a building interior (the NPC / bed / chest stands at interior px x / y of the
@@ -248,6 +249,7 @@ function actionBlock(p: Player, t: Talk, a: DialogueAction): string {
   if (a === "lodging" && s && life.flags[`lodging:${s.id}`] === day) return "Already rested here today";
   if (a === "alliance" && s && life.flags[`ally:${s.id}`] === day) return "Asked today already";
   if (a === "sellPack" && packWeight(life) <= 0) return "Your pack is empty";
+  if (a === "sellAnimals" && animalsForSale(p.clan ?? 0).length === 0) return "You have no animals to sell";
   return "";
 }
 
@@ -360,6 +362,16 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
       return closeTalk(p, { openTrade: { tileX: s.keepX, tileY: s.keepY } });
     case "sellPack":
       return s ? sayThen(p, t, sellPack(p, s)) : closeTalk(p);
+    // Gap closure G6: the clan's animals (dearest first) at the panel's sell price; gold into the stores.
+    case "sellAnimals":
+    case "sellAnimal": {
+      if (!s) return closeTalk(p);
+      const said = c.action === "sellAnimal" ? sellAnimalTo(p.clan ?? 0, Number(c.arg), `the trader of ${s.name}`) : "";
+      if (said && !said.startsWith("That")) gainSkill(p, "trading", 3);
+      const list = animalsForSale(p.clan ?? 0);
+      const more: ChoiceRt[] = list.map((x) => ({ label: `Sell ${x.label} (${x.price} gold).`, action: "sellAnimal", arg: x.id }));
+      return sayThen(p, t, (said ? said + ".\n\n" : "") + (list.length ? `"Bring them to me; I'll see them home. What are you selling?"` : `"Nothing left to sell, then."`), more);
+    }
     case "gift": {
       if (!s) return closeTalk(p);
       state.stock.gold -= GIFT_GOLD;
@@ -693,10 +705,12 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
     const tied = near.filter((x) => x.d - near[0].d <= TALK_TIE_TILES);
     return tied.length > 1 ? startTalkChooser(p, tied) : startTalk(p, near[0]);
   }
+  // Gap closure G6: a rider only talks; doors, tools, animals and work need the hero on foot.
+  if (isMounted(p)) return toast(p, "Dismount first (X): no doors, tools or work from the saddle");
   // Stardew phase 5c: nobody to talk to: at a prefab building's door E enters it (walking into it always does).
   if (tryEnterAtDoor(p, false)) return;
   // Stardew phase 5d: tame a wild animal, or tend an own animal house (feeder, trough, collect).
-  if (heroAnimalInteract(p)) return;
+  if (heroAnimalInteract(p, m.tool)) return;
   let toolWhy = "";
   if (Number.isInteger(m.tx) && Number.isInteger(m.ty)) {
     toolWhy = useTool(p, (HERO_TOOLS as unknown[]).includes(m.tool) ? (m.tool as HeroTool) : null, m.tx as number, m.ty as number, m.crop, false);
@@ -721,6 +735,7 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
 // Space / left click with a hotbar tool: the tool on the faced tile only (no talk, no fallback).
 export function handleHeroTool(p: Player, m: Record<string, unknown>) {
   if (p.interior) return toast(p, "Your tools have no use indoors");
+  if (isMounted(p)) return toast(p, "Dismount first (X) to use your tools");
   if (p.dead || !(HERO_TOOLS as unknown[]).includes(m.tool) || !Number.isInteger(m.tx) || !Number.isInteger(m.ty)) return;
   const why = useTool(p, m.tool as HeroTool, m.tx as number, m.ty as number, m.crop, true);
   if (why && why !== "-") toast(p, why);
@@ -739,6 +754,19 @@ function useTool(p: Player, tool: HeroTool | null, tx: number, ty: number, cropA
   const tile = state.tiles[i] as TileType;
   const has = (t: Exclude<HeroTool, "seeds">) => gatesOpen() || itemCount(HERO_TOOL_ITEM[t]) > 0;
   const need = (label: string) => `You need a ${label} in your stores (craft one by hand)`;
+  // Gap closure G6: shears / milk pail on a sheep / cow near the hero; manure fertilises the faced crop tile.
+  if (tool === "shears" || tool === "milkPail") {
+    const why = heroHandProduct(p, tool);
+    return why === "-" ? `No ${tool === "shears" ? "sheep" : "cow"} within reach` : why;
+  }
+  if (tool === "manure") {
+    const why = heroFertilise(i, clan);
+    if (why) return why;
+    spendEnergy(life, 1);
+    gainSkill(p, "farming", 1);
+    toast(p, "Fertilised: this crop grows faster until harvested");
+    return "";
+  }
   if (tool === "axe" || tool === "pick") {
     const kind = gatherKindOf(tile, false);
     if (tool === "axe" ? kind !== "chop" : kind !== "quarry" && kind !== "mine") return tool === "axe" ? "Nothing to chop there" : "No rock or ore there";
@@ -890,6 +918,10 @@ export function handleHeroAction(p: Player, action: unknown, build: unknown) {
     b.tool = undefined;
     b.work = undefined;
     return toast(p, b.resting ? "You sit down to rest (move to stop)" : "You get up");
+  }
+  if (action === "dismount") {
+    if (!dismountHero(p)) toast(p, "You are on foot");
+    return;
   }
   if (action === "stopWork") {
     b.work = undefined;
@@ -1185,7 +1217,7 @@ function stepNeeds(p: Player, b: Busy) {
     const mult = shelterMult(p) * cold.gain;
     life.rest = Math.min(NEED_MAX, life.rest + REST_GAIN_PER_S * mult);
     addEnergy(life, ENERGY_REST_PER_S * mult);
-  } else life.rest = Math.max(0, life.rest - REST_DECAY_PER_S * cold.decay);
+  } else life.rest = Math.max(0, life.rest - REST_DECAY_PER_S * cold.decay * (isMounted(p) ? MOUNT_REST_DECAY_MULT : 1));
   if (life.food < AUTO_EAT_BELOW) eatOnce(p, false);
   // Natural healing: fed, rested and out of the fight for a while (x4 resting).
   const ok = life.food >= NEED_LOW && life.rest >= NEED_LOW;
@@ -1210,6 +1242,8 @@ export function heroSpeedMult(p: Player): number {
     if (life.food < NEED_LOW) m *= 0.8;
     if (life.rest < NEED_LOW) m *= 0.8;
   }
+  // Gap closure G6: riding (outdoors only: a rider cannot enter interiors).
+  if (isMounted(p)) m *= MOUNT_SPEED_MULT;
   return m;
 }
 
