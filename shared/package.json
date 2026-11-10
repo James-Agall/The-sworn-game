@@ -19,6 +19,7 @@
     "./interiors": "./src/interiors.ts",
     "./animals": "./src/animals.ts",
     "./buildingTemplates": "./src/buildingTemplates.ts",
-    "./settlementTemplates": "./src/settlementTemplates.ts"
+    "./settlementTemplates": "./src/settlementTemplates.ts",
+    "./snapshotDelta": "./src/snapshotDelta.ts"
   }
 }

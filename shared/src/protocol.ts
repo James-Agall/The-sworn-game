@@ -1316,6 +1316,9 @@ export type ClientMessage =
   // extents; the server clamps them). While strategy is true, big-world snapshots also carry the mobs and
   // wildlife inside that view, not only those near the rider. strategy: false drops it.
   | { type: "setView"; x: number; y: number; halfW: number; halfH: number; strategy: boolean }
+  // Delta snapshots (`?delta=1` connections, shared/src/snapshotDelta.ts): the client missed a snapshot (sequence
+  // gap); the next snapshot is a keyframe.
+  | { type: "resync" }
   // Save files (server/saves/<slot>.json). saveGame takes slot1-3 (the autosave is the server's own);
   // loadGame replaces the shared world for everyone connected.
   | { type: "saveGame"; slot: SaveSlot }
@@ -1475,6 +1478,9 @@ export type ServerMessage =
       heroes?: HeroSheetSnapshot[];
       // Solo hero: this player's pack, needs, skills and current action (per player, only when it changed).
       life?: HeroLifeSnapshot;
+      // Delta snapshots (`?delta=1` connections only): see shared/src/snapshotDelta.ts. Such a snapshot leaves out
+      // colonists / mobs and its unchanged sections; applySnapshotDelta fills them back in before anything reads it.
+      ud?: import("./snapshotDelta.js").UnitDelta;
     }
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).

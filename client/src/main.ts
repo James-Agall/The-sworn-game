@@ -76,6 +76,7 @@ import type {
   ItemStats,
 } from "@colony/shared/protocol";
 import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-window ETA
+import { applySnapshotDelta, newDeltaClientState } from "@colony/shared/snapshotDelta";
 import { RELATION_TIER_NAMES } from "@colony/shared/protocol"; // forts phase D: relation tier labels
 import {
   BARN_FIELD_RADIUS_TILES, BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FOOTPRINT_BY_TILE, footprintAnchorOf, footprintOf, footprintPartOffsets,
@@ -5995,6 +5996,11 @@ async function main() {
   if (clanParam()) wsParams.set("clan", clanParam());
   // World streaming phase 4: take chunked welcomes on streamed (768+ tile) worlds.
   wsParams.set("chunks", "1");
+  // Delta snapshots (shared/src/snapshotDelta.ts): units as per-tick changes, unchanged sections left out.
+  // ?delta=0 takes full snapshots (debugging).
+  const DELTA_SNAPSHOTS = new URLSearchParams(location.search).get("delta") !== "0";
+  if (DELTA_SNAPSHOTS) wsParams.set("delta", "1");
+  const deltaState = newDeltaClientState();
   const socket = new WebSocket(wsParams.toString() ? `${SERVER_URL}/?${wsParams}` : SERVER_URL);
 
   const pauseBtn = document.getElementById("pause-btn") as HTMLButtonElement;
@@ -6822,6 +6828,11 @@ async function main() {
   let wasNight = false;
   socket.addEventListener("message", (event) => {
     const message: ServerMessage = JSON.parse(event.data);
+    // Rebuild a delta snapshot into a full one before anything reads it; on a sequence gap ask for a keyframe
+    // (meanwhile it carries the last known units).
+    if (message.type === "snapshot" && message.ud && applySnapshotDelta(deltaState, message as unknown as Record<string, unknown>)) {
+      sendMessage({ type: "resync" });
+    }
     if (message.type === "welcome") {
       myId = message.id;
       // A new / loaded world: everyone starts outside.

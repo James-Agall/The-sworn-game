@@ -59,6 +59,7 @@ import {
 } from "./orders.js";
 import { stepSimulation } from "./sim.js";
 import { calendarSnapshot } from "./calendar.js";
+import { encodeDeltaSnapshot, newPlayerDeltaState, pruneDeltaNums, resetDeltaJsonCache } from "./snapshotDelta.js";
 import {
   handleLoadGame, handleSaveGame, listSaves, resetWorld, runDueAutosave, saveOnShutdown, sendTo,
 } from "./saves.js";
@@ -114,6 +115,7 @@ wss.on("connection", (socket, req) => {
     orderWindowAt: 0,
     orderWindowCount: 0,
     chunked: new URL(req.url ?? "/", "http://localhost").searchParams.get("chunks") === "1",
+    ...(new URL(req.url ?? "/", "http://localhost").searchParams.get("delta") === "1" ? { delta: newPlayerDeltaState() } : {}),
   };
   // Clans: `?clan=new` founds the player's own clan (a new Town Center and stock elsewhere on the map),
   // `?clan=<id>` joins that clan if it exists; anything else (or no room to found one) joins clan 0. Done
@@ -380,6 +382,8 @@ function handleMessage(player: Player, message: ClientMessage) {
     handleHeroAction(player, message.action, message.build);
   } else if (message.type === "interiorExit") {
     handleInteriorExit(player);
+  } else if (message.type === "resync") {
+    if (player.delta) player.delta.keyframe = true;
   }
 }
 
@@ -574,7 +578,16 @@ setInterval(() => {
   // Small/medium worlds send everyone the same payload. On big worlds each player only gets the mobs and
   // wildlife within view distance + margin (their camera never shows more), keeping snapshots small.
   const cull = state.WORLD_TILES_X > SNAPSHOT_CULL_MIN_WORLD;
-  const sharedPayloads = cull ? [] : snapshots.map((snap) => JSON.stringify(snap));
+  // Built on first use: delta connections (snapshotDelta.ts) never need the full JSON.
+  const sharedPayloads: string[] = [];
+  const sharedPayload = (clan: number) => {
+    const i = snapshots[clan] ? clan : 0;
+    return (sharedPayloads[i] ??= JSON.stringify(snapshots[i]));
+  };
+  if (Array.from(players.values()).some((p) => p.delta)) {
+    pruneDeltaNums(colonists, mobs);
+    resetDeltaJsonCache();
+  }
   // Strategy mode phase 5: enemy summaries for strategy-mode players, on the first broadcast once due.
   let enemyJson: string | null = null;
   if (state.enemyRegimentTick >= ENEMY_REGIMENT_REFRESH_TICKS && Array.from(players.values()).some((p) => p.view)) {
@@ -585,7 +598,7 @@ setInterval(() => {
   for (const player of players.values()) {
     if (player.socket.readyState === player.socket.OPEN) {
       const snapshot = snapshots[player.clan] ?? snapshots[0];
-      let payload = sharedPayloads[player.clan] ?? sharedPayloads[0] ?? "";
+      let culled = snapshot;
       if (snapshot.type === "snapshot" && cull) {
         const limit = SNAPSHOT_VIEW_TILES * TILE_SIZE;
         const view = player.view;
@@ -596,8 +609,12 @@ setInterval(() => {
         for (let i = 0; i < snapshot.wildlife.length; i += WILDLIFE_SNAPSHOT_STRIDE) {
           if (near(snapshot.wildlife[i + 2], snapshot.wildlife[i + 3])) wl.push(...snapshot.wildlife.slice(i, i + WILDLIFE_SNAPSHOT_STRIDE));
         }
-        payload = JSON.stringify({ ...snapshot, mobs: snapshot.mobs.filter((m) => near(m.x, m.y)), wildlife: wl });
+        culled = { ...snapshot, mobs: snapshot.mobs.filter((m) => near(m.x, m.y)), wildlife: wl };
       }
+      let payload =
+        player.delta && culled.type === "snapshot" ? encodeDeltaSnapshot(player.delta, culled)
+        : culled !== snapshot ? JSON.stringify(culled)
+        : sharedPayload(player.clan);
       if (enemyJson !== null && player.view) payload = payload.slice(0, -1) + ',"enemyRegiments":' + enemyJson + "}";
       if (snapshot.type === "snapshot" && player.siteTilesVersion !== state.ownerVersion) {
         player.siteTilesVersion = state.ownerVersion;

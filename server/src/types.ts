@@ -55,6 +55,8 @@ export interface Player {
   creativeGod?: boolean;
   // World streaming phase 4: connected with `?chunks=1` (takes a chunked welcome on streamed worlds).
   chunked?: boolean;
+  // Delta snapshots: connected with `?delta=1` (snapshotDelta.ts; what this connection was last sent).
+  delta?: import("./snapshotDelta.js").PlayerDeltaState;
   // Stardew phase 5c (interiors.ts): inside a prefab building's interior (transient, never saved). x / y are
   // interior px; the world x / y stay at the door. Not set = in the world.
   interior?: PlayerInterior;

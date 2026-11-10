@@ -183,6 +183,8 @@ export function sendChunks(player: Player, ids: unknown) {
 }
 
 export function sendWelcome(player: Player) {
+  // Delta snapshots: the client starts over on a welcome, so the next snapshot is a keyframe.
+  if (player.delta) player.delta.keyframe = true;
   const chunked = !!player.chunked && streamingOn();
   const welcome: ServerMessage = {
     type: "welcome",
