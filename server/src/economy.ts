@@ -78,28 +78,44 @@ export function isAdjacentToPlayerOrPost(tx: number, ty: number): boolean {
   return false;
 }
 
+// A uniformly random open tile (Empty, nobody on it, not next to a player / post, off reserved grounds). Random tiles
+// first (on a mostly open map one of a few hundred hits); only then the exact count-and-pick over the whole map. The
+// old version listed every open tile as an object each time: a ~0.6 s spike every 8 s on a 2048 map.
 export function tryGrowTree() {
   if (countTilesOfType(TileType.Tree) >= state.MAX_TREES) return;
-  const candidates: TileCoord[] = [];
   // Battle engine phase 2: the occupied tiles once (tileOccupiedByEntity per tile was O(tiles x colonists), a
   // 600 ms spike with 1000 soldiers on the map); same tiles, same result.
   const occupied = new Set<number>();
   for (const p of players.values()) occupied.add(tileIndex(Math.floor(p.x / TILE_SIZE), Math.floor(p.y / TILE_SIZE)));
   for (const c of colonists.values()) occupied.add(tileIndex(Math.floor(c.x / TILE_SIZE), Math.floor(c.y / TILE_SIZE)));
-  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
-      if (
-        state.tiles[tileIndex(tx, ty)] === TileType.Empty &&
-        !occupied.has(tileIndex(tx, ty)) &&
-        !isAdjacentToPlayerOrPost(tx, ty) &&
-        !isInReservedGrounds(tx, ty)
-      ) {
-        candidates.push({ x: tx, y: ty });
+  const W = state.WORLD_TILES_X;
+  const H = state.WORLD_TILES_Y;
+  const open = (tx: number, ty: number) =>
+    state.tiles[tileIndex(tx, ty)] === TileType.Empty &&
+    !occupied.has(tileIndex(tx, ty)) &&
+    !isAdjacentToPlayerOrPost(tx, ty) &&
+    !isInReservedGrounds(tx, ty);
+  let spot: TileCoord | null = null;
+  for (let i = 0; i < 256 && !spot; i++) {
+    const tx = Math.floor(Math.random() * W);
+    const ty = Math.floor(Math.random() * H);
+    if (open(tx, ty)) spot = { x: tx, y: ty };
+  }
+  if (!spot) {
+    let n = 0;
+    for (let tx = 0; tx < W; tx++) for (let ty = 0; ty < H; ty++) if (open(tx, ty)) n++;
+    if (n === 0) return;
+    let k = Math.floor(Math.random() * n);
+    for (let tx = 0; tx < W && !spot; tx++) {
+      for (let ty = 0; ty < H; ty++) {
+        if (open(tx, ty) && k-- === 0) {
+          spot = { x: tx, y: ty };
+          break;
+        }
       }
     }
   }
-  if (candidates.length === 0) return;
-  const spot = candidates[Math.floor(Math.random() * candidates.length)];
+  if (!spot) return;
   setTile(tileIndex(spot.x, spot.y), TileType.Tree);
   broadcastTileUpdate(spot.x, spot.y, TileType.Tree);
 }

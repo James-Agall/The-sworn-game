@@ -12,7 +12,7 @@ import type {
 } from "./types.js";
 import {
   AUTOSAVE_ENABLED, DAY_TICKS, GAME_DAY_TICKS, LEGACY_DAY_TICKS, LEGACY_NIGHT_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS,
-  MAX_WORLD_SIZE, MIN_WORLD_SIZE, NIGHT_TICKS, SAVE_DIR, SAVE_SLOT_LABELS, SAVE_VERSION, TREE_RESPAWN_INTERVAL_TICKS,
+  MAX_WORLD_SIZE, MIN_WORLD_SIZE, NIGHT_TICKS, clampWorldSize, SAVE_DIR, SAVE_SLOT_LABELS, SAVE_VERSION, TREE_RESPAWN_INTERVAL_TICKS,
 } from "./constants.js";
 import {
   type Clan, buildingHp, buildingLevel, clans, colonists, makeClan, tileClan, constructionSites, farmPlots, forageRegrow, forgeAuto, gates, gravestones,
@@ -25,13 +25,16 @@ import { markTileRegistryStale, setTile, streamingOn, tileIndicesOf } from "./ch
 import { clearOwners, isNightNow, resourceKey, tileIndex } from "./tiles.js";
 import { initialStock, markFarmFieldsDirty, newFarmPlot } from "./economy.js";
 import { topUpBarnFarmers } from "./construction.js";
-import { generateWorld, setWorldSize } from "./worldgen.js";
+import {
+  WorldgenCancelled, beginWorldJob, endWorldJob, generateWorld, sendLoadProgress, setWorldSize, worldJob, worldgenProgress,
+} from "./worldgen.js";
+import { LOADING_SCREEN_MIN_WORLD_TILES } from "@colony/shared/streaming";
 import { chronicleForSave, restoreChronicle } from "./chronicle.js";
 import { restoreRooms, roomsForSave } from "./structures.js";
 import { type ZonesSave, restoreZones, zonesForSave } from "./zones.js";
 import { restoreWork, workForSave } from "./work.js";
 import {
-  type TileDiffs, deflateBase64, diffTilesForSave, expandTiles, forgetWorldSeed, inflateBase64, loadBase, pruneBaseFiles, regeneratedBaseMatches,
+  type TileDiffs, deflateBase64, diffTilesForSave, ensureBaseCacheFile, expandTiles, forgetWorldSeed, inflateBase64, loadBase, pruneBaseFiles, regeneratedBaseMatches,
 } from "./worldbase.js";
 import { civilianPopulationUsed, getColonistsAtPost, releaseToVillage, isAbbeyClergy, isPersonKind, newPerson, settlementOf, spawnPointNearTownCenter } from "./colonists.js";
 import { guardStats } from "./units.js";
@@ -47,7 +50,7 @@ import { evaluateGoals } from "./goals.js";
 import { playerMaxHp, resetEquipment, restoreHeroProfiles, serializeHeroProfiles } from "./heroes.js";
 import { clearSpellState, unslowedSpeed } from "./spells.js";
 import { clearOrderGroups } from "./orders.js";
-import { broadcastEvent, clearFights, packExplored, sendWelcome } from "./net.js";
+import { broadcastEvent, broadcastToSockets, clearFights, packExplored, sendWelcome } from "./net.js";
 import { clanById, clanIdAt, clanOf, resetClan, withClan } from "./clans.js";
 
 // Clans: a restart / load is clan 0's world again (every founded clan is dropped, every player rejoins clan 0).
@@ -60,8 +63,33 @@ export function resetClans() {
 }
 
 // creative: the new world's creative flag (a restart without it is a normal game; handleSetDifficulty's
-// regeneration keeps the current one).
-export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown, creative = false, solo = false) {
+// regeneration keeps the current one). Async since the loading screen: generation yields between stages (the
+// world job in worldgen.ts holds the sim and queues messages meanwhile); runs after any save / load in flight.
+// A world of LOADING_SCREEN_MIN_WORLD_TILES+ can be cancelled (`cancelLoad`): a small stand-in world is made instead.
+export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown, creative = false, solo = false): Promise<void> {
+  worldJob.pending++;
+  return serialized(async () => {
+    const prevSize = state.WORLD_TILES_X;
+    const size = typeof nextSize === "number" && Number.isFinite(nextSize) ? clampWorldSize(nextSize) : prevSize;
+    beginWorldJob("new", size, size >= LOADING_SCREEN_MIN_WORLD_TILES);
+    try {
+      await resetWorldOnce(nextDifficulty, nextSize, creative, solo);
+    } catch (err) {
+      if (!(err instanceof WorldgenCancelled)) throw err;
+      console.log(`[world] ${size}x${size} generation cancelled`);
+      broadcastToSockets({ type: "loadProgress", stage: "cancelled", pct: worldJob.pct, size, kind: "new" });
+      // The stand-in: the previous size if that was small, else the default (its progress is its own small job's).
+      const standIn = prevSize < LOADING_SCREEN_MIN_WORLD_TILES ? prevSize : 160;
+      Object.assign(worldJob, { cancellable: false, size: standIn, pct: 0, sent: "" });
+      await resetWorldOnce(nextDifficulty, standIn, creative, solo);
+    } finally {
+      endWorldJob();
+      worldJob.pending--;
+    }
+  });
+}
+
+async function resetWorldOnce(nextDifficulty: unknown, nextSize: unknown, creative: boolean, solo: boolean) {
   const wasCreative = state.creative;
   state.creative = creative;
   state.solo = solo && !creative;
@@ -71,11 +99,20 @@ export function resetWorld(nextDifficulty?: unknown, nextSize?: unknown, creativ
   if (creative) state.instantBuild = true;
   else if (wasCreative) state.instantBuild = process.env.COLONY_INSTANT_BUILD === "1";
   resetClans();
-  withClan(clans[0], () => resetWorldInner(nextDifficulty, nextSize));
+  withClan(clans[0], () => resetWorldBefore(nextDifficulty, nextSize));
+  await generateWorld(undefined, (fn) => withClan(clans[0], fn));
+  // Made: from here on a cancel would only throw a finished world away.
+  worldJob.cancellable = false;
+  if (streamingOn()) {
+    await worldgenProgress("cache", 0);
+    await ensureBaseCacheFile();
+  }
+  sendLoadProgress("starting", 1);
+  withClan(clans[0], () => resetWorldAfter());
   restoreQuests(undefined);
 }
 
-function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
+function resetWorldBefore(nextDifficulty?: unknown, nextSize?: unknown) {
   // A restart reopens the difficulty claim; a value sent with the restart claims it straight away.
   state.difficultyClaimed = false;
   if (isDifficulty(nextDifficulty)) {
@@ -91,8 +128,9 @@ function resetWorldInner(nextDifficulty?: unknown, nextSize?: unknown) {
   if (typeof nextSize === "number" && Number.isFinite(nextSize)) setWorldSize(nextSize);
   // Before generateWorld: it tops up the starting builders, counting queued builder respawns.
   respawnQueue.length = 0;
-  generateWorld();
+}
 
+function resetWorldAfter() {
   respawnQueue.length = 0;
   farmPlots.clear();
   minesPlacedOnOre.clear();
@@ -665,11 +703,15 @@ export async function writeSave(slot: SaveSlot): Promise<string | null> {
 }
 
 export function loadFromSlot(slot: SaveSlot): Promise<string | null> {
-  return serialized(() => readSave(slot));
+  worldJob.pending++;
+  return serialized(() => readSave(slot)).finally(() => worldJob.pending--);
 }
 
 export async function readSave(slot: SaveSlot): Promise<string | null> {
   state.simHeldForLoad = true;
+  // Loading screen: a load is a world job too (not cancellable: by the time the size is known the old world is
+  // going); its size is filled in once the file is read.
+  beginWorldJob("load", 0, false);
   try {
     const t0 = performance.now();
     let file: SaveFile;
@@ -685,6 +727,8 @@ export async function readSave(slot: SaveSlot): Promise<string | null> {
     if (!Number.isInteger(file.worldSize) || file.worldSize < MIN_WORLD_SIZE || file.worldSize > MAX_WORLD_SIZE) {
       return `Save has an unsupported world size (${file.worldSize})`;
     }
+    worldJob.size = file.worldSize;
+    await worldgenProgress("read", 1);
     if (file.worldSize !== state.WORLD_TILES_X) {
       colonists.clear();
       mobs.clear();
@@ -694,12 +738,14 @@ export async function readSave(slot: SaveSlot): Promise<string | null> {
     const expandError = await expandStreamedSave(file);
     if (expandError) return expandError;
     if (!file.state.tileDiffs) forgetWorldSeed();
+    sendLoadProgress("starting", 1);
     applyWorld(file.state);
     respawnPlayersAndWelcome();
     broadcastEvent("build", "Game loaded");
     console.log(`[load] ${slot}: day ${file.dayIndex + 1}, ${(performance.now() - t0).toFixed(1)} ms`);
     return null;
   } finally {
+    endWorldJob();
     state.simHeldForLoad = false;
   }
 }
@@ -715,9 +761,10 @@ async function expandStreamedSave(file: SaveFile): Promise<string | null> {
     colonists.clear();
     mobs.clear();
     wildlife.clear();
-    generateWorld(s.seed);
+    await generateWorld(s.seed);
     if (!regeneratedBaseMatches(s.seed, s.baseSum)) return "Save's base world could not be rebuilt (its cache file is missing and worldgen has changed)";
     console.log(`[load] base world regenerated from seed ${s.seed} in ${(performance.now() - t0).toFixed(0)} ms`);
+    await worldgenProgress("cache", 0);
     b = await loadBase(s.seed, file.worldSize, s.baseSum);
     if (!b) return "Save's base world could not be rebuilt";
   }

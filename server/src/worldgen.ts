@@ -2,7 +2,7 @@
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { randomUUID } from "node:crypto";
 import {
-  TileType, Biome, type MobKind, type BossTier, bossTitle, VISION_RADIUS_PLAYER, TILE_SIZE, VISION_RADIUS_COLONIST,
+  type ServerMessage, TileType, Biome, type MobKind, type BossTier, bossTitle, VISION_RADIUS_PLAYER, TILE_SIZE, VISION_RADIUS_COLONIST,
 } from "@colony/shared/protocol";
 import type { Mob, PoiSiteKind, ResourceKey, TileCoord } from "./types.js";
 import {
@@ -30,8 +30,9 @@ import { generateSettlements } from "./settlementTemplates.js";
 import { registerHearth } from "./hearths.js";
 import { evaluateGoals, resetGoals } from "./goals.js";
 import { grantTieredEquipment } from "./heroes.js";
-import { broadcastEvent, resetExplored } from "./net.js";
-import { withWorldSeed } from "./worldbase.js";
+import { broadcastEvent, broadcastToSockets, resetExplored } from "./net.js";
+import { withWorldSeed, yieldWorldgen } from "./worldbase.js";
+import { LOAD_STAGES, type LoadStageId } from "@colony/shared/streaming";
 import { campGroundClearable, campPool, pickCampTemplate, pickCampTransform, stampCamp } from "./camps.js";
 import { campRadius, type CampTemplate } from "@colony/shared/camps";
 
@@ -96,6 +97,8 @@ export function latticeHash(ix: number, iy: number, salt: number): number {
   return (h >>> 0) / 4294967296;
 }
 
+const smooth = (t: number) => t * t * (3 - 2 * t);
+
 // Smooth value noise in [-1, 1]: bilinear (smoothstepped) interpolation of a hashed lattice every
 // `cellTiles` tiles, so neighboring tiles get similar jitter and edges wobble instead of speckling.
 export function edgeJitter(tx: number, ty: number, cellTiles: number, salt: number): number {
@@ -103,7 +106,6 @@ export function edgeJitter(tx: number, ty: number, cellTiles: number, salt: numb
   const fy = ty / cellTiles;
   const ix = Math.floor(fx);
   const iy = Math.floor(fy);
-  const smooth = (t: number) => t * t * (3 - 2 * t);
   const sx = smooth(fx - ix);
   const sy = smooth(fy - iy);
   const top = latticeHash(ix, iy, salt) * (1 - sx) + latticeHash(ix + 1, iy, salt) * sx;
@@ -113,6 +115,35 @@ export function edgeJitter(tx: number, ty: number, cellTiles: number, salt: numb
 
 export function tileDistance(a: TileCoord, b: TileCoord): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+// pickScatteredTile's spacing check. Big `avoid` lists (thousands of biome seeds / ponds on a 2048 map) get a grid
+// of AVOID_CELL-tile buckets per array, kept in a WeakMap; the arrays only ever grow, so points pushed since the
+// last call are bucketed on the next one. Same answer as scanning the whole list.
+const AVOID_CELL = 16;
+const avoidGrids = new WeakMap<TileCoord[], { n: number; cells: Map<number, TileCoord[]> }>();
+const avoidKey = (cx: number, cy: number) => (cx + 4096) * 16384 + (cy + 4096);
+function tooClose(avoid: TileCoord[], t: TileCoord, minSpacing: number): boolean {
+  if (avoid.length < 64) return avoid.some((o) => tileDistance(o, t) < minSpacing);
+  let g = avoidGrids.get(avoid);
+  if (!g || g.n > avoid.length) avoidGrids.set(avoid, (g = { n: 0, cells: new Map() }));
+  for (; g.n < avoid.length; g.n++) {
+    const o = avoid[g.n];
+    const k = avoidKey(Math.floor(o.x / AVOID_CELL), Math.floor(o.y / AVOID_CELL));
+    const list = g.cells.get(k);
+    if (list) list.push(o);
+    else g.cells.set(k, [o]);
+  }
+  const cx = Math.floor(t.x / AVOID_CELL);
+  const cy = Math.floor(t.y / AVOID_CELL);
+  const r = Math.ceil(minSpacing / AVOID_CELL);
+  for (let y = cy - r; y <= cy + r; y++) {
+    for (let x = cx - r; x <= cx + r; x++) {
+      const list = g.cells.get(avoidKey(x, y));
+      if (list && list.some((o) => tileDistance(o, t) < minSpacing)) return true;
+    }
+  }
+  return false;
 }
 
 // Rejection sampling, same retry-until-attempts-run-out convention as scatterResourceTiles: a
@@ -126,14 +157,14 @@ export function pickScatteredTile(
   for (let attempts = 0; attempts < 1000; attempts++) {
     const t = { x: Math.floor(Math.random() * state.WORLD_TILES_X), y: Math.floor(Math.random() * state.WORLD_TILES_Y) };
     if (tileDistance(t, TOWN_CENTER_TILE) < minSpawnDist) continue;
-    if (avoid.some((o) => tileDistance(o, t) < minSpacing)) continue;
+    if (tooClose(avoid, t, minSpacing)) continue;
     if (isValid && !isValid(t)) continue;
     return t;
   }
   return null;
 }
 
-export function generateBiomes() {
+export async function generateBiomes(step?: (frac: number) => Promise<void>) {
   const seeds: { x: number; y: number; radius: number; biome: Biome }[] = [];
   for (let i = 0; i < state.BIOME_SEEDS_PER_KIND * 2; i++) {
     // Alternate so a crowded map that runs out of room still gets both kinds.
@@ -146,20 +177,42 @@ export function generateBiomes() {
     const spot = pickScatteredTile(minSpawnDist, BIOME_SEED_MIN_SPACING, seeds);
     if (spot) seeds.push({ x: spot.x, y: spot.y, radius, biome });
   }
-  for (let tx = 0; tx < state.WORLD_TILES_X; tx++) {
-    for (let ty = 0; ty < state.WORLD_TILES_Y; ty++) {
-      let nearest: (typeof seeds)[number] | null = null;
-      let nearestDist = Infinity;
-      for (const seed of seeds) {
-        const d = Math.hypot(seed.x - tx, seed.y - ty);
-        if (d < nearestDist) {
-          nearestDist = d;
-          nearest = seed;
+  // Only the nearest seed decides a tile, and only within its radius + jitter (<= REACH); past that the tile is
+  // Plains whichever seed is nearest. So seeds go in a grid of REACH-sized cells and a tile looks at its 3x3 cells
+  // (same result as scanning every seed, ties to the lower seed index; was O(tiles x seeds): 38 s of 42 at 1024).
+  const W = state.WORLD_TILES_X;
+  const H = state.WORLD_TILES_Y;
+  const REACH = BIOME_SEED_RADIUS_MAX + BIOME_EDGE_JITTER_TILES;
+  const cell = Math.ceil(REACH) + 1;
+  const gw = Math.ceil(W / cell);
+  const gh = Math.ceil(H / cell);
+  const buckets: number[][] = Array.from({ length: gw * gh }, () => []);
+  seeds.forEach((s, i) => buckets[Math.floor(s.y / cell) * gw + Math.floor(s.x / cell)].push(i));
+  for (let ty = 0; ty < H; ty++) {
+    if (step && ty > 0 && ty % 128 === 0) await step(ty / H);
+    const gy = Math.floor(ty / cell);
+    for (let tx = 0; tx < W; tx++) {
+      const gx = Math.floor(tx / cell);
+      let best = -1;
+      let bestD = Infinity;
+      for (let y = Math.max(0, gy - 1); y <= Math.min(gh - 1, gy + 1); y++) {
+        for (let x = Math.max(0, gx - 1); x <= Math.min(gw - 1, gx + 1); x++) {
+          for (const i of buckets[y * gw + x]) {
+            // Math.hypot, not dx*dx+dy*dy: equal squares can differ in hypot's last bit, and ties must break as before.
+            const d = Math.hypot(seeds[i].x - tx, seeds[i].y - ty);
+            if (d < bestD || (d === bestD && i < best)) {
+              bestD = d;
+              best = i;
+            }
+          }
         }
       }
-      const jitter = edgeJitter(tx, ty, BIOME_NOISE_CELL_TILES, state.worldNoiseSalt) * BIOME_EDGE_JITTER_TILES;
-      state.biomes[tileIndex(tx, ty)] =
-        nearest && nearestDist <= nearest.radius + jitter ? nearest.biome : Biome.Plains;
+      let biome = Biome.Plains;
+      if (best >= 0) {
+        const nearest = seeds[best];
+        if (bestD <= REACH && bestD <= nearest.radius + edgeJitter(tx, ty, BIOME_NOISE_CELL_TILES, state.worldNoiseSalt) * BIOME_EDGE_JITTER_TILES) biome = nearest.biome;
+      }
+      state.biomes[ty * W + tx] = biome;
     }
   }
 }
@@ -594,44 +647,133 @@ export function setWorldSize(size: number) {
   state.MINI_BOSS_SITE_COUNT_MAX = Math.max(1, scaledCountSub(1.25));
 }
 
-// World streaming phase 4: seeded (worldbase.ts), so a streamed save can store the seed + tile diffs.
-export function generateWorld(seed?: number) {
-  withWorldSeed(seed, generateWorldInner);
+// ---- Loading screen: the world job (a new world or a load) in progress ----
+// While `busy` the tick loop is skipped, new connections wait and incoming messages are queued (index.ts), so
+// nothing runs on a half-made world; worldgenProgress() between (and inside) stages tells every socket how far it is,
+// yields to the event loop and, on a cancellable job, honours `cancelLoad`.
+export class WorldgenCancelled extends Error {}
+// pending: jobs asked for and not finished (counted at once, while `busy` is set only once a job really starts:
+// resetWorld / loads wait for any save in flight). last: the latest loadProgress, for a socket that connects mid-job.
+export const worldJob = {
+  busy: false, pending: 0, kind: "new" as "new" | "load", size: 0, cancellable: false, cancelRequested: false, pct: 0, sent: "",
+  last: null as ServerMessage | null,
+};
+
+export function worldBusy(): boolean {
+  return worldJob.busy || worldJob.pending > 0;
 }
 
-function generateWorldInner() {
+export function beginWorldJob(kind: "new" | "load", size: number, cancellable: boolean) {
+  Object.assign(worldJob, { busy: true, kind, size, cancellable, cancelRequested: false, pct: 0, sent: "", last: null });
+  state.simHeldForLoad = true;
+}
+
+export function endWorldJob() {
+  worldJob.busy = false;
+  worldJob.cancellable = false;
+  worldJob.last = null;
+  state.simHeldForLoad = false;
+}
+
+// Progress `frac` (0-1) through `stage`, as an overall percent (LOAD_STAGES), to every socket; never goes back.
+export function sendLoadProgress(stage: LoadStageId, frac: number) {
+  if (!worldJob.busy) return;
+  const i = LOAD_STAGES.findIndex((s) => s.id === stage);
+  const from = i > 0 ? LOAD_STAGES[i - 1].endPct : 0;
+  worldJob.pct = Math.max(worldJob.pct, Math.round(from + (LOAD_STAGES[i].endPct - from) * Math.min(1, Math.max(0, frac))));
+  const key = `${stage}:${worldJob.pct}:${worldJob.cancellable}`;
+  if (key === worldJob.sent) return;
+  worldJob.sent = key;
+  worldJob.last = {
+    type: "loadProgress", stage, pct: worldJob.pct, size: worldJob.size, kind: worldJob.kind, ...(worldJob.cancellable ? { cancellable: true } : {}),
+  };
+  broadcastToSockets(worldJob.last);
+}
+
+export async function worldgenProgress(stage: LoadStageId, frac: number) {
+  sendLoadProgress(stage, frac);
+  await yieldWorldgen();
+  if (worldJob.busy && worldJob.cancellable && worldJob.cancelRequested) throw new WorldgenCancelled("cancelled");
+}
+
+// World streaming phase 4: seeded (worldbase.ts), so a streamed save can store the seed + tile diffs.
+// `wrap` runs each (synchronous) stage, e.g. under clan 0 (resetWorld): other code may run between stages.
+export async function generateWorld(seed?: number, wrap: (fn: () => void) => void = (fn) => fn()) {
+  await withWorldSeed(seed, () => generateWorldInner(wrap));
+}
+
+async function generateWorldInner(wrap: (fn: () => void) => void) {
   const genStart = performance.now();
-  state.tiles.fill(TileType.Empty);
-  markTileRegistryStale();
-  state.biomes.fill(Biome.Plains);
-  state.worldNoiseSalt = Math.floor(Math.random() * 0x7fffffff);
-  state.abbeyCenter = null;
-  state.castleRuinCenter = null;
-  hearths.clear();
-  clearOwners();
-  clearSites();
-  resetGoals();
-  setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
-  state.townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
-  generateBiomes();
-  generatePonds();
+  let lap = genStart;
+  const laps: string[] = [];
+  const timed = (name: string) => {
+    const now = performance.now();
+    laps.push(`${name} ${(now - lap).toFixed(0)}`);
+    lap = now;
+  };
   const placedSites: TileCoord[] = [];
-  placeAbbey(placedSites);
-  placeCastleRuin(placedSites);
+  await worldgenProgress("terrain", 0);
+  wrap(() => {
+    state.tiles.fill(TileType.Empty);
+    markTileRegistryStale();
+    state.biomes.fill(Biome.Plains);
+    state.worldNoiseSalt = Math.floor(Math.random() * 0x7fffffff);
+    state.abbeyCenter = null;
+    state.castleRuinCenter = null;
+    hearths.clear();
+    clearOwners();
+    clearSites();
+    resetGoals();
+    setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
+    state.townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
+  });
+  await generateBiomes((f) => worldgenProgress("terrain", f * 0.8));
+  timed("biomes");
+  await worldgenProgress("terrain", 0.8);
+  wrap(() => generatePonds());
+  timed("ponds");
+  await worldgenProgress("settlements", 0);
+  wrap(() => {
+    placeAbbey(placedSites);
+    placeCastleRuin(placedSites);
+  });
+  timed("abbey+castle");
+  await worldgenProgress("settlements", 0.2);
   // Forts phase B: the stamped NPC forts (before the scatter, so only ponds compete for their ground).
   // Forts phase C: the (bigger, rarer) human settlements pick their ground first.
-  generateSettlements();
-  generateForts();
-  scatterResourceTiles(TileType.Tree, state.TREE_COUNT);
-  scatterResourceTiles(TileType.IronOre, state.IRON_ORE_COUNT);
-  scatterResourceTiles(TileType.Rock, state.ROCK_COUNT);
-  generateForage();
-  generatePoiSites("ruin", randInt(state.RUIN_SITE_COUNT_MIN, state.RUIN_SITE_COUNT_MAX), placedSites);
-  generateNearStartCamps(placedSites);
-  generateCampSites(randInt(state.ENCAMPMENT_SITE_COUNT_MIN, state.ENCAMPMENT_SITE_COUNT_MAX), placedSites);
-  generateMiniBossSites(randInt(state.MINI_BOSS_SITE_COUNT_MIN, state.MINI_BOSS_SITE_COUNT_MAX), placedSites);
-  spawnInitialWildlife();
-  resetExplored();
-  spawnStartingPeople(state.townCenters[0]);
-  console.log(`[world] generated ${state.WORLD_TILES_X}x${state.WORLD_TILES_Y} in ${(performance.now() - genStart).toFixed(0)} ms`);
+  wrap(() => generateSettlements());
+  timed("settlements");
+  await worldgenProgress("settlements", 0.7);
+  wrap(() => generateForts());
+  timed("forts");
+  await worldgenProgress("resources", 0);
+  wrap(() => {
+    scatterResourceTiles(TileType.Tree, state.TREE_COUNT);
+    scatterResourceTiles(TileType.IronOre, state.IRON_ORE_COUNT);
+    scatterResourceTiles(TileType.Rock, state.ROCK_COUNT);
+  });
+  timed("scatter");
+  await worldgenProgress("resources", 0.6);
+  wrap(() => generateForage());
+  timed("forage");
+  await worldgenProgress("camps", 0);
+  wrap(() => generatePoiSites("ruin", randInt(state.RUIN_SITE_COUNT_MIN, state.RUIN_SITE_COUNT_MAX), placedSites));
+  timed("ruins");
+  await worldgenProgress("camps", 0.2);
+  wrap(() => generateNearStartCamps(placedSites));
+  timed("nearCamps");
+  await worldgenProgress("camps", 0.3);
+  wrap(() => generateCampSites(randInt(state.ENCAMPMENT_SITE_COUNT_MIN, state.ENCAMPMENT_SITE_COUNT_MAX), placedSites));
+  timed("camps");
+  await worldgenProgress("camps", 0.9);
+  wrap(() => generateMiniBossSites(randInt(state.MINI_BOSS_SITE_COUNT_MIN, state.MINI_BOSS_SITE_COUNT_MAX), placedSites));
+  timed("miniBoss");
+  await worldgenProgress("wildlife", 0);
+  wrap(() => {
+    spawnInitialWildlife();
+    resetExplored();
+    spawnStartingPeople(state.townCenters[0]);
+  });
+  timed("wildlife+people");
+  console.log(`[world] generated ${state.WORLD_TILES_X}x${state.WORLD_TILES_Y} in ${(performance.now() - genStart).toFixed(0)} ms (${laps.join(", ")})`);
 }

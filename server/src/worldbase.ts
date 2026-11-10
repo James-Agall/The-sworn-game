@@ -6,7 +6,8 @@
 // (checked against the checksum). Worlds without a seed (loaded from a full-array save) keep the old format.
 import { promises as fsp } from "node:fs";
 import path from "node:path";
-import { deflateRawSync, gunzipSync, gzipSync, inflateRawSync } from "node:zlib";
+import { promisify } from "node:util";
+import { deflateRawSync, gunzip, gzip, inflateRawSync } from "node:zlib";
 import { SAVE_DIR } from "./constants.js";
 import { CHUNK_TILES } from "./chunks.js";
 import { state } from "./state.js";
@@ -15,6 +16,8 @@ import { state } from "./state.js";
 // named by the save's own worldgenVersion). 3: bandit camp templates (2026-11-06). 7: gap closure G7 (settlements
 // turned / mirrored, quest slots, 6 more settlement templates). 8: gap closure G8 (town-citadel: a keep building).
 export const WORLDGEN_VERSION = 8;
+const gzipAsync = promisify(gzip);
+const gunzipAsync = promisify(gunzip);
 // A chunk with more changed tiles than this is stored whole (1024 bytes) instead of as (u16 pos, u8 tile).
 const CHUNK_FULL_AT = 340;
 
@@ -40,21 +43,55 @@ function seeded(seed: number): () => number {
   };
 }
 
+// The seeded stream of the generation in progress (null: none) and the real Math.random it replaced.
+let seededRandom: (() => number) | null = null;
+let realRandom: () => number = Math.random;
+
 // Runs fn (generateWorld's body) on a seeded Math.random, then captures the base layer. COLONY_WORLD_SEED (tests):
-// every new world uses that seed (a fixed map layout).
-export function withWorldSeed(seed: number | undefined, fn: () => void) {
+// every new world uses that seed (a fixed map layout). fn may await yieldWorldgen() between stages.
+export async function withWorldSeed(seed: number | undefined, fn: () => Promise<void>) {
   const fixed = process.env.COLONY_WORLD_SEED ? Number(process.env.COLONY_WORLD_SEED) : NaN;
   const s = seed ?? (Number.isFinite(fixed) ? fixed >>> 0 : Math.floor(Math.random() * 0x7fffffff));
-  const real = Math.random;
-  Math.random = seeded(s);
+  realRandom = Math.random;
+  seededRandom = seeded(s);
+  Math.random = seededRandom;
   try {
-    fn();
+    await fn();
   } finally {
-    Math.random = real;
+    Math.random = realRandom;
+    seededRandom = null;
   }
   worldSeed = s;
   base = { seed: s, size: state.WORLD_TILES_X, tiles: state.tiles.slice(), biomes: state.biomes.slice(), sum: 0, version: WORLDGEN_VERSION };
   base.sum = checksum(base.tiles, base.biomes);
+}
+
+// Loading screen: lets the event loop run (socket I/O, progress messages) in the middle of a generation. Anything
+// else that runs meanwhile gets the real Math.random, so the seeded stream (and so the world) stays the same.
+export async function yieldWorldgen() {
+  const rng = seededRandom;
+  if (rng) Math.random = realRandom;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  if (rng) Math.random = rng;
+}
+
+// Loading screen "Saving base cache": a streamed world's base file is written right after generation (async gzip),
+// so the first save does not have to. A no-op when it exists or there is no base.
+export async function ensureBaseCacheFile() {
+  if (!base) return;
+  const file = baseFile(base.seed, base.size, base.version);
+  try {
+    await fsp.access(file);
+    return;
+  } catch {
+    /* not written yet */
+  }
+  await fsp.mkdir(SAVE_DIR, { recursive: true });
+  const raw = new Uint8Array(base.tiles.length * 2);
+  raw.set(base.tiles, 0);
+  raw.set(base.biomes, base.tiles.length);
+  await fsp.writeFile(`${file}.tmp`, await gzipAsync(raw));
+  await fsp.rename(`${file}.tmp`, file);
 }
 
 // A load of a full-array save: nothing to diff against.
@@ -104,17 +141,7 @@ export async function diffTilesForSave(): Promise<TileDiffs | null> {
   if (worldSeed === null || !base || base.seed !== worldSeed || base.size !== state.WORLD_TILES_X) return null;
   if (!sameBytes(state.biomes, base.biomes)) return null;
   // The cache file first: a diff save is only as good as its base.
-  const file = baseFile(base.seed, base.size, base.version);
-  try {
-    await fsp.access(file);
-  } catch {
-    await fsp.mkdir(SAVE_DIR, { recursive: true });
-    const raw = new Uint8Array(base.tiles.length * 2);
-    raw.set(base.tiles, 0);
-    raw.set(base.biomes, base.tiles.length);
-    await fsp.writeFile(`${file}.tmp`, gzipSync(raw));
-    await fsp.rename(`${file}.tmp`, file);
-  }
+  await ensureBaseCacheFile();
   return { seed: base.seed, worldgenVersion: base.version, baseSum: base.sum, tileDiffs: encodeDiffs(base.tiles, state.tiles) };
 }
 
@@ -182,7 +209,7 @@ function applyDiffs(tiles: Uint8Array, diffs: [number, string, 1?][]) {
 export async function loadBase(seed: number, size: number, sum: number, version = WORLDGEN_VERSION): Promise<Base | null> {
   if (base && base.seed === seed && base.size === size && base.sum === sum) return base;
   try {
-    const raw = new Uint8Array(gunzipSync(await fsp.readFile(baseFile(seed, size, version))));
+    const raw = new Uint8Array(await gunzipAsync(await fsp.readFile(baseFile(seed, size, version))));
     const cells = size * size;
     const b: Base = { seed, size, tiles: raw.slice(0, cells), biomes: raw.slice(cells, cells * 2), sum: 0, version };
     b.sum = checksum(b.tiles, b.biomes);

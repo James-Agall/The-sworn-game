@@ -128,6 +128,11 @@ export function broadcastEvent(category: GameEventCategory, text: string) {
     }
   }
 }
+// Loading screen: to every open socket, players and connections still waiting for their welcome alike.
+export function broadcastToSockets(message: ServerMessage) {
+  const payload = JSON.stringify(message);
+  for (const s of wss.clients) if (s.readyState === s.OPEN) s.send(payload);
+}
 // One HTTP server on PORT: websocket upgrades go to `wss`; plain GET /saves lists the save slots for
 // the main menu (which has no websocket open yet).
 export const httpServer = createServer((req, res) => {

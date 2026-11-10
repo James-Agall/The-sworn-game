@@ -5,6 +5,22 @@
 import { Biome, TileType } from "./protocol.js";
 
 export const STREAM_CHUNK_TILES = 32;
+
+// Loading screen: the server's world-generation / load stages, in order, with the overall percent each one ends
+// at (weights from profiling a 2048 map). The client adds "Sending map to your browser" (the chunk transfer)
+// after "starting". Worlds of LOADING_SCREEN_MIN_WORLD_TILES+ show the screen; smaller ones load too fast to need it.
+export const LOAD_STAGES = [
+  { id: "read", label: "Reading the save", endPct: 5 },
+  { id: "terrain", label: "Generating terrain", endPct: 45 },
+  { id: "settlements", label: "Placing settlements and forts", endPct: 60 },
+  { id: "resources", label: "Planting forests, ore and forage", endPct: 70 },
+  { id: "camps", label: "Placing camps, ruins and lairs", endPct: 85 },
+  { id: "wildlife", label: "Releasing wildlife and settlers", endPct: 92 },
+  { id: "cache", label: "Saving base cache", endPct: 98 },
+  { id: "starting", label: "Starting", endPct: 100 },
+] as const;
+export type LoadStageId = (typeof LOAD_STAGES)[number]["id"];
+export const LOADING_SCREEN_MIN_WORLD_TILES = 512;
 export const MAX_CHUNKS_PER_REQUEST = 64;
 
 // Minimap cell side in tiles for a world: 1 up to 512, 2 at 1024, 4 at 2048.

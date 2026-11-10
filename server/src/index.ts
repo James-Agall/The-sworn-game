@@ -4,6 +4,8 @@
 import { handleAnimalAction, isMounted, livestockPayloadFor } from "./animals.js";
 import { handleWagonCommand, wagonSnapshot } from "./wagons.js";
 import { randomUUID } from "node:crypto";
+import type { IncomingMessage } from "node:http";
+import type { RawData, WebSocket } from "ws";
 import {
   TileType, PLAYER_MAX_HP, type ClientMessage, TIME_SCALES, type ServerMessage, type PlayerSnapshot,
   type ColonistSnapshot, type MobSnapshot, HungerMark, type TownCenterSnapshot, ENEMY_REGIMENT_REFRESH_TICKS,
@@ -22,7 +24,7 @@ import { setTile } from "./chunks.js";
 import { anchorOfTile, clamp, inBounds, isNightNow, ownerAt, tileIndex, dayTicksAt } from "./tiles.js";
 import "./pathfinding.js";
 import { farmPlotIndices, farmStagesForSnapshot, handleBuyWithGold, handleExchangeResource } from "./economy.js";
-import { generateWorld } from "./worldgen.js";
+import { generateWorld, worldBusy, worldJob } from "./worldgen.js";
 import { loadCampTemplates } from "./camps.js";
 import { buildingTemplates, handlePlaceBlueprint, loadBuildingTemplates } from "./buildingTemplates.js";
 import { loadSettlementTemplates } from "./settlementTemplates.js";
@@ -79,13 +81,38 @@ setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 loadCampTemplates();
 loadBuildingTemplates();
 loadSettlementTemplates();
-generateWorld();
+await generateWorld();
 httpServer.listen(PORT);
 console.log(`colony2d server listening on ws://localhost:${PORT}`);
 process.on("SIGINT", () => saveOnShutdown("SIGINT"));
 process.on("SIGTERM", () => saveOnShutdown("SIGTERM"));
 
+// Loading screen: while a world job runs (worldgen.ts worldJob: a new world or a load) incoming messages and new
+// connections wait here, in order, and run once it is done (drained by the tick loop), so nothing acts on a
+// half-made world; `cancelLoad` alone goes straight through.
+const deferred: (() => void)[] = [];
+function drainDeferred() {
+  while (deferred.length && !worldBusy()) deferred.shift()!();
+}
+
 wss.on("connection", (socket, req) => {
+  if (!worldBusy() && !deferred.length) {
+    acceptConnection(socket, req);
+    return;
+  }
+  const early: RawData[] = [];
+  const hold = (raw: RawData) => early.push(raw);
+  socket.on("message", hold);
+  if (worldJob.last) socket.send(JSON.stringify(worldJob.last));
+  deferred.push(() => {
+    socket.off("message", hold);
+    if (socket.readyState !== socket.OPEN) return;
+    acceptConnection(socket, req);
+    for (const raw of early) socket.emit("message", raw);
+  });
+});
+
+function acceptConnection(socket: WebSocket, req: IncomingMessage) {
   const id = randomUUID();
   // Hero phases 1-2: the client's stored profile id (`?profile=`), else the world's "default" profile.
   const profileParam = new URL(req.url ?? "/", "http://localhost").searchParams.get("profile") ?? "";
@@ -147,16 +174,29 @@ wss.on("connection", (socket, req) => {
       return;
     }
 
-    // Clans: every message runs with the sender's clan active (its stock, goals, army, ...).
-    withClan(clanOf(player), () => handleMessage(player, message));
-    // Creative mode: whatever the message spent comes straight back.
-    if (state.creative) topUpCreative();
+    if (message.type === "cancelLoad") {
+      if (worldJob.busy && worldJob.cancellable) worldJob.cancelRequested = true;
+      return;
+    }
+    if (worldBusy() || deferred.length) {
+      deferred.push(() => dispatchMessage(player, message));
+      return;
+    }
+    dispatchMessage(player, message);
   });
 
   socket.on("close", () => {
     players.delete(id);
   });
-});
+}
+
+function dispatchMessage(player: Player, message: ClientMessage) {
+  if (players.get(player.id) !== player) return;
+  // Clans: every message runs with the sender's clan active (its stock, goals, army, ...).
+  withClan(clanOf(player), () => handleMessage(player, message));
+  // Creative mode: whatever the message spent comes straight back.
+  if (state.creative) topUpCreative();
+}
 
 // Clans: unit ids of other clans are dropped from commands (each clan commands its own army only).
 function ownUnits(player: Player, ids: unknown): string[] {
@@ -239,7 +279,7 @@ function handleMessage(player: Player, message: ClientMessage) {
     state.timeScaleBy = player.id;
     state.simAccum = 0;
   } else if (message.type === "restart") {
-    resetWorld(message.difficulty, message.worldSize, message.creative === true, message.solo === true);
+    void resetWorld(message.difficulty, message.worldSize, message.creative === true, message.solo === true);
   } else if (message.type === "setDifficulty") {
     handleSetDifficulty(message.difficulty, message.worldSize);
   } else if (message.type === "creativeSpawn" || message.type === "creativeSet") {
@@ -388,6 +428,10 @@ function handleMessage(player: Player, message: ClientMessage) {
 }
 
 setInterval(() => {
+  // Loading screen: no ticks while a world is being made or loaded; then the messages that waited.
+  if (worldBusy()) return;
+  if (deferred.length) drainDeferred();
+  if (worldBusy()) return;
   const tickStart = TEST_HOOKS ? performance.now() : 0;
   // Strategy mode phase 5: time scale (see timeScale). Paused / loading: no steps, snapshots every tick.
   let stepped = false;

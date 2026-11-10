@@ -89,7 +89,7 @@ export function handleSetDifficulty(value: unknown, worldSize?: unknown) {
   if (state.difficultyClaimed && !soloFirstDay) return;
   // New Game with a different map size: regenerate the (still unclaimed / first-day solo) world at it.
   if (typeof worldSize === "number" && Number.isFinite(worldSize) && clampWorldSize(worldSize) !== state.WORLD_TILES_X) {
-    resetWorld(value, worldSize, state.creative);
+    void resetWorld(value, worldSize, state.creative);
     return;
   }
   state.difficulty = value;

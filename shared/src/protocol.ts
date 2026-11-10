@@ -4,6 +4,7 @@ import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, Pers
 import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
 import type { BuildingPostsInfo, WorkPostOption, WorkTabSnapshot, WorkType } from "./work.js";
 import type { InteriorView } from "./interiors.js";
+import type { LoadStageId } from "./streaming.js";
 export const TICK_RATE = 20;
 export const TILE_SIZE = 32;
 // Server-side default; the live size is overridable (COLONY_WORLD_SIZE) and sent in `welcome`.
@@ -1326,6 +1327,8 @@ export type ClientMessage =
   | { type: "listSaves" }
   // World streaming phase 4: chunk ids (cy * chunksX + cx, STREAM_CHUNK_TILES) a chunked client still needs.
   | { type: "requestChunks"; chunks: number[] }
+  // Loading screen: abort the world generation in progress (only while its loadProgress says `cancellable`).
+  | { type: "cancelLoad" }
   // World streaming phase 5: the player has read the chronicle up to this entry id.
   | { type: "chronicleSeen"; id: number }
   // Progression tree: craft one hand recipe (PROGRESSION.recipes, station "hand") from the stock.
@@ -1488,6 +1491,10 @@ export type ServerMessage =
   // World streaming phase 4: requested chunks, each its tiles / biomes (base64, row by row, the chunk's own
   // width: edge chunks are narrower).
   | { type: "chunks"; chunks: { c: number; tiles: string; biomes: string }[] }
+  // Loading screen (shared/src/streaming.ts LOAD_STAGES): the server's world-generation / load progress, to every
+  // socket. pct is the server's own work (0-100, never goes back within one job); "starting" at 100 comes right
+  // before the welcome; "cancelled" means the job was aborted (a small stand-in world's welcome follows).
+  | { type: "loadProgress"; stage: LoadStageId | "cancelled"; pct: number; size: number; kind: "new" | "load"; cancellable?: boolean }
   // World streaming phase 5: chronicle entries. full: the whole list (after each welcome; replaces the old
   // one) with since = the last id this profile read; else new entries to append.
   | { type: "chronicle"; entries: ChronicleEntry[]; since?: number; full?: boolean }

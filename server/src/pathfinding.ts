@@ -175,8 +175,18 @@ export function collectBodies() {
   }
 }
 
+// The cells rebuildBodyHash filled last time: only those go back to -1 (a fill of the whole map was ~1.3 ms a
+// tick on a 2048 map). A new cellHead array (setWorldSize) is filled whole once.
+let bodyCells: number[] = [];
+let bodyCellsOf: Int32Array | null = null;
 export function rebuildBodyHash() {
-  state.cellHead.fill(-1);
+  if (bodyCellsOf !== state.cellHead) {
+    state.cellHead.fill(-1);
+    bodyCellsOf = state.cellHead;
+  } else {
+    for (const cell of bodyCells) state.cellHead[cell] = -1;
+  }
+  bodyCells = [];
   if (state.cellNext.length < bodies.length) state.cellNext = new Int32Array(bodies.length * 2);
   for (let i = 0; i < bodies.length; i++) {
     const tx = Math.floor(bodies[i].e.x / TILE_SIZE);
@@ -186,6 +196,7 @@ export function rebuildBodyHash() {
       continue;
     }
     const cell = tileIndex(tx, ty);
+    if (state.cellHead[cell] < 0) bodyCells.push(cell);
     state.cellNext[i] = state.cellHead[cell];
     state.cellHead[cell] = i;
   }
