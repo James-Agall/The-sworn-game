@@ -4,7 +4,7 @@
 # background after this window closes. Same ports as dev (server :8080, client :5173) and the same saves
 # (server/saves), so only one of the live copy and `npm run dev` can run at a time.
 #
-# The snapshot is server/src + shared/ (the @colony/shared package both sides import) + a built client.
+# The snapshot is server/src + server/data (templates) + shared/ (the @colony/shared package both sides import) + a built client.
 #
 #   live.sh            start (snapshots the current code first; just opens the browser if already running)
 #   live.sh update     stop, take a fresh snapshot of the code, start again (your world is autosaved/restored)
@@ -47,8 +47,9 @@ stop_all() { stop_one client; stop_one server; }
 snapshot() {
   echo "Snapshotting the code into $LIVE ..."
   mkdir -p "$LIVE/server" "$LIVE/client" "$PIDS" "$SAVES"
-  rm -rf "$LIVE/server/src" "$LIVE/client/dist" "$LIVE/shared"
+  rm -rf "$LIVE/server/src" "$LIVE/server/data" "$LIVE/client/dist" "$LIVE/shared"
   cp -r "$REPO/server/src" "$LIVE/server/src"
+  cp -r "$REPO/server/data" "$LIVE/server/data"   # camp / building / settlement templates (server boot fails without them)
   cp "$REPO/server/package.json" "$LIVE/server/package.json"
   cp -r "$REPO/shared" "$LIVE/shared"
   # node_modules: a dir of symlinks into the repo's, except @colony/shared (in the repo a workspace link to
