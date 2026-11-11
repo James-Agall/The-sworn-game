@@ -1,0 +1,23 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Colony2D art library</title>
+<style>body{font:16px system-ui;background:#22251f;color:#eee4cf;margin:24px}button,select,input{font:inherit;background:#3b4033;color:#fff;padding:8px;border:1px solid #777}canvas{background:#171a16;image-rendering:pixelated;max-width:100%}#pieces{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}.piece{background:repeating-conic-gradient(#333 0% 25%,#444 0% 50%) 50%/16px 16px;text-align:center;padding:8px;font-size:11px}.piece img{width:96px;height:100px;object-fit:contain;image-rendering:pixelated}a{color:#e8bd77}header{position:sticky;top:0;padding:12px;background:#22251f;z-index:2}p{max-width:900px}</style>
+<h1>Colony2D art library</h1><p>Browse the installed sprites and animation frames. The cave example below uses the exported game assets; caves are an art set, not a new world-generation feature.</p>
+<canvas id="scene" width="960" height="576"></canvas><header><select id="sheet" aria-label="Sprite sheet"></select> <select id="row" aria-label="Animation row"></select> <select id="range" aria-label="Animation frames"><option value="0">Frames 1–4</option><option value="4">Frames 5–8</option><option value="8">Frames 9–12</option></select> <button id="play">Pause animation</button> <span id="count"></span></header>
+<canvas id="motion" width="320" height="160"></canvas><div id="pieces"></div><script type="module">
+const all=await fetch('/sprites/autumn/catalog.json').then(r=>r.json());
+const sheet=document.querySelector('#sheet'),row=document.querySelector('#row'),pieces=document.querySelector('#pieces');
+const cache=new Map();function pic(url){if(!cache.has(url)){const i=new Image;i.src=url;cache.set(url,i)}return cache.get(url)}
+const get=(s,r,c)=>all.find(f=>f.sheet===s&&f.row===r&&f.column===c);
+function draw(ctx,s,r,c,x,y,w,h){const f=get(s,r,c);if(!f)return;const im=pic(f.url);if(im.complete&&im.naturalWidth)ctx.drawImage(im,x,y,w,h)}
+for(const name of [...new Set(all.map(f=>f.sheet))])sheet.add(new Option(name.replaceAll('-',' '),name));
+sheet.value='cave-walls';let current=[],playing=true;
+function selectSheet(){current=all.filter(f=>f.sheet===sheet.value);row.replaceChildren();for(const r of [...new Set(current.map(f=>f.row))])row.add(new Option('Row '+(r+1),r));pieces.replaceChildren();for(const f of current){const el=document.createElement('a');el.className='piece';el.href=f.url;const im=pic(f.url);const copy=im.cloneNode();copy.loading='lazy';el.append(copy,document.createTextNode(`Row ${f.row+1} · ${f.column+1}`));pieces.append(el)}document.querySelector('#count').textContent=`${current.length} pieces · ${all.length} total`}
+sheet.onchange=selectSheet;selectSheet();document.querySelector('#play').onclick=()=>{playing=!playing;document.querySelector('#play').textContent=playing?'Pause animation':'Play animation'};
+let frame=0;
+const map=['###############','#.....#.......#','#.....#.......#','#.....#.......#','#.............#','#.....###.....#','#.....#.......#','###.###.......#','  #.###########'];
+function tick(){const ctx=document.querySelector('#scene').getContext('2d');ctx.imageSmoothingEnabled=false;ctx.clearRect(0,0,960,576);const T=48,ox=100,oy=60;
+for(let y=0;y<map.length;y++)for(let x=0;x<map[y].length;x++){const ch=map[y][x];if(ch===' ')continue;if(ch==='.')draw(ctx,'cave-surfaces',0,0,ox+x*T,oy+y*T,T,T);else{const at=(dx,dy)=>map[y+dy]?.[x+dx]==='#';const mask=(at(0,-1)?1:0)|(at(1,0)?2:0)|(at(0,1)?4:0)|(at(-1,0)?8:0);draw(ctx,'cave-walls',Math.floor(mask/8),mask%8,ox+x*T,oy+(y+1)*T-T*88/68,T,T*88/68)}}
+draw(ctx,'cave-props',3,4,ox+11*T,oy+2*T,T,T);draw(ctx,'cave-props',3,0,ox+9*T,oy+2*T,T,T);draw(ctx,'cave-props',4,0,ox+2*T,oy+2*T,T,T);draw(ctx,'cave-props',7,Math.floor(frame/2)%4,ox+7*T,oy+6*T,T,T);draw(ctx,'cave-props',6,Math.floor(frame/2)%4,ox+3*T,oy+3*T,T,T);draw(ctx,'heroes',0,frame%4,ox+7*T,oy+4*T,40,48);
+const motion=document.querySelector('#motion').getContext('2d');motion.imageSmoothingEnabled=false;motion.clearRect(0,0,320,160);const frames=current.filter(f=>f.row===Number(row.value)&&f.column>=Number(document.querySelector('#range').value)&&f.column<Number(document.querySelector('#range').value)+4);const f=frames[frame%frames.length];if(f){const im=pic(f.url);if(im.complete&&im.naturalWidth){const scale=Math.min(300/im.width,150/im.height);motion.drawImage(im,(320-im.width*scale)/2,160-im.height*scale,im.width*scale,im.height*scale)}}if(playing)frame++}
+setInterval(tick,150);tick();window.artLibraryReady=true;
+</script></html>
+

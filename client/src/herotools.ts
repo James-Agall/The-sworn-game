@@ -13,6 +13,7 @@ import type { ItemId } from "@colony/shared/progression";
 import { iconImg, iconUrl } from "./spriteRegistry";
 
 export interface HeroToolsDeps {
+  onUse?: (tool: HeroTool, tx: number, ty: number) => void;
   send: (msg: object) => void;
   // Adventure play: a living hero, not strategy view, no modal.
   active: () => boolean;
@@ -239,6 +240,7 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
     const tg = target();
     if (!t || !tg) return false;
     deps.send({ type, tool: t, tx: tg.tx, ty: tg.ty, ...(t === "seeds" ? { crop } : {}) });
+    deps.onUse?.(t, tg.tx, tg.ty);
     return true;
   }
 

@@ -1,0 +1,79 @@
+/* Autumn field journal: a restrained frame around the world, shared by every existing menu. */
+:root {
+  --ink:#302d25; --ink-soft:#504b3e; --ink-faint:#67604f;
+  --parch-light:#f0e5c9; --parch-mid:#dbceb0; --parch-dark:#b7a381;
+  --wood:#746448; --wood-dark:#34382e; --seal:#4a604b; --seal-dark:#2d4032; --seal-ink:#f7efda;
+  --sel-ink:#2d645b;
+  --paper:linear-gradient(135deg,rgba(255,255,255,.16),rgba(95,77,48,.04));
+  --burn-lg:linear-gradient(180deg,rgba(255,255,255,.12),transparent 90px);
+  --burn-sm:linear-gradient(180deg,rgba(255,255,255,.08),transparent);
+  --paper-edge:inset 0 1px 0 #ffffff38;
+}
+button,input,select { font-family:var(--font-sans); }
+button { transition:background-color .12s,border-color .12s; }
+button:focus-visible,select:focus-visible,input:focus-visible { outline:2px solid #38786c!important; outline-offset:3px; }
+button:disabled { cursor:not-allowed; }
+[hidden] { display:none!important; }
+#control-buttons { top:10px;right:10px;gap:4px;padding:5px;background:#242c25ed;border:1px solid #9c8e654f;border-radius:9px;box-shadow:0 5px 18px #0005;max-width:calc(100vw - 30px);flex-wrap:wrap;justify-content:flex-end; }
+#control-buttons .control-btn { color:#e8dec5;background:transparent;border:1px solid transparent;box-shadow:none;border-radius:5px;padding:7px 10px;letter-spacing:0;font-family:var(--font-sans);font-size:12px; }
+#control-buttons .control-btn:hover,#control-buttons .control-btn.active { background:#53614b;color:white;border-color:#aaa17a66; }
+#time-controls { padding-right:5px;border-right:1px solid #ffffff25;margin-right:4px; }
+#menu-dropdown-list { padding:8px;min-width:190px;border-radius:8px;background:#ece2ca;border:1px solid #8a7d60; }
+#menu-dropdown-list .menu-item { font-family:var(--font-sans);padding:11px 13px;border-radius:4px;letter-spacing:0; }
+#main-menu { background:radial-gradient(ellipse at 20% 30%,#4b583e,#202b26 52%,#101a18);overflow:auto;padding:24px;box-sizing:border-box; }
+#main-menu > .menu-scroll { width:min(740px,calc(100vw - 48px));text-align:left;padding:32px 38px;border-radius:10px;border:1px solid #b4a275;box-shadow:0 25px 80px #0008;position:relative; }
+#main-menu > .menu-scroll::before { content:"THE AUTUMN CHRONICLES";font:10px var(--font-sans);letter-spacing:.24em;color:#657055;display:block;margin-bottom:12px; }
+#main-menu .menu-title { font-size:42px;font-weight:normal;letter-spacing:-1px; }
+#main-menu .menu-sub { font:14px var(--font-sans);margin:8px 0 28px; }
+#menu-main { display:grid;grid-template-columns:1fr 1fr;gap:10px; }
+#menu-main #menu-clan,#menu-main #menu-continue,#menu-main #menu-bye { grid-column:1/-1; }
+#menu-main .menu-btn { margin:0;min-height:62px;text-align:left; }
+#menu-main #menu-start { grid-column:1/-1;background:#425e48; }
+.menu-btn { border-radius:5px;padding:14px 18px;font:600 14px var(--font-sans);box-shadow:none; }
+.menu-btn.secondary { background:#fff6;color:var(--ink);border-color:#a69c81; }
+.menu-btn.secondary:hover { background:#fff9; }
+.menu-section { font:600 10px var(--font-sans);letter-spacing:.12em;text-transform:uppercase;border-color:#998d713d;padding-top:12px;margin-top:18px; }
+.menu-setting { font:13px var(--font-sans);padding:10px 0;border-bottom:1px solid #81765725; }
+select,input[type=text],input[type=number] { background:#fbf5e5;color:var(--ink);border:1px solid #a69c81;border-radius:4px;padding:5px 7px; }
+.menu-scroll,#building-panel,#craft-panel,#work-panel,#quests-panel,#chronicle-panel { border-radius:8px;box-shadow:0 12px 40px #0006; }
+#economy-panel,#build-panel { background-image:none!important;background-color:#e3d9bdf5;border-color:#8b8066;box-shadow:0 5px 24px #0004;font-size:13px; }
+#economy-panel::before,#economy-panel::after,#build-panel::before,#build-panel::after { display:none; }
+.econ-btn,.bp-btn { border-radius:4px;box-shadow:none;font-family:var(--font-sans); }
+#hero-sheet.menu-scroll { width:min(1180px,calc(100vw - 64px));border:1px solid #a79771;border-image:none;border-radius:10px;padding:24px;text-align:left;max-height:calc(100vh - 90px);box-shadow:0 20px 70px #0008; }
+#hero-sheet .menu-title { font-size:30px;font-weight:normal; }
+#hs-close { border:1px solid #9c9377;border-radius:5px;width:30px;height:30px;background:#fff4; }
+.hs-cols { gap:20px; }
+.hs-doll { background:#5b62441a;border-color:#8f8b6c55;border-radius:7px; }
+.hs-socket { border:1px solid #a2987d;border-image:none;background:#f5edd8;box-shadow:inset 0 1px 4px #0002;border-radius:5px; }
+.hs-item { border-width:2px;border-radius:4px; }
+.hs-stats { font-family:var(--font-sans);font-size:12px;gap:7px 14px; }
+.hs-tabs button { padding:8px 12px;border-radius:5px;font-family:var(--font-sans); }
+.hs-tabs button.active { background:#4a604b;color:#fff2d1;border-color:#4a604b; }
+.hs-armoury button { min-height:32px;border-color:#a69c81; }
+#hero-appearance { display:grid;grid-template-columns:250px 1fr;gap:12px 20px;background:#f6efde88;border:1px solid #a99f8055;border-radius:8px;padding:16px;margin:16px 0 22px; }
+.appearance-heading { grid-column:1/-1;display:flex;justify-content:space-between;align-items:center; }
+.eyebrow { font:9px var(--font-sans);letter-spacing:.15em;color:#63725a; }
+.appearance-heading h3 { font:normal 21px var(--font-serif);margin:3px 0; }
+.mount-status { padding:6px 12px;background:#485e45;color:#f7edce;border-radius:20px;font:11px var(--font-sans); }
+.hero-previews { grid-row:2/5;display:flex;align-items:end;justify-content:center;gap:5px;border-radius:7px;background:radial-gradient(ellipse at bottom,#8b98714a,transparent 75%);padding:12px 0; }
+.hero-previews figure { margin:0;text-align:center;flex:1;min-width:0; }
+.hero-previews canvas { image-rendering:pixelated;max-width:100%;height:120px;object-fit:contain; }
+.hero-previews figcaption { font:10px var(--font-sans);color:#686354;margin-top:10px; }
+.hero-look-grid { display:grid;grid-template-columns:repeat(6,1fr);gap:6px; }
+.hero-look { display:flex;flex-direction:column;align-items:center;gap:6px;background:#efe7d1;border:1px solid #b4aa8e;border-radius:6px;padding:7px 4px;color:var(--ink);font:11px var(--font-sans);cursor:pointer; }
+.hero-look img { width:56px;height:64px;object-fit:contain;image-rendering:pixelated; }
+.hero-look[aria-pressed=true] { background:#d0d9bf;border:2px solid #536d50;padding:6px 3px; }
+.horse-picker { display:flex;align-items:center;gap:14px;font:12px var(--font-sans); }
+.horse-picker select { min-width:160px; }
+.appearance-note { margin:0;font:11px/1.6 var(--font-sans);color:var(--ink-faint); }
+.weapon-choice { width:100%;display:flex;align-items:center;justify-content:space-between;font:12px var(--font-sans);gap:8px; }
+@media(max-width:900px) { #control-buttons { max-width:calc(100vw - 30px); } #hero-appearance {grid-template-columns:1fr;} .hero-previews {grid-row:auto;} .hero-look-grid {grid-template-columns:repeat(3,1fr);} .hero-previews canvas {height:95px;} #hero-sheet.menu-scroll{padding:16px;width:calc(100vw - 52px);} #main-menu > .menu-scroll{padding:24px;} }
+@media(max-width:540px) { #menu-main {grid-template-columns:1fr;} #main-menu .menu-title{font-size:30px;} }
+@media(prefers-reduced-motion:reduce) { button {transition:none;} }
+
+.hs-inv-empty {grid-column:1/-1;line-height:1.5;}
+.hero-previews canvas {width:100%;height:120px;}
+#hero-sheet .hs-body {align-items:flex-start;}
+#hero-sheet .hs-armoury button {flex:1 1 90px;text-align:left;font-size:11px;}
+#hero-sheet .hs-cols {font-size:13px;}
+#hs-spellbook {min-height:0;}

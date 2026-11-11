@@ -491,6 +491,8 @@ export interface EntityVisual {
   marker?: Graphics;
   // Wound decal, created the first time the unit is seen damaged (see updateWound).
   wound?: Sprite;
+  lastWoundHp?: number;
+  hitSplashUntil?: number;
   // Hunger-marked mobs only (see updateMarkVisuals).
   aura?: Sprite;
   sigil?: Sprite;
@@ -538,7 +540,8 @@ export const COLONIST_SPRITE_HEIGHT = 28;
 // horse (and banner) make the whole thing noticeably larger, same uniform-scale texture either way.
 // 68 for the animated set: its walk frames carry a taller banner than player.png did, and 68 keeps
 // the horse and rider at the old on-screen size (~40px wide).
-export const PLAYER_SPRITE_HEIGHT = 68;
+// The on-foot hero shares the human scale; mounted art is sized separately in main.ts.
+export const PLAYER_SPRITE_HEIGHT = 28;
 
 // Cosmetic nature scatter on Plains floor tiles: roughly 1 in NATURE_DECOR_ONE_IN eligible tiles
 // gets one of these, chosen by a stable hash of the tile position (no server involvement).

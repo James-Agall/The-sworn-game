@@ -941,6 +941,7 @@ export interface SiegeWorkshopState {
 // (`heroProfiles`), never touched by death / respawn. Heroes (phase 3) can own one each: nothing here is
 // player-specific except heroProfileOf / playerMaxHp / playerDamage / playerAttackCooldownTicks.
 export interface HeroProfile {
+  appearance?: import("@colony/shared/protocol").HeroAppearance;
   key: string;
   equipment: Equipment;
   // Unequipped items only (equipped ones live in `equipment`), at most HERO_INVENTORY_CAP.

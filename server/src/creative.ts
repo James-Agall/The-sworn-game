@@ -309,9 +309,9 @@ export function creativeFightStep(c: Colonist, dt: number): boolean {
 }
 
 // combat.ts handlePlayerAttack: with the toggle on, a hostile-clan unit nearer than `within` (and in reach).
-export function hostileColonistInReach(p: Player, within: number): Colonist | null {
+export function hostileColonistInReach(p: Player, within: number, reach = PLAYER_ATTACK_RANGE): Colonist | null {
   if (!state.creative || !state.creativeAllowAttack) return null;
-  const found = nearestHostileColonist(p.x, p.y, p.clan, PLAYER_ATTACK_RANGE);
+  const found = nearestHostileColonist(p.x, p.y, p.clan, reach);
   return found && Math.hypot(found.x - p.x, found.y - p.y) < within ? found : null;
 }
 

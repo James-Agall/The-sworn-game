@@ -1,3 +1,8 @@
+import "./menuSkin.css";
+import { heroArt, loadHeroAppearanceArt, renderAppearancePanel, gearIconUrl } from "./heroAppearance";
+import { HERO_WEAPON_KINDS, type HeroVisual } from "@colony/shared/protocol";
+import { autumnFrame, directionalFrame, loadAutumnPeople, movementFacing, type Cardinal } from "./autumnAnimations";
+import { autumnBuildingDamage, loadAutumnBuildings, syncAutumnHouses } from "./autumnWorld";
 import {
   Application,
   Assets,
@@ -318,10 +323,12 @@ async function main() {
   );
   for (const texture of Object.values(loadedTextures)) texture.source.scaleMode = "nearest";
   const optionalTextures = await optionalTexturesPromise;
+  await Promise.all([loadAutumnPeople(), loadAutumnBuildings()]);
   const COLONIST_TEXTURES = Object.fromEntries(
     COLONIST_KINDS.map((kind, i) => [kind, loadedTextures[colonistUrls[i]]])
   ) as Record<ColonistKind, Texture>;
   const PLAYER_TEXTURE = loadedTextures["/sprites/player.png"];
+  await loadHeroAppearanceArt();
   const MOB_TEXTURES = Object.fromEntries(
     MOB_KINDS.map((kind, i) => [kind, loadedTextures[mobUrls[i]]])
   ) as Partial<Record<MobKind, Texture>>;
@@ -500,6 +507,8 @@ async function main() {
   const colonistFacing: FacingMap = new Map();
   const mobFacing: FacingMap = new Map();
   const playerFacing: FacingMap = new Map();
+  const autumnDirections = new Map<string, Cardinal>();
+  let heroToolPose: { row: number; facing: Cardinal; started: number } | null = null;
   function getFacing(map: FacingMap, id: string, x: number): boolean {
     const prev = map.get(id);
     if (!prev) {
@@ -676,8 +685,9 @@ async function main() {
     ? buildAnimSet(PLAYER_ANIM_URLS, PLAYER_SPRITE_HEIGHT)
     : null;
   // The lance thrust plays once per attack (each frame held ANIM_TICKS_PER_FRAME snapshots).
-  const PLAYER_ATTACK_ANIM_TICKS = PLAYER_ANIM_URLS.action.length * ANIM_TICKS_PER_FRAME;
+  const PLAYER_ATTACK_ANIM_TICKS = 3 * ANIM_TICKS_PER_FRAME;
   const playerAnim = new Map<string, AnimState & { attackTicks: number }>();
+  const heroVisuals = new Map<string, HeroVisual>();
   function triggerPlayerAttackAnim(id: string) {
     const anim = playerAnim.get(id);
     // Local keypress and the server's hit effect both trigger it; don't restart a thrust that's
@@ -724,7 +734,7 @@ async function main() {
   let myId: string | null = null;
   // Gap closure G6: the own hero rides a horse (snapshot `mounted`), and how far the sprite sits up.
   let myMounted = false;
-  const MOUNTED_LIFT_PX = 8;
+  const MOUNTED_LIFT_PX = 11;
   let tileSize = 32;
   let worldTilesX = 25;
   let worldTilesY = 25;
@@ -1367,11 +1377,12 @@ async function main() {
     const stageTexture = !site && stage !== undefined ? FARM_STAGE_TEXTURES.get(tile)?.get(stage) : undefined;
     const levelTexture = TILE_LEVEL_TEXTURES.get(artTile)?.[level - 1];
     const forging =
-      tile === TileType.Blacksmith && BLACKSMITH_FORGE_TEXTURES !== undefined && forgeBusy.has(index) && (level === 1 || !levelTexture);
+      tile === TileType.Blacksmith && BLACKSMITH_FORGE_TEXTURES !== undefined && forgeBusy.has(index) && (level === 1 || !levelTexture) && (damagedBuildings.get(index) ?? 1000) >= 750;
     const gateOpen = tile === TileType.Gate && ((gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
     const wallArt = wallArtFor(tx, ty, artTile, !!site);
     const moatArt = moatArtFor(tx, ty, artTile, !!site);
     const structArt = structureArtFor(tx, ty, artTile, !!site);
+    const autumnDamage = autumnBuildingDamage(artTile, level, damagedBuildings.get(index) ?? 1000, !!site, index);
     const texture = tile === TileType.BuildingPart
       ? undefined
       : structArt
@@ -1380,6 +1391,8 @@ async function main() {
       ? moatArt
       : wallArt
       ? wallArt
+      : autumnDamage
+      ? autumnDamage
       : gateOpen
       ? GATE_OPEN_TEXTURE
       : tile === TileType.ConstructionSite && !site
@@ -1581,6 +1594,8 @@ async function main() {
   function roadArtFor(tx: number, ty: number, tile: number): [Texture, number] {
     const mask =
       (isRoadAt(tx, ty - 1) ? 1 : 0) | (isRoadAt(tx + 1, ty) ? 2 : 0) | (isRoadAt(tx, ty + 1) ? 4 : 0) | (isRoadAt(tx - 1, ty) ? 8 : 0);
+    const autumnRoad = autumnFrame("terrain-connections", (tile === TileType.CobbleRoad ? 2 : 0) + Math.floor(mask / 8), mask % 8);
+    if (autumnRoad) return [autumnRoad, 0];
     if (tile === TileType.CobbleRoad) {
       if (mask === 5 || mask === 1 || mask === 4) return [roadTexture(COBBLE_STRAIGHT), 0];
       if (mask === 10 || mask === 2 || mask === 8) return [roadTexture(COBBLE_STRAIGHT), 1];
@@ -2243,8 +2258,16 @@ async function main() {
     hidden: boolean
   ) {
     const ratio = maxHp > 0 ? hp / maxHp : 1;
+    const now = performance.now();
+    if (!hidden && hp > 0 && entry.lastWoundHp !== undefined && hp < entry.lastWoundHp) {
+      entry.hitSplashUntil = now + 220;
+    }
+    entry.lastWoundHp = hp;
+    if (hidden || hp <= 0) entry.hitSplashUntil = 0;
+    const hitSplash = (entry.hitSplashUntil ?? 0) > now;
     let tier = -1;
     for (let i = 0; i < WOUND_THRESHOLDS.length; i++) if (ratio < WOUND_THRESHOLDS[i]) tier = i;
+    if (hitSplash) tier = Math.max(tier, 1);
     if (tier < 0 || hidden || hp <= 0) {
       if (entry.wound) entry.wound.visible = false;
       return;
@@ -2260,6 +2283,8 @@ async function main() {
     }
     if (wound.texture !== texture) wound.texture = texture;
     wound.scale.set(size / Math.max(texture.width, texture.height));
+    wound.tint = hitSplash ? 0xb52d46 : 0xffffff;
+    wound.alpha = hitSplash ? 1 : 0.9;
     wound.position.set(x, y);
     wound.visible = true;
   }
@@ -2281,6 +2306,7 @@ async function main() {
   }
 
   function upsertPlayer(p: PlayerSnapshot) {
+    if(p.visual) heroVisuals.set(p.id,p.visual);
     const entry = ensureVisual(playerSprites, p.id, () => {
       const sprite = new Sprite(PLAYER_TEXTURE);
       sprite.anchor.set(0.5);
@@ -2313,7 +2339,7 @@ async function main() {
     if (entry.marker) entry.marker.visible = !p.dead && !p.inside;
     entry.marker?.position.set(p.x, p.y + PLAYER_SPRITE_HEIGHT * 0.4);
     // Just above the (taller) sprite's top edge instead of the old fixed -20.
-    entry.hpBar.position.set(p.x, p.y - PLAYER_SPRITE_HEIGHT / 2 - 4);
+    entry.hpBar.position.set(p.x, p.y - (p.mounted ? 50 / 2 + MOUNTED_LIFT_PX : PLAYER_SPRITE_HEIGHT / 2) - 4);
     if (!(entry.sprite instanceof Sprite)) return;
     const facingRight = getFacing(playerFacing, p.id, p.x);
     if (PLAYER_ANIM) {
@@ -2328,14 +2354,30 @@ async function main() {
       const mode = anim.attackTicks > 0 ? "action" : moved ? "walk" : null;
       if (anim.attackTicks > 0) anim.attackTicks--;
       // The recolor Filter stays on the sprite; swapping its texture keeps the per-player hue.
-      showAnimFrame(entry.sprite, PLAYER_ANIM, stepAnim(anim, PLAYER_ANIM, mode) ?? PLAYER_ANIM.walk[0]);
+      const baseFrame = stepAnim(anim, PLAYER_ANIM, mode) ?? PLAYER_ANIM.walk[0];
+      const mountedFrame = p.mounted ? autumnFrame("mounted-units-v2", 3, mode === "action" ? 4 + anim.frame % 3 : mode === "walk" ? anim.frame % 4 : 0) : undefined;
+      const visual = p.visual ?? heroVisuals.get(p.id);
+      const art = visual ? heroArt(visual, !!p.mounted, mode === "action" ? Math.floor((PLAYER_ATTACK_ANIM_TICKS - anim.attackTicks - 1) / ANIM_TICKS_PER_FRAME) : mode ? anim.frame : 0, mode === "action") : undefined;
+      if (art) { entry.sprite.texture=art.texture; entry.sprite.scale.set((p.mounted ? 50 : PLAYER_SPRITE_HEIGHT)/art.texture.height); entry.sprite.filters=[]; }
+      else showAnimFrame(entry.sprite, mountedFrame ? { ...PLAYER_ANIM, scale: 50 / 128 } : PLAYER_ANIM, mountedFrame ?? baseFrame);
     }
     applyFacing(entry.sprite, facingRight);
+    if (p.id === myId && heroToolPose && !p.mounted) {
+      const elapsed = performance.now() - heroToolPose.started;
+      if (elapsed >= 600) heroToolPose = null;
+      else {
+        const toolFrame = directionalFrame("hero-tool-actions", heroToolPose.row, heroToolPose.facing, Math.floor(elapsed / 150));
+        if (toolFrame) { entry.sprite.texture = toolFrame; entry.sprite.scale.set((heroToolPose.facing === "w" ? -1 : 1) * PLAYER_SPRITE_HEIGHT / 128, PLAYER_SPRITE_HEIGHT / 128); }
+      }
+    }
+    updateWound(entry, p.hp, p.maxHp, p.x, p.y - (p.mounted ? MOUNTED_LIFT_PX : 0),
+      COLONIST_WOUND_SIZE * (p.mounted ? 1.4 : 1), false, !entry.sprite.visible);
   }
 
   function syncPlayers(snapshot: PlayerSnapshot[]) {
     const seenIds = new Set(snapshot.map((p) => p.id));
     pruneMissing(playerSprites, seenIds);
+    for(const id of heroVisuals.keys()) if(!seenIds.has(id)) heroVisuals.delete(id);
     pruneFacing(playerFacing, seenIds);
     for (const id of Array.from(playerAnim.keys())) {
       if (!seenIds.has(id)) playerAnim.delete(id);
@@ -2415,6 +2457,8 @@ async function main() {
       }
       const stepX = c.x - anim.lastX;
       const stepY = c.y - anim.lastY;
+      const direction = movementFacing(stepX, stepY, autumnDirections.get(c.id));
+      autumnDirections.set(c.id, direction);
       const moved = Math.hypot(stepX, stepY) > 0.5;
       anim.lastX = c.x;
       anim.lastY = c.y;
@@ -2433,14 +2477,26 @@ async function main() {
       // transition (i.e. every time they started or stopped moving).
       // The couched-lance pose and the battered pose are base-set art, so a tier set keeps its own frames.
       showAnimFrame(entry.sprite, set, charging && mode === "walk" && !tierSet ? CAVALRY_CHARGE_TEXTURE! : (frame ?? set.walk[0]));
+      let ownFrame: Texture | undefined;
+      if (c.kind === "hero") ownFrame = autumnFrame("heroes", c.heroClass === "mage" ? 3 : c.heroClass === "marksman" ? 2 : 1, mode === "action" ? 4 + anim.frame % 3 : mode === "walk" ? anim.frame % 4 : 0);
+      else if (c.kind === "villager") ownFrame = autumnFrame("village-life", c.child ? 2 : 0, mode === "walk" ? anim.frame % 4 : 0);
+      if (mode === "action" && ["builder", "lumberjack", "ironMiner", "rockMiner", "farmer", "farmhand"].includes(vk)) {
+        const farm = vk === "farmer" || vk === "farmhand";
+        ownFrame = directionalFrame(farm ? "human-tasks-directions-a" : "human-tasks-directions-b", farm ? 2 : vk === "builder" ? 0 : vk === "lumberjack" ? 1 : 2, direction, anim.frame);
+      }
+      if (ownFrame) showAnimFrame(entry.sprite, set, ownFrame);
       // Village life: a child villager is drawn smaller.
       if (c.child) entry.sprite.scale.set(set.scale * 0.65);
       if (charging && mode === "walk" && !hidden) spawnChargeDust(c.id, c.x, c.y + (set.refHeight * set.scale) / 2, stepX);
       const battered = BATTERED_TINT_KINDS.has(vk) && c.hp < c.maxHp * BATTERED_HP_FRACTION;
       const posed = battered && !frame && !tierSet && showBatteredPose(entry.sprite, set, vk, COLONIST_SPRITE_HEIGHT);
-      entry.sprite.tint = battered && !posed ? BATTERED_TINT : c.kind === "hero" ? HERO_TINT : c.summoned ? SUMMON_TINT : (COLONIST_TINT.get(vk) ?? 0xffffff);
+      entry.sprite.tint = battered && !posed ? BATTERED_TINT : c.kind === "hero" && !ownFrame ? HERO_TINT : c.summoned ? SUMMON_TINT : (COLONIST_TINT.get(vk) ?? 0xffffff);
     }
-    if (entry.sprite instanceof Sprite) applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
+    if (entry.sprite instanceof Sprite) {
+      const right = getFacing(colonistFacing, c.id, c.x);
+      const directionalWork = COLONIST_ACTION_STATES.has(c.state) && ["builder", "lumberjack", "ironMiner", "rockMiner", "farmer", "farmhand"].includes(vk);
+      applyFacing(entry.sprite, directionalWork ? autumnDirections.get(c.id) !== "w" : right);
+    }
   }
 
   // Forts phase E: a trader wagon: its level's art (walk while rolling, hit flash after losing HP) or the
@@ -2593,6 +2649,7 @@ async function main() {
 
   function syncColonists(snapshot: ColonistSnapshot[], isNight: boolean) {
     const seenIds = new Set(snapshot.map((c) => c.id));
+    for (const id of autumnDirections.keys()) if (!seenIds.has(id)) autumnDirections.delete(id);
     dropSiegeWrecks("colonist", colonistSprites, seenIds, colonistFacing);
     pruneMissing(colonistSprites, seenIds, true, "colonist_death");
     for (const id of Array.from(colonistAnim.keys())) {
@@ -6158,6 +6215,7 @@ async function main() {
   const hsArmoury = document.getElementById("hs-armoury")!;
   const hsTip = document.getElementById("hs-tip")!;
   let heroProfile: HeroProfileSnapshot | null = null;
+  let armouryWeapon: typeof HERO_WEAPON_KINDS[number] = "sword";
   // Hero phase 3: the colony's heroes (snapshot `heroes`) and the open tab ("" = the player).
   let heroSheets: HeroSheetSnapshot[] = [];
   let sheetTab = "";
@@ -6201,11 +6259,12 @@ async function main() {
     el.style.background = SLOT_FILL[item.slot] ?? "#555";
     el.textContent = SLOT_GLYPH[item.kind ?? ""] ?? SLOT_GLYPH[item.slot] ?? "?";
     // A Spell Tome shows its spell's current icon (saved tomes may carry an older icon name).
-    const icon = item.spellId ? SPELLS[item.spellId].icon : item.icon;
+    const generatedIcon = gearIconUrl(item);
+    const icon = item.spellId ? SPELLS[item.spellId].icon : generatedIcon ?? item.icon;
     if (icon && !missingIcons.has(icon)) {
       const img = document.createElement("img");
       img.alt = "";
-      img.src = `/sprites/${icon}.png`;
+      img.src = generatedIcon ?? `/sprites/${icon}.png`;
       img.onerror = () => {
         missingIcons.add(icon);
         img.remove();
@@ -6264,6 +6323,12 @@ async function main() {
       empty.className = "hs-empty";
       empty.textContent = opts.empty ?? "";
       el.append(empty);
+    }
+    if (opts.onClick && !opts.disabled) {
+      el.tabIndex = 0;
+      el.setAttribute("role", "button");
+      el.setAttribute("aria-label", item ? `${item.name} — ${slot ? "unequip" : "equip"}` : opts.empty ?? "Equipment slot");
+      el.addEventListener("keydown", e => { if(e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); } });
     }
     if (opts.onClick && !opts.disabled) el.addEventListener("click", () => {
       hideItemTip();
@@ -6347,7 +6412,7 @@ async function main() {
     const hpText = hero
       ? unit ? `${Math.ceil(unit.hp)} / ${unit.maxHp}` : hero.status === "recruiting" ? `${prof.stats.maxHp} (arriving)` : `fallen: back at dawn / dusk for ${hero.respawnFee} gold`
       : me ? `${Math.ceil(me.hp)} / ${me.maxHp}` : `${prof.stats.maxHp}`;
-    const key = JSON.stringify([{ ...prof, spells: prof.spells ? { ...prof.spells, cooldowns: {} } : undefined }, heroStock, sheetTab, pickedSpell, heroSheets.map((h) => [h.id, h.name, h.status, h.profile.level])]);
+    const key = JSON.stringify([{ ...prof, spells: prof.spells ? { ...prof.spells, cooldowns: {} } : undefined }, heroStock, sheetTab, !!heroMe?.mounted, pickedSpell, heroSheets.map((h) => [h.id, h.name, h.status, h.profile.level])]);
     if (!force && key === heroRenderKey) {
       if (hpText !== heroHpText) {
         heroHpText = hpText;
@@ -6360,6 +6425,11 @@ async function main() {
     heroHpText = hpText;
     hideItemTip();
     hsTitle.textContent = hero ? `${hero.name} · ${HERO_CLASS_LABEL[hero.heroClass]}` : "Character";
+    const appearanceRoot = document.getElementById("hero-appearance")!;
+    appearanceRoot.hidden = !!hero;
+    if (!hero) renderAppearancePanel(appearanceRoot, prof, !!me?.mounted,
+      appearance => sendMessage({ type: "setHeroAppearance", appearance }),
+      () => sendMessage({ type: "heroAction", action: "dismount" }));
     hsTabs.replaceChildren();
     if (heroSheets.length > 0) {
       const tab = (id: string, label: string, cls = "") => {
@@ -6526,6 +6596,11 @@ async function main() {
 
     // Take from the armoury: one plain piece of a tier out of the colony stock (armour -> chest, weapon -> weapon).
     hsArmoury.replaceChildren();
+    const weaponLabel=document.createElement("label"); weaponLabel.className="weapon-choice"; weaponLabel.textContent="Weapon to withdraw";
+    const weaponSelect=document.createElement("select"); weaponSelect.setAttribute("aria-label","Armoury weapon");
+    for(const kind of HERO_WEAPON_KINDS) { const opt=document.createElement("option");opt.value=kind;opt.textContent=kind[0].toUpperCase()+kind.slice(1);weaponSelect.append(opt); }
+    weaponSelect.value=armouryWeapon; weaponSelect.onchange=()=>{armouryWeapon=weaponSelect.value as typeof armouryWeapon;renderHeroSheet(true);};
+    weaponLabel.append(weaponSelect);hsArmoury.append(weaponLabel);
     const full = prof.inventory.length >= prof.inventoryCap;
     for (const slot of ["armour", "weapon"] as EquipSlot[]) {
       for (let tier = 1; tier <= 3; tier++) {
@@ -6534,7 +6609,7 @@ async function main() {
         btn.textContent = `${slot === "armour" ? "Chest armour" : "Weapon"} T${tier} (${n})`;
         btn.disabled = n <= 0 || full;
         btn.title = full ? "Your pack is full" : n <= 0 ? "None in the colony's stock (forge at a Blacksmith)" : "Takes it from the stock soldiers muster with";
-        btn.addEventListener("click", () => sendMessage({ type: "takeFromArmoury", slot, tier, ...heroArg }));
+        btn.addEventListener("click", () => sendMessage({ type: "takeFromArmoury", slot, tier, ...(slot === "weapon" ? {weaponKind:armouryWeapon} : {}), ...heroArg }));
         hsArmoury.append(btn);
       }
     }
@@ -7000,6 +7075,9 @@ async function main() {
       syncWildlife(message.wildlife);
       // Stardew phase 5d: livestock outdoors and the clan's animal-house need icons.
       livestock.sync(message.livestock);
+      for (const index of syncAutumnHouses(message.livestock?.h)) {
+        if (index >= 0 && index < tiles.length) setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), tiles[index]);
+      }
       // Dawn wipes the blood, the same boundary at which the server clears the gravestones.
       if (wasNight && !message.isNight) clearBlood();
       wasNight = message.isNight;
@@ -7629,6 +7707,11 @@ async function main() {
   }
   // Stardew phase 5a (herotools.ts): the tool hotbar, the faced-tile highlight and the energy bar.
   const heroTools = setupHeroTools({
+    onUse: (tool, tx, ty) => {
+      const row = ({ axe: 0, pick: 1, hoe: 2, scythe: 3, wateringCan: 4 } as Record<string, number>)[tool];
+      const player = latestPlayersForSpells.find((p) => p.id === myId);
+      if (row !== undefined && player) heroToolPose = { row, facing: movementFacing((tx + 0.5) * tileSize - player.x, (ty + 0.5) * tileSize - player.y), started: performance.now() };
+    },
     send: sendMessage,
     active: () => !strategyCam.inStrategy && !!myId && heroModal.hidden && !!latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead),
     buildOpen: () => !buildPanel.classList.contains("collapsed"),
@@ -7649,6 +7732,7 @@ async function main() {
     worldLayer,
     structure: STRUCTURE_TEXTURES,
     playerTexture: PLAYER_TEXTURE,
+    heroTexture: (id, moving) => { const v=heroVisuals.get(id); return v ? heroArt(v,false,moving ? Math.floor(performance.now()/150)%4 : 0)?.texture : undefined; },
     playerHeight: PLAYER_SPRITE_HEIGHT,
     npcTexture: (kind) => COLONIST_TEXTURES[kind as ColonistKind],
     npcAnim: (kind) => (COLONIST_TINT.has(kind) ? undefined : COLONIST_ANIMS[kind as ColonistKind]),

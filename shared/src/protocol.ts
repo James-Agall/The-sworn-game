@@ -662,6 +662,7 @@ export interface HeroStats {
 }
 // Snapshot `profile`: sent only to its own player, and only when it changed (keep the last one).
 export interface HeroProfileSnapshot {
+  appearance?: HeroAppearance;
   equipment: Equipment;
   inventory: GearItem[];
   inventoryCap: number;
@@ -1298,9 +1299,10 @@ export type ClientMessage =
   // slot, or pull one plain tiered piece (armour -> chest item, weapon -> weapon item) out of the colony stock.
   // Hero phase 3: heroId (optional, default = the player) targets that hero's equipment; items still come
   // from / return to the player's pack.
+  | { type: "setHeroAppearance"; appearance: HeroAppearance }
   | { type: "equipItem"; itemId: string; slot: GearSlot; heroId?: string }
   | { type: "unequipItem"; slot: GearSlot; heroId?: string }
-  | { type: "takeFromArmoury"; slot: EquipSlot; tier: number; heroId?: string }
+  | { type: "takeFromArmoury"; slot: EquipSlot; tier: number; heroId?: string; weaponKind?: typeof HERO_WEAPON_KINDS[number] }
   // Hero phase 3: recruit a hero of `class` at the Keep at (tx, ty) (Keep panel buttons).
   | { type: "recruitHero"; tx: number; ty: number; class: HeroClass }
   // Hero phase 4: spells. slot 0-3; heroId (optional) = that hero's book instead of the player's.
@@ -1524,6 +1526,7 @@ export type ServerMessage =
   | { type: "workPosts"; id: string; posts: WorkPostOption[] };
 
 export interface PlayerSnapshot {
+  visual?: HeroVisual;
   id: string;
   x: number;
   y: number;
@@ -1615,3 +1618,28 @@ export interface FightSnapshot {
   // Seconds since the last blow (0 .. FIGHT_WINDOW_SECONDS).
   quiet: number;
 }
+
+// Cosmetic choices persist with the existing hero profile; gear remains authoritative.
+export const HERO_LOOKS = ["wanderer", "ranger", "vanguard", "mystic", "wayfarer", "elder"] as const;
+export type HeroLook = typeof HERO_LOOKS[number];
+export const HORSE_COATS = ["bay", "chestnut", "black", "grey", "palomino"] as const;
+export type HorseCoat = typeof HORSE_COATS[number];
+export interface HeroAppearance { look: HeroLook; horse: HorseCoat }
+export const DEFAULT_HERO_APPEARANCE: HeroAppearance = { look: "wanderer", horse: "bay" };
+export function sanitizeHeroAppearance(raw: unknown): HeroAppearance {
+  const a = raw && typeof raw === "object" ? raw as Partial<HeroAppearance> : {};
+  return { look: HERO_LOOKS.includes(a.look as HeroLook) ? a.look! : "wanderer", horse: HORSE_COATS.includes(a.horse as HorseCoat) ? a.horse! : "bay" };
+}
+export interface HeroVisual {
+  appearance: HeroAppearance;
+  armour: number;
+  weapon: string;
+  weaponTier: number;
+  helmet: boolean;
+  shield: boolean;
+}
+export function heroVisualFromEquipment(equipment: Equipment, appearance?: HeroAppearance): HeroVisual {
+  const tier = (item: GearItem | null) => item?.tier === "relic" ? 3 : item?.tier ?? 0;
+  return { appearance: sanitizeHeroAppearance(appearance), armour: tier(equipment.chest), weapon: equipment.weapon?.kind ?? "unarmed", weaponTier: tier(equipment.weapon), helmet: !!equipment.head, shield: !!equipment.offhand };
+}
+export const HERO_WEAPON_KINDS = ["sword", "spear", "club", "bow", "staff"] as const;

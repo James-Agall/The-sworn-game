@@ -1163,3 +1163,16 @@ Art made by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/s
     instead of the lettered chip.
 11. Fallback: rename `client/public/sprites/structure/bed.png` (dev server): the bed falls back to the old
     procedural blue bed, nothing else breaks; restore it.
+
+
+## Autumn art integration — 2026-11-11
+Check new-game human scale, each troop tier walking/attacking, cardinal hero tools, mounted rider/horse alignment, crimson hit flashes, building damage/repair, H/V walls and doors, night interiors and livestock movement. Inspect /sprite-preview.html for cave walls and floor joins. Private browser smoke check passed without JavaScript or missing-image errors; individual poses still need normal gameplay review.
+
+
+## Hero wardrobe and menu refresh — 2026-11-11
+1. Open Hero: choose each of the six origins and a horse coat; confirm the two previews and world appearance update. Check at 900px width and navigate equipment with Tab/Enter.
+2. Withdraw a weapon type and T1–T3 armour from the existing armoury stock, then equip from Pack. Confirm stats, icons, armour silhouette and attack animation update; unequip to revert.
+3. Buy an adult horse in a Stables/Livestock Barn; use its Ride action nearby or interact with an outdoor horse. Confirm the chosen coat, single horse/rider, walking and attacking; X returns to the on-foot appearance and normal speed.
+4. Use tools on foot, enter/leave an interior, take damage and confirm the existing crimson hurt effect. Mounted tools remain restricted by the original rules.
+5. Bow: attack a hostile target up to five tiles away; an intact wall or closed gate blocks it. Spears have 1.5x the original melee reach; other weapons retain melee behavior. Gear tier still determines stats through the existing system.
+6. Save/load and reconnect; verify wardrobe/equipment persist. A second client should see the same selected appearance. Horse coats are cosmetic riding appearances, not new livestock breeds or stat bonuses.

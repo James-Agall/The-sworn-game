@@ -1,3 +1,4 @@
+import { handleHeroAppearance, playerVisual } from "./heroes.js";
 // index.ts: boot and wiring. Imports every server module in evaluation order (types, constants and state
 // first; see ROADMAP "Server module split"), generates the world, starts the HTTP/WebSocket server (net.ts),
 // routes client messages, and runs the tick loop (stepSimulation in sim.ts) that sends the snapshots.
@@ -376,12 +377,14 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "setForgeAuto") {
     if (!Number.isInteger(message.tileX) || !Number.isInteger(message.tileY)) return;
     handleSetForgeAuto(message.tileX, message.tileY, message.on, message.target);
+  } else if (message.type === "setHeroAppearance") {
+    handleHeroAppearance(player, message.appearance);
   } else if (message.type === "equipItem") {
     handleEquipItem(player, message.itemId, message.slot, message.heroId);
   } else if (message.type === "unequipItem") {
     handleUnequipItem(player, message.slot, message.heroId);
   } else if (message.type === "takeFromArmoury") {
-    handleTakeFromArmoury(player, message.slot, message.tier, message.heroId);
+    handleTakeFromArmoury(player, message.slot, message.tier, message.heroId, message.weaponKind);
   } else if (message.type === "recruitHero") {
     if (!Number.isInteger(message.tx) || !Number.isInteger(message.ty)) return;
     handleRecruitHero(player, message.tx, message.ty, message.class);
@@ -471,6 +474,7 @@ setInterval(() => {
     color: p.color,
     hp: p.hp,
     maxHp: playerMaxHp(p),
+    visual: playerVisual(p),
     dead: p.dead,
     ...(p.clan ? { clan: p.clan } : {}),
     ...(p.dead && p.heirPending ? { heirs: heirChoicesFor(p) } : {}),

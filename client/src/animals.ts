@@ -10,6 +10,7 @@ import {
   LIVESTOCK_STRIDE, SPECIES, type AnimalHouseInfo, type LivestockSnapshot,
 } from "@colony/shared/animals";
 import { LIVESTOCK_ART, NEED_ICON, iconImg, iconUrl } from "./spriteRegistry";
+import { autumnFrame, loadAutumnSheet, directionalFrame, movementFacing, type Cardinal } from "./autumnAnimations";
 
 // Cosmetic numbers (client only).
 const BOB_PX = 1.5;
@@ -42,7 +43,8 @@ async function loadAll() {
 
 export function createLivestock(deps: LivestockDeps) {
   void loadAll();
-  const sprites = new Map<number, { body: Sprite; icon: Sprite | null; lastX: number; phase: number; key: string }>();
+  for (const sheet of ["animal-walks-a", "animal-walks-b", "animal-walks-c"]) void loadAutumnSheet(sheet);
+  const sprites = new Map<number, { body: Sprite; icon: Sprite | null; lastX: number; lastY: number; facing: Cardinal; phase: number; key: string }>();
   const houseIcons = new Map<number, Sprite>();
 
   function textureFor(species: string, flags: number): { t: Texture; size: number; key: string } {
@@ -71,7 +73,7 @@ export function createLivestock(deps: LivestockDeps) {
       const y = a[i + 3];
       const flags = a[i + 4];
       seen.add(id);
-      const { t, size, key } = textureFor(species, flags);
+      let { t, size, key } = textureFor(species, flags);
       let e = sprites.get(id);
       if (!e || e.key !== key) {
         e?.body.destroy();
@@ -80,18 +82,27 @@ export function createLivestock(deps: LivestockDeps) {
         body.anchor.set(0.5, 1);
         if (key === "standin") body.tint = STANDIN_TINT[species] ?? 0xffffff;
         deps.layer.addChild(body);
-        e = { body, icon: null, lastX: x, phase: Math.random() * 1000, key };
+        e = { body, icon: null, lastX: x, lastY: y, facing: "e", phase: Math.random() * 1000, key };
         sprites.set(id, e);
       }
-      const scale = key === "standin" ? size / 16 : size / Math.max(t.width, t.height);
       const moving = (flags & LF_MOVING) !== 0;
-      const bob = moving ? Math.abs(Math.sin((now + e.phase) / BOB_MS)) * BOB_PX : 0;
+      e.facing = movementFacing(x - e.lastX, y - e.lastY, e.facing);
+      const baby = !!(flags & LF_BABY);
+      const sheet = species === "chicken" || species === "cow" ? "animal-walks-a" : species === "horse" ? "animal-walks-c" : "animal-walks-b";
+      const row = species === "chicken" ? (baby ? 2 : flags & LF_MALE ? 1 : 0) : species === "cow" ? (baby ? 4 : 3) : species === "pig" ? (baby ? 1 : 0) : species === "sheep" ? (baby ? 4 : 2) : baby ? 1 : 0;
+      const animated = directionalFrame(sheet, row, e.facing, moving ? Math.floor((now + e.phase) / 140) : 0);
+      if (animated) { t = animated; e.body.texture = t; e.body.tint = 0xffffff; }
+      const scale = !animated && key === "standin" ? size / 16 : size / Math.max(t.width, t.height);
+      const bob = !animated && moving ? Math.abs(Math.sin((now + e.phase) / BOB_MS)) * BOB_PX : 0;
       // A ridden horse stands under its rider's sprite (the rider is drawn above it).
       const ridden = (flags & LF_RIDDEN) !== 0;
+      e.body.visible = !(ridden && autumnFrame("mounted-units-v2", 3, 0));
       e.body.position.set(x, y + ts * (ridden ? 0.45 : 0.2) - bob);
-      if (Math.abs(x - e.lastX) > 0.3) e.body.scale.set(x > e.lastX ? scale : -scale, scale);
+      if (animated) e.body.scale.set(e.facing === "w" ? -scale : scale, scale);
+      else if (Math.abs(x - e.lastX) > 0.3) e.body.scale.set(x > e.lastX ? scale : -scale, scale);
       else if (e.body.scale.y !== scale) e.body.scale.set(Math.sign(e.body.scale.x || 1) * scale, scale);
       e.lastX = x;
+      e.lastY = y;
       const z = deps.zOf(x, y) - (ridden ? 1 : 0);
       if (e.body.zIndex !== z) e.body.zIndex = z;
       const iconUrlNow = iconFor(flags);

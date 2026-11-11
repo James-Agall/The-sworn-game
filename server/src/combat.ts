@@ -341,6 +341,20 @@ export function handlePlayerAttack(attacker: Player) {
   if (attacker.dead || attacker.interior || attacker.attackCooldownTicks > 0) return;
   attacker.attackCooldownTicks = playerAttackCooldownTicks(attacker);
   const damage = playerDamage(attacker);
+  const weapon = heroProfileOf(attacker).equipment.weapon?.kind;
+  const ranged = weapon === "bow";
+  const reach = ranged ? TILE_SIZE * 5 : weapon === "spear" ? PLAYER_ATTACK_RANGE * 1.5 : PLAYER_ATTACK_RANGE;
+  // A ranged weapon cannot fire through intact walls or closed gates.
+  const clear = (x: number,y: number) => {
+    const steps=Math.ceil(Math.hypot(x-attacker.x,y-attacker.y)/(TILE_SIZE/3));
+    for(let i=1;i<steps;i++) {
+      const t=tileOfPixel(attacker.x+(x-attacker.x)*i/steps,attacker.y+(y-attacker.y)*i/steps);
+      if(!inBounds(t.x,t.y)) return false;
+      const tile=state.tiles[tileIndex(t.x,t.y)];
+      if(isWallTile(tile) || (tile===TileType.Gate && !gates.get(tileIndex(t.x,t.y))?.open)) return false;
+    }
+    return true;
+  };
 
   let bestType: "player" | "mob" | null = null;
   let bestId: string | null = null;
@@ -349,7 +363,7 @@ export function handlePlayerAttack(attacker: Player) {
   for (const p of players.values()) {
     if (p.id === attacker.id || p.dead || p.interior) continue;
     const d = Math.hypot(p.x - attacker.x, p.y - attacker.y);
-    if (d <= PLAYER_ATTACK_RANGE && d < bestDist) {
+    if (d <= reach && d < bestDist && clear(p.x, p.y) ) {
       bestDist = d;
       bestType = "player";
       bestId = p.id;
@@ -357,7 +371,7 @@ export function handlePlayerAttack(attacker: Player) {
   }
   for (const m of mobs.values()) {
     const d = Math.hypot(m.x - attacker.x, m.y - attacker.y);
-    if (d <= PLAYER_ATTACK_RANGE && d < bestDist) {
+    if (d <= reach && d < bestDist && clear(m.x, m.y)) {
       bestDist = d;
       bestType = "mob";
       bestId = m.id;
@@ -367,21 +381,21 @@ export function handlePlayerAttack(attacker: Player) {
   let bestAnimal: Wildlife | null = null;
   for (const a of wildlife.values()) {
     const d = Math.hypot(a.x - attacker.x, a.y - attacker.y);
-    if (d <= PLAYER_ATTACK_RANGE && d < bestDist) {
+    if (d <= reach && d < bestDist && clear(a.x, a.y)) {
       bestDist = d;
       bestAnimal = a;
     }
   }
   // Creative mode: with "allow attacking neutrals" on, a hostile clan's unit nearer than anything else.
-  const hostile = hostileColonistInReach(attacker, bestDist);
-  if (hostile) {
-    state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: hostile.x, toY: hostile.y, melee: true });
+  const hostile = hostileColonistInReach(attacker, bestDist, reach);
+  if (hostile && clear(hostile.x, hostile.y)) {
+    state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: hostile.x, toY: hostile.y, melee: !ranged });
     damageColonist(hostile, damage);
     return;
   }
   if (bestAnimal) {
     // A player's kill is dressed on the spot: the meat goes straight to the stockpile.
-    state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: bestAnimal.x, toY: bestAnimal.y, melee: true });
+    state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: bestAnimal.x, toY: bestAnimal.y, melee: !ranged });
     const meat = WILDLIFE_CONFIG[bestAnimal.kind].meat;
     if (damageWildlife(bestAnimal, damage, attacker.x, attacker.y, null)) {
       state.stock.meat += meat;
@@ -397,7 +411,7 @@ export function handlePlayerAttack(attacker: Player) {
       if (h.destroyed) continue;
       const p = tileToPixelCenter(h);
       if (Math.hypot(p.x - attacker.x, p.y - attacker.y) > PLAYER_ATTACK_RANGE + TILE_SIZE / 2) continue;
-      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: p.x, toY: p.y, melee: true });
+      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: p.x, toY: p.y, melee: !ranged });
       damageHearth(h, damage, "p:" + attacker.id);
       return;
     }
@@ -406,13 +420,13 @@ export function handlePlayerAttack(attacker: Player) {
   if (bestType === "player") {
     const target = players.get(bestId);
     if (target) {
-      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
+      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: !ranged });
       damagePlayer(target, damage);
     }
   } else {
     const target = mobs.get(bestId);
     if (target) {
-      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: true });
+      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: !ranged });
       heroEvent({ type: "hit", key: attacker.profileKey, amount: damage, detail: target.id });
       damageMob(target, damage, "p:" + attacker.id);
     }

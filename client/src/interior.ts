@@ -16,6 +16,7 @@ import {
   INTERIOR_WALK_FRAME_MS, INTERIOR_WORK_MS, INTERIOR_ZOOM, type InteriorMap, type InteriorNpcLive, type InteriorProp, type InteriorView,
 } from "@colony/shared/interiors";
 import type { StructureTextures } from "./structureArt";
+import { autumnFrame, loadAutumnSheet } from "./autumnAnimations";
 
 const T = INTERIOR_TILE_PX;
 const EXTRA = "/sprites/structure/extra/";
@@ -42,6 +43,7 @@ export interface InteriorDeps {
   worldLayer: Container;
   structure: StructureTextures;
   playerTexture: Texture;
+  heroTexture?: (id: string, moving: boolean) => Texture | undefined;
   playerHeight: number;
   npcTexture: (kind: string) => Texture | undefined;
   // Gap closure G5: the kind's walk / action frames and their scale (missing: the still texture, stand-in motion).
@@ -163,6 +165,13 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
 
   function propSprite(prop: InteriorProp, x: number, y: number): Container {
     if (prop === "stairsUp" || prop === "stairsDown") {
+      const texture = autumnFrame("furniture-stations", 5, prop === "stairsUp" ? 2 : 3);
+      if (texture) {
+        const sprite = new Sprite(texture);
+        sprite.width = T; sprite.height = T;
+        sprite.position.set(x * T, y * T); sprite.zIndex = -1;
+        return sprite;
+      }
       // Stand-in stairs (SPRITES.md): steps rising toward the back wall (up), or a dark stairwell (down).
       const g = new Graphics();
       const up = prop === "stairsUp";
@@ -244,6 +253,20 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     for (let y = 0; y < m.h; y++) {
       for (let x = 0; x < m.w; x++) {
         if (m.cells[y * m.w + x] !== "#") continue;
+        const mask = (y > 0 && m.cells[(y - 1) * m.w + x] === "#" ? 1 : 0)
+          | (x + 1 < m.w && m.cells[y * m.w + x + 1] === "#" ? 2 : 0)
+          | (y + 1 < m.h && m.cells[(y + 1) * m.w + x] === "#" ? 4 : 0)
+          | (x > 0 && m.cells[y * m.w + x - 1] === "#" ? 8 : 0);
+        const wallArt = autumnFrame("interior-walls", (m.wall === "stone" ? 4 : 0) + Math.floor(mask / 8), mask % 8);
+        if (wallArt) {
+          const sprite = new Sprite(wallArt);
+          sprite.anchor.set(0.5, 1);
+          sprite.scale.set(T / 68);
+          sprite.position.set((x + 0.5) * T, (y + 1) * T);
+          sprite.zIndex = -5;
+          room.addChild(sprite);
+          continue;
+        }
         walls.rect(x * T, y * T, T, T).fill(wall.top);
         walls.rect(x * T, y * T, T, 2).fill({ color: 0xffffff, alpha: 0.12 });
         if (!solidAt(x, y + 1)) {
@@ -330,6 +353,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
 
   // Each frame: ease toward the live position, pick the pose's frame, bob / swing / sit / lie down.
   function animateNpcs(now: number) {
+    void loadAutumnSheet("human-life-directions");
     for (const nv of npcViews.values()) {
       const n = nv.live;
       nv.sx += (n.x - nv.sx) * 0.3;
@@ -349,10 +373,13 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         if (nv.anim?.action.length) tex = nv.anim.action[Math.floor((t / INTERIOR_WORK_MS) * nv.anim.action.length) % nv.anim.action.length];
         else rot = Math.floor(t / (INTERIOR_WORK_MS / 2)) % 2 ? 0.12 : -0.05;
       } else if (n.pose === "sit") {
-        dy = 3;
-        sy = 0.86;
+        const seated = autumnFrame("human-life-directions", 1, Math.floor(t / 250) % 4);
+        if (seated) tex = seated;
+        else { dy = 3; sy = 0.86; }
       } else if (n.pose === "sleep") {
-        rot = -Math.PI / 2;
+        const sleeping = autumnFrame("human-life-directions", 2, 8 + Math.floor(t / 600) % 4);
+        if (sleeping) tex = sleeping;
+        else rot = -Math.PI / 2;
         y -= 4;
         x += 2;
       } else dy = Math.sin((t / INTERIOR_BOB_MS) * Math.PI * 2) * INTERIOR_BOB_PX;
@@ -418,6 +445,9 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       shown.x += (target.x - shown.x) * 0.35;
       shown.y += (target.y - shown.y) * 0.35;
     }
+    const moving = Math.hypot(target.x-shown.x,target.y-shown.y)>.3;
+    const heroArt=deps.heroTexture?.(deps.myId() ?? "",moving);
+    if(heroArt) { hero.texture=heroArt; const sign=target.x<shown.x? -1:target.x>shown.x?1:Math.sign(hero.scale.x)||1; hero.scale.set(sign*deps.playerHeight/heroArt.height,deps.playerHeight/heroArt.height); }
     hero.position.set(shown.x, shown.y);
     hero.zIndex = shown.y;
     animateNpcs(performance.now());
@@ -490,6 +520,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           others.set(p.id, s);
           room.addChild(s);
         }
+        const art=deps.heroTexture?.(p.id,Math.hypot(p.inside.x-s.x,p.inside.y-s.y)>.3);
+        if(art) {s.texture=art;s.tint=0xffffff;s.scale.set((p.inside.x<s.x?-1:1)*deps.playerHeight/art.height,deps.playerHeight/art.height);}
         s.position.set(p.inside.x, p.inside.y);
         s.zIndex = p.inside.y;
       }

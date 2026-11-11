@@ -160,3 +160,11 @@ Asset categories to produce (see SPRITES.md for exact specs per number):
 - They have asked for answers to be concise and honest: say what was NOT verified (e.g. "not checked in a browser").
 - Use they/them if you ever refer to the user's or others' pronouns unknowingly.
 - Plans/queue live outside the repo in `/home/james/docs/colony2d/`; update `QUEUE.md` there when you finish or start something.
+
+
+## Autumn art integration — 2026-11-11
+Autumn art is installed in the project checkout. See art-sources/autumn-style-v1/AUTUMN-INTEGRATION-HANDOVER.txt and browser-art-check.json. Source archives, cave kit, explicit mappings, reproduction scripts and original runtime art backup are alongside them. The live checkout and saves remain untouched. Extra art without server states is library-only.
+
+
+## Hero wardrobe and menu refresh — 2026-11-11
+Hero appearance and the menu refresh are installed in this checkout. New modules: client/src/heroAppearance.ts (runtime composition of existing sprite art, six origin looks/five horse coats and gear icons), client/src/menuSkin.css. Authoritative appearance is stored on HeroProfile, validated by setHeroAppearance, serialized with gear and replicated through PlayerSnapshot.visual. Armoury weapon selection spends the same stock and uses existing equip/unequip/stat rules. Bow range is five tiles, spear reach 1.5x melee; wall/gate checks prevent blocked shots. Other weapon behavior and horse speed/tool restrictions reuse existing systems. The original pre-change source is in art-sources/hero-menu-backup-20261111. Live game/saves, protected tests and Git staging remain untouched.

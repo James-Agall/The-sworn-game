@@ -936,3 +936,11 @@ Delivered 2026-10-29 and good: #45-#48 (knight, cavalry, spearman, pikeman tiers
 - After cropping/isolating new art, it goes in `client/public/sprites/` and gets wired into
   `client/src/main.ts` (and, for anything with gameplay meaning — new unit kinds, new tile types —
   `server/src/index.ts` and both `protocol.ts` copies).
+
+
+## Autumn art integration — 2026-11-11
+61 source sheets / 3218 cells; all 1310 existing PNG paths replaced using an explicit mapping. Additional normalized frames are in client/public/sprites/autumn/frames. See art-sources/autumn-style-v1/AUTUMN-INTEGRATION-HANDOVER.txt for mappings, original-art backup, animation wiring and limitations. Inspect /sprite-preview.html for all frames and an X/Y cave assembly. Cave assets and extra variants are available; no new cave simulation was added. Live deployment was not performed.
+
+
+## Hero wardrobe and menu refresh — 2026-11-11
+Hero wardrobe reuses installed autumn frames through runtime canvas/Pixi composition; no extra generated art sheets are needed. Six base origins, five horse palette variants, tiered armour, sword/spear/club/bow/staff, mounted/unmounted states and interior appearance are wired. Character origin accents remain visible on armour; equipment may cover the base outfit. Horse coats are cosmetic rider choices. Existing art includes some baked equipment, so these are composed tier outfits rather than an exhaustive per-limb armour doll. Inspect the new Hero menu previews for each combination.

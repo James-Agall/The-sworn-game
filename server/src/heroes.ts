@@ -1,3 +1,4 @@
+import { sanitizeHeroAppearance, HERO_LOOKS, HORSE_COATS, HERO_WEAPON_KINDS, heroVisualFromEquipment } from "@colony/shared/protocol";
 // heroes.ts: Hero phases 1-4 support: equipment, hero profiles, items, relics, recruitable heroes, Blacksmith forging.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { gatesOpen, workerLevelAt } from "./progression.js";
@@ -277,6 +278,7 @@ export function playerAttackCooldownTicks(p: Player): number {
 
 export function heroProfileSnapshot(prof: HeroProfile): HeroProfileSnapshot {
   return {
+    appearance: sanitizeHeroAppearance(prof.appearance),
     equipment: prof.equipment,
     inventory: prof.inventory,
     inventoryCap: HERO_INVENTORY_CAP,
@@ -431,15 +433,21 @@ export function handleUnequipItem(player: Player, slot: unknown, heroId?: unknow
 }
 
 // One plain tiered piece out of the colony stock into the player's pack (it no longer arms a soldier).
-export function handleTakeFromArmoury(player: Player, slot: unknown, tier: unknown, heroId?: unknown) {
+export function handleTakeFromArmoury(player: Player, slot: unknown, tier: unknown, heroId?: unknown, weaponKind?: unknown) {
   if (slot !== "armour" && slot !== "weapon") return;
   if (typeof tier !== "number" || !Number.isInteger(tier) || tier < 1 || tier > EQUIP_TIERS) return;
+  if (weaponKind !== undefined && !HERO_WEAPON_KINDS.includes(weaponKind as any)) return;
   const prof = heroProfileOf(player);
   if (state.equipment[slot][tier - 1] <= 0) return refuseGear(player, `No tier-${tier} ${EQUIP_SLOT_LABEL[slot]} in the colony's stock`);
   if (prof.inventory.length >= HERO_INVENTORY_CAP) return refuseGear(player, "Your pack is full (40 items)");
   state.equipment[slot][tier - 1]--;
   const def = PLAIN_GEAR[slot];
   const item: GearItem = { id: randomUUID(), slot: def.slot, name: def.names[tier - 1], tier: tier as 1 | 2 | 3, stats: def.stats(tier), kind: def.kind, icon: `icon-${slot}T${tier}` };
+  if (slot === "weapon" && typeof weaponKind === "string") {
+    item.kind = weaponKind;
+    item.name = `${["Iron", "Steel", "Gilded"][tier - 1]} ${weaponKind[0].toUpperCase() + weaponKind.slice(1)}`;
+    item.icon = weaponKind === "sword" ? `icon-weaponT${tier}` : weaponKind === "club" ? "icon-weaponT1" : `relic${weaponKind[0].toUpperCase()+weaponKind.slice(1)}`;
+  }
   prof.inventory.push(item);
   recomputeHeroProfile(prof);
   heroEvent({ type: "take", key: prof.key, detail: `${slot} ${tier}` });
@@ -451,6 +459,7 @@ export function handleTakeFromArmoury(player: Player, slot: unknown, tier: unkno
 // Save / load: profiles as plain data; anything malformed is dropped (old saves: none).
 export function serializeHeroProfiles() {
   return Array.from(heroProfiles.values(), (p) => ({
+    appearance: sanitizeHeroAppearance(p.appearance),
     key: p.key, equipment: p.equipment, inventory: p.inventory, xp: p.xp,
     ...(p.heroClass ? { heroClass: p.heroClass, heroName: p.heroName } : {}),
     // Hero phase 4 (old saves: none learned; restore then grants the level-ups already earned).
@@ -477,6 +486,7 @@ export function restoreHeroProfiles(saved: unknown) {
       ? { heroClass: raw.heroClass as HeroClass, heroName: typeof raw.heroName === "string" ? raw.heroName : "Hero" }
       : undefined;
     const prof = newHeroProfile(raw.key, eq, hero ? [] : inv, xp, hero);
+    prof.appearance = sanitizeHeroAppearance(raw.appearance);
     restoreSpellBook(prof, raw);
     const life = sanitizeHeroLife(raw.life);
     if (life) prof.life = life;
@@ -842,4 +852,17 @@ export function forgeBusyForSnapshot(): number[] {
     if (tile && state.queue.length > 0 && blacksmithStaffed(tile.x, tile.y)) out.push(tileIndex(tile.x, tile.y));
   }
   return out;
+}
+
+export function handleHeroAppearance(player: Player, raw: unknown) {
+  if (!raw || typeof raw !== "object") return;
+  const a = raw as { look?: unknown; horse?: unknown };
+  if (!HERO_LOOKS.includes(a.look as any) || !HORSE_COATS.includes(a.horse as any)) return;
+  const prof = heroProfileOf(player);
+  prof.appearance = sanitizeHeroAppearance(raw);
+  recomputeHeroProfile(prof);
+}
+export function playerVisual(player: Player) {
+  const prof=heroProfileOf(player);
+  return heroVisualFromEquipment(prof.equipment,prof.appearance);
 }
