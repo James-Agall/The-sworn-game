@@ -74,8 +74,9 @@ export function heroArt(v: HeroVisual, mounted = false, frame = 0, action = fals
     c.drawImage(horse,8,40,176,120);
     // Saddle, rider and near boot share a fixed seat so gallop frames do not detach the rider.
     c.fillStyle="#513527"; c.fillRect(71,80,43,9); c.fillStyle="#a96a40"; c.fillRect(75,83,32,13);
-    c.drawImage(rider,0,0,128,96,41,1,96,88);
-    c.drawImage(rider,51,96,25,30,80,83,19,24);
+    // Uniform 0.875 scale (was 0.75 x 0.92: a horizontally squashed rider), seat line kept at y=89.
+    c.drawImage(rider,0,0,128,96,33,5,112,84);
+    c.drawImage(rider,51,96,25,30,78,83,22,26);
   }
   const texture=Texture.from(result); texture.source.scaleMode="nearest";
   // Bounds texture memory even after repeatedly previewing every combination.

@@ -477,6 +477,24 @@ async function main() {
     refHeight: number;
   }
   // `renderSize` is the first walk frame's rendered height, or its longer side with `fitLongerSide`.
+  function opaqueWidthPx(tex: Texture): number {
+    try {
+      const src = (tex.source as unknown as { resource?: CanvasImageSource }).resource;
+      const w = Math.round(tex.frame.width), h = Math.round(tex.frame.height);
+      if (!src || !w || !h) return tex.width;
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      const g = c.getContext("2d", { willReadFrequently: true })!;
+      g.drawImage(src, tex.frame.x, tex.frame.y, w, h, 0, 0, w, h);
+      const d = g.getImageData(0, 0, w, h).data;
+      let l = w, r = -1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 20) { if (x < l) l = x; if (x > r) r = x; }
+      return r >= l ? r - l + 1 : tex.width;
+    } catch {
+      return tex.width;
+    }
+  }
   function buildAnimSet(
     urls: { walk: string[]; action: string[] },
     renderSize: number,
@@ -485,7 +503,8 @@ async function main() {
   ): AnimSet {
     const walk = urls.walk.map((u) => textures[u]);
     const refHeight = walk[0].height;
-    const refSize = fitLongerSide ? Math.max(walk[0].width, refHeight) : refHeight;
+    // Long beasts fit their drawn length (opaque width), not the padded canvas width.
+    const refSize = fitLongerSide ? Math.max(opaqueWidthPx(walk[0]), refHeight) : refHeight;
     return { walk, action: urls.action.map((u) => textures[u]), scale: renderSize / refSize, refHeight };
   }
   // Feet sit on each frame's bottom edge; pin them to where the first walk frame's feet land when
@@ -583,18 +602,39 @@ async function main() {
         const g = c.getContext("2d", { willReadFrequently: true })!;
         g.drawImage(src, tex.frame.x, tex.frame.y, w, fh, 0, 0, w, fh);
         const d = g.getImageData(0, 0, w, fh).data;
-        let top = fh;
+        // Body = the largest blob after a 1 px erosion: thin spear / pike shafts, bow strings and plumes fall away,
+        // so a raised weapon does not shrink the person holding it. Its top to the lowest opaque row (the feet).
+        const op = new Uint8Array(w * fh);
         let bot = -1;
-        for (let y = 0; y < fh; y++) {
-          for (let x = 0; x < w; x++) {
-            if (d[(y * w + x) * 4 + 3] > 20) {
-              if (y < top) top = y;
-              if (y > bot) bot = y;
-              break;
+        for (let i = 0; i < w * fh; i++) if (d[i * 4 + 3] > 20) { op[i] = 1; bot = Math.floor(i / w); }
+        const er = new Uint8Array(w * fh);
+        for (let y = 1; y < fh - 1; y++) for (let x = 1; x < w - 1; x++) {
+          let all = 1;
+          for (let dy = -1; dy <= 1 && all; dy++) for (let dx = -1; dx <= 1; dx++) if (!op[(y + dy) * w + x + dx]) { all = 0; break; }
+          er[y * w + x] = all;
+        }
+        const seen = new Uint8Array(w * fh);
+        let bestN = 0, bestTop = -1;
+        for (let s = 0; s < w * fh; s++) {
+          if (!er[s] || seen[s]) continue;
+          const stack = [s];
+          seen[s] = 1;
+          let n = 0, topY = fh;
+          while (stack.length) {
+            const i = stack.pop()!;
+            n++;
+            const y = Math.floor(i / w), x = i % w;
+            if (y < topY) topY = y;
+            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+              const yy = y + dy, xx = x + dx;
+              if (yy < 0 || xx < 0 || yy >= fh || xx >= w) continue;
+              const j = yy * w + xx;
+              if (er[j] && !seen[j]) { seen[j] = 1; stack.push(j); }
             }
           }
+          if (n > bestN) { bestN = n; bestTop = topY - 1; }
         }
-        if (bot >= top) h = bot - top + 1;
+        if (bestTop >= 0 && bot >= bestTop) h = bot - bestTop + 1;
       }
     } catch { /* keep the frame height */ }
     charHeightCache.set(tex, h);
@@ -606,6 +646,20 @@ async function main() {
     if (NON_HUMAN_COLONISTS.has(kind) || !set.walk[0]) continue;
     set.scale = HUMAN_CHAR_PX / charHeightPx(set.walk[0]);
   }
+  // Scale for a human frame from an autumn library sheet (task / tool / life directions, hero classes, village
+  // life): the sheet's tallest standing body among the first four frames of `row`, so every frame of that sheet
+  // (all rows share one export scale) draws the body at HUMAN_CHAR_PX like the walk sets.
+  const autumnHumanScaleCache = new Map<string, number>();
+  function autumnHumanScale(sheet: string, row = 0): number | undefined {
+    const k = `${sheet}/${row}`;
+    const hit = autumnHumanScaleCache.get(k);
+    if (hit) return hit;
+    const frames = [0, 1, 2, 3].map((c) => autumnFrame(sheet, row, c)).filter((t): t is Texture => !!t);
+    if (!frames.length) return undefined;
+    const s = HUMAN_CHAR_PX / Math.max(...frames.map(charHeightPx));
+    autumnHumanScaleCache.set(k, s);
+    return s;
+  }
   // kind -> [T1, T2, T3] armour-tier sets (undefined where a file is missing, or the base set is a stand-in).
   const COLONIST_TIER_ANIMS = new Map<string, (AnimSet | undefined)[]>(
     TIER_ART_KINDS.map((kind) => {
@@ -615,7 +669,9 @@ async function main() {
         COLONIST_TIER_ANIM_URLS[kind].map((urls) => {
           if (COLONIST_TINT.has(kind) || ![...urls.walk, ...urls.action].every((u) => optionalTextures[u])) return undefined;
           const walk = urls.walk.map((u) => optionalTextures[u]);
-          return { walk, action: urls.action.map((u) => optionalTextures[u]), scale: base.scale, refHeight: walk[0].height };
+          // Humans: each tier's own measured body (a plumed T3 helm must not shrink the body); riders keep the base scale.
+          const scale = NON_HUMAN_COLONISTS.has(kind) ? base.scale : HUMAN_CHAR_PX / charHeightPx(walk[0]);
+          return { walk, action: urls.action.map((u) => optionalTextures[u]), scale, refHeight: walk[0].height };
         }),
       ];
     })
@@ -658,6 +714,15 @@ async function main() {
     const anim = buildAnimSet(urls!, size, MOB_ANIM_FIT_LONGER_SIDE.has(kind as MobKind), optionalTextures);
     MOB_VARIANTS[kind as MobKind] = [{ idle: anim.walk[0], idleScale: anim.scale, anim }];
     MOB_OWN_ART.add(kind);
+  }
+  // Human mobs (bandits, settlement folk) share the colonists' drawn body height, scaled by their radius
+  // (radius 8 = a colonist; the bandit elite stays a head taller); the idle pose uses the walk scale.
+  for (const kind of ["banditClubman", "banditArcher", "banditElite", "townGuard", "townArcher", "townKnight", "townFarmer", "townMiner", "townPriest", "townHerald"] as MobKind[]) {
+    for (const v of MOB_VARIANTS[kind] ?? []) {
+      if (!v.anim?.walk[0]) continue;
+      v.anim.scale = (HUMAN_CHAR_PX * (MOB_VISUALS[kind].radius / 8)) / charHeightPx(v.anim.walk[0]);
+      if (v.idle.height === v.anim.walk[0].height) v.idleScale = v.anim.scale;
+    }
   }
   const GOBLIN_RIDER_VET: MobVariant | null =
     MOB_OWN_ART.has("goblinRider") && [...GOBLIN_RIDER_VET_URLS.walk, ...GOBLIN_RIDER_VET_URLS.action].every((u) => optionalTextures[u])
@@ -2399,7 +2464,9 @@ async function main() {
       const mountedFrame = p.mounted ? autumnFrame("mounted-units-v2", 3, mode === "action" ? 4 + anim.frame % 3 : mode === "walk" ? anim.frame % 4 : 0) : undefined;
       const visual = p.visual ?? heroVisuals.get(p.id);
       const art = visual ? heroArt(visual, !!p.mounted, mode === "action" ? Math.floor((PLAYER_ATTACK_ANIM_TICKS - anim.attackTicks - 1) / ANIM_TICKS_PER_FRAME) : mode ? anim.frame : 0, mode === "action") : undefined;
-      if (art) { entry.sprite.texture=art.texture; entry.sprite.scale.set(p.mounted ? 50 / art.texture.height : HUMAN_CHAR_PX / charHeightPx(art.texture)); entry.sprite.filters=[]; }
+      // One scale per look (measured on its standing walk frame), so swings and steps do not resize the hero.
+      const stand = art && !p.mounted ? heroArt(visual!, false, 0, false) : undefined;
+      if (art) { entry.sprite.texture=art.texture; entry.sprite.scale.set(p.mounted ? 50 / art.texture.height : HUMAN_CHAR_PX / charHeightPx((stand ?? art).texture)); entry.sprite.filters=[]; }
       else showAnimFrame(entry.sprite, mountedFrame ? { ...PLAYER_ANIM, scale: 50 / 128 } : PLAYER_ANIM, mountedFrame ?? baseFrame);
     }
     applyFacing(entry.sprite, facingRight);
@@ -2408,7 +2475,7 @@ async function main() {
       if (elapsed >= 600) heroToolPose = null;
       else {
         const toolFrame = directionalFrame("hero-tool-actions", heroToolPose.row, heroToolPose.facing, Math.floor(elapsed / 150));
-        if (toolFrame) { entry.sprite.texture = toolFrame; { const ts = PLAYER_ANIM ? PLAYER_ANIM.scale : PLAYER_SPRITE_HEIGHT / 128; entry.sprite.scale.set((heroToolPose.facing === "w" ? -1 : 1) * ts, ts); } }
+        if (toolFrame) { entry.sprite.texture = toolFrame; { const ts = autumnHumanScale("hero-tool-actions", 4) ?? (PLAYER_ANIM ? PLAYER_ANIM.scale : PLAYER_SPRITE_HEIGHT / 128); entry.sprite.scale.set((heroToolPose.facing === "w" ? -1 : 1) * ts, ts); } }
       }
     }
     updateWound(entry, p.hp, p.maxHp, p.x, p.y - (p.mounted ? MOUNTED_LIFT_PX : 0),
@@ -2519,15 +2586,20 @@ async function main() {
       // The couched-lance pose and the battered pose are base-set art, so a tier set keeps its own frames.
       showAnimFrame(entry.sprite, set, charging && mode === "walk" && !tierSet ? CAVALRY_CHARGE_TEXTURE! : (frame ?? set.walk[0]));
       let ownFrame: Texture | undefined;
-      if (c.kind === "hero") ownFrame = autumnFrame("heroes", c.heroClass === "mage" ? 3 : c.heroClass === "marksman" ? 2 : 1, mode === "action" ? 4 + anim.frame % 3 : mode === "walk" ? anim.frame % 4 : 0);
-      else if (c.kind === "villager") ownFrame = autumnFrame("village-life", c.child ? 2 : 0, mode === "walk" ? anim.frame % 4 : 0);
+      let ownSheet = "", ownRow = 0;
+      if (c.kind === "hero") { ownSheet = "heroes"; ownRow = c.heroClass === "mage" ? 3 : c.heroClass === "marksman" ? 2 : 1; ownFrame = autumnFrame(ownSheet, ownRow, mode === "action" ? 4 + anim.frame % 3 : mode === "walk" ? anim.frame % 4 : 0); }
+      else if (c.kind === "villager") { ownSheet = "village-life"; ownRow = c.child ? 2 : 0; ownFrame = autumnFrame(ownSheet, ownRow, mode === "walk" ? anim.frame % 4 : 0); }
       if (mode === "action" && ["builder", "lumberjack", "ironMiner", "rockMiner", "farmer", "farmhand"].includes(vk)) {
         const farm = vk === "farmer" || vk === "farmhand";
-        ownFrame = directionalFrame(farm ? "human-tasks-directions-a" : "human-tasks-directions-b", farm ? 2 : vk === "builder" ? 0 : vk === "lumberjack" ? 1 : 2, direction, anim.frame);
+        ownSheet = farm ? "human-tasks-directions-a" : "human-tasks-directions-b";
+        ownRow = farm ? 2 : vk === "builder" ? 0 : vk === "lumberjack" ? 1 : 2;
+        ownFrame = directionalFrame(ownSheet, ownRow, direction, anim.frame);
       }
-      if (ownFrame) showAnimFrame(entry.sprite, set, ownFrame);
+      // Library frames come from other sheets than the walk set: draw them at the same body height.
+      const ownScale = ownFrame ? autumnHumanScale(ownSheet, ownRow) ?? set.scale : set.scale;
+      if (ownFrame) showAnimFrame(entry.sprite, { ...set, scale: ownScale }, ownFrame);
       // Village life: a child villager is drawn smaller.
-      if (c.child) entry.sprite.scale.set(set.scale * 0.65);
+      if (c.child) entry.sprite.scale.set(ownScale * 0.65);
       if (charging && mode === "walk" && !hidden) spawnChargeDust(c.id, c.x, c.y + (set.refHeight * set.scale) / 2, stepX);
       const battered = BATTERED_TINT_KINDS.has(vk) && c.hp < c.maxHp * BATTERED_HP_FRACTION;
       const posed = battered && !frame && !tierSet && showBatteredPose(entry.sprite, set, vk, COLONIST_SPRITE_HEIGHT);
