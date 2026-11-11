@@ -181,7 +181,7 @@ import {
   BATTERED_HP_FRACTION, BATTERED_TINT, BATTERED_POSE_URLS, BATTERED_TINT_KINDS, HERO_VISUAL_KIND, REGIMENT_ICON_KIND,
   HERO_TINT, SUMMON_TINT, TILE_SPRITE_SIZE_FACTOR, BUILDING_VISUAL_SCALE, TILE_SPRITE_MAX_WIDTH_TILES,
   TILE_SPRITE_MAX_HEIGHT_TILES, TOWN_CENTER_WIDTH_TILES, TOWN_CENTER_ANCHOR, type EntityVisual, COLONIST_KINDS,
-  COLONIST_SPRITE_HEIGHT, PLAYER_SPRITE_HEIGHT, NATURE_DECOR_ONE_IN, NATURE_DECOR, tileHash01, PLAYER_RECOLOR_FRAG,
+  COLONIST_SPRITE_HEIGHT, PLAYER_SPRITE_HEIGHT, HUMAN_CHAR_PX, NATURE_DECOR_ONE_IN, NATURE_DECOR, tileHash01, PLAYER_RECOLOR_FRAG,
   hexToHue,
 } from "./worldVisuals";
 import {
@@ -566,6 +566,46 @@ async function main() {
   for (const kind of ["militia", "spearman", "pikeman"] as ColonistKind[]) {
     COLONIST_ANIMS[kind].scale = COLONIST_SPRITE_HEIGHT / militiaRefHeight;
   }
+  // Height in px of the drawn body (alpha bounding box) of a frame; falls back to the frame height.
+  const charHeightCache = new WeakMap<Texture, number>();
+  function charHeightPx(tex: Texture): number {
+    const hit = charHeightCache.get(tex);
+    if (hit) return hit;
+    let h = tex.frame.height;
+    try {
+      const src = (tex.source as unknown as { resource?: CanvasImageSource }).resource;
+      if (src) {
+        const w = Math.max(1, Math.round(tex.frame.width));
+        const fh = Math.max(1, Math.round(tex.frame.height));
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = fh;
+        const g = c.getContext("2d", { willReadFrequently: true })!;
+        g.drawImage(src, tex.frame.x, tex.frame.y, w, fh, 0, 0, w, fh);
+        const d = g.getImageData(0, 0, w, fh).data;
+        let top = fh;
+        let bot = -1;
+        for (let y = 0; y < fh; y++) {
+          for (let x = 0; x < w; x++) {
+            if (d[(y * w + x) * 4 + 3] > 20) {
+              if (y < top) top = y;
+              if (y > bot) bot = y;
+              break;
+            }
+          }
+        }
+        if (bot >= top) h = bot - top + 1;
+      }
+    } catch { /* keep the frame height */ }
+    charHeightCache.set(tex, h);
+    return h;
+  }
+  // All humans share one drawn body height (HUMAN_CHAR_PX), measured from each set's first walk frame.
+  const NON_HUMAN_COLONISTS = new Set(["cavalry", "batteringRam", "catapult", "wagon"]);
+  for (const [kind, set] of Object.entries(COLONIST_ANIMS)) {
+    if (NON_HUMAN_COLONISTS.has(kind) || !set.walk[0]) continue;
+    set.scale = HUMAN_CHAR_PX / charHeightPx(set.walk[0]);
+  }
   // kind -> [T1, T2, T3] armour-tier sets (undefined where a file is missing, or the base set is a stand-in).
   const COLONIST_TIER_ANIMS = new Map<string, (AnimSet | undefined)[]>(
     TIER_ART_KINDS.map((kind) => {
@@ -684,6 +724,7 @@ async function main() {
   )
     ? buildAnimSet(PLAYER_ANIM_URLS, PLAYER_SPRITE_HEIGHT)
     : null;
+  if (PLAYER_ANIM) PLAYER_ANIM.scale = HUMAN_CHAR_PX / charHeightPx(PLAYER_ANIM.walk[0]);
   // The lance thrust plays once per attack (each frame held ANIM_TICKS_PER_FRAME snapshots).
   const PLAYER_ATTACK_ANIM_TICKS = 3 * ANIM_TICKS_PER_FRAME;
   const playerAnim = new Map<string, AnimState & { attackTicks: number }>();
@@ -2358,7 +2399,7 @@ async function main() {
       const mountedFrame = p.mounted ? autumnFrame("mounted-units-v2", 3, mode === "action" ? 4 + anim.frame % 3 : mode === "walk" ? anim.frame % 4 : 0) : undefined;
       const visual = p.visual ?? heroVisuals.get(p.id);
       const art = visual ? heroArt(visual, !!p.mounted, mode === "action" ? Math.floor((PLAYER_ATTACK_ANIM_TICKS - anim.attackTicks - 1) / ANIM_TICKS_PER_FRAME) : mode ? anim.frame : 0, mode === "action") : undefined;
-      if (art) { entry.sprite.texture=art.texture; entry.sprite.scale.set((p.mounted ? 50 : PLAYER_SPRITE_HEIGHT)/art.texture.height); entry.sprite.filters=[]; }
+      if (art) { entry.sprite.texture=art.texture; entry.sprite.scale.set(p.mounted ? 50 / art.texture.height : HUMAN_CHAR_PX / charHeightPx(art.texture)); entry.sprite.filters=[]; }
       else showAnimFrame(entry.sprite, mountedFrame ? { ...PLAYER_ANIM, scale: 50 / 128 } : PLAYER_ANIM, mountedFrame ?? baseFrame);
     }
     applyFacing(entry.sprite, facingRight);
@@ -2367,7 +2408,7 @@ async function main() {
       if (elapsed >= 600) heroToolPose = null;
       else {
         const toolFrame = directionalFrame("hero-tool-actions", heroToolPose.row, heroToolPose.facing, Math.floor(elapsed / 150));
-        if (toolFrame) { entry.sprite.texture = toolFrame; entry.sprite.scale.set((heroToolPose.facing === "w" ? -1 : 1) * PLAYER_SPRITE_HEIGHT / 128, PLAYER_SPRITE_HEIGHT / 128); }
+        if (toolFrame) { entry.sprite.texture = toolFrame; { const ts = PLAYER_ANIM ? PLAYER_ANIM.scale : PLAYER_SPRITE_HEIGHT / 128; entry.sprite.scale.set((heroToolPose.facing === "w" ? -1 : 1) * ts, ts); } }
       }
     }
     updateWound(entry, p.hp, p.maxHp, p.x, p.y - (p.mounted ? MOUNTED_LIFT_PX : 0),

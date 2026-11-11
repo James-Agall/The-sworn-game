@@ -542,6 +542,9 @@ export const COLONIST_SPRITE_HEIGHT = 28;
 // the horse and rider at the old on-screen size (~40px wide).
 // The on-foot hero shares the human scale; mounted art is sized separately in main.ts.
 export const PLAYER_SPRITE_HEIGHT = 28;
+// Every human (hero, colonists, soldiers, workers) is scaled so its DRAWN body (alpha bounding box) is this many px tall,
+// whatever padding or props its frames carry, so all humans read at the same size.
+export const HUMAN_CHAR_PX = 25;
 
 // Cosmetic nature scatter on Plains floor tiles: roughly 1 in NATURE_DECOR_ONE_IN eligible tiles
 // gets one of these, chosen by a stable hash of the tile position (no server involvement).
