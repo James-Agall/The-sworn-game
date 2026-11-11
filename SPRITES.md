@@ -944,3 +944,65 @@ Delivered 2026-10-29 and good: #45-#48 (knight, cavalry, spearman, pikeman tiers
 
 ## Hero wardrobe and menu refresh — 2026-11-11
 Hero wardrobe reuses installed autumn frames through runtime canvas/Pixi composition; no extra generated art sheets are needed. Six base origins, five horse palette variants, tiered armour, sword/spear/club/bow/staff, mounted/unmounted states and interior appearance are wired. Character origin accents remain visible on armour; equipment may cover the base outfit. Horse coats are cosmetic rider choices. Existing art includes some baked equipment, so these are composed tier outfits rather than an exhaustive per-limb armour doll. Inspect the new Hero menu previews for each combination.
+
+## Autumn art audit — 2026-11-11 (Claude)
+User report: "a lot of the art is cut off and fucked up". Tools and the installed map: `art-sources/autumn-audit/`
+(README there gives the order); contact sheets / screenshots were made in a scratch folder, not committed.
+
+**What was wrong**
+- **Grid cuts.** The Codex export cut every atlas on a fixed grid, but the generated sheets do not sit on that grid:
+  1003 of 3218 source cells touched their cell edge. In the runtime set, 342 sprites were cut (heads, feet, skirts,
+  spear tips, building eaves, tree tops) and 292 carried pieces of the neighbouring cell (feet of the row above
+  floating over spearmen / pikemen / rabbits, a woman's skirt hem over every child pose, a T3 spearman's legs
+  inside the pikeman frames: the T3 spearman had no shins and looked a size smaller).
+- **Per-row scale.** Each sheet row was scaled to its own tallest frame, so one person changed size between rows
+  (T1 / T3 tiers, a raised pike, tool rows vs walk rows).
+- **Wrong slots.** `campfire.png` (Charcoal Burner) was a wall torch tile, `lanternPost.png` a wall lantern tile,
+  `cross.png` an altar, `fence.png` a plank bridge over water, `archerTower.png` a second archery range, the
+  pastures / sheep pastures (7 files) an occupied barn building, `townCenterMarker.png` (town-centre placement
+  ghost) a heraldic shield; `campfire0-3` (Prop campfire) were bare flames without the stone ring.
+- **Tiles.** Every road / cobble / moat / shore / water / roof cell had a dark frame, so roads, moats, ponds and
+  roofs showed a grid; mask 3 (N+E corner) was drawn as N+W in all four connection sets (a loop's bottom-left corner
+  turned the wrong way); floors had semi-transparent pixels; grassFloor2 was ~20% darker than grassFloor1
+  (checkerboard ground).
+- **Wiring.** Hero on foot rescaled every frame by its measured height (popped during swings); hero tool frames,
+  worker task frames and hero-class / village-life frames used the walk set's scale although they come from other
+  sheets; the body measurement counted raised spears / pikes / plumes (spearmen drawn small); human mobs (bandits,
+  settlement folk) were scaled by canvas height, not body; long beasts (wolf, spider, goblin rider) were fitted to
+  the padded canvas width; the mounted rider was squashed horizontally (0.75 x 0.92); the sprite preview squashed
+  the hero.
+
+**What was fixed**
+- All actor / prop / icon / effect / furniture art (runtime paths and `autumn/frames`) re-extracted from the atlases
+  by connected components (touching sprites split at their narrowest neck, detached bits sent to the nearest
+  sprite, far fragments < 15% dropped), 2 px padding, then re-normalised: feet on one baseline (y=126 of 128),
+  centred on the body's opaque-mass centroid (no drift between frames), one scale per sheet for one-person sheets.
+  Audit after: 0 grid cuts, 0 neighbour pieces (stray-fragment check 215 -> 2).
+- Wrong slots remapped: campfire -> camps-nature campfire, lanternPost -> furniture lantern post, cross -> celtic
+  cross, fence -> rail fence (finishing-details), archerTower -> stone archer tower; campfire0-3 = the stone-ring
+  campfire with a flickering flame.
+- Roads / cobble / moat / shore masks de-framed and mask 3 rebuilt; water, ripple and roof tiles de-framed; floors
+  opaque; grassFloor2 colour-matched.
+- Code (`client/src/main.ts`): body height = largest blob after a 1 px erosion (weapons ignored); every human state
+  uses one scale per look / sheet (`autumnHumanScale`): hero walk / swing / tools, worker task directions, hero
+  classes, village life; tier sets measured per tier; bandits and settlement folk use HUMAN_CHAR_PX x radius/8; long
+  beasts fit their opaque width. `heroAppearance.ts`: rider drawn at a uniform 0.875 scale. Preview page keeps the
+  hero's aspect.
+
+**Restored from `pre-autumn-runtime.zip`** (no fitting autumn cell): `pasture.png`, `pastureFat.png`,
+`pastureGrowing.png`, `sheepPasture.png`, `sheepPastureReady.png`, `sheepPastureSheared.png`,
+`sheepPastureWoolly.png`, `townCenterMarker.png`. They are in the old style; regenerate in autumn style.
+
+**Still needs regenerating / known imperfect**
+- Pastures (cow / sheep / pig) as fenced grazing tiles, and a town-centre placement ghost, in the autumn style.
+- `torch0-3` are bare flames (unused by the game today); `structure/extra/candelabra_*` use the altar cell, the extra
+  doors / windows all use one door / window cell (staged, unused).
+- `human-tasks` sheet (library only, not wired) is drawn on an 11-column spacing over a 10-column grid: several
+  cells hold two poses. Regenerate or re-grid before using it.
+- `pikemanAttack2` / `pikemanT1Attack2` keep a loose spear head from the neighbouring pose.
+- Crops / soil / farm plots and drawbridges keep their framed bed look (intended as beds, but adjoining plots show a
+  border grid).
+- Hero wardrobe overlays (`heroAppearance.ts`: armour torso / helmet copied from fixed pixel rectangles of other
+  rows) only line up roughly; a real per-layer paper doll needs art made for it.
+- Gates are a door piece set into the wall (Codex choice), not the old gatehouse towers; walls and wall kits were
+  not re-cut (grid sheets).

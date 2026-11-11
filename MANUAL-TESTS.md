@@ -1176,3 +1176,20 @@ Check new-game human scale, each troop tier walking/attacking, cardinal hero too
 4. Use tools on foot, enter/leave an interior, take damage and confirm the existing crimson hurt effect. Mounted tools remain restricted by the original rules.
 5. Bow: attack a hostile target up to five tiles away; an intact wall or closed gate blocks it. Spears have 1.5x the original melee reach; other weapons retain melee behavior. Gear tier still determines stats through the existing system.
 6. Save/load and reconnect; verify wardrobe/equipment persist. A second client should see the same selected appearance. Horse coats are cosmetic riding appearances, not new livestock breeds or stat bonuses.
+
+## Autumn art audit — 2026-11-11 (visual checklist)
+1. New game, zoom in close: spearmen, pikemen and knights at T1 / T2 / T3 stand the same height as militia and
+   workers; no floating feet or spear tips above anyone; children have no skirt hem above their heads.
+2. Walk and swing with the hero (on foot): the body keeps its size through the swing and every tool (axe, pick, hoe,
+   scythe, watering can, four directions).
+3. Ride a horse: the rider sits on the saddle, not squashed; walking keeps rider and horse together.
+4. Workers chopping / mining / building / harvesting: same size as when they walk; bandits and town folk the same
+   size as your villagers (the bandit elite a little taller).
+5. Lay a dirt road loop with a T and a cross, a cobble road, and a moat ring: no dark grid between tiles, all four
+   corners turn the right way (bottom-left was wrong).
+6. Ground: no light / dark checkerboard on grass; ponds and roofs show no tile grid.
+7. Props: campfire is a stone ring with a flickering flame, Charcoal Burner a campfire, cross a stone cross, fence a
+   rail fence, lantern post a hanging lantern, archer tower a tower (not a range). Pastures use the old art.
+8. Wolves, spiders, goblin riders, deer, rabbits and boars: whole bodies, no ears / legs of another animal nearby.
+9. Open /sprite-preview.html: pick a sheet and row, the animation plays with the feet on one line; the hero in the
+   cave scene is not squashed.
