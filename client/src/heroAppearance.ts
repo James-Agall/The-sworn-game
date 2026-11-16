@@ -102,7 +102,10 @@ export function renderAppearancePanel(root: HTMLElement, prof: HeroProfileSnapsh
 }
 
 export function gearIconUrl(item: { slot: string; kind?: string; tier: number | "relic" }): string | undefined {
-  if(item.kind === "axe") return `/rig/parts/painted-v1/axe.t${item.tier === "relic" ? 3 : item.tier}.png`;
+  const tier = item.tier === "relic" ? 3 : Math.max(1, Math.min(3, item.tier));
+  const part = item.slot === "weapon" && ["sword", "axe", "spear", "bow"].includes(item.kind ?? "") ? item.kind
+    : ({ head: "helm", chest: "torso", offhand: "shield" } as Record<string, string>)[item.slot];
+  if (part) return `/rig/parts/grounded-v2/${part}.t${tier}.png`;
   const base="/sprites/autumn/frames/equipment-relic-icons/";
   let row=item.tier === "relic" ? "relic" : `tier${item.tier}`;
   let col: number | undefined;

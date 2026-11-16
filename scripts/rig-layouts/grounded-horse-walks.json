@@ -1,0 +1,208 @@
+{
+  "set": "grounded-v2",
+  "cellW": 362,
+  "cellH": 217,
+  "outputPad": 2,
+  "cells": [
+    {
+      "name": "horse.bay.0",
+      "row": 0,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.bay.1",
+      "row": 0,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.bay.2",
+      "row": 0,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.bay.3",
+      "row": 0,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.chestnut.0",
+      "row": 1,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.chestnut.1",
+      "row": 1,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.chestnut.2",
+      "row": 1,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.chestnut.3",
+      "row": 1,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.black.0",
+      "row": 2,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.black.1",
+      "row": 2,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.black.2",
+      "row": 2,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.black.3",
+      "row": 2,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.grey.0",
+      "row": 3,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.grey.1",
+      "row": 3,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.grey.2",
+      "row": 3,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.grey.3",
+      "row": 3,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.palomino.0",
+      "row": 4,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.palomino.1",
+      "row": 4,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.palomino.2",
+      "row": 4,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    },
+    {
+      "name": "horse.palomino.3",
+      "row": 4,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 115,
+      "fx": 0.47,
+      "fy": 0.26,
+      "len": 0
+    }
+  ]
+}

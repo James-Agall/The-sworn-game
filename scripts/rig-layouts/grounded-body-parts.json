@@ -1,0 +1,315 @@
+{
+  "set": "grounded-v2",
+  "cellW": 221,
+  "cellH": 221,
+  "outputPad": 2,
+  "cells": [
+    {
+      "name": "upperArm.cloth",
+      "row": 0,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 21,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 13,
+      "default": "upperArm"
+    },
+    {
+      "name": "upperArm.t1",
+      "row": 0,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 21,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 13
+    },
+    {
+      "name": "upperArm.t2",
+      "row": 0,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 21,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 13
+    },
+    {
+      "name": "upperArm.t3",
+      "row": 0,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 21,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 13
+    },
+    {
+      "name": "foreArm.bracer",
+      "row": 1,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 23,
+      "fx": 0.5,
+      "fy": 0.12,
+      "len": 16,
+      "default": "foreArm"
+    },
+    {
+      "name": "foreArm.t1",
+      "row": 1,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 23,
+      "fx": 0.5,
+      "fy": 0.12,
+      "len": 16
+    },
+    {
+      "name": "foreArm.t2",
+      "row": 1,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 23,
+      "fx": 0.5,
+      "fy": 0.12,
+      "len": 16
+    },
+    {
+      "name": "foreArm.t3",
+      "row": 1,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 23,
+      "fx": 0.5,
+      "fy": 0.12,
+      "len": 16
+    },
+    {
+      "name": "thigh.trousers",
+      "row": 2,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 26,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 14,
+      "default": "thigh"
+    },
+    {
+      "name": "thigh.t1",
+      "row": 2,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 26,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 14
+    },
+    {
+      "name": "thigh.t2",
+      "row": 2,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 26,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 14
+    },
+    {
+      "name": "thigh.t3",
+      "row": 2,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 26,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 14
+    },
+    {
+      "name": "shin.boot",
+      "row": 3,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 21,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 14,
+      "default": "shin"
+    },
+    {
+      "name": "shin.t1",
+      "row": 3,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 21,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 14
+    },
+    {
+      "name": "shin.t2",
+      "row": 3,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 21,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 14
+    },
+    {
+      "name": "shin.t3",
+      "row": 3,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 21,
+      "fx": 0.5,
+      "fy": 0.16,
+      "len": 14
+    },
+    {
+      "name": "foot.boot",
+      "row": 4,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 13,
+      "fx": 0.28,
+      "fy": 0.2,
+      "len": 0,
+      "default": "foot"
+    },
+    {
+      "name": "foot.t1",
+      "row": 4,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 13,
+      "fx": 0.28,
+      "fy": 0.2,
+      "len": 0
+    },
+    {
+      "name": "foot.t2",
+      "row": 4,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 13,
+      "fx": 0.28,
+      "fy": 0.2,
+      "len": 0
+    },
+    {
+      "name": "foot.t3",
+      "row": 4,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 13,
+      "fx": 0.28,
+      "fy": 0.2,
+      "len": 0
+    },
+    {
+      "name": "torso.tunic",
+      "row": 5,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.5,
+      "fy": 0.86,
+      "len": 31,
+      "default": "torso"
+    },
+    {
+      "name": "torso.t1",
+      "row": 5,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.5,
+      "fy": 0.86,
+      "len": 31
+    },
+    {
+      "name": "torso.t2",
+      "row": 5,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.5,
+      "fy": 0.86,
+      "len": 31
+    },
+    {
+      "name": "torso.t3",
+      "row": 5,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.5,
+      "fy": 0.86,
+      "len": 31
+    },
+    {
+      "name": "torsoF.tunic",
+      "row": 6,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.5,
+      "fy": 0.86,
+      "len": 31
+    },
+    {
+      "name": "torsoF.t1",
+      "row": 6,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.5,
+      "fy": 0.86,
+      "len": 31
+    },
+    {
+      "name": "torsoF.t2",
+      "row": 6,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.5,
+      "fy": 0.86,
+      "len": 31
+    },
+    {
+      "name": "torsoF.t3",
+      "row": 6,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.5,
+      "fy": 0.86,
+      "len": 31
+    },
+    {
+      "name": "pelvis.trousers",
+      "row": 7,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 14,
+      "fx": 0.5,
+      "fy": 0.25,
+      "len": 0,
+      "default": "pelvis"
+    },
+    {
+      "name": "pelvis.dark",
+      "row": 7,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 14,
+      "fx": 0.5,
+      "fy": 0.25,
+      "len": 0
+    }
+  ]
+}

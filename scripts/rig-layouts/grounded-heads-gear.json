@@ -1,0 +1,305 @@
+{
+  "set": "grounded-v2",
+  "cellW": 229,
+  "cellH": 229,
+  "outputPad": 2,
+  "cells": [
+    {
+      "name": "head.m_plain",
+      "row": 0,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 20,
+      "fx": 0.43,
+      "fy": 0.96,
+      "len": 0,
+      "default": "head"
+    },
+    {
+      "name": "head.m_stern",
+      "row": 0,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 20,
+      "fx": 0.43,
+      "fy": 0.96,
+      "len": 0
+    },
+    {
+      "name": "head.m_beard",
+      "row": 0,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 20,
+      "fx": 0.43,
+      "fy": 0.96,
+      "len": 0
+    },
+    {
+      "name": "headF.plain",
+      "row": 0,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 20,
+      "fx": 0.43,
+      "fy": 0.96,
+      "len": 0
+    },
+    {
+      "name": "headF.stern",
+      "row": 0,
+      "col": 4,
+      "mode": "frac",
+      "expectH": 20,
+      "fx": 0.43,
+      "fy": 0.96,
+      "len": 0
+    },
+    {
+      "name": "headF.freckled",
+      "row": 0,
+      "col": 5,
+      "mode": "frac",
+      "expectH": 20,
+      "fx": 0.43,
+      "fy": 0.96,
+      "len": 0
+    },
+    {
+      "name": "hair.short",
+      "row": 1,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 13,
+      "fx": 0.4,
+      "fy": 1.57,
+      "len": 0,
+      "default": "hair"
+    },
+    {
+      "name": "hair.long",
+      "row": 1,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 13,
+      "fx": 0.4,
+      "fy": 1.57,
+      "len": 0
+    },
+    {
+      "name": "hair.ponytail",
+      "row": 1,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 13,
+      "fx": 0.4,
+      "fy": 1.57,
+      "len": 0
+    },
+    {
+      "name": "hairBack.long",
+      "row": 1,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 20,
+      "fx": 0.66,
+      "fy": 1,
+      "len": 0
+    },
+    {
+      "name": "hairBack.ponytail",
+      "row": 1,
+      "col": 4,
+      "mode": "frac",
+      "expectH": 20,
+      "fx": 0.66,
+      "fy": 1,
+      "len": 0
+    },
+    {
+      "name": "helm.t1",
+      "row": 2,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 22,
+      "fx": 0.43,
+      "fy": 0.94,
+      "len": 0
+    },
+    {
+      "name": "helm.t2",
+      "row": 2,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 22,
+      "fx": 0.43,
+      "fy": 0.94,
+      "len": 0
+    },
+    {
+      "name": "helm.t3",
+      "row": 2,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 22,
+      "fx": 0.43,
+      "fy": 0.94,
+      "len": 0
+    },
+    {
+      "name": "shield.t1",
+      "row": 2,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 26,
+      "fx": 0.5,
+      "fy": 0.5,
+      "len": 0,
+      "default": "shield"
+    },
+    {
+      "name": "shield.t2",
+      "row": 2,
+      "col": 4,
+      "mode": "frac",
+      "expectH": 26,
+      "fx": 0.5,
+      "fy": 0.5,
+      "len": 0
+    },
+    {
+      "name": "shield.t3",
+      "row": 2,
+      "col": 5,
+      "mode": "frac",
+      "expectH": 26,
+      "fx": 0.5,
+      "fy": 0.5,
+      "len": 0
+    },
+    {
+      "name": "sword.t1",
+      "row": 3,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 41,
+      "fx": 0.5,
+      "fy": 0.17,
+      "len": 0,
+      "default": "sword"
+    },
+    {
+      "name": "sword.t2",
+      "row": 3,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 41,
+      "fx": 0.5,
+      "fy": 0.17,
+      "len": 0
+    },
+    {
+      "name": "sword.t3",
+      "row": 3,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 41,
+      "fx": 0.5,
+      "fy": 0.17,
+      "len": 0
+    },
+    {
+      "name": "axe.t1",
+      "row": 3,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.28,
+      "fy": 0.89,
+      "len": 0,
+      "default": "axe"
+    },
+    {
+      "name": "axe.t2",
+      "row": 3,
+      "col": 4,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.28,
+      "fy": 0.89,
+      "len": 0
+    },
+    {
+      "name": "axe.t3",
+      "row": 3,
+      "col": 5,
+      "mode": "frac",
+      "expectH": 36,
+      "fx": 0.28,
+      "fy": 0.89,
+      "len": 0
+    },
+    {
+      "name": "spear.t1",
+      "row": 4,
+      "col": 0,
+      "mode": "frac",
+      "expectH": 96,
+      "fx": 0.5,
+      "fy": 0.4,
+      "len": 0,
+      "default": "spear"
+    },
+    {
+      "name": "spear.t2",
+      "row": 4,
+      "col": 1,
+      "mode": "frac",
+      "expectH": 96,
+      "fx": 0.5,
+      "fy": 0.4,
+      "len": 0
+    },
+    {
+      "name": "spear.t3",
+      "row": 4,
+      "col": 2,
+      "mode": "frac",
+      "expectH": 96,
+      "fx": 0.5,
+      "fy": 0.4,
+      "len": 0
+    },
+    {
+      "name": "bow.t1",
+      "row": 4,
+      "col": 3,
+      "mode": "frac",
+      "expectH": 54,
+      "fx": 0.68,
+      "fy": 0.5,
+      "len": 0,
+      "default": "bow"
+    },
+    {
+      "name": "bow.t2",
+      "row": 4,
+      "col": 4,
+      "mode": "frac",
+      "expectH": 54,
+      "fx": 0.68,
+      "fy": 0.5,
+      "len": 0
+    },
+    {
+      "name": "bow.t3",
+      "row": 4,
+      "col": 5,
+      "mode": "frac",
+      "expectH": 54,
+      "fx": 0.68,
+      "fy": 0.5,
+      "len": 0
+    }
+  ]
+}

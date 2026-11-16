@@ -456,13 +456,13 @@ export function handleTakeFromArmoury(player: Player, slot: unknown, tier: unkno
   const item: GearItem = { id: randomUUID(), slot: def.slot, name: def.names[tier - 1], tier: tier as 1 | 2 | 3, stats: def.stats(tier), kind: def.kind, icon: `icon-${slot}T${tier}` };
   if (slot === "weapon" && typeof weaponKind === "string") {
     item.kind = weaponKind;
-    item.name = `${["Iron", "Steel", "Gilded"][tier - 1]} ${weaponKind[0].toUpperCase() + weaponKind.slice(1)}`;
+    item.name = `${["Iron", "Steel", "Tempered Steel"][tier - 1]} ${weaponKind[0].toUpperCase() + weaponKind.slice(1)}`;
     item.icon = weaponKind === "sword" ? `icon-weaponT${tier}` : weaponKind === "club" ? "icon-weaponT1" : `relic${weaponKind[0].toUpperCase()+weaponKind.slice(1)}`;
   }
   if (slot === "armour" && (armourPart === "head" || armourPart === "offhand")) {
     item.slot = armourPart;
     item.kind = armourPart === "head" ? "helm" : "shield";
-    item.name = `${["Iron", "Steel", "Gilded"][tier-1]} ${armourPart === "head" ? "Helm" : "Shield"}`;
+    item.name = `${["Iron", "Steel", "Tempered Steel"][tier-1]} ${armourPart === "head" ? "Helm" : "Shield"}`;
     item.stats = { damageTakenPct: Math.round((item.stats.damageTakenPct ?? 0) * .4) };
   }
   prof.inventory.push(item);

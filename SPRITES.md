@@ -1060,3 +1060,26 @@ the existing hero art. Real parts replace the placeholders by file name, no code
 (and `sheet-107-torso.json`, `sheet-108-heads.json`, `sheet-109-weapons.json`). It crops each cell, removes an opaque background, drops specks, rescales each part to the
 rig's size, reads the pivot from the anchors above (limbs also cross-checked against the joint cap), writes `manifest.json`, `slice-report.json` (anything marked CHECK needs a
 look) and `slice-preview.png` (every part drawn on its pivot, to eyeball alignment). Then open `rig/body.html?parts=chatgpt`. `node scripts/test-slice-rig-sheet.mjs` tests the slicer.
+
+
+## Character art correction — 2026-11-16
+
+The user rejected the first detailed/gilded art. Active player art is now `grounded-v2`: simpler angular shading,
+plain iron/steel/leather/wood, smaller heads (20 px instead of 28), slimmer torsos and weapons, and new adult horse anatomy.
+All five horse coats have four individually drawn walking frames and saddle pivots; coats no longer tint the saddle/cloth.
+The shared skeleton, creator, equipment, mounted/foot/interior rendering, saves, other players and crimson hurt effects remain integrated.
+Tier 3 gear is named Tempered Steel. Existing saved item names are preserved; their rendered gear uses the new art.
+
+Three transparent source atlases (body, heads/gear, horses), including one body-joint correction, supply 79 unique PNGs plus 14 aliases.
+Runtime assets: `client/public/rig/parts/grounded-v2`. Intake layouts/prompts: `scripts/rig-layouts/grounded-*.json`.
+Raw sources: `art-sources/character-restyle-20261116` (local archive). The older painted-v1 pack remains available for comparison.
+World human height stays 25 px with the existing small player build variation; horse scale is fitted to that human scale.
+
+Validation: client/server typechecks, production build, appearance suite, character-sheet suite using its standard
+`COLONY_HERO_RESPAWN=1` test environment, 768 contact-sheet poses and all 24 face/hair pairings.
+Eight browser flows pass in development and the built game: creator cancellation, Creative, edit/save, real mounting,
+interior, Continue, Solo, missing-art fallback. No browser errors or failed image requests. These use scratch saves/private ports.
+The character-sheet test's immediate-respawn assertion fails without its required legacy-respawn environment; gameplay was not altered.
+
+Preview/source folder: `C:/Users/maxim/Documents/Codex/2026-11-10/go-x20/outputs/character-restyle`.
+No live deployment and no push. Visual taste and prolonged multiplayer animation review remain subjective/manual checks.

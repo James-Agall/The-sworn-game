@@ -19,8 +19,8 @@ type PartSpec = {
     pivot: Vec;
     len: number;
 };
-const base = "/rig/parts/painted-v1/", parts = new Map<string, Part>(), variants = new Map<string, Part>();
-const horses: HTMLImageElement[] = [];
+const base = "/rig/parts/grounded-v2/", parts = new Map<string, Part>(), variants = new Map<string, Part>();
+
 const cache = new Map<string, {
     canvas: HTMLCanvasElement;
     texture: Texture;
@@ -44,10 +44,6 @@ export function loadHeroRig(): Promise<void> {
             };
             await Promise.all(Object.entries(manifest.parts).map(async ([name, p]) => { try {
                 parts.set(name, { image: await load(base + p.file), pivot: p.pivot, len: p.len });
-            }
-            catch { } }));
-            await Promise.all([0, 1, 2, 3].map(async (i) => { try {
-                horses[i] = await load(`/sprites/autumn/frames/animal-walks-c/horse-0${i + 1}.png`);
             }
             catch { } }));
             ready = ["head.m_plain", "torso.tunic", "pelvis", "upperArm", "foreArm", "thigh", "shin", "foot"].every(n => parts.has(n));
@@ -76,7 +72,11 @@ function colored(name: string, skin: number, hair: number, far = false): Part | 
         const r = d.data[i], gg = d.data[i + 1], b = d.data[i + 2], l = (r * .3 + gg * .59 + b * .11);
         if (!d.data[i + 3])
             continue;
-        const isHair = name.startsWith("hair"), isSkin = (name.startsWith("head") || name.startsWith("foreArm") || name.includes("bare")) && r > gg * 1.12 && gg > b * 1.08 && l > 55;
+        const y = Math.floor(i / 4 / c.width);
+        const skinArea = name.startsWith("head") || name.includes("bare")
+            || (name.startsWith("foreArm") && y > c.height * .70)
+            || (name.startsWith("torso") && y < c.height * .20);
+        const isHair = name.startsWith("hair"), isSkin = skinArea && r > gg * 1.12 && gg > b * 1.08 && l > 55;
         if (isHair && l > 35) {
             for (let k = 0; k < 3; k++)
                 d.data[i + k] = Math.min(255, hc[k] * l / 115);
@@ -104,20 +104,8 @@ const keyframes = (keys: number[][], u: number) => { for (let i = 1; i < keys.le
         return keys[i - 1][1] + (keys[i][1] - keys[i - 1][1]) * t;
     }
 } return keys.at(-1)![1]; };
-function draw(g: CanvasRenderingContext2D, p: Part | undefined, at: Vec, angle = 0, limb = false) { if (!p)
-    return; g.save(); g.translate(...at); g.rotate(angle * D * (limb ? -1 : 1)); g.drawImage(p.image, -p.pivot[0], -p.pivot[1]); g.restore(); }
-function horseCanvas(img: HTMLImageElement, coat: string) { const key = `horse/${horses.indexOf(img)}/${coat}`; let p = variants.get(key); if (p)
-    return p.image; const c = make(img.width, img.height), g = c.getContext("2d")!; g.drawImage(img, 0, 0); const targets: Record<string, number[]> = { chestnut: [166, 83, 44], black: [57, 57, 63], grey: [184, 187, 185], palomino: [203, 168, 103] }; if (targets[coat]) {
-    const d = g.getImageData(0, 0, c.width, c.height);
-    for (let i = 0; i < d.data.length; i += 4) {
-        const l = (d.data[i] * .3 + d.data[i + 1] * .59 + d.data[i + 2] * .11) / 145;
-        if (l < .19)
-            continue;
-        for (let k = 0; k < 3; k++)
-            d.data[i + k] = Math.min(255, targets[coat][k] * l);
-    }
-    g.putImageData(d, 0, 0);
-} variants.set(key, { image: c, pivot: [0, 0], len: 0 }); return c; }
+function draw(g: CanvasRenderingContext2D, p: Part | undefined, at: Vec, angle = 0, limb = false, widthScale = 1) { if (!p)
+    return; g.save(); g.translate(...at); g.rotate(angle * D * (limb ? -1 : 1)); g.scale(widthScale, 1); g.drawImage(p.image, -p.pivot[0], -p.pivot[1]); g.restore(); }
 export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
     if (!ready)
         return undefined;
@@ -139,21 +127,20 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
     g.imageSmoothingEnabled = true;
     g.imageSmoothingQuality = "high";
     const moving = pose.state === "walk", attack = pose.state === "attack", sw = Math.sin(q * Math.PI * 2), u = attack ? q : 0;
-    const ground = mounted ? 211 : 163, hipBase = mounted ? 130 : ground - 34;
-    const bob = mounted && moving ? [0, -1.5, 0, 1.5][Math.floor(q * 4) % 4] : moving ? -Math.abs(Math.cos(q * Math.PI * 2)) * 1.5 : Math.sin(q * Math.PI * 2) * .5;
+    const horse = mounted ? parts.get(`horse.${a.horse}.${moving ? Math.floor(q * 4) % 4 : 0}`) : undefined;
+    if (mounted && !horse) return undefined;
+    const ground = mounted ? 211 : 163;
+    const saddleHeight = horse ? horse.image.height - horse.pivot[1] - 3 : 0;
+    const hipBase = mounted ? ground - saddleHeight : ground - 39;
+    const bob = mounted ? 0 : moving ? -Math.abs(Math.cos(q * Math.PI * 2)) * 1.5 : Math.sin(q * Math.PI * 2) * .5;
     const lean = attack ? keyframes([[0, 0], [.25, -8], [.45, -8], [.65, 12], [1, 0]], u) : pose.state === "hurt" ? -8 : moving ? 3 : 0;
     const root: Vec = [120 + (attack ? keyframes([[0, 0], [.4, -2], [.65, 5], [1, 0]], u) : 0), hipBase + bob];
     if (pose.facing === -1) {
         g.translate(240, 0);
         g.scale(-1, 1);
     }
-    if (mounted) {
-        const h = horses[moving ? Math.floor(q * 4) % 4 : 0];
-        if (!h)
-            return undefined;
-        const hc = horseCanvas(h, a.horse);
-        g.drawImage(hc, 120 - hc.width * .43, ground - hc.height * .96, hc.width * .96, hc.height * .96);
-    }
+    // Authored coats keep leather/cloth colours intact. Every frame carries a fitted saddle pivot.
+    if (horse) draw(g, horse, [120, hipBase]);
     const factor = heroBuildFactor(v), width = [.88, 1, 1.16][a.build];
     g.save();
     g.translate(root[0], mounted ? root[1] : ground);
@@ -191,12 +178,12 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
         if (mounted) {
             a1 = far ? 70 : 74;
             a2 = -4;
-            knee = add(hip, dir(a1), 14);
-            end = add(knee, dir(a2), 10);
+            knee = add(hip, dir(a1), 16);
+            end = add(knee, dir(a2), 14);
         }
         else {
-            const p = (q + (far ? .5 : 0)) % 1, stance = p < .58, f = moving ? (stance ? 22 * (.5 - p / .58) : -11 + 22 * ((p - .58) / .42)) : 0, lift = moving && !stance ? 7 * Math.sin((p - .58) / .42 * Math.PI) : 0;
-            const solve = ik(hip, [hip[0] + (far ? -3 : 3) + f, ground - 10 - lift], 14, 10);
+            const p = (q + (far ? .5 : 0)) % 1, stance = p < .58, f = moving ? (stance ? 20 * (.5 - p / .58) : -10 + 20 * ((p - .58) / .42)) : 0, lift = moving && !stance ? 7 * Math.sin((p - .58) / .42 * Math.PI) : 0;
+            const solve = ik(hip, [hip[0] + (far ? -3 : 3) + f, ground - 10 - lift], 16, 14);
             a1 = solve.a1;
             a2 = solve.a2;
             knee = solve.j;
@@ -218,26 +205,26 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
         draw(g, get(`hair.${hairName}`), neck, lean * .4);
     if (helm)
         draw(g, helm, neck, lean * .4);
-    draw(g, torso, waist, lean);
+    draw(g, torso, waist, lean, false, Math.min(1, (a.gender === "f" ? 21 : 23) / Math.max(1, torso!.image.width - 4)));
     leg(false);
     if (shield)
         draw(g, shield, farHand, 0);
     arm(false);
-    draw(g, weapon, hand, wa, true);
+    draw(g, weapon, hand, wa + (v.weapon === "axe" ? 180 : 0), true, v.weapon === "spear" ? .4 : v.weapon === "sword" ? .55 : 1);
     if (v.weapon === "bow" && weapon) {
         g.strokeStyle = "#b3a48b";
         g.lineWidth = .65;
         const pull = attack ? farHand : [hand[0] - 5, hand[1]];
         g.beginPath();
-        g.moveTo(hand[0] - 3, hand[1] - 22);
+        g.moveTo(hand[0] - 3, hand[1] - 24);
         g.lineTo(pull[0], pull[1]);
-        g.lineTo(hand[0] - 3, hand[1] + 22);
+        g.lineTo(hand[0] - 3, hand[1] + 24);
         g.stroke();
     }
     g.restore();
     const texture = Texture.from(c);
     texture.source.scaleMode = "linear";
-    const bodyHeight = 93;
+    const bodyHeight = 89;
     scales.set(texture, 25 / bodyHeight);
     const value = { canvas: c, texture, bodyHeight, buildScale: factor };
     cache.set(key, value);
