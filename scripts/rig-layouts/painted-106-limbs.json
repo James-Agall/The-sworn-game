@@ -1,0 +1,399 @@
+{
+  "set": "painted-v1",
+  "cellW": 229,
+  "cellH": 229,
+  "cells": [
+    {
+      "name": "upperArm.cloth",
+      "expectH": 21,
+      "len": 13,
+      "joint": "shoulder",
+      "default": "upperArm",
+      "row": 0,
+      "col": 0,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18,
+      "rect": [
+        0,
+        0,
+        229,
+        245
+      ]
+    },
+    {
+      "name": "upperArm.bare",
+      "expectH": 21,
+      "len": 13,
+      "joint": "shoulder",
+      "row": 0,
+      "col": 1,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18,
+      "rect": [
+        229,
+        0,
+        229,
+        245
+      ]
+    },
+    {
+      "name": "upperArm.t1",
+      "expectH": 21,
+      "len": 13,
+      "joint": "shoulder",
+      "row": 0,
+      "col": 2,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18,
+      "rect": [
+        458,
+        0,
+        229,
+        245
+      ]
+    },
+    {
+      "name": "upperArm.t2",
+      "expectH": 21,
+      "len": 13,
+      "joint": "shoulder",
+      "row": 0,
+      "col": 3,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18,
+      "rect": [
+        687,
+        0,
+        229,
+        245
+      ]
+    },
+    {
+      "name": "upperArm.t3",
+      "expectH": 21,
+      "len": 13,
+      "joint": "shoulder",
+      "row": 0,
+      "col": 4,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18,
+      "rect": [
+        916,
+        0,
+        229,
+        245
+      ]
+    },
+    {
+      "name": "foreArm.bracer",
+      "expectH": 25,
+      "len": 13,
+      "joint": "elbow",
+      "default": "foreArm",
+      "row": 1,
+      "col": 0,
+      "mode": "frac",
+      "fx": 0.31,
+      "fy": 0.12,
+      "rect": [
+        0,
+        245,
+        229,
+        213
+      ]
+    },
+    {
+      "name": "foreArm.bare",
+      "expectH": 25,
+      "len": 13,
+      "joint": "elbow",
+      "row": 1,
+      "col": 1,
+      "mode": "frac",
+      "fx": 0.31,
+      "fy": 0.12,
+      "rect": [
+        229,
+        245,
+        229,
+        213
+      ]
+    },
+    {
+      "name": "foreArm.t1",
+      "expectH": 25,
+      "len": 13,
+      "joint": "elbow",
+      "row": 1,
+      "col": 2,
+      "mode": "frac",
+      "fx": 0.31,
+      "fy": 0.12,
+      "rect": [
+        458,
+        245,
+        229,
+        213
+      ]
+    },
+    {
+      "name": "foreArm.t2",
+      "expectH": 25,
+      "len": 13,
+      "joint": "elbow",
+      "row": 1,
+      "col": 3,
+      "mode": "frac",
+      "fx": 0.31,
+      "fy": 0.12,
+      "rect": [
+        687,
+        245,
+        229,
+        213
+      ]
+    },
+    {
+      "name": "foreArm.t3",
+      "expectH": 25,
+      "len": 13,
+      "joint": "elbow",
+      "row": 1,
+      "col": 4,
+      "mode": "frac",
+      "fx": 0.31,
+      "fy": 0.12,
+      "rect": [
+        916,
+        245,
+        229,
+        213
+      ]
+    },
+    {
+      "name": "foreArmOpen.bracer",
+      "expectH": 25,
+      "len": 13,
+      "joint": "elbow (open hand)",
+      "row": 2,
+      "col": 0,
+      "mode": "frac",
+      "fx": 0.31,
+      "fy": 0.12
+    },
+    {
+      "name": "foreArmOpen.bare",
+      "expectH": 25,
+      "len": 13,
+      "joint": "elbow (open hand)",
+      "row": 2,
+      "col": 1,
+      "mode": "frac",
+      "fx": 0.31,
+      "fy": 0.12
+    },
+    {
+      "name": "foreArmOpen.t1",
+      "expectH": 25,
+      "len": 13,
+      "joint": "elbow (open hand)",
+      "row": 2,
+      "col": 2,
+      "mode": "frac",
+      "fx": 0.31,
+      "fy": 0.12
+    },
+    {
+      "name": "foreArmOpen.t2",
+      "expectH": 25,
+      "len": 13,
+      "joint": "elbow (open hand)",
+      "row": 2,
+      "col": 3,
+      "mode": "frac",
+      "fx": 0.31,
+      "fy": 0.12
+    },
+    {
+      "name": "foreArmOpen.t3",
+      "expectH": 25,
+      "len": 13,
+      "joint": "elbow (open hand)",
+      "row": 2,
+      "col": 4,
+      "mode": "frac",
+      "fx": 0.31,
+      "fy": 0.12
+    },
+    {
+      "name": "thigh.trousers",
+      "expectH": 25,
+      "len": 14,
+      "joint": "hip",
+      "default": "thigh",
+      "row": 3,
+      "col": 0,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "thigh.bare",
+      "expectH": 25,
+      "len": 14,
+      "joint": "hip",
+      "row": 3,
+      "col": 1,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "thigh.t1",
+      "expectH": 25,
+      "len": 14,
+      "joint": "hip",
+      "row": 3,
+      "col": 2,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "thigh.t2",
+      "expectH": 25,
+      "len": 14,
+      "joint": "hip",
+      "row": 3,
+      "col": 3,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "thigh.t3",
+      "expectH": 25,
+      "len": 14,
+      "joint": "hip",
+      "row": 3,
+      "col": 4,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "shin.boot",
+      "expectH": 21,
+      "len": 10,
+      "joint": "knee",
+      "default": "shin",
+      "row": 4,
+      "col": 0,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "shin.bare",
+      "expectH": 21,
+      "len": 10,
+      "joint": "knee",
+      "row": 4,
+      "col": 1,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "shin.t1",
+      "expectH": 21,
+      "len": 10,
+      "joint": "knee",
+      "row": 4,
+      "col": 2,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "shin.t2",
+      "expectH": 21,
+      "len": 10,
+      "joint": "knee",
+      "row": 4,
+      "col": 3,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "shin.t3",
+      "expectH": 21,
+      "len": 10,
+      "joint": "knee",
+      "row": 4,
+      "col": 4,
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "foot.boot",
+      "mode": "frac",
+      "fx": 0.27,
+      "fy": 0.2,
+      "expectH": 13,
+      "joint": "ankle",
+      "default": "foot",
+      "row": 5,
+      "col": 0
+    },
+    {
+      "name": "foot.bare",
+      "mode": "frac",
+      "fx": 0.27,
+      "fy": 0.2,
+      "expectH": 13,
+      "joint": "ankle",
+      "row": 5,
+      "col": 1
+    },
+    {
+      "name": "foot.t1",
+      "mode": "frac",
+      "fx": 0.27,
+      "fy": 0.2,
+      "expectH": 13,
+      "joint": "ankle",
+      "row": 5,
+      "col": 2
+    },
+    {
+      "name": "foot.t2",
+      "mode": "frac",
+      "fx": 0.27,
+      "fy": 0.2,
+      "expectH": 13,
+      "joint": "ankle",
+      "row": 5,
+      "col": 3
+    },
+    {
+      "name": "foot.t3",
+      "mode": "frac",
+      "fx": 0.27,
+      "fy": 0.2,
+      "expectH": 13,
+      "joint": "ankle",
+      "row": 5,
+      "col": 4
+    }
+  ],
+  "outputPad": 2,
+  "edgeShade": 0.88
+}

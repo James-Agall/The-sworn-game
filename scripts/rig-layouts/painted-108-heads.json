@@ -1,0 +1,249 @@
+{
+  "set": "painted-v1",
+  "cellW": 324,
+  "cellH": 323,
+  "cells": [
+    {
+      "name": "head.m_plain",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 28,
+      "joint": "neck",
+      "default": "head",
+      "row": 0,
+      "col": 0,
+      "fx": 0.43,
+      "fy": 0.96,
+      "rect": [
+        0,
+        0,
+        324,
+        330
+      ]
+    },
+    {
+      "name": "head.m_stern",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 28,
+      "joint": "neck",
+      "row": 0,
+      "col": 1,
+      "fx": 0.43,
+      "fy": 0.96,
+      "rect": [
+        324,
+        0,
+        324,
+        330
+      ]
+    },
+    {
+      "name": "head.m_beard",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 28,
+      "joint": "neck",
+      "row": 0,
+      "col": 2,
+      "fx": 0.43,
+      "fy": 0.96,
+      "rect": [
+        648,
+        0,
+        324,
+        330
+      ]
+    },
+    {
+      "name": "headF.plain",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 28,
+      "joint": "neck (female)",
+      "row": 1,
+      "col": 0,
+      "fx": 0.43,
+      "fy": 0.96,
+      "rect": [
+        0,
+        330,
+        324,
+        310
+      ]
+    },
+    {
+      "name": "headF.stern",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 28,
+      "joint": "neck (female)",
+      "row": 1,
+      "col": 1,
+      "fx": 0.43,
+      "fy": 0.96,
+      "rect": [
+        324,
+        330,
+        324,
+        310
+      ]
+    },
+    {
+      "name": "headF.freckled",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 28,
+      "joint": "neck (female)",
+      "row": 1,
+      "col": 2,
+      "fx": 0.43,
+      "fy": 0.96,
+      "rect": [
+        648,
+        330,
+        324,
+        310
+      ]
+    },
+    {
+      "name": "hair.short",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 18,
+      "joint": "neck (overlay)",
+      "default": "hair",
+      "row": 2,
+      "col": 0,
+      "fx": 0.4,
+      "fy": 1.57,
+      "rect": [
+        0,
+        640,
+        324,
+        290
+      ]
+    },
+    {
+      "name": "hair.long",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 18,
+      "joint": "neck (overlay)",
+      "row": 2,
+      "col": 1,
+      "fx": 0.4,
+      "fy": 1.57,
+      "rect": [
+        324,
+        640,
+        324,
+        290
+      ]
+    },
+    {
+      "name": "hair.ponytail",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 18,
+      "joint": "neck (overlay)",
+      "row": 2,
+      "col": 2,
+      "fx": 0.4,
+      "fy": 1.57,
+      "rect": [
+        648,
+        640,
+        324,
+        290
+      ]
+    },
+    {
+      "name": "hairBack.long",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 28,
+      "joint": "neck (overlay, behind)",
+      "row": 3,
+      "col": 0,
+      "fx": 0.7,
+      "fy": 1.0,
+      "rect": [
+        0,
+        930,
+        324,
+        310
+      ]
+    },
+    {
+      "name": "hairBack.ponytail",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 28,
+      "joint": "neck (overlay, behind)",
+      "row": 3,
+      "col": 1,
+      "fx": 0.7,
+      "fy": 1.0,
+      "rect": [
+        324,
+        930,
+        324,
+        310
+      ]
+    },
+    {
+      "name": "helm.t1",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 30,
+      "joint": "neck (overlay)",
+      "row": 4,
+      "col": 0,
+      "fx": 0.43,
+      "fy": 0.94,
+      "rect": [
+        0,
+        1240,
+        324,
+        376
+      ]
+    },
+    {
+      "name": "helm.t2",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 30,
+      "joint": "neck (overlay)",
+      "row": 4,
+      "col": 1,
+      "fx": 0.43,
+      "fy": 0.94,
+      "rect": [
+        324,
+        1240,
+        324,
+        376
+      ]
+    },
+    {
+      "name": "helm.t3",
+      "mode": "frac",
+      "dy": -2,
+      "expectH": 30,
+      "joint": "neck (overlay)",
+      "row": 4,
+      "col": 2,
+      "fx": 0.43,
+      "fy": 0.94,
+      "rect": [
+        648,
+        1240,
+        324,
+        376
+      ]
+    }
+  ],
+  "outputPad": 2,
+  "edgeShade": 0.88
+}

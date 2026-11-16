@@ -1,0 +1,164 @@
+{
+  "set": "painted-v1",
+  "cellW": 323,
+  "cellH": 323,
+  "cells": [
+    {
+      "name": "sword.t1",
+      "mode": "frac",
+      "expectH": 47,
+      "joint": "grip",
+      "default": "sword",
+      "row": 0,
+      "col": 0,
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "sword.t2",
+      "mode": "frac",
+      "expectH": 47,
+      "joint": "grip",
+      "row": 0,
+      "col": 1,
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "sword.t3",
+      "mode": "frac",
+      "expectH": 47,
+      "joint": "grip",
+      "row": 0,
+      "col": 2,
+      "fx": 0.5,
+      "fy": 0.18
+    },
+    {
+      "name": "axe.t1",
+      "mode": "frac",
+      "expectH": 48,
+      "joint": "grip",
+      "default": "axe",
+      "row": 1,
+      "col": 0,
+      "fx": 0.28,
+      "fy": 0.18
+    },
+    {
+      "name": "axe.t2",
+      "mode": "frac",
+      "expectH": 48,
+      "joint": "grip",
+      "row": 1,
+      "col": 1,
+      "fx": 0.28,
+      "fy": 0.18
+    },
+    {
+      "name": "axe.t3",
+      "mode": "frac",
+      "expectH": 48,
+      "joint": "grip",
+      "row": 1,
+      "col": 2,
+      "fx": 0.28,
+      "fy": 0.18
+    },
+    {
+      "name": "spear.t1",
+      "mode": "frac",
+      "expectH": 74,
+      "joint": "grip",
+      "default": "spear",
+      "row": 2,
+      "col": 0,
+      "fx": 0.5,
+      "fy": 0.36
+    },
+    {
+      "name": "spear.t2",
+      "mode": "frac",
+      "expectH": 74,
+      "joint": "grip",
+      "row": 2,
+      "col": 1,
+      "fx": 0.5,
+      "fy": 0.36
+    },
+    {
+      "name": "spear.t3",
+      "mode": "frac",
+      "expectH": 74,
+      "joint": "grip",
+      "row": 2,
+      "col": 2,
+      "fx": 0.5,
+      "fy": 0.36
+    },
+    {
+      "name": "shield.t1",
+      "mode": "frac",
+      "expectH": 28,
+      "joint": "grip (centre)",
+      "default": "shield",
+      "row": 4,
+      "col": 0,
+      "fx": 0.5,
+      "fy": 0.5
+    },
+    {
+      "name": "shield.t2",
+      "mode": "frac",
+      "expectH": 28,
+      "joint": "grip (centre)",
+      "row": 4,
+      "col": 1,
+      "fx": 0.5,
+      "fy": 0.5
+    },
+    {
+      "name": "shield.t3",
+      "mode": "frac",
+      "expectH": 28,
+      "joint": "grip (centre)",
+      "row": 4,
+      "col": 2,
+      "fx": 0.5,
+      "fy": 0.5
+    },
+    {
+      "name": "bow.t1",
+      "row": 3,
+      "col": 0,
+      "mode": "frac",
+      "fx": 0.6,
+      "fy": 0.5,
+      "expectH": 47,
+      "joint": "grip",
+      "default": "bow"
+    },
+    {
+      "name": "bow.t2",
+      "row": 3,
+      "col": 1,
+      "mode": "frac",
+      "fx": 0.6,
+      "fy": 0.5,
+      "expectH": 47,
+      "joint": "grip"
+    },
+    {
+      "name": "bow.t3",
+      "row": 3,
+      "col": 2,
+      "mode": "frac",
+      "fx": 0.6,
+      "fy": 0.5,
+      "expectH": 47,
+      "joint": "grip"
+    }
+  ],
+  "outputPad": 2,
+  "edgeShade": 0.88
+}

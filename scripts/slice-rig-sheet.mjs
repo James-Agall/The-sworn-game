@@ -45,7 +45,14 @@ function keepMain(im) {
   const lab = new Int32Array(im.w * im.h), sizes = [0]; let nl = 0;
   for (let i = 0; i < im.w * im.h; i++) { if (lab[i] || im.data[i * 4 + 3] < 128) continue; nl++; sizes[nl] = 0; const st = [i]; lab[i] = nl; while (st.length) { const p = st.pop(); sizes[nl]++; const x = p % im.w, y = (p / im.w) | 0; for (const q of [x > 0 ? p - 1 : -1, x < im.w - 1 ? p + 1 : -1, y > 0 ? p - im.w : -1, y < im.h - 1 ? p + im.w : -1]) if (q >= 0 && !lab[q] && im.data[q * 4 + 3] >= 128) { lab[q] = nl; st.push(q); } } }
   const mx = Math.max(0, ...sizes), keep = sizes.map((s) => s >= mx * 0.08 && mx >= 25); let dropped = 0;       // a cell whose biggest blob is < 25 px is empty (specks only)
-  for (let i = 0; i < im.w * im.h; i++) if (lab[i] && !keep[lab[i]]) { im.data[i * 4 + 3] = 0; dropped++; }
+  // Keep a one-pixel antialiased fringe around retained solid components. Unlabelled
+  // translucent specks used to survive cleanup and inflate the trim bounds.
+  const mask = new Uint8Array(lab.length);
+  for (let i = 0; i < lab.length; i++) if (lab[i] && keep[lab[i]]) {
+    const x=i%im.w,y=(i/im.w)|0;
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)if(x+dx>=0&&x+dx<im.w&&y+dy>=0&&y+dy<im.h)mask[(y+dy)*im.w+x+dx]=1;
+  }
+  for (let i = 0; i < lab.length; i++) if (!mask[i] && im.data[i*4+3]) { im.data[i*4+3]=0; dropped++; }
   return { components: sizes.length - 1, dropped };
 }
 function bbox(im) { let x0 = im.w, y0 = im.h, x1 = -1, y1 = -1; for (let y = 0; y < im.h; y++) for (let x = 0; x < im.w; x++) if (A(im, x, y) >= 96) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } return x1 < 0 ? null : { x0, y0, x1, y1, w: x1 - x0 + 1, h: y1 - y0 + 1 }; }
@@ -70,18 +77,24 @@ function topCapPivot(im) {          // the joint cap: widest of the top 40% of r
 const report = [], manifest = merge && existsSync(out + "/manifest.json") ? JSON.parse(readFileSync(out + "/manifest.json", "utf8")) : { set: layout.set || "sliced", parts: {}, soleBelowAnkle: 11 };
 if (!dry) mkdirSync(out, { recursive: true });
 for (const cell of layout.cells) {
-  const x0 = OX + cell.col * CW, y0 = OY + cell.row * CH, notes = [];
-  let im = crop(sheet, x0, y0, CW, CH);
+  const [x0,y0,cw,ch] = cell.rect ?? [OX + cell.col * CW, OY + cell.row * CH, CW, CH], notes = [];
+  let im = crop(sheet, x0, y0, cw, ch);
   if (bgMode === "auto") { const r = removeBg(im); if (r.removed) notes.push(r.note); }
   const kept = keepMain(im); if (kept.dropped) notes.push(`dropped ${kept.dropped} stray px`);
   const bb0 = bbox(im);
   if (!bb0) { report.push({ name: cell.name, status: "EMPTY", notes: ["no solid pixels in the cell"] }); continue; }
-  if (bb0.x0 <= 0 || bb0.y0 <= 0 || bb0.x1 >= CW - 1 || bb0.y1 >= CH - 1) notes.push("touches the cell edge (cropped?)");
+  if (bb0.x0 <= 0 || bb0.y0 <= 0 || bb0.x1 >= cw - 1 || bb0.y1 >= ch - 1) notes.push("touches the cell edge (cropped?)");
   const PAD = 2; let t = crop(im, bb0.x0 - PAD, bb0.y0 - PAD, bb0.w + PAD * 2, bb0.h + PAD * 2);
   const expH = cell.expectH, f = expH ? expH / bb0.h : 1; if (expH) t = resize(t, f);
+  // Preserve a safe transparent border after downscaling source sheets. Optional
+  // rim adjustment matches an existing painted palette without changing the silhouette.
+  const shade=layout.edgeShade ?? 1;
+  if(shade!==1)for(let y=0;y<t.h;y++)for(let x=0;x<t.w;x++)if(A(t,x,y)>=192 && [A(t,x-1,y),A(t,x+1,y),A(t,x,y-1),A(t,x,y+1)].some(a=>a<192))for(let k=0;k<3;k++)t.data[(y*t.w+x)*4+k]*=shade;
+  const outputPad=layout.outputPad ?? 0;
+  if(outputPad)t=crop(t,-outputPad,-outputPad,t.w+outputPad*2,t.h+outputPad*2);
   const bb = bbox(t);
   // the brief's pivot (joint 20 px from the cell top, centred), mapped through the trim + scale
-  const cp = cell.cellPivot || [CW / 2, cell.cellPivotY ?? 20], cellPivot = [(cp[0] - (bb0.x0 - PAD)) * f, (cp[1] - (bb0.y0 - PAD)) * f];
+  const cp = cell.cellPivot || [CW / 2, cell.cellPivotY ?? 20], cellPivot = [(cp[0] - (bb0.x0 - PAD)) * f + outputPad, (cp[1] - (bb0.y0 - PAD)) * f + outputPad];
   let pivot, mode = cell.mode || "topcap";
   if (mode === "topcap") { pivot = topCapPivot(t); if (!pivot) { report.push({ name: cell.name, status: "EMPTY", notes: ["nothing left after cleanup"] }); continue; } }
   else if (mode === "bottom") pivot = [bb.x0 + bb.w / 2, bb.y0 + bb.h + (cell.dy ?? 0)];

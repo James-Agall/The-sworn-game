@@ -17,6 +17,10 @@ rather than giving a pixel number.
 
 ## Already sourced (in `client/public/sprites/`)
 
+### Painted player rig — #106–109 (2026-11-16)
+69 separate painted parts + 14 default aliases, transparent PNGs in `client/public/rig/parts/painted-v1/`; integrated through `heroRig.ts`. Four local source atlases and prompts are in `art-sources/character-creator-20261116/`. Layouts are `scripts/rig-layouts/painted-106-limbs.json` through `painted-109-weapons.json`. Includes limbs, male/female torso and heads, hair/front/back, T1–T3 helms, swords, axes, spears, bows and shields. Existing arrow effects and horse frames are reused.
+
+
 **Colonists (static pose, 12):** lumberjack, farmer, knight, archer, ironMiner, rockMiner, bishop,
 farmhand, artisan, militia, spearman, pikeman.
 
@@ -1008,7 +1012,10 @@ User report: "a lot of the art is cut off and fucked up". Tools and the installe
   not re-cut (grid sheets).
 
 
-## New requests (2026-11-16 batch) — rigged character parts (#106-#109)
+## Delivered and integrated (2026-11-16) — rigged character parts (#106-#109)
+
+The briefs below are retained for reference. Completed intake uses the **painted-** layouts, which follow the observed generated sheets.
+
 
 For the character creator (docs/colony2d/PLAN-character-creator.md): a player character built from SEPARATE parts on a shared skeleton
 (head, torso, upper arm, forearm + hand, thigh, shin + boot, plus gear) so any gender / build / hair / armour / weapon combination

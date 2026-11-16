@@ -4,6 +4,14 @@ Start the game with `scripts/live.sh` (frozen copy that keeps running while code
 code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checklists live at the end of each
 "landed" section in `ROADMAP.md`; this is the short version, in the order I would try them.
 
+## Character creator (2026-11-16)
+1. New Game, Solo or Creative: change name/body/build/face/hair/colours/horse. Try idle, walk, attacks and mounted preview. Back/Escape returns to the menu. Preview gear grants no items.
+2. Start: the same character appears at normal human scale. Move in both directions; feet, weapon grips and hair stay attached. Other humans keep their existing size.
+3. Hero → Edit appearance: change a field, wait while the world ticks, then Save. The unfinished edit must not reset. Collapse the editor to access gear/inventory.
+4. From existing armoury stock, withdraw a helmet, body armour, shield and sword/axe/spear/bow at each tier; equip them. Bow + shield is refused in both orders without losing items. Axe swings more slowly and hits harder.
+5. Mount a real owned adult horse, move and attack, then dismount. Check the chosen coat and stable seat. Enter a house: the same identity and size remain. Join from a second browser/profile and check the first player's appearance/attacks.
+6. Save/load (or Continue from an autosave): choices and gear remain; the creator is skipped. Get hit: crimson splash and brief recoil. Review animations during sustained play, particularly bow release and horse stepping.
+
 ## 1. Quick sanity (5 minutes)
 1. Game loads, no red errors in the browser console (F12). If something is broken, send me the console text.
 2. Walk with WASD, swing with Space, place a house and a lumberjack. Houses should look ~30% bigger than before.

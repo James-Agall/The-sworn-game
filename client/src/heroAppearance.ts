@@ -7,7 +7,9 @@ const images = new Map<string, HTMLImageElement>();
 const cache = new Map<string, { canvas: HTMLCanvasElement; texture: Texture }>();
 const path = (row: string, frame: number) => `/sprites/autumn/frames/${row}-${String(frame + 1).padStart(2, "0")}.png`;
 const rows = [...origins, "infantry-v2/militia", "infantry-v2/archer", "infantry-v2/spearman", "heavy-soldiers-v4/heavy-clubman", ...[1,2,3].flatMap(t => [`heavy-soldiers-v4/knight-t${t}`, `spear-pike-tiers/spear-t${t}`]), "animal-walks-c/horse"];
-export async function loadHeroAppearanceArt() {
+let artLoading: Promise<void> | undefined;
+export function loadHeroAppearanceArt() { return artLoading ??= loadArt(); }
+async function loadArt() {
   const jobs = rows.flatMap(row => Array.from({ length: row.includes("animal-walks") ? 4 : 7 }, (_, frame) => path(row, frame)));
   await Promise.all(Array.from({length: 8}, async () => {
     while (jobs.length) {
@@ -100,6 +102,7 @@ export function renderAppearancePanel(root: HTMLElement, prof: HeroProfileSnapsh
 }
 
 export function gearIconUrl(item: { slot: string; kind?: string; tier: number | "relic" }): string | undefined {
+  if(item.kind === "axe") return `/rig/parts/painted-v1/axe.t${item.tier === "relic" ? 3 : item.tier}.png`;
   const base="/sprites/autumn/frames/equipment-relic-icons/";
   let row=item.tier === "relic" ? "relic" : `tier${item.tier}`;
   let col: number | undefined;

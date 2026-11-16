@@ -1,0 +1,1252 @@
+{
+ "set": "painted-v1",
+ "parts": {
+  "upperArm.cloth": {
+   "file": "upperArm.cloth.png",
+   "pivot": [
+    8,
+    6
+   ],
+   "len": 13,
+   "joint": "shoulder",
+   "size": [
+    17,
+    25
+   ],
+   "scale": 0.111,
+   "variant": "cloth"
+  },
+  "upperArm": {
+   "file": "upperArm.png",
+   "pivot": [
+    8,
+    6
+   ],
+   "len": 13,
+   "joint": "shoulder",
+   "size": [
+    17,
+    25
+   ],
+   "scale": 0.111,
+   "variant": "cloth"
+  },
+  "upperArm.bare": {
+   "file": "upperArm.bare.png",
+   "pivot": [
+    7.5,
+    6
+   ],
+   "len": 13,
+   "joint": "shoulder",
+   "size": [
+    16,
+    25
+   ],
+   "scale": 0.112,
+   "variant": "bare"
+  },
+  "upperArm.t1": {
+   "file": "upperArm.t1.png",
+   "pivot": [
+    8.5,
+    6
+   ],
+   "len": 13,
+   "joint": "shoulder",
+   "size": [
+    17,
+    25
+   ],
+   "scale": 0.111,
+   "variant": "t1"
+  },
+  "upperArm.t2": {
+   "file": "upperArm.t2.png",
+   "pivot": [
+    8.5,
+    6
+   ],
+   "len": 13,
+   "joint": "shoulder",
+   "size": [
+    17,
+    25
+   ],
+   "scale": 0.11,
+   "variant": "t2"
+  },
+  "upperArm.t3": {
+   "file": "upperArm.t3.png",
+   "pivot": [
+    8.5,
+    6
+   ],
+   "len": 13,
+   "joint": "shoulder",
+   "size": [
+    17,
+    25
+   ],
+   "scale": 0.111,
+   "variant": "t3"
+  },
+  "foreArm.bracer": {
+   "file": "foreArm.bracer.png",
+   "pivot": [
+    7.5,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow",
+   "size": [
+    22,
+    30
+   ],
+   "scale": 0.141,
+   "variant": "bracer"
+  },
+  "foreArm": {
+   "file": "foreArm.png",
+   "pivot": [
+    7.5,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow",
+   "size": [
+    22,
+    30
+   ],
+   "scale": 0.141,
+   "variant": "bracer"
+  },
+  "foreArm.bare": {
+   "file": "foreArm.bare.png",
+   "pivot": [
+    7,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow",
+   "size": [
+    21,
+    30
+   ],
+   "scale": 0.142,
+   "variant": "bare"
+  },
+  "foreArm.t1": {
+   "file": "foreArm.t1.png",
+   "pivot": [
+    7.5,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow",
+   "size": [
+    23,
+    30
+   ],
+   "scale": 0.14,
+   "variant": "t1"
+  },
+  "foreArm.t2": {
+   "file": "foreArm.t2.png",
+   "pivot": [
+    7.5,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow",
+   "size": [
+    22,
+    30
+   ],
+   "scale": 0.139,
+   "variant": "t2"
+  },
+  "foreArm.t3": {
+   "file": "foreArm.t3.png",
+   "pivot": [
+    7.5,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow",
+   "size": [
+    23,
+    30
+   ],
+   "scale": 0.14,
+   "variant": "t3"
+  },
+  "foreArmOpen.bracer": {
+   "file": "foreArmOpen.bracer.png",
+   "pivot": [
+    8.5,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow (open hand)",
+   "size": [
+    25,
+    30
+   ],
+   "scale": 0.135,
+   "variant": "bracer"
+  },
+  "foreArmOpen.bare": {
+   "file": "foreArmOpen.bare.png",
+   "pivot": [
+    8,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow (open hand)",
+   "size": [
+    23,
+    30
+   ],
+   "scale": 0.134,
+   "variant": "bare"
+  },
+  "foreArmOpen.t1": {
+   "file": "foreArmOpen.t1.png",
+   "pivot": [
+    8,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow (open hand)",
+   "size": [
+    25,
+    30
+   ],
+   "scale": 0.133,
+   "variant": "t1"
+  },
+  "foreArmOpen.t2": {
+   "file": "foreArmOpen.t2.png",
+   "pivot": [
+    8.5,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow (open hand)",
+   "size": [
+    25,
+    30
+   ],
+   "scale": 0.134,
+   "variant": "t2"
+  },
+  "foreArmOpen.t3": {
+   "file": "foreArmOpen.t3.png",
+   "pivot": [
+    8.5,
+    5
+   ],
+   "len": 13,
+   "joint": "elbow (open hand)",
+   "size": [
+    26,
+    30
+   ],
+   "scale": 0.134,
+   "variant": "t3"
+  },
+  "thigh.trousers": {
+   "file": "thigh.trousers.png",
+   "pivot": [
+    9.5,
+    6.5
+   ],
+   "len": 14,
+   "joint": "hip",
+   "size": [
+    19,
+    30
+   ],
+   "scale": 0.129,
+   "variant": "trousers"
+  },
+  "thigh": {
+   "file": "thigh.png",
+   "pivot": [
+    9.5,
+    6.5
+   ],
+   "len": 14,
+   "joint": "hip",
+   "size": [
+    19,
+    30
+   ],
+   "scale": 0.129,
+   "variant": "trousers"
+  },
+  "thigh.bare": {
+   "file": "thigh.bare.png",
+   "pivot": [
+    9,
+    6.5
+   ],
+   "len": 14,
+   "joint": "hip",
+   "size": [
+    19,
+    30
+   ],
+   "scale": 0.129,
+   "variant": "bare"
+  },
+  "thigh.t1": {
+   "file": "thigh.t1.png",
+   "pivot": [
+    10,
+    6.5
+   ],
+   "len": 14,
+   "joint": "hip",
+   "size": [
+    20,
+    30
+   ],
+   "scale": 0.13,
+   "variant": "t1"
+  },
+  "thigh.t2": {
+   "file": "thigh.t2.png",
+   "pivot": [
+    10,
+    6.5
+   ],
+   "len": 14,
+   "joint": "hip",
+   "size": [
+    20,
+    30
+   ],
+   "scale": 0.129,
+   "variant": "t2"
+  },
+  "thigh.t3": {
+   "file": "thigh.t3.png",
+   "pivot": [
+    10,
+    6.5
+   ],
+   "len": 14,
+   "joint": "hip",
+   "size": [
+    21,
+    30
+   ],
+   "scale": 0.128,
+   "variant": "t3"
+  },
+  "shin.boot": {
+   "file": "shin.boot.png",
+   "pivot": [
+    7.5,
+    6
+   ],
+   "len": 10,
+   "joint": "knee",
+   "size": [
+    15,
+    25
+   ],
+   "scale": 0.107,
+   "variant": "boot"
+  },
+  "shin": {
+   "file": "shin.png",
+   "pivot": [
+    7.5,
+    6
+   ],
+   "len": 10,
+   "joint": "knee",
+   "size": [
+    15,
+    25
+   ],
+   "scale": 0.107,
+   "variant": "boot"
+  },
+  "shin.bare": {
+   "file": "shin.bare.png",
+   "pivot": [
+    7.5,
+    6
+   ],
+   "len": 10,
+   "joint": "knee",
+   "size": [
+    15,
+    25
+   ],
+   "scale": 0.107,
+   "variant": "bare"
+  },
+  "shin.t1": {
+   "file": "shin.t1.png",
+   "pivot": [
+    7.5,
+    6
+   ],
+   "len": 10,
+   "joint": "knee",
+   "size": [
+    15,
+    25
+   ],
+   "scale": 0.106,
+   "variant": "t1"
+  },
+  "shin.t2": {
+   "file": "shin.t2.png",
+   "pivot": [
+    7.5,
+    6
+   ],
+   "len": 10,
+   "joint": "knee",
+   "size": [
+    15,
+    25
+   ],
+   "scale": 0.106,
+   "variant": "t2"
+  },
+  "shin.t3": {
+   "file": "shin.t3.png",
+   "pivot": [
+    7.5,
+    6
+   ],
+   "len": 10,
+   "joint": "knee",
+   "size": [
+    15,
+    25
+   ],
+   "scale": 0.106,
+   "variant": "t3"
+  },
+  "foot.boot": {
+   "file": "foot.boot.png",
+   "pivot": [
+    7.5,
+    4.5
+   ],
+   "len": 0,
+   "joint": "ankle",
+   "size": [
+    24,
+    17
+   ],
+   "scale": 0.108,
+   "variant": "boot"
+  },
+  "foot": {
+   "file": "foot.png",
+   "pivot": [
+    7.5,
+    4.5
+   ],
+   "len": 0,
+   "joint": "ankle",
+   "size": [
+    24,
+    17
+   ],
+   "scale": 0.108,
+   "variant": "boot"
+  },
+  "foot.bare": {
+   "file": "foot.bare.png",
+   "pivot": [
+    7.5,
+    4.5
+   ],
+   "len": 0,
+   "joint": "ankle",
+   "size": [
+    25,
+    17
+   ],
+   "scale": 0.114,
+   "variant": "bare"
+  },
+  "foot.t1": {
+   "file": "foot.t1.png",
+   "pivot": [
+    7.5,
+    4.5
+   ],
+   "len": 0,
+   "joint": "ankle",
+   "size": [
+    24,
+    17
+   ],
+   "scale": 0.108,
+   "variant": "t1"
+  },
+  "foot.t2": {
+   "file": "foot.t2.png",
+   "pivot": [
+    7.5,
+    4.5
+   ],
+   "len": 0,
+   "joint": "ankle",
+   "size": [
+    24,
+    17
+   ],
+   "scale": 0.108,
+   "variant": "t2"
+  },
+  "foot.t3": {
+   "file": "foot.t3.png",
+   "pivot": [
+    7.5,
+    4.5
+   ],
+   "len": 0,
+   "joint": "ankle",
+   "size": [
+    24,
+    17
+   ],
+   "scale": 0.107,
+   "variant": "t3"
+  },
+  "torso.tunic": {
+   "file": "torso.tunic.png",
+   "pivot": [
+    12.5,
+    33
+   ],
+   "len": 31,
+   "joint": "waist",
+   "size": [
+    26,
+    40
+   ],
+   "scale": 0.115,
+   "variant": "tunic"
+  },
+  "torso": {
+   "file": "torso.png",
+   "pivot": [
+    12.5,
+    33
+   ],
+   "len": 31,
+   "joint": "waist",
+   "size": [
+    26,
+    40
+   ],
+   "scale": 0.115,
+   "variant": "tunic"
+  },
+  "torso.t1": {
+   "file": "torso.t1.png",
+   "pivot": [
+    13,
+    33
+   ],
+   "len": 31,
+   "joint": "waist",
+   "size": [
+    26,
+    40
+   ],
+   "scale": 0.115,
+   "variant": "t1"
+  },
+  "torso.t2": {
+   "file": "torso.t2.png",
+   "pivot": [
+    13,
+    33
+   ],
+   "len": 31,
+   "joint": "waist",
+   "size": [
+    26,
+    40
+   ],
+   "scale": 0.116,
+   "variant": "t2"
+  },
+  "torso.t3": {
+   "file": "torso.t3.png",
+   "pivot": [
+    13,
+    33
+   ],
+   "len": 31,
+   "joint": "waist",
+   "size": [
+    27,
+    40
+   ],
+   "scale": 0.115,
+   "variant": "t3"
+  },
+  "torsoF.tunic": {
+   "file": "torsoF.tunic.png",
+   "pivot": [
+    13.5,
+    33
+   ],
+   "len": 31,
+   "joint": "waist (female)",
+   "size": [
+    27,
+    41
+   ],
+   "scale": 0.129,
+   "variant": "tunic"
+  },
+  "torsoF.t1": {
+   "file": "torsoF.t1.png",
+   "pivot": [
+    14,
+    33
+   ],
+   "len": 31,
+   "joint": "waist (female)",
+   "size": [
+    27,
+    41
+   ],
+   "scale": 0.129,
+   "variant": "t1"
+  },
+  "torsoF.t2": {
+   "file": "torsoF.t2.png",
+   "pivot": [
+    13.5,
+    33
+   ],
+   "len": 31,
+   "joint": "waist (female)",
+   "size": [
+    27,
+    41
+   ],
+   "scale": 0.129,
+   "variant": "t2"
+  },
+  "torsoF.t3": {
+   "file": "torsoF.t3.png",
+   "pivot": [
+    13.5,
+    33
+   ],
+   "len": 31,
+   "joint": "waist (female)",
+   "size": [
+    28,
+    41
+   ],
+   "scale": 0.129,
+   "variant": "t3"
+  },
+  "pelvis.trousers": {
+   "file": "pelvis.trousers.png",
+   "pivot": [
+    11.5,
+    5.5
+   ],
+   "len": 0,
+   "joint": "root / hips",
+   "size": [
+    23,
+    18
+   ],
+   "scale": 0.082,
+   "variant": "trousers"
+  },
+  "pelvis": {
+   "file": "pelvis.png",
+   "pivot": [
+    11.5,
+    5.5
+   ],
+   "len": 0,
+   "joint": "root / hips",
+   "size": [
+    23,
+    18
+   ],
+   "scale": 0.082,
+   "variant": "trousers"
+  },
+  "pelvis.bare": {
+   "file": "pelvis.bare.png",
+   "pivot": [
+    7.5,
+    5.5
+   ],
+   "len": 0,
+   "joint": "root / hips",
+   "size": [
+    15,
+    18
+   ],
+   "scale": 0.045,
+   "variant": "bare"
+  },
+  "head.m_plain": {
+   "file": "head.m_plain.png",
+   "pivot": [
+    12.5,
+    29
+   ],
+   "len": 0,
+   "joint": "neck",
+   "size": [
+    28,
+    32
+   ],
+   "scale": 0.119,
+   "variant": "m_plain"
+  },
+  "head": {
+   "file": "head.png",
+   "pivot": [
+    12.5,
+    29
+   ],
+   "len": 0,
+   "joint": "neck",
+   "size": [
+    28,
+    32
+   ],
+   "scale": 0.119,
+   "variant": "m_plain"
+  },
+  "head.m_stern": {
+   "file": "head.m_stern.png",
+   "pivot": [
+    12.5,
+    29
+   ],
+   "len": 0,
+   "joint": "neck",
+   "size": [
+    28,
+    32
+   ],
+   "scale": 0.118,
+   "variant": "m_stern"
+  },
+  "head.m_beard": {
+   "file": "head.m_beard.png",
+   "pivot": [
+    12.5,
+    29
+   ],
+   "len": 0,
+   "joint": "neck",
+   "size": [
+    29,
+    32
+   ],
+   "scale": 0.119,
+   "variant": "m_beard"
+  },
+  "headF.plain": {
+   "file": "headF.plain.png",
+   "pivot": [
+    12,
+    29
+   ],
+   "len": 0,
+   "joint": "neck (female)",
+   "size": [
+    27,
+    32
+   ],
+   "scale": 0.116,
+   "variant": "plain"
+  },
+  "headF.stern": {
+   "file": "headF.stern.png",
+   "pivot": [
+    12,
+    29
+   ],
+   "len": 0,
+   "joint": "neck (female)",
+   "size": [
+    27,
+    32
+   ],
+   "scale": 0.116,
+   "variant": "stern"
+  },
+  "headF.freckled": {
+   "file": "headF.freckled.png",
+   "pivot": [
+    12,
+    29
+   ],
+   "len": 0,
+   "joint": "neck (female)",
+   "size": [
+    27,
+    32
+   ],
+   "scale": 0.116,
+   "variant": "freckled"
+  },
+  "hair.short": {
+   "file": "hair.short.png",
+   "pivot": [
+    11.5,
+    30.5
+   ],
+   "len": 0,
+   "joint": "neck (overlay)",
+   "size": [
+    28,
+    22
+   ],
+   "scale": 0.104,
+   "variant": "short"
+  },
+  "hair": {
+   "file": "hair.png",
+   "pivot": [
+    11.5,
+    30.5
+   ],
+   "len": 0,
+   "joint": "neck (overlay)",
+   "size": [
+    28,
+    22
+   ],
+   "scale": 0.104,
+   "variant": "short"
+  },
+  "hair.long": {
+   "file": "hair.long.png",
+   "pivot": [
+    11,
+    30.5
+   ],
+   "len": 0,
+   "joint": "neck (overlay)",
+   "size": [
+    27,
+    22
+   ],
+   "scale": 0.09,
+   "variant": "long"
+  },
+  "hair.ponytail": {
+   "file": "hair.ponytail.png",
+   "pivot": [
+    11.5,
+    30.5
+   ],
+   "len": 0,
+   "joint": "neck (overlay)",
+   "size": [
+    28,
+    22
+   ],
+   "scale": 0.084,
+   "variant": "ponytail"
+  },
+  "hairBack.long": {
+   "file": "hairBack.long.png",
+   "pivot": [
+    20,
+    30
+   ],
+   "len": 0,
+   "joint": "neck (overlay, behind)",
+   "size": [
+    30,
+    32
+   ],
+   "scale": 0.105,
+   "variant": "long"
+  },
+  "hairBack.ponytail": {
+   "file": "hairBack.ponytail.png",
+   "pivot": [
+    21,
+    30
+   ],
+   "len": 0,
+   "joint": "neck (overlay, behind)",
+   "size": [
+    32,
+    32
+   ],
+   "scale": 0.112,
+   "variant": "ponytail"
+  },
+  "helm.t1": {
+   "file": "helm.t1.png",
+   "pivot": [
+    13,
+    30
+   ],
+   "len": 0,
+   "joint": "neck (overlay)",
+   "size": [
+    31,
+    34
+   ],
+   "scale": 0.118,
+   "variant": "t1"
+  },
+  "helm.t2": {
+   "file": "helm.t2.png",
+   "pivot": [
+    14.5,
+    30
+   ],
+   "len": 0,
+   "joint": "neck (overlay)",
+   "size": [
+    33,
+    34
+   ],
+   "scale": 0.116,
+   "variant": "t2"
+  },
+  "helm.t3": {
+   "file": "helm.t3.png",
+   "pivot": [
+    13,
+    30
+   ],
+   "len": 0,
+   "joint": "neck (overlay)",
+   "size": [
+    29,
+    34
+   ],
+   "scale": 0.101,
+   "variant": "t3"
+  },
+  "sword.t1": {
+   "file": "sword.t1.png",
+   "pivot": [
+    11,
+    10.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    22,
+    52
+   ],
+   "scale": 0.167,
+   "variant": "t1"
+  },
+  "sword": {
+   "file": "sword.png",
+   "pivot": [
+    11,
+    10.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    22,
+    52
+   ],
+   "scale": 0.167,
+   "variant": "t1"
+  },
+  "sword.t2": {
+   "file": "sword.t2.png",
+   "pivot": [
+    12,
+    10.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    24,
+    52
+   ],
+   "scale": 0.167,
+   "variant": "t2"
+  },
+  "sword.t3": {
+   "file": "sword.t3.png",
+   "pivot": [
+    12.5,
+    10.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    26,
+    52
+   ],
+   "scale": 0.167,
+   "variant": "t3"
+  },
+  "axe.t1": {
+   "file": "axe.t1.png",
+   "pivot": [
+    8,
+    10.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    26,
+    53
+   ],
+   "scale": 0.175,
+   "variant": "t1"
+  },
+  "axe": {
+   "file": "axe.png",
+   "pivot": [
+    8,
+    10.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    26,
+    53
+   ],
+   "scale": 0.175,
+   "variant": "t1"
+  },
+  "axe.t2": {
+   "file": "axe.t2.png",
+   "pivot": [
+    8,
+    10.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    27,
+    53
+   ],
+   "scale": 0.175,
+   "variant": "t2"
+  },
+  "axe.t3": {
+   "file": "axe.t3.png",
+   "pivot": [
+    8.5,
+    10.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    27,
+    53
+   ],
+   "scale": 0.173,
+   "variant": "t3"
+  },
+  "spear.t1": {
+   "file": "spear.t1.png",
+   "pivot": [
+    8.5,
+    28.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    16,
+    79
+   ],
+   "scale": 0.233,
+   "variant": "t1"
+  },
+  "spear": {
+   "file": "spear.png",
+   "pivot": [
+    8.5,
+    28.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    16,
+    79
+   ],
+   "scale": 0.233,
+   "variant": "t1"
+  },
+  "spear.t2": {
+   "file": "spear.t2.png",
+   "pivot": [
+    8.5,
+    29
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    17,
+    79
+   ],
+   "scale": 0.232,
+   "variant": "t2"
+  },
+  "spear.t3": {
+   "file": "spear.t3.png",
+   "pivot": [
+    9.5,
+    28.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    19,
+    79
+   ],
+   "scale": 0.232,
+   "variant": "t3"
+  },
+  "shield.t1": {
+   "file": "shield.t1.png",
+   "pivot": [
+    13.5,
+    16
+   ],
+   "len": 0,
+   "joint": "grip (centre)",
+   "size": [
+    27,
+    32
+   ],
+   "scale": 0.112,
+   "variant": "t1"
+  },
+  "shield": {
+   "file": "shield.png",
+   "pivot": [
+    13.5,
+    16
+   ],
+   "len": 0,
+   "joint": "grip (centre)",
+   "size": [
+    27,
+    32
+   ],
+   "scale": 0.112,
+   "variant": "t1"
+  },
+  "shield.t2": {
+   "file": "shield.t2.png",
+   "pivot": [
+    14,
+    16
+   ],
+   "len": 0,
+   "joint": "grip (centre)",
+   "size": [
+    28,
+    32
+   ],
+   "scale": 0.112,
+   "variant": "t2"
+  },
+  "shield.t3": {
+   "file": "shield.t3.png",
+   "pivot": [
+    14,
+    16
+   ],
+   "len": 0,
+   "joint": "grip (centre)",
+   "size": [
+    28,
+    32
+   ],
+   "scale": 0.111,
+   "variant": "t3"
+  },
+  "bow.t1": {
+   "file": "bow.t1.png",
+   "pivot": [
+    10,
+    25.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    17,
+    52
+   ],
+   "scale": 0.156,
+   "variant": "t1"
+  },
+  "bow": {
+   "file": "bow.png",
+   "pivot": [
+    10,
+    25.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    17,
+    52
+   ],
+   "scale": 0.156,
+   "variant": "t1"
+  },
+  "bow.t2": {
+   "file": "bow.t2.png",
+   "pivot": [
+    10.5,
+    25.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    19,
+    52
+   ],
+   "scale": 0.156,
+   "variant": "t2"
+  },
+  "bow.t3": {
+   "file": "bow.t3.png",
+   "pivot": [
+    10.5,
+    25.5
+   ],
+   "len": 0,
+   "joint": "grip",
+   "size": [
+    19,
+    52
+   ],
+   "scale": 0.156,
+   "variant": "t3"
+  }
+ },
+ "soleBelowAnkle": 10,
+ "note": "Real painted parts generated with built-in image_gen; source sheets and prompts in art-sources/character-creator-20261116. Layouts adapted to observed cell sizes and joints."
+}

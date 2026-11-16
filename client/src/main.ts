@@ -1,5 +1,10 @@
+import "./characterCreator.css";
+import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
+import { chooseCharacter, renderCharacterEditor } from "./characterCreator";
+import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS, type HeroAppearance } from "@colony/shared/protocol";
+let pendingCreatorAppearance: HeroAppearance | null = null;
 import "./menuSkin.css";
-import { heroArt, loadHeroAppearanceArt, renderAppearancePanel, gearIconUrl } from "./heroAppearance";
+import { heroArt, loadHeroAppearanceArt, gearIconUrl } from "./heroAppearance";
 import { HERO_WEAPON_KINDS, type HeroVisual } from "@colony/shared/protocol";
 import { autumnFrame, directionalFrame, loadAutumnPeople, movementFacing, type Cardinal } from "./autumnAnimations";
 import { autumnBuildingDamage, loadAutumnBuildings, syncAutumnHouses } from "./autumnWorld";
@@ -329,7 +334,7 @@ async function main() {
     COLONIST_KINDS.map((kind, i) => [kind, loadedTextures[colonistUrls[i]]])
   ) as Record<ColonistKind, Texture>;
   const PLAYER_TEXTURE = loadedTextures["/sprites/player.png"];
-  await loadHeroAppearanceArt();
+  await Promise.all([loadHeroAppearanceArt(), loadHeroRig()]);
   const MOB_TEXTURES = Object.fromEntries(
     MOB_KINDS.map((kind, i) => [kind, loadedTextures[mobUrls[i]]])
   ) as Partial<Record<MobKind, Texture>>;
@@ -793,14 +798,17 @@ async function main() {
   if (PLAYER_ANIM) PLAYER_ANIM.scale = HUMAN_CHAR_PX / charHeightPx(PLAYER_ANIM.walk[0]);
   // The lance thrust plays once per attack (each frame held ANIM_TICKS_PER_FRAME snapshots).
   const PLAYER_ATTACK_ANIM_TICKS = 3 * ANIM_TICKS_PER_FRAME;
-  const playerAnim = new Map<string, AnimState & { attackTicks: number }>();
+  const playerAnim = new Map<string, AnimState & { attackTicks: number; attackDuration: number }>();
   const heroVisuals = new Map<string, HeroVisual>();
+  const rigTravel = new Map<string, number>();
+  const rigInteriorTravel = new Map<string, number>();
   function triggerPlayerAttackAnim(id: string) {
     const anim = playerAnim.get(id);
     // Local keypress and the server's hit effect both trigger it; don't restart a thrust that's
     // still on its first frame.
-    if (!anim || anim.attackTicks > PLAYER_ATTACK_ANIM_TICKS - ANIM_TICKS_PER_FRAME) return;
-    anim.attackTicks = PLAYER_ATTACK_ANIM_TICKS;
+    if (!anim || anim.attackTicks > anim.attackDuration - ANIM_TICKS_PER_FRAME) return;
+    anim.attackDuration = Math.round(PLAYER_ATTACK_ANIM_TICKS * (heroVisuals.get(id)?.weapon === "axe" ? 1.25 : 1));
+    anim.attackTicks = anim.attackDuration;
     anim.mode = null; // restart the thrust from frame 0 even mid-swing
   }
   // Shared (stateless) program; each player sprite gets its own Filter + uniforms.
@@ -2452,10 +2460,12 @@ async function main() {
     if (PLAYER_ANIM) {
       let anim = playerAnim.get(p.id);
       if (!anim) {
-        anim = { mode: null, frame: 0, ticksInFrame: 0, lastX: p.x, lastY: p.y, attackTicks: 0 };
+        anim = { mode: null, frame: 0, ticksInFrame: 0, lastX: p.x, lastY: p.y, attackTicks: 0, attackDuration: PLAYER_ATTACK_ANIM_TICKS };
         playerAnim.set(p.id, anim);
       }
-      const moved = Math.hypot(p.x - anim.lastX, p.y - anim.lastY) > 0.5;
+      const distance = Math.hypot(p.x - anim.lastX, p.y - anim.lastY);
+      const moved = distance > 0.5;
+      rigTravel.set(p.id, (rigTravel.get(p.id) ?? 0) + Math.min(distance, 12) / (p.mounted ? 36 : 11));
       anim.lastX = p.x;
       anim.lastY = p.y;
       const mode = anim.attackTicks > 0 ? "action" : moved ? "walk" : null;
@@ -2464,10 +2474,11 @@ async function main() {
       const baseFrame = stepAnim(anim, PLAYER_ANIM, mode) ?? PLAYER_ANIM.walk[0];
       const mountedFrame = p.mounted ? autumnFrame("mounted-units-v2", 3, mode === "action" ? 4 + anim.frame % 3 : mode === "walk" ? anim.frame % 4 : 0) : undefined;
       const visual = p.visual ?? heroVisuals.get(p.id);
-      const art = visual ? heroArt(visual, !!p.mounted, mode === "action" ? Math.floor((PLAYER_ATTACK_ANIM_TICKS - anim.attackTicks - 1) / ANIM_TICKS_PER_FRAME) : mode ? anim.frame : 0, mode === "action") : undefined;
+      const rig = visual ? heroFrame(visual, { state: (entry.hitSplashUntil ?? 0) > performance.now() ? "hurt" : mode === "action" ? "attack" : mode === "walk" ? "walk" : "idle", phase: mode === "action" ? (anim.attackDuration-anim.attackTicks-1)/Math.max(1,anim.attackDuration-1) : mode === "walk" ? rigTravel.get(p.id) ?? 0 : performance.now()/3000 }, !!p.mounted) : undefined;
+      const art = rig ?? (visual ? heroArt(visual, !!p.mounted, mode === "action" ? Math.floor((PLAYER_ATTACK_ANIM_TICKS - anim.attackTicks - 1) / ANIM_TICKS_PER_FRAME) : mode ? anim.frame : 0, mode === "action") : undefined);
       // One scale per look (measured on its standing walk frame), so swings and steps do not resize the hero.
-      const stand = art && !p.mounted ? heroArt(visual!, false, 0, false) : undefined;
-      if (art) { entry.sprite.texture=art.texture; entry.sprite.scale.set(p.mounted ? 50 / art.texture.height : HUMAN_CHAR_PX / charHeightPx((stand ?? art).texture)); entry.sprite.filters=[]; }
+      const stand = art && !rig && !p.mounted ? heroArt(visual!, false, 0, false) : undefined;
+      if (art) { entry.sprite.anchor.set(rig ? 120/256 : .5, rig ? (p.mounted ? 211/240 : 163/192) : .5); if(rig) entry.sprite.position.set(p.x,p.y + PLAYER_SPRITE_HEIGHT*.4); entry.sprite.texture=art.texture; entry.sprite.scale.set(rig ? HUMAN_CHAR_PX / rig.bodyHeight : p.mounted ? 50 / art.texture.height : HUMAN_CHAR_PX / charHeightPx((stand ?? art).texture)); entry.sprite.filters=[]; }
       else showAnimFrame(entry.sprite, mountedFrame ? { ...PLAYER_ANIM, scale: 50 / 128 } : PLAYER_ANIM, mountedFrame ?? baseFrame);
     }
     applyFacing(entry.sprite, facingRight);
@@ -2476,7 +2487,10 @@ async function main() {
       if (elapsed >= 600) heroToolPose = null;
       else {
         const toolFrame = directionalFrame("hero-tool-actions", heroToolPose.row, heroToolPose.facing, Math.floor(elapsed / 150));
-        if (toolFrame) { entry.sprite.texture = toolFrame; { const ts = autumnHumanScale("hero-tool-actions", 4) ?? (PLAYER_ANIM ? PLAYER_ANIM.scale : PLAYER_SPRITE_HEIGHT / 128); entry.sprite.scale.set((heroToolPose.facing === "w" ? -1 : 1) * ts, ts); } }
+        const visual=heroVisuals.get(p.id);
+        const toolRig=visual ? heroFrame({...visual, weapon:heroToolPose.row<2?"axe":"unarmed",weaponTier:1,shield:false}, {state:"attack",phase:elapsed/600}) : undefined;
+        if (toolRig) {entry.sprite.anchor.set(120/256,163/192);entry.sprite.position.set(p.x,p.y+PLAYER_SPRITE_HEIGHT*.4);entry.sprite.texture=toolRig.texture;entry.sprite.scale.set((heroToolPose.facing==="w"?-1:1)*HUMAN_CHAR_PX/toolRig.bodyHeight,HUMAN_CHAR_PX/toolRig.bodyHeight);}
+        else if (toolFrame) { entry.sprite.texture = toolFrame; { const ts = autumnHumanScale("hero-tool-actions", 4) ?? (PLAYER_ANIM ? PLAYER_ANIM.scale : PLAYER_SPRITE_HEIGHT / 128); entry.sprite.scale.set((heroToolPose.facing === "w" ? -1 : 1) * ts, ts); } }
       }
     }
     updateWound(entry, p.hp, p.maxHp, p.x, p.y - (p.mounted ? MOUNTED_LIFT_PX : 0),
@@ -2486,7 +2500,7 @@ async function main() {
   function syncPlayers(snapshot: PlayerSnapshot[]) {
     const seenIds = new Set(snapshot.map((p) => p.id));
     pruneMissing(playerSprites, seenIds);
-    for(const id of heroVisuals.keys()) if(!seenIds.has(id)) heroVisuals.delete(id);
+    for(const id of heroVisuals.keys()) if(!seenIds.has(id)) {heroVisuals.delete(id);rigTravel.delete(id);rigInteriorTravel.delete(id);}
     pruneFacing(playerFacing, seenIds);
     for (const id of Array.from(playerAnim.keys())) {
       if (!seenIds.has(id)) playerAnim.delete(id);
@@ -3159,6 +3173,7 @@ async function main() {
         if (s instanceof Sprite) applyFacing(s, right);
       }
     };
+    face(playerFacing, playerSprites, latestPlayersForSpells);
     face(colonistFacing, colonistSprites, latestColonists);
     face(mobFacing, mobSprites, latestMobs);
   }
@@ -3217,6 +3232,10 @@ async function main() {
       return;
     }
     faceAttacker(e);
+    // Match server coordinates, not the rendered foot anchor; includes remote bows and mounted attacks.
+    if (!e.boulder) for (const p of latestPlayersForSpells) {
+      if (Math.abs(p.x-e.fromX)<2 && Math.abs(p.y-e.fromY)<2) triggerPlayerAttackAnim(p.id);
+    }
     const angle = Math.atan2(e.toY - e.fromY, e.toX - e.fromX);
     if (e.boulder) {
       // Catapult boulder (one of the fx-boulder rocks, SPRITES.md #42): a slow tumbling arc, then the
@@ -3250,12 +3269,6 @@ async function main() {
       return;
     }
     if (e.melee) {
-      // Effects don't carry the attacker; a player standing at the origin plays its lance thrust.
-      for (const [id, { sprite }] of playerSprites) {
-        if (Math.abs(sprite.position.x - e.fromX) < 2 && Math.abs(sprite.position.y - e.fromY) < 2) {
-          triggerPlayerAttackAnim(id);
-        }
-      }
       if (Math.random() < BLOOD_HIT_CHANCE) stampBlood(e.toX, e.toY, BLOOD_HIT_VARIANTS, BLOOD_HIT_SIZE);
       sound.play("sword_hit", { x: e.toX, y: e.toY });
       const slash = addFx(FX_TEXTURES.slash, FX_SIZE.slash, e.toX, e.toY, 160, fadeOut);
@@ -6333,6 +6346,7 @@ async function main() {
   const hsTip = document.getElementById("hs-tip")!;
   let heroProfile: HeroProfileSnapshot | null = null;
   let armouryWeapon: typeof HERO_WEAPON_KINDS[number] = "sword";
+  let armouryPart: "head"|"chest"|"offhand" = "chest";
   // Hero phase 3: the colony's heroes (snapshot `heroes`) and the open tab ("" = the player).
   let heroSheets: HeroSheetSnapshot[] = [];
   let sheetTab = "";
@@ -6366,6 +6380,7 @@ async function main() {
 
   function gearSlotFor(item: GearItem, prof: HeroProfileSnapshot): GearSlot | null {
     if (item.slot === "spell" || item.slot === "tome") return null;
+    if (!sheetTab && (!PLAYER_GEAR_SLOTS.includes(item.slot as GearSlot) || (item.slot === "weapon" && !PLAYER_WEAPON_KINDS.includes(item.kind as any)) || (item.slot === "offhand" && item.kind !== "shield"))) return null;
     if (item.slot === "trinket") return prof.equipment.trinket1 && !prof.equipment.trinket2 ? "trinket2" : "trinket1";
     return item.slot;
   }
@@ -6541,12 +6556,17 @@ async function main() {
     heroRenderKey = key;
     heroHpText = hpText;
     hideItemTip();
-    hsTitle.textContent = hero ? `${hero.name} · ${HERO_CLASS_LABEL[hero.heroClass]}` : "Character";
+    hsTitle.textContent = hero ? `${hero.name} · ${HERO_CLASS_LABEL[hero.heroClass]}` : prof.appearance?.name ?? "Character";
     const appearanceRoot = document.getElementById("hero-appearance")!;
     appearanceRoot.hidden = !!hero;
-    if (!hero) renderAppearancePanel(appearanceRoot, prof, !!me?.mounted,
-      appearance => sendMessage({ type: "setHeroAppearance", appearance }),
-      () => sendMessage({ type: "heroAction", action: "dismount" }));
+    const appearanceKey=JSON.stringify([prof.appearance,me?.visual]);
+    if (!hero && appearanceRoot.dataset.appearanceKey !== appearanceKey) {
+      appearanceRoot.dataset.appearanceKey=appearanceKey;
+      const wasOpen=appearanceRoot.querySelector("details")?.open ?? false;
+      const details=document.createElement("details"),summary=document.createElement("summary"),editor=document.createElement("div");
+      summary.textContent="Edit appearance";details.open=wasOpen;details.append(summary,editor);appearanceRoot.replaceChildren(details);
+      renderCharacterEditor(editor, prof.appearance!, appearance => sendMessage({ type: "setHeroAppearance", appearance }), {visual: me?.visual});
+    }
     hsTabs.replaceChildren();
     if (heroSheets.length > 0) {
       const tab = (id: string, label: string, cls = "") => {
@@ -6563,7 +6583,8 @@ async function main() {
       for (const h of heroSheets.slice(0, 9)) tab(h.id, `${h.name} Lv ${h.profile.level}`, h.status === "alive" ? "" : "fallen");
     }
     // Paper-doll: trinket / head / trinket, weapon / chest / off-hand, - / legs / -, then 4 spell slots.
-    const layout: (GearSlot | null)[] = ["trinket1", "head", "trinket2", "weapon", "chest", "offhand", null, "legs", null];
+    const layout: (GearSlot | null)[] = hero ? ["trinket1", "head", "trinket2", "weapon", "chest", "offhand", null, "legs", null] : ["head", "chest", "weapon", "offhand"];
+    hsDoll.classList.toggle("player-gear", !hero);
     hsDoll.replaceChildren();
     for (const slot of layout) {
       if (!slot) {
@@ -6715,18 +6736,23 @@ async function main() {
     hsArmoury.replaceChildren();
     const weaponLabel=document.createElement("label"); weaponLabel.className="weapon-choice"; weaponLabel.textContent="Weapon to withdraw";
     const weaponSelect=document.createElement("select"); weaponSelect.setAttribute("aria-label","Armoury weapon");
-    for(const kind of HERO_WEAPON_KINDS) { const opt=document.createElement("option");opt.value=kind;opt.textContent=kind[0].toUpperCase()+kind.slice(1);weaponSelect.append(opt); }
+    for(const kind of (hero ? HERO_WEAPON_KINDS : PLAYER_WEAPON_KINDS)) { const opt=document.createElement("option");opt.value=kind;opt.textContent=kind[0].toUpperCase()+kind.slice(1);weaponSelect.append(opt); }
+    if(!hero && !PLAYER_WEAPON_KINDS.includes(armouryWeapon as any)) armouryWeapon="sword";
     weaponSelect.value=armouryWeapon; weaponSelect.onchange=()=>{armouryWeapon=weaponSelect.value as typeof armouryWeapon;renderHeroSheet(true);};
     weaponLabel.append(weaponSelect);hsArmoury.append(weaponLabel);
+    const partLabel=document.createElement("label");partLabel.className="weapon-choice";partLabel.textContent="Armour to withdraw";
+    const partSelect=document.createElement("select");partSelect.setAttribute("aria-label","Armoury armour slot");
+    for(const [value,label] of [["head","Helmet"],["chest","Body armour"],["offhand","Shield"]]){const option=document.createElement("option");option.value=value;option.textContent=label;partSelect.append(option);}
+    partSelect.value=armouryPart;partSelect.onchange=()=>{armouryPart=partSelect.value as typeof armouryPart;renderHeroSheet(true);};partLabel.append(partSelect);hsArmoury.append(partLabel);
     const full = prof.inventory.length >= prof.inventoryCap;
     for (const slot of ["armour", "weapon"] as EquipSlot[]) {
       for (let tier = 1; tier <= 3; tier++) {
         const n = heroStock?.[slot][tier - 1] ?? 0;
         const btn = document.createElement("button");
-        btn.textContent = `${slot === "armour" ? "Chest armour" : "Weapon"} T${tier} (${n})`;
+        btn.textContent = `${slot === "armour" ? armouryPart === "head" ? "Helmet" : armouryPart === "offhand" ? "Shield" : "Body armour" : "Weapon"} T${tier} (${n})`;
         btn.disabled = n <= 0 || full;
         btn.title = full ? "Your pack is full" : n <= 0 ? "None in the colony's stock (forge at a Blacksmith)" : "Takes it from the stock soldiers muster with";
-        btn.addEventListener("click", () => sendMessage({ type: "takeFromArmoury", slot, tier, ...(slot === "weapon" ? {weaponKind:armouryWeapon} : {}), ...heroArg }));
+        btn.addEventListener("click", () => sendMessage({ type: "takeFromArmoury", slot, tier, ...(slot === "weapon" ? {weaponKind:armouryWeapon} : {armourPart:armouryPart}), ...heroArg }));
         hsArmoury.append(btn);
       }
     }
@@ -7073,6 +7099,10 @@ async function main() {
       } else {
         // Claims the world's difficulty if nobody has yet (the server ignores it otherwise).
         sendMessage({ type: "setDifficulty", difficulty: preferredDifficulty, worldSize: preferredWorldSize });
+      }
+      if (pendingCreatorAppearance && !(enforceGameMode && (preferredSolo || !!message.creative !== preferredCreative))) {
+        sendMessage({ type: "setHeroAppearance", appearance: pendingCreatorAppearance });
+        pendingCreatorAppearance = null;
       }
       enforceGameMode = false;
       creativeUi.onWelcome(message.creative === true);
@@ -7854,9 +7884,9 @@ async function main() {
     worldLayer,
     structure: STRUCTURE_TEXTURES,
     playerTexture: PLAYER_TEXTURE,
-    heroTexture: (id, moving) => { const v=heroVisuals.get(id); return v ? heroArt(v,false,moving ? Math.floor(performance.now()/150)%4 : 0)?.texture : undefined; },
+    heroTexture: (id, moving, distance=0) => { const v=heroVisuals.get(id); rigInteriorTravel.set(id,(rigInteriorTravel.get(id)??0)+Math.min(distance,12)/11); return v ? (heroFrame(v,{state:moving?"walk":"idle",phase:moving?rigInteriorTravel.get(id)!:performance.now()/3000}) ?? heroArt(v,false,moving ? Math.floor(performance.now()/150)%4 : 0))?.texture : undefined; },
     playerHeight: PLAYER_SPRITE_HEIGHT,
-    humanScale: (tex) => HUMAN_CHAR_PX / charHeightPx(tex),
+    humanScale: (tex) => rigTextureScale(tex) ?? HUMAN_CHAR_PX / charHeightPx(tex),
     npcTexture: (kind) => COLONIST_TEXTURES[kind as ColonistKind],
     npcAnim: (kind) => (COLONIST_TINT.has(kind) ? undefined : COLONIST_ANIMS[kind as ColonistKind]),
     npcHeight: COLONIST_SPRITE_HEIGHT,
@@ -9251,7 +9281,16 @@ function setupMainMenu() {
   const closeModal = () => {
     settingsModal.hidden = true;
   };
-  const startGame = (loadSlot: SaveSlot | null, creative = preferredCreative, solo = false) => {
+  let choosingCharacter = false;
+  const startGame = async (loadSlot: SaveSlot | null, creative = preferredCreative, solo = false) => {
+    if (choosingCharacter) return;
+    if (loadSlot === null) {
+      choosingCharacter = true;
+      const appearance = await chooseCharacter();
+      choosingCharacter = false;
+      if (!appearance) return;
+      pendingCreatorAppearance = appearance;
+    }
     pendingLoadSlot = loadSlot;
     preferredCreative = creative;
     preferredSolo = solo && !creative;

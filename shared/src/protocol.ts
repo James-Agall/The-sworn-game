@@ -1302,7 +1302,7 @@ export type ClientMessage =
   | { type: "setHeroAppearance"; appearance: HeroAppearance }
   | { type: "equipItem"; itemId: string; slot: GearSlot; heroId?: string }
   | { type: "unequipItem"; slot: GearSlot; heroId?: string }
-  | { type: "takeFromArmoury"; slot: EquipSlot; tier: number; heroId?: string; weaponKind?: typeof HERO_WEAPON_KINDS[number] }
+  | { type: "takeFromArmoury"; slot: EquipSlot; tier: number; heroId?: string; weaponKind?: typeof HERO_WEAPON_KINDS[number]; armourPart?: "head" | "chest" | "offhand" }
   // Hero phase 3: recruit a hero of `class` at the Keep at (tx, ty) (Keep panel buttons).
   | { type: "recruitHero"; tx: number; ty: number; class: HeroClass }
   // Hero phase 4: spells. slot 0-3; heroId (optional) = that hero's book instead of the player's.
@@ -1624,22 +1624,32 @@ export const HERO_LOOKS = ["wanderer", "ranger", "vanguard", "mystic", "wayfarer
 export type HeroLook = typeof HERO_LOOKS[number];
 export const HORSE_COATS = ["bay", "chestnut", "black", "grey", "palomino"] as const;
 export type HorseCoat = typeof HORSE_COATS[number];
-export interface HeroAppearance { look: HeroLook; horse: HorseCoat }
-export const DEFAULT_HERO_APPEARANCE: HeroAppearance = { look: "wanderer", horse: "bay" };
+export interface HeroAppearance {
+  name: string; gender: "m" | "f"; build: 0 | 1 | 2; face: number; hair: number; hairColor: number; skin: number;
+  look: HeroLook; horse: HorseCoat;
+}
+export const DEFAULT_HERO_APPEARANCE: HeroAppearance = { name: "Wanderer", gender: "m", build: 1, face: 0, hair: 1, hairColor: 1, skin: 1, look: "wanderer", horse: "bay" };
 export function sanitizeHeroAppearance(raw: unknown): HeroAppearance {
   const a = raw && typeof raw === "object" ? raw as Partial<HeroAppearance> : {};
-  return { look: HERO_LOOKS.includes(a.look as HeroLook) ? a.look! : "wanderer", horse: HORSE_COATS.includes(a.horse as HorseCoat) ? a.horse! : "bay" };
+  const index = (v: unknown, max: number, fallback = 0) => typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(0, Math.floor(v))) : fallback;
+  const name = typeof a.name === "string" ? a.name.normalize("NFKC").replace(/[^\p{L}\p{N} '\-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 24) : "";
+  return { name: name || "Wanderer", gender: a.gender === "f" ? "f" : "m", build: index(a.build, 2, 1) as 0|1|2, face: index(a.face,2), hair: index(a.hair,3,1), hairColor: index(a.hairColor,5,1), skin: index(a.skin,4,1), look: HERO_LOOKS.includes(a.look as HeroLook) ? a.look! : "wanderer", horse: HORSE_COATS.includes(a.horse as HorseCoat) ? a.horse! : "bay" };
 }
 export interface HeroVisual {
   appearance: HeroAppearance;
   armour: number;
   weapon: string;
   weaponTier: number;
+  helmTier: number;
+  shieldTier: number;
   helmet: boolean;
   shield: boolean;
 }
 export function heroVisualFromEquipment(equipment: Equipment, appearance?: HeroAppearance): HeroVisual {
   const tier = (item: GearItem | null) => item?.tier === "relic" ? 3 : item?.tier ?? 0;
-  return { appearance: sanitizeHeroAppearance(appearance), armour: tier(equipment.chest), weapon: equipment.weapon?.kind ?? "unarmed", weaponTier: tier(equipment.weapon), helmet: !!equipment.head, shield: !!equipment.offhand };
+  return { appearance: sanitizeHeroAppearance(appearance), armour: tier(equipment.chest), weapon: equipment.weapon?.kind ?? "unarmed", weaponTier: tier(equipment.weapon), helmTier: tier(equipment.head), shieldTier: tier(equipment.offhand), helmet: !!equipment.head, shield: !!equipment.offhand };
 }
-export const HERO_WEAPON_KINDS = ["sword", "spear", "club", "bow", "staff"] as const;
+export const HERO_WEAPON_KINDS = ["sword", "axe", "spear", "club", "bow", "staff"] as const;
+
+export const PLAYER_WEAPON_KINDS = ["sword", "axe", "spear", "bow"] as const;
+export const PLAYER_GEAR_SLOTS: readonly GearSlot[] = ["head", "chest", "weapon", "offhand"];

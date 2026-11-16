@@ -56,5 +56,16 @@ for (const name of ["upperArm", "foreArm", "thigh", "shin"]) { const a = readPNG
   const bgOk = /background 59,106,63 removed/.test(outTxt), speckOk = /dropped \d+ stray px/.test(outTxt); if (!bgOk) fails++; if (!speckOk) fails++;
   console.log(`${bgOk ? "PASS" : "FAIL"} [messy sheet]  opaque background detected and removed`); console.log(`${speckOk ? "PASS" : "FAIL"} [messy sheet]  stray specks dropped`);
 }
+// Translucent noise must not expand the crop or alter a fractional pivot.
+{
+ const {writePNG}=await import("./lib/png.mjs"),{writeFileSync}=await import("node:fs");
+ const im=readPNG(src+orig.parts.upperArm.file),data=new Uint8Array(160*128*4);
+ for(let y=0;y<im.h;y++)for(let x=0;x<im.w;x++)for(let k=0;k<4;k++)data[((y+30)*160+x+60)*4+k]=im.data[(y*im.w+x)*4+k];
+ const layout={cellW:128,cellH:128,cells:[{name:"arm",rect:[32,0,128,128],mode:"frac",fx:.5,fy:.2,expectH:30}]};
+ writeFileSync(dir+"/alpha.json",JSON.stringify(layout));
+ function slice(tag){writePNG(dir+"/"+tag+".png",{w:160,h:128,data});execFileSync("node",[new URL("./slice-rig-sheet.mjs",import.meta.url).pathname,dir+"/"+tag+".png",dir+"/alpha.json","--out",dir+"/"+tag,"--bg","none"]);return JSON.parse(readFileSync(dir+"/"+tag+"/manifest.json")).parts.arm;}
+ const clean=slice("clean-alpha");for(const p of [40,160*120+150]){data[p*4]=255;data[p*4+3]=110;}
+ const dirty=slice("dirty-alpha"),ok=JSON.stringify(clean)===JSON.stringify(dirty);if(!ok)fails++;console.log(`${ok?"PASS":"FAIL"} [alpha noise] translucent specks do not change crop size or pivot`);
+}
 console.log(fails ? `${fails} FAILED` : "all parts line up with their originals");
 process.exit(fails ? 1 : 0);

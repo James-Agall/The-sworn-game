@@ -1,0 +1,156 @@
+[
+ {
+  "name": "sword.t1",
+  "status": "ok",
+  "size": "22x52",
+  "scale": "0.17",
+  "pivot": "11,10.5",
+  "notes": [
+   "dropped 3648 stray px"
+  ]
+ },
+ {
+  "name": "sword.t2",
+  "status": "ok",
+  "size": "24x52",
+  "scale": "0.17",
+  "pivot": "12,10.5",
+  "notes": [
+   "dropped 4070 stray px"
+  ]
+ },
+ {
+  "name": "sword.t3",
+  "status": "ok",
+  "size": "26x52",
+  "scale": "0.17",
+  "pivot": "12.5,10.5",
+  "notes": [
+   "dropped 4807 stray px"
+  ]
+ },
+ {
+  "name": "axe.t1",
+  "status": "ok",
+  "size": "26x53",
+  "scale": "0.17",
+  "pivot": "8,10.5",
+  "notes": [
+   "dropped 3585 stray px"
+  ]
+ },
+ {
+  "name": "axe.t2",
+  "status": "ok",
+  "size": "27x53",
+  "scale": "0.18",
+  "pivot": "8,10.5",
+  "notes": [
+   "dropped 3376 stray px"
+  ]
+ },
+ {
+  "name": "axe.t3",
+  "status": "ok",
+  "size": "27x53",
+  "scale": "0.17",
+  "pivot": "8.5,10.5",
+  "notes": [
+   "dropped 6263 stray px"
+  ]
+ },
+ {
+  "name": "spear.t1",
+  "status": "ok",
+  "size": "16x79",
+  "scale": "0.23",
+  "pivot": "8.5,28.5",
+  "notes": [
+   "dropped 2247 stray px"
+  ]
+ },
+ {
+  "name": "spear.t2",
+  "status": "ok",
+  "size": "17x79",
+  "scale": "0.23",
+  "pivot": "8.5,29",
+  "notes": [
+   "dropped 2503 stray px"
+  ]
+ },
+ {
+  "name": "spear.t3",
+  "status": "CHECK",
+  "size": "19x79",
+  "scale": "0.23",
+  "pivot": "9.5,28.5",
+  "notes": [
+   "dropped 3174 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "shield.t1",
+  "status": "ok",
+  "size": "27x32",
+  "scale": "0.11",
+  "pivot": "13.5,16",
+  "notes": [
+   "dropped 3518 stray px"
+  ]
+ },
+ {
+  "name": "shield.t2",
+  "status": "ok",
+  "size": "28x32",
+  "scale": "0.11",
+  "pivot": "14,16",
+  "notes": [
+   "dropped 3652 stray px"
+  ]
+ },
+ {
+  "name": "shield.t3",
+  "status": "ok",
+  "size": "28x32",
+  "scale": "0.11",
+  "pivot": "14,16",
+  "notes": [
+   "dropped 3384 stray px"
+  ]
+ },
+ {
+  "name": "bow.t1",
+  "status": "CHECK",
+  "size": "17x52",
+  "scale": "0.16",
+  "pivot": "10,25.5",
+  "notes": [
+   "dropped 3704 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "bow.t2",
+  "status": "CHECK",
+  "size": "19x52",
+  "scale": "0.16",
+  "pivot": "10.5,25.5",
+  "notes": [
+   "dropped 3073 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "bow.t3",
+  "status": "CHECK",
+  "size": "19x52",
+  "scale": "0.16",
+  "pivot": "10.5,25.5",
+  "notes": [
+   "dropped 4731 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ }
+]

@@ -16,6 +16,7 @@ import {
   INTERIOR_WALK_FRAME_MS, INTERIOR_WORK_MS, INTERIOR_ZOOM, type InteriorMap, type InteriorNpcLive, type InteriorProp, type InteriorView,
 } from "@colony/shared/interiors";
 import type { StructureTextures } from "./structureArt";
+import { rigTextureScale } from "./heroRig";
 import { autumnFrame, loadAutumnSheet } from "./autumnAnimations";
 
 const T = INTERIOR_TILE_PX;
@@ -76,7 +77,7 @@ export interface InteriorDeps {
   worldLayer: Container;
   structure: StructureTextures;
   playerTexture: Texture;
-  heroTexture?: (id: string, moving: boolean) => Texture | undefined;
+  heroTexture?: (id: string, moving: boolean, distance?: number) => Texture | undefined;
   playerHeight: number;
   // Scale that draws a human frame's body at the world's body height (alpha-measured, like the world sprites); falls back to playerHeight / frame height.
   humanScale?: (tex: Texture) => number;
@@ -483,8 +484,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       shown.y += (target.y - shown.y) * 0.35;
     }
     const moving = Math.hypot(target.x-shown.x,target.y-shown.y)>.3;
-    const heroArt=deps.heroTexture?.(deps.myId() ?? "",moving);
-    if(heroArt) { hero.texture=heroArt; const sign=target.x<shown.x? -1:target.x>shown.x?1:Math.sign(hero.scale.x)||1; const k=heroK(heroArt); hero.scale.set(sign*k,k); }
+    const heroArt=deps.heroTexture?.(deps.myId() ?? "",moving,Math.hypot(shown.x-hero.x,shown.y-hero.y));
+    if(heroArt) { hero.anchor.set(rigTextureScale(heroArt) ? 120/256 : .5,rigTextureScale(heroArt) ? 163/192 : .85); hero.texture=heroArt; const sign=target.x<shown.x? -1:target.x>shown.x?1:Math.sign(hero.scale.x)||1; const k=heroK(heroArt); hero.scale.set(sign*k,k); }
     hero.position.set(shown.x, shown.y);
     hero.zIndex = shown.y;
     animateNpcs(performance.now());
@@ -557,8 +558,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           others.set(p.id, s);
           room.addChild(s);
         }
-        const art=deps.heroTexture?.(p.id,Math.hypot(p.inside.x-s.x,p.inside.y-s.y)>.3);
-        if(art) {s.texture=art;s.tint=0xffffff;const k=heroK(art);s.scale.set((p.inside.x<s.x?-1:1)*k,k);}
+        const art=deps.heroTexture?.(p.id,Math.hypot(p.inside.x-s.x,p.inside.y-s.y)>.3,Math.hypot(p.inside.x-s.x,p.inside.y-s.y));
+        if(art) {s.anchor.set(rigTextureScale(art) ? 120/256 : .5,rigTextureScale(art) ? 163/192 : .85);s.texture=art;s.tint=0xffffff;const k=heroK(art);s.scale.set((p.inside.x<s.x?-1:1)*k,k);}
         s.position.set(p.inside.x, p.inside.y);
         s.zIndex = p.inside.y;
       }

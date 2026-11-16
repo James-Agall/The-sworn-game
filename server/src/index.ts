@@ -384,7 +384,7 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "unequipItem") {
     handleUnequipItem(player, message.slot, message.heroId);
   } else if (message.type === "takeFromArmoury") {
-    handleTakeFromArmoury(player, message.slot, message.tier, message.heroId, message.weaponKind);
+    handleTakeFromArmoury(player, message.slot, message.tier, message.heroId, message.weaponKind, message.armourPart);
   } else if (message.type === "recruitHero") {
     if (!Number.isInteger(message.tx) || !Number.isInteger(message.ty)) return;
     handleRecruitHero(player, message.tx, message.ty, message.class);

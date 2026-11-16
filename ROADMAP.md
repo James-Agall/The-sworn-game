@@ -4483,3 +4483,32 @@ behaviour. Nothing below is a regression from the split. The causes fall into fo
   After: regiment-test 12/12 alone and formation-test 8/8 alone, then `npm test -- regiment-test formation-test` 5/5. `combat-line-test` still fails intermittently (marching followers / goblin slot / knight-back-on-slot checks), the same checks fail on the code without this fix.
 - `army-damage-test` "lone knight: 0 hits, all 12": not a bug. Re-run 2026-10-30 passed (551 s): the lone knight scored 2 isolated hits on night 1 and 3 by night 2, all exactly 12. The check counts only "isolated" hits (one effect per mob per tick, a single attacker at the effect origin), and whether raiders reach the lone post at all is down to where the raid comes in, so a run with 0 lone-knight hits is a sampling miss, not a knight that cannot find targets. If it recurs, the fix belongs in the test (more nights, or bait at the lone post).
 - `battle-discipline` "S: >1 distinct goblin being fought": flaky before the slot fix too (1 of 15 runs on the old code, 1 of 14 after). Its "S: every survivor back on its slot" check failed 4 of 15 runs on the old code and 0 of 14 after the fix (same stuck-short-of-slot bug).
+
+
+## Character creator, landed — 2026-11-16
+
+The player now uses separately painted body parts on a shared skeleton. The creator opens before New Game, Solo and Creative;
+Continue/Load skips it. Reopen **Hero → Edit appearance** during play. Name, body, three builds (−7% / average / +7% height), three faces,
+four hairstyles, six hair colours, five skin tones and five horse coats persist on the existing server profile.
+
+Head, body armour, weapon and shield are the player's four equipment slots. The armoury supplies all three tiers from existing forged stock.
+Sword, axe, spear and bow use the same rig; axes hit 25% harder with 25% longer cooldown (rounded to ticks). Spear reach and bow range use existing combat.
+The server refuses bow + shield in either order. Recruited heroes retain their legacy gear and spell systems.
+
+Rendering uses real head/torso/pelvis/upper-arm/forearm/thigh/shin/foot/hair/helm/weapon/shield PNGs. Skin/hair/horse palette changes preserve shading.
+Idle, movement-driven planted-foot walking, weapon attacks, mounted poses and hurt recoil share the skeleton. Existing crimson wound splashes remain.
+World, indoor, creator and other players' views use the same parts and height. Real horse ownership/mounting is unchanged; the creator's mount toggle is a preview.
+Optional part loading falls back to the existing hero art. Art remains transparent and existing sprite files are untouched.
+
+Art: four source atlases (#106–109), 69 distinct painted pieces plus 14 default aliases in `client/public/rig/parts/painted-v1`.
+Sources and original generation prompts: `art-sources/character-creator-20261116` (local source archive, not committed).
+Observed crop rectangles, pivots, output padding and a mild rim palette adjustment are reproducible from `scripts/rig-layouts/painted-*.json`.
+The slicer now discards disconnected translucent noise while preserving antialiased edges. #109 supplied three bows; arrows use the existing projectile effect.
+
+Verification: client/server/shared typechecks; slicer round-trip, messy-background and translucent-noise regression; targeted appearance, character-sheet,
+equipment, hero, hero-tools and snapshot-delta suites. Contact sheets cover 2 bodies × 3 builds × 4 weapons × 4 armour levels × 8 foot/mounted poses,
+plus all face/hair pairings and an existing-hero comparison at game size. Representative head/torso/helmet art validation passes.
+Private browser checks cover creator → Creative restart, edit/save, real horse mounting, house interior, Continue with restored appearance,
+Solo restart, Escape cancellation and missing-art fallback. Production build and browser checks use scratch saves/private ports.
+
+No live deployment and no push. Long multiplayer play sessions and subjective animation polish remain manual review items; the checked combinations render and integrate.

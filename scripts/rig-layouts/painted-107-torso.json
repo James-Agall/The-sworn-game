@@ -1,0 +1,127 @@
+{
+  "set": "painted-v1",
+  "cellW": 362,
+  "cellH": 362,
+  "cells": [
+    {
+      "name": "torso.tunic",
+      "mode": "frac",
+      "dy": 0,
+      "expectH": 36,
+      "len": 31,
+      "joint": "waist",
+      "default": "torso",
+      "row": 0,
+      "col": 0,
+      "fx": 0.5,
+      "fy": 0.86
+    },
+    {
+      "name": "torso.t1",
+      "mode": "frac",
+      "dy": 0,
+      "expectH": 36,
+      "len": 31,
+      "joint": "waist",
+      "row": 0,
+      "col": 1,
+      "fx": 0.5,
+      "fy": 0.86
+    },
+    {
+      "name": "torso.t2",
+      "mode": "frac",
+      "dy": 0,
+      "expectH": 36,
+      "len": 31,
+      "joint": "waist",
+      "row": 0,
+      "col": 2,
+      "fx": 0.5,
+      "fy": 0.86
+    },
+    {
+      "name": "torso.t3",
+      "mode": "frac",
+      "dy": 0,
+      "expectH": 36,
+      "len": 31,
+      "joint": "waist",
+      "row": 0,
+      "col": 3,
+      "fx": 0.5,
+      "fy": 0.86
+    },
+    {
+      "name": "torsoF.tunic",
+      "mode": "frac",
+      "dy": 0,
+      "expectH": 36,
+      "len": 31,
+      "joint": "waist (female)",
+      "row": 1,
+      "col": 0,
+      "fx": 0.5,
+      "fy": 0.86
+    },
+    {
+      "name": "torsoF.t1",
+      "mode": "frac",
+      "dy": 0,
+      "expectH": 36,
+      "len": 31,
+      "joint": "waist (female)",
+      "row": 1,
+      "col": 1,
+      "fx": 0.5,
+      "fy": 0.86
+    },
+    {
+      "name": "torsoF.t2",
+      "mode": "frac",
+      "dy": 0,
+      "expectH": 36,
+      "len": 31,
+      "joint": "waist (female)",
+      "row": 1,
+      "col": 2,
+      "fx": 0.5,
+      "fy": 0.86
+    },
+    {
+      "name": "torsoF.t3",
+      "mode": "frac",
+      "dy": 0,
+      "expectH": 36,
+      "len": 31,
+      "joint": "waist (female)",
+      "row": 1,
+      "col": 3,
+      "fx": 0.5,
+      "fy": 0.86
+    },
+    {
+      "name": "pelvis.trousers",
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.25,
+      "expectH": 14,
+      "joint": "root / hips",
+      "default": "pelvis",
+      "row": 2,
+      "col": 0
+    },
+    {
+      "name": "pelvis.bare",
+      "mode": "frac",
+      "fx": 0.5,
+      "fy": 0.25,
+      "expectH": 14,
+      "joint": "root / hips",
+      "row": 2,
+      "col": 1
+    }
+  ],
+  "outputPad": 2,
+  "edgeShade": 0.88
+}

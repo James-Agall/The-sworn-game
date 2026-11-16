@@ -1,4 +1,5 @@
-import { sanitizeHeroAppearance, HERO_LOOKS, HORSE_COATS, HERO_WEAPON_KINDS, heroVisualFromEquipment } from "@colony/shared/protocol";
+import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS } from "@colony/shared/protocol";
+import { sanitizeHeroAppearance, HERO_WEAPON_KINDS, heroVisualFromEquipment } from "@colony/shared/protocol";
 // heroes.ts: Hero phases 1-4 support: equipment, hero profiles, items, relics, recruitable heroes, Blacksmith forging.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { gatesOpen, workerLevelAt } from "./progression.js";
@@ -269,11 +270,11 @@ export function playerMaxHp(p: Player): number {
 }
 
 export function playerDamage(p: Player): number {
-  return PLAYER_ATTACK_DAMAGE * heroProfileOf(p).stats.damageMult * spellBuffDamageMult("p:" + p.id);
+  return PLAYER_ATTACK_DAMAGE * (heroProfileOf(p).equipment.weapon?.kind === "axe" ? 1.25 : 1) * heroProfileOf(p).stats.damageMult * spellBuffDamageMult("p:" + p.id);
 }
 
 export function playerAttackCooldownTicks(p: Player): number {
-  return Math.max(1, Math.round(PLAYER_ATTACK_COOLDOWN_TICKS / heroProfileOf(p).stats.attackSpeedMult));
+  return Math.max(1, Math.round(PLAYER_ATTACK_COOLDOWN_TICKS * (heroProfileOf(p).equipment.weapon?.kind === "axe" ? 1.25 : 1) / heroProfileOf(p).stats.attackSpeedMult));
 }
 
 export function heroProfileSnapshot(prof: HeroProfile): HeroProfileSnapshot {
@@ -408,6 +409,13 @@ export function handleEquipItem(player: Player, itemId: unknown, slot: unknown, 
   const item = pack.inventory[idx];
   const gs = slot as GearSlot;
   if (gearSlotKind(gs) !== item.slot) return refuseGear(player, `${item.name} doesn't go in the ${gs} slot`);
+  if (prof === pack) {
+    if (!PLAYER_GEAR_SLOTS.includes(gs)) return refuseGear(player, "Your character equips head armour, body armour, a weapon and a shield only");
+    if (gs === "weapon" && !PLAYER_WEAPON_KINDS.includes(item.kind as any)) return refuseGear(player, "Choose a sword, axe, spear or bow");
+    if (gs === "offhand" && item.kind !== "shield") return refuseGear(player, "Only a shield fits your off-hand slot");
+    if ((gs === "weapon" && item.kind === "bow" && prof.equipment.offhand) || (gs === "offhand" && prof.equipment.weapon?.kind === "bow"))
+      return refuseGear(player, "A bow needs both hands: unequip your bow or shield first");
+  }
   pack.inventory.splice(idx, 1);
   const old = prof.equipment[gs];
   if (old) pack.inventory.push(old);
@@ -433,10 +441,13 @@ export function handleUnequipItem(player: Player, slot: unknown, heroId?: unknow
 }
 
 // One plain tiered piece out of the colony stock into the player's pack (it no longer arms a soldier).
-export function handleTakeFromArmoury(player: Player, slot: unknown, tier: unknown, heroId?: unknown, weaponKind?: unknown) {
+export function handleTakeFromArmoury(player: Player, slot: unknown, tier: unknown, heroId?: unknown, weaponKind?: unknown, armourPart?: unknown) {
   if (slot !== "armour" && slot !== "weapon") return;
   if (typeof tier !== "number" || !Number.isInteger(tier) || tier < 1 || tier > EQUIP_TIERS) return;
   if (weaponKind !== undefined && !HERO_WEAPON_KINDS.includes(weaponKind as any)) return;
+  if (armourPart !== undefined && !["head", "chest", "offhand"].includes(armourPart as string)) return;
+  if (!heroId && slot === "weapon" && weaponKind !== undefined && !PLAYER_WEAPON_KINDS.includes(weaponKind as any)) return refuseGear(player, "Choose a sword, axe, spear or bow");
+  if (heroId && !gearTarget(player, heroId)) return refuseGear(player, "No such hero");
   const prof = heroProfileOf(player);
   if (state.equipment[slot][tier - 1] <= 0) return refuseGear(player, `No tier-${tier} ${EQUIP_SLOT_LABEL[slot]} in the colony's stock`);
   if (prof.inventory.length >= HERO_INVENTORY_CAP) return refuseGear(player, "Your pack is full (40 items)");
@@ -448,12 +459,18 @@ export function handleTakeFromArmoury(player: Player, slot: unknown, tier: unkno
     item.name = `${["Iron", "Steel", "Gilded"][tier - 1]} ${weaponKind[0].toUpperCase() + weaponKind.slice(1)}`;
     item.icon = weaponKind === "sword" ? `icon-weaponT${tier}` : weaponKind === "club" ? "icon-weaponT1" : `relic${weaponKind[0].toUpperCase()+weaponKind.slice(1)}`;
   }
+  if (slot === "armour" && (armourPart === "head" || armourPart === "offhand")) {
+    item.slot = armourPart;
+    item.kind = armourPart === "head" ? "helm" : "shield";
+    item.name = `${["Iron", "Steel", "Gilded"][tier-1]} ${armourPart === "head" ? "Helm" : "Shield"}`;
+    item.stats = { damageTakenPct: Math.round((item.stats.damageTakenPct ?? 0) * .4) };
+  }
   prof.inventory.push(item);
   recomputeHeroProfile(prof);
   heroEvent({ type: "take", key: prof.key, detail: `${slot} ${tier}` });
   // Hero phase 3: taken for a hero's tab - straight onto that hero when its socket is free.
   const hero = heroId ? gearTarget(player, heroId) : null;
-  if (hero && hero !== prof && !hero.equipment[def.slot as GearSlot]) handleEquipItem(player, item.id, def.slot, heroId);
+  if (hero && hero !== prof && !hero.equipment[item.slot as GearSlot]) handleEquipItem(player, item.id, item.slot, heroId);
 }
 
 // Save / load: profiles as plain data; anything malformed is dropped (old saves: none).
@@ -856,8 +873,7 @@ export function forgeBusyForSnapshot(): number[] {
 
 export function handleHeroAppearance(player: Player, raw: unknown) {
   if (!raw || typeof raw !== "object") return;
-  const a = raw as { look?: unknown; horse?: unknown };
-  if (!HERO_LOOKS.includes(a.look as any) || !HORSE_COATS.includes(a.horse as any)) return;
+
   const prof = heroProfileOf(player);
   prof.appearance = sanitizeHeroAppearance(raw);
   recomputeHeroProfile(prof);
