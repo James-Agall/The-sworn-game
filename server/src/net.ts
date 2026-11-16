@@ -16,7 +16,7 @@ import {
 import { clans, colonists, players, state, tileClan, tileOwner } from "./state.js";
 import { clamp } from "./tiles.js";
 import { TOWN_CENTER_TILE, isAbbeyClergy } from "./colonists.js";
-import { listSaves, sendTo } from "./saves.js";
+import { listSaves, saveOnShutdown, sendTo } from "./saves.js";
 import { streamingOn } from "./chunks.js";
 import { sendChronicle } from "./chronicle.js";
 import {
@@ -135,7 +135,23 @@ export function broadcastToSockets(message: ServerMessage) {
 }
 // One HTTP server on PORT: websocket upgrades go to `wss`; plain GET /saves lists the save slots for
 // the main menu (which has no websocket open yet).
+// Main menu Exit: POST /quit autosaves and stops the server. Local machine only; the custom header makes browsers
+// preflight it, and the preflight is answered only for a localhost page, so no other website can trigger it.
+const isLoopback = (a: string | undefined) => a === "127.0.0.1" || a === "::1" || a === "::ffff:127.0.0.1";
+const localOrigin = (o: string | undefined) => !!o && /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(o);
 export const httpServer = createServer((req, res) => {
+  if (req.url?.split("?")[0] === "/quit") {
+    const origin = req.headers.origin;
+    const ok = isLoopback(req.socket.remoteAddress) && (origin === undefined || localOrigin(origin));
+    const cors = ok && origin ? { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "X-Colony-Quit" } : {};
+    if (req.method === "OPTIONS") { res.writeHead(ok ? 204 : 403, cors); res.end(); return; }
+    if (req.method !== "POST" || !ok || req.headers["x-colony-quit"] !== "1") { res.writeHead(403, cors); res.end(); return; }
+    res.writeHead(200, cors);
+    res.end("stopping");
+    console.log("[quit] Exit pressed on the main menu");
+    setTimeout(() => saveOnShutdown("quit"), 150);
+    return;
+  }
   if (req.method === "GET" && req.url?.split("?")[0] === "/saves") {
     void listSaves().then((saves) => {
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });

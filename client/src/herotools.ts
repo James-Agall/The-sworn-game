@@ -4,9 +4,10 @@
 // mouse when that moved last; the faced tile (one tile away) is highlighted, with a short hint. E uses the tool there
 // when no NPC is in range (talking keeps priority, then the old gather / station rules); Space or a left click on
 // that tile uses it without talking (Space attacks with no tool in hand). Digits stay build hotkeys while the Build
-// panel is open. Icons: spriteRegistry iconUrl (tool_*); the frame is CSS (the staged hotbar art has 5 slots).
+// panel is open. Weapons (the wielded one plus those in the pack) get slots after the tools: click one to wield it, 0 cycles them,
+// Shift+wheel runs through tools then weapons; with a weapon wielded and no tool armed Space attacks. Icons: spriteRegistry iconUrl (tool_*); the frame is CSS (the staged hotbar art has 5 slots).
 import { Graphics } from "pixi.js";
-import { TileType } from "@colony/shared/protocol";
+import { TileType, type GearItem } from "@colony/shared/protocol";
 import { CROPS, CropStage, type CropId } from "@colony/shared/zones";
 import { HERO_TOOLS, HERO_TOOL_ITEM, HERO_TOOL_LABEL, SEED_ITEM, WATER_CAN_CHARGES, type HeroLifeSnapshot, type HeroTool } from "@colony/shared/herolife";
 import type { ItemId } from "@colony/shared/progression";
@@ -31,6 +32,12 @@ export interface HeroToolsDeps {
   itemCount: (id: ItemId) => number;
   // Gates open (creative unlock / test unlock-all): tools needn't be in the stores.
   gatesOpen: () => boolean;
+  // Weapons the hero carries (equipped one included), in a stable order; the hotbar shows one slot each.
+  weapons: () => GearItem[];
+  equippedWeaponId: () => string | null;
+  // Equip that weapon from the pack (swapping the old one back in).
+  equipWeapon: (id: string) => void;
+  weaponIcon: (item: GearItem) => HTMLElement;
 }
 
 export interface HeroToolsUi {
@@ -47,6 +54,8 @@ export interface HeroToolsUi {
   mouse: (wx: number, wy: number) => void;
   // Shift+wheel on the canvas: true if it cycled the hotbar.
   wheel: (deltaY: number) => boolean;
+  // The hero's weapons changed (profile snapshot): redraw the weapon slots.
+  refreshWeapons: () => void;
 }
 
 const ICON: Record<HeroTool, string> = {
@@ -64,6 +73,9 @@ body.adventure-mode:not(.strategy-mode) #hero-hotbar { display: flex; }
   box-shadow: inset 0 0 0 1px #8a6236, 0 3px 10px rgba(0,0,0,.55); pointer-events: auto; }
 #hero-hotbar .hh-slot { position: relative; width: 36px; height: 36px; background: #3a3a34; border: 2px solid #7a5530; border-radius: 3px;
   display: flex; align-items: center; justify-content: center; cursor: pointer; }
+#hero-hotbar .hh-weapons { display: flex; gap: 3px; margin-left: 4px; padding-left: 6px; border-left: 2px solid #2e1d0c; }
+#hero-hotbar .hh-weapons:empty { display: none; }
+#hero-hotbar .hh-slot .hs-item { width: 26px; height: 26px; margin: 0; pointer-events: none; }
 #hero-hotbar .hh-slot.on { border-color: #f2b632; box-shadow: 0 0 6px rgba(242,182,50,.8); }
 #hero-hotbar .hh-slot.none { opacity: .4; }
 #hero-hotbar .hh-slot kbd { position: absolute; left: 2px; top: 0; font-size: 9px; color: #fff; text-shadow: 0 0 2px #000; }
@@ -122,6 +134,43 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
     countEls.push(small);
   });
 
+  // Weapon slots follow the tool slots: picking one puts any tool away, equips that weapon and Space attacks with it.
+  const weaponsEl = document.createElement("div");
+  weaponsEl.className = "hh-weapons";
+  slotsEl.appendChild(weaponsEl);
+  let weaponSig = "";
+  function refreshWeapons() {
+    const ws = deps.weapons();
+    const eq = deps.equippedWeaponId();
+    const sig = `${ws.map((w) => w.id).join(",")}|${eq}|${armed}`;
+    if (sig === weaponSig) return;
+    weaponSig = sig;
+    weaponsEl.replaceChildren();
+    for (const w of ws) {
+      const s = document.createElement("div");
+      s.className = "hh-slot";
+      s.classList.toggle("on", armed < 0 && w.id === eq);
+      s.title = `${w.name} (click to wield it; 0 cycles weapons; Space attacks)`;
+      s.appendChild(deps.weaponIcon(w));
+      s.addEventListener("pointerdown", (e) => e.stopPropagation());
+      s.addEventListener("click", () => pickWeapon(w.id));
+      weaponsEl.appendChild(s);
+    }
+  }
+  function pickWeapon(id: string) {
+    armed = -1;
+    if (deps.equippedWeaponId() !== id) deps.equipWeapon(id);
+    refreshSlots();
+  }
+  // Key 0: wield the next weapon (the first when none is wielded); with a tool in hand and one weapon, puts the tool away.
+  function cycleWeapon() {
+    const ws = deps.weapons();
+    if (!ws.length) return;
+    const eq = deps.equippedWeaponId();
+    const i = ws.findIndex((w) => w.id === eq);
+    pickWeapon(ws[armed >= 0 && i >= 0 ? i : (i + 1) % ws.length].id);
+  }
+
   const tool = (): HeroTool | null => (armed >= 0 ? HERO_TOOLS[armed] : null);
   function pick(k: number) {
     if (k === armed && HERO_TOOLS[k] === "seeds") crop = CROPS[(CROPS.indexOf(crop) + 1) % CROPS.length];
@@ -129,6 +178,7 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
     refreshSlots();
   }
   function refreshSlots() {
+    refreshWeapons();
     HERO_TOOLS.forEach((t, k) => {
       const s = slotEls[k];
       s.classList.toggle("on", k === armed);
@@ -226,6 +276,12 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
         refreshSlots();
         return;
       }
+      if (e.code === "Digit0" && !deps.buildOpen()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        cycleWeapon();
+        return;
+      }
       const d = /^Digit([1-9])$/.exec(e.code);
       if (!d || deps.buildOpen()) return;
       e.preventDefault();
@@ -279,10 +335,18 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
     mouse(wx, wy) {
       mouseAt = { x: wx, y: wy, t: performance.now() };
     },
+    refreshWeapons,
     wheel(deltaY) {
       if (!deps.active() || deltaY === 0) return false;
       const n = HERO_TOOLS.length;
-      armed = armed < 0 ? (deltaY > 0 ? 0 : n - 1) : (armed + (deltaY > 0 ? 1 : -1) + n) % n;
+      // One ring: the tools, then the weapons; the hand with no tool sits on the wielded weapon.
+      const ws = deps.weapons();
+      const total = n + ws.length;
+      const eqI = ws.findIndex((w) => w.id === deps.equippedWeaponId());
+      const cur = armed >= 0 ? armed : eqI >= 0 ? n + eqI : -1;
+      const next = cur < 0 ? (deltaY > 0 ? 0 : total - 1) : (cur + (deltaY > 0 ? 1 : -1) + total) % total;
+      if (next < n) armed = next;
+      else pickWeapon(ws[next - n].id);
       refreshSlots();
       return true;
     },

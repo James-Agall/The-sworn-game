@@ -192,6 +192,7 @@ import {
 
 const SERVER_URL = "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
+const QUIT_URL = `${SERVER_URL.replace(/^ws/, "http")}/quit`;
 const SAVES_URL = `${SERVER_URL.replace(/^ws/, "http")}/saves`;
 // Main menu Continue / Load Game: the slot to load right after the first welcome (else null).
 let pendingLoadSlot: SaveSlot | null = null;
@@ -4536,8 +4537,11 @@ async function main() {
       const visible = (tool.tile === TileType.Empty || tool.category === activeCategory) && (!tool.legacy || creativeWorld);
       btn.style.display = visible ? "" : "none";
     }
+    // The building templates (Blueprints) are hidden for now outside creative mode: the buildings are single sprites.
+    if (!creativeWorld && activeCategory === "blueprints") activeCategory = TOOL_CATEGORIES[0].key;
+    categoryTabEls.get("blueprints")?.style.setProperty("display", creativeWorld ? "" : "none");
     zonesUi.setActive(activeCategory === "zones" || isZoneTool(currentTool));
-    blueprintsUi.setActive(activeCategory === "blueprints" || currentTool === BLUEPRINT_TOOL);
+    blueprintsUi.setActive(creativeWorld && (activeCategory === "blueprints" || currentTool === BLUEPRINT_TOOL));
   }
 
   function refreshToolbarSelection() {
@@ -4549,7 +4553,7 @@ async function main() {
   function selectTool(tile: TileType, fromUser = false) {
     currentTool = tile;
     zonesUi.setActive(activeCategory === "zones" || isZoneTool(tile));
-    blueprintsUi.setActive(activeCategory === "blueprints" || tile === BLUEPRINT_TOOL);
+    blueprintsUi.setActive(creativeWorld && (activeCategory === "blueprints" || tile === BLUEPRINT_TOOL));
     // Picking something to build puts the units down, so right-click places instead of giving orders.
     if (fromUser && tile !== TileType.Empty && selectedIds.size > 0) setSelection([]);
     if (tile !== TileType.TownCenter && !isRoadTile(tile)) placementGhost.visible = false;
@@ -6759,7 +6763,7 @@ async function main() {
   function syncHeroProfile(
     profile: HeroProfileSnapshot | undefined, stock: EquipmentStock | undefined, me: PlayerSnapshot | undefined, heroes?: HeroSheetSnapshot[]
   ) {
-    if (profile) heroProfile = profile;
+    if (profile) { heroProfile = profile; heroToolsRef.ui?.refreshWeapons(); }
     // Hero phase 4: cooldown ticks are as of this snapshot; the spell bar counts down from here.
     if (profile?.spells) spellCdAt = performance.now();
     if (heroes) heroSheets = heroes;
@@ -7838,6 +7842,11 @@ async function main() {
     cropAt: (i) => zonesUi.cropAt(i),
     itemCount: (id) => itemTotal(latestProgression, id),
     gatesOpen: () => latestProgression?.open === true,
+    // Weapons in the pack plus the wielded one, in id order so slots keep their place when one is swapped in.
+    weapons: () => (heroProfile ? [heroProfile.equipment.weapon, ...heroProfile.inventory].filter((i): i is GearItem => !!i && i.slot === "weapon").sort((a, b) => (a.id < b.id ? -1 : 1)) : []),
+    equippedWeaponId: () => heroProfile?.equipment.weapon?.id ?? null,
+    equipWeapon: (id) => sendMessage({ type: "equipItem", itemId: id, slot: "weapon" }),
+    weaponIcon: (item) => itemIcon(item),
   });
   worldLayer.addChild(heroTools.highlight);
   interiorRef.ui = setupInterior({
@@ -7847,6 +7856,7 @@ async function main() {
     playerTexture: PLAYER_TEXTURE,
     heroTexture: (id, moving) => { const v=heroVisuals.get(id); return v ? heroArt(v,false,moving ? Math.floor(performance.now()/150)%4 : 0)?.texture : undefined; },
     playerHeight: PLAYER_SPRITE_HEIGHT,
+    humanScale: (tex) => HUMAN_CHAR_PX / charHeightPx(tex),
     npcTexture: (kind) => COLONIST_TEXTURES[kind as ColonistKind],
     npcAnim: (kind) => (COLONIST_TINT.has(kind) ? undefined : COLONIST_ANIMS[kind as ColonistKind]),
     npcHeight: COLONIST_SPRITE_HEIGHT,
@@ -9324,6 +9334,8 @@ function setupMainMenu() {
     if (e.key === "Escape" && !settingsModal.hidden) closeModal();
   });
   document.getElementById("menu-exit")!.addEventListener("click", () => {
+    // Stop the game server (it autosaves first; the page server of the live / launcher copies stops with it).
+    fetch(QUIT_URL, { method: "POST", headers: { "X-Colony-Quit": "1" } }).catch(() => undefined);
     // Browsers only let a script close a tab it opened; otherwise show a goodbye line.
     window.close();
     document.getElementById("menu-bye")!.hidden = false;

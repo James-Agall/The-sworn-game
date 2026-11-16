@@ -174,7 +174,7 @@ const ev0 = c.events.length;
 const out = { x: O.x + 27, y: O.y + 15 };
 await placeOne(out.x, out.y, T.Bakery);
 s = await hook("structureState", { at: [out] });
-result(s.tiles[0] === T.Empty && c.events.slice(ev0).some((e) => /needs a roofed room/.test(e)), `Bakery in the open refused (${c.events.slice(ev0).join(" | ")})`);
+result(s.tiles[0] === T.Bakery, `Bakery in the open goes up (the roofed-room rule is off while the building templates are hidden; tile ${s.tiles[0]})`);
 const P = await room(O.x + 22, O.y + 12, O.x + 26, O.y + 16);
 await place(T.WoodFloor, [P]);
 await placeOne(P.x, P.y, T.Bakery);

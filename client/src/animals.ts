@@ -86,7 +86,15 @@ export function createLivestock(deps: LivestockDeps) {
         sprites.set(id, e);
       }
       const moving = (flags & LF_MOVING) !== 0;
-      e.facing = movementFacing(x - e.lastX, y - e.lastY, e.facing);
+      // Face the way it walks, and keep that facing: it only turns to another axis when that axis clearly dominates
+      // (a straight walk never flips; standing still keeps the last facing).
+      if (moving) {
+        const dx = x - e.lastX, dy = y - e.lastY;
+        const next = movementFacing(dx, dy, e.facing);
+        const vert = (f: Cardinal) => f === "n" || f === "s";
+        const ratio = vert(e.facing) ? Math.abs(dx) / (Math.abs(dy) || 1e-6) : Math.abs(dy) / (Math.abs(dx) || 1e-6);
+        if (vert(next) === vert(e.facing) || ratio > 1.6) e.facing = next;
+      }
       const baby = !!(flags & LF_BABY);
       const sheet = species === "chicken" || species === "cow" ? "animal-walks-a" : species === "horse" ? "animal-walks-c" : "animal-walks-b";
       const row = species === "chicken" ? (baby ? 2 : flags & LF_MALE ? 1 : 0) : species === "cow" ? (baby ? 4 : 3) : species === "pig" ? (baby ? 1 : 0) : species === "sheep" ? (baby ? 4 : 2) : baby ? 1 : 0;

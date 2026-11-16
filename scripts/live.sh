@@ -77,7 +77,10 @@ start() {
   fi
   snapshot || return 1
   # setsid: its own session, so it survives this terminal closing and nothing here can signal it by accident.
-  PORT="$SP" COLONY_SAVE_DIR="$SAVES" setsid nohup "$LIVE/node_modules/.bin/tsx" "$LIVE/server/src/index.ts" \
+  # The server runs under a tiny wrapper: when it exits (the menu's Exit button stops it) the page server goes too.
+  PORT="$SP" COLONY_SAVE_DIR="$SAVES" CLIENT_PIDFILE="$PIDS/client" setsid nohup bash -c \
+    '"$0" "$@"; p="$(cat "$CLIENT_PIDFILE" 2>/dev/null)"; [ -n "$p" ] && { kill -TERM -- "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null; }' \
+    "$LIVE/node_modules/.bin/tsx" "$LIVE/server/src/index.ts" \
     >"$LIVE/server.log" 2>&1 </dev/null &
   echo $! >"$PIDS/server"
   setsid nohup python3 -m http.server "$CP" --bind 0.0.0.0 --directory "$LIVE/client/dist" \

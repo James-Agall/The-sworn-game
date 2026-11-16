@@ -17,7 +17,7 @@
 import { TICK_RATE, TILE_SIZE, TileType } from "@colony/shared/protocol";
 import {
   ADULT_AGE_DAYS, ANIMAL_AREA_RANGE_TILES, ANIMAL_CATCHUP_MAX_DAYS, ANIMAL_CHORE_SECONDS, ANIMAL_HERO_RANGE_TILES,
-  ANIMAL_JOB_RANGE_TILES, ANIMAL_PRICE_GOLD, ANIMAL_REST_SECONDS_MAX, ANIMAL_REST_SECONDS_MIN, ANIMAL_SPEED,
+  ANIMAL_JOB_RANGE_TILES, ANIMAL_PICK_SECONDS, ANIMAL_PRICE_GOLD, ANIMAL_SPEED, ANIMAL_WALK_SECONDS,
   ANIMAL_WANDER_TILES, BABY_LABEL, BABY_NEEDS_MULT, BREED_CHANCE, BREED_MIN_FED, BREED_MIN_HAPPINESS, BREEDS_IN_WINTER,
   FEED_PER_DAY, FEEDER_DAYS, GRAIN_FEED_RESERVE, GRAIN_FEED_UNITS, GRAZE_FEED_SHARE, HAPPINESS_STEP, HAPPINESS_W_FED,
   HAPPINESS_W_OUT, HAPPINESS_W_ROOM, HAPPINESS_W_WATER, HAPPY_FLAG, HAY_FEED_UNITS, HEALTH_LOSS_PER_NEED, HEALTH_REGEN,
@@ -377,19 +377,43 @@ function checkThreats() {
 function indoorsNow(): boolean {
   return isNightNow() || winterNow();
 }
-function pickTarget(h: HouseRec, p: AnimalPos) {
-  if (h.graze.length > 0) {
-    const i = h.graze[Math.floor(Math.random() * h.graze.length)];
-    p.tx = (i % W()) * TILE_SIZE + TILE_SIZE * (0.2 + Math.random() * 0.6);
-    p.ty = Math.floor(i / W()) * TILE_SIZE + TILE_SIZE * (0.2 + Math.random() * 0.6);
-  } else {
-    const r = ANIMAL_WANDER_TILES;
-    const x = h.x + Math.round((Math.random() * 2 - 1) * r);
-    const y = h.y + Math.round((Math.random() * 2 - 1) * r);
-    if (!inBounds(x, y) || !isWalkableTile(x, y)) return;
-    p.tx = x * TILE_SIZE + TILE_SIZE * (0.2 + Math.random() * 0.6);
-    p.ty = y * TILE_SIZE + TILE_SIZE * (0.2 + Math.random() * 0.6);
+const pickTicks = () => ANIMAL_PICK_SECONDS * (0.8 + Math.random() * 0.4) * TICK_RATE;
+// The straight segment is walkable (sampled every half tile), so the animal never has to turn mid-walk.
+function clearLine(x0: number, y0: number, x1: number, y1: number): boolean {
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / (TILE_SIZE / 2));
+  for (let i = 1; i <= steps; i++) if (!walkablePx(x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps)) return false;
+  return true;
+}
+// One random spot of the house's Animal area (else near the house) that the animal can reach in a straight walk of at
+// most ANIMAL_WALK_SECONDS; a few tries (cheap), the second pass shortens a far spot toward it. False: stay put this round.
+function pickTarget(h: HouseRec, p: AnimalPos, a: AnimalRec): boolean {
+  const reach = ANIMAL_SPEED[a.species] * (isBaby(a) ? 0.8 : 1) * ANIMAL_WALK_SECONDS;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    let x: number;
+    let y: number;
+    if (h.graze.length > 0) {
+      const i = h.graze[Math.floor(Math.random() * h.graze.length)];
+      x = (i % W()) * TILE_SIZE + TILE_SIZE * (0.2 + Math.random() * 0.6);
+      y = Math.floor(i / W()) * TILE_SIZE + TILE_SIZE * (0.2 + Math.random() * 0.6);
+    } else {
+      const r = ANIMAL_WANDER_TILES;
+      x = (h.x + (Math.random() * 2 - 1) * r + 0.5) * TILE_SIZE;
+      y = (h.y + (Math.random() * 2 - 1) * r + 0.5) * TILE_SIZE;
+    }
+    let d = Math.hypot(x - p.x, y - p.y);
+    if (d < TILE_SIZE * 0.6) continue;
+    if (d > reach) {
+      if (attempt < 6) continue;
+      x = p.x + ((x - p.x) * reach) / d;
+      y = p.y + ((y - p.y) * reach) / d;
+      d = reach;
+    }
+    if (!walkablePx(x, y) || !clearLine(p.x, p.y, x, y)) continue;
+    p.tx = x;
+    p.ty = y;
+    return true;
   }
+  return false;
 }
 function walkablePx(x: number, y: number): boolean {
   const t = tileOfPixel(x, y);
@@ -434,7 +458,7 @@ function wander(dt: number) {
       if (!door) continue;
       const x = door.x * TILE_SIZE + TILE_SIZE / 2;
       const y = door.y * TILE_SIZE + TILE_SIZE / 2;
-      p = { x, y, tx: x, ty: y, rest: Math.random() * ANIMAL_REST_SECONDS_MAX * TICK_RATE, moving: false };
+      p = { x, y, tx: x, ty: y, rest: Math.random() * ANIMAL_PICK_SECONDS * TICK_RATE, moving: false };
       pos.set(a.id, p);
     }
     if (streaming && chunkStateAtPixel(p.x, p.y) !== ChunkState.Active) continue;
@@ -447,34 +471,44 @@ function wander(dt: number) {
       p.ty = door ? door.y * TILE_SIZE + TILE_SIZE / 2 : p.y;
     }
     p.flee = !!p.home && threatened;
-    if (p.rest > 0) {
-      p.rest--;
-      p.moving = false;
-      if (p.rest <= 0) pickTarget(h, p);
+    // Walking home (called in / fleeing): to the door, sidestepping obstacles, then inside.
+    if (p.home) {
+      const dx = p.tx - p.x;
+      const dy = p.ty - p.y;
+      const d = Math.hypot(dx, dy);
+      const step = ANIMAL_SPEED[a.species] * (isBaby(a) ? 0.8 : 1) * (p.flee ? ANIMAL_FLEE_SPEED_MULT : 1) * dt;
+      if (d <= step) pos.delete(a.id);
+      else if (stepAround(p, dx, dy, d, step)) p.moving = true;
+      else pos.delete(a.id);
       continue;
+    }
+    // Grazing: stand until the pick timer runs out, then pick one spot and walk straight to it (no turning mid-walk).
+    if (p.rest > 0) p.rest--;
+    if (!p.moving) {
+      if (p.rest > 0) continue;
+      p.rest = pickTicks();
+      if (!pickTarget(h, p, a)) continue;
+      p.moving = true;
     }
     const dx = p.tx - p.x;
     const dy = p.ty - p.y;
     const d = Math.hypot(dx, dy);
-    const step = ANIMAL_SPEED[a.species] * (isBaby(a) ? 0.8 : 1) * (p.flee ? ANIMAL_FLEE_SPEED_MULT : 1) * dt;
-    const restTicks = () => (ANIMAL_REST_SECONDS_MIN + Math.random() * (ANIMAL_REST_SECONDS_MAX - ANIMAL_REST_SECONDS_MIN)) * TICK_RATE;
+    const step = ANIMAL_SPEED[a.species] * (isBaby(a) ? 0.8 : 1) * dt;
     if (d <= step) {
       p.x = p.tx;
       p.y = p.ty;
-      if (p.home) {
-        pos.delete(a.id);
-        continue;
-      }
-      p.rest = restTicks();
       p.moving = false;
       continue;
     }
-    if (stepAround(p, dx, dy, d, step)) p.moving = true;
-    else if (p.home) pos.delete(a.id);
-    else {
+    const nx = p.x + (dx / d) * step;
+    const ny = p.y + (dy / d) * step;
+    if (walkablePx(nx, ny)) {
+      p.x = nx;
+      p.y = ny;
+    } else {
+      // Something was built in the way: stop here until the next pick.
       p.tx = p.x;
       p.ty = p.y;
-      p.rest = restTicks();
       p.moving = false;
     }
   }

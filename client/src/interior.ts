@@ -35,6 +35,39 @@ const PROP_COLOR: Partial<Record<InteriorProp, number>> = {
   counter: 0x7a4e26, anvil: 0x4a4d52, throne: 0x8a3a2a, hearth: 0x9a5030, altar: 0xd8d0b8, pew: 0x7a5230, oven: 0xa0624a,
   hay: 0xd8b84a, forge: 0x3a3a3e, stall: 0xa04040, banner: 0xa02828, barrel: 0x7a4f28, crates: 0x9a6b3a, sacks: 0xc8b088,
 };
+// Scale: the hero / NPC body is HUMAN_CHAR_PX (25 px) tall, so a tile (32 px) is about 2.2 m. Furniture is sized by its
+// DRAWN pixels (transparent padding ignored) to these heights, so a chair comes up to a person's thigh, a table to the
+// waist, a wardrobe over their head; whatever the art's canvas size. Width is capped at about a tile (long pieces).
+const PROP_HEIGHT_PX: Partial<Record<InteriorProp, number>> = {
+  chair: 13, pew: 14, table: 15, bed: 15, bedFine: 17, chest: 11, shelf: 30, wardrobe: 32, hearth: 28, lamp: 22, statue: 30,
+  weaponRack: 24, workbench: 16, altar: 18, oven: 22, barrel: 14, crates: 14, sacks: 11, hay: 13, armourStand: 26, banner: 28,
+  forge: 24, stall: 26, candelabra: 20, counter: 14, anvil: 10, throne: 22,
+};
+const PROP_DEFAULT_HEIGHT_PX = 18;
+const opaqueBoxes = new WeakMap<Texture, { x: number; y: number; w: number; h: number }>();
+// Bounding box of the texture's visible pixels (falls back to the whole frame).
+function opaqueBox(tex: Texture): { x: number; y: number; w: number; h: number } {
+  const hit = opaqueBoxes.get(tex);
+  if (hit) return hit;
+  let box = { x: 0, y: 0, w: tex.width, h: tex.height };
+  try {
+    const src = (tex.source as unknown as { resource?: CanvasImageSource }).resource;
+    const w = Math.round(tex.frame.width), h = Math.round(tex.frame.height);
+    if (src && w && h) {
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      const g = c.getContext("2d", { willReadFrequently: true })!;
+      g.drawImage(src, tex.frame.x, tex.frame.y, w, h, 0, 0, w, h);
+      const d = g.getImageData(0, 0, w, h).data;
+      let l = w, r = -1, t = h, b = -1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 20) { if (x < l) l = x; if (x > r) r = x; if (y < t) t = y; if (y > b) b = y; }
+      if (r >= l && b >= t) box = { x: l, y: t, w: r - l + 1, h: b - t + 1 };
+    }
+  } catch { /* keep the whole frame */ }
+  opaqueBoxes.set(tex, box);
+  return box;
+}
 const FLOOR_COLOR = { wood: 0x8f5f30, stone: 0x80838a, dirt: 0x7a6145 };
 const WALL = { wood: { top: 0x6e4524, face: 0x553319, line: 0x3a2210 }, stone: { top: 0x8d8f94, face: 0x6a6c71, line: 0x45474b } };
 
@@ -45,6 +78,8 @@ export interface InteriorDeps {
   playerTexture: Texture;
   heroTexture?: (id: string, moving: boolean) => Texture | undefined;
   playerHeight: number;
+  // Scale that draws a human frame's body at the world's body height (alpha-measured, like the world sprites); falls back to playerHeight / frame height.
+  humanScale?: (tex: Texture) => number;
   npcTexture: (kind: string) => Texture | undefined;
   // Gap closure G5: the kind's walk / action frames and their scale (missing: the still texture, stand-in motion).
   npcAnim?: (kind: string) => { walk: Texture[]; action: Texture[]; scale: number } | undefined;
@@ -138,7 +173,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   let builtKey = "";
   const hero = new Sprite(deps.playerTexture);
   hero.anchor.set(0.5, 0.85);
-  hero.scale.set(deps.playerHeight / deps.playerTexture.height);
+  const heroK = (t: Texture) => deps.humanScale?.(t) ?? deps.playerHeight / t.height;
+  hero.scale.set(heroK(deps.playerTexture));
   const others = new Map<string, Sprite>();
   let target = { x: 0, y: 0 };
   let shown = { x: NaN, y: NaN };
@@ -190,7 +226,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       // Stand-in block (3/4: a lit top over a darker front).
       const g = new Graphics();
       const col = PROP_COLOR[prop] ?? 0x8a6a4a;
-      const h = prop === "counter" ? 18 : prop === "anvil" ? 14 : 24;
+      const h = PROP_HEIGHT_PX[prop] ?? PROP_DEFAULT_HEIGHT_PX;
       g.rect(x * T + 3, (y + 1) * T - h - 2, T - 6, h).fill(col).stroke({ width: 1, color: 0x000000, alpha: 0.5 });
       g.rect(x * T + 3, (y + 1) * T - h - 2, T - 6, 5).fill({ color: 0xffffff, alpha: 0.18 });
       if (prop === "throne") g.rect(x * T + 8, (y + 1) * T - h - 12, T - 16, 12).fill(0xc9a227);
@@ -205,9 +241,10 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       s.zIndex = -1;
       return s;
     }
-    // Upright: fit a box one tile wide (a bit taller), bottom-centred on the tile.
-    const k = Math.min((T * 1.05) / tex.width, (T * 1.5) / tex.height);
-    s.anchor.set(0.5, 1);
+    // Upright: the drawn piece at its real-world height (capped at a tile wide), bottom-centred on the tile.
+    const box = opaqueBox(tex);
+    const k = Math.min((PROP_HEIGHT_PX[prop] ?? PROP_DEFAULT_HEIGHT_PX) / box.h, (T * 1.05) / box.w);
+    s.anchor.set((box.x + box.w / 2) / tex.width, (box.y + box.h) / tex.height);
     s.scale.set(k);
     s.position.set((x + 0.5) * T, (y + 1) * T - 1);
     s.zIndex = (y + 1) * T;
@@ -288,7 +325,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       if (tex) {
         const s = new Sprite(tex);
         s.anchor.set(0.5, 0.85);
-        k = anim ? anim.scale : deps.npcHeight / tex.height;
+        k = anim ? anim.scale : deps.humanScale?.(tex) ?? deps.npcHeight / tex.height;
         s.scale.set(k);
         body = s;
       } else body = new Graphics().circle(0, -8, 8).fill(n.color);
@@ -447,7 +484,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     }
     const moving = Math.hypot(target.x-shown.x,target.y-shown.y)>.3;
     const heroArt=deps.heroTexture?.(deps.myId() ?? "",moving);
-    if(heroArt) { hero.texture=heroArt; const sign=target.x<shown.x? -1:target.x>shown.x?1:Math.sign(hero.scale.x)||1; hero.scale.set(sign*deps.playerHeight/heroArt.height,deps.playerHeight/heroArt.height); }
+    if(heroArt) { hero.texture=heroArt; const sign=target.x<shown.x? -1:target.x>shown.x?1:Math.sign(hero.scale.x)||1; const k=heroK(heroArt); hero.scale.set(sign*k,k); }
     hero.position.set(shown.x, shown.y);
     hero.zIndex = shown.y;
     animateNpcs(performance.now());
@@ -515,13 +552,13 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         if (!s) {
           s = new Sprite(deps.playerTexture);
           s.anchor.set(0.5, 0.85);
-          s.scale.set(deps.playerHeight / deps.playerTexture.height);
+          s.scale.set(heroK(deps.playerTexture));
           s.tint = p.color;
           others.set(p.id, s);
           room.addChild(s);
         }
         const art=deps.heroTexture?.(p.id,Math.hypot(p.inside.x-s.x,p.inside.y-s.y)>.3);
-        if(art) {s.texture=art;s.tint=0xffffff;s.scale.set((p.inside.x<s.x?-1:1)*deps.playerHeight/art.height,deps.playerHeight/art.height);}
+        if(art) {s.texture=art;s.tint=0xffffff;const k=heroK(art);s.scale.set((p.inside.x<s.x?-1:1)*k,k);}
         s.position.set(p.inside.x, p.inside.y);
         s.zIndex = p.inside.y;
       }

@@ -198,7 +198,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Blacksmith,
     label: "Blacksmith",
     key: "k",
-    cost: `${buildCostText(TileType.Blacksmith)} (upgradeable). Needs a roofed room (build it inside walls + a door). Crafts 1 Iron + 1 Wood → 1 Tools, idles at ${BLACKSMITH_TOOLS_STOCK_CAP} tools`,
+    cost: `${buildCostText(TileType.Blacksmith)} (upgradeable). Crafts 1 Iron + 1 Wood → 1 Tools, idles at ${BLACKSMITH_TOOLS_STOCK_CAP} tools`,
     category: "industry",
   },
   {
@@ -235,7 +235,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Bakery,
     label: "Bakery",
     key: "",
-    cost: `${buildCostText(TileType.Bakery)} (upgradeable). Needs a roofed room (build it inside walls + a door). Bakes 2 Flour → 2 Flatbread; a level-2 baker cultures a sourdough starter (~3 days), then bakes Bread`,
+    cost: `${buildCostText(TileType.Bakery)} (upgradeable). Bakes 2 Flour → 2 Flatbread; a level-2 baker cultures a sourdough starter (~3 days), then bakes Bread`,
     category: "farming",
   },
   { tile: TileType.Market, label: "Bazaar", key: "m", cost: buildCostText(TileType.Market), category: "trade" },
@@ -277,7 +277,7 @@ export const TOOLS: ToolDef[] = [
     category: "civic",
   },
   // Building templates (shared/src/buildingTemplates.ts): the Blueprints tab's list picks the template.
-  { tile: BLUEPRINT_TOOL, label: "Place blueprint", key: "", cost: "Pick a building template in the Blueprints list; right-click orders it (R rotates, M mirrors). Every piece becomes a blueprint your builders raise one by one: the whole cost is paid up front, cancel a piece to refund it", category: "blueprints" },
+  { tile: BLUEPRINT_TOOL, label: "Place blueprint", key: "", cost: "Pick a building template in the Blueprints list; right-click orders it (R rotates, M mirrors). Every piece becomes a blueprint your builders raise one by one: the whole cost is paid up front, cancel a piece to refund it", category: "blueprints", legacy: true },
   // Every letter is taken (tools, wasd movement, z/x/e stances), so roads use - and =.
   { tile: TileType.Road, label: "Road", key: "-", cost: `${buildCostText(TileType.Road)}. Colonists and you move 25% faster on roads`, category: "civic" },
   { tile: TileType.CobbleRoad, label: "Cobble Road", key: "=", cost: `${buildCostText(TileType.CobbleRoad)}. A paved road (same 25% speed bonus)`, category: "civic" },

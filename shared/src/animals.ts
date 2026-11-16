@@ -161,6 +161,10 @@ export const ANIMAL_SPEED: Record<Species, number> = { chicken: 22, cow: 16, pig
 export const ANIMAL_WANDER_TILES = 3;
 export const ANIMAL_REST_SECONDS_MIN = 2;
 export const ANIMAL_REST_SECONDS_MAX = 7;
+// An outdoor animal picks one new spot every ~ANIMAL_PICK_SECONDS (+-20%, so a flock does not move as one), walks to it
+// in a straight line (a spot within ANIMAL_WALK_SECONDS of walking, over walkable ground only) and stands until the next pick.
+export const ANIMAL_PICK_SECONDS = 5;
+export const ANIMAL_WALK_SECONDS = 3.5;
 export const RENAME_MAX_CHARS = 20;
 
 // ---- Gap closure G6: wandering obstacle avoidance, herding ----

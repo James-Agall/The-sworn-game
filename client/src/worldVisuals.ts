@@ -109,6 +109,7 @@ export const TILE_OPTIONAL_ART: Partial<Record<TileType, string>> = {
   [TileType.MushroomPatch]: "mushroomRipe",
   [TileType.MushroomPatchPicked]: "mushroomPicked",
   [TileType.Stables]: "stables",
+  [TileType.Bakery]: "bakery",
   [TileType.SiegeWorkshop]: "siegeWorkshop",
   [TileType.Tent]: "siteTent",
   [TileType.SiteKeep]: "siteKeep",

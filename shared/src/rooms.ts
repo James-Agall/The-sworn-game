@@ -153,9 +153,9 @@ export const ROOM_INFIRMARY_HERO_HEAL_MULT = 3;
 // Herbs a forager's trip home brings with its fruit (the hand recipe "Dry healing herbs" makes them from fruit too).
 export const FORAGER_HERBS_PER_TRIP = 1;
 
-// "Needs a roofed room": NEW placements of these stations must stand inside a roofed room (creative mode and old
-// buildings are exempt; upgrades in place are too).
-export const ROOM_REQUIRED_STATIONS: readonly TileType[] = [TileType.Bakery, TileType.Blacksmith];
+// "Needs a roofed room": NEW placements of these stations must stand inside a roofed room. Switched off for now (the
+// building templates are hidden and the Bakery / Blacksmith are single-sprite buildings again): [TileType.Bakery, TileType.Blacksmith].
+export const ROOM_REQUIRED_STATIONS: readonly TileType[] = [];
 
 export interface RoomStatsInput {
   tiles: number;
