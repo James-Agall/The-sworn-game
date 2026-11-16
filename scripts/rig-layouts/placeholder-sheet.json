@@ -1,0 +1,115 @@
+{
+ "set": "roundtrip",
+ "cellW": 128,
+ "cellH": 128,
+ "cells": [
+  {
+   "name": "pelvis",
+   "row": 0,
+   "col": 0,
+   "mode": "cell",
+   "cellPivot": [
+    64,
+    20
+   ],
+   "len": 0,
+   "joint": "root / hips"
+  },
+  {
+   "name": "torso",
+   "row": 0,
+   "col": 1,
+   "mode": "cell",
+   "cellPivot": [
+    64,
+    50
+   ],
+   "len": 25,
+   "joint": "waist"
+  },
+  {
+   "name": "head",
+   "row": 0,
+   "col": 2,
+   "mode": "cell",
+   "cellPivot": [
+    64,
+    46
+   ],
+   "len": 0,
+   "joint": "neck"
+  },
+  {
+   "name": "hair",
+   "row": 0,
+   "col": 3,
+   "mode": "cell",
+   "cellPivot": [
+    64,
+    46
+   ],
+   "len": 0,
+   "joint": "neck (overlay)"
+  },
+  {
+   "name": "upperArm",
+   "row": 1,
+   "col": 0,
+   "mode": "cell",
+   "cellPivot": [
+    64,
+    21
+   ],
+   "len": 13,
+   "joint": "shoulder"
+  },
+  {
+   "name": "foreArm",
+   "row": 1,
+   "col": 1,
+   "mode": "cell",
+   "cellPivot": [
+    64,
+    20
+   ],
+   "len": 13,
+   "joint": "elbow"
+  },
+  {
+   "name": "thigh",
+   "row": 1,
+   "col": 2,
+   "mode": "cell",
+   "cellPivot": [
+    64,
+    21
+   ],
+   "len": 14,
+   "joint": "hip"
+  },
+  {
+   "name": "shin",
+   "row": 1,
+   "col": 3,
+   "mode": "cell",
+   "cellPivot": [
+    64,
+    20
+   ],
+   "len": 10,
+   "joint": "knee"
+  },
+  {
+   "name": "foot",
+   "row": 2,
+   "col": 0,
+   "mode": "cell",
+   "cellPivot": [
+    64,
+    16
+   ],
+   "len": 0,
+   "joint": "ankle"
+  }
+ ]
+}

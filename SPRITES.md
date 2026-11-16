@@ -1006,3 +1006,50 @@ User report: "a lot of the art is cut off and fucked up". Tools and the installe
   rows) only line up roughly; a real per-layer paper doll needs art made for it.
 - Gates are a door piece set into the wall (Codex choice), not the old gatehouse towers; walls and wall kits were
   not re-cut (grid sheets).
+
+
+## New requests (2026-11-16 batch) — rigged character parts (#106-#109)
+
+For the character creator (docs/colony2d/PLAN-character-creator.md): a player character built from SEPARATE parts on a shared skeleton
+(head, torso, upper arm, forearm + hand, thigh, shin + boot, plus gear) so any gender / build / hair / armour / weapon combination
+animates the same way and can ride a horse. The rig exists and runs (`client/public/rig/limbs.html`); it currently uses PLACEHOLDER
+parts generated in code (`client/public/rig/parts/placeholder/`, made by `scripts/make-placeholder-rig-parts.mjs`) and parts cut from
+the existing hero art. Real parts replace the placeholders by file name, no code change (the rig reads `manifest.json`).
+
+**What a part must be (applies to every sheet below, unlike the unit sheets above):**
+- A PART, not a character: one limb or piece per cell, drawn straight and on its own, never a pose of a whole person.
+- Pure SIDE view facing RIGHT (not the 3/4 view of the hero sheets): the rig swings parts about joints, so a 3/4 limb shows its
+  wrong face when turned. Limbs hang STRAIGHT DOWN with the joint (shoulder / elbow / hip / knee) at the TOP of the cell.
+- Joint ends are ROUND and overlap: each limb's top end is a rounded cap larger than the limb, so rotating it never opens a gap.
+- Same painted style as `heroes/base-01` (soft shading, dark near-black ~2 px rim, warm palette, light from the upper left, no flat cel
+  shading), transparent background, no ground shadow, no weapon, no motion blur.
+- Scale: the assembled character is ~98 px tall inside a 128 px frame (the existing hero). Parts at that scale: thigh ~17 px long,
+  shin + boot ~20 (boot toe pointing right), upper arm ~15, forearm + hand ~17, torso ~31 (shoulder to hip), head ~28. Draw each part
+  in a 128 x 128 cell. **Anchors (the slicer maps these exactly, so please obey them):** limbs (#106 arms, thighs, shins): joint centre on the cell's
+  vertical centre line, 20 px from the cell top; foot: ankle at x 44, y 36 (heel to the left of it, toe to the right); torso (#107): waist point (the bottom
+  centre of the torso) at x 64, y 100; pelvis: root point at x 64, y 44; head, hair, hair back, helms (#108): the neck base at x 64, y 96 (all of them on the SAME
+  point so they overlay); weapons (#109): the grip at x 64, y 20 (spear: y 44; bow and shield: their centre at x 64, y 64).
+- Skin tone and hair colour are recoloured in code, so draw ONE neutral mid skin tone (`#e0ad7c`) and GREY-SCALE hair.
+
+**Joint map (what rotates, and the part around it):** neck -> head + neck stub (#108); waist -> torso (#107) on the pelvis; shoulder -> shoulder cap + upper arm; elbow -> forearm + hand; hip -> hip cap + thigh (femur); knee -> shin + boot shaft (knee cap on top); ankle -> foot. A labelled placeholder sheet of every part with its pivot is at `client/public/rig/parts-sheet.html` (also `parts/bodyset/parts-sheet.png`, 128 x 128 cells): match its layout.
+
+### 106. Limb sheet — arms and legs (one sheet, 128 x 128 cells)
+
+> Painted game sprite parts sheet, same soft-shaded style, dark rim and warm palette as the existing hero sprite (heroes/base-01), transparent background. A strict grid of 128x128 cells. Every part is drawn SEPARATELY, straight, in pure side view facing right, hanging straight down with its joint at the top of the cell, with a rounded overlapping cap at the joint. Row 1, upper arm (shoulder cap at the top): cream tunic sleeve; bare skin; iron pauldron + plate sleeve (tier 1, dull grey iron over brown leather); steel (tier 2, brighter, coloured trim); gilded plate (tier 3, gold edging). Row 2, forearm + hand (elbow cap at the top, closed gripping hand at the bottom): bare skin with a brown leather bracer; bare skin; iron vambrace + gauntlet (T1); steel (T2); gilded (T3). Row 3, forearm + OPEN hand (same five variants). Row 4, thigh (hip cap at the top): dark grey trousers; bare skin; the same with tier 1-3 plate cuisse only if the tier art needs it (otherwise repeat trousers). Row 5, shin + boot SHAFT (knee cap at the top, ends at the ankle, NO foot): trouser leg into a brown leather boot shaft; bare shin; boot shaft with iron greave (T1); steel (T2); gilded (T3). Row 6, FOOT (a separate part; ankle joint at its top-left, heel to the left, toe pointing right, flat sole): leather boot foot; bare foot; iron-shod (T1); steel (T2); gilded (T3). No weapons, no ground shadow, no text. Match the scale of heroes/base-01: thigh ~14 px of bone (hip cap on top, ~25 px tall in all), shin + boot shaft ~21 px tall, foot ~28 px long and ~13 px tall, upper arm ~21 px tall, forearm + hand ~25 px tall.
+
+### 107. Torso sheet — tunic and body armour, male and female
+
+> Same style and rules as #106. A strict grid of 128x128 cells; each cell one TORSO piece (shoulder line to hip, no head, no arms, no legs) in pure side view facing right, hip at the bottom centre, drawn straight. Row 1 male: cloth tunic with belt and buckle; iron breastplate over leather (T1); steel with a coloured tabard (T2); gilded plate with gold filigree (T3). Row 2 female: the same four pieces, narrower shoulders, a slightly defined waist and hip. Row 3: the PELVIS / hips piece (waist to crotch, with the hip sockets round, a belt line on top; one in trousers, one bare) that the torso's waist joint and both thighs attach to. The armour pieces must cover the shoulder socket round (so a separate upper-arm piece can be attached) and end at the hip line. Torso ~31 px tall at the hero's scale.
+
+### 108. Head sheet — faces, hair, helms
+
+> Same style and rules as #106. A strict grid of 128x128 cells; head pieces in pure side view facing right, neck stub at the bottom centre. Row 1 male heads, NO hair, three faces (plain, stern, bearded). Row 2 female heads, no hair, three faces (plain, stern, freckled). Row 3 hair, GREY-SCALE only, drawn as an overlay that fits the heads above, front part: short, long, ponytail, (bald = no piece). Row 4 hair back part (the hair behind the neck and shoulders) for long and ponytail, grey-scale. Row 5 helms that cover the whole head: iron great helm (T1), steel with a visor slit (T2), gilded with a crest (T3); pieces must leave the neck stub visible. Head ~28 px tall at the hero's scale.
+
+### 109. Weapon and shield sheet — parts, not icons
+
+> Same style and rules as #106. A strict grid of 128x128 cells; each cell one item drawn straight, vertical, held end at the TOP (grip at 20 px from the top), blade / head pointing DOWN, side view. Row 1 sword (T1 iron, T2 steel, T3 gilded). Row 2 axe (same tiers; haft vertical, head to the right). Row 3 spear (the shaft is long: ~100 px, the head at the bottom; grip at one third from the top). Row 4 bow (unstrung rest pose, vertical, grip at the centre) and an arrow. Row 5 round shield seen from the side-front, three tiers (T1 wood and iron, T2 steel rim, T3 gilded). Match the scale of the hero's existing sword (heroes/base-05).
+
+**Wiring (when a sheet arrives):** `node scripts/slice-rig-sheet.mjs <sheet.png> scripts/rig-layouts/sheet-106-limbs.json --out client/public/rig/parts/chatgpt --merge`
+(and `sheet-107-torso.json`, `sheet-108-heads.json`, `sheet-109-weapons.json`). It crops each cell, removes an opaque background, drops specks, rescales each part to the
+rig's size, reads the pivot from the anchors above (limbs also cross-checked against the joint cap), writes `manifest.json`, `slice-report.json` (anything marked CHECK needs a
+look) and `slice-preview.png` (every part drawn on its pivot, to eyeball alignment). Then open `rig/body.html?parts=chatgpt`. `node scripts/test-slice-rig-sheet.mjs` tests the slicer.

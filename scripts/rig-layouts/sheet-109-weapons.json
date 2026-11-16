@@ -1,0 +1,131 @@
+{
+ "set": "chatgpt",
+ "cellW": 128,
+ "cellH": 128,
+ "cells": [
+  {
+   "name": "sword.t1",
+   "mode": "cell",
+   "expectH": 70,
+   "joint": "grip",
+   "default": "sword",
+   "row": 0,
+   "col": 0
+  },
+  {
+   "name": "sword.t2",
+   "mode": "cell",
+   "expectH": 70,
+   "joint": "grip",
+   "row": 0,
+   "col": 1
+  },
+  {
+   "name": "sword.t3",
+   "mode": "cell",
+   "expectH": 70,
+   "joint": "grip",
+   "row": 0,
+   "col": 2
+  },
+  {
+   "name": "axe.t1",
+   "mode": "cell",
+   "expectH": 70,
+   "joint": "grip",
+   "default": "axe",
+   "row": 1,
+   "col": 0
+  },
+  {
+   "name": "axe.t2",
+   "mode": "cell",
+   "expectH": 70,
+   "joint": "grip",
+   "row": 1,
+   "col": 1
+  },
+  {
+   "name": "axe.t3",
+   "mode": "cell",
+   "expectH": 70,
+   "joint": "grip",
+   "row": 1,
+   "col": 2
+  },
+  {
+   "name": "spear.t1",
+   "mode": "cell",
+   "expectH": 100,
+   "joint": "grip",
+   "cellPivotY": 44,
+   "default": "spear",
+   "row": 2,
+   "col": 0
+  },
+  {
+   "name": "spear.t2",
+   "mode": "cell",
+   "expectH": 100,
+   "joint": "grip",
+   "cellPivotY": 44,
+   "row": 2,
+   "col": 1
+  },
+  {
+   "name": "spear.t3",
+   "mode": "cell",
+   "expectH": 100,
+   "joint": "grip",
+   "cellPivotY": 44,
+   "row": 2,
+   "col": 2
+  },
+  {
+   "name": "bow",
+   "mode": "cell",
+   "expectH": 90,
+   "joint": "grip",
+   "default": "bow",
+   "cellPivotY": 64,
+   "row": 3,
+   "col": 0
+  },
+  {
+   "name": "arrow",
+   "mode": "cell",
+   "expectH": 40,
+   "joint": "nock",
+   "row": 3,
+   "col": 1
+  },
+  {
+   "name": "shield.t1",
+   "mode": "cell",
+   "expectH": 40,
+   "joint": "grip (centre)",
+   "cellPivotY": 64,
+   "default": "shield",
+   "row": 4,
+   "col": 0
+  },
+  {
+   "name": "shield.t2",
+   "mode": "cell",
+   "expectH": 40,
+   "joint": "grip (centre)",
+   "cellPivotY": 64,
+   "row": 4,
+   "col": 1
+  },
+  {
+   "name": "shield.t3",
+   "mode": "cell",
+   "expectH": 40,
+   "joint": "grip (centre)",
+   "cellPivotY": 64,
+   "row": 4,
+   "col": 2
+  }
+ ]
+}

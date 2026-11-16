@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rig: existing hero art cut into parts</title>
+<style>
+  body { margin:0; background:#1d1812; color:#f0e2c4; font:14px/1.4 Georgia, serif; }
+  #wrap { padding:14px; max-width:980px; margin:auto; }
+  canvas { display:block; width:100%; background:#6f8d4e; border:2px solid #4a3b28; image-rendering:pixelated; }
+  p { color:#b9a784; margin:6px 0; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="main"></canvas>
+  <p id="info">loading...</p>
+</div>
+<script src="rig-core.js"></script>
+<script>
+"use strict";
+// The existing hero art (heroes/base-05: sword raised, legs and torso clear) cut into rigid parts and put on the rig.
+const R = Rig, D = R.D, FW = 256, FH = 176, GX = 118, GY = 160;
+const SRC = "../sprites/autumn/frames/heroes/base-05.png";
+const A = { frames: 0 };
+// ---- cutting parts out of the source frame. r = crop rect [x,y,w,h]; poly = keep only inside (source coords); erase = clear rects
+function cut(img, o) {
+  const [x, y, w, h] = o.r, c = R.canvas(w, h), g = c.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  g.save();
+  if (o.poly) { g.beginPath(); o.poly.forEach(([px, py], i) => (i ? g.lineTo(px - x, py - y) : g.moveTo(px - x, py - y))); g.closePath(); g.clip(); }
+  g.drawImage(img, x, y, w, h, 0, 0, w, h);
+  g.restore();
+  for (const [ex, ey, ew, eh] of o.erase || []) g.clearRect(ex - x, ey - y, ew, eh);
+  // native: the angle (our convention: 0 down, + forward) that the part's own long axis points at in the source art
+  return { c, px: o.pivot[0] - x, py: o.pivot[1] - y, native: o.native || 0 };
+}
+const ang = (from, to) => Math.atan2(to[0] - from[0], to[1] - from[1]) / D;
+const SHOULDER = [73, 58], GRIP = [55, 37], HIP = [86, 94], NECK = [90, 57];
+function build(img) {
+  const P = {};
+  P.head = cut(img, { r: [72, 26, 40, 34], pivot: NECK, erase: [[72, 26, 10, 9]] });
+  P.torso = cut(img, { r: [58, 52, 54, 44], pivot: HIP, erase: [[56, 46, 21, 24]] });
+  P.arm = cut(img, { r: [34, 34, 48, 36], pivot: SHOULDER, native: ang(SHOULDER, GRIP), poly: [[36, 38], [50, 41], [56, 46], [62, 50], [80, 50], [80, 68], [60, 68], [46, 60], [36, 52]] });
+  P.sword = cut(img, { r: [44, 6, 48, 42], pivot: GRIP, native: ang(GRIP, [88, 11]), poly: [[47, 30], [56, 26], [90, 7], [92, 16], [64, 40], [60, 47], [50, 45], [46, 38]] });
+  P.legL = cut(img, { r: [46, 93, 38, 34], pivot: [70, 95], native: ang([70, 95], [58, 121]) });
+  P.legR = cut(img, { r: [84, 93, 28, 34], pivot: [93, 95], native: ang([93, 95], [98, 119]) });
+  P.swordLen = Math.hypot(88 - GRIP[0], 11 - GRIP[1]); P.armLen = Math.hypot(GRIP[0] - SHOULDER[0], GRIP[1] - SHOULDER[1]);
+  return P;
+}
+// ---- attack keyframes (same recipe as the procedural rig): shoulder angle ua + elbow bend fe -> one arm piece, absolute blade angle wa
+const K = { dur: 0.62, ua: [[0, 8], [0.3, 150, R.easeOut], [0.42, 160], [0.62, 34, R.easeIn], [0.8, 20], [1, 8, R.easeOut]], fe: [[0, 0], [1, 0]],
+  wa: [[0, 62], [0.3, 185, R.easeOut], [0.42, 192], [0.62, 82, R.easeIn], [0.8, 56], [1, 62, R.easeOut]], lean: [[0, 0], [0.3, -9], [0.42, -9], [0.62, 12, R.easeIn], [1, 0]], lunge: [[0, 0], [0.4, -3], [0.62, 7, R.easeIn], [1, 0]], trail: [0.5, 0.78] };
+const OX = GX - HIP[0], OY = GY - 125;                         // source frame -> frame canvas
+function drawFrame(P, state, T) {
+  const canvas = R.canvas(FW, FH), g = canvas.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  const moving = state === "walk" || state === "walkattack", fights = state === "attack" || state === "walkattack";
+  let u = -1; if (fights) { const per = K.dur + 0.55, t = T % per; u = t / K.dur; if (u > 1) u = -1; }
+  const cyc = T * 1.15, sw = Math.sin(cyc * 6.283);
+  const bob = moving ? Math.abs(Math.cos(cyc * 6.283)) * -3 : Math.sin(T * 2.2) * 0.6;
+  const lean = (u >= 0 ? R.kf(K.lean, u) : 0) + (moving ? 3 : 0), lunge = u >= 0 ? R.kf(K.lunge, u) : 0;
+  // joints in canvas coords
+  const hip = [HIP[0] + OX + lunge, HIP[1] + OY + bob];
+  const sv = R.rot(SHOULDER[0] - HIP[0], SHOULDER[1] - HIP[1], lean), nv = R.rot(NECK[0] - HIP[0], NECK[1] - HIP[1], lean);
+  const S = [hip[0] + sv[0], hip[1] + sv[1]], N = [hip[0] + nv[0], hip[1] + nv[1]];
+  // legs: rigid pieces swung at the hip (no knees: the art has none to bend), the swinging leg lifts a little
+  const legA = moving ? 26 * sw : 0, liftL = moving ? Math.max(0, Math.cos(cyc * 6.283)) * 5 : 0, liftR = moving ? Math.max(0, -Math.cos(cyc * 6.283)) * 5 : 0;
+  const leg = (p, base, a, lift) => { const x = hip[0] + (p === P.legL ? -16 : 7), y = hip[1] + 1 - lift; R.limbAt(g, p, x - (p === P.legL ? 0 : 0) + 0, y, a - p.native + 0); };
+  // pivot positions are in source space; place each leg's pivot at its hip joint
+  const lj = [HIP[0] - 16 + OX + lunge, HIP[1] + 1 + OY + bob], rj = [HIP[0] + 7 + OX + lunge, HIP[1] + 1 + OY + bob];
+  R.limbAt(g, P.legR, rj[0], rj[1] - liftR, -legA - P.legR.native);
+  R.limbAt(g, P.legL, lj[0], lj[1] - liftL, legA - P.legL.native);
+  R.uprightAt(g, P.torso, hip[0], hip[1] + 2, lean);
+  R.uprightAt(g, P.head, N[0], N[1] + 2, lean * 0.4);
+  // weapon arm: one rigid piece from the shoulder; its length is fixed, the sword hangs from the hand
+  let ua = 8, fe = 0, wa = 62;
+  if (u >= 0) { ua = R.kf(K.ua, u); fe = R.kf(K.fe, u); wa = R.kf(K.wa, u); } else if (moving) { ua += sw * 6; wa += sw * 6; }
+  const armA = ua + fe * 0.5, H = R.add(S, R.dir(armA), P.armLen);
+  if (u >= 0 && u > K.trail[0] && u < K.trail[1]) {
+    const tipAt = (uu) => { const a2 = R.kf(K.ua, uu) + R.kf(K.fe, uu) * 0.5, w2 = R.kf(K.wa, uu), l2 = R.kf(K.lean, uu), sv2 = R.rot(SHOULDER[0] - HIP[0], SHOULDER[1] - HIP[1], l2), S2 = [HIP[0] + OX + R.kf(K.lunge, uu) + sv2[0], hip[1] + sv2[1]]; return R.add(R.add(S2, R.dir(a2), P.armLen), R.dir(w2), P.swordLen); };
+    for (let i = 1; i <= 7; i++) { const a = tipAt(u - i * 0.018), b = tipAt(u - (i - 1) * 0.018); g.strokeStyle = `rgba(255,255,255,${0.55 - i * 0.07})`; g.lineWidth = 9 - i; g.lineCap = "round"; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke(); }
+  }
+  R.limbAt(g, P.arm, S[0], S[1], armA - P.arm.native);
+  R.limbAt(g, P.sword, H[0], H[1], wa - P.sword.native);
+  return canvas;
+}
+function withBg(c) { const b = R.canvas(FW, FH), g = b.getContext("2d"); g.fillStyle = "#6f8d4e"; g.fillRect(0, 0, FW, FH); g.fillStyle = "#5f7e41"; g.fillRect(0, GY + 1, FW, FH); g.fillStyle = "rgba(0,0,0,0.2)"; g.beginPath(); g.ellipse(GX, GY + 2, 26, 5, 0, 0, 7); g.fill(); g.drawImage(c, 0, 0); return b; }
+
+const img = new Image();
+img.onload = () => {
+  const P = build(img), mainC = document.getElementById("main"), mg = mainC.getContext("2d");
+  mainC.width = FW * 3; mainC.height = FH * 2;
+  const frame = (state, t) => withBg(drawFrame(P, state, t));
+  // loop: walk 2.5 s, attack 3 s, walk+attack 2.5 s
+  const SEQ = [["walk", 2.5], ["attack", 3.0], ["walkattack", 2.5]], total = SEQ.reduce((a, s) => a + s[1], 0);
+  let T0 = performance.now();
+  function loop(now) {
+    let t = window.__rig && window.__rig.freeze != null ? window.__rig.freeze : ((now - T0) / 1000) % total, state = window.__rig?.state || null, local = t;
+    if (!state) { let acc = 0; for (const [s, d] of SEQ) { if (t < acc + d) { state = s; local = t - acc; break; } acc += d; } }
+    const f = frame(state, local);
+    mg.imageSmoothingEnabled = false; mg.clearRect(0, 0, mainC.width, mainC.height);
+    mg.drawImage(f, 0, 0, FW, FH, 0, 0, FW * 2, FH * 2);                  // big: 2x
+    const gs = 0.255; mg.drawImage(f, 0, 0, FW, FH, FW * 2 + 8, 8, FW * gs * 4, FH * gs * 4);   // in-game size, drawn 4x so it is visible
+    mg.drawImage(f, 0, 0, FW, FH, FW * 2 + 8, FH * gs * 4 + 20, FW * gs, FH * gs);              // 1x: the true on-screen pixels
+    mg.fillStyle = "#fff"; mg.font = "13px sans-serif"; mg.fillText(state, 8, 16); mg.fillText("in-game size (x4 | x1)", FW * 2 + 12, FH * 2 - 8);
+    document.getElementById("info").textContent = "state: " + state + "   (existing hero art, heroes/base-05, cut into 6 rigid parts)";
+    requestAnimationFrame(loop);
+  }
+  window.__rig = { freeze: null, state: null, sheet(spec) { const fr = spec.frames.map((f) => ({ canvas: frame(f.state, f.t), label: f.label })); return R.sheet(fr, { cols: spec.cols || 4, scale: spec.scale || 1.2, gameScale: 0.255 }).toDataURL("image/png"); }, total };
+  requestAnimationFrame(loop);
+};
+img.onerror = () => (document.getElementById("info").textContent = "could not load " + SRC);
+img.src = SRC;
+</script>
+</body>
+</html>

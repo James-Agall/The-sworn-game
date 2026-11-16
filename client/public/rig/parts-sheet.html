@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>rig body parts sheet</title>
+<style>body{margin:0;background:#1d1812;color:#f0e2c4;font:14px Georgia,serif}canvas{display:block;max-width:100%}</style></head>
+<body><canvas id="c"></canvas>
+<script>
+"use strict";
+// Labelled sheet of the rig's body parts: each part at 4x with its joint pivot (red cross), joint name and bone length, and a stick figure
+// of the skeleton. Doubles as the layout reference for the ChatGPT part sheets (SPRITES.md #106-#108).
+const SET = new URLSearchParams(location.search).get("parts") || "bodyset", Z = 4, CW = 200, CH = 230;
+const load = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error(src)); i.src = src; });
+function draw(m, img) {
+  const names = Object.keys(m.parts), cols = 5, rows = Math.ceil(names.length / cols), cv = document.getElementById("c"), g = cv.getContext("2d");
+  cv.width = cols * CW; cv.height = rows * CH + 40; g.imageSmoothingEnabled = false;
+  g.fillStyle = "#6f8d4e"; g.fillRect(0, 0, cv.width, cv.height); g.fillStyle = "#fff"; g.font = "15px sans-serif"; g.fillText(`Body parts (${m.set}): every part around a rotating joint, drawn straight, side view facing right. Red cross = joint pivot. Cells show 4x.`, 10, 24);
+  names.forEach((n, i) => {
+    const p = m.parts[n], x0 = (i % cols) * CW, y0 = 40 + Math.floor(i / cols) * CH, w = p.size[0] * Z, h = p.size[1] * Z;
+    g.fillStyle = "rgba(0,0,0,0.13)"; g.fillRect(x0 + 4, y0 + 4, CW - 8, CH - 8);
+    const ox = x0 + CW / 2 - p.pivot[0] * Z, oy = y0 + 44;
+    g.drawImage(img[n], ox, oy, w, h);
+    const px = ox + p.pivot[0] * Z, py = oy + p.pivot[1] * Z;
+    g.strokeStyle = "#ff3030"; g.lineWidth = 2; g.beginPath(); g.moveTo(px - 8, py); g.lineTo(px + 8, py); g.moveTo(px, py - 8); g.lineTo(px, py + 8); g.stroke();
+    if (p.len) { g.strokeStyle = "#ffe030"; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(px, py); g.lineTo(px, py + p.len * Z); g.stroke(); g.setLineDash([]); }
+    g.fillStyle = "#fff"; g.font = "bold 14px sans-serif"; g.fillText(n, x0 + 10, y0 + 22); g.font = "12px sans-serif"; g.fillStyle = "#f6e9c8";
+    g.fillText(`joint: ${p.joint}${p.len ? "   bone " + p.len + " px" : ""}`, x0 + 10, y0 + 38);
+  });
+}
+Promise.all([fetch(`parts/${SET}/manifest.json`).then((r) => r.json())]).then(async ([m]) => {
+  const img = {}; await Promise.all(Object.entries(m.parts).map(async ([k, v]) => { img[k] = await load(`parts/${SET}/${v.file}`); }));
+  draw(m, img); window.__rig = { sheet: () => document.getElementById("c").toDataURL("image/png") };
+});
+</script></body></html>

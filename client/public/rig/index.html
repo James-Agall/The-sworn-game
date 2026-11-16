@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>colony2d rig prototype v2</title>
+<style>
+  :root { color-scheme: dark; --bg:#1d1812; --panel:#2a2219; --line:#4a3b28; --ink:#f0e2c4; --dim:#b9a784; --gold:#f2b632; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 Georgia, serif; }
+  #app { display:flex; flex-wrap:wrap; gap:16px; padding:16px; align-items:flex-start; }
+  #stage { flex:1 1 640px; min-width:0; max-width:980px; }
+  canvas { display:block; background:#6f8d4e; border:2px solid var(--line); width:100%; }
+  #game { margin-top:10px; image-rendering:pixelated; image-rendering:crisp-edges; }
+  #panel { flex:0 0 300px; background:var(--panel); border:2px solid var(--line); padding:12px 14px; }
+  h1 { font-size:17px; margin:0 0 2px; color:var(--gold); }
+  p.note { margin:0 0 10px; color:var(--dim); font-size:12px; }
+  fieldset { border:1px solid var(--line); margin:0 0 10px; padding:6px 10px 8px; }
+  legend { color:var(--gold); font-size:12px; padding:0 4px; }
+  label { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:4px 0; }
+  select, input[type=range], button { background:#3a2f21; color:var(--ink); border:1px solid var(--line); font:inherit; }
+  select, button { padding:3px 6px; } button { cursor:pointer; } button:hover { border-color:var(--gold); }
+  #msg { color:#ffb070; min-height:18px; font-size:12px; }
+  small { color:var(--dim); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="main"></canvas>
+    <canvas id="game" title="In-game size: the body is drawn 25 px tall, nearest-neighbour, like the real sprites"></canvas>
+  </div>
+  <div id="panel">
+    <h1>Rig prototype v2</h1>
+    <p class="note">Placeholder procedural parts on one shared skeleton, drawn at the game's source scale (a ~98 px person in a 128 px frame). The strip under the main view is the real in-game size.</p>
+    <fieldset><legend>Character</legend>
+      <label>Gender <select id="gender"><option value="m">Male</option><option value="f">Female</option></select></label>
+      <label>Build <select id="build"><option value="0">Slim</option><option value="1" selected>Average</option><option value="2">Broad</option></select></label>
+      <label>Face <select id="face"><option value="0">Plain</option><option value="1">Stern</option><option value="2">Beard / freckles</option></select></label>
+      <label>Hair <select id="hair"><option value="0">Short</option><option value="1">Long</option><option value="2">Ponytail</option><option value="3">Bald</option></select></label>
+      <label>Hair colour <select id="hairColor"><option>#4a2f1c</option><option>#1f1c1c</option><option>#9a6a30</option><option>#e0bf6a</option><option>#b4452a</option><option>#cfcfcf</option></select></label>
+      <label>Skin <select id="skin"><option>#f2cba3</option><option>#e0ad7c</option><option>#bb8056</option><option>#8d5a3a</option><option>#60402b</option></select></label>
+      <button id="rand">Randomise</button>
+    </fieldset>
+    <fieldset><legend>Gear</legend>
+      <label>Body armour <select id="armour"><option value="0">None (tunic)</option><option value="1">Tier 1</option><option value="2">Tier 2</option><option value="3">Tier 3</option></select></label>
+      <label>Head armour <select id="helm"><option value="0">None</option><option value="1">Tier 1</option><option value="2">Tier 2</option><option value="3">Tier 3</option></select></label>
+      <label>Weapon <select id="weapon"><option>sword</option><option>axe</option><option>spear</option><option>bow</option></select></label>
+      <label>Shield <select id="shield"><option value="0">None</option><option value="1">Round</option></select></label>
+      <div id="msg"></div>
+    </fieldset>
+    <fieldset><legend>Animation</legend>
+      <label>State <select id="state"><option value="walk">Walk</option><option value="idle">Idle</option><option value="attack" selected>Attack (loops)</option><option value="walkattack">Walk + attack</option></select></label>
+      <label><span>Mounted</span><input type="checkbox" id="mounted"></label>
+      <label><span>Speed</span><input type="range" id="speed" min="0.3" max="2" step="0.1" value="1"></label>
+      <label><span>Face left</span><input type="checkbox" id="flip"></label>
+      <label><span>Show skeleton</span><input type="checkbox" id="bones"></label>
+    </fieldset>
+    <small>Build = width and +-8% height. Every part and animation is shared by all genders, builds and gear.</small>
+  </div>
+</div>
+<script src="rig-core.js"></script>
+<script>
+"use strict";
+const R = Rig, D = R.D, FW = 256, FH = 176, GX = 118, GY = 158;       // frame size and the ground point (feet) in it
+const cfg = { gender: "m", build: 1, face: 0, hair: 0, hairColor: "#4a2f1c", skin: "#f2cba3", armour: 0, helm: 0, weapon: "sword", shield: 0,
+  state: "attack", mounted: false, speed: 1, flip: false, bones: false };
+const BUILD = [{ w: 0.86, h: 0.93 }, { w: 1, h: 1 }, { w: 1.22, h: 1.07 }];
+const ARMOUR = [
+  { cloth: "#b98a52", metal: "#b98a52", trim: "#7a5630" }, { cloth: "#8a6a42", metal: "#9aa3ad", trim: "#5c3d1f" },
+  { cloth: "#4f6e96", metal: "#b4becb", trim: "#2f4a76" }, { cloth: "#8a2f2f", metal: "#e2bd48", trim: "#f2d878" }];
+// skeleton lengths at source scale (a person is ~98 px tall)
+const L = { thigh: 17, shin: 17, torso: 31, upper: 15, fore: 14, neck: 4 };
+const LEG = L.thigh + L.shin;
+
+// ---------------------------------------------------------------- parts
+function buildParts(c) {
+  const B = BUILD[c.build], fem = c.gender === "f", A = ARMOUR[c.armour], Hm = ARMOUR[c.helm], P = {};
+  const skin = c.skin, hair = c.hairColor, bw = B.w, pants = "#44526a", boot = "#3a281a";
+  const lw = (v) => Math.round(v * bw);
+  P.thigh = (far) => R.limb(L.thigh, lw(13), lw(10.5), far ? R.shade(pants, 0.78) : pants);
+  P.shin = (far) => R.limb(L.shin, lw(10.5), lw(8), far ? R.shade(pants, 0.78) : pants);
+  P.foot = (far) => ({ ...R.limb(13, lw(8.5), lw(7.5), far ? R.shade(boot, 0.8) : boot), toe: true });
+  const sleeve = c.armour > 0 ? A.metal : A.cloth;
+  P.upper = (far) => R.limb(L.upper, lw(11), lw(9.5), far ? R.shade(sleeve, 0.78) : sleeve);
+  P.fore = (far) => R.limb(L.fore, lw(9.5), lw(8.5), far ? R.shade(skin, 0.8) : skin, { detail: (g, cx, pad, len) => { g.fillStyle = far ? "#4a3a2a" : "#6a5038"; g.beginPath(); g.arc(cx, pad + len * 0.3, lw(4.8), 0, 7); g.fill(); g.fillStyle = far ? R.shade(skin, 0.8) : skin; g.beginPath(); g.arc(cx + 1, pad + len + 1, lw(5), 0, 7); g.fill(); } });
+  // torso: upright part, pivot = hip centre (bottom)
+  const tw = Math.round(26 * bw * (fem ? 0.86 : 1)), th = L.torso, pad = 6;
+  P.torso = (() => {
+    const c0 = R.paint(tw + pad * 2 + 8, th + pad * 2, (g) => {
+      const x0 = pad + 4, b = th + pad;      // x0 = left (back) edge, b = bottom y
+      const f = fem ? 0.82 : 1, pts = [[x0 + tw * 0.08, b], [x0 + tw * 0.0, b - th * 0.35], [x0 + tw * (fem ? 0.08 : 0.0), b - th * 0.8], [x0 + tw * 0.22, b - th], [x0 + tw * 0.74, b - th], [x0 + tw * (fem ? 0.96 : 1.04), b - th * 0.78], [x0 + tw * (fem ? 0.78 : 0.9), b - th * 0.4], [x0 + tw * (fem ? 0.94 : 0.86), b]];
+      R.shape(g, pts, A.cloth);
+      if (c.armour > 0) { const pl = [[x0 + tw * 0.04, b - th * 0.28], [x0 + tw * 0.02, b - th * 0.8], [x0 + tw * 0.22, b - th * 0.98], [x0 + tw * 0.74, b - th * 0.98], [x0 + tw * 1.0, b - th * 0.78], [x0 + tw * 0.86, b - th * 0.28]]; R.shape(g, pl, A.metal); g.strokeStyle = R.shade(A.metal, 0.6); g.lineWidth = 2; g.beginPath(); g.moveTo(x0 + tw * 0.1, b - th * 0.5); g.lineTo(x0 + tw * 0.92, b - th * 0.5); g.stroke(); g.fillStyle = A.trim; for (let i = 0; i < 3; i++) g.fillRect(x0 + tw * (0.25 + i * 0.22), b - th * 0.62, 3, 3); }
+      g.fillStyle = "#4a2f1c"; g.fillRect(x0 + tw * 0.04, b - th * 0.22, tw * 0.88, 5); g.fillStyle = "#d8b24a"; g.fillRect(x0 + tw * 0.46, b - th * 0.22, 6, 5);   // belt + buckle
+    });
+    return { c: c0, px: pad + 4 + tw * 0.48, py: th + pad };
+  })();
+  P.shoulderY = th * 0.9;
+  // head: upright, pivot = neck base (bottom centre). cranium radius ~14, face to the right.
+  const HW = 56, HH = 58, hx = 24, hy = 28;
+  const head = R.paint(HW, HH, (g) => {
+    R.shape(g, [[hx + 3, hy + 14], [hx + 3, hy + 25], [hx + 12, hy + 25], [hx + 12, hy + 14]], R.shade(skin, 0.85), { lw: 2 });           // neck
+    R.ellipse(g, hx, hy, 14, 15, skin);                                                                                                        // cranium
+    R.ellipse(g, hx + 4, hy + 6, fem ? 9 : 11, fem ? 9 : 10, skin, { lw: 0.01 });                                                              // jaw
+    R.ellipse(g, hx - 2, hy + 2, 3, 5, R.shade(skin, 0.9), { lw: 1.5 });                                                                       // ear
+    g.fillStyle = "#fff"; g.beginPath(); g.ellipse(hx + 8, hy + 1, 3.4, 4, 0, 0, 7); g.fill(); g.fillStyle = "#2a1a12"; g.beginPath(); g.ellipse(hx + 9.2, hy + 1.4, 1.9, 2.6, 0, 0, 7); g.fill();   // eye
+    g.strokeStyle = fem ? R.shade(hair, 0.8) : R.shade(hair, 0.85); g.lineWidth = c.face === 1 ? 3 : 2; g.beginPath(); g.moveTo(hx + 4, hy - (c.face === 1 ? 4 : 5)); g.lineTo(hx + 12, hy - (c.face === 1 ? 1 : 4)); g.stroke();   // brow
+    if (fem) { g.strokeStyle = "#2a1a12"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(hx + 10, hy - 2.5); g.lineTo(hx + 12.5, hy - 3.5); g.stroke(); }
+    g.fillStyle = R.shade(skin, 0.82); g.beginPath(); g.moveTo(hx + 13, hy + 2); g.lineTo(hx + 17, hy + 7); g.lineTo(hx + 12, hy + 8); g.fill();     // nose
+    g.strokeStyle = "#7a3a30"; g.lineWidth = 1.8; g.beginPath(); g.moveTo(hx + 8, hy + 12); g.lineTo(hx + 13, hy + 11.5 + (c.face === 1 ? 1.5 : 0)); g.stroke();   // mouth
+    if (c.face === 2) { if (fem) { g.fillStyle = R.shade(skin, 0.7); for (const [dx, dy] of [[7, 5], [10, 6], [5, 7], [9, 8]]) g.fillRect(hx + dx, hy + dy, 1.6, 1.6); } else { g.fillStyle = hair; g.beginPath(); g.moveTo(hx + 2, hy + 9); g.quadraticCurveTo(hx + 8, hy + 24, hx + 17, hy + 9); g.lineTo(hx + 12, hy + 9); g.quadraticCurveTo(hx + 8, hy + 15, hx + 4, hy + 8); g.fill(); } }
+  });
+  P.head = { c: head, px: hx + 7, py: hy + 25 };
+  // hair
+  const none = c.hair === 3;
+  const cap = (g, extra) => { g.fillStyle = hair; g.strokeStyle = R.INK; g.lineWidth = 2.5; g.beginPath(); g.moveTo(hx - 15, hy + 6); g.quadraticCurveTo(hx - 18, hy - 18, hx + 2, hy - 18); g.quadraticCurveTo(hx + 17, hy - 17, hx + 15, hy - 5); g.quadraticCurveTo(hx + 8, hy - 11, hx + 2, hy - 7); g.quadraticCurveTo(hx - 3, hy - 2, hx - 7, hy + 3); g.lineTo(hx - 12, hy + 9); g.closePath(); g.stroke(); g.fill(); g.fillStyle = R.shade(hair, 1.25); g.beginPath(); g.ellipse(hx + 1, hy - 13, 7, 2.2, -0.2, 0, 7); g.fill(); if (extra) extra(g); };
+  P.hairCap = none ? null : { c: R.paint(HW, HH, (g) => cap(g)), px: hx + 7, py: hy + 25 };
+  P.hairBack = none || (c.hair !== 1) ? null : { c: R.paint(HW, 80, (g) => { R.shape(g, [[hx - 14, hy - 6], [hx - 18, hy + 22], [hx - 16, hy + 40], [hx - 4, hy + 38], [hx + 2, hy + 8]], hair); }), px: hx + 7, py: hy + 25 };
+  P.tail = c.hair === 2 ? R.limb(26, 9, 3, hair) : null;
+  // helm
+  P.helm = c.helm ? { c: R.paint(HW + 8, HH, (g) => {
+    R.shape(g, [[hx - 16, hy + 8], [hx - 16, hy - 8], [hx - 8, hy - 19], [hx + 6, hy - 21], [hx + 16, hy - 12], [hx + 16, hy - 2], [hx + 6, hy - 6], [hx - 1, hy + 2], [hx - 6, hy + 10]], Hm.metal);
+    R.shape(g, [[hx + 12, hy - 4], [hx + 15, hy + 9], [hx + 11, hy + 9]], R.shade(Hm.metal, 0.85), { lw: 1.5 });                                      // nose guard
+    g.strokeStyle = Hm.trim; g.lineWidth = 2; g.beginPath(); g.moveTo(hx - 15, hy - 3); g.lineTo(hx + 15, hy - 5); g.stroke();
+    if (c.helm >= 2) R.shape(g, [[hx - 6, hy - 20], [hx + 2, hy - 28], [hx + 8, hy - 20]], Hm.trim, { lw: 1.5 });
+    if (c.helm >= 3) R.shape(g, [[hx - 12, hy - 14], [hx - 20, hy - 30], [hx - 2, hy - 20]], "#c0392b", { lw: 1.5 });
+  }), px: hx + 7, py: hy + 25 } : null;
+  // weapons: hang down from the grip along +y (angle 0 continues the forearm)
+  P.sword = (() => { const w = 26, h = 76, cx = 13; return { c: R.paint(w, h, (g) => { R.shape(g, [[cx - 3, 20], [cx + 3, 20], [cx + 4, 64], [cx, 72], [cx - 4, 64]], "#d4dbe2"); g.fillStyle = "#fff"; g.fillRect(cx - 1, 24, 2, 34); R.shape(g, [[cx - 11, 16], [cx + 11, 16], [cx + 11, 21], [cx - 11, 21]], "#c8a24a", { lw: 1.6 }); R.shape(g, [[cx - 2.5, 3], [cx + 2.5, 3], [cx + 2.5, 16], [cx - 2.5, 16]], "#6a4a2a", { lw: 1.4 }); g.fillStyle = "#c8a24a"; g.beginPath(); g.arc(cx, 3, 3.5, 0, 7); g.fill(); }), px: cx, py: 9, len: 70 }; })();
+  P.axe = (() => { const w = 40, h = 80, cx = 14; return { c: R.paint(w, h, (g) => { R.shape(g, [[cx - 2, 2], [cx + 2, 2], [cx + 2.4, 74], [cx - 2.4, 74]], "#7a5230", { lw: 1.6 }); R.shape(g, [[cx + 2, 46], [cx + 20, 40], [cx + 25, 56], [cx + 20, 72], [cx + 2, 66]], "#b6bec6"); g.strokeStyle = "#fff"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(cx + 22, 44); g.lineTo(cx + 24, 56); g.lineTo(cx + 21, 68); g.stroke(); }), px: cx, py: 10, len: 70 }; })();
+  P.spear = (() => { const w = 22, h = 150, cx = 11; return { c: R.paint(w, h, (g) => { R.shape(g, [[cx - 2, 6], [cx + 2, 6], [cx + 2, 124], [cx - 2, 124]], "#8a6238", { lw: 1.6 }); R.shape(g, [[cx, 114], [cx + 6, 126], [cx + 3, 146], [cx, 150], [cx - 3, 146], [cx - 6, 126]], "#d4dbe2", { lw: 1.8 }); g.fillStyle = "#b03a2a"; g.fillRect(cx - 3, 108, 6, 8); }), px: cx, py: 50, len: 100 }; })();
+  P.bow = (() => { const w = 34, h = 96, cx = 8; return { c: R.paint(w, h, (g) => { g.lineCap = "round"; for (const [lwid, col] of [[8, R.INK], [5, "#8a5a30"]]) { g.strokeStyle = col; g.lineWidth = lwid; g.beginPath(); g.moveTo(cx + 4, 4); g.quadraticCurveTo(cx + 26, 48, cx + 4, 92); g.stroke(); } g.strokeStyle = "#c9985a"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(cx + 8, 12); g.quadraticCurveTo(cx + 24, 48, cx + 8, 84); g.stroke(); g.fillStyle = "#3a2a1a"; g.fillRect(cx + 10, 42, 8, 12); }), px: cx + 14, py: 48 }; })();
+  P.arrow = { c: R.paint(60, 10, (g) => { R.shape(g, [[2, 4], [48, 4], [48, 6], [2, 6]], "#d6c08c", { lw: 1.2 }); R.shape(g, [[48, 1], [58, 5], [48, 9]], "#d4dbe2", { lw: 1.2 }); R.shape(g, [[2, 1], [10, 4], [2, 5]], "#b04a3a", { lw: 1 }); }), px: 30, py: 5 };
+  P.shield = { c: R.paint(52, 52, (g) => { R.ellipse(g, 26, 26, 21, 21, "#8f3a2a"); g.strokeStyle = "#c8a24a"; g.lineWidth = 3; g.beginPath(); g.arc(26, 26, 19, 0, 7); g.stroke(); R.ellipse(g, 26, 26, 6, 6, "#c8a24a", { lw: 1.5 }); }), px: 26, py: 26 };
+  // horse (placeholder, side view facing right)
+  const coat = "#a9784a", mane = "#3a2416";
+  P.horseBody = { c: R.paint(150, 70, (g) => { R.shape(g, [[14, 20], [30, 8], [110, 6], [132, 18], [136, 38], [118, 54], [92, 58], [50, 58], [24, 52], [8, 36]], coat); }), px: 75, py: 42 };
+  P.horseNeck = { c: R.paint(60, 72, (g) => { R.shape(g, [[6, 68], [10, 40], [18, 10], [32, 4], [38, 16], [40, 44], [38, 68]], coat); g.fillStyle = mane; g.beginPath(); g.moveTo(10, 40); g.lineTo(18, 10); g.lineTo(26, 6); g.lineTo(18, 52); g.fill(); }), px: 22, py: 66 };
+  P.horseHead = { c: R.paint(64, 36, (g) => { R.shape(g, [[2, 6], [40, 2], [58, 18], [58, 30], [44, 32], [24, 26], [6, 22]], coat); g.fillStyle = "#1a1210"; g.beginPath(); g.arc(38, 10, 2.4, 0, 7); g.fill(); R.shape(g, [[6, 4], [10, -6], [16, 3]], R.shade(coat, 0.85), { lw: 1.4 }); g.fillStyle = "#6a3a30"; g.beginPath(); g.arc(55, 26, 2, 0, 7); g.fill(); }), px: 8, py: 12 };
+  P.horseLegU = (far) => R.limb(28, 15, 10, far ? R.shade(coat, 0.78) : coat);
+  P.horseLegL = (far) => R.limb(30, 9, 8, far ? R.shade(coat, 0.78) : coat, { detail: (g, cx, pad, len) => { g.fillStyle = "#2a1c12"; g.fillRect(cx - 5, pad + len - 6, 10, 8); } });
+  P.horseTail = R.limb(40, 10, 6, mane);
+  P.saddle = { c: R.paint(40, 18, (g) => { R.shape(g, [[2, 4], [38, 4], [34, 16], [6, 16]], "#6a3a22"); }), px: 20, py: 6 };
+  return P;
+}
+
+// ---------------------------------------------------------------- animation data (angles: 0 down, +forward, 180 up)
+const ATTACK = {
+  sword: { dur: 0.62, ua: [[0, 35], [0.3, 160, R.easeOut], [0.42, 165], [0.62, 55, R.easeIn], [0.8, 38], [1, 35, R.easeOut]], fe: [[0, 50], [0.3, 15], [0.42, 12], [0.62, 6], [0.8, 30], [1, 50]], wa: [[0, 120], [0.3, 188, R.easeOut], [0.42, 192], [0.62, 70, R.easeIn], [0.8, 50], [1, 120, R.easeOut]], lean: [[0, 0], [0.3, -9], [0.42, -9], [0.62, 12, R.easeIn], [1, 0]], lunge: [[0, 0], [0.4, -3], [0.62, 7, R.easeIn], [1, 0]], uaF: [[0, -10], [0.4, -45], [0.62, 25], [1, -10]], trail: [0.5, 0.78] },
+  axe: { dur: 0.8, ua: [[0, 35], [0.4, 170, R.easeOut], [0.52, 174], [0.72, 52, R.easeIn], [0.9, 40], [1, 35]], fe: [[0, 50], [0.4, 10], [0.52, 8], [0.72, 6], [0.9, 30], [1, 50]], wa: [[0, 120], [0.4, 200, R.easeOut], [0.52, 205], [0.72, 60, R.easeIn], [0.9, 45], [1, 120]], lean: [[0, 0], [0.4, -12], [0.52, -12], [0.72, 15, R.easeIn], [1, 0]], lunge: [[0, 0], [0.5, -4], [0.72, 8, R.easeIn], [1, 0]], uaF: [[0, -10], [0.5, -55], [0.72, 30], [1, -10]], trail: [0.58, 0.86] },
+  spear: { dur: 0.66, ua: [[0, 55], [0.3, 20, R.easeOut], [0.44, 18], [0.58, 82, R.easeIn], [0.8, 70], [1, 55]], fe: [[0, 40], [0.3, 92], [0.44, 96], [0.58, 4, R.easeIn], [0.8, 12], [1, 40]], wa: [[0, 84], [0.3, 72], [0.44, 70], [0.58, 92], [0.8, 88], [1, 84]], lean: [[0, 0], [0.3, -7], [0.44, -7], [0.58, 12, R.easeIn], [0.8, 5], [1, 0]], lunge: [[0, 0], [0.4, -4], [0.58, 9, R.easeIn], [1, 0]], trail: [0.5, 0.7] },
+  bow: { dur: 1.2, ua: [[0, 72], [1, 72]], fe: [[0, 14], [1, 14]], wa: [[0, 90], [1, 90]], lean: [[0, 0], [0.25, -3], [0.7, -4], [0.76, 2], [1, 0]], lunge: [[0, 0], [1, 0]], draw: [[0, 0], [0.18, 0], [0.55, 1], [0.7, 1], [0.74, 0, R.easeIn], [1, 0]] },
+};
+const READY = { sword: { ua: 35, fe: 50, wa: 120 }, axe: { ua: 35, fe: 50, wa: 120 }, spear: { ua: 55, fe: 40, wa: 84 }, bow: { ua: 72, fe: 14, wa: 90 } };
+
+// ---------------------------------------------------------------- one frame
+function drawFrame(c, T, parts) {
+  const P = parts, B = BUILD[c.build], canvas = R.canvas(FW, FH), g = canvas.getContext("2d");
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  const w = c.weapon, A = ATTACK[w], Rd = READY[w], sp = c.speed;
+  const moving = c.state === "walk" || c.state === "walkattack", fights = c.state === "attack" || c.state === "walkattack";
+  const cyc = T * 1.15 * sp;                                      // walk cycle phase (cycles)
+  let u = -1; if (fights) { const per = A.dur / sp + 0.55; const t = T % per; u = t / (A.dur / sp); if (u > 1) u = -1; }
+  R.facing(g, GX, c.flip, () => {
+    // ---- horse (mounted): its own planted-foot gait and head nod
+    let hipX = GX, hipGround = GY, seat = null;
+    if (c.mounted) {
+      const gait = c.state !== "idle", hc = T * 0.9 * sp, bobH = gait ? Math.abs(Math.sin(hc * Math.PI * 2)) * 2.2 : 0;
+      const by = GY - 58 - bobH, bx = GX;                        // body centre; withers ~ GY - 86
+      const legs = [[-46, 0.0, true, true], [40, 0.25, false, false], [-46, 0.5, false, true], [40, 0.75, true, false]];    // [x, phase, far, hind]
+      const leg = (xx, ph, far, hind) => {
+        const f = gait ? R.foot(hc + ph, 36, 14, 0.62) : { x: 0, lift: 0 }, hip = [bx + xx, by + 18];
+        const k = R.ik2(hip, [bx + xx + f.x * (hind ? -1 : 1) * -1, GY - f.lift], 28, 30, hind ? -1 : 1);
+        R.limbAt(g, P.horseLegU(far), hip[0], hip[1], k.a1); R.limbAt(g, P.horseLegL(far), k.J[0], k.J[1], k.a2);
+      };
+      for (const l of legs) if (l[2]) leg(...l);
+      R.limbAt(g, P.horseTail, bx - 64, by - 14, -22 + (gait ? Math.sin(hc * 6.28) * 12 : 0));
+      R.uprightAt(g, P.horseBody, bx, by, 0);
+      const nod = gait ? Math.sin(hc * 6.28 * 2) * 3 : 0;
+      R.uprightAt(g, P.horseNeck, bx + 44, by - 8, 30 + nod);
+      const nv = R.rot(14, -62, 30 + nod); R.uprightAt(g, P.horseHead, bx + 44 + nv[0], by - 8 + nv[1] + 2, 64 + nod);
+      for (const l of legs) if (!l[2]) leg(...l);
+      R.uprightAt(g, P.saddle, bx - 4, by - 26, 0);
+      seat = [bx - 4, by - 24]; hipX = seat[0];
+    }
+    // ---- rider / walker skeleton
+    const lunge = u >= 0 ? R.kf(A.lunge, u) : 0, lean0 = u >= 0 ? R.kf(A.lean, u) : 0;
+    let hipY, bob = 0, lean = lean0;
+    if (c.mounted) { hipY = seat[1] - 2 + (c.state !== "idle" ? Math.abs(Math.sin(T * 0.9 * sp * 6.28)) * 1.4 : 0); }
+    else if (moving) { bob = Math.abs(Math.cos(cyc * Math.PI * 2)) * 3.2; hipY = GY - LEG * 0.95 + bob; lean += 3; }
+    else { hipY = GY - LEG * 0.97 + Math.sin(T * 2.2) * 0.7; }
+    const hip = [hipX + (c.mounted ? 0 : lunge), hipY];
+    const sh = R.rot(0, -L.torso * 0.9, lean), S = [hip[0] + sh[0] + 1, hip[1] + sh[1]];
+    const nk = R.rot(0, -L.torso * 0.97, lean), N = [hip[0] + nk[0] + 1, hip[1] + nk[1]];
+    // legs
+    let legN, legF;
+    if (c.mounted) {
+      const sw = c.state !== "idle" ? Math.sin(T * 0.9 * sp * 6.28) * 2 : 0;
+      const mk = (a, k) => { const v = R.dir(a), kn = [hip[0] + L.thigh * v[0], hip[1] + L.thigh * v[1]], v2 = R.dir(a - k); return { a1: a, a2: a - k, J: kn, E: [kn[0] + L.shin * v2[0], kn[1] + L.shin * v2[1]] }; };
+      legN = mk(74 + sw, 70); legF = mk(70 - sw, 66);
+    } else {
+      const stance = !moving, ft = (ph, fixed) => { const f = moving ? R.foot(cyc + ph, 34, 11) : { x: fixed, lift: 0 }; return [hipX + (moving ? f.x : fixed) + (moving ? 0 : 0), GY - f.lift]; };
+      const tN = ft(0, 8), tF = ft(0.5, -9);
+      legN = R.ik2([hip[0], hip[1] + 1], tN, L.thigh, L.shin, 1); legF = R.ik2([hip[0], hip[1] + 1], tF, L.thigh, L.shin, 1);
+    }
+    // weapon arm: forward kinematics from keyframes; off arm: IK to the weapon grip or hangs / holds the shield
+    let ua = Rd.ua, fe = Rd.fe, wa = Rd.wa;
+    if (u >= 0) { ua = R.kf(A.ua, u); fe = R.kf(A.fe, u); wa = R.kf(A.wa, u); }
+    else if (moving) ua += Math.sin(cyc * 6.283) * 4;
+    const dirv = R.dir, armN = { E: R.add(S, dirv(ua), L.upper) }; armN.H = R.add(armN.E, dirv(ua + fe), L.fore + 3);
+    let armF;
+    if (w === "spear") { const gp = R.add(armN.H, dirv(wa), 30); const k = R.ik2(S, gp, L.upper, L.fore, -1); armF = { ...k, H: gp }; }
+    else if (w === "bow") { const bh = [S[0] + 26, S[1] + 2]; const k = R.ik2(S, bh, L.upper, L.fore, -1); armF = { ...k, H: bh }; }
+    else if (c.shield) { const a = 44, k = { a1: a, a2: a + 50 }; k.J = R.add(S, dirv(a), L.upper); k.E = R.add(k.J, dirv(a + 50), L.fore + 3); armF = { ...k, H: k.E }; }
+    else { const a = (u >= 0 && A.uaF ? R.kf(A.uaF, u) : -8) - (moving ? Math.sin(cyc * 6.283) * 26 : 0); const k = { a1: a, a2: a + 16 }; k.J = R.add(S, dirv(a), L.upper); k.E = R.add(k.J, dirv(a + 16), L.fore + 3); armF = { ...k, H: k.E }; }
+    let nearBow = null;
+    if (w === "bow") { const d = u >= 0 ? R.kf(A.draw, u) : 0, pull = [R.lerp(armF.H[0] - 4, S[0] + 3, d), R.lerp(armF.H[1], S[1] + 3, d)]; nearBow = { ...R.ik2(S, pull, L.upper, L.fore, -1), H: pull, d }; }
+    // ---- layers back to front
+    if (P.hairBack) R.uprightAt(g, P.hairBack, N[0], N[1], lean * 0.5);
+    R.limbAt(g, P.thigh(true), hip[0], hip[1] + 1, legF.a1); R.limbAt(g, P.shin(true), legF.J[0], legF.J[1], legF.a2); R.limbAt(g, P.foot(true), legF.E[0] - 1, legF.E[1] - 3, 90 - (moving ? 0 : 0));
+    R.limbAt(g, P.upper(true), S[0], S[1], armF.a1); R.limbAt(g, P.fore(true), armF.J[0], armF.J[1], armF.a2);
+    R.uprightAt(g, P.torso, hip[0], hip[1] + 2, lean);
+    if (c.shield && w !== "bow") R.uprightAt(g, P.shield, armF.H[0] + 6, armF.H[1] - 2, 0);
+    R.uprightAt(g, P.head, N[0], N[1] + 2, lean * 0.4);
+    if (P.hairCap && !(c.helm && c.hair !== 1)) R.uprightAt(g, P.hairCap, N[0], N[1] + 2, lean * 0.4);
+    if (P.helm) R.uprightAt(g, P.helm, N[0], N[1] + 2, lean * 0.4);
+    if (P.tail) { const swing = (moving || c.mounted ? Math.sin(cyc * 6.283 + 1) * 16 : Math.sin(T * 2) * 4); R.limbAt(g, P.tail, N[0] - 14, N[1] - 20, -150 + swing); }
+    R.limbAt(g, P.thigh(false), hip[0], hip[1] + 1, legN.a1); R.limbAt(g, P.shin(false), legN.J[0], legN.J[1], legN.a2); R.limbAt(g, P.foot(false), legN.E[0] - 1, legN.E[1] - 3, 90);
+    if (w === "bow") {
+      R.limbAt(g, P.upper(false), S[0], S[1], nearBow.a1); R.limbAt(g, P.fore(false), nearBow.J[0], nearBow.J[1], nearBow.a2);
+      R.uprightAt(g, P.bow, armF.H[0] + 6, armF.H[1], 0);
+      const top = [armF.H[0] + 6 - 6, armF.H[1] - 44], bot = [armF.H[0] + 6 - 6, armF.H[1] + 44];
+      g.strokeStyle = "#efe6cc"; g.lineWidth = 1.6; g.beginPath(); g.moveTo(...top); g.lineTo(...nearBow.H); g.lineTo(...bot); g.stroke();
+      if (u >= 0 && u < 0.74 && nearBow.d > 0.04) R.limbAt(g, P.arrow, nearBow.H[0] + 22, nearBow.H[1], 90 - 90 + 0 - 0 + 0 + 90 - 90);
+      else if (u >= 0.74) { const f = (u - 0.74) / 0.26; g.globalAlpha = 1 - f * f; R.limbAt(g, P.arrow, armF.H[0] + 36 + f * 120, armF.H[1], 0); g.globalAlpha = 1; }
+    } else {
+      R.limbAt(g, P.upper(false), S[0], S[1], ua); R.limbAt(g, P.fore(false), armN.E[0], armN.E[1], ua + fe);
+      // swing trail: the weapon tip at earlier moments of the strike, fading
+      if (u >= 0 && A.trail && u > A.trail[0] && u < A.trail[1]) {
+        const wl = P[w].len, tipAt = (uu) => { const ua2 = R.kf(A.ua, uu), fe2 = R.kf(A.fe, uu), wa2 = R.kf(A.wa, uu), l2 = R.kf(A.lean, uu), sh2 = R.rot(0, -L.torso * 0.9, l2), S2 = [hip[0] - lunge + R.kf(A.lunge, uu) + sh2[0] + 1, hip[1] + sh2[1]]; const E2 = R.add(S2, R.dir(ua2), L.upper), H2 = R.add(E2, R.dir(ua2 + fe2), L.fore + 3); return R.add(H2, R.dir(wa2), wl); };
+        for (let i = 1; i <= 7; i++) { const a = tipAt(u - i * 0.018), b = tipAt(u - (i - 1) * 0.018); g.strokeStyle = `rgba(255,255,255,${0.55 - i * 0.07})`; g.lineWidth = 9 - i; g.lineCap = "round"; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke(); }
+      }
+      R.limbAt(g, P[w], armN.H[0], armN.H[1], wa);
+      if (w === "spear") R.limbAt(g, P.fore(true), armF.J[0], armF.J[1], armF.a2);
+    }
+    if (c.bones) {
+      const line = (a, b, col) => { g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke(); };
+      line(hip, S, "#f33"); line(S, armN.E, "#fd3"); line(armN.E, armN.H, "#fd3"); line(S, armF.J, "#3f6"); line(armF.J, armF.E || armF.H, "#3f6"); line(hip, legN.J, "#3cf"); line(legN.J, legN.E, "#3cf"); line(hip, legF.J, "#a6f"); line(legF.J, legF.E, "#a6f");
+    }
+  });
+  // ground contact shadow drawn first in the sheet; here just return
+  return canvas;
+}
+
+// ---------------------------------------------------------------- page glue
+const mainC = document.getElementById("main"), mg = mainC.getContext("2d"), gameC = document.getElementById("game"), gg = gameC.getContext("2d");
+mainC.width = FW * 2; mainC.height = FH * 2; gameC.width = FW * 6; gameC.height = Math.ceil(FH * 0.255 * 4 + 6);
+let parts = buildParts(cfg), key = "", T0 = performance.now();
+const keyOf = (c) => [c.gender, c.build, c.face, c.hair, c.hairColor, c.skin, c.armour, c.helm].join("|");
+const pcache = new Map();
+function partsFor(c) { const k = keyOf(c); if (!pcache.has(k)) { if (pcache.size > 40) pcache.clear(); pcache.set(k, buildParts(c)); } return pcache.get(k); }
+const bgFrame = (canvas, c) => { const b = R.canvas(FW, FH), g = b.getContext("2d"); g.fillStyle = "#6f8d4e"; g.fillRect(0, 0, FW, FH); g.fillStyle = "#5f7e41"; g.fillRect(0, GY, FW, FH - GY); g.fillStyle = "rgba(0,0,0,0.2)"; g.beginPath(); g.ellipse(GX, GY + 1, c.mounted ? 62 : 24, 5, 0, 0, 7); g.fill(); g.drawImage(canvas, 0, 0); return b; };
+function frame(patch, t) { const c = { ...cfg, ...patch }; if (c.weapon === "bow") c.shield = 0; return bgFrame(drawFrame(c, t, partsFor(c)), c); }
+function loop(now) {
+  const t = window.__rig && window.__rig.freeze != null ? window.__rig.freeze : (now - T0) / 1000;
+  const f = frame({}, t);
+  mg.imageSmoothingEnabled = false; mg.drawImage(f, 0, 0, mainC.width, mainC.height);
+  // the in-game strip: this character and the lineup (both genders x three builds) at the real size, nearest neighbour
+  gg.imageSmoothingEnabled = false; gg.clearRect(0, 0, gameC.width, gameC.height); gg.fillStyle = "#6f8d4e"; gg.fillRect(0, 0, gameC.width, gameC.height);
+  const gs = 0.255, cw = FW * gs;
+  const set = [{}, ...["m", "f"].flatMap((gn) => [0, 1, 2].map((b) => ({ gender: gn, build: b, mounted: false })))];
+  set.forEach((p, i) => { const fr = frame(p, t); gg.drawImage(fr, 0, 0, FW, FH, i * (gameC.width / set.length) + 4, 4, cw * 4, FH * gs * 4); });
+  requestAnimationFrame(loop);
+}
+function bind(id, key, num) { const el = document.getElementById(id); const read = () => { cfg[key] = el.type === "checkbox" ? el.checked : num ? Number(el.value) : el.value; rules(); }; el.addEventListener("input", read); el.addEventListener("change", read); read(); }
+function rules() {
+  const msg = document.getElementById("msg"); msg.textContent = "";
+  if (cfg.weapon === "bow" && Number(cfg.shield) === 1) { cfg.shield = 0; document.getElementById("shield").value = "0"; msg.textContent = "A bow needs both hands: the shield was refused."; }
+  cfg.shield = Number(cfg.shield);
+}
+[["gender", "gender"], ["build", "build", 1], ["face", "face", 1], ["hair", "hair", 1], ["hairColor", "hairColor"], ["skin", "skin"], ["armour", "armour", 1], ["helm", "helm", 1], ["weapon", "weapon"], ["shield", "shield", 1], ["state", "state"], ["mounted", "mounted"], ["speed", "speed", 1], ["flip", "flip"], ["bones", "bones"]].forEach(([id, k, n]) => bind(id, k, n));
+document.getElementById("rand").addEventListener("click", () => { for (const id of ["gender", "build", "face", "hair", "hairColor", "skin"]) { const el = document.getElementById(id); el.selectedIndex = Math.floor(Math.random() * el.options.length); el.dispatchEvent(new Event("change")); } });
+window.__rig = { cfg, freeze: null, frame,
+  sheet(spec) { const fr = spec.frames.map((f) => ({ canvas: frame(f.cfg || {}, f.t || 0), label: f.label })); return R.sheet(fr, { cols: spec.cols || 4, scale: spec.scale || 1.5, gameScale: 0.255 }).toDataURL("image/png"); } };
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

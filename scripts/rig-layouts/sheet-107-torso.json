@@ -1,0 +1,149 @@
+{
+ "set": "chatgpt",
+ "cellW": 128,
+ "cellH": 128,
+ "cells": [
+  {
+   "name": "torso.tunic",
+   "mode": "cell",
+   "dy": 0,
+   "expectH": 36,
+   "len": 31,
+   "joint": "waist",
+   "default": "torso",
+   "row": 0,
+   "col": 0,
+   "cellPivot": [
+    64,
+    100
+   ]
+  },
+  {
+   "name": "torso.t1",
+   "mode": "cell",
+   "dy": 0,
+   "expectH": 36,
+   "len": 31,
+   "joint": "waist",
+   "row": 0,
+   "col": 1,
+   "cellPivot": [
+    64,
+    100
+   ]
+  },
+  {
+   "name": "torso.t2",
+   "mode": "cell",
+   "dy": 0,
+   "expectH": 36,
+   "len": 31,
+   "joint": "waist",
+   "row": 0,
+   "col": 2,
+   "cellPivot": [
+    64,
+    100
+   ]
+  },
+  {
+   "name": "torso.t3",
+   "mode": "cell",
+   "dy": 0,
+   "expectH": 36,
+   "len": 31,
+   "joint": "waist",
+   "row": 0,
+   "col": 3,
+   "cellPivot": [
+    64,
+    100
+   ]
+  },
+  {
+   "name": "torsoF.tunic",
+   "mode": "cell",
+   "dy": 0,
+   "expectH": 36,
+   "len": 31,
+   "joint": "waist (female)",
+   "row": 1,
+   "col": 0,
+   "cellPivot": [
+    64,
+    100
+   ]
+  },
+  {
+   "name": "torsoF.t1",
+   "mode": "cell",
+   "dy": 0,
+   "expectH": 36,
+   "len": 31,
+   "joint": "waist (female)",
+   "row": 1,
+   "col": 1,
+   "cellPivot": [
+    64,
+    100
+   ]
+  },
+  {
+   "name": "torsoF.t2",
+   "mode": "cell",
+   "dy": 0,
+   "expectH": 36,
+   "len": 31,
+   "joint": "waist (female)",
+   "row": 1,
+   "col": 2,
+   "cellPivot": [
+    64,
+    100
+   ]
+  },
+  {
+   "name": "torsoF.t3",
+   "mode": "cell",
+   "dy": 0,
+   "expectH": 36,
+   "len": 31,
+   "joint": "waist (female)",
+   "row": 1,
+   "col": 3,
+   "cellPivot": [
+    64,
+    100
+   ]
+  },
+  {
+   "name": "pelvis.trousers",
+   "mode": "cell",
+   "fx": 0.5,
+   "fy": 0.3,
+   "expectH": 16,
+   "joint": "root / hips",
+   "default": "pelvis",
+   "row": 2,
+   "col": 0,
+   "cellPivot": [
+    64,
+    44
+   ]
+  },
+  {
+   "name": "pelvis.bare",
+   "mode": "cell",
+   "fx": 0.5,
+   "fy": 0.3,
+   "expectH": 16,
+   "joint": "root / hips",
+   "row": 2,
+   "col": 1,
+   "cellPivot": [
+    64,
+    44
+   ]
+  }
+ ]
+}

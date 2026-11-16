@@ -1,0 +1,141 @@
+{
+ "set": "roundtrip",
+ "parts": {
+  "pelvis": {
+   "file": "pelvis.png",
+   "pivot": [
+    15,
+    7
+   ],
+   "len": 0,
+   "joint": "root / hips",
+   "size": [
+    30,
+    19
+   ],
+   "scale": 1,
+   "variant": ""
+  },
+  "torso": {
+   "file": "torso.png",
+   "pivot": [
+    15,
+    38
+   ],
+   "len": 25,
+   "joint": "waist",
+   "size": [
+    30,
+    40
+   ],
+   "scale": 1,
+   "variant": ""
+  },
+  "head": {
+   "file": "head.png",
+   "pivot": [
+    14,
+    32
+   ],
+   "len": 0,
+   "joint": "neck",
+   "size": [
+    32,
+    40
+   ],
+   "scale": 1,
+   "variant": ""
+  },
+  "hair": {
+   "file": "hair.png",
+   "pivot": [
+    16,
+    35
+   ],
+   "len": 0,
+   "joint": "neck (overlay)",
+   "size": [
+    31,
+    31
+   ],
+   "scale": 1,
+   "variant": ""
+  },
+  "upperArm": {
+   "file": "upperArm.png",
+   "pivot": [
+    10,
+    9
+   ],
+   "len": 13,
+   "joint": "shoulder",
+   "size": [
+    20,
+    29
+   ],
+   "scale": 1,
+   "variant": ""
+  },
+  "foreArm": {
+   "file": "foreArm.png",
+   "pivot": [
+    8,
+    8
+   ],
+   "len": 13,
+   "joint": "elbow",
+   "size": [
+    16,
+    32
+   ],
+   "scale": 1,
+   "variant": ""
+  },
+  "thigh": {
+   "file": "thigh.png",
+   "pivot": [
+    10,
+    10
+   ],
+   "len": 14,
+   "joint": "hip",
+   "size": [
+    20,
+    31
+   ],
+   "scale": 1,
+   "variant": ""
+  },
+  "shin": {
+   "file": "shin.png",
+   "pivot": [
+    9,
+    8
+   ],
+   "len": 10,
+   "joint": "knee",
+   "size": [
+    17,
+    26
+   ],
+   "scale": 1,
+   "variant": ""
+  },
+  "foot": {
+   "file": "foot.png",
+   "pivot": [
+    8,
+    3
+   ],
+   "len": 0,
+   "joint": "ankle",
+   "size": [
+    29,
+    17
+   ],
+   "scale": 1,
+   "variant": ""
+  }
+ },
+ "soleBelowAnkle": 11
+}

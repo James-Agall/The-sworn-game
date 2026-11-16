@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rig: full body from our own parts</title>
+<style>
+  body { margin:0; background:#1d1812; color:#f0e2c4; font:14px/1.4 Georgia, serif; }
+  #wrap { padding:14px; max-width:1000px; margin:auto; }
+  canvas { display:block; width:100%; background:#6f8d4e; border:2px solid #4a3b28; image-rendering:pixelated; }
+  p { color:#b9a784; margin:6px 0; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="main"></canvas><p id="info">loading...</p></div>
+<script src="rig-core.js"></script>
+<script>
+"use strict";
+// A full body from our own part set (parts/<set>/manifest.json, made by scripts/make-body-parts.mjs): pelvis (root) -> waist -> torso -> neck -> head,
+// shoulders -> upper arms -> elbows -> forearms + hands, hips -> thighs -> knees -> shins -> ankles -> feet. Sword, shield and helm are still the
+// game's real pieces, harvested from the hero / champion frames.
+const R = Rig, D = R.D, FW = 256, FH = 176, GX = 118, GY = 160;
+const SET = new URLSearchParams(location.search).get("parts") || "bodyset", PB = "parts/" + SET + "/";
+const FR = "../sprites/autumn/frames/heroes/";
+const cfg = { state: "walk", helm: 0, shield: 0, hair: 1, bones: false };
+const ang = (a, b) => Math.atan2(b[0] - a[0], b[1] - a[1]) / D, dst = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+const load = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("load " + src)); i.src = src; });
+function cut(img, o) {
+  const [x, y, w, h] = o.r, c = R.canvas(w, h), g = c.getContext("2d"); g.imageSmoothingEnabled = false; g.save();
+  if (o.poly) { g.beginPath(); o.poly.forEach(([px, py], i) => (i ? g.lineTo(px - x, py - y) : g.moveTo(px - x, py - y))); g.closePath(); g.clip(); }
+  g.drawImage(img, x, y, w, h, 0, 0, w, h); g.restore(); for (const [ex, ey, ew, eh] of o.erase || []) g.clearRect(ex - x, ey - y, ew, eh);
+  return { c, px: o.pivot[0] - x, py: o.pivot[1] - y, native: o.native || 0 };
+}
+function tint(part, hex, keepRim = 0.16) {                     // recolour metal keeping the shading (sprite-making/recolor.mjs)
+  const c = R.canvas(part.c.width, part.c.height), g = c.getContext("2d"); g.drawImage(part.c, 0, 0); const d = g.getImageData(0, 0, c.width, c.height), T = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t), dark = mix(T, [18, 14, 28], 0.62), light = mix(T, [255, 246, 226], 0.7);
+  for (let i = 0; i < d.data.length; i += 4) { const r = d.data[i], gg = d.data[i + 1], b = d.data[i + 2]; if (d.data[i + 3] < 8) continue; const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), sat = mx ? (mx - mn) / mx : 0, L = (r * 0.3 + gg * 0.59 + b * 0.11) / 255; if (L < keepRim || sat > 0.3) continue; const t = Math.min(1, Math.max(0, (L - keepRim) / 0.79)), col = t < 0.5 ? mix(dark, T, t * 2) : mix(T, light, (t - 0.5) * 2); d.data[i] = col[0]; d.data[i + 1] = col[1]; d.data[i + 2] = col[2]; }
+  g.putImageData(d, 0, 0); return { ...part, c };
+}
+function darker(p, k = 0.78) { const c = R.canvas(p.c.width, p.c.height), g = c.getContext("2d"); g.drawImage(p.c, 0, 0); const d = g.getImageData(0, 0, c.width, c.height); for (let i = 0; i < d.data.length; i += 4) { d.data[i] *= k; d.data[i + 1] *= k; d.data[i + 2] *= k; } g.putImageData(d, 0, 0); return { ...p, c }; }
+
+function build(M, IMG, A, C) {
+  const P = {}, mp = (n) => ({ c: IMG[n], px: M.parts[n].pivot[0], py: M.parts[n].pivot[1], native: 0, len: M.parts[n].len });
+  for (const n of Object.keys(M.parts)) P[n] = mp(n);
+  for (const n of ["upperArm", "foreArm", "thigh", "shin", "foot"]) P[n + "F"] = darker(P[n]);
+  P.sole = M.soleBelowAnkle;
+  // harvested gear
+  const GA = [55, 37];
+  P.sword = cut(A, { r: [44, 6, 48, 42], pivot: GA, native: ang(GA, [88, 11]), poly: [[47, 30], [56, 26], [90, 7], [92, 16], [64, 40], [60, 47], [50, 45], [46, 38]] }); P.swordLen = dst(GA, [88, 11]);
+  const helm = cut(C, { r: [64, 30, 30, 31], pivot: [79, 45], poly: [[66, 36], [70, 32], [76, 30], [84, 30], [90, 34], [93, 40], [93, 52], [92, 57], [88, 60], [80, 60], [74, 58], [70, 56], [67, 52], [65, 44]], erase: [[64, 53, 9, 9]] });
+  P.helm = [null, helm, tint(helm, "#7f93b4"), tint(helm, "#d8a838")];
+  const SH = []; for (let i = 0; i < 18; i++) { const a = (i / 18) * Math.PI * 2; SH.push([102 + Math.cos(a) * 11.5, 77 + Math.sin(a) * 20]); }
+  P.shield = cut(C, { r: [88, 54, 28, 46], pivot: [102, 77], poly: SH });
+  return P;
+}
+const K = { dur: 0.62, ua: [[0, 14], [0.3, 150, R.easeOut], [0.42, 162], [0.62, 55, R.easeIn], [0.8, 30], [1, 14, R.easeOut]], fe: [[0, 34], [0.3, 22], [0.42, 18], [0.62, 8, R.easeIn], [0.8, 26], [1, 34]],
+  wa: [[0, 78], [0.3, 185, R.easeOut], [0.42, 192], [0.62, 82, R.easeIn], [0.8, 56], [1, 78, R.easeOut]], lean: [[0, 0], [0.3, -9], [0.42, -9], [0.62, 12, R.easeIn], [1, 0]], lunge: [[0, 0], [0.4, -3], [0.62, 7, R.easeIn], [1, 0]], trail: [0.5, 0.78] };
+const NECK_UP = 31, SHOULDER_UP = 26;                          // torso part: waist -> neck and waist -> shoulder joint heights
+
+function skeleton(P, c, T) {                                    // every joint position and angle for time T
+  const moving = c.state === "walk" || c.state === "walkattack", fights = c.state === "attack" || c.state === "walkattack";
+  let u = -1; if (fights) { const per = K.dur + 0.55, t = T % per; u = t / K.dur; if (u > 1) u = -1; }
+  const cyc = T * 1.15, sw = Math.sin(cyc * 6.283), bob = moving ? Math.abs(Math.cos(cyc * 6.283)) * -2.5 : Math.sin(T * 2.2) * 0.5;
+  const legH = P.thigh.len + P.shin.len + P.sole;
+  const lean = (u >= 0 ? R.kf(K.lean, u) : 0) + (moving ? 2.5 : 0), lunge = u >= 0 ? R.kf(K.lunge, u) : 0;
+  const root = [GX + lunge, GY - legH + bob], pelvisTilt = moving ? sw * 2 : 0;
+  const waist = [root[0], root[1] - 1], up = (h, x = 0) => { const v = R.rot(x, -h, lean); return [waist[0] + v[0], waist[1] + v[1]]; };
+  const neck = up(NECK_UP), shoulder = up(SHOULDER_UP, 1.5), headTilt = lean * 0.45 + (u >= 0 ? R.kf(K.lean, u) * -0.2 : 0) + Math.sin(T * 1.7) * 0.6;
+  // legs: hips under the pelvis, IK to planted feet
+  const hipsAt = (dx) => [root[0] + dx, root[1] + 3];
+  const legs = [[hipsAt(-1.5), 0, true], [hipsAt(1.5), 0.5, false]].map(([hj, ph, far]) => {
+    const f = moving ? R.foot(cyc + (far ? 0.5 : 0), 22, 8, 0.58) : { x: 0, lift: 0, swing: false }, ankleT = [hj[0] + (far ? -7 : 5) + f.x, GY - P.sole - f.lift];
+    const k = R.ik2(hj, ankleT, P.thigh.len, P.shin.len, 1); return { hj, k, far, tilt: f.swing ? (f.lift > 2 ? -14 : 10) : 0 };
+  });
+  // arms: the weapon arm from keyframes, the far arm swings / holds the shield
+  let ua = 14, fe = 34, wa = 78; if (u >= 0) { ua = R.kf(K.ua, u); fe = R.kf(K.fe, u); wa = R.kf(K.wa, u); } else if (moving) { ua += sw * 5; wa += sw * 5; }
+  const elbow = R.add(shoulder, R.dir(ua), P.upperArm.len), hand = R.add(elbow, R.dir(ua + fe), P.foreArm.len + 3);
+  let uaF = -10 - (moving ? sw * 20 : 0), feF = 14; if (c.shield) { uaF = 42; feF = 62; }
+  const elbowF = R.add(shoulder, R.dir(uaF), P.upperArm.len), handF = R.add(elbowF, R.dir(uaF + feF), P.foreArm.len + 3);
+  return { u, root, waist, neck, shoulder, lean, headTilt, pelvisTilt, legs, ua, fe, wa, elbow, hand, uaF, feF, elbowF, handF, sw, moving };
+}
+function drawFrame(P, c, T) {
+  const canvas = R.canvas(FW, FH), g = canvas.getContext("2d"); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  const S = skeleton(P, c, T), { u } = S;
+  g.save(); g.translate(GX, GY); g.scale(1.08, 1.08); g.translate(-GX, -GY);              // the parts are ~89 px tall; the hero is 98
+  const leg = (L, far) => { R.limbAt(g, P[far ? "thighF" : "thigh"], L.hj[0], L.hj[1], L.k.a1); R.limbAt(g, P[far ? "shinF" : "shin"], L.k.J[0], L.k.J[1], L.k.a2); R.uprightAt(g, P[far ? "footF" : "foot"], L.k.E[0], L.k.E[1], L.tilt); };
+  // back to front: far arm, far leg, pelvis, head + neck, torso, near leg, near arm, weapon
+  R.limbAt(g, P.upperArmF, S.shoulder[0], S.shoulder[1], S.uaF); R.limbAt(g, P.foreArmF, S.elbowF[0], S.elbowF[1], S.uaF + S.feF);
+  leg(S.legs[0], true);
+  R.uprightAt(g, P.pelvis, S.root[0], S.root[1], S.pelvisTilt);
+  R.uprightAt(g, P.head, S.neck[0], S.neck[1] + 1, S.headTilt);
+  if (c.hair && !c.helm) R.uprightAt(g, P.hair, S.neck[0], S.neck[1] + 1, S.headTilt);
+  if (c.helm) { const v = R.rot(1, -17, S.headTilt); R.uprightAt(g, P.helm[c.helm], S.neck[0] + v[0], S.neck[1] + 1 + v[1], S.headTilt); }
+  R.uprightAt(g, P.torso, S.waist[0], S.waist[1], S.lean);
+  if (c.shield) R.uprightAt(g, P.shield, S.handF[0] + 1, S.handF[1], 0);
+  leg(S.legs[1], false);
+  if (u >= 0 && u > K.trail[0] && u < K.trail[1]) {
+    const tipAt = (uu) => { const lean2 = R.kf(K.lean, uu), v = R.rot(1.5, -SHOULDER_UP, lean2), sh = [S.root[0] - R.kf(K.lunge, u) + R.kf(K.lunge, uu) + v[0], S.waist[1] + v[1]], el = R.add(sh, R.dir(R.kf(K.ua, uu)), P.upperArm.len), ha = R.add(el, R.dir(R.kf(K.ua, uu) + R.kf(K.fe, uu)), P.foreArm.len + 3); return R.add(ha, R.dir(R.kf(K.wa, uu)), P.swordLen); };
+    for (let i = 1; i <= 7; i++) { const a = tipAt(u - i * 0.018), b = tipAt(u - (i - 1) * 0.018); g.strokeStyle = `rgba(255,255,255,${0.55 - i * 0.07})`; g.lineWidth = 9 - i; g.lineCap = "round"; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke(); }
+  }
+  R.limbAt(g, P.upperArm, S.shoulder[0], S.shoulder[1], S.ua); R.limbAt(g, P.foreArm, S.elbow[0], S.elbow[1], S.ua + S.fe);
+  R.limbAt(g, P.sword, S.hand[0], S.hand[1], S.wa - P.sword.native);
+  if (c.bones) {
+    const ln = (a, b, col) => { g.strokeStyle = col; g.lineWidth = 1.2; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke(); }, dot = (p) => { g.fillStyle = "#fff"; g.fillRect(p[0] - 1.5, p[1] - 1.5, 3, 3); };
+    ln(S.root, S.waist, "#f33"); ln(S.waist, S.neck, "#f33"); ln(S.shoulder, S.elbow, "#fd3"); ln(S.elbow, S.hand, "#fd3"); ln(S.shoulder, S.elbowF, "#3f6"); ln(S.elbowF, S.handF, "#3f6");
+    for (const L of S.legs) { ln(L.hj, L.k.J, L.far ? "#a6f" : "#3cf"); ln(L.k.J, L.k.E, L.far ? "#a6f" : "#3cf"); dot(L.hj); dot(L.k.J); dot(L.k.E); }
+    [S.root, S.waist, S.neck, S.shoulder, S.elbow, S.hand, S.elbowF].forEach(dot);
+  }
+  g.restore();
+  return canvas;
+}
+const withBg = (cv) => { const b = R.canvas(FW, FH), g = b.getContext("2d"); g.fillStyle = "#6f8d4e"; g.fillRect(0, 0, FW, FH); g.fillStyle = "#5f7e41"; g.fillRect(0, GY + 1, FW, FH); g.fillStyle = "rgba(0,0,0,0.2)"; g.beginPath(); g.ellipse(GX, GY + 2, 26, 5, 0, 0, 7); g.fill(); g.drawImage(cv, 0, 0); return b; };
+Promise.all([fetch(PB + "manifest.json").then((r) => r.json()), load(FR + "base-05.png"), load(FR + "champion-01.png")]).then(async ([M, A, C]) => {
+  const IMG = {}; await Promise.all(Object.entries(M.parts).map(async ([k, v]) => { IMG[k] = await load(PB + v.file); }));
+  const P = build(M, IMG, A, C), mainC = document.getElementById("main"), mg = mainC.getContext("2d"); mainC.width = FW * 3; mainC.height = FH * 2;
+  const frame = (patch, t) => withBg(drawFrame(P, { ...cfg, ...patch }, t));
+  const SEQ = [["walk", 0, 0, 2.4], ["attack", 1, 1, 3.0], ["walkattack", 3, 0, 2.6], ["attack", 2, 1, 2.6]], total = SEQ.reduce((a, s) => a + s[3], 0), T0 = performance.now();
+  function loop(now) {
+    let t = window.__rig.freeze != null ? window.__rig.freeze : ((now - T0) / 1000) % total, st = null, acc = 0; for (const [s, h, sh, d] of SEQ) { if (t < acc + d) { st = { state: s, helm: h, shield: sh, t: t - acc }; break; } acc += d; }
+    const f = frame(st, st.t); mg.imageSmoothingEnabled = false; mg.clearRect(0, 0, mainC.width, mainC.height); mg.drawImage(f, 0, 0, FW, FH, 0, 0, FW * 2, FH * 2);
+    const gs = 0.255; mg.drawImage(f, 0, 0, FW, FH, FW * 2 + 8, 8, FW * gs * 4, FH * gs * 4); mg.drawImage(f, 0, 0, FW, FH, FW * 2 + 8, FH * gs * 4 + 20, FW * gs, FH * gs);
+    mg.fillStyle = "#fff"; mg.font = "13px sans-serif"; mg.fillText(`${st.state}  helm ${st.helm}  shield ${st.shield}`, 8, 16); mg.fillText("in-game size (x4 | x1)", FW * 2 + 12, FH * 2 - 8);
+    document.getElementById("info").textContent = `${st.state}, helm ${st.helm}, shield ${st.shield}: body parts from parts/${SET}/ (our own), sword / helm / shield harvested`; requestAnimationFrame(loop);
+  }
+  window.__rig = { freeze: null, total, sheet(spec) { return R.sheet(spec.frames.map((f) => ({ canvas: frame(f.cfg || {}, f.t || 0), label: f.label })), { cols: spec.cols || 4, scale: spec.scale || 1.2, gameScale: 0.255 }).toDataURL("image/png"); } };
+  requestAnimationFrame(loop);
+}).catch((e) => (document.getElementById("info").textContent = String(e)));
+window.__rig = window.__rig || { freeze: null };
+</script>
+</body>
+</html>

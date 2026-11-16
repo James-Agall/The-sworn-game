@@ -1,0 +1,74 @@
+[
+ {
+  "name": "pelvis",
+  "status": "ok",
+  "size": "30x19",
+  "scale": "1.00",
+  "pivot": "15,7",
+  "notes": []
+ },
+ {
+  "name": "torso",
+  "status": "ok",
+  "size": "30x40",
+  "scale": "1.00",
+  "pivot": "15,38",
+  "notes": []
+ },
+ {
+  "name": "head",
+  "status": "ok",
+  "size": "32x40",
+  "scale": "1.00",
+  "pivot": "14,32",
+  "notes": []
+ },
+ {
+  "name": "hair",
+  "status": "ok",
+  "size": "31x31",
+  "scale": "1.00",
+  "pivot": "16,35",
+  "notes": []
+ },
+ {
+  "name": "upperArm",
+  "status": "ok",
+  "size": "20x29",
+  "scale": "1.00",
+  "pivot": "10,9",
+  "notes": []
+ },
+ {
+  "name": "foreArm",
+  "status": "ok",
+  "size": "16x32",
+  "scale": "1.00",
+  "pivot": "8,8",
+  "notes": []
+ },
+ {
+  "name": "thigh",
+  "status": "ok",
+  "size": "20x31",
+  "scale": "1.00",
+  "pivot": "10,10",
+  "notes": []
+ },
+ {
+  "name": "shin",
+  "status": "ok",
+  "size": "17x26",
+  "scale": "1.00",
+  "pivot": "9,8",
+  "notes": []
+ },
+ {
+  "name": "foot",
+  "status": "ok",
+  "size": "29x17",
+  "scale": "1.00",
+  "pivot": "8,3",
+  "notes": []
+ }
+]
