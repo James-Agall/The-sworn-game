@@ -639,22 +639,59 @@ export function mobTargetNeedsRepick(mob: Mob): boolean {
   return !!tile && isGateTile(state.tiles[tileIndex(tile.x, tile.y)]) && gatePassable(tileIndex(tile.x, tile.y), true);
 }
 
+// Per-tick spatial grid for the gate open check: updateGates builds it once per tick (when gates exist) so each
+// gate looks at a 3x3 block of cells instead of every mob / colonist in the world; null outside updateGates (fallback scan).
+const GATE_GRID_CELL = GATE_OPEN_RANGE_PX * 2;
+type GateGrid = { mobs: Map<number, Mob[]>; colonists: Map<number, Colonist[]> };
+let gateGrid: GateGrid | null = null;
+const gateCell = (x: number, y: number) => Math.floor(x / GATE_GRID_CELL) * 65536 + Math.floor(y / GATE_GRID_CELL);
+
+function buildGateGrid(): GateGrid {
+  const g: GateGrid = { mobs: new Map(), colonists: new Map() };
+  for (const m of mobs.values()) {
+    const k = gateCell(m.x, m.y);
+    const a = g.mobs.get(k);
+    if (a) a.push(m);
+    else g.mobs.set(k, [m]);
+  }
+  for (const c of colonists.values()) {
+    const k = gateCell(c.x, c.y);
+    const a = g.colonists.get(k);
+    if (a) a.push(c);
+    else g.colonists.set(k, [c]);
+  }
+  return g;
+}
+
+// Calls `visit` for every unit in the 3x3 cells around (cx, cy) until it returns true.
+function anyNear<T>(cells: Map<number, T[]>, cx: number, cy: number, visit: (u: T) => boolean): boolean {
+  const gx = Math.floor(cx / GATE_GRID_CELL);
+  const gy = Math.floor(cy / GATE_GRID_CELL);
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const list = cells.get((gx + dx) * 65536 + (gy + dy));
+      if (list) for (const u of list) if (visit(u)) return true;
+    }
+  }
+  return false;
+}
+
 export function friendlyNearGate(cx: number, cy: number, owner = 0): boolean {
+  const r2 = GATE_OPEN_RANGE_PX * GATE_OPEN_RANGE_PX;
+  const grid = gateGrid;
   // Forts phase A: an NPC gate opens for its own site's awake mobs only.
   if (owner !== 0) {
-    for (const m of mobs.values()) {
-      if (Math.abs(m.x - cx) > GATE_OPEN_RANGE_PX || Math.abs(m.y - cy) > GATE_OPEN_RANGE_PX) continue;
-      if (Math.hypot(m.x - cx, m.y - cy) <= GATE_OPEN_RANGE_PX && siteNumber(m.siteId) === owner) return true;
-    }
+    const mobHit = (m: Mob) => (m.x - cx) ** 2 + (m.y - cy) ** 2 <= r2 && siteNumber(m.siteId) === owner;
+    if (grid ? anyNear(grid.mobs, cx, cy, mobHit) : Array.from(mobs.values()).some(mobHit)) return true;
     // Forts phase C: a neutral settlement's gate also opens for players / colonists by day.
     if (!siteGateWelcomes(owner)) return false;
   }
   for (const p of players.values()) {
-    if (!p.dead && Math.hypot(p.x - cx, p.y - cy) <= GATE_OPEN_RANGE_PX) return true;
+    if (!p.dead && (p.x - cx) ** 2 + (p.y - cy) ** 2 <= r2) return true;
   }
-  for (const c of colonists.values()) {
-    if (Math.hypot(c.x - cx, c.y - cy) <= GATE_OPEN_RANGE_PX) return true;
-  }
+  const colHit = (c: Colonist) => (c.x - cx) ** 2 + (c.y - cy) ** 2 <= r2;
+  if (grid) return anyNear(grid.colonists, cx, cy, colHit);
+  for (const c of colonists.values()) if (colHit(c)) return true;
   return false;
 }
 
@@ -720,6 +757,8 @@ export function updateGates(forceOverrunCheck = false) {
   if (state.cycleTick % TICK_RATE === 0) {
     for (const id of Array.from(mobsWithoutRoute)) if (!mobs.has(id)) mobsWithoutRoute.delete(id);
   }
+  gateGrid = gates.size > 0 ? buildGateGrid() : null;
+  try {
   for (const [index, g] of gates) {
     // Forts phase B: a sleeping fort's gates do not tick.
     if (siteNumAsleep(ownerAt(index))) continue;
@@ -737,6 +776,9 @@ export function updateGates(forceOverrunCheck = false) {
       if (g.open && shouldClose && !gateOccupied(tx, ty)) g.open = false;
     }
     if (forceOverrunCheck || state.cycleTick % TICK_RATE === 0) evaluateGateOverrun(index, g);
+  }
+  } finally {
+    gateGrid = null;
   }
 }
 
