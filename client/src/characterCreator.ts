@@ -110,7 +110,7 @@ export function renderCharacterEditor(root: HTMLElement, initial: HeroAppearance
     root.append(footer);
     const note = document.createElement("p");
     note.className = "appearance-note";
-    note.textContent = "Preview equipment does not grant items. A bow uses both hands. Horse coats apply when riding a real horse.";
+    note.textContent = "Preview equipment does not grant items. A bow uses both hands. Matching armour sets use the new brown-haired male appearance and bay mount. Other appearance choices and mixed equipment retain their previous artwork.";
     root.append(note);
     const g = cv.getContext("2d")!;
     let raf = 0;

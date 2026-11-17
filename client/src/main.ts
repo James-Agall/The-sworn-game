@@ -2504,7 +2504,7 @@ async function main() {
       const baseFrame = stepAnim(anim, PLAYER_ANIM, mode) ?? PLAYER_ANIM.walk[0];
       const mountedFrame = p.mounted ? autumnFrame("mounted-units-v2", 3, mode === "action" ? 4 + anim.frame % 3 : mode === "walk" ? anim.frame % 4 : 0) : undefined;
       const visual = p.visual ?? heroVisuals.get(p.id);
-      const rig = visual ? heroFrame(visual, { state: (entry.hitSplashUntil ?? 0) > performance.now() ? "hurt" : mode === "action" ? "attack" : mode === "walk" ? "walk" : "idle", phase: mode === "action" ? (anim.attackDuration-anim.attackTicks-1)/Math.max(1,anim.attackDuration-1) : mode === "walk" ? rigTravel.get(p.id) ?? 0 : performance.now()/3000 }, !!p.mounted) : undefined;
+      const rig = visual ? heroFrame(visual, { state: (entry.hitSplashUntil ?? 0) > performance.now() ? "hurt" : mode === "action" ? "attack" : mode === "walk" ? "walk" : "idle", phase: (entry.hitSplashUntil ?? 0) > performance.now() ? 1 - ((entry.hitSplashUntil ?? 0) - performance.now()) / 220 : mode === "action" ? (anim.attackDuration-anim.attackTicks-1)/Math.max(1,anim.attackDuration-1) : mode === "walk" ? rigTravel.get(p.id) ?? 0 : performance.now()/3000 }, !!p.mounted) : undefined;
       const art = rig ?? (visual ? heroArt(visual, !!p.mounted, mode === "action" ? Math.floor((PLAYER_ATTACK_ANIM_TICKS - anim.attackTicks - 1) / ANIM_TICKS_PER_FRAME) : mode ? anim.frame : 0, mode === "action") : undefined);
       // One scale per look (measured on its standing walk frame), so swings and steps do not resize the hero.
       const stand = art && !rig && !p.mounted ? heroArt(visual!, false, 0, false) : undefined;

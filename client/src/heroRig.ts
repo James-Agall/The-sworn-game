@@ -1,3 +1,4 @@
+import {loadNpcHero, npcHeroFrame} from "./npcHero";
 import { Texture } from "pixi.js";
 import { sanitizeHeroAppearance, type HeroVisual } from "@colony/shared/protocol";
 export type HeroPose = {
@@ -35,6 +36,7 @@ const make = (w: number, h: number) => { const c = document.createElement("canva
 const load = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = url; });
 export function loadHeroRig(): Promise<void> {
     return loading ??= (async () => {
+        await loadNpcHero();
         try {
             const response = await fetch(base + "manifest.json");
             if (!response.ok)
@@ -118,6 +120,8 @@ function motion(keys: number[][], u: number) {
 function draw(g: CanvasRenderingContext2D, p: Part | undefined, at: Vec, angle = 0, limb = false, widthScale = 1, heightScale = 1) { if (!p)
     return; g.save(); g.translate(...at); g.rotate(angle * D * (limb ? -1 : 1)); g.scale(widthScale, heightScale); g.drawImage(p.image, -p.pivot[0], -p.pivot[1]); g.restore(); }
 export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
+    const authored = npcHeroFrame(v, pose, mounted);
+    if (authored) { scales.set(authored.texture, 25 / authored.bodyHeight); return authored; }
     if (!ready)
         return undefined;
     const a = sanitizeHeroAppearance(v.appearance), phase = pose.state === "attack" ? Math.max(0, Math.min(1, pose.phase)) : ((pose.phase % 1) + 1) % 1;

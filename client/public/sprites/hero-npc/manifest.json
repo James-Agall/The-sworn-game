@@ -1,0 +1,82 @@
+{
+  "cell": [
+    256,
+    240
+  ],
+  "rows": [
+    "sword",
+    "sword-shield",
+    "spear",
+    "spear-shield",
+    "axe",
+    "axe-shield",
+    "bow"
+  ],
+  "animations": {
+    "idle": [
+      0,
+      1
+    ],
+    "walk": [
+      2,
+      3,
+      4,
+      5
+    ],
+    "attack": [
+      6,
+      7,
+      8
+    ],
+    "hurt": [
+      9
+    ]
+  },
+  "bodyHeight": 89,
+  "ground": {
+    "foot": 163,
+    "mounted": 211
+  },
+  "sheets": [
+    {
+      "file": "armour-0-foot.png",
+      "frames": 70,
+      "components": 70
+    },
+    {
+      "file": "armour-0-mounted.png",
+      "frames": 70,
+      "components": 70
+    },
+    {
+      "file": "armour-1-foot.png",
+      "frames": 70,
+      "components": 70
+    },
+    {
+      "file": "armour-1-mounted.png",
+      "frames": 70,
+      "components": 70
+    },
+    {
+      "file": "armour-2-foot.png",
+      "frames": 70,
+      "components": 70
+    },
+    {
+      "file": "armour-2-mounted.png",
+      "frames": 70,
+      "components": 70
+    },
+    {
+      "file": "armour-3-foot.png",
+      "frames": 70,
+      "components": 70
+    },
+    {
+      "file": "armour-3-mounted.png",
+      "frames": 70,
+      "components": 70
+    }
+  ]
+}

@@ -58,3 +58,13 @@ Local screenshot/report folder: `C:/Users/maxim/Documents/Codex/2026-11-10/go-x2
 Use `character-lineup.png`, `hair-and-faces.png`, six `rig-*-build*.png` sheets and `visual-check.json`.
 
 Raw sources, earlier work, six pre-existing modified tests and the original untracked handover/tools were left out of the implementation commit.
+
+
+## NPC-style whole-body sheets — 2026-11-17
+
+Installed eight aligned atlases under client/public/sprites/hero-npc, 560 poses. npcHero.ts selects rows by weapon/shield, sheets by body armour and mounted state, and frames by idle/walk/attack/hurt. Same heroFrame entrypoint and anchors serve creator, world and interiors. Hurt playback starts at the damage event rather than an unrelated global phase.
+Source artwork: Windows workspace outputs/hero-npc-full. Reproducible outline-based slicer: scripts/slice-npc-hero.mjs. Initial grid-only slicing cut off neighbouring sprites; it was replaced before delivery with connected-outline extraction.
+The supplied pack is one male and a bay mount. Separate appearance variations and independent mixed head/body/weapon tiers do not exist in this art; those states, other face/hair/skin/horse choices, female/unarmed/tool states and missing files retain the existing rig fallback. Do not remove that fallback without supplying the missing art.
+Verification report/screenshots: Windows workspace outputs/hero-npc-integration. No live deployment or push.
+
+NPC integration checks passed: client typecheck and production build; 560 occupied, padded and unclipped frames; 1,120 sheet-selection cases; real armoury equipment changes for four weapons/four tiers on foot and mounted; real mount/dismount; interiors; edit/save; Continue and Solo; missing-art fallback. Browser errors and failed asset requests: zero.
