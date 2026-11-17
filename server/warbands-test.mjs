@@ -163,9 +163,10 @@ result(g.gained === 0 && g.tier === 1, `G 3 days: no growth yet (tier ${g.tier})
 g = await hook("growSite", { siteId: camp.id, days: 2.1 });
 await sleep(300);
 let s = await siteOf(camp.id);
-result(g.tier === 2 && g.garrisonMax === 8 && g.keepMaxHp === 350 && walls(s) > 20, `G 5 days: tier ${g.tier}, garrison ${g.garrisonMax}, keep ${g.keepMaxHp}, ${walls(s)} walls`);
+// garrisonMax = max(CAMP_GARRISON_BY_TIER[tier - 1], the grown roster): a big founding warband can top it.
+result(g.tier === 2 && g.garrisonMax >= 8 && g.keepMaxHp === 350 && walls(s) > 20, `G 5 days: tier ${g.tier}, garrison ${g.garrisonMax}, keep ${g.keepMaxHp}, ${walls(s)} walls`);
 g = await hook("growSite", { siteId: camp.id, days: 12 });
-result(g.tier === 3 && g.garrisonMax === 12 && g.keepMaxHp === 550, `G 12 more days: tier ${g.tier} (Thornwick's top), garrison ${g.garrisonMax}, keep ${g.keepMaxHp}`);
+result(g.tier === 3 && g.garrisonMax >= 12 && g.keepMaxHp === 550, `G 12 more days: tier ${g.tier} (Thornwick's top), garrison ${g.garrisonMax}, keep ${g.keepMaxHp}`);
 
 // ---- R: tier-3 camp raids on its night ----
 const day = Math.floor((await hook("raidState")).cycleTick / DAY);

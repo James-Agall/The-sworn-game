@@ -262,7 +262,8 @@ result(!warderBack && allHlIds.length === 1 && maxHlInSnap <= 1 && tileAt(stone.
 if (hlTrack.length > 1) {
   const first = hlTrack[0];
   const last = hlTrack[hlTrack.length - 1];
-  result(dist(first, last) > TILE,
+  // Active = it left its spawn point, or it is already on the player (who can stand within a tile of the stone).
+  result(dist(first, last) > TILE || (dist(first, last) > TILE / 4 && dist(last, last.me) < TILE),
     `D: halfLatch is active, not dormant: moved ${(dist(first, last) / TILE).toFixed(1)} tiles off the stone (player ${(dist(last, last.me) / TILE).toFixed(1)} tiles from it now)`);
 } else {
   info(`D: halfLatch tracked for ${hlTrack.length} snapshots (killed?)`);

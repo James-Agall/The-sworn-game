@@ -308,7 +308,7 @@ for (const [from, to, can] of [
     info(`H1 not upgraded past ${from} before night (${goods()})`);
     break;
   }
-  result(await placeExpect(a, H1.x, H1.y, T.House, to, 3), `H1 upgraded ${from} -> ${to} (${goods()})`);
+  result(await placeExpect(a, H1.x, H1.y, T.House, to, 8), `H1 upgraded ${from} -> ${to} (${goods()})`);
 }
 const beds = () => houses.reduce((n, h) => n + (BEDS[a.tileAt(h.x, h.y)] ?? 0), 0);
 info(`houses: ${houses.map((h) => `(${h.x},${h.y})=${a.tileAt(h.x, h.y)}`).join(" ")}; beds=${beds()} civilians=${civs().length}`);

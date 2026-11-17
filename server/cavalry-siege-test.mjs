@@ -26,12 +26,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TILE = 32;
 const near = (a, b, eps = 0.01) => Math.abs(a - b) <= eps;
 
-const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, hook: new Map() };
+const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, hook: new Map(), events: [] };
 c.ws.on("message", (raw) => {
   const m = JSON.parse(raw.toString());
   if (m.type === "welcome") c.welcome = m;
   else if (m.type === "snapshot") c.snap = m;
   else if (m.type === "testHookResult") c.hook.set(m.op, m);
+  else if (m.type === "event") c.events.push(m.text);
 });
 const send = (m) => c.ws.send(JSON.stringify(m));
 const hook = async (op, args = {}) => {
@@ -49,6 +50,30 @@ await new Promise((r) => c.ws.on("open", r));
 while (!c.welcome || !c.snap) await sleep(20);
 const W = c.welcome.worldTilesX;
 const TCT = { x: Math.floor(W / 2), y: Math.floor(W / 2) };
+// The arenas (A, B, G, K) sit 25-65 tiles to one side of the Town Center. Random worlds put human settlements /
+// forts there too ("Too close to an enemy fort", our cavalry provoking a neutral settlement): use the side whose
+// band is farthest from every site's footprint, regenerating the world (restart) until one is >= 12 tiles clear.
+const clearanceOf = (sites, side) => {
+  const xa = TCT.x + side * 25, xb = TCT.x + side * 65;
+  const [x0, x1] = [Math.min(xa, xb), Math.max(xa, xb)];
+  let best = Infinity;
+  for (const st of sites) {
+    const dx = Math.max(0, x0 - st.x1, st.x0 - x1);
+    const dy = Math.max(0, TCT.y - 30 - st.y1, st.y0 - (TCT.y + 30));
+    best = Math.min(best, Math.hypot(dx, dy));
+  }
+  return best;
+};
+let SIDE = -1;
+for (let attempt = 0; attempt < 8; attempt++) {
+  const sites = (await hook("sitesState"))?.sites ?? [];
+  SIDE = clearanceOf(sites, 1) > clearanceOf(sites, -1) ? 1 : -1;
+  if (clearanceOf(sites, SIDE) >= 12) break;
+  const w0 = c.welcome;
+  send({ type: "restart" });
+  while (c.welcome === w0) await sleep(20);
+  await sleep(200);
+}
 send({ type: "pause" });
 await hook("setRaids", { enabled: false });
 await hook("ignorePlayers", { value: true });
@@ -76,7 +101,7 @@ const GATE = 70;
 const HOUSE = 13;
 
 // ---------------------------------------------------------------- S: Stables + role tables
-const A = { x: TCT.x - 34, y: TCT.y };
+const A = { x: TCT.x + SIDE * 34, y: TCT.y };
 if (ONLY.has("S")) {
   await clearArena(A);
   await place(A.x, A.y, STABLES);
@@ -124,7 +149,7 @@ if (ONLY.has("C")) {
 }
 
 // ---------------------------------------------------------------- W: Siege Workshop + the player's ram vs a unit
-const B = { x: TCT.x - 34, y: TCT.y + 22 };
+const B = { x: TCT.x + SIDE * 34, y: TCT.y + 22 };
 if (ONLY.has("W")) {
   await clearArena(B);
   await place(B.x, B.y, WORKSHOP);
@@ -134,7 +159,7 @@ if (ONLY.has("W")) {
   await ff(3);
   let st = await siege();
   const ram = st.units.find((u) => u.kind === "batteringRam" && u.postX === B.x && u.postY === B.y);
-  result(!!ram, `W: the Siege Workshop rolled out a battering ram (HP ${ram?.maxHp}, speed ${ram?.speed})`);
+  result(!!ram, `W: the Siege Workshop rolled out a battering ram (HP ${ram?.maxHp}, speed ${ram?.speed})${ram ? "" : `; tile ${(await hook("buildingState"))?.tiles?.[B.y * W + B.x] ?? "?"}, events: ${c.events.slice(-4).join(" | ")}`}`);
   result(ram?.maxHp === 240 && ram?.speed === 55, `W: ram HP 240 (4x knight), speed 55 (0.5x knight)`);
   result(st.population === pop0 + 2, `W: population ${pop0} -> ${st.population} (+2)`);
   // The ram vs a unit: x0.3.
@@ -153,7 +178,7 @@ if (ONLY.has("W")) {
 }
 
 // ---------------------------------------------------------------- G: a mob ram storms a locked gate (x4)
-const G = { x: TCT.x - 34, y: TCT.y - 22 };
+const G = { x: TCT.x + SIDE * 34, y: TCT.y - 22 };
 if (ONLY.has("G")) {
   await clearArena(G);
   await hook("setTileRaw", { tx: G.x, ty: G.y, tile: GATE });
@@ -178,7 +203,7 @@ if (ONLY.has("G")) {
 }
 
 // ---------------------------------------------------------------- K: a mob catapult shells a house
-const K = { x: TCT.x - 56, y: TCT.y };
+const K = { x: TCT.x + SIDE * 56, y: TCT.y };
 if (ONLY.has("K")) {
   await clearArena(K, 12, 8);
   await hook("setTileRaw", { tx: K.x, ty: K.y, tile: HOUSE });

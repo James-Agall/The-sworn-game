@@ -215,7 +215,8 @@ result(snap.isPaused, "world paused for the test");
   const marked = raiders.filter((m) => m.mark > 0);
   const cap = Math.max(1, Math.floor(raiders.length / 5));
   result(raiders.length > 0 && marked.length === cap, `day ${day}: ${raiders.length} raiders, ${marked.length} marked (cap ${cap})`);
-  const boosted = marked.every((m) => nearHp(m, 1.5) && nearDmg(m, 1.25) && m.hp === m.maxHp);
+  // Kinds without a BASE row (goblin wolf riders, siege engines) are skipped.
+  const boosted = marked.filter((m) => BASE[m.kind]).every((m) => nearHp(m, 1.5) && nearDmg(m, 1.25) && m.hp === m.maxHp);
   result(boosted, `marked raiders have x1.5 hp / x1.25 damage (${marked.map((m) => `${m.kind}:${m.mark}`).join(", ")})`);
   // Siege engines (batteringRam / catapult, Cavalry & siege) ride along unmarked with derived stats: skip them.
   const unboosted = raiders.filter((m) => !m.mark && BASE[m.kind]).every((m) => m.maxHp === Math.max(1, Math.round(sizedHp(m.kind, m.scale ?? 1))));

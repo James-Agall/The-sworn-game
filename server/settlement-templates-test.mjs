@@ -271,24 +271,24 @@ async function inner() {
 
   // ---- D ----
   wg.setWorldSize(256);
-  const gen = (seed) => {
+  const gen = async (seed) => {
     mobs.clear();
     colonists.clear();
     wildlife.clear();
-    wg.generateWorld(seed);
+    await wg.generateWorld(seed);
     const human = Array.from(sites.values()).filter((s) => s.faction === "human");
     return { tiles: Buffer.from(state.tiles).toString("base64"), human, list: human.map((s) => `${s.layout}@${s.keepX},${s.keepY}`).sort() };
   };
-  const a = gen(12345);
-  const b = gen(12345);
+  const a = await gen(12345);
+  const b = await gen(12345);
   result(a.tiles === b.tiles && JSON.stringify(a.list) === JSON.stringify(b.list), `D same seed -> same tiles and settlements (${a.list.join(" ")})`);
-  const c = gen(777);
+  const c = await gen(777);
   result(a.tiles !== c.tiles, "D another seed differs");
   const tiers = new Set();
   let oneKeep = true;
   let turned = 0;
   for (const seed of [12345, 777, 4242]) {
-    const g = gen(seed);
+    const g = await gen(seed);
     for (const s of g.human) {
       const t = stt.settlementTemplateById(s.layout);
       if (!t) {
@@ -306,7 +306,7 @@ async function inner() {
   result(oneKeep, "D every world-gen settlement is templated with exactly one keep");
   result(tiers.has(1) && tiers.has(2) && tiers.has(3), `D tiers on 256 maps: ${[...tiers].sort().join(",")}`);
   result(turned > 0, `D world-gen turns / mirrors settlements (${turned} of the human sites' keeps off their template's spot)`);
-  const g2 = gen(12345);
+  const g2 = await gen(12345);
   const saved = JSON.parse(JSON.stringify(sitesForSave()));
   restoreSites(saved);
   const back = Array.from(sites.values()).filter((s) => s.faction === "human");
@@ -315,7 +315,7 @@ async function inner() {
   // ---- E ----
   {
     const { handleCreativeSet } = await import("./src/creative.ts");
-    gen(4242);
+    await gen(4242);
     state.cycleTick = Math.floor(DAY_TICKS / 2);
     const player = { id: "p", clan: 0, dead: false, x: 0, y: 0, socket: { readyState: 1, OPEN: 1, send() {} } };
     const call = (msg) => {
