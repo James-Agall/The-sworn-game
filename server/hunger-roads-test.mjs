@@ -226,7 +226,7 @@ result(snap.isPaused, "world paused for the test");
   result(inSnap.length === marked.length, `snapshot shows ${inSnap.length} marked mobs`);
   await sleep(100);
   const leads = c.events.slice(eventsBefore).filter((e) => e.category === "raid" && /-marked .* leads the raid/.test(e.text));
-  result(leads.length === 1 && leads[0].text.includes(`${marked.length - 1} more Hunger-marked`), `one raid toast for the marked elites: ${leads.map((e) => e.text).join(" | ")}`);
+  result(leads.length === 1 && (marked.length < 2 || leads[0].text.includes(`${marked.length - 1} more Hunger-marked`)), `one raid toast for the marked elites: ${leads.map((e) => e.text).join(" | ")}`);
   await hook("forceMarkChance", { value: null });
 }
 

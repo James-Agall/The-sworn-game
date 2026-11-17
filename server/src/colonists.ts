@@ -312,7 +312,8 @@ export function spawnStartingPeople(tc: TownCenter) {
 // Fill a post with a free villager of its clan, or leave a vacancy (filled later by processRespawnQueue). Non-people
 // (engines, heroes, wagons) and creative mode spawn as before.
 export function staffPost(tx: number, ty: number, kind: ColonistKind, castleLevel = 1): Colonist | null {
-  if (state.creative || state.legacyStaff || !isPersonKind(kind) || kind === "villager") return spawnColonistForPost(tx, ty, kind, castleLevel);
+  // Creative mode fills every other post for free, but soldiers always come from training (a vacancy waits for "Train unit").
+  if (state.legacyStaff || (state.creative && !isSoldierKind(kind)) || !isPersonKind(kind) || kind === "villager") return spawnColonistForPost(tx, ty, kind, castleLevel);
   const clan = clanIdAt(tx, ty);
   // Phase 3: a soldier post is never staffed for free; it waits for "Train unit" (people.ts).
   // Modular building phase 4: the free villager with the best priority (then skill, then distance) for its work type.
@@ -864,7 +865,7 @@ export function processRespawnQueue() {
     // Village life: a vacancy is filled by a free villager of its clan (checked once a second), never respawned.
     if (state.cycleTick % VACANCY_FILL_INTERVAL_TICKS !== 0) continue;
     // Phase 3: soldier posts are filled by training only (people.ts), not by a passing villager.
-    const free = state.creative || state.legacyStaff;
+    const free = state.legacyStaff || (state.creative && !isSoldierKind(req.kind));
     if (!free && isSoldierKind(req.kind)) continue;
     // Modular building phase 4: by work priority (chooseWorkerFor), not just the nearest free villager.
     const villager = free ? undefined : chooseWorkerFor(req.clan ?? clanIdAt(req.tx, req.ty), req.tx, req.ty, req.kind);

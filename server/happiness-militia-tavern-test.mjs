@@ -313,7 +313,8 @@ await restart(a, "(A0)");
     result(r.hit[0]?.tile === T.MilitiaPost && g.length === 2 && g.every((k) => k.kind === "militia" && k.maxHp === 30 && k.hp === 30),
       `(c) Militia Camp placed -> ${g.length} units [${g.map((k) => `${k.kind}:${k.hp}/${k.maxHp}`).join(", ")}]`);
     result(a.snap.wood === w0 - 5 && a.snap.iron === i0 - 5, `(c) Militia Camp cost: wood ${w0}->${a.snap.wood}, iron ${i0}->${a.snap.iron} (-5/-5)`);
-    result(a.snap.population === pop0, `(c) militia are population-exempt (pop=${a.snap.population}/${a.snap.populationCap}, ${pop0} before)`);
+    // Pop cap rework: soldiers count toward the settlement's population like everyone else.
+    result(a.snap.population === pop0 + g.length, `(c) militia count toward population (pop=${a.snap.population}/${a.snap.populationCap}, ${pop0} before + ${g.length} militia)`);
     const firstIds = g.map((k) => k.id);
 
     w0 = a.snap.wood; i0 = a.snap.iron;
@@ -334,7 +335,7 @@ await restart(a, "(A0)");
     result(ups1.some((u) => u.tileX === M.x && u.tileY === M.y && u.tile === T.MilitiaCamp3) && a.tileAt(M.x, M.y) === T.MilitiaCamp3, `(c) third placement -> MilitiaCamp3 (tile=${a.tileAt(M.x, M.y)})`);
     result(g.length === 10 && g.every((k) => k.kind === "pikeman" && k.maxHp === 80 && k.hp === 80),
       `(c) tier 3: ${g.length} units, kinds=${[...new Set(g.map((k) => k.kind))]}, hp=${[...new Set(g.map((k) => `${k.hp}/${k.maxHp}`))]}`);
-    result(a.snap.population === pop0, `(c) still population-exempt at tier 3 (pop=${a.snap.population})`);
+    result(a.snap.population === pop0 + g.length, `(c) tier 3 militia count toward population (pop=${a.snap.population})`);
 
     // Commandable: move order + task force assignment are accepted by the server for the militia line.
     const ids = g.map((k) => k.id);
