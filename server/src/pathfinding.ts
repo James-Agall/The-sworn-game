@@ -225,9 +225,13 @@ export function nudgeBody(b: Body, dx: number, dy: number) {
 }
 
 // Push-apart relaxation over every overlapping pair (allies and enemies alike).
+const SEPARATION_BIG_CROWD = 1500;
+
 export function separateBodies() {
   collectBodies();
-  for (let iter = 0; iter < SEPARATION_ITERATIONS; iter++) {
+  // Perf: a huge crowd gets one relaxation pass (units overlap a little more in a 3k v 3k fight; small games unchanged).
+  const iterations = bodies.length > SEPARATION_BIG_CROWD ? 1 : SEPARATION_ITERATIONS;
+  for (let iter = 0; iter < iterations; iter++) {
     rebuildBodyHash();
     for (let i = 0; i < bodies.length; i++) {
       const a = bodies[i];

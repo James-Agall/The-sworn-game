@@ -1,7 +1,7 @@
 // units.ts: Soldiers: unit stats, posts and garrisons, rally/return, guard AI, bishops, task forces, army regiment derivation.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { chapelHealMultAt } from "./structures.js";
-import { directionMultOnMob, fatigueDamageMultOnColonist, fatigueSpeedMult, marchSteerStep, mobsNear, pairedTargetOf } from "./battle.js";
+import { colonistsNear, directionMultOnMob, fatigueDamageMultOnColonist, fatigueSpeedMult, marchSteerStep, mobsNear, pairedTargetOf } from "./battle.js";
 import {
   type SiegeKind, type ColonistKind, TileType, type ArmyRegimentSnapshot, type RegimentClass, type CombatRole,
   unitRole, HERO_CLASS_ROLE, TILE_SIZE, TICK_RATE, HungerMark, isRearRole, MOB_ROLE,
@@ -451,7 +451,7 @@ export function returnToRally(c: Colonist, dt: number, speed: number) {
       // this unit straight back (the idle one snaps back onto its slot), so it froze 40-70 px short of
       // its slot for good. Veer 45deg to the side away from that body so it slides round it.
       const reach = COLONIST_BODY_RADIUS * 2;
-      for (const o of colonists.values()) {
+      for (const o of colonistsNear(c.x, c.y, reach + step * 2)) {
         if (o === c || o.state !== "idle" || !isGuardOrMilitiaKind(o.kind)) continue;
         const ox = o.x - c.x;
         const oy = o.y - c.y;
@@ -717,7 +717,7 @@ export function mobRole(m: Mob): CombatRole {
 // of the ranged soldier `c`: then `c` holds the rear (see updateGuardColonist).
 export function hasFriendlyFrontline(c: Colonist): boolean {
   const scanPx = ARCHER_FRONT_RANK_SCAN_TILES * TILE_SIZE;
-  for (const o of colonists.values()) {
+  for (const o of colonistsNear(c.x, c.y, scanPx)) {
     if (o === c) continue;
     const role = colonistRole(o);
     if (!role || isRearColonist(o)) continue;
@@ -730,7 +730,7 @@ export function hasFriendlyFrontline(c: Colonist): boolean {
 export function nearestMeleeMob(x: number, y: number, radiusPx: number): Mob | null {
   let best: Mob | null = null;
   let bestD = radiusPx;
-  for (const m of mobs.values()) {
+  for (const m of mobsNear(x, y, radiusPx)) {
     if (!m.melee || m.passive || isDormantGuardian(m)) continue;
     const d = Math.hypot(m.x - x, m.y - y);
     if (d <= bestD) {
@@ -745,7 +745,7 @@ export function nearestMeleeMob(x: number, y: number, radiusPx: number): Mob | n
 export function nearestMeleeSoldier(x: number, y: number, radiusPx: number): Colonist | null {
   let best: Colonist | null = null;
   let bestD = radiusPx;
-  for (const c of colonists.values()) {
+  for (const c of colonistsNear(x, y, radiusPx)) {
     const role = colonistRole(c);
     if (!role || isRearColonist(c)) continue;
     const d = Math.hypot(c.x - x, c.y - y);
@@ -887,7 +887,7 @@ export function guardLeashTiles(c: Colonist): number {
 export function corneringMob(c: Colonist): Mob | null {
   let best: Mob | null = null;
   let bestD = RETREAT_CORNERED_TILES * TILE_SIZE;
-  for (const m of mobs.values()) {
+  for (const m of mobsNear(c.x, c.y, bestD)) {
     if (m.passive || isDormantGuardian(m)) continue;
     const d = Math.hypot(m.x - c.x, m.y - c.y);
     if (d <= bestD) {
@@ -922,7 +922,7 @@ export function findNearestInjured(
       best = { kind: "player", id: p.id, x: p.x, y: p.y };
     }
   }
-  for (const c of colonists.values()) {
+  for (const c of colonistsNear(fromX, fromY, maxRangePx)) {
     if (c.id === excludeId) continue;
     if (c.hp >= c.maxHp) continue;
     const d = Math.hypot(c.x - fromX, c.y - fromY);
