@@ -1,0 +1,53 @@
+COLONY2D AUTUMN ART INTEGRATION — 2026-11-11
+
+Project: /home/james/projects/colony2d
+Live game: untouched. No push, commit, save edits or deployment performed.
+
+DELIVERY
+61 selected source sheets, 3218 extracted cells. Cave kit: 3 sheets / 192 cells.
+All 1310 pre-existing PNG asset paths have explicit replacements; 12 additional names.
+Multiple asset paths intentionally share cells (recovery poses and cosmetic variants).
+3218 normalized library frames are installed under client/public/sprites/autumn/frames.
+The full mapping and file checksums are in art-sources/autumn-style-v1/.
+Original overwritten runtime art is backed up in pre-autumn-runtime.zip there.
+
+RUNTIME
+Existing soldier/worker/monster/wildlife/siege/wagon animation paths now resolve to new art.
+Armour tiers retain their existing game selection and use the new lean unit sets.
+Livestock walk in E/N/S directions, with W mirrored; baby/species rows remain distinct.
+Hero classes use their own sets; the player is human-sized on foot and larger when mounted.
+Mounted art avoids drawing a second livestock horse beneath the rider.
+Hero axe/pick/hoe/scythe/watering-can actions use directional four-frame tool cycles.
+Worker task poses and interior seated/sleeping poses use new animation frames.
+Interior walls use 16 connection masks; stairs use generated art. Roads use all 16 masks
+without rotating the lighting. Building damage/construction and animal-house occupancy
+select source variants from existing snapshots. New optional animation loads retain fallbacks.
+The earlier crimson HP-loss overlay remains in place for humans, monsters and the player.
+
+CAVES AND EXTRA VARIANTS
+Cave walls include basalt, limestone, moss and broken versions with ends/straights/corners/
+T-junctions/crossings. Floors, transitions, water/chasm edges, entrances, supports, stairs,
+rails, ores, fungi, bones, webs and animated lighting/water effects are in the library.
+Open /sprite-preview.html on the development client to inspect every installed frame and
+the cave assembled from runtime PNGs. No cave biome or new simulation states were invented.
+Dogs/cats, some extra furniture/materials, unused states and decorative options are available
+in the library; they cannot be triggered by gameplay that the current server does not have.
+
+VALIDATION
+Client TypeScript check and scratch production build passed during integration.
+Private-server browser check recorded in browser-art-check.json; screenshots supplied.
+Source exports contain no empty cells or missing files; all sheets have alpha transparency.
+Boundary flags include intentional joins and faint effects; full visual polish is not claimed.
+Manual follow-up: run a new game, walk/attack with each troop tier, use tools in four directions,
+damage/repair buildings, open/close H/V doors, inspect rooms at night and watch livestock move.
+Check at normal zoom and close zoom. Some source recovery/idle poses are reused intentionally.
+
+REPRODUCTION
+map-autumn-art.py: explicit old-file to source-cell mapping.
+normalize-autumn.ps1: nearest-neighbour runtime export, shared actor row canvases and feet,
+64px floors, 68px X/Y wall footprints with a 20px upright face allowance.
+install-autumn-art.py: initial backup and installation. update-runtime-from-zip.py: verified update.
+export-atlases.ps1 and atlas specs preserve source cell metadata; generation prompt files
+record built-in image_gen use. Runtime resampling does not replace the original source sheets.
+
+Do not touch /home/james/colony2d-live, port 8080, server/saves, or the six protected test edits.

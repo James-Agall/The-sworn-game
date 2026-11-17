@@ -1,0 +1,11 @@
+2026-11-11. Built-in image generation using hunter02 and heavy-soldiers-v4.
+Mounted rows: cavalry T1/T2/T3, mounted player. Walk4, attack3, idle, charge, hurt.
+Hero rows: base adventurer, Champion, Marksman, Mage. Walk4, action3, idle,
+defence, hurt. Both source atlases 10x4 intended layout, true alpha sampled.
+Prompts: same pixel style/palette, smaller heads, fitted armour, consistent body
+and gear, stable baselines, transparent gutters, crimson torso hit effect.
+Known limitations: some mounted poses change lance to sword; tall lance in top
+row approaches canvas edge. Rider/horse pivots and gait not loop-verified.
+These are economical source candidates, not runtime-ready animations.
+Measure extraction bounds; don't assume perfect cells. No live integration.
+Separate equipment overlays, additional directions and family tiers outstanding.

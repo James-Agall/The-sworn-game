@@ -13,3 +13,7 @@ server/saves/
 
 # Generated sprite atlas (scripts/pack-atlas.mjs; rebuilt by npm run dev / live.sh)
 client/public/atlas/
+
+# Over GitHub's 100 MB file limit: kept locally only
+art-sources/autumn-style-v1/colony2d-autumn-art-pack.zip
+art-sources/autumn-style-v1/colony2d-autumn-complete.zip

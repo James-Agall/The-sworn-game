@@ -1,0 +1,58 @@
+COLONY2D INTERIOR / EXTERIOR WALL KIT
+Orthogonal X/Y source sprites. 2026-11-11.
+
+CONTENTS — 9 compact atlases (7 new, 2 reused), 576 source cells
+Exterior materials: timber, stone, palisade, reinforced stone.
+Interior finishes: timber partition, plaster, dressed limestone, rust brick.
+All eight materials have intact and heavily damaged 16-connection sets.
+Light damage uses reusable surface overlays instead of generating every
+material/mask/state combination again. Destroyed and construction strips
+are supplied for horizontal and vertical runs.
+
+01 walls-doors: exterior intact, 4 materials x16 masks. Despite the legacy
+filename this sheet contains walls; openings have their own sheets below.
+02 interior-walls: four interior finishes x16 masks.
+03 exterior-walls-damaged: exterior heavy damage, same16 masks each.
+04 interior-walls-damaged: interior heavy damage, same16 masks each.
+05 wall-kit-doors: eight materials x H/V x closed/open/locked/broken.
+06 wall-kit-windows: eight materials x H/V x shut/open/broken/barred.
+07 wall-kit-construction: ten columns per material: H/V base walls,
+H/V construction frames, H/V broken/rubble sections, H/V lightly damaged
+walls, isolated crack overlay, and detached material debris.
+08 wall-kit-finishing: arches, double openings, lintels, thresholds,
+cutaway caps, four-direction end caps, material transitions, skirting,
+cornices, beams, buttresses, pillars, corner caps, sills, eaves, vents.
+09 openings-fences-damage-xy: existing gates, portcullises, fences and
+additional openings/damage designs. Reused to avoid unnecessary generation.
+
+CONNECTION INDEX
+N=1, E=2, S=4, W=8. Up/right/down/left on screen.
+Each material occupies two rows, read left-to-right:
+0 isolated;1 N;2 E;3 NE;4 S;5 NS;6 ES;7 NES;
+8 W;9 NW;10 EW;11 NEW;12 SW;13 NSW;14 ESW;15 NESW.
+H means an east-west wall run. V means a north-south wall run.
+Keep fixed thickness and pivots when normalizing; do not independently fit
+each connection to a tile, which changes the join geometry.
+
+CURRENT GAME CONTRACT
+Existing wall files: woodWall_00..15, stoneWall_00..15,
+woodWallDmg_00..15, stoneWallDmg_00..15. Current renderer uses 68 art px/tile.
+Modular room art uses 64 art px/tile, with filenames:
+structure/door_wood_h_closed.png (wood/stone, h/v, closed/open)
+structure/window_wood_h.png (wood/stone, h/v).
+These distinct scales must be reconciled during integration, not assumed equal.
+New interior finishes and extra opening states are art options; adding them
+as selectable gameplay materials/states would require game code support.
+
+TRANSPARENCY AND PROJECTION
+True PNG alpha; source images retain generated alpha. X horizontal/Y vertical.
+Flat top planes and upright front faces, no diamond or isometric footprints.
+Roof removal / room cutaway fading can reuse these caps and runtime alpha;
+there is no need to draw a duplicate translucent version of every wall.
+
+DELIVERY STATUS
+Source design sheets and cell exports, with a catalog and local browser index.
+Generated with the built-in image tool; prompts are included.
+Grid cells are source exports, not yet a validated runtime autotile set.
+Seams, pivots, exact masks and damaged/intact alignment must be checked at the
+game's scale before replacing loaded textures. No live-game deployment.

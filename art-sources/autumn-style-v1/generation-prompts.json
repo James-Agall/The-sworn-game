@@ -1,0 +1,65 @@
+{
+  "tool": "built-in image_gen",
+  "style": "Hunter 02 autumn tracker; approved autumn-style-characters-and-world reference; warm rust, olive, ochre, cream, slate; angular pixel clusters; upper-left light; transparent background; fixed proportions; fitted compact helmets; enlarged horse bodies with smaller heads.",
+  "world": [
+    [
+      "civic-buildings",
+      "8 columns x6 rows: cottage, town hall, tavern, church, market, hospital. Each row four intact tier/look variants then same first variant light damage, heavy damage, rubble, construction scaffold."
+    ],
+    [
+      "production-buildings",
+      "8 columns x6 rows: lumberjack hut, mine/quarry workshop, blacksmith, bakery/mill, tailor/loom workshop, brewery. Each row four distinct related tier variants then light damage, heavy damage, rubble, construction."
+    ],
+    [
+      "military-animal-buildings",
+      "8 columns x6 rows: barracks/militia camp, archery range/watchtower, keep/castle, stable, livestock barn/coop, pigsty/sheep pen. Each row four related variants then light/heavy/rubble/construction."
+    ],
+    [
+      "furniture-stations",
+      "8 columns x6 rows. Row1 single bed,double bed,pallet,long bed,chair,stool,bench,small table. Row2 long table,chest,shelf,wardrobe,medicine chest,weapon rack,armour stand,throne. Row3 fireplace unlit/lit2, lamp unlit/lit2,altar,statue. Row4 forge,anvil,oven,millstone,loom,brew vat,counter,jeweller bench. Row5 well,barrel,sack pile,trough,hay bale,banner,rug red,rug blue. Row6 wood stairs up/down,stone stairs up/down,notice board,signpost,market stall,lantern post."
+    ],
+    [
+      "camps-nature",
+      "8 columns x6 rows. Row1 tents4,watchpost,cage,cart,campfire. Row2 ruins arch,ruin wall,broken tower,gravestones2,rubble,crates,barrels. Row3 oak4 seasonal variants spring summer autumn winter,pine4 same seasons. Row4 fruit tree ripe/picked,berry bush ripe/picked,mushrooms ripe/picked,flowers,bush. Row5 rock3,iron ore3,stump,fallen log. Row6 tall grass,flowers2,sapling,reed,dead tree,snow rock,bridge."
+    ],
+    [
+      "crops",
+      "8 columns x6 rows. Rows wheat,flax/hemp,vegetables,berries,root crops. Each first5 rows columns seed,sprout,young,mature,ready,withered,frosted,harvested. Last row dry soil,tilled soil,watered soil,frost soil,scarecrow,sprinkler,seed bag,manure sack. Square orthogonal footprints not diamond."
+    ]
+  ],
+  "extra": [
+    [
+      "walls-doors",
+      "8 columns x8 rows. Row1 wood wall isolated/end/straight/corner/T/cross/damaged/rubble. Row2 same stone. Row3 same palisade. Row4 same reinforced stone. Row5 wood doors horizontal closed/open/broken,vertical closed/open/broken,window horizontal/vertical. Row6 same ironbound stone. Row7 low fence isolated/end/straight/corner/T/cross/gate closed/gate open. Row8 gates wood closed/open/damaged/broken, stone same. Orthogonal tile join edges, no diamond bases."
+    ],
+    [
+      "floors-roofs-terrain",
+      "8 columns x8 rows. Row1 grass4,dirt2,sand,marsh. Row2 snow,ice,hills,swamp,lava,void,water2. Row3 wood floors4,stone floors4. Row4 cobble4,packed dirt2,red rug,blue rug. Row5 thatch roof center/ridge/eave/corner/damaged and shingle center/ridge/eave. Row6 clay roof center/ridge/eave/corner/damaged and slate center/ridge/eave. Row7 dirt road isolated/end/straight/corner/T/cross, cobble straight/corner. Row8 moat straight/corner/T/cross, drawbridge lowered/raised/damaged,ford. Every square tile opaque inside its square footprint, transparent gutters, tile edges seam-ready."
+    ],
+    [
+      "interiors-weather-ui",
+      "8 columns x8 rows. Row1 house,tavern,shop,church,barracks,smithy,bakery,barn interior backwall segments. Row2 same types sidewall/cutaway segments. Row3 castle wall,exit mat,stairs wood up/down,stone up/down,doorway,portcullis shadow. Row4 rain4 snow4 particle frames. Row5 fog4 lightning4. Row6 seasons spring/summer/autumn/winter, sunny/rain/snow/storm icons. Row7 stamina bar,hotbar,inventory slot,quest mark,room bedroom/kitchen/workshop/infirmary badges. Row8 work farm/build/mine/haul/hunt/cook/fight/animals icons. Transparent overlays truly transparent."
+    ],
+    [
+      "resources-tools",
+      "10 columns x6 rows. Row1 wood,stone,iron ore,coal,copper ore,tin ore,bronze bar,iron bar,steel bar,gold. Row2 grain,flour,bread,meat,fish,milk,egg,berries,vegetables,root crop. Row3 flax,hemp,cloth,leather,wool,herbs,medicine,hay,manure,water bucket. Row4 axe,pick,hoe,sickle,scythe,hammer,tongs,watering can,shears,milk pail. Row5 seed bags wheat/flax/vegetable/berry/root,load sack/log/stones/crate,toolbox. Row6 need hunger/thirst/happy/sick,tired,priority1/2/3/4/off. One isolated icon per cell."
+    ],
+    [
+      "human-tasks",
+      "10 columns x6 rows, same adult villager identity cream shirt olive tunic boots. Rows sow,water,harvest,cook,haul,repair. Columns 1-4 right-facing action cycle,5-8 back-facing same cycle,9 seated/rest,10 hurt crimson. Row haul sack; repair mallet. Consistent body anatomy, head and limbs. Tools no duplication."
+    ],
+    [
+      "equipment-overlays",
+      "8 columns x6 rows. Isolated equipment-only overlays, no bodies. Rows T1 helm/chest/cloak/weapon, T2 same, T3 same, relic same, mounted rider equipment, hero equipment. Each row first4 same equipment bundle separated into helm/chest/cloak/weapon; last4 opposite pose variants. Transparent empty space with no mannequin. Fitted armour compact helmets. This is an overlay source design sheet, clean separated pieces."
+    ],
+    [
+      "magic-world-effects",
+      "8 columns x6 rows. Each row two 4-frame animated effects. Row1 healing green,poison purple; row2 fire,smoke; row3 build gold sparks,upgrade ring; row4 ward pulse,ward lapse; row5 sword slash,arrow impact; row6 rain ripple,charge dust. Crisp pixel clusters with transparent space between particles, no backgrounds. No characters."
+    ]
+  ],
+  "corrections": [
+    "Wildlife rows 1–5 without saddles or packs; row6 wolf rider preserved.",
+    "Square overhead terrain tiles instead of diamonds.",
+    "Building sheets background-removal pass, preserving objects and grids."
+  ]
+}

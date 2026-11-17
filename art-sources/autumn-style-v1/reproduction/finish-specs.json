@@ -1,0 +1,304 @@
+[
+  {
+    "name": "terrain-connections",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "dirt-road-00-07",
+      "dirt-road-08-15",
+      "cobble-road-00-07",
+      "cobble-road-08-15",
+      "moat-00-07",
+      "moat-08-15",
+      "shore-00-07",
+      "shore-08-15"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "bridges-water-roofs",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "wood-bridges",
+      "iron-bridges",
+      "water-animation",
+      "thatch-roofs",
+      "shingle-roofs",
+      "clay-roofs",
+      "slate-roofs",
+      "roof-corners"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "specialist-building-tiers",
+    "cols": 12,
+    "rows": 4,
+    "rowNames": [
+      "hunter-hut",
+      "forager-hut",
+      "builders-guild",
+      "jeweller"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "animal-building-states",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "coop",
+      "cow-barn",
+      "pigsty",
+      "sheep-pen",
+      "stable",
+      "kennel"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "cave-surfaces",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "dry-floors",
+      "wet-floors",
+      "water-00-07",
+      "water-08-15",
+      "chasm-00-07",
+      "chasm-08-15",
+      "stone-earth-edges",
+      "stone-earth-corners"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "cave-walls",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "basalt-00-07",
+      "basalt-08-15",
+      "limestone-00-07",
+      "limestone-08-15",
+      "moss-00-07",
+      "moss-08-15",
+      "broken-basalt-00-07",
+      "broken-basalt-08-15"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "cave-props",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "entrances",
+      "supports-stairs",
+      "rock-formations",
+      "mineral-deposits",
+      "fungus-bones-webs",
+      "mine-rail",
+      "water-effects",
+      "lighting"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "animal-walks-a",
+    "cols": 12,
+    "rows": 5,
+    "rowNames": [
+      "hen",
+      "rooster",
+      "chick",
+      "cow",
+      "calf"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "animal-walks-b",
+    "cols": 12,
+    "rows": 5,
+    "rowNames": [
+      "pig",
+      "piglet",
+      "woolly-sheep",
+      "shorn-sheep",
+      "lamb"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "animal-walks-c",
+    "cols": 12,
+    "rows": 4,
+    "rowNames": [
+      "horse",
+      "foal",
+      "dog",
+      "cat"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "animal-idle-eat-sleep",
+    "cols": 10,
+    "rows": 7,
+    "rowNames": [
+      "hen-rooster",
+      "chick-cow",
+      "calf-pig",
+      "piglet-woolly-sheep",
+      "shorn-sheep-lamb",
+      "horse-foal",
+      "dog-cat"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "human-tasks-directions-a",
+    "cols": 12,
+    "rows": 4,
+    "rowNames": [
+      "sow",
+      "water",
+      "harvest",
+      "haul"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "human-tasks-directions-b",
+    "cols": 12,
+    "rows": 4,
+    "rowNames": [
+      "build",
+      "chop",
+      "mine",
+      "cook"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "human-life-directions",
+    "cols": 12,
+    "rows": 4,
+    "rowNames": [
+      "eat",
+      "sit",
+      "sleep",
+      "carry-loads"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "hero-tool-actions",
+    "cols": 12,
+    "rows": 5,
+    "rowNames": [
+      "axe",
+      "pickaxe",
+      "hoe",
+      "scythe",
+      "watering-can"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "ui-roles-orders",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "rooms",
+      "stats",
+      "stock",
+      "jobs",
+      "work",
+      "orders",
+      "command",
+      "roles"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "ui-events-quests",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "stances-formation",
+      "trade-quests",
+      "panels-flags",
+      "relations",
+      "spells",
+      "clans",
+      "events-needs",
+      "needs-goods"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "combat-animation-completion",
+    "cols": 11,
+    "rows": 4,
+    "rowNames": [
+      "knight",
+      "archer",
+      "club-bandit",
+      "warlord"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "name": "projectiles-faction-effects",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "red",
+      "amber",
+      "violet",
+      "blue",
+      "green",
+      "white",
+      "projectiles",
+      "impacts"
+    ],
+    "detectGutters": true,
+    "status": "source-candidate"
+  },
+  {
+    "rows": 6,
+    "cols": 8,
+    "rowNames": [
+      "crow-frog",
+      "arrows-wardstone",
+      "seasons-weather",
+      "soil",
+      "props",
+      "weather-effects"
+    ],
+    "status": "source-candidate",
+    "detectGutters": true,
+    "name": "finishing-details"
+  }
+]

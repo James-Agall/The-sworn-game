@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rig: ChatGPT parts, rigged and animated</title>
+<style>
+  body { margin:0; background:#1d1812; color:#f0e2c4; font:14px/1.4 Georgia, serif; }
+  #wrap { padding:14px; max-width:1000px; margin:auto; }
+  canvas { display:block; width:100%; background:#6f8d4e; border:2px solid #4a3b28; image-rendering:pixelated; }
+  p { color:#b9a784; margin:6px 0; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="main"></canvas><p id="info">loading...</p></div>
+<script src="rig-core.js"></script>
+<script>
+"use strict";
+// Every piece comes from the ChatGPT part sheets (#106-#109, parts/painted-v1). Parts hang down from their pivot (0 = down, + = forward, 180 = up).
+// Pose = f(state, T). States: idle (guard stance, breathing), walk (planted feet), attack (windup / strike / recovery per weapon), walkattack.
+// Weapons: sword, axe (overhead chop), spear (thrust, off hand IK to the shaft), bow (draw and release, off hand IK on the string).
+const R = Rig, D = R.D, FW = 256, FH = 176, GX = 118, GY = 160, PB = "parts/painted-v1/";
+const cfg = { state: "walk", weapon: "sword", tier: 0, shield: 0, hair: "short", female: 0, bones: false };
+const load = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("load " + src)); i.src = src; });
+function darker(p, k = 0.74) { const c = R.canvas(p.c.width, p.c.height), g = c.getContext("2d"); g.drawImage(p.c, 0, 0); const d = g.getImageData(0, 0, c.width, c.height); for (let i = 0; i < d.data.length; i += 4) { d.data[i] *= k; d.data[i + 1] *= k; d.data[i + 2] *= k; } g.putImageData(d, 0, 0); return { ...p, c }; }
+
+// ---- weapon animation tables (angles in degrees, time in 0..1 of the attack) ----
+// ua / fe = upper arm / forearm angle, wa = weapon angle, lean = torso lean, lunge = body shift forward (px). trail = swing-trail window.
+const REST = { ua: 28, fe: 62, wa: 138 };
+const ATK = {
+  sword: { dur: 0.66, trail: [0.46, 0.8],
+    ua: [[0, 28], [0.3, 150, R.easeOut], [0.42, 160], [0.58, 52, R.easeIn], [0.78, 34], [1, 28, R.easeOut]],
+    fe: [[0, 62], [0.3, 26], [0.42, 20], [0.58, 8, R.easeIn], [0.78, 30], [1, 62]],
+    wa: [[0, 138], [0.3, 200, R.easeOut], [0.42, 206], [0.58, 78, R.easeIn], [0.78, 54], [1, 138, R.easeOut]],
+    lean: [[0, 0], [0.3, -10], [0.42, -10], [0.58, 13, R.easeIn], [1, 0]], lunge: [[0, 0], [0.4, -3], [0.58, 8, R.easeIn], [1, 0]] },
+  axe: { dur: 0.86, trail: [0.5, 0.78],
+    ua: [[0, 28], [0.36, 165, R.easeOut], [0.5, 172], [0.66, 40, R.easeIn], [0.82, 24], [1, 28, R.easeOut]],
+    fe: [[0, 62], [0.36, 14], [0.5, 8], [0.66, 6, R.easeIn], [0.82, 36], [1, 62]],
+    wa: [[0, 138], [0.36, 215, R.easeOut], [0.5, 225], [0.66, 70, R.easeIn], [0.82, 40], [1, 138, R.easeOut]],
+    lean: [[0, 0], [0.36, -13], [0.5, -14], [0.66, 18, R.easeIn], [0.82, 14], [1, 0]], lunge: [[0, 0], [0.45, -4], [0.66, 9, R.easeIn], [1, 0]] },
+  spear: { dur: 0.7, trail: [0.5, 0.64],
+    ua: [[0, 30], [0.34, 8, R.easeOut], [0.46, 6], [0.56, 78, R.easeIn], [0.72, 70], [1, 30, R.easeOut]],
+    fe: [[0, 40], [0.34, 80], [0.46, 86], [0.56, 12, R.easeIn], [0.72, 20], [1, 40]],
+    wa: [[0, 112], [0.34, 100], [0.46, 98], [0.56, 92, R.easeIn], [0.72, 92], [1, 112, R.easeOut]],
+    lean: [[0, 0], [0.34, -8], [0.46, -9], [0.56, 12, R.easeIn], [1, 0]], lunge: [[0, 0], [0.4, -6], [0.56, 12, R.easeIn], [1, 0]],
+    thrust: [[0, 0], [0.34, -7], [0.46, -8], [0.56, 11, R.easeIn], [0.72, 9], [1, 0]] },
+  bow: { dur: 1.1, trail: [2, 3],
+    ua: [[0, 64], [0.5, 84], [0.7, 84], [1, 64]], fe: [[0, 10], [0.5, 8], [0.7, 8], [1, 10]], wa: [[0, 88], [0.5, 90], [0.7, 90], [1, 88]],
+    lean: [[0, 0], [0.5, -4], [0.7, -4], [0.76, 1], [1, 0]], lunge: [[0, 0], [1, 0]],
+    draw: [[0, 0], [0.5, 1, R.easeOut], [0.7, 1], [0.74, 0, R.easeIn], [1, 0]] },
+};
+const HEAD_S = 0.86;                       // the sheet heads are ~28 px on a 26 px torso: 0.86 keeps them readable but less cartoonish
+const NECK_UP = 31, SHOULDER_UP = 26;
+
+function build(M, IMG, tier, female, hairName) {
+  const t = tier ? "." + "t" + tier : "";
+  const mp = (n) => ({ c: IMG[n], px: M.parts[n].pivot[0], py: M.parts[n].pivot[1], native: 0, len: M.parts[n].len });
+  const has = (n) => !!M.parts[n], pick = (base, tr) => (tr && has(base + tr) ? base + tr : base);
+  const P = {};
+  P.upperArm = mp(pick("upperArm", t)); P.foreArm = mp(pick("foreArm", t)); P.foreArmOpen = mp(has("foreArmOpen" + t) ? "foreArmOpen" + t : pick("foreArm", t));
+  P.thigh = mp(tier ? pick("thigh", t) : "thigh"); P.shin = mp(tier ? pick("shin", t) : "shin"); P.foot = mp(pick("foot", t));
+  P.torso = mp(female ? pick("torsoF", tier ? t : ".tunic") : tier ? pick("torso", t) : "torso");
+  P.pelvis = mp("pelvis"); P.head = mp(female ? "headF.plain" : "head.m_plain");
+  P.hair = mp(hairName === "long" ? "hair.long" : hairName === "ponytail" ? "hair.ponytail" : "hair.short");
+  P.hairBack = hairName === "long" ? mp("hairBack.long") : hairName === "ponytail" ? mp("hairBack.ponytail") : null;
+  P.helm = tier ? mp("helm.t" + tier) : null;
+  for (const n of ["upperArm", "foreArm", "foreArmOpen", "thigh", "shin", "foot"]) P[n + "F"] = darker(P[n]);
+  P.sole = M.soleBelowAnkle;
+  for (const w of ["sword", "axe", "spear", "bow"]) P[w] = mp(pick(w, t));
+  P.shield = mp(pick("shield", t));
+  { // bow string anchors: the top-most and bottom-most opaque rows of the bow part, relative to its grip pivot
+    const b = P.bow, cv = R.canvas(b.c.width, b.c.height), g = cv.getContext("2d", { willReadFrequently: true }); g.drawImage(b.c, 0, 0); const d = g.getImageData(0, 0, cv.width, cv.height).data; let top = null, bot = null;
+    for (let y = 0; y < b.c.height && !top; y++) for (let x = 0; x < b.c.width; x++) if (d[(y * b.c.width + x) * 4 + 3] > 120) { top = [x - b.px + 1, y - b.py + 1]; break; }
+    for (let y = b.c.height - 1; y >= 0 && !bot; y--) for (let x = b.c.width - 1; x >= 0; x--) if (d[(y * b.c.width + x) * 4 + 3] > 120) { bot = [x - b.px + 1, y - b.py - 1]; break; }
+    b.tips = [top, bot];
+  }
+  return P;
+}
+
+function skeleton(P, c, T) {
+  const W = c.weapon, A = ATK[W], moving = c.state === "walk" || c.state === "walkattack", fights = c.state === "attack" || c.state === "walkattack";
+  let u = -1; if (fights) { const per = A.dur + 0.5, t = T % per; u = t / A.dur; if (u > 1) u = -1; }
+  const cyc = T * 1.15, sw = Math.sin(cyc * 6.283), bob = moving ? Math.abs(Math.cos(cyc * 6.283)) * -2.2 : Math.sin(T * 2.2) * 0.45;
+  const legH = P.thigh.len + P.shin.len + P.sole;
+  const lean = (u >= 0 ? R.kf(A.lean, u) : 0) + (moving ? 2 : 0), lunge = u >= 0 ? R.kf(A.lunge, u) : 0;
+  const root = [GX + lunge, GY - legH - 2 + bob], pelvisTilt = moving ? sw * 2 : 0;
+  const waist = [root[0], root[1] - 1], up = (h, x = 0) => { const v = R.rot(x, -h, lean); return [waist[0] + v[0], waist[1] + v[1]]; };
+  const neck = up(NECK_UP), shoulder = up(SHOULDER_UP, 1.5), headTilt = lean * 0.45 + Math.sin(T * 1.7) * 0.6;
+  const braced = !moving && fights; // feet planted wider while striking
+  const hipsAt = (dx) => [root[0] + dx, root[1] + 3];
+  const legs = [[hipsAt(-1.5), true], [hipsAt(1.5), false]].map(([hj, far]) => {
+    const f = moving ? R.foot(cyc + (far ? 0.5 : 0), 22, 8, 0.58) : { x: 0, lift: 0, swing: false };
+    const stance = braced || W === "bow" ? (far ? -9 : 8) : far ? -5 : 4.5;
+    const ankleT = [hj[0] + stance + f.x, GY - P.sole - f.lift];
+    const k = R.ik2(hj, ankleT, P.thigh.len, P.shin.len, 1); return { hj, k, far, tilt: f.swing ? (f.lift > 2 ? -14 : 10) : 0 };
+  });
+  // weapon arm: keyframes while striking, a guard stance otherwise (arms counter-swing a little when walking)
+  let ua = REST.ua, fe = REST.fe, wa = REST.wa;
+  if (W === "spear") { ua = 30; fe = 40; wa = 112; } else if (W === "bow") { ua = 64; fe = 10; wa = 88; }
+  if (u >= 0) { ua = R.kf(A.ua, u); fe = R.kf(A.fe, u); wa = R.kf(A.wa, u); } else if (moving && W !== "bow") { ua += sw * 5; wa += sw * 4; }
+  else if (!moving) { const br = Math.sin(T * 2.2) * 1.5; ua += br; wa += br * 0.6; }
+  const elbow = R.add(shoulder, R.dir(ua), P.upperArm.len), hand = R.add(elbow, R.dir(ua + fe), P.foreArm.len + 3);
+  // off arm
+  let elbowF, handF, uaF, feF, offIK = null, drawT = 0;
+  if (W === "spear" || W === "bow") {
+    const thrust = W === "spear" && u >= 0 ? R.kf(A.thrust, u) : 0;
+    const gripAt = (s) => R.add(hand, R.dir(wa), s);                                       // a point s px along the weapon from the hand
+    let target;
+    if (W === "spear") target = gripAt(-14 + 0); else { drawT = u >= 0 ? R.kf(A.draw, u) : 0; target = null; }
+    if (W === "spear") { offIK = R.ik2(shoulder, [target[0] + thrust * 0.4, target[1]], P.upperArm.len, P.foreArm.len + 3, -1); }
+    else { // bow: off hand pulls the string back toward the cheek while drawing, rests at the hip otherwise
+      const rest = [shoulder[0] + 6, shoulder[1] + 14], pull = [shoulder[0] + 3, shoulder[1] + 2];
+      const tg = [R.lerp(rest[0], pull[0], drawT), R.lerp(rest[1], pull[1], drawT)];
+      offIK = R.ik2(shoulder, tg, P.upperArm.len, P.foreArm.len + 3, -1);
+    }
+    uaF = offIK.a1; feF = offIK.a2 - offIK.a1; elbowF = offIK.J; handF = offIK.E;
+  } else {
+    uaF = -8 - (moving ? sw * 20 : 0); feF = 16; if (c.shield) { uaF = 42; feF = 60; }
+    elbowF = R.add(shoulder, R.dir(uaF), P.upperArm.len); handF = R.add(elbowF, R.dir(uaF + feF), P.foreArm.len + 3);
+  }
+  return { u, root, waist, neck, shoulder, lean, headTilt, pelvisTilt, legs, ua, fe, wa, elbow, hand, uaF, feF, elbowF, handF, sw, moving, drawT };
+}
+
+function drawFrame(P, c, T) {
+  const canvas = R.canvas(FW, FH), g = canvas.getContext("2d"); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  const S = skeleton(P, c, T), { u } = S, W = c.weapon, A = ATK[W];
+  g.save(); g.translate(GX, GY); g.scale(1.08, 1.08); g.translate(-GX, -GY);
+  const leg = (L, far) => { R.limbAt(g, P[far ? "thighF" : "thigh"], L.hj[0], L.hj[1], L.k.a1); R.limbAt(g, P[far ? "shinF" : "shin"], L.k.J[0], L.k.J[1], L.k.a2); R.uprightAt(g, P[far ? "footF" : "foot"], L.k.E[0], L.k.E[1], L.tilt); };
+  const headPart = (part, x, y, tilt) => { g.save(); g.translate(x, y); g.scale(HEAD_S, HEAD_S); g.translate(-x, -y); R.uprightAt(g, part, x, y, tilt); g.restore(); };
+  const offArm = () => { R.limbAt(g, P.upperArmF, S.shoulder[0], S.shoulder[1], S.uaF); R.limbAt(g, P[W === "bow" || W === "spear" ? "foreArmF" : "foreArmF"], S.elbowF[0], S.elbowF[1], S.uaF + S.feF); };
+  // layer order, back to front: back hair, off arm (not for spear: held in front), far leg, pelvis, torso, shield, head, hair / helm, near leg, near arm, weapon
+  if (P.hairBack) headPart(P.hairBack, S.neck[0], S.neck[1] + 1, S.headTilt);
+  if (W !== "spear" || true) offArm();
+  leg(S.legs[0], true);
+  R.uprightAt(g, P.pelvis, S.root[0], S.root[1], S.pelvisTilt);
+  R.uprightAt(g, P.torso, S.waist[0], S.waist[1], S.lean);
+  headPart(P.head, S.neck[0], S.neck[1] + 1, S.headTilt);
+  if (P.helm) { headPart(P.helm, S.neck[0] + 0.5, S.neck[1] + 1, S.headTilt); } else headPart(P.hair, S.neck[0], S.neck[1] + 1, S.headTilt);
+  if (c.shield && W !== "bow") R.uprightAt(g, P.shield, S.handF[0] + 1, S.handF[1], 0);
+  leg(S.legs[1], false);
+  // swing trail along the weapon tip
+  if (u >= 0 && W !== "bow" && u > A.trail[0] && u < A.trail[1]) {
+    const wl = W === "spear" ? 70 : 38;
+    const tipAt = (uu) => { const lean2 = R.kf(A.lean, uu), v = R.rot(1.5, -SHOULDER_UP, lean2), sh = [S.root[0] - R.kf(A.lunge, u) + R.kf(A.lunge, uu) + v[0], S.waist[1] + v[1]], el = R.add(sh, R.dir(R.kf(A.ua, uu)), P.upperArm.len), ha = R.add(el, R.dir(R.kf(A.ua, uu) + R.kf(A.fe, uu)), P.foreArm.len + 3); return R.add(ha, R.dir(R.kf(A.wa, uu)), wl); };
+    for (let i = 1; i <= 7; i++) { const a = tipAt(u - i * 0.018), b = tipAt(u - (i - 1) * 0.018); g.strokeStyle = `rgba(255,255,255,${0.55 - i * 0.07})`; g.lineWidth = 9 - i; g.lineCap = "round"; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke(); }
+  }
+  // weapon arm + weapon. The spear's near hand holds the butt end, the sword/axe grip is at the part pivot.
+  R.limbAt(g, P.upperArm, S.shoulder[0], S.shoulder[1], S.ua);
+  if (W === "bow") {
+    // the bow is held at the grip with the string side facing the archer; the near arm holds it out
+    R.limbAt(g, P.bow, S.hand[0], S.hand[1], 0);
+    // string: from bow tips to the pulled hand (or straight across at rest)
+    const [tu, td] = P.bow.tips, tipUp = [S.hand[0] + tu[0], S.hand[1] + tu[1]], tipDn = [S.hand[0] + td[0], S.hand[1] + td[1]], pull = S.drawT > 0.02 ? [R.lerp((tipUp[0] + tipDn[0]) / 2, S.handF[0], S.drawT), R.lerp((tipUp[1] + tipDn[1]) / 2, S.handF[1], S.drawT)] : [(tipUp[0] + tipDn[0]) / 2, (tipUp[1] + tipDn[1]) / 2];
+    g.strokeStyle = "rgba(235,225,195,.9)"; g.lineWidth = 0.9; g.beginPath(); g.moveTo(...tipUp); g.lineTo(...pull); g.lineTo(...tipDn); g.stroke();
+    if (S.drawT > 0.4) { g.strokeStyle = "#cdb88a"; g.lineWidth = 1.2; g.beginPath(); g.moveTo(pull[0], pull[1]); g.lineTo(S.hand[0] + 14, S.hand[1] + 1); g.stroke(); }
+    R.limbAt(g, P.foreArm, S.elbow[0], S.elbow[1], S.ua + S.fe);
+  } else {
+    R.limbAt(g, P.foreArm, S.elbow[0], S.elbow[1], S.ua + S.fe);
+    R.limbAt(g, P[W], S.hand[0], S.hand[1], S.wa);
+  }
+  if (c.bones) {
+    const ln = (a, b, col) => { g.strokeStyle = col; g.lineWidth = 1.2; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke(); }, dot = (p) => { g.fillStyle = "#fff"; g.fillRect(p[0] - 1.5, p[1] - 1.5, 3, 3); };
+    ln(S.root, S.waist, "#f33"); ln(S.waist, S.neck, "#f33"); ln(S.shoulder, S.elbow, "#fd3"); ln(S.elbow, S.hand, "#fd3"); ln(S.shoulder, S.elbowF, "#3f6"); ln(S.elbowF, S.handF, "#3f6");
+    for (const L of S.legs) { ln(L.hj, L.k.J, "#3cf"); ln(L.k.J, L.k.E, "#3cf"); dot(L.hj); dot(L.k.J); dot(L.k.E); }
+  }
+  g.restore();
+  return canvas;
+}
+const withBg = (cv) => { const b = R.canvas(FW, FH), g = b.getContext("2d"); g.fillStyle = "#6f8d4e"; g.fillRect(0, 0, FW, FH); g.fillStyle = "#5f7e41"; g.fillRect(0, GY + 1, FW, FH); g.fillStyle = "rgba(0,0,0,0.2)"; g.beginPath(); g.ellipse(GX, GY + 2, 26, 5, 0, 0, 7); g.fill(); g.drawImage(cv, 0, 0); return b; };
+
+fetch(PB + "manifest.json").then((r) => r.json()).then(async (M) => {
+  const IMG = {}; await Promise.all(Object.entries(M.parts).map(async ([k, v]) => { IMG[k] = await load(PB + v.file); }));
+  const cache = {}, partsFor = (c) => { const k = [c.tier, c.female, c.hair].join("|"); return (cache[k] ||= build(M, IMG, c.tier, c.female, c.hair)); };
+  const frame = (patch, t) => { const c = { ...cfg, ...patch }; return withBg(drawFrame(partsFor(c), c, t)); };
+  const mainC = document.getElementById("main"), mg = mainC.getContext("2d"); mainC.width = FW * 3; mainC.height = FH * 2;
+  const SEQ = [["walk", "sword", 1, 0, 2.2], ["attack", "sword", 2, 1, 2.4], ["attack", "axe", 1, 0, 2.6], ["walkattack", "spear", 3, 0, 2.6], ["attack", "bow", 0, 0, 2.6]];
+  const total = SEQ.reduce((a, s) => a + s[4], 0), T0 = performance.now();
+  function loop(now) {
+    let t = window.__rig.freeze != null ? window.__rig.freeze : ((now - T0) / 1000) % total, st = null, acc = 0;
+    for (const [s, w, ti, sh, d] of SEQ) { if (t < acc + d) { st = { state: s, weapon: w, tier: ti, shield: sh, t: t - acc }; break; } acc += d; }
+    const f = frame(st, st.t); mg.imageSmoothingEnabled = false; mg.clearRect(0, 0, mainC.width, mainC.height); mg.drawImage(f, 0, 0, FW, FH, 0, 0, FW * 2, FH * 2);
+    const gs = 0.255; mg.drawImage(f, 0, 0, FW, FH, FW * 2 + 8, 8, FW * gs * 4, FH * gs * 4); mg.drawImage(f, 0, 0, FW, FH, FW * 2 + 8, FH * gs * 4 + 20, FW * gs, FH * gs);
+    mg.fillStyle = "#fff"; mg.font = "13px sans-serif"; mg.fillText(`${st.state}  ${st.weapon}  armour tier ${st.tier}  shield ${st.shield}`, 8, 16); mg.fillText("in-game size (x4 | x1)", FW * 2 + 12, FH * 2 - 8);
+    document.getElementById("info").textContent = `${st.state} / ${st.weapon} / tier ${st.tier}: every piece is a ChatGPT part (parts/painted-v1), posed by our skeleton`; requestAnimationFrame(loop);
+  }
+  window.__rig = { freeze: null, total, sheet(spec) { return R.sheet(spec.frames.map((f) => ({ canvas: frame(f.cfg || {}, f.t || 0), label: f.label })), { cols: spec.cols || 4, scale: spec.scale || 1.2, gameScale: 0.255 }).toDataURL("image/png"); } };
+  requestAnimationFrame(loop);
+});
+window.__rig = window.__rig || { freeze: null };
+</script>
+</body>
+</html>

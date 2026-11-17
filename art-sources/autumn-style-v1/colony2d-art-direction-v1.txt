@@ -1,0 +1,57 @@
+THE SWORN GAME — ART DIRECTION v1
+Status: proposed direction for review; no production assets replaced.
+
+IDENTITY
+Grounded medieval pixel art with readable, chunky silhouettes. Preserve the
+existing knight/farmer character language; bring buildings, nature, interiors
+and UI into the same visual system.
+
+CAMERA AND SCALE
+Orthogonal square map; zero camera yaw. X is horizontal, Y is vertical.
+No rotated three-quarter footprints or diamond isometric tiles. Flat top planes
+and upright front elevations; see grid-projection-contract.txt. Logical tiles:
+32x32. Initial human target: 24–28 pixels tall,
+16–20 pixels wide excluding weapons. Confirm against actual rendering before
+locking production dimensions. Feet use a shared baseline. Walls, doors and
+furniture must align with the existing tile collision footprints.
+
+PIXEL LANGUAGE
+One logical pixel dark material-colored outline; selective interior outlines.
+Three principal shades per material. Crisp pixel clusters, no antialiasing,
+blur, painted texture or gradients. Integer nearest-neighbor preview scaling.
+One pixel density for every asset class; larger objects use larger canvases.
+
+COLOR AND LIGHT
+Top-left light throughout. Warm timber and ochre thatch; moss/sage foliage;
+cool slate stone and steel. Muted blue reserved for player/faction cloth,
+subject to the existing recolor shader. Aim for one shared palette of roughly
+48 colors, locked after the first production samples rather than extracted
+uncritically from generated concept art.
+
+READABILITY
+Terrain has the lowest contrast and sparse detail. Props have medium contrast;
+units and interactable silhouettes have the strongest separation. Avoid dark
+outlines around every ground tile. Reserve bright accents for gameplay cues.
+
+PRODUCTION CONTRACT
+True transparent backgrounds for sprites; opaque seamless terrain tiles.
+Fixed frame canvases, pivots, foot baselines and equipment proportions across
+animation frames. No painted checkerboards, labels, clipping or stray pixels.
+Retain optional asset loading and existing fallbacks. Do not replace live art.
+Generated boards establish direction only: pixel grid, palette, seams, alpha,
+animation continuity and runtime scale need separate production validation.
+
+FIRST VERTICAL SLICE
+Knight, farmer and archer idle poses; grass and dirt; one tree and rock;
+wood wall, door, floor and roof; bed; wheat; chicken and sheep. Review together
+at native game size and 4x zoom before expanding animation or asset coverage.
+Test wall joins, door states, roof cutaway and unit visibility together.
+
+ROLLOUT
+Approve direction -> lock palette and sample dimensions -> build the small
+vertical slice -> inspect in an isolated game scene -> expand category by
+category. Track replacements in SPRITES.md only when actually implemented.
+
+REFERENCE
+Inspected existing knight.png, farmer.png and cottage.png, SPRITES.md and
+HANDOVER-CODEX.md. Preview generated with the built-in image generation tool.

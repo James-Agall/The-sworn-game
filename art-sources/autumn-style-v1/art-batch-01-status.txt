@@ -1,0 +1,28 @@
+BATCH 01 — GENERATED, NOT RUNTIME-READY
+
+Built-in image generation; approved hunter #02 and cross-category sheet used
+as references for both images.
+
+hunter-animation-candidate.png: 4x4 source layout; walk4, bow4, carry4,
+idle2 and hurt2. Visible edge fringes and pose/scale differences require cleanup
+and alignment checks. Hurt examples contain crimson torso marks. Not a verified
+seamless animation; existing runtime frame mapping is still outstanding.
+
+building-damage-candidate.png: 4x3 layout; cottage, blacksmith and stone gate,
+each intact/light/heavy/destroyed. Damage silhouette progression is visible.
+Source camera and exact tile joins still need review against the orthogonal map;
+these whole-building studies do not replace modular autotile pieces.
+
+Neither sheet has been sliced or integrated. No new hurt or damage code shipped.
+Keep optional loading/fallbacks when integrating. Do not put candidates in the
+required Assets.load list. Do not touch the live directory or saves.
+
+Generation prompt summary:
+Hunter: preserve rust hood/olive tunic identity, same pixel density/camera/pivot,
+four-by-four transparent cells, sequential walk/bow/carry and idle/hurt frames.
+Buildings: same approved palette and material shading, four-by-three transparent
+cells, identical footprint and construction across progressive damage states.
+
+Full inventory: 1,310 images, 41 provisional pages, zero unmapped filenames.
+Filename grouping is provisional; verify semantic family and frame dependencies
+before final atlas packing. Additional requested art increases final page count.

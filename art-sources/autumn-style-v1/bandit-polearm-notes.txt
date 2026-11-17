@@ -1,0 +1,11 @@
+2026-11-11. Built-in image generation, hunter02 + lean knight v4 references.
+Bandits: 10x3; clubman, archer, elite axe bandit.
+Polearms: 10x6; spearman T1-3 then pikeman T1-3.
+Columns walk4, attack3, idle, defence, crimson hurt.
+Prompt: chunky autumn pixel style, lean fitted armour, compact heads, identity
+continuity, stable baselines and true transparency, tier coverage progression.
+PNG alpha sampled. Generated source atlases, not sliced or integrated.
+Known limitations: repeated poses; weapon clearance tight in upper row;
+some pose/helmet changes. Current bandit clubman expects walk5/attack4 and
+archer has a bespoke mapping; integration must reconcile these frame counts.
+Exact weapon length and seamless animation not verified. No live changes.

@@ -1,0 +1,246 @@
+[
+ {
+  "name": "upperArm.cloth",
+  "status": "CHECK",
+  "size": "13x21",
+  "scale": "0.11",
+  "pivot": "6,4",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "upperArm.bare",
+  "status": "CHECK",
+  "size": "12x21",
+  "scale": "0.11",
+  "pivot": "5.5,4",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "upperArm.t1",
+  "status": "ok",
+  "size": "13x21",
+  "scale": "0.11",
+  "pivot": "6.5,4",
+  "notes": []
+ },
+ {
+  "name": "upperArm.t2",
+  "status": "ok",
+  "size": "13x21",
+  "scale": "0.11",
+  "pivot": "6.5,4",
+  "notes": []
+ },
+ {
+  "name": "upperArm.t3",
+  "status": "ok",
+  "size": "13x21",
+  "scale": "0.11",
+  "pivot": "6.5,4",
+  "notes": []
+ },
+ {
+  "name": "foreArm.bracer",
+  "status": "ok",
+  "size": "18x26",
+  "scale": "0.14",
+  "pivot": "5.5,3",
+  "notes": []
+ },
+ {
+  "name": "foreArm.bare",
+  "status": "ok",
+  "size": "17x26",
+  "scale": "0.14",
+  "pivot": "5,3",
+  "notes": []
+ },
+ {
+  "name": "foreArm.t1",
+  "status": "ok",
+  "size": "19x26",
+  "scale": "0.14",
+  "pivot": "5.5,3",
+  "notes": []
+ },
+ {
+  "name": "foreArm.t2",
+  "status": "ok",
+  "size": "18x26",
+  "scale": "0.14",
+  "pivot": "5.5,3",
+  "notes": []
+ },
+ {
+  "name": "foreArm.t3",
+  "status": "ok",
+  "size": "19x26",
+  "scale": "0.14",
+  "pivot": "5.5,3",
+  "notes": []
+ },
+ {
+  "name": "foreArmOpen.bracer",
+  "status": "ok",
+  "size": "21x26",
+  "scale": "0.14",
+  "pivot": "6.5,3",
+  "notes": []
+ },
+ {
+  "name": "foreArmOpen.bare",
+  "status": "ok",
+  "size": "19x26",
+  "scale": "0.13",
+  "pivot": "6,3",
+  "notes": []
+ },
+ {
+  "name": "foreArmOpen.t1",
+  "status": "ok",
+  "size": "21x26",
+  "scale": "0.13",
+  "pivot": "6,3",
+  "notes": []
+ },
+ {
+  "name": "foreArmOpen.t2",
+  "status": "ok",
+  "size": "21x26",
+  "scale": "0.13",
+  "pivot": "6.5,3",
+  "notes": []
+ },
+ {
+  "name": "foreArmOpen.t3",
+  "status": "ok",
+  "size": "22x26",
+  "scale": "0.13",
+  "pivot": "6.5,3",
+  "notes": []
+ },
+ {
+  "name": "thigh.trousers",
+  "status": "ok",
+  "size": "15x26",
+  "scale": "0.13",
+  "pivot": "7.5,4.5",
+  "notes": []
+ },
+ {
+  "name": "thigh.bare",
+  "status": "ok",
+  "size": "15x26",
+  "scale": "0.13",
+  "pivot": "7,4.5",
+  "notes": []
+ },
+ {
+  "name": "thigh.t1",
+  "status": "ok",
+  "size": "16x26",
+  "scale": "0.13",
+  "pivot": "8,4.5",
+  "notes": []
+ },
+ {
+  "name": "thigh.t2",
+  "status": "ok",
+  "size": "16x26",
+  "scale": "0.13",
+  "pivot": "8,4.5",
+  "notes": []
+ },
+ {
+  "name": "thigh.t3",
+  "status": "ok",
+  "size": "17x26",
+  "scale": "0.13",
+  "pivot": "8,4.5",
+  "notes": []
+ },
+ {
+  "name": "shin.boot",
+  "status": "ok",
+  "size": "11x21",
+  "scale": "0.11",
+  "pivot": "5.5,4",
+  "notes": []
+ },
+ {
+  "name": "shin.bare",
+  "status": "ok",
+  "size": "11x21",
+  "scale": "0.11",
+  "pivot": "5.5,4",
+  "notes": []
+ },
+ {
+  "name": "shin.t1",
+  "status": "ok",
+  "size": "11x21",
+  "scale": "0.11",
+  "pivot": "5.5,4",
+  "notes": []
+ },
+ {
+  "name": "shin.t2",
+  "status": "ok",
+  "size": "11x21",
+  "scale": "0.11",
+  "pivot": "5.5,4",
+  "notes": []
+ },
+ {
+  "name": "shin.t3",
+  "status": "ok",
+  "size": "11x21",
+  "scale": "0.11",
+  "pivot": "5.5,4",
+  "notes": []
+ },
+ {
+  "name": "foot.boot",
+  "status": "ok",
+  "size": "20x13",
+  "scale": "0.11",
+  "pivot": "5.5,2.5",
+  "notes": []
+ },
+ {
+  "name": "foot.bare",
+  "status": "ok",
+  "size": "21x13",
+  "scale": "0.11",
+  "pivot": "5.5,2.5",
+  "notes": []
+ },
+ {
+  "name": "foot.t1",
+  "status": "ok",
+  "size": "20x13",
+  "scale": "0.11",
+  "pivot": "5.5,2.5",
+  "notes": []
+ },
+ {
+  "name": "foot.t2",
+  "status": "ok",
+  "size": "20x13",
+  "scale": "0.11",
+  "pivot": "5.5,2.5",
+  "notes": []
+ },
+ {
+  "name": "foot.t3",
+  "status": "ok",
+  "size": "20x13",
+  "scale": "0.11",
+  "pivot": "5.5,2.5",
+  "notes": []
+ }
+]

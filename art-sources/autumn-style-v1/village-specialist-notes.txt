@@ -1,0 +1,13 @@
+2026-11-11 — built-in image generation, approved hunter02 + world sheet references.
+Village: 10x5 intended layout; male adult, female adult, child, elder, captive.
+Columns walk4, idle, sit, eat, sleep, carry, hurt.
+Specialists: 10x5 intended layout; priest, healer, herald, trader, barkeeper/baker.
+Columns walk4, work3, idle, sit, hurt.
+Prompt: consistent chunky pixel shading, palette, identities, camera, adult scale,
+stable feet, transparent gutters; child 70% stature; crimson torso hurt splash.
+Alpha sampled successfully. Source sheets not runtime-aligned or integrated.
+Known imperfections accepted for economical generation: repeated walk poses,
+some identity variation (trader hurt face), very faint/missing crimson on some
+specialist hurt frames. Apply planned shared crimson overlay to all units at
+integration; do not rely on baked marks for universal hit feedback.
+Extract by measured bounds, not assumed perfect grid. No live files changed.

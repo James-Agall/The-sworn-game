@@ -1,0 +1,7 @@
+HERO AND MENU UPDATE — 2026-11-11
+Stopped at the user's request. Changes saved in /home/james/projects/colony2d; live game and saves untouched.
+Implemented: refreshed menus; six hero looks; five cosmetic horse coats; mounted/unmounted and interior rendering; equipment-driven tier 1–3 armour and sword/spear/club/bow/staff; armoury stock-backed selection; saved appearance; multiplayer replication; keyboard equipment access.
+Validation: client/server/shared TypeScript checks and final production build passed. Existing hero, hero-tools and animals tests passed. Final private browser check: 11 checks passed, no JavaScript errors or failed sprite responses, including mounted/dismounted states, gear tiers/types, 900px menu, save/load, multiplayer, bow range and wall blocking.
+Art reuses/composes existing autumn frames. Base outfits can include baked equipment; this is not an exhaustive per-limb armour doll. Horse coats are cosmetic riding choices, not distinct breeds/stat bonuses. Normal human gameplay review remains useful.
+Documentation: HANDOVER-CODEX.md, MANUAL-TESTS.md and SPRITES.md in the repo. Pre-change source backup: art-sources/hero-menu-backup-20261111.
+Open Hero > Character & mount to select a look/coat. Withdraw forged gear from the armoury, then equip it from Pack. Mount an adult horse through the existing interaction/Livestock panel; X dismounts.

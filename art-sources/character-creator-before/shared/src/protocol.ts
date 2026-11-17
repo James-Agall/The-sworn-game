@@ -1,0 +1,1645 @@
+import type { AnimalHouseInfo, LivestockSnapshot, Species } from "./animals.js";
+import type { CalendarSnapshot } from "./calendar.js";
+import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, PersonalBuild } from "./herolife.js";
+import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
+import type { BuildingPostsInfo, WorkPostOption, WorkTabSnapshot, WorkType } from "./work.js";
+import type { InteriorView } from "./interiors.js";
+import type { LoadStageId } from "./streaming.js";
+export const TICK_RATE = 20;
+export const TILE_SIZE = 32;
+// Server-side default; the live size is overridable (COLONY_WORLD_SIZE) and sent in `welcome`.
+export const DEFAULT_WORLD_TILES = 160;
+export const PLAYER_SPEED = 150;
+export const PLAYER_HALF_SIZE = 10;
+export const PLAYER_MAX_HP = 100;
+
+// Fog-of-war vision radii, in tiles (minimap only; the main view is never fogged). A tile within
+// one of these of a source's tile becomes "explored" for good (server-authoritative, shared by all
+// players). The client reuses PLAYER/COLONIST to decide which mobs are in live view right now.
+export const VISION_RADIUS_PLAYER = 10;
+export const VISION_RADIUS_COLONIST = 6;
+// Placed buildings (walls excluded) and the Town Center.
+export const VISION_RADIUS_BUILDING = 5;
+// Revealed around the Town Center when a world is generated, so the minimap isn't blank at t=0.
+export const VISION_RADIUS_START = 12;
+
+export enum TileType {
+  Empty = 0,
+  Wall = 1,
+  Tree = 2,
+  LumberjackPost = 3,
+  FarmPlot = 4,
+  KnightPost = 5,
+  ArcherPost = 6,
+  IronOre = 7,
+  Rock = 8,
+  IronMinePost = 9,
+  RockMinePost = 10,
+  StoneWall = 11,
+  TownCenter = 12,
+  House = 13,
+  BigHouse = 14,
+  HouseLevel2 = 15,
+  BarnPost = 16,
+  CastleLevel2 = 17,
+  CastleLevel3 = 18,
+  ArcherTower = 19,
+  ChurchPost = 20,
+  Pasture = 21,
+  Orchard = 22,
+  WoolFarm = 23,
+  CottonFarm = 24,
+  TailorShop = 25,
+  Blacksmith = 26,
+  LuxuryWorkshop = 27,
+  Market = 28,
+  GoldShop = 29,
+  Brewery = 30,
+  Tavern = 31,
+  MilitiaPost = 32,
+  MilitiaCamp2 = 33,
+  MilitiaCamp3 = 34,
+  // World-gen only (never player-placeable): ponds, ruin-site decoration, encampment props.
+  Water = 35,
+  RuinWall1 = 36,
+  RuinWall2 = 37,
+  RuinArch = 38,
+  RuinStatue = 39,
+  RuinRubble = 40,
+  PropCampfire = 41,
+  PropCart = 42,
+  PropBarrel = 43,
+  PropCrate = 44,
+  PropFence = 45,
+  // Saint Wren's Abbey (world-gen only, exactly one per map): the hall its resident clergy are
+  // posted at, plus devotional props. Never player-placeable or demolishable.
+  AbbeyHall = 46,
+  PropCross = 47,
+  PropLanternPost = 48,
+  // Player-built: staffed by a warding Bishop, suppresses mob targeting nearby while he's present.
+  WardStone = 49,
+  // Player-built food huts: a hunter (wild game -> meat) / a forager (wild plants -> fruit) per level.
+  HunterHut = 50,
+  ForagerHut = 51,
+  // World-gen wild forage the server tracks; each has a ripe and a picked (regrowing) state.
+  // Bushes and mushrooms are walkable, fruit trees are solid like ordinary trees.
+  BerryBush = 52,
+  BerryBushPicked = 53,
+  FruitTree = 54,
+  FruitTreePicked = 55,
+  MushroomPatch = 56,
+  MushroomPatchPicked = 57,
+  // Player-built: posts builders (one per level). Upgradeable in place to level 3.
+  BuildersGuild = 58,
+  // A building waiting for builders (server ConstructionSite record: target tile, progress). Solid.
+  ConstructionSite = 59,
+  // Player-built ground tiles: walkable, never solid, drawn as ground (autotiled from their road
+  // neighbours on the client). Colonists and players move faster on them (server ROAD_SPEED_BONUS).
+  Road = 60,
+  CobbleRoad = 61,
+  // Player-built, free-standing: shoots the nearest hostile mob in range on its own (no workers, no
+  // population). Upgradeable in place to level 3. Separate from the Archery Range (ArcherPost).
+  Tower = 62,
+  // Player-built gate (Walls & gates, 2026-10-23). NOT in isSolidTile: its passability is server state
+  // (snapshot `gates`): open for anyone, closed for mobs (the colony's own units open it by walking up).
+  // Numbered apart from the run above so parallel tile additions don't collide.
+  Gate = 70,
+  // Cavalry & siege (2026-10-27): garrisons 1-3 cavalry (levels like the Archery Range) / produces one
+  // battering ram or catapult at a time (building info panel), at most SIEGE_WORKSHOP_CAP alive.
+  Stables = 71,
+  SiegeWorkshop = 72,
+  // Keep (2026-10-28): a separate per-settlement building (needs a Town Center at level 2); each of its
+  // three levels (buildingLevels) adds +10 to that settlement's population cap.
+  Keep = 73,
+  // Forts phase A (2026-10-29): what a destroyed NPC-owned wall or gate leaves behind. Walkable (NOT in
+  // isSolidTile): a breach gap. The player may clear it (demolish -> Empty).
+  Rubble = 74,
+  // Moats & drawbridges (forts plan phase H, 2026-10-31). Moat: a dug water barrier, solid to every ground
+  // walker (in isSolidTile), never to projectiles; demolishing fills it (-> Empty). Drawbridge: placed on a
+  // Moat tile, a gate in everything but looks (isGateTile: gate state `gates`, lowered = open, raised =
+  // closed); destroyed or demolished it leaves the Moat.
+  Moat = 75,
+  Drawbridge = 76,
+  // Forts phase B (2026-10-30): an NPC fort's keep / chief hall (its hearth: HP in the snapshot `hearths`),
+  // what it leaves when razed (a clan can later rebuild it into an outpost), and the forts' tents (NPC
+  // decor, damageable). All solid.
+  SiteKeep = 77,
+  RuinedKeep = 78,
+  Tent = 79,
+  // Multi-tile footprints (2026-10-30, shared/src/buildings.ts FOOTPRINT_BY_TILE): every tile of a w x h
+  // building except its anchor (top-left, holds the building's own TileType). Solid; never placed directly
+  // (placing the anchor stamps them, demolishing it clears them). The client draws nothing here (the
+  // anchor's art spans the block) and maps clicks to the anchor (footprintAnchorOf).
+  BuildingPart = 90,
+  // Progression tree phase 3 (2026-11-03): artisan stations of the metal chain (shared/src/progression.ts recipes).
+  // Charcoal Burner: wood -> charcoal. Bloomery (level 2+ = Blast furnace): iron + charcoal -> blooms, anvil, tools.
+  CharcoalBurner = 100,
+  Bloomery = 101,
+  // Phase 4 (food): Mill: grain -> flour. Bakery: flour -> flatbread; a level-2 baker's sourdough starter -> bread.
+  Mill = 102,
+  Bakery = 103,
+  // Pig Pasture (2026-11-06): a 2x2 pasture of pigs (the most meat, no hide). TileType.Pasture is the Cow Pasture
+  // (meat + hide; old saves' pastures are cows).
+  PigPasture = 104,
+  // Modular building phase 1 (2026-11-09, shared/src/structures.ts): player-built room pieces. The walls are the
+  // existing Wall (wood) / StoneWall. Doors are gate tiles (isGateTile: gate state `gates`, open for the colony's
+  // units, closed to mobs until broken); windows are solid wall pieces; floors and beds are walkable ground. A
+  // roof is not a tile: it is derived (findRooms) over every small enclosed room.
+  WoodDoor = 110,
+  StoneDoor = 111,
+  WoodWindow = 112,
+  StoneWindow = 113,
+  WoodFloor = 114,
+  StoneFloor = 115,
+  Bed = 116,
+  // Modular building phase 2 (2026-11-09, shared/src/rooms.ts): furniture. Walkable 1x1 pieces placed like the other
+  // structure pieces (placeStructure, on ground or a floor); inside a roofed room they set its role and stats.
+  Table = 117,
+  Chair = 118,
+  Chest = 119,
+  Shelf = 120,
+  Hearth = 121,
+  Lamp = 122,
+  Rug = 123,
+  Workbench = 124,
+  Statue = 125,
+  WeaponRack = 126,
+  // Gap closure G1 (2026-11-10): more furniture. Long Table (2x1, counts as a table), Wardrobe (1x2, storage + beauty)
+  // and the Medicine Chest (1x1: beds + a medicine chest in a roofed room = an infirmary).
+  LongTable = 127,
+  Wardrobe = 128,
+  MedicineChest = 129,
+  // Stardew phase 5d (2026-11-10, shared/src/animals.ts): animal houses (1x1, upgradeable). The Livestock Barn is
+  // the cows / horses barn (not the farming Barn, BarnPost). Horses also live in the cavalry Stables.
+  ChickenCoop = 130,
+  LivestockBarn = 131,
+  PigSty = 132,
+  SheepPen = 133,
+  // Gap closure G1: the second tile of a 2-tile furniture piece (shared/src/structures.ts FURNITURE_FOOTPRINT), named
+  // for where its anchor (the piece's own tile, top-left) is: W = the tile to the west, N = the tile to the north.
+  // Walkable room-interior tiles; never placed directly (placing the anchor stamps it, demolishing either clears both).
+  // The client draws nothing here (the anchor's art spans the piece).
+  FurniturePartW = 134,
+  FurniturePartN = 135,
+}
+
+// ---- Walls & gates (2026-10-23) ----
+// Gate lock chosen in the building info menu: "auto" opens for friendly units nearby, "open" / "closed"
+// hold it (a locked-closed gate blocks the colony's own units too).
+export type GateLock = "auto" | "open" | "closed";
+// `gates` is flattened [tile index, GATE_FLAG_* bits] pairs, one per gate tile.
+export const GATE_SNAPSHOT_STRIDE = 2;
+export const GATE_FLAG_OPEN = 1;
+export const GATE_FLAG_LOCK_OPEN = 2;
+export const GATE_FLAG_LOCK_CLOSED = 4;
+// Overrun: a hostile majority near the gate with no living tower in range; mobs pass as if it were open.
+export const GATE_FLAG_OVERRUN = 8;
+// Forts phase A: the gate belongs to an NPC site (closed to the colony, opens only for its own side).
+export const GATE_FLAG_FOREIGN = 16;
+// Forts phase A: snapshot `siteTiles` is flattened [tile index, site number] pairs, one per NPC-owned
+// tile (site number >= 1). Per player, sent only when the owner map changed since that player's last one.
+export const SITE_TILE_SNAPSHOT_STRIDE = 2;
+// Forts phase B (2026-10-30): the faction of a stamped NPC fort (bandit palisades, orc stockades).
+// Forts phase C: "human" = a neutral human settlement (Hearthmoor / Ironhold / Riverwatch templates).
+export type SiteFaction = "bandit" | "orc" | "human";
+// Forts phase B stage 3: snapshot `sites` (sent with `siteTiles`): every fort whose keep has been explored
+// (minimap marker coloured by faction; cleared = razed, captured = rebuilt as a clan's outpost).
+export interface SiteSnapshot {
+  name: string;
+  faction: SiteFaction;
+  keepX: number;
+  keepY: number;
+  cleared: boolean;
+  captured: boolean;
+  capturedBy?: number;
+  // Forts phase C: the site's owner-map number (siteTiles) and, for a human settlement, whether it is
+  // hostile right now (attacked: its garrison fights, its gates / towers treat the colony as enemies).
+  num?: number;
+  hostile?: boolean;
+  // Forts phase F: the clan this settlement is a vassal of (missing: none).
+  vassalOf?: number;
+}
+// Forts phase D: relation tiers (per clan per human settlement; thresholds in the server's constants.ts).
+// "vassal" = this clan's vassal (phase F: relation reached 100 with an army at least as strong; kept while >= 70).
+export type RelationTier = "hostile" | "wary" | "neutral" | "friendly" | "allied" | "vassal";
+export const RELATION_TIER_NAMES: Record<RelationTier, string> = {
+  hostile: "Hostile", wary: "Wary", neutral: "Neutral", friendly: "Friendly", allied: "Allied", vassal: "Vassal",
+};
+// Snapshot `relations` (per player, the receiving player's clan; resent only when a relation changed):
+// one entry per standing human settlement by its site number (SiteSnapshot.num).
+export interface SiteRelationSnapshot {
+  num: number;
+  value: number;
+  tier: RelationTier;
+}
+// Forts phase D: goods a settlement trades for gold (direct trade, `tradeWithSite`).
+export type TradeGood = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "clothes" | "tools";
+export const TRADE_GOODS: TradeGood[] = ["grain", "meat", "fruit", "wool", "wood", "rock", "iron", "clothes", "tools"];
+// Forts phase D2: settlement help quests, posted per clan by a standing, non-hostile settlement (server
+// quests.ts). Snapshot `quests` (per player, the clan's open quests; resent when one changed and once a second).
+//   defend    - "Defend <name> tonight": kill `need` hostile mobs near its walls before dawn, keep standing.
+//   clearCamp - "Clear the camp near <name>": destroy the bandit / orc camp or fort keep at (x, y).
+//   deliver   - "Deliver N <good> to <name>": hand `qty` of `good` over from the clan stock near its walls.
+export type QuestKind = "defend" | "clearCamp" | "deliver";
+// World streaming phase 5: the chronicle (news feed of what happened out of sight).
+export type ChronicleKind = "raid" | "wagon" | "camp" | "settlement" | "feud";
+export interface ChronicleEntry {
+  id: number;
+  // Game day (1-based) it happened.
+  day: number;
+  kind: ChronicleKind;
+  text: string;
+  // Tile it happened at (omitted: nowhere in particular).
+  x?: number;
+  y?: number;
+}
+export interface QuestSnapshot {
+  id: number;
+  kind: QuestKind;
+  siteNum: number;
+  siteName: string;
+  title: string;
+  text: string;
+  // Gold paid on completion; relation gained (before the daily cap) / lost when it fails or is ignored.
+  reward: number;
+  relation: number;
+  penalty: number;
+  // Game ticks until it expires (TICK_RATE a second).
+  ticksLeft: number;
+  accepted: boolean;
+  // Map marker tile (the camp for clearCamp, the settlement's keep otherwise).
+  x: number;
+  y: number;
+  good?: TradeGood;
+  qty?: number;
+  // defend: kills so far / needed.
+  progress?: number;
+  need?: number;
+}
+// Clans (ROADMAP "Clans — landed"): snapshot `clanTiles` is flattened [tile index, clan id] pairs, one per
+// player building of any clan, sent only while there are 2+ clans and only when it changed (a full
+// replacement). Missing (or a single-clan game) = clan 0.
+export const CLAN_TILE_SNAPSHOT_STRIDE = 2;
+export interface ClanSnapshot {
+  id: number;
+  name: string;
+  // Banner / border tint.
+  color: number;
+}
+
+export function isRoadTile(tile: TileType): boolean {
+  return tile === TileType.Road || tile === TileType.CobbleRoad;
+}
+
+// Ground biome per tile, a separate layer from TileType (sent once in `welcome`, never changes
+// after world-gen).
+export enum Biome {
+  Plains = 0,
+  Hills = 1,
+  Swamp = 2,
+}
+
+export function isSolidTile(tile: TileType): boolean {
+  return (
+    tile === TileType.Wall ||
+    tile === TileType.Tree ||
+    tile === TileType.LumberjackPost ||
+    tile === TileType.KnightPost ||
+    tile === TileType.ArcherPost ||
+    tile === TileType.IronOre ||
+    tile === TileType.Rock ||
+    tile === TileType.IronMinePost ||
+    tile === TileType.RockMinePost ||
+    tile === TileType.StoneWall ||
+    tile === TileType.TownCenter ||
+    tile === TileType.House ||
+    tile === TileType.BigHouse ||
+    tile === TileType.HouseLevel2 ||
+    tile === TileType.BarnPost ||
+    tile === TileType.CastleLevel2 ||
+    tile === TileType.CastleLevel3 ||
+    tile === TileType.ArcherTower ||
+    tile === TileType.ChurchPost ||
+    tile === TileType.Pasture ||
+    tile === TileType.PigPasture ||
+    tile === TileType.Orchard ||
+    tile === TileType.WoolFarm ||
+    // Hemp Field (TileType.CottonFarm) is walkable since 2026-10-30, like a Farm Plot.
+    tile === TileType.TailorShop ||
+    tile === TileType.Blacksmith ||
+    tile === TileType.LuxuryWorkshop ||
+    tile === TileType.Market ||
+    tile === TileType.GoldShop ||
+    tile === TileType.Brewery ||
+    tile === TileType.CharcoalBurner ||
+    tile === TileType.Bloomery ||
+    tile === TileType.Mill ||
+    tile === TileType.Bakery ||
+    tile === TileType.ChickenCoop ||
+    tile === TileType.LivestockBarn ||
+    tile === TileType.PigSty ||
+    tile === TileType.SheepPen ||
+    tile === TileType.Tavern ||
+    tile === TileType.MilitiaPost ||
+    tile === TileType.MilitiaCamp2 ||
+    tile === TileType.MilitiaCamp3 ||
+    tile === TileType.Water ||
+    tile === TileType.RuinWall1 ||
+    tile === TileType.RuinWall2 ||
+    tile === TileType.RuinArch ||
+    tile === TileType.RuinStatue ||
+    tile === TileType.RuinRubble ||
+    tile === TileType.PropCampfire ||
+    tile === TileType.PropCart ||
+    tile === TileType.PropBarrel ||
+    tile === TileType.PropCrate ||
+    tile === TileType.PropFence ||
+    tile === TileType.AbbeyHall ||
+    tile === TileType.PropCross ||
+    tile === TileType.PropLanternPost ||
+    tile === TileType.WardStone ||
+    tile === TileType.HunterHut ||
+    tile === TileType.ForagerHut ||
+    tile === TileType.FruitTree ||
+    tile === TileType.FruitTreePicked ||
+    tile === TileType.BuildersGuild ||
+    tile === TileType.ConstructionSite ||
+    tile === TileType.Tower ||
+    tile === TileType.Stables ||
+    tile === TileType.SiegeWorkshop ||
+    tile === TileType.Keep ||
+    tile === TileType.SiteKeep ||
+    tile === TileType.RuinedKeep ||
+    tile === TileType.Tent ||
+    tile === TileType.Moat ||
+    tile === TileType.BuildingPart ||
+    tile === TileType.WoodWindow ||
+    tile === TileType.StoneWindow
+  );
+}
+
+// A gate-like tile: its passability is gate state (`gates`), not isSolidTile (phase H: drawbridges too;
+// modular building: room doors).
+export function isGateTile(tile: number): boolean {
+  return tile === TileType.Gate || tile === TileType.Drawbridge || tile === TileType.WoodDoor || tile === TileType.StoneDoor;
+}
+
+export type ColonistKind =
+  | "lumberjack"
+  | "farmer"
+  | "knight"
+  | "archer"
+  | "ironMiner"
+  | "rockMiner"
+  | "bishop"
+  | "farmhand"
+  | "artisan"
+  | "militia"
+  | "spearman"
+  | "pikeman"
+  | "hunter"
+  | "forager"
+  | "builder"
+  // Cavalry & siege (2026-10-27): Stables riders and Siege Workshop engines.
+  | "cavalry"
+  | "batteringRam"
+  | "catapult"
+  // Hero phase 3 (2026-10-28): a named, levelled hero recruited at a Keep (class in ColonistSnapshot.heroClass).
+  | "hero"
+  // Forts phase E: a Trading Post's trader wagon (ColonistSnapshot.wagon); not commandable, no population.
+  | "wagon"
+  // Village life phase 1 (2026-11-03): a free person (no job yet; ColonistSnapshot.child for a child).
+  | "villager";
+
+// Hero phase 3: the three hero classes and the regiment role each fights in.
+export type HeroClass = "champion" | "marksman" | "mage";
+export const HERO_CLASSES: HeroClass[] = ["champion", "marksman", "mage"];
+export const HERO_CLASS_ROLE: Record<HeroClass, CombatRole> = { champion: "shock", marksman: "ranged", mage: "caster" };
+export const HERO_CLASS_LABEL: Record<HeroClass, string> = { champion: "Champion", marksman: "Marksman", mage: "Mage" };
+
+// Combat stance for guard-tier units (knight/archer/militia line): how far they aggro, how far they
+// chase from their rally point, and how tight a formation they hold. Every colonist carries one
+// (default "normal"); it has no effect on bishops or civilians.
+export type Stance = "defensive" | "normal" | "aggressive";
+
+// Strategy mode phase 2 (additive): a player regiment, derived by the server every snapshot. Each
+// commandable unit is in exactly one: a task force (assignTaskForce slot N, the manual merge / split),
+// else a hero alone, else its settlement (Town Center) + class. Infantry = militia + spearmen + pikemen.
+// Task-force regiments are "mixed" unless every member shares one class.
+export type RegimentClass = "infantry" | "knights" | "archers" | "cavalry" | "clergy" | "rams" | "catapults" | "hero" | "mixed";
+export interface ArmyRegimentSnapshot {
+  // "tf<N>" (task force N), "h:<heroId>", or "a:<settlement x,y>:<class>".
+  id: string;
+  name: string;
+  // Alive members (may be empty while the dead wait for the dawn respawn).
+  unitIds: string[];
+  cls: RegimentClass;
+  // The members' most common role (none for clergy).
+  role?: CombatRole;
+  // Alive + queued respawns (auto / hero regiments) or the size it was assigned at (task forces).
+  maxCount: number;
+  // Sum hp / sum maxHp of the alive members (0 with none).
+  hpFrac: number;
+  // 1-based "Settlement N" of an auto regiment.
+  settlement?: number;
+  // Task force slot (1-9) of a manual regiment.
+  taskForce?: number;
+  // Strategy mode phase 5: summed damage of the alive members per mob attack interval (the figure the mob
+  // tactics' Lanchester strength uses: power = sum hp x sum dmg). Omitted by older servers.
+  dmg?: number;
+  // Strategy mode phase 6: morale 0-100, only for regiments that can break (3+ fighting units, no heroes /
+  // siege engines) or are routing; omitted otherwise (and by older servers).
+  morale?: number;
+  // Below the wavering line (-15% damage), or routed (fleeing to the Town Center, takes no orders).
+  moraleState?: "wavering" | "routing";
+  // An enemy is behind it, or a flank group is running at one of its members (costs morale).
+  outflanked?: boolean;
+}
+
+// Strategy mode phase 5 (additive): global sim time scale (one player's choice applies to everyone).
+export const TIME_SCALES = [0.25, 0.5, 1, 2] as const;
+export type TimeScale = (typeof TIME_SCALES)[number];
+
+// Strategy mode phase 5 (additive): an enemy regiment summary (snapshot `enemyRegiments`, strategy-mode
+// players only, refreshed every ENEMY_REGIMENT_REFRESH_TICKS). One per mob regiment (raid group / site,
+// see the server's regimentKey) or, for loose mobs, per ENEMY_CELL_TILES map cell; only regiments with a
+// member in the colony's live vision (players + colonists, VISION_RADIUS_*), counted from those members.
+export const ENEMY_REGIMENT_REFRESH_TICKS = 10;
+export const ENEMY_CELL_TILES = 16;
+export interface EnemyRegimentSnapshot {
+  id: string;
+  // "Bandit raid", "Ruin guardians", "Ogre Warlord", ...
+  label: string;
+  // Centroid of the seen members (world px, rounded).
+  x: number;
+  y: number;
+  // Seen members, and their roles.
+  count: number;
+  roles: Partial<Record<CombatRole, number>>;
+  // Lanchester strength of the seen members: sum hp x sum damage (compare ArmyRegimentSnapshot.dmg).
+  power: number;
+  // Sum hp / sum maxHp of the seen members.
+  hpFrac: number;
+  // Some members are out of sight: count / power are a lower bound.
+  partial?: boolean;
+  routed?: boolean;
+  sheltering?: boolean;
+  // Strategy mode phase 6: the regiment's morale (0-100; mob regiments only, not loose mobs) and whether it
+  // was outflanked within the last few seconds.
+  morale?: number;
+  outflanked?: boolean;
+  // A raid group held until nightfall (holdRaidGroup).
+  massing?: boolean;
+  // Active flank group: from its centroid to its last waypoint (behind the line), and the target unit.
+  flank?: { fromX: number; fromY: number; x: number; y: number; targetId?: string };
+}
+
+// Strategy mode phase 3 (additive): regiment orders. An order goes to a set of units (the selected
+// regiments' members); the server keeps it as an order group (snapshot `orderGroups`) with a queue
+// of up to ARMY_ORDER_QUEUE_MAX waypoints. Formations come from formation.ts (planOrderFormation).
+// Phase 4 adds charge (shock / fast members run at a mob, cavalry cycle-charge), bombard (catapults shell
+// the point x, y each reload) and attackHearth (the group attacks the camp hearth at tileX, tileY).
+export type ArmyOrderKind = "move" | "attackMove" | "retreat" | "hold" | "follow" | "attack" | "charge" | "bombard" | "attackHearth";
+export const ARMY_ORDER_QUEUE_MAX = 8;
+export interface ArmyOrder {
+  kind: ArmyOrderKind;
+  // World px: the formation's front-centre (move / attackMove; retreat: optional, default the nearest
+  // Town Center).
+  x?: number;
+  y?: number;
+  // Radians, the direction the front faces; omitted = the direction of travel (the server fills it in
+  // once the order starts).
+  facing?: number;
+  // Frontage of a line in tiles (a dragged line); omitted = a block (or the group's last width).
+  width?: number;
+  // follow: a colonist id or "p:<playerId>"; attack / charge: a mob id.
+  targetId?: string;
+  // attackHearth: the hearth's tile.
+  tileX?: number;
+  tileY?: number;
+}
+// Strategy mode phase 4 (additive): a regiment's formation shape (formation.ts planOrderFormation). line =
+// the phase 3 layout (a block, or a line when a width is given); block = a square; wedge = a triangle
+// pointing along the facing; loose = the line layout at LOOSE_SPACING_MULT spacing.
+export type FormationShape = "line" | "block" | "wedge" | "loose";
+export const FORMATION_SHAPES: FormationShape[] = ["line", "block", "wedge", "loose"];
+export interface ArmyOrderGroupSnapshot {
+  id: string;
+  unitIds: string[];
+  // The order being carried out (null = done, the units stand where it left them).
+  order: ArmyOrder | null;
+  queue: ArmyOrder[];
+  // The group's last formation (radians / tiles), kept by a plain click-move.
+  facing?: number;
+  width?: number;
+  // attackMove: halted and fighting.
+  engaged?: boolean;
+  // Battle engine phase 1: the regiment brain's state (idle / hold / march / advance / engaged / charge / ...).
+  brain?: string;
+}
+
+export interface ColonistSnapshot {
+  id: string;
+  // Clans: the unit's clan (omitted = 0). Units of another clan are neutral and not commandable.
+  clan?: number;
+  kind: ColonistKind;
+  x: number;
+  y: number;
+  state: string;
+  hp: number;
+  maxHp: number;
+  postX: number;
+  postY: number;
+  stance: Stance;
+  // True once a civilian has reached its night shelter (a house, or the Town Center) and should be drawn "inside".
+  // Battle engine phase 7: left out (false) in a big battle's snapshot.
+  sheltered?: boolean;
+  // Armour & weapons: the tier (1-3) a knight / spearman / pikeman / cavalry spawned with; omitted = 0 (unequipped).
+  armourTier?: number;
+  weaponTier?: number;
+  // Hero phase 3: heroes only (kind "hero"); the id is the hero's stable id.
+  heroName?: string;
+  heroClass?: HeroClass;
+  heroLevel?: number;
+  // Hero phase 4: a Summon spell's temporary skeleton militia (no population, despawns).
+  summoned?: boolean;
+  // Strategy mode phase 4 (regimentSettings; omitted = off / "line"): hold fire (ranged / catapults /
+  // hero auto-spells only fire at a commanded target), skirmish (ranged back off from melee within
+  // SKIRMISH_KITE_TILES), cycle charge (cavalry on a charge order withdraw and charge again), shape.
+  holdFire?: boolean;
+  skirmish?: boolean;
+  cycleCharge?: boolean;
+  shape?: FormationShape;
+  // Forts phase E: trader wagons only. leg: home (at its post) / out / unload / back / camp (halted for the
+  // night); dest = destination name; cargo = gold value carried; danger band of the route; escorts alive;
+  // route = the remaining path as tile points (every 4th tile) while on the road.
+  wagon?: WagonSnapshot;
+  // Village life: the person's name (people only), a child (villager kind), and a villager in training at a unit
+  // building (0..1 progress).
+  name?: string;
+  child?: boolean;
+  training?: number;
+  // Gap closure G2: a zone hauler's load (a stock resource key, shared/src/zones.ts PILE_RESOURCES) while it carries.
+  haul?: string;
+}
+
+// Village life: the active clan's people beyond its posted units.
+export interface PeopleSnapshot {
+  free: number;
+  children: number;
+  training: number;
+  // Posts with nobody (respawnQueue entries, heroes excluded); soldier posts wait for training.
+  vacancies: number;
+}
+
+export type WagonLeg = "home" | "out" | "unload" | "back" | "camp";
+export type DangerBand = "safe" | "risky" | "deadly";
+export interface WagonSnapshot {
+  level: number;
+  leg: WagonLeg;
+  dest: string;
+  cargo: number;
+  danger: DangerBand;
+  escorts: number;
+  route?: number[];
+}
+
+// Armour & weapons: the two equipment slots; the colony's stock counts each by tier 1..3.
+export type EquipSlot = "armour" | "weapon";
+export interface EquipmentStock {
+  // Index 0 = tier 1, 1 = tier 2, 2 = tier 3.
+  armour: number[];
+  weapon: number[];
+}
+
+// ---- Hero phases 1-2: items, inventory, character sheet (ROADMAP "Hero phases 1-2", 2026-10-28) ----
+// Per-player (later per-hero) gear. Plain tiered pieces (chest / weapon) are pulled from the colony's
+// EquipmentStock; relics are unique named drops. Stats are additive percentages / flat HP.
+export type GearSlot =
+  | "head" | "chest" | "legs" | "weapon" | "offhand" | "trinket1" | "trinket2"
+  | "spell1" | "spell2" | "spell3" | "spell4";
+export const GEAR_SLOTS: GearSlot[] = [
+  "head", "chest", "legs", "weapon", "offhand", "trinket1", "trinket2", "spell1", "spell2", "spell3", "spell4",
+];
+// What kind of socket an item fits (trinket -> trinket1/2, spell -> spell1-4).
+// Hero phase 4: "tome" = a Spell Tome (pack only, never equipped; "Learn" consumes it, see useTome).
+export type ItemSlotKind = "head" | "chest" | "legs" | "weapon" | "offhand" | "trinket" | "spell" | "tome";
+export type ItemTier = 1 | 2 | 3 | "relic";
+export interface ItemStats {
+  damagePct?: number;
+  // Negative = takes less damage.
+  damageTakenPct?: number;
+  maxHp?: number;
+  moveSpeedPct?: number;
+  attackSpeedPct?: number;
+  spellPowerPct?: number;
+}
+export interface GearItem {
+  // Unique per instance.
+  id: string;
+  slot: ItemSlotKind;
+  name: string;
+  tier: ItemTier;
+  stats: ItemStats;
+  // e.g. "sword" / "spear" / "bow" / "staff" / "helm" / "shield" (glyph on the placeholder icon).
+  kind?: string;
+  // Relic catalogue key (relics only).
+  relicId?: string;
+  // Optional sprite basename under /sprites/ (SPRITES.md #49 / #51); the client falls back to a placeholder.
+  icon?: string;
+  // Hero phase 4: Spell Tomes only - the spell it teaches.
+  spellId?: SpellId;
+}
+export type Equipment = Record<GearSlot, GearItem | null>;
+// Derived (server-computed) modifiers of the player's gear + level.
+export interface HeroStats {
+  maxHp: number;
+  damageMult: number;
+  damageTakenMult: number;
+  moveSpeedMult: number;
+  attackSpeedMult: number;
+  spellPowerMult: number;
+}
+// Snapshot `profile`: sent only to its own player, and only when it changed (keep the last one).
+export interface HeroProfileSnapshot {
+  appearance?: HeroAppearance;
+  equipment: Equipment;
+  inventory: GearItem[];
+  inventoryCap: number;
+  xp: number;
+  level: number;
+  // Total XP at which the current / next level starts (next = null at the max level).
+  levelXp: number;
+  nextLevelXp: number | null;
+  stats: HeroStats;
+  // Hero phase 4 (additive): learned spells, the 4 spell slots, auto-cast and cooldowns.
+  spells?: SpellBookSnapshot;
+}
+
+// ---- Hero phase 4: spells (ROADMAP "Hero phase 4: spells", 2026-10-28) ----
+// Cooldown-based, no mana. Numbers (damage / heal / shield) scale with the caster's spellPowerMult;
+// percentages and durations do not. Range / radius in tiles, cooldown / duration in seconds.
+export type SpellId = "fireBolt" | "thunder" | "frost" | "heal" | "ward" | "rallyBanner" | "summon" | "curse";
+// enemy: click a monster; ally: click a friendly unit / player (none = yourself); ground: click a spot.
+export type SpellTargeting = "enemy" | "ally" | "ground" | "self";
+export interface SpellDef {
+  id: SpellId;
+  name: string;
+  targeting: SpellTargeting;
+  range: number;
+  cooldown: number;
+  // Main scaled amount: damage (fire bolt / thunder / frost), heal, shield absorb; 0 = none.
+  power: number;
+  radius?: number;
+  // Status length in seconds (burn, slow, ward, rally, summon, curse).
+  duration?: number;
+  // Burn damage per second (scaled), slow / damage-taken / buff fractions (not scaled).
+  burnPerSec?: number;
+  slow?: number;
+  damageTakenBonus?: number;
+  buffDamage?: number;
+  buffSpeed?: number;
+  summonCount?: number;
+  // Sprite basename under /sprites/ (SPRITES.md #57: ui-spell<n>, n = this table's order); the client
+  // draws a placeholder if it is missing.
+  icon: string;
+  // Placeholder icon glyph and colour.
+  glyph: string;
+  color: string;
+  text: string;
+}
+export const SPELLS: Record<SpellId, SpellDef> = {
+  fireBolt: { id: "fireBolt", name: "Fire Bolt", targeting: "enemy", range: 8, cooldown: 4, power: 30, duration: 3, burnPerSec: 3, icon: "ui-spell0", glyph: "✹", color: "#b5461c", text: "A bolt of fire: {power} damage, then burns for {burn}/s over 3 s" },
+  thunder: { id: "thunder", name: "Thunder", targeting: "ground", range: 7, cooldown: 12, power: 40, radius: 2, icon: "ui-spell1", glyph: "ϟ", color: "#5a6fb0", text: "Lightning strikes a spot: {power} damage to every enemy within 2 tiles" },
+  frost: { id: "frost", name: "Frost", targeting: "ground", range: 7, cooldown: 14, power: 15, radius: 2.5, duration: 4, slow: 0.5, icon: "ui-spell2", glyph: "✻", color: "#3f8fb5", text: "A burst of frost: {power} damage and 50% slow for 4 s to enemies within 2.5 tiles" },
+  heal: { id: "heal", name: "Heal", targeting: "ally", range: 6, cooldown: 8, power: 45, icon: "ui-spell3", glyph: "✚", color: "#3c8a3c", text: "Heals an ally (or yourself) for {power}" },
+  ward: { id: "ward", name: "Ward", targeting: "ally", range: 6, cooldown: 18, power: 60, duration: 8, icon: "ui-spell4", glyph: "◈", color: "#c9a227", text: "Shields an ally (or yourself): absorbs {power} damage for 8 s" },
+  rallyBanner: { id: "rallyBanner", name: "Rally Banner", targeting: "ground", range: 5, cooldown: 30, power: 0, radius: 4, duration: 10, buffDamage: 0.25, buffSpeed: 0.15, icon: "ui-spell5", glyph: "⚑", color: "#9a2f2f", text: "Plants a banner: friendly soldiers within 4 tiles deal +25% damage and move +15% faster for 10 s" },
+  summon: { id: "summon", name: "Summon", targeting: "ground", range: 4, cooldown: 45, power: 0, duration: 40, summonCount: 2, icon: "ui-spell6", glyph: "☠", color: "#5c5c6e", text: "Raises 2 skeleton militia for 40 s (no population)" },
+  curse: { id: "curse", name: "Curse", targeting: "enemy", range: 8, cooldown: 16, power: 0, duration: 8, damageTakenBonus: 0.3, icon: "ui-spell7", glyph: "☽", color: "#6b2f8a", text: "Curses an enemy: it takes +30% damage for 8 s" },
+};
+export const SPELL_IDS = Object.keys(SPELLS) as SpellId[];
+// Every spell's real cooldown is its table `cooldown` x this (2026-11-06: x2, the one tuning knob; fire bolt
+// 4 -> 8 s ... summon 45 -> 90 s). The Spellcasting hero skill then shortens it (shared/src/herolife.ts).
+export const SPELL_COOLDOWN_SCALE = 2;
+export const SPELL_SLOT_COUNT = 4;
+// Snapshot form of a profile's spell book. cooldowns: ticks (TICK_RATE / s) left per spell at send time.
+export interface SpellBookSnapshot {
+  learned: SpellId[];
+  slots: (SpellId | null)[];
+  // Heroes only: auto-cast slotted spells (players never auto-cast).
+  auto: boolean;
+  cooldowns: Partial<Record<SpellId, number>>;
+  // Spellcasting skill level of this profile (1 = untrained; old servers: absent = 1).
+  castLevel?: number;
+}
+// Hero phase 3: snapshot `heroes`, one per hero of the colony (alive, waiting to respawn or still being
+// recruited), sent per player only when the roster changed. `profile.inventory` is always empty: heroes
+// equip from the player's shared pack (the player's own `profile`).
+export interface HeroSheetSnapshot {
+  id: string;
+  name: string;
+  heroClass: HeroClass;
+  // "alive" | "recruiting" (arrives soon) | "fallen" (waits for a dawn / dusk window and its gold fee).
+  status: "alive" | "recruiting" | "fallen";
+  // Gold the next respawn costs (50 + 25 x level).
+  respawnFee: number;
+  profile: HeroProfileSnapshot;
+}
+
+export type MobKind =
+  | "goblin"
+  | "wolf"
+  | "goblinCrossbow"
+  | "orc"
+  | "skeleton"
+  | "armoredOrc"
+  | "darkShaman"
+  | "giantSpider"
+  | "troll"
+  | "ogre"
+  | "banditClubman"
+  | "banditArcher"
+  | "banditElite"
+  | "halfLatch"
+  // Raid siege engines (orc / bandit factions, from day 10 / 14).
+  | "batteringRam"
+  | "catapult"
+  // Goblin wolf rider (scale pass 2026-10-29): the monsters' cavalry. Fast flanker that charges for a
+  // double first blow, hits and runs, and takes extra damage from pikemen / spearmen.
+  | "goblinRider"
+  // Forts phase C: a human settlement's garrison (town guard / archer / knight: colonist art, blue tint)
+  // and its cosmetic workers (farmer / miner / priest: walk loops only, never fight).
+  | "townGuard"
+  | "townArcher"
+  | "townKnight"
+  | "townFarmer"
+  | "townMiner"
+  | "townPriest"
+  // Gap closure G7: a settlement's quest giver (reeve / bailiff / herald), standing at the quest slot.
+  | "townHerald";
+
+// Regiments & roles (ROADMAP "Regiments & roles"): every combat unit kind fights in a role.
+//   frontline - the melee line: holds the front rank and engages what is in front of its slot.
+//   shock     - heavy melee (troll / ogre / bandit elite): front rank, centre.
+//   ranged    - bows / crossbows: a rear rank behind the line; never advances into melee, kites a step.
+//   caster    - ranged spellcaster (dark shaman): as ranged.
+//   fast      - flankers (wolf, giant spider, goblin wolf rider; cavalry): the wings of the front rank.
+//   siege     - battering ram (front / centre with the shock troops) and catapult (rear line, as ranged).
+// Shared by server (formations, ranged discipline) and client (role rings, formation slots).
+export type CombatRole = "frontline" | "shock" | "ranged" | "caster" | "fast" | "siege";
+export const MOB_ROLE: Record<MobKind, CombatRole> = {
+  goblin: "frontline",
+  wolf: "fast",
+  goblinCrossbow: "ranged",
+  orc: "frontline",
+  skeleton: "frontline",
+  armoredOrc: "frontline",
+  darkShaman: "caster",
+  giantSpider: "fast",
+  troll: "shock",
+  ogre: "shock",
+  banditClubman: "frontline",
+  banditArcher: "ranged",
+  banditElite: "shock",
+  halfLatch: "frontline",
+  batteringRam: "siege",
+  catapult: "siege",
+  goblinRider: "fast",
+  townGuard: "frontline",
+  townArcher: "ranged",
+  townKnight: "shock",
+  townFarmer: "frontline",
+  townMiner: "frontline",
+  townPriest: "frontline",
+  townHerald: "frontline",
+};
+// Soldier kinds only (civilians and bishops have no combat role).
+export const COLONIST_ROLE: Partial<Record<ColonistKind, CombatRole>> = {
+  knight: "shock",
+  cavalry: "fast",
+  batteringRam: "siege",
+  catapult: "siege",
+  militia: "frontline",
+  spearman: "frontline",
+  pikeman: "frontline",
+  archer: "ranged",
+};
+// A unit's role, heroes by their class (hero phase 3).
+export function unitRole(kind: ColonistKind, heroClass?: HeroClass): CombatRole | undefined {
+  if (kind === "hero") return heroClass ? HERO_CLASS_ROLE[heroClass] : "shock";
+  return COLONIST_ROLE[kind];
+}
+// Ranged and caster units form the rear rank; of the siege engines only the catapult does (pass the
+// unit's kind; without it a siege role counts as front rank, like the ram).
+export function isRearRole(role: CombatRole | undefined, kind?: string): boolean {
+  return role === "ranged" || role === "caster" || (role === "siege" && kind === "catapult");
+}
+// Siege Workshop production (shared so the client's panel and the server agree).
+export type SiegeKind = "batteringRam" | "catapult";
+export const SIEGE_KINDS: SiegeKind[] = ["batteringRam", "catapult"];
+
+// Hunger-marked elites (ROADMAP Phase 6): a rare raid mob bearing one Hunger's mark. Index = the
+// snapshot's `mark` value; HUNGER_MARK_NAMES[mark] names it (sigil-<name>.png / aura-<name>.png).
+export enum HungerMark {
+  None = 0,
+  Gorrath = 1,
+  Nemri = 2,
+  Rux = 3,
+  Morvain = 4,
+  Gunne = 5,
+  Vhorrun = 6,
+}
+export const HUNGER_MARK_NAMES = ["", "gorrath", "nemri", "rux", "morvain", "gunne", "vhorrun"];
+
+export interface MobSnapshot {
+  id: string;
+  kind: MobKind;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  // Omitted for unmarked mobs (the common case) to keep snapshots small.
+  mark?: HungerMark;
+  // Phase 5 bosses only (omitted for every other mob): see BossTier.
+  boss?: BossTier;
+  // Scale pass: this mob's rolled size (about 0.85-1.2, see MOB_SIZE_RANGE); omitted when 1.
+  scale?: number;
+}
+
+// Scale pass (2026-10-29): per-kind size on top of the base look, so trolls / ogres (and the Ogre
+// Warlord) read bigger. Drawn by the client (mobSizeScale), and the server's body radius and melee reach
+// grow with it. Missing = 1 (humans and the rest are unchanged).
+export const MOB_KIND_SCALE: Partial<Record<MobKind, number>> = { troll: 1.3, ogre: 1.4 };
+// Per-mob size variation: each mob rolls a size in [min, max] (server-owned, sent as MobSnapshot.scale).
+// Kinds not listed never vary (siege engines, the Half-Latch).
+export const MOB_SIZE_RANGE: Partial<Record<MobKind, readonly [number, number]>> = {
+  goblin: [0.85, 1.2],
+  wolf: [0.85, 1.2],
+  orc: [0.85, 1.2],
+  goblinRider: [0.85, 1.2],
+  goblinCrossbow: [0.93, 1.08],
+  armoredOrc: [0.93, 1.08],
+  skeleton: [0.93, 1.08],
+  giantSpider: [0.93, 1.08],
+  darkShaman: [0.93, 1.08],
+  troll: [0.93, 1.08],
+  ogre: [0.93, 1.08],
+  banditClubman: [0.93, 1.08],
+  banditArcher: [0.93, 1.08],
+  banditElite: [0.93, 1.08],
+};
+// A mob's overall size: kind scale x its own roll x its boss tier (BOSS_RENDER_SCALE).
+export function mobSizeScale(m: { kind: MobKind; scale?: number; boss?: BossTier }): number {
+  return (MOB_KIND_SCALE[m.kind] ?? 1) * (m.scale ?? 1) * (m.boss ? BOSS_RENDER_SCALE[m.boss] : 1);
+}
+
+// Phase 5 bosses: "warlord" is the Castle Ruin's Ogre Warlord (one per world, never respawns);
+// "elite" leads a mini-boss pack of its own kind. Both are drawn larger (BOSS_RENDER_SCALE) with a
+// name label (bossTitle) and a bigger hp bar.
+export type BossTier = "warlord" | "elite";
+export const BOSS_RENDER_SCALE: Record<BossTier, number> = { warlord: 1.6, elite: 1.3 };
+const ELITE_TITLES: Partial<Record<MobKind, string>> = {
+  wolf: "Dire Wolf Alpha",
+  orc: "Orc Chieftain",
+  skeleton: "Skeleton Lord",
+  giantSpider: "Spider Matriarch",
+  armoredOrc: "Orc Warchief",
+  troll: "Troll Elder",
+};
+export function bossTitle(kind: MobKind, tier: BossTier): string {
+  if (tier === "warlord") return "Ogre Warlord";
+  return ELITE_TITLES[kind] ?? "Elite";
+}
+
+// The shared goal track (ROADMAP Phase 5): the current goal and its progress. `index` counts from 0;
+// index === total means every goal is done (title is then a closing line, progress === target).
+export interface GoalSnapshot {
+  index: number;
+  total: number;
+  title: string;
+  progress: number;
+  target: number;
+}
+
+export interface AttackEffect {
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  // Visual-only: melee hits flash at the target; ranged ones fly from attacker to target.
+  melee?: boolean;
+  // A catapult's boulder (arcing flight, impact puff at the target); omitted otherwise.
+  boulder?: boolean;
+  // Hero phase 4: a spell's cast (from caster to target / ground point); omitted otherwise.
+  spell?: SpellId;
+}
+
+// A transient marker where a colonist died; the server drops every one at the next dawn.
+export interface GravestoneSnapshot {
+  x: number;
+  y: number;
+  variant: 0 | 1;
+}
+
+// Huntable wild game (server entities, unarmed and non-hostile; a hunted boar may charge its hunter).
+export type WildlifeKind = "deer" | "rabbit" | "boar" | "pheasant";
+// Index = the kind code in the snapshot's flattened `wildlife` list.
+export const WILDLIFE_KINDS: WildlifeKind[] = ["deer", "rabbit", "boar", "pheasant"];
+// `wildlife` is flattened, WILDLIFE_SNAPSHOT_STRIDE numbers per animal:
+// [id, kind code, x (px, rounded), y (px, rounded), state code (WildlifeState below)].
+export const WILDLIFE_SNAPSHOT_STRIDE = 5;
+export enum WildlifeState {
+  Idle = 0,
+  Walk = 1,
+  Flee = 2,
+  Charge = 3,
+}
+
+// Night-mob tuning chosen on the main menu (server applies the multipliers; see DIFFICULTY_* there).
+export type Difficulty = "easy" | "normal" | "hard";
+
+export type GameEventCategory =
+  | "night" | "dawn" | "upgrade" | "death" | "ward" | "deserter" | "raid" | "build"
+  // Phase 5: a goal completed / a boss or mini-boss sighted or slain.
+  | "milestone" | "boss"
+  // Strategy mode phase 6: a player regiment wavers, routs or rallies.
+  | "morale"
+  // Stardew phase 5b: a new season, the first frost.
+  | "season";
+
+// Per-tile art stage of a farm-type building (snapshot `farmStages`). Grain plots: Sown -> Sprouting ->
+// Growing -> Ripe (being cut) -> Harvested (briefly) / Fallow. Hemp: Sown/Growing/Ripe. Pasture:
+// Growing/Fat. Sheep Pasture: Sheared/Woolly/Ripe (ready to shear). Orchard: Blossoming/Growing/Fruiting.
+export enum FarmStage {
+  Sown = 0,
+  Sprouting = 1,
+  Growing = 2,
+  Ripe = 3,
+  Harvested = 4,
+  Fallow = 5,
+  Fat = 6,
+  Sheared = 7,
+  Woolly = 8,
+  Blossoming = 9,
+  Fruiting = 10,
+}
+// `farmStages` is flattened [tile index, FarmStage] pairs; `buildingLevels` is [tile index, level] pairs
+// (only buildings above level 1, Town Centers included).
+export const FARM_STAGE_SNAPSHOT_STRIDE = 2;
+export const BUILDING_LEVEL_SNAPSHOT_STRIDE = 2;
+// `constructionSites` is flattened, CONSTRUCTION_SNAPSHOT_STRIDE numbers per site: [tile index, target
+// TileType (what will be built / upgraded), progress 0-1000, 1 if an in-place upgrade else 0, builders working].
+export const CONSTRUCTION_SNAPSHOT_STRIDE = 5;
+// `damagedBuildings` is flattened [tile index, hp permille 0-999] pairs: every building (Town Centers
+// included) below full HP. A building missing from it is at full HP.
+export const DAMAGED_BUILDING_SNAPSHOT_STRIDE = 2;
+// `hearths` is flattened [tile index, hp permille 0-1000] pairs, one per standing camp hearth (damaged
+// ones are also in `damagedBuildings`, which draws their HP bar).
+// [tile index, hp permille (-1: a fallen camp where freed prisoners wait), prisoners, guarded 0/1] per hearth.
+export const HEARTH_SNAPSHOT_STRIDE = 4;
+
+export interface TownCenterSnapshot {
+  // Forts phase B: a captured fort's outpost ("Thornwick Palisade Outpost"); omitted for ordinary ones.
+  name?: string;
+  x: number;
+  y: number;
+  level: number;
+  hp: number;
+  maxHp: number;
+  // Settlement population (units counting toward this Town Center), its effective cap (min of housing
+  // and tier ceiling) and the tier ceiling alone. Omitted by older servers.
+  population?: number;
+  populationCap?: number;
+  populationTierCap?: number;
+  // Population added to that cap by the settlement's Keep (10 per Keep level; 0 or omitted: no Keep).
+  populationKeepBonus?: number;
+  // Barracks housing (2026-10-29): living soldiers (not in `population`) and the sum of the settlement's
+  // unit buildings' own troop capacities (tier headcount + 1 per adjacent house); the garrison is their
+  // tier headcounts (built + queued) against the Town Center tier / Keep ceiling. Omitted by older servers.
+  troops?: number;
+  troopCap?: number;
+  garrisonBase?: number;
+  garrisonCap?: number;
+}
+
+// Progression tree (shared/src/progression.ts): the active clan's items (count per quality grade 1-3), the
+// building types still locked and what each needs, the Next steps lines and the hand recipes.
+export interface ProgressionSnapshot {
+  // true: no gates (creative "unlock all", or the test-only unlock).
+  open: boolean;
+  items: Record<string, number[]>;
+  locked: Record<number, string[]>;
+  next: string[];
+  // why: the short reason a hand craft is refused now ("" = it can be made).
+  crafts: { id: string; label: string; cost: string; ok: boolean; why?: string }[];
+  // Building types of the progression chains / recipe stations that stand in the clan's lands (Progression panel).
+  built?: number[];
+  // Phase 3: the Send a prospector button (reason: why it is refused, "" = allowed).
+  prospect?: { label: string; ok: boolean; reason: string };
+}
+
+// Reply to a `buildingInfo` request; every number is computed by the server's own formulas.
+// Modular building phase 2: a room's role, stats (0-100) and effects for the Room panel.
+export interface RoomInfo {
+  id: number;
+  role: string;
+  roleLabel: string;
+  size: number;
+  beauty: number;
+  cleanliness: number;
+  warmth: number;
+  score: number;
+  tier: string;
+  // What the room does for the colony at this quality (one line each).
+  effects: string[];
+  // Cheapest improvements first.
+  tips: string[];
+  // Furniture / stations inside, e.g. "2 Bed, 1 Lamp".
+  contents: string;
+}
+export interface BuildingInfo {
+  name: string;
+  tile: TileType;
+  level: number;
+  maxLevel: number;
+  // Hit points of any building mobs can damage (null for the rest, e.g. construction sites, farm plots).
+  hp: number | null;
+  maxHp: number | null;
+  // e.g. "Workers 2", "Beds 3/5", "Population base 10".
+  staffing: string;
+  bonuses: string[];
+  // In-place upgrade (or null when the building can't be upgraded at all).
+  upgrade: { cost: string; enabled: boolean; reason: string } | null;
+  // 0-1 when a construction / upgrade is queued here, else null.
+  construction: number | null;
+  // Manual repair (null while the building is at full HP): the materials it costs now ("Free" when
+  // already paid) and why it can't be ordered, if so.
+  repair: { cost: string; enabled: boolean; reason: string } | null;
+  // Gates only: the current state and lock (see setGateLock).
+  gate?: { open: boolean; lock: GateLock; overrun: boolean };
+  // Construction sites only (modular building phase 1): the blueprint's priority and what cancelling refunds.
+  blueprint?: { priority: boolean; refund: string };
+  // Modular building phase 2: the roofed room this tile is in (shared/src/rooms.ts roomStats), else absent.
+  room?: RoomInfo;
+  // Gap closure G3: your building's work posts (workers, open slots, free villagers to assign), else absent.
+  posts?: BuildingPostsInfo;
+  // Siege Workshops only: what is being built (null: idle), its progress 0-1, engines alive / cap, and a
+  // build button per engine (see queueSiege).
+  siege?: {
+    building: SiegeKind | null;
+    progress: number | null;
+    units: number;
+    cap: number;
+    options: { kind: SiegeKind; label: string; cost: string; enabled: boolean; reason: string }[];
+  };
+  // Blacksmiths only (Armour & weapons): the tier it forges (= its level), its queue (first = in progress,
+  // progress 0-1), the queue cap, and a button per slot (see queueForge).
+  // Village life phase 3: unit buildings only: the soldier it trains, troops / trainees / capacity, training
+  // days, and why "Train unit" is refused ("" = allowed).
+  // gearOptional: basic militia train without gear (weaker, unarmed) and take a T1 weapon + armour if in stock.
+  train?: { kind: ColonistKind; level: number; troops: number; training: number; cap: number; days: number; reason: string; gearOptional?: boolean; geared?: boolean;
+    // Batch training: places training at once, how many wait, what "Max" would queue, each trainee's progress.
+    slots?: number; waiting?: number; max?: number; queue?: { name: string; progress: number; waiting: boolean }[] };
+  // Village life phase 4: own Town Centers only: civilians ready to be levied, levies on the field, ticks until they
+  // stand down, and why "Call to arms" is refused ("" = allowed).
+  levy?: { ready: number; onField: number; ticksLeft: number; reason: string };
+  // Progression tree: stations / workplaces: worker levels, effective tier, upgrade gates (display lines).
+  progression?: string[];
+  forge?: {
+    tier: number;
+    queue: { slot: EquipSlot; tier: number }[];
+    progress: number | null;
+    cap: number;
+    options: { slot: EquipSlot; label: string; cost: string; enabled: boolean; reason: string }[];
+    // Forge autocraft (2026-10-30, additive; see setForgeAuto): on/off, the stock target per slot at this
+    // Blacksmith's tier, the iron / wood reserve it never spends below, and what it is doing now.
+    auto?: { on: boolean; target: number; reserve: number; status: string };
+  };
+  // Keeps only (hero phase 3): heroes posted here / cap (= Keep level), one recruit button per class
+  // (see recruitHero), and the roster of this Keep's heroes.
+  heroes?: {
+    count: number;
+    cap: number;
+    options: { heroClass: HeroClass; label: string; cost: string; enabled: boolean; reason: string }[];
+    roster: { name: string; heroClass: HeroClass; level: number; status: string }[];
+  };
+  // Forts phase B: a fort's RuinedKeep: the Rebuild button (rebuildKeep) and why it is disabled.
+  keep?: { cost: string; enabled: boolean; reason: string };
+  // Forts phase D: a standing human settlement's market (any of its tiles): relation, prices per unit (buy =
+  // what the clan pays, sell = what it gets), the settlement's stock / cap and today's remaining caps. canTrade
+  // false -> reason ("Walk up to the walls", "Hostile: they refuse to trade", ...).
+  trade?: {
+    siteName: string;
+    relation: number;
+    tier: RelationTier;
+    discount: number;
+    gold: number;
+    canTrade: boolean;
+    reason: string;
+    goods: { good: TradeGood; buy: number; sell: number; stock: number; cap: number; buyLeft: number; sellLeft: number }[];
+  };
+  // Forts phase E: a Trading Post: its wagon, escort roster, trip status, auto-send and the destinations
+  // (cached route length / danger band / expected gold; ok false -> reason).
+  tradingPost?: {
+    level: number;
+    auto: boolean;
+    status: string;
+    wagon: { id: string; hp: number; maxHp: number; leg: WagonLeg; dest: string; cargo: number } | null;
+    escorts: { kind: ColonistKind; alive: boolean }[];
+    destinations: { id: string; name: string; kind: "settlement" | "own"; dist: number; danger: DangerBand | null; profit: number; ok: boolean; reason: string }[];
+    canSend: boolean;
+    sendReason: string;
+    canRecall: boolean;
+  };
+  // Forts phase F: one of the requesting clan's vassals: power comparison, tribute (on / off, estimate, the
+  // ledger) and the levy (call to arms / dismiss). Time strings are game days ("1.5 days").
+  vassal?: {
+    siteName: string;
+    clanPower: number;
+    sitePower: number;
+    tax: boolean;
+    canTax: boolean;
+    taxReason: string;
+    estimate: string;
+    lastTax: string;
+    nextTax: string;
+    taxGoldTotal: number;
+    levyOnField: number;
+    levyReturning: boolean;
+    levyStatus: string;
+    levySize: number;
+    canCall: boolean;
+    callReason: string;
+  };
+  // Stardew phase 5d: animal houses (coop, livestock barn, sty, pen, stables): animals, feed / water, buy / slaughter.
+  animals?: AnimalHouseInfo;
+  // Churches only (hero phase 4): basic spells the requesting player can buy (see learnSpell).
+  spellShop?: { spellId: SpellId; label: string; gold: number; enabled: boolean; reason: string }[];
+}
+
+// Creative mode spawn panel sides: own clan units, enemy mobs, enemy armies (raid groups), extra guardians for
+// the nearest fort / settlement, Test clan units (neutral dummy clan), neutral settlement folk, wildlife.
+export type CreativeSpawnSide = "own" | "enemy" | "army" | "guardians" | "neutral" | "folk" | "wildlife";
+
+export type ClientMessage =
+  | { type: "join"; name?: string }
+  | { type: "input"; dx: number; dy: number }
+  | { type: "setTile"; tileX: number; tileY: number; tile: TileType }
+  // Modular building phase 1: blueprints for a structure piece (shared/src/structures.ts STRUCTURE_TILES, or
+  // Empty to cancel blueprints) on many tiles at once, flattened [x, y, ...] (a painted wall line, a room
+  // outline, a floor rectangle). No reach limit: tiles within STRUCTURE_ORDER_RANGE_TILES of the hero or an own
+  // Town Center. Each tile follows the setTile rules (cost, progression, builders).
+  // Gap closure G1: rot 0 / 1 turns a 2-tile furniture piece (shared/src/structures.ts FURNITURE_FOOTPRINT; the tiles
+  // are anchors, top-left). A Bed sent with no rot stays 1x1.
+  | { type: "placeStructure"; tile: TileType; tiles: number[]; rot?: number }
+  // A construction site's blueprint: toggle its priority (builders take priority sites first) or cancel it
+  // (structure pieces refund their materials).
+  | { type: "siteOrder"; tileX: number; tileY: number; action: "priority" | "cancel" }
+  // Building templates (shared/src/buildingTemplates.ts): ask for the list (answered with blueprintList), or order one
+  // centred on tile (x, y), turned / mirrored by transform 0-7 (bits 0-1 quarter turns clockwise, bit 2 mirror): every
+  // piece becomes a blueprint through the setTile rules (all or nothing up front: ground, range, cost, progression).
+  | { type: "blueprintList" }
+  | { type: "placeBlueprint"; id: string; x: number; y: number; transform: number }
+  // Modular building phase 3 (shared/src/zones.ts): zones. paint: add tiles (flattened [x, y, ...]) to zone `zoneId`,
+  // or to a new zone of `kind` (+ crop) when zoneId is missing; erase: take tiles out of whatever own zone holds them;
+  // rename / setCrop / setFilters / delete: one zone. Tiles within ZONE_EDIT_RANGE_TILES of the hero or an own Town
+  // Center, at most ZONE_EDIT_MAX_TILES per message.
+  | {
+      type: "zoneEdit"; op: "paint" | "erase" | "rename" | "setCrop" | "setFilters" | "delete"; zoneId?: number; kind?: ZoneKind;
+      tiles?: number[]; name?: string; crop?: CropId; filters?: StockCategory[];
+    }
+  // Modular building phase 4 (shared/src/work.ts): the Work tab. workTab asks for the table (answered with a
+  // workTab message); workSet sets one work type for these people (a cell, or a column's "all"): 0 = off, 1-4 in
+  // manual mode (default mode: any 1-4 = on); workMode switches the clan between default and manual priorities.
+  | { type: "workTab" }
+  | { type: "workSet"; ids: string[]; work: WorkType; priority: number }
+  | { type: "workMode"; manual: boolean }
+  // Gap closure G3: hand-assign a free villager to the post at a building (pinned until unassigned / work type off),
+  // send a post worker back to the village, or ask for the open posts near a person (answered with workPosts).
+  | { type: "assignWorker"; id: string; tileX: number; tileY: number }
+  | { type: "unassignWorker"; id: string }
+  | { type: "workPosts"; id: string }
+  | { type: "attack" }
+  // paused (strategy mode phase 5, optional): set it instead of toggling. Global: applies to everyone.
+  | { type: "pause"; paused?: boolean }
+  // Strategy mode phase 5: global sim speed (TIME_SCALES); like pause, any player's choice applies to all.
+  | { type: "setTimeScale"; scale: number }
+  // Optional difficulty: the restarting client's choice becomes the new world's difficulty.
+  // creative (optional): the new world is a creative-mode game (main menu "Creative" / ?mode=creative).
+  | { type: "restart"; difficulty?: Difficulty; worldSize?: number; creative?: boolean; solo?: boolean }
+  // Creative mode only (refused in normal games with a creativeResult ok: false): spawn units / set world state.
+  // Fields per side / op: see the server's creative.ts handleCreativeSpawn / handleCreativeSet.
+  | { type: "creativeSpawn"; side: CreativeSpawnSide; kind: string; count: number; x: number; y: number; formation?: "none" | "line" | "block" | "column"; level?: number; gear?: number; heroClass?: HeroClass; stance?: Stance; mark?: number; boss?: "elite" | "warlord"; faction?: string; aggressive?: boolean }
+  | { type: "creativeSet"; op: string; [key: string]: unknown }
+  // Sent after every welcome; only takes effect while the world's difficulty is still unclaimed
+  // (see the server's handleSetDifficulty for the race rules).
+  | { type: "setDifficulty"; difficulty: Difficulty; worldSize?: number }
+  // squad: optional, shared by every unit of one formation order (the client sends the order number), so the
+  // server marches them together (see updateSquadMarch). Old clients omit it.
+  | { type: "commandMove"; unitIds: string[]; x: number; y: number; squad?: string }
+  | { type: "commandAttack"; unitIds: string[]; mobId: string }
+  // Camp hearths: send the units against the standing hearth on that tile (additive, 2026-10-28).
+  | { type: "commandAttackHearth"; unitIds: string[]; tileX: number; tileY: number }
+  | { type: "commandStance"; unitIds: string[]; stance: Stance }
+  // Task force N is also a manual regiment (strategy mode phase 2): its units leave their auto regiment and
+  // any other task force; an empty unitIds disbands it (the units return to their auto regiments).
+  | { type: "assignTaskForce"; slot: number; unitIds: string[] }
+  // Strategy mode phase 3: an order for the members of the regiments and / or the units; queue = append
+  // to their order group's queue (Shift). A per-unit commandMove / commandAttack takes a unit out of it.
+  | { type: "regimentOrder"; regimentIds?: string[]; unitIds?: string[]; order: ArmyOrder; queue?: boolean }
+  // Strategy mode phase 4: per-unit settings for the members of the regiments and / or the units (each
+  // field omitted = unchanged). A shape change re-forms their order groups in place.
+  | { type: "regimentSettings"; regimentIds?: string[]; unitIds?: string[]; stance?: Stance; holdFire?: boolean; skirmish?: boolean; cycleCharge?: boolean; shape?: FormationShape }
+  | { type: "exchangeResource"; from: "wood" | "iron" | "rock"; to: "wood" | "iron" | "rock" }
+  | { type: "buyWithGold"; item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock" }
+  | { type: "buildingInfo"; tileX: number; tileY: number }
+  // Stardew phase 5d (shared/src/animals.ts): an animal house's panel buttons.
+  | { type: "animalAction"; tileX: number; tileY: number; op: "buy" | "slaughter" | "rename"; species?: Species; male?: boolean; id?: number; name?: string }
+  // Queues the in-place upgrade of the building at the tile (same rules as placing it on itself, no reach limit).
+  | { type: "upgradeBuilding"; tileX: number; tileY: number }
+  // Pays for the building's missing HP now and makes it the builders' first repair job.
+  | { type: "repairBuilding"; tileX: number; tileY: number }
+  // Sets the lock of the gate at the tile (no reach limit, like the other building info buttons).
+  | { type: "setGateLock"; tileX: number; tileY: number; lock: GateLock }
+  // Forts phase B: rebuild a cleared fort's RuinedKeep (tileX / tileY) as the sender clan's outpost.
+  | { type: "rebuildKeep"; tileX: number; tileY: number }
+  // Forts phase D: buy / sell qty (1..50) of a good at the human settlement owning tile (tileX, tileY), for gold
+  // from / to the sender clan's stock (server checks range, tier, stock, purse and daily caps).
+  | { type: "tradeWithSite"; tileX: number; tileY: number; good: TradeGood; qty: number; side: "buy" | "sell" }
+  // Forts phase D2: accept / abandon one of the sender clan's settlement quests (abandoning costs relation);
+  // deliverQuest hands a deliver quest's goods over (player or a colonist near the walls, goods in stock).
+  | { type: "acceptQuest"; questId: number }
+  | { type: "abandonQuest"; questId: number }
+  | { type: "deliverQuest"; questId: number }
+  // Forts phase E: the Trading Post at (tileX, tileY): send its wagon now (dest "auto" or a destination id from
+  // BuildingInfo.tradingPost), recall it home, or set auto-send (value).
+  | { type: "wagonCommand"; tileX: number; tileY: number; cmd: "sendNow" | "recall" | "auto"; dest?: string; value?: boolean }
+  // Forts phase F: call the vassal settlement owning tile (tileX, tileY) to arms: its levy follows followId (a
+  // colonist id of the sender's clan or "p:<playerId>"), else marches to (x, y) world px, else follows the
+  // sender's avatar; dismiss sends the levy on the field home.
+  | { type: "callToArms"; tileX: number; tileY: number; followId?: string; x?: number; y?: number; dismiss?: boolean }
+  // Forts phase F: demand tribute from (on) / stop taxing (off) the vassal settlement owning tile (tileX, tileY).
+  | { type: "setTax"; tileX: number; tileY: number; on: boolean }
+  // Starts building one siege engine at the Siege Workshop at the tile (building info panel button).
+  | { type: "queueSiege"; tileX: number; tileY: number; kind: SiegeKind }
+  // Queues one armour / weapon at the Blacksmith at the tile (tier = its level; building info panel button).
+  | { type: "queueForge"; tileX: number; tileY: number; slot: EquipSlot }
+  // Village life phase 3: train one soldier at a unit building (a free villager + tier gear, ~1 day).
+  | { type: "trainUnit"; tileX: number; tileY: number; count?: number | "max"; cancel?: boolean }
+  // Village life phase 5: a dead hero's player picks the colonist `id` (snapshot heirs) to carry on as the hero.
+  | { type: "chooseHeir"; id: string }
+  // Village life phase 4: call the Town Center's adult civilians to arms as militia for half a day (dismiss: stand
+  // them down early).
+  | { type: "callVillagers"; tileX: number; tileY: number; dismiss?: boolean }
+  // Forge autocraft (2026-10-30, additive): turns the Blacksmith's autocraft on / off and optionally sets its
+  // stock target (items of each slot at its tier, 1..FORGE_AUTO_TARGET_MAX); saved per Blacksmith.
+  | { type: "setForgeAuto"; tileX: number; tileY: number; on: boolean; target?: number }
+  // Hero phases 1-2 (additive): equip an inventory item into a slot (swaps any occupant back), unequip a
+  // slot, or pull one plain tiered piece (armour -> chest item, weapon -> weapon item) out of the colony stock.
+  // Hero phase 3: heroId (optional, default = the player) targets that hero's equipment; items still come
+  // from / return to the player's pack.
+  | { type: "setHeroAppearance"; appearance: HeroAppearance }
+  | { type: "equipItem"; itemId: string; slot: GearSlot; heroId?: string }
+  | { type: "unequipItem"; slot: GearSlot; heroId?: string }
+  | { type: "takeFromArmoury"; slot: EquipSlot; tier: number; heroId?: string; weaponKind?: typeof HERO_WEAPON_KINDS[number] }
+  // Hero phase 3: recruit a hero of `class` at the Keep at (tx, ty) (Keep panel buttons).
+  | { type: "recruitHero"; tx: number; ty: number; class: HeroClass }
+  // Hero phase 4: spells. slot 0-3; heroId (optional) = that hero's book instead of the player's.
+  | { type: "setSpellSlot"; slot: number; spellId: SpellId | null; heroId?: string }
+  // Reads a Spell Tome from the player's pack (taught to the player, or to heroId) and consumes it.
+  | { type: "useTome"; itemId: string; heroId?: string }
+  // Buys a basic spell at the Church at (tileX, tileY) for the player (gold from the colony stock).
+  | { type: "learnSpell"; spellId: SpellId; tileX: number; tileY: number }
+  // Casts the spell in a slot: targetId (a mob, colonist or player id) for enemy / ally spells, x / y (px)
+  // for ground spells. heroId: the hero casts it.
+  | { type: "castSpell"; slot: number; targetId?: string; x?: number; y?: number; heroId?: string }
+  | { type: "setSpellAuto"; heroId: string; auto: boolean }
+  // Strategy mode phase 1 (additive): the free camera's view in tiles (x / y = centre, halfW / halfH = half
+  // extents; the server clamps them). While strategy is true, big-world snapshots also carry the mobs and
+  // wildlife inside that view, not only those near the rider. strategy: false drops it.
+  | { type: "setView"; x: number; y: number; halfW: number; halfH: number; strategy: boolean }
+  // Delta snapshots (`?delta=1` connections, shared/src/snapshotDelta.ts): the client missed a snapshot (sequence
+  // gap); the next snapshot is a keyframe.
+  | { type: "resync" }
+  // Save files (server/saves/<slot>.json). saveGame takes slot1-3 (the autosave is the server's own);
+  // loadGame replaces the shared world for everyone connected.
+  | { type: "saveGame"; slot: SaveSlot }
+  | { type: "loadGame"; slot: SaveSlot }
+  | { type: "listSaves" }
+  // World streaming phase 4: chunk ids (cy * chunksX + cx, STREAM_CHUNK_TILES) a chunked client still needs.
+  | { type: "requestChunks"; chunks: number[] }
+  // Loading screen: abort the world generation in progress (only while its loadProgress says `cancellable`).
+  | { type: "cancelLoad" }
+  // World streaming phase 5: the player has read the chronicle up to this entry id.
+  | { type: "chronicleSeen"; id: number }
+  // Progression tree: craft one hand recipe (PROGRESSION.recipes, station "hand") from the stock.
+  | { type: "craftItem"; recipe: string }
+  // Progression tree phase 3: send a prospector to survey around the nearest Town Center.
+  | { type: "prospect" }
+  // Solo hero phase 1-3 (herolife): E next to an NPC talks, next to a tree / rock / ore / forage / water gathers
+  // (held: gatherStop on release), next to an own recipe station works it; dialogue choices by index; hero actions.
+  // Stardew phase 5a: `tool` / `tx` / `ty` / `crop`: the hotbar tool in hand and the faced tile (the tool is used there
+  // when no NPC is in range); heroTool uses it without talking (Space / left click).
+  | { type: "interact"; tool?: HeroTool; tx?: number; ty?: number; crop?: CropId }
+  | { type: "heroTool"; tool: HeroTool; tx: number; ty: number; crop?: CropId }
+  | { type: "gatherStop" }
+  | { type: "dialogueChoice"; choice: number }
+  | { type: "heroAction"; action: HeroActionKind; build?: PersonalBuild }
+  // Stardew phase 5c: leave the interior (Esc near the exit mat; walking onto the mat leaves by itself).
+  | { type: "interiorExit" };
+
+export type ServerMessage =
+  | {
+      type: "welcome";
+      id: string;
+      tileSize: number;
+      worldTilesX: number;
+      worldTilesY: number;
+      // World streaming phase 4: empty when `chunked` is set (the client asks for chunks instead).
+      tiles: number[];
+      biomes: number[];
+      // Explored-tile bitset, base64: bit (i & 7) of byte (i >> 3) is tile index i (y * worldTilesX + x).
+      // Empty when `chunked` is set (see exploredRuns).
+      explored: string;
+      // World streaming phase 4 (a `?chunks=1` client on a streamed world): tiles / biomes come as
+      // `chunks` replies to `requestChunks`; exploredRuns = encodeMaskRuns of the explored mask; minimap =
+      // encodeByteRuns of one MinimapClass per minimapFactor x minimapFactor cell (shared/streaming.ts).
+      chunked?: { chunkTiles: number; minimapFactor: number; minimap: string; exploredRuns: string };
+      difficulty: Difficulty;
+      // Centre tile of this world's Castle Ruin (null if world-gen couldn't fit one, or an old save).
+      // The minimap marks it once that tile is explored.
+      castleRuin?: { x: number; y: number } | null;
+      // Creative mode world (omitted: a normal game).
+      creative?: boolean;
+    }
+  | {
+      type: "snapshot";
+      players: PlayerSnapshot[];
+      colonists: ColonistSnapshot[];
+      mobs: MobSnapshot[];
+      wood: number;
+      iron: number;
+      rock: number;
+      grain: number;
+      meat: number;
+      fruit: number;
+      wool: number;
+      cotton: number;
+      clothes: number;
+      tools: number;
+      luxuryItems: number;
+      gold: number;
+      alcohol: number;
+      happiness: number;
+      marketBuilt: boolean;
+      goldShopBuilt: boolean;
+      isNight: boolean;
+      // 0-1 through the full day+night cycle; 0 = dawn, night starts at dayFraction.
+      cycleProgress: number;
+      dayFraction: number;
+      isPaused: boolean;
+      // Strategy mode phase 5: the player id who last paused / resumed, the sim speed (TIME_SCALES; omitted
+      // by older servers = 1) and who set it. Below 1x the server steps the sim (and sends snapshots) only
+      // every 2nd / 4th tick; at 2x it steps twice per tick.
+      pausedBy?: string;
+      timeScale?: number;
+      timeScaleBy?: string;
+      // Strategy mode phase 5: enemy regiment summaries in live vision (strategy-mode players only; sent
+      // every ENEMY_REGIMENT_REFRESH_TICKS, omitted in between: keep the last one).
+      enemyRegiments?: EnemyRegimentSnapshot[];
+      effects: AttackEffect[];
+      townCenterHp: number;
+      townCenterMaxHp: number;
+      population: number;
+      populationCap: number;
+      // Village life: free villagers, children, trainees and open posts (omitted by older servers).
+      people?: PeopleSnapshot;
+      // Progression tree (omitted by older servers: everything unlocked).
+      progression?: ProgressionSnapshot;
+      taskForces: Record<string, string[]>;
+      // Strategy mode phase 2: every player regiment; sent when membership / names change and every 10th
+      // tick otherwise (omitted in between and by older servers: keep the last one).
+      armyRegiments?: ArmyRegimentSnapshot[];
+      // Strategy mode phase 3: every order group; sent when one changes and every 10th tick otherwise
+      // (omitted in between: keep the last one).
+      orderGroups?: ArmyOrderGroupSnapshot[];
+      // Tile indices (y * worldTilesX + x) of Farm Plots whose crop is mature and being harvested.
+      readyFarmPlots: number[];
+      // Farm Plots freshly sown (bare soil) and resting fallow; any other plot is growing.
+      sownFarmPlots: number[];
+      fallowFarmPlots: number[];
+      wildlife: number[];
+      gravestones: GravestoneSnapshot[];
+      difficulty: Difficulty;
+      buildingLevels: number[];
+      farmStages: number[];
+      constructionSites: number[];
+      townCenters: TownCenterSnapshot[];
+      // See DAMAGED_BUILDING_SNAPSHOT_STRIDE.
+      damagedBuildings: number[];
+      // The shared goal track's current goal (Phase 5).
+      goal?: GoalSnapshot;
+      // See GATE_SNAPSHOT_STRIDE (omitted by older servers).
+      gates?: number[];
+      // Dawn/dusk respawn windows (long days): see RespawnWindowSnapshot.
+      respawn?: RespawnWindowSnapshot;
+      // Creative mode only: the world's creative toggles.
+      creative?: { allowAttack: boolean; unlockAll?: boolean };
+      // Stardew phase 5b: the date and the weather now (shared/src/calendar.ts).
+      calendar?: CalendarSnapshot;
+      // Off-screen fight notifiers: active fights relevant to THIS player (per-player field, omitted
+      // when there are none). See FightSnapshot.
+      fights?: FightSnapshot[];
+      // Camp hearths: standing (not destroyed) hearths, see HEARTH_SNAPSHOT_STRIDE (omitted by older servers).
+      hearths?: number[];
+      // Armour & weapons: the colony's equipment stock by tier (omitted by older servers).
+      equipment?: EquipmentStock;
+      // Tile indices of Blacksmiths forging right now (queue not empty, smith at work); omitted by older servers.
+      forgeBusy?: number[];
+      // Forts phase A: NPC-owned tiles, see SITE_TILE_SNAPSHOT_STRIDE (per player, only when changed;
+      // a full replacement of the previous list).
+      siteTiles?: number[];
+      // Forts phase B: explored forts (sent with siteTiles; a full replacement).
+      sites?: SiteSnapshot[];
+      // Forts phase D: this player's clan's relation to each standing human settlement (per player, only
+      // when it changed; a full replacement).
+      relations?: SiteRelationSnapshot[];
+      // Forts phase D2: this player's clan's open settlement quests (per player; a full replacement).
+      quests?: QuestSnapshot[];
+      // Modular building phase 3: the clan's zones, crop stages and loose goods (resent when they change).
+      zones?: ZonesSnapshot;
+      // Stardew phase 5d: animals outdoors and the clan's animal-house need flags (per player; omitted with none).
+      livestock?: LivestockSnapshot;
+      // Clans (only while there are 2+): this player's clan id, every clan, and the clan of every player
+      // building (CLAN_TILE_SNAPSHOT_STRIDE; per player, only when changed). The economy / army / population
+      // / goal fields of this snapshot are the receiving player's clan's.
+      clanId?: number;
+      clans?: ClanSnapshot[];
+      clanTiles?: number[];
+      // Hero phases 1-2: this player's gear / inventory / XP (per-player field, only when it changed).
+      profile?: HeroProfileSnapshot;
+      // Hero phase 3: the colony's heroes (sheet tabs); appended per player only when it changed.
+      heroes?: HeroSheetSnapshot[];
+      // Solo hero: this player's pack, needs, skills and current action (per player, only when it changed).
+      life?: HeroLifeSnapshot;
+      // Delta snapshots (`?delta=1` connections only): see shared/src/snapshotDelta.ts. Such a snapshot leaves out
+      // colonists / mobs and its unchanged sections; applySnapshotDelta fills them back in before anything reads it.
+      ud?: import("./snapshotDelta.js").UnitDelta;
+    }
+  | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
+  // One-off notification for the event feed (not continuous state).
+  | { type: "event"; category: GameEventCategory; text: string }
+  // World streaming phase 4: requested chunks, each its tiles / biomes (base64, row by row, the chunk's own
+  // width: edge chunks are narrower).
+  | { type: "chunks"; chunks: { c: number; tiles: string; biomes: string }[] }
+  // Loading screen (shared/src/streaming.ts LOAD_STAGES): the server's world-generation / load progress, to every
+  // socket. pct is the server's own work (0-100, never goes back within one job); "starting" at 100 comes right
+  // before the welcome; "cancelled" means the job was aborted (a small stand-in world's welcome follows).
+  | { type: "loadProgress"; stage: LoadStageId | "cancelled"; pct: number; size: number; kind: "new" | "load"; cancellable?: boolean }
+  // World streaming phase 5: chronicle entries. full: the whole list (after each welcome; replaces the old
+  // one) with since = the last id this profile read; else new entries to append.
+  | { type: "chronicle"; entries: ChronicleEntry[]; since?: number; full?: boolean }
+  // Tile indices newly explored since the last one (batched a few times a second, never empty).
+  | { type: "explored"; tiles: number[] }
+  | { type: "buildingInfo"; tileX: number; tileY: number; info: BuildingInfo | null }
+  // Reply to listSaves (also served as JSON by GET /saves on the same port, for the main menu).
+  | { type: "saveList"; saves: SaveInfo[] }
+  // Reply to saveGame / loadGame, to the requesting client only (`action` says which).
+  // Creative mode: the answer to a creativeSpawn / creativeSet (text is toasted; ids = spawned unit ids).
+  | { type: "creativeResult"; op: string; ok: boolean; text: string; [key: string]: unknown }
+  // The building templates (answer to blueprintList), built-ins flagged.
+  | { type: "blueprintList"; templates: import("./buildingTemplates.js").BuildingTemplate[] }
+  | { type: "saveResult"; ok: boolean; error?: string; slot: SaveSlot; action: "save" | "load" }
+  // Solo hero: a conversation node (close: the conversation ended; openTrade: open that settlement's trade panel).
+  | { type: "dialogue"; dialogue?: DialogueSnapshot; close?: boolean; openTrade?: { tileX: number; tileY: number } }
+  // Solo hero: E found nothing to talk to / gather / work (the client falls back to the building panel).
+  | { type: "interactNone" }
+  // Stardew phase 5c: the interior the hero is in (view; refreshed when its NPCs / chest / threat change), or null
+  // when the hero is back in the world.
+  | { type: "interior"; view: InteriorView | null }
+  // Gap closure G5: the interior's NPCs moving (positions / facing / pose / greeting bubble), `storey` 0 / 1.
+  | { type: "interiorNpcs"; key: string; storey: number; npcs: import("./interiors.js").InteriorNpcLive[] }
+  // Modular building phase 4: the Work tab table (reply to workTab / workSet / workMode).
+  | { type: "workTab"; tab: WorkTabSnapshot }
+  // Gap closure G3: the posts a person could be assigned to (reply to workPosts).
+  | { type: "workPosts"; id: string; posts: WorkPostOption[] };
+
+export interface PlayerSnapshot {
+  visual?: HeroVisual;
+  id: string;
+  x: number;
+  y: number;
+  color: number;
+  hp: number;
+  maxHp: number;
+  // Killed with no Town Center standing to respawn at (game over unless one is rebuilt).
+  dead: boolean;
+  // Clans: the player's clan (omitted = 0).
+  clan?: number;
+  // Village life phase 5: set while dead and choosing an heir (adult villagers / companions of the clan); a dead
+  // player without it is game over.
+  heirs?: HeirCandidateSnapshot[];
+  // Stardew phase 5c: inside a building interior (key = its anchor "x,y"; x / y = interior px). The world x / y stay
+  // at the door; the world view hides the rider.
+  inside?: { key: string; x: number; y: number };
+  // Gap closure G6: riding a horse (livestock draws the horse under the rider; X dismounts).
+  mounted?: boolean;
+}
+
+// Village life phase 5: one adult who can take over as the hero.
+export interface HeirCandidateSnapshot {
+  id: string;
+  name: string;
+  kind: string;
+  ageDays?: number;
+  heroLevel?: number;
+}
+
+// "creative": creative-mode games save (auto and manual) only here, never over a normal game's slots.
+export type SaveSlot = "autosave" | "slot1" | "slot2" | "slot3" | "creative";
+export const SAVE_SLOTS: SaveSlot[] = ["autosave", "slot1", "slot2", "slot3", "creative"];
+
+// One existing save file's metadata. dayIndex is 0-based (day 1 = 0).
+export interface SaveInfo {
+  slot: SaveSlot;
+  label: string;
+  savedAt: string;
+  dayIndex: number;
+  population: number;
+  difficulty: Difficulty;
+  // A creative-mode save (the "creative" slot).
+  creative?: boolean;
+}
+
+// ---- Long days & dawn/dusk respawns (2026-10-23) ----
+// Snapshot `respawn`: dead units (respawnQueue + a fallen Ward Priest) come back together only at the
+// two respawn windows, dawn (cycle tick 0) and dusk (the last daylight tick). `ticksToWindow` counts
+// to `nextWindow` (TICK_RATE ticks a second); dayTicks / nightTicks are the server's cycle lengths.
+export interface RespawnWindowSnapshot {
+  waiting: number;
+  nextWindow: "dawn" | "dusk";
+  ticksToWindow: number;
+  dayTicks: number;
+  nightTicks: number;
+}
+
+// ---- Off-screen fight notifiers (ROADMAP "Off-screen fight notifiers — landed 2026-10-23") ----
+// The server clusters recent blows (mob vs soldier / colonist / player / building) into fights; each
+// snapshot lists, per player, the ones involving the colony or that player, or within
+// FIGHT_RELEVANCE_TILES of them (at most FIGHT_MAX_PER_PLAYER, most urgent first). A fight drops out
+// FIGHT_WINDOW_SECONDS after its last blow. The client draws an edge-of-screen arrow per off-screen fight.
+export const FIGHT_WINDOW_SECONDS = 3;
+export const FIGHT_CLUSTER_TILES = 8;
+export const FIGHT_RELEVANCE_TILES = 48;
+export const FIGHT_MAX_PER_PLAYER = 8;
+// "raid": night-wave raiders; "guardians": ruin / encampment guardians; "boss": the Castle Ruin, its
+// Warlord, a mini-boss pack; "deserters": turned deserters; "monsters": anything else (Half-Latch).
+export type FightKind = "raid" | "guardians" | "boss" | "deserters" | "monsters";
+export interface FightSnapshot {
+  // Stable while the fight lasts (a cluster that drifts keeps its id).
+  id: number;
+  // Centre tile of the fight.
+  x: number;
+  y: number;
+  // Distinct mobs and defenders seen trading blows in the window.
+  combatants: number;
+  // Damage dealt per second (both sides) over the window.
+  dps: number;
+  // 1 skirmish, 2 battle, 3 major battle.
+  intensity: 1 | 2 | 3;
+  kind: FightKind;
+  // Who the attackers are, e.g. "Bandit raid", "Ruin guardians", "Castle Ruin", "Ogre Warlord".
+  label: string;
+  // The colony's units / buildings (Town Centers included) are in it; `you`: this player is.
+  units: boolean;
+  buildings: boolean;
+  you: boolean;
+  // Seconds since the last blow (0 .. FIGHT_WINDOW_SECONDS).
+  quiet: number;
+}
+
+// Cosmetic choices persist with the existing hero profile; gear remains authoritative.
+export const HERO_LOOKS = ["wanderer", "ranger", "vanguard", "mystic", "wayfarer", "elder"] as const;
+export type HeroLook = typeof HERO_LOOKS[number];
+export const HORSE_COATS = ["bay", "chestnut", "black", "grey", "palomino"] as const;
+export type HorseCoat = typeof HORSE_COATS[number];
+export interface HeroAppearance { look: HeroLook; horse: HorseCoat }
+export const DEFAULT_HERO_APPEARANCE: HeroAppearance = { look: "wanderer", horse: "bay" };
+export function sanitizeHeroAppearance(raw: unknown): HeroAppearance {
+  const a = raw && typeof raw === "object" ? raw as Partial<HeroAppearance> : {};
+  return { look: HERO_LOOKS.includes(a.look as HeroLook) ? a.look! : "wanderer", horse: HORSE_COATS.includes(a.horse as HorseCoat) ? a.horse! : "bay" };
+}
+export interface HeroVisual {
+  appearance: HeroAppearance;
+  armour: number;
+  weapon: string;
+  weaponTier: number;
+  helmet: boolean;
+  shield: boolean;
+}
+export function heroVisualFromEquipment(equipment: Equipment, appearance?: HeroAppearance): HeroVisual {
+  const tier = (item: GearItem | null) => item?.tier === "relic" ? 3 : item?.tier ?? 0;
+  return { appearance: sanitizeHeroAppearance(appearance), armour: tier(equipment.chest), weapon: equipment.weapon?.kind ?? "unarmed", weaponTier: tier(equipment.weapon), helmet: !!equipment.head, shield: !!equipment.offhand };
+}
+export const HERO_WEAPON_KINDS = ["sword", "spear", "club", "bow", "staff"] as const;

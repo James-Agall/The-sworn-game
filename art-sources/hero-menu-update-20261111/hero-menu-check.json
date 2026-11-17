@@ -1,0 +1,56 @@
+{
+  "gamePort": 37501,
+  "webPort": 38317,
+  "save": "/tmp/colony-art-preview-KBVfzb",
+  "errors": [],
+  "failedImages": [],
+  "checks": [
+    {
+      "ok": true,
+      "label": "Character and horse UI update authoritative profile"
+    },
+    {
+      "ok": true,
+      "label": "Invalid appearance rejected"
+    },
+    {
+      "ok": true,
+      "label": "All armour tiers and five weapon kinds equip and reach world snapshots"
+    },
+    {
+      "ok": true,
+      "label": "Character menu fits 900px viewport"
+    },
+    {
+      "ok": true,
+      "label": "Existing livestock system supplies an adult horse"
+    },
+    {
+      "ok": true,
+      "label": "Real horse mounting activates mounted hero"
+    },
+    {
+      "ok": true,
+      "label": "Dismount restores on-foot hero"
+    },
+    {
+      "ok": true,
+      "label": "Save/load restores hero appearance, horse coat and equipment"
+    },
+    {
+      "ok": true,
+      "label": "Second player receives selected appearance and equipped armour"
+    },
+    {
+      "ok": true,
+      "label": "Equipped bow damages a target four tiles away"
+    },
+    {
+      "ok": true,
+      "label": "Intact wall blocks a bow shot"
+    }
+  ],
+  "gameReady": true,
+  "visibleCanvas": 7,
+  "spriteResponsesFailed": 0
+}

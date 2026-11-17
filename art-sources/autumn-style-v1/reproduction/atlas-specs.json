@@ -1,0 +1,466 @@
+[
+  {
+    "name": "workers-a-transparent",
+    "cols": 8,
+    "rows": 3,
+    "rowNames": [
+      "farmer",
+      "farmhand",
+      "lumberjack"
+    ],
+    "actions": [
+      "walk1",
+      "walk2",
+      "walk3",
+      "walk4",
+      "work1",
+      "work2",
+      "work3",
+      "idle"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "workers-b",
+    "cols": 10,
+    "rows": 3,
+    "rowNames": [
+      "iron-miner",
+      "rock-miner",
+      "builder"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "workers-c",
+    "cols": 10,
+    "rows": 3,
+    "rowNames": [
+      "hunter",
+      "forager",
+      "artisan"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "village-life",
+    "cols": 10,
+    "rows": 5,
+    "rowNames": [
+      "adult-man",
+      "adult-woman",
+      "child",
+      "elder",
+      "captive"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "specialists-npcs",
+    "cols": 10,
+    "rows": 5,
+    "rowNames": [
+      "priest",
+      "healer",
+      "herald",
+      "trader",
+      "barkeeper"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "infantry-v2",
+    "cols": 10,
+    "rows": 4,
+    "rowNames": [
+      "militia",
+      "archer",
+      "spearman",
+      "pikeman"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "heavy-soldiers-v4",
+    "cols": 10,
+    "rows": 4,
+    "rowNames": [
+      "knight-t1",
+      "knight-t2",
+      "knight-t3",
+      "heavy-clubman"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "mounted-units-v2",
+    "cols": 10,
+    "rows": 4,
+    "rowNames": [
+      "cavalry-t1",
+      "cavalry-t2",
+      "cavalry-t3",
+      "mounted-player"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "heroes",
+    "cols": 10,
+    "rows": 4,
+    "rowNames": [
+      "base",
+      "champion",
+      "marksman",
+      "mage"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "bandits",
+    "cols": 10,
+    "rows": 3,
+    "rowNames": [
+      "clubman",
+      "archer",
+      "elite"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "spear-pike-tiers",
+    "cols": 10,
+    "rows": 6,
+    "rowNames": [
+      "spear-t1",
+      "spear-t2",
+      "spear-t3",
+      "pike-t1",
+      "pike-t2",
+      "pike-t3"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "equipment-relic-icons",
+    "cols": 12,
+    "rows": 4,
+    "rowNames": [
+      "tier1",
+      "tier2",
+      "tier3",
+      "relic"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "shared-hit-effects",
+    "cols": 8,
+    "rows": 4,
+    "rowNames": [
+      "crimson-hit",
+      "persistent-wounds",
+      "stone-wood-impact",
+      "gold-teal-sparks"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "small-monsters",
+    "cols": 10,
+    "rows": 6,
+    "rowNames": [
+      "goblin",
+      "crossbow-goblin",
+      "skeleton",
+      "spider",
+      "shaman",
+      "half-latch"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "large-monsters",
+    "cols": 10,
+    "rows": 5,
+    "rowNames": [
+      "orc",
+      "armoured-orc",
+      "troll",
+      "ogre",
+      "warlord"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "wildlife-v2",
+    "cols": 10,
+    "rows": 6,
+    "rowNames": [
+      "deer",
+      "rabbit",
+      "boar",
+      "pheasant",
+      "wolf",
+      "goblin-rider"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "livestock",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "hen",
+      "rooster-chick",
+      "cow",
+      "pig",
+      "woolly-sheep",
+      "shorn-sheep",
+      "horse",
+      "dog-cat"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "young-animals-transport",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "calf",
+      "piglet",
+      "lamb",
+      "foal",
+      "ram",
+      "catapult"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "wagons-riders",
+    "cols": 8,
+    "rows": 5,
+    "rowNames": [
+      "wagon-t1",
+      "wagon-t2",
+      "wagon-t3",
+      "cart",
+      "veteran-rider"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "civic-buildings",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "cottage",
+      "townhall",
+      "tavern",
+      "church",
+      "market",
+      "hospital"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "production-buildings",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "lumber",
+      "mine",
+      "smith",
+      "bakery-mill",
+      "tailor",
+      "brewery"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "military-animal-buildings",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "barracks",
+      "range-tower",
+      "castle",
+      "stable",
+      "barn-coop",
+      "sty-pen"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "furniture-stations",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "beds-seating",
+      "storage",
+      "hearth-light-altar",
+      "workstations",
+      "supplies",
+      "stairs-signs"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "camps-nature",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "camp",
+      "ruins",
+      "seasonal-trees",
+      "plants",
+      "rock-ore",
+      "ground-plants"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "crops",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "wheat",
+      "flax",
+      "vegetables",
+      "berries",
+      "roots",
+      "farm-props"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "walls-doors",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "wood-masks-0-7",
+      "wood-masks-8-15",
+      "stone-masks-0-7",
+      "stone-masks-8-15",
+      "palisade-masks-0-7",
+      "palisade-masks-8-15",
+      "reinforced-masks-0-7",
+      "reinforced-masks-8-15"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "floors-roofs-terrain",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "ground",
+      "biomes-water",
+      "wood-stone",
+      "cobble-rugs",
+      "thatch-shingle",
+      "clay-slate",
+      "roads",
+      "moat-bridge"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "square-terrain",
+    "cols": 8,
+    "rows": 4,
+    "rowNames": [
+      "grass-earth",
+      "biomes-water",
+      "wood-stone",
+      "cobble-rugs"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "interiors-weather-ui",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "backwalls",
+      "alternate-frontwalls",
+      "castle-stairs",
+      "rain-snow",
+      "fog-lightning",
+      "weather-icons",
+      "hud-rooms",
+      "work-icons"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "resources-tools",
+    "cols": 10,
+    "rows": 6,
+    "rowNames": [
+      "materials",
+      "food",
+      "supplies",
+      "tools",
+      "loads-seeds",
+      "needs-priorities"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "human-tasks",
+    "cols": 10,
+    "rows": 6,
+    "rowNames": [
+      "sow",
+      "water",
+      "harvest",
+      "cook",
+      "haul",
+      "repair"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "equipment-overlays",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "set1",
+      "set2",
+      "set3",
+      "set4",
+      "set5",
+      "set6"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "magic-world-effects",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "heal-poison",
+      "fire-smoke",
+      "build-upgrade",
+      "ward",
+      "slash-impact",
+      "ripple-dust"
+    ],
+    "status": "source-candidate"
+  },
+  {
+    "name": "openings-fences-damage-xy",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "wood-openings",
+      "stone-openings",
+      "gates",
+      "fences",
+      "wood-stone-damage",
+      "palisade-reinforced-damage"
+    ],
+    "status": "source-candidate"
+  }
+]

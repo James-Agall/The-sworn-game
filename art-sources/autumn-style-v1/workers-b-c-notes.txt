@@ -1,0 +1,15 @@
+Workers B/C — 2026-11-11. Generated using built-in image generation.
+Both: intended ten columns, three rows; walk4, action3, idle1, carry1, hurt1.
+B rows: iron miner, rock miner, builder.
+C rows: hunter, forager, artisan.
+Canonical references: hunter #02 and approved autumn cross-category sheet.
+Prompt: match palette, chunky pixel density, adult body proportions, camera,
+lighting and fixed baselines; separate cells on transparent background;
+profession actions and crimson torso splash on hurt pose.
+Transparency checked from PNG alpha samples, not preview appearance.
+Correction to previous Workers A notes: preview backdrop was misleading;
+latest Workers A PNG has genuine transparent background pixels.
+These are source atlases, not normalized runtime frames. No seamless-loop,
+exact grid, body-size or integration guarantee. Use measured crop rectangles
+rather than assuming perfectly equal cells; generated spacing may vary.
+Keep current live sprites until extraction/integration. No game files replaced.

@@ -1,0 +1,12 @@
+2026-11-11. Built-in image generation; hunter02 and approved world sheet references.
+Infantry rows: militia, archer, spearman, pikeman.
+Heavy rows: knight T1, knight T2, knight T3, shock knight.
+Both intended 10x4: walk4, attack3, idle1, defence1, crimson hurt1.
+Prompt: consistent chunky autumn palette, angular shading, stable proportions,
+identity/equipment continuity, fixed baseline, transparent padded cells.
+Alpha sampled successfully. Not extracted or runtime-integrated.
+Known limitations: walk duplicates, some long-weapon clearance tight; atlas
+bounding boxes must be measured. Knight T1/T2 differentiation subtle. Three
+attack poses do not directly satisfy current base knight4/archer6 frame counts.
+Tiered spear/pike/cavalry remain separate outstanding sets. Generated hurt marks
+supplement, not replace, the planned universal runtime crimson hit overlay.

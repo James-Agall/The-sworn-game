@@ -1,0 +1,144 @@
+THE SWORN GAME — APPROVED AUTUMN STYLE / PRODUCTION PLAN
+2026-11-10
+
+PROJECTION LOCK — USER CORRECTION 2026-11-11
+X screen-horizontal, Y screen-vertical. Zero yaw. No isometric/diamond world
+pieces or rotated three-quarter footprints. All building/furniture footprints,
+wall runs, roofs and terrain align with these axes. Upright front elevations
+stand above flat top planes. See grid-projection-contract.txt. Earlier angled
+studies are color/material references only, never geometry references.
+
+STYLE LOCK
+Canonical character: hunter variation 02 (autumn tracker).
+Canonical cross-category reference: autumn-style-characters-and-world.png.
+Warm rust, ochre, olive, cream, leather brown and slate; dark colored outlines;
+angular chunky pixel clusters; 3–4 deliberate shades per material; upper-left
+light. Artistic, moderately detailed, neither realistic nor exaggerated chibi.
+Use these SAME references on every generation, never successive generations
+alone: that accumulates style drift. The earlier realism study is rejected.
+
+SIZE CONTRACT
+Game tile remains 32 world pixels. Current modular source art uses 64 source
+pixels per tile; retain that 2:1 source/world ratio for the replacement set.
+Humans target 56 source pixels / 28 world pixels from feet to head, with a
+shared 96x96 source frame canvas for weapon padding. Size from the BODY rather
+than the entire image bounds. Fixed foot pivot (48,88), no per-frame fitting.
+Buildings follow existing footprints: a 2-tile asset spans 128 source pixels.
+Tall roofs may overhang visually without changing collision. Mounted units,
+large monsters and siege keep their existing relative world sizes; size them
+from a per-kind manifest, never independently fit each animation frame.
+Generated source sheets are candidates: exact grid and pivots must be checked
+and normalized before these dimensions can be claimed as delivered.
+
+ANIMATION CONTRACT
+Keep current action names, frame counts and timing during first replacement;
+do not silently change gameplay or the animation registry. Walk: contact,
+passing, opposite contact, opposite passing. Attack: anticipation, impact,
+recovery (archer currently has six frames; hunter has three). Carry frames
+must retain the same body/feet. Idle, seated, sleep and hurt keep identity.
+First hunter source has four action/carry frames for evaluation; map to the
+existing three-action/two-carry contract explicitly during integration.
+Existing one-facing sprites may mirror as the current renderer does. Full
+four-direction sets are separately queued; never label one-facing art as 4-dir.
+No animation is production-approved until a loop preview passes: no head-size
+drift, swapped equipment, foot sliding, clipping, baseline jumps or color drift.
+
+HURT / DAMAGE
+Every human and monster, including players, heroes, villagers, settlement NPCs,
+bandits, goblins, undead, wisps and bosses: brief crimson splash across body on
+actual HP loss. A shared 4-frame effect, scaled/masked to the body, avoids a
+duplicate injured version of EVERY movement/action frame. Palette: deep crimson
+#731F35, main crimson #B52D46, bright accent #E34B58. Stylized, no gore.
+Supplement with persistent light/medium/heavy wound overlays while injured;
+clear on healing/death/hiding; preserve faction colors and status effects.
+Current code has threshold wounds (<66%, <40%, <20%) for colonists/mobs;
+the inspected player renderer does not call that helper. Universal hit-triggered
+feedback requires code work and validation; it is NOT implemented by these sheets.
+Buildings/pieces: intact, lightly damaged, heavily damaged, destroyed/breached.
+Cracked stone, split timber, missing thatch/tiles, broken windows and bent metal;
+preserve joins, footprint and door orientation. Use existing HP where available;
+decorative pieces without HP need explicit behavior decisions before damage wiring.
+Roof cutaway/ghost alpha is applied in code, not duplicated painted assets.
+
+GROUPED SHEET PLAN (families; split into numbered pages when needed)
+01 Workers: farmer, farmhand, lumberjack, iron miner, rock miner, hunter, forager,
+   builder, artisan. Walk, profession action, carry, idle; static fallback.
+02 Villagers/life: adult looks, children where represented, captive/prisoner;
+   sow, water, harvest, haul, hammer, chop, mine, cook, eat, sit, sleep; directions.
+03 Military: knight, archer, militia, spearman, pikeman, shock knight; base and
+   existing armour tiers 1–3; walk, attack, idle, battered/death where supported.
+04 Heroes/religion/NPC: hero classes/equipment overlays, bishop/ward priest,
+   healer, herald/reeve, elder, trader, guards, town archer/knight/farmer/miner/priest,
+   baker, smith, barkeep/patrons; indoor seated/sleep and profession poses.
+05 Mounted: player mounted knight, cavalry base/T1–T3, charge, mounted hero,
+   goblin wolf rider; walk, attack, charge and existing death frames.
+06 Bandits: clubman, archer, elite; existing tier/look variants, walk/attack/idle.
+07 Monsters small: goblin, crossbow goblin, wolf, skeleton, giant spider,
+   dark shaman, half-latch variants; walk/attack/idle/death where registered.
+08 Monsters large: orc, armored orc, troll, ogre/Ogre Warlord; full existing cycles.
+09 Siege/transport: friendly/enemy ram and catapult; move/load/fire/attack/wreck;
+   wagons by tier, horse cart, cargo and destroyed states.
+10 Wildlife: every existing deer/rabbit/boar/bird/predator asset in manifest;
+   movement, grazing, flight, fallen and wounded variants where present.
+11 Domestic animals: hen, rooster, chick, cow, calf, pig, piglet, sheep woolly/
+   shorn, lamb, horse, foal, dog, cat; idle2, walk4 per direction, eat2, sleep1.
+12 Walls: wood, palisade, stone, reinforced; 16 connection masks per material
+   per damage state. Keep light/heavy/rubble aligned to intact mask topology.
+13 Openings: wood/iron-bound doors, shutters/glass windows, gates; horizontal/
+   vertical; open/closed/broken and appropriate damage states; yard fences.
+14 Ground: all grass/dirt/hill/swamp/sand/snow/marsh/lava/void tiles, roads,
+   cobble, water/moat/ford connections, drawbridges and existing water loops.
+15 Roof/floor: thatch/shingle/clay/slate plain/ridge/eave/corner, damage states;
+   dirt/wood/flagstone/cobble/red-blue rug variants, gate passage floor.
+16 Furniture: single/double bed/pallet, small/long table, chair/stool/bench,
+   chest/shelf/wardrobe, hearth/lamp lit-unlit, rug/banner/statue/trophy,
+   workbench, cooking pot, barrels/sacks, weapon rack, armour stand, altar,
+   well, medicine chest, throne/dais; two-tile orientations and damage states.
+17 Stations: forge/anvil, oven, millstone, loom, brew vat, counter/kegs,
+   jeweller bench, research/library/medicine props already represented.
+18 Homes/civic: cottage tiers, town center/hall/keep, tavern, market/bazaar,
+   trading post tiers, church/abbey, library/hospital where present; 4 states.
+19 Production prefabs: all lumberjack/mining/quarry/farming/barn/orchard,
+   blacksmith/tailor/jeweller/brewery/builders guild/hunter/forager tiers,
+   every other existing production building; 4 states. Keep legacy prefabs.
+20 Military prefabs: barracks/militia camps/archery range/towers/castles,
+   stables/siege workshop and tier variants; intact/light/heavy/rubble.
+21 Animal buildings: coop, cow barn, sty, sheep pen, stable; empty/occupied,
+   door open/closed, damage states. Reuse modular pieces when applicable.
+22 Camps/settlements: tents, palisades, stockades, watch posts, carts/crates,
+   cages, banners, campfire, stalls, signpost/notice board, lanterns, wells;
+   reuse these pieces across 28 camps, 55 blueprints and 15 settlements.
+23 Nature: trees/bushes/grass/flowers, rock/ore, seasonal variants, stumps,
+   ruins/arches/bridges/statues/rubble/graves and other existing decorations.
+24 Crops: wheat, flax/hemp, vegetables, berries, root; five growth stages plus
+   withered, seasonal variants; dry/watered/frost soil, scarecrow/sprinkler.
+25 Interiors: house/tavern/shop/church/barracks/smithy/bakery/barn/castle floors,
+   back/side/cutaway walls, exits, wood/stone stairs; reuse furniture/people.
+26 Combat FX: shared crimson hit4 + wounds3 small/large, slash/arrow/impact,
+   dust/charge, death effects, boulders, spells/auras/sigils existing inventory.
+27 World FX: fire/light/water loops, build/upgrade/repair/heal/poison/ward,
+   rain/snow/fog/storm/puddle/frost; use runtime particles where appropriate.
+28 Item icons: all existing progression/resources/equipment tiers/relics,
+   food/ores/metals/tools, shears/pail/manure, seed bags, hauler loads.
+29 Interface: room roles/stats, work/priority/filter/zone, health/needs,
+   season/weather/calendar, orders/formations/events, quests, HUD/hotbar frames.
+
+MINIMIZE GENERATION COUNT
+Never generate one image per output PNG. Group by pixel scale and compatible
+animation/state layout, cap each source atlas around 32–64 SIMPLE cells (fewer
+for complex buildings/animation). Larger crowded atlases increase slicing and
+identity errors. Exhaustive existing-file mapping is in sprite-production-
+manifest.json and sprite-production-inventory.txt; groups automatically page
+at 48 files as a planning estimate, NOT a guaranteed generation count. Final
+packing must account for canvas sizes and related cycles. New missing art and
+new damage states increase that count. Reuse tinted factions, modular buildings,
+runtime alpha, overlays and existing template composition to avoid duplicates.
+
+STATUS / VALIDATION
+Inventory captured: 1,310 image files (one unrelated metadata file excluded). Original assets remain intact.
+First candidates: hunter animation sheet; cottage/smithy/gate damage sheet.
+They require slicing, palette/grid/alpha checks, frame alignment, loop previews,
+native-size game checks and optional loader integration before production use.
+Do not claim generated animations are consistent solely because a prompt says so.
+No live game/save changes, commits or pushes as part of this initial art batch.
+

@@ -1,0 +1,126 @@
+[
+ {
+  "name": "head.m_plain",
+  "status": "ok",
+  "size": "24x28",
+  "scale": "0.12",
+  "pivot": "10.5,27",
+  "notes": []
+ },
+ {
+  "name": "head.m_stern",
+  "status": "ok",
+  "size": "24x28",
+  "scale": "0.12",
+  "pivot": "10.5,27",
+  "notes": []
+ },
+ {
+  "name": "head.m_beard",
+  "status": "ok",
+  "size": "25x28",
+  "scale": "0.12",
+  "pivot": "10.5,27",
+  "notes": []
+ },
+ {
+  "name": "headF.plain",
+  "status": "ok",
+  "size": "23x28",
+  "scale": "0.12",
+  "pivot": "10,27",
+  "notes": []
+ },
+ {
+  "name": "headF.stern",
+  "status": "ok",
+  "size": "23x28",
+  "scale": "0.12",
+  "pivot": "10,27",
+  "notes": []
+ },
+ {
+  "name": "headF.freckled",
+  "status": "ok",
+  "size": "23x28",
+  "scale": "0.12",
+  "pivot": "10,27",
+  "notes": []
+ },
+ {
+  "name": "hair.short",
+  "status": "CHECK",
+  "size": "15x18",
+  "scale": "0.06",
+  "pivot": "6.5,17.5",
+  "notes": [
+   "dropped 298 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "hair.long",
+  "status": "CHECK",
+  "size": "16x18",
+  "scale": "0.06",
+  "pivot": "6.5,20.5",
+  "notes": [
+   "dropped 68 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "hair.ponytail",
+  "status": "ok",
+  "size": "24x18",
+  "scale": "0.08",
+  "pivot": "9.5,28.5",
+  "notes": []
+ },
+ {
+  "name": "hairBack.long",
+  "status": "CHECK",
+  "size": "27x28",
+  "scale": "0.11",
+  "pivot": "19,28",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "hairBack.ponytail",
+  "status": "CHECK",
+  "size": "28x28",
+  "scale": "0.11",
+  "pivot": "19.5,28",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "helm.t1",
+  "status": "ok",
+  "size": "27x30",
+  "scale": "0.12",
+  "pivot": "11,28",
+  "notes": []
+ },
+ {
+  "name": "helm.t2",
+  "status": "ok",
+  "size": "29x30",
+  "scale": "0.12",
+  "pivot": "12.5,28",
+  "notes": []
+ },
+ {
+  "name": "helm.t3",
+  "status": "CHECK",
+  "size": "28x30",
+  "scale": "0.11",
+  "pivot": "12,28",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ }
+]

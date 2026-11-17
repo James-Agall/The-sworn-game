@@ -1,0 +1,137 @@
+[
+ {
+  "name": "sword.t1",
+  "status": "ok",
+  "size": "18x48",
+  "scale": "0.17",
+  "pivot": "9,8.5",
+  "notes": []
+ },
+ {
+  "name": "sword.t2",
+  "status": "ok",
+  "size": "20x48",
+  "scale": "0.17",
+  "pivot": "10,8.5",
+  "notes": []
+ },
+ {
+  "name": "sword.t3",
+  "status": "ok",
+  "size": "22x48",
+  "scale": "0.17",
+  "pivot": "10.5,8.5",
+  "notes": []
+ },
+ {
+  "name": "axe.t1",
+  "status": "ok",
+  "size": "22x49",
+  "scale": "0.17",
+  "pivot": "6,8.5",
+  "notes": []
+ },
+ {
+  "name": "axe.t2",
+  "status": "ok",
+  "size": "23x49",
+  "scale": "0.18",
+  "pivot": "6,8.5",
+  "notes": []
+ },
+ {
+  "name": "axe.t3",
+  "status": "ok",
+  "size": "23x49",
+  "scale": "0.17",
+  "pivot": "6.5,8.5",
+  "notes": []
+ },
+ {
+  "name": "spear.t1",
+  "status": "ok",
+  "size": "12x75",
+  "scale": "0.23",
+  "pivot": "6.5,26.5",
+  "notes": []
+ },
+ {
+  "name": "spear.t2",
+  "status": "ok",
+  "size": "13x75",
+  "scale": "0.23",
+  "pivot": "6.5,27",
+  "notes": []
+ },
+ {
+  "name": "spear.t3",
+  "status": "CHECK",
+  "size": "15x75",
+  "scale": "0.23",
+  "pivot": "7.5,26.5",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "shield.t1",
+  "status": "CHECK",
+  "size": "19x28",
+  "scale": "0.09",
+  "pivot": "9.5,16.5",
+  "notes": [
+   "dropped 182 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "shield.t2",
+  "status": "ok",
+  "size": "21x28",
+  "scale": "0.10",
+  "pivot": "10,16",
+  "notes": [
+   "dropped 167 stray px"
+  ]
+ },
+ {
+  "name": "shield.t3",
+  "status": "ok",
+  "size": "20x28",
+  "scale": "0.09",
+  "pivot": "10,16",
+  "notes": [
+   "dropped 220 stray px"
+  ]
+ },
+ {
+  "name": "bow.t1",
+  "status": "CHECK",
+  "size": "13x48",
+  "scale": "0.16",
+  "pivot": "8,23.5",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "bow.t2",
+  "status": "CHECK",
+  "size": "15x48",
+  "scale": "0.16",
+  "pivot": "8.5,23.5",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "bow.t3",
+  "status": "CHECK",
+  "size": "15x48",
+  "scale": "0.16",
+  "pivot": "8.5,23.5",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ }
+]

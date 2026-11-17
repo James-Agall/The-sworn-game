@@ -1,0 +1,12 @@
+2026-11-11. Built-in image generation with hunter02 and lean-knight references.
+Equipment: 12x4 intended grid; T1/2/3 helm,chest,greaves,shield,cape,barding,
+sword,mace,spear,pike,lance,sabre; final row relic helm,chest,legs,shield,sword,
+spear,bow,staff,cloak,amulet,scroll,tome. 48 icons, not wearable overlay frames.
+Effects: 8x4 intended grid. Row1 two crimson hit4 cycles. Row2 wound variants.
+Row3 stone burst4 and wood burst4. Row4 gold sparkle4 and teal sparkle4.
+Prompts: approved pixel style, limited shades, transparent empty cells, packed
+atlas layouts; crimson overlays independent of characters for reuse.
+Alpha sampled. No slicing/integration. Some items approach image edges and
+equipment detail is finer than units; check small-size readability on extraction.
+Universal on-hit effect still requires runtime wiring. Body-aligned equipment
+animation overlays and slot-specific additional icon families remain outstanding.

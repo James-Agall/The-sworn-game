@@ -1,0 +1,82 @@
+{
+  "date": "2026-11-11",
+  "scope": "Source-art projection and unwanted animal equipment; not runtime integration or seamless autotile verification.",
+  "axes": {
+    "x": "screen horizontal",
+    "y": "screen vertical",
+    "yaw": 0
+  },
+  "reviewed": [
+    {
+      "file": "civic-buildings.png",
+      "result": "redrawn and visually reviewed for orthogonal footprint axes"
+    },
+    {
+      "file": "production-buildings.png",
+      "result": "redrawn and visually reviewed for orthogonal footprint axes"
+    },
+    {
+      "file": "military-animal-buildings.png",
+      "result": "redrawn and visually reviewed for orthogonal footprint axes"
+    },
+    {
+      "file": "furniture-stations.png",
+      "result": "redrawn and visually reviewed for orthogonal footprint axes"
+    },
+    {
+      "file": "camps-nature.png",
+      "result": "redrawn and visually reviewed for orthogonal footprint axes"
+    },
+    {
+      "file": "floors-roofs-terrain.png",
+      "result": "redrawn and visually reviewed for orthogonal footprint axes"
+    },
+    {
+      "file": "walls-doors.png",
+      "result": "redrawn and visually reviewed for orthogonal footprint axes",
+      "note": "Now 16 connection designs per material; doors/fences/damage moved to separate sheet. Exact grid joins still need runtime verification."
+    },
+    {
+      "file": "openings-fences-damage-xy.png",
+      "result": "redrawn and visually reviewed for orthogonal footprint axes"
+    },
+    {
+      "file": "square-terrain.png",
+      "result": "already square/topdown; retained"
+    },
+    {
+      "file": "crops.png",
+      "result": "already axis-aligned beds with upright plants; retained"
+    },
+    {
+      "file": "interiors-weather-ui.png",
+      "result": "Frontal elevations and rectangular north-south stairs visually reviewed. Row2 is alternate front elevations, not north-south walls."
+    },
+    {
+      "file": "wildlife-v2.png",
+      "result": "visually verified five wild species have no riding equipment; row6 intentional goblin mount retained"
+    },
+    {
+      "file": "wildlife.png",
+      "result": "old saddled version replaced with wildlife-v2"
+    },
+    {
+      "file": "livestock.png",
+      "result": "bare-horse correction visually reviewed"
+    },
+    {
+      "file": "young-animals-transport.png",
+      "result": "young animals bare; siege actors are directional units, not placed building modules"
+    },
+    {
+      "file": "wagons-riders.png",
+      "result": "intentional ridden/harnessed transport actors retained"
+    }
+  ],
+  "excludedGeometryReferences": [
+    "autumn-style-characters-and-world.png",
+    "building-damage-candidate.png",
+    "work/rejected-art/*"
+  ],
+  "remaining": "Source pixels still require grid/pivot/edge normalization and game integration. A plane review is not a guarantee of seamless tile joins."
+}

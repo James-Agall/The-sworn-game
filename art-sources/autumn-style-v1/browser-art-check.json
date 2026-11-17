@@ -1,0 +1,11 @@
+{
+  "gamePort": 37931,
+  "webPort": 37841,
+  "save": "/tmp/colony-art-preview-SbeR0R",
+  "errors": [],
+  "failedImages": [],
+  "libraryReady": true,
+  "gameReady": true,
+  "visibleCanvas": 5,
+  "spriteResponsesFailed": 0
+}

@@ -1,0 +1,2051 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>colony2d</title>
+    <style>
+      /* Parchment skin. Colors sampled from the scroll reference (center #f3d170, mid #e1a74b,
+         edges #b37130, rods #c19048); the base is pulled a little lighter/less saturated than the
+         raw center so ink text keeps AA contrast even over the mottled, vignetted edges.
+         The paper texture is two static SVG feTurbulence tiles used as background images (rasterized
+         once and cached), never a live `filter:` on the panels. */
+      :root {
+        --ink: #2b1a0c;
+        --ink-soft: #4a2f17;
+        --ink-faint: #5e4326;
+        --parch-light: #f3da98;
+        --parch-mid: #e4bb6c;
+        --parch-dark: #c99450;
+        --parch-burn: #5e3214;
+        --wood: #5a3418;
+        --wood-dark: #2e1a0c;
+        --rod-light: #e0b468;
+        --rod-mid: #a8742f;
+        --seal: #7a1f1a;
+        --seal-dark: #4a0f0b;
+        --seal-ink: #fbecc8;
+        --sel-ink: #063f4a;
+        --mood-good: #1f5216;
+        --mood-warn: #6b3600;
+        --mood-bad: #8a1414;
+        --font-serif: "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+        --font-sans: system-ui, sans-serif;
+
+        --paper-mottle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='m' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.022' numOctaves='4' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.25 0 0 0 0 0.07 1.9 0 0 0 -0.82'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23m)'/%3E%3C/svg%3E");
+        --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.16 0 0 0 0 0.04 2.6 0 0 0 -1.45'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+        --paper:
+          var(--paper-grain),
+          var(--paper-mottle),
+          radial-gradient(ellipse farthest-corner at 50% 45%, transparent 50%, rgba(94, 50, 20, 0.45) 100%),
+          radial-gradient(ellipse at 50% 30%, rgba(255, 244, 205, 0.55), transparent 65%);
+        /* Burnt edges as background layers (stacked over --paper), sized for panels vs small chips. */
+        --burn-lg:
+          linear-gradient(90deg, rgba(94, 50, 20, 0.45), transparent 22px, transparent calc(100% - 22px), rgba(94, 50, 20, 0.45)),
+          linear-gradient(180deg, rgba(94, 50, 20, 0.45), transparent 22px, transparent calc(100% - 22px), rgba(94, 50, 20, 0.45));
+        --burn-sm:
+          linear-gradient(90deg, rgba(94, 50, 20, 0.35), transparent 7px, transparent calc(100% - 7px), rgba(94, 50, 20, 0.35)),
+          linear-gradient(180deg, rgba(94, 50, 20, 0.35), transparent 6px, transparent calc(100% - 6px), rgba(94, 50, 20, 0.35));
+        /* Faint light bevel along the top inner edge. */
+        --paper-edge: inset 0 1px 0 rgba(255, 236, 180, 0.45);
+        /* Rolled scroll rod: a shaded cylinder in the reference's brass-brown tones. */
+        --rod: linear-gradient(90deg, var(--wood-dark) 0%, var(--rod-mid) 22%, var(--rod-light) 48%, var(--rod-mid) 72%, var(--wood) 92%, var(--wood-dark) 100%);
+        /* The same rod lying horizontally. */
+        --rod-h: linear-gradient(180deg, var(--wood-dark) 0%, var(--rod-mid) 22%, var(--rod-light) 48%, var(--rod-mid) 72%, var(--wood) 92%, var(--wood-dark) 100%);
+      }
+
+      html, body { margin: 0; padding: 0; background: #111; overflow: hidden; }
+      #app { width: 100vw; height: 100vh; }
+
+      #control-buttons {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        display: flex;
+        gap: 8px;
+        z-index: 12;
+        font-family: var(--font-serif);
+      }
+
+      .control-btn,
+      #build-panel-toggle,
+      #economy-panel-toggle {
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        color: var(--ink);
+        border: 1px solid var(--wood-dark);
+        box-shadow: var(--paper-edge), 0 2px 6px rgba(0, 0, 0, 0.5);
+        font-family: var(--font-serif);
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+
+      .control-btn {
+        padding: 8px 14px;
+        border-radius: 4px;
+        font-size: 13px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      /* Menu dropdown: Restart / Save / Settings / Return to menu live under the Menu button. */
+      #menu-dropdown { position: relative; }
+      #menu-dropdown-list {
+        position: absolute; top: calc(100% + 4px); right: 0; z-index: 14; min-width: 150px;
+        display: flex; flex-direction: column; gap: 2px; padding: 4px;
+        background: var(--burn-sm), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 4px;
+        box-shadow: var(--paper-edge), 0 4px 12px rgba(0, 0, 0, 0.55);
+      }
+      #menu-dropdown-list[hidden] { display: none; }
+      #menu-dropdown-list .menu-item {
+        text-align: left; padding: 8px 12px; border: 1px solid transparent; border-radius: 3px;
+        background: transparent; color: var(--ink); font-family: var(--font-serif); font-size: 13px;
+        font-weight: 600; letter-spacing: 0.04em; cursor: pointer; user-select: none;
+      }
+      #menu-dropdown-list .menu-item:hover,
+      #menu-dropdown-list .menu-item:focus-visible { background-color: var(--parch-light); border-color: var(--wood); outline: none; }
+      #menu-dropdown-list .menu-item:disabled { opacity: 0.5; cursor: default; }
+
+      /* Strategy mode phase 5: global time controls (pause + speed), and who last changed them. */
+      #time-controls { display: flex; gap: 2px; }
+      #time-controls .control-btn { padding: 8px 8px; min-width: 30px; }
+      #time-controls .control-btn.active { background-color: var(--parch-light); border-color: var(--wood); box-shadow: inset 0 0 0 2px var(--wood-dark); }
+      #time-status {
+        position: fixed; top: 52px; right: 12px; z-index: 12; padding: 3px 10px; border-radius: 4px;
+        background: rgba(26, 15, 6, 0.82); color: #fbecc8; font-family: var(--font-serif); font-size: 12px; pointer-events: none;
+      }
+      #time-status[hidden] { display: none; }
+
+      .control-btn:hover,
+      #build-panel-toggle:hover,
+      #economy-panel-toggle:hover {
+        background-color: var(--parch-light);
+        border-color: var(--wood);
+      }
+
+      #build-panel-toggle {
+        position: fixed;
+        top: 50%;
+        right: 0;
+        transform: translateY(-50%);
+        border-right: none;
+        border-radius: 4px 0 0 4px;
+        padding: 12px 8px;
+        cursor: pointer;
+        user-select: none;
+        z-index: 11;
+        font-size: 13px;
+        writing-mode: vertical-rl;
+        transition: right 0.2s ease;
+      }
+
+      #build-panel-toggle.panel-open {
+        right: 310px;
+      }
+
+      #build-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        height: 100vh;
+        width: 310px;
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        box-shadow: var(--paper-edge), -4px 0 14px rgba(0, 0, 0, 0.55);
+        color: var(--ink);
+        z-index: 10;
+        font-family: var(--font-serif);
+        transition: transform 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        /* Extra left padding clears the scroll rod drawn by ::before. */
+        padding: 60px 18px 20px 30px;
+        box-sizing: border-box;
+      }
+
+      #build-panel::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 12px;
+        background: var(--rod);
+        box-shadow: 2px 0 5px rgba(0, 0, 0, 0.35);
+        pointer-events: none;
+      }
+
+      #build-panel.collapsed {
+        transform: translateX(100%);
+      }
+
+      #build-requirements {
+        color: var(--ink);
+        font-size: 15px;
+        line-height: 1.5;
+        margin-bottom: 16px;
+        min-height: 48px;
+        border-bottom: 3px double rgba(90, 52, 24, 0.55);
+        padding-bottom: 14px;
+      }
+
+      #toolbar {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--wood) transparent;
+      }
+
+      .tool-btn,
+      .econ-btn,
+      .category-tab {
+        background-color: rgba(255, 244, 214, 0.45);
+        color: var(--ink);
+        border: 1px solid rgba(74, 42, 20, 0.6);
+        box-shadow: inset 0 1px 0 rgba(255, 250, 230, 0.6), 0 1px 2px rgba(60, 30, 10, 0.25);
+        font-family: var(--font-serif);
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .tool-btn:hover,
+      .econ-btn:hover:not(:disabled),
+      .category-tab:hover {
+        background-color: rgba(255, 248, 226, 0.8);
+        border-color: var(--wood-dark);
+      }
+
+      .tool-btn:focus-visible,
+      .econ-btn:focus-visible,
+      .category-tab:focus-visible,
+      .control-btn:focus-visible {
+        outline: 2px solid var(--seal);
+        outline-offset: 2px;
+      }
+
+      /* Wax-seal red marks the active tab / tool. */
+      .tool-btn.selected,
+      .category-tab.selected {
+        background-color: var(--seal);
+        color: var(--seal-ink);
+        border-color: var(--seal-dark);
+        box-shadow: inset 0 1px 0 rgba(255, 200, 180, 0.25), inset 0 -2px 5px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(60, 30, 10, 0.35);
+      }
+
+      .tool-btn {
+        padding: 12px 16px;
+        border-radius: 4px;
+        font-size: 16px;
+        white-space: nowrap;
+        text-align: left;
+      }
+
+      /* Progression tree: a locked tool (needs a tool / building first). Still selectable, to read its needs. */
+      .tool-btn.locked {
+        opacity: 0.55;
+        border-style: dashed;
+      }
+      .tool-btn.locked::after {
+        content: " (locked)";
+        font-size: 12px;
+      }
+      #progress-panel {
+        font-size: 13px;
+        line-height: 1.4;
+        margin-bottom: 12px;
+        border-bottom: 3px double rgba(90, 52, 24, 0.55);
+        padding-bottom: 10px;
+        color: var(--ink);
+      }
+      #progress-crafts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+      #progress-crafts button { font-size: 12px; padding: 4px 8px; }
+
+      #build-category-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+
+      .category-tab {
+        padding: 6px 10px;
+        border-radius: 3px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      /* Colony panel: single left-side menu holding everything that used to be split between
+         the floating canvas HUD (wood/iron/rock/gold/pop/time/happiness/army) and this panel
+         (goods stockpile + Market/Gold Shop). The stat block is a pinned header; goods scroll
+         below it. */
+      #economy-panel-toggle {
+        position: fixed;
+        top: 50%;
+        left: 0;
+        transform: translateY(-50%);
+        border-left: none;
+        border-radius: 0 4px 4px 0;
+        padding: 12px 8px;
+        cursor: pointer;
+        user-select: none;
+        z-index: 11;
+        font-size: 13px;
+        writing-mode: vertical-rl;
+        transition: left 0.2s ease;
+      }
+
+      #economy-panel-toggle.panel-open {
+        left: 260px;
+      }
+
+      #economy-panel {
+        position: fixed;
+        top: 12px;
+        left: 0;
+        max-height: calc(100vh - 24px);
+        width: 260px;
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-left: none;
+        border-radius: 0 6px 6px 0;
+        box-shadow: var(--paper-edge), 4px 0 14px rgba(0, 0, 0, 0.55);
+        z-index: 10;
+        font-family: var(--font-serif);
+        color: var(--ink);
+        font-size: 14px;
+        transition: transform 0.2s ease;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        /* Right padding clears the scroll rod drawn by ::after. */
+        padding-right: 12px;
+      }
+
+      #economy-panel::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        width: 12px;
+        background: var(--rod);
+        border-radius: 0 5px 5px 0;
+        box-shadow: -2px 0 5px rgba(0, 0, 0, 0.35);
+        pointer-events: none;
+      }
+
+      #economy-panel.collapsed {
+        transform: translateX(-100%);
+      }
+
+      #colony-stats {
+        padding: 12px 14px 10px;
+        border-bottom: 3px double rgba(90, 52, 24, 0.55);
+        flex: none;
+      }
+
+      #colony-stats .econ-row {
+        line-height: 1.5;
+      }
+
+      #stat-settlements .econ-row {
+        font-size: 0.92em;
+        padding-left: 10px;
+      }
+
+      #stat-settlements .pop-full {
+        color: #b7791f;
+        font-weight: 600;
+      }
+
+      #stat-settlements .pop-over {
+        color: #a12a2a;
+        font-weight: 600;
+      }
+
+      /* Stardew phase 5b: the calendar row under the sundial (season emblem, date, weather). */
+      .cal-cell { display: flex; align-items: center; gap: 5px; }
+      #stat-calendar img { width: 18px; height: 18px; flex: none; }
+      #stat-calendar img[hidden] { display: none; }
+      #stat-weather { opacity: 0.85; }
+      #stat-time {
+        font-weight: 600;
+      }
+
+      .time-row {
+        align-items: center;
+        margin: 2px 0;
+      }
+
+      .time-cell {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      #sundial {
+        width: 30px;
+        height: 30px;
+        flex: none;
+        --dial-face: #ecd38a;
+        --dial-rim: #a8761f;
+        --dial-tick: #7a5414;
+        --dial-shadow: #3b2a0e;
+        --dial-night: rgba(30, 32, 70, 0.35);
+      }
+
+      #sundial.night {
+        --dial-face: #4b5670;
+        --dial-rim: #9aa6c2;
+        --dial-tick: #c3cce0;
+        --dial-shadow: #e6ecfa;
+        --dial-night: rgba(10, 12, 40, 0.45);
+      }
+
+      #sundial .face { fill: var(--dial-face); stroke: var(--dial-rim); stroke-width: 2; transition: fill 0.6s ease, stroke 0.6s ease; }
+      #sundial .night-arc { fill: var(--dial-night); }
+      #sundial .tick { stroke: var(--dial-tick); stroke-width: 1.2; stroke-linecap: round; }
+      #sundial .shadow { stroke: var(--dial-shadow); stroke-width: 2.4; stroke-linecap: round; }
+      #sundial .gnomon { fill: var(--dial-rim); }
+
+      /* main.ts overrides this inline with var(--mood-good|warn|bad) by happiness threshold. */
+      #stat-happiness {
+        font-weight: 600;
+        color: var(--mood-good);
+      }
+
+      #stat-army {
+        margin-top: 8px;
+        font-size: 12.5px;
+        color: var(--ink-soft);
+        line-height: 1.5;
+      }
+
+      #stat-selected {
+        margin-top: 4px;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--sel-ink);
+        line-height: 1.5;
+      }
+
+      #stat-selected[hidden] {
+        display: none;
+      }
+
+      #goods-scroll {
+        overflow-y: auto;
+        padding: 10px 14px 14px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--wood) transparent;
+      }
+
+      .econ-workers-row {
+        margin-left: 6px;
+        font-size: 11px;
+        color: var(--ink-faint);
+      }
+
+      .econ-heading .econ-workers {
+        float: right;
+        font-size: 12px;
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: 0;
+        color: var(--ink-soft);
+      }
+
+      .econ-heading {
+        color: var(--ink);
+        font-size: 16px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: 10px 0 6px;
+        padding-bottom: 2px;
+        border-bottom: 1px solid rgba(90, 52, 24, 0.45);
+      }
+
+      .econ-heading:first-child {
+        margin-top: 0;
+      }
+
+      .econ-row {
+        display: flex;
+        justify-content: space-between;
+        line-height: 1.6;
+      }
+
+      .econ-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .econ-icon {
+        width: 15px;
+        height: 15px;
+        object-fit: contain;
+        flex: none;
+      }
+
+      /* Counts stay in the sans face: lining, tabular figures line up; Georgia's old-style ones don't. */
+      .econ-row span:last-child {
+        color: var(--ink);
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .econ-section {
+        border-top: 3px double rgba(90, 52, 24, 0.55);
+        margin-top: 12px;
+        padding-top: 4px;
+      }
+
+      .econ-section[hidden] {
+        display: none;
+      }
+
+      .econ-btns {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .econ-btn {
+        padding: 6px 10px;
+        border-radius: 4px;
+        font-size: 13px;
+        text-align: left;
+      }
+
+      .econ-btn:disabled {
+        background-color: rgba(255, 244, 214, 0.2);
+        color: var(--ink-faint);
+        border-color: rgba(74, 42, 20, 0.35);
+        box-shadow: none;
+        cursor: default;
+      }
+      /* Event feed: toasts stacked under the top edge, newest on top. Never takes clicks. */
+      #event-feed {
+        position: fixed;
+        top: 84px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        z-index: 12;
+        pointer-events: none;
+        font-family: var(--font-serif);
+      }
+
+      .event-toast {
+        padding: 6px 12px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        color: var(--ink);
+        border: 1px solid var(--wood-dark);
+        border-left: 3px solid #6b5f55;
+        border-radius: 4px;
+        box-shadow: var(--paper-edge), 0 2px 6px rgba(0, 0, 0, 0.5);
+        font-size: 13px;
+        white-space: nowrap;
+        opacity: 1;
+        transition: opacity 0.6s ease;
+      }
+
+      .event-toast {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .event-icon {
+        width: 18px;
+        height: 18px;
+        object-fit: contain;
+        flex: none;
+      }
+
+      #stat-selected .econ-icon {
+        vertical-align: -3px;
+      }
+
+      .event-toast.fading { opacity: 0; }
+      .event-toast.dropped { opacity: 0; transition-duration: 0.2s; }
+
+      /* Category accents, deepened from the old dark-theme hues so they still read on parchment. */
+      .event-toast.event-night { border-left-color: #34416a; }
+      .event-toast.event-dawn { border-left-color: #b07d12; }
+      .event-toast.event-upgrade { border-left-color: var(--mood-good); }
+      .event-toast.event-death { border-left-color: var(--mood-bad); }
+      .event-toast.event-ward { border-left-color: #5b2d8a; }
+      .event-toast.event-deserter { border-left-color: #c26a00; }
+      .event-toast.event-raid { border-left-color: #a8321e; }
+      .event-toast.event-milestone { border-left-color: #b07d12; font-weight: 600; }
+      .event-toast.event-boss { border-left-color: var(--seal); font-weight: 600; }
+      .event-toast.event-morale { border-left-color: #ffb02e; font-weight: 600; }
+
+      /* Goal tracker: a small parchment card under the control buttons (top-right); it slides left of
+         the Build panel while that's open, like the minimap. Flashes gold when a goal completes. */
+      #goal-tracker {
+        position: fixed;
+        top: 56px;
+        right: 12px;
+        width: 210px;
+        z-index: 9;
+        padding: 8px 12px 9px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        font-family: var(--font-serif);
+        color: var(--ink);
+        pointer-events: none;
+        transition: right 0.2s ease;
+      }
+      #goal-tracker[hidden] { display: none; }
+      #build-panel:not(.collapsed) ~ #goal-tracker { right: 322px; }
+      .goal-heading {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ink-faint);
+      }
+      #goal-title { margin: 3px 0 5px; font-size: 14px; font-weight: 600; }
+      .goal-progress {
+        height: 6px;
+        border: 1px solid var(--wood-dark);
+        border-radius: 2px;
+        background: rgba(94, 50, 20, 0.25);
+        overflow: hidden;
+      }
+      #goal-progress-fill { height: 100%; width: 0; background: linear-gradient(180deg, var(--rod-light), var(--rod-mid)); transition: width 0.4s ease; }
+      #goal-progress-text { margin-top: 3px; font-size: 11px; color: var(--ink-soft); text-align: right; min-height: 1em; }
+      #goal-tracker.goal-done #goal-title { color: var(--mood-good); }
+      #goal-tracker.goal-flash { animation: goal-flash 1.6s ease-out; }
+      @keyframes goal-flash {
+        0% { box-shadow: var(--paper-edge), 0 0 0 2px #f1c40f, 0 0 22px 6px rgba(241, 196, 15, 0.85); }
+        100% { box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #goal-tracker.goal-flash { animation: none; box-shadow: var(--paper-edge), 0 0 0 2px #f1c40f; }
+      }
+
+      /* Player health bar: slim bar at the top centre (unit bars are hidden; this is the player's own). */
+      #player-bar {
+        position: fixed; top: 44px; left: 50%; transform: translateX(-50%);
+        width: min(300px, calc(100vw - 32px)); z-index: 9; padding: 3px 8px 4px;
+        background: var(--burn-sm), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 2px 6px rgba(0, 0, 0, 0.5);
+        font-family: var(--font-serif); color: var(--ink); text-align: center; pointer-events: none;
+      }
+      #player-bar[hidden] { display: none; }
+      #player-bar-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 2px; }
+      .player-bar-track { height: 8px; border: 1px solid var(--wood-dark); border-radius: 2px; background: var(--seal-dark); overflow: hidden; }
+      #player-bar-fill { height: 100%; width: 100%; background: #5f9e48; transition: width 0.15s linear, background-color 0.2s; }
+      #player-bar-fill.low { background: #d9a23a; }
+      #player-bar-fill.crit { background: #d42a1c; }
+
+      /* Boss bar: the Ogre Warlord's hp, bottom-centre above the command bar while he's near. */
+      #boss-bar {
+        position: fixed;
+        left: 50%;
+        top: 88px;
+        transform: translateX(-50%);
+        width: min(300px, calc(100vw - 32px));
+        z-index: 9;
+        padding: 4px 10px 6px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        font-family: var(--font-serif);
+        color: var(--seal);
+        text-align: center;
+        pointer-events: none;
+      }
+      #boss-bar[hidden] { display: none; }
+      #boss-bar-name { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 4px; }
+      .boss-bar-track { height: 10px; border: 1px solid var(--wood-dark); border-radius: 2px; background: var(--seal-dark); overflow: hidden; }
+      #boss-bar-fill { height: 100%; width: 100%; background: #d42a1c; transition: width 0.2s linear; }
+
+      /* Fog-of-war minimap: a small unrolled map, rods top and bottom. Bottom-right, and it steps
+         left of the Build panel while that's open (same 0.2s slide), so neither panel covers it. */
+      #minimap-frame {
+        position: fixed;
+        right: 12px;
+        bottom: 16px;
+        z-index: 9;
+        padding: 10px 8px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        transition: right 0.2s ease;
+        line-height: 0;
+      }
+
+      #build-panel:not(.collapsed) ~ #minimap-frame {
+        right: 322px;
+      }
+
+      #minimap-frame::before,
+      #minimap-frame::after {
+        content: "";
+        position: absolute;
+        left: -5px;
+        right: -5px;
+        height: 8px;
+        background: var(--rod-h);
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+        pointer-events: none;
+      }
+
+      #minimap-frame::before { top: -4px; }
+      #minimap-frame::after { bottom: -4px; }
+
+      #minimap {
+        display: block;
+        image-rendering: pixelated;
+        border: 1px solid var(--wood-dark);
+        box-shadow: 0 0 0 1px rgba(255, 236, 180, 0.35);
+        background: #140d07;
+      }
+
+      /* Bottom-centre command bar: shown while soldiers are selected. Same stances as Z / X / E. */
+      #command-bar {
+        position: fixed;
+        left: 50%;
+        bottom: 16px;
+        transform: translateX(-50%);
+        z-index: 9;
+        display: flex;
+        gap: 8px;
+        padding: 8px 10px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+      }
+      #command-bar[hidden] { display: none; }
+      /* Hero phase 4: the player's spell bar, above the command bar (Shift+1-4 / F1-F4). */
+      #spell-bar {
+        position: fixed;
+        left: 50%;
+        bottom: 96px;
+        transform: translateX(-50%);
+        z-index: 9;
+        display: flex;
+        gap: 6px;
+        padding: 6px 8px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+      }
+      #spell-bar[hidden] { display: none; }
+      .spell-btn {
+        position: relative;
+        width: 46px;
+        height: 46px;
+        padding: 3px;
+        background: rgba(255, 236, 180, 0.25);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        cursor: pointer;
+        overflow: hidden;
+      }
+      .spell-btn:disabled { opacity: 0.4; cursor: default; }
+      .spell-btn.aiming { box-shadow: inset 0 0 0 2px var(--sel-ink), 0 0 8px rgba(242, 201, 76, 0.9); }
+      .spell-btn .hs-item { width: 100%; height: 100%; }
+      .spell-btn kbd { position: absolute; right: 2px; bottom: 1px; font-size: 9px; color: #fff; text-shadow: 0 0 2px #000; pointer-events: none; }
+      .spell-cd {
+        position: absolute; left: 0; right: 0; bottom: 0; height: 0;
+        background: rgba(20, 10, 4, 0.65); color: #fff; font-size: 15px; font-weight: 600;
+        display: flex; align-items: center; justify-content: center; pointer-events: none;
+      }
+      .cmd-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        min-width: 72px;
+        padding: 6px 8px 4px;
+        background: rgba(255, 236, 180, 0.25);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        font: inherit;
+        font-size: 11px;
+        color: inherit;
+        cursor: pointer;
+      }
+      .cmd-btn img { width: 28px; height: 28px; image-rendering: pixelated; }
+      .cmd-btn kbd { font-size: 10px; opacity: 0.7; }
+      .cmd-btn:hover { background: rgba(255, 236, 180, 0.55); }
+      .cmd-btn.active { background: rgba(120, 70, 20, 0.35); box-shadow: inset 0 0 0 2px var(--wood-dark); }
+      /* Strategy mode phase 3: regiment order buttons, only in strategy mode. */
+      #command-bar .strategy-only { display: none; }
+      body.strategy-mode #command-bar .strategy-only { display: flex; }
+      .cmd-sep { width: 1px; align-self: stretch; background: var(--wood-dark); opacity: 0.5; }
+      .cmd-glyph { font-size: 20px; line-height: 28px; height: 28px; }
+
+      /* Strategy mode phase 2: the regiment card bar along the bottom (strategy mode only), between the
+         left edge and the minimap; the command / spell / boss bars step up above it. */
+      #regiment-cards {
+        position: fixed;
+        left: 12px;
+        right: 204px;
+        bottom: 16px;
+        z-index: 9;
+        display: none;
+        flex-direction: column;
+        gap: 4px;
+        padding: 5px 8px 7px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        font-family: var(--font-serif);
+        color: var(--ink);
+        transition: right 0.2s ease;
+      }
+      body.strategy-mode #regiment-cards { display: flex; }
+      #build-panel:not(.collapsed) ~ #regiment-cards { right: 514px; }
+      body.strategy-mode #command-bar { bottom: 136px; }
+      body.strategy-mode #spell-bar { bottom: 216px; }
+      .reg-tabs { display: flex; gap: 4px; }
+      .reg-tab {
+        padding: 1px 8px;
+        background: rgba(255, 236, 180, 0.25);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        font: inherit;
+        font-size: 11px;
+        color: inherit;
+        cursor: pointer;
+      }
+      .reg-tab.active { background: rgba(242, 201, 76, 0.55); border-color: var(--sel-ink); font-weight: 600; }
+      .reg-list { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; min-height: 76px; }
+      .reg-card {
+        position: relative;
+        flex: none;
+        display: grid;
+        grid-template-columns: 30px 1fr;
+        grid-template-rows: auto auto auto;
+        column-gap: 5px;
+        align-items: center;
+        width: 118px;
+        padding: 4px 6px 5px;
+        background: rgba(255, 236, 180, 0.25);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .reg-card:hover { background: rgba(255, 236, 180, 0.55); }
+      .reg-card.selected { box-shadow: inset 0 0 0 2px var(--sel-ink), 0 0 6px rgba(79, 216, 255, 0.8); }
+      .reg-card.empty { opacity: 0.55; }
+      .reg-icon { grid-row: 1 / 3; width: 30px; height: 30px; object-fit: contain; image-rendering: pixelated; }
+      .reg-stance { position: absolute; top: 3px; right: 3px; width: 14px; height: 14px; image-rendering: pixelated; }
+      .reg-slot {
+        position: absolute; top: -6px; left: -6px; min-width: 16px; height: 16px; border-radius: 8px;
+        background: var(--wood-dark); color: #fbecc8; font-size: 11px; font-weight: 700; line-height: 16px; text-align: center;
+      }
+      .reg-name { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 12px; }
+      .reg-meta { display: flex; justify-content: space-between; gap: 4px; font-size: 11px; }
+      .reg-role { font-weight: 700; text-shadow: 0 0 2px rgba(0, 0, 0, 0.6); }
+      .reg-roleicon { width: 14px; height: 14px; vertical-align: -3px; margin-right: 2px; }
+      .reg-order { font-weight: 700; color: #00e5ff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.8); white-space: nowrap; }
+      .reg-flags { font-weight: 700; color: #ffb02e; text-shadow: 0 0 2px rgba(0, 0, 0, 0.8); white-space: nowrap; }
+      .reg-hp { grid-column: 1 / 3; height: 5px; margin-top: 3px; background: #550000; border: 1px solid var(--wood-dark); }
+      .reg-hp span { display: block; height: 100%; }
+      /* Strategy mode phase 6: morale bar and Wavering / Routing state. */
+      .reg-morale { grid-column: 1 / 3; height: 3px; margin-top: 2px; background: #1d2a3a; border: 1px solid var(--wood-dark); }
+      .reg-morale span { display: block; height: 100%; }
+      .reg-mstate {
+        position: absolute; bottom: 12px; right: 4px; font-size: 10px; font-weight: 700; color: #ffb02e;
+        text-shadow: 0 0 2px rgba(0, 0, 0, 0.9); pointer-events: none;
+      }
+      .reg-card.wavering { box-shadow: inset 0 0 0 2px #ffb02e; }
+      .reg-card.routing { box-shadow: inset 0 0 0 2px #d0452f; animation: reg-rout-pulse 0.9s ease-in-out infinite alternate; }
+      .reg-card.routing .reg-mstate { color: #ff6a4f; }
+      @keyframes reg-rout-pulse { from { background: rgba(208, 69, 47, 0.15); } to { background: rgba(208, 69, 47, 0.45); } }
+
+      /* Loading screen (client/src/loadingScreen.ts): over everything while a big world is made / loaded / sent. */
+      #loading-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 120;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(ellipse at 50% 40%, #3a2a18 0%, #120b05 80%);
+        font-family: var(--font-serif);
+      }
+      #loading-screen[hidden] { display: none; }
+      #loading-screen .menu-scroll { width: min(460px, calc(100vw - 32px)); }
+      #loading-sub { margin-bottom: 18px; }
+      #loading-bar {
+        position: relative;
+        height: 18px;
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        background: rgba(46, 26, 12, 0.25);
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+      }
+      #loading-fill {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(180deg, #a3332a, var(--seal) 55%, var(--seal-dark));
+        transition: width 0.35s ease-out;
+      }
+      .loading-line { display: flex; justify-content: space-between; gap: 12px; margin: 7px 2px 0; font-size: 14px; }
+      #loading-pct { font-variant-numeric: tabular-nums; font-weight: bold; }
+      #loading-stages { list-style: none; margin: 14px 0 0; padding: 0; text-align: left; font-size: 13.5px; }
+      #loading-stages li { padding: 3px 4px 3px 24px; position: relative; color: var(--ink-faint); }
+      #loading-stages li::before { content: "\25CB"; position: absolute; left: 5px; }
+      #loading-stages li.active { color: var(--ink); font-weight: bold; }
+      #loading-stages li.active::before { content: "\25C9"; color: var(--seal); }
+      #loading-stages li.done { color: var(--ink-soft); }
+      #loading-stages li.done::before { content: "\2713"; color: var(--mood-good); }
+      .loading-tip {
+        margin: 16px 0 0;
+        padding: 10px 12px;
+        min-height: 3.6em;
+        text-align: left;
+        font-size: 13.5px;
+        font-style: italic;
+        border-top: 1px solid rgba(90, 52, 24, 0.35);
+      }
+      .loading-tip b { font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; color: var(--ink-faint); margin-right: 6px; }
+      #loading-tip.tip-in { animation: loading-tip-in 0.6s ease-out; }
+      @keyframes loading-tip-in { from { opacity: 0; } to { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) {
+        #loading-fill { transition: none; }
+        #loading-tip.tip-in { animation: none; }
+      }
+      /* Eight map sizes: the chips wrap onto two rows. */
+      #set-mapsize { flex-wrap: wrap; justify-content: flex-end; max-width: 236px; }
+      .size-warn { display: block; margin-top: 3px; font-size: 11.5px; font-style: italic; color: var(--mood-bad); }
+      .size-warn[hidden] { display: none; }
+      /* Main menu: full-screen title over the (not yet started) game. */
+      #main-menu {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(ellipse at 50% 40%, #3a2a18 0%, #120b05 80%);
+        font-family: var(--font-serif);
+      }
+      #main-menu[hidden] { display: none; }
+      .menu-btn[hidden] { display: none; }
+      /* Save slots (main menu Load Game + in-game Settings): one parchment row per slot. */
+      .save-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 7px 4px;
+        font-size: 14px;
+        border-bottom: 1px solid rgba(90, 52, 24, 0.35);
+        text-align: left;
+      }
+      .save-row small { display: block; font-size: 11.5px; font-style: italic; color: var(--ink-faint); }
+      .save-row .save-btns { display: flex; gap: 6px; flex: none; }
+      .save-row button {
+        font: inherit;
+        font-size: 13px;
+        padding: 4px 10px;
+        color: var(--seal-ink);
+        background: linear-gradient(180deg, var(--seal), var(--seal-dark));
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      .save-row button.secondary { color: var(--ink); background: rgba(255, 236, 180, 0.35); }
+      .save-row button:hover { filter: brightness(1.15); }
+      .save-empty { padding: 8px 4px; font-size: 13px; font-style: italic; color: var(--ink-faint); text-align: left; }
+      .menu-scroll {
+        width: min(360px, calc(100vw - 32px));
+        padding: 28px 28px 24px;
+        text-align: center;
+        color: var(--ink);
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 8px 28px rgba(0, 0, 0, 0.7);
+        /* 100vh minus the 32px gutter and this box's own 52px vertical padding. */
+        max-height: calc(100vh - 84px);
+        overflow-y: auto;
+      }
+      .menu-title { margin: 0; font-size: 34px; letter-spacing: 1px; }
+      .menu-sub { margin: 2px 0 22px; font-size: 13px; color: var(--ink-faint); font-style: italic; }
+      .menu-btn {
+        display: block;
+        width: 100%;
+        margin: 10px 0 0;
+        padding: 11px 14px;
+        font: inherit;
+        font-size: 17px;
+        color: var(--seal-ink);
+        background: linear-gradient(180deg, var(--seal), var(--seal-dark));
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      .menu-btn:hover { filter: brightness(1.2); }
+      .menu-btn.secondary { color: var(--ink); background: rgba(255, 236, 180, 0.35); }
+      .menu-btn.secondary:hover { background: rgba(255, 236, 180, 0.7); filter: none; }
+      .menu-panel[hidden] { display: none; }
+      .menu-setting {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 4px;
+        font-size: 15px;
+        border-bottom: 1px solid rgba(90, 52, 24, 0.35);
+        text-align: left;
+      }
+      .menu-setting input { width: 18px; height: 18px; accent-color: var(--seal); }
+      .menu-setting input[type="range"] { width: 150px; height: 16px; margin: 0; cursor: pointer; }
+      .menu-note { margin: 16px 0 0; font-size: 14px; }
+      .menu-section {
+        margin: 14px 0 2px;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ink-faint);
+        text-align: left;
+      }
+      .menu-section:first-child { margin-top: 0; }
+      .set-note { display: block; font-size: 11.5px; font-style: italic; color: var(--ink-faint); }
+      /* Segmented control (Difficulty): parchment chips, the chosen one sealed in red. */
+      .seg {
+        display: inline-flex;
+        flex: none;
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .seg button {
+        font: inherit;
+        font-size: 13px;
+        padding: 5px 10px;
+        color: var(--ink);
+        background: rgba(255, 236, 180, 0.35);
+        border: 0;
+        border-left: 1px solid rgba(90, 52, 24, 0.5);
+        cursor: pointer;
+      }
+      .seg button:first-child { border-left: 0; }
+      .seg button:hover { background: rgba(255, 236, 180, 0.7); }
+      .seg button[aria-checked="true"] {
+        color: var(--seal-ink);
+        background: linear-gradient(180deg, var(--seal), var(--seal-dark));
+      }
+      .seg.readonly button { cursor: default; }
+      .seg.readonly button:hover { background: rgba(255, 236, 180, 0.35); }
+      .seg.readonly button[aria-checked="true"] { background: linear-gradient(180deg, var(--seal), var(--seal-dark)); }
+      .seg.readonly button:not([aria-checked="true"]) { opacity: 0.45; }
+      /* In-game Settings: the same panel, moved into this modal over the running game. */
+      #settings-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(18, 11, 5, 0.6);
+        font-family: var(--font-serif);
+      }
+      #settings-modal[hidden] { display: none; }
+      #settings-modal .menu-title { font-size: 24px; margin-bottom: 12px; }
+      #stat-difficulty {
+        margin-top: 2px;
+        font-size: 11.5px;
+        font-style: italic;
+        color: var(--ink-faint);
+      }
+      .event-toast.event-build { border-left-color: #8a5a20; }
+      /* Building info (left-click a building): parchment card, top right, over the build panel. */
+      #building-panel {
+        position: fixed;
+        top: 56px;
+        right: 52px;
+        z-index: 20;
+        width: min(290px, calc(100vw - 64px));
+        padding: 12px 14px 12px;
+        color: var(--ink);
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif);
+        font-size: 14px;
+      }
+      #building-panel[hidden] { display: none; }
+      .bp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+      #bp-name { font-size: 19px; font-weight: bold; }
+      #bp-level { font-size: 13px; color: var(--ink-soft); white-space: nowrap; }
+      #bp-close {
+        font: inherit;
+        font-size: 18px;
+        line-height: 1;
+        padding: 0 4px;
+        color: var(--ink);
+        background: none;
+        border: 0;
+        cursor: pointer;
+      }
+      .bp-row { margin-top: 4px; }
+      .bp-row[hidden] { display: none; }
+      #bp-bonuses { margin: 2px 0 0; padding-left: 18px; font-size: 13px; }
+      #bp-bonuses li { margin: 2px 0; }
+      #bp-upgrade-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+      #bp-upgrade-row[hidden] { display: none; }
+      #bp-repair-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+      #bp-repair-row[hidden] { display: none; }
+      #bp-repair-cost { font-size: 12.5px; color: var(--ink-soft); }
+      #bp-keep-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+      #bp-keep-row[hidden] { display: none; }
+      #bp-keep-state { font-size: 12.5px; color: var(--ink-soft); }
+      /* Forts phase F: a vassal's call to arms / tribute block. */
+      #bp-vassal-row { margin-top: 8px; font-size: 12.5px; }
+      #bp-vassal-row[hidden] { display: none; }
+      #bp-vassal-row > div { margin: 3px 0; }
+      #bp-vassal-levy, #bp-vassal-tax-state, #bp-vassal-ledger, #bp-vassal-power { color: var(--ink-soft); }
+      /* Forts phase D: the Trade button (settlement panels) and the trade panel beside the building panel. */
+      #bp-trade-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+      #bp-trade-row[hidden] { display: none; }
+      #bp-trade-state { font-size: 12.5px; color: var(--ink-soft); }
+      #trade-panel {
+        position: fixed;
+        top: 56px;
+        right: 352px;
+        z-index: 20;
+        width: min(380px, calc(100vw - 64px));
+        padding: 12px 14px 12px;
+        color: var(--ink);
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif);
+        font-size: 14px;
+      }
+      #trade-panel[hidden] { display: none; }
+      @media (max-width: 720px) { #trade-panel { right: 52px; top: 120px; } }
+      /* Forts phase D2: settlement quests (top-bar Quests button; parchment like the trade panel). */
+      #quests-btn.has-new { box-shadow: inset 0 0 0 2px #f1c40f; }
+      #quest-panel {
+        position: fixed;
+        top: 56px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 21;
+        width: min(420px, calc(100vw - 32px));
+        max-height: calc(100vh - 120px);
+        overflow-y: auto;
+        padding: 12px 14px;
+        color: var(--ink);
+        background: var(--burn-lg), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif);
+        font-size: 14px;
+      }
+      #quest-panel[hidden] { display: none; }
+      /* Crafting (Craft button / Shift+C): hand recipes with have / need counts, apart from the Build panel. */
+      #craft-panel {
+        position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 21;
+        width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 120px); overflow-y: auto; padding: 12px 14px;
+        color: var(--ink); background: var(--burn-lg), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 3px; box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif); font-size: 14px;
+      }
+      #craft-panel[hidden] { display: none; }
+      .craft-row { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(74, 42, 20, 0.35); display: flex; gap: 8px; align-items: center; }
+      .craft-row .craft-main { flex: 1; min-width: 0; }
+      .craft-row .craft-name { font-weight: 600; }
+      .craft-row .craft-have { font-weight: 400; font-size: 12px; color: var(--ink-soft); margin-left: 4px; }
+      .craft-in { font-size: 12.5px; color: var(--ink-soft); }
+      .craft-in .short { color: var(--mood-bad); font-weight: 600; }
+      .craft-needs { font-size: 12px; color: var(--mood-bad); font-style: italic; }
+      .craft-foot, #craft-items { font-size: 12px; color: var(--ink-soft); margin-top: 10px; }
+      /* Demolish confirm (own buildings; walls / moats / roads stay instant). Above the command bar, bottom centre. */
+      #demolish-confirm {
+        position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); z-index: 23;
+        display: flex; align-items: center; gap: 8px; padding: 8px 12px; max-width: calc(100vw - 32px); box-sizing: border-box;
+        background: var(--burn-sm), var(--paper); background-color: var(--parch-mid); border: 1px solid var(--wood-dark); border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 4px 14px rgba(0, 0, 0, 0.6); font-family: var(--font-serif); color: var(--ink); font-size: 14px;
+      }
+      #demolish-confirm[hidden] { display: none; }
+      /* Next steps bar (top centre) and its Progression dropdown. The player bar and toasts sit below it. */
+      #next-bar {
+        position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 9;
+        display: flex; align-items: center; gap: 8px; max-width: min(560px, calc(100vw - 32px)); padding: 3px 4px 3px 10px;
+        background: var(--burn-sm), var(--paper); background-color: var(--parch-mid); border: 1px solid var(--wood-dark); border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 2px 6px rgba(0, 0, 0, 0.5); font-family: var(--font-serif); color: var(--ink); font-size: 12.5px;
+      }
+      #next-bar[hidden] { display: none; }
+      #next-bar .nb-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+      #next-bar-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+      #next-bar-toggle {
+        font: inherit; font-size: 12px; font-weight: 600; padding: 2px 8px; cursor: pointer; color: var(--ink); white-space: nowrap;
+        background: rgba(255, 236, 180, 0.35); border: 1px solid var(--wood-dark); border-radius: 3px;
+      }
+      #next-bar-toggle[aria-expanded="true"] { background: rgba(242, 201, 76, 0.55); }
+      #progress-tree {
+        position: fixed; top: 42px; left: 50%; transform: translateX(-50%); z-index: 22;
+        width: min(980px, calc(100vw - 32px)); max-height: calc(100vh - 120px); overflow-y: auto; padding: 10px 14px 12px; box-sizing: border-box;
+        color: var(--ink); background: var(--burn-lg), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 3px; box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif); font-size: 13px;
+      }
+      #progress-tree[hidden] { display: none; }
+      .pt-legend { font-size: 11.5px; color: var(--ink-soft); margin-bottom: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+      .pt-chain { margin-top: 8px; }
+      .pt-name { font-weight: 700; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 3px; }
+      .pt-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; }
+      .pt-arrow { color: var(--ink-faint); padding: 0 2px; }
+      .pt-step { padding: 3px 7px; border-radius: 3px; border: 1px solid var(--wood-dark); max-width: 210px; line-height: 1.25; }
+      .pt-step b { display: block; font-size: 12.5px; }
+      .pt-step small { display: block; font-size: 11px; }
+      .pt-step.done { background: rgba(120, 170, 80, 0.4); }
+      .pt-step.avail { background: rgba(242, 201, 76, 0.5); }
+      .pt-step.locked { background: rgba(94, 50, 20, 0.08); border-style: dashed; color: var(--ink-soft); }
+      .pt-swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid var(--wood-dark); vertical-align: -1px; margin-right: 3px; }
+      .pt-swatch.done { background: rgba(120, 170, 80, 0.6); } .pt-swatch.avail { background: rgba(242, 201, 76, 0.7); } .pt-swatch.locked { border-style: dashed; }
+      @media (max-width: 1400px) {
+        #next-bar { top: 52px; }
+        #progress-tree { top: 86px; }
+        #player-bar { top: 88px; }
+        #boss-bar { top: 132px; }
+        #event-feed { top: 126px; }
+      }
+      /* Resources (goods) panel: collapsible groups listing every resource, item and piece of gear. */
+      .econ-heading.econ-fold { cursor: pointer; user-select: none; }
+      .econ-heading.econ-fold::before { content: "\25BE  "; font-size: 12px; }
+      .econ-heading.econ-fold.folded::before { content: "\25B8  "; }
+      .econ-group { max-height: 220px; overflow-y: auto; scrollbar-width: thin; }
+      .econ-group[hidden] { display: none; }
+      .econ-row.zero { opacity: 0.45; }
+      #goods-list.hide-zero .econ-row.zero { display: none; }
+      .econ-glyph { width: 15px; height: 15px; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border-radius: 2px; background: rgba(94, 50, 20, 0.25); color: var(--ink); }
+      #goods-show-all { font: inherit; font-size: 11.5px; padding: 1px 8px; margin-bottom: 4px; cursor: pointer; color: var(--ink); background: rgba(255, 236, 180, 0.35); border: 1px solid var(--wood-dark); border-radius: 3px; }
+
+      /* Modular building phase 4: the Work tab (job priorities) and the person card. */
+      #work-panel {
+        position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 22;
+        width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 120px); overflow: auto; padding: 12px 14px;
+        color: var(--ink); background: var(--burn-lg), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 3px; box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif); font-size: 13px;
+      }
+      #work-panel[hidden], #person-card[hidden] { display: none; }
+      #work-btn.panel-open { box-shadow: inset 0 0 0 2px #f1c40f; }
+      #wp-title { font-size: 19px; font-weight: bold; }
+      #wp-close, #pc-close { font: inherit; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--ink); background: none; border: 0; cursor: pointer; }
+      .wp-bar { display: flex; gap: 12px; align-items: center; margin: 6px 0; }
+      #wp-mode, #pc-open, #wp-sort { font: inherit; font-size: 12px; padding: 2px 8px; color: var(--ink); background: rgba(255, 236, 180, 0.35); border: 1px solid var(--wood-dark); border-radius: 3px; cursor: pointer; }
+      #wp-mode.active { background: rgba(242, 201, 76, 0.6); }
+      #wp-foot { font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+      .wp-grid { border-collapse: collapse; width: 100%; }
+      .wp-grid th { font-size: 11px; font-weight: normal; padding: 2px 3px; cursor: pointer; user-select: none; border-bottom: 1px solid var(--wood-dark); }
+      .wp-grid th.wp-name-h { text-align: left; }
+      .wp-grid td { border-bottom: 1px solid rgba(74, 42, 20, 0.2); padding: 2px 3px; }
+      .wp-grid tr.wp-hl td { background: rgba(241, 196, 15, 0.18); }
+      .wp-name b { display: block; font-size: 13px; }
+      .wp-name small { display: block; font-size: 11px; color: var(--ink-soft); }
+      .wp-cell { text-align: center; cursor: pointer; white-space: nowrap; user-select: none; }
+      .wp-cell:hover { background: rgba(255, 236, 180, 0.45); }
+      .wp-cell.off img { opacity: 0.55; }
+      .wp-cell.assigned { box-shadow: inset 0 0 0 2px rgba(120, 170, 80, 0.8); }
+      .wp-pin { font-size: 11px; color: #7a3a10; margin-left: 1px; }
+      #bp-work-row[hidden], #bp-work-cands[hidden], #pc-posts[hidden] { display: none; }
+      .bpw-line { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 12.5px; }
+      .bpw-line > span { flex: 1; }
+      .bpw-line .econ-btn, #pc-posts .econ-btn { padding: 1px 6px; font-size: 12px; }
+      #bp-work-cands, #pc-posts { max-height: 180px; overflow-y: auto; margin-top: 4px; }
+      .wp-cell sup { font-size: 10px; font-weight: bold; color: #2a5a8a; margin-left: 1px; }
+      .wp-on { display: inline-block; width: 18px; font-weight: bold; color: #3a6a20; }
+      .wp-job { font-size: 11.5px; color: var(--ink-soft); min-width: 120px; }
+      #person-card {
+        position: fixed; right: 16px; top: 140px; z-index: 21; width: 240px; padding: 10px 12px;
+        color: var(--ink); background: var(--burn-lg), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 3px; box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif); font-size: 13px;
+      }
+      #pc-name { font-size: 16px; font-weight: bold; }
+      #pc-role { font-size: 12px; color: var(--ink-soft); }
+      #pc-job { margin: 4px 0; }
+      .pc-chip { display: inline-block; margin: 1px 4px 1px 0; font-size: 11.5px; white-space: nowrap; }
+      #pc-open { margin-top: 6px; }
+      @media (max-width: 600px) { #person-card { right: 8px; left: 8px; width: auto; } }
+      /* World streaming phase 5: the chronicle (news of what happened out of sight), styled like the quests. */
+      #chronicle-btn.has-new { box-shadow: inset 0 0 0 2px #f1c40f; }
+      #chronicle-panel {
+        position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 21;
+        width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 120px); overflow-y: auto; padding: 12px 14px;
+        color: var(--ink); background: var(--burn-lg), var(--paper); background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark); border-radius: 3px; box-shadow: var(--paper-edge), 0 6px 20px rgba(0, 0, 0, 0.6);
+        font-family: var(--font-serif); font-size: 14px;
+      }
+      #chronicle-panel[hidden] { display: none; }
+      #cp-title { font-size: 19px; font-weight: bold; }
+      #cp-close { font: inherit; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--ink); background: none; border: 0; cursor: pointer; }
+      #cp-empty, #cp-foot { font-size: 12.5px; color: var(--ink-soft); }
+      .cp-head { margin-top: 10px; font-weight: bold; font-size: 13px; color: #8b2a1a; }
+      .cp-entry { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(74, 42, 20, 0.25); font-size: 13px; }
+      .cp-entry .cp-day { color: var(--ink-soft); font-size: 12px; margin-right: 6px; }
+      .cp-entry.new { background: rgba(241, 196, 15, 0.12); }
+      #qp-title { font-size: 19px; font-weight: bold; }
+      #qp-close { font: inherit; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--ink); background: none; border: 0; cursor: pointer; }
+      #qp-empty, #qp-foot { font-size: 12.5px; color: var(--ink-soft); }
+      .qp-quest { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(74, 42, 20, 0.35); }
+      .qp-quest .qp-name { font-weight: bold; }
+      .qp-quest .qp-name::before { content: "! "; color: #b8860b; }
+      /* Batch 2 sprites (SPRITES.md #67 / #80 / #81): small inline UI icons; the quest seal replaces the glyph. */
+      .ui-ico { width: 18px; height: 18px; vertical-align: -4px; margin-right: 4px; }
+      .qp-quest .qp-name.has-icon::before { content: none; }
+      .qp-quest.accepted .qp-name::before { content: "\2713  "; color: #2e7d32; }
+      .qp-quest .qp-text { font-size: 12.5px; margin: 2px 0; }
+      .qp-quest .qp-meta { font-size: 12.5px; color: var(--ink-soft); }
+      .qp-quest .qp-btns { display: flex; gap: 6px; margin-top: 4px; }
+      .qp-quest .econ-btn { padding: 2px 8px; font-size: 12.5px; }
+      #tp-name { font-size: 19px; font-weight: bold; }
+      #tp-close { font: inherit; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--ink); background: none; border: 0; cursor: pointer; }
+      #tp-reason { font-size: 12.5px; color: #8b2a1a; }
+      #tp-foot { font-size: 12px; color: var(--ink-soft); }
+      #tp-goods { width: 100%; margin-top: 6px; border-collapse: collapse; font-size: 13px; }
+      #tp-goods th { text-align: left; font-weight: normal; color: var(--ink-soft); font-size: 12px; border-bottom: 1px solid rgba(74, 42, 20, 0.35); }
+      #tp-goods td { padding: 2px 3px; white-space: nowrap; }
+      #tp-goods .econ-btn { padding: 2px 6px; font-size: 12px; }
+      #bp-gate-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+      #bp-gate-row[hidden] { display: none; }
+      #bp-gate-state { font-size: 12.5px; color: var(--ink-soft); }
+      #bp-levy-row[hidden] { display: none; }
+      #bp-levy-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
+      #bp-siege-row, #bp-train-row, #bp-levy-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-train-row[hidden] { display: none; }
+      #bp-train-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
+      #bp-siege-row[hidden] { display: none; }
+      #bp-wagon-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-wagon-row[hidden] { display: none; }
+      #bp-wagon-row > div, #bp-wagon-dests { flex-basis: 100%; }
+      #bp-wagon-dests { margin: 0; padding-left: 16px; font-size: 12px; }
+      #bp-wagon-dests .off { opacity: 0.6; }
+      #bp-forge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-forge-row[hidden] { display: none; }
+      #bp-forge-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
+      #bp-forge-auto-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
+      #bp-forge-auto.active { box-shadow: inset 0 0 0 2px var(--wood-dark); font-weight: 600; }
+      #stat-equipment { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; }
+      #stat-equipment .equip-empty { color: #b7791f; font-weight: 600; }
+      #bp-heroes-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-heroes-row[hidden] { display: none; }
+      #bp-spells-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+      #bp-spells-row[hidden] { display: none; }
+      #bp-heroes-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; white-space: pre-line; }
+      #bp-siege-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
+      #bp-upgrade-cost { font-size: 12.5px; color: var(--ink-soft); }
+      /* Game over: the rider fell with no Town Center standing. */
+      #game-over {
+        position: fixed;
+        inset: 0;
+        z-index: 90;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(18, 11, 5, 0.65);
+        font-family: var(--font-serif);
+      }
+      #game-over[hidden] { display: none; }
+      /* Village life phase 5: the heir picker (a dead hero with adults left to carry on). */
+      #heir-picker {
+        position: fixed;
+        inset: 0;
+        z-index: 90;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(18, 11, 5, 0.65);
+        font-family: var(--font-serif);
+      }
+      #heir-picker[hidden] { display: none; }
+      #heir-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+      #heir-list .heir-btn { width: 100%; text-align: left; }
+      /* Village life phase 5: adventure view (close camera): compact hero bar bottom-left, party commands. */
+      #hero-bar {
+        position: fixed;
+        left: 16px;
+        bottom: 16px;
+        z-index: 9;
+        display: none;
+        flex-direction: column;
+        gap: 4px;
+        width: 220px;
+        padding: 6px 8px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        font-size: 12px;
+      }
+      body.adventure-mode #hero-bar { display: flex; }
+      #hero-bar .hb-meter { position: relative; height: 10px; background: rgba(0, 0, 0, 0.35); border-radius: 2px; overflow: hidden; }
+      #hero-bar .hb-meter.xp { height: 5px; }
+      #hero-bar .hb-fill { position: absolute; inset: 0 auto 0 0; width: 0; }
+      #hb-hp { background: #3bd16f; }
+      #hb-xp { background: #f2c94c; }
+      #hb-hp-text { position: absolute; inset: 0; font-size: 9px; line-height: 10px; text-align: center; color: #fff; text-shadow: 0 0 2px #000; }
+      #hero-bar .hb-keys { display: flex; gap: 4px; align-items: center; }
+      #hero-bar .hb-keys .cmd-btn { padding: 2px 6px; font-size: 11px; }
+      #hero-bar .hb-hint { margin-left: auto; opacity: 0.7; font-size: 10px; }
+      #command-bar .adventure-only { display: none; }
+      body.adventure-mode:not(.party-large) #command-bar .adventure-only:not(.cmd-hint),
+      body.adventure-mode:not(.party-large) #command-bar .strategy-only.party-ok { display: flex; }
+      body.adventure-mode.party-large #command-bar .cmd-hint { display: flex; align-items: center; font-size: 12px; opacity: 0.8; }
+      #stat-builders { font-size: 12.5px; color: var(--ink-soft); }
+      body.hide-minimap #minimap-frame { display: none; }
+      body.hide-events #event-feed { display: none; }
+
+      /* Off-screen fight notifiers: one arrow per fight outside the view, clamped to the screen rim and
+         pointing at it (placed per frame by main.ts via fightArrows.ts). The layer never takes clicks;
+         each arrow does (it pans the camera to the fight). Tint by intensity: amber, red, seal. */
+      #fight-arrows { position: fixed; inset: 0; z-index: 11; pointer-events: none; overflow: hidden; }
+      .fight-arrow {
+        --fight-tint: #c26a00;
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        padding: 0;
+        border: 0;
+        background: none;
+        pointer-events: auto;
+        cursor: pointer;
+        font-family: var(--font-serif);
+      }
+      .fight-arrow[hidden] { display: none; }
+      .fight-arrow.fight-i2 { --fight-tint: #a8321e; }
+      .fight-arrow.fight-i3 { --fight-tint: var(--seal); }
+      .fight-chevron {
+        position: absolute;
+        left: -14px;
+        top: -14px;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        border: 2px solid var(--fight-tint);
+        box-shadow: var(--paper-edge), 0 2px 5px rgba(0, 0, 0, 0.55);
+      }
+      /* The point: a triangle on the chevron's right side, so rotate(angle) aims it. */
+      .fight-chevron::after {
+        content: "";
+        position: absolute;
+        right: -9px;
+        top: 50%;
+        transform: translateY(-50%);
+        border-top: 7px solid transparent;
+        border-bottom: 7px solid transparent;
+        border-left: 9px solid var(--fight-tint);
+      }
+      .fight-chevron::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 8px;
+        height: 8px;
+        margin: -4px 0 0 -4px;
+        border-radius: 50%;
+        background: var(--fight-tint);
+      }
+      .fight-label {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        padding: 2px 7px 3px;
+        background: var(--burn-sm), var(--paper);
+        background-color: var(--parch-mid);
+        color: var(--ink);
+        border: 1px solid var(--wood-dark);
+        border-left: 3px solid var(--fight-tint);
+        border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 2px 5px rgba(0, 0, 0, 0.5);
+        font-size: 12px;
+        line-height: 1.2;
+        white-space: nowrap;
+        text-align: left;
+      }
+      .fight-label small { display: block; font-size: 10.5px; color: var(--ink-soft); }
+      .fight-arrow:hover .fight-chevron { border-width: 3px; }
+      .fight-arrow:focus-visible { outline: none; }
+      .fight-arrow:focus-visible .fight-label { outline: 2px solid var(--sel-ink); }
+      /* Hero phases 1-2: Character sheet (` key / Hero button): parchment modal, paper-doll left, stats +
+         pack right. Item icons are placeholders (coloured square + glyph, rarity border) until SPRITES.md
+         #49 / #51 land (an icon image, when present, is drawn over the placeholder). */
+      #hero-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(18, 11, 5, 0.6);
+        font-family: var(--font-serif);
+      }
+      #hero-modal[hidden] { display: none; }
+      #hero-sheet { width: min(1240px, calc(100vw - 32px)); text-align: left; position: relative; overflow-y: auto; }
+      /* One hero sheet: pack / inventory left, the character sheet centre, family right (all visible together). */
+      .hs-cols { display: flex; gap: 18px; align-items: flex-start; }
+      .hs-col { flex: 0 0 230px; min-width: 0; font-size: 12.5px; }
+      .hs-cols > .hs-body { flex: 1; min-width: 0; }
+      .hl-box h4 { margin: 8px 0 3px; font-size: 13px; }
+      .hl-box .hl-row { display: flex; justify-content: space-between; gap: 6px; }
+      .hl-box .hl-actions { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+      .hl-box .hl-actions button { font-size: 11px; padding: 2px 6px; }
+      #hs-needs .hb-meter { position: relative; height: 7px; background: rgba(0, 0, 0, 0.25); border-radius: 2px; overflow: hidden; margin: 2px 0 4px; }
+      #hs-needs .hb-fill { position: absolute; inset: 0 auto 0 0; }
+      @media (max-width: 1100px) { .hs-cols { flex-wrap: wrap; } .hs-col { flex-basis: 100%; } }
+      /* SPRITES.md #58: the parchment panel's torn edge as the sheet's frame (its outer 18px ring only; the
+         panel's baked placeholder labels stay hidden), the CSS parchment inside. A missing file leaves an
+         18px plain wood border. */
+      #hero-sheet.menu-scroll {
+        border: 18px solid var(--wood-dark);
+        border-image: url("/sprites/ui-characterSheet.png") 18 / 18px stretch;
+        border-radius: 0;
+        background-clip: padding-box;
+        box-shadow: none;
+        padding: 12px 14px 10px;
+        max-height: calc(100vh - 88px);
+      }
+      #hero-sheet .menu-title { font-size: 24px; margin-bottom: 4px; }
+      #hs-close {
+        position: absolute; top: 10px; right: 12px; font: inherit; font-size: 22px; line-height: 1;
+        background: none; border: 0; color: var(--ink); cursor: pointer;
+      }
+      .hs-body { display: flex; gap: 22px; flex-wrap: wrap; }
+      .hs-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
+      .hs-tabs:empty { display: none; }
+      .hs-tabs button {
+        font: inherit; font-size: 12.5px; padding: 3px 9px; cursor: pointer; color: var(--ink);
+        background: rgba(255, 236, 180, 0.35); border: 1px solid rgba(90, 52, 24, 0.55); border-radius: 3px;
+      }
+      .hs-tabs button.active { background: rgba(242, 201, 76, 0.55); border-color: var(--sel-ink); font-weight: 600; }
+      .hs-tabs button.fallen { opacity: 0.6; font-style: italic; }
+      .hs-doll {
+        display: grid;
+        grid-template-columns: repeat(3, 56px);
+        grid-auto-rows: 56px;
+        gap: 10px;
+        padding: 12px;
+        background: rgba(94, 50, 20, 0.12);
+        border: 1px solid rgba(90, 52, 24, 0.45);
+        border-radius: 4px;
+        align-content: start;
+      }
+      .hs-spells { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: center; }
+      .hs-spells .hs-socket { width: 38px; height: 38px; border-width: 3px; border-image-width: 3px; }
+      /* SPRITES.md #58 slot socket: its carved rim as a 9-slice border (not its baked helmet centre). */
+      .hs-socket {
+        position: relative;
+        width: 56px; height: 56px; box-sizing: border-box;
+        border: 4px solid rgba(90, 52, 24, 0.55);
+        border-image: url("/sprites/ui-slotSocket.png") 10 / 4px stretch;
+        border-radius: 4px;
+        background: rgba(255, 236, 180, 0.35);
+        box-shadow: inset 0 2px 5px rgba(46, 26, 12, 0.45);
+        cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .hs-socket .hs-empty { font-size: 10px; color: var(--ink-faint); text-align: center; line-height: 1.1; pointer-events: none; }
+      .hs-socket.disabled { opacity: 0.45; cursor: default; }
+      .hs-socket:not(.disabled):hover { outline: 2px solid var(--sel-ink); outline-offset: -1px; }
+      .hs-item {
+        position: relative;
+        width: 44px; height: 44px; box-sizing: border-box;
+        border: 3px solid #cd7f32;
+        border-radius: 3px;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 18px; color: #fbecc8;
+        text-shadow: 0 1px 1px #000;
+        pointer-events: none;
+      }
+      .hs-item.t2 { border-color: #c0c8d0; }
+      .hs-item.t3 { border-color: #f2c94c; box-shadow: 0 0 6px rgba(242, 201, 76, 0.7); }
+      .hs-item.spell { border-color: #b98cff; font-size: 20px; }
+      .hs-spells .hs-item { width: 30px; height: 30px; font-size: 15px; border-width: 2px; }
+      .hs-inv .hs-item { width: 40px; height: 40px; }
+      .hs-socket.picked { outline: 2px solid var(--sel-ink); outline-offset: -1px; box-shadow: 0 0 6px rgba(242, 201, 76, 0.9); }
+      .hs-socket.target { outline: 2px dashed var(--sel-ink); outline-offset: -1px; }
+      .hs-spellhint { font-size: 11px; font-style: italic; color: var(--ink-faint); }
+      .hs-auto { margin-top: 6px; font: inherit; font-size: 12.5px; padding: 3px 10px; cursor: pointer; background: rgba(255, 236, 180, 0.35); border: 1px solid var(--wood-dark); border-radius: 3px; color: inherit; }
+      .hs-auto.on { background: rgba(120, 170, 80, 0.45); }
+      .hs-item.relic {
+        border-image: linear-gradient(135deg, #7b3fa0, #1aa39a) 1;
+        box-shadow: 0 0 8px rgba(26, 163, 154, 0.8);
+      }
+      .hs-item img { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); image-rendering: pixelated; }
+      .hs-right { flex: 1; min-width: 240px; }
+      .hs-level { font-size: 15px; font-weight: 600; }
+      .hs-xpbar { height: 8px; margin: 4px 0 2px; background: rgba(46, 26, 12, 0.25); border: 1px solid var(--wood-dark); border-radius: 2px; }
+      .hs-xpfill { height: 100%; background: linear-gradient(90deg, var(--seal), #b8862f); }
+      .hs-xptext { font-size: 11.5px; color: var(--ink-faint); font-style: italic; }
+      .hs-stats { display: grid; grid-template-columns: 1fr auto; gap: 2px 14px; margin: 10px 0 4px; font-size: 13.5px; }
+      .hs-stats .up { color: var(--mood-good); }
+      .hs-stats .down { color: var(--mood-bad); }
+      .hs-inv { display: grid; grid-template-columns: repeat(auto-fill, 50px); gap: 6px; margin-top: 6px; min-height: 50px; }
+      .hs-inv .hs-socket { width: 50px; height: 50px; }
+      .hs-inv-empty { font-size: 12.5px; font-style: italic; color: var(--ink-faint); }
+      .hs-armoury { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      .hs-armoury button {
+        font: inherit; font-size: 12.5px; padding: 4px 8px; color: var(--ink);
+        background: rgba(255, 236, 180, 0.35); border: 1px solid var(--wood-dark); border-radius: 3px; cursor: pointer;
+      }
+      .hs-armoury button:hover:not(:disabled) { background: rgba(255, 236, 180, 0.7); }
+      .hs-armoury button:disabled { opacity: 0.45; cursor: default; }
+      #hs-tip {
+        position: fixed; z-index: 101; max-width: 260px; pointer-events: none;
+        padding: 6px 9px; font-size: 12.5px; line-height: 1.35; color: var(--ink);
+        background: var(--burn-sm), var(--paper); background-color: var(--parch-light);
+        border: 1px solid var(--wood-dark); border-radius: 3px;
+        box-shadow: var(--paper-edge), 0 3px 10px rgba(0, 0, 0, 0.55);
+        font-family: var(--font-serif);
+      }
+      #hs-tip[hidden] { display: none; }
+      #hs-tip b { display: block; font-size: 13.5px; }
+      #hs-tip .tier { font-style: italic; color: var(--ink-faint); }
+      #hs-tip .up { color: var(--mood-good); }
+      #hs-tip .down { color: var(--mood-bad); }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="loading-screen" hidden role="dialog" aria-modal="true" aria-labelledby="loading-title" aria-busy="false">
+      <div class="menu-scroll">
+        <h1 id="loading-title" class="menu-title">Forging a new world</h1>
+        <p id="loading-sub" class="menu-sub"></p>
+        <div id="loading-bar" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="loading-fill"></div></div>
+        <div class="loading-line"><span id="loading-stage" aria-live="polite"></span><span id="loading-pct">0%</span></div>
+        <ol id="loading-stages"></ol>
+        <p class="loading-tip"><b>Tip</b><span id="loading-tip"></span></p>
+        <button id="loading-cancel" class="menu-btn secondary">Cancel</button>
+      </div>
+    </div>
+    <div id="main-menu">
+      <div class="menu-scroll">
+        <h1 class="menu-title">The Sworn Game</h1>
+        <p class="menu-sub">A colony at the edge of the Hunger</p>
+        <div id="menu-main" class="menu-panel">
+          <button id="menu-continue" class="menu-btn" hidden>Continue</button>
+          <div class="menu-setting" id="menu-clan">
+            <span>Clan<small class="set-note">Share the colony already here, or start your own elsewhere on the map</small></span>
+            <div id="set-clan" class="seg" role="radiogroup" aria-label="Clan">
+              <button type="button" role="radio" data-clan="join">Join existing clan</button>
+              <button type="button" role="radio" data-clan="new">Found my own clan</button>
+            </div>
+          </div>
+          <button id="menu-start" class="menu-btn">New Game</button>
+          <button id="menu-solo" class="menu-btn secondary" title="Start as the hero alone with a few tools near a settlement: gather, trade, take work, and found a camp when you are ready">New Game (Solo)</button>
+          <button id="menu-creative" class="menu-btn secondary" title="Test environment: infinite resources, instant build, spawn anything (saves only to the Creative slot)">Creative</button>
+          <button id="menu-load" class="menu-btn secondary" hidden>Load Game</button>
+          <button id="menu-settings" class="menu-btn secondary">Settings</button>
+          <button id="menu-exit" class="menu-btn secondary">Exit</button>
+          <p id="menu-bye" class="menu-note" hidden>Thanks for playing. You can close this tab now.</p>
+        </div>
+        <div id="menu-load-panel" class="menu-panel" hidden>
+          <div class="menu-section">Load Game</div>
+          <div id="menu-load-list"></div>
+          <button id="menu-load-back" class="menu-btn secondary">Back</button>
+        </div>
+        <div id="menu-settings-panel" class="menu-panel" hidden>
+          <div class="menu-section">Game</div>
+          <div class="menu-setting">
+            <span>Difficulty<small id="set-difficulty-note" class="set-note">Night monsters' strength and numbers</small></span>
+            <div id="set-difficulty" class="seg" role="radiogroup" aria-label="Difficulty">
+              <button type="button" role="radio" data-difficulty="easy">Easy</button>
+              <button type="button" role="radio" data-difficulty="normal">Normal</button>
+              <button type="button" role="radio" data-difficulty="hard">Hard</button>
+            </div>
+          </div>
+          <div class="menu-setting">
+            <span>Map size<small id="set-mapsize-note" class="set-note">Used by New Game and Restart</small><small id="set-mapsize-warn" class="size-warn" hidden>Colossal: long load, needs a strong PC</small></span>
+            <div id="set-mapsize" class="seg" role="radiogroup" aria-label="Map size">
+              <button type="button" role="radio" data-size="64">Tiny</button>
+              <button type="button" role="radio" data-size="96">Small</button>
+              <button type="button" role="radio" data-size="160">Medium</button>
+              <button type="button" role="radio" data-size="256">Large</button>
+              <button type="button" role="radio" data-size="384">Huge</button>
+              <button type="button" role="radio" data-size="512">Giant</button>
+              <button type="button" role="radio" data-size="1024" title="A streamed world: far regions run abstractly. A loading screen shows while it is made">Vast</button>
+              <button type="button" role="radio" data-size="2048" title="2048 x 2048, streamed. Long load, needs a strong PC">Colossal</button>
+            </div>
+          </div>
+          <div class="menu-section">Display</div>
+          <label class="menu-setting"><span>Show minimap</span><input type="checkbox" id="set-minimap" checked /></label>
+          <label class="menu-setting"><span>Show event notifications</span><input type="checkbox" id="set-events" checked /></label>
+          <label class="menu-setting" title="Close top-down camera locked on your hero (off: the older, wider tactical camera). Applies after a reload"><span>Close adventure camera</span><input type="checkbox" id="set-adventure-cam" checked /></label>
+          <label class="menu-setting" title="Start each game in the bird's-eye strategy view (Tab toggles). Applies after a reload"><span>Start in strategy view</span><input type="checkbox" id="set-start-strategy" /></label>
+          <div class="menu-section">Sound</div>
+          <label class="menu-setting"><span>Master</span><input type="range" id="set-vol-master" min="0" max="100" step="1" /></label>
+          <label class="menu-setting"><span>Music</span><input type="range" id="set-vol-music" min="0" max="100" step="1" /></label>
+          <label class="menu-setting"><span>Effects</span><input type="range" id="set-vol-sfx" min="0" max="100" step="1" /></label>
+          <label class="menu-setting"><span>Mute all sound</span><input type="checkbox" id="set-mute" /></label>
+          <button id="menu-back" class="menu-btn secondary">Back</button>
+        </div>
+      </div>
+    </div>
+    <div id="settings-modal" hidden>
+      <div id="settings-modal-scroll" class="menu-scroll" role="dialog" aria-modal="true" aria-label="Settings">
+        <h2 class="menu-title">Settings</h2>
+        <div id="save-panel" class="menu-panel">
+          <div class="menu-section">Save Game</div>
+          <div id="save-slot-list"></div>
+          <div class="menu-section">Load</div>
+          <div id="save-load-list"></div>
+        </div>
+      </div>
+    </div>
+    <div id="command-bar" hidden>
+      <button class="cmd-btn" data-stance="defensive" title="Defensive (Z)"><img src="/sprites/icon-stance-defensive.png" alt="" />Defensive<kbd>Z</kbd></button>
+      <button class="cmd-btn" data-stance="normal" title="Normal (X)"><img src="/sprites/icon-stance-normal.png" alt="" />Normal<kbd>X</kbd></button>
+      <button class="cmd-btn" data-stance="aggressive" title="Aggressive (E)"><img src="/sprites/icon-stance-aggressive.png" alt="" />Aggressive<kbd>E</kbd></button>
+      <span class="cmd-sep strategy-only"></span>
+      <button class="cmd-btn strategy-only" data-order="attackMove" title="Attack-move: then right-click / right-drag the ground; halts and fights what it meets (Shift+F, or Ctrl+right-click)"><span class="cmd-glyph">&#x2694;</span>Atk-move<kbd>Shift+F</kbd></button>
+      <span class="cmd-sep adventure-only"></span>
+      <button class="cmd-btn adventure-only" data-party="followMe" title="Follow me: the selected party follows your hero (Shift+G). Right-click the ground to move, an enemy to attack it"><span class="cmd-glyph">&#x27A4;</span>Follow me<kbd>Shift+G</kbd></button>
+      <span class="cmd-hint adventure-only">Large force: Tab for full regiment orders</span>
+      <button class="cmd-btn strategy-only party-ok" data-order="hold" title="Hold position: stand and fight from the slot (Shift+H; Shift+click queues)"><span class="cmd-glyph">&#x25C6;</span>Hold<kbd>Shift+H</kbd></button>
+      <button class="cmd-btn strategy-only" data-order="retreat" title="Retreat to the nearest Town Center, fighting only when cornered (Shift+R; Shift+click queues)"><span class="cmd-glyph">&#x21B6;</span>Retreat<kbd>Shift+R</kbd></button>
+      <button class="cmd-btn strategy-only" data-order="follow" title="Follow: then right-click a friendly unit or rider (Shift+G)"><span class="cmd-glyph">&#x27A4;</span>Follow<kbd>Shift+G</kbd></button>
+      <button class="cmd-btn strategy-only" data-order="charge" title="Charge: then right-click an enemy; knights / cavalry / champions run at it at full speed (Shift+C)"><span class="cmd-glyph">&#x21E2;</span>Charge<kbd>Shift+C</kbd></button>
+      <button class="cmd-btn strategy-only" data-order="bombard" title="Bombard: then right-click the ground; catapults shell that point every reload (Shift+B). Right-click a camp hearth to besiege it"><span class="cmd-glyph">&#x2739;</span>Bombard<kbd>Shift+B</kbd></button>
+      <span class="cmd-sep strategy-only"></span>
+      <button class="cmd-btn strategy-only" data-setting="holdFire" title="Hold fire: archers, catapults and hero auto-spells only shoot what they are ordered to (Shift+T)"><span class="cmd-glyph">&#x2298;</span>Hold fire<kbd>Shift+T</kbd></button>
+      <button class="cmd-btn strategy-only" data-setting="skirmish" title="Skirmish: ranged units back off from melee within 4 tiles (Shift+V)"><span class="cmd-glyph">&#x21C4;</span>Skirmish<kbd>Shift+V</kbd></button>
+      <button class="cmd-btn strategy-only" data-setting="cycleCharge" title="Cycle charge: on a charge order, cavalry withdraw after the blow and charge again (Alt+C)"><span class="cmd-glyph">&#x21BB;</span>Cycle<kbd>Alt+C</kbd></button>
+      <button class="cmd-btn strategy-only party-ok" data-setting="shape" title="Formation shape: Line / Block / Wedge / Loose (Shift+Q cycles)"><span class="cmd-glyph">&#x25B3;</span><span class="cmd-shape">Shape</span><kbd>Shift+Q</kbd></button>
+    </div>
+    <div id="spell-bar" hidden></div>
+    <div id="hero-bar">
+      <div id="hb-name">Hero</div>
+      <div class="hb-meter"><div id="hb-hp" class="hb-fill"></div><span id="hb-hp-text"></span></div>
+      <div class="hb-meter xp"><div id="hb-xp" class="hb-fill"></div></div>
+      <div class="hb-keys">
+        <button class="cmd-btn" id="hb-attack" title="Swing at the nearest enemy (Space)">Attack<kbd>Space</kbd></button>
+        <button class="cmd-btn" id="hb-interact" title="Open the building next to you (Enter)">Interact<kbd>Enter</kbd></button>
+        <span class="hb-hint">Tab: strategy</span>
+      </div>
+    </div>
+    <div id="time-status" hidden></div>
+    <div id="control-buttons">
+      <button id="strategy-btn" class="control-btn" title="Toggle the bird's-eye strategy view and the close adventure view (Tab)">Command</button>
+      <button id="pause-btn" class="control-btn" title="Pause / resume for everyone (Shift+Space)">Pause</button>
+      <span id="time-controls">
+        <button class="control-btn" data-scale="0.25" title="Quarter speed for everyone (Shift+[ slower, Shift+] faster)">&#xBC;</button>
+        <button class="control-btn" data-scale="0.5" title="Half speed for everyone (Shift+[ slower, Shift+] faster)">&#xBD;</button>
+        <button class="control-btn" data-scale="1" title="Normal speed (Shift+[ slower, Shift+] faster)">1x</button>
+        <button class="control-btn" data-scale="2" title="Double speed for everyone (Shift+[ slower, Shift+] faster)">2x</button>
+      </span>
+      <button id="craft-btn" class="control-btn" title="Crafting: make tools and goods by hand (Shift+C)">Craft</button>
+      <button id="hero-btn" class="control-btn" title="Hero sheet: character, pack and family (` key, or click your hero)">Hero</button>
+      <button id="quests-btn" class="control-btn" title="Settlement quests: help requests from nearby villages">Quests</button>
+      <button id="work-btn" class="control-btn" title="Work: job priorities per villager (who farms, builds, hauls, cuts wood ...)">Work</button>
+      <button id="chronicle-btn" class="control-btn" title="Chronicle: news from the wider world (raids, caravans, camps, settlements)">Chronicle</button>
+      <div id="menu-dropdown">
+        <button id="menu-btn" class="control-btn" aria-haspopup="true" aria-expanded="false">Menu &#x25BE;</button>
+        <div id="menu-dropdown-list" role="menu" hidden>
+          <button id="restart-btn" class="menu-item" role="menuitem">Restart</button>
+          <button id="save-btn" class="menu-item" role="menuitem" title="Quick save to your last-used slot">Save</button>
+          <button id="settings-btn" class="menu-item" role="menuitem">Settings</button>
+          <button id="return-menu-btn" class="menu-item" role="menuitem" title="Leave the game and go back to the main menu">Return to menu</button>
+        </div>
+      </div>
+    </div>
+    <div id="hero-modal" hidden>
+      <div id="hero-sheet" class="menu-scroll" role="dialog" aria-modal="true" aria-label="Character sheet">
+        <button id="hs-close" aria-label="Close">×</button>
+        <h2 class="menu-title" id="hs-title">Character</h2>
+        <div id="hs-tabs" class="hs-tabs"></div>
+        <div class="hs-cols">
+        <div class="hs-col hs-left">
+          <div class="menu-section">Pack <span id="hs-invcount"></span></div>
+          <div id="hs-inv" class="hs-inv"></div>
+          <div class="menu-section">Take from the armoury</div>
+          <div id="hs-armoury" class="hs-armoury"></div>
+          <div id="hs-life" class="hl-box"></div>
+        </div>
+        <div class="hs-body">
+          <div id="hs-doll" class="hs-doll"></div>
+          <div class="hs-right">
+            <div class="hs-level">Level <span id="hs-level">1</span></div>
+            <div class="hs-xpbar"><div id="hs-xpfill" class="hs-xpfill" style="width: 0%"></div></div>
+            <div id="hs-xptext" class="hs-xptext"></div>
+            <div id="hs-stats" class="hs-stats"></div>
+            <div class="menu-section">Spells <span class="hs-spellhint">(click a spell, then a spell slot)</span></div>
+            <div id="hs-spellbook" class="hs-inv"></div>
+            <button id="hs-spell-auto" class="hs-auto" hidden>Auto-cast: On</button>
+            <div id="hs-needs" class="hl-box"></div>
+            <div id="hs-skills" class="hl-box"></div>
+          </div>
+        </div>
+        <div class="hs-col hs-family-col"><div id="hs-family" class="hl-box"></div></div>
+        </div>
+      </div>
+      <div id="hs-tip" hidden></div>
+    </div>
+    <div id="event-feed" aria-live="polite"></div>
+    <div id="fight-arrows"></div>
+    <div id="building-panel" role="dialog" aria-label="Building" hidden>
+      <div class="bp-head"><span id="bp-name"></span><span id="bp-level"></span><button id="bp-close" aria-label="Close">×</button></div>
+      <div id="bp-staffing" class="bp-row"></div>
+      <div id="bp-hp" class="bp-row" hidden></div>
+      <div id="bp-construction" class="bp-row" hidden></div>
+      <div id="bp-work-row" hidden>
+        <div class="menu-section" style="margin-top: 8px">Workers</div>
+        <div id="bp-work-list"></div>
+        <button id="bp-work-assign" class="econ-btn">Assign worker</button>
+        <div id="bp-work-cands" hidden></div>
+      </div>
+      <div class="menu-section" style="margin-top: 8px">Bonuses</div>
+      <ul id="bp-bonuses"></ul>
+      <div id="bp-upgrade-row" hidden>
+        <button id="bp-upgrade" class="econ-btn">Upgrade</button><span id="bp-upgrade-cost"></span>
+      </div>
+      <div id="bp-repair-row" hidden>
+        <button id="bp-repair" class="econ-btn">Repair</button><span id="bp-repair-cost"></span>
+      </div>
+      <div id="bp-keep-row" hidden>
+        <button id="bp-keep-rebuild" class="econ-btn">Rebuild keep</button><span id="bp-keep-state"></span>
+      </div>
+      <div id="bp-gate-row" hidden>
+        <button id="bp-gate-lock" class="econ-btn">Lock: Auto</button><span id="bp-gate-state"></span>
+      </div>
+      <div id="bp-levy-row" hidden>
+        <button id="bp-levy" class="econ-btn">Call to arms</button>
+        <span id="bp-levy-state"></span>
+      </div>
+      <div id="bp-train-row" hidden>
+        <button id="bp-train" class="econ-btn">Train unit</button>
+        <span id="bp-train-state"></span>
+      </div>
+      <div id="bp-siege-row" hidden>
+        <button id="bp-siege-batteringRam" class="econ-btn">Build Ram</button>
+        <button id="bp-siege-catapult" class="econ-btn">Build Catapult</button>
+        <span id="bp-siege-state"></span>
+      </div>
+      <div id="bp-forge-row" hidden>
+        <button id="bp-forge-armour" class="econ-btn">Forge Armour</button>
+        <button id="bp-forge-weapon" class="econ-btn">Forge Weapon</button>
+        <button id="bp-forge-auto" class="econ-btn" title="Keep forging to hold the stock at the target (never spends iron / wood below the reserve)">Autocraft: Off</button>
+        <button id="bp-forge-auto-less" class="econ-btn" title="Lower the autocraft target">-</button>
+        <button id="bp-forge-auto-more" class="econ-btn" title="Raise the autocraft target">+</button>
+        <span id="bp-forge-state"></span>
+        <span id="bp-forge-auto-state"></span>
+      </div>
+      <div id="bp-heroes-row" hidden>
+        <button id="bp-hero-champion" class="econ-btn">Recruit Champion</button>
+        <button id="bp-hero-marksman" class="econ-btn">Recruit Marksman</button>
+        <button id="bp-hero-mage" class="econ-btn">Recruit Mage</button>
+        <span id="bp-heroes-state"></span>
+      </div>
+      <div id="bp-spells-row" hidden></div>
+      <div id="bp-wagon-row" hidden>
+        <div id="bp-wagon-status"></div>
+        <div id="bp-wagon-escort"></div>
+        <select id="bp-wagon-dest" title="Where the next trip goes (Auto: best gold for the danger)"></select>
+        <button id="bp-wagon-send" class="econ-btn">Send trader now</button>
+        <button id="bp-wagon-recall" class="econ-btn">Recall</button>
+        <button id="bp-wagon-auto" class="econ-btn" title="Leave every morning with the surplus goods">Auto-send: On</button>
+        <ul id="bp-wagon-dests"></ul>
+      </div>
+      <div id="bp-vassal-row" hidden>
+        <div id="bp-vassal-power"></div>
+        <button id="bp-vassal-call" class="econ-btn" title="Half its guards join you for a day (in strategy mode: they follow your selected army; else you)">Call to arms</button>
+        <button id="bp-vassal-dismiss" class="econ-btn" title="Send the levy home now">Dismiss levy</button>
+        <span id="bp-vassal-levy"></span>
+        <div><button id="bp-vassal-tax" class="econ-btn" title="Take a share of their stock and purse every 2 days (costs relation)">Demand tribute: Off</button> <span id="bp-vassal-tax-state"></span></div>
+        <div id="bp-vassal-ledger"></div>
+      </div>
+      <div id="bp-trade-row" hidden>
+        <button id="bp-trade-open" class="econ-btn">Trade</button><span id="bp-trade-state"></span>
+      </div>
+    </div>
+    <div id="trade-panel" role="dialog" aria-label="Trade" hidden>
+      <div class="bp-head"><span id="tp-name"></span><button id="tp-close" aria-label="Close">×</button></div>
+      <div id="tp-relation" class="bp-row"></div>
+      <div id="tp-reason" class="bp-row"></div>
+      <table id="tp-goods">
+        <thead><tr><th>Good</th><th title="Their stock / cap">Stock</th><th title="Gold per unit you pay">Buy</th><th></th><th title="Gold per unit you get">Sell</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="tp-foot" class="bp-row"></div>
+    </div>
+    <div id="quest-panel" role="dialog" aria-label="Quests" hidden>
+      <div class="bp-head"><span id="qp-title">Quests</span><button id="qp-close" aria-label="Close">×</button></div>
+      <div id="qp-empty" class="bp-row">No settlement needs you right now. Villages you have sighted post requests for help from time to time.</div>
+      <div id="qp-list"></div>
+      <div id="qp-foot" class="bp-row">Completing a quest pays gold and earns relation (up to 12 a day). Failing, abandoning or ignoring one costs relation.</div>
+    </div>
+    <div id="craft-panel" role="dialog" aria-label="Crafting" hidden>
+      <div class="bp-head"><span>Crafting</span><button id="craft-close" aria-label="Close">×</button></div>
+      <div id="craft-list"></div>
+      <div id="craft-items" class="bp-row"></div>
+      <div class="bp-row craft-foot">Hand crafts are made at once from your stores (Shift+C). Hides come from a Hunter's Hut's kills (also pasture animals and game you hunt yourself).</div>
+    </div>
+    <div id="demolish-confirm" role="dialog" aria-label="Confirm demolish" hidden>
+      <span id="demolish-confirm-text"></span>
+      <button id="demolish-confirm-ok" class="econ-btn">Confirm demolish</button>
+      <button id="demolish-confirm-cancel" class="econ-btn">Cancel</button>
+    </div>
+    <div id="next-bar" hidden>
+      <span class="nb-label">Next</span>
+      <span id="next-bar-text"></span>
+      <button id="next-bar-toggle" aria-expanded="false" aria-controls="progress-tree" title="Every progression chain, step by step">Progression &#x25BE;</button>
+    </div>
+    <div id="progress-tree" role="dialog" aria-label="Progression" hidden></div>
+    <div id="work-panel" role="dialog" aria-label="Work" hidden>
+      <div class="bp-head"><span id="wp-title">Work</span><button id="wp-close" aria-label="Close">×</button></div>
+      <div class="wp-bar">
+        <button id="wp-mode" title="Off: every job is on or off, priorities follow each person's post and skills. On: set numbers 1 (first) to 4 per job">Manual priorities: off</button>
+        <label>Sort <select id="wp-sort"><option value="name">Name</option></select></label>
+      </div>
+      <div id="wp-table"></div>
+      <div id="wp-foot" class="bp-row">Free villagers take the best-priority job on offer, nearest first; a worker keeps its post while that job is on. Superscript = skill level. Column header: everyone on / off.</div>
+    </div>
+    <div id="person-card" role="dialog" aria-label="Villager" hidden>
+      <div class="bp-head"><span id="pc-name"></span><button id="pc-close" aria-label="Close">×</button></div>
+      <div id="pc-role"></div>
+      <div id="pc-job"></div>
+      <div id="pc-pri"></div>
+      <div id="pc-posts" hidden></div>
+      <button id="pc-assign" hidden>Assign to...</button>
+      <button id="pc-unassign" hidden>Unassign</button>
+      <button id="pc-open">Work tab</button>
+    </div>
+    <div id="chronicle-panel" role="dialog" aria-label="Chronicle" hidden>
+      <div class="bp-head"><span id="cp-title">Chronicle</span><button id="cp-close" aria-label="Close">×</button></div>
+      <div id="cp-empty" class="bp-row">Nothing of note has reached you yet. News from far-off camps, caravans and settlements is written here.</div>
+      <div id="cp-list"></div>
+      <div id="cp-foot" class="bp-row">Most recent first. Entries marked "while you were away" arrived since you last read the chronicle.</div>
+    </div>
+    <div id="heir-picker" hidden>
+      <div class="menu-scroll" role="dialog" aria-modal="true" aria-label="Choose an heir">
+        <h1 class="menu-title">The Hero Has Fallen</h1>
+        <p class="menu-sub">Choose an heir to carry on. They keep half the hero's experience and half the colony's gold.</p>
+        <div id="heir-list"></div>
+      </div>
+    </div>
+    <div id="game-over" hidden>
+      <div class="menu-scroll" role="dialog" aria-modal="true" aria-label="Game over">
+        <h1 class="menu-title">The Colony Has Fallen</h1>
+        <p class="menu-sub">You fell, and nobody is left to carry on.</p>
+        <button id="game-over-restart" class="menu-btn">Restart</button>
+      </div>
+    </div>
+    <div id="build-panel-toggle">Build</div>
+    <div id="build-panel" class="collapsed">
+      <div id="build-category-tabs"></div>
+      <div id="build-requirements">Select a tool to see its cost.</div>
+      <div id="progress-panel" hidden>
+        <div id="progress-crafts"></div>
+      </div>
+      <div id="toolbar"></div>
+    </div>
+    <div id="minimap-frame"><canvas id="minimap" width="160" height="160" aria-label="Minimap"></canvas></div>
+    <div id="regiment-cards" aria-label="Regiments"></div>
+    <div id="goal-tracker" aria-live="polite" hidden>
+      <div class="goal-heading"><span>Goal</span><span id="goal-step"></span></div>
+      <div id="goal-title"></div>
+      <div class="goal-progress"><div id="goal-progress-fill"></div></div>
+      <div id="goal-progress-text"></div>
+    </div>
+    <div id="player-bar" hidden>
+      <div id="player-bar-label"></div>
+      <div class="player-bar-track"><div id="player-bar-fill"></div></div>
+    </div>
+    <div id="boss-bar" hidden>
+      <div id="boss-bar-name"></div>
+      <div class="boss-bar-track"><div id="boss-bar-fill"></div></div>
+    </div>
+    <div id="economy-panel-toggle" class="panel-open">Colony</div>
+    <div id="economy-panel">
+      <div id="colony-stats">
+        <div class="econ-row"><span>Pop</span><span id="stat-pop">0/0</span></div>
+        <div id="stat-settlements" title="Population per settlement (Town Center). Soldiers count too. A full settlement can't take new workers or soldiers until its Town Center is upgraded or a Keep is built."></div>
+        <div class="econ-row time-row">
+          <span class="time-cell">
+            <svg id="sundial" viewBox="-18 -18 36 36" aria-hidden="true">
+              <circle class="face" r="16" />
+              <path id="sundial-night-arc" class="night-arc" />
+              <line class="tick" x1="0" y1="-15" x2="0" y2="-11" />
+              <line class="tick" x1="15" y1="0" x2="11" y2="0" />
+              <line class="tick" x1="0" y1="15" x2="0" y2="11" />
+              <line class="tick" x1="-15" y1="0" x2="-11" y2="0" />
+              <g id="sundial-hand"><line class="shadow" x1="0" y1="0" x2="0" y2="-12" /></g>
+              <circle class="gnomon" r="2.6" />
+            </svg>
+            <span id="stat-time">Day</span>
+          </span>
+          <span id="stat-happiness">Happiness: 100%</span></div>
+        <div class="econ-row" id="stat-calendar" title="Calendar: 4 seasons of 7 days. Crops grow only in their season (wheat spring to mid-autumn, hemp summer); winter stops outdoor crops and the first frost kills growing ones unless roofed. Rain waters every unroofed crop.">
+          <span class="cal-cell"><img id="cal-season-icon" alt="" /><span id="stat-date">Spring 1, Year 1</span></span>
+          <span class="cal-cell"><img id="cal-weather-icon" alt="" /><span id="stat-weather">Clear</span></span>
+        </div>
+        <div id="stat-army">Knights 0  Archers 0  Militia 0  Bishops 0</div>
+        <div id="stat-equipment" title="Armour and weapons in stock by tier (T1/T2/T3). Knights, spearmen, pikemen and cavalry take the best of each when they muster; with none they fight unequipped. Forge more at a Blacksmith (tier = its level), or loot armoured foes and camps."></div>
+        <div id="stat-builders" title="Builders working / total">Builders 0/0</div>
+        <div id="stat-respawn" title="Fallen units return together at dawn and at dusk">Respawns at dawn / dusk</div>
+        <div id="stat-difficulty"></div>
+        <div id="stat-selected" hidden></div>
+      </div>
+      <div id="goods-scroll">
+        <div id="goods-list"></div>
+        <div id="market-section" class="econ-section" hidden>
+          <div class="econ-heading">Market</div>
+          <div id="market-btns" class="econ-btns"></div>
+        </div>
+        <div id="gold-shop-section" class="econ-section" hidden>
+          <div class="econ-heading">Gold Shop</div>
+          <div id="gold-shop-btns" class="econ-btns"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

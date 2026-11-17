@@ -1,0 +1,19 @@
+WORKERS A — 2026-11-11 — ART DRAFT, NOT GAME-READY
+Reference: hunter 02 autumn tracker and approved cross-category art sheet.
+Generated with built-in image tool; 8 columns x 3 rows.
+Rows: farmer, farmhand, lumberjack.
+Columns: four intended walk frames, three profession action frames, one idle.
+Actions: farmer sickle harvest; farmhand hoe/tend; lumberjack axe chop.
+
+Visual review: coordinated palette and outfits, generally matched stature.
+Outstanding: background removal did not succeed; visible brown backdrop remains.
+Walk passing poses still too similar; not verified as a seamless four-frame loop.
+Exact body dimensions, foot pivots and native-size rendering not yet validated.
+No crimson hurt frames in this sheet; shared hit/wound atlas remains planned.
+Not sliced, wired, or suitable for required asset loading. No live changes.
+
+Prompt specification: same hunter proportions/palette/shading; exact 8x3 layout;
+four alternating-stride walk poses, anticipation/impact/recovery, idle; stable
+head scale, fixed foot baseline, same tools/outfits, generous transparent gutters.
+Follow-up requested corrected alternating limbs, then background extraction.
+Those requests did not fully resolve the outstanding issues above.

@@ -1,0 +1,144 @@
+[
+  {
+    "name": "walls-doors",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "exterior-timber-00-07",
+      "exterior-timber-08-15",
+      "exterior-stone-00-07",
+      "exterior-stone-08-15",
+      "palisade-00-07",
+      "palisade-08-15",
+      "reinforced-stone-00-07",
+      "reinforced-stone-08-15"
+    ],
+    "detectGutters": true
+  },
+  {
+    "name": "interior-walls",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "interior-timber-00-07",
+      "interior-timber-08-15",
+      "plaster-00-07",
+      "plaster-08-15",
+      "dressed-stone-00-07",
+      "dressed-stone-08-15",
+      "brick-00-07",
+      "brick-08-15"
+    ],
+    "detectGutters": true
+  },
+  {
+    "name": "exterior-walls-damaged",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "exterior-timber-00-07",
+      "exterior-timber-08-15",
+      "exterior-stone-00-07",
+      "exterior-stone-08-15",
+      "palisade-00-07",
+      "palisade-08-15",
+      "reinforced-stone-00-07",
+      "reinforced-stone-08-15"
+    ],
+    "detectGutters": true
+  },
+  {
+    "name": "interior-walls-damaged",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "interior-timber-00-07",
+      "interior-timber-08-15",
+      "plaster-00-07",
+      "plaster-08-15",
+      "dressed-stone-00-07",
+      "dressed-stone-08-15",
+      "brick-00-07",
+      "brick-08-15"
+    ],
+    "detectGutters": true
+  },
+  {
+    "name": "wall-kit-doors",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "exterior-timber",
+      "exterior-stone",
+      "palisade",
+      "reinforced-stone",
+      "interior-timber",
+      "plaster",
+      "dressed-stone",
+      "brick"
+    ],
+    "detectGutters": true
+  },
+  {
+    "name": "wall-kit-windows",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "exterior-timber",
+      "exterior-stone",
+      "palisade",
+      "reinforced-stone",
+      "interior-timber",
+      "plaster",
+      "dressed-stone",
+      "brick"
+    ],
+    "detectGutters": true
+  },
+  {
+    "name": "wall-kit-construction",
+    "cols": 10,
+    "rows": 8,
+    "rowNames": [
+      "exterior-timber",
+      "exterior-stone",
+      "palisade",
+      "reinforced-stone",
+      "interior-timber",
+      "plaster",
+      "dressed-stone",
+      "brick"
+    ],
+    "detectGutters": true
+  },
+  {
+    "name": "wall-kit-finishing",
+    "cols": 8,
+    "rows": 8,
+    "rowNames": [
+      "timber-arches",
+      "stone-arches",
+      "cutaway-caps",
+      "end-caps",
+      "transitions",
+      "trim",
+      "buttresses-pillars-corners",
+      "sills-eaves-vents"
+    ],
+    "detectGutters": true
+  },
+  {
+    "name": "openings-fences-damage-xy",
+    "cols": 8,
+    "rows": 6,
+    "rowNames": [
+      "wood-openings",
+      "stone-openings",
+      "gates",
+      "fences",
+      "wood-stone-damage",
+      "palisade-reinforced-damage"
+    ],
+    "detectGutters": true
+  }
+]

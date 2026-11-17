@@ -1,0 +1,106 @@
+[
+ {
+  "name": "torso.tunic",
+  "status": "CHECK",
+  "size": "22x36",
+  "scale": "0.12",
+  "pivot": "10.5,31",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "torso.t1",
+  "status": "CHECK",
+  "size": "22x36",
+  "scale": "0.12",
+  "pivot": "11,31",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "torso.t2",
+  "status": "CHECK",
+  "size": "22x36",
+  "scale": "0.12",
+  "pivot": "11,31",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "torso.t3",
+  "status": "CHECK",
+  "size": "23x36",
+  "scale": "0.12",
+  "pivot": "11,31",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "torsoF.tunic",
+  "status": "CHECK",
+  "size": "18x36",
+  "scale": "0.10",
+  "pivot": "8.5,32",
+  "notes": [
+   "dropped 172 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "torsoF.t1",
+  "status": "CHECK",
+  "size": "18x36",
+  "scale": "0.10",
+  "pivot": "9,32",
+  "notes": [
+   "dropped 238 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "torsoF.t2",
+  "status": "CHECK",
+  "size": "18x36",
+  "scale": "0.10",
+  "pivot": "9,32",
+  "notes": [
+   "dropped 1286 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "torsoF.t3",
+  "status": "CHECK",
+  "size": "18x36",
+  "scale": "0.10",
+  "pivot": "9,32",
+  "notes": [
+   "dropped 640 stray px",
+   "touches the cell edge (cropped?)"
+  ]
+ },
+ {
+  "name": "pelvis.trousers",
+  "status": "ok",
+  "size": "11x14",
+  "scale": "0.05",
+  "pivot": "5.5,8",
+  "notes": [
+   "dropped 2528 stray px"
+  ]
+ },
+ {
+  "name": "pelvis.bare",
+  "status": "CHECK",
+  "size": "11x14",
+  "scale": "0.05",
+  "pivot": "5.5,3.5",
+  "notes": [
+   "touches the cell edge (cropped?)"
+  ]
+ }
+]

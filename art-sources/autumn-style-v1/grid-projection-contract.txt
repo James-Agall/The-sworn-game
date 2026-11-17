@@ -1,0 +1,20 @@
+COLONY2D — REQUIRED WORLD PROJECTION
+User correction, 2026-11-11. This overrides the earlier mixed-angle references.
+
+X = screen left/right. Y = screen up/down. No isometric world rotation.
+Ground, floors, roads, water and roof footprints are axis-aligned squares or
+rectangles. Flat tile interiors are opaque; atlas gutters are transparent.
+Walls run exactly horizontally or vertically. N/E/S/W joins use up/right/down/
+left, with right-angle L corners, T junctions and plus intersections.
+Upright facades use vertical posts and horizontal bases. Depth recedes straight
+up-screen. Buildings never use diamond foundations or diagonally receding sides.
+Roof slopes and triangular gables may exist in the vertical elevation; they must
+not rotate the footprint off the world grid. Furniture uses the same footprint
+axes. Organic trees/rocks/animals need not have rectangular silhouettes.
+Wildlife has NO saddles, packs, tack or riders. Mounted combat units remain a
+separate category and may have intentional riding equipment.
+
+Palette/style references establish colors, shading and character treatment ONLY.
+Do not inherit their old perspective. Inspect the generated result, not merely
+the prompt. Grid packing alone does not prove correct world projection.
+Before runtime integration verify actual cell dimensions, pivots and tile joins.
