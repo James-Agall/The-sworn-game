@@ -9,6 +9,7 @@
 // Gap closure G5: NPCs move by `interiorNpcs` (eased), walk with their kind's walk frames, work with its action frames
 // (or a stand-in tool swing), bob when idle, sit lower on a chair, lie across a bed asleep ("z"), face where they go
 // and show a speech bubble when they greet. Stairs ("U" / "D") are drawn in code; upstairs has no exit hint.
+import { loadTexture } from "./atlas";
 import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { TileType, type PlayerSnapshot } from "@colony/shared/protocol";
 import {
@@ -159,7 +160,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     const url = `${EXTRA}${name}.png`;
     if (extra.has(url)) return extra.get(url) ?? undefined;
     extra.set(url, null);
-    Assets.load<Texture>(url)
+    loadTexture(url)
       .then((t) => {
         if (!t) return;
         t.source.scaleMode = "nearest";

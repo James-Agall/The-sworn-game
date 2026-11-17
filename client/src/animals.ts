@@ -4,6 +4,7 @@
 // building panel (BuildingInfo.animals: animals with bars, feed / water, products, buy / slaughter / rename).
 // Gap closure G6: a ridden horse (LF_RIDDEN) is drawn at its rider (stand-in for mounted-hero art, SPRITES.md); the
 // panel adds Sell (price) / Ride per animal and "Call them in" / "Let them out".
+import { loadTexture } from "./atlas";
 import { Assets, Container, Sprite, Texture } from "pixi.js";
 import {
   HF_FEED_LOW, HF_PRODUCTS, HF_WATER_LOW, HOUSE_STRIDE, LF_BABY, LF_HUNGRY, LF_MALE, LF_MOVING, LF_RIDDEN, LF_SICK, LF_THIRSTY,
@@ -33,7 +34,7 @@ async function loadAll() {
   for (const a of Object.values(LIVESTOCK_ART)) [a.adult, a.male, a.baby].forEach((u) => u && urls.add(u));
   for (const url of urls) {
     try {
-      const t = await Assets.load<Texture>(url);
+      const t = await loadTexture(url);
       if (t) tex.set(url, t);
     } catch {
       // Missing: the stand-in is used.

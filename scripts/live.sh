@@ -63,7 +63,7 @@ snapshot() {
     ln -s "$m" "$LIVE/node_modules/$(basename "$m")"
   done
   ln -s ../../shared "$LIVE/node_modules/@colony/shared"
-  (cd "$REPO/client" && npx vite build --outDir "$LIVE/client/dist" --emptyOutDir) >"$LIVE/build.log" 2>&1 \
+  (cd "$REPO" && node scripts/pack-atlas.mjs && cd client && npx vite build --outDir "$LIVE/client/dist" --emptyOutDir) >"$LIVE/build.log" 2>&1 \
     || { echo "Client build failed, see $LIVE/build.log"; tail -15 "$LIVE/build.log"; return 1; }
 }
 

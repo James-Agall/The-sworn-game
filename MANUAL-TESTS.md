@@ -1201,3 +1201,19 @@ Check new-game human scale, each troop tier walking/attacking, cardinal hero too
 8. Wolves, spiders, goblin riders, deer, rabbits and boars: whole bodies, no ears / legs of another animal nearby.
 9. Open /sprite-preview.html: pick a sheet and row, the animation plays with the feet on one line; the hero in the
    cave scene is not squashed.
+
+## Performance plan — 2026-11-17 (browser checklist; plan in ~/docs/colony2d/PERF-PLAN.md)
+Open the game with `?perf=1` (e.g. `http://localhost:5173/?perf=1`); a small readout shows frame ms, the gap between server
+snapshots, parse time, main-thread stalls over 50 ms, and unit / display-object counts. P hides it.
+1. Atlas / load time: `npm run dev` (or live.sh update) prints "atlas: 4540 sprites -> 5 sheet(s)". Open the browser Network
+   tab: the page should load about 5 `/atlas/sheet-*.png` files and `manifest.json` instead of ~4,500 `/sprites/*.png`. Note
+   the time from opening the page to the menu. Look at every screen for wrong or garbled sprites, a thin line at sprite
+   edges, or a whole sheet drawn instead of one sprite (hero menu, creator, buildings, interiors, animals, wall / road
+   tiles, UI icons). If anything is wrong: delete `client/public/atlas/` and reload; the game falls back to single files.
+2. Culling: zoom out and pan over a big army or a busy village; nothing should pop in at the screen edge or vanish while
+   still on screen. `display objects` in the readout stays high (they exist), but frame time should drop.
+3. Dot view (now on by default above 400 units when zoomed out below 0.6): in a big fight the soldiers / goblins show as
+   blue (your clan) and red dots; zooming in restores sprites and health bars. `?battleLod=0` turns it off. Report if the
+   dots flicker, lag behind the units, or leave a ghost sprite after you zoom in.
+4. Record numbers for a big battle (spawn one with creative mode, or a raid): frame avg / worst, snapshot gap avg / worst,
+   long tasks. A steady snapshot gap near 50 ms with a bad frame time = client problem; a wobbling gap = server / network.

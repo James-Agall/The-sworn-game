@@ -1,3 +1,4 @@
+import { loadTexture } from "./atlas";
 import { Assets, Texture } from "pixi.js";
 
 // Optional art: one missing sheet must never prevent the game from loading.
@@ -38,7 +39,7 @@ export function loadAutumnSheet(sheet: string): Promise<void> {
       const job = jobs.pop()!;
       try {
         const url = `/sprites/autumn/frames/${sheet}/${job.name}-${String(job.column + 1).padStart(2, "0")}.png`;
-        const texture = await Assets.load<Texture>(url);
+        const texture = await loadTexture(url);
         texture.source.scaleMode = "nearest";
         textures.set(key(sheet, job.row, job.column), texture);
       } catch { /* Existing sprites remain the fallback. */ }

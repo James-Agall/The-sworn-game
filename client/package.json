@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite"
+    "predev": "node ../scripts/pack-atlas.mjs",
+    "dev": "vite",
+    "pack-atlas": "node ../scripts/pack-atlas.mjs --force"
   },
   "dependencies": {
     "@colony/shared": "*",

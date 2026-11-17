@@ -1,4 +1,6 @@
+import { loadTexture, loadTextures } from "./atlas";
 import "./characterCreator.css";
+import { initPerfOverlay } from "./perfOverlay";
 import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
 import { chooseCharacter, renderCharacterEditor } from "./characterCreator";
 import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS, type HeroAppearance } from "@colony/shared/protocol";
@@ -224,6 +226,7 @@ let enforceGameMode = false;
 async function main() {
   const app = new Application();
   await app.init({ background: "#1a1a1a", resizeTo: window });
+  const perf = initPerfOverlay(app);
   document.getElementById("app")!.appendChild(app.canvas);
 
   const colonistUrls = COLONIST_KINDS.map((kind) => COLONIST_STATIC_URL_OVERRIDES[kind] ?? `/sprites/${kind}.png`);
@@ -273,7 +276,7 @@ async function main() {
     await Promise.all(
       urls.map(async (url) => {
         try {
-          const texture = await Assets.load<Texture>(url);
+          const texture = await loadTexture(url);
           if (texture) {
             texture.source.scaleMode = "nearest";
             out[url] = texture;
@@ -315,7 +318,7 @@ async function main() {
   ]);
   // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
   // and each URL should be requested once and resolve to one shared Texture.
-  const loadedTextures = await Assets.load<Texture>(
+  const loadedTextures = await loadTextures(
     Array.from(
       new Set([
         ...colonistUrls,
@@ -2254,12 +2257,27 @@ async function main() {
     }
   }
 
+  // No per-call array (this runs for every unit every frame; the old array literal was constant GC churn).
+  const nudgePart = (part: Container | undefined, dx: number, dy: number) => {
+    if (part) part.position.set(part.position.x + dx, part.position.y + dy);
+  };
   function shiftVisual(e: EntityVisual, dx: number, dy: number) {
     if (dx === 0 && dy === 0) return;
-    for (const part of [e.sprite, e.hpBar, e.marker, e.wound, e.aura, e.sigil, e.markLabel, e.bossLabel, e.heroLabel, e.load, e.questMark]) {
-      if (part) part.position.set(part.position.x + dx, part.position.y + dy);
-    }
+    nudgePart(e.sprite, dx, dy);
+    nudgePart(e.hpBar, dx, dy);
+    nudgePart(e.marker, dx, dy);
+    nudgePart(e.wound, dx, dy);
+    nudgePart(e.aura, dx, dy);
+    nudgePart(e.sigil, dx, dy);
+    nudgePart(e.markLabel, dx, dy);
+    nudgePart(e.bossLabel, dx, dy);
+    nudgePart(e.heroLabel, dx, dy);
+    nudgePart(e.load, dx, dy);
+    nudgePart(e.questMark, dx, dy);
   }
+  // Units the culling ticker (below) currently keeps out of the draw; the interpolation loop skips them too. A skipped
+  // unit's offset is unchanged, so it catches up in one step when it comes back into view.
+  const culledUnits = new WeakSet<EntityVisual>();
 
   function interpBeforeSnapshot() {
     const now = performance.now();
@@ -2303,7 +2321,7 @@ async function main() {
     for (const map of interpMaps) {
       for (const e of map.values()) {
         const ip = e.ip;
-        if (!ip) continue;
+        if (!ip || culledUnits.has(e)) continue;
         const ox = (ip.fx - ip.tx) * (1 - t);
         const oy = (ip.fy - ip.ty) * (1 - t);
         shiftVisual(e, ox - ip.ox, oy - ip.oy);
@@ -2317,7 +2335,8 @@ async function main() {
   // than BATTLE_LOD_UNITS soldiers + mobs drawn and the camera zoomed out below BATTLE_LOD_ZOOM, every soldier /
   // mob is one dot in a single Graphics (its clan's colour; mobs red) and its sprite, hp bar and wound are hidden;
   // zooming back in (or fewer units) shows them again. Off by default until checked in a browser.
-  const BATTLE_LOD = new URLSearchParams(location.search).get("battleLod") === "1";
+  // Perf plan phase 3: on by default (`?battleLod=0` turns it off). Visual check still outstanding (MANUAL-TESTS).
+  const BATTLE_LOD = new URLSearchParams(location.search).get("battleLod") !== "0";
   const BATTLE_LOD_UNITS = 400;
   const BATTLE_LOD_ZOOM = 0.6;
   const lodDots = new Graphics();
@@ -2344,18 +2363,29 @@ async function main() {
       lodHidden.clear();
       return;
     }
+    // One path per colour, one fill each (a fill per unit rebuilt thousands of Graphics instructions every frame).
+    const byColour = new Map<number, number[]>();
+    const addDot = (colour: number, x: number, y: number) => {
+      const list = byColour.get(colour);
+      if (list) list.push(x, y);
+      else byColour.set(colour, [x, y]);
+    };
     for (const c of latestColonists) {
       if (WORKER_KINDS.has(c.kind) || c.kind === "wagon") continue;
       const e = colonistSprites.get(c.id);
       if (!e) continue;
-      lodDots.circle(e.sprite.position.x, e.sprite.position.y, 6).fill(clanColors.get(c.clan ?? 0) ?? 0x4a90e2);
+      if (!culledUnits.has(e)) addDot(clanColors.get(c.clan ?? 0) ?? 0x4a90e2, e.sprite.position.x, e.sprite.position.y);
       lodHide(e);
       lodHidden.add(c.id);
     }
     for (const [id, e] of mobSprites) {
-      lodDots.circle(e.sprite.position.x, e.sprite.position.y, 6).fill(0xd0342c);
+      if (!culledUnits.has(e)) addDot(0xd0342c, e.sprite.position.x, e.sprite.position.y);
       lodHide(e);
       lodHidden.add(id);
+    }
+    for (const [colour, pts] of byColour) {
+      for (let i = 0; i < pts.length; i += 2) lodDots.circle(pts[i], pts[i + 1], 6);
+      lodDots.fill(colour);
     }
   });
 
@@ -3373,6 +3403,32 @@ async function main() {
     updateFloorChunks();
     requestStreamChunks();
     if (loadingUi.active()) reportMapProgress(mine.sprite.position.x, mine.sprite.position.y);
+  });
+
+  // Perf (client culling): units outside the camera rectangle (plus a margin) stop being drawn. `renderable`, not
+  // `visible`: the LOD / shelter / hide-at-post rules own `visible` and must keep working. A WeakSet remembers which
+  // entries are currently culled so only changes touch the display objects.
+  const CULL_MARGIN_PX = 96;
+  const setUnitRenderable = (e: EntityVisual, on: boolean) => {
+    for (const part of [e.sprite, e.hpBar, e.marker, e.wound, e.aura, e.sigil, e.markLabel, e.bossLabel, e.heroLabel, e.load, e.questMark]) {
+      if (part) part.renderable = on;
+    }
+  };
+  app.ticker.add(() => {
+    const left = -worldLayer.position.x / camZoom - CULL_MARGIN_PX;
+    const right = (app.screen.width - worldLayer.position.x) / camZoom + CULL_MARGIN_PX;
+    const top = -worldLayer.position.y / camZoom - CULL_MARGIN_PX;
+    const bottom = (app.screen.height - worldLayer.position.y) / camZoom + CULL_MARGIN_PX;
+    for (const map of [colonistSprites, mobSprites]) {
+      for (const e of map.values()) {
+        const p = e.sprite.position;
+        const outside = p.x < left || p.x > right || p.y < top || p.y > bottom;
+        if (outside === culledUnits.has(e)) continue;
+        if (outside) culledUnits.add(e);
+        else culledUnits.delete(e);
+        setUnitRenderable(e, !outside);
+      }
+    }
   });
 
   // Loading screen "Sending map to your browser": the chunks around the hero (the 5x5 block requestStreamChunks
@@ -7076,11 +7132,16 @@ async function main() {
 
   let wasNight = false;
   socket.addEventListener("message", (event) => {
+    const parseStart = performance.now();
     const message: ServerMessage = JSON.parse(event.data);
     // Rebuild a delta snapshot into a full one before anything reads it; on a sequence gap ask for a keyframe
     // (meanwhile it carries the last known units).
     if (message.type === "snapshot" && message.ud && applySnapshotDelta(deltaState, message as unknown as Record<string, unknown>)) {
       sendMessage({ type: "resync" });
+    }
+    if (message.type === "snapshot") {
+      perf.onSnapshot(typeof event.data === "string" ? event.data.length : 0, performance.now() - parseStart);
+      perf.setScene(colonistSprites.size + mobSprites.size, worldLayer.children.length);
     }
     if (message.type === "welcome") {
       myId = message.id;

@@ -10,3 +10,6 @@ dist/
 
 # Player save files
 server/saves/
+
+# Generated sprite atlas (scripts/pack-atlas.mjs; rebuilt by npm run dev / live.sh)
+client/public/atlas/

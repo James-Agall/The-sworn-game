@@ -3,6 +3,7 @@
 // the structure art loads through loadOptionalTextures (a missing png keeps the procedural stand-in in
 // structureArt.ts), icons are <img>s that hide themselves if missing, and STAGED art is not loaded at all until a
 // later phase asks for it (loadStaged).
+import { loadTexture } from "./atlas";
 import { Assets, Texture } from "pixi.js";
 import { TileType } from "@colony/shared/protocol";
 
@@ -136,7 +137,7 @@ export async function loadStaged(urls: string[]): Promise<Texture[]> {
   const out: Texture[] = [];
   for (const url of urls) {
     try {
-      const t = await Assets.load<Texture>(url);
+      const t = await loadTexture(url);
       if (t) out.push(t);
     } catch {
       // Missing: skipped.
