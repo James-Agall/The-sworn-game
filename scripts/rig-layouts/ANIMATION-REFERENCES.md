@@ -12,3 +12,8 @@ Research guide for the shared foot/mounted rig. Sources were located and text re
 | Hurt recoil | CMU general motion library above, then staged acting reference | Needs a specifically inspected balance-loss/recovery clip before claiming a reference-matched recoil. Keep the crimson hit effect separate from body movement. |
 
 Shield update: source silhouettes are round already. Removed renderer's 0.62 horizontal compression; normalize visible width to height and scale both diameters 1.15. Right-arm attachment remains unchanged. The width increase from the previous oval includes undoing its compression; the round shield's diameter is enlarged only 15%.
+
+## Applied motion pass — 2026-11-17
+
+Applied the references as animation design guidance (not motion capture retargeting): contact/passing height changes and planted attack feet; hand-space sword/axe arcs with elbow constraints, wrist lag and follow-through; seated mounted cuts and relaxed lower-leg response; spear extension/retraction; bow anchor, release and separate string/hand follow-through; subtle idle breathing and recoil/recovery. Round shields retain the 1.15 diameter and right-arm attachment. Horse art still has four authored gait frames; no invented in-between horse frames.
+Additional animation principles reference: https://www.cs.ucr.edu/~shinar/courses/cs130-winter-2018/content/12-Animation.pdf (anticipation, arcs, overlapping action and timing).

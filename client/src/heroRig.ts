@@ -142,10 +142,10 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
     if (mounted && !horse) return undefined;
     const ground = mounted ? 211 : 163;
     const saddleHeight = horse ? horse.image.height - horse.pivot[1] - 3 : 0;
-    const hipBase = mounted ? ground - saddleHeight : ground - 39;
-    const bob = mounted ? 0 : moving ? Math.cos(q * Math.PI * 4) * .8 : Math.sin(q * Math.PI * 2) * .5;
-    const lean = attack ? motion([[0, 0], [.30, -6], [.52, mounted ? 7 : 11], [.72, 5], [1, 0]], u) : pose.state === "hurt" ? -8 : moving ? 2 + sw * (mounted ? 1.2 : 1.8) : 0;
-    const root: Vec = [120 + (attack && !mounted ? motion([[0, 0], [.3, -1.5], [.54, 2.5], [1, 0]], u) : 0), hipBase + bob];
+    const hipBase = mounted ? ground - saddleHeight : ground - 40;
+    const bob = mounted ? 0 : moving ? -.9 * Math.sin(q * Math.PI * 4) : Math.sin(q * Math.PI * 2) * .35;
+    const lean = attack ? motion([[0, 0], [.30, -6], [.52, mounted ? 7 : 11], [.72, 5], [1, 0]], u) : pose.state === "hurt" ? motion([[0, 0], [.18, -10], [.42, -6], [.72, 2], [1, 0]], q) : moving ? 2 + Math.sin(q * Math.PI * 2 + .4) * (mounted ? 2 : 1.3) : sw * .6;
+    const root: Vec = [120 + (attack && !mounted ? motion([[0, 0], [.3, -1.5], [.54, 2.5], [1, 0]], u) : 0), hipBase + bob + (attack && !mounted ? motion([[0, 0], [.3, 1], [.56, 2], [1, 0]], u) : 0)];
     if (pose.facing === -1) {
         g.translate(240, 0);
         g.scale(-1, 1);
@@ -181,7 +181,25 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
         fe = 20;
         wa = 0;
     }
-    const upper = 13, lower = 16, elbow = add(shoulder, dir(ua), upper), hand = add(elbow, dir(ua + fe), lower);
+    const upper = 13, lower = 16;
+    let elbow = add(shoulder, dir(ua), upper), hand = add(elbow, dir(ua + fe), lower);
+    // Pose references supply readable guards; hand-space arcs keep elbow and wrist connected.
+    if (attack && (v.weapon === "sword" || v.weapon === "axe")) {
+        const axe = v.weapon === "axe", wind = axe ? .36 : .28, impact = axe ? .56 : .48;
+        const rest = add(shoulder, add(dir(12), dir(36), lower / upper), upper);
+        const x = motion([[0, rest[0]-shoulder[0]], [wind, axe ? -3 : 4], [impact, 26], [.72, 18], [1, rest[0]-shoulder[0]]], u);
+        const y = motion([[0, rest[1]-shoulder[1]], [wind, axe ? -23 : -18], [impact, mounted ? 5 : 1], [.72, 18], [1, rest[1]-shoulder[1]]], u);
+        const swing = ik(shoulder, add(shoulder, [x, y]), upper, lower, -1);
+        elbow = swing.j; hand = swing.end;
+        wa = motion([[0, 105], [wind*.8, 165], [wind, axe ? 215 : 205], [impact, mounted ? 65 : 55], [.68, axe ? 25 : 35], [.86, 80], [1, 105]], u);
+    }
+    if (attack && (v.weapon === "spear" || v.weapon === "bow")) {
+        const bow = v.weapon === "bow", rest = add(shoulder, add(dir(bow ? 42 : 12), dir(bow ? 62 : 36), lower/upper), upper);
+        const x = motion(bow ? [[0, rest[0]-shoulder[0]], [.34, 26], [.78, 26], [1, rest[0]-shoulder[0]]] : [[0, rest[0]-shoulder[0]], [.27, 3], [.5, 28], [.68, 25], [1, rest[0]-shoulder[0]]], u);
+        const y = motion([[0, rest[1]-shoulder[1]], [.32, bow ? -7 : 4], [.72, bow ? -7 : 2], [1, rest[1]-shoulder[1]]], u);
+        const reach = ik(shoulder, add(shoulder,[x,y]), upper, lower, -1); elbow=reach.j;hand=reach.end;
+        wa = bow ? 0 : motion([[0,105],[.28,90],[.72,90],[1,105]],u);
+    }
     const shieldShoulder = up(24, 5);
     let farElbow = add(shoulder, dir(shield ? 40 : -15 - sw * (moving ? 22 : 0)), upper), farHand = add(farElbow, dir(shield ? 95 : 10), lower);
     if (shield) {
@@ -191,7 +209,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
         farHand = guard.end;
     }
     if (v.weapon === "bow" && attack) {
-        const pull: Vec = [hand[0] - keyframes([[0, 2], [.35, 19], [.72, 20], [.8, 1], [1, 2]], u), hand[1]];
+        const pull: Vec = [hand[0] - motion([[0, 5], [.34, 24], [.65, 24], [.74, 28], [.83, 18], [1, 5]], u), hand[1]];
         const arm = ik(shoulder, pull, upper, lower, -1);
         farElbow = arm.j;
         farHand = arm.end;
@@ -201,8 +219,8 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
         const hip: Vec = [root[0] + (far ? -2 : 2), root[1] + 2];
         let knee: Vec, end: Vec, a1: number, a2: number, tilt = 0;
         if (mounted) {
-            a1 = far ? 70 : 74;
-            a2 = -4;
+            a1 = (far ? 70 : 74) + (moving ? Math.sin(q*Math.PI*2 + (far ? Math.PI : 0))*2 : 0);
+            a2 = -4 - (moving ? sw*2 : 0);
             knee = add(hip, dir(a1), 16);
             end = add(knee, dir(a2), 14);
         }
@@ -212,7 +230,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
             // Matching velocity at toe-off/heel-strike avoids the old abrupt direction changes.
             const f = !moving ? 0 : stance ? 8 - 16*p/.62 : (2*t3-3*t2+1)*-8 + (-2*t3+3*t2)*8 + (2*t3-3*t2+t)*(-16/.62*.38);
             const lift = moving && !stance ? 5.5 * Math.sin(t * Math.PI) ** 2 : 0;
-            const solve = ik(hip, [hip[0] + (far ? -3 : 3) + f, ground - 10 - lift], 16, 14);
+            const solve = ik(hip, [120 + (far ? -4 : 4) + f, ground - 10 - lift], 16, 14);
             a1 = solve.a1;
             a2 = solve.a2;
             knee = solve.j;
@@ -230,12 +248,12 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
     draw(g, get("pelvis"), root);
     const hairName = ["", "short", "long", "ponytail"][a.hair];
     if (hairName && !helm && a.hair > 1)
-        draw(g, get(`hairBack.${hairName}`), neck, lean * .4);
-    draw(g, head, neck, lean * .4);
+        draw(g, get(`hairBack.${hairName}`), neck, lean * .25);
+    draw(g, head, neck, lean * .25);
     if (hairName && !helm)
-        draw(g, get(`hair.${hairName}`), neck, lean * .4);
+        draw(g, get(`hair.${hairName}`), neck, lean * .25);
     if (helm)
-        draw(g, helm, neck, lean * .4);
+        draw(g, helm, neck, lean * .25);
     draw(g, torso, waist, lean, false, Math.min(1, (a.gender === "f" ? 21 : 23) / Math.max(1, torso!.image.width - 4)));
     leg(false);
     if (shield) {
@@ -248,7 +266,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
     if (v.weapon === "bow" && weapon) {
         g.strokeStyle = "#b3a48b";
         g.lineWidth = .65;
-        const pull = attack ? farHand : [hand[0] - 5, hand[1]];
+        const pull = attack && u < .7 ? farHand : [hand[0] - 3, hand[1]];
         g.beginPath();
         g.moveTo(hand[0] - 3, hand[1] - 24);
         g.lineTo(pull[0], pull[1]);
