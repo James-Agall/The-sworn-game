@@ -15,6 +15,12 @@ rather than giving a pixel number.
 
 ---
 
+## Current coverage audit — 17 November 2026
+
+The historical “Outstanding” prompts below are not an authoritative missing-file list: many were fulfilled by the autumn pack. All 4,548 pre-existing sprite PNGs were present, nonempty, synchronized with the deployed client and their atlas regions; 799 exported runtime URLs resolved. This pass adds 16 sprites: four weather icons, medicine chest, counter, anvil, throne, manure, two seed bags, exit mat, three hemp stages and forge. See `art-sources/sprite-completion-20261117/README.md` for reproduction, validation and remaining scope boundaries.
+
+Long tables/wardrobes, resource piles/haul loads, wheat plots, dirt floors and matching work/shears icons now use existing art. Hero NPC sheets have 560 aligned frames plus the one-handed spear/shield correction; other supported character configurations retain the painted rig. Cave art is delivered as a library; cave gameplay is not implemented by this art pass.
+
 ## Already sourced (in `client/public/sprites/`)
 
 ### Painted player rig — #106–109 (2026-11-16)

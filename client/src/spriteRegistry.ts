@@ -34,6 +34,9 @@ export const STRUCTURE_FURNITURE_ART: Partial<Record<TileType, string>> = {
   [TileType.Workbench]: `${S}workbench.png`,
   [TileType.Statue]: `${S}statue.png`,
   [TileType.WeaponRack]: `${S}weapon_rack.png`,
+  [TileType.LongTable]: `${S}extra/table_long.png`,
+  [TileType.Wardrobe]: `${S}extra/wardrobe.png`,
+  [TileType.MedicineChest]: `${S}medicine_chest.png`,
 };
 export const STRUCTURE_ART_URLS: string[] = [
   ...[false, true].flatMap((stone) => [
@@ -63,25 +66,25 @@ export const ITEM_ICON: Record<string, string> = {
   "item:hoe": iconUrl("tool_hoe"),
   "item:wateringCan": iconUrl("tool_watering_can"),
   "item:scythe": iconUrl("tool_scythe"),
-  "item:wheatSeeds": iconUrl("tool_seedbag"),
-  "item:hempSeeds": iconUrl("tool_seedbag"),
+  "item:wheatSeeds": iconUrl("seed_wheat"),
+  "item:hempSeeds": iconUrl("seed_hemp"),
   // Stardew phase 5d: animal feed and products.
   "item:hay": iconUrl("item_hay_bale"),
   "item:egg": iconUrl("item_egg"),
   "item:milk": iconUrl("item_milk_pail"),
   "item:carpenterTools": iconUrl("work_crafting"),
-  // Gap closure G6 stand-ins (SPRITES.md: shears / manure icons needed).
-  "item:shears": iconUrl("tool_scythe"),
+  // Dedicated animal-care item icons.
+  "item:shears": iconUrl("item_shears"),
   "item:milkPail": iconUrl("item_milk_pail"),
-  "item:manure": iconUrl("item_hay_bale"),
+  "item:manure": iconUrl("item_manure"),
   ...Object.fromEntries([1, 2, 3].flatMap((t) => [[`gear:weapon:${t}`, iconUrl("stock_weapons")], [`gear:armour:${t}`, iconUrl("stock_armour")]])),
 };
 // An <img> for a small HUD icon that removes itself if the file is missing.
 // Work tab (modular building phase 4): a column icon per work type (WorkType), priority badges 1-4 / off.
 export const WORK_ICON: Record<string, string> = {
-  building: iconUrl("work_building"), farming: iconUrl("work_farming"), woodcutting: iconUrl("tool_axe"), mining: iconUrl("work_mining"),
-  hunting: iconUrl("stock_food"), cooking: iconUrl("work_harvest"), crafting: iconUrl("work_crafting"), animals: iconUrl("item_egg"), hauling: iconUrl("work_hauling"),
-  fighting: iconUrl("stock_weapons"),
+  building: iconUrl("work_building"), farming: iconUrl("work_farming"), woodcutting: iconUrl("work_woodcutting"), mining: iconUrl("work_mining"),
+  hunting: iconUrl("work_hunting"), cooking: iconUrl("work_cooking"), crafting: iconUrl("work_crafting"), animals: iconUrl("item_egg"), hauling: iconUrl("work_hauling"),
+  fighting: iconUrl("work_fighting"),
 };
 export const priorityIconUrl = (p: number): string => iconUrl(p > 0 ? `priority_${p}` : "priority_off");
 export function iconImg(src: string, px: number, title = ""): HTMLImageElement {

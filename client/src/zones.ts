@@ -1,8 +1,9 @@
 // Modular building phase 3 (shared/src/zones.ts): the client side of zones. Ground art for growing-zone crops and
 // loose goods (always shown), translucent zone overlays (strong while a Zones tool is in hand), and the zone list
-// panel (rename, crop, stockpile filters, delete, which zone a paint drag extends). All art is procedural stand-ins
-// (SPRITES.md #92 / #93).
-import { Container, Graphics } from "pixi.js";
+// panel (rename, crop, stockpile filters, delete, which zone a paint drag extends). Crops and loose goods use
+// sprite art with procedural loading fallbacks; zone outlines remain translucent Graphics.
+import { Container, Graphics, Sprite, Texture } from "pixi.js";
+import { loadTexture } from "./atlas";
 import type { ClientMessage } from "@colony/shared/protocol";
 import { iconImg, stockIconUrl } from "./spriteRegistry";
 import {
@@ -31,7 +32,12 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
   const ground = new Container();
   const cropG = new Graphics();
   const pileG = new Graphics();
-  ground.addChild(cropG, pileG);
+  const spriteLayer = new Container();
+  ground.addChild(cropG, pileG, spriteLayer);
+  const art = new Map<string, Texture>();
+  const cropNames = ["soil_tilled", "soil_watered_dark", "crop_wheat_stage1", "crop_wheat_stage3", "crop_wheat_stage5", "hemp_sown", "hemp_growing", "hemp_ripe"];
+  const urls = [...cropNames.map(n => `/sprites/crops/${n}.png`), ...PILE_RESOURCES.map(n => `/sprites/icon-${n}.png`)];
+  void Promise.all(urls.map(async url => { try { art.set(url, await loadTexture(url)); } catch { /* Keep the fallback. */ } })).then(() => draw());
   const overlay = new Graphics();
   let latest: ZonesSnapshot = { zones: [], crops: [], piles: [] };
   const cropCodes = new Map<number, number>();
@@ -183,6 +189,11 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
   function draw() {
     const ts = opts.tileSize();
     const W = opts.worldTilesX();
+    for (const child of spriteLayer.removeChildren()) child.destroy();
+    const place = (url: string, x: number, y: number, size: number, tint = 0xffffff) => {
+      const texture = art.get(url); if (!texture) return false;
+      const sprite = new Sprite(texture); sprite.position.set(x, y); sprite.width = size; sprite.height = size; sprite.tint = tint; spriteLayer.addChild(sprite); return true;
+    };
     cropG.clear();
     pileG.clear();
     overlay.clear();
@@ -207,6 +218,10 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
       const own = code >> 4 ? CROPS[(code >> 4) - 1] : undefined;
       const x = (i % W) * ts;
       const y = Math.floor(i / W) * ts;
+      const species = own ?? cropOf.get(i) ?? "wheat";
+      const names = species === "hemp" ? ["hemp_sown", "hemp_growing", "hemp_ripe"] : ["crop_wheat_stage1", "crop_wheat_stage3", "crop_wheat_stage5"];
+      const name = stage < CropStage.Sown ? (watered ? "soil_watered_dark" : "soil_tilled") : names[Math.min(2, stage - CropStage.Sown)];
+      if (place(`/sprites/crops/${name}.png`, x, y, ts, watered && stage >= CropStage.Sown ? 0xb8c3b3 : 0xffffff)) continue;
       cropG.rect(x + 1, y + 1, ts - 2, ts - 2).fill({ color: watered ? 0x4a3220 : 0x6b4a2a, alpha: 0.9 });
       for (let r = 0; r < 4; r++) cropG.rect(x + 3, y + 5 + r * 7, ts - 6, 2).fill({ color: watered ? 0x2e1e10 : 0x4a3018, alpha: 0.9 });
       const hemp = (own ?? cropOf.get(i)) === "hemp";
@@ -224,6 +239,7 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
       const res = PILE_RESOURCES[latest.piles[k + 1]] ?? "grain";
       const x = (i % W) * ts;
       const y = Math.floor(i / W) * ts;
+      if (place(`/sprites/icon-${res}.png`, x + ts * .2, y + ts * .2, ts * .6)) continue;
       pileG.roundRect(x + ts * 0.3, y + ts * 0.35, ts * 0.4, ts * 0.45, 4).fill(PILE_COLOR[res] ?? 0xffffff).stroke({ width: 1, color: 0x2a2010 });
     }
     // Overlay: a translucent fill per tile + an outline where the zone ends; the selected zone brighter.

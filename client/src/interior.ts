@@ -30,7 +30,7 @@ const PROP_TILE: Partial<Record<InteriorProp, TileType>> = {
 const PROP_EXTRA: Partial<Record<InteriorProp, string>> = {
   bedFine: "bed_blue_double", hearth: "fireplace_lit_b", wardrobe: "wardrobe", altar: "altar_candles", pew: "bench", oven: "oven_round",
   barrel: "barrel", crates: "crates_barrels_stack", sacks: "sacks_pile", hay: "hay_pile_crate", armourStand: "armor_stand",
-  banner: "banner_red", forge: "stove_iron", stall: "stall_market_red", candelabra: "candelabra_b",
+  banner: "banner_red", forge: "forge", counter: "counter", anvil: "anvil", throne: "throne", stall: "stall_market_red", candelabra: "candelabra_b",
 };
 // Stand-in colours (counter, anvil, high seat and any art that fails to load).
 const PROP_COLOR: Partial<Record<InteriorProp, number>> = {
@@ -266,7 +266,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         const ch = m.cells[y * m.w + x];
         if (ch === " ") continue;
         if (ch === "#") continue;
-        const floorTile = m.floor === "dirt" ? undefined : deps.structure.floor(m.floor === "stone" ? TileType.StoneFloor : TileType.WoodFloor, (x * 7 + y * 13) & 0xff);
+        const dirtTexture = m.floor === "dirt" ? extraTexture(`floor_dirt_${1 + (x + y) % 3}`) : undefined;
+        const floorTile = m.floor === "dirt" ? (dirtTexture ? { texture: dirtTexture } : undefined) : deps.structure.floor(m.floor === "stone" ? TileType.StoneFloor : TileType.WoodFloor, (x * 7 + y * 13) & 0xff);
         if (floorTile) {
           const s = new Sprite(floorTile.texture);
           s.scale.set(T / floorTile.texture.width);
@@ -278,7 +279,13 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           ground.rect(x * T + ((x * 11 + y * 5) % 20) + 4, y * T + ((x * 3 + y * 17) % 20) + 4, 3, 2).fill({ color: 0x000000, alpha: 0.15 });
         }
         if (ch === "E") {
-          // The exit mat with a light from outside.
+          const mat = extraTexture("exit_mat");
+          if (mat) {
+            const sprite = new Sprite(mat); sprite.width = T; sprite.height = T;
+            sprite.position.set(x * T, y * T); sprite.zIndex = -8; room.addChild(sprite);
+            continue;
+          }
+          // Fallback while the mat loads.
           ground.rect(x * T, y * T, T, T).fill(0x2a1a0c);
           ground.rect(x * T + 4, y * T + 6, T - 8, T - 12).fill(0x9a3a2a).stroke({ width: 2, color: 0xd8b060 });
         }

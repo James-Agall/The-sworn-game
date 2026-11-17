@@ -315,6 +315,7 @@ async function main() {
     ...WALL_ART_URLS,
     ...MOAT_ART_URLS,
     ...STRUCTURE_ART_URLS,
+    ...["grain", "meat", "fruit", "wood", "rock", "iron", "wool", "cotton", "clothes", "tools", "luxuryItems", "gold", "alcohol"].map(res => `/sprites/icon-${res}.png`),
   ]);
   // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
   // and each URL should be requested once and resolve to one shared Texture.
@@ -2238,9 +2239,14 @@ async function main() {
   let interpIntervalMs = 1000 / TICK_RATE;
   const interpMaps = [playerSprites, colonistSprites, mobSprites];
 
-  // Gap closure G2: the hauler's load icon by the good's stockpile category (Graphics stand-in for the staged
-  // haul_sack villager frames, SPRITES.md #101).
+  // Show the carried resource sprite, with a simple category fallback if an asset fails to load.
   function drawHaulLoad(g: Graphics, res: string) {
+    for (const child of g.removeChildren()) child.destroy();
+    const texture = optionalTextures[`/sprites/icon-${res}.png`];
+    if (texture) {
+      const sprite = new Sprite(texture); sprite.anchor.set(.5); sprite.width = 14; sprite.height = 14;
+      g.addChild(sprite); return;
+    }
     const cat = RESOURCE_CATEGORY[res] ?? "other";
     if (cat === "wood") {
       g.roundRect(-7, -3, 14, 6, 3).fill(0x8a5a2b).stroke({ width: 1, color: 0x4a2a10 });
@@ -4220,7 +4226,7 @@ async function main() {
       calendarEl.seasonIcon.hidden = false;
       calendarEl.seasonIcon.src = `/sprites/icons/season_${season}.png`;
     }
-    // Only rain has a staged icon (SPRITES.md); the others show the word alone.
+    // Every weather state has its own sprite.
     if (calendarEl.weatherIcon) {
       calendarEl.weatherIcon.hidden = false;
       calendarEl.weatherIcon.src = `/sprites/icons/weather_${cal.weather}.png`;
