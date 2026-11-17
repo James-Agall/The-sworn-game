@@ -231,6 +231,7 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
         { label: "How is the work going?", next: "work", tiers: NOT_HOSTILE },
         { label: "Tell me about {site}.", next: "place", tiers: NOT_HOSTILE },
         { label: "Heard any gossip?", next: "gossip", tiers: TRADING },
+        { label: "Any trouble on the roads?", action: "patronRumour", tiers: TRADING },
         { label: "What do you make of the weather?", next: "sky", tiers: NOT_HOSTILE },
         { label: "Tell me about yourself.", next: "past", tiers: ["friendly", "allied", "vassal"] },
         { label: "Could I rest here a while?", action: "lodging", tiers: ["friendly", "allied", "vassal"] },

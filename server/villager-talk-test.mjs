@@ -143,6 +143,17 @@ async function inner() {
   DP.gainRelation(0, s, 1, "quest");
   result((dd().deeds?.quests ?? 0) === 1, `M gainRelation('quest') records a quest deed (${JSON.stringify(dd().deeds)})`);
   delete dd().deeds;
+  // The same real-place rumour the tavern patrons tell: a villager on speaking terms knows of trouble nearby.
+  {
+    const hubR = open(folk[0]);
+    const i = hubR.choices.findIndex((c) => /trouble on the roads/.test(c.label));
+    result(i >= 0, `T the hub offers "Any trouble on the roads?" (${hubR.choices.map((c) => c.label.slice(0, 18)).join(" / ")})`);
+    if (i >= 0) {
+      HL.handleDialogueChoice(player, i);
+      const rr = last();
+      result(rr.text.length > 10 && !/\{[a-z]+\}/.test(rr.text), `T the villager answers with a rumour: ${rr.text.replace(/\n/g, " ").slice(0, 100)}`);
+    }
+  }
   // walk every topic from the hub
   const labelsSeen = new Set();
   for (const topic of ["How is the work", "Tell me about", "Heard any gossip", "make of the weather", "about yourself"]) {
