@@ -228,13 +228,33 @@ export function updateWildlife(dt: number) {
   for (const p of players.values()) if (!p.dead) anchors.push(p);
   for (const c of colonists.values()) anchors.push(c);
   const dormantDist = DORMANCY_RADIUS_TILES * TILE_SIZE;
+  // Perf: anchors bucketed in dormancy-radius cells, so each animal tests the 3x3 cells around it instead of every
+  // player / colonist in the world (was animals x units per tick).
+  const anchorCells = new Map<number, { x: number; y: number }[]>();
+  for (const p of anchors) {
+    const k = Math.floor(p.x / dormantDist) * 65536 + Math.floor(p.y / dormantDist);
+    const list = anchorCells.get(k);
+    if (list) list.push(p);
+    else anchorCells.set(k, [p]);
+  }
+  const anchorNear = (ax: number, ay: number): boolean => {
+    const gx = Math.floor(ax / dormantDist);
+    const gy = Math.floor(ay / dormantDist);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const list = anchorCells.get((gx + dx) * 65536 + (gy + dy));
+        if (list) for (const p of list) if (Math.abs(p.x - ax) < dormantDist && Math.abs(p.y - ay) < dormantDist) return true;
+      }
+    }
+    return false;
+  };
   for (const a of wildlife.values()) {
     const config = WILDLIFE_CONFIG[a.kind];
     if (a.attackCooldownTicks > 0) a.attackCooldownTicks--;
     // World streaming phases 2-3: a COLD or WARM chunk (4+ chunks, 97+ tiles, from every anchor) is past the
     // 64-tile dormancy radius anyway.
     if (chunkStateAtPixel(a.x, a.y) !== ChunkState.Active) continue;
-    if (!anchors.some((p) => Math.abs(p.x - a.x) < dormantDist && Math.abs(p.y - a.y) < dormantDist)) continue;
+    if (!anchorNear(a.x, a.y)) continue;
     // Something was built on top of it (placement only checks players/colonists): step off.
     const here = tileOfPixel(a.x, a.y);
     if (!isWalkableTile(here.x, here.y)) {

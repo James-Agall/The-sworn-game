@@ -249,12 +249,44 @@ export function pickMobTarget(mob: Mob): PickedTarget | null {
   if (cached && cached.tile === tile && state.cycleTick - cached.tick < BUILDING_PICK_CACHE_TICKS && cached.tick <= state.cycleTick
     && (cached.pick === null || resolveTargetPosition(cached.pick.type, cached.pick.id) !== null)) return cached.pick;
   if (buildingPickCache.size > 4096) buildingPickCache.clear();
+  // Perf: mobs of one regiment standing in the same area want the same building; share one pick per
+  // (regiment, 4x4 tile cell) for SHARED_PICK_CACHE_TICKS instead of one Dijkstra pair per mob.
+  const regKey = mob.regimentId ?? mob.siteId ?? null;
+  const cellKey = regKey ? `${regKey}|${Math.floor(mob.x / (TILE_SIZE * 4))},${Math.floor(mob.y / (TILE_SIZE * 4))}` : null;
+  if (cellKey) {
+    const shared = sharedPickCache.get(cellKey);
+    if (shared && state.cycleTick - shared.tick < SHARED_PICK_CACHE_TICKS && shared.tick <= state.cycleTick
+      && (shared.pick === null || resolveTargetPosition(shared.pick.type, shared.pick.id) !== null)) {
+      buildingPickCache.set(mob.id, { tick: shared.tick, tile, pick: shared.pick });
+      return shared.pick;
+    }
+  }
+  // Perf: at most MOB_BUILDING_PICKS_PER_TICK fresh searches per tick (a regiment switching targets made 200 ms to
+  // 2 s ticks). Over budget a mob keeps its stale pick while it still resolves, otherwise it re-picks next tick.
+  if (pickBudgetTick !== state.cycleTick) {
+    pickBudgetTick = state.cycleTick;
+    pickBudgetLeft = MOB_BUILDING_PICKS_PER_TICK;
+  }
+  if (pickBudgetLeft <= 0) {
+    if (cached && (cached.pick === null || resolveTargetPosition(cached.pick.type, cached.pick.id) !== null)) return cached.pick;
+    return null;
+  }
+  pickBudgetLeft--;
   const pick = pickBuildingTarget(mob, wards);
   buildingPickCache.set(mob.id, { tick: state.cycleTick, tile, pick });
+  if (cellKey) {
+    if (sharedPickCache.size > 1024) sharedPickCache.clear();
+    sharedPickCache.set(cellKey, { tick: state.cycleTick, pick });
+  }
   return pick;
 }
 const BUILDING_PICK_CACHE_TICKS = TICK_RATE;
+const SHARED_PICK_CACHE_TICKS = TICK_RATE * 2;
+const MOB_BUILDING_PICKS_PER_TICK = 6;
+let pickBudgetTick = -1;
+let pickBudgetLeft = 0;
 const buildingPickCache = new Map<string, { tick: number; tile: number; pick: PickedTarget | null }>();
+const sharedPickCache = new Map<string, { tick: number; pick: PickedTarget | null }>();
 
 // True while a guard / militia / player is targetable (unwarded) within the mob's aggro range: a mob on
 // a building drops it then.

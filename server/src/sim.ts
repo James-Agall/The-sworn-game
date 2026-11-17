@@ -54,6 +54,8 @@ import { heroSpeedMult, updateHeroLife } from "./herolife.js";
 import { stepInteriorMovement, tryEnterAtDoor, updateInteriors } from "./interiors.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
+const HAPPINESS_EVERY_TICKS = 5;
+
 export function stepSimulation() {
   lapReset();
   state.cycleTick++;
@@ -97,7 +99,8 @@ export function stepSimulation() {
   updateQuests();
 
   // Clans: with several clans each clan's happiness is recomputed once a second (one map scan per clan).
-  if (clans.length === 1) state.colonyHappiness = computeColonyHappiness();
+  // Perf: a slow-moving score; 4 Hz is plenty (was every tick, a full map scan).
+  if (clans.length === 1) { if (state.cycleTick % HAPPINESS_EVERY_TICKS === 0 || state.colonyHappiness === undefined) state.colonyHappiness = computeColonyHappiness(); }
   else if (state.cycleTick % TICK_RATE === 0) forEachClan((clan) => (clan.colonyHappiness = computeColonyHappiness()));
 
   const dayIndex = dayIndexAt(state.cycleTick);
