@@ -115,8 +115,8 @@ function motion(keys: number[][], u: number) {
     }
     return keys.at(-1)![1];
 }
-function draw(g: CanvasRenderingContext2D, p: Part | undefined, at: Vec, angle = 0, limb = false, widthScale = 1) { if (!p)
-    return; g.save(); g.translate(...at); g.rotate(angle * D * (limb ? -1 : 1)); g.scale(widthScale, 1); g.drawImage(p.image, -p.pivot[0], -p.pivot[1]); g.restore(); }
+function draw(g: CanvasRenderingContext2D, p: Part | undefined, at: Vec, angle = 0, limb = false, widthScale = 1, heightScale = 1) { if (!p)
+    return; g.save(); g.translate(...at); g.rotate(angle * D * (limb ? -1 : 1)); g.scale(widthScale, heightScale); g.drawImage(p.image, -p.pivot[0], -p.pivot[1]); g.restore(); }
 export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
     if (!ready)
         return undefined;
@@ -240,7 +240,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false) {
     leg(false);
     if (shield) {
         arm(true);
-        draw(g, shield, [(farElbow[0]+farHand[0])*.5, (farElbow[1]+farHand[1])*.5], lean - 5, false, .62);
+        draw(g, shield, [(farElbow[0]+farHand[0])*.5, (farElbow[1]+farHand[1])*.5], lean - 5, false, 1.15 * (shield.image.height - 4) / (shield.image.width - 4), 1.15);
     } else {
         arm(false);
         draw(g, weapon, hand, wa + (v.weapon === "axe" ? 180 : 0), true, v.weapon === "spear" ? .4 : v.weapon === "sword" ? .55 : 1);
