@@ -721,6 +721,27 @@
       #minimap-frame::before { top: -4px; }
       #minimap-frame::after { bottom: -4px; }
 
+      #minimap-toggle {
+        position: absolute;
+        top: 12px;
+        right: 10px;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        line-height: 18px;
+        font-size: 14px;
+        text-align: center;
+        cursor: pointer;
+        color: #2b1a0b;
+        background: rgba(232, 217, 181, 0.85);
+        border: 1px solid var(--wood-dark);
+        border-radius: 3px;
+        opacity: 0.8;
+      }
+
+      #minimap-toggle:hover { opacity: 1; background: rgba(240, 226, 190, 1); }
+      #minimap-toggle[hidden] { display: none; }
+
       #minimap {
         display: block;
         image-rendering: pixelated;
@@ -1712,6 +1733,7 @@
               <button type="button" role="radio" data-size="256">Large</button>
               <button type="button" role="radio" data-size="384">Huge</button>
               <button type="button" role="radio" data-size="512">Giant</button>
+              <button type="button" role="radio" data-size="768" title="A streamed world, about 2.3x the area of Giant: room for roughly 4 towns, 5 villages and 9 hamlets">Sprawling</button>
               <button type="button" role="radio" data-size="1024" title="A streamed world: far regions run abstractly. A loading screen shows while it is made">Vast</button>
               <button type="button" role="radio" data-size="2048" title="2048 x 2048, streamed. Long load, needs a strong PC">Colossal</button>
             </div>
@@ -1988,7 +2010,7 @@
       </div>
       <div id="toolbar"></div>
     </div>
-    <div id="minimap-frame"><canvas id="minimap" width="160" height="160" aria-label="Minimap"></canvas></div>
+    <div id="minimap-frame"><canvas id="minimap" width="160" height="160" aria-label="Minimap"></canvas><button id="minimap-toggle" type="button" hidden aria-label="Expand the minimap to the whole map" title="Expand the minimap to the whole map">⤢</button></div>
     <div id="regiment-cards" aria-label="Regiments"></div>
     <div id="goal-tracker" aria-live="polite" hidden>
       <div class="goal-heading"><span>Goal</span><span id="goal-step"></span></div>

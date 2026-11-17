@@ -20,6 +20,7 @@
     "./animals": "./src/animals.ts",
     "./buildingTemplates": "./src/buildingTemplates.ts",
     "./settlementTemplates": "./src/settlementTemplates.ts",
+    "./villagerTalk": "./src/villagerTalk.ts",
     "./snapshotDelta": "./src/snapshotDelta.ts"
   }
 }

@@ -218,22 +218,79 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
       ],
     },
   },
+  // A settlement villager: a hub (work / the place / gossip / the weather / themselves) with a few follow-ups each. The {tokens}
+  // are filled per villager and per day by shared/src/villagerTalk.ts (trade, weather, season, time of day, neighbours, buildings).
   villager: {
     start: {
       text: {
         hostile: "The villager backs away from you.",
-        default: "\"Fair day to you. I'm {npc}, of {site}.\"",
+        wary: "{npc} eyes you. \"I'm {npc}. Keep your hands where I can see them, and we'll get along.\"",
+        default: "{hello}",
       },
       choices: [
-        { label: "Any news around here?", action: "rumour", tiers: NOT_HOSTILE },
-        { label: "Who is in charge here?", next: "chief", tiers: NOT_HOSTILE },
+        { label: "How is the work going?", next: "work", tiers: NOT_HOSTILE },
+        { label: "Tell me about {site}.", next: "place", tiers: NOT_HOSTILE },
+        { label: "Heard any gossip?", next: "gossip", tiers: TRADING },
+        { label: "What do you make of the weather?", next: "sky", tiers: NOT_HOSTILE },
+        { label: "Tell me about yourself.", next: "past", tiers: ["friendly", "allied", "vassal"] },
         { label: "Could I rest here a while?", action: "lodging", tiers: ["friendly", "allied", "vassal"] },
         BYE,
       ],
     },
-    chief: {
-      text: { default: "\"Talk to the elder up at the keep. They hand out the work, and the coin.\"" },
+    work: {
+      text: { default: "{work}" },
+      choices: [
+        { label: "Tell me about the craft.", next: "craft" },
+        { label: "Can I lend a hand?", action: "askWork", tiers: NOT_HOSTILE },
+        { label: "Let's talk of something else.", next: "start" },
+        BYE,
+      ],
+    },
+    craft: {
+      text: { default: "{craft}" },
+      choices: [{ label: "Interesting. Anything else?", next: "start" }, BYE],
+    },
+    place: {
+      text: { default: "{place}" },
+      choices: [
+        { label: "Where can I find things here?", next: "amenities" },
+        { label: "Who is in charge?", next: "chief" },
+        { label: "Anything else?", next: "start" },
+        BYE,
+      ],
+    },
+    amenities: {
+      text: { default: "\"In {site}? You'll find {amenities}, if you know where to look.\"" },
       choices: [{ label: "Thanks. Anything else?", next: "start" }, BYE],
+    },
+    chief: {
+      text: { default: "{elderline}" },
+      choices: [{ label: "Thanks. Anything else?", next: "start" }, BYE],
+    },
+    gossip: {
+      text: { default: "{gossip}" },
+      choices: [
+        { label: "Is anything troubling folk here?", next: "worry" },
+        { label: "Any word of danger nearby?", action: "rumour", tiers: NOT_HOSTILE },
+        { label: "Anything else?", next: "start" },
+        BYE,
+      ],
+    },
+    worry: {
+      text: { default: "{worry}" },
+      choices: [
+        { label: "Any word of danger nearby?", action: "rumour", tiers: NOT_HOSTILE },
+        { label: "I'll keep my eyes open.", next: "start" },
+        BYE,
+      ],
+    },
+    sky: {
+      text: { default: "{sky}" },
+      choices: [{ label: "Anything else?", next: "start" }, BYE],
+    },
+    past: {
+      text: { default: "{past}" },
+      choices: [{ label: "Thank you for telling me.", next: "start" }, BYE],
     },
   },
   questGiver: {

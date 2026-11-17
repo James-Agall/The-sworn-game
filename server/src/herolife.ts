@@ -43,7 +43,10 @@ import {
 } from "./family.js";
 import { handleCallToArms } from "./vassals.js";
 import { heirOrderNames } from "./people.js";
-import { cropGrowthMult, winterNow } from "./calendar.js";
+import { calendarNow, cropGrowthMult, seasonsOn, weatherNow, winterNow } from "./calendar.js";
+import { villagerTokens } from "@colony/shared/villagerTalk";
+import type { BuildingType } from "@colony/shared/buildingTemplates";
+import { buildingTemplateById } from "./buildingTemplates.js";
 import { cropSeasonLabel, WINTER_COLD_REST_DECAY_MULT, WINTER_COLD_REST_GAIN_MULT, WINTER_WARM_ROOM_REST_MULT } from "@colony/shared/calendar";
 import { interiorFurnitureChoice, interiorInteract, interiorRestMult, tryEnterAtDoor } from "./interiors.js";
 import { settlementTemplateById } from "./settlementTemplates.js";
@@ -242,7 +245,30 @@ function fill(text: string, t: Talk, tier?: RelationTier): string {
     const h = heraldLines(s);
     text = text.replaceAll("{line}", h.line).replaceAll("{lore}", h.lore);
   }
+  if (t.role === "villager" && s && VILLAGER_TOKEN.test(text)) {
+    const tk = villagerTalkTokens(t, s);
+    for (const [k, v] of Object.entries(tk)) text = text.replaceAll(`{${k}}`, v);
+    text = text.replaceAll("{trade}", tk.trade);
+  }
   return text.replaceAll("{npc}", t.name).replaceAll("{site}", s?.name ?? "").replaceAll("{tier}", tier ?? "");
+}
+
+// Villager conversation tokens (shared/src/villagerTalk.ts): this villager's trade, the weather, season and hour, who else lives
+// in the settlement and which buildings it has. A villager keeps its trade for life (hash of its mob id).
+const VILLAGER_TOKEN = /\{(trade|hello|work|craft|worry|past|sky|gossip|place|amenities|elderline)\}/;
+function villagerTalkTokens(t: Talk, s: SiteState): Record<string, string> {
+  const tpl = s.layout ? settlementTemplateById(s.layout) : undefined;
+  const neighbours: string[] = [];
+  for (const id of s.workers) {
+    const m = mobs.get(id);
+    if (m && id !== t.mobId && m.siteWorker !== "herald" && m.siteWorker !== "priest") neighbours.push(nameFor(id));
+  }
+  const amenities = (tpl?.buildings ?? []).map((b) => buildingTemplateById(b.ref)?.buildingType).filter((x): x is BuildingType => !!x);
+  const seed = hashOf(t.mobId ?? t.name);
+  return villagerTokens({
+    seed, day: gameDay(), night: isNightNow(), weather: weatherNow(), season: seasonsOn() ? calendarNow().season : -1,
+    tier: Math.max(1, Math.min(3, tpl?.tier ?? 2)) as 1 | 2 | 3, neighbours: neighbours.sort(), amenities, elder: `Elder ${nameFor(s.id)}`,
+  });
 }
 
 // Gap closure G7: the quest givers showing a "!" to this clan: a quest of theirs waits to be accepted, or the board is

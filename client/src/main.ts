@@ -3555,6 +3555,62 @@ async function main() {
   // Both integers, so tile -> pixel stays exact: CSS px per tile, and backing px per CSS px.
   let minimapCssPerTile = 1;
   let minimapDpr = 1;
+  // Compact / expanded: a big world's minimap used to be the whole map at >= 1 px per tile (512 px on a 512 map). Now it is a
+  // MM_COMPACT_CSS window around the player at 1 px per tile (about 11 x 11 chunks) with a button to expand to the whole map,
+  // shrunk to fit the screen. The strategy view always shows the whole map (its click-to-jump needs it). Maps that already fit
+  // the compact window have no button.
+  const MM_COMPACT_CSS = 176;
+  let mmExpanded = false;
+  try { mmExpanded = localStorage.getItem("colony-minimap-expanded") === "1"; } catch { /* storage unavailable */ }
+  let mmFull = true; // the canvas currently shows the whole world
+  let mmBaseCss = 1; // CSS px per tile of the whole-world view (before the screen-fit cap)
+  const minimapToggleEl = document.getElementById("minimap-toggle") as HTMLButtonElement | null;
+  // Top-left of the visible window, in backing px of the map-space the drawing code works in (0, 0 when the whole map shows).
+  let mmOx = 0;
+  let mmOy = 0;
+  function minimapFullCss(): number {
+    const world = Math.max(worldTilesX, worldTilesY, 1);
+    const cap = Math.max(MM_COMPACT_CSS, Math.min(window.innerWidth * 0.3, window.innerHeight * 0.5, 380));
+    return Math.min(mmBaseCss, cap / world);
+  }
+  function minimapCanToggle(): boolean {
+    return Math.max(worldTilesX, worldTilesY) * mmBaseCss > MM_COMPACT_CSS * 1.15;
+  }
+  function minimapWantsFull(): boolean {
+    return !minimapCanToggle() || mmExpanded || strategyCam.inStrategy;
+  }
+  function applyMinimapLayout() {
+    mmFull = minimapWantsFull();
+    minimapDpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
+    minimapCssPerTile = mmFull ? minimapFullCss() : 1;
+    const cssW = mmFull ? worldTilesX * minimapCssPerTile : Math.min(MM_COMPACT_CSS, worldTilesX * minimapCssPerTile);
+    const cssH = mmFull ? worldTilesY * minimapCssPerTile : Math.min(MM_COMPACT_CSS, worldTilesY * minimapCssPerTile);
+    minimapEl.width = Math.max(1, Math.ceil(cssW * minimapDpr));
+    minimapEl.height = Math.max(1, Math.ceil(cssH * minimapDpr));
+    minimapEl.style.width = `${cssW}px`;
+    minimapEl.style.height = `${cssH}px`;
+    if (minimapToggleEl) {
+      minimapToggleEl.hidden = !minimapCanToggle() || strategyCam.inStrategy;
+      minimapToggleEl.textContent = mmExpanded ? "\u2921" : "\u2922";
+      minimapToggleEl.title = mmExpanded ? "Shrink the minimap to the area around you" : "Expand the minimap to the whole map";
+      minimapToggleEl.setAttribute("aria-label", minimapToggleEl.title);
+    }
+  }
+  minimapToggleEl?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    mmExpanded = !mmExpanded;
+    try { localStorage.setItem("colony-minimap-expanded", mmExpanded ? "1" : "0"); } catch { /* storage unavailable */ }
+    applyMinimapLayout();
+  });
+  minimapToggleEl?.addEventListener("pointerdown", (e) => e.stopPropagation());
+  window.addEventListener("resize", () => { if (minimapImage) applyMinimapLayout(); });
+  // The world tile under a pointer on the minimap (accounts for the compact window's offset).
+  function minimapTileAt(clientX: number, clientY: number): { x: number; y: number } | null {
+    const r = minimapEl.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return null;
+    const sBack = minimapCssPerTile * minimapDpr;
+    return { x: (mmOx + ((clientX - r.left) / r.width) * minimapEl.width) / sBack, y: (mmOy + ((clientY - r.top) / r.height) * minimapEl.height) / sBack };
+  }
 
   const MINIMAP_UNEXPLORED = 0x140d07;
   const MINIMAP_BIOME: Record<number, number> = {
@@ -3680,13 +3736,8 @@ async function main() {
       for (let i = 0; i < count; i++) explored[i] = (bytes.charCodeAt(i >> 3) >> (i & 7)) & 1;
     }
     // World streaming phase 4: a streamed world's minimap is one CSS px per summary cell (1 / f px per tile).
-    minimapCssPerTile = streamed ? 1 / streamed.f : Math.max(1, Math.round(MINIMAP_TARGET_CSS_PX / Math.max(worldTilesX, worldTilesY)));
-    minimapDpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
-    const scale = minimapCssPerTile * minimapDpr;
-    minimapEl.width = Math.ceil(worldTilesX * scale);
-    minimapEl.height = Math.ceil(worldTilesY * scale);
-    minimapEl.style.width = `${worldTilesX * minimapCssPerTile}px`;
-    minimapEl.style.height = `${worldTilesY * minimapCssPerTile}px`;
+    mmBaseCss = streamed ? 1 / streamed.f : Math.max(1, Math.round(MINIMAP_TARGET_CSS_PX / Math.max(worldTilesX, worldTilesY)));
+    applyMinimapLayout();
     if (streamed) {
       const sm = streamed;
       for (let i = 0; i < count; i++) if (explored[i]) sm.cellSeen[Math.floor(Math.floor(i / worldTilesX) / sm.f) * sm.cw + Math.floor((i % worldTilesX) / sm.f)] = 1;
@@ -3739,13 +3790,37 @@ async function main() {
       minimapStaticDirty = false;
       strategicMapDirty = true;
     }
+    if (minimapWantsFull() !== mmFull) applyMinimapLayout();
     const ctx = minimapCtx;
     const s = minimapCssPerTile * minimapDpr; // backing px per tile
     const u = minimapDpr; // backing px per CSS px
     const toMap = (worldPx: number) => (worldPx / tileSize) * s;
     const tileOf = (worldPx: number) => Math.floor(worldPx / tileSize);
+    // Compact window: centred on the player (or the camera when there is none), kept inside the map. Everything below draws in
+    // whole-map space; the translate moves the window onto the canvas.
+    mmOx = 0;
+    mmOy = 0;
+    if (!mmFull) {
+      const focus = players.find((p) => p.id === myId);
+      const fx = focus ? toMap(focus.x) : toMap(-worldLayer.position.x / camZoom + app.screen.width / camZoom / 2);
+      const fy = focus ? toMap(focus.y) : toMap(-worldLayer.position.y / camZoom + app.screen.height / camZoom / 2);
+      mmOx = Math.round(Math.max(0, Math.min(worldTilesX * s - minimapEl.width, fx - minimapEl.width / 2)));
+      mmOy = Math.round(Math.max(0, Math.min(worldTilesY * s - minimapEl.height, fy - minimapEl.height / 2)));
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, minimapEl.width, minimapEl.height);
+    ctx.save();
+    ctx.translate(-mmOx, -mmOy);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(minimapStatic, 0, 0, worldTilesX * s, worldTilesY * s);
+    {
+      // Only the visible part of the static layer (one pixel per tile, or one per summary cell when streamed).
+      const per = minimapStatic.width / worldTilesX; // static px per tile
+      const sx = (mmOx / s) * per;
+      const sy = (mmOy / s) * per;
+      const sw = Math.min(minimapStatic.width - sx, (minimapEl.width / s) * per);
+      const sh = Math.min(minimapStatic.height - sy, (minimapEl.height / s) * per);
+      if (sw > 0 && sh > 0) ctx.drawImage(minimapStatic, sx, sy, sw, sh, mmOx, mmOy, (sw / per) * s, (sh / per) * s);
+    }
 
     // Forts phase B: a flag on each explored fort's keep (faction colour; grey = razed, clan colour = captured).
     for (const f of fortMarkers) {
@@ -3906,6 +3981,7 @@ async function main() {
     ctx.strokeStyle = "rgba(251, 236, 200, 0.85)";
     ctx.strokeRect(Math.round(viewX) + u / 2, Math.round(viewY) + u / 2, Math.round(viewW) - u, Math.round(viewH) - u);
     drawFightPings(ctx, s, u);
+    ctx.restore();
   }
 
   // ---- Off-screen fight notifiers (ROADMAP "Off-screen fight notifiers — landed 2026-10-23") ----
@@ -8508,9 +8584,9 @@ async function main() {
   );
   // Minimap click / drag moves the strategy view there.
   function minimapJump(e: PointerEvent) {
-    const r = minimapEl.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) return;
-    strategyCam.jumpTo(((e.clientX - r.left) / r.width) * worldTilesX * tileSize, ((e.clientY - r.top) / r.height) * worldTilesY * tileSize);
+    const t = minimapTileAt(e.clientX, e.clientY);
+    if (!t) return;
+    strategyCam.jumpTo(t.x * tileSize, t.y * tileSize);
   }
   minimapEl.addEventListener("pointerdown", (e) => {
     if (!strategyCam.inStrategy || e.button !== 0) return;
@@ -8520,11 +8596,11 @@ async function main() {
   minimapEl.addEventListener("pointermove", (e) => {
     if (strategyCam.inStrategy && minimapEl.hasPointerCapture(e.pointerId)) minimapJump(e);
     // Forts phase D: hovering a fort flag names it (a settlement with your clan's relation tier).
-    const r = minimapEl.getBoundingClientRect();
-    if (r.width <= 0) return;
-    const tx = ((e.clientX - r.left) / r.width) * worldTilesX;
-    const ty = ((e.clientY - r.top) / r.height) * worldTilesY;
-    const reach = (8 / r.width) * worldTilesX;
+    const at = minimapTileAt(e.clientX, e.clientY);
+    if (!at) return;
+    const tx = at.x;
+    const ty = at.y;
+    const reach = 8 / minimapCssPerTile;
     let tip = "";
     let best = Infinity;
     for (const f of fortMarkers) {
@@ -9134,12 +9210,13 @@ function renderClanChoice() {
     btn.setAttribute("aria-checked", String(btn.dataset.clan === preferredClan));
   });
 }
-const MAP_SIZES = [64, 96, 160, 256, 384, 512, 1024, 2048];
-// undefined until the player picks one: then the server keeps its own default (COLONY_WORLD_SIZE or 160).
-let preferredWorldSize: number | undefined;
+const MAP_SIZES = [64, 96, 160, 256, 384, 512, 768, 1024, 2048];
+// Vast (1024) unless the player picked another size before (remembered in localStorage). The server's own default
+// (COLONY_WORLD_SIZE or 160) only applies to clients that send no size, such as the scripted tests.
+let preferredWorldSize: number | undefined = 1024;
 function renderMapSizeChoice(value: number | undefined) {
   document.querySelectorAll<HTMLButtonElement>("#set-mapsize button").forEach((btn) => {
-    btn.setAttribute("aria-checked", String(Number(btn.dataset.size) === (value ?? 160)));
+    btn.setAttribute("aria-checked", String(Number(btn.dataset.size) === (value ?? 1024)));
   });
   // 2048: long load, needs a strong PC.
   document.getElementById("set-mapsize-warn")!.hidden = value !== 2048;
@@ -9301,7 +9378,7 @@ function setupMainMenu() {
     const storedSize = Number(localStorage.getItem(MAP_SIZE_PREF_KEY));
     if (MAP_SIZES.includes(storedSize)) preferredWorldSize = storedSize;
   } catch {
-    /* default stays Medium */
+    /* default stays Vast */
   }
   renderMapSizeChoice(preferredWorldSize);
   renderClanChoice();
