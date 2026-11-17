@@ -12,3 +12,5 @@ The pack contains one fixed male appearance and bay mount; other colours/hair/fa
 The rig remains a fallback for females, unarmed/tool poses, missing assets and independently mixed gear tiers/helmet combinations not present in the pack. This prevents silently drawing the wrong equipped helmet or weapon tier.
 The old art files are retained for those fallbacks; they are no longer the primary path for matching male loadouts.
 No live deployment.
+
+2026-11-17: Corrected spear/shield attack cells (row 3, columns 6–8) across all armour and mount states. Each spear is gripped by one hand; shield hand is concealed. The aligned correction source is scripts/rig-layouts/hero-spear-shield-correction.png and slice-npc-hero.mjs reapplies it automatically.

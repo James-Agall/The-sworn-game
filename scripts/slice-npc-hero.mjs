@@ -1,3 +1,4 @@
+import {applySpearShieldCorrection} from './apply-spear-shield-correction.mjs';
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {readPNG,writePNG} from './lib/png.mjs';
@@ -21,3 +22,6 @@ for(const sheet of layout.sheets){const p=readPNG(src+'/'+sheet.file),labels=new
  writePNG(out+'/'+sheet.file,dest);report.push({file:sheet.file,frames:70,components:mains.length});console.log(sheet.file+': 70 outline-isolated frames');
 }
 writeFileSync(out+'/manifest.json',JSON.stringify({cell:[256,240],rows:layout.rows,animations:layout.animations,bodyHeight:89,ground:{foot:163,mounted:211},sheets:report},null,2));
+
+// Preserve the reviewed one-handed spear/shield attacks after regenerating the base pack.
+applySpearShieldCorrection(out);

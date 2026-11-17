@@ -4,7 +4,7 @@ import type {HeroPose} from './heroRig';
 const sheets=new Map<string,HTMLImageElement>();
 const cache=new Map<string,{canvas:HTMLCanvasElement;texture:Texture;bodyHeight:number;buildScale:number}>();
 let loading:Promise<void>|undefined;
-export function loadNpcHero(){return loading??=Promise.all([0,1,2,3].flatMap(t=>['foot','mounted'].map(mode=>new Promise<void>(resolve=>{const key=`armour-${t}-${mode}`,i=new Image();i.onload=()=>{sheets.set(key,i);resolve()};i.onerror=()=>resolve();i.src=`/sprites/hero-npc/${key}.png`;})))).then(()=>{});}
+export function loadNpcHero(){return loading??=Promise.all([0,1,2,3].flatMap(t=>['foot','mounted'].map(mode=>new Promise<void>(resolve=>{const key=`armour-${t}-${mode}`,i=new Image();i.onload=()=>{sheets.set(key,i);resolve()};i.onerror=()=>resolve();i.src=`/sprites/hero-npc/${key}.png?v=spear-shield-20261117`;})))).then(()=>{});}
 export function npcHeroFrame(v:HeroVisual,pose:HeroPose,mounted:boolean){
  const a=sanitizeHeroAppearance(v.appearance);
  // The supplied pack contains one male and these seven loadouts. Retain the rig for missing artwork.
