@@ -512,6 +512,15 @@ export interface SiteDiplo {
   // post this clan another quest (cooldown).
   questGain?: number;
   questNextTick?: number;
+  // Villager memory: what this clan has done for / to the settlement, for good (never reset daily). The villagers'
+  // greeting mentions the most notable one (shared/src/villagerTalk.ts).
+  deeds?: SiteDeeds;
+}
+export interface SiteDeeds {
+  defended: number;
+  quests: number;
+  traded: number;
+  attacked: number;
 }
 export interface RespawnRequest {
   tx: number;

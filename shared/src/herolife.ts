@@ -225,7 +225,7 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
       text: {
         hostile: "The villager backs away from you.",
         wary: "{npc} eyes you. \"I'm {npc}. Keep your hands where I can see them, and we'll get along.\"",
-        default: "{hello}",
+        default: "{hello}{deed}",
       },
       choices: [
         { label: "How is the work going?", next: "work", tiers: NOT_HOSTILE },

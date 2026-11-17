@@ -28,7 +28,7 @@ import { isInAbbeyGrounds, isInCastleRuinGrounds, shuffled, spawnGuardian } from
 import { registerHearth } from "./hearths.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { activateGuardianSite, hashString01, walkMobTo } from "./mobs.js";
-import { onRelationChanged } from "./diplomacy.js";
+import { noteDeed, onRelationChanged } from "./diplomacy.js";
 import { noteLiegeHit } from "./vassals.js";
 
 // Ground the test-hook stamper may clear (world-gen only ever stamps onto Empty).
@@ -659,6 +659,7 @@ export function noteSettlementAttacked(siteId: string | null | undefined, attack
   s.hostileClans ??= [];
   if (!s.hostileClans.includes(clan)) {
     s.hostileClans.push(clan);
+    noteDeed(s, clan, "attacked");
     adjustRelation(clan, s.id, -RELATION_ATTACK_PENALTY);
   }
 }

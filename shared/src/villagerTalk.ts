@@ -96,6 +96,8 @@ export interface VillagerCtx {
   season: number;
   // Settlement tier 1-3 (hamlet / village / town).
   tier: 1 | 2 | 3;
+  // What this player's clan has done at the settlement (villager memory); missing = nothing remembered.
+  deeds?: { defended: number; quests: number; traded: number; attacked: number };
   // Names of other people in the settlement (for gossip).
   neighbours: string[];
   // Types of building in the settlement, for "where can I find ...".
@@ -192,6 +194,39 @@ export function amenityList(types: BuildingType[]): string {
 
 // The text tokens for one villager, one day. Dialogue text in shared/src/herolife.ts uses {trade} {hello} {work} {craft} {worry}
 // {past} {sky} {gossip} {place} {amenities} {elderline}. ({npc}, {site} and {tier} are filled by the server as before.)
+const DEED_QUESTS = [
+  "\"You did right by us, doing that work. People here haven't forgotten.\"",
+  "\"Word got round about what you did for {site}. Good word, for once.\"",
+  "\"Folk still talk about the job you took on for us. Sit, if you like.\"",
+];
+const DEED_DEFENDED = [
+  "\"I saw you drive those raiders off from the walls. I'll sleep easier for it.\"",
+  "\"You've stood between us and trouble more than once. We notice that.\"",
+  "\"There'd be fewer of us left if you hadn't been about when the raiders came.\"",
+];
+const DEED_ATTACKED = [
+  "\"You raised a hand against us once. We've not forgotten, whatever the elders say now.\"",
+  "\"Last time you came, there was blood. Mind how you go here.\"",
+];
+const DEED_TRADED = [
+  "\"Your coin's been good here. The traders speak well of you.\"",
+  "\"You're known at the stalls. Fair dealing counts for something.\"",
+];
+// One remembered deed, the most notable first (quests, then defence, then a past attack, then trade), or "" when nothing is
+// worth mentioning. Starts with a blank line so it can follow the greeting directly.
+function deedLine(ctx: VillagerCtx): string {
+  const d = ctx.deeds;
+  if (!d) return "";
+  const s = ctx.seed + ctx.day;
+  const line = d.attacked > 0 && d.quests + d.defended === 0 ? pick(DEED_ATTACKED, s)
+    : d.quests > 0 ? pick(DEED_QUESTS, s)
+    : d.defended >= 3 ? pick(DEED_DEFENDED, s)
+    : d.attacked > 0 ? pick(DEED_ATTACKED, s)
+    : d.traded >= 3 ? pick(DEED_TRADED, s)
+    : "";
+  return line ? "\n\n" + line : "";
+}
+
 export function villagerTokens(ctx: VillagerCtx, tradeId?: string): Record<string, string> {
   const t = villagerTrade(ctx.seed, tradeId);
   const d = ctx.day;
@@ -214,6 +249,7 @@ export function villagerTokens(ctx: VillagerCtx, tradeId?: string): Record<strin
     gossip,
     place: pick(PLACE_BY_TIER[ctx.tier], ctx.seed + d),
     amenities: amenityList(ctx.amenities),
+    deed: deedLine(ctx),
     elderline: `\"${ctx.elder} keeps the peace and hands out the work. Fair enough, mostly. Talk to them at the keep.\"`,
   };
 }

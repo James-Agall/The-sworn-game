@@ -4,7 +4,7 @@
 // phase C hook (sites.ts relationOf / adjustRelation over Clan.relations); per-day counters live in
 // SiteState.diplo (saved with the site).
 import { TILE_SIZE, TRADE_GOODS, RELATION_TIER_NAMES, type BuildingInfo, type RelationTier, type SiteRelationSnapshot, type TradeGood } from "@colony/shared/protocol";
-import type { HearthState, Mob, Player, SiteDiplo, SiteState } from "./types.js";
+import type { HearthState, Mob, Player, SiteDeeds, SiteDiplo, SiteState } from "./types.js";
 import {
   DAY_TICKS, NIGHT_TICKS, RELATION_ALLIED_MIN, RELATION_CAMP_FAR_BONUS, RELATION_CAMP_FAR_TILES, RELATION_CAMP_NEAR_BONUS,
   RELATION_CAMP_NEAR_TILES, RELATION_DEFEND_DAILY_CAP, RELATION_DEFEND_RANGE_TILES, RELATION_DIMINISH_FLOOR,
@@ -72,6 +72,13 @@ export function onRelationChanged(clanId: number, s: SiteState, before: number, 
   withClan(clanById(clanId), () => broadcastEvent(up ? "milestone" : "raid", `${s.name} is now ${RELATION_TIER_NAMES[t1]} toward you (${Math.round(after)})${extra}`));
 }
 
+// Villager memory: one more good (or bad) deed of this clan at the settlement; never reset.
+export function noteDeed(s: SiteState, clanId: number, kind: keyof SiteDeeds) {
+  const d = diploOf(s, clanId);
+  d.deeds ??= { defended: 0, quests: 0, traded: 0, attacked: 0 };
+  d.deeds[kind]++;
+}
+
 // A capped, diminishing gain (trade / defence / quest). None from Hostile or while the settlement is up in
 // arms against this clan.
 export function gainRelation(clanId: number, s: SiteState, raw: number, kind: "trade" | "defend" | "quest"): number {
@@ -87,6 +94,7 @@ export function gainRelation(clanId: number, s: SiteState, raw: number, kind: "t
   else if (kind === "defend") d.defendGain += g;
   else d.questGain = used + g;
   d.lastGainDay = d.day;
+  noteDeed(s, clanId, kind === "trade" ? "traded" : kind === "defend" ? "defended" : "quests");
   adjustRelation(clanId, s.id, g);
   return g;
 }

@@ -239,14 +239,14 @@ export function heraldLines(s: SiteState | undefined): (typeof HERALD_LINES)[1] 
   return HERALD_LINES[Math.max(1, Math.min(3, tier)) as 1 | 2 | 3];
 }
 
-function fill(text: string, t: Talk, tier?: RelationTier): string {
+function fill(text: string, t: Talk, tier?: RelationTier, clan = 0): string {
   const s = t.siteId ? sites.get(t.siteId) : undefined;
   if (t.role === "herald") {
     const h = heraldLines(s);
     text = text.replaceAll("{line}", h.line).replaceAll("{lore}", h.lore);
   }
   if (t.role === "villager" && s && VILLAGER_TOKEN.test(text)) {
-    const tk = villagerTalkTokens(t, s);
+    const tk = villagerTalkTokens(t, s, clan);
     for (const [k, v] of Object.entries(tk)) text = text.replaceAll(`{${k}}`, v);
     text = text.replaceAll("{trade}", tk.trade);
   }
@@ -255,8 +255,8 @@ function fill(text: string, t: Talk, tier?: RelationTier): string {
 
 // Villager conversation tokens (shared/src/villagerTalk.ts): this villager's trade, the weather, season and hour, who else lives
 // in the settlement and which buildings it has. A villager keeps its trade for life (hash of its mob id).
-const VILLAGER_TOKEN = /\{(trade|hello|work|craft|worry|past|sky|gossip|place|amenities|elderline)\}/;
-function villagerTalkTokens(t: Talk, s: SiteState): Record<string, string> {
+const VILLAGER_TOKEN = /\{(trade|hello|work|craft|worry|past|sky|gossip|place|amenities|elderline|deed)\}/;
+function villagerTalkTokens(t: Talk, s: SiteState, clan: number): Record<string, string> {
   const tpl = s.layout ? settlementTemplateById(s.layout) : undefined;
   const neighbours: string[] = [];
   for (const id of s.workers) {
@@ -268,6 +268,7 @@ function villagerTalkTokens(t: Talk, s: SiteState): Record<string, string> {
   return villagerTokens({
     seed, day: gameDay(), night: isNightNow(), weather: weatherNow(), season: seasonsOn() ? calendarNow().season : -1,
     tier: Math.max(1, Math.min(3, tpl?.tier ?? 2)) as 1 | 2 | 3, neighbours: neighbours.sort(), amenities, elder: `Elder ${nameFor(s.id)}`,
+    deeds: s.diplo?.[clan]?.deeds,
   });
 }
 
@@ -320,7 +321,7 @@ function renderTalk(p: Player, t: Talk, nodeId: string, prefix = "") {
   const raw = (tier && node.text[tier]) ?? node.text.default ?? node.text.neutral ?? "";
   t.choices = node.choices
     .filter((c) => !c.tiers || (tier && c.tiers.includes(tier)))
-    .map((c) => ({ label: fill(c.label, t, tier), next: c.next, action: c.action, disabled: c.action ? actionBlock(p, t, c.action) || undefined : undefined }));
+    .map((c) => ({ label: fill(c.label, t, tier, p.clan), next: c.next, action: c.action, disabled: c.action ? actionBlock(p, t, c.action) || undefined : undefined }));
   if (nodeId === "start") {
     const extra = familyChoices(p, t);
     // Gap closure G5: whoever keeps a tavern also pours a drink.
@@ -329,7 +330,7 @@ function renderTalk(p: Player, t: Talk, nodeId: string, prefix = "") {
     }
     if (extra.length) t.choices.splice(t.choices.length - 1, 0, ...extra);
   }
-  sendTalk(p, t, (prefix ? prefix + "\n\n" : "") + fill(raw, t, tier));
+  sendTalk(p, t, (prefix ? prefix + "\n\n" : "") + fill(raw, t, tier, p.clan));
 }
 
 function sendTalk(p: Player, t: Talk, text: string) {

@@ -117,6 +117,32 @@ async function inner() {
   const d0 = open(folk[0]);
   texts.push(d0.text);
   result(!!d0 && d0.npc.role === "villager" && d0.choices.length >= 4, `T the villager greets: "${d0?.text.slice(0, 70)}..." (${d0?.choices.length} options)`);
+  // ---- M ---- villager memory: the greeting mentions the most notable remembered deed.
+  const DP = await import("./src/diplomacy.ts");
+  const remembered = (t) => /forgotten|did right by us|Word got round|talk about the job|drive those raiders|stood between|fewer of us left|coin's been good|known at the stalls|raised a hand|Last time you came/.test(t);
+  const dd = () => (s.diplo ??= {}, s.diplo[0] ??= { day: 0, bought: {}, sold: {}, tradeGain: 0, defendGain: 0, lastGainDay: 0 }, s.diplo[0]);
+  delete dd().deeds;
+  result(!remembered(open(folk[0]).text), "M a stranger's greeting carries no remembered deed");
+  DP.noteDeed(s, 0, "traded"); DP.noteDeed(s, 0, "traded");
+  result(!remembered(open(folk[0]).text), "M two purchases are not worth mentioning");
+  DP.noteDeed(s, 0, "traded");
+  result(/coin's been good|known at the stalls/.test(open(folk[0]).text), "M three trades: the greeting mentions your custom");
+  DP.noteDeed(s, 0, "defended"); DP.noteDeed(s, 0, "defended"); DP.noteDeed(s, 0, "defended");
+  result(/drive those raiders|stood between|fewer of us left/.test(open(folk[0]).text), "M defending the walls outranks trade");
+  DP.noteDeed(s, 0, "quests");
+  result(/did right by us|Word got round|talk about the job/.test(open(folk[0]).text), "M a finished quest outranks defence");
+  delete dd().deeds;
+  DP.noteDeed(s, 0, "attacked");
+  result(/raised a hand|Last time you came/.test(open(folk[0]).text), "M an old attack with nothing to balance it is remembered");
+  DP.noteDeed(s, 0, "quests");
+  result(/did right by us|Word got round|talk about the job/.test(open(folk[0]).text), "M a quest done since is remembered over the old attack");
+  result(!/\{[a-z]+\}/.test(open(folk[0]).text), "M the remembered line has no unfilled token");
+  // gainRelation records the deed itself.
+  delete dd().deeds;
+  setRel(40);
+  DP.gainRelation(0, s, 1, "quest");
+  result((dd().deeds?.quests ?? 0) === 1, `M gainRelation('quest') records a quest deed (${JSON.stringify(dd().deeds)})`);
+  delete dd().deeds;
   // walk every topic from the hub
   const labelsSeen = new Set();
   for (const topic of ["How is the work", "Tell me about", "Heard any gossip", "make of the weather", "about yourself"]) {
