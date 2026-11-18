@@ -34,3 +34,11 @@ New buildable Keeps occupy a 3x3 tile footprint. Their artwork is fitted to thre
 Existing Keep / SiteKeep / RuinedKeep anchors expand on load or world generation only when a clear unoccupied 3x3 area and doorway are available. Neighbouring structures, roads and resources are never overwritten. Captured sites and cramped legacy keeps remain compact. HP and upgrade levels are preserved. This affects actual keep buildings; the house decorator's keep-style facade remains a house style, without granting defensive stats or altering its house footprint.
 
 Tests: keep-footprints suite checks placement refusal, nine-tile collision, entrance/exit, save/load, outer-tile damage and demolition, construction cancellation and legacy expansion preserving HP. Interiors, fortifications and settlement template regression suites pass. Comparison gallery captures all ten default interiors against their exterior sprite artwork.
+
+
+## Cosy wall / larger-building revision
+Keep art is now 4.5 tiles wide, exactly 50% wider than the previous 3-tile rendering. New keep footprints reserve 5x5 whole grid tiles; old 3x3 keeps remain valid when safe expansion is blocked. Hall of the Sworn (KnightPost and both castle tiers) now occupies 3x3 with enlarged artwork. The safe-expansion helper preserves HP/levels and treats these halls as expandable buildings too.
+
+House interiors use 12 new transparent timber-wall assets inspired by the supplied room reference: warm vertical panels, windows and pictures, framed plaster and cutaway trim. Wood floors run vertically. Small home presets gain bedroom partitions while existing custom furniture on those cells is preserved. Materials, furnishings and paths remain editable/validated.
+
+Source atlas and reproducible slicing are under art-sources/cozy-walls-20261118. Tests cover 5x5 keeps, 3x3 hall placement and tier upgrades, old keep compatibility, entrances, pathfinding, outer-part damage/demolition, construction cancellation and save/load.

@@ -16,6 +16,8 @@ export const HOME_PROPS:InteriorProp[]=['bed','bedFine','chest','table','chair',
 export function playerBaseMap(design:HomeDesign,level:number):InteriorMap{
  const b=PLAYER_BASES.find(b=>b.id===design.base)??PLAYER_BASES[1],idx=PLAYER_BASES.indexOf(b),w=b.w,h=b.h,cx=Math.floor(w/2);
  const cells:string[]=Array.from({length:w*h},(_,i)=>i%w===0||i%w===w-1||i<w||i>=w*(h-1)?'#':'.');cells[(h-1)*w+cx]='E';
+ // A bedroom divider gives smaller houses an alcove with an open two-cell doorway.
+ if(w<=11){for(const y of [1,2])if(!design.props?.some(p=>p.x===4&&p.y===y))cells[y*w+4]='#';}
  // Bedrooms and a service alcove have generous doorways onto a central hall.
  if(w>=13){for(let y=1;y<h-3;y++){if(y!==3&&y!==h-5){cells[y*w+4]='#';cells[y*w+w-5]='#';}}}
  if(design.base==='hill-burrow')for(const [x,y]of [[1,1],[w-2,1],[1,h-2],[w-2,h-2]])cells[y*w+x]='#';
@@ -26,7 +28,7 @@ export function playerBaseMap(design:HomeDesign,level:number):InteriorMap{
   if(x<1||y<1||x>=w-1||y>=h-1||cells[y*w+x]!=='.'||props.some(p=>p.x===x&&p.y===y)||(x===cx&&y===h-2))return;
   props.push({prop,x,y,facing});if(!validHomeMap(map))props.pop();
  };
- add('bed',2,2,'n');add('chest',w-3,2);add('hearth',b.id==='keep'?cx-3:cx,1);
+ add('bed',2,2,'n');add('chest',w-3,2);add('hearth',b.id==='keep'?cx-3:w<=9?cx+1:cx,1);
  const themes:Record<string,InteriorProp[]>={
   'hill-burrow':['shelf','barrel','sacks','oven','counter','lamp'],
   cottage:['shelf','wardrobe','counter','lamp','barrel'],

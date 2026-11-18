@@ -116,9 +116,12 @@ export interface Footprint {
   h: number;
 }
 export const FOOTPRINT_BY_TILE: Partial<Record<TileType, Footprint>> = {
-  [TileType.Keep]: {w:3,h:3},
-  [TileType.SiteKeep]: {w:3,h:3},
-  [TileType.RuinedKeep]: {w:3,h:3},
+  [TileType.Keep]: {w:5,h:5},
+  [TileType.SiteKeep]: {w:5,h:5},
+  [TileType.RuinedKeep]: {w:5,h:5},
+  [TileType.KnightPost]: {w:3,h:3},
+  [TileType.CastleLevel2]: {w:3,h:3},
+  [TileType.CastleLevel3]: {w:3,h:3},
   [TileType.Pasture]: { w: 2, h: 2 },
   [TileType.WoolFarm]: { w: 2, h: 2 },
   // 2026-11-06: Pig Pasture, and Orchards 4x the area (2x2, like the pastures; old saves' orchards stay 1x1, x1).
@@ -160,7 +163,7 @@ export const PASTURE_YIELDS: Partial<Record<TileType, PastureYield>> = {
   [TileType.WoolFarm]: { meat: 100, wool: 90 },
 };
 // Largest w / h in FOOTPRINT_BY_TILE (bounds the anchor search).
-export const FOOTPRINT_MAX_SIDE = 3;
+export const FOOTPRINT_MAX_SIDE = 5;
 const ONE_BY_ONE: Footprint = { w: 1, h: 1 };
 
 // The footprint a NEW placement of `tile` takes (1x1 for ordinary buildings).
@@ -190,7 +193,10 @@ export function hasFootprintParts(tileAt: TileAt, x: number, y: number, fp: Foot
 // construction site: of the building it will become), or null.
 export function placedFootprintAt(tileAt: TileAt, sizeAt: (x: number, y: number) => Footprint | null, x: number, y: number): Footprint {
   const fp = sizeAt(x, y);
-  return fp && hasFootprintParts(tileAt, x, y, fp) ? fp : ONE_BY_ONE;
+  if(fp&&hasFootprintParts(tileAt,x,y,fp))return fp;
+  // Preserve earlier 3x3 keeps when neighbouring buildings prevent a safe expansion.
+  if(fp?.w===5&&hasFootprintParts(tileAt,x,y,{w:3,h:3}))return {w:3,h:3};
+  return ONE_BY_ONE;
 }
 
 // The anchor of the BuildingPart at (x, y): the tile up / left of it whose complete block covers it (a part
@@ -207,8 +213,8 @@ export function footprintAnchorOf(
       const ax = x - dx;
       const ay = y - dy;
       if (tileAt(ax, ay) === TileType.BuildingPart) continue;
-      const fp = sizeAt(ax, ay);
-      if (fp && dx < fp.w && dy < fp.h && hasFootprintParts(tileAt, ax, ay, fp)) return { x: ax, y: ay };
+      const fp = placedFootprintAt(tileAt,sizeAt,ax,ay);
+      if (dx < fp.w && dy < fp.h && fp.w*fp.h>1) return { x: ax, y: ay };
     }
   }
   return null;

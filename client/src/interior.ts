@@ -293,6 +293,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           const s = new Sprite(floorTile.texture);
           s.scale.set(T / floorTile.texture.width);
           s.position.set(x * T, y * T);
+          if(m.templateId==='house'&&m.floor==='wood'){s.rotation=Math.PI/2;s.position.x+=T;}
           s.zIndex = -9;
           room.addChild(s);
         } else {
@@ -320,6 +321,23 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     for (let y = 0; y < m.h; y++) {
       for (let x = 0; x < m.w; x++) {
         if (m.cells[y * m.w + x] !== "#") continue;
+        if(m.templateId==='house'){
+          const south=!solidAt(x,y+1),north=!solidAt(x,y-1),east=!solidAt(x+1,y),west=!solidAt(x-1,y);
+          const draw=(name:string,px:number,py:number,w:number,h:number)=>{const tex=extraTexture('/sprites/cozy-walls/'+name+'.png');if(!tex)return false;const sp=new Sprite(tex);sp.position.set(px,py);sp.width=w;sp.height=h;sp.zIndex=-5;room.addChild(sp);return true;};
+          if(south||(y===0&&x>1&&x<m.w-2)){
+            const hearth=m.props.some(p=>p.prop==='hearth'&&p.x===x&&p.y===y+1);
+            const face=m.wall==='stone'?'plaster':hearth?'beam':y===0&&x%4===2?'window':y===0&&x%5===3?'picture':'panel';
+            if(!draw(face,x*T,y*T-8,T,T+8))walls.rect(x*T,y*T,T,T).fill(0xb8823d);
+          }else if(north){
+            draw('cap-h',x*T,y*T,T,8);
+          }else if(east||west){
+            const inner=x>0&&x<m.w-1;
+            const width=inner?T:9,xx=inner?x*T:east?(x+1)*T-width:x*T;
+            draw('cap-v',xx,y*T,width,T);
+          }
+          // Fully occluded corner cells stay outside the cutaway; no solid brown blocks.
+          continue;
+        }
         walls.rect(x*T,y*T,T,T).fill(wall.face);
         const mask = (y > 0 && m.cells[(y - 1) * m.w + x] === "#" ? 1 : 0)
           | (x + 1 < m.w && m.cells[y * m.w + x + 1] === "#" ? 2 : 0)
