@@ -245,9 +245,10 @@ export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
 
 // A killed player respawns at the standing Town Center nearest where they fell. With none standing
 // they stay dead (game over for them) until someone builds one: see respawnDeadPlayers.
-export function damagePlayer(player: Player, amount: number) {
-  // Stardew phase 5c: nothing reaches a hero inside a building interior.
-  if (player.dead || player.creativeGod || player.interior) return;
+export function damagePlayer(player: Player, amount: number, indoors = false) {
+  // Stardew phase 5c: nothing reaches a hero inside a building interior (deep mines: except a mine's own monsters,
+  // mines.ts, which pass `indoors`).
+  if (player.dead || player.creativeGod || (player.interior && !indoors)) return;
   // Hero gear: every blow / poison tick the player takes is scaled (equipment survives death).
   const mult = heroProfileOf(player).stats.damageTakenMult;
   if (mult !== 1) heroEvent({ type: "taken", key: player.profileKey, amount: amount * mult, detail: String(amount) });

@@ -64,6 +64,10 @@ export const STATION_SKILL: Partial<Record<TileType, HeroSkill>> = {
   // Clay pit and pottery: digging clay is mining work; the Kiln trains Pottery.
   [TileType.ClayPit]: "mining",
   [TileType.Kiln]: "pottery",
+  // Deep mines: working a coal / copper / tin face is mining.
+  [TileType.CoalMine]: "mining",
+  [TileType.CopperMine]: "mining",
+  [TileType.TinMine]: "mining",
   [TileType.Blacksmith]: "smithing",
   [TileType.TailorShop]: "building",
   [TileType.LuxuryWorkshop]: "building",

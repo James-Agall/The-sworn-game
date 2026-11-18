@@ -22,7 +22,7 @@ import {
   type InteriorNpcPose, type InteriorNpcSnapshot, type InteriorTemplateId, type InteriorView,
 } from "@colony/shared/interiors";
 import { STATION_SKILL, NPC_ROLE_LABEL, PACK_CAP, PACK_GOODS, PACK_LABEL, PACK_WEIGHT, TALK_RANGE_TILES, type NpcRole, type PackGood } from "@colony/shared/herolife";
-import { PLAYER_HALF_SIZE, PLAYER_SPEED, TILE_SIZE, TileType } from "@colony/shared/protocol";
+import { PLAYER_HALF_SIZE, PLAYER_SPEED, TILE_SIZE, TileType, isSolidTile } from "@colony/shared/protocol";
 import type { Mob, Player, SiteState } from "./types.js";
 import { GAME_DAY_TICKS, dt } from "./constants.js";
 import { colonists, mobs, players, state } from "./state.js";
@@ -36,6 +36,8 @@ import { sendTo } from "./saves.js";
 import { heroProfileOf } from "./heroes.js";
 import { isMounted } from "./animals.js";
 import { isDuskNow } from "./structures.js";
+import { MINE_LABEL, isMineTile } from "@colony/shared/mines";
+import { mineHidesMiners, mineView } from "./mines.js";
 import {
   type ChoiceRt, type TalkInside, closeTalk, furnitureTalk, heroSpeedMult, lifeOf, nameFor, packWeight, restHeroFully,
   handlePersonalCraft, setHeroResting, startTalk, stopHeroBusy, talkColorFor, toast,
@@ -74,7 +76,8 @@ export function interiorTemplateAt(tx: number, ty: number): { id: InteriorTempla
   const id = INTERIOR_TEMPLATE_BY_TILE[tile];
   if (!id) return null;
   const level = Math.max(1, Math.min(3, INTERIOR_FIXED_LEVEL[tile] ?? getBuildingLevel(tx, ty)));
-  const variant = forcedVariant ?? interiorVariantFor(tx, ty, level);
+  // Deep mines: a mine's layout is its depth (adit / shaft / deep), never a hash.
+  const variant = id === "mine" ? level - 1 : forcedVariant ?? interiorVariantFor(tx, ty, level);
   return { id, tile, level, variant };
 }
 
@@ -170,7 +173,8 @@ function bindNpcs(p: Player, key: string, tx: number, ty: number, map: InteriorM
     // Own buildings and the Abbey: the people posted here (keeper / priest), then those who live here.
     const clan = acc.kind === "abbey" ? 0 : p.clan ?? 0;
     const alive = Array.from(colonists.values()).filter((c) => c.hp > 0 && !c.ghost && (c.clan ?? 0) === clan && c.kind !== "wagon");
-    const posted = alive.filter((c) => c.postX === tx && c.postY === ty).sort((a, b) => (a.id < b.id ? -1 : 1));
+    // Deep mines: the miners of an infested mine have fled.
+    const posted = id === "mine" && mineHidesMiners(tx, ty) ? [] : alive.filter((c) => c.postX === tx && c.postY === ty).sort((a, b) => (a.id < b.id ? -1 : 1));
     const residents = alive
       .filter((c) => c.person && c.person.homeX === tx && c.person.homeY === ty && !posted.includes(c))
       .sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -342,12 +346,13 @@ function pathTo(r: LiveRoom, from: { x: number; y: number }, to: { x: number; y:
   return out.reverse();
 }
 
-const KEEPER_WORKS: ReadonlySet<InteriorTemplateId> = new Set(["smithy", "bakery", "barn"]);
+const KEEPER_WORKS: ReadonlySet<InteriorTemplateId> = new Set(["smithy", "bakery", "barn", "mine"]);
 const GREETS: Record<string, string[]> = {
   smithy: ["Mind the sparks!", "Need an edge on that?"], bakery: ["Fresh loaves today!", "Mind, the oven's hot."],
   tavern: ["What'll it be?", "Ale's cold, the fire's warm."], shop: ["Have a look around.", "Fair prices, friend."],
   hall: ["Welcome to the hall.", "Speak, traveller."], church: ["Peace be with you.", "The Saint watches over us."],
   barracks: ["At ease.", "Stay sharp out there."], barn: ["Mind the hay.", "Busy day."], house: ["Oh! Hello.", "Make yourself at home."],
+  mine: ["Mind your head.", "Good seam today.", "Watch the props."],
   patron: ["Cheers!", "Another round!", "Evening, stranger.", "Sit, sit!"],
 };
 function greetingFor(b: Binding, room: InteriorTemplateId): string {
@@ -446,10 +451,12 @@ const liveOf = (r: LiveRoom): InteriorNpcLive[] =>
   });
 
 // ---- view ----
-function titleFor(map: InteriorMap, acc: Access): string {
+function titleFor(map: InteriorMap, acc: Access, tile = 0): string {
   if ("refuse" in acc) return map.label;
   if (acc.kind === "abbey") return "Saint Wren's Abbey";
   if (acc.kind === "site") return `${map.label}, ${acc.site.name}`;
+  // Deep mines: named by the mine (Quarry, Iron Mine, ...) and its depth.
+  if (map.templateId === "mine") return `Your ${(MINE_LABEL[tile] ?? "Mine").toLowerCase()}${map.level >= 3 ? " (deep workings)" : map.level === 2 ? " (shaft)" : ""}`;
   return `Your ${map.label.toLowerCase()}`;
 }
 const chestCapFor = (id: string) => (id === "barn" ? INTERIOR_BARN_CHEST_CAP : INTERIOR_CHEST_CAP);
@@ -475,7 +482,8 @@ function viewFor(p: Player): { view: InteriorView; npcs: Binding[]; acc: Access 
     homeDesign:homeDesigns.get(I.key),
     canSleep: own && INTERIOR_SLEEP_TEMPLATES.has(map.templateId) && (hasProp(map, "bed") || hasProp(map, "bedFine")),
     threat: hostilesNearDoor(I.tx, I.ty, INTERIOR_THREAT_ALERT_TILES),
-    title: titleFor(map, acc),
+    title: titleFor(map, acc, I.tile),
+    ...(map.templateId === "mine" && mineView(I.tx, I.ty) ? { mine: mineView(I.tx, I.ty) } : {}),
   };
   return { view, npcs, acc };
 }
@@ -508,6 +516,18 @@ function doorAt(p: Player, bump: boolean): { tx: number; ty: number } | null {
       const door=exteriorDoor(a.x,a.y);if (door.x !== doorX || door.y !== doorY || !interiorTemplateAt(a.x, a.y)) continue;
       const d = Math.hypot(px(doorX) - p.x, px(doorY) - p.y) / TILE_SIZE;
       if (d <= INTERIOR_DOOR_REACH_TILES && (!best || d < best.d)) best = { tx: a.x, ty: a.y, d };
+    }
+  }
+  // Deep mines: a mine whose door (the tile below it) is blocked (it stands in a vein, ore below it) is entered with E
+  // from any free side.
+  if (!best && !bump) {
+    for (const [dx, dy] of [[0, -1], [1, 0], [-1, 0], [0, 1]]) {
+      const mx2 = mx + dx;
+      const my2 = my + dy;
+      if (!inBounds(mx2, my2) || !isMineTile(state.tiles[tileIndex(mx2, my2)])) continue;
+      if (inBounds(mx2, my2 + 1) && !isSolidTile(state.tiles[tileIndex(mx2, my2 + 1)] as TileType)) continue;
+      const d = Math.hypot(px(mx2) - p.x, px(my2) - p.y) / TILE_SIZE;
+      if (d <= 1 + INTERIOR_DOOR_REACH_TILES && (!best || d < best.d)) best = { tx: mx2, ty: my2, d };
     }
   }
   return best;
@@ -952,7 +972,8 @@ export function tryWorldChest(p:Player,tx:unknown,ty:unknown){
 function worldChestTalk(p:Player,at:TalkInside){const c=chests.get(at.key)??{},life=lifeOf(p);const choices:ChoiceRt[]=[{label:'Store everything you carry',action:'worldChestPut',arg:'all',disabled:packWeight(life)<=0?'Your pack is empty':undefined},{label:'Take everything',action:'worldChestTake',arg:'all',disabled:chestWeight(c)<=0?'The chest is empty':undefined}];for(const g of PACK_GOODS){if((life.pack[g]??0)>0)choices.push({label:`Store ${PACK_LABEL[g]}`,action:'worldChestPut',arg:g});if((c[g]??0)>0)choices.push({label:`Take ${PACK_LABEL[g]}`,action:'worldChestTake',arg:g});}furnitureTalk(p,'Storage chest',`Chest (${chestWeight(c)} / ${INTERIOR_CHEST_CAP}): ${goodsText(c)}. Your pack: ${goodsText(life.pack)}.`,choices,at);}
 export function worldChestChoice(p:Player,at:TalkInside,action:string,arg:unknown){if(p.dead||p.interior||!ownWorldChest(p,at.anchor.x,at.anchor.y)||Math.hypot(at.x-p.x,at.y-p.y)>INTERIOR_USE_RANGE_TILES*TILE_SIZE)return closeTalk(p);const c=chests.get(at.key)??{},life=lifeOf(p);if(arg!=='all'&&!PACK_GOODS.includes(arg as PackGood))return;const good=arg as PackGood|'all';if(action==='worldChestPut')move(life.pack,c,good,INTERIOR_CHEST_CAP);else if(action==='worldChestTake')move(c,life.pack,good,PACK_CAP);chests.set(at.key,c);worldChestTalk(p,at);}
 
-const WORK_PROPS=new Set(['anvil','forge','oven','workbench','counter','barrel']);
+// Deep mines: the ore face of a coal / copper / tin mine is its workstation (the hero digs there).
+const WORK_PROPS=new Set(['anvil','forge','oven','workbench','counter','barrel','oreFace']);
 function ownInteriorNear(p:Player,props:Set<string>){
  const I=p.interior;if(!I||p.dead||state.tiles[tileIndex(I.tx,I.ty)]!==I.tile)return false;
  const acc=accessFor(p,I.tx,I.ty,I.tile as TileType);

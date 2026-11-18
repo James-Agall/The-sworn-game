@@ -1099,3 +1099,11 @@ The character-sheet test's immediate-respawn assertion fails without its require
 
 Preview/source folder: `C:/Users/maxim/Documents/Codex/2026-11-10/go-x20/outputs/character-restyle`.
 No live deployment and no push. Visual taste and prolonged multiplayer animation review remain subjective/manual checks.
+
+## #111 Deep mines stand-ins (2026-11-18)
+- Deposits: Coal seam = `rock` tinted 0x4a4650; Copper ore = `ironOre` tinted 0xe0a070; Tin ore = `rock` tinted 0xc8d4e0.
+- Mines: Coal Mine = `quarry` tinted dark; Copper Mine = `ironMine` tinted copper; Tin Mine = `quarry` tinted pale.
+- Mobs: `caveSpider` = giantSpider walk/attack frames, smaller (radius 6.5), tint 0xc89070; `caveBat` = halfLatch idle
+  frames, tint 0x9a7a8a. Wanted: a cave spider and a bat set (4 walk + 3 attack) and a skeleton-miner variant.
+- Interior props drawn in code (client/src/interior.ts): `oreFace` (rock face with ore flecks per mine), `timberProp`.
+  Wanted: ore face / timber prop / mine-cart tiles in the interiors-v2 style.

@@ -30,6 +30,8 @@ export function minimapFactor(worldTiles: number): number {
 
 export enum MinimapClass {
   Plains = 0, Hills, Swamp, Water, Moat, Tree, Rock, Iron, Wall, Road, Building, Ruin, Camp, Abbey,
+  // Deep mines: the new deposits (map markers).
+  Coal, Copper, Tin,
 }
 
 const RUIN_TILES = new Set<number>([TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble, TileType.Rubble]);
@@ -54,6 +56,9 @@ export function minimapClassOf(tile: number, biome: number, owned: boolean): Min
       return MinimapClass.Tree;
     case TileType.Rock: return MinimapClass.Rock;
     case TileType.IronOre: return MinimapClass.Iron;
+    case TileType.CoalSeam: return MinimapClass.Coal;
+    case TileType.CopperOre: return MinimapClass.Copper;
+    case TileType.TinOre: return MinimapClass.Tin;
     case TileType.Wall:
     case TileType.StoneWall:
     case TileType.Gate:
@@ -83,18 +88,22 @@ export function minimapCellClass(
   tiles: ArrayLike<number>, biomes: ArrayLike<number>, W: number, H: number, cellX: number, cellY: number, f: number,
   owned: (i: number) => boolean,
 ): MinimapClass {
-  const counts = new Uint16Array(14);
+  const counts = new Uint16Array(MinimapClass.Tin + 1);
   let best: MinimapClass = MinimapClass.Plains;
   let bestStructure = -1;
+  let deposit = -1;
   for (let y = cellY * f; y < Math.min(H, cellY * f + f); y++) {
     for (let x = cellX * f; x < Math.min(W, cellX * f + f); x++) {
       const i = y * W + x;
       const k = minimapClassOf(tiles[i] ?? 0, biomes[i] ?? 0, owned(i));
-      if (k >= MinimapClass.Wall && k > bestStructure) bestStructure = k;
+      if (k >= MinimapClass.Wall && k <= MinimapClass.Abbey && k > bestStructure) bestStructure = k;
+      else if (k >= MinimapClass.Coal) deposit = k;
       counts[k]++;
     }
   }
   if (bestStructure >= 0) return bestStructure as MinimapClass;
+  // Deep mines: a coal / copper / tin deposit marks its cell (deposit map markers).
+  if (deposit >= 0) return deposit as MinimapClass;
   for (let k = 1; k < counts.length; k++) if (counts[k] > counts[best]) best = k as MinimapClass;
   return best;
 }

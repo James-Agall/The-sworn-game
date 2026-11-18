@@ -176,8 +176,8 @@ export const TOOLS: ToolDef[] = [
     cost: `${buildCostText(TileType.Tower)}. Shoots the nearest monster within 7 tiles; no workers (upgradeable: faster, harder shots)`,
     category: "combat",
   },
-  { tile: TileType.IronMinePost, label: "Iron Mine", key: "7", cost: "Free, on ore; place on a mine to upgrade", category: "industry" },
-  { tile: TileType.RockMinePost, label: "Quarry", key: "8", cost: "Free, on ore; place on a mine to upgrade", category: "industry" },
+  { tile: TileType.IronMinePost, label: "Iron Mine", key: "7", cost: "Free, on ore; place on a mine to upgrade. Enter it (E at its door); a shaft (level 2+) may break into a nest you must clear", category: "industry" },
+  { tile: TileType.RockMinePost, label: "Quarry", key: "8", cost: "Free, on ore; place on a mine to upgrade. Enter it (E at its door); a shaft (level 2+) may break into a nest you must clear", category: "industry" },
   { tile: TileType.Empty, label: "Demolish", key: "9", cost: "", category: "farming" },
   { tile: TileType.House, label: "Cottage", key: "h", cost: `${buildCostText(TileType.House)} (+1 pop per adjacent house or workplace; +1 troop slot to each adjacent unit building; upgrade by placing on it)`, category: "civic" },
   { tile: TileType.BarnPost, label: "Barn", key: "b", cost: `${buildCostText(TileType.BarnPost)} (upgradeable). ${BARN_FARMERS_BY_LEVEL.join(" / ")} farmers by level: they tend old Farm / Hemp fields within ${BARN_FIELD_RADIUS_TILES} tiles, else work Growing zones (full speed). Food and cloth are hauled here when no stockpile takes them`, category: "farming" },
@@ -254,6 +254,29 @@ export const TOOLS: ToolDef[] = [
     label: "Kiln",
     key: "",
     cost: `${buildCostText(TileType.Kiln)} (upgradeable). Needs a Clay Pit. A potter fires Clay + 1 Wood → Bricks, Clay pots (stockpiles hold more), Roof tiles, Tableware (${TABLEWARE_MIN}+: +${TABLEWARE_HAPPINESS} happiness); a level-2 potter fires a Crucible with Charcoal`,
+    category: "industry",
+  },
+  // Deep mines (shared/src/mines.ts; no free key: button only). Sunk on their own deposits (dark coal seams, copper /
+  // tin ore on the map); like every mine they can be entered (E) and, dug deeper, infested.
+  {
+    tile: TileType.CoalMine,
+    label: "Coal Mine",
+    key: "",
+    cost: `${buildCostText(TileType.CoalMine)} (upgradeable), on a coal seam. A miner digs 2 Coal a batch: Bloomery fuel when charcoal runs out. Shafts (level 2+) may break into a nest`,
+    category: "industry",
+  },
+  {
+    tile: TileType.CopperMine,
+    label: "Copper Mine",
+    key: "",
+    cost: `${buildCostText(TileType.CopperMine)} (upgradeable), on copper ore. Needs an Iron Mine. A miner digs 2 Copper ore a batch (kept for bronze)`,
+    category: "industry",
+  },
+  {
+    tile: TileType.TinMine,
+    label: "Tin Mine",
+    key: "",
+    cost: `${buildCostText(TileType.TinMine)} (upgradeable), on tin ore. Needs an Iron Mine. A miner digs 1 Tin ore a batch (kept for bronze)`,
     category: "industry",
   },
   // Phase 4: food. No free key left for these two (key "": button only).

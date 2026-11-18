@@ -1261,3 +1261,20 @@ snapshots, parse time, main-thread stalls over 50 ms, and unit / display-object 
    dots flicker, lag behind the units, or leave a ghost sprite after you zoom in.
 4. Record numbers for a big battle (spawn one with creative mode, or a raid): frame avg / worst, snapshot gap avg / worst,
    long tasks. A steady snapshot gap near 50 ms with a bad frame time = client problem; a wobbling gap = server / network.
+
+## Deep mines (2026-11-18)
+1. New game: the minimap shows near-black (coal), orange (copper) and pale blue (tin) specks; on the map they are tinted
+   rock / ore tiles. Build a Coal Mine on a coal seam (Industry tab): refused on bare ground; a miner digs coal.
+2. Walk to any mine's door (below it) and press E: a dark tunnel room with ore faces (flecked in the ore's colour),
+   timber props and lamps (level 2+); your miner works at the face. Walk onto the mat / Esc to leave.
+3. Raise a Quarry / Iron / Coal Mine to level 2 (timber props, a level-2 miner) until one reports "broke into a nest"
+   (35%; try several). Its panel says Infested; its miner walks off to shelter; nothing is dug.
+4. Go in: red HUD line "Infested: N monsters left"; spiders / bats / skeletons (tinted stand-ins) sleep with "z z"
+   and hp bars. Walk close: they wake and bite (your HP drops). Space swings (slash arc); they flash red, die; you get
+   "slain: 2 coal, bones..." toasts. Last one: "cleared by you (+20 gold)", the miner comes back and digs.
+5. Infest another, stand 2+ soldiers near it, open its panel: "Send soldiers in (N)"; press it: cleared or driven out.
+6. Let a monster kill you inside (low HP): you end up outside, not stuck in the mine.
+7. Level 3 needs Air vent + Bucket pump (Craft by hand) and a Blacksmith. Over several days watch for "Cave-in" when out
+   of timber props and "flooded"/"Bad air" if you remove the vent/pump; deep mines may get monsters back at dawn.
+8. Save, reload: an infested mine stays infested with the same monsters; deposits stay.
+9. Art check: are the stand-ins (cave spider = small brown giant spider, bat = tinted half-latch, ore faces) readable?

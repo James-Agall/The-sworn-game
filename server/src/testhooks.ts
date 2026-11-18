@@ -94,6 +94,7 @@ import { assignHomes, handleCallVillagers, heirSnapshot, peopleDawnForClan, resc
 import { calendarDayNow, calendarNow, calendarSnapshot, rainingNow, setCalendar, setWeatherOverride, updateCalendar, winterNow, snowSlowNow, forageRegrowTicksBetween } from "./calendar.js";
 import { weatherForDay } from "@colony/shared/calendar";
 import { enterInterior, exitInterior, handleInteriorExit, interiorDebug, setForcedInteriorVariant } from "./interiors.js";
+import { mineDebug } from "./mines.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
@@ -1217,6 +1218,10 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       ? Array.from(tileIndicesOf(msg.find as TileType), (i) => ({ tx: i % state.WORLD_TILES_X, ty: Math.floor(i / state.WORLD_TILES_X), owner: ownerAt(i), clan: clanIdAt(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X)) }))
       : undefined;
     reply({ ...(why !== undefined ? { why } : {}), ...(found ? { found } : {}), ...interiorDebug(player), world: { x: player.x, y: player.y }, cycleTick: state.cycleTick, night: isNightNow() });
+  } else if (msg.op === "mine") {
+    // Deep mines (mines.ts mineDebug): pick a mine {tx, ty}; infest / clear / roll / dawn / sync / set / wakeAll /
+    // place; replies its record, live monsters, work multiplier, panel info and every mine's status.
+    withClan(clanOf(player), () => reply(mineDebug(msg)));
   } else if (msg.op === "livestock") {
     // Stardew phase 5d: houses, animals, jobs; `set` {house "x,y", feed?, water?, daily?, animal id, happiness?, born?,
     // health?} adjusts state (daily: run one daily step now).

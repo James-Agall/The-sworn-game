@@ -22,7 +22,7 @@ export const WORK_HELP: Record<WorkType, string> = {
   building: "Blueprints, structures and construction sites (Town Center builders; free villagers lend a hand)",
   farming: "Growing zones (till, sow, tend, harvest) and Barns, pastures, orchards, wool / cotton farms",
   woodcutting: "Lumber Camp posts",
-  mining: "Quarry, Iron Mine and Clay Pit posts",
+  mining: "Quarry, Iron, Coal, Copper and Tin Mine and Clay Pit posts",
   hunting: "Hunter's Hut and Forager's Hut posts",
   cooking: "Mill, Bakery, Brewery and Tavern posts",
   crafting: "Tailor, Blacksmith, Bloomery, Charcoal Burner, Kiln and Jeweler posts",

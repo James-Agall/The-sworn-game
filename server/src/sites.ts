@@ -33,7 +33,7 @@ import { noteLiegeHit } from "./vassals.js";
 
 // Ground the test-hook stamper may clear (world-gen only ever stamps onto Empty).
 const CLEARABLE_TILES = new Set<number>([
-  TileType.Empty, TileType.Tree, TileType.Rock, TileType.IronOre, TileType.Water, TileType.Rubble,
+  TileType.Empty, TileType.Tree, TileType.Rock, TileType.IronOre, TileType.CoalSeam, TileType.CopperOre, TileType.TinOre, TileType.Water, TileType.Rubble,
   TileType.BerryBush, TileType.BerryBushPicked, TileType.FruitTree, TileType.FruitTreePicked,
   TileType.MushroomPatch, TileType.MushroomPatchPicked,
 ]);

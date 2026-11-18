@@ -4605,3 +4605,37 @@ Plan: `~/docs/colony2d/PLAN-agri-industry-winter-mines.md` phase 2. Built on the
 - **Not done (phase 2):** millstone-grade bricks (the millstone stays a hand recipe of rock), a fuel choice per batch
   (charcoal only for the crucible; wood for the rest), pots for water carrying or spoilage (there is no spoilage model
   yet), tableware placed in houses / the tavern (it counts from the store), a clay deposit terrain tile (water stands in).
+
+## Deep mines — landed 2026-11-18
+Phase 3 of PLAN-agri-industry-winter-mines.md. Numbers in `shared/src/mines.ts`; server `server/src/mines.ts`; test
+`server/mines-test.mjs` (`npm test -- mines`, a TREE suite: no COLONY_UNLOCK_ALL).
+- **Deposits**: Coal seam / Copper ore / Tin ore tiles (149-151), small veins (6 / 4 / 3 per 80x80, 2-4 tiles) scattered
+  last from their own generator seeded by the world salt (WORLDGEN_VERSION 10). A loaded world with none gets them on
+  load. Minimap markers (MinimapClass Coal / Copper / Tin win their cell over terrain). Richness 1-3 + prospecting as ore.
+- **Mines**: Coal / Copper / Tin Mine (152-154): artisan stations (miner profession) placed only on their deposit,
+  demolished back to it; dig 2 coal / 2 copper ore / 1 tin ore a batch (+ richness). Copper / tin need an Iron Mine.
+  Coal smelts iron blooms in the Bloomery when there is no charcoal (`ironBloomCoal`). Copper / tin are items only.
+- **Interiors**: every mine (Quarry, Iron, Coal, Copper, Tin) is an interior "mine"; its layout is its depth (level 1
+  adit, 2 shaft, 3 deep) with ore faces, timber props, lamps, "Z" lairs. E at the door (a mine whose south side is
+  blocked: E from any free side). Posted miners work the face (hidden while infested). The ore face is the hero's
+  workstation at the new mines.
+- **Infestation**: reaching level 2 / 3 rolls 35% / 65% (hash of tile, level, world salt: fixed at world gen) for a nest
+  (level 2: 3-4 of cave spider / cave bat / skeleton; level 3: 4-6 incl. giant spiders). Infested: miners shelter by
+  day, production 0, panel line + "Send soldiers in" button. New mob kinds `caveSpider`, `caveBat` (never in raids).
+- **Fighting inside**: mines are combat-enabled interiors: Space swings (usual damage / cooldown; reach 1.4 tiles,
+  spear 1.9, bow 5), monsters sleep at lairs until the hero is within 4.5 tiles, hunt it on the room grid and bite
+  (`damagePlayer(..., indoors)`). A fallen hero is put outside (heir rule / legacy respawn). Spells stay outside. Loot
+  per kill: 2 of the mine's product, bones (skeletons always, else 35%), rough gems (2-12%); +20 gold on clearing.
+  Cleared: 3 days' grace. Monsters / status saved (`mines` in the save; older saves: mines start clear, no roll).
+- **Soldiers**: `mineAssault` sends up to 6 of the clan's soldiers within 12 tiles in, resolved at once (rounds of a
+  second; soldiers can die). Not a walk-in: they never appear inside.
+- **Re-infestation**: deep (level 3) mines roll at dawn every 2 days: 40% x0.5 with Miner's lamps in store x0.6 with
+  timber props in store x0.5 with a Mine Foreman (a level-3+ miner posted); a soldier within 6 tiles: no roll. A nest
+  breaking in kills 1 miner (permanent) unless a foreman is posted.
+- **Hazards**: worked shafts use a timber prop every 3 days (none: unpropped, 30%/dawn cave-in: closed for the day, a
+  miner hurt to half); level 3 without an Air vent: x0.5 speed; without a Bucket pump: 30%/dawn flood (closed for the
+  day). Level-3 upgrade gate for every mine: Air vent + Bucket pump in store (+ Blacksmith). New hand recipes: Miner's
+  lamps (2 iron 2 wood), Air vent (6 wood 6 rock), Bucket pump (8 wood 4 iron, carpenter's tools kept).
+- Automatic rolls / hazards are off under COLONY_UNLOCK_ALL (older suites); forced ones (test hook `mine`) work.
+- Not done: soldiers do not walk into the interior (abstract assault only); hero spells indoors; hand-gathering coal /
+  copper / tin; dedicated art (stand-ins, SPRITES.md #111).

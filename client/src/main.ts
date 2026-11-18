@@ -3692,6 +3692,10 @@ async function main() {
   const MINIMAP_TREE = 0x3c5428;
   const MINIMAP_ROCK = 0x8d8a80;
   const MINIMAP_IRON = 0x7d5644;
+  // Deep mines: deposit markers (coal near-black, copper orange, tin pale blue-grey).
+  const MINIMAP_COAL = 0x1e1c22;
+  const MINIMAP_COPPER = 0xd07a3a;
+  const MINIMAP_TIN = 0xb8c8d8;
   const MINIMAP_WALL = 0xb8ad98;
   const MINIMAP_ROAD = 0xa8875a;
   const MINIMAP_BUILDING = 0xe0b468;
@@ -3730,6 +3734,12 @@ async function main() {
         return MINIMAP_ROCK;
       case TileType.IronOre:
         return MINIMAP_IRON;
+      case TileType.CoalSeam:
+        return MINIMAP_COAL;
+      case TileType.CopperOre:
+        return MINIMAP_COPPER;
+      case TileType.TinOre:
+        return MINIMAP_TIN;
       case TileType.Wall:
       case TileType.StoneWall:
       case TileType.Gate:
@@ -3755,6 +3765,7 @@ async function main() {
     [MinimapClass.Tree]: MINIMAP_TREE, [MinimapClass.Rock]: MINIMAP_ROCK, [MinimapClass.Iron]: MINIMAP_IRON,
     [MinimapClass.Wall]: MINIMAP_WALL, [MinimapClass.Road]: MINIMAP_ROAD, [MinimapClass.Building]: MINIMAP_BUILDING,
     [MinimapClass.Ruin]: MINIMAP_RUIN, [MinimapClass.Camp]: MINIMAP_CAMP, [MinimapClass.Abbey]: MINIMAP_ABBEY,
+    [MinimapClass.Coal]: MINIMAP_COAL, [MinimapClass.Copper]: MINIMAP_COPPER, [MinimapClass.Tin]: MINIMAP_TIN,
   };
   // World streaming phase 4: one minimap pixel per f x f cell. A loaded chunk's cell is recomputed from its
   // tiles; elsewhere a structure arriving by tileUpdate overrides the welcome's summary.
@@ -5498,6 +5509,7 @@ async function main() {
     TileType.Gate, TileType.FenceGate, TileType.Drawbridge, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
     TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery,
     TileType.ClayPit, TileType.Kiln, TileType.ChickenCoop, TileType.LivestockBarn, TileType.PigSty, TileType.SheepPen,
+    TileType.CoalMine, TileType.CopperMine, TileType.TinMine,
     ...NEW_STRUCTURE_TILES,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
@@ -5600,6 +5612,10 @@ async function main() {
   const bpLevyRowEl = document.getElementById("bp-levy-row")!;
   const bpLevyBtn = document.getElementById("bp-levy") as HTMLButtonElement;
   const bpLevyStateEl = document.getElementById("bp-levy-state")!;
+  // Deep mines: an own mine's status and the "Send soldiers in" button (mineAssault).
+  const bpMineRowEl = document.getElementById("bp-mine-row")!;
+  const bpMineBtn = document.getElementById("bp-mine-assault") as HTMLButtonElement;
+  const bpMineStateEl = document.getElementById("bp-mine-state")!;
   let shownLevyOnField = 0;
   // Armour & weapons: the Blacksmith's two forge buttons (queueForge) and its queue line.
   const bpForgeRowEl = document.getElementById("bp-forge-row")!;
@@ -6111,7 +6127,7 @@ async function main() {
       const label = info.tile === TileType.ConstructionSite ? "Under construction" : "Upgrading";
       bpConstructionEl.textContent = `${label}: ${Math.round(info.construction * 100)}%`;
     }
-    const lines = [...info.bonuses, ...(info.progression ?? [])];
+    const lines = [...info.bonuses, ...(info.mine?.lines ?? []), ...(info.progression ?? [])];
     const items = lines.length > 0 ? lines : ["None yet"];
     bpBonusesEl.replaceChildren(
       ...items.map((text) => {
@@ -6155,6 +6171,14 @@ async function main() {
       shownGateLock = info.gate.lock;
       bpGateBtn.textContent = `Lock: ${GATE_LOCK_LABEL[info.gate.lock]}`;
       bpGateStateEl.textContent = info.gate.overrun ? "Overrun!" : info.gate.open ? "Open" : "Closed";
+    }
+    bpMineRowEl.hidden = !info.mine || info.mine.status !== "infested";
+    if (info.mine) {
+      const a = info.mine.assault;
+      bpMineBtn.disabled = a.reason !== "";
+      bpMineBtn.textContent = `Send soldiers in (${a.soldiers})`;
+      bpMineBtn.title = a.reason || "The soldiers near the mine go in and fight the monsters (some may fall)";
+      bpMineStateEl.textContent = a.reason || `${info.mine.monsters} monster${info.mine.monsters === 1 ? "" : "s"} inside`;
     }
     bpLevyRowEl.hidden = !info.levy;
     if (info.levy) {
@@ -6291,6 +6315,12 @@ async function main() {
       window.setTimeout(requestBuildingInfo, 150);
     });
   }
+  bpMineBtn.addEventListener("click", () => {
+    bpMineBtn.blur();
+    if (!infoTile) return;
+    sendMessage({ type: "mineAssault", tileX: infoTile.tx, tileY: infoTile.ty });
+    window.setTimeout(requestBuildingInfo, 150);
+  });
   bpLevyBtn.addEventListener("click", () => {
     bpLevyBtn.blur();
     if (!infoTile) return;
@@ -7589,6 +7619,8 @@ async function main() {
       interiorRef.ui?.onMessage(message.view);
     } else if (message.type === "interiorNpcs") {
       interiorRef.ui?.onNpcs(message.key, message.storey, message.npcs);
+    } else if (message.type === "interiorMobs") {
+      interiorRef.ui?.onMobs(message.key, message.mobs);
     } else if (message.type === "dialogue" || message.type === "interactNone") {
       heroLifeRef.ui?.onMessage(message);
     } else if (message.type === "buildingInfo") {
@@ -8139,6 +8171,13 @@ async function main() {
     npcTexture: (kind) => COLONIST_TEXTURES[kind as ColonistKind],
     npcAnim: (kind) => (COLONIST_TINT.has(kind) ? undefined : COLONIST_ANIMS[kind as ColonistKind]),
     npcHeight: COLONIST_SPRITE_HEIGHT,
+    // Deep mines: a cave monster's look (its first variant: idle, walk / attack frames, their scale; stand-in tint).
+    mobArt: (kind) => {
+      const v = MOB_VARIANTS[kind as MobKind]?.[0];
+      const idle = v?.idle ?? MOB_TEXTURES[kind as MobKind];
+      if (!idle) return undefined;
+      return { idle, scale: v ? v.idleScale : (MOB_VISUALS[kind as MobKind].radius * MOB_SPRITE_SIZE_PER_RADIUS) / Math.max(idle.width, idle.height), walk: v?.anim?.walk ?? [], action: v?.anim?.action ?? [], walkScale: v?.anim?.scale ?? 1, tint: MOB_TINT[kind as MobKind] };
+    },
     send: sendMessage,
     myId: () => myId,
     onChange: () => {

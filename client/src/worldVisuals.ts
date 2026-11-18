@@ -101,6 +101,14 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   // for the kiln.
   [TileType.ClayPit]: "quarry",
   [TileType.Kiln]: "blacksmith",
+  // Deep mines stand-ins (tinted; SPRITES.md #111): rock / iron ore for the deposits, the quarry / iron mine posts
+  // for the mines.
+  [TileType.CoalSeam]: "rock",
+  [TileType.CopperOre]: "ironOre",
+  [TileType.TinOre]: "rock",
+  [TileType.CoalMine]: "quarry",
+  [TileType.CopperMine]: "ironMine",
+  [TileType.TinMine]: "quarry",
   // Pig Pasture (2026-11-06) stand-in: the fat (cow) pasture tinted pink until pigPasture art lands (SPRITES.md #86).
   [TileType.PigPasture]: "pastureFat",
   // Stardew phase 5d stand-ins (tinted) if the staged animal-building art (TILE_OPTIONAL_ART) is missing.
@@ -220,6 +228,12 @@ export const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.Bakery]: 0xf0b880,
   [TileType.ClayPit]: 0xc08860,
   [TileType.Kiln]: 0xd89068,
+  [TileType.CoalSeam]: 0x4a4650,
+  [TileType.CopperOre]: 0xe0a070,
+  [TileType.TinOre]: 0xc8d4e0,
+  [TileType.CoalMine]: 0x6a6670,
+  [TileType.CopperMine]: 0xe8a878,
+  [TileType.TinMine]: 0xd0dce8,
   [TileType.PigPasture]: 0xffa8b8,
   [TileType.ChickenCoop]: 0xf0e0a0,
   [TileType.LivestockBarn]: 0xc89070,

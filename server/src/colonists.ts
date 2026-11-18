@@ -51,6 +51,7 @@ import {
 import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroColonist } from "./heroes.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
+import { minerFlees, mineWorkMult } from "./mines.js";
 import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, tablewareHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
@@ -1012,8 +1013,14 @@ export function planRouteToNearestResource(
 }
 
 export function updateStationaryMiner(c: Colonist, dt: number) {
+  // Deep mines: closed (infested, a cave-in, a flood) mines yield nothing; bad air halves the pace.
+  const mult = mineWorkMult(c.postX, c.postY);
+  if (mult <= 0) {
+    c.state = "idle";
+    return;
+  }
   c.state = "mining";
-  c.chopTicksRemaining -= workSpeed(c);
+  c.chopTicksRemaining -= workSpeed(c) * mult;
   if (c.chopTicksRemaining <= 0) {
     depositGatheredResource(c.kind);
     // Progression tree phase 3: a prospected fair / rich deposit yields more.
@@ -1976,7 +1983,8 @@ export function updateColonist(c: Colonist, dt: number) {
   }
 
   if (isCivilianKind(c.kind)) {
-    const night = isNightNow();
+    // Deep mines: the miners of an infested mine flee to shelter by day too, until it is cleared.
+    const night = isNightNow() || minerFlees(c);
     const stationaryWorker = isStationaryWorkerKind(c.kind);
     if (night && !c.sheltering) {
       c.sheltering = true;

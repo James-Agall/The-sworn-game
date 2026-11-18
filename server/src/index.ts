@@ -74,6 +74,7 @@ import { handleCreativeSet, handleCreativeSpawn, topUpCreative } from "./creativ
 import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, isForeignClanTile, withClan } from "./clans.js";
 import { handleCallVillagers, handleChooseHeir, handleTrainUnit, heirChoicesFor } from "./people.js";
 import { handleCraftItem, handleProspect, progressionSnapshot } from "./progression.js";
+import { handleMineAssault, mineHeroAttack } from "./mines.js";
 import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, withPlayerLife } from "./herolife.js";
 import { handleInteriorEdit,handleInteriorUse,handleInteriorExit, playerInside } from "./interiors.js";
 
@@ -212,7 +213,7 @@ function clearCreativeTargets(player: Player, ids: unknown) {
 }
 
 // Clans: tile actions (upgrade, repair, gate lock, siege / forge queue, recruit, learn) only on own buildings.
-const TILE_ACTIONS = new Set(["trainUnit", "callVillagers", "upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "setForgeAuto", "recruitHero", "learnSpell", "wagonCommand"]);
+const TILE_ACTIONS = new Set(["mineAssault", "trainUnit", "callVillagers", "upgradeBuilding", "repairBuilding", "setGateLock", "queueSiege", "queueForge", "setForgeAuto", "recruitHero", "learnSpell", "wagonCommand"]);
 
 function handleMessage(player: Player, message: ClientMessage) {
   const socket = player.socket;
@@ -237,8 +238,12 @@ function handleMessage(player: Player, message: ClientMessage) {
     return;
   }
 
-  // Stardew phase 5c: inside a building interior there is nothing to swing at or cast on.
-  if (player.interior && (message.type === "attack" || message.type === "castSpell")) return;
+  // Stardew phase 5c: inside a building interior there is nothing to swing at or cast on. Deep mines: inside a mine
+  // the hero's swing hits the mine's monsters (mines.ts); spells stay outside.
+  if (player.interior && (message.type === "attack" || message.type === "castSpell")) {
+    if (message.type === "attack") mineHeroAttack(player);
+    return;
+  }
   if (message.type === "input") {
     const dx = clamp(message.dx, -1, 1);
     const dy = clamp(message.dy, -1, 1);
@@ -417,6 +422,9 @@ function handleMessage(player: Player, message: ClientMessage) {
     handleCraftItem(player, message.recipe);
   } else if (message.type === "prospect") {
     handleProspect(player);
+  } else if (message.type === "mineAssault") {
+    // Deep mines: the soldiers near this mine go in (mines.ts).
+    handleMineAssault(player, message.tileX, message.tileY);
   } else if (message.type === "interact") {
     // Solo hero (herolife.ts): talk / a hotbar tool on the faced tile / gather / work.
     handleInteract(player, message);

@@ -14,6 +14,7 @@ import {
 } from "@colony/shared/buildings";
 export { BARN_FARMERS_BY_LEVEL, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, FOOD_TIME_MULT };
 import { NEW_STRUCTURE_TILES } from "@colony/shared/structures";
+import { MINE_MOB_STATS } from "@colony/shared/mines";
 import type {
   Cost, CraftRecipe, DifficultyTuning, MobKindConfig, PoiSiteKind, RaidFactionEntry, RaidFactionId,
   RaidFormationShape, ResourceKey, SiteTemplate, SiteTemplateId, TileCoord, WildlifeMode,
@@ -204,6 +205,8 @@ export const MOB_BODY_RADIUS: Record<MobKind, number> = {
   townMiner: 7,
   townPriest: 7,
   townHerald: 7,
+  caveSpider: 6.5,
+  caveBat: 5,
 };
 // Scale pass: the body grows with the mob's size (mobSizeScale: kind x roll x boss tier), capped so a
 // boss still fits the one-cell neighbour scan of separateBodies.
@@ -437,6 +440,10 @@ export const MOB_KIND_CONFIG: Record<MobKind, MobKindConfig> = {
   townPriest: { maxHp: 18, damage: 1, speed: 50, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
   // Gap closure G7: the settlement's quest giver (reeve / bailiff / herald).
   townHerald: { maxHp: 22, damage: 1, speed: 50, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
+  // Deep mines (shared/src/mines.ts MINE_MOB_STATS): the cave kinds live in infested mines (never in raids); these are
+  // their stats if creative spawns one outside.
+  caveSpider: { maxHp: MINE_MOB_STATS.caveSpider!.hp, damage: MINE_MOB_STATS.caveSpider!.damage, speed: MINE_MOB_STATS.caveSpider!.speed * TILE_SIZE, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
+  caveBat: { maxHp: MINE_MOB_STATS.caveBat!.hp, damage: MINE_MOB_STATS.caveBat!.damage, speed: MINE_MOB_STATS.caveBat!.speed * TILE_SIZE, range: TILE_SIZE * 0.8, melee: true, unlockDay: Number.POSITIVE_INFINITY },
 };
 // ---- Scale pass: size variation ----
 // Every mob of a MOB_SIZE_RANGE kind rolls a size s, deterministically from its id (so a save can
@@ -709,6 +716,9 @@ export const POST_TILE_TYPES = [
   TileType.Bakery,
   TileType.ClayPit,
   TileType.Kiln,
+  TileType.CoalMine,
+  TileType.CopperMine,
+  TileType.TinMine,
   TileType.ChickenCoop,
   TileType.LivestockBarn,
   TileType.PigSty,
@@ -753,6 +763,9 @@ export const INDUSTRIAL_TILES: TileType[] = [
   TileType.Bakery,
   TileType.ClayPit,
   TileType.Kiln,
+  TileType.CoalMine,
+  TileType.CopperMine,
+  TileType.TinMine,
   TileType.HunterHut,
   TileType.ForagerHut,
   TileType.BuildersGuild,
@@ -845,6 +858,9 @@ export const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
   [TileType.Bakery]: "Bakery",
   [TileType.ClayPit]: "Clay Pit",
   [TileType.Kiln]: "Kiln",
+  [TileType.CoalMine]: "Coal Mine",
+  [TileType.CopperMine]: "Copper Mine",
+  [TileType.TinMine]: "Tin Mine",
   [TileType.ChickenCoop]: "Chicken Coop",
   [TileType.LivestockBarn]: "Livestock Barn",
   [TileType.PigSty]: "Pig Sty",
@@ -2015,7 +2031,7 @@ export const VISION_BUILDING_TILES = new Set<TileType>([
   TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3, TileType.ArcherPost,
   TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost, TileType.Pasture, TileType.PigPasture,
   TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop, TileType.Blacksmith,
-  TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery, TileType.ClayPit, TileType.Kiln,
+  TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery, TileType.ClayPit, TileType.Kiln, TileType.CoalMine, TileType.CopperMine, TileType.TinMine,
   TileType.ChickenCoop, TileType.LivestockBarn, TileType.PigSty, TileType.SheepPen,
   TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
   TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
@@ -2075,6 +2091,9 @@ export const PLACEABLE_TILES = [
   TileType.Bakery,
   TileType.ClayPit,
   TileType.Kiln,
+  TileType.CoalMine,
+  TileType.CopperMine,
+  TileType.TinMine,
   TileType.ChickenCoop,
   TileType.LivestockBarn,
   TileType.PigSty,
@@ -2139,6 +2158,9 @@ export const BREAKABLE_TILES = [
   TileType.Bakery,
   TileType.ClayPit,
   TileType.Kiln,
+  TileType.CoalMine,
+  TileType.CopperMine,
+  TileType.TinMine,
   TileType.ChickenCoop,
   TileType.LivestockBarn,
   TileType.PigSty,
@@ -2191,6 +2213,9 @@ export const POPULATION_GATED_TILES = [
   TileType.Bakery,
   TileType.ClayPit,
   TileType.Kiln,
+  TileType.CoalMine,
+  TileType.CopperMine,
+  TileType.TinMine,
   TileType.Tavern,
   TileType.WardStone,
   TileType.HunterHut,
@@ -2217,6 +2242,9 @@ export const IN_PLACE_UPGRADE_TILES: TileType[] = [
   TileType.Bakery,
   TileType.ClayPit,
   TileType.Kiln,
+  TileType.CoalMine,
+  TileType.CopperMine,
+  TileType.TinMine,
   TileType.ChickenCoop,
   TileType.LivestockBarn,
   TileType.PigSty,

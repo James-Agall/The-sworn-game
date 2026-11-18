@@ -68,14 +68,18 @@ export const INTERIOR_BOB_MS = 1400;
 export const INTERIOR_WORK_MS = 520;
 
 // ---- templates ----
-export type InteriorTemplateId = "house" | "tavern" | "church" | "smithy" | "bakery" | "shop" | "barracks" | "hall" | "barn";
+export type InteriorTemplateId = "house" | "tavern" | "church" | "smithy" | "bakery" | "shop" | "barracks" | "hall" | "barn"
+  // Deep mines (shared/src/mines.ts): every mine; its layout (variant) is its depth (level 1 adit, 2 shaft, 3 deep).
+  | "mine";
 export type InteriorFloor = "wood" | "stone" | "dirt";
 export type InteriorProp =
   | "bed" | "bedFine" | "chest" | "table" | "chair" | "hearth" | "lamp" | "rug" | "shelf" | "wardrobe" | "counter"
   | "altar" | "pew" | "anvil" | "oven" | "barrel" | "crates" | "sacks" | "hay" | "weaponRack" | "armourStand" | "banner"
   | "statue" | "throne" | "forge" | "stall" | "workbench" | "candelabra"
   // Gap closure G5 (d): stairs to the upper floor ("U") and back down ("D"); walked onto, not used with E.
-  | "stairsUp" | "stairsDown";
+  | "stairsUp" | "stairsDown"
+  // Deep mines: the ore face the miners work and the timber props holding the roof.
+  | "oreFace" | "timberProp";
 // NPC slots: "1" the building's keeper (smith, baker, trader, priest, elder), "2" a second (a hall's trader),
 // "v" residents / patrons / soldiers (beside the beds and tables).
 export type InteriorNpcSlot = "1" | "2" | "v";
@@ -127,6 +131,10 @@ export const INTERIOR_LEGEND: Record<string, InteriorSymbol> = {
   v: { label: "Resident / patron", npc: "v" },
   U: { label: "Stairs up", prop: "stairsUp" },
   D: { label: "Stairs down", prop: "stairsDown" },
+  // Deep mines: ore face, timber prop, and a lair (floor where an infested mine's monsters sleep: InteriorMap.lairs).
+  O: { label: "Ore face", prop: "oreFace" },
+  P: { label: "Timber prop", prop: "timberProp" },
+  Z: { label: "Monster lair (floor)" },
 };
 export const INTERIOR_WALKABLE_PROPS: ReadonlySet<InteriorProp> = new Set(["rug", "chair", "stairsUp", "stairsDown"]);
 
@@ -409,6 +417,44 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
       "#######E#######",
     ]),
   ],
+  // Deep mines: variant = depth (interiorTemplateAt), not a hash: 0 the level-1 adit, 1 the level-2 shaft, 2 the deep
+  // level-3 workings. "1" the foreman at the face, "v" miners, "Z" lairs.
+  mine: [
+    T("mine", "Mine", "dirt", "stone", [
+      "###########",
+      "#OO..1..OO#",
+      "#.v.....v.#",
+      "#P...Z...P#",
+      "#..X...l..#",
+      "#P.......P#",
+      "#####E#####",
+    ]),
+    T("mine", "Mine", "dirt", "stone", [
+      "###############",
+      "#OO1.#####.OOO#",
+      "#.v..#.Z.#..v.#",
+      "#PZ..#...#...P#",
+      "#....P...P....#",
+      "#............x#",
+      "#P...#####...P#",
+      "#X.l.......lZ.#",
+      "#######E#######",
+    ]),
+    T("mine", "Mine", "dirt", "stone", [
+      "#################",
+      "#OOO.1.###.OOOO.#",
+      "#..v...#Z#..v...#",
+      "#P.....#.#.....P#",
+      "#...Z..P.P..Z...#",
+      "#.......Z.......#",
+      "#P..###...###..P#",
+      "#...#OO...OO#...#",
+      "#.Z.#..v.v..#.Z.#",
+      "#P..##.....##..P#",
+      "#x....l...l....X#",
+      "########E########",
+    ]),
+  ],
   barn: [
     T("barn", "Barn", "dirt", "wood", [
       "###########",
@@ -479,6 +525,7 @@ export const INTERIOR_REQUIRED_PROPS: Record<InteriorTemplateId, InteriorProp[]>
   barracks: ["bed", "weaponRack", "chest"],
   hall: ["throne", "table", "chest"],
   barn: ["hay", "chest"],
+  mine: ["oreFace", "timberProp"],
 };
 // A tavern layout seats at least this many patrons (chairs beside a table).
 export const INTERIOR_TAVERN_MIN_SEATS = 6;
@@ -573,6 +620,8 @@ export function validateInteriorTemplate(t: InteriorTemplate, upper = false): st
   for (const p of INTERIOR_REQUIRED_PROPS[t.id]) if (!has(p)) errs.push(`${t.id}: no ${p} (its room role needs one)`);
   if (t.id !== "house" && !m.slots.some((s) => s.slot === "1")) errs.push(`${t.id}: no keeper slot "1"`);
   if (t.id === "house" && !m.slots.some((s) => s.slot === "v")) errs.push(`house: no resident slot "v"`);
+  if (t.id === "mine" && !(m.lairs ?? []).length) errs.push(`mine: no monster lair "Z"`);
+  for (const q of m.lairs ?? []) if (!seen[q.y * w + q.x]) errs.push(`${t.id}: lair at ${q.x},${q.y} cannot be reached`);
   if (t.id === "tavern" && interiorSeats(m).length < INTERIOR_TAVERN_MIN_SEATS) errs.push(`tavern: fewer than ${INTERIOR_TAVERN_MIN_SEATS} seats`);
   if (INTERIOR_UPPER_TEMPLATES[t.id] && !m.stairs) errs.push(`${t.id}: no stairs up to its upper floor`);
   return errs;
@@ -613,6 +662,11 @@ export const INTERIOR_TEMPLATE_BY_TILE: Partial<Record<TileType, InteriorTemplat
   [TileType.Keep]: "hall",
   [TileType.SiteKeep]: "hall",
   [TileType.BarnPost]: "barn",
+  [TileType.RockMinePost]: "mine",
+  [TileType.IronMinePost]: "mine",
+  [TileType.CoalMine]: "mine",
+  [TileType.CopperMine]: "mine",
+  [TileType.TinMine]: "mine",
 };
 // Tiles whose level is the tile itself (House tiers, militia camps, castles, the Abbey).
 export const INTERIOR_FIXED_LEVEL: Partial<Record<TileType, number>> = {
@@ -651,6 +705,8 @@ export interface InteriorMap {
   spawn: { x: number; y: number };
   // The stairs on this floor ("U" on the ground floor, "D" upstairs), or null.
   stairs: { x: number; y: number } | null;
+  // Deep mines: the "Z" lairs (floor tiles) where an infested mine's monsters start.
+  lairs?: { x: number; y: number }[];
 }
 
 function buildFromTemplate(t: InteriorTemplate, level: number, variant: number, storey: number): InteriorMap {
@@ -661,6 +717,7 @@ function buildFromTemplate(t: InteriorTemplate, level: number, variant: number, 
   const slots: InteriorMap["slots"] = [];
   let exit = { x: Math.floor(w / 2), y: h - 1 };
   let stairs: InteriorMap["stairs"] = null;
+  const lairs: { x: number; y: number }[] = [];
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const ch = t.rows[y][x] ?? " ";
@@ -674,6 +731,7 @@ function buildFromTemplate(t: InteriorTemplate, level: number, variant: number, 
         continue;
       }
       cells += ".";
+      if (ch === "Z") lairs.push({ x, y });
       const sym = INTERIOR_LEGEND[ch];
       if (!sym || (sym.minLevel ?? 1) > level) continue;
       if (sym.prop) props.push({ prop: sym.prop, x, y });
@@ -696,7 +754,7 @@ function buildFromTemplate(t: InteriorTemplate, level: number, variant: number, 
     p.facing=p.prop==='chair'&&table?(table.x>p.x?'e':table.x<p.x?'w':table.y>p.y?'s':'n'):(p.x===1?'e':p.x===w-2?'w':p.y>=h-2?'n':'s');
     if(p.prop==='bed'||p.prop==='bedFine')p.facing='n';
   }
-  const map:InteriorMap={ templateId: t.id, label: t.label, level, variant, storey, w, h, floor: t.floor, wall: t.wall, cells, props, slots, exit, spawn, stairs };
+  const map:InteriorMap={ templateId: t.id, label: t.label, level, variant, storey, w, h, floor: t.floor, wall: t.wall, cells, props, slots, exit, spawn, stairs, ...(lairs.length ? { lairs } : {}) };
   furnishInteriorEdges(map);
   return map;
 }
@@ -705,11 +763,11 @@ function buildFromTemplate(t: InteriorTemplate, level: number, variant: number, 
 // The player-home presets have their own furnishing system; saved custom rooms are never rewritten here.
 function furnishInteriorEdges(m:InteriorMap){
  if(m.templateId==='house')return;
- const themes:Record<InteriorTemplateId,InteriorProp[]>={house:[],tavern:['barrel','shelf','lamp','rug'],church:['candelabra','banner','statue','rug'],smithy:['weaponRack','crates','workbench','lamp'],bakery:['sacks','shelf','barrel','lamp'],shop:['shelf','crates','counter','lamp'],barracks:['armourStand','weaponRack','banner','lamp'],hall:['banner','statue','candelabra','rug'],barn:['sacks','barrel','crates','hay']};
+ const themes:Record<InteriorTemplateId,InteriorProp[]>={house:[],tavern:['barrel','shelf','lamp','rug'],church:['candelabra','banner','statue','rug'],smithy:['weaponRack','crates','workbench','lamp'],bakery:['sacks','shelf','barrel','lamp'],shop:['shelf','crates','counter','lamp'],barracks:['armourStand','weaponRack','banner','lamp'],hall:['banner','statue','candelabra','rug'],barn:['sacks','barrel','crates','hay'],mine:['timberProp','crates','barrel','lamp']};
  const theme=m.storey>0?(['wardrobe','shelf','lamp','rug'] as InteriorProp[]):themes[m.templateId];
  const candidates:{x:number;y:number}[]=[];
  for(let y=1;y<m.h-1;y++)for(let x=1;x<m.w-1;x++){
-  if(m.cells[y*m.w+x]!=='.'||m.props.some(p=>p.x===x&&p.y===y)||m.slots.some(p=>p.x===x&&p.y===y)||Math.abs(x-m.spawn.x)+Math.abs(y-m.spawn.y)<=1||m.stairs&&Math.abs(x-m.stairs.x)+Math.abs(y-m.stairs.y)<=1)continue;
+  if(m.cells[y*m.w+x]!=='.'||m.props.some(p=>p.x===x&&p.y===y)||m.slots.some(p=>p.x===x&&p.y===y)||m.lairs?.some(p=>p.x===x&&p.y===y)||Math.abs(x-m.spawn.x)+Math.abs(y-m.spawn.y)<=1||m.stairs&&Math.abs(x-m.stairs.x)+Math.abs(y-m.stairs.y)<=1)continue;
   if([[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>m.cells[(y+dy)*m.w+x+dx]==='#'))candidates.push({x,y});
  }
  let count=0;
@@ -801,4 +859,6 @@ export interface InteriorView {
   threat: number;
   // The settlement / owner shown in the title ("Your House", "Tavern of Ashford", "Saint Wren's Abbey").
   title: string;
+  // Deep mines: a mine's status (clear / infested / cleared), monsters left and hazards now.
+  mine?: import("./mines.js").MineView;
 }

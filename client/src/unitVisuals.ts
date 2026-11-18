@@ -135,6 +135,9 @@ export const MOB_VISUALS: Record<MobKind, { color: number; radius: number }> = {
   townMiner: { color: 0x6a6a6a, radius: 8 },
   townPriest: { color: 0xd8d0b8, radius: 8 },
   townHerald: { color: 0xc8a040, radius: 8 },
+  // Deep mines: the cave kinds (stand-ins, SPRITES.md #111): a small giant spider and a half-latch "bat".
+  caveSpider: { color: 0x3a2a22, radius: 6.5 },
+  caveBat: { color: 0x2a2028, radius: 5 },
 };
 export const MOB_KINDS = Object.keys(MOB_VISUALS) as MobKind[];
 // Mob kinds whose texture isn't /sprites/<kind>.png.
@@ -155,6 +158,9 @@ export const MOB_SPRITE_URL_OVERRIDES: Partial<Record<MobKind, string>> = {
   townPriest: "/sprites/bishop.png",
   // Gap closure G7: the quest giver borrows the artisan (gold tint) until it has art (SPRITES.md #104).
   townHerald: "/sprites/artisan.png",
+  // Deep mines stand-ins (SPRITES.md #111).
+  caveSpider: "/sprites/giantSpider.png",
+  caveBat: "/sprites/halfLatch0.png",
 };
 // Tints for mob kinds drawn with borrowed (placeholder) art. The goblin wolf rider is the wolf set tinted
 // warm brown until its own set (SPRITES.md #83, MOB_OPTIONAL_VARIANT_URLS) lands.
@@ -163,6 +169,8 @@ export const MOB_TINT: Partial<Record<MobKind, number>> = {
   // Forts phase C: settlement guards in blue livery (borrowed colonist art); workers lightly cooled.
   townGuard: 0x9ab4ff, townArcher: 0x9ab4ff, townKnight: 0x9ab4ff, townFarmer: 0xd8e0ff, townMiner: 0xd8e0ff, townPriest: 0xd8e0ff,
   townHerald: 0xffd890,
+  // Deep mines: a brown cave spider, a dusky bat.
+  caveSpider: 0xc89070, caveBat: 0x9a7a8a,
 };
 
 export const artUrl = (name: string) => `/sprites/${name}.png`;
@@ -346,6 +354,9 @@ export const MOB_VARIANT_URLS: Partial<Record<MobKind, MobVariantUrls[]>> = {
   skeleton: [{ walk: frameUrls("skeletonWalk", 4), action: frameUrls("skeletonAttack", 3) }],
   armoredOrc: [{ walk: frameUrls("armoredOrcWalk", 4), action: frameUrls("armoredOrcAttack", 3) }],
   giantSpider: [{ walk: frameUrls("giantSpiderWalk", 4), action: frameUrls("giantSpiderAttack", 3) }],
+  // Deep mines stand-ins (tinted, MOB_TINT): the giant spider set, smaller; the half-latch idle frames as a bat.
+  caveSpider: [{ walk: frameUrls("giantSpiderWalk", 4), action: frameUrls("giantSpiderAttack", 3) }],
+  caveBat: frameUrls("halfLatch", 5).map((idle) => ({ idle })),
   darkShaman: [{ walk: frameUrls("darkShamanWalk", 4), action: frameUrls("darkShamanAttack", 3) }],
   troll: [{ walk: frameUrls("trollWalk", 4), action: frameUrls("trollAttack", 3) }],
   ogre: [{ walk: frameUrls("ogreWalk", 4), action: frameUrls("ogreAttack", 3) }],
@@ -383,7 +394,7 @@ export const WARLORD_ROAR_EVERY_MS = 9000;
 // kind fits by height: a walk canvas is widened symmetrically around the body's centroid to fit
 // each frame's weapon reach, so its width overstates an upright body and a longer-side fit would
 // shrink orcs/crossbowmen ~15% below their static size.
-export const MOB_ANIM_FIT_LONGER_SIDE = new Set<MobKind>(["wolf", "giantSpider", "goblinRider"]);
+export const MOB_ANIM_FIT_LONGER_SIDE = new Set<MobKind>(["wolf", "giantSpider", "goblinRider", "caveSpider"]);
 // A stationary mob within this distance of a colonist/player plays its attack cycle (mob snapshots
 // carry no state, so this is inferred client-side).
 export const MOB_ATTACK_ANIM_RANGE_PX = 40;

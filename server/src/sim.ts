@@ -52,6 +52,7 @@ import { updateCalendar } from "./calendar.js";
 import { updateWorkAssignments } from "./work.js";
 import { heroSpeedMult, updateHeroLife } from "./herolife.js";
 import { stepInteriorMovement, tryEnterAtDoor, updateInteriors } from "./interiors.js";
+import { minesDawn, updateMines } from "./mines.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 const HAPPINESS_EVERY_TICKS = 5;
@@ -81,6 +82,8 @@ export function stepSimulation() {
     vassalsDawn();
     // Forts phase G: a wandering warband now and then.
     warbandsDawn();
+    // Deep mines: props wear (cave-ins), floods, nests returning to deep shafts.
+    minesDawn();
     // World streaming phase 5: abstract camp / settlement strife out of sight.
     strifeDawn();
     state.autosaveDue = true;
@@ -261,6 +264,8 @@ export function stepSimulation() {
   updateHeroLife();
   // Stardew phase 5c: interiors (buildings gone / upgraded, NPC / chest / threat refresh).
   updateInteriors();
+  // Deep mines: mine records, and the monsters of every mine a hero is in.
+  updateMines();
   // Dawn/dusk respawn windows: one toast per batch.
   if (state.respawnWindowSpawned > 0) {
     broadcastEvent(

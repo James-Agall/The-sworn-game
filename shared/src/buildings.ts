@@ -94,6 +94,10 @@ export const BUILD_COSTS = {
   // Clay pit and pottery.
   [TileType.ClayPit]: { wood: 10 },
   [TileType.Kiln]: { wood: 10, rock: 10 },
+  // Deep mines: sunk on their deposits (an upgrade costs the build cost again x the new level).
+  [TileType.CoalMine]: { wood: 15, rock: 5 },
+  [TileType.CopperMine]: { wood: 15, rock: 10 },
+  [TileType.TinMine]: { wood: 15, rock: 10 },
   // Stardew phase 5d: animal houses (an upgrade costs the build cost again x the new level).
   [TileType.ChickenCoop]: { wood: 15, rock: 5 },
   [TileType.LivestockBarn]: { wood: 30, rock: 10 },

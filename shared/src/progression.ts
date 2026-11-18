@@ -16,7 +16,10 @@ export type ItemId =
   // Gap closure G6: the hero's animal tools and fertiliser.
   | "shears" | "milkPail" | "manure"
   // Clay pit and pottery (PLAN-agri-industry-winter-mines.md phase 2).
-  | "woodenShovel" | "clay" | "clayPot" | "bricks" | "roofTiles" | "tableware" | "crucible";
+  | "woodenShovel" | "clay" | "clayPot" | "bricks" | "roofTiles" | "tableware" | "crucible"
+  // Deep mines (PLAN-agri-industry-winter-mines.md phase 3, shared/src/mines.ts): new ores and fuel, encounter loot, and
+  // the mine fittings (lamps lower re-infestation; the vent and pump are the deep-shaft gates).
+  | "coal" | "copperOre" | "tinOre" | "bones" | "gems" | "mineLamps" | "mineVent" | "minePump";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "tools";
 
@@ -118,7 +121,7 @@ export const PROGRESSION = {
     stoneAxe: { label: "Stone axe", desc: "Knapped flint on a haft. Fells trees: Lumberjack, Wooden House, Charcoal Burner.", group: "tool" },
     stonePick: { label: "Stone pick", desc: "Opens surface outcrops: Quarry and Iron Mine; with a knife, prospecting.", group: "tool" },
     stoneKnife: { label: "Stone knife", desc: "Skins game: Hunter's Hut (hides). With a pick, prospecting.", group: "tool" },
-    timberProps: { label: "Timber props", desc: "Pit supports: a mine can be sunk to level 2 (shaft).", group: "tool" },
+    timberProps: { label: "Timber props", desc: "Pit supports: a mine can be sunk to level 2 (shaft). Shafts wear one out every few days (none in store: cave-ins); props in store also keep nests away.", group: "tool" },
     hide: { label: "Hide", desc: "From a Hunter's Hut's kills (also pasture animals and game you hunt yourself). Bellows leather.", group: "material" },
     bellows: { label: "Bellows", desc: "Leather and wood. Blows the Bloomery.", group: "tool" },
     charcoal: { label: "Charcoal", desc: "Burned slowly from wood at the Charcoal Burner. Smelting fuel.", group: "material" },
@@ -153,6 +156,14 @@ export const PROGRESSION = {
     roofTiles: { label: "Roof tiles", desc: "Fired at the Kiln. A house's top tier needs 4 in store (a tiled roof).", group: "material" },
     tableware: { label: "Tableware", desc: "Plates and cups from the Kiln. 4+ in store: a small happiness bonus (more for Good / Fine).", group: "tool" },
     crucible: { label: "Crucible", desc: "A level-2 potter fires it hot with charcoal. The Blast furnace (Bloomery level 2) needs one.", group: "tool" },
+    coal: { label: "Coal", desc: "Dug at a Coal Mine (on a coal seam). Smelting fuel like charcoal: the Bloomery burns it when charcoal runs out.", group: "material" },
+    copperOre: { label: "Copper ore", desc: "Dug at a Copper Mine (on copper ore). Kept for bronze.", group: "material" },
+    tinOre: { label: "Tin ore", desc: "Dug at a Tin Mine (on tin ore). Kept for bronze.", group: "material" },
+    bones: { label: "Bones", desc: "Picked from the monsters cleared out of an infested mine.", group: "material" },
+    gems: { label: "Rough gems", desc: "Rare finds in an infested mine's nests.", group: "material" },
+    mineLamps: { label: "Miner's lamps", desc: "Kept in store, they light every deep shaft: nests come back half as often.", group: "tool" },
+    mineVent: { label: "Air vent", desc: "A deep shaft (mine level 3) needs one in store; without it the air goes bad (half speed).", group: "tool" },
+    minePump: { label: "Bucket pump", desc: "A deep shaft (mine level 3) needs one in store; without it the shaft floods now and then.", group: "tool" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -175,6 +186,10 @@ export const PROGRESSION = {
     { id: "milkPail", label: "Make a milk pail", output: "milkPail", amount: 1, stock: { wood: 3 }, needs: { carpenterTools: 1 }, station: "hand" },
     { id: "herbs", label: "Dry healing herbs", output: "herbs", amount: 2, stock: { fruit: 3 }, station: "hand" },
     { id: "gruel", label: "Boil wheat gruel", output: "gruel", amount: 3, stock: { grain: 3, wood: 1 }, station: "hand" },
+    // Deep mines: the fittings.
+    { id: "mineLamps", label: "Make miner's lamps", output: "mineLamps", amount: 1, stock: { iron: 2, wood: 2 }, station: "hand" },
+    { id: "mineVent", label: "Build an air vent", output: "mineVent", amount: 1, stock: { wood: 6, rock: 6 }, station: "hand" },
+    { id: "minePump", label: "Build a bucket pump", output: "minePump", amount: 1, stock: { wood: 8, iron: 4 }, needs: { carpenterTools: 1 }, station: "hand" },
     { id: "charcoal", label: "Burn charcoal", output: "charcoal", amount: 3, stock: { wood: 6 }, station: TileType.CharcoalBurner, seconds: 90, cap: 40 },
     // Bloomery: the anvil and the smith's tools first (one each is enough), then blooms.
     { id: "anvil", label: "Cast an anvil", output: "anvil", amount: 1, items: { ironBloom: 4 }, station: TileType.Bloomery, seconds: 60, cap: 1 },
@@ -185,6 +200,12 @@ export const PROGRESSION = {
     { id: "bread", label: "Bake bread", output: "bread", amount: 2, items: { flour: 2 }, needs: { sourdoughStarter: 1 }, station: TileType.Bakery, seconds: 40, cap: 40 },
     { id: "flatbread", label: "Bake flatbread", output: "flatbread", amount: 2, items: { flour: 2 }, station: TileType.Bakery, seconds: 20, cap: 40 },
     { id: "ironBloom", label: "Smelt an iron bloom", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { charcoal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
+    // Deep mines: coal burns in the Bloomery when there is no charcoal.
+    { id: "ironBloomCoal", label: "Smelt an iron bloom with coal", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { coal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
+    // Deep mines: the new mines' miners dig their deposit (no inputs; the deposit's richness adds more).
+    { id: "coal", label: "Dig coal", output: "coal", amount: 2, station: TileType.CoalMine, seconds: 30, cap: 80 },
+    { id: "copperOre", label: "Dig copper ore", output: "copperOre", amount: 2, station: TileType.CopperMine, seconds: 35, cap: 60 },
+    { id: "tinOre", label: "Dig tin ore", output: "tinOre", amount: 1, station: TileType.TinMine, seconds: 35, cap: 60 },
     // Clay pit and pottery. The Clay Pit's digger digs clay (no inputs); the Kiln's potter fires it with wood (the
     // crucible hot, with charcoal, by a level-2 potter), the first ready recipe under its cap in this order.
     { id: "clay", label: "Dig clay", output: "clay", amount: 2, station: TileType.ClayPit, seconds: 20, cap: 60 },
@@ -199,13 +220,27 @@ export const PROGRESSION = {
     [TileType.LumberjackPost]: { requires: { items: { stoneAxe: 1 } } },
     [TileType.House]: { requires: { items: { stoneAxe: 1 } } },
     [TileType.HunterHut]: { requires: { items: { stoneKnife: 1 } } },
+    // Deep mines: a deep shaft (level 3) also needs an air vent and a bucket pump in store (bad air / flooding).
     [TileType.RockMinePost]: {
       requires: { items: { stonePick: 1 } },
-      levels: { 2: { items: { timberProps: 1 } }, 3: { buildings: [{ tile: TileType.Blacksmith }] } },
+      levels: { 2: { items: { timberProps: 1 } }, 3: { items: { mineVent: 1, minePump: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
     },
     [TileType.IronMinePost]: {
       requires: { items: { stonePick: 1 } },
-      levels: { 2: { items: { timberProps: 1 } }, 3: { buildings: [{ tile: TileType.Blacksmith }] } },
+      levels: { 2: { items: { timberProps: 1 } }, 3: { items: { mineVent: 1, minePump: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
+    },
+    // Deep mines: on their own deposits; copper and tin need an Iron Mine's know-how.
+    [TileType.CoalMine]: {
+      requires: { items: { stonePick: 1 } },
+      levels: { 2: { items: { timberProps: 1 } }, 3: { items: { mineVent: 1, minePump: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
+    },
+    [TileType.CopperMine]: {
+      requires: { items: { stonePick: 1 }, buildings: [{ tile: TileType.IronMinePost }] },
+      levels: { 2: { items: { timberProps: 1 } }, 3: { items: { mineVent: 1, minePump: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
+    },
+    [TileType.TinMine]: {
+      requires: { items: { stonePick: 1 }, buildings: [{ tile: TileType.IronMinePost }] },
+      levels: { 2: { items: { timberProps: 1 } }, 3: { items: { mineVent: 1, minePump: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
     },
     [TileType.CharcoalBurner]: { requires: { items: { stoneAxe: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
     [TileType.Bloomery]: {
@@ -264,6 +299,9 @@ export const PROGRESSION = {
     [TileType.LumberjackPost]: "woodcutter",
     [TileType.IronMinePost]: "miner",
     [TileType.RockMinePost]: "miner",
+    [TileType.CoalMine]: "miner",
+    [TileType.CopperMine]: "miner",
+    [TileType.TinMine]: "miner",
     [TileType.BarnPost]: "farmer",
     [TileType.Pasture]: "farmhand",
     [TileType.PigPasture]: "farmhand",
@@ -292,7 +330,7 @@ export const PROGRESSION = {
   // The Progression panel's chains (order only: every step's needs come from `buildings` / `recipes` above).
   chains: [
     { id: "stone", label: "Stone age", steps: [{ item: "stoneAxe" }, { item: "stoneKnife" }, { item: "stonePick" }, { building: TileType.LumberjackPost }, { building: TileType.House }, { building: TileType.HunterHut }, { item: "hide" }] },
-    { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "timberProps" }] },
+    { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "timberProps" }, { building: TileType.CoalMine }, { item: "coal" }, { building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "mineLamps" }, { item: "mineVent" }, { item: "minePump" }] },
     { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }] },
     { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
     { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },
@@ -334,6 +372,9 @@ export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
   [TileType.SheepPen]: "Sheep Pen",
   [TileType.ClayPit]: "Clay Pit",
   [TileType.Kiln]: "Kiln",
+  [TileType.CoalMine]: "Coal Mine",
+  [TileType.CopperMine]: "Copper Mine",
+  [TileType.TinMine]: "Tin Mine",
 };
 
 // Smith training (plan §2): a level-1 smith makes tools only; forging tier-1/2 gear needs level 2, tier 3 level 3.
@@ -363,7 +404,7 @@ export function unmetRequirements(req: Requires | undefined, ctx: ProgressContex
     const lvl = b.level ?? 1;
     if ((ctx.buildings[b.tile] ?? 0) < lvl) {
       const name = PROGRESSION_BUILDING_LABEL[b.tile] ?? "building";
-      out.push(lvl > 1 ? `a level-${lvl} ${name}` : `a ${name}`);
+      out.push(lvl > 1 ? `a level-${lvl} ${name}` : `${/^[AEIOU]/.test(name) ? "an" : "a"} ${name}`);
     }
   }
   if (req.workerLevel !== undefined && (ctx.workerLevel ?? 0) < req.workerLevel) out.push(`${professionLabel} level ${req.workerLevel}`);

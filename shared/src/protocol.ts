@@ -198,6 +198,15 @@ export enum TileType {
   // and the Kiln (a potter fires clay into pots, bricks, roof tiles, tableware and crucibles). Artisan stations.
   ClayPit = 147,
   Kiln = 148,
+  // Deep mines (2026-11-18, shared/src/mines.ts): new deposits (natural, scattered at world gen, richness 1-3 like
+  // ore / rock) and the mines sunk on them (artisan stations: a miner digs coal / copper ore / tin ore). Every mine
+  // (these, the Quarry and the Iron Mine) is an enterable interior that can be infested.
+  CoalSeam = 149,
+  CopperOre = 150,
+  TinOre = 151,
+  CoalMine = 152,
+  CopperMine = 153,
+  TinMine = 154,
 
 }
 
@@ -356,6 +365,12 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.Bakery ||
     tile === TileType.ClayPit ||
     tile === TileType.Kiln ||
+    tile === TileType.CoalSeam ||
+    tile === TileType.CopperOre ||
+    tile === TileType.TinOre ||
+    tile === TileType.CoalMine ||
+    tile === TileType.CopperMine ||
+    tile === TileType.TinMine ||
     tile === TileType.ChickenCoop ||
     tile === TileType.LivestockBarn ||
     tile === TileType.PigSty ||
@@ -798,7 +813,11 @@ export type MobKind =
   | "townMiner"
   | "townPriest"
   // Gap closure G7: a settlement's quest giver (reeve / bailiff / herald), standing at the quest slot.
-  | "townHerald";
+  | "townHerald"
+  // Deep mines (shared/src/mines.ts): encounter monsters inside an infested mine (with skeletons and giant
+  // spiders). Never in raids; stand-in art (tinted giant spider / half-latch frames, SPRITES.md).
+  | "caveSpider"
+  | "caveBat";
 
 // Regiments & roles (ROADMAP "Regiments & roles"): every combat unit kind fights in a role.
 //   frontline - the melee line: holds the front rank and engages what is in front of its slot.
@@ -834,6 +853,8 @@ export const MOB_ROLE: Record<MobKind, CombatRole> = {
   townMiner: "frontline",
   townPriest: "frontline",
   townHerald: "frontline",
+  caveSpider: "fast",
+  caveBat: "fast",
 };
 // Soldier kinds only (civilians and bishops have no combat role).
 export const COLONIST_ROLE: Partial<Record<ColonistKind, CombatRole>> = {
@@ -903,6 +924,7 @@ export const MOB_SIZE_RANGE: Partial<Record<MobKind, readonly [number, number]>>
   armoredOrc: [0.93, 1.08],
   skeleton: [0.93, 1.08],
   giantSpider: [0.93, 1.08],
+  caveSpider: [0.85, 1.1],
   darkShaman: [0.93, 1.08],
   troll: [0.93, 1.08],
   ogre: [0.93, 1.08],
@@ -1127,6 +1149,9 @@ export interface BuildingInfo {
   levy?: { ready: number; onField: number; ticksLeft: number; reason: string };
   // Progression tree: stations / workplaces: worker levels, effective tier, upgrade gates (display lines).
   progression?: string[];
+  // Deep mines: own mines only: clear / infested / cleared, monsters inside, hazard lines, and the "Send soldiers
+  // in" order (mineAssault: soldiers near the mine, why it is refused).
+  mine?: import("./mines.js").MineInfo;
   forge?: {
     tier: number;
     queue: { slot: EquipSlot; tier: number }[];
@@ -1373,7 +1398,9 @@ export type ClientMessage =
   // Stardew phase 5c: leave the interior (Esc near the exit mat; walking onto the mat leaves by itself).
   | { type: "interiorEdit"; op: "base"|"floor"|"wall"|"place"|"remove"; base?:string; floor?:string; wall?:string; prop?:string; x?:number; y?:number; facing?:string }
   | { type: "interiorUse"; x:number; y:number }
-  | { type: "interiorExit" };
+  | { type: "interiorExit" }
+  // Deep mines: send the clan's soldiers near this mine in to clear it (resolved at once, shared/src/mines.ts).
+  | { type: "mineAssault"; tileX: number; tileY: number };
 
 export type ServerMessage =
   | { type:"homeDesigns"; homes:[number,string][] }
@@ -1547,6 +1574,9 @@ export type ServerMessage =
   | { type: "interior"; view: InteriorView | null }
   // Gap closure G5: the interior's NPCs moving (positions / facing / pose / greeting bubble), `storey` 0 / 1.
   | { type: "interiorNpcs"; key: string; storey: number; npcs: import("./interiors.js").InteriorNpcLive[] }
+  // Deep mines: the encounter monsters inside the mine the hero is in (positions in interior tiles), sent while they
+  // change; empty once it is cleared.
+  | { type: "interiorMobs"; key: string; mobs: import("./mines.js").MineMobLive[] }
   // Modular building phase 4: the Work tab table (reply to workTab / workSet / workMode).
   | { type: "workTab"; tab: WorkTabSnapshot }
   // Gap closure G3: the posts a person could be assigned to (reply to workPosts).

@@ -69,6 +69,8 @@ import { trainInfo, villageLevyInfo } from "./people.js";
 import { buildingPostsInfo } from "./work.js";
 import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
 import { CLAY_PIT_WATER_RADIUS_TILES } from "@colony/shared/progression";
+import { MINE_LABEL, depositMineFor } from "@colony/shared/mines";
+import { mineInfo } from "./mines.js";
 import {
   STRUCTURE_ORDER_MAX_TILES, STRUCTURE_ORDER_RANGE_TILES, isDoorTile, isFloorTile, isFurnitureTile, isRoomStationTile, isStructureTile,
   isWindowTile, structurePlacementOk, FURNITURE_FOOTPRINT, furnitureFootprint, furniturePartCells, furniturePieceAt, isFurniturePartTile,
@@ -563,6 +565,10 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.Bakery:
     case TileType.ClayPit:
     case TileType.Kiln:
+    // Deep mines: the coal / copper / tin mines, the same rule.
+    case TileType.CoalMine:
+    case TileType.CopperMine:
+    case TileType.TinMine:
     // Stardew phase 5d: animal houses, the same rule.
     case TileType.ChickenCoop:
     case TileType.LivestockBarn:
@@ -864,8 +870,10 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
     return;
   }
   if (isTowerTile(current)) towerCooldowns.delete(resourceKey(tx, ty));
-  setTile(tileIndex(tx, ty), TileType.Empty);
-  broadcastTileUpdate(tx, ty, TileType.Empty);
+  // Deep mines: a coal / copper / tin mine always stands on its deposit, which comes back.
+  const revert = depositMineFor(current)?.mine === current ? depositMineFor(current)!.deposit : TileType.Empty;
+  setTile(tileIndex(tx, ty), revert);
+  broadcastTileUpdate(tx, ty, revert);
 }
 
 // ---- Gap closure G1: 2-tile furniture (shared FURNITURE_FOOTPRINT): the anchor holds the piece ----
@@ -1033,6 +1041,13 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     if (current !== TileType.IronOre) return;
   } else if (tile === TileType.RockMinePost) {
     if (current !== TileType.Rock) return;
+  } else if (depositMineFor(tile)?.mine === tile) {
+    // Deep mines: a coal / copper / tin mine only on its own deposit.
+    const d = depositMineFor(tile)!;
+    if (current !== d.deposit) {
+      sendEvent(player, "build", `A ${MINE_LABEL[tile]} must be sunk on a ${d.label.toLowerCase()} deposit`);
+      return;
+    }
   } else if (tile === TileType.FarmPlot) {
     if (current !== TileType.Empty) return;
   } else if (tile === TileType.ArcherPost) {
@@ -1357,7 +1372,7 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     resolveTavernPlacement(tx, ty);
     return;
   }
-  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery || tile === TileType.ClayPit || tile === TileType.Kiln) {
+  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery || tile === TileType.ClayPit || tile === TileType.Kiln || depositMineFor(tile)?.mine === tile) {
     resolveStationPlacement(tx, ty, tile);
     return;
   }
@@ -1742,6 +1757,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     ...(houseKindOfTile(t) && animalHouseInfo(tx, ty, forPlayer) ? { animals: animalHouseInfo(tx, ty, forPlayer)! } : {}),
     ...(t === TileType.GoldShop ? { tradingPost: tradingPostInfo(tx, ty) } : {}),
     ...(progressionInfo(tx, ty, t) ? { progression: progressionInfo(tx, ty, t)! } : {}),
+    ...(mineInfo(tx, ty) ? { mine: mineInfo(tx, ty)! } : {}),
   };
 }
 

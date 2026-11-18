@@ -5,6 +5,7 @@ import {migrateNeutralSpriteHomes} from './settlementMigration.js';
 import { type LivestockSave, livestockForSave, restoreLivestock } from "./animals.js";
 import { applySoloStart, resetHeroLifeSessions } from "./herolife.js";
 import { homeDesignsForSave,restoreHomeDesigns,type InteriorChestsSave, interiorChestsForSave, resetInteriors, restoreInteriorChests } from "./interiors.js";
+import { minesForSave, resetMines, restoreMines } from "./mines.js";
 import { topUpCreative } from "./creative.js";
 import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -29,6 +30,7 @@ import { initialStock, markFarmFieldsDirty, newFarmPlot } from "./economy.js";
 import { topUpBarnFarmers } from "./construction.js";
 import {
   WorldgenCancelled, beginWorldJob, endWorldJob, generateWorld, sendLoadProgress, setWorldSize, worldJob, worldgenProgress,
+  scatterDeposits,
 } from "./worldgen.js";
 import { LOADING_SCREEN_MIN_WORLD_TILES } from "@colony/shared/streaming";
 import { chronicleForSave, restoreChronicle } from "./chronicle.js";
@@ -175,6 +177,8 @@ function resetWorldAfter() {
   resetHeroLifeSessions();
   // Stardew phase 5c: chest contents (interiors themselves are never saved).
   resetInteriors();
+  // Deep mines: no mines in a new world.
+  resetMines();
   heroRecruits.length = 0;
   state.heroRosterVersion++;
   state.marketBuilt = false;
@@ -314,6 +318,9 @@ function snapshotWorldInner() {
     // Stardew phase 5c: [building anchor "x,y", goods] per non-empty interior chest (optional: older saves have none).
     homeDesigns:homeDesignsForSave(),
     interiorChests: interiorChestsForSave() as InteriorChestsSave | undefined,
+    // Deep mines: every own mine's status, monsters and hazards (optional: older saves have none; their mines start
+    // clear at their level).
+    mines: minesForSave() as ReturnType<typeof minesForSave> | undefined,
     // Modular building phase 4: the clans in manual work-priority mode (optional: older saves are all default mode;
     // the priorities themselves are Person.work, saved with the colonists).
     workManual: workForSave() as number[] | undefined,
@@ -556,6 +563,9 @@ function applyWorldInner(s: WorldState) {
   // Stardew phase 5c: interior chests (optional).
   restoreInteriorChests(s.interiorChests);
   restoreHomeDesigns(s.homeDesigns);
+  // Deep mines (optional). A world from before them (no coal / copper / tin anywhere) gets its veins now.
+  restoreMines(s.mines);
+  if (!state.tiles.some((t) => t === TileType.CoalSeam || t === TileType.CopperOre || t === TileType.TinOre || t === TileType.CoalMine || t === TileType.CopperMine || t === TileType.TinMine)) scatterDeposits();
   // Modular building phase 4: work mode (runtime jobs are re-decided).
   restoreWork(s.workManual);
   // Stardew phase 5d: after the tiles (houses are re-found from them).

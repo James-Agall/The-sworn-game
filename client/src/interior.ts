@@ -19,6 +19,7 @@ import {
   INTERIOR_WALK_FRAME_MS, INTERIOR_WORK_MS, INTERIOR_ZOOM, type InteriorMap, type InteriorNpcLive, type InteriorProp, type InteriorView,
 } from "@colony/shared/interiors";
 import type { StructureTextures } from "./structureArt";
+import { MINE_STATUS_LABEL, type MineMobLive } from "@colony/shared/mines";
 import { rigTextureScale } from "./heroRig";
 import { directionalFrame, autumnFrame, loadAutumnSheet } from "./autumnAnimations";
 
@@ -36,6 +37,8 @@ const PROP_EXTRA: Partial<Record<InteriorProp, string>> = {
 };
 // Stand-in colours (counter, anvil, high seat and any art that fails to load).
 const PROP_COLOR: Partial<Record<InteriorProp, number>> = {
+  // Deep mines: drawn in code (SPRITES.md #111): the ore face (flecked in its ore's colour) and the timber prop.
+  oreFace: 0x4a443e, timberProp: 0x7a5230,
   counter: 0x7a4e26, anvil: 0x4a4d52, throne: 0x8a3a2a, hearth: 0x9a5030, altar: 0xd8d0b8, pew: 0x7a5230, oven: 0xa0624a,
   hay: 0xd8b84a, forge: 0x3a3a3e, stall: 0xa04040, banner: 0xa02828, barrel: 0x7a4f28, crates: 0x9a6b3a, sacks: 0xc8b088,
 };
@@ -45,7 +48,12 @@ const PROP_COLOR: Partial<Record<InteriorProp, number>> = {
 const PROP_HEIGHT_PX: Partial<Record<InteriorProp, number>> = {
   chair: 18, pew: 16, table: 20, bed: 31, bedFine: 31, chest: 16, shelf: 30, wardrobe: 32, hearth: 28, lamp: 22, statue: 30,
   weaponRack: 24, workbench: 16, altar: 18, oven: 22, barrel: 14, crates: 14, sacks: 11, hay: 13, armourStand: 26, banner: 28,
-  forge: 24, stall: 26, candelabra: 20, counter: 14, anvil: 10, throne: 22,
+  forge: 24, stall: 26, candelabra: 20, counter: 14, anvil: 10, throne: 22, oreFace: 30, timberProp: 30,
+};
+// Deep mines: the ore face's flecks by mine tile (Quarry, Iron, Coal, Copper, Tin Mine).
+const ORE_FLECK: Record<number, number> = {
+  [TileType.RockMinePost]: 0xb8b2a8, [TileType.IronMinePost]: 0xa0583a, [TileType.CoalMine]: 0x141216,
+  [TileType.CopperMine]: 0xe0843a, [TileType.TinMine]: 0xd8e4ee,
 };
 const PROP_DEFAULT_HEIGHT_PX = 18;
 const opaqueBoxes = new WeakMap<Texture, { x: number; y: number; w: number; h: number }>();
@@ -88,6 +96,8 @@ export interface InteriorDeps {
   // Gap closure G5: the kind's walk / action frames and their scale (missing: the still texture, stand-in motion).
   npcAnim?: (kind: string) => { walk: Texture[]; action: Texture[]; scale: number } | undefined;
   npcHeight: number;
+  // Deep mines: a cave monster's art (idle texture and scale, walk / attack frames and their scale, stand-in tint).
+  mobArt?: (kind: string) => { idle: Texture; scale: number; walk: Texture[]; action: Texture[]; walkScale: number; tint?: number } | undefined;
   send: (msg: object) => void;
   myId: () => string | null;
   // Entering / leaving (main.ts: weather, strategy toggle, selection).
@@ -99,6 +109,8 @@ export interface InteriorUi {
   onMessage: (view: InteriorView | null) => void;
   // Gap closure G5: message `interiorNpcs`.
   onNpcs: (key: string, storey: number, npcs: InteriorNpcLive[]) => void;
+  // Deep mines: message `interiorMobs`.
+  onMobs: (key: string, mobs: MineMobLive[]) => void;
   onPlayers: (players: PlayerSnapshot[]) => void;
   reset: () => void;
 }
@@ -138,7 +150,10 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
 #int-title { padding: 2px 12px; border-radius: 3px; background: rgba(30, 18, 8, .72); color: #f3e3c0; font-size: 14px; }
 #int-threat { padding: 3px 12px; border-radius: 3px; background: rgba(150, 20, 20, .88); color: #fff; font-size: 13px; font-weight: bold; }
 #int-threat[hidden], #int-exit[hidden] { display: none; }
-#int-exit { padding: 2px 10px; border-radius: 3px; background: rgba(30, 18, 8, .6); color: #f3e3c0; font-size: 12px; }`;
+#int-exit { padding: 2px 10px; border-radius: 3px; background: rgba(30, 18, 8, .6); color: #f3e3c0; font-size: 12px; }
+#int-mine { padding: 3px 12px; border-radius: 3px; background: rgba(40, 28, 20, .85); color: #f3e3c0; font-size: 12.5px; max-width: 520px; text-align: center; }
+#int-mine.infested { background: rgba(120, 30, 20, .9); color: #fff; font-weight: bold; }
+#int-mine[hidden] { display: none; }`;
   document.head.appendChild(style);
   const hud = document.createElement("div");
   hud.id = "int-hud";
@@ -152,7 +167,11 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   exitEl.id = "int-exit";
   exitEl.hidden = true;
   exitEl.textContent = "Walk onto the mat or press Esc to leave";
-  hud.append(titleEl, threatEl, exitEl);
+  // Deep mines: the mine's status (infested: monsters left, Space to fight) and hazards.
+  const mineEl = document.createElement("div");
+  mineEl.id = "int-mine";
+  mineEl.hidden = true;
+  hud.append(titleEl, threatEl, mineEl, exitEl);
   document.body.appendChild(hud);
 
   // Extra atlas art loads on demand; a missing file keeps the stand-in.
@@ -189,7 +208,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   editor.querySelector<HTMLButtonElement>('#home-base-apply')!.onclick=()=>{if(window.confirm('Use this base and its furnished layout? Stored chest contents will be kept.'))edit({op:'base',base:select('base').value});};
   select('floor').onchange=()=>edit({op:'floor',floor:select('floor').value});select('wall').onchange=()=>edit({op:'wall',wall:select('wall').value});
   const preview=()=>{const p=select('prop').value,img=editor.querySelector<HTMLImageElement>('#home-preview')!;img.hidden=!['bed','chair','chest','table','hearth','shelf','wardrobe'].includes(p);if(!img.hidden)img.src=`/sprites/interiors-v2/${p}_${select('facing').value}.png`;};select('prop').onchange=preview;select('facing').onchange=preview;preview();
-  window.addEventListener('pointerdown',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)||e.button!==0)return;const point=room.toLocal({x:e.clientX,y:e.clientY});const x=Math.floor(point.x/T),y=Math.floor(point.y/T);if(decorating){e.preventDefault();e.stopImmediatePropagation();const prop=select('prop').value;edit({op:prop==='remove'?'remove':'place',prop,x,y,facing:select('facing').value});}else if(view.map.props.some(p=>p.x===x&&p.y===y&&['chest','bed','bedFine','anvil','forge','oven','workbench','counter','barrel'].includes(p.prop))){e.preventDefault();e.stopImmediatePropagation();openChest={x,y,until:performance.now()+5000};rebuildPending=true;window.setTimeout(()=>{openChest=null;rebuildPending=true;},5000);deps.send({type:'interiorUse',x,y});}},true);
+  window.addEventListener('pointerdown',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)||e.button!==0)return;const point=room.toLocal({x:e.clientX,y:e.clientY});const x=Math.floor(point.x/T),y=Math.floor(point.y/T);if(decorating){e.preventDefault();e.stopImmediatePropagation();const prop=select('prop').value;edit({op:prop==='remove'?'remove':'place',prop,x,y,facing:select('facing').value});}else if(view.map.props.some(p=>p.x===x&&p.y===y&&['chest','bed','bedFine','anvil','forge','oven','workbench','counter','barrel','oreFace'].includes(p.prop))){e.preventDefault();e.stopImmediatePropagation();openChest={x,y,until:performance.now()+5000};rebuildPending=true;window.setTimeout(()=>{openChest=null;rebuildPending=true;},5000);deps.send({type:'interiorUse',x,y});}},true);
   const homeStyle=document.createElement('style');homeStyle.textContent=`#home-editor{position:fixed;right:18px;top:140px;width:240px;max-height:75vh;overflow:auto;padding:18px;background:#242c26f5;color:#eee2c6;border:1px solid #a48c59;border-radius:10px;z-index:40;font:14px Georgia}#home-editor[hidden]{display:none}#home-editor label{display:block;margin:12px 0}#home-editor select,#home-editor button{display:block;box-sizing:border-box;width:100%;padding:8px;margin-top:5px;background:#3c4737;color:#fff0cf;border:1px solid #8a7954;border-radius:5px}#home-preview{width:52px;height:52px;object-fit:contain;image-rendering:pixelated}#home-editor p{font-size:12px;line-height:1.5;color:#c1c4ae}#home-decorate{padding:7px 12px;background:#344733;color:#f4e3bc;border:1px solid #b09562;border-radius:5px}#home-decorate[hidden]{display:none}`;homeStyle.textContent+=`body.interior-mode #next-bar,body.interior-mode #event-feed,body.interior-mode #goal-tracker,body.interior-mode #economy-panel,body.interior-mode #economy-panel-toggle,body.interior-mode #build-panel,body.interior-mode #build-panel-toggle,body.interior-mode #minimap-frame,body.interior-mode #hero-hotbar{display:none!important}body.interior-mode.interior-stockpile #economy-panel:not(.collapsed){display:block!important}body.interior-mode #int-hud{top:100px}body.interior-mode #player-bar{top:58px!important}`;document.head.append(homeStyle);
 
   const hero = new Sprite(deps.playerTexture);
@@ -219,6 +238,26 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     phase: number;
   }
   const npcViews = new Map<string, NpcView>();
+  // Deep mines: the mine's monsters drawn (by id): body, hp bar, "z z" asleep, eased position, a red flash when hit.
+  type MobArt = NonNullable<ReturnType<NonNullable<InteriorDeps["mobArt"]>>>;
+  interface MobView {
+    body: Sprite | Graphics;
+    bar: Graphics;
+    zzz: Text;
+    art?: MobArt;
+    sx: number;
+    sy: number;
+    live: MineMobLive;
+    lastHp: number;
+    flashUntil: number;
+    phase: number;
+  }
+  const mobViews = new Map<string, MobView>();
+  let mobsLive: { key: string; mobs: MineMobLive[] } | null = null;
+  // The hero's swing in a mine (Space): a short slash arc beside the hero.
+  const slash = new Graphics();
+  slash.zIndex = 1e6 - 1;
+  let slashUntil = 0;
   let pendingLive: { key: string; storey: number; npcs: InteriorNpcLive[] } | null = null;
 
   function propSprite(prop: InteriorProp, x: number, y: number, facing="s"): Container {
@@ -239,6 +278,25 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         g.rect(x * T + 4, yy, T - 8, 3).fill({ color: up ? 0xb07a45 : 0x5a3a1c, alpha: up ? 1 - k * 0.12 : 0.4 + k * 0.12 });
       }
       g.zIndex = -1;
+      return g;
+    }
+    if (prop === "oreFace" || prop === "timberProp") {
+      // Deep mines stand-ins (SPRITES.md #111): a rock face flecked with its ore; a timber prop (two posts, a cap beam).
+      const g = new Graphics();
+      const X = x * T;
+      const Y = y * T;
+      if (prop === "oreFace") {
+        g.rect(X, Y, T, T).fill(0x3e3832);
+        g.rect(X + 2, Y + 2, T - 4, T - 6).fill(0x5a524a).stroke({ width: 1, color: 0x000000, alpha: 0.4 });
+        const fleck = ORE_FLECK[view?.mine?.tile ?? 0] ?? 0xb8b2a8;
+        for (let k = 0; k < 6; k++) g.rect(X + 4 + ((x * 13 + y * 7 + k * 11) % (T - 10)), Y + 4 + ((x * 5 + y * 17 + k * 7) % (T - 12)), 3, 2).fill(fleck);
+        g.zIndex = y * T;
+      } else {
+        g.rect(X + 5, Y + 3, 4, T - 4).fill(0x6a4626);
+        g.rect(X + T - 9, Y + 3, 4, T - 4).fill(0x6a4626);
+        g.rect(X + 3, Y + 1, T - 6, 5).fill(0x8a6238).stroke({ width: 1, color: 0x2a1a0c, alpha: 0.6 });
+        g.zIndex = (y + 1) * T;
+      }
       return g;
     }
     const tile = PROP_TILE[prop];
@@ -275,7 +333,9 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   }
 
   function build(v: InteriorView) {
-    const keep = new Set<Container>([hero, ...others.values()]);
+    const keep = new Set<Container>([hero, slash, ...others.values()]);
+    // Deep mines: the monsters' sprites go with the room; syncMobs() below draws them again.
+    mobViews.clear();
     for (const c of room.removeChildren()) if (!keep.has(c)) c.destroy();
     const m: InteriorMap = v.map;
     const ground = new Graphics();
@@ -384,9 +444,93 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       });
     }
     if (pendingLive && pendingLive.key === v.key && pendingLive.storey === m.storey) applyLive(pendingLive.npcs);
-    room.addChild(hero);
+    room.addChild(hero, slash);
     for (const o of others.values()) room.addChild(o);
     builtKey = keyOf(v);
+    syncMobs();
+  }
+
+  // Deep mines: the monsters of the mine the hero is in (message interiorMobs): new ones drawn, gone ones dropped.
+  function syncMobs() {
+    const list = view && mobsLive && mobsLive.key === view.key ? mobsLive.mobs : [];
+    const seen = new Set<string>();
+    for (const m of list) {
+      seen.add(m.id);
+      let mv = mobViews.get(m.id);
+      if (!mv) {
+        const art = deps.mobArt?.(m.kind);
+        let body: Sprite | Graphics;
+        if (art) {
+          const sp = new Sprite(art.idle);
+          sp.anchor.set(0.5, 0.85);
+          sp.scale.set(art.scale);
+          if (art.tint !== undefined) sp.tint = art.tint;
+          body = sp;
+        } else body = new Graphics().circle(0, -6, 6).fill(0x2a2028);
+        const bar = new Graphics();
+        bar.zIndex = 1e6;
+        const zzz = new Text({ text: "z z", style: { fontSize: 8, fill: 0xdfe8ff, fontFamily: "serif", stroke: { color: 0x000000, width: 2 } } });
+        zzz.anchor.set(0.5, 1);
+        zzz.resolution = 3;
+        zzz.zIndex = 1e6;
+        room.addChild(body, bar, zzz);
+        mv = { body, bar, zzz, art, sx: m.x, sy: m.y, live: m, lastHp: m.hp, flashUntil: 0, phase: (m.id.length * 131) % 1000 };
+        mobViews.set(m.id, mv);
+      }
+      if (m.hp < mv.lastHp) mv.flashUntil = performance.now() + 180;
+      mv.lastHp = m.hp;
+      mv.live = m;
+      if (Math.hypot(m.x - mv.sx, m.y - mv.sy) > 3) {
+        mv.sx = m.x;
+        mv.sy = m.y;
+      }
+    }
+    for (const [id, mv] of mobViews) {
+      if (seen.has(id)) continue;
+      mv.body.destroy();
+      mv.bar.destroy();
+      mv.zzz.destroy();
+      mobViews.delete(id);
+    }
+  }
+
+  // Each frame: ease toward the live position; walk / bite frames; flip by facing; hp bar; asleep: dimmed, "z z".
+  function animateMobs(now: number) {
+    for (const mv of mobViews.values()) {
+      const m = mv.live;
+      mv.sx += (m.x - mv.sx) * 0.3;
+      mv.sy += (m.y - mv.sy) * 0.3;
+      const x = (mv.sx + 0.5) * T;
+      const y = (mv.sy + 0.5) * T;
+      const t = now + mv.phase;
+      const b = mv.body;
+      if (b instanceof Sprite && mv.art) {
+        const a = mv.art;
+        let tex = a.idle;
+        let k = a.scale;
+        if (m.act === "walk" && a.walk.length) {
+          tex = a.walk[Math.floor(t / INTERIOR_WALK_FRAME_MS) % a.walk.length];
+          k = a.walkScale;
+        } else if (m.act === "attack" && a.action.length) {
+          tex = a.action[Math.floor(t / 160) % a.action.length];
+          k = a.walkScale;
+        }
+        if (b.texture !== tex) b.texture = tex;
+        b.scale.set(k * (m.face === "l" ? -1 : 1), k);
+        b.tint = now < mv.flashUntil ? 0xff5040 : a.tint ?? 0xffffff;
+      }
+      b.alpha = m.act === "sleep" ? 0.7 : 1;
+      b.position.set(x, y + (m.act === "sleep" ? 0 : Math.sin(t / 220) * (m.kind === "caveBat" ? 3 : 0.6)));
+      b.zIndex = y;
+      const g = mv.bar;
+      g.clear();
+      const w = 20;
+      g.rect(x - w / 2, y - 26, w, 3).fill(0x2a0a0a);
+      g.rect(x - w / 2, y - 26, (w * Math.max(0, m.hp)) / Math.max(1, m.maxHp), 3).fill(0xd83a2a);
+      mv.zzz.visible = m.act === "sleep";
+      mv.zzz.position.set(x + 6, y - 14 - (Math.floor(t / 600) % 3));
+    }
+    slash.visible = now < slashUntil;
   }
   const keyOf = (v: InteriorView) => `${v.key}:${v.map.templateId}:${v.map.level}:${v.map.variant}:${v.map.storey}:${JSON.stringify(v.npcs)}:${JSON.stringify(v.map)}`;
 
@@ -480,9 +624,11 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     deps.onChange?.(on);
   }
   function clearRoom() {
-    for (const c of room.removeChildren()) if (c !== hero) c.destroy();
+    for (const c of room.removeChildren()) if (c !== hero && c !== slash) c.destroy();
     others.clear();
     npcViews.clear();
+    mobViews.clear();
+    mobsLive = null;
     pendingLive = null;
   }
 
@@ -518,6 +664,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     hero.position.set(shown.x, shown.y);
     hero.zIndex = shown.y;
     animateNpcs(performance.now());
+    animateMobs(performance.now());
     const m=view.map;
     const viewportW=scr.width-(decorating?300:0);
     const zoom=decorating?Math.min(INTERIOR_ZOOM,viewportW/(m.w*T),(scr.height-200)/(m.h*T)):INTERIOR_ZOOM;
@@ -530,6 +677,16 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     vignette.width = scr.width;
     vignette.height = scr.height;
     exitEl.hidden = !nearExit();
+  });
+
+  // Deep mines: Space swings (main.ts sends the attack); a slash arc shows on the hero's facing side.
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== " " || e.repeat || !view || view.map.templateId !== "mine") return;
+    if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select")) return;
+    const dir = hero.scale.x < 0 ? -1 : 1;
+    slash.clear();
+    slash.arc(shown.x + dir * 6, shown.y - 10, 14, dir > 0 ? -1.1 : Math.PI - 0.9, dir > 0 ? 0.9 : Math.PI + 1.1).stroke({ width: 2, color: 0xfff2d0, alpha: 0.9 });
+    slashUntil = performance.now() + 140;
   });
 
   // Esc near the exit mat leaves (the server re-checks the distance).
@@ -559,11 +716,25 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       const fresh = !view || view.key !== v.key || view.map.storey !== v.map.storey;
       view = v;
       titleEl.textContent = v.title;
+      // Deep mines: status, monsters left (Space fights), hazards.
+      mineEl.hidden = !v.mine;
+      if (v.mine) {
+        const mi = v.mine;
+        mineEl.className = mi.status === "infested" ? "infested" : "";
+        const head = mi.status === "infested"
+          ? `Infested: ${mi.monsters} monster${mi.monsters === 1 ? "" : "s"} left. Space to fight; the miners come back once it is clear`
+          : MINE_STATUS_LABEL[mi.status];
+        mineEl.textContent = [head, ...mi.hazards].join(" · ");
+      }
       threatEl.hidden = v.threat <= 0;
       threatEl.textContent = `Raiders near the door! (${v.threat} hostile${v.threat === 1 ? "" : "s"} close by)`;
       if (fresh || keyOf(v) !== builtKey) build(v);
       if (fresh) shown = { x: NaN, y: NaN };
       setInside(true);
+    },
+    onMobs(key, mobs) {
+      mobsLive = { key, mobs };
+      syncMobs();
     },
     onNpcs(key, storey, npcs) {
       pendingLive = { key, storey, npcs };

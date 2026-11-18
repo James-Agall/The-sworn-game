@@ -17,6 +17,8 @@ import { GAME_DAY_TICKS, UPGRADE_NAMES } from "./constants.js";
 import { currentBuildingLevel, sendEvent } from "./construction.js";
 import { workshopEffectAt } from "./structures.js";
 import { villagerJobProfession } from "./work.js";
+import { DEPOSIT_MINES, depositMineFor } from "@colony/shared/mines";
+import { mineWorkMult } from "./mines.js";
 
 // True when no gate applies: creative with "Unlock all" on, or the test-only unlock (COLONY_UNLOCK_ALL).
 export function gatesOpen(): boolean {
@@ -134,7 +136,7 @@ export function progressionInfo(tx: number, ty: number, t: TileType): string[] |
       if (job) lines.push(`Making: ${PROGRESSION.items[job.recipe.output].label} (${Math.round(100 * (1 - job.left / job.total))}%)`);
     }
     if (workers.length > 0 && stationRecipes(t).length > 0 && ![...workers].some((c) => stationJobs.has(c.id))) lines.push(`Idle: ${stationIdleReason(t)}`);
-    if (t === TileType.IronMinePost || t === TileType.RockMinePost) lines.push(depositLine(tx, ty));
+    if (t === TileType.IronMinePost || t === TileType.RockMinePost || depositMineFor(t)) lines.push(depositLine(tx, ty));
     if (workers.length > 0) lines.push(`Works at tier ${tier} of ${level}: speed x${tierSpeed(tier).toFixed(2)}, quality ${QUALITY_GRADES[Math.min(tier, MAX_QUALITY) - 1].label}`);
   }
   if (!gatesOpen() && level < 3 && (prof || PROGRESSION.buildings[t]?.levels)) {
@@ -248,12 +250,18 @@ export function updateStationWork(c: Colonist): boolean {
   }
   // Modular building phase 2: a station in a workshop room works faster (or slower) by the room's quality.
   const room = workshopEffectAt(c.postX, c.postY);
-  job.left -= workSpeed(c) * room.speed;
+  // Deep mines: an infested / closed mine yields nothing (its miner has fled or waits), bad air halves the pace.
+  const mine = mineWorkMult(c.postX, c.postY);
+  if (mine <= 0) {
+    c.state = "idle";
+    return true;
+  }
+  job.left -= workSpeed(c) * room.speed * mine;
   if (job.left <= 0) {
     stationJobs.delete(c.id);
     // Output grade = the tier the station works at (a Blast furnace with a level-2 smelter makes Good blooms); a
     // good workshop room adds a grade (at most Fine).
-    addItem(job.recipe.output, job.recipe.amount, Math.min(3, effectiveTier(c) + room.grade));
+    addItem(job.recipe.output, job.recipe.amount + depositExtra(c), Math.min(3, effectiveTier(c) + room.grade));
   }
   return true;
 }
@@ -320,11 +328,17 @@ function depositLine(tx: number, ty: number): string {
 // 1 every load.
 const richCarry = new Map<string, number>();
 export function depositBonus(c: Colonist, resource: "iron" | "rock") {
-  if (!depositKnown(c.postX, c.postY)) return;
+  state.stock[resource] += depositExtra(c);
+}
+// The whole extra units a known fair / rich deposit adds to this load (0 off a mine or unknown). Deep mines: the coal /
+// copper / tin mines too (their batches, progression station recipes).
+function depositExtra(c: Colonist): number {
+  const t = state.tiles[tileIndex(c.postX, c.postY)] as TileType;
+  if ((t !== TileType.IronMinePost && t !== TileType.RockMinePost && !depositMineFor(t)) || !depositKnown(c.postX, c.postY)) return 0;
   const extra = (richCarry.get(c.id) ?? 0) + (depositRichness(c.postX, c.postY) - 1) * 0.5;
   const whole = Math.floor(extra);
   richCarry.set(c.id, extra - whole);
-  state.stock[resource] += whole;
+  return whole;
 }
 
 function prospectShort(): string {
@@ -357,7 +371,7 @@ export function updateProspecting() {
     state.progress.prospecting = undefined;
     (state.progress.prospected ??= []).push(job.x, job.y, PROSPECT_RADIUS_TILES);
     const counts = [0, 0, 0];
-    for (const t of [TileType.IronOre, TileType.Rock, TileType.IronMinePost, TileType.RockMinePost]) {
+    for (const t of [TileType.IronOre, TileType.Rock, TileType.IronMinePost, TileType.RockMinePost, ...DEPOSIT_MINES.flatMap((d) => [d.deposit, d.mine])]) {
       for (const i of tileIndicesOf(t)) {
         const x = i % state.WORLD_TILES_X;
         const y = Math.floor(i / state.WORLD_TILES_X);

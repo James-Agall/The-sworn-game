@@ -18,9 +18,10 @@ import {
   RUIN_GUARDIAN_WEIGHTS, SITE_KIND_HAS_HEARTH, SITE_POI_CLEARANCE_TILES, SPAWN_CLEAR_RADIUS_TILES, SPAWN_PLAINS_RADIUS_TILES,
   WARLORD_DAMAGE_MULT, WARLORD_HP_MULT, WARLORD_REWARD, clampWorldSize,
 } from "./constants.js";
-import { colonists, hearths, mobs, players, scaledCount, scaledCountSub, state } from "./state.js";
+import { colonists, hearths, mobs, players, scaledCount, scaledCountSub, state, wildlife } from "./state.js";
 import { markTileRegistryStale, setTile } from "./chunks.js";
-import { clearOwners, inBounds, tileIndex, tileToPixelCenter } from "./tiles.js";
+import { clearOwners, inBounds, ownerAt, tileIndex, tileToPixelCenter } from "./tiles.js";
+import { DEPOSIT_MINES, DEPOSIT_START_CLEAR_TILES, DEPOSIT_VEINS_PER_80, DEPOSIT_VEIN_MAX_TILES, DEPOSIT_VEIN_MIN_TILES } from "@colony/shared/mines";
 import { WILDLIFE_CONFIG, generateForage, spawnInitialWildlife } from "./wildlife.js";
 import {
   TOWN_CENTER_TILE, isAbbeyClergy, spawnColonistForPost, spawnStartingPeople, townCenterMaxHp,
@@ -52,6 +53,52 @@ export function scatterResourceTiles(tileType: TileType, count: number) {
     if (state.tiles[idx] === TileType.Empty) {
       setTile(idx, tileType);
       placed++;
+    }
+  }
+}
+
+// Deep mines (shared/src/mines.ts): coal seams and copper / tin ore, in small veins grown from a seed tile. Placed
+// last and from their own generator (seeded by the world's noise salt), so no shared RNG draw moves: an older
+// streamed save regenerates its world exactly, plus these. Only onto Empty ground off reserved / owned grounds, clear
+// of the start and of the world's units standing there. Also backfills a loaded world that has none (applyWorld).
+export function scatterDeposits() {
+  let seed = (state.worldNoiseSalt ^ 0x5eedc0a1) >>> 0;
+  const rnd = () => {
+    seed = (seed + 0x6d2b79f5) >>> 0;
+    let t = seed;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const W = state.WORLD_TILES_X;
+  const H = state.WORLD_TILES_Y;
+  const cx = Math.floor(W / 2);
+  const cy = Math.floor(H / 2);
+  const occupied = new Set<number>();
+  // (Players are not counted: the base layer must come out the same when a streamed save regenerates it.)
+  for (const list of [colonists.values(), mobs.values(), wildlife.values()] as Iterable<{ x: number; y: number }>[]) {
+    for (const u of list) occupied.add(tileIndex(Math.floor(u.x / TILE_SIZE), Math.floor(u.y / TILE_SIZE)));
+  }
+  const ok = (x: number, y: number) =>
+    x > 0 && y > 0 && x < W - 1 && y < H - 1 && state.tiles[tileIndex(x, y)] === TileType.Empty && !occupied.has(tileIndex(x, y)) &&
+    Math.max(Math.abs(x - cx), Math.abs(y - cy)) > DEPOSIT_START_CLEAR_TILES && !isInReservedGrounds(x, y) && ownerAt(tileIndex(x, y)) === 0;
+  for (const d of DEPOSIT_MINES) {
+    const veins = Math.max(1, Math.round(DEPOSIT_VEINS_PER_80[d.item] * state.WORLD_AREA_SCALE));
+    for (let v = 0, tries = 0; v < veins && tries < veins * 40; tries++) {
+      const x = Math.floor(rnd() * W);
+      const y = Math.floor(rnd() * H);
+      if (!ok(x, y)) continue;
+      v++;
+      const size = DEPOSIT_VEIN_MIN_TILES + Math.floor(rnd() * (DEPOSIT_VEIN_MAX_TILES - DEPOSIT_VEIN_MIN_TILES + 1));
+      const vein = [{ x, y }];
+      setTile(tileIndex(x, y), d.deposit);
+      for (let k = 0; vein.length < size && k < size * 8; k++) {
+        const from = vein[Math.floor(rnd() * vein.length)];
+        const [dx, dy] = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const)[Math.floor(rnd() * 4)];
+        if (!ok(from.x + dx, from.y + dy)) continue;
+        vein.push({ x: from.x + dx, y: from.y + dy });
+        setTile(tileIndex(from.x + dx, from.y + dy), d.deposit);
+      }
     }
   }
 }
@@ -777,5 +824,8 @@ async function generateWorldInner(wrap: (fn: () => void) => void) {
     spawnStartingPeople(state.townCenters[0]);
   });
   timed("wildlife+people");
+  // Deep mines: coal / copper / tin veins, last (their own generator; see scatterDeposits).
+  wrap(() => scatterDeposits());
+  timed("deposits");
   console.log(`[world] generated ${state.WORLD_TILES_X}x${state.WORLD_TILES_Y} in ${(performance.now() - genStart).toFixed(0)} ms (${laps.join(", ")})`);
 }
