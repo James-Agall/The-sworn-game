@@ -96,7 +96,7 @@ import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-windo
 import { applySnapshotDelta, newDeltaClientState } from "@colony/shared/snapshotDelta";
 import { RELATION_TIER_NAMES } from "@colony/shared/protocol"; // forts phase D: relation tier labels
 import {
-  BARN_FIELD_RADIUS_TILES, BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FOOTPRINT_BY_TILE, footprintAnchorOf, footprintOf, footprintPartOffsets,
+  BARN_FIELD_RADIUS_TILES, BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FOOTPRINT_MAX_SIDE, FOOTPRINT_BY_TILE, footprintAnchorOf, footprintOf, footprintPartOffsets,
   placedFootprintAt,
 } from "@colony/shared/buildings";
 import type { Footprint } from "@colony/shared/buildings";
@@ -2220,7 +2220,8 @@ async function main() {
       if (isRoadAt(nx, ny) || isWallTile(tileAt(nx, ny)) || isMoatTile(tileAt(nx, ny))) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
     }
     // A part tile appearing / going away re-fits the multi-tile art of the anchors up / left of it.
-    for (const [nx, ny] of [[tx - 1, ty], [tx, ty - 1], [tx - 1, ty - 1]]) {
+    for(let dy=0;dy<FOOTPRINT_MAX_SIDE;dy++)for(let dx=0;dx<FOOTPRINT_MAX_SIDE;dx++){
+      if(!dx&&!dy)continue;const nx=tx-dx,ny=ty-dy;
       if (footSize(nx, ny)) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
     }
     // Gap closure G1: likewise a 2-tile furniture piece's anchor (west / north of a part tile).
