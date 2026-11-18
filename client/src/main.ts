@@ -8,8 +8,8 @@ import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
 import { chooseCharacter, renderCharacterEditor } from "./characterCreator";
 import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS, type HeroAppearance } from "@colony/shared/protocol";
 let pendingCreatorAppearance: HeroAppearance | null = null;
-import "./menuSkin.css";
 import "./economySkin.css";
+import "./menuSkin.css";
 import { heroArt, loadHeroAppearanceArt, gearIconUrl } from "./heroAppearance";
 import { HERO_WEAPON_KINDS, type HeroVisual } from "@colony/shared/protocol";
 import { autumnFrame, directionalFrame, loadAutumnPeople, movementFacing, type Cardinal } from "./autumnAnimations";
@@ -4516,7 +4516,7 @@ async function main() {
   }
   groupRows.push({
     heading: "Gear",
-    label: "Gear (armoury)",
+    label: "Armoury",
     rows: [1, 2, 3].flatMap((t) => [
       { key: `gear:weapon:${t}`, label: `Weapons T${t}`, icon: ITEM_ICON[`gear:weapon:${t}`] },
       { key: `gear:armour:${t}`, label: `Armour T${t}`, icon: ITEM_ICON[`gear:armour:${t}`] },
@@ -4547,6 +4547,7 @@ async function main() {
       writePref(GOODS_FOLD_PREF, JSON.stringify([...foldedGroups]));
     });
     goodsListEl.append(heading, body);
+    if (group.heading === "Gear") body.append(document.getElementById("stat-equipment")!);
     for (const good of group.rows) {
       const row = document.createElement("div");
       row.className = "econ-row zero";
@@ -4804,6 +4805,30 @@ async function main() {
   const craftSearch=document.createElement("input");craftSearch.type="search";craftSearch.placeholder="Find a recipe or workstation…";craftSearch.setAttribute("aria-label","Search crafting recipes");craftSearch.className="craft-search";craftListEl.before(craftSearch);craftSearch.addEventListener("input",()=>renderCraftPanel(true));
   const itemArt=(id:string)=>ITEM_ICON[`item:${id}`];
   const craftBtn = document.getElementById("craft-btn") as HTMLButtonElement;
+  const progressionBook = document.createElement("section");
+  progressionBook.id = "progression-book";
+  progressionBook.hidden = true;
+  progressionBook.setAttribute("role", "dialog");
+  progressionBook.setAttribute("aria-label", "Progression and crafting");
+  progressionBook.innerHTML = `<header><h2>Progression & crafting</h2><button id="progression-close" aria-label="Close progression">×</button></header><nav aria-label="Progression pages"><button id="progression-chains">Progression</button><button id="progression-recipes">Crafting</button></nav>`;
+  document.body.append(progressionBook);
+  progressionBook.append(progressTreeEl, craftPanelEl);
+  progressTreeEl.removeAttribute("role");
+  craftPanelEl.removeAttribute("role");
+  nextBarToggle.setAttribute("aria-controls", "progression-book");
+  function openProgressionBook(open: boolean, recipes = false) {
+    progressionBook.hidden = !open;
+    progressTreeEl.hidden = !open || recipes;
+    craftPanelEl.hidden = !open || !recipes;
+    nextBarToggle.setAttribute("aria-expanded", String(open));
+    document.getElementById("progression-chains")!.setAttribute("aria-pressed", String(!recipes));
+    document.getElementById("progression-recipes")!.setAttribute("aria-pressed", String(recipes));
+    if (open) { if (recipes) renderCraftPanel(true); else renderProgressTree(); }
+  }
+  document.getElementById("progression-close")!.addEventListener("click", () => openProgressionBook(false));
+  document.getElementById("progression-chains")!.addEventListener("click", () => openProgressionBook(true));
+  document.getElementById("progression-recipes")!.addEventListener("click", () => openProgressionBook(true, true));
+
   const itemTotal = (p: ProgressionSnapshot | undefined, id: ItemId) => (p?.items[id] ?? []).reduce((a, b) => a + b, 0);
   const STOCK_LABEL: Record<string, string> = Object.fromEntries(GOODS_GROUPS.flatMap((g) => g.goods.map((good) => [good.key, good.label])));
   const progressionBuildingLabel = (t: TileType) => PROGRESSION_BUILDING_LABEL[t] ?? TOOLS.find((tool) => tool.tile === t)?.label ?? "a building";
@@ -4919,9 +4944,7 @@ async function main() {
     craftItemsEl.textContent = owned.length > 0 ? `Items in store: ${owned.join(", ")}` : "Items in store: none";
   }
   function setCraftPanelOpen(open: boolean) {
-    craftPanelEl.hidden = !open;
-    craftBtn.classList.toggle("active", open);
-    if (open) renderCraftPanel(true);
+    openProgressionBook(open, true);
   }
   craftBtn.addEventListener("click", () => {
     craftBtn.blur();
@@ -5013,15 +5036,13 @@ async function main() {
     }
   }
   function setProgressTreeOpen(open: boolean) {
-    progressTreeEl.hidden = !open;
-    nextBarToggle.setAttribute("aria-expanded", String(open));
-    if (open) renderProgressTree();
+    openProgressionBook(open);
   }
   nextBarToggle.addEventListener("click", () => {
     nextBarToggle.blur();
-    setProgressTreeOpen(progressTreeEl.hidden);
+    setProgressTreeOpen(progressionBook.hidden);
   });
-  nextBarTextEl.addEventListener("click", () => setProgressTreeOpen(progressTreeEl.hidden));
+  nextBarTextEl.addEventListener("click", () => setProgressTreeOpen(progressionBook.hidden));
 
   setupToolbar();
   setupCategoryTabs();
@@ -9630,3 +9651,22 @@ setupMainMenu();
 // The control strip can wrap at different window sizes and text scales.
 const toolbarForLayout=document.getElementById('control-buttons');
 if(toolbarForLayout){const placeLedger=()=>document.documentElement.style.setProperty('--toolbar-bottom',`${toolbarForLayout.getBoundingClientRect().bottom+8}px`);new ResizeObserver(placeLedger).observe(toolbarForLayout);placeLedger();}
+
+// Keep controls outside the collapsible inventory; reparenting retains every existing listener.
+const colonyHeader = document.createElement('section');
+colonyHeader.id = 'colony-header';
+colonyHeader.setAttribute('aria-label', 'Colony status and time');
+const colonyCommands = document.createElement('div');
+colonyCommands.id = 'colony-commands';
+for (const id of ['strategy-btn', 'pause-btn', 'time-controls']) colonyCommands.append(document.getElementById(id)!);
+colonyHeader.append(colonyCommands, document.getElementById('colony-stats')!);
+document.body.append(colonyHeader);
+document.getElementById('control-buttons')!.append(document.getElementById('next-bar')!);
+document.getElementById('economy-panel-toggle')!.textContent = 'Stockpile';
+const stockPanel = document.getElementById('economy-panel')!;
+const syncStockPanel = () => document.body.classList.toggle('stockpile-open', !stockPanel.classList.contains('collapsed'));
+new MutationObserver(syncStockPanel).observe(stockPanel, {attributes:true, attributeFilter:['class']});
+syncStockPanel();
+const measureHeader = () => document.documentElement.style.setProperty('--colony-header-bottom', `${colonyHeader.getBoundingClientRect().bottom + 12}px`);
+new ResizeObserver(measureHeader).observe(colonyHeader);
+measureHeader();

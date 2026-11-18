@@ -52,3 +52,11 @@ All nine interior categories and their upper floors now share the warm timber / 
 Opened blocked counter-side routes in tavern, smithy and shop templates, adjusted bakery/barn access, and moved the great-hall corner chest into an accessible position. The level-one Hall of the Sworn (KnightPost) now has the hall interior entrance, matching its upgraded tiers.
 
 Verification: client/server type checks, production build, interior-refresh (108 combinations of type/level/variant/storey, access, facing and determinism), interiors and home-design suites. Production browser checks cover all nine room categories, all ten home styles, material/furniture editing, chests and save/load with no browser errors or missing images. Refresh uses existing generated wall/furniture assets; no new image generation is needed. Default rooms rebuild on entry after restart; saved custom furniture is never reset.
+
+
+## In-game menu reformat (2026-11-18)
+Applied the twelve annotated menu requests. Parchment treatment is shared by in-game panels and the character sheet; the top-right action strip is a stone tablet. Colony status, strategy, pause and time controls now live in an independent top-left bar. The former Colony drawer is Stockpile; equipment totals moved into the renamed Armoury group, retaining its fold preference. Next steps and Progression are within the top-right tablet. Hero controls clear the open Stockpile drawer, and tools sit at the bottom.
+
+Progression and crafting share one dialog with two pages; search, recipes, keyboard shortcut Shift+C, Escape, chain states and live updates reuse their existing handlers. The duplicate top-level Craft/Hero buttons are hidden; the hero block's Pack opens the complete existing character/equipment/appearance/family sheet. Backquote and hero interactions remain available.
+
+Verification: client typecheck, production build and isolated browser checks for all moved controls, folding Stockpile while keeping status visible, Pack/character access, merged progression/crafting pages, search, Escape and Shift+C. Desktop layout checks cover widths 2782, 1440 and 1000; no browser exceptions or missing sprite requests. No gameplay or save-format changes.

@@ -77,3 +77,78 @@ select,input[type=text],input[type=number] { background:#fbf5e5;color:var(--ink)
 #hero-sheet .hs-armoury button {flex:1 1 90px;text-align:left;font-size:11px;}
 #hero-sheet .hs-cols {font-size:13px;}
 #hs-spellbook {min-height:0;}
+/* Parchment scrolls and the carved-stone command tablet. */
+:root { --scroll-paper:linear-gradient(90deg,#b88c4f88,transparent 24px,transparent calc(100% - 24px),#9d6b3c66),repeating-linear-gradient(7deg,#7e542008 0px,#7e542008 1px,transparent 1px,transparent 5px),linear-gradient(#f1dfac,#e7d09b 55%,#eedaad); }
+:is(.menu-scroll,#economy-panel,#build-panel,#building-panel,#work-panel,#quests-panel,#chronicle-panel,#person-card,#home-editor,#hl-dialogue,#progression-book,#hero-bar,#colony-header,#menu-dropdown-list) {
+ background:var(--scroll-paper)!important;color:#392b1d!important;border:1px solid #8d663b!important;border-top:9px ridge #c5a16c!important;border-bottom:9px ridge #c5a16c!important;border-radius:9px 5px 8px 5px!important;box-shadow:inset 0 0 22px #8b5a252d,0 5px 16px #0007!important;
+}
+:is(#economy-panel,#build-panel) {padding-top:15px!important;padding-bottom:15px!important;top:var(--colony-header-bottom,120px)!important;height:auto!important;bottom:16px!important;}
+#build-panel {top:var(--toolbar-bottom,120px)!important;}
+#goods-scroll {flex:1;min-height:0;}
+#economy-panel-toggle,#build-panel-toggle {background:var(--scroll-paper)!important;color:#392b1d!important;border:1px solid #8d663b!important;box-shadow:0 2px 8px #0006!important;}
+#colony-header {position:fixed;left:12px;top:12px;width:calc(55vw - 24px);max-width:1250px;box-sizing:border-box;padding:6px 12px;z-index:12;}
+#colony-commands {display:flex;align-items:center;gap:4px;float:left;margin:0 14px 4px 0;}
+#colony-commands .control-btn {font:12px Georgia;padding:5px 8px;background:#f6e7c1;color:#392b1d;border:1px solid #9b794e;border-radius:3px;box-shadow:inset 0 1px #fff8;}
+#colony-commands .control-btn.active {background:#725536;color:#fff0cc;}
+#colony-commands #time-controls {display:flex;gap:3px;border:0;margin:0;padding:0;}
+#colony-stats {display:flex;align-items:center;flex-wrap:wrap;gap:5px 12px;border:0!important;padding:0!important;margin:0!important;font-size:12px!important;}
+#colony-stats > * {margin:0!important;line-height:1.35;}
+#colony-stats .econ-row {gap:10px;justify-content:flex-start;}
+#colony-stats #stat-army {font-size:11px;}
+#colony-stats #stat-settlements:empty,#colony-stats #stat-difficulty:empty {display:none;}
+#colony-stats #sundial {width:21px;height:21px;}
+#stat-equipment {padding:8px 0;margin-bottom:5px;border-bottom:1px solid #9b794e66;}
+#control-buttons {width:calc(45vw - 24px);max-width:670px;box-sizing:border-box;display:flex;right:12px;top:12px;padding:8px 10px;gap:4px;border:4px ridge #929083;border-radius:8px;background:repeating-linear-gradient(172deg,#fff1 0px,#fff1 1px,transparent 1px,transparent 13px),linear-gradient(130deg,#77786f,#444941 48%,#63675c);box-shadow:inset 0 2px 3px #fff5,inset 0 -3px 5px #0007,0 5px 14px #0008;}
+#control-buttons .control-btn {font:12px Georgia;color:#fff2d0;text-shadow:0 1px 2px #161b15;border:1px solid #a7aa9666;background:#232b2244;padding:6px 9px;}
+#control-buttons .control-btn:hover {background:#a6aa8666;}
+#control-buttons #hero-btn,#control-buttons #craft-btn {display:none!important;}
+#control-buttons #next-bar {position:static!important;transform:none!important;display:flex;flex:1 0 100%;width:100%;max-width:none;box-sizing:border-box;margin-top:3px;padding:5px 0 0;border:0;border-top:1px solid #c6c7ad66;background:none;box-shadow:none;color:#f6e5bd;font-size:11px;}
+#control-buttons #next-bar .nb-label {color:#e9d5a5;}
+#next-bar-toggle {background:#d7c398;color:#34291e;border:1px solid #a59269;padding:5px 8px;}
+#hero-bar {left:46px!important;bottom:12px!important;width:280px!important;box-sizing:border-box;transition:left .15s;}
+body.stockpile-open #hero-bar {left:310px!important;}
+#hero-hotbar {bottom:10px!important;max-width:calc(100vw - 36px);}
+#hero-hotbar .hh-slots {background:var(--scroll-paper)!important;border:2px ridge #c5a16c!important;border-radius:5px;max-width:100%;overflow-x:auto;}
+#hero-hotbar .hh-slot {background:#695035!important;border-color:#a6804d!important;flex-shrink:0;}
+#progression-book {position:fixed;z-index:24;top:calc(var(--toolbar-bottom,120px) + 6px);right:18px;width:min(980px,calc(100vw - 36px));max-height:calc(100vh - var(--toolbar-bottom,120px) - 34px);padding:14px 20px;box-sizing:border-box;overflow:auto;font-family:Georgia;}
+#progression-book header {display:flex;align-items:center;justify-content:space-between;gap:16px;}
+#progression-book h2 {font-size:23px;font-weight:normal;margin:0 0 10px;}
+#progression-book nav {display:flex;gap:6px;padding-bottom:10px;border-bottom:1px solid #9b794e66;}
+#progression-book button {background:#f4e3b9;color:#392b1d;border:1px solid #9b794e;border-radius:3px;padding:6px 12px;cursor:pointer;}
+#progression-book button[aria-pressed=true] {background:#6e5436;color:#fff1cf;}
+#progression-book #progress-tree,#progression-book #craft-panel {position:static!important;transform:none!important;width:100%;max-height:none;padding:12px 0;background:none!important;color:#392b1d!important;border:0!important;box-shadow:none!important;overflow:visible;}
+#progression-book #craft-close {display:none;}
+#progression-book .craft-row {background:#fff4!important;border:1px solid #a8885666!important;color:#392b1d!important;}
+#progression-book :is(.craft-in,.craft-have,.craft-foot,#craft-items) {color:#645037!important;}
+#progression-book .craft-search {background:#fff2d4!important;color:#392b1d!important;border:1px solid #a88856!important;}
+body.interior-mode #colony-header {display:none;}
+@media(max-width:1200px) {
+ #colony-header {width:calc(52vw - 20px);left:8px;top:8px;padding:5px 8px;}
+ #control-buttons {width:calc(48vw - 20px);right:8px;top:8px;}
+ #hero-hotbar {left:auto!important;right:12px;transform:none!important;max-width:calc(100vw - 620px);}
+}
+@media(max-width:800px) {
+ #colony-header {width:calc(100vw - 16px);max-height:150px;overflow:auto;}
+ #control-buttons {top:var(--colony-header-bottom,160px);width:calc(100vw - 16px);max-width:none;}
+ #economy-panel,#build-panel {top:var(--toolbar-bottom,240px)!important;bottom:160px!important;}
+ #hero-bar,body.stockpile-open #hero-bar {left:44px!important;bottom:80px!important;width:260px!important;}
+ #hero-hotbar {left:12px!important;right:12px;max-width:calc(100vw - 24px);}
+ #progression-book {right:8px;width:calc(100vw - 16px);}
+}
+
+@media(min-width:1201px) {body.stockpile-open #hero-hotbar {left:calc(50% + 140px)!important;}}
+#player-bar {top:calc(max(var(--toolbar-bottom,100px),var(--colony-header-bottom,100px)) + 8px)!important;}
+#event-feed {top:calc(max(var(--toolbar-bottom,100px),var(--colony-header-bottom,100px)) + 48px)!important;}
+
+#progression-book :is(.craft-name,.pt-name) {color:#392b1d;}
+#progression-book :is(.craft-station,.pt-step small,.pt-legend,.pt-arrow) {color:#685332;}
+#progression-book :is(.craft-in .short,.craft-needs) {color:#9b3926!important;}
+#progression-book .pt-step {background:#f6e6bb;border-color:#9d8050;color:#392b1d;}
+#progression-book .pt-step.done {background:#ccd3a3;border-color:#6f8051;}
+#progression-book .pt-step.avail {background:#f4d78c;border-color:#a7883c;}
+#progression-book .pt-step.locked {background:#d8c49e;border-color:#a5906b;}
+
+#hero-bar .hb-keys {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;}
+#hero-bar .hb-keys .cmd-btn {min-width:0;padding:4px 2px;font-size:11px;}
+#hero-bar .hb-hint {display:none;}
+#goal-tracker {top:calc(var(--toolbar-bottom,100px) + 8px)!important;}

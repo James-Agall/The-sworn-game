@@ -99,7 +99,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
   const loadT = el("span", {}, "0/40");
   needs.append(el("span", {}, "Food"), foodM, el("span", {}, "Rest"), restM, loadT);
   const status = el("div", { id: "hl-status" });
-  const packBtn = el("button", { class: "cmd-btn", id: "hl-pack-btn", title: "Hero sheet: your pack, skills and hero actions (eat, rest, deposit, build)" }, "Pack");
+  const packBtn = el("button", { class: "cmd-btn", id: "hl-pack-btn", title: "Pack & character: equipment, appearance, skills, food and rest" }, "Pack");
   const famBtn = el("button", { class: "cmd-btn", id: "hl-family-btn", title: "Hero sheet: your family, spouse, children, kin and the succession order" }, "Family");
   if (bar) {
     bar.insertBefore(needs, bar.querySelector(".hb-keys"));
