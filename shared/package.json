@@ -22,6 +22,7 @@
     "./settlementTemplates": "./src/settlementTemplates.ts",
     "./villagerTalk": "./src/villagerTalk.ts",
     "./snapshotDelta": "./src/snapshotDelta.ts",
-    "./fortifications": "./src/fortifications.ts"
+    "./fortifications": "./src/fortifications.ts",
+    "./playerBases": "./src/playerBases.ts"
   }
 }

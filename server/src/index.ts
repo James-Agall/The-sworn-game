@@ -74,7 +74,7 @@ import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, 
 import { handleCallVillagers, handleChooseHeir, handleTrainUnit, heirChoicesFor } from "./people.js";
 import { handleCraftItem, handleProspect, progressionSnapshot } from "./progression.js";
 import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, withPlayerLife } from "./herolife.js";
-import { handleInteriorExit, playerInside } from "./interiors.js";
+import { handleInteriorEdit,handleInteriorUse,handleInteriorExit, playerInside } from "./interiors.js";
 
 setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 
@@ -423,6 +423,10 @@ function handleMessage(player: Player, message: ClientMessage) {
     handleDialogueChoice(player, message.choice);
   } else if (message.type === "heroAction") {
     handleHeroAction(player, message.action, message.build);
+  } else if(message.type==="interiorEdit"){
+    handleInteriorEdit(player,message);
+  } else if(message.type==="interiorUse"){
+    handleInteriorUse(player,message.x,message.y);
   } else if (message.type === "interiorExit") {
     handleInteriorExit(player);
   } else if (message.type === "resync") {

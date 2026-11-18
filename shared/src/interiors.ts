@@ -642,7 +642,7 @@ export interface InteriorMap {
   floor: InteriorFloor;
   wall: "wood" | "stone";
   cells: string;
-  props: { prop: InteriorProp; x: number; y: number }[];
+  props: { prop: InteriorProp; x: number; y: number; facing?: "n"|"e"|"s"|"w" }[];
   slots: { slot: InteriorNpcSlot; x: number; y: number }[];
   // Upstairs: the "D" stairs (no mat there; leaving needs the ground floor).
   exit: { x: number; y: number };
@@ -689,6 +689,11 @@ function buildFromTemplate(t: InteriorTemplate, level: number, variant: number, 
     };
     const s = stairs;
     spawn = [[0, 1], [1, 0], [-1, 0], [0, -1]].map(([dx, dy]) => ({ x: s.x + dx, y: s.y + dy })).find((q) => free(q.x, q.y)) ?? { ...s };
+  }
+  for(const p of props){
+    const table=props.find(q=>q.prop==='table'&&Math.abs(q.x-p.x)+Math.abs(q.y-p.y)===1);
+    p.facing=p.prop==='chair'&&table?(table.x>p.x?'e':table.x<p.x?'w':table.y>p.y?'s':'n'):(p.x===1?'e':p.x===w-2?'w':p.y>=h-2?'n':'s');
+    if(p.prop==='bed'||p.prop==='bedFine')p.facing='n';
   }
   return { templateId: t.id, label: t.label, level, variant, storey, w, h, floor: t.floor, wall: t.wall, cells, props, slots, exit, spawn, stairs };
 }
@@ -759,6 +764,8 @@ export interface InteriorView {
   npcs: InteriorNpcSnapshot[];
   chest: Partial<Record<PackGood, number>> | null;
   chestCap: number;
+  editable?: boolean;
+  homeDesign?: import("./playerBases.js").HomeDesign;
   canSleep: boolean;
   threat: number;
   // The settlement / owner shown in the title ("Your House", "Tavern of Ashford", "Saint Wren's Abbey").

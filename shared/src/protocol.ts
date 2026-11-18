@@ -1359,9 +1359,12 @@ export type ClientMessage =
   | { type: "dialogueChoice"; choice: number }
   | { type: "heroAction"; action: HeroActionKind; build?: PersonalBuild }
   // Stardew phase 5c: leave the interior (Esc near the exit mat; walking onto the mat leaves by itself).
+  | { type: "interiorEdit"; op: "base"|"floor"|"wall"|"place"|"remove"; base?:string; floor?:string; wall?:string; prop?:string; x?:number; y?:number; facing?:string }
+  | { type: "interiorUse"; x:number; y:number }
   | { type: "interiorExit" };
 
 export type ServerMessage =
+  | { type:"homeDesigns"; homes:[number,string][] }
   | {
       type: "welcome";
       id: string;

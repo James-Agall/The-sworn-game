@@ -1,3 +1,5 @@
+import {npcVariantFrame} from "./npcVariants";
+import {PLAYER_BASES} from "@colony/shared/playerBases";
 import { FORT_BUILDABLE,FORT_GATES,isFortification,isFortPart,isLargeGate,isWideBridge,fortAnchor,fortPartner,wallConnects,moatConnects,connectionMask,wallWalkLift } from "@colony/shared/fortifications";
 import { loadTexture, loadTextures } from "./atlas";
 import "./characterCreator.css";
@@ -48,7 +50,7 @@ import {
 import { type HeroLifeUi, setupHeroLife } from "./herolife";
 import { setupHeroTools } from "./herotools";
 import { setupWeatherOverlay } from "./weather";
-import { type InteriorUi, setupInterior } from "./interior";
+import { opaqueBox, type InteriorUi, setupInterior } from "./interior";
 import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
@@ -318,6 +320,8 @@ async function main() {
     ...MOAT_ART_URLS,
     ...STRUCTURE_ART_URLS,
     ...Array.from({length:16},(_,i)=>`/sprites/fortifications/rampart_${String(i).padStart(2,"0")}.png`),
+    ...PLAYER_BASES.map(b=>`/sprites/player-bases/${b.id}.png`),
+    ...["bed","chair","chest","table","hearth","shelf","wardrobe"].flatMap(p=>["n","e","s","w"].map(f=>`/sprites/interiors-v2/${p}_${f}.png`)),
     ...["gate_h_closed","gate_h_open","gate_v_closed","gate_v_open","bridge_h_closed","bridge_h_open","bridge_v_closed","bridge_v_open","ladder_h","ladder_v"].map(n=>`/sprites/fortifications/${n}.png`),
     ...["grain", "meat", "fruit", "wood", "rock", "iron", "wool", "cotton", "clothes", "tools", "luxuryItems", "gold", "alcohol"].map(res => `/sprites/icon-${res}.png`),
   ]);
@@ -1486,6 +1490,7 @@ async function main() {
       if (SEASON_TREE_TILES.has(t)) setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), t);
     }
   }
+  const playerHomeDesigns=new Map<number,string>();
   function fortArtFor(x:number,y:number,t:number):Texture|undefined {
     if(isFortPart(t))return;
     let name:string|undefined;
@@ -1515,9 +1520,11 @@ async function main() {
     const moatArt = moatArtFor(tx, ty, artTile, !!site);
     const structArt = structureArtFor(tx, ty, artTile, !!site);
     const autumnDamage = autumnBuildingDamage(artTile, level, damagedBuildings.get(index) ?? 1000, !!site, index);
+    const homeTexture=playerHomeDesigns.has(index)?optionalTextures[`/sprites/player-bases/${playerHomeDesigns.get(index)}.png`]:undefined;
     const fortTexture=fortArtFor(tx,ty,artTile);
     const texture = tile === TileType.BuildingPart || isFortPart(tile)
       ? undefined
+      : homeTexture ? homeTexture
       : fortTexture ? fortTexture
       : structArt
       ? structArt.texture
@@ -1571,6 +1578,7 @@ async function main() {
     else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
     // Stardew phase 5b: trees take the season's tint.
     else if (SEASON_TREE_TILES.has(tile)) sprite.tint = mulTint(sprite.tint as number, seasonTreeTint);
+    if(homeTexture){sprite.anchor.set(.5,1);sprite.scale.set(tileSize*2/homeTexture.width);sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
     if(fortTexture){
       const p=fortPartner(artTile),w=p?.dx===1?2:1,h=p?.dy===1?2:1;
       sprite.anchor.set(.5,1);sprite.rotation=0;sprite.scale.set(tileSize/64);
@@ -1588,6 +1596,7 @@ async function main() {
         const def = FURNITURE_FOOTPRINT[artTile as TileType]!;
         const turned = (piece.w > piece.h) !== (def.w > def.h);
         const tex = structArt.texture;
+        if(artTile===TileType.Bed||artTile===TileType.Wardrobe){const box=opaqueBox(tex),k=Math.min(piece.w*tileSize/box.w,piece.h*tileSize/box.h)*.92;sprite.anchor.set((box.x+box.w/2)/tex.width,(box.y+box.h/2)/tex.height);sprite.rotation=0;sprite.scale.set(k);sprite.position.set((tx+piece.w/2)*tileSize,(ty+piece.h/2)*tileSize);sprite.zIndex=(ty+piece.h-1)*worldTilesX+tx;return;}
         sprite.anchor.set(0.5, 0.5);
         sprite.rotation = turned ? Math.PI / 2 : 0;
         const bw = (turned ? piece.h : piece.w) * tileSize;
@@ -1668,7 +1677,16 @@ async function main() {
   // Doors and windows run along the wall they sit in (east-west unless walls are only north / south).
   function structureArtFor(tx: number, ty: number, artTile: number, site: boolean): StructureArt | undefined {
     if (isFloorTile(artTile)) return STRUCTURE_TEXTURES.floor(artTile, ((tx * 73856093) ^ (ty * 19349663)) >>> 0);
-    if (artTile === TileType.Bed || isFurnitureTile(artTile)) return STRUCTURE_TEXTURES.furniture(artTile);
+    if (artTile === TileType.Bed || isFurnitureTile(artTile)) {
+      const props:Record<number,string>={[TileType.Bed]:'bed',[TileType.Chair]:'chair',[TileType.Chest]:'chest',[TileType.Table]:'table',[TileType.Hearth]:'hearth',[TileType.Shelf]:'shelf',[TileType.Wardrobe]:'wardrobe'};
+      const prop=props[artTile];if(prop){const ds=[[0,-1,'n','s'],[1,0,'e','w'],[0,1,'s','n'],[-1,0,'w','e']] as const;
+        const toward=artTile===TileType.Chair?ds.find(([x,y])=>tileAt(tx+x,ty+y)===TileType.Table):undefined;
+        const wall=ds.find(([x,y])=>wallConnects(tileAt(tx+x,ty+y)));
+        const piece=furniturePieceAt(tileAt,tx,ty);const bedWide=artTile===TileType.Bed&&piece&&piece.w>piece.h;
+        const facing=bedWide?(tileAt(tx+piece.w,ty)===TileType.Wall||tileAt(tx+piece.w,ty)===TileType.StoneWall?'e':'w'):toward?.[2]??(artTile===TileType.Bed?(wall?.[2]??'n'):(wall?.[3]??'s'));
+        const texture=optionalTextures[`/sprites/interiors-v2/${prop}_${facing}.png`];if(texture)return{texture,place:'upright'};
+      }return STRUCTURE_TEXTURES.furniture(artTile);
+    }
     if (!isDoorTile(artTile) && !isWindowTile(artTile)) return undefined;
     const horizontal = isWallTile(tileAt(tx - 1, ty)) || isWallTile(tileAt(tx + 1, ty)) || !(isWallTile(tileAt(tx, ty - 1)) || isWallTile(tileAt(tx, ty + 1)));
     const stone = isStoneStructure(artTile);
@@ -2672,7 +2690,9 @@ async function main() {
         ownFrame = directionalFrame(ownSheet, ownRow, direction, anim.frame);
       }
       // Library frames come from other sheets than the walk set: draw them at the same body height.
-      const ownScale = ownFrame ? autumnHumanScale(ownSheet, ownRow) ?? set.scale : set.scale;
+      const variantFrame=c.kind==="villager"&&!c.child&&mode!=="action"?npcVariantFrame(c.id,direction,mode==="walk"?Math.floor(performance.now()/160):1):undefined;
+      if(variantFrame)ownFrame=variantFrame;
+      const ownScale = variantFrame ? HUMAN_CHAR_PX/72 : ownFrame ? autumnHumanScale(ownSheet, ownRow) ?? set.scale : set.scale;
       if (ownFrame) showAnimFrame(entry.sprite, { ...set, scale: ownScale }, ownFrame);
       // Village life: a child villager is drawn smaller.
       if (c.child) entry.sprite.scale.set(ownScale * 0.65);
@@ -2684,7 +2704,7 @@ async function main() {
     if (entry.sprite instanceof Sprite) {
       const right = getFacing(colonistFacing, c.id, c.x);
       const directionalWork = COLONIST_ACTION_STATES.has(c.state) && ["builder", "lumberjack", "ironMiner", "rockMiner", "farmer", "farmhand"].includes(vk);
-      applyFacing(entry.sprite, directionalWork ? autumnDirections.get(c.id) !== "w" : right);
+      applyFacing(entry.sprite, c.kind==="villager"&&!c.child&&!COLONIST_ACTION_STATES.has(c.state)?true: directionalWork ? autumnDirections.get(c.id) !== "w" : right);
     }
   }
 
@@ -7263,6 +7283,7 @@ async function main() {
     const message: ServerMessage = JSON.parse(event.data);
     // Rebuild a delta snapshot into a full one before anything reads it; on a sequence gap ask for a keyframe
     // (meanwhile it carries the last known units).
+    if(message.type==='homeDesigns'){const changed=new Set([...playerHomeDesigns.keys(),...message.homes.map(h=>h[0])]);playerHomeDesigns.clear();for(const [i,b]of message.homes)playerHomeDesigns.set(i,b);for(const i of changed)if(tiles[i]!==undefined)setTileSprite(i%worldTilesX,Math.floor(i/worldTilesX),tiles[i]);return;}
     if (message.type === "snapshot" && message.ud && applySnapshotDelta(deltaState, message as unknown as Record<string, unknown>)) {
       sendMessage({ type: "resync" });
     }

@@ -1,0 +1,21 @@
+{
+  "id": "player-base-hill-burrow",
+  "name": "Hill burrow base",
+  "buildingType": "house",
+  "tier": 1,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "###########",
+    "#====h====#",
+    "#=b=====x=#",
+    "#=========#",
+    "w===ctc===w",
+    "#=========#",
+    "#s=======l#",
+    "#=========#",
+    "#####+#####"
+  ]
+}

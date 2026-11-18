@@ -1,0 +1,23 @@
+{
+  "id": "player-base-gatehouse",
+  "name": "Gatehouse residence base",
+  "buildingType": "house",
+  "tier": 3,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "%%%%%%%%%%%%%%%",
+    "%:::%::h::::::%",
+    "%:b:%:::::::x:%",
+    "%:::D:::::::::%",
+    "%:::%:ctc:::::%",
+    "W:::%:::::::::W",
+    "%:::%:::::::::%",
+    "%:b:%:::::::::%",
+    "%s::%::::::::l%",
+    "%:::::::::::::%",
+    "%%%%%%%D%%%%%%%"
+  ]
+}

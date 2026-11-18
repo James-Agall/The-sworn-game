@@ -137,17 +137,17 @@ async function inner() {
   result(ex === 0 && ey === 1 && mx === -1, "S transform offsets (turn east -> south, mirror x)");
 
   // ---- D ----
-  const gen = (seed) => {
+  const gen = async (seed) => {
     mobs.clear();
     colonists.clear();
     wildlife.clear();
-    wg.generateWorld(seed);
+    await wg.generateWorld(seed);
     const list = Array.from(hearths.values()).filter((h) => h.siteKind === "encampment").map((h) => `${h.campTemplate}@${h.x},${h.y}:${h.prisoners}`).sort();
     return { tiles: Buffer.from(state.tiles).toString("base64"), list, hearths: Array.from(hearths.values()).filter((h) => h.siteKind === "encampment") };
   };
-  const a = gen(12345);
-  const b = gen(12345);
-  const c = gen(999);
+  const a = await gen(12345);
+  const b = await gen(12345);
+  const c = await gen(999);
   result(a.tiles === b.tiles && JSON.stringify(a.list) === JSON.stringify(b.list), `D same seed -> same tiles and ${a.list.length} camps`);
   result(a.tiles !== c.tiles, "D another seed differs");
   result(a.hearths.length >= 5 && a.hearths.every((h) => h.campTemplate && camps.campTemplateById(h.campTemplate)), `D every camp hearth is templated (${a.hearths.length})`);
@@ -157,7 +157,7 @@ async function inner() {
   result(nearStart.length >= 1 && nearStart.every((h) => h.campTier === 1), `D near-start camps are tier 1 (${nearStart.length})`);
 
   // ---- B ---- (on world `c`: the first camp with chests)
-  gen(999);
+  await gen(999);
   const h = Array.from(hearths.values()).find((x) => x.siteKind === "encampment" && (x.campChests ?? 0) > 0);
   if (!h) result(false, "B a camp with loot chests");
   else {
@@ -180,7 +180,7 @@ async function inner() {
   // ---- E ---- the camp editor's creativeSet ops (index.ts refuses them outside creative games)
   {
     const { handleCreativeSet } = await import("./src/creative.ts");
-    gen(4242);
+    await gen(4242);
     const call = (msg) => {
       let out = null;
       handleCreativeSet({ id: "p", clan: 0 }, msg, (ok, text, data = {}) => (out = { ok, text, ...data }));
@@ -213,7 +213,7 @@ async function inner() {
 
   // ---- 80 map ----
   wg.setWorldSize(80);
-  const small = gen(4242);
+  const small = await gen(4242);
   result(small.hearths.length >= 1, `D an 80 map generates ${small.hearths.length} camps`);
 
   console.log(fails === 0 ? "ALL PASS" : `${fails} FAILED`);

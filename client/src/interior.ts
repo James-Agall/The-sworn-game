@@ -1,3 +1,5 @@
+import {npcVariantFrame} from "./npcVariants";
+import {PLAYER_BASES,HOME_PROPS} from "@colony/shared/playerBases";
 // interior.ts: Stardew phase 5c (2026-11-09; server/src/interiors.ts, shared/src/interiors.ts). The building interior
 // view: while the server says the hero is inside (message `interior` with the map, NPCs, chest, threat), the world
 // layer is hidden and this layer draws the small room instead: floor tiles (the wired wood / stone floor art, a dirt
@@ -18,7 +20,7 @@ import {
 } from "@colony/shared/interiors";
 import type { StructureTextures } from "./structureArt";
 import { rigTextureScale } from "./heroRig";
-import { autumnFrame, loadAutumnSheet } from "./autumnAnimations";
+import { directionalFrame, autumnFrame, loadAutumnSheet } from "./autumnAnimations";
 
 const T = INTERIOR_TILE_PX;
 const EXTRA = "/sprites/structure/extra/";
@@ -41,14 +43,14 @@ const PROP_COLOR: Partial<Record<InteriorProp, number>> = {
 // DRAWN pixels (transparent padding ignored) to these heights, so a chair comes up to a person's thigh, a table to the
 // waist, a wardrobe over their head; whatever the art's canvas size. Width is capped at about a tile (long pieces).
 const PROP_HEIGHT_PX: Partial<Record<InteriorProp, number>> = {
-  chair: 13, pew: 14, table: 15, bed: 15, bedFine: 17, chest: 11, shelf: 30, wardrobe: 32, hearth: 28, lamp: 22, statue: 30,
+  chair: 18, pew: 16, table: 20, bed: 31, bedFine: 31, chest: 16, shelf: 30, wardrobe: 32, hearth: 28, lamp: 22, statue: 30,
   weaponRack: 24, workbench: 16, altar: 18, oven: 22, barrel: 14, crates: 14, sacks: 11, hay: 13, armourStand: 26, banner: 28,
   forge: 24, stall: 26, candelabra: 20, counter: 14, anvil: 10, throne: 22,
 };
 const PROP_DEFAULT_HEIGHT_PX = 18;
 const opaqueBoxes = new WeakMap<Texture, { x: number; y: number; w: number; h: number }>();
 // Bounding box of the texture's visible pixels (falls back to the whole frame).
-function opaqueBox(tex: Texture): { x: number; y: number; w: number; h: number } {
+export function opaqueBox(tex: Texture): { x: number; y: number; w: number; h: number } {
   const hit = opaqueBoxes.get(tex);
   if (hit) return hit;
   let box = { x: 0, y: 0, w: tex.width, h: tex.height };
@@ -157,7 +159,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   const extra = new Map<string, Texture | null>();
   let rebuildPending = false;
   function extraTexture(name: string): Texture | undefined {
-    const url = `${EXTRA}${name}.png`;
+    const url = name.startsWith("/")?name:`${EXTRA}${name}.png`;
     if (extra.has(url)) return extra.get(url) ?? undefined;
     extra.set(url, null);
     loadTexture(url)
@@ -173,6 +175,23 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
 
   let view: InteriorView | null = null;
   let builtKey = "";
+  let decorating=false;
+  let openChest:{x:number;y:number;until:number}|null=null;
+  const editor=document.createElement('section');editor.id='home-editor';editor.hidden=true;
+  editor.innerHTML=`<h3>Make yourself at home</h3><label>Base style <select id="home-base">${PLAYER_BASES.map(b=>`<option value="${b.id}">${b.label}</option>`).join('')}</select></label><button id="home-base-apply">Use this base</button><label>Floor <select id="home-floor"><option value="wood">Wood planks</option><option value="stone">Stone tiles</option><option value="dirt">Packed earth</option></select></label><label>Walls <select id="home-wall"><option value="wood">Timber</option><option value="stone">Stone</option></select></label><label>Furnishing <select id="home-prop"><option value="remove">Remove furnishing</option>${HOME_PROPS.map(p=>`<option value="${p}">${p.replace(/([A-Z])/g,' $1')}</option>`).join('')}</select></label><label>Facing <select id="home-facing"><option value="n">North</option><option value="e">East</option><option value="s" selected>South</option><option value="w">West</option></select></label><img id="home-preview" alt="Selected furnishing"/><p>Click a floor tile to place or remove furniture. Paths and the doorway must stay clear. Furniture changes are free.</p><button id="home-done">Done decorating</button>`;
+  document.body.append(editor);
+  const decorButton=document.createElement('button');decorButton.id='home-decorate';decorButton.textContent='Decorate home';decorButton.style.pointerEvents='auto';hud.append(decorButton);
+  const select=(id:string)=>editor.querySelector<HTMLSelectElement>('#home-'+id)!;
+  const edit=(m:object)=>deps.send({type:'interiorEdit',...m});
+  const closeEditor=()=>{decorating=false;editor.hidden=true;};
+  decorButton.onclick=()=>{decorating=!decorating;editor.hidden=!decorating;if(view){select('base').value=view.homeDesign?.base??'cottage';select('floor').value=view.map.floor;select('wall').value=view.map.wall;}};
+  editor.querySelector<HTMLButtonElement>('#home-done')!.onclick=closeEditor;
+  editor.querySelector<HTMLButtonElement>('#home-base-apply')!.onclick=()=>{if(window.confirm('Use this base and its furnished layout? Stored chest contents will be kept.'))edit({op:'base',base:select('base').value});};
+  select('floor').onchange=()=>edit({op:'floor',floor:select('floor').value});select('wall').onchange=()=>edit({op:'wall',wall:select('wall').value});
+  const preview=()=>{const p=select('prop').value,img=editor.querySelector<HTMLImageElement>('#home-preview')!;img.hidden=!['bed','chair','chest','table','hearth','shelf','wardrobe'].includes(p);if(!img.hidden)img.src=`/sprites/interiors-v2/${p}_${select('facing').value}.png`;};select('prop').onchange=preview;select('facing').onchange=preview;preview();
+  window.addEventListener('pointerdown',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)||e.button!==0)return;const point=room.toLocal({x:e.clientX,y:e.clientY});const x=Math.floor(point.x/T),y=Math.floor(point.y/T);if(decorating){e.preventDefault();e.stopImmediatePropagation();const prop=select('prop').value;edit({op:prop==='remove'?'remove':'place',prop,x,y,facing:select('facing').value});}else if(view.map.props.some(p=>p.x===x&&p.y===y&&['chest','bed','bedFine'].includes(p.prop))){e.preventDefault();e.stopImmediatePropagation();openChest={x,y,until:performance.now()+5000};rebuildPending=true;window.setTimeout(()=>{openChest=null;rebuildPending=true;},5000);deps.send({type:'interiorUse',x,y});}},true);
+  const homeStyle=document.createElement('style');homeStyle.textContent=`#home-editor{position:fixed;right:18px;top:140px;width:240px;max-height:75vh;overflow:auto;padding:18px;background:#242c26f5;color:#eee2c6;border:1px solid #a48c59;border-radius:10px;z-index:40;font:14px Georgia}#home-editor[hidden]{display:none}#home-editor label{display:block;margin:12px 0}#home-editor select,#home-editor button{display:block;box-sizing:border-box;width:100%;padding:8px;margin-top:5px;background:#3c4737;color:#fff0cf;border:1px solid #8a7954;border-radius:5px}#home-preview{width:52px;height:52px;object-fit:contain;image-rendering:pixelated}#home-editor p{font-size:12px;line-height:1.5;color:#c1c4ae}#home-decorate{padding:7px 12px;background:#344733;color:#f4e3bc;border:1px solid #b09562;border-radius:5px}#home-decorate[hidden]{display:none}`;homeStyle.textContent+=`body.interior-mode #next-bar,body.interior-mode #event-feed,body.interior-mode #goal-tracker,body.interior-mode #economy-panel,body.interior-mode #economy-panel-toggle,body.interior-mode #build-panel,body.interior-mode #build-panel-toggle,body.interior-mode #minimap-frame,body.interior-mode #hero-hotbar{display:none!important}body.interior-mode #int-hud{top:100px}body.interior-mode #player-bar{top:58px!important}`;document.head.append(homeStyle);
+
   const hero = new Sprite(deps.playerTexture);
   hero.anchor.set(0.5, 0.85);
   const heroK = (t: Texture) => deps.humanScale?.(t) ?? deps.playerHeight / t.height;
@@ -190,6 +209,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     bubbleText: Text;
     zzz: Text;
     anim?: { walk: Texture[]; action: Texture[]; scale: number };
+    variant?:boolean;
     still?: Texture;
     k: number;
     right: boolean;
@@ -201,7 +221,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   const npcViews = new Map<string, NpcView>();
   let pendingLive: { key: string; storey: number; npcs: InteriorNpcLive[] } | null = null;
 
-  function propSprite(prop: InteriorProp, x: number, y: number): Container {
+  function propSprite(prop: InteriorProp, x: number, y: number, facing="s"): Container {
     if (prop === "stairsUp" || prop === "stairsDown") {
       const texture = autumnFrame("furniture-stations", 5, prop === "stairsUp" ? 2 : 3);
       if (texture) {
@@ -223,7 +243,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     }
     const tile = PROP_TILE[prop];
     const art = tile !== undefined ? deps.structure.furniture(tile) : undefined;
-    const tex = art?.texture ?? (PROP_EXTRA[prop] ? extraTexture(PROP_EXTRA[prop]!) : undefined);
+    const oriented=['bed','chair','chest','table','hearth','shelf','wardrobe'].includes(prop)?extraTexture(`/sprites/interiors-v2/${prop==='chest'&&openChest?.x===x&&openChest?.y===y&&performance.now()<openChest.until?'chest_open':prop}_${facing}.png`):undefined;
+    const tex = oriented ?? art?.texture ?? (PROP_EXTRA[prop] ? extraTexture(PROP_EXTRA[prop]!) : undefined);
     if (!tex) {
       // Stand-in block (3/4: a lit top over a darker front).
       const g = new Graphics();
@@ -236,7 +257,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       return g;
     }
     const s = new Sprite(tex);
-    if (prop === "rug" || art?.place === "flat") {
+    if (prop === "rug" || (!oriented && art?.place === "flat")) {
       s.anchor.set(0, 0);
       s.scale.set(T / tex.width);
       s.position.set(x * T, y * T);
@@ -266,8 +287,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         const ch = m.cells[y * m.w + x];
         if (ch === " ") continue;
         if (ch === "#") continue;
-        const dirtTexture = m.floor === "dirt" ? extraTexture(`floor_dirt_${1 + (x + y) % 3}`) : undefined;
-        const floorTile = m.floor === "dirt" ? (dirtTexture ? { texture: dirtTexture } : undefined) : deps.structure.floor(m.floor === "stone" ? TileType.StoneFloor : TileType.WoodFloor, (x * 7 + y * 13) & 0xff);
+        const dirtTexture = m.floor === "dirt" ? extraTexture("floor_dirt_1") : undefined;
+        const floorTile = m.floor === "dirt" ? (dirtTexture ? { texture: dirtTexture } : undefined) : deps.structure.floor(m.floor === "stone" ? TileType.StoneFloor : TileType.WoodFloor, 0);
         if (floorTile) {
           const s = new Sprite(floorTile.texture);
           s.scale.set(T / floorTile.texture.width);
@@ -299,6 +320,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     for (let y = 0; y < m.h; y++) {
       for (let x = 0; x < m.w; x++) {
         if (m.cells[y * m.w + x] !== "#") continue;
+        walls.rect(x*T,y*T,T,T).fill(wall.face);
         const mask = (y > 0 && m.cells[(y - 1) * m.w + x] === "#" ? 1 : 0)
           | (x + 1 < m.w && m.cells[y * m.w + x + 1] === "#" ? 2 : 0)
           | (y + 1 < m.h && m.cells[(y + 1) * m.w + x] === "#" ? 4 : 0)
@@ -323,7 +345,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         }
       }
     }
-    for (const p of m.props) room.addChild(propSprite(p.prop, p.x, p.y));
+    for (const p of m.props) room.addChild(propSprite(p.prop, p.x, p.y,p.facing));
     const old = new Map(npcViews);
     npcViews.clear();
     for (const n of v.npcs) {
@@ -361,6 +383,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       const prev = old.get(n.id);
       const live: InteriorNpcLive = prev?.live ?? { id: n.id, x: n.x, y: n.y, face: "d", pose: "idle" };
       npcViews.set(n.id, {
+        variant:["villager","farmer","trader","elder"].includes(n.kind)||n.act==="resident"||n.act==="patron",
         body, label, bubble, bubbleText, zzz, anim, still: tex, k, right: prev?.right ?? true,
         sx: prev?.sx ?? live.x, sy: prev?.sy ?? live.y, live, phase: (n.id.length * 97) % 1000,
       });
@@ -370,7 +393,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     for (const o of others.values()) room.addChild(o);
     builtKey = keyOf(v);
   }
-  const keyOf = (v: InteriorView) => `${v.key}:${v.map.templateId}:${v.map.level}:${v.map.variant}:${v.map.storey}:${JSON.stringify(v.npcs)}`;
+  const keyOf = (v: InteriorView) => `${v.key}:${v.map.templateId}:${v.map.level}:${v.map.variant}:${v.map.storey}:${JSON.stringify(v.npcs)}:${JSON.stringify(v.map)}`;
 
   function applyLive(npcs: InteriorNpcLive[]) {
     for (const n of npcs) {
@@ -419,20 +442,22 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         if (nv.anim?.action.length) tex = nv.anim.action[Math.floor((t / INTERIOR_WORK_MS) * nv.anim.action.length) % nv.anim.action.length];
         else rot = Math.floor(t / (INTERIOR_WORK_MS / 2)) % 2 ? 0.12 : -0.05;
       } else if (n.pose === "sit") {
-        const seated = autumnFrame("human-life-directions", 1, Math.floor(t / 250) % 4);
+        const seated = directionalFrame("human-life-directions",1,n.face==="u"?"n":n.face==="d"?"s":n.face==="l"?"w":"e",Math.floor(t/250));
         if (seated) tex = seated;
         else { dy = 3; sy = 0.86; }
       } else if (n.pose === "sleep") {
-        const sleeping = autumnFrame("human-life-directions", 2, 8 + Math.floor(t / 600) % 4);
+        const sleeping = directionalFrame("human-life-directions",2,n.face==="u"?"n":n.face==="d"?"s":n.face==="l"?"w":"e",Math.floor(t/600));
         if (sleeping) tex = sleeping;
         else rot = -Math.PI / 2;
         y -= 4;
         x += 2;
       } else dy = Math.sin((t / INTERIOR_BOB_MS) * Math.PI * 2) * INTERIOR_BOB_PX;
+      const varied=nv.variant&&['idle','walk'].includes(n.pose)?npcVariantFrame(n.id,n.face==='u'?'n':n.face==='d'?'s':n.face==='l'?'w':'e',n.pose==='walk'?Math.floor(t/160):1):undefined;
+      if(varied)tex=varied;
       const b = nv.body;
       if (b instanceof Sprite && tex && b.texture !== tex) b.texture = tex;
-      const sxSign = nv.right ? 1 : -1;
-      b.scale.set(nv.k * sxSign, nv.k * sy);
+      const sxSign = varied?1:nv.right ? 1 : -1;
+      b.scale.set((varied?25/72:nv.k)*sxSign,(varied?25/72:nv.k)*sy);
       b.rotation = rot;
       b.position.set(x, y + dy);
       b.zIndex = n.pose === "sleep" ? (nv.sy + 0.5) * T - 8 : y;
@@ -454,6 +479,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     room.visible = on;
     vignette.visible = on;
     deps.worldLayer.visible = !on;
+    document.body.classList.toggle("interior-mode",on);
     hud.hidden = !on;
     fadeT = performance.now();
     deps.onChange?.(on);
@@ -497,12 +523,13 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     hero.position.set(shown.x, shown.y);
     hero.zIndex = shown.y;
     animateNpcs(performance.now());
-    const zoom = INTERIOR_ZOOM;
-    const m = view.map;
+    const m=view.map;
+    const viewportW=scr.width-(decorating?300:0);
+    const zoom=decorating?Math.min(INTERIOR_ZOOM,viewportW/(m.w*T),(scr.height-200)/(m.h*T)):INTERIOR_ZOOM;
     room.scale.set(zoom);
     const rw = m.w * T * zoom;
     const rh = m.h * T * zoom;
-    const cx = rw <= scr.width ? (scr.width - rw) / 2 : Math.min(0, Math.max(scr.width - rw, scr.width / 2 - shown.x * zoom));
+    const cx = rw <= viewportW ? (viewportW - rw) / 2 : Math.min(0, Math.max(viewportW - rw, viewportW / 2 - shown.x * zoom));
     const cy = rh <= scr.height ? (scr.height - rh) / 2 : Math.min(0, Math.max(scr.height - rh, scr.height / 2 - shown.y * zoom));
     room.position.set(Math.round(cx), Math.round(cy));
     vignette.width = scr.width;
@@ -525,6 +552,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   return {
     active: () => !!view,
     onMessage(v) {
+      if(v&&decorating){select("floor").value=v.map.floor;select("wall").value=v.map.wall;}
+      decorButton.hidden=!v?.editable;if(!v?.editable)closeEditor();
       if (!v) {
         view = null;
         builtKey = "";

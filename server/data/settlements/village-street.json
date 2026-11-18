@@ -1,87 +1,87 @@
 {
- "id": "village-street",
- "name": "Street village",
- "tier": 2,
- "weight": 2,
- "minStartDist": 30,
- "profile": "hearthmoor",
- "garrison": {
-  "townGuard": 3,
-  "townArcher": 2
- },
- "rows": [
-  ".fffffffffffffffffffffffffffff.",
-  ".fffffffffffffffffffffffffffff.",
-  ".fffffffffffffffffffffffffffff.",
-  "...............................",
-  "...............................",
-  "...............................",
-  "...............................",
-  "................q..............",
-  "g.....................r........",
-  "_______________________________",
-  "_______________________________",
-  "..._.v..._t....K_....v_...._..g",
-  "...............................",
-  "...............................",
-  "...............................",
-  "...............................",
-  "...............................",
-  "ppppppppppppppppppppppppppppppp",
-  ".fffffffffffffffffffffffffffff.",
-  ".fffffffffffffffffffffffffffff.",
-  ".fffffffffffffffffffffffffffff."
- ],
- "buildings": [
-  {
-   "ref": "house-cottage",
-   "x": 1,
-   "y": 4
+  "id": "village-street",
+  "name": "Street village",
+  "tier": 2,
+  "weight": 2,
+  "minStartDist": 30,
+  "profile": "hearthmoor",
+  "garrison": {
+    "townGuard": 3,
+    "townArcher": 2
   },
-  {
-   "ref": "house-two-room",
-   "x": 7,
-   "y": 4
-  },
-  {
-   "ref": "house-cottage",
-   "x": 17,
-   "y": 4
-  },
-  {
-   "ref": "church-chapel",
-   "x": 23,
-   "y": 3
-  },
-  {
-   "ref": "blacksmith-small",
-   "x": 1,
-   "y": 12,
-   "transform": 2
-  },
-  {
-   "ref": "house-cottage",
-   "x": 7,
-   "y": 12,
-   "transform": 2
-  },
-  {
-   "ref": "barn-small",
-   "x": 13,
-   "y": 12,
-   "transform": 2
-  },
-  {
-   "ref": "mill-small",
-   "x": 20,
-   "y": 12,
-   "transform": 2
-  },
-  {
-   "ref": "house-hut",
-   "x": 26,
-   "y": 12,
-   "transform": 2
-  }
- ]
+  "rows": [
+    ".fffffffffffffffffffffffffffff.",
+    ".fffffffffffffffffffffffffffff.",
+    ".fffffffffffffffffffffffffffff.",
+    ".bx............................",
+    "...............................",
+    "...............................",
+    "...............................",
+    "................q..............",
+    "g.....................r........",
+    "_______________________________",
+    "_______________________________",
+    "..._.v..._t....K_....v_...._..g",
+    "...............................",
+    "...............................",
+    "...............................",
+    "...............................",
+    "...............................",
+    "ppppppppppppppppppppppppppppppp",
+    ".fffffffffffffffffffffffffffff.",
+    ".fffffffffffffffffffffffffffff.",
+    ".fffffffffffffffffffffffffffff."
+  ],
+  "buildings": [
+    {
+      "ref": "house-cottage",
+      "x": 1,
+      "y": 4
+    },
+    {
+      "ref": "house-two-room",
+      "x": 7,
+      "y": 4
+    },
+    {
+      "ref": "house-cottage",
+      "x": 17,
+      "y": 4
+    },
+    {
+      "ref": "church-chapel",
+      "x": 23,
+      "y": 3
+    },
+    {
+      "ref": "blacksmith-small",
+      "x": 1,
+      "y": 12,
+      "transform": 2
+    },
+    {
+      "ref": "house-cottage",
+      "x": 7,
+      "y": 12,
+      "transform": 2
+    },
+    {
+      "ref": "barn-small",
+      "x": 13,
+      "y": 12,
+      "transform": 2
+    },
+    {
+      "ref": "mill-small",
+      "x": 20,
+      "y": 12,
+      "transform": 2
+    },
+    {
+      "ref": "house-hut",
+      "x": 26,
+      "y": 12,
+      "transform": 2
+    }
+  ]
 }

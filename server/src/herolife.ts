@@ -48,7 +48,7 @@ import { villagerTokens } from "@colony/shared/villagerTalk";
 import type { BuildingType } from "@colony/shared/buildingTemplates";
 import { buildingTemplateById } from "./buildingTemplates.js";
 import { cropSeasonLabel, WINTER_COLD_REST_DECAY_MULT, WINTER_COLD_REST_GAIN_MULT, WINTER_WARM_ROOM_REST_MULT } from "@colony/shared/calendar";
-import { interiorFurnitureChoice, interiorInteract, interiorRestMult, tryEnterAtDoor } from "./interiors.js";
+import {tryWorldChest,worldChestChoice,interiorFurnitureChoice, interiorInteract, interiorRestMult, tryEnterAtDoor } from "./interiors.js";
 import { settlementTemplateById } from "./settlementTemplates.js";
 
 // ---- profile state ----
@@ -129,12 +129,13 @@ export interface ChoiceRt {
   label: string;
   disabled?: string;
   next?: string;
-  action?: DialogueAction | "accept" | "deliver" | "learn" | "back" | "pick" | "sellAnimal";
+  action?: DialogueAction | "accept" | "deliver" | "learn" | "back" | "pick" | "sellAnimal" | "worldChestPut" | "worldChestTake";
   arg?: number | string;
 }
 // Stardew phase 5c: a talk inside a building interior (the NPC / bed / chest stands at interior px x / y of the
 // interior `key`; range is measured there) and the building it is in (openBuilding).
 export interface TalkInside {
+  world?:boolean;
   key: string;
   x: number;
   y: number;
@@ -369,6 +370,7 @@ export function startTalk(p: Player, target: Target) {
 export function furnitureTalk(p: Player, name: string, text: string, choices: ChoiceRt[], inside: TalkInside) {
   const b = busyOf(p);
   const t: Talk = b.talk?.role === "furniture" && b.talk.name === name ? b.talk : { role: "furniture", name, color: 0x8a5a2b, choices: [], inside };
+  t.inside=inside;
   t.choices = [...choices, { label: "Close.", action: "bye" }];
   b.talk = t;
   sendTalk(p, t, text);
@@ -377,6 +379,7 @@ export function furnitureTalk(p: Player, name: string, text: string, choices: Ch
 // Still in talking range of the NPC (it may walk off or die).
 function talkInRange(p: Player, t: Talk): boolean {
   // Stardew phase 5c: inside an interior the distance is measured there (the NPC's world body may be anywhere).
+  if(t.inside?.world)return !p.interior&&Math.hypot(t.inside.x-p.x,t.inside.y-p.y)/TILE_SIZE<=TALK_RANGE_TILES+2;
   if (t.inside || p.interior) {
     const s = t.siteId ? sites.get(t.siteId) : undefined;
     return !!t.inside && p.interior?.key === t.inside.key && Math.hypot(t.inside.x - p.interior.x, t.inside.y - p.interior.y) / TILE_SIZE <= TALK_RANGE_TILES + 2
@@ -513,6 +516,9 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
     // Stardew phase 5c (interiors): the building's own panel (shop, forge, ...), the bed and the chest.
     case "openBuilding":
       return t.inside ? closeTalk(p, { openTrade: { tileX: t.inside.anchor.x, tileY: t.inside.anchor.y } }) : closeTalk(p);
+    case "worldChestPut":
+    case "worldChestTake":
+      return t.inside?.world?worldChestChoice(p,t.inside,c.action,c.arg):closeTalk(p);
     case "sleep":
     case "nap":
     case "chestPut":
@@ -836,6 +842,7 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
   if (p.dead) return;
   // Stardew phase 5c: inside an interior E talks / uses the bed or chest / leaves.
   if (p.interior) return interiorInteract(p);
+  if(!isMounted(p)&&tryWorldChest(p,m.tx,m.ty))return;
   const b = busyOf(p);
   const near = talkTargets(p);
   if (near.length) {

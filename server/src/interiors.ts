@@ -1,3 +1,4 @@
+import {PLAYER_BASES,HOME_PROPS,playerBaseMap,validHomeMap,type HomeDesign} from "@colony/shared/playerBases";
 // interiors.ts: Stardew phase 5c (docs PLAN-rimworld-stardew.md 5c; ROADMAP "Stardew layer — phase 5c"). The hero
 // enters a prefab building through its door (E on / walking north into it from the tile below it) and walks a small
 // separate tile map built lazily from the building type's template (shared/src/interiors.ts). The world sim keeps
@@ -41,6 +42,9 @@ import {
 } from "./herolife.js";
 
 // ---- chests (saved) ----
+const homeDesigns=new Map<string,HomeDesign>();
+const homeSent=new Map<string,string>();
+const homeCache=new WeakMap<HomeDesign,{map:InteriorMap;solid:Uint8Array}>();
 const chests = new Map<string, Partial<Record<PackGood, number>>>();
 
 // ---- maps (generated lazily per template + level, never saved) ----
@@ -54,7 +58,11 @@ function mapFor(id: InteriorTemplateId, level: number, variant = 0, storey = 0) 
   }
   return m;
 }
-const mapOf = (I: NonNullable<Player["interior"]>) => mapFor(I.templateId as InteriorTemplateId, I.level, I.variant, I.storey);
+function designedMap(key:string, id:InteriorTemplateId,level:number,variant:number,storey=0){
+ const design=homeDesigns.get(key);if(!design||storey>0||!['house','hall'].includes(id))return mapFor(id,level,variant,storey);
+ let hit=homeCache.get(design);if(!hit||hit.map.level!==level){const map=playerBaseMap(design,level);hit={map,solid:interiorSolidGrid(map)};homeCache.set(design,hit);}return hit;
+}
+const mapOf=(I:NonNullable<Player['interior']>)=>designedMap(I.key,I.templateId as InteriorTemplateId,I.level,I.variant,I.storey);
 
 // Test hook `interior {variant}`: every building uses this layout (null: the deterministic pick).
 let forcedVariant: number | null = null;
@@ -462,6 +470,8 @@ function viewFor(p: Player): { view: InteriorView; npcs: Binding[]; acc: Access 
     npcs: npcs.map((b) => b.snap),
     chest: own && hasProp(map, "chest") ? { ...(chests.get(I.key) ?? {}) } : null,
     chestCap: chestCapFor(map.templateId),
+    editable:own && ["house","hall"].includes(I.templateId) && I.storey===0,
+    homeDesign:homeDesigns.get(I.key),
     canSleep: own && INTERIOR_SLEEP_TEMPLATES.has(map.templateId) && (hasProp(map, "bed") || hasProp(map, "bedFine")),
     threat: hostilesNearDoor(I.tx, I.ty, INTERIOR_THREAT_ALERT_TILES),
     title: titleFor(map, acc),
@@ -526,7 +536,7 @@ export function enterInterior(p: Player, tx: number, ty: number): string {
   const near = hostilesNearDoor(tx, ty, INTERIOR_ENEMY_BLOCK_TILES);
   if (near > 0) return `Enemies are too close (${near} within ${INTERIOR_ENEMY_BLOCK_TILES} tiles): you cannot get inside`;
   stopHeroBusy(p);
-  const { map } = mapFor(t.id, t.level, t.variant);
+  const { map } = designedMap(`${tx},${ty}`,t.id,t.level,t.variant);
   // The world body waits at the door.
   p.x = px(tx);
   p.y = px(ty + 1);
@@ -636,6 +646,12 @@ export function changeStorey(p: Player, storey: number) {
 // sim.ts, once a tick: dead heroes are put out; every INTERIOR_REFRESH_TICKS the building is re-checked (gone: out;
 // upgraded: the new level's room) and the view is resent if its NPCs / chest / threat changed.
 export function updateInteriors() {
+  if(state.cycleTick%20===0){
+    for(const key of homeDesigns.keys()){const [x,y]=key.split(',').map(Number);if(!interiorTemplateAt(x,y))homeDesigns.delete(key);}
+    const homes:[number,string][]=[...homeDesigns].map(([key,d])=>{const [x,y]=key.split(',').map(Number);return[tileIndex(x,y),d.base]});const sig=JSON.stringify(homes);
+    for(const p of players.values())if(homeSent.get(p.id)!==sig){sendTo(p,{type:'homeDesigns',homes});homeSent.set(p.id,sig);}
+    for(const id of homeSent.keys())if(!players.has(id))homeSent.delete(id);
+  }
   // Gap closure G5: the rooms someone is in step once a tick; their NPCs go out every INTERIOR_NPC_SEND_TICKS.
   const inRoom = new Map<string, Player[]>();
   for (const p of players.values()) {
@@ -862,6 +878,7 @@ export function restoreInteriorChests(data: unknown) {
   }
 }
 export function resetInteriors() {
+  homeDesigns.clear();homeSent.clear();
   chests.clear();
   rooms.clear();
 }
@@ -883,3 +900,50 @@ export function interiorDebug(p: Player) {
     templateErrors: validateAllInteriorTemplates(),
   };
 }
+
+// Cosmetic housing edits are authoritative, owned, bounded, persisted and never block exits.
+export function handleInteriorEdit(p:Player,m:{op:string;base?:string;floor?:string;wall?:string;prop?:string;x?:number;y?:number;facing?:string}){
+ const I=p.interior,v=viewFor(p);if(!I||p.dead||!v?.view.editable)return;
+ if(v.view.threat){toast(p,'Wait until the danger outside has passed before decorating');return;}
+ let d:HomeDesign={...(homeDesigns.get(I.key)??{base:'cottage'})};
+ if(m.op==='base'){if(!PLAYER_BASES.some(b=>b.id===m.base))return;d={base:m.base!};}
+ else if(m.op==='floor'){if(!['wood','stone','dirt'].includes(m.floor??''))return;d.floor=m.floor as HomeDesign['floor'];}
+ else if(m.op==='wall'){if(!['wood','stone'].includes(m.wall??''))return;d.wall=m.wall as HomeDesign['wall'];}
+ else if(m.op==='place'||m.op==='remove'){
+  const map=playerBaseMap(d,I.level),x=m.x!,y=m.y!;if(!Number.isInteger(x)||!Number.isInteger(y)||x<1||y<1||x>=map.w-1||y>=map.h-1||map.cells[y*map.w+x]!=='.'||(x===map.spawn.x&&y===map.spawn.y))return;
+  d.props=map.props.filter(q=>q.x!==x||q.y!==y);
+  if(m.op==='place'){if(!HOME_PROPS.includes(m.prop as any)||!['n','e','s','w'].includes(m.facing??''))return;d.props.push({prop:m.prop as any,x,y,facing:m.facing as any});}
+  if(!d.props.some(q=>q.prop==='chest')&&Object.keys(chests.get(I.key)??{}).length){toast(p,'Empty the house chest before removing the last chest');return;}
+ }else return;
+ const map=playerBaseMap(d,I.level);if(!validHomeMap(map)){toast(p,'Keep the doorway, walking routes and furniture accessible');return;}
+ homeDesigns.set(I.key,d);homeSent.clear();
+ const homes:[number,string][]=[...homeDesigns].map(([key,d])=>{const [x,y]=key.split(',').map(Number);return[tileIndex(x,y),d.base]});for(const other of players.values())sendTo(other,{type:'homeDesigns',homes});
+ for(const k of rooms.keys())if(k.startsWith(I.key+':'))rooms.delete(k);
+ for(const other of players.values())if(other.interior?.key===I.key){const x=Math.floor(other.interior.x/TILE_SIZE),y=Math.floor(other.interior.y/TILE_SIZE);if(m.op==='base'||x<0||y<0||x>=map.w||y>=map.h||interiorSolidGrid(map)[y*map.w+x]){other.interior.x=px(map.spawn.x);other.interior.y=px(map.spawn.y);}other.interior.storey=0;sendView(other,true);}
+}
+export function handleInteriorUse(p:Player,x:number,y:number){
+ const I=p.interior,v=viewFor(p);if(!I||!v||!Number.isInteger(x)||!Number.isInteger(y))return;
+ if(Math.hypot(px(x)-I.x,px(y)-I.y)>INTERIOR_USE_RANGE_TILES*TILE_SIZE){toast(p,'Walk closer to use that furniture');return;}
+ const q=v.view.map.props.find(q=>q.x===x&&q.y===y);if(!q)return;
+ const at={key:I.key,x:px(x),y:px(y),anchor:{x:I.tx,y:I.ty}};
+ if(q.prop==='chest'){if(v.view.chest)chestTalk(p,'',at);else toast(p,'This chest is not yours');}
+ else if(q.prop==='bed'||q.prop==='bedFine')bedTalk(p,v.view.canSleep,v.view.threat,at);
+}
+export const homeDesignsForSave=()=>Array.from(homeDesigns.entries());
+export function restoreHomeDesigns(data:unknown){
+ homeDesigns.clear();homeSent.clear();if(!Array.isArray(data))return;
+ for(const e of data){if(!Array.isArray(e)||typeof e[0]!=='string'||!/^\d+,\d+$/.test(e[0])||!e[1]||!PLAYER_BASES.some(b=>b.id===e[1].base))continue;
+ const d=e[1] as HomeDesign;if(d.floor&&!['wood','stone','dirt'].includes(d.floor)||d.wall&&!['wood','stone'].includes(d.wall))continue;if(d.props&&(!Array.isArray(d.props)||d.props.some(p=>!p||!HOME_PROPS.includes(p.prop)&&p.prop!=='throne'||!Number.isInteger(p.x)||!Number.isInteger(p.y))))continue;
+ const map=playerBaseMap(d,3);if(map.props.some(p=>p.x<1||p.y<1||p.x>=map.w-1||p.y>=map.h-1||map.cells[p.y*map.w+p.x]!=='.'))continue;if(validHomeMap(map))homeDesigns.set(e[0],d);
+ }
+}
+
+function ownWorldChest(p:Player,x:number,y:number){if(!inBounds(x,y)||ownerAt(tileIndex(x,y))!==0||clanIdAt(x,y)!==(p.clan??0))return false;const tile=state.tiles[tileIndex(x,y)];return tile===TileType.Chest||(tile===TileType.PropCrate&&lifeOf(p).builds.some(b=>b.kind==='chest'&&b.x===x&&b.y===y));}
+export function tryWorldChest(p:Player,tx:unknown,ty:unknown){
+ const x=Math.floor(p.x/TILE_SIZE),y=Math.floor(p.y/TILE_SIZE),candidates:{x:number;y:number;d:number}[]=[];
+ for(let yy=y-2;yy<=y+2;yy++)for(let xx=x-2;xx<=x+2;xx++){const d=Math.hypot(px(xx)-p.x,px(yy)-p.y);if(d<=INTERIOR_USE_RANGE_TILES*TILE_SIZE&&ownWorldChest(p,xx,yy))candidates.push({x:xx,y:yy,d});}
+ candidates.sort((a,b)=>(a.x===tx&&a.y===ty?-1:b.x===tx&&b.y===ty?1:a.d-b.d));const q=candidates[0];if(!q)return false;
+ worldChestTalk(p,{world:true,key:`world:${q.x},${q.y}`,x:px(q.x),y:px(q.y),anchor:q});return true;
+}
+function worldChestTalk(p:Player,at:TalkInside){const c=chests.get(at.key)??{},life=lifeOf(p);const choices:ChoiceRt[]=[{label:'Store everything you carry',action:'worldChestPut',arg:'all',disabled:packWeight(life)<=0?'Your pack is empty':undefined},{label:'Take everything',action:'worldChestTake',arg:'all',disabled:chestWeight(c)<=0?'The chest is empty':undefined}];for(const g of PACK_GOODS){if((life.pack[g]??0)>0)choices.push({label:`Store ${PACK_LABEL[g]}`,action:'worldChestPut',arg:g});if((c[g]??0)>0)choices.push({label:`Take ${PACK_LABEL[g]}`,action:'worldChestTake',arg:g});}furnitureTalk(p,'Storage chest',`Chest (${chestWeight(c)} / ${INTERIOR_CHEST_CAP}): ${goodsText(c)}. Your pack: ${goodsText(life.pack)}.`,choices,at);}
+export function worldChestChoice(p:Player,at:TalkInside,action:string,arg:unknown){if(p.dead||p.interior||!ownWorldChest(p,at.anchor.x,at.anchor.y)||Math.hypot(at.x-p.x,at.y-p.y)>INTERIOR_USE_RANGE_TILES*TILE_SIZE)return closeTalk(p);const c=chests.get(at.key)??{},life=lifeOf(p);if(arg!=='all'&&!PACK_GOODS.includes(arg as PackGood))return;const good=arg as PackGood|'all';if(action==='worldChestPut')move(life.pack,c,good,INTERIOR_CHEST_CAP);else if(action==='worldChestTake')move(c,life.pack,good,PACK_CAP);chests.set(at.key,c);worldChestTalk(p,at);}

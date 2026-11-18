@@ -1,0 +1,25 @@
+{
+  "id": "player-base-townhouse",
+  "name": "Townhouse base",
+  "buildingType": "house",
+  "tier": 3,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "%%%%%%%%%",
+    "%:::h:::%",
+    "%:b:::x:%",
+    "%:::::::%",
+    "%::ctc::%",
+    "%:::::::%",
+    "W:::::::W",
+    "%:::::::%",
+    "%:::::::%",
+    "%:::::::%",
+    "%s:::::l%",
+    "%:::::::%",
+    "%%%%D%%%%"
+  ]
+}

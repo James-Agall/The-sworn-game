@@ -1,0 +1,370 @@
+{
+  "bases": [
+    "player-base-hill-burrow",
+    "player-base-cottage",
+    "player-base-townhouse",
+    "player-base-longhouse",
+    "player-base-hunting-lodge",
+    "player-base-farmhouse",
+    "player-base-watchtower",
+    "player-base-manor",
+    "player-base-gatehouse",
+    "player-base-keep"
+  ],
+  "camps": [
+    {
+      "id": "t1-captive-pen",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t1-forest-camp",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t1-grave-hideout",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t1-hunters-lean",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t1-roadside-fire",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t1-ruined-chapel",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t1-tent-circle",
+      "added": [
+        "W",
+        "x"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t1-wagon-stop",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t2-bridge-toll",
+      "added": [],
+      "transforms": 8
+    },
+    {
+      "id": "t2-fortified-farmstead",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t2-longhouse",
+      "added": [
+        "b"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t2-mine-mouth",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t2-motte-bailey",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t2-palisade-ring",
+      "added": [
+        "b"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t2-quarry-outpost",
+      "added": [
+        "b"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t2-wagon-fort",
+      "added": [],
+      "transforms": 8
+    },
+    {
+      "id": "t2-wagon-laager",
+      "added": [
+        "W",
+        "b"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t2-watch-crossroads",
+      "added": [],
+      "transforms": 8
+    },
+    {
+      "id": "t3-bandit-stockade",
+      "added": [],
+      "transforms": 8
+    },
+    {
+      "id": "t3-blood-pit",
+      "added": [],
+      "transforms": 8
+    },
+    {
+      "id": "t3-iron-keep",
+      "added": [],
+      "transforms": 8
+    },
+    {
+      "id": "t3-offset-hillfort",
+      "added": [
+        "W"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t3-raider-bazaar",
+      "added": [],
+      "transforms": 8
+    },
+    {
+      "id": "t3-raider-warcamp",
+      "added": [],
+      "transforms": 8
+    },
+    {
+      "id": "t3-roman-crossroad",
+      "added": [
+        "b",
+        "x"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t3-siege-camp",
+      "added": [],
+      "transforms": 8
+    },
+    {
+      "id": "t3-trelleborg-ring",
+      "added": [
+        "W",
+        "b",
+        "x"
+      ],
+      "transforms": 8
+    },
+    {
+      "id": "t3-twin-palisade",
+      "added": [],
+      "transforms": 8
+    }
+  ],
+  "settlements": [
+    {
+      "id": "hamlet-chapel",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "hamlet-crossroads",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "hamlet-farmstead",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "hamlet-fishing",
+      "added": []
+    },
+    {
+      "id": "hamlet-hillside",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "hamlet-pilgrim",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "hamlet-riverside",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "hamlet-rundling",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "hamlet-staging-post",
+      "added": [
+        "x"
+      ]
+    },
+    {
+      "id": "town-bastide",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "town-burgage",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "town-citadel",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "town-crossroads",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "town-garrison",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "town-market",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "town-moat",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "village-abbey",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "village-bridge",
+      "added": [
+        "b"
+      ]
+    },
+    {
+      "id": "village-ford",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "village-green",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "village-hillfort",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "village-hillside",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "village-mill",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "village-mining",
+      "added": [
+        "b",
+        "x"
+      ]
+    },
+    {
+      "id": "village-street",
+      "added": [
+        "b",
+        "x"
+      ]
+    }
+  ],
+  "errors": []
+}

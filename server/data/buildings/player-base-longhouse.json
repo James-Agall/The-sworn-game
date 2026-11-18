@@ -1,0 +1,21 @@
+{
+  "id": "player-base-longhouse",
+  "name": "Longhouse base",
+  "buildingType": "house",
+  "tier": 2,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "###############",
+    "#===#==h======#",
+    "#=b=#=======x=#",
+    "#===+=========#",
+    "w===#=ctc=====w",
+    "#=b=#=========#",
+    "#s==#========l#",
+    "#=============#",
+    "#######+#######"
+  ]
+}

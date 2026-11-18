@@ -1,0 +1,23 @@
+{
+  "id": "player-base-watchtower",
+  "name": "Watchtower home base",
+  "buildingType": "house",
+  "tier": 3,
+  "doorSide": "S",
+  "rotate": true,
+  "mirror": true,
+  "role": "bedroom",
+  "rows": [
+    "%%%%%%%%%",
+    "%:::h:::%",
+    "%:b:::x:%",
+    "%:::::::%",
+    "%::ctc::%",
+    "W:::::::W",
+    "%:::::::%",
+    "%:::::::%",
+    "%s:::::l%",
+    "%:::::::%",
+    "%%%%D%%%%"
+  ]
+}

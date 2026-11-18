@@ -2,7 +2,7 @@
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { type LivestockSave, livestockForSave, restoreLivestock } from "./animals.js";
 import { applySoloStart, resetHeroLifeSessions } from "./herolife.js";
-import { type InteriorChestsSave, interiorChestsForSave, resetInteriors, restoreInteriorChests } from "./interiors.js";
+import { homeDesignsForSave,restoreHomeDesigns,type InteriorChestsSave, interiorChestsForSave, resetInteriors, restoreInteriorChests } from "./interiors.js";
 import { topUpCreative } from "./creative.js";
 import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -310,6 +310,7 @@ function snapshotWorldInner() {
     // Modular building phase 3 (optional).
     zones: zonesForSave() as ZonesSave | undefined,
     // Stardew phase 5c: [building anchor "x,y", goods] per non-empty interior chest (optional: older saves have none).
+    homeDesigns:homeDesignsForSave(),
     interiorChests: interiorChestsForSave() as InteriorChestsSave | undefined,
     // Modular building phase 4: the clans in manual work-priority mode (optional: older saves are all default mode;
     // the priorities themselves are Person.work, saved with the colonists).
@@ -550,6 +551,7 @@ function applyWorldInner(s: WorldState) {
   restoreZones(s.zones);
   // Stardew phase 5c: interior chests (optional).
   restoreInteriorChests(s.interiorChests);
+  restoreHomeDesigns(s.homeDesigns);
   // Modular building phase 4: work mode (runtime jobs are re-decided).
   restoreWork(s.workManual);
   // Stardew phase 5d: after the tiles (houses are re-found from them).

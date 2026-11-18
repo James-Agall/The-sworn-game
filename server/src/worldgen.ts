@@ -429,7 +429,7 @@ export function generateCampSites(count: number, placedSites: TileCoord[]) {
       const tpl: CampTemplate = pickCampTemplate(pool);
       const cr = campRadius(tpl);
       const center = pickScatteredTile(
-        Math.max(SPAWN_CLEAR_RADIUS_TILES + cr, Math.min(tpl.minStartDist, maxStart)),
+        Math.max(SPAWN_CLEAR_RADIUS_TILES + cr, Math.min(tpl.minStartDist, maxStart),tpl.tier>1?Math.min(maxStart,NEAR_START_CAMP_RING[1]+3):0),
         campSpacing(cr),
         placedSites,
         (t) => campSpotOk(t, cr)
