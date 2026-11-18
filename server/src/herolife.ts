@@ -1,3 +1,4 @@
+import { treeAt } from "@colony/shared/trees";
 // herolife.ts: Solo hero phases 1-3 (docs PLAN-solo-hero.md; ROADMAP "Solo hero — landed"). The playable hero as a
 // participant: E-interact (talk to NPCs: settlement elders, traders, villagers, priests, your own people; gather from
 // trees / rock / ore / forage / water; work an own recipe station as its worker), data-driven role dialogue
@@ -21,9 +22,9 @@ import {
 import { TAVERN_DRINKS_PER_DAY, TAVERN_DRINK_CHEER_TICKS, TAVERN_DRINK_GOLD, TAVERN_DRINK_HAPPINESS, TAVERN_DRINK_REST } from "@colony/shared/interiors";
 import { CROPS, CropStage, type CropId } from "@colony/shared/zones";
 import { heroCropStage, heroFarmApply, heroFarmCheck, heroFertilise, heroZoneCrop } from "./zones.js";
-import { type ItemId, type Recipe, PROFESSION_LABEL, levelForXp, stationRecipes, xpToNext } from "@colony/shared/progression";
-import type { Colonist, HeroLife, Mob, Player, SiteState } from "./types.js";
-import { FORAGE_RIPE_TO_PICKED, FORAGE_REGROW_TICKS, QUEST_MAX_PER_SITE, RELATION_ALLIED_MIN } from "./constants.js";
+import { type ItemId, type Recipe, PROGRESSION, PROFESSION_LABEL, levelForXp, smithLevelForGearTier, stationRecipes, xpToNext } from "@colony/shared/progression";
+import type { ResourceKey, Colonist, HeroLife, Mob, Player, SiteState } from "./types.js";
+import { CRAFT_RECIPES, FORGE_TICKS, FORAGE_RIPE_TO_PICKED, FORAGE_REGROW_TICKS, QUEST_MAX_PER_SITE, RELATION_ALLIED_MIN } from "./constants.js";
 import { colonists, forageRegrow, hearths, mobs, players, sites, state } from "./state.js";
 import { anchorOfTile, getBuildingLevel, inBounds, isNightNow, ownerAt, tileIndex } from "./tiles.js";
 import { isWalkableTile } from "./pathfinding.js";
@@ -37,7 +38,7 @@ import { gameDay, handleTradeWithSite, standingTown, tierOf, tilesToWalls } from
 import { adjustRelation, relationOf } from "./sites.js";
 import { forcePostQuest, handleQuestMessage, quests, questsForSnapshot } from "./quests.js";
 import { addItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
-import { heroProfileOf, playerMaxHp } from "./heroes.js";
+import { forgeCost, heroProfileOf, playerMaxHp } from "./heroes.js";
 import {
   bringKinHome, cachedFamilySnapshot, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
 } from "./family.js";
@@ -48,7 +49,7 @@ import { villagerTokens } from "@colony/shared/villagerTalk";
 import type { BuildingType } from "@colony/shared/buildingTemplates";
 import { buildingTemplateById } from "./buildingTemplates.js";
 import { cropSeasonLabel, WINTER_COLD_REST_DECAY_MULT, WINTER_COLD_REST_GAIN_MULT, WINTER_WARM_ROOM_REST_MULT } from "@colony/shared/calendar";
-import {tryWorldChest,worldChestChoice,interiorFurnitureChoice, interiorInteract, interiorRestMult, tryEnterAtDoor } from "./interiors.js";
+import {interiorWorkstation, ownInterior, sharedStockAccess, tryWorldChest,worldChestChoice,interiorFurnitureChoice, interiorInteract, interiorRestMult, tryEnterAtDoor } from "./interiors.js";
 import { settlementTemplateById } from "./settlementTemplates.js";
 
 // ---- profile state ----
@@ -122,7 +123,8 @@ interface WorkJob {
   ty: number;
   tile: TileType;
   skill: HeroSkill;
-  job?: { recipe: Recipe; left: number; total: number };
+  job?: { recipe: PersonalRecipe; left: number; total: number };
+  insideKey?: string;
   idle?: string;
 }
 export interface ChoiceRt {
@@ -344,7 +346,7 @@ function sendTalk(p: Player, t: Talk, text: string) {
   sendTo(p, { type: "dialogue", dialogue });
 }
 
-export function closeTalk(p: Player, extra: { openTrade?: { tileX: number; tileY: number } } = {}) {
+export function closeTalk(p: Player, extra: { openStockpile?: boolean; openTrade?: { tileX: number; tileY: number } } = {}) {
   busyOf(p).talk = undefined;
   sendTo(p, { type: "dialogue", close: true, ...extra });
 }
@@ -514,6 +516,11 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
     case "part":
       return sayThen(p, t, partWays(p));
     // Stardew phase 5c (interiors): the building's own panel (shop, forge, ...), the bed and the chest.
+    case "craftRecipe":
+      return handlePersonalCraft(p, String(c.arg ?? ""), t.inside ? { tx: t.inside.anchor.x, ty: t.inside.anchor.y } : undefined);
+    case "openStockpile":
+      if(sharedStockAccess(p)) return closeTalk(p,{openStockpile:true});
+      return closeTalk(p);
     case "openBuilding":
       return t.inside ? closeTalk(p, { openTrade: { tileX: t.inside.anchor.x, tileY: t.inside.anchor.y } }) : closeTalk(p);
     case "worldChestPut":
@@ -871,9 +878,7 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
       b.work = undefined;
       return toast(p, "You stop working");
     }
-    b.work = { tx: st.tx, ty: st.ty, tile: st.tile, skill: STATION_SKILL[st.tile]! };
-    b.resting = false;
-    return toast(p, `You take up the work at the ${HERO_SKILL_LABEL[b.work.skill].toLowerCase()} station (move to stop)`);
+    return handlePersonalCraft(p);
   }
   if (toolWhy && toolWhy !== "-") return toast(p, toolWhy);
   sendTo(p, { type: "interactNone" });
@@ -917,7 +922,7 @@ function useTool(p: Player, tool: HeroTool | null, tx: number, ty: number, cropA
   if (tool === "axe" || tool === "pick") {
     const kind = gatherKindOf(tile, false);
     if (tool === "axe" ? kind !== "chop" : kind !== "quarry" && kind !== "mine") return tool === "axe" ? "Nothing to chop there" : "No rock or ore there";
-    const why = gatherBlock(p, kind!);
+    const why = gatherBlock(p, kind!, tx, ty);
     if (why) return why;
     startGather(p, tx, ty, kind!);
     if (b.gather) b.gather.once = once;
@@ -1012,7 +1017,14 @@ function findGatherSource(p: Player): { tx: number; ty: number; kind: GatherKind
   return best;
 }
 
-function findOwnStation(p: Player): { tx: number; ty: number; tile: TileType } | null {
+function findOwnStation(p: Player, target?: { tx: number; ty: number }): { tx: number; ty: number; tile: TileType } | null {
+  if (target) {
+    if (!inBounds(target.tx, target.ty)) return null;
+    const tile = state.tiles[tileIndex(target.tx, target.ty)] as TileType;
+    return STATION_SKILL[tile] && clanIdAt(target.tx, target.ty) === p.clan ? { tx: target.tx, ty: target.ty, tile } : null;
+  }
+  let best: { tx: number; ty: number; tile: TileType } | null = null;
+  let bestD = Infinity;
   const mx = Math.floor(p.x / TILE_SIZE);
   const my = Math.floor(p.y / TILE_SIZE);
   for (let ty = my - 2; ty <= my + 2; ty++) {
@@ -1020,22 +1032,25 @@ function findOwnStation(p: Player): { tx: number; ty: number; tile: TileType } |
       if (!inBounds(tx, ty)) continue;
       const a = anchorOfTile(tx, ty);
       const tile = state.tiles[tileIndex(a.x, a.y)] as TileType;
-      if (STATION_SKILL[tile] && clanIdAt(a.x, a.y) === p.clan) return { tx: a.x, ty: a.y, tile };
+      if (STATION_SKILL[tile] && clanIdAt(a.x, a.y) === p.clan) {
+        const d = tileCenterDist(p, a.x, a.y);
+        if (d < bestD) { bestD = d; best = { tx: a.x, ty: a.y, tile }; }
+      }
     }
   }
-  return null;
+  return best;
 }
 
-function gatherBlock(p: Player, kind: GatherKind): string {
+function gatherBlock(p: Player, kind: GatherKind, tx?: number, ty?: number): string {
   const def = GATHER[kind];
   if (def.tool && !gatesOpen() && itemCount(def.tool) <= 0) return `${def.label} needs a ${def.tool === "stoneAxe" ? "stone axe" : "stone pick"} in your stores`;
-  if (packWeight(lifeOf(p)) + def.amount * PACK_WEIGHT[def.good] > PACK_CAP) return "Your pack is full: deposit it at a Town Center or chest, or sell it";
+  if (packWeight(lifeOf(p)) + (kind === "chop" && tx !== undefined && ty !== undefined ? treeAt(tx,ty).wood : def.amount) * PACK_WEIGHT[def.good] > PACK_CAP) return "Your pack is full: deposit it at a Town Center or chest, or sell it";
   return "";
 }
 
 function startGather(p: Player, tx: number, ty: number, kind: GatherKind) {
   const b = busyOf(p);
-  const why = gatherBlock(p, kind);
+  const why = gatherBlock(p, kind, tx, ty);
   if (why) return toast(p, why);
   const total = Math.round(GATHER[kind].seconds * TICK_RATE);
   b.gather = { tx, ty, kind, left: total, total };
@@ -1049,7 +1064,8 @@ export function handleGatherStop(p: Player) {
 }
 
 // ---- hero actions ----
-function nearOwnStore(p: Player, tiles: number): boolean {
+function nearOwnStore(p: Player, tiles: number, chestOnly = false): boolean {
+  if(p.interior) return chestOnly ? sharedStockAccess(p) : ownInterior(p);
   for (const tc of clanTownCenters()) if (tileCenterDist(p, tc.x, tc.y) <= tiles + 1) return true;
   const life = lifeOf(p);
   return life.builds.some((b) => b.kind === "chest" && state.tiles[tileIndex(b.x, b.y)] === PERSONAL_BUILDS.chest.tile && tileCenterDist(p, b.x, b.y) <= tiles);
@@ -1224,7 +1240,7 @@ function shelterMult(p: Player): number {
     if (b.kind === "leanTo" && d <= 2) m = Math.max(m, 3);
     if (b.kind === "campfire" && d <= 3) m = Math.max(m, 2);
   }
-  if (m < 3 && nearOwnStore(p, 2)) m = 3;
+  if (m < 3 && !p.interior && nearOwnStore(p, 2)) m = 3;
   // Modular building phase 2: resting in a bedroom (x its quality, shared/src/rooms.ts).
   m = Math.max(m, heroRestMultAt(p.x, p.y));
   // Stardew phase 5c: in your own house / hall interior (your bed).
@@ -1280,6 +1296,7 @@ function stepPlayer(p: Player, b: Busy, second: boolean) {
   if (b.talk && second && !talkInRange(p, b.talk)) closeTalk(p);
   if (b.gather) stepGather(p, b, b.gather);
   if (b.tool) stepTool(p, b, b.tool);
+  if (b.work && isMounted(p)) b.work = undefined;
   if (b.work) stepWork(p, b, b.work);
   if (second) stepNeeds(p, b);
 }
@@ -1295,7 +1312,9 @@ function stepGather(p: Player, b: Busy, g: GatherJob) {
   const life = lifeOf(p);
   g.left -= skillSpeed(skillLevel(life, def.skill)) * energySpeed(life);
   if (g.left > 0) return;
-  life.pack[def.good] = (life.pack[def.good] ?? 0) + def.amount;
+  const amount = g.kind === "chop" ? treeAt(g.tx,g.ty).wood : def.amount;
+  if (packWeight(life)+amount*PACK_WEIGHT[def.good]>PACK_CAP) { b.gather=undefined; return toast(p,"Your pack is full"); }
+  life.pack[def.good] = (life.pack[def.good] ?? 0) + amount;
   gainSkill(p, def.skill, def.seconds);
   spendEnergy(life, g.kind === "chop" ? ENERGY_COST.chop : g.kind === "mine" || g.kind === "quarry" ? ENERGY_COST.mine : 0);
   if (g.kind === "chop" && Math.random() < TREE_FELL_CHANCE) {
@@ -1312,7 +1331,7 @@ function stepGather(p: Player, b: Busy, g: GatherJob) {
     return;
   }
   // Held: the next one starts at once if the source and the pack allow it.
-  const why = gatherBlock(p, g.kind);
+  const why = gatherBlock(p, g.kind, g.tx, g.ty);
   if (why) {
     b.gather = undefined;
     toast(p, why);
@@ -1322,36 +1341,26 @@ function stepGather(p: Player, b: Busy, g: GatherJob) {
 }
 
 // The hero as a station's worker: the first ready recipe at the hero's skill level, inputs from the stores, output
-// grade = min(station level, skill level), speed by that tier; 1 XP a second while a batch runs.
+// grade = min(station level, skill level), speed by that tier; 1 XP per second of the batch, granted on completion once the inputs are paid.
 function stepWork(p: Player, b: Busy, w: WorkJob) {
-  if (state.tiles[tileIndex(w.tx, w.ty)] !== w.tile || tileCenterDist(p, w.tx, w.ty) > 3) {
-    b.work = undefined;
-    return;
-  }
-  const life = lifeOf(p);
-  const lv = skillLevel(life, w.skill);
-  const tier = Math.min(lv, Math.max(1, getBuildingLevel(w.tx, w.ty)));
-  if (!w.job) {
-    const r = stationRecipes(w.tile).find((rc) => (rc.workerLevel ?? 1) <= lv && recipeReady(rc));
-    if (!r) {
-      const why = stationIdleReason(w.tile);
-      if (w.idle !== why) toast(p, `Nothing to make: ${why}`);
-      w.idle = why;
-      return;
-    }
-    w.idle = undefined;
-    if (!state.creative) for (const [k, n] of Object.entries(r.stock ?? {})) state.stock[k as keyof typeof state.stock] -= n ?? 0;
-    for (const [id, n] of Object.entries(r.items ?? {}) as [ItemId, number][]) takeItem(id, n);
-    const total = Math.max(1, Math.round((r.seconds ?? 30) * TICK_RATE));
-    w.job = { recipe: r, left: total, total };
-  }
-  w.job.left -= skillSpeed(tier);
-  if (state.cycleTick % TICK_RATE === 0) gainSkill(p, w.skill, 1);
-  if (w.job.left <= 0) {
-    addItem(w.job.recipe.output, w.job.recipe.amount, tier);
-    toast(p, `You made ${w.job.recipe.amount} ${w.job.recipe.label.replace(/^\w+ (an? )?/, "")}`);
-    w.job = undefined;
-  }
+  const st = personalStation(p,w);
+  if(!st || st.tx!==w.tx || st.ty!==w.ty || st.tile!==w.tile || p.interior?.key!==w.insideKey) { b.work=undefined; return; }
+  if(!w.job) { b.work=undefined; return; }
+  const life=lifeOf(p), tier=Math.min(skillLevel(life,w.skill),Math.max(1,getBuildingLevel(w.tx,w.ty)));
+  w.job.left-=skillSpeed(tier)*energySpeed(life);
+  if(w.job.left>0)return;
+  const r=w.job.recipe,why=personalRecipeBlock(p,r,st);
+  b.work=undefined;
+  if(why)return toast(p,why);
+  // Pay and produce together: interrupted work never destroys inputs, simultaneous crafters cannot double-spend.
+  if(!state.creative)for(const[k,n]of Object.entries(r.stock??{}))state.stock[k as ResourceKey]-=n??0;
+  for(const[id,n]of Object.entries(r.items??{}))takeItem(id as ItemId,n??0);
+  if(r.item)addItem(r.item,r.amount,tier);
+  if(r.stockOutput)state.stock[r.stockOutput]+=r.amount;
+  if(r.gear)state.equipment[r.gear][r.tier!-1]+=r.amount;
+  gainSkill(p,w.skill,Math.max(1,Math.round(w.job.total/TICK_RATE)));
+  spendEnergy(life,2);
+  toast(p,`${r.label} complete. Added to your stockpile.`);
 }
 
 function stepNeeds(p: Player, b: Busy) {
@@ -1491,4 +1500,57 @@ export function fillHeroPack(p: Player) {
 export function heroLifeDebug(p: Player) {
   const b = busy.get(p.id);
   return { life: lifeOf(p), snap: lifeSnapshot(p), tool: b?.tool ? { act: b.tool.act, left: b.tool.left, total: b.tool.total } : null, gathering: b?.gather ? { kind: b.gather.kind, once: !!b.gather.once } : null, family: familySnapshot(p, heirOrderNames), needsOn: needsOn(), talking: b?.talk ? { role: b.talk.role, name: b.talk.name, choices: b.talk.choices.map((c) => c.label) } : null, speed: heroSpeedMult(p) };
+}
+
+// Player crafting uses the existing progression, artisan and forge definitions.
+interface PersonalRecipe {
+ id:string; label:string; amount:number; seconds:number; level?:number; tier?:number;
+ stock?:Partial<Record<ResourceKey,number>>; items?:Partial<Record<ItemId,number>>; needs?:Partial<Record<ItemId,number>>;
+ item?:ItemId; stockOutput?:ResourceKey; gear?:'armour'|'weapon';
+}
+function personalStation(p:Player,target?:{tx:number;ty:number}) {
+ if(p.interior)return interiorWorkstation(p);
+ const st=findOwnStation(p,target);
+ return st && ownerAt(tileIndex(st.tx,st.ty))===0 && clanIdAt(st.tx,st.ty)===(p.clan??0) && tileCenterDist(p,st.tx,st.ty)<=3 ? st:null;
+}
+export function playerStationRecipes(tile:TileType):PersonalRecipe[] {
+ const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stock:r.stock,items:r.items,needs:r.needs,item:r.output}));
+ const r=CRAFT_RECIPES[tile];
+ if(r)rows.push({id:'artisan:'+tile,label:({clothes:'Sew clothes',tools:'Forge tools',luxuryItems:'Craft luxury goods',alcohol:'Brew ale',gold:'Serve drinks'} as Record<string,string>)[r.output]??r.output,amount:r.outputAmount??1,seconds:30,stock:r.inputs,stockOutput:r.output});
+ if(tile===TileType.Blacksmith)for(const tier of [1,2,3])for(const gear of ['weapon','armour'] as const)rows.push({id:`forge:${gear}:${tier}`,label:`Forge tier ${tier} ${gear==='weapon'?'weapons':'armour'}`,level:gatesOpen()?undefined:smithLevelForGearTier(tier),amount:1,seconds:FORGE_TICKS[gear]/TICK_RATE,tier,stock:forgeCost(gear,tier),gear});
+ return rows;
+}
+function personalRecipeBlock(p:Player,r:PersonalRecipe,st:{tx:number;ty:number;tile:TileType}):string {
+ if(r.tier && getBuildingLevel(st.tx,st.ty)<r.tier)return `Upgrade the blacksmith to level ${r.tier}`;
+ if(skillLevel(lifeOf(p),STATION_SKILL[st.tile]!)<(r.level??1))return `Needs skill level ${r.level}`;
+ for(const[k,n]of Object.entries(r.stock??{}))if(!state.creative&&state.stock[k as ResourceKey]<(n??0))return `Not enough ${k} in stockpile`;
+ for(const id of new Set([...Object.keys(r.items??{}),...Object.keys(r.needs??{})]) as Set<ItemId>)if(itemCount(id)<Math.max(r.items?.[id]??0,r.needs?.[id]??0))return `Needs ${PROGRESSION.items[id].label}`;
+ return '';
+}
+export function handlePersonalCraft(p:Player,id?:string,target?:{tx:number;ty:number}) {
+ if(p.dead||isMounted(p))return;
+ const st=personalStation(p,target);
+ if(!st)return toast(p,'Walk up to your workstation: an anvil, oven or workbench inside, or the workshop outside.');
+ const recipes=playerStationRecipes(st.tile);
+ if(id){
+  const r=recipes.find(r=>r.id===id);if(!r)return toast(p,'This recipe needs a different workstation');
+  const why=personalRecipeBlock(p,r,st);if(why)return toast(p,why);
+  const b=busyOf(p);if(b.work?.job)return toast(p,'Finish this batch, or move to cancel it first');
+  const total=Math.max(1,Math.round(r.seconds*TICK_RATE));
+  b.work={...st,insideKey:p.interior?.key,skill:STATION_SKILL[st.tile]!,job:{recipe:r,left:total,total}};
+  b.gather=undefined;b.tool=undefined;b.resting=false;closeTalk(p);
+  return toast(p,`${r.label}: working (move to cancel). Inputs and output use your stockpile.`);
+ }
+ const I=p.interior;
+ const at:TalkInside=I?{key:I.key,x:I.x,y:I.y,anchor:{x:st.tx,y:st.ty}}:{world:true,key:`${st.tx},${st.ty}`,x:(st.tx+.5)*TILE_SIZE,y:(st.ty+.5)*TILE_SIZE,anchor:{x:st.tx,y:st.ty}};
+ const panel:ChoiceRt[]=I?[]:[{label:'Building panel',action:'openBuilding'}];
+ furnitureTalk(p,'Craft at workstation','Choose a batch to make yourself. Stay at the station while you work. Inputs are taken only when the batch completes; output goes to your stockpile.',([...recipes.map(r=>({label:`${r.label} ×${r.amount} — ${r.seconds}s; ${[...Object.entries(r.stock??{}),...Object.entries(r.items??{})].map(([k,n])=>`${n} ${k}`).join(' + ')}`,action:'craftRecipe' as const,arg:r.id,disabled:personalRecipeBlock(p,r,st)||undefined})),...panel] as ChoiceRt[]),at);
+}
+export function handleStockWithdraw(p:Player,good:unknown,amount:unknown){
+ if(p.dead||isMounted(p)||!nearOwnStore(p,3,true))return toast(p,'Stand beside your stockpile chest or Town Hall (dismount first)');
+ if(typeof good!=='string'||!PACK_GOODS.includes(good as PackGood)||good==='fish'||typeof amount!=='number'||!Number.isInteger(amount)||amount<1||amount>999)return;
+ const g=good as Exclude<PackGood,'fish'>,life=lifeOf(p);
+ const n=Math.max(0,Math.min(amount,Math.floor(state.stock[g]??0),Math.floor((PACK_CAP-packWeight(life)+1e-9)/PACK_WEIGHT[g])));
+ state.stock[g]=(state.stock[g]??0)-n;life.pack[g]=(life.pack[g]??0)+n;
+ toast(p,n?`Took ${n} ${PACK_LABEL[g].toLowerCase()} from stockpile`:'No room, or none in stockpile');
 }

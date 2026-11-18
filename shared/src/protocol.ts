@@ -1347,6 +1347,8 @@ export type ClientMessage =
   | { type: "chronicleSeen"; id: number }
   // Progression tree: craft one hand recipe (PROGRESSION.recipes, station "hand") from the stock.
   | { type: "craftItem"; recipe: string }
+  | { type: "heroCraft"; recipe?: string }
+  | { type: "stockWithdraw"; good: string; amount: number }
   // Progression tree phase 3: send a prospector to survey around the nearest Town Center.
   | { type: "prospect" }
   // Solo hero phase 1-3 (herolife): E next to an NPC talks, next to a tree / rock / ore / forage / water gathers
@@ -1527,7 +1529,7 @@ export type ServerMessage =
   | { type: "blueprintList"; templates: import("./buildingTemplates.js").BuildingTemplate[] }
   | { type: "saveResult"; ok: boolean; error?: string; slot: SaveSlot; action: "save" | "load" }
   // Solo hero: a conversation node (close: the conversation ended; openTrade: open that settlement's trade panel).
-  | { type: "dialogue"; dialogue?: DialogueSnapshot; close?: boolean; openTrade?: { tileX: number; tileY: number } }
+  | { type: "dialogue"; dialogue?: DialogueSnapshot; close?: boolean; openStockpile?: boolean; openTrade?: { tileX: number; tileY: number } }
   // Solo hero: E found nothing to talk to / gather / work (the client falls back to the building panel).
   | { type: "interactNone" }
   // Stardew phase 5c: the interior the hero is in (view; refreshed when its NPCs / chest / threat change), or null

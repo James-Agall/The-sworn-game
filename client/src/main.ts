@@ -1,3 +1,4 @@
+import { treeAt } from "@colony/shared/trees";
 import { updateVitals } from "./vitals";
 import {npcVariantFrame} from "./npcVariants";
 import {PLAYER_BASES} from "@colony/shared/playerBases";
@@ -1665,7 +1666,7 @@ async function main() {
       : minHeight
         ? Math.max(naturalScale, minHeight / texture.height)
         : naturalScale;
-    sprite.scale.set(scale);
+    sprite.scale.set(scale * (artTile === TileType.Tree ? treeAt(tx, ty).scale : 1));
     sprite.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize);
     // Row-major index: lower rows draw in front of the rows above them; x breaks ties. Flush
     // ground-like tiles (water) go under all other tile art.
@@ -4881,6 +4882,7 @@ async function main() {
     if (!force && sig === craftSig) return;
     craftSig = sig;
     craftListEl.replaceChildren();
+    const nearby=document.createElement("button");nearby.className="cmd-btn";nearby.textContent="Use nearby workstation (all recipes)";nearby.onclick=()=>{sendMessage({type:"heroCraft"});setCraftPanelOpen(false);};craftListEl.append(nearby);
     if (!p) {
       craftListEl.textContent = "Nothing to craft yet.";
       return;
@@ -4898,7 +4900,7 @@ async function main() {
       name.className = "craft-name";
       name.textContent = r.label;
       const art=itemArt(r.output);if(art){const image=iconImg(art,40,r.label);image.className="craft-art";row.append(image);}
-      const station=document.createElement("div");station.className="craft-station";station.textContent=hand?"Handcrafted":`${stationLabel} · automatic production`;main.append(station);
+      const station=document.createElement("div");station.className="craft-station";station.textContent=hand?"Handcrafted":`${stationLabel} · craft personally at the workstation`;main.append(station);
       const have = document.createElement("span");
       have.className = "craft-have";
       have.textContent = `(${itemTotal(p, r.output)} in store${r.amount > 1 ? `, makes ${r.amount}` : ""})`;
@@ -4927,10 +4929,11 @@ async function main() {
       }
       const b = document.createElement("button");
       b.className = "econ-btn";
-      b.textContent = hand ? "Craft" : "Automatic";
-      b.disabled = !ok || !hand;
+      b.textContent = hand ? "Craft" : "Craft here";
+      b.disabled = !ok;
       b.addEventListener("click", () => {
         if(hand) sendMessage({ type: "craftItem", recipe: r.id });
+        else sendMessage({type:"heroCraft",recipe:r.id});
         b.blur();
       });
       row.append(main, b);

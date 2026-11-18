@@ -172,7 +172,7 @@ L = await life();
 result(L.gathering?.kind === "chop" && L.gathering.once, `axe starts one chop`);
 await ff(70);
 L = await life();
-result((L.life.pack.wood ?? 0) === 2 && L.gathering === null && L.life.energy === 47, `one chop: ${L.life.pack.wood} wood, stopped, energy ${L.life.energy}`);
+result([1,3,6].includes(L.life.pack.wood ?? 0) && L.gathering === null && L.life.energy === 47, `one chop: ${L.life.pack.wood} wood, stopped, energy ${L.life.energy}`);
 ev = c.events.length;
 await life({ use: { tool: "pick", tx: H.x + 1, ty: H.y + 1 } });
 await ff(2);

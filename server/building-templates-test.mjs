@@ -276,7 +276,7 @@ async function inner() {
   const sp = findSpot(5, 5, [hs, ss]);
   const st = call({ op: "buildingStamp", id: "editor-house", x: sp.x * 32 + 16, y: sp.y * 32 + 16, transform: 0 });
   const stPlan = bt.planBuilding(draft, sp, 0);
-  result(st.ok && stPlan.pieces.every((p) => state.tiles[idx(p.x, p.y)] === p.tile) && sorted(roomsOf(stPlan)) === "bedroom", `E buildingStamp builds at once (${st.text})`);
+  result(!st.ok && /disabled/.test(st.text) && stPlan.pieces.every((p) => state.tiles[idx(p.x, p.y)] !== p.tile || p.tile === TileType.Empty), `E buildingStamp is refused while blueprints are disabled (${st.text})`);
   const st2 = call({ op: "buildingStamp", id: "editor-house", x: sp.x * 32 + 16, y: sp.y * 32 + 16 });
   result(!st2.ok, `E stamping on top is refused (${st2.text})`);
   const delB = call({ op: "buildingDelete", id: builtins[0].id });

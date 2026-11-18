@@ -19,7 +19,7 @@ export function setVital(el: HTMLElement, value: number, text?: string) {
   el.style.setProperty('--empty',`${100-amount}%`);
   el.setAttribute('aria-valuenow',String(Math.round(amount)));
   el.setAttribute('aria-valuetext',text??`${Math.round(amount)}%`);
-  el.title=`${el.getAttribute('aria-label')}: ${text??`${Math.round(amount)}%`}`;
+  el.title=`${el.getAttribute('aria-label')}: ${text??`${Math.round(amount)}%`}` + (el.dataset.vital==='rest'?' — tiredness; restored by sleeping':el.dataset.vital==='energy'?' — tool stamina; restored by food and resting':'');
   el.querySelector('.vital-value')!.textContent=text??`${Math.round(amount)}%`;
   el.classList.toggle('low',amount<25);
 }

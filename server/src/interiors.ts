@@ -21,7 +21,7 @@ import {
   validateAllInteriorTemplates, type InteriorFacing, type InteriorMap, type InteriorNpcAct, type InteriorNpcLive,
   type InteriorNpcPose, type InteriorNpcSnapshot, type InteriorTemplateId, type InteriorView,
 } from "@colony/shared/interiors";
-import { NPC_ROLE_LABEL, PACK_CAP, PACK_GOODS, PACK_LABEL, PACK_WEIGHT, TALK_RANGE_TILES, type NpcRole, type PackGood } from "@colony/shared/herolife";
+import { STATION_SKILL, NPC_ROLE_LABEL, PACK_CAP, PACK_GOODS, PACK_LABEL, PACK_WEIGHT, TALK_RANGE_TILES, type NpcRole, type PackGood } from "@colony/shared/herolife";
 import { PLAYER_HALF_SIZE, PLAYER_SPEED, TILE_SIZE, TileType } from "@colony/shared/protocol";
 import type { Mob, Player, SiteState } from "./types.js";
 import { GAME_DAY_TICKS, dt } from "./constants.js";
@@ -38,7 +38,7 @@ import { isMounted } from "./animals.js";
 import { isDuskNow } from "./structures.js";
 import {
   type ChoiceRt, type TalkInside, closeTalk, furnitureTalk, heroSpeedMult, lifeOf, nameFor, packWeight, restHeroFully,
-  setHeroResting, startTalk, stopHeroBusy, talkColorFor, toast,
+  handlePersonalCraft, setHeroResting, startTalk, stopHeroBusy, talkColorFor, toast,
 } from "./herolife.js";
 
 // ---- chests (saved) ----
@@ -734,6 +734,7 @@ export function interiorInteract(p: Player) {
     const d = dist(q.x, q.y);
     if (d > INTERIOR_USE_RANGE_TILES) continue;
     if (q.prop === "bed" || q.prop === "bedFine") offer(d, () => bedTalk(p, v.view.canSleep, v.view.threat, inside(q.x, q.y)));
+    else if (WORK_PROPS.has(q.prop) && interiorWorkstation(p)) offer(d + 1, () => handlePersonalCraft(p));
     else if (q.prop === "chest") offer(d, () => (v.view.chest ? chestTalk(p, "", inside(q.x, q.y)) : toast(p, "This chest is not yours")));
   }
   const de = dist(map.exit.x, map.exit.y);
@@ -787,6 +788,7 @@ function chestTalk(p: Player, head: string, at: TalkInside) {
   const cw = chestWeight(chest);
   const pw = packWeight(life);
   const choices: ChoiceRt[] = [
+    { label: "Open shared Stockpile (carried resources stay with you).", action: "openStockpile" },
     { label: "Store everything you carry.", action: "chestPut", arg: "all", disabled: pw <= 0 ? "Your pack is empty" : cw >= cap ? "The chest is full" : undefined },
     { label: "Take everything.", action: "chestTake", arg: "all", disabled: cw <= 0 ? "The chest is empty" : pw >= PACK_CAP ? "Your pack is full" : undefined },
   ];
@@ -928,6 +930,7 @@ export function handleInteriorUse(p:Player,x:number,y:number){
  const q=v.view.map.props.find(q=>q.x===x&&q.y===y);if(!q)return;
  const at={key:I.key,x:px(x),y:px(y),anchor:{x:I.tx,y:I.ty}};
  if(q.prop==='chest'){if(v.view.chest)chestTalk(p,'',at);else toast(p,'This chest is not yours');}
+ else if(WORK_PROPS.has(q.prop)&&interiorWorkstation(p))handlePersonalCraft(p);
  else if(q.prop==='bed'||q.prop==='bedFine')bedTalk(p,v.view.canSleep,v.view.threat,at);
 }
 export const homeDesignsForSave=()=>Array.from(homeDesigns.entries());
@@ -948,3 +951,20 @@ export function tryWorldChest(p:Player,tx:unknown,ty:unknown){
 }
 function worldChestTalk(p:Player,at:TalkInside){const c=chests.get(at.key)??{},life=lifeOf(p);const choices:ChoiceRt[]=[{label:'Store everything you carry',action:'worldChestPut',arg:'all',disabled:packWeight(life)<=0?'Your pack is empty':undefined},{label:'Take everything',action:'worldChestTake',arg:'all',disabled:chestWeight(c)<=0?'The chest is empty':undefined}];for(const g of PACK_GOODS){if((life.pack[g]??0)>0)choices.push({label:`Store ${PACK_LABEL[g]}`,action:'worldChestPut',arg:g});if((c[g]??0)>0)choices.push({label:`Take ${PACK_LABEL[g]}`,action:'worldChestTake',arg:g});}furnitureTalk(p,'Storage chest',`Chest (${chestWeight(c)} / ${INTERIOR_CHEST_CAP}): ${goodsText(c)}. Your pack: ${goodsText(life.pack)}.`,choices,at);}
 export function worldChestChoice(p:Player,at:TalkInside,action:string,arg:unknown){if(p.dead||p.interior||!ownWorldChest(p,at.anchor.x,at.anchor.y)||Math.hypot(at.x-p.x,at.y-p.y)>INTERIOR_USE_RANGE_TILES*TILE_SIZE)return closeTalk(p);const c=chests.get(at.key)??{},life=lifeOf(p);if(arg!=='all'&&!PACK_GOODS.includes(arg as PackGood))return;const good=arg as PackGood|'all';if(action==='worldChestPut')move(life.pack,c,good,INTERIOR_CHEST_CAP);else if(action==='worldChestTake')move(c,life.pack,good,PACK_CAP);chests.set(at.key,c);worldChestTalk(p,at);}
+
+const WORK_PROPS=new Set(['anvil','forge','oven','workbench','counter','barrel']);
+function ownInteriorNear(p:Player,props:Set<string>){
+ const I=p.interior;if(!I||p.dead||state.tiles[tileIndex(I.tx,I.ty)]!==I.tile)return false;
+ const acc=accessFor(p,I.tx,I.ty,I.tile as TileType);
+ if(!('kind' in acc)||acc.kind!=='own')return false;
+ return mapOf(I).map.props.some(q=>props.has(q.prop)&&Math.hypot(px(q.x)-I.x,px(q.y)-I.y)<=INTERIOR_USE_RANGE_TILES*TILE_SIZE);
+}
+export function ownInterior(p:Player):boolean{
+ const I=p.interior;if(!I||p.dead||state.tiles[tileIndex(I.tx,I.ty)]!==I.tile)return false;
+ const acc=accessFor(p,I.tx,I.ty,I.tile as TileType);return 'kind' in acc&&acc.kind==='own';
+}
+export function sharedStockAccess(p:Player):boolean{return ownInteriorNear(p,new Set(['chest']));}
+export function interiorWorkstation(p:Player){
+ const I=p.interior;
+ return I&&STATION_SKILL[I.tile as TileType]&&ownInteriorNear(p,WORK_PROPS)?{tx:I.tx,ty:I.ty,tile:I.tile as TileType}:null;
+}

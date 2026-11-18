@@ -126,6 +126,12 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
   const famPanel = host("hs-family");
   const carried=el('section',{id:'hero-resources'});
   document.getElementById('goods-scroll')!.prepend(carried);
+  const withdraw=el('section',{id:'stock-withdraw'});
+  const goodSelect=document.createElement('select');goodSelect.setAttribute('aria-label','Resource to withdraw');
+  for(const g of PACK_GOODS.filter(g=>g!=='fish')){const o=document.createElement('option');o.value=g;o.textContent=PACK_LABEL[g];goodSelect.append(o);}
+  withdraw.append(el('small',{},'Take from stockpile at a Town Hall or chest'),goodSelect);
+  for(const n of [1,10]){const b=el('button',{class:'cmd-btn'},`Take ${n}`);b.addEventListener('click',()=>deps.send({type:'stockWithdraw',good:goodSelect.value,amount:n}));withdraw.append(b);}
+  carried.after(withdraw);
   const personal=el('section',{id:'personal-builds'});
   document.getElementById('build-panel')!.append(personal);
   const familyDialog=el('section',{id:'family-panel',class:'menu-scroll',role:'dialog','aria-label':'Family',hidden:''});
@@ -199,7 +205,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
     if (!life) return;
     needsBox.appendChild(el("div", { class: "menu-section" }, "Needs"));
     const row=el('div',{class:'vital-row'});
-    row.append(vitalMeter('health','Health',100),vitalMeter('food','Food',life.food),vitalMeter('rest','Rest',life.rest),vitalMeter('energy','Energy',life.energy));
+    row.append(vitalMeter('health','Health',100),vitalMeter('food','Food',life.food),vitalMeter('rest','Rest',life.rest),vitalMeter('energy','Stamina',life.energy));
     needsBox.append(row);
     const st = [...(life.slow ?? []), ...(life.resting ? ["Resting"] : [])].join(", ");
     needsBox.appendChild(el("div", {}, life.needs ? st || "Fed and rested" : "Needs are off in this game"));
@@ -311,6 +317,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
       if (m.type === "dialogue") {
         if (m.close) closeDialogue();
         else if (m.dialogue) renderDialogue(m.dialogue);
+        if(m.openStockpile){ const panel=document.getElementById("economy-panel")!; panel.classList.remove("collapsed"); document.body.classList.add("stockpile-open","interior-stockpile"); const sync=()=>{ if(panel.classList.contains("collapsed")||!document.body.classList.contains("interior-mode")){ document.body.classList.remove("interior-stockpile"); obs.disconnect(); } }; const obs=new MutationObserver(sync); obs.observe(panel,{attributes:true,attributeFilter:["class"]}); obs.observe(document.body,{attributes:true,attributeFilter:["class"]}); }
         if (m.openTrade) deps.openBuildingInfo(m.openTrade.tileX, m.openTrade.tileY);
       } else if (m.type === "interactNone") {
         deps.fallbackInteract();

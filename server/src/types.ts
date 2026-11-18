@@ -147,6 +147,7 @@ export interface Colonist {
   state: string;
   path: TileCoord[];
 
+  timberLoad?: number;
   targetResourceX: number;
   targetResourceY: number;
   chopTicksRemaining: number;

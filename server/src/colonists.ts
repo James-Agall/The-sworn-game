@@ -1,3 +1,4 @@
+import { treeAt } from "@colony/shared/trees";
 // colonists.ts: Colonists: workers, builders, repair, farmers, housing/shelter, population, settlements, town centers, respawn windows, food, ward priest, the colonist tick.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { NEW_ANIMAL_HOUSE_TILES } from "@colony/shared/animals";
@@ -16,7 +17,7 @@ import {
   GARRISON_LOITER_PX, GATHER_RESOURCE_TILE, HAPPINESS_DESERTION_CHANCE, HAPPINESS_DESERTION_THRESHOLD,
   HAPPINESS_MUTINY_THRESHOLD, HAPPINESS_SCENERY_TREE_BASELINE, HERO_POPULATION_COST, IDLE_RETRY_TICKS,
   KEEP_GARRISON_PER_LEVEL, KEEP_POPULATION_PER_LEVEL, MOB_ATTACK_RANGE, MOB_DAMAGE, MOB_KIND_CONFIG,
-  MOB_MARK_DEFAULTS, MOB_SPEED, NEIGHBOURS_8, POPULATION_GATED_TILES, PRODUCTION_HAPPINESS_FLOOR,
+  LUMBERJACK_WOOD_PER_TRIP, MOB_MARK_DEFAULTS, MOB_SPEED, NEIGHBOURS_8, POPULATION_GATED_TILES, PRODUCTION_HAPPINESS_FLOOR,
   REPAIR_COST_FRACTION, REPAIR_MOB_CLEARANCE_TILES, REPAIR_SECONDS_FULL, REPAIR_SHORT_TOAST_TICKS, RESPAWN_FOOD_COST,
   SETTLEMENT_POP_CAP_BY_TIER, SIEGE_POPULATION_COST, STARVATION_DAMAGE, TAVERN_HAPPINESS_RADIUS_TILES,
   TOWN_CENTER_BASE_POPULATION, TOWN_CENTER_EXTRA_POPULATION, TOWN_CENTER_LEVEL_BONUS_PER_STEP,
@@ -1163,6 +1164,7 @@ export function updateGathererColonist(c: Colonist, dt: number) {
       c.chopTicksRemaining -= workSpeed(c);
       if (c.chopTicksRemaining <= 0) {
         const idx = tileIndex(c.targetResourceX, c.targetResourceY);
+        if (c.kind === "lumberjack") c.timberLoad = state.tiles[idx] === resourceTile ? treeAt(c.targetResourceX,c.targetResourceY).wood : 0;
         if (c.kind === "lumberjack" && state.tiles[idx] === resourceTile) {
           setTile(idx, TileType.Empty);
           broadcastTileUpdate(c.targetResourceX, c.targetResourceY, TileType.Empty);
@@ -1181,7 +1183,8 @@ export function updateGathererColonist(c: Colonist, dt: number) {
     case "toPost": {
       advanceAlongPath(c, dt, COLONIST_SPEED);
       if (c.path.length === 0) {
-        depositGatheredResource(c.kind);
+        if(c.kind === "lumberjack") { state.stock.wood += c.timberLoad ?? LUMBERJACK_WOOD_PER_TRIP; c.timberLoad=undefined; }
+        else depositGatheredResource(c.kind);
         c.state = "idle";
       }
       break;

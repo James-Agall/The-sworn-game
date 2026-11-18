@@ -61,6 +61,11 @@ export const STATION_SKILL: Partial<Record<TileType, HeroSkill>> = {
   [TileType.Bloomery]: "smelting",
   [TileType.Mill]: "milling",
   [TileType.Bakery]: "baking",
+  [TileType.Blacksmith]: "smithing",
+  [TileType.TailorShop]: "building",
+  [TileType.LuxuryWorkshop]: "building",
+  [TileType.Brewery]: "baking",
+  [TileType.Tavern]: "trading",
 };
 // Masters teach up to this level for coin (MASTER_FEE per level gained).
 export const MASTER_MAX_LEVEL = 2;
@@ -160,7 +165,7 @@ export type DialogueAction =
   // Family: the Elder's kin (courtship / the in-law levy), courting, proposing, the ceremony, parting.
   | "kin" | "court" | "courtGift" | "propose" | "marry" | "kinLevy" | "part"
   // Stardew phase 5c (interiors): open the building's panel, the bed (sleep to dawn / nap), the chest (store / take).
-  | "openBuilding" | "sleep" | "nap" | "chestPut" | "chestTake"
+  | "craftRecipe" | "openStockpile" | "openBuilding" | "sleep" | "nap" | "chestPut" | "chestTake"
   // Gap closure G6: a trader lists the clan's animals for sale.
   | "sellAnimals"
   // Gap closure G5: a tavern patron's rumour (camps / settlements / ore nearby) and a drink at the tavern.

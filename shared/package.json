@@ -23,6 +23,7 @@
     "./villagerTalk": "./src/villagerTalk.ts",
     "./snapshotDelta": "./src/snapshotDelta.ts",
     "./fortifications": "./src/fortifications.ts",
+    "./trees": "./src/trees.ts",
     "./playerBases": "./src/playerBases.ts"
   }
 }

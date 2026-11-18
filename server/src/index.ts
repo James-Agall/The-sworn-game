@@ -1,3 +1,4 @@
+import { handlePersonalCraft, handleStockWithdraw } from "./herolife.js";
 import { handleHeroAppearance, playerVisual } from "./heroes.js";
 // index.ts: boot and wiring. Imports every server module in evaluation order (types, constants and state
 // first; see ROADMAP "Server module split"), generates the world, starts the HTTP/WebSocket server (net.ts),
@@ -408,6 +409,10 @@ function handleMessage(player: Player, message: ClientMessage) {
     sendChunks(player, message.chunks);
   } else if (message.type === "chronicleSeen") {
     markChronicleSeen(player, message.id);
+  } else if(message.type === "heroCraft") {
+    handlePersonalCraft(player,message.recipe);
+  } else if(message.type === "stockWithdraw") {
+    handleStockWithdraw(player,message.good,message.amount);
   } else if (message.type === "craftItem") {
     handleCraftItem(player, message.recipe);
   } else if (message.type === "prospect") {
