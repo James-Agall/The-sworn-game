@@ -10,7 +10,7 @@
 import { TileType } from "@colony/shared/protocol";
 import {
   CROP_RESOURCE, CROP_SOWN_FRACTION, CROPS, CropStage, PILE_RESOURCES, RESOURCE_CATEGORY, STOCK_CATEGORIES, ZONE_EDIT_MAX_TILES,
-  STOCKPILE_CAPACITY_PER_TILE, STOCKPILE_STOREROOM_CAPACITY_MULT, stockWeight,
+  STOCKPILE_CAPACITY_PER_TILE, STOCKPILE_POT_BONUS_MAX, STOCKPILE_POT_BONUS_PER_POT, STOCKPILE_STOREROOM_CAPACITY_MULT, stockWeight,
   ZONE_EDIT_RANGE_TILES, ZONE_KIND_LABEL, ZONE_KINDS, rleDecode, rleEncode, type CropId, type StockCategory, type ZoneKind,
   type ZonesSnapshot,
 } from "@colony/shared/zones";
@@ -307,7 +307,9 @@ export function zoneCapacity(z: ZoneRec): number {
   if (z.kind !== "stockpile") return 0;
   let cap = 0;
   for (const i of z.tiles) cap += STOCKPILE_CAPACITY_PER_TILE * (roomAtIndex(i)?.stats.role === "storeroom" ? STOCKPILE_STOREROOM_CAPACITY_MULT : 1);
-  return cap;
+  // Clay pit and pottery: the clan's clay pots (any grade) hold more.
+  const pots = (clanById(z.clan).progress.items.clayPot ?? []).reduce((a, b) => a + b, 0);
+  return cap * (1 + Math.min(STOCKPILE_POT_BONUS_MAX, pots * STOCKPILE_POT_BONUS_PER_POT));
 }
 export function zoneUsed(z: ZoneRec): number {
   let w = 0;

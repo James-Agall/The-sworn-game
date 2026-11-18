@@ -51,7 +51,7 @@ import {
 import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroColonist } from "./heroes.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
-import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
+import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, tablewareHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
 import { bestHallOf, infirmaryBedNear, isDuskNow, isUsableBed, roomHappinessBonus, usableBedIndices, warmRoomAt } from "./structures.js";
@@ -119,7 +119,7 @@ export function countTilesOfType(tileType: TileType): number {
 
 export function computeColonyHappiness(): number {
   const h = colonyHappinessParts();
-  const happiness = h.foodVariety + h.scenery + h.tavern + h.food + h.rooms + h.drink - h.winterCold;
+  const happiness = h.foodVariety + h.scenery + h.tavern + h.food + h.tableware + h.rooms + h.drink - h.winterCold;
   return Math.max(0, Math.min(100, Math.round(happiness)));
 }
 
@@ -155,7 +155,7 @@ export function colonyHappinessParts() {
   // Modular building phase 2: bedrooms (residents' sleep) and the best kitchen (meals), shared/src/rooms.ts.
   return {
     foodVariety: foodVarietyScore * 0.4, scenery: sceneryScore * 0.3, tavern: tavernCoverageScore * 0.3,
-    food: foodHappinessBonus(), rooms: roomHappinessBonus(), winterCold: winterColdPenalty(),
+    food: foodHappinessBonus(), tableware: tablewareHappinessBonus(), rooms: roomHappinessBonus(), winterCold: winterColdPenalty(),
     // Gap closure G5: a drink bought at a tavern (herolife.ts).
     drink: tavernCheerHappiness(state.clan.id),
   };

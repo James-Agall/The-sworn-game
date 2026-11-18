@@ -10,8 +10,9 @@ import { ROOM_TOOL_STONE, ROOM_TOOL_WOOD } from "@colony/shared/structures";
 import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
 import {
   CROP_LABEL, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT,
-  STOCKPILE_CAPACITY_PER_TILE, STOCKPILE_STOREROOM_CAPACITY_MULT,
+  STOCKPILE_CAPACITY_PER_TILE, STOCKPILE_POT_BONUS_MAX, STOCKPILE_POT_BONUS_PER_POT, STOCKPILE_STOREROOM_CAPACITY_MULT,
 } from "@colony/shared/zones";
+import { CLAY_PIT_WATER_RADIUS_TILES, TABLEWARE_HAPPINESS, TABLEWARE_MIN } from "@colony/shared/progression";
 import {
   ROOM_BARRACKS_MIN_BEDS, ROOM_BEAUTY_POINTS, ROOM_WARMTH_AREA_TILES, ROOM_WARMTH_PER_HEARTH, ROOM_WARMTH_PER_LAMP, ROOM_WORKBENCH_MAX,
   ROOM_WORKBENCH_SPEED,
@@ -108,7 +109,7 @@ export const TOOLS: ToolDef[] = [
   // Modular building phase 3 (shared/src/zones.ts): zones. Right-drag paints a rectangle (Shift: erases).
   { tile: ZONE_TOOL_WHEAT as TileType, label: "Wheat field", key: "", cost: `Growing zone, free. Idle villagers / Barn farmers till, sow, tend and harvest each tile; 4 tiles grow what a Farm Plot did (${CROP_LABEL.wheat})`, category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_HEMP as TileType, label: "Hemp field", key: "", cost: `Growing zone, free: hemp for cloth (4 tiles = an old Hemp Field)`, category: "zones", drag: "rect" },
-  { tile: ZONE_TOOL_STOCKPILE as TileType, label: "Stockpile", key: "", cost: `Storage zone, free: haulers bring loose goods (harvests) to the nearest stockpile whose filters take them and that has room (${STOCKPILE_CAPACITY_PER_TILE} per tile, x${STOCKPILE_STOREROOM_CAPACITY_MULT} inside a storeroom; full: the next one, else the Town Center). Set filters in the zone list`, category: "zones", drag: "rect" },
+  { tile: ZONE_TOOL_STOCKPILE as TileType, label: "Stockpile", key: "", cost: `Storage zone, free: haulers bring loose goods (harvests) to the nearest stockpile whose filters take them and that has room (${STOCKPILE_CAPACITY_PER_TILE} per tile, x${STOCKPILE_STOREROOM_CAPACITY_MULT} inside a storeroom, +${Math.round(STOCKPILE_POT_BONUS_PER_POT * 100)}% per clay pot in store up to +${Math.round(STOCKPILE_POT_BONUS_MAX * 100)}%; full: the next one, else the Town Center). Set filters in the zone list`, category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_HOME as TileType, label: "Home area", key: "", cost: "Idle villagers stroll here instead of round the Town Center", category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_ANIMAL as TileType, label: "Animal area", key: "", cost: "Grazing for nearby coops, barns, sties, sheep pens and stables. Open, the animals wander out round it; closed in with Fences and a Fence Gate (Farming tab) it is a paddock: they stay inside and graze more", category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_ERASE as TileType, label: "Erase zone", key: "", cost: "Right-drag removes zone tiles (any of your zones; the selected one only, if one is selected)", category: "zones", drag: "rect" },
@@ -238,6 +239,21 @@ export const TOOLS: ToolDef[] = [
     label: "Bloomery",
     key: "x",
     cost: `${buildCostText(TileType.Bloomery)} (level 2+: Blast furnace). Smelts 3 Iron + 2 Charcoal → Iron bloom; casts the anvil, hammer & tongs a Blacksmith needs`,
+    category: "industry",
+  },
+  // Clay pit and pottery (no free key: button only).
+  {
+    tile: TileType.ClayPit,
+    label: "Clay Pit",
+    key: "",
+    cost: `${buildCostText(TileType.ClayPit)} (upgradeable). Needs a wooden shovel and water within ${CLAY_PIT_WATER_RADIUS_TILES} tiles (a pond, river or dug Moat). A digger digs 2 Clay a batch`,
+    category: "industry",
+  },
+  {
+    tile: TileType.Kiln,
+    label: "Kiln",
+    key: "",
+    cost: `${buildCostText(TileType.Kiln)} (upgradeable). Needs a Clay Pit. A potter fires Clay + 1 Wood → Bricks, Clay pots (stockpiles hold more), Roof tiles, Tableware (${TABLEWARE_MIN}+: +${TABLEWARE_HAPPINESS} happiness); a level-2 potter fires a Crucible with Charcoal`,
     category: "industry",
   },
   // Phase 4: food. No free key left for these two (key "": button only).

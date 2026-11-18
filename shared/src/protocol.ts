@@ -194,6 +194,10 @@ export enum TileType {
   // Animal paddocks (2026-11-18, shared/src/animals.ts PADDOCK_*): a 1-tile gate in a fence line (PropFence). A gate
   // tile (isGateTile: gate state `gates`, open for the colony's units, shut to mobs); not a wall, not a room boundary.
   FenceGate = 146,
+  // Clay pit and pottery (2026-11-18, shared/src/progression.ts): the Clay Pit (a digger digs clay; needs water near)
+  // and the Kiln (a potter fires clay into pots, bricks, roof tiles, tableware and crucibles). Artisan stations.
+  ClayPit = 147,
+  Kiln = 148,
 
 }
 
@@ -350,6 +354,8 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.Bloomery ||
     tile === TileType.Mill ||
     tile === TileType.Bakery ||
+    tile === TileType.ClayPit ||
+    tile === TileType.Kiln ||
     tile === TileType.ChickenCoop ||
     tile === TileType.LivestockBarn ||
     tile === TileType.PigSty ||

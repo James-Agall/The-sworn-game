@@ -75,7 +75,7 @@ export function furniturePieceAt(tileAt: (x: number, y: number) => number, x: nu
 // Keep (and a settlement's SiteKeep) may stand in a keep template's hall (its anchor), giving the room no role of its own.
 export const ROOM_STATION_TILES: readonly TileType[] = [
   TileType.Blacksmith, TileType.TailorShop, TileType.LuxuryWorkshop, TileType.Brewery, TileType.Bloomery,
-  TileType.CharcoalBurner, TileType.Mill, TileType.Bakery, TileType.Tavern, TileType.ChurchPost, TileType.Keep, TileType.SiteKeep,
+  TileType.CharcoalBurner, TileType.Mill, TileType.Bakery, TileType.Kiln, TileType.Tavern, TileType.ChurchPost, TileType.Keep, TileType.SiteKeep,
 ];
 export function isRoomStationTile(t: number): boolean {
   return (ROOM_STATION_TILES as readonly number[]).includes(t);

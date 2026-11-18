@@ -4,6 +4,34 @@ Start the game with `scripts/live.sh` (frozen copy that keeps running while code
 code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checklists live at the end of each
 "landed" section in `ROADMAP.md`; this is the short version, in the order I would try them.
 
+## Clay pit and pottery (2026-11-18)
+New game (normal, creative off).
+1. Build panel: Next steps / Progression list a **Clay & pottery** chain; the Clay Pit shows "Locked. Needs: Wooden
+   shovel", the Kiln "Needs: a Clay Pit", the Bloomery now also "8 Bricks". Craft by hand: **Make a wooden shovel**
+   (3 wood + 1 rock); **Build a clay oven** now costs 4 wood + 6 Bricks + 2 Clay (no rock).
+2. Industry tab: **Clay Pit** on dry ground far from water: "A Clay Pit needs water within 3 tiles: a pond, a river or
+   a dug Moat". Next to a pond it goes up (stand-in: the quarry sprite tinted clay-brown). Away from water, dig one
+   Moat tile (Combat tab, 4 wood) within 3 tiles and it is allowed there too.
+3. A villager takes the post: the info panel says "<name>: Digger L1 ...", Clay climbs in the Goods list (stops at 60).
+4. **Kiln** (stand-in: the blacksmith tinted orange): a potter fires Bricks first (to 20), then Clay pots (25), Roof
+   tiles (8), Tableware (12), each batch using clay + 1 wood. Set wood to 0 (or run out): the panel says "Idle: ...
+   Bricks: short of wood".
+5. Once the potter is level 2 (panel XP line), upgrade the Kiln: new ware comes out **Good**; with Charcoal in store
+   the potter fires a **Crucible** (2 kept).
+6. Bloomery: refused without 8 Bricks ("Bloomery needs: 8 Bricks"), built with them (bricks are kept, not used up;
+   it now costs 10 wood + 15 rock). Its info panel: "Level 2 needs: Crucible, a Blacksmith, Smelter level 2".
+   Bakery costs 10 wood + 8 rock now.
+7. Stockpile zone: the zone list's capacity rises 1% per clay pot in store (40 per tile -> 50 at 25+ pots).
+8. Happiness rises by about 3 once 4+ Tableware are in store (4-5 if some are Good / Fine).
+9. Wooden House -> upgrade twice: the last tier refuses "Level 3 Wooden House needs: 4 Roof tiles" until the Kiln has
+   fired them.
+10. Hero: walk up to your Kiln (outside) and press E: "Craft at workstation" lists the five firing recipes; Fire
+    tableware works at Pottery 1, the crucible says "Needs skill level 2". At the Clay Pit (stand on the side away from
+    the water, else E fishes): Dig clay. The Character sheet shows a **Pottery** skill.
+11. Save, load: pits, Kiln level, potter level and all the clay goods are back.
+12. Opening still playable: from the kit, Lumberjack -> Charcoal Burner, shovel -> Clay Pit (pond or moat) -> Kiln ->
+    bricks, hides -> bellows -> Bloomery -> anvil + tools -> Blacksmith.
+
 ## Animal paddocks (2026-11-18)
 1. Build a Chicken Coop, paint an Animal area (Zones tab) next to it. Zone list: "Open (animals can't be kept)"; hover
    it for the reason. Buy a few hens: they wander round the coop as before.

@@ -29,15 +29,15 @@ export const AUTO_EAT_BELOW = 50;
 // ---- skills (by use; same XP pace and levels as settlement workers: WORKER_XP_LEVELS) ----
 export type HeroSkill =
   | "woodcutting" | "mining" | "foraging" | "fishing" | "farming" | "hunting" | "building"
-  | "smithing" | "smelting" | "charcoal" | "milling" | "baking" | "trading" | "speech" | "spellcasting";
+  | "smithing" | "smelting" | "charcoal" | "milling" | "baking" | "trading" | "speech" | "spellcasting" | "pottery";
 export const HERO_SKILLS: HeroSkill[] = [
   "woodcutting", "mining", "foraging", "fishing", "farming", "hunting", "building",
-  "smithing", "smelting", "charcoal", "milling", "baking", "trading", "speech", "spellcasting",
+  "smithing", "smelting", "charcoal", "milling", "baking", "trading", "speech", "spellcasting", "pottery",
 ];
 export const HERO_SKILL_LABEL: Record<HeroSkill, string> = {
   woodcutting: "Woodcutting", mining: "Mining", foraging: "Foraging", fishing: "Fishing", farming: "Farming",
   hunting: "Hunting", building: "Building", smithing: "Smithing", smelting: "Smelting", charcoal: "Charcoal burning",
-  milling: "Milling", baking: "Baking", trading: "Trading", speech: "Speech", spellcasting: "Spellcasting",
+  milling: "Milling", baking: "Baking", trading: "Trading", speech: "Speech", spellcasting: "Spellcasting", pottery: "Pottery",
 };
 // Spellcasting (2026-11-06): XP per cast = the spell's table cooldown in seconds (costlier spells teach more).
 // Each level above 1: +8% spell effect (damage / heal / shield / burn, durations, radii) and -5% cooldown,
@@ -61,6 +61,9 @@ export const STATION_SKILL: Partial<Record<TileType, HeroSkill>> = {
   [TileType.Bloomery]: "smelting",
   [TileType.Mill]: "milling",
   [TileType.Bakery]: "baking",
+  // Clay pit and pottery: digging clay is mining work; the Kiln trains Pottery.
+  [TileType.ClayPit]: "mining",
+  [TileType.Kiln]: "pottery",
   [TileType.Blacksmith]: "smithing",
   [TileType.TailorShop]: "building",
   [TileType.LuxuryWorkshop]: "building",

@@ -97,6 +97,10 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.Bloomery]: "blacksmith",
   [TileType.Mill]: "barn",
   [TileType.Bakery]: "tavern",
+  // Clay pit and pottery stand-ins (tinted; SPRITES.md #110): the quarry post for the pit, the bloomery's blacksmith
+  // for the kiln.
+  [TileType.ClayPit]: "quarry",
+  [TileType.Kiln]: "blacksmith",
   // Pig Pasture (2026-11-06) stand-in: the fat (cow) pasture tinted pink until pigPasture art lands (SPRITES.md #86).
   [TileType.PigPasture]: "pastureFat",
   // Stardew phase 5d stand-ins (tinted) if the staged animal-building art (TILE_OPTIONAL_ART) is missing.
@@ -214,6 +218,8 @@ export const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.Bloomery]: 0xd08060,
   [TileType.Mill]: 0xe0d8b0,
   [TileType.Bakery]: 0xf0b880,
+  [TileType.ClayPit]: 0xc08860,
+  [TileType.Kiln]: 0xd89068,
   [TileType.PigPasture]: 0xffa8b8,
   [TileType.ChickenCoop]: 0xf0e0a0,
   [TileType.LivestockBarn]: 0xc89070,

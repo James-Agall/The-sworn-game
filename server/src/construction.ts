@@ -68,6 +68,7 @@ import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, rese
 import { trainInfo, villageLevyInfo } from "./people.js";
 import { buildingPostsInfo } from "./work.js";
 import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
+import { CLAY_PIT_WATER_RADIUS_TILES } from "@colony/shared/progression";
 import {
   STRUCTURE_ORDER_MAX_TILES, STRUCTURE_ORDER_RANGE_TILES, isDoorTile, isFloorTile, isFurnitureTile, isRoomStationTile, isStructureTile,
   isWindowTile, structurePlacementOk, FURNITURE_FOOTPRINT, furnitureFootprint, furniturePartCells, furniturePieceAt, isFurniturePartTile,
@@ -372,6 +373,17 @@ export function resolveBreweryPlacement(tx: number, ty: number) {
 }
 
 // Progression tree phase 3: the metal chain's artisan stations (Charcoal Burner, Bloomery).
+export function clayPitWaterNear(tx: number, ty: number): boolean {
+  const r = CLAY_PIT_WATER_RADIUS_TILES;
+  for (let y = ty - r; y <= ty + r; y++) {
+    for (let x = tx - r; x <= tx + r; x++) {
+      const t = tileAtOrNone(x, y);
+      if (t === TileType.Water || t === TileType.Moat) return true;
+    }
+  }
+  return false;
+}
+
 export function resolveStationPlacement(tx: number, ty: number, tile: TileType) {
   const upgraded = tryLevelUpInPlace(tx, ty, [tile]);
   if (upgraded) return;
@@ -549,6 +561,8 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.Bloomery:
     case TileType.Mill:
     case TileType.Bakery:
+    case TileType.ClayPit:
+    case TileType.Kiln:
     // Stardew phase 5d: animal houses, the same rule.
     case TileType.ChickenCoop:
     case TileType.LivestockBarn:
@@ -1084,6 +1098,12 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     return;
   }
 
+  // Clay pit and pottery: a new Clay Pit needs water (a pond / river or a dug Moat) within CLAY_PIT_WATER_RADIUS_TILES.
+  if (!upgradeInPlace && tile === TileType.ClayPit && !state.creative && !clayPitWaterNear(tx, ty)) {
+    sendEvent(player, "build", `A Clay Pit needs water within ${CLAY_PIT_WATER_RADIUS_TILES} tiles: a pond, a river or a dug Moat`);
+    return;
+  }
+
   // Progression tree: tools, buildings and (phase 2) worker levels gate new buildings and upgrades.
   const locked = progressionBlocker(tile, current, tx, ty, upgradeInPlace);
   if (locked) {
@@ -1337,7 +1357,7 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     resolveTavernPlacement(tx, ty);
     return;
   }
-  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery) {
+  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery || tile === TileType.ClayPit || tile === TileType.Kiln) {
     resolveStationPlacement(tx, ty, tile);
     return;
   }

@@ -14,7 +14,9 @@ export type ItemId =
   // Stardew phase 5d: animal feed and products (eggs / milk are food), and the tools of the bigger animal houses.
   | "hay" | "egg" | "milk" | "carpenterTools" | "herbs"
   // Gap closure G6: the hero's animal tools and fertiliser.
-  | "shears" | "milkPail" | "manure";
+  | "shears" | "milkPail" | "manure"
+  // Clay pit and pottery (PLAN-agri-industry-winter-mines.md phase 2).
+  | "woodenShovel" | "clay" | "clayPot" | "bricks" | "roofTiles" | "tableware" | "crucible";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "tools";
 
@@ -91,7 +93,7 @@ export function chainBuildingTiles(): TileType[] {
 
 export type Profession =
   | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "smelter" | "collier" | "miller" | "baker" | "jeweler"
-  | "brewer" | "innkeeper" | "hunter" | "forager" | "herder";
+  | "brewer" | "innkeeper" | "hunter" | "forager" | "herder" | "digger" | "potter";
 
 // Worker XP: one point per second at work. Level L needs WORKER_XP_LEVELS[L - 1] XP (level 1 at 0).
 export const WORKER_XP_LEVELS = [0, 100, 300, 700];
@@ -125,7 +127,7 @@ export const PROGRESSION = {
     smithTools: { label: "Hammer & tongs", desc: "Forged at the Bloomery. A Blacksmith needs them.", group: "tool" },
     woodenPlow: { label: "Wooden plow", desc: "Breaks the ground: a Barn (farm fields) can be built.", group: "tool" },
     millstone: { label: "Millstone", desc: "A dressed grinding stone: the Mill needs one.", group: "tool" },
-    clayOven: { label: "Clay oven", desc: "Stone and clay: the Bakery needs one.", group: "tool" },
+    clayOven: { label: "Clay oven", desc: "Bricks and clay: the Bakery needs one.", group: "tool" },
     flour: { label: "Flour", desc: "Ground from grain at the Mill.", group: "food" },
     gruel: { label: "Wheat gruel", desc: "Grain boiled over the fire: filling, dull (no happiness bonus).", group: "food" },
     flatbread: { label: "Flatbread", desc: "Quick bread from the Bakery: good food, a small happiness bonus.", group: "food" },
@@ -144,6 +146,13 @@ export const PROGRESSION = {
     shears: { label: "Shears", desc: "The hero shears a sheep whose wool is due (hotbar 7) for x1.25 wool; Sheep Pen chores go faster.", group: "tool" },
     milkPail: { label: "Milk pail", desc: "The hero milks a cow (hotbar 8) for x1.25 milk; Livestock Barn chores go faster.", group: "tool" },
     manure: { label: "Manure", desc: "Made daily by animals (collected at their houses). Fertiliser: a tilled / sown tile grows 25% faster (hotbar 9; villagers sowing use it too).", group: "material" },
+    woodenShovel: { label: "Wooden shovel", desc: "A fire-hardened blade with a stone edge: a Clay Pit can be dug.", group: "tool" },
+    clay: { label: "Clay", desc: "Dug at a Clay Pit (near water). The Kiln fires it; a clay oven needs some.", group: "material" },
+    clayPot: { label: "Clay pots", desc: "Storage jars from the Kiln. Kept in store: every stockpile holds 1% more per pot (up to +25%).", group: "tool" },
+    bricks: { label: "Bricks", desc: "Fired at the Kiln. The Bloomery needs 8 in store; a clay oven is built from them.", group: "material" },
+    roofTiles: { label: "Roof tiles", desc: "Fired at the Kiln. A house's top tier needs 4 in store (a tiled roof).", group: "material" },
+    tableware: { label: "Tableware", desc: "Plates and cups from the Kiln. 4+ in store: a small happiness bonus (more for Good / Fine).", group: "tool" },
+    crucible: { label: "Crucible", desc: "A level-2 potter fires it hot with charcoal. The Blast furnace (Bloomery level 2) needs one.", group: "tool" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -153,7 +162,9 @@ export const PROGRESSION = {
     { id: "bellows", label: "Sew bellows", output: "bellows", amount: 1, stock: { wood: 4 }, items: { hide: 2 }, station: "hand" },
     { id: "woodenPlow", label: "Carve a wooden plow", output: "woodenPlow", amount: 1, stock: { wood: 6, rock: 2 }, station: "hand" },
     { id: "millstone", label: "Dress a millstone", output: "millstone", amount: 1, stock: { rock: 12 }, station: "hand" },
-    { id: "clayOven", label: "Build a clay oven", output: "clayOven", amount: 1, stock: { rock: 8, wood: 4 }, station: "hand" },
+    // Clay pit and pottery: bricks (and a little clay) replace the oven's stone placeholder.
+    { id: "clayOven", label: "Build a clay oven", output: "clayOven", amount: 1, stock: { wood: 4 }, items: { bricks: 6, clay: 2 }, station: "hand" },
+    { id: "woodenShovel", label: "Make a wooden shovel", output: "woodenShovel", amount: 1, stock: { wood: 3, rock: 1 }, station: "hand" },
     { id: "hoe", label: "Make a hoe", output: "hoe", amount: 1, stock: { wood: 2, rock: 2 }, station: "hand" },
     { id: "wateringCan", label: "Make a watering can", output: "wateringCan", amount: 1, stock: { wood: 4 }, station: "hand" },
     { id: "scythe", label: "Knap a scythe", output: "scythe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -174,6 +185,14 @@ export const PROGRESSION = {
     { id: "bread", label: "Bake bread", output: "bread", amount: 2, items: { flour: 2 }, needs: { sourdoughStarter: 1 }, station: TileType.Bakery, seconds: 40, cap: 40 },
     { id: "flatbread", label: "Bake flatbread", output: "flatbread", amount: 2, items: { flour: 2 }, station: TileType.Bakery, seconds: 20, cap: 40 },
     { id: "ironBloom", label: "Smelt an iron bloom", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { charcoal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
+    // Clay pit and pottery. The Clay Pit's digger digs clay (no inputs); the Kiln's potter fires it with wood (the
+    // crucible hot, with charcoal, by a level-2 potter), the first ready recipe under its cap in this order.
+    { id: "clay", label: "Dig clay", output: "clay", amount: 2, station: TileType.ClayPit, seconds: 20, cap: 60 },
+    { id: "crucible", label: "Fire a crucible", output: "crucible", amount: 1, items: { clay: 3, charcoal: 2 }, station: TileType.Kiln, seconds: 40, cap: 2, workerLevel: 2 },
+    { id: "bricks", label: "Fire bricks", output: "bricks", amount: 4, stock: { wood: 1 }, items: { clay: 2 }, station: TileType.Kiln, seconds: 30, cap: 20 },
+    { id: "clayPot", label: "Fire clay pots", output: "clayPot", amount: 2, stock: { wood: 1 }, items: { clay: 3 }, station: TileType.Kiln, seconds: 30, cap: 25 },
+    { id: "roofTiles", label: "Fire roof tiles", output: "roofTiles", amount: 3, stock: { wood: 1 }, items: { clay: 2 }, station: TileType.Kiln, seconds: 30, cap: 8 },
+    { id: "tableware", label: "Fire tableware", output: "tableware", amount: 2, stock: { wood: 1 }, items: { clay: 2 }, station: TileType.Kiln, seconds: 25, cap: 12 },
   ] as Recipe[],
   // What each building needs. Buildings not listed are open from the start.
   buildings: {
@@ -190,9 +209,10 @@ export const PROGRESSION = {
     },
     [TileType.CharcoalBurner]: { requires: { items: { stoneAxe: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
     [TileType.Bloomery]: {
-      requires: { items: { bellows: 1, charcoal: 2 }, buildings: [{ tile: TileType.CharcoalBurner }] },
-      // Level 2 is the Blast furnace (better blooms): iron tools (a Blacksmith) first.
-      levels: { 2: { buildings: [{ tile: TileType.Blacksmith }] } },
+      // Clay pit and pottery: bricks from the Kiln line the shaft (the plan's "clay bricks").
+      requires: { items: { bellows: 1, charcoal: 2, bricks: 8 }, buildings: [{ tile: TileType.CharcoalBurner }] },
+      // Level 2 is the Blast furnace (better blooms): iron tools (a Blacksmith) and a crucible first.
+      levels: { 2: { items: { crucible: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
     },
     [TileType.Blacksmith]: { requires: { items: { anvil: 1, smithTools: 1 }, buildings: [{ tile: TileType.Bloomery }] } },
     [TileType.KnightPost]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
@@ -232,6 +252,12 @@ export const PROGRESSION = {
     [TileType.LivestockBarn]: { requires: { items: { carpenterTools: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
     [TileType.PigSty]: { requires: { items: { carpenterTools: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
     [TileType.SheepPen]: { requires: { items: { carpenterTools: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
+    // Clay pit and pottery: the pit needs a shovel (and water near: CLAY_PIT_WATER_RADIUS_TILES), the Kiln a Clay Pit.
+    [TileType.ClayPit]: { requires: { items: { woodenShovel: 1 } } },
+    [TileType.Kiln]: { requires: { buildings: [{ tile: TileType.ClayPit }] } },
+    // A house's top tier (Cottage level 3) needs a tiled roof (the level-2 row is the BigHouse's: upgrades read the
+    // row of the tile being upgraded).
+    [TileType.BigHouse]: { levels: { 3: { items: { roofTiles: 4 } } } },
   } as Partial<Record<TileType, BuildingReq>>,
   // The profession a station's workers train in (XP per profession per person).
   stations: {
@@ -260,12 +286,15 @@ export const PROGRESSION = {
     [TileType.LivestockBarn]: "herder",
     [TileType.PigSty]: "herder",
     [TileType.SheepPen]: "herder",
+    [TileType.ClayPit]: "digger",
+    [TileType.Kiln]: "potter",
   } as Partial<Record<TileType, Profession>>,
   // The Progression panel's chains (order only: every step's needs come from `buildings` / `recipes` above).
   chains: [
     { id: "stone", label: "Stone age", steps: [{ item: "stoneAxe" }, { item: "stoneKnife" }, { item: "stonePick" }, { building: TileType.LumberjackPost }, { building: TileType.House }, { building: TileType.HunterHut }, { item: "hide" }] },
     { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "timberProps" }] },
-    { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }] },
+    { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }] },
+    { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
     { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },
     { id: "cloth", label: "Cloth", steps: [{ building: TileType.WoolFarm }, { building: TileType.CottonFarm }, { building: TileType.TailorShop }] },
     { id: "military", label: "Military", steps: [{ building: TileType.MilitiaPost }, { building: TileType.ArcherPost }, { building: TileType.KnightPost }, { building: TileType.Stables }, { building: TileType.SiegeWorkshop }] },
@@ -280,7 +309,7 @@ export const PROGRESSION = {
 export const PROFESSION_LABEL: Record<Profession, string> = {
   woodcutter: "Woodcutter", miner: "Miner", farmer: "Farmer", farmhand: "Farmhand", tailor: "Tailor", smith: "Smith",
   smelter: "Smelter", collier: "Collier", miller: "Miller", baker: "Baker", jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
-  hunter: "Hunter", forager: "Forager", herder: "Animal Keeper",
+  hunter: "Hunter", forager: "Forager", herder: "Animal Keeper", digger: "Digger", potter: "Potter",
 };
 
 // Names for the buildings the table refers to (needs text).
@@ -303,6 +332,8 @@ export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
   [TileType.LivestockBarn]: "Livestock Barn",
   [TileType.PigSty]: "Pig Sty",
   [TileType.SheepPen]: "Sheep Pen",
+  [TileType.ClayPit]: "Clay Pit",
+  [TileType.Kiln]: "Kiln",
 };
 
 // Smith training (plan §2): a level-1 smith makes tools only; forging tier-1/2 gear needs level 2, tier 3 level 3.
@@ -366,3 +397,11 @@ export const FOOD_ITEMS: { id: ItemId; food: number; happiness: number }[] = [
   { id: "milk", food: 1, happiness: 2 },
   { id: "egg", food: 0.5, happiness: 2 },
 ];
+
+// ---- Clay pit and pottery (PLAN-agri-industry-winter-mines.md phase 2) ----
+// A Clay Pit needs water (a pond / river Water tile or a dug Moat) within this many tiles (Chebyshev).
+export const CLAY_PIT_WATER_RADIUS_TILES = 3;
+// Tableware in store: with at least TABLEWARE_MIN pieces, +TABLEWARE_HAPPINESS colony happiness, +1 per grade above
+// Poor of the best tableware in store.
+export const TABLEWARE_MIN = 4;
+export const TABLEWARE_HAPPINESS = 3;

@@ -49,6 +49,10 @@ export const PILE_RESOURCES = ["grain", "meat", "fruit", "wood", "rock", "iron",
 // oldest stockpile (lowest id) first; and the tallies of a good never add up to more than the stock of it.
 export const STOCKPILE_CAPACITY_PER_TILE = 40;
 export const STOCKPILE_STOREROOM_CAPACITY_MULT = 1.5;
+// Clay pit and pottery: clay pots kept in the clan's store (storage jars) raise every stockpile's capacity by
+// STOCKPILE_POT_BONUS_PER_POT each, up to STOCKPILE_POT_BONUS_MAX.
+export const STOCKPILE_POT_BONUS_PER_POT = 0.01;
+export const STOCKPILE_POT_BONUS_MAX = 0.25;
 export const STOCK_WEIGHT: Partial<Record<string, number>> = { gold: 0.1, luxuryItems: 0.5 };
 export function stockWeight(res: string): number {
   return STOCK_WEIGHT[res] ?? 1;

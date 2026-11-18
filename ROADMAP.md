@@ -4560,3 +4560,48 @@ panel: `server/src/animals.ts`; zone snapshot / save hooks: `server/src/zones.ts
   line, the trough otherwise as before); fence corner / T pieces (a fence with neighbours both ways draws as a straight
   rail); animals walk from the house door to a distant paddock (they appear at its nearest tile instead); a paddock
   shared by houses splits its grass by need, not by house. Trees can regrow on paddock ground (it shrinks by that tile).
+
+## Clay pit and pottery — landed 2026-11-18
+
+Plan: `~/docs/colony2d/PLAN-agri-industry-winter-mines.md` phase 2. Built on the progression tree's station recipe
+(`shared/src/progression.ts` `PROGRESSION`), like the Charcoal Burner / Bloomery / Mill / Bakery; numbers in shared.
+- **New items:** wooden shovel (hand: 3 wood + 1 rock), clay, clay pots, bricks, roof tiles, tableware, crucible.
+- **Clay Pit** (`TileType.ClayPit` = 147, 10 wood, upgradeable to 3 at build cost x level, artisan post, profession
+  **digger** (work type Mining), hero skill Mining): needs a **wooden shovel** in store and, for a new pit, a pond /
+  river `Water` tile or a dug `Moat` within `CLAY_PIT_WATER_RADIUS_TILES` (3, Chebyshev; creative ignores it), so a
+  colony with no pond near can dig one Moat tile (4 wood). Recipe: dig 2 clay per 20 s, no inputs, cap 60.
+- **Kiln** (`TileType.Kiln` = 148, 10 wood + 10 rock, needs a Clay Pit standing, profession **potter** (work type
+  Crafting), hero skill **Pottery** (new `HeroSkill`), a room "hot station" and workshop piece). Recipes, worked in this
+  order (first ready, under its cap): **crucible** (level-2 potter: 3 clay + 2 charcoal, 40 s, cap 2), **bricks**
+  (2 clay + 1 wood -> 4, 30 s, cap 20), **clay pots** (3 clay + 1 wood -> 2, cap 25), **roof tiles** (2 clay + 1 wood ->
+  3, cap 8), **tableware** (2 clay + 1 wood -> 2, 25 s, cap 12). Output grade = the Kiln's working tier (min(level,
+  potter level)), +1 for a good workshop room, as every station.
+- **Effects:** clay pots kept in store raise every stockpile zone's capacity by `STOCKPILE_POT_BONUS_PER_POT` (1%) per
+  pot, up to `STOCKPILE_POT_BONUS_MAX` (+25%) (`zones.ts zoneCapacity`, `shared/src/zones.ts`); tableware: with
+  `TABLEWARE_MIN` (4) in store, `TABLEWARE_HAPPINESS` (+3) colony happiness, +1 / +2 if the best piece is Good / Fine
+  (`progression.ts tablewareHappinessBonus`, a new `tableware` happiness term; off with `COLONY_UNLOCK_ALL` like the
+  food bonus); roof tiles: a house's top tier (BigHouse -> level 3) needs 4 in store; a crucible gates the Blast
+  furnace (Bloomery level 2), on top of the Blacksmith.
+- **Bricks in the gates (PLAN-progression-tree "clay bricks"):** the Bloomery needs 8 bricks in store (a gate, kept
+  like every tree item) and its rock cost drops 25 -> 15; the clay oven (Bakery's gate) is 4 wood + 6 bricks + 2 clay
+  instead of 8 rock + 4 wood; the Bakery costs 10 wood + 8 rock (was 15 rock). Progression chains: new "Clay &
+  pottery", bricks in Metal.
+- **Player workstation:** `STATION_SKILL` maps the Kiln to Pottery and the Clay Pit to Mining, so the existing
+  personal-craft table (`herolife.ts playerStationRecipes / handlePersonalCraft`) offers every Kiln recipe (crucible at
+  Pottery 2) and "Dig clay" at the pit; output to the clan's stores at the hero's tier.
+- **New game path:** kit -> Lumberjack -> Charcoal Burner; shovel by hand -> Clay Pit (pond, river or a Moat tile) ->
+  Kiln -> bricks; Hunter's Hut / animals -> hides -> bellows; -> Bloomery -> anvil + tools -> Blacksmith.
+- **Client:** Clay Pit and Kiln in the Industry tab (no hotkey), stand-ins: the quarry tinted clay-brown, the
+  blacksmith tinted orange (SPRITES.md #110 lists the art); info panel, Goods list, Next steps and chains come from the
+  progression snapshot as before. Stockpile tool text names the pot bonus.
+- **Saves:** nothing new to migrate: tiles, levels, clan items, worker XP and hero skills were already saved
+  generically. Adding Pottery to `HERO_SKILLS` reshuffles which three trades a settlement's masters teach.
+- **Tests:** `server/pottery-test.mjs` (`npm test -- pottery`, 80 map, instant build, gates on): locks, dry ground and
+  shovel refusals, Moat and pond pits, digger clay, Kiln firing order + wood fuel + idle reason, level-2 Good ware +
+  crucible, Bloomery bricks gate + cost, clay oven from bricks, Blast furnace needs a crucible, house tier 3 needs roof
+  tiles, pot capacity 40 / 44 / 50, tableware happiness 0 / 3 / 5, hero personal crafting at the Kiln and pit (skill
+  gate, XP, exact output), save / load. `progression-test.mjs` now hands the Bloomery its bricks, the Blast furnace a
+  crucible and the clay oven bricks + clay.
+- **Not done (phase 2):** millstone-grade bricks (the millstone stays a hand recipe of rock), a fuel choice per batch
+  (charcoal only for the crucible; wood for the rest), pots for water carrying or spoilage (there is no spoilage model
+  yet), tableware placed in houses / the tavern (it counts from the store), a clay deposit terrain tile (water stands in).

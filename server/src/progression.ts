@@ -5,7 +5,7 @@ import { TICK_RATE, TileType, type ProgressionSnapshot } from "@colony/shared/pr
 import {
   type ItemId, type Profession, type ProgressContext, type Recipe, MAX_QUALITY, PROFESSION_LABEL, PROGRESSION,
   PROGRESSION_BUILDING_LABEL, QUALITY_GRADES, TIER_SPEED_BONUS, WORKER_XP_LEVELS, levelForXp, recipeById, recipeCostText,
-  FOOD_ITEMS, chainBuildingTiles, stationRecipes, unmetRequirements, xpToNext,
+  FOOD_ITEMS, TABLEWARE_HAPPINESS, TABLEWARE_MIN, chainBuildingTiles, stationRecipes, unmetRequirements, xpToNext,
 } from "@colony/shared/progression";
 import type { Colonist, Player, ResourceKey } from "./types.js";
 import { type Clan, type ClanProgress, colonists, newClanProgress, state } from "./state.js";
@@ -280,6 +280,14 @@ export function foodHappinessBonus(): number {
   const best = bread[2] > 0 ? 3 : bread[1] > 0 ? 2 : 1;
   if (itemCount("bread") > 0) bonus += (best - 1) * 2;
   return bonus;
+}
+
+// Clay pit and pottery: tableware in store (TABLEWARE_MIN+ pieces) adds TABLEWARE_HAPPINESS, +1 per grade above Poor of
+// the best piece. 0 with COLONY_UNLOCK_ALL.
+export function tablewareHappinessBonus(): number {
+  if (state.testUnlockAll || itemCount("tableware") < TABLEWARE_MIN) return 0;
+  const t = state.progress.items.tableware ?? [];
+  return TABLEWARE_HAPPINESS + (t[2] > 0 ? 2 : t[1] > 0 ? 1 : 0);
 }
 
 // ---- deposits and prospecting (phase 3) ----

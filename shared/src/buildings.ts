@@ -86,10 +86,14 @@ export const BUILD_COSTS = {
   [TileType.Brewery]: CRAFT_BUILDING,
   // Progression tree phase 3: the metal chain's stations.
   [TileType.CharcoalBurner]: { wood: 15, rock: 5 },
-  [TileType.Bloomery]: { wood: 10, rock: 25 },
+  // Clay pit and pottery: 8 bricks in store (a gate) stand in for 10 of the Bloomery's rock.
+  [TileType.Bloomery]: { wood: 10, rock: 15 },
   // Phase 4: food.
   [TileType.Mill]: { wood: 20, rock: 10 },
-  [TileType.Bakery]: { wood: 10, rock: 15 },
+  [TileType.Bakery]: { wood: 10, rock: 8 },
+  // Clay pit and pottery.
+  [TileType.ClayPit]: { wood: 10 },
+  [TileType.Kiln]: { wood: 10, rock: 10 },
   // Stardew phase 5d: animal houses (an upgrade costs the build cost again x the new level).
   [TileType.ChickenCoop]: { wood: 15, rock: 5 },
   [TileType.LivestockBarn]: { wood: 30, rock: 10 },

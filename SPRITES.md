@@ -819,6 +819,16 @@ scale. Until each arrives the client keeps its current placeholder (tinted or dr
 > rails) plus a **fence gate** (open / closed); an optional cobbled **passage floor** with a portcullis-shadow
 > overlay for gatehouses.
 
+### 110. Clay pit and kiln (2026-11-18)
+> Match the existing quarry / blacksmith post art (32x32 tiles, the building drawn on its own tile). **Clay pit** (a
+> dug hollow of wet orange-grey clay with a plank ramp, a shovel stuck in a spoil heap and a few drying clay blocks;
+> levels 1-3 wider and deeper with a lean-to), **kiln** (a squat beehive kiln of brick and clay with a fire mouth,
+> stacked pots and a woodpile; level 2-3 a bigger brick updraught kiln with a chimney and smoke). Item icons for the
+> Build panel (32 px): wooden shovel, clay lump, clay pot (storage jar), bricks, roof tiles, tableware (plate + cup),
+> crucible. Files: `clayPit.png`, `kiln.png`, `kilnLevel2.png`, `item{WoodenShovel,Clay,ClayPot,Bricks,RoofTiles,
+> Tableware,Crucible}.png`. Stand-ins now: the quarry post tinted clay-brown (clay pit) and the blacksmith tinted
+> orange (kiln) (`client/src/worldVisuals.ts` TILE_SPRITE_FILES / TILE_STANDIN_TINT); items are text only.
+
 ### #90-#97 delivery status (2026-11-09: sliced ChatGPT atlases, `art-sources/rimworld-stardew/`)
 > Processed by `art-sources/rimworld-stardew/wire_sprites.py` into `client/public/sprites/<group>/`; registry and
 > loaders in `client/src/spriteRegistry.ts`. Every wired file is optional: a missing png falls back to the procedural

@@ -121,7 +121,8 @@ result(tileAt(CB.x, CB.y) === T.Charcoal && (items().charcoal?.[0] ?? 0) >= 6, `
 ev = c.events.length;
 await place(BL.x, BL.y, T.Bloomery, T.Bloomery);
 result(tileAt(BL.x, BL.y) === T.Empty && c.events.slice(ev).some((e) => /Bloomery needs: Bellows/.test(e)), `Bloomery locked without bellows`);
-await hook("progression", { items: { hide: 2 } });
+// Clay pit and pottery: the Bloomery also needs 8 bricks in store (the Kiln's; pottery-test.mjs fires them).
+await hook("progression", { items: { hide: 2, bricks: 8 } });
 send({ type: "craftItem", recipe: "bellows" });
 await until(() => (items().bellows?.[0] ?? 0) === 1, 3000);
 await place(BL.x, BL.y, T.Bloomery);
@@ -130,7 +131,7 @@ for (let i = 0; i < 20 && !((items().anvil?.[0] ?? 0) === 1 && (items().smithToo
 result((items().anvil?.[0] ?? 0) === 1 && (items().smithTools?.[0] ?? 0) === 1 && c.snap.iron < 500,
   `Bloomery: anvil ${items().anvil}, tools ${items().smithTools}, blooms ${items().ironBloom}, charcoal ${items().charcoal}, iron ${c.snap.iron}, smelter ${JSON.stringify(c.snap.colonists.filter((u) => u.postX === BL.x && u.postY === BL.y).map((u) => [u.kind, u.state, Math.round(u.x / 32), Math.round(u.y / 32)]))}`);
 const blInfo = await info(BL.x, BL.y);
-result((blInfo.progression ?? []).some((l) => /Smelter L1/.test(l)) && (blInfo.progression ?? []).some((l) => /Level 2 needs: a Blacksmith, Smelter level 2/.test(l)),
+result((blInfo.progression ?? []).some((l) => /Smelter L1/.test(l)) && (blInfo.progression ?? []).some((l) => /Level 2 needs: Crucible, a Blacksmith, Smelter level 2/.test(l)),
   `Bloomery info: ${JSON.stringify(blInfo.progression)}`);
 
 // 4. smith training: a level-1 smith makes tools, not gear
@@ -143,8 +144,9 @@ await hook("progression", { xpAt: { x: S.x, y: S.y, xp: 100 } });
 const f1 = (await info(S.x, S.y)).forge;
 result(f1 && f1.options.some((o) => o.enabled), `level-2 smith can forge T1: ${f1?.options.map((o) => o.reason || "ok").join(" / ")}`);
 
-// 4b. Blast furnace: with a Blacksmith and a level-2 smelter the Bloomery reaches level 2 and makes Good blooms
-await hook("progression", { xpAt: { x: BL.x, y: BL.y, xp: 100 }, items: { ironBloom: -100 } });
+// 4b. Blast furnace: with a Blacksmith, a crucible (Kiln) and a level-2 smelter the Bloomery reaches level 2 and makes
+// Good blooms
+await hook("progression", { xpAt: { x: BL.x, y: BL.y, xp: 100 }, items: { ironBloom: -100, crucible: 1 } });
 ev = c.events.length;
 send({ type: "upgradeBuilding", tileX: BL.x, tileY: BL.y });
 await sleep(400);
@@ -175,6 +177,8 @@ send({ type: "craftItem", recipe: "woodenPlow" });
 await until(() => (items().woodenPlow?.[0] ?? 0) === 1, 3000);
 await place(BA.x, BA.y, T.Barn);
 result(barnLocked && tileAt(BA.x, BA.y) === T.Barn, `Barn needs a wooden plow (craft by hand), then builds`);
+// Clay pit and pottery: the clay oven is 6 bricks + 2 clay (+ 4 wood) now.
+await hook("progression", { items: { bricks: 6, clay: 2 } });
 send({ type: "craftItem", recipe: "millstone" });
 send({ type: "craftItem", recipe: "clayOven" });
 await until(() => (items().millstone?.[0] ?? 0) === 1 && (items().clayOven?.[0] ?? 0) === 1, 3000);
