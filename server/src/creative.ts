@@ -672,14 +672,7 @@ export function handleCreativeSet(player: Player, msg: Record<string, unknown>, 
     if (err) return reply(false, `${op === "buildingSave" ? "Not saved" : "Not deleted"}: ${err}`);
     reply(true, `Building template ${id} ${op === "buildingSave" ? "saved" : "deleted"}`, { templates: buildingTemplates(), id });
   } else if (op === "buildingStamp") {
-    // {template (an unsaved draft) | id, x, y (px), transform? 0-7}: built at once, its footprint centred on the click.
-    const t = msg.template && typeof msg.template === "object" ? (msg.template as BuildingTemplate) : buildingTemplateById(String(msg.id ?? ""));
-    if (!t) return reply(false, "Unknown building template");
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return reply(false, "Bad stamp point");
-    const tf = Math.max(0, Math.min(7, Math.floor(Number(msg.transform) || 0)));
-    const r = stampBuildingLive(player, t, tileOfPixel(x, y), tf);
-    if (r) return reply(false, `Not stamped: ${r}`);
-    reply(true, `Stamped "${t.name}"`);
+    return reply(false, "Building blueprints are disabled for now; use building sprites.");
   } else if (op === "settlementList") {
     // Settlement editor: every settlement template, the building templates (its picker) and the user folder.
     reply(true, `${settlementTemplates().length} settlement templates`, { templates: settlementTemplates(), buildings: buildingTemplates(), userDir: userSettlementDir(), quiet: msg.quiet === true });

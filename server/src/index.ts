@@ -247,9 +247,9 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "placeStructure") {
     handlePlaceStructure(player, message.tile, message.tiles, message.rot);
   } else if (message.type === "blueprintList") {
-    sendTo(player, { type: "blueprintList", templates: buildingTemplates() });
+    sendTo(player, { type: "blueprintList", templates: [] });
   } else if (message.type === "placeBlueprint") {
-    handlePlaceBlueprint(player, message.id, message.x, message.y, message.transform);
+    sendTo(player, { type: "event", category: "build", text: "Building blueprints are disabled for now; use the building sprites." });
   } else if (message.type === "siteOrder") {
     handleSiteOrder(player, message.tileX, message.tileY, message.action);
   } else if (message.type === "zoneEdit") {

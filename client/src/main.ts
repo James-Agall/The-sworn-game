@@ -1520,7 +1520,8 @@ async function main() {
     const moatArt = moatArtFor(tx, ty, artTile, !!site);
     const structArt = structureArtFor(tx, ty, artTile, !!site);
     const autumnDamage = autumnBuildingDamage(artTile, level, damagedBuildings.get(index) ?? 1000, !!site, index);
-    const homeTexture=playerHomeDesigns.has(index)?optionalTextures[`/sprites/player-bases/${playerHomeDesigns.get(index)}.png`]:undefined;
+    const homeStyle=playerHomeDesigns.get(index)??([TileType.House,TileType.BigHouse,TileType.HouseLevel2].includes(artTile)?['cottage','farmhouse','townhouse','hill-burrow'][(tx*7+ty*11)%4]:undefined);
+    const homeTexture=homeStyle?optionalTextures[`/sprites/player-bases/${homeStyle}.png`]:undefined;
     const fortTexture=fortArtFor(tx,ty,artTile);
     const texture = tile === TileType.BuildingPart || isFortPart(tile)
       ? undefined
@@ -4745,10 +4746,10 @@ async function main() {
       btn.style.display = visible ? "" : "none";
     }
     // The building templates (Blueprints) are hidden for now outside creative mode: the buildings are single sprites.
-    if (!creativeWorld && activeCategory === "blueprints") activeCategory = TOOL_CATEGORIES[0].key;
-    categoryTabEls.get("blueprints")?.style.setProperty("display", creativeWorld ? "" : "none");
+    if (activeCategory === "blueprints") activeCategory = TOOL_CATEGORIES[0].key;
+    categoryTabEls.get("blueprints")?.style.setProperty("display", "none");
     zonesUi.setActive(activeCategory === "zones" || isZoneTool(currentTool));
-    blueprintsUi.setActive(creativeWorld && (activeCategory === "blueprints" || currentTool === BLUEPRINT_TOOL));
+    blueprintsUi.setActive(false);
   }
 
   function refreshToolbarSelection() {
@@ -4760,7 +4761,7 @@ async function main() {
   function selectTool(tile: TileType, fromUser = false) {
     currentTool = tile;
     zonesUi.setActive(activeCategory === "zones" || isZoneTool(tile));
-    blueprintsUi.setActive(creativeWorld && (activeCategory === "blueprints" || tile === BLUEPRINT_TOOL));
+    blueprintsUi.setActive(false);
     // Picking something to build puts the units down, so right-click places instead of giving orders.
     if (fromUser && tile !== TileType.Empty && selectedIds.size > 0) setSelection([]);
     if (tile !== TileType.TownCenter && !isRoadTile(tile)) placementGhost.visible = false;

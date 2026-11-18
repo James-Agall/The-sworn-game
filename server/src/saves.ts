@@ -1,3 +1,4 @@
+import {migrateNeutralSpriteHomes} from './settlementMigration.js';
 // saves.ts: Save files: snapshot/apply world, migrations, slots, autosave, restart.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { type LivestockSave, livestockForSave, restoreLivestock } from "./animals.js";
@@ -540,6 +541,7 @@ function applyWorldInner(s: WorldState) {
   for (let i = 0; i + 1 < owners.length; i += 2) if (owners[i] < state.tiles.length && owners[i + 1] > 0) tileOwner.set(owners[i], owners[i + 1]);
   // Forts phase B: stamped forts (saves without them have none). After the owners (site numbers).
   restoreSites(s.sites);
+  migrateNeutralSpriteHomes();
   // Forts phase G: after the mobs (warband bodies are dropped; warbands come back abstract).
   restoreWarbands(s.warbands);
   // World streaming phase 3: after the mobs / wildlife (saves without it: no COLD records).

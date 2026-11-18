@@ -16,3 +16,13 @@ Source atlases were generated with the built-in image generation tool using exis
 
 ## Verification
 Client and server TypeScript checks; production build; interiors, building-templates, settlement-templates, camp-templates and new home-design server tests. Browser checks cover all ten styles, materials, facing, furniture placement, blocked exits, interior/world chest storage, save/load and all 90 PNGs decoding. Tests use isolated ports and saves.
+
+
+## Revision: furnished homes and sprite settlements
+All ten default homes now group furniture by purpose, with sleeping areas, dining, themed storage, workshop / armoury pieces and floor accents. Existing user-placed furniture is retained; choosing the same base again applies its new furnishing preset. Plain house interiors now use a furnished preset matching the exterior house style.
+
+Blueprint placement and the creative building editor entry are disabled. Building template source data remains for save compatibility. All 25 settlement layouts use prefab sprite anchors with connected branching roads, varied setbacks, trees, small crop patches and shared activity areas. Riverside, hillside and moat identities remain. The legacy forced-variant test hook still selects old room layouts for collision regression coverage.
+
+On loading a save, neutral settlement buildings are converted only when the old template tiles match exactly. Captured, damaged or edited sites are preserved. Conversion keeps the site identity, keep, stock, quests and NPC home assignments and is idempotent. Previously generated sites retain their old roads; new settlement geography applies to new worlds.
+
+Verification: all 25 layouts and allowed transforms validate; prefab entrances, villagers, trade and quests pass the settlement suite. Migration tested in all 8 orientations plus idempotence and preservation of edited/captured sites. Default furnished houses and all ten custom bases pass home storage/save tests. Production browser previews cover all ten bases and three settlement tiers.

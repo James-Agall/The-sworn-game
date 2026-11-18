@@ -315,7 +315,7 @@ export function setupCreative(deps: CreativeDeps) {
       button("Spawn (camps at click)", () => at((x, y) => deps.send({ type: "creativeSet", op: "warband", faction: wbFaction.value, x, y }))),
       button("Grow camp", () => at((x, y) => deps.send({ type: "creativeSet", op: "growCamp", x, y }))),
     ));
-    p.append(row("Camps", button("Camp editor", () => campEditor.open()), button("Building editor", () => buildingEditor.open()), button("Settlement editor", () => settlementEditor.open())));
+    p.append(row("Camps", button("Camp editor", () => campEditor.open()), button("Settlement editor", () => settlementEditor.open())));
     p.append(row("Trade", button("Trading Post + wagon", () => at((x, y) => deps.send({ type: "creativeSet", op: "tradingPost", x, y, level: 1 })))));
     const rel = el("input", "", { type: "number", min: "-100", max: "100", value: "100" });
     p.append(el("div", "", { class: "cr-sec" }), row("Relation", rel,

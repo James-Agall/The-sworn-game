@@ -59,7 +59,7 @@ function mapFor(id: InteriorTemplateId, level: number, variant = 0, storey = 0) 
   return m;
 }
 function designedMap(key:string, id:InteriorTemplateId,level:number,variant:number,storey=0){
- const design=homeDesigns.get(key);if(!design||storey>0||!['house','hall'].includes(id))return mapFor(id,level,variant,storey);
+ const design=homeDesigns.get(key);if(!design&&id==='house'&&storey===0&&forcedVariant===null){const [x,y]=key.split(',').map(Number);const base=['cottage','farmhouse','townhouse','hill-burrow'][(x*7+y*11)%4];const cacheKey='home-default:'+base+':'+level;let hit=maps.get(cacheKey);if(!hit){const map=playerBaseMap({base},level);const solid=interiorSolidGrid(map);const free=[];for(let yy=2;yy<map.h-2;yy++)for(let xx=2;xx<map.w-2;xx++)if(!solid[yy*map.w+xx])free.push({x:xx,y:yy,slot:'v' as const});map.slots=free.slice(0,3);hit={map,solid};maps.set(cacheKey,hit);}return hit;}if(!design||storey>0||!['house','hall'].includes(id))return mapFor(id,level,variant,storey);
  let hit=homeCache.get(design);if(!hit||hit.map.level!==level){const map=playerBaseMap(design,level);hit={map,solid:interiorSolidGrid(map)};homeCache.set(design,hit);}return hit;
 }
 const mapOf=(I:NonNullable<Player['interior']>)=>designedMap(I.key,I.templateId as InteriorTemplateId,I.level,I.variant,I.storey);
@@ -905,7 +905,7 @@ export function interiorDebug(p: Player) {
 export function handleInteriorEdit(p:Player,m:{op:string;base?:string;floor?:string;wall?:string;prop?:string;x?:number;y?:number;facing?:string}){
  const I=p.interior,v=viewFor(p);if(!I||p.dead||!v?.view.editable)return;
  if(v.view.threat){toast(p,'Wait until the danger outside has passed before decorating');return;}
- let d:HomeDesign={...(homeDesigns.get(I.key)??{base:'cottage'})};
+ let d:HomeDesign={...(homeDesigns.get(I.key)??{base:['cottage','farmhouse','townhouse','hill-burrow'][(I.tx*7+I.ty*11)%4]})};
  if(m.op==='base'){if(!PLAYER_BASES.some(b=>b.id===m.base))return;d={base:m.base!};}
  else if(m.op==='floor'){if(!['wood','stone','dirt'].includes(m.floor??''))return;d.floor=m.floor as HomeDesign['floor'];}
  else if(m.op==='wall'){if(!['wood','stone'].includes(m.wall??''))return;d.wall=m.wall as HomeDesign['wall'];}

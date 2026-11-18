@@ -35,7 +35,7 @@ const store = makeTemplateStore<SettlementTemplate>({
   normalise: (o) => ({
     id: o.id, name: o.name, tier: o.tier, weight: o.weight, minStartDist: o.minStartDist, profile: o.profile,
     garrison: { ...o.garrison }, rows: o.rows.slice(), buildings: o.buildings.map((b) => ({ ref: b.ref, x: b.x, y: b.y, ...(b.transform ? { transform: b.transform } : {}) })),
-    rotate: o.rotate !== false, mirror: o.mirror !== false,
+    rotate: o.rotate !== false, mirror: o.mirror !== false, spriteBuildings:o.spriteBuildings===true,
   }),
 });
 

@@ -244,7 +244,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     const tile = PROP_TILE[prop];
     const art = tile !== undefined ? deps.structure.furniture(tile) : undefined;
     const oriented=['bed','chair','chest','table','hearth','shelf','wardrobe'].includes(prop)?extraTexture(`/sprites/interiors-v2/${prop==='chest'&&openChest?.x===x&&openChest?.y===y&&performance.now()<openChest.until?'chest_open':prop}_${facing}.png`):undefined;
-    const tex = oriented ?? art?.texture ?? (PROP_EXTRA[prop] ? extraTexture(PROP_EXTRA[prop]!) : undefined);
+    const tex = (prop==='rug'?extraTexture('/sprites/autumn/frames/square-terrain/cobble-rugs-07.png'):undefined) ?? oriented ?? art?.texture ?? (PROP_EXTRA[prop] ? extraTexture(PROP_EXTRA[prop]!) : undefined);
     if (!tex) {
       // Stand-in block (3/4: a lit top over a darker front).
       const g = new Graphics();

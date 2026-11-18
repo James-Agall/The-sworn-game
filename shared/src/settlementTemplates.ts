@@ -43,6 +43,7 @@ export interface SettlementTemplate {
   rotate?: boolean;
   mirror?: boolean;
   builtin?: boolean;
+  spriteBuildings?: boolean;
 }
 
 export type SettlementSlot = "trader" | "priest" | "villager" | "guard" | "quest";
@@ -55,6 +56,7 @@ export interface SettlementSymbol {
 
 // "." open ground (cleared, left unowned). Every other cell is stamped and owned by the settlement.
 export const SETTLEMENT_LEGEND: Record<string, SettlementSymbol> = {
+  a: {label:"Garden tree",tile:TileType.Tree,color:"#668146"},
   ".": { label: "Open ground", color: "#c9d6a0" },
   _: { label: "Dirt road", tile: TileType.Road, color: "#b89a68" },
   "=": { label: "Cobble road / plaza", tile: TileType.CobbleRoad, color: "#a8a8a0" },
@@ -89,6 +91,13 @@ export const SETTLEMENT_SIZE_MIN = 9;
 export const SETTLEMENT_SIZE_MAX = 31;
 export const SETTLEMENT_GARRISON_MAX = 24;
 
+
+// Prefab buildings use one logical anchor with a clear three-tile presentation / entrance area.
+export function spriteBuildingCells(bt:BuildingTemplate){
+ const types:Partial<Record<BuildingTemplate['buildingType'],TileType>>={house:TileType.House,longhouse:TileType.BigHouse,tavern:TileType.Tavern,church:TileType.ChurchPost,abbey:TileType.AbbeyHall,blacksmith:TileType.Blacksmith,bakery:TileType.Bakery,market:TileType.Market,barracks:TileType.KnightPost,hall:TileType.BigHouse,granary:TileType.BarnPost,barn:TileType.BarnPost,stables:TileType.Stables,chickenCoop:TileType.ChickenCoop,livestockBarn:TileType.LivestockBarn,pigSty:TileType.PigSty,sheepPen:TileType.SheepPen,mill:TileType.Mill,brewery:TileType.Brewery,tailor:TileType.TailorShop,watchtower:TileType.Tower,gatehouse:TileType.Tower,keep:TileType.Keep};
+ return {w:3,h:3,cells:[{x:1,y:1,tile:types[bt.buildingType]??TileType.House,ch:'B'}]};
+}
+
 export type BuildingLookup = (id: string) => BuildingTemplate | undefined;
 
 export interface SettlementLayout {
@@ -110,7 +119,7 @@ export interface SettlementLayout {
 
 // The composed tile grid: the ground symbols, then every building ref's pieces (refs must sit on open ground, inside
 // the grid, not on top of each other).
-export function settlementLayout(t: Pick<SettlementTemplate, "rows" | "buildings">, lookup: BuildingLookup): SettlementLayout {
+export function settlementLayout(t: Pick<SettlementTemplate, "rows" | "buildings" | "spriteBuildings">, lookup: BuildingLookup): SettlementLayout {
   const h = t.rows.length;
   const w = t.rows[0]?.length ?? 0;
   const tiles = new Int16Array(w * h).fill(-1);
@@ -140,7 +149,7 @@ export function settlementLayout(t: Pick<SettlementTemplate, "rows" | "buildings
     }
     const tf = Math.max(0, Math.min(7, Math.floor(b.transform ?? 0)));
     if ((!bt.rotate && (tf & 3) !== 0) || (!bt.mirror && (tf & 4) !== 0)) errs.push(`building ${k + 1} (${b.ref}): transform ${tf} not allowed`);
-    const { w: bw, h: bh, cells } = buildingCells(bt, tf);
+    const { w: bw, h: bh, cells } = t.spriteBuildings ? spriteBuildingCells(bt) : buildingCells(bt, tf);
     if (!Number.isInteger(b.x) || !Number.isInteger(b.y) || b.x < 0 || b.y < 0 || b.x + bw > w || b.y + bh > h) {
       errs.push(`building ${k + 1} (${b.ref}) off the grid`);
       return;
@@ -151,6 +160,7 @@ export function settlementLayout(t: Pick<SettlementTemplate, "rows" | "buildings
       else if (t.rows[y][x] !== ".") errs.push(`building ${k + 1} (${b.ref}) covers "${t.rows[y][x]}" at ${x},${y}`);
       buildingOf[i] = k;
     }
+    if(t.spriteBuildings && ['house','longhouse','hall'].includes(bt.buildingType))npcSlots.push({x:b.x+1,y:b.y+2});
     for (const c of cells) {
       // Gap closure G8: a keep template's Keep anchor is the settlement's keep.
       if (c.tile === TileType.Keep) {
@@ -197,14 +207,14 @@ export function composeTransforms(outer: number, inner: number): number {
 // The template turned / mirrored as a whole: the ground rows, every building ref (its footprint's new top-left, its
 // transform composed with the settlement's), so the keep anchor, the NPC / guard / quest slots and the buildings'
 // beds / doors all follow.
-export function transformSettlement<T extends Pick<SettlementTemplate, "rows" | "buildings">>(t: T, tf: number, lookup: BuildingLookup): T {
+export function transformSettlement<T extends Pick<SettlementTemplate, "rows" | "buildings" | "spriteBuildings">>(t: T, tf: number, lookup: BuildingLookup): T {
   tf &= 7;
   if (tf === 0) return t;
   const h = t.rows.length;
   const w = t.rows[0]?.length ?? 0;
   const buildings = t.buildings.map((b) => {
     const bt = lookup(b.ref);
-    const { w: bw, h: bh } = bt ? buildingCells(bt, b.transform ?? 0) : { w: 1, h: 1 };
+    const { w: bw, h: bh } = bt ? (t.spriteBuildings ? spriteBuildingCells(bt) : buildingCells(bt, b.transform ?? 0)) : { w: 1, h: 1 };
     const a = transformPoint(b.x, b.y, w, h, tf);
     const c = transformPoint(b.x + bw - 1, b.y + bh - 1, w, h, tf);
     const transform = composeTransforms(tf, b.transform ?? 0);
@@ -215,7 +225,7 @@ export function transformSettlement<T extends Pick<SettlementTemplate, "rows" | 
 
 // The transforms world-gen may use for `t` (0 always): its rotate / mirror flags, and every building's composed
 // transform allowed by that building template's own flags.
-export function settlementTransforms(t: Pick<SettlementTemplate, "rows" | "buildings" | "rotate" | "mirror">, lookup: BuildingLookup): number[] {
+export function settlementTransforms(t: Pick<SettlementTemplate, "rows" | "buildings" | "spriteBuildings" | "rotate" | "mirror">, lookup: BuildingLookup): number[] {
   const out: number[] = [];
   for (let tf = 0; tf < 8; tf++) {
     if ((tf & 3) && t.rotate === false) continue;
@@ -298,7 +308,7 @@ export function validateSettlementTemplate(t: unknown, lookup: BuildingLookup): 
   const st = settlementStats(tt, lookup);
   if (st.slots.trader < 1) errs.push("at least one trader slot t");
   if (st.slots.guard < 1) errs.push("at least one guard slot g");
-  if (st.beds < 1) errs.push("at least one bed (villagers' homes) in its buildings");
+  if (st.beds < 1 && !tt.spriteBuildings) errs.push("at least one bed (villagers' homes) in its buildings");
   // Roads: one connected network (gates join it) touching the keep and every gate.
   const at = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= h ? -1 : l.tiles[y * w + x]);
   const roadSeen = new Uint8Array(w * h);
@@ -357,6 +367,7 @@ export function validateSettlementTemplate(t: unknown, lookup: BuildingLookup): 
   for (const b of l.beds) if (!seen[b.y * w + b.x]) errs.push(`a bed at ${b.x},${b.y} can't be reached`);
   tt.buildings.forEach((b, k) => {
     const bt = lookup(b.ref)!;
+    if(tt.spriteBuildings){if(!reachedSide(b.x+1,b.y+1))errs.push(`building ${k+1}: entrance unreachable`);return;}
     const { cells } = buildingCells(bt, b.transform ?? 0);
     const doors = cells.filter((c) => c.tile === TileType.WoodDoor || c.tile === TileType.StoneDoor);
     if (!doors.some((d) => seen[(b.y + d.y) * w + b.x + d.x])) errs.push(`building ${k + 1} (${b.ref}): its door can't be reached`);

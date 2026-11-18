@@ -201,6 +201,13 @@ async function inner() {
     const outside = { x: x0 - 2, y: y0 - 2 };
     const reach = (x, y) => !!findPath(outside, { x, y });
     for (const b of t.buildings) {
+      if(t.spriteBuildings){
+        const tile=ST.spriteBuildingCells(lookup(b.ref)).cells[0].tile;
+        const actual=state.tiles[idx(x0+b.x+1,y0+b.y+1)];
+        if(actual!==(tile===TileType.Keep?TileType.SiteKeep:tile))prob(`${b.ref} prefab missing`);
+        if(!reach(x0+b.x+1,y0+b.y+2))prob(`${b.ref} sprite entrance unreachable`);
+        continue;
+      }
       const { cells } = BT.buildingCells(lookup(b.ref), b.transform ?? 0);
       const door = cells.find((c) => c.tile === TileType.WoodDoor || c.tile === TileType.StoneDoor);
       if (!reach(x0 + b.x + door.x, y0 + b.y + door.y)) prob(`${b.ref} door unreachable`);
@@ -267,6 +274,24 @@ async function inner() {
     s.diplo[0].questNextTick = state.cycleTick + 1000;
     result(!HL.questMarksFor(0).includes(herald.id), "Q no '!' once every quest is accepted and the board is on cooldown");
     result(DIALOGUE.questGiver.start.choices.some((c) => c.action === "quests") && DIALOGUE.herald.start.choices.some((c) => c.action === "quests"), "Q the priest keeps its quest offering beside the herald's");
+  }
+
+  // Legacy neutral homes convert once; captured and edited layouts are preserved.
+  {
+    const {readFileSync}=await import('node:fs');
+    const {migrateNeutralSpriteHomes}=await import('./src/settlementMigration.ts');
+    const old=JSON.parse(readFileSync(new URL('./data/settlements-legacy/hamlet-chapel.json',import.meta.url),'utf8'));
+    const reset=()=>{state.tiles.fill(TileType.Empty);markTileRegistryStale();mobs.clear();hearths.clear();clearOwners();clearSites();gates.clear();};
+    for(let tf=0;tf<8;tf++){
+      reset();const t=ST.transformSettlement(old,tf,lookup),site=stt.stampSettlement(t,20,20);
+      result(migrateNeutralSpriteHomes()===1,`M legacy neutral conversion orientation ${tf}`);
+      result(migrateNeutralSpriteHomes()===0,`M migration idempotent ${tf}`);
+      result(state.tiles[idx(site.keepX,site.keepY)]===TileType.SiteKeep&&site.homes.villagers.length>0,`M keep and NPC homes preserved ${tf}`);
+    }
+    reset();let site=stt.stampSettlement(old,20,20);site.captured=true;const before=Buffer.from(state.tiles);
+    result(migrateNeutralSpriteHomes()===0&&before.equals(Buffer.from(state.tiles)),'M captured settlement untouched');
+    reset();site=stt.stampSettlement(old,20,20);state.tiles[idx(21,21)]=TileType.House;
+    const edited=Buffer.from(state.tiles);result(migrateNeutralSpriteHomes()===0&&edited.equals(Buffer.from(state.tiles)),'M edited settlement untouched');
   }
 
   // ---- D ----
