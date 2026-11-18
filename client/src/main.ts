@@ -1521,7 +1521,7 @@ async function main() {
     const structArt = structureArtFor(tx, ty, artTile, !!site);
     const autumnDamage = autumnBuildingDamage(artTile, level, damagedBuildings.get(index) ?? 1000, !!site, index);
     const homeStyle=playerHomeDesigns.get(index)??([TileType.House,TileType.BigHouse,TileType.HouseLevel2].includes(artTile)?['cottage','farmhouse','townhouse','hill-burrow'][(tx*7+ty*11)%4]:undefined);
-    const homeTexture=homeStyle?optionalTextures[`/sprites/player-bases/${homeStyle}.png`]:undefined;
+    const homeTexture=homeStyle&&!site&&(damagedBuildings.get(index)??1000)>=750?optionalTextures[`/sprites/player-bases/${homeStyle}.png`]:undefined;
     const fortTexture=fortArtFor(tx,ty,artTile);
     const texture = tile === TileType.BuildingPart || isFortPart(tile)
       ? undefined
