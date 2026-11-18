@@ -60,3 +60,15 @@ Applied the twelve annotated menu requests. Parchment treatment is shared by in-
 Progression and crafting share one dialog with two pages; search, recipes, keyboard shortcut Shift+C, Escape, chain states and live updates reuse their existing handlers. The duplicate top-level Craft/Hero buttons are hidden; the hero block's Pack opens the complete existing character/equipment/appearance/family sheet. Backquote and hero interactions remain available.
 
 Verification: client typecheck, production build and isolated browser checks for all moved controls, folding Stockpile while keeping status visible, Pack/character access, merged progression/crafting pages, search, Escape and Shift+C. Desktop layout checks cover widths 2782, 1440 and 1000; no browser exceptions or missing sprite requests. No gameplay or save-format changes.
+
+
+## Hero inventory and illustrated needs (2026-11-18)
+The lower hero panel uses layered pixel-art heart, stomach and sleeping-moon meters with server-driven fill levels, accessible values and labels. The heart has subtle blood-drip motion, disabled under reduced-motion preferences. Inventory repeats the same meters, including energy. Health state is cached so rebuilding the needs panel does not flash back to full health.
+
+Pack is now the backpack-shaped Inventory button. Attack/Interact buttons are hidden, while their keyboard actions remain. Family moved to the top-right tablet and opens a separate scroll. Appearance editing is disabled in game, and new games use DEFAULT_HERO_APPEARANCE without the creator while only one hero is supported; the creator module remains for later use. Existing saved appearances are not overwritten.
+
+Inventory shows carried equipment and the interactive armour stand: selecting an inventory item uses equipItem, and clicking equipped stand slots uses unequipItem. Spells moved into an expandable Spellbook with collection and four loadout slots, retaining learned spells and authoritative equip/unequip messages. Family is no longer a column inside Inventory.
+
+User clarified that resource carrying stays intact. Carried resources and Deposit are now in Stockpile, above communal goods. No resources are moved or deleted automatically. Eat and Rest remain available in Inventory; camp founding and personal structure buttons now live in Build. Costs, proximity checks, storage, carrying capacity and saves are unchanged.
+
+Six generated assets and provenance are in art-sources/hero-hud-20261118, with runtime slices in client/public/sprites/hero-hud. Validation uses client typechecks, production build and an isolated browser world: fixed-hero startup, Family, Stockpile contents, equipment transfer, spell loadout, damaged health, partial needs values, personal Build actions and all six images decoding.

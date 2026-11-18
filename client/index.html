@@ -1820,14 +1820,14 @@
       </div>
     </div>
     <div id="hero-modal" hidden>
-      <div id="hero-sheet" class="menu-scroll" role="dialog" aria-modal="true" aria-label="Character sheet">
+      <div id="hero-sheet" class="menu-scroll" role="dialog" aria-modal="true" aria-label="Inventory">
         <button id="hs-close" aria-label="Close">×</button>
         <h2 class="menu-title" id="hs-title">Character</h2>
         <div id="hs-tabs" class="hs-tabs"></div>
         <section id="hero-appearance" aria-label="Hero appearance"></section>
         <div class="hs-cols">
         <div class="hs-col hs-left">
-          <div class="menu-section">Pack <span id="hs-invcount"></span></div>
+          <div class="menu-section">Inventory <span id="hs-invcount"></span></div>
           <div id="hs-inv" class="hs-inv"></div>
           <div class="menu-section">Take from the armoury</div>
           <div id="hs-armoury" class="hs-armoury"></div>
@@ -1840,9 +1840,12 @@
             <div class="hs-xpbar"><div id="hs-xpfill" class="hs-xpfill" style="width: 0%"></div></div>
             <div id="hs-xptext" class="hs-xptext"></div>
             <div id="hs-stats" class="hs-stats"></div>
-            <div class="menu-section">Spells <span class="hs-spellhint">(click a spell, then a spell slot)</span></div>
-            <div id="hs-spellbook" class="hs-inv"></div>
-            <button id="hs-spell-auto" class="hs-auto" hidden>Auto-cast: On</button>
+            <details id="hs-spell-journal"><summary><img src="/sprites/hero-hud/spellbook.png" alt="">Spellbook</summary>
+              <p>Choose a spell from your collection, then choose one of the four equipped slots. Click an equipped spell to remove it.</p>
+              <div id="hs-spell-slots"></div><h3>Spell collection</h3>
+              <div id="hs-spellbook" class="hs-inv"></div>
+              <button id="hs-spell-auto" class="hs-auto" hidden>Auto-cast: On</button>
+            </details>
             <div id="hs-needs" class="hl-box"></div>
             <div id="hs-skills" class="hl-box"></div>
           </div>

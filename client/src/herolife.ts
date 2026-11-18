@@ -1,3 +1,4 @@
+import { vitalMeter, updateVitals } from "./vitals";
 // Solo hero phases 1-3 (docs PLAN-solo-hero.md; server/src/herolife.ts): the client side. Self-contained DOM: the
 // dialogue panel (portrait, short lines, 2-6 choices; 1-6 picks, Esc says farewell), needs meters + a Pack button in
 // the hero bar, the pack / skills / actions panel, and a hold-E progress ring. E (held) = interact: the server talks,
@@ -99,7 +100,10 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
   const loadT = el("span", {}, "0/40");
   needs.append(el("span", {}, "Food"), foodM, el("span", {}, "Rest"), restM, loadT);
   const status = el("div", { id: "hl-status" });
-  const packBtn = el("button", { class: "cmd-btn", id: "hl-pack-btn", title: "Pack & character: equipment, appearance, skills, food and rest" }, "Pack");
+  const vitals=el('div',{class:'vital-row',id:'hero-vitals'});
+  vitals.append(vitalMeter('health','Health',100),vitalMeter('food','Food',100),vitalMeter('rest','Rest',100));
+  bar?.append(vitals);
+  const packBtn = el("button", { class: "cmd-btn", id: "hl-pack-btn", title: "Inventory: equipment, armour and spells" }, "Inventory");
   const famBtn = el("button", { class: "cmd-btn", id: "hl-family-btn", title: "Hero sheet: your family, spouse, children, kin and the succession order" }, "Family");
   if (bar) {
     bar.insertBefore(needs, bar.querySelector(".hb-keys"));
@@ -110,17 +114,30 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
     if (interactBtn) interactBtn.title = "Talk / gather (hold) / work next to you (E); Enter opens the building";
   }
 
+  packBtn.innerHTML='<img src="/sprites/hero-hud/backpack.png" alt=""> <span>Inventory</span>';
+  document.getElementById('control-buttons')!.insertBefore(famBtn,document.getElementById('menu-dropdown'));
+  famBtn.className='control-btn';
+
   // The hero sheet's columns (index.html #hero-modal): pack and actions left, needs + skills centre, family right.
   const host = (id: string) => document.getElementById(id) ?? document.body.appendChild(el("div", { id, class: "hl-box", hidden: "" }));
   const panel = host("hs-life");
   const needsBox = host("hs-needs");
   const skillsBox = host("hs-skills");
   const famPanel = host("hs-family");
+  const carried=el('section',{id:'hero-resources'});
+  document.getElementById('goods-scroll')!.prepend(carried);
+  const personal=el('section',{id:'personal-builds'});
+  document.getElementById('build-panel')!.append(personal);
+  const familyDialog=el('section',{id:'family-panel',class:'menu-scroll',role:'dialog','aria-label':'Family',hidden:''});
+  const familyClose=el('button',{'aria-label':'Close family'},'×');
+  familyDialog.append(familyClose,famPanel);document.body.append(familyDialog);
+  familyClose.addEventListener('click',()=>familyDialog.hidden=true);
+  window.addEventListener('keydown',e=>{if(e.key==='Escape')familyDialog.hidden=true;});
   let life: HeroLifeSnapshot | null = null;
   for (const b of [packBtn, famBtn]) {
     b.addEventListener("click", () => {
       b.blur();
-      deps.openSheet();
+      if(b===famBtn) familyDialog.hidden=!familyDialog.hidden; else deps.openSheet();
     });
   }
 
@@ -164,20 +181,26 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
     b.blur();
     deps.send({ type: "heroAction", action: b.dataset.act, ...(b.dataset.build ? { build: b.dataset.build } : {}) });
   });
+  carried.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-act]");
+    if (!b) return;
+    b.blur();
+    deps.send({ type: "heroAction", action: b.dataset.act, ...(b.dataset.build ? { build: b.dataset.build } : {}) });
+  });
+  personal.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-act]");
+    if (!b) return;
+    b.blur();
+    deps.send({ type: "heroAction", action: b.dataset.act, ...(b.dataset.build ? { build: b.dataset.build } : {}) });
+  });
 
   function renderNeeds() {
     needsBox.textContent = "";
     if (!life) return;
     needsBox.appendChild(el("div", { class: "menu-section" }, "Needs"));
-    for (const [label, v, cls] of [["Food", life.food, "hl-food"], ["Rest", life.rest, "hl-rest"], ["Energy", life.energy, "hl-energy"]] as const) {
-      const r = el("div", { class: "hl-row" });
-      r.append(el("span", {}, label), el("span", {}, `${Math.round(v)}%`));
-      const m = el("div", { class: "hb-meter" });
-      const f = el("div", { class: `hb-fill ${cls}` });
-      f.style.width = `${v}%`;
-      m.appendChild(f);
-      needsBox.append(r, m);
-    }
+    const row=el('div',{class:'vital-row'});
+    row.append(vitalMeter('health','Health',100),vitalMeter('food','Food',life.food),vitalMeter('rest','Rest',life.rest),vitalMeter('energy','Energy',life.energy));
+    needsBox.append(row);
     const st = [...(life.slow ?? []), ...(life.resting ? ["Resting"] : [])].join(", ");
     needsBox.appendChild(el("div", {}, life.needs ? st || "Fed and rested" : "Needs are off in this game"));
   }
@@ -185,31 +208,20 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
   function renderPanel() {
     if (!life) return;
     panel.textContent = "";
-    panel.appendChild(el("h4", {}, `Carried goods (${life.weight} / ${life.cap})`));
-    const goods = PACK_GOODS.filter((g) => (life!.pack[g] ?? 0) > 0);
-    if (goods.length === 0) panel.appendChild(el("div", {}, "Empty"));
-    for (const g of goods) {
-      const r = el("div", { class: "hl-row" });
-      r.append(el("span", {}, PACK_LABEL[g]), el("span", {}, String(life.pack[g])));
-      panel.appendChild(r);
+    carried.replaceChildren(el('h4',{},`With hero (${life.weight} / ${life.cap})`));
+    const goods=PACK_GOODS.filter(g=>(life!.pack[g]??0)>0);
+    if(!goods.length)carried.append(el('p',{},'No resources carried.'));
+    for(const g of goods){const row=el('div',{class:'hl-row'});row.append(el('span',{},PACK_LABEL[g]),el('strong',{},String(life.pack[g])));carried.append(row);}
+    carried.append(el('button',{'data-act':'deposit',class:'cmd-btn',title:'Deposit carried resources at a Town Center or storage chest'},'Deposit into stockpile'));
+    const acts=el('div',{class:'hl-actions'});
+    acts.append(el('button',{'data-act':'eat',class:'cmd-btn'},'Eat'),el('button',{'data-act':'rest',class:'cmd-btn'},life.resting?'Get up':'Rest'));
+    panel.append(acts);
+    personal.replaceChildren(el('h4',{},'Build by hand'));
+    if(life.canFound)personal.append(el('button',{'data-act':'foundCamp',class:'cmd-btn'},'Found a camp'));
+    for(const[k,d]of Object.entries(PERSONAL_BUILDS)as[PersonalBuild,(typeof PERSONAL_BUILDS)[PersonalBuild]][]){
+      const cost=Object.entries(d.cost).map(([g,n])=>`${n} ${g}`).join(' + ');
+      personal.append(el('button',{'data-act':'build','data-build':k,class:'cmd-btn',title:`${d.desc} Costs ${cost}.`},d.label));
     }
-    const acts = el("div", { class: "hl-actions" });
-    acts.append(
-      el("button", { "data-act": "eat", class: "cmd-btn", title: "Eat from the pack (or your stores, near home)" }, "Eat"),
-      el("button", { "data-act": "rest", class: "cmd-btn", title: "Sit and rest; faster by a campfire, lean-to or home. Move to stop" }, life.resting ? "Get up" : "Rest"),
-      el("button", { "data-act": "deposit", class: "cmd-btn", title: "Empty the pack into your stores (at a Town Center or storage chest)" }, "Deposit"),
-    );
-    if (life.canFound) {
-      acts.appendChild(el("button", { "data-act": "foundCamp", class: "cmd-btn", title: "Found a camp here: a Town Center next to you and two settlers join (20 wood + 10 stone, pack first)" }, "Found a camp"));
-    }
-    panel.appendChild(acts);
-    panel.appendChild(el("h4", {}, `Build by hand (${life.builds} placed)`));
-    const builds = el("div", { class: "hl-actions" });
-    for (const [k, d] of Object.entries(PERSONAL_BUILDS) as [PersonalBuild, (typeof PERSONAL_BUILDS)[PersonalBuild]][]) {
-      const cost = Object.entries(d.cost).map(([g, n]) => `${n} ${g}`).join(" + ");
-      builds.appendChild(el("button", { "data-act": "build", "data-build": k, class: "cmd-btn", title: `${d.desc} Costs ${cost} (pack first, then stores).` }, d.label));
-    }
-    panel.appendChild(builds);
     skillsBox.textContent = "";
     skillsBox.appendChild(el("div", { class: "menu-section" }, "Skills"));
     const known = life.skills.filter((s) => s.xp > 0);
@@ -308,6 +320,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
       life = l;
       foodF.style.width = `${l.food}%`;
       restF.style.width = `${l.rest}%`;
+      updateVitals("food",l.food);updateVitals("rest",l.rest);updateVitals("energy",l.energy);
       needs.style.opacity = l.needs ? "1" : "0.45";
       loadT.textContent = `${l.weight}/${l.cap}`;
       const st = [...(l.slow ?? []), ...(l.resting ? ["Resting"] : [])].join(", ");

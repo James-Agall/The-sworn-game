@@ -152,3 +152,69 @@ body.interior-mode #colony-header {display:none;}
 #hero-bar .hb-keys .cmd-btn {min-width:0;padding:4px 2px;font-size:11px;}
 #hero-bar .hb-hint {display:none;}
 #goal-tracker {top:calc(var(--toolbar-bottom,100px) + 8px)!important;}
+/* Illustrated hero vitals, equipment stand and inventory. */
+.vital-row {display:flex;align-items:flex-start;justify-content:center;gap:10px;}
+.vital {width:68px;flex:0 0 68px;text-align:center;font:11px Georgia;color:#45301d;}
+.vital-art {position:relative;height:66px;width:66px;margin:auto;}
+.vital-art img {position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;pointer-events:none;}
+.vital-empty {filter:grayscale(1) brightness(.35);opacity:.45;}
+.vital-fill {clip-path:inset(var(--empty,0%) 0 0 0);transition:clip-path .4s ease;}
+.vital-label,.vital-value {display:block;margin-top:3px;white-space:nowrap;font-weight:normal;}
+.vital.low .vital-value {color:#9d1d19;font-weight:bold;}
+.vital-energy .vital-art {filter:sepia(.6) saturate(1.6);}
+.blood-drop {position:absolute;width:4px;height:6px;left:42%;bottom:7px;background:#9d1719;border-radius:70% 30% 60% 40%;animation:heart-drip 3.6s ease-in infinite;pointer-events:none;}
+@keyframes heart-drip {0%,55%{transform:translateY(0);opacity:0}60%{opacity:.9}90%{transform:translateY(9px);opacity:.7}100%{transform:translateY(13px);opacity:0}}
+#hero-bar {width:340px!important;display:none;grid-template-columns:1fr 78px;gap:3px 7px;padding:9px 10px!important;}
+body.adventure-mode #hero-bar {display:grid!important;}
+#hero-bar #hb-name {grid-column:1/-1;}
+#hero-bar > .hb-meter,#hero-bar .hl-needs,#hb-attack,#hb-interact {display:none!important;}
+#hero-vitals {grid-row:2;grid-column:1;gap:5px;}
+#hero-bar #hl-status {grid-row:3;grid-column:1/-1;}
+#hero-bar .hb-keys {grid-row:2;grid-column:2;display:block;align-self:center;}
+#hero-bar #hl-pack-btn {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:76px;padding:5px;border:0;background:transparent;box-shadow:none;font:12px Georgia;}
+#hl-pack-btn img {width:60px;height:62px;object-fit:contain;image-rendering:pixelated;}
+#hero-bar #hl-pack-btn:hover {background:#ad8c4e22;}
+#hero-appearance,.hs-family-col {display:none!important;}
+#hero-sheet .hs-cols {display:grid;grid-template-columns:230px minmax(0,1fr);gap:26px;}
+#hero-sheet .hs-body {display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px;}
+#hero-sheet .hs-doll {position:relative;display:block;width:220px;height:330px;padding:0;border:0;background:radial-gradient(ellipse at bottom,#8b684432,transparent 65%);}
+.armour-stand {position:absolute;left:50%;top:5px;transform:translateX(-50%);height:310px;width:180px;object-fit:contain;image-rendering:pixelated;}
+#hs-doll > .hs-socket {position:absolute;background:#f3e4bc44;border:1px dashed #8a714e;box-shadow:0 2px 6px #0003;width:62px;height:64px;z-index:1;}
+#hs-doll > .hs-socket:has(.hs-item) {background:#f3e4bc22;border-style:solid;}
+#hs-doll .hs-item {width:54px;height:54px;}
+#hs-doll [data-slot=head] {left:79px;top:10px;}
+#hs-doll [data-slot=chest] {left:79px;top:88px;}
+#hs-doll [data-slot=weapon] {left:4px;top:134px;}
+#hs-doll [data-slot=offhand] {right:4px;top:134px;}
+#hs-doll [data-slot=legs] {left:79px;top:174px;}
+#hs-doll [data-slot=trinket1] {left:4px;top:30px;}
+#hs-doll [data-slot=trinket2] {right:4px;top:30px;}
+#hs-inv {min-height:110px;padding:10px;background:#ac875922;border:1px solid #ac875966;border-radius:5px;}
+#hs-spell-journal {margin:18px 0;padding:10px 12px;border:1px solid #94704a;border-radius:5px;background:linear-gradient(90deg,#cbb08633,#fff4);}
+#hs-spell-journal summary {display:flex;align-items:center;gap:12px;cursor:pointer;font:19px Georgia;}
+#hs-spell-journal summary img {width:42px;height:48px;object-fit:contain;image-rendering:pixelated;}
+#hs-spell-journal p {font:12px/1.5 Georgia;}
+#hs-spell-journal h3 {font:15px Georgia;}
+#hs-spell-slots .hs-spells {justify-content:flex-start;flex-wrap:wrap;margin:12px 0;}
+#hs-spell-slots .hs-socket {width:48px;height:48px;}
+#hs-needs .vital-row {justify-content:flex-start;flex-wrap:wrap;gap:8px;}
+#hs-needs .vital {width:58px;flex-basis:58px;}
+#hs-needs .vital-art {width:54px;height:58px;}
+#hero-resources {padding:10px 14px;border-bottom:1px solid #93704c66;max-height:190px;overflow:auto;}
+#hero-resources h4,#personal-builds h4 {margin:4px 0 8px;font:14px Georgia;}
+#hero-resources p {font-size:12px;}
+#personal-builds {flex:none;max-height:160px;overflow:auto;padding:10px 0;border-top:1px solid #93704c66;}
+#personal-builds button {margin:3px;padding:6px 9px;}
+#family-panel {position:fixed;right:16px;top:calc(var(--toolbar-bottom,100px) + 10px);width:min(410px,calc(100vw - 36px));max-height:70vh;overflow:auto;padding:20px;box-sizing:border-box;z-index:35;}
+#family-panel > button {float:right;cursor:pointer;}
+@media(max-width:1200px) {#hero-bar {bottom:100px!important;}#hero-sheet .hs-body{grid-template-columns:200px minmax(0,1fr);gap:12px;}#hero-sheet .hs-cols{grid-template-columns:200px minmax(0,1fr);gap:14px;}}
+@media(max-width:850px) {#hero-sheet .hs-cols,#hero-sheet .hs-body {grid-template-columns:1fr;}#hero-bar,body.stockpile-open #hero-bar{left:42px!important;bottom:80px!important;}#hero-sheet .hs-doll{margin:auto;}}
+@media(prefers-reduced-motion:reduce) {.blood-drop{animation:none}.vital-fill{transition:none}}
+
+#hero-resources .hl-row {display:flex;justify-content:space-between;gap:12px;padding:3px 0;}
+
+#hs-doll > .hs-socket:has(.hs-item) {background:transparent;border-color:transparent;box-shadow:none;}
+#hs-doll .hs-item {background:transparent!important;border:0!important;box-shadow:none!important;}
+#hs-doll .hs-item img {width:100%;height:100%;object-fit:contain;}
+#hs-doll [data-slot=chest]:has(.hs-item) {left:68px;top:83px;width:84px;height:98px;}
+#hs-doll [data-slot=chest] .hs-item {width:82px;height:94px;}

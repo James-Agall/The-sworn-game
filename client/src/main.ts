@@ -1,3 +1,4 @@
+import { updateVitals } from "./vitals";
 import {npcVariantFrame} from "./npcVariants";
 import {PLAYER_BASES} from "@colony/shared/playerBases";
 import { FORT_BUILDABLE,FORT_GATES,isFortification,isFortPart,isLargeGate,isWideBridge,fortAnchor,fortPartner,wallConnects,moatConnects,connectionMask,wallWalkLift } from "@colony/shared/fortifications";
@@ -5,7 +6,7 @@ import { loadTexture, loadTextures } from "./atlas";
 import "./characterCreator.css";
 import { initPerfOverlay } from "./perfOverlay";
 import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
-import { chooseCharacter, renderCharacterEditor } from "./characterCreator";
+import { DEFAULT_HERO_APPEARANCE } from "@colony/shared/protocol";
 import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS, type HeroAppearance } from "@colony/shared/protocol";
 let pendingCreatorAppearance: HeroAppearance | null = null;
 import "./economySkin.css";
@@ -6791,16 +6792,7 @@ async function main() {
     heroHpText = hpText;
     hideItemTip();
     hsTitle.textContent = hero ? `${hero.name} · ${HERO_CLASS_LABEL[hero.heroClass]}` : prof.appearance?.name ?? "Character";
-    const appearanceRoot = document.getElementById("hero-appearance")!;
-    appearanceRoot.hidden = !!hero;
-    const appearanceKey=JSON.stringify([prof.appearance,me?.visual]);
-    if (!hero && appearanceRoot.dataset.appearanceKey !== appearanceKey) {
-      appearanceRoot.dataset.appearanceKey=appearanceKey;
-      const wasOpen=appearanceRoot.querySelector("details")?.open ?? false;
-      const details=document.createElement("details"),summary=document.createElement("summary"),editor=document.createElement("div");
-      summary.textContent="Edit appearance";details.open=wasOpen;details.append(summary,editor);appearanceRoot.replaceChildren(details);
-      renderCharacterEditor(editor, prof.appearance!, appearance => sendMessage({ type: "setHeroAppearance", appearance }), {visual: me?.visual});
-    }
+    document.getElementById("hero-appearance")!.hidden = true;
     hsTabs.replaceChildren();
     if (heroSheets.length > 0) {
       const tab = (id: string, label: string, cls = "") => {
@@ -6820,19 +6812,22 @@ async function main() {
     const layout: (GearSlot | null)[] = hero ? ["trinket1", "head", "trinket2", "weapon", "chest", "offhand", null, "legs", null] : ["head", "chest", "weapon", "offhand"];
     hsDoll.classList.toggle("player-gear", !hero);
     hsDoll.replaceChildren();
+    const stand=document.createElement('img');stand.src='/sprites/hero-hud/armour-stand.png';stand.className='armour-stand';stand.alt='Armour stand';hsDoll.append(stand);
     for (const slot of layout) {
       if (!slot) {
         hsDoll.append(document.createElement("div"));
         continue;
       }
       const item = prof.equipment[slot];
-      hsDoll.append(
-        makeSocket(slot, item, {
+      const gearSocket = makeSocket(slot, item, {
           empty: SLOT_LABEL[slot],
           onClick: item ? () => sendMessage({ type: "unequipItem", slot, ...heroArg }) : undefined,
           tip: item ? (e) => showItemTip(e, item, null, "Click to unequip", false) : undefined,
-        })
-      );
+        });
+      gearSocket.dataset.slot=slot;
+      gearSocket.setAttribute('role','button');gearSocket.tabIndex=0;
+      gearSocket.setAttribute('aria-label',`${SLOT_LABEL[slot]}: ${item?.name ?? 'empty'}`);
+      hsDoll.append(gearSocket);
     }
     // Hero phase 4: the 4 spell slots. With a spell picked in the spell book below, a click puts it in the
     // slot; otherwise a click on a filled slot empties it.
@@ -6843,6 +6838,8 @@ async function main() {
       const id = book.slots[i] ?? null;
       const el = document.createElement("div");
       el.className = `hs-socket${pickedSpell ? " target" : ""}`;
+      el.setAttribute('role','button');el.tabIndex=0;el.setAttribute('aria-label',`Spell slot ${i+1}${id?': '+SPELLS[id].name:''}`);
+      el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}});
       if (id) el.append(spellIcon(id));
       else {
         const empty = document.createElement("span");
@@ -6861,7 +6858,7 @@ async function main() {
       el.addEventListener("mouseleave", hideItemTip);
       spells.append(el);
     }
-    hsDoll.append(spells);
+    document.getElementById("hs-spell-slots")!.replaceChildren(spells);
 
     // Level / XP.
     document.getElementById("hs-level")!.textContent = String(prof.level);
@@ -6917,6 +6914,8 @@ async function main() {
     for (const id of book.learned) {
       const el = document.createElement("div");
       el.className = `hs-socket${pickedSpell === id ? " picked" : ""}`;
+      el.setAttribute('role','button');el.tabIndex=0;el.setAttribute('aria-label',`Select ${SPELLS[id].name}`);
+      el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}});
       el.append(spellIcon(id));
       el.addEventListener("click", () => {
         hideItemTip();
@@ -8057,7 +8056,6 @@ async function main() {
     return adventurePrefs.on && !strategyCam.active && !document.body.classList.contains("party-large") && selectedCommandable().length > 0;
   }
   function refreshAdventureHud() {
-    if (!adventurePrefs.on) return;
     const units = selectedCommandable();
     const large = units.length > PARTY_COMMAND_MAX || units.some((u) => regimentOfUnit.get(u.id)?.id.startsWith("tf"));
     if (document.body.classList.contains("party-large") !== large) document.body.classList.toggle("party-large", large);
@@ -8065,6 +8063,7 @@ async function main() {
     if (!me) return;
     const hpFrac = me.maxHp > 0 ? Math.max(0, Math.min(1, me.hp / me.maxHp)) : 0;
     heroBarHp.style.width = `${hpFrac * 100}%`;
+    updateVitals("health",hpFrac*100,me.dead?"Fallen":`${Math.ceil(me.hp)} / ${me.maxHp}`);
     heroBarHpText.textContent = me.dead ? "Fallen" : `${Math.ceil(me.hp)} / ${me.maxHp}`;
     const prof = heroProfile;
     const next = prof?.nextLevelXp ?? null;
@@ -9527,11 +9526,8 @@ function setupMainMenu() {
   const startGame = async (loadSlot: SaveSlot | null, creative = preferredCreative, solo = false) => {
     if (choosingCharacter) return;
     if (loadSlot === null) {
-      choosingCharacter = true;
-      const appearance = await chooseCharacter();
-      choosingCharacter = false;
-      if (!appearance) return;
-      pendingCreatorAppearance = appearance;
+      // Appearance selection is intentionally disabled while only the fixed hero is supported.
+      pendingCreatorAppearance = { ...DEFAULT_HERO_APPEARANCE };
     }
     pendingLoadSlot = loadSlot;
     preferredCreative = creative;
