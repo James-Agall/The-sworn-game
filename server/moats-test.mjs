@@ -184,6 +184,10 @@ result(broke && tileAt(DB.x, DB.y) === T.Moat && !g, `R: the ram broke the drawb
 if (mob?.id) await killMob(mob.id);
 
 // ---- F: a fully closed ring gets filled ----
+// The ram can destroy the house during the last fast-forward batch. Restore
+// this independent scenario's target and closed ring before testing moat fill.
+await raw(H.x, H.y, T.House);
+for (const r of ring) await raw(r.x, r.y, T.Moat);
 mob = await hook("spawnMob", { kind: "orc", tx: H.x - 6, ty: H.y });
 await ff(2);
 m = await mobOf(mob.id);

@@ -18,7 +18,7 @@ import {
 } from "./constants.js";
 import { colonists, mobs, players, raidGroups, state } from "./state.js";
 import { biomeSpeedMultiplier, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter, dayIndexAt, dayTicksFor, nightTicksFor } from "./tiles.js";
-import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
+import { canStepPixel, advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { randInt, randRange } from "./worldgen.js";
 import { TOWN_CENTER_TILE, activeWardSources, civilianPopulationUsed, highestTownCenterLevel, isWarded, nearestTownCenter } from "./colonists.js";
 import { isGuardOrMilitiaKind, isRearMob, isSiegeKind, mobRole } from "./units.js";
@@ -601,7 +601,7 @@ export function stepRaidMobToward(m: { x: number; y: number }, tx: number, ty: n
   const ny = m.y + (dy / d) * step;
   const ntx = Math.floor(nx / TILE_SIZE);
   const nty = Math.floor(ny / TILE_SIZE);
-  if (!isWalkableTile(ntx, nty)) return false;
+  if (!canStepPixel(m.x,m.y,nx,ny)) return false;
   // Phase H: a diagonal step never squeezes between two solid tiles touching at a corner (a diagonal
   // moat or wall line has no gap).
   const otx = Math.floor(m.x / TILE_SIZE);

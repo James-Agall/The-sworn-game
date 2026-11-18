@@ -1,3 +1,4 @@
+import {FORT_BUILDABLE,isLargeGate} from "./fortifications.js";
 // Modular building phase 1 (2026-11-09, docs/colony2d/PLAN-rimworld-stardew.md): structure pieces and rooms,
 // shared by the server (population cap, homes, queries) and the client (roof drawing, build tools).
 //
@@ -89,7 +90,7 @@ export const STRUCTURE_TILES: readonly TileType[] = [
 export const NEW_STRUCTURE_TILES: readonly TileType[] = STRUCTURE_TILES.filter((t) => t !== TileType.Wall && t !== TileType.StoneWall);
 
 export function isStructureTile(t: number): boolean {
-  return (STRUCTURE_TILES as readonly number[]).includes(t);
+  return (FORT_BUILDABLE as readonly number[]).includes(t) || (STRUCTURE_TILES as readonly number[]).includes(t);
 }
 export function isDoorTile(t: number): boolean {
   return t === TileType.WoodDoor || t === TileType.StoneDoor;
@@ -115,6 +116,7 @@ export function isRoomInteriorTile(t: number): boolean {
 // What a piece may be placed on (besides Empty): floors are re-laid over the other floor; walls, doors, windows
 // and beds go over a floor; a door or window may replace a wall (cutting an opening).
 export function structurePlacementOk(tile: number, current: number): boolean {
+  if((FORT_BUILDABLE as readonly number[]).includes(tile))return current===TileType.Empty;
   if (current === TileType.Empty) return true;
   if (isFloorTile(tile)) return isFloorTile(current) && current !== tile;
   if (isFloorTile(current)) return true;

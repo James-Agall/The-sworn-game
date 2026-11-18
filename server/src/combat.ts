@@ -1,3 +1,4 @@
+import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
 // combat.ts: Damage (mobs, players, colonists, buildings), engagement slots, attack effects, player attacks, walls & gates, towers.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { addItem } from "./progression.js";
@@ -440,7 +441,7 @@ export function damageTownCenter(tc: TownCenter, amount: number) {
 
 // Modular building phase 1: windows are wall pieces (solid, breached like walls, never a mob's target).
 export function isWallTile(t: TileType): boolean {
-  return t === TileType.Wall || t === TileType.StoneWall || t === TileType.WoodWindow || t === TileType.StoneWindow;
+  return t === TileType.Rampart || t === TileType.Wall || t === TileType.StoneWall || t === TileType.WoodWindow || t === TileType.StoneWindow;
 }
 export function isDamageableBuilding(t: TileType): boolean {
   if (!state.damageableLut) {
@@ -451,6 +452,7 @@ export function isDamageableBuilding(t: TileType): boolean {
     // Gates aren't solid tiles (their passability is gate state) but take damage like a wall.
     state.damageableLut[TileType.Gate] = 1;
     state.damageableLut[TileType.Drawbridge] = 1;
+    for(const t of [...FORT_BUILDABLE,...FORT_GATES])state.damageableLut[t]=1;
     // Modular building phase 1: room doors are gates.
     state.damageableLut[TileType.WoodDoor] = 1;
     state.damageableLut[TileType.StoneDoor] = 1;
@@ -459,6 +461,10 @@ export function isDamageableBuilding(t: TileType): boolean {
 }
 
 export function buildingBaseHp(t: TileType): number {
+  if(t===TileType.Rampart)return 1800;
+  if(isLargeGate(t))return 1400;
+  if(isWideBridge(t))return 900;
+  if(t===TileType.WallLadder)return 200;
   if (t === TileType.Wall) return BUILDING_HP_WALL;
   if (t === TileType.StoneWall) return BUILDING_HP_STONE_WALL;
   if (t === TileType.WoodDoor) return BUILDING_HP_WOOD_DOOR;
@@ -485,6 +491,7 @@ export function buildingMaxHp(tx: number, ty: number, t: TileType): number {
 // HP of the building / Town Center at a tile (null: nothing damageable there).
 export function structureHp(tx: number, ty: number): { hp: number; max: number } | null {
   if (!inBounds(tx, ty)) return null;
+  const a=fortAnchor((x,y)=>inBounds(x,y)?state.tiles[tileIndex(x,y)]:-1,tx,ty);tx=a.x;ty=a.y;
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
   if (t === TileType.TownCenter) {
     const tc = findTownCenterAt(tx, ty);
@@ -496,6 +503,7 @@ export function structureHp(tx: number, ty: number): { hp: number; max: number }
 }
 
 export function healStructure(tx: number, ty: number, amount: number) {
+  const a=fortAnchor((x,y)=>inBounds(x,y)?state.tiles[tileIndex(x,y)]:-1,tx,ty);tx=a.x;ty=a.y;
   const key = resourceKey(tx, ty);
   const tc = findTownCenterAt(tx, ty);
   if (tc && state.tiles[tileIndex(tx, ty)] === TileType.TownCenter) {
@@ -510,6 +518,7 @@ export function healStructure(tx: number, ty: number, amount: number) {
 
 // Mob damage to the building (or Town Center) at a tile; at 0 HP it is destroyed.
 export function damageBuilding(tx: number, ty: number, amount: number) {
+  const a=fortAnchor((x,y)=>inBounds(x,y)?state.tiles[tileIndex(x,y)]:-1,tx,ty);tx=a.x;ty=a.y;
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
   // Forts phase C: damage to a human settlement's building turns it hostile.
   const own0 = ownerAt(tileIndex(tx, ty));
@@ -583,7 +592,9 @@ export function withHostileMover<T>(fn: () => T): T {
   }
 }
 
+function fortGateIndex(index:number){const x=index%state.WORLD_TILES_X,y=Math.floor(index/state.WORLD_TILES_X),p=fortPartner(state.tiles[index]);return isFortPart(state.tiles[index])&&p?tileIndex(x+p.dx,y+p.dy):index;}
 export function gateAt(index: number): GateState {
+  const anchor=fortGateIndex(index);if(anchor!==index){const g=gateAt(anchor);gates.set(index,g);return g;}
   let g = gates.get(index);
   if (!g) {
     g = { open: false, lock: "auto", clearTicks: GATE_CLOSE_DELAY_TICKS, overrun: false };
@@ -596,6 +607,7 @@ export function gateAt(index: number): GateState {
 // Forts phase A: an NPC-owned gate is passable only for its own site's mobs (moverOwner), and for the
 // colony only while overrun; other mobs and wildlife never pass it.
 export function gatePassable(index: number, hostile: boolean): boolean {
+  index=fortGateIndex(index);
   const g = gates.get(index);
   const own = ownerAt(index);
   // Forts phase C: a neutral human settlement's gate lets the colony through by day.
@@ -750,7 +762,7 @@ export function evaluateGateOverrun(index: number, g: GateState) {
 // Once per tick: registry upkeep, auto open / close, and (once a second) the overrun check.
 export function updateGates(forceOverrunCheck = false) {
   if (state.gateTilesDirty) {
-    for (const i of tileIndicesOfAny([TileType.Gate, TileType.Drawbridge, TileType.WoodDoor, TileType.StoneDoor])) gateAt(i);
+    for (const i of tileIndicesOfAny([...FORT_GATES, TileType.Gate, TileType.Drawbridge, TileType.WoodDoor, TileType.StoneDoor])) gateAt(i);
     for (const index of Array.from(gates.keys())) if (!isGateTile(state.tiles[index])) gates.delete(index);
     state.gateTilesDirty = false;
   }
@@ -760,6 +772,7 @@ export function updateGates(forceOverrunCheck = false) {
   gateGrid = gates.size > 0 ? buildGateGrid() : null;
   try {
   for (const [index, g] of gates) {
+    if (isFortPart(state.tiles[index])) continue;
     // Forts phase B: a sleeping fort's gates do not tick.
     if (siteNumAsleep(ownerAt(index))) continue;
     const tx = index % state.WORLD_TILES_X;
@@ -785,6 +798,7 @@ export function updateGates(forceOverrunCheck = false) {
 export function gatesForSnapshot(): number[] {
   const out: number[] = [];
   for (const [index, g] of gates) {
+    if (isFortPart(state.tiles[index])) continue;
     out.push(
       index,
       (g.open ? GATE_FLAG_OPEN : 0) |

@@ -1,3 +1,4 @@
+import {isWideBridge} from "@colony/shared/fortifications";
 // mobs.ts: Mob kinds, sizes, hunger marks, difficulty, targeting, building routing and the mob tick.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { bracedAgainst, regimentFoeFor, colonistsNear, directionMultOnColonist, fatigueDamageMultOnMob, pairedTargetOf } from "./battle.js";
@@ -423,7 +424,7 @@ export function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCo
   };
   // Phase H anti-cheese: with no colony drawbridge at all, the mobs' breach search may fill moat tiles.
   let moatFill = !colony && wallCost > 0;
-  if (moatFill) for (const gi of gates.keys()) if (state.tiles[gi] === TileType.Drawbridge && ownerAt(gi) === 0) moatFill = false;
+  if (moatFill) for (const gi of gates.keys()) if ((state.tiles[gi] === TileType.Drawbridge || isWideBridge(state.tiles[gi])) && ownerAt(gi) === 0) moatFill = false;
   // Settled-node budget (see PATH_NODE_BUDGET); a 160 map has only 25.6k tiles, so it never bites there.
   let settled = 0;
   while (heap.length > 0) {

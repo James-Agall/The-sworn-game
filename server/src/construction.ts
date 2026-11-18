@@ -1,3 +1,4 @@
+import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
 // construction.ts: Placement rules and costs, construction sites, upgrades, demolition, building info panel.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { NEW_ANIMAL_HOUSE_TILES, houseKindOfTile } from "@colony/shared/animals";
@@ -510,7 +511,7 @@ export function sealsInSpawner(tx: number, ty: number, tile: TileType): boolean 
 // met by the template's own walls, which are queued in the same order.
 // `rot` (gap closure G1): a 2-tile furniture piece's turn (furnitureFootprint; undefined: a Bed stays 1x1).
 export function handleSetTile(player: Player, tx: number, ty: number, tile: TileType, skipReach = false, blueprint = false, rot?: number) {
-  if (player.dead) return;
+  if (player.dead || isFortPart(tile)) return;
   if (!inBounds(tx, ty)) return;
   if (tile !== TileType.Empty && !PLACEABLE_TILES.includes(tile)) return;
   if (tile !== TileType.Empty && !isSolidTile(state.tiles[tileIndex(tx, ty)] as TileType) && sealsInSpawner(tx, ty, tile)) return;
@@ -519,6 +520,7 @@ export function handleSetTile(player: Player, tx: number, ty: number, tile: Tile
 }
 
 export function placementCost(tile: TileType, current: TileType, tx: number, ty: number): Cost {
+  if (isFortification(tile)) return { ...BUILD_COSTS[tile as keyof typeof BUILD_COSTS] };
   // Modular building phase 2: furniture (shared BUILD_COSTS).
   if (isFurnitureTile(tile)) return { ...BUILD_COSTS[tile as keyof typeof BUILD_COSTS] };
   switch (tile) {
@@ -790,6 +792,11 @@ export function sendEvent(player: Player, category: GameEventCategory, text: str
 // HP records; mines revert to the ore under them. Player demolish and mob
 // destruction (damageBuilding) both end here.
 export function demolishTile(tx: number, ty: number, current: TileType) {
+  if(isFortPart(current)){const a=fortAnchor(tileAtOrNone,tx,ty);tx=a.x;ty=a.y;current=tileAtOrNone(tx,ty) as TileType;}
+  const fortType=current===TileType.ConstructionSite?constructionSites.get(resourceKey(tx,ty))?.target??current:current;
+  const partner=fortPartner(fortType);
+  if(partner){const x=tx+partner.dx,y=ty+partner.dy;if(tileAtOrNone(x,y)===partner.tile){const revert=isWideBridge(fortType)?TileType.Moat:TileType.Empty;setTile(tileIndex(x,y),revert);broadcastTileUpdate(x,y,revert);gates.delete(tileIndex(x,y));buildingHp.delete(resourceKey(x,y));}}
+
   // A multi-tile building (or its construction site) takes its whole block with it.
   clearFootprintParts(tx, ty);
   // Gap closure G1: so does a 2-tile furniture piece (its part tiles point at this anchor).
@@ -814,7 +821,7 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
   buildingLevel.delete(resourceKey(tx, ty));
   if (isGateTile(current)) gates.delete(tileIndex(tx, ty));
   // Phase H: a drawbridge comes down (demolished or destroyed) to the moat it spanned.
-  if (current === TileType.Drawbridge) {
+  if (current === TileType.Drawbridge || isWideBridge(current)) {
     setTile(tileIndex(tx, ty), TileType.Moat);
     broadcastTileUpdate(tx, ty, TileType.Moat);
     return;
@@ -970,6 +977,7 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     ty = a.y;
   }
 
+  if (isFortPart(state.tiles[tileIndex(tx,ty)])) {if(tile!==TileType.Empty)return;const a=fortAnchor(tileAtOrNone,tx,ty);tx=a.x;ty=a.y;}
   const current = state.tiles[tileIndex(tx, ty)] as TileType;
   const siteKey = resourceKey(tx, ty);
   // Forts phase A: an NPC site's tile can be neither demolished nor built on / upgraded.
@@ -1020,7 +1028,7 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
       return;
     }
     if (colonyChurches().length === 0) return;
-  } else if (tile === TileType.Drawbridge) {
+  } else if (tile === TileType.Drawbridge || isWideBridge(tile)) {
     // Phase H: a drawbridge spans a moat tile.
     if (current !== TileType.Moat) {
       sendEvent(player, "build", "A drawbridge goes on a moat tile");
@@ -1080,6 +1088,10 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     return;
   }
 
+  const partner=fortPartner(tile);
+  if(partner){const x=tx+partner.dx,y=ty+partner.dy,expected=isWideBridge(tile)?TileType.Moat:TileType.Empty;
+    if(!inBounds(x,y)||tileAtOrNone(x,y)!==expected||ownerAt(tileIndex(x,y))!==0||isForeignClanTile(x,y,player.clan)||isInSiteGrounds(x,y)||constructionSites.has(resourceKey(x,y))||someoneStandsOn(x,y)){sendEvent(player,"build",isWideBridge(tile)?"A wide drawbridge needs two clear moat tiles":"A large gate needs two clear tiles");return;}}
+  if(tile===TileType.WallLadder&&![[tx-1,ty],[tx+1,ty],[tx,ty-1],[tx,ty+1]].some(([x,y])=>tileAtOrNone(x,y)===TileType.Rampart||constructionSites.get(resourceKey(x,y))?.target===TileType.Rampart)){sendEvent(player,"build","Place a ladder beside a rampart");return;}
   const cost = placementCost(tile, current, tx, ty);
   if (!canAfford(cost)) return;
   // Village life: a workplace no longer needs population room (its worker is an existing person, or it waits).
@@ -1141,6 +1153,7 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     // Clans: the new building is the placing player's clan's.
     setTileClan(tileIndex(tx, ty), player.clan);
   }
+  if(partner){const x=tx+partner.dx,y=ty+partner.dy;setTile(tileIndex(x,y),partner.tile);setTileClan(tileIndex(x,y),player.clan);broadcastTileUpdate(x,y,partner.tile);}
   if (multiTile) stampFootprintParts(tile, tx, ty, player.clan);
   for (const [x, y, part] of furnParts) {
     setTile(tileIndex(x, y), part);

@@ -28,7 +28,7 @@ import {
   biomeSpeedMultiplier, getBuildingLevel, levelBonus, resourceKey, roadSpeedMultiplier, tileIndex, tileOfPixel,
   tileToPixelCenter,
 } from "./tiles.js";
-import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
+import { canStepPixel, advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { armyDamageMultiplier } from "./economy.js";
 import {
   castleLevelForTile, guardCountForLevel, isMilitaryTile, settlementKeyNear, settlementOf,
@@ -442,8 +442,7 @@ export function returnToRally(c: Colonist, dt: number, speed: number) {
   } else {
     const step = speed * biomeSpeedMultiplier(c.x, c.y) * roadSpeedMultiplier(c.x, c.y) * dt;
     if (dist <= step) {
-      c.x = c.rallyX;
-      c.y = c.rallyY;
+      if(canStepPixel(c.x,c.y,c.rallyX,c.rallyY)){c.x=c.rallyX;c.y=c.rallyY;}
     } else {
       let ux = (c.rallyX - c.x) / dist;
       let uy = (c.rallyY - c.y) / dist;
@@ -468,8 +467,7 @@ export function returnToRally(c: Colonist, dt: number, speed: number) {
         }
         break;
       }
-      c.x += ux * step;
-      c.y += uy * step;
+      if(canStepPixel(c.x,c.y,c.x+ux*step,c.y+uy*step)){c.x+=ux*step;c.y+=uy*step;}
     }
   }
   c.state = "returning";

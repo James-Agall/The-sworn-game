@@ -8,6 +8,12 @@ import { artUrl, frameUrls } from "./unitVisuals";
 
 // Sprite art per tile type. Empty (bare floor) is deliberately absent.
 export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
+  [TileType.Rampart]: "fortifications/rampart_00",
+  [TileType.WallLadder]: "fortifications/ladder_v",
+  [TileType.LargeGateH]: "fortifications/gate_h_closed",
+  [TileType.LargeGateV]: "fortifications/gate_v_closed",
+  [TileType.WideBridgeH]: "fortifications/bridge_h_closed",
+  [TileType.WideBridgeV]: "fortifications/bridge_v_closed",
   [TileType.TownCenter]: "townCenter",
   [TileType.Wall]: "woodWall",
   [TileType.StoneWall]: "stoneWall",
@@ -114,7 +120,7 @@ export const TILE_OPTIONAL_ART: Partial<Record<TileType, string>> = {
   [TileType.Tent]: "siteTent",
   [TileType.SiteKeep]: "siteKeep",
   [TileType.RuinedKeep]: "ruinedKeep",
-  [TileType.PigPasture]: "pigPasture",
+  [TileType.PigPasture]: "animals/building_pig_sty",
   // Stardew phase 5d: the staged occupied-state animal buildings (SPRITES.md #96).
   [TileType.ChickenCoop]: "animals/building_chicken_coop",
   [TileType.LivestockBarn]: "animals/building_barn_cows",
@@ -241,6 +247,9 @@ export const FARM_STAGE_ART: Partial<Record<TileType, Partial<Record<FarmStage, 
   },
   [TileType.CottonFarm]: {
     [FarmStage.Sown]: "hempFieldSown",
+    [FarmStage.Sprouting]: "crops/hemp_growing",
+    [FarmStage.Harvested]: "crops/soil_tilled",
+    [FarmStage.Fallow]: "crops/soil_tilled",
     [FarmStage.Growing]: "hempFieldGrowing",
     [FarmStage.Ripe]: "hempFieldRipe",
   },

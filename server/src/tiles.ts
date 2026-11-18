@@ -1,3 +1,5 @@
+import {canStepPixel} from "./pathfinding.js";
+import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
 // tiles.ts: Tile helpers: indices, bounds, biomes, roads, building levels, the owner map, day/night.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { TileType, TILE_SIZE, PLAYER_HALF_SIZE, isSolidTile, isGateTile, Biome, isRoadTile } from "@colony/shared/protocol";
@@ -63,12 +65,13 @@ export function tileAtPixel(px: number, py: number): TileType {
   return state.tiles[tileIndex(tx, ty)] as TileType;
 }
 
-export function collidesAt(px: number, py: number): boolean {
+export function collidesAt(px: number, py: number, fromX?:number, fromY?:number): boolean {
   const offsets = [-PLAYER_HALF_SIZE, PLAYER_HALF_SIZE];
   for (const ox of offsets) {
     for (const oy of offsets) {
       const t = tileAtPixel(px + ox, py + oy);
-      if (isSolidTile(t) || (isGateTile(t) && !isWalkablePixel(px + ox, py + oy))) return true;
+      if(fromX!==undefined&&fromY!==undefined){if(!canStepPixel(fromX,fromY,px+ox,py+oy))return true;}
+      else if (isSolidTile(t) || (isGateTile(t) && !isWalkablePixel(px + ox, py + oy))) return true;
     }
   }
   return false;
@@ -190,6 +193,7 @@ export function placedFootprint(x: number, y: number): Footprint {
 
 // A BuildingPart's anchor; any other tile (or an orphan part) is its own.
 export function anchorOfTile(x: number, y: number): TileCoord {
+  if(inBounds(x,y)&&isFortPart(state.tiles[tileIndex(x,y)]))return fortAnchor((a,b)=>inBounds(a,b)?state.tiles[tileIndex(a,b)]:-1,x,y);
   if (tileAtOrNone(x, y) !== TileType.BuildingPart) return { x, y };
   return footprintAnchorOf(tileAtOrNone, footprintSizeAt, x, y) ?? { x, y };
 }

@@ -58,10 +58,26 @@ export const ROOM_STAT_ICON: Record<string, string> = {
 export const stockIconUrl = (category: string): string | undefined => (category === "other" ? undefined : iconUrl(`stock_${category}`));
 // Resources panel: items and gear that have a fitting icon (the rest keep the lettered chip).
 export const ITEM_ICON: Record<string, string> = {
+  "item:stoneKnife": iconUrl("item_stoneKnife"),
+  "item:timberProps": iconUrl("item_timberProps"),
+  "item:hide": iconUrl("item_hide"),
+  "item:bellows": iconUrl("item_bellows"),
+  "item:charcoal": iconUrl("item_charcoal"),
+  "item:ironBloom": iconUrl("item_ironBloom"),
+  "item:anvil": iconUrl("item_anvil"),
+  "item:woodenPlow": iconUrl("item_woodenPlow"),
+  "item:millstone": iconUrl("item_millstone"),
+  "item:clayOven": iconUrl("item_clayOven"),
+  "item:gruel": iconUrl("item_gruel"),
+  "item:flatbread": iconUrl("item_flatbread"),
+  "item:sourdoughStarter": iconUrl("item_sourdoughStarter"),
+  "item:bread": iconUrl("item_bread"),
+  "item:herbs": iconUrl("item_herbs"),
+
   "item:stoneAxe": iconUrl("tool_axe"),
   "item:stonePick": iconUrl("tool_pickaxe"),
-  "item:smithTools": iconUrl("stock_tools"),
-  "item:flour": iconUrl("tool_seedbag"),
+  "item:smithTools": iconUrl("item_smithTools"),
+  "item:flour": iconUrl("item_flour"),
   // Stardew phase 5a: the hero's farming tools and seed bags.
   "item:hoe": iconUrl("tool_hoe"),
   "item:wateringCan": iconUrl("tool_watering_can"),
@@ -72,7 +88,7 @@ export const ITEM_ICON: Record<string, string> = {
   "item:hay": iconUrl("item_hay_bale"),
   "item:egg": iconUrl("item_egg"),
   "item:milk": iconUrl("item_milk_pail"),
-  "item:carpenterTools": iconUrl("work_crafting"),
+  "item:carpenterTools": iconUrl("item_carpenterTools"),
   // Dedicated animal-care item icons.
   "item:shears": iconUrl("item_shears"),
   "item:milkPail": iconUrl("item_milk_pail"),

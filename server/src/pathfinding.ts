@@ -1,3 +1,4 @@
+import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
 // pathfinding.ts: Walkability, A* paths, path following, and body separation (spatial hash).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { TileType, isGateTile, isSolidTile, TILE_SIZE } from "@colony/shared/protocol";
@@ -27,7 +28,28 @@ export function isWalkableTile(tx: number, ty: number): boolean {
     sawGate = true;
     return gatePassable(tileIndex(tx, ty), state.hostileMover);
   }
-  return !isSolidTile(t);
+  return t===TileType.Rampart || !isSolidTile(t);
+}
+export function canStepTile(fx:number,fy:number,tx:number,ty:number):boolean {
+ if(!inBounds(fx,fy)||!inBounds(tx,ty))return false;
+ const from=state.tiles[tileIndex(fx,fy)],to=state.tiles[tileIndex(tx,ty)];
+ if(!rampartTransition(from,to))return false;
+ // Friendly defenders can cross the deck above a closed gate, but cannot descend through its locked doors.
+ if(isLargeGate(from)&&!isLargeGate(to)&&to!==TileType.Rampart&&to!==TileType.WallLadder&&!gatePassable(tileIndex(fx,fy),state.hostileMover))return false;
+ if(isLargeGate(to)&&(from===TileType.Rampart||isLargeGate(from))&&!state.hostileMover){
+   const a=fortAnchor((x,y)=>inBounds(x,y)?state.tiles[tileIndex(x,y)]:-1,tx,ty);
+   return isLargeGate(state.tiles[tileIndex(a.x,a.y)]);
+ }
+
+ // Both halves remain blocked while their anchor is unfinished.
+ if(isFortPart(to)){const a=fortAnchor((x,y)=>inBounds(x,y)?state.tiles[tileIndex(x,y)]:-1,tx,ty);if(state.tiles[tileIndex(a.x,a.y)]===TileType.ConstructionSite)return false;}
+ return isWalkableTile(tx,ty);
+}
+export function canStepPixel(fx:number,fy:number,tx:number,ty:number):boolean {
+ const x=Math.floor(fx/TILE_SIZE),y=Math.floor(fy/TILE_SIZE),nx=Math.floor(tx/TILE_SIZE),ny=Math.floor(ty/TILE_SIZE);
+ if(Math.abs(nx-x)>1||Math.abs(ny-y)>1)return false;
+ if(x!==nx&&y!==ny)return (canStepTile(x,y,nx,y)&&canStepTile(nx,y,nx,ny))||(canStepTile(x,y,x,ny)&&canStepTile(x,ny,nx,ny));
+ return canStepTile(x,y,nx,ny);
 }
 // Set when isWalkableTile looked at a gate: findPath does not cache that search.
 let sawGate = false;
@@ -97,7 +119,7 @@ function searchPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: 
       { x: current.x, y: current.y - 1 },
     ];
     for (const n of neighbors) {
-      if (!isWalkableTile(n.x, n.y)) continue;
+      if (!canStepTile(current.x,current.y,n.x,n.y)) continue;
       if (blocked && blocked(n.x, n.y) && !(n.x === goal.x && n.y === goal.y)) continue;
       const k = key(n);
       if (visited.has(k)) continue;
@@ -126,10 +148,12 @@ export function advanceAlongPath(
   if (entity.path.length === 0) return;
   // A gate on the path closed (or was locked) since it was planned: drop the path so the mover replans.
   const nextTile = entity.path[0];
-  if (inBounds(nextTile.x, nextTile.y) && isGateTile(state.tiles[tileIndex(nextTile.x, nextTile.y)]) && !isWalkableTile(nextTile.x, nextTile.y)) {
+  if (inBounds(nextTile.x, nextTile.y) && isGateTile(state.tiles[tileIndex(nextTile.x, nextTile.y)]) && !canStepTile(Math.floor(entity.x/TILE_SIZE),Math.floor(entity.y/TILE_SIZE),nextTile.x,nextTile.y)) {
     entity.path = [];
     return;
   }
+  const cx=Math.floor(entity.x/TILE_SIZE),cy=Math.floor(entity.y/TILE_SIZE);
+  if(!canStepTile(cx,cy,nextTile.x,nextTile.y)){entity.path=[];return;}
   const target = tileToPixelCenter(entity.path[0]);
   const ddx = target.x - entity.x;
   const ddy = target.y - entity.y;
@@ -152,8 +176,8 @@ export function advanceAlongPath(
     const nd = Math.hypot(next.x - entity.x, next.y - entity.y);
     if (nd > 0) {
       const s = Math.min(step, nd);
-      entity.x += ((next.x - entity.x) / nd) * s;
-      entity.y += ((next.y - entity.y) / nd) * s;
+      const nx=entity.x+((next.x-entity.x)/nd)*s,ny=entity.y+((next.y-entity.y)/nd)*s;
+      if(canStepPixel(entity.x,entity.y,nx,ny)){entity.x=nx;entity.y=ny;}
     }
   } else {
     entity.x += (ddx / dist) * step;
@@ -211,13 +235,14 @@ export function nudgeBody(b: Body, dx: number, dy: number) {
   const nx = b.e.x + dx;
   const ny = b.e.y + dy;
   // Phase H: never nudged through the corner between two diagonal solid tiles (moat / wall lines).
-  const cornerCut = !isWalkablePixel(nx, b.e.y) && !isWalkablePixel(b.e.x, ny);
-  if (!cornerCut && isWalkablePixel(nx, ny)) {
+  const step=(x:number,y:number)=>canStepPixel(b.e.x,b.e.y,x,y);
+  const cornerCut = !step(nx,b.e.y) && !step(b.e.x,ny);
+  if (!cornerCut && step(nx,ny)) {
     b.e.x = nx;
     b.e.y = ny;
-  } else if (isWalkablePixel(nx, b.e.y)) {
+  } else if (step(nx,b.e.y)) {
     b.e.x = nx;
-  } else if (isWalkablePixel(b.e.x, ny)) {
+  } else if (step(b.e.x,ny)) {
     b.e.y = ny;
   }
   state.hostileMover = prevMover;

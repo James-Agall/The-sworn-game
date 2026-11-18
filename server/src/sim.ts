@@ -162,14 +162,14 @@ export function stepSimulation() {
       PLAYER_HALF_SIZE,
       state.worldWidth - PLAYER_HALF_SIZE
     );
-    if (!collidesAt(nextX, player.y)) player.x = nextX;
+    if (!collidesAt(nextX, player.y, player.x, player.y)) player.x = nextX;
 
     const nextY = clamp(
       player.y + normDy * playerSpeed * dt,
       PLAYER_HALF_SIZE,
       state.worldHeight - PLAYER_HALF_SIZE
     );
-    if (!collidesAt(player.x, nextY)) player.y = nextY;
+    if (!collidesAt(player.x, nextY, player.x, player.y)) player.y = nextY;
     // Stardew phase 5c: walking north into a prefab building from its door tile enters it.
     else if (normDy < -0.5) tryEnterAtDoor(player, true);
   }

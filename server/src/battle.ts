@@ -15,7 +15,7 @@ import {
 } from "./state.js";
 import { regimentKey, startRout, tacticsEvent } from "./tactics.js";
 import { engageRaidGroup } from "./raids.js";
-import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
+import { canStepPixel, advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { clamp, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { unitStats } from "./units.js";
 import { formGroupAt, rallyUnit } from "./orders.js";
@@ -364,7 +364,7 @@ function walkablePx(x: number, y: number): boolean {
 function lineWalkable(ax: number, ay: number, bx: number, by: number): boolean {
   const d = Math.hypot(bx - ax, by - ay);
   const n = Math.ceil(d / (TILE_SIZE / 3));
-  for (let i = 1; i <= n; i++) if (!walkablePx(ax + ((bx - ax) * i) / n, ay + ((by - ay) * i) / n)) return false;
+  for(let i=1;i<=n;i++)if(!canStepPixel(ax+(bx-ax)*(i-1)/n,ay+(by-ay)*(i-1)/n,ax+(bx-ax)*i/n,ay+(by-ay)*i/n))return false;
   return true;
 }
 
@@ -610,7 +610,7 @@ export function marchSteerStep(c: Colonist, dt: number, speed: number): boolean 
   const dist = Math.hypot(dx, dy);
   const step = speed * dt;
   if (dist <= step) {
-    if (walkablePx(t.x, t.y)) {
+    if (canStepPixel(c.x,c.y,t.x,t.y)) {
       c.x = t.x;
       c.y = t.y;
       c.path = [];
@@ -621,7 +621,7 @@ export function marchSteerStep(c: Colonist, dt: number, speed: number): boolean 
   // Straight, else sliding along one axis (round a lone tree / corner), else its own path.
   const sx = (dx / dist) * step, sy = (dy / dist) * step;
   for (const [mx, my] of [[sx, sy], [Math.sign(sx) * Math.min(step, Math.abs(dx)), 0], [0, Math.sign(sy) * Math.min(step, Math.abs(dy))]]) {
-    if ((mx === 0 && my === 0) || !walkablePx(c.x + mx, c.y + my)) continue;
+    if ((mx === 0 && my === 0) || !canStepPixel(c.x,c.y,c.x+mx,c.y+my)) continue;
     c.x += mx;
     c.y += my;
     c.path = [];

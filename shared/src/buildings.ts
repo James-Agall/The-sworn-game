@@ -16,6 +16,12 @@ export const BUILD_COSTS = {
   [TileType.Wall]: { wood: 3 },
   [TileType.StoneWall]: { rock: 3 },
   [TileType.Gate]: { wood: 10, rock: 5 },
+  [TileType.Rampart]: { rock: 12, wood: 3 },
+  [TileType.WallLadder]: { wood: 6 },
+  [TileType.LargeGateH]: { rock: 24, wood: 20, iron: 8 },
+  [TileType.LargeGateV]: { rock: 24, wood: 20, iron: 8 },
+  [TileType.WideBridgeH]: { wood: 40, iron: 16 },
+  [TileType.WideBridgeV]: { wood: 40, iron: 16 },
   // Modular building phase 1 (2026-11-09, shared/src/structures.ts): room pieces.
   [TileType.WoodDoor]: { wood: 5 },
   [TileType.StoneDoor]: { wood: 2, rock: 4 },

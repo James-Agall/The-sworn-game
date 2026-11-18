@@ -181,6 +181,17 @@ export enum TileType {
   // The client draws nothing here (the anchor's art spans the piece).
   FurniturePartW = 134,
   FurniturePartN = 135,
+  Rampart = 136,
+  WallLadder = 137,
+  LargeGateH = 138,
+  LargeGateHPart = 139,
+  LargeGateV = 140,
+  LargeGateVPart = 141,
+  WideBridgeH = 142,
+  WideBridgeHPart = 143,
+  WideBridgeV = 144,
+  WideBridgeVPart = 145,
+
 }
 
 // ---- Walls & gates (2026-10-23) ----
@@ -301,6 +312,7 @@ export enum Biome {
 
 export function isSolidTile(tile: TileType): boolean {
   return (
+    tile === TileType.Rampart ||
     tile === TileType.Wall ||
     tile === TileType.Tree ||
     tile === TileType.LumberjackPost ||
@@ -381,7 +393,7 @@ export function isSolidTile(tile: TileType): boolean {
 // A gate-like tile: its passability is gate state (`gates`), not isSolidTile (phase H: drawbridges too;
 // modular building: room doors).
 export function isGateTile(tile: number): boolean {
-  return tile === TileType.Gate || tile === TileType.Drawbridge || tile === TileType.WoodDoor || tile === TileType.StoneDoor;
+  return (tile >= TileType.LargeGateH && tile <= TileType.WideBridgeVPart) || tile === TileType.Gate || tile === TileType.Drawbridge || tile === TileType.WoodDoor || tile === TileType.StoneDoor;
 }
 
 export type ColonistKind =

@@ -408,6 +408,11 @@ function pickTarget(h: HouseRec, p: AnimalPos, a: AnimalRec): boolean {
       y = p.y + ((y - p.y) * reach) / d;
       d = reach;
     }
+    if(h.graze.includes(tileIndex(Math.floor(p.x/TILE_SIZE),Math.floor(p.y/TILE_SIZE)))){
+      const allowed=new Set(h.graze),steps=Math.ceil(d/(TILE_SIZE/3));let inside=true;
+      for(let i=1;i<=steps;i++)if(!allowed.has(tileIndex(Math.floor((p.x+(x-p.x)*i/steps)/TILE_SIZE),Math.floor((p.y+(y-p.y)*i/steps)/TILE_SIZE)))){inside=false;break;}
+      if(!inside)continue;
+    }
     if (!walkablePx(x, y) || !clearLine(p.x, p.y, x, y)) continue;
     p.tx = x;
     p.ty = y;

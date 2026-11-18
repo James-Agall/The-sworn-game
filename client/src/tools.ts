@@ -99,7 +99,7 @@ export const TOOLS: ToolDef[] = [
   { tile: ZONE_TOOL_HEMP as TileType, label: "Hemp field", key: "", cost: `Growing zone, free: hemp for cloth (4 tiles = an old Hemp Field)`, category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_STOCKPILE as TileType, label: "Stockpile", key: "", cost: `Storage zone, free: haulers bring loose goods (harvests) to the nearest stockpile whose filters take them and that has room (${STOCKPILE_CAPACITY_PER_TILE} per tile, x${STOCKPILE_STOREROOM_CAPACITY_MULT} inside a storeroom; full: the next one, else the Town Center). Set filters in the zone list`, category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_HOME as TileType, label: "Home area", key: "", cost: "Idle villagers stroll here instead of round the Town Center", category: "zones", drag: "rect" },
-  { tile: ZONE_TOOL_ANIMAL as TileType, label: "Animal area", key: "", cost: "Placeholder for a later phase (animals in buildings): no effect yet", category: "zones", drag: "rect" },
+  { tile: ZONE_TOOL_ANIMAL as TileType, label: "Animal area", key: "", cost: "Fenced grazing area for nearby coops, barns, sties, sheep pens and stables. Fences follow every outside edge; a gate gives access", category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_ERASE as TileType, label: "Erase zone", key: "", cost: "Right-drag removes zone tiles (any of your zones; the selected one only, if one is selected)", category: "zones", drag: "rect" },
   // Walls & gates (2026-10-23). Every letter is taken (and [ is the Tower), so the gate uses ].
   {
@@ -109,6 +109,12 @@ export const TOOLS: ToolDef[] = [
     cost: `${buildCostText(TileType.Gate)}. 450 HP. Opens for your units, closed to monsters (lock it from its info panel); anyone may pass while it's open`,
     category: "combat",
   },
+  {tile:TileType.Rampart,label:"Rampart wall",key:"",cost:`${buildCostText(TileType.Rampart)}. Full-tile walkable stone wall. Enter from a ladder or large gate.`,category:"combat"},
+  {tile:TileType.WallLadder,label:"Wall ladder",key:"",cost:`${buildCostText(TileType.WallLadder)}. Place beside a rampart to climb onto or descend from its walkway.`,category:"combat"},
+  {tile:TileType.LargeGateH,label:"Large gate · horizontal",key:"",cost:`${buildCostText(TileType.LargeGateH)}. Two connected tiles. Gate controls apply to both halves; connects wall-top walkways.`,category:"combat"},
+  {tile:TileType.LargeGateV,label:"Large gate · vertical",key:"",cost:`${buildCostText(TileType.LargeGateV)}. Two connected tiles. Gate controls apply to both halves; connects wall-top walkways.`,category:"combat"},
+  {tile:TileType.WideBridgeH,label:"Wide drawbridge · horizontal",key:"",cost:`${buildCostText(TileType.WideBridgeH)}. Two tiles wide. Place on two moat tiles; raises and lowers as one gate.`,category:"combat"},
+  {tile:TileType.WideBridgeV,label:"Wide drawbridge · vertical",key:"",cost:`${buildCostText(TileType.WideBridgeV)}. Two tiles wide. Place on two moat tiles; raises and lowers as one gate.`,category:"combat"},
   // Moats & drawbridges (phase H): , and / are free keys. Right-drag lays a 4-connected moat line.
   {
     tile: TileType.Moat,

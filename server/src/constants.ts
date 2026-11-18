@@ -1,3 +1,4 @@
+import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
 // constants.ts: Tuning numbers and constant tables (pure data: no runtime imports of other server modules).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import path from "node:path";
@@ -796,8 +797,9 @@ export const NEIGHBOURS_8: ReadonlyArray<readonly [number, number]> = [
 export const SETTLEMENT_GARRISON_CAP_BY_TIER = [12, 24, 40];
 export const KEEP_GARRISON_PER_LEVEL = 10;
 // Modular building phase 1: windows are wall pieces (solid, breached like walls).
-export const WALL_TILES = [TileType.Wall, TileType.StoneWall, TileType.WoodWindow, TileType.StoneWindow];
+export const WALL_TILES = [TileType.Rampart, TileType.Wall, TileType.StoneWall, TileType.WoodWindow, TileType.StoneWindow];
 export const NO_COLONIST_TILES = [
+  ...FORT_BUILDABLE, ...FORT_GATES,
   TileType.ConstructionSite,
   TileType.Wall,
   TileType.StoneWall,
@@ -2037,6 +2039,7 @@ export const SAVE_DIR = process.env.COLONY_SAVE_DIR
 export const AUTOSAVE_ENABLED = !TEST_HOOKS || !!process.env.COLONY_SAVE_DIR;
 export const REACH = TILE_SIZE * 2.5;
 export const PLACEABLE_TILES = [
+  ...FORT_BUILDABLE, ...FORT_GATES,
   TileType.Wall,
   TileType.StoneWall,
   TileType.House,
@@ -2089,6 +2092,7 @@ export const PLACEABLE_TILES = [
   ...NEW_STRUCTURE_TILES,
 ];
 export const BREAKABLE_TILES = [
+  ...FORT_BUILDABLE, ...FORT_GATES,
   // Forts phase A: a fallen NPC wall's rubble can be cleared.
   TileType.Rubble,
   // Forts phase B: a fort's tents (soldiers can burn them down).
@@ -2372,6 +2376,9 @@ export const SPELL_AUTO_SUMMON_SCAN_TILES = 6;
 export const RAM_GATE_SCAN_TILES = 25;
 export const SIEGE_RETARGET_TICKS = 2 * TICK_RATE;
 export const BUILDING_NAMES: Partial<Record<TileType, string>> = {
+  [TileType.Rampart]:"Rampart wall",[TileType.WallLadder]:"Wall ladder",
+  [TileType.LargeGateH]:"Large gate",[TileType.LargeGateV]:"Large gate",
+  [TileType.WideBridgeH]:"Wide drawbridge",[TileType.WideBridgeV]:"Wide drawbridge",
   ...UPGRADE_NAMES,
   [TileType.BigHouse]: "Cottage",
   [TileType.HouseLevel2]: "Cottage",

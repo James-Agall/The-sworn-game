@@ -1,3 +1,4 @@
+import { FORT_BUILDABLE,FORT_GATES,isFortification,isFortPart,isLargeGate,isWideBridge,fortAnchor,fortPartner,wallConnects,moatConnects,connectionMask,wallWalkLift } from "@colony/shared/fortifications";
 import { loadTexture, loadTextures } from "./atlas";
 import "./characterCreator.css";
 import { initPerfOverlay } from "./perfOverlay";
@@ -6,6 +7,7 @@ import { chooseCharacter, renderCharacterEditor } from "./characterCreator";
 import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS, type HeroAppearance } from "@colony/shared/protocol";
 let pendingCreatorAppearance: HeroAppearance | null = null;
 import "./menuSkin.css";
+import "./economySkin.css";
 import { heroArt, loadHeroAppearanceArt, gearIconUrl } from "./heroAppearance";
 import { HERO_WEAPON_KINDS, type HeroVisual } from "@colony/shared/protocol";
 import { autumnFrame, directionalFrame, loadAutumnPeople, movementFacing, type Cardinal } from "./autumnAnimations";
@@ -28,7 +30,7 @@ import { createAnimalPanel, createLivestock } from "./animals";
 import { setupCreative } from "./creative";
 import { createLoadingScreen } from "./loadingScreen";
 import { makeStructureTextures, type StructureArt } from "./structureArt";
-import { ITEM_ICON, ROOM_STAT_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS, iconImg, roomRoleIconUrl } from "./spriteRegistry";
+import { STRUCTURE_FURNITURE_ART, ITEM_ICON, ROOM_STAT_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS, iconImg, roomRoleIconUrl } from "./spriteRegistry";
 import { setupZones } from "./zones";
 import { setupBlueprints } from "./blueprints";
 import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
@@ -315,6 +317,8 @@ async function main() {
     ...WALL_ART_URLS,
     ...MOAT_ART_URLS,
     ...STRUCTURE_ART_URLS,
+    ...Array.from({length:16},(_,i)=>`/sprites/fortifications/rampart_${String(i).padStart(2,"0")}.png`),
+    ...["gate_h_closed","gate_h_open","gate_v_closed","gate_v_open","bridge_h_closed","bridge_h_open","bridge_v_closed","bridge_v_open","ladder_h","ladder_v"].map(n=>`/sprites/fortifications/${n}.png`),
     ...["grain", "meat", "fruit", "wood", "rock", "iron", "wool", "cotton", "clothes", "tools", "luxuryItems", "gold", "alcohol"].map(res => `/sprites/icon-${res}.png`),
   ]);
   // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
@@ -1209,7 +1213,7 @@ async function main() {
     const prev = gateFlags;
     gateFlags = next;
     for (const index of new Set([...prev.keys(), ...next.keys()])) {
-      if (shown(prev.get(index)) === shown(next.get(index)) || (tiles[index] !== TileType.Gate && tiles[index] !== TileType.Drawbridge && !isDoorTile(tiles[index]))) continue;
+      if (shown(prev.get(index)) === shown(next.get(index)) || (tiles[index] !== TileType.Gate && tiles[index] !== TileType.Drawbridge && !isDoorTile(tiles[index]) && !isLargeGate(tiles[index]) && !isWideBridge(tiles[index]))) continue;
       const { tx, ty } = indexToTile(index);
       setTileSprite(tx, ty, tiles[index]);
     }
@@ -1434,6 +1438,7 @@ async function main() {
   }
   // A part tile's anchor (any other tile is its own).
   function anchorOfClient(x: number, y: number): { x: number; y: number } {
+    if(isFortPart(footTile(x,y)))return fortAnchor(footTile,x,y);
     if (footTile(x, y) !== TileType.BuildingPart) return { x, y };
     return footprintAnchorOf(footTile, footSize, x, y) ?? { x, y };
   }
@@ -1481,6 +1486,14 @@ async function main() {
       if (SEASON_TREE_TILES.has(t)) setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), t);
     }
   }
+  function fortArtFor(x:number,y:number,t:number):Texture|undefined {
+    if(isFortPart(t))return;
+    let name:string|undefined;
+    if(t===TileType.Rampart){const mask=connectionMask(tileAt,x,y,wallConnects);name=`rampart_${String(mask).padStart(2,"0")}`;}
+    else if(t===TileType.WallLadder)name=tileAt(x-1,y)===TileType.Rampart||tileAt(x+1,y)===TileType.Rampart?"ladder_h":"ladder_v";
+    else if(isLargeGate(t)||isWideBridge(t)){const horizontal=t===TileType.LargeGateH||t===TileType.WideBridgeH;const open=((gateFlags.get(y*worldTilesX+x)??0)&(GATE_FLAG_OPEN|GATE_FLAG_OVERRUN))!==0;name=`${isLargeGate(t)?'gate':'bridge'}_${horizontal?'h':'v'}_${open?'open':'closed'}`;}
+    return name?optionalTextures[`/sprites/fortifications/${name}.png`]:undefined;
+  }
   function setTileSprite(tx: number, ty: number, tile: number) {
     const index = ty * worldTilesX + tx;
     const site = tile === TileType.ConstructionSite ? constructionSites.get(index) : undefined;
@@ -1502,8 +1515,10 @@ async function main() {
     const moatArt = moatArtFor(tx, ty, artTile, !!site);
     const structArt = structureArtFor(tx, ty, artTile, !!site);
     const autumnDamage = autumnBuildingDamage(artTile, level, damagedBuildings.get(index) ?? 1000, !!site, index);
-    const texture = tile === TileType.BuildingPart
+    const fortTexture=fortArtFor(tx,ty,artTile);
+    const texture = tile === TileType.BuildingPart || isFortPart(tile)
       ? undefined
+      : fortTexture ? fortTexture
       : structArt
       ? structArt.texture
       : moatArt
@@ -1556,6 +1571,14 @@ async function main() {
     else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
     // Stardew phase 5b: trees take the season's tint.
     else if (SEASON_TREE_TILES.has(tile)) sprite.tint = mulTint(sprite.tint as number, seasonTreeTint);
+    if(fortTexture){
+      const p=fortPartner(artTile),w=p?.dx===1?2:1,h=p?.dy===1?2:1;
+      sprite.anchor.set(.5,1);sprite.rotation=0;sprite.scale.set(tileSize/64);
+      if(artTile===TileType.Rampart)sprite.height=tileSize*1.5;
+      sprite.position.set((tx+w/2)*tileSize,(ty+h)*tileSize);sprite.zIndex=(ty+h-1)*worldTilesX+tx+w-1;
+      if(!site&&(damagedBuildings.get(index)??1000)<500)sprite.tint=0xa99988;
+      return;
+    }
     if (structArt) {
       sprite.zIndex = index;
       // Gap closure G1: a 2-tile furniture piece: its art stretched over both tiles (turned when the piece is turned),
@@ -1639,7 +1662,7 @@ async function main() {
   }
 
   // Modular building phase 1: doors and windows join the wall runs.
-  const isWallTile = (t: number) => t === TileType.Wall || t === TileType.StoneWall || t === TileType.Gate || isDoorTile(t) || isWindowTile(t);
+  const isWallTile = wallConnects;
 
   // Modular building: the art for a door / window / floor / bed / furniture piece at (tx, ty), else undefined.
   // Doors and windows run along the wall they sit in (east-west unless walls are only north / south).
@@ -1653,7 +1676,7 @@ async function main() {
     const flags = site ? 0 : (gateFlags.get(ty * worldTilesX + tx) ?? 0);
     return STRUCTURE_TEXTURES.door(stone, horizontal, (flags & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0);
   }
-  const isMoatTile = (t: number) => t === TileType.Moat || t === TileType.Drawbridge;
+  const isMoatTile = moatConnects;
 
   // Moat piece / drawbridge art (SPRITES.md #72-73) for (tx, ty), or undefined for the stand-in. A moat
   // being dug shows the dig site; a drawbridge is lowered while its gate is open (or overrun).
@@ -1700,7 +1723,7 @@ async function main() {
       (damaged ? WALL_PIECE_TEXTURES.get(wood ? "woodWallDmg" : "stoneWallDmg") : undefined) ??
       WALL_PIECE_TEXTURES.get(wood ? "woodWall" : "stoneWall");
     if (!pieces) return undefined;
-    const joins = (t: number) => t === artTile || t === TileType.Gate || isDoorTile(t) || isWindowTile(t);
+    const joins = wallConnects;
     return pieces[(joins(n) ? 1 : 0) | (joins(e) ? 2 : 0) | (joins(s) ? 4 : 0) | (joins(w) ? 8 : 0)];
   }
 
@@ -2531,6 +2554,8 @@ async function main() {
     }
     updateWound(entry, p.hp, p.maxHp, p.x, p.y - (p.mounted ? MOUNTED_LIFT_PX : 0),
       COLONIST_WOUND_SIZE * (p.mounted ? 1.4 : 1), false, !entry.sprite.visible);
+    const deckLift=wallWalkLift(tileAt(Math.floor(p.x/TILE_SIZE),Math.floor(p.y/TILE_SIZE)));
+    entry.sprite.y-=deckLift;entry.hpBar.y-=deckLift;if(entry.marker)entry.marker.y-=deckLift;
   }
 
   function syncPlayers(snapshot: PlayerSnapshot[]) {
@@ -2556,7 +2581,7 @@ async function main() {
       sprite.scale.set(COLONIST_SPRITE_HEIGHT / texture.height);
       return sprite;
     });
-    entry.sprite.position.set(c.x, c.y);
+    entry.sprite.position.set(c.x,c.y-wallWalkLift(tileAt(Math.floor(c.x/TILE_SIZE),Math.floor(c.y/TILE_SIZE))));
     entry.hpBar.position.set(c.x, c.y - 18);
 
     if (c.kind === "wagon") {
@@ -2877,7 +2902,7 @@ async function main() {
       sprite.tint = MOB_TINT[m.kind] ?? 0xffffff;
       return sprite;
     });
-    entry.sprite.position.set(m.x, m.y);
+    entry.sprite.position.set(m.x,m.y-wallWalkLift(tileAt(Math.floor(m.x/TILE_SIZE),Math.floor(m.y/TILE_SIZE))));
     // Bar just above the sprite's top edge, matching the player's "height / 2 + 4" convention.
     const topOffset = texture ? (texture.height * scale * mobRenderScale(m)) / 2 + 4 : visual.radius + 9;
     entry.hpBar.position.set(m.x, m.y - topOffset);
@@ -2979,7 +3004,7 @@ async function main() {
       sprite.scale.set(variant.idleScale);
       return sprite;
     });
-    entry.sprite.position.set(m.x, m.y);
+    entry.sprite.position.set(m.x,m.y-wallWalkLift(tileAt(Math.floor(m.x/TILE_SIZE),Math.floor(m.y/TILE_SIZE))));
     entry.hpBar.position.set(m.x, m.y - (variant.idle.height * variant.idleScale * mobRenderScale(m)) / 2 - 4);
     if (m.boss) drawHpBar(entry.hpBar, m.hp, m.maxHp, 0xe03020);
     const sprite = entry.sprite instanceof Sprite ? entry.sprite : null;
@@ -4644,7 +4669,18 @@ async function main() {
     for (const tool of TOOLS) {
       const btn = document.createElement("button");
       btn.className = "tool-btn";
-      btn.textContent = tool.key ? `${tool.label} (${tool.key})` : tool.label;
+      const toolIcons:Record<number,string>={
+        [ZONE_TOOL_WHEAT]:'crops/crop_wheat_stage5',[ZONE_TOOL_HEMP]:'crops/hemp_ripe',
+        [ZONE_TOOL_STOCKPILE]:'structure/chest',[ZONE_TOOL_HOME]:'cottage',[ZONE_TOOL_ANIMAL]:'fortifications/fence_h',
+        [ZONE_TOOL_ERASE]:'icons/tool_hoe',[TileType.Empty]:'icons/tool_pickaxe',[BLUEPRINT_TOOL]:'icons/work_building',
+        [ROOM_TOOL_WOOD]:'woodWall',[ROOM_TOOL_STONE]:'stoneWall',
+        [TileType.WoodFloor]:'structure/floor_wood_1',[TileType.StoneFloor]:'structure/floor_stone_1',
+        [TileType.WoodDoor]:'structure/door_wood_h_closed',[TileType.StoneDoor]:'structure/door_stone_h_closed',
+        [TileType.WoodWindow]:'structure/window_wood_h',[TileType.StoneWindow]:'structure/window_stone_h',
+      };
+      const name=toolIcons[tool.tile]??TILE_OPTIONAL_ART[tool.tile]??TILE_SPRITE_FILES[tool.tile]??'icons/work_building';
+      const icon=iconImg(STRUCTURE_FURNITURE_ART[tool.tile]??`/sprites/${name}.png`,28,tool.label);icon.className='build-tool-icon';
+      btn.append(icon,document.createTextNode(tool.key ? `${tool.label} (${tool.key})` : tool.label));
       btn.addEventListener("click", () => {
         selectTool(tool.tile, true);
         btn.blur();
@@ -4735,6 +4771,8 @@ async function main() {
   const craftPanelEl = document.getElementById("craft-panel")!;
   const craftListEl = document.getElementById("craft-list")!;
   const craftItemsEl = document.getElementById("craft-items")!;
+  const craftSearch=document.createElement("input");craftSearch.type="search";craftSearch.placeholder="Find a recipe or workstation…";craftSearch.setAttribute("aria-label","Search crafting recipes");craftSearch.className="craft-search";craftListEl.before(craftSearch);craftSearch.addEventListener("input",()=>renderCraftPanel(true));
+  const itemArt=(id:string)=>ITEM_ICON[`item:${id}`];
   const craftBtn = document.getElementById("craft-btn") as HTMLButtonElement;
   const itemTotal = (p: ProgressionSnapshot | undefined, id: ItemId) => (p?.items[id] ?? []).reduce((a, b) => a + b, 0);
   const STOCK_LABEL: Record<string, string> = Object.fromEntries(GOODS_GROUPS.flatMap((g) => g.goods.map((good) => [good.key, good.label])));
@@ -4791,7 +4829,10 @@ async function main() {
       craftListEl.textContent = "Nothing to craft yet.";
       return;
     }
-    for (const r of PROGRESSION.recipes.filter((rc) => rc.station === "hand")) {
+    for (const r of PROGRESSION.recipes) {
+      const stationLabel=r.station==="hand"?"By hand":progressionBuildingLabel(r.station);
+      if(craftSearch.value&&!`${r.label} ${stationLabel}`.toLowerCase().includes(craftSearch.value.toLowerCase()))continue;
+      const hand=r.station==="hand";
       const c = p.crafts.find((x) => x.id === r.id);
       const row = document.createElement("div");
       row.className = "craft-row";
@@ -4800,6 +4841,8 @@ async function main() {
       const name = document.createElement("div");
       name.className = "craft-name";
       name.textContent = r.label;
+      const art=itemArt(r.output);if(art){const image=iconImg(art,40,r.label);image.className="craft-art";row.append(image);}
+      const station=document.createElement("div");station.className="craft-station";station.textContent=hand?"Handcrafted":`${stationLabel} · automatic production`;main.append(station);
       const have = document.createElement("span");
       have.className = "craft-have";
       have.textContent = `(${itemTotal(p, r.output)} in store${r.amount > 1 ? `, makes ${r.amount}` : ""})`;
@@ -4818,9 +4861,9 @@ async function main() {
         inputs.append(...(i > 0 ? [" + "] : []), span);
       });
       main.append(name, inputs);
-      const ok = p.open || (c?.ok ?? false);
+      const ok = p.open || (hand ? (c?.ok ?? false) : (p.built??[]).includes(r.station as TileType));
       if (!ok) {
-        const why = c?.why ?? "";
+        const why = hand ? c?.why ?? "" : `Needs ${stationLabel}`;
         const needs = document.createElement("div");
         needs.className = "craft-needs";
         needs.textContent = `needs: ${why.replace(/^Needs /, "").replace(/^Not enough (.*)$/, "more $1") || "its inputs"}`;
@@ -4828,10 +4871,10 @@ async function main() {
       }
       const b = document.createElement("button");
       b.className = "econ-btn";
-      b.textContent = "Craft";
-      b.disabled = !ok;
+      b.textContent = hand ? "Craft" : "Automatic";
+      b.disabled = !ok || !hand;
       b.addEventListener("click", () => {
-        sendMessage({ type: "craftItem", recipe: r.id });
+        if(hand) sendMessage({ type: "craftItem", recipe: r.id });
         b.blur();
       });
       row.append(main, b);
@@ -4929,6 +4972,8 @@ async function main() {
         b.textContent = s.label;
         const small = document.createElement("small");
         small.textContent = s.note;
+        const art=st.building!==undefined?((TILE_OPTIONAL_ART[st.building]??TILE_SPRITE_FILES[st.building])?`/sprites/${TILE_OPTIONAL_ART[st.building]??TILE_SPRITE_FILES[st.building]}.png`:undefined):itemArt(st.item);
+        if(art){const image=iconImg(art,36,s.label);image.className="pt-art";chip.append(image);}
         chip.append(b, small);
         chip.title = `${s.label}: ${s.note}`;
         steps.append(chip);
@@ -9163,7 +9208,8 @@ async function main() {
     placementGhost.position.set(tile.tileX * tileSize + tileSize / 2, tile.tileY * tileSize + tileSize / 2);
     // Multi-tile build tools: a w x h ghost from the hovered (top-left) tile, red when a part tile is taken
     // (placing on the same building upgrades it instead, so that stays white).
-    const fp = FURNITURE_FOOTPRINT[currentTool] ? furnitureFootprint(currentTool, furnitureRot) : footprintOf(currentTool);
+    const fort=fortPartner(currentTool);
+    const fp = fort ? {w:fort.dx===1?2:1,h:fort.dy===1?2:1} : FURNITURE_FOOTPRINT[currentTool] ? furnitureFootprint(currentTool, furnitureRot) : footprintOf(currentTool);
     const hovered = tiles[tile.tileY * worldTilesX + tile.tileX];
     const upgrading = hovered === currentTool || (hovered === TileType.BuildingPart && (() => {
       const a = anchorOfClient(tile.tileX, tile.tileY);
@@ -9172,7 +9218,7 @@ async function main() {
     const blocked = !upgrading && (fp.w > 1 || fp.h > 1) &&
       footprintPartOffsets(fp).some(([dx, dy]) => {
         const t = footTile(tile.tileX + dx, tile.tileY + dy);
-        return t !== TileType.Empty && !(FURNITURE_FOOTPRINT[currentTool] && isFloorTile(t));
+        return isWideBridge(currentTool) ? t!==TileType.Moat : t !== TileType.Empty && !(FURNITURE_FOOTPRINT[currentTool] && isFloorTile(t));
       });
     const ghost = upgrading ? { w: 1, h: 1 } : fp;
     cursorHighlight
@@ -9549,3 +9595,7 @@ function setupMainMenu() {
 }
 
 setupMainMenu();
+
+// The control strip can wrap at different window sizes and text scales.
+const toolbarForLayout=document.getElementById('control-buttons');
+if(toolbarForLayout){const placeLedger=()=>document.documentElement.style.setProperty('--toolbar-bottom',`${toolbarForLayout.getBoundingClientRect().bottom+8}px`);new ResizeObserver(placeLedger).observe(toolbarForLayout);placeLedger();}

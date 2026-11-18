@@ -21,7 +21,7 @@ import {
   biomeAt, biomeSpeedMultiplier, clamp, getBuildingLevel, inBounds, levelBonus, resourceKey, tileIndex, tileOfPixel,
   tileToPixelCenter,
 } from "./tiles.js";
-import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
+import { canStepPixel, advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { industrialSynergyMultiplier, releaseResourceReservation } from "./economy.js";
 import { isInReservedGrounds, randInt } from "./worldgen.js";
 import { TOWN_CENTER_TILE, productionSpeedMultiplier } from "./colonists.js";
@@ -175,16 +175,16 @@ export function stepWildlife(a: Wildlife, dirX: number, dirY: number, speed: num
   const ny = a.y + (dirY / len) * step;
   const clampX = clamp(nx, TILE_SIZE / 2, state.worldWidth - TILE_SIZE / 2);
   const clampY = clamp(ny, TILE_SIZE / 2, state.worldHeight - TILE_SIZE / 2);
-  if (isWalkablePixel(clampX, clampY)) {
+  if (canStepPixel(a.x,a.y,clampX,clampY)) {
     a.x = clampX;
     a.y = clampY;
     return true;
   }
-  if (isWalkablePixel(clampX, a.y)) {
+  if (canStepPixel(a.x,a.y,clampX,a.y)) {
     a.x = clampX;
     return true;
   }
-  if (isWalkablePixel(a.x, clampY)) {
+  if (canStepPixel(a.x,a.y,a.x,clampY)) {
     a.y = clampY;
     return true;
   }

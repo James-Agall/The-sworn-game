@@ -32,11 +32,12 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
   const ground = new Container();
   const cropG = new Graphics();
   const pileG = new Graphics();
+  const fenceLayer=new Container();
   const spriteLayer = new Container();
-  ground.addChild(cropG, pileG, spriteLayer);
+  ground.addChild(cropG, pileG, spriteLayer, fenceLayer);
   const art = new Map<string, Texture>();
   const cropNames = ["soil_tilled", "soil_watered_dark", "crop_wheat_stage1", "crop_wheat_stage3", "crop_wheat_stage5", "hemp_sown", "hemp_growing", "hemp_ripe"];
-  const urls = [...cropNames.map(n => `/sprites/crops/${n}.png`), ...PILE_RESOURCES.map(n => `/sprites/icon-${n}.png`)];
+  const urls = ["/sprites/fortifications/fence_h.png","/sprites/fortifications/fence_v.png",...cropNames.map(n => `/sprites/crops/${n}.png`), ...PILE_RESOURCES.map(n => `/sprites/icon-${n}.png`)];
   void Promise.all(urls.map(async url => { try { art.set(url, await loadTexture(url)); } catch { /* Keep the fallback. */ } })).then(() => draw());
   const overlay = new Graphics();
   let latest: ZonesSnapshot = { zones: [], crops: [], piles: [] };
@@ -189,6 +190,7 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
   function draw() {
     const ts = opts.tileSize();
     const W = opts.worldTilesX();
+    for(const child of fenceLayer.removeChildren())child.destroy();
     for (const child of spriteLayer.removeChildren()) child.destroy();
     const place = (url: string, x: number, y: number, size: number, tint = 0xffffff) => {
       const texture = art.get(url); if (!texture) return false;
@@ -241,6 +243,13 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
       const y = Math.floor(i / W) * ts;
       if (place(`/sprites/icon-${res}.png`, x + ts * .2, y + ts * .2, ts * .6)) continue;
       pileG.roundRect(x + ts * 0.3, y + ts * 0.35, ts * 0.4, ts * 0.45, 4).fill(PILE_COLOR[res] ?? 0xffffff).stroke({ width: 1, color: 0x2a2010 });
+    }
+    for(const z of latest.zones.filter(z=>z.kind==="animal")){
+      const cells=new Set(rleDecode(z.tiles));
+      // One small opening at the southernmost edge; a short rail above it reads as the gate.
+      const south=[...cells].filter(i=>!cells.has(i+W)).sort((a,b)=>b-a),gate=south[0];
+      const fence=(i:number,side:number)=>{const vertical=side===1||side===3,url=`/sprites/fortifications/fence_${vertical?'v':'h'}.png`,texture=art.get(url);if(!texture)return;const s=new Sprite(texture);const x=i%W*ts,y=Math.floor(i/W)*ts;s.width=vertical?ts*.13:ts;s.height=vertical?ts:ts*.26;s.position.set(x+(side===1?ts-ts*.065:side===3?-ts*.065:0),y+(side===2?ts-ts*.2:side===0?-ts*.2:0));if(i===gate&&side===2){s.width=ts*.42;s.x+=ts*.58;}fenceLayer.addChild(s);};
+      for(const i of cells){if(!cells.has(i-W))fence(i,0);if(i%W===W-1||!cells.has(i+1))fence(i,1);if(!cells.has(i+W))fence(i,2);if(i%W===0||!cells.has(i-1))fence(i,3);}
     }
     // Overlay: a translucent fill per tile + an outline where the zone ends; the selected zone brighter.
     const fillA = active ? 0.22 : 0.07;
