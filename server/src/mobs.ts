@@ -43,6 +43,7 @@ import { playerMaxHp } from "./heroes.js";
 import { resetWorld } from "./saves.js";
 import { recordMobStrike } from "./net.js";
 import { raidTheft } from "./structures.js";
+import { paddockFenceTarget } from "./paddocks.js";
 
 export function mobBodyRadius(m: Mob): number {
   return Math.min(MOB_BODY_RADIUS_MAX, (MOB_BODY_RADIUS[m.kind] ?? 8) * mobSizeScale(m));
@@ -241,6 +242,13 @@ export function pickMobTarget(mob: Mob): PickedTarget | null {
   // Battle engine phase 7: an engaged regiment's mob closes on the regiment it fights instead.
   const foe = regimentFoeFor(mob);
   if (foe && !isWarded(foe.x, foe.y, wards)) return { type: "colonist", id: foe.id };
+  // Animal paddocks (paddocks.ts): an occupied paddock's fence / gate in reach (not dormant guardians / site workers).
+  if (!mob.siteWorker && !(mob.siteId && !mob.guardianActive)) {
+    const fence = paddockFenceTarget(mob.x, mob.y);
+    if (fence && !isWarded(fence.x * TILE_SIZE + TILE_SIZE / 2, fence.y * TILE_SIZE + TILE_SIZE / 2, wards)) {
+      return { type: "building", id: resourceKey(fence.x, fence.y), approach: fence.approach };
+    }
+  }
   // No guard / player to fight: the nearest unwarded building (Town Centers included).
   // Battle engine phase 3: re-picked from the same tile within BUILDING_PICK_CACHE_TICKS, the last answer is
   // reused while its target still resolves (each pick is up to 2 x BUILDING_TARGET_CANDIDATES Dijkstra searches;
@@ -362,11 +370,11 @@ export function buildingTargetCandidates(): TileCoord[] {
   // Also rebuilt every few seconds, in case some code path changed a tile without a tileUpdate.
   if (state.buildingTargetsDirty || state.cycleTick - state.buildingTargetsBuiltTick > TICK_RATE * 5 || state.cycleTick < state.buildingTargetsBuiltTick) {
     state.buildingTargetTiles = [];
-    BUILDING_TARGET_TYPES ??= tileTypesWhere((t) => isDamageableBuilding(t) && !isWallTile(t) && !isGateTile(t) && t !== TileType.Moat);
+    BUILDING_TARGET_TYPES ??= tileTypesWhere((t) => isDamageableBuilding(t) && !isWallTile(t) && !isGateTile(t) && t !== TileType.Moat && t !== TileType.PropFence);
     for (const i of tileIndicesOfAny(BUILDING_TARGET_TYPES)) {
       const t = state.tiles[i] as TileType;
       // Forts phase A: mobs never go for an NPC site's buildings (no NPC-vs-NPC fighting in v1).
-      if (isDamageableBuilding(t) && !isWallTile(t) && !isGateTile(t) && t !== TileType.Moat && ownerAt(i) === 0) state.buildingTargetTiles.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
+      if (isDamageableBuilding(t) && !isWallTile(t) && !isGateTile(t) && t !== TileType.Moat && t !== TileType.PropFence && ownerAt(i) === 0) state.buildingTargetTiles.push({ x: i % state.WORLD_TILES_X, y: Math.floor(i / state.WORLD_TILES_X) });
     }
     state.buildingTargetsDirty = false;
     state.buildingTargetsBuiltTick = state.cycleTick;

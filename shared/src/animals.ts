@@ -229,6 +229,36 @@ export const KEEPER_TOOL_CHORE_MULT = 0.75;
 export const MANURE_PER_DAY: Record<Species, number> = { chicken: 0.1, cow: 0.5, pig: 0.4, sheep: 0.25, horse: 0.5 };
 export const FERTILISER_GROWTH_BONUS = 0.25;
 
+// ---- Animal paddocks (2026-11-18, docs PLAN-agri-industry-winter-mines.md phase 1) ----
+// A PADDOCK is an Animal area zone closed in: a flood fill from its open ground (4-connected, gates count as shut)
+// stops at every solid tile (fences, gates, walls, water, buildings, trees) within PADDOCK_MAX_TILES and meets at least
+// one fence / gate / wall. Its tiles are the whole enclosed ground (not only the painted ones). Otherwise the area is
+// OPEN: nearby houses still graze it as before (ANIMAL_AREA_RANGE_TILES, GRAZE_FEED_SHARE), but nothing is kept in.
+// Fences (PropFence, 2 wood) and fence gates (TileType.FenceGate, 4 wood) are ordinary build tools.
+export const PADDOCK_MAX_TILES = 400;
+// A house links to the nearest own fenced paddock with a tile within PADDOCK_LINK_RANGE_TILES (Chebyshev), or to the
+// one picked in its panel (within PADDOCK_CHOICE_RANGE_TILES; "None" keeps the old open-area behaviour). Its animals
+// come out at the paddock tile nearest the house, wander only inside, and go back in from there.
+export const PADDOCK_LINK_RANGE_TILES = ANIMAL_AREA_RANGE_TILES;
+export const PADDOCK_CHOICE_RANGE_TILES = 30;
+// Grazing (spring - autumn; nothing in winter). Each linked animal needs PADDOCK_TILES_PER_ANIMAL tiles of grass
+// (babies x BABY_NEEDS_MULT): need N. Each tile holds grass 0-1 (a new paddock is full). Coverage c = min(1, total grass
+// / N); the feeder covers the rest: feed x (1 - PADDOCK_GRAZE_FEED_SHARE x c). Each day every tile loses
+// PADDOCK_GRASS_EATEN_PER_DAY x N / tiles and regrows PADDOCK_GRASS_REGROW_PER_DAY (x PADDOCK_BARE_REGROW_MULT while
+// bare, below PADDOCK_BARE_GRASS): at N <= tiles the grass holds; overgrazed it goes bare and recovers slowly.
+export const PADDOCK_TILES_PER_ANIMAL: Record<Species, number> = { chicken: 1, cow: 8, pig: 4, sheep: 4, horse: 8 };
+export const PADDOCK_GRAZE_FEED_SHARE = 0.8;
+export const PADDOCK_GRASS_EATEN_PER_DAY = 0.15;
+export const PADDOCK_GRASS_REGROW_PER_DAY = 0.15;
+export const PADDOCK_BARE_GRASS = 0.2;
+export const PADDOCK_BARE_REGROW_MULT = 0.5;
+// A paddock with Water / Moat inside its fence line or on it (a pond, a river bank) fills its houses' troughs daily.
+// Fence HP (mobs break them); hostile mobs within PADDOCK_PREDATOR_RANGE_TILES of an occupied paddock's fence or gate
+// go for it (when no guard / player is in reach). An animal inside a fenced paddock cannot be killed from outside it.
+export const PADDOCK_FENCE_HP = 120;
+export const PADDOCK_GATE_HP = 200;
+export const PADDOCK_PREDATOR_RANGE_TILES = 8;
+
 // ---- snapshot ----
 // Per player `livestock` {a, h}: a = flattened LIVESTOCK_STRIDE numbers per animal outdoors: [id, species code, x, y,
 // flags]; h = flattened [tile index, house flags] for the player's clan's houses.
@@ -280,4 +310,7 @@ export interface AnimalHouseInfo {
   keeper: string;
   buy: { species: Species; male: boolean; label: string; gold: number; ok: boolean; reason: string }[];
   notes: string[];
+  // Animal paddocks: the panel's choice (null = auto, -1 = none, else a zone id), the paddock linked now ("" = none)
+  // and the own fenced paddocks within PADDOCK_CHOICE_RANGE_TILES.
+  paddock: { choice: number | null; linked: string; options: { id: number; label: string }[] };
 }

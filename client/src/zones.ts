@@ -23,6 +23,8 @@ export interface ZonesUi {
   cropAt(i: number): { stage: number; watered: boolean } | null;
 }
 
+// Animal paddocks: the outline of a fenced paddock's ground.
+const PADDOCK_OUTLINE = 0xf0e0a0;
 const PILE_COLOR: Record<string, number> = {
   grain: 0xe8c860, meat: 0xc05050, fruit: 0xd06090, wood: 0x8a5a2b, rock: 0x9a9ca1, iron: 0x6a6a78, wool: 0xf0f0e8,
   cotton: 0xd8e0c0, clothes: 0x6080c0, tools: 0x707070, luxuryItems: 0xc0a0e0, gold: 0xf0d040, alcohol: 0xa06030,
@@ -32,12 +34,13 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
   const ground = new Container();
   const cropG = new Graphics();
   const pileG = new Graphics();
-  const fenceLayer=new Container();
   const spriteLayer = new Container();
-  ground.addChild(cropG, pileG, spriteLayer, fenceLayer);
+  // Animal paddocks: bare (overgrazed) ground, under the sprites.
+  const paddockG = new Graphics();
+  ground.addChild(paddockG, cropG, pileG, spriteLayer);
   const art = new Map<string, Texture>();
   const cropNames = ["soil_tilled", "soil_watered_dark", "crop_wheat_stage1", "crop_wheat_stage3", "crop_wheat_stage5", "hemp_sown", "hemp_growing", "hemp_ripe"];
-  const urls = ["/sprites/fortifications/fence_h.png","/sprites/fortifications/fence_v.png",...cropNames.map(n => `/sprites/crops/${n}.png`), ...PILE_RESOURCES.map(n => `/sprites/icon-${n}.png`)];
+  const urls = [...cropNames.map(n => `/sprites/crops/${n}.png`), ...PILE_RESOURCES.map(n => `/sprites/icon-${n}.png`)];
   void Promise.all(urls.map(async url => { try { art.set(url, await loadTexture(url)); } catch { /* Keep the fallback. */ } })).then(() => draw());
   const overlay = new Graphics();
   let latest: ZonesSnapshot = { zones: [], crops: [], piles: [] };
@@ -162,9 +165,17 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
         row.append(box, st, bar, capText);
       }
       if (z.kind === "animal") {
+        // Animal paddocks: fenced (tiles, animals, grass) or open (why).
+        const p = z.paddock;
         const n = document.createElement("div");
-        n.style.opacity = "0.7";
-        n.textContent = "Placeholder: animals use it from a later phase";
+        n.style.cssText = "opacity: 0.85; margin-top: 2px;";
+        if (p?.fenced) {
+          n.textContent = `Fenced (${p.size} tiles). Paddock: ${Math.round(p.need)}/${p.size} tiles, ${p.animals} animal${p.animals === 1 ? "" : "s"} · grass ${p.grass}%`;
+          n.title = "Tiles the animals need (cow / horse 8, pig / sheep 4, chicken 1; young half) of the tiles fenced. Over the size the grass is eaten bare; bare ground regrows slowly";
+        } else {
+          n.textContent = "Open (animals can't be kept): nearby animals still graze it";
+          n.title = `Why: ${p?.why ?? "not checked yet"}. Close it in with Fences and a Fence Gate (Farming tab), walls or water`;
+        }
         row.append(n);
       }
       rows.push(row);
@@ -190,8 +201,8 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
   function draw() {
     const ts = opts.tileSize();
     const W = opts.worldTilesX();
-    for(const child of fenceLayer.removeChildren())child.destroy();
     for (const child of spriteLayer.removeChildren()) child.destroy();
+    paddockG.clear();
     const place = (url: string, x: number, y: number, size: number, tint = 0xffffff) => {
       const texture = art.get(url); if (!texture) return false;
       const sprite = new Sprite(texture); sprite.position.set(x, y); sprite.width = size; sprite.height = size; sprite.tint = tint; spriteLayer.addChild(sprite); return true;
@@ -244,16 +255,29 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
       if (place(`/sprites/icon-${res}.png`, x + ts * .2, y + ts * .2, ts * .6)) continue;
       pileG.roundRect(x + ts * 0.3, y + ts * 0.35, ts * 0.4, ts * 0.45, 4).fill(PILE_COLOR[res] ?? 0xffffff).stroke({ width: 1, color: 0x2a2010 });
     }
-    for(const z of latest.zones.filter(z=>z.kind==="animal")){
-      const cells=new Set(rleDecode(z.tiles));
-      // One small opening at the southernmost edge; a short rail above it reads as the gate.
-      const south=[...cells].filter(i=>!cells.has(i+W)).sort((a,b)=>b-a),gate=south[0];
-      const fence=(i:number,side:number)=>{const vertical=side===1||side===3,url=`/sprites/fortifications/fence_${vertical?'v':'h'}.png`,texture=art.get(url);if(!texture)return;const s=new Sprite(texture);const x=i%W*ts,y=Math.floor(i/W)*ts;s.width=vertical?ts*.13:ts;s.height=vertical?ts:ts*.26;s.position.set(x+(side===1?ts-ts*.065:side===3?-ts*.065:0),y+(side===2?ts-ts*.2:side===0?-ts*.2:0));if(i===gate&&side===2){s.width=ts*.42;s.x+=ts*.58;}fenceLayer.addChild(s);};
-      for(const i of cells){if(!cells.has(i-W))fence(i,0);if(i%W===W-1||!cells.has(i+1))fence(i,1);if(!cells.has(i+W))fence(i,2);if(i%W===0||!cells.has(i-1))fence(i,3);}
+    // Animal paddocks: bare (overgrazed) tiles always show as trampled earth; real fences are tiles (main.ts).
+    for (const z of latest.zones) {
+      for (const i of rleDecode(z.paddock?.bare ?? [])) {
+        paddockG.rect((i % W) * ts + 2, Math.floor(i / W) * ts + 2, ts - 4, ts - 4).fill({ color: 0x8a6a44, alpha: 0.45 });
+      }
     }
     // Overlay: a translucent fill per tile + an outline where the zone ends; the selected zone brighter.
     const fillA = active ? 0.22 : 0.07;
     const edgeA = active ? 0.85 : 0.3;
+    // Animal paddocks: a fenced paddock's whole enclosed ground gets an outline (also outside the Zones tab, faintly).
+    for (const z of latest.zones) {
+      if (!z.paddock?.fenced || !z.paddock.area) continue;
+      const area = new Set(rleDecode(z.paddock.area));
+      const a = active ? 0.9 : 0.45;
+      for (const i of area) {
+        const tx = i % W;
+        const ty = Math.floor(i / W);
+        if (!area.has(i - W)) overlay.rect(tx * ts, ty * ts, ts, 3).fill({ color: PADDOCK_OUTLINE, alpha: a });
+        if (!area.has(i + W)) overlay.rect(tx * ts, (ty + 1) * ts - 3, ts, 3).fill({ color: PADDOCK_OUTLINE, alpha: a });
+        if (tx === 0 || !area.has(i - 1)) overlay.rect(tx * ts, ty * ts, 3, ts).fill({ color: PADDOCK_OUTLINE, alpha: a });
+        if (tx === W - 1 || !area.has(i + 1)) overlay.rect((tx + 1) * ts - 3, ty * ts, 3, ts).fill({ color: PADDOCK_OUTLINE, alpha: a });
+      }
+    }
     for (const z of latest.zones) {
       const color = ZONE_KIND_COLOR[z.kind];
       const sel = z.id === selectedId && active;

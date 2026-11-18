@@ -29,6 +29,7 @@ import { addItem, gatesOpen, itemCount, takeItem } from "./progression.js";
 import { tileIndicesOf } from "./chunks.js";
 import { roomAtIndex } from "./structures.js";
 import { cropGrowthMult, rainingNow } from "./calendar.js";
+import { ensurePaddocks, paddockGrassForSave, paddockSnapshot, restorePaddocks } from "./paddocks.js";
 
 export interface ZoneRec {
   id: number;
@@ -89,6 +90,16 @@ const W = () => state.WORLD_TILES_X;
 const bump = () => {
   version++;
 };
+// Animal paddocks (paddocks.ts): the Animal area zones, and the snapshot version (paddock changes resend it).
+export function animalZones(): ZoneRec[] {
+  return Array.from(zones.values()).filter((z) => z.kind === "animal");
+}
+export function zonesVersion(): number {
+  return version;
+}
+export function bumpZones() {
+  bump();
+}
 
 // ---- painting ----
 function tileOk(kind: ZoneKind, i: number, clan: number): boolean {
@@ -238,6 +249,8 @@ export function updateZones() {
     }
   }
   reconcileTallies();
+  // Animal paddocks: fence lines may have changed.
+  ensurePaddocks();
   // Workers that are gone (died, left the clan): their reservations go.
   for (const [id, job] of jobs) {
     if (colonists.has(id)) continue;
@@ -690,6 +703,7 @@ export function zonesSnapshotFor(clan: number): ZonesSnapshot {
       id: z.id, kind: z.kind, name: z.name, ...(z.crop ? { crop: z.crop } : {}), ...(z.filters ? { filters: z.filters } : {}),
       tiles: rleEncode(Array.from(z.tiles).sort((a, b) => a - b)),
       ...(z.kind === "stockpile" ? { stored, capacity: Math.round(zoneCapacity(z)), used: Math.round(zoneUsed(z)) } : {}),
+      ...(z.kind === "animal" ? { paddock: paddockSnapshot(z.id) } : {}),
     });
     for (const i of z.tiles) {
       const c = crops.get(i);
@@ -742,6 +756,8 @@ export function zonesForSave() {
       return c.plot === undefined ? base : [...base, c.plot, c.crop ? CROPS.indexOf(c.crop) : -1];
     }),
     piles: savedPiles,
+    // Animal paddocks: grass short of full, flattened [tile, permille] (older saves: none = full).
+    grass: paddockGrassForSave(),
   };
 }
 export type ZonesSave = ReturnType<typeof zonesForSave>;
@@ -779,6 +795,7 @@ export function restoreZones(s: ZonesSave | undefined) {
     crops.set(i, rec);
   }
   for (const [i, res, n, clan] of s?.piles ?? []) if (i >= 0 && i < state.tiles.length) piles.set(i, { res, n, clan });
+  restorePaddocks(s?.grass);
   bump();
 }
 

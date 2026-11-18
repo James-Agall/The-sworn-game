@@ -3,7 +3,9 @@ import {
   BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, BLACKSMITH_TOOLS_STOCK_CAP, buildCostText, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, PASTURE_YIELDS,
 } from "@colony/shared/buildings";
 import { TileType } from "@colony/shared/protocol";
-import { HOUSE_CAPACITY, HOUSE_SPECIES, SPECIES_LABEL, type HouseKind } from "@colony/shared/animals";
+import {
+  HOUSE_CAPACITY, HOUSE_SPECIES, PADDOCK_FENCE_HP, PADDOCK_GATE_HP, PADDOCK_GRAZE_FEED_SHARE, PADDOCK_MAX_TILES, SPECIES_LABEL, type HouseKind,
+} from "@colony/shared/animals";
 import { ROOM_TOOL_STONE, ROOM_TOOL_WOOD } from "@colony/shared/structures";
 import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
 import {
@@ -27,6 +29,15 @@ const ANIMAL_TOOLS: ToolDef[] = [
   animalTool(TileType.LivestockBarn, "barn", "Livestock Barn", "Cows give milk daily; horses too (not the farming Barn)."),
   animalTool(TileType.PigSty, "sty", "Pig Sty", "Pigs: the most meat when slaughtered."),
   animalTool(TileType.SheepPen, "pen", "Sheep Pen", "Wool every 3 days."),
+  // Animal paddocks: fence an Animal area in (fences, a gate, walls or water all round, up to PADDOCK_MAX_TILES inside).
+  {
+    tile: TileType.PropFence, label: "Fence", key: "", category: "farming",
+    cost: `${buildCostText(TileType.PropFence)} per piece, ${PADDOCK_FENCE_HP} HP. Right-drag lays a line. Close an Animal area in (fences, a Fence Gate, walls or water all round, up to ${PADDOCK_MAX_TILES} tiles inside) to make a paddock: nearby animals stay inside and graze it (up to ${Math.round(PADDOCK_GRAZE_FEED_SHARE * 100)}% of their feed)`,
+  },
+  {
+    tile: TileType.FenceGate, label: "Fence Gate", key: "", category: "farming",
+    cost: `${buildCostText(TileType.FenceGate)}, ${PADDOCK_GATE_HP} HP. A gate in a fence line: opens for your people, shut to monsters (lock it from its info panel)`,
+  },
 ];
 
 export type ToolCategory = "structure" | "blueprints" | "zones" | "combat" | "farming" | "industry" | "civic" | "trade";
@@ -99,7 +110,7 @@ export const TOOLS: ToolDef[] = [
   { tile: ZONE_TOOL_HEMP as TileType, label: "Hemp field", key: "", cost: `Growing zone, free: hemp for cloth (4 tiles = an old Hemp Field)`, category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_STOCKPILE as TileType, label: "Stockpile", key: "", cost: `Storage zone, free: haulers bring loose goods (harvests) to the nearest stockpile whose filters take them and that has room (${STOCKPILE_CAPACITY_PER_TILE} per tile, x${STOCKPILE_STOREROOM_CAPACITY_MULT} inside a storeroom; full: the next one, else the Town Center). Set filters in the zone list`, category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_HOME as TileType, label: "Home area", key: "", cost: "Idle villagers stroll here instead of round the Town Center", category: "zones", drag: "rect" },
-  { tile: ZONE_TOOL_ANIMAL as TileType, label: "Animal area", key: "", cost: "Fenced grazing area for nearby coops, barns, sties, sheep pens and stables. Fences follow every outside edge; a gate gives access", category: "zones", drag: "rect" },
+  { tile: ZONE_TOOL_ANIMAL as TileType, label: "Animal area", key: "", cost: "Grazing for nearby coops, barns, sties, sheep pens and stables. Open, the animals wander out round it; closed in with Fences and a Fence Gate (Farming tab) it is a paddock: they stay inside and graze more", category: "zones", drag: "rect" },
   { tile: ZONE_TOOL_ERASE as TileType, label: "Erase zone", key: "", cost: "Right-drag removes zone tiles (any of your zones; the selected one only, if one is selected)", category: "zones", drag: "rect" },
   // Walls & gates (2026-10-23). Every letter is taken (and [ is the Tower), so the gate uses ].
   {

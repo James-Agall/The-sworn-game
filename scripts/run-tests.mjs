@@ -54,7 +54,7 @@ const TREE_SUITES = new Set(["progression", "hero-tools"]);
 // roofed room and new Farm Plots / Hemp Fields: COLONY_LEGACY_BUILD=1 (state.legacyBuild, test hooks only) keeps that
 // open. Every suite gets it except the rooms / zones suites (ROOM_SUITES), which test the new rules.
 const LEGACY_BUILD = { COLONY_LEGACY_BUILD: "1" };
-const ROOM_SUITES = new Set(["rooms", "zones", "work-priorities", "animals"]);
+const ROOM_SUITES = new Set(["rooms", "zones", "work-priorities", "animals", "paddocks"]);
 // NO_SEASONS: suites written before Stardew phase 5b (2026-11-09) expect crops to grow in any season, no rain watering
 // and no daily water reset: COLONY_NO_SEASONS=1 (state.seasonsOff, test hooks only). Every suite gets it except the
 // calendar suite (SEASON_SUITES). The smoke test (its own server) runs with seasons on.
@@ -79,6 +79,7 @@ const SERVER_ENV = {
   zones: W80,
   "work-priorities": W80,
   animals: { ...W80, ...INSTANT },
+  paddocks: { ...W80, ...INSTANT },
   "hero-tools": W80,
   calendar: W80,
   interiors: INSTANT,

@@ -312,7 +312,24 @@ export function createAnimalPanel(deps: AnimalPanelDeps) {
       act({ op: "herd", on: !info.penned });
     });
     herd.append(call, ` ${info.outdoors} outdoors · ${info.sellVenue ? `selling to ${info.sellVenue}` : info.sellWhy}`);
-    row.replaceChildren(head, status, prod, list, buy, herd, notes);
+    // Animal paddocks: which fenced paddock the animals use (auto = the nearest; none = wander round the house).
+    const pad = document.createElement("div");
+    pad.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:4px";
+    const sel = document.createElement("select");
+    const opt = (value: string, label: string) => {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = label;
+      o.selected = String(info.paddock.choice ?? "auto") === value;
+      sel.append(o);
+    };
+    opt("auto", "Auto (nearest fenced paddock)");
+    opt("-1", "None (wander round the house)");
+    for (const o of info.paddock.options) opt(String(o.id), o.label);
+    sel.title = "Fence an Animal area in (Fences + a Fence Gate) to make a paddock";
+    sel.addEventListener("change", () => act({ op: "paddock", zoneId: sel.value === "auto" ? null : Number(sel.value) }));
+    pad.append("Paddock:", sel, info.paddock.linked ? ` using ${info.paddock.linked}` : " none in use");
+    row.replaceChildren(head, status, prod, list, buy, herd, pad, notes);
   }
   return { render };
 }

@@ -2086,8 +2086,9 @@ export const PLACEABLE_TILES = [
   TileType.Keep,
   TileType.Moat,
   TileType.Drawbridge,
-  // Gap closure G8: yard fences (animal-house blueprints).
+  // Gap closure G8: yard fences (animal-house blueprints). Animal paddocks: fences and fence gates are build tools.
   TileType.PropFence,
+  TileType.FenceGate,
   // Modular building phase 1: doors, windows, floors, beds (walls are above).
   ...NEW_STRUCTURE_TILES,
 ];
@@ -2154,6 +2155,9 @@ export const BREAKABLE_TILES = [
   // Phase H: filling a moat (-> Empty); a drawbridge comes down to its Moat.
   TileType.Moat,
   TileType.Drawbridge,
+  // Animal paddocks: fences / fence gates are demolished by hand and broken by mobs (PADDOCK_FENCE_HP / _GATE_HP).
+  TileType.PropFence,
+  TileType.FenceGate,
   ...NEW_STRUCTURE_TILES,
 ];
 export const POPULATION_GATED_TILES = [
@@ -2393,6 +2397,8 @@ export const BUILDING_NAMES: Partial<Record<TileType, string>> = {
   [TileType.Wall]: "Wood Wall",
   [TileType.StoneWall]: "Stone Wall",
   [TileType.Gate]: "Gate",
+  [TileType.PropFence]: "Fence",
+  [TileType.FenceGate]: "Fence Gate",
   [TileType.Moat]: "Moat",
   [TileType.Drawbridge]: "Drawbridge",
   [TileType.WoodDoor]: "Wood Door",

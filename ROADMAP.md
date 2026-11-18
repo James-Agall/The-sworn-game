@@ -4512,3 +4512,51 @@ Private browser checks cover creator → Creative restart, edit/save, real horse
 Solo restart, Escape cancellation and missing-art fallback. Production build and browser checks use scratch saves/private ports.
 
 No live deployment and no push. Long multiplayer play sessions and subjective animation polish remain manual review items; the checked combinations render and integrate.
+
+
+## Animal paddocks — landed 2026-11-18 (fenced Animal areas)
+
+Plan: `~/docs/colony2d/PLAN-agri-industry-winter-mines.md` phase 1. Numbers: `shared/src/animals.ts` "Animal paddocks"
+block (`PADDOCK_*`); enclosure / grass / predator pick: new `server/src/paddocks.ts`; house links, wandering, grazing,
+panel: `server/src/animals.ts`; zone snapshot / save hooks: `server/src/zones.ts`; mobs: `server/src/mobs.ts`.
+- **Paddock** = an Animal area zone whose open ground is closed in. Once a second (and on demand) a 4-connected flood
+  fill from the zone's walkable tiles runs over open ground (gates count as shut, wall-tops excluded); it stops at every
+  solid tile (fences, gates, walls, water, buildings, trees). Fenced when it stays within `PADDOCK_MAX_TILES` (400),
+  never reaches the map edge and meets at least one fence / gate / wall; the paddock's tiles are the whole enclosed
+  ground (not only the painted tiles). Otherwise the area is **open** and keeps the old behaviour (grazing within 12
+  tiles, x0.5 feed, animals wander round the house). An unchanged enclosure keeps its record, so linked animals are not
+  disturbed; a changed one (fence built / broken) re-links its houses.
+- **Build tools** (Farming tab, no blueprint): **Fence** (`PropFence`, 2 wood, `PADDOCK_FENCE_HP` 120, right-drag lays a
+  4-connected line like the moat) and **Fence Gate** (new `TileType.FenceGate` = 146, 4 wood, `PADDOCK_GATE_HP` 200): a
+  gate tile (gate state, lock panel, opens for your units, shut to mobs, a breach obstacle), not a wall, not a room
+  boundary. Both are now BREAKABLE (demolish by hand; clan-ownable); fences are never a mob's general building target.
+- **Linking**: each house links to the nearest own fenced paddock with a tile within `PADDOCK_LINK_RANGE_TILES` (12), or
+  the one chosen in its panel (**Paddock:** Auto / None / a paddock within `PADDOCK_CHOICE_RANGE_TILES` 30; saved as the
+  5th element of the livestock house tuple). Its animals come out at the paddock tile nearest the house (put the house in
+  the fence line or inside for the natural look), wander only inside (picks, straight walks, sidesteps and the walk home
+  all stay on paddock tiles), and go back in from there (night, winter, "Call them in", danger).
+- **Grazing** (spring - autumn): need N = sum of `PADDOCK_TILES_PER_ANIMAL` (chicken 1, pig / sheep 4, cow / horse 8;
+  babies x0.5). Grass 0-1 per tile; coverage c = min(1, total grass / N); feed x (1 - `PADDOCK_GRAZE_FEED_SHARE` 0.8 x c)
+  (open area: x0.5). Daily each tile loses `PADDOCK_GRASS_EATEN_PER_DAY` 0.15 x N / tiles and regrows
+  `PADDOCK_GRASS_REGROW_PER_DAY` 0.15 (x`PADDOCK_BARE_REGROW_MULT` 0.5 below `PADDOCK_BARE_GRASS` 0.2 = bare): at N <= tiles
+  the grass holds, overstocked it goes bare and recovers slowly. Winter: no grazing, no regrowth. Water / Moat on or
+  inside the fence fills the linked houses' troughs daily. Grass is saved with the zones (`zones.grass` [tile, permille]).
+- **Predators**: an animal inside a fenced paddock cannot be killed by a mob outside it (`checkThreats`); the house's
+  animals still flee in when one comes near. A hostile mob with no guard / player in reach, outside an occupied paddock
+  and within `PADDOCK_PREDATOR_RANGE_TILES` (8) of one of its fence / fence-gate pieces, goes for the nearest piece
+  (attacked from an outside tile) before any other building; a broken fence opens the paddock (the houses un-link) and
+  the mob carries on. Mobs that come through an open gate are inside and can kill.
+- **Client**: fence tiles use the fence art (`fence_h` / `fence_v` by their fence / gate / wall neighbours); the fence
+  gate uses the wood gate art oriented along the fence (open / closed / damaged). The old decorative fence drawn round
+  every Animal area is gone. A fenced paddock's ground has a pale outline (faint outside the Zones tab), overgrazed tiles
+  show as trampled earth; the zone list shows "Fenced (N tiles). Paddock: need/size tiles, animals · grass %" or "Open
+  (animals can't be kept)" with the reason in its tooltip; the animal-house panel has the Paddock selector and a note.
+- **Tests**: `server/paddocks-test.mjs` (`npm test -- paddocks`, 80 map, instant build): open area, fence 2 wood + gate 4
+  wood by tool, a gap leaks, the gate closes it (30 tiles), coop in the fence line links (exit next to it), occupancy +
+  panel, 1600 ticks of hens only ever inside, an open area unchanged (no link, x0.5 feed, hens come out), daily feed 0.3
+  (paddock) vs 0.75 (open), overgrazed 0.9 + bare tiles + slow regrowth, the panel choice (none / a paddock), save / load
+  (paddock, choice, grass), the predator pick, a wolf breaking a fence (hens unharmed) and the paddock opening again.
+- **Not done (phase 1)**: hay racks / troughs as placeable pieces inside a paddock (water comes from water on the fence
+  line, the trough otherwise as before); fence corner / T pieces (a fence with neighbours both ways draws as a straight
+  rail); animals walk from the house door to a distant paddock (they appear at its nearest tile instead); a paddock
+  shared by houses splits its grass by need, not by house. Trees can regrow on paddock ground (it shrinks by that tile).

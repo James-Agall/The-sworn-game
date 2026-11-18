@@ -191,6 +191,9 @@ export enum TileType {
   WideBridgeHPart = 143,
   WideBridgeV = 144,
   WideBridgeVPart = 145,
+  // Animal paddocks (2026-11-18, shared/src/animals.ts PADDOCK_*): a 1-tile gate in a fence line (PropFence). A gate
+  // tile (isGateTile: gate state `gates`, open for the colony's units, shut to mobs); not a wall, not a room boundary.
+  FenceGate = 146,
 
 }
 
@@ -393,7 +396,7 @@ export function isSolidTile(tile: TileType): boolean {
 // A gate-like tile: its passability is gate state (`gates`), not isSolidTile (phase H: drawbridges too;
 // modular building: room doors).
 export function isGateTile(tile: number): boolean {
-  return (tile >= TileType.LargeGateH && tile <= TileType.WideBridgeVPart) || tile === TileType.Gate || tile === TileType.Drawbridge || tile === TileType.WoodDoor || tile === TileType.StoneDoor;
+  return (tile >= TileType.LargeGateH && tile <= TileType.WideBridgeVPart) || tile === TileType.Gate || tile === TileType.Drawbridge || tile === TileType.WoodDoor || tile === TileType.StoneDoor || tile === TileType.FenceGate;
 }
 
 export type ColonistKind =
@@ -1267,7 +1270,8 @@ export type ClientMessage =
   | { type: "buyWithGold"; item: "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock" }
   | { type: "buildingInfo"; tileX: number; tileY: number }
   // Stardew phase 5d (shared/src/animals.ts): an animal house's panel buttons.
-  | { type: "animalAction"; tileX: number; tileY: number; op: "buy" | "slaughter" | "rename"; species?: Species; male?: boolean; id?: number; name?: string }
+  // Animal paddocks: op "paddock" sets the house's paddock (zoneId: a fenced Animal area, null = auto, -1 = none).
+  | { type: "animalAction"; tileX: number; tileY: number; op: "buy" | "slaughter" | "rename" | "paddock"; species?: Species; male?: boolean; id?: number; name?: string; zoneId?: number | null }
   // Queues the in-place upgrade of the building at the tile (same rules as placing it on itself, no reach limit).
   | { type: "upgradeBuilding"; tileX: number; tileY: number }
   // Pays for the building's missing HP now and makes it the builders' first repair job.

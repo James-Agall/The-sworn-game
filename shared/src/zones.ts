@@ -101,6 +101,21 @@ export interface ZoneSnapshot {
   // Gap closure G2: stockpiles: capacity and the weight stored (the zone list's fill bar).
   capacity?: number;
   used?: number;
+  // Animal paddocks (shared/src/animals.ts PADDOCK_*): an Animal area's fence state.
+  paddock?: PaddockSnapshot;
+}
+export interface PaddockSnapshot {
+  fenced: boolean;
+  // Fenced: the enclosed ground (RLE) and its size; open: why (`why`) and size 0.
+  area?: number[];
+  size: number;
+  why?: string;
+  // Tiles the linked animals need (PADDOCK_TILES_PER_ANIMAL), how many animals are linked, mean grass 0-100, and the
+  // bare (overgrazed) tiles (RLE).
+  need: number;
+  animals: number;
+  grass: number;
+  bare?: number[];
 }
 export interface ZonesSnapshot {
   zones: ZoneSnapshot[];

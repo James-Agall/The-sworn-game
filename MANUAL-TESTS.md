@@ -4,6 +4,22 @@ Start the game with `scripts/live.sh` (frozen copy that keeps running while code
 code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checklists live at the end of each
 "landed" section in `ROADMAP.md`; this is the short version, in the order I would try them.
 
+## Animal paddocks (2026-11-18)
+1. Build a Chicken Coop, paint an Animal area (Zones tab) next to it. Zone list: "Open (animals can't be kept)"; hover
+   it for the reason. Buy a few hens: they wander round the coop as before.
+2. Farming tab: **Fence** (2 wood), right-drag lines round the area (4-connected, no diagonal gaps); leave one gap and
+   put a **Fence Gate** (4 wood) in it. Put the coop in the fence line. Fence pieces join up (horizontal / vertical rail
+   art); the gate lies along the fence and opens when you walk up to it.
+3. Zone list now says "Fenced (N tiles). Paddock: 3/N tiles, 3 animals · grass 100%"; a pale outline marks the fenced
+   ground (fainter with the Zones tab closed). The coop panel shows **Paddock: Auto … using <name>** and a paddock note.
+4. By day the hens come out next to the coop inside the fence and never cross it, even after several minutes.
+5. Panel selector → None: the hens go in and come out at the coop door again; back to Auto: inside the fence again.
+6. Overstock (e.g. many hens / a few cows in a small paddock) and let a few days pass: grass % drops, bare patches show
+   as trampled earth; fewer animals and it slowly greens up again.
+7. Demolish one fence piece: the zone flips to Open, the hens wander out as before. Rebuild it: fenced again.
+8. Creative: spawn a wolf next to the fence of an occupied paddock (no soldiers near): it bites the fence until it breaks
+   ("Fence destroyed"), the hens run inside. Save, load: paddock, selector choice and grass are kept.
+
 ## Character creator (2026-11-16)
 1. New Game, Solo or Creative: change name/body/build/face/hair/colours/horse. Try idle, walk, attacks and mounted preview. Back/Escape returns to the menu. Preview gear grants no items.
 2. Start: the same character appears at normal human scale. Move in both directions; feet, weapon grips and hair stay attached. Other humans keep their existing size.

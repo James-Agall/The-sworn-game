@@ -51,6 +51,8 @@ export const BUILD_COSTS = {
   [TileType.Drawbridge]: { wood: 25, iron: 10 },
   // Gap closure G8: a yard fence piece of an animal-house blueprint (the settlement / camp fence prop, now buildable).
   [TileType.PropFence]: { wood: 2 },
+  // Animal paddocks (2026-11-18): the 1-tile gate in a fence line.
+  [TileType.FenceGate]: { wood: 4 },
   [TileType.Road]: { rock: 1 },
   [TileType.CobbleRoad]: { rock: 2 },
   [TileType.KnightPost]: { iron: 10, rock: 5 },

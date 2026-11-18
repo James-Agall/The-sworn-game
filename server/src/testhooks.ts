@@ -1,6 +1,7 @@
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { livestockDebug } from "./animals.js";
+import { paddocksDebug } from "./paddocks.js";
 import { childrenOf, spouseOf } from "./family.js";
 import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, heroLifeDebug, lifeOf, setNeedsOverride } from "./herolife.js";
 import { addItem, itemCount, professionOf, takeItem, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
@@ -1220,6 +1221,10 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // Stardew phase 5d: houses, animals, jobs; `set` {house "x,y", feed?, water?, daily?, animal id, happiness?, born?,
     // health?} adjusts state (daily: run one daily step now).
     reply(livestockDebug(msg.set as Record<string, unknown> | undefined));
+  } else if (msg.op === "paddocks") {
+    // Animal paddocks: every Animal area's fence state, occupancy and grass; `set` {recheck: true} rechecks the fence
+    // lines now, {zoneId, grass} sets that paddock's grass (0-1).
+    reply(paddocksDebug(msg.set as Record<string, unknown> | undefined));
   } else if (msg.op === "assignHomes") {
     assignHomes();
     reply({});

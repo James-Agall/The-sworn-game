@@ -533,6 +533,7 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.Moat:
     case TileType.Drawbridge:
     case TileType.PropFence:
+    case TileType.FenceGate:
       return { ...BUILD_COSTS[tile] };
     // Modular building phase 1: room pieces (shared BUILD_COSTS).
     case TileType.WoodDoor:
@@ -688,8 +689,10 @@ export function buildTicksFor(tile: TileType, level: number): number {
       ? BUILD_SECONDS_ROAD
       : tile === TileType.CobbleRoad
         ? BUILD_SECONDS_COBBLE_ROAD
-        : tile === TileType.Wall || tile === TileType.StoneWall
+        : tile === TileType.Wall || tile === TileType.StoneWall || tile === TileType.PropFence
       ? BUILD_SECONDS_WALL
+      : tile === TileType.FenceGate
+      ? BUILD_SECONDS_DOOR
       : tile === TileType.Gate
       ? BUILD_SECONDS_GATE
       : tile === TileType.Moat

@@ -57,6 +57,7 @@ export function minimapClassOf(tile: number, biome: number, owned: boolean): Min
     case TileType.Wall:
     case TileType.StoneWall:
     case TileType.Gate:
+    case TileType.FenceGate:
     case TileType.Drawbridge:
     case TileType.WoodDoor:
     case TileType.StoneDoor:

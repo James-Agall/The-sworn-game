@@ -14,6 +14,11 @@
 // clan's trade wagons; hostile mobs near a house send its animals fleeing inside and kill animals they reach outdoors;
 // animals sell at an own Market or to a settlement trader; shears / milk pail take a due product by hand; houses
 // gather manure (fertiliser, zones.ts); wandering sidesteps obstacles; "Call them in" pens a house's animals.
+//
+// Animal paddocks (2026-11-18, paddocks.ts): a house linked to a fenced paddock (the nearest own one in range, or the
+// panel's choice) lets its animals out at the paddock tile nearest the house; they wander only inside and go back in
+// from there; grazing there covers up to PADDOCK_GRAZE_FEED_SHARE of the feed by the paddock's grass; a mob outside the
+// fence cannot reach them. Houses without one keep the open-area behaviour above.
 import { TICK_RATE, TILE_SIZE, TileType } from "@colony/shared/protocol";
 import {
   ADULT_AGE_DAYS, ANIMAL_AREA_RANGE_TILES, ANIMAL_CATCHUP_MAX_DAYS, ANIMAL_CHORE_SECONDS, ANIMAL_HERO_RANGE_TILES,
@@ -32,6 +37,7 @@ import {
   ANIMAL_THREAT_HOLD_SECONDS, ANIMAL_THREAT_RANGE_TILES, CART_HORSE_SPEED_MULT, HAND_PRODUCT_MULT, HAND_TOOL_SPECIES,
   HOUSE_HAND_TOOL, KEEPER_TOOL_CHORE_MULT, LF_FLEEING, LF_RIDDEN, MANURE_PER_DAY, MOUNT_RANGE_TILES, RIDE_HAPPINESS_PER_S,
   WANDER_SIDESTEP_DEGREES, animalSellPrice,
+  PADDOCK_CHOICE_RANGE_TILES, PADDOCK_GRAZE_FEED_SHARE, PADDOCK_TILES_PER_ANIMAL,
 } from "@colony/shared/animals";
 import { COLONIST_SPEED } from "./constants.js";
 import type { Colonist, Player } from "./types.js";
@@ -46,6 +52,9 @@ import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from
 import { addItem, gatesOpen, itemCount, takeItem } from "./progression.js";
 import { standingTown, tierOf } from "./diplomacy.js";
 import { skillSpeed, workSkill } from "./work.js";
+import {
+  paddockById, paddockChoicesFor, paddockDailyGraze, paddockExitTile, paddockForHouse, setPaddockOccupancy, type Paddock,
+} from "./paddocks.js";
 
 interface AnimalRec {
   id: number;
@@ -98,6 +107,22 @@ interface HouseRec {
   manure: number;
   penned: boolean;
   threatUntil: number;
+  // Animal paddocks: the panel's choice (saved; null = auto, -1 = none, else a zone id) and the fenced paddock linked
+  // now (runtime, re-linked once a second).
+  paddockChoice: number | null;
+  pen?: Pen;
+}
+// The fenced paddock a house uses: its tiles, the exit tile (nearest the house), the farthest Chebyshev reach from the
+// house, and whether water is on its edge.
+interface Pen {
+  id: number;
+  version: number;
+  name: string;
+  tiles: Set<number>;
+  list: number[];
+  exit: number;
+  reach: number;
+  water: boolean;
 }
 
 const animals = new Map<number, AnimalRec>();
@@ -144,8 +169,53 @@ function waterNear(x: number, y: number): boolean {
   return false;
 }
 function refreshHouseCache(h: HouseRec) {
-  h.autoWater = waterNear(h.x, h.y);
-  h.graze = animalAreaTilesNear(h.clan, h.x, h.y, ANIMAL_AREA_RANGE_TILES);
+  linkPaddock(h);
+  h.autoWater = waterNear(h.x, h.y) || !!h.pen?.water;
+  h.graze = h.pen ? h.pen.list : animalAreaTilesNear(h.clan, h.x, h.y, ANIMAL_AREA_RANGE_TILES);
+}
+
+// ---- Animal paddocks ----
+// (Re)links the house to its fenced paddock; when the link changes, its animals outdoors go in (they come out at the
+// new exit, or the door).
+function linkPaddock(h: HouseRec) {
+  const p = paddockForHouse(h.clan, h.x, h.y, h.paddockChoice);
+  if (p ? h.pen?.id === p.zoneId && h.pen.version === p.version : !h.pen) {
+    if (p && h.pen) h.pen.name = p.name;
+    return;
+  }
+  for (const a of residents(h)) pos.delete(a.id);
+  h.pen = p ? penOf(h, p) : undefined;
+}
+function penOf(h: HouseRec, p: Paddock): Pen {
+  const reach = Math.max(Math.abs(p.minX - h.x), Math.abs(p.maxX - h.x), Math.abs(p.minY - h.y), Math.abs(p.maxY - h.y));
+  return { id: p.zoneId, version: p.version, name: p.name, tiles: p.tiles, list: p.list, exit: paddockExitTile(p, h.x, h.y), reach, water: p.water };
+}
+function inPen(h: HouseRec, x: number, y: number): boolean {
+  if (!h.pen) return false;
+  const tx = Math.floor(x / TILE_SIZE);
+  const ty = Math.floor(y / TILE_SIZE);
+  return inBounds(tx, ty) && h.pen.tiles.has(tileIndex(tx, ty));
+}
+// Grass tiles an animal needs in a paddock (babies x BABY_NEEDS_MULT).
+function paddockNeed(a: AnimalRec, day = calendarDayNow()): number {
+  return PADDOCK_TILES_PER_ANIMAL[a.species] * (isBaby(a, day) ? BABY_NEEDS_MULT : 1);
+}
+// Once a second: every house re-linked; the paddocks' occupancy (animals, tiles needed) reported to paddocks.ts.
+function linkPaddocks() {
+  const occ = new Map<number, { animals: number; need: number }>();
+  const day = calendarDayNow();
+  for (const h of houses.values()) {
+    linkPaddock(h);
+    if (!h.pen) continue;
+    h.graze = h.pen.list;
+    const o = occ.get(h.pen.id) ?? { animals: 0, need: 0 };
+    for (const a of residents(h)) {
+      o.animals++;
+      o.need += paddockNeed(a, day);
+    }
+    occ.set(h.pen.id, o);
+  }
+  setPaddockOccupancy(occ);
 }
 function waitingCount(h: HouseRec): number {
   let n = 0;
@@ -167,7 +237,7 @@ function syncHouses() {
       live.add(key);
       let h = houses.get(key);
       if (!h || h.kind !== kind) {
-        h = { key, x, y, kind, clan: clanIdAt(x, y), feed: 0, water: 0, waiting: {}, today: {}, autoWater: false, graze: [], manure: 0, penned: false, threatUntil: 0 };
+        h = { key, x, y, kind, clan: clanIdAt(x, y), feed: 0, water: 0, waiting: {}, today: {}, autoWater: false, graze: [], manure: 0, penned: false, threatUntil: 0, paddockChoice: null };
         refreshHouseCache(h);
         houses.set(key, h);
       }
@@ -221,14 +291,22 @@ function keeperSkill(h: HouseRec): number {
 // ---- the daily step ----
 function dailyStep(day: number) {
   const winter = winterNow();
+  // Animal paddocks: the grass each fenced paddock's animals need today, then grazing (coverage per paddock).
+  const need = new Map<number, number>();
   for (const h of houses.values()) {
     refreshHouseCache(h);
+    if (h.pen) need.set(h.pen.id, (need.get(h.pen.id) ?? 0) + residents(h).reduce((n, a) => n + paddockNeed(a, day), 0));
+  }
+  const cover = paddockDailyGraze(need, winter);
+  for (const h of houses.values()) {
     if (h.autoWater) h.water = waterCap(h);
     h.today = {};
     h.penned = false;
     const list = residents(h);
     if (list.length === 0) continue;
-    const grazing = !winter && h.graze.length > 0;
+    const coverage = h.pen ? cover.get(h.pen.id) ?? 0 : 1;
+    const grazing = !winter && h.graze.length > 0 && coverage > 0;
+    const grazeShare = h.pen ? PADDOCK_GRAZE_FEED_SHARE * coverage : GRAZE_FEED_SHARE;
     const fill = list.length / Math.max(1, capacityOf(h));
     const room = 1 - Math.min(1, fill) * ROOM_CROWD_PENALTY;
     const outdoors = winter ? OUTDOORS_WINTER : grazing ? 1 : OUTDOORS_NO_AREA;
@@ -236,7 +314,7 @@ function dailyStep(day: number) {
     for (const a of list) {
       const baby = isBaby(a, day);
       const mult = baby ? BABY_NEEDS_MULT : 1;
-      const feedNeed = FEED_PER_DAY[a.species] * mult * (winter ? WINTER_FEED_MULT : 1) * (grazing ? 1 - GRAZE_FEED_SHARE : 1);
+      const feedNeed = FEED_PER_DAY[a.species] * mult * (winter ? WINTER_FEED_MULT : 1) * (grazing ? 1 - grazeShare : 1);
       const eat = Math.min(feedNeed, h.feed);
       h.feed -= eat;
       a.fed = feedNeed > 0 ? eat / feedNeed : 1;
@@ -310,6 +388,7 @@ export function updateAnimals(dt: number) {
   if (state.cycleTick % TICK_RATE === 0) {
     ensureSynced();
     updateRiders();
+    linkPaddocks();
   }
   const day = calendarDayNow();
   if (lastDay < 0 || day < lastDay) lastDay = day;
@@ -341,7 +420,6 @@ function killAnimal(a: AnimalRec, h: HouseRec | undefined, by: string) {
 // within ANIMAL_THREAT_RANGE_TILES of a house or of its animals outdoors sends them inside (and keeps them there).
 function checkThreats() {
   if (houses.size === 0 || mobs.size === 0) return;
-  const reach = (ANIMAL_THREAT_RANGE_TILES + ANIMAL_AREA_RANGE_TILES + 1) * TILE_SIZE;
   const threat = ANIMAL_THREAT_RANGE_TILES * TILE_SIZE;
   const kill = ANIMAL_KILL_RANGE_TILES * TILE_SIZE;
   const outByHouse = new Map<string, [AnimalRec, AnimalPos][]>();
@@ -357,11 +435,15 @@ function checkThreats() {
     for (const h of houses.values()) {
       const hx = (h.x + 0.5) * TILE_SIZE;
       const hy = (h.y + 0.5) * TILE_SIZE;
+      const reach = (ANIMAL_THREAT_RANGE_TILES + (h.pen ? h.pen.reach : ANIMAL_AREA_RANGE_TILES) + 1) * TILE_SIZE;
       if (Math.abs(m.x - hx) > reach || Math.abs(m.y - hy) > reach) continue;
       let seen = Math.hypot(m.x - hx, m.y - hy) <= threat;
+      // Animal paddocks: a mob outside the fence cannot reach an animal inside it.
+      const mobInPen = inPen(h, m.x, m.y);
       for (const [a, p] of outByHouse.get(h.key) ?? []) {
         const d = Math.hypot(m.x - p.x, m.y - p.y);
-        if (d <= kill && animals.has(a.id)) killAnimal(a, h, m.kind);
+        const fenced = !mobInPen && inPen(h, p.x, p.y);
+        if (d <= kill && !fenced && animals.has(a.id)) killAnimal(a, h, m.kind);
         else if (d <= threat) seen = true;
       }
       if (!seen) continue;
@@ -408,7 +490,13 @@ function pickTarget(h: HouseRec, p: AnimalPos, a: AnimalRec): boolean {
       y = p.y + ((y - p.y) * reach) / d;
       d = reach;
     }
-    if(h.graze.includes(tileIndex(Math.floor(p.x/TILE_SIZE),Math.floor(p.y/TILE_SIZE)))){
+    // Animal paddocks: inside a fenced paddock every point of the walk stays inside it.
+    if (h.pen) {
+      const steps = Math.ceil(d / (TILE_SIZE / 3));
+      let inside = inPen(h, x, y);
+      for (let i = 1; i < steps && inside && inPen(h, p.x, p.y); i++) inside = inPen(h, p.x + ((x - p.x) * i) / steps, p.y + ((y - p.y) * i) / steps);
+      if (!inside) continue;
+    } else if(h.graze.includes(tileIndex(Math.floor(p.x/TILE_SIZE),Math.floor(p.y/TILE_SIZE)))){
       const allowed=new Set(h.graze),steps=Math.ceil(d/(TILE_SIZE/3));let inside=true;
       for(let i=1;i<=steps;i++)if(!allowed.has(tileIndex(Math.floor((p.x+(x-p.x)*i/steps)/TILE_SIZE),Math.floor((p.y+(y-p.y)*i/steps)/TILE_SIZE)))){inside=false;break;}
       if(!inside)continue;
@@ -425,20 +513,26 @@ function walkablePx(x: number, y: number): boolean {
   return inBounds(t.x, t.y) && isWalkableTile(t.x, t.y);
 }
 // G6: one step toward (dx, dy) / d of length `step`; blocked: the first walkable sidestep (WANDER_SIDESTEP_DEGREES), or
-// false (the caller rests).
-function stepAround(p: AnimalPos, dx: number, dy: number, d: number, step: number): boolean {
+// false (the caller rests). Animal paddocks: an animal inside its house's paddock never steps out of it.
+function stepAround(h: HouseRec, p: AnimalPos, dx: number, dy: number, d: number, step: number): boolean {
   const base = Math.atan2(dy, dx);
+  const penned = inPen(h, p.x, p.y);
   for (const deg of [0, ...WANDER_SIDESTEP_DEGREES]) {
     const ang = base + (deg * Math.PI) / 180;
     const nx = p.x + Math.cos(ang) * Math.min(step, d);
     const ny = p.y + Math.sin(ang) * Math.min(step, d);
-    if (walkablePx(nx, ny)) {
+    if (walkablePx(nx, ny) && (!penned || inPen(h, nx, ny))) {
       p.x = nx;
       p.y = ny;
       return true;
     }
   }
   return false;
+}
+// Where a house's animals come out and go back in: its paddock's exit tile, else a walkable tile next to it.
+function houseExit(h: HouseRec): { x: number; y: number } | null {
+  if (h.pen) return { x: h.pen.exit % W(), y: Math.floor(h.pen.exit / W()) };
+  return findAdjacentWalkable(h.x, h.y);
 }
 function wander(dt: number) {
   if (indoorsNow()) {
@@ -459,7 +553,7 @@ function wander(dt: number) {
     if (!p) {
       if (threatened || h.penned) continue;
       if (streaming && chunkStateAtPixel(h.x * TILE_SIZE, h.y * TILE_SIZE) !== ChunkState.Active) continue;
-      const door = findAdjacentWalkable(h.x, h.y);
+      const door = houseExit(h);
       if (!door) continue;
       const x = door.x * TILE_SIZE + TILE_SIZE / 2;
       const y = door.y * TILE_SIZE + TILE_SIZE / 2;
@@ -469,7 +563,7 @@ function wander(dt: number) {
     if (streaming && chunkStateAtPixel(p.x, p.y) !== ChunkState.Active) continue;
     // G6: called in or fleeing: walk to the house door, then go inside.
     if ((threatened || h.penned) && !p.home) {
-      const door = findAdjacentWalkable(h.x, h.y);
+      const door = houseExit(h);
       p.home = true;
       p.rest = 0;
       p.tx = door ? door.x * TILE_SIZE + TILE_SIZE / 2 : p.x;
@@ -483,7 +577,7 @@ function wander(dt: number) {
       const d = Math.hypot(dx, dy);
       const step = ANIMAL_SPEED[a.species] * (isBaby(a) ? 0.8 : 1) * (p.flee ? ANIMAL_FLEE_SPEED_MULT : 1) * dt;
       if (d <= step) pos.delete(a.id);
-      else if (stepAround(p, dx, dy, d, step)) p.moving = true;
+      else if (stepAround(h, p, dx, dy, d, step)) p.moving = true;
       else pos.delete(a.id);
       continue;
     }
@@ -507,7 +601,7 @@ function wander(dt: number) {
     }
     const nx = p.x + (dx / d) * step;
     const ny = p.y + (dy / d) * step;
-    if (walkablePx(nx, ny)) {
+    if (walkablePx(nx, ny) && (!inPen(h, p.x, p.y) || inPen(h, nx, ny))) {
       p.x = nx;
       p.y = ny;
     } else {
@@ -741,7 +835,7 @@ export function dismountHero(p: Player, quiet = false): boolean {
   const h = a ? houses.get(a.house) : undefined;
   // The horse walks home from where the rider got off (daytime, outside winter), else it is back in its house.
   if (a && h && !indoorsNow()) {
-    const door = findAdjacentWalkable(h.x, h.y);
+    const door = houseExit(h);
     pos.set(a.id, { x: p.x, y: p.y, tx: door ? door.x * TILE_SIZE + TILE_SIZE / 2 : p.x, ty: door ? door.y * TILE_SIZE + TILE_SIZE / 2 : p.y, rest: 0, moving: true });
   }
   if (!quiet) sendText(p, `You dismount${h ? `; the horse heads back to the ${HOUSE_LABEL[h.kind]}` : ""}`);
@@ -996,7 +1090,8 @@ export function animalHouseInfo(tx: number, ty: number, viewer?: Player): Animal
   const notes: string[] = [];
   notes.push(`Feed: hay (${HAY_FEED_UNITS} each) first, then grain above a ${GRAIN_FEED_RESERVE}-grain reserve`);
   if (!h.autoWater) notes.push(`No water within ${TROUGH_WATER_RANGE_TILES} tiles: workers fill the trough by hand`);
-  notes.push(h.graze.length > 0 ? `Grazes ${h.graze.length} Animal area tiles: ${Math.round(GRAZE_FEED_SHARE * 100)}% less feed (not in winter)` : `Paint an Animal area within ${ANIMAL_AREA_RANGE_TILES} tiles for grazing (less feed, happier)`);
+  if (h.pen) notes.push(`Paddock ${h.pen.name}: ${h.pen.list.length} fenced tiles; the animals stay inside; grass covers up to ${Math.round(PADDOCK_GRAZE_FEED_SHARE * 100)}% of the feed (not in winter)${h.pen.water ? "; water in the paddock fills the trough" : ""}`);
+  else notes.push(h.graze.length > 0 ? `Grazes ${h.graze.length} Animal area tiles: ${Math.round(GRAZE_FEED_SHARE * 100)}% less feed (not in winter). Fence it in (fences + a gate) to keep the animals inside` : `Paint an Animal area within ${ANIMAL_AREA_RANGE_TILES} tiles for grazing (less feed, happier); fence it in for a paddock`);
   if (winter) notes.push(`Winter: indoors, x${WINTER_FEED_MULT} feed, x${WINTER_PRODUCT_MULT} products${BREEDS_IN_WINTER ? "" : ", no breeding"}`);
   notes.push("E next to the building: fill feeder / trough and collect (or free villagers with Animals work on)");
   const tool = HOUSE_HAND_TOOL[h.kind];
@@ -1023,6 +1118,10 @@ export function animalHouseInfo(tx: number, ty: number, viewer?: Player): Animal
     buy, notes,
     sellVenue: sell.venue, sellWhy: sell.why,
     outdoors: list.filter((a) => pos.has(a.id)).length, penned: h.penned,
+    paddock: {
+      choice: h.paddockChoice, linked: h.pen ? h.pen.name : "",
+      options: paddockChoicesFor(h.clan, h.x, h.y).map((p) => ({ id: p.zoneId, label: `${p.name} (${p.list.length} tiles)` })),
+    },
   };
 }
 
@@ -1035,6 +1134,21 @@ export function handleAnimalAction(player: Player, m: Record<string, unknown>): 
   const h = houseAt(tx as number, ty as number);
   if (!h) return "No animal house there";
   if (h.clan !== (player.clan ?? 0)) return "Not your building";
+  // Animal paddocks: zoneId null = the nearest fenced paddock, -1 = none (the open-area behaviour), else that paddock.
+  if (m.op === "paddock") {
+    const z = m.zoneId;
+    if (z === null || z === undefined || z === -1) {
+      h.paddockChoice = z === -1 ? -1 : null;
+    } else {
+      const p = typeof z === "number" ? paddockById(z) : undefined;
+      if (!p || p.clan !== h.clan || !p.fenced) return "That is not one of your fenced paddocks";
+      if (!paddockChoicesFor(h.clan, h.x, h.y).includes(p)) return `That paddock is more than ${PADDOCK_CHOICE_RANGE_TILES} tiles away`;
+      h.paddockChoice = p.zoneId;
+    }
+    refreshHouseCache(h);
+    linkPaddocks();
+    return h.pen ? `The ${HOUSE_LABEL[h.kind]}'s animals use the paddock ${h.pen.name}` : h.paddockChoice === -1 ? `The ${HOUSE_LABEL[h.kind]}'s animals keep out of paddocks` : `No fenced paddock within reach of the ${HOUSE_LABEL[h.kind]}`;
+  }
   if (m.op === "herd") {
     h.penned = m.on !== false;
     return h.penned ? `You call the animals into the ${HOUSE_LABEL[h.kind]} (they stay in until you let them out, or dawn)` : `The animals may graze again`;
@@ -1139,14 +1253,15 @@ export function livestockPayloadFor(player: Player, near: ((x: number, y: number
 export interface LivestockSave {
   nextId: number;
   lastDay: number;
-  houses: [key: string, feed: number, water: number, waiting: Partial<Record<ProductId, number[]>>][];
+  // Animal paddocks: the panel's paddock choice (older saves: none = auto).
+  houses: [key: string, feed: number, water: number, waiting: Partial<Record<ProductId, number[]>>, paddock?: number | null][];
   animals: AnimalRec[];
 }
 export function livestockForSave(): LivestockSave | undefined {
   if (houses.size === 0 && animals.size === 0) return undefined;
   return {
     nextId, lastDay,
-    houses: Array.from(houses.values(), (h) => [h.key, h.feed, h.water, h.waiting] as LivestockSave["houses"][number]),
+    houses: Array.from(houses.values(), (h) => [h.key, h.feed, h.water, h.waiting, h.paddockChoice] as LivestockSave["houses"][number]),
     animals: Array.from(animals.values(), (a) => ({ ...a })),
   };
 }
@@ -1164,9 +1279,9 @@ export function restoreLivestock(s: LivestockSave | undefined) {
   lastDay = s?.lastDay ?? -1;
   if (!s) return;
   syncHouses();
-  for (const [key, feed, water, waiting] of s.houses ?? []) {
+  for (const [key, feed, water, waiting, paddock] of s.houses ?? []) {
     const h = houses.get(key);
-    if (h) Object.assign(h, { feed, water, waiting: waiting ?? {} });
+    if (h) Object.assign(h, { feed, water, waiting: waiting ?? {}, paddockChoice: typeof paddock === "number" ? paddock : null });
   }
   for (const a of s.animals ?? []) {
     if (!houses.has(a.house) || !SPECIES.includes(a.species)) continue;
@@ -1195,6 +1310,8 @@ export function livestockDebug(set?: Record<string, unknown>) {
     // G6: `penned` {house, on}; `threat` false clears every house's danger hold.
     if (h && typeof set.penned === "boolean") h.penned = set.penned;
     if (set.threat === false) for (const x of houses.values()) x.threatUntil = 0;
+    // Animal paddocks: `link` true re-links every house now (after a fence change and a paddock recheck).
+    if (set.link === true) linkPaddocks();
   }
   return {
     lastDay, day: calendarDayNow(), winter: winterNow(),
@@ -1202,9 +1319,11 @@ export function livestockDebug(set?: Record<string, unknown>) {
       key: h.key, kind: h.kind, clan: h.clan, feed: h.feed, water: h.water, feedCap: feedCap(h), waterCap: waterCap(h), capacity: capacityOf(h),
       waiting: h.waiting, today: h.today, autoWater: h.autoWater, graze: h.graze.length, chores: choresIn(h), keeper: keeperOf(h)?.id ?? null,
       manure: h.manure, penned: h.penned, threatened: h.threatUntil > state.cycleTick, choreTicks: choreTicks(h),
+      paddockChoice: h.paddockChoice, pen: h.pen ? { id: h.pen.id, size: h.pen.list.length, exit: [h.pen.exit % W(), Math.floor(h.pen.exit / W())], water: h.pen.water } : null,
     })),
     animals: Array.from(animals.values(), (a) => ({
       ...a, baby: isBaby(a), outdoors: pos.has(a.id), fleeing: !!pos.get(a.id)?.flee, price: priceOf(a),
+      inPen: pos.has(a.id) && !!houses.get(a.house) && inPen(houses.get(a.house)!, pos.get(a.id)!.x, pos.get(a.id)!.y),
       ...(pos.has(a.id) ? { x: pos.get(a.id)!.x, y: pos.get(a.id)!.y } : {}),
     })),
     riders: Object.fromEntries(riders),

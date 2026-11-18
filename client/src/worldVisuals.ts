@@ -18,6 +18,8 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.Wall]: "woodWall",
   [TileType.StoneWall]: "stoneWall",
   [TileType.Gate]: "gateWoodClosed",
+  // Animal paddocks: the fence gate falls back to the wood gate (main.ts wallArtFor orients it along the fence).
+  [TileType.FenceGate]: "gateWoodClosed",
   [TileType.KnightPost]: "barracks",
   [TileType.CastleLevel2]: "castleLv2",
   [TileType.CastleLevel3]: "castleLv3",

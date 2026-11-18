@@ -324,7 +324,7 @@ async function main() {
     ...Array.from({length:16},(_,i)=>`/sprites/fortifications/rampart_${String(i).padStart(2,"0")}.png`),
     ...PLAYER_BASES.map(b=>`/sprites/player-bases/${b.id}.png`),
     ...["bed","chair","chest","table","hearth","shelf","wardrobe"].flatMap(p=>["n","e","s","w"].map(f=>`/sprites/interiors-v2/${p}_${f}.png`)),
-    ...["gate_h_closed","gate_h_open","gate_v_closed","gate_v_open","bridge_h_closed","bridge_h_open","bridge_v_closed","bridge_v_open","ladder_h","ladder_v"].map(n=>`/sprites/fortifications/${n}.png`),
+    ...["gate_h_closed","gate_h_open","gate_v_closed","gate_v_open","bridge_h_closed","bridge_h_open","bridge_v_closed","bridge_v_open","ladder_h","ladder_v","fence_h","fence_v"].map(n=>`/sprites/fortifications/${n}.png`),
     ...["grain", "meat", "fruit", "wood", "rock", "iron", "wool", "cotton", "clothes", "tools", "luxuryItems", "gold", "alcohol"].map(res => `/sprites/icon-${res}.png`),
   ]);
   // De-duplicated: some images appear in more than one list (e.g. a frame reused across cycles),
@@ -1219,7 +1219,7 @@ async function main() {
     const prev = gateFlags;
     gateFlags = next;
     for (const index of new Set([...prev.keys(), ...next.keys()])) {
-      if (shown(prev.get(index)) === shown(next.get(index)) || (tiles[index] !== TileType.Gate && tiles[index] !== TileType.Drawbridge && !isDoorTile(tiles[index]) && !isLargeGate(tiles[index]) && !isWideBridge(tiles[index]))) continue;
+      if (shown(prev.get(index)) === shown(next.get(index)) || (tiles[index] !== TileType.Gate && tiles[index] !== TileType.FenceGate && tiles[index] !== TileType.Drawbridge && !isDoorTile(tiles[index]) && !isLargeGate(tiles[index]) && !isWideBridge(tiles[index]))) continue;
       const { tx, ty } = indexToTile(index);
       setTileSprite(tx, ty, tiles[index]);
     }
@@ -1493,11 +1493,15 @@ async function main() {
     }
   }
   const playerHomeDesigns=new Map<number,string>();
+  // Animal paddocks: what a fence piece / fence gate lines up with.
+  const fenceJoins=(t:number)=>t===TileType.PropFence||t===TileType.FenceGate||wallConnects(t);
   function fortArtFor(x:number,y:number,t:number):Texture|undefined {
     if(isFortPart(t))return;
     let name:string|undefined;
     if(t===TileType.Rampart){const mask=connectionMask(tileAt,x,y,wallConnects);name=`rampart_${String(mask).padStart(2,"0")}`;}
     else if(t===TileType.WallLadder)name=tileAt(x-1,y)===TileType.Rampart||tileAt(x+1,y)===TileType.Rampart?"ladder_h":"ladder_v";
+    // Animal paddocks: a fence runs east-west unless its only fence / gate / wall neighbours are north or south.
+    else if(t===TileType.PropFence)name=fenceJoins(tileAt(x-1,y))||fenceJoins(tileAt(x+1,y))||!(fenceJoins(tileAt(x,y-1))||fenceJoins(tileAt(x,y+1)))?"fence_h":"fence_v";
     else if(isLargeGate(t)||isWideBridge(t)){const horizontal=t===TileType.LargeGateH||t===TileType.WideBridgeH;const open=((gateFlags.get(y*worldTilesX+x)??0)&(GATE_FLAG_OPEN|GATE_FLAG_OVERRUN))!==0;name=`${isLargeGate(t)?'gate':'bridge'}_${horizontal?'h':'v'}_${open?'open':'closed'}`;}
     return name?optionalTextures[`/sprites/fortifications/${name}.png`]:undefined;
   }
@@ -1517,7 +1521,7 @@ async function main() {
     const levelTexture = TILE_LEVEL_TEXTURES.get(artTile)?.[level - 1];
     const forging =
       tile === TileType.Blacksmith && BLACKSMITH_FORGE_TEXTURES !== undefined && forgeBusy.has(index) && (level === 1 || !levelTexture) && (damagedBuildings.get(index) ?? 1000) >= 750;
-    const gateOpen = tile === TileType.Gate && ((gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
+    const gateOpen = (tile === TileType.Gate || tile === TileType.FenceGate) && ((gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
     const wallArt = wallArtFor(tx, ty, artTile, !!site);
     const moatArt = moatArtFor(tx, ty, artTile, !!site);
     const structArt = structureArtFor(tx, ty, artTile, !!site);
@@ -1730,18 +1734,20 @@ async function main() {
   // Connector piece / oriented gate art (SPRITES.md #59-62) for a wall or gate at (tx, ty), or
   // undefined to use the single-sprite fallback. Sites draw undamaged.
   function wallArtFor(tx: number, ty: number, artTile: number, site: boolean): Texture | undefined {
-    if (!isWallTile(artTile) || isDoorTile(artTile) || isWindowTile(artTile)) return undefined;
+    if ((!isWallTile(artTile) && artTile !== TileType.FenceGate) || isDoorTile(artTile) || isWindowTile(artTile)) return undefined;
     const index = ty * worldTilesX + tx;
     const damaged = !site && (damagedBuildings.get(index) ?? 1000) < WALL_DAMAGED_PERMILLE;
     const n = tileAt(tx, ty - 1);
     const e = tileAt(tx + 1, ty);
     const s = tileAt(tx, ty + 1);
     const w = tileAt(tx - 1, ty);
-    if (artTile === TileType.Gate) {
-      // E/W walls make a horizontal gate, N/S (only) a vertical one; stone when stone walls outnumber wood.
-      const orient = isWallTile(e) || isWallTile(w) ? "H" : isWallTile(n) || isWallTile(s) ? "V" : "H";
+    if (artTile === TileType.Gate || artTile === TileType.FenceGate) {
+      // E/W walls make a horizontal gate, N/S (only) a vertical one; stone when stone walls outnumber wood. Animal
+      // paddocks: a fence gate lines up with fences too (always wood).
+      const joins = artTile === TileType.FenceGate ? fenceJoins : isWallTile;
+      const orient = joins(e) || joins(w) ? "H" : joins(n) || joins(s) ? "V" : "H";
       const around = [n, e, s, w];
-      const stone = around.filter((t) => t === TileType.StoneWall).length > around.filter((t) => t === TileType.Wall).length;
+      const stone = artTile === TileType.Gate && around.filter((t) => t === TileType.StoneWall).length > around.filter((t) => t === TileType.Wall).length;
       const flags = site ? 0 : (gateFlags.get(index) ?? 0);
       const state: GateArtState =
         flags & GATE_FLAG_OVERRUN ? "Overrun" : flags & GATE_FLAG_OPEN ? "Open" : damaged ? "Damaged" : "Closed";
@@ -2219,7 +2225,7 @@ async function main() {
     // Neighbouring roads re-pick their autotile piece (this tile may have become / stopped being road),
     // and neighbouring walls / gates their connector piece / orientation.
     for (const [nx, ny] of [[tx, ty - 1], [tx + 1, ty], [tx, ty + 1], [tx - 1, ty]]) {
-      if (isRoadAt(nx, ny) || isWallTile(tileAt(nx, ny)) || isMoatTile(tileAt(nx, ny))) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
+      if (isRoadAt(nx, ny) || fenceJoins(tileAt(nx, ny)) || isMoatTile(tileAt(nx, ny))) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
     }
     // A part tile appearing / going away re-fits the multi-tile art of the anchors up / left of it.
     for(let dy=0;dy<FOOTPRINT_MAX_SIDE;dy++)for(let dx=0;dx<FOOTPRINT_MAX_SIDE;dx++){
@@ -3727,6 +3733,7 @@ async function main() {
       case TileType.Wall:
       case TileType.StoneWall:
       case TileType.Gate:
+      case TileType.FenceGate:
       case TileType.Drawbridge:
         return MINIMAP_WALL;
       case TileType.Moat:
@@ -5488,7 +5495,7 @@ async function main() {
     TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery,
     TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
     TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
-    TileType.Gate, TileType.Drawbridge, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
+    TileType.Gate, TileType.FenceGate, TileType.Drawbridge, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
     TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery,
     TileType.ChickenCoop, TileType.LivestockBarn, TileType.PigSty, TileType.SheepPen,
     ...NEW_STRUCTURE_TILES,
@@ -8915,13 +8922,13 @@ async function main() {
       return;
     }
     placeTile(tile.tileX, tile.tileY, value);
-    if (value === TileType.Moat) moatDrag = { pointerId: e.pointerId, x: tile.tileX, y: tile.tileY };
+    if (value === TileType.Moat || value === TileType.PropFence) moatDrag = { pointerId: e.pointerId, x: tile.tileX, y: tile.tileY };
   });
 
   // Demolishing your own building asks first ("Confirm demolish <name>", Cancel / Esc). Instant as before: walls,
   // moats, roads, natural tiles and anything not built from the Build menu (camp hearths are attacked, not demolished).
   // A list (a future batch) gets one confirm with its count.
-  const DEMOLISH_INSTANT = new Set<number>([TileType.Wall, TileType.StoneWall, TileType.Moat, TileType.Road, TileType.CobbleRoad, ...NEW_STRUCTURE_TILES]);
+  const DEMOLISH_INSTANT = new Set<number>([TileType.Wall, TileType.StoneWall, TileType.Moat, TileType.Road, TileType.CobbleRoad, TileType.PropFence, TileType.FenceGate, ...NEW_STRUCTURE_TILES]);
   const demolishConfirmEl = document.getElementById("demolish-confirm")!;
   const demolishConfirmText = document.getElementById("demolish-confirm-text")!;
   const demolishConfirmBtn = document.getElementById("demolish-confirm-ok") as HTMLButtonElement;
@@ -8991,16 +8998,16 @@ async function main() {
     return { tile, list: list.slice(0, 400) };
   }
   // Phase H: right-dragging the Moat tool digs every tile the pointer crosses, 4-connected (a diagonal
-  // step adds the orthogonal tile between), so the line has no corner gaps.
+  // step adds the orthogonal tile between), so the line has no corner gaps. Animal paddocks: the Fence tool too.
   let moatDrag: { pointerId: number; x: number; y: number } | null = null;
   function extendMoatDrag(worldX: number, worldY: number) {
     const drag = moatDrag;
     const tile = drag ? pointerTile(worldX, worldY) : null;
-    if (!drag || !tile || socket.readyState !== socket.OPEN || currentTool !== TileType.Moat) return;
+    if (!drag || !tile || socket.readyState !== socket.OPEN || (currentTool !== TileType.Moat && currentTool !== TileType.PropFence)) return;
     while (drag.x !== tile.tileX || drag.y !== tile.tileY) {
       if (Math.abs(tile.tileX - drag.x) >= Math.abs(tile.tileY - drag.y)) drag.x += Math.sign(tile.tileX - drag.x);
       else drag.y += Math.sign(tile.tileY - drag.y);
-      placeTile(drag.x, drag.y, TileType.Moat);
+      placeTile(drag.x, drag.y, currentTool);
     }
   }
 

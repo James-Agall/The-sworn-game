@@ -1,4 +1,5 @@
 import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
+import { PADDOCK_FENCE_HP, PADDOCK_GATE_HP } from "@colony/shared/animals";
 // combat.ts: Damage (mobs, players, colonists, buildings), engagement slots, attack effects, player attacks, walls & gates, towers.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { addItem } from "./progression.js";
@@ -456,6 +457,8 @@ export function isDamageableBuilding(t: TileType): boolean {
     // Modular building phase 1: room doors are gates.
     state.damageableLut[TileType.WoodDoor] = 1;
     state.damageableLut[TileType.StoneDoor] = 1;
+    // Animal paddocks: a fence gate (fences are solid BREAKABLE_TILES already).
+    state.damageableLut[TileType.FenceGate] = 1;
   }
   return state.damageableLut[t] === 1;
 }
@@ -471,6 +474,9 @@ export function buildingBaseHp(t: TileType): number {
   if (t === TileType.StoneDoor) return BUILDING_HP_STONE_DOOR;
   if (t === TileType.WoodWindow) return BUILDING_HP_WOOD_WINDOW;
   if (t === TileType.StoneWindow) return BUILDING_HP_STONE_WINDOW;
+  // Animal paddocks (shared/src/animals.ts).
+  if (t === TileType.PropFence) return PADDOCK_FENCE_HP;
+  if (t === TileType.FenceGate) return PADDOCK_GATE_HP;
   if (isGateTile(t)) return BUILDING_HP_GATE;
   // Phase H: a moat's "HP" is how much filling the breach search's mobs must do.
   if (t === TileType.Moat) return MOAT_FILL_HP;
@@ -762,7 +768,7 @@ export function evaluateGateOverrun(index: number, g: GateState) {
 // Once per tick: registry upkeep, auto open / close, and (once a second) the overrun check.
 export function updateGates(forceOverrunCheck = false) {
   if (state.gateTilesDirty) {
-    for (const i of tileIndicesOfAny([...FORT_GATES, TileType.Gate, TileType.Drawbridge, TileType.WoodDoor, TileType.StoneDoor])) gateAt(i);
+    for (const i of tileIndicesOfAny([...FORT_GATES, TileType.Gate, TileType.Drawbridge, TileType.WoodDoor, TileType.StoneDoor, TileType.FenceGate])) gateAt(i);
     for (const index of Array.from(gates.keys())) if (!isGateTile(state.tiles[index])) gates.delete(index);
     state.gateTilesDirty = false;
   }
