@@ -26,7 +26,7 @@ import { PLAYER_HALF_SIZE, PLAYER_SPEED, TILE_SIZE, TileType } from "@colony/sha
 import type { Mob, Player, SiteState } from "./types.js";
 import { GAME_DAY_TICKS, dt } from "./constants.js";
 import { colonists, mobs, players, state } from "./state.js";
-import { anchorOfTile, collidesAt, getBuildingLevel, inBounds, isNightNow, ownerAt, tileIndex } from "./tiles.js";
+import { anchorOfTile, placedFootprint, collidesAt, getBuildingLevel, inBounds, isNightNow, ownerAt, tileIndex } from "./tiles.js";
 import { clanIdAt, clanOf, withClan } from "./clans.js";
 import { siteByNum } from "./sites.js";
 import { gameDay, standingTown, tierOf } from "./diplomacy.js";
@@ -99,6 +99,7 @@ function isHostileMob(m: Mob): boolean {
 }
 // Hostile mobs within `tiles` of the door tile (tx, ty + 1).
 function hostilesNearDoor(tx: number, ty: number, tiles: number): number {
+  const door=exteriorDoor(tx,ty);tx=door.x;ty=door.y-1;
   const cx = (tx + 0.5) * TILE_SIZE;
   const cy = (ty + 1.5) * TILE_SIZE;
   const r = tiles * TILE_SIZE;
@@ -489,6 +490,8 @@ function sendView(p: Player, force = false) {
 }
 
 // ---- enter / exit ----
+function exteriorDoor(tx:number,ty:number){const fp=placedFootprint(tx,ty);return{x:tx+Math.floor(fp.w/2),y:ty+fp.h};}
+
 // The building whose door the hero stands at (door = the tile below a 1x1 prefab building). `bump`: only the
 // hero's own tile counts (walking north into the building from its door tile).
 function doorAt(p: Player, bump: boolean): { tx: number; ty: number } | null {
@@ -502,7 +505,7 @@ function doorAt(p: Player, bump: boolean): { tx: number; ty: number } | null {
       const doorY = my + dy;
       if (!inBounds(doorX, doorY - 1)) continue;
       const a = anchorOfTile(doorX, doorY - 1);
-      if (a.x !== doorX || a.y !== doorY - 1 || !interiorTemplateAt(a.x, a.y)) continue;
+      const door=exteriorDoor(a.x,a.y);if (door.x !== doorX || door.y !== doorY || !interiorTemplateAt(a.x, a.y)) continue;
       const d = Math.hypot(px(doorX) - p.x, px(doorY) - p.y) / TILE_SIZE;
       if (d <= INTERIOR_DOOR_REACH_TILES && (!best || d < best.d)) best = { tx: a.x, ty: a.y, d };
     }
@@ -538,8 +541,7 @@ export function enterInterior(p: Player, tx: number, ty: number): string {
   stopHeroBusy(p);
   const { map } = designedMap(`${tx},${ty}`,t.id,t.level,t.variant);
   // The world body waits at the door.
-  p.x = px(tx);
-  p.y = px(ty + 1);
+  const door=exteriorDoor(tx,ty);p.x=px(door.x);p.y=px(door.y);
   p.interior = {
     key: `${tx},${ty}`, tx, ty, tile: t.tile, level: t.level, templateId: t.id, variant: t.variant, storey: 0,
     x: px(map.spawn.x), y: px(map.spawn.y), sent: "", nextRefresh: state.cycleTick + INTERIOR_REFRESH_TICKS,
@@ -555,8 +557,7 @@ export function exitInterior(p: Player, why = "") {
   stopHeroBusy(p);
   p.interior = undefined;
   p.interiorBumpTick = state.cycleTick;
-  let x = px(I.tx);
-  let y = px(I.ty + 1);
+  const door=exteriorDoor(I.tx,I.ty);let x=px(door.x);let y=px(door.y);
   if (collidesAt(x, y)) {
     found: for (let r = 1; r <= 4; r++) {
       for (let dy = -r; dy <= r; dy++) {

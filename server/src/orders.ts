@@ -1,3 +1,4 @@
+import {footprintHitPoint} from './tiles.js';
 // orders.ts: Strategy-mode commands: move/attack/stance, order groups and regiment orders, enemy regiment intel.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import {
@@ -723,7 +724,7 @@ export function bombardStep(c: Colonist, at: { x: number; y: number }, stats: { 
   catapultImpact(c.x, c.y, at.x, at.y, damage, "colony", "c:" + c.id);
   for (const h of hearths.values()) {
     if (h.destroyed) continue;
-    const p = tileToPixelCenter(h);
+    const p = footprintHitPoint(h.x,h.y,at.x,at.y);
     if (Math.hypot(p.x - at.x, p.y - at.y) <= CATAPULT_SPLASH_PX + TILE_SIZE / 2) damageHearth(h, damage * CATAPULT_BUILDING_MULT, "c:" + c.id);
   }
   c.attackCooldownTicks = stats.cooldown;

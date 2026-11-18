@@ -1,3 +1,4 @@
+import {expandKeepFootprints} from './keepFootprints.js';
 import {migrateNeutralSpriteHomes} from './settlementMigration.js';
 // saves.ts: Save files: snapshot/apply world, migrations, slots, autosave, restart.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
@@ -542,6 +543,7 @@ function applyWorldInner(s: WorldState) {
   // Forts phase B: stamped forts (saves without them have none). After the owners (site numbers).
   restoreSites(s.sites);
   migrateNeutralSpriteHomes();
+  expandKeepFootprints();
   // Forts phase G: after the mobs (warband bodies are dropped; warbands come back abstract).
   restoreWarbands(s.warbands);
   // World streaming phase 3: after the mobs / wildlife (saves without it: no COLD records).

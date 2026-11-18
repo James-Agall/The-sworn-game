@@ -14,7 +14,7 @@ import {
   tileOwner,
 } from "./state.js";
 import { setTile, tileIndicesOf } from "./chunks.js";
-import { inBounds, isHostileOwner, ownerAt, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
+import { placedFootprint, footprintHitPoint, inBounds, isHostileOwner, ownerAt, tileIndex, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { armyDamageMultiplier } from "./economy.js";
 import { isGuardOrMilitiaKind } from "./units.js";
@@ -302,7 +302,10 @@ export function updatePrisonerWalkUp() {
 export function hearthApproachTile(h: { x: number; y: number }, px: number, py: number): TileCoord | null {
   let best: TileCoord | null = null;
   let bestD = Infinity;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+  const fp=placedFootprint(h.x,h.y),edge:[number,number][]=[];
+  for(let x=0;x<fp.w;x++)edge.push([x,-1],[x,fp.h]);
+  for(let y=0;y<fp.h;y++)edge.push([-1,y],[fp.w,y]);
+  for (const [dx, dy] of edge) {
     const t = { x: h.x + dx, y: h.y + dy };
     if (!isWalkableTile(t.x, t.y)) continue;
     const p = tileToPixelCenter(t);
@@ -380,7 +383,7 @@ export function hearthStep(c: Colonist, stats: { damage: number; cooldown: numbe
     }
   }
   if (!h) return false;
-  const p = tileToPixelCenter(h);
+  const p = footprintHitPoint(h.x,h.y,c.x,c.y);
   const dist = Math.hypot(p.x - c.x, p.y - c.y);
   const reach = Math.max(stats.range + TILE_SIZE * 0.5, TILE_SIZE * 1.5);
   if (dist <= reach) {

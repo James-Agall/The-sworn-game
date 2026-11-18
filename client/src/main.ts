@@ -1579,6 +1579,14 @@ async function main() {
     else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
     // Stardew phase 5b: trees take the season's tint.
     else if (SEASON_TREE_TILES.has(tile)) sprite.tint = mulTint(sprite.tint as number, seasonTreeTint);
+    if([TileType.Keep,TileType.SiteKeep,TileType.RuinedKeep].includes(artTile)){
+      const fp=placedFootprintClient(tx,ty),box=opaqueBox(texture);
+      const width=fp.w===3?tileSize*3:tileSize*1.9;
+      sprite.anchor.set((box.x+box.w/2)/texture.width,(box.y+box.h)/texture.height);
+      sprite.scale.set(width/box.w);sprite.rotation=0;
+      sprite.position.set((tx+fp.w/2)*tileSize,(ty+fp.h)*tileSize);
+      sprite.zIndex=(ty+fp.h-1)*worldTilesX+tx+fp.w-1;return;
+    }
     if(homeTexture){sprite.anchor.set(.5,1);sprite.scale.set(tileSize*2/homeTexture.width);sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
     if(fortTexture){
       const p=fortPartner(artTile),w=p?.dx===1?2:1,h=p?.dy===1?2:1;

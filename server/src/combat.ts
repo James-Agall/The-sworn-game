@@ -24,7 +24,7 @@ import {
 } from "./state.js";
 import { setTile, tileIndicesOf, tileIndicesOfAny } from "./chunks.js";
 import {
-  getBuildingLevel, inBounds, isHostileOwner, ownerAt, resourceKey, setOwner, siteNumber, tileIndex, tileOfPixel,
+  anchorOfTile, footprintHitPoint, getBuildingLevel, inBounds, isHostileOwner, ownerAt, resourceKey, setOwner, siteNumber, tileIndex, tileOfPixel,
   tileToPixelCenter,
 } from "./tiles.js";
 import { advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
@@ -410,7 +410,7 @@ export function handlePlayerAttack(attacker: Player) {
     // Camp hearths: with nothing else in reach, the player can strike a hearth next to them.
     for (const h of hearths.values()) {
       if (h.destroyed) continue;
-      const p = tileToPixelCenter(h);
+      const p = footprintHitPoint(h.x,h.y,attacker.x,attacker.y);
       if (Math.hypot(p.x - attacker.x, p.y - attacker.y) > PLAYER_ATTACK_RANGE + TILE_SIZE / 2) continue;
       state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: p.x, toY: p.y, melee: !ranged });
       damageHearth(h, damage, "p:" + attacker.id);
@@ -491,7 +491,7 @@ export function buildingMaxHp(tx: number, ty: number, t: TileType): number {
 // HP of the building / Town Center at a tile (null: nothing damageable there).
 export function structureHp(tx: number, ty: number): { hp: number; max: number } | null {
   if (!inBounds(tx, ty)) return null;
-  const a=fortAnchor((x,y)=>inBounds(x,y)?state.tiles[tileIndex(x,y)]:-1,tx,ty);tx=a.x;ty=a.y;
+  const a=anchorOfTile(tx,ty);tx=a.x;ty=a.y;
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
   if (t === TileType.TownCenter) {
     const tc = findTownCenterAt(tx, ty);
@@ -503,7 +503,7 @@ export function structureHp(tx: number, ty: number): { hp: number; max: number }
 }
 
 export function healStructure(tx: number, ty: number, amount: number) {
-  const a=fortAnchor((x,y)=>inBounds(x,y)?state.tiles[tileIndex(x,y)]:-1,tx,ty);tx=a.x;ty=a.y;
+  const a=anchorOfTile(tx,ty);tx=a.x;ty=a.y;
   const key = resourceKey(tx, ty);
   const tc = findTownCenterAt(tx, ty);
   if (tc && state.tiles[tileIndex(tx, ty)] === TileType.TownCenter) {
@@ -518,7 +518,7 @@ export function healStructure(tx: number, ty: number, amount: number) {
 
 // Mob damage to the building (or Town Center) at a tile; at 0 HP it is destroyed.
 export function damageBuilding(tx: number, ty: number, amount: number) {
-  const a=fortAnchor((x,y)=>inBounds(x,y)?state.tiles[tileIndex(x,y)]:-1,tx,ty);tx=a.x;ty=a.y;
+  const a=anchorOfTile(tx,ty);tx=a.x;ty=a.y;
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
   // Forts phase C: damage to a human settlement's building turns it hostile.
   const own0 = ownerAt(tileIndex(tx, ty));

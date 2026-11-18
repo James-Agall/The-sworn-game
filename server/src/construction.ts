@@ -1410,6 +1410,7 @@ export function handleRebuildKeep(player: Player, tx: number, ty: number) {
   }
   const cost = SITE_TEMPLATES[s.template].rebuildCost;
   spend(cost);
+  clearFootprintParts(tx,ty);
   setOwner(tileIndex(tx, ty), 0);
   setTileClan(tileIndex(tx, ty), player.clan);
   buildingHp.delete(resourceKey(tx, ty));

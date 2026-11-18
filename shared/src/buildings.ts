@@ -116,6 +116,9 @@ export interface Footprint {
   h: number;
 }
 export const FOOTPRINT_BY_TILE: Partial<Record<TileType, Footprint>> = {
+  [TileType.Keep]: {w:3,h:3},
+  [TileType.SiteKeep]: {w:3,h:3},
+  [TileType.RuinedKeep]: {w:3,h:3},
   [TileType.Pasture]: { w: 2, h: 2 },
   [TileType.WoolFarm]: { w: 2, h: 2 },
   // 2026-11-06: Pig Pasture, and Orchards 4x the area (2x2, like the pastures; old saves' orchards stay 1x1, x1).
@@ -157,7 +160,7 @@ export const PASTURE_YIELDS: Partial<Record<TileType, PastureYield>> = {
   [TileType.WoolFarm]: { meat: 100, wool: 90 },
 };
 // Largest w / h in FOOTPRINT_BY_TILE (bounds the anchor search).
-export const FOOTPRINT_MAX_SIDE = 2;
+export const FOOTPRINT_MAX_SIDE = 3;
 const ONE_BY_ONE: Footprint = { w: 1, h: 1 };
 
 // The footprint a NEW placement of `tile` takes (1x1 for ordinary buildings).

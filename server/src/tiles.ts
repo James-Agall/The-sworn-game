@@ -197,3 +197,10 @@ export function anchorOfTile(x: number, y: number): TileCoord {
   if (tileAtOrNone(x, y) !== TileType.BuildingPart) return { x, y };
   return footprintAnchorOf(tileAtOrNone, footprintSizeAt, x, y) ?? { x, y };
 }
+
+// Closest point on the occupied footprint, used for melee and splash hit tests.
+export function footprintHitPoint(tx:number,ty:number,px:number,py:number){
+ const a=anchorOfTile(tx,ty),fp=placedFootprint(a.x,a.y);
+ if(fp.w===1&&fp.h===1)return{x:(a.x+.5)*TILE_SIZE,y:(a.y+.5)*TILE_SIZE};
+ return{x:Math.max(a.x*TILE_SIZE,Math.min((a.x+fp.w)*TILE_SIZE,px)),y:Math.max(a.y*TILE_SIZE,Math.min((a.y+fp.h)*TILE_SIZE,py))};
+}

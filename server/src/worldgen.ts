@@ -1,3 +1,4 @@
+import {expandKeepFootprints} from './keepFootprints.js';
 // worldgen.ts: World size, world generation (biomes, ponds, resources, POI sites), the Abbey, the Castle Ruin and its bosses.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { randomUUID } from "node:crypto";
@@ -746,6 +747,7 @@ async function generateWorldInner(wrap: (fn: () => void) => void) {
   await worldgenProgress("settlements", 0.7);
   wrap(() => generateForts());
   timed("forts");
+  expandKeepFootprints();
   await worldgenProgress("resources", 0);
   wrap(() => {
     scatterResourceTiles(TileType.Tree, state.TREE_COUNT);

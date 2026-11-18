@@ -1,0 +1,23 @@
+import WebSocket from 'ws';import assert from 'node:assert/strict';
+const port=Number(process.env.PORT);if(!port||[8080,5173].includes(port))throw Error('Requires an isolated test server PORT; live ports are forbidden');
+const ws=new WebSocket(`ws://127.0.0.1:${port}`),sleep=ms=>new Promise(r=>setTimeout(r,ms));let welcome,snap,saved,welcomes=0;const hooks=new Map();ws.on('message',raw=>{const m=JSON.parse(raw);if(m.type==='welcome'){welcome=m;welcomes++}if(m.type==='snapshot')snap=m;if(m.type==='testHookResult')hooks.set(m.op,m);if(m.type==='saveResult')saved=m});
+const send=m=>ws.send(JSON.stringify(m));const hook=async(op,args={})=>{hooks.delete(op);send({type:'testHook',op,...args});for(let i=0;i<1500&&!hooks.has(op);i++)await sleep(10);assert(hooks.has(op),op);return hooks.get(op)};const check=(v,msg)=>{assert(v,msg);console.log('PASS '+msg)};
+await new Promise(r=>ws.on('open',r));while(!welcome||!snap)await sleep(20);send({type:'pause'});await hook('setRaids',{enabled:false});await hook('ignorePlayers',{value:true});await hook('setInstantBuild',{enabled:true});await hook('setStock',{stock:{wood:10000,rock:10000,iron:10000,tools:1000}});
+const tc=(await hook('constructionState')).townCenters[0],x=tc.x+7,y=tc.y+4,raw=(a,b,t)=>hook('setTileRaw',{tx:a,ty:b,tile:t});for(let yy=y-3;yy<y+8;yy++)for(let xx=x-3;xx<x+10;xx++)await raw(xx,yy,0);
+const tile=async(a,b)=>(await hook('structureState',{at:[{x:a,y:b}]})).tiles[0];const place=async(a,b,t)=>{await hook('teleportPlayer',{x:(a-1)*32+16,y:b*32+16});send({type:'setTile',tileX:a,tileY:b,tile:t});await hook('fastForward',{ticks:1})};const path=async(a,b,c,d,hostile=false)=>(await hook('structureState',{paths:[{from:{x:a,y:b},to:{x:c,y:d},hostile}]})).paths[0];
+
+send({type:'upgradeBuilding',tileX:tc.x,tileY:tc.y});await hook('fastForward',{ticks:1});
+await raw(x+2,y+2,11);await place(x,y,73);check(await tile(x,y)===0,'blocked 3x3 keep refused');await raw(x+2,y+2,0);
+await place(x,y,73);check(await tile(x,y)===73,'keep built');
+for(let yy=y;yy<y+3;yy++)for(let xx=x;xx<x+3;xx++)if(xx!==x||yy!==y)check(await tile(xx,yy)===90,`keep part ${xx-x},${yy-y}`);
+check(await path(x+1,y+3,x+1,y+1)===null,'keep hitbox blocks pathfinding');
+await hook('teleportPlayer',{x:(x+1)*32+16,y:(y+3)*32+16});send({type:'interact'});let interior=await hook('interior');check(!!interior.inside,'south centre door enters enlarged keep');
+await hook('interior',{exit:true});interior=await hook('interior');check(Math.abs(interior.world.x-((x+1)*32+16))<1&&Math.abs(interior.world.y-((y+3)*32+16))<1,'exit returns to south edge');
+saved=null;send({type:'saveGame',slot:'slot1'});for(let i=0;i<500&&!saved;i++)await sleep(10);check(saved?.ok,'keep save');saved=null;send({type:'loadGame',slot:'slot1'});for(let i=0;i<500&&!saved;i++)await sleep(10);check(saved?.ok&&await tile(x+2,y+2)===90,'keep footprint survives load');
+await hook('damageBuilding',{tx:x+2,ty:y+2,amount:10000});check(await tile(x,y)===0&&await tile(x+2,y+2)===0,'damage on outer hitbox destroys whole keep');
+await place(x,y,73);await place(x+2,y+2,0);check(await tile(x,y)===0&&await tile(x+1,y)===0,'outer tile demolition clears whole keep');
+await hook('setInstantBuild',{enabled:false});await place(x,y,73);check(await tile(x,y)===59&&await tile(x+2,y+2)===90,'construction reserves 3x3');await place(x+2,y+2,0);check(await tile(x,y)===0&&await tile(x+2,y+2)===0,'cancel construction clears footprint');
+await hook('teleportPlayer',{x:(x-2)*32+16,y:(y+4)*32+16});await raw(x,y,73);await hook('damageBuilding',{tx:x,ty:y,amount:17});const hpBefore=(await hook('buildingState')).buildingHp.find(([key])=>key===`${x},${y}`)?.[1];
+saved=null;send({type:'saveGame',slot:'slot1'});for(let i=0;i<500&&!saved;i++)await sleep(10);saved=null;send({type:'loadGame',slot:'slot1'});for(let i=0;i<500&&!saved;i++)await sleep(10);
+check(await tile(x+2,y+2)===90,'clear legacy keep expands on load');check(hpBefore!==undefined&&(await hook('buildingState')).buildingHp.find(([key])=>key===`${x},${y}`)?.[1]===hpBefore,'legacy expansion preserves damage');
+console.log('ALL PASS');ws.close();process.exit(0);

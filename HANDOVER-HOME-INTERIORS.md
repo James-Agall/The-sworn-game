@@ -26,3 +26,11 @@ Blueprint placement and the creative building editor entry are disabled. Buildin
 On loading a save, neutral settlement buildings are converted only when the old template tiles match exactly. Captured, damaged or edited sites are preserved. Conversion keeps the site identity, keep, stock, quests and NPC home assignments and is idempotent. Previously generated sites retain their old roads; new settlement geography applies to new worlds.
 
 Verification: all 25 layouts and allowed transforms validate; prefab entrances, villagers, trade and quests pass the settlement suite. Migration tested in all 8 orientations plus idempotence and preservation of edited/captured sites. Default furnished houses and all ten custom bases pass home storage/save tests. Production browser previews cover all ten bases and three settlement tiers.
+
+
+## Keep scale and footprint
+New buildable Keeps occupy a 3x3 tile footprint. Their artwork is fitted to three tiles wide, with the door at the centre of the south edge. Clicking/damaging/demolishing any part resolves to the anchor; construction reserves all nine tiles. Infantry and hero hearth attacks use the closest footprint point, and siege splash uses the same bounds. Ruined site keeps retain their parts; rebuilding a ruin into an outpost clears those parts before creating the Town Center.
+
+Existing Keep / SiteKeep / RuinedKeep anchors expand on load or world generation only when a clear unoccupied 3x3 area and doorway are available. Neighbouring structures, roads and resources are never overwritten. Captured sites and cramped legacy keeps remain compact. HP and upgrade levels are preserved. This affects actual keep buildings; the house decorator's keep-style facade remains a house style, without granting defensive stats or altering its house footprint.
+
+Tests: keep-footprints suite checks placement refusal, nine-tile collision, entrance/exit, save/load, outer-tile damage and demolition, construction cancellation and legacy expansion preserving HP. Interiors, fortifications and settlement template regression suites pass. Comparison gallery captures all ten default interiors against their exterior sprite artwork.
