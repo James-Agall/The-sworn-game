@@ -179,7 +179,7 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
     T("tavern", "Tavern", "wood", "wood", [
       "#############",
       "#xX.1.H.s.xc#",
-      "#KKKKK......#",
+      "#..K.K......#",
       "#....v..v...#",
       "#.hth..hth..#",
       "#......v....#",
@@ -252,7 +252,7 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
     T("smithy", "Smithy", "stone", "stone", [
       "###########",
       "#fn1R.a.xc#",
-      "#KKK..W.l.#",
+      "#.....W.l.#",
       "#.........#",
       "#..x...X..#",
       "#.........#",
@@ -282,7 +282,7 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
     T("bakery", "Bakery", "stone", "wood", [
       "#########",
       "#oo1.k.c#",
-      "#KKK.x..#",
+      "#..K.x..#",
       "#.......#",
       "#.hth..l#",
       "#.......#",
@@ -311,7 +311,7 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
     T("shop", "Shop", "wood", "wood", [
       "###########",
       "#sXs.1.sxc#",
-      "#..KKKKK..#",
+      "#..K.K.K..#",
       "#.........#",
       "#m.......m#",
       "#..k...X..#",
@@ -321,7 +321,7 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
     T("shop", "Shop", "wood", "wood", [
       "#########",
       "#s.s1s.c#",
-      "#.KKKKK.#",
+      "#..K.K..#",
       "#.......#",
       "#m.....m#",
       "#X.k.x.X#",
@@ -330,7 +330,7 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
     T("shop", "Shop", "wood", "wood", [
       "###########",
       "#sss.1.Xc.#",
-      "#KKKK.KKK.#",
+      "#...K.KKK.#",
       "#.........#",
       "#..m...m..#",
       "#.........#",
@@ -382,7 +382,7 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
       "#..hhhhhhh..2.#",
       "#.............#",
       "#H...........H#",
-      "#x.bq....s.Ucx#",
+      "#x.bq....s.U.c#",
       "#######E#######",
     ]),
     T("hall", "Great hall", "stone", "stone", [
@@ -431,7 +431,7 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
     T("barn", "Barn", "dirt", "wood", [
       "###########",
       "#yyy#.kkXc#",
-      "#yy.#.....#",
+      "#...#.....#",
       "#...#..1..#",
       "#.........#",
       "#yy.....XX#",
@@ -607,6 +607,7 @@ export const INTERIOR_TEMPLATE_BY_TILE: Partial<Record<TileType, InteriorTemplat
   [TileType.MilitiaCamp2]: "barracks",
   [TileType.MilitiaCamp3]: "barracks",
   [TileType.TownCenter]: "hall",
+  [TileType.KnightPost]: "hall",
   [TileType.CastleLevel2]: "hall",
   [TileType.CastleLevel3]: "hall",
   [TileType.Keep]: "hall",
@@ -695,7 +696,37 @@ function buildFromTemplate(t: InteriorTemplate, level: number, variant: number, 
     p.facing=p.prop==='chair'&&table?(table.x>p.x?'e':table.x<p.x?'w':table.y>p.y?'s':'n'):(p.x===1?'e':p.x===w-2?'w':p.y>=h-2?'n':'s');
     if(p.prop==='bed'||p.prop==='bedFine')p.facing='n';
   }
-  return { templateId: t.id, label: t.label, level, variant, storey, w, h, floor: t.floor, wall: t.wall, cells, props, slots, exit, spawn, stairs };
+  const map:InteriorMap={ templateId: t.id, label: t.label, level, variant, storey, w, h, floor: t.floor, wall: t.wall, cells, props, slots, exit, spawn, stairs };
+  furnishInteriorEdges(map);
+  return map;
+}
+
+// Refresh every public interior and upstairs room with its own wall-side furnishings.
+// The player-home presets have their own furnishing system; saved custom rooms are never rewritten here.
+function furnishInteriorEdges(m:InteriorMap){
+ if(m.templateId==='house')return;
+ const themes:Record<InteriorTemplateId,InteriorProp[]>={house:[],tavern:['barrel','shelf','lamp','rug'],church:['candelabra','banner','statue','rug'],smithy:['weaponRack','crates','workbench','lamp'],bakery:['sacks','shelf','barrel','lamp'],shop:['shelf','crates','counter','lamp'],barracks:['armourStand','weaponRack','banner','lamp'],hall:['banner','statue','candelabra','rug'],barn:['sacks','barrel','crates','hay']};
+ const theme=m.storey>0?(['wardrobe','shelf','lamp','rug'] as InteriorProp[]):themes[m.templateId];
+ const candidates:{x:number;y:number}[]=[];
+ for(let y=1;y<m.h-1;y++)for(let x=1;x<m.w-1;x++){
+  if(m.cells[y*m.w+x]!=='.'||m.props.some(p=>p.x===x&&p.y===y)||m.slots.some(p=>p.x===x&&p.y===y)||Math.abs(x-m.spawn.x)+Math.abs(y-m.spawn.y)<=1||m.stairs&&Math.abs(x-m.stairs.x)+Math.abs(y-m.stairs.y)<=1)continue;
+  if([[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>m.cells[(y+dy)*m.w+x+dx]==='#'))candidates.push({x,y});
+ }
+ let count=0;
+ for(const q of candidates){
+  if(count>=6)break;
+  const prop=theme[(count+m.variant)%theme.length];
+  m.props.push({...q,prop,facing:q.x===1?'e':q.x===m.w-2?'w':'s'});
+  if(interiorLayoutAccessible(m))count++;else m.props.pop();
+ }
+}
+export function interiorLayoutAccessible(m:InteriorMap):boolean{
+ const solid=interiorSolidGrid(m),start=m.spawn.y*m.w+m.spawn.x;if(solid[start])return false;
+ const seen=new Set([start]),queue=[start];
+ for(let k=0;k<queue.length;k++){const i=queue[k];for(const[dx,dy]of[[1,0],[-1,0],[0,1],[0,-1]]){const x=i%m.w+dx,y=Math.floor(i/m.w)+dy,j=y*m.w+x;if(x<0||y<0||x>=m.w||y>=m.h||solid[j]||seen.has(j))continue;seen.add(j);queue.push(j);}}
+ for(let i=0;i<solid.length;i++)if(!solid[i]&&!seen.has(i))return false;
+ const approach=(p:{x:number;y:number})=>seen.has(p.y*m.w+p.x)||[[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>{const x=p.x+dx,y=p.y+dy;return x>=0&&y>=0&&x<m.w&&y<m.h&&seen.has(y*m.w+x);});
+ return seen.has(m.exit.y*m.w+m.exit.x)&&m.props.every(approach)&&m.slots.every(approach);
 }
 
 // Pure: the same template + level + variant + storey always gives the same map (generated lazily, never saved).

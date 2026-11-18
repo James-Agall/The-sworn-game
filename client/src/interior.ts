@@ -281,7 +281,6 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     const ground = new Graphics();
     ground.zIndex = -10;
     room.addChild(ground);
-    const wall = WALL[m.wall];
     for (let y = 0; y < m.h; y++) {
       for (let x = 0; x < m.w; x++) {
         const ch = m.cells[y * m.w + x];
@@ -293,7 +292,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           const s = new Sprite(floorTile.texture);
           s.scale.set(T / floorTile.texture.width);
           s.position.set(x * T, y * T);
-          if(m.templateId==='house'&&m.floor==='wood'){s.rotation=Math.PI/2;s.position.x+=T;}
+          if(m.floor==='wood'){s.rotation=Math.PI/2;s.position.x+=T;}
           s.zIndex = -9;
           room.addChild(s);
         } else {
@@ -321,7 +320,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     for (let y = 0; y < m.h; y++) {
       for (let x = 0; x < m.w; x++) {
         if (m.cells[y * m.w + x] !== "#") continue;
-        if(m.templateId==='house'){
+        {
           const south=!solidAt(x,y+1),north=!solidAt(x,y-1),east=!solidAt(x+1,y),west=!solidAt(x-1,y);
           const draw=(name:string,px:number,py:number,w:number,h:number)=>{const tex=extraTexture('/sprites/cozy-walls/'+(m.wall==='stone'?'stone-':'')+name+'.png');if(!tex)return false;const sp=new Sprite(tex);sp.position.set(px,py);sp.width=w;sp.height=h;sp.zIndex=-5;room.addChild(sp);return true;};
           if(south||(y===0&&x>1&&x<m.w-2)){
@@ -338,29 +337,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           // Fully occluded corner cells stay outside the cutaway; no solid brown blocks.
           continue;
         }
-        walls.rect(x*T,y*T,T,T).fill(wall.face);
-        const mask = (y > 0 && m.cells[(y - 1) * m.w + x] === "#" ? 1 : 0)
-          | (x + 1 < m.w && m.cells[y * m.w + x + 1] === "#" ? 2 : 0)
-          | (y + 1 < m.h && m.cells[(y + 1) * m.w + x] === "#" ? 4 : 0)
-          | (x > 0 && m.cells[y * m.w + x - 1] === "#" ? 8 : 0);
-        const wallArt = autumnFrame("interior-walls", (m.wall === "stone" ? 4 : 0) + Math.floor(mask / 8), mask % 8);
-        if (wallArt) {
-          const sprite = new Sprite(wallArt);
-          sprite.anchor.set(0.5, 1);
-          sprite.scale.set(T / 68);
-          sprite.position.set((x + 0.5) * T, (y + 1) * T);
-          sprite.zIndex = -5;
-          room.addChild(sprite);
-          continue;
-        }
-        walls.rect(x * T, y * T, T, T).fill(wall.top);
-        walls.rect(x * T, y * T, T, 2).fill({ color: 0xffffff, alpha: 0.12 });
-        if (!solidAt(x, y + 1)) {
-          // A face toward the room below: planks or stone courses.
-          walls.rect(x * T, y * T + 10, T, T - 10).fill(wall.face);
-          for (let k = 0; k < 3; k++) walls.rect(x * T, y * T + 14 + k * 6, T, 1).fill(wall.line);
-          if (m.wall === "stone") walls.rect(x * T + ((y + x) % 2 ? 10 : 22), y * T + 10, 1, T - 10).fill(wall.line);
-        }
+
       }
     }
     for (const p of m.props) room.addChild(propSprite(p.prop, p.x, p.y,p.facing));

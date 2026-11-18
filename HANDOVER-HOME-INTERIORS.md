@@ -44,3 +44,11 @@ House interiors use 12 new transparent timber-wall assets inspired by the suppli
 Source atlas and reproducible slicing are under art-sources/cozy-walls-20261118. Tests cover 5x5 keeps, 3x3 hall placement and tier upgrades, old keep compatibility, entrances, pathfinding, outer-part damage/demolition, construction cancellation and save/load.
 
 Stone material now uses an additional 8 transparent masonry sprites with recessed windows, framed pictures and stone cutaway rails, rather than plaster. Select Stone in Decorate home to apply it. The choice remains saved through the existing wall-material field.
+
+
+## All-interior refresh (2026-11-18)
+All nine interior categories and their upper floors now share the warm timber / stone cutaway renderer and vertical timber flooring. The ten furnished player-base presets use the same wall treatment. Public rooms gain up to six type-specific wall-side furnishings, admitted only if every floor tile, exit, furniture approach and NPC slot remains reachable. Upper rooms gain bedroom storage, lamps and rugs. Existing custom home designs and chest contents are preserved.
+
+Opened blocked counter-side routes in tavern, smithy and shop templates, adjusted bakery/barn access, and moved the great-hall corner chest into an accessible position. The level-one Hall of the Sworn (KnightPost) now has the hall interior entrance, matching its upgraded tiers.
+
+Verification: client/server type checks, production build, interior-refresh (108 combinations of type/level/variant/storey, access, facing and determinism), interiors and home-design suites. Production browser checks cover all nine room categories, all ten home styles, material/furniture editing, chests and save/load with no browser errors or missing images. Refresh uses existing generated wall/furniture assets; no new image generation is needed. Default rooms rebuild on entry after restart; saved custom furniture is never reset.
