@@ -7,11 +7,13 @@ let loading:Promise<void>|undefined;
 export function loadNpcHero(){return loading??=Promise.all([0,1,2,3].flatMap(t=>['foot','mounted'].map(mode=>new Promise<void>(resolve=>{const key=`armour-${t}-${mode}`,i=new Image();i.onload=()=>{sheets.set(key,i);resolve()};i.onerror=()=>resolve();i.src=`/sprites/hero-npc/${key}.png?v=spear-shield-20261117`;})))).then(()=>{});}
 export function npcHeroFrame(v:HeroVisual,pose:HeroPose,mounted:boolean){
  const a=sanitizeHeroAppearance(v.appearance);
- // The supplied pack contains one male and these seven loadouts. Retain the rig for missing artwork.
- if(a.gender!=='m'||a.face!==0||a.hair!==1||a.hairColor!==1||a.skin!==1||(mounted&&a.horse!=='bay')||!['sword','spear','axe','bow'].includes(v.weapon))return;
- if(v.helmet !== (v.armour>0) || (v.helmet && (v.helmTier||1)!==v.armour) || (v.weaponTier||1)!==Math.max(1,v.armour) || (v.shield && (v.shieldTier||1)!==Math.max(1,v.armour)))return;
- const tier=Math.max(0,Math.min(3,v.armour)),key=`armour-${tier}-${mounted?'mounted':'foot'}`,img=sheets.get(key);if(!img)return;
- const row=v.weapon==='bow'?6:({sword:0,spear:2,axe:4} as Record<string,number>)[v.weapon]+(v.shield?1:0);
+ // The pack is the one male hero art set: always use it. Gender/face/hair/skin/horse choices are not represented in it,
+ // and gear that does not match a pack loadout snaps to the nearest one (armour tier from the chest piece, else the helmet).
+ // Unarmed has no pack row; callers fall back to the existing hero sprites, never the rig.
+ if(v.weapon==='unarmed')return;
+ const tier=Math.max(0,Math.min(3,v.armour>0?v.armour:v.helmet?(v.helmTier||1):0)),key=`armour-${tier}-${mounted?'mounted':'foot'}`,img=sheets.get(key);if(!img)return;
+ const base=({sword:0,club:0,mace:0,spear:2,pike:2,staff:2,axe:4,bow:6} as Record<string,number>)[v.weapon]??0;
+ const row=base===6?6:base+(v.shield?1:0);
  const oneShot=pose.state==='attack'||pose.state==='hurt',phase=oneShot?Math.max(0,Math.min(.999999,pose.phase)):((pose.phase%1)+1)%1;
  const frames={idle:[0,1],walk:[2,3,4,5],attack:[6,7,8],hurt:[9]}[pose.state],col=frames[Math.floor(phase*frames.length)];
  const id=`${key}/${row}/${col}/${a.build}/${pose.facing??1}`;const old=cache.get(id);if(old)return old;
