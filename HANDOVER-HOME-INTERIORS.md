@@ -42,3 +42,5 @@ Keep art is now 4.5 tiles wide, exactly 50% wider than the previous 3-tile rende
 House interiors use 12 new transparent timber-wall assets inspired by the supplied room reference: warm vertical panels, windows and pictures, framed plaster and cutaway trim. Wood floors run vertically. Small home presets gain bedroom partitions while existing custom furniture on those cells is preserved. Materials, furnishings and paths remain editable/validated.
 
 Source atlas and reproducible slicing are under art-sources/cozy-walls-20261118. Tests cover 5x5 keeps, 3x3 hall placement and tier upgrades, old keep compatibility, entrances, pathfinding, outer-part damage/demolition, construction cancellation and save/load.
+
+Stone material now uses an additional 8 transparent masonry sprites with recessed windows, framed pictures and stone cutaway rails, rather than plaster. Select Stone in Decorate home to apply it. The choice remains saved through the existing wall-material field.

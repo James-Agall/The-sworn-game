@@ -323,10 +323,10 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         if (m.cells[y * m.w + x] !== "#") continue;
         if(m.templateId==='house'){
           const south=!solidAt(x,y+1),north=!solidAt(x,y-1),east=!solidAt(x+1,y),west=!solidAt(x-1,y);
-          const draw=(name:string,px:number,py:number,w:number,h:number)=>{const tex=extraTexture('/sprites/cozy-walls/'+name+'.png');if(!tex)return false;const sp=new Sprite(tex);sp.position.set(px,py);sp.width=w;sp.height=h;sp.zIndex=-5;room.addChild(sp);return true;};
+          const draw=(name:string,px:number,py:number,w:number,h:number)=>{const tex=extraTexture('/sprites/cozy-walls/'+(m.wall==='stone'?'stone-':'')+name+'.png');if(!tex)return false;const sp=new Sprite(tex);sp.position.set(px,py);sp.width=w;sp.height=h;sp.zIndex=-5;room.addChild(sp);return true;};
           if(south||(y===0&&x>1&&x<m.w-2)){
             const hearth=m.props.some(p=>p.prop==='hearth'&&p.x===x&&p.y===y+1);
-            const face=m.wall==='stone'?'plaster':hearth?'beam':y===0&&x%4===2?'window':y===0&&x%5===3?'picture':'panel';
+            const face=hearth?'beam':y===0&&x%4===2?'window':y===0&&x%5===3?'picture':'panel';
             if(!draw(face,x*T,y*T-8,T,T+8))walls.rect(x*T,y*T,T,T).fill(0xb8823d);
           }else if(north){
             draw('cap-h',x*T,y*T,T,8);
