@@ -1323,3 +1323,33 @@ Use a normal (seasons on) game; Creative "set season / day" jumps the calendar.
 13. Save and reload: sick people, the starter, the orchard's age and the Cellar level are unchanged.
 14. Art check: Salt Works (tinted campfire), Smokehouse (tinted tavern), Dairy (tinted barn), Cellar (tinted quarry), hop
     crops (tinted hemp): readable? Is the new Colony panel row too long on a narrow window?
+
+## Industry extras (2026-11-19)
+A normal game (gates on); Creative "Unlock all" off. The new buildings are in the Industry tab (button only).
+1. Build menu: Foundry "needs: Crucible, a Copper Mine"; Stamp Mill "needs: Carpenter's tools, an Iron Mine"; Lime
+   Quarry "needs: a Quarry"; Gold / Lead Mine "needs: an Iron Mine"; Glassworks "needs: a Kiln, a Stamp Mill"; Mint
+   "needs: a Stamp Mill, a Blacksmith". Tooltips list inputs and outputs.
+2. Minimap of a new world: off-white (limestone), yellow (gold) and slate (lead) specks besides coal / copper / tin. On
+   the map the deposits are tinted rock / iron-ore tiles.
+3. Lime Quarry / Gold Mine / Lead Mine: refused off their deposit ("must be sunk on a ... deposit"); built on one, a miner
+   digs Limestone / Gold ore / Lead ore (Resources panel); press E on the mine: a mine interior with pale / gold / slate
+   ore faces.
+4. Foundry with copper and tin ore and charcoal: Bronze, then Bronze tools, Bronze weapons, Bronze armour (with hides).
+   With bronze tools in store the hero chops / mines visibly faster.
+5. With no iron armour / weapons in the armoury, train a knight: click it: its stats show more damage / less damage taken
+   than an unequipped one; Bronze weapons / armour in the stores go down. Forge an iron piece: the knight swaps (stores'
+   bronze goes back up).
+6. Stamp Mill: refused on dry ground; beside water: gold ore -> Gold dust, tin ore -> Washed tin, stone -> Sand. The
+   Foundry's bronze from washed tin is 3 a batch.
+7. Bloomery level 1 with a smelter, limestone and blooms: its panel says "Steel: needs a level-2 Bloomery"; upgrade to a
+   Blast furnace (level-2 smelter): Steel appears (Good with a level-2 smelter).
+8. Get Fine steel (level-3 furnace + level-3 smelter, or Creative): the Blacksmith's forge buttons read "T1 (T2 with Fine
+   steel)"; forging uses one Fine steel and the armoury gets the better tier.
+9. Glassworks with sand, limestone and charcoal: Glass, Window glass, Bottles. With 4+ window glass, open a room with
+   windows (Room panel): warmth up, beauty up; the cold tip no longer says "fewer windows". With 4+ bottles and ale in
+   store Happiness rises a little more.
+10. Mint with gold dust and charcoal: the treasury (gold) goes up 20 per batch (more for better grades); no Coins pile.
+11. Lead Mine + Foundry (no copper / tin): Lead; Kiln with clay and lead: tableware comes out Good from a level-1 potter.
+12. Save and reload: the new buildings, items, bronze on soldiers and unlocks are unchanged.
+13. Art check: Foundry / Glassworks (tinted blacksmith), Stamp Mill (tinted barn), Mint (tinted tavern), the three mines
+    (tinted quarry / iron mine), the three deposits: readable and distinct enough?

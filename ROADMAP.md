@@ -4722,3 +4722,54 @@ their numbers: the flat 2% spoilage of grain / meat / fruit stays there).
 - **Not done**: crop rotation / soil fertility (skipped: the per-tile save format would need a last-crop field; the Barn
   plots' fallow stays the only rest); a salt-deposit terrain tile (water stands in); sick people working slower;
   the food balance revisit (FOOD_OUTPUT_MULT / FOOD_TIME_MULT) waits for a playtest as the plan says.
+
+## Industry extras — landed 2026-11-19
+Phase 6 of PLAN-agri-industry-winter-mines.md. Numbers in `shared/src/industry.ts` (items / recipes / gates in
+`shared/src/progression.ts`; the new deposits in `shared/src/mines.ts`); test `server/industry-extra-test.mjs`
+(`npm test -- industry-extra`, a TREE suite: gates on). Every new effect is off under COLONY_UNLOCK_ALL (older suites keep
+their numbers). New TileTypes 159-168. Every new station is an ordinary artisan station (one worker, 3 levels, an upgrade
+costs the build cost again x the new level, worker XP / grades / tier speed, may stand in a workshop room, works at the
+hero's personal craft table with its own skill).
+- **Foundry** (159, 15 wood + 15 rock; needs a Crucible in store and a Copper Mine; profession **founder** (Crafting);
+  hero skill Smelting; a hot station). Order: Bronze tools (2 bronze + 2 wood, one set), Bronze weapons (2 bronze + 1 wood,
+  cap 10), Bronze armour (3 bronze + 1 hide, cap 10), then bronze: 3 copper ore + 2 washed tin + 1 charcoal (or coal)
+  -> 3, else 3 copper ore + 2 tin ore + 1 charcoal (or coal) -> 2 (cap 30); last, lead: 2 lead ore + 1 charcoal (or coal)
+  -> 2 (cap 20).
+- **Bronze = T1.5**: Bronze tools in store: the hero's chopping / quarrying / mining and the clan's woodcutters, miners and
+  diggers work x1.2 (the stone axe / pick are still the gates). Bronze gear (clan items): a knight / spearman / pikeman /
+  cavalry with no iron piece in a slot takes a bronze one when it musters, and idle soldiers pick one up (gear pickup);
+  bronze weapon damage x1.1 (iron T1 x1.2), bronze armour damage taken x0.92 (iron T1 x0.85). An iron piece replaces it
+  and the bronze goes back to the stores (also when the soldier leaves its post; levies hand theirs back). Saved on the
+  colonist (`bronzeArmour` / `bronzeWeapon`; old saves: none).
+- **New deposits** (worldgen v11; veins per 80x80: limestone 5, gold ore 2, lead ore 3; placed after the coal / copper /
+  tin veins so those keep their spots; a loaded world missing a kind gets its veins): Limestone (161) -> **Lime Quarry**
+  (163, needs a Quarry; 2 limestone a batch, cap 60), Gold ore (162) -> **Gold Mine** (164, needs an Iron Mine; 1 gold
+  ore, cap 40), Lead ore (167) -> **Lead Mine** (168, needs an Iron Mine; 2 lead ore, cap 40). Like the other deposit mines:
+  only on their deposit (demolished, it comes back), levels 2 / 3 behind timber props / vent + pump + Blacksmith,
+  enterable interiors, infestation, prospecting richness, minimap markers (off-white, yellow, slate).
+- **Stamp Mill** (160, 25 wood + 10 rock + 4 iron; needs Carpenter's tools and an Iron Mine, and for a new one water within
+  3 tiles to wash; profession **ore washer** (Mining); hero skill Mining): 3 gold ore -> 1 gold dust (cap 20), 2 tin ore
+  -> 3 washed tin (cap 20), 3 stone -> 2 sand (cap 30), in that order.
+- **Steel** at the Blast furnace (Bloomery level 2+; new recipe field `stationLevel`, also at the personal table) by a
+  level-2 smelter: 2 iron blooms + 1 limestone + 2 charcoal (or coal) -> 1 steel (60 s, cap 20), graded by the furnace's
+  tier. A level-1 Bloomery's panel says "Steel: needs a level-2 Bloomery". **Fine steel -> better gear**: forging at a
+  Blacksmith (queue, autocraft, the hero's own forge) with Fine steel in store uses one per piece below tier 3 and makes it
+  a tier better (a level-2 forge makes tempered T3); the forge button says "(T2 with Fine steel)". Poor / Good steel waits.
+- **Glassworks** (165, 15 wood + 20 rock; needs a Kiln and a Stamp Mill; profession **glassblower** (Crafting); hero skill
+  Pottery; a hot station): Window glass (2 glass + 1 wood -> 2, cap 20), Bottles (1 glass -> 2, cap 20), else glass (2
+  sand + 1 limestone + 1 charcoal or coal -> 2, cap 30). Window glass in store (4+): every window of the clan's rooms is
+  glazed: no heat lost (was -4 warmth each) and +1 beauty point; the cold-room tip changes. Bottles in store (4+) with ale:
+  +2 to the ale happiness bonus.
+- **Mint** (166, 10 wood + 25 rock + 6 iron; needs a Stamp Mill and a Blacksmith; profession **minter** (Crafting); hero
+  skill Trading): 2 gold dust + 1 charcoal (or coal) -> 5 coins, which go straight into the treasury: 4 gold a coin x the
+  grade value (Poor 20, Good 25, Fine 30 gold a batch). No coins item is kept.
+- **Lead**: smelted at the Foundry (above); the Kiln fires **lead-glazed tableware** (2 clay + 1 lead + 1 wood -> 2) one
+  grade better than plain (new recipe field `gradeBonus`), before plain tableware while lead is in store.
+- **UI**: new Industry tools (button only) with their gates and outputs in the tooltip; new chains "Bronze", "Crushing &
+  washing", "Glass", "Gold & lead"; the Metal chain ends at limestone and steel; the Bloomery / Lead Mine tooltips mention
+  steel / glaze. Stand-in art (SPRITES.md #114).
+- **Saves**: everything is clan items, tiles and two optional colonist flags; nothing new at the top level.
+- **Not done**: carts / rails at mines; lead roofing (the house top tier still needs roof tiles: an "either" gate would
+  need a new requirement kind); a Goldsmith's jewellery (gems + gold dust -> luxury goods); bronze gear for the hero's own
+  equipment slots (the hero uses the armoury's iron / steel pieces; bronze is for soldiers); a separate T1.5 visual on
+  units (bronze soldiers look unequipped / as their iron tier).

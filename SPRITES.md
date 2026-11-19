@@ -1124,3 +1124,17 @@ No live deployment and no push. Visual taste and prolonged multiplayer animation
 - Wanted: salt pans (a brine hearth with pans), a smokehouse (hut with smoke and hanging meat), a dairy (whitewashed
   hut with churns), a cellar door (stone steps into a mound); hop bines on poles (sown / growing / ripe); item icons for
   the nine items; a "sick" badge icon (a green face or a bowl).
+
+## #114 Industry extras stand-ins (2026-11-19)
+- Buildings (tinted stand-ins, client/src/worldVisuals.ts): Foundry = `blacksmith` tinted bronze 0xd8a050; Glassworks =
+  `blacksmith` tinted glass-green 0x90d0d8; Stamp Mill = `barn` tinted grey 0xa8b0b8; Mint = `tavern` tinted gold
+  0xf0d878; Lime Quarry = `quarry` tinted 0xf4f0e0; Gold Mine = `ironMine` tinted 0xf0d870; Lead Mine = `ironMine` tinted
+  0x8a90a0.
+- Deposits: Limestone = `rock` tinted 0xf0ecdc; Gold ore = `ironOre` tinted 0xf0d050; Lead ore = `rock` tinted 0x7a8090.
+  Mine interiors: the ore face flecks per mine (client/src/interior.ts ORE_FLECK).
+- Items (Bronze, Bronze tools / weapons / armour, Limestone, Gold ore, Lead ore, Washed tin, Gold dust, Sand, Steel, Glass,
+  Window glass, Bottles, Coins, Lead): no icon; the Resources panel's lettered chip stands in.
+- Wanted: a foundry (crucible furnace with moulds), a water-wheel stamp mill with washing troughs, a glassworks (beehive
+  furnace), a mint (stone strongroom with a screw press); limestone / gold / lead outcrops; item icons for the fifteen
+  items; a bronze tint or overlay for soldiers in bronze gear.
+

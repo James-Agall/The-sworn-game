@@ -8,7 +8,7 @@ import { TileType } from "./protocol.js";
 
 // ---- buildings ----
 // The new artisan stations (one worker each, 3 levels, upgrade = build cost x the new level).
-export const INDUSTRY_STATION_TILES: readonly TileType[] = [TileType.Foundry, TileType.StampMill, TileType.Glassworks];
+export const INDUSTRY_STATION_TILES: readonly TileType[] = [TileType.Foundry, TileType.StampMill, TileType.Glassworks, TileType.Mint];
 // A new Stamp Mill washes its ore: water (a pond / river Water tile or a dug Moat) within this many tiles.
 export const STAMP_MILL_WATER_RADIUS_TILES = 3;
 
@@ -40,3 +40,14 @@ export const GLAZED_WINDOWS_MIN = 4;
 export const GLAZED_WINDOW_BEAUTY = 1;
 export const BOTTLES_MIN = 4;
 export const BOTTLED_ALE_BONUS = 2;
+
+// ---- the Mint ----
+// The Mint's minter strikes 2 gold dust + 1 charcoal into MINT_COINS_PER_BATCH coins; struck coins go straight into the
+// treasury: MINT_GOLD_PER_COIN gold each x the grade's value (Poor 1, Good 1.25, Fine 1.5), rounded down.
+export const MINT_COINS_PER_BATCH = 5;
+export const MINT_GOLD_PER_COIN = 4;
+
+// ---- lead ----
+// The Foundry smelts lead (2 lead ore + 1 charcoal -> 2 lead) when it has no bronze to make. The Kiln glazes tableware
+// with it (2 clay + 1 lead + 1 wood -> 2 tableware) LEAD_GLAZE_GRADE_BONUS grade better than plain (at most Fine).
+export const LEAD_GLAZE_GRADE_BONUS = 1;

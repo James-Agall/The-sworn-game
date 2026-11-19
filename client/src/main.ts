@@ -5569,7 +5569,7 @@ async function main() {
     TileType.ClayPit, TileType.Kiln, TileType.ChickenCoop, TileType.LivestockBarn, TileType.PigSty, TileType.SheepPen,
     TileType.CoalMine, TileType.CopperMine, TileType.TinMine,
     TileType.SaltWorks, TileType.Smokehouse, TileType.Dairy, TileType.Cellar,
-    TileType.Foundry, TileType.StampMill, TileType.LimeQuarry, TileType.GoldMine, TileType.LeadMine, TileType.Glassworks,
+    TileType.Foundry, TileType.StampMill, TileType.LimeQuarry, TileType.GoldMine, TileType.LeadMine, TileType.Glassworks, TileType.Mint,
     ...NEW_STRUCTURE_TILES,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;

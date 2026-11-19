@@ -80,6 +80,8 @@ export const STATION_SKILL: Partial<Record<TileType, HeroSkill>> = {
   [TileType.StampMill]: "mining",
   // Glassblowing is furnace craft like the Kiln.
   [TileType.Glassworks]: "pottery",
+  // Minting is the trader's craft.
+  [TileType.Mint]: "trading",
   [TileType.LimeQuarry]: "mining",
   [TileType.GoldMine]: "mining",
   [TileType.LeadMine]: "mining",

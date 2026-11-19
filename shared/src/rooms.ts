@@ -30,7 +30,7 @@ export const ROOM_HOT_STATIONS: readonly TileType[] = [TileType.Bakery, TileType
 export const ROOM_WORKSHOP_TILES: readonly TileType[] = [
   TileType.Blacksmith, TileType.TailorShop, TileType.LuxuryWorkshop, TileType.Brewery, TileType.Bloomery,
   TileType.CharcoalBurner, TileType.Mill, TileType.Bakery, TileType.Kiln, TileType.Smokehouse, TileType.Dairy, TileType.SaltWorks, TileType.Tavern,
-  TileType.Foundry, TileType.StampMill, TileType.Glassworks, TileType.Workbench,
+  TileType.Foundry, TileType.StampMill, TileType.Glassworks, TileType.Mint, TileType.Workbench,
 ];
 
 // ---- size: tiles a role wants (size stat = tiles / wanted, capped at 100) ----

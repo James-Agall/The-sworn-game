@@ -583,6 +583,7 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.Foundry:
     case TileType.StampMill:
     case TileType.Glassworks:
+    case TileType.Mint:
     case TileType.LimeQuarry:
     case TileType.GoldMine:
     case TileType.LeadMine:

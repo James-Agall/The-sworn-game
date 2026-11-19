@@ -37,7 +37,7 @@ import { clanIdAt, clanOf, clanTownCenters, townCentersOfClan, withClan } from "
 import { gameDay, handleTradeWithSite, standingTown, tierOf, tilesToWalls } from "./diplomacy.js";
 import { adjustRelation, relationOf } from "./sites.js";
 import { forcePostQuest, handleQuestMessage, quests, questsForSnapshot } from "./quests.js";
-import { addItem, bronzeToolMult, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
+import { addItem, bronzeToolMult, produceItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
 import { forgeCost, forgedTier, heroProfileOf, playerMaxHp } from "./heroes.js";
 import {
   bringKinHome, cachedFamilySnapshot, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
@@ -1362,7 +1362,7 @@ function stepWork(p: Player, b: Busy, w: WorkJob) {
   // Pay and produce together: interrupted work never destroys inputs, simultaneous crafters cannot double-spend.
   if(!state.creative)for(const[k,n]of Object.entries(r.stock??{}))state.stock[k as ResourceKey]-=n??0;
   for(const[id,n]of Object.entries(r.items??{}))takeItem(id as ItemId,n??0);
-  if(r.item)addItem(r.item,r.amount,tier);
+  if(r.item)produceItem(r.item,r.amount,Math.min(3,tier+(r.gradeBonus??0)));
   if(r.stockOutput)state.stock[r.stockOutput]+=r.amount;
   // Industry extras: Fine steel in store forges each piece a tier better (forgedTier).
   if(r.gear)for(let i=0;i<r.amount;i++)state.equipment[r.gear][forgedTier(r.tier!)-1]++;
@@ -1518,7 +1518,7 @@ export function heroLifeDebug(p: Player) {
 interface PersonalRecipe {
  id:string; label:string; amount:number; seconds:number; level?:number; tier?:number; stationLevel?:number;
  stock?:Partial<Record<ResourceKey,number>>; items?:Partial<Record<ItemId,number>>; needs?:Partial<Record<ItemId,number>>;
- item?:ItemId; stockOutput?:ResourceKey; gear?:'armour'|'weapon';
+ item?:ItemId; stockOutput?:ResourceKey; gear?:'armour'|'weapon'; gradeBonus?:number;
 }
 function personalStation(p:Player,target?:{tx:number;ty:number}) {
  if(p.interior)return interiorWorkstation(p);
@@ -1526,7 +1526,7 @@ function personalStation(p:Player,target?:{tx:number;ty:number}) {
  return st && ownerAt(tileIndex(st.tx,st.ty))===0 && clanIdAt(st.tx,st.ty)===(p.clan??0) && tileCenterDist(p,st.tx,st.ty)<=3 ? st:null;
 }
 export function playerStationRecipes(tile:TileType):PersonalRecipe[] {
- const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stationLevel:r.stationLevel,stock:r.stock,items:r.items,needs:r.needs,item:r.output}));
+ const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stationLevel:r.stationLevel,gradeBonus:r.gradeBonus,stock:r.stock,items:r.items,needs:r.needs,item:r.output}));
  const r=CRAFT_RECIPES[tile];
  if(r)rows.push({id:'artisan:'+tile,label:({clothes:'Sew clothes',tools:'Forge tools',luxuryItems:'Craft luxury goods',alcohol:'Brew ale',gold:'Serve drinks'} as Record<string,string>)[r.output]??r.output,amount:r.outputAmount??1,seconds:30,stock:r.inputs,stockOutput:r.output});
  if(tile===TileType.Blacksmith)for(const tier of [1,2,3])for(const gear of ['weapon','armour'] as const)rows.push({id:`forge:${gear}:${tier}`,label:`Forge tier ${tier} ${gear==='weapon'?'weapons':'armour'}`,level:gatesOpen()?undefined:smithLevelForGearTier(tier),amount:1,seconds:FORGE_TICKS[gear]/TICK_RATE,tier,stock:forgeCost(gear,tier),gear});

@@ -4,6 +4,7 @@
 // builds its locked "needs: X" build-menu text, Next steps and Craft-by-hand panel from the server's
 // `progression` snapshot, which is computed from this table.
 import { TileType } from "./protocol.js";
+import { LEAD_GLAZE_GRADE_BONUS, MINT_COINS_PER_BATCH } from "./industry.js";
 
 export type ItemId =
   | "stoneAxe" | "stonePick" | "stoneKnife" | "timberProps" | "hide" | "bellows"
@@ -31,7 +32,9 @@ export type ItemId =
   // Steel from the Blast furnace (flux: limestone).
   | "steel"
   // The Glassworks.
-  | "glass" | "glassPanes" | "bottles";
+  | "glass" | "glassPanes" | "bottles"
+  // The Mint (coins go to the treasury) and lead.
+  | "coins" | "lead";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "clothes" | "tools";
 
@@ -93,6 +96,8 @@ export interface Recipe {
   workerLevel?: number;
   // Station recipes: the station level needed (default 1; industry extras: steel only in a Blast furnace, Bloomery 2+).
   stationLevel?: number;
+  // Industry extras: the output comes out this many grades better (lead glaze), at most Fine.
+  gradeBonus?: number;
 }
 
 // One step of a Progression panel chain: a building type or an item.
@@ -114,7 +119,7 @@ export function chainBuildingTiles(): TileType[] {
 export type Profession =
   | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "smelter" | "collier" | "miller" | "baker" | "jeweler"
   | "brewer" | "innkeeper" | "hunter" | "forager" | "herder" | "digger" | "potter" | "salter" | "smoker" | "dairyman"
-  | "founder" | "washer" | "glassblower";
+  | "founder" | "washer" | "glassblower" | "minter";
 
 // Worker XP: one point per second at work. Level L needs WORKER_XP_LEVELS[L - 1] XP (level 1 at 0).
 export const WORKER_XP_LEVELS = [0, 100, 300, 700];
@@ -206,6 +211,8 @@ export const PROGRESSION = {
     glass: { label: "Glass", desc: "Melted at the Glassworks from sand and limestone (lime) with charcoal or coal.", group: "material" },
     glassPanes: { label: "Window glass", desc: "Blown at the Glassworks. 4+ in store: every window of your rooms is glazed (no heat lost, prettier).", group: "tool" },
     bottles: { label: "Bottles", desc: "Blown at the Glassworks. 4+ in store with ale: the ale's happiness bonus is higher (bottled ale).", group: "tool" },
+    coins: { label: "Coins", desc: "Struck at the Mint from gold dust: they go straight into the treasury as gold.", group: "material" },
+    lead: { label: "Lead", desc: "Smelted at the Foundry from lead ore. The Kiln glazes tableware with it (a grade better).", group: "material" },
     sand: { label: "Sand", desc: "Stone crushed at the Stamp Mill. Glass is melted from it.", group: "material" },
     bronzeArmour: { label: "Bronze armour", desc: "Cast at the Foundry from bronze and hide. A soldier with no iron armour wears it (damage taken -8%; iron -15%).", group: "tool" },
   } satisfies Record<ItemId, ItemDef>,
@@ -247,6 +254,9 @@ export const PROGRESSION = {
     { id: "bottles", label: "Blow bottles", output: "bottles", amount: 2, items: { glass: 1 }, station: TileType.Glassworks, seconds: 25, cap: 20 },
     { id: "glass", label: "Melt glass", output: "glass", amount: 2, items: { sand: 2, limestone: 1, charcoal: 1 }, station: TileType.Glassworks, seconds: 40, cap: 30 },
     { id: "glassCoal", label: "Melt glass with coal", output: "glass", amount: 2, items: { sand: 2, limestone: 1, coal: 1 }, station: TileType.Glassworks, seconds: 40, cap: 30 },
+    // The Mint strikes coins (straight into the treasury).
+    { id: "coins", label: "Strike coins", output: "coins", amount: MINT_COINS_PER_BATCH, items: { goldDust: 2, charcoal: 1 }, station: TileType.Mint, seconds: 40 },
+    { id: "coinsCoal", label: "Strike coins with coal", output: "coins", amount: MINT_COINS_PER_BATCH, items: { goldDust: 2, coal: 1 }, station: TileType.Mint, seconds: 40 },
     { id: "flour", label: "Grind flour", output: "flour", amount: 2, stock: { grain: 2 }, station: TileType.Mill, seconds: 20, cap: 40 },
     // Bakery: the starter first once the baker is level 2 (a ~3-day culture), then bread while it is kept, else flatbread.
     { id: "sourdoughStarter", label: "Culture a sourdough starter", output: "sourdoughStarter", amount: 1, items: { flour: 1 }, station: TileType.Bakery, seconds: 900, cap: 1, workerLevel: 2 },
@@ -274,6 +284,8 @@ export const PROGRESSION = {
     { id: "bricks", label: "Fire bricks", output: "bricks", amount: 4, stock: { wood: 1 }, items: { clay: 2 }, station: TileType.Kiln, seconds: 30, cap: 20 },
     { id: "clayPot", label: "Fire clay pots", output: "clayPot", amount: 2, stock: { wood: 1 }, items: { clay: 3 }, station: TileType.Kiln, seconds: 30, cap: 25 },
     { id: "roofTiles", label: "Fire roof tiles", output: "roofTiles", amount: 3, stock: { wood: 1 }, items: { clay: 2 }, station: TileType.Kiln, seconds: 30, cap: 8 },
+    // Industry extras: lead-glazed tableware, a grade better, while there is lead.
+    { id: "glazedTableware", label: "Fire glazed tableware", output: "tableware", amount: 2, stock: { wood: 1 }, items: { clay: 2, lead: 1 }, station: TileType.Kiln, seconds: 30, cap: 12, gradeBonus: LEAD_GLAZE_GRADE_BONUS },
     { id: "tableware", label: "Fire tableware", output: "tableware", amount: 2, stock: { wood: 1 }, items: { clay: 2 }, station: TileType.Kiln, seconds: 25, cap: 12 },
     // Winter: the Tailor sews garments from cloth (the "clothes" stock), wool and hides, coats first; with none of these
     // ready (or every cap reached) it weaves cloth from wool + hemp as before (constants.ts CRAFT_RECIPES).
@@ -300,6 +312,9 @@ export const PROGRESSION = {
     { id: "bronzeWashedCoal", label: "Smelt bronze from washed tin with coal", output: "bronze", amount: 3, items: { copperOre: 3, washedTin: 2, coal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
     { id: "bronze", label: "Smelt bronze", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, charcoal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
     { id: "bronzeCoal", label: "Smelt bronze with coal", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, coal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
+    // Lead last: when there is no bronze to make.
+    { id: "lead", label: "Smelt lead", output: "lead", amount: 2, items: { leadOre: 2, charcoal: 1 }, station: TileType.Foundry, seconds: 30, cap: 20 },
+    { id: "leadCoal", label: "Smelt lead with coal", output: "lead", amount: 2, items: { leadOre: 2, coal: 1 }, station: TileType.Foundry, seconds: 30, cap: 20 },
   ] as Recipe[],
   // What each building needs. Buildings not listed are open from the start.
   buildings: {
@@ -392,6 +407,8 @@ export const PROGRESSION = {
     [TileType.StampMill]: { requires: { items: { carpenterTools: 1 }, buildings: [{ tile: TileType.IronMinePost }] } },
     // The Glassworks: a kiln-builder's furnace, fed with the Stamp Mill's sand.
     [TileType.Glassworks]: { requires: { buildings: [{ tile: TileType.Kiln }, { tile: TileType.StampMill }] } },
+    // The Mint: gold dust from a Stamp Mill, dies cut at a Blacksmith.
+    [TileType.Mint]: { requires: { buildings: [{ tile: TileType.StampMill }, { tile: TileType.Blacksmith }] } },
     [TileType.LimeQuarry]: {
       requires: { items: { stonePick: 1 }, buildings: [{ tile: TileType.RockMinePost }] },
       levels: { 2: { items: { timberProps: 1 } }, 3: { items: { mineVent: 1, minePump: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
@@ -443,6 +460,7 @@ export const PROGRESSION = {
     [TileType.Foundry]: "founder",
     [TileType.StampMill]: "washer",
     [TileType.Glassworks]: "glassblower",
+    [TileType.Mint]: "minter",
     [TileType.LimeQuarry]: "miner",
     [TileType.GoldMine]: "miner",
     [TileType.LeadMine]: "miner",
@@ -453,6 +471,7 @@ export const PROGRESSION = {
     { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "timberProps" }, { building: TileType.CoalMine }, { item: "coal" }, { building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "mineLamps" }, { item: "mineVent" }, { item: "minePump" }, { building: TileType.LimeQuarry }, { building: TileType.GoldMine }, { building: TileType.LeadMine }] },
     { id: "ore", label: "Crushing & washing", steps: [{ item: "carpenterTools" }, { building: TileType.StampMill }, { item: "washedTin" }, { item: "goldDust" }, { item: "sand" }] },
     { id: "glass", label: "Glass", steps: [{ building: TileType.LimeQuarry }, { item: "sand" }, { building: TileType.Glassworks }, { item: "glass" }, { item: "glassPanes" }, { item: "bottles" }] },
+    { id: "gold", label: "Gold & lead", steps: [{ building: TileType.GoldMine }, { item: "goldDust" }, { building: TileType.Mint }, { item: "coins" }, { building: TileType.LeadMine }, { item: "lead" }] },
     { id: "bronze", label: "Bronze", steps: [{ building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "crucible" }, { building: TileType.Foundry }, { item: "bronze" }, { item: "bronzeTools" }, { item: "bronzeWeapon" }, { item: "bronzeArmour" }] },
     { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }, { building: TileType.LimeQuarry }, { item: "limestone" }, { item: "steel" }] },
     { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
@@ -473,7 +492,7 @@ export const PROFESSION_LABEL: Record<Profession, string> = {
   woodcutter: "Woodcutter", miner: "Miner", farmer: "Farmer", farmhand: "Farmhand", tailor: "Tailor", smith: "Smith",
   smelter: "Smelter", collier: "Collier", miller: "Miller", baker: "Baker", jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
   hunter: "Hunter", forager: "Forager", herder: "Animal Keeper", digger: "Digger", potter: "Potter", salter: "Salter",
-  smoker: "Smoker", dairyman: "Dairy hand", founder: "Founder", washer: "Ore washer", glassblower: "Glassblower",
+  smoker: "Smoker", dairyman: "Dairy hand", founder: "Founder", washer: "Ore washer", glassblower: "Glassblower", minter: "Minter",
 };
 
 // Names for the buildings the table refers to (needs text).
@@ -508,6 +527,7 @@ export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
   [TileType.Foundry]: "Foundry",
   [TileType.StampMill]: "Stamp Mill",
   [TileType.Glassworks]: "Glassworks",
+  [TileType.Mint]: "Mint",
   [TileType.LimeQuarry]: "Lime Quarry",
   [TileType.GoldMine]: "Gold Mine",
   [TileType.LeadMine]: "Lead Mine",

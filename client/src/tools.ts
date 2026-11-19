@@ -18,7 +18,7 @@ import {
 } from "@colony/shared/agri";
 import {
   BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_TOOL_SPEED, BRONZE_WEAPON_DAMAGE_MULT, STAMP_MILL_WATER_RADIUS_TILES, STEEL_FINE_TIER_BONUS,
-  BOTTLED_ALE_BONUS, BOTTLES_MIN, GLAZED_WINDOWS_MIN,
+  BOTTLED_ALE_BONUS, BOTTLES_MIN, GLAZED_WINDOWS_MIN, LEAD_GLAZE_GRADE_BONUS, MINT_COINS_PER_BATCH, MINT_GOLD_PER_COIN,
 } from "@colony/shared/industry";
 import {
   ROOM_BARRACKS_MIN_BEDS, ROOM_BEAUTY_POINTS, ROOM_WARMTH_AREA_TILES, ROOM_WARMTH_PER_HEARTH, ROOM_WARMTH_PER_LAMP, ROOM_WORKBENCH_MAX,
@@ -309,6 +309,13 @@ export const TOOLS: ToolDef[] = [
     category: "industry",
   },
   {
+    tile: TileType.Mint,
+    label: "Mint",
+    key: "",
+    cost: `${buildCostText(TileType.Mint)} (upgradeable). Needs a Stamp Mill and a Blacksmith. A minter strikes 2 Gold dust + 1 Charcoal (or Coal) → ${MINT_COINS_PER_BATCH} coins, straight into the treasury: ${MINT_COINS_PER_BATCH * MINT_GOLD_PER_COIN} gold (Good x1.25, Fine x1.5)`,
+    category: "industry",
+  },
+  {
     tile: TileType.LimeQuarry,
     label: "Lime Quarry",
     key: "",
@@ -326,7 +333,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.LeadMine,
     label: "Lead Mine",
     key: "",
-    cost: `${buildCostText(TileType.LeadMine)} (upgradeable), on lead ore. Needs an Iron Mine. A miner digs 2 Lead ore a batch`,
+    cost: `${buildCostText(TileType.LeadMine)} (upgradeable), on lead ore. Needs an Iron Mine. A miner digs 2 Lead ore a batch (the Foundry smelts it into lead; the Kiln glazes tableware with it, ${LEAD_GLAZE_GRADE_BONUS} grade better)`,
     category: "industry",
   },
   // Agriculture extras (shared/src/agri.ts; no free key: button only).

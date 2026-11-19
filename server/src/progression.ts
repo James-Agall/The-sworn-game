@@ -22,7 +22,7 @@ import { mineWorkMult } from "./mines.js";
 import { coldWorkMult } from "./winter.js";
 import { CRAFT_RECIPES } from "./constants.js";
 import { agriForSave, agriInfo, sanitizeAgri } from "./agri.js";
-import { BRONZE_TOOL_SPEED } from "@colony/shared/industry";
+import { BRONZE_TOOL_SPEED, MINT_GOLD_PER_COIN } from "@colony/shared/industry";
 
 // A station with old CRAFT_RECIPES work too (Tailor, Blacksmith, Brewery) does that while no tree recipe is ready.
 const CRAFT_MEANWHILE: Record<string, string> = { clothes: "Weaving cloth meanwhile", tools: "Forging tools meanwhile", alcohol: "Brewing plain ale meanwhile" };
@@ -55,6 +55,14 @@ export function takeItem(id: ItemId, n: number): boolean {
   }
   snapshotDirty.add(state.clan.id);
   return true;
+}
+
+// Industry extras: a station's output into the stores; coins struck at the Mint go straight into the treasury
+// (MINT_GOLD_PER_COIN gold each x the grade's value, rounded down).
+export function produceItem(id: ItemId, n: number, grade: number) {
+  if (id !== "coins") return addItem(id, n, grade);
+  const q = Math.min(Math.max(Math.round(grade), 1), MAX_QUALITY);
+  state.stock.gold += Math.floor(n * MINT_GOLD_PER_COIN * QUALITY_GRADES[q - 1].value);
 }
 
 // Industry extras: takes one of `id` of exactly `grade` (false when there is none).
@@ -307,7 +315,8 @@ export function updateStationWork(c: Colonist): boolean {
     stationJobs.delete(c.id);
     // Output grade = the tier the station works at (a Blast furnace with a level-2 smelter makes Good blooms); a
     // good workshop room adds a grade (at most Fine).
-    addItem(job.recipe.output, job.recipe.amount + depositExtra(c), Math.min(3, effectiveTier(c) + room.grade));
+    // Industry extras: lead glaze (gradeBonus); coins go to the treasury (produceItem).
+    produceItem(job.recipe.output, job.recipe.amount + depositExtra(c), Math.min(3, effectiveTier(c) + room.grade + (job.recipe.gradeBonus ?? 0)));
   }
   return true;
 }
