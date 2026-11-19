@@ -85,9 +85,23 @@ const placeAndWait = async (c, tile) => {
   return upd;
 };
 
+// The Hall of the Sworn is a 3x3 building (FOOTPRINT_BY_TILE): the tile placed on is its top-left corner and the
+// whole block must be Empty with nobody standing on it.
+const blockFree = (x, y) => {
+  const p = me();
+  const px = Math.floor(p.x / TILE), py = Math.floor(p.y / TILE);
+  for (let dy = 0; dy < 3; dy++)
+    for (let dx = 0; dx < 3; dx++) {
+      const tx = x + dx, ty = y + dy;
+      if (tileAt(tx, ty) !== T.Empty || (tx === px && ty === py)) return false;
+      if (snap.colonists.some((k) => Math.floor(k.x / TILE) === tx && Math.floor(k.y / TILE) === ty)) return false;
+    }
+  return true;
+};
+
 // (b) Knight Post immediately, no gathering (KNIGHT_IRON_COST 10 + KNIGHT_ROCK_COST 5)
 {
-  const c = reachable(T.Empty)[0];
+  const c = reachable(T.Empty).find((t) => blockFree(t.x, t.y));
   const before = { iron: snap.iron, rock: snap.rock };
   const upd = await placeAndWait(c, T.KnightPost);
   result(!!upd && snap.iron === before.iron - 10 && snap.rock === before.rock - 5,

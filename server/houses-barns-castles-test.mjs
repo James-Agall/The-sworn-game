@@ -26,7 +26,7 @@ const ABBEY_HALL = 46;
 // Every tile type the server treats as solid (protocol.ts isSolidTile): 1..49 except FarmPlot (4),
 // which includes world-gen water, ruins, encampment props, the Abbey and Ward Stones.
 // + 50/51 (Hunter's/Forager's Hut) and 54/55 (fruit tree, ripe/picked); berry bushes and mushrooms are walkable.
-const SOLID = new Set([...Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4), 50, 51, 54, 55]);
+const SOLID = new Set([...Array.from({ length: 49 }, (_, i) => i + 1).filter((t) => t !== 4), 50, 51, 54, 55, 90]); // 90 BuildingPart: the other tiles of a 3x3 Hall of the Sworn
 const TILE = 32;
 const REACH = TILE * 2.5;
 
@@ -359,7 +359,19 @@ const lumberjackPosts = [];
 {
   const s = await gotoNewSite(a, "(f)");
   if (s) {
-    const A = { x: s.x, y: s.y - 2 };
+    // The Hall of the Sworn is a 3x3 building (FOOTPRINT_BY_TILE): the tile placed on is its top-left corner, the
+    // whole block must be Empty and nobody may stand on it, and the corner must be in reach (2.5 tiles).
+    const blockFree = (x, y, anyReach = false) => {
+      const t = anyReach ? { x: -1, y: -1 } : a.meTile();
+      for (let dy = 0; dy < 3; dy++)
+        for (let dx = 0; dx < 3; dx++) {
+          const tx = x + dx, ty = y + dy;
+          if (!a.inBounds(tx, ty) || a.tileAt(tx, ty) !== T.Empty || (tx === t.x && ty === t.y) || colonistOnTile(a, tx, ty)) return false;
+        }
+      return anyReach || Math.hypot(x - t.x, y - t.y) <= 2.5;
+    };
+    const A = [{ x: s.x + 1, y: s.y - 2 }, { x: s.x - 2, y: s.y + 1 }, { x: s.x + 1, y: s.y + 1 }, { x: s.x - 2, y: s.y - 2 }]
+      .find((p) => blockFree(p.x, p.y)) ?? { x: s.x + 1, y: s.y - 2 };
     const iron0 = a.snap.iron, rock0 = a.snap.rock;
     const knights0 = new Set(kinds(a, "knight").map((k) => k.id));
     const p1 = await placeExpectAt(a, A.x, A.y, T.KnightPost, A.x, A.y, T.KnightPost);
@@ -389,15 +401,27 @@ const lumberjackPosts = [];
     result(p3.hit.length === 1 && p3.hit[0].tile === T.Castle3 && p3.ups.every((u) => u.tileX === A.x && u.tileY === A.y),
       `(f) 3rd KnightPost on the castle: tile -> ${a.tileAt(A.x, A.y)} (expected 18), no other tile updated`);
     result(k3 && k3.maxHp === 160 && k3.hp === 160, `(f) knight now hp/maxHp=${k3?.hp}/${k3?.maxHp} (expected 160/160)`);
-    // A KnightPost on an empty tile ADJACENT to the castle is just a new standalone post.
-    const adj = [{ x: A.x - 1, y: A.y }, { x: A.x + 1, y: A.y }].find((n) => a.tileAt(n.x, n.y) === T.Empty && !colonistOnTile(a, n.x, n.y));
+    // A KnightPost whose block is ADJACENT to the castle's 3x3 block is just a new standalone post.
+    // Its corner may be out of reach from the site: walk to a free tile within reach of it, outside both blocks.
+    const inBlock = (p, x, y) => x >= p.x && x < p.x + 3 && y >= p.y && y < p.y + 3;
+    const besides = [{ x: A.x - 3, y: A.y }, { x: A.x + 3, y: A.y }, { x: A.x, y: A.y + 3 }, { x: A.x, y: A.y - 3 }];
+    let adj = besides.find((n) => blockFree(n.x, n.y)) ?? null;
+    for (const n of besides) {
+      if (adj) break;
+      if (!blockFree(n.x, n.y, true)) continue;
+      const me = a.meTile();
+      const st = RING.map(([dx, dy]) => ({ x: n.x + dx, y: n.y + dy }))
+        .filter((t) => a.inBounds(t.x, t.y) && a.tileAt(t.x, t.y) === T.Empty && !inBlock(n, t.x, t.y) && !inBlock(A, t.x, t.y) && pathTo(a, t))
+        .sort((p, q) => Math.hypot(p.x - me.x, p.y - me.y) - Math.hypot(q.x - me.x, q.y - me.y))[0];
+      if (st && (await ensureAt(a, st)) && blockFree(n.x, n.y)) adj = n;
+    }
     if (adj) {
       const p4 = await placeExpectAt(a, adj.x, adj.y, T.KnightPost, adj.x, adj.y, T.KnightPost);
       await sleep(150);
       result(p4.hit.length === 1 && a.tileAt(A.x, A.y) === T.Castle3 && a.tileAt(adj.x, adj.y) === T.KnightPost &&
         kinds(a, "knight").length === knights0.size + 6,
         `(f) KnightPost next to a castle is a new post: castle stays ${a.tileAt(A.x, A.y)} (18), new tile ${a.tileAt(adj.x, adj.y)} (5), knights=${kinds(a, "knight").length}`);
-    }
+    } else info(`(f) no clear 3x3 block beside the castle: standalone-post check skipped`);
     info(`(f) stock after 3 knight posts: iron=${a.snap.iron} rock=${a.snap.rock}`);
   }
 }

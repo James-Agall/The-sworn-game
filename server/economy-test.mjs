@@ -76,6 +76,19 @@ const emptyInReach = () => {
     }
   return out.sort((a, b) => a.d - b.d);
 };
+// The Hall of the Sworn is a 3x3 building (FOOTPRINT_BY_TILE): the tile placed on is its top-left corner and the
+// whole block must be Empty with nobody standing on it.
+const blockFree = (x, y) => {
+  const p = me();
+  const px = Math.floor(p.x / TILE), py = Math.floor(p.y / TILE);
+  for (let dy = 0; dy < 3; dy++)
+    for (let dx = 0; dx < 3; dx++) {
+      const tx = x + dx, ty = y + dy;
+      if (tileAt(tx, ty) !== T.Empty || (tx === px && ty === py)) return false;
+      if (snap.colonists.some((k) => Math.floor(k.x / TILE) === tx && Math.floor(k.y / TILE) === ty)) return false;
+    }
+  return true;
+};
 const deposit = (kind) => {
   for (let r = 2; r < 40; r++)
     for (let y = tc.y - r; y <= tc.y + r; y++)
@@ -94,7 +107,7 @@ const goTo = async (t) => {
 // a. Knight post with 0 iron.
 await hook("setStock", { stock: { iron: 0, wood: 0 } });
 await sleep(150);
-const kSpot = emptyInReach().at(-1);
+const kSpot = emptyInReach().reverse().find((t) => blockFree(t.x, t.y));
 const before = tileUpdates.length;
 result(snap.iron === 0, `iron set to 0 (iron=${snap.iron})`);
 place(kSpot.x, kSpot.y, T.KnightPost);
@@ -149,7 +162,7 @@ if (snap.iron >= KNIGHT_IRON_COST) {
   const placedAt = Date.now();
   const knightsBefore = snap.colonists.filter((c) => c.kind === "knight").length;
   const b3 = tileUpdates.length;
-  const spot = emptyInReach().at(-1);
+  const spot = emptyInReach().reverse().find((t) => blockFree(t.x, t.y));
   place(spot.x, spot.y, T.KnightPost);
   await sleep(500);
   const upd = tileUpdates.slice(b3).some((u) => u.tileX === spot.x && u.tileY === spot.y && u.tile === T.KnightPost);
