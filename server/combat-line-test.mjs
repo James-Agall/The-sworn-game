@@ -122,6 +122,20 @@ result(fought && !gAlive && maxOut <= 4.5 && kEnd && Math.hypot(kEnd.x - R.x, kE
 await hook("killColonists", { kind: "knight" });
 
 // 4. A mob heading for the Town Center attacks a house it passes (no guard / player near).
+// The rule is for a mob heading for a Town Center. A random world can put unowned world-gen buildings nearer the
+// spawn point than the Town Center (a goblin then walks to those instead, away from the house): a probe goblin finds
+// them and they are cleared until a goblin spawned there heads for the Town Center; then the real one is spawned.
+for (let i = 0; i < 40; i++) {
+  const probe = (await hook("spawnMob", { kind: "goblin", tx: A.x - 8, ty: A.y - 8 })).id;
+  await ff(5);
+  const pm = (await body()).mobs.find((m) => m.id === probe);
+  await hook("damageMob", { mobId: probe, amount: 999 });
+  if (pm?.targetType !== "building") break;
+  const [bx, by] = pm.targetId.split(",").map(Number);
+  info(`a goblin from the spawn point targets world building ${pm.targetId}: clearing it`);
+  await hook("setTileRaw", { tx: bx, ty: by, tile: T.Empty });
+  await ff(25);
+}
 const g2 = (await hook("spawnMob", { kind: "goblin", tx: A.x - 8, ty: A.y - 8 })).id;
 await ff(5);
 bs = await body();
@@ -134,7 +148,7 @@ bs = await body();
 const g2b = bs.mobs.find((m) => m.id === g2);
 const hs = await hook("buildingState");
 const hp = new Map(hs.buildingHp).get(`${house.x},${house.y}`); // present only once damaged
-result(g2a?.targetId !== `${house.x},${house.y}` && g2b?.targetType === "building" && g2b?.targetId === `${house.x},${house.y}` && typeof hp === "number",
+result(g2a?.targetType === "townCenter" && g2b?.targetType === "building" && g2b?.targetId === `${house.x},${house.y}` && typeof hp === "number",
   `goblin passing a house turns on it: target ${g2b?.targetType} ${g2b?.targetId}, house hp ${hp ?? "undamaged"}`);
 await hook("damageMob", { mobId: g2, amount: 999 });
 
@@ -145,9 +159,12 @@ let st = await hook("raidState");
 const DAY = st.dayTicks;
 const CYCLE = st.dayTicks + st.nightTicks;
 const MID = Math.floor(DAY / 2);
-await hook("setCycleTick", { tick: 6 * CYCLE + MID - 2 });
+await hook("setCycleTick", { tick: 20 * CYCLE + MID - 2 });
 await ff(5);
-await hook("setCycleTick", { tick: 6 * CYCLE + DAY - 1 });
+// Village life phase 4: a raid's size scales with the colony's population and tier, so this near-empty test colony
+// draws only one to three small groups; top tonight's raid up (spawnRaidNow) until five groups are waiting.
+for (let i = 0; i < 6 && (await hook("raidState")).groups.length < 5; i++) await hook("spawnRaidNow", { dayIndex: 20 });
+await hook("setCycleTick", { tick: 20 * CYCLE + DAY - 1 });
 await ff(240);
 st = await hook("raidState");
 let ok = 0;
