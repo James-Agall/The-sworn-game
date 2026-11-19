@@ -15,8 +15,9 @@ import { state } from "./state.js";
 // Bump when worldgen changes what a seed produces (old diff saves then need their base cache file, which is
 // named by the save's own worldgenVersion). 3: bandit camp templates (2026-11-06). 7: gap closure G7 (settlements
 // turned / mirrored, quest slots, 6 more settlement templates). 8: gap closure G8 (town-citadel: a keep building).
-// 10: deep mines (coal / copper / tin veins, scattered last: worldgen.ts scatterDeposits).
-export const WORLDGEN_VERSION = 10;
+// 10: deep mines (coal / copper / tin veins, scattered last: worldgen.ts scatterDeposits). 11: industry extras
+// (limestone / gold / lead veins after those).
+export const WORLDGEN_VERSION = 11;
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 // A chunk with more changed tiles than this is stored whole (1024 bytes) instead of as (u16 pos, u8 tile).

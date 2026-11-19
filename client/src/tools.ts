@@ -16,7 +16,7 @@ import { CLAY_PIT_WATER_RADIUS_TILES, TABLEWARE_HAPPINESS, TABLEWARE_MIN } from 
 import {
   ALE_HAPPINESS, CELLAR_SPOIL_CUT, IRON_PLOW_GROWTH_MULT, IRON_PLOW_YIELD_MULT, ORCHARD_YIELD_BY_AGE, SALT_WORKS_WATER_RADIUS_TILES, SPOIL_PER_DAY,
 } from "@colony/shared/agri";
-import { BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_TOOL_SPEED, BRONZE_WEAPON_DAMAGE_MULT } from "@colony/shared/industry";
+import { BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_TOOL_SPEED, BRONZE_WEAPON_DAMAGE_MULT, STAMP_MILL_WATER_RADIUS_TILES } from "@colony/shared/industry";
 import {
   ROOM_BARRACKS_MIN_BEDS, ROOM_BEAUTY_POINTS, ROOM_WARMTH_AREA_TILES, ROOM_WARMTH_PER_HEARTH, ROOM_WARMTH_PER_LAMP, ROOM_WORKBENCH_MAX,
   ROOM_WORKBENCH_SPEED,
@@ -289,6 +289,34 @@ export const TOOLS: ToolDef[] = [
     label: "Foundry",
     key: "",
     cost: `${buildCostText(TileType.Foundry)} (upgradeable). Needs a Crucible and a Copper Mine. A founder smelts 3 Copper ore + 2 Tin ore + 1 Charcoal (or Coal) → 2 Bronze, then casts Bronze tools (hero and miners / woodcutters x${BRONZE_TOOL_SPEED} speed), Bronze weapons (+${Math.round((BRONZE_WEAPON_DAMAGE_MULT - 1) * 100)}% damage) and Bronze armour (${Math.round((BRONZE_ARMOUR_DAMAGE_TAKEN_MULT - 1) * 100)}% damage taken) for soldiers with no iron gear`,
+    category: "industry",
+  },
+  {
+    tile: TileType.StampMill,
+    label: "Stamp Mill",
+    key: "",
+    cost: `${buildCostText(TileType.StampMill)} (upgradeable). Needs Carpenter's tools, an Iron Mine and water within ${STAMP_MILL_WATER_RADIUS_TILES} tiles. An ore washer crushes and washes 3 Gold ore → 1 Gold dust, 2 Tin ore → 3 Washed tin (the Foundry makes 3 Bronze from 2), and 3 Stone → 2 Sand`,
+    category: "industry",
+  },
+  {
+    tile: TileType.LimeQuarry,
+    label: "Lime Quarry",
+    key: "",
+    cost: `${buildCostText(TileType.LimeQuarry)} (upgradeable), on limestone. Needs a Quarry. A miner cuts 2 Limestone a batch: flux for steel, lime for glass`,
+    category: "industry",
+  },
+  {
+    tile: TileType.GoldMine,
+    label: "Gold Mine",
+    key: "",
+    cost: `${buildCostText(TileType.GoldMine)} (upgradeable), on gold ore. Needs an Iron Mine. A miner digs 1 Gold ore a batch (the Stamp Mill washes it into gold dust)`,
+    category: "industry",
+  },
+  {
+    tile: TileType.LeadMine,
+    label: "Lead Mine",
+    key: "",
+    cost: `${buildCostText(TileType.LeadMine)} (upgradeable), on lead ore. Needs an Iron Mine. A miner digs 2 Lead ore a batch`,
     category: "industry",
   },
   // Agriculture extras (shared/src/agri.ts; no free key: button only).

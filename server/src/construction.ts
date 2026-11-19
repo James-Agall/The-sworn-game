@@ -70,7 +70,7 @@ import { buildingPostsInfo } from "./work.js";
 import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
 import { CLAY_PIT_WATER_RADIUS_TILES } from "@colony/shared/progression";
 import { AGRI_BUILDING_TILES, SALT_WORKS_WATER_RADIUS_TILES } from "@colony/shared/agri";
-import { INDUSTRY_STATION_TILES } from "@colony/shared/industry";
+import { INDUSTRY_STATION_TILES, STAMP_MILL_WATER_RADIUS_TILES } from "@colony/shared/industry";
 import { noteOrchardPlanted } from "./agri.js";
 import { MINE_LABEL, depositMineFor } from "@colony/shared/mines";
 import { mineInfo } from "./mines.js";
@@ -581,6 +581,10 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.Cellar:
     // Industry extras: the same rule.
     case TileType.Foundry:
+    case TileType.StampMill:
+    case TileType.LimeQuarry:
+    case TileType.GoldMine:
+    case TileType.LeadMine:
     // Stardew phase 5d: animal houses, the same rule.
     case TileType.ChickenCoop:
     case TileType.LivestockBarn:
@@ -1133,6 +1137,12 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   // Agriculture extras: a new Salt Works boils brine: water within SALT_WORKS_WATER_RADIUS_TILES.
   if (!upgradeInPlace && tile === TileType.SaltWorks && !state.creative && !clayPitWaterNear(tx, ty, SALT_WORKS_WATER_RADIUS_TILES)) {
     sendEvent(player, "build", `A Salt Works needs water within ${SALT_WORKS_WATER_RADIUS_TILES} tiles: a pond, a river or a dug Moat (brine)`);
+    return;
+  }
+
+  // Industry extras: a new Stamp Mill washes its ore: water within STAMP_MILL_WATER_RADIUS_TILES.
+  if (!upgradeInPlace && tile === TileType.StampMill && !state.creative && !clayPitWaterNear(tx, ty, STAMP_MILL_WATER_RADIUS_TILES)) {
+    sendEvent(player, "build", `A Stamp Mill needs water within ${STAMP_MILL_WATER_RADIUS_TILES} tiles to wash its ore: a pond, a river or a dug Moat`);
     return;
   }
 

@@ -12,6 +12,8 @@ import { TileType, type MobKind } from "./protocol.js";
 // Every mine tile (each one an interior, infestable from level 2).
 export const MINE_TILES: readonly TileType[] = [
   TileType.RockMinePost, TileType.IronMinePost, TileType.CoalMine, TileType.CopperMine, TileType.TinMine,
+  // Industry extras (shared/src/industry.ts).
+  TileType.LimeQuarry, TileType.GoldMine, TileType.LeadMine,
 ];
 export function isMineTile(t: number): boolean {
   return (MINE_TILES as readonly number[]).includes(t);
@@ -22,13 +24,22 @@ export const MINE_LABEL: Record<number, string> = {
   [TileType.CoalMine]: "Coal Mine",
   [TileType.CopperMine]: "Copper Mine",
   [TileType.TinMine]: "Tin Mine",
+  [TileType.LimeQuarry]: "Lime Quarry",
+  [TileType.GoldMine]: "Gold Mine",
+  [TileType.LeadMine]: "Lead Mine",
 };
 // The new deposits, the mine sunk on each (placed only on its deposit; demolished, the deposit comes back) and the
 // item its miner digs (shared/src/progression.ts recipes).
-export const DEPOSIT_MINES: { deposit: TileType; mine: TileType; item: "coal" | "copperOre" | "tinOre"; label: string }[] = [
+// Industry extras: limestone (flux, lime), gold ore (washed into gold dust) and lead ore, appended (world gen places
+// them after the first three, so those keep their spots).
+export type DepositItem = "coal" | "copperOre" | "tinOre" | "limestone" | "goldOre" | "leadOre";
+export const DEPOSIT_MINES: { deposit: TileType; mine: TileType; item: DepositItem; label: string }[] = [
   { deposit: TileType.CoalSeam, mine: TileType.CoalMine, item: "coal", label: "Coal seam" },
   { deposit: TileType.CopperOre, mine: TileType.CopperMine, item: "copperOre", label: "Copper ore" },
   { deposit: TileType.TinOre, mine: TileType.TinMine, item: "tinOre", label: "Tin ore" },
+  { deposit: TileType.Limestone, mine: TileType.LimeQuarry, item: "limestone", label: "Limestone" },
+  { deposit: TileType.GoldOre, mine: TileType.GoldMine, item: "goldOre", label: "Gold ore" },
+  { deposit: TileType.LeadOre, mine: TileType.LeadMine, item: "leadOre", label: "Lead ore" },
 ];
 export const DEPOSIT_TILES: readonly TileType[] = DEPOSIT_MINES.map((d) => d.deposit);
 export function depositMineFor(tile: number) {
@@ -36,7 +47,7 @@ export function depositMineFor(tile: number) {
 }
 // World gen: veins per 80x80 tiles of world (scaled by area like ore / rock), each MIN..MAX tiles grown from a seed.
 // Placed last, from a hash of the world's noise salt (no shared RNG draws, so older streamed saves keep their worlds).
-export const DEPOSIT_VEINS_PER_80: Record<"coal" | "copperOre" | "tinOre", number> = { coal: 6, copperOre: 4, tinOre: 3 };
+export const DEPOSIT_VEINS_PER_80: Record<DepositItem, number> = { coal: 6, copperOre: 4, tinOre: 3, limestone: 5, goldOre: 2, leadOre: 3 };
 export const DEPOSIT_VEIN_MIN_TILES = 2;
 export const DEPOSIT_VEIN_MAX_TILES = 4;
 // Veins keep at least this many tiles from the world's centre (the first Town Center).

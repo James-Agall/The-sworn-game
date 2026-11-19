@@ -76,6 +76,11 @@ export const STATION_SKILL: Partial<Record<TileType, HeroSkill>> = {
   [TileType.Dairy]: "farming",
   // Industry extras: casting bronze is smelting work.
   [TileType.Foundry]: "smelting",
+  // Crushing / washing ore and the new mines are mining work.
+  [TileType.StampMill]: "mining",
+  [TileType.LimeQuarry]: "mining",
+  [TileType.GoldMine]: "mining",
+  [TileType.LeadMine]: "mining",
   [TileType.Blacksmith]: "smithing",
   [TileType.TailorShop]: "building",
   [TileType.LuxuryWorkshop]: "building",

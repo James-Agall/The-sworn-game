@@ -6,6 +6,7 @@ import { type LivestockSave, livestockForSave, restoreLivestock } from "./animal
 import { applySoloStart, resetHeroLifeSessions } from "./herolife.js";
 import { homeDesignsForSave,restoreHomeDesigns,type InteriorChestsSave, interiorChestsForSave, resetInteriors, restoreInteriorChests } from "./interiors.js";
 import { minesForSave, resetMines, restoreMines } from "./mines.js";
+import { DEPOSIT_MINES } from "@colony/shared/mines";
 import { orchardsForSave, resetAgri, restoreOrchards } from "./agri.js";
 import { topUpCreative } from "./creative.js";
 import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
@@ -571,10 +572,12 @@ function applyWorldInner(s: WorldState) {
   // Stardew phase 5c: interior chests (optional).
   restoreInteriorChests(s.interiorChests);
   restoreHomeDesigns(s.homeDesigns);
-  // Deep mines (optional). A world from before them (no coal / copper / tin anywhere) gets its veins now.
+  // Deep mines (optional). A world from before them (none of a deposit kind anywhere: no deposit, no mine on one) gets
+  // those veins now (industry extras: limestone / gold / lead in a deep-mines world).
   restoreMines(s.mines);
   restoreOrchards(s.orchards);
-  if (!state.tiles.some((t) => t === TileType.CoalSeam || t === TileType.CopperOre || t === TileType.TinOre || t === TileType.CoalMine || t === TileType.CopperMine || t === TileType.TinMine)) scatterDeposits();
+  const missing = DEPOSIT_MINES.filter((d) => !state.tiles.some((t) => t === d.deposit || t === d.mine)).map((d) => d.deposit);
+  if (missing.length > 0) scatterDeposits(missing);
   // Modular building phase 4: work mode (runtime jobs are re-decided).
   restoreWork(s.workManual);
   // Stardew phase 5d: after the tiles (houses are re-found from them).

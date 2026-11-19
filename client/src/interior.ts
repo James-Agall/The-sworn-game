@@ -54,6 +54,8 @@ const PROP_HEIGHT_PX: Partial<Record<InteriorProp, number>> = {
 const ORE_FLECK: Record<number, number> = {
   [TileType.RockMinePost]: 0xb8b2a8, [TileType.IronMinePost]: 0xa0583a, [TileType.CoalMine]: 0x141216,
   [TileType.CopperMine]: 0xe0843a, [TileType.TinMine]: 0xd8e4ee,
+  // Industry extras: Lime Quarry, Gold Mine, Lead Mine.
+  [TileType.LimeQuarry]: 0xf2eedc, [TileType.GoldMine]: 0xf0c830, [TileType.LeadMine]: 0x6a7080,
 };
 const PROP_DEFAULT_HEIGHT_PX = 18;
 const opaqueBoxes = new WeakMap<Texture, { x: number; y: number; w: number; h: number }>();

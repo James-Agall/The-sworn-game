@@ -8,7 +8,9 @@ import { TileType } from "./protocol.js";
 
 // ---- buildings ----
 // The new artisan stations (one worker each, 3 levels, upgrade = build cost x the new level).
-export const INDUSTRY_STATION_TILES: readonly TileType[] = [TileType.Foundry];
+export const INDUSTRY_STATION_TILES: readonly TileType[] = [TileType.Foundry, TileType.StampMill];
+// A new Stamp Mill washes its ore: water (a pond / river Water tile or a dug Moat) within this many tiles.
+export const STAMP_MILL_WATER_RADIUS_TILES = 3;
 
 // ---- bronze (T1.5: better than stone, below iron) ----
 // Bronze tools in store: the hero chops / quarries / mines this much faster, and the clan's woodcutters, quarrymen,

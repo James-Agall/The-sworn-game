@@ -3698,6 +3698,10 @@ async function main() {
   const MINIMAP_COAL = 0x1e1c22;
   const MINIMAP_COPPER = 0xd07a3a;
   const MINIMAP_TIN = 0xb8c8d8;
+  // Industry extras: limestone off-white, gold yellow, lead slate.
+  const MINIMAP_LIMESTONE = 0xe8e2cc;
+  const MINIMAP_GOLD = 0xe8c030;
+  const MINIMAP_LEAD = 0x5a6070;
   const MINIMAP_WALL = 0xb8ad98;
   const MINIMAP_ROAD = 0xa8875a;
   const MINIMAP_BUILDING = 0xe0b468;
@@ -3742,6 +3746,12 @@ async function main() {
         return MINIMAP_COPPER;
       case TileType.TinOre:
         return MINIMAP_TIN;
+      case TileType.Limestone:
+        return MINIMAP_LIMESTONE;
+      case TileType.GoldOre:
+        return MINIMAP_GOLD;
+      case TileType.LeadOre:
+        return MINIMAP_LEAD;
       case TileType.Wall:
       case TileType.StoneWall:
       case TileType.Gate:
@@ -3768,6 +3778,7 @@ async function main() {
     [MinimapClass.Wall]: MINIMAP_WALL, [MinimapClass.Road]: MINIMAP_ROAD, [MinimapClass.Building]: MINIMAP_BUILDING,
     [MinimapClass.Ruin]: MINIMAP_RUIN, [MinimapClass.Camp]: MINIMAP_CAMP, [MinimapClass.Abbey]: MINIMAP_ABBEY,
     [MinimapClass.Coal]: MINIMAP_COAL, [MinimapClass.Copper]: MINIMAP_COPPER, [MinimapClass.Tin]: MINIMAP_TIN,
+    [MinimapClass.Limestone]: MINIMAP_LIMESTONE, [MinimapClass.Gold]: MINIMAP_GOLD, [MinimapClass.Lead]: MINIMAP_LEAD,
   };
   // World streaming phase 4: one minimap pixel per f x f cell. A loaded chunk's cell is recomputed from its
   // tiles; elsewhere a structure arriving by tileUpdate overrides the welcome's summary.
@@ -5558,7 +5569,7 @@ async function main() {
     TileType.ClayPit, TileType.Kiln, TileType.ChickenCoop, TileType.LivestockBarn, TileType.PigSty, TileType.SheepPen,
     TileType.CoalMine, TileType.CopperMine, TileType.TinMine,
     TileType.SaltWorks, TileType.Smokehouse, TileType.Dairy, TileType.Cellar,
-    TileType.Foundry,
+    TileType.Foundry, TileType.StampMill, TileType.LimeQuarry, TileType.GoldMine, TileType.LeadMine,
     ...NEW_STRUCTURE_TILES,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;

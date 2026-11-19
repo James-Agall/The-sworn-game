@@ -76,7 +76,7 @@ export function furniturePieceAt(tileAt: (x: number, y: number) => number, x: nu
 export const ROOM_STATION_TILES: readonly TileType[] = [
   TileType.Blacksmith, TileType.TailorShop, TileType.LuxuryWorkshop, TileType.Brewery, TileType.Bloomery,
   TileType.CharcoalBurner, TileType.Mill, TileType.Bakery, TileType.Kiln, TileType.Smokehouse, TileType.Dairy, TileType.Cellar, TileType.Tavern,
-  TileType.Foundry, TileType.ChurchPost, TileType.Keep, TileType.SiteKeep,
+  TileType.Foundry, TileType.StampMill, TileType.ChurchPost, TileType.Keep, TileType.SiteKeep,
 ];
 export function isRoomStationTile(t: number): boolean {
   return (ROOM_STATION_TILES as readonly number[]).includes(t);

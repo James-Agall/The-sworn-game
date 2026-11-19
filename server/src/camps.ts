@@ -143,7 +143,7 @@ export interface StampedCamp {
 
 // Natural ground a camp clears from its footprint when stamped (world-gen and creative "Stamp here").
 const CLEARABLE = new Set<number>([
-  TileType.Empty, TileType.Tree, TileType.Rock, TileType.IronOre, TileType.CoalSeam, TileType.CopperOre, TileType.TinOre, TileType.Rubble,
+  TileType.Empty, TileType.Tree, TileType.Rock, TileType.IronOre, TileType.CoalSeam, TileType.CopperOre, TileType.TinOre, TileType.Limestone, TileType.GoldOre, TileType.LeadOre, TileType.Rubble,
   TileType.BerryBush, TileType.BerryBushPicked, TileType.FruitTree, TileType.FruitTreePicked,
   TileType.MushroomPatch, TileType.MushroomPatchPicked,
 ]);

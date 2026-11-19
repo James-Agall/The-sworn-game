@@ -25,7 +25,9 @@ export type ItemId =
   // Agriculture extras (phase 5, shared/src/agri.ts): preserved foods and their inputs, the iron plow, hops and ale.
   | "salt" | "smokedMeat" | "saltedMeat" | "rennet" | "cheese" | "ironPlow" | "hops" | "hopSeeds" | "ale"
   // Industry extras (phase 6, shared/src/industry.ts): bronze and what the Foundry casts from it.
-  | "bronze" | "bronzeTools" | "bronzeWeapon" | "bronzeArmour";
+  | "bronze" | "bronzeTools" | "bronzeWeapon" | "bronzeArmour"
+  // The new deposits' ores and what the Stamp Mill crushes and washes out of them.
+  | "limestone" | "goldOre" | "leadOre" | "washedTin" | "goldDust" | "sand";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "clothes" | "tools";
 
@@ -106,7 +108,7 @@ export function chainBuildingTiles(): TileType[] {
 export type Profession =
   | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "smelter" | "collier" | "miller" | "baker" | "jeweler"
   | "brewer" | "innkeeper" | "hunter" | "forager" | "herder" | "digger" | "potter" | "salter" | "smoker" | "dairyman"
-  | "founder";
+  | "founder" | "washer";
 
 // Worker XP: one point per second at work. Level L needs WORKER_XP_LEVELS[L - 1] XP (level 1 at 0).
 export const WORKER_XP_LEVELS = [0, 100, 300, 700];
@@ -189,6 +191,12 @@ export const PROGRESSION = {
     bronze: { label: "Bronze", desc: "Cast at the Foundry from copper ore and tin with charcoal (or coal). The Foundry casts tools and gear from it.", group: "material" },
     bronzeTools: { label: "Bronze tools", desc: "Cast at the Foundry. In store: the hero and the clan's woodcutters, miners and diggers work 20% faster.", group: "tool" },
     bronzeWeapon: { label: "Bronze weapons", desc: "Cast at the Foundry. A soldier with no iron weapon takes one (damage +10%; iron +20%).", group: "tool" },
+    limestone: { label: "Limestone", desc: "Cut at a Lime Quarry (on limestone). Flux for steel at the Blast furnace; lime for glass.", group: "material" },
+    goldOre: { label: "Gold ore", desc: "Dug at a Gold Mine (on gold ore). The Stamp Mill crushes and washes it into gold dust.", group: "material" },
+    leadOre: { label: "Lead ore", desc: "Dug at a Lead Mine (on lead ore). The Foundry smelts it into lead.", group: "material" },
+    washedTin: { label: "Washed tin", desc: "Tin ore crushed and washed at the Stamp Mill (2 ore -> 3). The Foundry makes more bronze from it.", group: "material" },
+    goldDust: { label: "Gold dust", desc: "Washed out of crushed gold ore at the Stamp Mill.", group: "material" },
+    sand: { label: "Sand", desc: "Stone crushed at the Stamp Mill. Glass is melted from it.", group: "material" },
     bronzeArmour: { label: "Bronze armour", desc: "Cast at the Foundry from bronze and hide. A soldier with no iron armour wears it (damage taken -8%; iron -15%).", group: "tool" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
@@ -233,6 +241,14 @@ export const PROGRESSION = {
     { id: "coal", label: "Dig coal", output: "coal", amount: 2, station: TileType.CoalMine, seconds: 30, cap: 80 },
     { id: "copperOre", label: "Dig copper ore", output: "copperOre", amount: 2, station: TileType.CopperMine, seconds: 35, cap: 60 },
     { id: "tinOre", label: "Dig tin ore", output: "tinOre", amount: 1, station: TileType.TinMine, seconds: 35, cap: 60 },
+    // Industry extras: the new deposits' mines.
+    { id: "limestone", label: "Cut limestone", output: "limestone", amount: 2, station: TileType.LimeQuarry, seconds: 30, cap: 60 },
+    { id: "goldOre", label: "Dig gold ore", output: "goldOre", amount: 1, station: TileType.GoldMine, seconds: 40, cap: 40 },
+    { id: "leadOre", label: "Dig lead ore", output: "leadOre", amount: 2, station: TileType.LeadMine, seconds: 35, cap: 40 },
+    // The Stamp Mill's ore washer: gold first, then tin, then sand from stone.
+    { id: "goldDust", label: "Crush and wash gold ore", output: "goldDust", amount: 1, items: { goldOre: 3 }, station: TileType.StampMill, seconds: 40, cap: 20 },
+    { id: "washedTin", label: "Crush and wash tin ore", output: "washedTin", amount: 3, items: { tinOre: 2 }, station: TileType.StampMill, seconds: 30, cap: 20 },
+    { id: "sand", label: "Crush stone to sand", output: "sand", amount: 2, stock: { rock: 3 }, station: TileType.StampMill, seconds: 20, cap: 30 },
     // Clay pit and pottery. The Clay Pit's digger digs clay (no inputs); the Kiln's potter fires it with wood (the
     // crucible hot, with charcoal, by a level-2 potter), the first ready recipe under its cap in this order.
     { id: "clay", label: "Dig clay", output: "clay", amount: 2, station: TileType.ClayPit, seconds: 20, cap: 60 },
@@ -262,6 +278,8 @@ export const PROGRESSION = {
     { id: "bronzeTools", label: "Cast bronze tools", output: "bronzeTools", amount: 1, stock: { wood: 2 }, items: { bronze: 2 }, station: TileType.Foundry, seconds: 40, cap: 1 },
     { id: "bronzeWeapon", label: "Cast bronze weapons", output: "bronzeWeapon", amount: 1, stock: { wood: 1 }, items: { bronze: 2 }, station: TileType.Foundry, seconds: 40, cap: 10 },
     { id: "bronzeArmour", label: "Cast bronze armour", output: "bronzeArmour", amount: 1, items: { bronze: 3, hide: 1 }, station: TileType.Foundry, seconds: 50, cap: 10 },
+    { id: "bronzeWashed", label: "Smelt bronze from washed tin", output: "bronze", amount: 3, items: { copperOre: 3, washedTin: 2, charcoal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
+    { id: "bronzeWashedCoal", label: "Smelt bronze from washed tin with coal", output: "bronze", amount: 3, items: { copperOre: 3, washedTin: 2, coal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
     { id: "bronze", label: "Smelt bronze", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, charcoal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
     { id: "bronzeCoal", label: "Smelt bronze with coal", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, coal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
   ] as Recipe[],
@@ -351,6 +369,21 @@ export const PROGRESSION = {
     [TileType.Cellar]: { requires: { items: { bricks: 6 } } },
     // Industry extras: the Foundry pours copper (a Copper Mine) in a crucible.
     [TileType.Foundry]: { requires: { items: { crucible: 1 }, buildings: [{ tile: TileType.CopperMine }] } },
+    // The Stamp Mill is millwork on an iron miner's know-how (carpenter's tools, an Iron Mine; water near to wash:
+    // STAMP_MILL_WATER_RADIUS_TILES). The lime quarry is a Quarry's craft; gold and lead are dug like iron.
+    [TileType.StampMill]: { requires: { items: { carpenterTools: 1 }, buildings: [{ tile: TileType.IronMinePost }] } },
+    [TileType.LimeQuarry]: {
+      requires: { items: { stonePick: 1 }, buildings: [{ tile: TileType.RockMinePost }] },
+      levels: { 2: { items: { timberProps: 1 } }, 3: { items: { mineVent: 1, minePump: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
+    },
+    [TileType.GoldMine]: {
+      requires: { items: { stonePick: 1 }, buildings: [{ tile: TileType.IronMinePost }] },
+      levels: { 2: { items: { timberProps: 1 } }, 3: { items: { mineVent: 1, minePump: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
+    },
+    [TileType.LeadMine]: {
+      requires: { items: { stonePick: 1 }, buildings: [{ tile: TileType.IronMinePost }] },
+      levels: { 2: { items: { timberProps: 1 } }, 3: { items: { mineVent: 1, minePump: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
+    },
   } as Partial<Record<TileType, BuildingReq>>,
   // The profession a station's workers train in (XP per profession per person).
   stations: {
@@ -388,11 +421,16 @@ export const PROGRESSION = {
     [TileType.Smokehouse]: "smoker",
     [TileType.Dairy]: "dairyman",
     [TileType.Foundry]: "founder",
+    [TileType.StampMill]: "washer",
+    [TileType.LimeQuarry]: "miner",
+    [TileType.GoldMine]: "miner",
+    [TileType.LeadMine]: "miner",
   } as Partial<Record<TileType, Profession>>,
   // The Progression panel's chains (order only: every step's needs come from `buildings` / `recipes` above).
   chains: [
     { id: "stone", label: "Stone age", steps: [{ item: "stoneAxe" }, { item: "stoneKnife" }, { item: "stonePick" }, { building: TileType.LumberjackPost }, { building: TileType.House }, { building: TileType.HunterHut }, { item: "hide" }] },
-    { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "timberProps" }, { building: TileType.CoalMine }, { item: "coal" }, { building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "mineLamps" }, { item: "mineVent" }, { item: "minePump" }] },
+    { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "timberProps" }, { building: TileType.CoalMine }, { item: "coal" }, { building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "mineLamps" }, { item: "mineVent" }, { item: "minePump" }, { building: TileType.LimeQuarry }, { building: TileType.GoldMine }, { building: TileType.LeadMine }] },
+    { id: "ore", label: "Crushing & washing", steps: [{ item: "carpenterTools" }, { building: TileType.StampMill }, { item: "washedTin" }, { item: "goldDust" }, { item: "sand" }] },
     { id: "bronze", label: "Bronze", steps: [{ building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "crucible" }, { building: TileType.Foundry }, { item: "bronze" }, { item: "bronzeTools" }, { item: "bronzeWeapon" }, { item: "bronzeArmour" }] },
     { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }] },
     { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
@@ -413,7 +451,7 @@ export const PROFESSION_LABEL: Record<Profession, string> = {
   woodcutter: "Woodcutter", miner: "Miner", farmer: "Farmer", farmhand: "Farmhand", tailor: "Tailor", smith: "Smith",
   smelter: "Smelter", collier: "Collier", miller: "Miller", baker: "Baker", jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
   hunter: "Hunter", forager: "Forager", herder: "Animal Keeper", digger: "Digger", potter: "Potter", salter: "Salter",
-  smoker: "Smoker", dairyman: "Dairy hand", founder: "Founder",
+  smoker: "Smoker", dairyman: "Dairy hand", founder: "Founder", washer: "Ore washer",
 };
 
 // Names for the buildings the table refers to (needs text).
@@ -446,6 +484,10 @@ export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
   [TileType.Dairy]: "Dairy",
   [TileType.Cellar]: "Cellar",
   [TileType.Foundry]: "Foundry",
+  [TileType.StampMill]: "Stamp Mill",
+  [TileType.LimeQuarry]: "Lime Quarry",
+  [TileType.GoldMine]: "Gold Mine",
+  [TileType.LeadMine]: "Lead Mine",
 };
 
 // Smith training (plan §2): a level-1 smith makes tools only; forging tier-1/2 gear needs level 2, tier 3 level 3.

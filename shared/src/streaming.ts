@@ -32,6 +32,8 @@ export enum MinimapClass {
   Plains = 0, Hills, Swamp, Water, Moat, Tree, Rock, Iron, Wall, Road, Building, Ruin, Camp, Abbey,
   // Deep mines: the new deposits (map markers).
   Coal, Copper, Tin,
+  // Industry extras: limestone, gold ore and lead ore.
+  Limestone, Gold, Lead,
 }
 
 const RUIN_TILES = new Set<number>([TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble, TileType.Rubble]);
@@ -59,6 +61,9 @@ export function minimapClassOf(tile: number, biome: number, owned: boolean): Min
     case TileType.CoalSeam: return MinimapClass.Coal;
     case TileType.CopperOre: return MinimapClass.Copper;
     case TileType.TinOre: return MinimapClass.Tin;
+    case TileType.Limestone: return MinimapClass.Limestone;
+    case TileType.GoldOre: return MinimapClass.Gold;
+    case TileType.LeadOre: return MinimapClass.Lead;
     case TileType.Wall:
     case TileType.StoneWall:
     case TileType.Gate:

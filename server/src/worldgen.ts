@@ -61,7 +61,8 @@ export function scatterResourceTiles(tileType: TileType, count: number) {
 // last and from their own generator (seeded by the world's noise salt), so no shared RNG draw moves: an older
 // streamed save regenerates its world exactly, plus these. Only onto Empty ground off reserved / owned grounds, clear
 // of the start and of the world's units standing there. Also backfills a loaded world that has none (applyWorld).
-export function scatterDeposits() {
+// `only`: just these deposit kinds (a loaded world missing some); default every kind.
+export function scatterDeposits(only?: TileType[]) {
   let seed = (state.worldNoiseSalt ^ 0x5eedc0a1) >>> 0;
   const rnd = () => {
     seed = (seed + 0x6d2b79f5) >>> 0;
@@ -83,6 +84,7 @@ export function scatterDeposits() {
     x > 0 && y > 0 && x < W - 1 && y < H - 1 && state.tiles[tileIndex(x, y)] === TileType.Empty && !occupied.has(tileIndex(x, y)) &&
     Math.max(Math.abs(x - cx), Math.abs(y - cy)) > DEPOSIT_START_CLEAR_TILES && !isInReservedGrounds(x, y) && ownerAt(tileIndex(x, y)) === 0;
   for (const d of DEPOSIT_MINES) {
+    if (only && !only.includes(d.deposit)) continue;
     const veins = Math.max(1, Math.round(DEPOSIT_VEINS_PER_80[d.item] * state.WORLD_AREA_SCALE));
     for (let v = 0, tries = 0; v < veins && tries < veins * 40; tries++) {
       const x = Math.floor(rnd() * W);

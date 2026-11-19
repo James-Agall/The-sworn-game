@@ -667,6 +667,9 @@ export const INTERIOR_TEMPLATE_BY_TILE: Partial<Record<TileType, InteriorTemplat
   [TileType.CoalMine]: "mine",
   [TileType.CopperMine]: "mine",
   [TileType.TinMine]: "mine",
+  [TileType.LimeQuarry]: "mine",
+  [TileType.GoldMine]: "mine",
+  [TileType.LeadMine]: "mine",
 };
 // Tiles whose level is the tile itself (House tiers, militia camps, castles, the Abbey).
 export const INTERIOR_FIXED_LEVEL: Partial<Record<TileType, number>> = {

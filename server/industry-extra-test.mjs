@@ -2,13 +2,16 @@
 // Needs a private server with COLONY_TEST_HOOKS=1, a scratch COLONY_SAVE_DIR, instant build, W80 and NOT
 // COLONY_UNLOCK_ALL (scripts/run-tests.mjs gives all of that: `npm test -- industry-extra`). Checks: the Foundry's gates,
 // bronze smelting (charcoal, coal), bronze tools (hero / worker speed) and bronze gear (soldiers with no iron piece wear
-// it; an iron piece replaces it); COLONY_UNLOCK_ALL switches the effects off; save / load keeps it all.
+// it; an iron piece replaces it); the new deposits (limestone, gold, lead) at world gen and their mines; the Stamp Mill
+// (water, gates; gold dust, washed tin, sand) and bronze from washed tin; COLONY_UNLOCK_ALL switches the effects off;
+// save / load keeps it all.
 import WebSocket from "ws";
 
 const ws = new WebSocket(`ws://localhost:${process.env.PORT ?? 8080}`);
 const TILE = 32;
 const T = {
-  Empty: 0, CopperMine: 153, TinMine: 154, Foundry: 159,
+  Empty: 0, IronMinePost: 9, RockMinePost: 10, Water: 35, CopperMine: 153, TinMine: 154, Foundry: 159, StampMill: 160,
+  Limestone: 161, GoldOre: 162, LimeQuarry: 163, GoldMine: 164, LeadOre: 167, LeadMine: 168,
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const c = { welcome: null, snap: null, tiles: [], W: 0, events: [], hooks: new Map(), saves: [], info: undefined };
@@ -102,10 +105,15 @@ const B = { x: bx, y: by };
 for (let y = B.y - 4; y <= B.y + 13; y++) for (let x = B.x - 4; x <= B.x + 22; x++) send({ type: "testHook", op: "setTileRaw", tx: x, ty: y, tile: T.Empty });
 await setStock({ wood: 3000, rock: 3000, iron: 500, grain: 500, meat: 200, fruit: 200, clothes: 20, tools: 20 });
 
-// 1. locks in a new game
+// 1. locks in a new game; the new deposits are on the map
 const s0 = (await prog()).snapshot;
 const lk = (t) => JSON.stringify(s0.locked[t] ?? []);
-result((s0.locked[T.Foundry] ?? []).includes("Crucible") && (s0.locked[T.Foundry] ?? []).includes("a Copper Mine"), `locks: Foundry ${lk(T.Foundry)}`);
+result((s0.locked[T.Foundry] ?? []).includes("Crucible") && (s0.locked[T.Foundry] ?? []).includes("a Copper Mine")
+  && (s0.locked[T.StampMill] ?? []).includes("Carpenter's tools") && (s0.locked[T.StampMill] ?? []).includes("an Iron Mine")
+  && (s0.locked[T.LimeQuarry] ?? []).includes("a Quarry") && (s0.locked[T.GoldMine] ?? []).includes("an Iron Mine") && (s0.locked[T.LeadMine] ?? []).includes("an Iron Mine"),
+  `locks: Foundry ${lk(T.Foundry)}, Stamp Mill ${lk(T.StampMill)}, Lime Quarry ${lk(T.LimeQuarry)}, Gold Mine ${lk(T.GoldMine)}, Lead Mine ${lk(T.LeadMine)}`);
+const count = (t) => c.tiles.filter((v) => v === t).length;
+result(count(T.Limestone) > 0 && count(T.GoldOre) > 0 && count(T.LeadOre) > 0, `world gen veins: limestone ${count(T.Limestone)}, gold ore ${count(T.GoldOre)}, lead ore ${count(T.LeadOre)}`);
 
 // 2. the Foundry: a crucible and a Copper Mine
 const FO = { x: B.x + 1, y: B.y + 1 };
@@ -174,7 +182,77 @@ const k1 = eq.units.find((u) => u.id === knightId);
 it = (await prog()).items;
 result(k1?.armourTier === 1 && k1.bronzeArmour === false && it.bronzeArmour === 1, `an iron T1 cuirass replaces the bronze armour, which goes back to the stores: ${JSON.stringify(k1)}; stores ${it.bronzeArmour}`);
 
-// 6. COLONY_UNLOCK_ALL: the effects are off (older suites)
+// 6. the new mines: only on their deposits, behind their gates; their miners dig limestone / gold ore / lead ore
+const LQ = { x: B.x + 4, y: B.y + 4 };
+ev = c.events.length;
+await raw(B.x + 20, B.y + 3, T.RockMinePost);
+await raw(B.x + 20, B.y + 5, T.IronMinePost);
+await tryPlace(LQ.x, LQ.y, T.LimeQuarry);
+result(tileAt(LQ.x, LQ.y) === T.Empty && /Lime Quarry must be sunk on a limestone deposit/.test(evSince(ev)), `a Lime Quarry off limestone is refused: ${evSince(ev)}`);
+await raw(LQ.x, LQ.y, T.Limestone);
+await place(LQ.x, LQ.y, T.LimeQuarry);
+const GM = { x: B.x + 7, y: B.y + 4 };
+await raw(GM.x, GM.y, T.GoldOre);
+await place(GM.x, GM.y, T.GoldMine);
+const LM = { x: B.x + 10, y: B.y + 4 };
+await raw(LM.x, LM.y, T.LeadOre);
+await place(LM.x, LM.y, T.LeadMine);
+result(tileAt(LQ.x, LQ.y) === T.LimeQuarry && tileAt(GM.x, GM.y) === T.GoldMine && tileAt(LM.x, LM.y) === T.LeadMine, "Lime Quarry, Gold Mine and Lead Mine sunk on their deposits");
+for (const id of ["limestone", "goldOre", "leadOre"]) await setExact(id, 0);
+await staffed(LQ.x, LQ.y);
+await staffed(GM.x, GM.y);
+await staffed(LM.x, LM.y);
+await runUntil(async () => { const i = (await prog()).items; return (i.limestone ?? 0) >= 2 && (i.goldOre ?? 0) >= 1 && (i.leadOre ?? 0) >= 2; });
+it = (await prog()).items;
+result((it.limestone ?? 0) >= 2 && (it.goldOre ?? 0) >= 1 && (it.leadOre ?? 0) >= 2, `the miners dig: limestone ${it.limestone}, gold ore ${it.goldOre}, lead ore ${it.leadOre}`);
+const gmInfo = await info(GM.x, GM.y);
+result((gmInfo.progression ?? []).some((l) => /Deposit:/.test(l)) && !!gmInfo.mine, `the Gold Mine is a mine (deposit line, mine panel): ${JSON.stringify(gmInfo.progression)}`);
+await demolish(LQ.x, LQ.y);
+await demolish(GM.x, GM.y);
+await demolish(LM.x, LM.y);
+result(tileAt(LQ.x, LQ.y) === T.Empty || tileAt(LQ.x, LQ.y) === T.Limestone, `a demolished Lime Quarry leaves its deposit: tile ${tileAt(LQ.x, LQ.y)}`);
+
+// 7. the Stamp Mill: water near, carpenter's tools; gold dust, washed tin, sand
+const SM = { x: B.x + 14, y: B.y + 8 };
+ev = c.events.length;
+await tryPlace(SM.x, SM.y, T.StampMill);
+result(tileAt(SM.x, SM.y) === T.Empty && /Stamp Mill needs water within 3 tiles/.test(evSince(ev)), `dry ground refused: ${evSince(ev)}`);
+await raw(SM.x, SM.y + 3, T.Water);
+await setExact("carpenterTools", 0);
+ev = c.events.length;
+await tryPlace(SM.x, SM.y, T.StampMill);
+result(tileAt(SM.x, SM.y) === T.Empty && /Stamp Mill needs: Carpenter's tools/.test(evSince(ev)), `the tools gate: ${evSince(ev)}`);
+await setExact("carpenterTools", 1);
+await place(SM.x, SM.y, T.StampMill);
+result(tileAt(SM.x, SM.y) === T.StampMill, "Stamp Mill built beside water");
+for (const id of ["goldDust", "washedTin", "sand"]) await setExact(id, 0);
+await setExact("goldOre", 3);
+await setExact("tinOre", 2);
+const rock0 = (await stock()).rock;
+await staffed(SM.x, SM.y);
+await runUntil(async () => (await total("sand")) >= 2);
+it = (await prog()).items;
+const rock1 = (await stock()).rock;
+result(it.goldDust === 1 && it.washedTin === 3 && (it.goldOre ?? 0) === 0 && (it.tinOre ?? 0) === 0 && it.sand >= 2 && rock1 <= rock0 - 3,
+  `gold first (3 ore -> ${it.goldDust} dust), tin (2 ore -> ${it.washedTin} washed), then sand (${it.sand}; stone ${rock0} -> ${rock1})`);
+const smInfo = await info(SM.x, SM.y);
+result((smInfo.progression ?? []).some((l) => /Ore washer L1/.test(l)), `the ore washer trains: ${JSON.stringify(smInfo.progression)}`);
+await demolish(SM.x, SM.y);
+// washed tin makes more bronze at the Foundry
+await place(FO.x, FO.y, T.Foundry);
+for (const id of ["bronze", "tinOre", "coal"]) await setExact(id, 0);
+await setExact("bronzeWeapon", 10);
+await setExact("bronzeArmour", 10);
+await setExact("copperOre", 3);
+await setExact("washedTin", 2);
+await setExact("charcoal", 1);
+await staffed(FO.x, FO.y);
+await runUntil(async () => (await total("bronze")) >= 3);
+it = (await prog()).items;
+result(it.bronze === 3 && (it.washedTin ?? 0) === 0 && (it.copperOre ?? 0) === 0, `3 copper + 2 washed tin + 1 charcoal -> ${it.bronze} bronze (ore tin: 2 bronze)`);
+await demolish(FO.x, FO.y);
+
+// 8. COLONY_UNLOCK_ALL: the effects are off (older suites)
 await prog({ unlockAll: true });
 ind = await industry({ unit: knight2 });
 const offTools = ind.tools.hero === 1 && ind.tools.miner === 1;
@@ -184,7 +262,7 @@ const ind3 = await industry({ unit: k3 });
 await prog({ unlockAll: false });
 result(offTools && !ind3.unit?.bronzeWeapon && !ind3.unit?.bronzeArmour, `COLONY_UNLOCK_ALL: bronze tools x${ind.tools.hero}, a new knight takes no bronze: ${JSON.stringify(ind3.unit)}`);
 
-// 7. save / load
+// 9. save / load
 const before = (await prog()).items;
 send({ type: "saveGame", slot: "slot1" });
 await until(() => c.saves.length > 0, 5000);
@@ -195,7 +273,7 @@ await until(() => c.welcome && c.snap, 15000);
 await sleep(300);
 const after = await prog();
 ind = await industry({ unit: knight2 });
-result(["bronze", "bronzeTools", "bronzeWeapon", "bronzeArmour", "copperOre", "crucible"].every((id) => after.items[id] === before[id]) && after.unlocked.includes(T.Foundry),
+result(["bronze", "bronzeTools", "bronzeWeapon", "bronzeArmour", "copperOre", "crucible", "limestone", "goldDust", "washedTin", "sand"].every((id) => after.items[id] === before[id]) && after.unlocked.includes(T.Foundry) && after.unlocked.includes(T.StampMill) && after.unlocked.includes(T.LimeQuarry),
   `items and unlocks survive: ${JSON.stringify(after.items)}`);
 result(ind.unit?.bronzeWeapon === true && ind.unit.weapon === 1.1, `a knight's bronze weapon survives: ${JSON.stringify(ind.unit)}`);
 
