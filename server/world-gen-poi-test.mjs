@@ -264,8 +264,11 @@ if (ONLY.has("A")) {
     }
   }
   console.log(`[${el()}] scatter: trees=${resourceCounts.tree} ironOre=${resourceCounts.ore} rock=${resourceCounts.rock} water=${resourceCounts.water}`);
-  result(resourceCounts.tree === 96 && resourceCounts.ore === 56 && resourceCounts.rock === 64,
-    `resource counts scaled ~4x (expect 96/56/64)`);
+  // 96 / 56 / 64 are scattered (~4x the old 40x40 map's); the bandit camps, stamped after the scatter since the camp
+  // templates (2026-11-06), clear the natural ground under their footprints, so a few are gone again.
+  result(resourceCounts.tree <= 96 && resourceCounts.ore <= 56 && resourceCounts.rock <= 64 &&
+    resourceCounts.tree >= 96 * 0.6 && resourceCounts.ore >= 56 * 0.6 && resourceCounts.rock >= 64 * 0.6,
+    `resource counts scaled ~4x: at most 96/56/64 scattered, at least 60% left after the camps clear their ground (${resourceCounts.tree}/${resourceCounts.ore}/${resourceCounts.rock})`);
   result(resourceCounts.water > 0, `water tiles exist (${resourceCounts.water})`);
   result(waterNearTC === 0, `no water within 15 tiles of the Town Center (${waterNearTC})`);
 
@@ -277,11 +280,13 @@ if (ONLY.has("A")) {
     console.log(`    ${s.kind.padEnd(10)} @(${s.x},${s.y}) center=${s.tile} extras=[${s.extras.join(",")}] guardians=[${s.mobs.map((m) => `${m.kind}@${m.dTiles.toFixed(1)}t`).join(", ")}]`);
   }
   result(ruins.length >= 6 && ruins.length <= 10, `6-10 ruin sites (${ruins.length})`);
-  result(encs.length >= 6 && encs.length <= 10, `6-10 encampment sites (${encs.length})`);
+  // Bandit encampments are camp templates since 2026-11-06 (worldgen.ts generateNearStartCamps / generateCampSites,
+  // stampCamp): their layouts, extras, guardian counts and footprints are each template's own, checked by
+  // camp-templates-test.mjs. The old procedural encampment's 6-10 sites / 1-3 extras / 2-4 guardians / 5x5
+  // footprint checks are retired with it; here only that camps exist and field bandits.
+  result(encs.length >= 1, `bandit camps exist (${encs.length} campfires)`);
   result(ruins.every((s) => s.extras.length <= 2), `every ruin has 0-2 statue/rubble extras around its centerpiece`);
-  result(encs.every((s) => s.extras.length >= 1 && s.extras.length <= 3), `every encampment has 1-3 cart/barrel/crate/fence extras around its campfire`);
   result(ruins.every((s) => s.mobs.length >= 2 && s.mobs.length <= 3), `every ruin has 2-3 guardians: [${ruins.map((s) => s.mobs.length).join(",")}]`);
-  result(encs.every((s) => s.mobs.length >= 2 && s.mobs.length <= 4), `every encampment has 2-4 guardians: [${encs.map((s) => s.mobs.length).join(",")}]`);
   const ruinKinds = new Set(ruins.flatMap((s) => s.mobs.map((m) => m.kind)));
   result([...ruinKinds].every((k) => ["skeleton", "darkShaman", "orc"].includes(k)), `ruin guardian kinds ⊆ {skeleton, darkShaman, orc}: {${[...ruinKinds].join(", ")}}`);
   const encKinds = new Set(encs.flatMap((s) => s.mobs.map((m) => m.kind)));
@@ -292,7 +297,7 @@ if (ONLY.has("A")) {
   const banditCounts = Object.fromEntries(Object.keys(BANDIT_MAX_HP).map((k) => [k, bandits.filter((m) => m.kind === k).length]));
   // Scale pass: bandits roll a size (snapshot `scale`, omitted = 1) and their HP is base x size.
   result(bandits.every((m) => m.maxHp === Math.max(1, Math.round(BANDIT_MAX_HP[m.kind] * (m.scale ?? 1))) && m.hp === m.maxHp), `bandit maxHp matches kind x size (clubman 30 / archer 25 / elite 70): ${JSON.stringify(banditCounts)}`);
-  result(sites.flatMap((s) => s.mobs).every((m) => m.dTiles <= 2 * Math.SQRT2 + 0.01), `every guardian stands within its site's 5x5 footprint`);
+  result(ruins.flatMap((s) => s.mobs).every((m) => m.dTiles <= 2 * Math.SQRT2 + 0.01), `every ruin guardian stands within its site's 5x5 footprint`);
   const allMobTilesWalkable = a.snap.mobs.every((m) => walkable(tileOf(m).x, tileOf(m).y));
   result(allMobTilesWalkable, `every guardian stands on a walkable tile`);
   result(!a.snap.isNight && a.snap.mobs.length > 0, `${a.snap.mobs.length} mobs present at world load in daytime (none night-spawned yet)`);
@@ -328,10 +333,13 @@ if (ONLY.has("B")) {
     const st = await a.hook("farmState");
     const fh = st.farmhands.find((f) => f.postX === placed.x && f.postY === placed.y);
     const K = st.constants;
-    const plainsExpect = Math.max(1, Math.round((K.FARMHAND_CYCLE_TICKS * 0.8) / happinessMult(st.happiness)));
-    const noBonus = Math.max(1, Math.round(K.FARMHAND_CYCLE_TICKS / happinessMult(st.happiness)));
+    // Food balance (2026-11-06, shared/src/buildings.ts): food farms (a Pasture is one) tend FOOD_TIME_MULT (2) times
+    // as long (economy.ts effectiveFarmhandCycleTicks); the Plains bonus is the same x0.8 on top.
+    const FOOD_TIME_MULT = 2;
+    const plainsExpect = Math.max(1, Math.round((K.FARMHAND_CYCLE_TICKS * FOOD_TIME_MULT * 0.8) / happinessMult(st.happiness)));
+    const noBonus = Math.max(1, Math.round((K.FARMHAND_CYCLE_TICKS * FOOD_TIME_MULT) / happinessMult(st.happiness)));
     result(fh && fh.cycleTicksRemaining === plainsExpect && plainsExpect !== noBonus,
-      `B: Plains Pasture cycle ${fh?.cycleTicksRemaining}t == round(${K.FARMHAND_CYCLE_TICKS}*0.8/happinessMult(${st.happiness})) = ${plainsExpect}t (no-bonus would be ${noBonus}t)`);
+      `B: Plains Pasture cycle ${fh?.cycleTicksRemaining}t == round(${K.FARMHAND_CYCLE_TICKS}*${FOOD_TIME_MULT}*0.8/happinessMult(${st.happiness})) = ${plainsExpect}t (no-bonus would be ${noBonus}t)`);
     // Tending only advances by day, so run whole days until the batch lands.
     const meat0 = a.snap.meat;
     let delivered = false;
@@ -340,8 +348,9 @@ if (ONLY.has("B")) {
       const now = (await a.hook("farmState")).farmhands.find((f) => f.id === fh.id);
       await a.nextSnap();
       delivered = a.snap.meat > meat0;
-      // A 2x2 Pasture yields per footprint tile (x4).
-      const want = 4 * K.FARMHAND_YIELD_PER_CYCLE.meat;
+      // A 2x2 Pasture yields per footprint tile (x4); a cow pasture's tile gives PASTURE_YIELDS 120 meat x
+      // FOOD_OUTPUT_MULT 0.5 (food balance 2026-11-06, shared/src/buildings.ts).
+      const want = 4 * 120 * 0.5;
       if (delivered) result(a.snap.meat - meat0 === want, `B: the cycle delivered +${a.snap.meat - meat0} meat in one batch (expected +${want}: 2x2 Pasture); next cycle ${now.cycleTicksRemaining}t`);
     }
     if (!delivered) result(false, `B: no meat after 6 game days`);
