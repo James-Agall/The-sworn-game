@@ -22,6 +22,7 @@ import {
 } from "@colony/shared/rooms";
 import { GAME_DAY_TICKS } from "./constants.js";
 import { clanById, withClan } from "./clans.js";
+import { GLAZED_WINDOWS_MIN } from "@colony/shared/industry";
 import { itemCount, takeItem } from "./progression.js";
 import type { ItemId } from "@colony/shared/progression";
 import type { RoomInfo } from "@colony/shared/protocol";
@@ -139,7 +140,14 @@ function damagedWalls(r: Room): number {
 }
 
 function computeStats(r: RoomRec): RoomStats {
-  return roomStats({ tiles: r.tiles.length, counts: r.counts, windows: r.windows, stone: r.stone, dirt: r.dirt, damagedWalls: damagedWalls(r) });
+  return roomStats({ tiles: r.tiles.length, counts: r.counts, windows: r.windows, glazed: glazedFor(clanOfRoom(r)), stone: r.stone, dirt: r.dirt, damagedWalls: damagedWalls(r) });
+}
+
+// Industry extras: the clan has GLAZED_WINDOWS_MIN+ window glass in store (off under COLONY_UNLOCK_ALL).
+function glazedFor(clan: number): boolean {
+  if (state.testUnlockAll) return false;
+  const panes = clanById(clan).progress.items.glassPanes ?? [];
+  return panes.reduce((a, b) => a + b, 0) >= GLAZED_WINDOWS_MIN;
 }
 
 export function allRooms(): readonly RoomRec[] {

@@ -8,7 +8,7 @@ import { TileType } from "./protocol.js";
 
 // ---- buildings ----
 // The new artisan stations (one worker each, 3 levels, upgrade = build cost x the new level).
-export const INDUSTRY_STATION_TILES: readonly TileType[] = [TileType.Foundry, TileType.StampMill];
+export const INDUSTRY_STATION_TILES: readonly TileType[] = [TileType.Foundry, TileType.StampMill, TileType.Glassworks];
 // A new Stamp Mill washes its ore: water (a pond / river Water tile or a dug Moat) within this many tiles.
 export const STAMP_MILL_WATER_RADIUS_TILES = 3;
 
@@ -29,3 +29,14 @@ export const BRONZE_ARMOUR_DAMAGE_TAKEN_MULT = 0.92;
 // tier 3 and the piece comes out STEEL_FINE_TIER_BONUS tier better (a level-2 forge makes tempered, tier-3 gear). Poor /
 // Good steel waits in the stores (it counts for nothing at the forge).
 export const STEEL_FINE_TIER_BONUS = 1;
+
+// ---- glass ----
+// The Glassworks' glassblower melts 2 sand + 1 limestone (lime) + 1 charcoal (or coal) into 2 glass, then blows window
+// glass (2 glass + 1 wood -> 2 panes) and bottles (1 glass -> 2). Window glass in store (at least GLAZED_WINDOWS_MIN
+// panes): every window of the clan's rooms is glazed: it loses no heat and adds GLAZED_WINDOW_BEAUTY beauty point
+// (a rug is 3, a statue 8). Bottles in store (at least BOTTLES_MIN) with ale in store: the ale's happiness bonus is
+// BOTTLED_ALE_BONUS higher (bottled ale keeps and is served better).
+export const GLAZED_WINDOWS_MIN = 4;
+export const GLAZED_WINDOW_BEAUTY = 1;
+export const BOTTLES_MIN = 4;
+export const BOTTLED_ALE_BONUS = 2;

@@ -115,10 +115,12 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.Cellar]: "quarry",
   [TileType.CopperMine]: "ironMine",
   [TileType.TinMine]: "quarry",
-  // Industry extras stand-ins (tinted; SPRITES.md #114): the bloomery's blacksmith for the foundry, the barn (as for the
-  // Mill) for the stamp mill, rock / iron ore for the new deposits and the quarry / iron mine posts for their mines.
+  // Industry extras stand-ins (tinted; SPRITES.md #114): the bloomery's blacksmith for the foundry and the glassworks,
+  // the barn (as for the Mill) for the stamp mill, rock / iron ore for the new deposits and the quarry / iron mine posts
+  // for their mines.
   [TileType.Foundry]: "blacksmith",
   [TileType.StampMill]: "barn",
+  [TileType.Glassworks]: "blacksmith",
   [TileType.Limestone]: "rock",
   [TileType.GoldOre]: "ironOre",
   [TileType.LeadOre]: "rock",
@@ -256,6 +258,7 @@ export const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.TinMine]: 0xd0dce8,
   [TileType.Foundry]: 0xd8a050,
   [TileType.StampMill]: 0xa8b0b8,
+  [TileType.Glassworks]: 0x90d0d8,
   [TileType.Limestone]: 0xf0ecdc,
   [TileType.GoldOre]: 0xf0d050,
   [TileType.LeadOre]: 0x7a8090,

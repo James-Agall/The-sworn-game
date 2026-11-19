@@ -7,6 +7,7 @@
 // lamps, ovens, roof; windows lose heat). The SCORE is their weighted sum; its quality q = (score - 50) / 50 in
 // [-1, 1] drives the effects (bedroom sleep, workshop speed, kitchen meals, barracks morale, hero rest).
 import { TileType } from "./protocol.js";
+import { GLAZED_WINDOW_BEAUTY } from "./industry.js";
 
 // ---- roles ----
 export type RoomRole = "room" | "bedroom" | "barracks" | "kitchen" | "workshop" | "hall" | "storeroom" | "church" | "infirmary";
@@ -24,12 +25,12 @@ export const ROOM_TABLE_TILES: readonly TileType[] = [TileType.Table, TileType.L
 export const ROOM_STORAGE_TILES: readonly TileType[] = [TileType.Chest, TileType.Shelf, TileType.Wardrobe];
 export const ROOM_DEVOTION_TILES: readonly TileType[] = [TileType.Statue, TileType.Lamp];
 // Stations that heat a room like a hearth (ovens, forges, kilns).
-export const ROOM_HOT_STATIONS: readonly TileType[] = [TileType.Bakery, TileType.Blacksmith, TileType.Bloomery, TileType.CharcoalBurner, TileType.Brewery, TileType.Kiln, TileType.Smokehouse, TileType.SaltWorks, TileType.Foundry];
+export const ROOM_HOT_STATIONS: readonly TileType[] = [TileType.Bakery, TileType.Blacksmith, TileType.Bloomery, TileType.CharcoalBurner, TileType.Brewery, TileType.Kiln, TileType.Smokehouse, TileType.SaltWorks, TileType.Foundry, TileType.Glassworks];
 // Stations (and the Workbench) that make a room a workshop.
 export const ROOM_WORKSHOP_TILES: readonly TileType[] = [
   TileType.Blacksmith, TileType.TailorShop, TileType.LuxuryWorkshop, TileType.Brewery, TileType.Bloomery,
   TileType.CharcoalBurner, TileType.Mill, TileType.Bakery, TileType.Kiln, TileType.Smokehouse, TileType.Dairy, TileType.SaltWorks, TileType.Tavern,
-  TileType.Foundry, TileType.StampMill, TileType.Workbench,
+  TileType.Foundry, TileType.StampMill, TileType.Glassworks, TileType.Workbench,
 ];
 
 // ---- size: tiles a role wants (size stat = tiles / wanted, capped at 100) ----
@@ -162,6 +163,8 @@ export interface RoomStatsInput {
   tiles: number;
   counts: Record<number, number>;
   windows: number;
+  // Industry extras: the clan has window glass in store (GLAZED_WINDOWS_MIN+): windows lose no heat, add beauty.
+  glazed?: boolean;
   stone: boolean;
   dirt: number;
   damagedWalls: number;
@@ -228,6 +231,7 @@ export function roomStats(r: RoomStatsInput): RoomStats {
     }
   }
   points += ROOM_BEAUTY_BARE_GROUND * bare;
+  if (r.glazed) points += GLAZED_WINDOW_BEAUTY * r.windows;
   const beauty = clamp(50 + (points / Math.max(1, tiles)) * ROOM_BEAUTY_SCALE);
   // Cleanliness.
   const bareShare = bare / Math.max(1, tiles);
@@ -237,7 +241,7 @@ export function roomStats(r: RoomStatsInput): RoomStats {
   const area = ROOM_WARMTH_AREA_TILES / Math.max(ROOM_WARMTH_AREA_TILES, tiles);
   const hot = ROOM_HOT_STATIONS.reduce((s, t) => s + n(counts, t), 0);
   const heat = n(counts, TileType.Hearth) * ROOM_WARMTH_PER_HEARTH + n(counts, TileType.Lamp) * ROOM_WARMTH_PER_LAMP + hot * ROOM_WARMTH_PER_HOT_STATION;
-  const warmth = clamp(ROOM_WARMTH_BASE + (r.stone ? ROOM_WARMTH_STONE_ROOF : 0) + heat * area + n(counts, TileType.Rug) * ROOM_WARMTH_PER_RUG + r.windows * ROOM_WARMTH_PER_WINDOW);
+  const warmth = clamp(ROOM_WARMTH_BASE + (r.stone ? ROOM_WARMTH_STONE_ROOF : 0) + heat * area + n(counts, TileType.Rug) * ROOM_WARMTH_PER_RUG + (r.glazed ? 0 : r.windows * ROOM_WARMTH_PER_WINDOW));
   const w = ROOM_SCORE_WEIGHTS;
   const score = clamp(size * w.size + beauty * w.beauty + cleanliness * w.cleanliness + warmth * w.warmth);
   const tier = ROOM_TIERS.find(([bound]) => score < bound)?.[1] ?? "Superb";
@@ -245,7 +249,7 @@ export function roomStats(r: RoomStatsInput): RoomStats {
   const tips: string[] = [];
   if (size < 70) tips.push(role === "bedroom" || role === "barracks" ? `Cramped: ${wantedTiles(role, beds)} tiles suit ${beds} bed${beds === 1 ? "" : "s"} (has ${tiles})` : `Small for a ${ROOM_ROLE_LABEL[role].toLowerCase()}: ${wantedTiles(role, beds)} tiles suit it (has ${tiles})`);
   if (bareShare > 0.25) tips.push("Bare ground: lay a wood or stone floor (beauty, cleanliness)");
-  if (warmth < 50) tips.push("Cold: add a hearth or a lamp (fewer windows, a stone roof help)");
+  if (warmth < 50) tips.push(`Cold: add a hearth or a lamp (${r.glazed ? "a stone roof helps" : "fewer or glazed windows, a stone roof help"})`);
   if (beauty < 60) tips.push("Plain: a rug, a statue or a lamp makes it nicer");
   if (r.damagedWalls > 0) tips.push(`${r.damagedWalls} damaged wall piece${r.damagedWalls === 1 ? "" : "s"}: repair (rubble lowers cleanliness)`);
   else if (cleanliness < 60) tips.push("Dirty: it is swept clean over time; less traffic through it helps");

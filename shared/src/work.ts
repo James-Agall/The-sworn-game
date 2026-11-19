@@ -25,7 +25,7 @@ export const WORK_HELP: Record<WorkType, string> = {
   mining: "Quarry, Iron, Coal, Copper, Tin, Lime, Gold and Lead Mine, Clay Pit and Stamp Mill posts",
   hunting: "Hunter's Hut and Forager's Hut posts",
   cooking: "Mill, Bakery, Brewery, Tavern, Smokehouse and Dairy posts",
-  crafting: "Tailor, Blacksmith, Bloomery, Charcoal Burner, Kiln, Salt Works, Foundry and Jeweler posts",
+  crafting: "Tailor, Blacksmith, Bloomery, Charcoal Burner, Kiln, Salt Works, Foundry, Glassworks and Jeweler posts",
   animals: "Animal houses (coop, barn, sty, pen, stables): fill feeders and troughs, collect eggs / milk / wool",
   hauling: "Carry loose goods (harvests) to stockpiles",
   fighting: "Answer a Town Center's call to arms and train as a soldier (never forced: off = stays home)",
@@ -35,7 +35,7 @@ export const WORK_HELP: Record<WorkType, string> = {
 export const WORK_PROFESSIONS: Record<WorkType, Profession[]> = {
   building: [], farming: ["farmer", "farmhand"], woodcutting: ["woodcutter"], mining: ["miner", "digger", "washer"], hunting: ["hunter", "forager"],
   cooking: ["miller", "baker", "brewer", "innkeeper", "smoker", "dairyman"],
-  crafting: ["tailor", "smith", "smelter", "collier", "jeweler", "potter", "salter", "founder"],
+  crafting: ["tailor", "smith", "smelter", "collier", "jeweler", "potter", "salter", "founder", "glassblower"],
   animals: ["herder"], hauling: [], fighting: [],
 };
 export const PROFESSION_WORK: Record<Profession, WorkType> = Object.fromEntries(

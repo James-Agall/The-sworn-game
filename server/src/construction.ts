@@ -582,6 +582,7 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     // Industry extras: the same rule.
     case TileType.Foundry:
     case TileType.StampMill:
+    case TileType.Glassworks:
     case TileType.LimeQuarry:
     case TileType.GoldMine:
     case TileType.LeadMine:

@@ -18,6 +18,7 @@ import {
 } from "@colony/shared/agri";
 import {
   BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_TOOL_SPEED, BRONZE_WEAPON_DAMAGE_MULT, STAMP_MILL_WATER_RADIUS_TILES, STEEL_FINE_TIER_BONUS,
+  BOTTLED_ALE_BONUS, BOTTLES_MIN, GLAZED_WINDOWS_MIN,
 } from "@colony/shared/industry";
 import {
   ROOM_BARRACKS_MIN_BEDS, ROOM_BEAUTY_POINTS, ROOM_WARMTH_AREA_TILES, ROOM_WARMTH_PER_HEARTH, ROOM_WARMTH_PER_LAMP, ROOM_WORKBENCH_MAX,
@@ -298,6 +299,13 @@ export const TOOLS: ToolDef[] = [
     label: "Stamp Mill",
     key: "",
     cost: `${buildCostText(TileType.StampMill)} (upgradeable). Needs Carpenter's tools, an Iron Mine and water within ${STAMP_MILL_WATER_RADIUS_TILES} tiles. An ore washer crushes and washes 3 Gold ore → 1 Gold dust, 2 Tin ore → 3 Washed tin (the Foundry makes 3 Bronze from 2), and 3 Stone → 2 Sand`,
+    category: "industry",
+  },
+  {
+    tile: TileType.Glassworks,
+    label: "Glassworks",
+    key: "",
+    cost: `${buildCostText(TileType.Glassworks)} (upgradeable). Needs a Kiln and a Stamp Mill. A glassblower melts 2 Sand + 1 Limestone + 1 Charcoal (or Coal) → 2 Glass, then blows Window glass (${GLAZED_WINDOWS_MIN}+ in store: your rooms' windows are glazed, no heat lost, +beauty) and Bottles (${BOTTLES_MIN}+ with ale: +${BOTTLED_ALE_BONUS} ale happiness)`,
     category: "industry",
   },
   {

@@ -106,6 +106,7 @@ export const BUILD_COSTS = {
   // Industry extras (shared/src/industry.ts; an upgrade costs the build cost again x the new level).
   [TileType.Foundry]: { wood: 15, rock: 15 },
   [TileType.StampMill]: { wood: 25, rock: 10, iron: 4 },
+  [TileType.Glassworks]: { wood: 15, rock: 20 },
   [TileType.LimeQuarry]: { wood: 15, rock: 5 },
   [TileType.GoldMine]: { wood: 15, rock: 10 },
   [TileType.LeadMine]: { wood: 15, rock: 10 },

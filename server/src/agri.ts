@@ -19,6 +19,7 @@ import {
   STARTER_UNTENDED_DAYS, type AgriSnapshot, type SpoilClass,
 } from "@colony/shared/agri";
 import { FOOD_ITEMS, type ItemId } from "@colony/shared/progression";
+import { BOTTLED_ALE_BONUS, BOTTLES_MIN } from "@colony/shared/industry";
 import type { Colonist } from "./types.js";
 import { type AgriState, type Clan, colonists, state } from "./state.js";
 import { clanById, clanIdAt, clanIdAtIndex, withClan } from "./clans.js";
@@ -137,11 +138,12 @@ export function drinkAle(people: number) {
   if (have <= 0 || people <= 0) return;
   takeItem("ale", Math.min(have, Math.ceil(people / ALE_PEOPLE_PER_MUG)));
 }
-// Colony happiness from ale in store, by its best grade (0 with COLONY_UNLOCK_ALL).
+// Colony happiness from ale in store, by its best grade (0 with COLONY_UNLOCK_ALL). Industry extras: bottles in store
+// (BOTTLES_MIN+) add BOTTLED_ALE_BONUS.
 export function aleHappinessBonus(): number {
   if (state.testUnlockAll || itemCount("ale") <= 0) return 0;
   const g = state.progress.items.ale ?? [];
-  return ALE_HAPPINESS[g[2] > 0 ? 2 : g[1] > 0 ? 1 : 0];
+  return ALE_HAPPINESS[g[2] > 0 ? 2 : g[1] > 0 ? 1 : 0] + (itemCount("bottles") >= BOTTLES_MIN ? BOTTLED_ALE_BONUS : 0);
 }
 
 // ---- sickness ----
