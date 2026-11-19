@@ -840,7 +840,13 @@ await check("solo hero: station work, master, personal build", async () => {
   await raw(mx, my, 102);
   await tp(mx + 1, my + 1);
   const f0 = (await hook("progression", {})).ctx.items.flour ?? 0;
+  // Player workstations (52fb613): E at an own station opens its recipe list ("Craft at workstation"); the hero works
+  // the batch picked there (Grind flour: 2 grain -> 2 flour in 20 s).
+  const nw = c.dialogues.length;
   await hook("heroLife", { interact: true, skills: {} });
+  const dw = await lastDialogue(nw);
+  const fi = pick(dw, /Grind flour/);
+  if (fi >= 0) await hook("heroLife", { choice: fi });
   await ff(21 * TICK);
   const r = await hook("heroLife", {});
   const f1 = (await hook("progression", {})).ctx.items.flour ?? 0;
@@ -870,7 +876,7 @@ await check("solo hero: station work, master, personal build", async () => {
   await hook("heroLife", { choice: pick(d2 ?? d1 ?? d0, /Farewell/) });
   await hook("peopleState", { creative: true });
   await clearBox(mx, my, 2);
-  return [worked && built && learned, `worked ${worked} (flour ${f0} -> ${f1}, milling XP ${r.life.skills.milling}), campfire ${built}, master ${learned} (${d2?.dialogue?.text?.slice(0, 60) ?? (ti < 0 ? "no teach choice: " + d0?.dialogue?.choices.map((x) => x.label).join("/") : "no learn choice")})`];
+  return [worked && built && learned, `worked ${worked} (${fi < 0 ? "no Grind flour choice: " + (dw?.dialogue?.choices.map((x) => x.label).join("/") ?? "no dialogue") + "; " : ""}flour ${f0} -> ${f1}, milling XP ${r.life.skills.milling}), campfire ${built}, master ${learned} (${d2?.dialogue?.text?.slice(0, 60) ?? (ti < 0 ? "no teach choice: " + d0?.dialogue?.choices.map((x) => x.label).join("/") : "no learn choice")})`];
 });
 
 // Solo hero: a fallen hero with a Church of the clan and the gold is offered resurrection first (heir picker row
