@@ -53,6 +53,7 @@ import { updateWorkAssignments } from "./work.js";
 import { heroSpeedMult, updateHeroLife } from "./herolife.js";
 import { stepInteriorMovement, tryEnterAtDoor, updateInteriors } from "./interiors.js";
 import { minesDawn, updateMines } from "./mines.js";
+import { updateWinter } from "./winter.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 const HAPPINESS_EVERY_TICKS = 5;
@@ -97,6 +98,8 @@ export function stepSimulation() {
   state.wasNight = nightNow;
   // Stardew phase 5b: a new calendar day (watering resets, the first frost of winter).
   updateCalendar();
+  // Winter: who is out in the cold, wardrobes refilled from the stores (once a second; nothing with seasons off).
+  updateWinter();
 
   // Forts phase D2: settlement quests (expiry, defend results at dawn, the posting scan).
   updateQuests();

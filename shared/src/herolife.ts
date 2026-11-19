@@ -1,6 +1,7 @@
 // Solo hero (docs/colony2d/PLAN-solo-hero.md; ROADMAP "Solo hero — landed"): the data the server and client share
 // for the playable hero: pack goods and carry weight, needs, skills by use, gather sources, personal builds and the
 // role dialogue trees. Server: server/src/herolife.ts. Client: client/src/herolife.ts.
+import { sanitizeWardrobe, type Wardrobe } from "./winter.js";
 import { SPELL_COOLDOWN_SCALE, SPELLS, type SpellId, TileType, type RelationTier } from "./protocol.js";
 import { type ItemId, WORKER_XP_LEVELS } from "./progression.js";
 import type { CropId } from "./zones.js";
@@ -471,6 +472,8 @@ export interface HeroLifeData {
   flags: Record<string, number>;
   builds: { kind: PersonalBuild; x: number; y: number }[];
   family?: HeroFamilyData;
+  // Winter (shared/src/winter.ts; optional: older saves have none).
+  wardrobe?: Wardrobe;
 }
 
 // ---- family, marriage and succession (docs/colony2d/PLAN-family-and-succession.md) ----
@@ -575,5 +578,6 @@ export function sanitizeHeroLife(raw: unknown): HeroLifeData | null {
   const family = sanitizeFamily(r.family);
   const energy = typeof r.energy === "number" ? { energy: num(r.energy, 0, ENERGY_MAX, ENERGY_MAX) } : {};
   const water = typeof r.water === "number" ? { water: Math.floor(num(r.water, 0, WATER_CAN_CHARGES, WATER_CAN_CHARGES)) } : {};
-  return { pack, food: num(r.food, 0, NEED_MAX, NEED_MAX), rest: num(r.rest, 0, NEED_MAX, NEED_MAX), ...energy, ...water, skills, flags, builds, ...(family ? { family } : {}) };
+  const wardrobe = sanitizeWardrobe(r.wardrobe);
+  return { pack, food: num(r.food, 0, NEED_MAX, NEED_MAX), rest: num(r.rest, 0, NEED_MAX, NEED_MAX), ...energy, ...water, skills, flags, builds, ...(family ? { family } : {}), ...(wardrobe ? { wardrobe } : {}) };
 }

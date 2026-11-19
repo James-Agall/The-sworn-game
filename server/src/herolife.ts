@@ -51,6 +51,7 @@ import { buildingTemplateById } from "./buildingTemplates.js";
 import { cropSeasonLabel, WINTER_COLD_REST_DECAY_MULT, WINTER_COLD_REST_GAIN_MULT, WINTER_WARM_ROOM_REST_MULT } from "@colony/shared/calendar";
 import {interiorWorkstation, ownInterior, sharedStockAccess, tryWorldChest,worldChestChoice,interiorFurnitureChoice, interiorInteract, interiorRestMult, tryEnterAtDoor } from "./interiors.js";
 import { settlementTemplateById } from "./settlementTemplates.js";
+import { heroCold, heroColdRestGain, heroColdSpeedMult, heroColdWorkMult } from "./winter.js";
 
 // ---- profile state ----
 export function lifeOf(player: Player): HeroLife {
@@ -970,7 +971,7 @@ function stepTool(p: Player, b: Busy, t: ToolJob) {
     return;
   }
   const life = lifeOf(p);
-  t.left -= skillSpeed(skillLevel(life, "farming")) * energySpeed(life);
+  t.left -= skillSpeed(skillLevel(life, "farming")) * energySpeed(life) * heroColdWorkMult(p);
   if (t.left > 0) return;
   b.tool = undefined;
   const clan = p.clan ?? 0;
@@ -1250,8 +1251,10 @@ function shelterMult(p: Player): number {
 
 // Stardew phase 5b: winter rest multipliers (gain while resting, decay otherwise); 1 / 1 outside winter.
 function coldMult(p: Player): { gain: number; decay: number } {
-  // Stardew phase 5c: indoors (any building interior) is out of the cold.
-  if (!winterNow() || p.interior) return { gain: 1, decay: 1 };
+  // Stardew phase 5c: indoors (any building interior) is out of the cold. Winter (winter.ts): unless it is a home
+  // left without fuel today (poorer rest).
+  if (!winterNow()) return { gain: 1, decay: 1 };
+  if (p.interior) return { gain: heroColdRestGain(p), decay: 1 };
   if (warmRoomAt(Math.floor(p.x / TILE_SIZE), Math.floor(p.y / TILE_SIZE))) return { gain: WINTER_WARM_ROOM_REST_MULT, decay: 1 };
   if (!isNightNow() || shelterMult(p) > 1) return { gain: 1, decay: 1 };
   return { gain: WINTER_COLD_REST_GAIN_MULT, decay: WINTER_COLD_REST_DECAY_MULT };
@@ -1310,7 +1313,7 @@ function stepGather(p: Player, b: Busy, g: GatherJob) {
   }
   const def = GATHER[g.kind];
   const life = lifeOf(p);
-  g.left -= skillSpeed(skillLevel(life, def.skill)) * energySpeed(life);
+  g.left -= skillSpeed(skillLevel(life, def.skill)) * energySpeed(life) * heroColdWorkMult(p);
   if (g.left > 0) return;
   const amount = g.kind === "chop" ? treeAt(g.tx,g.ty).wood : def.amount;
   if (packWeight(life)+amount*PACK_WEIGHT[def.good]>PACK_CAP) { b.gather=undefined; return toast(p,"Your pack is full"); }
@@ -1347,7 +1350,7 @@ function stepWork(p: Player, b: Busy, w: WorkJob) {
   if(!st || st.tx!==w.tx || st.ty!==w.ty || st.tile!==w.tile || p.interior?.key!==w.insideKey) { b.work=undefined; return; }
   if(!w.job) { b.work=undefined; return; }
   const life=lifeOf(p), tier=Math.min(skillLevel(life,w.skill),Math.max(1,getBuildingLevel(w.tx,w.ty)));
-  w.job.left-=skillSpeed(tier)*energySpeed(life);
+  w.job.left-=skillSpeed(tier)*energySpeed(life)*heroColdWorkMult(p);
   if(w.job.left>0)return;
   const r=w.job.recipe,why=personalRecipeBlock(p,r,st);
   b.work=undefined;
@@ -1400,6 +1403,8 @@ export function heroSpeedMult(p: Player): number {
   }
   // Gap closure G6: riding (outdoors only: a rider cannot enter interiors).
   if (isMounted(p)) m *= MOUNT_SPEED_MULT;
+  // Winter: out in the cold without warm clothes (winter.ts).
+  m *= heroColdSpeedMult(p);
   return m;
 }
 
@@ -1419,6 +1424,8 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
   if (needsOn() && life.rest < NEED_LOW) slow.push("Tired");
   if (packWeight(life) / PACK_CAP > 0.5) slow.push("Heavy load");
   if (needsOn() && energyOf(life) <= 0) slow.push("Exhausted (half-speed work)");
+  // Winter: out in the cold without warm clothes (a coat, or a tunic and boots from the Tailor).
+  if (heroCold(p)) slow.push("Freezing: no warm clothes (slower work and walking)");
   const questMarks = questMarksFor(p.clan ?? 0);
   return {
     pack: life.pack,

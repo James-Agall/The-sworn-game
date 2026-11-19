@@ -17,6 +17,8 @@ import { frostCrops, resetCropWatering } from "./zones.js";
 import { setSnowSlow } from "./tiles.js";
 import { spoilFood } from "./structures.js";
 import { clans } from "./state.js";
+import { withClan } from "./clans.js";
+import { winterDawn } from "./winter.js";
 
 export function seasonsOn(): boolean {
   return !state.seasonsOff;
@@ -103,6 +105,8 @@ export function updateCalendar() {
       if (killed > 0) broadcastEvent("season", `Frost: ${killed} growing crop${killed === 1 ? "" : "s"} died (roofed crops survive)`);
     }
   }
+  // Winter (winter.ts): clothes wear, people dress from the stores, winter homes burn fuel, the autumn warning.
+  for (const c of clans) withClan(c, () => winterDawn(day));
 }
 
 // Creative / test hooks: jump the calendar to (season, day) of the current year (the clock keeps its time of day;

@@ -1,6 +1,7 @@
 import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
 // pathfinding.ts: Walkability, A* paths, path following, and body separation (spatial hash).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import { coldSpeedMult } from "./winter.js";
 import { TileType, isGateTile, isSolidTile, TILE_SIZE } from "@colony/shared/protocol";
 import type { Body, Mob, TileCoord } from "./types.js";
 import {
@@ -159,8 +160,10 @@ export function advanceAlongPath(
   const ddy = target.y - entity.y;
   const dist = Math.hypot(ddx, ddy);
   // The road bonus is for colonists only (players move by input, mobs never get it).
-  const isColonist = colonists.get((entity as { id?: string }).id ?? "") === entity;
-  const road = isColonist ? roadSpeedMultiplier(entity.x, entity.y) : 1;
+  const id = (entity as { id?: string }).id ?? "";
+  const isColonist = colonists.get(id) === entity;
+  // Winter: a colonist out in the cold without warm clothes is slower (winter.ts).
+  const road = isColonist ? roadSpeedMultiplier(entity.x, entity.y) * coldSpeedMult(id) : 1;
   const step = speed * biomeSpeedMultiplier(entity.x, entity.y) * road * dt;
   if (dist <= step) {
     entity.x = target.x;

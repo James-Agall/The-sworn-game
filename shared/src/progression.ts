@@ -19,9 +19,11 @@ export type ItemId =
   | "woodenShovel" | "clay" | "clayPot" | "bricks" | "roofTiles" | "tableware" | "crucible"
   // Deep mines (PLAN-agri-industry-winter-mines.md phase 3, shared/src/mines.ts): new ores and fuel, encounter loot, and
   // the mine fittings (lamps lower re-infestation; the vent and pump are the deep-shaft gates).
-  | "coal" | "copperOre" | "tinOre" | "bones" | "gems" | "mineLamps" | "mineVent" | "minePump";
+  | "coal" | "copperOre" | "tinOre" | "bones" | "gems" | "mineLamps" | "mineVent" | "minePump"
+  // Winter (phase 4, shared/src/winter.ts): the Tailor's garments, worn by people (wardrobes) against the cold.
+  | "tunic" | "coat" | "boots";
 
-export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "tools";
+export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "clothes" | "tools";
 
 export interface ItemDef {
   label: string;
@@ -65,6 +67,9 @@ export interface Recipe {
   // Stock resources and items used up.
   stock?: Partial<Record<StockKey, number>>;
   items?: Partial<Record<ItemId, number>>;
+  // Winter: made by a station's worker only while seasons are on (no winter: nobody needs it). Hand / personal
+  // crafting is not affected.
+  seasonsOnly?: boolean;
   // Items that must be in stock but are not used up (a sourdough starter is kept).
   needs?: Partial<Record<ItemId, number>>;
   // "hand": crafted at once from the build panel (the knapping spot, no building). Otherwise the station tile:
@@ -164,6 +169,9 @@ export const PROGRESSION = {
     mineLamps: { label: "Miner's lamps", desc: "Kept in store, they light every deep shaft: nests come back half as often.", group: "tool" },
     mineVent: { label: "Air vent", desc: "A deep shaft (mine level 3) needs one in store; without it the air goes bad (half speed).", group: "tool" },
     minePump: { label: "Bucket pump", desc: "A deep shaft (mine level 3) needs one in store; without it the shaft floods now and then.", group: "tool" },
+    tunic: { label: "Wool tunic", desc: "Sewn at the Tailor Shop. Warmth 1: with boots, dressed for winter. People take one from the stores themselves.", group: "tool" },
+    coat: { label: "Winter coat", desc: "Sewn at the Tailor Shop. Warmth 2: dressed for winter on its own. Outdoors in winter without warm clothes: x0.6 work, slower, slowly hurt.", group: "tool" },
+    boots: { label: "Boots", desc: "Hide boots from the Tailor Shop. Warmth 1: with a tunic, dressed for winter. Better grades wear out slower.", group: "tool" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -214,6 +222,11 @@ export const PROGRESSION = {
     { id: "clayPot", label: "Fire clay pots", output: "clayPot", amount: 2, stock: { wood: 1 }, items: { clay: 3 }, station: TileType.Kiln, seconds: 30, cap: 25 },
     { id: "roofTiles", label: "Fire roof tiles", output: "roofTiles", amount: 3, stock: { wood: 1 }, items: { clay: 2 }, station: TileType.Kiln, seconds: 30, cap: 8 },
     { id: "tableware", label: "Fire tableware", output: "tableware", amount: 2, stock: { wood: 1 }, items: { clay: 2 }, station: TileType.Kiln, seconds: 25, cap: 12 },
+    // Winter: the Tailor sews garments from cloth (the "clothes" stock), wool and hides, coats first; with none of these
+    // ready (or every cap reached) it weaves cloth from wool + hemp as before (constants.ts CRAFT_RECIPES).
+    { id: "coat", label: "Sew a winter coat", output: "coat", amount: 1, stock: { clothes: 2, wool: 2 }, station: TileType.TailorShop, seconds: 45, cap: 20, seasonsOnly: true },
+    { id: "boots", label: "Sew boots", output: "boots", amount: 1, items: { hide: 2 }, station: TileType.TailorShop, seconds: 30, cap: 20, seasonsOnly: true },
+    { id: "tunic", label: "Sew a wool tunic", output: "tunic", amount: 1, stock: { clothes: 1, wool: 1 }, station: TileType.TailorShop, seconds: 30, cap: 20, seasonsOnly: true },
   ] as Recipe[],
   // What each building needs. Buildings not listed are open from the start.
   buildings: {
@@ -334,7 +347,7 @@ export const PROGRESSION = {
     { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }] },
     { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
     { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },
-    { id: "cloth", label: "Cloth", steps: [{ building: TileType.WoolFarm }, { building: TileType.CottonFarm }, { building: TileType.TailorShop }] },
+    { id: "cloth", label: "Cloth", steps: [{ building: TileType.WoolFarm }, { building: TileType.CottonFarm }, { building: TileType.TailorShop }, { item: "tunic" }, { item: "coat" }, { item: "boots" }] },
     { id: "military", label: "Military", steps: [{ building: TileType.MilitiaPost }, { building: TileType.ArcherPost }, { building: TileType.KnightPost }, { building: TileType.Stables }, { building: TileType.SiegeWorkshop }] },
     { id: "animals", label: "Animals", steps: [{ building: TileType.ChickenCoop }, { item: "egg" }, { item: "carpenterTools" }, { building: TileType.LivestockBarn }, { building: TileType.PigSty }, { building: TileType.SheepPen }, { item: "milk" }] },
     { id: "faith", label: "Faith", steps: [{ building: TileType.ChurchPost }, { building: TileType.WardStone }] },

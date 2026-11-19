@@ -1107,3 +1107,9 @@ No live deployment and no push. Visual taste and prolonged multiplayer animation
   frames, tint 0x9a7a8a. Wanted: a cave spider and a bat set (4 walk + 3 attack) and a skeleton-miner variant.
 - Interior props drawn in code (client/src/interior.ts): `oreFace` (rock face with ore flecks per mine), `timberProp`.
   Wanted: ore face / timber prop / mine-cart tiles in the interiors-v2 style.
+
+## #112 Winter stand-ins (2026-11-19)
+- Person card "Needs warm clothes" / "Freezing" / "Cold home" badge: the weather icon `icons/weather_snow.png`.
+- Garment items (Wool tunic, Winter coat, Boots): no icon; the Resources panel's lettered chip stands in.
+- Wanted: item icons for a wool tunic, a winter coat and boots (the `item:` icon size of the Resources panel), a
+  "cold" person badge (a shivering figure or a blue thermometer), and optional coat overlays for villagers in winter.

@@ -17,6 +17,7 @@
 //    and stays until Unassign (unassignWorker: back to the village, not refilled onto that post by priorities for
 //    WORK_UNASSIGN_HOLD_TICKS) or its work type is set off. Sleep, meals and shelter are unchanged.
 // Runtime job state is not saved (a load re-decides); priorities and the mode are.
+import { coldWorkMult, personWinterInfo } from "./winter.js";
 import { animalJobDistance, animalJobLabel, cancelAnimalJob, clanHasAnimalWork, hasAnimalJob, updateAnimalJob } from "./animals.js";
 import { TileType, type ColonistKind } from "@colony/shared/protocol";
 import { PROFESSION_LABEL, PROGRESSION, PROGRESSION_BUILDING_LABEL, TIER_SPEED_BONUS, levelForXp, type Profession } from "@colony/shared/progression";
@@ -67,7 +68,8 @@ export function workSkill(p: Person, t: WorkType): number {
 // Work-speed factor from skill: +TIER_SPEED_BONUS per level above 1 (the station tier bonus, progression.ts).
 export function skillSpeed(c: Colonist, t: WorkType): number {
   const level = c.person ? workSkill(c.person, t) : 0;
-  return 1 + TIER_SPEED_BONUS * Math.max(0, level - 1);
+  // Winter: out in the cold without warm clothes, or a cold home (winter.ts; 1 with seasons off).
+  return (1 + TIER_SPEED_BONUS * Math.max(0, level - 1)) * coldWorkMult(c);
 }
 
 export function defaultWorkPriority(c: Colonist, t: WorkType): number {
@@ -398,6 +400,7 @@ export function workTabFor(clan: number): WorkTabSnapshot {
       xp: WORK_TYPES.map((t) => typeXp(p, t)),
       ...(assigned ? { assigned } : {}),
       ...(assigned && p.pinned ? { pinned: true } : {}),
+      ...(personWinterInfo(c) ?? {}),
     };
   });
   return { manual: manualClans.has(clan), rows };

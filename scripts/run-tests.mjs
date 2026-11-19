@@ -58,9 +58,9 @@ const LEGACY_BUILD = { COLONY_LEGACY_BUILD: "1" };
 const ROOM_SUITES = new Set(["rooms", "zones", "work-priorities", "animals", "paddocks"]);
 // NO_SEASONS: suites written before Stardew phase 5b (2026-11-09) expect crops to grow in any season, no rain watering
 // and no daily water reset: COLONY_NO_SEASONS=1 (state.seasonsOff, test hooks only). Every suite gets it except the
-// calendar suite (SEASON_SUITES). The smoke test (its own server) runs with seasons on.
+// calendar and winter suites (SEASON_SUITES). The smoke test (its own server) runs with seasons on.
 const NO_SEASONS = { COLONY_NO_SEASONS: "1" };
-const SEASON_SUITES = new Set(["calendar"]);
+const SEASON_SUITES = new Set(["calendar", "winter"]);
 const serverEnvFor = (name) => ({
   ...HERO_RESPAWN, ...(SEASON_SUITES.has(name) ? {} : NO_SEASONS), ...(ROOM_SUITES.has(name) ? {} : LEGACY_BUILD), ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}),
 });
@@ -96,6 +96,7 @@ const SERVER_ENV = {
   progression: { ...W80, ...INSTANT },
   pottery: { ...W80, ...INSTANT },
   mines: { ...W80, ...INSTANT },
+  winter: { ...W80, ...INSTANT },
   "raid-waves": W80,
   "shelter-overflow": { ...W80, ...INSTANT },
   "slow-farming": W80,

@@ -374,6 +374,9 @@ export interface ClanProgress {
   // Phase 3: surveyed circles [x, y, r, ...] (deposit richness known inside) and a survey under way.
   prospected?: number[];
   prospecting?: { x: number; y: number; untilTick: number };
+  // Winter (server/src/winter.ts): the last cold day's burn: its calendar day, the home keys ("x,y") left cold and
+  // the spare heat carried over (optional: older saves and warm seasons have none).
+  winter?: { day: number; cold: string[]; carry: number };
 }
 export function newClanProgress(): ClanProgress {
   const items: ClanProgress["items"] = {};

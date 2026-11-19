@@ -62,6 +62,7 @@ import { chooseWorkerFor, releaseVillagerForPost, skillSpeed, startPriorityShift
 import { orchardFruitsNow, winterNow } from "./calendar.js";
 import { tavernCheerHappiness } from "./herolife.js";
 import { WINTER_COLD_HAPPINESS } from "@colony/shared/calendar";
+import { coldHomePenalty, coldSpeedMult, coldWorkMult } from "./winter.js";
 
 // Where world-gen puts the starting Town Center (the map's dead center; world-gen keeps it clear).
 // Since Town Centers became placeable, gameplay reads the `townCenters` list instead.
@@ -120,7 +121,7 @@ export function countTilesOfType(tileType: TileType): number {
 
 export function computeColonyHappiness(): number {
   const h = colonyHappinessParts();
-  const happiness = h.foodVariety + h.scenery + h.tavern + h.food + h.tableware + h.rooms + h.drink - h.winterCold;
+  const happiness = h.foodVariety + h.scenery + h.tavern + h.food + h.tableware + h.rooms + h.drink - h.winterCold - h.coldHomes;
   return Math.max(0, Math.min(100, Math.round(happiness)));
 }
 
@@ -157,6 +158,8 @@ export function colonyHappinessParts() {
   return {
     foodVariety: foodVarietyScore * 0.4, scenery: sceneryScore * 0.3, tavern: tavernCoverageScore * 0.3,
     food: foodHappinessBonus(), tableware: tablewareHappinessBonus(), rooms: roomHappinessBonus(), winterCold: winterColdPenalty(),
+    // Winter (winter.ts): homes left without fuel today.
+    coldHomes: coldHomePenalty(),
     // Gap closure G5: a drink bought at a tavern (herolife.ts).
     drink: tavernCheerHappiness(state.clan.id),
   };
@@ -1223,6 +1226,8 @@ export function builderRate(c: Colonist): number {
   let rate = productionSpeedMultiplier();
   // Village life phase 4: a free villager lends a hand at reduced speed.
   if (c.kind === "villager") rate *= VILLAGER_BUILD_RATE;
+  // Winter: out in the cold without warm clothes, or a cold home.
+  rate *= coldWorkMult(c);
   if (state.tiles[tileIndex(c.postX, c.postY)] === TileType.BuildersGuild) {
     rate *= (1 + levelBonus(getBuildingLevel(c.postX, c.postY))) * industrialSynergyMultiplier(c.postX, c.postY);
   }
@@ -1680,7 +1685,7 @@ export function updateStationaryWorkerReturning(c: Colonist, dt: number) {
   } else {
     const ddx = postCenter.x - c.x;
     const ddy = postCenter.y - c.y;
-    const step = COLONIST_SPEED * biomeSpeedMultiplier(c.x, c.y) * roadSpeedMultiplier(c.x, c.y) * dt;
+    const step = COLONIST_SPEED * biomeSpeedMultiplier(c.x, c.y) * roadSpeedMultiplier(c.x, c.y) * coldSpeedMult(c.id) * dt;
     if (dist <= step) {
       c.x = postCenter.x;
       c.y = postCenter.y;

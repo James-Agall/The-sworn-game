@@ -24,6 +24,7 @@ import {
   type ClanProgress, newClanProgress,
 } from "./state.js";
 import { progressForSave, resetProgressCache, restoreProgress } from "./progression.js";
+import { resetWinterState } from "./winter.js";
 import { markTileRegistryStale, setTile, streamingOn, tileIndicesOf } from "./chunks.js";
 import { clearOwners, isNightNow, resourceKey, tileIndex } from "./tiles.js";
 import { initialStock, markFarmFieldsDirty, newFarmPlot } from "./economy.js";
@@ -171,6 +172,7 @@ function resetWorldAfter() {
   // Progression tree: a new game starts with the starter kit and nothing unlocked.
   state.progress = newClanProgress();
   resetProgressCache();
+  resetWinterState();
   resetEquipment();
   if (state.creative) topUpCreative();
   heroProfiles.clear();
@@ -438,6 +440,7 @@ export function applyWorld(s: WorldState) {
   restoreWagons(s.tradingPosts);
   // Progression tree: after the tiles and clan tiles (grandfathering looks at what each clan owns).
   resetProgressCache();
+  resetWinterState();
   restoreProgress(clans[0], s.progress);
   (s.clans ?? []).forEach((sc, i) => clans[i + 1] && restoreProgress(clans[i + 1], sc.progress));
 }

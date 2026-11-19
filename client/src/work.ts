@@ -231,6 +231,7 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
     const pri = document.getElementById("pc-pri")!;
     title.textContent = r?.name ?? cardFallback.name;
     if (!r) {
+      renderWinter(undefined);
       role.textContent = cardFallback.child ? "A child: too young to work" : "Not on the work roster (a soldier, priest or levy)";
       job.textContent = "";
       pri.replaceChildren();
@@ -246,6 +247,7 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
     postsEl.hidden = postsFor !== r.id;
     role.textContent = r.role;
     job.textContent = `Doing now: ${r.job}`;
+    renderWinter(r);
     pri.replaceChildren();
     // Its work types by priority (off ones left out), skill after the name.
     const order = WORK_TYPES.map((t, ti) => ({ t, ti, p: r.pri[ti] })).filter((x) => x.p > 0).sort((a, b) => a.p - b.p || a.ti - b.ti);
@@ -257,6 +259,28 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
       if (!tab!.manual) chip.firstChild?.remove();
       pri.append(chip);
     }
+  }
+
+  // Winter (seasons on): what the person wears and a "needs clothes" / "cold home" badge (stand-in icon: the snow
+  // weather icon, SPRITES.md "Winter").
+  function renderWinter(r: WorkTabRow | undefined) {
+    const el = document.getElementById("pc-winter")!;
+    el.replaceChildren();
+    el.hidden = !r?.wardrobe;
+    if (!r?.wardrobe) return;
+    for (const flag of r.cold ?? []) {
+      const chip = document.createElement("span");
+      chip.className = "pc-cold";
+      chip.title = "Winter: a coat, or a tunic and boots, keeps a person warm outdoors (the Tailor Shop sews them; people take them from the stores). A cold home needs fuel: wood, coal or charcoal.";
+      const icon = document.createElement("img");
+      icon.src = "/sprites/icons/weather_snow.png";
+      icon.alt = "";
+      chip.append(icon, flag);
+      el.append(chip);
+    }
+    const line = document.createElement("div");
+    line.textContent = `Wears: ${r.wardrobe}`;
+    el.append(line);
   }
 
   function showPerson(id: string, name: string, child: boolean) {

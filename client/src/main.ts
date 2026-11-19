@@ -54,6 +54,7 @@ import { setupHeroTools } from "./herotools";
 import { setupWeatherOverlay } from "./weather";
 import { opaqueBox, type InteriorUi, setupInterior } from "./interior";
 import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
+import { FUEL_LOW_DAYS, type WinterSnapshot } from "@colony/shared/winter";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
@@ -4307,6 +4308,29 @@ async function main() {
       calendarEl.weatherIcon.src = `/sprites/icons/weather_${cal.weather}.png`;
     }
   }
+  // Winter (shared/src/winter.ts): days of fuel at the homes' burn, people needing warm clothes, and the autumn /
+  // winter "Winter needs" warning. Hidden with seasons off (no `winter` field).
+  const winterRowEl = document.getElementById("stat-winter")!;
+  const fuelEl = document.getElementById("stat-fuel")!;
+  const clothesEl = document.getElementById("stat-clothes")!;
+  const winterWarnEl = document.getElementById("stat-winter-warn")!;
+  let shownWinter = "";
+  function refreshWinter(w: WinterSnapshot | undefined) {
+    const key = JSON.stringify(w ?? null);
+    if (key === shownWinter) return;
+    shownWinter = key;
+    winterRowEl.hidden = !w;
+    winterWarnEl.hidden = !w?.warning;
+    if (!w) return;
+    const days = w.days === null ? "no homes to heat" : `${w.days} day${w.days === 1 ? "" : "s"} (${w.burn}/day)`;
+    fuelEl.textContent = `Fuel: ${days}${w.cold && w.coldHomes > 0 ? `, ${w.coldHomes} cold home${w.coldHomes === 1 ? "" : "s"}` : ""}`;
+    fuelEl.classList.toggle("low", (w.days !== null && w.days < FUEL_LOW_DAYS) || (w.cold && w.coldHomes > 0));
+    fuelEl.title = `${w.heat} heat in store (wood 1, coal / charcoal 2 each); ${w.homes} home${w.homes === 1 ? "" : "s"} burn ${w.burn} a winter day`;
+    clothesEl.textContent = w.needClothes > 0 ? `Need clothes: ${w.needClothes}` : "Dressed for winter";
+    clothesEl.classList.toggle("low", w.needClothes > 0 && w.cold);
+    clothesEl.title = `${w.people - w.needClothes} of ${w.people} warmly dressed; ${w.garments} garment${w.garments === 1 ? "" : "s"} in store`;
+    winterWarnEl.textContent = w.warning ?? "";
+  }
   app.stage.addChild(pausedBanner);
 
   app.ticker.add(() => {
@@ -7549,6 +7573,7 @@ async function main() {
       setActiveDifficulty(message.difficulty);
       statTimeEl.textContent = message.isNight ? "Night" : "Day";
       refreshCalendar(message.calendar);
+      refreshWinter(message.winter);
       sundialEl.classList.toggle("night", message.isNight);
       sundialHandEl.setAttribute("transform", `rotate(${message.cycleProgress * 360})`);
       if (message.dayFraction !== sundialDayFraction) {

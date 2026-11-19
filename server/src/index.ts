@@ -63,6 +63,7 @@ import {
 } from "./orders.js";
 import { stepSimulation } from "./sim.js";
 import { calendarSnapshot } from "./calendar.js";
+import { winterSnapshot } from "./winter.js";
 import { encodeDeltaSnapshot, newPlayerDeltaState, pruneDeltaNums, resetDeltaJsonCache } from "./snapshotDelta.js";
 import {
   handleLoadGame, handleSaveGame, listSaves, resetWorld, runDueAutosave, saveOnShutdown, sendTo,
@@ -480,6 +481,8 @@ setInterval(() => {
   const night = isNightNow();
   forEachClan(() => pruneTaskForces());
   const calendarNowSnap = calendarSnapshot();
+  // Winter: the per-clan fuel / clothes summary (seasons on only).
+  const winterNow = !state.seasonsOff;
 
   // Clans: the world part of the snapshot is built once; the clan part (stock, population, army, goals,
   // ...) once per clan, under that clan's context. One clan: one snapshot, as before.
@@ -583,6 +586,7 @@ setInterval(() => {
       // Gap closure G4: today's seasonal daylight share (the sundial redraws its day / night arcs on a change).
       dayFraction: dayTicksAt() / GAME_DAY_TICKS,
       calendar: calendarNowSnap,
+      ...(winterNow ? { winter: winterSnapshot() } : {}),
       isPaused: state.isPaused,
       ...(state.pausedBy ? { pausedBy: state.pausedBy } : {}),
       timeScale: state.timeScale,

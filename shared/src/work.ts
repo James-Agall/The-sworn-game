@@ -65,6 +65,10 @@ export interface WorkTabRow {
   assigned?: WorkType;
   // Gap closure G3: put on that post by hand (pinned: priorities never move it; only Unassign or the work type off).
   pinned?: boolean;
+  // Winter (seasons on): the garments worn ("Winter coat (Good, 80%)" / "nothing warm") and the cold flags ("Needs warm
+  // clothes", "Cold home: no fuel"); the person card shows them.
+  wardrobe?: string;
+  cold?: string[];
 }
 export interface WorkTabSnapshot {
   manual: boolean;

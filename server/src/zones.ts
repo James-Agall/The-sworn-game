@@ -661,6 +661,12 @@ export function updateZoneWorker(c: Colonist, dt: number, rate: number, filter: 
 }
 
 // Home area: a random tile of one of the clan's home zones within `r` tiles of (tx, ty), or null.
+// Winter: is tile i in one of the clan's Home areas (a heated home near it warms it, server/src/winter.ts)?
+export function inHomeArea(clan: number, i: number): boolean {
+  const z = zones.get(zoneOfTile.get(i) ?? -1);
+  return !!z && z.kind === "home" && z.clan === clan;
+}
+
 export function homeAreaTileNear(clan: number, tx: number, ty: number, r: number): TileCoord | null {
   const list: number[] = [];
   for (const z of zones.values()) {

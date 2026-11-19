@@ -19,6 +19,8 @@ import { workshopEffectAt } from "./structures.js";
 import { villagerJobProfession } from "./work.js";
 import { DEPOSIT_MINES, depositMineFor } from "@colony/shared/mines";
 import { mineWorkMult } from "./mines.js";
+import { coldWorkMult } from "./winter.js";
+import { CRAFT_RECIPES } from "./constants.js";
 
 // True when no gate applies: creative with "Unlock all" on, or the test-only unlock (COLONY_UNLOCK_ALL).
 export function gatesOpen(): boolean {
@@ -48,6 +50,19 @@ export function takeItem(id: ItemId, n: number): boolean {
   }
   snapshotDirty.add(state.clan.id);
   return true;
+}
+
+// Winter: takes one of `id`, best grade first; returns its grade (0: none in stock).
+export function takeBestItem(id: ItemId): number {
+  const grades = state.progress.items[id];
+  if (!grades) return 0;
+  for (let q = grades.length - 1; q >= 0; q--) {
+    if (grades[q] <= 0) continue;
+    grades[q]--;
+    snapshotDirty.add(state.clan.id);
+    return q + 1;
+  }
+  return 0;
 }
 
 function itemTotals(): Partial<Record<ItemId, number>> {
@@ -135,7 +150,7 @@ export function progressionInfo(tx: number, ty: number, t: TileType): string[] |
       const job = stationJobs.get(c.id);
       if (job) lines.push(`Making: ${PROGRESSION.items[job.recipe.output].label} (${Math.round(100 * (1 - job.left / job.total))}%)`);
     }
-    if (workers.length > 0 && stationRecipes(t).length > 0 && ![...workers].some((c) => stationJobs.has(c.id))) lines.push(`Idle: ${stationIdleReason(t)}`);
+    if (workers.length > 0 && stationRecipes(t).length > 0 && ![...workers].some((c) => stationJobs.has(c.id))) lines.push(`${CRAFT_RECIPES[t] ? "Weaving cloth meanwhile" : "Idle"}: ${stationIdleReason(t)}`);
     if (t === TileType.IronMinePost || t === TileType.RockMinePost || depositMineFor(t)) lines.push(depositLine(tx, ty));
     if (workers.length > 0) lines.push(`Works at tier ${tier} of ${level}: speed x${tierSpeed(tier).toFixed(2)}, quality ${QUALITY_GRADES[Math.min(tier, MAX_QUALITY) - 1].label}`);
   }
@@ -180,9 +195,10 @@ export function effectiveTier(c: Colonist): number {
 }
 
 // Work-timer step per tick (1 = as before the tree): +25% per effective tier above 1. Off with COLONY_UNLOCK_ALL.
+// Winter: x coldWorkMult (out in the cold without warm clothes, a cold home; 1 with seasons off).
 export function workSpeed(c: Colonist): number {
-  if (state.testUnlockAll || !c.person) return 1;
-  return tierSpeed(effectiveTier(c));
+  if (state.testUnlockAll || !c.person) return coldWorkMult(c);
+  return tierSpeed(effectiveTier(c)) * coldWorkMult(c);
 }
 
 // Once a second: every person working a station gains 1 XP in its profession (not at night, sheltering, a child,
@@ -211,6 +227,7 @@ interface StationJob { recipe: Recipe; left: number; total: number }
 const stationJobs = new Map<string, StationJob>();
 
 export function recipeReady(r: Recipe): boolean {
+  if (r.seasonsOnly && state.seasonsOff) return false;
   if (r.cap !== undefined && itemCount(r.output) >= r.cap) return false;
   if (!state.creative) for (const [k, n] of Object.entries(r.stock ?? {})) if (state.stock[k as ResourceKey] < (n ?? 0)) return false;
   for (const [id, n] of Object.entries({ ...(r.items ?? {}), ...(r.needs ?? {}) }) as [ItemId, number][]) if (itemCount(id) < n) return false;
@@ -221,6 +238,7 @@ export function recipeReady(r: Recipe): boolean {
 export function stationIdleReason(t: TileType): string {
   const parts = stationRecipes(t).map((r) => {
     const name = PROGRESSION.items[r.output].label;
+    if (r.seasonsOnly && state.seasonsOff) return `${name}: not needed (no winters)`;
     if (r.cap !== undefined && itemCount(r.output) >= r.cap) return `${name}: ${itemCount(r.output)} in store (enough)`;
     const short = Object.entries(r.stock ?? {}).filter(([k, n]) => !state.creative && state.stock[k as ResourceKey] < (n ?? 0)).map(([k]) => k);
     for (const [id, n] of Object.entries({ ...(r.items ?? {}), ...(r.needs ?? {}) }) as [ItemId, number][]) if (itemCount(id) < n) short.push(PROGRESSION.items[id].label);
@@ -238,6 +256,8 @@ export function updateStationWork(c: Colonist): boolean {
   if (!job) {
     const r = recipes.find((rc) => (rc.workerLevel ?? 1) <= workerLevel(c) && recipeReady(rc));
     if (!r) {
+      // Winter: a Tailor with no garment to sew weaves cloth (the old CRAFT_RECIPES path) meanwhile.
+      if (CRAFT_RECIPES[state.tiles[tileIndex(c.postX, c.postY)] as TileType]) return false;
       c.state = "idle";
       return true;
     }
@@ -490,6 +510,7 @@ export function progressForSave(c: Clan): ClanProgress {
     unlocked: [...c.progress.unlocked],
     prospected: [...(c.progress.prospected ?? [])],
     ...(c.progress.prospecting ? { prospecting: { ...c.progress.prospecting } } : {}),
+    ...(c.progress.winter ? { winter: { day: c.progress.winter.day, cold: [...c.progress.winter.cold], carry: c.progress.winter.carry } } : {}),
   };
 }
 
@@ -499,6 +520,8 @@ export function restoreProgress(c: Clan, saved: ClanProgress | undefined) {
   snapshotCache.delete(c.id);
   if (saved) {
     c.progress = { items: {}, unlocked: [...(saved.unlocked ?? [])], prospected: [...(saved.prospected ?? [])], prospecting: saved.prospecting };
+    const w = saved.winter;
+    if (w && typeof w.day === "number" && Array.isArray(w.cold)) c.progress.winter = { day: w.day, cold: w.cold.filter((k) => typeof k === "string"), carry: Number(w.carry) || 0 };
     for (const [k, v] of Object.entries(saved.items ?? {})) c.progress.items[k as ItemId] = [0, 1, 2].map((i) => v?.[i] ?? 0);
     return;
   }

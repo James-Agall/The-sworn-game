@@ -3,7 +3,9 @@
 import { livestockDebug } from "./animals.js";
 import { paddocksDebug } from "./paddocks.js";
 import { childrenOf, spouseOf } from "./family.js";
-import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, heroLifeDebug, lifeOf, setNeedsOverride } from "./herolife.js";
+import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, heroLifeDebug, heroSpeedMult, lifeOf, setNeedsOverride } from "./herolife.js";
+import { dressFromStores, heroCold, updateWinter, winterDawn, winterDebug } from "./winter.js";
+import type { Wardrobe } from "@colony/shared/winter";
 import { addItem, itemCount, professionOf, takeItem, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
 import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
@@ -1245,6 +1247,28 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         minHp: people.reduce((m, c) => Math.min(m, c.hp / Math.max(1, c.maxHp)), 1),
         population: civilianPopulationUsed(), cap: populationCap(),
       });
+    });
+  } else if (msg.op === "winter") {
+    // Winter (winter.ts): `wardrobe` {id: colonist id | "hero" | "all", set: Wardrobe | null} sets worn garments;
+    // `dress` fetches garments from the stores now; `dawn` runs today's winter dawn (wear, dress, burn) for the clan;
+    // `update` recomputes who is out in the cold now. Replies winterDebug + the hero's wardrobe / cold / speed.
+    const pc = clanById(player.clan ?? 0);
+    const wr = msg.wardrobe as { id?: unknown; set?: unknown } | undefined;
+    if (wr) {
+      const w = (wr.set && typeof wr.set === "object" ? wr.set : undefined) as Wardrobe | undefined;
+      if (wr.id === "hero") lifeOf(player).wardrobe = w ? JSON.parse(JSON.stringify(w)) : undefined;
+      for (const c of colonists.values()) {
+        if (c.person && (c.clan ?? 0) === pc.id && (wr.id === "all" || wr.id === c.id)) c.person.wardrobe = w ? JSON.parse(JSON.stringify(w)) : undefined;
+      }
+    }
+    if (msg.dress === true) withClan(pc, dressFromStores);
+    if (msg.dawn === true) withClan(pc, () => winterDawn(calendarDayNow()));
+    if (msg.update === true) updateWinter(true);
+    reply({
+      ...withClan(pc, winterDebug),
+      hero: { wardrobe: lifeOf(player).wardrobe ?? null, cold: heroCold(player), speed: heroSpeedMult(player), hp: player.hp, rest: lifeOf(player).rest },
+      happiness: state.colonyHappiness,
+      happinessNow: withClan(pc, computeColonyHappiness),
     });
   } else if (msg.op === "respawnState") {
     // Long days & dawn/dusk respawn windows (day-respawn-test).

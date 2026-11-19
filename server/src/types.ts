@@ -1,5 +1,6 @@
 // types.ts: Shared interfaces and type aliases for the server simulation.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
+import type { Wardrobe } from "@colony/shared/winter";
 import type { Profession } from "@colony/shared/progression";
 import type { WorkType } from "@colony/shared/work";
 import type { HeroFamilyData, HeroSkill, PackGood, PersonalBuild } from "@colony/shared/herolife";
@@ -118,6 +119,8 @@ export interface Person {
   // Gap closure G3 (work.ts assignWorkerTo): put on its post by hand. Pinned: never leaves it for a better job and is
   // never displaced by priorities; cleared when it leaves the post (Unassign, work type off, post gone).
   pinned?: boolean;
+  // Winter (server/src/winter.ts): the garments this person wears (shared/src/winter.ts; missing = none, old saves).
+  wardrobe?: Wardrobe;
 }
 // Village life phase 3: a villager training at a unit building (becomes `kind` there when ticksLeft hits 0).
 export interface Training {
@@ -990,6 +993,8 @@ export interface HeroLife {
   builds: { kind: PersonalBuild; x: number; y: number }[];
   // Family: the hero as a person (family.ts). Created on first use; saved.
   family?: HeroFamilyData;
+  // Winter: the hero's worn garments (missing = none).
+  wardrobe?: Wardrobe;
 }
 export interface HeroRecruit {
   id: string;

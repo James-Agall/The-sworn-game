@@ -209,7 +209,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.TailorShop,
     label: "Tailor Shop",
     key: "t",
-    cost: `${buildCostText(TileType.TailorShop)} (upgradeable). Crafts 1 Wool + 1 Hemp → 1 Clothes`,
+    cost: `${buildCostText(TileType.TailorShop)} (upgradeable). Weaves 1 Wool + 1 Hemp → 1 Cloth; with seasons on also sews winter coats (2 cloth + 2 wool), boots (2 hides) and wool tunics (1 cloth + 1 wool)`,
     category: "industry",
   },
   {

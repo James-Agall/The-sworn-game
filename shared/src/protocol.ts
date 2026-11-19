@@ -1,5 +1,6 @@
 import type { AnimalHouseInfo, LivestockSnapshot, Species } from "./animals.js";
 import type { CalendarSnapshot } from "./calendar.js";
+import type { WinterSnapshot } from "./winter.js";
 import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, PersonalBuild } from "./herolife.js";
 import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
 import type { BuildingPostsInfo, WorkPostOption, WorkTabSnapshot, WorkType } from "./work.js";
@@ -1502,6 +1503,8 @@ export type ServerMessage =
       creative?: { allowAttack: boolean; unlockAll?: boolean };
       // Stardew phase 5b: the date and the weather now (shared/src/calendar.ts).
       calendar?: CalendarSnapshot;
+      // Winter (shared/src/winter.ts): the clan's fuel, cold homes and clothes (seasons on only).
+      winter?: WinterSnapshot;
       // Off-screen fight notifiers: active fights relevant to THIS player (per-player field, omitted
       // when there are none). See FightSnapshot.
       fights?: FightSnapshot[];

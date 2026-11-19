@@ -1278,3 +1278,22 @@ snapshots, parse time, main-thread stalls over 50 ms, and unit / display-object 
    of timber props and "flooded"/"Bad air" if you remove the vent/pump; deep mines may get monsters back at dawn.
 8. Save, reload: an infested mine stays infested with the same monsters; deposits stay.
 9. Art check: are the stand-ins (cave spider = small brown giant spider, bat = tinted half-latch, ore faces) readable?
+
+## Winter: heating fuel and clothing (2026-11-19)
+Use a normal (seasons on) game; Creative "set season / day" jumps the calendar.
+1. Colony panel, under the calendar: a row "Fuel: N days (x/day)" and "Need clothes: N". Hover each: heat in store,
+   homes, people dressed. Build a house or two: the x/day grows (House 1, Big House 2, Town Center 2).
+2. Jump to Autumn: an event "Winter needs: ... more fuel ..., warm clothes for N people" and the same red line in the panel.
+3. Jump to Winter 1 with wood in stock: wood drops by the x/day at dawn; no "Cold homes" event.
+4. Sell / spend the wood (and coal / charcoal) down to 0, next winter dawn: "Cold homes: no fuel for N homes" event,
+   the panel says "N cold homes" in red, Happiness drops ~10, villagers' hp drops a little. Click a villager: badge
+   "Cold home: no fuel".
+5. Put coal in store (Coal Mine) with little wood: coal goes first and lasts twice as long per unit.
+6. Build a Tailor Shop with cloth + wool in store (and hides): its worker sews Winter coats / Boots / Wool tunics
+   (building panel "Making: Winter coat"); they appear under Crafted & tools and are taken by villagers within seconds.
+7. Click a villager: "Wears: Winter coat (Poor, 100%)" or a blue "Needs warm clothes" badge with the snow icon.
+8. In winter, a villager without clothes out at work: badge "Freezing: needs warm clothes"; it walks visibly slower.
+9. The hero: in winter with no garments in the stores, walk outside away from the houses: the status line shows
+   "Freezing: no warm clothes" and you walk slower; once a coat is in the stores the hero takes it and the line goes away.
+10. Save and reload in winter: cold homes, wardrobes and the panel row are unchanged.
+11. Art check: is the snow-icon badge readable on the card? Is the panel row too long on a narrow window?

@@ -4639,3 +4639,35 @@ Phase 3 of PLAN-agri-industry-winter-mines.md. Numbers in `shared/src/mines.ts`;
 - Automatic rolls / hazards are off under COLONY_UNLOCK_ALL (older suites); forced ones (test hook `mine`) work.
 - Not done: soldiers do not walk into the interior (abstract assault only); hero spells indoors; hand-gathering coal /
   copper / tin; dedicated art (stand-ins, SPRITES.md #111).
+
+## Winter — landed 2026-11-19 (heating fuel and clothing)
+Phase 4 of PLAN-agri-industry-winter-mines.md. Numbers in `shared/src/winter.ts`; server `server/src/winter.ts`; test
+`server/winter-test.mjs` (`npm test -- winter`, a SEASON suite: seasons on, COLONY_UNLOCK_ALL as usual). With seasons off
+(COLONY_NO_SEASONS, every older suite) nothing runs: no burn, no snapshot field, every multiplier 1, no garments sewn.
+- **Heating**: at every winter dawn (calendar.ts day change; Winter 1 to the last day before Spring) each clan's occupied
+  homes burn heat from the shared stock: coal first, then wood, then charcoal (wood 1 heat, coal 2, charcoal 2). Heat
+  per home per day: House 1, Big House 2, level-3 house 3, Town Center 2, Keep 3; a bedroom (beds in a roofed room)
+  1 + 1 per 16 floor tiles, x0.5 with a hearth. Fullest homes are heated first; spare heat from a rounded-up unit carries
+  over. A heated home warms the ground 2 tiles around it (a hearth in a heated room 3; Home area tiles within 6).
+- **Cold homes** (no fuel left for it, or homeless): colony happiness -10 x the share of people in cold homes (all
+  day, a new `coldHomes` happiness part beside the old night `winterCold`), 8 hp at dawn (never below 30% max hp: no
+  cold deaths), x0.85 work (poor rest); the hero resting inside a cold home recovers rest x0.5. "Cold homes" event at
+  dawn, "Fuel is low" when the store will not last 3 more days. Saved per clan (`progress.winter`: day, cold home keys,
+  carried heat; older saves have none).
+- **Clothing**: new items Wool tunic (1 cloth + 1 wool), Winter coat (2 cloth + 2 wool), Boots (2 hides), sewn by the
+  Tailor Shop's worker (tailor profession, grades by tier as every station; `seasonsOnly` recipes: not with seasons off)
+  coats first; with none ready the tailor weaves cloth from wool + hemp as before. Warmth: coat 2, tunic 1, boots 1;
+  2 = dressed for winter. Every person and the hero has a wardrobe (one per slot, saved on the person / hero life);
+  every 5 s and at dawn people take missing garments from the stores, best grade first: heroes, then outdoor workers,
+  then indoor ones (artisans, miners), the not-warm before anyone's spare slots. Wear: a Poor garment lasts 56 days
+  (Good x1.5, Fine x2), winter days count double; worn out = gone.
+- **Out in the cold**: on a winter day, or in falling snow, anyone outdoors (not in a roofed room, an interior, at a
+  shelter, at an indoor workshop / mine post, or near a heated home) and not dressed for winter works x0.6 (stations,
+  gatherers, builders, zone work, the hero's gathering / tools / crafting), moves x0.85 and loses 1 hp per 20 s (down to
+  30%). The hero too (its own campfire / lean-to also shelters it); the hero's status line says "Freezing".
+- **UI**: Colony panel row under the calendar: "Fuel: N days (burn/day)", cold homes, "Need clothes: N" (red when it
+  matters) and the "Winter needs: ..." warning through autumn and winter (also an event at each autumn dawn). Person card:
+  "Wears: ..." and badges "Needs warm clothes" / "Freezing" / "Cold home: no fuel" (stand-in snow icon, SPRITES.md #112).
+  Garments show in the Resources panel (Crafted & tools) and the Cloth chain.
+- Not done: an assigned per-house fuel store (all fuel comes from the shared stock); a separate Woodcutter / Collier
+  "keep stores up" job (the existing Lumberjack / Charcoal Burner / Coal Mine feed it); dedicated art.
