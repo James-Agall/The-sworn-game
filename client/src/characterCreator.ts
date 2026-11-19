@@ -125,7 +125,7 @@ export function renderCharacterEditor(root: HTMLElement, initial: HeroAppearance
         const seconds = (now - started) / 1000, u = state === "attack" ? (seconds % 1.4) / 1.4 : seconds * (state === "walk" ? 1.15 : .35);
         const tier = dress ? Number(armour.value) : opts.visual?.armour ?? 0;
         const v: HeroVisual = { appearance: a, armour: tier, weapon: dress ? weapon.value : opts.visual?.weapon ?? "unarmed", weaponTier: dress ? Math.max(1, tier) : opts.visual?.weaponTier ?? 0, helmTier: dress ? tier : opts.visual?.helmTier ?? 0, shieldTier: 0, helmet: dress ? tier > 0 : opts.visual?.helmet ?? false, shield: dress ? false : opts.visual?.shield ?? false };
-        const f = heroFrame(v, { state, phase: u }, mounted, true);
+        const f = heroFrame(v, { state, phase: u }, mounted);
         const fallback = !f ? heroArt(v, mounted, Math.floor(u * 4) % 4, state === "attack") : undefined;
         g.clearRect(0, 0, 512, 400);
         g.fillStyle = "#b8b899";

@@ -9,8 +9,7 @@ export function npcHeroFrame(v:HeroVisual,pose:HeroPose,mounted:boolean){
  const a=sanitizeHeroAppearance(v.appearance);
  // The pack is the one male hero art set: always use it. Gender/face/hair/skin/horse choices are not represented in it,
  // and gear that does not match a pack loadout snaps to the nearest one (armour tier from the chest piece, else the helmet).
- // Unarmed has no pack row; callers fall back to the existing hero sprites, never the rig.
- if(v.weapon==='unarmed')return;
+ // Unarmed has no pack row: it uses the sword row. The rig is not used for the hero.
  const tier=Math.max(0,Math.min(3,v.armour>0?v.armour:v.helmet?(v.helmTier||1):0)),key=`armour-${tier}-${mounted?'mounted':'foot'}`,img=sheets.get(key);if(!img)return;
  const base=({sword:0,club:0,mace:0,spear:2,pike:2,staff:2,axe:4,bow:6} as Record<string,number>)[v.weapon]??0;
  const row=base===6?6:base+(v.shield?1:0);
