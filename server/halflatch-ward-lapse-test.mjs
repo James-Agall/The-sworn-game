@@ -82,6 +82,11 @@ const food = (s = a.snap) => s.grain + s.meat + s.fruit;
   await a.nextSnap();
   if (a.snap.isPaused) a.send({ type: "pause" });
   a.send({ type: "input", dx: 0, dy: 0 });
+  // A new game starts with meat and fruit in the stores (20 / 40) as well as grain: the colony starts on grain alone,
+  // as this test was written for, so the food runs out within the run (the Brewery and the villagers eat it).
+  a.send({ type: "testHook", op: "setStock", stock: { meat: 0, fruit: 0 } });
+  await a.nextSnap();
+  await a.nextSnap();
 }
 const guardianIds = new Set(a.snap.mobs.map((m) => m.id));
 info(`restarted; ${guardianIds.size} POI guardians at boot (excluded from night-wave accounting)`);
@@ -190,8 +195,12 @@ while (!death && Date.now() < drainDeadline) {
   // After one full night with the ward up (B needs it).
   if (!hpCut && food() === 0 && nightsSeen >= 1 && !a.snap.isNight) {
     hpCut = true;
+    // Village life phase 4: the Ward Priest's post is taken by a free villager of the clan by day (no food, no
+    // respawn window: updateWardPriestPresence), so a replacement would re-tend the stone within the grace. The
+    // lapse needs nobody to take the post: the free villagers go first (killColonists), then the priest.
+    a.send({ type: "testHook", op: "killColonists", kind: "villager" });
     a.send({ type: "testHook", op: "damageColonist", id: warder.id, amount: 1000 });
-    info("C: food is gone; Ward Priest killed by testHook (no starvation death with Church healing)");
+    info("C: food is gone; free villagers and the Ward Priest killed by testHook (no starvation death with Church healing; nobody left to take his post)");
   }
   if (Date.now() - lastLog > 15000) {
     lastLog = Date.now();
