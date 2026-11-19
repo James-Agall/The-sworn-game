@@ -32,6 +32,9 @@ if (process.env.BUILDING_TEST_INNER !== "1") {
     env: {
       ...process.env, BUILDING_TEST_INNER: "1", COLONY_SAVE_DIR: path.join(scratch, "saves"), COLONY_TEST_HOOKS: "1", COLONY_UNLOCK_ALL: "1",
       COLONY_BUILDING_USER_DIR: path.join(scratch, "buildings-user"), COLONY_WORLD_SIZE: "96", COLONY_INSTANT_BUILD: "0",
+      // A fixed map (worldbase.ts withWorldSeed): the O / G blueprints need clear keep-sized spots off fort / settlement
+      // grounds near the Town Center, which a random 160 world often lacks. Override with COLONY_WORLD_SEED to try others.
+      COLONY_WORLD_SEED: process.env.COLONY_WORLD_SEED ?? "4",
     },
   });
   child.on("exit", (code) => {
@@ -50,6 +53,7 @@ async function inner() {
   };
   const { TileType, isSolidTile } = await import("@colony/shared/protocol");
   const BT = await import("@colony/shared/buildingTemplates");
+  const { footprintOf } = await import("@colony/shared/buildings");
   const { transformRows } = await import("@colony/shared/camps");
   const bt = await import("./src/buildingTemplates.ts");
   const { state, constructionSites, colonists } = await import("./src/state.ts");
@@ -141,7 +145,8 @@ async function inner() {
   result(problems.length === 0, `S ${stamps} stamps of ${builtins.length} templates: room roles match, rooms reachable${problems.length ? ": " + problems.slice(0, 6).join(" | ") : ""}`);
 
   // ---- O ---- a normal game: blueprints, builders.
-  // A random world: re-roll until no fort / settlement crowds the Town Center (the blueprint spots need room).
+  // The world (fixed seed, see COLONY_WORLD_SEED above): re-roll until no fort crowds the Town Center (a no-op with the
+  // fixed seed, kept for a COLONY_WORLD_SEED override).
   const { sites } = await import("./src/state.ts");
   for (let attempt = 0; attempt < 15; attempt++) {
     await resetWorld("normal", 160, false);
@@ -160,8 +165,12 @@ async function inner() {
   player.x = tc.x * 32 + 16;
   player.y = tc.y * 32 + 16;
   // A clear spot near the Town Center for a w x h footprint (plus a 2-tile ring). Gap closure G8: on a crowded random
-  // map (trees / rocks everywhere) the second pass takes a spot with only natural clutter and clears it.
-  const findSpot = (w, h, avoid = [], maxR = 30) => {
+  // map (trees / rocks everywhere) the second pass takes a spot with only natural clutter and clears it. A spot on a
+  // fort's owned tiles or reserved grounds is never taken: blueprints refuse those ("Too close to a fort / settlement").
+  const { ownerAt } = await import("./src/tiles.ts");
+  const { isInSiteGrounds } = await import("./src/sites.ts");
+  // maxR 34: an 11-wide keep centred there still has every piece within the 40-tile order range of the Town Center.
+  const findSpot = (w, h, avoid = [], maxR = 34) => {
     for (const clear of [false, true]) {
       for (let r = 4; r < maxR; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
@@ -171,7 +180,8 @@ async function inner() {
         let ok = !avoid.some((a) => Math.abs(a.x - c.x) < w + 4 && Math.abs(a.y - c.y) < h + 4);
         for (let y = y0; y < y0 + h + 4 && ok; y++) for (let x = x0; x < x0 + w + 4 && ok; x++) {
           const t = x > 0 && y > 0 && x < W - 1 && y < W - 1 ? state.tiles[idx(x, y)] : -1;
-          ok = (t === TileType.Empty || (clear && t >= 0 && !isSolidBuilt(t))) && !constructionSites.has(`${x},${y}`);
+          ok = (t === TileType.Empty || (clear && t >= 0 && !isSolidBuilt(t))) && !constructionSites.has(`${x},${y}`) &&
+            ownerAt(idx(x, y)) === 0 && !isInSiteGrounds(x, y);
         }
         if (!ok) continue;
         if (clear) for (let y = y0; y < y0 + h + 4; y++) for (let x = x0; x < x0 + w + 4; x++) if (state.tiles[idx(x, y)] !== TileType.Empty) setTile(idx(x, y), TileType.Empty);
@@ -216,6 +226,7 @@ async function inner() {
   // Gap closure G8: a keep blueprint (the prefab Keep's gates) and a yard blueprint (fences + gate queued).
   const keepT = bt.buildingTemplateById("keep-small");
   const ks0 = findSpot(keepT.rows[0].length, keepT.rows.length, [hs, ss, hsp]);
+  if (!ks0) throw new Error("G: no keep-sized spot near the Town Center on this map: pick another COLONY_WORLD_SEED");
   tc.level = 1;
   const keepLow = bt.handlePlaceBlueprint(player, keepT.id, ks0.x, ks0.y, 0);
   result(typeof keepLow === "string" && /Town Center at level 2/.test(keepLow), `G keep blueprint refused below Town Center level 2 (${keepLow})`);
@@ -223,13 +234,19 @@ async function inner() {
   const keepOk = bt.handlePlaceBlueprint(player, keepT.id, ks0.x, ks0.y, 0);
   const keepPlan = bt.planBuilding(keepT, ks0, 0);
   const anchor = keepPlan.pieces.find((p) => p.tile === TileType.Keep);
-  result(keepOk === null && constructionSites.get(`${anchor.x},${anchor.y}`)?.target === TileType.Keep && sitesIn(keepPlan) === keepPlan.pieces.length,
-    `G keep blueprint at Town Center level 2: ${sitesIn(keepPlan)}/${keepPlan.pieces.length} sites, the anchor a Keep site (${keepOk ?? "ok"})`);
+  // Since 29c943e the Keep is a 5x5 building (FOOTPRINT_BY_TILE) anchored at its top-left tile: its site takes that
+  // whole block, so the template's own pieces inside the block get no sites of their own; every other piece does.
+  const kfp = footprintOf(TileType.Keep);
+  const inKeepBlock = (p) => p.x >= anchor.x && p.x < anchor.x + kfp.w && p.y >= anchor.y && p.y < anchor.y + kfp.h && p !== anchor;
+  const keepOutside = { pieces: keepPlan.pieces.filter((p) => !inKeepBlock(p)) };
+  const keepCovered = { pieces: keepPlan.pieces.filter(inKeepBlock) };
+  result(keepOk === null && constructionSites.get(`${anchor.x},${anchor.y}`)?.target === TileType.Keep &&
+    sitesIn(keepOutside) === keepOutside.pieces.length && sitesIn(keepCovered) === 0,
+    `G keep blueprint at Town Center level 2: ${sitesIn(keepOutside)}/${keepOutside.pieces.length} sites outside the Keep's ${kfp.w}x${kfp.h} block, ${sitesIn(keepCovered)}/${keepCovered.pieces.length} inside it, the anchor a Keep site (${keepOk ?? "ok"})`);
   const ks1 = findSpot(keepT.rows[0].length, keepT.rows.length, [hs, ss, hsp, ks0]);
-  // A random world can be too crowded (forts, settlements) for a second keep-sized clear spot near the Town Center.
   const keepTwo = ks1 ? bt.handlePlaceBlueprint(player, keepT.id, ks1.x, ks1.y, 0) : null;
-  if (ks1) result(typeof keepTwo === "string" && /already has a Keep/.test(keepTwo), `G a second keep in the settlement is refused (${keepTwo})`);
-  else console.log("INFO " + "G second keep: no free spot on this random world, check skipped");
+  result(!!ks1 && typeof keepTwo === "string" && /already has a Keep/.test(keepTwo),
+    `G a second keep in the settlement is refused (${ks1 ? keepTwo : "no second keep-sized spot on this map: pick another COLONY_WORLD_SEED"})`);
   const coop = bt.buildingTemplateById("coop-yard");
   const cs0 = findSpot(coop.rows.length, coop.rows[0].length, [hs, ss, hsp, ks0, ...(ks1 ? [ks1] : [])]);
   const okCoop = bt.handlePlaceBlueprint(player, coop.id, cs0.x, cs0.y, 3);
