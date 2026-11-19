@@ -60,8 +60,21 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
 
   function renderPanel() {
     const head = document.createElement("div");
-    head.style.cssText = "font-weight: bold; margin-bottom: 4px;";
-    head.textContent = "Zones";
+    head.style.cssText = "font-weight: bold; margin-bottom: 4px; display: flex; align-items: center;";
+    const title = document.createElement("span");
+    title.style.flex = "1";
+    title.textContent = "Zones";
+    const close = document.createElement("button");
+    close.className = "econ-btn";
+    close.style.cssText = "padding: 0 7px; font-size: 14px; line-height: 18px;";
+    close.textContent = "\u00d7";
+    close.title = "Close the Zones panel (it comes back when you reopen the Zones tab or pick a zone tool)";
+    close.setAttribute("aria-label", "Close zones panel");
+    close.addEventListener("click", (e) => {
+      e.stopPropagation();
+      panel.style.display = "none";
+    });
+    head.append(title, close);
     const help = document.createElement("div");
     help.style.cssText = "opacity: 0.75; margin-bottom: 6px;";
     help.textContent = "Right-drag paints (extends the selected zone of that kind, else a new zone). Shift + right-drag or the Erase tool erases.";
