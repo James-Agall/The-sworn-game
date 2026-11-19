@@ -27,6 +27,7 @@
     "./playerBases": "./src/playerBases.ts",
     "./mines": "./src/mines.ts",
     "./winter": "./src/winter.ts",
-    "./agri": "./src/agri.ts"
+    "./agri": "./src/agri.ts",
+    "./industry": "./src/industry.ts"
   }
 }

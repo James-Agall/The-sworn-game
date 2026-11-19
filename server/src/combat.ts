@@ -299,7 +299,7 @@ export function colonistDeathText(c: Colonist): string {
 
 export function damageColonist(colonist: Colonist, amount: number) {
   // Armour & weapons: armour scales every blow taken (max HP is unchanged).
-  if ((colonist.armourTier ?? 0) > 0) {
+  if ((colonist.armourTier ?? 0) > 0 || colonist.bronzeArmour) {
     const raw = amount;
     amount *= armourDamageTakenMult(colonist);
     equipEvent({ type: "taken", id: colonist.id, tier: colonist.armourTier, amount, detail: String(raw) });

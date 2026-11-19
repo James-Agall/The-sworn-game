@@ -22,6 +22,7 @@ import { mineWorkMult } from "./mines.js";
 import { coldWorkMult } from "./winter.js";
 import { CRAFT_RECIPES } from "./constants.js";
 import { agriForSave, agriInfo, sanitizeAgri } from "./agri.js";
+import { BRONZE_TOOL_SPEED } from "@colony/shared/industry";
 
 // A station with old CRAFT_RECIPES work too (Tailor, Blacksmith, Brewery) does that while no tree recipe is ready.
 const CRAFT_MEANWHILE: Record<string, string> = { clothes: "Weaving cloth meanwhile", tools: "Forging tools meanwhile", alcohol: "Brewing plain ale meanwhile" };
@@ -202,9 +203,17 @@ export function effectiveTier(c: Colonist): number {
 
 // Work-timer step per tick (1 = as before the tree): +25% per effective tier above 1. Off with COLONY_UNLOCK_ALL.
 // Winter: x coldWorkMult (out in the cold without warm clothes, a cold home; 1 with seasons off).
+// Industry extras: bronze tools in store speed the woodcutters, miners and diggers (BRONZE_TOOL_SPEED).
 export function workSpeed(c: Colonist): number {
   if (state.testUnlockAll || !c.person) return coldWorkMult(c);
-  return tierSpeed(effectiveTier(c)) * coldWorkMult(c);
+  return tierSpeed(effectiveTier(c)) * coldWorkMult(c) * bronzeToolMult(professionOf(c));
+}
+
+// Industry extras: x BRONZE_TOOL_SPEED for tool work (felling, mining, digging) while bronze tools are in store.
+const BRONZE_TOOL_PROFESSIONS: Profession[] = ["woodcutter", "miner", "digger"];
+export function bronzeToolMult(prof: Profession | "hero" | undefined): number {
+  if (state.testUnlockAll || !prof || (prof !== "hero" && !BRONZE_TOOL_PROFESSIONS.includes(prof))) return 1;
+  return itemCount("bronzeTools") > 0 ? BRONZE_TOOL_SPEED : 1;
 }
 
 // Once a second: every person working a station gains 1 XP in its profession (not at night, sheltering, a child,

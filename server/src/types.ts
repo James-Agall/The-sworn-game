@@ -204,6 +204,10 @@ export interface Colonist {
   // Missing in old saves = 0 (unequipped, today's stats).
   armourTier?: number;
   weaponTier?: number;
+  // Industry extras: a bronze piece worn in a slot with no iron one (clan items bronzeArmour / bronzeWeapon; missing in
+  // old saves = none).
+  bronzeArmour?: boolean;
+  bronzeWeapon?: boolean;
   // A basic militiaman trained with no weapon or armour: fists and clubs (UNARMED_MILITIA_DAMAGE_MULT), no armour.
   unarmed?: boolean;
   // Hero phase 3: heroes only (kind "hero"). The colonist id is the hero's stable id (profile "hero:<id>",

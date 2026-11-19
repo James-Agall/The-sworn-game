@@ -215,6 +215,19 @@ export enum TileType {
   Smokehouse = 156,
   Dairy = 157,
   Cellar = 158,
+  // Industry extras (2026-11-19, shared/src/industry.ts): the Foundry (bronze from copper + tin; bronze tools and gear),
+  // the Stamp Mill (crushes and washes ore: tin, gold dust, sand; needs water near), new deposits (limestone, gold ore,
+  // lead ore) and the mines sunk on them, the Glassworks (glass, window glass, bottles) and the Mint (coins).
+  Foundry = 159,
+  StampMill = 160,
+  Limestone = 161,
+  GoldOre = 162,
+  LimeQuarry = 163,
+  GoldMine = 164,
+  Glassworks = 165,
+  Mint = 166,
+  LeadOre = 167,
+  LeadMine = 168,
 
 }
 
@@ -383,6 +396,16 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.Smokehouse ||
     tile === TileType.Dairy ||
     tile === TileType.Cellar ||
+    tile === TileType.Foundry ||
+    tile === TileType.StampMill ||
+    tile === TileType.Limestone ||
+    tile === TileType.GoldOre ||
+    tile === TileType.LimeQuarry ||
+    tile === TileType.GoldMine ||
+    tile === TileType.Glassworks ||
+    tile === TileType.Mint ||
+    tile === TileType.LeadOre ||
+    tile === TileType.LeadMine ||
     tile === TileType.ChickenCoop ||
     tile === TileType.LivestockBarn ||
     tile === TileType.PigSty ||

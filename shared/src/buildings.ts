@@ -103,6 +103,8 @@ export const BUILD_COSTS = {
   [TileType.Smokehouse]: { wood: 15, rock: 5 },
   [TileType.Dairy]: { wood: 15, rock: 8 },
   [TileType.Cellar]: { wood: 10, rock: 20 },
+  // Industry extras (shared/src/industry.ts; an upgrade costs the build cost again x the new level).
+  [TileType.Foundry]: { wood: 15, rock: 15 },
   // Stardew phase 5d: animal houses (an upgrade costs the build cost again x the new level).
   [TileType.ChickenCoop]: { wood: 15, rock: 5 },
   [TileType.LivestockBarn]: { wood: 30, rock: 10 },

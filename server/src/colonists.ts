@@ -48,7 +48,7 @@ import { isDormantGuardian, keyToTile } from "./mobs.js";
 import {
   canAfford, currentBuildingLevel, footprintYieldMult, placementCost, sendEvent, spend, upgradePlacementTile,
 } from "./construction.js";
-import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroColonist } from "./heroes.js";
+import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, returnBronze, spawnHeroColonist } from "./heroes.js";
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
 import { minerFlees, mineWorkMult } from "./mines.js";
@@ -344,10 +344,13 @@ export function staffPost(tx: number, ty: number, kind: ColonistKind, castleLeve
 // handing equipped gear back to the stock; with no Town Center left they leave.
 export function releaseToVillage(c: Colonist) {
   const tc = nearestTownCenter(c.x, c.y, townCentersOfClan(c.clan ?? 0));
-  if (c.armourTier || c.weaponTier) {
+  if (c.armourTier || c.weaponTier || c.bronzeArmour || c.bronzeWeapon) {
     withClan(clanById(c.clan ?? 0), () => {
       if (c.armourTier) state.equipment.armour[c.armourTier - 1]++;
       if (c.weaponTier) state.equipment.weapon[c.weaponTier - 1]++;
+      // Industry extras: bronze pieces go back to the stores too.
+      returnBronze(c, "armour");
+      returnBronze(c, "weapon");
     });
   }
   if (!tc) {

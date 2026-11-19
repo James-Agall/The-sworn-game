@@ -50,8 +50,9 @@ const UNLOCK = { COLONY_UNLOCK_ALL: "1" };
 const HERO_RESPAWN = { COLONY_HERO_RESPAWN: "1" };
 // hero-tools: the tool gates (a scythe must be in the stores) and energy need gates and needs on. pottery: the clay
 // pit / kiln / bricks gates. mines: the mine gates, infestation and hazards (off under COLONY_UNLOCK_ALL). agri-extra:
-// the agriculture extras' gates, spoilage, sickness and orchard ages (off under COLONY_UNLOCK_ALL).
-const TREE_SUITES = new Set(["progression", "hero-tools", "pottery", "mines", "agri-extra"]);
+// the agriculture extras' gates, spoilage, sickness and orchard ages (off under COLONY_UNLOCK_ALL). industry-extra: the
+// industry extras' gates and effects (bronze, steel, glass, coins; off under COLONY_UNLOCK_ALL).
+const TREE_SUITES = new Set(["progression", "hero-tools", "pottery", "mines", "agri-extra", "industry-extra"]);
 // LEGACY_BUILD: suites written before modular building phases 2-3 (2026-11-09) place Bakeries / Blacksmiths outside a
 // roofed room and new Farm Plots / Hemp Fields: COLONY_LEGACY_BUILD=1 (state.legacyBuild, test hooks only) keeps that
 // open. Every suite gets it except the rooms / zones suites (ROOM_SUITES), which test the new rules.
@@ -99,6 +100,7 @@ const SERVER_ENV = {
   mines: { ...W80, ...INSTANT },
   winter: { ...W80, ...INSTANT },
   "agri-extra": { ...W80, ...INSTANT },
+  "industry-extra": { ...W80, ...INSTANT },
   "raid-waves": W80,
   "shelter-overflow": { ...W80, ...INSTANT },
   "slow-farming": W80,

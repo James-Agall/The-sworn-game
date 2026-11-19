@@ -6,7 +6,7 @@ import { childrenOf, spouseOf } from "./family.js";
 import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, heroLifeDebug, heroSpeedMult, lifeOf, setNeedsOverride } from "./herolife.js";
 import { dressFromStores, heroCold, updateWinter, winterDawn, winterDebug } from "./winter.js";
 import type { Wardrobe } from "@colony/shared/winter";
-import { addItem, itemCount, professionOf, takeItem, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
+import { addItem, bronzeToolMult, itemCount, professionOf, takeItem, progressionDebug, progressionSnapshot, resetProgressCache, restoreProgress } from "./progression.js";
 import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
 import { buildingLevel, newClanProgress, tradingPosts } from "./state.js";
@@ -82,7 +82,7 @@ import { damageHearth } from "./hearths.js";
 import { GOALS, nightsSurvived, refreshGoalSnapshot } from "./goals.js";
 import {
   grantRelic, heroKey, heroProfileOf, heroProfileSnapshot, heroSheetsSnapshot, isEquippedKind, pickHeroName,
-  playerAttackCooldownTicks, playerMaxHp, spawnHeroColonist,
+  playerAttackCooldownTicks, playerMaxHp, spawnHeroColonist, weaponDamageMult, armourDamageTakenMult,
 } from "./heroes.js";
 import { grantTome, isSpellId, learnSpell, spellBookSnapshot } from "./spells.js";
 import { stepSimulation } from "./sim.js";
@@ -792,7 +792,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       forgeAuto: Array.from(forgeAuto),
       units: Array.from(colonists.values())
         .filter((c) => isEquippedKind(c.kind))
-        .map((c) => ({ id: c.id, kind: c.kind, hp: c.hp, maxHp: c.maxHp, armourTier: c.armourTier ?? 0, weaponTier: c.weaponTier ?? 0, postX: c.postX, postY: c.postY })),
+        .map((c) => ({ id: c.id, kind: c.kind, hp: c.hp, maxHp: c.maxHp, armourTier: c.armourTier ?? 0, weaponTier: c.weaponTier ?? 0, postX: c.postX, postY: c.postY, bronzeArmour: !!c.bronzeArmour, bronzeWeapon: !!c.bronzeWeapon })),
       events: equipEvents.slice(),
       stock: { ...state.stock },
       mults: { weapon: WEAPON_DAMAGE_MULT, armour: ARMOUR_DAMAGE_TAKEN_MULT },
@@ -862,6 +862,14 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // Gear pickup (idle soldiers re-arm from the stock): enabled false switches it off for scripted checks.
     state.testGearPickupOff = msg.enabled === false;
     reply({ enabled: !state.testGearPickupOff });
+  } else if (msg.op === "industry") {
+    // Industry extras: the bronze tool multipliers (hero / miner / smith) and, with `unit`, that colonist's gear mults.
+    const pc = clanById(player.clan ?? 0);
+    const u = typeof msg.unit === "string" ? colonists.get(msg.unit) : undefined;
+    reply(withClan(pc, () => ({
+      tools: { hero: bronzeToolMult("hero"), miner: bronzeToolMult("miner"), woodcutter: bronzeToolMult("woodcutter"), smith: bronzeToolMult("smith") },
+      ...(u ? { unit: { weapon: weaponDamageMult(u), armour: armourDamageTakenMult(u), bronzeArmour: !!u.bronzeArmour, bronzeWeapon: !!u.bronzeWeapon, armourTier: u.armourTier ?? 0, weaponTier: u.weaponTier ?? 0 } } : {}),
+    })));
   } else if (msg.op === "equipConfig") {
     state.testEquipDropChance = typeof msg.dropChance === "number" ? msg.dropChance : null;
     reply({ dropChance: state.testEquipDropChance });

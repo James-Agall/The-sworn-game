@@ -23,7 +23,9 @@ export type ItemId =
   // Winter (phase 4, shared/src/winter.ts): the Tailor's garments, worn by people (wardrobes) against the cold.
   | "tunic" | "coat" | "boots"
   // Agriculture extras (phase 5, shared/src/agri.ts): preserved foods and their inputs, the iron plow, hops and ale.
-  | "salt" | "smokedMeat" | "saltedMeat" | "rennet" | "cheese" | "ironPlow" | "hops" | "hopSeeds" | "ale";
+  | "salt" | "smokedMeat" | "saltedMeat" | "rennet" | "cheese" | "ironPlow" | "hops" | "hopSeeds" | "ale"
+  // Industry extras (phase 6, shared/src/industry.ts): bronze and what the Foundry casts from it.
+  | "bronze" | "bronzeTools" | "bronzeWeapon" | "bronzeArmour";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "clothes" | "tools";
 
@@ -103,7 +105,8 @@ export function chainBuildingTiles(): TileType[] {
 
 export type Profession =
   | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "smelter" | "collier" | "miller" | "baker" | "jeweler"
-  | "brewer" | "innkeeper" | "hunter" | "forager" | "herder" | "digger" | "potter" | "salter" | "smoker" | "dairyman";
+  | "brewer" | "innkeeper" | "hunter" | "forager" | "herder" | "digger" | "potter" | "salter" | "smoker" | "dairyman"
+  | "founder";
 
 // Worker XP: one point per second at work. Level L needs WORKER_XP_LEVELS[L - 1] XP (level 1 at 0).
 export const WORKER_XP_LEVELS = [0, 100, 300, 700];
@@ -183,6 +186,10 @@ export const PROGRESSION = {
     hops: { label: "Hops", desc: "Harvested from a Growing zone set to Hops (summer to autumn). The Brewery brews ale with them.", group: "material" },
     hopSeeds: { label: "Hop cuttings", desc: "The hero plants one per tilled tile (seed bag, press again for hops).", group: "material" },
     ale: { label: "Ale", desc: "Hopped ale from the Brewery (grain + hops). In store: a happiness bonus by its best grade; drunk at dawn.", group: "food" },
+    bronze: { label: "Bronze", desc: "Cast at the Foundry from copper ore and tin with charcoal (or coal). The Foundry casts tools and gear from it.", group: "material" },
+    bronzeTools: { label: "Bronze tools", desc: "Cast at the Foundry. In store: the hero and the clan's woodcutters, miners and diggers work 20% faster.", group: "tool" },
+    bronzeWeapon: { label: "Bronze weapons", desc: "Cast at the Foundry. A soldier with no iron weapon takes one (damage +10%; iron +20%).", group: "tool" },
+    bronzeArmour: { label: "Bronze armour", desc: "Cast at the Foundry from bronze and hide. A soldier with no iron armour wears it (damage taken -8%; iron -15%).", group: "tool" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -250,6 +257,13 @@ export const PROGRESSION = {
     // in store, else plain ale (alcohol) as before.
     { id: "ironPlow", label: "Forge an iron plow", output: "ironPlow", amount: 1, stock: { wood: 4 }, items: { ironBloom: 2 }, station: TileType.Blacksmith, seconds: 60, cap: 1 },
     { id: "ale", label: "Brew hopped ale", output: "ale", amount: 2, stock: { grain: 2 }, items: { hops: 1 }, station: TileType.Brewery, seconds: 40, cap: 30 },
+    // Industry extras (shared/src/industry.ts). The Foundry's founder casts the tools first (one set is enough), then
+    // gear while there is bronze, else smelts bronze (copper + tin, charcoal or coal).
+    { id: "bronzeTools", label: "Cast bronze tools", output: "bronzeTools", amount: 1, stock: { wood: 2 }, items: { bronze: 2 }, station: TileType.Foundry, seconds: 40, cap: 1 },
+    { id: "bronzeWeapon", label: "Cast bronze weapons", output: "bronzeWeapon", amount: 1, stock: { wood: 1 }, items: { bronze: 2 }, station: TileType.Foundry, seconds: 40, cap: 10 },
+    { id: "bronzeArmour", label: "Cast bronze armour", output: "bronzeArmour", amount: 1, items: { bronze: 3, hide: 1 }, station: TileType.Foundry, seconds: 50, cap: 10 },
+    { id: "bronze", label: "Smelt bronze", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, charcoal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
+    { id: "bronzeCoal", label: "Smelt bronze with coal", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, coal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
   ] as Recipe[],
   // What each building needs. Buildings not listed are open from the start.
   buildings: {
@@ -335,6 +349,8 @@ export const PROGRESSION = {
     [TileType.Smokehouse]: { requires: { buildings: [{ tile: TileType.HunterHut }] } },
     [TileType.Dairy]: { requires: { buildings: [{ tile: TileType.LivestockBarn }] } },
     [TileType.Cellar]: { requires: { items: { bricks: 6 } } },
+    // Industry extras: the Foundry pours copper (a Copper Mine) in a crucible.
+    [TileType.Foundry]: { requires: { items: { crucible: 1 }, buildings: [{ tile: TileType.CopperMine }] } },
   } as Partial<Record<TileType, BuildingReq>>,
   // The profession a station's workers train in (XP per profession per person).
   stations: {
@@ -371,11 +387,13 @@ export const PROGRESSION = {
     [TileType.SaltWorks]: "salter",
     [TileType.Smokehouse]: "smoker",
     [TileType.Dairy]: "dairyman",
+    [TileType.Foundry]: "founder",
   } as Partial<Record<TileType, Profession>>,
   // The Progression panel's chains (order only: every step's needs come from `buildings` / `recipes` above).
   chains: [
     { id: "stone", label: "Stone age", steps: [{ item: "stoneAxe" }, { item: "stoneKnife" }, { item: "stonePick" }, { building: TileType.LumberjackPost }, { building: TileType.House }, { building: TileType.HunterHut }, { item: "hide" }] },
     { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "timberProps" }, { building: TileType.CoalMine }, { item: "coal" }, { building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "mineLamps" }, { item: "mineVent" }, { item: "minePump" }] },
+    { id: "bronze", label: "Bronze", steps: [{ building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "crucible" }, { building: TileType.Foundry }, { item: "bronze" }, { item: "bronzeTools" }, { item: "bronzeWeapon" }, { item: "bronzeArmour" }] },
     { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }] },
     { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
     { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },
@@ -395,7 +413,7 @@ export const PROFESSION_LABEL: Record<Profession, string> = {
   woodcutter: "Woodcutter", miner: "Miner", farmer: "Farmer", farmhand: "Farmhand", tailor: "Tailor", smith: "Smith",
   smelter: "Smelter", collier: "Collier", miller: "Miller", baker: "Baker", jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
   hunter: "Hunter", forager: "Forager", herder: "Animal Keeper", digger: "Digger", potter: "Potter", salter: "Salter",
-  smoker: "Smoker", dairyman: "Dairy hand",
+  smoker: "Smoker", dairyman: "Dairy hand", founder: "Founder",
 };
 
 // Names for the buildings the table refers to (needs text).
@@ -427,6 +445,7 @@ export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
   [TileType.Smokehouse]: "Smokehouse",
   [TileType.Dairy]: "Dairy",
   [TileType.Cellar]: "Cellar",
+  [TileType.Foundry]: "Foundry",
 };
 
 // Smith training (plan §2): a level-1 smith makes tools only; forging tier-1/2 gear needs level 2, tier 3 level 3.

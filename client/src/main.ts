@@ -5558,6 +5558,7 @@ async function main() {
     TileType.ClayPit, TileType.Kiln, TileType.ChickenCoop, TileType.LivestockBarn, TileType.PigSty, TileType.SheepPen,
     TileType.CoalMine, TileType.CopperMine, TileType.TinMine,
     TileType.SaltWorks, TileType.Smokehouse, TileType.Dairy, TileType.Cellar,
+    TileType.Foundry,
     ...NEW_STRUCTURE_TILES,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;

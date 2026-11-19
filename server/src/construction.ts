@@ -70,6 +70,7 @@ import { buildingPostsInfo } from "./work.js";
 import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
 import { CLAY_PIT_WATER_RADIUS_TILES } from "@colony/shared/progression";
 import { AGRI_BUILDING_TILES, SALT_WORKS_WATER_RADIUS_TILES } from "@colony/shared/agri";
+import { INDUSTRY_STATION_TILES } from "@colony/shared/industry";
 import { noteOrchardPlanted } from "./agri.js";
 import { MINE_LABEL, depositMineFor } from "@colony/shared/mines";
 import { mineInfo } from "./mines.js";
@@ -578,6 +579,8 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.Smokehouse:
     case TileType.Dairy:
     case TileType.Cellar:
+    // Industry extras: the same rule.
+    case TileType.Foundry:
     // Stardew phase 5d: animal houses, the same rule.
     case TileType.ChickenCoop:
     case TileType.LivestockBarn:
@@ -1387,7 +1390,7 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     return;
   }
   if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery || tile === TileType.ClayPit || tile === TileType.Kiln || depositMineFor(tile)?.mine === tile ||
-    AGRI_BUILDING_TILES.includes(tile)) {
+    AGRI_BUILDING_TILES.includes(tile) || INDUSTRY_STATION_TILES.includes(tile)) {
     resolveStationPlacement(tx, ty, tile);
     return;
   }

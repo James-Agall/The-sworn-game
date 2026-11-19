@@ -2,7 +2,8 @@ import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS } from "@colony/shared/protocol"
 import { sanitizeHeroAppearance, HERO_WEAPON_KINDS, heroVisualFromEquipment } from "@colony/shared/protocol";
 // heroes.ts: Hero phases 1-4 support: equipment, hero profiles, items, relics, recruitable heroes, Blacksmith forging.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { gatesOpen, workerLevelAt } from "./progression.js";
+import { addItem, gatesOpen, itemCount, takeItem, workerLevelAt } from "./progression.js";
+import { BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_WEAPON_DAMAGE_MULT } from "@colony/shared/industry";
 import { smithLevelForGearTier } from "@colony/shared/progression";
 import { sanitizeHeroLife } from "@colony/shared/herolife";
 import { randomUUID } from "node:crypto";
@@ -75,8 +76,10 @@ export function takeBestEquipment(slot: EquipSlot): number {
 export function equipNewUnit(c: Colonist) {
   c.armourTier = takeBestEquipment("armour");
   c.weaponTier = takeBestEquipment("weapon");
+  // Industry extras: no iron piece in a slot, a bronze one from the stores.
+  for (const slot of ["armour", "weapon"] as EquipSlot[]) fitBronze(c, slot);
   equipEvent({ type: "equip", id: c.id, detail: `${c.kind} armour ${c.armourTier} weapon ${c.weaponTier}` });
-  if (c.armourTier > 0 && c.weaponTier > 0) return;
+  if ((c.armourTier > 0 || c.bronzeArmour) && (c.weaponTier > 0 || c.bronzeWeapon)) return;
   equipEvent({ type: "unequipped", id: c.id, detail: `${c.armourTier === 0 ? "armour " : ""}${c.weaponTier === 0 ? "weapon" : ""}`.trim() });
   if (state.cycleTick - state.lastUnequippedToastTick < EQUIP_TOAST_THROTTLE_TICKS) return;
   state.lastUnequippedToastTick = state.cycleTick;
@@ -95,6 +98,28 @@ export function equipNewUnit(c: Colonist) {
 // counted twice. Cost: one pass over the colonists every 3 s, only while the stock is non-empty.
 const GEAR_TIER_KEY: Record<EquipSlot, "armourTier" | "weaponTier"> = { armour: "armourTier", weapon: "weaponTier" };
 
+// ---- Industry extras: bronze gear (shared/src/industry.ts; clan items bronzeWeapon / bronzeArmour) ----
+const BRONZE_KEY: Record<EquipSlot, "bronzeArmour" | "bronzeWeapon"> = { armour: "bronzeArmour", weapon: "bronzeWeapon" };
+const BRONZE_ITEM = { armour: "bronzeArmour", weapon: "bronzeWeapon" } as const;
+// Off under COLONY_UNLOCK_ALL (the older suites' soldiers keep today's stats).
+function bronzeGearOn(): boolean {
+  return !state.testUnlockAll;
+}
+// A soldier with no iron piece in `slot` takes a bronze one from the active clan's stores (true when it did).
+function fitBronze(c: Colonist, slot: EquipSlot): boolean {
+  if (!bronzeGearOn() || (c[GEAR_TIER_KEY[slot]] ?? 0) > 0 || c[BRONZE_KEY[slot]] || itemCount(BRONZE_ITEM[slot]) <= 0) return false;
+  takeItem(BRONZE_ITEM[slot], 1);
+  c[BRONZE_KEY[slot]] = true;
+  equipEvent({ type: "bronze", id: c.id, slot, detail: c.kind });
+  return true;
+}
+// The bronze piece a soldier wore goes back to the active clan's stores (an iron one replaced it, or it left).
+export function returnBronze(c: Colonist, slot: EquipSlot) {
+  if (!c[BRONZE_KEY[slot]]) return;
+  c[BRONZE_KEY[slot]] = false;
+  addItem(BRONZE_ITEM[slot], 1);
+}
+
 function bestTierInStock(slot: EquipSlot): number {
   for (let tier = EQUIP_TIERS; tier >= 1; tier--) if (state.equipment[slot][tier - 1] > 0) return tier;
   return 0;
@@ -103,7 +128,8 @@ function bestTierInStock(slot: EquipSlot): number {
 export function updateGearPickup() {
   if (state.testGearPickupOff || state.cycleTick % GEAR_PICKUP_INTERVAL_TICKS !== 0) return;
   forEachClan((clan) => {
-    if (bestTierInStock("armour") === 0 && bestTierInStock("weapon") === 0) return;
+    const bronze = bronzeGearOn() && (itemCount("bronzeArmour") > 0 || itemCount("bronzeWeapon") > 0);
+    if (bestTierInStock("armour") === 0 && bestTierInStock("weapon") === 0 && !bronze) return;
     const idle: Colonist[] = [];
     for (const c of colonists.values()) {
       if ((c.clan ?? 0) !== clan.id || c.state !== "idle" || c.targetMobId !== null || c.hp <= 0 || c.levyOf || c.creativeSpawned) continue;
@@ -117,9 +143,13 @@ export function updateGearPickup() {
       for (const c of idle) {
         const cur = c[key] ?? 0;
         const best = bestTierInStock(slot);
-        if (best <= cur) continue;
+        if (best <= cur) {
+          if (fitBronze(c, slot)) equipped.add(c.id);
+          continue;
+        }
         state.equipment[slot][best - 1]--;
         if (cur > 0) state.equipment[slot][cur - 1]++;
+        returnBronze(c, slot);
         c[key] = best;
         equipped.add(c.id);
         equipEvent({ type: "pickup", id: c.id, slot, tier: best, detail: `${c.kind} ${cur}->${best}` });
@@ -132,11 +162,13 @@ export function updateGearPickup() {
 }
 
 export function weaponDamageMult(c: Colonist): number {
+  if (!c.weaponTier && c.bronzeWeapon) return BRONZE_WEAPON_DAMAGE_MULT;
   if (c.unarmed && !c.weaponTier) return UNARMED_MILITIA_DAMAGE_MULT;
   return WEAPON_DAMAGE_MULT[c.weaponTier ?? 0] ?? 1;
 }
 
 export function armourDamageTakenMult(c: Colonist): number {
+  if (!c.armourTier && c.bronzeArmour) return BRONZE_ARMOUR_DAMAGE_TAKEN_MULT;
   return ARMOUR_DAMAGE_TAKEN_MULT[c.armourTier ?? 0] ?? 1;
 }
 

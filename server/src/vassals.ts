@@ -30,6 +30,7 @@ import { broadcastEvent } from "./net.js";
 import { adjustRelation, relationOf } from "./sites.js";
 import { gameDay, standingTown } from "./diplomacy.js";
 import { spawnColonistForPost } from "./colonists.js";
+import { returnBronze } from "./heroes.js";
 import { followTargetPos, leaveOrderGroup, rallyUnit, startGroupOrder } from "./orders.js";
 import { isGuardOrMilitiaKind, unitStats } from "./units.js";
 import { isTowerTile, releaseSlot } from "./combat.js";
@@ -264,10 +265,12 @@ function spawnLevy(s: SiteState, m: Mob, clanId: number): Colonist {
     // Levies bring their own arms: give back anything the spawn took from the clan's armoury.
     if ((u.armourTier ?? 0) > 0) state.equipment.armour[u.armourTier! - 1]++;
     if ((u.weaponTier ?? 0) > 0) state.equipment.weapon[u.weaponTier! - 1]++;
+    returnBronze(u, "armour");
+    returnBronze(u, "weapon");
     return u;
   });
   state.lastUnequippedToastTick = toastTick;
-  Object.assign(c, { x: m.x, y: m.y, armourTier: 0, weaponTier: 0, settlementId: "", levyOf: s.id, levyKind: m.kind, stance: "aggressive" });
+  Object.assign(c, { x: m.x, y: m.y, armourTier: 0, weaponTier: 0, bronzeArmour: false, bronzeWeapon: false, settlementId: "", levyOf: s.id, levyKind: m.kind, stance: "aggressive" });
   if (clanId) c.clan = clanId;
   else delete c.clan;
   return c;

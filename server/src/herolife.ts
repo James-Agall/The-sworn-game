@@ -37,7 +37,7 @@ import { clanIdAt, clanOf, clanTownCenters, townCentersOfClan, withClan } from "
 import { gameDay, handleTradeWithSite, standingTown, tierOf, tilesToWalls } from "./diplomacy.js";
 import { adjustRelation, relationOf } from "./sites.js";
 import { forcePostQuest, handleQuestMessage, quests, questsForSnapshot } from "./quests.js";
-import { addItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
+import { addItem, bronzeToolMult, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
 import { forgeCost, heroProfileOf, playerMaxHp } from "./heroes.js";
 import {
   bringKinHome, cachedFamilySnapshot, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
@@ -1315,7 +1315,9 @@ function stepGather(p: Player, b: Busy, g: GatherJob) {
   }
   const def = GATHER[g.kind];
   const life = lifeOf(p);
-  g.left -= skillSpeed(skillLevel(life, def.skill)) * energySpeed(life) * heroColdWorkMult(p);
+  // Industry extras: bronze tools in the stores (felling, quarrying, mining).
+  const bronze = g.kind === "chop" || g.kind === "quarry" || g.kind === "mine" ? bronzeToolMult("hero") : 1;
+  g.left -= skillSpeed(skillLevel(life, def.skill)) * energySpeed(life) * heroColdWorkMult(p) * bronze;
   if (g.left > 0) return;
   const amount = g.kind === "chop" ? treeAt(g.tx,g.ty).wood : def.amount;
   if (packWeight(life)+amount*PACK_WEIGHT[def.good]>PACK_CAP) { b.gather=undefined; return toast(p,"Your pack is full"); }
