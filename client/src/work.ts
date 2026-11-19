@@ -266,7 +266,16 @@ export function setupWork(opts: { send: (m: ClientMessage) => void; button: HTML
   function renderWinter(r: WorkTabRow | undefined) {
     const el = document.getElementById("pc-winter")!;
     el.replaceChildren();
-    el.hidden = !r?.wardrobe;
+    el.hidden = !r?.wardrobe && !r?.sick;
+    // Agriculture extras: sick from bad food (stand-in: the same badge, no icon; SPRITES.md #113).
+    if (r?.sick) {
+      const chip = document.createElement("span");
+      chip.className = "pc-cold";
+      chip.style.background = "#7a6a2a";
+      chip.title = "Sick from bad food: raw meat or spoiled stores. Hurt at each dawn for a couple of days; smoke or salt the meat, keep the stores (pots, a Cellar, a storeroom), cook in a kitchen.";
+      chip.append("Sick: bad food");
+      el.append(chip);
+    }
     if (!r?.wardrobe) return;
     for (const flag of r.cold ?? []) {
       const chip = document.createElement("span");

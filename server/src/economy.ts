@@ -22,6 +22,7 @@ import { countTilesOfType, isMilitaryTile, productionSpeedMultiplier, townCenter
 import { broadcastTileUpdate } from "./net.js";
 import { clanById, clanIdAt } from "./clans.js";
 import { winterNow } from "./calendar.js";
+import { plowGrowthMult, plowYieldMult } from "./agri.js";
 
 export function initialStock(): Record<ResourceKey, number> {
   return {
@@ -306,13 +307,15 @@ export function farmPlotIndices(state: FarmPlotState["state"]): number[] {
 
 // Grow / harvest phase length for a plot, scaled by its Barn's level and synergy, its own biome and
 // colony happiness (fallow is never scaled).
+// Agriculture extras: the Barn's clan's iron plow speeds every phase but fallow (x IRON_PLOW_GROWTH_MULT).
 export function effectiveFarmPlotTicks(base: number, plotX: number, plotY: number, plot: FarmPlotState): number {
   const bonus = levelBonus(getBuildingLevel(plot.barnX, plot.barnY));
+  const plow = plot.barnX >= 0 ? plowGrowthMult(clanIdAt(plot.barnX, plot.barnY)) : 1;
   return Math.max(
     1,
     Math.round(
       (base * (1 - bonus) * biomeProductionFactor(plotX, plotY)) /
-        (productionSpeedMultiplier() * industrialSynergyMultiplier(plot.barnX, plot.barnY))
+        (productionSpeedMultiplier() * industrialSynergyMultiplier(plot.barnX, plot.barnY) * plow)
     )
   );
 }
@@ -371,7 +374,8 @@ export function updateFarmPlots() {
           sowFarmPlot(plot, effectiveFarmPlotTicks(cropGrowTicks(plot), plotX, plotY, plot));
           continue;
         }
-        clanById(clanIdAt(plot.barnX, plot.barnY)).stock.grain += FARM_YIELD_PER_HARVEST;
+        const clanId = clanIdAt(plot.barnX, plot.barnY);
+        clanById(clanId).stock.grain += Math.round(FARM_YIELD_PER_HARVEST * plowYieldMult(clanId));
         plot.harvestsSinceFallow++;
         if (plot.harvestsSinceFallow >= FARM_HARVESTS_BEFORE_FALLOW) {
           plot.harvestsSinceFallow = 0;

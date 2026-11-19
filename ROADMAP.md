@@ -4671,3 +4671,54 @@ Phase 4 of PLAN-agri-industry-winter-mines.md. Numbers in `shared/src/winter.ts`
   Garments show in the Resources panel (Crafted & tools) and the Cloth chain.
 - Not done: an assigned per-house fuel store (all fuel comes from the shared stock); a separate Woodcutter / Collier
   "keep stores up" job (the existing Lumberjack / Charcoal Burner / Coal Mine feed it); dedicated art.
+
+## Agriculture extras — landed 2026-11-19
+Phase 5 of PLAN-agri-industry-winter-mines.md. Numbers in `shared/src/agri.ts` (items / recipes / gates in
+`shared/src/progression.ts`); server `server/src/agri.ts`; test `server/agri-extra-test.mjs` (`npm test -- agri-extra`, a
+TREE + SEASON suite: seasons on, gates on). The daily rules run at the calendar dawn, so with seasons off nothing new
+runs; under COLONY_UNLOCK_ALL the new spoilage, sickness, orchard ages and the untended starter are off (old suites keep
+their numbers: the flat 2% spoilage of grain / meat / fruit stays there).
+- **Spoilage model** (replaces the flat 2%/day): every food good has a class with a share lost each calendar dawn:
+  raw (meat, milk) 5%, fresh (fruit, eggs, bread, flatbread, gruel) 3%, dry (grain, flour, hops) 1%, preserved (cheese,
+  smoked / salted meat, ale) 0. No per-item timers: the share of the whole store, items with a carried remainder so a
+  small store spoils too. What keeps food multiplies: storerooms (as before, up to 60%), **clay pots** in store (-2% each,
+  up to -30%: the pots' real spoilage effect, on top of their stockpile capacity) and the clan's best **Cellar**
+  (-30 / -45 / -60% by level).
+- **Cellar** (`TileType.Cellar` = 158, 10 wood + 20 rock, needs 6 bricks in store, upgradeable to 3 at build cost x level,
+  no worker; may stand on a floor in a room). Building panel: "Cellar level N: food spoils N% slower".
+- **Salt Works** (155, 12 wood + 6 rock; needs 2 clay pots in store and, for a new one, water (pond / river / dug Moat:
+  brine) within 2 tiles; profession **salter** (Crafting); hero skill Charcoal burning): 1 wood -> 2 salt, 30 s, cap 40.
+  There is no salt-deposit terrain: water stands in for brine.
+- **Smokehouse** (156, 15 wood + 5 rock; needs a Hunter's Hut; profession **smoker** (Cooking); hero skill Baking; a room
+  hot station): 4 meat + 1 salt -> 4 **salted meat** (40 s) while salt is in store, else 4 meat + 2 wood -> 4 **smoked
+  meat** (60 s); caps 60 each.
+- **Dairy** (157, 15 wood + 8 rock; needs a Livestock Barn; profession **dairy hand** (Cooking); hero skill Farming):
+  1 hide -> 2 **rennet** (cap 4) first, then 4 milk + 1 rennet -> 2 **cheese** (60 s, cap 40).
+- **Preserved food** (cheese 2 food / +4 happiness, smoked meat 2 / +3, salted meat 2 / +2 while in store) is eaten at dawn
+  only after the grain / meat / fruit runs short: the winter reserve. Smoked / salted meat counts as meat for food variety.
+- **Food quality -> sickness** (dawn meal): sick people = round(people x min(1, raw-meat share of the meal x 0.2 (x0.5 with
+  a kitchen room: cooked) + min(1, food spoiled at the last dawn x 0.5 / food eaten) x 0.6)). A sick person: 2 dawns,
+  10 hp each (never below 30% max), colony happiness -12 x the share sick (new `sickness` part), "Sick: bad food" badge on
+  the person card. Event "N people fell sick from bad food".
+- **Sourdough starter**: goes bad after 3 dawns in a row with no baker posted at any of the clan's Bakeries; lost when a
+  Bakery burns (damage below half HP) or is destroyed (raid / fire). A level-2 baker cultures a new one (the old recipe,
+  ~3 days). Bakery panel: "Sourdough starter: kept" / "untended N of 3 days".
+- **Iron plow** (Blacksmith station recipe: 2 iron blooms + 4 wood, 60 s, one is enough): in store, every farm field
+  (growing zones, hero plots, the old Barn plots) grows x1.25 faster and yields x1.25. The wooden plow stays the Barn's gate.
+  The Blacksmith forges it before its tools (it forges tools "meanwhile" as before).
+- **Orchard years**: a new Orchard records its planting day (saved: `orchards` in the save); its fruit batch is x0.25 /
+  x0.6 / x1 / x1.2 in years 1 / 2 / 3 / 4+ (a game year = 28 days). Orchards from older saves count as 2 years old (x1).
+  Building panel "Orchard age: N years: fruit xM".
+- **Hops and ale**: hops is a third growing-zone crop (summer to autumn; set a zone's crop to Hops, or the hero sows hop
+  cuttings: the seed bag now cycles wheat / hemp / hops); a harvested tile gives 2 hops straight into the stores (no
+  pile). Hand recipe: 2 hops -> 4 hop cuttings. The Brewery brews 2 grain + 1 hops -> 2 **ale** (graded by tier as every
+  station) while hops are in store, else plain ale (alcohol) as before. Ale in store: happiness +3 / +5 / +8 by its best
+  grade (new `ale` part); at dawn the clan drinks one ale per 4 people.
+- **UI**: Colony panel row under the winter row (seasons on): "Raw food spoils N%/day" (red at 4%+; hover: every class
+  and protection) and "Sick: N" / "Healthy" (hover: the starter). New tools in the Farming tab (Salt Works, Smokehouse,
+  Dairy, Cellar; button only). New chains: "Keeping food", "Fields & drink". Stand-in art (SPRITES.md #113).
+- **Saves**: per clan `progress.agri` (starter untended days, last spoilage, sick list, carried remainders) and the
+  world's `orchards`; both optional (older saves: none; their orchards count as grown).
+- **Not done**: crop rotation / soil fertility (skipped: the per-tile save format would need a last-crop field; the Barn
+  plots' fallow stays the only rest); a salt-deposit terrain tile (water stands in); sick people working slower;
+  the food balance revisit (FOOD_OUTPUT_MULT / FOOD_TIME_MULT) waits for a playtest as the plan says.

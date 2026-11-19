@@ -44,6 +44,7 @@ export function calendarLabel(d: { season: number; day: number; year: number }):
 export const CROP_SEASONS: Record<CropId, { from: number; to: number }> = {
   wheat: { from: 0, to: 2.5 }, // spring, summer, the first half of autumn
   hemp: { from: 1, to: 2 }, // summer
+  hops: { from: 1, to: 3 }, // summer and autumn (agriculture extras)
 };
 export const GREENHOUSE_GROWTH_MULT = 0.5;
 export function cropInSeason(crop: CropId, dayOfYear: number): boolean {

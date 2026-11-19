@@ -9,7 +9,7 @@
 // (ZONE_PRIORITY_WORK_RATE), and every Barn farmer with no old field to tend works zones (ZONE_FARMER_WORK_RATE).
 import { TileType } from "@colony/shared/protocol";
 import {
-  CROP_RESOURCE, CROP_SOWN_FRACTION, CROPS, CropStage, PILE_RESOURCES, RESOURCE_CATEGORY, STOCK_CATEGORIES, ZONE_EDIT_MAX_TILES,
+  CROP_ITEM, CROP_RESOURCE, CROP_SOWN_FRACTION, CROPS, CropStage, PILE_RESOURCES, RESOURCE_CATEGORY, STOCK_CATEGORIES, ZONE_EDIT_MAX_TILES,
   STOCKPILE_CAPACITY_PER_TILE, STOCKPILE_POT_BONUS_MAX, STOCKPILE_POT_BONUS_PER_POT, STOCKPILE_STOREROOM_CAPACITY_MULT, stockWeight,
   ZONE_EDIT_RANGE_TILES, ZONE_KIND_LABEL, ZONE_KINDS, rleDecode, rleEncode, type CropId, type StockCategory, type ZoneKind,
   type ZonesSnapshot,
@@ -30,6 +30,7 @@ import { tileIndicesOf } from "./chunks.js";
 import { roomAtIndex } from "./structures.js";
 import { cropGrowthMult, rainingNow } from "./calendar.js";
 import { ensurePaddocks, paddockGrassForSave, paddockSnapshot, restorePaddocks } from "./paddocks.js";
+import { plowGrowthMult, plowYieldMult } from "./agri.js";
 
 export interface ZoneRec {
   id: number;
@@ -134,7 +135,7 @@ function removeTile(i: number) {
 function defaultName(kind: ZoneKind, crop?: CropId): string {
   let n = 1;
   for (const z of zones.values()) if (z.kind === kind) n++;
-  return `${kind === "growing" && crop === "hemp" ? "Hemp field" : kind === "growing" ? "Wheat field" : ZONE_KIND_LABEL[kind]} ${n}`;
+  return `${kind === "growing" && crop === "hemp" ? "Hemp field" : kind === "growing" && crop === "hops" ? "Hop field" : kind === "growing" ? "Wheat field" : ZONE_KIND_LABEL[kind]} ${n}`;
 }
 
 export function createZone(clan: number, kind: ZoneKind, crop?: CropId): ZoneRec {
@@ -241,7 +242,9 @@ export function updateZones() {
     }
     const season = cropGrowthMult(cropId, roofed);
     if (season <= 0) continue;
-    c.progress += TICK_RATE * season * (c.tended ? 1 : ZONE_UNTENDED_GROWTH) * (c.fert ? 1 + FERTILISER_GROWTH_BONUS : 1);
+    // Agriculture extras: the clan's iron plow (a zone tile's clan, or a hero plot's).
+    const plow = plowGrowthMult(z?.clan ?? c.plot ?? 0);
+    c.progress += TICK_RATE * season * plow * (c.tended ? 1 : ZONE_UNTENDED_GROWTH) * (c.fert ? 1 + FERTILISER_GROWTH_BONUS : 1);
     const stage = c.progress >= grow ? CropStage.Ripe : c.progress >= grow * CROP_SOWN_FRACTION ? CropStage.Growing : CropStage.Sown;
     if (stage !== c.stage) {
       c.stage = stage;
@@ -630,7 +633,7 @@ export function updateZoneWorker(c: Colonist, dt: number, rate: number, filter: 
       // Back to tilled soil: sow again.
       if (crop) Object.assign(crop, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined, fert: false });
       else crops.set(i, { stage: CropStage.Tilled, progress: 0, tended: false });
-      addPile(i, CROP_RESOURCE[cropId], ZONE_CROP_YIELD[cropId], clan);
+      harvestYield(i, cropId, clan);
       addHay(clan, cropId);
       break;
     }
@@ -691,6 +694,15 @@ export function animalAreaTilesNear(clan: number, tx: number, ty: number, r: num
     }
   }
   return list;
+}
+
+// A zone tile's harvest: a pile of its stock good (x the iron plow), or (hops) the item straight into the stores.
+function harvestYield(i: number, crop: CropId, clan: number) {
+  const n = ZONE_CROP_YIELD[crop] * plowYieldMult(clan);
+  const item = CROP_ITEM[crop];
+  const res = CROP_RESOURCE[crop];
+  if (item) withClan(clanById(clan), () => addItem(item, Math.round(n)));
+  else if (res) addPile(i, res, n, clan);
 }
 
 // Stardew phase 5d: a wheat harvest leaves hay (animal feed) in the clan's stores.
@@ -861,16 +873,22 @@ export function heroFarmCheck(act: HeroFarmAct, i: number, clan: number): string
 }
 
 // Does it (heroFarmCheck first). Harvest returns the yield (the hero's pack takes it).
-export function heroFarmApply(act: HeroFarmAct, i: number, clan: number, crop: CropId): { res: "grain" | "cotton"; crop: CropId; n: number } | null {
+// Agriculture extras: hops go straight into the clan's stores (res "hops"); grain / hemp into the hero's pack.
+export function heroFarmApply(act: HeroFarmAct, i: number, clan: number, crop: CropId): { res: "grain" | "cotton" | "hops"; crop: CropId; n: number } | null {
   const z = heroZoneAt(i);
   const c = crops.get(i);
-  let out: { res: "grain" | "cotton"; crop: CropId; n: number } | null = null;
+  let out: { res: "grain" | "cotton" | "hops"; crop: CropId; n: number } | null = null;
   if (act === "till") crops.set(i, { stage: CropStage.Tilled, progress: 0, tended: false, ...(z ? {} : { plot: clan }) });
   else if (c && act === "sow") Object.assign(c, { stage: CropStage.Sown, progress: 0, crop: z ? undefined : crop });
   else if (c && act === "water") c.tended = true;
   else if (c && act === "harvest") {
     const id = c.crop ?? z?.crop ?? "wheat";
-    out = { res: CROP_RESOURCE[id], crop: id, n: ZONE_CROP_YIELD[id] };
+    const item = CROP_ITEM[id];
+    if (item) {
+      const n = Math.round(ZONE_CROP_YIELD[id] * plowYieldMult(clan));
+      withClan(clanById(clan), () => addItem(item, n));
+      out = { res: "hops", crop: id, n };
+    } else out = { res: CROP_RESOURCE[id] ?? "grain", crop: id, n: ZONE_CROP_YIELD[id] * plowYieldMult(clan) };
     addHay(clan, id);
     Object.assign(c, { stage: CropStage.Tilled, progress: 0, tended: false, crop: undefined, fert: false });
   }

@@ -1333,7 +1333,7 @@
       #pc-winter { margin: 4px 0; font-size: 12px; color: var(--ink-soft); }
       .pc-cold { display: inline-flex; align-items: center; gap: 3px; margin: 1px 4px 1px 0; padding: 0 4px; font-size: 11.5px; font-weight: 600; color: #fff; background: #3a6a9a; border-radius: 3px; white-space: nowrap; }
       .pc-cold img { width: 14px; height: 14px; }
-      #stat-fuel.low, #stat-clothes.low { color: var(--mood-bad); font-weight: 600; }
+      #stat-fuel.low, #stat-clothes.low, #stat-spoil.low, #stat-sick.low { color: var(--mood-bad); font-weight: 600; }
       #stat-winter-warn { margin: 2px 0 4px; font-size: 12px; font-weight: 600; color: var(--mood-bad); }
       .pc-chip { display: inline-block; margin: 1px 4px 1px 0; font-size: 11.5px; white-space: nowrap; }
       #pc-open { margin-top: 6px; }
@@ -2070,6 +2070,9 @@
           <span id="stat-fuel">Fuel</span><span id="stat-clothes">Clothes</span>
         </div>
         <div id="stat-winter-warn" hidden></div>
+        <div class="econ-row" id="stat-agri" hidden title="Food stores: raw meat and milk, fruit / eggs / bread and grain / flour spoil a share each day. Clay pots in store, a Cellar and a storeroom keep it longer; smoked / salted meat and cheese keep. Raw meat and spoiled food make people sick (hurt at dawn, unhappy); a kitchen cooks the meat.">
+          <span id="stat-spoil">Food keeps</span><span id="stat-sick">Healthy</span>
+        </div>
         <div id="stat-army">Knights 0  Archers 0  Militia 0  Bishops 0</div>
         <div id="stat-equipment" title="Armour and weapons in stock by tier (T1/T2/T3). Knights, spearmen, pikemen and cavalry take the best of each when they muster; with none they fight unequipped. Forge more at a Blacksmith (tier = its level), or loot armoured foes and camps."></div>
         <div id="stat-builders" title="Builders working / total">Builders 0/0</div>

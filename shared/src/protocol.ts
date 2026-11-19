@@ -1,6 +1,7 @@
 import type { AnimalHouseInfo, LivestockSnapshot, Species } from "./animals.js";
 import type { CalendarSnapshot } from "./calendar.js";
 import type { WinterSnapshot } from "./winter.js";
+import type { AgriSnapshot } from "./agri.js";
 import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, PersonalBuild } from "./herolife.js";
 import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
 import type { BuildingPostsInfo, WorkPostOption, WorkTabSnapshot, WorkType } from "./work.js";
@@ -208,6 +209,12 @@ export enum TileType {
   CoalMine = 152,
   CopperMine = 153,
   TinMine = 154,
+  // Agriculture extras (2026-11-19, shared/src/agri.ts): the Salt Works (a salter boils brine: needs water near), the
+  // Smokehouse (smoked / salted meat), the Dairy (cheese, rennet) and the Cellar (no worker: food keeps longer).
+  SaltWorks = 155,
+  Smokehouse = 156,
+  Dairy = 157,
+  Cellar = 158,
 
 }
 
@@ -372,6 +379,10 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.CoalMine ||
     tile === TileType.CopperMine ||
     tile === TileType.TinMine ||
+    tile === TileType.SaltWorks ||
+    tile === TileType.Smokehouse ||
+    tile === TileType.Dairy ||
+    tile === TileType.Cellar ||
     tile === TileType.ChickenCoop ||
     tile === TileType.LivestockBarn ||
     tile === TileType.PigSty ||
@@ -1505,6 +1516,8 @@ export type ServerMessage =
       calendar?: CalendarSnapshot;
       // Winter (shared/src/winter.ts): the clan's fuel, cold homes and clothes (seasons on only).
       winter?: WinterSnapshot;
+      // Agriculture extras (shared/src/agri.ts): food spoilage, protection, sickness, the starter (seasons on only).
+      agri?: AgriSnapshot;
       // Off-screen fight notifiers: active fights relevant to THIS player (per-player field, omitted
       // when there are none). See FightSnapshot.
       fights?: FightSnapshot[];

@@ -56,7 +56,8 @@ import {
   workshopEffectAt, chapelHealMultAt, chapelReviveMult, hallGatherShare, heroInfirmaryHealMult, infirmaryHealRateAt, infirmaryStats, raidTheft,
   setHallGathered, spoilFood, storeroomProtectionOf, usableBedIndices,
 } from "./structures.js";
-import { colonyHappinessParts, computeColonyHappiness } from "./colonists.js";
+import { applyDailyFoodConsumption, colonyHappinessParts, computeColonyHappiness } from "./colonists.js";
+import { agriDawn, agriDebug, setOrchardPlanted, spoilFoodAgri } from "./agri.js";
 import { debugAddPile, debugSetCropAt, debugSetCrops, updateZones, zoneCarryOf, zonesDebug, zonesSnapshotFor } from "./zones.js";
 import { updateWorkAssignments, workDebug, workTabFor } from "./work.js";
 import { farmPlotProgress, farmhandProgress, releaseResourceReservation } from "./economy.js";
@@ -1268,6 +1269,36 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       ...withClan(pc, winterDebug),
       hero: { wardrobe: lifeOf(player).wardrobe ?? null, cold: heroCold(player), speed: heroSpeedMult(player), hp: player.hp, rest: lifeOf(player).rest },
       happiness: state.colonyHappiness,
+      happinessNow: withClan(pc, computeColonyHappiness),
+    });
+  } else if (msg.op === "agri") {
+    // Agriculture extras (agri.ts): `spoil` runs the clan's daily spoilage now (replies `spoiled`); `eat` runs the dawn
+    // meal (applyDailyFoodConsumption); `dawn` runs the agri dawn (the starter's tending); `set` {untended?, spoiled?,
+    // sick?: {id: days} | null, carry?: null} sets the clan's agri state; `orchard` {x, y, daysAgo} plants that orchard
+    // days ago; `ripenAt` {x, y}: the farmhands posted there finish their cycle on their next tending tick. Replies
+    // agriDebug + happiness parts.
+    const pc = clanById(player.clan ?? 0);
+    const st = msg.set as { untended?: unknown; spoiled?: unknown; sick?: unknown; carry?: unknown } | undefined;
+    if (st) {
+      const a = (pc.progress.agri ??= { untended: 0, spoiled: 0, sick: {}, carry: {} });
+      if (typeof st.untended === "number") a.untended = st.untended;
+      if (typeof st.spoiled === "number") a.spoiled = st.spoiled;
+      if (st.sick === null) a.sick = {};
+      else if (st.sick && typeof st.sick === "object") a.sick = { ...(st.sick as Record<string, number>) };
+      if (st.carry === null) a.carry = {};
+    }
+    const orch = msg.orchard as { x?: unknown; y?: unknown; daysAgo?: unknown } | undefined;
+    if (orch && typeof orch.x === "number" && typeof orch.y === "number") setOrchardPlanted(orch.x, orch.y, Number(orch.daysAgo) || 0);
+    const spoiled = msg.spoil === true ? spoilFoodAgri(pc.id) : undefined;
+    if (msg.eat === true) withClan(pc, applyDailyFoodConsumption);
+    if (msg.dawn === true) withClan(pc, agriDawn);
+    const rp = msg.ripenAt as { x?: unknown; y?: unknown } | undefined;
+    if (rp) for (const c of colonists.values()) if (c.kind === "farmhand" && c.postX === rp.x && c.postY === rp.y) c.chopTicksRemaining = Math.min(c.chopTicksRemaining, 0.01);
+    reply({
+      ...withClan(pc, agriDebug),
+      ...(spoiled ? { spoiled } : {}),
+      stock: { ...pc.stock },
+      parts: withClan(pc, colonyHappinessParts),
       happinessNow: withClan(pc, computeColonyHappiness),
     });
   } else if (msg.op === "respawnState") {

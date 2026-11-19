@@ -986,7 +986,9 @@ function stepTool(p: Player, b: Busy, t: ToolJob) {
   if (t.act === "sow" && !heroZoneCrop(i, clan) && !gatesOpen() && !takeItem(SEED_ITEM[t.crop], 1)) return toast(p, `No ${t.crop} seeds left`);
   if (t.act === "water") life.water = Math.max(0, waterOf(life) - 1);
   const got = heroFarmApply(t.act, i, clan, t.crop);
-  if (got) {
+  // Agriculture extras: hops went straight into the clan's stores.
+  if (got && got.res === "hops") toast(p, `+${got.n} hops (to your stores)`);
+  else if (got) {
     const g: PackGood = got.res === "grain" ? "grain" : "cotton";
     const n = Math.max(1, Math.round(got.n));
     life.pack[g] = (life.pack[g] ?? 0) + n;

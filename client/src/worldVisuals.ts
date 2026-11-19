@@ -107,6 +107,12 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.CopperOre]: "ironOre",
   [TileType.TinOre]: "rock",
   [TileType.CoalMine]: "quarry",
+  // Agriculture extras stand-ins (tinted; SPRITES.md #113): the charcoal burner's campfire for the salt pans, the tavern for
+  // the smokehouse, the barn for the dairy, the quarry post for the cellar door.
+  [TileType.SaltWorks]: "campfire",
+  [TileType.Smokehouse]: "tavern",
+  [TileType.Dairy]: "barn",
+  [TileType.Cellar]: "quarry",
   [TileType.CopperMine]: "ironMine",
   [TileType.TinMine]: "quarry",
   // Pig Pasture (2026-11-06) stand-in: the fat (cow) pasture tinted pink until pigPasture art lands (SPRITES.md #86).
@@ -232,6 +238,10 @@ export const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.CopperOre]: 0xe0a070,
   [TileType.TinOre]: 0xc8d4e0,
   [TileType.CoalMine]: 0x6a6670,
+  [TileType.SaltWorks]: 0xe8e8f0,
+  [TileType.Smokehouse]: 0x8a6a58,
+  [TileType.Dairy]: 0xf4f0d8,
+  [TileType.Cellar]: 0x9a8a78,
   [TileType.CopperMine]: 0xe8a878,
   [TileType.TinMine]: 0xd0dce8,
   [TileType.PigPasture]: 0xffa8b8,

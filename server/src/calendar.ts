@@ -19,6 +19,7 @@ import { spoilFood } from "./structures.js";
 import { clans } from "./state.js";
 import { withClan } from "./clans.js";
 import { winterDawn } from "./winter.js";
+import { agriDawn, agriOn, spoilFoodAgri } from "./agri.js";
 
 export function seasonsOn(): boolean {
   return !state.seasonsOff;
@@ -93,8 +94,12 @@ export function updateCalendar() {
   state.calendarLastDay = day;
   if (last < 0 || !seasonsOn()) return;
   if (CROP_WATER_RESETS_DAILY) resetCropWatering();
-  // Gap closure G1: food spoils a little every day (each clan's storerooms protect a share).
-  for (const c of clans) spoilFood(c.id);
+  // Gap closure G1: food spoils a little every day (each clan's storerooms protect a share). Agriculture extras: by
+  // spoilage class, cut by pots and a Cellar too (agri.ts; the old flat share under COLONY_UNLOCK_ALL).
+  for (const c of clans) {
+    if (agriOn()) spoilFoodAgri(c.id);
+    else spoilFood(c.id);
+  }
   const now = calendarOf(day);
   const before = calendarOf(last);
   if (now.season !== before.season || now.year !== before.year) {
@@ -107,6 +112,8 @@ export function updateCalendar() {
   }
   // Winter (winter.ts): clothes wear, people dress from the stores, winter homes burn fuel, the autumn warning.
   for (const c of clans) withClan(c, () => winterDawn(day));
+  // Agriculture extras (agri.ts): the sourdough starter goes bad when no baker tends it.
+  for (const c of clans) withClan(c, agriDawn);
 }
 
 // Creative / test hooks: jump the calendar to (season, day) of the current year (the clock keeps its time of day;

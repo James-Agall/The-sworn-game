@@ -427,6 +427,11 @@ function bestOfRole(role: string, clan: number): RoomRec | null {
   return best;
 }
 
+// Agriculture extras: the clan has a kitchen room (its meat is cooked: raw-meat sickness halved).
+export function clanHasKitchen(clan: number): boolean {
+  return bestOfRole("kitchen", clan) !== null;
+}
+
 // The sleep quality q (-1..1) of a person whose home is (homeX, homeY): a bed in a bedroom / barracks, else 0.
 export function sleepQualityAt(homeX: number, homeY: number): number {
   if (homeX < 0 || !inBounds(homeX, homeY) || state.tiles[tileIndex(homeX, homeY)] !== TileType.Bed) return 0;

@@ -69,6 +69,8 @@ import { trainInfo, villageLevyInfo } from "./people.js";
 import { buildingPostsInfo } from "./work.js";
 import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
 import { CLAY_PIT_WATER_RADIUS_TILES } from "@colony/shared/progression";
+import { AGRI_BUILDING_TILES, SALT_WORKS_WATER_RADIUS_TILES } from "@colony/shared/agri";
+import { noteOrchardPlanted } from "./agri.js";
 import { MINE_LABEL, depositMineFor } from "@colony/shared/mines";
 import { mineInfo } from "./mines.js";
 import {
@@ -320,6 +322,8 @@ export function resolveOrchardPlacement(tx: number, ty: number) {
   const upgraded = tryLevelUpInPlace(tx, ty, [TileType.Orchard]);
   if (upgraded) return;
   setTile(tileIndex(tx, ty), TileType.Orchard);
+  // Agriculture extras: a new orchard is a sapling (its age counts from today).
+  noteOrchardPlanted(tx, ty);
   broadcastTileUpdate(tx, ty, TileType.Orchard);
   staffPost(tx, ty, "farmhand");
 }
@@ -375,8 +379,7 @@ export function resolveBreweryPlacement(tx: number, ty: number) {
 }
 
 // Progression tree phase 3: the metal chain's artisan stations (Charcoal Burner, Bloomery).
-export function clayPitWaterNear(tx: number, ty: number): boolean {
-  const r = CLAY_PIT_WATER_RADIUS_TILES;
+export function clayPitWaterNear(tx: number, ty: number, r = CLAY_PIT_WATER_RADIUS_TILES): boolean {
   for (let y = ty - r; y <= ty + r; y++) {
     for (let x = tx - r; x <= tx + r; x++) {
       const t = tileAtOrNone(x, y);
@@ -391,7 +394,8 @@ export function resolveStationPlacement(tx: number, ty: number, tile: TileType) 
   if (upgraded) return;
   setTile(tileIndex(tx, ty), tile);
   broadcastTileUpdate(tx, ty, tile);
-  staffPost(tx, ty, "artisan");
+  // Agriculture extras: the Cellar has no worker.
+  if (tile !== TileType.Cellar) staffPost(tx, ty, "artisan");
 }
 
 export function resolveTavernPlacement(tx: number, ty: number) {
@@ -569,6 +573,11 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
     case TileType.CoalMine:
     case TileType.CopperMine:
     case TileType.TinMine:
+    // Agriculture extras: the same rule.
+    case TileType.SaltWorks:
+    case TileType.Smokehouse:
+    case TileType.Dairy:
+    case TileType.Cellar:
     // Stardew phase 5d: animal houses, the same rule.
     case TileType.ChickenCoop:
     case TileType.LivestockBarn:
@@ -1118,6 +1127,11 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
     sendEvent(player, "build", `A Clay Pit needs water within ${CLAY_PIT_WATER_RADIUS_TILES} tiles: a pond, a river or a dug Moat`);
     return;
   }
+  // Agriculture extras: a new Salt Works boils brine: water within SALT_WORKS_WATER_RADIUS_TILES.
+  if (!upgradeInPlace && tile === TileType.SaltWorks && !state.creative && !clayPitWaterNear(tx, ty, SALT_WORKS_WATER_RADIUS_TILES)) {
+    sendEvent(player, "build", `A Salt Works needs water within ${SALT_WORKS_WATER_RADIUS_TILES} tiles: a pond, a river or a dug Moat (brine)`);
+    return;
+  }
 
   // Progression tree: tools, buildings and (phase 2) worker levels gate new buildings and upgrades.
   const locked = progressionBlocker(tile, current, tx, ty, upgradeInPlace);
@@ -1372,7 +1386,8 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     resolveTavernPlacement(tx, ty);
     return;
   }
-  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery || tile === TileType.ClayPit || tile === TileType.Kiln || depositMineFor(tile)?.mine === tile) {
+  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery || tile === TileType.ClayPit || tile === TileType.Kiln || depositMineFor(tile)?.mine === tile ||
+    AGRI_BUILDING_TILES.includes(tile)) {
     resolveStationPlacement(tx, ty, tile);
     return;
   }

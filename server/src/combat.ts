@@ -56,6 +56,7 @@ import { noteQuestKill } from "./quests.js";
 import { noteLevyDied } from "./vassals.js";
 import { noteRoomBlood } from "./structures.js";
 import { onHeroDeath, updateHeirChoices } from "./people.js";
+import { bakeryBurned } from "./agri.js";
 
 export function getMobById(id: string): Mob | undefined {
   return mobs.get(id);
@@ -538,6 +539,8 @@ export function damageBuilding(tx: number, ty: number, amount: number) {
   const s = structureHp(tx, ty);
   if (!s) return;
   const hp = s.hp - amount;
+  // Agriculture extras: a burning (or destroyed) Bakery loses the clan's sourdough starter.
+  if (t === TileType.Bakery && own0 === 0) bakeryBurned(tx, ty, hp / s.max);
   if (hp > 0) {
     buildingHp.set(resourceKey(tx, ty), hp);
     return;

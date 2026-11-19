@@ -64,6 +64,7 @@ import {
 import { stepSimulation } from "./sim.js";
 import { calendarSnapshot } from "./calendar.js";
 import { winterSnapshot } from "./winter.js";
+import { agriSnapshot } from "./agri.js";
 import { encodeDeltaSnapshot, newPlayerDeltaState, pruneDeltaNums, resetDeltaJsonCache } from "./snapshotDelta.js";
 import {
   handleLoadGame, handleSaveGame, listSaves, resetWorld, runDueAutosave, saveOnShutdown, sendTo,
@@ -586,7 +587,7 @@ setInterval(() => {
       // Gap closure G4: today's seasonal daylight share (the sundial redraws its day / night arcs on a change).
       dayFraction: dayTicksAt() / GAME_DAY_TICKS,
       calendar: calendarNowSnap,
-      ...(winterNow ? { winter: winterSnapshot() } : {}),
+      ...(winterNow ? { winter: winterSnapshot(), agri: agriSnapshot() } : {}),
       isPaused: state.isPaused,
       ...(state.pausedBy ? { pausedBy: state.pausedBy } : {}),
       timeScale: state.timeScale,

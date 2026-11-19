@@ -14,6 +14,9 @@ import {
 } from "@colony/shared/zones";
 import { CLAY_PIT_WATER_RADIUS_TILES, TABLEWARE_HAPPINESS, TABLEWARE_MIN } from "@colony/shared/progression";
 import {
+  ALE_HAPPINESS, CELLAR_SPOIL_CUT, IRON_PLOW_GROWTH_MULT, IRON_PLOW_YIELD_MULT, ORCHARD_YIELD_BY_AGE, SALT_WORKS_WATER_RADIUS_TILES, SPOIL_PER_DAY,
+} from "@colony/shared/agri";
+import {
   ROOM_BARRACKS_MIN_BEDS, ROOM_BEAUTY_POINTS, ROOM_WARMTH_AREA_TILES, ROOM_WARMTH_PER_HEARTH, ROOM_WARMTH_PER_LAMP, ROOM_WORKBENCH_MAX,
   ROOM_WORKBENCH_SPEED,
 } from "@colony/shared/rooms";
@@ -186,7 +189,7 @@ export const TOOLS: ToolDef[] = [
   // Pasture animals (2026-11-06, shared PASTURE_YIELDS): the Pasture is the Cow pasture; pigs have no free hotkey.
   { tile: TileType.Pasture, label: "Cow pasture", key: "p", cost: `${buildCostText(TileType.Pasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.Pasture)}`, category: "farming", legacy: true },
   { tile: TileType.PigPasture, label: "Pig pasture", key: "", cost: `${buildCostText(TileType.PigPasture)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.PigPasture)}`, category: "farming", legacy: true },
-  { tile: TileType.Orchard, label: "Orchard (Fruit)", key: "o", cost: `${buildCostText(TileType.Orchard)}, 2x2 (the tile you place on is its top-left corner; upgradeable)`, category: "farming" },
+  { tile: TileType.Orchard, label: "Orchard (Fruit)", key: "o", cost: `${buildCostText(TileType.Orchard)}, 2x2 (the tile you place on is its top-left corner; upgradeable). Saplings mature over the years: fruit x${ORCHARD_YIELD_BY_AGE.join(" / x")} in years 1 / 2 / 3 / 4+`, category: "farming" },
   { tile: TileType.WoolFarm, label: "Sheep Pasture", key: "f", cost: `${buildCostText(TileType.WoolFarm)}, 2x2 (the tile you place on is its top-left corner; upgradeable). ${pastureYieldText(TileType.WoolFarm)}`, category: "farming", legacy: true },
   { tile: TileType.CottonFarm, label: "Hemp Field", key: "n", cost: `Free; walkable like a Farm Plot. Needs: a Barn nearby (tended by its farmers within ${BARN_FIELD_RADIUS_TILES} tiles). Retired: creative mode only (paint a Growing zone)`, category: "farming", legacy: true },
   // Stardew phase 5d: animals live in buildings (shared/src/animals.ts); pastures are retired (creative only).
@@ -216,7 +219,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Blacksmith,
     label: "Blacksmith",
     key: "k",
-    cost: `${buildCostText(TileType.Blacksmith)} (upgradeable). Crafts 1 Iron + 1 Wood → 1 Tools, idles at ${BLACKSMITH_TOOLS_STOCK_CAP} tools`,
+    cost: `${buildCostText(TileType.Blacksmith)} (upgradeable). Crafts 1 Iron + 1 Wood → 1 Tools, idles at ${BLACKSMITH_TOOLS_STOCK_CAP} tools; with 2 Iron blooms in store it first forges an Iron plow (fields +${Math.round((IRON_PLOW_GROWTH_MULT - 1) * 100)}% growth, +${Math.round((IRON_PLOW_YIELD_MULT - 1) * 100)}% yield)`,
     category: "industry",
   },
   {
@@ -279,6 +282,35 @@ export const TOOLS: ToolDef[] = [
     cost: `${buildCostText(TileType.TinMine)} (upgradeable), on tin ore. Needs an Iron Mine. A miner digs 1 Tin ore a batch (kept for bronze)`,
     category: "industry",
   },
+  // Agriculture extras (shared/src/agri.ts; no free key: button only).
+  {
+    tile: TileType.SaltWorks,
+    label: "Salt Works",
+    key: "",
+    cost: `${buildCostText(TileType.SaltWorks)} (upgradeable). Needs 2 Clay pots and water within ${SALT_WORKS_WATER_RADIUS_TILES} tiles (brine). A salter boils 2 Salt from 1 Wood`,
+    category: "farming",
+  },
+  {
+    tile: TileType.Smokehouse,
+    label: "Smokehouse",
+    key: "",
+    cost: `${buildCostText(TileType.Smokehouse)} (upgradeable). Needs a Hunter's Hut. 4 Meat + 1 Salt → 4 Salted meat, else 4 Meat + 2 Wood → 4 Smoked meat: keeps, safe (raw meat makes people sick)`,
+    category: "farming",
+  },
+  {
+    tile: TileType.Dairy,
+    label: "Dairy",
+    key: "",
+    cost: `${buildCostText(TileType.Dairy)} (upgradeable). Needs a Livestock Barn. 1 Hide → 2 Rennet; 4 Milk + 1 Rennet → 2 Cheese (keeps)`,
+    category: "farming",
+  },
+  {
+    tile: TileType.Cellar,
+    label: "Cellar",
+    key: "",
+    cost: `${buildCostText(TileType.Cellar)} (upgradeable). Needs 6 Bricks. No worker: the clan's food spoils ${CELLAR_SPOIL_CUT.map((c) => Math.round(c * 100)).join(" / ")}% slower by its level (raw ${Math.round(SPOIL_PER_DAY.raw * 100)}%, fresh ${Math.round(SPOIL_PER_DAY.fresh * 100)}%, dry ${Math.round(SPOIL_PER_DAY.dry * 100)}% a day; clay pots and storerooms help too)`,
+    category: "farming",
+  },
   // Phase 4: food. No free key left for these two (key "": button only).
   {
     tile: TileType.Mill,
@@ -300,7 +332,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Brewery,
     label: "Brewery",
     key: "r",
-    cost: `${buildCostText(TileType.Brewery)} (upgradeable). Brews 2 Grain → 1 Alcohol`,
+    cost: `${buildCostText(TileType.Brewery)} (upgradeable). Brews 2 Grain → 1 Alcohol; with Hops in store (a Growing zone set to Hops) 2 Grain + 1 Hops → 2 Ale (graded: +${ALE_HAPPINESS.join(" / +")} happiness by grade)`,
     category: "industry",
   },
   {

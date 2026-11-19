@@ -377,6 +377,16 @@ export interface ClanProgress {
   // Winter (server/src/winter.ts): the last cold day's burn: its calendar day, the home keys ("x,y") left cold and
   // the spare heat carried over (optional: older saves and warm seasons have none).
   winter?: { day: number; cold: string[]; carry: number };
+  // Agriculture extras (server/src/agri.ts; optional: older saves have none): dawns the sourdough starter has gone
+  // untended, food units spoiled at the last dawn, sick people (colonist id -> dawns left) and the spoilage remainders
+  // carried per item.
+  agri?: AgriState;
+}
+export interface AgriState {
+  untended: number;
+  spoiled: number;
+  sick: Record<string, number>;
+  carry: Record<string, number>;
 }
 export function newClanProgress(): ClanProgress {
   const items: ClanProgress["items"] = {};

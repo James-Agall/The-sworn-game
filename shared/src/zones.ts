@@ -12,11 +12,13 @@ export const ZONE_KIND_LABEL: Record<ZoneKind, string> = { growing: "Growing zon
 export const ZONE_KIND_COLOR: Record<ZoneKind, number> = { growing: 0x6fcf4f, stockpile: 0xe0b040, home: 0x4fa8e0, animal: 0xc070d0 };
 
 // ---- crops (yields / times: server/src/constants.ts ZONE_* from the Farm Plot / Hemp Field numbers) ----
-export type CropId = "wheat" | "hemp";
-export const CROPS: readonly CropId[] = ["wheat", "hemp"];
-export const CROP_LABEL: Record<CropId, string> = { wheat: "Wheat (grain)", hemp: "Hemp (cloth)" };
-// Stock resource each crop yields.
-export const CROP_RESOURCE: Record<CropId, "grain" | "cotton"> = { wheat: "grain", hemp: "cotton" };
+// Agriculture extras: hops (shared/src/agri.ts HOPS_PER_TILE) go straight into the stores as an item (no loose pile).
+export type CropId = "wheat" | "hemp" | "hops";
+export const CROPS: readonly CropId[] = ["wheat", "hemp", "hops"];
+export const CROP_LABEL: Record<CropId, string> = { wheat: "Wheat (grain)", hemp: "Hemp (cloth)", hops: "Hops (ale)" };
+// Stock resource each crop yields (null: an item, see CROP_ITEM).
+export const CROP_RESOURCE: Record<CropId, "grain" | "cotton" | null> = { wheat: "grain", hemp: "cotton", hops: null };
+export const CROP_ITEM: Partial<Record<CropId, "hops">> = { hops: "hops" };
 
 // Per growing tile. Stage 0 untilled (no state stored), 1 tilled, 2 sown, 3 growing, 4 ripe.
 export const CropStage = { Untilled: 0, Tilled: 1, Sown: 2, Growing: 3, Ripe: 4 } as const;

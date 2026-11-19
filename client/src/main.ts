@@ -55,6 +55,7 @@ import { setupWeatherOverlay } from "./weather";
 import { opaqueBox, type InteriorUi, setupInterior } from "./interior";
 import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
 import { FUEL_LOW_DAYS, type WinterSnapshot } from "@colony/shared/winter";
+import type { AgriSnapshot } from "@colony/shared/agri";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
@@ -4331,6 +4332,28 @@ async function main() {
     clothesEl.title = `${w.people - w.needClothes} of ${w.people} warmly dressed; ${w.garments} garment${w.garments === 1 ? "" : "s"} in store`;
     winterWarnEl.textContent = w.warning ?? "";
   }
+  // Agriculture extras (shared/src/agri.ts): how fast raw food spoils after the stores' protection, sick people and the
+  // sourdough starter. Hidden with seasons off (no `agri` field).
+  const agriRowEl = document.getElementById("stat-agri")!;
+  const spoilEl = document.getElementById("stat-spoil")!;
+  const sickEl = document.getElementById("stat-sick")!;
+  let shownAgri = "";
+  function refreshAgri(a: AgriSnapshot | undefined) {
+    const key = JSON.stringify(a ?? null);
+    if (key === shownAgri) return;
+    shownAgri = key;
+    agriRowEl.hidden = !a;
+    if (!a) return;
+    const pct = (n: number) => `${Math.round(n * 1000) / 10}%`;
+    spoilEl.textContent = `Raw food spoils ${pct(a.raw)}/day`;
+    spoilEl.classList.toggle("low", a.raw >= 0.04);
+    const keeps = [a.cellarLevel > 0 ? `Cellar L${a.cellarLevel} -${pct(a.cellar)}` : "no Cellar", a.pots > 0 ? `pots -${pct(a.pots)}` : "no pots", a.storeroom > 0 ? `storerooms -${pct(a.storeroom)}` : "no storeroom"];
+    spoilEl.title = `Per day: raw ${pct(a.raw)}, fresh ${pct(a.fresh)}, dry ${pct(a.dry)} (${keeps.join(", ")}); ${a.spoiled} food went off at the last dawn`;
+    const starter = a.starter === "none" ? "" : a.starter === "kept" ? "; sourdough starter kept" : `; starter untended ${a.starter} day${a.starter === 1 ? "" : "s"}`;
+    sickEl.textContent = a.sick > 0 ? `Sick: ${a.sick}` : "Healthy";
+    sickEl.classList.toggle("low", a.sick > 0 || typeof a.starter === "number");
+    sickEl.title = `${a.sick} of ${a.people} sick from bad food${starter}`;
+  }
   app.stage.addChild(pausedBanner);
 
   app.ticker.add(() => {
@@ -5534,6 +5557,7 @@ async function main() {
     TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery,
     TileType.ClayPit, TileType.Kiln, TileType.ChickenCoop, TileType.LivestockBarn, TileType.PigSty, TileType.SheepPen,
     TileType.CoalMine, TileType.CopperMine, TileType.TinMine,
+    TileType.SaltWorks, TileType.Smokehouse, TileType.Dairy, TileType.Cellar,
     ...NEW_STRUCTURE_TILES,
   ]);
   const buildingPanelEl = document.getElementById("building-panel")!;
@@ -7574,6 +7598,7 @@ async function main() {
       statTimeEl.textContent = message.isNight ? "Night" : "Day";
       refreshCalendar(message.calendar);
       refreshWinter(message.winter);
+      refreshAgri(message.agri);
       sundialEl.classList.toggle("night", message.isNight);
       sundialHandEl.setAttribute("transform", `rotate(${message.cycleProgress * 360})`);
       if (message.dayFraction !== sundialDayFraction) {

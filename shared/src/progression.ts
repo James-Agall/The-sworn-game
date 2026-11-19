@@ -21,7 +21,9 @@ export type ItemId =
   // the mine fittings (lamps lower re-infestation; the vent and pump are the deep-shaft gates).
   | "coal" | "copperOre" | "tinOre" | "bones" | "gems" | "mineLamps" | "mineVent" | "minePump"
   // Winter (phase 4, shared/src/winter.ts): the Tailor's garments, worn by people (wardrobes) against the cold.
-  | "tunic" | "coat" | "boots";
+  | "tunic" | "coat" | "boots"
+  // Agriculture extras (phase 5, shared/src/agri.ts): preserved foods and their inputs, the iron plow, hops and ale.
+  | "salt" | "smokedMeat" | "saltedMeat" | "rennet" | "cheese" | "ironPlow" | "hops" | "hopSeeds" | "ale";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "clothes" | "tools";
 
@@ -101,7 +103,7 @@ export function chainBuildingTiles(): TileType[] {
 
 export type Profession =
   | "woodcutter" | "miner" | "farmer" | "farmhand" | "tailor" | "smith" | "smelter" | "collier" | "miller" | "baker" | "jeweler"
-  | "brewer" | "innkeeper" | "hunter" | "forager" | "herder" | "digger" | "potter";
+  | "brewer" | "innkeeper" | "hunter" | "forager" | "herder" | "digger" | "potter" | "salter" | "smoker" | "dairyman";
 
 // Worker XP: one point per second at work. Level L needs WORKER_XP_LEVELS[L - 1] XP (level 1 at 0).
 export const WORKER_XP_LEVELS = [0, 100, 300, 700];
@@ -172,6 +174,15 @@ export const PROGRESSION = {
     tunic: { label: "Wool tunic", desc: "Sewn at the Tailor Shop. Warmth 1: with boots, dressed for winter. People take one from the stores themselves.", group: "tool" },
     coat: { label: "Winter coat", desc: "Sewn at the Tailor Shop. Warmth 2: dressed for winter on its own. Outdoors in winter without warm clothes: x0.6 work, slower, slowly hurt.", group: "tool" },
     boots: { label: "Boots", desc: "Hide boots from the Tailor Shop. Warmth 1: with a tunic, dressed for winter. Better grades wear out slower.", group: "tool" },
+    salt: { label: "Salt", desc: "Boiled from brine at the Salt Works. The Smokehouse cures meat with it (salted meat keeps).", group: "material" },
+    smokedMeat: { label: "Smoked meat", desc: "Smoked at the Smokehouse: keeps (no spoilage), safe to eat. Eaten after the fresh food runs out.", group: "food" },
+    saltedMeat: { label: "Salted meat", desc: "Cured with salt at the Smokehouse: keeps (no spoilage), safe to eat. The winter reserve.", group: "food" },
+    rennet: { label: "Rennet", desc: "Prepared from hides at the Dairy. Sets milk into cheese.", group: "material" },
+    cheese: { label: "Cheese", desc: "Made from milk and rennet at the Dairy: keeps, filling, a happiness bonus.", group: "food" },
+    ironPlow: { label: "Iron plow", desc: "Forged at the Blacksmith. In store: every farm field grows 25% faster and yields 25% more.", group: "tool" },
+    hops: { label: "Hops", desc: "Harvested from a Growing zone set to Hops (summer to autumn). The Brewery brews ale with them.", group: "material" },
+    hopSeeds: { label: "Hop cuttings", desc: "The hero plants one per tilled tile (seed bag, press again for hops).", group: "material" },
+    ale: { label: "Ale", desc: "Hopped ale from the Brewery (grain + hops). In store: a happiness bonus by its best grade; drunk at dawn.", group: "food" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -193,6 +204,7 @@ export const PROGRESSION = {
     { id: "shears", label: "Knap shears", output: "shears", amount: 1, stock: { rock: 2, wood: 1 }, needs: { stoneKnife: 1 }, station: "hand" },
     { id: "milkPail", label: "Make a milk pail", output: "milkPail", amount: 1, stock: { wood: 3 }, needs: { carpenterTools: 1 }, station: "hand" },
     { id: "herbs", label: "Dry healing herbs", output: "herbs", amount: 2, stock: { fruit: 3 }, station: "hand" },
+    { id: "hopSeeds", label: "Take hop cuttings", output: "hopSeeds", amount: 4, items: { hops: 2 }, station: "hand" },
     { id: "gruel", label: "Boil wheat gruel", output: "gruel", amount: 3, stock: { grain: 3, wood: 1 }, station: "hand" },
     // Deep mines: the fittings.
     { id: "mineLamps", label: "Make miner's lamps", output: "mineLamps", amount: 1, stock: { iron: 2, wood: 2 }, station: "hand" },
@@ -227,6 +239,17 @@ export const PROGRESSION = {
     { id: "coat", label: "Sew a winter coat", output: "coat", amount: 1, stock: { clothes: 2, wool: 2 }, station: TileType.TailorShop, seconds: 45, cap: 20, seasonsOnly: true },
     { id: "boots", label: "Sew boots", output: "boots", amount: 1, items: { hide: 2 }, station: TileType.TailorShop, seconds: 30, cap: 20, seasonsOnly: true },
     { id: "tunic", label: "Sew a wool tunic", output: "tunic", amount: 1, stock: { clothes: 1, wool: 1 }, station: TileType.TailorShop, seconds: 30, cap: 20, seasonsOnly: true },
+    // Agriculture extras (shared/src/agri.ts). The Salt Works boils brine with wood; the Smokehouse cures meat with salt
+    // when there is some, else smokes it; the Dairy prepares rennet from hides, then sets milk into cheese.
+    { id: "salt", label: "Boil salt", output: "salt", amount: 2, stock: { wood: 1 }, station: TileType.SaltWorks, seconds: 30, cap: 40 },
+    { id: "saltedMeat", label: "Cure salted meat", output: "saltedMeat", amount: 4, stock: { meat: 4 }, items: { salt: 1 }, station: TileType.Smokehouse, seconds: 40, cap: 60 },
+    { id: "smokedMeat", label: "Smoke meat", output: "smokedMeat", amount: 4, stock: { meat: 4, wood: 2 }, station: TileType.Smokehouse, seconds: 60, cap: 60 },
+    { id: "rennet", label: "Prepare rennet", output: "rennet", amount: 2, items: { hide: 1 }, station: TileType.Dairy, seconds: 30, cap: 4 },
+    { id: "cheese", label: "Make cheese", output: "cheese", amount: 2, items: { milk: 4, rennet: 1 }, station: TileType.Dairy, seconds: 60, cap: 40 },
+    // The Blacksmith forges the iron plow (one is enough) before its tools; the Brewery brews hopped ale while hops are
+    // in store, else plain ale (alcohol) as before.
+    { id: "ironPlow", label: "Forge an iron plow", output: "ironPlow", amount: 1, stock: { wood: 4 }, items: { ironBloom: 2 }, station: TileType.Blacksmith, seconds: 60, cap: 1 },
+    { id: "ale", label: "Brew hopped ale", output: "ale", amount: 2, stock: { grain: 2 }, items: { hops: 1 }, station: TileType.Brewery, seconds: 40, cap: 30 },
   ] as Recipe[],
   // What each building needs. Buildings not listed are open from the start.
   buildings: {
@@ -306,6 +329,12 @@ export const PROGRESSION = {
     // A house's top tier (Cottage level 3) needs a tiled roof (the level-2 row is the BigHouse's: upgrades read the
     // row of the tile being upgraded).
     [TileType.BigHouse]: { levels: { 3: { items: { roofTiles: 4 } } } },
+    // Agriculture extras: salt pans are clay-lined (pots kept), the Smokehouse hangs a hunter's meat, the Dairy needs
+    // cows (a Livestock Barn), the Cellar is brick-vaulted.
+    [TileType.SaltWorks]: { requires: { items: { clayPot: 2 } } },
+    [TileType.Smokehouse]: { requires: { buildings: [{ tile: TileType.HunterHut }] } },
+    [TileType.Dairy]: { requires: { buildings: [{ tile: TileType.LivestockBarn }] } },
+    [TileType.Cellar]: { requires: { items: { bricks: 6 } } },
   } as Partial<Record<TileType, BuildingReq>>,
   // The profession a station's workers train in (XP per profession per person).
   stations: {
@@ -339,6 +368,9 @@ export const PROGRESSION = {
     [TileType.SheepPen]: "herder",
     [TileType.ClayPit]: "digger",
     [TileType.Kiln]: "potter",
+    [TileType.SaltWorks]: "salter",
+    [TileType.Smokehouse]: "smoker",
+    [TileType.Dairy]: "dairyman",
   } as Partial<Record<TileType, Profession>>,
   // The Progression panel's chains (order only: every step's needs come from `buildings` / `recipes` above).
   chains: [
@@ -347,6 +379,8 @@ export const PROGRESSION = {
     { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }] },
     { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
     { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },
+    { id: "keeping", label: "Keeping food", steps: [{ building: TileType.Cellar }, { building: TileType.SaltWorks }, { item: "salt" }, { building: TileType.Smokehouse }, { item: "smokedMeat" }, { item: "saltedMeat" }, { building: TileType.Dairy }, { item: "rennet" }, { item: "cheese" }] },
+    { id: "fields", label: "Fields & drink", steps: [{ item: "woodenPlow" }, { item: "ironPlow" }, { item: "hops" }, { item: "ale" }] },
     { id: "cloth", label: "Cloth", steps: [{ building: TileType.WoolFarm }, { building: TileType.CottonFarm }, { building: TileType.TailorShop }, { item: "tunic" }, { item: "coat" }, { item: "boots" }] },
     { id: "military", label: "Military", steps: [{ building: TileType.MilitiaPost }, { building: TileType.ArcherPost }, { building: TileType.KnightPost }, { building: TileType.Stables }, { building: TileType.SiegeWorkshop }] },
     { id: "animals", label: "Animals", steps: [{ building: TileType.ChickenCoop }, { item: "egg" }, { item: "carpenterTools" }, { building: TileType.LivestockBarn }, { building: TileType.PigSty }, { building: TileType.SheepPen }, { item: "milk" }] },
@@ -360,7 +394,8 @@ export const PROGRESSION = {
 export const PROFESSION_LABEL: Record<Profession, string> = {
   woodcutter: "Woodcutter", miner: "Miner", farmer: "Farmer", farmhand: "Farmhand", tailor: "Tailor", smith: "Smith",
   smelter: "Smelter", collier: "Collier", miller: "Miller", baker: "Baker", jeweler: "Jeweler", brewer: "Brewer", innkeeper: "Innkeeper",
-  hunter: "Hunter", forager: "Forager", herder: "Animal Keeper", digger: "Digger", potter: "Potter",
+  hunter: "Hunter", forager: "Forager", herder: "Animal Keeper", digger: "Digger", potter: "Potter", salter: "Salter",
+  smoker: "Smoker", dairyman: "Dairy hand",
 };
 
 // Names for the buildings the table refers to (needs text).
@@ -388,6 +423,10 @@ export const PROGRESSION_BUILDING_LABEL: Partial<Record<TileType, string>> = {
   [TileType.CoalMine]: "Coal Mine",
   [TileType.CopperMine]: "Copper Mine",
   [TileType.TinMine]: "Tin Mine",
+  [TileType.SaltWorks]: "Salt Works",
+  [TileType.Smokehouse]: "Smokehouse",
+  [TileType.Dairy]: "Dairy",
+  [TileType.Cellar]: "Cellar",
 };
 
 // Smith training (plan §2): a level-1 smith makes tools only; forging tier-1/2 gear needs level 2, tier 3 level 3.
@@ -442,14 +481,18 @@ export function recipeCostText(r: Recipe): string {
 }
 
 // Phase 4: food items eaten at dawn before grain / meat / fruit (food units each; bread most filling) and their
-// colony happiness bonus while in stock (bread +2 per grade above Poor).
-export const FOOD_ITEMS: { id: ItemId; food: number; happiness: number }[] = [
+// colony happiness bonus while in stock (bread +2 per grade above Poor). Agriculture extras: `preserved` foods keep, so
+// they are eaten only after the grain / meat / fruit runs short (the winter reserve).
+export const FOOD_ITEMS: { id: ItemId; food: number; happiness: number; preserved?: boolean }[] = [
   { id: "bread", food: 3, happiness: 8 },
   { id: "flatbread", food: 2, happiness: 3 },
   { id: "gruel", food: 1.2, happiness: 0 },
   // Stardew phase 5d: animal products.
   { id: "milk", food: 1, happiness: 2 },
   { id: "egg", food: 0.5, happiness: 2 },
+  { id: "cheese", food: 2, happiness: 4, preserved: true },
+  { id: "smokedMeat", food: 2, happiness: 3, preserved: true },
+  { id: "saltedMeat", food: 2, happiness: 2, preserved: true },
 ];
 
 // ---- Clay pit and pottery (PLAN-agri-industry-winter-mines.md phase 2) ----

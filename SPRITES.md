@@ -1113,3 +1113,14 @@ No live deployment and no push. Visual taste and prolonged multiplayer animation
 - Garment items (Wool tunic, Winter coat, Boots): no icon; the Resources panel's lettered chip stands in.
 - Wanted: item icons for a wool tunic, a winter coat and boots (the `item:` icon size of the Resources panel), a
   "cold" person badge (a shivering figure or a blue thermometer), and optional coat overlays for villagers in winter.
+
+## #113 Agriculture extras stand-ins (2026-11-19)
+- Buildings (tinted stand-ins, client/src/worldVisuals.ts): Salt Works = `campfire` tinted white 0xe8e8f0; Smokehouse =
+  `tavern` tinted smoky brown 0x8a6a58; Dairy = `barn` tinted cream 0xf4f0d8; Cellar = `quarry` tinted 0x9a8a78.
+- Hops crop: the hemp crop stages tinted pale green 0xc8f0a0 (client/src/zones.ts).
+- Items (Salt, Smoked meat, Salted meat, Rennet, Cheese, Iron plow, Hops, Hop cuttings, Ale): no icon; the Resources
+  panel's lettered chip stands in.
+- Person card "Sick: bad food" badge: a plain ochre chip, no icon.
+- Wanted: salt pans (a brine hearth with pans), a smokehouse (hut with smoke and hanging meat), a dairy (whitewashed
+  hut with churns), a cellar door (stone steps into a mound); hop bines on poles (sown / growing / ripe); item icons for
+  the nine items; a "sick" badge icon (a green face or a bowl).

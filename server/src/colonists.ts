@@ -52,6 +52,7 @@ import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, spawnHeroC
 import { broadcastEvent, broadcastTileUpdate } from "./net.js";
 import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
 import { minerFlees, mineWorkMult } from "./mines.js";
+import { aleHappinessBonus, drinkAle, eatPreservedFood, foodSickness, orchardYieldMult, sicknessPenalty } from "./agri.js";
 import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, tablewareHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
@@ -121,13 +122,15 @@ export function countTilesOfType(tileType: TileType): number {
 
 export function computeColonyHappiness(): number {
   const h = colonyHappinessParts();
-  const happiness = h.foodVariety + h.scenery + h.tavern + h.food + h.tableware + h.rooms + h.drink - h.winterCold - h.coldHomes;
+  const happiness = h.foodVariety + h.scenery + h.tavern + h.food + h.tableware + h.rooms + h.drink + h.ale - h.winterCold - h.coldHomes - h.sickness;
   return Math.max(0, Math.min(100, Math.round(happiness)));
 }
 
 // The weighted terms of colony happiness (computeColonyHappiness sums them; the balanceState test hook reports them).
 export function colonyHappinessParts() {
-  const foodTypesAvailable = (["grain", "meat", "fruit"] as const).filter((k) => state.stock[k] > 0).length;
+  // Agriculture extras: smoked / salted meat counts as meat (a Smokehouse turns the raw meat into it).
+  const preservedMeat = (["smokedMeat", "saltedMeat"] as const).some((id) => (state.progress.items[id] ?? []).some((n) => n > 0));
+  const foodTypesAvailable = (["grain", "meat", "fruit"] as const).filter((k) => state.stock[k] > 0 || (k === "meat" && preservedMeat)).length;
   const foodVarietyScore = (foodTypesAvailable / 3) * 100;
 
   const treeCount = countTilesOfType(TileType.Tree);
@@ -162,6 +165,9 @@ export function colonyHappinessParts() {
     coldHomes: coldHomePenalty(),
     // Gap closure G5: a drink bought at a tavern (herolife.ts).
     drink: tavernCheerHappiness(state.clan.id),
+    // Agriculture extras (agri.ts): hopped ale in store; people sick from bad food.
+    ale: aleHappinessBonus(),
+    sickness: sicknessPenalty(),
   };
 }
 
@@ -914,7 +920,9 @@ export function applyDailyFoodConsumption() {
   const consumerCount = consumers.length;
   if (consumerCount === 0) return;
   // Progression tree phase 4: bread / flatbread / gruel first.
-  let needed = eatFoodItems(Math.ceil(consumerCount * FOOD_PER_COLONIST_PER_DAY));
+  const want = Math.ceil(consumerCount * FOOD_PER_COLONIST_PER_DAY);
+  let needed = eatFoodItems(want);
+  const meat0 = state.stock.meat;
   // Phase 6 balance (2026-11-10): eaten in proportion to the stock (was grain, then meat, then fruit), so a big fruit
   // store no longer leaves the grain / meat at 0 every dawn (food variety is a third of colony happiness).
   const kinds = ["grain", "meat", "fruit"] as const;
@@ -936,6 +944,11 @@ export function applyDailyFoodConsumption() {
     }
     needed -= share - left;
   }
+  // Agriculture extras (agri.ts): the raw meat eaten, then the preserved foods (the reserve), ale, and sickness.
+  const rawMeat = Math.max(0, meat0 - state.stock.meat);
+  needed = Math.ceil(eatPreservedFood(needed));
+  drinkAle(consumers.filter((c) => c.person).length);
+  foodSickness(Math.max(0, want - needed), rawMeat);
   if (needed > 0) {
     for (const c of consumers) {
       damageColonist(c, STARVATION_DAMAGE);
@@ -1107,7 +1120,9 @@ export function updateFarmhand(c: Colonist) {
     // Pasture animals (2026-11-06, shared PASTURE_YIELDS): cows meat + hide, pigs the most meat, sheep wool + meat.
     const tile = state.tiles[tileIndex(c.postX, c.postY)] as TileType;
     // Food balance (2026-11-06): food farms deliver FOOD_OUTPUT_MULT of the batch (hemp is not food).
-    const out = (n: number) => Math.round(n * mult * (FOOD_FARM_TILES.has(tile) ? FOOD_OUTPUT_MULT : 1));
+    // Agriculture extras: an orchard's batch by its age (saplings bear little).
+    const age = tile === TileType.Orchard ? orchardYieldMult(c.postX, c.postY) : 1;
+    const out = (n: number) => Math.round(n * mult * age * (FOOD_FARM_TILES.has(tile) ? FOOD_OUTPUT_MULT : 1));
     const animals = PASTURE_YIELDS[tile];
     if (animals) {
       state.stock.meat += out(animals.meat);

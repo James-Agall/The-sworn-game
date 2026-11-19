@@ -185,7 +185,7 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
       const n = t === "seeds" ? deps.itemCount(SEED_ITEM[crop]) : deps.itemCount(HERO_TOOL_ITEM[t]);
       s.classList.toggle("none", !deps.gatesOpen() && n <= 0);
       countEls[k].textContent = t === "seeds" ? `${crop === "wheat" ? "W" : "H"}${n}` : t === "wateringCan" && life ? String(life.water) : t === "manure" ? String(n) : "";
-      s.title = `${HERO_TOOL_LABEL[t]}${t === "seeds" ? ` (${crop}; press ${k + 1} again for ${crop === "wheat" ? "hemp" : "wheat"})` : ""}${!deps.gatesOpen() && n <= 0 ? ": none in your stores (craft by hand)" : ""}`;
+      s.title = `${HERO_TOOL_LABEL[t]}${t === "seeds" ? ` (${crop}; press ${k + 1} again for ${CROPS[(CROPS.indexOf(crop) + 1) % CROPS.length]})` : ""}${!deps.gatesOpen() && n <= 0 ? ": none in your stores (craft by hand)" : ""}`;
     });
   }
 

@@ -24,8 +24,8 @@ export const WORK_HELP: Record<WorkType, string> = {
   woodcutting: "Lumber Camp posts",
   mining: "Quarry, Iron, Coal, Copper and Tin Mine and Clay Pit posts",
   hunting: "Hunter's Hut and Forager's Hut posts",
-  cooking: "Mill, Bakery, Brewery and Tavern posts",
-  crafting: "Tailor, Blacksmith, Bloomery, Charcoal Burner, Kiln and Jeweler posts",
+  cooking: "Mill, Bakery, Brewery, Tavern, Smokehouse and Dairy posts",
+  crafting: "Tailor, Blacksmith, Bloomery, Charcoal Burner, Kiln, Salt Works and Jeweler posts",
   animals: "Animal houses (coop, barn, sty, pen, stables): fill feeders and troughs, collect eggs / milk / wool",
   hauling: "Carry loose goods (harvests) to stockpiles",
   fighting: "Answer a Town Center's call to arms and train as a soldier (never forced: off = stays home)",
@@ -34,7 +34,8 @@ export const WORK_HELP: Record<WorkType, string> = {
 // The professions (skills) behind each work type; building, hauling and fighting have none.
 export const WORK_PROFESSIONS: Record<WorkType, Profession[]> = {
   building: [], farming: ["farmer", "farmhand"], woodcutting: ["woodcutter"], mining: ["miner", "digger"], hunting: ["hunter", "forager"],
-  cooking: ["miller", "baker", "brewer", "innkeeper"], crafting: ["tailor", "smith", "smelter", "collier", "jeweler", "potter"],
+  cooking: ["miller", "baker", "brewer", "innkeeper", "smoker", "dairyman"],
+  crafting: ["tailor", "smith", "smelter", "collier", "jeweler", "potter", "salter"],
   animals: ["herder"], hauling: [], fighting: [],
 };
 export const PROFESSION_WORK: Record<Profession, WorkType> = Object.fromEntries(
@@ -69,6 +70,8 @@ export interface WorkTabRow {
   // clothes", "Cold home: no fuel"); the person card shows them.
   wardrobe?: string;
   cold?: string[];
+  // Agriculture extras (seasons on): sick from bad food (raw meat / spoiled stores).
+  sick?: boolean;
 }
 export interface WorkTabSnapshot {
   manual: boolean;

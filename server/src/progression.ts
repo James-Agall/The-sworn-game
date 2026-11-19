@@ -21,6 +21,10 @@ import { DEPOSIT_MINES, depositMineFor } from "@colony/shared/mines";
 import { mineWorkMult } from "./mines.js";
 import { coldWorkMult } from "./winter.js";
 import { CRAFT_RECIPES } from "./constants.js";
+import { agriForSave, agriInfo, sanitizeAgri } from "./agri.js";
+
+// A station with old CRAFT_RECIPES work too (Tailor, Blacksmith, Brewery) does that while no tree recipe is ready.
+const CRAFT_MEANWHILE: Record<string, string> = { clothes: "Weaving cloth meanwhile", tools: "Forging tools meanwhile", alcohol: "Brewing plain ale meanwhile" };
 
 // True when no gate applies: creative with "Unlock all" on, or the test-only unlock (COLONY_UNLOCK_ALL).
 export function gatesOpen(): boolean {
@@ -150,7 +154,7 @@ export function progressionInfo(tx: number, ty: number, t: TileType): string[] |
       const job = stationJobs.get(c.id);
       if (job) lines.push(`Making: ${PROGRESSION.items[job.recipe.output].label} (${Math.round(100 * (1 - job.left / job.total))}%)`);
     }
-    if (workers.length > 0 && stationRecipes(t).length > 0 && ![...workers].some((c) => stationJobs.has(c.id))) lines.push(`${CRAFT_RECIPES[t] ? "Weaving cloth meanwhile" : "Idle"}: ${stationIdleReason(t)}`);
+    if (workers.length > 0 && stationRecipes(t).length > 0 && ![...workers].some((c) => stationJobs.has(c.id))) lines.push(`${CRAFT_RECIPES[t] ? CRAFT_MEANWHILE[CRAFT_RECIPES[t]!.output] ?? "Meanwhile" : "Idle"}: ${stationIdleReason(t)}`);
     if (t === TileType.IronMinePost || t === TileType.RockMinePost || depositMineFor(t)) lines.push(depositLine(tx, ty));
     if (workers.length > 0) lines.push(`Works at tier ${tier} of ${level}: speed x${tierSpeed(tier).toFixed(2)}, quality ${QUALITY_GRADES[Math.min(tier, MAX_QUALITY) - 1].label}`);
   }
@@ -158,6 +162,8 @@ export function progressionInfo(tx: number, ty: number, t: TileType): string[] |
     const unmet = unmetUpgrade(tx, ty, t, level + 1);
     if (unmet.length > 0) lines.push(`Level ${level + 1} needs: ${unmet.join(", ")}`);
   }
+  // Agriculture extras: the Cellar's protection, an orchard's age, the starter, the iron plow.
+  lines.push(...agriInfo(tx, ty, t));
   return lines.length > 0 ? lines : null;
 }
 
@@ -288,8 +294,10 @@ export function updateStationWork(c: Colonist): boolean {
 
 // ---- food (phase 4) ----
 // Dawn: food items are eaten before grain / meat / fruit, best first. Returns the food units still needed.
+// Agriculture extras: not the preserved ones (agri.ts eatPreservedFood, after the grain / meat / fruit).
 export function eatFoodItems(needed: number): number {
   for (const f of FOOD_ITEMS) {
+    if (f.preserved) continue;
     while (needed > 0 && itemCount(f.id) > 0) {
       takeItem(f.id, 1);
       needed -= f.food;
@@ -511,6 +519,7 @@ export function progressForSave(c: Clan): ClanProgress {
     prospected: [...(c.progress.prospected ?? [])],
     ...(c.progress.prospecting ? { prospecting: { ...c.progress.prospecting } } : {}),
     ...(c.progress.winter ? { winter: { day: c.progress.winter.day, cold: [...c.progress.winter.cold], carry: c.progress.winter.carry } } : {}),
+    ...(c.progress.agri ? { agri: agriForSave(c.progress.agri) } : {}),
   };
 }
 
@@ -522,6 +531,8 @@ export function restoreProgress(c: Clan, saved: ClanProgress | undefined) {
     c.progress = { items: {}, unlocked: [...(saved.unlocked ?? [])], prospected: [...(saved.prospected ?? [])], prospecting: saved.prospecting };
     const w = saved.winter;
     if (w && typeof w.day === "number" && Array.isArray(w.cold)) c.progress.winter = { day: w.day, cold: w.cold.filter((k) => typeof k === "string"), carry: Number(w.carry) || 0 };
+    const agri = sanitizeAgri(saved.agri);
+    if (agri) c.progress.agri = agri;
     for (const [k, v] of Object.entries(saved.items ?? {})) c.progress.items[k as ItemId] = [0, 1, 2].map((i) => v?.[i] ?? 0);
     return;
   }

@@ -6,6 +6,7 @@ import { type LivestockSave, livestockForSave, restoreLivestock } from "./animal
 import { applySoloStart, resetHeroLifeSessions } from "./herolife.js";
 import { homeDesignsForSave,restoreHomeDesigns,type InteriorChestsSave, interiorChestsForSave, resetInteriors, restoreInteriorChests } from "./interiors.js";
 import { minesForSave, resetMines, restoreMines } from "./mines.js";
+import { orchardsForSave, resetAgri, restoreOrchards } from "./agri.js";
 import { topUpCreative } from "./creative.js";
 import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -181,6 +182,8 @@ function resetWorldAfter() {
   resetInteriors();
   // Deep mines: no mines in a new world.
   resetMines();
+  // Agriculture extras: no orchards planted yet.
+  resetAgri();
   heroRecruits.length = 0;
   state.heroRosterVersion++;
   state.marketBuilt = false;
@@ -323,6 +326,8 @@ function snapshotWorldInner() {
     // Deep mines: every own mine's status, monsters and hazards (optional: older saves have none; their mines start
     // clear at their level).
     mines: minesForSave() as ReturnType<typeof minesForSave> | undefined,
+    // Agriculture extras: [orchard tile index, calendar day planted] (optional: older saves' orchards count as grown).
+    orchards: orchardsForSave() as [number, number][] | undefined,
     // Modular building phase 4: the clans in manual work-priority mode (optional: older saves are all default mode;
     // the priorities themselves are Person.work, saved with the colonists).
     workManual: workForSave() as number[] | undefined,
@@ -568,6 +573,7 @@ function applyWorldInner(s: WorldState) {
   restoreHomeDesigns(s.homeDesigns);
   // Deep mines (optional). A world from before them (no coal / copper / tin anywhere) gets its veins now.
   restoreMines(s.mines);
+  restoreOrchards(s.orchards);
   if (!state.tiles.some((t) => t === TileType.CoalSeam || t === TileType.CopperOre || t === TileType.TinOre || t === TileType.CoalMine || t === TileType.CopperMine || t === TileType.TinMine)) scatterDeposits();
   // Modular building phase 4: work mode (runtime jobs are re-decided).
   restoreWork(s.workManual);

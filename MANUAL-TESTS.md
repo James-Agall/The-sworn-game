@@ -1297,3 +1297,29 @@ Use a normal (seasons on) game; Creative "set season / day" jumps the calendar.
    "Freezing: no warm clothes" and you walk slower; once a coat is in the stores the hero takes it and the line goes away.
 10. Save and reload in winter: cold homes, wardrobes and the panel row are unchanged.
 11. Art check: is the snow-icon badge readable on the card? Is the panel row too long on a narrow window?
+
+## Agriculture extras (2026-11-19)
+Use a normal (seasons on) game; Creative "set season / day" jumps the calendar.
+1. Colony panel, under the winter row: "Raw food spoils 5%/day" (red) and "Healthy". Hover: raw / fresh / dry rates and
+   "no Cellar, no pots, no storeroom".
+2. Fire 15+ clay pots at the Kiln: the rate drops to 3.5%. Build a Cellar (Farming tab, needs 6 bricks): it drops again;
+   click the Cellar: "Cellar level 1: food spoils 30% slower"; upgrade it and the line / rate change.
+3. Salt Works: try it on dry ground (refused: needs water within 2 tiles), then beside a pond with 2 clay pots in store;
+   a salter boils Salt (Resources panel).
+4. Smokehouse (needs a Hunter's Hut): with salt in store Salted meat appears, without salt Smoked meat; raw meat in the
+   stock goes down. Food variety (happiness) does not drop when all the meat is smoked.
+5. Dairy (needs a Livestock Barn) with hides and milk: Rennet, then Cheese.
+6. Leave only raw meat to eat for a day or two: at dawn "N people fell sick from bad food"; click one: "Sick: bad food"
+   badge; the panel says "Sick: N" in red; Happiness drops a little. They recover after 2 dawns on smoked meat / grain.
+7. Bakery with a level-2 baker and a sourdough starter: remove the baker (or demolish the post's worker) for 3 days:
+   "The sourdough starter is lost" event; the Bakery panel showed "untended N of 3 days" meanwhile.
+8. Let bandits set a Bakery on fire (below half HP): the starter is lost.
+9. Blacksmith with 2 iron blooms in store: "Making: Iron plow" in its panel, then an Iron plow under Crafted & tools;
+   a Barn's panel says "Iron plow: fields grow +25% faster, yield +25%".
+10. Paint a Growing zone and set its crop to "Hops (ale)" in the zone list (name "Hop field N"); in summer villagers
+    sow / harvest it and Hops appear in the Resources panel. The hero's seed bag key cycles wheat / hemp / hops.
+11. A Brewery with hops in store makes Ale; Happiness goes up a few points; ale goes down each dawn.
+12. Plant a new Orchard: its panel says "Orchard age: 0 years: fruit x0.25"; an old save's orchard says 2 years, x1.
+13. Save and reload: sick people, the starter, the orchard's age and the Cellar level are unchanged.
+14. Art check: Salt Works (tinted campfire), Smokehouse (tinted tavern), Dairy (tinted barn), Cellar (tinted quarry), hop
+    crops (tinted hemp): readable? Is the new Colony panel row too long on a narrow window?

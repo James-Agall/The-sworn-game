@@ -232,12 +232,14 @@ export function setupZones(opts: { tileSize: () => number; worldTilesX: () => nu
       const x = (i % W) * ts;
       const y = Math.floor(i / W) * ts;
       const species = own ?? cropOf.get(i) ?? "wheat";
-      const names = species === "hemp" ? ["hemp_sown", "hemp_growing", "hemp_ripe"] : ["crop_wheat_stage1", "crop_wheat_stage3", "crop_wheat_stage5"];
+      // Agriculture extras: hops stand in with the hemp art tinted pale green (SPRITES.md #113).
+      const names = species === "hemp" || species === "hops" ? ["hemp_sown", "hemp_growing", "hemp_ripe"] : ["crop_wheat_stage1", "crop_wheat_stage3", "crop_wheat_stage5"];
       const name = stage < CropStage.Sown ? (watered ? "soil_watered_dark" : "soil_tilled") : names[Math.min(2, stage - CropStage.Sown)];
-      if (place(`/sprites/crops/${name}.png`, x, y, ts, watered && stage >= CropStage.Sown ? 0xb8c3b3 : 0xffffff)) continue;
+      const tint = species === "hops" && stage >= CropStage.Sown ? 0xc8f0a0 : watered && stage >= CropStage.Sown ? 0xb8c3b3 : 0xffffff;
+      if (place(`/sprites/crops/${name}.png`, x, y, ts, tint)) continue;
       cropG.rect(x + 1, y + 1, ts - 2, ts - 2).fill({ color: watered ? 0x4a3220 : 0x6b4a2a, alpha: 0.9 });
       for (let r = 0; r < 4; r++) cropG.rect(x + 3, y + 5 + r * 7, ts - 6, 2).fill({ color: watered ? 0x2e1e10 : 0x4a3018, alpha: 0.9 });
-      const hemp = (own ?? cropOf.get(i)) === "hemp";
+      const hemp = species === "hemp" || species === "hops";
       if (stage === CropStage.Sown) {
         for (let r = 0; r < 4; r++) for (let q = 0; q < 4; q++) cropG.rect(x + 5 + q * 7, y + 4 + r * 7, 2, 2).fill(0xd8c890);
       } else if (stage === CropStage.Growing) {

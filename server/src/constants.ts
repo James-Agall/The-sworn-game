@@ -15,6 +15,8 @@ import {
 export { BARN_FARMERS_BY_LEVEL, FIELDS_PER_FARMER, FOOD_OUTPUT_MULT, FOOD_TIME_MULT };
 import { NEW_STRUCTURE_TILES } from "@colony/shared/structures";
 import { MINE_MOB_STATS } from "@colony/shared/mines";
+import { HOPS_PER_TILE } from "@colony/shared/agri";
+import type { CropId } from "@colony/shared/zones";
 import type {
   Cost, CraftRecipe, DifficultyTuning, MobKindConfig, PoiSiteKind, RaidFactionEntry, RaidFactionId,
   RaidFormationShape, ResourceKey, SiteTemplate, SiteTemplateId, TileCoord, WildlifeMode,
@@ -719,6 +721,9 @@ export const POST_TILE_TYPES = [
   TileType.CoalMine,
   TileType.CopperMine,
   TileType.TinMine,
+  TileType.SaltWorks,
+  TileType.Smokehouse,
+  TileType.Dairy,
   TileType.ChickenCoop,
   TileType.LivestockBarn,
   TileType.PigSty,
@@ -766,6 +771,9 @@ export const INDUSTRIAL_TILES: TileType[] = [
   TileType.CoalMine,
   TileType.CopperMine,
   TileType.TinMine,
+  TileType.SaltWorks,
+  TileType.Smokehouse,
+  TileType.Dairy,
   TileType.HunterHut,
   TileType.ForagerHut,
   TileType.BuildersGuild,
@@ -828,6 +836,8 @@ export const NO_COLONIST_TILES = [
   TileType.Road,
   TileType.CobbleRoad,
   TileType.Keep,
+  // Agriculture extras: the Cellar has no worker.
+  TileType.Cellar,
   ...NEW_STRUCTURE_TILES,
 ];
 // Event-feed names for tier upgrades, matching the client's build-panel labels.
@@ -859,6 +869,10 @@ export const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
   [TileType.ClayPit]: "Clay Pit",
   [TileType.Kiln]: "Kiln",
   [TileType.CoalMine]: "Coal Mine",
+  [TileType.SaltWorks]: "Salt Works",
+  [TileType.Smokehouse]: "Smokehouse",
+  [TileType.Dairy]: "Dairy",
+  [TileType.Cellar]: "Cellar",
   [TileType.CopperMine]: "Copper Mine",
   [TileType.TinMine]: "Tin Mine",
   [TileType.ChickenCoop]: "Chicken Coop",
@@ -894,11 +908,13 @@ export const HEMP_YIELD_PER_HARVEST = FARMHAND_YIELD_PER_CYCLE.cotton;
 export const ZONE_TILES_PER_FARM_PLOT = 4;
 export const ZONE_FALLOW_FACTOR =
   (FARM_HARVESTS_BEFORE_FALLOW * FARM_GROW_TICKS) / (FARM_HARVESTS_BEFORE_FALLOW * FARM_GROW_TICKS + FARM_FALLOW_TICKS);
-export const ZONE_CROP_GROW_TICKS: Record<"wheat" | "hemp", number> = { wheat: FARM_GROW_TICKS, hemp: HEMP_GROW_TICKS };
+// Agriculture extras: hops grow as long as wheat and yield HOPS_PER_TILE hops (an item, straight into the stores).
+export const ZONE_CROP_GROW_TICKS: Record<CropId, number> = { wheat: FARM_GROW_TICKS, hemp: HEMP_GROW_TICKS, hops: FARM_GROW_TICKS };
 // Per tile per harvest (fractions add up in the tile's pile; haulers carry whole units).
-export const ZONE_CROP_YIELD: Record<"wheat" | "hemp", number> = {
+export const ZONE_CROP_YIELD: Record<CropId, number> = {
   wheat: (FARM_YIELD_PER_HARVEST * ZONE_FALLOW_FACTOR) / ZONE_TILES_PER_FARM_PLOT,
   hemp: HEMP_YIELD_PER_HARVEST / ZONE_TILES_PER_FARM_PLOT,
+  hops: HOPS_PER_TILE,
 };
 // Work per job, in ticks at work rate 1.
 export const ZONE_TILL_TICKS = TICK_RATE * 3;
@@ -2031,7 +2047,7 @@ export const VISION_BUILDING_TILES = new Set<TileType>([
   TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3, TileType.ArcherPost,
   TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost, TileType.Pasture, TileType.PigPasture,
   TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop, TileType.Blacksmith,
-  TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery, TileType.ClayPit, TileType.Kiln, TileType.CoalMine, TileType.CopperMine, TileType.TinMine,
+  TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery, TileType.Tavern, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery, TileType.ClayPit, TileType.Kiln, TileType.CoalMine, TileType.CopperMine, TileType.TinMine, TileType.SaltWorks, TileType.Smokehouse, TileType.Dairy, TileType.Cellar,
   TileType.ChickenCoop, TileType.LivestockBarn, TileType.PigSty, TileType.SheepPen,
   TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
   TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
@@ -2094,6 +2110,10 @@ export const PLACEABLE_TILES = [
   TileType.CoalMine,
   TileType.CopperMine,
   TileType.TinMine,
+  TileType.SaltWorks,
+  TileType.Smokehouse,
+  TileType.Dairy,
+  TileType.Cellar,
   TileType.ChickenCoop,
   TileType.LivestockBarn,
   TileType.PigSty,
@@ -2161,6 +2181,10 @@ export const BREAKABLE_TILES = [
   TileType.CoalMine,
   TileType.CopperMine,
   TileType.TinMine,
+  TileType.SaltWorks,
+  TileType.Smokehouse,
+  TileType.Dairy,
+  TileType.Cellar,
   TileType.ChickenCoop,
   TileType.LivestockBarn,
   TileType.PigSty,
@@ -2216,6 +2240,9 @@ export const POPULATION_GATED_TILES = [
   TileType.CoalMine,
   TileType.CopperMine,
   TileType.TinMine,
+  TileType.SaltWorks,
+  TileType.Smokehouse,
+  TileType.Dairy,
   TileType.Tavern,
   TileType.WardStone,
   TileType.HunterHut,
@@ -2245,6 +2272,10 @@ export const IN_PLACE_UPGRADE_TILES: TileType[] = [
   TileType.CoalMine,
   TileType.CopperMine,
   TileType.TinMine,
+  TileType.SaltWorks,
+  TileType.Smokehouse,
+  TileType.Dairy,
+  TileType.Cellar,
   TileType.ChickenCoop,
   TileType.LivestockBarn,
   TileType.PigSty,

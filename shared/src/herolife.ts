@@ -69,6 +69,11 @@ export const STATION_SKILL: Partial<Record<TileType, HeroSkill>> = {
   [TileType.CoalMine]: "mining",
   [TileType.CopperMine]: "mining",
   [TileType.TinMine]: "mining",
+  // Agriculture extras: boiling brine is fire-tending (charcoal burning), smoking / curing is cooking (baking), the
+  // Dairy is farm work.
+  [TileType.SaltWorks]: "charcoal",
+  [TileType.Smokehouse]: "baking",
+  [TileType.Dairy]: "farming",
   [TileType.Blacksmith]: "smithing",
   [TileType.TailorShop]: "building",
   [TileType.LuxuryWorkshop]: "building",
@@ -131,7 +136,7 @@ export const HERO_TOOL_ITEM: Record<Exclude<HeroTool, "seeds">, ItemId> = {
   hoe: "hoe", wateringCan: "wateringCan", scythe: "scythe", axe: "stoneAxe", pick: "stonePick",
   shears: "shears", milkPail: "milkPail", manure: "manure",
 };
-export const SEED_ITEM: Record<CropId, ItemId> = { wheat: "wheatSeeds", hemp: "hempSeeds" };
+export const SEED_ITEM: Record<CropId, ItemId> = { wheat: "wheatSeeds", hemp: "hempSeeds", hops: "hopSeeds" };
 // What a tool use does on a tile ("harvest" with no scythe = by hand, slower).
 export type ToolAct = "till" | "sow" | "water" | "refill" | "harvest";
 export const TOOL_ACT_LABEL: Record<ToolAct, string> = { till: "Tilling", sow: "Sowing", water: "Watering", refill: "Filling the can", harvest: "Harvesting" };

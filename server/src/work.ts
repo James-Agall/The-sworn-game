@@ -18,6 +18,7 @@
 //    WORK_UNASSIGN_HOLD_TICKS) or its work type is set off. Sleep, meals and shelter are unchanged.
 // Runtime job state is not saved (a load re-decides); priorities and the mode are.
 import { coldWorkMult, personWinterInfo } from "./winter.js";
+import { isSick } from "./agri.js";
 import { animalJobDistance, animalJobLabel, cancelAnimalJob, clanHasAnimalWork, hasAnimalJob, updateAnimalJob } from "./animals.js";
 import { TileType, type ColonistKind } from "@colony/shared/protocol";
 import { PROFESSION_LABEL, PROGRESSION, PROGRESSION_BUILDING_LABEL, TIER_SPEED_BONUS, levelForXp, type Profession } from "@colony/shared/progression";
@@ -401,6 +402,7 @@ export function workTabFor(clan: number): WorkTabSnapshot {
       ...(assigned ? { assigned } : {}),
       ...(assigned && p.pinned ? { pinned: true } : {}),
       ...(personWinterInfo(c) ?? {}),
+      ...(isSick(c) ? { sick: true } : {}),
     };
   });
   return { manual: manualClans.has(clan), rows };

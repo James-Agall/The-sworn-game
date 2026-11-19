@@ -24,11 +24,12 @@ export const ROOM_TABLE_TILES: readonly TileType[] = [TileType.Table, TileType.L
 export const ROOM_STORAGE_TILES: readonly TileType[] = [TileType.Chest, TileType.Shelf, TileType.Wardrobe];
 export const ROOM_DEVOTION_TILES: readonly TileType[] = [TileType.Statue, TileType.Lamp];
 // Stations that heat a room like a hearth (ovens, forges, kilns).
-export const ROOM_HOT_STATIONS: readonly TileType[] = [TileType.Bakery, TileType.Blacksmith, TileType.Bloomery, TileType.CharcoalBurner, TileType.Brewery, TileType.Kiln];
+export const ROOM_HOT_STATIONS: readonly TileType[] = [TileType.Bakery, TileType.Blacksmith, TileType.Bloomery, TileType.CharcoalBurner, TileType.Brewery, TileType.Kiln, TileType.Smokehouse, TileType.SaltWorks];
 // Stations (and the Workbench) that make a room a workshop.
 export const ROOM_WORKSHOP_TILES: readonly TileType[] = [
   TileType.Blacksmith, TileType.TailorShop, TileType.LuxuryWorkshop, TileType.Brewery, TileType.Bloomery,
-  TileType.CharcoalBurner, TileType.Mill, TileType.Bakery, TileType.Kiln, TileType.Tavern, TileType.Workbench,
+  TileType.CharcoalBurner, TileType.Mill, TileType.Bakery, TileType.Kiln, TileType.Smokehouse, TileType.Dairy, TileType.SaltWorks, TileType.Tavern,
+  TileType.Workbench,
 ];
 
 // ---- size: tiles a role wants (size stat = tiles / wanted, capped at 100) ----
