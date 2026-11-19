@@ -664,8 +664,8 @@ export const HOUSE_UPGRADE_COSTS: Cost[] = [
 ];
 export const BARN_WOOD_COST = BUILD_COSTS[TileType.BarnPost].wood;
 export const CHURCH_WOOD_COST = BUILD_COSTS[TileType.ChurchPost].wood;
-export const CRAFT_BUILDING_WOOD_COST = BUILD_COSTS[TileType.Blacksmith].wood!;
-export const CRAFT_BUILDING_IRON_COST = BUILD_COSTS[TileType.Blacksmith].iron!;
+export const CRAFT_BUILDING_WOOD_COST = BUILD_COSTS[TileType.TailorShop].wood!;
+export const CRAFT_BUILDING_IRON_COST = BUILD_COSTS[TileType.TailorShop].iron!;
 export const SHOP_WOOD_COST = BUILD_COSTS[TileType.Market].wood!;
 export const TAVERN_WOOD_COST = BUILD_COSTS[TileType.Tavern].wood;
 export const TAVERN_ROCK_COST = BUILD_COSTS[TileType.Tavern].rock;
@@ -2132,7 +2132,7 @@ export const PLACEABLE_TILES = [
   TileType.ClayPit,
   TileType.Kiln,
   TileType.SaltWorks,
-  TileType.Foundry,
+  // The Foundry is retired (2026-11-19: the Bloomery smelts every metal): no longer placeable; old ones stand inert.
   TileType.StampMill,
   TileType.Glassworks,
   TileType.Mint,

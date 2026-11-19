@@ -544,6 +544,8 @@ export function placementCost(tile: TileType, current: TileType, tx: number, ty:
   if (isFortification(tile)) return { ...BUILD_COSTS[tile as keyof typeof BUILD_COSTS] };
   // Modular building phase 2: furniture (shared BUILD_COSTS).
   if (isFurnitureTile(tile)) return { ...BUILD_COSTS[tile as keyof typeof BUILD_COSTS] };
+  // One furnace: the Blacksmith costs no iron (shared BUILD_COSTS); the old craft-building cost for the older suites.
+  if (tile === TileType.Blacksmith && !state.testUnlockAll) return { ...BUILD_COSTS[TileType.Blacksmith] };
   switch (tile) {
     case TileType.Wall:
       return { wood: WOOD_WALL_COST };

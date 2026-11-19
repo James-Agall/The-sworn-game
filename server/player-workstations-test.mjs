@@ -184,6 +184,8 @@ result(found.size===3,'All three tree sizes covered');
  await life({skills:{smithing:0}});
  let l=await craft('forge:weapon:1');result(!l.snap.work,'Forge refused below smith level with gates closed');
  await life({skills:{smithing:400}});
+ // Tier-1 weapons are forged from bronze with the gates closed (2026-11-19).
+ await hook('progression',{items:{bronze:4}});
  l=await craft('forge:weapon:1');result(!!l.snap.work,'Forge allowed at smith level 2+');
  send({type:'heroAction',action:'stopWork'});await sync();
  await hook('progression',{unlockAll:true});

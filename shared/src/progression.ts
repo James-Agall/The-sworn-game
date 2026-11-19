@@ -25,8 +25,9 @@ export type ItemId =
   | "tunic" | "coat" | "boots"
   // Agriculture extras (phase 5, shared/src/agri.ts): preserved foods and their inputs, the iron plow, hops and ale.
   | "salt" | "smokedMeat" | "saltedMeat" | "rennet" | "cheese" | "ironPlow" | "hops" | "hopSeeds" | "ale"
-  // Industry extras (phase 6, shared/src/industry.ts): bronze and what the Foundry casts from it.
-  | "bronze" | "bronzeTools" | "bronzeWeapon"
+  // Industry extras (phase 6, shared/src/industry.ts): bronze and the tools the Bloomery casts from it (tier-1 weapons
+  // and armour are forged from bronze at the Blacksmith: the armoury stock, no item).
+  | "bronze" | "bronzeTools"
   // The new deposits' ores and what the Stamp Mill crushes and washes out of them.
   | "limestone" | "goldOre" | "leadOre" | "washedTin" | "goldDust" | "sand"
   // Steel from the Blast furnace (flux: limestone).
@@ -147,12 +148,12 @@ export const PROGRESSION = {
     stonePick: { label: "Stone pick", desc: "Opens surface outcrops: the Quarry and a Mine's first level; with a knife, prospecting.", group: "tool" },
     stoneKnife: { label: "Stone knife", desc: "Skins game: Hunter's Hut (hides). With a pick, prospecting.", group: "tool" },
     timberProps: { label: "Timber props", desc: "Pit supports: a mine can be sunk to level 2 (shaft). Shafts wear one out every few days (none in store: cave-ins); props in store also keep nests away.", group: "tool" },
-    hide: { label: "Hide", desc: "From a Hunter's Hut's kills (also pasture animals and game you hunt yourself). Bellows leather.", group: "material" },
-    bellows: { label: "Bellows", desc: "Leather and wood. Blows the Bloomery.", group: "tool" },
+    hide: { label: "Hide", desc: "From a Hunter's Hut's kills (also pasture animals and game you hunt yourself). Boots, rennet.", group: "material" },
+    bellows: { label: "Bellows", desc: "A wooden box bellows with a stone nozzle (no leather needed). Blows the Bloomery.", group: "tool" },
     charcoal: { label: "Charcoal", desc: "Burned slowly from wood at the Charcoal Burner. Smelting fuel.", group: "material" },
     ironBloom: { label: "Iron bloom", desc: "Smelted at the Bloomery from iron ore and charcoal; a Blast furnace (level 2+) makes better grades.", group: "material" },
-    anvil: { label: "Anvil", desc: "Cast in bronze at the Foundry. With hammer and tongs, a Blacksmith can be built (its level is the anvil's tier: 1 bronze, 2 iron, 3 steel).", group: "tool" },
-    smithTools: { label: "Hammer & tongs", desc: "Cast in bronze at the Foundry. A Blacksmith needs them.", group: "tool" },
+    anvil: { label: "Anvil", desc: "Cast in bronze at the Bloomery. With hammer and tongs, a Blacksmith can be built (its level is the anvil's tier: 1 bronze, 2 iron, 3 steel).", group: "tool" },
+    smithTools: { label: "Hammer & tongs", desc: "Cast in bronze at the Bloomery. A Blacksmith needs them.", group: "tool" },
     woodenPlow: { label: "Wooden plow", desc: "Breaks the ground: a Barn (farm fields) can be built.", group: "tool" },
     millstone: { label: "Millstone", desc: "A dressed grinding stone: the Mill needs one.", group: "tool" },
     clayOven: { label: "Clay oven", desc: "Bricks and clay: the Bakery needs one.", group: "tool" },
@@ -201,20 +202,19 @@ export const PROGRESSION = {
     hops: { label: "Hops", desc: "Harvested from a Growing zone set to Hops (summer to autumn). The Brewery brews ale with them.", group: "material" },
     hopSeeds: { label: "Hop cuttings", desc: "The hero plants one per tilled tile (seed bag, press again for hops).", group: "material" },
     ale: { label: "Ale", desc: "Hopped ale from the Brewery (grain + hops). In store: a happiness bonus by its best grade; drunk at dawn.", group: "food" },
-    bronze: { label: "Bronze", desc: "Cast at the Foundry from copper ore and tin with charcoal (or coal). The Foundry casts tools and weapons from it; the Blacksmith forges tier-1 (bronze) armour from it.", group: "material" },
-    bronzeTools: { label: "Bronze tools", desc: "Cast at the Foundry. In store: the hero and the clan's woodcutters, miners and diggers work 20% faster.", group: "tool" },
-    bronzeWeapon: { label: "Bronze weapons", desc: "Cast at the Foundry. A soldier with no iron weapon takes one (damage +10%; iron +20%).", group: "tool" },
+    bronze: { label: "Bronze", desc: "Smelted at the Bloomery from copper ore and tin with charcoal (or coal). The Bloomery casts the anvil, hammer & tongs and bronze tools from it; the Blacksmith forges the bronze pickaxe and all tier-1 weapons and armour from it.", group: "material" },
+    bronzeTools: { label: "Bronze tools", desc: "Cast at the Bloomery. In store: the hero and the clan's woodcutters, miners and diggers work 20% faster.", group: "tool" },
     limestone: { label: "Limestone", desc: "Cut on a Mine's level 1 (lime). Flux for steel at the Blast furnace; lime for glass.", group: "material" },
-    goldOre: { label: "Gold ore", desc: "Dug on a Mine's level 3. The Stamp Mill crushes and washes it into gold dust.", group: "material" },
-    leadOre: { label: "Lead ore", desc: "Dug on a Mine's level 3. The Foundry smelts it into lead.", group: "material" },
-    washedTin: { label: "Washed tin", desc: "Tin ore crushed and washed at the Stamp Mill (2 ore -> 3). The Foundry makes more bronze from it.", group: "material" },
-    goldDust: { label: "Gold dust", desc: "Washed out of crushed gold ore at the Stamp Mill.", group: "material" },
+    goldOre: { label: "Gold ore", desc: "Dug on a Mine's level 3. The Stamp Mill crushes and washes it into gold dust (the Bloomery smelts some too, less of it).", group: "material" },
+    leadOre: { label: "Lead ore", desc: "Dug on a Mine's level 3. The Bloomery smelts it into lead.", group: "material" },
+    washedTin: { label: "Washed tin", desc: "Tin ore crushed and washed at the Stamp Mill (2 ore -> 3). The Bloomery makes more bronze from it.", group: "material" },
+    goldDust: { label: "Gold dust", desc: "Washed out of crushed gold ore at the Stamp Mill (or smelted at the Bloomery).", group: "material" },
     steel: { label: "Steel", desc: "Made at the Blast furnace (Bloomery level 2+) from iron blooms with limestone flux. Fine steel in store: the Blacksmith forges each piece a tier better.", group: "material" },
     glass: { label: "Glass", desc: "Melted at the Glassworks from sand and limestone (lime) with charcoal or coal.", group: "material" },
     glassPanes: { label: "Window glass", desc: "Blown at the Glassworks. 4+ in store: every window of your rooms is glazed (no heat lost, prettier).", group: "tool" },
     bottles: { label: "Bottles", desc: "Blown at the Glassworks. 4+ in store with ale: the ale's happiness bonus is higher (bottled ale).", group: "tool" },
     coins: { label: "Coins", desc: "Struck at the Mint from gold dust: they go straight into the treasury as gold.", group: "material" },
-    lead: { label: "Lead", desc: "Smelted at the Foundry from lead ore. The Kiln glazes tableware with it (a grade better).", group: "material" },
+    lead: { label: "Lead", desc: "Smelted at the Bloomery from lead ore. The Kiln glazes tableware with it (a grade better).", group: "material" },
     sand: { label: "Sand", desc: "Stone crushed at the Stamp Mill. Glass is melted from it.", group: "material" },
     bronzePick: { label: "Bronze pickaxe", desc: "Forged at the Blacksmith (tier-1 anvil) from bronze. In store: a Mine can be dug to level 2 (iron ore, coal).", group: "tool" },
     ironPick: { label: "Iron pickaxe", desc: "Forged at the Blacksmith (tier-2 anvil) from iron blooms. In store: a Mine can be dug to level 3 (gold, lead).", group: "tool" },
@@ -224,7 +224,8 @@ export const PROGRESSION = {
     { id: "stonePick", label: "Knap a stone pick", output: "stonePick", amount: 1, stock: { wood: 2, rock: 4 }, station: "hand" },
     { id: "stoneKnife", label: "Knap a stone knife", output: "stoneKnife", amount: 1, stock: { wood: 1, rock: 2 }, station: "hand" },
     { id: "timberProps", label: "Cut timber props", output: "timberProps", amount: 1, stock: { wood: 8 }, station: "hand" },
-    { id: "bellows", label: "Sew bellows", output: "bellows", amount: 1, stock: { wood: 4 }, items: { hide: 2 }, station: "hand" },
+    // 2026-11-19: a wooden box bellows (no hide), so the Bloomery is reachable on any map.
+    { id: "bellows", label: "Build bellows", output: "bellows", amount: 1, stock: { wood: 8, rock: 2 }, station: "hand" },
     { id: "woodenPlow", label: "Carve a wooden plow", output: "woodenPlow", amount: 1, stock: { wood: 6, rock: 2 }, station: "hand" },
     { id: "millstone", label: "Dress a millstone", output: "millstone", amount: 1, stock: { rock: 12 }, station: "hand" },
     // Clay pit and pottery: bricks (and a little clay) replace the oven's stone placeholder.
@@ -246,9 +247,6 @@ export const PROGRESSION = {
     { id: "mineVent", label: "Build an air vent", output: "mineVent", amount: 1, stock: { wood: 6, rock: 6 }, station: "hand" },
     { id: "minePump", label: "Build a bucket pump", output: "minePump", amount: 1, stock: { wood: 8, iron: 4 }, needs: { carpenterTools: 1 }, station: "hand" },
     { id: "charcoal", label: "Burn charcoal", output: "charcoal", amount: 3, stock: { wood: 6 }, station: TileType.CharcoalBurner, seconds: 90, cap: 40 },
-    // Industry extras: steel at the Blast furnace (Bloomery level 2+), blooms + limestone flux, by a level-2 smelter.
-    { id: "steel", label: "Make steel", output: "steel", amount: 1, items: { ironBloom: 2, limestone: 1, charcoal: 2 }, station: TileType.Bloomery, seconds: 60, cap: 20, workerLevel: 2, stationLevel: 2 },
-    { id: "steelCoal", label: "Make steel with coal", output: "steel", amount: 1, items: { ironBloom: 2, limestone: 1, coal: 2 }, station: TileType.Bloomery, seconds: 60, cap: 20, workerLevel: 2, stationLevel: 2 },
     // The Glassworks: panes first, then bottles, while there is glass; else it melts glass.
     { id: "glassPanes", label: "Blow window glass", output: "glassPanes", amount: 2, stock: { wood: 1 }, items: { glass: 2 }, station: TileType.Glassworks, seconds: 30, cap: 20 },
     { id: "bottles", label: "Blow bottles", output: "bottles", amount: 2, items: { glass: 1 }, station: TileType.Glassworks, seconds: 25, cap: 20 },
@@ -262,9 +260,6 @@ export const PROGRESSION = {
     { id: "sourdoughStarter", label: "Culture a sourdough starter", output: "sourdoughStarter", amount: 1, items: { flour: 1 }, station: TileType.Bakery, seconds: 900, cap: 1, workerLevel: 2 },
     { id: "bread", label: "Bake bread", output: "bread", amount: 2, items: { flour: 2 }, needs: { sourdoughStarter: 1 }, station: TileType.Bakery, seconds: 40, cap: 40 },
     { id: "flatbread", label: "Bake flatbread", output: "flatbread", amount: 2, items: { flour: 2 }, station: TileType.Bakery, seconds: 20, cap: 40 },
-    { id: "ironBloom", label: "Smelt an iron bloom", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { charcoal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
-    // Deep mines: coal burns in the Bloomery when there is no charcoal.
-    { id: "ironBloomCoal", label: "Smelt an iron bloom with coal", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { coal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
     // Layered mines: the ores come from a Mine's miners by layer (shared/src/mines.ts MINE_LAYER_YIELDS), no recipes.
     // The Stamp Mill's ore washer: gold first, then tin, then sand from stone.
     { id: "goldDust", label: "Crush and wash gold ore", output: "goldDust", amount: 1, items: { goldOre: 3 }, station: TileType.StampMill, seconds: 40, cap: 20 },
@@ -300,21 +295,26 @@ export const PROGRESSION = {
     { id: "ironPick", label: "Forge an iron pickaxe", output: "ironPick", amount: 1, stock: { wood: 2 }, items: { ironBloom: 3 }, station: TileType.Blacksmith, seconds: 50, cap: 1, stationLevel: 2 },
     { id: "ironPlow", label: "Forge an iron plow", output: "ironPlow", amount: 1, stock: { wood: 4 }, items: { ironBloom: 2 }, station: TileType.Blacksmith, seconds: 60, cap: 1, stationLevel: 2 },
     { id: "ale", label: "Brew hopped ale", output: "ale", amount: 2, stock: { grain: 2 }, items: { hops: 1 }, station: TileType.Brewery, seconds: 40, cap: 30 },
-    // Layered mines: the Foundry casts the bronze anvil and the smith's hammer & tongs first (one each), so the
-    // Blacksmith needs no iron.
-    { id: "anvil", label: "Cast a bronze anvil", output: "anvil", amount: 1, items: { bronze: 4 }, station: TileType.Foundry, seconds: 60, cap: 1 },
-    { id: "smithTools", label: "Cast hammer & tongs", output: "smithTools", amount: 1, stock: { wood: 2 }, items: { bronze: 2 }, station: TileType.Foundry, seconds: 40, cap: 1 },
-    // Industry extras (shared/src/industry.ts). The Foundry's founder casts the tools first (one set is enough), then
-    // gear while there is bronze, else smelts bronze (copper + tin, charcoal or coal).
-    { id: "bronzeTools", label: "Cast bronze tools", output: "bronzeTools", amount: 1, stock: { wood: 2 }, items: { bronze: 2 }, station: TileType.Foundry, seconds: 40, cap: 1 },
-    { id: "bronzeWeapon", label: "Cast bronze weapons", output: "bronzeWeapon", amount: 1, stock: { wood: 1 }, items: { bronze: 2 }, station: TileType.Foundry, seconds: 40, cap: 10 },
-    { id: "bronzeWashed", label: "Smelt bronze from washed tin", output: "bronze", amount: 3, items: { copperOre: 3, washedTin: 2, charcoal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
-    { id: "bronzeWashedCoal", label: "Smelt bronze from washed tin with coal", output: "bronze", amount: 3, items: { copperOre: 3, washedTin: 2, coal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
-    { id: "bronze", label: "Smelt bronze", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, charcoal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
-    { id: "bronzeCoal", label: "Smelt bronze with coal", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, coal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
-    // Lead last: when there is no bronze to make.
-    { id: "lead", label: "Smelt lead", output: "lead", amount: 2, items: { leadOre: 2, charcoal: 1 }, station: TileType.Foundry, seconds: 30, cap: 20 },
-    { id: "leadCoal", label: "Smelt lead with coal", output: "lead", amount: 2, items: { leadOre: 2, coal: 1 }, station: TileType.Foundry, seconds: 30, cap: 20 },
+    // One furnace (2026-11-19, shared/src/industry.ts): the Bloomery smelts every metal. Its smelter casts the bronze
+    // anvil and the smith's hammer & tongs first (one each: the Blacksmith needs no iron), then bronze tools (one set),
+    // then steel (Blast furnace: level 2+, a level-2 smelter, blooms + limestone flux), then bronze (copper + tin), iron
+    // blooms, lead and last gold dust; charcoal first, coal when it runs out.
+    { id: "anvil", label: "Cast a bronze anvil", output: "anvil", amount: 1, items: { bronze: 4 }, station: TileType.Bloomery, seconds: 60, cap: 1 },
+    { id: "smithTools", label: "Cast hammer & tongs", output: "smithTools", amount: 1, stock: { wood: 2 }, items: { bronze: 2 }, station: TileType.Bloomery, seconds: 40, cap: 1 },
+    { id: "bronzeTools", label: "Cast bronze tools", output: "bronzeTools", amount: 1, stock: { wood: 2 }, items: { bronze: 2 }, station: TileType.Bloomery, seconds: 40, cap: 1 },
+    { id: "steel", label: "Make steel", output: "steel", amount: 1, items: { ironBloom: 2, limestone: 1, charcoal: 2 }, station: TileType.Bloomery, seconds: 60, cap: 20, workerLevel: 2, stationLevel: 2 },
+    { id: "steelCoal", label: "Make steel with coal", output: "steel", amount: 1, items: { ironBloom: 2, limestone: 1, coal: 2 }, station: TileType.Bloomery, seconds: 60, cap: 20, workerLevel: 2, stationLevel: 2 },
+    { id: "bronzeWashed", label: "Smelt bronze from washed tin", output: "bronze", amount: 3, items: { copperOre: 3, washedTin: 2, charcoal: 1 }, station: TileType.Bloomery, seconds: 40, cap: 30 },
+    { id: "bronzeWashedCoal", label: "Smelt bronze from washed tin with coal", output: "bronze", amount: 3, items: { copperOre: 3, washedTin: 2, coal: 1 }, station: TileType.Bloomery, seconds: 40, cap: 30 },
+    { id: "bronze", label: "Smelt bronze", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, charcoal: 1 }, station: TileType.Bloomery, seconds: 40, cap: 30 },
+    { id: "bronzeCoal", label: "Smelt bronze with coal", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, coal: 1 }, station: TileType.Bloomery, seconds: 40, cap: 30 },
+    { id: "ironBloom", label: "Smelt an iron bloom", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { charcoal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
+    // Deep mines: coal burns in the Bloomery when there is no charcoal.
+    { id: "ironBloomCoal", label: "Smelt an iron bloom with coal", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { coal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
+    { id: "lead", label: "Smelt lead", output: "lead", amount: 2, items: { leadOre: 2, charcoal: 1 }, station: TileType.Bloomery, seconds: 30, cap: 20 },
+    { id: "leadCoal", label: "Smelt lead with coal", output: "lead", amount: 2, items: { leadOre: 2, coal: 1 }, station: TileType.Bloomery, seconds: 30, cap: 20 },
+    // Gold: the Stamp Mill washes more dust out of the same ore (3 -> 1 here vs. there, but slower and fuel-hungry).
+    { id: "goldSmelt", label: "Smelt gold dust", output: "goldDust", amount: 1, items: { goldOre: 4, charcoal: 1 }, station: TileType.Bloomery, seconds: 50, cap: 20 },
   ] as Recipe[],
   // What each building needs. Buildings not listed are open from the start.
   buildings: {
@@ -333,17 +333,19 @@ export const PROGRESSION = {
       levels: { 2: { items: { bronzePick: 1, timberProps: 1 } }, 3: { items: { ironPick: 1, mineVent: 1, minePump: 1 } } },
     },
     [TileType.CharcoalBurner]: { requires: { items: { stoneAxe: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
+    // One furnace (2026-11-19): level 1 needs no iron and no Blacksmith (bellows, charcoal, bricks, a Charcoal Burner), so
+    // Quarry -> Mine L1 -> Bloomery -> bronze -> Blacksmith -> bronze pickaxe -> Mine L2 -> iron has no cycle.
     [TileType.Bloomery]: {
       // Clay pit and pottery: bricks from the Kiln line the shaft (the plan's "clay bricks").
       requires: { items: { bellows: 1, charcoal: 2, bricks: 8 }, buildings: [{ tile: TileType.CharcoalBurner }] },
       // Level 2 is the Blast furnace (better blooms): iron tools (a Blacksmith) and a crucible first.
       levels: { 2: { items: { crucible: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
     },
-    // Layered mines: the bronze anvil and tools come from the Foundry (no iron needed). Its level is the anvil tier: 2
-    // (iron work) needs a Bloomery, 3 (steel) steel in store.
+    // Layered mines: the bronze anvil and tools come from the Bloomery (no iron needed). Its level is the anvil tier: 2
+    // (iron work) needs iron blooms in store, 3 (steel) steel in store.
     [TileType.Blacksmith]: {
-      requires: { items: { anvil: 1, smithTools: 1 }, buildings: [{ tile: TileType.Foundry }] },
-      levels: { 2: { buildings: [{ tile: TileType.Bloomery }] }, 3: { items: { steel: 1 } } },
+      requires: { items: { anvil: 1, smithTools: 1 }, buildings: [{ tile: TileType.Bloomery }] },
+      levels: { 2: { items: { ironBloom: 1 } }, 3: { items: { steel: 1 } } },
     },
     [TileType.KnightPost]: { requires: { buildings: [{ tile: TileType.Blacksmith }] } },
     // Phase 4: food. Farm fields need a Barn, the Barn a plow.
@@ -394,8 +396,7 @@ export const PROGRESSION = {
     [TileType.Smokehouse]: { requires: { buildings: [{ tile: TileType.HunterHut }] } },
     [TileType.Dairy]: { requires: { buildings: [{ tile: TileType.LivestockBarn }] } },
     [TileType.Cellar]: { requires: { items: { bricks: 6 } } },
-    // Industry extras: the Foundry pours a Mine's copper and tin (level 1) in a crucible.
-    [TileType.Foundry]: { requires: { items: { crucible: 1 }, buildings: [{ tile: TileType.IronMinePost }] } },
+    // The Foundry is retired (2026-11-19; the Bloomery smelts every metal): not buildable (server/src/construction.ts).
     // The Stamp Mill is millwork on a miner's know-how (carpenter's tools, a Mine; water near to wash:
     // STAMP_MILL_WATER_RADIUS_TILES).
     [TileType.StampMill]: { requires: { items: { carpenterTools: 1 }, buildings: [{ tile: TileType.IronMinePost }] } },
@@ -436,6 +437,7 @@ export const PROGRESSION = {
     [TileType.SaltWorks]: "salter",
     [TileType.Smokehouse]: "smoker",
     [TileType.Dairy]: "dairyman",
+    // Retired (an old Foundry's founder stands idle: it has no recipes).
     [TileType.Foundry]: "founder",
     [TileType.StampMill]: "washer",
     [TileType.Glassworks]: "glassblower",
@@ -444,14 +446,14 @@ export const PROGRESSION = {
   // The Progression panel's chains (order only: every step's needs come from `buildings` / `recipes` above).
   chains: [
     { id: "stone", label: "Stone age", steps: [{ item: "stoneAxe" }, { item: "stoneKnife" }, { item: "stonePick" }, { building: TileType.LumberjackPost }, { building: TileType.House }, { building: TileType.HunterHut }, { item: "hide" }] },
-    // Layered mines: Quarry -> Mine L1 (copper, tin, lime) -> Foundry / bronze -> Blacksmith -> bronze pickaxe -> Mine L2
-    // (iron, coal) -> Bloomery / iron -> iron pickaxe -> Mine L3 (gold, lead).
-    { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "copperOre" }, { item: "tinOre" }, { item: "limestone" }, { building: TileType.Foundry }, { item: "bronze" }, { building: TileType.Blacksmith }, { item: "bronzePick" }, { item: "timberProps" }, { item: "coal" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "ironPick" }, { item: "mineVent" }, { item: "minePump" }, { item: "goldOre" }, { item: "leadOre" }, { item: "mineLamps" }] },
+    // Layered mines: Quarry -> Mine L1 (copper, tin, lime) -> Bloomery / bronze -> Blacksmith -> bronze pickaxe -> Mine L2
+    // (iron, coal) -> iron blooms -> iron pickaxe -> Mine L3 (gold, lead).
+    { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "copperOre" }, { item: "tinOre" }, { item: "limestone" }, { building: TileType.Bloomery }, { item: "bronze" }, { building: TileType.Blacksmith }, { item: "bronzePick" }, { item: "timberProps" }, { item: "coal" }, { item: "ironBloom" }, { item: "ironPick" }, { item: "mineVent" }, { item: "minePump" }, { item: "goldOre" }, { item: "leadOre" }, { item: "mineLamps" }] },
     { id: "ore", label: "Crushing & washing", steps: [{ item: "carpenterTools" }, { building: TileType.StampMill }, { item: "washedTin" }, { item: "goldDust" }, { item: "sand" }] },
     { id: "glass", label: "Glass", steps: [{ item: "limestone" }, { item: "sand" }, { building: TileType.Glassworks }, { item: "glass" }, { item: "glassPanes" }, { item: "bottles" }] },
     { id: "gold", label: "Gold & lead", steps: [{ item: "goldOre" }, { item: "goldDust" }, { building: TileType.Mint }, { item: "coins" }, { item: "leadOre" }, { item: "lead" }] },
-    { id: "bronze", label: "Bronze", steps: [{ item: "copperOre" }, { item: "tinOre" }, { item: "crucible" }, { building: TileType.Foundry }, { item: "bronze" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }, { item: "bronzePick" }, { item: "bronzeTools" }, { item: "bronzeWeapon" }] },
-    { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "ironPick" }, { item: "limestone" }, { item: "steel" }] },
+    { id: "bronze", label: "Bronze", steps: [{ item: "copperOre" }, { item: "tinOre" }, { building: TileType.Bloomery }, { item: "bronze" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }, { item: "bronzePick" }, { item: "bronzeTools" }] },
+    { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "bronze" }, { item: "ironBloom" }, { item: "ironPick" }, { item: "crucible" }, { item: "limestone" }, { item: "steel" }, { item: "lead" }] },
     { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
     { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },
     { id: "keeping", label: "Keeping food", steps: [{ building: TileType.Cellar }, { building: TileType.SaltWorks }, { item: "salt" }, { building: TileType.Smokehouse }, { item: "smokedMeat" }, { item: "saltedMeat" }, { building: TileType.Dairy }, { item: "rennet" }, { item: "cheese" }] },

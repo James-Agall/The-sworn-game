@@ -81,7 +81,9 @@ export const BUILD_COSTS = {
   [TileType.GoldShop]: SHOP,
   [TileType.Tavern]: { wood: 20, rock: 10 },
   [TileType.TailorShop]: CRAFT_BUILDING,
-  [TileType.Blacksmith]: CRAFT_BUILDING,
+  // One furnace (2026-11-19): a stone forge round the bronze anvil, no iron (the Blacksmith comes before any iron ore:
+  // Mine L2 needs its bronze pickaxe). The old CRAFT_BUILDING cost (wood + iron) under COLONY_UNLOCK_ALL.
+  [TileType.Blacksmith]: { wood: 10, rock: 8 },
   [TileType.LuxuryWorkshop]: CRAFT_BUILDING,
   [TileType.Brewery]: CRAFT_BUILDING,
   // Progression tree phase 3: the metal chain's stations.

@@ -17,7 +17,7 @@ import {
   ALE_HAPPINESS, CELLAR_SPOIL_CUT, IRON_PLOW_GROWTH_MULT, IRON_PLOW_YIELD_MULT, ORCHARD_YIELD_BY_AGE, SALT_WORKS_WATER_RADIUS_TILES, SPOIL_PER_DAY,
 } from "@colony/shared/agri";
 import {
-  BRONZE_ARMOUR_FORGE_BRONZE, BRONZE_TOOL_SPEED, BRONZE_WEAPON_DAMAGE_MULT, STAMP_MILL_WATER_RADIUS_TILES, STEEL_FINE_TIER_BONUS,
+  BRONZE_ARMOUR_FORGE_BRONZE, BRONZE_TOOL_SPEED, BRONZE_WEAPON_FORGE_BRONZE, STAMP_MILL_WATER_RADIUS_TILES, STEEL_FINE_TIER_BONUS,
   BOTTLED_ALE_BONUS, BOTTLES_MIN, GLAZED_WINDOWS_MIN, LEAD_GLAZE_GRADE_BONUS, MINT_COINS_PER_BATCH, MINT_GOLD_PER_COIN,
 } from "@colony/shared/industry";
 import {
@@ -224,7 +224,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Blacksmith,
     label: "Blacksmith",
     key: "k",
-    cost: `${buildCostText(TileType.Blacksmith)} (upgradeable). Crafts 1 Iron + 1 Wood → 1 Tools, idles at ${BLACKSMITH_TOOLS_STOCK_CAP} tools; with 2 Iron blooms in store it first forges an Iron plow (fields +${Math.round((IRON_PLOW_GROWTH_MULT - 1) * 100)}% growth, +${Math.round((IRON_PLOW_YIELD_MULT - 1) * 100)}% yield)`,
+    cost: `${buildCostText(TileType.Blacksmith)} (upgradeable). Needs a bronze Anvil, Hammer & tongs and a Bloomery; its level is the anvil tier (1 bronze, 2 iron: an Iron bloom in store, 3 steel). Tier-1 gear is bronze: ${BRONZE_WEAPON_FORGE_BRONZE} Bronze + 1 Wood a weapon, ${BRONZE_ARMOUR_FORGE_BRONZE} Bronze an armour (no iron); a tier-1 anvil also forges the Bronze pickaxe. Crafts 1 Iron + 1 Wood → 1 Tools, idles at ${BLACKSMITH_TOOLS_STOCK_CAP} tools; at tier 2 with 2 Iron blooms in store it first forges an Iron plow (fields +${Math.round((IRON_PLOW_GROWTH_MULT - 1) * 100)}% growth, +${Math.round((IRON_PLOW_YIELD_MULT - 1) * 100)}% yield)`,
     category: "industry",
   },
   {
@@ -246,7 +246,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Bloomery,
     label: "Bloomery",
     key: "x",
-    cost: `${buildCostText(TileType.Bloomery)} (level 2+: Blast furnace). Smelts 3 Iron + 2 Charcoal → Iron bloom; casts the anvil, hammer & tongs a Blacksmith needs. A Blast furnace with a level-2 smelter makes Steel from 2 Iron blooms + 1 Limestone + 2 Charcoal (or Coal); Fine steel in store forges each piece ${STEEL_FINE_TIER_BONUS} tier better`,
+    cost: `${buildCostText(TileType.Bloomery)} (level 2+: Blast furnace). Needs Bellows, 2 Charcoal, 8 Bricks and a Charcoal Burner (no iron). Smelts every metal: 3 Copper ore + 2 Tin ore + 1 Charcoal (or Coal) → 2 Bronze (3 from Washed tin), 3 Iron + 2 Charcoal → Iron bloom, 2 Lead ore + 1 Charcoal → 2 Lead, 4 Gold ore + 1 Charcoal → 1 Gold dust; casts a bronze Anvil and Hammer & tongs (a Blacksmith needs them) and Bronze tools (hero and miners / woodcutters x${BRONZE_TOOL_SPEED} speed). A Blast furnace with a level-2 smelter makes Steel from 2 Iron blooms + 1 Limestone + 2 Charcoal (or Coal); Fine steel in store forges each piece ${STEEL_FINE_TIER_BONUS} tier better`,
     category: "industry",
   },
   // Clay pit and pottery (no free key: button only).
@@ -264,19 +264,13 @@ export const TOOLS: ToolDef[] = [
     cost: `${buildCostText(TileType.Kiln)} (upgradeable). Needs a Clay Pit. A potter fires Clay + 1 Wood → Bricks, Clay pots (stockpiles hold more), Roof tiles, Tableware (${TABLEWARE_MIN}+: +${TABLEWARE_HAPPINESS} happiness); a level-2 potter fires a Crucible with Charcoal`,
     category: "industry",
   },
-  // Industry extras (shared/src/industry.ts; no free key: button only).
-  {
-    tile: TileType.Foundry,
-    label: "Foundry",
-    key: "",
-    cost: `${buildCostText(TileType.Foundry)} (upgradeable). Needs a Crucible and a Mine. A founder casts a bronze Anvil and Hammer & tongs (the Blacksmith needs them), smelts 3 Copper ore + 2 Tin ore + 1 Charcoal (or Coal) → 2 Bronze, then casts Bronze tools (hero and miners / woodcutters x${BRONZE_TOOL_SPEED} speed) and Bronze weapons (+${Math.round((BRONZE_WEAPON_DAMAGE_MULT - 1) * 100)}% damage) for soldiers with no iron weapon. Bronze is also what the Blacksmith forges tier-1 armour from (${BRONZE_ARMOUR_FORGE_BRONZE} bronze a piece)`,
-    category: "industry",
-  },
+  // Industry extras (shared/src/industry.ts; no free key: button only). The Foundry is retired (the Bloomery smelts
+  // every metal): no build-menu entry.
   {
     tile: TileType.StampMill,
     label: "Stamp Mill",
     key: "",
-    cost: `${buildCostText(TileType.StampMill)} (upgradeable). Needs Carpenter's tools, a Mine and water within ${STAMP_MILL_WATER_RADIUS_TILES} tiles. An ore washer crushes and washes 3 Gold ore → 1 Gold dust, 2 Tin ore → 3 Washed tin (the Foundry makes 3 Bronze from 2), and 3 Stone → 2 Sand`,
+    cost: `${buildCostText(TileType.StampMill)} (upgradeable). Needs Carpenter's tools, a Mine and water within ${STAMP_MILL_WATER_RADIUS_TILES} tiles. An ore washer crushes and washes 3 Gold ore → 1 Gold dust, 2 Tin ore → 3 Washed tin (the Bloomery makes 3 Bronze from 2), and 3 Stone → 2 Sand`,
     category: "industry",
   },
   {

@@ -4831,3 +4831,33 @@ hero's personal craft table with its own skill).
 - Tests: mines (rewritten: gates, ore ground, per-layer nests / danger / production, shaft and mat navigation, bronze
   and iron pickaxe gates, Foundry anvil, anvil tier 1 forging the bronze pick only, soldiers, re-infestation by layer,
   hazards, the Quarry unchanged, save / load), industry-extra and progression adjusted. MANUAL-TESTS.md "Layered mines".
+
+## One furnace, bronze tier-1 gear — landed 2026-11-19 (supersedes the Foundry / bronze-weapon parts above)
+- **The Bloomery smelts every metal.** Its recipes (shared/src/progression.ts, first ready one under its cap): cast the
+  bronze Anvil (4 bronze, cap 1), Hammer & tongs (2 bronze + 2 wood, cap 1), Bronze tools (2 bronze + 2 wood, cap 1);
+  Steel (Blast furnace, level 2+, level-2 smelter, as before); Bronze (3 copper ore + 2 washed tin + 1 charcoal / coal -> 3,
+  or 3 copper + 2 tin ore -> 2, cap 30); Iron bloom (3 iron + 2 charcoal / coal, cap 20); Lead (2 lead ore + 1 charcoal /
+  coal -> 2, cap 20); Gold dust (4 gold ore + 1 charcoal -> 1, cap 20; the Stamp Mill's 3 -> 1 stays the better route).
+  Level 1 still needs only bellows, 2 charcoal, 8 bricks and a Charcoal Burner (no iron, no Blacksmith).
+- **The Foundry is retired** (least invasive option): tile id 159 stays (an old one stands inert, its founder idle: it
+  has no recipes), it is out of PLACEABLE_TILES and the build menu and has no gate row; nothing references it (the
+  reachability test checks). The crucible now only gates the Blast furnace (Bloomery level 2).
+- **Re-wired gates**: Blacksmith = Anvil + Hammer & tongs + a Bloomery (was a Foundry); its level 2 (iron anvil) needs an
+  Iron bloom in store (was a Bloomery standing). The Blacksmith's build cost is 10 wood + 8 rock, no iron (it comes before
+  any iron ore; the old 10 wood + 5 iron under COLONY_UNLOCK_ALL). Mint / Stamp Mill / Glassworks never named the Foundry
+  (unchanged). Progression chains: Mining & ore, Bronze, Metal now run through the Bloomery.
+- **Tier-1 weapons are bronze too** (`BRONZE_WEAPON_FORGE_BRONZE` 2 + 1 wood, no iron; armour stays
+  `BRONZE_ARMOUR_FORGE_BRONZE` 3), at the Blacksmith's queue, autocraft and the hero's own forge ("Forge Bronze Weapon
+  T1"). One system: the soldier-only Bronze weapon item (`bronzeWeapon`, x1.1, cast at the Foundry) is gone with its
+  pickup / return code and the colonist flag; the tier-1 weapon (x1.2) IS the bronze one. Iron from tier 2. A tier-1 anvil
+  forges all tier-1 gear (and the bronze pickaxe) with no iron. COLONY_UNLOCK_ALL keeps the old iron costs.
+- **Bellows need no hide**: 8 wood + 2 rock by hand (a wooden box bellows), so the Bloomery is reachable on any map.
+- **Reachability audit** `server/progression-reach-test.mjs` (no server): walks PROGRESSION breadth-first from the starter
+  kit (hand gathering, the hero's farming, hunting / animal / forage products by their buildings, the Mine's layers by
+  level, build costs) and fails on any unreachable item, gated building level, recipe station level or chain step
+  (printing unmet gates and any cycle); checks the order Quarry -> Mine L1 -> Bloomery -> bronze -> Blacksmith -> bronze
+  pickaxe -> Mine L2 -> iron -> bloom -> iron pickaxe -> Mine L3, that the bronze line works with no iron and no hide at
+  all, and that the Foundry is referenced nowhere.
+- Tests: progression-reach (new), industry-extra (Foundry refused, Bloomery bronze / lead / gold, tier-1 bronze weapons,
+  armoury pickup, unlock-all iron costs), mines (Bloomery casts the anvil, iron-free Blacksmith), progression, pottery
+  (hide-free bellows), player-workstations (the hero's T1 forge takes bronze). MANUAL-TESTS.md "One furnace".

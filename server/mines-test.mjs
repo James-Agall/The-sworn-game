@@ -4,7 +4,8 @@
 // Mine are buildable (the old Coal / Copper / Tin mines are inert legacy); a Mine needs a Quarry and ore ground (iron
 // ore or any deposit, given back when demolished); each level of a Mine is a layer: a new layer breaks into a nest
 // (danger by layer: more, stronger monsters deeper), must be cleared before it produces; level 1 digs copper, tin and
-// limestone; the Foundry casts the bronze anvil and hammer & tongs, so a Blacksmith needs no iron; its level is the
+// limestone; the Bloomery (one furnace: the Foundry is retired) casts the bronze anvil and hammer & tongs, so a Blacksmith
+// needs no iron (not even to build); its level is the
 // anvil tier (a tier-1 anvil forges the bronze pickaxe, not the iron one; panel text); level 2 needs the bronze pickaxe
 // and digs iron ore and coal; level 3 the iron pickaxe (+ vent, pump) and digs gold and lead; inside, the old mine head
 // on a level leads down to the next and the mat back up; the hero fights per layer (bites, kills, loot, cleared), a
@@ -193,33 +194,38 @@ await runUntil(async () => (await total("copperOre")) > loot1.cu && (await total
 result((await total("copperOre")) > loot1.cu && (await total("tinOre")) > loot1.sn && (await total("limestone")) > loot1.lime && (await stock()).iron <= 200,
   `level 1 yields copper ${await total("copperOre")}, tin ${await total("tinOre")}, limestone ${await total("limestone")} (no iron: ${(await stock()).iron})`);
 
-// 6. bronze work without iron: the Foundry casts the bronze anvil and hammer & tongs; the Blacksmith needs a Foundry;
-// its level is the anvil tier: a tier-1 anvil forges the bronze pickaxe, not the iron one
+// 6. bronze work without iron: the Bloomery casts the bronze anvil and hammer & tongs; the Blacksmith needs a Bloomery
+// and no iron; its level is the anvil tier: a tier-1 anvil forges the bronze pickaxe, not the iron one
 await prog({ unlockAll: true });
 const FO = { x: B.x + 8, y: B.y + 1 };
-await place(FO.x, FO.y, T.Foundry);
+await place(FO.x, FO.y, T.Bloomery);
 await prog({ unlockAll: false });
 await staffed(FO, "artisan");
 await setItems({ bronze: 6 });
 await runUntil(async () => (await total("anvil")) >= 1 && (await total("smithTools")) >= 1, 40, 40);
-result((await total("anvil")) === 1 && (await total("smithTools")) === 1, `the Foundry cast a bronze anvil and hammer & tongs: anvil ${await total("anvil")}, tools ${await total("smithTools")}`);
+result((await total("anvil")) === 1 && (await total("smithTools")) === 1, `the Bloomery cast a bronze anvil and hammer & tongs: anvil ${await total("anvil")}, tools ${await total("smithTools")}`);
 const BS = { x: B.x + 12, y: B.y + 1 };
 const sl = (await prog()).snapshot.locked[T.Blacksmith] ?? [];
+const ironBS = (await stock()).iron;
 await place(BS.x, BS.y, T.Blacksmith);
-result(!sl.includes("a Bloomery") && tileAt(BS.x, BS.y) === T.Blacksmith, `the Blacksmith needs no Bloomery / iron (locks before: ${JSON.stringify(sl)})`);
+result(!sl.some((l) => /Iron|Foundry/.test(l)) && tileAt(BS.x, BS.y) === T.Blacksmith && (await stock()).iron === ironBS,
+  `the Blacksmith needs no iron, not even to build (locks before: ${JSON.stringify(sl)}; iron ${ironBS} -> ${(await stock()).iron})`);
 await staffed(BS, "artisan");
-// (The Foundry's own casts are at their caps, so the bronze waits for the smith.)
+// (The Bloomery's own casts are at their caps, so the bronze waits for the smith.)
 await setExact("bronzeTools", 1);
-await setExact("bronzeWeapon", 10);
 await setExact("bronze", 3);
+const bsInfo0 = await info(BS.x, BS.y);
 await setExact("ironBloom", 5);
 await runUntil(async () => (await total("bronzePick")) >= 1, 40, 40);
 await ff(400);
 const bsInfo = await info(BS.x, BS.y);
 result((await total("bronzePick")) === 1 && (await total("ironPick")) === 0 && (await total("ironBloom")) === 5,
   `a tier-1 anvil forged the bronze pickaxe but not the iron one (${await total("ironPick")}; blooms kept ${await total("ironBloom")})`);
-result((bsInfo.bonuses ?? []).some((l) => /Anvil tier 1 \(bronze/.test(l)) && (bsInfo.progression ?? []).some((l) => /Level 2 needs: .*a Bloomery/.test(l)),
-  `Blacksmith panel: ${JSON.stringify(bsInfo.bonuses)} ${JSON.stringify(bsInfo.progression)}`);
+result((bsInfo.bonuses ?? []).some((l) => /Anvil tier 1 \(bronze/.test(l)) && (bsInfo0.progression ?? []).some((l) => /Level 2 needs: .*Iron bloom/.test(l)),
+  `Blacksmith panel: ${JSON.stringify(bsInfo.bonuses)} ${JSON.stringify(bsInfo0.progression)}`);
+
+// The Bloomery would smelt the level-2 iron ore and coal into blooms below: take it away (the Blacksmith stays unlocked).
+await raw(FO.x, FO.y, T.Empty);
 
 // 7. level 2 needs the bronze pickaxe; the new layer's nest is stronger; level 1 keeps digging
 await setExact("bronzePick", 0);

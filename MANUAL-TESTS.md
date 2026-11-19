@@ -1402,3 +1402,20 @@ A normal game (gates on); Creative "Unlock all" off. The new buildings are in th
 6. Upgrade the Blacksmith to level 2 (needs a Bloomery): it forges an Iron pickaxe from blooms. With the iron pickaxe,
    air vent and bucket pump, upgrade the Mine to level 3: the strongest nest (5-7 monsters); cleared, gold and lead ore.
 7. Over a few days, level 2/3 may get monsters back (panel odds); level 1 never does. The Quarry behaves as before.
+## One furnace, bronze tier-1 gear (2026-11-19; supersedes the Foundry steps above)
+1. New game: no Foundry in the build menu. Bloomery tooltip lists bronze, iron bloom, lead and gold dust and says it needs
+   Bellows, 2 Charcoal, 8 Bricks and a Charcoal Burner (no iron). Craft-by-hand: "Build bellows" costs 8 wood + 2 rock
+   (no hide).
+2. Mine level 1 cleared + Bloomery with charcoal: copper and tin turn into Bronze; the smelter casts Hammer & tongs,
+   Bronze tools and a bronze Anvil from it (Items panel).
+3. Blacksmith: "needs: Anvil, Hammer & tongs, a Bloomery"; its cost is wood + rock (no iron). Panel: "Anvil tier 1
+   (bronze: bronze pickaxe, tier-1 (bronze) weapons and armour)". With a level-2 smith: "Forge Bronze Weapon T1" costs
+   "1 wood, 2 bronze", "Forge Bronze Armour T1" "3 bronze"; with no bronze both are disabled with "Not enough bronze
+   (smelt it at a Bloomery)". Iron in the stores does not change.
+4. Soldiers in the Hall of the Sworn pick up the T1 weapon / armour from the armoury stock (Army panel); no "Bronze
+   weapons" item appears anywhere (Items panel).
+5. Hero: the workstation forge at a Blacksmith lists "Forge tier 1 bronze weapons / bronze armour" with bronze costs.
+6. Mine level 2 (bronze pickaxe): iron ore and coal arrive, the Bloomery makes Iron blooms; the Blacksmith's level-2
+   upgrade now asks for an Iron bloom in store. Mine level 3: lead ore becomes Lead at the Bloomery (Kiln glazes with it),
+   gold ore becomes Gold dust there too (slower than the Stamp Mill).
+7. Progression panel: the Mining & ore / Bronze / Metal chains go through the Bloomery; none shows the Foundry.

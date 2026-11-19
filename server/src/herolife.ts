@@ -1536,7 +1536,7 @@ export function playerStationRecipes(tile:TileType):PersonalRecipe[] {
  const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stationLevel:r.stationLevel,gradeBonus:r.gradeBonus,stock:r.stock,items:r.items,needs:r.needs,item:r.output}));
  const r=CRAFT_RECIPES[tile];
  if(r)rows.push({id:'artisan:'+tile,label:({clothes:'Sew clothes',tools:'Forge tools',luxuryItems:'Craft luxury goods',alcohol:'Brew ale',gold:'Serve drinks'} as Record<string,string>)[r.output]??r.output,amount:r.outputAmount??1,seconds:30,stock:r.inputs,stockOutput:r.output});
- if(tile===TileType.Blacksmith)for(const tier of [1,2,3])for(const gear of ['weapon','armour'] as const)rows.push({id:`forge:${gear}:${tier}`,label:`Forge tier ${tier} ${gear==='weapon'?'weapons':forgeItems(gear,tier).bronze?'bronze armour':'armour'}`,level:gatesOpen()?undefined:smithLevelForGearTier(tier),amount:1,seconds:FORGE_TICKS[gear]/TICK_RATE,tier,stock:forgeCost(gear,tier),items:forgeItems(gear,tier),gear});
+ if(tile===TileType.Blacksmith)for(const tier of [1,2,3])for(const gear of ['weapon','armour'] as const)rows.push({id:`forge:${gear}:${tier}`,label:`Forge tier ${tier} ${forgeItems(gear,tier).bronze?'bronze ':''}${gear==='weapon'?'weapons':'armour'}`,level:gatesOpen()?undefined:smithLevelForGearTier(tier),amount:1,seconds:FORGE_TICKS[gear]/TICK_RATE,tier,stock:forgeCost(gear,tier),items:forgeItems(gear,tier),gear});
  return rows;
 }
 function personalRecipeBlock(p:Player,r:PersonalRecipe,st:{tx:number;ty:number;tile:TileType}):string {
