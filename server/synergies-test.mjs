@@ -289,36 +289,61 @@ let ljPos = null, houses1 = [];
   }
 }
 
-// ---- (3) 3 houses around a unit building allowed, 4th rejected ----
+// ---- (3) 3 houses around a unit building allowed, the one that would seal it in rejected ----
+// The Hall of the Sworn (KnightPost) is a 3x3 building (FOOTPRINT_BY_TILE): the placed tile is the block's top-left
+// corner (the anchor), the whole block must be Empty and nobody may stand on it. The house bonus and the
+// sealed-in rule are the anchor's: adjacentHouseCount counts its 8 neighbours and sealsInSpawner its 4 sides, two
+// of which (E, S) are the block's own BuildingPart tiles. So the anchor has 5 outside neighbours (W, N, NW, NE, SW)
+// and only 2 open sides (W, N): houses on two diagonals plus one open side are accepted, a house on the other
+// open side would seal the post in and is refused.
 {
   while (a.snap.isNight) await sleep(250); // walking at night is unreliable (mobs, shelter)
-  const s = await gotoNewSite(a, "(3)");
-  if (s) {
-    const K = { x: s.x + 1, y: s.y - 1 };
-    const N = [{ x: K.x - 1, y: K.y }, { x: K.x + 1, y: K.y }, { x: K.x, y: K.y - 1 }, { x: K.x, y: K.y + 1 }];
+  // Layouts relative to the player's site tile s, every placement within reach (2.5 tiles) of s:
+  //  A: post's block below s, houses NW + NE;  B: post's block to the right, houses NW + SW.
+  const layouts = (s) => [
+    { K: { x: s.x, y: s.y + 2 }, diag: [[-1, -1], [1, -1]] },
+    { K: { x: s.x + 2, y: s.y + 1 }, diag: [[-1, -1], [-1, 1]] },
+  ];
+  const fits = (L, s) => {
+    for (let dy = 0; dy < 3; dy++)
+      for (let dx = 0; dx < 3; dx++) {
+        const tx = L.K.x + dx, ty = L.K.y + dy;
+        if (!a.inBounds(tx, ty) || a.tileAt(tx, ty) !== T.Empty || colonistOnTile(a, tx, ty) || (tx === s.x && ty === s.y)) return false;
+      }
+    return [[-1, 0], [0, -1], ...L.diag].every(([dx, dy]) => a.inBounds(L.K.x + dx, L.K.y + dy) && a.tileAt(L.K.x + dx, L.K.y + dy) === T.Empty);
+  };
+  let s = null, L = null;
+  for (let pick = 0; pick < 4 && !L; pick++) {
+    s = await gotoNewSite(a, "(3)");
+    if (!s) break;
+    L = layouts(s).find((l) => fits(l, s)) ?? null;
+    if (!L) info(`(3) no clear 3x3 block beside site (${s.x},${s.y}); trying another site`);
+  }
+  if (s && !L) result(false, `(3) no site with a clear 3x3 block for the Hall of the Sworn`);
+  if (s && L) {
+    const K = L.K;
+    const sides = [{ x: K.x - 1, y: K.y }, { x: K.x, y: K.y - 1 }]; // the anchor's only open sides (E, S are its block)
+    const diags = L.diag.map(([dx, dy]) => ({ x: K.x + dx, y: K.y + dy }));
     const knights = () => a.snap.colonists.filter((k) => k.kind === "knight" && k.postX === K.x && k.postY === K.y);
     await placeExpectAt(a, K.x, K.y, T.KnightPost, K.x, K.y, T.KnightPost);
     await sleep(200);
     const capK = a.snap.populationCap;
-    // Houses on the three sides that are not the player's tile.
-    let placed = 0; // W, E, N sides; the W-N and E-N houses touch diagonally
-    // Knights idle on the post's open sides; build on the sides nobody is standing on first, so the
-    // occupied one is left for the 4th-house check instead of blocking a placement for a whole day.
-    const order = [...N].sort((p, q) => colonistOnTile(a, p.x, p.y) - colonistOnTile(a, q.x, q.y));
-    for (const p of order) {
-      if (placed === 3) break;
-      if (p.x === s.x && p.y === s.y) continue;
-      const r = await placeExpectAt(a, p.x, p.y, T.House, p.x, p.y, T.House);
-      if (r.hit.length) placed++;
-    }
+    let placed = 0;
+    for (const p of diags) if ((await placeExpectAt(a, p.x, p.y, T.House, p.x, p.y, T.House)).hit.length) placed++;
+    // Knights idle on the post's open sides; build on the side nobody is standing on, so the occupied one is left
+    // for the sealed-in check instead of blocking a placement for a whole day.
+    const [side, last] = [...sides].sort((p, q) => colonistOnTile(a, p.x, p.y) - colonistOnTile(a, q.x, q.y));
+    if ((await placeExpectAt(a, side.x, side.y, T.House, side.x, side.y, T.House)).hit.length) placed++;
     await sleep(300);
     result(placed === 3 && knights().length === 4, `(3) 3 houses around the KnightPost accepted (${placed}); knights=${knights().length} (expected 4 = 1 + 3)`);
-    // The housing gain is +8; the effective cap is clamped by the Town Center's tier ceiling (20 at Lv1).
+    // Village life: military buildings add no housing, so the gain is the 3 houses + their house-house pairs
+    // (diagonals count); the effective cap is clamped by the Town Center's tier ceiling.
+    const all = [...diags, side];
+    const pairs = all.reduce((n, p, i) => n + all.slice(i + 1).filter((q) => Math.max(Math.abs(p.x - q.x), Math.abs(p.y - q.y)) === 1).length, 0);
     const tierCap = a.snap.townCenters[0]?.populationTierCap ?? Infinity;
-    const wantCap = Math.min(capK + 8, tierCap);
-    result(a.snap.populationCap === wantCap, `(3) cap ${capK}->${a.snap.populationCap} (expected min(+8, tier cap ${tierCap}) = ${wantCap}: 3 houses + 3 house-post pairs + 2 diagonal house-house pairs)`);
-    const last = N.find((p) => a.tileAt(p.x, p.y) === T.Empty);
-    if (last && !(last.x === s.x && last.y === s.y)) {
+    const wantCap = Math.min(capK + 3 + pairs, tierCap);
+    result(a.snap.populationCap === wantCap, `(3) cap ${capK}->${a.snap.populationCap} (expected min(+${3 + pairs}, tier cap ${tierCap}) = ${wantCap}: 3 houses + ${pairs} house-house pairs, no house-post pairs)`);
+    if (a.tileAt(last.x, last.y) === T.Empty) {
       // The knights idle on their post's only open side, and a tile with a colonist on it is rejected
       // anyway (which would make this pass for the wrong reason), so only test it while it is free.
       for (let w = 0; w < 450 && colonistOnTile(a, last.x, last.y); w++) await sleep(100);
@@ -329,22 +354,34 @@ let ljPos = null, houses1 = [];
         result(ups.filter((u) => u.tileX === last.x && u.tileY === last.y).length === 0 && a.tileAt(last.x, last.y) === T.Empty && a.snap.wood >= wood,
           `(3) 4th House on the last open side (${last.x},${last.y}) rejected: tile ${a.tileAt(last.x, last.y)}, wood ${wood}->${a.snap.wood}`);
       } else {
-        // Fallback for the same rule (sealsInSpawner), unit-building side: a Knight Post on a tile whose four
-        // sides are all solid is refused; with one side opened it is accepted (control).
-        info(`(3) knights still standing on (${last.x},${last.y}) after 45s; checking the enclosed-post variant instead`);
-        const X = { x: s.x - 1, y: s.y + 1 };
-        const sides = [{ x: X.x - 1, y: X.y }, { x: X.x + 1, y: X.y }, { x: X.x, y: X.y + 1 }, { x: X.x, y: X.y - 1 }];
-        let walls = 0;
-        for (const p of sides) if ((await placeExpectAt(a, p.x, p.y, T.Wall, p.x, p.y, T.Wall)).hit.length) walls++;
-        const iron = a.snap.iron;
-        const ups = colonistOnTile(a, X.x, X.y) ? null : await act(a, X.x, X.y, T.KnightPost, 700);
-        result(walls === 4 && ups && ups.filter((u) => u.tileX === X.x && u.tileY === X.y).length === 0 && a.snap.iron === iron,
-          `(3) Knight Post on (${X.x},${X.y}) with all 4 sides walled (${walls}/4) rejected: iron ${iron}->${a.snap.iron}`);
-        await act(a, sides[1].x, sides[1].y, T.Empty, 400);
-        const ok = await placeExpectAt(a, X.x, X.y, T.KnightPost, X.x, X.y, T.KnightPost);
-        result(ok.hit.length > 0, `(3) control: after opening one side, the Knight Post on (${X.x},${X.y}) is accepted`);
+        // Fallback for the same rule (sealsInSpawner), unit-building side: a 1x1 unit building (Militia Camp) on a
+        // tile whose four sides are all solid is refused; with one side opened it is accepted (control).
+        info(`(3) knights still standing on (${last.x},${last.y}) after 45s; checking the enclosed-camp variant instead`);
+        const used = new Set([...all, last].map((p) => `${p.x},${p.y}`));
+        const inBlock = (x, y) => x >= K.x && x < K.x + 3 && y >= K.y && y < K.y + 3;
+        const ring = (X) => [{ x: X.x - 1, y: X.y }, { x: X.x + 1, y: X.y }, { x: X.x, y: X.y + 1 }, { x: X.x, y: X.y - 1 }];
+        const ok1 = (p) => a.inBounds(p.x, p.y) && a.tileAt(p.x, p.y) === T.Empty && !used.has(`${p.x},${p.y}`) && !inBlock(p.x, p.y) &&
+          !(p.x === s.x && p.y === s.y) && !colonistOnTile(a, p.x, p.y) && Math.hypot(p.x - s.x, p.y - s.y) <= 2.5;
+        let X = null;
+        for (let dy = -2; dy <= 2 && !X; dy++) for (let dx = -2; dx <= 2 && !X; dx++) {
+          const c = { x: s.x + dx, y: s.y + dy };
+          if (ok1(c) && ring(c).every(ok1)) X = c;
+        }
+        if (!X) result(false, `(3) no free tile with 4 free sides in reach for the enclosed-camp variant`);
+        else {
+          const ringX = ring(X);
+          let walls = 0;
+          for (const p of ringX) if ((await placeExpectAt(a, p.x, p.y, T.Wall, p.x, p.y, T.Wall)).hit.length) walls++;
+          const rock = a.snap.rock, iron = a.snap.iron;
+          const ups = colonistOnTile(a, X.x, X.y) ? null : await act(a, X.x, X.y, T.MilitiaPost, 700);
+          result(walls === 4 && ups && ups.filter((u) => u.tileX === X.x && u.tileY === X.y).length === 0 && a.snap.rock === rock && a.snap.iron === iron,
+            `(3) Militia Camp on (${X.x},${X.y}) with all 4 sides walled (${walls}/4) rejected: rock ${rock}->${a.snap.rock}, iron ${iron}->${a.snap.iron}`);
+          await act(a, ringX[1].x, ringX[1].y, T.Empty, 400);
+          const ok = await placeExpectAt(a, X.x, X.y, T.MilitiaPost, X.x, X.y, T.MilitiaPost);
+          result(ok.hit.length > 0, `(3) control: after opening one side, the Militia Camp on (${X.x},${X.y}) is accepted`);
+        }
       }
-    } else result(false, `(3) no open side left for the 4th-house check (last=${JSON.stringify(last)}; player tile was used as a side)`);
+    } else result(false, `(3) no open side left for the sealed-in check (last=${JSON.stringify(last)} is tile ${a.tileAt(last.x, last.y)})`);
   }
 }
 
