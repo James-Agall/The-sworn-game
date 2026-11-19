@@ -104,7 +104,8 @@ await sleep(400);
 const inf1 = await info(L.x, L.y);
 result(inf1.level === 2 && (inf1.progression ?? []).some((l) => /tier 2 of 2: speed x1\.25/.test(l)), `upgraded with a level-2 woodcutter: level ${inf1.level}, ${JSON.stringify(inf1.progression)}`);
 
-// 3b. the metal chain (phase 3): Charcoal Burner -> charcoal; bellows (wood and stone, no hide); Bloomery -> blooms.
+// 3b. the metal chain (phase 3): Charcoal Burner -> charcoal; Bloomery (bricks; no bellows) -> blooms; bellows from hides
+// (the Blast furnace, level 2, needs them: 4b).
 // One furnace (2026-11-19): the Blacksmith's anvil and hammer & tongs are cast in bronze at the Bloomery (mines-test.mjs),
 // so the Blacksmith needs a Bloomery. (Instant build also makes a station batch take one tick.)
 const S = { x: B.x + 6, y: B.y };
@@ -121,20 +122,16 @@ for (let i = 0; i < 20 && (items().charcoal?.[0] ?? 0) < 6; i++) await hook("fas
 result(tileAt(CB.x, CB.y) === T.Charcoal && (items().charcoal?.[0] ?? 0) >= 6, `Charcoal Burner burns charcoal: ${JSON.stringify(items().charcoal)}`);
 ev = c.events.length;
 await place(BL.x, BL.y, T.Bloomery, T.Bloomery);
-result(tileAt(BL.x, BL.y) === T.Empty && c.events.slice(ev).some((e) => /Bloomery needs: Bellows/.test(e)), `Bloomery locked without bellows`);
+result(tileAt(BL.x, BL.y) === T.Empty && c.events.slice(ev).some((e) => /Bloomery needs: 8 Bricks/.test(e) && !/Bellows/.test(e)), `Bloomery locked without bricks (not bellows): ${c.events.slice(ev).join(" | ")}`);
 // Clay pit and pottery: the Bloomery also needs 8 bricks in store (the Kiln's; pottery-test.mjs fires them).
 await hook("progression", { items: { bricks: 8 } });
-const hideBefore = JSON.stringify(items().hide ?? []);
-send({ type: "craftItem", recipe: "bellows" });
-await until(() => (items().bellows?.[0] ?? 0) === 1, 3000);
-result((items().bellows?.[0] ?? 0) === 1 && JSON.stringify(items().hide ?? []) === hideBefore, `bellows built by hand, no hide used: bellows ${JSON.stringify(items().bellows)}, hide ${hideBefore} -> ${JSON.stringify(items().hide ?? [])}`);
 await place(BL.x, BL.y, T.Bloomery);
 await until(() => c.snap.colonists.some((u) => u.kind === "artisan" && u.postX === BL.x && u.postY === BL.y), 5000);
 for (let i = 0; i < 20 && (items().ironBloom?.[0] ?? 0) < 1; i++) await hook("fastForward", { ticks: 100 }), await sleep(100);
 result((items().ironBloom?.[0] ?? 0) >= 1 && !items().anvil?.[0] && c.snap.iron < 500,
   `Bloomery smelts blooms (no bronze yet, so no anvil): anvil ${items().anvil}, tools ${items().smithTools}, blooms ${items().ironBloom}, charcoal ${items().charcoal}, iron ${c.snap.iron}, smelter ${JSON.stringify(c.snap.colonists.filter((u) => u.postX === BL.x && u.postY === BL.y).map((u) => [u.kind, u.state, Math.round(u.x / 32), Math.round(u.y / 32)]))}`);
 const blInfo = await info(BL.x, BL.y);
-result((blInfo.progression ?? []).some((l) => /Smelter L1/.test(l)) && (blInfo.progression ?? []).some((l) => /Level 2 needs: Crucible, a Blacksmith, Smelter level 2/.test(l)),
+result((blInfo.progression ?? []).some((l) => /Smelter L1/.test(l)) && (blInfo.progression ?? []).some((l) => /Level 2 needs: Bellows, Crucible, a Blacksmith, Smelter level 2/.test(l)),
   `Bloomery info: ${JSON.stringify(blInfo.progression)}`);
 
 // 4. smith training: a level-1 smith makes tools, not gear
@@ -152,6 +149,14 @@ result(f1 && f1.options.some((o) => o.enabled), `level-2 smith can forge T1: ${f
 // 4b. Blast furnace: with a Blacksmith, a crucible (Kiln) and a level-2 smelter the Bloomery reaches level 2 and makes
 // Good blooms
 await hook("progression", { xpAt: { x: BL.x, y: BL.y, xp: 100 }, items: { ironBloom: -100, crucible: 1 } });
+// One furnace (2026-11-19): the Blast furnace needs bellows (sewn from a hunter's hides).
+ev = c.events.length;
+send({ type: "upgradeBuilding", tileX: BL.x, tileY: BL.y });
+await sleep(400);
+result((await info(BL.x, BL.y)).level === 1 && c.events.slice(ev).some((e) => /Bellows/.test(e)), `Blast furnace refused without bellows: ${c.events.slice(ev).join(" | ")}`);
+await hook("progression", { items: { hide: 2 } });
+send({ type: "craftItem", recipe: "bellows" });
+await until(() => (items().bellows?.[0] ?? 0) === 1, 3000);
 ev = c.events.length;
 send({ type: "upgradeBuilding", tileX: BL.x, tileY: BL.y });
 await sleep(400);

@@ -4838,7 +4838,8 @@ hero's personal craft table with its own skill).
   Steel (Blast furnace, level 2+, level-2 smelter, as before); Bronze (3 copper ore + 2 washed tin + 1 charcoal / coal -> 3,
   or 3 copper + 2 tin ore -> 2, cap 30); Iron bloom (3 iron + 2 charcoal / coal, cap 20); Lead (2 lead ore + 1 charcoal /
   coal -> 2, cap 20); Gold dust (4 gold ore + 1 charcoal -> 1, cap 20; the Stamp Mill's 3 -> 1 stays the better route).
-  Level 1 still needs only bellows, 2 charcoal, 8 bricks and a Charcoal Burner (no iron, no Blacksmith).
+  Level 1 needs only 2 charcoal, 8 bricks and a Charcoal Burner (no iron, no Blacksmith, no bellows); level 2 (the Blast
+  furnace) needs bellows + a crucible + a Blacksmith.
 - **The Foundry is retired** (least invasive option): tile id 159 stays (an old one stands inert, its founder idle: it
   has no recipes), it is out of PLACEABLE_TILES and the build menu and has no gate row; nothing references it (the
   reachability test checks). The crucible now only gates the Blast furnace (Bloomery level 2).
@@ -4851,13 +4852,14 @@ hero's personal craft table with its own skill).
   T1"). One system: the soldier-only Bronze weapon item (`bronzeWeapon`, x1.1, cast at the Foundry) is gone with its
   pickup / return code and the colonist flag; the tier-1 weapon (x1.2) IS the bronze one. Iron from tier 2. A tier-1 anvil
   forges all tier-1 gear (and the bronze pickaxe) with no iron. COLONY_UNLOCK_ALL keeps the old iron costs.
-- **Bellows need no hide**: 8 wood + 2 rock by hand (a wooden box bellows), so the Bloomery is reachable on any map.
+- **Bellows gate the Blast furnace** (moved from the Bloomery's level 1 to its level 2); the recipe is unchanged (4 wood +
+  2 hide by hand): hides are an early source (a Hunter's Hut on a stone knife).
 - **Reachability audit** `server/progression-reach-test.mjs` (no server): walks PROGRESSION breadth-first from the starter
   kit (hand gathering, the hero's farming, hunting / animal / forage products by their buildings, the Mine's layers by
   level, build costs) and fails on any unreachable item, gated building level, recipe station level or chain step
   (printing unmet gates and any cycle); checks the order Quarry -> Mine L1 -> Bloomery -> bronze -> Blacksmith -> bronze
-  pickaxe -> Mine L2 -> iron -> bloom -> iron pickaxe -> Mine L3, that the bronze line works with no iron and no hide at
-  all, and that the Foundry is referenced nowhere.
+  pickaxe -> Mine L2 -> iron -> bloom -> iron pickaxe -> Mine L3, that the bronze line works with no iron and no
+  bellows at all, that hides (hence bellows) need no Quarry or Mine, that bellows gate the Blast furnace, and that the Foundry is referenced nowhere.
 - Tests: progression-reach (new), industry-extra (Foundry refused, Bloomery bronze / lead / gold, tier-1 bronze weapons,
-  armoury pickup, unlock-all iron costs), mines (Bloomery casts the anvil, iron-free Blacksmith), progression, pottery
-  (hide-free bellows), player-workstations (the hero's T1 forge takes bronze). MANUAL-TESTS.md "One furnace".
+  armoury pickup, unlock-all iron costs), mines (Bloomery casts the anvil, iron-free Blacksmith), progression,
+  player-workstations (the hero's T1 forge takes bronze). MANUAL-TESTS.md "One furnace".

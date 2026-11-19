@@ -11,7 +11,8 @@
 //   O the bronze-first order: Quarry -> Mine L1 -> Bloomery -> bronze -> Blacksmith -> bronze pickaxe -> Mine L2 -> iron
 //     -> iron bloom -> iron pickaxe -> Mine L3 (each strictly after the one before).
 //   N the Bloomery, bronze, the anvil / hammer & tongs and the Blacksmith (gates and build costs) are reachable with NO
-//     iron at all (not even the starting stock) and NO hide.
+//     iron at all (not even the starting stock) and NO bellows (they gate the Blast furnace, Bloomery level 2); the
+//     bellows' hides come early (a Hunter's Hut on a stone knife, no mine needed).
 //   F the retired Foundry is referenced nowhere (no recipe, gate or chain) and leaves no item without a source.
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -205,15 +206,18 @@ async function inner() {
   result(ordered, `O ${order.map((k, i) => `${nice(k)}@${rounds[i]}`).join(" -> ")}`);
 
   // ---- N ----
-  const noIron = walk(new Set(["stock:iron", "item:hide", "item:ironBloom", "stock:tools"]));
-  const nIron = ["b:" + T.Bloomery + ":1", "item:bronze", "item:anvil", "item:smithTools", "b:" + T.Blacksmith + ":1", "item:bronzePick", "item:bronzeTools", "item:bellows", "b:" + T.IronMinePost + ":2"];
+  const noIron = walk(new Set(["stock:iron", "item:ironBloom", "stock:tools", "item:bellows"]));
+  const nIron = ["b:" + T.Bloomery + ":1", "item:bronze", "item:anvil", "item:smithTools", "b:" + T.Blacksmith + ":1", "item:bronzePick", "item:bronzeTools", "b:" + T.IronMinePost + ":2"];
   const missing = nIron.filter((k) => !noIron.round.has(k));
-  result(missing.length === 0, `N with no iron, iron blooms, tools or hide: ${nIron.map(nice).join(", ")} reachable${missing.length ? `; missing ${missing.map(nice).join(", ")}` : ""}`);
+  result(missing.length === 0, `N with no iron, iron blooms, tools or bellows: ${nIron.map(nice).join(", ")} reachable${missing.length ? `; missing ${missing.map(nice).join(", ")}` : ""}`);
   const bl = PROGRESSION.buildings[T.Bloomery]?.requires ?? {};
-  result(!(bl.buildings ?? []).some((b) => b.tile === T.Blacksmith) && !Object.keys(bl.items ?? {}).some((i) => i === "ironBloom" || i === "hide"),
-    `N the Bloomery's level 1 needs ${JSON.stringify(bl)} (no Blacksmith, iron or hide)`);
-  const bellows = PROGRESSION.recipes.find((rc) => rc.id === "bellows");
-  result(!!bellows && !bellows.items?.hide && !bellows.needs?.hide, `N bellows: ${JSON.stringify({ stock: bellows?.stock, items: bellows?.items })}`);
+  const bl2 = PROGRESSION.buildings[T.Bloomery]?.levels?.[2] ?? {};
+  result(!(bl.buildings ?? []).some((b) => b.tile === T.Blacksmith) && !Object.keys(bl.items ?? {}).some((i) => i === "ironBloom" || i === "hide" || i === "bellows") && (bl2.items?.bellows ?? 0) > 0,
+    `N the Bloomery's level 1 needs ${JSON.stringify(bl)} (no Blacksmith, iron or bellows); level 2 ${JSON.stringify(bl2)}`);
+  // Hides are an early source: a Hunter's Hut on a stone knife (hand-knapped), with no Quarry or Mine at all.
+  const noMines = walk(new Set([`b:${T.RockMinePost}:1`, `b:${T.IronMinePost}:1`]));
+  result(noMines.round.has("item:hide") && noMines.round.has("item:bellows") && round.get("item:bellows") < round.get(`b:${T.Bloomery}:2`),
+    `N hides early (round ${round.get("item:hide")}, needing no mine): bellows @${round.get("item:bellows")}, Blast furnace @${round.get(`b:${T.Bloomery}:2`)}`);
 
   // ---- F ----
   const foundryRefs = [

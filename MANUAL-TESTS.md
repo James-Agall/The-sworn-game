@@ -1404,8 +1404,8 @@ A normal game (gates on); Creative "Unlock all" off. The new buildings are in th
 7. Over a few days, level 2/3 may get monsters back (panel odds); level 1 never does. The Quarry behaves as before.
 ## One furnace, bronze tier-1 gear (2026-11-19; supersedes the Foundry steps above)
 1. New game: no Foundry in the build menu. Bloomery tooltip lists bronze, iron bloom, lead and gold dust and says it needs
-   Bellows, 2 Charcoal, 8 Bricks and a Charcoal Burner (no iron). Craft-by-hand: "Build bellows" costs 8 wood + 2 rock
-   (no hide).
+   2 Charcoal, 8 Bricks and a Charcoal Burner (no iron, no bellows). Upgrading it to level 2 (Blast furnace) asks for
+   Bellows (sewn from 4 wood + 2 hides), a Crucible and a Blacksmith.
 2. Mine level 1 cleared + Bloomery with charcoal: copper and tin turn into Bronze; the smelter casts Hammer & tongs,
    Bronze tools and a bronze Anvil from it (Items panel).
 3. Blacksmith: "needs: Anvil, Hammer & tongs, a Bloomery"; its cost is wood + rock (no iron). Panel: "Anvil tier 1

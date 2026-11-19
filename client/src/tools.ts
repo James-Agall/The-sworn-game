@@ -246,7 +246,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Bloomery,
     label: "Bloomery",
     key: "x",
-    cost: `${buildCostText(TileType.Bloomery)} (level 2+: Blast furnace). Needs Bellows, 2 Charcoal, 8 Bricks and a Charcoal Burner (no iron). Smelts every metal: 3 Copper ore + 2 Tin ore + 1 Charcoal (or Coal) → 2 Bronze (3 from Washed tin), 3 Iron + 2 Charcoal → Iron bloom, 2 Lead ore + 1 Charcoal → 2 Lead, 4 Gold ore + 1 Charcoal → 1 Gold dust; casts a bronze Anvil and Hammer & tongs (a Blacksmith needs them) and Bronze tools (hero and miners / woodcutters x${BRONZE_TOOL_SPEED} speed). A Blast furnace with a level-2 smelter makes Steel from 2 Iron blooms + 1 Limestone + 2 Charcoal (or Coal); Fine steel in store forges each piece ${STEEL_FINE_TIER_BONUS} tier better`,
+    cost: `${buildCostText(TileType.Bloomery)} (level 2+: Blast furnace, needs Bellows, a Crucible and a Blacksmith). Needs 2 Charcoal, 8 Bricks and a Charcoal Burner (no iron, no bellows). Smelts every metal: 3 Copper ore + 2 Tin ore + 1 Charcoal (or Coal) → 2 Bronze (3 from Washed tin), 3 Iron + 2 Charcoal → Iron bloom, 2 Lead ore + 1 Charcoal → 2 Lead, 4 Gold ore + 1 Charcoal → 1 Gold dust; casts a bronze Anvil and Hammer & tongs (a Blacksmith needs them) and Bronze tools (hero and miners / woodcutters x${BRONZE_TOOL_SPEED} speed). A Blast furnace with a level-2 smelter makes Steel from 2 Iron blooms + 1 Limestone + 2 Charcoal (or Coal); Fine steel in store forges each piece ${STEEL_FINE_TIER_BONUS} tier better`,
     category: "industry",
   },
   // Clay pit and pottery (no free key: button only).

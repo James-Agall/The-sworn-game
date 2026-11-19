@@ -112,7 +112,7 @@ await setStock({ wood: 3000, rock: 3000, iron: 500, grain: 500, meat: 200, fruit
 // 1. locks in a new game; the new deposits are on the map
 const s0 = (await prog()).snapshot;
 const lk = (t) => JSON.stringify(s0.locked[t] ?? []);
-result((s0.locked[T.Bloomery] ?? []).includes("Bellows") && (s0.locked[T.Bloomery] ?? []).includes("8 Bricks") && !(s0.locked[T.Bloomery] ?? []).some((l) => /Blacksmith|Iron|Hide/.test(l))
+result((s0.locked[T.Bloomery] ?? []).includes("8 Bricks") && !(s0.locked[T.Bloomery] ?? []).some((l) => /Bellows|Blacksmith|Iron|Hide/.test(l))
   && (s0.locked[T.StampMill] ?? []).includes("Carpenter's tools") && (s0.locked[T.StampMill] ?? []).includes("a Mine")
   && (s0.locked[T.Glassworks] ?? []).includes("a Kiln") && (s0.locked[T.Glassworks] ?? []).includes("a Stamp Mill")
   && (s0.locked[T.Mint] ?? []).includes("a Stamp Mill") && (s0.locked[T.Mint] ?? []).includes("a Blacksmith"),
@@ -120,8 +120,8 @@ result((s0.locked[T.Bloomery] ?? []).includes("Bellows") && (s0.locked[T.Bloomer
 const count = (t) => c.tiles.filter((v) => v === t).length;
 result(count(T.Limestone) > 0 && count(T.GoldOre) > 0 && count(T.LeadOre) > 0, `world gen veins: limestone ${count(T.Limestone)}, gold ore ${count(T.GoldOre)}, lead ore ${count(T.LeadOre)}`);
 
-// 2. one furnace: the Foundry is retired (not placeable); the Bloomery (bellows, charcoal, bricks, a Charcoal Burner; no
-// iron, no Blacksmith) smelts bronze
+// 2. one furnace: the Foundry is retired (not placeable); the Bloomery (charcoal, bricks, a Charcoal Burner; no bellows,
+// iron or Blacksmith) smelts bronze
 const FO = { x: B.x + 1, y: B.y + 1 };
 await setExact("crucible", 1);
 await raw(B.x + 20, B.y + 1, T.IronMinePost);
@@ -129,13 +129,13 @@ await tryPlace(FO.x, FO.y, T.Foundry);
 result(tileAt(FO.x, FO.y) === T.Empty, `the Foundry can no longer be built (tile ${tileAt(FO.x, FO.y)})`);
 let ev = c.events.length;
 await tryPlace(FO.x, FO.y, T.Bloomery);
-result(tileAt(FO.x, FO.y) === T.Empty && /Bloomery needs: Bellows, 2 Charcoal, 8 Bricks, a Charcoal Burner/.test(evSince(ev)), `Bloomery locked: ${evSince(ev)}`);
-await setExact("bellows", 1);
+result(tileAt(FO.x, FO.y) === T.Empty && /Bloomery needs: 2 Charcoal, 8 Bricks, a Charcoal Burner/.test(evSince(ev)), `Bloomery locked: ${evSince(ev)}`);
+await setExact("bellows", 0);
 await setExact("bricks", 8);
 await setExact("charcoal", 2);
 await raw(B.x + 20, B.y + 5, T.CharcoalBurner);
 await place(FO.x, FO.y, T.Bloomery);
-result(tileAt(FO.x, FO.y) === T.Bloomery, "Bloomery built with no iron and no Blacksmith");
+result(tileAt(FO.x, FO.y) === T.Bloomery, "Bloomery built with no bellows, iron or Blacksmith");
 
 // 3. bronze at the Bloomery: copper + tin + charcoal, the tools cast as soon as there is bronze; coal when there is no
 // charcoal (the bronze anvil and hammer & tongs, cast first, are in store already: mines-test covers them). No iron

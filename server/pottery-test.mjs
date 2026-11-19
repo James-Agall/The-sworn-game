@@ -185,7 +185,7 @@ const CB = { x: B.x + 4, y: B.y + 6 };
 const BL = { x: B.x + 7, y: B.y + 6 };
 await place(LJ.x, LJ.y, T.Lumberjack);
 await place(CB.x, CB.y, T.Charcoal);
-await setItems({ charcoal: 10 }); // bellows: wood and stone (no hide since 2026-11-19)
+await setItems({ hide: 2, charcoal: 10 });
 send({ type: "craftItem", recipe: "bellows" });
 await sleep(200);
 await setExact("bricks", 0);

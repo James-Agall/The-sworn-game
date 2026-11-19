@@ -148,8 +148,8 @@ export const PROGRESSION = {
     stonePick: { label: "Stone pick", desc: "Opens surface outcrops: the Quarry and a Mine's first level; with a knife, prospecting.", group: "tool" },
     stoneKnife: { label: "Stone knife", desc: "Skins game: Hunter's Hut (hides). With a pick, prospecting.", group: "tool" },
     timberProps: { label: "Timber props", desc: "Pit supports: a mine can be sunk to level 2 (shaft). Shafts wear one out every few days (none in store: cave-ins); props in store also keep nests away.", group: "tool" },
-    hide: { label: "Hide", desc: "From a Hunter's Hut's kills (also pasture animals and game you hunt yourself). Boots, rennet.", group: "material" },
-    bellows: { label: "Bellows", desc: "A wooden box bellows with a stone nozzle (no leather needed). Blows the Bloomery.", group: "tool" },
+    hide: { label: "Hide", desc: "From a Hunter's Hut's kills (also pasture animals and game you hunt yourself). Bellows leather (the Blast furnace).", group: "material" },
+    bellows: { label: "Bellows", desc: "Leather and wood. Blows the Blast furnace: the Bloomery's level 2 needs it.", group: "tool" },
     charcoal: { label: "Charcoal", desc: "Burned slowly from wood at the Charcoal Burner. Smelting fuel.", group: "material" },
     ironBloom: { label: "Iron bloom", desc: "Smelted at the Bloomery from iron ore and charcoal; a Blast furnace (level 2+) makes better grades.", group: "material" },
     anvil: { label: "Anvil", desc: "Cast in bronze at the Bloomery. With hammer and tongs, a Blacksmith can be built (its level is the anvil's tier: 1 bronze, 2 iron, 3 steel).", group: "tool" },
@@ -224,8 +224,7 @@ export const PROGRESSION = {
     { id: "stonePick", label: "Knap a stone pick", output: "stonePick", amount: 1, stock: { wood: 2, rock: 4 }, station: "hand" },
     { id: "stoneKnife", label: "Knap a stone knife", output: "stoneKnife", amount: 1, stock: { wood: 1, rock: 2 }, station: "hand" },
     { id: "timberProps", label: "Cut timber props", output: "timberProps", amount: 1, stock: { wood: 8 }, station: "hand" },
-    // 2026-11-19: a wooden box bellows (no hide), so the Bloomery is reachable on any map.
-    { id: "bellows", label: "Build bellows", output: "bellows", amount: 1, stock: { wood: 8, rock: 2 }, station: "hand" },
+    { id: "bellows", label: "Sew bellows", output: "bellows", amount: 1, stock: { wood: 4 }, items: { hide: 2 }, station: "hand" },
     { id: "woodenPlow", label: "Carve a wooden plow", output: "woodenPlow", amount: 1, stock: { wood: 6, rock: 2 }, station: "hand" },
     { id: "millstone", label: "Dress a millstone", output: "millstone", amount: 1, stock: { rock: 12 }, station: "hand" },
     // Clay pit and pottery: bricks (and a little clay) replace the oven's stone placeholder.
@@ -333,13 +332,13 @@ export const PROGRESSION = {
       levels: { 2: { items: { bronzePick: 1, timberProps: 1 } }, 3: { items: { ironPick: 1, mineVent: 1, minePump: 1 } } },
     },
     [TileType.CharcoalBurner]: { requires: { items: { stoneAxe: 1 }, buildings: [{ tile: TileType.LumberjackPost }] } },
-    // One furnace (2026-11-19): level 1 needs no iron and no Blacksmith (bellows, charcoal, bricks, a Charcoal Burner), so
+    // One furnace (2026-11-19): level 1 needs no iron, no Blacksmith and no bellows (charcoal, bricks, a Charcoal Burner), so
     // Quarry -> Mine L1 -> Bloomery -> bronze -> Blacksmith -> bronze pickaxe -> Mine L2 -> iron has no cycle.
     [TileType.Bloomery]: {
       // Clay pit and pottery: bricks from the Kiln line the shaft (the plan's "clay bricks").
-      requires: { items: { bellows: 1, charcoal: 2, bricks: 8 }, buildings: [{ tile: TileType.CharcoalBurner }] },
-      // Level 2 is the Blast furnace (better blooms): iron tools (a Blacksmith) and a crucible first.
-      levels: { 2: { items: { crucible: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
+      requires: { items: { charcoal: 2, bricks: 8 }, buildings: [{ tile: TileType.CharcoalBurner }] },
+      // Level 2 is the Blast furnace (better blooms, steel): bellows (a hunter's hides), a crucible and a Blacksmith.
+      levels: { 2: { items: { bellows: 1, crucible: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
     },
     // Layered mines: the bronze anvil and tools come from the Bloomery (no iron needed). Its level is the anvil tier: 2
     // (iron work) needs iron blooms in store, 3 (steel) steel in store.
@@ -453,7 +452,7 @@ export const PROGRESSION = {
     { id: "glass", label: "Glass", steps: [{ item: "limestone" }, { item: "sand" }, { building: TileType.Glassworks }, { item: "glass" }, { item: "glassPanes" }, { item: "bottles" }] },
     { id: "gold", label: "Gold & lead", steps: [{ item: "goldOre" }, { item: "goldDust" }, { building: TileType.Mint }, { item: "coins" }, { item: "leadOre" }, { item: "lead" }] },
     { id: "bronze", label: "Bronze", steps: [{ item: "copperOre" }, { item: "tinOre" }, { building: TileType.Bloomery }, { item: "bronze" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }, { item: "bronzePick" }, { item: "bronzeTools" }] },
-    { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "bronze" }, { item: "ironBloom" }, { item: "ironPick" }, { item: "crucible" }, { item: "limestone" }, { item: "steel" }, { item: "lead" }] },
+    { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { building: TileType.Bloomery }, { item: "bronze" }, { item: "ironBloom" }, { item: "ironPick" }, { item: "bellows" }, { item: "crucible" }, { item: "limestone" }, { item: "steel" }, { item: "lead" }] },
     { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
     { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },
     { id: "keeping", label: "Keeping food", steps: [{ building: TileType.Cellar }, { building: TileType.SaltWorks }, { item: "salt" }, { building: TileType.Smokehouse }, { item: "smokedMeat" }, { item: "saltedMeat" }, { building: TileType.Dairy }, { item: "rennet" }, { item: "cheese" }] },

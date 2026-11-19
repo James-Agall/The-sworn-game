@@ -689,8 +689,8 @@ await check("progression: locked needs, hand craft unlocks, sticky unlock", asyn
   await clearBox(H.x, H.y, 4);
   const r0 = await hook("progression", { unlockAll: false, creativeUnlockAll: false, reset: true });
   const s0 = r0.snapshot;
-  // Phase 3: the Bloomery waits on bellows (wood and stone), charcoal and bricks.
-  const needsKnife = (s0.locked[P.HunterHut] ?? []).includes("Stone knife") && (s0.locked[101] ?? []).includes("Bellows");
+  // Phase 3: the Bloomery waits on charcoal and bricks (bellows: its level 2, 2026-11-19).
+  const needsKnife = (s0.locked[P.HunterHut] ?? []).includes("Stone knife") && (s0.locked[101] ?? []).includes("8 Bricks");
   const axeOpen = !s0.locked[3] && !s0.open;
   const ev0 = c.events.length;
   await place(H.x, H.y, P.HunterHut, P.HunterHut);
