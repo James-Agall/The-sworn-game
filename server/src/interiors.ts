@@ -36,7 +36,7 @@ import { sendTo } from "./saves.js";
 import { heroProfileOf } from "./heroes.js";
 import { isMounted } from "./animals.js";
 import { isDuskNow } from "./structures.js";
-import { MINE_LABEL, isMineTile } from "@colony/shared/mines";
+import { MINE_LABEL, isLayeredMine, isMineTile, mineLayerResourcesText } from "@colony/shared/mines";
 import { mineHidesMiners, mineView } from "./mines.js";
 import {
   type ChoiceRt, type TalkInside, closeTalk, furnitureTalk, heroSpeedMult, lifeOf, nameFor, packWeight, restHeroFully,
@@ -76,8 +76,9 @@ export function interiorTemplateAt(tx: number, ty: number): { id: InteriorTempla
   const id = INTERIOR_TEMPLATE_BY_TILE[tile];
   if (!id) return null;
   const level = Math.max(1, Math.min(3, INTERIOR_FIXED_LEVEL[tile] ?? getBuildingLevel(tx, ty)));
-  // Deep mines: a mine's layout is its depth (adit / shaft / deep), never a hash.
-  const variant = id === "mine" ? level - 1 : forcedVariant ?? interiorVariantFor(tx, ty, level);
+  // Deep mines: a mine's layout is its depth (adit / shaft / deep), never a hash. Layered mines: a Mine is entered on
+  // its level 1 (variant 0); its shafts lead down (changeMineLayer).
+  const variant = id === "mine" ? (isLayeredMine(tile) ? 0 : level - 1) : forcedVariant ?? interiorVariantFor(tx, ty, level);
   return { id, tile, level, variant };
 }
 
@@ -174,7 +175,7 @@ function bindNpcs(p: Player, key: string, tx: number, ty: number, map: InteriorM
     const clan = acc.kind === "abbey" ? 0 : p.clan ?? 0;
     const alive = Array.from(colonists.values()).filter((c) => c.hp > 0 && !c.ghost && (c.clan ?? 0) === clan && c.kind !== "wagon");
     // Deep mines: the miners of an infested mine have fled.
-    const posted = id === "mine" && mineHidesMiners(tx, ty) ? [] : alive.filter((c) => c.postX === tx && c.postY === ty).sort((a, b) => (a.id < b.id ? -1 : 1));
+    const posted = id === "mine" && mineHidesMiners(tx, ty, map.variant) ? [] : alive.filter((c) => c.postX === tx && c.postY === ty).sort((a, b) => (a.id < b.id ? -1 : 1));
     const residents = alive
       .filter((c) => c.person && c.person.homeX === tx && c.person.homeY === ty && !posted.includes(c))
       .sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -273,7 +274,8 @@ interface LiveRoom {
   tick: number;
 }
 const rooms = new Map<string, LiveRoom>();
-const roomKeyOf = (I: NonNullable<Player["interior"]>) => `${I.key}:${I.storey}`;
+// Layered mines: each layer of a Mine is its own room.
+const roomKeyOf = (I: NonNullable<Player["interior"]>) => `${I.key}:${I.storey}${I.templateId === "mine" && isLayeredMine(I.tile) ? `:L${I.variant}` : ""}`;
 
 function rand(n: LiveNpc): number {
   n.seed ^= n.seed << 13;
@@ -456,6 +458,7 @@ function titleFor(map: InteriorMap, acc: Access, tile = 0): string {
   if (acc.kind === "abbey") return "Saint Wren's Abbey";
   if (acc.kind === "site") return `${map.label}, ${acc.site.name}`;
   // Deep mines: named by the mine (Quarry, Iron Mine, ...) and its depth.
+  if (map.templateId === "mine" && isLayeredMine(tile)) return `Your mine, level ${map.variant + 1} (${mineLayerResourcesText(map.variant + 1)})`;
   if (map.templateId === "mine") return `Your ${(MINE_LABEL[tile] ?? "Mine").toLowerCase()}${map.level >= 3 ? " (deep workings)" : map.level === 2 ? " (shaft)" : ""}`;
   return `Your ${map.label.toLowerCase()}`;
 }
@@ -483,7 +486,7 @@ function viewFor(p: Player): { view: InteriorView; npcs: Binding[]; acc: Access 
     canSleep: own && INTERIOR_SLEEP_TEMPLATES.has(map.templateId) && (hasProp(map, "bed") || hasProp(map, "bedFine")),
     threat: hostilesNearDoor(I.tx, I.ty, INTERIOR_THREAT_ALERT_TILES),
     title: titleFor(map, acc, I.tile),
-    ...(map.templateId === "mine" && mineView(I.tx, I.ty) ? { mine: mineView(I.tx, I.ty) } : {}),
+    ...(map.templateId === "mine" && mineView(I.tx, I.ty, I.variant) ? { mine: mineView(I.tx, I.ty, I.variant) } : {}),
   };
   return { view, npcs, acc };
 }
@@ -607,6 +610,8 @@ export function handleInteriorExit(p: Player) {
   const { map } = mapOf(I);
   if (I.storey > 0) return toast(p, "Take the stairs down first");
   if (Math.hypot(px(map.exit.x) - I.x, px(map.exit.y) - I.y) / TILE_SIZE > INTERIOR_ESC_EXIT_TILES) return toast(p, "Walk to the door mat to leave");
+  // Layered mines: from a deeper level the mat is the way back up.
+  if (I.templateId === "mine" && isLayeredMine(I.tile) && I.variant > 0) return changeMineLayer(p, I.variant - 1);
   exitInterior(p);
 }
 
@@ -640,7 +645,40 @@ export function stepInteriorMovement(p: Player) {
     changeStorey(p, I.storey > 0 ? 0 : 1);
     return;
   }
+  // Layered mines: onto the shaft (the Mine's sprite drawn inside) goes down a level; the mat of a deeper level up.
+  const layered = I.templateId === "mine" && isLayeredMine(I.tile);
+  const fresh = state.cycleTick - (p.interiorBumpTick ?? -1e9) < INTERIOR_BUMP_COOLDOWN_TICKS;
+  if (layered && !fresh && map.props.some((q) => q.prop === "mineShaft" && q.x === mx && q.y === my)) return changeMineLayer(p, I.variant + 1);
+  if (layered && I.variant > 0 && mx === map.exit.x && my === map.exit.y) {
+    if (!fresh) changeMineLayer(p, I.variant - 1);
+    return;
+  }
   if (I.storey === 0 && mx === map.exit.x && my === map.exit.y) exitInterior(p);
+}
+
+// Layered mines: down the shaft / back up to `variant` (a layer of the Mine, 0-based; never past its level). Going
+// down, the hero appears just inside the new layer's mat; going up, beside the shaft it came down.
+export function changeMineLayer(p: Player, variant: number) {
+  const I = p.interior;
+  if (!I || I.templateId !== "mine" || !isLayeredMine(I.tile) || variant < 0 || variant >= I.level || variant === I.variant) return;
+  stopHeroBusy(p);
+  const down = variant > I.variant;
+  I.variant = variant;
+  const { map, solid } = mapOf(I);
+  let at = map.spawn;
+  if (!down) {
+    const s = map.props.find((q) => q.prop === "mineShaft");
+    if (s) {
+      at = [[0, 1], [-1, 0], [1, 0], [0, -1]].map(([dx, dy]) => ({ x: s.x + dx, y: s.y + dy }))
+        .find((q) => q.x >= 0 && q.y >= 0 && q.x < map.w && q.y < map.h && !solid[q.y * map.w + q.x] && map.cells[q.y * map.w + q.x] !== "E") ?? map.spawn;
+    }
+  }
+  I.x = px(at.x);
+  I.y = px(at.y);
+  I.npcSent = "";
+  p.interiorBumpTick = state.cycleTick;
+  sendView(p, true);
+  toast(p, down ? `You climb down to the mine's level ${variant + 1}` : `You climb back up to level ${variant + 1}`);
 }
 
 // Up / down the stairs: the hero appears beside the stairs of the other storey.
@@ -713,10 +751,12 @@ export function updateInteriors() {
       const t = interiorTemplateAt(I.tx, I.ty);
       if (!t || t.id !== I.templateId) return exitInterior(p, "The building is gone: you are back outside");
       if ("refuse" in accessFor(p, I.tx, I.ty, t.tile)) return exitInterior(p, "You are shown the door");
-      if (t.level !== I.level || t.tile !== I.tile || t.variant !== I.variant) {
+      // Layered mines: the hero stays on its layer (while the Mine still reaches it).
+      const want = t.id === "mine" && isLayeredMine(t.tile) && I.tile === t.tile ? Math.min(I.variant, t.level - 1) : t.variant;
+      if (t.level !== I.level || t.tile !== I.tile || want !== I.variant) {
         I.level = t.level;
         I.tile = t.tile;
-        I.variant = t.variant;
+        I.variant = want;
         const { map, solid } = mapOf(I);
         const cx = Math.floor(I.x / TILE_SIZE);
         const cy = Math.floor(I.y / TILE_SIZE);

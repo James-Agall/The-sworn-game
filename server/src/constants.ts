@@ -863,7 +863,7 @@ export const UPGRADE_NAMES: Partial<Record<TileType, string>> = {
   [TileType.MilitiaPost]: "Militia Camp",
   [TileType.ArcherPost]: "Archery Range",
   [TileType.Tower]: "Tower",
-  [TileType.IronMinePost]: "Iron Mine",
+  [TileType.IronMinePost]: "Mine",
   [TileType.RockMinePost]: "Quarry",
   [TileType.LumberjackPost]: "Lumberjack",
   [TileType.BarnPost]: "Barn",
@@ -2098,6 +2098,8 @@ export const SAVE_DIR = process.env.COLONY_SAVE_DIR
 // hooks it only autosaves into a COLONY_SAVE_DIR of its own.
 export const AUTOSAVE_ENABLED = !TEST_HOOKS || !!process.env.COLONY_SAVE_DIR;
 export const REACH = TILE_SIZE * 2.5;
+// Layered mines (2026-11-19): the old Coal / Copper / Tin / Lime / Gold / Lead mines are no longer placeable (inert
+// legacy tiles; the Mine digs every ore by level).
 export const PLACEABLE_TILES = [
   ...FORT_BUILDABLE, ...FORT_GATES,
   TileType.Wall,
@@ -2129,17 +2131,11 @@ export const PLACEABLE_TILES = [
   TileType.Bakery,
   TileType.ClayPit,
   TileType.Kiln,
-  TileType.CoalMine,
-  TileType.CopperMine,
-  TileType.TinMine,
   TileType.SaltWorks,
   TileType.Foundry,
   TileType.StampMill,
   TileType.Glassworks,
   TileType.Mint,
-  TileType.LimeQuarry,
-  TileType.GoldMine,
-  TileType.LeadMine,
   TileType.Smokehouse,
   TileType.Dairy,
   TileType.Cellar,

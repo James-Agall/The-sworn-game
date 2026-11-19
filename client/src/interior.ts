@@ -34,11 +34,13 @@ const PROP_EXTRA: Partial<Record<InteriorProp, string>> = {
   bedFine: "bed_blue_double", hearth: "fireplace_lit_b", wardrobe: "wardrobe", altar: "altar_candles", pew: "bench", oven: "oven_round",
   barrel: "barrel", crates: "crates_barrels_stack", sacks: "sacks_pile", hay: "hay_pile_crate", armourStand: "armor_stand",
   banner: "banner_red", forge: "forge", counter: "counter", anvil: "anvil", throne: "throne", stall: "stall_market_red", candelabra: "candelabra_b",
+  // Layered mines: the way down to the next level is drawn with the Mine's own world sprite (stand-in, SPRITES.md).
+  mineShaft: "/sprites/ironMine.png",
 };
 // Stand-in colours (counter, anvil, high seat and any art that fails to load).
 const PROP_COLOR: Partial<Record<InteriorProp, number>> = {
   // Deep mines: drawn in code (SPRITES.md #111): the ore face (flecked in its ore's colour) and the timber prop.
-  oreFace: 0x4a443e, timberProp: 0x7a5230,
+  oreFace: 0x4a443e, timberProp: 0x7a5230, mineShaft: 0x2a2018,
   counter: 0x7a4e26, anvil: 0x4a4d52, throne: 0x8a3a2a, hearth: 0x9a5030, altar: 0xd8d0b8, pew: 0x7a5230, oven: 0xa0624a,
   hay: 0xd8b84a, forge: 0x3a3a3e, stall: 0xa04040, banner: 0xa02828, barrel: 0x7a4f28, crates: 0x9a6b3a, sacks: 0xc8b088,
 };
@@ -48,8 +50,10 @@ const PROP_COLOR: Partial<Record<InteriorProp, number>> = {
 const PROP_HEIGHT_PX: Partial<Record<InteriorProp, number>> = {
   chair: 18, pew: 16, table: 20, bed: 31, bedFine: 31, chest: 16, shelf: 30, wardrobe: 32, hearth: 28, lamp: 22, statue: 30,
   weaponRack: 24, workbench: 16, altar: 18, oven: 22, barrel: 14, crates: 14, sacks: 11, hay: 13, armourStand: 26, banner: 28,
-  forge: 24, stall: 26, candelabra: 20, counter: 14, anvil: 10, throne: 22, oreFace: 30, timberProp: 30,
+  forge: 24, stall: 26, candelabra: 20, counter: 14, anvil: 10, throne: 22, oreFace: 30, timberProp: 30, mineShaft: 30,
 };
+// Layered mines: a Mine's ore face flecks by level (copper, iron, gold).
+const LAYER_FLECK = [0xe0843a, 0xa0583a, 0xf0c830];
 // Deep mines: the ore face's flecks by mine tile (Quarry, Iron, Coal, Copper, Tin Mine).
 const ORE_FLECK: Record<number, number> = {
   [TileType.RockMinePost]: 0xb8b2a8, [TileType.IronMinePost]: 0xa0583a, [TileType.CoalMine]: 0x141216,
@@ -290,7 +294,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       if (prop === "oreFace") {
         g.rect(X, Y, T, T).fill(0x3e3832);
         g.rect(X + 2, Y + 2, T - 4, T - 6).fill(0x5a524a).stroke({ width: 1, color: 0x000000, alpha: 0.4 });
-        const fleck = ORE_FLECK[view?.mine?.tile ?? 0] ?? 0xb8b2a8;
+        const fleck = (view?.mine?.layer ? LAYER_FLECK[view.mine.layer - 1] : undefined) ?? ORE_FLECK[view?.mine?.tile ?? 0] ?? 0xb8b2a8;
         for (let k = 0; k < 6; k++) g.rect(X + 4 + ((x * 13 + y * 7 + k * 11) % (T - 10)), Y + 4 + ((x * 5 + y * 17 + k * 7) % (T - 12)), 3, 2).fill(fleck);
         g.zIndex = y * T;
       } else {
@@ -715,7 +719,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         setInside(false);
         return;
       }
-      const fresh = !view || view.key !== v.key || view.map.storey !== v.map.storey;
+      // Layered mines: another layer of the same Mine is a fresh room too.
+      const fresh = !view || view.key !== v.key || view.map.storey !== v.map.storey || view.map.variant !== v.map.variant;
       view = v;
       titleEl.textContent = v.title;
       // Deep mines: status, monsters left (Space fights), hazards.
@@ -726,7 +731,9 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         const head = mi.status === "infested"
           ? `Infested: ${mi.monsters} monster${mi.monsters === 1 ? "" : "s"} left. Space to fight; the miners come back once it is clear`
           : MINE_STATUS_LABEL[mi.status];
-        mineEl.textContent = [head, ...mi.hazards].join(" · ");
+        // Layered mines: the level the hero is on, what it yields and whether a way down is open.
+        const layer = mi.layer ? `Level ${mi.layer} of ${mi.layers} (${mi.yields})${(mi.layers ?? 0) > mi.layer ? ": the old mine head leads down" : ""}` : "";
+        mineEl.textContent = [layer, head, ...mi.hazards].filter(Boolean).join(" · ");
       }
       threatEl.hidden = v.threat <= 0;
       threatEl.textContent = `Raiders near the door! (${v.threat} hostile${v.threat === 1 ? "" : "s"} close by)`;

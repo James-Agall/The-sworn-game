@@ -389,7 +389,7 @@ export function depositBonus(c: Colonist, resource: "iron" | "rock") {
 }
 // The whole extra units a known fair / rich deposit adds to this load (0 off a mine or unknown). Deep mines: the coal /
 // copper / tin mines too (their batches, progression station recipes).
-function depositExtra(c: Colonist): number {
+export function depositExtra(c: Colonist): number {
   const t = state.tiles[tileIndex(c.postX, c.postY)] as TileType;
   if ((t !== TileType.IronMinePost && t !== TileType.RockMinePost && !depositMineFor(t)) || !depositKnown(c.postX, c.postY)) return 0;
   const extra = (richCarry.get(c.id) ?? 0) + (depositRichness(c.postX, c.postY) - 1) * 0.5;

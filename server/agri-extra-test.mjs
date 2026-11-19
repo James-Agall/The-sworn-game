@@ -304,20 +304,28 @@ ev = c.events.length;
 await hook("damageBuilding", { tx: BK.x, ty: BK.y, amount: Math.ceil(hp0.max * 0.3) });
 result(keptHit === 1 && (await total("sourdoughStarter")) === 0 && /starter is lost: the Bakery burned/.test(evSince(ev)), `a scratch keeps it (${keptHit}); a fire below half HP loses it: ${evSince(ev)}`);
 
-// 10. the iron plow: the Blacksmith forges one from 2 iron blooms
+// 10. the iron plow: the Blacksmith forges one from 2 iron blooms (layered mines: iron work needs a tier-2 anvil, a
+// level-2 Blacksmith; a Foundry for its bronze anvil)
 await setExact("anvil", 1);
 await setExact("smithTools", 1);
 await raw(B.x + 18, B.y + 5, T.Bloomery);
+await raw(B.x + 18, B.y + 7, 159);
 await demolish(BK.x, BK.y);
 const BS = { x: B.x + 1, y: B.y + 9 };
+await setExact("ironBloom", 0);
+await prog({ unlockAll: true });
 await place(BS.x, BS.y, T.Blacksmith);
 await staffed(BS.x, BS.y);
+send({ type: "upgradeBuilding", tileX: BS.x, tileY: BS.y });
+await sleep(300);
+await ff(25);
+await prog({ unlockAll: false });
 await setExact("ironPlow", 0);
 await setExact("ironBloom", 2);
 await runUntil(async () => (await total("ironPlow")) >= 1);
 const it10 = (await prog()).items;
 a = await agri();
-result(it10.ironPlow === 1 && !it10.ironBloom && a.plow.growth === 1.25 && a.plow.yield === 1.25, `iron plow forged (blooms ${it10.ironBloom ?? 0}): plow ${JSON.stringify(a.plow)}`);
+result(it10.ironPlow === 1 && !it10.ironBloom && a.plow.growth === 1.25 && a.plow.yield === 1.25, `iron plow forged (blooms ${it10.ironBloom ?? 0}): plow ${JSON.stringify(a.plow)}; Blacksmith ${tileAt(BS.x, BS.y)} level ${(await info(BS.x, BS.y))?.level}`);
 await setExact("ironBloom", 10);
 await ff(80);
 result((await total("ironPlow")) === 1, "one plow is enough (cap 1)");

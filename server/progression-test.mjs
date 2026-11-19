@@ -7,7 +7,7 @@ import WebSocket from "ws";
 
 const ws = new WebSocket(`ws://localhost:${process.env.PORT ?? 8080}`);
 const TILE = 32;
-const T = { Empty: 0, Lumberjack: 3, Hunter: 50, Blacksmith: 26, KnightPost: 5, Barn: 16, Charcoal: 100, Bloomery: 101, Mill: 102, Bakery: 103 };
+const T = { Empty: 0, Lumberjack: 3, Hunter: 50, Blacksmith: 26, KnightPost: 5, Barn: 16, Charcoal: 100, Bloomery: 101, Mill: 102, Bakery: 103, Foundry: 159 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const c = { welcome: null, snap: null, tiles: [], W: 0, events: [], hooks: new Map(), saves: [], info: undefined };
 let fails = 0;
@@ -104,12 +104,13 @@ await sleep(400);
 const inf1 = await info(L.x, L.y);
 result(inf1.level === 2 && (inf1.progression ?? []).some((l) => /tier 2 of 2: speed x1\.25/.test(l)), `upgraded with a level-2 woodcutter: level ${inf1.level}, ${JSON.stringify(inf1.progression)}`);
 
-// 3b. the metal chain (phase 3): Charcoal Burner -> charcoal; bellows from hides; Bloomery -> anvil, hammer & tongs,
-// blooms; then the Blacksmith unlocks. (Instant build also makes a station batch take one tick.)
+// 3b. the metal chain (phase 3): Charcoal Burner -> charcoal; bellows from hides; Bloomery -> blooms. Layered mines
+// (2026-11-19): the Blacksmith's anvil and hammer & tongs are cast in bronze at a Foundry (mines-test.mjs), so the
+// Blacksmith needs a Foundry, not a Bloomery. (Instant build also makes a station batch take one tick.)
 const S = { x: B.x + 6, y: B.y };
 ev = c.events.length;
 await place(S.x, S.y, T.Blacksmith, T.Blacksmith);
-result(tileAt(S.x, S.y) === T.Empty && c.events.slice(ev).some((e) => /Blacksmith needs: Anvil, Hammer & tongs, a Bloomery/.test(e)), `Blacksmith locked: ${c.events.slice(ev).join(" | ")}`);
+result(tileAt(S.x, S.y) === T.Empty && c.events.slice(ev).some((e) => /Blacksmith needs: Anvil, Hammer & tongs, a Foundry/.test(e)), `Blacksmith locked: ${c.events.slice(ev).join(" | ")}`);
 const CB = { x: B.x, y: B.y + 3 };
 const BL = { x: B.x + 3, y: B.y + 3 };
 await place(CB.x, CB.y, T.Charcoal);
@@ -127,16 +128,18 @@ send({ type: "craftItem", recipe: "bellows" });
 await until(() => (items().bellows?.[0] ?? 0) === 1, 3000);
 await place(BL.x, BL.y, T.Bloomery);
 await until(() => c.snap.colonists.some((u) => u.kind === "artisan" && u.postX === BL.x && u.postY === BL.y), 5000);
-for (let i = 0; i < 20 && !((items().anvil?.[0] ?? 0) === 1 && (items().smithTools?.[0] ?? 0) === 1); i++) await hook("fastForward", { ticks: 100 }), await sleep(100);
-result((items().anvil?.[0] ?? 0) === 1 && (items().smithTools?.[0] ?? 0) === 1 && c.snap.iron < 500,
-  `Bloomery: anvil ${items().anvil}, tools ${items().smithTools}, blooms ${items().ironBloom}, charcoal ${items().charcoal}, iron ${c.snap.iron}, smelter ${JSON.stringify(c.snap.colonists.filter((u) => u.postX === BL.x && u.postY === BL.y).map((u) => [u.kind, u.state, Math.round(u.x / 32), Math.round(u.y / 32)]))}`);
+for (let i = 0; i < 20 && (items().ironBloom?.[0] ?? 0) < 1; i++) await hook("fastForward", { ticks: 100 }), await sleep(100);
+result((items().ironBloom?.[0] ?? 0) >= 1 && !items().anvil?.[0] && c.snap.iron < 500,
+  `Bloomery smelts blooms (no anvil: that is the Foundry's): anvil ${items().anvil}, tools ${items().smithTools}, blooms ${items().ironBloom}, charcoal ${items().charcoal}, iron ${c.snap.iron}, smelter ${JSON.stringify(c.snap.colonists.filter((u) => u.postX === BL.x && u.postY === BL.y).map((u) => [u.kind, u.state, Math.round(u.x / 32), Math.round(u.y / 32)]))}`);
 const blInfo = await info(BL.x, BL.y);
 result((blInfo.progression ?? []).some((l) => /Smelter L1/.test(l)) && (blInfo.progression ?? []).some((l) => /Level 2 needs: Crucible, a Blacksmith, Smelter level 2/.test(l)),
   `Bloomery info: ${JSON.stringify(blInfo.progression)}`);
 
 // 4. smith training: a level-1 smith makes tools, not gear
+await hook("progression", { items: { anvil: 1, smithTools: 1 } });
+await hook("setTileRaw", { tx: B.x + 9, ty: B.y + 3, tile: T.Foundry });
 await place(S.x, S.y, T.Blacksmith);
-result(tileAt(S.x, S.y) === T.Blacksmith, "Blacksmith built once the anvil, hammer & tongs and a Bloomery exist");
+result(tileAt(S.x, S.y) === T.Blacksmith, "Blacksmith built once the anvil, hammer & tongs and a Foundry exist");
 await until(() => c.snap.colonists.some((u) => u.kind === "artisan" && u.postX === S.x && u.postY === S.y), 5000);
 const f0 = (await info(S.x, S.y)).forge;
 result(f0 && f0.options.every((o) => !o.enabled && /level-2 Smith/.test(o.reason)), `level-1 smith can't forge: ${f0?.options.map((o) => o.reason).join(" / ")}`);

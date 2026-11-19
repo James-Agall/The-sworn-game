@@ -1,22 +1,22 @@
-// Scripted test: deep mines (ROADMAP "Deep mines — landed"; PLAN-agri-industry-winter-mines.md phase 3). Needs a
+// Scripted test: layered mines (2026-11-19; ROADMAP "Layered mines — landed", before it "Deep mines — landed"). Needs a
 // private server with COLONY_TEST_HOOKS=1, a scratch COLONY_SAVE_DIR, instant build, W80 and NOT COLONY_UNLOCK_ALL
-// (scripts/run-tests.mjs gives all of that: `npm test -- mines`). Checks: coal / copper / tin deposits at world gen
-// (veins, minimap markers via tiles); the new mines' gates and deposits (a Coal Mine only on a coal seam, demolished
-// back to it; copper / tin need an Iron Mine), their miners dig coal / copper ore / tin ore; coal smelts iron blooms
-// in the Bloomery without charcoal; every mine is an enterable interior (layout = depth); digging a shaft deeper can
-// break into a nest (infested: monsters inside, miners flee, no production, panel status); inside, the hero fights:
-// the monsters bite (indoor damage), the hero's swings kill them, loot (ore, bones, gems, gold), cleared -> the miners
-// work again; a fallen hero is put back outside; soldiers sent in clear a mine; deep shafts: re-infestation at dawn
-// (a miner killed; a Mine Foreman saves them; a cleared mine's grace; a soldier nearby guards it; lamps / props /
-// foreman lower the odds), hazards (props wear out -> cave-in; no vent -> bad air; no pump -> flood); the level-3 gate
-// (vent + pump); save / load keeps mines, monsters and deposits.
+// (scripts/run-tests.mjs gives all of that: `npm test -- mines`). Checks: deposits at world gen; only the Quarry and the
+// Mine are buildable (the old Coal / Copper / Tin mines are inert legacy); a Mine needs a Quarry and ore ground (iron
+// ore or any deposit, given back when demolished); each level of a Mine is a layer: a new layer breaks into a nest
+// (danger by layer: more, stronger monsters deeper), must be cleared before it produces; level 1 digs copper, tin and
+// limestone; the Foundry casts the bronze anvil and hammer & tongs, so a Blacksmith needs no iron; its level is the
+// anvil tier (a tier-1 anvil forges the bronze pickaxe, not the iron one; panel text); level 2 needs the bronze pickaxe
+// and digs iron ore and coal; level 3 the iron pickaxe (+ vent, pump) and digs gold and lead; inside, the old mine head
+// on a level leads down to the next and the mat back up; the hero fights per layer (bites, kills, loot, cleared), a
+// fallen hero is put outside; soldiers clear the shallowest infested layer; re-infestation by layer at dawn (a miner
+// killed; the foreman; guards; odds); hazards; the Quarry is unchanged; save / load keeps every layer.
 import WebSocket from "ws";
 
 const ws = new WebSocket(`ws://localhost:${process.env.PORT ?? 8080}`);
 const TILE = 32;
 const T = {
-  Empty: 0, IronOre: 7, Rock: 8, IronMine: 9, Quarry: 10, Blacksmith: 26, Bloomery: 101,
-  CoalSeam: 149, CopperOre: 150, TinOre: 151, CoalMine: 152, CopperMine: 153, TinMine: 154,
+  Empty: 0, IronOre: 7, Rock: 8, Mine: 9, Quarry: 10, Blacksmith: 26, Bloomery: 101,
+  CoalSeam: 149, CopperOre: 150, TinOre: 151, CoalMine: 152, CopperMine: 153, TinMine: 154, Foundry: 159,
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const c = { welcome: null, snap: null, tiles: [], W: 0, events: [], hooks: new Map(), saves: [], info: undefined, mobs: null, view: undefined };
@@ -91,11 +91,38 @@ const runUntil = async (done, rounds = 40, ticks = 40) => {
 };
 const mine = (m, args = {}) => hook("mine", { tx: m.x, ty: m.y, ...args });
 const workersAt = async (m) => (await hook("workState", {})).people.filter((p) => p.postX === m.x && p.postY === m.y);
-const staffed = (m) => runUntil(async () => (await workersAt(m)).length > 0, 40, 20);
+const staffed = (m, kind) => runUntil(async () => (await workersAt(m)).length > 0 && (!kind || c.snap.colonists.some((u) => u.kind === kind && u.postX === m.x && u.postY === m.y)), 40, 20);
 const me = () => c.snap.players.find((p) => p.id === c.welcome.id);
 const interior = (args = {}) => hook("interior", args);
+const upgrade = async (m, xp) => {
+  await prog({ xpAt: { x: m.x, y: m.y, xp } });
+  const ev = c.events.length;
+  send({ type: "upgradeBuilding", tileX: m.x, tileY: m.y });
+  await sleep(300);
+  await ff(25);
+  return evSince(ev);
+};
+const heroAt = async () => {
+  const d = await interior({});
+  return { x: d.inside.x / TILE - 0.5, y: d.inside.y / TILE - 0.5 };
+};
+// The hero fights every monster of `layer` (placing them one by one beside it); true when that layer is cleared.
+const fightLayer = async (m, layer) => {
+  await mine(m, { roll: 0 });
+  for (let guard = 0; guard < 120; guard++) {
+    const M = await mine(m, { layer });
+    if (!M.mine || M.mine.status !== "infested") break;
+    const h = await heroAt();
+    await mine(m, { layer, place: { i: 0, x: h.x + 0.9, y: h.y } });
+    send({ type: "attack" });
+    await sleep(30);
+    await ff(11);
+  }
+  await mine(m, { roll: null });
+  return (await mine(m, { layer })).mine?.status === "cleared";
+};
 
-// 0. deposits at world gen (a fresh W80 world): veins of coal, copper and tin, off the start
+// 0. deposits at world gen (a fresh W80 world)
 const count = (t) => c.tiles.filter((x) => x === t).length;
 result(count(T.CoalSeam) >= 2 && count(T.CopperOre) >= 2 && count(T.TinOre) >= 2,
   `world gen scatters deposits: coal ${count(T.CoalSeam)}, copper ${count(T.CopperOre)}, tin ${count(T.TinOre)} tiles`);
@@ -105,277 +132,270 @@ const bx = tc.x + 6 + 24 < c.W - 2 ? tc.x + 6 : tc.x - 30;
 const by = Math.max(6, Math.min(c.W - 20, tc.y + 4));
 const B = { x: bx, y: by };
 for (let y = B.y - 4; y <= B.y + 13; y++) for (let x = B.x - 4; x <= B.x + 22; x++) send({ type: "testHook", op: "setTileRaw", tx: x, ty: y, tile: T.Empty });
-await hook("setStock", { stock: { wood: 3000, rock: 3000, iron: 800, grain: 800, meat: 80, fruit: 80, clothes: 20, tools: 20, gold: 100 } });
-await hook("peopleState", { spawn: 12 });
+await hook("setStock", { stock: { wood: 3000, rock: 3000, iron: 200, grain: 800, meat: 80, fruit: 80, clothes: 20, tools: 20, gold: 100 } });
+await hook("peopleState", { spawn: 14 });
 
-// 1. gates: a Coal Mine needs only the pick; copper / tin an Iron Mine; a deep shaft a vent and a pump
+// 1. gates: the Mine needs a Quarry; the old deposit mines are not buildable
 const s0 = (await prog()).snapshot;
-result(!s0.locked[T.CoalMine] && (s0.locked[T.CopperMine] ?? []).includes("an Iron Mine") && (s0.locked[T.TinMine] ?? []).includes("an Iron Mine"),
-  `locks: Coal Mine ${JSON.stringify(s0.locked[T.CoalMine])}, Copper ${JSON.stringify(s0.locked[T.CopperMine])}, Tin ${JSON.stringify(s0.locked[T.TinMine])}`);
-result(["mineLamps", "mineVent", "minePump"].every((id) => s0.crafts.some((r) => r.id === id)), "hand recipes: miner's lamps, air vent, bucket pump");
+result((s0.locked[T.Mine] ?? []).includes("a Quarry") && ["mineLamps", "mineVent", "minePump"].every((id) => s0.crafts.some((r) => r.id === id)),
+  `Mine locked behind a Quarry: ${JSON.stringify(s0.locked[T.Mine])}; fitting recipes by hand`);
+const OLD = { x: B.x + 1, y: B.y + 10 };
+await raw(OLD.x, OLD.y, T.CoalSeam);
+await place(OLD.x, OLD.y, T.CoalMine, T.CoalMine, 1);
+result(tileAt(OLD.x, OLD.y) === T.CoalSeam, `the old Coal Mine is no longer placeable: tile ${tileAt(OLD.x, OLD.y)}`);
+const Q = { x: B.x + 18, y: B.y + 10 };
+await raw(Q.x, Q.y, T.Rock);
+await place(Q.x, Q.y, T.Quarry);
+result(tileAt(Q.x, Q.y) === T.Quarry, "Quarry dug on rock");
 
-// 2. a Coal Mine only on a coal seam; demolished, the seam comes back; its miner digs coal
-const COAL = { x: B.x + 3, y: B.y + 3 };
+// 2. a Mine only on ore ground; a deposit is given back when it is demolished
+const MN = { x: B.x + 3, y: B.y + 3 };
 let ev = c.events.length;
-await place(COAL.x, COAL.y, T.CoalMine, T.CoalMine, 1);
+await place(MN.x, MN.y, T.Mine, T.Mine, 1);
 await until(() => c.events.length > ev, 1500);
-result(tileAt(COAL.x, COAL.y) === T.Empty && /must be sunk on a coal seam/.test(evSince(ev)), `bare ground refused: ${evSince(ev)}`);
-await raw(COAL.x, COAL.y, T.CoalSeam);
-await place(COAL.x, COAL.y, T.CoalMine);
-result(tileAt(COAL.x, COAL.y) === T.CoalMine, "Coal Mine sunk on a coal seam");
-await place(COAL.x, COAL.y, T.Empty, T.CoalSeam);
-result(tileAt(COAL.x, COAL.y) === T.CoalSeam, `demolished, the seam is back: ${tileAt(COAL.x, COAL.y)}`);
-await place(COAL.x, COAL.y, T.CoalMine);
-await staffed(COAL);
-const coal0 = await total("coal");
-await runUntil(async () => (await total("coal")) >= coal0 + 4);
-const coalInfo = await info(COAL.x, COAL.y);
-result((await total("coal")) >= coal0 + 4 && (coalInfo.progression ?? []).some((l) => /Miner L1/.test(l)) && (coalInfo.progression ?? []).some((l) => /Deposit:/.test(l)),
-  `the miner digs coal (${await total("coal")}); panel ${JSON.stringify(coalInfo.progression)}`);
-result(coalInfo.mine?.status === "clear" && /surface adit/.test(coalInfo.mine.lines.join(" ")), `level-1 mine is clear: ${JSON.stringify(coalInfo.mine)}`);
+result(tileAt(MN.x, MN.y) === T.Empty && /must be sunk on ore ground/.test(evSince(ev)), `bare ground refused: ${evSince(ev)}`);
+await raw(MN.x, MN.y, T.CopperOre);
+await place(MN.x, MN.y, T.Mine);
+result(tileAt(MN.x, MN.y) === T.Mine, "Mine sunk on a copper deposit");
+await place(MN.x, MN.y, T.Empty, T.CopperOre);
+result(tileAt(MN.x, MN.y) === T.CopperOre, `demolished, the deposit is back: ${tileAt(MN.x, MN.y)}`);
+await raw(MN.x, MN.y, T.IronOre);
+await place(MN.x, MN.y, T.Mine);
+await staffed(MN, "ironMiner");
 
-// 3. enterable: E at the door (an interior "mine", layout = depth)
-await tp(COAL.x, COAL.y + 1);
-let I = await interior({ enter: { tx: COAL.x, ty: COAL.y } });
-result(I.why === "" && I.inside?.templateId === "mine" && I.inside.variant === 0 && I.view?.mine?.status === "clear" && /coal mine/.test(I.view.title) && I.templateErrors.length === 0,
-  `enter the coal mine: ${I.why} ${I.inside?.templateId} v${I.inside?.variant} "${I.view?.title}" ${JSON.stringify(I.view?.mine)} errors ${I.templateErrors.length}`);
-const npcs1 = I.view?.npcs ?? [];
-result(npcs1.some((n) => n.act === "keeper"), `its miner works the face inside: ${npcs1.map((n) => n.name + ":" + n.act).join(", ")}`);
+// 3. level 1 opens with a nest of weak monsters: nothing dug until it is cleared
+let M = await mine(MN, { sync: true });
+const L1 = M.mine;
+result(L1?.layered && L1.level === 1 && L1.status === "infested" && L1.mobs.length >= 2 && L1.mobs.length <= 3 && L1.mobs.every((m) => ["caveBat", "caveSpider"].includes(m.kind)) && L1.workMult === 0,
+  `a new Mine's level 1 holds a weak nest: ${L1?.status} ${L1?.mobs.map((m) => `${m.kind}/${m.maxHp}`).join(", ")}, workMult ${L1?.workMult}`);
+const cu0 = await total("copperOre");
+await ff(300);
+result((await total("copperOre")) === cu0, `an infested level yields nothing: copper ${cu0} -> ${await total("copperOre")}`);
+const pi1 = await info(MN.x, MN.y);
+result(pi1.mine?.status === "infested" && /Level 1 \(copper ore, tin ore, limestone\): Infested/.test(pi1.mine.lines[0]) && /open level 2 \(iron ore, coal\)/.test(pi1.mine.lines.join(" ")),
+  `panel: ${JSON.stringify(pi1.mine?.lines)}`);
+
+// 4. enter: the Mine's level 1 (no way down yet); the hero clears it; loot is the level's ore
+await tp(MN.x, MN.y + 1);
+let I = await interior({ enter: { tx: MN.x, ty: MN.y } });
+result(I.why === "" && I.inside?.templateId === "mine" && I.inside.variant === 0 && I.view?.mine?.layer === 1 && /level 1/.test(I.view.title)
+  && !I.view.map.props.some((p) => p.prop === "mineShaft") && I.templateErrors.length === 0,
+  `inside level 1: "${I.view?.title}" ${JSON.stringify(I.view?.mine)}, shaft ${I.view?.map.props.some((p) => p.prop === "mineShaft")}, errors ${I.templateErrors.length}`);
+const loot0 = { cu: await total("copperOre"), sn: await total("tinOre"), lime: await total("limestone"), gold: (await stock()).gold };
+const cleared1 = await fightLayer(MN, 1);
+const loot1 = { cu: await total("copperOre"), sn: await total("tinOre"), lime: await total("limestone"), gold: (await stock()).gold };
+result(cleared1 && /level 1 is cleared by you/.test(c.events.join(" | ")), `the hero cleared level 1: ${(await mine(MN)).mine?.status}`);
+result(loot1.cu + loot1.sn + loot1.lime >= loot0.cu + loot0.sn + loot0.lime + 4 && loot1.gold >= loot0.gold + 20, `loot (level-1 ore, gold): ${JSON.stringify(loot0)} -> ${JSON.stringify(loot1)}`);
 await interior({ exit: true });
 
-// 4. digging deeper breaks into a nest (roll forced): infested, miners flee, nothing dug
+// 5. level 1 digs copper, tin and limestone
+await runUntil(async () => (await total("copperOre")) > loot1.cu && (await total("tinOre")) > loot1.sn && (await total("limestone")) > loot1.lime, 40, 40);
+result((await total("copperOre")) > loot1.cu && (await total("tinOre")) > loot1.sn && (await total("limestone")) > loot1.lime && (await stock()).iron <= 200,
+  `level 1 yields copper ${await total("copperOre")}, tin ${await total("tinOre")}, limestone ${await total("limestone")} (no iron: ${(await stock()).iron})`);
+
+// 6. bronze work without iron: the Foundry casts the bronze anvil and hammer & tongs; the Blacksmith needs a Foundry;
+// its level is the anvil tier: a tier-1 anvil forges the bronze pickaxe, not the iron one
+await prog({ unlockAll: true });
+const FO = { x: B.x + 8, y: B.y + 1 };
+await place(FO.x, FO.y, T.Foundry);
+await prog({ unlockAll: false });
+await staffed(FO, "artisan");
+await setItems({ bronze: 6 });
+await runUntil(async () => (await total("anvil")) >= 1 && (await total("smithTools")) >= 1, 40, 40);
+result((await total("anvil")) === 1 && (await total("smithTools")) === 1, `the Foundry cast a bronze anvil and hammer & tongs: anvil ${await total("anvil")}, tools ${await total("smithTools")}`);
+const BS = { x: B.x + 12, y: B.y + 1 };
+const sl = (await prog()).snapshot.locked[T.Blacksmith] ?? [];
+await place(BS.x, BS.y, T.Blacksmith);
+result(!sl.includes("a Bloomery") && tileAt(BS.x, BS.y) === T.Blacksmith, `the Blacksmith needs no Bloomery / iron (locks before: ${JSON.stringify(sl)})`);
+await staffed(BS, "artisan");
+// (The Foundry's own casts are at their caps, so the bronze waits for the smith.)
+await setExact("bronzeTools", 1);
+await setExact("bronzeWeapon", 10);
+await setExact("bronze", 3);
+await setExact("ironBloom", 5);
+await runUntil(async () => (await total("bronzePick")) >= 1, 40, 40);
+await ff(400);
+const bsInfo = await info(BS.x, BS.y);
+result((await total("bronzePick")) === 1 && (await total("ironPick")) === 0 && (await total("ironBloom")) === 5,
+  `a tier-1 anvil forged the bronze pickaxe but not the iron one (${await total("ironPick")}; blooms kept ${await total("ironBloom")})`);
+result((bsInfo.bonuses ?? []).some((l) => /Anvil tier 1 \(bronze/.test(l)) && (bsInfo.progression ?? []).some((l) => /Level 2 needs: .*a Bloomery/.test(l)),
+  `Blacksmith panel: ${JSON.stringify(bsInfo.bonuses)} ${JSON.stringify(bsInfo.progression)}`);
+
+// 7. level 2 needs the bronze pickaxe; the new layer's nest is stronger; level 1 keeps digging
+await setExact("bronzePick", 0);
 await setItems({ timberProps: 6 });
-await prog({ xpAt: { x: COAL.x, y: COAL.y, xp: 120 } });
-await mine(COAL, { roll: 0, sync: true });
-ev = c.events.length;
-send({ type: "upgradeBuilding", tileX: COAL.x, tileY: COAL.y });
-await sleep(300);
-await ff(25);
-let M = await mine(COAL, { sync: true });
-const dug = M.mine;
-result(dug?.level === 2 && dug.status === "infested" && dug.mobs.length >= 3 && dug.mobs.length <= 4 && dug.mobs.every((m) => ["caveSpider", "caveBat", "skeleton"].includes(m.kind)),
-  `shaft dug (level ${dug?.level}): ${dug?.status}, ${dug?.mobs.map((m) => m.kind).join(", ")}`);
-result(/broke into a nest/.test(evSince(ev)) && dug?.workMult === 0, `event and production stopped: ${evSince(ev)}; workMult ${dug?.workMult}`);
-await mine(COAL, { roll: null });
-const coalStuck = await total("coal");
-await ff(300);
-const w = (await workersAt(COAL))[0];
-result((await total("coal")) === coalStuck, `an infested mine yields nothing: coal ${coalStuck} -> ${await total("coal")}`);
-result(!!w && Math.hypot(w.x / TILE - 0.5 - COAL.x, w.y / TILE - 0.5 - COAL.y) > 1.5 && w.state !== "crafting",
-  `its miner fled: ${w ? `${(w.x / TILE).toFixed(1)},${(w.y / TILE).toFixed(1)} ${w.state}` : "none"} (post ${COAL.x},${COAL.y})`);
-const inf = await info(COAL.x, COAL.y);
-result(inf.mine?.status === "infested" && /Infested: \d monsters? inside/.test(inf.mine.lines[0]) && inf.mine.assault.reason === "No soldiers within 12 tiles",
-  `panel: ${JSON.stringify(inf.mine)}`);
+let why = await upgrade(MN, 120);
+result((await mine(MN)).mine.level === 1 && /Bronze pickaxe/.test(why), `level 2 refused without a bronze pickaxe: ${why}`);
+await setExact("bronzePick", 1);
+why = await upgrade(MN, 120);
+M = await mine(MN, { sync: true, layer: 2 });
+const L2 = M.mine;
+result(L2?.level === 2 && L2.status === "infested" && L2.mobs.length >= 3 && L2.mobs.length <= 5 && L2.mobs.every((m) => ["caveSpider", "skeleton", "giantSpider"].includes(m.kind))
+  && L2.layers[0].status !== "infested" && L2.workMult > 0,
+  `level 2 opened: ${L2?.status} ${L2?.mobs.map((m) => `${m.kind}/${m.maxHp}`).join(", ")}; level 1 ${L2?.layers[0].status}, workMult ${L2?.workMult} ${why}`);
+const skel2 = L2?.mobs.find((m) => m.kind === "skeleton" || m.kind === "caveSpider");
+result(!!skel2 && skel2.maxHp > (skel2.kind === "skeleton" ? 50 : 20), `level-2 monsters are tougher: ${skel2?.kind} ${skel2?.maxHp} hp`);
+const iron2 = (await stock()).iron;
+const cu2 = await total("copperOre");
+await runUntil(async () => (await total("copperOre")) > cu2, 30, 40);
+result((await total("copperOre")) > cu2 && (await stock()).iron <= iron2, `level 1 still digs while level 2 is infested (iron ${iron2} -> ${(await stock()).iron})`);
 
-// 5. inside the infested mine: no miners, the monsters (stand-ins) sleep at their lairs; a controlled encounter
-await mine(COAL, { infest: ["caveSpider", "caveBat", "skeleton"] });
-await tp(COAL.x, COAL.y + 1);
+// 8. inside: the old mine head on level 1 leads down; the mat of level 2 back up
+await tp(MN.x, MN.y + 1);
+I = await interior({ enter: { tx: MN.x, ty: MN.y } });
+const shaft = I.view?.map.props.find((p) => p.prop === "mineShaft");
+result(I.inside?.variant === 0 && !!shaft, `level 1 now has the way down at ${JSON.stringify(shaft)}`);
+await ff(40);
 c.mobs = null;
-I = await interior({ enter: { tx: COAL.x, ty: COAL.y } });
+await interior({ at: { x: (shaft.x + 0.5) * TILE, y: (shaft.y + 0.5) * TILE } });
+await ff(4);
+I = await interior({});
 await ff(6);
-await until(() => c.mobs && c.mobs.mobs.length === 3, 2000);
-result(I.why === "" && I.inside?.variant === 1 && I.view?.mine?.status === "infested" && !(I.view?.npcs ?? []).some((n) => n.act === "keeper"),
-  `entered the infested shaft (v${I.inside?.variant}): ${JSON.stringify(I.view?.mine)}, npcs ${(I.view?.npcs ?? []).length}`);
-result(c.mobs?.key === `${COAL.x},${COAL.y}` && c.mobs.mobs.length === 3 && c.mobs.mobs.every((m) => m.act === "sleep"),
-  `interiorMobs: ${JSON.stringify(c.mobs?.mobs.map((m) => `${m.kind}:${m.act}@${m.x},${m.y}`))}`);
-
-// 6. the monsters bite (damage indoors), the hero's swings kill them; loot; cleared -> back to work
-const heroAt = async () => {
-  const d = await interior({});
-  return { x: d.inside.x / TILE - 0.5, y: d.inside.y / TILE - 0.5 };
-};
+await until(() => c.mobs && c.mobs.mobs.length === L2.mobs.length, 2000);
+result(I.inside?.variant === 1 && I.view?.mine?.layer === 2 && I.view.mine.status === "infested" && /level 2/.test(I.view.title) && c.mobs?.mobs.length === L2.mobs.length,
+  `down the shaft: variant ${I.inside?.variant}, ${JSON.stringify(I.view?.mine)}, monsters sent ${c.mobs?.mobs.length}`);
+// The monsters bite indoors.
 let h = await heroAt();
-await mine(COAL, { place: { i: 0, x: h.x + 0.6, y: h.y }, wakeAll: false });
+await mine(MN, { layer: 2, place: { i: 0, x: h.x + 0.6, y: h.y } });
 const hp0 = me().hp;
 await ff(60);
 await sleep(100);
-const hp1 = me().hp;
-result(hp1 < hp0, `a monster woke and bit the hero indoors: hp ${hp0} -> ${hp1}`);
-const loot0 = { bones: await total("bones"), gems: await total("gems"), coal: await total("coal"), gold: (await stock()).gold };
-await mine(COAL, { roll: 0 });
-for (let guard = 0; guard < 80; guard++) {
-  M = await mine(COAL);
-  if (!M.mine || M.mine.status !== "infested") break;
-  h = await heroAt();
-  await mine(COAL, { place: { i: 0, x: h.x + 0.9, y: h.y } });
-  send({ type: "attack" });
-  await sleep(30);
-  await ff(11);
-}
-await mine(COAL, { roll: null });
-M = await mine(COAL);
-const loot1 = { bones: await total("bones"), gems: await total("gems"), coal: await total("coal"), gold: (await stock()).gold };
-result(M.mine?.status === "cleared" && M.mine.mobs.length === 0 && /cleared by you/.test(c.events.join(" | ")), `the hero cleared the mine: ${M.mine?.status}`);
-result(loot1.coal >= loot0.coal + 6 && loot1.bones >= loot0.bones + 3 && loot1.gems >= loot0.gems + 3 && loot1.gold >= loot0.gold + 20,
-  `loot: ${JSON.stringify(loot0)} -> ${JSON.stringify(loot1)}`);
-await ff(6);
+result(me().hp < hp0, `a level-2 monster bit the hero: hp ${hp0} -> ${me().hp}`);
+await mine(MN, { layer: 2, clear: true });
+await mine(MN, { layer: 2, infest: ["skeleton"] });
+const mat = I.view.map.exit;
+await ff(40);
+await interior({ at: { x: (mat.x + 0.5) * TILE, y: (mat.y + 0.5) * TILE } });
+await ff(4);
 I = await interior({});
-result(I.view?.mine?.status === "cleared", `the view says cleared: ${JSON.stringify(I.view?.mine)}`);
+result(I.inside?.variant === 0 && Math.hypot(I.inside.x / TILE - 0.5 - shaft.x, I.inside.y / TILE - 0.5 - shaft.y) <= 1.01,
+  `the mat of level 2 leads back up beside the shaft: variant ${I.inside?.variant} at ${(I.inside?.x / TILE - 0.5).toFixed(1)},${(I.inside?.y / TILE - 0.5).toFixed(1)}`);
 await interior({ exit: true });
-const coalBack = await total("coal");
-await runUntil(async () => (await total("coal")) > coalBack, 30, 40);
-result((await total("coal")) > coalBack && (await mine(COAL)).mine.workMult === 1, `the miners dig again: coal ${coalBack} -> ${await total("coal")}`);
 
-// 7. a hero who falls in a mine is put back outside (legacy respawn: at a Town Center)
-await mine(COAL, { infest: ["skeleton", "skeleton"] });
+// 9. soldiers clear the shallowest infested level; level 2 then digs iron ore and coal
+await hook("spawnSoldier", { kind: "knight", x: (MN.x + 2) * TILE + 16, y: (MN.y + 2) * TILE + 16 });
+await hook("spawnSoldier", { kind: "knight", x: (MN.x + 3) * TILE + 16, y: (MN.y + 2) * TILE + 16 });
+const ainf = await info(MN.x, MN.y);
+ev = c.events.length;
+send({ type: "mineAssault", tileX: MN.x, tileY: MN.y });
+await until(() => c.events.length > ev, 2000);
+M = await mine(MN, { layer: 2 });
+result(ainf.mine?.assault.soldiers === 2 && M.mine?.status === "cleared" && /cleared the Mine's level 2/.test(evSince(ev)), `soldiers cleared level 2: ${evSince(ev)}`);
+await hook("killColonists", { kind: "knight" });
+const iron3 = (await stock()).iron;
+const coal3 = await total("coal");
+await runUntil(async () => (await stock()).iron > iron3 && (await total("coal")) > coal3, 40, 40);
+result((await stock()).iron > iron3 && (await total("coal")) > coal3, `level 2 yields iron ore ${iron3} -> ${(await stock()).iron}, coal ${coal3} -> ${await total("coal")}`);
+
+// 10. level 3 needs the iron pickaxe (+ vent, pump); the strongest nest; then gold and lead
+await setItems({ mineVent: 1, minePump: 1 });
+why = await upgrade(MN, 320);
+result((await mine(MN)).mine.level === 2 && /Iron pickaxe/.test(why), `level 3 refused without an iron pickaxe: ${why}`);
+await setItems({ ironPick: 1 });
+why = await upgrade(MN, 320);
+M = await mine(MN, { sync: true, layer: 3 });
+const L3 = M.mine;
+result(L3?.level === 3 && L3.status === "infested" && L3.mobs.length >= 5 && L3.mobs.length <= 7 && L3.mobs.every((m) => ["skeleton", "giantSpider", "caveSpider"].includes(m.kind)),
+  `level 3 opened: ${L3?.mobs.map((m) => `${m.kind}/${m.maxHp}`).join(", ")} ${why}`);
+const sk3 = L3?.mobs.find((m) => m.kind === "skeleton" || m.kind === "giantSpider");
+const base = { skeleton: 50, giantSpider: 35 };
+result(!!sk3 && sk3.maxHp === Math.round(base[sk3.kind] * 1.7), `level-3 monsters are the strongest (x1.7): ${sk3?.kind} ${sk3?.maxHp}`);
+await mine(MN, { layer: 3, clear: true });
+const g0 = await total("goldOre");
+const pb0 = await total("leadOre");
+await runUntil(async () => (await total("goldOre")) > g0 && (await total("leadOre")) > pb0, 50, 40);
+result((await total("goldOre")) > g0 && (await total("leadOre")) > pb0, `level 3 yields gold ore ${await total("goldOre")}, lead ore ${await total("leadOre")}`);
+const pi3 = await info(MN.x, MN.y);
+result(pi3.mine.lines.filter((l) => /^Level [123] \(/.test(l)).length === 3, `panel lists the three levels: ${JSON.stringify(pi3.mine.lines)}`);
+
+// 11. a fallen hero is put back outside
+await mine(MN, { layer: 1, infest: ["skeleton", "skeleton"] });
 await hook("damagePlayer", { amount: me().hp - 3 });
-await tp(COAL.x, COAL.y + 1);
-I = await interior({ enter: { tx: COAL.x, ty: COAL.y } });
+await tp(MN.x, MN.y + 1);
+I = await interior({ enter: { tx: MN.x, ty: MN.y } });
 h = await heroAt();
-await mine(COAL, { place: { i: 0, x: h.x + 0.5, y: h.y }, wakeAll: true });
+await mine(MN, { layer: 1, place: { i: 0, x: h.x + 0.5, y: h.y }, wakeAll: true });
 await ff(80);
 I = await interior({});
 await sleep(100);
 result(I.inside === null && !me().dead, `fallen in the mine: back outside (inside ${JSON.stringify(I.inside)}, hp ${me().hp})`);
+await mine(MN, { layer: 1, clear: true });
 
-// 8. soldiers sent in clear a mine (some may fall)
-await hook("spawnSoldier", { kind: "knight", x: (COAL.x + 2) * TILE + 16, y: (COAL.y + 2) * TILE + 16 });
-await hook("spawnSoldier", { kind: "knight", x: (COAL.x + 3) * TILE + 16, y: (COAL.y + 2) * TILE + 16 });
-const ainf = await info(COAL.x, COAL.y);
-ev = c.events.length;
-send({ type: "mineAssault", tileX: COAL.x, tileY: COAL.y });
-await until(() => c.events.length > ev, 2000);
-M = await mine(COAL);
-result(ainf.mine?.assault.soldiers === 2 && ainf.mine.assault.reason === "" && M.mine?.status === "cleared" && /soldiers? cleared the Coal Mine/.test(evSince(ev)),
-  `soldiers sent in: ${JSON.stringify(ainf.mine?.assault)} -> ${M.mine?.status}: ${evSince(ev)}`);
-
-// 9. a deep shaft (level 3) needs an air vent and a bucket pump in store (and a Blacksmith)
-await raw(B.x + 15, B.y + 10, T.Blacksmith);
-await prog({ xpAt: { x: COAL.x, y: COAL.y, xp: 320 } });
-await mine(COAL, { roll: 0.99 });
-ev = c.events.length;
-send({ type: "upgradeBuilding", tileX: COAL.x, tileY: COAL.y });
-await sleep(300);
-await ff(5);
-const refused3 = evSince(ev);
-const lvlA = (await info(COAL.x, COAL.y)).level;
-send({ type: "craftItem", recipe: "mineVent" });
-send({ type: "craftItem", recipe: "carpenterTools" });
-await sleep(150);
-send({ type: "craftItem", recipe: "minePump" });
-await sleep(200);
-send({ type: "upgradeBuilding", tileX: COAL.x, tileY: COAL.y });
-await sleep(300);
-await ff(25);
-M = await mine(COAL, { sync: true });
-result(lvlA === 2 && /Air vent|Bucket pump/.test(refused3) && M.mine?.level === 3 && M.mine.status !== "infested",
-  `level 3 waits on the vent and pump (${refused3}), then goes deep: level ${M.mine?.level}, ${M.mine?.status}`);
-
-// 10. re-infestation of the deep shaft at dawn: a miner killed without a foreman (the knights from 8 would guard it)
-await hook("killColonists", { kind: "knight" });
-await staffed(COAL);
-await prog({ xpAt: { x: COAL.x, y: COAL.y, xp: 0 } });
+// 12. re-infestation by layer at dawn: level 1 never, level 3 at 40% (a miner killed); foreman, guards, odds
 const day = M.day;
-const minersBefore = (await workersAt(COAL)).length;
+await staffed(MN);
+await prog({ xpAt: { x: MN.x, y: MN.y, xp: 0 } });
+M = await mine(MN, { layer: 1, roll: 0, set: { status: "clear", rollDay: day - 5, clearedDay: day - 10 }, dawn: true });
+result(M.mine.status === "clear", `level 1 never re-infests: ${M.mine.status}`);
+const minersBefore = (await workersAt(MN)).length;
 ev = c.events.length;
-M = await mine(COAL, { roll: 0, set: { status: "clear", rollDay: day - 5, propsDay: day, clearedDay: day - 10 }, dawn: true });
-const minersAfter = (await workersAt(COAL)).length;
-result(M.mine?.status === "infested" && minersBefore >= 1 && minersAfter === minersBefore - 1 && /crawled back into the deep Coal Mine: 1 miner killed/.test(evSince(ev)),
-  `nest returned: ${M.mine?.status}, miners ${minersBefore} -> ${minersAfter}: ${evSince(ev)}`);
-// Cleared: a grace period with no roll.
-M = await mine(COAL, { clear: true });
-M = await mine(COAL, { set: { rollDay: day - 5 }, dawn: true });
-result(M.mine?.status === "cleared", `a cleared mine has a grace period: ${M.mine?.status}`);
-// A Mine Foreman (level-3 miner) gets the miners out alive.
-await staffed(COAL);
-await prog({ xpAt: { x: COAL.x, y: COAL.y, xp: 700 } });
-const fBefore = (await workersAt(COAL)).length;
-ev = c.events.length;
-M = await mine(COAL, { set: { clearedDay: day - 10, rollDay: day - 5 }, dawn: true });
-result(M.mine?.status === "infested" && M.mine.foreman && (await workersAt(COAL)).length === fBefore && /Mine Foreman got the miners out/.test(evSince(ev)),
-  `with a foreman nobody dies: ${M.mine?.status}, miners ${fBefore} -> ${(await workersAt(COAL)).length}: ${evSince(ev)}`);
-// Odds: lamps, props and the foreman lower them.
-await mine(COAL, { clear: true });
+M = await mine(MN, { layer: 3, roll: 0, set: { status: "clear", rollDay: day - 5, clearedDay: day - 10, propsDay: day + 100 }, dawn: true });
+const minersAfter = (await workersAt(MN)).length;
+result(M.mine.status === "infested" && minersAfter === minersBefore - 1 && /crawled back into the Mine's level 3: 1 miner killed/.test(evSince(ev)),
+  `level 3 re-infested: miners ${minersBefore} -> ${minersAfter}: ${evSince(ev)}`);
+await mine(MN, { layer: 3, clear: true });
+await staffed(MN);
+await prog({ xpAt: { x: MN.x, y: MN.y, xp: 700 } });
 await setExact("mineLamps", 1);
 await setExact("timberProps", 3);
-M = await mine(COAL);
-result(Math.abs(M.mine.chance - 0.4 * 0.5 * 0.6 * 0.5) < 1e-9 && M.mine.info.lines.some((l) => /nests may return \(6%/.test(l)),
-  `lit + propped + foreman: chance ${M.mine.chance} ${JSON.stringify(M.mine.info.lines)}`);
-// A soldier within 6 tiles guards it: no roll.
-await hook("spawnSoldier", { kind: "militia", x: (COAL.x + 1) * TILE + 16, y: (COAL.y + 2) * TILE + 16 });
-M = await mine(COAL, { set: { clearedDay: day - 10, rollDay: day - 5 }, dawn: true });
-result(M.mine?.status === "clear" && M.mine.guarded, `guarded by a soldier: ${M.mine?.status} guarded ${M.mine?.guarded}`);
+M = await mine(MN, { layer: 3 });
+const M2 = await mine(MN, { layer: 2 });
+result(Math.abs(M.mine.chance - 0.4 * 0.5 * 0.6 * 0.5) < 1e-9 && Math.abs(M2.mine.chance - 0.25 * 0.5 * 0.6 * 0.5) < 1e-9,
+  `odds by level (lit, propped, foreman): level 2 ${M2.mine.chance}, level 3 ${M.mine.chance}`);
+await hook("spawnSoldier", { kind: "militia", x: (MN.x + 1) * TILE + 16, y: (MN.y + 2) * TILE + 16 });
+M = await mine(MN, { layer: 3, roll: 0, set: { clearedDay: day - 10, rollDay: day - 5 }, dawn: true });
+result(M.mine.status !== "infested" && M.mine.guarded, `guarded by a soldier: ${M.mine.status} guarded ${M.mine.guarded}`);
+await hook("killColonists", { kind: "militia" });
 
-// 11. hazards: props wear out (taken from store; none left: cave-in), bad air without a vent, flood without a pump
-const props0 = await total("timberProps");
-M = await mine(COAL, { roll: 0.99, set: { propsDay: day - 5 }, dawn: true });
-result((await total("timberProps")) === props0 - 1 && !M.mine.unpropped, `a worked shaft wears out a prop: ${props0} -> ${await total("timberProps")}`);
+// 13. hazards: props wear out -> cave-in, bad air without a vent, flood without a pump
 await setExact("timberProps", 0);
 ev = c.events.length;
-M = await mine(COAL, { roll: 0, set: { propsDay: day - 5 }, dawn: true });
-result(M.mine.unpropped && M.mine.closedDay === M.day && M.mine.workMult === 0 && /Cave-in at the Coal Mine/.test(evSince(ev)),
-  `no props left: cave-in, closed today (${evSince(ev)})`);
+M = await mine(MN, { roll: 0, set: { propsDay: day - 5, unpropped: false }, dawn: true });
+result(M.mine.unpropped && M.mine.closedDay === M.day && M.mine.workMult === 0 && /Cave-in at the Mine/.test(evSince(ev)), `no props left: cave-in (${evSince(ev)})`);
 await setExact("mineVent", 0);
-M = await mine(COAL, { roll: 0.99, set: { closedDay: -1 } });
+M = await mine(MN, { roll: 0.99, set: { closedDay: -1 } });
 result(M.mine.workMult === 0.5 && M.mine.info.lines.some((l) => /Bad air/.test(l)), `no air vent: bad air, x${M.mine.workMult}`);
 await setExact("minePump", 0);
 ev = c.events.length;
-M = await mine(COAL, { roll: 0, set: { closedDay: -1, propsDay: day + 100, unpropped: false }, dawn: true });
-result(M.mine.closedDay === M.day && M.mine.closedWhy === "flood" && /flooded/.test(evSince(ev)), `no pump: flooded (${M.mine.closedWhy}) ${evSince(ev)}`);
-await mine(COAL, { roll: null, set: { closedDay: -1, unpropped: false } });
+M = await mine(MN, { roll: 0, set: { closedDay: -1, propsDay: day + 100, unpropped: false }, dawn: true });
+result(M.mine.closedWhy === "flood" && /flooded/.test(evSince(ev)), `no pump: flooded ${evSince(ev)}`);
+await mine(MN, { roll: null, set: { closedDay: -1, unpropped: false } });
 await setItems({ mineVent: 1, minePump: 1, timberProps: 4 });
+for (const l of [1, 2, 3]) await mine(MN, { layer: l, set: { status: "clear" } });
 
-// 12. coal smelts iron in the Bloomery without charcoal
-await prog({ unlockAll: true });
-const BLOOM = { x: B.x + 8, y: B.y + 1 };
-await place(BLOOM.x, BLOOM.y, T.Bloomery);
-await staffed(BLOOM);
-await prog({ unlockAll: false });
-await setExact("charcoal", 0);
-await setItems({ coal: 10 });
-const bloom0 = await total("ironBloom");
-await runUntil(async () => (await total("ironBloom")) > bloom0, 40, 40);
-result((await total("ironBloom")) > bloom0 && (await total("charcoal")) === 0, `a bloom smelted with coal (no charcoal in store): blooms ${bloom0} -> ${await total("ironBloom")}`);
+// 14. the Quarry is unchanged: one interior (layout = depth), a surface adit never infested, digging deeper may be
+await staffed(Q);
+let QM = await mine(Q, { sync: true });
+const qi = await info(Q.x, Q.y);
+result(QM.mine && !QM.mine.layered && QM.mine.status === "clear" && /surface adit/.test(qi.mine?.lines.join(" ")), `Quarry level 1: ${QM.mine?.status} ${JSON.stringify(qi.mine?.lines)}`);
+await mine(Q, { roll: 0 });
+why = await upgrade(Q, 120);
+QM = await mine(Q, { sync: true });
+await mine(Q, { roll: null });
+result(QM.mine.level === 2 && QM.mine.status === "infested" && QM.mine.mobs.every((m) => ["caveSpider", "caveBat", "skeleton"].includes(m.kind) && m.maxHp === { caveSpider: 20, caveBat: 10, skeleton: 50 }[m.kind]),
+  `Quarry shaft as before: ${QM.mine.status} ${QM.mine.mobs.map((m) => `${m.kind}/${m.maxHp}`).join(", ")} ${why}`);
+await tp(Q.x, Q.y + 1);
+I = await interior({ enter: { tx: Q.x, ty: Q.y } });
+result(I.inside?.variant === 1 && /quarry \(shaft\)/.test(I.view?.title ?? ""), `Quarry interior: v${I.inside?.variant} "${I.view?.title}"`);
+await interior({ exit: true });
+await mine(Q, { clear: true });
 
-// 13. copper and tin: an Iron Mine first, then the mines on their ores
-const IRON = { x: B.x + 12, y: B.y + 3 };
-await raw(IRON.x, IRON.y, T.IronOre);
-await place(IRON.x, IRON.y, T.IronMine);
-const CU = { x: B.x + 14, y: B.y + 6 };
-const SN = { x: B.x + 17, y: B.y + 6 };
-await raw(CU.x, CU.y, T.CopperOre);
-await raw(SN.x, SN.y, T.TinOre);
-await place(CU.x, CU.y, T.CopperMine);
-await place(SN.x, SN.y, T.TinMine);
-result(tileAt(IRON.x, IRON.y) === T.IronMine && tileAt(CU.x, CU.y) === T.CopperMine && tileAt(SN.x, SN.y) === T.TinMine, "Iron Mine, then the Copper and Tin Mines on their ores");
-await staffed(CU);
-await staffed(SN);
-await runUntil(async () => (await total("copperOre")) >= 2 && (await total("tinOre")) >= 1, 40, 40);
-result((await total("copperOre")) >= 2 && (await total("tinOre")) >= 1, `copper ore ${await total("copperOre")}, tin ore ${await total("tinOre")}`);
-// Every mine (the Quarry / Iron Mine too) has a record and a way in.
-M = await mine(IRON, { sync: true });
-result(M.mine?.status === "clear" && M.all.length >= 4, `mine records: ${JSON.stringify(M.all)}`);
-
-// 14. prospecting counts the new deposits
-ev = c.events.length;
-send({ type: "craftItem", recipe: "stoneKnife" });
-await sleep(150);
-send({ type: "prospect" });
-await sleep(200);
-await ff(40);
-await until(() => /Prospector's report/.test(evSince(ev)), 2000);
-const cInfo = await info(COAL.x, COAL.y);
-result(/Prospector's report/.test(evSince(ev)) && (cInfo.progression ?? []).some((l) => /Deposit: (poor|fair|rich)/.test(l)), `prospected: ${(cInfo.progression ?? []).find((l) => /Deposit/.test(l))}`);
-
-// 15. save / load keeps mines (status, monsters), deposits and the new items
-await mine(COAL, { infest: ["caveSpider", "giantSpider"] });
+// 15. save / load keeps every layer (status, monsters) and the ground
+await mine(MN, { layer: 2, infest: ["caveSpider", "giantSpider"] });
 const before = (await prog()).items;
-const coalSeams = count(T.CoalSeam);
 send({ type: "saveGame", slot: "slot1" });
 await until(() => c.saves.length > 0, 5000);
-await mine(COAL, { clear: true });
+await mine(MN, { layer: 2, clear: true });
 c.welcome = null;
 send({ type: "loadGame", slot: "slot1" });
 await until(() => c.welcome && c.snap, 15000);
 await sleep(300);
-M = await mine(COAL);
+M = await mine(MN, { layer: 2 });
 const after = (await prog()).items;
-result(M.mine?.status === "infested" && M.mine.level === 3 && M.mine.mobs.map((m) => m.kind).sort().join() === "caveSpider,giantSpider" && tileAt(COAL.x, COAL.y) === T.CoalMine,
-  `mine survives save/load: ${M.mine?.status} level ${M.mine?.level} ${M.mine?.mobs.map((m) => m.kind)}`);
-// (Ores: at least as many; the mines keep digging while the load settles.)
-result(["bones", "gems", "mineLamps", "mineVent", "minePump"].every((id) => after[id] === before[id]) && ["coal", "copperOre", "tinOre"].every((id) => after[id] >= before[id] && after[id] > 0)
-  && count(T.CoalSeam) === coalSeams,
-  `items and deposits survive: ${JSON.stringify(before)} -> ${JSON.stringify(after)}; coal seams ${coalSeams} -> ${count(T.CoalSeam)}`);
+result(M.mine?.layered && M.mine.level === 3 && M.mine.status === "infested" && M.mine.mobs.map((m) => m.kind).sort().join() === "caveSpider,giantSpider"
+  && M.mine.mobs.find((m) => m.kind === "giantSpider")?.maxHp === Math.round(35 * 1.3) && M.mine.layers.length === 3 && tileAt(MN.x, MN.y) === T.Mine,
+  `layers survive save/load: level ${M.mine?.level} ${JSON.stringify(M.mine?.layers)}`);
+result(["bronzePick", "ironPick", "mineVent", "minePump"].every((id) => after[id] === before[id]), `items survive: ${JSON.stringify(after)}`);
 
 console.log(fails === 0 ? "ALL PASS" : `${fails} FAILED`);
 ws.close();

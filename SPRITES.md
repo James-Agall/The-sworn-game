@@ -1138,3 +1138,8 @@ No live deployment and no push. Visual taste and prolonged multiplayer animation
   furnace), a mint (stone strongroom with a screw press); limestone / gold / lead outcrops; item icons for the fifteen
   items; a bronze tint or overlay for soldiers in bronze gear.
 
+
+## #115 Layered mines stand-ins (2026-11-19)
+- The way down to a Mine's next level (interior prop `mineShaft`) is drawn with the Mine's own world sprite
+  (`/sprites/ironMine.png`), temporarily. Wanted: a ladder / winch-head over a dark shaft in the interiors-v2 style.
+- The Mine keeps the old Iron Mine art in the world; its ore face flecks by level (copper, iron, gold) inside.

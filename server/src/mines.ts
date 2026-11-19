@@ -10,9 +10,16 @@
 // it; lamps, props and a Mine Foreman lower it; without a foreman a nest kills a miner). Records are saved (`mines`).
 // Automatic rolls (dig, re-infestation, hazards) are off under COLONY_UNLOCK_ALL (older suites); a forced
 // infestation (test hook) still works there.
+// Layered mines (2026-11-19): the Quarry keeps the rules above (one layer: its depth). The Mine (IronMinePost) has one
+// layer per level (layers[0..2]), each its own interior (variant = layer - 1) entered from the shaft on the layer above;
+// every layer has its own status / monsters (danger by layer: MINE_LAYER_*), a new layer breaks into a nest, and the
+// miners dig the resources of every clear / cleared open layer in turn (mineBatch). Under COLONY_UNLOCK_ALL a Mine digs
+// iron ore like the old Iron Mine.
 import { TICK_RATE, TILE_SIZE, TileType, HungerMark, type MobKind } from "@colony/shared/protocol";
 import { buildInteriorMap, interiorSolidGrid, type InteriorMap } from "@colony/shared/interiors";
 import {
+  MINE_LAYER_ENCOUNTER, MINE_LAYER_INFEST_CHANCE, MINE_LAYER_MOB_MULT, MINE_LAYER_REINFEST_CHANCE, MINE_LAYER_YIELDS,
+  MINE_RESOURCE_LABEL, isLayeredMine, mineLayerResourcesText, type MineResource,
   DEPOSIT_MINES, MINE_ASSAULT_MAX_ROUNDS, MINE_ASSAULT_MAX_SOLDIERS, MINE_ASSAULT_RADIUS_TILES, MINE_ATTACK_DEATHS,
   MINE_BAD_AIR_SPEED, MINE_CAVE_IN_CHANCE, MINE_CAVE_IN_HURT, MINE_CLEAR_GOLD, MINE_CLEAR_GRACE_DAYS, MINE_ENCOUNTER_BY_LEVEL,
   MINE_FLOOD_CHANCE, MINE_FOREMAN_LEVEL, MINE_GUARD_RADIUS_TILES, MINE_HERO_BOW_REACH_TILES, MINE_HERO_REACH_TILES,
@@ -35,7 +42,7 @@ import { sendEvent } from "./construction.js";
 import { damageColonist, damagePlayer } from "./combat.js";
 import { heroProfileOf, heroRewardsForKill, playerAttackCooldownTicks, playerDamage } from "./heroes.js";
 import { isSoldierKind, unitStats } from "./units.js";
-import { addItem, takeItem, workerLevel } from "./progression.js";
+import { addItem, itemCount, takeItem, workerLevel } from "./progression.js";
 import { exitInterior } from "./interiors.js";
 
 interface MineMob {
@@ -56,21 +63,28 @@ interface MineMob {
   path: { x: number; y: number }[];
   repathAt: number;
 }
+// One layer (the Quarry has one; a Mine one per open level). Game days: cleared on, last re-infestation roll.
+interface LayerRec {
+  status: MineStatus;
+  mobs: MineMob[];
+  clearedDay: number;
+  rollDay: number;
+}
 interface MineRec {
   tx: number;
   ty: number;
   // The depth the record has seen (rolled up to).
   level: number;
-  status: MineStatus;
-  mobs: MineMob[];
-  // Game days (cycleTick / GAME_DAY_TICKS): cleared on, last re-infestation roll, last prop worn, closed (cave-in /
-  // flood) on.
-  clearedDay: number;
-  rollDay: number;
+  // A Mine (layers) or the Quarry (one layer, its depth = level).
+  layered: boolean;
+  layers: LayerRec[];
+  // Game days (cycleTick / GAME_DAY_TICKS): last prop worn, closed (cave-in / flood) on.
   propsDay: number;
   closedDay: number;
   closedWhy: string;
   unpropped: boolean;
+  // The Mine's production rotation.
+  turn: number;
 }
 const mines = new Map<string, MineRec>();
 // Old saves (no `mines`): the first scan records every standing mine as clear at its level (no roll).
@@ -87,8 +101,17 @@ const roll = () => forcedRoll ?? Math.random();
 const gatesOff = () => state.testUnlockAll;
 const clanAt = (r: MineRec): Clan => clanById(clanIdAt(r.tx, r.ty));
 const itemsOf = (clan: Clan, id: ItemId) => (clan.progress.items[id] ?? []).reduce((a, b) => a + b, 0);
-const alive = (r: MineRec) => r.mobs.filter((m) => m.hp > 0);
+const aliveIn = (L: LayerRec | undefined) => (L ? L.mobs.filter((m) => m.hp > 0) : []);
+const alive = (r: MineRec) => r.layers.flatMap(aliveIn);
 const labelOf = (r: MineRec) => MINE_LABEL[state.tiles[tileIndex(r.tx, r.ty)]] ?? "Mine";
+// "the Mine's level 2" / "the Quarry".
+const layerLabel = (r: MineRec, li: number) => (r.layered ? `${labelOf(r)}'s level ${li + 1}` : labelOf(r));
+// The danger depth of a layer (Quarry: its level) and its layout (interior variant).
+const depthOf = (r: MineRec, li: number) => (r.layered ? li + 1 : Math.max(1, r.level));
+const variantOf = (r: MineRec, li: number) => (r.layered ? li : Math.max(1, Math.min(3, r.level)) - 1);
+const anyInfested = (r: MineRec) => r.layers.some((L) => L.status === "infested");
+// The layers that produce (open, not infested).
+const workable = (r: MineRec) => r.layers.filter((L, li) => li < Math.max(1, r.level) && L.status !== "infested");
 
 function hash01(x: number, y: number, level: number): number {
   let h = (x * 73856093) ^ (y * 19349663) ^ (level * 83492791) ^ state.worldNoiseSalt;
@@ -97,24 +120,28 @@ function hash01(x: number, y: number, level: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-// The layout of a mine at a level (variant = depth: interiors.ts interiorTemplateAt) and its walls, cached.
-const mapCache = new Map<number, { map: InteriorMap; solid: Uint8Array }>();
-function mineMap(level: number) {
+// The layout of a mine at a building level and variant (interiors.ts interiorTemplateAt) and its walls, cached.
+const mapCache = new Map<string, { map: InteriorMap; solid: Uint8Array }>();
+function mineMap(level: number, variant: number) {
   const l = Math.max(1, Math.min(3, level));
-  let m = mapCache.get(l);
+  const k = `${l}:${variant}`;
+  let m = mapCache.get(k);
   if (!m) {
-    const map = buildInteriorMap("mine", l, l - 1);
-    mapCache.set(l, (m = { map, solid: interiorSolidGrid(map) }));
+    const map = buildInteriorMap("mine", l, variant);
+    mapCache.set(k, (m = { map, solid: interiorSolidGrid(map) }));
   }
   return m;
 }
+const layerMap = (r: MineRec, li: number) => mineMap(Math.max(1, r.level), variantOf(r, li));
 
 // ---- records ----
 export function mineRecAt(tx: number, ty: number): MineRec | undefined {
   return mines.get(keyOf(tx, ty));
 }
+// Any layer infested (the Quarry: infested).
 export function isMineInfested(tx: number, ty: number): boolean {
-  return mineRecAt(tx, ty)?.status === "infested";
+  const r = mineRecAt(tx, ty);
+  return !!r && anyInfested(r);
 }
 
 // The posted miners of a mine (people at work there).
@@ -137,35 +164,51 @@ function guardedBy(r: MineRec): Colonist | undefined {
   return undefined;
 }
 
-function pickKind(level: number): MobKind {
-  const kinds = MINE_ENCOUNTER_BY_LEVEL[Math.max(1, Math.min(3, level)) - 1].kinds;
+function encounterOf(r: MineRec, li: number) {
+  return r.layered ? MINE_LAYER_ENCOUNTER[Math.min(2, li)] : MINE_ENCOUNTER_BY_LEVEL[Math.max(1, Math.min(3, depthOf(r, li))) - 1];
+}
+function pickKind(r: MineRec, li: number): MobKind {
+  const kinds = encounterOf(r, li).kinds;
   let x = Math.random() * kinds.reduce((a, k) => a + k.weight, 0);
   for (const k of kinds) if ((x -= k.weight) < 0) return k.kind;
   return kinds[0].kind;
 }
 
-function spawnEncounter(r: MineRec, kinds?: MobKind[]) {
-  const level = Math.max(1, r.level);
-  const enc = MINE_ENCOUNTER_BY_LEVEL[level - 1];
+function newMob(kind: MobKind, mult: number, x: number, y: number, hp?: number): MineMob | null {
+  const st = MINE_MOB_STATS[kind];
+  if (!st) return null;
+  const maxHp = Math.round(st.hp * mult);
+  return {
+    id: `mm${nextMobId++}`, kind, x, y, hp: Math.max(1, Math.min(maxHp, hp ?? maxHp)), maxHp, damage: Math.round(st.damage * mult * 10) / 10, speed: st.speed,
+    cdTicks: st.cooldownTicks, cd: 0, awake: false, face: "r", act: "sleep", path: [], repathAt: 0,
+  };
+}
+const multOf = (r: MineRec, li: number) => (r.layered ? MINE_LAYER_MOB_MULT[Math.min(2, li)] : 1);
+
+function spawnEncounter(r: MineRec, li: number, kinds?: MobKind[]) {
+  const enc = encounterOf(r, li);
   const n = kinds?.length ?? enc.count[0] + Math.floor(Math.random() * (enc.count[1] - enc.count[0] + 1));
-  const lairs = mineMap(level).map.lairs ?? [mineMap(level).map.spawn];
-  r.mobs = [];
+  const { map } = layerMap(r, li);
+  const lairs = map.lairs ?? [map.spawn];
+  const L = r.layers[li];
+  L.mobs = [];
   for (let i = 0; i < n; i++) {
-    const kind = kinds?.[i] ?? pickKind(level);
-    const st = MINE_MOB_STATS[kind] ?? MINE_MOB_STATS.caveSpider!;
     const at = lairs[i % lairs.length];
-    r.mobs.push({
-      id: `mm${nextMobId++}`, kind, x: at.x, y: at.y, hp: st.hp, maxHp: st.hp, damage: st.damage, speed: st.speed, cdTicks: st.cooldownTicks,
-      cd: 0, awake: false, face: i % 2 ? "l" : "r", act: "sleep", path: [], repathAt: 0,
-    });
+    const m = newMob(kinds?.[i] ?? pickKind(r, li), multOf(r, li), at.x, at.y);
+    if (!m) continue;
+    m.face = i % 2 ? "l" : "r";
+    L.mobs.push(m);
   }
 }
 
-// The mine becomes infested (why: "dug" a new depth, "returned" at dawn, "forced" by a test).
-function infest(r: MineRec, why: "dug" | "returned" | "forced", kinds?: MobKind[]) {
-  r.status = "infested";
-  spawnEncounter(r, kinds);
+// A layer becomes infested (why: "dug" a new depth, "returned" at dawn, "forced" by a test).
+function infest(r: MineRec, li: number, why: "dug" | "returned" | "forced", kinds?: MobKind[]) {
+  const L = r.layers[li];
+  if (!L) return;
+  L.status = "infested";
+  spawnEncounter(r, li, kinds);
   const label = labelOf(r);
+  const where = layerLabel(r, li);
   let deaths = 0;
   if (why === "returned" && !hasForeman(r)) {
     for (const c of minersAt(r).slice(0, MINE_ATTACK_DEATHS)) {
@@ -173,39 +216,57 @@ function infest(r: MineRec, why: "dug" | "returned" | "forced", kinds?: MobKind[
       deaths++;
     }
   }
-  const what = r.mobs.length;
+  const what = L.mobs.length;
   const text = why === "dug"
-    ? `Your miners broke into a nest digging the ${label} deeper: ${what} monsters inside. The miners fled; it yields nothing until you clear it (E at its door) or send soldiers in`
+    ? r.layered
+      ? `Your miners broke into a nest opening the ${where}: ${what} monsters inside. It yields nothing until you clear it (E at the Mine's door, then down) or send soldiers in`
+      : `Your miners broke into a nest digging the ${label} deeper: ${what} monsters inside. The miners fled; it yields nothing until you clear it (E at its door) or send soldiers in`
     : why === "returned"
-      ? `Monsters crawled back into the deep ${label}${deaths ? `: ${deaths} miner${deaths === 1 ? "" : "s"} killed` : hasForeman(r) ? ": the Mine Foreman got the miners out" : ""}. Clear it out (E at its door) or send soldiers in`
-      : `The ${label} is infested: ${what} monsters inside`;
+      ? `Monsters crawled back into the ${r.layered ? where : `deep ${label}`}${deaths ? `: ${deaths} miner${deaths === 1 ? "" : "s"} killed` : hasForeman(r) ? ": the Mine Foreman got the miners out" : ""}. Clear it out (E at its door) or send soldiers in`
+      : `The ${where} is infested: ${what} monsters inside`;
   withClan(clanAt(r), () => broadcastEvent("raid", text));
 }
 
-function clearMine(r: MineRec, by: string) {
-  r.status = "cleared";
-  r.mobs = [];
-  r.clearedDay = today();
-  r.rollDay = today();
+function clearLayer(r: MineRec, li: number, by: string) {
+  const L = r.layers[li];
+  L.status = "cleared";
+  L.mobs = [];
+  L.clearedDay = today();
+  L.rollDay = today();
   withClan(clanAt(r), () => {
     state.stock.gold += MINE_CLEAR_GOLD;
-    broadcastEvent("milestone", `The ${labelOf(r)} is cleared${by ? ` by ${by}` : ""} (+${MINE_CLEAR_GOLD} gold): the miners go back to work`);
+    broadcastEvent("milestone", `The ${layerLabel(r, li)} is cleared${by ? ` by ${by}` : ""} (+${MINE_CLEAR_GOLD} gold): the miners ${r.layered ? `dig ${mineLayerResourcesText(li + 1)} there` : "go back to work"}`);
   });
 }
 
-// When a shaft reaches a level: the depth's chance, from a hash fixed at world gen.
+const newLayer = (): LayerRec => ({ status: "clear", mobs: [], clearedDay: -1e9, rollDay: today() });
+
+// When a shaft reaches a level: the depth's chance, from a hash fixed at world gen. A Mine opens a new layer (its
+// own nest); the Quarry's one layer is re-rolled at its new depth.
 function rollDepth(r: MineRec, level: number) {
-  if (gatesOff() || r.status === "infested") return;
+  if (r.layered) {
+    while (r.layers.length < level) r.layers.push(newLayer());
+    const li = level - 1;
+    if (gatesOff()) return;
+    const chance = MINE_LAYER_INFEST_CHANCE[Math.min(2, li)] ?? 0;
+    if (chance > 0 && (forcedRoll ?? hash01(r.tx, r.ty, level)) < chance) {
+      r.level = level;
+      infest(r, li, "dug");
+    }
+    return;
+  }
+  if (gatesOff() || r.layers[0].status === "infested") return;
   const chance = MINE_INFEST_CHANCE_BY_LEVEL[Math.max(1, Math.min(3, level)) - 1] ?? 0;
   if (chance > 0 && (forcedRoll ?? hash01(r.tx, r.ty, level)) < chance) {
     r.level = level;
-    infest(r, "dug");
+    infest(r, 0, "dug");
   }
 }
 
-function newRec(tx: number, ty: number, level: number): MineRec {
+function newRec(tx: number, ty: number, level: number, layered: boolean): MineRec {
   const d = today();
-  return { tx, ty, level, status: "clear", mobs: [], clearedDay: -1e9, rollDay: d, propsDay: d, closedDay: -1, closedWhy: "", unpropped: false };
+  const layers = Array.from({ length: layered ? Math.max(0, level) : 1 }, newLayer);
+  return { tx, ty, level, layered, layers, propsDay: d, closedDay: -1, closedWhy: "", unpropped: false, turn: 0 };
 }
 
 // Once a second: a record per own mine (new mines and deeper shafts roll), gone mines dropped.
@@ -219,14 +280,19 @@ function syncMines() {
       const key = keyOf(x, y);
       seen.add(key);
       const level = Math.max(1, Math.min(3, getBuildingLevel(x, y)));
+      const layered = isLayeredMine(t);
       let r = mines.get(key);
-      if (!r) mines.set(key, (r = newRec(x, y, seedExisting ? level : 0)));
+      if (r && r.layered !== layered) r = undefined;
+      if (!r) mines.set(key, (r = newRec(x, y, seedExisting ? level : 0, layered)));
       while (r.level < level) {
         const next = r.level + 1;
         rollDepth(r, next);
         r.level = Math.max(r.level, next);
       }
-      if (r.level > level) r.level = level;
+      if (r.level > level) {
+        r.level = level;
+        if (r.layered) r.layers.length = level;
+      }
     }
   }
   seedExisting = false;
@@ -234,20 +300,41 @@ function syncMines() {
 }
 
 // ---- production (colonists.ts / progression.ts) ----
-// Work speed at a mine post: 0 while infested or closed today (cave-in / flood), MINE_BAD_AIR_SPEED in a deep shaft
-// without a vent, else 1. Posts that are not mines: 1.
+// Work speed at a mine post: 0 while infested (a Mine: every open layer) or closed today (cave-in / flood),
+// MINE_BAD_AIR_SPEED in a deep shaft without a vent, else 1. Posts that are not mines: 1.
 export function mineWorkMult(tx: number, ty: number): number {
   const r = mineRecAt(tx, ty);
   if (!r) return 1;
-  if (r.status === "infested") return 0;
+  if (workable(r).length === 0) return 0;
   if (gatesOff()) return 1;
   if (r.closedDay === today()) return 0;
   if (r.level >= 3 && itemsOf(clanAt(r), "mineVent") < 1) return MINE_BAD_AIR_SPEED;
   return 1;
 }
-// colonists.ts: a civilian posted at an infested mine flees (shelters) by day.
+// colonists.ts: a civilian posted at a mine with no layer to work flees (shelters) by day.
 export function minerFlees(c: Colonist): boolean {
-  return isMineInfested(c.postX, c.postY);
+  const r = mineRecAt(c.postX, c.postY);
+  return !!r && workable(r).length === 0;
+}
+
+function amountOf(res: MineResource): number {
+  return res === "iron" ? state.stock.iron : itemCount(res);
+}
+// colonists.ts: one miner's batch at a Mine (in its clan): 1 + `extra` of the next resource of the clear / cleared
+// open layers under its cap. False when this is not a gated Mine (the caller digs the legacy iron).
+export function mineBatch(c: Colonist, extra: number): boolean {
+  const r = mineRecAt(c.postX, c.postY);
+  if (!r || !r.layered || gatesOff()) return false;
+  const options: MineResource[] = [];
+  r.layers.forEach((L, li) => {
+    if (li >= r.level || L.status === "infested") return;
+    for (const y of MINE_LAYER_YIELDS[li] ?? []) if (amountOf(y.res) < y.cap) options.push(y.res);
+  });
+  if (options.length === 0) return true;
+  const res = options[r.turn++ % options.length];
+  if (res === "iron") state.stock.iron += 1 + extra;
+  else addItem(res, 1 + extra);
+  return true;
 }
 
 // ---- dawn: props wear (cave-ins), floods, re-infestation ----
@@ -258,8 +345,8 @@ export function minesDawn() {
     const clan = clanAt(r);
     const label = labelOf(r);
     withClan(clan, () => {
-      if (r.status === "cleared" && d - r.clearedDay >= MINE_CLEAR_GRACE_DAYS) r.status = "clear";
-      if (r.status === "infested") return;
+      for (const L of r.layers) if (L.status === "cleared" && d - L.clearedDay >= MINE_CLEAR_GRACE_DAYS) L.status = "clear";
+      if (workable(r).length === 0) return;
       const worked = minersAt(r).length > 0;
       // Timber props wear out in a worked shaft; none to replace them: cave-ins.
       if (r.level >= 2 && worked && d - r.propsDay >= MINE_PROPS_WEAR_DAYS) {
@@ -278,18 +365,20 @@ export function minesDawn() {
         r.closedWhy = "flood";
         broadcastEvent("build", `The deep ${label} flooded overnight (no Bucket pump in store): closed today`);
       }
-      // Deep shafts: nests come back now and then (guards stop it).
-      if (r.level >= 3 && r.status === "clear" && d - r.rollDay >= MINE_REINFEST_EVERY_DAYS) {
-        r.rollDay = d;
+      // Nests come back now and then (guards stop it): the Quarry's deep shaft, a Mine's deeper layers.
+      r.layers.forEach((L, li) => {
+        const base = r.layered ? MINE_LAYER_REINFEST_CHANCE[Math.min(2, li)] ?? 0 : r.level >= 3 ? MINE_REINFEST_CHANCE : 0;
+        if (base <= 0 || L.status !== "clear" || d - L.rollDay < MINE_REINFEST_EVERY_DAYS) return;
+        L.rollDay = d;
         if (guardedBy(r)) return;
-        if (roll() < reinfestChance(r, clan)) infest(r, "returned");
-      }
+        if (roll() < reinfestChance(r, clan, li)) infest(r, li, "returned");
+      });
     });
   }
 }
 
-function reinfestChance(r: MineRec, clan: Clan): number {
-  let c = MINE_REINFEST_CHANCE;
+function reinfestChance(r: MineRec, clan: Clan, li: number): number {
+  let c = r.layered ? MINE_LAYER_REINFEST_CHANCE[Math.min(2, li)] ?? 0 : MINE_REINFEST_CHANCE;
   if (itemsOf(clan, "mineLamps") > 0) c *= MINE_REINFEST_LIT_MULT;
   if (itemsOf(clan, "timberProps") > 0) c *= MINE_REINFEST_PROPPED_MULT;
   if (hasForeman(r)) c *= MINE_REINFEST_FOREMAN_MULT;
@@ -297,14 +386,22 @@ function reinfestChance(r: MineRec, clan: Clan): number {
 }
 
 // ---- loot ----
-function lootFor(r: MineRec, m: MineMob): string[] {
+function lootFor(r: MineRec, li: number, m: MineMob): string[] {
   const got: string[] = [];
   const tile = state.tiles[tileIndex(r.tx, r.ty)];
-  const dep = DEPOSIT_MINES.find((q) => q.mine === tile);
-  if (dep) addItem(dep.item, MINE_LOOT_ORE);
-  else if (tile === TileType.IronMinePost) state.stock.iron += MINE_LOOT_ORE;
-  else state.stock.rock += MINE_LOOT_ORE;
-  got.push(`${MINE_LOOT_ORE} ${dep ? dep.item.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase()) : tile === TileType.IronMinePost ? "iron" : "rock"}`);
+  if (r.layered) {
+    // A Mine: one of the layer's own resources.
+    const ys = MINE_LAYER_YIELDS[Math.min(2, li)];
+    const res = ys[Math.min(ys.length - 1, Math.floor(roll() * ys.length))].res;
+    if (res === "iron") state.stock.iron += MINE_LOOT_ORE;
+    else addItem(res, MINE_LOOT_ORE);
+    got.push(`${MINE_LOOT_ORE} ${MINE_RESOURCE_LABEL[res]}`);
+  } else {
+    const dep = DEPOSIT_MINES.find((q) => q.mine === tile);
+    if (dep) addItem(dep.item, MINE_LOOT_ORE);
+    else state.stock.rock += MINE_LOOT_ORE;
+    got.push(`${MINE_LOOT_ORE} ${dep ? dep.item.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase()) : "rock"}`);
+  }
   if (m.kind === "skeleton" || roll() < MINE_LOOT_BONES_CHANCE) {
     addItem("bones", 1);
     got.push("bones");
@@ -316,23 +413,26 @@ function lootFor(r: MineRec, m: MineMob): string[] {
   return got;
 }
 
-// A monster dies (by the hero `p`, or soldiers): loot to the mine's clan; the last one clears the mine.
-function killMob(r: MineRec, m: MineMob, p: Player | null) {
+// A monster dies (by the hero `p`, or soldiers): loot to the mine's clan; the last one clears the layer.
+function killMob(r: MineRec, li: number, m: MineMob, p: Player | null) {
   m.hp = 0;
-  const got = withClan(clanAt(r), () => lootFor(r, m));
+  const got = withClan(clanAt(r), () => lootFor(r, li, m));
   if (p) {
     heroRewardsForKill({ kind: m.kind, mark: HungerMark.None, isDeserter: false, maxHp: m.maxHp, damage: m.damage } as unknown as Mob, "p:" + p.id);
     sendTo(p, { type: "event", category: "build", text: `${m.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase())} slain: ${got.join(", ")}` });
   }
-  r.mobs = r.mobs.filter((q) => q.hp > 0);
-  if (r.mobs.length === 0 && r.status === "infested") clearMine(r, p ? "you" : "your soldiers");
+  const L = r.layers[li];
+  L.mobs = L.mobs.filter((q) => q.hp > 0);
+  if (L.mobs.length === 0 && L.status === "infested") clearLayer(r, li, p ? "you" : "your soldiers");
 }
 
 // ---- inside: the hero's swing, the monsters' hunt ----
 const heroTile = (p: Player) => ({ x: p.interior!.x / TILE_SIZE - 0.5, y: p.interior!.y / TILE_SIZE - 0.5 });
-function wake(r: MineRec, m: MineMob) {
+// The layer index the hero inside a mine is on (a Mine: its variant; the Quarry: 0).
+const layerOfPlayer = (r: MineRec, p: Player) => (r.layered ? Math.max(0, Math.min(r.layers.length - 1, p.interior?.variant ?? 0)) : 0);
+function wake(L: LayerRec, m: MineMob) {
   m.awake = true;
-  for (const o of r.mobs) if (!o.awake && Math.hypot(o.x - m.x, o.y - m.y) <= MINE_MOB_WAKE_TILES) o.awake = true;
+  for (const o of L.mobs) if (!o.awake && Math.hypot(o.x - m.x, o.y - m.y) <= MINE_MOB_WAKE_TILES) o.awake = true;
 }
 
 // index.ts: `attack` inside a mine. True when it was handled here (the hero is in a mine).
@@ -342,13 +442,16 @@ export function mineHeroAttack(p: Player): boolean {
   if (p.dead || p.attackCooldownTicks > 0) return true;
   p.attackCooldownTicks = playerAttackCooldownTicks(p);
   const r = mineRecAt(I.tx, I.ty);
-  if (!r || r.status !== "infested") return true;
+  if (!r) return true;
+  const li = layerOfPlayer(r, p);
+  const L = r.layers[li];
+  if (!L || L.status !== "infested") return true;
   const weapon = heroProfileOf(p).equipment.weapon?.kind;
   const reach = weapon === "bow" ? MINE_HERO_BOW_REACH_TILES : weapon === "spear" ? MINE_HERO_SPEAR_REACH_TILES : MINE_HERO_REACH_TILES;
   const h = heroTile(p);
   let best: MineMob | null = null;
   let bestD = Infinity;
-  for (const m of alive(r)) {
+  for (const m of aliveIn(L)) {
     const d = Math.hypot(m.x - h.x, m.y - h.y);
     if (d <= reach && d < bestD) {
       best = m;
@@ -357,14 +460,14 @@ export function mineHeroAttack(p: Player): boolean {
   }
   if (!best) return true;
   best.hp -= playerDamage(p);
-  wake(r, best);
-  if (best.hp <= 0) killMob(r, best, p);
+  wake(L, best);
+  if (best.hp <= 0) killMob(r, li, best, p);
   return true;
 }
 
-// Shortest 4-way path on the mine grid from a to b ([] when none or already there).
-function pathOn(level: number, from: { x: number; y: number }, to: { x: number; y: number }): { x: number; y: number }[] {
-  const { map, solid } = mineMap(level);
+// Shortest 4-way path on a mine grid from a to b ([] when none or already there).
+function pathOn(grid: { map: InteriorMap; solid: Uint8Array }, from: { x: number; y: number }, to: { x: number; y: number }): { x: number; y: number }[] {
+  const { map, solid } = grid;
   const { w, h } = map;
   const s = Math.round(from.y) * w + Math.round(from.x);
   const g = Math.round(to.y) * w + Math.round(to.x);
@@ -392,8 +495,9 @@ function pathOn(level: number, from: { x: number; y: number }, to: { x: number; 
   return out.reverse();
 }
 
-function stepMobs(r: MineRec, inside: Player[]) {
-  for (const m of alive(r)) {
+function stepMobs(r: MineRec, li: number, inside: Player[]) {
+  const L = r.layers[li];
+  for (const m of aliveIn(L)) {
     let near: { p: Player; x: number; y: number; d: number } | null = null;
     for (const p of inside) {
       if (p.dead || !p.interior) continue;
@@ -411,7 +515,7 @@ function stepMobs(r: MineRec, inside: Player[]) {
         m.act = "sleep";
         continue;
       }
-      wake(r, m);
+      wake(L, m);
     }
     m.face = near.x < m.x ? "l" : near.x > m.x ? "r" : m.face;
     if (near.d <= MINE_MOB_REACH_TILES) {
@@ -425,7 +529,7 @@ function stepMobs(r: MineRec, inside: Player[]) {
     }
     // Hunt: the grid path to the hero's tile, then straight at the hero.
     if (state.cycleTick >= m.repathAt || m.path.length === 0) {
-      m.path = pathOn(r.level, m, near);
+      m.path = pathOn(layerMap(r, li), m, near);
       m.repathAt = state.cycleTick + 10;
     }
     const target = m.path.length > 0 ? m.path[0] : { x: near.x, y: near.y };
@@ -459,33 +563,36 @@ function biteHero(p: Player, damage: number) {
   }
 }
 
-const liveOf = (r: MineRec): MineMobLive[] =>
-  alive(r).map((m) => ({ id: m.id, kind: m.kind, x: Math.round(m.x * 100) / 100, y: Math.round(m.y * 100) / 100, hp: Math.ceil(m.hp), maxHp: m.maxHp, face: m.face, act: m.act }));
+const liveOf = (L: LayerRec | undefined): MineMobLive[] =>
+  aliveIn(L).map((m) => ({ id: m.id, kind: m.kind, x: Math.round(m.x * 100) / 100, y: Math.round(m.y * 100) / 100, hp: Math.ceil(m.hp), maxHp: m.maxHp, face: m.face, act: m.act }));
 
-// sim.ts, once a tick: records (once a second), the monsters of every mine a hero is in, their positions out.
+// sim.ts, once a tick: records (once a second), the monsters of every mine layer a hero is in, their positions out.
 export function updateMines() {
   if (state.cycleTick % TICK_RATE === 0) syncMines();
-  const inMine = new Map<string, Player[]>();
+  const inMine = new Map<string, { r: MineRec | undefined; li: number; ps: Player[] }>();
   for (const p of players.values()) {
     const I = p.interior;
     if (!I || I.templateId !== "mine" || p.dead) {
       mobsSent.delete(p.id);
       continue;
     }
-    const list = inMine.get(I.key);
-    if (list) list.push(p);
-    else inMine.set(I.key, [p]);
+    const r = mines.get(I.key);
+    const li = r ? layerOfPlayer(r, p) : 0;
+    const k = `${I.key}#${li}`;
+    const g = inMine.get(k);
+    if (g) g.ps.push(p);
+    else inMine.set(k, { r, li, ps: [p] });
   }
-  for (const [key, ps] of inMine) {
-    const r = mines.get(key);
-    if (r && r.status === "infested") stepMobs(r, ps);
+  for (const { r, li, ps } of inMine.values()) {
+    const L = r?.layers[li];
+    if (r && L && L.status === "infested") stepMobs(r, li, ps);
     if (state.cycleTick % MINE_MOB_SEND_TICKS !== 0) continue;
-    const live = r ? liveOf(r) : [];
-    const json = JSON.stringify(live);
+    const live = liveOf(L);
+    const json = `${li}:${JSON.stringify(live)}`;
     for (const p of ps) {
       if (!p.interior || mobsSent.get(p.id) === json) continue;
       mobsSent.set(p.id, json);
-      sendTo(p, { type: "interiorMobs", key, mobs: live });
+      sendTo(p, { type: "interiorMobs", key: p.interior.key, mobs: live });
     }
   }
 }
@@ -501,16 +608,24 @@ function hazardLines(r: MineRec, clan: Clan): string[] {
   return out;
 }
 
-// interiors.ts viewFor: the mine line of the interior view.
-export function mineView(tx: number, ty: number): MineView | undefined {
+// interiors.ts viewFor: the mine line of the interior view (a Mine: the layer `variant` the hero is on).
+export function mineView(tx: number, ty: number, variant = 0): MineView | undefined {
   const r = mineRecAt(tx, ty);
   if (!r) return undefined;
-  return { tile: state.tiles[tileIndex(tx, ty)], status: r.status, monsters: alive(r).length, hazards: hazardLines(r, clanAt(r)) };
+  const li = r.layered ? Math.max(0, Math.min(r.layers.length - 1, variant)) : 0;
+  const L = r.layers[li];
+  if (!L) return undefined;
+  return {
+    tile: state.tiles[tileIndex(tx, ty)], status: L.status, monsters: aliveIn(L).length, hazards: hazardLines(r, clanAt(r)),
+    ...(r.layered ? { layer: li + 1, layers: r.layers.length, yields: mineLayerResourcesText(li + 1) } : {}),
+  };
 }
 
-// interiors.ts: posted miners are not inside an infested mine (they fled).
-export function mineHidesMiners(tx: number, ty: number): boolean {
-  return isMineInfested(tx, ty);
+// interiors.ts: posted miners are not inside an infested layer (they fled or work another layer).
+export function mineHidesMiners(tx: number, ty: number, variant = 0): boolean {
+  const r = mineRecAt(tx, ty);
+  if (!r) return false;
+  return (r.layers[r.layered ? variant : 0]?.status ?? "clear") === "infested";
 }
 
 function soldiersNear(r: MineRec, clan: number): Colonist[] {
@@ -522,6 +637,9 @@ function soldiersNear(r: MineRec, clan: number): Colonist[] {
     .slice(0, MINE_ASSAULT_MAX_SOLDIERS);
 }
 
+// The overall status (any layer infested: infested; any cleared: cleared).
+const overall = (r: MineRec): MineStatus => (anyInfested(r) ? "infested" : r.layers.some((L) => L.status === "cleared") ? "cleared" : "clear");
+
 // construction.ts buildingInfo: your own mine's panel section.
 export function mineInfo(tx: number, ty: number): MineInfo | undefined {
   const r = mineRecAt(tx, ty);
@@ -529,56 +647,73 @@ export function mineInfo(tx: number, ty: number): MineInfo | undefined {
   const clan = clanAt(r);
   const lines: string[] = [];
   const n = alive(r).length;
-  if (r.status === "infested") lines.push(`Infested: ${n} monster${n === 1 ? "" : "s"} inside. The miners have fled and it yields nothing until it is cleared (E at its door to go in, or send soldiers)`);
-  else if (r.status === "cleared") lines.push(`Cleared: safe for ${Math.max(0, MINE_CLEAR_GRACE_DAYS - (today() - r.clearedDay))} more day(s)`);
-  else lines.push(r.level >= 2 ? "Clear: no monsters in the shaft" : "Clear (a surface adit: never infested)");
+  if (r.layered) {
+    r.layers.forEach((L, li) => {
+      const m = aliveIn(L).length;
+      const head = `Level ${li + 1} (${mineLayerResourcesText(li + 1)})`;
+      if (L.status === "infested") lines.push(`${head}: Infested, ${m} monster${m === 1 ? "" : "s"}: yields nothing until cleared (E at the door, then down; or send soldiers)`);
+      else if (L.status === "cleared") lines.push(`${head}: Cleared, worked; safe for ${Math.max(0, MINE_CLEAR_GRACE_DAYS - (today() - L.clearedDay))} more day(s)`);
+      else lines.push(`${head}: Clear, worked`);
+    });
+    if (r.layers.length < 3) lines.push(`Upgrade the Mine to open level ${r.layers.length + 1} (${mineLayerResourcesText(r.layers.length + 1)}): a nest waits there`);
+  } else {
+    const L = r.layers[0];
+    if (L.status === "infested") lines.push(`Infested: ${n} monster${n === 1 ? "" : "s"} inside. The miners have fled and it yields nothing until it is cleared (E at its door to go in, or send soldiers)`);
+    else if (L.status === "cleared") lines.push(`Cleared: safe for ${Math.max(0, MINE_CLEAR_GRACE_DAYS - (today() - L.clearedDay))} more day(s)`);
+    else lines.push(r.level >= 2 ? "Clear: no monsters in the shaft" : "Clear (a surface adit: never infested)");
+  }
   lines.push(...hazardLines(r, clan));
   if (!gatesOff() && r.level >= 2) lines.push(`Timber props: one worn out every ${MINE_PROPS_WEAR_DAYS} days while worked (${itemsOf(clan, "timberProps")} in store)`);
-  if (!gatesOff() && r.level >= 3 && r.status !== "infested") {
-    const guard = guardedBy(r);
-    const pct = Math.round(reinfestChance(r, clan) * 100);
-    lines.push(guard ? "Deep shaft: guarded by a soldier nearby: nests stay away" : `Deep shaft: nests may return (${pct}% every ${MINE_REINFEST_EVERY_DAYS} days; lamps, props, a Mine Foreman or a soldier within ${MINE_GUARD_RADIUS_TILES} tiles help)`);
+  if (!gatesOff() && !anyInfested(r)) {
+    const deep = r.layered ? r.layers.findIndex((_, li) => (MINE_LAYER_REINFEST_CHANCE[li] ?? 0) > 0 && li < r.layers.length) : r.level >= 3 ? 0 : -1;
+    if (deep >= 0) {
+      const guard = guardedBy(r);
+      const pct = Math.round(reinfestChance(r, clan, r.layered ? r.layers.length - 1 : 0) * 100);
+      lines.push(guard ? "Deep shaft: guarded by a soldier nearby: nests stay away" : `Deep shaft: nests may return (${pct}% every ${MINE_REINFEST_EVERY_DAYS} days; lamps, props, a Mine Foreman or a soldier within ${MINE_GUARD_RADIUS_TILES} tiles help)`);
+    }
   }
   if (r.level >= 2) lines.push(hasForeman(r) ? "Mine Foreman posted: the miners get out alive when a nest breaks in" : `No Mine Foreman (a level-${MINE_FOREMAN_LEVEL} miner): a nest breaking in kills a miner`);
   const soldiers = soldiersNear(r, clan.id).length;
-  const reason = r.status !== "infested" ? "Nothing to clear" : soldiers === 0 ? `No soldiers within ${MINE_ASSAULT_RADIUS_TILES} tiles` : "";
-  return { status: r.status, monsters: n, lines, assault: { soldiers, reason } };
+  const reason = !anyInfested(r) ? "Nothing to clear" : soldiers === 0 ? `No soldiers within ${MINE_ASSAULT_RADIUS_TILES} tiles` : "";
+  return { status: overall(r), monsters: n, lines, assault: { soldiers, reason } };
 }
 
-// `mineAssault`: the soldiers near your infested mine go in. Resolved at once in rounds of a second: each soldier
-// strikes the first monster standing (its damage per cooldown), each monster bites a random soldier (soldiers can
-// die). All monsters dead: cleared.
+// `mineAssault`: the soldiers near your infested mine go in (a Mine: its shallowest infested layer). Resolved at once
+// in rounds of a second: each soldier strikes the first monster standing (its damage per cooldown), each monster bites a
+// random soldier (soldiers can die). All monsters dead: cleared.
 export function handleMineAssault(p: Player, tx: unknown, ty: unknown) {
   if (typeof tx !== "number" || typeof ty !== "number" || !inBounds(tx, ty)) return;
   const r = mineRecAt(tx, ty);
   if (!r || clanIdAt(tx, ty) !== (p.clan ?? 0)) return;
-  if (r.status !== "infested") return sendEvent(p, "build", "Nothing to clear in that mine");
+  const li = r.layers.findIndex((L) => L.status === "infested");
+  if (li < 0) return sendEvent(p, "build", "Nothing to clear in that mine");
+  const L = r.layers[li];
   const squad = soldiersNear(r, p.clan ?? 0);
   if (squad.length === 0) return sendEvent(p, "build", `No soldiers within ${MINE_ASSAULT_RADIUS_TILES} tiles of the mine`);
-  const label = labelOf(r);
+  const label = layerLabel(r, li);
   let killed = 0;
   withClan(clanAt(r), () => {
-    for (let round = 0; round < MINE_ASSAULT_MAX_ROUNDS && alive(r).length > 0; round++) {
+    for (let round = 0; round < MINE_ASSAULT_MAX_ROUNDS && aliveIn(L).length > 0; round++) {
       const up = squad.filter((c) => colonists.has(c.id) && c.hp > 0);
       if (up.length === 0) break;
       for (const c of up) {
-        const m = alive(r)[0];
+        const m = aliveIn(L)[0];
         if (!m) break;
         const st = unitStats(c);
         m.hp -= (st.damage * TICK_RATE) / Math.max(1, st.cooldown);
         if (m.hp <= 0) {
           killed++;
-          killMob(r, m, null);
+          killMob(r, li, m, null);
         }
       }
-      for (const m of alive(r)) {
+      for (const m of aliveIn(L)) {
         const hit = squad.filter((c) => colonists.has(c.id) && c.hp > 0);
         if (hit.length === 0) break;
         damageColonist(hit[Math.floor(Math.random() * hit.length)], (m.damage * TICK_RATE) / Math.max(1, m.cdTicks));
       }
     }
     const lost = squad.filter((c) => !colonists.has(c.id) || c.hp <= 0).length;
-    const left = alive(r).length;
+    const left = aliveIn(L).length;
     const text = left === 0
       ? `Your ${squad.length} soldier${squad.length === 1 ? "" : "s"} cleared the ${label} (${killed} monsters slain${lost ? `, ${lost} fell` : ""})`
       : `Your soldiers were driven out of the ${label}: ${killed} slain, ${lost} fell, ${left} monsters remain`;
@@ -587,22 +722,28 @@ export function handleMineAssault(p: Player, tx: unknown, ty: unknown) {
 }
 
 // ---- saves / reset / tests ----
-interface MineSave {
-  key: string;
-  level: number;
+interface LayerSave {
   status: MineStatus;
   mobs: { kind: MobKind; x: number; y: number; hp: number }[];
   clearedDay: number;
   rollDay: number;
+}
+interface MineSave {
+  key: string;
+  level: number;
+  layered: boolean;
+  layers: LayerSave[];
   propsDay: number;
   closedDay: number;
   closedWhy: string;
   unpropped: boolean;
+  turn: number;
 }
 export function minesForSave(): MineSave[] {
   return Array.from(mines.entries(), ([key, r]) => ({
-    key, level: r.level, status: r.status, mobs: alive(r).map((m) => ({ kind: m.kind, x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })),
-    clearedDay: r.clearedDay, rollDay: r.rollDay, propsDay: r.propsDay, closedDay: r.closedDay, closedWhy: r.closedWhy, unpropped: r.unpropped,
+    key, level: r.level, layered: r.layered,
+    layers: r.layers.map((L) => ({ status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
+    propsDay: r.propsDay, closedDay: r.closedDay, closedWhy: r.closedWhy, unpropped: r.unpropped, turn: r.turn,
   }));
 }
 export function restoreMines(data: unknown) {
@@ -612,22 +753,26 @@ export function restoreMines(data: unknown) {
     seedExisting = true;
     return;
   }
+  const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
   for (const e of data as Partial<MineSave>[]) {
-    if (!e || typeof e.key !== "string" || !/^\d+,\d+$/.test(e.key)) continue;
+    if (!e || typeof e.key !== "string" || !/^\d+,\d+$/.test(e.key) || !Array.isArray(e.layers)) continue;
     const [tx, ty] = e.key.split(",").map(Number);
-    const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
-    const r = newRec(tx, ty, Math.max(0, Math.min(3, num(e.level, 1))));
-    r.status = e.status === "infested" || e.status === "cleared" ? e.status : "clear";
-    Object.assign(r, { clearedDay: num(e.clearedDay, -1e9), rollDay: num(e.rollDay, r.rollDay), propsDay: num(e.propsDay, r.propsDay), closedDay: num(e.closedDay, -1), closedWhy: typeof e.closedWhy === "string" ? e.closedWhy : "", unpropped: e.unpropped === true });
-    for (const m of Array.isArray(e.mobs) ? e.mobs : []) {
-      const st = MINE_MOB_STATS[m?.kind as MobKind];
-      if (!st) continue;
-      r.mobs.push({
-        id: `mm${nextMobId++}`, kind: m.kind, x: num(m.x, 1), y: num(m.y, 1), hp: Math.max(1, Math.min(st.hp, num(m.hp, st.hp))), maxHp: st.hp, damage: st.damage,
-        speed: st.speed, cdTicks: st.cooldownTicks, cd: 0, awake: false, face: "r", act: "sleep", path: [], repathAt: 0,
-      });
-    }
-    if (r.status === "infested" && r.mobs.length === 0) r.status = "cleared";
+    const layered = e.layered === true;
+    const r = newRec(tx, ty, Math.max(0, Math.min(3, num(e.level, 1))), layered);
+    Object.assign(r, { propsDay: num(e.propsDay, r.propsDay), closedDay: num(e.closedDay, -1), closedWhy: typeof e.closedWhy === "string" ? e.closedWhy : "", unpropped: e.unpropped === true, turn: num(e.turn, 0) });
+    r.layers = e.layers.slice(0, 3).map((s, li) => {
+      const L = newLayer();
+      L.status = s?.status === "infested" || s?.status === "cleared" ? s.status : "clear";
+      L.clearedDay = num(s?.clearedDay, -1e9);
+      L.rollDay = num(s?.rollDay, L.rollDay);
+      for (const m of Array.isArray(s?.mobs) ? s.mobs : []) {
+        const mob = newMob(m?.kind as MobKind, multOf(r, li), num(m?.x, 1), num(m?.y, 1), num(m?.hp, 1e9));
+        if (mob) L.mobs.push(mob);
+      }
+      if (L.status === "infested" && L.mobs.length === 0) L.status = "cleared";
+      return L;
+    });
+    if (r.layers.length === 0) r.layers.push(newLayer());
     mines.set(e.key, r);
   }
 }
@@ -637,38 +782,51 @@ export function resetMines() {
   seedExisting = false;
 }
 
-// testHook "mine": {tx, ty} picks a mine; `infest` (true, or a list of kinds) infests it now; `clear` kills every
-// monster; `roll` (0-1 / null) forces every roll; `dawn` runs the dawn step; `sync` scans now; `set` {status?,
-// closedDay?, unpropped?, propsDay?, rollDay?, clearedDay?} edits the record; `wakeAll` wakes its monsters; `place`
-// {i, x, y} stands monster i there. Replies the record (and every record's key / status).
+// testHook "mine": {tx, ty} picks a mine and `layer` (1-3, default 1; the Quarry has one) a layer of it; `infest`
+// (true, or a list of kinds) infests that layer now; `clear` kills its monsters; `roll` (0-1 / null) forces every
+// roll; `dawn` runs the dawn step; `sync` scans now; `set` {status?, closedDay?, unpropped?, propsDay?, rollDay?,
+// clearedDay?, level?} edits the record (status / days: the layer's); `wakeAll` wakes its monsters; `place` {i, x, y}
+// stands monster i there. Replies the record (status / mobs: the layer's; `layers` every layer) and every record.
 export function mineDebug(msg: Record<string, unknown>) {
   if ("roll" in msg) forcedRoll = typeof msg.roll === "number" ? msg.roll : null;
   if (msg.sync === true) syncMines();
   const tx = msg.tx as number;
   const ty = msg.ty as number;
   const r = typeof tx === "number" && typeof ty === "number" ? mineRecAt(tx, ty) : undefined;
+  const li = r ? Math.max(0, Math.min(r.layers.length - 1, (typeof msg.layer === "number" ? msg.layer : 1) - 1)) : 0;
   if (r) {
-    if (msg.infest) infest(r, "forced", Array.isArray(msg.infest) ? (msg.infest as MobKind[]).filter((k) => MINE_MOB_STATS[k]) : undefined);
-    if (msg.reinfest === true) infest(r, "returned");
-    if (msg.clear === true) for (const m of alive(r)) killMob(r, m, null);
+    const L = r.layers[li];
+    if (msg.infest) infest(r, li, "forced", Array.isArray(msg.infest) ? (msg.infest as MobKind[]).filter((k) => MINE_MOB_STATS[k]) : undefined);
+    if (msg.reinfest === true) infest(r, li, "returned");
+    if (msg.clear === true) for (const m of aliveIn(L)) killMob(r, li, m, null);
     if (msg.set && typeof msg.set === "object") {
       const s = msg.set as Record<string, unknown>;
-      for (const k of ["closedDay", "propsDay", "rollDay", "clearedDay", "level"] as const) if (typeof s[k] === "number") r[k] = s[k] as number;
+      for (const k of ["closedDay", "propsDay", "level"] as const) if (typeof s[k] === "number") r[k] = s[k] as number;
+      for (const k of ["rollDay", "clearedDay"] as const) if (typeof s[k] === "number") L[k] = s[k] as number;
       if (typeof s.unpropped === "boolean") r.unpropped = s.unpropped;
-      if (s.status === "clear" || s.status === "cleared") r.status = s.status;
+      if (s.status === "clear" || s.status === "cleared") {
+        L.status = s.status;
+        L.mobs = [];
+      }
     }
-    if (msg.wakeAll === true) for (const m of r.mobs) m.awake = true;
+    if (msg.wakeAll === true) for (const m of L.mobs) m.awake = true;
     if (msg.place && typeof msg.place === "object") {
       const q = msg.place as { i?: number; x?: number; y?: number };
-      const m = alive(r)[q.i ?? 0];
+      const m = aliveIn(L)[q.i ?? 0];
       if (m && typeof q.x === "number" && typeof q.y === "number") Object.assign(m, { x: q.x, y: q.y, path: [] });
     }
   }
   if (msg.dawn === true) minesDawn();
   const rec = r ? mineRecAt(r.tx, r.ty) : undefined;
+  const L = rec?.layers[li];
   return {
-    mine: rec ? { ...rec, mobs: liveOf(rec), workMult: mineWorkMult(rec.tx, rec.ty), foreman: hasForeman(rec), guarded: !!guardedBy(rec), info: mineInfo(rec.tx, rec.ty), chance: reinfestChance(rec, clanAt(rec)) } : null,
-    all: Array.from(mines.values(), (q) => ({ key: `${q.tx},${q.ty}`, level: q.level, status: q.status, mobs: alive(q).length })),
+    mine: rec && L ? {
+      tx: rec.tx, ty: rec.ty, level: rec.level, layered: rec.layered, layer: li + 1, status: L.status, mobs: liveOf(L), clearedDay: L.clearedDay, rollDay: L.rollDay,
+      propsDay: rec.propsDay, closedDay: rec.closedDay, closedWhy: rec.closedWhy, unpropped: rec.unpropped,
+      layers: rec.layers.map((q) => ({ status: q.status, mobs: aliveIn(q).length, maxHp: aliveIn(q).map((m) => m.maxHp), kinds: aliveIn(q).map((m) => m.kind) })),
+      workMult: mineWorkMult(rec.tx, rec.ty), foreman: hasForeman(rec), guarded: !!guardedBy(rec), info: mineInfo(rec.tx, rec.ty), chance: reinfestChance(rec, clanAt(rec), li),
+    } : null,
+    all: Array.from(mines.values(), (q) => ({ key: `${q.tx},${q.ty}`, level: q.level, status: overall(q), mobs: alive(q).length, layered: q.layered })),
     day: today(),
     forcedRoll,
   };

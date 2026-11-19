@@ -183,7 +183,8 @@ export const TOOLS: ToolDef[] = [
     cost: `${buildCostText(TileType.Tower)}. Shoots the nearest monster within 7 tiles; no workers (upgradeable: faster, harder shots)`,
     category: "combat",
   },
-  { tile: TileType.IronMinePost, label: "Iron Mine", key: "7", cost: "Free, on ore; place on a mine to upgrade. Enter it (E at its door); a shaft (level 2+) may break into a nest you must clear", category: "industry" },
+  // Layered mines: one Mine on ore ground; each level is a layer (E at its door, then down the shaft).
+  { tile: TileType.IronMinePost, label: "Mine", key: "7", cost: "Free, on ore ground (iron ore or a deposit); needs a Quarry. Place on it to upgrade: each level opens a deeper layer. Level 1 copper, tin, lime; level 2 (bronze pickaxe) iron ore, coal; level 3 (iron pickaxe, vent, pump) gold, lead. Every new layer holds a nest to clear (E at its door, then down the shaft)", category: "industry" },
   { tile: TileType.RockMinePost, label: "Quarry", key: "8", cost: "Free, on ore; place on a mine to upgrade. Enter it (E at its door); a shaft (level 2+) may break into a nest you must clear", category: "industry" },
   { tile: TileType.Empty, label: "Demolish", key: "9", cost: "", category: "farming" },
   { tile: TileType.House, label: "Cottage", key: "h", cost: `${buildCostText(TileType.House)} (+1 pop per adjacent house or workplace; +1 troop slot to each adjacent unit building; upgrade by placing on it)`, category: "civic" },
@@ -263,42 +264,19 @@ export const TOOLS: ToolDef[] = [
     cost: `${buildCostText(TileType.Kiln)} (upgradeable). Needs a Clay Pit. A potter fires Clay + 1 Wood → Bricks, Clay pots (stockpiles hold more), Roof tiles, Tableware (${TABLEWARE_MIN}+: +${TABLEWARE_HAPPINESS} happiness); a level-2 potter fires a Crucible with Charcoal`,
     category: "industry",
   },
-  // Deep mines (shared/src/mines.ts; no free key: button only). Sunk on their own deposits (dark coal seams, copper /
-  // tin ore on the map); like every mine they can be entered (E) and, dug deeper, infested.
-  {
-    tile: TileType.CoalMine,
-    label: "Coal Mine",
-    key: "",
-    cost: `${buildCostText(TileType.CoalMine)} (upgradeable), on a coal seam. A miner digs 2 Coal a batch: Bloomery fuel when charcoal runs out. Shafts (level 2+) may break into a nest`,
-    category: "industry",
-  },
-  {
-    tile: TileType.CopperMine,
-    label: "Copper Mine",
-    key: "",
-    cost: `${buildCostText(TileType.CopperMine)} (upgradeable), on copper ore. Needs an Iron Mine. A miner digs 2 Copper ore a batch (kept for bronze)`,
-    category: "industry",
-  },
-  {
-    tile: TileType.TinMine,
-    label: "Tin Mine",
-    key: "",
-    cost: `${buildCostText(TileType.TinMine)} (upgradeable), on tin ore. Needs an Iron Mine. A miner digs 1 Tin ore a batch (kept for bronze)`,
-    category: "industry",
-  },
   // Industry extras (shared/src/industry.ts; no free key: button only).
   {
     tile: TileType.Foundry,
     label: "Foundry",
     key: "",
-    cost: `${buildCostText(TileType.Foundry)} (upgradeable). Needs a Crucible and a Copper Mine. A founder smelts 3 Copper ore + 2 Tin ore + 1 Charcoal (or Coal) → 2 Bronze, then casts Bronze tools (hero and miners / woodcutters x${BRONZE_TOOL_SPEED} speed) and Bronze weapons (+${Math.round((BRONZE_WEAPON_DAMAGE_MULT - 1) * 100)}% damage) for soldiers with no iron weapon. Bronze is also what the Blacksmith forges tier-1 armour from (${BRONZE_ARMOUR_FORGE_BRONZE} bronze a piece)`,
+    cost: `${buildCostText(TileType.Foundry)} (upgradeable). Needs a Crucible and a Mine. A founder casts a bronze Anvil and Hammer & tongs (the Blacksmith needs them), smelts 3 Copper ore + 2 Tin ore + 1 Charcoal (or Coal) → 2 Bronze, then casts Bronze tools (hero and miners / woodcutters x${BRONZE_TOOL_SPEED} speed) and Bronze weapons (+${Math.round((BRONZE_WEAPON_DAMAGE_MULT - 1) * 100)}% damage) for soldiers with no iron weapon. Bronze is also what the Blacksmith forges tier-1 armour from (${BRONZE_ARMOUR_FORGE_BRONZE} bronze a piece)`,
     category: "industry",
   },
   {
     tile: TileType.StampMill,
     label: "Stamp Mill",
     key: "",
-    cost: `${buildCostText(TileType.StampMill)} (upgradeable). Needs Carpenter's tools, an Iron Mine and water within ${STAMP_MILL_WATER_RADIUS_TILES} tiles. An ore washer crushes and washes 3 Gold ore → 1 Gold dust, 2 Tin ore → 3 Washed tin (the Foundry makes 3 Bronze from 2), and 3 Stone → 2 Sand`,
+    cost: `${buildCostText(TileType.StampMill)} (upgradeable). Needs Carpenter's tools, a Mine and water within ${STAMP_MILL_WATER_RADIUS_TILES} tiles. An ore washer crushes and washes 3 Gold ore → 1 Gold dust, 2 Tin ore → 3 Washed tin (the Foundry makes 3 Bronze from 2), and 3 Stone → 2 Sand`,
     category: "industry",
   },
   {
@@ -313,27 +291,6 @@ export const TOOLS: ToolDef[] = [
     label: "Mint",
     key: "",
     cost: `${buildCostText(TileType.Mint)} (upgradeable). Needs a Stamp Mill and a Blacksmith. A minter strikes 2 Gold dust + 1 Charcoal (or Coal) → ${MINT_COINS_PER_BATCH} coins, straight into the treasury: ${MINT_COINS_PER_BATCH * MINT_GOLD_PER_COIN} gold (Good x1.25, Fine x1.5)`,
-    category: "industry",
-  },
-  {
-    tile: TileType.LimeQuarry,
-    label: "Lime Quarry",
-    key: "",
-    cost: `${buildCostText(TileType.LimeQuarry)} (upgradeable), on limestone. Needs a Quarry. A miner cuts 2 Limestone a batch: flux for steel, lime for glass`,
-    category: "industry",
-  },
-  {
-    tile: TileType.GoldMine,
-    label: "Gold Mine",
-    key: "",
-    cost: `${buildCostText(TileType.GoldMine)} (upgradeable), on gold ore. Needs an Iron Mine. A miner digs 1 Gold ore a batch (the Stamp Mill washes it into gold dust)`,
-    category: "industry",
-  },
-  {
-    tile: TileType.LeadMine,
-    label: "Lead Mine",
-    key: "",
-    cost: `${buildCostText(TileType.LeadMine)} (upgradeable), on lead ore. Needs an Iron Mine. A miner digs 2 Lead ore a batch (the Foundry smelts it into lead; the Kiln glazes tableware with it, ${LEAD_GLAZE_GRADE_BONUS} grade better)`,
     category: "industry",
   },
   // Agriculture extras (shared/src/agri.ts; no free key: button only).

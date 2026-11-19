@@ -2,7 +2,8 @@
 // Needs a private server with COLONY_TEST_HOOKS=1, a scratch COLONY_SAVE_DIR, instant build, W80 and NOT
 // COLONY_UNLOCK_ALL (scripts/run-tests.mjs gives all of that: `npm test -- industry-extra`). Checks: the Foundry's gates,
 // bronze smelting (charcoal, coal), bronze tools (hero / worker speed), bronze weapons (soldiers with no iron weapon
-// wear one) and tier-1 armour forged from bronze at the Blacksmith (2026-11-19); the new deposits (limestone, gold, lead) at world gen and their mines; the Stamp Mill
+// wear one) and tier-1 armour forged from bronze at the Blacksmith (2026-11-19); the new deposits (limestone, gold, lead) at world gen (layered
+// mines 2026-11-19: the Lime Quarry / Gold / Lead Mine are no longer buildable, a Mine digs those ores by level); the Stamp Mill
 // (water, gates; gold dust, washed tin, sand) and bronze from washed tin; steel only at a Blast furnace (Bloomery 2+)
 // with limestone flux, Fine steel forging a tier better; the Glassworks (glass, window glass glazing rooms' windows,
 // bottles for ale); the Mint (coins into the treasury); lead (Foundry) and lead-glazed tableware (Kiln); COLONY_UNLOCK_ALL switches the effects off; save / load keeps
@@ -110,27 +111,29 @@ await setStock({ wood: 3000, rock: 3000, iron: 500, grain: 500, meat: 200, fruit
 // 1. locks in a new game; the new deposits are on the map
 const s0 = (await prog()).snapshot;
 const lk = (t) => JSON.stringify(s0.locked[t] ?? []);
-result((s0.locked[T.Foundry] ?? []).includes("Crucible") && (s0.locked[T.Foundry] ?? []).includes("a Copper Mine")
-  && (s0.locked[T.StampMill] ?? []).includes("Carpenter's tools") && (s0.locked[T.StampMill] ?? []).includes("an Iron Mine")
-  && (s0.locked[T.LimeQuarry] ?? []).includes("a Quarry") && (s0.locked[T.GoldMine] ?? []).includes("an Iron Mine") && (s0.locked[T.LeadMine] ?? []).includes("an Iron Mine")
+result((s0.locked[T.Foundry] ?? []).includes("Crucible") && (s0.locked[T.Foundry] ?? []).includes("a Mine")
+  && (s0.locked[T.StampMill] ?? []).includes("Carpenter's tools") && (s0.locked[T.StampMill] ?? []).includes("a Mine")
   && (s0.locked[T.Glassworks] ?? []).includes("a Kiln") && (s0.locked[T.Glassworks] ?? []).includes("a Stamp Mill")
   && (s0.locked[T.Mint] ?? []).includes("a Stamp Mill") && (s0.locked[T.Mint] ?? []).includes("a Blacksmith"),
-  `locks: Foundry ${lk(T.Foundry)}, Stamp Mill ${lk(T.StampMill)}, Lime Quarry ${lk(T.LimeQuarry)}, Gold Mine ${lk(T.GoldMine)}, Lead Mine ${lk(T.LeadMine)}, Glassworks ${lk(T.Glassworks)}, Mint ${lk(T.Mint)}`);
+  `locks: Foundry ${lk(T.Foundry)}, Stamp Mill ${lk(T.StampMill)}, Glassworks ${lk(T.Glassworks)}, Mint ${lk(T.Mint)}`);
 const count = (t) => c.tiles.filter((v) => v === t).length;
 result(count(T.Limestone) > 0 && count(T.GoldOre) > 0 && count(T.LeadOre) > 0, `world gen veins: limestone ${count(T.Limestone)}, gold ore ${count(T.GoldOre)}, lead ore ${count(T.LeadOre)}`);
 
-// 2. the Foundry: a crucible and a Copper Mine
+// 2. the Foundry: a crucible and a Mine
 const FO = { x: B.x + 1, y: B.y + 1 };
 let ev = c.events.length;
 await tryPlace(FO.x, FO.y, T.Foundry);
-result(tileAt(FO.x, FO.y) === T.Empty && /Foundry needs: Crucible, a Copper Mine/.test(evSince(ev)), `Foundry locked: ${evSince(ev)}`);
+result(tileAt(FO.x, FO.y) === T.Empty && /Foundry needs: Crucible, a Mine/.test(evSince(ev)), `Foundry locked: ${evSince(ev)}`);
 await setExact("crucible", 1);
-await raw(B.x + 20, B.y + 1, T.CopperMine);
+await raw(B.x + 20, B.y + 1, T.IronMinePost);
 await place(FO.x, FO.y, T.Foundry);
-result(tileAt(FO.x, FO.y) === T.Foundry, "Foundry built with a crucible in store and a Copper Mine standing");
+result(tileAt(FO.x, FO.y) === T.Foundry, "Foundry built with a crucible in store and a Mine standing");
 
-// 3. bronze: copper + tin + charcoal, then tools first, then weapons; coal when there is no charcoal
+// 3. bronze: copper + tin + charcoal, then tools first, then weapons; coal when there is no charcoal (the bronze anvil
+// and hammer & tongs, cast first, are in store already: mines-test covers them)
 for (const id of ["bronze", "bronzeTools", "bronzeWeapon"]) await setExact(id, 0);
+await setExact("anvil", 1);
+await setExact("smithTools", 1);
 await setExact("copperOre", 6);
 await setExact("tinOre", 4);
 await setExact("charcoal", 2);
@@ -188,35 +191,15 @@ const k1 = eq.units.find((u) => u.id === knightId);
 it = (await prog()).items;
 result(k1?.armourTier === 1 && k1.bronzeArmour === undefined, `the knight picks up a tier-1 (bronze) cuirass from the armoury stock: ${JSON.stringify(k1)}`);
 
-// 6. the new mines: only on their deposits, behind their gates; their miners dig limestone / gold ore / lead ore
+// 6. the old deposit mines are no longer buildable (a Mine digs limestone, gold and lead ore by level)
 const LQ = { x: B.x + 4, y: B.y + 4 };
-ev = c.events.length;
 await raw(B.x + 20, B.y + 3, T.RockMinePost);
-await raw(B.x + 20, B.y + 5, T.IronMinePost);
-await tryPlace(LQ.x, LQ.y, T.LimeQuarry);
-result(tileAt(LQ.x, LQ.y) === T.Empty && /Lime Quarry must be sunk on a limestone deposit/.test(evSince(ev)), `a Lime Quarry off limestone is refused: ${evSince(ev)}`);
 await raw(LQ.x, LQ.y, T.Limestone);
-await place(LQ.x, LQ.y, T.LimeQuarry);
+await tryPlace(LQ.x, LQ.y, T.LimeQuarry);
 const GM = { x: B.x + 7, y: B.y + 4 };
 await raw(GM.x, GM.y, T.GoldOre);
-await place(GM.x, GM.y, T.GoldMine);
-const LM = { x: B.x + 10, y: B.y + 4 };
-await raw(LM.x, LM.y, T.LeadOre);
-await place(LM.x, LM.y, T.LeadMine);
-result(tileAt(LQ.x, LQ.y) === T.LimeQuarry && tileAt(GM.x, GM.y) === T.GoldMine && tileAt(LM.x, LM.y) === T.LeadMine, "Lime Quarry, Gold Mine and Lead Mine sunk on their deposits");
-for (const id of ["limestone", "goldOre", "leadOre"]) await setExact(id, 0);
-await staffed(LQ.x, LQ.y);
-await staffed(GM.x, GM.y);
-await staffed(LM.x, LM.y);
-await runUntil(async () => { const i = (await prog()).items; return (i.limestone ?? 0) >= 2 && (i.goldOre ?? 0) >= 1 && (i.leadOre ?? 0) >= 2; });
-it = (await prog()).items;
-result((it.limestone ?? 0) >= 2 && (it.goldOre ?? 0) >= 1 && (it.leadOre ?? 0) >= 2, `the miners dig: limestone ${it.limestone}, gold ore ${it.goldOre}, lead ore ${it.leadOre}`);
-const gmInfo = await info(GM.x, GM.y);
-result((gmInfo.progression ?? []).some((l) => /Deposit:/.test(l)) && !!gmInfo.mine, `the Gold Mine is a mine (deposit line, mine panel): ${JSON.stringify(gmInfo.progression)}`);
-await demolish(LQ.x, LQ.y);
-await demolish(GM.x, GM.y);
-await demolish(LM.x, LM.y);
-result(tileAt(LQ.x, LQ.y) === T.Empty || tileAt(LQ.x, LQ.y) === T.Limestone, `a demolished Lime Quarry leaves its deposit: tile ${tileAt(LQ.x, LQ.y)}`);
+await tryPlace(GM.x, GM.y, T.GoldMine);
+result(tileAt(LQ.x, LQ.y) === T.Limestone && tileAt(GM.x, GM.y) === T.GoldOre, `Lime Quarry / Gold Mine no longer placeable: tiles ${tileAt(LQ.x, LQ.y)}, ${tileAt(GM.x, GM.y)}`);
 
 // 7. the Stamp Mill: water near, carpenter's tools; gold dust, washed tin, sand
 const SM = { x: B.x + 14, y: B.y + 8 };
@@ -276,6 +259,8 @@ result((await total("steel")) === 0 && (blInfo.progression ?? []).some((l) => /S
 const BS = { x: B.x + 8, y: B.y + 11 };
 ev = c.events.length;
 await setStock({ iron: 200 });
+// Layered mines: the Blacksmith needs a Foundry (its bronze anvil); the one above was demolished.
+await raw(B.x + 20, B.y + 11, T.Foundry);
 await place(BS.x, BS.y, T.Blacksmith);
 await setStock({ iron: 0 });
 result(tileAt(BS.x, BS.y) === T.Blacksmith, `Blacksmith built: ${evSince(ev)}`);
@@ -464,7 +449,7 @@ await until(() => c.welcome && c.snap, 15000);
 await sleep(300);
 const after = await prog();
 ind = await industry({ unit: knight2 });
-result(["bronze", "bronzeTools", "bronzeWeapon", "copperOre", "crucible", "limestone", "goldDust", "washedTin", "sand", "steel", "glass", "glassPanes", "bottles", "lead", "tableware"].every((id) => after.items[id] === before[id]) && after.unlocked.includes(T.Foundry) && after.unlocked.includes(T.StampMill) && after.unlocked.includes(T.LimeQuarry) && after.unlocked.includes(T.Glassworks) && after.unlocked.includes(T.Mint),
+result(["bronze", "bronzeTools", "bronzeWeapon", "copperOre", "crucible", "limestone", "goldDust", "washedTin", "sand", "steel", "glass", "glassPanes", "bottles", "lead", "tableware"].every((id) => after.items[id] === before[id]) && after.unlocked.includes(T.Foundry) && after.unlocked.includes(T.StampMill) && after.unlocked.includes(T.Glassworks) && after.unlocked.includes(T.Mint),
   `items and unlocks survive: ${JSON.stringify(after.items)}`);
 result(ind.unit?.bronzeWeapon === true && ind.unit.weapon === 1.1, `a knight's bronze weapon survives: ${JSON.stringify(ind.unit)}`);
 

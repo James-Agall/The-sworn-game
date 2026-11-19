@@ -10,17 +10,20 @@ import { TileType, type MobKind } from "./protocol.js";
 
 // ---- mines and deposits ----
 // Every mine tile (each one an interior, infestable from level 2).
-export const MINE_TILES: readonly TileType[] = [
-  TileType.RockMinePost, TileType.IronMinePost, TileType.CoalMine, TileType.CopperMine, TileType.TinMine,
-  // Industry extras (shared/src/industry.ts).
-  TileType.LimeQuarry, TileType.GoldMine, TileType.LeadMine,
-];
+// Layered mines (2026-11-19): only two mine buildings remain: the Quarry (RockMinePost, unchanged: one interior whose
+// layout is its depth) and the Mine (IronMinePost: one building, its levels are layers, each its own interior entered
+// from the one above). The old Coal / Copper / Tin / Lime / Gold / Lead mine tiles are inert legacy (not buildable).
+export const MINE_TILES: readonly TileType[] = [TileType.RockMinePost, TileType.IronMinePost];
+// The layered Mine.
+export function isLayeredMine(t: number): boolean {
+  return t === TileType.IronMinePost;
+}
 export function isMineTile(t: number): boolean {
   return (MINE_TILES as readonly number[]).includes(t);
 }
 export const MINE_LABEL: Record<number, string> = {
   [TileType.RockMinePost]: "Quarry",
-  [TileType.IronMinePost]: "Iron Mine",
+  [TileType.IronMinePost]: "Mine",
   [TileType.CoalMine]: "Coal Mine",
   [TileType.CopperMine]: "Copper Mine",
   [TileType.TinMine]: "Tin Mine",
@@ -45,6 +48,40 @@ export const DEPOSIT_TILES: readonly TileType[] = DEPOSIT_MINES.map((d) => d.dep
 export function depositMineFor(tile: number) {
   return DEPOSIT_MINES.find((d) => d.mine === tile || d.deposit === tile);
 }
+// Ore ground a Mine may be sunk on: iron ore or any deposit (the deposits stay as map markers; demolished, a Mine
+// gives its ground back).
+export function isOreGround(t: number): boolean {
+  return t === TileType.IronOre || DEPOSIT_TILES.includes(t as TileType);
+}
+
+// ---- the Mine's layers (one per building level; upgrading the Mine opens the next layer) ----
+export const MINE_LAYERS = 3;
+// What each layer yields: a miner's batch digs 1 (+ a known deposit's bonus) of one resource, rotating over every
+// clear / cleared open layer's resources that are under their cap. "iron" is the iron ore stock.
+export type MineResource = DepositItem | "iron";
+export const MINE_LAYER_YIELDS: { res: MineResource; cap: number }[][] = [
+  [{ res: "copperOre", cap: 60 }, { res: "tinOre", cap: 60 }, { res: "limestone", cap: 60 }],
+  [{ res: "iron", cap: 400 }, { res: "coal", cap: 80 }],
+  [{ res: "goldOre", cap: 40 }, { res: "leadOre", cap: 40 }],
+];
+export const MINE_RESOURCE_LABEL: Record<MineResource, string> = {
+  copperOre: "copper ore", tinOre: "tin ore", limestone: "limestone", iron: "iron ore", coal: "coal", goldOre: "gold ore", leadOre: "lead ore",
+};
+export const mineLayerResourcesText = (layer: number) => (MINE_LAYER_YIELDS[layer - 1] ?? []).map((y) => MINE_RESOURCE_LABEL[y.res]).join(", ");
+// The pickaxe in store a layer needs (the Mine's upgrade gate to it, shared/src/progression.ts).
+export const MINE_LAYER_PICK = ["stonePick", "bronzePick", "ironPick"] as const;
+// A newly opened layer breaks into a nest at this chance (1: every layer must be cleared before it produces).
+export const MINE_LAYER_INFEST_CHANCE = [1, 1, 1];
+// Danger by layer: encounter size and kinds (level 1 weak, level 2 skeletons and spiders, level 3 the strongest) and a
+// multiplier on every monster's hp and bite.
+export const MINE_LAYER_ENCOUNTER: { count: [number, number]; kinds: { kind: MobKind; weight: number }[] }[] = [
+  { count: [2, 3], kinds: [{ kind: "caveBat", weight: 3 }, { kind: "caveSpider", weight: 3 }] },
+  { count: [3, 5], kinds: [{ kind: "caveSpider", weight: 2 }, { kind: "skeleton", weight: 3 }, { kind: "giantSpider", weight: 2 }] },
+  { count: [5, 7], kinds: [{ kind: "skeleton", weight: 3 }, { kind: "giantSpider", weight: 3 }, { kind: "caveSpider", weight: 1 }] },
+];
+export const MINE_LAYER_MOB_MULT = [1, 1.3, 1.7];
+// Re-infestation by layer (rolled every MINE_REINFEST_EVERY_DAYS at dawn on a clear layer, lowered like the Quarry's).
+export const MINE_LAYER_REINFEST_CHANCE = [0, 0.25, 0.4];
 // World gen: veins per 80x80 tiles of world (scaled by area like ore / rock), each MIN..MAX tiles grown from a seed.
 // Placed last, from a hash of the world's noise salt (no shared RNG draws, so older streamed saves keep their worlds).
 export const DEPOSIT_VEINS_PER_80: Record<DepositItem, number> = { coal: 6, copperOre: 4, tinOre: 3, limestone: 5, goldOre: 2, leadOre: 3 };
@@ -143,6 +180,10 @@ export interface MineMobLive {
 export interface MineView {
   // The mine's tile (its ore face is drawn in its colours).
   tile: number;
+  // Layered Mine: the layer the hero is on (1-3), the layers open, what this layer yields.
+  layer?: number;
+  layers?: number;
+  yields?: string;
   status: MineStatus;
   monsters: number;
   hazards: string[];

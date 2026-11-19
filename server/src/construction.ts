@@ -70,9 +70,9 @@ import { buildingPostsInfo } from "./work.js";
 import { markUnlocked, progressionBlocker, progressionInfo } from "./progression.js";
 import { CLAY_PIT_WATER_RADIUS_TILES } from "@colony/shared/progression";
 import { AGRI_BUILDING_TILES, SALT_WORKS_WATER_RADIUS_TILES } from "@colony/shared/agri";
-import { INDUSTRY_STATION_TILES, STAMP_MILL_WATER_RADIUS_TILES } from "@colony/shared/industry";
+import { ANVIL_TIER_TEXT, INDUSTRY_STATION_TILES, STAMP_MILL_WATER_RADIUS_TILES } from "@colony/shared/industry";
 import { noteOrchardPlanted } from "./agri.js";
-import { MINE_LABEL, depositMineFor } from "@colony/shared/mines";
+import { MINE_LABEL, depositMineFor, isOreGround } from "@colony/shared/mines";
 import { mineInfo } from "./mines.js";
 import {
   STRUCTURE_ORDER_MAX_TILES, STRUCTURE_ORDER_RANGE_TILES, isDoorTile, isFloorTile, isFurnitureTile, isRoomStationTile, isStructureTile,
@@ -267,6 +267,8 @@ export function resolveMinePlacement(
   setTile(tileIndex(tx, ty), mineType);
   broadcastTileUpdate(tx, ty, mineType);
   if (current === oreType) minesPlacedOnOre.add(resourceKey(tx, ty));
+  // Layered mines: a Mine sunk on a deposit remembers it ("x,y=tile" in the same saved set) to give it back.
+  else if (mineType === TileType.IronMinePost && isOreGround(current)) minesPlacedOnOre.add(`${resourceKey(tx, ty)}=${current}`);
   staffPost(tx, ty, minerKind);
 }
 
@@ -873,8 +875,10 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
   }
   if (current === TileType.IronMinePost) {
     const key = resourceKey(tx, ty);
-    const revert = minesPlacedOnOre.has(key) ? TileType.IronOre : TileType.Empty;
+    const dep = [...minesPlacedOnOre].find((k) => k.startsWith(key + "="));
+    const revert = minesPlacedOnOre.has(key) ? TileType.IronOre : dep ? (Number(dep.split("=")[1]) as TileType) : TileType.Empty;
     minesPlacedOnOre.delete(key);
+    if (dep) minesPlacedOnOre.delete(dep);
     setTile(tileIndex(tx, ty), revert);
     broadcastTileUpdate(tx, ty, revert);
     return;
@@ -1056,7 +1060,11 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   if (upgradeInPlace) {
     // Placing on top of an existing building upgrades it; nothing else to validate here.
   } else if (tile === TileType.IronMinePost) {
-    if (current !== TileType.IronOre) return;
+    // Layered mines: a Mine on ore ground (iron ore or any deposit).
+    if (!isOreGround(current)) {
+      sendEvent(player, "build", "A Mine must be sunk on ore ground (iron ore or a deposit)");
+      return;
+    }
   } else if (tile === TileType.RockMinePost) {
     if (current !== TileType.Rock) return;
   } else if (depositMineFor(tile)?.mine === tile) {
@@ -1679,6 +1687,8 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
   if (t === TileType.Blacksmith) {
     bonuses.push(`Crafts tools until the colony holds ${BLACKSMITH_TOOLS_STOCK_CAP}, then idles (saves wood and iron)`);
     bonuses.push(`Forges tier-${level} armour / weapons (tier = level) for knights, spearmen, pikemen and cavalry`);
+    // Layered mines: the anvil tier is the Blacksmith's level.
+    bonuses.push(`Anvil tier ${level} (${ANVIL_TIER_TEXT[Math.min(3, Math.max(1, level)) - 1]})`);
   }
   if (t === TileType.SiegeWorkshop) {
     staffing = `Engines ${siegeUnitsAt(tx, ty)}/${SIEGE_WORKSHOP_CAP}`;

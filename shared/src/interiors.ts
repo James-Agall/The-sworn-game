@@ -79,7 +79,9 @@ export type InteriorProp =
   // Gap closure G5 (d): stairs to the upper floor ("U") and back down ("D"); walked onto, not used with E.
   | "stairsUp" | "stairsDown"
   // Deep mines: the ore face the miners work and the timber props holding the roof.
-  | "oreFace" | "timberProp";
+  | "oreFace" | "timberProp"
+  // Layered mines: the way down to the Mine's next layer (walked onto; drawn with the Mine's own sprite for now).
+  | "mineShaft";
 // NPC slots: "1" the building's keeper (smith, baker, trader, priest, elder), "2" a second (a hall's trader),
 // "v" residents / patrons / soldiers (beside the beds and tables).
 export type InteriorNpcSlot = "1" | "2" | "v";
@@ -135,8 +137,11 @@ export const INTERIOR_LEGEND: Record<string, InteriorSymbol> = {
   O: { label: "Ore face", prop: "oreFace" },
   P: { label: "Timber prop", prop: "timberProp" },
   Z: { label: "Monster lair (floor)" },
+  // Layered mines: the way down to layer 2 (in the layer-1 layout, once the Mine is level 2) and to layer 3.
+  N: { label: "Way down to level 2", prop: "mineShaft", minLevel: 2 },
+  M: { label: "Way down to level 3", prop: "mineShaft", minLevel: 3 },
 };
-export const INTERIOR_WALKABLE_PROPS: ReadonlySet<InteriorProp> = new Set(["rug", "chair", "stairsUp", "stairsDown"]);
+export const INTERIOR_WALKABLE_PROPS: ReadonlySet<InteriorProp> = new Set(["rug", "chair", "stairsUp", "stairsDown", "mineShaft"]);
 
 export interface InteriorTemplate {
   id: InteriorTemplateId;
@@ -425,7 +430,7 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
       "#OO..1..OO#",
       "#.v.....v.#",
       "#P...Z...P#",
-      "#..X...l..#",
+      "#..X...lN.#",
       "#P.......P#",
       "#####E#####",
     ]),
@@ -435,7 +440,7 @@ export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> 
       "#.v..#.Z.#..v.#",
       "#PZ..#...#...P#",
       "#....P...P....#",
-      "#............x#",
+      "#.....M......x#",
       "#P...#####...P#",
       "#X.l.......lZ.#",
       "#######E#######",
@@ -663,13 +668,8 @@ export const INTERIOR_TEMPLATE_BY_TILE: Partial<Record<TileType, InteriorTemplat
   [TileType.SiteKeep]: "hall",
   [TileType.BarnPost]: "barn",
   [TileType.RockMinePost]: "mine",
+  // Layered mines: the Mine's layers are its variants (0-2), the Quarry's variant its depth.
   [TileType.IronMinePost]: "mine",
-  [TileType.CoalMine]: "mine",
-  [TileType.CopperMine]: "mine",
-  [TileType.TinMine]: "mine",
-  [TileType.LimeQuarry]: "mine",
-  [TileType.GoldMine]: "mine",
-  [TileType.LeadMine]: "mine",
 };
 // Tiles whose level is the tile itself (House tiers, militia camps, castles, the Abbey).
 export const INTERIOR_FIXED_LEVEL: Partial<Record<TileType, number>> = {

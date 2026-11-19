@@ -4796,3 +4796,38 @@ hero's personal craft table with its own skill).
 - Tests: hero-tools (one chop gives nothing, felling on chop N pays the size's wood), player-workstations (three sizes
   after 2 / 5 / 10 chops), industry-extra (no Foundry armour; T1 armour costs 3 bronze and no iron, refused without; the
   hero takes and wears a Bronze Cuirass / Helm). MANUAL-TESTS.md "Tree felling" and "Bronze tier-1 armour".
+## Layered mines — landed 2026-11-19 (one Mine, levels are layers)
+- **Two mine buildings.** The Quarry (RockMinePost) is unchanged (one interior, layout = depth, the old infestation and
+  hazard rules). Every other mine is ONE building, the **Mine** (tile `IronMinePost`, relabelled "Mine"), placed on ore
+  ground: iron ore or any deposit tile (coal / copper / tin / limestone / gold / lead veins stay on the map as markers;
+  demolished, the Mine gives the ground back: `minesPlacedOnOre` keeps "x,y" for iron ore, "x,y=tile" for a deposit).
+  It needs a stone pick and a Quarry. The old Coal / Copper / Tin Mine, Lime Quarry, Gold / Lead Mine tiles keep their ids
+  but are inert legacy: not placeable (PLACEABLE_TILES / palette), no gates, no recipes, no interior, no mine record.
+- **Levels are layers** (shared/src/mines.ts `MINE_LAYER_*`). Level 1 digs copper ore, tin ore, limestone; level 2 iron
+  ore (the `iron` stock) and coal; level 3 gold ore and lead ore. Upgrading the Mine opens the next layer: level 2 needs a
+  Bronze pickaxe + timber props in store, level 3 an Iron pickaxe + air vent + bucket pump. Every new layer breaks into a
+  nest (`MINE_LAYER_INFEST_CHANCE` 1) and yields nothing until cleared. Miners (ironMiner, one more per level) dig one
+  unit (+ the prospected deposit bonus) per batch of the next resource of every clear / cleared open layer, rotating,
+  skipping resources at their cap (copper / tin / limestone 60, iron 400, coal 80, gold / lead 40). A Mine with every
+  open layer infested: miners flee, work x0.
+- **Danger by layer**: level 1 2-3 cave bats / spiders (x1), level 2 3-5 cave spiders / skeletons / giant spiders
+  (hp and bite x1.3), level 3 5-7 skeletons / giant spiders / cave spiders (x1.7). Re-infestation at dawn per layer:
+  level 1 never, level 2 25%, level 3 40% every 2 days (lamps, props, foreman, guards as before; a nest kills a miner
+  without a foreman). Cave-ins (level 2+), bad air and floods (level 3) are the whole Mine's, as before. Loot: one of the
+  layer's ores. Soldiers sent in clear the shallowest infested layer. The panel lists every level's status.
+- **Inside**: each layer is its own interior room (variant = layer - 1, room key per layer). The Mine is entered on
+  level 1; once level 2 is open the "N" cell of the level-1 layout (and "M" of level 2 for level 3) shows the
+  `mineShaft` prop, drawn with the Mine's own world sprite (stand-in, SPRITES.md #115); walking onto it goes down (the
+  hero appears inside the lower layer's mat), the mat of a lower layer (or Esc there) goes back up beside the shaft. Each
+  layer has its own monsters (interiorMobs per layer); the HUD line reads "Level n of N (its ores)".
+- **No circularity, anvil tiers.** The Foundry (needs a crucible and a Mine) casts the bronze Anvil (4 bronze) and Hammer
+  & tongs (2 bronze + 2 wood) first; the Blacksmith needs those and a Foundry (no Bloomery / iron). Its level is the anvil
+  tier (`ANVIL_TIER_TEXT`, shared/src/industry.ts; panel line "Anvil tier n (...)"): tier 1 bronze work (Bronze pickaxe:
+  3 bronze + 2 wood, cap 1; tier-1 gear), tier 2 iron (Iron pickaxe: 3 iron blooms + 2 wood, `stationLevel` 2; the iron
+  plow moved to tier 2; tier-2 gear; the upgrade needs a Bloomery), tier 3 steel (tier-3 gear; the upgrade needs steel in
+  store). Chain: Quarry -> Mine L1 -> Foundry / bronze -> Blacksmith -> bronze pickaxe -> Mine L2 -> Bloomery / iron ->
+  iron pickaxe -> Mine L3. The Stamp Mill needs a Mine (was an Iron Mine). Progression chains updated.
+- Under COLONY_UNLOCK_ALL a Mine digs iron like the old Iron Mine and nothing rolls (older suites).
+- Tests: mines (rewritten: gates, ore ground, per-layer nests / danger / production, shaft and mat navigation, bronze
+  and iron pickaxe gates, Foundry anvil, anvil tier 1 forging the bronze pick only, soldiers, re-infestation by layer,
+  hazards, the Quarry unchanged, save / load), industry-extra and progression adjusted. MANUAL-TESTS.md "Layered mines".

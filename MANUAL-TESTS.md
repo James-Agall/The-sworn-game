@@ -1385,3 +1385,20 @@ A normal game (gates on); Creative "Unlock all" off. The new buildings are in th
 7. The Foundry no longer offers "Cast bronze armour"; its tooltip says bronze is what the Blacksmith forges tier-1 armour
    from. The Progression panel's Bronze chain ends at the Blacksmith.
 8. Creative mode: forging tier-1 armour is free like other costs.
+## Layered mines (2026-11-19)
+1. New game: the build menu shows "Mine" and "Quarry" only (no Coal / Copper / Tin Mine, Lime Quarry, Gold / Lead Mine).
+   The Mine says it needs a Quarry; build a Quarry on rock, then a Mine on iron ore or a coloured deposit. On grass it is
+   refused ("must be sunk on ore ground"). Demolish one on a deposit: the deposit comes back.
+2. The new Mine announces a nest; its panel reads "Level 1 (copper ore, tin ore, limestone): Infested". Walk to its door,
+   E: the HUD reads "Level 1 of 1 (copper ore, tin ore, limestone) · Infested: n monsters". Fight them (Space): weak bats
+   and spiders. Cleared: copper, tin and limestone start arriving (Items panel).
+3. Foundry (crucible + the Mine): it casts a bronze Anvil and Hammer & tongs first. The Blacksmith then builds (no
+   Bloomery needed); its panel shows "Anvil tier 1 (bronze: ...)". It forges a Bronze pickaxe from 3 bronze, never an Iron
+   pickaxe at level 1.
+4. Upgrade the Mine (timber props + bronze pickaxe in store): a new nest on level 2. Inside, level 1 now shows the Mine's
+   sprite in the room: walk onto it to climb down (toast, HUD "Level 2 of 2"); the monsters here are tougher (skeletons,
+   giant spiders). Walk onto the mat to come back up beside the sprite. Level 1 keeps producing meanwhile.
+5. Clear level 2 (or "Send soldiers in" next to the Mine): iron ore and coal arrive too.
+6. Upgrade the Blacksmith to level 2 (needs a Bloomery): it forges an Iron pickaxe from blooms. With the iron pickaxe,
+   air vent and bucket pump, upgrade the Mine to level 3: the strongest nest (5-7 monsters); cleared, gold and lead ore.
+7. Over a few days, level 2/3 may get monsters back (panel odds); level 1 never does. The Quarry behaves as before.

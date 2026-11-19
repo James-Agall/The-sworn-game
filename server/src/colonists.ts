@@ -50,9 +50,9 @@ import {
 import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, returnBronze, spawnHeroColonist } from "./heroes.js";
 import { broadcastEvent } from "./net.js";
 import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
-import { minerFlees, mineWorkMult } from "./mines.js";
+import { mineBatch, minerFlees, mineWorkMult } from "./mines.js";
 import { aleHappinessBonus, drinkAle, eatPreservedFood, foodSickness, orchardYieldMult, sicknessPenalty } from "./agri.js";
-import { addItem, depositBonus, eatFoodItems, foodHappinessBonus, tablewareHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
+import { addItem, depositBonus, depositExtra, eatFoodItems, foodHappinessBonus, tablewareHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
 import { bestHallOf, infirmaryBedNear, isDuskNow, isUsableBed, roomHappinessBonus, usableBedIndices, warmRoomAt } from "./structures.js";
@@ -1039,9 +1039,13 @@ export function updateStationaryMiner(c: Colonist, dt: number) {
   c.state = "mining";
   c.chopTicksRemaining -= workSpeed(c) * mult;
   if (c.chopTicksRemaining <= 0) {
-    depositGatheredResource(c.kind);
-    // Progression tree phase 3: a prospected fair / rich deposit yields more.
-    depositBonus(c, c.kind === "ironMiner" ? "iron" : "rock");
+    // Layered mines: a Mine's miner digs its open layers' resources in turn (the deposit bonus on top); under
+    // COLONY_UNLOCK_ALL (and off a Mine) the legacy iron / rock.
+    if (c.kind !== "ironMiner" || !mineBatch(c, depositExtra(c))) {
+      depositGatheredResource(c.kind);
+      // Progression tree phase 3: a prospected fair / rich deposit yields more.
+      depositBonus(c, c.kind === "ironMiner" ? "iron" : "rock");
+    }
     c.chopTicksRemaining = effectiveChopTicks(c.postX, c.postY);
   }
 }

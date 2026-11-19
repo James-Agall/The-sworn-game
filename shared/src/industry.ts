@@ -54,3 +54,13 @@ export const MINT_GOLD_PER_COIN = 4;
 // The Foundry smelts lead (2 lead ore + 1 charcoal -> 2 lead) when it has no bronze to make. The Kiln glazes tableware
 // with it (2 clay + 1 lead + 1 wood -> 2 tableware) LEAD_GLAZE_GRADE_BONUS grade better than plain (at most Fine).
 export const LEAD_GLAZE_GRADE_BONUS = 1;
+
+// ---- anvil tiers (layered mines, 2026-11-19) ----
+// A Blacksmith's anvil tier is its level: 1 bronze work (the bronze pickaxe, tier-1 gear), 2 iron (the iron pickaxe,
+// the iron plow, tier-2 gear; upgrading needs a Bloomery), 3 steel (tier-3 gear; upgrading needs steel in store).
+// Recipes gate on it with Recipe.stationLevel, gear by forge tier (= level).
+export const ANVIL_TIER_TEXT = [
+  "bronze: bronze pickaxe, tier-1 gear",
+  "iron: iron pickaxe, iron plow, tier-2 gear",
+  "steel: tier-3 gear",
+];
