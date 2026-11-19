@@ -197,16 +197,13 @@ try {
     const prof = (await c.hookCall("heroState")).profile;
     staff = [...prof.inventory, ...Object.values(prof.equipment ?? {})].find((i) => i?.relicId === "abbeyEmberstaff");
   }
+  // Since the character creator (e0c747c) the player's own weapon is a sword, axe, spear or bow (PLAYER_WEAPON_KINDS):
+  // the staff is refused and the player's spell power stays x1. Gear spell power is a hero's: checked on the mage below.
   await send({ type: "equipItem", itemId: staff.id, slot: "weapon" });
-  await c.hookCall("spellConfig", { resetCooldowns: true });
-  await c.freshSnap();
-  const tm = c.snap.mobs.find((m) => m.id === troll.id);
-  await c.hookCall("teleportPlayer", { x: tm.x - 40, y: tm.y });
-  const hpA = await mobHp(troll.id);
-  s = await cast(0, { targetId: troll.id });
-  const hpB = await mobHp(troll.id);
-  result(near(s.player.spellPowerMult, 1.4) && near(hpA - hpB, 42, 0.5), `spell power x${s.player.spellPowerMult}: Fire Bolt hits for ${hpA - hpB} (30 x1.4 = 42)`);
-  await send({ type: "unequipItem", slot: "weapon" });
+  s = await st();
+  const heroProf = (await c.hookCall("heroState")).profile;
+  result(near(s.player.spellPowerMult, 1) && heroProf.equipment?.weapon?.id !== staff.id && heroProf.inventory.some((i) => i.id === staff.id),
+    `the player can't wield the Emberstaff (staves are hero weapons): still in the pack, weapon ${heroProf.equipment?.weapon?.name ?? "none"}, spell power x${s.player.spellPowerMult}`);
   await c.hookCall("damageMob", { mobId: troll.id, amount: 1e7 });
 
   // ---- Thunder: AoE hits 2 mobs ----
@@ -326,6 +323,23 @@ try {
   result(heroBook.castXp === 8 && heroBook.castLevel === 1, `the mage gains Spellcasting XP too (${heroBook.castXp} for a Heal)`);
   result(!!heroCast && near(heroCast.amount, 56.25) && near(ka - kb, 56.25, 0.5) && heroBook.auto && near(heroBook.spellPowerMult, 1.25),
     `mage (spell power x${heroBook?.spellPowerMult}) auto-casts Heal on the wounded knight: ${kb} -> ${ka} (45 x1.25)`);
+  // Gear spell power (+40%) on a hero: the Emberstaff in the mage's weapon slot, the same Heal again.
+  await send({ type: "equipItem", itemId: staff.id, slot: "weapon", heroId: hero.id });
+  await c.hookCall("spellConfig", { resetCooldowns: true });
+  await c.hookCall("setColonistHp", { id: knight.id, hp: 2 });
+  const kb2 = (await c.hookCall("bodyState")).colonists.find((k) => k.id === knight.id)?.hp;
+  await c.hookCall("fastForward", { ticks: 20 });
+  s = await st();
+  const ka2 = (await c.hookCall("bodyState")).colonists.find((k) => k.id === knight.id)?.hp;
+  const staffBook = s.heroes.find((h) => h.key === "hero:" + hero.id);
+  const staffCast = s.events.filter((e) => e.type === "cast" && e.key === "hero:" + hero.id && e.spell === "heal").pop();
+  // Same Spellcasting level as the first Heal, so the amount scales by spell power alone: 45 x (1 + (40 + 25) / 100).
+  // The knight's hp is capped at its max, so its gain is the heal or what it was missing.
+  await c.freshSnap();
+  const kMax = c.snap.colonists.find((k) => k.id === knight.id)?.maxHp;
+  result(near(staffBook?.spellPowerMult, 1.65) && staffBook?.castLevel === heroBook.castLevel &&
+    near(staffCast?.amount, heroCast.amount * 1.65 / 1.25) && near(ka2, Math.min(kMax, kb2 + staffCast?.amount), 0.5),
+    `spell power x${staffBook?.spellPowerMult} with the Emberstaff (+40% on the mage's +25%): Heal ${staffCast?.amount} (expected 45 x1.65 = 74.25): knight ${kb2} -> ${ka2} (max ${kMax})`);
   await send({ type: "setSpellAuto", heroId: hero.id, auto: false });
   s = await st();
   result(s.heroes.find((h) => h.key === "hero:" + hero.id)?.auto === false, `the hero's Auto toggle turns off`);
