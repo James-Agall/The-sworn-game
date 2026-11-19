@@ -222,9 +222,12 @@ async function act(c, x, y, tile, waitMs = 400) {
 }
 
 // Placement expected to produce a tileUpdate at (expectX, expectY); retries while a walking colonist blocks the tile.
+// The 2x2 farms (FOOTPRINT_BY_TILE): every tile of the block must be free of walkers, not only the anchor.
+const FOOT2 = new Set([T.Pasture, T.Orchard, T.WoolFarm]);
 async function placeExpectAt(c, x, y, tile, expectX = x, expectY = y, tries = 6) {
+  const foot = FOOT2.has(tile) ? [[0, 0], [1, 0], [0, 1], [1, 1]] : [[0, 0]];
   for (let i = 0; i < tries; i++) {
-    for (let w = 0; w < 50 && colonistOnTile(c, x, y); w++) await sleep(100);
+    for (let w = 0; w < 50 && foot.some(([dx, dy]) => colonistOnTile(c, x + dx, y + dy)); w++) await sleep(100);
     const ups = await act(c, x, y, tile);
     const hit = ups.filter((u) => u.tileX === expectX && u.tileY === expectY);
     if (hit.length) return { ups, hit };
@@ -536,6 +539,9 @@ await restartAndCheck(a, "(A0)");
     // player stands at (1,-1), within reach.
     const N = P(1, -3);
     for (const [x, y] of [[N.x, N.y], [N.x + 1, N.y]]) await a.hook("setTileRaw", { tx: x, ty: y, tile: T.Empty });
+    // The Orchard costs wood, and what is left here depends on how long the fillers' lumberjacks have worked: top it up
+    // so this checks the (absent) population gate, not the stock.
+    await a.hook("setStock", { stock: { wood: Math.max(a.snap.wood, 60) } });
     await a.hook("teleportPlayer", { x: s.x * TILE + 1 * TILE + 16, y: (s.y - 1) * TILE + 16 });
     await sleep(150);
     // Retries while a walking colonist stands on the 2x2 footprint (placeExpectAt only watches the anchor tile).
@@ -546,7 +552,7 @@ await restartAndCheck(a, "(A0)");
     }
     await waitFor(a, () => kinds(a, "farmhand").length === 4, 3000);
     result(a.tileAt(N.x, N.y) === T.Orchard && kinds(a, "farmhand").length === 4,
-      `(A) Orchard on an empty tile next to the Orchard at full pop is a new building, placed (no population gate; farmhands=${kinds(a, "farmhand").length}; footprint tiles ${foot.map((t) => a.tileAt(t.x, t.y)).join(",")})`);
+      `(A) Orchard on an empty tile next to the Orchard at full pop is a new building, placed (no population gate; farmhands=${kinds(a, "farmhand").length}; wood ${a.snap.wood}; footprint tiles ${foot.map((t) => a.tileAt(t.x, t.y)).join(",")})`);
   }
 }
 
@@ -674,11 +680,15 @@ await restartAndCheck(a, "(C0)");
     // (testHook spawnMob): the player's own blows kill them and pay goldForKill each.
     info(`(e) spawning goblins next to the player for live kills`);
     // A goblin pays 3 gold; the Gold Shop checks below need >= 15.
+    const spawned = [];
     for (let i = 0; i < 6; i++) {
       const me = a.meTile();
-      await a.hook("spawnMob", { kind: "goblin", tx: me.x + 1, ty: me.y });
+      spawned.push((await a.hook("spawnMob", { kind: "goblin", tx: me.x + 1, ty: me.y })).id);
       await waitFor(a, (sn) => !sn.mobs.some((m) => m.kind === "goblin" && Math.hypot(m.x - a.me().x, m.y - a.me().y) < TILE * 3), 20000);
     }
+    // Every spawned goblin dead before the gold checks: one that wandered out of the 3-tile wait above and died
+    // later paid its gold during (g) (gold 15 -> 18).
+    await waitFor(a, (sn) => !sn.mobs.some((m) => spawned.includes(m.id)), 20000);
     const gotGold = await waitFor(a, (sn) => sn.gold >= 15, 20000);
     await sleep(200);
     a.onSnap = null;
