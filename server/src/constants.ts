@@ -307,7 +307,8 @@ export const WEAPON_DAMAGE_MULT = [1, 1.2, 1.4, 1.7];
 export const ARMOUR_DAMAGE_TAKEN_MULT = [1, 0.85, 0.7, 0.55];
 // Basic militia trained with no gear (Colonist.unarmed) hit this much softer (fists and clubs).
 export const UNARMED_MILITIA_DAMAGE_MULT = 0.6;
-// Blacksmith forging: the tier forged = the Blacksmith's level. Indexed by tier - 1.
+// Blacksmith forging: the tier forged = the Blacksmith's level. Indexed by tier - 1. Tier-1 armour is bronze
+// (shared/src/industry.ts BRONZE_ARMOUR_FORGE_BRONZE); its iron cost here applies only under COLONY_UNLOCK_ALL.
 export const FORGE_ARMOUR_IRON = [3, 5, 8];
 export const FORGE_WEAPON_IRON = [2, 4, 6];
 export const FORGE_WEAPON_WOOD = 1;
@@ -2431,7 +2432,7 @@ export const PLAIN_GEAR: Record<EquipSlot, { slot: ItemSlotKind; kind: string; n
     stats: (t) => ({ damagePct: Math.round((WEAPON_DAMAGE_MULT[t] - 1) * 100) }),
   },
   armour: {
-    slot: "chest", kind: "cuirass", names: ["Iron & Leather Cuirass", "Steel Breastplate", "Tempered Steel Breastplate"],
+    slot: "chest", kind: "cuirass", names: ["Bronze Cuirass", "Steel Breastplate", "Tempered Steel Breastplate"],
     stats: (t) => ({ damageTakenPct: Math.round((ARMOUR_DAMAGE_TAKEN_MULT[t] - 1) * 100) }),
   },
 };

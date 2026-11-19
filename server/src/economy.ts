@@ -11,7 +11,8 @@ import {
   PASTURE_FAT_FROM, POST_TILE_TYPES, SHEEP_READY_FROM, SHEEP_WOOLLY_FROM, STARTING_FRUIT, STARTING_GRAIN, STARTING_IRON, STARTING_MEAT,
   STARTING_ROCK, STARTING_WOOD,
 } from "./constants.js";
-import { colonists, farmPlots, players, reservedResourceTiles, state, wildlife } from "./state.js";
+import { colonists, farmPlots, players, reservedResourceTiles, state, treeChops, wildlife } from "./state.js";
+import { TREE_CHOP_DECAY_TICKS, treeAt } from "@colony/shared/trees";
 import { byColumn, setTile, tileIndicesOf } from "./chunks.js";
 import {
   biomeProductionFactor, getBuildingLevel, inBounds, levelBonus, resourceKey, tileIndex, tileOccupiedByEntity,
@@ -145,6 +146,36 @@ export function tryGrowTreesNearLumberjackPosts() {
     setTile(tileIndex(spot.x, spot.y), TileType.Tree);
     broadcastTileUpdate(spot.x, spot.y, TileType.Tree);
   }
+}
+
+// Felling (2026-11-19): chops so far on the tree at (tx, ty); progress left untouched for TREE_CHOP_DECAY_TICKS
+// (or on a tile that is no longer a tree) is dropped.
+export function treeChopsDone(tx: number, ty: number): number {
+  const i = tileIndex(tx, ty);
+  const e = treeChops.get(i);
+  if (!e) return 0;
+  if (state.tiles[i] !== TileType.Tree || state.cycleTick - e[1] > TREE_CHOP_DECAY_TICKS) {
+    treeChops.delete(i);
+    return 0;
+  }
+  return e[0];
+}
+
+// One chop at a tree (a hero swing or a lumberjack strike). Only the chop that fells it pays out, so two
+// choppers on one tree share the work and the wood is paid once. Returns the wood paid (0 = not felled yet).
+export function chopTree(tx: number, ty: number): { wood: number; chops: number; need: number } {
+  const i = tileIndex(tx, ty);
+  const tree = treeAt(tx, ty);
+  if (state.tiles[i] !== TileType.Tree) return { wood: 0, chops: 0, need: tree.chops };
+  const chops = treeChopsDone(tx, ty) + 1;
+  if (chops < tree.chops) {
+    treeChops.set(i, [chops, state.cycleTick]);
+    return { wood: 0, chops, need: tree.chops };
+  }
+  treeChops.delete(i);
+  setTile(i, TileType.Empty);
+  broadcastTileUpdate(tx, ty, TileType.Empty);
+  return { wood: tree.wood, chops, need: tree.chops };
 }
 
 export function depositGatheredResource(kind: ColonistKind) {

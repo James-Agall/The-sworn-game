@@ -142,13 +142,16 @@ await craft('flatbread');const before=count(await items(),'flatbread');
 await stand(x+6,y+6);await ff(1);result(!(await sync()).snap.work,'Moving away cancels crafting');
 result(!(await craft('flatbread')).snap.work,'Remote crafting refused');
 await life({pack:{}});send({type:'stockWithdraw',good:'wood',amount:10});result(!(await sync()).life.pack.wood,'Remote withdrawal refused');
-// Three tree classes yield 1, 3 and 6 wood; capacity rechecked on completion.
+// Three tree classes yield 1, 3 and 6 wood when felled (2, 5, 10 chops); capacity rechecked on completion.
 const found=new Set();
 for(let xx=x;xx<x+8;xx++)for(let yy=y+3;yy<y+8;yy++){
- const n=((Math.imul(xx+17,73856093)^Math.imul(yy+31,19349663))>>>0)%10,amount=n<2?1:n<8?3:6;
+ const n=((Math.imul(xx+17,73856093)^Math.imul(yy+31,19349663))>>>0)%10,amount=n<2?1:n<8?3:6,chops=n<2?2:n<8?5:10;
  if(found.has(amount))continue;found.add(amount);
- await setTile(xx,yy,2);await setTile(xx-1,yy,0);await stand(xx-1,yy);await life({pack:{},use:{tool:'axe',tx:xx,ty:yy}});await ff(70);
- result((await sync()).life.pack.wood===amount,`Tree size yields ${amount} wood`);
+ await setTile(xx,yy,2);await setTile(xx-1,yy,0);await stand(xx-1,yy);await life({pack:{}});
+ // Felling: no wood until the last chop.
+ let early=0;
+ for(let k=1;k<=chops;k++){if(k===chops)early=(await sync()).life.pack.wood??0;await life({energy:100,use:{tool:'axe',tx:xx,ty:yy}});await ff(70);}
+ result(early===0&&(await sync()).life.pack.wood===amount,`Tree size yields ${amount} wood after ${chops} chops`);
 }
 result(found.size===3,'All three tree sizes covered');
 

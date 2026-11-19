@@ -204,9 +204,8 @@ export interface Colonist {
   // Missing in old saves = 0 (unequipped, today's stats).
   armourTier?: number;
   weaponTier?: number;
-  // Industry extras: a bronze piece worn in a slot with no iron one (clan items bronzeArmour / bronzeWeapon; missing in
-  // old saves = none).
-  bronzeArmour?: boolean;
+  // Industry extras: a bronze weapon worn with no iron one (clan item bronzeWeapon; missing in old saves = none).
+  // Bronze armour is tier-1 armour itself (armourTier 1) since 2026-11-19.
   bronzeWeapon?: boolean;
   // A basic militiaman trained with no weapon or armour: fists and clubs (UNARMED_MILITIA_DAMAGE_MULT), no armour.
   unarmed?: boolean;

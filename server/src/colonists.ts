@@ -1,4 +1,3 @@
-import { treeAt } from "@colony/shared/trees";
 // colonists.ts: Colonists: workers, builders, repair, farmers, housing/shelter, population, settlements, town centers, respawn windows, food, ward priest, the colonist tick.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { NEW_ANIMAL_HOUSE_TILES } from "@colony/shared/animals";
@@ -28,14 +27,14 @@ import {
   buildingHp, colonists, constructionSites, farmPlots, mobs, repairPaid, repairQueue, reservedResourceTiles,
   clans, respawnQueue, state, summonedUntil, tileClan, wardStoneLastTended, wardStonesActiveLastTick,
 } from "./state.js";
-import { byColumn, setTile, tileCountOf, tileIndicesOf, tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
+import { byColumn, tileCountOf, tileIndicesOf, tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import {
   biomeSpeedMultiplier, getBuildingLevel, inBounds, isNightNow, levelBonus, ownerAt, resourceKey,
   roadSpeedMultiplier, tileIndex, tileOfPixel, tileToPixelCenter, dayTicksAt,
 } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import {
-  depositGatheredResource, effectiveChopTicks, effectiveCraftTicks, effectiveFarmhandCycleTicks,
+  chopTree, depositGatheredResource, effectiveChopTicks, effectiveCraftTicks, effectiveFarmhandCycleTicks,
   barnFarmerCap, barnFarmerCount, industrialSynergyMultiplier, isBarnStaffed, releaseResourceReservation, } from "./economy.js";
 import { updateForager, updateHunter } from "./wildlife.js";
 import {
@@ -49,7 +48,7 @@ import {
   canAfford, currentBuildingLevel, footprintYieldMult, placementCost, sendEvent, spend, upgradePlacementTile,
 } from "./construction.js";
 import { equipNewUnit, heroRespawnFee, heroTestEvent, isEquippedKind, returnBronze, spawnHeroColonist } from "./heroes.js";
-import { broadcastEvent, broadcastTileUpdate } from "./net.js";
+import { broadcastEvent } from "./net.js";
 import { clanById, clanIdAt, clanIdAtIndex, clanTownCenters, enterClan, inClan, resetClan, townCentersOfClan, withClan } from "./clans.js";
 import { minerFlees, mineWorkMult } from "./mines.js";
 import { aleHappinessBonus, drinkAle, eatPreservedFood, foodSickness, orchardYieldMult, sicknessPenalty } from "./agri.js";
@@ -344,13 +343,12 @@ export function staffPost(tx: number, ty: number, kind: ColonistKind, castleLeve
 // handing equipped gear back to the stock; with no Town Center left they leave.
 export function releaseToVillage(c: Colonist) {
   const tc = nearestTownCenter(c.x, c.y, townCentersOfClan(c.clan ?? 0));
-  if (c.armourTier || c.weaponTier || c.bronzeArmour || c.bronzeWeapon) {
+  if (c.armourTier || c.weaponTier || c.bronzeWeapon) {
     withClan(clanById(c.clan ?? 0), () => {
       if (c.armourTier) state.equipment.armour[c.armourTier - 1]++;
       if (c.weaponTier) state.equipment.weapon[c.weaponTier - 1]++;
       // Industry extras: bronze pieces go back to the stores too.
-      returnBronze(c, "armour");
-      returnBronze(c, "weapon");
+      returnBronze(c);
     });
   }
   if (!tc) {
@@ -1191,11 +1189,15 @@ export function updateGathererColonist(c: Colonist, dt: number) {
     case "gathering": {
       c.chopTicksRemaining -= workSpeed(c);
       if (c.chopTicksRemaining <= 0) {
-        const idx = tileIndex(c.targetResourceX, c.targetResourceY);
-        if (c.kind === "lumberjack") c.timberLoad = state.tiles[idx] === resourceTile ? treeAt(c.targetResourceX,c.targetResourceY).wood : 0;
-        if (c.kind === "lumberjack" && state.tiles[idx] === resourceTile) {
-          setTile(idx, TileType.Empty);
-          broadcastTileUpdate(c.targetResourceX, c.targetResourceY, TileType.Empty);
+        if (c.kind === "lumberjack") {
+          // Felling (2026-11-19): each strike is one chop; the lumberjack keeps chopping until the tree falls and
+          // carries home only the felling chop's wood (none if someone else felled it first).
+          const hit = chopTree(c.targetResourceX, c.targetResourceY);
+          if (hit.wood === 0 && hit.chops > 0) {
+            c.chopTicksRemaining = effectiveChopTicks(c.postX, c.postY);
+            break;
+          }
+          c.timberLoad = hit.wood;
         }
         releaseResourceReservation(c);
         c.targetResourceX = -1;

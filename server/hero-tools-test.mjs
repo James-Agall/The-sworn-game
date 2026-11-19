@@ -1,7 +1,7 @@
 // Scripted test: Stardew phase 5a, hero tools on tiles (ROADMAP "Stardew layer — phase 5a"). The hero tills grass into
 // a hero plot (hoe), sows it (a seed bag item is used up), waters it (the can's charges; full-speed growth vs half for
 // an unwatered plot), harvests a ripe crop by hand and with a scythe into the pack, refills the can at water, chops a
-// tree with the axe (one yield per use), the tool gates (a missing scythe), energy drain / half-speed work at 0 /
+// tree with the axe (one chop per use; wood only when it falls), the tool gates (a missing scythe), energy drain / half-speed work at 0 /
 // recovery by resting and eating, a till inside a growing zone (a zone tile, not a plot), and save / load of plots,
 // energy and water. Needs a FRESH private server with gates ON (no COLONY_UNLOCK_ALL): `npm test -- hero-tools`.
 import WebSocket from "ws";
@@ -164,7 +164,8 @@ L = await life();
 result(L.life.water === 20, `refilled at water (${L.life.water})`);
 await setTile(H.x, H.y - 1, T.Empty);
 
-// 7. Axe: one chop per use (Space / click), energy -3.
+// 7. Axe: one chop per use (Space / click), energy -3. Felling (2026-11-19): a chop gives no wood; the tree falls
+// after 2 / 5 / 10 chops (sapling / tree / large tree, shared/src/trees.ts) and only then pays 1 / 3 / 6 wood.
 await setTile(H.x + 1, H.y + 1, T.Tree);
 await life({ energy: 50, pack: {} });
 await life({ use: { tool: "axe", tx: H.x + 1, ty: H.y + 1 } });
@@ -172,7 +173,25 @@ L = await life();
 result(L.gathering?.kind === "chop" && L.gathering.once, `axe starts one chop`);
 await ff(70);
 L = await life();
-result([1,3,6].includes(L.life.pack.wood ?? 0) && L.gathering === null && L.life.energy === 47, `one chop: ${L.life.pack.wood} wood, stopped, energy ${L.life.energy}`);
+result(!(L.life.pack.wood ?? 0) && L.gathering === null && L.life.energy === 47, `one chop: no wood yet (${L.life.pack.wood ?? 0}), stopped, energy ${L.life.energy}`);
+{
+  const tx = H.x + 1, ty = H.y + 1;
+  const n = ((Math.imul(tx + 17, 73856093) ^ Math.imul(ty + 31, 19349663)) >>> 0) % 10;
+  const [need, wood] = n < 2 ? [2, 1] : n < 8 ? [5, 3] : [10, 6];
+  let early = 0;
+  for (let k = 2; k <= need; k++) {
+    if (k === need) early = L.life.pack.wood ?? 0;
+    await life({ energy: 50, use: { tool: "axe", tx, ty } });
+    await ff(70);
+    L = await life();
+  }
+  result(early === 0 && L.life.pack.wood === wood, `tree falls on chop ${need} and pays ${wood} wood (before: ${early}, after: ${L.life.pack.wood})`);
+  ev = c.events.length;
+  await life({ use: { tool: "axe", tx, ty } });
+  await ff(2);
+  result(/Nothing to chop/.test(eventsSince(ev)), `the felled tree is gone: ${eventsSince(ev)}`);
+  await setTile(tx, ty, T.Tree);
+}
 ev = c.events.length;
 await life({ use: { tool: "pick", tx: H.x + 1, ty: H.y + 1 } });
 await ff(2);

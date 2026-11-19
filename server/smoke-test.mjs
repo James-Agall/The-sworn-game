@@ -800,7 +800,8 @@ await check("solo hero: talk to a settlement elder (gift, work, farewell)", asyn
     `opened ${opened} ("${d0?.dialogue?.text?.slice(0, 50)}", ${d0?.dialogue?.choices.length} choices), gift ${gifted} (gold ${gold}), gift once a day ${giftOff}, work ${work} (${w < 0 ? "not offered at this tier" : d3?.dialogue?.text?.slice(0, 40)}), closed ${d4?.close}`];
 });
 
-// Solo hero phase 2: hold E at a tree gathers wood into the pack (woodcutting XP); needs: hungry = slow, the pack's
+// Solo hero phase 2: hold E at a tree chops it until it falls (2 / 5 / 10 chops by size), then its wood goes into the
+// pack (woodcutting XP); needs: hungry = slow, the pack's
 // food is eaten automatically; deposit at the Town Center empties the pack into the stores.
 await check("solo hero: gather, needs, deposit", async () => {
   const tc = c.snap.townCenters[0];
@@ -810,7 +811,7 @@ await check("solo hero: gather, needs, deposit", async () => {
   await tp(gx, gy);
   await hook("heroLife", { pack: {}, skills: {}, needs: false });
   await hook("heroLife", { interact: true });
-  await ff(4 * TICK);
+  await ff(33 * TICK);
   const a = await hook("heroLife", { stop: true });
   const wood = a.life.pack.wood ?? 0;
   const xp = a.life.skills.woodcutting ?? 0;
@@ -827,7 +828,7 @@ await check("solo hero: gather, needs, deposit", async () => {
   await hook("heroLife", { action: "deposit" });
   const d = await hook("heroLife", {});
   await clearBox(gx, gy, 2);
-  return [wood >= 2 && xp >= 3 && slow < 0.85 && ate && snapLife && !(d.life.pack.wood > 0),
+  return [wood >= 1 && xp >= 6 && slow < 0.85 && ate && snapLife && !(d.life.pack.wood > 0),
     `wood ${wood}, woodcutting XP ${xp}, hungry speed x${slow?.toFixed(2)}, auto-ate ${ate} (food ${b.life.food?.toFixed(1)}), snapshot life ${snapLife}, deposited ${!(d.life.pack.wood > 0)} (stock wood ${w0} in creative)`];
 });
 

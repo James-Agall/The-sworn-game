@@ -17,7 +17,7 @@ import {
   ALE_HAPPINESS, CELLAR_SPOIL_CUT, IRON_PLOW_GROWTH_MULT, IRON_PLOW_YIELD_MULT, ORCHARD_YIELD_BY_AGE, SALT_WORKS_WATER_RADIUS_TILES, SPOIL_PER_DAY,
 } from "@colony/shared/agri";
 import {
-  BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_TOOL_SPEED, BRONZE_WEAPON_DAMAGE_MULT, STAMP_MILL_WATER_RADIUS_TILES, STEEL_FINE_TIER_BONUS,
+  BRONZE_ARMOUR_FORGE_BRONZE, BRONZE_TOOL_SPEED, BRONZE_WEAPON_DAMAGE_MULT, STAMP_MILL_WATER_RADIUS_TILES, STEEL_FINE_TIER_BONUS,
   BOTTLED_ALE_BONUS, BOTTLES_MIN, GLAZED_WINDOWS_MIN, LEAD_GLAZE_GRADE_BONUS, MINT_COINS_PER_BATCH, MINT_GOLD_PER_COIN,
 } from "@colony/shared/industry";
 import {
@@ -291,7 +291,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Foundry,
     label: "Foundry",
     key: "",
-    cost: `${buildCostText(TileType.Foundry)} (upgradeable). Needs a Crucible and a Copper Mine. A founder smelts 3 Copper ore + 2 Tin ore + 1 Charcoal (or Coal) → 2 Bronze, then casts Bronze tools (hero and miners / woodcutters x${BRONZE_TOOL_SPEED} speed), Bronze weapons (+${Math.round((BRONZE_WEAPON_DAMAGE_MULT - 1) * 100)}% damage) and Bronze armour (${Math.round((BRONZE_ARMOUR_DAMAGE_TAKEN_MULT - 1) * 100)}% damage taken) for soldiers with no iron gear`,
+    cost: `${buildCostText(TileType.Foundry)} (upgradeable). Needs a Crucible and a Copper Mine. A founder smelts 3 Copper ore + 2 Tin ore + 1 Charcoal (or Coal) → 2 Bronze, then casts Bronze tools (hero and miners / woodcutters x${BRONZE_TOOL_SPEED} speed) and Bronze weapons (+${Math.round((BRONZE_WEAPON_DAMAGE_MULT - 1) * 100)}% damage) for soldiers with no iron weapon. Bronze is also what the Blacksmith forges tier-1 armour from (${BRONZE_ARMOUR_FORGE_BRONZE} bronze a piece)`,
     category: "industry",
   },
   {

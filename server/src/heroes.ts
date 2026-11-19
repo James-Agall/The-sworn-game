@@ -3,8 +3,8 @@ import { sanitizeHeroAppearance, HERO_WEAPON_KINDS, heroVisualFromEquipment } fr
 // heroes.ts: Hero phases 1-4 support: equipment, hero profiles, items, relics, recruitable heroes, Blacksmith forging.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { addItem, gatesOpen, itemCount, takeItem, takeItemOfGrade, workerLevelAt } from "./progression.js";
-import { BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_WEAPON_DAMAGE_MULT, STEEL_FINE_TIER_BONUS } from "@colony/shared/industry";
-import { smithLevelForGearTier } from "@colony/shared/progression";
+import { BRONZE_ARMOUR_FORGE_BRONZE, BRONZE_WEAPON_DAMAGE_MULT, STEEL_FINE_TIER_BONUS } from "@colony/shared/industry";
+import { type ItemId, PROGRESSION, smithLevelForGearTier } from "@colony/shared/progression";
 import { sanitizeHeroLife } from "@colony/shared/herolife";
 import { randomUUID } from "node:crypto";
 import {
@@ -76,10 +76,10 @@ export function takeBestEquipment(slot: EquipSlot): number {
 export function equipNewUnit(c: Colonist) {
   c.armourTier = takeBestEquipment("armour");
   c.weaponTier = takeBestEquipment("weapon");
-  // Industry extras: no iron piece in a slot, a bronze one from the stores.
-  for (const slot of ["armour", "weapon"] as EquipSlot[]) fitBronze(c, slot);
+  // Industry extras: no iron weapon, a bronze one from the stores (bronze armour is tier-1 armour itself).
+  fitBronze(c, "weapon");
   equipEvent({ type: "equip", id: c.id, detail: `${c.kind} armour ${c.armourTier} weapon ${c.weaponTier}` });
-  if ((c.armourTier > 0 || c.bronzeArmour) && (c.weaponTier > 0 || c.bronzeWeapon)) return;
+  if (c.armourTier > 0 && (c.weaponTier > 0 || c.bronzeWeapon)) return;
   equipEvent({ type: "unequipped", id: c.id, detail: `${c.armourTier === 0 ? "armour " : ""}${c.weaponTier === 0 ? "weapon" : ""}`.trim() });
   if (state.cycleTick - state.lastUnequippedToastTick < EQUIP_TOAST_THROTTLE_TICKS) return;
   state.lastUnequippedToastTick = state.cycleTick;
@@ -98,26 +98,26 @@ export function equipNewUnit(c: Colonist) {
 // counted twice. Cost: one pass over the colonists every 3 s, only while the stock is non-empty.
 const GEAR_TIER_KEY: Record<EquipSlot, "armourTier" | "weaponTier"> = { armour: "armourTier", weapon: "weaponTier" };
 
-// ---- Industry extras: bronze gear (shared/src/industry.ts; clan items bronzeWeapon / bronzeArmour) ----
-const BRONZE_KEY: Record<EquipSlot, "bronzeArmour" | "bronzeWeapon"> = { armour: "bronzeArmour", weapon: "bronzeWeapon" };
-const BRONZE_ITEM = { armour: "bronzeArmour", weapon: "bronzeWeapon" } as const;
+// ---- Industry extras: bronze weapons (shared/src/industry.ts; clan item bronzeWeapon) ----
+// Bronze armour is no separate piece since 2026-11-19: tier-1 armour IS bronze (forged at the Blacksmith from bronze,
+// forgeItems), so only the weapon slot has a bronze stop-gap below iron.
 // Off under COLONY_UNLOCK_ALL (the older suites' soldiers keep today's stats).
 function bronzeGearOn(): boolean {
   return !state.testUnlockAll;
 }
-// A soldier with no iron piece in `slot` takes a bronze one from the active clan's stores (true when it did).
+// A soldier with no iron weapon takes a bronze one from the active clan's stores (true when it did; armour: never).
 function fitBronze(c: Colonist, slot: EquipSlot): boolean {
-  if (!bronzeGearOn() || (c[GEAR_TIER_KEY[slot]] ?? 0) > 0 || c[BRONZE_KEY[slot]] || itemCount(BRONZE_ITEM[slot]) <= 0) return false;
-  takeItem(BRONZE_ITEM[slot], 1);
-  c[BRONZE_KEY[slot]] = true;
+  if (slot !== "weapon" || !bronzeGearOn() || (c.weaponTier ?? 0) > 0 || c.bronzeWeapon || itemCount("bronzeWeapon") <= 0) return false;
+  takeItem("bronzeWeapon", 1);
+  c.bronzeWeapon = true;
   equipEvent({ type: "bronze", id: c.id, slot, detail: c.kind });
   return true;
 }
-// The bronze piece a soldier wore goes back to the active clan's stores (an iron one replaced it, or it left).
-export function returnBronze(c: Colonist, slot: EquipSlot) {
-  if (!c[BRONZE_KEY[slot]]) return;
-  c[BRONZE_KEY[slot]] = false;
-  addItem(BRONZE_ITEM[slot], 1);
+// The bronze weapon a soldier wore goes back to the active clan's stores (an iron one replaced it, or it left).
+export function returnBronze(c: Colonist) {
+  if (!c.bronzeWeapon) return;
+  c.bronzeWeapon = false;
+  addItem("bronzeWeapon", 1);
 }
 
 function bestTierInStock(slot: EquipSlot): number {
@@ -128,7 +128,7 @@ function bestTierInStock(slot: EquipSlot): number {
 export function updateGearPickup() {
   if (state.testGearPickupOff || state.cycleTick % GEAR_PICKUP_INTERVAL_TICKS !== 0) return;
   forEachClan((clan) => {
-    const bronze = bronzeGearOn() && (itemCount("bronzeArmour") > 0 || itemCount("bronzeWeapon") > 0);
+    const bronze = bronzeGearOn() && itemCount("bronzeWeapon") > 0;
     if (bestTierInStock("armour") === 0 && bestTierInStock("weapon") === 0 && !bronze) return;
     const idle: Colonist[] = [];
     for (const c of colonists.values()) {
@@ -149,7 +149,7 @@ export function updateGearPickup() {
         }
         state.equipment[slot][best - 1]--;
         if (cur > 0) state.equipment[slot][cur - 1]++;
-        returnBronze(c, slot);
+        if (slot === "weapon") returnBronze(c);
         c[key] = best;
         equipped.add(c.id);
         equipEvent({ type: "pickup", id: c.id, slot, tier: best, detail: `${c.kind} ${cur}->${best}` });
@@ -168,7 +168,6 @@ export function weaponDamageMult(c: Colonist): number {
 }
 
 export function armourDamageTakenMult(c: Colonist): number {
-  if (!c.armourTier && c.bronzeArmour) return BRONZE_ARMOUR_DAMAGE_TAKEN_MULT;
   return ARMOUR_DAMAGE_TAKEN_MULT[c.armourTier ?? 0] ?? 1;
 }
 
@@ -494,7 +493,7 @@ export function handleTakeFromArmoury(player: Player, slot: unknown, tier: unkno
   if (slot === "armour" && (armourPart === "head" || armourPart === "offhand")) {
     item.slot = armourPart;
     item.kind = armourPart === "head" ? "helm" : "shield";
-    item.name = `${["Iron", "Steel", "Tempered Steel"][tier-1]} ${armourPart === "head" ? "Helm" : "Shield"}`;
+    item.name = `${["Bronze", "Steel", "Tempered Steel"][tier-1]} ${armourPart === "head" ? "Helm" : "Shield"}`;
     item.stats = { damageTakenPct: Math.round((item.stats.damageTakenPct ?? 0) * .4) };
   }
   prof.inventory.push(item);
@@ -724,8 +723,26 @@ export function forgeCost(slot: EquipSlot, tier: number): Cost {
   const i = Math.min(Math.max(tier, 1), EQUIP_TIERS) - 1;
   if (slot === "weapon") return { iron: FORGE_WEAPON_IRON[i], wood: FORGE_WEAPON_WOOD };
   const extra = tier - 1;
-  if (extra <= 0) return { iron: FORGE_ARMOUR_IRON[i] };
+  if (extra <= 0) return bronzeArmourTier(slot, tier) ? {} : { iron: FORGE_ARMOUR_IRON[i] };
   return state.stock.tools >= extra ? { iron: FORGE_ARMOUR_IRON[i], tools: extra } : { iron: FORGE_ARMOUR_IRON[i], wood: extra };
+}
+
+// Tier-1 armour is bronze (2026-11-19): BRONZE_ARMOUR_FORGE_BRONZE bronze (cast at the Foundry) instead of iron; iron from
+// tier 2. The old iron cost under COLONY_UNLOCK_ALL (the older suites).
+function bronzeArmourTier(slot: EquipSlot, tier: number): boolean {
+  return slot === "armour" && tier <= 1 && !state.testUnlockAll;
+}
+// The clan items (from its stores) forging one `slot` piece of `tier` takes besides forgeCost.
+export function forgeItems(slot: EquipSlot, tier: number): Partial<Record<ItemId, number>> {
+  return bronzeArmourTier(slot, tier) ? { bronze: BRONZE_ARMOUR_FORGE_BRONZE } : {};
+}
+function canAffordForgeItems(slot: EquipSlot, tier: number): boolean {
+  return state.creative || Object.entries(forgeItems(slot, tier)).every(([id, n]) => itemCount(id as ItemId) >= (n ?? 0));
+}
+function forgeCostText(slot: EquipSlot, tier: number): string {
+  const items = Object.entries(forgeItems(slot, tier)).map(([id, n]) => `${n} ${PROGRESSION.items[id as ItemId].label.toLowerCase()}`);
+  const cost = forgeCost(slot, tier);
+  return [Object.keys(cost).length ? formatCost(cost) : "", ...items].filter(Boolean).join(", ");
 }
 
 export function blacksmithStaffed(tx: number, ty: number): boolean {
@@ -748,6 +765,7 @@ export function forgeQueueBlocker(tx: number, ty: number, slot: EquipSlot): stri
   if (smithBlock) return smithBlock;
   if ((forgeQueues.get(resourceKey(tx, ty))?.queue.length ?? 0) >= FORGE_QUEUE_CAP) return `Queue full (${FORGE_QUEUE_CAP})`;
   if (!canAfford(forgeCost(slot, getBuildingLevel(tx, ty)))) return "Not enough resources";
+  if (!canAffordForgeItems(slot, getBuildingLevel(tx, ty))) return "Not enough bronze (smelt it at a Foundry)";
   return "";
 }
 
@@ -770,8 +788,8 @@ export function blacksmithForgeInfo(tx: number, ty: number): NonNullable<Buildin
       const reason = forgeQueueBlocker(tx, ty, slot);
       return {
         slot,
-        label: `Forge ${slot === "armour" ? "Armour" : "Weapon"} T${tier}${tier < EQUIP_TIERS && fineSteelInStore() ? ` (T${Math.min(EQUIP_TIERS, tier + STEEL_FINE_TIER_BONUS)} with Fine steel)` : ""}`,
-        cost: `${formatCost(forgeCost(slot, tier))}, ${FORGE_TICKS[slot] / TICK_RATE}s`,
+        label: `Forge ${slot === "armour" ? (forgeItems(slot, tier).bronze ? "Bronze Armour" : "Armour") : "Weapon"} T${tier}${tier < EQUIP_TIERS && fineSteelInStore() ? ` (T${Math.min(EQUIP_TIERS, tier + STEEL_FINE_TIER_BONUS)} with Fine steel)` : ""}`,
+        cost: `${forgeCostText(slot, tier)}, ${FORGE_TICKS[slot] / TICK_RATE}s`,
         enabled: reason === "",
         reason,
       };
@@ -801,6 +819,7 @@ function fineSteelInStore(): boolean {
 function queueForgeItem(tx: number, ty: number, slot: EquipSlot) {
   const base = getBuildingLevel(tx, ty);
   spend(forgeCost(slot, base));
+  if (!state.creative) for (const [id, n] of Object.entries(forgeItems(slot, base))) takeItem(id as ItemId, n ?? 0);
   const tier = forgedTier(base);
   const key = resourceKey(tx, ty);
   let localState = forgeQueues.get(key);
@@ -858,8 +877,8 @@ export function autoForgePlan(tx: number, ty: number, target: number): { slot: E
   const have = (slot: EquipSlot) => state.equipment[slot][tier - 1] + queuedForClan(slot, tier);
   const short = (["armour", "weapon"] as EquipSlot[]).filter((slot) => have(slot) < target).sort((a, b) => have(a) - have(b));
   if (short.length === 0) return { slot: null, status: `Stock at target (${target} armour + ${target} weapons T${tier})` };
-  for (const slot of short) if (affordableAboveReserve(forgeCost(slot, tier))) return { slot, status: `Forging to target ${target} (T${tier})` };
-  return { slot: null, status: `Paused: iron / wood at the ${FORGE_AUTO_RESERVE} reserve` };
+  for (const slot of short) if (affordableAboveReserve(forgeCost(slot, tier)) && canAffordForgeItems(slot, tier)) return { slot, status: `Forging to target ${target} (T${tier})` };
+  return { slot: null, status: `Paused: iron / wood at the ${FORGE_AUTO_RESERVE} reserve${short.some((slot) => !canAffordForgeItems(slot, tier)) ? " or no bronze for armour" : ""}` };
 }
 
 function updateForgeAuto() {

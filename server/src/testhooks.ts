@@ -792,7 +792,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       forgeAuto: Array.from(forgeAuto),
       units: Array.from(colonists.values())
         .filter((c) => isEquippedKind(c.kind))
-        .map((c) => ({ id: c.id, kind: c.kind, hp: c.hp, maxHp: c.maxHp, armourTier: c.armourTier ?? 0, weaponTier: c.weaponTier ?? 0, postX: c.postX, postY: c.postY, bronzeArmour: !!c.bronzeArmour, bronzeWeapon: !!c.bronzeWeapon })),
+        .map((c) => ({ id: c.id, kind: c.kind, hp: c.hp, maxHp: c.maxHp, armourTier: c.armourTier ?? 0, weaponTier: c.weaponTier ?? 0, postX: c.postX, postY: c.postY, bronzeWeapon: !!c.bronzeWeapon })),
       events: equipEvents.slice(),
       stock: { ...state.stock },
       mults: { weapon: WEAPON_DAMAGE_MULT, armour: ARMOUR_DAMAGE_TAKEN_MULT },
@@ -868,7 +868,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const u = typeof msg.unit === "string" ? colonists.get(msg.unit) : undefined;
     reply(withClan(pc, () => ({
       tools: { hero: bronzeToolMult("hero"), miner: bronzeToolMult("miner"), woodcutter: bronzeToolMult("woodcutter"), smith: bronzeToolMult("smith") },
-      ...(u ? { unit: { weapon: weaponDamageMult(u), armour: armourDamageTakenMult(u), bronzeArmour: !!u.bronzeArmour, bronzeWeapon: !!u.bronzeWeapon, armourTier: u.armourTier ?? 0, weaponTier: u.weaponTier ?? 0 } } : {}),
+      ...(u ? { unit: { weapon: weaponDamageMult(u), armour: armourDamageTakenMult(u), bronzeWeapon: !!u.bronzeWeapon, armourTier: u.armourTier ?? 0, weaponTier: u.weaponTier ?? 0 } } : {}),
     })));
   } else if (msg.op === "equipConfig") {
     state.testEquipDropChance = typeof msg.dropChance === "number" ? msg.dropChance : null;

@@ -20,7 +20,7 @@ import {
   MAX_WORLD_SIZE, MIN_WORLD_SIZE, NIGHT_TICKS, clampWorldSize, SAVE_DIR, SAVE_SLOT_LABELS, SAVE_VERSION, TREE_RESPAWN_INTERVAL_TICKS,
 } from "./constants.js";
 import {
-  type Clan, buildingHp, buildingLevel, clans, colonists, makeClan, tileClan, constructionSites, farmPlots, forageRegrow, forgeAuto, gates, gravestones,
+  type Clan, buildingHp, buildingLevel, clans, colonists, makeClan, tileClan, constructionSites, farmPlots, forageRegrow, treeChops, forgeAuto, gates, gravestones,
   hearths, heroProfiles, heroRecruits, minesPlacedOnOre, mobs, parkedMobs, mobsWithoutRoute, ownerSiteIds, players, raidGroups,
   regiments, repairPaid, repairQueue, reservedResourceTiles, respawnQueue, state, summonedUntil, tileOwner, towerCooldowns, walledSites, wardStoneLastTended, wardStonesActiveLastTick, wildlife,
   type ClanProgress, newClanProgress,
@@ -195,6 +195,7 @@ function resetWorldAfter() {
   gates.clear();
   state.gateTilesDirty = true;
   mobsWithoutRoute.clear();
+  treeChops.clear();
 
   state.cycleTick = 0;
   state.wasNight = false;
@@ -372,6 +373,8 @@ function snapshotWorldInner() {
     respawnQueue,
     farmPlots: Array.from(farmPlots),
     forageRegrow: Array.from(forageRegrow),
+    // Felling: [tree tile index, [chops so far, tick of the last chop]] (optional).
+    treeChops: Array.from(treeChops) as [number, [number, number]][] | undefined,
     minesPlacedOnOre: Array.from(minesPlacedOnOre),
     buildingLevel: Array.from(buildingLevel),
     buildingHp: Array.from(buildingHp),
@@ -517,6 +520,7 @@ function applyWorldInner(s: WorldState) {
   respawnQueue.push(...s.respawnQueue);
   refill(farmPlots, s.farmPlots);
   refill(forageRegrow, s.forageRegrow);
+  refill(treeChops, s.treeChops ?? []);
   minesPlacedOnOre.clear();
   for (const key of s.minesPlacedOnOre) minesPlacedOnOre.add(key);
   refill(buildingLevel, s.buildingLevel);

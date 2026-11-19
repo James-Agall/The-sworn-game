@@ -26,7 +26,7 @@ export type ItemId =
   // Agriculture extras (phase 5, shared/src/agri.ts): preserved foods and their inputs, the iron plow, hops and ale.
   | "salt" | "smokedMeat" | "saltedMeat" | "rennet" | "cheese" | "ironPlow" | "hops" | "hopSeeds" | "ale"
   // Industry extras (phase 6, shared/src/industry.ts): bronze and what the Foundry casts from it.
-  | "bronze" | "bronzeTools" | "bronzeWeapon" | "bronzeArmour"
+  | "bronze" | "bronzeTools" | "bronzeWeapon"
   // The new deposits' ores and what the Stamp Mill crushes and washes out of them.
   | "limestone" | "goldOre" | "leadOre" | "washedTin" | "goldDust" | "sand"
   // Steel from the Blast furnace (flux: limestone).
@@ -199,7 +199,7 @@ export const PROGRESSION = {
     hops: { label: "Hops", desc: "Harvested from a Growing zone set to Hops (summer to autumn). The Brewery brews ale with them.", group: "material" },
     hopSeeds: { label: "Hop cuttings", desc: "The hero plants one per tilled tile (seed bag, press again for hops).", group: "material" },
     ale: { label: "Ale", desc: "Hopped ale from the Brewery (grain + hops). In store: a happiness bonus by its best grade; drunk at dawn.", group: "food" },
-    bronze: { label: "Bronze", desc: "Cast at the Foundry from copper ore and tin with charcoal (or coal). The Foundry casts tools and gear from it.", group: "material" },
+    bronze: { label: "Bronze", desc: "Cast at the Foundry from copper ore and tin with charcoal (or coal). The Foundry casts tools and weapons from it; the Blacksmith forges tier-1 (bronze) armour from it.", group: "material" },
     bronzeTools: { label: "Bronze tools", desc: "Cast at the Foundry. In store: the hero and the clan's woodcutters, miners and diggers work 20% faster.", group: "tool" },
     bronzeWeapon: { label: "Bronze weapons", desc: "Cast at the Foundry. A soldier with no iron weapon takes one (damage +10%; iron +20%).", group: "tool" },
     limestone: { label: "Limestone", desc: "Cut at a Lime Quarry (on limestone). Flux for steel at the Blast furnace; lime for glass.", group: "material" },
@@ -214,7 +214,6 @@ export const PROGRESSION = {
     coins: { label: "Coins", desc: "Struck at the Mint from gold dust: they go straight into the treasury as gold.", group: "material" },
     lead: { label: "Lead", desc: "Smelted at the Foundry from lead ore. The Kiln glazes tableware with it (a grade better).", group: "material" },
     sand: { label: "Sand", desc: "Stone crushed at the Stamp Mill. Glass is melted from it.", group: "material" },
-    bronzeArmour: { label: "Bronze armour", desc: "Cast at the Foundry from bronze and hide. A soldier with no iron armour wears it (damage taken -8%; iron -15%).", group: "tool" },
   } satisfies Record<ItemId, ItemDef>,
   recipes: [
     { id: "stoneAxe", label: "Knap a stone axe", output: "stoneAxe", amount: 1, stock: { wood: 2, rock: 3 }, station: "hand" },
@@ -307,7 +306,6 @@ export const PROGRESSION = {
     // gear while there is bronze, else smelts bronze (copper + tin, charcoal or coal).
     { id: "bronzeTools", label: "Cast bronze tools", output: "bronzeTools", amount: 1, stock: { wood: 2 }, items: { bronze: 2 }, station: TileType.Foundry, seconds: 40, cap: 1 },
     { id: "bronzeWeapon", label: "Cast bronze weapons", output: "bronzeWeapon", amount: 1, stock: { wood: 1 }, items: { bronze: 2 }, station: TileType.Foundry, seconds: 40, cap: 10 },
-    { id: "bronzeArmour", label: "Cast bronze armour", output: "bronzeArmour", amount: 1, items: { bronze: 3, hide: 1 }, station: TileType.Foundry, seconds: 50, cap: 10 },
     { id: "bronzeWashed", label: "Smelt bronze from washed tin", output: "bronze", amount: 3, items: { copperOre: 3, washedTin: 2, charcoal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
     { id: "bronzeWashedCoal", label: "Smelt bronze from washed tin with coal", output: "bronze", amount: 3, items: { copperOre: 3, washedTin: 2, coal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
     { id: "bronze", label: "Smelt bronze", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, charcoal: 1 }, station: TileType.Foundry, seconds: 40, cap: 30 },
@@ -472,7 +470,7 @@ export const PROGRESSION = {
     { id: "ore", label: "Crushing & washing", steps: [{ item: "carpenterTools" }, { building: TileType.StampMill }, { item: "washedTin" }, { item: "goldDust" }, { item: "sand" }] },
     { id: "glass", label: "Glass", steps: [{ building: TileType.LimeQuarry }, { item: "sand" }, { building: TileType.Glassworks }, { item: "glass" }, { item: "glassPanes" }, { item: "bottles" }] },
     { id: "gold", label: "Gold & lead", steps: [{ building: TileType.GoldMine }, { item: "goldDust" }, { building: TileType.Mint }, { item: "coins" }, { building: TileType.LeadMine }, { item: "lead" }] },
-    { id: "bronze", label: "Bronze", steps: [{ building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "crucible" }, { building: TileType.Foundry }, { item: "bronze" }, { item: "bronzeTools" }, { item: "bronzeWeapon" }, { item: "bronzeArmour" }] },
+    { id: "bronze", label: "Bronze", steps: [{ building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "crucible" }, { building: TileType.Foundry }, { item: "bronze" }, { item: "bronzeTools" }, { item: "bronzeWeapon" }, { building: TileType.Blacksmith }] },
     { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }, { building: TileType.LimeQuarry }, { item: "limestone" }, { item: "steel" }] },
     { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
     { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },

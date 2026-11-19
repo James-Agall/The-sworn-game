@@ -4773,3 +4773,26 @@ hero's personal craft table with its own skill).
   need a new requirement kind); a Goldsmith's jewellery (gems + gold dust -> luxury goods); bronze gear for the hero's own
   equipment slots (the hero uses the armoury's iron / steel pieces; bronze is for soldiers); a separate T1.5 visual on
   units (bronze soldiers look unequipped / as their iron tier).
+
+## Tree felling and bronze tier-1 armour — landed 2026-11-19
+- **Trees only give wood when felled.** A chop (hero swing or lumberjack strike) gives nothing; the tree falls after
+  `TREE_CHOPS` chops by size (sapling 2, tree 5, large tree 10; shared/src/trees.ts) and only then pays `TREE_WOOD` (1 / 3
+  / 6, unchanged). Progress per tile lives in `treeChops` (server/src/state.ts: tile index -> [chops, tick of the last
+  chop]); `chopTree` / `treeChopsDone` (economy.ts) add a chop and fell / pay on the last one, so two choppers on one tree
+  share the work and the wood is paid once. Progress untouched for `TREE_CHOP_DECAY_TICKS` (60 s) is lost; it is saved
+  (`treeChops`, optional) and cleared on a new world. The random `TREE_FELL_CHANCE` (0.25) is gone.
+- Hero: each 3 s chop counts one; the ring label reads "Chopping n/N"; the felling chop toasts "<Tree> felled: +N wood" and
+  stops. The pack-capacity check applies to the felling chop only.
+- Lumberjacks: at the tree they strike every `effectiveChopTicks` until it falls (2 s x 2 / 5 / 10), then carry the wood
+  home; if someone else felled it they go home empty. Wood income from lumberjacks drops by roughly the chop count.
+- **Tier-1 armour is bronze.** The Blacksmith forges tier-1 armour from `BRONZE_ARMOUR_FORGE_BRONZE` = 3 bronze (clan
+  item, from the Foundry) instead of 3 iron (queue, autocraft and the hero's own forge; panel cost "3 bronze", blocker "Not
+  enough bronze (smelt it at a Foundry)", button "Forge Bronze Armour T1"); tier 2-3 armour stays iron. Stats unchanged
+  (damage taken x0.85). The hero's tier-1 pieces from the armoury are "Bronze Cuirass" / "Bronze Helm" / "Bronze Shield".
+  Under COLONY_UNLOCK_ALL the old iron cost stays (older suites); creative pays nothing.
+- **One bronze armour system**: the separate soldier-only Bronze armour (Foundry item `bronzeArmour`, 3 bronze + 1 hide,
+  damage taken x0.92, `Colonist.bronzeArmour`) is removed; the Bronze chain ends at the Blacksmith. Bronze weapons
+  (T1.5, x1.1 for soldiers with no iron weapon) are unchanged; weapon forging still costs iron.
+- Tests: hero-tools (one chop gives nothing, felling on chop N pays the size's wood), player-workstations (three sizes
+  after 2 / 5 / 10 chops), industry-extra (no Foundry armour; T1 armour costs 3 bronze and no iron, refused without; the
+  hero takes and wears a Bronze Cuirass / Helm). MANUAL-TESTS.md "Tree felling" and "Bronze tier-1 armour".

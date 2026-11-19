@@ -16,11 +16,14 @@ export const STAMP_MILL_WATER_RADIUS_TILES = 3;
 // Bronze tools in store: the hero chops / quarries / mines this much faster, and the clan's woodcutters, quarrymen,
 // miners and diggers work this much faster (the stone tools are still needed: bronze is an edge, not a gate).
 export const BRONZE_TOOL_SPEED = 1.2;
-// Bronze gear: a soldier (knight, spearman, pikeman, cavalry) with no iron piece in a slot takes a bronze one from the
-// stores when it musters or re-arms (gear pickup); an iron piece later replaces it and the bronze goes back to the
-// stores. Bronze weapon: damage x1.1 (iron T1 x1.2); bronze armour: damage taken x0.92 (iron T1 x0.85).
+// Bronze weapons: a soldier (knight, spearman, pikeman, cavalry) with no iron weapon takes a bronze one from the
+// stores when it musters or re-arms (gear pickup); an iron weapon later replaces it and the bronze goes back to the
+// stores. Bronze weapon: damage x1.1 (iron T1 x1.2).
 export const BRONZE_WEAPON_DAMAGE_MULT = 1.1;
-export const BRONZE_ARMOUR_DAMAGE_TAKEN_MULT = 0.92;
+// Tier-1 armour is bronze (2026-11-19): the Blacksmith forges it (soldiers' armoury stock, and the hero's cuirass /
+// helm / shield taken from it) from this much bronze instead of iron; tier 2+ armour stays iron. Damage taken x0.85
+// (ARMOUR_DAMAGE_TAKEN_MULT[1]). The old iron cost under COLONY_UNLOCK_ALL.
+export const BRONZE_ARMOUR_FORGE_BRONZE = 3;
 
 // ---- steel ----
 // Steel is made at the Blast furnace (Bloomery level 2+) by a level-2 smelter: 2 iron blooms + 1 limestone (flux) + 2

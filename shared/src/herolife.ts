@@ -128,8 +128,7 @@ export function gatherKindOf(tile: TileType, ripeForage: boolean): GatherKind | 
   if (ripeForage) return "forage";
   return null;
 }
-// Chance a chopped tree falls (the tile clears) on each yield.
-export const TREE_FELL_CHANCE = 0.25;
+// Felling: chops per tree and the wood it pays when it falls live in trees.ts (TREE_CHOPS / TREE_WOOD).
 
 // ---- Stardew phase 5a: tools on tiles (docs/colony2d/PLAN-rimworld-stardew.md) ----
 // The hotbar (keys 1-9): each slot acts on the tile the hero faces (one tile away). Tools are clan items (kept); seed

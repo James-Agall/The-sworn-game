@@ -1334,11 +1334,11 @@ A normal game (gates on); Creative "Unlock all" off. The new buildings are in th
 3. Lime Quarry / Gold Mine / Lead Mine: refused off their deposit ("must be sunk on a ... deposit"); built on one, a miner
    digs Limestone / Gold ore / Lead ore (Resources panel); press E on the mine: a mine interior with pale / gold / slate
    ore faces.
-4. Foundry with copper and tin ore and charcoal: Bronze, then Bronze tools, Bronze weapons, Bronze armour (with hides).
+4. Foundry with copper and tin ore and charcoal: Bronze, then Bronze tools, Bronze weapons (no Bronze armour item since
+   2026-11-19: tier-1 armour is forged from bronze at the Blacksmith, see "Bronze tier-1 armour" below).
    With bronze tools in store the hero chops / mines visibly faster.
-5. With no iron armour / weapons in the armoury, train a knight: click it: its stats show more damage / less damage taken
-   than an unequipped one; Bronze weapons / armour in the stores go down. Forge an iron piece: the knight swaps (stores'
-   bronze goes back up).
+5. With no iron weapons in the armoury, train a knight: click it: its stats show more damage than an unequipped one;
+   Bronze weapons in the stores go down. Forge an iron weapon: the knight swaps (stores' bronze weapons go back up).
 6. Stamp Mill: refused on dry ground; beside water: gold ore -> Gold dust, tin ore -> Washed tin, stone -> Sand. The
    Foundry's bronze from washed tin is 3 a batch.
 7. Bloomery level 1 with a smelter, limestone and blooms: its panel says "Steel: needs a level-2 Bloomery"; upgrade to a
@@ -1353,3 +1353,35 @@ A normal game (gates on); Creative "Unlock all" off. The new buildings are in th
 12. Save and reload: the new buildings, items, bronze on soldiers and unlocks are unchanged.
 13. Art check: Foundry / Glassworks (tinted blacksmith), Stamp Mill (tinted barn), Mint (tinted tavern), the three mines
     (tinted quarry / iron mine), the three deposits: readable and distinct enough?
+
+## Tree felling (2026-11-19)
+1. New game, hero with the stone axe: walk up to a tree and hold E (or use the axe, key 5): the progress ring reads
+   "Chopping 1/5" (sapling 1/2, large tree 1/10) and counts up each swing; the pack's wood does NOT rise per swing.
+2. Keep chopping: on the last chop the tree disappears and a toast says "Tree felled: +3 wood" (sapling +1, large +6);
+   the pack shows the wood. Chopping stops by itself.
+3. Chop a large tree 3 times, walk away for over a minute, come back: the ring restarts at 1/10 (progress decays).
+4. Chop a tree twice, save, reload: the ring continues at 3/5 (progress is saved).
+5. With a nearly full pack (e.g. 39/40 weight), chop a tree: the swings still count until the felling chop, which
+   is refused with "Your pack is full" (the tree stays standing at N-1, ready to fell once there is room).
+6. A Lumberjack post: watch the lumberjack: it stands at one tree for several chop cycles (longer for big trees) before
+   the tree vanishes and it walks home; the wood stock rises only when it gets back (1 / 3 / 6 by tree size). Wood
+   income from lumberjacks is noticeably slower than before.
+7. Hero and lumberjack on the same tree: the swings add up; the tree falls once and only whoever lands the last chop
+   gets the wood (no double payout).
+
+## Bronze tier-1 armour (2026-11-19)
+1. Blacksmith with a level-2 smith, no bronze in store: the building panel's armour button reads "Forge Bronze Armour T1",
+   cost "3 bronze, 15s", disabled with "Not enough bronze (smelt it at a Foundry)". The weapon button still costs iron.
+2. Smelt bronze at a Foundry (copper + tin + charcoal), then forge the armour: 3 bronze leave the stores (Items panel),
+   iron is untouched; the armoury gains a tier-1 armour piece. Upgrade the Blacksmith to level 2: armour T2 costs iron
+   (+ tools / wood) as before, no bronze.
+3. Forge autocraft on a level-1 Blacksmith with no bronze: the status says "... or no bronze for armour"; weapons still get
+   forged to target. Give it bronze: armour gets forged too.
+4. Train a knight with tier-1 armour in the armoury: it takes it (less damage taken, as iron T1 used to be).
+5. Character sheet -> take tier-1 armour from the armoury: the pack gets a "Bronze Cuirass" (chest, -15% damage taken);
+   as head armour a "Bronze Helm", as off-hand a "Bronze Shield". Equip it: it shows on the hero and the stats apply.
+6. Hero's own forge (walk up to your Blacksmith / anvil, E -> Craft): "Forge tier 1 bronze armour ×1 ... 3 bronze".
+   Without bronze it says "Needs Bronze".
+7. The Foundry no longer offers "Cast bronze armour"; its tooltip says bronze is what the Blacksmith forges tier-1 armour
+   from. The Progression panel's Bronze chain ends at the Blacksmith.
+8. Creative mode: forging tier-1 armour is free like other costs.

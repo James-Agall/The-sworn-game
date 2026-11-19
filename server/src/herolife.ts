@@ -13,7 +13,7 @@ import { TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, type TradeGood, type Relat
 import {
   ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, BRIDE_GIFT_GOLD, CEREMONY_FEE, COURT_GIFT_GOLD, COURT_NEEDED, FOUND_CAMP_COST, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
   MASTER_FEE, MASTER_MAX_LEVEL, NEED_LOW, NEED_MAX, NPC_ROLE_LABEL, PACK_CAP, PACK_FOOD, PACK_GOODS, PACK_LABEL,
-  PACK_WEIGHT, PERSONAL_BUILDS, PERSONAL_BUILD_MAX, STATION_SKILL, TALK_RANGE_TILES, TREE_FELL_CHANCE,
+  PACK_WEIGHT, PERSONAL_BUILDS, PERSONAL_BUILD_MAX, STATION_SKILL, TALK_RANGE_TILES,
   ENERGY_COST, ENERGY_EMPTY_SPEED, ENERGY_MAX, ENERGY_PER_FOOD, ENERGY_REST_PER_S, HAND_HARVEST_SECONDS, HERO_TOOLS, HERO_TOOL_ITEM,
   SEED_ITEM, TOOL_ACT_LABEL, TOOL_SECONDS, WATER_CAN_CHARGES, HERALD_LINES,
   type DialogueAction, type DialogueSnapshot, type GatherKind, type HeroLifeSnapshot, type HeroSkill, type HeroTool, type NpcRole,
@@ -31,6 +31,7 @@ import { isWalkableTile } from "./pathfinding.js";
 import { resolveTownCenterPlacement } from "./construction.js";
 import { newPerson, spawnVillager } from "./colonists.js";
 import { setTile, tileIndicesOf } from "./chunks.js";
+import { chopTree, treeChopsDone } from "./economy.js";
 import { broadcastTileUpdate, circleOffsets, revealAround } from "./net.js";
 import { sendTo } from "./saves.js";
 import { clanIdAt, clanOf, clanTownCenters, townCentersOfClan, withClan } from "./clans.js";
@@ -38,7 +39,7 @@ import { gameDay, handleTradeWithSite, standingTown, tierOf, tilesToWalls } from
 import { adjustRelation, relationOf } from "./sites.js";
 import { forcePostQuest, handleQuestMessage, quests, questsForSnapshot } from "./quests.js";
 import { addItem, bronzeToolMult, produceItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
-import { forgeCost, forgedTier, heroProfileOf, playerMaxHp } from "./heroes.js";
+import { forgeCost, forgedTier, forgeItems, heroProfileOf, playerMaxHp } from "./heroes.js";
 import {
   bringKinHome, cachedFamilySnapshot, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
 } from "./family.js";
@@ -1047,7 +1048,9 @@ function findOwnStation(p: Player, target?: { tx: number; ty: number }): { tx: n
 function gatherBlock(p: Player, kind: GatherKind, tx?: number, ty?: number): string {
   const def = GATHER[kind];
   if (def.tool && !gatesOpen() && itemCount(def.tool) <= 0) return `${def.label} needs a ${def.tool === "stoneAxe" ? "stone axe" : "stone pick"} in your stores`;
-  if (packWeight(lifeOf(p)) + (kind === "chop" && tx !== undefined && ty !== undefined ? treeAt(tx,ty).wood : def.amount) * PACK_WEIGHT[def.good] > PACK_CAP) return "Your pack is full: deposit it at a Town Center or chest, or sell it";
+  // Felling: only the chop that fells the tree needs room for its wood.
+  const amount = kind === "chop" && tx !== undefined && ty !== undefined ? (treeChopsDone(tx, ty) + 1 >= treeAt(tx, ty).chops ? treeAt(tx, ty).wood : 0) : def.amount;
+  if (packWeight(lifeOf(p)) + amount * PACK_WEIGHT[def.good] > PACK_CAP) return "Your pack is full: deposit it at a Town Center or chest, or sell it";
   return "";
 }
 
@@ -1319,14 +1322,18 @@ function stepGather(p: Player, b: Busy, g: GatherJob) {
   const bronze = g.kind === "chop" || g.kind === "quarry" || g.kind === "mine" ? bronzeToolMult("hero") : 1;
   g.left -= skillSpeed(skillLevel(life, def.skill)) * energySpeed(life) * heroColdWorkMult(p) * bronze;
   if (g.left > 0) return;
+  // Felling (2026-11-19): a chop gives no wood; the tree falls after treeAt().chops chops and pays out then.
   const amount = g.kind === "chop" ? treeAt(g.tx,g.ty).wood : def.amount;
-  if (packWeight(life)+amount*PACK_WEIGHT[def.good]>PACK_CAP) { b.gather=undefined; return toast(p,"Your pack is full"); }
-  life.pack[def.good] = (life.pack[def.good] ?? 0) + amount;
+  const fells = g.kind !== "chop" || treeChopsDone(g.tx, g.ty) + 1 >= treeAt(g.tx, g.ty).chops;
+  if (fells && packWeight(life)+amount*PACK_WEIGHT[def.good]>PACK_CAP) { b.gather=undefined; return toast(p,"Your pack is full"); }
+  if (g.kind === "chop") chopTree(g.tx, g.ty);
+  if (fells) life.pack[def.good] = (life.pack[def.good] ?? 0) + amount;
   gainSkill(p, def.skill, def.seconds);
   spendEnergy(life, g.kind === "chop" ? ENERGY_COST.chop : g.kind === "mine" || g.kind === "quarry" ? ENERGY_COST.mine : 0);
-  if (g.kind === "chop" && Math.random() < TREE_FELL_CHANCE) {
-    setTile(i, TileType.Empty);
-    broadcastTileUpdate(g.tx, g.ty, TileType.Empty);
+  if (g.kind === "chop" && fells) {
+    toast(p, `${treeAt(g.tx, g.ty).name} felled: +${amount} wood`);
+    b.gather = undefined;
+    return;
   } else if (g.kind === "forage") {
     const picked = FORAGE_RIPE_TO_PICKED[tile]!;
     setTile(i, picked);
@@ -1443,7 +1450,7 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
       const xp = Math.floor(life.skills[id] ?? 0);
       return { id, level: levelForXp(xp), xp, next: xpToNext(xp) };
     }),
-    ...(b?.gather ? { gather: { label: GATHER[b.gather.kind].label, p: Math.round(100 * (1 - b.gather.left / b.gather.total)) / 100 } } : {}),
+    ...(b?.gather ? { gather: { label: b.gather.kind === "chop" ? `${GATHER.chop.label} ${treeChopsDone(b.gather.tx, b.gather.ty) + 1}/${treeAt(b.gather.tx, b.gather.ty).chops}` : GATHER[b.gather.kind].label, p: Math.round(100 * (1 - b.gather.left / b.gather.total)) / 100 } } : {}),
     ...(b?.tool ? { gather: { label: TOOL_ACT_LABEL[b.tool.act], p: Math.round(100 * (1 - b.tool.left / b.tool.total)) / 100 } } : {}),
     energy: Math.round(energyOf(life)),
     water: waterOf(life),
@@ -1529,7 +1536,7 @@ export function playerStationRecipes(tile:TileType):PersonalRecipe[] {
  const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stationLevel:r.stationLevel,gradeBonus:r.gradeBonus,stock:r.stock,items:r.items,needs:r.needs,item:r.output}));
  const r=CRAFT_RECIPES[tile];
  if(r)rows.push({id:'artisan:'+tile,label:({clothes:'Sew clothes',tools:'Forge tools',luxuryItems:'Craft luxury goods',alcohol:'Brew ale',gold:'Serve drinks'} as Record<string,string>)[r.output]??r.output,amount:r.outputAmount??1,seconds:30,stock:r.inputs,stockOutput:r.output});
- if(tile===TileType.Blacksmith)for(const tier of [1,2,3])for(const gear of ['weapon','armour'] as const)rows.push({id:`forge:${gear}:${tier}`,label:`Forge tier ${tier} ${gear==='weapon'?'weapons':'armour'}`,level:gatesOpen()?undefined:smithLevelForGearTier(tier),amount:1,seconds:FORGE_TICKS[gear]/TICK_RATE,tier,stock:forgeCost(gear,tier),gear});
+ if(tile===TileType.Blacksmith)for(const tier of [1,2,3])for(const gear of ['weapon','armour'] as const)rows.push({id:`forge:${gear}:${tier}`,label:`Forge tier ${tier} ${gear==='weapon'?'weapons':forgeItems(gear,tier).bronze?'bronze armour':'armour'}`,level:gatesOpen()?undefined:smithLevelForGearTier(tier),amount:1,seconds:FORGE_TICKS[gear]/TICK_RATE,tier,stock:forgeCost(gear,tier),items:forgeItems(gear,tier),gear});
  return rows;
 }
 function personalRecipeBlock(p:Player,r:PersonalRecipe,st:{tx:number;ty:number;tile:TileType}):string {

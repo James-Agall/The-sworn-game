@@ -727,6 +727,8 @@ export const equipEvents: { type: string; id?: string; slot?: EquipSlot; tier?: 
 // -- wildlife --
 // Tile index -> ticks until that picked plant is ripe again.
 export const forageRegrow = new Map<number, number>();
+// Felling (2026-11-19): tree tile index -> [chops so far, cycleTick of the last chop] (economy.ts chopTree).
+export const treeChops = new Map<number, [number, number]>();
 export const wildlife = new Map<number, Wildlife>();
 
 // -- slots --
