@@ -27,7 +27,9 @@ export type ItemId =
   // Industry extras (phase 6, shared/src/industry.ts): bronze and what the Foundry casts from it.
   | "bronze" | "bronzeTools" | "bronzeWeapon" | "bronzeArmour"
   // The new deposits' ores and what the Stamp Mill crushes and washes out of them.
-  | "limestone" | "goldOre" | "leadOre" | "washedTin" | "goldDust" | "sand";
+  | "limestone" | "goldOre" | "leadOre" | "washedTin" | "goldDust" | "sand"
+  // Steel from the Blast furnace (flux: limestone).
+  | "steel";
 
 export type StockKey = "wood" | "rock" | "iron" | "grain" | "meat" | "fruit" | "wool" | "cotton" | "clothes" | "tools";
 
@@ -87,6 +89,8 @@ export interface Recipe {
   cap?: number;
   // Station recipes: the worker level needed (default 1).
   workerLevel?: number;
+  // Station recipes: the station level needed (default 1; industry extras: steel only in a Blast furnace, Bloomery 2+).
+  stationLevel?: number;
 }
 
 // One step of a Progression panel chain: a building type or an item.
@@ -196,6 +200,7 @@ export const PROGRESSION = {
     leadOre: { label: "Lead ore", desc: "Dug at a Lead Mine (on lead ore). The Foundry smelts it into lead.", group: "material" },
     washedTin: { label: "Washed tin", desc: "Tin ore crushed and washed at the Stamp Mill (2 ore -> 3). The Foundry makes more bronze from it.", group: "material" },
     goldDust: { label: "Gold dust", desc: "Washed out of crushed gold ore at the Stamp Mill.", group: "material" },
+    steel: { label: "Steel", desc: "Made at the Blast furnace (Bloomery level 2+) from iron blooms with limestone flux. Fine steel in store: the Blacksmith forges each piece a tier better.", group: "material" },
     sand: { label: "Sand", desc: "Stone crushed at the Stamp Mill. Glass is melted from it.", group: "material" },
     bronzeArmour: { label: "Bronze armour", desc: "Cast at the Foundry from bronze and hide. A soldier with no iron armour wears it (damage taken -8%; iron -15%).", group: "tool" },
   } satisfies Record<ItemId, ItemDef>,
@@ -229,6 +234,9 @@ export const PROGRESSION = {
     // Bloomery: the anvil and the smith's tools first (one each is enough), then blooms.
     { id: "anvil", label: "Cast an anvil", output: "anvil", amount: 1, items: { ironBloom: 4 }, station: TileType.Bloomery, seconds: 60, cap: 1 },
     { id: "smithTools", label: "Forge hammer & tongs", output: "smithTools", amount: 1, stock: { wood: 2 }, items: { ironBloom: 2 }, station: TileType.Bloomery, seconds: 40, cap: 1 },
+    // Industry extras: steel at the Blast furnace (Bloomery level 2+), blooms + limestone flux, by a level-2 smelter.
+    { id: "steel", label: "Make steel", output: "steel", amount: 1, items: { ironBloom: 2, limestone: 1, charcoal: 2 }, station: TileType.Bloomery, seconds: 60, cap: 20, workerLevel: 2, stationLevel: 2 },
+    { id: "steelCoal", label: "Make steel with coal", output: "steel", amount: 1, items: { ironBloom: 2, limestone: 1, coal: 2 }, station: TileType.Bloomery, seconds: 60, cap: 20, workerLevel: 2, stationLevel: 2 },
     { id: "flour", label: "Grind flour", output: "flour", amount: 2, stock: { grain: 2 }, station: TileType.Mill, seconds: 20, cap: 40 },
     // Bakery: the starter first once the baker is level 2 (a ~3-day culture), then bread while it is kept, else flatbread.
     { id: "sourdoughStarter", label: "Culture a sourdough starter", output: "sourdoughStarter", amount: 1, items: { flour: 1 }, station: TileType.Bakery, seconds: 900, cap: 1, workerLevel: 2 },
@@ -432,7 +440,7 @@ export const PROGRESSION = {
     { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "timberProps" }, { building: TileType.CoalMine }, { item: "coal" }, { building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "mineLamps" }, { item: "mineVent" }, { item: "minePump" }, { building: TileType.LimeQuarry }, { building: TileType.GoldMine }, { building: TileType.LeadMine }] },
     { id: "ore", label: "Crushing & washing", steps: [{ item: "carpenterTools" }, { building: TileType.StampMill }, { item: "washedTin" }, { item: "goldDust" }, { item: "sand" }] },
     { id: "bronze", label: "Bronze", steps: [{ building: TileType.CopperMine }, { building: TileType.TinMine }, { item: "crucible" }, { building: TileType.Foundry }, { item: "bronze" }, { item: "bronzeTools" }, { item: "bronzeWeapon" }, { item: "bronzeArmour" }] },
-    { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }] },
+    { id: "metal", label: "Metal", steps: [{ building: TileType.CharcoalBurner }, { item: "charcoal" }, { item: "bricks" }, { item: "bellows" }, { building: TileType.Bloomery }, { item: "ironBloom" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }, { building: TileType.LimeQuarry }, { item: "limestone" }, { item: "steel" }] },
     { id: "clay", label: "Clay & pottery", steps: [{ item: "woodenShovel" }, { building: TileType.ClayPit }, { item: "clay" }, { building: TileType.Kiln }, { item: "bricks" }, { item: "clayPot" }, { item: "roofTiles" }, { item: "tableware" }, { item: "crucible" }] },
     { id: "food", label: "Food", steps: [{ item: "woodenPlow" }, { building: TileType.BarnPost }, { item: "gruel" }, { item: "millstone" }, { building: TileType.Mill }, { item: "flour" }, { item: "clayOven" }, { building: TileType.Bakery }, { item: "flatbread" }, { item: "sourdoughStarter" }, { item: "bread" }] },
     { id: "keeping", label: "Keeping food", steps: [{ building: TileType.Cellar }, { building: TileType.SaltWorks }, { item: "salt" }, { building: TileType.Smokehouse }, { item: "smokedMeat" }, { item: "saltedMeat" }, { building: TileType.Dairy }, { item: "rennet" }, { item: "cheese" }] },

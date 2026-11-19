@@ -2,8 +2,8 @@ import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS } from "@colony/shared/protocol"
 import { sanitizeHeroAppearance, HERO_WEAPON_KINDS, heroVisualFromEquipment } from "@colony/shared/protocol";
 // heroes.ts: Hero phases 1-4 support: equipment, hero profiles, items, relics, recruitable heroes, Blacksmith forging.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
-import { addItem, gatesOpen, itemCount, takeItem, workerLevelAt } from "./progression.js";
-import { BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_WEAPON_DAMAGE_MULT } from "@colony/shared/industry";
+import { addItem, gatesOpen, itemCount, takeItem, takeItemOfGrade, workerLevelAt } from "./progression.js";
+import { BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_WEAPON_DAMAGE_MULT, STEEL_FINE_TIER_BONUS } from "@colony/shared/industry";
 import { smithLevelForGearTier } from "@colony/shared/progression";
 import { sanitizeHeroLife } from "@colony/shared/herolife";
 import { randomUUID } from "node:crypto";
@@ -770,7 +770,7 @@ export function blacksmithForgeInfo(tx: number, ty: number): NonNullable<Buildin
       const reason = forgeQueueBlocker(tx, ty, slot);
       return {
         slot,
-        label: `Forge ${slot === "armour" ? "Armour" : "Weapon"} T${tier}`,
+        label: `Forge ${slot === "armour" ? "Armour" : "Weapon"} T${tier}${tier < EQUIP_TIERS && fineSteelInStore() ? ` (T${Math.min(EQUIP_TIERS, tier + STEEL_FINE_TIER_BONUS)} with Fine steel)` : ""}`,
         cost: `${formatCost(forgeCost(slot, tier))}, ${FORGE_TICKS[slot] / TICK_RATE}s`,
         enabled: reason === "",
         reason,
@@ -786,10 +786,22 @@ export function handleQueueForge(tx: number, ty: number, slot: unknown) {
   queueForgeItem(tx, ty, slot);
 }
 
-// Pays for and queues one `slot` item of the Blacksmith's tier (callers have checked forgeQueueBlocker).
+// Industry extras: the tier a piece of `tier` comes out at. Below tier 3 with Fine (grade-3) steel in the active clan's
+// stores, one Fine steel is used and the piece is STEEL_FINE_TIER_BONUS better. Off under COLONY_UNLOCK_ALL.
+export function forgedTier(tier: number): number {
+  if (state.testUnlockAll || tier >= EQUIP_TIERS || !takeItemOfGrade("steel", 3)) return tier;
+  return Math.min(EQUIP_TIERS, tier + STEEL_FINE_TIER_BONUS);
+}
+function fineSteelInStore(): boolean {
+  return !state.testUnlockAll && (state.progress.items.steel?.[2] ?? 0) > 0;
+}
+
+// Pays for and queues one `slot` item of the Blacksmith's tier (callers have checked forgeQueueBlocker); Fine steel
+// in store makes it a tier better (forgedTier).
 function queueForgeItem(tx: number, ty: number, slot: EquipSlot) {
-  const tier = getBuildingLevel(tx, ty);
-  spend(forgeCost(slot, tier));
+  const base = getBuildingLevel(tx, ty);
+  spend(forgeCost(slot, base));
+  const tier = forgedTier(base);
   const key = resourceKey(tx, ty);
   let localState = forgeQueues.get(key);
   if (!localState) {

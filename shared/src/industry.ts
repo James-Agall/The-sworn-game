@@ -21,3 +21,11 @@ export const BRONZE_TOOL_SPEED = 1.2;
 // stores. Bronze weapon: damage x1.1 (iron T1 x1.2); bronze armour: damage taken x0.92 (iron T1 x0.85).
 export const BRONZE_WEAPON_DAMAGE_MULT = 1.1;
 export const BRONZE_ARMOUR_DAMAGE_TAKEN_MULT = 0.92;
+
+// ---- steel ----
+// Steel is made at the Blast furnace (Bloomery level 2+) by a level-2 smelter: 2 iron blooms + 1 limestone (flux) + 2
+// charcoal (or coal); its grade is the furnace's tier like every station's (a level-3 furnace with a level-3 smelter
+// makes Fine steel). Forging at a Blacksmith with Fine (grade-3) steel in store: one Fine steel is used per piece below
+// tier 3 and the piece comes out STEEL_FINE_TIER_BONUS tier better (a level-2 forge makes tempered, tier-3 gear). Poor /
+// Good steel waits in the stores (it counts for nothing at the forge).
+export const STEEL_FINE_TIER_BONUS = 1;

@@ -57,6 +57,15 @@ export function takeItem(id: ItemId, n: number): boolean {
   return true;
 }
 
+// Industry extras: takes one of `id` of exactly `grade` (false when there is none).
+export function takeItemOfGrade(id: ItemId, grade: number): boolean {
+  const grades = state.progress.items[id];
+  if (!grades || (grades[grade - 1] ?? 0) <= 0) return false;
+  grades[grade - 1]--;
+  snapshotDirty.add(state.clan.id);
+  return true;
+}
+
 // Winter: takes one of `id`, best grade first; returns its grade (0: none in stock).
 export function takeBestItem(id: ItemId): number {
   const grades = state.progress.items[id];
@@ -155,7 +164,7 @@ export function progressionInfo(tx: number, ty: number, t: TileType): string[] |
       const job = stationJobs.get(c.id);
       if (job) lines.push(`Making: ${PROGRESSION.items[job.recipe.output].label} (${Math.round(100 * (1 - job.left / job.total))}%)`);
     }
-    if (workers.length > 0 && stationRecipes(t).length > 0 && ![...workers].some((c) => stationJobs.has(c.id))) lines.push(`${CRAFT_RECIPES[t] ? CRAFT_MEANWHILE[CRAFT_RECIPES[t]!.output] ?? "Meanwhile" : "Idle"}: ${stationIdleReason(t)}`);
+    if (workers.length > 0 && stationRecipes(t).length > 0 && ![...workers].some((c) => stationJobs.has(c.id))) lines.push(`${CRAFT_RECIPES[t] ? CRAFT_MEANWHILE[CRAFT_RECIPES[t]!.output] ?? "Meanwhile" : "Idle"}: ${stationIdleReason(t, level)}`);
     if (t === TileType.IronMinePost || t === TileType.RockMinePost || depositMineFor(t)) lines.push(depositLine(tx, ty));
     if (workers.length > 0) lines.push(`Works at tier ${tier} of ${level}: speed x${tierSpeed(tier).toFixed(2)}, quality ${QUALITY_GRADES[Math.min(tier, MAX_QUALITY) - 1].label}`);
   }
@@ -250,10 +259,12 @@ export function recipeReady(r: Recipe): boolean {
 }
 
 // "Iron bloom: short of Charcoal; Anvil: 1 in store (enough)".
-export function stationIdleReason(t: TileType): string {
+// `level`: the station's (industry extras: recipes that need a higher one say so).
+export function stationIdleReason(t: TileType, level = 1): string {
   const parts = stationRecipes(t).map((r) => {
     const name = PROGRESSION.items[r.output].label;
     if (r.seasonsOnly && state.seasonsOff) return `${name}: not needed (no winters)`;
+    if ((r.stationLevel ?? 1) > 1 && level < r.stationLevel!) return `${name}: needs a level-${r.stationLevel} ${buildingLabel(t)}`;
     if (r.cap !== undefined && itemCount(r.output) >= r.cap) return `${name}: ${itemCount(r.output)} in store (enough)`;
     const short = Object.entries(r.stock ?? {}).filter(([k, n]) => !state.creative && state.stock[k as ResourceKey] < (n ?? 0)).map(([k]) => k);
     for (const [id, n] of Object.entries({ ...(r.items ?? {}), ...(r.needs ?? {}) }) as [ItemId, number][]) if (itemCount(id) < n) short.push(PROGRESSION.items[id].label);
@@ -269,7 +280,7 @@ export function updateStationWork(c: Colonist): boolean {
   c.state = "crafting";
   let job = stationJobs.get(c.id);
   if (!job) {
-    const r = recipes.find((rc) => (rc.workerLevel ?? 1) <= workerLevel(c) && recipeReady(rc));
+    const r = recipes.find((rc) => (rc.workerLevel ?? 1) <= workerLevel(c) && (rc.stationLevel ?? 1) <= getBuildingLevel(c.postX, c.postY) && recipeReady(rc));
     if (!r) {
       // Winter: a Tailor with no garment to sew weaves cloth (the old CRAFT_RECIPES path) meanwhile.
       if (CRAFT_RECIPES[state.tiles[tileIndex(c.postX, c.postY)] as TileType]) return false;

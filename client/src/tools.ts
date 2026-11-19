@@ -16,7 +16,9 @@ import { CLAY_PIT_WATER_RADIUS_TILES, TABLEWARE_HAPPINESS, TABLEWARE_MIN } from 
 import {
   ALE_HAPPINESS, CELLAR_SPOIL_CUT, IRON_PLOW_GROWTH_MULT, IRON_PLOW_YIELD_MULT, ORCHARD_YIELD_BY_AGE, SALT_WORKS_WATER_RADIUS_TILES, SPOIL_PER_DAY,
 } from "@colony/shared/agri";
-import { BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_TOOL_SPEED, BRONZE_WEAPON_DAMAGE_MULT, STAMP_MILL_WATER_RADIUS_TILES } from "@colony/shared/industry";
+import {
+  BRONZE_ARMOUR_DAMAGE_TAKEN_MULT, BRONZE_TOOL_SPEED, BRONZE_WEAPON_DAMAGE_MULT, STAMP_MILL_WATER_RADIUS_TILES, STEEL_FINE_TIER_BONUS,
+} from "@colony/shared/industry";
 import {
   ROOM_BARRACKS_MIN_BEDS, ROOM_BEAUTY_POINTS, ROOM_WARMTH_AREA_TILES, ROOM_WARMTH_PER_HEARTH, ROOM_WARMTH_PER_LAMP, ROOM_WORKBENCH_MAX,
   ROOM_WORKBENCH_SPEED,
@@ -242,7 +244,7 @@ export const TOOLS: ToolDef[] = [
     tile: TileType.Bloomery,
     label: "Bloomery",
     key: "x",
-    cost: `${buildCostText(TileType.Bloomery)} (level 2+: Blast furnace). Smelts 3 Iron + 2 Charcoal → Iron bloom; casts the anvil, hammer & tongs a Blacksmith needs`,
+    cost: `${buildCostText(TileType.Bloomery)} (level 2+: Blast furnace). Smelts 3 Iron + 2 Charcoal → Iron bloom; casts the anvil, hammer & tongs a Blacksmith needs. A Blast furnace with a level-2 smelter makes Steel from 2 Iron blooms + 1 Limestone + 2 Charcoal (or Coal); Fine steel in store forges each piece ${STEEL_FINE_TIER_BONUS} tier better`,
     category: "industry",
   },
   // Clay pit and pottery (no free key: button only).

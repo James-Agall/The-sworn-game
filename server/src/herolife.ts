@@ -38,7 +38,7 @@ import { gameDay, handleTradeWithSite, standingTown, tierOf, tilesToWalls } from
 import { adjustRelation, relationOf } from "./sites.js";
 import { forcePostQuest, handleQuestMessage, quests, questsForSnapshot } from "./quests.js";
 import { addItem, bronzeToolMult, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
-import { forgeCost, heroProfileOf, playerMaxHp } from "./heroes.js";
+import { forgeCost, forgedTier, heroProfileOf, playerMaxHp } from "./heroes.js";
 import {
   bringKinHome, cachedFamilySnapshot, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
 } from "./family.js";
@@ -1364,7 +1364,8 @@ function stepWork(p: Player, b: Busy, w: WorkJob) {
   for(const[id,n]of Object.entries(r.items??{}))takeItem(id as ItemId,n??0);
   if(r.item)addItem(r.item,r.amount,tier);
   if(r.stockOutput)state.stock[r.stockOutput]+=r.amount;
-  if(r.gear)state.equipment[r.gear][r.tier!-1]+=r.amount;
+  // Industry extras: Fine steel in store forges each piece a tier better (forgedTier).
+  if(r.gear)for(let i=0;i<r.amount;i++)state.equipment[r.gear][forgedTier(r.tier!)-1]++;
   gainSkill(p,w.skill,Math.max(1,Math.round(w.job.total/TICK_RATE)));
   spendEnergy(life,2);
   toast(p,`${r.label} complete. Added to your stockpile.`);
@@ -1515,7 +1516,7 @@ export function heroLifeDebug(p: Player) {
 
 // Player crafting uses the existing progression, artisan and forge definitions.
 interface PersonalRecipe {
- id:string; label:string; amount:number; seconds:number; level?:number; tier?:number;
+ id:string; label:string; amount:number; seconds:number; level?:number; tier?:number; stationLevel?:number;
  stock?:Partial<Record<ResourceKey,number>>; items?:Partial<Record<ItemId,number>>; needs?:Partial<Record<ItemId,number>>;
  item?:ItemId; stockOutput?:ResourceKey; gear?:'armour'|'weapon';
 }
@@ -1525,7 +1526,7 @@ function personalStation(p:Player,target?:{tx:number;ty:number}) {
  return st && ownerAt(tileIndex(st.tx,st.ty))===0 && clanIdAt(st.tx,st.ty)===(p.clan??0) && tileCenterDist(p,st.tx,st.ty)<=3 ? st:null;
 }
 export function playerStationRecipes(tile:TileType):PersonalRecipe[] {
- const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stock:r.stock,items:r.items,needs:r.needs,item:r.output}));
+ const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stationLevel:r.stationLevel,stock:r.stock,items:r.items,needs:r.needs,item:r.output}));
  const r=CRAFT_RECIPES[tile];
  if(r)rows.push({id:'artisan:'+tile,label:({clothes:'Sew clothes',tools:'Forge tools',luxuryItems:'Craft luxury goods',alcohol:'Brew ale',gold:'Serve drinks'} as Record<string,string>)[r.output]??r.output,amount:r.outputAmount??1,seconds:30,stock:r.inputs,stockOutput:r.output});
  if(tile===TileType.Blacksmith)for(const tier of [1,2,3])for(const gear of ['weapon','armour'] as const)rows.push({id:`forge:${gear}:${tier}`,label:`Forge tier ${tier} ${gear==='weapon'?'weapons':'armour'}`,level:gatesOpen()?undefined:smithLevelForGearTier(tier),amount:1,seconds:FORGE_TICKS[gear]/TICK_RATE,tier,stock:forgeCost(gear,tier),gear});
@@ -1533,6 +1534,7 @@ export function playerStationRecipes(tile:TileType):PersonalRecipe[] {
 }
 function personalRecipeBlock(p:Player,r:PersonalRecipe,st:{tx:number;ty:number;tile:TileType}):string {
  if(r.tier && getBuildingLevel(st.tx,st.ty)<r.tier)return `Upgrade the blacksmith to level ${r.tier}`;
+ if(r.stationLevel && getBuildingLevel(st.tx,st.ty)<r.stationLevel)return `Upgrade the station to level ${r.stationLevel}`;
  if(skillLevel(lifeOf(p),STATION_SKILL[st.tile]!)<(r.level??1))return `Needs skill level ${r.level}`;
  for(const[k,n]of Object.entries(r.stock??{}))if(!state.creative&&state.stock[k as ResourceKey]<(n??0))return `Not enough ${k} in stockpile`;
  for(const id of new Set([...Object.keys(r.items??{}),...Object.keys(r.needs??{})]) as Set<ItemId>)if(itemCount(id)<Math.max(r.items?.[id]??0,r.needs?.[id]??0))return `Needs ${PROGRESSION.items[id].label}`;

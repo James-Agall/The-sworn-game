@@ -3,14 +3,15 @@
 // COLONY_UNLOCK_ALL (scripts/run-tests.mjs gives all of that: `npm test -- industry-extra`). Checks: the Foundry's gates,
 // bronze smelting (charcoal, coal), bronze tools (hero / worker speed) and bronze gear (soldiers with no iron piece wear
 // it; an iron piece replaces it); the new deposits (limestone, gold, lead) at world gen and their mines; the Stamp Mill
-// (water, gates; gold dust, washed tin, sand) and bronze from washed tin; COLONY_UNLOCK_ALL switches the effects off;
-// save / load keeps it all.
+// (water, gates; gold dust, washed tin, sand) and bronze from washed tin; steel only at a Blast furnace (Bloomery 2+)
+// with limestone flux, Fine steel forging a tier better; COLONY_UNLOCK_ALL switches the effects off; save / load keeps
+// it all.
 import WebSocket from "ws";
 
 const ws = new WebSocket(`ws://localhost:${process.env.PORT ?? 8080}`);
 const TILE = 32;
 const T = {
-  Empty: 0, IronMinePost: 9, RockMinePost: 10, Water: 35, CopperMine: 153, TinMine: 154, Foundry: 159, StampMill: 160,
+  Empty: 0, IronMinePost: 9, Blacksmith: 26, CharcoalBurner: 100, Bloomery: 101, RockMinePost: 10, Water: 35, CopperMine: 153, TinMine: 154, Foundry: 159, StampMill: 160,
   Limestone: 161, GoldOre: 162, LimeQuarry: 163, GoldMine: 164, LeadOre: 167, LeadMine: 168,
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -159,16 +160,19 @@ await setExact("bronzeTools", 1);
 await demolish(FO.x, FO.y);
 
 // 5. bronze gear: a soldier with no iron piece wears bronze; an iron piece (gear pickup) replaces it, the bronze goes back
+// No monsters about (the knights would go hunting them); their dropped gear is cleared from the stock below.
+for (const m of c.snap.mobs ?? []) send({ type: "testHook", op: "damageMob", mobId: m.id, amount: 100000 });
+await ff(5);
 await hook("setEquipment", { armour: [0, 0, 0], weapon: [0, 0, 0] });
 await setExact("bronzeWeapon", 1);
 await setExact("bronzeArmour", 1);
 const SP = { x: B.x + 10, y: B.y + 8 };
-const knightId = (await hook("spawnSoldier", { kind: "knight", x: SP.x * TILE + 16, y: SP.y * TILE + 16 })).id;
+const knightId = (await hook("spawnSoldier", { kind: "knight", x: SP.x * TILE + 16, y: SP.y * TILE + 16, stance: "defensive" })).id;
 ind = await industry({ unit: knightId });
 it = (await prog()).items;
 result(ind.unit?.bronzeWeapon && ind.unit?.bronzeArmour && ind.unit.weapon === 1.1 && ind.unit.armour === 0.92 && (it.bronzeWeapon ?? 0) === 0 && (it.bronzeArmour ?? 0) === 0,
   `a knight musters in bronze (none iron in stock): ${JSON.stringify(ind.unit)}; stores weapon ${it.bronzeWeapon ?? 0} armour ${it.bronzeArmour ?? 0}`);
-const knight2 = (await hook("spawnSoldier", { kind: "knight", x: (SP.x + 2) * TILE + 16, y: SP.y * TILE + 16 })).id;
+const knight2 = (await hook("spawnSoldier", { kind: "knight", x: (SP.x + 2) * TILE + 16, y: SP.y * TILE + 16, stance: "defensive" })).id;
 ind = await industry({ unit: knight2 });
 result(!ind.unit?.bronzeWeapon && ind.unit.weapon === 1 && ind.unit.armour === 1, `a second knight finds no bronze left: ${JSON.stringify(ind.unit)}`);
 await setExact("bronzeWeapon", 1);
@@ -252,7 +256,64 @@ it = (await prog()).items;
 result(it.bronze === 3 && (it.washedTin ?? 0) === 0 && (it.copperOre ?? 0) === 0, `3 copper + 2 washed tin + 1 charcoal -> ${it.bronze} bronze (ore tin: 2 bronze)`);
 await demolish(FO.x, FO.y);
 
-// 8. COLONY_UNLOCK_ALL: the effects are off (older suites)
+// 8. steel: only at a Blast furnace (Bloomery level 2+) with a level-2 smelter; blooms + limestone flux + charcoal
+const BL = { x: B.x + 4, y: B.y + 11 };
+await raw(B.x + 20, B.y + 7, T.CharcoalBurner);
+await setItems({ bellows: 1, bricks: 8, anvil: 1, smithTools: 1 });
+await setExact("charcoal", 2);
+await place(BL.x, BL.y, T.Bloomery);
+result(tileAt(BL.x, BL.y) === T.Bloomery, "Bloomery built");
+await setStock({ iron: 0 });
+await setExact("steel", 0);
+await setExact("ironBloom", 2);
+await setExact("limestone", 1);
+await staffed(BL.x, BL.y);
+await prog({ xpAt: { x: BL.x, y: BL.y, xp: 100 } });
+await ff(20 * 70);
+let blInfo = await info(BL.x, BL.y);
+result((await total("steel")) === 0 && (blInfo.progression ?? []).some((l) => /Steel: needs a level-2 Bloomery/.test(l)), `no steel in a level-1 Bloomery: ${JSON.stringify(blInfo.progression)}`);
+const BS = { x: B.x + 8, y: B.y + 11 };
+ev = c.events.length;
+await setStock({ iron: 200 });
+await place(BS.x, BS.y, T.Blacksmith);
+await setStock({ iron: 0 });
+result(tileAt(BS.x, BS.y) === T.Blacksmith, `Blacksmith built: ${evSince(ev)}`);
+await setExact("crucible", 1);
+await tp(BL.x - 1, BL.y - 1);
+send({ type: "upgradeBuilding", tileX: BL.x, tileY: BL.y });
+await sleep(400);
+await runUntil(async () => (await total("steel")) >= 1, 30, 40);
+blInfo = await info(BL.x, BL.y);
+const steelG = await grades("steel");
+it = (await prog()).items;
+result(blInfo.level === 2 && steelG[1] === 1 && (it.ironBloom ?? 0) === 0 && (it.limestone ?? 0) === 0 && (it.charcoal ?? 0) === 0,
+  `the Blast furnace (level ${blInfo.level}) with a level-2 smelter makes Good steel: ${JSON.stringify(steelG)}; blooms ${it.ironBloom}, limestone ${it.limestone}, charcoal ${it.charcoal}`);
+await demolish(BL.x, BL.y);
+
+// Fine steel at the forge: each piece a tier better (one Fine steel each); Good steel counts for nothing
+await setStock({ iron: 200, wood: 2000 });
+await hook("gearPickupConfig", { enabled: false }); // the knights would take the new pieces
+await hook("setEquipment", { armour: [0, 0, 0], weapon: [0, 0, 0] });
+await staffed(BS.x, BS.y);
+await prog({ xpAt: { x: BS.x, y: BS.y, xp: 100 } });
+await setItems({ steel: 1 }, 3);
+const bsInfo = await info(BS.x, BS.y);
+const wOpt = bsInfo.forge?.options.find((o) => o.slot === "weapon");
+result(/T1 \(T2 with Fine steel\)/.test(wOpt?.label ?? ""), `forge label: ${wOpt?.label} (${wOpt?.reason || "ok"})`);
+send({ type: "queueForge", tileX: BS.x, tileY: BS.y, slot: "weapon" });
+await runUntil(async () => { const e = (await hook("equipState")).equipment; return e.weapon[0] + e.weapon[1] > 0; }, 20, 20);
+let eqs = (await hook("equipState")).equipment;
+let sg = await grades("steel");
+result(eqs.weapon[1] === 1 && eqs.weapon[0] === 0 && sg[2] === 0 && sg[1] === 1, `a level-1 forge with Fine steel made a T2 weapon: weapons ${JSON.stringify(eqs.weapon)}, steel ${JSON.stringify(sg)}`);
+send({ type: "queueForge", tileX: BS.x, tileY: BS.y, slot: "weapon" });
+await runUntil(async () => (await hook("equipState")).equipment.weapon[0] > 0, 20, 20);
+eqs = (await hook("equipState")).equipment;
+sg = await grades("steel");
+result(eqs.weapon[0] === 1 && eqs.weapon[1] === 1 && sg[1] === 1, `no Fine steel left: a plain T1 weapon, the Good steel kept: weapons ${JSON.stringify(eqs.weapon)}, steel ${JSON.stringify(sg)}`);
+await demolish(BS.x, BS.y);
+await hook("gearPickupConfig", { enabled: true });
+
+// 9. COLONY_UNLOCK_ALL: the effects are off (older suites)
 await prog({ unlockAll: true });
 ind = await industry({ unit: knight2 });
 const offTools = ind.tools.hero === 1 && ind.tools.miner === 1;
@@ -262,7 +323,7 @@ const ind3 = await industry({ unit: k3 });
 await prog({ unlockAll: false });
 result(offTools && !ind3.unit?.bronzeWeapon && !ind3.unit?.bronzeArmour, `COLONY_UNLOCK_ALL: bronze tools x${ind.tools.hero}, a new knight takes no bronze: ${JSON.stringify(ind3.unit)}`);
 
-// 9. save / load
+// 10. save / load
 const before = (await prog()).items;
 send({ type: "saveGame", slot: "slot1" });
 await until(() => c.saves.length > 0, 5000);
@@ -273,7 +334,7 @@ await until(() => c.welcome && c.snap, 15000);
 await sleep(300);
 const after = await prog();
 ind = await industry({ unit: knight2 });
-result(["bronze", "bronzeTools", "bronzeWeapon", "bronzeArmour", "copperOre", "crucible", "limestone", "goldDust", "washedTin", "sand"].every((id) => after.items[id] === before[id]) && after.unlocked.includes(T.Foundry) && after.unlocked.includes(T.StampMill) && after.unlocked.includes(T.LimeQuarry),
+result(["bronze", "bronzeTools", "bronzeWeapon", "bronzeArmour", "copperOre", "crucible", "limestone", "goldDust", "washedTin", "sand", "steel"].every((id) => after.items[id] === before[id]) && after.unlocked.includes(T.Foundry) && after.unlocked.includes(T.StampMill) && after.unlocked.includes(T.LimeQuarry),
   `items and unlocks survive: ${JSON.stringify(after.items)}`);
 result(ind.unit?.bronzeWeapon === true && ind.unit.weapon === 1.1, `a knight's bronze weapon survives: ${JSON.stringify(ind.unit)}`);
 
