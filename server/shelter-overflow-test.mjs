@@ -3,9 +3,9 @@
 // that still has a free bed (House 1, BigHouse 3, HouseLevel2 5 beds); whoever is left over, or everyone
 // when there are no houses, shelters at the Town Center. `sheltered` is true only while a civilian is
 // within 1.5 tiles of its own shelter, and goes false at dawn.
-//   Day 1:   9 civilians (Orchard + Cotton Farm, Tailor, Luxury Workshop, Blacksmith, 4 Lumberjacks) + a Knight
-//            Post (mob bait) at a production site away from the TC, plus the starting builder. No houses.
-//            (Pastures / Wool Farms are 2x2 since 2026-10-30 and would not fit the ring.)
+//   Day 1:   9 civilians (2 Cotton Farms, Tailor, Luxury Workshop, Blacksmith, 4 Lumberjacks) + a Militia
+//            Camp (mob bait) at a production site away from the TC, plus the starting builder. No houses.
+//            (Pastures / Wool Farms / Orchards are 2x2 and the Hall of the Sworn 3x3: they would not fit the ring.)
 //   Night 1: with zero houses, every civilian ends at the TC, sheltered=true.
 //   Dawn 1:  sheltered goes false for everyone.
 //   Day 2:   3 houses at a separate site: H1 House -> BigHouse -> HouseLevel2 when goods allow, H2 + H3 Houses.
@@ -28,7 +28,7 @@ const result = (ok, msg) => {
 const info = (msg) => console.log(`info [${el()}] ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T = {
-  Empty: 0, Lumberjack: 3, FarmPlot: 4, KnightPost: 5, TownCenter: 12, House: 13, BigHouse: 14, HouseLevel2: 15,
+  Empty: 0, Lumberjack: 3, FarmPlot: 4, KnightPost: 5, MilitiaPost: 32, TownCenter: 12, House: 13, BigHouse: 14, HouseLevel2: 15,
   Pasture: 21, Orchard: 22, WoolFarm: 23, CottonFarm: 24, TailorShop: 25, Blacksmith: 26, LuxuryWorkshop: 27,
 };
 const BEDS = { [T.House]: 1, [T.BigHouse]: 3, [T.HouseLevel2]: 5 };
@@ -209,9 +209,12 @@ if (!P) {
 result(await ensureAt(a, P), `walked to production site (${P.x},${P.y}), ${Math.hypot(P.x - TC.x, P.y - TC.y).toFixed(1)} tiles from the TC`);
 // Outer ring (distance 2) minus (0,-2)/(0,+2), which stay open as exits; inner ring stays walkable.
 const prodPlan = [
-  [T.Lumberjack, -2, -1], [T.Orchard, -2, 0], [T.Lumberjack, -2, 1], [T.CottonFarm, -1, 2],
+  // 1x1 buildings only: the Orchard (2x2 since 2026-11-06) and the Hall of the Sworn (KnightPost, 3x3 since
+  // 29c943e) would spill over the inner ring and their neighbours, so a second Cotton Farm and a Militia Camp
+  // (the mob bait) take their places.
+  [T.Lumberjack, -2, -1], [T.CottonFarm, -2, 0], [T.Lumberjack, -2, 1], [T.CottonFarm, -1, 2],
   [T.TailorShop, 1, 2], [T.LuxuryWorkshop, 2, 1], [T.Blacksmith, -1, -2],
-  [T.Lumberjack, 1, -2], [T.Lumberjack, 2, -1], [T.KnightPost, 2, 0],
+  [T.Lumberjack, 1, -2], [T.Lumberjack, 2, -1], [T.MilitiaPost, 2, 0],
 ];
 let placedProd = 0;
 for (const [tile, dx, dy] of prodPlan) if (await placeExpect(a, P.x + dx, P.y + dy, tile)) placedProd++;
@@ -219,6 +222,19 @@ await sleep(500);
 result(placedProd === prodPlan.length, `production site: ${placedProd}/${prodPlan.length} buildings placed; civilians=${civs().length} pop=${a.snap.population}/${a.snap.populationCap}`);
 const civCount = civs().length;
 info(`civilians: ${civs().map((k) => k.kind).join(",")}`);
+// The four Lumberjack Posts grow trees around the site (tryGrowTreesNearLumberjackPosts) through day 1, which can
+// close the ring's two exits in: the player waits for night by the Town Center instead of inside the ring, so the
+// day-2 walk to the house site starts from open ground.
+{
+  const { dist, key } = bfs(a);
+  let wait = null;
+  for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+    const t = { x: TC.x + dx, y: TC.y + dy };
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 2 || !dist.has(key(t.x, t.y))) continue;
+    if (!wait || dist.get(key(t.x, t.y)) < wait.d) wait = { ...t, d: dist.get(key(t.x, t.y)) };
+  }
+  info(`waiting for night at (${wait?.x},${wait?.y}) by the Town Center: ${wait ? await ensureAt(a, wait) : "no reachable tile"}`);
+}
 
 // Returns the shelters (TC or house tiles) within 1.5 tiles of a colonist.
 function sheltersNear(k, houses) {
@@ -273,9 +289,12 @@ async function checkDawn(label) {
 }
 
 // ---- Day 2: houses ----
-const Hs = findSite(a, TC, 6, 16, [P], 7);
+// A crowded random 80x80 map can have no clear 5x5 box 6-16 tiles out: then look further (the shelter rules don't
+// depend on the distance).
+const Hs = findSite(a, TC, 6, 16, [P], 7) ?? findSite(a, TC, 6, 26, [P], 7);
 if (!Hs) {
-  result(false, "no house site found");
+  const me = a.meTile();
+  result(false, `no house site found (player at (${me.x},${me.y}) tile ${a.tileAt(me.x, me.y)}, ${bfs(a).dist.size} reachable tiles)`);
   process.exit(1);
 }
 result(await ensureAt(a, Hs), `walked to house site (${Hs.x},${Hs.y}), ${Math.hypot(Hs.x - TC.x, Hs.y - TC.y).toFixed(1)} tiles from the TC`);
