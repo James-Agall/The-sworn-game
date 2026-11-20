@@ -7,9 +7,11 @@ import { loadTexture, loadTextures } from "./atlas";
 import "./characterCreator.css";
 import { initPerfOverlay } from "./perfOverlay";
 import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
-import { DEFAULT_HERO_APPEARANCE } from "@colony/shared/protocol";
-import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS, type HeroAppearance } from "@colony/shared/protocol";
-let pendingCreatorAppearance: HeroAppearance | null = null;
+import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS } from "@colony/shared/protocol";
+import { menuPrefs, setupMainMenu, setActiveDifficulty, renderSaveRows, describeSave, SAVE_SLOT_NAMES, clanParam } from "./menu";
+import { setupChronicle } from "./chronicle";
+import { setupEconomyPanel, type GoodKey } from "./economyPanel";
+import { setupProgressionPanel } from "./progressionPanel";
 import "./economySkin.css";
 import "./menuSkin.css";
 import { heroArt, loadHeroAppearanceArt, gearIconUrl } from "./heroAppearance";
@@ -153,7 +155,6 @@ import type { BannerGroup, LodBand, UnitDot, VisionSource } from "./strategy/lod
 import { RegimentCardBar } from "./strategy/cards";
 import type { RegimentCard } from "./strategy/cards";
 import type { ArmyRegimentSnapshot, RegimentClass } from "@colony/shared/protocol";
-import type { ChronicleEntry } from "@colony/shared/protocol";
 import type { ArmyOrder, ArmyOrderGroupSnapshot, ArmyOrderKind, FormationShape } from "@colony/shared/protocol";
 import { FORMATION_SHAPES } from "@colony/shared/protocol";
 import { ORDER_COLORS, ORDER_LABEL, OrderMarkers } from "./strategy/orders";
@@ -208,15 +209,10 @@ import {
 
 const SERVER_URL = "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
-const QUIT_URL = `${SERVER_URL.replace(/^ws/, "http")}/quit`;
-const SAVES_URL = `${SERVER_URL.replace(/^ws/, "http")}/saves`;
 // Main menu Continue / Load Game: the slot to load right after the first welcome (else null).
-let pendingLoadSlot: SaveSlot | null = null;
 // Creative mode: the menu's game mode (Creative button / ?mode=creative), enforced on the first welcome after
 // New Game / Creative (never after Continue / Load: a save brings its own mode).
-let preferredCreative = new URLSearchParams(location.search).get("mode") === "creative";
 // Solo hero phase 4: the menu's "New Game (Solo)" (or ?mode=solo): start as the hero alone, no settlement.
-let preferredSolo = new URLSearchParams(location.search).get("mode") === "solo";
 // Village life phase 5: the close adventure camera (on unless ?camera=classic / the setting) and whether a game
 // starts in strategy view (?view=strategy / the setting). Read once; the settings apply from the next page load.
 const adventurePrefs = readAdventurePrefs(location.search, (key) => {
@@ -226,7 +222,6 @@ const adventurePrefs = readAdventurePrefs(location.search, (key) => {
     return null;
   }
 });
-let enforceGameMode = false;
 
 
 
@@ -4375,57 +4370,11 @@ async function main() {
   // ---- Economy panel (DOM): goods stockpile + Market / Gold Shop, left side ----
   // The canvas HUD keeps the core numbers (wood/iron/rock/gold/pop/time); everything else lives here.
 
-  type GoodKey =
-    | "wood"
-    | "iron"
-    | "rock"
-    | "gold"
-    | "grain"
-    | "meat"
-    | "fruit"
-    | "wool"
-    | "cotton"
-    | "clothes"
-    | "tools"
-    | "luxuryItems"
-    | "alcohol";
-  const GOODS_GROUPS: { heading: string; goods: { key: GoodKey; label: string }[] }[] = [
-    {
-      heading: "Food",
-      goods: [
-        { key: "grain", label: "Grain" },
-        { key: "meat", label: "Meat" },
-        { key: "fruit", label: "Fruit" },
-      ],
-    },
-    {
-      heading: "Materials",
-      goods: [
-        { key: "wood", label: "Wood" },
-        { key: "iron", label: "Iron" },
-        { key: "rock", label: "Rock" },
-        { key: "gold", label: "Gold" },
-        { key: "wool", label: "Wool" },
-        { key: "cotton", label: "Hemp" },
-      ],
-    },
-    {
-      heading: "Crafted",
-      goods: [
-        { key: "clothes", label: "Clothes" },
-        { key: "tools", label: "Tools" },
-        { key: "luxuryItems", label: "Luxury Items" },
-        { key: "alcohol", label: "Alcohol" },
-      ],
-    },
-  ];
-
-  const economyPanel = document.getElementById("economy-panel")!;
-  const economyPanelToggle = document.getElementById("economy-panel-toggle")!;
-  economyPanelToggle.addEventListener("click", () => {
-    economyPanel.classList.toggle("collapsed");
-    economyPanelToggle.classList.toggle("panel-open", !economyPanel.classList.contains("collapsed"));
-    economyPanelToggle.blur();
+  const { GOODS_GROUPS, latestStock, setGoodCount, refreshWorkerCounts, refreshEconomyPanel } = setupEconomyPanel({
+    send: (m) => sendMessage(m),
+    tileAt,
+    craftPanelHidden: () => progressionUi.craftPanelEl.hidden,
+    renderCraftPanel: () => progressionUi.renderCraftPanel(),
   });
 
   // Core colony stats, pinned at the top of the same single menu as the goods/market panel.
@@ -4439,261 +4388,6 @@ async function main() {
   const statArmyEl = document.getElementById("stat-army")!;
   const statSelectedEl = document.getElementById("stat-selected")!;
 
-  // The latest stock numbers (the Crafting panel's have / need counts).
-  const latestStock: Partial<Record<GoodKey, number>> = {};
-  const workerCountEls = new Map<string, HTMLSpanElement>();
-  const goodsWorkerEls = new Map<GoodKey, HTMLSpanElement>();
-  // Which goods group a worker's job feeds: Food (barn farmers, pastures, orchards), Materials
-  // (lumberjacks, miners, wool/hemp fields) or Crafted (artisans). Null for non-workers.
-  function workerGroup(c: { kind: string; postX: number; postY: number }): string | null {
-    switch (c.kind) {
-      case "farmer":
-        return "Food";
-      case "lumberjack":
-      case "ironMiner":
-      case "rockMiner":
-        return "Materials";
-      case "artisan":
-        return "Crafted";
-      case "hunter":
-      case "forager":
-        return "Food";
-      case "farmhand": {
-        const t = tileAt(c.postX, c.postY);
-        return t === TileType.WoolFarm || t === TileType.CottonFarm ? "Materials" : "Food";
-      }
-      default:
-        return null;
-    }
-  }
-  // The single resource a worker's job produces (artisans by their shop; the Tavern's brewers make gold).
-  function workerResource(c: { kind: string; postX: number; postY: number }): GoodKey | null {
-    switch (c.kind) {
-      case "farmer":
-        return "grain";
-      case "lumberjack":
-        return "wood";
-      case "ironMiner":
-        return "iron";
-      case "rockMiner":
-        return "rock";
-      case "hunter":
-        return "meat";
-      case "forager":
-        return "fruit";
-      case "farmhand": {
-        const t = tileAt(c.postX, c.postY);
-        return t === TileType.Orchard ? "fruit" : t === TileType.WoolFarm ? "wool" : t === TileType.CottonFarm ? "cotton" : "meat";
-      }
-      case "artisan": {
-        const t = tileAt(c.postX, c.postY);
-        return t === TileType.TailorShop
-          ? "clothes"
-          : t === TileType.Blacksmith
-          ? "tools"
-          : t === TileType.LuxuryWorkshop
-          ? "luxuryItems"
-          : t === TileType.Brewery
-          ? "alcohol"
-          : t === TileType.Tavern
-          ? "gold"
-          : null;
-      }
-      default:
-        return null;
-    }
-  }
-  // Barn farmers have no work animation of their own (the plots grow while the barn is staffed), so by
-  // day they count as working; hunters and foragers count while they're out on a job.
-  function isWorkerBusy(c: { kind: string; state: string }, isNight: boolean): boolean {
-    if (COLONIST_ACTION_STATES.has(c.state)) return true;
-    if (c.kind === "farmer") return !isNight;
-    return (c.kind === "hunter" || c.kind === "forager") && FOOD_WORKER_BUSY_STATES.has(c.state);
-  }
-  function refreshWorkerCounts(colonists: { kind: string; state: string; postX: number; postY: number }[], isNight: boolean) {
-    const working: Record<string, number> = { Food: 0, Materials: 0, Crafted: 0 };
-    const total: Record<string, number> = { Food: 0, Materials: 0, Crafted: 0 };
-    for (const c of colonists) {
-      const group = workerGroup(c);
-      if (!group) continue;
-      total[group]++;
-      if (isWorkerBusy(c, isNight)) working[group]++;
-    }
-    for (const [group, el] of workerCountEls) el.textContent = ` ${working[group]}/${total[group]} working`;
-    const resWorking = new Map<GoodKey, number>();
-    const resTotal = new Map<GoodKey, number>();
-    for (const c of colonists) {
-      const res = workerResource(c);
-      if (!res) continue;
-      resTotal.set(res, (resTotal.get(res) ?? 0) + 1);
-      if (isWorkerBusy(c, isNight)) {
-        resWorking.set(res, (resWorking.get(res) ?? 0) + 1);
-      }
-    }
-    for (const [res, el] of goodsWorkerEls) {
-      const total = resTotal.get(res) ?? 0;
-      el.textContent = total > 0 ? ` ${resWorking.get(res) ?? 0}/${total}` : "";
-    }
-  }
-  // Resources panel: every stock resource (GOODS_GROUPS), every progression item (PROGRESSION.items, by its `group`)
-  // and the armoury's gear, in collapsible groups (folded state and "hide empty" remembered per browser).
-  const goodsListEl = document.getElementById("goods-list")!;
-  const GOODS_FOLD_PREF = "sworn.goodsFolded";
-  const GOODS_HIDE_ZERO_PREF = "sworn.goodsHideZero";
-  const readPref = (k: string): string | null => {
-    try {
-      return localStorage.getItem(k);
-    } catch {
-      return null;
-    }
-  };
-  const writePref = (k: string, v: string) => {
-    try {
-      localStorage.setItem(k, v);
-    } catch {
-      /* storage blocked: the panel still works */
-    }
-  };
-  let foldedGroups = new Set<string>();
-  try {
-    foldedGroups = new Set(JSON.parse(readPref(GOODS_FOLD_PREF) ?? "[]") as string[]);
-  } catch {
-    foldedGroups = new Set();
-  }
-  // Every row by key: a stock resource ("wood"), an item ("item:hide") or gear ("gear:armour:1").
-  const goodsRows = new Map<string, { row: HTMLDivElement; value: HTMLSpanElement }>();
-  function setGoodCount(key: string, n: number) {
-    const r = goodsRows.get(key);
-    if (!r) return;
-    const text = String(n);
-    if (r.value.textContent !== text) r.value.textContent = text;
-    r.row.classList.toggle("zero", n <= 0);
-  }
-  const showAllBtn = document.createElement("button");
-  showAllBtn.id = "goods-show-all";
-  const applyHideZero = (hide: boolean) => {
-    goodsListEl.classList.toggle("hide-zero", hide);
-    showAllBtn.textContent = hide ? "Show all (incl. none in stock)" : "Hide empty";
-  };
-  applyHideZero(readPref(GOODS_HIDE_ZERO_PREF) === "1");
-  showAllBtn.addEventListener("click", () => {
-    const hide = !goodsListEl.classList.contains("hide-zero");
-    applyHideZero(hide);
-    writePref(GOODS_HIDE_ZERO_PREF, hide ? "1" : "0");
-    showAllBtn.blur();
-  });
-  goodsListEl.appendChild(showAllBtn);
-  const ITEM_GROUP_HEADING: Record<"food" | "material" | "tool", string> = { food: "Food", material: "Materials", tool: "Crafted" };
-  const groupRows: { heading: string; label: string; rows: { key: string; label: string; icon?: string; good?: GoodKey }[] }[] = GOODS_GROUPS.map((g) => ({
-    heading: g.heading,
-    label: g.heading === "Crafted" ? "Crafted & tools" : g.heading,
-    // The resource is Hemp (internal key "cotton" is kept so the protocol stays unchanged).
-    rows: g.goods.map((good) => ({ key: good.key, label: good.label, icon: `/sprites/icon-${good.key === "cotton" ? "hemp" : good.key}.png`, good: good.key })),
-  }));
-  for (const [id, def] of Object.entries(PROGRESSION.items) as [ItemId, (typeof PROGRESSION.items)[ItemId]][]) {
-    groupRows.find((g) => g.heading === ITEM_GROUP_HEADING[def.group])!.rows.push({ key: `item:${id}`, label: def.label, icon: ITEM_ICON[`item:${id}`] });
-  }
-  groupRows.push({
-    heading: "Gear",
-    label: "Armoury",
-    rows: [1, 2, 3].flatMap((t) => [
-      { key: `gear:weapon:${t}`, label: `Weapons T${t}`, icon: ITEM_ICON[`gear:weapon:${t}`] },
-      { key: `gear:armour:${t}`, label: `Armour T${t}`, icon: ITEM_ICON[`gear:armour:${t}`] },
-    ]),
-  });
-  for (const group of groupRows) {
-    const heading = document.createElement("div");
-    heading.className = "econ-heading econ-fold";
-    heading.append(group.label);
-    heading.title = "Click to fold / unfold";
-    const workerCount = document.createElement("span");
-    workerCount.className = "econ-workers";
-    workerCount.title = "Workers working / assigned";
-    heading.appendChild(workerCount);
-    if (group.heading !== "Gear") workerCountEls.set(group.heading, workerCount);
-    const body = document.createElement("div");
-    body.className = "econ-group";
-    const setFolded = (folded: boolean) => {
-      body.hidden = folded;
-      heading.classList.toggle("folded", folded);
-    };
-    setFolded(foldedGroups.has(group.heading));
-    heading.addEventListener("click", () => {
-      const folded = !body.hidden;
-      setFolded(folded);
-      if (folded) foldedGroups.add(group.heading);
-      else foldedGroups.delete(group.heading);
-      writePref(GOODS_FOLD_PREF, JSON.stringify([...foldedGroups]));
-    });
-    goodsListEl.append(heading, body);
-    if (group.heading === "Gear") body.append(document.getElementById("stat-equipment")!);
-    for (const good of group.rows) {
-      const row = document.createElement("div");
-      row.className = "econ-row zero";
-      const label = document.createElement("span");
-      label.className = "econ-label";
-      if (good.icon) {
-        const icon = document.createElement("img");
-        icon.className = "econ-icon";
-        icon.src = good.icon;
-        icon.alt = "";
-        icon.addEventListener("error", () => icon.remove());
-        label.append(icon);
-      } else {
-        // Items have no icon art yet: a lettered chip stands in.
-        const glyph = document.createElement("span");
-        glyph.className = "econ-glyph";
-        glyph.textContent = good.label.charAt(0);
-        label.append(glyph);
-      }
-      label.append(good.label);
-      if (good.good) {
-        const workers = document.createElement("span");
-        workers.className = "econ-workers-row";
-        workers.title = "Workers working / assigned to this resource";
-        label.append(workers);
-        goodsWorkerEls.set(good.good, workers);
-      }
-      const value = document.createElement("span");
-      value.textContent = "0";
-      row.append(label, value);
-      body.appendChild(row);
-      goodsRows.set(good.key, { row, value });
-    }
-  }
-
-  // Mirrors the server's EXCHANGE_RATES / GOLD_SHOP_PRICES; the server re-validates every request.
-  type BaseResource = "wood" | "iron" | "rock";
-  type ShopItem = "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock";
-  const RESOURCE_LABEL: Record<string, string> = {
-    wood: "Wood",
-    iron: "Iron",
-    rock: "Rock",
-    tools: "Tools",
-    clothes: "Clothes",
-    luxuryItems: "Luxury Item",
-  };
-  const MARKET_TRADES: { from: BaseResource; to: BaseResource; give: number; get: number }[] = [
-    { from: "wood", to: "iron", give: 3, get: 1 },
-    { from: "wood", to: "rock", give: 3, get: 1 },
-    { from: "iron", to: "wood", give: 3, get: 1 },
-    { from: "iron", to: "rock", give: 2, get: 1 },
-    { from: "rock", to: "wood", give: 3, get: 1 },
-    { from: "rock", to: "iron", give: 2, get: 1 },
-  ];
-  const GOLD_SHOP_ITEMS: { item: ShopItem; cost: number; amount: number }[] = [
-    { item: "tools", cost: 10, amount: 1 },
-    { item: "clothes", cost: 8, amount: 1 },
-    { item: "luxuryItems", cost: 20, amount: 1 },
-    { item: "wood", cost: 5, amount: 5 },
-    { item: "iron", cost: 8, amount: 5 },
-    { item: "rock", cost: 8, amount: 5 },
-  ];
-
-  const marketSection = document.getElementById("market-section")!;
-  const goldShopSection = document.getElementById("gold-shop-section")!;
-  const marketButtons: { btn: HTMLButtonElement; from: BaseResource; give: number }[] = [];
-  const goldShopButtons: { btn: HTMLButtonElement; cost: number }[] = [];
 
   function sendMessage(msg: object) {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
@@ -4717,51 +4411,6 @@ async function main() {
     },
   });
 
-  function makeEconButton(container: HTMLElement, text: string, onClick: () => void): HTMLButtonElement {
-    const btn = document.createElement("button");
-    btn.className = "econ-btn";
-    btn.textContent = text;
-    btn.addEventListener("click", () => {
-      onClick();
-      // Never keep focus: Space is the attack key and would re-trigger a focused button.
-      btn.blur();
-    });
-    container.appendChild(btn);
-    return btn;
-  }
-
-  const marketBtnsEl = document.getElementById("market-btns")!;
-  for (const trade of MARKET_TRADES) {
-    const btn = makeEconButton(
-      marketBtnsEl,
-      `${trade.give} ${RESOURCE_LABEL[trade.from]} → ${trade.get} ${RESOURCE_LABEL[trade.to]}`,
-      () => sendMessage({ type: "exchangeResource", from: trade.from, to: trade.to })
-    );
-    marketButtons.push({ btn, from: trade.from, give: trade.give });
-  }
-
-  const goldShopBtnsEl = document.getElementById("gold-shop-btns")!;
-  for (const offer of GOLD_SHOP_ITEMS) {
-    const btn = makeEconButton(
-      goldShopBtnsEl,
-      `${offer.amount} ${RESOURCE_LABEL[offer.item]} — ${offer.cost} gold`,
-      () => sendMessage({ type: "buyWithGold", item: offer.item })
-    );
-    goldShopButtons.push({ btn, cost: offer.cost });
-  }
-
-  function refreshEconomyPanel(snap: Extract<ServerMessage, { type: "snapshot" }>) {
-    for (const g of GOODS_GROUPS) for (const good of g.goods) {
-      setGoodCount(good.key, snap[good.key]);
-      latestStock[good.key] = snap[good.key];
-    }
-    if (!craftPanelEl.hidden) renderCraftPanel();
-    // Sections stay hidden (not greyed out) until their building exists.
-    marketSection.hidden = !snap.marketBuilt;
-    goldShopSection.hidden = !snap.goldShopBuilt;
-    for (const { btn, from, give } of marketButtons) btn.disabled = snap[from] < give;
-    for (const { btn, cost } of goldShopButtons) btn.disabled = snap.gold < cost;
-  }
 
   // ---- Toolbar (real DOM elements, not canvas-drawn) ----
 
@@ -4862,268 +4511,20 @@ async function main() {
   function refreshBuildRequirements() {
     const def = TOOLS.find((t) => t.tile === currentTool);
     const text = def && def.cost ? def.cost : "No requirements.";
-    const needs = progressionLocked[currentTool];
+    const needs = progressionUi.locked()[currentTool];
     buildRequirementsEl.textContent = needs ? `Locked. Needs: ${needs.join(", ")}. ${text}` : text;
   }
 
-  // ---- Progression tree (shared/src/progression.ts; the server's `progression` snapshot) ----
-  // The Build panel keeps the locked "needs: X" tool text and the prospector; hand crafting is the Crafting panel
-  // (Craft button / Shift+C); the nearest goals are the Next steps bar (top centre) and its Progression dropdown.
-  let progressionLocked: Record<number, string[]> = {};
-  let progressionSig = "";
-  let latestProgression: ProgressionSnapshot | undefined;
-  const progressPanelEl = document.getElementById("progress-panel")!;
-  const progressCraftsEl = document.getElementById("progress-crafts")!;
-  const nextBarEl = document.getElementById("next-bar")!;
-  const nextBarTextEl = document.getElementById("next-bar-text")!;
-  const nextBarToggle = document.getElementById("next-bar-toggle") as HTMLButtonElement;
-  const progressTreeEl = document.getElementById("progress-tree")!;
-  const craftPanelEl = document.getElementById("craft-panel")!;
-  const craftListEl = document.getElementById("craft-list")!;
-  const craftItemsEl = document.getElementById("craft-items")!;
-  const craftSearch=document.createElement("input");craftSearch.type="search";craftSearch.placeholder="Find a recipe or workstation…";craftSearch.setAttribute("aria-label","Search crafting recipes");craftSearch.className="craft-search";craftListEl.before(craftSearch);craftSearch.addEventListener("input",()=>renderCraftPanel(true));
-  const itemArt=(id:string)=>ITEM_ICON[`item:${id}`];
-  const craftBtn = document.getElementById("craft-btn") as HTMLButtonElement;
-  const progressionBook = document.createElement("section");
-  progressionBook.id = "progression-book";
-  progressionBook.hidden = true;
-  progressionBook.setAttribute("role", "dialog");
-  progressionBook.setAttribute("aria-label", "Progression and crafting");
-  progressionBook.innerHTML = `<header><h2>Progression & crafting</h2><button id="progression-close" aria-label="Close progression">×</button></header><nav aria-label="Progression pages"><button id="progression-chains">Progression</button><button id="progression-recipes">Crafting</button></nav>`;
-  document.body.append(progressionBook);
-  progressionBook.append(progressTreeEl, craftPanelEl);
-  progressTreeEl.removeAttribute("role");
-  craftPanelEl.removeAttribute("role");
-  nextBarToggle.setAttribute("aria-controls", "progression-book");
-  function openProgressionBook(open: boolean, recipes = false) {
-    progressionBook.hidden = !open;
-    progressTreeEl.hidden = !open || recipes;
-    craftPanelEl.hidden = !open || !recipes;
-    nextBarToggle.setAttribute("aria-expanded", String(open));
-    document.getElementById("progression-chains")!.setAttribute("aria-pressed", String(!recipes));
-    document.getElementById("progression-recipes")!.setAttribute("aria-pressed", String(recipes));
-    if (open) { if (recipes) renderCraftPanel(true); else renderProgressTree(); }
-  }
-  document.getElementById("progression-close")!.addEventListener("click", () => openProgressionBook(false));
-  document.getElementById("progression-chains")!.addEventListener("click", () => openProgressionBook(true));
-  document.getElementById("progression-recipes")!.addEventListener("click", () => openProgressionBook(true, true));
-
-  const itemTotal = (p: ProgressionSnapshot | undefined, id: ItemId) => (p?.items[id] ?? []).reduce((a, b) => a + b, 0);
-  const STOCK_LABEL: Record<string, string> = Object.fromEntries(GOODS_GROUPS.flatMap((g) => g.goods.map((good) => [good.key, good.label])));
-  const progressionBuildingLabel = (t: TileType) => PROGRESSION_BUILDING_LABEL[t] ?? TOOLS.find((tool) => tool.tile === t)?.label ?? "a building";
-
-  function applyProgression(p: ProgressionSnapshot | undefined) {
-    const sig = p ? JSON.stringify(p) : "";
-    if (sig === progressionSig) return;
-    progressionSig = sig;
-    latestProgression = p;
-    progressionLocked = p && !p.open ? p.locked : {};
-    for (const [tile, btn] of toolButtonEls) {
-      const needs = progressionLocked[tile];
-      btn.classList.toggle("locked", !!needs);
-      btn.title = needs ? `Locked. Needs: ${needs.join(", ")}` : "";
-    }
-    refreshBuildRequirements();
-    for (const id of Object.keys(PROGRESSION.items) as ItemId[]) setGoodCount(`item:${id}`, itemTotal(p, id));
-    progressPanelEl.hidden = !p?.prospect;
-    nextBarEl.hidden = !p;
-    if (!p) {
-      progressTreeEl.hidden = true;
-      return;
-    }
-    const next = p.open ? ["Everything is unlocked."] : p.next;
-    nextBarTextEl.textContent = next.slice(0, 2).join("  ·  ");
-    nextBarTextEl.title = `${next.join("\n")}\n(click for the whole progression)`;
-    progressCraftsEl.replaceChildren();
-    if (p.prospect) {
-      const b = document.createElement("button");
-      b.className = "econ-btn";
-      b.textContent = p.prospect.label;
-      b.disabled = !p.prospect.ok;
-      b.title = p.prospect.reason;
-      b.addEventListener("click", () => {
-        sendMessage({ type: "prospect" });
-        b.blur();
-      });
-      progressCraftsEl.append(b);
-    }
-    if (!craftPanelEl.hidden) renderCraftPanel();
-    if (!progressTreeEl.hidden) renderProgressTree();
-  }
-
-  // Crafting panel: every hand recipe with each input's have / need, a Craft button, and "needs: X" when it can't.
-  let craftSig = "";
-  function renderCraftPanel(force = false) {
-    const p = latestProgression;
-    const sig = `${progressionSig}|${JSON.stringify(latestStock)}`;
-    if (!force && sig === craftSig) return;
-    craftSig = sig;
-    craftListEl.replaceChildren();
-    const nearby=document.createElement("button");nearby.className="cmd-btn";nearby.textContent="Use nearby workstation (all recipes)";nearby.onclick=()=>{sendMessage({type:"heroCraft"});setCraftPanelOpen(false);};craftListEl.append(nearby);
-    if (!p) {
-      craftListEl.textContent = "Nothing to craft yet.";
-      return;
-    }
-    for (const r of PROGRESSION.recipes) {
-      const stationLabel=r.station==="hand"?"By hand":progressionBuildingLabel(r.station);
-      if(craftSearch.value&&!`${r.label} ${stationLabel}`.toLowerCase().includes(craftSearch.value.toLowerCase()))continue;
-      const hand=r.station==="hand";
-      const c = p.crafts.find((x) => x.id === r.id);
-      const row = document.createElement("div");
-      row.className = "craft-row";
-      const main = document.createElement("div");
-      main.className = "craft-main";
-      const name = document.createElement("div");
-      name.className = "craft-name";
-      name.textContent = r.label;
-      const art=itemArt(r.output);if(art){const image=iconImg(art,40,r.label);image.className="craft-art";row.append(image);}
-      const station=document.createElement("div");station.className="craft-station";station.textContent=hand?"Handcrafted":`${stationLabel} · craft personally at the workstation`;main.append(station);
-      const have = document.createElement("span");
-      have.className = "craft-have";
-      have.textContent = `(${itemTotal(p, r.output)} in store${r.amount > 1 ? `, makes ${r.amount}` : ""})`;
-      have.title = PROGRESSION.items[r.output].desc;
-      name.append(have);
-      const inputs = document.createElement("div");
-      inputs.className = "craft-in";
-      const parts: [string, number, number][] = [
-        ...(Object.entries(r.stock ?? {}) as [string, number][]).map(([k, n]): [string, number, number] => [STOCK_LABEL[k] ?? k, latestStock[k as GoodKey] ?? 0, n]),
-        ...(Object.entries(r.items ?? {}) as [ItemId, number][]).map(([id, n]): [string, number, number] => [PROGRESSION.items[id].label, itemTotal(p, id), n]),
-      ];
-      parts.forEach(([label, got, need], i) => {
-        const span = document.createElement("span");
-        span.textContent = `${label} ${Math.floor(got)}/${need}`;
-        if (got < need) span.className = "short";
-        inputs.append(...(i > 0 ? [" + "] : []), span);
-      });
-      main.append(name, inputs);
-      const ok = p.open || (hand ? (c?.ok ?? false) : (p.built??[]).includes(r.station as TileType));
-      if (!ok) {
-        const why = hand ? c?.why ?? "" : `Needs ${stationLabel}`;
-        const needs = document.createElement("div");
-        needs.className = "craft-needs";
-        needs.textContent = `needs: ${why.replace(/^Needs /, "").replace(/^Not enough (.*)$/, "more $1") || "its inputs"}`;
-        main.append(needs);
-      }
-      const b = document.createElement("button");
-      b.className = "econ-btn";
-      b.textContent = hand ? "Craft" : "Craft here";
-      b.disabled = !ok;
-      b.addEventListener("click", () => {
-        if(hand) sendMessage({ type: "craftItem", recipe: r.id });
-        else sendMessage({type:"heroCraft",recipe:r.id});
-        b.blur();
-      });
-      row.append(main, b);
-      craftListEl.append(row);
-    }
-    const owned = Object.entries(p.items).map(([id, grades]) => {
-      const label = PROGRESSION.items[id as ItemId]?.label ?? id;
-      const total = grades.reduce((a, b) => a + b, 0);
-      const fine = grades.slice(1).some((n) => n > 0) ? ` (${grades.map((n, i) => (n > 0 ? `${n} ${QUALITY_GRADES[i].label}` : "")).filter(Boolean).join(", ")})` : "";
-      return `${label} ${total}${fine}`;
-    });
-    craftItemsEl.textContent = owned.length > 0 ? `Items in store: ${owned.join(", ")}` : "Items in store: none";
-  }
-  function setCraftPanelOpen(open: boolean) {
-    openProgressionBook(open, true);
-  }
-  craftBtn.addEventListener("click", () => {
-    craftBtn.blur();
-    setCraftPanelOpen(craftPanelEl.hidden);
+  const progressionUi = setupProgressionPanel({
+    send: (m) => sendMessage(m),
+    goodsGroups: GOODS_GROUPS,
+    latestStock,
+    setGoodCount,
+    toolButtonEls,
+    refreshBuildRequirements: () => refreshBuildRequirements(),
+    strategyOrderKey: (e) => strategyOrderKey(e),
   });
-  document.getElementById("craft-close")!.addEventListener("click", () => setCraftPanelOpen(false));
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !craftPanelEl.hidden) setCraftPanelOpen(false);
-    if (e.key === "Escape" && !progressTreeEl.hidden) setProgressTreeOpen(false);
-    if (e.code !== "KeyC" || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
-    if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select")) return;
-    // Strategy mode with soldiers selected: Shift+C is Charge.
-    if (strategyOrderKey(e)) return;
-    e.preventDefault();
-    setCraftPanelOpen(craftPanelEl.hidden);
-  });
-
-  // Progression dropdown: every chain of PROGRESSION.chains, each step done / available / locked with its needs.
-  function chainStepState(p: ProgressionSnapshot, st: ChainStep): { label: string; cls: "done" | "avail" | "locked"; note: string } {
-    const built = new Set(p.built ?? []);
-    if (st.building !== undefined) {
-      const label = progressionBuildingLabel(st.building);
-      if (built.has(st.building)) return { label, cls: "done", note: "built" };
-      const needs = p.open ? undefined : p.locked[st.building];
-      return needs ? { label, cls: "locked", note: `needs: ${needs.join(", ")}` } : { label, cls: "avail", note: "can be built" };
-    }
-    const id = st.item;
-    const label = PROGRESSION.items[id].label;
-    const have = itemTotal(p, id);
-    if (have > 0) return { label, cls: "done", note: `${have} in store` };
-    const r = PROGRESSION.recipes.find((rc) => rc.output === id);
-    if (!r) return { label, cls: "avail", note: PROGRESSION.items[id].desc.split(".")[0] };
-    if (r.station === "hand") {
-      const c = p.crafts.find((x) => x.id === r.id);
-      if (p.open || c?.ok) return { label, cls: "avail", note: `craft by hand: ${c?.cost ?? ""}` };
-      if (c?.why?.startsWith("Needs ")) return { label, cls: "locked", note: `needs: ${c.why.slice(6)}` };
-      return { label, cls: "avail", note: `craft by hand: ${c?.cost ?? ""} (${(c?.why ?? "").toLowerCase()})` };
-    }
-    const station = progressionBuildingLabel(r.station);
-    const lvl = r.workerLevel && r.workerLevel > 1 ? `, a level-${r.workerLevel} worker` : "";
-    const kept = Object.keys(r.needs ?? {}).map((k) => `, a ${PROGRESSION.items[k as ItemId].label}`).join("");
-    if (p.open || built.has(r.station)) return { label, cls: "avail", note: `made at the ${station}${lvl}${kept}` };
-    return { label, cls: "locked", note: `needs: a ${station}${lvl}${kept}` };
-  }
-  function renderProgressTree() {
-    const p = latestProgression;
-    progressTreeEl.replaceChildren();
-    if (!p) return;
-    const legend = document.createElement("div");
-    legend.className = "pt-legend";
-    for (const [cls, text] of [["done", "done"], ["avail", "available now"], ["locked", "locked (needs shown)"]]) {
-      const item = document.createElement("span");
-      const sw = document.createElement("span");
-      sw.className = `pt-swatch ${cls}`;
-      item.append(sw, text);
-      legend.append(item);
-    }
-    progressTreeEl.append(legend);
-    for (const chain of PROGRESSION.chains) {
-      const box = document.createElement("div");
-      box.className = "pt-chain";
-      const name = document.createElement("div");
-      name.className = "pt-name";
-      name.textContent = chain.label;
-      const steps = document.createElement("div");
-      steps.className = "pt-steps";
-      chain.steps.forEach((st, i) => {
-        const s = chainStepState(p, st);
-        if (i > 0) {
-          const arrow = document.createElement("span");
-          arrow.className = "pt-arrow";
-          arrow.textContent = "\u2192";
-          steps.append(arrow);
-        }
-        const chip = document.createElement("div");
-        chip.className = `pt-step ${s.cls}`;
-        const b = document.createElement("b");
-        b.textContent = s.label;
-        const small = document.createElement("small");
-        small.textContent = s.note;
-        const art=st.building!==undefined?((TILE_OPTIONAL_ART[st.building]??TILE_SPRITE_FILES[st.building])?`/sprites/${TILE_OPTIONAL_ART[st.building]??TILE_SPRITE_FILES[st.building]}.png`:undefined):itemArt(st.item);
-        if(art){const image=iconImg(art,36,s.label);image.className="pt-art";chip.append(image);}
-        chip.append(b, small);
-        chip.title = `${s.label}: ${s.note}`;
-        steps.append(chip);
-      });
-      box.append(name, steps);
-      progressTreeEl.append(box);
-    }
-  }
-  function setProgressTreeOpen(open: boolean) {
-    openProgressionBook(open);
-  }
-  nextBarToggle.addEventListener("click", () => {
-    nextBarToggle.blur();
-    setProgressTreeOpen(progressionBook.hidden);
-  });
-  nextBarTextEl.addEventListener("click", () => setProgressTreeOpen(progressionBook.hidden));
+  const { applyProgression, itemTotal } = progressionUi;
 
   setupToolbar();
   setupCategoryTabs();
@@ -6001,76 +5402,7 @@ async function main() {
   // ---- Modular building phase 4: the Work tab (job priorities) and the person card (client/src/work.ts) ----
   const workUi = setupWork({ send: (m) => sendMessage(m), button: document.getElementById("work-btn") as HTMLButtonElement });
 
-  // ---- World streaming phase 5: the chronicle (server `chronicle` messages) ----
-  const chroniclePanelEl = document.getElementById("chronicle-panel")!;
-  const chronicleListEl = document.getElementById("cp-list")!;
-  const chronicleEmptyEl = document.getElementById("cp-empty")!;
-  const chronicleBtn = document.getElementById("chronicle-btn") as HTMLButtonElement;
-  let chronicleEntries: ChronicleEntry[] = [];
-  // Entries with an id above this arrived "while you were away" (the profile's read mark on the server).
-  let chronicleAwaySince = 0;
-  let chronicleRead = 0;
-  function onChronicle(m: { entries: ChronicleEntry[]; since?: number; full?: boolean }) {
-    if (m.full) {
-      chronicleEntries = [...m.entries];
-      chronicleAwaySince = chronicleRead = m.since ?? 0;
-      const away = chronicleEntries.filter((e) => e.id > chronicleAwaySince).length;
-      if (away > 0) pushEventToast("milestone", `While you were away: ${away} entr${away === 1 ? "y" : "ies"} in the Chronicle`);
-    } else {
-      chronicleEntries.push(...m.entries);
-      if (chronicleEntries.length > 120) chronicleEntries.splice(0, chronicleEntries.length - 120);
-    }
-    renderChronicle();
-  }
-  function renderChronicle() {
-    const open = !chroniclePanelEl.hidden;
-    const last = chronicleEntries.length ? chronicleEntries[chronicleEntries.length - 1].id : 0;
-    if (open && last > chronicleRead) {
-      chronicleRead = last;
-      sendMessage({ type: "chronicleSeen", id: last });
-    }
-    const unread = chronicleEntries.filter((e) => e.id > chronicleRead).length;
-    chronicleBtn.textContent = unread > 0 ? `Chronicle (${unread})` : "Chronicle";
-    chronicleBtn.classList.toggle("has-new", unread > 0);
-    if (!open) return;
-    chronicleEmptyEl.hidden = chronicleEntries.length > 0;
-    chronicleListEl.replaceChildren();
-    // Newest first: the "while you were away" block, then the rest under "Earlier".
-    type Section = "" | "away" | "earlier";
-    let section = "" as Section;
-    for (const e of [...chronicleEntries].reverse()) {
-      const away = e.id > chronicleAwaySince;
-      const want: Section = away ? "away" : section === "away" ? "earlier" : section;
-      if (want !== section) {
-        const h = document.createElement("div");
-        h.className = "cp-head";
-        h.textContent = want === "away" ? "While you were away" : "Earlier";
-        chronicleListEl.append(h);
-        section = want;
-      }
-      const row = document.createElement("div");
-      row.className = `cp-entry${away ? " new" : ""}`;
-      const day = document.createElement("span");
-      day.className = "cp-day";
-      day.textContent = `Day ${e.day}`;
-      row.append(day, e.text);
-      chronicleListEl.append(row);
-    }
-  }
-  function setChroniclePanelOpen(open: boolean) {
-    chroniclePanelEl.hidden = !open;
-    // Closing it: what was read is no longer "while you were away".
-    if (!open) chronicleAwaySince = chronicleRead;
-    renderChronicle();
-  }
-  chronicleBtn.addEventListener("click", () => {
-    chronicleBtn.blur();
-    setChroniclePanelOpen(chroniclePanelEl.hidden);
-  });
-  document.getElementById("cp-close")!.addEventListener("click", () => setChroniclePanelOpen(false));
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !chroniclePanelEl.hidden) setChroniclePanelOpen(false);
-  });
+  const chronicleUi = setupChronicle({ send: (m) => sendMessage(m), pushEventToast: (c, t) => pushEventToast(c, t) });
   document.getElementById("qp-close")!.addEventListener("click", () => setQuestPanelOpen(false));
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !questPanelEl.hidden) setQuestPanelOpen(false);
@@ -6530,7 +5862,7 @@ async function main() {
   }
   document.getElementById("game-over-restart")!.addEventListener("click", (e) => {
     (e.currentTarget as HTMLButtonElement).blur();
-    sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: creativeUi.on, solo: preferredSolo && !creativeUi.on });
+    sendMessage({ type: "restart", difficulty: menuPrefs.preferredDifficulty, worldSize: menuPrefs.preferredWorldSize, creative: creativeUi.on, solo: menuPrefs.preferredSolo && !creativeUi.on });
   });
 
   // ---- Networking ----
@@ -6658,7 +5990,7 @@ async function main() {
     restartBtn.blur();
     if (!window.confirm("Restart the world for everyone connected?")) return;
     if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: creativeUi.on, solo: preferredSolo && !creativeUi.on }));
+      socket.send(JSON.stringify({ type: "restart", difficulty: menuPrefs.preferredDifficulty, worldSize: menuPrefs.preferredWorldSize, creative: creativeUi.on, solo: menuPrefs.preferredSolo && !creativeUi.on }));
     }
   });
 
@@ -7456,25 +6788,25 @@ async function main() {
       myId = message.id;
       // A new / loaded world: everyone starts outside.
       interiorRef.ui?.reset();
-      if (pendingLoadSlot) {
+      if (menuPrefs.pendingLoadSlot) {
         // Continue / Load Game: the save brings its own difficulty (no claim), then a fresh welcome.
-        sendMessage({ type: "loadGame", slot: pendingLoadSlot });
-        pendingLoadSlot = null;
-      } else if (enforceGameMode && preferredSolo) {
+        sendMessage({ type: "loadGame", slot: menuPrefs.pendingLoadSlot });
+        menuPrefs.pendingLoadSlot = null;
+      } else if (menuPrefs.enforceGameMode && menuPrefs.preferredSolo) {
         // Solo hero phase 4: a Solo New Game always starts a fresh Solo world (a restart for everyone).
-        sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, solo: true });
-      } else if (enforceGameMode && !!message.creative !== preferredCreative) {
+        sendMessage({ type: "restart", difficulty: menuPrefs.preferredDifficulty, worldSize: menuPrefs.preferredWorldSize, solo: true });
+      } else if (menuPrefs.enforceGameMode && !!message.creative !== menuPrefs.preferredCreative) {
         // Creative mode: New Game / Creative from the menu start a world of that mode (a restart for everyone).
-        sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: preferredCreative });
+        sendMessage({ type: "restart", difficulty: menuPrefs.preferredDifficulty, worldSize: menuPrefs.preferredWorldSize, creative: menuPrefs.preferredCreative });
       } else {
         // Claims the world's difficulty if nobody has yet (the server ignores it otherwise).
-        sendMessage({ type: "setDifficulty", difficulty: preferredDifficulty, worldSize: preferredWorldSize });
+        sendMessage({ type: "setDifficulty", difficulty: menuPrefs.preferredDifficulty, worldSize: menuPrefs.preferredWorldSize });
       }
-      if (pendingCreatorAppearance && !(enforceGameMode && (preferredSolo || !!message.creative !== preferredCreative))) {
-        sendMessage({ type: "setHeroAppearance", appearance: pendingCreatorAppearance });
-        pendingCreatorAppearance = null;
+      if (menuPrefs.pendingCreatorAppearance && !(menuPrefs.enforceGameMode && (menuPrefs.preferredSolo || !!message.creative !== menuPrefs.preferredCreative))) {
+        sendMessage({ type: "setHeroAppearance", appearance: menuPrefs.pendingCreatorAppearance });
+        menuPrefs.pendingCreatorAppearance = null;
       }
-      enforceGameMode = false;
+      menuPrefs.enforceGameMode = false;
       creativeUi.onWelcome(message.creative === true);
       creativeWorld = message.creative === true;
       refreshToolbarVisibility();
@@ -7703,7 +7035,7 @@ async function main() {
     } else if (message.type === "chunks") {
       applyStreamChunks(message.chunks);
     } else if (message.type === "chronicle") {
-      onChronicle(message);
+      chronicleUi.onChronicle(message);
     } else if (message.type === "workTab") {
       workUi.onTab(message.tab);
     } else if (message.type === "workPosts") {
@@ -8244,8 +7576,8 @@ async function main() {
     worldTilesY: () => worldTilesY,
     tileAt: (i) => tiles[i] ?? TileType.Empty,
     cropAt: (i) => zonesUi.cropAt(i),
-    itemCount: (id) => itemTotal(latestProgression, id),
-    gatesOpen: () => latestProgression?.open === true,
+    itemCount: (id) => itemTotal(progressionUi.latest(), id),
+    gatesOpen: () => progressionUi.latest()?.open === true,
     // Weapons in the pack plus the wielded one, in id order so slots keep their place when one is swapped in.
     weapons: () => (heroProfile ? [heroProfile.equipment.weapon, ...heroProfile.inventory].filter((i): i is GearItem => !!i && i.slot === "weapon").sort((a, b) => (a.id < b.id ? -1 : 1)) : []),
     equippedWeaponId: () => heroProfile?.equipment.weapon?.id ?? null,
@@ -9432,359 +8764,7 @@ async function main() {
   });
 }
 
-// Main menu: the game (and its server connection) only starts once Start is pressed. Settings are
-// client-only prefs kept in localStorage, plus the Difficulty choice that's sent to the server on
-// join. There is ONE settings panel: it lives in the main menu until Start, then moves into the
-// in-game #settings-modal (opened by the Settings control button). "Menu" in-game reloads back here.
-const DIFFICULTY_PREF_KEY = "sworn.difficulty";
-const DIFFICULTY_LABEL: Record<Difficulty, string> = { easy: "Easy", normal: "Normal", hard: "Hard" };
-// The menu choice: sent as setDifficulty after every welcome, and with an in-game Restart.
-let preferredDifficulty: Difficulty = "normal";
-// Map size (tiles per side) chosen in the menu; New Game / Restart regenerate the world at it.
-const MAP_SIZE_PREF_KEY = "sworn.mapSize";
-// Clans: the main menu's Clan choice (sent as the ws URL's `?clan=`): join the clan already playing (clan 0)
-// or found a new one. A page URL `?clan=new` / `?clan=<id>` overrides it (e.g. to join clan 2).
-let preferredClan: "join" | "new" = "join";
-function clanParam(): string {
-  const fromPage = new URLSearchParams(location.search).get("clan");
-  if (fromPage && /^(new|\d{1,3})$/.test(fromPage)) return fromPage;
-  return preferredClan === "new" ? "new" : "";
-}
-function renderClanChoice() {
-  document.querySelectorAll<HTMLButtonElement>("#set-clan button").forEach((btn) => {
-    btn.setAttribute("aria-checked", String(btn.dataset.clan === preferredClan));
-  });
-}
-const MAP_SIZES = [64, 96, 160, 256, 384, 512, 768, 1024, 2048];
-// Vast (1024) unless the player picked another size before (remembered in localStorage). The server's own default
-// (COLONY_WORLD_SIZE or 160) only applies to clients that send no size, such as the scripted tests.
-let preferredWorldSize: number | undefined = 1024;
-function renderMapSizeChoice(value: number | undefined) {
-  document.querySelectorAll<HTMLButtonElement>("#set-mapsize button").forEach((btn) => {
-    btn.setAttribute("aria-checked", String(Number(btn.dataset.size) === (value ?? 1024)));
-  });
-  // 2048: long load, needs a strong PC.
-  document.getElementById("set-mapsize-warn")!.hidden = value !== 2048;
-}
-let gameStarted = false;
-// The world's active difficulty as the server reports it (null until the first welcome).
-let activeDifficulty: Difficulty | null = null;
-
-function renderDifficultyChoice(value: Difficulty) {
-  document.querySelectorAll<HTMLButtonElement>("#set-difficulty button").forEach((btn) => {
-    btn.setAttribute("aria-checked", String(btn.dataset.difficulty === value));
-  });
-}
-
-// Called from main() on every welcome/snapshot; cheap no-op unless the value changed.
-function setActiveDifficulty(value: Difficulty) {
-  if (value === activeDifficulty) return;
-  activeDifficulty = value;
-  document.getElementById("stat-difficulty")!.textContent = `${DIFFICULTY_LABEL[value]} difficulty`;
-  if (gameStarted) renderDifficultyChoice(value);
-}
-
-const SAVE_SLOT_NAMES: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3", creative: "Creative" };
-
-function describeSave(sv: SaveInfo): string {
-  return `${sv.creative ? "Creative · " : ""}Day ${sv.dayIndex + 1} · ${sv.population} pop · ${DIFFICULTY_LABEL[sv.difficulty]}`;
-}
-
-// One parchment row per slot: name + day/population/difficulty + when, then its buttons.
-function renderSaveRows(
-  container: HTMLElement,
-  rows: { slot: SaveSlot; info?: SaveInfo; buttons: { label: string; secondary?: boolean; onClick: () => void }[] }[],
-  emptyText?: string
-) {
-  container.replaceChildren();
-  if (rows.length === 0 && emptyText) {
-    const empty = document.createElement("div");
-    empty.className = "save-empty";
-    empty.textContent = emptyText;
-    container.append(empty);
-    return;
-  }
-  for (const row of rows) {
-    const el = document.createElement("div");
-    el.className = "save-row";
-    const text = document.createElement("span");
-    text.textContent = SAVE_SLOT_NAMES[row.slot];
-    const note = document.createElement("small");
-    note.textContent = row.info
-      ? `${describeSave(row.info)} · ${new Date(row.info.savedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`
-      : "Empty";
-    text.append(note);
-    const btns = document.createElement("span");
-    btns.className = "save-btns";
-    for (const b of row.buttons) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = b.label;
-      if (b.secondary) btn.className = "secondary";
-      btn.addEventListener("click", () => {
-        btn.blur();
-        b.onClick();
-      });
-      btns.append(btn);
-    }
-    el.append(text, btns);
-    container.append(el);
-  }
-}
-
-function setupMainMenu() {
-  const menu = document.getElementById("main-menu")!;
-  const mainPanel = document.getElementById("menu-main")!;
-  const settingsPanel = document.getElementById("menu-settings-panel")!;
-  const settingsModal = document.getElementById("settings-modal")!;
-  const settingsModalScroll = document.getElementById("settings-modal-scroll")!;
-  const minimapBox = document.getElementById("set-minimap") as HTMLInputElement;
-  const eventsBox = document.getElementById("set-events") as HTMLInputElement;
-  const difficultySeg = document.getElementById("set-difficulty")!;
-  const difficultyNote = document.getElementById("set-difficulty-note")!;
-
-  const load = (key: string): boolean => {
-    try {
-      return localStorage.getItem(key) !== "off";
-    } catch {
-      return true;
-    }
-  };
-  const save = (key: string, on: boolean) => {
-    try {
-      localStorage.setItem(key, on ? "on" : "off");
-    } catch {
-      /* private mode: setting just won't persist */
-    }
-  };
-  const apply = () => {
-    document.body.classList.toggle("hide-minimap", !minimapBox.checked);
-    document.body.classList.toggle("hide-events", !eventsBox.checked);
-  };
-  // Sound: sliders/mute edit sound.volumes live (persisted by SoundManager). The AudioContext is
-  // created on the first menu click (a user gesture), at the latest on Start.
-  const volumeInputs: { el: HTMLInputElement; key: "master" | "music" | "sfx" }[] = [
-    { el: document.getElementById("set-vol-master") as HTMLInputElement, key: "master" },
-    { el: document.getElementById("set-vol-music") as HTMLInputElement, key: "music" },
-    { el: document.getElementById("set-vol-sfx") as HTMLInputElement, key: "sfx" },
-  ];
-  const muteBox = document.getElementById("set-mute") as HTMLInputElement;
-  for (const { el, key } of volumeInputs) {
-    el.value = String(Math.round(sound.volumes[key] * 100));
-    el.addEventListener("input", () => sound.setVolumes({ [key]: Number(el.value) / 100 }));
-    // A sample at the new level once the slider is released.
-    if (key !== "music") el.addEventListener("change", () => sound.play("ui_click", { cooldownMs: 0 }));
-  }
-  muteBox.checked = sound.volumes.muted;
-  muteBox.addEventListener("change", () => sound.setVolumes({ muted: muteBox.checked }));
-  document.addEventListener(
-    "pointerdown",
-    () => {
-      if (!sound.unlocked) sound.unlock();
-    },
-    { capture: true }
-  );
-  document.addEventListener("click", (e) => {
-    const el = e.target as HTMLElement | null;
-    if (el?.closest("button, #build-panel-toggle, #economy-panel-toggle")) sound.play("ui_click");
-  });
-
-  minimapBox.checked = load("sworn.minimap");
-  // Village life phase 5: camera settings (read at page load by readAdventurePrefs, so they apply after a reload).
-  const adventureCamBox = document.getElementById("set-adventure-cam") as HTMLInputElement;
-  const startStrategyBox = document.getElementById("set-start-strategy") as HTMLInputElement;
-  adventureCamBox.checked = load(ADVENTURE_CAM_PREF);
-  try {
-    startStrategyBox.checked = localStorage.getItem(START_STRATEGY_PREF) === "on";
-  } catch {
-    startStrategyBox.checked = false;
-  }
-  adventureCamBox.addEventListener("change", () => save(ADVENTURE_CAM_PREF, adventureCamBox.checked));
-  startStrategyBox.addEventListener("change", () => save(START_STRATEGY_PREF, startStrategyBox.checked));
-  eventsBox.checked = load("sworn.events");
-  apply();
-  minimapBox.addEventListener("change", () => {
-    save("sworn.minimap", minimapBox.checked);
-    apply();
-  });
-  eventsBox.addEventListener("change", () => {
-    save("sworn.events", eventsBox.checked);
-    apply();
-  });
-
-  try {
-    const stored = localStorage.getItem(DIFFICULTY_PREF_KEY);
-    if (stored === "easy" || stored === "normal" || stored === "hard") preferredDifficulty = stored;
-  } catch {
-    /* default stays Normal */
-  }
-  renderDifficultyChoice(preferredDifficulty);
-  try {
-    const storedSize = Number(localStorage.getItem(MAP_SIZE_PREF_KEY));
-    if (MAP_SIZES.includes(storedSize)) preferredWorldSize = storedSize;
-  } catch {
-    /* default stays Vast */
-  }
-  renderMapSizeChoice(preferredWorldSize);
-  renderClanChoice();
-  document.getElementById("set-clan")!.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-clan]");
-    if (btn?.dataset.clan !== "join" && btn?.dataset.clan !== "new") return;
-    preferredClan = btn.dataset.clan;
-    renderClanChoice();
-  });
-  const mapSizeSeg = document.getElementById("set-mapsize")!;
-  mapSizeSeg.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-size]");
-    const value = Number(btn?.dataset.size);
-    if (!MAP_SIZES.includes(value)) return;
-    preferredWorldSize = value;
-    renderMapSizeChoice(value);
-    try {
-      localStorage.setItem(MAP_SIZE_PREF_KEY, String(value));
-    } catch {
-      /* private mode: setting just won't persist */
-    }
-  });
-  difficultySeg.addEventListener("click", (e) => {
-    // Read-only once the game is running: the world's difficulty is fixed until a restart.
-    if (gameStarted) return;
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-difficulty]");
-    const value = btn?.dataset.difficulty;
-    if (value !== "easy" && value !== "normal" && value !== "hard") return;
-    preferredDifficulty = value;
-    renderDifficultyChoice(value);
-    try {
-      localStorage.setItem(DIFFICULTY_PREF_KEY, value);
-    } catch {
-      /* private mode: setting just won't persist */
-    }
-  });
-
-  const closeModal = () => {
-    settingsModal.hidden = true;
-  };
-  let choosingCharacter = false;
-  const startGame = async (loadSlot: SaveSlot | null, creative = preferredCreative, solo = false) => {
-    if (choosingCharacter) return;
-    if (loadSlot === null) {
-      // Appearance selection is intentionally disabled while only the fixed hero is supported.
-      pendingCreatorAppearance = { ...DEFAULT_HERO_APPEARANCE };
-    }
-    pendingLoadSlot = loadSlot;
-    preferredCreative = creative;
-    preferredSolo = solo && !creative;
-    enforceGameMode = loadSlot === null;
-    sound.unlock();
-    menu.hidden = true;
-    gameStarted = true;
-    // Hand the one settings panel over to the in-game modal.
-    settingsModalScroll.appendChild(settingsPanel);
-    settingsPanel.hidden = false;
-    difficultySeg.classList.add("readonly");
-    difficultySeg.setAttribute("aria-disabled", "true");
-    difficultyNote.textContent = "Fixed for this world; a Restart uses your menu choice";
-    document.getElementById("menu-back")!.textContent = "Close";
-    if (activeDifficulty) renderDifficultyChoice(activeDifficulty);
-    void main();
-  };
-  // New Game keeps the old Start behaviour (whatever world the server is running, menu difficulty).
-  document.getElementById("menu-start")!.addEventListener("click", () => startGame(null));
-  // Creative mode: a new creative world (infinite resources, instant build, the Creative panel).
-  document.getElementById("menu-creative")!.addEventListener("click", () => startGame(null, true));
-  document.getElementById("menu-solo")!.addEventListener("click", () => startGame(null, false, true));
-  if (preferredCreative) document.getElementById("menu-start")!.textContent = "New Game (Creative)";
-  document.getElementById("menu-continue")!.addEventListener("click", () => startGame("autosave"));
-  const loadPanel = document.getElementById("menu-load-panel")!;
-  document.getElementById("menu-load")!.addEventListener("click", () => {
-    mainPanel.hidden = true;
-    loadPanel.hidden = false;
-  });
-  document.getElementById("menu-load-back")!.addEventListener("click", () => {
-    loadPanel.hidden = true;
-    mainPanel.hidden = false;
-  });
-  // Continue / Load Game only show once the server reports saves (silently absent if it's down).
-  fetch(SAVES_URL)
-    .then((res) => res.json() as Promise<{ saves: SaveInfo[] }>)
-    .then(({ saves }) => {
-      if (gameStarted) return;
-      document.getElementById("menu-continue")!.hidden = !saves.some((sv) => sv.slot === "autosave");
-      document.getElementById("menu-load")!.hidden = saves.length === 0;
-      renderSaveRows(
-        document.getElementById("menu-load-list")!,
-        saves.map((sv) => ({
-          slot: sv.slot,
-          info: sv,
-          buttons: [{ label: "Load", onClick: () => startGame(sv.slot) }],
-        }))
-      );
-    })
-    .catch(() => {
-      /* server unreachable: New Game only */
-    });
-  document.getElementById("menu-settings")!.addEventListener("click", () => {
-    mainPanel.hidden = true;
-    settingsPanel.hidden = false;
-  });
-  document.getElementById("menu-back")!.addEventListener("click", () => {
-    if (gameStarted) {
-      closeModal();
-      return;
-    }
-    settingsPanel.hidden = true;
-    mainPanel.hidden = false;
-  });
-  document.getElementById("settings-btn")!.addEventListener("click", (e) => {
-    (e.currentTarget as HTMLButtonElement).blur();
-    settingsModal.hidden = !settingsModal.hidden;
-  });
-  // Backdrop click or Escape closes; keys typed into the panel (arrows on a slider) don't reach the
-  // game's movement/hotkey handlers on window.
-  settingsModal.addEventListener("click", (e) => {
-    if (e.target === settingsModal) closeModal();
-  });
-  settingsModal.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeModal();
-    e.stopPropagation();
-  });
-  // Escape with focus outside the panel (e.g. right after opening it).
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !settingsModal.hidden) closeModal();
-  });
-  document.getElementById("menu-exit")!.addEventListener("click", () => {
-    // Stop the game server (it autosaves first; the page server of the live / launcher copies stops with it).
-    fetch(QUIT_URL, { method: "POST", headers: { "X-Colony-Quit": "1" } }).catch(() => undefined);
-    // Browsers only let a script close a tab it opened; otherwise show a goodbye line.
-    window.close();
-    document.getElementById("menu-bye")!.hidden = false;
-  });
-  // The Menu button is a dropdown (Restart / Save / Settings / Return to menu). Choosing an item, clicking
-  // elsewhere or pressing Escape closes it; "Return to menu" reloads back to the main menu as Menu used to.
-  const menuBtn = document.getElementById("menu-btn") as HTMLButtonElement;
-  const menuList = document.getElementById("menu-dropdown-list")!;
-  const setMenuOpen = (open: boolean) => {
-    menuList.hidden = !open;
-    menuBtn.setAttribute("aria-expanded", String(open));
-  };
-  menuBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    menuBtn.blur();
-    setMenuOpen(menuList.hidden);
-  });
-  menuList.addEventListener("click", (e) => {
-    if ((e.target as HTMLElement).closest(".menu-item")) setMenuOpen(false);
-  });
-  window.addEventListener("click", (e) => {
-    if (!menuList.hidden && !(e.target as HTMLElement).closest("#menu-dropdown")) setMenuOpen(false);
-  });
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !menuList.hidden) setMenuOpen(false);
-  });
-  document.getElementById("return-menu-btn")!.addEventListener("click", () => location.reload());
-}
-
-setupMainMenu();
+setupMainMenu({ serverUrl: SERVER_URL, startGame: () => void main() });
 
 // The control strip can wrap at different window sizes and text scales.
 const toolbarForLayout=document.getElementById('control-buttons');
