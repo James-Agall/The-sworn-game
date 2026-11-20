@@ -30,7 +30,7 @@ const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_mo
 const saveDir = mkdtempSync(path.join(tmpdir(), "clans-test-"));
 const server = spawn(TSX, ["src/index.ts"], {
   cwd: DIR,
-  env: { ...process.env, PORT: String(PORT), COLONY_WORLD_SIZE: "96", COLONY_TEST_HOOKS: "1", COLONY_SAVE_DIR: saveDir },
+  env: { ...process.env, PORT: String(PORT), COLONY_WORLD_SIZE: "96", COLONY_TEST_HOOKS: "1", COLONY_INSTANT_BUILD: "1", COLONY_SAVE_DIR: saveDir },
   stdio: "ignore",
   detached: true,
 });
@@ -91,7 +91,12 @@ const waitFor = async (fn, ms = 3000) => {
   return fn();
 };
 const px = (t) => t * TILE + 16;
-const unitOf = async (c, id) => (await c.hookCall("bodyState")).colonists.find((u) => u.id === id);
+const unitOf = async (c, id) => {
+  const body = await c.hookCall("bodyState");
+  const u = body.colonists.find((x) => x.id === id);
+  if (!u) throw new Error(`unit ${id} not in bodyState (${body.colonists.length} soldiers: ${body.colonists.map((x) => x.kind + "@" + Math.round(x.x / TILE) + "," + Math.round(x.y / TILE)).join(" ")}; mobs ${body.mobs.map((m) => m.kind).join(",")})`);
+  return u;
+};
 
 try {
   // ---- A: one clan, shared ----
@@ -126,26 +131,38 @@ try {
   result(Math.hypot(cp.x - px(tc1.x), cp.y - px(tc1.y)) < 3 * TILE, "the founder spawns at its new Town Center");
 
   // ---- C: separate stock ----
-  await C.hookCall("setStock", { stock: { wood: 500 } });
+  await C.hookCall("setStock", { stock: { wood: 500, rock: 100 } });
   await waitFor(() => C.snap.wood === 500);
   await sleep(200);
   result(C.snap.wood === 500 && A.snap.wood === 123, `separate stock (clan 1 wood ${C.snap.wood}, clan 0 wood ${A.snap.wood})`);
 
   // ---- D: tiles, goals, edit refusal ----
   const W = C.welcome.worldTilesX;
+  // A House can't go where a unit stands, and village life keeps villagers wandering around the Town Center:
+  // try each candidate, skipping tiles with anyone within 2 tiles, until the House appears.
   let spot = null;
-  for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [2, -2], [-2, 2]]) {
-    const x = tc1.x + dx, y = tc1.y + dy;
-    if (C.tiles[y * W + x] === T.Empty) {
+  const candidates = [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [2, -2], [-2, 2], [3, 0], [-3, 0], [0, 3], [0, -3]];
+  for (let attempt = 0; attempt < 6 && !(spot && C.tiles[spot.y * W + spot.x] === T.House); attempt++) {
+    spot = null;
+    for (const [dx, dy] of candidates) {
+      const x = tc1.x + dx, y = tc1.y + dy;
+      if (C.tiles[y * W + x] !== T.Empty) continue;
+      const near = [...C.snap.colonists, ...C.snap.players.filter((u) => u.id !== C.me().id)].some((u) => Math.hypot(u.x - px(x), u.y - px(y)) < TILE * 2);
+      if (near) continue;
       spot = { x, y };
       break;
     }
+    if (!spot) {
+      await sleep(500);
+      continue;
+    }
+    await C.hookCall("teleportPlayer", { x: px(spot.x) + TILE, y: px(spot.y) });
+    await sleep(100);
+    C.send({ type: "setTile", tileX: spot.x, tileY: spot.y, tile: T.House });
+    await waitFor(() => C.tiles[spot.y * W + spot.x] === T.House, 1500);
   }
   result(!!spot, `found an empty tile beside clan 1's Town Center (${spot?.x},${spot?.y})`);
-  await C.hookCall("teleportPlayer", { x: px(spot.x) + TILE, y: px(spot.y) });
-  await sleep(100);
-  C.send({ type: "setTile", tileX: spot.x, tileY: spot.y, tile: T.House });
-  result(await waitFor(() => C.tiles[spot.y * W + spot.x] === T.House), "clan 1 builds a House");
+  result(!!spot && C.tiles[spot.y * W + spot.x] === T.House, `clan 1 builds a House (${C.events.join(" | ")})`);
   const idx = spot.y * W + spot.x;
   const ownerOf = (flat, i) => {
     for (let k = 0; flat && k + 1 < flat.length; k += 2) if (flat[k] === i) return flat[k + 1];
@@ -166,8 +183,28 @@ try {
   A.send({ type: "buildingInfo", tileX: spot.x, tileY: spot.y });
 
   // ---- E: armies ----
-  const kC = (await C.hookCall("spawnSoldier", { kind: "knight", x: px(tc1.x + 3), y: px(tc1.y + 3), stance: "defensive" })).id;
-  const kA = (await A.hookCall("spawnSoldier", { kind: "knight", x: px(tc0.x + 3), y: px(tc0.y + 3), stance: "defensive" })).id;
+  // spawnSoldier returns null on an unwalkable tile and world-gen scatters trees / rock / mob camps (random per run),
+  // so pick the empty tile within 8 tiles of the Town Center that is farthest from every mob: a knight that a mob
+  // wakes would chase it and die, which has nothing to do with the clan rules under test.
+  const mobs = (await C.hookCall("bodyState")).mobs;
+  // The 6 tiles east of the spot are clear too, so the move orders below have somewhere to walk.
+  const spawnKnight = async (client, tc, stance = "defensive") => {
+    const cands = [];
+    for (let dy = -8; dy <= 8; dy++)
+      for (let dx = -8; dx <= 8; dx++) {
+        const tx = tc.x + dx, ty = tc.y + dy;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < 3 || tx < 2 || ty < 2 || tx >= W - 8 || ty >= W - 2 || [0, 1, 2, 3, 4, 5].some((k) => C.tiles[ty * W + tx + k] !== T.Empty)) continue;
+        cands.push({ tx, ty, d: Math.min(1e9, ...mobs.map((m) => Math.hypot(m.x - px(tx), m.y - px(ty)))) });
+      }
+    cands.sort((p, q) => q.d - p.d);
+    for (const { tx, ty } of cands.slice(0, 12)) {
+      const id = (await client.hookCall("spawnSoldier", { kind: "knight", x: px(tx), y: px(ty), stance })).id;
+      if (id) return { id, tx, ty };
+    }
+    return null;
+  };
+  const kC = (await spawnKnight(C, tc1)).id;
+  const kA = (await spawnKnight(A, tc0)).id;
   const regHas = (c, id) => (c.snap.armyRegiments ?? []).some((r) => r.unitIds.includes(id));
   let sawC = false, sawA = false, leakC = false, leakA = false;
   const t0 = Date.now();
@@ -176,7 +213,7 @@ try {
     if (A.snap.armyRegiments) { sawA ||= regHas(A, kA); leakA ||= regHas(A, kC); }
     await sleep(25);
   }
-  result(sawC && sawA && !leakC && !leakA, `each clan's regiments hold only its own knight (C ${sawC}/${leakC}, A ${sawA}/${leakA})`);
+  result(sawC && sawA && !leakC && !leakA, `each clan's regiments hold only its own knight (C ${sawC}/${leakC}, A ${sawA}/${leakA}; C regs ${JSON.stringify(C.snap.armyRegiments)}, kC ${JSON.stringify(await unitOf(C, kC))})`);
   const before = await unitOf(A, kC);
   A.send({ type: "commandMove", unitIds: [kC], x: before.x + 5 * TILE, y: before.y });
   await A.hookCall("fastForward", { ticks: 60 });
@@ -188,8 +225,9 @@ try {
   result(Math.hypot(moved.x - before.x, moved.y - before.y) > 2 * TILE, `clan 1 orders its own knight (moved ${Math.hypot(moved.x - before.x, moved.y - before.y).toFixed(0)} px)`);
 
   // ---- F: neutral ----
-  const nA = (await A.hookCall("spawnSoldier", { kind: "knight", x: px(tc0.x - 4), y: px(tc0.y - 4), stance: "aggressive" })).id;
-  const nC = (await C.hookCall("spawnSoldier", { kind: "knight", x: px(tc0.x - 4) + 20, y: px(tc0.y - 4), stance: "aggressive" })).id;
+  const nAs = await spawnKnight(A, tc0, "aggressive");
+  const nA = nAs.id;
+  const nC = (await C.hookCall("spawnSoldier", { kind: "knight", x: px(nAs.tx) + 20, y: px(nAs.ty), stance: "aggressive" })).id;
   const hp0 = [(await unitOf(A, nA)).hp, (await unitOf(A, nC)).hp];
   await A.hookCall("fastForward", { ticks: 300 });
   const ua = await unitOf(A, nA);
