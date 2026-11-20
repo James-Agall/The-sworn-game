@@ -48,6 +48,20 @@ export function setupChronicle(deps: ChronicleDeps): ChronicleUi {
     if (!open) return;
     chronicleEmptyEl.hidden = chronicleEntries.length > 0;
     chronicleListEl.replaceChildren();
+    // House line list (heir successions), pinned above the feed, oldest first.
+    const houseLines = chronicleEntries.filter((e) => e.kind === "house");
+    if (houseLines.length) {
+      const h = document.createElement("div");
+      h.className = "cp-head";
+      h.textContent = "The House";
+      chronicleListEl.append(h);
+      for (const e of houseLines) {
+        const row = document.createElement("div");
+        row.className = "cp-entry";
+        row.textContent = e.text;
+        chronicleListEl.append(row);
+      }
+    }
     // Newest first: the "while you were away" block, then the rest under "Earlier".
     type Section = "" | "away" | "earlier";
     let section = "" as Section;

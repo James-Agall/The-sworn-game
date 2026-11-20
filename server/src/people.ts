@@ -29,7 +29,7 @@ import { sendEvent } from "./construction.js";
 import { heroKey, heroProfileFor, heroProfileOf, playerMaxHp, recomputeHeroProfile } from "./heroes.js";
 import { releaseResourceReservation } from "./economy.js";
 import { isSummoned } from "./spells.js";
-import { heroBirthsDawn, kinRelation, succeedFamily } from "./family.js";
+import { heroBirthsDawn, kinRelation, succeedFamily, writeEpitaph } from "./family.js";
 import { freeFighterCount, freeFighterFor, releaseVillagerForPost, workPriority } from "./work.js";
 import { FAMILY_HEIR_GOLD_SHARE, FAMILY_HEIR_SKILL_SHARE, KIN_LABEL, type HeroSkill, type KinRelation } from "@colony/shared/herolife";
 
@@ -625,6 +625,7 @@ export function onHeroDeath(player: Player) {
   player.hp = 0;
   player.dead = true;
   player.input = { dx: 0, dy: 0 };
+  writeEpitaph(player);
   if (canRevive(player) || heirCandidates(player.clan ?? 0).length > 0) {
     player.heirPending = true;
     sendEvent(player, "death", "You have fallen. Choose an heir to carry on");

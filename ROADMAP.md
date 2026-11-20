@@ -4984,3 +4984,6 @@ A tavern keeper's dialogue gains "Buy a rumour (10 gold)" (reveals the nearest c
 `raidForecast` (shared/src/raidForecast.ts: size band small/medium/large/huge, faction ids, entry edges; no exact count)
 is read off the live, not-yet-engaged raid groups (`raidForecastNow` in raids.ts). Client: one HUD line plus a toast the
 first time a raid is announced. Absent when raids are skipped. Test: server/raid-forecast-test.mjs (registered, W80).
+
+### Heir epitaph and house chronicle (DESIGN-REVIEW-nov20 #8) - landed 2026-11-20
+A hero death (before the heir picker, also when heirless) writes an `epitaph` chronicle entry from real data (generation, days since taking over, spouse, children, top site deed); succession writes a `house` line ("Gen 2, House Tam: ..."), listed pinned under "The House" in the Chronicle panel. Templates in shared/src/herolife.ts (`epitaphText`, `houseLineText`); `HeroFamilyData.since/house`. Test: server/heir-epitaph-test.mjs. Deferred: game-over card UI, spouse/mine/siege highlights, picker preview.

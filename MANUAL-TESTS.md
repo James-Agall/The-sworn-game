@@ -1517,3 +1517,5 @@ each; the card advances and pays a small reward. From day 2 a single bandit club
 Play to the middle of a day with a Town Center: a toast "Tonight: a small raid (wolves) from the north" appears once and a
 red line stays under the top bar until the raiders make contact; it shows a size band, not a number, and the edge matches
 where the raiders gather. Solo hero without a camp: no forecast. Hunger-marked elites stay a surprise.
+
+- Heir epitaph: kill the hero (a family helps) and open the Chronicle: an epitaph line (name, gen, days, spouse, children, top deed) appears; pick an heir and a "The House" section lists "Gen 2, House <name>: ..." at the top of the panel. Run server/heir-epitaph-test.mjs for the server side.

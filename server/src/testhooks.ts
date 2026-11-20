@@ -88,7 +88,7 @@ import { grantTome, isSpellId, learnSpell, spellBookSnapshot } from "./spells.js
 import { stepSimulation } from "./sim.js";
 import { battleRegimentsForTest } from "./battle.js";
 import { broadcastTileUpdate, fightsForPlayer } from "./net.js";
-import { tierOf } from "./diplomacy.js";
+import { noteDeed, tierOf } from "./diplomacy.js";
 import { endVassalage, forceTribute, updateVassals, vassalDebugState, vassalsDawn } from "./vassals.js";
 import { forceVassal, placeTradingPost, spawnMobAt, spawnRaidGroupAt, spawnSoldierAt, stampSiteSearch } from "./creative.js";
 import { forcePostQuest, quests, questsForSnapshot, scanQuests } from "./quests.js";
@@ -414,6 +414,8 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const clan = typeof msg.clan === "number" ? msg.clan : 0;
     if (st && typeof msg.relation === "number") adjustRelation(clan, st.id, msg.relation - relationOf(clan, st.id));
     if (st && msg.stock && typeof msg.stock === "object") for (const [k, v] of Object.entries(msg.stock as Record<string, unknown>)) if (typeof v === "number") st.stock[k as ResourceKey] = v;
+    // `deeds` {quests: 4, ...}: that many more noted deeds of this clan here (heir epitaph).
+    if (st && msg.deeds && typeof msg.deeds === "object") for (const [k, v] of Object.entries(msg.deeds as Record<string, unknown>)) for (let i = 0; i < Number(v); i++) noteDeed(st, clan, k as "quests");
     reply({ found: !!st, relation: st ? relationOf(clan, st.id) : null, tier: st ? tierOf(clan, st) : null, diplo: st?.diplo?.[clan] ?? null, stock: st ? { ...st.stock } : null });
   } else if (msg.op === "questPost" && typeof msg.siteId === "string" && typeof msg.kind === "string") {
     // Forts phase D2: post a quest of kind defend / clearCamp / deliver from the settlement to clan (default 0)

@@ -565,7 +565,32 @@ export interface HeroFamilyData {
   kinOf?: string;
   // The spouse married in from this settlement (for the in-laws' grief when the spouse dies).
   spouseKin?: string;
+  // Game tick this house member took over (0 for the first); the epitaph counts their days from it.
+  since?: number;
+  // The line's name: the first hero's, kept through every succession.
+  house?: string;
 }
+// House chronicle (heir epitaph): text templates, built from real counters only.
+export interface EpitaphDeeds { defended: number; quests: number; traded: number; attacked: number }
+const DEED_PHRASE: Record<keyof EpitaphDeeds, (n: number) => string> = {
+  defended: (n) => `defended settlements ${n} time${n === 1 ? "" : "s"}`,
+  quests: (n) => `finished ${n} quest${n === 1 ? "" : "s"}`,
+  traded: (n) => `made ${n} trade${n === 1 ? "" : "s"}`,
+  attacked: (n) => `led ${n} attack${n === 1 ? "" : "s"}`,
+};
+// The biggest non-zero deed counter as a phrase, or null.
+export function topDeed(d: EpitaphDeeds): string | null {
+  const k = (Object.keys(DEED_PHRASE) as (keyof EpitaphDeeds)[]).filter((x) => d[x] > 0).sort((a, b) => d[b] - d[a])[0];
+  return k ? DEED_PHRASE[k](d[k]) : null;
+}
+export function epitaphText(name: string, gen: number, days: number, spouse: string | undefined, children: number, deeds: EpitaphDeeds): string {
+  const parts = [`${name}, gen ${gen}, fell after ${days} day${days === 1 ? "" : "s"}`];
+  parts.push(`${spouse ? `wed to ${spouse}` : "unwed"}, ${children} ${children === 1 ? "child" : "children"}`);
+  const d = topDeed(deeds);
+  parts.push(d ? `${d}` : "no great deeds recorded");
+  return parts.join("; ");
+}
+export const houseLineText = (name: string, gen: number, house: string | undefined) => `Gen ${gen}, House ${house ?? "unnamed"}: ${name} takes the mantle`;
 // Courtship points (+1 time together, +2 a gift, each once a game day per person) needed to propose.
 export const COURT_NEEDED = 4;
 export const COURT_GIFT_GOLD = 15;
