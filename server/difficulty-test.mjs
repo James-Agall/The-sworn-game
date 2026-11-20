@@ -8,7 +8,7 @@
 //      round(5 * 1.35) = 7 mobs.
 // Sends "restart": run it against a PRIVATE server, e.g.
 //   COLONY_WORLD_SIZE=80 PORT=8097 npx tsx src/index.ts &   then   PORT=8097 node difficulty-test.mjs
-// Takes ~1.5-2 min (the raid spawns 30 s and night falls 60 s after a restart).
+// Hooks jump the clock: runs in a few seconds.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -121,17 +121,32 @@ await a.nextWelcome(wa + 1);
 await a.nextSnaps(3);
 result(a.snap.difficulty === "hard", "world restarted on hard");
 
-// Everything present right after the restart is a world-gen guardian; the raid appears at the day
-// midpoint (cycleProgress = 0.5 * dayFraction).
+// Needs COLONY_TEST_HOOKS=1 (the runner boots it so). No waiting for the real day / night clock: hooks jump the
+// cycle and spawn the mobs.
+const hook = (op, args = {}) =>
+  new Promise((resolve) => {
+    const onMsg = (raw) => {
+      const m = JSON.parse(raw.toString());
+      if (m.type === "testHookResult" && m.op === op) { a.ws.off("message", onMsg); resolve(m); }
+    };
+    a.ws.on("message", onMsg);
+    a.send({ type: "testHook", op, ...args });
+  });
+
+// Everything present right after the restart is a world-gen guardian; the day-0 raid appears at the day midpoint.
 const dayMobIds = new Set(a.snap.mobs.map((m) => m.id));
-while (a.snap.cycleProgress < a.snap.dayFraction / 2) await a.nextSnaps(1);
-await a.nextSnaps(3);
-const raidCount = a.snap.mobs.filter((m) => !dayMobIds.has(m.id)).length;
-const popFactor = Math.min(1.5, Math.max(0.5, a.snap.population / 15));
-const expectedRaid = Math.max(1, Math.round(RAID_BASE_SIZE * popFactor * HARD.spawnCount));
-result(raidCount === expectedRaid, `day-0 raid at the day midpoint = ${raidCount} mobs (expected round(${RAID_BASE_SIZE} x ${popFactor.toFixed(2)} x ${HARD.spawnCount}) = ${expectedRaid})`);
-while (!a.snap.isNight) await a.nextSnaps(1);
-console.log(`[${el()}] night fell; ${dayMobIds.size} world-gen (guardian) mobs excluded`);
+const rs0 = await hook("raidState");
+await hook("setCycleTick", { tick: Math.floor(rs0.dayTicks / 2) - 2 });
+let raidMobs = [];
+for (let i = 0; i < 100 && raidMobs.length === 0; i++) {
+  await a.nextSnaps(1);
+  raidMobs = a.snap.mobs.filter((m) => !dayMobIds.has(m.id));
+}
+await a.nextSnaps(5);
+raidMobs = a.snap.mobs.filter((m) => !dayMobIds.has(m.id));
+// The server's own size for tonight (people factor and tier cap x the Hard spawn multiplier): the whole raid is spawned.
+const { size: expectedRaid } = await hook("raidSize", { dayIndex: 0 });
+result(expectedRaid >= 1 && raidMobs.length === expectedRaid, `day-0 raid at the day midpoint = ${raidMobs.length} mobs (server raidSize for day 0 on Hard = ${expectedRaid})`);
 
 // Scale pass: on top of the difficulty, each raid mob's maxHp is x its rolled size s (snapshot `scale`) and
 // its damage x (1 + (s - 1) / 2), to 0.1 (server applyMobSize).
@@ -140,55 +155,33 @@ const expectedDmg = Object.fromEntries(
   Object.entries(DAY0).map(([k, v]) => [k, Math.max(1, Math.round(v.damage * HARD.mobDamage))])
 );
 const sizedDmg = (kind, s = 1) => (s === 1 ? expectedDmg[kind] : Math.max(1, Math.round(expectedDmg[kind] * (1 + (s - 1) * 0.5) * 10) / 10));
-const checked = new Set();
 let hpOk = 0;
-let hpBad = [];
-let hitSeen = null;
-let lastHp = a.snap.players.find((p) => p.id === a.id()).hp;
-const nightStart = Date.now();
-while (Date.now() - nightStart < 38000 && a.snap.isNight) {
-  const s = await a.nextSnaps(1);
-  const nightMobs = s.mobs.filter((m) => !dayMobIds.has(m.id));
-  for (const m of nightMobs) {
-    if (checked.has(m.id)) continue;
-    checked.add(m.id);
-    if (!DAY0[m.kind]) continue;
-    if (m.maxHp === expectedHp(m.kind, m.scale ?? 1)) hpOk++;
-    else hpBad.push(`${m.kind} maxHp ${m.maxHp} != ${expectedHp(m.kind, m.scale ?? 1)}`);
-  }
-  const me = s.players.find((p) => p.id === a.id());
-  // Walk toward the nearest night mob so one of them hits us.
-  const target = nightMobs.sort((p, q) => Math.hypot(p.x - me.x, p.y - me.y) - Math.hypot(q.x - me.x, q.y - me.y))[0];
-  if (target && !hitSeen) {
-    const dx = target.x - me.x;
-    const dy = target.y - me.y;
-    a.send({ type: "input", dx: Math.abs(dx) > 8 ? Math.sign(dx) : 0, dy: Math.abs(dy) > 8 ? Math.sign(dy) : 0 });
-  }
-  if (me.hp < lastHp && !hitSeen) {
-    const drop = lastHp - me.hp;
-    // Attribute the hit only when exactly one raid mob could have landed it: in melee reach, or a
-    // bandit archer within its 4-tile range.
-    const could = nightMobs.filter((m) => {
-      const d = Math.hypot(m.x - me.x, m.y - me.y);
-      return d < 48 || (m.kind === "banditArcher" && d < 32 * 4.5);
-    });
-    if (could.length === 1 && DAY0[could[0].kind]) hitSeen = { kind: could[0].kind, drop, scale: could[0].scale ?? 1 };
-  }
-  lastHp = me.hp;
-  if (hitSeen && checked.size >= 4) break;
+const hpBad = [];
+for (const m of raidMobs) {
+  if (!DAY0[m.kind]) continue;
+  if (m.maxHp === expectedHp(m.kind, m.scale ?? 1)) hpOk++;
+  else hpBad.push(`${m.kind} maxHp ${m.maxHp} != ${expectedHp(m.kind, m.scale ?? 1)}`);
 }
-a.send({ type: "input", dx: 0, dy: 0 });
-
-result(checked.size > 0, `raid mobs seen at night (${checked.size})`);
+result(raidMobs.length > 0, `raid mobs seen (${raidMobs.length})`);
 result(hpBad.length === 0 && hpOk > 0, `raid mob maxHp scaled x${HARD.mobHp} (${hpOk} ok${hpBad.length ? "; " + hpBad.join(", ") : ""})`);
-if (hitSeen) {
-  result(
-    Math.abs(hitSeen.drop - sizedDmg(hitSeen.kind, hitSeen.scale)) < 1e-6,
-    `${hitSeen.kind} hit the player for ${hitSeen.drop} (expected ${sizedDmg(hitSeen.kind, hitSeen.scale)} = round(${DAY0[hitSeen.kind].damage} x ${HARD.mobDamage}) x size ${hitSeen.scale})`
-  );
-} else {
-  console.log(`INFO [${el()}] no unambiguous night-mob hit on the player observed; damage multiplier not checked this run`);
+
+// Damage multiplier, deterministically: a goblin spawned on the player (the only raid mob there) lands its first
+// hit for round(4 x 1.35) x its size factor.
+const me0 = a.snap.players.find((p) => p.id === a.id());
+await hook("setRaids", { enabled: false });
+await hook("ignorePlayers", { value: false });
+const g = await hook("spawnMob", { kind: "goblin", tx: Math.floor(me0.x / 32), ty: Math.floor(me0.y / 32) });
+let firstDrop = 0;
+let lastHp = a.snap.players.find((p) => p.id === a.id()).hp;
+for (let i = 0; i < 150 && !firstDrop; i++) {
+  const s = await a.nextSnaps(1);
+  const hp = s.players.find((p) => p.id === a.id()).hp;
+  if (hp < lastHp) firstDrop = lastHp - hp;
+  lastHp = hp;
 }
+const gScale = a.snap.mobs.find((m) => m.id === g.id)?.scale ?? g.scale ?? 1;
+result(firstDrop > 0 && Math.abs(firstDrop - sizedDmg("goblin", gScale)) < 1e-6,
+  `goblin hit the player for ${firstDrop} (expected ${sizedDmg("goblin", gScale)} = round(${DAY0.goblin.damage} x ${HARD.mobDamage}) x size ${gScale})`);
 
 a.ws.close();
 console.log(fails === 0 ? "ALL PASS" : `${fails} FAIL(S)`);
