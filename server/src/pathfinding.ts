@@ -34,6 +34,12 @@ export function isWalkableTile(tx: number, ty: number): boolean {
 export function canStepTile(fx:number,fy:number,tx:number,ty:number):boolean {
  if(!inBounds(fx,fy)||!inBounds(tx,ty))return false;
  const from=state.tiles[tileIndex(fx,fy)],to=state.tiles[tileIndex(tx,ty)];
+ // Perf fast path (path searches call this per step): with neither tile a fortification (Rampart ..
+ // WideBridgeVPart) every rule below reduces to isWalkableTile(tx, ty), written out here.
+ if((from<TileType.Rampart||from>TileType.WideBridgeVPart)&&(to<TileType.Rampart||to>TileType.WideBridgeVPart)){
+   if(isGateTile(to)){sawGate=true;return gatePassable(tileIndex(tx,ty),state.hostileMover);}
+   return !isSolidTile(to);
+ }
  if(!rampartTransition(from,to))return false;
  // Friendly defenders can cross the deck above a closed gate, but cannot descend through its locked doors.
  if(isLargeGate(from)&&!isLargeGate(to)&&to!==TileType.Rampart&&to!==TileType.WallLadder&&!gatePassable(tileIndex(fx,fy),state.hostileMover))return false;
