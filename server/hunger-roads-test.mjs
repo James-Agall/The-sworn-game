@@ -130,8 +130,9 @@ result(snap.isPaused, "world paused for the test");
   const my = Math.floor(p.y / TILE);
   // Two Halls of the Sworn near the player (1 knight each at level 1).
   let placed = 0;
-  for (let y = my - 2; y <= my + 2 && placed < 2; y++) {
-    for (let x = mx - 2; x <= mx + 2 && placed < 2; x++) {
+  // A Hall is a 3x3 block anchored at its top-left tile, so the anchors range wider than the reach box.
+  for (let y = my - 4; y <= my + 2 && placed < 2; y++) {
+    for (let x = mx - 4; x <= mx + 2 && placed < 2; x++) {
       if (Math.hypot(x * TILE + 16 - p.x, y * TILE + 16 - p.y) > REACH || tileAt(x, y) !== T.Empty) continue;
       if (Math.floor(p.x / TILE) === x && Math.floor(p.y / TILE) === y) continue;
       send({ type: "setTile", tileX: x, tileY: y, tile: T.KnightPost });
@@ -157,6 +158,9 @@ result(snap.isPaused, "world paused for the test");
       const d = knights.map((k) => Math.hypot(kx(k) - tx - 0.5, ky(k) - ty - 0.5));
       const order = knights.map((k, i) => i).sort((i, j) => d[i] - d[j]);
       if (d[order[1]] - d[order[0]] < 0.5 || d[order[1]] > 9) continue;
+      // Nothing else (builders, villagers, the player) may be nearer than the healthy knight, or the unmarked mob picks it.
+      const others = [...snap.colonists.filter((c2) => !knights.includes(c2)), ...snap.players];
+      if (others.some((o) => Math.hypot(kx(o) - tx - 0.5, ky(o) - ty - 0.5) < d[order[0]] + 2)) continue;
       spawn = { x: tx, y: ty };
       healthy = knights[order[0]];
       wounded = knights[order[1]];
