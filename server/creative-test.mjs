@@ -90,9 +90,15 @@ result(snap.wood >= 999999 && snap.gold >= 999999 && snap.iron >= 999999, `infin
 const p = me();
 const px = Math.floor(p.x / TILE), py = Math.floor(p.y / TILE);
 let spot = null;
-for (let dx = -2; dx <= 2 && !spot; dx++) for (let dy = -2; dy <= 2 && !spot; dy++) {
+for (let dx = -3; dx <= 3 && !spot; dx++) for (let dy = -3; dy <= 3 && !spot; dy++) {
   const x = px + dx, y = py + dy;
-  if ((dx || dy) && tiles[y * W + x] === 0 && Math.hypot(x * TILE + 16 - p.x, y * TILE + 16 - p.y) <= TILE * 2.5) spot = { x, y };
+  // Knight Post is a 3x3 block (the tile placed on is its top-left): every tile empty, nobody standing on one.
+  let clear = true;
+  for (let bx = 0; bx < 3; bx++) for (let by = 0; by < 3; by++) {
+    if (tiles[(y + by) * W + x + bx] !== 0) clear = false;
+    for (const u of [...snap.players, ...snap.colonists]) if (Math.floor(u.x / TILE) === x + bx && Math.floor(u.y / TILE) === y + by) clear = false;
+  }
+  if (clear && Math.hypot(x * TILE + 16 - p.x, y * TILE + 16 - p.y) <= TILE * 2.5) spot = { x, y };
 }
 if (spot) {
   send({ type: "setTile", tileX: spot.x, tileY: spot.y, tile: KNIGHT_POST });

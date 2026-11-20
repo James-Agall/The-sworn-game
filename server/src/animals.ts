@@ -856,11 +856,13 @@ function updateRiders() {
   }
 }
 // wagons.ts: x CART_HORSE_SPEED_MULT for a clan with a Stables holding an adult horse nobody rides (cached a second).
-const cartCache = new Map<number, { tick: number; mult: number }>();
+// The key also holds the animal and rider counts, so buying/selling a horse or mounting shows at once.
+const cartCache = new Map<number, { tick: number; n: number; mult: number }>();
 export function cartHorseMult(clan: number): number {
   const hit = cartCache.get(clan);
-  if (hit && hit.tick === state.cycleTick) return hit.mult;
   ensureSynced();
+  const n = animals.size * 1000 + riders.size;
+  if (hit && hit.tick === state.cycleTick && hit.n === n) return hit.mult;
   const ridden = new Set(riders.values());
   let mult = 1;
   for (const a of animals.values()) {
@@ -870,7 +872,7 @@ export function cartHorseMult(clan: number): number {
       break;
     }
   }
-  cartCache.set(clan, { tick: state.cycleTick, mult });
+  cartCache.set(clan, { tick: state.cycleTick, n, mult });
   return mult;
 }
 
