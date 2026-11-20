@@ -4925,3 +4925,6 @@ James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-w
 - **Mine Foreman named**: the panel line names the posted foreman and its level ("Mine Foreman: Kit (level-3 miner)").
 - Not done: soldiers walking into the interior; a crusher step for iron ore (the Stamp Mill crushes gold / tin / stone);
   hazards hurting a hero who is only standing inside (only the hero's own digging rolls a cave-in); dedicated art.
+
+### Heir epitaph and house chronicle (DESIGN-REVIEW-nov20 #8) - landed 2026-11-20
+A hero death (before the heir picker, also when heirless) writes an `epitaph` chronicle entry from real data (generation, days since taking over, spouse, children, top site deed); succession writes a `house` line ("Gen 2, House Tam: ..."), listed pinned under "The House" in the Chronicle panel. Templates in shared/src/herolife.ts (`epitaphText`, `houseLineText`); `HeroFamilyData.since/house`. Test: server/heir-epitaph-test.mjs. Deferred: game-over card UI, spouse/mine/siege highlights, picker preview.

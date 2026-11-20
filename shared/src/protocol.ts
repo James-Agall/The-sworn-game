@@ -290,7 +290,7 @@ export const TRADE_GOODS: TradeGood[] = ["grain", "meat", "fruit", "wool", "wood
 //   deliver   - "Deliver N <good> to <name>": hand `qty` of `good` over from the clan stock near its walls.
 export type QuestKind = "defend" | "clearCamp" | "deliver";
 // World streaming phase 5: the chronicle (news feed of what happened out of sight).
-export type ChronicleKind = "raid" | "wagon" | "camp" | "settlement" | "feud";
+export type ChronicleKind = "raid" | "wagon" | "camp" | "settlement" | "feud" | "epitaph" | "house";
 export interface ChronicleEntry {
   id: number;
   // Game day (1-based) it happened.

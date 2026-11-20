@@ -1476,3 +1476,5 @@ Normal game (not creative): Farming tab shows no Farm, Cow / Pig / Sheep pasture
 hotkeys (4, p, f, n) do nothing. Paint a Growing zone (Zones tab: wheat / hemp) and an Animal area, fence it, and use a
 Chicken Coop / Livestock Barn / Pig Sty / Sheep Pen instead. Creative game: the four old tools are back and place; old
 saves' existing plots and pastures keep working. The server refuses the old tiles in normal games too.
+
+- Heir epitaph: kill the hero (a family helps) and open the Chronicle: an epitaph line (name, gen, days, spouse, children, top deed) appears; pick an heir and a "The House" section lists "Gen 2, House <name>: ..." at the top of the panel. Run server/heir-epitaph-test.mjs for the server side.

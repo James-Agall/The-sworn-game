@@ -2,7 +2,7 @@
 // landed"). The hero is a person (HeroLife.family, saved with the hero profile): `selfId` is what other persons'
 // `parents` / `spouse` point at. Children and siblings are derived from the living colonists. Dialogue for courtship
 // and marriage lives in herolife.ts and calls the state changes here.
-import { BLOOD_CLAIM_RELATION, CHILD_TALENT_SHARE, COURT_NEEDED, FEUD_DAYS, MARRIAGE_BREAK_RELATION, SPOUSE_DEATH_RELATION, HERO_BIRTH_CHANCE, HERO_BIRTH_COOLDOWN_DAYS, KIN_LABEL, MARRIAGE_RELATION_JUMP, NEED_MAX, type FamilyMemberSnapshot, type FamilySnapshot, type HeroFamilyData, type KinRelation } from "@colony/shared/herolife";
+import { BLOOD_CLAIM_RELATION, CHILD_TALENT_SHARE, COURT_NEEDED, FEUD_DAYS, MARRIAGE_BREAK_RELATION, SPOUSE_DEATH_RELATION, HERO_BIRTH_CHANCE, HERO_BIRTH_COOLDOWN_DAYS, KIN_LABEL, MARRIAGE_RELATION_JUMP, NEED_MAX, epitaphText, houseLineText, type EpitaphDeeds, type FamilyMemberSnapshot, type FamilySnapshot, type HeroFamilyData, type KinRelation } from "@colony/shared/herolife";
 import type { Colonist, Player, SiteState } from "./types.js";
 import { colonists, players, sites, state } from "./state.js";
 import { GAME_DAY_TICKS, RELATION_ALLIED_MIN } from "./constants.js";
@@ -14,6 +14,7 @@ import { gameDay, standingTown } from "./diplomacy.js";
 import { heroProfileOf } from "./heroes.js";
 import { adjustRelation, relationOf } from "./sites.js";
 import { broadcastEvent } from "./net.js";
+import { chronicle } from "./chronicle.js";
 
 export function familyOf(p: Player): HeroFamilyData {
   const prof = heroProfileOf(p);
@@ -159,6 +160,18 @@ export function partWays(p: Player): string {
 
 // people.ts handleChooseHeir: the heir becomes the family's new self (their parents and spouse carry over; the old
 // hero's other children become siblings). A child of an in-law marriage taking over: that settlement's blood claim.
+// Hero death, before the heir picker: the epitaph card from real data (family, clan site deeds), as a chronicle entry.
+export function writeEpitaph(p: Player) {
+  const f = familyOf(p);
+  const clan = p.clan ?? 0;
+  const deeds: EpitaphDeeds = { defended: 0, quests: 0, traded: 0, attacked: 0 };
+  for (const s of sites.values()) {
+    const d = s.diplo?.[clan]?.deeds;
+    if (d) for (const k of Object.keys(deeds) as (keyof EpitaphDeeds)[]) deeds[k] += d[k] ?? 0;
+  }
+  const days = Math.max(0, Math.floor((state.cycleTick - (f.since ?? 0)) / GAME_DAY_TICKS));
+  chronicle("epitaph", epitaphText(f.name ?? "The founder", f.gen, days, f.spouseName, childrenOf(p).length, deeds), { x: p.x, y: p.y });
+}
 export function succeedFamily(p: Player, c: Colonist) {
   const old = familyOf(p);
   const life = heroProfileOf(p).life!;
@@ -180,7 +193,10 @@ export function succeedFamily(p: Player, c: Colonist) {
     if (spouse.person.kinOf) next.spouseKin = spouse.person.kinOf;
   }
   if (c.person?.kinOf) next.kinOf = c.person.kinOf;
+  next.since = state.cycleTick;
+  next.house = old.house ?? old.name ?? next.name;
   life.family = next;
+  chronicle("house", houseLineText(next.name!, next.gen, next.house));
   for (const k of Object.keys(life.flags)) if (k.startsWith("court")) delete life.flags[k];
   for (const id of claims) {
     const s = sites.get(id);
