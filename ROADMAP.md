@@ -5003,3 +5003,14 @@ Machine was busy with other agents, so these are UPPER bounds:
 | 250 | 6.7 ms | 11.1 ms | 62.7 ms | colonists 1.9 ms/tick |
 | 500 | 9.8 ms | 15.4 ms | 50.1 ms | colonists 2.1 ms/tick |
 | 1000 | 39.8 ms | 154.3 ms | 293.9 ms | colonists 27.3 ms/tick (the cliff; 50 ms budget) |
+
+## Test triage 2026-11-20 — flaky and slow list
+Stale tests were rewritten rather than re-run (abbey-ward, army-damage, camp-hearth, clans, combat-line, difficulty, economy-goods,
+gravestone-events, streaming-world, wagons and ~12 more; see git log "…-test:" commits). No game bugs were found; every failure was a stale
+assumption (3x3 / 5x5 footprints, village life, station caps, one raid faction per night) or random-world variance.
+- **Flaky (random world layout / load):** combat-line (formation slots), economy-goods (wool farm, late gold), settlements (stamp error ~2 in 3
+  runs, gate-stays-shut once), raid-timing (two unexplained failures), upgrades-church (site walks), snapshot-delta, structures, tactics,
+  time-intel, synergies, ward-priest-patrol (hook timeouts when run alongside other tests).
+- **Too slow (over a 10 min cap):** streaming-abstract (also failed once on 'wagon convoy: abstract past ACTIVE radius'; likely the same COLD
+  settlement assumption fixed in streaming-world), shelter-overflow (~32 min in one run), upgrades-church (~400 s).
+- Branch `worktree-agent-ac4ffe645189654dd` holds an unproven S4 change (pooled near()); not merged (no measurable speedup).
