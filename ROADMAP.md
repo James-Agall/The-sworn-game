@@ -4994,3 +4994,12 @@ resource rewards through the normal goal reward path. Numbers in `shared/src/end
 `server/src/goals.ts`; the final goal is now "Survive 15 nights". Test: `server/post-castle-goals-test.mjs` (hook
 `setCampsDestroyed`). Deferred: the design's cosmetic banner/title per goal, ally-2-settlements, first-winter and
 hero-class goals (needs predicates beyond this small chain).
+
+## Perf bench 2026-11-20 (formation march, scripts/bench-ticks.mjs)
+`node scripts/bench-ticks.mjs [N...]` boots a private scratch server (world 256, COLONY_TEST_HOOKS=1, temp COLONY_SAVE_DIR, port 20777), spawns N soldiers (4:1 militia:archer, spawnSoldier hook), orders one regiment move with width 40 and reads tickStats over 15 s (~20 Hz). About 500-560 mobs live in the world.
+Machine was busy with other agents, so these are UPPER bounds:
+| N | avg tick | p95 | max | notes |
+|---|---|---|---|---|
+| 250 | 6.7 ms | 11.1 ms | 62.7 ms | colonists 1.9 ms/tick |
+| 500 | 9.8 ms | 15.4 ms | 50.1 ms | colonists 2.1 ms/tick |
+| 1000 | 39.8 ms | 154.3 ms | 293.9 ms | colonists 27.3 ms/tick (the cliff; 50 ms budget) |
