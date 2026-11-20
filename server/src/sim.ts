@@ -50,7 +50,7 @@ import { updateRooms } from "./structures.js";
 import { updateZones } from "./zones.js";
 import { updateCalendar } from "./calendar.js";
 import { updateWorkAssignments } from "./work.js";
-import { heroSpeedMult, updateHeroLife } from "./herolife.js";
+import { heroSpeedMult, spawnSoloScout, updateHeroLife } from "./herolife.js";
 import { stepInteriorMovement, tryEnterAtDoor, updateInteriors } from "./interiors.js";
 import { minesDawn, updateMines } from "./mines.js";
 import { updateWinter } from "./winter.js";
@@ -123,7 +123,7 @@ export function stepSimulation() {
           spawnRaid(dayIndex);
           // Forts phase G: overgrown founded camps raid their nearest clan too.
           spawnCampRaids(dayIndex);
-        }
+        } else if (clan.id === 0) spawnSoloScout(dayIndex);
       });
     }
   }

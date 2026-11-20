@@ -680,3 +680,11 @@ export function sanitizeHeroLife(raw: unknown): HeroLifeData | null {
   const wardrobe = sanitizeWardrobe(r.wardrobe);
   return { pack, food: num(r.food, 0, NEED_MAX, NEED_MAX), rest: num(r.rest, 0, NEED_MAX, NEED_MAX), ...energy, ...water, skills, flags, builds, ...(family ? { family } : {}), ...(wardrobe ? { wardrobe } : {}) };
 }
+
+// Solo opening (2026-11-20): the Solo goal track's gather target and the lone bandit scout that gives a campless
+// Solo hero some pressure (one per day from SOLO_SCOUT_FIRST_DAY, spawned SOLO_SCOUT_DIST_TILES from the hero).
+export const SOLO_GATHER_WOOD = 20;
+export const SOLO_GATHER_ROCK = 10;
+export const SOLO_SCOUT_FIRST_DAY = 2;
+export const SOLO_SCOUT_DIST_TILES = 6;
+export const SOLO_SCOUT_KIND = "banditClubman";

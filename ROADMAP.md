@@ -4925,3 +4925,11 @@ James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-w
 - **Mine Foreman named**: the panel line names the posted foreman and its level ("Mine Foreman: Kit (level-3 miner)").
 - Not done: soldiers walking into the interior; a crusher step for iron ore (the Stamp Mill crushes gold / tin / stone);
   hazards hurting a hero who is only standing inside (only the hero's own digging rolls a cave-in); dedicated art.
+
+## Solo opening goals and a lone scout (landed 2026-11-20)
+- A Solo start (no Town Center) posts its own goal track on the goal card: gather 20 wood + 10 stone, build a shelter, hunt an
+  animal, found a camp (`SOLO_GOALS`, `activeGoals()` in `server/src/goals.ts`). Founding the camp resets to the normal track.
+- From day 2 (`SOLO_SCOUT_FIRST_DAY`), at the day's raid slot, a Solo hero with no camp gets one lone bandit scout 6 tiles away
+  (`spawnSoloScout`, herolife.ts); never a raid, never stacked while the last one lives. Numbers: `shared/src/herolife.ts`.
+- Test: `server/solo-opening-test.mjs`. Deferred: scout on a "night 3 after founding" variant, per-goal client art, a scout that
+  tracks the lean-to/campfire instead of the hero.

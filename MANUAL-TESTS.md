@@ -1476,3 +1476,8 @@ Normal game (not creative): Farming tab shows no Farm, Cow / Pig / Sheep pasture
 hotkeys (4, p, f, n) do nothing. Paint a Growing zone (Zones tab: wheat / hemp) and an Animal area, fence it, and use a
 Chicken Coop / Livestock Barn / Pig Sty / Sheep Pen instead. Creative game: the four old tools are back and place; old
 saves' existing plots and pastures keep working. The server refuses the old tiles in normal games too.
+
+## Solo opening goals and a lone scout
+New game, Solo: the goal card reads "Gather 20 wood and 10 stone", then "Build a shelter", "Hunt an animal", "Found a camp". Do
+each; the card advances and pays a small reward. From day 2 a single bandit club-man appears near you around midday and chases you
+(no raid group). Found a camp: the card switches to "Place a building" (the normal track) and the scout stops coming.
