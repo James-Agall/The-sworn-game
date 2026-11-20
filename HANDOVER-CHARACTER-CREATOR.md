@@ -1,6 +1,6 @@
 # colony2d: handover to finish the hero / character creator (for ChatGPT / Codex, 2026-11-16)
 
-Owner: James. Repo `/home/james/projects/colony2d` (branch `main`, nothing from this work is pushed; do not push unless James says "push").
+Owner: James. Repo `/home/james/projects/the-sworn-game` (branch `main`, nothing from this work is pushed; do not push unless James says "push").
 Up to now Claude Code did this work. This file is everything you need to finish it. Read it, then `README.md`, `HANDOVER-CODEX.md`
 (general rules and project tour; its section 3 rules apply to you and are repeated below), `SPRITES.md` (requests #106-#109 at the end),
 `MANUAL-TESTS.md`, `/home/james/docs/colony2d/PLAN-character-creator.md` (plan + "Current state" at the top) and `QUEUE.md` (same folder).
@@ -81,7 +81,7 @@ rig with real part art; the server enforces the gear rules; tests pass; `MANUAL-
   `recolor.mjs`, `transform.mjs`, `compose.mjs`, `preview.mjs` (new piece beside real art at in-game size), `validate.mjs`, `palette.mjs`,
   `paint.mjs`, and `rigging/sheet.mjs` (headless contact sheet of any rig page; needs playwright-core, set `PLAYWRIGHT=<path>/playwright-core/index.mjs`).
   Read `tools/sprite-making/SKILL.md` and `tools/rigging/reference.md` before touching art or animation: they hold the lessons. (They were written as Claude
-  skills, so their text mentions `~/.claude/skills/...` and `~/projects/colony2d/...`; use the copies under `tools/` and `scripts/` in this repo instead.)
+  skills, so their text mentions `~/.claude/skills/...` and `~/projects/the-sworn-game/...`; use the copies under `tools/` and `scripts/` in this repo instead.)
 
 ## 4. The part art pipeline (how real art gets in)
 James generates four sheets in ChatGPT from the prompts in `SPRITES.md` #106-#109 (limbs, torso + pelvis, heads / hair / helms, weapons + shield).
