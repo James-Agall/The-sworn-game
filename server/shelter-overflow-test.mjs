@@ -228,9 +228,11 @@ info(`civilians: ${civs().map((k) => k.kind).join(",")}`);
 {
   const { dist, key } = bfs(a);
   let wait = null;
-  for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+  // At least 8 tiles from the production site, out of reach of the trees its Lumberjacks grow (they can wall in a
+  // spot beside the site and leave the player with a handful of reachable tiles by day 2).
+  for (let dy = -9; dy <= 9; dy++) for (let dx = -9; dx <= 9; dx++) {
     const t = { x: TC.x + dx, y: TC.y + dy };
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 2 || !dist.has(key(t.x, t.y))) continue;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 2 || Math.hypot(t.x - P.x, t.y - P.y) < 8 || !dist.has(key(t.x, t.y))) continue;
     if (!wait || dist.get(key(t.x, t.y)) < wait.d) wait = { ...t, d: dist.get(key(t.x, t.y)) };
   }
   info(`waiting for night at (${wait?.x},${wait?.y}) by the Town Center: ${wait ? await ensureAt(a, wait) : "no reachable tile"}`);
