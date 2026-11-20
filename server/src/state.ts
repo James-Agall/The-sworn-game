@@ -377,6 +377,8 @@ export interface ClanProgress {
   // Winter (server/src/winter.ts): the last cold day's burn: its calendar day, the home keys ("x,y") left cold and
   // the spare heat carried over (optional: older saves and warm seasons have none).
   winter?: { day: number; cold: string[]; carry: number };
+  // Calendar year the autumn "Prepare for winter" goal was last completed (server/src/goals.ts; optional).
+  winterPrepYear?: number;
   // Agriculture extras (server/src/agri.ts; optional: older saves have none): dawns the sourdough starter has gone
   // untended, food units spoiled at the last dawn, sick people (colonist id -> dawns left) and the spoilage remainders
   // carried per item.

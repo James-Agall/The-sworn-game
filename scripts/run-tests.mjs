@@ -62,7 +62,7 @@ const ROOM_SUITES = new Set(["rooms", "zones", "work-priorities", "animals", "pa
 // and no daily water reset: COLONY_NO_SEASONS=1 (state.seasonsOff, test hooks only). Every suite gets it except the
 // calendar, winter and agri-extra suites (SEASON_SUITES). The smoke test (its own server) runs with seasons on.
 const NO_SEASONS = { COLONY_NO_SEASONS: "1" };
-const SEASON_SUITES = new Set(["calendar", "winter", "agri-extra"]);
+const SEASON_SUITES = new Set(["calendar", "winter", "agri-extra", "winter-prep-goal"]);
 const serverEnvFor = (name) => ({
   ...HERO_RESPAWN, ...(SEASON_SUITES.has(name) ? {} : NO_SEASONS), ...(ROOM_SUITES.has(name) ? {} : LEGACY_BUILD), ...(TREE_SUITES.has(name) ? {} : UNLOCK), ...(SERVER_ENV[name] ?? {}),
 });
@@ -99,6 +99,8 @@ const SERVER_ENV = {
   pottery: { ...W80, ...INSTANT },
   mines: { ...W80, ...INSTANT },
   winter: { ...W80, ...INSTANT },
+  "winter-prep-goal": { ...W80, ...INSTANT },
+  "food-days": W80,
   "agri-extra": { ...W80, ...INSTANT },
   "industry-extra": { ...W80, ...INSTANT },
   "raid-waves": W80,

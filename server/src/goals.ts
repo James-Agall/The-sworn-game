@@ -8,6 +8,9 @@ import { tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import { formatReward, grantReward } from "./worldgen.js";
 import { isSoldierKind } from "./units.js";
 import { broadcastEvent } from "./net.js";
+import { WINTER_PREP_REWARD } from "@colony/shared/winter";
+import { calendarNow } from "./calendar.js";
+import { winterPrepActive, winterPrepStatus } from "./winter.js";
 import { clanIdAt, clanIdAtIndex, clanTownCenters, inClan } from "./clans.js";
 
 // Dawns since the world began (cycle 0 starts at dawn, so day N's dawn is cycleTick N * cycle), counted from
@@ -81,6 +84,7 @@ export function refreshGoalSnapshot(progress?: { progress: number; target: numbe
 
 // silent: catch up without rewards or toasts (an old save loaded with no goal state).
 export function evaluateGoals(silent = false) {
+  if (!silent) evaluateWinterPrep();
   while (state.goalIndex < GOALS.length) {
     const goal = GOALS[state.goalIndex];
     const p = goal.progress();
@@ -100,6 +104,15 @@ export function evaluateGoals(silent = false) {
     );
   }
   refreshGoalSnapshot();
+}
+
+// The autumn "Prepare for winter" side goal (shared/src/winter.ts WINTER_PREP_*): not part of the linear track, so it
+// never blocks it. Completes once the fuel covers the first cold stretch; pays WINTER_PREP_REWARD once per year.
+export function evaluateWinterPrep() {
+  if (!winterPrepActive() || !winterPrepStatus().done) return;
+  state.progress.winterPrepYear = calendarNow().year;
+  grantReward(WINTER_PREP_REWARD);
+  broadcastEvent("milestone", `Goal complete: Prepare for winter (${formatReward(WINTER_PREP_REWARD)})`);
 }
 
 export function resetGoals() {

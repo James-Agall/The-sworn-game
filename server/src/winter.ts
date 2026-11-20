@@ -15,8 +15,8 @@ import { DAYS_PER_SEASON, WINTER, calendarOf } from "@colony/shared/calendar";
 import {
   COLD_DAMAGE, COLD_DAMAGE_EVERY_S, COLD_HOME_DAMAGE, COLD_HOME_HAPPINESS, COLD_HOME_REST_GAIN_MULT, COLD_HOME_WORK_MULT, COLD_HP_FLOOR_FRAC,
   COLD_SPEED_MULT, COLD_WORK_MULT, FUEL_HEAT, FUEL_LOW_DAYS, FUEL_ORDER, GARMENTS, GARMENT_LABEL, HEARTH_HEAT_MULT, HEARTH_HEAT_RADIUS_TILES,
-  HOME_HEAT_PER_DAY, HOME_HEAT_RADIUS_TILES, HOME_ZONE_HEAT_RADIUS_TILES, ROOM_HEAT_BASE, ROOM_HEAT_TILES_PER_EXTRA, WARDROBE_CHECK_EVERY_S,
-  type FuelId, type GarmentId, type Wardrobe, type WinterSnapshot, garmentWearPerDay, wardrobeText, warmlyDressed,
+  HOME_HEAT_PER_DAY, HOME_HEAT_RADIUS_TILES, HOME_ZONE_HEAT_RADIUS_TILES, ROOM_HEAT_BASE, ROOM_HEAT_TILES_PER_EXTRA, WARDROBE_CHECK_EVERY_S, WINTER_PREP_FUEL_DAYS, WINTER_PREP_REWARD,
+  type FuelId, type GarmentId, type Wardrobe, type WinterPrepSnapshot, type WinterSnapshot, garmentWearPerDay, wardrobeText, warmlyDressed,
 } from "@colony/shared/winter";
 import { CRAFT_RECIPES } from "./constants.js";
 import { stationRecipes } from "@colony/shared/progression";
@@ -315,6 +315,20 @@ function winterNeeds(): string {
   return parts.length ? `Winter needs: ${parts.join(", ")}` : "";
 }
 
+// ---- the autumn "Prepare for winter" goal (goals.ts completes and pays it) ----
+// Active in autumn (seasons on) until completed this calendar year.
+export function winterPrepActive(): boolean {
+  return seasonsOn() && calendarNow().season === WINTER - 1 && state.progress.winterPrepYear !== calendarNow().year;
+}
+export function winterPrepStatus(): WinterPrepSnapshot & { done: boolean } {
+  const { units } = heatUnits();
+  const burn = units.reduce((n, u) => n + u.need, 0);
+  const heat = heatInStore() + (state.progress.winter?.carry ?? 0);
+  const fuelDays = burn > 0 ? Math.floor((heat / burn) * 10) / 10 : 0;
+  const reward = Object.entries(WINTER_PREP_REWARD).map(([k, n]) => `${n} ${k}`).join(", ");
+  return { fuelDays, target: WINTER_PREP_FUEL_DAYS, needClothes: needClothesCount(), reward, done: burn > 0 && fuelDays >= WINTER_PREP_FUEL_DAYS };
+}
+
 // People (and heroes) not warmly dressed.
 function needClothesCount(): number {
   return dressOrder().filter((o) => !warmlyDressed(o.wardrobe())).length;
@@ -442,6 +456,10 @@ function buildWinterSnapshot(): WinterSnapshot {
     cold: season === WINTER,
     ...(warning ? { warning } : {}),
   };
+  if (winterPrepActive()) {
+    const { done: _done, ...prep } = winterPrepStatus();
+    snap.prep = prep;
+  }
   return snap;
 }
 

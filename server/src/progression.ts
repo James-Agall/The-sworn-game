@@ -552,6 +552,7 @@ export function progressForSave(c: Clan): ClanProgress {
     ...(c.progress.prospecting ? { prospecting: { ...c.progress.prospecting } } : {}),
     ...(c.progress.winter ? { winter: { day: c.progress.winter.day, cold: [...c.progress.winter.cold], carry: c.progress.winter.carry } } : {}),
     ...(c.progress.agri ? { agri: agriForSave(c.progress.agri) } : {}),
+    ...(c.progress.winterPrepYear !== undefined ? { winterPrepYear: c.progress.winterPrepYear } : {}),
   };
 }
 
@@ -563,6 +564,7 @@ export function restoreProgress(c: Clan, saved: ClanProgress | undefined) {
     c.progress = { items: {}, unlocked: [...(saved.unlocked ?? [])], prospected: [...(saved.prospected ?? [])], prospecting: saved.prospecting };
     const w = saved.winter;
     if (w && typeof w.day === "number" && Array.isArray(w.cold)) c.progress.winter = { day: w.day, cold: w.cold.filter((k) => typeof k === "string"), carry: Number(w.carry) || 0 };
+    if (typeof saved.winterPrepYear === "number") c.progress.winterPrepYear = saved.winterPrepYear;
     const agri = sanitizeAgri(saved.agri);
     if (agri) c.progress.agri = agri;
     for (const [k, v] of Object.entries(saved.items ?? {})) c.progress.items[k as ItemId] = [0, 1, 2].map((i) => v?.[i] ?? 0);
