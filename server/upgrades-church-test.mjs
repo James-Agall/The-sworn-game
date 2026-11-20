@@ -392,7 +392,18 @@ if (a.snap.players.length !== 1 || a.firstSnap.populationCap > 12 || a.firstSnap
 {
   const s = await gotoNewSite(a, "(knight)");
   if (s) {
-    const K = { x: s.x, y: s.y - 2 };
+    // A Hall is a 3x3 block anchored at its top-left tile: all nine tiles Empty, not under the player, anchor in reach
+    // (findSite only guarantees the 5x5 around s, so look at anchors a little beyond it).
+    let K = { x: s.x + 1, y: s.y - 2 };
+    for (let dy = -4; dy <= 2; dy++)
+      for (let dx = -4; dx <= 2; dx++) {
+        const x = s.x + dx, y = s.y + dy;
+        if (Math.hypot(dx, dy) > 2.5) continue;
+        let ok = true;
+        for (let by = 0; by < 3 && ok; by++)
+          for (let bx = 0; bx < 3 && ok; bx++) ok = a.tileAt(x + bx, y + by) === T.Empty && !(x + bx === s.x && y + by === s.y) && !colonistOnTile(a, x + bx, y + by);
+        if (ok) { K = { x, y }; dy = 99; break; }
+      }
     await placeExpectAt(a, K.x, K.y, T.KnightPost, K.x, K.y);
     await sleep(150);
     const knight = kinds(a, "knight")[0];
@@ -490,9 +501,12 @@ let ljSite = null;
     const exp1 = runsL1.map((r) => expectedChopTicks(1, r.h, syn));
     const exp2 = runsL2.map((r) => expectedChopTicks(2, r.h, syn));
     const sameH = runsL1.length && runsL2.length && runsL1[0].h === runsL2[0].h;
-    result(runsL1.length > 0 && runsL2.length > 0 && runsL1.every((r, i) => r.len === exp1[i]) && runsL2.every((r, i) => r.len === exp2[i]) &&
-      (!sameH || runsL2[0].len < runsL1[0].len),
-      `(b) gather (chop) phase in snapshots: level 1 runs=${JSON.stringify(runsL1.map((r) => r.len))} (expected ${JSON.stringify(exp1)} at happiness ${JSON.stringify(runsL1.map((r) => r.h))}), level 2 runs=${JSON.stringify(runsL2.map((r) => r.len))} (expected ${JSON.stringify(exp2)}, -5% level bonus); synergy x${syn}`);
+    // Felling (2026-11-19): one "gathering" run is now N chops (the tree's chop count) back to back, so a run is a whole
+    // multiple of the per-chop ticks; level 2's per-chop ticks must be the shorter of the two at the same happiness.
+    const multiple = (len, per) => len >= per && len % per === 0;
+    result(runsL1.length > 0 && runsL2.length > 0 && runsL1.every((r, i) => multiple(r.len, exp1[i])) && runsL2.every((r, i) => multiple(r.len, exp2[i])) &&
+      (!sameH || exp2[0] < exp1[0]),
+      `(b) gather (chop) phase in snapshots (whole multiples of the per-chop ticks): level 1 runs=${JSON.stringify(runsL1.map((r) => r.len))} (expected ${JSON.stringify(exp1)} at happiness ${JSON.stringify(runsL1.map((r) => r.h))}), level 2 runs=${JSON.stringify(runsL2.map((r) => r.len))} (expected ${JSON.stringify(exp2)}, -5% level bonus); synergy x${syn}`);
   }
 }
 

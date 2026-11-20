@@ -108,7 +108,23 @@ const wallUpd = await placeAndWait(wallSpot, T.Wall);
 result(!!wallUpd && a.snap.wood === woodBefore - 3,
   `Wood Wall placed at (${wallSpot.x},${wallSpot.y}); wood ${woodBefore} -> ${a.snap.wood}`);
 
-const knightSpot = cands.shift();
+// The Hall of the Sworn is a 3x3 block anchored at its top-left tile: every tile of it must be Empty, the player may not
+// stand on it, and the anchor must be in reach. cands only holds 1x1 spots, so search the anchors directly.
+let knightSpot = null;
+for (let dy = -4; dy <= 2 && !knightSpot; dy++)
+  for (let dx = -4; dx <= 2 && !knightSpot; dx++) {
+    const x = ptx + dx, y = pty + dy;
+    if (Math.hypot(me0.x - (x * TS + TS / 2), me0.y - (y * TS + TS / 2)) > TS * 2.5) continue;
+    let ok = true;
+    for (let by = 0; by < 3 && ok; by++)
+      for (let bx = 0; bx < 3 && ok; bx++) {
+        const tx = x + bx, ty = y + by;
+        if (tx < 0 || ty < 0 || tx >= W || tileAt(tx, ty) !== T.Empty) ok = false;
+        else if ((tx === ptx && ty === pty) || (tx === wallSpot.x && ty === wallSpot.y)) ok = false;
+        else if (Math.abs(tx - TC.x) + Math.abs(ty - TC.y) <= 1) ok = false;
+      }
+    if (ok) knightSpot = { x, y };
+  }
 const ironBefore = a.snap.iron;
 const knightUpd = await placeAndWait(knightSpot, T.KnightPost);
 const knightCount = () => a.snap.colonists.filter((c) => c.kind === "knight").length;

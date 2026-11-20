@@ -57,8 +57,23 @@ for (let dx = -2; dx <= 2; dx++)
 cands.sort((a, b) => b.d - a.d);
 console.log(`info [${el()}] player at tile ${pt.x},${pt.y}; ${cands.length} empty tiles in reach; stock wood=${snap.wood} iron=${snap.iron} rock=${snap.rock}`);
 
+// The Hall of the Sworn (KnightPost) is a 3x3 block anchored at its top-left tile: all nine tiles must be Empty, the
+// player may not stand on them, and the anchor must be in reach, so it gets its own search.
+function knightSpot() {
+  for (let dy = -4; dy <= 2; dy++)
+    for (let dx = -4; dx <= 2; dx++) {
+      const x = pt.x + dx, y = pt.y + dy;
+      if (Math.hypot(me.x - (x * TILE + TILE / 2), me.y - (y * TILE + TILE / 2)) > TILE * 2.5) continue;
+      let ok = true;
+      for (let by = 0; by < 3 && ok; by++)
+        for (let bx = 0; bx < 3 && ok; bx++) ok = tileAt(x + bx, y + by) === T.Empty && !(x + bx === pt.x && y + by === pt.y);
+      if (ok) return { x, y };
+    }
+  return null;
+}
+
 async function placeAndExpect(name, tile) {
-  const c = cands.shift();
+  const c = tile === T.KnightPost ? knightSpot() : cands.shift();
   if (!c) return result(false, `${name}: no empty tile in reach`);
   const since = Date.now();
   send({ type: "setTile", tileX: c.x, tileY: c.y, tile });

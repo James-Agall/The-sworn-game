@@ -370,8 +370,11 @@ const lumberjackPosts = [];
         }
       return anyReach || Math.hypot(x - t.x, y - t.y) <= 2.5;
     };
-    const A = [{ x: s.x + 1, y: s.y - 2 }, { x: s.x - 2, y: s.y + 1 }, { x: s.x + 1, y: s.y + 1 }, { x: s.x - 2, y: s.y - 2 }]
-      .find((p) => blockFree(p.x, p.y)) ?? { x: s.x + 1, y: s.y - 2 };
+    // findSite only guarantees a free 5x5 around the standing tile (any 3x3 inside it covers the player), so search a
+    // wider ring of anchors for a free, in-reach 3x3 block instead of four fixed spots.
+    const cands = [];
+    for (let dy = -4; dy <= 2; dy++) for (let dx = -4; dx <= 2; dx++) cands.push({ x: s.x + dx, y: s.y + dy });
+    const A = cands.find((p) => blockFree(p.x, p.y)) ?? { x: s.x + 1, y: s.y - 2 };
     const iron0 = a.snap.iron, rock0 = a.snap.rock;
     const knights0 = new Set(kinds(a, "knight").map((k) => k.id));
     const p1 = await placeExpectAt(a, A.x, A.y, T.KnightPost, A.x, A.y, T.KnightPost);

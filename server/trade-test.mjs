@@ -91,7 +91,7 @@ for (const kind of new Set((c.snap.colonists ?? []).map((u) => u.kind))) await h
 await hook("setCycleTick", { tick: TICK * 10 });
 
 let st = null;
-for (const [dx, dy] of [[0, 60], [60, 0], [0, -60], [-60, 0], [60, 60], [-60, -60]]) {
+for (const [dx, dy] of [[0, 60], [60, 0], [0, -60], [-60, 0], [60, 60], [-60, -60], [60, -60], [-60, 60], [0, 100], [100, 0], [0, -100], [-100, 0]]) {
   st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 25 });
   if (st?.site) break;
 }
