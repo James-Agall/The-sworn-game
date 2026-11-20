@@ -225,25 +225,48 @@ export function cachedPath(key: number): { x: number; y: number }[] | null | und
   return Array.from(e.path, (i) => ({ x: i % W, y: Math.floor(i / W) }));
 }
 
+// storePath scratch (perf: a Set per stored path was a visible share of a big fight's path cost): the chunks
+// one call marked (seenChunkAt[c] === seenChunkGen) and their list.
+let seenChunkAt = new Uint32Array(0);
+let seenChunkList = new Int32Array(0);
+let seenChunkGen = 0;
+
 export function storePath(key: number, path: readonly { x: number; y: number }[] | null, visited: Iterable<number>) {
   const W = state.WORLD_TILES_X;
   const H = state.WORLD_TILES_Y;
-  const seen = new Set<number>();
+  const nChunks = chunksX * chunksY;
+  if (seenChunkAt.length !== nChunks) {
+    seenChunkAt = new Uint32Array(nChunks);
+    seenChunkList = new Int32Array(nChunks);
+    seenChunkGen = 0;
+  }
+  if (++seenChunkGen === 0xffffffff) {
+    seenChunkAt.fill(0);
+    seenChunkGen = 1;
+  }
+  const gen = seenChunkGen;
+  let n = 0;
+  const see = (c: number) => {
+    if (seenChunkAt[c] !== gen) {
+      seenChunkAt[c] = gen;
+      seenChunkList[n++] = c;
+    }
+  };
   // A visited tile's 4 neighbours were looked at too: on a chunk edge they lie in the next chunk.
   for (const i of visited) {
     const x = i % W;
     const y = Math.floor(i / W);
     const cx = Math.floor(x / CHUNK_TILES);
     const cy = Math.floor(y / CHUNK_TILES);
-    seen.add(cy * chunksX + cx);
+    see(cy * chunksX + cx);
     const lx = x % CHUNK_TILES;
     const ly = y % CHUNK_TILES;
-    if (lx === 0 && x > 0) seen.add(cy * chunksX + cx - 1);
-    if (lx === CHUNK_TILES - 1 && x < W - 1) seen.add(cy * chunksX + cx + 1);
-    if (ly === 0 && y > 0) seen.add((cy - 1) * chunksX + cx);
-    if (ly === CHUNK_TILES - 1 && y < H - 1) seen.add((cy + 1) * chunksX + cx);
+    if (lx === 0 && x > 0) see(cy * chunksX + cx - 1);
+    if (lx === CHUNK_TILES - 1 && x < W - 1) see(cy * chunksX + cx + 1);
+    if (ly === 0 && y > 0) see((cy - 1) * chunksX + cx);
+    if (ly === CHUNK_TILES - 1 && y < H - 1) see((cy + 1) * chunksX + cx);
   }
-  const chunks = Int32Array.from(seen);
+  const chunks = seenChunkList.slice(0, n);
   const versions = Uint32Array.from(chunks, (c) => regionVersion[c]);
   pathCache.delete(key);
   pathCache.set(key, { epoch: tileRegistryEpoch(), path: path ? Int32Array.from(path, (p) => p.y * W + p.x) : null, chunks, versions });

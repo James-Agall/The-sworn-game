@@ -77,8 +77,13 @@ export function adjacentTilesOfType(tx: number, ty: number, type: TileType): Til
   ];
   return neighbors.filter((n) => inBounds(n.x, n.y) && state.tiles[tileIndex(n.x, n.y)] === type);
 }
+// Perf counters since the last tickStats reset (test hook): findPath calls, fresh searches (cache misses),
+// nodes those searches expanded, and searches that found no path.
+export const pathStats = { calls: 0, searches: 0, nodes: 0, failed: 0 };
+
 // blocked (optional, forts phase E wagon detours): extra tiles this search treats as unwalkable.
 export function findPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: number) => boolean): TileCoord[] | null {
+  pathStats.calls++;
   if (start.x === goal.x && start.y === goal.y) return [];
   // World streaming phase 1: an unchanged region gives the same answer as last time (see chunks.ts).
   const cacheable = !blocked && inBounds(start.x, start.y) && inBounds(goal.x, goal.y);
@@ -96,49 +101,86 @@ export function findPath(start: TileCoord, goal: TileCoord, blocked?: (x: number
   }
   const prevSawGate = sawGate;
   sawGate = false;
+  pathStats.searches++;
   const result = searchPath(start, goal, blocked);
+  if (!result.path) pathStats.failed++;
   if (cacheable && !sawGate) storePath(ck, result.path, result.visited);
   sawGate = prevSawGate || sawGate;
   return result.path;
 }
 
-function searchPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: number) => boolean): { path: TileCoord[] | null; visited: Set<number> } {
-  const key = (t: TileCoord) => t.y * state.WORLD_TILES_X + t.x;
-  const visited = new Set<number>([key(start)]);
-  const parent = new Map<number, TileCoord>();
-  const queue: TileCoord[] = [start];
+// searchPath scratch, reused by every search (perf: the old Set / Map / per-neighbour objects were most of a
+// search's cost and a large share of GC in big fights). seenAt[k] === searchGen marks tile k visited in the
+// current search; parentOf[k] is the tile it was reached from; searchQueue holds visited tiles in BFS order.
+let seenAt = new Uint32Array(0);
+let parentOf = new Int32Array(0);
+let searchQueue = new Int32Array(0);
+let searchGen = 0;
+const NX = [1, -1, 0, 0];
+const NY = [0, 0, 1, -1];
+
+// Breadth-first search; the same visiting order (neighbours +x, -x, +y, -y) and so exactly the same path as
+// before the perf rewrite. `visited` (start, every queued tile, and the goal when found) is a view of the
+// scratch queue: valid only until the next search.
+function searchPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: number) => boolean): { path: TileCoord[] | null; visited: Int32Array } {
+  const W = state.WORLD_TILES_X;
+  const size = state.tiles.length;
+  if (seenAt.length !== size) {
+    seenAt = new Uint32Array(size);
+    parentOf = new Int32Array(size);
+    searchQueue = new Int32Array(size + 1);
+    searchGen = 0;
+  }
+  if (++searchGen === 0xffffffff) {
+    seenAt.fill(0);
+    searchGen = 1;
+  }
+  const gen = searchGen;
+  const startK = start.y * W + start.x;
+  // An out-of-bounds start: the old Set took any key; nothing is ever reached from it except through
+  // canStepTile, which rejects it, so it only needs to be listed.
+  if (startK >= 0 && startK < size) seenAt[startK] = gen;
+  searchQueue[0] = startK;
+  let len = 1;
 
   // Node budget: a request can never stall a tick on a huge map (a 160 map has 25.6k tiles in all, so
   // it is never reached there). Over budget = no path, like an unreachable goal.
-  for (let head = 0; head < queue.length; head++) {
-    if (head > PATH_NODE_BUDGET) return { path: null, visited };
-    const current = queue[head];
-    const neighbors = [
-      { x: current.x + 1, y: current.y },
-      { x: current.x - 1, y: current.y },
-      { x: current.x, y: current.y + 1 },
-      { x: current.x, y: current.y - 1 },
-    ];
-    for (const n of neighbors) {
-      if (!canStepTile(current.x,current.y,n.x,n.y)) continue;
-      if (blocked && blocked(n.x, n.y) && !(n.x === goal.x && n.y === goal.y)) continue;
-      const k = key(n);
-      if (visited.has(k)) continue;
-      visited.add(k);
-      parent.set(k, current);
-      if (n.x === goal.x && n.y === goal.y) {
-        const path: TileCoord[] = [n];
-        let back = current;
-        while (!(back.x === start.x && back.y === start.y)) {
-          path.unshift(back);
-          back = parent.get(key(back))!;
+  for (let head = 0; head < len; head++) {
+    if (head > PATH_NODE_BUDGET) {
+      pathStats.nodes += head;
+      return { path: null, visited: searchQueue.subarray(0, len) };
+    }
+    const ck = searchQueue[head];
+    const cx = ck % W;
+    const cy = (ck - cx) / W;
+    for (let d = 0; d < 4; d++) {
+      const nx = cx + NX[d];
+      const ny = cy + NY[d];
+      if (!canStepTile(cx, cy, nx, ny)) continue;
+      const isGoal = nx === goal.x && ny === goal.y;
+      if (blocked && blocked(nx, ny) && !isGoal) continue;
+      const k = ny * W + nx;
+      if (seenAt[k] === gen) continue;
+      seenAt[k] = gen;
+      parentOf[k] = ck;
+      if (isGoal) {
+        searchQueue[len] = k;
+        pathStats.nodes += head + 1;
+        const path: TileCoord[] = [{ x: nx, y: ny }];
+        let back = ck;
+        while (back !== startK) {
+          const bx = back % W;
+          path.push({ x: bx, y: (back - bx) / W });
+          back = parentOf[back];
         }
-        return { path, visited };
+        path.reverse();
+        return { path, visited: searchQueue.subarray(0, len + 1) };
       }
-      queue.push(n);
+      searchQueue[len++] = k;
     }
   }
-  return { path: null, visited };
+  pathStats.nodes += len;
+  return { path: null, visited: searchQueue.subarray(0, len) };
 }
 
 export function advanceAlongPath(
@@ -238,14 +280,16 @@ export function nudgeBody(b: Body, dx: number, dy: number) {
   const nx = b.e.x + dx;
   const ny = b.e.y + dy;
   // Phase H: never nudged through the corner between two diagonal solid tiles (moat / wall lines).
-  const step=(x:number,y:number)=>canStepPixel(b.e.x,b.e.y,x,y);
-  const cornerCut = !step(nx,b.e.y) && !step(b.e.x,ny);
-  if (!cornerCut && step(nx,ny)) {
+  // (canStepPixel from the body's current spot, written out: a per-call closure here showed in the profile.)
+  const ex = b.e.x;
+  const ey = b.e.y;
+  const cornerCut = !canStepPixel(ex, ey, nx, ey) && !canStepPixel(ex, ey, ex, ny);
+  if (!cornerCut && canStepPixel(ex, ey, nx, ny)) {
     b.e.x = nx;
     b.e.y = ny;
-  } else if (step(nx,b.e.y)) {
+  } else if (canStepPixel(ex, ey, nx, ey)) {
     b.e.x = nx;
-  } else if (step(b.e.x,ny)) {
+  } else if (canStepPixel(ex, ey, ex, ny)) {
     b.e.y = ny;
   }
   state.hostileMover = prevMover;

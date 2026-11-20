@@ -50,7 +50,7 @@ import {
   getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, setOwner, siteNumber, tileIndex, tileOfPixel,
   tileToPixelCenter, dayTicksAt, setSnowSlow, biomeSpeedMultiplier,
 } from "./tiles.js";
-import { findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
+import { findAdjacentWalkable, findPath, isWalkableTile, pathStats } from "./pathfinding.js";
 import {
   allRooms, barracksMoraleMult, forceFullRoomRecompute, heroRestMultAt, isRoofed, roomHappinessBonus, setRoomDirtAt, roomInfoAt, roomRecomputeStats, sleepQualityAt, updateRooms,
   workshopEffectAt, chapelHealMultAt, chapelReviveMult, hallGatherShare, heroInfirmaryHealMult, infirmaryHealRateAt, infirmaryStats, raidTheft,
@@ -694,10 +694,13 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       heapMb: Math.round(process.memoryUsage().heapUsed / 1048576),
       // Battle engine phase 1: average ms per tick by system (sim systems per sim step, snapshot per send).
       systems: Object.fromEntries(Array.from(systemMs, ([k, v]) => [k, Math.round((v / Math.max(1, sorted.length)) * 100) / 100])),
+      // Perf: findPath totals since the last reset (calls, fresh searches, nodes expanded, searches with no path).
+      paths: { ...pathStats },
     });
     if (msg.reset) {
       tickDurationsMs.length = 0;
       systemMs.clear();
+      Object.assign(pathStats, { calls: 0, searches: 0, nodes: 0, failed: 0 });
     }
   } else if (msg.op === "battleRegiments") {
     // Battle engine phase 1: the regiment store (state, order, anchor, strength, morale, target, member count).
