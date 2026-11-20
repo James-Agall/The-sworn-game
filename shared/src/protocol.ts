@@ -350,7 +350,7 @@ export enum Biome {
   Swamp = 2,
 }
 
-export function isSolidTile(tile: TileType): boolean {
+function isSolidTileSlow(tile: TileType): boolean {
   return (
     tile === TileType.Rampart ||
     tile === TileType.Wall ||
@@ -450,6 +450,13 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.WoodWindow ||
     tile === TileType.StoneWindow
   );
+}
+// Perf: isSolidTileSlow tabulated once for every tile byte (path searches call this per step; the chain of ~90
+// enum compares was ~10% of server CPU in a 3k v 3k fight). Same answer for every value.
+const SOLID_TILE = Uint8Array.from({ length: 256 }, (_, t) => (isSolidTileSlow(t) ? 1 : 0));
+export function isSolidTile(tile: TileType): boolean {
+  const v = SOLID_TILE[tile];
+  return v === undefined ? isSolidTileSlow(tile) : v === 1;
 }
 
 // A gate-like tile: its passability is gate state (`gates`), not isSolidTile (phase H: drawbridges too;
