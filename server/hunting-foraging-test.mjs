@@ -79,11 +79,15 @@ const setPaused = async (paused) => {
   while (c.snap.isPaused !== paused) await sleep(10);
 };
 const ff = async (ticks) => (await hook("fastForward", { ticks })).cycleTick;
+// Retries: a walking villager standing on the tile makes the server ignore the placement.
 const place = async (tx, ty, tile) => {
-  send({ type: "setTile", tileX: tx, tileY: ty, tile });
-  const deadline = Date.now() + 2000;
-  while (c.tiles[ty * c.W + tx] !== tile && Date.now() < deadline) await sleep(10);
-  return c.tiles[ty * c.W + tx] === tile;
+  for (let i = 0; i < 6; i++) {
+    send({ type: "setTile", tileX: tx, tileY: ty, tile });
+    const deadline = Date.now() + 1000;
+    while (c.tiles[ty * c.W + tx] !== tile && Date.now() < deadline) await sleep(10);
+    if (c.tiles[ty * c.W + tx] === tile) return true;
+  }
+  return false;
 };
 const stock = async () => (await hook("setStock", { stock: {} })).stock;
 const wild = () => hook("wildlifeState");
