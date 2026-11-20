@@ -174,6 +174,16 @@ await check("chunked client: chunked welcome + chunks on request match the full 
 await check("strife: a COLD camp besieges a COLD settlement; 'help us' quest posted first", async () => {
   await hook("setTileRaw", { tx: 0, ty: 0, tile: 0 });
   await ff(40);
+  // Preconditions, set deterministically: world gen is seeded per boot and, in a 512 world, every settlement can sit
+  // within the WARM band (5 chunks) of the start, so there may be no COLD settlement / camp at all. Move one standing
+  // settlement and one camp's keeps to the far corner (strife only reads keepX / keepY and the chunk state there).
+  const sites = (await hook("sitesState")).sites;
+  const town = sites.find((s) => s.faction === "human" && !s.cleared && !s.captured && !s.vassalOf);
+  const camp = sites.find((s) => (s.faction === "bandit" || s.faction === "orc") && !s.cleared && !s.captured);
+  if (!town || !camp) return `no settlement (${!!town}) or camp (${!!camp}) in this world`;
+  await hook("siteSet", { siteId: town.id, fields: { keepX: W - 12, keepY: W - 12 } });
+  await hook("siteSet", { siteId: camp.id, fields: { keepX: W - 16, keepY: W - 16 } });
+  await hook("chunkState", { force: true });
   const r = await hook("strifeDawn", { forceRaid: true, forceSiege: true });
   const ch = await hook("chronicle");
   const siegeLines = ch.entries.filter((e) => e.kind === "settlement" && /besiege/.test(e.text));
