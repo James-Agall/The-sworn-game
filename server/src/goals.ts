@@ -109,15 +109,10 @@ export function refreshGoalSnapshot(progress?: { progress: number; target: numbe
 
 // silent: catch up without rewards or toasts (an old save loaded with no goal state).
 export function evaluateGoals(silent = false) {
-<<<<<<< HEAD
   if (!silent) evaluateWinterPrep();
-  while (state.goalIndex < GOALS.length) {
-    const goal = GOALS[state.goalIndex];
-=======
   const goals = activeGoals();
   while (state.goalIndex < goals.length) {
     const goal = goals[state.goalIndex];
->>>>>>> worktree-agent-a49ad4563b640475f
     const p = goal.progress();
     if (p.progress < p.target) {
       refreshGoalSnapshot(p);
