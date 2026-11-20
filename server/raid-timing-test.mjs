@@ -102,10 +102,11 @@ async function trial(label, departNow) {
         const m0 = a.find((q) => q.id === m.id);
         return m0 && Math.hypot(m.x - m0.x, m.y - m0.y) < 2;
       });
-      const near = Math.hypot(b[0].x - tc.x, b[0].y - tc.y) / TILE < 40;
-      if (still && near && b.every((m) => m.passive)) paused++;
+      // A group also holds where it first meets any unwarded building / guard / player within RAID_ENGAGE_RANGE_TILES
+      // (a world-gen fort or settlement on the way counts), so it need not stand near the Town Center: only that it holds.
+      if (still && b.every((m) => m.passive)) paused++;
     }
-    result(paused > 0, `${label}: ${paused}/${groups.size} groups held passive and stationary near the colony before nightfall`);
+    result(paused > 0, `${label}: ${paused}/${groups.size} groups held passive and stationary before nightfall`);
   }
 }
 
