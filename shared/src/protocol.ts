@@ -1,5 +1,6 @@
 import type { AnimalHouseInfo, LivestockSnapshot, Species } from "./animals.js";
 import type { CalendarSnapshot } from "./calendar.js";
+import type { RaidForecast } from "./raidForecast.js";
 import type { WinterSnapshot } from "./winter.js";
 import type { FoodSnapshot } from "./food.js";
 import type { AgriSnapshot } from "./agri.js";
@@ -1541,6 +1542,8 @@ export type ServerMessage =
       creative?: { allowAttack: boolean; unlockAll?: boolean };
       // Stardew phase 5b: the date and the weather now (shared/src/calendar.ts).
       calendar?: CalendarSnapshot;
+      // Dusk raid forecast (shared/src/raidForecast.ts): the committed raid, absent when none is pending.
+      raidForecast?: RaidForecast;
       // Winter (shared/src/winter.ts): the clan's fuel, cold homes and clothes (seasons on only).
       winter?: WinterSnapshot;
       // Food days (shared/src/food.ts): the clan's grain + meat + fruit and how many days it lasts (omitted by older servers).

@@ -17,6 +17,7 @@ import {
   RAID_WEDGE_LOOSENESS, GAME_DAY_TICKS,
 } from "./constants.js";
 import { colonists, mobs, players, raidGroups, state } from "./state.js";
+import { raidForecastBand, type RaidForecast, type RaidForecastEdge } from "@colony/shared/raidForecast";
 import { biomeSpeedMultiplier, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter, dayIndexAt, dayTicksFor, nightTicksFor } from "./tiles.js";
 import { canStepPixel, advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { randInt, randRange } from "./worldgen.js";
@@ -724,4 +725,20 @@ export function updateRaidGroups(dt: number) {
     }
     marchRaidGroup(group, dt);
   }
+}
+
+// Dusk raid forecast: the real committed plan, read off the live raid groups (spawned at the day midpoint) that
+// have not yet made contact. Coarse band only; undefined when no raid is pending (skipped raids spawn nothing).
+export function raidForecastNow(): RaidForecast | undefined {
+  let count = 0;
+  const factions = new Set<string>();
+  const edges = new Set<RaidForecastEdge>();
+  for (const g of raidGroups.values()) {
+    if (g.engagedTick != null || g.memberIds.length === 0) continue;
+    count += g.memberIds.length;
+    factions.add(g.faction);
+    if (g.edge) edges.add(g.edge);
+  }
+  if (count === 0) return undefined;
+  return { band: raidForecastBand(count), factions: [...factions], edges: [...edges] };
 }

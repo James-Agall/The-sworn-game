@@ -16,6 +16,7 @@
     "./zones": "./src/zones.ts",
     "./work": "./src/work.ts",
     "./calendar": "./src/calendar.ts",
+    "./raidForecast": "./src/raidForecast.ts",
     "./interiors": "./src/interiors.ts",
     "./animals": "./src/animals.ts",
     "./buildingTemplates": "./src/buildingTemplates.ts",

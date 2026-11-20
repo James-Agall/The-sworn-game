@@ -43,7 +43,7 @@ import {
   buildingInfoFor, buildingLevelsForSnapshot, handleRebuildKeep, constructionSitesForSnapshot, handleSetTile, handleUpgradeBuilding, handlePlaceStructure, handleSiteOrder,
 } from "./construction.js";
 import "./tactics.js";
-import "./raids.js";
+import { raidForecastNow } from "./raids.js";
 import { handleCommandAttackHearth, hearthsForSnapshot } from "./hearths.js";
 import { siteByNum, sitesForSnapshot } from "./sites.js";
 import { handleTradeWithSite, relationsForSnapshot } from "./diplomacy.js";
@@ -590,6 +590,7 @@ setInterval(() => {
       calendar: calendarNowSnap,
       foodDays: foodSnapshot(),
       ...(winterNow ? { winter: winterSnapshot(), agri: agriSnapshot() } : {}),
+      ...(raidForecastNow() ? { raidForecast: raidForecastNow() } : {}),
       isPaused: state.isPaused,
       ...(state.pausedBy ? { pausedBy: state.pausedBy } : {}),
       timeScale: state.timeScale,

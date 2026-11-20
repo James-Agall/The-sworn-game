@@ -4979,3 +4979,8 @@ A tavern keeper's dialogue gains "Buy a rumour (10 gold)" (reveals the nearest c
   (`spawnSoloScout`, herolife.ts); never a raid, never stacked while the last one lives. Numbers: `shared/src/herolife.ts`.
 - Test: `server/solo-opening-test.mjs`. Deferred: scout on a "night 3 after founding" variant, per-goal client art, a scout that
   tracks the lean-to/campfire instead of the hero.
+
+**Landed 2026-11-20: dusk raid forecast.** The day-midpoint raid spawn is the committed plan, so the snapshot's optional
+`raidForecast` (shared/src/raidForecast.ts: size band small/medium/large/huge, faction ids, entry edges; no exact count)
+is read off the live, not-yet-engaged raid groups (`raidForecastNow` in raids.ts). Client: one HUD line plus a toast the
+first time a raid is announced. Absent when raids are skipped. Test: server/raid-forecast-test.mjs (registered, W80).

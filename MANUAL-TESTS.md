@@ -1512,3 +1512,8 @@ Inn (rumour / rest): enter a settlement tavern and talk to the keeper. "Buy a ru
 New game, Solo: the goal card reads "Gather 20 wood and 10 stone", then "Build a shelter", "Hunt an animal", "Found a camp". Do
 each; the card advances and pays a small reward. From day 2 a single bandit club-man appears near you around midday and chases you
 (no raid group). Found a camp: the card switches to "Place a building" (the normal track) and the scout stops coming.
+
+## Dusk raid forecast
+Play to the middle of a day with a Town Center: a toast "Tonight: a small raid (wolves) from the north" appears once and a
+red line stays under the top bar until the raiders make contact; it shows a size band, not a number, and the edge matches
+where the raiders gather. Solo hero without a camp: no forecast. Hunger-marked elites stay a surprise.
