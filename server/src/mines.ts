@@ -357,7 +357,10 @@ export function mineDigBlock(tx: number, ty: number, layer: number): string {
   return "";
 }
 // The hero's dig speed: bad air in a deep Mine without a vent; bronze tools in store (as the miners).
-export function mineHeroDigSpeed(tx: number, ty: number): number {
+// Per hero: the tick its digging last ran (digging has its own cave-in roll; heroPresenceHazard is for standing).
+const heroDigTick = new Map<string, number>();
+export function mineHeroDigSpeed(tx: number, ty: number, p?: Player): number {
+  if (p) heroDigTick.set(p.id, state.cycleTick);
   const r = mineRecAt(tx, ty);
   if (!r || gatesOff()) return 1;
   const air = r.level >= 3 && itemsOf(clanAt(r), "mineVent") < 1 ? MINE_BAD_AIR_SPEED : 1;
@@ -372,6 +375,31 @@ export function mineHeroCaveIn(p: Player, tx: number, ty: number, layer: number)
   r.closedWhy = "cave-in";
   p.hp = Math.max(1, p.hp - playerMaxHp(p) * MINE_HERO_CAVE_IN_HURT);
   return "Cave-in! No timber props in store to shore up the shaft: you are hurt, the batch is lost and the Mine is closed today";
+}
+
+// A hero merely standing inside (not digging): in an unpropped shaft (layer 2+, no timber props in store), or in a deep
+// layer (3) without an Air vent in store, the first check of each game day rolls MINE_HERO_CAVE_IN_CHANCE. A cave-in
+// hurts as the digging one does (never below 1 HP) and closes the Mine for the day; bad air hurts the same but leaves
+// it open. One roll per hero per day (no double hit); nothing in a closed Mine or with the gates off.
+const presenceDay = new Map<string, number>();
+function heroPresenceHazard(r: MineRec, li: number, p: Player) {
+  const d = today();
+  if (gatesOff() || r.closedDay === d || presenceDay.get(p.id) === d || state.cycleTick - (heroDigTick.get(p.id) ?? -99) < TICK_RATE * 2) return;
+  const clan = clanAt(r);
+  const depth = depthOf(r, li);
+  const caveIn = depth >= 2 && itemsOf(clan, "timberProps") < 1;
+  const badAir = depth >= 3 && itemsOf(clan, "mineVent") < 1;
+  if (!caveIn && !badAir) return;
+  presenceDay.set(p.id, d);
+  if (roll() >= MINE_HERO_CAVE_IN_CHANCE) return;
+  p.hp = Math.max(1, p.hp - playerMaxHp(p) * MINE_HERO_CAVE_IN_HURT);
+  if (caveIn) {
+    r.closedDay = d;
+    r.closedWhy = "cave-in";
+  }
+  sendEvent(p, "death", caveIn
+    ? "Cave-in! No timber props in store to shore up the shaft: you are hurt and the Mine is closed today"
+    : "Bad air! The deep shaft has no Air vent in store: you stagger, choking");
 }
 
 // ---- dawn: props wear (cave-ins), floods, re-infestation ----
@@ -623,6 +651,7 @@ export function updateMines() {
   for (const { r, li, ps } of inMine.values()) {
     const L = r?.layers[li];
     if (r && L && L.status === "infested") stepMobs(r, li, ps);
+    if (r && state.cycleTick % TICK_RATE === 0) for (const p of ps) heroPresenceHazard(r, li, p);
     if (state.cycleTick % MINE_MOB_SEND_TICKS !== 0) continue;
     const live = liveOf(L);
     const json = `${li}:${JSON.stringify(live)}`;
@@ -850,12 +879,14 @@ export function restoreMines(data: unknown) {
 export function resetMines() {
   mines.clear();
   mobsSent.clear();
+  presenceDay.clear();
+  heroDigTick.clear();
   seedExisting = false;
 }
 
 // testHook "mine": {tx, ty} picks a mine and `layer` (1-3, default 1; the Quarry has one) a layer of it; `infest`
 // (true, or a list of kinds) infests that layer now; `clear` kills its monsters; `roll` (0-1 / null) forces every
-// roll; `dawn` runs the dawn step; `sync` scans now; `set` {status?, closedDay?, unpropped?, propsDay?, rollDay?,
+// roll; `dawn` runs the dawn step; `sync` scans now; `set` {status?, closedDay?, unpropped?, presenceReset?, heroHp?, propsDay?, rollDay?,
 // clearedDay?, level?} edits the record (status / days: the layer's); `wakeAll` wakes its monsters; `place` {i, x, y}
 // stands monster i there. Replies the record (status / mobs: the layer's; `layers` every layer) and every record.
 export function mineDebug(msg: Record<string, unknown>) {
@@ -875,6 +906,8 @@ export function mineDebug(msg: Record<string, unknown>) {
       for (const k of ["closedDay", "propsDay", "level"] as const) if (typeof s[k] === "number") r[k] = s[k] as number;
       for (const k of ["rollDay", "clearedDay"] as const) if (typeof s[k] === "number") L[k] = s[k] as number;
       if (typeof s.unpropped === "boolean") r.unpropped = s.unpropped;
+      if (s.presenceReset === true) presenceDay.clear();
+      if (typeof s.heroHp === "number") for (const p of players.values()) p.hp = s.heroHp;
       if (s.status === "clear" || s.status === "cleared") {
         L.status = s.status;
         L.mobs = [];

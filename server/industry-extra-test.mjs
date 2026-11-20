@@ -226,6 +226,14 @@ it = (await prog()).items;
 const rock1 = (await stock()).rock;
 result(it.goldDust === 1 && it.washedTin === 3 && (it.goldOre ?? 0) === 0 && (it.tinOre ?? 0) === 0 && it.sand >= 2 && rock1 <= rock0 - 3,
   `gold first (3 ore -> ${it.goldDust} dust), tin (2 ore -> ${it.washedTin} washed), then sand (${it.sand}; stone ${rock0} -> ${rock1})`);
+// iron ore is crushed too (3 ore -> 4 crushed iron), stone or no stone
+await setExact("crushedIron", 0);
+const stock0 = await stock();
+await setStock({ iron: 3, rock: 0 });
+await runUntil(async () => (await total("crushedIron")) >= 4);
+result((await total("crushedIron")) === 4 && (await stock()).iron === 0, `the Stamp Mill crushes iron ore: 3 ore -> ${await total("crushedIron")} crushed (iron ${(await stock()).iron})`);
+await setStock({ iron: stock0.iron, rock: stock0.rock });
+await setExact("crushedIron", 0);
 const smInfo = await info(SM.x, SM.y);
 result((smInfo.progression ?? []).some((l) => /Ore washer L1/.test(l)), `the ore washer trains: ${JSON.stringify(smInfo.progression)}`);
 await demolish(SM.x, SM.y);

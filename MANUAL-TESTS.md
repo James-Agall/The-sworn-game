@@ -1441,6 +1441,15 @@ A normal game (gates on); Creative "Unlock all" off. The new buildings are in th
 8. Crafting caps (all workstations): with 20 Iron blooms in store, the Bloomery's workstation menu greys out "Iron bloom"
    with "Iron bloom: 20 in store (enough: the cap is 20)"; with 40 charcoal the Charcoal Burner's batch is greyed out the
    same way. A batch started at 19 that reaches the cap meanwhile ends with that message and no output (inputs kept).
+9. Standing in a shaft (no digging): with no timber props in store, stand in a Mine's level 2 or deeper. Once per game
+   day there is a 1 in 5 chance of "Cave-in! No timber props in store ... you are hurt and the Mine is closed today"
+   (a quarter of max HP, never below 1 HP, never twice in a day). At level 3 with no Air vent in store the same roll
+   may say "Bad air!" (same hurt, the Mine stays open). With props in store, with the Mine already closed today, or
+   outside the Mine, nothing happens. Digging has its own roll (item 7) and the standing roll is skipped while you dig.
+10. Crushed iron ore: at a Stamp Mill (water near) with iron ore in store the artisan crushes "Crush iron ore" (3 ore ->
+   4 Crushed iron ore, 30 s, cap 20); the Bloomery then smelts blooms from it first (2 crushed + 1 charcoal or coal ->
+   1 bloom, half the fuel). The Progression panel's Crushing & washing chain lists Crushed iron ore. Bronze still comes
+   before iron; raw iron ore still smelts when there is no crushed ore.
 
 ## Named people in settlements: Elder, merchant, priest, smith, captain (2026-11-20)
 Creative game is quickest (World tab: relation to a settlement, time of day; "Stamp here" a settlement template that

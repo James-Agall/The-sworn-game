@@ -4923,5 +4923,13 @@ James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-w
   x1.2 with bronze tools. In an unpropped shaft (layer 2+, no timber props) a finished batch caves in at 20%: the hero
   loses a quarter of max HP (never below 1), the batch is lost and the Mine closes for the day. Ore is grade 1.
 - **Mine Foreman named**: the panel line names the posted foreman and its level ("Mine Foreman: Kit (level-3 miner)").
-- Not done: soldiers walking into the interior; a crusher step for iron ore (the Stamp Mill crushes gold / tin / stone);
-  hazards hurting a hero who is only standing inside (only the hero's own digging rolls a cave-in); dedicated art.
+- **Closed afterwards (same day)**: iron ore is crushable (Stamp Mill "Crush iron ore": 3 ore -> 4 Crushed iron ore, 30 s,
+  cap 20, ahead of the sand; the Bloomery smelts "iron bloom from crushed ore" first: 2 crushed + 1 charcoal / coal, half
+  the fuel; raw iron still smelts). A hero only standing inside a Mine (not digging) rolls once per game day
+  (`heroPresenceHazard`, shared/src/mines.ts numbers: 20%, a quarter of max HP, never below 1): an unpropped shaft
+  (layer 2+, no timber props in store) caves in (the Mine closes for the day), the deep layer without an Air vent gives bad
+  air (same hurt, stays open); skipped while digging (its own roll), in a closed Mine, outside, or with the gates off.
+  Tests: `mines` (hazard / crushed-iron smelt), `industry-extra` (Stamp Mill crush).
+- Not done: soldiers walking into the interior (deferred: the abstract assault stays; interiors, interiorMobs and the
+  client draw heroes only, so soldiers inside would need interior presence, pathing, sprites, per-soldier combat and
+  save handling); dedicated art.

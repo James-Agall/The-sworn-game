@@ -1520,7 +1520,7 @@ function stepWork(p: Player, b: Busy, w: WorkJob) {
   if(!w.job) { b.work=undefined; return; }
   const life=lifeOf(p), tier=Math.min(skillLevel(life,w.skill),Math.max(1,getBuildingLevel(w.tx,w.ty)));
   // Layered mines: bad air and bronze tools pace the hero's digging like the miners'.
-  w.job.left-=skillSpeed(tier)*energySpeed(life)*heroColdWorkMult(p)*(w.job.recipe.mineLayer?mineHeroDigSpeed(w.tx,w.ty):1);
+  w.job.left-=skillSpeed(tier)*energySpeed(life)*heroColdWorkMult(p)*(w.job.recipe.mineLayer?mineHeroDigSpeed(w.tx,w.ty,p):1);
   if(w.job.left>0)return;
   const r=w.job.recipe,why=personalRecipeBlock(p,r,st);
   b.work=undefined;

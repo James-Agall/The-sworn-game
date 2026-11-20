@@ -229,6 +229,17 @@ result((await total("bronzePick")) === 1 && (await total("ironPick")) === 0 && (
 result((bsInfo.bonuses ?? []).some((l) => /Anvil tier 1 \(bronze/.test(l)) && (bsInfo0.progression ?? []).some((l) => /Level 2 needs: .*Iron bloom/.test(l)),
   `Blacksmith panel: ${JSON.stringify(bsInfo.bonuses)} ${JSON.stringify(bsInfo0.progression)}`);
 
+// Crushed iron ore (Stamp Mill, shared/src/progression.ts) smelts at the Bloomery into blooms with half the charcoal
+await hook("setStock", { stock: { iron: 0 } });
+await setExact("ironBloom", 0);
+for (const id of ["copperOre", "tinOre", "limestone", "coal"]) await setExact(id, 0);
+await setExact("charcoal", 2);
+await setExact("crushedIron", 4);
+await runUntil(async () => (await total("ironBloom")) >= 2, 40, 40);
+result((await total("ironBloom")) === 2 && (await total("crushedIron")) === 0 && (await total("charcoal")) === 0 && (await stock()).iron === 0,
+  `crushed iron ore: 4 crushed + 2 charcoal -> ${await total("ironBloom")} blooms, no raw iron used (iron ${(await stock()).iron})`);
+await setExact("ironBloom", 5);
+
 // The Bloomery would smelt the level-2 iron ore and coal into blooms below: take it away (the Blacksmith stays unlocked).
 await raw(FO.x, FO.y, T.Empty);
 
@@ -394,7 +405,59 @@ said = await heroCraft("mine:2:coal");
 result(/closed today/.test(said), `a closed Mine cannot be dug: "${said}"`);
 await mine(MN, { set: { closedDay: -1, unpropped: false } });
 await setItems({ timberProps: 4 });
+// hazards on a hero only standing inside (not digging): unpropped shaft cave-in, bad air in the deep layer
+await setExact("timberProps", 0);
+await mine(MN, { roll: 0, set: { closedDay: -1, presenceReset: true } });
+await mine(MN, { set: { heroHp: 2 } });
+await sleep(100);
+ev = c.events.length;
+await ff(60);
+await sleep(150);
+M = await mine(MN, { roll: 0 });
+result(/Cave-in! .*you are hurt and the Mine is closed today/.test(evSince(ev)) && me().hp >= 1 && me().hp < 2 && M.mine.closedDay === M.day && M.mine.closedWhy === "cave-in",
+  `standing in an unpropped shaft: cave-in, hp never below 1 (${me().hp}), closed: ${evSince(ev)}`);
+await mine(MN, { roll: 0, set: { closedDay: -1 } });
+ev = c.events.length;
+await ff(60);
+await sleep(150);
+M = await mine(MN, { roll: 0 });
+result(M.mine.closedDay === -1 && !/Cave-in/.test(evSince(ev)), `no double hit the same day (closed ${M.mine.closedDay}, "${evSince(ev)}")`);
+await mine(MN, { roll: 0, set: { closedDay: M.day, presenceReset: true } });
+ev = c.events.length;
+await ff(60);
+await sleep(150);
+result(!/Cave-in|Bad air/.test(evSince(ev)), `a closed Mine does not hurt a hero inside ("${evSince(ev)}")`);
+await setExact("timberProps", 4);
+await mine(MN, { roll: 0, set: { closedDay: -1, presenceReset: true } });
+ev = c.events.length;
+await ff(60);
+await sleep(150);
+result(!/Cave-in|Bad air/.test(evSince(ev)), `a propped shaft is safe to stand in ("${evSince(ev)}")`);
+// the deep layer without an Air vent: bad air hurts a hero standing there (the Mine stays open)
+await mine(MN, { layer: 3, set: { status: "clear" } });
+I = await interior({});
+const shaft2 = I.view.map.props.find((p) => p.prop === "mineShaft");
+await interior({ at: { x: (shaft2.x + 0.5) * TILE, y: (shaft2.y + 0.5) * TILE } });
+await ff(4);
+I = await interior({});
+await setExact("mineVent", 0);
+await mine(MN, { roll: 0, set: { closedDay: -1, presenceReset: true } });
+ev = c.events.length;
+await ff(60);
+await sleep(150);
+M = await mine(MN, { roll: 0 });
+result(I.inside?.variant === 2 && /Bad air!/.test(evSince(ev)) && M.mine.closedDay === -1, `deep layer, no vent: bad air hurts the hero inside, Mine stays open (v${I.inside?.variant}: ${evSince(ev)})`);
+await mine(MN, { roll: null, set: { closedDay: -1 } });
+await setItems({ mineVent: 1, timberProps: 4 });
 await interior({ exit: true });
+await mine(MN, { roll: 0, set: { presenceReset: true } });
+await setExact("timberProps", 0);
+ev = c.events.length;
+await ff(60);
+await sleep(150);
+result(!/Cave-in|Bad air/.test(evSince(ev)), `a hero outside is not hurt ("${evSince(ev)}")`);
+await mine(MN, { roll: null, set: { closedDay: -1 } });
+await setItems({ timberProps: 4 });
 // outside, the Mine is not a workstation (E at its door still enters it)
 await tp(MN.x, MN.y + 1);
 said = await heroCraft("mine:1:copperOre");
