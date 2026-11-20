@@ -61,6 +61,11 @@ export const TAVERN_DRINK_REST = 12;
 export const TAVERN_DRINK_HAPPINESS = 2;
 export const TAVERN_DRINK_CHEER_TICKS = TICK_RATE * 120;
 export const TAVERN_DRINKS_PER_DAY = 3;
+// Innkeeper (tavern keeper): buy a rumour (reveals one real place on the minimap, a different one each time) and rest the
+// night at the inn (rest and energy to full, some food).
+export const INN_RUMOUR_GOLD = 10;
+export const INN_REST_GOLD = 5;
+export const INN_REST_FOOD = 20;
 // Client: walk frame time, the idle bob (px, period), the work swing period (ms).
 export const INTERIOR_WALK_FRAME_MS = 140;
 export const INTERIOR_BOB_PX = 1.5;

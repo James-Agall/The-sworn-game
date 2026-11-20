@@ -4925,3 +4925,6 @@ James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-w
 - **Mine Foreman named**: the panel line names the posted foreman and its level ("Mine Foreman: Kit (level-3 miner)").
 - Not done: soldiers walking into the interior; a crusher step for iron ore (the Stamp Mill crushes gold / tin / stone);
   hazards hurting a hero who is only standing inside (only the hero's own digging rolls a cave-in); dedicated art.
+
+## Inn: buy a rumour / rest at the inn — landed 2026-11-20 (ROADMAP-NEXT Step 2.5)
+A tavern keeper's dialogue gains "Buy a rumour (10 gold)" (reveals the nearest camp / town / iron seam on the minimap, the next-nearest on each repeat purchase) and "Rest at the inn (5 gold)" (rest and energy to full, +20 food). Prices in `shared/src/interiors.ts` (`INN_*`); server `innRumour` / `innRest` in `server/src/herolife.ts`; test `server/inn-test.mjs`. Deferred: skipping the night, a raid-in-progress refusal, "unexplored POI" filtering (mini-boss / ruin kinds).

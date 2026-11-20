@@ -1476,3 +1476,5 @@ Normal game (not creative): Farming tab shows no Farm, Cow / Pig / Sheep pasture
 hotkeys (4, p, f, n) do nothing. Paint a Growing zone (Zones tab: wheat / hemp) and an Animal area, fence it, and use a
 Chicken Coop / Livestock Barn / Pig Sty / Sheep Pen instead. Creative game: the four old tools are back and place; old
 saves' existing plots and pastures keep working. The server refuses the old tiles in normal games too.
+
+Inn (rumour / rest): enter a settlement tavern and talk to the keeper. "Buy a rumour (10 gold)" takes exactly 10 gold and a place appears on the minimap; buy again and a different place appears. "Rest at the inn (5 gold)" fills the rest and energy bars. With under 5 / 10 gold the choices are greyed with "Needs N gold".
