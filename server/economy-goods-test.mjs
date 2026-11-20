@@ -465,6 +465,11 @@ await restartAndCheck(a, "(A0)");
       { name: "WoolFarm", tile: T.WoolFarm, pos: P(-2, 1), res: "wool", tiles: 4, perTile: [45] },
       // The Hemp Field has no farmhand since the farm-labour change (2026-11-06): a Barn's farmers tend it.
     ];
+    // A world-gen guardian / wanderer near the farms can attack a farmhand and leave its post idle for the whole
+    // fast-forward (seen once under load: wool 0 after 20 days): clear every mob within 16 tiles first.
+    for (const m of (await a.hook("raidState")).mobs) {
+      if (Math.hypot(m.x - (a.me().x), m.y - (a.me().y)) <= 16 * TILE) await a.hook("damageMob", { mobId: m.id, amount: 1e6 });
+    }
     const firstChange = {};
     a.onSnap = (prev, next) => {
       for (const f of farms) {
@@ -699,7 +704,8 @@ await restartAndCheck(a, "(C0)");
     let g0 = a.snap.gold, t0_ = a.snap.tools;
     a.send({ type: "buyWithGold", item: "tools" });
     await sleep(300);
-    result(a.snap.gold === g0 && a.snap.tools === t0_ && !a.snap.goldShopBuilt,
+    // (gold may only rise: a goblin that died late still pays its kill gold)
+    result(a.snap.gold >= g0 && a.snap.tools === t0_ && !a.snap.goldShopBuilt,
       `(g) buyWithGold before Gold Shop rejected with gold=${g0} (gold ->${a.snap.gold}, tools ->${a.snap.tools})`);
 
     // Re-centre if a fight moved us, then build the shop.
