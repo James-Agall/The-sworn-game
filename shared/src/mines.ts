@@ -141,6 +141,9 @@ export const MINE_HERO_DIG_SECONDS = 20;
 // hero is hurt by this fraction of max HP (never below 1), the batch is lost and the Mine is closed for the day.
 export const MINE_HERO_CAVE_IN_CHANCE = 0.2;
 export const MINE_HERO_CAVE_IN_HURT = 0.25;
+// Bad air (the deep layer, no Air vent in store; a hero only standing inside): this fraction of max HP (never below 1).
+// Same daily roll as the cave-in (MINE_HERO_CAVE_IN_CHANCE); the Mine stays open.
+export const MINE_HERO_BAD_AIR_HURT = 0.15;
 
 // ---- risk preview (the Mine / Quarry panel before an upgrade digs deeper; 2026-11-20) ----
 export type MineRisk = "none" | "low" | "medium" | "high" | "certain";

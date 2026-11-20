@@ -4926,9 +4926,10 @@ James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-w
 - **Closed afterwards (same day)**: iron ore is crushable (Stamp Mill "Crush iron ore": 3 ore -> 4 Crushed iron ore, 30 s,
   cap 20, ahead of the sand; the Bloomery smelts "iron bloom from crushed ore" first: 2 crushed + 1 charcoal / coal, half
   the fuel; raw iron still smelts). A hero only standing inside a Mine (not digging) rolls once per game day
-  (`heroPresenceHazard`, shared/src/mines.ts numbers: 20%, a quarter of max HP, never below 1): an unpropped shaft
-  (layer 2+, no timber props in store) caves in (the Mine closes for the day), the deep layer without an Air vent gives bad
-  air (same hurt, stays open); skipped while digging (its own roll), in a closed Mine, outside, or with the gates off.
+  (`heroPresenceHazard`, shared/src/mines.ts numbers: 20% chance, one daily roll): an unpropped shaft
+  (layer 2+, no timber props in store) caves in (a quarter of max HP, `MINE_HERO_CAVE_IN_HURT`; the Mine closes for the
+  day), the deep layer without an Air vent gives bad air (its own `MINE_HERO_BAD_AIR_HURT`, 15% of max HP, never below 1;
+  stays open; both at once take the cave-in's hurt); skipped while digging (its own roll), in a closed Mine, outside, or with the gates off.
   Tests: `mines` (hazard / crushed-iron smelt), `industry-extra` (Stamp Mill crush).
 - **Stamp Mill iron reserve (B3, 2026-11-20)**: "Crush iron ore" keeps `MINE_IRON_RESERVE` (6 = a Miner's lamp 2 + a Bucket
   pump 4 iron) in the stock: a recipe's `stockReserve` means ready only at `stock + reserve` (station worker, idle reason,

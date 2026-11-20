@@ -27,7 +27,7 @@ import {
   MINE_LOOT_ORE, MINE_MOB_AGGRO_TILES, MINE_MOB_REACH_TILES, MINE_MOB_SEND_TICKS, MINE_MOB_STATS, MINE_MOB_WAKE_TILES,
   MINE_PROPS_WEAR_DAYS, MINE_REINFEST_CHANCE, MINE_REINFEST_EVERY_DAYS, MINE_REINFEST_FOREMAN_MULT, MINE_REINFEST_LIT_MULT,
   MINE_REINFEST_PROPPED_MULT, MINE_STATUS_LABEL, MINE_TILES, isMineTile, type MineInfo, type MineMobLive, type MineStatus,
-  type MineView, MINE_LAYER_PICK, MINE_HERO_CAVE_IN_CHANCE, MINE_HERO_CAVE_IN_HURT, MINE_DANGER_LABEL, MINE_RISK_LABEL, mineRiskOf,
+  type MineView, MINE_LAYER_PICK, MINE_HERO_BAD_AIR_HURT, MINE_HERO_CAVE_IN_CHANCE, MINE_HERO_CAVE_IN_HURT, MINE_DANGER_LABEL, MINE_RISK_LABEL, mineRiskOf,
 } from "@colony/shared/mines";
 import type { ItemId } from "@colony/shared/progression";
 import type { Colonist, Mob, Player } from "./types.js";
@@ -379,8 +379,9 @@ export function mineHeroCaveIn(p: Player, tx: number, ty: number, layer: number)
 
 // A hero merely standing inside (not digging): in an unpropped shaft (layer 2+, no timber props in store), or in a deep
 // layer (3) without an Air vent in store, the first check of each game day rolls MINE_HERO_CAVE_IN_CHANCE. A cave-in
-// hurts as the digging one does (never below 1 HP) and closes the Mine for the day; bad air hurts the same but leaves
-// it open. One roll per hero per day (no double hit); nothing in a closed Mine or with the gates off.
+// hurts as the digging one does (a quarter of max HP, never below 1 HP) and closes the Mine for the day; bad air hurts
+// less (MINE_HERO_BAD_AIR_HURT, 15%) and leaves it open (both at once: the cave-in's hurt).
+// One roll per hero per day (no double hit); nothing in a closed Mine or with the gates off.
 const presenceDay = new Map<string, number>();
 function heroPresenceHazard(r: MineRec, li: number, p: Player) {
   const d = today();
@@ -392,7 +393,7 @@ function heroPresenceHazard(r: MineRec, li: number, p: Player) {
   if (!caveIn && !badAir) return;
   presenceDay.set(p.id, d);
   if (roll() >= MINE_HERO_CAVE_IN_CHANCE) return;
-  p.hp = Math.max(1, p.hp - playerMaxHp(p) * MINE_HERO_CAVE_IN_HURT);
+  p.hp = Math.max(1, p.hp - playerMaxHp(p) * (caveIn ? MINE_HERO_CAVE_IN_HURT : MINE_HERO_BAD_AIR_HURT));
   if (caveIn) {
     r.closedDay = d;
     r.closedWhy = "cave-in";
