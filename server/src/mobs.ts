@@ -385,6 +385,8 @@ export function buildingTargetCandidates(): TileCoord[] {
 // site's walls / gates are breachable; false: the mobs' side, only the colony's (owner 0) are.
 let routeCostArr: Float64Array | null = null;
 const routeTouched: number[] = [];
+const ROUTE_NX = [1, -1, 0, 0];
+const ROUTE_NY = [0, 0, 1, -1];
 export function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCost: number, colony = false): TileCoord[] | null {
   const n = state.tiles.length;
   const s = tileIndex(start.x, start.y);
@@ -407,7 +409,9 @@ export function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCo
     while (i > 0) {
       const p = (i - 1) >> 1;
       if (heap[p] <= heap[i]) break;
-      [heap[p], heap[i]] = [heap[i], heap[p]];
+      const t = heap[p];
+      heap[p] = heap[i];
+      heap[i] = t;
       i = p;
     }
   };
@@ -424,7 +428,9 @@ export function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCo
         if (l < heap.length && heap[l] < heap[m]) m = l;
         if (r < heap.length && heap[r] < heap[m]) m = r;
         if (m === i) break;
-        [heap[m], heap[i]] = [heap[i], heap[m]];
+        const t = heap[m];
+        heap[m] = heap[i];
+        heap[i] = t;
         i = m;
       }
     }
@@ -448,7 +454,10 @@ export function routeToBuilding(start: TileCoord, gx: number, gy: number, wallCo
     }
     const x = idx % state.WORLD_TILES_X;
     const y = Math.floor(idx / state.WORLD_TILES_X);
-    for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+    // Neighbours +x, -x, +y, -y (perf: index loop, no per-node arrays; same order as before).
+    for (let d = 0; d < 4; d++) {
+      const nx = x + ROUTE_NX[d];
+      const ny = y + ROUTE_NY[d];
       if (!inBounds(nx, ny)) continue;
       const ni = tileIndex(nx, ny);
       const t = state.tiles[ni] as TileType;
