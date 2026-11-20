@@ -129,6 +129,24 @@ export const MINE_BAD_AIR_SPEED = 0.5;
 // Deep mines without a Bucket pump in store: flooded (closed for the day) at this chance per dawn.
 export const MINE_FLOOD_CHANCE = 0.3;
 
+// ---- the hero digging at a Mine's ore face (inside, on an open layer; 2026-11-20) ----
+// A batch digs this much of one of the layer's resources (into the stores, at the layer's cap like the miners).
+export const MINE_HERO_DIG_AMOUNT = 2;
+export const MINE_HERO_DIG_SECONDS = 20;
+// An unpropped shaft (layer 2+, no timber props in store): a finished batch brings the roof down at this chance: the
+// hero is hurt by this fraction of max HP (never below 1), the batch is lost and the Mine is closed for the day.
+export const MINE_HERO_CAVE_IN_CHANCE = 0.2;
+export const MINE_HERO_CAVE_IN_HURT = 0.25;
+
+// ---- risk preview (the Mine / Quarry panel before an upgrade digs deeper; 2026-11-20) ----
+export type MineRisk = "none" | "low" | "medium" | "high" | "certain";
+export const MINE_RISK_LABEL: Record<MineRisk, string> = { none: "None", low: "Low", medium: "Medium", high: "High", certain: "Certain" };
+export function mineRiskOf(chance: number): MineRisk {
+  return chance >= 1 ? "certain" : chance >= 0.5 ? "high" : chance >= 0.25 ? "medium" : chance > 0 ? "low" : "none";
+}
+// How hard the nest fights (by depth: the Mine's layer, the Quarry's level).
+export const MINE_DANGER_LABEL = ["Weak", "Strong", "Deadly"];
+
 // ---- combat inside a mine (interior tiles, the hero's swings use its usual damage / cooldown) ----
 // Monsters sleep at their lairs until a hero comes this close (tiles), then hunt it (waking the others near them).
 export const MINE_MOB_AGGRO_TILES = 4.5;
@@ -195,5 +213,8 @@ export interface MineInfo {
   lines: string[];
   // "Send soldiers in": soldiers near enough, and why it is refused ("" = allowed).
   assault: { soldiers: number; reason: string };
+  // The next depth's risk, shown before the upgrade that digs it (absent at the bottom / with the gates off): the
+  // level, the nest chance and its label, how hard the nest fights, and the detail lines (monsters, returns, hazards).
+  preview?: { level: number; chance: number; risk: MineRisk; danger: string; lines: string[] };
 }
 export const MINE_STATUS_LABEL: Record<MineStatus, string> = { clear: "Clear", infested: "Infested", cleared: "Cleared" };

@@ -5,7 +5,7 @@ import { TICK_RATE, TileType, type ProgressionSnapshot } from "@colony/shared/pr
 import {
   type ItemId, type Profession, type ProgressContext, type Recipe, MAX_QUALITY, PROFESSION_LABEL, PROGRESSION,
   PROGRESSION_BUILDING_LABEL, QUALITY_GRADES, TIER_SPEED_BONUS, WORKER_XP_LEVELS, levelForXp, recipeById, recipeCostText,
-  FOOD_ITEMS, TABLEWARE_HAPPINESS, TABLEWARE_MIN, chainBuildingTiles, stationRecipes, unmetRequirements, xpToNext,
+  FOOD_ITEMS, TABLEWARE_HAPPINESS, TABLEWARE_MIN, chainBuildingTiles, outputCap, stationRecipes, unmetRequirements, xpToNext,
 } from "@colony/shared/progression";
 import type { Colonist, Player, ResourceKey } from "./types.js";
 import { type Clan, type ClanProgress, colonists, newClanProgress, state } from "./state.js";
@@ -466,6 +466,9 @@ function recipeShort(r: Recipe): string {
   for (const [id, n] of Object.entries(r.items ?? {}) as [ItemId, number][]) if (itemCount(id) < n) return `Needs ${n} ${PROGRESSION.items[id].label}`;
   // Gap closure G6: kept items a hand recipe needs (shears: a stone knife; milk pail: carpenter's tools).
   for (const [id, n] of Object.entries(r.needs ?? {}) as [ItemId, number][]) if (itemCount(id) < n) return `Needs a ${PROGRESSION.items[id].label} in the stores`;
+  // The same cap as a station's worker (no uncapped fallback by hand).
+  const cap = outputCap(r.output);
+  if (cap !== undefined && itemCount(r.output) >= cap) return `${PROGRESSION.items[r.output].label}: ${itemCount(r.output)} in store (enough: the cap is ${cap})`;
   return "";
 }
 

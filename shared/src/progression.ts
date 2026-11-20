@@ -555,6 +555,14 @@ export function stationRecipes(tile: number): Recipe[] {
   return PROGRESSION.recipes.filter((r) => r.station === tile);
 }
 
+// The production cap on an item: the lowest `cap` of every recipe that makes it (undefined: uncapped). The hero's
+// own crafting (by hand or at a workstation) stops at the same cap as a station's worker: no uncapped fallback.
+export function outputCap(id: ItemId): number | undefined {
+  let cap: number | undefined;
+  for (const r of PROGRESSION.recipes) if (r.output === id && r.cap !== undefined) cap = Math.min(cap ?? Infinity, r.cap);
+  return cap;
+}
+
 // "2 wood + 3 rock + 2 Hide".
 export function recipeCostText(r: Recipe): string {
   const parts = Object.entries(r.stock ?? {}).map(([k, n]) => `${n} ${k}`);

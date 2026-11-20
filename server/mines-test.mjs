@@ -175,6 +175,11 @@ result((await total("copperOre")) === cu0, `an infested level yields nothing: co
 const pi1 = await info(MN.x, MN.y);
 result(pi1.mine?.status === "infested" && /Level 1 \(copper ore, tin ore, limestone\): Infested/.test(pi1.mine.lines[0]) && /open level 2 \(iron ore, coal\)/.test(pi1.mine.lines.join(" ")),
   `panel: ${JSON.stringify(pi1.mine?.lines)}`);
+// The risk preview before digging deeper (2026-11-20): level 2's nest is certain, strong, 3-5 monsters; nests return.
+const pv1 = pi1.mine?.preview;
+result(pv1?.level === 2 && pv1.chance === 1 && pv1.risk === "certain" && pv1.danger === "Strong" && /3-5 cave spiders, skeletons, giant spiders/.test(pv1.lines[0])
+  && /x1\.3/.test(pv1.lines[0]) && pv1.lines.some((l) => /return \(25% every 2 days\)/.test(l)) && pv1.lines.some((l) => /timber prop/.test(l)),
+  `risk preview for level 2: ${JSON.stringify(pv1)}`);
 
 // 4. enter: the Mine's level 1 (no way down yet); the hero clears it; loot is the level's ore
 await tp(MN.x, MN.y + 1);
@@ -314,6 +319,87 @@ result((await total("goldOre")) > g0 && (await total("leadOre")) > pb0, `level 3
 const pi3 = await info(MN.x, MN.y);
 result(pi3.mine.lines.filter((l) => /^Level [123] \(/.test(l)).length === 3, `panel lists the three levels: ${JSON.stringify(pi3.mine.lines)}`);
 
+// 10b. the risk preview is gone at the bottom (level 3)
+result(!pi3.mine.preview, `no preview below level 3: ${JSON.stringify(pi3.mine.preview)}`);
+
+// 10c. the hero digs at the ore face of the layer it is on (2026-11-20): the layer's resources, the layer's pickaxe,
+// the miners' caps; never on an infested layer or a closed Mine; an unpropped shaft may cave in on the hero
+await hook("heroLife", { needs: false, energy: 100 });
+for (const l of [1, 2, 3]) await mine(MN, { layer: l, set: { status: "clear" } });
+await mine(MN, { set: { closedDay: -1, unpropped: false } });
+await setExact("stonePick", 1);
+await setExact("copperOre", 10);
+await setItems({ timberProps: 4 });
+await tp(MN.x, MN.y + 1);
+I = await interior({ enter: { tx: MN.x, ty: MN.y } });
+const face1 = I.view.map.props.find((p) => p.prop === "oreFace");
+const standAt = (q) => interior({ at: { x: (q.x + 0.5) * TILE, y: (q.y + 1.5) * TILE } });
+const heroCraft = async (recipe) => {
+  const n = c.events.length;
+  send({ type: "heroCraft", recipe });
+  await until(() => c.events.length > n, 1500);
+  return evSince(n);
+};
+await standAt(face1);
+let said = await heroCraft("mine:1:copperOre");
+const cuA = await total("copperOre");
+ev = c.events.length;
+await ff(20 * 20 + 40);
+await until(() => /Dig copper ore complete/.test(evSince(ev)), 1500);
+result(/working/.test(said) && /Dig copper ore complete: \+2/.test(evSince(ev)) && (await total("copperOre")) >= cuA + 2,
+  `the hero dug copper ore at the level-1 face: "${said}" -> "${evSince(ev)}" copper ${cuA} -> ${await total("copperOre")}`);
+await setExact("copperOre", 60);
+said = await heroCraft("mine:1:copperOre");
+result(/cap is 60/.test(said), `the hero's dig stops at the miners' cap: "${said}"`);
+said = await heroCraft("mine:1:coal");
+result(!/working/.test(said), `level-1 face has no coal: "${said}"`);
+// down to level 2: coal needs the bronze pickaxe in store
+const shaft1 = I.view.map.props.find((p) => p.prop === "mineShaft");
+await ff(40);
+await interior({ at: { x: (shaft1.x + 0.5) * TILE, y: (shaft1.y + 0.5) * TILE } });
+await ff(4);
+I = await interior({});
+const face2 = I.view.map.props.find((p) => p.prop === "oreFace");
+await standAt(face2);
+await setExact("coal", 5);
+await setExact("bronzePick", 0);
+said = await heroCraft("mine:2:coal");
+result(I.inside?.variant === 1 && /Bronze pickaxe/.test(said), `level-2 coal needs a bronze pickaxe: "${said}"`);
+await setExact("bronzePick", 1);
+await mine(MN, { layer: 2, infest: ["caveBat"] });
+said = await heroCraft("mine:2:coal");
+result(/Clear the nest/.test(said), `no digging on an infested level: "${said}"`);
+await mine(MN, { layer: 2, clear: true });
+said = await heroCraft("mine:2:coal");
+ev = c.events.length;
+await ff(20 * 20 + 40);
+await until(() => /Dig coal complete/.test(evSince(ev)), 1500);
+result(/working/.test(said) && (await total("coal")) >= 7, `the hero dug coal on level 2: coal ${await total("coal")} (${evSince(ev)})`);
+// an unpropped shaft caves in on the hero: hurt, batch lost, closed today
+await setExact("timberProps", 0);
+await mine(MN, { roll: 0 });
+const coalB = await total("coal");
+const hpB = me().hp;
+said = await heroCraft("mine:2:coal");
+ev = c.events.length;
+await ff(20 * 20 + 40);
+await until(() => /Cave-in/.test(evSince(ev)), 1500);
+await sleep(100);
+M = await mine(MN, { roll: null });
+result(/Cave-in! .*you are hurt/.test(evSince(ev)) && me().hp < hpB && M.mine.closedDay === M.day && M.mine.closedWhy === "cave-in",
+  `unpropped: the roof came down on the hero (hp ${hpB} -> ${me().hp}, closed ${M.mine.closedDay}/${M.day}): ${evSince(ev)}`);
+// (The posted miners keep digging coal meanwhile, so the batch is judged by its message.)
+result(!/Dig coal complete/.test(evSince(ev)), `the caved-in batch is lost (no "complete"; coal ${coalB} -> ${await total("coal")} by the miners)`);
+said = await heroCraft("mine:2:coal");
+result(/closed today/.test(said), `a closed Mine cannot be dug: "${said}"`);
+await mine(MN, { set: { closedDay: -1, unpropped: false } });
+await setItems({ timberProps: 4 });
+await interior({ exit: true });
+// outside, the Mine is not a workstation (E at its door still enters it)
+await tp(MN.x, MN.y + 1);
+said = await heroCraft("mine:1:copperOre");
+result(!/working/.test(said), `no digging from outside: "${said}"`);
+
 // 11. a fallen hero is put back outside
 await mine(MN, { layer: 1, infest: ["skeleton", "skeleton"] });
 await hook("damagePlayer", { amount: me().hp - 3 });
@@ -374,6 +460,8 @@ await staffed(Q);
 let QM = await mine(Q, { sync: true });
 const qi = await info(Q.x, Q.y);
 result(QM.mine && !QM.mine.layered && QM.mine.status === "clear" && /surface adit/.test(qi.mine?.lines.join(" ")), `Quarry level 1: ${QM.mine?.status} ${JSON.stringify(qi.mine?.lines)}`);
+result(qi.mine?.preview?.level === 2 && qi.mine.preview.chance === 0.35 && qi.mine.preview.risk === "medium" && /nest medium \(35%\)/.test(qi.mine.preview.lines[0]),
+  `Quarry risk preview: ${JSON.stringify(qi.mine?.preview)}`);
 await mine(Q, { roll: 0 });
 why = await upgrade(Q, 120);
 QM = await mine(Q, { sync: true });

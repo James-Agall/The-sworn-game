@@ -22,7 +22,9 @@ import {
 import { TAVERN_DRINKS_PER_DAY, TAVERN_DRINK_CHEER_TICKS, TAVERN_DRINK_GOLD, TAVERN_DRINK_HAPPINESS, TAVERN_DRINK_REST } from "@colony/shared/interiors";
 import { CROPS, CropStage, type CropId } from "@colony/shared/zones";
 import { heroCropStage, heroFarmApply, heroFarmCheck, heroFertilise, heroZoneCrop } from "./zones.js";
-import { type ItemId, type Recipe, PROGRESSION, PROFESSION_LABEL, levelForXp, smithLevelForGearTier, stationRecipes, xpToNext } from "@colony/shared/progression";
+import { type ItemId, type Recipe, PROGRESSION, PROFESSION_LABEL, levelForXp, outputCap, smithLevelForGearTier, stationRecipes, xpToNext } from "@colony/shared/progression";
+import { MINE_HERO_DIG_AMOUNT, MINE_HERO_DIG_SECONDS, isLayeredMine } from "@colony/shared/mines";
+import { mineDigBlock, mineDigRows, mineHeroCaveIn, mineHeroDigSpeed } from "./mines.js";
 import type { ResourceKey, Colonist, HeroLife, Mob, Player, SiteState } from "./types.js";
 import { CRAFT_RECIPES, FORGE_TICKS, FORAGE_RIPE_TO_PICKED, FORAGE_REGROW_TICKS, QUEST_MAX_PER_SITE, RELATION_ALLIED_MIN } from "./constants.js";
 import { colonists, forageRegrow, hearths, mobs, players, sites, state } from "./state.js";
@@ -1025,7 +1027,8 @@ function findOwnStation(p: Player, target?: { tx: number; ty: number }): { tx: n
   if (target) {
     if (!inBounds(target.tx, target.ty)) return null;
     const tile = state.tiles[tileIndex(target.tx, target.ty)] as TileType;
-    return STATION_SKILL[tile] && clanIdAt(target.tx, target.ty) === p.clan ? { tx: target.tx, ty: target.ty, tile } : null;
+    // A layered Mine is worked at its ore face inside only (interiorWorkstation), not from outside.
+    return STATION_SKILL[tile] && !isLayeredMine(tile) && clanIdAt(target.tx, target.ty) === p.clan ? { tx: target.tx, ty: target.ty, tile } : null;
   }
   let best: { tx: number; ty: number; tile: TileType } | null = null;
   let bestD = Infinity;
@@ -1036,7 +1039,7 @@ function findOwnStation(p: Player, target?: { tx: number; ty: number }): { tx: n
       if (!inBounds(tx, ty)) continue;
       const a = anchorOfTile(tx, ty);
       const tile = state.tiles[tileIndex(a.x, a.y)] as TileType;
-      if (STATION_SKILL[tile] && clanIdAt(a.x, a.y) === p.clan) {
+      if (STATION_SKILL[tile] && !isLayeredMine(tile) && clanIdAt(a.x, a.y) === p.clan) {
         const d = tileCenterDist(p, a.x, a.y);
         if (d < bestD) { bestD = d; best = { tx: a.x, ty: a.y, tile }; }
       }
@@ -1361,11 +1364,22 @@ function stepWork(p: Player, b: Busy, w: WorkJob) {
   if(!st || st.tx!==w.tx || st.ty!==w.ty || st.tile!==w.tile || p.interior?.key!==w.insideKey) { b.work=undefined; return; }
   if(!w.job) { b.work=undefined; return; }
   const life=lifeOf(p), tier=Math.min(skillLevel(life,w.skill),Math.max(1,getBuildingLevel(w.tx,w.ty)));
-  w.job.left-=skillSpeed(tier)*energySpeed(life)*heroColdWorkMult(p);
+  // Layered mines: bad air and bronze tools pace the hero's digging like the miners'.
+  w.job.left-=skillSpeed(tier)*energySpeed(life)*heroColdWorkMult(p)*(w.job.recipe.mineLayer?mineHeroDigSpeed(w.tx,w.ty):1);
   if(w.job.left>0)return;
   const r=w.job.recipe,why=personalRecipeBlock(p,r,st);
   b.work=undefined;
   if(why)return toast(p,why);
+  if(r.mineLayer){
+   // Ore is ungraded (grade 1, as the miners dig it); an unpropped shaft may cave in on the batch.
+   const caveIn=mineHeroCaveIn(p,w.tx,w.ty,r.mineLayer);
+   if(caveIn)return toast(p,caveIn);
+   if(r.item)addItem(r.item,r.amount);
+   if(r.stockOutput)state.stock[r.stockOutput]+=r.amount;
+   gainSkill(p,w.skill,Math.max(1,Math.round(w.job.total/TICK_RATE)));
+   spendEnergy(life,2);
+   return toast(p,`${r.label} complete: +${r.amount} to your stockpile.`);
+  }
   // Pay and produce together: interrupted work never destroys inputs, simultaneous crafters cannot double-spend.
   if(!state.creative)for(const[k,n]of Object.entries(r.stock??{}))state.stock[k as ResourceKey]-=n??0;
   for(const[id,n]of Object.entries(r.items??{}))takeItem(id as ItemId,n??0);
@@ -1526,6 +1540,18 @@ interface PersonalRecipe {
  id:string; label:string; amount:number; seconds:number; level?:number; tier?:number; stationLevel?:number;
  stock?:Partial<Record<ResourceKey,number>>; items?:Partial<Record<ItemId,number>>; needs?:Partial<Record<ItemId,number>>;
  item?:ItemId; stockOutput?:ResourceKey; gear?:'armour'|'weapon'; gradeBonus?:number;
+ // The station's production cap on the output (items: the recipe's cap; stock: the artisan's stockCap). The hero's own
+ // batch stops there too: no uncapped fallback (2026-11-20).
+ cap?:number;
+ // Layered mines: a dig at the ore face of this layer (1-3; mines.ts mineDigRecipes / mineDigBlock).
+ mineLayer?:number;
+}
+// The batches the hero can make at a station: a layered Mine's ore face (inside only) digs the layer the hero is on.
+function personalRecipes(p:Player,st:{tx:number;ty:number;tile:TileType}):PersonalRecipe[] {
+ if(!isLayeredMine(st.tile))return playerStationRecipes(st.tile);
+ const layer=(p.interior?.variant??0)+1;
+ return p.interior?mineDigRows(st.tx,st.ty,layer).map(d=>({id:`mine:${layer}:${d.res}`,label:`Dig ${d.label}`,amount:MINE_HERO_DIG_AMOUNT,seconds:MINE_HERO_DIG_SECONDS,
+  needs:gatesOpen()?undefined:{[d.pick]:1},item:d.res==='iron'?undefined:d.res,stockOutput:d.res==='iron'?'iron':undefined,cap:d.cap,mineLayer:layer})):[];
 }
 function personalStation(p:Player,target?:{tx:number;ty:number}) {
  if(p.interior)return interiorWorkstation(p);
@@ -1533,9 +1559,9 @@ function personalStation(p:Player,target?:{tx:number;ty:number}) {
  return st && ownerAt(tileIndex(st.tx,st.ty))===0 && clanIdAt(st.tx,st.ty)===(p.clan??0) && tileCenterDist(p,st.tx,st.ty)<=3 ? st:null;
 }
 export function playerStationRecipes(tile:TileType):PersonalRecipe[] {
- const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stationLevel:r.stationLevel,gradeBonus:r.gradeBonus,stock:r.stock,items:r.items,needs:r.needs,item:r.output}));
+ const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stationLevel:r.stationLevel,gradeBonus:r.gradeBonus,stock:r.stock,items:r.items,needs:r.needs,item:r.output,cap:r.cap??outputCap(r.output)}));
  const r=CRAFT_RECIPES[tile];
- if(r)rows.push({id:'artisan:'+tile,label:({clothes:'Sew clothes',tools:'Forge tools',luxuryItems:'Craft luxury goods',alcohol:'Brew ale',gold:'Serve drinks'} as Record<string,string>)[r.output]??r.output,amount:r.outputAmount??1,seconds:30,stock:r.inputs,stockOutput:r.output});
+ if(r)rows.push({id:'artisan:'+tile,label:({clothes:'Sew clothes',tools:'Forge tools',luxuryItems:'Craft luxury goods',alcohol:'Brew ale',gold:'Serve drinks'} as Record<string,string>)[r.output]??r.output,amount:r.outputAmount??1,seconds:30,stock:r.inputs,stockOutput:r.output,cap:r.stockCap});
  if(tile===TileType.Blacksmith)for(const tier of [1,2,3])for(const gear of ['weapon','armour'] as const)rows.push({id:`forge:${gear}:${tier}`,label:`Forge tier ${tier} ${forgeItems(gear,tier).bronze?'bronze ':''}${gear==='weapon'?'weapons':'armour'}`,level:gatesOpen()?undefined:smithLevelForGearTier(tier),amount:1,seconds:FORGE_TICKS[gear]/TICK_RATE,tier,stock:forgeCost(gear,tier),items:forgeItems(gear,tier),gear});
  return rows;
 }
@@ -1543,6 +1569,11 @@ function personalRecipeBlock(p:Player,r:PersonalRecipe,st:{tx:number;ty:number;t
  if(r.tier && getBuildingLevel(st.tx,st.ty)<r.tier)return `Upgrade the blacksmith to level ${r.tier}`;
  if(r.stationLevel && getBuildingLevel(st.tx,st.ty)<r.stationLevel)return `Upgrade the station to level ${r.stationLevel}`;
  if(skillLevel(lifeOf(p),STATION_SKILL[st.tile]!)<(r.level??1))return `Needs skill level ${r.level}`;
+ if(r.mineLayer){const why=mineDigBlock(st.tx,st.ty,r.mineLayer);if(why)return why;}
+ if(r.cap!==undefined){
+  const have=r.item?itemCount(r.item):r.stockOutput?Math.floor(state.stock[r.stockOutput]??0):0;
+  if(have>=r.cap)return `${r.item?PROGRESSION.items[r.item].label:r.stockOutput}: ${have} in store (enough: the cap is ${r.cap})`;
+ }
  for(const[k,n]of Object.entries(r.stock??{}))if(!state.creative&&state.stock[k as ResourceKey]<(n??0))return `Not enough ${k} in stockpile`;
  for(const id of new Set([...Object.keys(r.items??{}),...Object.keys(r.needs??{})]) as Set<ItemId>)if(itemCount(id)<Math.max(r.items?.[id]??0,r.needs?.[id]??0))return `Needs ${PROGRESSION.items[id].label}`;
  return '';
@@ -1551,7 +1582,7 @@ export function handlePersonalCraft(p:Player,id?:string,target?:{tx:number;ty:nu
  if(p.dead||isMounted(p))return;
  const st=personalStation(p,target);
  if(!st)return toast(p,'Walk up to your workstation: an anvil, oven or workbench inside, or the workshop outside.');
- const recipes=playerStationRecipes(st.tile);
+ const recipes=personalRecipes(p,st);
  if(id){
   const r=recipes.find(r=>r.id===id);if(!r)return toast(p,'This recipe needs a different workstation');
   const why=personalRecipeBlock(p,r,st);if(why)return toast(p,why);

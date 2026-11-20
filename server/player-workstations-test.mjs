@@ -128,7 +128,10 @@ for(const [tile,prop,id,output,seconds] of [[103,'oven','flatbread','flatbread',
  else result(c.events.some(e=>e.includes(id.includes('weapon')?'Forge tier 1 weapons complete':'Forge tier 1 armour complete')),`${id} produces equipment`);
  await ins({exit:true});
 }
-// Every remaining existing artisan/progression workshop is accessible personally.
+// Every remaining existing artisan/progression workshop is accessible personally (outputs below their station caps:
+// the hero's batches stop at the same cap as a worker's, 2026-11-20).
+const setExact=async(id,n)=>hook('progression',{items:{[id]:n-count(await items(),id)}});
+await setExact('charcoal',10);await setExact('ironBloom',5);await setExact('flour',10);
 for(const [tile,id,out,amount,seconds,isItem] of [[100,'charcoal','charcoal',3,90,true],[101,'ironBloom','ironBloom',1,40,true],[102,'flour','flour',2,20,true],[25,'artisan:25','clothes',1,30,false],[27,'artisan:27','luxuryItems',1,30,false],[30,'artisan:30','alcohol',1,30,false],[31,'artisan:31','gold',10,30,false]]){
  await setTile(x,y,tile);await stand(x,y+1);
  const before=isItem?count(await items(),out):(await stock())[out];
@@ -142,6 +145,28 @@ await craft('flatbread');const before=count(await items(),'flatbread');
 await stand(x+6,y+6);await ff(1);result(!(await sync()).snap.work,'Moving away cancels crafting');
 result(!(await craft('flatbread')).snap.work,'Remote crafting refused');
 await life({pack:{}});send({type:'stockWithdraw',good:'wood',amount:10});result(!(await sync()).life.pack.wood,'Remote withdrawal refused');
+// Caps (2026-11-20): the hero's own batch stops at the station's cap, like its worker: refused at the cap, and a
+// batch that reaches it meanwhile is refused on completion (no output, no inputs taken). Stock outputs too.
+{
+ await setTile(x,y,101);await stand(x,y+1);
+ await setExact('ironBloom',20);
+ let l=await craft('ironBloom');
+ result(!l.snap.work,'At the cap (20 iron blooms) the hero cannot start a bloom');
+ await setExact('ironBloom',19);
+ l=await craft('ironBloom');result(!!l.snap.work,'Below the cap the hero starts a bloom');
+ await setExact('ironBloom',20);const iron0=(await stock()).iron;
+ await ff(40*20+30);l=await sync();
+ result(!l.snap.work&&count(await items(),'ironBloom')===20&&(await stock()).iron===iron0,`Cap reached mid-batch: refused on completion (blooms ${count(await items(),'ironBloom')}, iron ${iron0} -> ${(await stock()).iron})`);
+ await setTile(x,y,26);await stand(x,y+1);
+ const toolsCap=(await stock()).tools;
+ await hook('setStock',{stock:{tools:200}});
+ l=await craft('artisan:26');result(!l.snap.work,'Blacksmith tools: refused at the stock cap');
+ await hook('setStock',{stock:{tools:0}});
+ l=await craft('artisan:26');result(!!l.snap.work,'Blacksmith tools: allowed below the stock cap');
+ send({type:'heroAction',action:'stopWork'});await sync();
+ await hook('setStock',{stock:{tools:toolsCap}});
+ await setTile(x,y,0);
+}
 // Three tree classes yield 1, 3 and 6 wood when felled (2, 5, 10 chops); capacity rechecked on completion.
 const found=new Set();
 for(let xx=x;xx<x+8;xx++)for(let yy=y+3;yy<y+8;yy++){

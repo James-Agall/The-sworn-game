@@ -69,6 +69,8 @@ export const STATION_SKILL: Partial<Record<TileType, HeroSkill>> = {
   [TileType.CoalMine]: "mining",
   [TileType.CopperMine]: "mining",
   [TileType.TinMine]: "mining",
+  // Layered mines (2026-11-20): the Mine's ore face, inside on an open layer (outside it is not a workstation).
+  [TileType.IronMinePost]: "mining",
   // Agriculture extras: boiling brine is fire-tending (charcoal burning), smoking / curing is cooking (baking), the
   // Dairy is farm work.
   [TileType.SaltWorks]: "charcoal",

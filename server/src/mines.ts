@@ -27,7 +27,7 @@ import {
   MINE_LOOT_ORE, MINE_MOB_AGGRO_TILES, MINE_MOB_REACH_TILES, MINE_MOB_SEND_TICKS, MINE_MOB_STATS, MINE_MOB_WAKE_TILES,
   MINE_PROPS_WEAR_DAYS, MINE_REINFEST_CHANCE, MINE_REINFEST_EVERY_DAYS, MINE_REINFEST_FOREMAN_MULT, MINE_REINFEST_LIT_MULT,
   MINE_REINFEST_PROPPED_MULT, MINE_STATUS_LABEL, MINE_TILES, isMineTile, type MineInfo, type MineMobLive, type MineStatus,
-  type MineView,
+  type MineView, MINE_LAYER_PICK, MINE_HERO_CAVE_IN_CHANCE, MINE_HERO_CAVE_IN_HURT, MINE_DANGER_LABEL, MINE_RISK_LABEL, mineRiskOf,
 } from "@colony/shared/mines";
 import type { ItemId } from "@colony/shared/progression";
 import type { Colonist, Mob, Player } from "./types.js";
@@ -40,9 +40,9 @@ import { broadcastEvent } from "./net.js";
 import { sendTo } from "./saves.js";
 import { sendEvent } from "./construction.js";
 import { damageColonist, damagePlayer } from "./combat.js";
-import { heroProfileOf, heroRewardsForKill, playerAttackCooldownTicks, playerDamage } from "./heroes.js";
+import { heroProfileOf, heroRewardsForKill, playerAttackCooldownTicks, playerDamage, playerMaxHp } from "./heroes.js";
 import { isSoldierKind, unitStats } from "./units.js";
-import { addItem, itemCount, takeItem, workerLevel } from "./progression.js";
+import { addItem, bronzeToolMult, itemCount, takeItem, workerLevel } from "./progression.js";
 import { exitInterior } from "./interiors.js";
 
 interface MineMob {
@@ -148,10 +148,13 @@ export function isMineInfested(tx: number, ty: number): boolean {
 function minersAt(r: MineRec): Colonist[] {
   return Array.from(colonists.values()).filter((c) => c.postX === r.tx && c.postY === r.ty && c.person && c.hp > 0 && !c.training && !c.callUp);
 }
-// A Mine Foreman: a posted miner of MINE_FOREMAN_LEVEL or more.
-function hasForeman(r: MineRec): boolean {
-  return minersAt(r).some((c) => workerLevel(c) >= MINE_FOREMAN_LEVEL);
+// A Mine Foreman: a posted miner of MINE_FOREMAN_LEVEL or more (the most experienced one).
+function foremanOf(r: MineRec): Colonist | undefined {
+  let best: Colonist | undefined;
+  for (const c of minersAt(r)) if (workerLevel(c) >= MINE_FOREMAN_LEVEL && (!best || workerLevel(c) > workerLevel(best))) best = c;
+  return best;
 }
+const hasForeman = (r: MineRec) => !!foremanOf(r);
 // One of the clan's soldiers within MINE_GUARD_RADIUS_TILES of the mine.
 function guardedBy(r: MineRec): Colonist | undefined {
   const cx = (r.tx + 0.5) * TILE_SIZE;
@@ -335,6 +338,40 @@ export function mineBatch(c: Colonist, extra: number): boolean {
   if (res === "iron") state.stock.iron += 1 + extra;
   else addItem(res, 1 + extra);
   return true;
+}
+
+// ---- the hero at a Mine's ore face (herolife.ts personal work; 2026-11-20) ----
+// The resources the hero can dig on a layer: each with the layer's cap (the miners' cap) and the layer's pickaxe.
+export function mineDigRows(tx: number, ty: number, layer: number): { res: MineResource; label: string; cap: number; pick: ItemId }[] {
+  const r = mineRecAt(tx, ty);
+  if (!r || !r.layered || layer < 1 || layer > r.layers.length) return [];
+  return (MINE_LAYER_YIELDS[layer - 1] ?? []).map((y) => ({ res: y.res, label: MINE_RESOURCE_LABEL[y.res], cap: y.cap, pick: MINE_LAYER_PICK[layer - 1] }));
+}
+// Why the hero cannot dig on this layer now ("" = can): a nest, a cave-in / flood today.
+export function mineDigBlock(tx: number, ty: number, layer: number): string {
+  const r = mineRecAt(tx, ty);
+  const L = r?.layers[layer - 1];
+  if (!r || !L) return "This level is not open";
+  if (L.status === "infested") return "Clear the nest on this level first";
+  if (!gatesOff() && r.closedDay === today()) return r.closedWhy === "flood" ? "The Mine is flooded today (a Bucket pump keeps it dry)" : "Cave-in: the Mine is closed today (keep timber props in store)";
+  return "";
+}
+// The hero's dig speed: bad air in a deep Mine without a vent; bronze tools in store (as the miners).
+export function mineHeroDigSpeed(tx: number, ty: number): number {
+  const r = mineRecAt(tx, ty);
+  if (!r || gatesOff()) return 1;
+  const air = r.level >= 3 && itemsOf(clanAt(r), "mineVent") < 1 ? MINE_BAD_AIR_SPEED : 1;
+  return air * bronzeToolMult("hero");
+}
+// A finished batch in an unpropped shaft (layer 2+, no timber props in store) may bring the roof down: the hero is
+// hurt, the batch is lost and the Mine closes for the day. Returns the toast ("" = no cave-in).
+export function mineHeroCaveIn(p: Player, tx: number, ty: number, layer: number): string {
+  const r = mineRecAt(tx, ty);
+  if (!r || gatesOff() || layer < 2 || itemsOf(clanAt(r), "timberProps") > 0 || roll() >= MINE_HERO_CAVE_IN_CHANCE) return "";
+  r.closedDay = today();
+  r.closedWhy = "cave-in";
+  p.hp = Math.max(1, p.hp - playerMaxHp(p) * MINE_HERO_CAVE_IN_HURT);
+  return "Cave-in! No timber props in store to shore up the shaft: you are hurt, the batch is lost and the Mine is closed today";
 }
 
 // ---- dawn: props wear (cave-ins), floods, re-infestation ----
@@ -672,10 +709,44 @@ export function mineInfo(tx: number, ty: number): MineInfo | undefined {
       lines.push(guard ? "Deep shaft: guarded by a soldier nearby: nests stay away" : `Deep shaft: nests may return (${pct}% every ${MINE_REINFEST_EVERY_DAYS} days; lamps, props, a Mine Foreman or a soldier within ${MINE_GUARD_RADIUS_TILES} tiles help)`);
     }
   }
-  if (r.level >= 2) lines.push(hasForeman(r) ? "Mine Foreman posted: the miners get out alive when a nest breaks in" : `No Mine Foreman (a level-${MINE_FOREMAN_LEVEL} miner): a nest breaking in kills a miner`);
+  if (r.level >= 2) {
+    const fm = foremanOf(r);
+    lines.push(fm
+      ? `Mine Foreman: ${fm.person?.name ?? "a miner"} (level-${workerLevel(fm)} miner): the miners get out alive when a nest breaks in; nests return half as often`
+      : `No Mine Foreman (post a level-${MINE_FOREMAN_LEVEL} miner here): a nest breaking in kills a miner`);
+  }
   const soldiers = soldiersNear(r, clan.id).length;
   const reason = !anyInfested(r) ? "Nothing to clear" : soldiers === 0 ? `No soldiers within ${MINE_ASSAULT_RADIUS_TILES} tiles` : "";
-  return { status: overall(r), monsters: n, lines, assault: { soldiers, reason } };
+  const preview = riskPreview(r, soldiers);
+  return { status: overall(r), monsters: n, lines, assault: { soldiers, reason }, ...(preview ? { preview } : {}) };
+}
+
+const KIND_PLURAL: Partial<Record<MobKind, string>> = { caveSpider: "cave spiders", caveBat: "cave bats", skeleton: "skeletons", giantSpider: "giant spiders" };
+// The next depth's risk before the upgrade digs it (the Mine: its next layer; the Quarry: its next level). The chance
+// is the depth's (the actual roll is fixed at world gen, so it stays a gamble); none at the bottom or with gates off.
+function riskPreview(r: MineRec, soldiers: number): MineInfo["preview"] {
+  const next = r.layered ? r.layers.length + 1 : Math.max(1, r.level) + 1;
+  if (gatesOff() || next > 3) return undefined;
+  const di = next - 1;
+  const chance = r.layered ? MINE_LAYER_INFEST_CHANCE[di] ?? 0 : MINE_INFEST_CHANCE_BY_LEVEL[di] ?? 0;
+  const enc = r.layered ? MINE_LAYER_ENCOUNTER[di] : MINE_ENCOUNTER_BY_LEVEL[di];
+  const mult = r.layered ? MINE_LAYER_MOB_MULT[di] : 1;
+  const risk = mineRiskOf(chance);
+  const danger = MINE_DANGER_LABEL[di];
+  const pct = Math.round(chance * 100);
+  const kinds = enc.kinds.map((k) => KIND_PLURAL[k.kind] ?? k.kind).join(", ");
+  const what = r.layered ? `Level ${next} (${mineLayerResourcesText(next)})` : `The ${labelOf(r)} at level ${next}`;
+  const lines: string[] = [];
+  lines.push(chance > 0
+    ? `${what}: nest ${MINE_RISK_LABEL[risk].toLowerCase()} (${pct}%): ${enc.count[0]}-${enc.count[1]} ${kinds}; ${danger.toLowerCase()}${mult > 1 ? ` (hp and bite x${mult})` : ""}`
+    : `${what}: no nest`);
+  if (chance > 0) lines.push(r.layered ? "A nest there yields nothing until it is cleared (go down and fight, or send soldiers in)" : "A nest stops the miners until it is cleared (go in and fight, or send soldiers in)");
+  const back = r.layered ? MINE_LAYER_REINFEST_CHANCE[di] ?? 0 : next >= 3 ? MINE_REINFEST_CHANCE : 0;
+  if (back > 0) lines.push(`Once cleared, nests return (${Math.round(back * 100)}% every ${MINE_REINFEST_EVERY_DAYS} days) unless a soldier stands within ${MINE_GUARD_RADIUS_TILES} tiles; lamps, props and a Mine Foreman lower it`);
+  if (next >= 2) lines.push(`Shaft: a timber prop wears out every ${MINE_PROPS_WEAR_DAYS} days while worked; with none in store, cave-ins (${Math.round(MINE_CAVE_IN_CHANCE * 100)}% a dawn)`);
+  if (next >= 3) lines.push(`Deep: bad air without an Air vent (work x${MINE_BAD_AIR_SPEED}), floods without a Bucket pump (${Math.round(MINE_FLOOD_CHANCE * 100)}% a dawn)`);
+  if (chance > 0) lines.push(soldiers > 0 ? `${soldiers} soldier${soldiers === 1 ? "" : "s"} within ${MINE_ASSAULT_RADIUS_TILES} tiles could be sent in` : `No soldiers within ${MINE_ASSAULT_RADIUS_TILES} tiles to send in: you would fight it yourself`);
+  return { level: next, chance, risk, danger, lines };
 }
 
 // `mineAssault`: the soldiers near your infested mine go in (a Mine: its shallowest infested layer). Resolved at once
