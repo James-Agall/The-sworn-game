@@ -1419,3 +1419,25 @@ A normal game (gates on); Creative "Unlock all" off. The new buildings are in th
    upgrade now asks for an Iron bloom in store. Mine level 3: lead ore becomes Lead at the Bloomery (Kiln glazes with it),
    gold ore becomes Gold dust there too (slower than the Stamp Mill).
 7. Progression panel: the Mining & ore / Bronze / Metal chains go through the Bloomery; none shows the Foundry.
+## Mining: risk preview, hero digging, Foreman, crafting caps (2026-11-20)
+1. Risk preview: open a new Mine's panel (level 1 cleared). Under the Upgrade button a box reads "Digging to level 2:
+   nest risk Certain (100%), strong nest" in red, with lines: 3-5 cave spiders, skeletons, giant spiders (hp and bite
+   x1.3); nests return 25% every 2 days; timber props wear; how many soldiers could be sent in. At level 2 the box shows
+   level 3 (Certain, deadly, x1.7, bad air / floods). At level 3 the box is gone.
+2. Quarry panel at level 1: the box reads "nest risk Medium (35%)" in amber; at level 2 "High (65%)" in red.
+3. Confirm step: with the box showing, click Upgrade once: nothing is dug, the button reads "Confirm: dig to level N"
+   for about 6 s; click again within that time: the upgrade goes ahead (event about the nest). Wait 6 s instead: the
+   button goes back to "Upgrade". Other buildings' Upgrade still works with one click.
+4. Mine Foreman: a Mine at level 2+ with a level-3 miner posted shows "Mine Foreman: <name> (level-3 miner): ..."; without
+   one "No Mine Foreman (post a level-3 miner here): ...".
+5. Hero digging: go into a cleared Mine (E at the door), walk to an ore face (top row, the dark ore tiles) and use it (E /
+   click): the workstation menu lists "Dig copper ore / tin ore / limestone x2 - 20s". Pick one, stand still: after 20 s
+   "Dig copper ore complete: +2 to your stockpile" and the Mining skill rises. On level 2 (down the shaft) the face offers
+   iron ore and coal (needs the Bronze pickaxe in store), level 3 gold and lead ore (Iron pickaxe).
+6. Refusals: an infested level's face says "Clear the nest on this level first"; at the cap (e.g. 60 copper ore in store)
+   "Copper ore: 60 in store (enough: the cap is 60)"; outside, standing next to the Mine, E still enters it (no menu).
+7. Cave-in: with no timber props in store, dig on level 2 a few times: now and then (1 in 5) "Cave-in! ... you are hurt"
+   (HP drops by a quarter), no ore, and the Mine is closed for the day (panel "Cave-in: closed today"; the face refuses).
+8. Crafting caps (all workstations): with 20 Iron blooms in store, the Bloomery's workstation menu greys out "Iron bloom"
+   with "Iron bloom: 20 in store (enough: the cap is 20)"; with 40 charcoal the Charcoal Burner's batch is greyed out the
+   same way. A batch started at 19 that reaches the cap meanwhile ends with that message and no output (inputs kept).

@@ -4863,3 +4863,30 @@ hero's personal craft table with its own skill).
 - Tests: progression-reach (new), industry-extra (Foundry refused, Bloomery bronze / lead / gold, tier-1 bronze weapons,
   armoury pickup, unlock-all iron costs), mines (Bloomery casts the anvil, iron-free Blacksmith), progression,
   player-workstations (the hero's T1 forge takes bronze). MANUAL-TESTS.md "One furnace".
+
+## Mining loose ends, crafting caps, risk preview — landed 2026-11-20
+Closes the "rest of mining" item (hazards, Foreman, crusher, coal, bronze) on top of "Deep mines", "Industry extras" and
+"Layered mines": most of it had landed there (cave-ins / bad air / floods, the level-3 foreman, the Stamp Mill crusher,
+coal at Mine level 2, bronze at the Bloomery and the bronze pickaxe gate). What was still missing, and two decisions of
+James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-workstations`.
+- **Crafting caps (decision 1)**: the hero's own crafting stops at the same cap as a station's worker; no uncapped
+  fallback. At a workstation (`handlePersonalCraft`) every recipe carries its station's cap (a recipe's `cap`, an old
+  artisan's `stockCap`, a Mine layer's resource cap): refused at the cap ("<item>: N in store (enough: the cap is M)") and
+  re-checked on completion (a batch that reaches the cap meanwhile ends with no output and no inputs taken). Hand recipes
+  check `outputCap(item)` (shared/src/progression.ts: the lowest cap of every recipe making the item; none of today's hand
+  items has one, so nothing changes there yet). The Blacksmith's gear forging keeps the forge queue's rules (no stock cap).
+- **Risk preview (decision 2)**: `MineInfo.preview` (the Mine's next layer, the Quarry's next level; none at the bottom
+  or under COLONY_UNLOCK_ALL): level, nest chance and label (`mineRiskOf`: none / low / medium / high / certain), danger
+  (Weak / Strong / Deadly by depth) and lines: monster count and kinds (with the hp / bite multiplier), what a nest
+  stops, re-infestation odds, the hazards that start at that depth (props, bad air, floods) and the soldiers in reach.
+  Client: a coloured box under the Upgrade button; a risky upgrade takes a second click ("Confirm: dig to level N",
+  6 s). The Quarry's real roll stays fixed at world gen, so the preview shows the depth's chance, not the outcome.
+- **Hero digging (coal / copper / tin by hand)**: the Mine's ore face is the hero's workstation inside (skill Mining;
+  `STATION_SKILL[IronMinePost]`, not from outside: E at the door still enters). Its menu digs the resources of the layer
+  the hero is on (2 a batch, 20 s; `MINE_HERO_DIG_*`), needs the layer's pickaxe in store (stone / bronze / iron), stops at
+  the miners' caps, is refused on an infested layer or a closed Mine (cave-in / flood today), runs x0.5 in bad air and
+  x1.2 with bronze tools. In an unpropped shaft (layer 2+, no timber props) a finished batch caves in at 20%: the hero
+  loses a quarter of max HP (never below 1), the batch is lost and the Mine closes for the day. Ore is grade 1.
+- **Mine Foreman named**: the panel line names the posted foreman and its level ("Mine Foreman: Kit (level-3 miner)").
+- Not done: soldiers walking into the interior; a crusher step for iron ore (the Stamp Mill crushes gold / tin / stone);
+  hazards hurting a hero who is only standing inside (only the hero's own digging rolls a cave-in); dedicated art.
