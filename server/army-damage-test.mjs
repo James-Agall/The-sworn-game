@@ -1,17 +1,17 @@
 // Scripted test: army cluster synergy (armyDamageMultiplier). A guard's hit deals
 // base damage x (1 + 0.05 per army building or Blacksmith in the 8 tiles around its own post).
-// Black-box measurement: every snapshot's attack effects are matched exactly to their attacker (a colonist
-// standing at effect.from) and target (the mob that stood at effect.to in the previous snapshot, since
-// colonists act before mobs move within a tick). For every mob hit exactly once in a tick and still alive
-// afterwards, the hp drop is that single hit's damage. Each measured hit is compared with
-// base(kind) x multiplier(post) computed from the tiles around the attacker's post.
-// Layout (s = standing tile; every guard post keeps its east side open, where its units spawn):
-//   L  lone Knight Post at (s.x+2, s.y+1): no army building / Blacksmith adjacent -> x1.00 (12 dmg)
-//   M  Militia Post (s.x-1, s.y-2), K Knight Post (s.x-1, s.y-1), A Archer Post (s.x-1, s.y) in a column,
-//   Bs Blacksmith (s.x-2, s.y-1) west of K.  K: M + A + Bs -> x1.15 (13.8 dmg);
-//   M: K + Bs (diagonal) -> x1.10; A: K + Bs (diagonal) -> x1.10.
-// Runs through the first night (and the second if too few hits were measured).
-// Needs a fresh server with no other players; run with COLONY_WORLD_SIZE=80.
+// Deterministic (no raids, no night wait, no walking): test hooks stamp the neighbour tiles (setTileRaw), put a
+// soldier on an empty tile (spawnSoldier: its post is that tile) and drop an orc next to it (spawnMob). Four
+// isolated 5x5 sites, far apart and away from villagers:
+//   L  knight, nothing adjacent                          -> x1.00 (12 dmg)
+//   K  knight, Militia Post + Archer Post + Blacksmith   -> x1.15 (13.8 dmg)
+//   M  militia, Knight Post + Blacksmith                 -> x1.10
+//   A  archer, Knight Post + Blacksmith                  -> x1.10
+// Black-box measurement: every snapshot's attack effects are matched to their attacker (the one colonist standing at
+// effect.from) and target (the mob that stood at effect.to in the previous snapshot). For every mob hit exactly once
+// in a tick and still alive afterwards, the hp drop is that single hit's damage, compared with base(kind) x
+// multiplier computed from the tiles around the attacker's post.
+// Needs COLONY_TEST_HOOKS=1 and a fresh server with no other players; run with COLONY_WORLD_SIZE=80.
 import WebSocket from "ws";
 
 const PORT = process.env.PORT ?? 8080;
@@ -61,119 +61,6 @@ function connect() {
   return c;
 }
 
-function bfs(c) {
-  const start = c.meTile();
-  const key = (x, y) => y * c.W() + x;
-  const dist = new Map([[key(start.x, start.y), 0]]);
-  const parent = new Map();
-  const q = [start];
-  while (q.length) {
-    const cur = q.shift();
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const n = { x: cur.x + dx, y: cur.y + dy };
-      if (!c.walkable(n.x, n.y) || dist.has(key(n.x, n.y))) continue;
-      dist.set(key(n.x, n.y), dist.get(key(cur.x, cur.y)) + 1);
-      parent.set(key(n.x, n.y), cur);
-      q.push(n);
-    }
-  }
-  return { start, dist, parent, key };
-}
-
-function pathTo(c, goal) {
-  const { start, dist, parent, key } = bfs(c);
-  if (!dist.has(key(goal.x, goal.y))) return null;
-  const path = [];
-  let cur = goal;
-  while (!(cur.x === start.x && cur.y === start.y)) {
-    path.unshift(cur);
-    cur = parent.get(key(cur.x, cur.y));
-  }
-  return path;
-}
-
-async function walkPath(c, path, timeoutMs = 30000) {
-  const since = Date.now();
-  for (const wp of path) {
-    const cx = wp.x * TILE + TILE / 2;
-    const cy = wp.y * TILE + TILE / 2;
-    for (;;) {
-      if (Date.now() - since > timeoutMs) {
-        c.send({ type: "input", dx: 0, dy: 0 });
-        return false;
-      }
-      const me = c.me();
-      const ex = cx - me.x;
-      const ey = cy - me.y;
-      let dx = 0, dy = 0;
-      if (Math.abs(ex) > 4) dx = Math.sign(ex);
-      else if (Math.abs(ey) > 4) dy = Math.sign(ey);
-      else break;
-      c.send({ type: "input", dx, dy });
-      await sleep(25);
-    }
-  }
-  c.send({ type: "input", dx: 0, dy: 0 });
-  await sleep(150);
-  return true;
-}
-
-async function ensureAt(c, s) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const t = c.meTile();
-    const me = c.me();
-    const centred = Math.abs(me.x - (s.x * TILE + 16)) <= 5 && Math.abs(me.y - (s.y * TILE + 16)) <= 5;
-    if (t.x === s.x && t.y === s.y && centred) return true;
-    const path = pathTo(c, s);
-    if (!path) {
-      await sleep(500);
-      continue;
-    }
-    await walkPath(c, path.length ? path : [s]);
-  }
-  const t = c.meTile();
-  return t.x === s.x && t.y === s.y;
-}
-
-const colonistOnTile = (c, x, y) =>
-  c.snap.colonists.some((k) => Math.floor(k.x / TILE) === x && Math.floor(k.y / TILE) === y);
-
-async function placeExpect(c, x, y, tile, tries = 8) {
-  for (let i = 0; i < tries; i++) {
-    for (let w = 0; w < 50 && colonistOnTile(c, x, y); w++) await sleep(100);
-    const since = Date.now();
-    c.send({ type: "setTile", tileX: x, tileY: y, tile });
-    await sleep(400);
-    if (c.tileUpdates.some((u) => u.at >= since && u.tileX === x && u.tileY === y && u.tile === tile)) return true;
-    await sleep(300);
-  }
-  return false;
-}
-
-// Nearest reachable tile whose 5x5 box is Empty, with no army building / Blacksmith within 4 tiles.
-function findSite(c) {
-  const { dist } = bfs(c);
-  let best = null;
-  for (const [k, d] of dist) {
-    const x = k % c.W();
-    const y = Math.floor(k / c.W());
-    let ok = true;
-    for (let dx = -2; dx <= 2 && ok; dx++)
-      for (let dy = -2; dy <= 2 && ok; dy++) {
-        const tx = x + dx, ty = y + dy;
-        if (!c.inBounds(tx, ty) || c.tileAt(tx, ty) !== T.Empty) ok = false;
-        else if ((dx || dy) && colonistOnTile(c, tx, ty)) ok = false;
-      }
-    for (let dx = -4; dx <= 4 && ok; dx++)
-      for (let dy = -4; dy <= 4 && ok; dy++) {
-        const t = c.inBounds(x + dx, y + dy) ? c.tileAt(x + dx, y + dy) : 0;
-        if (MILITARY.has(t) || t === T.Blacksmith) ok = false;
-      }
-    if (ok && (!best || d < best.d)) best = { x, y, d };
-  }
-  return best;
-}
-
 // Server-equivalent: bonus accumulated with += 0.05 per qualifying neighbour, then 1 + bonus.
 function armyMult(c, tx, ty) {
   let bonus = 0;
@@ -187,34 +74,64 @@ function armyMult(c, tx, ty) {
 
 const kindClass = (k) => (k === "knight" ? "knight" : k === "archer" ? "archer" : k === "militia" ? "militia" : null);
 
+
+const hook = (c, msg) =>
+  new Promise((resolve) => {
+    const onMsg = (raw) => {
+      const m = JSON.parse(raw.toString());
+      if (m.type === "testHookResult" && m.op === msg.op) { c.ws.off("message", onMsg); resolve(m); }
+    };
+    c.ws.on("message", onMsg);
+    c.send({ type: "testHook", ...msg });
+  });
+const setTileRaw = (c, x, y, tile) => hook(c, { op: "setTileRaw", tx: x, ty: y, tile });
+
+// Greedy pick of `n` sites: a 5x5 all-Empty box (no army building / Blacksmith within 4 tiles), no colonist or
+// player within 6 tiles, each at least 12 tiles from the others.
+function findSites(c, n) {
+  const W = c.W(), H = c.H();
+  const found = [];
+  const near = (x, y, r) => [...c.snap.colonists, ...c.snap.players].some((k) => Math.abs(k.x / TILE - x) <= r && Math.abs(k.y / TILE - y) <= r);
+  for (let y = 6; y < H - 6; y++)
+    for (let x = 6; x < W - 6 && found.length < n; x++) {
+      if (found.some((f) => Math.max(Math.abs(f.x - x), Math.abs(f.y - y)) < 12) || near(x, y, 6)) continue;
+      let ok = true;
+      for (let dx = -4; dx <= 4 && ok; dx++)
+        for (let dy = -4; dy <= 4 && ok; dy++) {
+          const t = c.tileAt(x + dx, y + dy);
+          if (Math.abs(dx) <= 2 && Math.abs(dy) <= 2 ? t !== T.Empty : MILITARY.has(t) || t === T.Blacksmith) ok = false;
+        }
+      if (ok) found.push({ x, y });
+    }
+  return found;
+}
+
 const a = connect();
 await a.ready();
 info(`connected; wood=${a.snap.wood} iron=${a.snap.iron} rock=${a.snap.rock} mobs=${a.snap.mobs.length} night=${a.snap.isNight}`);
 
-const s = findSite(a);
-if (!s) {
-  result(false, "no suitable empty site found");
-  process.exit(1);
-}
-result(await ensureAt(a, s), `walked to site (${s.x},${s.y}) [${s.d} tiles]`);
-const L = { x: s.x + 2, y: s.y + 1 };
-const M = { x: s.x - 1, y: s.y - 2 };
-const K = { x: s.x - 1, y: s.y - 1 };
-const A = { x: s.x - 1, y: s.y };
-const Bs = { x: s.x - 2, y: s.y - 1 };
-result(await placeExpect(a, Bs.x, Bs.y, T.Blacksmith), `Blacksmith at (${Bs.x},${Bs.y})`);
-result(await placeExpect(a, K.x, K.y, T.KnightPost), `clustered Knight Post K at (${K.x},${K.y})`);
-result(await placeExpect(a, A.x, A.y, T.ArcherPost), `Archer Post A at (${A.x},${A.y})`);
-result(await placeExpect(a, M.x, M.y, T.MilitiaPost), `Militia Post M at (${M.x},${M.y})`);
-result(await placeExpect(a, L.x, L.y, T.KnightPost), `lone Knight Post L at (${L.x},${L.y})`);
-await sleep(300);
-
-const posts = { L, M, K, A };
+const sites = findSites(a, 4);
+result(sites.length === 4, `four isolated open sites found (${sites.map((p) => `(${p.x},${p.y})`).join(" ")})`);
+if (sites.length < 4) process.exit(1);
+// post = the soldier's own tile; neighbours stamped around it.
+const posts = {
+  L: { ...sites[0], kind: "knight", around: [] },
+  K: { ...sites[1], kind: "knight", around: [[-1, 0, T.Blacksmith], [1, 0, T.MilitiaPost], [0, 1, T.ArcherPost]] },
+  M: { ...sites[2], kind: "militia", around: [[-1, 0, T.Blacksmith], [1, 0, T.KnightPost]] },
+  A: { ...sites[3], kind: "archer", around: [[-1, 0, T.Blacksmith], [1, 0, T.KnightPost]] },
+};
+for (const p of Object.values(posts))
+  for (const [dx, dy, tile] of p.around) await setTileRaw(a, p.x + dx, p.y + dy, tile);
+await sleep(400);
 const mults = Object.fromEntries(Object.entries(posts).map(([n, p]) => [n, armyMult(a, p.x, p.y)]));
 info(`multipliers from tiles: ${Object.entries(mults).map(([n, m]) => `${n}=${m.toFixed(2)}`).join(" ")}`);
 result(Math.abs(mults.L - 1) < 1e-9 && Math.abs(mults.K - 1.15) < 1e-9 && Math.abs(mults.M - 1.1) < 1e-9 && Math.abs(mults.A - 1.1) < 1e-9,
   `layout gives L x1.00, K x1.15 (2 army + Blacksmith), M x1.10, A x1.10`);
 const postName = (px, py) => Object.entries(posts).find(([, p]) => p.x === px && p.y === py)?.[0] ?? null;
+for (const p of Object.values(posts)) {
+  const r = await hook(a, { op: "spawnSoldier", kind: p.kind, x: p.x * TILE + TILE / 2, y: p.y * TILE + TILE / 2 });
+  result(!!r.id, `${p.kind} spawned on its post tile (${p.x},${p.y})`);
+}
 
 // ---- measure hits ----
 const hits = []; // {post, kind, drop, expected, base}
@@ -259,49 +176,33 @@ a.onSnap = (prev, cur) => {
   }
 };
 
-const enough = () => ["L", "K"].every((p) => hits.filter((h) => h.post === p && h.kind === "knight").length >= 3);
-// Days are 300 s + 75 s nights now: skip (testHook setCycleTick, needs COLONY_TEST_HOOKS=1) to just before the
-// day's midpoint, when the raid spawns; it then marches in to arrive at nightfall.
-{
-  const rs = await new Promise((resolve) => {
-    const onMsg = (raw) => {
-      const m = JSON.parse(raw.toString());
-      if (m.type === "testHookResult" && m.op === "raidState") { a.ws.off("message", onMsg); resolve(m); }
-    };
-    a.ws.on("message", onMsg);
-    a.ws.send(JSON.stringify({ type: "testHook", op: "raidState" }));
-  });
-  if (rs.cycleTick < rs.dayTicks / 2 - 10) a.ws.send(JSON.stringify({ type: "testHook", op: "setCycleTick", tick: rs.dayTicks / 2 - 10 }));
-}
-const deadline = Date.now() + 700000;
-for (let night = 1; night <= 2 && !enough() && Date.now() < deadline; night++) {
-  while (!a.snap.isNight && Date.now() < deadline) await sleep(250);
-  info(`night ${night} fell; mobs=${a.snap.mobs.length}`);
-  // Whether the raid reaches the lone post at all depends on where it comes in (0 lone-knight hits was a
-  // sampling miss, ROADMAP "army-damage-test"): bait it with two plain orcs 3 tiles east of L.
-  if (hits.filter((h) => h.post === "L" && h.kind === "knight").length < 3) {
-    for (const dy of [0, 1]) a.ws.send(JSON.stringify({ type: "testHook", op: "spawnMob", kind: "orc", tx: L.x + 3, ty: L.y + dy }));
+
+const hitsOf = (p, kind) => hits.filter((h) => h.post === p && h.kind === kind);
+const enough = () => Object.entries(posts).every(([n, p]) => hitsOf(n, p.kind).length >= 3);
+// An orc two tiles east of each soldier that still needs hits and has no live orc nearby; refreshed twice a second.
+const deadline = Date.now() + 60000;
+while (!enough() && Date.now() < deadline) {
+  for (const [n, p] of Object.entries(posts)) {
+    if (hitsOf(n, p.kind).length >= 3) continue;
+    const busy = a.snap.mobs.some((m) => m.kind === "orc" && Math.abs(m.x / TILE - p.x) < 6 && Math.abs(m.y / TILE - p.y) < 6);
+    if (!busy) await hook(a, { op: "spawnMob", kind: "orc", tx: p.x + 2, ty: p.y });
   }
-  // Village life: raids scale with the population (a 1-person test colony draws a couple of raiders), so the
-  // clustered post needs its own bait too: two orcs west of the Blacksmith.
-  if (hits.filter((h) => h.post === "K" && h.kind === "knight").length < 3) {
-    for (const dy of [0, 1]) a.ws.send(JSON.stringify({ type: "testHook", op: "spawnMob", kind: "orc", tx: K.x - 4, ty: K.y + dy }));
-  }
-  while (a.snap.isNight && !enough() && Date.now() < deadline) await sleep(250);
-  info(`night ${night} done/enough: hits so far ${hits.length}; per post ${JSON.stringify(Object.fromEntries(Object.keys(posts).map((p) => [p, hits.filter((h) => h.post === p).length])))}`);
+  await sleep(500);
 }
+info(`measured: per post ${JSON.stringify(Object.fromEntries(Object.keys(posts).map((p) => [p, hits.filter((h) => h.post === p).length])))}`);
 a.onSnap = null;
 
 for (const h of hits) info(`hit ${h.post} ${h.kind} -> ${h.mob}: drop ${h.drop.toFixed(4)} (expected ${h.expected.toFixed(4)} = ${h.base} x ${h.mult.toFixed(2)})`);
 info(`skipped effects: ${JSON.stringify(unmatched)}`);
 const bad = hits.filter((h) => Math.abs(h.drop - h.expected) > 1e-6);
 result(hits.length > 0 && bad.length === 0, `all ${hits.length} isolated hits dealt exactly base x multiplier (mismatches: ${bad.length}${bad.length ? " " + JSON.stringify(bad.slice(0, 5)) : ""})`);
-const lHits = hits.filter((h) => h.post === "L" && h.kind === "knight");
-const kHits = hits.filter((h) => h.post === "K" && h.kind === "knight");
+const lHits = hitsOf("L", "knight");
+const kHits = hitsOf("K", "knight");
 result(lHits.length > 0 && lHits.every((h) => Math.abs(h.drop - 12) < 1e-6), `lone knight (no army neighbours): ${lHits.length} hits, all 12 (${[...new Set(lHits.map((h) => +h.drop.toFixed(4)))]})`);
 result(kHits.length > 0 && kHits.every((h) => Math.abs(h.drop - 13.8) < 1e-6), `clustered knight (Militia + Archer + Blacksmith adjacent): ${kHits.length} hits, all 13.8 = 12 x 1.15 (${[...new Set(kHits.map((h) => +h.drop.toFixed(4)))]})`);
-const others = hits.filter((h) => h.post === "M" || h.post === "A");
-if (others.length) info(`militia/archer hits: ${others.map((h) => `${h.post}:${+h.drop.toFixed(4)}`).join(" ")} (expected M 6.6, A 8.8)`);
+const mHits = hitsOf("M", "militia"), aHits = hitsOf("A", "archer");
+result(mHits.length > 0 && mHits.every((h) => Math.abs(h.drop - 6.6) < 1e-6), `clustered militia: ${mHits.length} hits, all 6.6 = 6 x 1.10`);
+result(aHits.length > 0 && aHits.every((h) => Math.abs(h.drop - 8.8) < 1e-6), `clustered archer: ${aHits.length} hits, all 8.8 = 8 x 1.10`);
 
 console.log(`\n${fails === 0 ? "ALL PASS" : `${fails} FAIL(S)`} in ${el()}`);
 a.ws.close();
