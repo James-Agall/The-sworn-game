@@ -43,6 +43,13 @@ export const COLD_HP_FLOOR_FRAC = 0.3;
 // The Colony panel calls the fuel low below this many days of burn.
 export const FUEL_LOW_DAYS = 3;
 
+// ---- the winter-prep goal (a seasonal side goal on the goal card; server/src/goals.ts) ----
+// Every autumn (seasons on) the card shows "Prepare for winter": complete once the fuel in store covers
+// WINTER_PREP_FUEL_DAYS days of the homes' burn (the first cold stretch; coal / charcoal count double). Warm clothes are
+// tracked on the card but do not gate it. Pays WINTER_PREP_REWARD once per year.
+export const WINTER_PREP_FUEL_DAYS = 5;
+export const WINTER_PREP_REWARD: Record<string, number> = { wood: 20 };
+
 // ---- clothing ----
 // Garments the Tailor sews (items in shared/src/progression.ts). Worn ones live in a person's wardrobe, one per slot.
 export type GarmentId = "tunic" | "coat" | "boots";
@@ -124,4 +131,13 @@ export interface WinterSnapshot {
   cold: boolean;
   // Autumn (or winter) shortfall text: "Winter needs: 40 more fuel, 3 warm clothes".
   warning?: string;
+  // The autumn "Prepare for winter" goal (omitted outside autumn, or once done this year).
+  prep?: WinterPrepSnapshot;
+}
+export interface WinterPrepSnapshot {
+  // Days of fuel in store at the homes' burn (0 with no homes), the target, people still without warm clothes, the reward text.
+  fuelDays: number;
+  target: number;
+  needClothes: number;
+  reward: string;
 }

@@ -54,6 +54,7 @@ import { mineBatch, minerFlees, mineWorkMult } from "./mines.js";
 import { aleHappinessBonus, drinkAle, eatPreservedFood, foodSickness, orchardYieldMult, sicknessPenalty } from "./agri.js";
 import { addItem, depositBonus, depositExtra, eatFoodItems, foodHappinessBonus, tablewareHappinessBonus, updateStationWork, workSpeed } from "./progression.js";
 import { stationRecipes } from "@colony/shared/progression";
+import { FOOD_LOW_DAYS, foodDays, type FoodSnapshot } from "@colony/shared/food";
 import { PASTURE_YIELDS } from "@colony/shared/buildings";
 import { bestHallOf, infirmaryBedNear, isDuskNow, isUsableBed, roomHappinessBonus, usableBedIndices, warmRoomAt } from "./structures.js";
 import { ROOM_HALL_GATHER_CHANCE, ROOM_HALL_GATHER_RANGE_TILES, ROOM_INFIRMARY_SEEK_HP_FRAC, ROOM_INFIRMARY_SEEK_RANGE_TILES } from "@colony/shared/rooms";
@@ -913,13 +914,41 @@ export function trySpendFood(amount: number): boolean {
   return true;
 }
 
+// ---- food days (shared/src/food.ts) ----
+// Per clan: the stock after the last dawn meal (the trend's base) and the game day "Food is low" last fired.
+const foodDawnTotal = new Map<number, number>();
+const foodWarnedDay = new Map<number, number>();
+const foodSnapCache = new Map<number, { at: number; snap: FoodSnapshot }>();
+const foodStockNow = () => Math.max(0, state.stock.grain) + Math.max(0, state.stock.meat) + Math.max(0, state.stock.fruit);
+// The Abbey provisions its own clergy: they neither eat the colony's food nor starve with it.
+const foodEaters = () => Array.from(colonists.values()).filter((c) => !isAbbeyClergy(c) && inClan(c));
+const foodPerDay = (eaters: number) => Math.ceil(eaters * FOOD_PER_COLONIST_PER_DAY);
+
+// The active clan's food days (cached by wall time: a paused game still shows stock changes within a second).
+export function foodSnapshot(): FoodSnapshot {
+  const hit = foodSnapCache.get(state.clan.id);
+  const now = Date.now();
+  if (hit && now - hit.at < 1000) return hit.snap;
+  const stock = foodStockNow();
+  const perDay = foodPerDay(foodEaters().length);
+  const snap: FoodSnapshot = { stock, perDay, days: foodDays(stock, perDay), trend: stock - (foodDawnTotal.get(state.clan.id) ?? stock) };
+  foodSnapCache.set(state.clan.id, { at: now, snap });
+  return snap;
+}
+
 export function applyDailyFoodConsumption() {
-  // The Abbey provisions its own clergy: they neither eat the colony's food nor starve with it.
-  const consumers = Array.from(colonists.values()).filter((c) => !isAbbeyClergy(c) && inClan(c));
+  const consumers = foodEaters();
   const consumerCount = consumers.length;
   if (consumerCount === 0) return;
   // Progression tree phase 4: bread / flatbread / gruel first.
-  const want = Math.ceil(consumerCount * FOOD_PER_COLONIST_PER_DAY);
+  const want = foodPerDay(consumerCount);
+  // Food days: warn (once per game day) when the stock before this meal lasts under FOOD_LOW_DAYS.
+  const day = Math.floor(state.cycleTick / GAME_DAY_TICKS);
+  const daysBefore = foodDays(foodStockNow(), want);
+  if (daysBefore !== null && daysBefore < FOOD_LOW_DAYS && foodWarnedDay.get(state.clan.id) !== day) {
+    foodWarnedDay.set(state.clan.id, day);
+    broadcastEvent("build", `Food is low: about ${daysBefore} day${daysBefore === 1 ? "" : "s"} of food left (${foodStockNow()} for ${consumerCount} people)`);
+  }
   let needed = eatFoodItems(want);
   const meat0 = state.stock.meat;
   // Phase 6 balance (2026-11-10): eaten in proportion to the stock (was grain, then meat, then fruit), so a big fruit
@@ -953,6 +982,8 @@ export function applyDailyFoodConsumption() {
       damageColonist(c, STARVATION_DAMAGE);
     }
   }
+  foodDawnTotal.set(state.clan.id, foodStockNow());
+  foodSnapCache.delete(state.clan.id);
 }
 
 export function desertColonist(c: Colonist) {

@@ -1333,6 +1333,12 @@
       #pc-winter { margin: 4px 0; font-size: 12px; color: var(--ink-soft); }
       .pc-cold { display: inline-flex; align-items: center; gap: 3px; margin: 1px 4px 1px 0; padding: 0 4px; font-size: 11.5px; font-weight: 600; color: #fff; background: #3a6a9a; border-radius: 3px; white-space: nowrap; }
       .pc-cold img { width: 14px; height: 14px; }
+      #stat-food.low { color: #b9770e; font-weight: 600; }
+      #stat-food.critical { color: var(--mood-bad); font-weight: 600; }
+      #goal-prep { margin-top: 7px; padding-top: 5px; border-top: 1px dashed var(--wood-dark); font-size: 12px; }
+      #goal-prep[hidden] { display: none; }
+      #goal-prep-title { font-weight: 600; }
+      #goal-prep-detail { color: var(--ink-soft); font-size: 11px; }
       #stat-fuel.low, #stat-clothes.low, #stat-spoil.low, #stat-sick.low { color: var(--mood-bad); font-weight: 600; }
       #stat-winter-warn { margin: 2px 0 4px; font-size: 12px; font-weight: 600; color: var(--mood-bad); }
       .pc-chip { display: inline-block; margin: 1px 4px 1px 0; font-size: 11.5px; white-space: nowrap; }
@@ -2043,6 +2049,7 @@
       <div id="goal-title"></div>
       <div class="goal-progress"><div id="goal-progress-fill"></div></div>
       <div id="goal-progress-text"></div>
+      <div id="goal-prep" hidden><div id="goal-prep-title"></div><div id="goal-prep-detail"></div></div>
     </div>
     <div id="player-bar" hidden>
       <div id="player-bar-label"></div>
@@ -2072,6 +2079,9 @@
             <span id="stat-time">Day</span>
           </span>
           <span id="stat-happiness">Happiness: 100%</span></div>
+        <div class="econ-row" id="stat-food-row" title="Food days: grain + meat + fruit in store divided by what the clan eats at each dawn meal (bread and preserved food come on top; spoilage is not counted). Amber under 3 days, red under 1.">
+          <span id="stat-food">Food</span>
+        </div>
         <div class="econ-row" id="stat-calendar" title="Calendar: 4 seasons of 7 days. Crops grow only in their season (wheat spring to mid-autumn, hemp summer); winter stops outdoor crops and the first frost kills growing ones unless roofed. Rain waters every unroofed crop.">
           <span class="cal-cell"><img id="cal-season-icon" alt="" /><span id="stat-date">Spring 1, Year 1</span></span>
           <span class="cal-cell"><img id="cal-weather-icon" alt="" /><span id="stat-weather">Clear</span></span>

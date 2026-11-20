@@ -4942,3 +4942,29 @@ James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-w
 - Not done: soldiers walking into the interior (deferred: the abstract assault stays; interiors, interiorMobs and the
   client draw heroes only, so soldiers inside would need interior presence, pathing, sprites, per-soldier combat and
   save handling); dedicated art.
+
+- Not done: soldiers walking into the interior; a crusher step for iron ore (the Stamp Mill crushes gold / tin / stone);
+  hazards hurting a hero who is only standing inside (only the hero's own digging rolls a cave-in); dedicated art.
+
+## Food days and the "Prepare for winter" goal — landed 2026-11-20 (DESIGN-REVIEW-nov20 gap G-B)
+Two small readouts so the first-days starvation and the first winter are not a surprise. Numbers: `shared/src/food.ts`
+(`FOOD_LOW_DAYS` 3, `FOOD_CRITICAL_DAYS` 1) and `shared/src/winter.ts` (`WINTER_PREP_FUEL_DAYS` 5, `WINTER_PREP_REWARD`
+20 wood). Tests: `server/food-days-test.mjs` (`npm test -- food-days`, seasons off) and `server/winter-prep-goal-test.mjs`
+(`npm test -- winter-prep-goal`, a SEASON suite in scripts/run-tests.mjs).
+- **Food days**: new additive snapshot field `foodDays` (not `food`: a retired field economy-goods-test asserts absent) ({ stock, perDay, days, trend }), sent with seasons on or off.
+  `days` = (grain + meat + fruit) / ceil(eaters x `FOOD_PER_COLONIST_PER_DAY`), eaters as the dawn meal counts them
+  (Abbey clergy excluded), rounded down to 0.1. Bread / preserved foods and spoilage are not counted (a note, not a
+  bug: the dawn meal eats grain / meat / fruit first). `trend` = stock now minus the stock after the last dawn meal.
+  Colony panel row "Food: N days (x/day)" with an up / down arrow; amber under 3 days, red under 1. The dawn meal
+  (`applyDailyFoodConsumption`) fires one "Food is low: about N days of food left" toast per game day while the stock
+  before the meal lasts under 3 days (the once-per-day guard is a per-clan in-memory map, not saved).
+- **Prepare for winter**: a seasonal SIDE goal, not an entry in the linear `GOALS` track (an autumn-only step there would
+  stall everyone past or before it). In autumn (seasons on) the goal card shows a dashed sub-block "Prepare for winter:
+  Fuel x / 5 days, N need warm clothes (reward: 20 wood)" from `winter.prep` (additive field on the winter snapshot).
+  `evaluateGoals` (once a second) calls `evaluateWinterPrep`: it completes when fuel in store (+ carried heat) covers
+  5 days of the homes' burn (needs at least one heated home), pays 20 wood once and toasts "Goal complete: Prepare for
+  winter". Clothing is tracked but does not gate it. Done-state is the calendar year (`progress.winterPrepYear`, saved),
+  so it posts again each autumn. Seasons off: never posts.
+- Not done: a client unit test of the row colours (tsc only; `foodLevel` is covered by the server test); the adaptive
+  "Do this next" card (review item 2) that would fold food days into the main track; the food row inside the Economy
+  panel proper (it sits in the Colony stats block beside the Fuel row).

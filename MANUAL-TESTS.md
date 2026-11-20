@@ -1491,3 +1491,17 @@ Have an own Mine (or Quarry) with an infested level and 1+ soldiers within 12 ti
 soldiers in**. Expect a toast "Your N soldiers cleared the Mine's level X (K monsters slain...)" (or "were driven out of
 ...: K slain, L fell, R monsters remain" when repelled; losses are named in both) and a matching line in the chronicle
 (news feed). The count N must match the "soldiers in reach" shown on the panel.
+
+## Food days and Prepare for winter (2026-11-20)
+1. Colony panel, under Happiness: a row "Food: N days (x/day)" with an up arrow when stock grew since the last dawn
+   meal, a down arrow when it fell. Hover: stock, the dawn meal's need, change since the last dawn. It shows with
+   seasons on and off.
+2. Spend or sell the grain / meat / fruit down: the row turns amber under 3 days and red under 1. At the next dawn
+   with under 3 days of food a single "Food is low: about N days of food left" toast appears (not twice the same day).
+3. Feed the colony back above 3 days: the row goes back to normal and no toast the next dawn.
+4. Jump to Autumn (Creative > World > Season): the goal card gains a dashed "Prepare for winter" block with
+   "Fuel x / 5 days, N need warm clothes (reward: 20 wood)". It is not there in spring, summer or winter.
+5. Stock wood until the fuel reads 5 days of the x/day burn: the block disappears, the toast "Goal complete: Prepare
+   for winter (+20 wood)" shows and wood goes up by 20, once. The numbered main goal is unaffected.
+6. Autumn of the next year: the block posts again. Save and reload after completing it in autumn: it stays done.
+7. Does the dashed block read well under the goal bar at 210 px wide? Is amber distinct enough from red in the row?

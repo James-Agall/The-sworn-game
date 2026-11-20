@@ -57,6 +57,7 @@ import { setupWeatherOverlay } from "./weather";
 import { opaqueBox, type InteriorUi, setupInterior } from "./interior";
 import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
 import { FUEL_LOW_DAYS, type WinterSnapshot } from "@colony/shared/winter";
+import { foodLevel, type FoodSnapshot } from "@colony/shared/food";
 import type { AgriSnapshot } from "@colony/shared/agri";
 import { MINE_RISK_LABEL } from "@colony/shared/mines";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
@@ -4316,12 +4317,30 @@ async function main() {
       calendarEl.weatherIcon.src = `/sprites/icons/weather_${cal.weather}.png`;
     }
   }
+  // Food days (shared/src/food.ts): how long grain + meat + fruit last at the dawn meal; shown with seasons off too.
+  const foodEl = document.getElementById("stat-food")!;
+  let shownFood = "";
+  function refreshFood(f: FoodSnapshot | undefined) {
+    const key = JSON.stringify(f ?? null);
+    if (key === shownFood) return;
+    shownFood = key;
+    if (!f) return;
+    const level = foodLevel(f.days);
+    const arrow = f.trend > 0 ? " \u25B2" : f.trend < 0 ? " \u25BC" : "";
+    foodEl.textContent = f.days === null ? "Food: nobody to feed" : `Food: ${f.days} day${f.days === 1 ? "" : "s"} (${f.perDay}/day)${arrow}`;
+    foodEl.classList.toggle("low", level === "low");
+    foodEl.classList.toggle("critical", level === "critical");
+    foodEl.title = `${f.stock} grain, meat and fruit in store; the dawn meal eats ${f.perDay}. ${f.trend >= 0 ? "+" : ""}${f.trend} since the last dawn meal.`;
+  }
   // Winter (shared/src/winter.ts): days of fuel at the homes' burn, people needing warm clothes, and the autumn /
   // winter "Winter needs" warning. Hidden with seasons off (no `winter` field).
   const winterRowEl = document.getElementById("stat-winter")!;
   const fuelEl = document.getElementById("stat-fuel")!;
   const clothesEl = document.getElementById("stat-clothes")!;
   const winterWarnEl = document.getElementById("stat-winter-warn")!;
+  const goalPrepEl = document.getElementById("goal-prep")!;
+  const goalPrepTitleEl = document.getElementById("goal-prep-title")!;
+  const goalPrepDetailEl = document.getElementById("goal-prep-detail")!;
   let shownWinter = "";
   function refreshWinter(w: WinterSnapshot | undefined) {
     const key = JSON.stringify(w ?? null);
@@ -4329,6 +4348,12 @@ async function main() {
     shownWinter = key;
     winterRowEl.hidden = !w;
     winterWarnEl.hidden = !w?.warning;
+    goalPrepEl.hidden = !w?.prep;
+    if (w?.prep) {
+      const p = w.prep;
+      goalPrepTitleEl.textContent = "Prepare for winter";
+      goalPrepDetailEl.textContent = `Fuel ${p.fuelDays} / ${p.target} days${p.needClothes > 0 ? `, ${p.needClothes} need warm clothes` : ", all dressed"} (reward: ${p.reward})`;
+    }
     if (!w) return;
     const days = w.days === null ? "no homes to heat" : `${w.days} day${w.days === 1 ? "" : "s"} (${w.burn}/day)`;
     fuelEl.textContent = `Fuel: ${days}${w.cold && w.coldHomes > 0 ? `, ${w.coldHomes} cold home${w.coldHomes === 1 ? "" : "s"}` : ""}`;
@@ -6972,6 +6997,7 @@ async function main() {
       setActiveDifficulty(message.difficulty);
       statTimeEl.textContent = message.isNight ? "Night" : "Day";
       refreshCalendar(message.calendar);
+      refreshFood(message.foodDays);
       refreshWinter(message.winter);
       refreshAgri(message.agri);
       sundialEl.classList.toggle("night", message.isNight);
