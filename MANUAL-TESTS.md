@@ -1505,3 +1505,5 @@ soldiers in**. Expect a toast "Your N soldiers cleared the Mine's level X (K mon
    for winter (+20 wood)" shows and wood goes up by 20, once. The numbered main goal is unaffected.
 6. Autumn of the next year: the block posts again. Save and reload after completing it in autumn: it stays done.
 7. Does the dashed block read well under the goal bar at 210 px wide? Is amber distinct enough from red in the row?
+
+Inn (rumour / rest): enter a settlement tavern and talk to the keeper. "Buy a rumour (10 gold)" takes exactly 10 gold and a place appears on the minimap; buy again and a different place appears. "Rest at the inn (5 gold)" fills the rest and energy bars. With under 5 / 10 gold the choices are greyed with "Needs N gold".

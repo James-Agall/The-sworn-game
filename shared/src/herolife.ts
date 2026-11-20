@@ -198,6 +198,8 @@ export type DialogueAction =
   | "sellAnimals"
   // Gap closure G5: a tavern patron's rumour (camps / settlements / ore nearby) and a drink at the tavern.
   | "patronRumour" | "drink"
+  // Innkeeper: buy a rumour (gold, reveals a place) / rest at the inn (gold).
+  | "innRumour" | "innRest"
   // Named roles: this person's own quests, their favour (once a day, after a service), the Elder's "who's who".
   | "roleWork" | "rolePerk" | "whoswho";
 export interface DialogueChoiceDef {

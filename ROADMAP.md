@@ -4968,3 +4968,6 @@ Two small readouts so the first-days starvation and the first winter are not a s
 - Not done: a client unit test of the row colours (tsc only; `foodLevel` is covered by the server test); the adaptive
   "Do this next" card (review item 2) that would fold food days into the main track; the food row inside the Economy
   panel proper (it sits in the Colony stats block beside the Fuel row).
+
+## Inn: buy a rumour / rest at the inn — landed 2026-11-20 (ROADMAP-NEXT Step 2.5)
+A tavern keeper's dialogue gains "Buy a rumour (10 gold)" (reveals the nearest camp / town / iron seam on the minimap, the next-nearest on each repeat purchase) and "Rest at the inn (5 gold)" (rest and energy to full, +20 food). Prices in `shared/src/interiors.ts` (`INN_*`); server `innRumour` / `innRest` in `server/src/herolife.ts`; test `server/inn-test.mjs`. Deferred: skipping the night, a raid-in-progress refusal, "unexplored POI" filtering (mini-boss / ruin kinds).
