@@ -82,7 +82,7 @@ await hook("setCycleTick", { tick: TICK * 10 });
 
 let st = null;
 let off = null;
-for (const [dx, dy] of [[0, 60], [60, 0], [0, -60], [-60, 0], [60, 60], [-60, -60]]) {
+for (const [dx, dy] of [[0, 60], [60, 0], [0, -60], [-60, 0], [60, 60], [-60, -60], [60, -60], [-60, 60], [0, 100], [100, 0], [0, -100], [-100, 0]]) {
   st = await hook("stampSite", { template: "hearthmoor", dx, dy, search: 60 });
   if (st?.site) {
     off = [dx, dy];
