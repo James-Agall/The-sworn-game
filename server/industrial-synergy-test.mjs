@@ -258,7 +258,8 @@ info(`connected; wood=${a.snap.wood} iron=${a.snap.iron} rock=${a.snap.rock} cap
 
 // Layout relative to the standing tile s. Barn B, its plot P (west of B), Near1/Near2 at Chebyshev 2,
 // Far5 at Chebyshev 5 and Far6 at Chebyshev 6 from B (placed from a second standing tile s2).
-const s = findSite(a, -3, 6, -3, 2);
+// y1 = 3: the Knight Post (mob bait) is a 3x3 block anchored at K, reaching down to s.y + 3.
+const s = findSite(a, -3, 6, -3, 3);
 if (!s) {
   result(false, "no suitable empty site found");
   process.exit(1);
