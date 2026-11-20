@@ -20,7 +20,7 @@ const T = {
   CoalSeam: 149, CopperOre: 150, TinOre: 151, CoalMine: 152, CopperMine: 153, TinMine: 154, Foundry: 159,
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const c = { welcome: null, snap: null, tiles: [], W: 0, events: [], hooks: new Map(), saves: [], info: undefined, mobs: null, view: undefined };
+const c = { welcome: null, snap: null, tiles: [], W: 0, events: [], chron: [], hooks: new Map(), saves: [], info: undefined, mobs: null, view: undefined };
 let fails = 0;
 const result = (ok, msg) => {
   if (!ok) fails++;
@@ -47,6 +47,7 @@ ws.on("message", (raw) => {
   } else if (m.type === "snapshot") c.snap = m;
   else if (m.type === "tileUpdate") c.tiles[m.tileY * c.W + m.tileX] = m.tile;
   else if (m.type === "event") c.events.push(m.text);
+  else if (m.type === "chronicle") c.chron.push(...m.entries);
   else if (m.type === "testHookResult") c.hooks.set(m.op, m);
   else if (m.type === "saveResult") c.saves.push(m);
   else if (m.type === "buildingInfo") c.info = m.info;
@@ -303,6 +304,10 @@ send({ type: "mineAssault", tileX: MN.x, tileY: MN.y });
 await until(() => c.events.length > ev, 2000);
 M = await mine(MN, { layer: 2 });
 result(ainf.mine?.assault.soldiers === 2 && M.mine?.status === "cleared" && /cleared the Mine's level 2/.test(evSince(ev)), `soldiers cleared level 2: ${evSince(ev)}`);
+await until(() => c.chron.some((e) => e.kind === "mine"), 1500);
+const mineChron = c.chron.filter((e) => e.kind === "mine").pop();
+result(/Your 2 soldiers cleared the Mine's level 2 \(\d+ monsters slain/.test(evSince(ev)) && /^Your 2 soldiers cleared the Mine's level 2/.test(mineChron?.text ?? "") && mineChron.x === MN.x && mineChron.y === MN.y,
+  `the assault toasts and chronicles how many went and the result: toast "${evSince(ev)}", chronicle "${mineChron?.text}" at ${mineChron?.x},${mineChron?.y}`);
 await hook("killColonists", { kind: "knight" });
 const iron3 = (await stock()).iron;
 const coal3 = await total("coal");

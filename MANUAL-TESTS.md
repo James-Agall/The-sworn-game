@@ -1485,3 +1485,9 @@ Normal game (not creative): Farming tab shows no Farm, Cow / Pig / Sheep pasture
 hotkeys (4, p, f, n) do nothing. Paint a Growing zone (Zones tab: wheat / hemp) and an Animal area, fence it, and use a
 Chicken Coop / Livestock Barn / Pig Sty / Sheep Pen instead. Creative game: the four old tools are back and place; old
 saves' existing plots and pastures keep working. The server refuses the old tiles in normal games too.
+
+## Mine assault toast (B1)
+Have an own Mine (or Quarry) with an infested level and 1+ soldiers within 12 tiles; open its panel and press **Send
+soldiers in**. Expect a toast "Your N soldiers cleared the Mine's level X (K monsters slain...)" (or "were driven out of
+...: K slain, L fell, R monsters remain" when repelled; losses are named in both) and a matching line in the chronicle
+(news feed). The count N must match the "soldiers in reach" shown on the panel.

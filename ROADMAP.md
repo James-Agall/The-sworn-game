@@ -4934,6 +4934,11 @@ James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-w
 - **Stamp Mill iron reserve (B3, 2026-11-20)**: "Crush iron ore" keeps `MINE_IRON_RESERVE` (6 = a Miner's lamp 2 + a Bucket
   pump 4 iron) in the stock: a recipe's `stockReserve` means ready only at `stock + reserve` (station worker, idle reason,
   the hero's own batch). `industry-extra` checks 8 iron crushes nothing, 9 crushes one batch and keeps 6.
+- **Visible assault (B1, 2026-11-20)**: sending soldiers in (`mineAssault`) now says how many went and how it ended in both the
+  toast (the existing event toast: "Your 2 soldiers cleared the Mine's level 2 (5 monsters slain, 1 fell)" / "Your 3
+  soldiers were driven out of ...: 2 slain, 1 fell, 3 monsters remain") and the chronicle (new kind `mine`, pinned at the
+  Mine). No new client code: the toast reuses `pushEventToast`. Test: `mines` (the event and the chronicle entry); browser
+  check in MANUAL-TESTS.md ("Mine assault toast").
 - Not done: soldiers walking into the interior (deferred: the abstract assault stays; interiors, interiorMobs and the
   client draw heroes only, so soldiers inside would need interior presence, pathing, sprites, per-soldier combat and
   save handling); dedicated art.

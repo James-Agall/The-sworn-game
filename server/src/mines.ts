@@ -37,6 +37,7 @@ import { getBuildingLevel, inBounds, ownerAt, tileIndex } from "./tiles.js";
 import { tileIndicesOf } from "./chunks.js";
 import { clanById, clanIdAt, withClan } from "./clans.js";
 import { broadcastEvent } from "./net.js";
+import { chronicle } from "./chronicle.js";
 import { sendTo } from "./saves.js";
 import { sendEvent } from "./construction.js";
 import { damageColonist, damagePlayer } from "./combat.js";
@@ -815,10 +816,12 @@ export function handleMineAssault(p: Player, tx: unknown, ty: unknown) {
     }
     const lost = squad.filter((c) => !colonists.has(c.id) || c.hp <= 0).length;
     const left = aliveIn(L).length;
+    const went = `${squad.length} soldier${squad.length === 1 ? "" : "s"}`;
     const text = left === 0
-      ? `Your ${squad.length} soldier${squad.length === 1 ? "" : "s"} cleared the ${label} (${killed} monsters slain${lost ? `, ${lost} fell` : ""})`
-      : `Your soldiers were driven out of the ${label}: ${killed} slain, ${lost} fell, ${left} monsters remain`;
+      ? `Your ${went} cleared the ${label} (${killed} monsters slain${lost ? `, ${lost} fell` : ""})`
+      : `Your ${went} were driven out of the ${label}: ${killed} slain, ${lost} fell, ${left} monsters remain`;
     sendEvent(p, left === 0 ? "milestone" : "death", text);
+    chronicle("mine", text, { x: tx, y: ty });
   });
 }
 
