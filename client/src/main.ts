@@ -1,3 +1,5 @@
+// Former module-level lets (game/state.ts SessionState); declared first: assignments below run in order.
+const G = {} as SessionState;
 import { treeAt } from "@colony/shared/trees";
 import { updateVitals } from "./vitals";
 import {npcVariantFrame} from "./npcVariants";
@@ -9,7 +11,7 @@ import { initPerfOverlay } from "./perfOverlay";
 import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
 import { DEFAULT_HERO_APPEARANCE } from "@colony/shared/protocol";
 import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS, type HeroAppearance } from "@colony/shared/protocol";
-let pendingCreatorAppearance: HeroAppearance | null = null;
+G.pendingCreatorAppearance = null;
 import "./economySkin.css";
 import "./menuSkin.css";
 import { heroArt, loadHeroAppearanceArt, gearIconUrl } from "./heroAppearance";
@@ -205,18 +207,20 @@ import {
   HORSE_MOVING_MIN_SPEED, HORSE_RATE_MIN, HORSE_RATE_MAX, HORSE_TELEPORT_SPEED, HORSE_WHINNY_IDLE_MS,
   HORSE_WHINNY_CHANCE, AMBIENT_SCAN_MS, AMBIENT_TILE_LOOPS, DAWN_BELL_DELAY_S, PLACEMENT_CONFIRM_MS, workSoundKey,
 } from "./soundTriggers";
+import type { MainState, SessionState } from "./game/state";
+import type { AnimSet, FacingMap, MobVariant, AnimMode, AnimState, SiteView, FireOverlay, CritterKind, Critter, WildlifeSet, ActiveEffect, FightArrow, GoodKey, BaseResource, ShopItem, ArmedOrder, StrategySetting, LeftPress, OrderPress } from "./game/types";
 
 const SERVER_URL = "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
 const QUIT_URL = `${SERVER_URL.replace(/^ws/, "http")}/quit`;
 const SAVES_URL = `${SERVER_URL.replace(/^ws/, "http")}/saves`;
 // Main menu Continue / Load Game: the slot to load right after the first welcome (else null).
-let pendingLoadSlot: SaveSlot | null = null;
+G.pendingLoadSlot = null;
 // Creative mode: the menu's game mode (Creative button / ?mode=creative), enforced on the first welcome after
 // New Game / Creative (never after Continue / Load: a save brings its own mode).
-let preferredCreative = new URLSearchParams(location.search).get("mode") === "creative";
+G.preferredCreative = new URLSearchParams(location.search).get("mode") === "creative";
 // Solo hero phase 4: the menu's "New Game (Solo)" (or ?mode=solo): start as the hero alone, no settlement.
-let preferredSolo = new URLSearchParams(location.search).get("mode") === "solo";
+G.preferredSolo = new URLSearchParams(location.search).get("mode") === "solo";
 // Village life phase 5: the close adventure camera (on unless ?camera=classic / the setting) and whether a game
 // starts in strategy view (?view=strategy / the setting). Read once; the settings apply from the next page load.
 const adventurePrefs = readAdventurePrefs(location.search, (key) => {
@@ -226,13 +230,15 @@ const adventurePrefs = readAdventurePrefs(location.search, (key) => {
     return null;
   }
 });
-let enforceGameMode = false;
+G.enforceGameMode = false;
 
 
 
 
 
 async function main() {
+  // Every former `let` of this closure (game/state.ts).
+  const S = {} as MainState;
   const app = new Application();
   await app.init({ background: "#1a1a1a", resizeTo: window });
   const perf = initPerfOverlay(app);
@@ -488,17 +494,6 @@ async function main() {
   const BATTERED_POSE_TEXTURES = new Map<string, Texture>(
     Object.entries(BATTERED_POSE_URLS).flatMap(([kind, url]) => (loadedTextures[url] ? [[kind, loadedTextures[url]] as const] : []))
   );
-  // Frames within one set come from one source sheet, so they share a pixel scale: one constant
-  // `scale` per set (sized from the first walk frame) keeps the body the same size while weapons
-  // swing out, instead of re-fitting every frame's canvas to a fixed height.
-  interface AnimSet {
-    walk: Texture[];
-    action: Texture[];
-    // Optional carry-home walk (hunter/forager); falls back to `walk`.
-    carry?: Texture[];
-    scale: number;
-    refHeight: number;
-  }
   // `renderSize` is the first walk frame's rendered height, or its longer side with `fitLongerSide`.
   function opaqueWidthPx(tex: Texture): number {
     try {
@@ -537,20 +532,11 @@ async function main() {
     sprite.scale.set(set.scale);
     sprite.anchor.set(0.5, 1 - set.refHeight / (2 * texture.height));
   }
-  // All art is drawn facing right; flip horizontally (negate scale.x, since every sprite is
-  // center-anchored) when net horizontal movement is leftward. Tracked per entity id in one of
-  // three category maps (colonist/mob/player ids aren't guaranteed disjoint, so a single shared
-  // map risks one category's prune deleting another's live entry), independent of any animation
-  // state so it applies equally to animated and single-pose sprites. A small dead zone (the same
-  // >0.5px threshold used for walk-vs-idle elsewhere) avoids flicker from sub-pixel jitter while
-  // genuinely stationary; moving purely vertically keeps the last facing instead of snapping back
-  // to a default.
-  type FacingMap = Map<string, { lastX: number; facingRight: boolean }>;
   const colonistFacing: FacingMap = new Map();
   const mobFacing: FacingMap = new Map();
   const playerFacing: FacingMap = new Map();
   const autumnDirections = new Map<string, Cardinal>();
-  let heroToolPose: { row: number; facing: Cardinal; started: number } | null = null;
+  S.heroToolPose = null;
   function getFacing(map: FacingMap, id: string, x: number): boolean {
     const prev = map.get(id);
     if (!prev) {
@@ -704,14 +690,6 @@ async function main() {
   const BLACKSMITH_FORGE_TEXTURES = BLACKSMITH_FORGE_URLS.every((u) => optionalTextures[u])
     ? BLACKSMITH_FORGE_URLS.map((u) => optionalTextures[u])
     : undefined;
-  interface MobVariant {
-    idle: Texture;
-    idleScale: number;
-    anim: AnimSet | null;
-    // Ogre Warlord only: a standing pose shown instead of walk frame 0, and the roar frames.
-    idlePose?: Texture;
-    roar?: Texture[];
-  }
   const MOB_VARIANTS = Object.fromEntries(
     Object.entries(MOB_VARIANT_URLS).map(([kind, variants]) => {
       const size = MOB_VISUALS[kind as MobKind].radius * MOB_SPRITE_SIZE_PER_RADIUS;
@@ -780,14 +758,6 @@ async function main() {
     : null;
   // Ticks (snapshots, ~20/s) each animation frame holds before advancing.
   const ANIM_TICKS_PER_FRAME = 4;
-  type AnimMode = "walk" | "action" | "carry" | null;
-  interface AnimState {
-    mode: AnimMode;
-    frame: number;
-    ticksInFrame: number;
-    lastX: number;
-    lastY: number;
-  }
   // Advances `anim` one snapshot tick; returns the frame to show, or null for the static pose.
   function stepAnim(anim: AnimState, set: AnimSet, mode: AnimMode): Texture | null {
     if (mode !== anim.mode) {
@@ -847,54 +817,54 @@ async function main() {
   });
 
   // Strategy mode phase 1: the zoom is variable (TACTICAL_ZOOM unless the strategy camera is active).
-  let camZoom = TACTICAL_ZOOM;
+  S.camZoom = TACTICAL_ZOOM;
   const strategyCam = new StrategyCamera();
   // Village life phase 5: the adventure camera (adventure.ts) while the strategy camera is off; a start in strategy
   // view waits for the first frame with the rider.
   const advCam = new AdventureCamera();
-  let pendingStartStrategy = false;
+  S.pendingStartStrategy = false;
   const homeZoom = () => (adventurePrefs.on ? advCam.zoom : TACTICAL_ZOOM);
   // LOD band drawn this frame ("tactical" whenever the strategy camera is inactive).
-  let strategyBand: LodBand = "tactical";
+  S.strategyBand = "tactical";
   // Map band unit dots and the regiment banners (strategy mode only; see strategy/lod.ts).
   const strategyDots = new Graphics();
   const strategyBanners = new StrategyBanners();
   const worldLayer = new Container();
-  worldLayer.scale.set(camZoom);
+  worldLayer.scale.set(S.camZoom);
   app.stage.addChild(worldLayer);
 
-  let myId: string | null = null;
+  S.myId = null;
   // Gap closure G6: the own hero rides a horse (snapshot `mounted`), and how far the sprite sits up.
-  let myMounted = false;
+  S.myMounted = false;
   const MOUNTED_LIFT_PX = 11;
-  let tileSize = 32;
-  let worldTilesX = 25;
-  let worldTilesY = 25;
+  S.tileSize = 32;
+  S.worldTilesX = 25;
+  S.worldTilesY = 25;
   // Every standing Town Center, from the latest snapshot (minimap markers, HP bars, game over).
-  let latestTownCenters: TownCenterSnapshot[] = [];
+  S.latestTownCenters = [];
   // Camp hearths: tile indices of the standing ones (snapshot `hearths`), for right-click attack orders
   // and minimap markers (explored tiles only).
-  let latestHearths = new Set<number>();
+  S.latestHearths = new Set<number>();
   // This world's Castle Ruin centre (welcome); the minimap marks it once that tile is explored.
-  let castleRuinTile: { x: number; y: number } | null = null;
-  let tiles: number[] = [];
+  S.castleRuinTile = null;
+  S.tiles = [];
   // Biome per tile from `welcome`; static for the life of a world.
-  let biomes: number[] = [];
+  S.biomes = [];
   // World streaming phase 4: a chunked welcome (streamed world) sends tiles / biomes per 32x32 chunk on
   // request; until a chunk arrives its tiles read Empty / Plains, its floor is not built and the minimap shows
   // the welcome's downscaled summary (cells = one MinimapClass per f x f tiles, cellSeen = any tile explored).
-  let streamed: { chunkTiles: number; chunksX: number; chunksY: number; f: number; cw: number; ch: number; cells: Uint8Array; cellSeen: Uint8Array } | null = null;
-  let chunkLoaded = new Uint8Array(0);
+  S.streamed = null;
+  S.chunkLoaded = new Uint8Array(0);
   const chunkRequestedAt = new Map<number, number>();
-  let chunkRequestAt = 0;
+  S.chunkRequestAt = 0;
   const chunkOfTile = (tx: number, ty: number) =>
-    streamed ? Math.floor(ty / streamed.chunkTiles) * streamed.chunksX + Math.floor(tx / streamed.chunkTiles) : 0;
+    S.streamed ? Math.floor(ty / S.streamed.chunkTiles) * S.streamed.chunksX + Math.floor(tx / S.streamed.chunkTiles) : 0;
 
   const playerSprites = new Map<string, EntityVisual>();
   const colonistSprites = new Map<string, EntityVisual>();
   const mobSprites = new Map<string, EntityVisual>();
   // Gap closure G7: quest givers with a quest for you (from the snapshot's `life`).
-  let questMarkIds = new Set<string>();
+  S.questMarkIds = new Set<string>();
 
   // Grass floor art, one Sprite per tile, alternating two textures for visual variety. Bottom of
   // the stack: everything else (Town Center, buildings, entities) draws over it.
@@ -912,17 +882,17 @@ async function main() {
   const decorSpriteLayer = new Container();
   worldLayer.addChild(decorSpriteLayer);
   // Modular building phase 3: growing-zone crops and loose goods (ground), then the zone overlay, under buildings.
-  const zonesUi = setupZones({ tileSize: () => tileSize, worldTilesX: () => worldTilesX, send: (m) => sendMessage(m) });
+  const zonesUi = setupZones({ tileSize: () => S.tileSize, worldTilesX: () => S.worldTilesX, send: (m) => sendMessage(m) });
   worldLayer.addChild(zonesUi.ground);
   worldLayer.addChild(zonesUi.overlay);
   // Building templates: the Blueprints tab's panel and ghost (blueprints.ts).
   const blueprintsUi = setupBlueprints({
     send: (m) => sendMessage(m),
-    tileSize: () => tileSize,
-    tileAt: (x, y) => (x < 0 || y < 0 || x >= worldTilesX || y >= worldTilesY ? -1 : tiles[y * worldTilesX + x]),
+    tileSize: () => S.tileSize,
+    tileAt: (x, y) => (x < 0 || y < 0 || x >= S.worldTilesX || y >= S.worldTilesY ? -1 : S.tiles[y * S.worldTilesX + x]),
     textures: STRUCTURE_TEXTURES,
     arm: () => {
-      if (currentTool !== BLUEPRINT_TOOL) selectTool(BLUEPRINT_TOOL, true);
+      if (S.currentTool !== BLUEPRINT_TOOL) selectTool(BLUEPRINT_TOOL, true);
     },
   });
   const decorSprites = new Map<number, Sprite>();
@@ -934,7 +904,7 @@ async function main() {
   // first. A death stain is stamped whenever a new gravestone appears (the server drops one for
   // every death), except for the stones already standing when we join.
   const bloodSprites: Sprite[] = [];
-  let bloodOnNewGravestones = false;
+  S.bloodOnNewGravestones = false;
   function stampBlood(x: number, y: number, variants: number[], size: number) {
     const texture = BLOOD_TEXTURES[variants[Math.floor(Math.random() * variants.length)]];
     if (!texture) return;
@@ -959,7 +929,7 @@ async function main() {
       const key = `${g.x},${g.y},${g.variant}`;
       seen.add(key);
       if (gravestoneSprites.has(key)) continue;
-      if (bloodOnNewGravestones) stampBlood(g.x, g.y, BLOOD_DEATH_VARIANTS, BLOOD_DEATH_SIZE);
+      if (S.bloodOnNewGravestones) stampBlood(g.x, g.y, BLOOD_DEATH_VARIANTS, BLOOD_DEATH_SIZE);
       const texture = GRAVESTONE_TEXTURES[g.variant];
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5, 1);
@@ -968,7 +938,7 @@ async function main() {
       decorSpriteLayer.addChild(sprite);
       gravestoneSprites.set(key, sprite);
     }
-    bloodOnNewGravestones = true;
+    S.bloodOnNewGravestones = true;
     for (const [key, sprite] of Array.from(gravestoneSprites)) {
       if (seen.has(key)) continue;
       sprite.destroy();
@@ -986,7 +956,7 @@ async function main() {
   const animatedTiles = new Map<number, number>();
   function tileAnimTexture(index: number, tile: number, now: number): Texture | undefined {
     if (tile === TileType.Blacksmith) {
-      if (!BLACKSMITH_FORGE_TEXTURES || !forgeBusy.has(index)) return undefined;
+      if (!BLACKSMITH_FORGE_TEXTURES || !S.forgeBusy.has(index)) return undefined;
       const frames = BLACKSMITH_FORGE_TEXTURES;
       return frames[(Math.floor(now / BLACKSMITH_FORGE_FRAME_MS) + stableHash(String(index))) % frames.length];
     }
@@ -996,32 +966,26 @@ async function main() {
     return anim.frames[(Math.floor(now / anim.frameMs) + phase) % anim.frames.length];
   }
   // A welcome (join or world restart) wipes every entity at once; that isn't a mass death.
-  let suppressDeathPoofs = true;
+  S.suppressDeathPoofs = true;
   // Server art state per tile index, from the snapshot: farm stage (FarmStage), building level (>1
   // only), and construction sites. Each sync re-draws only the tiles whose value changed.
-  let farmStages = new Map<number, number>();
-  let buildingLevels = new Map<number, number>();
+  S.farmStages = new Map<number, number>();
+  S.buildingLevels = new Map<number, number>();
   // Blacksmith tile indices forging right now (snapshot `forgeBusy`).
-  let forgeBusy = new Set<number>();
-  interface SiteView {
-    target: number;
-    progress: number;
-    upgrade: boolean;
-    builders: number;
-  }
-  let constructionSites = new Map<number, SiteView>();
+  S.forgeBusy = new Set<number>();
+  S.constructionSites = new Map<number, SiteView>();
   // Damaged buildings (snapshot `damagedBuildings`): tile index -> HP permille. See syncDamagedBuildings.
-  let damagedBuildings = new Map<number, number>();
+  S.damagedBuildings = new Map<number, number>();
   // Walls & gates: snapshot `gates`, tile index -> GATE_FLAG_* bits (see syncGates).
-  let gateFlags = new Map<number, number>();
+  S.gateFlags = new Map<number, number>();
   // Modular building phase 1: the roofs need recomputing (a tile changed / the map or a chunk arrived).
-  let roofDirty = true;
+  S.roofDirty = true;
   // Forts phase A: NPC-owned tiles (snapshot `siteTiles`, only sent when it changed): tile index -> site
   // number. Drawn tinted (FOREIGN_TINT), red on the minimap; right-click with soldiers = attack it.
-  let siteOwners = new Map<number, number>();
+  S.siteOwners = new Map<number, number>();
   const FOREIGN_TINT = 0xffa090;
   // Forts phase B: explored forts (snapshot `sites`, sent with siteTiles): minimap flags by faction.
-  let fortMarkers: SiteSnapshot[] = [];
+  S.fortMarkers = [];
   // Forts phase C: owner-map numbers of sighted human settlements, and their (pale, friendlier) tile tint.
   const humanSiteNums = new Set<number>();
   const HUMAN_SITE_TINT = 0xdfe6f5;
@@ -1029,49 +993,49 @@ async function main() {
   const FORT_FLAG_COLOR: Record<SiteFaction, string> = { bandit: "#d35400", orc: "#6b8e23", human: "#f4f4f0" };
   // Forts phase D: this clan's relation to each sighted settlement (snapshot `relations`, by site number);
   // a settlement's minimap flag takes its tier's colour.
-  let siteRelations = new Map<number, SiteRelationSnapshot>();
+  S.siteRelations = new Map<number, SiteRelationSnapshot>();
   const RELATION_TIER_COLOR: Record<RelationTier, string> = {
     hostile: "#c0392b", wary: "#e67e22", neutral: "#f4f4f0", friendly: "#8fd18a", allied: "#4a9bd8", vassal: "#f1c40f",
   };
   // Clans (snapshot clanId / clans / clanTiles, only while 2+ clans play): this player's clan, every clan's
   // colour, and the clan of every player building. Another clan's buildings are tinted with its colour
   // and its units get a ring in it; neither can be selected or ordered.
-  let myClan = 0;
-  let clanColors = new Map<number, number>();
-  let clanNames = new Map<number, string>();
-  let clanTiles = new Map<number, number>();
+  S.myClan = 0;
+  S.clanColors = new Map<number, number>();
+  S.clanNames = new Map<number, string>();
+  S.clanTiles = new Map<number, number>();
   const isForeignClanIndex = (index: number) => {
-    const owner = clanTiles.get(index);
-    return owner !== undefined && owner !== myClan;
+    const owner = S.clanTiles.get(index);
+    return owner !== undefined && owner !== S.myClan;
   };
   // Halfway between the clan colour and white, so the building art still reads.
   const clanTint = (clan: number) => {
-    const c = clanColors.get(clan) ?? 0xffffff;
+    const c = S.clanColors.get(clan) ?? 0xffffff;
     const mix = (shift: number) => Math.round((((c >> shift) & 0xff) + 0xff) / 2) << shift;
     return mix(16) | mix(8) | mix(0);
   };
   // True from a welcome until its first snapshot has been applied: state diffs then are a world
   // load, not events, so they make no sound.
-  let soundSuppressed = true;
+  S.soundSuppressed = true;
 
-  const indexToTile = (index: number) => ({ tx: index % worldTilesX, ty: Math.floor(index / worldTilesX) });
+  const indexToTile = (index: number) => ({ tx: index % S.worldTilesX, ty: Math.floor(index / S.worldTilesX) });
 
   function syncFarmStages(flat: number[]) {
     const next = new Map<number, number>();
     for (let i = 0; i + FARM_STAGE_SNAPSHOT_STRIDE <= flat.length; i += FARM_STAGE_SNAPSHOT_STRIDE) next.set(flat[i], flat[i + 1]);
     const changed = new Set<number>();
-    for (const [i, stage] of farmStages) if (next.get(i) !== stage) changed.add(i);
-    for (const [i, stage] of next) if (farmStages.get(i) !== stage) changed.add(i);
-    const prev = farmStages;
-    farmStages = next;
+    for (const [i, stage] of S.farmStages) if (next.get(i) !== stage) changed.add(i);
+    for (const [i, stage] of next) if (S.farmStages.get(i) !== stage) changed.add(i);
+    const prev = S.farmStages;
+    S.farmStages = next;
     for (const index of changed) {
-      const tile = tiles[index];
+      const tile = S.tiles[index];
       if (FARM_STAGE_ART[tile as TileType] === undefined) continue;
       // Ripe or harvested grain. Not on the first snapshot after a welcome (that's every ripe plot at once).
       const ripeChanged = (prev.get(index) === FarmStage.Ripe) !== (next.get(index) === FarmStage.Ripe);
-      if (tile === TileType.FarmPlot && !soundSuppressed && ripeChanged) {
+      if (tile === TileType.FarmPlot && !S.soundSuppressed && ripeChanged) {
         const c = indexToTile(index);
-        sound.play("farm_work", { x: c.tx * tileSize + tileSize / 2, y: c.ty * tileSize + tileSize / 2 });
+        sound.play("farm_work", { x: c.tx * S.tileSize + S.tileSize / 2, y: c.ty * S.tileSize + S.tileSize / 2 });
       }
       const { tx, ty } = indexToTile(index);
       setTileSprite(tx, ty, tile);
@@ -1082,24 +1046,24 @@ async function main() {
     const next = new Map<number, number>();
     for (let i = 0; i + BUILDING_LEVEL_SNAPSHOT_STRIDE <= flat.length; i += BUILDING_LEVEL_SNAPSHOT_STRIDE) next.set(flat[i], flat[i + 1]);
     const changed = new Set<number>();
-    for (const [i, level] of buildingLevels) if (next.get(i) !== level) changed.add(i);
-    for (const [i, level] of next) if (buildingLevels.get(i) !== level) changed.add(i);
-    buildingLevels = next;
+    for (const [i, level] of S.buildingLevels) if (next.get(i) !== level) changed.add(i);
+    for (const [i, level] of next) if (S.buildingLevels.get(i) !== level) changed.add(i);
+    S.buildingLevels = next;
     for (const index of changed) {
-      if (TILE_LEVEL_ART[tiles[index] as TileType] === undefined) continue;
+      if (TILE_LEVEL_ART[S.tiles[index] as TileType] === undefined) continue;
       const { tx, ty } = indexToTile(index);
-      setTileSprite(tx, ty, tiles[index]);
+      setTileSprite(tx, ty, S.tiles[index]);
     }
   }
 
   function syncForgeBusy(flat: number[] | undefined) {
     const next = new Set(flat ?? []);
-    const changed = [...[...forgeBusy].filter((i) => !next.has(i)), ...[...next].filter((i) => !forgeBusy.has(i))];
-    forgeBusy = next;
+    const changed = [...[...S.forgeBusy].filter((i) => !next.has(i)), ...[...next].filter((i) => !S.forgeBusy.has(i))];
+    S.forgeBusy = next;
     for (const index of changed) {
-      if (tiles[index] !== TileType.Blacksmith) continue;
+      if (S.tiles[index] !== TileType.Blacksmith) continue;
       const { tx, ty } = indexToTile(index);
-      setTileSprite(tx, ty, tiles[index]);
+      setTileSprite(tx, ty, S.tiles[index]);
     }
   }
 
@@ -1110,48 +1074,48 @@ async function main() {
     for (let i = 0; i + CONSTRUCTION_SNAPSHOT_STRIDE <= flat.length; i += CONSTRUCTION_SNAPSHOT_STRIDE) {
       next.set(flat[i], { target: flat[i + 1], progress: flat[i + 2] / 1000, upgrade: flat[i + 3] === 1, builders: flat[i + 4] });
     }
-    const prev = constructionSites;
-    constructionSites = next;
+    const prev = S.constructionSites;
+    S.constructionSites = next;
     for (const [index, site] of next) {
       const old = prev.get(index);
       if (!old || old.target !== site.target) {
         const { tx, ty } = indexToTile(index);
-        if (tiles[index] === TileType.ConstructionSite) setTileSprite(tx, ty, tiles[index]);
+        if (S.tiles[index] === TileType.ConstructionSite) setTileSprite(tx, ty, S.tiles[index]);
       }
     }
     for (const [index, site] of prev) {
-      if (next.has(index) || !site.upgrade || soundSuppressed) continue;
+      if (next.has(index) || !site.upgrade || S.soundSuppressed) continue;
       // An in-place upgrade finished (or was dropped): the upgrade sparkle, if the building still stands.
-      if (tiles[index] === TileType.Empty) continue;
+      if (S.tiles[index] === TileType.Empty) continue;
       const { tx, ty } = indexToTile(index);
       const c = tileCenter(tx, ty);
-      spawnFxAnim("upgrade", c.x, c.y + tileSize / 2, 700);
+      spawnFxAnim("upgrade", c.x, c.y + S.tileSize / 2, 700);
     }
     siteOverlay.clear();
     for (const [index, site] of next) {
       const { tx, ty } = indexToTile(index);
-      const x = tx * tileSize;
-      const y = ty * tileSize;
+      const x = tx * S.tileSize;
+      const y = ty * S.tileSize;
       if (!site.upgrade) {
         // Scaffold: two poles and cross braces over the faded building.
-        const top = y - tileSize * 0.6;
+        const top = y - S.tileSize * 0.6;
         siteOverlay
-          .moveTo(x + 4, y + tileSize - 2).lineTo(x + 4, top)
-          .moveTo(x + tileSize - 4, y + tileSize - 2).lineTo(x + tileSize - 4, top)
-          .moveTo(x + 4, top + 6).lineTo(x + tileSize - 4, top + 6)
-          .moveTo(x + 4, y + tileSize * 0.45).lineTo(x + tileSize - 4, y + tileSize * 0.45)
-          .moveTo(x + 4, top + 6).lineTo(x + tileSize - 4, y + tileSize * 0.45)
+          .moveTo(x + 4, y + S.tileSize - 2).lineTo(x + 4, top)
+          .moveTo(x + S.tileSize - 4, y + S.tileSize - 2).lineTo(x + S.tileSize - 4, top)
+          .moveTo(x + 4, top + 6).lineTo(x + S.tileSize - 4, top + 6)
+          .moveTo(x + 4, y + S.tileSize * 0.45).lineTo(x + S.tileSize - 4, y + S.tileSize * 0.45)
+          .moveTo(x + 4, top + 6).lineTo(x + S.tileSize - 4, y + S.tileSize * 0.45)
           .stroke({ width: 2, color: 0x6b4423, alpha: 0.9 });
       } else {
         // "Upgrading" marker: a small up-arrow badge.
-        const cx = x + tileSize - 6;
+        const cx = x + S.tileSize - 6;
         const cy = y - 4;
         siteOverlay.circle(cx, cy, 6).fill({ color: 0x2b1a0c, alpha: 0.85 });
         siteOverlay.poly([cx, cy - 4, cx + 4, cy + 1, cx + 1.5, cy + 1, cx + 1.5, cy + 4, cx - 1.5, cy + 4, cx - 1.5, cy + 1, cx - 4, cy + 1]).fill(0xf1c40f);
       }
-      const barY = y + tileSize + 2;
-      siteOverlay.rect(x + 2, barY, tileSize - 4, 4).fill({ color: 0x2b1a0c, alpha: 0.8 });
-      siteOverlay.rect(x + 2, barY, (tileSize - 4) * site.progress, 4).fill(site.upgrade ? 0xf1c40f : 0xe0b468);
+      const barY = y + S.tileSize + 2;
+      siteOverlay.rect(x + 2, barY, S.tileSize - 4, 4).fill({ color: 0x2b1a0c, alpha: 0.8 });
+      siteOverlay.rect(x + 2, barY, (S.tileSize - 4) * site.progress, 4).fill(site.upgrade ? 0xf1c40f : 0xe0b468);
     }
   }
 
@@ -1160,29 +1124,29 @@ async function main() {
     if (!flat) return;
     const next = new Map<number, number>();
     for (let i = 0; i + SITE_TILE_SNAPSHOT_STRIDE <= flat.length; i += SITE_TILE_SNAPSHOT_STRIDE) next.set(flat[i], flat[i + 1]);
-    const prev = siteOwners;
-    siteOwners = next;
+    const prev = S.siteOwners;
+    S.siteOwners = next;
     for (const index of new Set([...prev.keys(), ...next.keys()])) {
       if (prev.get(index) === next.get(index)) continue;
       const { tx, ty } = indexToTile(index);
-      setTileSprite(tx, ty, tiles[index]);
+      setTileSprite(tx, ty, S.tiles[index]);
       paintMinimapTile(index);
     }
   }
 
   // Forts phase C: remember which site numbers are human settlements (their tiles get HUMAN_SITE_TINT);
   // repaint the tiles of a settlement the first time it shows up.
-  let fortMarkersKey = "";
+  S.fortMarkersKey = "";
   function syncFortMarkers(list: SiteSnapshot[]) {
-    fortMarkers = list;
+    S.fortMarkers = list;
     // Batch 2: faction-dependent fort art (siteVariantTexture) redraws once the site list is known / changes.
     const key = list.map((f) => `${f.num}:${f.faction}:${f.keepX},${f.keepY}`).join("|");
-    if (key !== fortMarkersKey) {
-      fortMarkersKey = key;
-      if (tiles.length > 0) {
-        for (const f of list) setTileSprite(f.keepX, f.keepY, tiles[f.keepY * worldTilesX + f.keepX]);
-        for (const index of siteOwners.keys()) {
-          const t = tiles[index];
+    if (key !== S.fortMarkersKey) {
+      S.fortMarkersKey = key;
+      if (S.tiles.length > 0) {
+        for (const f of list) setTileSprite(f.keepX, f.keepY, S.tiles[f.keepY * S.worldTilesX + f.keepX]);
+        for (const index of S.siteOwners.keys()) {
+          const t = S.tiles[index];
           if (t === TileType.Tent || t === TileType.Rubble || t === TileType.RuinedKeep) {
             const { tx, ty } = indexToTile(index);
             setTileSprite(tx, ty, t);
@@ -1194,10 +1158,10 @@ async function main() {
     for (const f of list) if (f.faction === "human" && f.num !== undefined && !humanSiteNums.has(f.num)) fresh.add(f.num);
     if (fresh.size === 0) return;
     for (const n of fresh) humanSiteNums.add(n);
-    for (const [index, num] of siteOwners) {
+    for (const [index, num] of S.siteOwners) {
       if (!fresh.has(num)) continue;
       const { tx, ty } = indexToTile(index);
-      setTileSprite(tx, ty, tiles[index]);
+      setTileSprite(tx, ty, S.tiles[index]);
     }
   }
 
@@ -1205,12 +1169,12 @@ async function main() {
     if (!flat) return;
     const next = new Map<number, number>();
     for (let i = 0; i + CLAN_TILE_SNAPSHOT_STRIDE <= flat.length; i += CLAN_TILE_SNAPSHOT_STRIDE) next.set(flat[i], flat[i + 1]);
-    const prev = clanTiles;
-    clanTiles = next;
+    const prev = S.clanTiles;
+    S.clanTiles = next;
     for (const index of new Set([...prev.keys(), ...next.keys()])) {
       if (prev.get(index) === next.get(index)) continue;
       const { tx, ty } = indexToTile(index);
-      setTileSprite(tx, ty, tiles[index]);
+      setTileSprite(tx, ty, S.tiles[index]);
     }
   }
 
@@ -1219,12 +1183,12 @@ async function main() {
     const list = flat ?? [];
     for (let i = 0; i + GATE_SNAPSHOT_STRIDE <= list.length; i += GATE_SNAPSHOT_STRIDE) next.set(list[i], list[i + 1]);
     const shown = (f: number | undefined) => (f ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN);
-    const prev = gateFlags;
-    gateFlags = next;
+    const prev = S.gateFlags;
+    S.gateFlags = next;
     for (const index of new Set([...prev.keys(), ...next.keys()])) {
-      if (shown(prev.get(index)) === shown(next.get(index)) || (tiles[index] !== TileType.Gate && tiles[index] !== TileType.FenceGate && tiles[index] !== TileType.Drawbridge && !isDoorTile(tiles[index]) && !isLargeGate(tiles[index]) && !isWideBridge(tiles[index]))) continue;
+      if (shown(prev.get(index)) === shown(next.get(index)) || (S.tiles[index] !== TileType.Gate && S.tiles[index] !== TileType.FenceGate && S.tiles[index] !== TileType.Drawbridge && !isDoorTile(S.tiles[index]) && !isLargeGate(S.tiles[index]) && !isWideBridge(S.tiles[index]))) continue;
       const { tx, ty } = indexToTile(index);
-      setTileSprite(tx, ty, tiles[index]);
+      setTileSprite(tx, ty, S.tiles[index]);
     }
   }
 
@@ -1235,13 +1199,6 @@ async function main() {
   function fireTier(permille: number): number {
     return permille < 250 ? 3 : permille < 500 ? 2 : permille < 750 ? 1 : 0;
   }
-  interface FireOverlay {
-    flame: Sprite;
-    bar: Graphics;
-    tier: number;
-    phase: number;
-    nextSmokeAt: number;
-  }
   const fireOverlays = new Map<number, FireOverlay>();
   const firePool: FireOverlay[] = [];
   function releaseFire(index: number, o: FireOverlay, restoreArt: boolean) {
@@ -1249,16 +1206,16 @@ async function main() {
     o.bar.visible = false;
     fireOverlays.delete(index);
     firePool.push(o);
-    if (restoreArt && index < tiles.length) {
+    if (restoreArt && index < S.tiles.length) {
       const { tx, ty } = indexToTile(index);
-      setTileSprite(tx, ty, tiles[index]);
+      setTileSprite(tx, ty, S.tiles[index]);
     }
   }
   function syncDamagedBuildings(flat: number[]) {
     const next = new Map<number, number>();
     for (let i = 0; i + DAMAGED_BUILDING_SNAPSHOT_STRIDE <= flat.length; i += DAMAGED_BUILDING_SNAPSHOT_STRIDE) next.set(flat[i], flat[i + 1]);
-    const prev = damagedBuildings;
-    damagedBuildings = next;
+    const prev = S.damagedBuildings;
+    S.damagedBuildings = next;
     for (const [index, o] of fireOverlays) if (!next.has(index)) releaseFire(index, o, true);
     for (const [index, permille] of next) {
       let o = fireOverlays.get(index);
@@ -1283,23 +1240,23 @@ async function main() {
       if (tier !== o.tier) {
         o.tier = tier;
         // A camp hearth is already a fire: its damage shows on the HP bar only (no second flame growing on top).
-        o.flame.visible = tier > 0 && tiles[index] !== TileType.PropCampfire;
+        o.flame.visible = tier > 0 && S.tiles[index] !== TileType.PropCampfire;
         o.flame.scale.set(FIRE_FLAME_WIDTH[tier] / FIRE_FRAMES[0].width);
-        o.flame.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize - tileSize * 0.3);
+        o.flame.position.set(tx * S.tileSize + S.tileSize / 2, (ty + 1) * S.tileSize - S.tileSize * 0.3);
         o.flame.zIndex = index + 0.5;
         // Soot tint on (or off) the building art.
-        setTileSprite(tx, ty, tiles[index]);
+        setTileSprite(tx, ty, S.tiles[index]);
       }
       // Town Centers keep their own always-on bar (syncTownCenterBars).
-      o.bar.visible = tiles[index] !== TileType.TownCenter;
-      o.bar.position.set(tx * tileSize + tileSize / 2, ty * tileSize - 8);
+      o.bar.visible = S.tiles[index] !== TileType.TownCenter;
+      o.bar.position.set(tx * S.tileSize + S.tileSize / 2, ty * S.tileSize - 8);
       drawHpBar(o.bar, permille, 1000);
     }
   }
   // Welcome: drop every overlay (the world's tile art is redrawn from scratch anyway).
   function clearFires() {
     for (const [index, o] of fireOverlays) releaseFire(index, o, false);
-    damagedBuildings = new Map();
+    S.damagedBuildings = new Map();
   }
 
   const nightOverlay = new Graphics();
@@ -1311,29 +1268,29 @@ async function main() {
   // tiles, kept on top of the world (units inside are covered); the hero's own room fades out, and every roof is
   // see-through while a Structure tool is in hand.
   const roofLayer = new Container();
-  let roofRooms: Container[] = [];
-  let roofTileRoom = new Map<number, number>();
-  let roofComputedAt = -Infinity;
+  S.roofRooms = [];
+  S.roofTileRoom = new Map<number, number>();
+  S.roofComputedAt = -Infinity;
   function rebuildRoofs() {
-    for (const c of roofRooms) c.destroy({ children: true });
-    roofRooms = [];
-    roofTileRoom = new Map();
+    for (const c of S.roofRooms) c.destroy({ children: true });
+    S.roofRooms = [];
+    S.roofTileRoom = new Map();
     const boundary: number[] = [];
-    for (let i = 0; i < tiles.length; i++) if (isRoomBoundaryTile(tiles[i])) boundary.push(i);
-    const rooms: Room[] = findRooms(worldTilesX, worldTilesY, (i) => tiles[i] ?? TileType.Empty, boundary);
+    for (let i = 0; i < S.tiles.length; i++) if (isRoomBoundaryTile(S.tiles[i])) boundary.push(i);
+    const rooms: Room[] = findRooms(S.worldTilesX, S.worldTilesY, (i) => S.tiles[i] ?? TileType.Empty, boundary);
     rooms.forEach((room, n) => {
       const c = new Container();
       const texture = STRUCTURE_TEXTURES.roof(room.stone);
       // One tiling strip per horizontal run of roof tiles, the pattern anchored to the world origin at 1 texel per
       // world px (a 64 px roof texture spans 2x2 tiles), so the courses run on across tiles instead of repeating
       // their shading on every tile.
-      for (const i of room.tiles) roofTileRoom.set(i, n);
+      for (const i of room.tiles) S.roofTileRoom.set(i, n);
       const sorted = [...room.tiles].sort((a, b) => a - b);
       for (let k = 0; k < sorted.length; ) {
         let end = k;
-        while (end + 1 < sorted.length && sorted[end + 1] === sorted[end] + 1 && sorted[end + 1] % worldTilesX !== 0) end++;
-        const x = (sorted[k] % worldTilesX) * tileSize, y = Math.floor(sorted[k] / worldTilesX) * tileSize;
-        const strip = new TilingSprite({ texture, width: (end - k + 1) * tileSize, height: tileSize });
+        while (end + 1 < sorted.length && sorted[end + 1] === sorted[end] + 1 && sorted[end + 1] % S.worldTilesX !== 0) end++;
+        const x = (sorted[k] % S.worldTilesX) * S.tileSize, y = Math.floor(sorted[k] / S.worldTilesX) * S.tileSize;
+        const strip = new TilingSprite({ texture, width: (end - k + 1) * S.tileSize, height: S.tileSize });
         strip.position.set(x, y);
         strip.tilePosition.set(-x, -y);
         c.addChild(strip);
@@ -1342,34 +1299,34 @@ async function main() {
       // Eaves: a dark line round the roof's box (rooms are mostly rectangles).
       const eaves = new Graphics();
       eaves
-        .rect(room.x0 * tileSize, room.y0 * tileSize, (room.x1 - room.x0 + 1) * tileSize, (room.y1 - room.y0 + 1) * tileSize)
+        .rect(room.x0 * S.tileSize, room.y0 * S.tileSize, (room.x1 - room.x0 + 1) * S.tileSize, (room.y1 - room.y0 + 1) * S.tileSize)
         .stroke({ width: 2, color: 0x3a2410, alpha: 0.8 });
       c.addChild(eaves);
       roofLayer.addChild(c);
-      roofRooms.push(c);
+      S.roofRooms.push(c);
     });
   }
   // Modular building phase 3: zone tools drag like structure tools (a rectangle), but send zoneEdit.
   const isStructureTool = (t: number) => isStructureTile(t) || t === ROOM_TOOL_WOOD || t === ROOM_TOOL_STONE || isZoneTool(t) || t === BLUEPRINT_TOOL;
   app.ticker.add(() => {
     const now = performance.now();
-    if (roofDirty && now - roofComputedAt > 300 && tiles.length > 0) {
-      roofDirty = false;
-      roofComputedAt = now;
+    if (S.roofDirty && now - S.roofComputedAt > 300 && S.tiles.length > 0) {
+      S.roofDirty = false;
+      S.roofComputedAt = now;
       rebuildRoofs();
     }
-    roofLayer.visible = strategyBand !== "map";
-    const me = latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead);
-    const heroRoom = me ? roofTileRoom.get(Math.floor(me.y / tileSize) * worldTilesX + Math.floor(me.x / tileSize)) : undefined;
+    roofLayer.visible = S.strategyBand !== "map";
+    const me = S.latestPlayersForSpells.find((pl) => pl.id === S.myId && !pl.dead);
+    const heroRoom = me ? S.roofTileRoom.get(Math.floor(me.y / S.tileSize) * S.worldTilesX + Math.floor(me.x / S.tileSize)) : undefined;
     // Only while the Build panel is open: currentTool keeps its last pick (Wall at startup) when the panel is shut,
     // which used to leave every roof see-through all the time.
-    const building = !buildPanel.classList.contains("collapsed") && isStructureTool(currentTool);
-    roofRooms.forEach((c, n) => {
+    const building = !buildPanel.classList.contains("collapsed") && isStructureTool(S.currentTool);
+    S.roofRooms.forEach((c, n) => {
       const want = n === heroRoom ? 0.12 : building ? 0.45 : 1;
       c.alpha += (want - c.alpha) * 0.2;
     });
     // Units are added to the world as they appear: keep the roofs over them, and the cursor / selection over the roofs.
-    if (roofRooms.length > 0 && worldLayer.children[worldLayer.children.length - 4] !== roofLayer) {
+    if (S.roofRooms.length > 0 && worldLayer.children[worldLayer.children.length - 4] !== roofLayer) {
       worldLayer.addChild(roofLayer);
       worldLayer.addChild(cursorHighlight);
       worldLayer.addChild(selectionRings);
@@ -1385,7 +1342,7 @@ async function main() {
   function syncTownCenterBars(list: TownCenterSnapshot[]) {
     const seen = new Set<number>();
     for (const tc of list) {
-      const index = tc.y * worldTilesX + tc.x;
+      const index = tc.y * S.worldTilesX + tc.x;
       seen.add(index);
       let bar = townCenterHpBars.get(index);
       if (!bar) {
@@ -1393,7 +1350,7 @@ async function main() {
         worldLayer.addChild(bar);
         townCenterHpBars.set(index, bar);
       }
-      bar.position.set(tc.x * tileSize + tileSize / 2, tc.y * tileSize + tileSize / 2 - townCenterArtAbove(tc.level) - 6);
+      bar.position.set(tc.x * S.tileSize + S.tileSize / 2, tc.y * S.tileSize + S.tileSize / 2 - townCenterArtAbove(tc.level) - 6);
       drawHpBar(bar, tc.hp, tc.maxHp);
     }
     for (const [index, bar] of Array.from(townCenterHpBars)) {
@@ -1435,11 +1392,11 @@ async function main() {
   // Multi-tile footprints (shared FOOTPRINT_BY_TILE): derived from the tiles alone. The anchor (top-left)
   // draws the art across the block; BuildingPart tiles draw nothing and stand for their anchor in clicks.
   function footTile(x: number, y: number): number {
-    return x < 0 || y < 0 || x >= worldTilesX || y >= worldTilesY ? -1 : (tiles[y * worldTilesX + x] ?? TileType.Empty);
+    return x < 0 || y < 0 || x >= S.worldTilesX || y >= S.worldTilesY ? -1 : (S.tiles[y * S.worldTilesX + x] ?? TileType.Empty);
   }
   function footSize(x: number, y: number): Footprint | null {
     const t = footTile(x, y);
-    const target = t === TileType.ConstructionSite ? constructionSites.get(y * worldTilesX + x)?.target : t;
+    const target = t === TileType.ConstructionSite ? S.constructionSites.get(y * S.worldTilesX + x)?.target : t;
     return target === undefined ? null : (FOOTPRINT_BY_TILE[target as TileType] ?? null);
   }
   function placedFootprintClient(x: number, y: number): Footprint {
@@ -1457,8 +1414,8 @@ async function main() {
   // building it will become, faded; leveled buildings and farms pick their tier / stage art.
   // The faction of the fort / settlement that owns this tile (or whose keep stands on it), if known.
   function siteFactionAt(index: number, tx: number, ty: number): SiteFaction | undefined {
-    const num = siteOwners.get(index);
-    return fortMarkers.find((f) => (num !== undefined && f.num === num) || (f.keepX === tx && f.keepY === ty))?.faction;
+    const num = S.siteOwners.get(index);
+    return S.fortMarkers.find((f) => (num !== undefined && f.num === num) || (f.keepX === tx && f.keepY === ty))?.faction;
   }
   // Batch 2 per-faction fort art (SITE_KEEP_RUIN_ART etc.), or undefined for the usual tile art.
   function siteVariantTexture(index: number, tx: number, ty: number, tile: number): Texture | undefined {
@@ -1477,22 +1434,22 @@ async function main() {
   }
   // Stardew phase 5b: season tints (ground layers: their container tint; trees: per sprite in setTileSprite).
   const SEASON_TREE_TILES = new Set<number>([TileType.Tree, TileType.FruitTree, TileType.FruitTreePicked]);
-  let seasonTreeTint = 0xffffff;
-  let shownSeason = -1;
+  S.seasonTreeTint = 0xffffff;
+  S.shownSeason = -1;
   const mulTint = (a: number, b: number) =>
     (Math.round((((a >> 16) & 255) * ((b >> 16) & 255)) / 255) << 16) |
     (Math.round((((a >> 8) & 255) * ((b >> 8) & 255)) / 255) << 8) |
     Math.round(((a & 255) * (b & 255)) / 255);
   function applySeason(season: number) {
-    if (season === shownSeason) return;
-    shownSeason = season;
+    if (season === S.shownSeason) return;
+    S.shownSeason = season;
     const name = SEASONS[season] ?? "summer";
     floorSpriteLayer.tint = SEASON_GROUND_TINT[name];
     decorSpriteLayer.tint = SEASON_GROUND_TINT[name];
-    seasonTreeTint = SEASON_TREE_TINT[name];
+    S.seasonTreeTint = SEASON_TREE_TINT[name];
     for (const index of tileSprites.keys()) {
-      const t = tiles[index];
-      if (SEASON_TREE_TILES.has(t)) setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), t);
+      const t = S.tiles[index];
+      if (SEASON_TREE_TILES.has(t)) setTileSprite(index % S.worldTilesX, Math.floor(index / S.worldTilesX), t);
     }
   }
   const playerHomeDesigns=new Map<number,string>();
@@ -1505,32 +1462,32 @@ async function main() {
     else if(t===TileType.WallLadder)name=tileAt(x-1,y)===TileType.Rampart||tileAt(x+1,y)===TileType.Rampart?"ladder_h":"ladder_v";
     // Animal paddocks: a fence runs east-west unless its only fence / gate / wall neighbours are north or south.
     else if(t===TileType.PropFence)name=fenceJoins(tileAt(x-1,y))||fenceJoins(tileAt(x+1,y))||!(fenceJoins(tileAt(x,y-1))||fenceJoins(tileAt(x,y+1)))?"fence_h":"fence_v";
-    else if(isLargeGate(t)||isWideBridge(t)){const horizontal=t===TileType.LargeGateH||t===TileType.WideBridgeH;const open=((gateFlags.get(y*worldTilesX+x)??0)&(GATE_FLAG_OPEN|GATE_FLAG_OVERRUN))!==0;name=`${isLargeGate(t)?'gate':'bridge'}_${horizontal?'h':'v'}_${open?'open':'closed'}`;}
+    else if(isLargeGate(t)||isWideBridge(t)){const horizontal=t===TileType.LargeGateH||t===TileType.WideBridgeH;const open=((S.gateFlags.get(y*S.worldTilesX+x)??0)&(GATE_FLAG_OPEN|GATE_FLAG_OVERRUN))!==0;name=`${isLargeGate(t)?'gate':'bridge'}_${horizontal?'h':'v'}_${open?'open':'closed'}`;}
     return name?optionalTextures[`/sprites/fortifications/${name}.png`]:undefined;
   }
   function setTileSprite(tx: number, ty: number, tile: number) {
-    const index = ty * worldTilesX + tx;
-    const site = tile === TileType.ConstructionSite ? constructionSites.get(index) : undefined;
+    const index = ty * S.worldTilesX + tx;
+    const site = tile === TileType.ConstructionSite ? S.constructionSites.get(index) : undefined;
     // Rebuilding a razed fort keep (rebuildKeep: a Town Center site on the keep tile) shows the scaffold.
     const scaffold =
-      site && site.target === TileType.TownCenter && fortMarkers.some((f) => f.keepX === tx && f.keepY === ty)
+      site && site.target === TileType.TownCenter && S.fortMarkers.some((f) => f.keepX === tx && f.keepY === ty)
         ? optionalTextures[artUrl(KEEP_SCAFFOLD_ART)]
         : undefined;
     const siteArt = scaffold ?? (site ? undefined : siteVariantTexture(index, tx, ty, tile));
     const artTile = site ? site.target : tile;
-    const level = site ? 1 : (buildingLevels.get(index) ?? 1);
-    const stage = farmStages.get(index);
+    const level = site ? 1 : (S.buildingLevels.get(index) ?? 1);
+    const stage = S.farmStages.get(index);
     const stageTexture = !site && stage !== undefined ? FARM_STAGE_TEXTURES.get(tile)?.get(stage) : undefined;
     const levelTexture = TILE_LEVEL_TEXTURES.get(artTile)?.[level - 1];
     const forging =
-      tile === TileType.Blacksmith && BLACKSMITH_FORGE_TEXTURES !== undefined && forgeBusy.has(index) && (level === 1 || !levelTexture) && (damagedBuildings.get(index) ?? 1000) >= 750;
-    const gateOpen = (tile === TileType.Gate || tile === TileType.FenceGate) && ((gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
+      tile === TileType.Blacksmith && BLACKSMITH_FORGE_TEXTURES !== undefined && S.forgeBusy.has(index) && (level === 1 || !levelTexture) && (S.damagedBuildings.get(index) ?? 1000) >= 750;
+    const gateOpen = (tile === TileType.Gate || tile === TileType.FenceGate) && ((S.gateFlags.get(index) ?? 0) & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0;
     const wallArt = wallArtFor(tx, ty, artTile, !!site);
     const moatArt = moatArtFor(tx, ty, artTile, !!site);
     const structArt = structureArtFor(tx, ty, artTile, !!site);
-    const autumnDamage = autumnBuildingDamage(artTile, level, damagedBuildings.get(index) ?? 1000, !!site, index);
+    const autumnDamage = autumnBuildingDamage(artTile, level, S.damagedBuildings.get(index) ?? 1000, !!site, index);
     const homeStyle=playerHomeDesigns.get(index)??([TileType.House,TileType.BigHouse,TileType.HouseLevel2].includes(artTile)?['cottage','farmhouse','townhouse','hill-burrow'][(tx*7+ty*11)%4]:undefined);
-    const homeTexture=homeStyle&&!site&&(damagedBuildings.get(index)??1000)>=750?optionalTextures[`/sprites/player-bases/${homeStyle}.png`]:undefined;
+    const homeTexture=homeStyle&&!site&&(S.damagedBuildings.get(index)??1000)>=750?optionalTextures[`/sprites/player-bases/${homeStyle}.png`]:undefined;
     const fortTexture=fortArtFor(tx,ty,artTile);
     const texture = tile === TileType.BuildingPart || isFortPart(tile)
       ? undefined
@@ -1583,26 +1540,26 @@ async function main() {
         : siteArt || stageTexture || levelTexture || moatArt
           ? 0xffffff
           : (TILE_TINT.get(tile) ?? 0xffffff);
-    if (fireTier(damagedBuildings.get(index) ?? 1000) > 0 && tile !== TileType.PropCampfire) sprite.tint = SOOT_TINT;
-    else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = humanSiteNums.has(siteOwners.get(index)!) ? HUMAN_SITE_TINT : FOREIGN_TINT;
-    else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
+    if (fireTier(S.damagedBuildings.get(index) ?? 1000) > 0 && tile !== TileType.PropCampfire) sprite.tint = SOOT_TINT;
+    else if (S.siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = humanSiteNums.has(S.siteOwners.get(index)!) ? HUMAN_SITE_TINT : FOREIGN_TINT;
+    else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(S.clanTiles.get(index)!);
     // Stardew phase 5b: trees take the season's tint.
-    else if (SEASON_TREE_TILES.has(tile)) sprite.tint = mulTint(sprite.tint as number, seasonTreeTint);
+    else if (SEASON_TREE_TILES.has(tile)) sprite.tint = mulTint(sprite.tint as number, S.seasonTreeTint);
     if([TileType.Keep,TileType.SiteKeep,TileType.RuinedKeep,TileType.KnightPost,TileType.CastleLevel2,TileType.CastleLevel3].includes(artTile)){
       const fp=placedFootprintClient(tx,ty),box=opaqueBox(texture);
-      const width=tileSize*(fp.w>=5?4.5:fp.w===3?3:1.9);
+      const width=S.tileSize*(fp.w>=5?4.5:fp.w===3?3:1.9);
       sprite.anchor.set((box.x+box.w/2)/texture.width,(box.y+box.h)/texture.height);
       sprite.scale.set(width/box.w);sprite.rotation=0;
-      sprite.position.set((tx+fp.w/2)*tileSize,(ty+fp.h)*tileSize);
-      sprite.zIndex=(ty+fp.h-1)*worldTilesX+tx+fp.w-1;return;
+      sprite.position.set((tx+fp.w/2)*S.tileSize,(ty+fp.h)*S.tileSize);
+      sprite.zIndex=(ty+fp.h-1)*S.worldTilesX+tx+fp.w-1;return;
     }
-    if(homeTexture){sprite.anchor.set(.5,1);sprite.scale.set(tileSize*2/homeTexture.width);sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
+    if(homeTexture){sprite.anchor.set(.5,1);sprite.scale.set(S.tileSize*2/homeTexture.width);sprite.position.set((tx+.5)*S.tileSize,(ty+1)*S.tileSize);sprite.zIndex=index;return;}
     if(fortTexture){
       const p=fortPartner(artTile),w=p?.dx===1?2:1,h=p?.dy===1?2:1;
-      sprite.anchor.set(.5,1);sprite.rotation=0;sprite.scale.set(tileSize/64);
-      if(artTile===TileType.Rampart)sprite.height=tileSize*1.5;
-      sprite.position.set((tx+w/2)*tileSize,(ty+h)*tileSize);sprite.zIndex=(ty+h-1)*worldTilesX+tx+w-1;
-      if(!site&&(damagedBuildings.get(index)??1000)<500)sprite.tint=0xa99988;
+      sprite.anchor.set(.5,1);sprite.rotation=0;sprite.scale.set(S.tileSize/64);
+      if(artTile===TileType.Rampart)sprite.height=S.tileSize*1.5;
+      sprite.position.set((tx+w/2)*S.tileSize,(ty+h)*S.tileSize);sprite.zIndex=(ty+h-1)*S.worldTilesX+tx+w-1;
+      if(!site&&(S.damagedBuildings.get(index)??1000)<500)sprite.tint=0xa99988;
       return;
     }
     if (structArt) {
@@ -1614,36 +1571,36 @@ async function main() {
         const def = FURNITURE_FOOTPRINT[artTile as TileType]!;
         const turned = (piece.w > piece.h) !== (def.w > def.h);
         const tex = structArt.texture;
-        if(artTile===TileType.Bed||artTile===TileType.Wardrobe){const box=opaqueBox(tex),k=Math.min(piece.w*tileSize/box.w,piece.h*tileSize/box.h)*.92;sprite.anchor.set((box.x+box.w/2)/tex.width,(box.y+box.h/2)/tex.height);sprite.rotation=0;sprite.scale.set(k);sprite.position.set((tx+piece.w/2)*tileSize,(ty+piece.h/2)*tileSize);sprite.zIndex=(ty+piece.h-1)*worldTilesX+tx;return;}
+        if(artTile===TileType.Bed||artTile===TileType.Wardrobe){const box=opaqueBox(tex),k=Math.min(piece.w*S.tileSize/box.w,piece.h*S.tileSize/box.h)*.92;sprite.anchor.set((box.x+box.w/2)/tex.width,(box.y+box.h/2)/tex.height);sprite.rotation=0;sprite.scale.set(k);sprite.position.set((tx+piece.w/2)*S.tileSize,(ty+piece.h/2)*S.tileSize);sprite.zIndex=(ty+piece.h-1)*S.worldTilesX+tx;return;}
         sprite.anchor.set(0.5, 0.5);
         sprite.rotation = turned ? Math.PI / 2 : 0;
-        const bw = (turned ? piece.h : piece.w) * tileSize;
-        const bh = (turned ? piece.w : piece.h) * tileSize;
+        const bw = (turned ? piece.h : piece.w) * S.tileSize;
+        const bh = (turned ? piece.w : piece.h) * S.tileSize;
         sprite.scale.set(bw / tex.width, bh / tex.height);
-        sprite.position.set((tx + piece.w / 2) * tileSize, (ty + piece.h / 2) * tileSize);
-        sprite.zIndex = (ty + piece.h - 1) * worldTilesX + tx + piece.w - 1;
+        sprite.position.set((tx + piece.w / 2) * S.tileSize, (ty + piece.h / 2) * S.tileSize);
+        sprite.zIndex = (ty + piece.h - 1) * S.worldTilesX + tx + piece.w - 1;
         return;
       }
       if (structArt.place === "flat") {
         // Tile-aligned: floors under everything, rugs just over them, stand-in pieces sorted with their row.
         sprite.anchor.set(0, 0);
-        sprite.scale.set(tileSize / structArt.texture.width);
-        sprite.position.set(tx * tileSize, ty * tileSize);
+        sprite.scale.set(S.tileSize / structArt.texture.width);
+        sprite.position.set(tx * S.tileSize, ty * S.tileSize);
         if (isFloorTile(artTile)) sprite.zIndex = -1;
         else if (artTile === TileType.Rug) sprite.zIndex = -0.5;
         return;
       }
       // Upright art, bottom-centred like the walls: doors / windows on the wall pieces' scale, furniture at 64 px/tile.
       sprite.anchor.set(0.5, 1);
-      sprite.scale.set(tileSize / (structArt.place === "wall" ? WALL_ART_PX_PER_TILE : STRUCTURE_ART_PX_PER_TILE));
-      sprite.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize - (structArt.place === "upright" ? tileSize * 0.06 : 0));
+      sprite.scale.set(S.tileSize / (structArt.place === "wall" ? WALL_ART_PX_PER_TILE : STRUCTURE_ART_PX_PER_TILE));
+      sprite.position.set(tx * S.tileSize + S.tileSize / 2, (ty + 1) * S.tileSize - (structArt.place === "upright" ? S.tileSize * 0.06 : 0));
       return;
     }
     if (artTile === TileType.TownCenter && !scaffold) {
       const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
       sprite.anchor.set(fit.anchor.x, fit.anchor.y);
-      sprite.scale.set((tileSize * fit.widthTiles) / texture.width);
-      sprite.position.set(tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2);
+      sprite.scale.set((S.tileSize * fit.widthTiles) / texture.width);
+      sprite.position.set(tx * S.tileSize + S.tileSize / 2, ty * S.tileSize + S.tileSize / 2);
       sprite.zIndex = index;
       return;
     }
@@ -1653,8 +1610,8 @@ async function main() {
       sprite.texture = roadArt;
       sprite.anchor.set(0.5);
       sprite.rotation = (turns * Math.PI) / 2;
-      sprite.scale.set(tileSize / roadArt.width, tileSize / roadArt.height);
-      sprite.position.set(tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2);
+      sprite.scale.set(S.tileSize / roadArt.width, S.tileSize / roadArt.height);
+      sprite.position.set(tx * S.tileSize + S.tileSize / 2, ty * S.tileSize + S.tileSize / 2);
       sprite.zIndex = -1;
       return;
     }
@@ -1662,19 +1619,19 @@ async function main() {
     const fitTile = scaffold ? TileType.RuinedKeep : artTile;
     const fillTile = TILE_SPRITE_FILL_TILE.has(fitTile);
     const naturalScale = fillTile
-      ? Math.max(tileSize / texture.width, tileSize / texture.height)
+      ? Math.max(S.tileSize / texture.width, S.tileSize / texture.height)
       : Math.min(
-          (tileSize * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width,
-          (tileSize * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height
+          (S.tileSize * TILE_SPRITE_MAX_WIDTH_TILES) / texture.width,
+          (S.tileSize * TILE_SPRITE_MAX_HEIGHT_TILES) / texture.height
         ) * (TILE_SPRITE_SIZE_FACTOR[fitTile as TileType] ?? 1) * (BUILDING_VISUAL_SCALE[fitTile as TileType] ?? 1);
     const minHeight = scaffold ? undefined : levelTexture ? TILE_LEVEL_MIN_HEIGHT.get(`${artTile}:${level}`) : TILE_MIN_RENDER_HEIGHT.get(artTile);
     const scale = wallArt
-      ? tileSize / WALL_ART_PX_PER_TILE
+      ? S.tileSize / WALL_ART_PX_PER_TILE
       : minHeight
         ? Math.max(naturalScale, minHeight / texture.height)
         : naturalScale;
     sprite.scale.set(scale * (artTile === TileType.Tree ? treeAt(tx, ty).scale : 1));
-    sprite.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize);
+    sprite.position.set(tx * S.tileSize + S.tileSize / 2, (ty + 1) * S.tileSize);
     // Row-major index: lower rows draw in front of the rows above them; x breaks ties. Flush
     // ground-like tiles (water) go under all other tile art.
     sprite.zIndex = fillTile ? -1 : index;
@@ -1683,8 +1640,8 @@ async function main() {
     const fp = placedFootprintClient(tx, ty);
     if (fp.w > 1 || fp.h > 1) {
       sprite.scale.set(scale * Math.min(fp.w, fp.h));
-      sprite.position.set(tx * tileSize + (fp.w * tileSize) / 2, (ty + fp.h) * tileSize);
-      sprite.zIndex = (ty + fp.h - 1) * worldTilesX + tx + fp.w - 1;
+      sprite.position.set(tx * S.tileSize + (fp.w * S.tileSize) / 2, (ty + fp.h) * S.tileSize);
+      sprite.zIndex = (ty + fp.h - 1) * S.worldTilesX + tx + fp.w - 1;
     }
   }
 
@@ -1709,7 +1666,7 @@ async function main() {
     const horizontal = isWallTile(tileAt(tx - 1, ty)) || isWallTile(tileAt(tx + 1, ty)) || !(isWallTile(tileAt(tx, ty - 1)) || isWallTile(tileAt(tx, ty + 1)));
     const stone = isStoneStructure(artTile);
     if (isWindowTile(artTile)) return STRUCTURE_TEXTURES.window(stone, horizontal);
-    const flags = site ? 0 : (gateFlags.get(ty * worldTilesX + tx) ?? 0);
+    const flags = site ? 0 : (S.gateFlags.get(ty * S.worldTilesX + tx) ?? 0);
     return STRUCTURE_TEXTURES.door(stone, horizontal, (flags & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN)) !== 0);
   }
   const isMoatTile = moatConnects;
@@ -1726,10 +1683,10 @@ async function main() {
     if (artTile === TileType.Moat) {
       return MOAT_PIECE_TEXTURES?.[(isMoatTile(n) ? 1 : 0) | (isMoatTile(e) ? 2 : 0) | (isMoatTile(s) ? 4 : 0) | (isMoatTile(w) ? 8 : 0)];
     }
-    const index = ty * worldTilesX + tx;
+    const index = ty * S.worldTilesX + tx;
     const orient = isMoatTile(n) || isMoatTile(s) ? "H" : "V";
-    const flags = gateFlags.get(index) ?? 0;
-    const damaged = (damagedBuildings.get(index) ?? 1000) < WALL_DAMAGED_PERMILLE;
+    const flags = S.gateFlags.get(index) ?? 0;
+    const damaged = (S.damagedBuildings.get(index) ?? 1000) < WALL_DAMAGED_PERMILLE;
     const state: DrawbridgeArtState = flags & (GATE_FLAG_OPEN | GATE_FLAG_OVERRUN) ? "Lowered" : damaged ? "Damaged" : "Raised";
     return optionalTextures[drawbridgeArtUrl(orient, state)];
   }
@@ -1738,8 +1695,8 @@ async function main() {
   // undefined to use the single-sprite fallback. Sites draw undamaged.
   function wallArtFor(tx: number, ty: number, artTile: number, site: boolean): Texture | undefined {
     if ((!isWallTile(artTile) && artTile !== TileType.FenceGate) || isDoorTile(artTile) || isWindowTile(artTile)) return undefined;
-    const index = ty * worldTilesX + tx;
-    const damaged = !site && (damagedBuildings.get(index) ?? 1000) < WALL_DAMAGED_PERMILLE;
+    const index = ty * S.worldTilesX + tx;
+    const damaged = !site && (S.damagedBuildings.get(index) ?? 1000) < WALL_DAMAGED_PERMILLE;
     const n = tileAt(tx, ty - 1);
     const e = tileAt(tx + 1, ty);
     const s = tileAt(tx, ty + 1);
@@ -1751,7 +1708,7 @@ async function main() {
       const orient = joins(e) || joins(w) ? "H" : joins(n) || joins(s) ? "V" : "H";
       const around = [n, e, s, w];
       const stone = artTile === TileType.Gate && around.filter((t) => t === TileType.StoneWall).length > around.filter((t) => t === TileType.Wall).length;
-      const flags = site ? 0 : (gateFlags.get(index) ?? 0);
+      const flags = site ? 0 : (S.gateFlags.get(index) ?? 0);
       const state: GateArtState =
         flags & GATE_FLAG_OVERRUN ? "Overrun" : flags & GATE_FLAG_OPEN ? "Open" : damaged ? "Damaged" : "Closed";
       return optionalTextures[gateArtUrl(stone ? "Stone" : "Wood", orient, state)];
@@ -1766,8 +1723,8 @@ async function main() {
   }
 
   function isRoadAt(tx: number, ty: number): boolean {
-    if (tx < 0 || ty < 0 || tx >= worldTilesX || ty >= worldTilesY) return false;
-    return isRoadTile(tiles[ty * worldTilesX + tx] as TileType);
+    if (tx < 0 || ty < 0 || tx >= S.worldTilesX || ty >= S.worldTilesY) return false;
+    return isRoadTile(S.tiles[ty * S.worldTilesX + tx] as TileType);
   }
 
   // [texture, clockwise quarter turns] for the road at (tx, ty) from its orthogonal road neighbours.
@@ -1790,7 +1747,7 @@ async function main() {
     const levelTexture = TILE_LEVEL_TEXTURES.get(TileType.TownCenter)?.[level - 1];
     const texture = levelTexture ?? TILE_TEXTURES.get(TileType.TownCenter)!;
     const fit = levelTexture ? TOWN_CENTER_LEVEL_FIT[level - 1] : { widthTiles: TOWN_CENTER_WIDTH_TILES, anchor: TOWN_CENTER_ANCHOR };
-    return ((tileSize * fit.widthTiles) / texture.width) * texture.height * fit.anchor.y;
+    return ((S.tileSize * fit.widthTiles) / texture.width) * texture.height * fit.anchor.y;
   }
 
   // Floor never changes per-tile, so this only needs to run on a full map (re)load, not per edit.
@@ -1809,9 +1766,9 @@ async function main() {
     const chunk = new Container();
     const x0 = cx * FLOOR_CHUNK_TILES;
     const y0 = cy * FLOOR_CHUNK_TILES;
-    for (let x = x0; x < Math.min(worldTilesX, x0 + FLOOR_CHUNK_TILES); x++) {
-      for (let y = y0; y < Math.min(worldTilesY, y0 + FLOOR_CHUNK_TILES); y++) {
-        const biome = biomes[y * worldTilesX + x] ?? Biome.Plains;
+    for (let x = x0; x < Math.min(S.worldTilesX, x0 + FLOOR_CHUNK_TILES); x++) {
+      for (let y = y0; y < Math.min(S.worldTilesY, y0 + FLOOR_CHUNK_TILES); y++) {
+        const biome = S.biomes[y * S.worldTilesX + x] ?? Biome.Plains;
         const texture =
           biome === Biome.Hills
             ? HILLS_FLOOR_TEXTURE
@@ -1820,9 +1777,9 @@ async function main() {
             : GRASS_FLOOR_VARIANTS[(x + y) % GRASS_FLOOR_VARIANTS.length];
         const sprite = new Sprite(texture);
         sprite.anchor.set(0, 0);
-        sprite.width = tileSize;
-        sprite.height = tileSize;
-        sprite.position.set(x * tileSize, y * tileSize);
+        sprite.width = S.tileSize;
+        sprite.height = S.tileSize;
+        sprite.position.set(x * S.tileSize, y * S.tileSize);
         chunk.addChild(sprite);
       }
     }
@@ -1832,15 +1789,15 @@ async function main() {
   function updateFloorChunks() {
     // Map band: the strategic map sprite replaces the floor (building every chunk of a 512 map would
     // make ~262k sprites).
-    floorSpriteLayer.visible = strategyBand !== "map";
+    floorSpriteLayer.visible = S.strategyBand !== "map";
     if (!floorSpriteLayer.visible) return;
-    const span = FLOOR_CHUNK_TILES * tileSize;
-    const left = Math.floor(-worldLayer.position.x / camZoom / span) - 1;
-    const right = Math.floor((app.screen.width - worldLayer.position.x) / camZoom / span) + 1;
-    const top = Math.floor(-worldLayer.position.y / camZoom / span) - 1;
-    const bottom = Math.floor((app.screen.height - worldLayer.position.y) / camZoom / span) + 1;
-    const chunksX = Math.ceil(worldTilesX / FLOOR_CHUNK_TILES);
-    const chunksY = Math.ceil(worldTilesY / FLOOR_CHUNK_TILES);
+    const span = FLOOR_CHUNK_TILES * S.tileSize;
+    const left = Math.floor(-worldLayer.position.x / S.camZoom / span) - 1;
+    const right = Math.floor((app.screen.width - worldLayer.position.x) / S.camZoom / span) + 1;
+    const top = Math.floor(-worldLayer.position.y / S.camZoom / span) - 1;
+    const bottom = Math.floor((app.screen.height - worldLayer.position.y) / S.camZoom / span) + 1;
+    const chunksX = Math.ceil(S.worldTilesX / FLOOR_CHUNK_TILES);
+    const chunksY = Math.ceil(S.worldTilesY / FLOOR_CHUNK_TILES);
     for (let cy = 0; cy < chunksY; cy++) {
       for (let cx = 0; cx < chunksX; cx++) {
         const key = cy * chunksX + cx;
@@ -1849,7 +1806,7 @@ async function main() {
         if (!chunk) {
           if (!visible) continue;
           // World streaming phase 4: not before its stream chunk's biomes have arrived.
-          if (streamed && !chunkLoaded[chunkOfTile(cx * FLOOR_CHUNK_TILES, cy * FLOOR_CHUNK_TILES)]) continue;
+          if (S.streamed && !S.chunkLoaded[chunkOfTile(cx * FLOOR_CHUNK_TILES, cy * FLOOR_CHUNK_TILES)]) continue;
           chunk = buildFloorChunk(cx, cy);
           floorChunks.set(key, chunk);
         }
@@ -1871,51 +1828,28 @@ async function main() {
     for (const s of decorSprites.values()) s.destroy();
     decorSprites.clear();
     // World streaming phase 4: chunked worlds add decor per arriving chunk (addDecorIn).
-    if (!streamed) addDecorIn(0, 0, worldTilesX, worldTilesY);
+    if (!S.streamed) addDecorIn(0, 0, S.worldTilesX, S.worldTilesY);
   }
   function addDecorIn(x0: number, y0: number, w: number, h: number) {
     for (let x = x0; x < x0 + w; x++) {
       for (let y = y0; y < y0 + h; y++) {
-        const index = y * worldTilesX + x;
+        const index = y * S.worldTilesX + x;
         if (decorSprites.has(index)) continue;
-        if ((biomes[index] ?? Biome.Plains) !== Biome.Plains) continue;
+        if ((S.biomes[index] ?? Biome.Plains) !== Biome.Plains) continue;
         if (tileHash01(x, y, 1) * NATURE_DECOR_ONE_IN >= 1) continue;
         const variant = NATURE_DECOR_TEXTURES[Math.floor(tileHash01(x, y, 2) * NATURE_DECOR_TEXTURES.length)];
         const sprite = new Sprite(variant.texture);
         sprite.anchor.set(0.5, 1);
         sprite.scale.set(variant.height / variant.texture.height);
         // Small stable offset inside the tile so the scatter doesn't sit on a visible grid.
-        const offsetX = (tileHash01(x, y, 3) - 0.5) * tileSize * 0.4;
-        const offsetY = (tileHash01(x, y, 4) - 0.5) * tileSize * 0.3;
-        sprite.position.set(x * tileSize + tileSize / 2 + offsetX, (y + 0.85) * tileSize + offsetY);
-        sprite.visible = (tiles[index] ?? TileType.Empty) === TileType.Empty;
+        const offsetX = (tileHash01(x, y, 3) - 0.5) * S.tileSize * 0.4;
+        const offsetY = (tileHash01(x, y, 4) - 0.5) * S.tileSize * 0.3;
+        sprite.position.set(x * S.tileSize + S.tileSize / 2 + offsetX, (y + 0.85) * S.tileSize + offsetY);
+        sprite.visible = (S.tiles[index] ?? TileType.Empty) === TileType.Empty;
         decorSpriteLayer.addChild(sprite);
         decorSprites.set(index, sprite);
       }
     }
-  }
-
-  // ---- Ambient critters (see WILDLIFE) ----
-  // Frogs sit and hop around swamp and water edges; crows perch anywhere and flap off to a new perch. Each critter only ever targets a tile
-  // that's Empty right now, so it doesn't stroll into a building that already exists; one ticker
-  // moves all of them and one shared clock picks their animation frames.
-  type CritterKind = keyof typeof WILDLIFE;
-  interface Critter {
-    kind: CritterKind;
-    sprite: Sprite;
-    homeX: number;
-    homeY: number;
-    x: number;
-    y: number;
-    fromX: number;
-    fromY: number;
-    toX: number;
-    toY: number;
-    moving: boolean;
-    moveMs: number;
-    elapsedMs: number;
-    restMs: number;
-    phase: number;
   }
   const WILDLIFE_TEXTURES = {
     crow: WILDLIFE.crow.frames.map((u) => loadedTextures[u]),
@@ -1923,7 +1857,7 @@ async function main() {
   };
   const critters: Critter[] = [];
   const tileAt = (tx: number, ty: number) =>
-    tx < 0 || ty < 0 || tx >= worldTilesX || ty >= worldTilesY ? -1 : (tiles[ty * worldTilesX + tx] ?? TileType.Empty);
+    tx < 0 || ty < 0 || tx >= S.worldTilesX || ty >= S.worldTilesY ? -1 : (S.tiles[ty * S.worldTilesX + tx] ?? TileType.Empty);
   function nearWater(tx: number, ty: number): boolean {
     for (let dy = -1; dy <= 1; dy++)
       for (let dx = -1; dx <= 1; dx++) if (tileAt(tx + dx, ty + dy) === TileType.Water) return true;
@@ -1931,31 +1865,31 @@ async function main() {
   }
   function critterTileOk(kind: CritterKind, tx: number, ty: number): boolean {
     if (tileAt(tx, ty) !== TileType.Empty) return false;
-    const biome = biomes[ty * worldTilesX + tx] ?? Biome.Plains;
+    const biome = S.biomes[ty * S.worldTilesX + tx] ?? Biome.Plains;
     if (kind === "frog") return biome === Biome.Swamp || nearWater(tx, ty);
     return true;
   }
   // A random eligible tile within `radius` tiles of (cx, cy), or null after a few misses.
   function pickCritterSpot(kind: CritterKind, cx: number, cy: number, radius: number): { x: number; y: number } | null {
     for (let attempt = 0; attempt < 8; attempt++) {
-      const tx = Math.floor(cx / tileSize + (Math.random() * 2 - 1) * radius);
-      const ty = Math.floor(cy / tileSize + (Math.random() * 2 - 1) * radius);
+      const tx = Math.floor(cx / S.tileSize + (Math.random() * 2 - 1) * radius);
+      const ty = Math.floor(cy / S.tileSize + (Math.random() * 2 - 1) * radius);
       if (!critterTileOk(kind, tx, ty)) continue;
-      return { x: (tx + 0.2 + Math.random() * 0.6) * tileSize, y: (ty + 0.3 + Math.random() * 0.6) * tileSize };
+      return { x: (tx + 0.2 + Math.random() * 0.6) * S.tileSize, y: (ty + 0.3 + Math.random() * 0.6) * S.tileSize };
     }
     return null;
   }
   const critterZ = (x: number, y: number) =>
-    Math.floor(y / tileSize) * worldTilesX + Math.floor(x / tileSize) + 0.5;
-  const livestock = createLivestock({ layer: tileSpriteLayer, tileSize: () => tileSize, worldTilesX: () => worldTilesX, zOf: critterZ });
+    Math.floor(y / S.tileSize) * S.worldTilesX + Math.floor(x / S.tileSize) + 0.5;
+  const livestock = createLivestock({ layer: tileSpriteLayer, tileSize: () => S.tileSize, worldTilesX: () => S.worldTilesX, zOf: critterZ });
   function spawnWildlife() {
     for (const c of critters) c.sprite.destroy();
     critters.length = 0;
     const eligible: Record<CritterKind, number[]> = { crow: [], frog: [] };
-    for (let ty = 0; ty < worldTilesY; ty++) {
-      for (let tx = 0; tx < worldTilesX; tx++) {
+    for (let ty = 0; ty < S.worldTilesY; ty++) {
+      for (let tx = 0; tx < S.worldTilesX; tx++) {
         for (const kind of ["crow", "frog"] as CritterKind[]) {
-          if (critterTileOk(kind, tx, ty)) eligible[kind].push(ty * worldTilesX + tx);
+          if (critterTileOk(kind, tx, ty)) eligible[kind].push(ty * S.worldTilesX + tx);
         }
       }
     }
@@ -1967,8 +1901,8 @@ async function main() {
       if (!textures.every(Boolean)) continue;
       for (let i = 0; i < count; i++) {
         const index = spots[Math.floor(Math.random() * spots.length)];
-        const x = ((index % worldTilesX) + 0.5) * tileSize;
-        const y = (Math.floor(index / worldTilesX) + 0.7) * tileSize;
+        const x = ((index % S.worldTilesX) + 0.5) * S.tileSize;
+        const y = (Math.floor(index / S.worldTilesX) + 0.7) * S.tileSize;
         const sprite = new Sprite(textures[0]);
         sprite.anchor.set(0.5, 1);
         sprite.scale.set(def.size / textures[0].width);
@@ -2042,14 +1976,6 @@ async function main() {
       }
     }
   });
-
-  // ---- Server wildlife (huntable game; see WILDLIFE_ART) ----
-  interface WildlifeSet {
-    walk: Texture[];
-    idle: Texture[];
-    run: Texture[];
-    tint: number;
-  }
   const deerWalkTextures = DEER_WALK_URLS.map((u) => loadedTextures[u]);
   const deerGrazeTextures = DEER_GRAZE_URLS.map((u) => loadedTextures[u]);
   const loadedAll = (urls: string[]) => urls.length > 0 && urls.every((u) => optionalTextures[u]);
@@ -2084,16 +2010,16 @@ async function main() {
       const index = flat[i];
       const waiting = flat[i + 1] < 0;
       const n = Math.min(CAPTIVES_SHOWN, flat[i + 2] ?? 0);
-      const hx = (index % worldTilesX) + 0.5;
-      const hy = Math.floor(index / worldTilesX) + 0.5;
+      const hx = (index % S.worldTilesX) + 0.5;
+      const hy = Math.floor(index / S.worldTilesX) + 0.5;
       for (let k = 0; k < n; k++) {
         const key = `${index}:${k}:${waiting ? "w" : "c"}`;
         seen.add(key);
         if (captiveSprites.has(key)) continue;
         // A ring around the fire, 1.3 tiles out, evenly spaced from a per-camp start angle.
         const a = (index % 7) * 0.9 + (k / Math.max(n, 1)) * Math.PI * 2;
-        const x = (hx + Math.cos(a) * 1.3) * tileSize;
-        const y = (hy + Math.sin(a) * 1.3) * tileSize;
+        const x = (hx + Math.cos(a) * 1.3) * S.tileSize;
+        const y = (hy + Math.sin(a) * 1.3) * S.tileSize;
         const box = new Container();
         const tex = COLONIST_TEXTURES.villager;
         const body = new Sprite(tex);
@@ -2106,7 +2032,7 @@ async function main() {
           rope.ellipse(0, -COLONIST_SPRITE_HEIGHT * 0.42, 5, 2.5).stroke({ width: 1.5, color: 0x5a3a1a });
           box.addChild(rope);
         }
-        box.position.set(x, y + tileSize * 0.2);
+        box.position.set(x, y + S.tileSize * 0.2);
         box.zIndex = critterZ(x, y);
         tileSpriteLayer.addChild(box);
         captiveSprites.set(key, box);
@@ -2142,7 +2068,7 @@ async function main() {
       }
       const { sprite } = entry;
       // Feet a little below the server position (the tile-centre point), like the old critters.
-      sprite.position.set(x, y + tileSize * 0.2);
+      sprite.position.set(x, y + S.tileSize * 0.2);
       const z = critterZ(x, y);
       if (z !== sprite.zIndex) sprite.zIndex = z;
       const running = state === WildlifeState.Flee || state === WildlifeState.Charge;
@@ -2157,7 +2083,7 @@ async function main() {
       if (seen.has(id)) continue;
       const x = entry.sprite.position.x;
       const y = entry.sprite.position.y;
-      const stain = () => stampBlood(x, y - tileSize * 0.2, BLOOD_HIT_VARIANTS, BLOOD_HIT_SIZE);
+      const stain = () => stampBlood(x, y - S.tileSize * 0.2, BLOOD_HIT_VARIANTS, BLOOD_HIT_SIZE);
       // A killed deer lies where it fell for a moment, then leaves its stain (other game: just the stain).
       if (entry.kind === "deer" && DEER_FALLEN_TEXTURE) spawnFallenDeer(x, y, entry.sprite.scale.x < 0, stain);
       else stain();
@@ -2190,55 +2116,55 @@ async function main() {
 
   // Full-map path (welcome, incl. restart).
   function redrawGrid() {
-    roofDirty = true;
+    S.roofDirty = true;
     setFloorSprites();
     setDecorSprites();
-    if (streamed) {
+    if (S.streamed) {
       // Every tile reads Empty until its chunk arrives: only clear what the previous world drew.
       for (const index of [...tileSprites.keys()]) {
-        if (index < worldTilesX * worldTilesY) setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), TileType.Empty);
+        if (index < S.worldTilesX * S.worldTilesY) setTileSprite(index % S.worldTilesX, Math.floor(index / S.worldTilesX), TileType.Empty);
       }
     } else {
-      for (let x = 0; x < worldTilesX; x++) {
-        for (let y = 0; y < worldTilesY; y++) {
-          setTileSprite(x, y, tiles[y * worldTilesX + x] ?? TileType.Empty);
+      for (let x = 0; x < S.worldTilesX; x++) {
+        for (let y = 0; y < S.worldTilesY; y++) {
+          setTileSprite(x, y, S.tiles[y * S.worldTilesX + x] ?? TileType.Empty);
         }
       }
     }
     // Drop slots past the end of the map in case a new welcome shrank it.
     for (const [index, sprite] of tileSprites) {
-      if (index >= worldTilesX * worldTilesY) {
+      if (index >= S.worldTilesX * S.worldTilesY) {
         sprite.destroy();
         tileSprites.delete(index);
         animatedTiles.delete(index);
       }
     }
     nightOverlay.clear();
-    nightOverlay.rect(0, 0, worldTilesX * tileSize, worldTilesY * tileSize).fill(0x0a0a2a);
+    nightOverlay.rect(0, 0, S.worldTilesX * S.tileSize, S.worldTilesY * S.tileSize).fill(0x0a0a2a);
     spawnWildlife();
   }
 
   function setTileLocal(tx: number, ty: number, tile: number) {
-    const index = ty * worldTilesX + tx;
-    tiles[index] = tile;
-    roofDirty = true;
+    const index = ty * S.worldTilesX + tx;
+    S.tiles[index] = tile;
+    S.roofDirty = true;
     setTileSprite(tx, ty, tile);
     const decor = decorSprites.get(index);
     if (decor) decor.visible = tile === TileType.Empty;
     // Neighbouring roads re-pick their autotile piece (this tile may have become / stopped being road),
     // and neighbouring walls / gates their connector piece / orientation.
     for (const [nx, ny] of [[tx, ty - 1], [tx + 1, ty], [tx, ty + 1], [tx - 1, ty]]) {
-      if (isRoadAt(nx, ny) || fenceJoins(tileAt(nx, ny)) || isMoatTile(tileAt(nx, ny))) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
+      if (isRoadAt(nx, ny) || fenceJoins(tileAt(nx, ny)) || isMoatTile(tileAt(nx, ny))) setTileSprite(nx, ny, S.tiles[ny * S.worldTilesX + nx]);
     }
     // A part tile appearing / going away re-fits the multi-tile art of the anchors up / left of it.
     for(let dy=0;dy<FOOTPRINT_MAX_SIDE;dy++)for(let dx=0;dx<FOOTPRINT_MAX_SIDE;dx++){
       if(!dx&&!dy)continue;const nx=tx-dx,ny=ty-dy;
-      if (footSize(nx, ny)) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
+      if (footSize(nx, ny)) setTileSprite(nx, ny, S.tiles[ny * S.worldTilesX + nx]);
     }
     // Gap closure G1: likewise a 2-tile furniture piece's anchor (west / north of a part tile).
     for (const [nx, ny] of [[tx - 1, ty], [tx, ty - 1]]) {
       const t = tileAt(nx, ny);
-      if (FURNITURE_FOOTPRINT[t as TileType] || t === TileType.ConstructionSite) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
+      if (FURNITURE_FOOTPRINT[t as TileType] || t === TileType.ConstructionSite) setTileSprite(nx, ny, S.tiles[ny * S.worldTilesX + nx]);
     }
   }
 
@@ -2297,8 +2223,8 @@ async function main() {
   // measured snapshot interval (50 ms at 1x, 100 / 200 ms in slow motion, when the server only sends
   // stepped ticks). Undo the shift before the syncs, re-arm after them, shift every frame.
   const INTERP_SNAP_TILES = 3;
-  let interpSnapAt = 0;
-  let interpIntervalMs = 1000 / TICK_RATE;
+  S.interpSnapAt = 0;
+  S.interpIntervalMs = 1000 / TICK_RATE;
   const interpMaps = [playerSprites, colonistSprites, mobSprites];
 
   // Show the carried resource sprite, with a simple category fallback if an asset fails to load.
@@ -2349,11 +2275,11 @@ async function main() {
 
   function interpBeforeSnapshot() {
     const now = performance.now();
-    if (interpSnapAt > 0) {
-      const gap = Math.min(400, Math.max(20, now - interpSnapAt));
-      interpIntervalMs += (gap - interpIntervalMs) * 0.3;
+    if (S.interpSnapAt > 0) {
+      const gap = Math.min(400, Math.max(20, now - S.interpSnapAt));
+      S.interpIntervalMs += (gap - S.interpIntervalMs) * 0.3;
     }
-    interpSnapAt = now;
+    S.interpSnapAt = now;
     for (const map of interpMaps) {
       for (const e of map.values()) {
         if (!e.ip) continue;
@@ -2368,7 +2294,7 @@ async function main() {
   }
 
   function interpAfterSnapshot() {
-    const snap = tileSize * INTERP_SNAP_TILES;
+    const snap = S.tileSize * INTERP_SNAP_TILES;
     for (const map of interpMaps) {
       for (const e of map.values()) {
         const tx = e.sprite.position.x;
@@ -2384,8 +2310,8 @@ async function main() {
 
   // Before the camera ticker (which follows the rider's drawn sprite).
   app.ticker.add(() => {
-    if (interpSnapAt === 0) return;
-    const t = Math.min(1, (performance.now() - interpSnapAt) / interpIntervalMs);
+    if (S.interpSnapAt === 0) return;
+    const t = Math.min(1, (performance.now() - S.interpSnapAt) / S.interpIntervalMs);
     for (const map of interpMaps) {
       for (const e of map.values()) {
         const ip = e.ip;
@@ -2420,7 +2346,7 @@ async function main() {
   app.ticker.add(() => {
     if (!BATTLE_LOD) return;
     lodDots.clear();
-    const on = colonistSprites.size + mobSprites.size > BATTLE_LOD_UNITS && camZoom < BATTLE_LOD_ZOOM;
+    const on = colonistSprites.size + mobSprites.size > BATTLE_LOD_UNITS && S.camZoom < BATTLE_LOD_ZOOM;
     if (!on) {
       for (const id of lodHidden) {
         const e = colonistSprites.get(id) ?? mobSprites.get(id);
@@ -2438,11 +2364,11 @@ async function main() {
       if (list) list.push(x, y);
       else byColour.set(colour, [x, y]);
     };
-    for (const c of latestColonists) {
+    for (const c of S.latestColonists) {
       if (WORKER_KINDS.has(c.kind) || c.kind === "wagon") continue;
       const e = colonistSprites.get(c.id);
       if (!e) continue;
-      if (!culledUnits.has(e)) addDot(clanColors.get(c.clan ?? 0) ?? 0x4a90e2, e.sprite.position.x, e.sprite.position.y);
+      if (!culledUnits.has(e)) addDot(S.clanColors.get(c.clan ?? 0) ?? 0x4a90e2, e.sprite.position.x, e.sprite.position.y);
       lodHide(e);
       lodHidden.add(c.id);
     }
@@ -2510,7 +2436,7 @@ async function main() {
   ) {
     for (const [id, entry] of Array.from(map)) {
       if (seenIds.has(id)) continue;
-      if (poofOnRemove && !suppressDeathPoofs && entry.sprite.visible) {
+      if (poofOnRemove && !S.suppressDeathPoofs && entry.sprite.visible) {
         spawnDeathPoof(entry.sprite.position.x, entry.sprite.position.y);
         if (deathSound) sound.play(deathSound, { x: entry.sprite.position.x, y: entry.sprite.position.y });
       }
@@ -2536,7 +2462,7 @@ async function main() {
       ];
       return sprite;
     });
-    if (p.id === myId && !entry.marker) {
+    if (p.id === S.myId && !entry.marker) {
       const marker = new Graphics().ellipse(0, 0, 14, 5).stroke({ width: 2, color: 0xffffff });
       // Under the sprite so it reads as a ground ring.
       worldLayer.addChildAt(marker, worldLayer.getChildIndex(entry.sprite));
@@ -2544,7 +2470,7 @@ async function main() {
     }
     // Gap closure G6: a mounted hero sits up on its horse (livestock draws the horse under it).
     entry.sprite.position.set(p.x, p.y - (p.mounted ? MOUNTED_LIFT_PX : 0));
-    if (p.id === myId) myMounted = !!p.mounted;
+    if (p.id === S.myId) S.myMounted = !!p.mounted;
     // A rider with no Town Center to respawn at is gone until one is built (game over overlay). Stardew phase 5c: a
     // hero inside a building interior is hidden on the world map (its body waits at the door).
     entry.sprite.visible = !p.dead && !p.inside;
@@ -2580,15 +2506,15 @@ async function main() {
       else showAnimFrame(entry.sprite, mountedFrame ? { ...PLAYER_ANIM, scale: 50 / 128 } : PLAYER_ANIM, mountedFrame ?? baseFrame);
     }
     applyFacing(entry.sprite, facingRight);
-    if (p.id === myId && heroToolPose && !p.mounted) {
-      const elapsed = performance.now() - heroToolPose.started;
-      if (elapsed >= 600) heroToolPose = null;
+    if (p.id === S.myId && S.heroToolPose && !p.mounted) {
+      const elapsed = performance.now() - S.heroToolPose.started;
+      if (elapsed >= 600) S.heroToolPose = null;
       else {
-        const toolFrame = directionalFrame("hero-tool-actions", heroToolPose.row, heroToolPose.facing, Math.floor(elapsed / 150));
+        const toolFrame = directionalFrame("hero-tool-actions", S.heroToolPose.row, S.heroToolPose.facing, Math.floor(elapsed / 150));
         const visual=heroVisuals.get(p.id);
-        const toolRig=visual ? heroFrame({...visual, weapon:heroToolPose.row<2?"axe":"unarmed",weaponTier:1,shield:false}, {state:"attack",phase:elapsed/600}) : undefined;
-        if (toolRig) {entry.sprite.anchor.set(120/256,163/192);entry.sprite.position.set(p.x,p.y+PLAYER_SPRITE_HEIGHT*.4);entry.sprite.texture=toolRig.texture;entry.sprite.scale.set((heroToolPose.facing==="w"?-1:1)*HUMAN_CHAR_PX/toolRig.bodyHeight,HUMAN_CHAR_PX/toolRig.bodyHeight);}
-        else if (toolFrame) { entry.sprite.texture = toolFrame; { const ts = autumnHumanScale("hero-tool-actions", 4) ?? (PLAYER_ANIM ? PLAYER_ANIM.scale : PLAYER_SPRITE_HEIGHT / 128); entry.sprite.scale.set((heroToolPose.facing === "w" ? -1 : 1) * ts, ts); } }
+        const toolRig=visual ? heroFrame({...visual, weapon:S.heroToolPose.row<2?"axe":"unarmed",weaponTier:1,shield:false}, {state:"attack",phase:elapsed/600}) : undefined;
+        if (toolRig) {entry.sprite.anchor.set(120/256,163/192);entry.sprite.position.set(p.x,p.y+PLAYER_SPRITE_HEIGHT*.4);entry.sprite.texture=toolRig.texture;entry.sprite.scale.set((S.heroToolPose.facing==="w"?-1:1)*HUMAN_CHAR_PX/toolRig.bodyHeight,HUMAN_CHAR_PX/toolRig.bodyHeight);}
+        else if (toolFrame) { entry.sprite.texture = toolFrame; { const ts = autumnHumanScale("hero-tool-actions", 4) ?? (PLAYER_ANIM ? PLAYER_ANIM.scale : PLAYER_SPRITE_HEIGHT / 128); entry.sprite.scale.set((S.heroToolPose.facing === "w" ? -1 : 1) * ts, ts); } }
       }
     }
     updateWound(entry, p.hp, p.maxHp, p.x, p.y - (p.mounted ? MOUNTED_LIFT_PX : 0),
@@ -2629,8 +2555,8 @@ async function main() {
     }
     let hidden = false;
     if (HIDE_AT_POST_KINDS.has(c.kind)) {
-      const postCenterX = c.postX * tileSize + tileSize / 2;
-      const postCenterY = c.postY * tileSize + tileSize / 2;
+      const postCenterX = c.postX * S.tileSize + S.tileSize / 2;
+      const postCenterY = c.postY * S.tileSize + S.tileSize / 2;
       const hideRadius = AT_POST_HIDE_RADIUS_PX;
       if (Math.hypot(c.x - postCenterX, c.y - postCenterY) <= hideRadius) hidden = true;
     }
@@ -2776,14 +2702,14 @@ async function main() {
     wagonRoutes.clear();
     for (const c of colonists) {
       const r = c.wagon?.route;
-      if (!r || r.length < 2 || (c.clan ?? 0) !== myClan) continue;
+      if (!r || r.length < 2 || (c.clan ?? 0) !== S.myClan) continue;
       const color = WAGON_DANGER_COLORS[c.wagon!.danger];
       // Dashed: every other leg of the downsampled path.
       let px = c.x;
       let py = c.y;
       for (let i = 0; i + 1 < r.length; i += 2) {
-        const x = r[i] * tileSize + tileSize / 2;
-        const y = r[i + 1] * tileSize + tileSize / 2;
+        const x = r[i] * S.tileSize + S.tileSize / 2;
+        const y = r[i + 1] * S.tileSize + S.tileSize / 2;
         if ((i / 2) % 2 === 0) wagonRoutes.moveTo(px, py).lineTo(x, y);
         px = x;
         py = y;
@@ -2857,7 +2783,7 @@ async function main() {
       const entry = sprites.get(id);
       const texture = SIEGE_WRECK_TEXTURES[which][kind];
       const set = which === "colonist" ? COLONIST_ANIMS[kind as ColonistKind] : MOB_VARIANTS[kind as MobKind]?.[0]?.anim;
-      if (suppressDeathPoofs || !entry || !entry.sprite.visible || !texture || !set) continue;
+      if (S.suppressDeathPoofs || !entry || !entry.sprite.visible || !texture || !set) continue;
       // Only with the engine's own art (the wreck would not match a tinted stand-in).
       if (which === "colonist" ? COLONIST_TINT.has(kind) : !MOB_OWN_ART.has(kind)) continue;
       const { x, y } = entry.sprite.position;
@@ -2911,7 +2837,7 @@ async function main() {
   }
 
   function upsertMob(m: MobSnapshot) {
-    if (m.kind === "halfLatch" && !suppressDeathPoofs && !mobSprites.has(m.id)) maybeWardLapseFx(m.x, m.y);
+    if (m.kind === "halfLatch" && !S.suppressDeathPoofs && !mobSprites.has(m.id)) maybeWardLapseFx(m.x, m.y);
     const variants = m.boss === "warlord" && WARLORD_VARIANT ? [WARLORD_VARIANT] : MOB_VARIANTS[m.kind];
     const woundSize = (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS * MOB_WOUND_SIZE_FACTOR;
     if (variants) {
@@ -2957,7 +2883,7 @@ async function main() {
 
   // Gap closure G7: a gold "!" over a settlement quest giver with a quest for you (HeroLifeSnapshot.questMarks).
   function updateQuestMark(entry: EntityVisual, m: MobSnapshot) {
-    const on = questMarkIds.has(m.id);
+    const on = S.questMarkIds.has(m.id);
     if (!on && !entry.questMark) return;
     if (!entry.questMark) {
       entry.questMark = new Text({
@@ -3115,16 +3041,6 @@ async function main() {
     pruneFacing(mobFacing, seenIds);
     for (const m of snapshot) upsertMob(m);
   }
-
-  // Client-only, short-lived combat VFX. `update` gets progress 0..1 each frame; `onEnd` can chain
-  // a follow-up effect (an arrow's impact spark).
-  interface ActiveEffect {
-    sprite: Sprite;
-    startedAt: number;
-    durationMs: number;
-    update: (sprite: Sprite, t: number) => void;
-    onEnd?: () => void;
-  }
   const activeEffects: ActiveEffect[] = [];
   // Rendered size (px, longest side) of each effect sprite in world space.
   const FX_SIZE = { slash: 22, spark: 14, poof: 30, arrow: 18, shamanBolt: 12 };
@@ -3198,20 +3114,20 @@ async function main() {
       sprite.zIndex = underIndex - 0.5;
     }
   }
-  const tileCenter = (tx: number, ty: number) => ({ x: tx * tileSize + tileSize / 2, y: ty * tileSize + tileSize / 2 });
+  const tileCenter = (tx: number, ty: number) => ({ x: tx * S.tileSize + S.tileSize / 2, y: ty * S.tileSize + S.tileSize / 2 });
   // A Ward Stone's lapse lets a Half-Latch through at the stone (server checkWardStoneLapses), so a
   // Half-Latch first appearing on or next to a Ward Stone marks the lapse there.
   function maybeWardLapseFx(x: number, y: number) {
-    const tx = Math.floor(x / tileSize);
-    const ty = Math.floor(y / tileSize);
+    const tx = Math.floor(x / S.tileSize);
+    const ty = Math.floor(y / S.tileSize);
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         const nx = tx + dx;
         const ny = ty + dy;
-        if (nx < 0 || ny < 0 || nx >= worldTilesX || ny >= worldTilesY) continue;
-        if (tiles[ny * worldTilesX + nx] !== TileType.WardStone) continue;
+        if (nx < 0 || ny < 0 || nx >= S.worldTilesX || ny >= S.worldTilesY) continue;
+        if (S.tiles[ny * S.worldTilesX + nx] !== TileType.WardStone) continue;
         const c = tileCenter(nx, ny);
-        spawnFxAnim("wardLapse", c.x, c.y + tileSize / 2, 900, ny * worldTilesX + nx);
+        spawnFxAnim("wardLapse", c.x, c.y + S.tileSize / 2, 900, ny * S.worldTilesX + nx);
         return;
       }
     }
@@ -3229,10 +3145,10 @@ async function main() {
       if (now - last < BUILD_FX_MS) return;
       stateFxAt.set(c.id, now);
       let best: { tx: number; ty: number } | null = null;
-      let bestD = tileSize * 2;
-      for (const index of (c.state === "building" ? constructionSites : damagedBuildings).keys()) {
+      let bestD = S.tileSize * 2;
+      for (const index of (c.state === "building" ? S.constructionSites : S.damagedBuildings).keys()) {
         const t = indexToTile(index);
-        const d = Math.hypot(t.tx * tileSize + tileSize / 2 - c.x, t.ty * tileSize + tileSize / 2 - c.y);
+        const d = Math.hypot(t.tx * S.tileSize + S.tileSize / 2 - c.x, t.ty * S.tileSize + S.tileSize / 2 - c.y);
         if (d < bestD) {
           bestD = d;
           best = t;
@@ -3240,7 +3156,7 @@ async function main() {
       }
       if (best) {
         const p = tileCenter(best.tx, best.ty);
-        spawnFxAnim("build", p.x, p.y + tileSize / 2, 700);
+        spawnFxAnim("build", p.x, p.y + S.tileSize / 2, 700);
       }
       return;
     }
@@ -3253,7 +3169,7 @@ async function main() {
       spawnFxAnim("heal", c.x, c.y + 10, 600);
     } else {
       const p = tileCenter(c.postX, c.postY);
-      spawnFxAnim("wardPulse", p.x, p.y + tileSize / 2, 1000, c.postY * worldTilesX + c.postX);
+      spawnFxAnim("wardPulse", p.x, p.y + S.tileSize / 2, 1000, c.postY * S.worldTilesX + c.postX);
     }
   }
 
@@ -3275,9 +3191,9 @@ async function main() {
         if (s instanceof Sprite) applyFacing(s, right);
       }
     };
-    face(playerFacing, playerSprites, latestPlayersForSpells);
-    face(colonistFacing, colonistSprites, latestColonists);
-    face(mobFacing, mobSprites, latestMobs);
+    face(playerFacing, playerSprites, S.latestPlayersForSpells);
+    face(colonistFacing, colonistSprites, S.latestColonists);
+    face(mobFacing, mobSprites, S.latestMobs);
   }
 
   // Hero phase 4: spell casts (PLACEHOLDER art, reusing the existing effect sprites): fire bolt = the shaman
@@ -3335,7 +3251,7 @@ async function main() {
     }
     faceAttacker(e);
     // Match server coordinates, not the rendered foot anchor; includes remote bows and mounted attacks.
-    if (!e.boulder) for (const p of latestPlayersForSpells) {
+    if (!e.boulder) for (const p of S.latestPlayersForSpells) {
       if (Math.abs(p.x-e.fromX)<2 && Math.abs(p.y-e.fromY)<2) triggerPlayerAttackAnim(p.id);
     }
     const angle = Math.atan2(e.toY - e.fromY, e.toX - e.fromX);
@@ -3376,16 +3292,16 @@ async function main() {
       const slash = addFx(FX_TEXTURES.slash, FX_SIZE.slash, e.toX, e.toY, 160, fadeOut);
       slash.rotation = angle;
       // Giant Spider bites poison (server: mob.kind === "giantSpider"); the effect's origin is the spider.
-      if (latestMobs.some((m) => m.kind === "giantSpider" && Math.abs(m.x - e.fromX) < 2 && Math.abs(m.y - e.fromY) < 2)) {
+      if (S.latestMobs.some((m) => m.kind === "giantSpider" && Math.abs(m.x - e.fromX) < 2 && Math.abs(m.y - e.fromY) < 2)) {
         spawnFxAnim("poison", e.toX, e.toY + 8, 650);
       }
       return;
     }
     // Ranged attacks don't carry the attacker's kind; a Dark Shaman standing at the origin casts a
     // purple bolt instead of an arrow.
-    const isShaman = latestMobs.some(
+    const isShaman = S.latestMobs.some(
       (m) => m.kind === "darkShaman" && Math.abs(m.x - e.fromX) < 2 && Math.abs(m.y - e.fromY) < 2
-    ) || latestColonists.some((c) => c.heroClass === "mage" && Math.abs(c.x - e.fromX) < 2 && Math.abs(c.y - e.fromY) < 2);
+    ) || S.latestColonists.some((c) => c.heroClass === "mage" && Math.abs(c.x - e.fromX) < 2 && Math.abs(c.y - e.fromY) < 2);
     const distance = Math.hypot(e.toX - e.fromX, e.toY - e.fromY);
     const durationMs = Math.min(260, Math.max(60, distance / PROJECTILE_PX_PER_MS));
     const tint = isShaman ? SHAMAN_BOLT_TINT : 0xffffff;
@@ -3423,13 +3339,13 @@ async function main() {
 
   // Shared clock for every looping tile (fire flicker, water ripple): one pass over the animated
   // slots, and only on a frame boundary of the fastest loop, not per sprite or per render frame.
-  let lastTileAnimStep = -1;
+  S.lastTileAnimStep = -1;
   const tileAnimStepMs = Math.min(...Array.from(TILE_ANIM_TEXTURES.values(), (a) => a.frameMs));
   app.ticker.add(() => {
     const now = performance.now();
     const step = Math.floor(now / tileAnimStepMs);
-    if (step === lastTileAnimStep) return;
-    lastTileAnimStep = step;
+    if (step === S.lastTileAnimStep) return;
+    S.lastTileAnimStep = step;
     for (const [index, tile] of animatedTiles) {
       const sprite = tileSprites.get(index);
       const texture = tileAnimTexture(index, tile, now);
@@ -3448,11 +3364,11 @@ async function main() {
   });
 
   app.ticker.add(() => {
-    if (!myId) return;
-    const mine = playerSprites.get(myId);
+    if (!S.myId) return;
+    const mine = playerSprites.get(S.myId);
     if (!mine) return;
-    if (pendingStartStrategy && !strategyCam.active) {
-      pendingStartStrategy = false;
+    if (S.pendingStartStrategy && !strategyCam.active) {
+      S.pendingStartStrategy = false;
       toggleStrategy();
     }
     strategyCam.homeZoom = homeZoom();
@@ -3463,11 +3379,11 @@ async function main() {
     // drives the camera so the hand-back glides.
     if (sv) advCam.sync(sv.x, sv.y, now);
     else if (adventurePrefs.on) focus = advCam.follow(focus.x, focus.y, now);
-    camZoom = sv ? sv.zoom : homeZoom();
+    S.camZoom = sv ? sv.zoom : homeZoom();
     weatherUi.setSuppressed(!!sv || !!interiorRef.ui?.active());
-    worldLayer.scale.set(camZoom);
-    const camX = app.screen.width / 2 - focus.x * camZoom;
-    const camY = app.screen.height / 2 - focus.y * camZoom;
+    worldLayer.scale.set(S.camZoom);
+    const camX = app.screen.width / 2 - focus.x * S.camZoom;
+    const camY = app.screen.height / 2 - focus.y * S.camZoom;
     // Whole screen pixels at close zoom, so the pixel art doesn't shimmer while the camera glides.
     if (adventurePrefs.on && !sv) worldLayer.position.set(Math.round(camX), Math.round(camY));
     else worldLayer.position.set(camX, camY);
@@ -3487,10 +3403,10 @@ async function main() {
     }
   };
   app.ticker.add(() => {
-    const left = -worldLayer.position.x / camZoom - CULL_MARGIN_PX;
-    const right = (app.screen.width - worldLayer.position.x) / camZoom + CULL_MARGIN_PX;
-    const top = -worldLayer.position.y / camZoom - CULL_MARGIN_PX;
-    const bottom = (app.screen.height - worldLayer.position.y) / camZoom + CULL_MARGIN_PX;
+    const left = -worldLayer.position.x / S.camZoom - CULL_MARGIN_PX;
+    const right = (app.screen.width - worldLayer.position.x) / S.camZoom + CULL_MARGIN_PX;
+    const top = -worldLayer.position.y / S.camZoom - CULL_MARGIN_PX;
+    const bottom = (app.screen.height - worldLayer.position.y) / S.camZoom + CULL_MARGIN_PX;
     for (const map of [colonistSprites, mobSprites]) {
       for (const e of map.values()) {
         const p = e.sprite.position;
@@ -3506,12 +3422,12 @@ async function main() {
   // Loading screen "Sending map to your browser": the chunks around the hero (the 5x5 block requestStreamChunks
   // asks for first) loaded so far; a full-welcome world has nothing left to fetch.
   function reportMapProgress(px: number, py: number) {
-    const sm = streamed;
+    const sm = S.streamed;
     if (!sm) {
-      loadingUi.onMapProgress(0, 0, loadingSnapshotSeen);
+      loadingUi.onMapProgress(0, 0, S.loadingSnapshotSeen);
       return;
     }
-    const span = sm.chunkTiles * tileSize;
+    const span = sm.chunkTiles * S.tileSize;
     const pcx = Math.floor(px / span);
     const pcy = Math.floor(py / span);
     let wanted = 0;
@@ -3519,44 +3435,44 @@ async function main() {
     for (let cy = Math.max(0, pcy - 2); cy <= Math.min(sm.chunksY - 1, pcy + 2); cy++) {
       for (let cx = Math.max(0, pcx - 2); cx <= Math.min(sm.chunksX - 1, pcx + 2); cx++) {
         wanted++;
-        if (chunkLoaded[cy * sm.chunksX + cx]) loaded++;
+        if (S.chunkLoaded[cy * sm.chunksX + cx]) loaded++;
       }
     }
-    loadingUi.onMapProgress(loaded, wanted, loadingSnapshotSeen);
+    loadingUi.onMapProgress(loaded, wanted, S.loadingSnapshotSeen);
   }
 
   // World streaming phase 4: ask for the chunks the camera (one chunk margin) and the rider (2 chunks) need,
   // 5 times a second, at most MAX_CHUNKS_PER_REQUEST at a time; an unanswered request is retried after 3 s.
   // The Map band draws the summary minimap instead, so it asks only for the rider's chunks.
   function requestStreamChunks() {
-    const sm = streamed;
+    const sm = S.streamed;
     if (!sm || socket.readyState !== socket.OPEN) return;
     const now = performance.now();
-    if (now - chunkRequestAt < 200) return;
-    chunkRequestAt = now;
-    const span = sm.chunkTiles * tileSize;
+    if (now - S.chunkRequestAt < 200) return;
+    S.chunkRequestAt = now;
+    const span = sm.chunkTiles * S.tileSize;
     const want: number[] = [];
     const add = (x0: number, x1: number, y0: number, y1: number) => {
       for (let cy = Math.max(0, y0); cy <= Math.min(sm.chunksY - 1, y1); cy++) {
         for (let cx = Math.max(0, x0); cx <= Math.min(sm.chunksX - 1, x1); cx++) {
           const c = cy * sm.chunksX + cx;
-          if (chunkLoaded[c] || now - (chunkRequestedAt.get(c) ?? -Infinity) < 3000 || want.includes(c)) continue;
+          if (S.chunkLoaded[c] || now - (chunkRequestedAt.get(c) ?? -Infinity) < 3000 || want.includes(c)) continue;
           want.push(c);
         }
       }
     };
-    const mine = myId ? playerSprites.get(myId) : undefined;
+    const mine = S.myId ? playerSprites.get(S.myId) : undefined;
     if (mine) {
       const pcx = Math.floor(mine.sprite.position.x / span);
       const pcy = Math.floor(mine.sprite.position.y / span);
       add(pcx - 2, pcx + 2, pcy - 2, pcy + 2);
     }
-    if (strategyBand !== "map") {
+    if (S.strategyBand !== "map") {
       add(
-        Math.floor(-worldLayer.position.x / camZoom / span) - 1,
-        Math.floor((app.screen.width - worldLayer.position.x) / camZoom / span) + 1,
-        Math.floor(-worldLayer.position.y / camZoom / span) - 1,
-        Math.floor((app.screen.height - worldLayer.position.y) / camZoom / span) + 1,
+        Math.floor(-worldLayer.position.x / S.camZoom / span) - 1,
+        Math.floor((app.screen.width - worldLayer.position.x) / S.camZoom / span) + 1,
+        Math.floor(-worldLayer.position.y / S.camZoom / span) - 1,
+        Math.floor((app.screen.height - worldLayer.position.y) / S.camZoom / span) + 1,
       );
     }
     const batch = want.slice(0, MAX_CHUNKS_PER_REQUEST);
@@ -3566,38 +3482,38 @@ async function main() {
   }
 
   function applyStreamChunks(list: { c: number; tiles: string; biomes: string }[]) {
-    const sm = streamed;
+    const sm = S.streamed;
     if (!sm) return;
     for (const { c, tiles: t64, biomes: b64 } of list) {
-      if (c < 0 || c >= chunkLoaded.length) continue;
+      if (c < 0 || c >= S.chunkLoaded.length) continue;
       const x0 = (c % sm.chunksX) * sm.chunkTiles;
       const y0 = Math.floor(c / sm.chunksX) * sm.chunkTiles;
-      const w = Math.min(sm.chunkTiles, worldTilesX - x0);
-      const h = Math.min(sm.chunkTiles, worldTilesY - y0);
+      const w = Math.min(sm.chunkTiles, S.worldTilesX - x0);
+      const h = Math.min(sm.chunkTiles, S.worldTilesY - y0);
       const t = atob(t64);
       const b = atob(b64);
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-          const i = (y0 + y) * worldTilesX + x0 + x;
-          tiles[i] = t.charCodeAt(y * w + x);
-          biomes[i] = b.charCodeAt(y * w + x);
+          const i = (y0 + y) * S.worldTilesX + x0 + x;
+          S.tiles[i] = t.charCodeAt(y * w + x);
+          S.biomes[i] = b.charCodeAt(y * w + x);
         }
       }
-      chunkLoaded[c] = 1;
+      S.chunkLoaded[c] = 1;
       chunkRequestedAt.delete(c);
-      roofDirty = true;
+      S.roofDirty = true;
       // The chunk's sprites, plus a 3-tile band up / left and 1 tile right / down (autotiled roads / walls and
       // multi-tile art reaching across the chunk edge).
-      for (let y = Math.max(0, y0 - 3); y < Math.min(worldTilesY, y0 + h + 1); y++) {
-        for (let x = Math.max(0, x0 - 3); x < Math.min(worldTilesX, x0 + w + 1); x++) {
+      for (let y = Math.max(0, y0 - 3); y < Math.min(S.worldTilesY, y0 + h + 1); y++) {
+        for (let x = Math.max(0, x0 - 3); x < Math.min(S.worldTilesX, x0 + w + 1); x++) {
           const inside = x >= x0 && x < x0 + w && y >= y0 && y < y0 + h;
-          if (!inside && !chunkLoaded[chunkOfTile(x, y)]) continue;
-          setTileSprite(x, y, tiles[y * worldTilesX + x]);
+          if (!inside && !S.chunkLoaded[chunkOfTile(x, y)]) continue;
+          setTileSprite(x, y, S.tiles[y * S.worldTilesX + x]);
         }
       }
       addDecorIn(x0, y0, w, h);
       // Floor chunks under it rebuild with the real biomes (built lazily by updateFloorChunks).
-      const fcx = Math.ceil(worldTilesX / FLOOR_CHUNK_TILES);
+      const fcx = Math.ceil(S.worldTilesX / FLOOR_CHUNK_TILES);
       for (let fy = Math.floor(y0 / FLOOR_CHUNK_TILES); fy * FLOOR_CHUNK_TILES < y0 + h; fy++) {
         for (let fx = Math.floor(x0 / FLOOR_CHUNK_TILES); fx * FLOOR_CHUNK_TILES < x0 + w; fx++) {
           const key = fy * fcx + fx;
@@ -3605,7 +3521,7 @@ async function main() {
           floorChunks.delete(key);
         }
       }
-      for (let y = y0; y < y0 + h; y += sm.f) for (let x = x0; x < x0 + w; x += sm.f) paintMinimapTile(y * worldTilesX + x);
+      for (let y = y0; y < y0 + h; y += sm.f) for (let x = x0; x < x0 + w; x += sm.f) paintMinimapTile(y * S.worldTilesX + x);
     }
   }
 
@@ -3618,70 +3534,70 @@ async function main() {
   const minimapCtx = minimapEl.getContext("2d")!;
   const minimapStatic = document.createElement("canvas");
   const minimapStaticCtx = minimapStatic.getContext("2d")!;
-  let minimapImage: ImageData | null = null;
-  let minimapStaticDirty = false;
+  S.minimapImage = null;
+  S.minimapStaticDirty = false;
   // The strategic map sprite's texture needs a re-upload from minimapStatic (done only in the Map band).
-  let strategicMapDirty = false;
-  let explored = new Uint8Array(0);
+  S.strategicMapDirty = false;
+  S.explored = new Uint8Array(0);
   const MINIMAP_TARGET_CSS_PX = 180;
   // Both integers, so tile -> pixel stays exact: CSS px per tile, and backing px per CSS px.
-  let minimapCssPerTile = 1;
-  let minimapDpr = 1;
+  S.minimapCssPerTile = 1;
+  S.minimapDpr = 1;
   // Compact / expanded: a big world's minimap used to be the whole map at >= 1 px per tile (512 px on a 512 map). Now it is a
   // MM_COMPACT_CSS window around the player at 1 px per tile (about 11 x 11 chunks) with a button to expand to the whole map,
   // shrunk to fit the screen. The strategy view always shows the whole map (its click-to-jump needs it). Maps that already fit
   // the compact window have no button.
   const MM_COMPACT_CSS = 176;
-  let mmExpanded = false;
-  try { mmExpanded = localStorage.getItem("colony-minimap-expanded") === "1"; } catch { /* storage unavailable */ }
-  let mmFull = true; // the canvas currently shows the whole world
-  let mmBaseCss = 1; // CSS px per tile of the whole-world view (before the screen-fit cap)
+  S.mmExpanded = false;
+  try { S.mmExpanded = localStorage.getItem("colony-minimap-expanded") === "1"; } catch { /* storage unavailable */ }
+  S.mmFull = true; // the canvas currently shows the whole world
+  S.mmBaseCss = 1; // CSS px per tile of the whole-world view (before the screen-fit cap)
   const minimapToggleEl = document.getElementById("minimap-toggle") as HTMLButtonElement | null;
   // Top-left of the visible window, in backing px of the map-space the drawing code works in (0, 0 when the whole map shows).
-  let mmOx = 0;
-  let mmOy = 0;
+  S.mmOx = 0;
+  S.mmOy = 0;
   function minimapFullCss(): number {
-    const world = Math.max(worldTilesX, worldTilesY, 1);
+    const world = Math.max(S.worldTilesX, S.worldTilesY, 1);
     const cap = Math.max(MM_COMPACT_CSS, Math.min(window.innerWidth * 0.3, window.innerHeight * 0.5, 380));
-    return Math.min(mmBaseCss, cap / world);
+    return Math.min(S.mmBaseCss, cap / world);
   }
   function minimapCanToggle(): boolean {
-    return Math.max(worldTilesX, worldTilesY) * mmBaseCss > MM_COMPACT_CSS * 1.15;
+    return Math.max(S.worldTilesX, S.worldTilesY) * S.mmBaseCss > MM_COMPACT_CSS * 1.15;
   }
   function minimapWantsFull(): boolean {
-    return !minimapCanToggle() || mmExpanded || strategyCam.inStrategy;
+    return !minimapCanToggle() || S.mmExpanded || strategyCam.inStrategy;
   }
   function applyMinimapLayout() {
-    mmFull = minimapWantsFull();
-    minimapDpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
-    minimapCssPerTile = mmFull ? minimapFullCss() : 1;
-    const cssW = mmFull ? worldTilesX * minimapCssPerTile : Math.min(MM_COMPACT_CSS, worldTilesX * minimapCssPerTile);
-    const cssH = mmFull ? worldTilesY * minimapCssPerTile : Math.min(MM_COMPACT_CSS, worldTilesY * minimapCssPerTile);
-    minimapEl.width = Math.max(1, Math.ceil(cssW * minimapDpr));
-    minimapEl.height = Math.max(1, Math.ceil(cssH * minimapDpr));
+    S.mmFull = minimapWantsFull();
+    S.minimapDpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
+    S.minimapCssPerTile = S.mmFull ? minimapFullCss() : 1;
+    const cssW = S.mmFull ? S.worldTilesX * S.minimapCssPerTile : Math.min(MM_COMPACT_CSS, S.worldTilesX * S.minimapCssPerTile);
+    const cssH = S.mmFull ? S.worldTilesY * S.minimapCssPerTile : Math.min(MM_COMPACT_CSS, S.worldTilesY * S.minimapCssPerTile);
+    minimapEl.width = Math.max(1, Math.ceil(cssW * S.minimapDpr));
+    minimapEl.height = Math.max(1, Math.ceil(cssH * S.minimapDpr));
     minimapEl.style.width = `${cssW}px`;
     minimapEl.style.height = `${cssH}px`;
     if (minimapToggleEl) {
       minimapToggleEl.hidden = !minimapCanToggle() || strategyCam.inStrategy;
-      minimapToggleEl.textContent = mmExpanded ? "\u2921" : "\u2922";
-      minimapToggleEl.title = mmExpanded ? "Shrink the minimap to the area around you" : "Expand the minimap to the whole map";
+      minimapToggleEl.textContent = S.mmExpanded ? "\u2921" : "\u2922";
+      minimapToggleEl.title = S.mmExpanded ? "Shrink the minimap to the area around you" : "Expand the minimap to the whole map";
       minimapToggleEl.setAttribute("aria-label", minimapToggleEl.title);
     }
   }
   minimapToggleEl?.addEventListener("click", (e) => {
     e.stopPropagation();
-    mmExpanded = !mmExpanded;
-    try { localStorage.setItem("colony-minimap-expanded", mmExpanded ? "1" : "0"); } catch { /* storage unavailable */ }
+    S.mmExpanded = !S.mmExpanded;
+    try { localStorage.setItem("colony-minimap-expanded", S.mmExpanded ? "1" : "0"); } catch { /* storage unavailable */ }
     applyMinimapLayout();
   });
   minimapToggleEl?.addEventListener("pointerdown", (e) => e.stopPropagation());
-  window.addEventListener("resize", () => { if (minimapImage) applyMinimapLayout(); });
+  window.addEventListener("resize", () => { if (S.minimapImage) applyMinimapLayout(); });
   // The world tile under a pointer on the minimap (accounts for the compact window's offset).
   function minimapTileAt(clientX: number, clientY: number): { x: number; y: number } | null {
     const r = minimapEl.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return null;
-    const sBack = minimapCssPerTile * minimapDpr;
-    return { x: (mmOx + ((clientX - r.left) / r.width) * minimapEl.width) / sBack, y: (mmOy + ((clientY - r.top) / r.height) * minimapEl.height) / sBack };
+    const sBack = S.minimapCssPerTile * S.minimapDpr;
+    return { x: (S.mmOx + ((clientX - r.left) / r.width) * minimapEl.width) / sBack, y: (S.mmOy + ((clientY - r.top) / r.height) * minimapEl.height) / sBack };
   }
 
   const MINIMAP_UNEXPLORED = 0x140d07;
@@ -3718,13 +3634,13 @@ async function main() {
   const MINIMAP_ABBEY_TILES = new Set<number>([TileType.AbbeyHall, TileType.PropCross, TileType.PropLanternPost]);
 
   function minimapTileColor(index: number): number {
-    if (!explored[index]) return MINIMAP_UNEXPLORED;
+    if (!S.explored[index]) return MINIMAP_UNEXPLORED;
     // Forts phase A: an NPC fort's walls / buildings.
-    if (siteOwners.has(index)) return MINIMAP_RUIN;
-    const tile = tiles[index] ?? TileType.Empty;
+    if (S.siteOwners.has(index)) return MINIMAP_RUIN;
+    const tile = S.tiles[index] ?? TileType.Empty;
     switch (tile) {
       case TileType.Empty:
-        return MINIMAP_BIOME[biomes[index] ?? Biome.Plains] ?? MINIMAP_BIOME[Biome.Plains];
+        return MINIMAP_BIOME[S.biomes[index] ?? Biome.Plains] ?? MINIMAP_BIOME[Biome.Plains];
       case TileType.Water:
         return MINIMAP_WATER;
       case TileType.Tree:
@@ -3736,7 +3652,7 @@ async function main() {
       case TileType.BerryBushPicked:
       case TileType.MushroomPatch:
       case TileType.MushroomPatchPicked:
-        return MINIMAP_BIOME[biomes[index] ?? Biome.Plains] ?? MINIMAP_BIOME[Biome.Plains];
+        return MINIMAP_BIOME[S.biomes[index] ?? Biome.Plains] ?? MINIMAP_BIOME[Biome.Plains];
       case TileType.Rock:
         return MINIMAP_ROCK;
       case TileType.IronOre:
@@ -3784,79 +3700,79 @@ async function main() {
   // World streaming phase 4: one minimap pixel per f x f cell. A loaded chunk's cell is recomputed from its
   // tiles; elsewhere a structure arriving by tileUpdate overrides the welcome's summary.
   function paintMinimapCell(index: number) {
-    const sm = streamed!;
-    const tx = index % worldTilesX;
-    const ty = Math.floor(index / worldTilesX);
+    const sm = S.streamed!;
+    const tx = index % S.worldTilesX;
+    const ty = Math.floor(index / S.worldTilesX);
     const cx = Math.floor(tx / sm.f);
     const cy = Math.floor(ty / sm.f);
     const cell = cy * sm.cw + cx;
-    if (chunkLoaded[chunkOfTile(tx, ty)]) {
-      sm.cells[cell] = minimapCellClass(tiles, biomes, worldTilesX, worldTilesY, cx, cy, sm.f, (i) => siteOwners.has(i));
+    if (S.chunkLoaded[chunkOfTile(tx, ty)]) {
+      sm.cells[cell] = minimapCellClass(S.tiles, S.biomes, S.worldTilesX, S.worldTilesY, cx, cy, sm.f, (i) => S.siteOwners.has(i));
     } else {
-      const k = minimapClassOf(tiles[index] ?? 0, biomes[index] ?? 0, siteOwners.has(index));
+      const k = minimapClassOf(S.tiles[index] ?? 0, S.biomes[index] ?? 0, S.siteOwners.has(index));
       if (k >= MinimapClass.Wall) sm.cells[cell] = k;
     }
-    if (explored[index]) sm.cellSeen[cell] = 1;
+    if (S.explored[index]) sm.cellSeen[cell] = 1;
     paintMinimapPixel(cell, sm.cellSeen[cell] ? MINIMAP_CLASS_COLOR[sm.cells[cell]] : MINIMAP_UNEXPLORED);
   }
   function paintMinimapPixel(pixel: number, color: number) {
     const o = pixel * 4;
-    minimapImage!.data[o] = color >> 16;
-    minimapImage!.data[o + 1] = (color >> 8) & 0xff;
-    minimapImage!.data[o + 2] = color & 0xff;
-    minimapImage!.data[o + 3] = 255;
-    minimapStaticDirty = true;
+    S.minimapImage!.data[o] = color >> 16;
+    S.minimapImage!.data[o + 1] = (color >> 8) & 0xff;
+    S.minimapImage!.data[o + 2] = color & 0xff;
+    S.minimapImage!.data[o + 3] = 255;
+    S.minimapStaticDirty = true;
   }
 
   function paintMinimapTile(index: number) {
-    if (!minimapImage) return;
-    if (streamed) return paintMinimapCell(index);
+    if (!S.minimapImage) return;
+    if (S.streamed) return paintMinimapCell(index);
     const color = minimapTileColor(index);
     const o = index * 4;
-    minimapImage.data[o] = color >> 16;
-    minimapImage.data[o + 1] = (color >> 8) & 0xff;
-    minimapImage.data[o + 2] = color & 0xff;
-    minimapImage.data[o + 3] = 255;
-    minimapStaticDirty = true;
+    S.minimapImage.data[o] = color >> 16;
+    S.minimapImage.data[o + 1] = (color >> 8) & 0xff;
+    S.minimapImage.data[o + 2] = color & 0xff;
+    S.minimapImage.data[o + 3] = 255;
+    S.minimapStaticDirty = true;
   }
 
   // `welcome` (join or restart): unpack the bitset and rebuild the whole static layer once.
   function resetMinimap(packedExplored: string) {
-    const count = worldTilesX * worldTilesY;
-    if (streamed) {
-      explored = decodeMaskRuns(packedExplored, count);
+    const count = S.worldTilesX * S.worldTilesY;
+    if (S.streamed) {
+      S.explored = decodeMaskRuns(packedExplored, count);
     } else {
       const bytes = atob(packedExplored);
-      explored = new Uint8Array(count);
-      for (let i = 0; i < count; i++) explored[i] = (bytes.charCodeAt(i >> 3) >> (i & 7)) & 1;
+      S.explored = new Uint8Array(count);
+      for (let i = 0; i < count; i++) S.explored[i] = (bytes.charCodeAt(i >> 3) >> (i & 7)) & 1;
     }
     // World streaming phase 4: a streamed world's minimap is one CSS px per summary cell (1 / f px per tile).
-    mmBaseCss = streamed ? 1 / streamed.f : Math.max(1, Math.round(MINIMAP_TARGET_CSS_PX / Math.max(worldTilesX, worldTilesY)));
+    S.mmBaseCss = S.streamed ? 1 / S.streamed.f : Math.max(1, Math.round(MINIMAP_TARGET_CSS_PX / Math.max(S.worldTilesX, S.worldTilesY)));
     applyMinimapLayout();
-    if (streamed) {
-      const sm = streamed;
-      for (let i = 0; i < count; i++) if (explored[i]) sm.cellSeen[Math.floor(Math.floor(i / worldTilesX) / sm.f) * sm.cw + Math.floor((i % worldTilesX) / sm.f)] = 1;
+    if (S.streamed) {
+      const sm = S.streamed;
+      for (let i = 0; i < count; i++) if (S.explored[i]) sm.cellSeen[Math.floor(Math.floor(i / S.worldTilesX) / sm.f) * sm.cw + Math.floor((i % S.worldTilesX) / sm.f)] = 1;
       minimapStatic.width = sm.cw;
       minimapStatic.height = sm.ch;
-      minimapImage = minimapStaticCtx.createImageData(sm.cw, sm.ch);
+      S.minimapImage = minimapStaticCtx.createImageData(sm.cw, sm.ch);
       for (let c = 0; c < sm.cw * sm.ch; c++) paintMinimapPixel(c, sm.cellSeen[c] ? MINIMAP_CLASS_COLOR[sm.cells[c]] : MINIMAP_UNEXPLORED);
     } else {
-      minimapStatic.width = worldTilesX;
-      minimapStatic.height = worldTilesY;
-      minimapImage = minimapStaticCtx.createImageData(worldTilesX, worldTilesY);
+      minimapStatic.width = S.worldTilesX;
+      minimapStatic.height = S.worldTilesY;
+      S.minimapImage = minimapStaticCtx.createImageData(S.worldTilesX, S.worldTilesY);
       for (let i = 0; i < count; i++) paintMinimapTile(i);
     }
     // The canvas was resized: a fresh texture for the strategic map sprite.
     if (strategicMapSprite.texture !== Texture.EMPTY) strategicMapSprite.texture.destroy(true);
     strategicMapSprite.texture = new Texture({ source: new CanvasSource({ resource: minimapStatic, scaleMode: "nearest" }) });
-    strategicMapSprite.scale.set(tileSize * (streamed?.f ?? 1));
-    strategicMapDirty = true;
+    strategicMapSprite.scale.set(S.tileSize * (S.streamed?.f ?? 1));
+    S.strategicMapDirty = true;
   }
 
   function markExplored(indices: number[]) {
     for (const i of indices) {
-      if (i < 0 || i >= explored.length || explored[i]) continue;
-      explored[i] = 1;
+      if (i < 0 || i >= S.explored.length || S.explored[i]) continue;
+      S.explored[i] = 1;
       paintMinimapTile(i);
     }
   }
@@ -3864,11 +3780,11 @@ async function main() {
   // Live view right now: players and the colony's own colonists (not the Abbey's clergy), with the
   // server's vision radii (minimap enemy dots and the strategy fog share it).
   function liveVisionSources(players: PlayerSnapshot[], colonists: ColonistSnapshot[]): VisionSource[] {
-    const tileOf = (worldPx: number) => Math.floor(worldPx / tileSize);
+    const tileOf = (worldPx: number) => Math.floor(worldPx / S.tileSize);
     const sources: VisionSource[] = [];
     for (const p of players) sources.push({ x: tileOf(p.x), y: tileOf(p.y), r: VISION_RADIUS_PLAYER });
     for (const c of colonists) {
-      if (tiles[c.postY * worldTilesX + c.postX] === TileType.AbbeyHall) continue;
+      if (S.tiles[c.postY * S.worldTilesX + c.postX] === TileType.AbbeyHall) continue;
       sources.push({ x: tileOf(c.x), y: tileOf(c.y), r: VISION_RADIUS_COLONIST });
     }
     return sources;
@@ -3879,53 +3795,53 @@ async function main() {
   }
 
   function drawMinimap(players: PlayerSnapshot[], colonists: ColonistSnapshot[], mobs: MobSnapshot[]) {
-    if (!minimapImage) return;
-    if (minimapStaticDirty) {
-      minimapStaticCtx.putImageData(minimapImage, 0, 0);
-      minimapStaticDirty = false;
-      strategicMapDirty = true;
+    if (!S.minimapImage) return;
+    if (S.minimapStaticDirty) {
+      minimapStaticCtx.putImageData(S.minimapImage, 0, 0);
+      S.minimapStaticDirty = false;
+      S.strategicMapDirty = true;
     }
-    if (minimapWantsFull() !== mmFull) applyMinimapLayout();
+    if (minimapWantsFull() !== S.mmFull) applyMinimapLayout();
     const ctx = minimapCtx;
-    const s = minimapCssPerTile * minimapDpr; // backing px per tile
-    const u = minimapDpr; // backing px per CSS px
-    const toMap = (worldPx: number) => (worldPx / tileSize) * s;
-    const tileOf = (worldPx: number) => Math.floor(worldPx / tileSize);
+    const s = S.minimapCssPerTile * S.minimapDpr; // backing px per tile
+    const u = S.minimapDpr; // backing px per CSS px
+    const toMap = (worldPx: number) => (worldPx / S.tileSize) * s;
+    const tileOf = (worldPx: number) => Math.floor(worldPx / S.tileSize);
     // Compact window: centred on the player (or the camera when there is none), kept inside the map. Everything below draws in
     // whole-map space; the translate moves the window onto the canvas.
-    mmOx = 0;
-    mmOy = 0;
-    if (!mmFull) {
-      const focus = players.find((p) => p.id === myId);
-      const fx = focus ? toMap(focus.x) : toMap(-worldLayer.position.x / camZoom + app.screen.width / camZoom / 2);
-      const fy = focus ? toMap(focus.y) : toMap(-worldLayer.position.y / camZoom + app.screen.height / camZoom / 2);
-      mmOx = Math.round(Math.max(0, Math.min(worldTilesX * s - minimapEl.width, fx - minimapEl.width / 2)));
-      mmOy = Math.round(Math.max(0, Math.min(worldTilesY * s - minimapEl.height, fy - minimapEl.height / 2)));
+    S.mmOx = 0;
+    S.mmOy = 0;
+    if (!S.mmFull) {
+      const focus = players.find((p) => p.id === S.myId);
+      const fx = focus ? toMap(focus.x) : toMap(-worldLayer.position.x / S.camZoom + app.screen.width / S.camZoom / 2);
+      const fy = focus ? toMap(focus.y) : toMap(-worldLayer.position.y / S.camZoom + app.screen.height / S.camZoom / 2);
+      S.mmOx = Math.round(Math.max(0, Math.min(S.worldTilesX * s - minimapEl.width, fx - minimapEl.width / 2)));
+      S.mmOy = Math.round(Math.max(0, Math.min(S.worldTilesY * s - minimapEl.height, fy - minimapEl.height / 2)));
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, minimapEl.width, minimapEl.height);
     ctx.save();
-    ctx.translate(-mmOx, -mmOy);
+    ctx.translate(-S.mmOx, -S.mmOy);
     ctx.imageSmoothingEnabled = false;
     {
       // Only the visible part of the static layer (one pixel per tile, or one per summary cell when streamed).
-      const per = minimapStatic.width / worldTilesX; // static px per tile
-      const sx = (mmOx / s) * per;
-      const sy = (mmOy / s) * per;
+      const per = minimapStatic.width / S.worldTilesX; // static px per tile
+      const sx = (S.mmOx / s) * per;
+      const sy = (S.mmOy / s) * per;
       const sw = Math.min(minimapStatic.width - sx, (minimapEl.width / s) * per);
       const sh = Math.min(minimapStatic.height - sy, (minimapEl.height / s) * per);
-      if (sw > 0 && sh > 0) ctx.drawImage(minimapStatic, sx, sy, sw, sh, mmOx, mmOy, (sw / per) * s, (sh / per) * s);
+      if (sw > 0 && sh > 0) ctx.drawImage(minimapStatic, sx, sy, sw, sh, S.mmOx, S.mmOy, (sw / per) * s, (sh / per) * s);
     }
 
     // Forts phase B: a flag on each explored fort's keep (faction colour; grey = razed, clan colour = captured).
-    for (const f of fortMarkers) {
+    for (const f of S.fortMarkers) {
       const fx = (f.keepX + 0.5) * s;
       const fy = (f.keepY + 0.5) * s;
       const color = f.captured
-        ? `#${(clanColors.get(f.capturedBy ?? 0) ?? 0x3a7bd5).toString(16).padStart(6, "0")}`
+        ? `#${(S.clanColors.get(f.capturedBy ?? 0) ?? 0x3a7bd5).toString(16).padStart(6, "0")}`
         : f.cleared ? "#8a8a8a" : f.hostile ? "#c0392b"
-        : f.vassalOf !== undefined && f.vassalOf !== myClan ? "#a0743a"
-        : f.faction === "human" && f.num !== undefined && siteRelations.has(f.num) ? RELATION_TIER_COLOR[siteRelations.get(f.num)!.tier]
+        : f.vassalOf !== undefined && f.vassalOf !== S.myClan ? "#a0743a"
+        : f.faction === "human" && f.num !== undefined && S.siteRelations.has(f.num) ? RELATION_TIER_COLOR[S.siteRelations.get(f.num)!.tier]
         : FORT_FLAG_COLOR[f.faction];
       // Forts phase C: a human settlement's flag has a green edge (white = neutral, red = hostile).
       ctx.fillStyle = f.faction === "human" && !f.captured && !f.cleared ? "#2e8b3a" : "#1a1008";
@@ -3934,13 +3850,13 @@ async function main() {
       ctx.fillStyle = color;
       ctx.fillRect(fx + u, fy - 7 * u, 6 * u, 4 * u);
       // Forts phase F: a crown over this clan's vassals.
-      if (f.vassalOf !== undefined && f.vassalOf === myClan && !f.cleared && !f.captured) {
+      if (f.vassalOf !== undefined && f.vassalOf === S.myClan && !f.cleared && !f.captured) {
         ctx.fillStyle = "#f1c40f";
         ctx.fillRect(fx + u, fy - 9.5 * u, 6 * u, 1.5 * u);
         for (const dx of [1, 3.5, 6]) ctx.fillRect(fx + dx * u - 0.5 * u, fy - 11 * u, u, 1.5 * u);
       }
     }
-    for (const { x: tcX, y: tcY } of latestTownCenters) {
+    for (const { x: tcX, y: tcY } of S.latestTownCenters) {
       const size = 7 * u;
       const cx = (tcX + 0.5) * s;
       const cy = (tcY + 0.5) * s;
@@ -3953,7 +3869,7 @@ async function main() {
     }
 
     // Forts phase D2: a quest marker (gold diamond; green once accepted) on each open quest's target tile.
-    for (const q of latestQuests) {
+    for (const q of S.latestQuests) {
       const qx = (q.x + 0.5) * s;
       const qy = (q.y + 0.5) * s;
       const r = 4.5 * u;
@@ -3982,10 +3898,10 @@ async function main() {
     }
 
     // Camp hearths, once explored: a small ember dot with a dark rim on the camp's centre.
-    for (const index of latestHearths) {
-      if (!explored[index]) continue;
-      const cx = ((index % worldTilesX) + 0.5) * s;
-      const cy = (Math.floor(index / worldTilesX) + 0.5) * s;
+    for (const index of S.latestHearths) {
+      if (!S.explored[index]) continue;
+      const cx = ((index % S.worldTilesX) + 0.5) * s;
+      const cy = (Math.floor(index / S.worldTilesX) + 0.5) * s;
       const r = 2.5 * u;
       ctx.fillStyle = "#1a0f06";
       ctx.fillRect(cx - r - u, cy - r - u, 2 * (r + u), 2 * (r + u));
@@ -3994,10 +3910,10 @@ async function main() {
     }
 
     // The Castle Ruin, once its centre tile is explored: its 9x9 walls outlined, a red keep in the middle.
-    if (castleRuinTile && explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
+    if (S.castleRuinTile && S.explored[S.castleRuinTile.y * S.worldTilesX + S.castleRuinTile.x]) {
       const half = 4.5 * s;
-      const cx = (castleRuinTile.x + 0.5) * s;
-      const cy = (castleRuinTile.y + 0.5) * s;
+      const cx = (S.castleRuinTile.x + 0.5) * s;
+      const cy = (S.castleRuinTile.y + 0.5) * s;
       ctx.lineWidth = 3 * u;
       ctx.strokeStyle = "#1a0f06";
       ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
@@ -4017,12 +3933,12 @@ async function main() {
 
     ctx.fillStyle = "#f3da98";
     for (const c of colonists) {
-      if (!explored[tileOf(c.y) * worldTilesX + tileOf(c.x)]) continue;
+      if (!S.explored[tileOf(c.y) * S.worldTilesX + tileOf(c.x)]) continue;
       ctx.fillRect(Math.round(toMap(c.x) - u), Math.round(toMap(c.y) - u), 2 * u, 2 * u);
     }
     // Forts phase E: own trader wagons on the road, a bigger gold dot with a dark rim.
     for (const c of colonists) {
-      if (!c.wagon || c.wagon.leg === "home" || (c.clan ?? 0) !== myClan) continue;
+      if (!c.wagon || c.wagon.leg === "home" || (c.clan ?? 0) !== S.myClan) continue;
       const r = 2.5 * u;
       ctx.fillStyle = "#1a0f06";
       ctx.fillRect(toMap(c.x) - r - u, toMap(c.y) - r - u, 2 * (r + u), 2 * (r + u));
@@ -4045,7 +3961,7 @@ async function main() {
     }
 
     for (const p of players) {
-      if (p.id === myId) continue;
+      if (p.id === S.myId) continue;
       ctx.beginPath();
       ctx.arc(toMap(p.x), toMap(p.y), 3 * u, 0, Math.PI * 2);
       ctx.fillStyle = cssColor(p.color);
@@ -4055,7 +3971,7 @@ async function main() {
       ctx.stroke();
     }
 
-    const me = players.find((p) => p.id === myId);
+    const me = players.find((p) => p.id === S.myId);
     if (me) {
       ctx.beginPath();
       ctx.arc(toMap(me.x), toMap(me.y), 4 * u, 0, Math.PI * 2);
@@ -4068,10 +3984,10 @@ async function main() {
     }
 
     // Main camera viewport (worldLayer is scaled by camZoom and offset to the camera focus).
-    const viewX = toMap(-worldLayer.position.x / camZoom);
-    const viewY = toMap(-worldLayer.position.y / camZoom);
-    const viewW = toMap(app.screen.width / camZoom);
-    const viewH = toMap(app.screen.height / camZoom);
+    const viewX = toMap(-worldLayer.position.x / S.camZoom);
+    const viewY = toMap(-worldLayer.position.y / S.camZoom);
+    const viewW = toMap(app.screen.width / S.camZoom);
+    const viewH = toMap(app.screen.height / S.camZoom);
     ctx.lineWidth = u;
     ctx.strokeStyle = "rgba(251, 236, 200, 0.85)";
     ctx.strokeRect(Math.round(viewX) + u / 2, Math.round(viewY) + u / 2, Math.round(viewW) - u, Math.round(viewH) - u);
@@ -4086,14 +4002,6 @@ async function main() {
   // movement key returns it to the player). The minimap pings every listed fight, and the first time a
   // fight begins off-screen a toast names it (at most one per FIGHT_TOAST_THROTTLE_MS).
   const fightArrowLayer = document.getElementById("fight-arrows")!;
-  interface FightArrow {
-    fight: FightSnapshot;
-    el: HTMLButtonElement;
-    chevron: HTMLElement;
-    title: HTMLElement;
-    sub: HTMLElement;
-    goneAt: number;
-  }
   const fightArrows = new Map<number, FightArrow>();
   const FIGHT_ARROW_FADE_MS = 600;
   // Kept clear of the top button row / toasts and the bottom command bar.
@@ -4102,34 +4010,34 @@ async function main() {
   const FIGHT_TOAST_THROTTLE_MS = 20000;
   const FIGHT_PEEK_MS = 4000;
   const FIGHT_PEEK_EASE = 0.18;
-  let latestFights: FightSnapshot[] = [];
+  S.latestFights = [];
   const announcedFightIds = new Set<number>();
-  let lastFightToastAt = -Infinity;
-  let fightPeek: { x: number; y: number; until: number } | null = null;
+  S.lastFightToastAt = -Infinity;
+  S.fightPeek = null;
   // The eased camera focus while peeking or easing back (null = locked on the player).
-  let fightPeekCam: { x: number; y: number } | null = null;
+  S.fightPeekCam = null;
 
   function fightPeekFocus(playerX: number, playerY: number): { x: number; y: number } {
-    if (fightPeek) {
+    if (S.fightPeek) {
       const input = currentInput();
-      if (performance.now() > fightPeek.until || input.dx !== 0 || input.dy !== 0) fightPeek = null;
+      if (performance.now() > S.fightPeek.until || input.dx !== 0 || input.dy !== 0) S.fightPeek = null;
     }
-    if (!fightPeek && !fightPeekCam) return { x: playerX, y: playerY };
-    const cam = fightPeekCam ?? { x: playerX, y: playerY };
-    const tx = fightPeek ? fightPeek.x : playerX;
-    const ty = fightPeek ? fightPeek.y : playerY;
+    if (!S.fightPeek && !S.fightPeekCam) return { x: playerX, y: playerY };
+    const cam = S.fightPeekCam ?? { x: playerX, y: playerY };
+    const tx = S.fightPeek ? S.fightPeek.x : playerX;
+    const ty = S.fightPeek ? S.fightPeek.y : playerY;
     cam.x += (tx - cam.x) * FIGHT_PEEK_EASE;
     cam.y += (ty - cam.y) * FIGHT_PEEK_EASE;
-    fightPeekCam = cam;
-    if (!fightPeek && Math.hypot(cam.x - playerX, cam.y - playerY) < 2) {
-      fightPeekCam = null;
+    S.fightPeekCam = cam;
+    if (!S.fightPeek && Math.hypot(cam.x - playerX, cam.y - playerY) < 2) {
+      S.fightPeekCam = null;
       return { x: playerX, y: playerY };
     }
     return cam;
   }
 
   function fightWorldPos(f: FightSnapshot): { x: number; y: number } {
-    return { x: (f.x + 0.5) * tileSize, y: (f.y + 0.5) * tileSize };
+    return { x: (f.x + 0.5) * S.tileSize, y: (f.y + 0.5) * S.tileSize };
   }
 
   function fightTitle(f: FightSnapshot): string {
@@ -4140,15 +4048,15 @@ async function main() {
     const w = fightWorldPos(f);
     return placeEdgeArrow(
       app.screen.width, app.screen.height,
-      worldLayer.position.x + w.x * camZoom, worldLayer.position.y + w.y * camZoom, FIGHT_ARROW_INSETS
+      worldLayer.position.x + w.x * S.camZoom, worldLayer.position.y + w.y * S.camZoom, FIGHT_ARROW_INSETS
     ).onScreen;
   }
 
   // Direction and distance in tiles from the local player (the camera centre if there is none).
   function fightBearing(f: FightSnapshot): { dir: string; tiles: number } {
-    const me = myId ? playerSprites.get(myId) : undefined;
-    const ox = me ? me.sprite.position.x / tileSize : (app.screen.width / 2 - worldLayer.position.x) / camZoom / tileSize;
-    const oy = me ? me.sprite.position.y / tileSize : (app.screen.height / 2 - worldLayer.position.y) / camZoom / tileSize;
+    const me = S.myId ? playerSprites.get(S.myId) : undefined;
+    const ox = me ? me.sprite.position.x / S.tileSize : (app.screen.width / 2 - worldLayer.position.x) / S.camZoom / S.tileSize;
+    const oy = me ? me.sprite.position.y / S.tileSize : (app.screen.height / 2 - worldLayer.position.y) / S.camZoom / S.tileSize;
     const dx = f.x + 0.5 - ox;
     const dy = f.y + 0.5 - oy;
     return { dir: compassDirection(dx, dy), tiles: Math.round(Math.hypot(dx, dy)) };
@@ -4172,7 +4080,7 @@ async function main() {
       const arrow = fightArrows.get(f.id);
       const target = fightWorldPos(arrow ? arrow.fight : f);
       if (strategyCam.inStrategy) strategyCam.jumpTo(target.x, target.y);
-      else fightPeek = { x: target.x, y: target.y, until: performance.now() + FIGHT_PEEK_MS };
+      else S.fightPeek = { x: target.x, y: target.y, until: performance.now() + FIGHT_PEEK_MS };
       el.blur();
     });
     fightArrowLayer.append(el);
@@ -4182,17 +4090,17 @@ async function main() {
   function clearFightArrows() {
     for (const a of fightArrows.values()) a.el.remove();
     fightArrows.clear();
-    latestFights = [];
+    S.latestFights = [];
     announcedFightIds.clear();
-    fightPeek = null;
-    fightPeekCam = null;
+    S.fightPeek = null;
+    S.fightPeekCam = null;
   }
 
   function syncFights(fights: FightSnapshot[] | undefined) {
-    latestFights = fights ?? [];
+    S.latestFights = fights ?? [];
     const now = performance.now();
     const seen = new Set<number>();
-    for (const f of latestFights) {
+    for (const f of S.latestFights) {
       seen.add(f.id);
       let arrow = fightArrows.get(f.id);
       if (!arrow) {
@@ -4205,8 +4113,8 @@ async function main() {
       arrow.el.title = `${f.label}: ${f.combatants} fighting${f.you ? " (you)" : ""} - click to look`;
       if (!announcedFightIds.has(f.id)) {
         announcedFightIds.add(f.id);
-        if (now - lastFightToastAt >= FIGHT_TOAST_THROTTLE_MS && !fightIsOnScreen(f)) {
-          lastFightToastAt = now;
+        if (now - S.lastFightToastAt >= FIGHT_TOAST_THROTTLE_MS && !fightIsOnScreen(f)) {
+          S.lastFightToastAt = now;
           const { dir, tiles } = fightBearing(f);
           pushEventToast("raid", `${fightTitle(f)} to the ${dir} (${tiles} tiles)`);
         }
@@ -4230,7 +4138,7 @@ async function main() {
       const w = fightWorldPos(a.fight);
       const p = placeEdgeArrow(
         app.screen.width, app.screen.height,
-        worldLayer.position.x + w.x * camZoom, worldLayer.position.y + w.y * camZoom, FIGHT_ARROW_INSETS
+        worldLayer.position.x + w.x * S.camZoom, worldLayer.position.y + w.y * S.camZoom, FIGHT_ARROW_INSETS
       );
       a.el.hidden = p.onScreen;
       if (p.onScreen) continue;
@@ -4253,9 +4161,9 @@ async function main() {
   // Expanding rings on the minimap at every listed fight (on or off screen), faster and wider the
   // fiercer it is. Called at the end of drawMinimap, in its backing-pixel space.
   function drawFightPings(ctx: CanvasRenderingContext2D, s: number, u: number) {
-    if (latestFights.length === 0) return;
+    if (S.latestFights.length === 0) return;
     const now = performance.now();
-    for (const f of latestFights) {
+    for (const f of S.latestFights) {
       const cx = (f.x + 0.5) * s;
       const cy = (f.y + 0.5) * s;
       const period = f.intensity >= 3 ? 700 : f.intensity === 2 ? 950 : 1200;
@@ -4300,14 +4208,14 @@ async function main() {
     weather: document.getElementById("stat-weather"),
   };
   for (const img of [calendarEl.seasonIcon, calendarEl.weatherIcon]) img?.addEventListener("error", () => (img.hidden = true));
-  let shownCalendar = "";
+  S.shownCalendar = "";
   function refreshCalendar(cal: CalendarSnapshot | undefined) {
     if (!cal) return;
     applySeason(cal.season);
     weatherUi.set(cal.weather);
     const key = `${cal.year}/${cal.season}/${cal.day}/${cal.weather}`;
-    if (key === shownCalendar) return;
-    shownCalendar = key;
+    if (key === S.shownCalendar) return;
+    S.shownCalendar = key;
     const season = SEASONS[cal.season];
     if (calendarEl.date) calendarEl.date.textContent = calendarLabel(cal);
     if (calendarEl.weather) calendarEl.weather.textContent = WEATHER_LABEL[cal.weather];
@@ -4327,11 +4235,11 @@ async function main() {
   const fuelEl = document.getElementById("stat-fuel")!;
   const clothesEl = document.getElementById("stat-clothes")!;
   const winterWarnEl = document.getElementById("stat-winter-warn")!;
-  let shownWinter = "";
+  S.shownWinter = "";
   function refreshWinter(w: WinterSnapshot | undefined) {
     const key = JSON.stringify(w ?? null);
-    if (key === shownWinter) return;
-    shownWinter = key;
+    if (key === S.shownWinter) return;
+    S.shownWinter = key;
     winterRowEl.hidden = !w;
     winterWarnEl.hidden = !w?.warning;
     if (!w) return;
@@ -4349,11 +4257,11 @@ async function main() {
   const agriRowEl = document.getElementById("stat-agri")!;
   const spoilEl = document.getElementById("stat-spoil")!;
   const sickEl = document.getElementById("stat-sick")!;
-  let shownAgri = "";
+  S.shownAgri = "";
   function refreshAgri(a: AgriSnapshot | undefined) {
     const key = JSON.stringify(a ?? null);
-    if (key === shownAgri) return;
-    shownAgri = key;
+    if (key === S.shownAgri) return;
+    S.shownAgri = key;
     agriRowEl.hidden = !a;
     if (!a) return;
     const pct = (n: number) => `${Math.round(n * 1000) / 10}%`;
@@ -4371,24 +4279,6 @@ async function main() {
   app.ticker.add(() => {
     pausedBanner.position.set(app.screen.width / 2, app.screen.height / 2);
   });
-
-  // ---- Economy panel (DOM): goods stockpile + Market / Gold Shop, left side ----
-  // The canvas HUD keeps the core numbers (wood/iron/rock/gold/pop/time); everything else lives here.
-
-  type GoodKey =
-    | "wood"
-    | "iron"
-    | "rock"
-    | "gold"
-    | "grain"
-    | "meat"
-    | "fruit"
-    | "wool"
-    | "cotton"
-    | "clothes"
-    | "tools"
-    | "luxuryItems"
-    | "alcohol";
   const GOODS_GROUPS: { heading: string; goods: { key: GoodKey; label: string }[] }[] = [
     {
       heading: "Food",
@@ -4434,7 +4324,7 @@ async function main() {
   const sundialEl = document.getElementById("sundial")!;
   const sundialHandEl = document.getElementById("sundial-hand")!;
   const sundialNightArcEl = document.getElementById("sundial-night-arc")!;
-  let sundialDayFraction = -1;
+  S.sundialDayFraction = -1;
   const statHappinessEl = document.getElementById("stat-happiness")! as HTMLElement;
   const statArmyEl = document.getElementById("stat-army")!;
   const statSelectedEl = document.getElementById("stat-selected")!;
@@ -4554,11 +4444,11 @@ async function main() {
       /* storage blocked: the panel still works */
     }
   };
-  let foldedGroups = new Set<string>();
+  S.foldedGroups = new Set<string>();
   try {
-    foldedGroups = new Set(JSON.parse(readPref(GOODS_FOLD_PREF) ?? "[]") as string[]);
+    S.foldedGroups = new Set(JSON.parse(readPref(GOODS_FOLD_PREF) ?? "[]") as string[]);
   } catch {
-    foldedGroups = new Set();
+    S.foldedGroups = new Set();
   }
   // Every row by key: a stock resource ("wood"), an item ("item:hide") or gear ("gear:armour:1").
   const goodsRows = new Map<string, { row: HTMLDivElement; value: HTMLSpanElement }>();
@@ -4617,13 +4507,13 @@ async function main() {
       body.hidden = folded;
       heading.classList.toggle("folded", folded);
     };
-    setFolded(foldedGroups.has(group.heading));
+    setFolded(S.foldedGroups.has(group.heading));
     heading.addEventListener("click", () => {
       const folded = !body.hidden;
       setFolded(folded);
-      if (folded) foldedGroups.add(group.heading);
-      else foldedGroups.delete(group.heading);
-      writePref(GOODS_FOLD_PREF, JSON.stringify([...foldedGroups]));
+      if (folded) S.foldedGroups.add(group.heading);
+      else S.foldedGroups.delete(group.heading);
+      writePref(GOODS_FOLD_PREF, JSON.stringify([...S.foldedGroups]));
     });
     goodsListEl.append(heading, body);
     if (group.heading === "Gear") body.append(document.getElementById("stat-equipment")!);
@@ -4661,10 +4551,6 @@ async function main() {
       goodsRows.set(good.key, { row, value });
     }
   }
-
-  // Mirrors the server's EXCHANGE_RATES / GOLD_SHOP_PRICES; the server re-validates every request.
-  type BaseResource = "wood" | "iron" | "rock";
-  type ShopItem = "tools" | "clothes" | "luxuryItems" | "wood" | "iron" | "rock";
   const RESOURCE_LABEL: Record<string, string> = {
     wood: "Wood",
     iron: "Iron",
@@ -4701,9 +4587,9 @@ async function main() {
   // Creative mode panel (shown only in creative worlds).
   const creativeUi = setupCreative({
     send: sendMessage,
-    centre: () => ({ x: (app.screen.width / 2 - worldLayer.position.x) / camZoom, y: (app.screen.height / 2 - worldLayer.position.y) / camZoom }),
+    centre: () => ({ x: (app.screen.width / 2 - worldLayer.position.x) / S.camZoom, y: (app.screen.height / 2 - worldLayer.position.y) / S.camZoom }),
     toast: (ok, text) => pushEventToast(ok ? "build" : "death", text),
-    selectedIds: () => Array.from(selectedIds),
+    selectedIds: () => Array.from(S.selectedIds),
     weatherOverlay: {
       get: () => weatherUi.isEnabled(),
       set: (on) => {
@@ -4765,13 +4651,13 @@ async function main() {
 
   // ---- Toolbar (real DOM elements, not canvas-drawn) ----
 
-  let currentTool: TileType = TileType.Wall;
+  S.currentTool = TileType.Wall;
   // Gap closure G1: the turn (0 / 1) of the next 2-tile furniture piece (R).
-  let furnitureRot = 0;
+  S.furnitureRot = 0;
   // Phase 3: a creative world shows the retired build tools.
-  let creativeWorld = false;
+  S.creativeWorld = false;
   const toolButtonEls = new Map<TileType, HTMLButtonElement>();
-  let activeCategory: ToolCategory = TOOL_CATEGORIES[0].key;
+  S.activeCategory = TOOL_CATEGORIES[0].key;
   const categoryTabEls = new Map<ToolCategory, HTMLButtonElement>();
 
   function setupToolbar() {
@@ -4808,7 +4694,7 @@ async function main() {
       btn.className = "category-tab";
       btn.textContent = cat.label;
       btn.addEventListener("click", () => {
-        activeCategory = cat.key;
+        S.activeCategory = cat.key;
         refreshToolbarVisibility();
         refreshCategoryTabSelection();
         btn.blur();
@@ -4821,7 +4707,7 @@ async function main() {
 
   function refreshCategoryTabSelection() {
     for (const [key, btn] of categoryTabEls) {
-      btn.classList.toggle("selected", key === activeCategory);
+      btn.classList.toggle("selected", key === S.activeCategory);
     }
   }
 
@@ -4831,28 +4717,28 @@ async function main() {
       const btn = toolButtonEls.get(tool.tile);
       if (!btn) continue;
       // Phase 3: retired tools (Farm Plot, Hemp Field) only in creative mode.
-      const visible = (tool.tile === TileType.Empty || tool.category === activeCategory) && (!tool.legacy || creativeWorld);
+      const visible = (tool.tile === TileType.Empty || tool.category === S.activeCategory) && (!tool.legacy || S.creativeWorld);
       btn.style.display = visible ? "" : "none";
     }
     // The building templates (Blueprints) are hidden for now outside creative mode: the buildings are single sprites.
-    if (activeCategory === "blueprints") activeCategory = TOOL_CATEGORIES[0].key;
+    if (S.activeCategory === "blueprints") S.activeCategory = TOOL_CATEGORIES[0].key;
     categoryTabEls.get("blueprints")?.style.setProperty("display", "none");
-    zonesUi.setActive(activeCategory === "zones" || isZoneTool(currentTool));
+    zonesUi.setActive(S.activeCategory === "zones" || isZoneTool(S.currentTool));
     blueprintsUi.setActive(false);
   }
 
   function refreshToolbarSelection() {
     for (const [tile, btn] of toolButtonEls) {
-      btn.classList.toggle("selected", tile === currentTool);
+      btn.classList.toggle("selected", tile === S.currentTool);
     }
   }
 
   function selectTool(tile: TileType, fromUser = false) {
-    currentTool = tile;
-    zonesUi.setActive(activeCategory === "zones" || isZoneTool(tile));
+    S.currentTool = tile;
+    zonesUi.setActive(S.activeCategory === "zones" || isZoneTool(tile));
     blueprintsUi.setActive(false);
     // Picking something to build puts the units down, so right-click places instead of giving orders.
-    if (fromUser && tile !== TileType.Empty && selectedIds.size > 0) setSelection([]);
+    if (fromUser && tile !== TileType.Empty && S.selectedIds.size > 0) setSelection([]);
     if (tile !== TileType.TownCenter && !isRoadTile(tile)) placementGhost.visible = false;
     configurePlacementGhost(tile);
     refreshToolbarSelection();
@@ -4860,18 +4746,18 @@ async function main() {
   }
 
   function refreshBuildRequirements() {
-    const def = TOOLS.find((t) => t.tile === currentTool);
+    const def = TOOLS.find((t) => t.tile === S.currentTool);
     const text = def && def.cost ? def.cost : "No requirements.";
-    const needs = progressionLocked[currentTool];
+    const needs = S.progressionLocked[S.currentTool];
     buildRequirementsEl.textContent = needs ? `Locked. Needs: ${needs.join(", ")}. ${text}` : text;
   }
 
   // ---- Progression tree (shared/src/progression.ts; the server's `progression` snapshot) ----
   // The Build panel keeps the locked "needs: X" tool text and the prospector; hand crafting is the Crafting panel
   // (Craft button / Shift+C); the nearest goals are the Next steps bar (top centre) and its Progression dropdown.
-  let progressionLocked: Record<number, string[]> = {};
-  let progressionSig = "";
-  let latestProgression: ProgressionSnapshot | undefined;
+  S.progressionLocked = {};
+  S.progressionSig = "";
+  
   const progressPanelEl = document.getElementById("progress-panel")!;
   const progressCraftsEl = document.getElementById("progress-crafts")!;
   const nextBarEl = document.getElementById("next-bar")!;
@@ -4914,12 +4800,12 @@ async function main() {
 
   function applyProgression(p: ProgressionSnapshot | undefined) {
     const sig = p ? JSON.stringify(p) : "";
-    if (sig === progressionSig) return;
-    progressionSig = sig;
-    latestProgression = p;
-    progressionLocked = p && !p.open ? p.locked : {};
+    if (sig === S.progressionSig) return;
+    S.progressionSig = sig;
+    S.latestProgression = p;
+    S.progressionLocked = p && !p.open ? p.locked : {};
     for (const [tile, btn] of toolButtonEls) {
-      const needs = progressionLocked[tile];
+      const needs = S.progressionLocked[tile];
       btn.classList.toggle("locked", !!needs);
       btn.title = needs ? `Locked. Needs: ${needs.join(", ")}` : "";
     }
@@ -4952,12 +4838,12 @@ async function main() {
   }
 
   // Crafting panel: every hand recipe with each input's have / need, a Craft button, and "needs: X" when it can't.
-  let craftSig = "";
+  S.craftSig = "";
   function renderCraftPanel(force = false) {
-    const p = latestProgression;
-    const sig = `${progressionSig}|${JSON.stringify(latestStock)}`;
-    if (!force && sig === craftSig) return;
-    craftSig = sig;
+    const p = S.latestProgression;
+    const sig = `${S.progressionSig}|${JSON.stringify(latestStock)}`;
+    if (!force && sig === S.craftSig) return;
+    S.craftSig = sig;
     craftListEl.replaceChildren();
     const nearby=document.createElement("button");nearby.className="cmd-btn";nearby.textContent="Use nearby workstation (all recipes)";nearby.onclick=()=>{sendMessage({type:"heroCraft"});setCraftPanelOpen(false);};craftListEl.append(nearby);
     if (!p) {
@@ -5071,7 +4957,7 @@ async function main() {
     return { label, cls: "locked", note: `needs: a ${station}${lvl}${kept}` };
   }
   function renderProgressTree() {
-    const p = latestProgression;
+    const p = S.latestProgression;
     progressTreeEl.replaceChildren();
     if (!p) return;
     const legend = document.createElement("div");
@@ -5128,14 +5014,14 @@ async function main() {
   setupToolbar();
   setupCategoryTabs();
   refreshToolbarVisibility();
-  selectTool(currentTool);
+  selectTool(S.currentTool);
 
   // ---- Unit selection (client-local; task forces are server-synced) ----
 
-  let latestColonists: ColonistSnapshot[] = [];
-  let latestMobs: MobSnapshot[] = [];
-  let latestTaskForces: Record<string, string[]> = {};
-  let selectedIds = new Set<string>();
+  S.latestColonists = [];
+  S.latestMobs = [];
+  S.latestTaskForces = {};
+  S.selectedIds = new Set<string>();
 
   // Mirrors the server's isCommandable: of the bishops, only a Church's takes orders — the Ward
   // Priest (whose post is always the Ward Stone he's bound for) keeps his rounds, and Saint Wren's
@@ -5143,8 +5029,8 @@ async function main() {
   function isCommandable(c: ColonistSnapshot): boolean {
     if (!COMMANDABLE_KINDS.has(c.kind)) return false;
     // Clans: another clan's units are neutral, never ours to command.
-    if ((c.clan ?? 0) !== myClan) return false;
-    return c.kind !== "bishop" || tiles[c.postY * worldTilesX + c.postX] === TileType.ChurchPost;
+    if ((c.clan ?? 0) !== S.myClan) return false;
+    return c.kind !== "bishop" || S.tiles[c.postY * S.worldTilesX + c.postX] === TileType.ChurchPost;
   }
 
   // Armour tier tint (T1 bronze, T2 silver, T3 gold).
@@ -5155,12 +5041,12 @@ async function main() {
     const ring = (x: number, y: number, role: CombatRole | undefined, r: number) => {
       if (role) roleRings.ellipse(x, y + r * 0.8, r, r * 0.4).stroke({ width: 1.5, color: ROLE_COLORS[role], alpha: 0.65 });
     };
-    for (const c of latestColonists) {
+    for (const c of S.latestColonists) {
       const r = c.kind === "cavalry" || c.kind === "batteringRam" || c.kind === "catapult" ? 12 : 9;
       ring(c.x, c.y, unitRole(c.kind, c.heroClass), r);
       // Clans: another clan's unit wears a ring in its clan colour.
-      if ((c.clan ?? 0) !== myClan) {
-        roleRings.ellipse(c.x, c.y + r * 0.8, r + 2, (r + 2) * 0.4).stroke({ width: 2, color: clanColors.get(c.clan ?? 0) ?? 0xffffff, alpha: 0.9 });
+      if ((c.clan ?? 0) !== S.myClan) {
+        roleRings.ellipse(c.x, c.y + r * 0.8, r + 2, (r + 2) * 0.4).stroke({ width: 2, color: S.clanColors.get(c.clan ?? 0) ?? 0xffffff, alpha: 0.9 });
       }
       // Armour & weapons: a thin bronze / silver / gold ring just inside the role ring shows the unit's
       // armour tier, only where its tier art (COLONIST_TIER_ANIMS) is missing.
@@ -5173,13 +5059,13 @@ async function main() {
         for (const [px, py] of [[hr, 0], [-hr, 0], [0, hr * 0.4], [0, -hr * 0.4]]) roleRings.circle(c.x + px, c.y + r * 0.8 + py, 1.8).fill(0xffe9a8);
       }
     }
-    for (const m of latestMobs) if (strategySeesEnemy(m.x, m.y)) ring(m.x, m.y, MOB_ROLE[m.kind], 10);
+    for (const m of S.latestMobs) if (strategySeesEnemy(m.x, m.y)) ring(m.x, m.y, MOB_ROLE[m.kind], 10);
   }
 
   function redrawSelectionRings() {
     selectionRings.clear();
-    for (const c of latestColonists) {
-      if (!selectedIds.has(c.id)) continue;
+    for (const c of S.latestColonists) {
+      if (!S.selectedIds.has(c.id)) continue;
       selectionRings.circle(c.x, c.y, 12).stroke({ width: 2, color: 0x6fbf5a, alpha: 0.4 });
     }
   }
@@ -5187,9 +5073,9 @@ async function main() {
   // Stance is only meaningful for guard-tier units, so bishops are left out of the readout (and of
   // the formation-spacing vote in groupStance).
   function refreshSelectionHud() {
-    statSelectedEl.hidden = selectedIds.size === 0;
+    statSelectedEl.hidden = S.selectedIds.size === 0;
     const stances = new Set(
-      latestColonists.filter((c) => selectedIds.has(c.id) && c.kind !== "bishop").map((c) => c.stance)
+      S.latestColonists.filter((c) => S.selectedIds.has(c.id) && c.kind !== "bishop").map((c) => c.stance)
     );
     const single = stances.size === 1 ? [...stances][0] : null;
     commandBarEl.hidden = stances.size === 0;
@@ -5200,15 +5086,15 @@ async function main() {
     const stance = stances.size === 0 ? "" : single ? STANCE_LABEL[single] : "Mixed";
     // Regiments: the selection's roles, e.g. "6 Frontline, 4 Ranged".
     const roleCounts = new Map<CombatRole, number>();
-    for (const c of latestColonists) {
-      const role = selectedIds.has(c.id) ? unitRole(c.kind, c.heroClass) : undefined;
+    for (const c of S.latestColonists) {
+      const role = S.selectedIds.has(c.id) ? unitRole(c.kind, c.heroClass) : undefined;
       if (role) roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
     }
     const roles = Array.from(roleCounts, ([role, n]) => `${n} ${ROLE_LABEL[role]}`).join(", ");
-    let count = roles ? `${selectedIds.size} (${roles})` : `${selectedIds.size}`;
+    let count = roles ? `${S.selectedIds.size} (${roles})` : `${S.selectedIds.size}`;
     // Armour & weapons: a single selected knight / spearman / pikeman / cavalry shows its tiers.
-    if (selectedIds.size === 1) {
-      const u = latestColonists.find((c) => selectedIds.has(c.id));
+    if (S.selectedIds.size === 1) {
+      const u = S.latestColonists.find((c) => S.selectedIds.has(c.id));
       if (u?.kind === "hero") {
         count = `${HERO_CLASS_LABEL[u.heroClass ?? "champion"]} ${u.heroName ?? ""} Lv ${u.heroLevel ?? 1} (\` opens its sheet)`;
       } else if (u && EQUIPPED_KIND_LABEL[u.kind]) {
@@ -5218,8 +5104,8 @@ async function main() {
     }
     const text = stance ? `Selected: ${count} · ${stance} (Z/X/E)` : `Selected: ${count}`;
     // Called every snapshot; only touch the DOM when the line actually changes.
-    if (text === lastSelectionHudText) return;
-    lastSelectionHudText = text;
+    if (text === S.lastSelectionHudText) return;
+    S.lastSelectionHudText = text;
     if (!single) {
       statSelectedEl.textContent = text;
       return;
@@ -5230,7 +5116,7 @@ async function main() {
     icon.alt = "";
     statSelectedEl.replaceChildren(`Selected: ${count} · `, icon, ` ${stance} (Z/X/E)`);
   }
-  let lastSelectionHudText = "";
+  S.lastSelectionHudText = "";
   const EQUIPPED_KIND_LABEL: Partial<Record<ColonistKind, string>> = { knight: "Knight", spearman: "Spearman", pikeman: "Pikeman", cavalry: "Cavalry" };
 
   const commandBarEl = document.getElementById("command-bar")!;
@@ -5238,18 +5124,18 @@ async function main() {
     const btn = (e.target as HTMLElement).closest<HTMLElement>(".cmd-btn");
     // Strategy mode phase 3: order buttons (Shift+click queues Hold / Retreat).
     const orderKind = btn?.dataset.order as ArmyOrderKind | undefined;
-    if (orderKind && strategyCam.inStrategy && selectedIds.size > 0) issueOrder(orderKind, e.shiftKey);
+    if (orderKind && strategyCam.inStrategy && S.selectedIds.size > 0) issueOrder(orderKind, e.shiftKey);
     // Strategy mode phase 4: hold fire / skirmish / cycle charge toggles and the shape cycle.
     const setting = btn?.dataset.setting as StrategySetting | undefined;
-    if (setting && strategyCam.inStrategy && selectedIds.size > 0) applyStrategySetting(setting);
+    if (setting && strategyCam.inStrategy && S.selectedIds.size > 0) applyStrategySetting(setting);
     const stance = btn?.dataset.stance as Stance | undefined;
-    if (stance && selectedIds.size > 0) sendMessage({ type: "commandStance", unitIds: Array.from(selectedIds), stance });
+    if (stance && S.selectedIds.size > 0) sendMessage({ type: "commandStance", unitIds: Array.from(S.selectedIds), stance });
   });
   // Keep a click on the bar from starting a map selection drag / deselecting.
   commandBarEl.addEventListener("pointerdown", (e) => e.stopPropagation());
 
   function setSelection(ids: Iterable<string>) {
-    selectedIds = new Set(ids);
+    S.selectedIds = new Set(ids);
     redrawSelectionRings();
     refreshSelectionHud();
     // Banner borders / card highlights follow the selection without waiting for a snapshot.
@@ -5281,28 +5167,23 @@ async function main() {
   // Newest order number per unit. A rank's delayed commandMove is dropped for any unit that has
   // since been given another order (move or attack), so the tail of a staggered formation order
   // can never overwrite a quick re-order — while orders to other units are left alone.
-  let orderCounter = 0;
+  S.orderCounter = 0;
   const unitOrder = new Map<string, number>();
   function stampOrder(ids: string[]): number {
-    orderCounter++;
-    for (const id of ids) unitOrder.set(id, orderCounter);
-    return orderCounter;
+    S.orderCounter++;
+    for (const id of ids) unitOrder.set(id, S.orderCounter);
+    return S.orderCounter;
   }
 
   // Ground marker at a formation's destination: a ring per slot, a line across the front row and
   // a chevron off its middle pointing the way the block will face. Drawn once per order; only its
   // alpha changes afterwards (see the ticker below).
   const formationMarker = new Graphics();
-  let formationMarkerState: {
-    ids: string[];
-    shownAt: number;
-    settleAfter: number;
-    fadeFrom: number | null;
-  } | null = null;
+  S.formationMarkerState = null;
 
   function hideFormationMarker() {
     formationMarker.clear();
-    formationMarkerState = null;
+    S.formationMarkerState = null;
   }
 
   // A formation slot: a ring on the front rank, a square (ranged green) on the rear line.
@@ -5332,7 +5213,7 @@ async function main() {
       .fill(SELECTION_COLOR)
       .stroke({ width: 1.5, color: 0x0a1a24 });
     const now = performance.now();
-    formationMarkerState = {
+    S.formationMarkerState = {
       ids: Array.from(plan.targets.keys()),
       shownAt: now,
       // Units only start walking once their (staggered) order reaches the server, so "everyone has
@@ -5343,13 +5224,13 @@ async function main() {
   }
 
   app.ticker.add(() => {
-    const s = formationMarkerState;
+    const s = S.formationMarkerState;
     if (!s) return;
     const now = performance.now();
     if (s.fadeFrom === null) {
       const ids = new Set(s.ids);
       // Settled = not walking to its slot any more: arrived (idle) or busy fighting/healing.
-      const stillMarching = latestColonists.some((c) => ids.has(c.id) && c.state === "returning");
+      const stillMarching = S.latestColonists.some((c) => ids.has(c.id) && c.state === "returning");
       if ((now >= s.settleAfter && !stillMarching) || now - s.shownAt > FORMATION_MARKER_MAX_MS) {
         s.fadeFrom = now;
       }
@@ -5364,7 +5245,7 @@ async function main() {
   // Custom-width formation (formation.ts): the player dragged a line on the ground; the units face away
   // from their side of it, or toward the nearest enemy within LINE_FACE_ENEMY_TILES of its centre.
   function computeLineFormationTargets(units: ColonistSnapshot[], ax: number, ay: number, bx: number, by: number) {
-    const foe = findNearest(latestMobs, (ax + bx) / 2, (ay + by) / 2, LINE_FACE_ENEMY_TILES * tileSize);
+    const foe = findNearest(S.latestMobs, (ax + bx) / 2, (ay + by) / 2, LINE_FACE_ENEMY_TILES * S.tileSize);
     return sharedLineFormation(units, ax, ay, bx, by, { foe });
   }
 
@@ -5396,65 +5277,65 @@ async function main() {
   // colonist id -> its current work sound and when it next plays.
   const workSoundTimers = new Map<string, { key: string; next: number }>();
   const growledMobs = new Set<string>();
-  let lastMyHp: number | null = null;
-  let lastMyPos: { x: number; y: number; at: number } | null = null;
-  let horseIdleSince = performance.now();
-  let horseMoving = false;
-  let lastAmbientScan = 0;
+  S.lastMyHp = null;
+  S.lastMyPos = null;
+  S.horseIdleSince = performance.now();
+  S.horseMoving = false;
+  S.lastAmbientScan = 0;
   // tile index -> {tile, at}: setTile requests we sent, so their tileUpdate can sound as ours.
   const pendingPlacements = new Map<number, { tile: number; at: number }>();
 
   function resetSoundState() {
-    soundSuppressed = true;
+    S.soundSuppressed = true;
     workSoundTimers.clear();
     growledMobs.clear();
-    lastMyHp = null;
-    lastMyPos = null;
+    S.lastMyHp = null;
+    S.lastMyPos = null;
     pendingPlacements.clear();
   }
 
   function soundOnSnapshot(snap: Extract<ServerMessage, { type: "snapshot" }>) {
-    sound.tileSize = tileSize;
+    sound.tileSize = S.tileSize;
     sound.setMusicMode(snap.isNight ? "night" : "day");
     const now = performance.now();
-    const me = snap.players.find((p) => p.id === myId);
+    const me = snap.players.find((p) => p.id === S.myId);
     if (me) {
       sound.setListener(me.x, me.y);
-      if (lastMyHp !== null && me.hp < lastMyHp && !soundSuppressed) sound.play("player_hurt");
-      lastMyHp = me.hp;
+      if (S.lastMyHp !== null && me.hp < S.lastMyHp && !S.soundSuppressed) sound.play("player_hurt");
+      S.lastMyHp = me.hp;
 
       let speed = 0;
-      if (lastMyPos && now > lastMyPos.at) {
-        speed = Math.hypot(me.x - lastMyPos.x, me.y - lastMyPos.y) / ((now - lastMyPos.at) / 1000);
+      if (S.lastMyPos && now > S.lastMyPos.at) {
+        speed = Math.hypot(me.x - S.lastMyPos.x, me.y - S.lastMyPos.y) / ((now - S.lastMyPos.at) / 1000);
         if (speed > HORSE_TELEPORT_SPEED) speed = 0;
       }
       // Snapshots can arrive bunched; only resample the speed every ~80 ms.
-      if (!lastMyPos || now - lastMyPos.at >= 80) {
-        lastMyPos = { x: me.x, y: me.y, at: now };
+      if (!S.lastMyPos || now - S.lastMyPos.at >= 80) {
+        S.lastMyPos = { x: me.x, y: me.y, at: now };
         const moving = speed > HORSE_MOVING_MIN_SPEED && !snap.isPaused;
-        if (moving && !horseMoving && now - horseIdleSince > HORSE_WHINNY_IDLE_MS && Math.random() < HORSE_WHINNY_CHANCE) {
+        if (moving && !S.horseMoving && now - S.horseIdleSince > HORSE_WHINNY_IDLE_MS && Math.random() < HORSE_WHINNY_CHANCE) {
           sound.play("horse_whinny");
         }
-        if (!moving && horseMoving) horseIdleSince = now;
-        horseMoving = moving;
+        if (!moving && S.horseMoving) S.horseIdleSince = now;
+        S.horseMoving = moving;
         const rate = Math.max(HORSE_RATE_MIN, Math.min(HORSE_RATE_MAX, speed / PLAYER_SPEED));
         sound.setLoop("horse", "horse_gallop", moving ? 1 : 0, rate);
       }
 
-      if (now - lastAmbientScan >= AMBIENT_SCAN_MS) {
-        lastAmbientScan = now;
+      if (now - S.lastAmbientScan >= AMBIENT_SCAN_MS) {
+        S.lastAmbientScan = now;
         const r = SOUND_SILENT_RADIUS_TILES;
-        const ptx = Math.floor(me.x / tileSize);
-        const pty = Math.floor(me.y / tileSize);
+        const ptx = Math.floor(me.x / S.tileSize);
+        const pty = Math.floor(me.y / S.tileSize);
         for (const loop of AMBIENT_TILE_LOOPS) {
           let best = Infinity;
-          for (let ty = Math.max(0, pty - r); ty <= Math.min(worldTilesY - 1, pty + r); ty++) {
-            for (let tx = Math.max(0, ptx - r); tx <= Math.min(worldTilesX - 1, ptx + r); tx++) {
-              if (tiles[ty * worldTilesX + tx] !== loop.tile) continue;
-              best = Math.min(best, Math.hypot(tx * tileSize + tileSize / 2 - me.x, ty * tileSize + tileSize / 2 - me.y));
+          for (let ty = Math.max(0, pty - r); ty <= Math.min(S.worldTilesY - 1, pty + r); ty++) {
+            for (let tx = Math.max(0, ptx - r); tx <= Math.min(S.worldTilesX - 1, ptx + r); tx++) {
+              if (S.tiles[ty * S.worldTilesX + tx] !== loop.tile) continue;
+              best = Math.min(best, Math.hypot(tx * S.tileSize + S.tileSize / 2 - me.x, ty * S.tileSize + S.tileSize / 2 - me.y));
             }
           }
-          const level = best === Infinity ? 0 : proximityGain(best, 0, tileSize);
+          const level = best === Infinity ? 0 : proximityGain(best, 0, S.tileSize);
           sound.setLoop(loop.id, loop.key, level);
         }
       }
@@ -5479,7 +5360,7 @@ async function main() {
       if (now < timer.next) continue;
       timer.next = now + interval;
       const volume =
-        key === "craft_hammer" && tiles[c.postY * worldTilesX + c.postX] !== TileType.Blacksmith
+        key === "craft_hammer" && S.tiles[c.postY * S.worldTilesX + c.postX] !== TileType.Blacksmith
           ? CRAFT_VOLUME_NON_SMITH
           : 1;
       sound.play(key, { x: c.x, y: c.y, volume });
@@ -5489,16 +5370,16 @@ async function main() {
     // Mobs: maybe a growl the first time each comes within range (the per-key cooldown in sound.ts
     // keeps a whole wave from growling at once).
     const mobIds = new Set<string>();
-    const growlRangePx = MOB_GROWL_RADIUS_TILES * tileSize;
+    const growlRangePx = MOB_GROWL_RADIUS_TILES * S.tileSize;
     for (const m of snap.mobs) {
       mobIds.add(m.id);
       if (growledMobs.has(m.id) || !me) continue;
       if (Math.hypot(m.x - me.x, m.y - me.y) > growlRangePx) continue;
       growledMobs.add(m.id);
-      if (!soundSuppressed && Math.random() < MOB_GROWL_CHANCE) sound.play("monster_growl", { x: m.x, y: m.y });
+      if (!S.soundSuppressed && Math.random() < MOB_GROWL_CHANCE) sound.play("monster_growl", { x: m.x, y: m.y });
     }
     for (const id of Array.from(growledMobs)) if (!mobIds.has(id)) growledMobs.delete(id);
-    soundSuppressed = false;
+    S.soundSuppressed = false;
   }
 
   function soundOnEvent(category: GameEventCategory, text: string) {
@@ -5512,13 +5393,13 @@ async function main() {
   }
 
   function soundOnTileUpdate(tileX: number, tileY: number, tile: number) {
-    const index = tileY * worldTilesX + tileX;
-    const prev = tiles[index] ?? TileType.Empty;
+    const index = tileY * S.worldTilesX + tileX;
+    const prev = S.tiles[index] ?? TileType.Empty;
     if (prev === TileType.ConstructionSite && tile !== TileType.Empty && tile !== TileType.ConstructionSite) {
       // A construction finished (anyone's): the build sparkle and the placement thud.
       pendingPlacements.delete(index);
       const c = tileCenter(tileX, tileY);
-      spawnFxAnim("build", c.x, c.y + tileSize / 2, 700);
+      spawnFxAnim("build", c.x, c.y + S.tileSize / 2, 700);
       sound.play("build_place", { x: c.x, y: c.y });
       return;
     }
@@ -5534,7 +5415,7 @@ async function main() {
     const c = tileCenter(tileX, tileY);
     // Our placement landed: on bare ground it's a build; on an existing building that turned into a
     // different tile (House -> Big House, barracks -> castle) it's an upgrade.
-    spawnFxAnim(prev !== TileType.Empty && prev !== tile ? "upgrade" : "build", c.x, c.y + tileSize / 2, 700);
+    spawnFxAnim(prev !== TileType.Empty && prev !== tile ? "upgrade" : "build", c.x, c.y + S.tileSize / 2, 700);
     if (pending.tile !== tile) return;
     sound.play("build_place", { x: c.x, y: c.y });
   }
@@ -5546,13 +5427,13 @@ async function main() {
     let best: { index: number; at: number } | null = null;
     const now = performance.now();
     for (const [index, pending] of pendingPlacements) {
-      if (now - pending.at > PLACEMENT_CONFIRM_MS || tiles[index] !== pending.tile) continue;
+      if (now - pending.at > PLACEMENT_CONFIRM_MS || S.tiles[index] !== pending.tile) continue;
       if (!best || pending.at > best.at) best = { index, at: pending.at };
     }
     if (!best) return;
     pendingPlacements.delete(best.index);
-    const c = tileCenter(best.index % worldTilesX, Math.floor(best.index / worldTilesX));
-    spawnFxAnim("upgrade", c.x, c.y + tileSize / 2, 700);
+    const c = tileCenter(best.index % S.worldTilesX, Math.floor(best.index / S.worldTilesX));
+    spawnFxAnim("upgrade", c.x, c.y + S.tileSize / 2, 700);
   }
 
   // ---- Building info panel (left-click a building; see the pointerup handler) ----
@@ -5592,7 +5473,7 @@ async function main() {
   const bpGateStateEl = document.getElementById("bp-gate-state")!;
   const GATE_LOCK_NEXT: Record<GateLock, GateLock> = { auto: "open", open: "closed", closed: "auto" };
   const GATE_LOCK_LABEL: Record<GateLock, string> = { auto: "Auto", open: "Locked open", closed: "Locked closed" };
-  let shownGateLock: GateLock = "auto";
+  S.shownGateLock = "auto";
   // Modular building phase 1: a blueprint's Priority / Cancel buttons (siteOrder).
   const bpBlueprintRowEl = document.createElement("div");
   bpBlueprintRowEl.style.cssText = "display: none; align-items: center; gap: 8px; margin-top: 8px;";
@@ -5654,8 +5535,8 @@ async function main() {
   for (const [btn, action] of [[bpPriorityBtn, "priority"], [bpCancelBtn, "cancel"]] as const) {
     btn.addEventListener("click", () => {
       btn.blur();
-      if (!infoTile) return;
-      sendMessage({ type: "siteOrder", tileX: infoTile.tx, tileY: infoTile.ty, action });
+      if (!S.infoTile) return;
+      sendMessage({ type: "siteOrder", tileX: S.infoTile.tx, tileY: S.infoTile.ty, action });
       window.setTimeout(requestBuildingInfo, 150);
     });
   }
@@ -5679,9 +5560,9 @@ async function main() {
   const bpMineStateEl = document.getElementById("bp-mine-state")!;
   // Mines: the next depth's nest risk before the upgrade digs it; a risky dig takes a second click to confirm.
   const bpMineRiskEl = document.getElementById("bp-mine-risk")!;
-  let mineDigPreview: { level: number; chance: number; risk: string } | null = null;
-  let mineDigArmedUntil = 0;
-  let shownLevyOnField = 0;
+  S.mineDigPreview = null;
+  S.mineDigArmedUntil = 0;
+  S.shownLevyOnField = 0;
   // Armour & weapons: the Blacksmith's two forge buttons (queueForge) and its queue line.
   const bpForgeRowEl = document.getElementById("bp-forge-row")!;
   const bpForgeStateEl = document.getElementById("bp-forge-state")!;
@@ -5690,7 +5571,7 @@ async function main() {
   const bpForgeAutoLessBtn = document.getElementById("bp-forge-auto-less") as HTMLButtonElement;
   const bpForgeAutoMoreBtn = document.getElementById("bp-forge-auto-more") as HTMLButtonElement;
   const bpForgeAutoStateEl = document.getElementById("bp-forge-auto-state")!;
-  let shownForgeAuto: { on: boolean; target: number } = { on: false, target: 4 };
+  S.shownForgeAuto = { on: false, target: 4 };
   const bpForgeBtns = new Map<EquipSlot, HTMLButtonElement>(
     (["armour", "weapon"] as EquipSlot[]).map((slot) => [slot, document.getElementById(`bp-forge-${slot}`) as HTMLButtonElement])
   );
@@ -5705,7 +5586,7 @@ async function main() {
   const bpKeepRowEl = document.getElementById("bp-keep-row")!;
   const bpKeepBtn = document.getElementById("bp-keep-rebuild") as HTMLButtonElement;
   const bpKeepStateEl = document.getElementById("bp-keep-state")!;
-  let bpSpellsKey = "";
+  S.bpSpellsKey = "";
   // Forts phase D: a human settlement's Trade button and the trade panel (fed by the same buildingInfo
   // refresh while open; closes with the building panel).
   // Forts phase E: the Trading Post's trader wagon (status, escort, destinations, send / recall / auto).
@@ -5717,8 +5598,8 @@ async function main() {
   const bpWagonRecallBtn = document.getElementById("bp-wagon-recall") as HTMLButtonElement;
   const bpWagonAutoBtn = document.getElementById("bp-wagon-auto") as HTMLButtonElement;
   const bpWagonDestsEl = document.getElementById("bp-wagon-dests")!;
-  let bpWagonAuto = true;
-  let bpWagonDestKey = "";
+  S.bpWagonAuto = true;
+  S.bpWagonDestKey = "";
   // Batch 2 (SPRITES.md #67 / #80): a small optional icon (/sprites/ui-<icon>.png) ahead of a panel line's
   // text; the img is made once per icon and removes itself if the file is missing, leaving just the text.
   function setIconText(el: HTMLElement, icon: string, text: string) {
@@ -5741,8 +5622,8 @@ async function main() {
     setIconText(bpWagonStatusEl, w && w.hp < w.maxHp ? "tradeAlert" : "tradeRoute", `${w ? `Wagon HP ${w.hp}/${w.maxHp} · ` : ""}${tp.status}`);
     bpWagonEscortEl.textContent = `Escort: ${tp.escorts.map((e) => `${ESCORT_LABEL[e.kind] ?? e.kind}${e.alive ? "" : " (fallen)"}`).join(", ")}`;
     const key = tp.destinations.map((d) => `${d.id}:${d.ok}`).join("|");
-    if (key !== bpWagonDestKey) {
-      bpWagonDestKey = key;
+    if (key !== S.bpWagonDestKey) {
+      S.bpWagonDestKey = key;
       const keep = bpWagonDestEl.value;
       bpWagonDestEl.replaceChildren(
         new Option("Auto (best)", "auto"),
@@ -5753,7 +5634,7 @@ async function main() {
     bpWagonSendBtn.disabled = !tp.canSend;
     bpWagonSendBtn.title = tp.sendReason;
     bpWagonRecallBtn.disabled = !tp.canRecall;
-    bpWagonAuto = tp.auto;
+    S.bpWagonAuto = tp.auto;
     bpWagonAutoBtn.textContent = `Auto-send: ${tp.auto ? "On" : "Off"}`;
     bpWagonDestsEl.replaceChildren(
       ...(tp.destinations.length > 0 ? tp.destinations : [null]).map((d) => {
@@ -5773,20 +5654,20 @@ async function main() {
   }
   bpWagonSendBtn.addEventListener("click", () => {
     bpWagonSendBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "wagonCommand", tileX: infoTile.tx, tileY: infoTile.ty, cmd: "sendNow", dest: bpWagonDestEl.value || "auto" });
+    if (!S.infoTile) return;
+    sendMessage({ type: "wagonCommand", tileX: S.infoTile.tx, tileY: S.infoTile.ty, cmd: "sendNow", dest: bpWagonDestEl.value || "auto" });
     window.setTimeout(requestBuildingInfo, 150);
   });
   bpWagonRecallBtn.addEventListener("click", () => {
     bpWagonRecallBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "wagonCommand", tileX: infoTile.tx, tileY: infoTile.ty, cmd: "recall" });
+    if (!S.infoTile) return;
+    sendMessage({ type: "wagonCommand", tileX: S.infoTile.tx, tileY: S.infoTile.ty, cmd: "recall" });
     window.setTimeout(requestBuildingInfo, 150);
   });
   bpWagonAutoBtn.addEventListener("click", () => {
     bpWagonAutoBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "wagonCommand", tileX: infoTile.tx, tileY: infoTile.ty, cmd: "auto", value: !bpWagonAuto });
+    if (!S.infoTile) return;
+    sendMessage({ type: "wagonCommand", tileX: S.infoTile.tx, tileY: S.infoTile.ty, cmd: "auto", value: !S.bpWagonAuto });
     window.setTimeout(requestBuildingInfo, 150);
   });
   // Forts phase F: a vassal's block (power, Call to arms / Dismiss, Demand tribute, the tribute ledger).
@@ -5798,16 +5679,16 @@ async function main() {
   const bpVassalTaxBtn = document.getElementById("bp-vassal-tax") as HTMLButtonElement;
   const bpVassalTaxStateEl = document.getElementById("bp-vassal-tax-state")!;
   const bpVassalLedgerEl = document.getElementById("bp-vassal-ledger")!;
-  let bpVassalTax = false;
+  S.bpVassalTax = false;
   function renderVassal(v: BuildingInfo["vassal"]) {
     bpVassalRowEl.hidden = !v;
     if (!v) return;
     setIconText(bpVassalPowerEl, "vassal", `Your vassal. Power: yours ${v.clanPower}, theirs ${v.sitePower} (they break free if stronger than you)`);
     bpVassalCallBtn.disabled = !v.canCall;
-    bpVassalCallBtn.title = v.canCall ? `${v.levySize} levies join you for a day${strategyCam.inStrategy && selectedIds.size > 0 ? " and follow your selected army" : " and follow you"}` : v.callReason;
+    bpVassalCallBtn.title = v.canCall ? `${v.levySize} levies join you for a day${strategyCam.inStrategy && S.selectedIds.size > 0 ? " and follow your selected army" : " and follow you"}` : v.callReason;
     bpVassalDismissBtn.hidden = v.levyOnField === 0 || v.levyReturning;
     setIconText(bpVassalLevyEl, "callToArms", `Levy: ${v.levyStatus}${v.canCall ? ` (${v.levySize} would march)` : ""}`);
-    bpVassalTax = v.tax;
+    S.bpVassalTax = v.tax;
     bpVassalTaxBtn.textContent = `Demand tribute: ${v.tax ? "On" : "Off"}`;
     bpVassalTaxBtn.disabled = !v.tax && !v.canTax;
     bpVassalTaxBtn.title = v.canTax || v.tax ? "Take a share of their stock and purse every 2 days (costs relation)" : v.taxReason;
@@ -5816,22 +5697,22 @@ async function main() {
   }
   bpVassalCallBtn.addEventListener("click", () => {
     bpVassalCallBtn.blur();
-    if (!infoTile) return;
+    if (!S.infoTile) return;
     // Strategy mode: the levy joins the selected army (follows its first unit); otherwise it follows the player.
-    const follow = strategyCam.inStrategy && selectedIds.size > 0 ? [...selectedIds][0] : undefined;
-    sendMessage({ type: "callToArms", tileX: infoTile.tx, tileY: infoTile.ty, ...(follow ? { followId: follow } : {}) });
+    const follow = strategyCam.inStrategy && S.selectedIds.size > 0 ? [...S.selectedIds][0] : undefined;
+    sendMessage({ type: "callToArms", tileX: S.infoTile.tx, tileY: S.infoTile.ty, ...(follow ? { followId: follow } : {}) });
     window.setTimeout(requestBuildingInfo, 150);
   });
   bpVassalDismissBtn.addEventListener("click", () => {
     bpVassalDismissBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "callToArms", tileX: infoTile.tx, tileY: infoTile.ty, dismiss: true });
+    if (!S.infoTile) return;
+    sendMessage({ type: "callToArms", tileX: S.infoTile.tx, tileY: S.infoTile.ty, dismiss: true });
     window.setTimeout(requestBuildingInfo, 150);
   });
   bpVassalTaxBtn.addEventListener("click", () => {
     bpVassalTaxBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "setTax", tileX: infoTile.tx, tileY: infoTile.ty, on: !bpVassalTax });
+    if (!S.infoTile) return;
+    sendMessage({ type: "setTax", tileX: S.infoTile.tx, tileY: S.infoTile.ty, on: !S.bpVassalTax });
     window.setTimeout(requestBuildingInfo, 150);
   });
   const bpTradeRowEl = document.getElementById("bp-trade-row")!;
@@ -5846,16 +5727,16 @@ async function main() {
   const TRADE_GOOD_LABEL: Record<TradeGood, string> = {
     grain: "Grain", meat: "Meat", fruit: "Fruit", wool: "Wool", wood: "Wood", rock: "Rock", iron: "Iron", clothes: "Cloth", tools: "Tools",
   };
-  let tradeOpen = false;
-  let tradeKey = "";
+  S.tradeOpen = false;
+  S.tradeKey = "";
   function sendTrade(good: TradeGood, qty: number, side: "buy" | "sell") {
-    if (!infoTile) return;
-    sendMessage({ type: "tradeWithSite", tileX: infoTile.tx, tileY: infoTile.ty, good, qty, side });
+    if (!S.infoTile) return;
+    sendMessage({ type: "tradeWithSite", tileX: S.infoTile.tx, tileY: S.infoTile.ty, good, qty, side });
     window.setTimeout(requestBuildingInfo, 150);
   }
   function renderTrade(trade: BuildingInfo["trade"]) {
-    tradePanelEl.hidden = !tradeOpen || !trade;
-    if (!trade || !tradeOpen) return;
+    tradePanelEl.hidden = !S.tradeOpen || !trade;
+    if (!trade || !S.tradeOpen) return;
     tpNameEl.textContent = `Trade: ${trade.siteName}`;
     const pct = Math.round((1 - trade.discount) * 100);
     setIconText(tpRelationEl, relIcon(trade.tier), `${RELATION_TIER_NAMES[trade.tier]} (relation ${trade.relation})${pct > 0 ? ` · ${pct}% better prices` : ""} · their purse ${trade.gold} gold`);
@@ -5863,8 +5744,8 @@ async function main() {
     tpReasonEl.hidden = trade.reason === "";
     // Rebuild the rows only when something changed (the panel refreshes every second; keeps clicks landing).
     const key = JSON.stringify(trade);
-    if (key === tradeKey) return;
-    tradeKey = key;
+    if (key === S.tradeKey) return;
+    S.tradeKey = key;
     const btn = (label: string, enabled: boolean, title: string, on: () => void) => {
       const b = document.createElement("button");
       b.className = "econ-btn";
@@ -5906,16 +5787,16 @@ async function main() {
   }
   // Forts phase D2: settlement quests (snapshot `quests`, the clan's open ones): the top-bar Quests button,
   // the parchment Quests panel (accept / abandon / deliver) and minimap markers (drawMinimap).
-  let latestQuests: QuestSnapshot[] = [];
-  let questCycleTicks = TICK_RATE * 375;
-  let questKey = "";
-  let questSeen = new Set<number>();
+  S.latestQuests = [];
+  S.questCycleTicks = TICK_RATE * 375;
+  S.questKey = "";
+  S.questSeen = new Set<number>();
   const questPanelEl = document.getElementById("quest-panel")!;
   const questListEl = document.getElementById("qp-list")!;
   const questEmptyEl = document.getElementById("qp-empty")!;
   const questsBtn = document.getElementById("quests-btn") as HTMLButtonElement;
   function questTimeLeft(ticks: number): string {
-    if (ticks >= questCycleTicks / 2) return `${(ticks / questCycleTicks).toFixed(1)} days left`;
+    if (ticks >= S.questCycleTicks / 2) return `${(ticks / S.questCycleTicks).toFixed(1)} days left`;
     const secs = Math.ceil(ticks / TICK_RATE);
     return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} left`;
   }
@@ -5925,17 +5806,17 @@ async function main() {
   }
   function renderQuests() {
     const open = !questPanelEl.hidden;
-    if (open) for (const q of latestQuests) questSeen.add(q.id);
-    const unseen = latestQuests.some((q) => !q.accepted && !questSeen.has(q.id));
-    questsBtn.textContent = latestQuests.length > 0 ? `Quests (${latestQuests.length})` : "Quests";
+    if (open) for (const q of S.latestQuests) S.questSeen.add(q.id);
+    const unseen = S.latestQuests.some((q) => !q.accepted && !S.questSeen.has(q.id));
+    questsBtn.textContent = S.latestQuests.length > 0 ? `Quests (${S.latestQuests.length})` : "Quests";
     questsBtn.classList.toggle("has-new", unseen);
     if (!open) return;
-    questEmptyEl.hidden = latestQuests.length > 0;
-    const key = JSON.stringify(latestQuests.map((q) => ({ ...q, ticksLeft: 0 })));
-    if (key !== questKey) {
-      questKey = key;
+    questEmptyEl.hidden = S.latestQuests.length > 0;
+    const key = JSON.stringify(S.latestQuests.map((q) => ({ ...q, ticksLeft: 0 })));
+    if (key !== S.questKey) {
+      S.questKey = key;
       questListEl.replaceChildren(
-        ...latestQuests.map((q) => {
+        ...S.latestQuests.map((q) => {
           const el = document.createElement("div");
           el.className = `qp-quest${q.accepted ? " accepted" : ""}`;
           el.dataset.questId = String(q.id);
@@ -5983,14 +5864,14 @@ async function main() {
       );
     }
     for (const el of Array.from(questListEl.querySelectorAll<HTMLElement>(".qp-quest"))) {
-      const q = latestQuests.find((o) => String(o.id) === el.dataset.questId);
+      const q = S.latestQuests.find((o) => String(o.id) === el.dataset.questId);
       const t = el.querySelector(".qp-time");
       if (q && t) t.textContent = `${q.siteName} · ${questTimeLeft(q.ticksLeft)}`;
     }
   }
   function setQuestPanelOpen(open: boolean) {
     questPanelEl.hidden = !open;
-    questKey = "";
+    S.questKey = "";
     renderQuests();
   }
   questsBtn.addEventListener("click", () => {
@@ -6006,40 +5887,40 @@ async function main() {
   const chronicleListEl = document.getElementById("cp-list")!;
   const chronicleEmptyEl = document.getElementById("cp-empty")!;
   const chronicleBtn = document.getElementById("chronicle-btn") as HTMLButtonElement;
-  let chronicleEntries: ChronicleEntry[] = [];
+  S.chronicleEntries = [];
   // Entries with an id above this arrived "while you were away" (the profile's read mark on the server).
-  let chronicleAwaySince = 0;
-  let chronicleRead = 0;
+  S.chronicleAwaySince = 0;
+  S.chronicleRead = 0;
   function onChronicle(m: { entries: ChronicleEntry[]; since?: number; full?: boolean }) {
     if (m.full) {
-      chronicleEntries = [...m.entries];
-      chronicleAwaySince = chronicleRead = m.since ?? 0;
-      const away = chronicleEntries.filter((e) => e.id > chronicleAwaySince).length;
+      S.chronicleEntries = [...m.entries];
+      S.chronicleAwaySince = S.chronicleRead = m.since ?? 0;
+      const away = S.chronicleEntries.filter((e) => e.id > S.chronicleAwaySince).length;
       if (away > 0) pushEventToast("milestone", `While you were away: ${away} entr${away === 1 ? "y" : "ies"} in the Chronicle`);
     } else {
-      chronicleEntries.push(...m.entries);
-      if (chronicleEntries.length > 120) chronicleEntries.splice(0, chronicleEntries.length - 120);
+      S.chronicleEntries.push(...m.entries);
+      if (S.chronicleEntries.length > 120) S.chronicleEntries.splice(0, S.chronicleEntries.length - 120);
     }
     renderChronicle();
   }
   function renderChronicle() {
     const open = !chroniclePanelEl.hidden;
-    const last = chronicleEntries.length ? chronicleEntries[chronicleEntries.length - 1].id : 0;
-    if (open && last > chronicleRead) {
-      chronicleRead = last;
+    const last = S.chronicleEntries.length ? S.chronicleEntries[S.chronicleEntries.length - 1].id : 0;
+    if (open && last > S.chronicleRead) {
+      S.chronicleRead = last;
       sendMessage({ type: "chronicleSeen", id: last });
     }
-    const unread = chronicleEntries.filter((e) => e.id > chronicleRead).length;
+    const unread = S.chronicleEntries.filter((e) => e.id > S.chronicleRead).length;
     chronicleBtn.textContent = unread > 0 ? `Chronicle (${unread})` : "Chronicle";
     chronicleBtn.classList.toggle("has-new", unread > 0);
     if (!open) return;
-    chronicleEmptyEl.hidden = chronicleEntries.length > 0;
+    chronicleEmptyEl.hidden = S.chronicleEntries.length > 0;
     chronicleListEl.replaceChildren();
     // Newest first: the "while you were away" block, then the rest under "Earlier".
     type Section = "" | "away" | "earlier";
     let section = "" as Section;
-    for (const e of [...chronicleEntries].reverse()) {
-      const away = e.id > chronicleAwaySince;
+    for (const e of [...S.chronicleEntries].reverse()) {
+      const away = e.id > S.chronicleAwaySince;
       const want: Section = away ? "away" : section === "away" ? "earlier" : section;
       if (want !== section) {
         const h = document.createElement("div");
@@ -6060,7 +5941,7 @@ async function main() {
   function setChroniclePanelOpen(open: boolean) {
     chroniclePanelEl.hidden = !open;
     // Closing it: what was read is no longer "while you were away".
-    if (!open) chronicleAwaySince = chronicleRead;
+    if (!open) S.chronicleAwaySince = S.chronicleRead;
     renderChronicle();
   }
   chronicleBtn.addEventListener("click", () => {
@@ -6078,30 +5959,30 @@ async function main() {
 
   bpTradeBtn.addEventListener("click", () => {
     bpTradeBtn.blur();
-    tradeOpen = !tradeOpen;
+    S.tradeOpen = !S.tradeOpen;
     requestBuildingInfo();
   });
   document.getElementById("tp-close")!.addEventListener("click", () => {
-    tradeOpen = false;
+    S.tradeOpen = false;
     tradePanelEl.hidden = true;
   });
   // Tile the panel shows; re-requested every second while open so numbers stay live.
-  let infoTile: { tx: number; ty: number } | null = null;
+  S.infoTile = null;
   const BUILDING_INFO_REFRESH_MS = 1000;
 
   function requestBuildingInfo() {
-    if (infoTile) sendMessage({ type: "buildingInfo", tileX: infoTile.tx, tileY: infoTile.ty });
+    if (S.infoTile) sendMessage({ type: "buildingInfo", tileX: S.infoTile.tx, tileY: S.infoTile.ty });
   }
   function openBuildingInfo(tx: number, ty: number) {
-    if (infoTile?.tx !== tx || infoTile?.ty !== ty) bpWorkCandsOpen = false;
-    infoTile = { tx, ty };
-    tradeOpen = false;
+    if (S.infoTile?.tx !== tx || S.infoTile?.ty !== ty) S.bpWorkCandsOpen = false;
+    S.infoTile = { tx, ty };
+    S.tradeOpen = false;
     requestBuildingInfo();
   }
   function closeBuildingInfo() {
-    infoTile = null;
+    S.infoTile = null;
     buildingPanelEl.hidden = true;
-    tradeOpen = false;
+    S.tradeOpen = false;
     tradePanelEl.hidden = true;
   }
   // Gap closure G3: the building's workers (Unassign) and an "Assign worker" list of free villagers.
@@ -6109,8 +5990,8 @@ async function main() {
   const bpWorkListEl = document.getElementById("bp-work-list")!;
   const bpWorkAssignBtn = document.getElementById("bp-work-assign") as HTMLButtonElement;
   const bpWorkCandsEl = document.getElementById("bp-work-cands")!;
-  let bpWorkCandsOpen = false;
-  let bpWorkSig = "";
+  S.bpWorkCandsOpen = false;
+  S.bpWorkSig = "";
   const skillText = (n: number) => (n > 0 ? `skill ${n}` : "no skill needed");
   function workAction(msg: ClientMessage) {
     sendMessage(msg);
@@ -6118,22 +5999,22 @@ async function main() {
   }
   bpWorkAssignBtn.addEventListener("click", () => {
     bpWorkAssignBtn.blur();
-    bpWorkCandsOpen = !bpWorkCandsOpen;
-    bpWorkSig = "";
+    S.bpWorkCandsOpen = !S.bpWorkCandsOpen;
+    S.bpWorkSig = "";
     requestBuildingInfo();
   });
   function renderWorkPosts(posts: BuildingInfo["posts"]) {
     bpWorkRowEl.hidden = !posts;
-    if (!posts || !infoTile) {
-      bpWorkCandsOpen = false;
-      bpWorkSig = "";
+    if (!posts || !S.infoTile) {
+      S.bpWorkCandsOpen = false;
+      S.bpWorkSig = "";
       return;
     }
     // Refreshed once a second: only rebuild on a change (keeps the hovered button).
-    const sig = JSON.stringify([posts, bpWorkCandsOpen, infoTile]);
-    if (sig === bpWorkSig) return;
-    bpWorkSig = sig;
-    const { tx, ty } = infoTile;
+    const sig = JSON.stringify([posts, S.bpWorkCandsOpen, S.infoTile]);
+    if (sig === S.bpWorkSig) return;
+    S.bpWorkSig = sig;
+    const { tx, ty } = S.infoTile;
     const line = (text: string, title: string, btn?: [string, () => void]) => {
       const div = document.createElement("div");
       div.className = "bpw-line";
@@ -6166,14 +6047,14 @@ async function main() {
       : posts.candidates.length === 0
         ? `No free adult villager with ${WORK_LABEL[posts.work]} on`
         : "Pick a free villager: pinned to this post until unassigned (beats work priorities)";
-    bpWorkAssignBtn.textContent = bpWorkCandsOpen ? "Assign worker ▴" : "Assign worker ▾";
-    bpWorkCandsEl.hidden = !bpWorkCandsOpen || bpWorkAssignBtn.disabled;
+    bpWorkAssignBtn.textContent = S.bpWorkCandsOpen ? "Assign worker ▴" : "Assign worker ▾";
+    bpWorkCandsEl.hidden = !S.bpWorkCandsOpen || bpWorkAssignBtn.disabled;
     bpWorkCandsEl.replaceChildren(
       ...posts.candidates.map((c) =>
         line(`${c.name}: ${WORK_LABEL[posts.work]} ${skillText(c.skill)} · ${c.job}`, "Free villager", [
           "Assign",
           () => {
-            bpWorkCandsOpen = false;
+            S.bpWorkCandsOpen = false;
             workAction({ type: "assignWorker", id: c.id, tileX: tx, tileY: ty });
           },
         ])
@@ -6207,7 +6088,7 @@ async function main() {
       bpUpgradeCostEl.textContent = info.upgrade.reason ? `${info.upgrade.cost} (${info.upgrade.reason})` : info.upgrade.cost;
     }
     const pv = info.upgrade ? info.mine?.preview : undefined;
-    mineDigPreview = pv ? { level: pv.level, chance: pv.chance, risk: pv.risk } : null;
+    S.mineDigPreview = pv ? { level: pv.level, chance: pv.chance, risk: pv.risk } : null;
     bpMineRiskEl.hidden = !pv;
     if (pv) {
       bpMineRiskEl.dataset.risk = pv.risk;
@@ -6218,9 +6099,9 @@ async function main() {
       ul.replaceChildren(...pv.lines.map((t) => Object.assign(document.createElement("li"), { textContent: t })));
       bpMineRiskEl.replaceChildren(head, ul);
     }
-    const armed = !!mineDigPreview && mineDigPreview.chance > 0 && performance.now() < mineDigArmedUntil;
-    bpUpgradeBtn.textContent = armed ? `Confirm: dig to level ${mineDigPreview!.level}` : "Upgrade";
-    bpUpgradeBtn.title = mineDigPreview && mineDigPreview.chance > 0 ? "Digging deeper may break into a nest: read the risk below, then click again to confirm" : "";
+    const armed = !!S.mineDigPreview && S.mineDigPreview.chance > 0 && performance.now() < S.mineDigArmedUntil;
+    bpUpgradeBtn.textContent = armed ? `Confirm: dig to level ${S.mineDigPreview!.level}` : "Upgrade";
+    bpUpgradeBtn.title = S.mineDigPreview && S.mineDigPreview.chance > 0 ? "Digging deeper may break into a nest: read the risk below, then click again to confirm" : "";
     bpRepairRowEl.hidden = info.repair === null;
     if (info.repair) {
       bpRepairBtn.disabled = !info.repair.enabled;
@@ -6235,9 +6116,9 @@ async function main() {
     renderVassal(info.vassal);
     bpTradeRowEl.hidden = !info.trade;
     if (info.trade) {
-      bpTradeBtn.textContent = tradeOpen ? "Close trade" : "Trade";
+      bpTradeBtn.textContent = S.tradeOpen ? "Close trade" : "Trade";
       setIconText(bpTradeStateEl, info.trade.canTrade ? relIcon(info.trade.tier) : "relation", info.trade.canTrade ? `${RELATION_TIER_NAMES[info.trade.tier]} prices` : info.trade.reason);
-    } else tradeOpen = false;
+    } else S.tradeOpen = false;
     renderTrade(info.trade);
     renderRoom(info.room);
     bpBlueprintRowEl.style.display = info.blueprint ? "flex" : "none";
@@ -6248,7 +6129,7 @@ async function main() {
     }
     bpGateRowEl.hidden = !info.gate;
     if (info.gate) {
-      shownGateLock = info.gate.lock;
+      S.shownGateLock = info.gate.lock;
       bpGateBtn.textContent = `Lock: ${GATE_LOCK_LABEL[info.gate.lock]}`;
       bpGateStateEl.textContent = info.gate.overrun ? "Overrun!" : info.gate.open ? "Open" : "Closed";
     }
@@ -6263,7 +6144,7 @@ async function main() {
     bpLevyRowEl.hidden = !info.levy;
     if (info.levy) {
       const l = info.levy;
-      shownLevyOnField = l.onField;
+      S.shownLevyOnField = l.onField;
       bpLevyBtn.disabled = l.onField === 0 && l.reason !== "";
       bpLevyBtn.textContent = l.onField > 0 ? `Stand down (${l.onField})` : `Call to arms (${l.ready} villagers)`;
       bpLevyBtn.title = l.onField > 0 ? "Send the levy back to work now" : l.reason || "Civilians fight as militia for half a day, then go back to work";
@@ -6339,7 +6220,7 @@ async function main() {
       const auto = f.auto;
       bpForgeAutoBtn.hidden = bpForgeAutoLessBtn.hidden = bpForgeAutoMoreBtn.hidden = bpForgeAutoStateEl.hidden = !auto;
       if (auto) {
-        shownForgeAuto = { on: auto.on, target: auto.target };
+        S.shownForgeAuto = { on: auto.on, target: auto.target };
         bpForgeAutoBtn.textContent = `Autocraft: ${auto.on ? "On" : "Off"}`;
         bpForgeAutoBtn.classList.toggle("active", auto.on);
         bpForgeAutoStateEl.textContent = `Autocraft target ${auto.target} armour + ${auto.target} weapons T${f.tier} (keeps ${auto.reserve} iron / wood)${auto.on ? ` · ${auto.status}` : ""}`;
@@ -6363,8 +6244,8 @@ async function main() {
     bpSpellsRowEl.hidden = !info.spellShop;
     if (info.spellShop) {
       const key = JSON.stringify(info.spellShop);
-      if (key !== bpSpellsKey) {
-        bpSpellsKey = key;
+      if (key !== S.bpSpellsKey) {
+        S.bpSpellsKey = key;
         bpSpellsRowEl.replaceChildren(
           ...info.spellShop.map((opt) => {
             const btn = document.createElement("button");
@@ -6374,8 +6255,8 @@ async function main() {
             btn.title = opt.reason || SPELLS[opt.spellId].text.replace("{power}", String(SPELLS[opt.spellId].power));
             btn.addEventListener("click", () => {
               btn.blur();
-              if (!infoTile) return;
-              sendMessage({ type: "learnSpell", spellId: opt.spellId, tileX: infoTile.tx, tileY: infoTile.ty });
+              if (!S.infoTile) return;
+              sendMessage({ type: "learnSpell", spellId: opt.spellId, tileX: S.infoTile.tx, tileY: S.infoTile.ty });
               window.setTimeout(requestBuildingInfo, 150);
             });
             return btn;
@@ -6386,99 +6267,99 @@ async function main() {
     animalPanel.render(info.animals);
     buildingPanelEl.hidden = false;
   }
-  const animalPanel = createAnimalPanel({ anchor: bpSpellsRowEl, send: (m) => sendMessage(m as never), tile: () => infoTile, refresh: () => requestBuildingInfo() });
+  const animalPanel = createAnimalPanel({ anchor: bpSpellsRowEl, send: (m) => sendMessage(m as never), tile: () => S.infoTile, refresh: () => requestBuildingInfo() });
   for (const [cls, btn] of bpHeroBtns) {
     btn.addEventListener("click", () => {
       btn.blur();
-      if (!infoTile) return;
-      sendMessage({ type: "recruitHero", tx: infoTile.tx, ty: infoTile.ty, class: cls });
+      if (!S.infoTile) return;
+      sendMessage({ type: "recruitHero", tx: S.infoTile.tx, ty: S.infoTile.ty, class: cls });
       window.setTimeout(requestBuildingInfo, 150);
     });
   }
   bpMineBtn.addEventListener("click", () => {
     bpMineBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "mineAssault", tileX: infoTile.tx, tileY: infoTile.ty });
+    if (!S.infoTile) return;
+    sendMessage({ type: "mineAssault", tileX: S.infoTile.tx, tileY: S.infoTile.ty });
     window.setTimeout(requestBuildingInfo, 150);
   });
   bpLevyBtn.addEventListener("click", () => {
     bpLevyBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "callVillagers", tileX: infoTile.tx, tileY: infoTile.ty, ...(shownLevyOnField > 0 ? { dismiss: true } : {}) });
+    if (!S.infoTile) return;
+    sendMessage({ type: "callVillagers", tileX: S.infoTile.tx, tileY: S.infoTile.ty, ...(S.shownLevyOnField > 0 ? { dismiss: true } : {}) });
     window.setTimeout(requestBuildingInfo, 150);
   });
   bpTrainBtn.addEventListener("click", () => {
     bpTrainBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "trainUnit", tileX: infoTile.tx, tileY: infoTile.ty });
+    if (!S.infoTile) return;
+    sendMessage({ type: "trainUnit", tileX: S.infoTile.tx, tileY: S.infoTile.ty });
     window.setTimeout(requestBuildingInfo, 150);
   });
   for (const [slot, btn] of bpForgeBtns) {
     btn.addEventListener("click", () => {
       btn.blur();
-      if (!infoTile) return;
-      sendMessage({ type: "queueForge", tileX: infoTile.tx, tileY: infoTile.ty, slot });
+      if (!S.infoTile) return;
+      sendMessage({ type: "queueForge", tileX: S.infoTile.tx, tileY: S.infoTile.ty, slot });
       window.setTimeout(requestBuildingInfo, 150);
     });
   }
   const sendForgeAuto = (on: boolean, target: number) => {
-    if (!infoTile) return;
-    sendMessage({ type: "setForgeAuto", tileX: infoTile.tx, tileY: infoTile.ty, on, target: Math.max(1, Math.min(20, target)) });
+    if (!S.infoTile) return;
+    sendMessage({ type: "setForgeAuto", tileX: S.infoTile.tx, tileY: S.infoTile.ty, on, target: Math.max(1, Math.min(20, target)) });
     window.setTimeout(requestBuildingInfo, 150);
   };
   bpForgeAutoBtn.addEventListener("click", () => {
     bpForgeAutoBtn.blur();
-    sendForgeAuto(!shownForgeAuto.on, shownForgeAuto.target);
+    sendForgeAuto(!S.shownForgeAuto.on, S.shownForgeAuto.target);
   });
   bpForgeAutoLessBtn.addEventListener("click", () => {
     bpForgeAutoLessBtn.blur();
-    sendForgeAuto(true, shownForgeAuto.target - 1);
+    sendForgeAuto(true, S.shownForgeAuto.target - 1);
   });
   bpForgeAutoMoreBtn.addEventListener("click", () => {
     bpForgeAutoMoreBtn.blur();
-    sendForgeAuto(true, shownForgeAuto.target + 1);
+    sendForgeAuto(true, S.shownForgeAuto.target + 1);
   });
   bpKeepBtn.addEventListener("click", () => {
     bpKeepBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "rebuildKeep", tileX: infoTile.tx, tileY: infoTile.ty });
+    if (!S.infoTile) return;
+    sendMessage({ type: "rebuildKeep", tileX: S.infoTile.tx, tileY: S.infoTile.ty });
     window.setTimeout(requestBuildingInfo, 150);
   });
   bpGateBtn.addEventListener("click", () => {
     bpGateBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "setGateLock", tileX: infoTile.tx, tileY: infoTile.ty, lock: GATE_LOCK_NEXT[shownGateLock] });
+    if (!S.infoTile) return;
+    sendMessage({ type: "setGateLock", tileX: S.infoTile.tx, tileY: S.infoTile.ty, lock: GATE_LOCK_NEXT[S.shownGateLock] });
     window.setTimeout(requestBuildingInfo, 150);
   });
   for (const [kind, btn] of bpSiegeBtns) {
     btn.addEventListener("click", () => {
       btn.blur();
-      if (!infoTile) return;
-      sendMessage({ type: "queueSiege", tileX: infoTile.tx, tileY: infoTile.ty, kind });
+      if (!S.infoTile) return;
+      sendMessage({ type: "queueSiege", tileX: S.infoTile.tx, tileY: S.infoTile.ty, kind });
       window.setTimeout(requestBuildingInfo, 150);
     });
   }
   bpUpgradeBtn.addEventListener("click", () => {
     bpUpgradeBtn.blur();
-    if (!infoTile) return;
+    if (!S.infoTile) return;
     // A mine whose next depth may hold a nest: the first click arms (shows the risk), the second within 6 s digs.
-    if (mineDigPreview && mineDigPreview.chance > 0 && performance.now() >= mineDigArmedUntil) {
-      mineDigArmedUntil = performance.now() + 6000;
-      bpUpgradeBtn.textContent = `Confirm: dig to level ${mineDigPreview.level}`;
+    if (S.mineDigPreview && S.mineDigPreview.chance > 0 && performance.now() >= S.mineDigArmedUntil) {
+      S.mineDigArmedUntil = performance.now() + 6000;
+      bpUpgradeBtn.textContent = `Confirm: dig to level ${S.mineDigPreview.level}`;
       bpMineRiskEl.scrollIntoView({ block: "nearest" });
       window.setTimeout(() => {
-        if (performance.now() >= mineDigArmedUntil) bpUpgradeBtn.textContent = "Upgrade";
+        if (performance.now() >= S.mineDigArmedUntil) bpUpgradeBtn.textContent = "Upgrade";
       }, 6100);
       return;
     }
-    mineDigArmedUntil = 0;
-    sendMessage({ type: "upgradeBuilding", tileX: infoTile.tx, tileY: infoTile.ty });
+    S.mineDigArmedUntil = 0;
+    sendMessage({ type: "upgradeBuilding", tileX: S.infoTile.tx, tileY: S.infoTile.ty });
     window.setTimeout(requestBuildingInfo, 150);
   });
   bpRepairBtn.addEventListener("click", () => {
     bpRepairBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "repairBuilding", tileX: infoTile.tx, tileY: infoTile.ty });
+    if (!S.infoTile) return;
+    sendMessage({ type: "repairBuilding", tileX: S.infoTile.tx, tileY: S.infoTile.ty });
     window.setTimeout(requestBuildingInfo, 150);
   });
   document.getElementById("bp-close")!.addEventListener("click", (e) => {
@@ -6486,7 +6367,7 @@ async function main() {
     closeBuildingInfo();
   });
   window.setInterval(() => {
-    if (infoTile && !buildingPanelEl.hidden) requestBuildingInfo();
+    if (S.infoTile && !buildingPanelEl.hidden) requestBuildingInfo();
   }, BUILDING_INFO_REFRESH_MS);
 
   // ---- Builders counter and game over ----
@@ -6506,14 +6387,14 @@ async function main() {
   // Village life phase 5: a dead rider with `heirs` picks one (heir picker); dead without heirs is game over.
   const heirPickerEl = document.getElementById("heir-picker")!;
   const heirListEl = document.getElementById("heir-list")!;
-  let heirListKey = "";
+  S.heirListKey = "";
   function refreshGameOver(me: PlayerSnapshot | undefined) {
     const heirs = me?.dead ? me.heirs ?? [] : [];
     gameOverEl.hidden = !(me?.dead && heirs.length === 0);
     heirPickerEl.hidden = heirs.length === 0;
     const key = JSON.stringify(heirs);
-    if (key === heirListKey) return;
-    heirListKey = key;
+    if (key === S.heirListKey) return;
+    S.heirListKey = key;
     heirListEl.replaceChildren(
       ...heirs.map((h) => {
         const b = document.createElement("button");
@@ -6530,29 +6411,29 @@ async function main() {
   }
   document.getElementById("game-over-restart")!.addEventListener("click", (e) => {
     (e.currentTarget as HTMLButtonElement).blur();
-    sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: creativeUi.on, solo: preferredSolo && !creativeUi.on });
+    sendMessage({ type: "restart", difficulty: G.preferredDifficulty, worldSize: G.preferredWorldSize, creative: creativeUi.on, solo: G.preferredSolo && !creativeUi.on });
   });
 
   // ---- Networking ----
 
   // Hero phases 1-2: a stored per-browser profile id, so this player's gear / XP follow them across sessions.
-  let profileId = "";
+  S.profileId = "";
   try {
-    profileId = localStorage.getItem("sworn.profileId") ?? "";
-    if (!/^[\w-]{1,64}$/.test(profileId)) {
-      profileId = (crypto.randomUUID?.() ?? `p${Date.now()}${Math.floor(Math.random() * 1e9)}`).replace(/[^\w-]/g, "");
-      localStorage.setItem("sworn.profileId", profileId);
+    S.profileId = localStorage.getItem("sworn.profileId") ?? "";
+    if (!/^[\w-]{1,64}$/.test(S.profileId)) {
+      S.profileId = (crypto.randomUUID?.() ?? `p${Date.now()}${Math.floor(Math.random() * 1e9)}`).replace(/[^\w-]/g, "");
+      localStorage.setItem("sworn.profileId", S.profileId);
     }
   } catch {
-    profileId = "";
+    S.profileId = "";
   }
   const bpTrainBatchBtns: [number | "max", HTMLButtonElement][] = ([5, 10, "max"] as const).map((n) => {
     const b = document.createElement("button");
     b.className = "econ-btn";
     b.addEventListener("click", () => {
       b.blur();
-      if (!infoTile) return;
-      sendMessage({ type: "trainUnit", tileX: infoTile.tx, tileY: infoTile.ty, count: n });
+      if (!S.infoTile) return;
+      sendMessage({ type: "trainUnit", tileX: S.infoTile.tx, tileY: S.infoTile.ty, count: n });
       window.setTimeout(requestBuildingInfo, 150);
     });
     return [n, b];
@@ -6563,13 +6444,13 @@ async function main() {
   bpTrainCancelBtn.title = "Send the last-queued trainee home (waiting ones first): the adult and the gear come back";
   bpTrainCancelBtn.addEventListener("click", () => {
     bpTrainCancelBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "trainUnit", tileX: infoTile.tx, tileY: infoTile.ty, cancel: true });
+    if (!S.infoTile) return;
+    sendMessage({ type: "trainUnit", tileX: S.infoTile.tx, tileY: S.infoTile.ty, cancel: true });
     window.setTimeout(requestBuildingInfo, 150);
   });
   bpTrainBtn.after(...bpTrainBatchBtns.map(([, b]) => b), bpTrainCancelBtn);
   const wsParams = new URLSearchParams();
-  if (profileId) wsParams.set("profile", profileId);
+  if (S.profileId) wsParams.set("profile", S.profileId);
   if (clanParam()) wsParams.set("clan", clanParam());
   // World streaming phase 4: take chunked welcomes on streamed (768+ tile) worlds.
   wsParams.set("chunks", "1");
@@ -6585,7 +6466,7 @@ async function main() {
     onCancel: () => sendMessage({ type: "cancelLoad" }),
     onBackToMenu: () => location.reload(),
   });
-  let loadingSnapshotSeen = false;
+  S.loadingSnapshotSeen = false;
 
   const pauseBtn = document.getElementById("pause-btn") as HTMLButtonElement;
   const restartBtn = document.getElementById("restart-btn") as HTMLButtonElement;
@@ -6602,8 +6483,8 @@ async function main() {
   // resumes, Shift+[ / Shift+] step the speed down / up (plain [ ] stay build hotkeys).
   const timeControlsEl = document.getElementById("time-controls")!;
   const timeStatusEl = document.getElementById("time-status")!;
-  let currentTimeScale = 1;
-  let currentPaused = false;
+  S.currentTimeScale = 1;
+  S.currentPaused = false;
   function sendTimeScale(scale: number) {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "setTimeScale", scale }));
   }
@@ -6617,7 +6498,7 @@ async function main() {
     if (!e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.code === "Space") {
       e.preventDefault();
-      if (!e.repeat && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "pause", paused: !currentPaused }));
+      if (!e.repeat && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "pause", paused: !S.currentPaused }));
       return;
     }
     const step = e.code === "BracketLeft" ? -1 : e.code === "BracketRight" ? 1 : 0;
@@ -6625,21 +6506,21 @@ async function main() {
     e.preventDefault();
     if (e.repeat) return;
     const scales = TIME_SCALES as readonly number[];
-    const i = Math.max(0, scales.indexOf(currentTimeScale));
+    const i = Math.max(0, scales.indexOf(S.currentTimeScale));
     const next = scales[Math.max(0, Math.min(scales.length - 1, i + step))];
-    if (next !== currentTimeScale) sendTimeScale(next);
+    if (next !== S.currentTimeScale) sendTimeScale(next);
   });
 
   function whoLabel(id: string | undefined, players: PlayerSnapshot[]): string {
     if (!id) return "";
-    if (id === myId) return "you";
+    if (id === S.myId) return "you";
     const i = players.findIndex((p) => p.id === id);
     return i >= 0 ? `Player ${i + 1}` : "a player who left";
   }
 
   function syncTimeControls(paused: boolean, pausedBy: string | undefined, scale: number, scaleBy: string | undefined, players: PlayerSnapshot[]) {
-    currentPaused = paused;
-    currentTimeScale = scale;
+    S.currentPaused = paused;
+    S.currentTimeScale = scale;
     for (const b of Array.from(timeControlsEl.querySelectorAll<HTMLButtonElement>("button[data-scale]"))) {
       b.classList.toggle("active", Number(b.dataset.scale) === scale);
     }
@@ -6658,7 +6539,7 @@ async function main() {
     restartBtn.blur();
     if (!window.confirm("Restart the world for everyone connected?")) return;
     if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: creativeUi.on, solo: preferredSolo && !creativeUi.on }));
+      socket.send(JSON.stringify({ type: "restart", difficulty: G.preferredDifficulty, worldSize: G.preferredWorldSize, creative: creativeUi.on, solo: G.preferredSolo && !creativeUi.on }));
     }
   });
 
@@ -6676,7 +6557,7 @@ async function main() {
 
   // ---- Armour & weapons: "Armour T1/T2/T3: 2/0/1 · Weapons: 3/1/0" (amber when a slot is empty) ----
   const statEquipmentEl = document.getElementById("stat-equipment")!;
-  let equipmentLineKey = "";
+  S.equipmentLineKey = "";
   function refreshEquipmentLine(eq: EquipmentStock | undefined) {
     statEquipmentEl.hidden = !eq;
     if (!eq) return;
@@ -6685,8 +6566,8 @@ async function main() {
       setGoodCount(`gear:armour:${t}`, eq.armour[t - 1] ?? 0);
     }
     const key = `${eq.armour.join("/")}|${eq.weapon.join("/")}`;
-    if (key === equipmentLineKey) return;
-    equipmentLineKey = key;
+    if (key === S.equipmentLineKey) return;
+    S.equipmentLineKey = key;
     const part = (label: string, counts: number[]) => {
       const span = document.createElement("span");
       span.textContent = `${label}: ${counts.join("/")}`;
@@ -6710,18 +6591,18 @@ async function main() {
   const hsStats = document.getElementById("hs-stats")!;
   const hsArmoury = document.getElementById("hs-armoury")!;
   const hsTip = document.getElementById("hs-tip")!;
-  let heroProfile: HeroProfileSnapshot | null = null;
-  let armouryWeapon: typeof HERO_WEAPON_KINDS[number] = "sword";
-  let armouryPart: "head"|"chest"|"offhand" = "chest";
+  S.heroProfile = null;
+  S.armouryWeapon = "sword";
+  S.armouryPart = "chest";
   // Hero phase 3: the colony's heroes (snapshot `heroes`) and the open tab ("" = the player).
-  let heroSheets: HeroSheetSnapshot[] = [];
-  let sheetTab = "";
+  S.heroSheets = [];
+  S.sheetTab = "";
   const hsTabs = document.getElementById("hs-tabs")!;
   const hsTitle = document.getElementById("hs-title")!;
-  let heroStock: EquipmentStock | undefined;
-  let heroRenderKey = "";
-  let heroHpText = "";
-  let heroMe: PlayerSnapshot | undefined;
+  
+  S.heroRenderKey = "";
+  S.heroHpText = "";
+  
   const missingIcons = new Set<string>();
   const SLOT_LABEL: Record<GearSlot, string> = {
     head: "Head", chest: "Chest", legs: "Legs", weapon: "Weapon", offhand: "Off-hand", trinket1: "Trinket", trinket2: "Trinket",
@@ -6746,7 +6627,7 @@ async function main() {
 
   function gearSlotFor(item: GearItem, prof: HeroProfileSnapshot): GearSlot | null {
     if (item.slot === "spell" || item.slot === "tome") return null;
-    if (!sheetTab && (!PLAYER_GEAR_SLOTS.includes(item.slot as GearSlot) || (item.slot === "weapon" && !PLAYER_WEAPON_KINDS.includes(item.kind as any)) || (item.slot === "offhand" && item.kind !== "shield"))) return null;
+    if (!S.sheetTab && (!PLAYER_GEAR_SLOTS.includes(item.slot as GearSlot) || (item.slot === "weapon" && !PLAYER_WEAPON_KINDS.includes(item.kind as any)) || (item.slot === "offhand" && item.kind !== "shield"))) return null;
     if (item.slot === "trinket") return prof.equipment.trinket1 && !prof.equipment.trinket2 ? "trinket2" : "trinket1";
     return item.slot;
   }
@@ -6778,7 +6659,7 @@ async function main() {
     name.textContent = item.name;
     const tier = document.createElement("div");
     tier.className = "tier";
-    tier.textContent = item.tier === "relic" ? `Relic · ${SLOT_LABEL[gearSlotFor(item, heroProfile!) ?? "head"]}` : `Tier ${item.tier} · ${SLOT_LABEL[gearSlotFor(item, heroProfile!) ?? "head"]}`;
+    tier.textContent = item.tier === "relic" ? `Relic · ${SLOT_LABEL[gearSlotFor(item, S.heroProfile!) ?? "head"]}` : `Tier ${item.tier} · ${SLOT_LABEL[gearSlotFor(item, S.heroProfile!) ?? "head"]}`;
     hsTip.append(name, tier);
     for (const line of STAT_LINES) {
       const v = item.stats[line.key] ?? 0;
@@ -6843,7 +6724,7 @@ async function main() {
   const hsSpellbook = document.getElementById("hs-spellbook")!;
   const hsSpellAuto = document.getElementById("hs-spell-auto") as HTMLButtonElement;
   // The spell picked in the spell book, waiting for a slot click.
-  let pickedSpell: SpellId | null = null;
+  S.pickedSpell = null;
   const TARGETING_LABEL = { enemy: "Target an enemy", ally: "Target an ally (or yourself)", ground: "Target a spot", self: "Self" };
   // Placeholder: a coloured square with the spell's glyph; /sprites/<icon>.png (SPRITES.md #57) over it once it exists.
   function spellIcon(id: SpellId): HTMLElement {
@@ -6898,46 +6779,46 @@ async function main() {
   }
 
   function renderHeroSheet(force = false) {
-    if (heroModal.hidden || !heroProfile) return;
+    if (heroModal.hidden || !S.heroProfile) return;
     // Hero phase 3: a hero tab shows that hero's sockets / stats / level over the player's shared pack.
-    const hero = sheetTab ? heroSheets.find((h) => h.id === sheetTab) : undefined;
-    if (sheetTab && !hero) sheetTab = "";
-    const pack = heroProfile;
+    const hero = S.sheetTab ? S.heroSheets.find((h) => h.id === S.sheetTab) : undefined;
+    if (S.sheetTab && !hero) S.sheetTab = "";
+    const pack = S.heroProfile;
     const prof: HeroProfileSnapshot = hero ? { ...hero.profile, inventory: pack.inventory, inventoryCap: pack.inventoryCap } : pack;
     const heroArg = hero ? { heroId: hero.id } : {};
-    const me = heroMe;
-    const unit = hero ? latestColonists.find((c) => c.id === hero.id) : undefined;
+    const me = S.heroMe;
+    const unit = hero ? S.latestColonists.find((c) => c.id === hero.id) : undefined;
     const hpText = hero
       ? unit ? `${Math.ceil(unit.hp)} / ${unit.maxHp}` : hero.status === "recruiting" ? `${prof.stats.maxHp} (arriving)` : `fallen: back at dawn / dusk for ${hero.respawnFee} gold`
       : me ? `${Math.ceil(me.hp)} / ${me.maxHp}` : `${prof.stats.maxHp}`;
-    const key = JSON.stringify([{ ...prof, spells: prof.spells ? { ...prof.spells, cooldowns: {} } : undefined }, heroStock, sheetTab, !!heroMe?.mounted, pickedSpell, heroSheets.map((h) => [h.id, h.name, h.status, h.profile.level])]);
-    if (!force && key === heroRenderKey) {
-      if (hpText !== heroHpText) {
-        heroHpText = hpText;
+    const key = JSON.stringify([{ ...prof, spells: prof.spells ? { ...prof.spells, cooldowns: {} } : undefined }, S.heroStock, S.sheetTab, !!S.heroMe?.mounted, S.pickedSpell, S.heroSheets.map((h) => [h.id, h.name, h.status, h.profile.level])]);
+    if (!force && key === S.heroRenderKey) {
+      if (hpText !== S.heroHpText) {
+        S.heroHpText = hpText;
         const hpEl = document.getElementById("hs-hp");
         if (hpEl) hpEl.textContent = hpText;
       }
       return;
     }
-    heroRenderKey = key;
-    heroHpText = hpText;
+    S.heroRenderKey = key;
+    S.heroHpText = hpText;
     hideItemTip();
     hsTitle.textContent = hero ? `${hero.name} · ${HERO_CLASS_LABEL[hero.heroClass]}` : prof.appearance?.name ?? "Character";
     document.getElementById("hero-appearance")!.hidden = true;
     hsTabs.replaceChildren();
-    if (heroSheets.length > 0) {
+    if (S.heroSheets.length > 0) {
       const tab = (id: string, label: string, cls = "") => {
         const b = document.createElement("button");
         b.textContent = label;
-        b.className = `${id === sheetTab ? "active" : ""} ${cls}`.trim();
+        b.className = `${id === S.sheetTab ? "active" : ""} ${cls}`.trim();
         b.addEventListener("click", () => {
-          sheetTab = id;
+          S.sheetTab = id;
           renderHeroSheet(true);
         });
         hsTabs.append(b);
       };
       tab("", "Player");
-      for (const h of heroSheets.slice(0, 9)) tab(h.id, `${h.name} Lv ${h.profile.level}`, h.status === "alive" ? "" : "fallen");
+      for (const h of S.heroSheets.slice(0, 9)) tab(h.id, `${h.name} Lv ${h.profile.level}`, h.status === "alive" ? "" : "fallen");
     }
     // Paper-doll: trinket / head / trinket, weapon / chest / off-hand, - / legs / -, then 4 spell slots.
     const layout: (GearSlot | null)[] = hero ? ["trinket1", "head", "trinket2", "weapon", "chest", "offhand", null, "legs", null] : ["head", "chest", "weapon", "offhand"];
@@ -6968,7 +6849,7 @@ async function main() {
     for (let i = 0; i < SPELL_SLOT_COUNT; i++) {
       const id = book.slots[i] ?? null;
       const el = document.createElement("div");
-      el.className = `hs-socket${pickedSpell ? " target" : ""}`;
+      el.className = `hs-socket${S.pickedSpell ? " target" : ""}`;
       el.setAttribute('role','button');el.tabIndex=0;el.setAttribute('aria-label',`Spell slot ${i+1}${id?': '+SPELLS[id].name:''}`);
       el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}});
       if (id) el.append(spellIcon(id));
@@ -6980,12 +6861,12 @@ async function main() {
       }
       el.addEventListener("click", () => {
         hideItemTip();
-        if (pickedSpell) {
-          sendMessage({ type: "setSpellSlot", slot: i, spellId: pickedSpell, ...heroArg });
-          pickedSpell = null;
+        if (S.pickedSpell) {
+          sendMessage({ type: "setSpellSlot", slot: i, spellId: S.pickedSpell, ...heroArg });
+          S.pickedSpell = null;
         } else if (id) sendMessage({ type: "setSpellSlot", slot: i, spellId: null, ...heroArg });
       });
-      el.addEventListener("mousemove", (e) => (id ? showSpellTip(e, id, prof.stats.spellPowerMult, pickedSpell ? `Click to put ${SPELLS[pickedSpell].name} here` : "Click to empty the slot", prof.spells?.castLevel) : pickedSpell ? showSpellTip(e, pickedSpell, prof.stats.spellPowerMult, `Click to put it in slot ${i + 1}`, prof.spells?.castLevel) : hideItemTip()));
+      el.addEventListener("mousemove", (e) => (id ? showSpellTip(e, id, prof.stats.spellPowerMult, S.pickedSpell ? `Click to put ${SPELLS[S.pickedSpell].name} here` : "Click to empty the slot", prof.spells?.castLevel) : S.pickedSpell ? showSpellTip(e, S.pickedSpell, prof.stats.spellPowerMult, `Click to put it in slot ${i + 1}`, prof.spells?.castLevel) : hideItemTip()));
       el.addEventListener("mouseleave", hideItemTip);
       spells.append(el);
     }
@@ -7044,16 +6925,16 @@ async function main() {
     }
     for (const id of book.learned) {
       const el = document.createElement("div");
-      el.className = `hs-socket${pickedSpell === id ? " picked" : ""}`;
+      el.className = `hs-socket${S.pickedSpell === id ? " picked" : ""}`;
       el.setAttribute('role','button');el.tabIndex=0;el.setAttribute('aria-label',`Select ${SPELLS[id].name}`);
       el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}});
       el.append(spellIcon(id));
       el.addEventListener("click", () => {
         hideItemTip();
-        pickedSpell = pickedSpell === id ? null : id;
+        S.pickedSpell = S.pickedSpell === id ? null : id;
         renderHeroSheet(true);
       });
-      el.addEventListener("mousemove", (e) => showSpellTip(e, id, prof.stats.spellPowerMult, pickedSpell === id ? "Now click a spell slot (click again to cancel)" : "Click, then click a spell slot", prof.spells?.castLevel));
+      el.addEventListener("mousemove", (e) => showSpellTip(e, id, prof.stats.spellPowerMult, S.pickedSpell === id ? "Now click a spell slot (click again to cancel)" : "Click, then click a spell slot", prof.spells?.castLevel));
       el.addEventListener("mouseleave", hideItemTip);
       hsSpellbook.append(el);
     }
@@ -7101,22 +6982,22 @@ async function main() {
     const weaponLabel=document.createElement("label"); weaponLabel.className="weapon-choice"; weaponLabel.textContent="Weapon to withdraw";
     const weaponSelect=document.createElement("select"); weaponSelect.setAttribute("aria-label","Armoury weapon");
     for(const kind of (hero ? HERO_WEAPON_KINDS : PLAYER_WEAPON_KINDS)) { const opt=document.createElement("option");opt.value=kind;opt.textContent=kind[0].toUpperCase()+kind.slice(1);weaponSelect.append(opt); }
-    if(!hero && !PLAYER_WEAPON_KINDS.includes(armouryWeapon as any)) armouryWeapon="sword";
-    weaponSelect.value=armouryWeapon; weaponSelect.onchange=()=>{armouryWeapon=weaponSelect.value as typeof armouryWeapon;renderHeroSheet(true);};
+    if(!hero && !PLAYER_WEAPON_KINDS.includes(S.armouryWeapon as any)) S.armouryWeapon="sword";
+    weaponSelect.value=S.armouryWeapon; weaponSelect.onchange=()=>{S.armouryWeapon=weaponSelect.value as typeof S.armouryWeapon;renderHeroSheet(true);};
     weaponLabel.append(weaponSelect);hsArmoury.append(weaponLabel);
     const partLabel=document.createElement("label");partLabel.className="weapon-choice";partLabel.textContent="Armour to withdraw";
     const partSelect=document.createElement("select");partSelect.setAttribute("aria-label","Armoury armour slot");
     for(const [value,label] of [["head","Helmet"],["chest","Body armour"],["offhand","Shield"]]){const option=document.createElement("option");option.value=value;option.textContent=label;partSelect.append(option);}
-    partSelect.value=armouryPart;partSelect.onchange=()=>{armouryPart=partSelect.value as typeof armouryPart;renderHeroSheet(true);};partLabel.append(partSelect);hsArmoury.append(partLabel);
+    partSelect.value=S.armouryPart;partSelect.onchange=()=>{S.armouryPart=partSelect.value as typeof S.armouryPart;renderHeroSheet(true);};partLabel.append(partSelect);hsArmoury.append(partLabel);
     const full = prof.inventory.length >= prof.inventoryCap;
     for (const slot of ["armour", "weapon"] as EquipSlot[]) {
       for (let tier = 1; tier <= 3; tier++) {
-        const n = heroStock?.[slot][tier - 1] ?? 0;
+        const n = S.heroStock?.[slot][tier - 1] ?? 0;
         const btn = document.createElement("button");
-        btn.textContent = `${slot === "armour" ? armouryPart === "head" ? "Helmet" : armouryPart === "offhand" ? "Shield" : "Body armour" : "Weapon"} T${tier} (${n})`;
+        btn.textContent = `${slot === "armour" ? S.armouryPart === "head" ? "Helmet" : S.armouryPart === "offhand" ? "Shield" : "Body armour" : "Weapon"} T${tier} (${n})`;
         btn.disabled = n <= 0 || full;
         btn.title = full ? "Your pack is full" : n <= 0 ? "None in the colony's stock (forge at a Blacksmith)" : "Takes it from the stock soldiers muster with";
-        btn.addEventListener("click", () => sendMessage({ type: "takeFromArmoury", slot, tier, ...(slot === "weapon" ? {weaponKind:armouryWeapon} : {armourPart:armouryPart}), ...heroArg }));
+        btn.addEventListener("click", () => sendMessage({ type: "takeFromArmoury", slot, tier, ...(slot === "weapon" ? {weaponKind:S.armouryWeapon} : {armourPart:S.armouryPart}), ...heroArg }));
         hsArmoury.append(btn);
       }
     }
@@ -7124,9 +7005,9 @@ async function main() {
 
   function setHeroSheetOpen(open: boolean) {
     // Hero phase 3: opening with exactly one hero selected shows that hero's tab.
-    if (open && selectedIds.size === 1) {
-      const id = [...selectedIds][0];
-      if (heroSheets.some((h) => h.id === id)) sheetTab = id;
+    if (open && S.selectedIds.size === 1) {
+      const id = [...S.selectedIds][0];
+      if (S.heroSheets.some((h) => h.id === id)) S.sheetTab = id;
     }
     heroModal.hidden = !open;
     hideItemTip();
@@ -7153,12 +7034,12 @@ async function main() {
   function syncHeroProfile(
     profile: HeroProfileSnapshot | undefined, stock: EquipmentStock | undefined, me: PlayerSnapshot | undefined, heroes?: HeroSheetSnapshot[]
   ) {
-    if (profile) { heroProfile = profile; heroToolsRef.ui?.refreshWeapons(); }
+    if (profile) { S.heroProfile = profile; heroToolsRef.ui?.refreshWeapons(); }
     // Hero phase 4: cooldown ticks are as of this snapshot; the spell bar counts down from here.
-    if (profile?.spells) spellCdAt = performance.now();
-    if (heroes) heroSheets = heroes;
-    heroMe = me;
-    heroStock = stock;
+    if (profile?.spells) S.spellCdAt = performance.now();
+    if (heroes) S.heroSheets = heroes;
+    S.heroMe = me;
+    S.heroStock = stock;
     renderHeroSheet();
     renderSpellBar();
   }
@@ -7169,8 +7050,8 @@ async function main() {
   // ground = yourself), ground = the spot; right click or Escape cancels; the same key again casts an
   // ally spell on yourself. Cooldowns are drawn as a dark overlay with the seconds left.
   const spellBarEl = document.getElementById("spell-bar")!;
-  let spellCdAt = performance.now();
-  let spellAim: { slot: number; spell: SpellId } | null = null;
+  S.spellCdAt = performance.now();
+  S.spellAim = null;
   const spellBtns: HTMLButtonElement[] = [];
   const SPELL_KEY_LABEL = ["⇧1", "⇧2", "⇧3", "⇧4"];
   for (let i = 0; i < SPELL_SLOT_COUNT; i++) {
@@ -7185,22 +7066,22 @@ async function main() {
     spellBtns.push(b);
   }
   const spellRangeRing = new Graphics();
-  let spellBarKey = "";
+  S.spellBarKey = "";
   function spellCooldownMs(id: SpellId): number {
-    const ticks = heroProfile?.spells?.cooldowns[id] ?? 0;
-    return Math.max(0, (ticks / TICK_RATE) * 1000 - (performance.now() - spellCdAt));
+    const ticks = S.heroProfile?.spells?.cooldowns[id] ?? 0;
+    return Math.max(0, (ticks / TICK_RATE) * 1000 - (performance.now() - S.spellCdAt));
   }
   function renderSpellBar() {
-    const book = heroProfile?.spells;
+    const book = S.heroProfile?.spells;
     spellBarEl.hidden = !book || book.learned.length === 0;
     if (!book) return;
-    const key = JSON.stringify([book.slots, spellAim, heroProfile?.stats.spellPowerMult, book.castLevel]);
-    if (key !== spellBarKey) {
-      spellBarKey = key;
+    const key = JSON.stringify([book.slots, S.spellAim, S.heroProfile?.stats.spellPowerMult, book.castLevel]);
+    if (key !== S.spellBarKey) {
+      S.spellBarKey = key;
       book.slots.forEach((id, i) => {
         const b = spellBtns[i];
         b.replaceChildren();
-        b.classList.toggle("aiming", spellAim?.slot === i);
+        b.classList.toggle("aiming", S.spellAim?.slot === i);
         b.disabled = !id;
         if (id) b.append(spellIcon(id));
         const k = document.createElement("kbd");
@@ -7208,7 +7089,7 @@ async function main() {
         const cd = document.createElement("div");
         cd.className = "spell-cd";
         b.append(k, cd);
-        b.onmousemove = id ? (e) => showSpellTip(e, id, heroProfile?.stats.spellPowerMult ?? 1, `Shift+${i + 1} or F${i + 1}`, book.castLevel) : null;
+        b.onmousemove = id ? (e) => showSpellTip(e, id, S.heroProfile?.stats.spellPowerMult ?? 1, `Shift+${i + 1} or F${i + 1}`, book.castLevel) : null;
         b.onmouseleave = hideItemTip;
       });
     }
@@ -7221,8 +7102,8 @@ async function main() {
     });
   }
   window.setInterval(renderSpellBar, 100);
-  function setSpellAim(aim: typeof spellAim) {
-    spellAim = aim;
+  function setSpellAim(aim: typeof S.spellAim) {
+    S.spellAim = aim;
     app.canvas.style.cursor = aim ? "crosshair" : "";
     spellRangeRing.clear();
     renderSpellBar();
@@ -7232,7 +7113,7 @@ async function main() {
     setSpellAim(null);
   }
   function useSpellSlot(slot: number) {
-    const id = heroProfile?.spells?.slots[slot];
+    const id = S.heroProfile?.spells?.slots[slot];
     if (!id) return;
     const def = SPELLS[id];
     if (spellCooldownMs(id) > 0) {
@@ -7240,36 +7121,36 @@ async function main() {
       return;
     }
     // Pressing an ally spell's key again while aiming casts it on yourself.
-    if (def.targeting === "self" || (def.targeting === "ally" && spellAim?.slot === slot)) return castSlot(slot, {});
-    setSpellAim(spellAim?.slot === slot ? null : { slot, spell: id });
+    if (def.targeting === "self" || (def.targeting === "ally" && S.spellAim?.slot === slot)) return castSlot(slot, {});
+    setSpellAim(S.spellAim?.slot === slot ? null : { slot, spell: id });
   }
   // A left click while aiming: true when it was used for the spell.
   function spellAimClick(x: number, y: number): boolean {
-    if (!spellAim) return false;
-    const def = SPELLS[spellAim.spell];
+    if (!S.spellAim) return false;
+    const def = SPELLS[S.spellAim.spell];
     if (def.targeting === "enemy") {
-      const mob = findNearest(latestMobs.filter((m) => (m.x - x) ** 2 + (m.y - y) ** 2 <= (mobHitRadius(m.kind, mobRenderScale(m)) + 6) ** 2), x, y, Infinity);
+      const mob = findNearest(S.latestMobs.filter((m) => (m.x - x) ** 2 + (m.y - y) ** 2 <= (mobHitRadius(m.kind, mobRenderScale(m)) + 6) ** 2), x, y, Infinity);
       if (!mob) {
         pushEventToast("build", `${def.name}: click on an enemy (right click cancels)`);
         return true;
       }
-      castSlot(spellAim.slot, { targetId: mob.id });
+      castSlot(S.spellAim.slot, { targetId: mob.id });
     } else if (def.targeting === "ally") {
-      const friends = [...latestColonists, ...(latestPlayersForSpells.filter((p) => !p.dead) as { id: string; x: number; y: number }[])];
+      const friends = [...S.latestColonists, ...(S.latestPlayersForSpells.filter((p) => !p.dead) as { id: string; x: number; y: number }[])];
       const ally = findNearest(friends, x, y, UNIT_HIT_RADIUS + 4);
-      castSlot(spellAim.slot, ally && ally.id !== myId ? { targetId: ally.id } : {});
+      castSlot(S.spellAim.slot, ally && ally.id !== S.myId ? { targetId: ally.id } : {});
     } else {
-      castSlot(spellAim.slot, { x, y });
+      castSlot(S.spellAim.slot, { x, y });
     }
     return true;
   }
-  let latestPlayersForSpells: PlayerSnapshot[] = [];
+  S.latestPlayersForSpells = [];
   app.ticker.add(() => {
-    if (!spellAim || !myId) return;
-    const me = latestPlayersForSpells.find((p) => p.id === myId);
+    if (!S.spellAim || !S.myId) return;
+    const me = S.latestPlayersForSpells.find((p) => p.id === S.myId);
     spellRangeRing.clear();
     if (!me) return;
-    spellRangeRing.circle(me.x, me.y, SPELLS[spellAim.spell].range * TILE_SIZE).stroke({ width: 2, color: 0xf2c94c, alpha: 0.6 });
+    spellRangeRing.circle(me.x, me.y, SPELLS[S.spellAim.spell].range * TILE_SIZE).stroke({ width: 2, color: 0xf2c94c, alpha: 0.6 });
     if (spellRangeRing.parent !== worldLayer) worldLayer.addChild(spellRangeRing);
   });
   window.addEventListener("keydown", (e) => {
@@ -7282,7 +7163,7 @@ async function main() {
     } else if (fkey) {
       e.preventDefault();
       useSpellSlot(Number(fkey[1]) - 1);
-    } else if (e.key === "Escape" && spellAim) {
+    } else if (e.key === "Escape" && S.spellAim) {
       setSpellAim(null);
     }
   });
@@ -7294,7 +7175,7 @@ async function main() {
   const SETTLEMENT_FULL_TOAST_THROTTLE_MS = 60000;
   const settlementWasFull = new Map<number, boolean>();
   const settlementToastAt = new Map<number, number>();
-  let settlementPanelKey = "";
+  S.settlementPanelKey = "";
   function refreshSettlementPanel(tcs: TownCenterSnapshot[]) {
     // Grey the Keep tool until some Town Center is at level 2 (it stays selectable, the cost text says why).
     const keepBtn = toolButtonEls.get(TileType.Keep);
@@ -7313,8 +7194,8 @@ async function main() {
       troopCap: tc.troopCap ?? 0,
     }));
     const key = rows.map((r) => `${r.n}:${r.used}/${r.cap}:${r.troops}/${r.troopCap}`).join("|");
-    if (key !== settlementPanelKey) {
-      settlementPanelKey = key;
+    if (key !== S.settlementPanelKey) {
+      S.settlementPanelKey = key;
       statSettlementsEl.replaceChildren();
       for (const r of rows) {
         if (!r.known) continue;
@@ -7380,12 +7261,12 @@ async function main() {
   const goalCountEl = document.getElementById("goal-progress-text")!;
   const GOAL_FLASH_MS = 1600;
   // -1 until the first snapshot after a welcome, so a load / restart never flashes.
-  let lastGoalIndex = -1;
-  let latestGoal: GoalSnapshot | null = null;
-  let goalFlashTimer = 0;
+  S.lastGoalIndex = -1;
+  S.latestGoal = null;
+  S.goalFlashTimer = 0;
 
   function syncGoal(goal: GoalSnapshot | undefined) {
-    latestGoal = goal ?? null;
+    S.latestGoal = goal ?? null;
     if (!goal) {
       goalTrackerEl.hidden = true;
       return;
@@ -7397,14 +7278,14 @@ async function main() {
     goalFillEl.style.width = `${Math.round((Math.min(goal.progress, goal.target) / goal.target) * 100)}%`;
     goalCountEl.textContent = goal.target > 1 ? `${goal.progress} / ${goal.target}` : done ? "Victory" : "";
     goalTrackerEl.classList.toggle("goal-done", done);
-    if (lastGoalIndex !== -1 && goal.index > lastGoalIndex) {
+    if (S.lastGoalIndex !== -1 && goal.index > S.lastGoalIndex) {
       goalTrackerEl.classList.remove("goal-flash");
       void goalTrackerEl.offsetWidth; // restart the animation
       goalTrackerEl.classList.add("goal-flash");
-      window.clearTimeout(goalFlashTimer);
-      goalFlashTimer = window.setTimeout(() => goalTrackerEl.classList.remove("goal-flash"), GOAL_FLASH_MS);
+      window.clearTimeout(S.goalFlashTimer);
+      S.goalFlashTimer = window.setTimeout(() => goalTrackerEl.classList.remove("goal-flash"), GOAL_FLASH_MS);
     }
-    lastGoalIndex = goal.index;
+    S.lastGoalIndex = goal.index;
   }
 
   const bossBarEl = document.getElementById("boss-bar")!;
@@ -7418,7 +7299,7 @@ async function main() {
   const playerBarLabelEl = document.getElementById("player-bar-label")!;
   const playerBarFillEl = document.getElementById("player-bar-fill")!;
   function syncPlayerBar(players: PlayerSnapshot[]) {
-    const me = players.find((p) => p.id === myId);
+    const me = players.find((p) => p.id === S.myId);
     playerBarEl.hidden = !me || me.dead || me.maxHp <= 0;
     if (!me || me.dead || me.maxHp <= 0) return;
     const frac = Math.max(0, Math.min(1, me.hp / me.maxHp));
@@ -7428,23 +7309,23 @@ async function main() {
   }
 
   function syncBossBar(mobs: MobSnapshot[], players: PlayerSnapshot[]) {
-    const me = players.find((p) => p.id === myId);
+    const me = players.find((p) => p.id === S.myId);
     const warlord = mobs.find((m) => m.boss === "warlord");
     const near =
-      !!me && !!warlord && Math.hypot(warlord.x - me.x, warlord.y - me.y) <= BOSS_BAR_RANGE_TILES * tileSize;
+      !!me && !!warlord && Math.hypot(warlord.x - me.x, warlord.y - me.y) <= BOSS_BAR_RANGE_TILES * S.tileSize;
     bossBarEl.hidden = !near;
     if (!near || !warlord) return;
     bossBarNameEl.textContent = bossTitle(warlord.kind, "warlord");
     bossBarFillEl.style.width = `${Math.max(0, Math.min(100, (warlord.hp / warlord.maxHp) * 100)).toFixed(1)}%`;
   }
 
-  let wasNight = false;
+  S.wasNight = false;
   socket.addEventListener("message", (event) => {
     const parseStart = performance.now();
     const message: ServerMessage = JSON.parse(event.data);
     // Rebuild a delta snapshot into a full one before anything reads it; on a sequence gap ask for a keyframe
     // (meanwhile it carries the last known units).
-    if(message.type==='homeDesigns'){const changed=new Set([...playerHomeDesigns.keys(),...message.homes.map(h=>h[0])]);playerHomeDesigns.clear();for(const [i,b]of message.homes)playerHomeDesigns.set(i,b);for(const i of changed)if(tiles[i]!==undefined)setTileSprite(i%worldTilesX,Math.floor(i/worldTilesX),tiles[i]);return;}
+    if(message.type==='homeDesigns'){const changed=new Set([...playerHomeDesigns.keys(),...message.homes.map(h=>h[0])]);playerHomeDesigns.clear();for(const [i,b]of message.homes)playerHomeDesigns.set(i,b);for(const i of changed)if(S.tiles[i]!==undefined)setTileSprite(i%S.worldTilesX,Math.floor(i/S.worldTilesX),S.tiles[i]);return;}
     if (message.type === "snapshot" && message.ud && applySnapshotDelta(deltaState, message as unknown as Record<string, unknown>)) {
       sendMessage({ type: "resync" });
     }
@@ -7453,75 +7334,75 @@ async function main() {
       perf.setScene(colonistSprites.size + mobSprites.size, worldLayer.children.length);
     }
     if (message.type === "welcome") {
-      myId = message.id;
+      S.myId = message.id;
       // A new / loaded world: everyone starts outside.
       interiorRef.ui?.reset();
-      if (pendingLoadSlot) {
+      if (G.pendingLoadSlot) {
         // Continue / Load Game: the save brings its own difficulty (no claim), then a fresh welcome.
-        sendMessage({ type: "loadGame", slot: pendingLoadSlot });
-        pendingLoadSlot = null;
-      } else if (enforceGameMode && preferredSolo) {
+        sendMessage({ type: "loadGame", slot: G.pendingLoadSlot });
+        G.pendingLoadSlot = null;
+      } else if (G.enforceGameMode && G.preferredSolo) {
         // Solo hero phase 4: a Solo New Game always starts a fresh Solo world (a restart for everyone).
-        sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, solo: true });
-      } else if (enforceGameMode && !!message.creative !== preferredCreative) {
+        sendMessage({ type: "restart", difficulty: G.preferredDifficulty, worldSize: G.preferredWorldSize, solo: true });
+      } else if (G.enforceGameMode && !!message.creative !== G.preferredCreative) {
         // Creative mode: New Game / Creative from the menu start a world of that mode (a restart for everyone).
-        sendMessage({ type: "restart", difficulty: preferredDifficulty, worldSize: preferredWorldSize, creative: preferredCreative });
+        sendMessage({ type: "restart", difficulty: G.preferredDifficulty, worldSize: G.preferredWorldSize, creative: G.preferredCreative });
       } else {
         // Claims the world's difficulty if nobody has yet (the server ignores it otherwise).
-        sendMessage({ type: "setDifficulty", difficulty: preferredDifficulty, worldSize: preferredWorldSize });
+        sendMessage({ type: "setDifficulty", difficulty: G.preferredDifficulty, worldSize: G.preferredWorldSize });
       }
-      if (pendingCreatorAppearance && !(enforceGameMode && (preferredSolo || !!message.creative !== preferredCreative))) {
-        sendMessage({ type: "setHeroAppearance", appearance: pendingCreatorAppearance });
-        pendingCreatorAppearance = null;
+      if (G.pendingCreatorAppearance && !(G.enforceGameMode && (G.preferredSolo || !!message.creative !== G.preferredCreative))) {
+        sendMessage({ type: "setHeroAppearance", appearance: G.pendingCreatorAppearance });
+        G.pendingCreatorAppearance = null;
       }
-      enforceGameMode = false;
+      G.enforceGameMode = false;
       creativeUi.onWelcome(message.creative === true);
-      creativeWorld = message.creative === true;
+      S.creativeWorld = message.creative === true;
       refreshToolbarVisibility();
       zonesUi.reset();
       sendMessage({ type: "listSaves" });
       setActiveDifficulty(message.difficulty);
-      tileSize = message.tileSize;
-      worldTilesX = message.worldTilesX;
-      worldTilesY = message.worldTilesY;
+      S.tileSize = message.tileSize;
+      S.worldTilesX = message.worldTilesX;
+      S.worldTilesY = message.worldTilesY;
       const ck = message.chunked;
       chunkRequestedAt.clear();
       if (ck) {
         const f = ck.minimapFactor;
-        const cw = Math.ceil(worldTilesX / f);
-        const ch = Math.ceil(worldTilesY / f);
-        streamed = {
-          chunkTiles: ck.chunkTiles, chunksX: Math.ceil(worldTilesX / ck.chunkTiles), chunksY: Math.ceil(worldTilesY / ck.chunkTiles),
+        const cw = Math.ceil(S.worldTilesX / f);
+        const ch = Math.ceil(S.worldTilesY / f);
+        S.streamed = {
+          chunkTiles: ck.chunkTiles, chunksX: Math.ceil(S.worldTilesX / ck.chunkTiles), chunksY: Math.ceil(S.worldTilesY / ck.chunkTiles),
           f, cw, ch, cells: decodeByteRuns(ck.minimap, cw * ch), cellSeen: new Uint8Array(cw * ch),
         };
-        chunkLoaded = new Uint8Array(streamed.chunksX * streamed.chunksY);
-        tiles = new Array(worldTilesX * worldTilesY).fill(TileType.Empty);
-        biomes = new Array(worldTilesX * worldTilesY).fill(Biome.Plains);
+        S.chunkLoaded = new Uint8Array(S.streamed.chunksX * S.streamed.chunksY);
+        S.tiles = new Array(S.worldTilesX * S.worldTilesY).fill(TileType.Empty);
+        S.biomes = new Array(S.worldTilesX * S.worldTilesY).fill(Biome.Plains);
       } else {
-        streamed = null;
-        chunkLoaded = new Uint8Array(0);
-        tiles = message.tiles;
-        biomes = message.biomes;
+        S.streamed = null;
+        S.chunkLoaded = new Uint8Array(0);
+        S.tiles = message.tiles;
+        S.biomes = message.biomes;
       }
-      if (loadingUi.onWelcome(worldTilesX, !!ck)) loadingSnapshotSeen = false;
-      castleRuinTile = message.castleRuin ?? null;
-      lastGoalIndex = -1;
+      if (loadingUi.onWelcome(S.worldTilesX, !!ck)) S.loadingSnapshotSeen = false;
+      S.castleRuinTile = message.castleRuin ?? null;
+      S.lastGoalIndex = -1;
       clearFightArrows();
       resetMinimap(ck ? ck.exploredRuns : message.explored);
-      suppressDeathPoofs = true;
+      S.suppressDeathPoofs = true;
       resetSoundState();
-      bloodOnNewGravestones = false;
+      S.bloodOnNewGravestones = false;
       clearBlood();
-      farmStages = new Map();
-      buildingLevels = new Map();
-      forgeBusy = new Set();
-      constructionSites = new Map();
+      S.farmStages = new Map();
+      S.buildingLevels = new Map();
+      S.forgeBusy = new Set();
+      S.constructionSites = new Map();
       clearFires();
       siteOverlay.clear();
       clearWildlifeSprites();
       redrawGrid();
-      latestTownCenters = [];
-      latestHearths = new Set();
+      S.latestTownCenters = [];
+      S.latestHearths = new Set();
       syncTownCenterBars([]);
       worldLayer.addChild(siteOverlay);
       worldLayer.addChild(placementGhost);
@@ -7535,22 +7416,22 @@ async function main() {
       worldLayer.addChild(dragBox);
       strategyOnWelcome();
     } else if (message.type === "snapshot") {
-      loadingSnapshotSeen = true;
+      S.loadingSnapshotSeen = true;
       creativeUi.onSnapshot(message);
       applyProgression(message.progression);
       interpBeforeSnapshot();
       syncPlayers(message.players);
       interiorRef.ui?.onPlayers(message.players);
-      latestPlayersForSpells = message.players;
+      S.latestPlayersForSpells = message.players;
       if (message.life) {
-        questMarkIds = new Set(message.life.questMarks ?? []);
+        S.questMarkIds = new Set(message.life.questMarks ?? []);
         heroLifeRef.ui?.onLife(message.life);
         heroToolsRef.ui?.onLife(message.life);
       }
       syncColonists(message.colonists, message.isNight);
       syncMobs(message.mobs);
       interpAfterSnapshot();
-      suppressDeathPoofs = false;
+      S.suppressDeathPoofs = false;
       syncBuildingLevels(message.buildingLevels);
       syncForgeBusy(message.forgeBusy);
       syncFarmStages(message.farmStages);
@@ -7559,51 +7440,51 @@ async function main() {
       syncGates(message.gates);
       zonesUi.apply(message.zones);
       if (message.sites) syncFortMarkers(message.sites);
-      if (message.relations) siteRelations = new Map(message.relations.map((r) => [r.num, r]));
-      if (message.respawn) questCycleTicks = message.respawn.dayTicks + message.respawn.nightTicks;
+      if (message.relations) S.siteRelations = new Map(message.relations.map((r) => [r.num, r]));
+      if (message.respawn) S.questCycleTicks = message.respawn.dayTicks + message.respawn.nightTicks;
       if (message.quests) {
-        latestQuests = message.quests;
-        const ids = new Set(latestQuests.map((q) => q.id));
-        questSeen = new Set([...questSeen].filter((id) => ids.has(id)));
+        S.latestQuests = message.quests;
+        const ids = new Set(S.latestQuests.map((q) => q.id));
+        S.questSeen = new Set([...S.questSeen].filter((id) => ids.has(id)));
         renderQuests();
       }
       syncSiteTiles(message.siteTiles);
       if (message.clans) {
-        clanColors = new Map(message.clans.map((c) => [c.id, c.color]));
-        clanNames = new Map(message.clans.map((c) => [c.id, c.name]));
+        S.clanColors = new Map(message.clans.map((c) => [c.id, c.color]));
+        S.clanNames = new Map(message.clans.map((c) => [c.id, c.name]));
       }
       const clanNow = message.clanId ?? 0;
-      if (clanNow !== myClan) {
-        myClan = clanNow;
-        pushEventToast("milestone", `You play for ${clanNames.get(myClan) ?? `clan ${myClan}`}`);
-        for (const index of clanTiles.keys()) {
+      if (clanNow !== S.myClan) {
+        S.myClan = clanNow;
+        pushEventToast("milestone", `You play for ${S.clanNames.get(S.myClan) ?? `clan ${S.myClan}`}`);
+        for (const index of S.clanTiles.keys()) {
           const { tx, ty } = indexToTile(index);
-          setTileSprite(tx, ty, tiles[index]);
+          setTileSprite(tx, ty, S.tiles[index]);
         }
       }
       // Back to one clan (a restart / load): nothing is foreign any more.
-      syncClanTiles(message.clanId === undefined && clanTiles.size > 0 ? [] : message.clanTiles);
-      latestTownCenters = message.townCenters;
-      latestHearths = new Set();
+      syncClanTiles(message.clanId === undefined && S.clanTiles.size > 0 ? [] : message.clanTiles);
+      S.latestTownCenters = message.townCenters;
+      S.latestHearths = new Set();
       const hearthFlat = message.hearths ?? [];
-      for (let i = 0; i + HEARTH_SNAPSHOT_STRIDE <= hearthFlat.length; i += HEARTH_SNAPSHOT_STRIDE) if (hearthFlat[i + 1] >= 0) latestHearths.add(hearthFlat[i]);
+      for (let i = 0; i + HEARTH_SNAPSHOT_STRIDE <= hearthFlat.length; i += HEARTH_SNAPSHOT_STRIDE) if (hearthFlat[i + 1] >= 0) S.latestHearths.add(hearthFlat[i]);
       syncCaptives(hearthFlat);
       syncTownCenterBars(message.townCenters);
       syncWildlife(message.wildlife);
       // Stardew phase 5d: livestock outdoors and the clan's animal-house need icons.
       livestock.sync(message.livestock);
       for (const index of syncAutumnHouses(message.livestock?.h)) {
-        if (index >= 0 && index < tiles.length) setTileSprite(index % worldTilesX, Math.floor(index / worldTilesX), tiles[index]);
+        if (index >= 0 && index < S.tiles.length) setTileSprite(index % S.worldTilesX, Math.floor(index / S.worldTilesX), S.tiles[index]);
       }
       // Dawn wipes the blood, the same boundary at which the server clears the gravestones.
-      if (wasNight && !message.isNight) clearBlood();
-      wasNight = message.isNight;
+      if (S.wasNight && !message.isNight) clearBlood();
+      S.wasNight = message.isNight;
       syncGravestones(message.gravestones);
-      latestColonists = message.colonists;
-      latestMobs = message.mobs;
+      S.latestColonists = message.colonists;
+      S.latestMobs = message.mobs;
       drawRoleRings();
       drawWagonRoutes(message.colonists);
-      latestTaskForces = message.taskForces;
+      S.latestTaskForces = message.taskForces;
       const counts = { knight: 0, archer: 0, militia: 0, bishop: 0, cavalry: 0, siege: 0, hero: 0 };
       const alive = new Set<string>();
       for (const c of message.colonists) {
@@ -7619,13 +7500,13 @@ async function main() {
         }
         alive.add(c.id);
       }
-      refreshWorkerCounts(myClan === 0 && clanTiles.size === 0 ? message.colonists : message.colonists.filter((c) => (c.clan ?? 0) === myClan), message.isNight);
+      refreshWorkerCounts(S.myClan === 0 && S.clanTiles.size === 0 ? message.colonists : message.colonists.filter((c) => (c.clan ?? 0) === S.myClan), message.isNight);
       statArmyEl.textContent =
         `Knights ${counts.knight}  Cavalry ${counts.cavalry}  Archers ${counts.archer}  Militia ${counts.militia}` +
         `${counts.siege > 0 ? `  Siege ${counts.siege}` : ""}${counts.hero > 0 ? `  Heroes ${counts.hero}` : ""}  Bishops ${counts.bishop}`;
       // Drop dead units from the selection so the count and commands stay accurate.
-      const stillSelected = Array.from(selectedIds).filter((id) => alive.has(id));
-      if (stillSelected.length !== selectedIds.size) {
+      const stillSelected = Array.from(S.selectedIds).filter((id) => alive.has(id));
+      if (stillSelected.length !== S.selectedIds.size) {
         setSelection(stillSelected);
       } else {
         redrawSelectionRings();
@@ -7634,7 +7515,7 @@ async function main() {
       }
       refreshEconomyPanel(message);
       refreshEquipmentLine(message.equipment);
-      syncHeroProfile(message.profile, message.equipment, message.players.find((p) => p.id === myId), message.heroes);
+      syncHeroProfile(message.profile, message.equipment, message.players.find((p) => p.id === S.myId), message.heroes);
       statPopEl.textContent = `${message.population}/${message.populationCap}`;
       refreshSettlementPanel(message.townCenters);
       setActiveDifficulty(message.difficulty);
@@ -7644,12 +7525,12 @@ async function main() {
       refreshAgri(message.agri);
       sundialEl.classList.toggle("night", message.isNight);
       sundialHandEl.setAttribute("transform", `rotate(${message.cycleProgress * 360})`);
-      if (message.dayFraction !== sundialDayFraction) {
-        sundialDayFraction = message.dayFraction;
+      if (message.dayFraction !== S.sundialDayFraction) {
+        S.sundialDayFraction = message.dayFraction;
         // Pie slice over the night part of the cycle; 0 (dawn) is at 12 o'clock, clockwise.
-        const a = sundialDayFraction * 2 * Math.PI;
+        const a = S.sundialDayFraction * 2 * Math.PI;
         const r = 15;
-        const largeArc = 1 - sundialDayFraction > 0.5 ? 1 : 0;
+        const largeArc = 1 - S.sundialDayFraction > 0.5 ? 1 : 0;
         sundialNightArcEl.setAttribute(
           "d",
           `M0 0 L${r * Math.sin(a)} ${-r * Math.cos(a)} A${r} ${r} 0 ${largeArc} 1 0 ${-r} Z`
@@ -7663,7 +7544,7 @@ async function main() {
       pausedBanner.visible = message.isPaused;
       pauseBtn.textContent = message.isPaused ? "Resume" : "Pause";
       nightOverlay.alpha = message.isNight ? 0.35 : 0;
-      refreshGameOver(message.players.find((p) => p.id === myId));
+      refreshGameOver(message.players.find((p) => p.id === S.myId));
       refreshBuilderCount(message.colonists, message.isNight);
       for (const effect of message.effects) spawnEffect(effect);
       syncFights(message.fights);
@@ -7691,7 +7572,7 @@ async function main() {
     } else if (message.type === "tileUpdate") {
       soundOnTileUpdate(message.tileX, message.tileY, message.tile);
       setTileLocal(message.tileX, message.tileY, message.tile);
-      paintMinimapTile(message.tileY * worldTilesX + message.tileX);
+      paintMinimapTile(message.tileY * S.worldTilesX + message.tileX);
     } else if (message.type === "event") {
       pushEventToast(message.category, message.text);
       if (message.category === "upgrade") fxOnUpgradeEvent();
@@ -7717,7 +7598,7 @@ async function main() {
     } else if (message.type === "dialogue" || message.type === "interactNone") {
       heroLifeRef.ui?.onMessage(message);
     } else if (message.type === "buildingInfo") {
-      if (!infoTile || infoTile.tx !== message.tileX || infoTile.ty !== message.tileY) return;
+      if (!S.infoTile || S.infoTile.tx !== message.tileX || S.infoTile.ty !== message.tileY) return;
       if (message.info) renderBuildingInfo(message.info);
       else closeBuildingInfo();
     } else if (message.type === "creativeResult") {
@@ -7755,9 +7636,9 @@ async function main() {
   });
 
   // In-game Save Game section (top of the Settings modal): 3 manual slots, plus Load for every save.
-  let latestSaves: SaveInfo[] = [];
+  S.latestSaves = [];
   function renderSavePanel(saves: SaveInfo[]) {
-    latestSaves = saves;
+    S.latestSaves = saves;
     const bySlot = new Map(saves.map((sv) => [sv.slot, sv]));
     renderSaveRows(
       document.getElementById("save-slot-list")!,
@@ -7769,7 +7650,7 @@ async function main() {
           {
             label: "Save",
             onClick: () => {
-              const existing = latestSaves.find((sv) => sv.slot === slot);
+              const existing = S.latestSaves.find((sv) => sv.slot === slot);
               if (existing && !window.confirm(`Overwrite ${SAVE_SLOT_NAMES[slot]} (${describeSave(existing)})?`)) return;
               setLastSaveSlot(slot);
               sendMessage({ type: "saveGame", slot });
@@ -7803,7 +7684,7 @@ async function main() {
 
   // Gap closure G6: X dismounts a mounted hero (before the X build-tool hotkey; only while riding).
   window.addEventListener("keydown", (e) => {
-    if (!myMounted || e.code !== "KeyX" || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.repeat) return;
+    if (!S.myMounted || e.code !== "KeyX" || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.repeat) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
     e.preventDefault();
@@ -7819,10 +7700,10 @@ async function main() {
     if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e) || strategyOrderKey(e) || strategySettingKey(e) || adventurePartyKey(e)) return;
     // Shift+C opens the Crafting panel (not the C build tool).
     if (e.shiftKey && e.code === "KeyC") return;
-    const match = key ? TOOLS.find((t) => t.key === key && (!t.legacy || creativeWorld)) : undefined;
+    const match = key ? TOOLS.find((t) => t.key === key && (!t.legacy || S.creativeWorld)) : undefined;
     if (match) {
-      if (match.tile !== TileType.Empty && match.category !== activeCategory) {
-        activeCategory = match.category;
+      if (match.tile !== TileType.Empty && match.category !== S.activeCategory) {
+        S.activeCategory = match.category;
         refreshToolbarVisibility();
         refreshCategoryTabSelection();
       }
@@ -7832,15 +7713,15 @@ async function main() {
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
   // Gap closure G1: R turns an armed 2-tile furniture piece (before the R build-tool hotkey).
   window.addEventListener("keydown", (e) => {
-    if (e.ctrlKey || e.altKey || e.metaKey || e.repeat || e.key.toLowerCase() !== "r" || !FURNITURE_FOOTPRINT[currentTool] || buildPanel.classList.contains("collapsed")) return;
+    if (e.ctrlKey || e.altKey || e.metaKey || e.repeat || e.key.toLowerCase() !== "r" || !FURNITURE_FOOTPRINT[S.currentTool] || buildPanel.classList.contains("collapsed")) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
-    furnitureRot = furnitureRot === 0 ? 1 : 0;
+    S.furnitureRot = S.furnitureRot === 0 ? 1 : 0;
     e.stopImmediatePropagation();
   }, true);
   // Building templates: R / M turn / mirror the armed blueprint ghost (before the R / M build-tool hotkeys).
   window.addEventListener("keydown", (e) => {
-    if (e.ctrlKey || e.altKey || e.metaKey || e.repeat || currentTool !== BLUEPRINT_TOOL || buildPanel.classList.contains("collapsed")) return;
+    if (e.ctrlKey || e.altKey || e.metaKey || e.repeat || S.currentTool !== BLUEPRINT_TOOL || buildPanel.classList.contains("collapsed")) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
     if (blueprintsUi.key(e.key.toLowerCase())) e.stopImmediatePropagation();
@@ -7856,7 +7737,7 @@ async function main() {
     }
     const stance = STANCE_HOTKEYS[e.key.toLowerCase()];
     if (stance && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat) {
-      if (selectedIds.size > 0) sendMessage({ type: "commandStance", unitIds: Array.from(selectedIds), stance });
+      if (S.selectedIds.size > 0) sendMessage({ type: "commandStance", unitIds: Array.from(S.selectedIds), stance });
       return;
     }
     // Strategy mode: plain 1-9 recalls an assigned group (double-tap centres on it).
@@ -7877,7 +7758,7 @@ async function main() {
       // Ctrl+N with nothing selected disbands it (its units go back to their auto regiments).
       if (socket.readyState === socket.OPEN) {
         socket.send(
-          JSON.stringify({ type: "assignTaskForce", slot, unitIds: Array.from(selectedIds) })
+          JSON.stringify({ type: "assignTaskForce", slot, unitIds: Array.from(S.selectedIds) })
         );
       }
     } else {
@@ -7894,13 +7775,13 @@ async function main() {
       // Stardew phase 5a: with a hotbar tool in hand, Space uses it on the faced tile (the swing stands in for the
       // tool animations, SPRITES.md).
       if (heroToolsRef.ui?.useKey()) {
-        if (myId) triggerPlayerAttackAnim(myId);
+        if (S.myId) triggerPlayerAttackAnim(S.myId);
         return;
       }
       if (socket.readyState === socket.OPEN) {
         socket.send(JSON.stringify({ type: "attack" }));
         // Immediate feedback even when the swing hits nothing (no server effect then).
-        if (myId) triggerPlayerAttackAnim(myId);
+        if (S.myId) triggerPlayerAttackAnim(S.myId);
         sound.play("sword_swing");
       }
     }
@@ -7938,19 +7819,19 @@ async function main() {
   // Strategy mode phase 2: the server's regiments (snapshot armyRegiments, kept until the next one) and
   // each unit's regiment. Tapping the same control-group digit twice within this window centres on it.
   const GROUP_DOUBLE_TAP_MS = 350;
-  let armyRegiments: ArmyRegimentSnapshot[] = [];
-  let regimentOfUnit = new Map<string, ArmyRegimentSnapshot>();
-  let lastGroupTap = { slot: 0, at: -Infinity };
+  S.armyRegiments = [];
+  S.regimentOfUnit = new Map<string, ArmyRegimentSnapshot>();
+  S.lastGroupTap = { slot: 0, at: -Infinity };
   const regimentCards = new RegimentCardBar(document.getElementById("regiment-cards")!, {
     select: (id, additive) => {
-      const reg = armyRegiments.find((r) => r.id === id);
+      const reg = S.armyRegiments.find((r) => r.id === id);
       if (!reg) return;
       if (!additive) {
         setSelection(reg.unitIds);
         return;
       }
       // Shift: toggle this regiment in / out of the selection.
-      const next = new Set(selectedIds);
+      const next = new Set(S.selectedIds);
       const allIn = reg.unitIds.length > 0 && reg.unitIds.every((u) => next.has(u));
       for (const u of reg.unitIds) {
         if (allIn) next.delete(u);
@@ -7959,63 +7840,52 @@ async function main() {
       setSelection(next);
     },
     centre: (id) => {
-      const reg = armyRegiments.find((r) => r.id === id);
+      const reg = S.armyRegiments.find((r) => r.id === id);
       if (reg) centreOnUnits(reg.unitIds);
     },
   });
   const strategyBtn = document.getElementById("strategy-btn") as HTMLButtonElement;
-  let panDrag: { pointerId: number; lastX: number; lastY: number } | null = null;
-  let canvasPointer: { x: number; y: number } | null = null;
-  let lastPanAt = 0;
-  let fogUpdatedAt = -Infinity;
-  let dotsDirty = true;
-  let dotsZoom = 0;
-  let strategyWasActive = false;
-  let viewSent: { x: number; y: number; halfW: number; halfH: number } | null = null;
-  let viewSentAt = -Infinity;
+  S.panDrag = null;
+  S.canvasPointer = null;
+  S.lastPanAt = 0;
+  S.fogUpdatedAt = -Infinity;
+  S.dotsDirty = true;
+  S.dotsZoom = 0;
+  S.strategyWasActive = false;
+  S.viewSent = null;
+  S.viewSentAt = -Infinity;
 
   function cancelPanDrag() {
-    if (panDrag && app.canvas.hasPointerCapture(panDrag.pointerId)) app.canvas.releasePointerCapture(panDrag.pointerId);
-    panDrag = null;
+    if (S.panDrag && app.canvas.hasPointerCapture(S.panDrag.pointerId)) app.canvas.releasePointerCapture(S.panDrag.pointerId);
+    S.panDrag = null;
   }
   app.canvas.addEventListener("pointerleave", () => {
-    canvasPointer = null;
+    S.canvasPointer = null;
   });
-
-  // ---- Strategy mode phase 3: regiment orders (strategy/orders.ts draws them). Right-click = move as the
-  // formation stands (its last width / facing kept), right-drag = a line (width = drag length, facing away
-  // from the units or toward a nearby enemy, Alt flips), Ctrl+right-click or Shift+F then right-click =
-  // attack-move, right-click an enemy = attack, Shift+G then right-click a friend = follow, Shift+H hold,
-  // Shift+R retreat; Shift on any of these queues it. Shift+letter so every build hotkey stays as it is.
-  // Phase 4: Shift+C then right-click an enemy = charge, Shift+B then right-click = bombard that point;
-  // right-clicking a camp hearth = attackHearth. Settings: Shift+T hold fire, Shift+V skirmish, Alt+C cycle
-  // charge (toggles), Shift+Q cycles the shape.
-  type ArmedOrder = "attackMove" | "follow" | "charge" | "bombard";
   const ORDER_HOTKEYS: Record<string, ArmyOrderKind> = { f: "attackMove", g: "follow", h: "hold", r: "retreat", c: "charge", b: "bombard" };
-  type StrategySetting = "holdFire" | "skirmish" | "cycleCharge" | "shape";
   const SETTING_HOTKEYS: Record<string, StrategySetting> = { t: "holdFire", v: "skirmish", q: "shape" };
-  let armedOrder: ArmedOrder | null = null;
+  S.armedOrder = null;
   // Strategy mode phase 5: enemy summaries (snapshot enemyRegiments, kept until the next), their banners,
   // the intel overlay (strategy/intel.ts) and the own regiments under flank / rear threat.
-  let enemyRegiments: EnemyRegimentSnapshot[] = [];
+  S.enemyRegiments = [];
   const enemyBanners = new StrategyBanners();
   const intel = new IntelOverlay();
-  let strategyThreats: Threat[] = [];
+  S.strategyThreats = [];
   // Rear threat: a visible enemy within this many tiles of a member and over a tile behind the facing line.
   const REAR_THREAT_TILES = 4;
-  let orderGroups: ArmyOrderGroupSnapshot[] = [];
-  let orderGroupOfUnit = new Map<string, ArmyOrderGroupSnapshot>();
+  S.orderGroups = [];
+  S.orderGroupOfUnit = new Map<string, ArmyOrderGroupSnapshot>();
   const orderMarkers = new OrderMarkers();
 
   function armOrder(kind: ArmedOrder | null) {
-    armedOrder = kind;
+    S.armedOrder = kind;
     app.canvas.style.cursor = kind ? "crosshair" : "";
     for (const b of Array.from(commandBarEl.querySelectorAll<HTMLElement>(".cmd-btn[data-order]"))) b.classList.toggle("active", b.dataset.order === kind);
   }
 
   function sendRegimentOrder(order: ArmyOrder, queue: boolean) {
-    if (selectedIds.size === 0) return;
-    const msg: ClientMessage = { type: "regimentOrder", unitIds: Array.from(selectedIds), order, ...(queue ? { queue: true } : {}) };
+    if (S.selectedIds.size === 0) return;
+    const msg: ClientMessage = { type: "regimentOrder", unitIds: Array.from(S.selectedIds), order, ...(queue ? { queue: true } : {}) };
     sendMessage(msg);
   }
 
@@ -8023,27 +7893,27 @@ async function main() {
   function strategyLine(units: ColonistSnapshot[], ax: number, ay: number, bx: number, by: number, flip: boolean) {
     const plan = computeLineFormationTargets(units, ax, ay, bx, by);
     const facing = Math.atan2(flip ? -plan.fy : plan.fy, flip ? -plan.fx : plan.fx);
-    return { x: plan.cx, y: plan.cy, facing, width: Math.hypot(bx - ax, by - ay) / tileSize };
+    return { x: plan.cx, y: plan.cy, facing, width: Math.hypot(bx - ax, by - ay) / S.tileSize };
   }
 
   // A plain click keeps the formation (facing + width) of the order group the selection exactly is; a
   // queued click leaves it to the server (it faces its march at the group's width).
   function keptFormation(queued: boolean): { facing?: number; width?: number } {
     if (queued) return {};
-    const alive = latestColonists.filter((c) => selectedIds.has(c.id));
-    const g = alive.length > 0 ? orderGroupOfUnit.get(alive[0].id) : undefined;
-    if (!g || !alive.every((c) => orderGroupOfUnit.get(c.id) === g)) return {};
-    const groupAlive = g.unitIds.filter((id) => latestColonists.some((c) => c.id === id)).length;
+    const alive = S.latestColonists.filter((c) => S.selectedIds.has(c.id));
+    const g = alive.length > 0 ? S.orderGroupOfUnit.get(alive[0].id) : undefined;
+    if (!g || !alive.every((c) => S.orderGroupOfUnit.get(c.id) === g)) return {};
+    const groupAlive = g.unitIds.filter((id) => S.latestColonists.some((c) => c.id === id)).length;
     if (groupAlive !== alive.length) return {};
     return { ...(g.facing !== undefined ? { facing: g.facing } : {}), ...(g.width !== undefined ? { width: g.width } : {}) };
   }
 
   // Follow target under the cursor: a colonist outside the selection, else a player ("p:<id>").
   function followTargetAt(x: number, y: number): string | null {
-    const hit = Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / camZoom);
-    const unit = findNearest(latestColonists.filter((c) => !selectedIds.has(c.id)), x, y, hit);
+    const hit = Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / S.camZoom);
+    const unit = findNearest(S.latestColonists.filter((c) => !S.selectedIds.has(c.id)), x, y, hit);
     if (unit) return unit.id;
-    const p = findNearest(latestPlayersForSpells.filter((pl) => !pl.dead), x, y, Math.max(hit, 14));
+    const p = findNearest(S.latestPlayersForSpells.filter((pl) => !pl.dead), x, y, Math.max(hit, 14));
     return p ? `p:${p.id}` : null;
   }
 
@@ -8051,7 +7921,7 @@ async function main() {
   function strategyOrderKey(e: KeyboardEvent): ArmyOrderKind | null {
     if (!strategyCam.inStrategy || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return null;
     const kind = ORDER_HOTKEYS[e.key.toLowerCase()];
-    if (!kind || !latestColonists.some((c) => selectedIds.has(c.id) && isCommandable(c))) return null;
+    if (!kind || !S.latestColonists.some((c) => S.selectedIds.has(c.id) && isCommandable(c))) return null;
     return kind;
   }
 
@@ -8060,12 +7930,12 @@ async function main() {
     if (!strategyCam.inStrategy || e.ctrlKey || e.metaKey) return null;
     const key = e.key.toLowerCase();
     const setting = e.altKey && !e.shiftKey ? (e.code === "KeyC" ? "cycleCharge" : null) : e.shiftKey && !e.altKey ? SETTING_HOTKEYS[key] ?? null : null;
-    if (!setting || !latestColonists.some((c) => selectedIds.has(c.id) && isCommandable(c))) return null;
+    if (!setting || !S.latestColonists.some((c) => S.selectedIds.has(c.id) && isCommandable(c))) return null;
     return setting;
   }
 
   function selectedCommandable(): ColonistSnapshot[] {
-    return latestColonists.filter((c) => selectedIds.has(c.id) && isCommandable(c));
+    return S.latestColonists.filter((c) => S.selectedIds.has(c.id) && isCommandable(c));
   }
 
   // A toggle turns on unless every selected unit already has it; the shape steps on from the selection's.
@@ -8101,40 +7971,40 @@ async function main() {
   // retreat go now.
   function issueOrder(kind: ArmyOrderKind, queue: boolean) {
     if (kind === "attackMove" || kind === "follow" || kind === "charge" || kind === "bombard") {
-      armOrder(armedOrder === kind ? null : kind);
+      armOrder(S.armedOrder === kind ? null : kind);
       return;
     }
     sendRegimentOrder({ kind }, queue);
   }
 
   function setOrderGroups(groups: ArmyOrderGroupSnapshot[]) {
-    orderGroups = groups;
-    orderGroupOfUnit = new Map();
-    for (const g of groups) for (const id of g.unitIds) orderGroupOfUnit.set(id, g);
+    S.orderGroups = groups;
+    S.orderGroupOfUnit = new Map();
+    for (const g of groups) for (const id of g.unitIds) S.orderGroupOfUnit.set(id, g);
   }
 
   function redrawOrderMarkers() {
     orderMarkers.layer.visible = strategyCam.active;
     if (!strategyCam.active) return;
     const units = colonistsById();
-    orderMarkers.draw(orderGroups, {
+    orderMarkers.draw(S.orderGroups, {
       units,
-      selected: selectedIds,
-      zoom: camZoom,
+      selected: S.selectedIds,
+      zoom: S.camZoom,
       targetPos: (o) => {
         if (!o.targetId) return null;
         if (o.kind === "attack" || o.kind === "charge") {
-          const m = latestMobs.find((mob) => mob.id === o.targetId);
+          const m = S.latestMobs.find((mob) => mob.id === o.targetId);
           return m && strategySeesEnemy(m.x, m.y) ? m : null;
         }
-        if (o.targetId.startsWith("p:")) return latestPlayersForSpells.find((p) => p.id === o.targetId!.slice(2)) ?? null;
+        if (o.targetId.startsWith("p:")) return S.latestPlayersForSpells.find((p) => p.id === o.targetId!.slice(2)) ?? null;
         return units.get(o.targetId) ?? null;
       },
     });
   }
 
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && armedOrder) armOrder(null);
+    if (e.key === "Escape" && S.armedOrder) armOrder(null);
     const setting = strategySettingKey(e);
     if (setting) {
       e.preventDefault();
@@ -8161,21 +8031,21 @@ async function main() {
     }
     // From wherever the camera is now (the rider, a fight peek, or mid exit transition).
     const focus = {
-      x: (app.screen.width / 2 - worldLayer.position.x) / camZoom,
-      y: (app.screen.height / 2 - worldLayer.position.y) / camZoom,
-      zoom: camZoom,
+      x: (app.screen.width / 2 - worldLayer.position.x) / S.camZoom,
+      y: (app.screen.height / 2 - worldLayer.position.y) / S.camZoom,
+      zoom: S.camZoom,
     };
-    fightPeek = null;
-    fightPeekCam = null;
+    S.fightPeek = null;
+    S.fightPeekCam = null;
     cancelLeftPress();
     cancelOrderPress();
     placementGhost.visible = false;
     cursorHighlight.clear();
     strategyCam.enter(focus, now);
-    enemyRegiments = [];
+    S.enemyRegiments = [];
     refreshStrategyFog();
     buildStrategyBanners();
-    dotsDirty = true;
+    S.dotsDirty = true;
   }
 
   // ---- Village life phase 5: adventure view (close camera, adventure.ts). Compact hero bar (HP, XP, Attack / Interact),
@@ -8192,15 +8062,15 @@ async function main() {
   }
   function refreshAdventureHud() {
     const units = selectedCommandable();
-    const large = units.length > PARTY_COMMAND_MAX || units.some((u) => regimentOfUnit.get(u.id)?.id.startsWith("tf"));
+    const large = units.length > PARTY_COMMAND_MAX || units.some((u) => S.regimentOfUnit.get(u.id)?.id.startsWith("tf"));
     if (document.body.classList.contains("party-large") !== large) document.body.classList.toggle("party-large", large);
-    const me = latestPlayersForSpells.find((p) => p.id === myId);
+    const me = S.latestPlayersForSpells.find((p) => p.id === S.myId);
     if (!me) return;
     const hpFrac = me.maxHp > 0 ? Math.max(0, Math.min(1, me.hp / me.maxHp)) : 0;
     heroBarHp.style.width = `${hpFrac * 100}%`;
     updateVitals("health",hpFrac*100,me.dead?"Fallen":`${Math.ceil(me.hp)} / ${me.maxHp}`);
     heroBarHpText.textContent = me.dead ? "Fallen" : `${Math.ceil(me.hp)} / ${me.maxHp}`;
-    const prof = heroProfile;
+    const prof = S.heroProfile;
     const next = prof?.nextLevelXp ?? null;
     const xpFrac = prof && next !== null && next > prof.levelXp ? (prof.xp - prof.levelXp) / (next - prof.levelXp) : 1;
     heroBarXp.style.width = `${Math.max(0, Math.min(1, xpFrac)) * 100}%`;
@@ -8209,17 +8079,17 @@ async function main() {
   }
   window.setInterval(refreshAdventureHud, 150);
   function adventureInteract() {
-    const me = latestPlayersForSpells.find((p) => p.id === myId);
+    const me = S.latestPlayersForSpells.find((p) => p.id === S.myId);
     if (!me || me.dead) return;
-    const mx = Math.floor(me.x / tileSize);
-    const my = Math.floor(me.y / tileSize);
+    const mx = Math.floor(me.x / S.tileSize);
+    const my = Math.floor(me.y / S.tileSize);
     let best: { tx: number; ty: number; d: number } | null = null;
     for (let ty = my - INTERACT_RANGE_TILES; ty <= my + INTERACT_RANGE_TILES; ty++) {
       for (let tx = mx - INTERACT_RANGE_TILES; tx <= mx + INTERACT_RANGE_TILES; tx++) {
-        if (tx < 0 || ty < 0 || tx >= worldTilesX || ty >= worldTilesY) continue;
-        const i = ty * worldTilesX + tx;
-        if (!INFO_TILES.has(tiles[i]) && !siteOwners.has(i)) continue;
-        const d = Math.hypot((tx + 0.5) * tileSize - me.x, (ty + 0.5) * tileSize - me.y);
+        if (tx < 0 || ty < 0 || tx >= S.worldTilesX || ty >= S.worldTilesY) continue;
+        const i = ty * S.worldTilesX + tx;
+        if (!INFO_TILES.has(S.tiles[i]) && !S.siteOwners.has(i)) continue;
+        const d = Math.hypot((tx + 0.5) * S.tileSize - me.x, (ty + 0.5) * S.tileSize - me.y);
         if (!best || d < best.d) best = { tx, ty, d };
       }
     }
@@ -8230,25 +8100,25 @@ async function main() {
   const heroTools = setupHeroTools({
     onUse: (tool, tx, ty) => {
       const row = ({ axe: 0, pick: 1, hoe: 2, scythe: 3, wateringCan: 4 } as Record<string, number>)[tool];
-      const player = latestPlayersForSpells.find((p) => p.id === myId);
-      if (row !== undefined && player) heroToolPose = { row, facing: movementFacing((tx + 0.5) * tileSize - player.x, (ty + 0.5) * tileSize - player.y), started: performance.now() };
+      const player = S.latestPlayersForSpells.find((p) => p.id === S.myId);
+      if (row !== undefined && player) S.heroToolPose = { row, facing: movementFacing((tx + 0.5) * S.tileSize - player.x, (ty + 0.5) * S.tileSize - player.y), started: performance.now() };
     },
     send: sendMessage,
-    active: () => !strategyCam.inStrategy && !!myId && heroModal.hidden && !!latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead),
+    active: () => !strategyCam.inStrategy && !!S.myId && heroModal.hidden && !!S.latestPlayersForSpells.find((pl) => pl.id === S.myId && !pl.dead),
     buildOpen: () => !buildPanel.classList.contains("collapsed"),
     talking: () => !(document.getElementById("hl-dialogue")?.hidden ?? true),
     // Stardew phase 5c: indoors the hotbar still selects, but there is no faced world tile.
-    hero: () => (interiorRef.ui?.active() ? null : latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead) ?? null),
-    tileSize: () => tileSize,
-    worldTilesX: () => worldTilesX,
-    worldTilesY: () => worldTilesY,
-    tileAt: (i) => tiles[i] ?? TileType.Empty,
+    hero: () => (interiorRef.ui?.active() ? null : S.latestPlayersForSpells.find((pl) => pl.id === S.myId && !pl.dead) ?? null),
+    tileSize: () => S.tileSize,
+    worldTilesX: () => S.worldTilesX,
+    worldTilesY: () => S.worldTilesY,
+    tileAt: (i) => S.tiles[i] ?? TileType.Empty,
     cropAt: (i) => zonesUi.cropAt(i),
-    itemCount: (id) => itemTotal(latestProgression, id),
-    gatesOpen: () => latestProgression?.open === true,
+    itemCount: (id) => itemTotal(S.latestProgression, id),
+    gatesOpen: () => S.latestProgression?.open === true,
     // Weapons in the pack plus the wielded one, in id order so slots keep their place when one is swapped in.
-    weapons: () => (heroProfile ? [heroProfile.equipment.weapon, ...heroProfile.inventory].filter((i): i is GearItem => !!i && i.slot === "weapon").sort((a, b) => (a.id < b.id ? -1 : 1)) : []),
-    equippedWeaponId: () => heroProfile?.equipment.weapon?.id ?? null,
+    weapons: () => (S.heroProfile ? [S.heroProfile.equipment.weapon, ...S.heroProfile.inventory].filter((i): i is GearItem => !!i && i.slot === "weapon").sort((a, b) => (a.id < b.id ? -1 : 1)) : []),
+    equippedWeaponId: () => S.heroProfile?.equipment.weapon?.id ?? null,
     equipWeapon: (id) => sendMessage({ type: "equipItem", itemId: id, slot: "weapon" }),
     weaponIcon: (item) => itemIcon(item),
   });
@@ -8272,7 +8142,7 @@ async function main() {
       return { idle, scale: v ? v.idleScale : (MOB_VISUALS[kind as MobKind].radius * MOB_SPRITE_SIZE_PER_RADIUS) / Math.max(idle.width, idle.height), walk: v?.anim?.walk ?? [], action: v?.anim?.action ?? [], walkScale: v?.anim?.scale ?? 1, tint: MOB_TINT[kind as MobKind] };
     },
     send: sendMessage,
-    myId: () => myId,
+    myId: () => S.myId,
     onChange: () => {
       setSelection([]);
       closeBuildingInfo();
@@ -8290,14 +8160,14 @@ async function main() {
     send: sendMessage,
     openBuildingInfo,
     fallbackInteract: adventureInteract,
-    blocked: () => strategyCam.inStrategy || !myId || !heroModal.hidden,
+    blocked: () => strategyCam.inStrategy || !S.myId || !heroModal.hidden,
     openSheet: () => setHeroSheetOpen(true),
     interactFields: () => heroTools.interactFields(),
   });
   heroToolsRef.ui = heroTools;
   function partyCommand(cmd: "followMe" | "hold" | "shape") {
-    if (!partyCommandsOn() || !myId) return;
-    if (cmd === "followMe") sendRegimentOrder({ kind: "follow", targetId: `p:${myId}` }, false);
+    if (!partyCommandsOn() || !S.myId) return;
+    if (cmd === "followMe") sendRegimentOrder({ kind: "follow", targetId: `p:${S.myId}` }, false);
     else if (cmd === "hold") issueOrder("hold", false);
     else applyStrategySetting("shape");
   }
@@ -8312,7 +8182,7 @@ async function main() {
     (e.currentTarget as HTMLButtonElement).blur();
     if (strategyCam.inStrategy || socket.readyState !== socket.OPEN) return;
     socket.send(JSON.stringify({ type: "attack" }));
-    if (myId) triggerPlayerAttackAnim(myId);
+    if (S.myId) triggerPlayerAttackAnim(S.myId);
     sound.play("sword_swing");
   });
   document.getElementById("hb-interact")!.addEventListener("click", (e) => {
@@ -8325,7 +8195,7 @@ async function main() {
     return ({ g: "followMe", h: "hold", q: "shape" } as const)[e.key.toLowerCase() as "g" | "h" | "q"] ?? null;
   }
   window.addEventListener("keydown", (e) => {
-    if (!adventurePrefs.on || strategyCam.active || !myId || e.repeat) return;
+    if (!adventurePrefs.on || strategyCam.active || !S.myId || e.repeat) return;
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       // Not while a button / field has focus (menus, panels) or a dialog is up.
       if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select, button")) return;
@@ -8342,16 +8212,16 @@ async function main() {
   // Camera ticker hook: pans from keys / screen edge, then the view to draw (null = follow the rider).
   function strategyCameraView(riderX: number, riderY: number): { x: number; y: number; zoom: number } | null {
     const now = performance.now();
-    const dt = Math.min(0.1, Math.max(0, (now - lastPanAt) / 1000));
-    lastPanAt = now;
-    strategyCam.setBounds(worldTilesX * tileSize, worldTilesY * tileSize, app.screen.width, app.screen.height);
+    const dt = Math.min(0.1, Math.max(0, (now - S.lastPanAt) / 1000));
+    S.lastPanAt = now;
+    strategyCam.setBounds(S.worldTilesX * S.tileSize, S.worldTilesY * S.tileSize, app.screen.width, app.screen.height);
     if (strategyCam.inStrategy && dt > 0) {
       let { dx, dy } = currentInput();
-      if (canvasPointer && !panDrag) {
-        if (canvasPointer.x <= EDGE_SCROLL_PX) dx = -1;
-        else if (canvasPointer.x >= app.screen.width - EDGE_SCROLL_PX) dx = 1;
-        if (canvasPointer.y <= EDGE_SCROLL_PX) dy = -1;
-        else if (canvasPointer.y >= app.screen.height - EDGE_SCROLL_PX) dy = 1;
+      if (S.canvasPointer && !S.panDrag) {
+        if (S.canvasPointer.x <= EDGE_SCROLL_PX) dx = -1;
+        else if (S.canvasPointer.x >= app.screen.width - EDGE_SCROLL_PX) dx = 1;
+        if (S.canvasPointer.y <= EDGE_SCROLL_PX) dy = -1;
+        else if (S.canvasPointer.y >= app.screen.height - EDGE_SCROLL_PX) dy = 1;
       }
       if (dx !== 0 || dy !== 0) {
         const step = (PAN_SCREEN_PX_PER_S * dt) / strategyCam.target.zoom / Math.hypot(dx, dy);
@@ -8364,9 +8234,9 @@ async function main() {
   // Camera ticker hook, after worldLayer is placed: LOD layer toggles, dots, banner scale, setView.
   function strategyAfterCamera() {
     const active = strategyCam.active;
-    const band: LodBand = active ? lodBand(camZoom) : "tactical";
-    const changed = band !== strategyBand || active !== strategyWasActive;
-    strategyBand = band;
+    const band: LodBand = active ? lodBand(S.camZoom) : "tactical";
+    const changed = band !== S.strategyBand || active !== S.strategyWasActive;
+    S.strategyBand = band;
     const map = band === "map";
     decorSpriteLayer.visible = !map;
     tileSpriteLayer.visible = !map;
@@ -8378,18 +8248,18 @@ async function main() {
     enemyBanners.layer.visible = active;
     intel.layer.visible = active;
     orderMarkers.layer.visible = active;
-    if (map && strategicMapDirty) {
+    if (map && S.strategicMapDirty) {
       strategicMapSprite.texture.source.update();
-      strategicMapDirty = false;
+      S.strategicMapDirty = false;
     }
     if (active) {
-      strategyBanners.setZoom(camZoom);
-      enemyBanners.setZoom(camZoom);
+      strategyBanners.setZoom(S.camZoom);
+      enemyBanners.setZoom(S.camZoom);
       drawIntel(map);
     }
-    if (map && (dotsDirty || dotsZoom !== camZoom)) redrawStrategyDots();
+    if (map && (S.dotsDirty || S.dotsZoom !== S.camZoom)) redrawStrategyDots();
     if (changed) {
-      strategyWasActive = active;
+      S.strategyWasActive = active;
       applyStrategyVisibility();
       document.body.classList.toggle("strategy-mode", active);
     }
@@ -8407,8 +8277,8 @@ async function main() {
   }
 
   function refreshStrategyFog() {
-    strategyFog.update(explored, liveVisionSources(latestPlayersForSpells, latestColonists));
-    fogUpdatedAt = performance.now();
+    strategyFog.update(S.explored, liveVisionSources(S.latestPlayersForSpells, S.latestColonists));
+    S.fogUpdatedAt = performance.now();
   }
 
   function setEntityVisible(e: EntityVisual, visible: boolean) {
@@ -8422,16 +8292,16 @@ async function main() {
   // only touches sprite + HP bar; the wound / mark / boss parts follow the sprite on the next snapshot.
   function applyStrategyVisibility() {
     const on = strategyCam.active;
-    const map = strategyBand === "map";
-    const field = strategyBand === "field";
-    for (const m of latestMobs) {
+    const map = S.strategyBand === "map";
+    const field = S.strategyBand === "field";
+    for (const m of S.latestMobs) {
       const e = mobSprites.get(m.id);
       if (!e) continue;
       const show = !on || (!map && strategyFog.sees(m.x, m.y));
       if (show !== e.sprite.visible) setEntityVisible(e, show);
     }
     for (const w of wildlifeSprites.values()) w.sprite.visible = !on || strategyFog.sees(w.sprite.position.x, w.sprite.position.y);
-    for (const c of latestColonists) {
+    for (const c of S.latestColonists) {
       const e = colonistSprites.get(c.id);
       if (!e) continue;
       if (on && map) setEntityVisible(e, false);
@@ -8442,25 +8312,25 @@ async function main() {
 
   function redrawStrategyDots() {
     const dots: UnitDot[] = [];
-    for (const tc of latestTownCenters) dots.push({ x: (tc.x + 0.5) * tileSize, y: (tc.y + 0.5) * tileSize, color: 0x7a1f1a, r: 5, square: true });
-    for (const c of latestColonists) {
+    for (const tc of S.latestTownCenters) dots.push({ x: (tc.x + 0.5) * S.tileSize, y: (tc.y + 0.5) * S.tileSize, color: 0x7a1f1a, r: 5, square: true });
+    for (const c of S.latestColonists) {
       if (!isCommandable(c)) continue;
       const role = unitRole(c.kind, c.heroClass);
-      dots.push({ x: c.x, y: c.y, color: selectedIds.has(c.id) ? SELECTION_COLOR : role ? ROLE_COLORS[role] : 0xf3da98, r: 2 });
+      dots.push({ x: c.x, y: c.y, color: S.selectedIds.has(c.id) ? SELECTION_COLOR : role ? ROLE_COLORS[role] : 0xf3da98, r: 2 });
     }
-    for (const m of latestMobs) if (strategyFog.sees(m.x, m.y)) dots.push({ x: m.x, y: m.y, color: 0xff3b2a, r: 2.5 });
+    for (const m of S.latestMobs) if (strategyFog.sees(m.x, m.y)) dots.push({ x: m.x, y: m.y, color: 0xff3b2a, r: 2.5 });
     // Phase 5: every summarised enemy regiment (also those beyond the snapshot's mob cull).
-    for (const e of enemyRegiments) dots.push({ x: e.x, y: e.y, color: 0xff3b2a, r: 3 + Math.min(4, Math.sqrt(e.count)), ring: true });
-    for (const p of latestPlayersForSpells) {
-      if (!p.dead && !p.inside) dots.push({ x: p.x, y: p.y, color: p.id === myId ? 0xffffff : p.color, r: 4, ring: true });
+    for (const e of S.enemyRegiments) dots.push({ x: e.x, y: e.y, color: 0xff3b2a, r: 3 + Math.min(4, Math.sqrt(e.count)), ring: true });
+    for (const p of S.latestPlayersForSpells) {
+      if (!p.dead && !p.inside) dots.push({ x: p.x, y: p.y, color: p.id === S.myId ? 0xffffff : p.color, r: 4, ring: true });
     }
-    drawUnitDots(strategyDots, camZoom, dots);
-    dotsZoom = camZoom;
-    dotsDirty = false;
+    drawUnitDots(strategyDots, S.camZoom, dots);
+    S.dotsZoom = S.camZoom;
+    S.dotsDirty = false;
   }
 
   function colonistsById(): Map<string, ColonistSnapshot> {
-    return new Map(latestColonists.map((c) => [c.id, c]));
+    return new Map(S.latestColonists.map((c) => [c.id, c]));
   }
 
   // Centre of the alive units of the list (no-op if none is alive).
@@ -8483,7 +8353,7 @@ async function main() {
   function wholeRegiments(ids: Iterable<string>): string[] {
     const out = new Set<string>();
     for (const id of ids) {
-      const reg = regimentOfUnit.get(id);
+      const reg = S.regimentOfUnit.get(id);
       if (reg) for (const u of reg.unitIds) out.add(u);
       else out.add(id);
     }
@@ -8495,7 +8365,7 @@ async function main() {
     const byId = colonistsById();
     const banners: BannerGroup[] = [];
     const cards: RegimentCard[] = [];
-    for (const reg of armyRegiments) {
+    for (const reg of S.armyRegiments) {
       let x = 0;
       let y = 0;
       let hp = 0;
@@ -8519,7 +8389,7 @@ async function main() {
         const us = u.shape ?? "line";
         shape = shape === undefined ? us : shape === us ? shape : null;
         alive++;
-        if (selectedIds.has(id)) selected++;
+        if (S.selectedIds.has(id)) selected++;
         x += u.x;
         y += u.y;
         hp += Math.max(0, u.hp);
@@ -8575,17 +8445,17 @@ async function main() {
   // Phase 5: the selection's (else the whole army's) Lanchester power: sum hp x sum damage, each regiment's
   // damage (snapshot ArmyRegimentSnapshot.dmg) prorated by its share of selected alive members.
   function ownPower(byId: Map<string, ColonistSnapshot>): number {
-    const any = Array.from(selectedIds).some((id) => { const c = byId.get(id); return !!c && isCommandable(c); });
+    const any = Array.from(S.selectedIds).some((id) => { const c = byId.get(id); return !!c && isCommandable(c); });
     let hp = 0;
     let dmg = 0;
-    for (const reg of armyRegiments) {
+    for (const reg of S.armyRegiments) {
       let alive = 0;
       let picked = 0;
       for (const id of reg.unitIds) {
         const u = byId.get(id);
         if (!u) continue;
         alive++;
-        if (any && !selectedIds.has(id)) continue;
+        if (any && !S.selectedIds.has(id)) continue;
         picked++;
         hp += Math.max(0, u.hp);
       }
@@ -8598,7 +8468,7 @@ async function main() {
   // a visible flank group, or a visible enemy behind the facing line of their order group.
   function buildEnemyIntel(byId: Map<string, ColonistSnapshot>, own: BannerGroup[]) {
     const power = ownPower(byId);
-    const groups: BannerGroup[] = enemyRegiments.map((e) => {
+    const groups: BannerGroup[] = S.enemyRegiments.map((e) => {
       const band = strengthBand(e.power, power);
       return {
         key: `e:${e.id}`,
@@ -8616,16 +8486,16 @@ async function main() {
     enemyBanners.sync(groups);
     const ownPos = new Map(own.map((b) => [b.key, b]));
     const threats = new Map<string, Threat>();
-    for (const e of enemyRegiments) {
-      const reg = e.flank?.targetId ? regimentOfUnit.get(e.flank.targetId) : undefined;
+    for (const e of S.enemyRegiments) {
+      const reg = e.flank?.targetId ? S.regimentOfUnit.get(e.flank.targetId) : undefined;
       const b = reg ? ownPos.get(reg.id) : undefined;
       if (reg && b) threats.set(reg.id, { x: b.x, y: b.y, text: "Flank threatened" });
     }
-    const near = REAR_THREAT_TILES * tileSize;
-    const seen = latestMobs.filter((m) => strategySeesEnemy(m.x, m.y));
-    for (const reg of armyRegiments) {
+    const near = REAR_THREAT_TILES * S.tileSize;
+    const seen = S.latestMobs.filter((m) => strategySeesEnemy(m.x, m.y));
+    for (const reg of S.armyRegiments) {
       const b = ownPos.get(reg.id);
-      const g = reg.unitIds.length > 0 ? orderGroupOfUnit.get(reg.unitIds[0]) : undefined;
+      const g = reg.unitIds.length > 0 ? S.orderGroupOfUnit.get(reg.unitIds[0]) : undefined;
       if (!b || threats.has(reg.id) || g?.facing === undefined || seen.length === 0) continue;
       const fx = Math.cos(g.facing);
       const fy = Math.sin(g.facing);
@@ -8633,36 +8503,36 @@ async function main() {
       const cx = members.reduce((sum, u) => sum + u.x, 0) / members.length;
       const cy = members.reduce((sum, u) => sum + u.y, 0) / members.length;
       const behind = seen.some(
-        (m) => (m.x - cx) * fx + (m.y - cy) * fy < -tileSize && members.some((u) => Math.abs(u.x - m.x) <= near && Math.abs(u.y - m.y) <= near && Math.hypot(u.x - m.x, u.y - m.y) <= near)
+        (m) => (m.x - cx) * fx + (m.y - cy) * fy < -S.tileSize && members.some((u) => Math.abs(u.x - m.x) <= near && Math.abs(u.y - m.y) <= near && Math.hypot(u.x - m.x, u.y - m.y) <= near)
       );
       if (behind) threats.set(reg.id, { x: b.x, y: b.y, text: "Rear threatened" });
     }
-    strategyThreats = Array.from(threats.values());
+    S.strategyThreats = Array.from(threats.values());
   }
 
   // Every frame in strategy mode: flank arrows, threats, clash icons (Map band) and objective markers.
   function drawIntel(mapBand: boolean) {
     const objectives: ObjectiveMarker[] = [];
-    const castleGoal = latestGoal !== null && latestGoal.index < latestGoal.total && /castle ruin/i.test(latestGoal.title);
-    if (castleRuinTile && explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
+    const castleGoal = S.latestGoal !== null && S.latestGoal.index < S.latestGoal.total && /castle ruin/i.test(S.latestGoal.title);
+    if (S.castleRuinTile && S.explored[S.castleRuinTile.y * S.worldTilesX + S.castleRuinTile.x]) {
       objectives.push({
-        key: "castle", kind: "castle", label: castleGoal ? latestGoal!.title : "Castle Ruin", objective: castleGoal,
-        x: (castleRuinTile.x + 0.5) * tileSize, y: (castleRuinTile.y + 0.5) * tileSize,
+        key: "castle", kind: "castle", label: castleGoal ? S.latestGoal!.title : "Castle Ruin", objective: castleGoal,
+        x: (S.castleRuinTile.x + 0.5) * S.tileSize, y: (S.castleRuinTile.y + 0.5) * S.tileSize,
       });
     }
-    for (const index of latestHearths) {
-      if (!explored[index]) continue;
+    for (const index of S.latestHearths) {
+      if (!S.explored[index]) continue;
       objectives.push({
         key: `h${index}`, kind: "camp", label: "Camp", objective: false,
-        x: ((index % worldTilesX) + 0.5) * tileSize, y: (Math.floor(index / worldTilesX) + 0.5) * tileSize,
+        x: ((index % S.worldTilesX) + 0.5) * S.tileSize, y: (Math.floor(index / S.worldTilesX) + 0.5) * S.tileSize,
       });
     }
     intel.draw({
-      zoom: camZoom,
+      zoom: S.camZoom,
       mapBand,
-      enemies: enemyRegiments,
-      clashes: mapBand ? latestFights.filter(fightIsOnScreen).map((f) => ({ fight: f, ...fightWorldPos(f) })) : [],
-      threats: strategyThreats,
+      enemies: S.enemyRegiments,
+      clashes: mapBand ? S.latestFights.filter(fightIsOnScreen).map((f) => ({ fight: f, ...fightWorldPos(f) })) : [],
+      threats: S.strategyThreats,
       objectives,
       now: performance.now(),
     });
@@ -8670,32 +8540,32 @@ async function main() {
 
   // The order glyph of a regiment whose members all share one order group ("Hold", "Move +2").
   function regimentOrderLabel(reg: ArmyRegimentSnapshot): string | undefined {
-    const g = reg.unitIds.length > 0 ? orderGroupOfUnit.get(reg.unitIds[0]) : undefined;
-    if (!g || !g.order || !reg.unitIds.every((id) => orderGroupOfUnit.get(id) === g)) return undefined;
+    const g = reg.unitIds.length > 0 ? S.orderGroupOfUnit.get(reg.unitIds[0]) : undefined;
+    if (!g || !g.order || !reg.unitIds.every((id) => S.orderGroupOfUnit.get(id) === g)) return undefined;
     const label = g.engaged ? "Engaged" : ORDER_LABEL[g.order.kind];
     return g.queue.length > 0 ? `${label} +${g.queue.length}` : label;
   }
 
   function setArmyRegiments(regiments: ArmyRegimentSnapshot[]) {
-    armyRegiments = regiments;
-    regimentOfUnit = new Map();
-    for (const reg of regiments) for (const id of reg.unitIds) regimentOfUnit.set(id, reg);
+    S.armyRegiments = regiments;
+    S.regimentOfUnit = new Map();
+    for (const reg of regiments) for (const id of reg.unitIds) S.regimentOfUnit.set(id, reg);
   }
 
   // Control groups (task forces): select slot N; a second tap of N within GROUP_DOUBLE_TAP_MS centres on it.
   function recallControlGroup(slot: number) {
-    const ids = latestTaskForces[String(slot)] ?? [];
+    const ids = S.latestTaskForces[String(slot)] ?? [];
     setSelection(ids);
     const now = performance.now();
-    if (strategyCam.inStrategy && lastGroupTap.slot === slot && now - lastGroupTap.at <= GROUP_DOUBLE_TAP_MS) centreOnUnits(ids);
-    lastGroupTap = { slot, at: now };
+    if (strategyCam.inStrategy && S.lastGroupTap.slot === slot && now - S.lastGroupTap.at <= GROUP_DOUBLE_TAP_MS) centreOnUnits(ids);
+    S.lastGroupTap = { slot, at: now };
   }
 
   // Strategy mode: a plain 1-9 recalls that control group when it has one (else it stays a build hotkey).
   function isStrategyGroupRecall(e: KeyboardEvent): number {
     if (!strategyCam.inStrategy || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return 0;
     const digit = /^Digit([1-9])$/.exec(e.code);
-    if (!digit || !(latestTaskForces[digit[1]]?.length > 0)) return 0;
+    if (!digit || !(S.latestTaskForces[digit[1]]?.length > 0)) return 0;
     return Number(digit[1]);
   }
 
@@ -8706,31 +8576,31 @@ async function main() {
     enemies: EnemyRegimentSnapshot[] | undefined
   ) {
     if (regiments) setArmyRegiments(regiments);
-    if (enemies) enemyRegiments = enemies;
+    if (enemies) S.enemyRegiments = enemies;
     if (groups) setOrderGroups(groups);
     redrawOrderMarkers();
     if (strategyCam.active) {
-      if (performance.now() - fogUpdatedAt >= STRATEGY_FOG_REFRESH_MS) {
-        strategyFog.update(explored, liveVisionSources(players, latestColonists));
-        fogUpdatedAt = performance.now();
+      if (performance.now() - S.fogUpdatedAt >= STRATEGY_FOG_REFRESH_MS) {
+        strategyFog.update(S.explored, liveVisionSources(players, S.latestColonists));
+        S.fogUpdatedAt = performance.now();
       }
       buildStrategyBanners();
-      dotsDirty = true;
+      S.dotsDirty = true;
     }
     applyStrategyVisibility();
   }
 
   function strategyOnWelcome() {
-    if (viewSent) {
+    if (S.viewSent) {
       const off: ClientMessage = { type: "setView", x: 0, y: 0, halfW: 0, halfH: 0, strategy: false };
       sendMessage(off);
-      viewSent = null;
+      S.viewSent = null;
     }
     strategyCam.reset();
     advCam.sync(NaN, NaN, performance.now());
-    pendingStartStrategy = adventurePrefs.startStrategy;
+    S.pendingStartStrategy = adventurePrefs.startStrategy;
     cancelPanDrag();
-    strategyFog.reset(worldTilesX, worldTilesY, tileSize);
+    strategyFog.reset(S.worldTilesX, S.worldTilesY, S.tileSize);
     strategyBanners.clear();
     setArmyRegiments([]);
     setOrderGroups([]);
@@ -8738,8 +8608,8 @@ async function main() {
     armOrder(null);
     regimentCards.render([]);
     strategyDots.clear();
-    enemyRegiments = [];
-    strategyThreats = [];
+    S.enemyRegiments = [];
+    S.strategyThreats = [];
     enemyBanners.clear();
     intel.clear();
     worldLayer.addChild(strategyDots);
@@ -8753,41 +8623,41 @@ async function main() {
   // strategy:false when the mode ends.
   function sendStrategyView() {
     if (!strategyCam.inStrategy) {
-      if (viewSent) {
+      if (S.viewSent) {
         const off: ClientMessage = { type: "setView", x: 0, y: 0, halfW: 0, halfH: 0, strategy: false };
         sendMessage(off);
-        viewSent = null;
+        S.viewSent = null;
       }
       return;
     }
     const now = performance.now();
-    if (now - viewSentAt < SET_VIEW_INTERVAL_MS) return;
+    if (now - S.viewSentAt < SET_VIEW_INTERVAL_MS) return;
     const t = strategyCam.target;
     const round = (n: number) => Math.round(n * 10) / 10;
     const v = {
-      x: round(t.x / tileSize),
-      y: round(t.y / tileSize),
-      halfW: round(app.screen.width / 2 / t.zoom / tileSize),
-      halfH: round(app.screen.height / 2 / t.zoom / tileSize),
+      x: round(t.x / S.tileSize),
+      y: round(t.y / S.tileSize),
+      halfW: round(app.screen.width / 2 / t.zoom / S.tileSize),
+      halfH: round(app.screen.height / 2 / t.zoom / S.tileSize),
     };
-    const prev = viewSent;
+    const prev = S.viewSent;
     if (prev && Math.abs(v.x - prev.x) < 1 && Math.abs(v.y - prev.y) < 1 && Math.abs(v.halfW - prev.halfW) < 1 && Math.abs(v.halfH - prev.halfH) < 1) return;
     const msg: ClientMessage = { type: "setView", ...v, strategy: true };
     sendMessage(msg);
-    viewSent = v;
-    viewSentAt = now;
+    S.viewSent = v;
+    S.viewSentAt = now;
   }
 
   strategyBtn.addEventListener("click", () => {
     strategyBtn.blur();
-    if (myId) toggleStrategy();
+    if (S.myId) toggleStrategy();
   });
   window.addEventListener("keydown", (e) => {
     if (e.key === "Tab") {
       e.preventDefault();
-      if (!e.repeat && myId) toggleStrategy();
-    } else if (e.key === "Home" && strategyCam.inStrategy && myId) {
-      const me = playerSprites.get(myId);
+      if (!e.repeat && S.myId) toggleStrategy();
+    } else if (e.key === "Home" && strategyCam.inStrategy && S.myId) {
+      const me = playerSprites.get(S.myId);
       if (me) strategyCam.jumpTo(me.sprite.position.x, me.sprite.position.y);
     }
   });
@@ -8798,7 +8668,7 @@ async function main() {
     "keydown",
     (e) => {
       if (e.key !== "Escape" || !strategyCam.inStrategy) return;
-      if (spellAim || infoTile || selectedIds.size > 0 || !settingsModalEl.hidden || !heroModal.hidden) return;
+      if (S.spellAim || S.infoTile || S.selectedIds.size > 0 || !settingsModalEl.hidden || !heroModal.hidden) return;
       e.stopImmediatePropagation();
       strategyCam.exit(performance.now());
     },
@@ -8830,7 +8700,7 @@ async function main() {
   function minimapJump(e: PointerEvent) {
     const t = minimapTileAt(e.clientX, e.clientY);
     if (!t) return;
-    strategyCam.jumpTo(t.x * tileSize, t.y * tileSize);
+    strategyCam.jumpTo(t.x * S.tileSize, t.y * S.tileSize);
   }
   minimapEl.addEventListener("pointerdown", (e) => {
     if (!strategyCam.inStrategy || e.button !== 0) return;
@@ -8844,26 +8714,26 @@ async function main() {
     if (!at) return;
     const tx = at.x;
     const ty = at.y;
-    const reach = 8 / minimapCssPerTile;
+    const reach = 8 / S.minimapCssPerTile;
     let tip = "";
     let best = Infinity;
-    for (const f of fortMarkers) {
+    for (const f of S.fortMarkers) {
       const d = Math.hypot(f.keepX + 0.5 - tx, f.keepY - 2 - ty);
       if (d > reach || d >= best) continue;
       best = d;
-      const rel = f.num !== undefined ? siteRelations.get(f.num) : undefined;
+      const rel = f.num !== undefined ? S.siteRelations.get(f.num) : undefined;
       tip = f.faction !== "human"
         ? `${f.name} (${f.faction === "orc" ? "orc stockade" : "bandit palisade"}${f.cleared ? ", razed" : ""})`
         : f.captured || f.cleared ? `${f.name} (${f.captured ? "captured" : "razed"})`
-        : `${f.name}: ${f.hostile ? "up in arms" : f.vassalOf === myClan ? "your vassal" : RELATION_TIER_NAMES[rel?.tier ?? "neutral"]} (relation ${rel?.value ?? 0})${f.vassalOf !== undefined && f.vassalOf !== myClan ? `, vassal of ${clanNames.get(f.vassalOf) ?? "another clan"}` : ""}`;
+        : `${f.name}: ${f.hostile ? "up in arms" : f.vassalOf === S.myClan ? "your vassal" : RELATION_TIER_NAMES[rel?.tier ?? "neutral"]} (relation ${rel?.value ?? 0})${f.vassalOf !== undefined && f.vassalOf !== S.myClan ? `, vassal of ${S.clanNames.get(f.vassalOf) ?? "another clan"}` : ""}`;
     }
     if (minimapEl.title !== tip) minimapEl.title = tip;
   });
 
   function pointerTile(clickX: number, clickY: number): { tileX: number; tileY: number } | null {
-    const tileX = Math.floor(clickX / tileSize);
-    const tileY = Math.floor(clickY / tileSize);
-    if (tileX < 0 || tileY < 0 || tileX >= worldTilesX || tileY >= worldTilesY) return null;
+    const tileX = Math.floor(clickX / S.tileSize);
+    const tileY = Math.floor(clickY / S.tileSize);
+    if (tileX < 0 || tileY < 0 || tileX >= S.worldTilesX || tileY >= S.worldTilesY) return null;
     return { tileX, tileY };
   }
 
@@ -8874,11 +8744,11 @@ async function main() {
     // A multi-tile building's part tile opens / demolishes its anchor.
     const anchor = pointed ? anchorOfClient(pointed.tileX, pointed.tileY) : null;
     const tile = pointed && anchor ? { tileX: anchor.x, tileY: anchor.y } : pointed;
-    if (!tile || INFO_TILES.has(tiles[tile.tileY * worldTilesX + tile.tileX])) return tile;
+    if (!tile || INFO_TILES.has(S.tiles[tile.tileY * S.worldTilesX + tile.tileX])) return tile;
     const below = { tileX: tile.tileX, tileY: tile.tileY + 1 };
-    if (below.tileY >= worldTilesY) return tile;
-    const index = below.tileY * worldTilesX + below.tileX;
-    if (!BUILDING_VISUAL_SCALE[tiles[index] as TileType]) return tile;
+    if (below.tileY >= S.worldTilesY) return tile;
+    const index = below.tileY * S.worldTilesX + below.tileX;
+    if (!BUILDING_VISUAL_SCALE[S.tiles[index] as TileType]) return tile;
     const sprite = tileSprites.get(index);
     if (!sprite) return tile;
     // Bottom-centre anchored on the tile's bottom edge (setTileSprite), in world px.
@@ -8888,45 +8758,22 @@ async function main() {
   }
 
   app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-
-  // Left button is resolved on pointerup (it may become a drag-select); other buttons act on down.
-  interface LeftPress {
-    pointerId: number;
-    screenX: number;
-    screenY: number;
-    worldX: number;
-    worldY: number;
-    dragging: boolean;
-  }
-  let leftPress: LeftPress | null = null;
-  // Right-button order in progress for a multi-unit selection (see computeLineFormationTargets).
-  interface OrderPress {
-    pointerId: number;
-    screenX: number;
-    screenY: number;
-    worldX: number;
-    worldY: number;
-    dragging: boolean;
-    order: number;
-    // Strategy mode: the regiment order a release sends (Shift at press = queue it).
-    kind?: "move" | "attackMove";
-    queue?: boolean;
-  }
-  let orderPress: OrderPress | null = null;
+  S.leftPress = null;
+  S.orderPress = null;
   const lineGuide = new Graphics();
   function cancelOrderPress() {
-    if (orderPress && app.canvas.hasPointerCapture(orderPress.pointerId)) {
-      app.canvas.releasePointerCapture(orderPress.pointerId);
+    if (S.orderPress && app.canvas.hasPointerCapture(S.orderPress.pointerId)) {
+      app.canvas.releasePointerCapture(S.orderPress.pointerId);
     }
-    orderPress = null;
+    S.orderPress = null;
     lineGuide.clear();
   }
 
   function cancelLeftPress() {
-    if (leftPress && app.canvas.hasPointerCapture(leftPress.pointerId)) {
-      app.canvas.releasePointerCapture(leftPress.pointerId);
+    if (S.leftPress && app.canvas.hasPointerCapture(S.leftPress.pointerId)) {
+      app.canvas.releasePointerCapture(S.leftPress.pointerId);
     }
-    leftPress = null;
+    S.leftPress = null;
     dragBox.clear();
   }
 
@@ -8934,30 +8781,30 @@ async function main() {
     // Stardew phase 5c: the world is hidden while inside a building (no world clicks).
     if (interiorRef.ui?.active()) return;
     const rect = app.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
-    const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
+    const x = (e.clientX - rect.left - worldLayer.position.x) / S.camZoom;
+    const y = (e.clientY - rect.top - worldLayer.position.y) / S.camZoom;
     // Strategy mode: middle-drag pans the camera.
     if (e.button === 1 && strategyCam.inStrategy) {
       e.preventDefault();
-      panDrag = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY };
+      S.panDrag = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY };
       app.canvas.setPointerCapture(e.pointerId);
       return;
     }
     // Creative mode: a spawn / stamp placed "At click" takes the left click.
     if (e.button === 0 && creativeUi.consumeClick(x, y)) return;
     // Hero phase 4: aiming a spell takes the left click; a right click cancels the aim.
-    if (spellAim && e.button === 0 && spellAimClick(x, y)) return;
-    if (spellAim && e.button === 2) {
+    if (S.spellAim && e.button === 0 && spellAimClick(x, y)) return;
+    if (S.spellAim && e.button === 2) {
       setSpellAim(null);
       return;
     }
     // Stardew phase 5a: a left click on a tile next to the hero with a hotbar tool in hand uses it there.
-    if (e.button === 0 && !strategyCam.inStrategy && selectedIds.size === 0 && buildPanel.classList.contains("collapsed") && heroToolsRef.ui?.click(x, y)) {
-      if (myId) triggerPlayerAttackAnim(myId);
+    if (e.button === 0 && !strategyCam.inStrategy && S.selectedIds.size === 0 && buildPanel.classList.contains("collapsed") && heroToolsRef.ui?.click(x, y)) {
+      if (S.myId) triggerPlayerAttackAnim(S.myId);
       return;
     }
     if (e.button === 0) {
-      leftPress = {
+      S.leftPress = {
         pointerId: e.pointerId,
         screenX: e.clientX,
         screenY: e.clientY,
@@ -8968,20 +8815,20 @@ async function main() {
       app.canvas.setPointerCapture(e.pointerId);
       return;
     }
-    if (e.button === 2 && selectedIds.size > 0) {
+    if (e.button === 2 && S.selectedIds.size > 0) {
       if (socket.readyState !== socket.OPEN) return;
       // latestColonists is replaced wholesale on every snapshot (20/s), so this is the units' live
       // positions at the moment of the order — a redirect mid-march re-faces from where they are.
       // Creative mode: Ctrl+right-click on another clan's unit or an animal force-attacks it.
-      if (e.ctrlKey && creativeUi.forceAttackAt(x, y, latestColonists, myClan, Math.max(STRATEGY_HIT_SCREEN_PX / camZoom, tileSize * 0.6))) return;
-      const units = latestColonists.filter((c) => selectedIds.has(c.id));
+      if (e.ctrlKey && creativeUi.forceAttackAt(x, y, S.latestColonists, S.myClan, Math.max(STRATEGY_HIT_SCREEN_PX / S.camZoom, S.tileSize * 0.6))) return;
+      const units = S.latestColonists.filter((c) => S.selectedIds.has(c.id));
       const unitIds = units.map((u) => u.id);
       const order = stampOrder(unitIds);
       hideFormationMarker();
       // Zoomed out, a unit is a few screen px: keep the hit area at least STRATEGY_HIT_SCREEN_PX wide.
-      const minHit = STRATEGY_HIT_SCREEN_PX / camZoom;
+      const minHit = STRATEGY_HIT_SCREEN_PX / S.camZoom;
       const mobUnder = findNearest(
-        latestMobs.filter(
+        S.latestMobs.filter(
           (m) => strategySeesEnemy(m.x, m.y) && (m.x - x) ** 2 + (m.y - y) ** 2 <= Math.max(minHit, mobHitRadius(m.kind, mobRenderScale(m))) ** 2
         ),
         x,
@@ -8989,18 +8836,18 @@ async function main() {
         Infinity
       );
       // Phase 5: right-clicking an enemy banner attacks the visible member nearest its centroid.
-      const enemyKey = !mobUnder && strategyCam.inStrategy ? enemyBanners.hitTest(x, y, camZoom) : null;
-      const enemyReg = enemyKey ? enemyRegiments.find((r) => `e:${r.id}` === enemyKey) : undefined;
-      const mob = mobUnder ?? (enemyReg ? findNearest(latestMobs.filter((m) => strategySeesEnemy(m.x, m.y)), enemyReg.x, enemyReg.y, 6 * tileSize) : null);
+      const enemyKey = !mobUnder && strategyCam.inStrategy ? enemyBanners.hitTest(x, y, S.camZoom) : null;
+      const enemyReg = enemyKey ? S.enemyRegiments.find((r) => `e:${r.id}` === enemyKey) : undefined;
+      const mob = mobUnder ?? (enemyReg ? findNearest(S.latestMobs.filter((m) => strategySeesEnemy(m.x, m.y)), enemyReg.x, enemyReg.y, 6 * S.tileSize) : null);
       const clicked = pointerTile(x, y);
-      const hearthIndex = clicked ? clicked.tileY * worldTilesX + clicked.tileX : -1;
+      const hearthIndex = clicked ? clicked.tileY * S.worldTilesX + clicked.tileX : -1;
       // Strategy mode phase 3: regiment orders (attack, follow, move / attack-move with a line drag).
       const strategic = strategyCam.inStrategy;
-      const armed = armedOrder;
+      const armed = S.armedOrder;
       if (strategic) armOrder(null);
       // Phase 4: a charge armed on the ground takes the nearest visible enemy within 3 tiles of the click.
       const chargeMob = strategic && armed === "charge"
-        ? mob ?? findNearest(latestMobs.filter((m) => strategySeesEnemy(m.x, m.y)), x, y, 3 * tileSize)
+        ? mob ?? findNearest(S.latestMobs.filter((m) => strategySeesEnemy(m.x, m.y)), x, y, 3 * S.tileSize)
         : null;
       if (strategic && armed === "bombard") {
         sendRegimentOrder({ kind: "bombard", x, y }, e.shiftKey);
@@ -9011,7 +8858,7 @@ async function main() {
       } else if (mob) {
         if (strategic) sendRegimentOrder({ kind: "attack", targetId: mob.id }, e.shiftKey);
         else socket.send(JSON.stringify({ type: "commandAttack", unitIds, mobId: mob.id }));
-      } else if (clicked && (latestHearths.has(hearthIndex) || siteOwners.has(hearthIndex))) {
+      } else if (clicked && (S.latestHearths.has(hearthIndex) || S.siteOwners.has(hearthIndex))) {
         // Camp hearths: right-click a standing hearth to send the selection against it (strategy mode: as
         // a regiment order, so the group keeps its queue / settings).
         if (strategic) sendRegimentOrder({ kind: "attackHearth", tileX: clicked.tileX, tileY: clicked.tileY }, e.shiftKey);
@@ -9022,11 +8869,11 @@ async function main() {
       } else if (strategic) {
         // Wait for release: a click moves the formation as it stands, a drag lays out a line.
         const kind = armed === "attackMove" || e.ctrlKey ? "attackMove" : "move";
-        orderPress = { pointerId: e.pointerId, screenX: e.clientX, screenY: e.clientY, worldX: x, worldY: y, dragging: false, order, kind, queue: e.shiftKey };
+        S.orderPress = { pointerId: e.pointerId, screenX: e.clientX, screenY: e.clientY, worldX: x, worldY: y, dragging: false, order, kind, queue: e.shiftKey };
         app.canvas.setPointerCapture(e.pointerId);
       } else if (units.length > 1) {
         // Wait for release: a click orders the normal block, a drag stretches a custom line.
-        orderPress = { pointerId: e.pointerId, screenX: e.clientX, screenY: e.clientY, worldX: x, worldY: y, dragging: false, order };
+        S.orderPress = { pointerId: e.pointerId, screenX: e.clientX, screenY: e.clientY, worldX: x, worldY: y, dragging: false, order };
         app.canvas.setPointerCapture(e.pointerId);
       } else {
         socket.send(JSON.stringify({ type: "commandMove", unitIds, x, y }));
@@ -9036,7 +8883,7 @@ async function main() {
     const tile = pointerTile(x, y);
     if (!tile) return;
     if (socket.readyState !== socket.OPEN) return;
-    const value = e.button === 2 ? currentTool : TileType.Empty;
+    const value = e.button === 2 ? S.currentTool : TileType.Empty;
     if (value === TileType.Empty) {
       requestDemolish([{ x: tile.tileX, y: tile.tileY }]);
       return;
@@ -9049,12 +8896,12 @@ async function main() {
     // Modular building phase 1: structure tools order blueprints (placeStructure) on release: one tile, or the
     // dragged line / rectangle / room outline.
     if (isStructureTool(value)) {
-      structDrag = { pointerId: e.pointerId, tool: value, x0: tile.tileX, y0: tile.tileY, x1: tile.tileX, y1: tile.tileY };
+      S.structDrag = { pointerId: e.pointerId, tool: value, x0: tile.tileX, y0: tile.tileY, x1: tile.tileX, y1: tile.tileY };
       app.canvas.setPointerCapture(e.pointerId);
       return;
     }
     placeTile(tile.tileX, tile.tileY, value);
-    if (value === TileType.Moat || value === TileType.PropFence) moatDrag = { pointerId: e.pointerId, x: tile.tileX, y: tile.tileY };
+    if (value === TileType.Moat || value === TileType.PropFence) S.moatDrag = { pointerId: e.pointerId, x: tile.tileX, y: tile.tileY };
   });
 
   // Demolishing your own building asks first ("Confirm demolish <name>", Cancel / Esc). Instant as before: walls,
@@ -9064,12 +8911,12 @@ async function main() {
   const demolishConfirmEl = document.getElementById("demolish-confirm")!;
   const demolishConfirmText = document.getElementById("demolish-confirm-text")!;
   const demolishConfirmBtn = document.getElementById("demolish-confirm-ok") as HTMLButtonElement;
-  let pendingDemolish: { x: number; y: number }[] = [];
+  S.pendingDemolish = [];
   function demolishLabel(x: number, y: number): string | null {
     const a = anchorOfClient(x, y);
-    const index = a.y * worldTilesX + a.x;
-    const t = tiles[index];
-    if (t === TileType.Empty || DEMOLISH_INSTANT.has(t) || siteOwners.has(index)) return null;
+    const index = a.y * S.worldTilesX + a.x;
+    const t = S.tiles[index];
+    if (t === TileType.Empty || DEMOLISH_INSTANT.has(t) || S.siteOwners.has(index)) return null;
     return TOOLS.find((tool) => tool.tile === t && tool.tile !== TileType.Empty)?.label ?? null;
   }
   function sendDemolish(list: { x: number; y: number }[]) {
@@ -9077,7 +8924,7 @@ async function main() {
     for (const t of list) socket.send(JSON.stringify({ type: "setTile", tileX: t.x, tileY: t.y, tile: TileType.Empty }));
   }
   function closeDemolishConfirm() {
-    pendingDemolish = [];
+    S.pendingDemolish = [];
     demolishConfirmEl.hidden = true;
   }
   function requestDemolish(list: { x: number; y: number }[]) {
@@ -9085,7 +8932,7 @@ async function main() {
     sendDemolish(named.filter((n) => n.label === null).map((n) => n.t));
     const ask = named.filter((n) => n.label !== null);
     if (ask.length === 0) return;
-    pendingDemolish = ask.map((n) => n.t);
+    S.pendingDemolish = ask.map((n) => n.t);
     const label = ask.length === 1 ? ask[0].label! : `${ask.length} buildings`;
     demolishConfirmText.textContent = `Demolish ${label}?`;
     demolishConfirmBtn.textContent = `Confirm demolish ${label}`;
@@ -9093,7 +8940,7 @@ async function main() {
   }
   demolishConfirmBtn.addEventListener("click", () => {
     demolishConfirmBtn.blur();
-    sendDemolish(pendingDemolish);
+    sendDemolish(S.pendingDemolish);
     closeDemolishConfirm();
   });
   document.getElementById("demolish-confirm-cancel")!.addEventListener("click", (e) => {
@@ -9106,7 +8953,7 @@ async function main() {
 
   function placeTile(tileX: number, tileY: number, value: number) {
     if (value !== TileType.Empty) {
-      pendingPlacements.set(tileY * worldTilesX + tileX, { tile: value, at: performance.now() });
+      pendingPlacements.set(tileY * S.worldTilesX + tileX, { tile: value, at: performance.now() });
     }
     socket.send(JSON.stringify({ type: "setTile", tileX, tileY, tile: value }));
   }
@@ -9117,9 +8964,9 @@ async function main() {
     [ZONE_TOOL_ERASE]: { kind: "growing" },
   };
   // Modular building phase 1: a structure tool's right press, until release.
-  let structDrag: { pointerId: number; tool: TileType; x0: number; y0: number; x1: number; y1: number } | null = null;
+  S.structDrag = null;
   // The tile a structure tool places (room tools: their wall) and the tiles the drag covers.
-  function structDragPlan(d: NonNullable<typeof structDrag>): { tile: TileType; list: { x: number; y: number }[] } {
+  function structDragPlan(d: NonNullable<typeof S.structDrag>): { tile: TileType; list: { x: number; y: number }[] } {
     const mode = TOOLS.find((t) => t.tile === d.tool)?.drag;
     const tile = d.tool === ROOM_TOOL_WOOD ? TileType.Wall : d.tool === ROOM_TOOL_STONE ? TileType.StoneWall : d.tool;
     const list =
@@ -9131,23 +8978,23 @@ async function main() {
   }
   // Phase H: right-dragging the Moat tool digs every tile the pointer crosses, 4-connected (a diagonal
   // step adds the orthogonal tile between), so the line has no corner gaps. Animal paddocks: the Fence tool too.
-  let moatDrag: { pointerId: number; x: number; y: number } | null = null;
+  S.moatDrag = null;
   function extendMoatDrag(worldX: number, worldY: number) {
-    const drag = moatDrag;
+    const drag = S.moatDrag;
     const tile = drag ? pointerTile(worldX, worldY) : null;
-    if (!drag || !tile || socket.readyState !== socket.OPEN || (currentTool !== TileType.Moat && currentTool !== TileType.PropFence)) return;
+    if (!drag || !tile || socket.readyState !== socket.OPEN || (S.currentTool !== TileType.Moat && S.currentTool !== TileType.PropFence)) return;
     while (drag.x !== tile.tileX || drag.y !== tile.tileY) {
       if (Math.abs(tile.tileX - drag.x) >= Math.abs(tile.tileY - drag.y)) drag.x += Math.sign(tile.tileX - drag.x);
       else drag.y += Math.sign(tile.tileY - drag.y);
-      placeTile(drag.x, drag.y, currentTool);
+      placeTile(drag.x, drag.y, S.currentTool);
     }
   }
 
   app.canvas.addEventListener("pointerup", (e) => {
-    if (moatDrag && e.pointerId === moatDrag.pointerId) moatDrag = null;
-    if (structDrag && e.pointerId === structDrag.pointerId) {
-      const plan = structDragPlan(structDrag);
-      structDrag = null;
+    if (S.moatDrag && e.pointerId === S.moatDrag.pointerId) S.moatDrag = null;
+    if (S.structDrag && e.pointerId === S.structDrag.pointerId) {
+      const plan = structDragPlan(S.structDrag);
+      S.structDrag = null;
       const flat = plan.list.flatMap((p) => [p.x, p.y]);
       if (isZoneTool(plan.tile)) {
         // Phase 3: paint (extending the selected zone of the same kind / crop) or erase (Shift, or the Erase tool).
@@ -9162,19 +9009,19 @@ async function main() {
         return;
       }
       // Gap closure G1: 2-tile furniture goes down turned by furnitureRot (R).
-      const rot = FURNITURE_FOOTPRINT[plan.tile] ? { rot: furnitureRot } : {};
+      const rot = FURNITURE_FOOTPRINT[plan.tile] ? { rot: S.furnitureRot } : {};
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "placeStructure", tile: plan.tile, tiles: flat, ...rot }));
       return;
     }
-    if (e.button === 2 && orderPress && e.pointerId === orderPress.pointerId) {
-      const press = orderPress;
+    if (e.button === 2 && S.orderPress && e.pointerId === S.orderPress.pointerId) {
+      const press = S.orderPress;
       cancelOrderPress();
       // Units may have died or been deselected while the button was held.
-      const units = latestColonists.filter((c) => selectedIds.has(c.id));
+      const units = S.latestColonists.filter((c) => S.selectedIds.has(c.id));
       if (units.length === 0 || unitOrder.get(units[0].id) !== press.order && !units.some((u) => unitOrder.get(u.id) === press.order)) return;
       const rect = app.canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
-      const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
+      const x = (e.clientX - rect.left - worldLayer.position.x) / S.camZoom;
+      const y = (e.clientY - rect.top - worldLayer.position.y) / S.camZoom;
       if (press.kind) {
         const shape = press.dragging && units.length > 1 ? strategyLine(units, press.worldX, press.worldY, x, y, e.altKey) : { x: press.worldX, y: press.worldY, ...keptFormation(press.queue === true) };
         sendRegimentOrder({ kind: press.kind, ...shape }, press.queue === true);
@@ -9188,23 +9035,23 @@ async function main() {
       }
       return;
     }
-    if (e.button === 1 && panDrag && e.pointerId === panDrag.pointerId) {
+    if (e.button === 1 && S.panDrag && e.pointerId === S.panDrag.pointerId) {
       cancelPanDrag();
       return;
     }
-    if (e.button !== 0 || !leftPress || e.pointerId !== leftPress.pointerId) return;
-    const press = leftPress;
+    if (e.button !== 0 || !S.leftPress || e.pointerId !== S.leftPress.pointerId) return;
+    const press = S.leftPress;
     cancelLeftPress();
     const rect = app.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
-    const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
+    const x = (e.clientX - rect.left - worldLayer.position.x) / S.camZoom;
+    const y = (e.clientY - rect.top - worldLayer.position.y) / S.camZoom;
 
     if (press.dragging) {
       const minX = Math.min(press.worldX, x);
       const maxX = Math.max(press.worldX, x);
       const minY = Math.min(press.worldY, y);
       const maxY = Math.max(press.worldY, y);
-      const boxed = latestColonists
+      const boxed = S.latestColonists
         .filter(
           (c) =>
             isCommandable(c) &&
@@ -9217,7 +9064,7 @@ async function main() {
       // Strategy mode: whole regiments of anything inside, Shift adds; Alt keeps just the boxed units.
       if (strategyCam.inStrategy) {
         const picked = e.altKey ? boxed : wholeRegiments(boxed);
-        setSelection(e.shiftKey ? [...selectedIds, ...picked] : picked);
+        setSelection(e.shiftKey ? [...S.selectedIds, ...picked] : picked);
       } else {
         setSelection(boxed);
       }
@@ -9225,14 +9072,14 @@ async function main() {
     }
 
     // Strategy mode: a banner selects its regiment.
-    const bannerKey = strategyCam.inStrategy ? strategyBanners.hitTest(x, y, camZoom) : null;
-    const bannerReg = bannerKey ? armyRegiments.find((r) => r.id === bannerKey) : undefined;
+    const bannerKey = strategyCam.inStrategy ? strategyBanners.hitTest(x, y, S.camZoom) : null;
+    const bannerReg = bannerKey ? S.armyRegiments.find((r) => r.id === bannerKey) : undefined;
     if (bannerReg) {
-      setSelection(e.shiftKey ? [...selectedIds, ...bannerReg.unitIds] : bannerReg.unitIds);
+      setSelection(e.shiftKey ? [...S.selectedIds, ...bannerReg.unitIds] : bannerReg.unitIds);
       return;
     }
     // Phase 5: a clash icon (Map band) zooms to the Field band there.
-    const clash = strategyCam.inStrategy && strategyBand === "map" ? intel.hitClash(x, y) : null;
+    const clash = strategyCam.inStrategy && S.strategyBand === "map" ? intel.hitClash(x, y) : null;
     if (clash) {
       strategyCam.zoomAt(STRATEGY_CLASH_ZOOM / strategyCam.target.zoom, app.screen.width / 2, app.screen.height / 2, app.screen.width, app.screen.height);
       strategyCam.jumpTo(clash.x, clash.y);
@@ -9240,14 +9087,14 @@ async function main() {
     }
 
     const unit = findNearest(
-      latestColonists.filter(isCommandable),
+      S.latestColonists.filter(isCommandable),
       x,
       y,
-      Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / camZoom)
+      Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / S.camZoom)
     );
     // Clicking your own hero (closer than any unit) opens the hero sheet, in adventure and strategy view alike.
-    const meHit = latestPlayersForSpells.find((pl) => pl.id === myId && !pl.dead);
-    const heroHitPx = Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / camZoom);
+    const meHit = S.latestPlayersForSpells.find((pl) => pl.id === S.myId && !pl.dead);
+    const heroHitPx = Math.max(UNIT_HIT_RADIUS, STRATEGY_HIT_SCREEN_PX / S.camZoom);
     if (meHit && Math.hypot(meHit.x - x, meHit.y - y) <= heroHitPx && (!unit || Math.hypot(meHit.x - x, meHit.y - y) < Math.hypot(unit.x - x, unit.y - y))) {
       setHeroSheetOpen(true);
       return;
@@ -9255,10 +9102,10 @@ async function main() {
     // Modular building phase 4: a click on one of your villagers / workers (not commandable) opens its person card.
     // (Not on a building: a worker standing at its post must not hide the building's own panel.)
     const underTile = buildingTileAt(x, y);
-    const onBuilding = !!underTile && INFO_TILES.has(tiles[underTile.tileY * worldTilesX + underTile.tileX]);
+    const onBuilding = !!underTile && INFO_TILES.has(S.tiles[underTile.tileY * S.worldTilesX + underTile.tileX]);
     if (!unit && !strategyCam.inStrategy && !onBuilding) {
       const person = findNearest(
-        latestColonists.filter((c) => c.name !== undefined && (c.clan ?? 0) === myClan && !isCommandable(c) && !c.sheltered),
+        S.latestColonists.filter((c) => c.name !== undefined && (c.clan ?? 0) === S.myClan && !isCommandable(c) && !c.sheltered),
         x,
         y,
         UNIT_HIT_RADIUS
@@ -9272,7 +9119,7 @@ async function main() {
       // Strategy mode: a unit stands for its whole regiment (Alt+click = just that unit), Shift adds.
       if (strategyCam.inStrategy) {
         const picked = e.altKey ? [unit.id] : wholeRegiments([unit.id]);
-        setSelection(e.shiftKey ? [...selectedIds, ...picked] : picked);
+        setSelection(e.shiftKey ? [...S.selectedIds, ...picked] : picked);
       } else {
         setSelection([unit.id]);
       }
@@ -9282,14 +9129,14 @@ async function main() {
     const tile = buildingTileAt(x, y);
     // Left-click on a building (any build tool but Demolish selected) opens its info panel instead of
     // breaking it; with Demolish selected it breaks as before. Garrison buildings also select their units.
-    const tileValue = tile ? tiles[tile.tileY * worldTilesX + tile.tileX] : TileType.Empty;
+    const tileValue = tile ? S.tiles[tile.tileY * S.worldTilesX + tile.tileX] : TileType.Empty;
     // Strategy mode never demolishes, so its clicks always open the panel.
     // Forts phase B: any tile of an NPC fort opens its info ("Grakkar Stockade: Wall").
-    const showInfo = tile !== null && currentTool !== TileType.Empty && (INFO_TILES.has(tileValue) || siteOwners.has(tile.tileY * worldTilesX + tile.tileX));
+    const showInfo = tile !== null && S.currentTool !== TileType.Empty && (INFO_TILES.has(tileValue) || S.siteOwners.has(tile.tileY * S.worldTilesX + tile.tileX));
     if (showInfo) openBuildingInfo(tile.tileX, tile.tileY);
     if (tile && GARRISON_TILES.has(tileValue)) {
       setSelection(
-        latestColonists
+        S.latestColonists
           .filter((c) => unitRole(c.kind, c.heroClass) !== undefined && c.postX === tile.tileX && c.postY === tile.tileY)
           .map((c) => c.id)
       );
@@ -9299,7 +9146,7 @@ async function main() {
     // Nothing selectable under the cursor: original left-click behaviour (break tile).
     setSelection([]);
     // Modular building phase 2: bare ground / a road inside a room opens the Room panel.
-    if (tile && !showInfo && currentTool !== TileType.Empty && roofTileRoom.has(tile.tileY * worldTilesX + tile.tileX)) {
+    if (tile && !showInfo && S.currentTool !== TileType.Empty && S.roofTileRoom.has(tile.tileY * S.worldTilesX + tile.tileX)) {
       openBuildingInfo(tile.tileX, tile.tileY);
       return;
     }
@@ -9308,43 +9155,43 @@ async function main() {
   });
 
   app.canvas.addEventListener("pointercancel", (e) => {
-    if (moatDrag && e.pointerId === moatDrag.pointerId) moatDrag = null;
-    if (structDrag && e.pointerId === structDrag.pointerId) structDrag = null;
-    if (leftPress && e.pointerId === leftPress.pointerId) cancelLeftPress();
-    if (orderPress && e.pointerId === orderPress.pointerId) cancelOrderPress();
-    if (panDrag && e.pointerId === panDrag.pointerId) cancelPanDrag();
+    if (S.moatDrag && e.pointerId === S.moatDrag.pointerId) S.moatDrag = null;
+    if (S.structDrag && e.pointerId === S.structDrag.pointerId) S.structDrag = null;
+    if (S.leftPress && e.pointerId === S.leftPress.pointerId) cancelLeftPress();
+    if (S.orderPress && e.pointerId === S.orderPress.pointerId) cancelOrderPress();
+    if (S.panDrag && e.pointerId === S.panDrag.pointerId) cancelPanDrag();
   });
 
   app.canvas.addEventListener("pointermove", (e) => {
     const rect = app.canvas.getBoundingClientRect();
-    canvasPointer = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    if (panDrag && e.pointerId === panDrag.pointerId) {
-      strategyCam.pan(-(e.clientX - panDrag.lastX) / camZoom, -(e.clientY - panDrag.lastY) / camZoom);
-      panDrag.lastX = e.clientX;
-      panDrag.lastY = e.clientY;
+    S.canvasPointer = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    if (S.panDrag && e.pointerId === S.panDrag.pointerId) {
+      strategyCam.pan(-(e.clientX - S.panDrag.lastX) / S.camZoom, -(e.clientY - S.panDrag.lastY) / S.camZoom);
+      S.panDrag.lastX = e.clientX;
+      S.panDrag.lastY = e.clientY;
       return;
     }
-    const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
-    const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
+    const x = (e.clientX - rect.left - worldLayer.position.x) / S.camZoom;
+    const y = (e.clientY - rect.top - worldLayer.position.y) / S.camZoom;
     heroToolsRef.ui?.mouse(x, y);
-    if (moatDrag && e.pointerId === moatDrag.pointerId) extendMoatDrag(x, y);
-    if (orderPress && e.pointerId === orderPress.pointerId) {
+    if (S.moatDrag && e.pointerId === S.moatDrag.pointerId) extendMoatDrag(x, y);
+    if (S.orderPress && e.pointerId === S.orderPress.pointerId) {
       if (
-        !orderPress.dragging &&
-        Math.hypot(e.clientX - orderPress.screenX, e.clientY - orderPress.screenY) > DRAG_THRESHOLD_PX
+        !S.orderPress.dragging &&
+        Math.hypot(e.clientX - S.orderPress.screenX, e.clientY - S.orderPress.screenY) > DRAG_THRESHOLD_PX
       ) {
-        orderPress.dragging = true;
+        S.orderPress.dragging = true;
       }
-      if (orderPress.dragging) {
-        const units = latestColonists.filter((c) => selectedIds.has(c.id));
+      if (S.orderPress.dragging) {
+        const units = S.latestColonists.filter((c) => S.selectedIds.has(c.id));
         lineGuide.clear();
-        if (units.length > 1 && orderPress.kind) {
+        if (units.length > 1 && S.orderPress.kind) {
           // Strategy mode: the ghost is the very formation the server will form (formation.ts).
-          const line = strategyLine(units, orderPress.worldX, orderPress.worldY, x, y, e.altKey);
+          const line = strategyLine(units, S.orderPress.worldX, S.orderPress.worldY, x, y, e.altKey);
           const plan = planOrderFormation(units, line.x, line.y, line.facing, line.width);
           for (const pos of plan.targets.values()) drawSlot(lineGuide, pos, 0.7);
-          const color = orderPress.kind === "attackMove" ? ORDER_COLORS.attackMove : SELECTION_COLOR;
-          lineGuide.moveTo(orderPress.worldX, orderPress.worldY).lineTo(x, y).stroke({ width: 3, color, alpha: 0.85 });
+          const color = S.orderPress.kind === "attackMove" ? ORDER_COLORS.attackMove : SELECTION_COLOR;
+          lineGuide.moveTo(S.orderPress.worldX, S.orderPress.worldY).lineTo(x, y).stroke({ width: 3, color, alpha: 0.85 });
           // Facing arrow off the line's middle.
           const fx = Math.cos(line.facing);
           const fy = Math.sin(line.facing);
@@ -9353,30 +9200,30 @@ async function main() {
           lineGuide.moveTo(line.x, line.y).lineTo(ex, ey).stroke({ width: 3, color, alpha: 0.85 });
           lineGuide.poly([ex + fx * 8, ey + fy * 8, ex - fy * 6, ey + fx * 6, ex + fy * 6, ey - fx * 6]).fill({ color, alpha: 0.85 });
         } else if (units.length > 1) {
-          const plan = computeLineFormationTargets(units, orderPress.worldX, orderPress.worldY, x, y);
+          const plan = computeLineFormationTargets(units, S.orderPress.worldX, S.orderPress.worldY, x, y);
           for (const pos of plan.targets.values()) drawSlot(lineGuide, pos, 0.7);
           lineGuide
-            .moveTo(orderPress.worldX, orderPress.worldY)
+            .moveTo(S.orderPress.worldX, S.orderPress.worldY)
             .lineTo(x, y)
             .stroke({ width: 3, color: SELECTION_COLOR, alpha: 0.85 });
         }
       }
     }
-    if (leftPress && e.pointerId === leftPress.pointerId) {
+    if (S.leftPress && e.pointerId === S.leftPress.pointerId) {
       if (
-        !leftPress.dragging &&
-        Math.hypot(e.clientX - leftPress.screenX, e.clientY - leftPress.screenY) > DRAG_THRESHOLD_PX
+        !S.leftPress.dragging &&
+        Math.hypot(e.clientX - S.leftPress.screenX, e.clientY - S.leftPress.screenY) > DRAG_THRESHOLD_PX
       ) {
-        leftPress.dragging = true;
+        S.leftPress.dragging = true;
       }
-      if (leftPress.dragging) {
+      if (S.leftPress.dragging) {
         dragBox.clear();
         dragBox
           .rect(
-            Math.min(leftPress.worldX, x),
-            Math.min(leftPress.worldY, y),
-            Math.abs(x - leftPress.worldX),
-            Math.abs(y - leftPress.worldY)
+            Math.min(S.leftPress.worldX, x),
+            Math.min(S.leftPress.worldY, y),
+            Math.abs(x - S.leftPress.worldX),
+            Math.abs(y - S.leftPress.worldY)
           )
           .fill({ color: SELECTION_COLOR, alpha: 0.12 })
           .stroke({ width: 1.5, color: SELECTION_COLOR });
@@ -9384,47 +9231,47 @@ async function main() {
     }
     cursorHighlight.clear();
     const tile = pointerTile(x, y);
-    blueprintsUi.hover(currentTool === BLUEPRINT_TOOL && tile && !buildPanel.classList.contains("collapsed") ? { x: tile.tileX, y: tile.tileY } : null);
+    blueprintsUi.hover(S.currentTool === BLUEPRINT_TOOL && tile && !buildPanel.classList.contains("collapsed") ? { x: tile.tileX, y: tile.tileY } : null);
     // Modular building phase 1: the dragged blueprint shape.
-    if (structDrag && e.pointerId === structDrag.pointerId && tile) {
-      structDrag.x1 = tile.tileX;
-      structDrag.y1 = tile.tileY;
-      const zt = isZoneTool(structDrag.tool) ? ZONE_TOOL_KIND[structDrag.tool] : undefined;
-      const color = !zt ? 0x9fd0ff : (structDrag.tool as number) === ZONE_TOOL_ERASE || e.shiftKey ? 0xff6060 : ZONE_KIND_COLOR[zt.kind];
-      for (const p of structDragPlan(structDrag).list) {
-        cursorHighlight.rect(p.x * tileSize, p.y * tileSize, tileSize, tileSize).fill({ color, alpha: 0.25 }).stroke({ width: 1, color, alpha: 0.7 });
+    if (S.structDrag && e.pointerId === S.structDrag.pointerId && tile) {
+      S.structDrag.x1 = tile.tileX;
+      S.structDrag.y1 = tile.tileY;
+      const zt = isZoneTool(S.structDrag.tool) ? ZONE_TOOL_KIND[S.structDrag.tool] : undefined;
+      const color = !zt ? 0x9fd0ff : (S.structDrag.tool as number) === ZONE_TOOL_ERASE || e.shiftKey ? 0xff6060 : ZONE_KIND_COLOR[zt.kind];
+      for (const p of structDragPlan(S.structDrag).list) {
+        cursorHighlight.rect(p.x * S.tileSize, p.y * S.tileSize, S.tileSize, S.tileSize).fill({ color, alpha: 0.25 }).stroke({ width: 1, color, alpha: 0.7 });
       }
     }
     placementGhost.visible =
-      !!tile && ((currentTool === TileType.TownCenter && !!TOWN_CENTER_MARKER_TEXTURE) || isRoadTile(currentTool));
+      !!tile && ((S.currentTool === TileType.TownCenter && !!TOWN_CENTER_MARKER_TEXTURE) || isRoadTile(S.currentTool));
     if (!tile) return;
-    placementGhost.position.set(tile.tileX * tileSize + tileSize / 2, tile.tileY * tileSize + tileSize / 2);
+    placementGhost.position.set(tile.tileX * S.tileSize + S.tileSize / 2, tile.tileY * S.tileSize + S.tileSize / 2);
     // Multi-tile build tools: a w x h ghost from the hovered (top-left) tile, red when a part tile is taken
     // (placing on the same building upgrades it instead, so that stays white).
-    const fort=fortPartner(currentTool);
-    const fp = fort ? {w:fort.dx===1?2:1,h:fort.dy===1?2:1} : FURNITURE_FOOTPRINT[currentTool] ? furnitureFootprint(currentTool, furnitureRot) : footprintOf(currentTool);
-    const hovered = tiles[tile.tileY * worldTilesX + tile.tileX];
-    const upgrading = hovered === currentTool || (hovered === TileType.BuildingPart && (() => {
+    const fort=fortPartner(S.currentTool);
+    const fp = fort ? {w:fort.dx===1?2:1,h:fort.dy===1?2:1} : FURNITURE_FOOTPRINT[S.currentTool] ? furnitureFootprint(S.currentTool, S.furnitureRot) : footprintOf(S.currentTool);
+    const hovered = S.tiles[tile.tileY * S.worldTilesX + tile.tileX];
+    const upgrading = hovered === S.currentTool || (hovered === TileType.BuildingPart && (() => {
       const a = anchorOfClient(tile.tileX, tile.tileY);
-      return tiles[a.y * worldTilesX + a.x] === currentTool;
+      return S.tiles[a.y * S.worldTilesX + a.x] === S.currentTool;
     })());
     const blocked = !upgrading && (fp.w > 1 || fp.h > 1) &&
       footprintPartOffsets(fp).some(([dx, dy]) => {
         const t = footTile(tile.tileX + dx, tile.tileY + dy);
-        return isWideBridge(currentTool) ? t!==TileType.Moat : t !== TileType.Empty && !(FURNITURE_FOOTPRINT[currentTool] && isFloorTile(t));
+        return isWideBridge(S.currentTool) ? t!==TileType.Moat : t !== TileType.Empty && !(FURNITURE_FOOTPRINT[S.currentTool] && isFloorTile(t));
       });
     const ghost = upgrading ? { w: 1, h: 1 } : fp;
     cursorHighlight
-      .rect(tile.tileX * tileSize, tile.tileY * tileSize, ghost.w * tileSize, ghost.h * tileSize)
+      .rect(tile.tileX * S.tileSize, tile.tileY * S.tileSize, ghost.w * S.tileSize, ghost.h * S.tileSize)
       .stroke({ width: 2, color: blocked ? 0xff5040 : 0xffffff, alpha: blocked ? 0.85 : 0.6 });
     // Farm labour (2026-11-06): a Barn tends the fields within BARN_FIELD_RADIUS_TILES. Placing a Barn shows its
     // square; placing a Farm / Hemp Field shows the squares of the Barns near the cursor (none = "No barn in range").
     const R = BARN_FIELD_RADIUS_TILES;
     const barnSquare = (bx: number, by: number, alpha: number) =>
-      cursorHighlight.rect((bx - R) * tileSize, (by - R) * tileSize, (2 * R + 1) * tileSize, (2 * R + 1) * tileSize)
+      cursorHighlight.rect((bx - R) * S.tileSize, (by - R) * S.tileSize, (2 * R + 1) * S.tileSize, (2 * R + 1) * S.tileSize)
         .stroke({ width: 1.5, color: 0xe8c860, alpha });
-    if (currentTool === TileType.BarnPost) barnSquare(tile.tileX, tile.tileY, 0.7);
-    else if (currentTool === TileType.FarmPlot || currentTool === TileType.CottonFarm) {
+    if (S.currentTool === TileType.BarnPost) barnSquare(tile.tileX, tile.tileY, 0.7);
+    else if (S.currentTool === TileType.FarmPlot || S.currentTool === TileType.CottonFarm) {
       for (let y = tile.tileY - R; y <= tile.tileY + R; y++)
         for (let x = tile.tileX - R; x <= tile.tileX + R; x++)
           if (footTile(x, y) === TileType.BarnPost) barnSquare(x, y, 0.45);
@@ -9439,26 +9286,26 @@ async function main() {
 const DIFFICULTY_PREF_KEY = "sworn.difficulty";
 const DIFFICULTY_LABEL: Record<Difficulty, string> = { easy: "Easy", normal: "Normal", hard: "Hard" };
 // The menu choice: sent as setDifficulty after every welcome, and with an in-game Restart.
-let preferredDifficulty: Difficulty = "normal";
+G.preferredDifficulty = "normal";
 // Map size (tiles per side) chosen in the menu; New Game / Restart regenerate the world at it.
 const MAP_SIZE_PREF_KEY = "sworn.mapSize";
 // Clans: the main menu's Clan choice (sent as the ws URL's `?clan=`): join the clan already playing (clan 0)
 // or found a new one. A page URL `?clan=new` / `?clan=<id>` overrides it (e.g. to join clan 2).
-let preferredClan: "join" | "new" = "join";
+G.preferredClan = "join";
 function clanParam(): string {
   const fromPage = new URLSearchParams(location.search).get("clan");
   if (fromPage && /^(new|\d{1,3})$/.test(fromPage)) return fromPage;
-  return preferredClan === "new" ? "new" : "";
+  return G.preferredClan === "new" ? "new" : "";
 }
 function renderClanChoice() {
   document.querySelectorAll<HTMLButtonElement>("#set-clan button").forEach((btn) => {
-    btn.setAttribute("aria-checked", String(btn.dataset.clan === preferredClan));
+    btn.setAttribute("aria-checked", String(btn.dataset.clan === G.preferredClan));
   });
 }
 const MAP_SIZES = [64, 96, 160, 256, 384, 512, 768, 1024, 2048];
 // Vast (1024) unless the player picked another size before (remembered in localStorage). The server's own default
 // (COLONY_WORLD_SIZE or 160) only applies to clients that send no size, such as the scripted tests.
-let preferredWorldSize: number | undefined = 1024;
+G.preferredWorldSize = 1024;
 function renderMapSizeChoice(value: number | undefined) {
   document.querySelectorAll<HTMLButtonElement>("#set-mapsize button").forEach((btn) => {
     btn.setAttribute("aria-checked", String(Number(btn.dataset.size) === (value ?? 1024)));
@@ -9466,9 +9313,9 @@ function renderMapSizeChoice(value: number | undefined) {
   // 2048: long load, needs a strong PC.
   document.getElementById("set-mapsize-warn")!.hidden = value !== 2048;
 }
-let gameStarted = false;
+G.gameStarted = false;
 // The world's active difficulty as the server reports it (null until the first welcome).
-let activeDifficulty: Difficulty | null = null;
+G.activeDifficulty = null;
 
 function renderDifficultyChoice(value: Difficulty) {
   document.querySelectorAll<HTMLButtonElement>("#set-difficulty button").forEach((btn) => {
@@ -9478,10 +9325,10 @@ function renderDifficultyChoice(value: Difficulty) {
 
 // Called from main() on every welcome/snapshot; cheap no-op unless the value changed.
 function setActiveDifficulty(value: Difficulty) {
-  if (value === activeDifficulty) return;
-  activeDifficulty = value;
+  if (value === G.activeDifficulty) return;
+  G.activeDifficulty = value;
   document.getElementById("stat-difficulty")!.textContent = `${DIFFICULTY_LABEL[value]} difficulty`;
-  if (gameStarted) renderDifficultyChoice(value);
+  if (G.gameStarted) renderDifficultyChoice(value);
 }
 
 const SAVE_SLOT_NAMES: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3", creative: "Creative" };
@@ -9614,23 +9461,23 @@ function setupMainMenu() {
 
   try {
     const stored = localStorage.getItem(DIFFICULTY_PREF_KEY);
-    if (stored === "easy" || stored === "normal" || stored === "hard") preferredDifficulty = stored;
+    if (stored === "easy" || stored === "normal" || stored === "hard") G.preferredDifficulty = stored;
   } catch {
     /* default stays Normal */
   }
-  renderDifficultyChoice(preferredDifficulty);
+  renderDifficultyChoice(G.preferredDifficulty);
   try {
     const storedSize = Number(localStorage.getItem(MAP_SIZE_PREF_KEY));
-    if (MAP_SIZES.includes(storedSize)) preferredWorldSize = storedSize;
+    if (MAP_SIZES.includes(storedSize)) G.preferredWorldSize = storedSize;
   } catch {
     /* default stays Vast */
   }
-  renderMapSizeChoice(preferredWorldSize);
+  renderMapSizeChoice(G.preferredWorldSize);
   renderClanChoice();
   document.getElementById("set-clan")!.addEventListener("click", (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-clan]");
     if (btn?.dataset.clan !== "join" && btn?.dataset.clan !== "new") return;
-    preferredClan = btn.dataset.clan;
+    G.preferredClan = btn.dataset.clan;
     renderClanChoice();
   });
   const mapSizeSeg = document.getElementById("set-mapsize")!;
@@ -9638,7 +9485,7 @@ function setupMainMenu() {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-size]");
     const value = Number(btn?.dataset.size);
     if (!MAP_SIZES.includes(value)) return;
-    preferredWorldSize = value;
+    G.preferredWorldSize = value;
     renderMapSizeChoice(value);
     try {
       localStorage.setItem(MAP_SIZE_PREF_KEY, String(value));
@@ -9648,11 +9495,11 @@ function setupMainMenu() {
   });
   difficultySeg.addEventListener("click", (e) => {
     // Read-only once the game is running: the world's difficulty is fixed until a restart.
-    if (gameStarted) return;
+    if (G.gameStarted) return;
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-difficulty]");
     const value = btn?.dataset.difficulty;
     if (value !== "easy" && value !== "normal" && value !== "hard") return;
-    preferredDifficulty = value;
+    G.preferredDifficulty = value;
     renderDifficultyChoice(value);
     try {
       localStorage.setItem(DIFFICULTY_PREF_KEY, value);
@@ -9665,19 +9512,19 @@ function setupMainMenu() {
     settingsModal.hidden = true;
   };
   let choosingCharacter = false;
-  const startGame = async (loadSlot: SaveSlot | null, creative = preferredCreative, solo = false) => {
+  const startGame = async (loadSlot: SaveSlot | null, creative = G.preferredCreative, solo = false) => {
     if (choosingCharacter) return;
     if (loadSlot === null) {
       // Appearance selection is intentionally disabled while only the fixed hero is supported.
-      pendingCreatorAppearance = { ...DEFAULT_HERO_APPEARANCE };
+      G.pendingCreatorAppearance = { ...DEFAULT_HERO_APPEARANCE };
     }
-    pendingLoadSlot = loadSlot;
-    preferredCreative = creative;
-    preferredSolo = solo && !creative;
-    enforceGameMode = loadSlot === null;
+    G.pendingLoadSlot = loadSlot;
+    G.preferredCreative = creative;
+    G.preferredSolo = solo && !creative;
+    G.enforceGameMode = loadSlot === null;
     sound.unlock();
     menu.hidden = true;
-    gameStarted = true;
+    G.gameStarted = true;
     // Hand the one settings panel over to the in-game modal.
     settingsModalScroll.appendChild(settingsPanel);
     settingsPanel.hidden = false;
@@ -9685,7 +9532,7 @@ function setupMainMenu() {
     difficultySeg.setAttribute("aria-disabled", "true");
     difficultyNote.textContent = "Fixed for this world; a Restart uses your menu choice";
     document.getElementById("menu-back")!.textContent = "Close";
-    if (activeDifficulty) renderDifficultyChoice(activeDifficulty);
+    if (G.activeDifficulty) renderDifficultyChoice(G.activeDifficulty);
     void main();
   };
   // New Game keeps the old Start behaviour (whatever world the server is running, menu difficulty).
@@ -9693,7 +9540,7 @@ function setupMainMenu() {
   // Creative mode: a new creative world (infinite resources, instant build, the Creative panel).
   document.getElementById("menu-creative")!.addEventListener("click", () => startGame(null, true));
   document.getElementById("menu-solo")!.addEventListener("click", () => startGame(null, false, true));
-  if (preferredCreative) document.getElementById("menu-start")!.textContent = "New Game (Creative)";
+  if (G.preferredCreative) document.getElementById("menu-start")!.textContent = "New Game (Creative)";
   document.getElementById("menu-continue")!.addEventListener("click", () => startGame("autosave"));
   const loadPanel = document.getElementById("menu-load-panel")!;
   document.getElementById("menu-load")!.addEventListener("click", () => {
@@ -9708,7 +9555,7 @@ function setupMainMenu() {
   fetch(SAVES_URL)
     .then((res) => res.json() as Promise<{ saves: SaveInfo[] }>)
     .then(({ saves }) => {
-      if (gameStarted) return;
+      if (G.gameStarted) return;
       document.getElementById("menu-continue")!.hidden = !saves.some((sv) => sv.slot === "autosave");
       document.getElementById("menu-load")!.hidden = saves.length === 0;
       renderSaveRows(
@@ -9728,7 +9575,7 @@ function setupMainMenu() {
     settingsPanel.hidden = false;
   });
   document.getElementById("menu-back")!.addEventListener("click", () => {
-    if (gameStarted) {
+    if (G.gameStarted) {
       closeModal();
       return;
     }
