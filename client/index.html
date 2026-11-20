@@ -1382,6 +1382,15 @@
       #bp-gate-state { font-size: 12.5px; color: var(--ink-soft); }
       #bp-levy-row[hidden] { display: none; }
       #bp-mine-row[hidden] { display: none; }
+      /* Mines: the next depth's nest risk, shown before the upgrade that digs it (bp-mine-risk). */
+      #bp-mine-risk { margin-top: 6px; padding: 5px 8px; border-left: 3px solid var(--mood-warn); font-size: 12.5px; color: var(--ink-soft); }
+      #bp-mine-risk[hidden] { display: none; }
+      #bp-mine-risk .risk-head { font-weight: bold; color: var(--mood-warn); }
+      #bp-mine-risk[data-risk="none"], #bp-mine-risk[data-risk="low"] { border-left-color: var(--mood-good); }
+      #bp-mine-risk[data-risk="none"] .risk-head, #bp-mine-risk[data-risk="low"] .risk-head { color: var(--mood-good); }
+      #bp-mine-risk[data-risk="high"], #bp-mine-risk[data-risk="certain"] { border-left-color: var(--mood-bad); }
+      #bp-mine-risk[data-risk="high"] .risk-head, #bp-mine-risk[data-risk="certain"] .risk-head { color: var(--mood-bad); }
+      #bp-mine-risk ul { margin: 3px 0 0; padding-left: 16px; }
       #bp-mine-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
       #bp-mine-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
       #bp-levy-state { font-size: 12.5px; color: var(--ink-soft); flex-basis: 100%; }
@@ -1881,6 +1890,7 @@
       <div id="bp-upgrade-row" hidden>
         <button id="bp-upgrade" class="econ-btn">Upgrade</button><span id="bp-upgrade-cost"></span>
       </div>
+      <div id="bp-mine-risk" hidden></div>
       <div id="bp-repair-row" hidden>
         <button id="bp-repair" class="econ-btn">Repair</button><span id="bp-repair-cost"></span>
       </div>

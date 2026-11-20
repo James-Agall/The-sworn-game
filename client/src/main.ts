@@ -56,6 +56,7 @@ import { opaqueBox, type InteriorUi, setupInterior } from "./interior";
 import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
 import { FUEL_LOW_DAYS, type WinterSnapshot } from "@colony/shared/winter";
 import type { AgriSnapshot } from "@colony/shared/agri";
+import { MINE_RISK_LABEL } from "@colony/shared/mines";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
@@ -5676,6 +5677,10 @@ async function main() {
   const bpMineRowEl = document.getElementById("bp-mine-row")!;
   const bpMineBtn = document.getElementById("bp-mine-assault") as HTMLButtonElement;
   const bpMineStateEl = document.getElementById("bp-mine-state")!;
+  // Mines: the next depth's nest risk before the upgrade digs it; a risky dig takes a second click to confirm.
+  const bpMineRiskEl = document.getElementById("bp-mine-risk")!;
+  let mineDigPreview: { level: number; chance: number; risk: string } | null = null;
+  let mineDigArmedUntil = 0;
   let shownLevyOnField = 0;
   // Armour & weapons: the Blacksmith's two forge buttons (queueForge) and its queue line.
   const bpForgeRowEl = document.getElementById("bp-forge-row")!;
@@ -6201,6 +6206,21 @@ async function main() {
       bpUpgradeBtn.disabled = !info.upgrade.enabled;
       bpUpgradeCostEl.textContent = info.upgrade.reason ? `${info.upgrade.cost} (${info.upgrade.reason})` : info.upgrade.cost;
     }
+    const pv = info.upgrade ? info.mine?.preview : undefined;
+    mineDigPreview = pv ? { level: pv.level, chance: pv.chance, risk: pv.risk } : null;
+    bpMineRiskEl.hidden = !pv;
+    if (pv) {
+      bpMineRiskEl.dataset.risk = pv.risk;
+      const head = document.createElement("div");
+      head.className = "risk-head";
+      head.textContent = `Digging to level ${pv.level}: nest risk ${MINE_RISK_LABEL[pv.risk]} (${Math.round(pv.chance * 100)}%), ${pv.danger.toLowerCase()} nest`;
+      const ul = document.createElement("ul");
+      ul.replaceChildren(...pv.lines.map((t) => Object.assign(document.createElement("li"), { textContent: t })));
+      bpMineRiskEl.replaceChildren(head, ul);
+    }
+    const armed = !!mineDigPreview && mineDigPreview.chance > 0 && performance.now() < mineDigArmedUntil;
+    bpUpgradeBtn.textContent = armed ? `Confirm: dig to level ${mineDigPreview!.level}` : "Upgrade";
+    bpUpgradeBtn.title = mineDigPreview && mineDigPreview.chance > 0 ? "Digging deeper may break into a nest: read the risk below, then click again to confirm" : "";
     bpRepairRowEl.hidden = info.repair === null;
     if (info.repair) {
       bpRepairBtn.disabled = !info.repair.enabled;
@@ -6441,6 +6461,17 @@ async function main() {
   bpUpgradeBtn.addEventListener("click", () => {
     bpUpgradeBtn.blur();
     if (!infoTile) return;
+    // A mine whose next depth may hold a nest: the first click arms (shows the risk), the second within 6 s digs.
+    if (mineDigPreview && mineDigPreview.chance > 0 && performance.now() >= mineDigArmedUntil) {
+      mineDigArmedUntil = performance.now() + 6000;
+      bpUpgradeBtn.textContent = `Confirm: dig to level ${mineDigPreview.level}`;
+      bpMineRiskEl.scrollIntoView({ block: "nearest" });
+      window.setTimeout(() => {
+        if (performance.now() >= mineDigArmedUntil) bpUpgradeBtn.textContent = "Upgrade";
+      }, 6100);
+      return;
+    }
+    mineDigArmedUntil = 0;
     sendMessage({ type: "upgradeBuilding", tileX: infoTile.tx, tileY: infoTile.ty });
     window.setTimeout(requestBuildingInfo, 150);
   });
