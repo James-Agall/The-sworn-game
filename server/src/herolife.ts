@@ -15,7 +15,7 @@ import {
   MASTER_FEE, MASTER_MAX_LEVEL, NEED_LOW, NEED_MAX, NPC_ROLE_LABEL, PACK_CAP, PACK_FOOD, PACK_GOODS, PACK_LABEL,
   PACK_WEIGHT, PERSONAL_BUILDS, PERSONAL_BUILD_MAX, STATION_SKILL, TALK_RANGE_TILES,
   ENERGY_COST, ENERGY_EMPTY_SPEED, ENERGY_MAX, ENERGY_PER_FOOD, ENERGY_REST_PER_S, HAND_HARVEST_SECONDS, HERO_TOOLS, HERO_TOOL_ITEM,
-  SEED_ITEM, TOOL_ACT_LABEL, TOOL_SECONDS, WATER_CAN_CHARGES, HERALD_LINES,
+  SEED_ITEM, TOOL_ACT_LABEL, TOOL_SECONDS, WATER_CAN_CHARGES, HERALD_LINES, kinGreeting,
   type DialogueAction, type DialogueSnapshot, type GatherKind, type HeroLifeSnapshot, type HeroSkill, type HeroTool, type NpcRole,
   type PackGood, type PersonalBuild, type ToolAct, gatherKindOf, skillSpeed, skillXpFor,
 } from "@colony/shared/herolife";
@@ -45,7 +45,7 @@ import {
 import { addItem, bronzeToolMult, produceItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
 import { forgeCost, forgedTier, forgeItems, heroProfileOf, playerMaxHp } from "./heroes.js";
 import {
-  bringKinHome, cachedFamilySnapshot, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
+  bringKinHome, cachedFamilySnapshot, childrenOf, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
 } from "./family.js";
 import { handleCallToArms } from "./vassals.js";
 import { heirOrderNames } from "./people.js";
@@ -254,7 +254,7 @@ export function heraldLines(s: SiteState | undefined): (typeof HERALD_LINES)[1] 
   return HERALD_LINES[Math.max(1, Math.min(3, tier)) as 1 | 2 | 3];
 }
 
-function fill(text: string, t: Talk, tier?: RelationTier, clan = 0): string {
+function fill(text: string, t: Talk, tier?: RelationTier, clan = 0, p?: Player): string {
   const s = t.siteId ? sites.get(t.siteId) : undefined;
   if (t.role === "herald") {
     const h = heraldLines(s);
@@ -264,6 +264,12 @@ function fill(text: string, t: Talk, tier?: RelationTier, clan = 0): string {
     const tk = villagerTalkTokens(t, s, clan);
     for (const [k, v] of Object.entries(tk)) text = text.replaceAll(`{${k}}`, v);
     text = text.replaceAll("{trade}", tk.trade);
+  }
+  // Family extras: your own kin greet you as kin.
+  if (text.includes("{kin}")) {
+    const c = t.colonistId ? colonists.get(t.colonistId) : undefined;
+    const rel = c && p ? kinRelation(p, c) : null;
+    text = text.replaceAll("{kin}", kinGreeting(rel, hashOf(`${t.colonistId}:${gameDay()}`), !!p && childrenOf(p).some((k) => k.person?.child)));
   }
   // Named roles: someone you have done a service remembers it in the greeting.
   if (text.includes("{favour}")) {
@@ -472,7 +478,7 @@ function renderTalk(p: Player, t: Talk, nodeId: string, prefix = "") {
     }
     if (extra.length) t.choices.splice(t.choices.length - 1, 0, ...extra);
   }
-  sendTalk(p, t, (prefix ? prefix + "\n\n" : "") + fill(raw, t, tier, p.clan));
+  sendTalk(p, t, (prefix ? prefix + "\n\n" : "") + fill(raw, t, tier, p.clan, p));
 }
 
 function sendTalk(p: Player, t: Talk, text: string) {

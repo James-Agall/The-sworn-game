@@ -453,7 +453,8 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
   // One of your own people.
   folk: {
     start: {
-      text: { default: "{npc} looks up from their work. \"Yes?\"" },
+      // {kin}: the greeting of the hero's own family (KIN_GREETINGS), else the plain one.
+      text: { default: "{kin}" },
       choices: [{ label: "How do you fare?", action: "fare" }, BYE],
     },
   },
@@ -583,6 +584,35 @@ export const FAMILY_HEIR_GOLD_SHARE = 0.8;
 export const FAMILY_HEIR_SKILL_SHARE = 0.6;
 export type KinRelation = "child" | "spouse" | "sibling" | "parent";
 export const KIN_LABEL: Record<KinRelation, string> = { child: "Child", spouse: "Spouse", sibling: "Sibling", parent: "Parent" };
+// Family extras: your own kin greet you as kin (one line a game day, by who they are to you); a spouse with young
+// children at home mentions them (KIN_LITTLE_ONES). Anyone else: FOLK_GREETING.
+export const FOLK_GREETING = "{npc} looks up from their work. \"Yes?\"";
+export const KIN_GREETINGS: Record<KinRelation, string[]> = {
+  spouse: [
+    "{npc} smiles and takes your hand. \"There you are. I was starting to worry.\"",
+    "{npc} brushes the road dust off your shoulder. \"Home at last. Sit, before you fall over.\"",
+    "\"Back in one piece, I see.\" {npc} looks you over twice to be sure.",
+  ],
+  child: [
+    "{npc} grins. \"Don't work yourself to death out there. Someone has to inherit all this.\"",
+    "\"I did as you taught me,\" {npc} says, a little proudly. \"Mostly.\"",
+  ],
+  parent: [
+    "{npc} looks at you the way only a parent can. \"Eat something. You look thin.\"",
+    "\"My child.\" {npc} straightens your collar. \"Your grandfather would be proud. Probably.\"",
+  ],
+  sibling: [
+    "{npc} rolls their eyes. \"Oh, it's you. Still the favourite, I suppose?\"",
+    "\"Brother, sister, lord, whatever you are this week,\" {npc} says, grinning. \"What do you need?\"",
+  ],
+};
+export const KIN_LITTLE_ONES = "\"The little ones ask after you every night.\"";
+export function kinGreeting(rel: KinRelation | null, seed: number, littleOnes: boolean): string {
+  if (!rel) return FOLK_GREETING;
+  const pool = KIN_GREETINGS[rel];
+  const line = pool[((seed % pool.length) + pool.length) % pool.length];
+  return rel === "spouse" && littleOnes ? `${line}\n\n${KIN_LITTLE_ONES}` : line;
+}
 export interface FamilyMemberSnapshot {
   id: string;
   name: string;

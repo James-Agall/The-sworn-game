@@ -213,6 +213,32 @@ async function inner() {
     IN.exitInterior(player);
   }
 
+  // ---- F ---- family extras: your own kin greet you as kin; a stranger of your people as before.
+  {
+    const FAM = await import("./src/family.ts");
+    const { colonists } = await import("./src/state.ts");
+    const HLS = await import("@colony/shared/herolife");
+    const f = FAM.familyOf(player);
+    const mk = (id, name, person) => ({ id, kind: "villager", clan: 0, hp: 10, maxHp: 10, x: player.x, y: player.y, person: { name, homeX: -1, homeY: -1, ...person } });
+    const sp = mk("nr-sp", "Mara", { spouse: f.selfId });
+    const other = mk("nr-x", "Odo", {});
+    colonists.set(sp.id, sp); colonists.set(other.id, other);
+    f.spouse = sp.id;
+    const greet = (c) => { HL.startTalk(player, { role: "folk", name: c.person.name, d: 0, colonist: c }); return last().text; };
+    const g1 = greet(sp);
+    result(HLS.KIN_GREETINGS.spouse.some((l) => g1.startsWith(l.replaceAll("{npc}", "Mara"))) && !g1.includes(HLS.KIN_LITTLE_ONES), `F the spouse greets as a spouse: ${g1.slice(0, 70)}`);
+    const kid = mk("nr-ch", "Pip", { parents: [f.selfId, sp.id], child: true });
+    colonists.set(kid.id, kid);
+    result(greet(sp).includes(HLS.KIN_LITTLE_ONES), "F with a young child at home the spouse mentions the little ones");
+    const g2 = greet(other);
+    result(g2 === "Odo looks up from their work. \"Yes?\"", `F anyone else of your people as before: ${g2}`);
+    const adult = mk("nr-ad", "Wyn", { parents: [f.selfId] });
+    colonists.set(adult.id, adult);
+    const g3 = greet(adult);
+    result(HLS.KIN_GREETINGS.child.some((l) => g3 === l.replaceAll("{npc}", "Wyn")) && !/\{[a-z]+\}/.test(g3), `F a grown child greets as your child: ${g3.slice(0, 70)}`);
+    for (const id of [sp.id, other.id, kid.id, adult.id]) colonists.delete(id);
+  }
+
   console.log(fails === 0 ? "ALL PASS" : `${fails} FAILED`);
   process.exit(fails === 0 ? 0 : 1);
 }
