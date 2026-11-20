@@ -4971,3 +4971,11 @@ Two small readouts so the first-days starvation and the first winter are not a s
 
 ## Inn: buy a rumour / rest at the inn — landed 2026-11-20 (ROADMAP-NEXT Step 2.5)
 A tavern keeper's dialogue gains "Buy a rumour (10 gold)" (reveals the nearest camp / town / iron seam on the minimap, the next-nearest on each repeat purchase) and "Rest at the inn (5 gold)" (rest and energy to full, +20 food). Prices in `shared/src/interiors.ts` (`INN_*`); server `innRumour` / `innRest` in `server/src/herolife.ts`; test `server/inn-test.mjs`. Deferred: skipping the night, a raid-in-progress refusal, "unexplored POI" filtering (mini-boss / ruin kinds).
+
+## Solo opening goals and a lone scout (landed 2026-11-20)
+- A Solo start (no Town Center) posts its own goal track on the goal card: gather 20 wood + 10 stone, build a shelter, hunt an
+  animal, found a camp (`SOLO_GOALS`, `activeGoals()` in `server/src/goals.ts`). Founding the camp resets to the normal track.
+- From day 2 (`SOLO_SCOUT_FIRST_DAY`), at the day's raid slot, a Solo hero with no camp gets one lone bandit scout 6 tiles away
+  (`spawnSoloScout`, herolife.ts); never a raid, never stacked while the last one lives. Numbers: `shared/src/herolife.ts`.
+- Test: `server/solo-opening-test.mjs`. Deferred: scout on a "night 3 after founding" variant, per-goal client art, a scout that
+  tracks the lean-to/campfire instead of the hero.

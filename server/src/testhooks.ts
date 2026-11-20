@@ -79,7 +79,7 @@ import { placementCost, resolveTownCenterPlacement } from "./construction.js";
 import { regimentKey } from "./tactics.js";
 import { createRaidMob, raidSizeForDay, spawnRaid } from "./raids.js";
 import { damageHearth } from "./hearths.js";
-import { GOALS, nightsSurvived, refreshGoalSnapshot } from "./goals.js";
+import { activeGoals, nightsSurvived, refreshGoalSnapshot } from "./goals.js";
 import {
   grantRelic, heroKey, heroProfileOf, heroProfileSnapshot, heroSheetsSnapshot, isEquippedKind, pickHeroName,
   playerAttackCooldownTicks, playerMaxHp, spawnHeroColonist, weaponDamageMult, armourDamageTakenMult,
@@ -903,7 +903,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   } else if (msg.op === "setGoalIndex" && typeof msg.index === "number") {
     // Skip (or rewind) the goal track without paying rewards: exact stock checks after a first building /
     // worker / soldier otherwise see the early goals' payouts (index 3 = past "Arm a unit").
-    state.goalIndex = Math.max(0, Math.min(GOALS.length, Math.floor(msg.index)));
+    state.goalIndex = Math.max(0, Math.min(activeGoals().length, Math.floor(msg.index)));
     refreshGoalSnapshot();
     reply({ goalIndex: state.goalIndex });
   } else if (msg.op === "goalState") {
@@ -911,7 +911,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     reply({
       goalIndex: state.goalIndex,
       goal: state.goalSnapshot,
-      goalTitles: GOALS.map((g) => g.title),
+      goalTitles: activeGoals().map((g) => g.title),
       castleCleared: state.castleCleared,
       campsDestroyed: state.campsDestroyed,
       castleRuinCenter: state.castleRuinCenter,
@@ -1328,7 +1328,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         FOOD_PER_COLONIST_PER_DAY, FARM_GROW_TICKS, FARMHAND_CYCLE_TICKS, FORAGE_REGROW_TICKS,
         WILDLIFE_RESPAWN_INTERVAL_TICKS, DESERTER_ACTIVATION_TICKS, RESPAWN_FOOD_COST,
       },
-      goalTitles: GOALS.map((g) => g.title),
+      goalTitles: activeGoals().map((g) => g.title),
       colonists: Array.from(colonists.values()).map((c) => ({ id: c.id, kind: c.kind, postX: c.postX, postY: c.postY })),
     });
   }

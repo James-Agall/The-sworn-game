@@ -58,6 +58,9 @@ import { buildingTemplateById } from "./buildingTemplates.js";
 import { cropSeasonLabel, WINTER_COLD_REST_DECAY_MULT, WINTER_COLD_REST_GAIN_MULT, WINTER_WARM_ROOM_REST_MULT } from "@colony/shared/calendar";
 import {interiorWorkstation, ownInterior, sharedStockAccess, tryWorldChest,worldChestChoice,interiorFurnitureChoice, interiorInteract, interiorRestMult, tryEnterAtDoor } from "./interiors.js";
 import { settlementTemplateById } from "./settlementTemplates.js";
+import { spawnMobAt } from "./creative.js";
+import { refreshGoalSnapshot } from "./goals.js";
+import { SOLO_SCOUT_DIST_TILES, SOLO_SCOUT_FIRST_DAY, SOLO_SCOUT_KIND } from "@colony/shared/herolife";
 import { heroCold, heroColdRestGain, heroColdSpeedMult, heroColdWorkMult } from "./winter.js";
 
 // ---- profile state ----
@@ -1431,7 +1434,28 @@ function foundCamp(p: Player) {
   const tc = state.townCenters.find((t) => t.x === spot.x && t.y === spot.y);
   if (tc) for (let i = 0; i < 2; i++) spawnVillager(tc, newPerson("immigrant"));
   gainSkill(p, "building", 25);
+  // The Solo goal track ends here: the normal track starts from its first goal.
+  state.goalIndex = 0;
+  refreshGoalSnapshot();
   toast(p, "You found a camp: two settlers join you");
+}
+
+// sim.ts (the day's raid slot): a Solo hero with no camp gets one lone bandit scout near them, never a raid.
+let soloScoutId: string | null = null;
+export function spawnSoloScout(dayIndex: number) {
+  if (dayIndex < SOLO_SCOUT_FIRST_DAY || (soloScoutId && mobs.has(soloScoutId))) return;
+  const p = Array.from(players.values()).find((q) => !q.dead && !q.interior);
+  if (!p) return;
+  const px = Math.floor(p.x / TILE_SIZE);
+  const py = Math.floor(p.y / TILE_SIZE);
+  for (let a = 0; a < 16; a++) {
+    const x = Math.round(px + SOLO_SCOUT_DIST_TILES * Math.cos((a * Math.PI) / 8));
+    const y = Math.round(py + SOLO_SCOUT_DIST_TILES * Math.sin((a * Math.PI) / 8));
+    if (!inBounds(x, y) || !isWalkableTile(x, y)) continue;
+    soloScoutId = spawnMobAt(SOLO_SCOUT_KIND, x, y)?.id ?? null;
+    if (soloScoutId) toast(p, "A lone bandit scout is prowling near you");
+    return;
+  }
 }
 
 function colonistOn(tx: number, ty: number): boolean {

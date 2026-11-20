@@ -8,9 +8,10 @@ import { tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import { formatReward, grantReward } from "./worldgen.js";
 import { isSoldierKind } from "./units.js";
 import { broadcastEvent } from "./net.js";
-import { WINTER_PREP_REWARD } from "@colony/shared/winter";
-import { calendarNow } from "./calendar.js";
-import { winterPrepActive, winterPrepStatus } from "./winter.js";
+  if (!silent) evaluateWinterPrep();
+  const goals = activeGoals();
+  while (state.goalIndex < goals.length) {
+    const goal = goals[state.goalIndex];
 import { clanIdAt, clanIdAtIndex, clanTownCenters, inClan } from "./clans.js";
 
 // Dawns since the world began (cycle 0 starts at dawn, so day N's dawn is cycleTick N * cycle), counted from
@@ -50,6 +51,29 @@ export function nightsGoal(target: number, reward: Partial<Record<ResourceKey, n
   };
 }
 
+// Solo opening: gather, shelter, hunt, found a camp. Founding the camp hands over to the normal track (herolife.ts).
+const soloLife = () => { const p = players.values().next().value; return p ? lifeOf(p) : null; };
+export const SOLO_GOALS: GoalDef[] = [
+  {
+    title: `Gather ${SOLO_GATHER_WOOD} wood and ${SOLO_GATHER_ROCK} stone`,
+    progress: () => {
+      const l = soloLife();
+      const wood = (l?.pack.wood ?? 0) + state.stock.wood;
+      const rock = (l?.pack.rock ?? 0) + state.stock.rock;
+      return { progress: Math.min(SOLO_GATHER_WOOD, wood) + Math.min(SOLO_GATHER_ROCK, rock), target: SOLO_GATHER_WOOD + SOLO_GATHER_ROCK };
+    },
+    reward: { grain: 10 },
+  },
+  { title: "Build a shelter", progress: () => flagGoal((soloLife()?.builds.length ?? 0) > 0), reward: { wood: 10 } },
+  { title: "Hunt an animal", progress: () => flagGoal((soloLife()?.skills.hunting ?? 0) > 0), reward: { gold: 10 } },
+  { title: "Found a camp", progress: () => flagGoal(clanTownCenters().length > 0), reward: {} },
+];
+
+// A Solo hero without a Town Center follows the Solo track; founding a camp switches to the normal one.
+export function activeGoals(): GoalDef[] {
+  return state.solo && clanTownCenters().length === 0 ? SOLO_GOALS : GOALS;
+}
+
 export const GOALS: GoalDef[] = [
   { title: "Place a building", progress: () => flagGoal(anyPlayerBuilding()), reward: { wood: 20 } },
   {
@@ -74,19 +98,26 @@ export const GOALS: GoalDef[] = [
 state.goalSnapshot = { index: 0, total: GOALS.length, title: GOALS[0].title, progress: 0, target: 1 };
 
 export function refreshGoalSnapshot(progress?: { progress: number; target: number }) {
-  if (state.goalIndex >= GOALS.length) {
-    state.goalSnapshot = { index: GOALS.length, total: GOALS.length, title: "Every goal complete", progress: 1, target: 1 };
+  const goals = activeGoals();
+  if (state.goalIndex >= goals.length) {
+    state.goalSnapshot = { index: goals.length, total: goals.length, title: "Every goal complete", progress: 1, target: 1 };
     return;
   }
-  const p = progress ?? GOALS[state.goalIndex].progress();
-  state.goalSnapshot = { index: state.goalIndex, total: GOALS.length, title: GOALS[state.goalIndex].title, ...p };
+  const p = progress ?? goals[state.goalIndex].progress();
+  state.goalSnapshot = { index: state.goalIndex, total: goals.length, title: goals[state.goalIndex].title, ...p };
 }
 
 // silent: catch up without rewards or toasts (an old save loaded with no goal state).
 export function evaluateGoals(silent = false) {
+<<<<<<< HEAD
   if (!silent) evaluateWinterPrep();
   while (state.goalIndex < GOALS.length) {
     const goal = GOALS[state.goalIndex];
+=======
+  const goals = activeGoals();
+  while (state.goalIndex < goals.length) {
+    const goal = goals[state.goalIndex];
+>>>>>>> worktree-agent-a49ad4563b640475f
     const p = goal.progress();
     if (p.progress < p.target) {
       refreshGoalSnapshot(p);
@@ -95,7 +126,7 @@ export function evaluateGoals(silent = false) {
     state.goalIndex++;
     if (silent) continue;
     grantReward(goal.reward);
-    const final = state.goalIndex === GOALS.length;
+    const final = state.goalIndex === goals.length && goals === GOALS;
     broadcastEvent(
       "milestone",
       final

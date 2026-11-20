@@ -1507,3 +1507,8 @@ soldiers in**. Expect a toast "Your N soldiers cleared the Mine's level X (K mon
 7. Does the dashed block read well under the goal bar at 210 px wide? Is amber distinct enough from red in the row?
 
 Inn (rumour / rest): enter a settlement tavern and talk to the keeper. "Buy a rumour (10 gold)" takes exactly 10 gold and a place appears on the minimap; buy again and a different place appears. "Rest at the inn (5 gold)" fills the rest and energy bars. With under 5 / 10 gold the choices are greyed with "Needs N gold".
+
+## Solo opening goals and a lone scout
+New game, Solo: the goal card reads "Gather 20 wood and 10 stone", then "Build a shelter", "Hunt an animal", "Found a camp". Do
+each; the card advances and pays a small reward. From day 2 a single bandit club-man appears near you around midday and chases you
+(no raid group). Found a camp: the card switches to "Place a building" (the normal track) and the scout stops coming.
