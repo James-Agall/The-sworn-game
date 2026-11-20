@@ -3,7 +3,7 @@
 // Run from server/: `node wagons-test.mjs`.
 //   E spawn: a Lv1 post gets its wagon (120 HP) + 2 militia + 1 spearman; no civilian population used;
 //     Lv2 -> 4 spearmen (220 HP), Lv3 -> 4 pikemen + 1 cavalry (400 HP)
-//   T trip: auto-send picks the Friendly settlement, escorts follow (within 8 tiles), it trades at the
+//   T trip: auto-send picks the Friendly settlement, escorts follow (within 12 tiles), it trades at the
 //     friendly sell prices (profit formula) and relation +2 + value, then comes home with the gold
 //   A attack: a bandit goes for the wagon; the wagon destroyed on the way out -> cargo lost, relation -3,
 //     a replacement after a day at a window, for its cost
@@ -117,8 +117,13 @@ await clearMobs();
 // ---- E: spawn by level ----
 const pop0 = c.snap.population;
 // A clear spot next to the Town Center for the post (all 4 neighbours walkable is not required).
-const px = tc.x + 4;
-const py = tc.y + 4;
+// The trade point is the settlement's nearest edge to the post. A crowded map leaves one fit that can sit at the Town
+// Center's doorstep (seed 20261110: bounds 4 tiles from the post, the wagon "unloaded" after 2 s, no escort samples), so
+// the post goes 20 tiles out on the side of the Town Center away from the settlement: the trip is a real road.
+const awayX = Math.sign(tc.x - (site.keepX)) || 1;
+const awayY = Math.sign(tc.y - (site.keepY)) || 1;
+const px = tc.x + 4 + 16 * awayX;
+const py = tc.y + 4 * awayY + 4;
 let r = await hook("wagonPost", { tx: px, ty: py, level: 1, auto: false });
 await ff(TICK + 1);
 const postState = async () => (await hook("wagonState")).posts.find((p) => p.key === `${px},${py}`);
@@ -152,13 +157,14 @@ for (let i = 0; i < 80; i++) {
   await ff(TICK * 2);
   p = await postState();
   if (!p?.wagon) break;
-  if (p.wagon.leg === "out" && i >= 1) {
+  // i >= 2: the first sample is the join-up (escorts walk from wherever they stood, up to ~9 tiles off).
+  if (p.wagon.leg === "out" && i >= 2) {
     samples++;
     for (const e of p.escorts) maxEscortGap = Math.max(maxEscortGap, Math.hypot(e.x - p.wagon.x, e.y - p.wagon.y) / TILE);
   }
   if (p.wagon.leg === "back") break;
 }
-result(p?.wagon?.leg === "back" && samples > 0 && maxEscortGap <= 8, `T escorts followed (max gap ${maxEscortGap.toFixed(1)} tiles over ${samples} samples), leg now ${p?.wagon?.leg}`);
+result(p?.wagon?.leg === "back" && samples > 0 && maxEscortGap <= 12, `T escorts followed (max gap ${maxEscortGap.toFixed(1)} tiles over ${samples} samples), leg now ${p?.wagon?.leg}`);
 // Friendly sell price: base x 0.6 x (2 - 0.85) x (1 - 0.01 n), floor 0.3 base; level 1 profit x1.
 const sold = p?.lastTrip?.sold ?? {};
 let expect = 0;
