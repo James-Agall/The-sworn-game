@@ -324,17 +324,22 @@ const defend = setInterval(() => {
 
 // Setup
 const s = findSite(a);
-if (!s || !(await ensureAt(a, s))) {
+// Layout inside the 5x5 site (offsets from its centre). The Barracks is a 3x3 block (anchor = top-left; nobody may
+// stand on its tiles) at cols -2..0, rows 0..2. A new post's unit spawns on the first walkable of its E, W, S, N
+// neighbour and then idles there, so each 1x1 post below has a free tile to its east that no other building uses.
+// The player waits at (-1,-1), within REACH of every anchor.
+const stand = s && { x: s.x - 1, y: s.y - 1 };
+if (!s || !(await ensureAt(a, stand))) {
   result(false, "no reachable 5x5 build site");
   process.exit(1);
 }
 info(`build site (${s.x},${s.y})`);
 const builds = [
   [s.x - 2, s.y, T.KnightPost, "Barracks"],
-  [s.x + 2, s.y, T.MilitiaPost, "Militia Camp"],
-  [s.x, s.y - 2, T.ArcherPost, "Archery Range #1"],
-  [s.x, s.y + 2, T.ArcherPost, "Archery Range #2"],
-  [s.x - 1, s.y - 2, T.Church, "Church"],
+  [s.x - 2, s.y - 2, T.Church, "Church"],
+  [s.x, s.y - 2, T.MilitiaPost, "Militia Camp"],
+  [s.x + 1, s.y, T.ArcherPost, "Archery Range #1"],
+  [s.x + 1, s.y - 1, T.ArcherPost, "Archery Range #2"],
 ];
 for (const [x, y, tile, name] of builds) result(await placeExpectAt(a, x, y, tile), `placed ${name} at (${x},${y})`);
 await sleep(500);
