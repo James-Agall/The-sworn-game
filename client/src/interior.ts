@@ -422,7 +422,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         body = s;
       } else body = new Graphics().circle(0, -8, 8).fill(n.color);
       room.addChild(body);
-      const label = new Text({ text: n.name, style: { fontSize: 9, fill: 0xffffff, fontFamily: "serif", stroke: { color: 0x000000, width: 3 } } });
+      // Named roles: a gold "!" before the name of someone with work for you.
+      const label = new Text({ text: n.quest ? `! ${n.name}` : n.name, style: { fontSize: 9, fill: n.quest ? 0xffd75a : 0xffffff, fontFamily: "serif", stroke: { color: 0x000000, width: 3 } } });
       label.anchor.set(0.5, 1);
       label.resolution = 3;
       label.zIndex = 1e6;

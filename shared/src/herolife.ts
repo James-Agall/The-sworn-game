@@ -6,6 +6,7 @@ import { SPELL_COOLDOWN_SCALE, SPELLS, type SpellId, TileType, type RelationTier
 import { type ItemId, WORKER_XP_LEVELS } from "./progression.js";
 import type { CropId } from "./zones.js";
 import { TAVERN_DRINK_GOLD } from "./interiors.js";
+import { ROLE_PERKS } from "./namedRoles.js";
 
 // ---- pack (carried goods) ----
 // cotton (Stardew phase 5a): hemp fibre the hero harvests (the stock's cotton when deposited).
@@ -182,7 +183,9 @@ export const PERSONAL_BUILD_MAX = 6;
 // Stardew phase 5c (interiors): "priest" at a Church altar, "keeper" at an own building's counter (smith, baker, ...),
 // "furniture" = a bed / chest spoken to like an NPC (its choices are built by the server).
 // Gap closure G5: "patron" = someone drinking in a tavern (rumours, buy a drink).
-export type NpcRole = "leader" | "trader" | "villager" | "questGiver" | "folk" | "priest" | "keeper" | "furniture" | "patron" | "herald";
+// Named roles (shared/src/namedRoles.ts): "smith" at a settlement's forge, "captain" of its watch (a garrison guard
+// outdoors, or the barracks inside).
+export type NpcRole = "leader" | "trader" | "villager" | "questGiver" | "folk" | "priest" | "keeper" | "furniture" | "patron" | "herald" | "smith" | "captain";
 export type DialogueAction =
   | "bye" | "trade" | "sellPack" | "askWork" | "quests" | "gift" | "rumour" | "alliance" | "train" | "fare" | "lodging"
   // Family: the Elder's kin (courtship / the in-law levy), courting, proposing, the ceremony, parting.
@@ -192,7 +195,9 @@ export type DialogueAction =
   // Gap closure G6: a trader lists the clan's animals for sale.
   | "sellAnimals"
   // Gap closure G5: a tavern patron's rumour (camps / settlements / ore nearby) and a drink at the tavern.
-  | "patronRumour" | "drink";
+  | "patronRumour" | "drink"
+  // Named roles: this person's own quests, their favour (once a day, after a service), the Elder's "who's who".
+  | "roleWork" | "rolePerk" | "whoswho";
 export interface DialogueChoiceDef {
   label: string;
   next?: string;
@@ -226,6 +231,7 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
         { label: "Who could teach me a trade?", action: "train", tiers: TRADING },
         { label: "Let us stand together: an alliance.", action: "alliance", tiers: ["friendly"] },
         { label: "Speak of family.", action: "kin", tiers: ["friendly", "allied", "vassal"] },
+        { label: "Who's who in {site}?", action: "whoswho", tiers: NOT_HOSTILE },
         BYE,
       ],
     },
@@ -235,12 +241,14 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
       text: {
         hostile: "\"I sell nothing to your kind.\"",
         wary: "\"Coin first, questions never. And not today.\"",
-        default: "{npc} spreads out a cloth of wares. \"Buying or selling?\"",
+        default: "{npc} spreads out a cloth of wares. \"Buying or selling?\"{favour}",
       },
       choices: [
         { label: "Show me your goods.", action: "trade", tiers: TRADING },
         { label: "Buy what I carry.", action: "sellPack", tiers: TRADING },
         { label: "Sell animals.", action: "sellAnimals", tiers: TRADING },
+        { label: "Need anything fetched?", action: "roleWork", tiers: NOT_HOSTILE },
+        { label: ROLE_PERKS.trader.label, action: "rolePerk", tiers: TRADING },
         { label: "Heard anything on the road?", action: "rumour", tiers: NOT_HOSTILE },
         BYE,
       ],
@@ -326,11 +334,13 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
     start: {
       text: {
         hostile: "The priest makes a warding sign at you and turns away.",
-        default: "{npc} folds their hands. \"{site} has troubles, traveller. Will you hear them?\"",
+        default: "{npc} folds their hands. \"{site} has troubles, traveller. Will you hear them?\"{favour}",
       },
       choices: [
         { label: "What needs doing?", action: "quests", tiers: NOT_HOSTILE },
         { label: "Is there more work?", action: "askWork", tiers: NOT_HOSTILE },
+        { label: "How can I help the poor here?", action: "roleWork", tiers: NOT_HOSTILE },
+        { label: ROLE_PERKS.priest.label, action: "rolePerk", tiers: NOT_HOSTILE },
         { label: "Any word of danger nearby?", action: "rumour", tiers: NOT_HOSTILE },
         BYE,
       ],
@@ -354,6 +364,48 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
     },
     lore: {
       text: { default: "{lore}" },
+      choices: [{ label: "And the work?", next: "start" }, BYE],
+    },
+  },
+  // Named roles (shared/src/namedRoles.ts): a settlement's smith at the forge. Their own quests (iron, wood, stone) and,
+  // after a service, tools for your stores once a day.
+  smith: {
+    start: {
+      text: {
+        hostile: "{npc} keeps hammering and does not look up.",
+        wary: "{npc} wipes their hands on a leather apron. \"If you want something mended, you'll pay first.\"",
+        default: "{npc} sets down the hammer. \"Hot work, and plenty of it. What do you need?\"{favour}",
+      },
+      choices: [
+        { label: "Need anything fetched for the forge?", action: "roleWork", tiers: NOT_HOSTILE },
+        { label: ROLE_PERKS.smith.label, action: "rolePerk", tiers: TRADING },
+        { label: "Tell me about the forge.", next: "forge", tiers: NOT_HOSTILE },
+        BYE,
+      ],
+    },
+    forge: {
+      text: { default: "\"Charcoal for heat, iron for the work, and a good ear. A blade rings true or it doesn't. {site} keeps me busy: nails, hinges, ploughshares, and a sword now and then when the captain asks.\"" },
+      choices: [{ label: "And the work?", next: "start" }, BYE],
+    },
+  },
+  // Named roles: the captain of a settlement's watch (a guard of its garrison, or at the barracks). Burn a camp / hold the
+  // walls for him; after a service his scouts tell you where every camp near lies.
+  captain: {
+    start: {
+      text: {
+        hostile: "{npc} levels a spear at you. \"Not one step closer.\"",
+        wary: "{npc} looks you up and down. \"Keep your blade sheathed inside {site}, stranger, and we'll have no trouble.\"",
+        default: "{npc} nods. \"Captain of the watch here. If you're good with that sword, I may have use for you.\"{favour}",
+      },
+      choices: [
+        { label: "Does the watch need a hand?", action: "roleWork", tiers: NOT_HOSTILE },
+        { label: ROLE_PERKS.captain.label, action: "rolePerk", tiers: TRADING },
+        { label: "How stands the watch?", next: "watch", tiers: NOT_HOSTILE },
+        BYE,
+      ],
+    },
+    watch: {
+      text: { default: "\"Too few spears and too many roads. We hold the walls by day and the gates by night, and pray the camps out there don't get bold. Burn one, and you've saved more lives than you'll know.\"" },
       choices: [{ label: "And the work?", next: "start" }, BYE],
     },
   },
@@ -408,7 +460,7 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
 };
 export const NPC_ROLE_LABEL: Record<NpcRole, string> = {
   leader: "Elder", trader: "Trader", villager: "Villager", questGiver: "Priest", folk: "Your people", priest: "Priest",
-  keeper: "Keeper", furniture: "", patron: "Patron", herald: "Quest giver",
+  keeper: "Keeper", furniture: "", patron: "Patron", herald: "Quest giver", smith: "Smith", captain: "Captain of the watch",
 };
 // Gap closure G7: the quest giver's title, greeting and lore by settlement tier (1 hamlet, 2 village, 3 town).
 export const HERALD_LINES: Record<1 | 2 | 3, { title: string; line: string; lore: string }> = {
