@@ -83,12 +83,15 @@ function freeTilesNear(c) {
   const out = [];
   const mx = Math.floor(me.x / TILE);
   const my = Math.floor(me.y / TILE);
-  for (let y = my - 2; y <= my + 2; y++)
-    for (let x = mx - 2; x <= mx + 2; x++) {
+  // Knight Post is a 3x3 block (the tile placed on is its top-left): every tile empty, nobody standing on one.
+  for (let y = my - 3; y <= my + 3; y++)
+    for (let x = mx - 3; x <= mx + 3; x++) {
       if (Math.hypot(x * TILE + 16 - me.x, y * TILE + 16 - me.y) > REACH) continue;
-      if (c.tileAt(x, y) !== T.Empty || occupied.has(y * c.W() + x)) continue;
-      if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => c.tileAt(x + dx, y + dy) !== T.Empty)) continue;
-      out.push({ x, y });
+      let clear = true;
+      for (let bx = 0; bx < 3; bx++) for (let by = 0; by < 3; by++) {
+        if (c.tileAt(x + bx, y + by) !== T.Empty || occupied.has((y + by) * c.W() + x + bx)) clear = false;
+      }
+      if (clear) out.push({ x, y });
     }
   return out;
 }
@@ -125,12 +128,12 @@ try {
   let placed = 0;
   let deltasOk = true;
   const posts = [];
-  for (let i = 0; i < 30 && !refused; i++) {
+  for (let i = 0; i < 60 && !refused; i++) {
     const ang = i * 0.9;
-    const r = 3 + (i % 4);
+    const r = 3 + (i % 8);
     await tele(c, tc1.x + Math.round(Math.cos(ang) * r), tc1.y + Math.round(Math.sin(ang) * r));
     await c.freshSnap();
-    const spot = freeTilesNear(c).find((s) => Math.hypot(s.x - tc1.x, s.y - tc1.y) < 9 && Math.hypot(s.x - tc1.x, s.y - tc1.y) > 1.5);
+    const spot = freeTilesNear(c).find((s) => Math.hypot(s.x - tc1.x, s.y - tc1.y) < 14 && Math.hypot(s.x - tc1.x, s.y - tc1.y) > 2.5);
     if (!spot) continue;
     const before = { ...s1(), k: knights(), ev: c.events.length };
     c.send({ type: "setTile", tileX: spot.x, tileY: spot.y, tile: T.KnightPost });
