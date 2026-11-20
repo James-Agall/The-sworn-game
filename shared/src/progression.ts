@@ -29,7 +29,7 @@ export type ItemId =
   // and armour are forged from bronze at the Blacksmith: the armoury stock, no item).
   | "bronze" | "bronzeTools"
   // The new deposits' ores and what the Stamp Mill crushes and washes out of them.
-  | "limestone" | "goldOre" | "leadOre" | "washedTin" | "goldDust" | "sand"
+  | "limestone" | "goldOre" | "leadOre" | "washedTin" | "goldDust" | "sand" | "crushedIron"
   // Steel from the Blast furnace (flux: limestone).
   | "steel"
   // The Glassworks.
@@ -208,6 +208,7 @@ export const PROGRESSION = {
     goldOre: { label: "Gold ore", desc: "Dug on a Mine's level 3. The Stamp Mill crushes and washes it into gold dust (the Bloomery smelts some too, less of it).", group: "material" },
     leadOre: { label: "Lead ore", desc: "Dug on a Mine's level 3. The Bloomery smelts it into lead.", group: "material" },
     washedTin: { label: "Washed tin", desc: "Tin ore crushed and washed at the Stamp Mill (2 ore -> 3). The Bloomery makes more bronze from it.", group: "material" },
+    crushedIron: { label: "Crushed iron ore", desc: "Iron ore crushed at the Stamp Mill (3 ore -> 4). The Bloomery smelts it into blooms with half the charcoal.", group: "material" },
     goldDust: { label: "Gold dust", desc: "Washed out of crushed gold ore at the Stamp Mill (or smelted at the Bloomery).", group: "material" },
     steel: { label: "Steel", desc: "Made at the Blast furnace (Bloomery level 2+) from iron blooms with limestone flux. Fine steel in store: the Blacksmith forges each piece a tier better.", group: "material" },
     glass: { label: "Glass", desc: "Melted at the Glassworks from sand and limestone (lime) with charcoal or coal.", group: "material" },
@@ -263,6 +264,7 @@ export const PROGRESSION = {
     // The Stamp Mill's ore washer: gold first, then tin, then sand from stone.
     { id: "goldDust", label: "Crush and wash gold ore", output: "goldDust", amount: 1, items: { goldOre: 3 }, station: TileType.StampMill, seconds: 40, cap: 20 },
     { id: "washedTin", label: "Crush and wash tin ore", output: "washedTin", amount: 3, items: { tinOre: 2 }, station: TileType.StampMill, seconds: 30, cap: 20 },
+    { id: "crushedIron", label: "Crush iron ore", output: "crushedIron", amount: 4, stock: { iron: 3 }, station: TileType.StampMill, seconds: 30, cap: 20 },
     { id: "sand", label: "Crush stone to sand", output: "sand", amount: 2, stock: { rock: 3 }, station: TileType.StampMill, seconds: 20, cap: 30 },
     // Clay pit and pottery. The Clay Pit's digger digs clay (no inputs); the Kiln's potter fires it with wood (the
     // crucible hot, with charcoal, by a level-2 potter), the first ready recipe under its cap in this order.
@@ -307,6 +309,8 @@ export const PROGRESSION = {
     { id: "bronzeWashedCoal", label: "Smelt bronze from washed tin with coal", output: "bronze", amount: 3, items: { copperOre: 3, washedTin: 2, coal: 1 }, station: TileType.Bloomery, seconds: 40, cap: 30 },
     { id: "bronze", label: "Smelt bronze", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, charcoal: 1 }, station: TileType.Bloomery, seconds: 40, cap: 30 },
     { id: "bronzeCoal", label: "Smelt bronze with coal", output: "bronze", amount: 2, items: { copperOre: 3, tinOre: 2, coal: 1 }, station: TileType.Bloomery, seconds: 40, cap: 30 },
+    { id: "ironBloomCrushed", label: "Smelt an iron bloom from crushed ore", output: "ironBloom", amount: 1, items: { crushedIron: 2, charcoal: 1 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
+    { id: "ironBloomCrushedCoal", label: "Smelt an iron bloom from crushed ore with coal", output: "ironBloom", amount: 1, items: { crushedIron: 2, coal: 1 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
     { id: "ironBloom", label: "Smelt an iron bloom", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { charcoal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
     // Deep mines: coal burns in the Bloomery when there is no charcoal.
     { id: "ironBloomCoal", label: "Smelt an iron bloom with coal", output: "ironBloom", amount: 1, stock: { iron: 3 }, items: { coal: 2 }, station: TileType.Bloomery, seconds: 40, cap: 20 },
@@ -448,7 +452,7 @@ export const PROGRESSION = {
     // Layered mines: Quarry -> Mine L1 (copper, tin, lime) -> Bloomery / bronze -> Blacksmith -> bronze pickaxe -> Mine L2
     // (iron, coal) -> iron blooms -> iron pickaxe -> Mine L3 (gold, lead).
     { id: "mining", label: "Mining & ore", steps: [{ item: "stonePick" }, { building: TileType.RockMinePost }, { building: TileType.IronMinePost }, { item: "copperOre" }, { item: "tinOre" }, { item: "limestone" }, { building: TileType.Bloomery }, { item: "bronze" }, { building: TileType.Blacksmith }, { item: "bronzePick" }, { item: "timberProps" }, { item: "coal" }, { item: "ironBloom" }, { item: "ironPick" }, { item: "mineVent" }, { item: "minePump" }, { item: "goldOre" }, { item: "leadOre" }, { item: "mineLamps" }] },
-    { id: "ore", label: "Crushing & washing", steps: [{ item: "carpenterTools" }, { building: TileType.StampMill }, { item: "washedTin" }, { item: "goldDust" }, { item: "sand" }] },
+    { id: "ore", label: "Crushing & washing", steps: [{ item: "carpenterTools" }, { building: TileType.StampMill }, { item: "washedTin" }, { item: "goldDust" }, { item: "crushedIron" }, { item: "sand" }] },
     { id: "glass", label: "Glass", steps: [{ item: "limestone" }, { item: "sand" }, { building: TileType.Glassworks }, { item: "glass" }, { item: "glassPanes" }, { item: "bottles" }] },
     { id: "gold", label: "Gold & lead", steps: [{ item: "goldOre" }, { item: "goldDust" }, { building: TileType.Mint }, { item: "coins" }, { item: "leadOre" }, { item: "lead" }] },
     { id: "bronze", label: "Bronze", steps: [{ item: "copperOre" }, { item: "tinOre" }, { building: TileType.Bloomery }, { item: "bronze" }, { item: "anvil" }, { item: "smithTools" }, { building: TileType.Blacksmith }, { item: "bronzePick" }, { item: "bronzeTools" }] },
