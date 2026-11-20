@@ -102,6 +102,7 @@ const SERVER_ENV = {
   "agri-extra": { ...W80, ...INSTANT },
   "industry-extra": { ...W80, ...INSTANT },
   "raid-waves": W80,
+  "raid-forecast": W80,
   "shelter-overflow": { ...W80, ...INSTANT, ...LEGACY },
   "slow-farming": W80,
   "starting-stock": INSTANT,

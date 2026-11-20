@@ -54,6 +54,7 @@ import { setupHeroTools } from "./herotools";
 import { setupWeatherOverlay } from "./weather";
 import { opaqueBox, type InteriorUi, setupInterior } from "./interior";
 import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
+import { raidForecastText, type RaidForecast } from "@colony/shared/raidForecast";
 import { FUEL_LOW_DAYS, type WinterSnapshot } from "@colony/shared/winter";
 import type { AgriSnapshot } from "@colony/shared/agri";
 import { MINE_RISK_LABEL } from "@colony/shared/mines";
@@ -4349,6 +4350,21 @@ async function main() {
   const agriRowEl = document.getElementById("stat-agri")!;
   const spoilEl = document.getElementById("stat-spoil")!;
   const sickEl = document.getElementById("stat-sick")!;
+  // Dusk raid forecast: one HUD line under the clock, and a toast the first time a given raid is announced.
+  const raidForecastEl = document.createElement("div");
+  raidForecastEl.id = "raid-forecast";
+  raidForecastEl.style.cssText = "position:fixed;top:44px;left:50%;transform:translateX(-50%);padding:2px 10px;background:rgba(40,12,12,.8);color:#f3c9a8;border:1px solid #7a2a22;border-radius:4px;font:12px sans-serif;z-index:20;pointer-events:none";
+  raidForecastEl.hidden = true;
+  document.body.appendChild(raidForecastEl);
+  let shownRaidForecast = "";
+  function refreshRaidForecast(f: RaidForecast | undefined) {
+    const text = f ? raidForecastText(f) : "";
+    if (text === shownRaidForecast) return;
+    if (text && !shownRaidForecast) pushEventToast("raid", text);
+    shownRaidForecast = text;
+    raidForecastEl.textContent = text;
+    raidForecastEl.hidden = !text;
+  }
   let shownAgri = "";
   function refreshAgri(a: AgriSnapshot | undefined) {
     const key = JSON.stringify(a ?? null);
@@ -7642,6 +7658,7 @@ async function main() {
       refreshCalendar(message.calendar);
       refreshWinter(message.winter);
       refreshAgri(message.agri);
+      refreshRaidForecast(message.raidForecast);
       sundialEl.classList.toggle("night", message.isNight);
       sundialHandEl.setAttribute("transform", `rotate(${message.cycleProgress * 360})`);
       if (message.dayFraction !== sundialDayFraction) {

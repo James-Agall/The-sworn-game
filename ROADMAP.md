@@ -4925,3 +4925,8 @@ James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-w
 - **Mine Foreman named**: the panel line names the posted foreman and its level ("Mine Foreman: Kit (level-3 miner)").
 - Not done: soldiers walking into the interior; a crusher step for iron ore (the Stamp Mill crushes gold / tin / stone);
   hazards hurting a hero who is only standing inside (only the hero's own digging rolls a cave-in); dedicated art.
+
+**Landed 2026-11-20: dusk raid forecast.** The day-midpoint raid spawn is the committed plan, so the snapshot's optional
+`raidForecast` (shared/src/raidForecast.ts: size band small/medium/large/huge, faction ids, entry edges; no exact count)
+is read off the live, not-yet-engaged raid groups (`raidForecastNow` in raids.ts). Client: one HUD line plus a toast the
+first time a raid is announced. Absent when raids are skipped. Test: server/raid-forecast-test.mjs (registered, W80).

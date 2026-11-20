@@ -1476,3 +1476,8 @@ Normal game (not creative): Farming tab shows no Farm, Cow / Pig / Sheep pasture
 hotkeys (4, p, f, n) do nothing. Paint a Growing zone (Zones tab: wheat / hemp) and an Animal area, fence it, and use a
 Chicken Coop / Livestock Barn / Pig Sty / Sheep Pen instead. Creative game: the four old tools are back and place; old
 saves' existing plots and pastures keep working. The server refuses the old tiles in normal games too.
+
+## Dusk raid forecast
+Play to the middle of a day with a Town Center: a toast "Tonight: a small raid (wolves) from the north" appears once and a
+red line stays under the top bar until the raiders make contact; it shows a size band, not a number, and the edge matches
+where the raiders gather. Solo hero without a camp: no forecast. Hunger-marked elites stay a surprise.
