@@ -15,7 +15,7 @@ import {
   MASTER_FEE, MASTER_MAX_LEVEL, NEED_LOW, NEED_MAX, NPC_ROLE_LABEL, PACK_CAP, PACK_FOOD, PACK_GOODS, PACK_LABEL,
   PACK_WEIGHT, PERSONAL_BUILDS, PERSONAL_BUILD_MAX, STATION_SKILL, TALK_RANGE_TILES,
   ENERGY_COST, ENERGY_EMPTY_SPEED, ENERGY_MAX, ENERGY_PER_FOOD, ENERGY_REST_PER_S, HAND_HARVEST_SECONDS, HERO_TOOLS, HERO_TOOL_ITEM,
-  SEED_ITEM, TOOL_ACT_LABEL, TOOL_SECONDS, WATER_CAN_CHARGES, HERALD_LINES,
+  SEED_ITEM, TOOL_ACT_LABEL, TOOL_SECONDS, WATER_CAN_CHARGES, HERALD_LINES, kinGreeting,
   type DialogueAction, type DialogueSnapshot, type GatherKind, type HeroLifeSnapshot, type HeroSkill, type HeroTool, type NpcRole,
   type PackGood, type PersonalBuild, type ToolAct, gatherKindOf, skillSpeed, skillXpFor,
 } from "@colony/shared/herolife";
@@ -39,11 +39,15 @@ import { sendTo } from "./saves.js";
 import { clanIdAt, clanOf, clanTownCenters, townCentersOfClan, withClan } from "./clans.js";
 import { gameDay, handleTradeWithSite, standingTown, tierOf, tilesToWalls } from "./diplomacy.js";
 import { adjustRelation, relationOf } from "./sites.js";
-import { forcePostQuest, handleQuestMessage, quests, questsForSnapshot } from "./quests.js";
+import { boardQuestsFor, campNear, forcePostQuest, handleQuestMessage, postRoleQuest, quests, questsForSnapshot } from "./quests.js";
+import {
+  CAPTAIN_SCOUT_RANGE_TILES, NAMED_ROLE_PLACE, ROLE_FAVOUR_NEEDED, ROLE_PERKS, ROLE_QUESTS, ROLE_REMEMBERS, SMITH_FAVOUR_TOOLS,
+  TRADER_FAVOUR_GOODS, nameFor as sharedNameFor, nameHash, namedRoleName, type NamedRole, type QuestRole,
+} from "@colony/shared/namedRoles";
 import { addItem, bronzeToolMult, produceItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
 import { forgeCost, forgedTier, forgeItems, heroProfileOf, playerMaxHp } from "./heroes.js";
 import {
-  bringKinHome, cachedFamilySnapshot, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
+  bringKinHome, cachedFamilySnapshot, childrenOf, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
 } from "./family.js";
 import { handleCallToArms } from "./vassals.js";
 import { heirOrderNames } from "./people.js";
@@ -160,6 +164,8 @@ interface Talk {
   inside?: TalkInside;
   // Phase 6: the people offered by the "who do you speak to?" chooser.
   picks?: Target[];
+  // Named roles: the quest list shown last was this person's own (accept / deliver re-show it).
+  listGiver?: QuestRole;
 }
 interface Busy {
   gather?: GatherJob;
@@ -182,13 +188,9 @@ export const toast = (p: Player, text: string) => sendTo(p, { type: "event", cat
 const tileCenterDist = (p: Player, tx: number, ty: number) => Math.hypot((tx + 0.5) * TILE_SIZE - p.x, (ty + 0.5) * TILE_SIZE - p.y) / TILE_SIZE;
 
 // ---- names (stable per NPC id) ----
-const NAMES = ["Aldric", "Bryn", "Cedda", "Dunstan", "Edith", "Godric", "Hilda", "Ivo", "Maud", "Osric", "Rowena", "Sigrid", "Tamsin", "Wulf", "Agnes", "Bertram"];
-function hashOf(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
-  return h >>> 0;
-}
-export const nameFor = (id: string) => NAMES[hashOf(id) % NAMES.length];
+// (The name pool and hash live in shared/src/namedRoles.ts, so a named person is named the same everywhere.)
+const hashOf = nameHash;
+export const nameFor = sharedNameFor;
 export const talkColorFor = (name: string) => [0xc9a227, 0x6aa84f, 0x8e7cc3, 0xe69138, 0x3d85c6][hashOf(name) % 5];
 
 // ---- talk ----
@@ -218,8 +220,16 @@ function talkTargets(p: Player): Target[] {
     const s = sites.get(m.siteId);
     if (!standingTown(s)) continue;
     const role: NpcRole = m.siteWorker === "priest" ? "questGiver" : m.siteWorker === "herald" ? "herald" : s.workers[0] === m.id ? "trader" : "villager";
-    const name = role === "herald" ? `${heraldLines(s).title} ${nameFor(`${s.id}:herald`)}` : `${role === "questGiver" ? "Brother " : ""}${nameFor(m.id)}`;
+    // Named roles: the merchant and the priest are the settlement's named people (the same name indoors).
+    const name = role === "herald" ? `${heraldLines(s).title} ${nameFor(`${s.id}:herald`)}`
+      : role === "questGiver" ? namedRoleName(s.id, "priest") : role === "trader" ? namedRoleName(s.id, "trader") : nameFor(m.id);
     offer({ role, name, d: Math.hypot(m.x - p.x, m.y - p.y) / TILE_SIZE, site: s, mob: m });
+  }
+  // Named roles: the captain of the watch (a guard of the garrison, while it stands at ease).
+  for (const s of sites.values()) {
+    if (!standingTown(s)) continue;
+    const m = captainOf(s);
+    if (m && !m.guardianActive) offer({ role: "captain", name: namedRoleName(s.id, "captain"), d: Math.hypot(m.x - p.x, m.y - p.y) / TILE_SIZE, site: s, mob: m });
   }
   for (const c of colonists.values()) {
     if (!c.person || c.person.child || (c.clan ?? 0) !== p.clan || c.hp <= 0) continue;
@@ -246,7 +256,7 @@ export function heraldLines(s: SiteState | undefined): (typeof HERALD_LINES)[1] 
   return HERALD_LINES[Math.max(1, Math.min(3, tier)) as 1 | 2 | 3];
 }
 
-function fill(text: string, t: Talk, tier?: RelationTier, clan = 0): string {
+function fill(text: string, t: Talk, tier?: RelationTier, clan = 0, p?: Player): string {
   const s = t.siteId ? sites.get(t.siteId) : undefined;
   if (t.role === "herald") {
     const h = heraldLines(s);
@@ -257,7 +267,119 @@ function fill(text: string, t: Talk, tier?: RelationTier, clan = 0): string {
     for (const [k, v] of Object.entries(tk)) text = text.replaceAll(`{${k}}`, v);
     text = text.replaceAll("{trade}", tk.trade);
   }
+  // Family extras: your own kin greet you as kin.
+  if (text.includes("{kin}")) {
+    const c = t.colonistId ? colonists.get(t.colonistId) : undefined;
+    const rel = c && p ? kinRelation(p, c) : null;
+    text = text.replaceAll("{kin}", kinGreeting(rel, hashOf(`${t.colonistId}:${gameDay()}`), !!p && childrenOf(p).some((k) => k.person?.child)));
+  }
+  // Named roles: someone you have done a service remembers it in the greeting.
+  if (text.includes("{favour}")) {
+    const r = namedRoleOf(t);
+    text = text.replaceAll("{favour}", r && r !== "elder" && s && favourOf(s, clan, r) >= ROLE_FAVOUR_NEEDED ? "\n\n" + ROLE_REMEMBERS[r] : "");
+  }
   return text.replaceAll("{npc}", t.name).replaceAll("{site}", s?.name ?? "").replaceAll("{tier}", tier ?? "");
+}
+
+// ---- named roles (shared/src/namedRoles.ts): the Elder, merchant, priest, smith and captain of a settlement ----
+const NPC_NAMED: Partial<Record<NpcRole, NamedRole>> = { leader: "elder", trader: "trader", questGiver: "priest", smith: "smith", captain: "captain" };
+// The named role of whoever this talk is with: only the settlement's own named person (a bakery's keeper also talks as a
+// "trader", but is not its merchant).
+function namedRoleOf(t: Talk): NamedRole | undefined {
+  const r = NPC_NAMED[t.role];
+  return r && t.siteId && t.name === namedRoleName(t.siteId, r) ? r : undefined;
+}
+const questRoleOf = (t: Talk): QuestRole | undefined => {
+  const r = namedRoleOf(t);
+  return r && r !== "elder" ? r : undefined;
+};
+function favourOf(s: SiteState, clan: number, r: QuestRole): number {
+  return s.diplo?.[clan]?.favour?.[r] ?? 0;
+}
+// The captain of the watch: the garrison's knight, else a guard (the lowest id: stable while he lives).
+export function captainOf(s: SiteState): Mob | undefined {
+  const rank = (m: Mob) => (m.kind === "townKnight" ? 2 : m.kind === "townGuard" ? 1 : 0);
+  let best: Mob | undefined;
+  for (const id of s.garrison) {
+    const m = mobs.get(id);
+    if (!m || m.hp <= 0 || rank(m) === 0) continue;
+    if (!best || rank(m) > rank(best) || (rank(m) === rank(best) && m.id < best.id)) best = m;
+  }
+  return best;
+}
+// Building types of a settlement's template (its forge, chapel, market, ...).
+function siteBuildingTypes(s: SiteState): BuildingType[] {
+  const tpl = s.layout ? settlementTemplateById(s.layout) : undefined;
+  return (tpl?.buildings ?? []).map((b) => buildingTemplateById(b.ref)?.buildingType).filter((x): x is BuildingType => !!x);
+}
+// Which named people a settlement has (the Elder always; a smith needs a forge; a captain a garrison guard).
+export function namedRolesAt(s: SiteState): NamedRole[] {
+  const types = siteBuildingTypes(s);
+  const out: NamedRole[] = ["elder"];
+  if (s.workers.length > 0 || types.includes("market")) out.push("trader");
+  if (s.workers.some((id) => mobs.get(id)?.siteWorker === "priest") || types.includes("church") || types.includes("abbey")) out.push("priest");
+  if (types.includes("blacksmith")) out.push("smith");
+  if (captainOf(s) || types.includes("barracks")) out.push("captain");
+  return out;
+}
+// A "!" over this named person: a quest of theirs waits to be accepted, or they would ask one now (no open quest of
+// theirs, past their cooldown; the captain needs a camp near, or the night).
+export function namedRoleMark(clan: number, s: SiteState, role: QuestRole): boolean {
+  if (!standingTown(s) || tierOf(clan, s) === "hostile") return false;
+  const mine = quests.filter((q) => q.clan === clan && q.siteId === s.id && q.giver === role);
+  if (mine.length) return mine.some((q) => !q.accepted);
+  if ((s.diplo?.[clan]?.roleNext?.[role] ?? 0) > state.cycleTick) return false;
+  return role !== "captain" || isNightNow() || !!campNear(s, clan);
+}
+function whosWho(s: SiteState): string {
+  const lines = namedRolesAt(s).map((r) => `${namedRoleName(s.id, r)} ${NAMED_ROLE_PLACE[r]}.`);
+  if (s.homes?.quest !== undefined) lines.push(`${heraldLines(s).title} ${nameFor(`${s.id}:herald`)} posts the work at the notice board.`);
+  return `"Who's who in ${s.name}? Well:\n${lines.map((l) => "- " + l).join("\n")}"`;
+}
+// Their quests: post one now if they can, then list theirs (accept / deliver).
+function roleWork(p: Player, t: Talk, s: SiteState, role: QuestRole) {
+  gainSkill(p, "speech", 3);
+  const r = postRoleQuest(s.id, p.clan, role);
+  const def = ROLE_QUESTS[role];
+  const head = typeof r !== "string" ? def.ask : r === "open" ? "" : r === "cooldown" ? def.later : def.nothing;
+  return showQuests(p, t, s, fill(head, t), role);
+}
+// Their favour, once a game day after a service (actionBlock checks both).
+function rolePerk(p: Player, t: Talk, s: SiteState, role: QuestRole) {
+  const life = lifeOf(p);
+  life.flags[`perk:${s.id}:${role}`] = gameDay();
+  gainSkill(p, "speech", 3);
+  if (role === "smith") {
+    state.stock.tools = (state.stock.tools ?? 0) + SMITH_FAVOUR_TOOLS;
+    return sayThen(p, t, `"Here. Still warm from the anvil. Bring me iron again some time." (+${SMITH_FAVOUR_TOOLS} tools to your stores)`);
+  }
+  if (role === "trader") {
+    const good = TRADE_GOODS.filter((g) => Math.floor(s.stock[g] ?? 0) >= 1).sort((a, b) => (s.stock[b] ?? 0) - (s.stock[a] ?? 0))[0];
+    if (!good) {
+      delete life.flags[`perk:${s.id}:${role}`];
+      return sayThen(p, t, `"The stalls are bare, friend. Nothing put by today."`);
+    }
+    const n = Math.min(TRADER_FAVOUR_GOODS, Math.floor(s.stock[good] ?? 0));
+    s.stock[good] = (s.stock[good] ?? 0) - n;
+    state.stock[good] = (state.stock[good] ?? 0) + n;
+    gainSkill(p, "trading", 2);
+    return sayThen(p, t, `"I kept these back for you. No charge, between friends." (+${n} ${good} to your stores)`);
+  }
+  if (role === "priest") {
+    p.hp = playerMaxHp(p);
+    life.rest = NEED_MAX;
+    return sayThen(p, t, `${t.name} lays a hand on your brow and prays. Your wounds close and your weariness lifts. (healed and rested)`);
+  }
+  // Captain: his scouts' report (every standing camp within range, revealed on the minimap).
+  const camps = [...hearths.values()]
+    .filter((h) => !h.destroyed && sites.get(h.siteId)?.faction !== "human")
+    .map((h) => ({ h, d: Math.hypot(h.x - s.keepX, h.y - s.keepY) }))
+    .filter((c) => c.d <= CAPTAIN_SCOUT_RANGE_TILES)
+    .sort((a, b) => a.d - b.d);
+  for (const c of camps) revealAround(c.h.x, c.h.y, circleOffsets(4));
+  if (!camps.length) return sayThen(p, t, `"My scouts found no camp within ${CAPTAIN_SCOUT_RANGE_TILES} tiles. Long may it last."`);
+  const n = camps[0];
+  return sayThen(p, t, `"My scouts count ${camps.length} camp${camps.length === 1 ? "" : "s"} within ${CAPTAIN_SCOUT_RANGE_TILES} tiles. The nearest: ${/^[aeiou]/.test(n.h.faction) ? "an" : "a"} ${n.h.faction} ${n.h.siteKind === "fort" ? "fort" : "camp"} ${Math.round(n.d)} tiles ${bearing(n.h.x - s.keepX, n.h.y - s.keepY)} of ${s.name}. I've marked them on your map."`);
 }
 
 // Villager conversation tokens (shared/src/villagerTalk.ts): this villager's trade, the weather, season and hour, who else lives
@@ -266,11 +388,12 @@ const VILLAGER_TOKEN = /\{(trade|hello|work|craft|worry|past|sky|gossip|place|am
 function villagerTalkTokens(t: Talk, s: SiteState, clan: number): Record<string, string> {
   const tpl = s.layout ? settlementTemplateById(s.layout) : undefined;
   const neighbours: string[] = [];
+  // (s.workers[0] is the merchant, a named person: not gossiped about by a bare name.)
   for (const id of s.workers) {
     const m = mobs.get(id);
-    if (m && id !== t.mobId && m.siteWorker !== "herald" && m.siteWorker !== "priest") neighbours.push(nameFor(id));
+    if (m && id !== t.mobId && id !== s.workers[0] && m.siteWorker !== "herald" && m.siteWorker !== "priest") neighbours.push(nameFor(id));
   }
-  const amenities = (tpl?.buildings ?? []).map((b) => buildingTemplateById(b.ref)?.buildingType).filter((x): x is BuildingType => !!x);
+  const amenities = siteBuildingTypes(s);
   const seed = hashOf(t.mobId ?? t.name);
   return villagerTokens({
     seed, day: gameDay(), night: isNightNow(), weather: weatherNow(), season: seasonsOn() ? calendarNow().season : -1,
@@ -287,9 +410,19 @@ export function questMarksFor(clan: number): string[] {
     if (s.homes?.quest === undefined || !s.awake || !standingTown(s) || tierOf(clan, s) === "hostile") continue;
     const m = s.workers.map((id) => mobs.get(id)).find((w) => w?.siteWorker === "herald");
     if (!m) continue;
-    const mine = quests.filter((q) => q.clan === clan && q.siteId === s.id);
+    const mine = boardQuestsFor(clan, s.id);
     const board = mine.length < QUEST_MAX_PER_SITE && (s.diplo?.[clan]?.questNextTick ?? 0) <= state.cycleTick;
     if (board || mine.some((q) => !q.accepted)) out.push(m.id);
+  }
+  // Named roles: the merchant, the priest and the captain outdoors, with work of their own for you.
+  for (const s of sites.values()) {
+    if (!s.awake || !standingTown(s)) continue;
+    const trader = s.workers[0] !== undefined ? mobs.get(s.workers[0]) : undefined;
+    if (trader && !trader.siteWorker?.match(/^(priest|herald)$/) && namedRoleMark(clan, s, "trader")) out.push(trader.id);
+    const priest = s.workers.map((id) => mobs.get(id)).find((w) => w?.siteWorker === "priest");
+    if (priest && namedRoleMark(clan, s, "priest")) out.push(priest.id);
+    const cap = captainOf(s);
+    if (cap && !cap.guardianActive && namedRoleMark(clan, s, "captain")) out.push(cap.id);
   }
   return out;
 }
@@ -313,6 +446,12 @@ function actionBlock(p: Player, t: Talk, a: DialogueAction): string {
   if (a === "lodging" && s && life.flags[`lodging:${s.id}`] === day) return "Already rested here today";
   if (a === "alliance" && s && life.flags[`ally:${s.id}`] === day) return "Asked today already";
   if (a === "sellPack" && packWeight(life) <= 0) return "Your pack is empty";
+  if (a === "rolePerk" && s) {
+    const r = questRoleOf(t);
+    if (!r) return "";
+    if (favourOf(s, p.clan ?? 0, r) < ROLE_FAVOUR_NEEDED) return ROLE_PERKS[r].stranger;
+    if (life.flags[`perk:${s.id}:${r}`] === day) return "Not again today";
+  }
   if (a === "sellAnimals" && animalsForSale(p.clan ?? 0).length === 0) return "You have no animals to sell";
   if (a === "drink") {
     if (life.flags.drinkDay === day && (life.flags.drinkN ?? 0) >= TAVERN_DRINKS_PER_DAY) return "You have had enough for today";
@@ -326,8 +465,12 @@ function renderTalk(p: Player, t: Talk, nodeId: string, prefix = "") {
   const tier = s ? tierOf(p.clan, s) : undefined;
   const node = DIALOGUE[t.role][nodeId] ?? DIALOGUE[t.role].start;
   const raw = (tier && node.text[tier]) ?? node.text.default ?? node.text.neutral ?? "";
+  // Named roles: their own quests / favour / "who's who" only from the settlement's named person (not every keeper).
+  const named = namedRoleOf(t);
   t.choices = node.choices
     .filter((c) => !c.tiers || (tier && c.tiers.includes(tier)))
+    .filter((c) => !(c.action === "roleWork" || c.action === "rolePerk") || (named && named !== "elder"))
+    .filter((c) => c.action !== "whoswho" || named === "elder")
     .map((c) => ({ label: fill(c.label, t, tier, p.clan), next: c.next, action: c.action, disabled: c.action ? actionBlock(p, t, c.action) || undefined : undefined }));
   if (nodeId === "start") {
     const extra = familyChoices(p, t);
@@ -337,7 +480,7 @@ function renderTalk(p: Player, t: Talk, nodeId: string, prefix = "") {
     }
     if (extra.length) t.choices.splice(t.choices.length - 1, 0, ...extra);
   }
-  sendTalk(p, t, (prefix ? prefix + "\n\n" : "") + fill(raw, t, tier, p.clan));
+  sendTalk(p, t, (prefix ? prefix + "\n\n" : "") + fill(raw, t, tier, p.clan, p));
 }
 
 function sendTalk(p: Player, t: Talk, text: string) {
@@ -493,6 +636,16 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
     }
     case "askWork":
       return s ? askForWork(p, t, s) : closeTalk(p);
+    case "roleWork": {
+      const r = questRoleOf(t);
+      return s && r ? roleWork(p, t, s, r) : closeTalk(p);
+    }
+    case "rolePerk": {
+      const r = questRoleOf(t);
+      return s && r ? rolePerk(p, t, s, r) : closeTalk(p);
+    }
+    case "whoswho":
+      return s ? sayThen(p, t, whosWho(s)) : closeTalk(p);
     case "quests":
       return s ? showQuests(p, t, s, "") : closeTalk(p);
     case "accept":
@@ -501,7 +654,7 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
       if (c.action === "deliver") packToStock(life, c.arg as string);
       const why = handleQuestMessage(p, c.action === "accept" ? "acceptQuest" : "deliverQuest", c.arg === undefined ? undefined : Number(String(c.arg).split(":")[0]));
       if (!why) gainSkill(p, "speech", 5);
-      return showQuests(p, t, s, why || (c.action === "accept" ? "\"Thank you. Come back when it is done.\"" : "\"Just what we needed.\""));
+      return showQuests(p, t, s, why || (c.action === "accept" ? "\"Thank you. Come back when it is done.\"" : "\"Just what we needed.\""), t.listGiver);
     }
     case "train":
       return s ? showMasters(p, t, s, "") : closeTalk(p);
@@ -750,7 +903,7 @@ export function tavernCheerHappiness(clan: number): number {
 // The settlement posts this clan a quest now if it can (its cooldown and the per-settlement cap apply).
 function askForWork(p: Player, t: Talk, s: SiteState) {
   gainSkill(p, "speech", 3);
-  const open = quests.filter((q) => q.clan === p.clan && q.siteId === s.id).length;
+  const open = boardQuestsFor(p.clan, s.id).length;
   if (open >= QUEST_MAX_PER_SITE) return showQuests(p, t, s, "\"You have our work already.\"");
   if ((s.diplo?.[p.clan]?.questNextTick ?? 0) > state.cycleTick) return showQuests(p, t, s, "\"Nothing new yet. Come back in a day or so.\"");
   const kinds = isNightNow() ? (["defend", "clearCamp", "deliver"] as const) : (["clearCamp", "deliver"] as const);
@@ -758,8 +911,10 @@ function askForWork(p: Player, t: Talk, s: SiteState) {
   return showQuests(p, t, s, "\"We need nothing right now. Thank you for asking.\"");
 }
 
-function showQuests(p: Player, t: Talk, s: SiteState, head: string) {
-  const mine = questsForSnapshot(p.clan).filter((q) => q.siteNum === s.num);
+// giver: only that named person's quests (their own list); else all the settlement's quests for the clan.
+function showQuests(p: Player, t: Talk, s: SiteState, head: string, giver?: QuestRole) {
+  t.listGiver = giver;
+  const mine = questsForSnapshot(p.clan).filter((q) => q.siteNum === s.num && (!giver || q.giverRole === giver));
   const choices: ChoiceRt[] = [];
   for (const q of mine.slice(0, 3)) {
     if (!q.accepted) choices.push({ label: `I'll do it: ${q.title} (${q.reward} gold)`, action: "accept", arg: q.id });

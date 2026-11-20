@@ -833,6 +833,8 @@ export interface InteriorNpcSnapshot {
   // Gap closure G5: keeper (stays at the station), resident (day wander / dusk table / night bed), patron (seated),
   // sleeper (in bed).
   act: InteriorNpcAct;
+  // Named roles: this named person has work for you (the client marks the name with a gold "!").
+  quest?: boolean;
 }
 export type InteriorNpcAct = "keeper" | "resident" | "patron" | "sleeper";
 export type InteriorFacing = "l" | "r" | "u" | "d";

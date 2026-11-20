@@ -323,6 +323,9 @@ export interface QuestSnapshot {
   // defend: kills so far / needed.
   progress?: number;
   need?: number;
+  // Named roles (shared/src/namedRoles.ts): posted by one of the settlement's named people (role + their name).
+  giverRole?: "trader" | "priest" | "smith" | "captain";
+  giver?: string;
 }
 // Clans (ROADMAP "Clans — landed"): snapshot `clanTiles` is flattened [tile index, clan id] pairs, one per
 // player building of any clan, sent only while there are 2+ clans and only when it changed (a full

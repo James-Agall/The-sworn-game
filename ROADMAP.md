@@ -2292,6 +2292,41 @@ QUEUE "RimWorld/Stardew gap closure" G8 (extends "Building blueprints" and G7). 
   (G1); animals do not pen themselves in a yard (the annex prefab keeps its own animals); a fence piece has no build
   menu entry of its own (blueprints only).
 
+## Named roles — landed 2026-11-20 (Elder, merchant, priest, smith, captain: own dialogue, quests and favours)
+
+QUEUE G7 "a real quest-giver role with its own dialogue / quests" / STATUS item "named-role dialogue". Data in
+`shared/src/namedRoles.ts`; dialogue trees `smith` / `captain` (+ new choices on `trader` / `questGiver` / `leader`) in
+`shared/src/herolife.ts`; server `server/src/herolife.ts` (talk, favours, marks), `server/src/quests.ts` (role
+quests), `server/src/interiors.ts` (indoor binding). Test `server/named-roles-test.mjs` (in-process, sections P T S C M I F).
+- **Named people**: one name per settlement and role (`namedRoleName`: Elder <n> (unchanged hash), Merchant, Brother,
+  Smith, Captain), the same person indoors and out: the market trader (workers[0]) and the shop's second keeper are the
+  Merchant; the chapel priest outdoors and at the altar are the Brother (the outdoor names used to hash the mob id).
+  New NPC roles **smith** (the keeper of a settlement Blacksmith interior) and **captain** (outdoors: the garrison's
+  knight, else its lowest-id guard, while not fighting; indoors: a settlement barracks, KnightPost / Militia tiles).
+  Ordinary keepers (bakery, tavern, shop slot 1) stay "trader" by role but are not the merchant: the role choices are
+  shown only when the talk's name is the settlement's named person (`namedRoleOf`).
+- **Their quests** (`postRoleQuest`, dialogue `roleWork`): smith deliver iron / wood / stone; merchant wool / cloth / fruit
+  / meat; priest alms grain / fruit / cloth (short goods first, never a good already asked); captain clearCamp (defend
+  first at night). One open per person per clan, their own cooldown (`SiteDiplo.roleNext`, 1 game day), not counted
+  against the board's QUEST_MAX_PER_SITE (`boardQuestsFor`). Title "<Name>: <board title>", snapshot `giverRole` /
+  `giver` (the Quests panel needed no change). Rewards / penalties as board quests; completion adds favour
+  (`SiteDiplo.favour[role]`, saved with the site).
+- **Favours** (`rolePerk`, once a game day, after ROLE_FAVOUR_NEEDED = 1 service; greyed "Help the forge first" /
+  "Not again today"): smith +2 tools; merchant 5 of the settlement's most plentiful good (from its stock); priest heals
+  the hero and fills rest; captain's scouts reveal every camp within 60 tiles and name the nearest. A helped person's
+  greeting remembers it (`{favour}` token, `ROLE_REMEMBERS`).
+- **Elder**: "Who's who in <site>?" lists the named people present (`namedRolesAt`: smith needs a forge in the template,
+  captain a guard or a barracks) and the herald.
+- **"!" marks**: `questMarksFor` adds the merchant / priest / captain mobs with work for you (`namedRoleMark`: an
+  unaccepted quest of theirs, or off cooldown with nothing open; captain only with a camp near or at night); indoors
+  `InteriorNpcSnapshot.quest` and the client draws the name gold with "! " (`client/src/interior.ts`).
+- **Family extras** (smallest next step of PLAN-family-and-succession): your own kin greet you as kin (`{kin}`,
+  `KIN_GREETINGS` spouse / child / parent / sibling, one line a game day; a spouse mentions the little ones when a young
+  child of yours lives). Anyone else: the old "Yes?".
+- **Not done**: no new sprites (the captain uses the guard's art, the smith the villager keeper art); no named-role
+  quest chains / unique characters; the captain's defend quest is the board's defend rule; no "!" over the indoor
+  NPC sprite itself (the name is marked); the interior "!" is decided on entering.
+
 ## Gap closure G7 — landed 2026-11-10 (settlements: turned / mirrored, a real quest giver, 14 templates)
 
 QUEUE "RimWorld/Stardew gap closure" G7 (extends "Settlement templates — landed" below). Format / transforms in

@@ -1441,3 +1441,32 @@ A normal game (gates on); Creative "Unlock all" off. The new buildings are in th
 8. Crafting caps (all workstations): with 20 Iron blooms in store, the Bloomery's workstation menu greys out "Iron bloom"
    with "Iron bloom: 20 in store (enough: the cap is 20)"; with 40 charcoal the Charcoal Burner's batch is greyed out the
    same way. A batch started at 19 that reaches the cap meanwhile ends with that message and no output (inputs kept).
+
+## Named people in settlements: Elder, merchant, priest, smith, captain (2026-11-20)
+Creative game is quickest (World tab: relation to a settlement, time of day; "Stamp here" a settlement template that
+has a forge, e.g. Street village / Green village / any town). Hero on foot. Relation Neutral or better.
+1. Elder at the keep (E): a new choice **Who's who in <name>?** lists the Elder, Merchant <name>, Brother <name>,
+   Smith <name> (only with a forge), Captain <name> (a garrison guard) and the Reeve / Bailiff / Herald.
+2. Walk up to the market trader outside: the dialogue header says **Merchant <name>**; enter the settlement's Market:
+   the shop's second keeper is the same Merchant. The chapel priest outside and at the altar are the same **Brother**.
+3. A garrison guard standing at ease: E offers **Captain <name>** (roleLabel "Captain of the watch"). With several
+   people near, the "Who do you speak to?" chooser lists him.
+4. Gold **"!"**: over the merchant, the priest and (when a camp is within 60 tiles, or at night) the captain while they
+   have work for you; inside the forge the smith's name is gold with "! " in front.
+5. Enter the forge (Blacksmith): the keeper is **Smith <name>**. "Need anything fetched for the forge?" posts his own
+   quest (Quests panel title "Smith <name>: Deliver 20 iron to <site>"; a toast says the smith asks). Asking again does
+   not add a second one. "I'll do it" accepts; with the goods in your stock, "Deliver" completes it from the dialogue.
+6. Talk to him again: the greeting adds "Ha! The one who keeps my forge fed..."; **Could you forge me a few tools?**
+   (greyed "Help the forge first" before) gives +2 tools, then greys "Not again today". Asking for work again: "I've
+   enough to be going on with. Ask me again tomorrow."
+7. Captain: no camp near -> "No camp within a day's march". Spawn / stamp a bandit camp within 60 tiles: he posts
+   "Captain <name>: Clear the camp near <site>"; burn its hearth: paid, favour. **What do your scouts report?** then
+   names the camp count and the nearest, and reveals them on the minimap.
+8. Priest: "How can I help the poor here?" (grain / fruit / cloth alms); after delivering, **Bless me, Brother.**
+   heals the hero and fills rest (once a day). Merchant: "Need anything fetched?" (wool / cloth / fruit / meat); after,
+   **Anything put by for a friend?** hands you 5 of the settlement's most plentiful good.
+9. The settlement's own board (Herald / Elder "Do you need help") still posts up to 2 quests; the named people's
+   quests do not count against it.
+10. Family extras: with a spouse (creative World tab "Family" row), E on your spouse: a spouse greeting ("There you
+    are...") instead of "Yes?"; with a baby at home it adds "The little ones ask after you every night." A grown child /
+    sibling / parent greets as kin; anyone else as before.

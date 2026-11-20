@@ -20,6 +20,7 @@ import { adjustRelation, attackerClan, overgrownCampNear } from "./sites.js";
 import { clanById, withClan } from "./clans.js";
 import { broadcastEvent } from "./net.js";
 import { isNightNow } from "./tiles.js";
+import { namedRoleName, roleQuestGood, roleQuestKinds, type QuestRole } from "@colony/shared/namedRoles";
 import { clanInRange, diploOf, gainRelation, standingTown, tierOf, tilesToWalls } from "./diplomacy.js";
 
 export interface Quest {
@@ -42,6 +43,8 @@ export interface Quest {
   need?: number;
   // World streaming phase 5: a "help us" clearCamp (the camp threatens to overrun the settlement by expiresTick).
   help?: boolean;
+  // Named roles: asked by the settlement's smith / merchant / priest / captain (not its board: no board cap / cooldown).
+  giver?: QuestRole;
 }
 
 export const quests: Quest[] = [];
@@ -58,6 +61,8 @@ function toClan(clanId: number, category: "milestone" | "raid" | "build", text: 
 }
 
 const openFor = (clanId: number, siteId: string) => quests.filter((q) => q.clan === clanId && q.siteId === siteId);
+// The settlement's board (QUEST_MAX_PER_SITE applies): its quests to this clan that no named person asked for.
+export const boardQuestsFor = (clanId: number, siteId: string) => openFor(clanId, siteId).filter((q) => !q.giver);
 const nextDawnTick = () => {
   const cycle = DAY_TICKS + NIGHT_TICKS;
   return (Math.floor(state.cycleTick / cycle) + 1) * cycle;
@@ -81,7 +86,7 @@ function hostileMobsNear(s: SiteState, range: number): Mob[] {
   return out;
 }
 
-function campNear(s: SiteState, clanId: number): HearthState | undefined {
+export function campNear(s: SiteState, clanId: number): HearthState | undefined {
   let best: HearthState | undefined;
   let bestD = Infinity;
   for (const h of hearths.values()) {
@@ -104,10 +109,10 @@ function shortGood(s: SiteState, clanId: number): TradeGood | undefined {
 }
 
 // Builds (and posts) a quest of `kind` from s to clanId, or returns why it can't.
-function postQuest(s: SiteState, clanId: number, kind: QuestKind): Quest | string {
+function postQuest(s: SiteState, clanId: number, kind: QuestKind, giver?: QuestRole): Quest | string {
   const factor = QUEST_TIER_REWARD[tierOf(clanId, s)];
   const now = state.cycleTick;
-  const base = { id: nextQuestId, clan: clanId, siteId: s.id, kind, postedTick: now, expiresTick: now + QUEST_EXPIRE_TICKS, accepted: false, relation: QUEST_RELATION_GAIN[kind], x: s.keepX, y: s.keepY };
+  const base = { id: nextQuestId, clan: clanId, siteId: s.id, kind, postedTick: now, expiresTick: now + QUEST_EXPIRE_TICKS, accepted: false, relation: QUEST_RELATION_GAIN[kind], x: s.keepX, y: s.keepY, ...(giver ? { giver } : {}) };
   let q: Quest;
   if (kind === "defend") {
     if (!isNightNow()) return "defend quests are posted at night";
@@ -122,20 +127,28 @@ function postQuest(s: SiteState, clanId: number, kind: QuestKind): Quest | strin
     const reward = QUEST_CLEAR_CAMP_REWARD_BASE + QUEST_CLEAR_CAMP_REWARD_PER_GUARDIAN * h.garrison;
     q = { ...base, x: h.x, y: h.y, targetId: h.siteId, reward: Math.round(reward * factor) };
   } else {
-    const good = shortGood(s, clanId);
+    // Named roles: the giver's own goods (the smith wants iron, wood or stone), short ones first.
+    const good = giver
+      ? roleQuestGood(giver, s.stock, new Set(openFor(clanId, s.id).map((q) => q.good)), QUEST_DELIVER_SHORT, Math.random())
+      : shortGood(s, clanId);
     if (!good) return "it lacks nothing";
     const qty = QUEST_DELIVER_QTY[s.template] ?? QUEST_DELIVER_DEFAULT_QTY;
     q = { ...base, good, qty, reward: Math.round(QUEST_DELIVER_REWARD_PRICE_MULT * TRADE_BASE_PRICE[good] * qty * factor) };
   }
   nextQuestId++;
   quests.push(q);
-  diploOf(s, clanId).questNextTick = now + QUEST_COOLDOWN_TICKS;
+  const d = diploOf(s, clanId);
+  if (giver) (d.roleNext ??= {})[giver] = now + QUEST_COOLDOWN_TICKS;
+  else d.questNextTick = now + QUEST_COOLDOWN_TICKS;
   bump();
-  toClan(clanId, "milestone", `${s.name} asks for help: ${questTitle(q, s)} (${q.reward} gold). Open Quests to accept`);
+  toClan(clanId, "milestone", `${giver ? namedRoleName(s.id, giver) : s.name} asks for help: ${questTitle(q, s)} (${q.reward} gold). Open Quests to accept`);
   return q;
 }
 
 function questTitle(q: Quest, s: SiteState): string {
+  return q.giver ? `${namedRoleName(s.id, q.giver)}: ${boardTitle(q, s)}` : boardTitle(q, s);
+}
+function boardTitle(q: Quest, s: SiteState): string {
   if (q.kind === "defend") return `Defend ${s.name} tonight`;
   if (q.kind === "clearCamp" && q.help) return `Help ${s.name}: break ${q.targetId ? sites.get(q.targetId)?.name ?? "the camp" : "the camp"}`;
   if (q.kind === "clearCamp") return `Clear the camp near ${s.name}`;
@@ -165,7 +178,12 @@ function completeQuest(q: Quest, s: SiteState) {
   clan.stock.gold = (clan.stock.gold ?? 0) + q.reward;
   s.stock.gold = Math.max(0, (s.stock.gold ?? 0) - q.reward);
   const gained = gainRelation(q.clan, s, q.relation, "quest");
-  toClan(q.clan, "milestone", `Quest complete: ${questTitle(q, s)}. +${q.reward} gold${gained >= 0.05 ? `, relation +${gained.toFixed(1)}` : ""}`);
+  // Named roles: the giver remembers the service (their favour opens; shared/src/namedRoles.ts ROLE_PERKS).
+  if (q.giver) {
+    const d = diploOf(s, q.clan);
+    (d.favour ??= {})[q.giver] = (d.favour[q.giver] ?? 0) + 1;
+  }
+  toClan(q.clan, "milestone", `Quest complete: ${questTitle(q, s)}. +${q.reward} gold${gained >= 0.05 ? `, relation +${gained.toFixed(1)}` : ""}${q.giver ? `. ${namedRoleName(s.id, q.giver)} will remember it` : ""}`);
 }
 
 function failQuest(q: Quest, s: SiteState, why: string, penalty: number) {
@@ -181,7 +199,7 @@ export function scanQuests(force = false): Quest[] {
   for (const s of sites.values()) {
     if (!standingTown(s) || !s.sighted) continue;
     for (const clan of clans) {
-      if (postBlock(s, clan.id) || openFor(clan.id, s.id).length >= QUEST_MAX_PER_SITE) continue;
+      if (postBlock(s, clan.id) || boardQuestsFor(clan.id, s.id).length >= QUEST_MAX_PER_SITE) continue;
       // Forts phase G: an overgrown camp nearby: posts more often, and asks for the camp first.
       const hot = !!overgrownCampNear(s);
       const chance = QUEST_POST_CHANCE * (hot ? CAMP_QUEST_CHANCE_MULT : 1);
@@ -226,6 +244,24 @@ export function forcePostQuest(siteId: string, clanId: number, kind: QuestKind):
   const s = sites.get(siteId);
   const block = postBlock(s, clanId);
   return block || postQuest(s!, clanId, kind);
+}
+
+// Named roles: one of the settlement's named people asks this clan for help (their kinds / goods; one open quest per
+// person, their own cooldown, not counted against the board's cap). Returns the quest, or why not ("cooldown",
+// "open", or the post refusal).
+export function postRoleQuest(siteId: string, clanId: number, role: QuestRole): Quest | string {
+  const s = sites.get(siteId);
+  const block = postBlock(s, clanId);
+  if (block) return block;
+  if (openFor(clanId, s!.id).some((q) => q.giver === role)) return "open";
+  if ((s!.diplo?.[clanId]?.roleNext?.[role] ?? 0) > state.cycleTick) return "cooldown";
+  let why = "";
+  for (const kind of roleQuestKinds(role, isNightNow())) {
+    const q = postQuest(s!, clanId, kind, role);
+    if (typeof q !== "string") return q;
+    why ||= q;
+  }
+  return why;
 }
 
 // sim.ts every tick: expiry, defend success at dawn, settlements that fell / turned hostile, the scan.
@@ -325,6 +361,7 @@ export function questsForSnapshot(clanId: number): QuestSnapshot[] {
       reward: q.reward, relation: q.relation, penalty: q.accepted ? QUEST_FAIL_PENALTY : QUEST_IGNORE_PENALTY,
       ticksLeft: Math.max(0, q.expiresTick - state.cycleTick), accepted: q.accepted, x: q.x, y: q.y,
       ...(q.good ? { good: q.good, qty: q.qty } : {}), ...(q.kind === "defend" ? { progress: q.kills ?? 0, need: q.need } : {}),
+      ...(q.giver ? { giverRole: q.giver, giver: namedRoleName(s.id, q.giver) } : {}),
     });
   }
   return out;

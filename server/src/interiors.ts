@@ -39,9 +39,10 @@ import { isDuskNow } from "./structures.js";
 import { MINE_LABEL, isLayeredMine, isMineTile, mineLayerResourcesText } from "@colony/shared/mines";
 import { mineHidesMiners, mineView } from "./mines.js";
 import {
-  type ChoiceRt, type TalkInside, closeTalk, furnitureTalk, heroSpeedMult, lifeOf, nameFor, packWeight, restHeroFully,
+  type ChoiceRt, type TalkInside, closeTalk, furnitureTalk, heroSpeedMult, lifeOf, nameFor, namedRoleMark, packWeight, restHeroFully,
   handlePersonalCraft, setHeroResting, startTalk, stopHeroBusy, talkColorFor, toast,
 } from "./herolife.js";
+import { namedRoleName, type QuestRole } from "@colony/shared/namedRoles";
 
 // ---- chests (saved) ----
 const homeDesigns=new Map<string,HomeDesign>();
@@ -161,13 +162,25 @@ function bindNpcs(p: Player, key: string, tx: number, ty: number, map: InteriorM
   if (acc.kind === "site") {
     const s = acc.site;
     const one = slots("1")[0];
+    // Named roles (shared/src/namedRoles.ts): the Elder in the hall, the priest at the altar, the smith at the forge, the
+    // captain in a barracks (a settlement's barracks is a hall-type room); anyone else keeps the counter.
+    const tile = state.tiles[tileIndex(tx, ty)] as TileType;
+    const barracks = tile === TileType.KnightPost || tile === TileType.MilitiaPost || tile === TileType.MilitiaCamp2 || tile === TileType.MilitiaCamp3;
     if (one) {
-      if (id === "hall") put(one, { role: "leader", name: `Elder ${nameFor(s.id)}`, site: s }, "villager", "keeper");
-      else if (id === "church") put(one, { role: "questGiver", name: `Brother ${nameFor(`${s.id}:priest`)}`, site: s }, "bishop", "keeper");
+      if (barracks) put(one, { role: "captain", name: namedRoleName(s.id, "captain"), site: s }, "knight", "keeper");
+      else if (id === "hall") put(one, { role: "leader", name: namedRoleName(s.id, "elder"), site: s }, "villager", "keeper");
+      else if (id === "church") put(one, { role: "questGiver", name: namedRoleName(s.id, "priest"), site: s }, "bishop", "keeper");
+      else if (id === "smithy") put(one, { role: "smith", name: namedRoleName(s.id, "smith"), site: s }, "villager", "keeper");
       else put(one, { role: "trader", name: nameFor(`${s.id}:${key}:keeper`), site: s }, "villager", "keeper");
     }
     const two = slots("2")[0];
-    if (two) put(two, { role: "trader", name: nameFor(`${s.id}:trader`), site: s }, "villager", "keeper");
+    if (two) put(two, { role: "trader", name: namedRoleName(s.id, "trader"), site: s }, "villager", "keeper");
+    // A "!" by the name of a named person with work for you (as over the merchant / priest / captain outdoors).
+    const QR: Partial<Record<NpcRole, QuestRole>> = { trader: "trader", questGiver: "priest", smith: "smith", captain: "captain" };
+    for (const b of out) {
+      const r = QR[b.role];
+      if (r && b.name === namedRoleName(s.id, r) && namedRoleMark(p.clan ?? 0, s, r)) b.snap.quest = true;
+    }
     const vs = slots("v").slice(0, id === "house" || id === "church" ? 1 : 0);
     vs.forEach((v, i) => put(v, { role: "villager", name: nameFor(`${s.id}:${key}:v${i}`), site: s }, "villager", "resident"));
   } else {

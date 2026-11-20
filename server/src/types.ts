@@ -519,6 +519,10 @@ export interface SiteDiplo {
   // Villager memory: what this clan has done for / to the settlement, for good (never reset daily). The villagers'
   // greeting mentions the most notable one (shared/src/villagerTalk.ts).
   deeds?: SiteDeeds;
+  // Named roles (shared/src/namedRoles.ts): quests done for each named person (their favour) and the earliest tick
+  // each may ask this clan again.
+  favour?: Partial<Record<"trader" | "priest" | "smith" | "captain", number>>;
+  roleNext?: Partial<Record<"trader" | "priest" | "smith" | "captain", number>>;
 }
 export interface SiteDeeds {
   defended: number;
