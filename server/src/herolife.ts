@@ -1693,7 +1693,7 @@ export function heroLifeDebug(p: Player) {
 // Player crafting uses the existing progression, artisan and forge definitions.
 interface PersonalRecipe {
  id:string; label:string; amount:number; seconds:number; level?:number; tier?:number; stationLevel?:number;
- stock?:Partial<Record<ResourceKey,number>>; items?:Partial<Record<ItemId,number>>; needs?:Partial<Record<ItemId,number>>;
+ stock?:Partial<Record<ResourceKey,number>>; stockReserve?:Partial<Record<ResourceKey,number>>; items?:Partial<Record<ItemId,number>>; needs?:Partial<Record<ItemId,number>>;
  item?:ItemId; stockOutput?:ResourceKey; gear?:'armour'|'weapon'; gradeBonus?:number;
  // The station's production cap on the output (items: the recipe's cap; stock: the artisan's stockCap). The hero's own
  // batch stops there too: no uncapped fallback (2026-11-20).
@@ -1714,7 +1714,7 @@ function personalStation(p:Player,target?:{tx:number;ty:number}) {
  return st && ownerAt(tileIndex(st.tx,st.ty))===0 && clanIdAt(st.tx,st.ty)===(p.clan??0) && tileCenterDist(p,st.tx,st.ty)<=3 ? st:null;
 }
 export function playerStationRecipes(tile:TileType):PersonalRecipe[] {
- const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stationLevel:r.stationLevel,gradeBonus:r.gradeBonus,stock:r.stock,items:r.items,needs:r.needs,item:r.output,cap:r.cap??outputCap(r.output)}));
+ const rows:PersonalRecipe[]=stationRecipes(tile).map(r=>({id:r.id,label:r.label,amount:r.amount,seconds:r.seconds??30,level:r.workerLevel,stationLevel:r.stationLevel,gradeBonus:r.gradeBonus,stock:r.stock,stockReserve:r.stockReserve,items:r.items,needs:r.needs,item:r.output,cap:r.cap??outputCap(r.output)}));
  const r=CRAFT_RECIPES[tile];
  if(r)rows.push({id:'artisan:'+tile,label:({clothes:'Sew clothes',tools:'Forge tools',luxuryItems:'Craft luxury goods',alcohol:'Brew ale',gold:'Serve drinks'} as Record<string,string>)[r.output]??r.output,amount:r.outputAmount??1,seconds:30,stock:r.inputs,stockOutput:r.output,cap:r.stockCap});
  if(tile===TileType.Blacksmith)for(const tier of [1,2,3])for(const gear of ['weapon','armour'] as const)rows.push({id:`forge:${gear}:${tier}`,label:`Forge tier ${tier} ${forgeItems(gear,tier).bronze?'bronze ':''}${gear==='weapon'?'weapons':'armour'}`,level:gatesOpen()?undefined:smithLevelForGearTier(tier),amount:1,seconds:FORGE_TICKS[gear]/TICK_RATE,tier,stock:forgeCost(gear,tier),items:forgeItems(gear,tier),gear});
@@ -1729,7 +1729,7 @@ function personalRecipeBlock(p:Player,r:PersonalRecipe,st:{tx:number;ty:number;t
   const have=r.item?itemCount(r.item):r.stockOutput?Math.floor(state.stock[r.stockOutput]??0):0;
   if(have>=r.cap)return `${r.item?PROGRESSION.items[r.item].label:r.stockOutput}: ${have} in store (enough: the cap is ${r.cap})`;
  }
- for(const[k,n]of Object.entries(r.stock??{}))if(!state.creative&&state.stock[k as ResourceKey]<(n??0))return `Not enough ${k} in stockpile`;
+ for(const[k,n]of Object.entries(r.stock??{}))if(!state.creative&&state.stock[k as ResourceKey]<(n??0)+(r.stockReserve?.[k as ResourceKey]??0))return `Not enough ${k} in stockpile`;
  for(const id of new Set([...Object.keys(r.items??{}),...Object.keys(r.needs??{})]) as Set<ItemId>)if(itemCount(id)<Math.max(r.items?.[id]??0,r.needs?.[id]??0))return `Needs ${PROGRESSION.items[id].label}`;
  return '';
 }

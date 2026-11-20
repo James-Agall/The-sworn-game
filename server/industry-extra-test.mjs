@@ -229,9 +229,13 @@ result(it.goldDust === 1 && it.washedTin === 3 && (it.goldOre ?? 0) === 0 && (it
 // iron ore is crushed too (3 ore -> 4 crushed iron), stone or no stone
 await setExact("crushedIron", 0);
 const stock0 = await stock();
-await setStock({ iron: 3, rock: 0 });
+// ...but never below the lamp / pump reserve (6 iron): 8 in store crushes nothing, 9 crushes one batch and keeps 6
+await setStock({ iron: 8, rock: 0 });
+await runUntil(async () => (await total("crushedIron")) >= 4, 6, 40);
+result((await total("crushedIron")) === 0 && (await stock()).iron === 8, `iron at 8 (reserve 6 + 3 needed = 9): nothing crushed (${await total("crushedIron")} crushed, iron ${(await stock()).iron})`);
+await setStock({ iron: 9, rock: 0 });
 await runUntil(async () => (await total("crushedIron")) >= 4);
-result((await total("crushedIron")) === 4 && (await stock()).iron === 0, `the Stamp Mill crushes iron ore: 3 ore -> ${await total("crushedIron")} crushed (iron ${(await stock()).iron})`);
+result((await total("crushedIron")) === 4 && (await stock()).iron === 6, `the Stamp Mill crushes iron ore down to the reserve: 3 ore -> ${await total("crushedIron")} crushed (iron ${(await stock()).iron}, kept 6 for lamps / pumps)`);
 await setStock({ iron: stock0.iron, rock: stock0.rock });
 await setExact("crushedIron", 0);
 const smInfo = await info(SM.x, SM.y);

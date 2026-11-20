@@ -3,7 +3,7 @@
 // gates, hand crafting, the `progression` snapshot and old-save grandfathering.
 import { TICK_RATE, TileType, type ProgressionSnapshot } from "@colony/shared/protocol";
 import {
-  type ItemId, type Profession, type ProgressContext, type Recipe, MAX_QUALITY, PROFESSION_LABEL, PROGRESSION,
+  type ItemId, type Profession, type ProgressContext, type Recipe, type StockKey, MAX_QUALITY, PROFESSION_LABEL, PROGRESSION,
   PROGRESSION_BUILDING_LABEL, QUALITY_GRADES, TIER_SPEED_BONUS, WORKER_XP_LEVELS, levelForXp, recipeById, recipeCostText,
   FOOD_ITEMS, TABLEWARE_HAPPINESS, TABLEWARE_MIN, chainBuildingTiles, outputCap, stationRecipes, unmetRequirements, xpToNext,
 } from "@colony/shared/progression";
@@ -261,7 +261,7 @@ const stationJobs = new Map<string, StationJob>();
 export function recipeReady(r: Recipe): boolean {
   if (r.seasonsOnly && state.seasonsOff) return false;
   if (r.cap !== undefined && itemCount(r.output) >= r.cap) return false;
-  if (!state.creative) for (const [k, n] of Object.entries(r.stock ?? {})) if (state.stock[k as ResourceKey] < (n ?? 0)) return false;
+  if (!state.creative) for (const [k, n] of Object.entries(r.stock ?? {})) if (state.stock[k as ResourceKey] < (n ?? 0) + (r.stockReserve?.[k as StockKey] ?? 0)) return false;
   for (const [id, n] of Object.entries({ ...(r.items ?? {}), ...(r.needs ?? {}) }) as [ItemId, number][]) if (itemCount(id) < n) return false;
   return true;
 }
@@ -274,7 +274,7 @@ export function stationIdleReason(t: TileType, level = 1): string {
     if (r.seasonsOnly && state.seasonsOff) return `${name}: not needed (no winters)`;
     if ((r.stationLevel ?? 1) > 1 && level < r.stationLevel!) return `${name}: needs a level-${r.stationLevel} ${buildingLabel(t)}`;
     if (r.cap !== undefined && itemCount(r.output) >= r.cap) return `${name}: ${itemCount(r.output)} in store (enough)`;
-    const short = Object.entries(r.stock ?? {}).filter(([k, n]) => !state.creative && state.stock[k as ResourceKey] < (n ?? 0)).map(([k]) => k);
+    const short = Object.entries(r.stock ?? {}).filter(([k, n]) => !state.creative && state.stock[k as ResourceKey] < (n ?? 0) + (r.stockReserve?.[k as StockKey] ?? 0)).map(([k]) => k);
     for (const [id, n] of Object.entries({ ...(r.items ?? {}), ...(r.needs ?? {}) }) as [ItemId, number][]) if (itemCount(id) < n) short.push(PROGRESSION.items[id].label);
     return short.length > 0 ? `${name}: short of ${short.join(", ")}` : `${name}: ready`;
   });

@@ -4,6 +4,7 @@
 // builds its locked "needs: X" build-menu text, Next steps and Craft-by-hand panel from the server's
 // `progression` snapshot, which is computed from this table.
 import { TileType } from "./protocol.js";
+import { MINE_IRON_RESERVE } from "./mines.js";
 import { LEAD_GLAZE_GRADE_BONUS, MINT_COINS_PER_BATCH } from "./industry.js";
 
 export type ItemId =
@@ -82,6 +83,8 @@ export interface Recipe {
   amount: number;
   // Stock resources and items used up.
   stock?: Partial<Record<StockKey, number>>;
+  // Stock that must stay behind: the recipe is only ready while the store holds this much MORE than `stock` asks.
+  stockReserve?: Partial<Record<StockKey, number>>;
   items?: Partial<Record<ItemId, number>>;
   // Winter: made by a station's worker only while seasons are on (no winter: nobody needs it). Hand / personal
   // crafting is not affected.
@@ -264,7 +267,7 @@ export const PROGRESSION = {
     // The Stamp Mill's ore washer: gold first, then tin, then sand from stone.
     { id: "goldDust", label: "Crush and wash gold ore", output: "goldDust", amount: 1, items: { goldOre: 3 }, station: TileType.StampMill, seconds: 40, cap: 20 },
     { id: "washedTin", label: "Crush and wash tin ore", output: "washedTin", amount: 3, items: { tinOre: 2 }, station: TileType.StampMill, seconds: 30, cap: 20 },
-    { id: "crushedIron", label: "Crush iron ore", output: "crushedIron", amount: 4, stock: { iron: 3 }, station: TileType.StampMill, seconds: 30, cap: 20 },
+    { id: "crushedIron", label: "Crush iron ore", output: "crushedIron", amount: 4, stock: { iron: 3 }, stockReserve: { iron: MINE_IRON_RESERVE }, station: TileType.StampMill, seconds: 30, cap: 20 },
     { id: "sand", label: "Crush stone to sand", output: "sand", amount: 2, stock: { rock: 3 }, station: TileType.StampMill, seconds: 20, cap: 30 },
     // Clay pit and pottery. The Clay Pit's digger digs clay (no inputs); the Kiln's potter fires it with wood (the
     // crucible hot, with charcoal, by a level-2 potter), the first ready recipe under its cap in this order.

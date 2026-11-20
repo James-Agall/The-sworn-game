@@ -4930,6 +4930,9 @@ James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-w
   (layer 2+, no timber props in store) caves in (the Mine closes for the day), the deep layer without an Air vent gives bad
   air (same hurt, stays open); skipped while digging (its own roll), in a closed Mine, outside, or with the gates off.
   Tests: `mines` (hazard / crushed-iron smelt), `industry-extra` (Stamp Mill crush).
+- **Stamp Mill iron reserve (B3, 2026-11-20)**: "Crush iron ore" keeps `MINE_IRON_RESERVE` (6 = a Miner's lamp 2 + a Bucket
+  pump 4 iron) in the stock: a recipe's `stockReserve` means ready only at `stock + reserve` (station worker, idle reason,
+  the hero's own batch). `industry-extra` checks 8 iron crushes nothing, 9 crushes one batch and keeps 6.
 - Not done: soldiers walking into the interior (deferred: the abstract assault stays; interiors, interiorMobs and the
   client draw heroes only, so soldiers inside would need interior presence, pathing, sprites, per-soldier combat and
   save handling); dedicated art.

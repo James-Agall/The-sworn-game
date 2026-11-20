@@ -129,6 +129,10 @@ export const MINE_BAD_AIR_SPEED = 0.5;
 // Deep mines without a Bucket pump in store: flooded (closed for the day) at this chance per dawn.
 export const MINE_FLOOD_CHANCE = 0.3;
 
+// The Stamp Mill's "Crush iron ore" never draws the iron stock below this: what a Miner's lamp (2 iron) and a Bucket pump
+// (4 iron) cost, so crushing cannot starve the mine fittings.
+export const MINE_IRON_RESERVE = 6;
+
 // ---- the hero digging at a Mine's ore face (inside, on an open layer; 2026-11-20) ----
 // A batch digs this much of one of the layer's resources (into the stores, at the layer's cap like the miners).
 export const MINE_HERO_DIG_AMOUNT = 2;
