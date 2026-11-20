@@ -261,29 +261,35 @@ await hook("heroLife", { needs: false, pack: {}, skills: { pottery: 0, mining: 0
 send({ type: "heroCraft", recipe: "crucible" });
 let life = await hook("heroLife", {});
 result(!life.snap.work, "a crucible needs Pottery level 2 at the workstation");
-send({ type: "heroCraft", recipe: "tableware" });
-life = await hook("heroLife", {});
-result(!!life.snap.work, `the hero starts a tableware batch at the Kiln: ${JSON.stringify(life.snap.work)}`);
-await ff(25 * 20 + 100);
-life = await hook("heroLife", {});
-const tw = await total("tableware");
-result(!life.snap.work && life.life.skills.pottery === 25 && tw === 14, `personal tableware done: pottery XP ${life.life.skills.pottery}, tableware 12 -> ${tw}`);
+// Since 2026-11-20 the hero's own batch obeys the station's cap too (no uncapped fallback): at the cap it is refused,
+// one under it starts. Completion amounts are covered in player-workstations-test, where no station worker competes.
+const hero = async (recipe) => { send({ type: "heroCraft", recipe }); return hook("heroLife", {}); };
+const stop = async () => { send({ type: "heroAction", action: "stopWork" }); await hook("heroLife", {}); };
+life = await hero("tableware");
+result(!life.snap.work, `the hero's tableware batch is refused at the cap (12 in store): ${JSON.stringify(life.snap.work)}`);
+await setExact("tableware", 11);
+life = await hero("tableware");
+result(!!life.snap.work, `one under the cap the hero starts a tableware batch at the Kiln: ${JSON.stringify(life.snap.work)}`);
+await stop();
 await hook("heroLife", { skills: { pottery: 400, mining: 0 } });
-send({ type: "heroCraft", recipe: "crucible" });
-life = await hook("heroLife", {});
-result(!!life.snap.work, "Pottery level 2: the hero may fire a crucible");
-send({ type: "heroAction", action: "stopWork" });
-await hook("heroLife", {});
-// The Clay Pit: the digger idles at its cap, the hero still digs 2 clay.
+await setExact("crucible", 1);
+life = await hero("crucible");
+result(!!life.snap.work, "Pottery level 2 and one under the cap: the hero may fire a crucible");
+await stop();
+// The Clay Pit: at its cap (60) the hero's dig is refused, one batch under it starts.
 await setExact("clay", 60);
 await tp(PIT.x + 1, PIT.y);
-send({ type: "heroCraft", recipe: "clay" });
-life = await hook("heroLife", {});
-const digging = !!life.snap.work;
-await ff(20 * 20 + 100);
-life = await hook("heroLife", {});
-const clayNow = await total("clay");
-result(digging && clayNow === 62 && life.life.skills.mining === 20, `the hero digs clay at the pit: clay ${clayNow}, mining XP ${life.life.skills.mining}`);
+life = await hero("clay");
+const refused = !life.snap.work;
+await setExact("clay", 58);
+life = await hero("clay");
+result(refused && !!life.snap.work, `the hero's clay dig is refused at the cap and starts one batch under it (refused=${refused})`);
+await stop();
+
+// Back to the caps so the station workers idle and the before / after item counts below are exact.
+await setExact("tableware", 12);
+await setExact("crucible", 2);
+await setExact("clay", 60);
 
 // 11. save / load
 await setItems({ roofTiles: 2 }, 2);
