@@ -1,7 +1,7 @@
 // Scripted test: 10 monster kinds.
 //   a) per-kind spawning: restarts the world (day 0), observes NIGHTS nights, checks every spawned
 //      mob's kind is unlocked for that night's day index, that its maxHp matches the config table,
-//      that multiple distinct kinds appear, and that per-tick movement matches each kind's speed.
+//      that every spawned kind is known (one faction per night, so no variety guarantee), and that per-tick movement matches each kind's speed.
 //   b) ranged kinds: a goblinCrossbow / darkShaman that engages the player attacks from range
 //      (projectile effect drawn from its own position, distance > melee range, <= its range).
 //   c) special mechanics (troll regen, spider poison, shaman heal). These kinds unlock on days 6-10,
@@ -171,7 +171,9 @@ if (ONLY.has("a") || ONLY.has("b")) {
     const day0 = kindsByDay.get(0) ?? new Map();
     result([...day0.keys()].every((k) => DAY0_KINDS.has(k)), `day 0 only ${[...DAY0_KINDS].join("/")}: {${[...day0.keys()].join(", ")}}`);
     const distinct = new Set([...seen.values()].map((m) => m.kind));
-    result(distinct.size >= 2, `multiple distinct kinds seen: {${[...distinct].join(", ")}}`);
+    // Raid waves: each night is ONE faction (a wolf pack is a single kind), so 3 nights need not show 2 kinds. Assert
+    // only that what spawned is a known kind; day-gating and the day-0 set are checked above.
+    result(distinct.size >= 1 && [...distinct].every((k) => CONFIG[k] !== undefined), `spawned kinds are all known: {${[...distinct].join(", ")}}`);
     // Scale pass: a mob's maxHp is its config's x its rolled size (snapshot `scale`, omitted = 1).
     const badHp = [...seen.values()].filter((m) => CONFIG[m.kind] && m.maxHp !== Math.max(1, Math.round(CONFIG[m.kind].maxHp * m.scale)));
     result(badHp.length === 0, `every spawned mob's maxHp matches its kind's config x its size${badHp.length ? " — mismatches: " + badHp.map((m) => `${m.kind}:${m.maxHp}`).join(", ") : ""}`);
