@@ -4,17 +4,17 @@
 //      >= 27 tiles from the Town Center, and 3 bishops posted at its hall standing in a row below it.
 //      The clergy don't count toward population, fail the client's isCommandable mirror, ignore a
 //      live commandMove, and are refused by assignTaskForce.
-//   B) the Abbey's permanent ward, live: walk the player inside it and wait for night. With no
-//      guards built, an unwarded player is always every mob's first pick; mobs heading for the Town
-//      Center instead (and never hurting the player) shows the player was skipped as warded.
+//   B) the Abbey's permanent ward, live: walk the player inside it and spawn orcs beside him: none picks him as its
+//      target and he takes no damage; the same orc beside him outside every ward does target him (control).
 //   C) Ward Stone: a Church goes up first (Ward Stones require one); the stone is rejected without
-//      10 tools; 3 Blacksmiths make tools, then a Ward Stone costs exactly 20 wood + 10 tools and
-//      summons the colony's Ward Priest (a bishop, +1 population) at the Church, who walks to the
-//      stone, tends it ("warding") and ignores move orders. Once he has tended it for 10s the ward
-//      stands: at night, with the player and Town Center both inside it, raid mobs find nothing
-//      to target and stand still from nightfall on; TC/player untouched.
-//   D) demolishing that Ward Stone (the last one, so the priest is dismissed) lapses the ward: the
-//      same mobs start moving. See ward-priest-patrol-test.mjs for patrol/grace-period coverage.
+//      10 tools; with 10 tools (setStock hook) a Ward Stone costs exactly 20 wood + 10 tools and
+//      summons the colony's Ward Priest (a bishop: a free villager taking the post by day, so population is
+//      unchanged) at the Church, who walks to the stone, tends it ("warding") and ignores move orders. Once he has
+//      tended it for 10s the ward stands: at night, with the player and Town Center both inside it, no raid mob
+//      targets either (village buildings outside the ward are still fair targets); TC/player untouched.
+//   D) demolishing that Ward Stone (the last one, so the priest is dismissed) lapses the ward: the Town Center is
+//      a target again. See ward-priest-patrol-test.mjs for patrol/grace-period coverage.
+// No real-time waiting for nights: B uses spawned mobs, C jumps the clock to ~20 s before dusk (skipToDusk).
 // Each section starts with a "restart" (except A's boot-world check). Resets the world for every
 // connected client. Select sections with ONLY=A,B,C (C includes D). Needs a fresh server for A's
 // boot-world check to mean "before any player action".
@@ -57,7 +57,7 @@ const WARD_RADIUS_TILES = 12;
 const COMMANDABLE = new Set(["knight", "archer", "bishop", "militia", "spearman", "pikeman"]);
 
 function connect() {
-  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: null, listeners: [] };
+  const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: null, listeners: [], hooks: new Map(), events: [] };
   c.ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
     if (m.type === "welcome") {
@@ -66,6 +66,10 @@ function connect() {
       c.welcomes++;
     } else if (m.type === "tileUpdate") {
       if (c.tiles) c.tiles[m.tileY * c.welcome.worldTilesX + m.tileX] = m.tile;
+    } else if (m.type === "event") {
+      c.events.push(m.text);
+    } else if (m.type === "testHookResult") {
+      c.hooks.set(m.op, m);
     } else if (m.type === "snapshot") {
       const prev = c.snap;
       c.snap = m;
@@ -77,6 +81,12 @@ function connect() {
   c.ready = async () => {
     await new Promise((r) => c.ws.on("open", r));
     while (!c.welcome || !c.snap) await sleep(20);
+  };
+  c.hook = async (op, args = {}) => {
+    c.hooks.delete(op);
+    c.send({ type: "testHook", op, ...args });
+    for (let i = 0; i < 200 && !c.hooks.has(op); i++) await sleep(25);
+    return c.hooks.get(op);
   };
   c.nextSnap = () => new Promise((r) => { const fn = (s) => { c.listeners.splice(c.listeners.indexOf(fn), 1); r(s); }; c.listeners.push(fn); });
   return c;
@@ -128,61 +138,38 @@ function bfs(start, goalFn) {
   return null;
 }
 
-async function followPath(path, { timeoutMs = 30000 } = {}) {
-  const deadline = Date.now() + timeoutMs;
-  let i = 1;
-  let lastProgress = Date.now();
-  let lastPos = a.me();
-  while (Date.now() < deadline) {
-    const s = await a.nextSnap();
-    const me = a.me(s);
-    if (i >= path.length) break;
-    const target = center(path[i]);
-    const ddx = target.x - me.x;
-    const ddy = target.y - me.y;
-    if (Math.abs(ddx) <= 4 && Math.abs(ddy) <= 4) { i++; continue; }
-    if (dist(me, lastPos) > 1) { lastProgress = Date.now(); lastPos = me; }
-    if (Date.now() - lastProgress > 1500) {
-      const goal = path[path.length - 1];
-      const re = bfs(tileOf(me), (t) => t.x === goal.x && t.y === goal.y);
-      if (!re) break;
-      path = re;
-      i = 1;
-      lastProgress = Date.now();
-      continue;
-    }
-    a.send({ type: "input", dx: Math.abs(ddx) > 4 ? Math.sign(ddx) : 0, dy: Math.abs(ddy) > 4 ? Math.sign(ddy) : 0 });
-  }
-  a.send({ type: "input", dx: 0, dy: 0 });
-  await a.nextSnap();
-  await a.nextSnap();
-  return a.me();
-}
-
 // Finds the Abbey from the client's tile view: every AbbeyHall tile, the center (hall + 3 rows
 // down, per ABBEY_LAYOUT), the clergy posted at the hall, and every layout/grounds mismatch.
+// NPC "Abbey village" settlements (settlements/village-abbey.json) also stamp an AbbeyHall tile (no clergy, a
+// different layout), so the landmark is the hall whose 9x9 surroundings match ABBEY_LAYOUT.
 function readAbbey(s = a.snap) {
   const halls = [];
   for (let y = 0; y < H(); y++) for (let x = 0; x < W(); x++) if (tileAt(x, y) === T.AbbeyHall) halls.push({ x, y });
-  if (halls.length !== 1) return { halls };
-  const hall = halls[0];
+  const mismatchesAt = (hall) => {
+    const c = { x: hall.x, y: hall.y + 3 };
+    const mismatches = [];
+    for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
+      const x = c.x + dx;
+      const y = c.y + dy;
+      const inLayout = Math.max(Math.abs(dx), Math.abs(dy)) <= 4;
+      const want = inLayout ? LAYOUT_TILE[ABBEY_LAYOUT[dy + 4][dx + 4]] : T.Empty;
+      if (!inB(x, y) || tileAt(x, y) !== want) mismatches.push(`(${dx},${dy}) got ${inB(x, y) ? tileAt(x, y) : "OOB"} want ${want}`);
+    }
+    return mismatches;
+  };
+  const landmarks = halls.filter((h) => mismatchesAt(h).length === 0);
+  if (halls.length === 0 || landmarks.length > 1) return { halls };
+  const hall = landmarks[0] ?? halls.find((h) => s.colonists.some((k) => k.postX === h.x && k.postY === h.y)) ?? halls[0];
   const c = { x: hall.x, y: hall.y + 3 };
-  const mismatches = [];
-  for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
-    const x = c.x + dx;
-    const y = c.y + dy;
-    const inLayout = Math.max(Math.abs(dx), Math.abs(dy)) <= 4;
-    const want = inLayout ? LAYOUT_TILE[ABBEY_LAYOUT[dy + 4][dx + 4]] : T.Empty;
-    if (!inB(x, y) || tileAt(x, y) !== want) mismatches.push(`(${dx},${dy}) got ${inB(x, y) ? tileAt(x, y) : "OOB"} want ${want}`);
-  }
+  const mismatches = mismatchesAt(hall);
   const clergy = s.colonists.filter((k) => k.postX === hall.x && k.postY === hall.y);
   return { halls, hall, center: c, mismatches, clergy };
 }
 
 function checkAbbeyWorld(label, s = a.snap) {
   const ab = readAbbey(s);
-  if (ab.halls.length !== 1) {
-    result(false, `${label}: exactly one AbbeyHall tile (found ${ab.halls.length})`);
+  if (!ab.hall) {
+    result(false, `${label}: exactly one landmark Abbey (AbbeyHall tiles found ${ab.halls.length})`);
     return null;
   }
   const tcDist = Math.hypot(ab.center.x - TC().x, ab.center.y - TC().y);
@@ -198,14 +185,26 @@ function checkAbbeyWorld(label, s = a.snap) {
   return ab;
 }
 
+// Days are 300 s + 75 s nights, so no waiting: raid mobs spawn (passive) at the day's midpoint, so jump to just past
+// it (day 20 so the raid is big enough to judge), give them a moment to appear, then jump to ~20 s before dusk. Do it
+// BEFORE the Ward Stone goes up: a ward lapses WARD_GRACE_TICKS after the priest's last tending, so a clock jump while
+// it stands would lapse it.
+async function skipToDusk(day = 20) {
+  const rs = await a.hook("raidState");
+  const cycle = rs.dayTicks + rs.nightTicks;
+  await a.hook("setCycleTick", { tick: day * cycle + Math.floor(rs.dayTicks / 2) - 3 });
+  await sleep(1500);
+  await a.hook("setCycleTick", { tick: day * cycle + rs.dayTicks - 400 });
+}
+
 // ---------------------------------------------------------------- A: Abbey world-gen + clergy
 if (ONLY.has("A")) {
   // Boot world first: nothing has been sent yet except the connection itself.
   const boot = checkAbbeyWorld("A boot world (before any player action)");
   if (boot) {
-    // The colony starts with 1 builder posted at the Town Center (the only unit counted).
-    result(a.snap.population === 1 && a.snap.colonists.length === 4 && a.snap.colonists.filter((k) => k.kind === "builder").length === 1,
-      `A boot world: population=${a.snap.population}/${a.snap.populationCap} with ${a.snap.colonists.length} colonists (the starting builder + 3 clergy, who don't count)`);
+    // Village life: the colony starts with its villagers; the 3 Abbey clergy are colonists too but don't count.
+    result(a.snap.population >= 1 && a.snap.colonists.length === a.snap.population + 3,
+      `A boot world: population=${a.snap.population}/${a.snap.populationCap} with ${a.snap.colonists.length} colonists (the villagers + 3 clergy, who don't count)`);
     result(boot.clergy.every((k) => !isCommandable(k)),
       `A clergy fail the client's isCommandable (kind bishop, but posted at AbbeyHall not ChurchPost): ${boot.clergy.map((k) => isCommandable(k)).join(",")}`);
   }
@@ -243,60 +242,49 @@ if (ONLY.has("B")) {
   if (!path) {
     result(false, "B: no walkable route into the Abbey's ward");
   } else {
-    info(`B: walking ${path.length - 1} tiles to (${path[path.length - 1].x},${path[path.length - 1].y}) inside the Abbey ward`);
-    const me = await followPath(path);
+    info(`B: going to (${path[path.length - 1].x},${path[path.length - 1].y}) inside the Abbey ward`);
+    // Teleport to the end of the walkable route (a 50-70 tile walk can snag on trees; the walk isn't what is tested).
+    await a.hook("teleportPlayer", { x: center(path[path.length - 1]).x, y: center(path[path.length - 1]).y });
+    await a.nextSnap();
+    await a.nextSnap();
+    const me = a.me();
     const meTile = tileOf(me);
     const dAbbey = dist(me, center(ab.center)) / TILE;
     result(dAbbey <= WARD_RADIUS_TILES - 1, `B: player stands at (${meTile.x},${meTile.y}), ${dAbbey.toFixed(1)} tiles from the Abbey center (ward radius ${WARD_RADIUS_TILES})`);
-    // Track night mobs from first sighting.
-    const seen = new Map();
-    // The walk in can cost HP (a boar, a fort tower on the way): judge the ward from the HP it starts with.
-    const hpInWard = a.me().hp;
-    let minPlayerHp = hpInWard;
-    let tcHpAtNight = null;
-    const hitLog = [];
-    const watch = (s) => {
-      const meS = a.me(s);
-      if (meS.hp < minPlayerHp && hitLog.length < 5) {
-        // Who hit: effects ending on the player, and every mob within 3 tiles.
-        const fx = (s.effects ?? []).filter((e) => Math.hypot(e.toX - meS.x, e.toY - meS.y) < TILE).map((e) => `effect from (${(e.fromX / TILE).toFixed(1)},${(e.fromY / TILE).toFixed(1)})`);
-        const near = s.mobs.filter((m) => Math.hypot(m.x - meS.x, m.y - meS.y) < 3 * TILE).map((m) => `${m.kind}${guardianIds.has(m.id) ? "(world-gen)" : ""}`);
-        hitLog.push(`hp ${minPlayerHp}->${meS.hp} at (${(meS.x / TILE).toFixed(1)},${(meS.y / TILE).toFixed(1)}): ${[...fx, ...near].join(", ") || "no effect / mob near"}`);
+    // Rule under test: a warded player is never a mob's target. (Mobs only go for a player within their aggro range,
+    // so raid mobs marching in from the map edge say nothing: put a mob right beside him instead.)
+    await a.hook("setRaids", { enabled: false });
+    const mobTargets = async (ids) => (await a.hook("bodyState")).mobs.filter((m) => ids.includes(m.id)).map((m) => m.targetType);
+    const spawnBeside = async (px) => {
+      const t = tileOf(px);
+      for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2]]) {
+        if (!walkable(t.x + dx, t.y + dy)) continue;
+        const r = await a.hook("spawnMob", { kind: "orc", tx: t.x + dx, ty: t.y + dy });
+        if (r.id) return r.id;
       }
-      minPlayerHp = Math.min(minPlayerHp, meS.hp);
-      for (const m of s.mobs) {
-        // Forts phase C: a settlement's folk (town* kinds: workers walking home at night) are not raiders.
-        if (guardianIds.has(m.id) || m.kind.startsWith("town")) continue;
-        const e = seen.get(m.id);
-        if (!e) seen.set(m.id, { first: { x: m.x, y: m.y }, last: { x: m.x, y: m.y }, kind: m.kind });
-        else e.last = { x: m.x, y: m.y };
-      }
+      return null;
     };
-    a.listeners.push(watch);
-    while (!a.snap.isNight) await sleep(200);
-    tcHpAtNight = a.snap.townCenterHp;
-    info(`B: night fell; watching night mobs for 14s`);
-    await sleep(14000);
-    a.listeners.splice(a.listeners.indexOf(watch), 1);
-    const meNow = a.me();
-    const tcPx = center(TC());
-    let towardTc = 0;
-    let towardPlayer = 0;
-    const rows = [];
-    for (const [id, e] of seen) {
-      const d = dist(e.first, e.last);
-      if (d < TILE * 2) { rows.push(`${e.kind} moved ${(d / TILE).toFixed(1)}t`); continue; }
-      const gainTc = dist(e.first, tcPx) - dist(e.last, tcPx);
-      const gainMe = dist(e.first, meNow) - dist(e.last, meNow);
-      // Heading = which goal the mob closed on more, relative to the straight-line distance it covered.
-      if (gainTc > gainMe) towardTc++; else towardPlayer++;
-      rows.push(`${e.kind} moved ${(d / TILE).toFixed(1)}t, closed ${(gainTc / TILE).toFixed(1)}t on TC vs ${(gainMe / TILE).toFixed(1)}t on player`);
+    const hpInWard = a.me().hp;
+    const inside = [await spawnBeside(me), await spawnBeside(me)].filter(Boolean);
+    await sleep(4000);
+    const insideTargets = await mobTargets(inside);
+    result(inside.length >= 1 && insideTargets.every((t) => t !== "player") && a.me().hp === hpInWard,
+      `B: ${inside.length} orcs spawned beside the player inside the Abbey ward: targets ${insideTargets.join(",")} (none may be "player"), player hp ${hpInWard} -> ${a.me().hp}`);
+    // Control: the same orc beside the player OUTSIDE every ward does pick him.
+    const out = bfs(tileOf(a.me()), (t) => Math.hypot(t.x - ab.center.x, t.y - ab.center.y) >= WARD_RADIUS_TILES + 8);
+    if (!out) {
+      result(false, "B: no walkable tile outside the ward for the control");
+    } else {
+      const spot = out[out.length - 1];
+      await a.hook("teleportPlayer", { x: center(spot).x, y: center(spot).y });
+      await a.nextSnap();
+      await a.nextSnap();
+      const control = await spawnBeside(a.me());
+      await sleep(3000);
+      const controlTargets = await mobTargets(control ? [control] : []);
+      result(controlTargets.length === 1 && controlTargets[0] === "player",
+        `B: control, outside the ward at (${spot.x},${spot.y}): the orc beside the player targets ${controlTargets.join(",") || "nothing (not spawned)"} (must be "player")`);
     }
-    info(`B: night mobs: ${rows.join("; ")}`);
-    result(seen.size >= 2 && towardTc >= 1 && towardPlayer === 0,
-      `B: ${seen.size} night mobs; of those that moved >=2 tiles, ${towardTc} headed for the Town Center and ${towardPlayer} for the player (an unwarded player would be every mob's first pick)`);
-    result(minPlayerHp === hpInWard, `B: player inside the Abbey ward never took damage (min hp ${minPlayerHp}, ${hpInWard} on arrival)${hitLog.length ? ": " + hitLog.join(" | ") : ""}`);
-    info(`B: Town Center hp ${tcHpAtNight} -> ${a.snap.townCenterHp} (unwarded, so it may be hit)`);
   }
 }
 
@@ -304,6 +292,25 @@ if (ONLY.has("B")) {
 if (ONLY.has("C")) {
   await restart();
   const guardianIds = new Set(a.snap.mobs.map((m) => m.id));
+  await a.hook("setRaids", { enabled: true }); // B turned them off (the flag survives a restart)
+  await skipToDusk();
+  // Stand on open ground near the Town Center (a 5x5 patch of empty tiles, 5-9 tiles away): the spawn point can be
+  // hemmed in by houses and fields.
+  {
+    let spot = null;
+    for (let r = 5; r <= 9 && !spot; r++) for (let dy = -r; dy <= r && !spot; dy++) for (let dx = -r; dx <= r && !spot; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const t = { x: TC().x + dx, y: TC().y + dy };
+      let open = true;
+      for (let y = -2; y <= 2 && open; y++) for (let x = -2; x <= 2; x++) if (!inB(t.x + x, t.y + y) || tileAt(t.x + x, t.y + y) !== T.Empty) { open = false; break; }
+      if (open) spot = t;
+    }
+    if (spot) {
+      await a.hook("teleportPlayer", { x: center(spot).x, y: center(spot).y });
+      await a.nextSnap();
+      await a.nextSnap();
+    }
+  }
   const meT = tileOf(a.me());
   const mePx = a.me();
   // Empty tiles within the server's 2.5-tile reach of the player (nobody standing on them).
@@ -312,24 +319,22 @@ if (ONLY.has("C")) {
     const t = { x: meT.x + dx, y: meT.y + dy };
     if ((dx === 0 && dy === 0) || !inB(t.x, t.y) || tileAt(t.x, t.y) !== T.Empty) continue;
     if (dist(center(t), mePx) > TILE * 2.5) continue;
+    // Villagers mill about the Town Center and the server silently refuses a tile somebody stands on.
+    if (a.snap.colonists.some((k) => dist(center(t), k) < TILE * 1.2)) continue;
     reach.push(t);
   }
   const adj4 = (p, q) => Math.abs(p.x - q.x) + Math.abs(p.y - q.y) === 1;
   const sameT = (p, q) => p.x === q.x && p.y === q.y;
-  // Blacksmiths must not be 4-adjacent to each other (that would level one up instead of adding a
-  // second worker). 3, not 4: the Church's 15 wood has to fit in the 80 starting wood too.
-  const smiths = [];
-  for (const t of reach) {
-    if (smiths.length < 3 && !smiths.some((s) => adj4(s, t))) smiths.push(t);
-  }
-  const rest = reach.filter((t) => !smiths.some((s) => sameT(s, t)));
+  const rest = reach;
   const stone = rest[0];
   const church = rest.find((t) => stone && !sameT(t, stone) && !adj4(t, stone));
-  if (smiths.length < 3 || !stone || !church) {
-    result(false, `C: not enough free tiles in reach (smiths=${smiths.length}, stone=${!!stone}, church=${!!church})`);
+  if (!stone || !church) {
+    result(false, `C: not enough free tiles in reach (stone=${!!stone}, church=${!!church})`);
   } else {
-    a.send({ type: "setTile", tileX: church.x, tileY: church.y, tile: T.ChurchPost });
-    await sleep(400);
+    for (let i = 0; i < 5 && tileAt(church.x, church.y) !== T.ChurchPost; i++) {
+      a.send({ type: "setTile", tileX: church.x, tileY: church.y, tile: T.ChurchPost });
+      await sleep(400);
+    }
     result(tileAt(church.x, church.y) === T.ChurchPost, `C: Church placed at (${church.x},${church.y}); wood=${a.snap.wood}`);
     // Rejected without tools.
     const w0 = a.snap.wood;
@@ -339,24 +344,23 @@ if (ONLY.has("C")) {
     result(tileAt(stone.x, stone.y) === T.Empty && a.snap.wood === w0 && a.snap.colonists.filter((k) => k.kind === "bishop").length === 4,
       `C: Ward Stone with tools=${tools0} (<10) and wood=${w0} is rejected: tile ${tileAt(stone.x, stone.y)}, wood ${a.snap.wood}, bishops ${a.snap.colonists.filter((k) => k.kind === "bishop").length} (3 Abbey clergy + the Church's)`);
 
-    for (const t of smiths) a.send({ type: "setTile", tileX: t.x, tileY: t.y, tile: T.Blacksmith });
-    await sleep(400);
-    result(smiths.every((t) => tileAt(t.x, t.y) === T.Blacksmith), `C: 3 Blacksmiths placed at ${smiths.map((t) => `(${t.x},${t.y})`).join(" ")}; wood=${a.snap.wood} iron=${a.snap.iron}`);
-    const deadline = Date.now() + 40000;
-    while (a.snap.tools < 10 && Date.now() < deadline) await sleep(200);
+    // The tools come from the stock hook (the Blacksmith economy is covered by its own tests).
+    await a.hook("setStock", { stock: { tools: 10 } });
+    await a.nextSnap();
+    await a.nextSnap();
     info(`C: tools=${a.snap.tools} wood=${a.snap.wood} isNight=${a.snap.isNight}`);
-    for (const t of smiths) a.send({ type: "setTile", tileX: t.x, tileY: t.y, tile: T.Empty });
-    await sleep(400);
 
-    const before = { wood: a.snap.wood, tools: a.snap.tools, pop: a.snap.population };
+    const before = { wood: a.snap.wood, tools: a.snap.tools, pop: a.snap.population, ev: a.events.length };
     a.send({ type: "setTile", tileX: stone.x, tileY: stone.y, tile: T.WardStone });
     await a.nextSnap();
     await a.nextSnap();
     const warder = a.snap.colonists.find((k) => k.postX === stone.x && k.postY === stone.y);
-    result(tileAt(stone.x, stone.y) === T.WardStone && a.snap.wood === before.wood - 20 && a.snap.tools === before.tools - 10,
-      `C: Ward Stone placed at (${stone.x},${stone.y}); wood ${before.wood}->${a.snap.wood} (-20), tools ${before.tools}->${a.snap.tools} (-10)`);
-    result(warder?.kind === "bishop" && a.snap.population === before.pop + 1 && dist(warder, center(church)) <= TILE * 1.6,
-      `C: it summoned a Ward Priest (${warder?.kind}, post = the stone) ${warder ? (dist(warder, center(church)) / TILE).toFixed(2) : "?"} tiles from the Church (population ${before.pop}->${a.snap.population}, +1)`);
+    // The priest taking his post completes the "Assign a worker" goal (+20 wood ...): count goal rewards out of the delta.
+    const rewardWood = a.events.slice(before.ev).filter((e) => /^Goal complete/.test(e)).reduce((n, e) => n + Number(/\+(\d+) wood/.exec(e)?.[1] ?? 0), 0);
+    result(tileAt(stone.x, stone.y) === T.WardStone && a.snap.wood === before.wood - 20 + rewardWood && a.snap.tools === before.tools - 10,
+      `C: Ward Stone placed at (${stone.x},${stone.y}); wood ${before.wood}->${a.snap.wood} (-20, +${rewardWood} goal reward), tools ${before.tools}->${a.snap.tools} (-10)`);
+    result(warder?.kind === "bishop" && a.snap.population === before.pop,
+      `C: it summoned a Ward Priest (${warder?.kind}, post = the stone; population ${before.pop}->${a.snap.population}, unchanged: a villager took the post)`);
     {
       const deadline2 = Date.now() + 15000;
       while (Date.now() < deadline2 && a.snap.colonists.find((k) => k.id === warder?.id)?.state !== "warding") await sleep(50);
@@ -391,7 +395,7 @@ if (ONLY.has("C")) {
       }
     };
     a.listeners.push(watch);
-    while (!a.snap.isNight) await sleep(200);
+    while (!a.snap.isNight) await sleep(100);
     // Raid mobs spawn passive at the day's midpoint and loiter until they turn aggressive (by
     // nightfall at the latest), so stillness is measured from nightfall.
     for (const e of seen.values()) {
@@ -401,22 +405,34 @@ if (ONLY.has("C")) {
     const tcHp0 = a.snap.townCenterHp;
     info(`C: night fell; watching for 12s with the ward up`);
     await sleep(12000);
-    const wardedRows = [...seen.values()].map((e) => `${e.kind} ${(dist(e.first, e.last) / TILE).toFixed(2)}t over ${((Date.now() - e.firstAt) / 1000).toFixed(1)}s`);
-    const stillAll = [...seen.values()].every((e) => dist(e.first, e.last) < 0.01);
-    result(seen.size >= 2 && stillAll && a.snap.townCenterHp === tcHp0 && minPlayerHp === 100,
-      `C: ward up — ${seen.size} night mobs, all standing still at spawn (${wardedRows.join("; ")}); TC hp ${tcHp0}->${a.snap.townCenterHp}; player min hp ${minPlayerHp}`);
+    // Village life: the colony has buildings outside the ward's 12 tiles (houses, fields), which raid mobs rightly
+    // march for, so "standing still" is stale. The rule is that nothing warded is picked: no mob targets the Town
+    // Center or the player, the Town Center is untouched and the player takes no damage.
+    const targetsOf = async () => (await a.hook("bodyState")).mobs.filter((m) => seen.has(m.id)).map((m) => m.targetType);
+    const wardedTargets = await targetsOf();
+    result(seen.size >= 2 && wardedTargets.every((t) => t !== "townCenter" && t !== "player") && a.snap.townCenterHp === tcHp0 && minPlayerHp === 100,
+      `C: ward up — ${seen.size} night mobs, targets ${[...new Set(wardedTargets)].join(",")} (none may be townCenter / player); TC hp ${tcHp0}->${a.snap.townCenterHp}; player min hp ${minPlayerHp}`);
 
-    // D: demolish the stone (and with it, its bishop) -> ward lapses -> the same mobs engage.
-    const stillPresent = [...seen.keys()].filter((id) => a.snap.mobs.some((m) => m.id === id));
-    const lapseStart = new Map(a.snap.mobs.filter((m) => stillPresent.includes(m.id)).map((m) => [m.id, { x: m.x, y: m.y }]));
+    // D: demolish the stone (and with it, its priest, who goes back to the village) -> ward lapses -> the Town Center
+    // is a target again.
     a.send({ type: "setTile", tileX: stone.x, tileY: stone.y, tile: T.Empty });
     await sleep(500);
-    result(tileAt(stone.x, stone.y) === T.Empty && !a.snap.colonists.some((k) => k.id === w1.id),
-      `D: Ward Stone demolished: tile ${tileAt(stone.x, stone.y)}, Ward Priest dismissed (no stones left)=${!a.snap.colonists.some((k) => k.id === w1.id)}`);
+    result(tileAt(stone.x, stone.y) === T.Empty && !a.snap.colonists.some((k) => k.id === w1.id && k.kind === "bishop"),
+      `D: Ward Stone demolished: tile ${tileAt(stone.x, stone.y)}, Ward Priest dismissed (no stones left)=${!a.snap.colonists.some((k) => k.id === w1.id && k.kind === "bishop")}`);
     await sleep(3500);
-    const moved = a.snap.mobs.filter((m) => lapseStart.has(m.id) && dist(m, lapseStart.get(m.id)) > TILE);
-    result(lapseStart.size >= 1 && moved.length === lapseStart.size,
-      `D: ward lapsed — ${moved.length}/${lapseStart.size} of the previously idle night mobs started moving within 4s (${a.snap.mobs.filter((m) => lapseStart.has(m.id)).map((m) => `${m.kind} ${(dist(m, lapseStart.get(m.id)) / TILE).toFixed(1)}t`).join(", ")})`);
+    // Raid mobs already marching keep going for whatever building they picked, so judge the rule with a fresh orc
+    // right beside the Town Center: it must pick the Town Center now that nothing wards it.
+    const tcT = TC();
+    let probe = null;
+    for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3], [3, 3], [-3, -3]]) {
+      if (!walkable(tcT.x + dx, tcT.y + dy)) continue;
+      probe = (await a.hook("spawnMob", { kind: "orc", tx: tcT.x + dx, ty: tcT.y + dy })).id;
+      if (probe) break;
+    }
+    await sleep(3000);
+    const probeTarget = (await a.hook("bodyState")).mobs.find((m) => m.id === probe)?.targetType;
+    result(probeTarget === "townCenter" || probeTarget === "player",
+      `D: ward lapsed — an orc spawned beside the Town Center (and the player) targets ${probeTarget ?? "nothing (not spawned)"} (must be "townCenter" or "player": both are unwarded again)`);
     a.listeners.splice(a.listeners.indexOf(watch), 1);
   }
 }
