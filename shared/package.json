@@ -21,6 +21,7 @@
     "./buildingTemplates": "./src/buildingTemplates.ts",
     "./settlementTemplates": "./src/settlementTemplates.ts",
     "./villagerTalk": "./src/villagerTalk.ts",
+    "./namedRoles": "./src/namedRoles.ts",
     "./snapshotDelta": "./src/snapshotDelta.ts",
     "./fortifications": "./src/fortifications.ts",
     "./trees": "./src/trees.ts",
