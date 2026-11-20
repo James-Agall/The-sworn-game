@@ -4,6 +4,10 @@ Start the game with `scripts/live.sh` (frozen copy that keeps running while code
 code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checklists live at the end of each
 "landed" section in `ROADMAP.md`; this is the short version, in the order I would try them.
 
+## Post-Castle goals (2026-11-20)
+After "Clear the Castle Ruin" the goal card should continue: Destroy 3 enemy camps, Take a vassal, Hold 600 gold, Survive
+15 nights, each with a "Goal complete" toast and a small reward; only after the last does it read "Complete".
+
 ## Clay pit and pottery (2026-11-18)
 New game (normal, creative off).
 1. Build panel: Next steps / Progression list a **Clay & pottery** chain; the Clay Pit shows "Locked. Needs: Wooden

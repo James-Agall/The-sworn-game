@@ -4987,3 +4987,10 @@ first time a raid is announced. Absent when raids are skipped. Test: server/raid
 
 ### Heir epitaph and house chronicle (DESIGN-REVIEW-nov20 #8) - landed 2026-11-20
 A hero death (before the heir picker, also when heirless) writes an `epitaph` chronicle entry from real data (generation, days since taking over, spouse, children, top site deed); succession writes a `house` line ("Gen 2, House Tam: ..."), listed pinned under "The House" in the Chronicle panel. Templates in shared/src/herolife.ts (`epitaphText`, `houseLineText`); `HeroFamilyData.since/house`. Test: server/heir-epitaph-test.mjs. Deferred: game-over card UI, spouse/mine/siege highlights, picker preview.
+
+### Post-Castle goal chain ("The Sworn Years") — landed 2026-11-20
+Four goals after "Clear the Castle Ruin": destroy 3 enemy camps, take a vassal, hold 600 gold, survive 15 nights; modest
+resource rewards through the normal goal reward path. Numbers in `shared/src/endgame.ts` ([PLACEHOLDER] balance), goals in
+`server/src/goals.ts`; the final goal is now "Survive 15 nights". Test: `server/post-castle-goals-test.mjs` (hook
+`setCampsDestroyed`). Deferred: the design's cosmetic banner/title per goal, ally-2-settlements, first-winter and
+hero-class goals (needs predicates beyond this small chain).

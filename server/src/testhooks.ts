@@ -908,6 +908,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     state.goalIndex = Math.max(0, Math.min(activeGoals().length, Math.floor(msg.index)));
     refreshGoalSnapshot();
     reply({ goalIndex: state.goalIndex });
+  } else if (msg.op === "setCampsDestroyed" && typeof msg.count === "number") {
+    state.campsDestroyed = Math.max(0, Math.floor(msg.count));
+    reply({ campsDestroyed: state.campsDestroyed });
   } else if (msg.op === "goalState") {
     // Goal track, the Castle Ruin and every boss / Castle Ruin guardian (goals-castle-test).
     reply({

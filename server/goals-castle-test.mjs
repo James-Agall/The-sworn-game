@@ -75,6 +75,11 @@ const GOAL_TITLES = [
   "Survive 7 nights",
   "Survive 10 nights",
   "Clear the Castle Ruin",
+  // Post-Castle chain (post-castle-goals-test.mjs covers these).
+  "Destroy 3 enemy camps",
+  "Take a vassal",
+  "Hold 600 gold",
+  "Survive 15 nights",
 ];
 
 function startServer(port, size, saveDir) {
@@ -413,13 +418,13 @@ try {
     st = await waitGoal(c, (s) => s.goalIndex >= 9, 3000);
     result(st.castleCleared && !st.mobs.some((m) => m.boss === "warlord"), `E: Warlord dead, castleCleared`);
     result(st.mobs.filter((m) => m.siteKind === "castleRuin").every((m) => m.guardianActive), `E: the Castle Ruin's guardians woke`);
-    result(st.goalIndex === 9 && st.goal.index === 9 && st.goal.title === "Every goal complete", `E: final goal complete (${st.goal.index}/${st.goal.total} "${st.goal.title}")`);
+    result(st.goalIndex === 9 && st.goal.index === 9 && st.goal.title === "Destroy 3 enemy camps", `E: Castle goal complete, post-Castle chain starts (${st.goal.index}/${st.goal.total} "${st.goal.title}")`);
     const warlordKill = Math.max(3, Math.round((wl.maxHp + wl.damage * 2) / 8));
     result(st.stock.gold - gold2 === 250 + warlordKill + 100, `E: +${st.stock.gold - gold2} gold (250 bonus + ${warlordKill} kill + 100 goal)`);
     info(`E toasts: ${JSON.stringify(c.events.map((e) => `${e.category}: ${e.text}`))}`);
     result(c.events.some((e) => e.category === "boss" && e.text.startsWith("The Ogre Warlord has fallen")) &&
-      c.events.some((e) => e.category === "milestone" && e.text.startsWith("Final goal complete: Clear the Castle Ruin")),
-      `E: "has fallen" boss toast + final milestone toast`);
+      c.events.some((e) => e.category === "milestone" && e.text.startsWith("Goal complete: Clear the Castle Ruin")),
+      `E: "has fallen" boss toast + Castle goal milestone toast`);
     await c.hook("fastForward", { ticks: 2 * cycle });
     st = await c.hook("goalState");
     result(!st.mobs.some((m) => m.boss === "warlord") && st.goalIndex === 9, `E: no Warlord respawn after 2 more days; goal track stays complete`);

@@ -28,6 +28,7 @@
     "./trees": "./src/trees.ts",
     "./playerBases": "./src/playerBases.ts",
     "./mines": "./src/mines.ts",
+    "./endgame": "./src/endgame.ts",
     "./winter": "./src/winter.ts",
     "./food": "./src/food.ts",
     "./agri": "./src/agri.ts",
