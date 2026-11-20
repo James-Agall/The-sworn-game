@@ -1,9 +1,13 @@
 // goals.ts: The goal track.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { TileType, isGateTile } from "@colony/shared/protocol";
+import {
+  ENDGAME_CAMPS_REWARD, ENDGAME_CAMPS_TARGET, ENDGAME_GOLD_REWARD, ENDGAME_GOLD_TARGET,
+  ENDGAME_NIGHTS_REWARD, ENDGAME_NIGHTS_TARGET, ENDGAME_VASSALS_REWARD, ENDGAME_VASSALS_TARGET,
+} from "@colony/shared/endgame";
 import type { GoalDef, ResourceKey } from "./types.js";
 import { GAME_DAY_TICKS, GOAL_WORKER_KINDS, VISION_BUILDING_TILES } from "./constants.js";
-import { colonists, constructionSites, state, tileOwner } from "./state.js";
+import { colonists, constructionSites, sites, state, tileOwner } from "./state.js";
 import { tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import { formatReward, grantReward } from "./worldgen.js";
 import { isSoldierKind } from "./units.js";
@@ -67,6 +71,26 @@ export const GOALS: GoalDef[] = [
   nightsGoal(7, { gold: 100, wood: 60, iron: 60 }),
   nightsGoal(10, { gold: 150, wood: 80, iron: 80, rock: 80 }),
   { title: "Clear the Castle Ruin", progress: () => flagGoal(state.castleCleared), reward: { gold: 100 } },
+  // Post-Castle chain ("The Sworn Years"): numbers in shared/endgame.ts.
+  {
+    title: `Destroy ${ENDGAME_CAMPS_TARGET} enemy camps`,
+    progress: () => ({ progress: Math.min(ENDGAME_CAMPS_TARGET, state.campsDestroyed), target: ENDGAME_CAMPS_TARGET }),
+    reward: ENDGAME_CAMPS_REWARD,
+  },
+  {
+    title: ENDGAME_VASSALS_TARGET === 1 ? "Take a vassal" : `Take ${ENDGAME_VASSALS_TARGET} vassals`,
+    progress: () => ({
+      progress: Math.min(ENDGAME_VASSALS_TARGET, Array.from(sites.values()).filter((s) => s.vassalOf === state.clan.id).length),
+      target: ENDGAME_VASSALS_TARGET,
+    }),
+    reward: ENDGAME_VASSALS_REWARD,
+  },
+  {
+    title: `Hold ${ENDGAME_GOLD_TARGET} gold`,
+    progress: () => ({ progress: Math.min(ENDGAME_GOLD_TARGET, Math.floor(state.stock.gold)), target: ENDGAME_GOLD_TARGET }),
+    reward: ENDGAME_GOLD_REWARD,
+  },
+  nightsGoal(ENDGAME_NIGHTS_TARGET, ENDGAME_NIGHTS_REWARD),
 ];
 state.goalSnapshot = { index: 0, total: GOALS.length, title: GOALS[0].title, progress: 0, target: 1 };
 

@@ -4925,3 +4925,10 @@ James's (2026-11-20). Numbers in `shared/src/mines.ts`; tests `mines`, `player-w
 - **Mine Foreman named**: the panel line names the posted foreman and its level ("Mine Foreman: Kit (level-3 miner)").
 - Not done: soldiers walking into the interior; a crusher step for iron ore (the Stamp Mill crushes gold / tin / stone);
   hazards hurting a hero who is only standing inside (only the hero's own digging rolls a cave-in); dedicated art.
+
+### Post-Castle goal chain ("The Sworn Years") — landed 2026-11-20
+Four goals after "Clear the Castle Ruin": destroy 3 enemy camps, take a vassal, hold 600 gold, survive 15 nights; modest
+resource rewards through the normal goal reward path. Numbers in `shared/src/endgame.ts` ([PLACEHOLDER] balance), goals in
+`server/src/goals.ts`; the final goal is now "Survive 15 nights". Test: `server/post-castle-goals-test.mjs` (hook
+`setCampsDestroyed`). Deferred: the design's cosmetic banner/title per goal, ally-2-settlements, first-winter and
+hero-class goals (needs predicates beyond this small chain).
