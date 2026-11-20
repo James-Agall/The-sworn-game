@@ -244,11 +244,26 @@ try {
   result(c.snap.townCenters[0].level === 3 && state()[0].tier === 40, `Town Center 1 at level 3 has tier ceiling ${state()[0].tier}`);
 
   // Keep: refused at Town Center level 1 (settlement 2), allowed at level 2 (settlement 1 here is level 3).
+  // The Keep is a 5x5 block anchored at its top-left tile: find a clear block near the Town Center, stand on the free
+  // tile left of its anchor (in reach) and place on the anchor.
   const keepAt = async (tc) => {
     await tele(c, tc.x + 3, tc.y + 3);
     await c.freshSnap();
-    const spot = freeTilesNear(c).find((s) => Math.hypot(s.x - tc.x, s.y - tc.y) < 8);
+    const occupied = new Set();
+    for (const e of [...c.snap.colonists, ...c.snap.players]) occupied.add(Math.floor(e.y / TILE) * c.W() + Math.floor(e.x / TILE));
+    const free = (x, y) => x > 0 && y > 0 && x < c.W() - 1 && y < c.W() - 1 && c.tileAt(x, y) === T.Empty && !occupied.has(y * c.W() + x);
+    let spot = null;
+    for (let r = 4; r <= 12 && !spot; r++)
+      for (let y = tc.y - r; y <= tc.y + r && !spot; y++)
+        for (let x = tc.x - r; x <= tc.x + r && !spot; x++) {
+          if (Math.max(Math.abs(x - tc.x), Math.abs(y - tc.y)) !== r || !free(x - 1, y + 2)) continue;
+          let ok = true;
+          for (let dy = 0; dy < 5 && ok; dy++) for (let dx = 0; dx < 5 && ok; dx++) ok = free(x + dx, y + dy);
+          if (ok) spot = { x, y };
+        }
     if (!spot) return null;
+    await tele(c, spot.x - 1, spot.y + 2);
+    await c.freshSnap();
     const before = c.events.length;
     c.send({ type: "setTile", tileX: spot.x, tileY: spot.y, tile: T.Keep });
     await c.freshSnap();
@@ -284,7 +299,7 @@ try {
   result(k2 && !k2.placed && /already has a Keep/.test(k2.text), `second Keep refused: "${k2?.text}"`);
   // Levels 2 and 3 through the upgrade flow.
   for (const n of [2, 3]) {
-    await tele(c, keepSpot.x + 1, keepSpot.y);
+    await tele(c, keepSpot.x - 1, keepSpot.y + 2);
     c.send({ type: "upgradeBuilding", tileX: keepSpot.x, tileY: keepSpot.y });
     await c.freshSnap();
     await c.freshSnap();
@@ -308,7 +323,7 @@ try {
   result(c.tileAt(keepSpot.x, keepSpot.y) === T.Keep && lvl(keepSpot.x, keepSpot.y) === 3 && capNow() === base2.cap + 30 && garrNow() === garr0 + 30, `load kept the Keep at level 3 (cap ${capNow()})`);
 
   // Demolishing the Keep removes its bonus.
-  await tele(c, keepSpot.x + 1, keepSpot.y);
+  await tele(c, keepSpot.x - 1, keepSpot.y + 2);
   c.send({ type: "setTile", tileX: keepSpot.x, tileY: keepSpot.y, tile: T.Empty });
   await c.freshSnap();
   await c.freshSnap();
