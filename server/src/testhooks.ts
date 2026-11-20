@@ -878,6 +878,10 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const before = c?.hp ?? null;
     if (c) damageColonist(c, msg.amount);
     reply({ found: !!c, before, after: c ? c.hp : null });
+  } else if (msg.op === "guardianActive") {
+    // world-gen-poi-test: the wake flag of the given mobs (id -> guardianActive; a missing mob is null).
+    const ids = Array.isArray(msg.ids) ? (msg.ids as string[]) : [];
+    reply({ active: Object.fromEntries(ids.map((id) => [id, mobs.get(id)?.guardianActive ?? null])) });
   } else if (msg.op === "hearthState") {
     // Camp hearths: every hearth with its site's living guardians, the counter and recent events.
     reply({

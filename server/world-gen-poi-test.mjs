@@ -40,10 +40,12 @@ const RUIN_CENTER = new Set([T.RuinWall1, T.RuinWall2, T.RuinArch]);
 const RUIN_EXTRA = new Set([T.RuinStatue, T.RuinRubble]);
 const ENC_EXTRA = new Set([T.PropCart, T.PropBarrel, T.PropCrate, T.PropFence]);
 const BIOME = { Plains: 0, Hills: 1, Swamp: 2 };
-// Mirror of protocol.ts isSolidTile: every TileType except Empty (0), FarmPlot (4), berry bushes (52/53) and
-// mushroom patches (56/57).
-const SOLID = new Set([1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-  26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 54, 55]);
+// Mirror of protocol.ts isSolidTile (the ids it returns true for; regenerate when TileType gains solid tiles, a stale
+// list lets the BFS walker path through ore / mine / station tiles and get stuck).
+const SOLID = new Set([1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29,
+  30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 54, 55, 58, 59, 62, 71, 72, 73, 75,
+  77, 78, 79, 90, 100, 101, 102, 103, 104, 112, 113, 130, 131, 132, 133, 136, 147, 148, 149, 150, 151, 152, 153, 154, 155,
+  156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168]);
 
 function connect() {
   const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, tiles: null, listeners: [], hooks: [] };
@@ -470,14 +472,21 @@ if (ONLY.has("E")) {
         if (shooter) fired.add(shooter.id);
       }
     });
-    const hpBefore = new Map(a.snap.mobs.map((m) => [m.id, m.hp]));
-    a.send({ type: "attack" });
-    await a.nextSnap();
-    await a.nextSnap();
-    const hit = a.snap.mobs.filter((m) => (hpBefore.get(m.id) ?? m.hp) > m.hp);
     // A darkShaman in the site wakes with its heal off cooldown and heals the just-hit guardian
     // for 15 (== PLAYER_ATTACK_DAMAGE) in the same tick, so the hp drop can be invisible there.
     const hasShaman = targetSite.mobs.some((m) => m.kind === "darkShaman");
+    // The blow strikes the nearest thing in reach, so a wandering animal can absorb it: strike again (a few tries).
+    let hpBefore;
+    let hit = [];
+    for (let tries = 0; tries < 4 && hit.length === 0; tries++) {
+      if (tries) await sleep(1200);
+      hpBefore = new Map(a.snap.mobs.map((m) => [m.id, m.hp]));
+      a.send({ type: "attack" });
+      await a.nextSnap();
+      await a.nextSnap();
+      hit = a.snap.mobs.filter((m) => (hpBefore.get(m.id) ?? m.hp) > m.hp);
+      if (hasShaman) break;
+    }
     result((hit.length === 1 && siteIds.has(hit[0].id)) || (hit.length === 0 && hasShaman),
       `E: the hit landed on one guardian of this site: ${hit.length ? hit.map((m) => `${m.kind} ${hpBefore.get(m.id)}->${m.hp}`).join(", ") : "no visible hp drop (site has a darkShaman that heals 15 on wake)"}`);
     // Step back toward spawn ~3 tiles so even guardians already in melee range must move to follow.
@@ -485,9 +494,12 @@ if (ONLY.has("E")) {
     await followPath(back, { timeoutMs: 4000 });
     await sleep(2500);
     const live = a.snap.mobs.filter((m) => siteIds.has(m.id));
-    const awake = live.filter((m) => dist(m, initial.get(m.id)) > TILE * 0.75 || fired.has(m.id));
+    // A woken guardian with no target in its aggro range stays on its post (and a ranged one may shoot without moving),
+    // so "woke" = its server wake flag (guardianActive), which activateGuardianSite sets for the whole site at once.
+    const flags = (await a.hook("guardianActive", { ids: [...siteIds] })).active;
+    const awake = live.filter((m) => flags[m.id] === true || dist(m, initial.get(m.id)) > TILE * 0.75 || fired.has(m.id));
     result(live.length === siteIds.size && awake.length === live.length,
-      `E: ALL ${live.length}/${siteIds.size} guardians of the hit site woke (moved or attacked): ${live.map((m) => `${m.kind} moved ${(dist(m, initial.get(m.id)) / TILE).toFixed(1)}t${fired.has(m.id) ? " +fired" : ""}`).join(", ")}`);
+      `E: ALL ${live.length}/${siteIds.size} guardians of the hit site woke (guardianActive, moved or attacked): ${live.map((m) => `${m.kind} moved ${(dist(m, initial.get(m.id)) / TILE).toFixed(1)}t${fired.has(m.id) ? " +fired" : ""}`).join(", ")}`);
     const otherMoved = a.snap.mobs.filter((m) => others.includes(m.id) && dist(m, initial.get(m.id)) > 0.01);
     result(otherMoved.length === 0, `E: guardians of the other ${sites.length - 1} sites stayed dormant (moved: ${otherMoved.length}/${others.length})`);
   }
