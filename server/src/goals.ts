@@ -8,10 +8,12 @@ import { tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import { formatReward, grantReward } from "./worldgen.js";
 import { isSoldierKind } from "./units.js";
 import { broadcastEvent } from "./net.js";
-  if (!silent) evaluateWinterPrep();
-  const goals = activeGoals();
-  while (state.goalIndex < goals.length) {
-    const goal = goals[state.goalIndex];
+import { WINTER_PREP_REWARD } from "@colony/shared/winter";
+import { calendarNow } from "./calendar.js";
+import { winterPrepActive, winterPrepStatus } from "./winter.js";
+import { SOLO_GATHER_ROCK, SOLO_GATHER_WOOD } from "@colony/shared/herolife";
+import { players } from "./state.js";
+import { lifeOf } from "./herolife.js";
 import { clanIdAt, clanIdAtIndex, clanTownCenters, inClan } from "./clans.js";
 
 // Dawns since the world began (cycle 0 starts at dawn, so day N's dawn is cycleTick N * cycle), counted from
