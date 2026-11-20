@@ -1470,3 +1470,9 @@ has a forge, e.g. Street village / Green village / any town). Hero on foot. Rela
 10. Family extras: with a spouse (creative World tab "Family" row), E on your spouse: a spouse greeting ("There you
     are...") instead of "Yes?"; with a baby at home it adds "The little ones ask after you every night." A grown child /
     sibling / parent greets as kin; anyone else as before.
+
+## Retired prefabs: creative-only (G9)
+Normal game (not creative): Farming tab shows no Farm, Cow / Pig / Sheep pasture or Hemp Field buttons, and their
+hotkeys (4, p, f, n) do nothing. Paint a Growing zone (Zones tab: wheat / hemp) and an Animal area, fence it, and use a
+Chicken Coop / Livestock Barn / Pig Sty / Sheep Pen instead. Creative game: the four old tools are back and place; old
+saves' existing plots and pastures keep working. The server refuses the old tiles in normal games too.

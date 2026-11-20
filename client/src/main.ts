@@ -7819,7 +7819,7 @@ async function main() {
     if (e.ctrlKey || e.altKey || isStrategyGroupRecall(e) || strategyOrderKey(e) || strategySettingKey(e) || adventurePartyKey(e)) return;
     // Shift+C opens the Crafting panel (not the C build tool).
     if (e.shiftKey && e.code === "KeyC") return;
-    const match = key ? TOOLS.find((t) => t.key === key) : undefined;
+    const match = key ? TOOLS.find((t) => t.key === key && (!t.legacy || creativeWorld)) : undefined;
     if (match) {
       if (match.tile !== TileType.Empty && match.category !== activeCategory) {
         activeCategory = match.category;
