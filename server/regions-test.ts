@@ -9,8 +9,8 @@ import { generateWorld } from './src/worldgen.js';
 import { state,sites,mobs } from './src/state.js';
 import { generatedRegionPlan } from './src/regionWorld.js';
 loadBuildingTemplates();loadSettlementTemplates();loadCampTemplates();
-for(const w of [1,2])for(const h of [1,2])for(let v=0;v<6;v++){
- const t=regionCityTemplate(`region-city-${w}-${h}-${v}`)!;
+for(const suffix of ["","-dense"])for(const w of [1,2])for(const h of [1,2])for(let v=0;v<6;v++){
+ const t=regionCityTemplate(`region-city-${w}-${h}-${v}${suffix}`)!;
  const errors=validateSettlementTemplate(t,buildingTemplateById);
  assert.deepEqual(errors,[],t.id+': '+errors.join(', '));
 }
@@ -39,6 +39,11 @@ for(let k=0;k<queue.length;k++){
  }
 }
 for(const site of sites.values())assert([[0,1],[0,-1],[1,0],[-1,0]].some(([dx,dy])=>visited.has((site.keepY+dy)*state.WORLD_TILES_X+site.keepX+dx)),`city ${site.layout} is reachable from player start`);
-console.log('PASS actual settlement entrances reachable from player start');
+const owners=new Map<number,string>();
+for(const site of sites.values())for(let y=Math.floor(site.y0/32);y<=Math.floor(site.y1/32);y++)for(let x=Math.floor(site.x0/32);x<=Math.floor(site.x1/32);x++){
+ const chunk=y*Math.ceil(state.WORLD_TILES_X/32)+x;
+ assert(!owners.has(chunk),`two settlement identities in chunk ${x},${y}`);owners.set(chunk,site.id);
+}
+console.log('PASS one settlement identity per chunk and actual entrances reachable from player start');
 console.log('PASS 24 composed city templates, deterministic connected plans, real generated settlements and entities');
 process.exit(0);

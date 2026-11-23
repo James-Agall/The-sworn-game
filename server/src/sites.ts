@@ -389,8 +389,10 @@ export function updateSites() {
     const ky = s.keepY + 0.5;
     // World streaming phase 2: a site in a COLD chunk is asleep without checking every anchor.
     const cold = isColdAtPixel(kx * TILE_SIZE, ky * TILE_SIZE);
-    for (const a of cold ? [] : anchors) {
-      if (Math.max(Math.abs(a.x - kx), Math.abs(a.y - ky)) > SITE_AWAKE_RADIUS_TILES) continue;
+    for (const a of cold && !s.layout?.startsWith("region-city-") ? [] : anchors) {
+      const regionSite=s.layout?.startsWith("region-city-");
+      const distance=regionSite?Math.max(s.x0-a.x,a.x-s.x1,s.y0-a.y,a.y-s.y1,0):Math.max(Math.abs(a.x-kx),Math.abs(a.y-ky));
+      if(distance>(regionSite?12:SITE_AWAKE_RADIUS_TILES))continue;
       awake = true;
       if (s.cleared || (a.player && state.testPlayersIgnored) || (human && !s.provoked)) continue;
       const e = SITE_AGGRO_EDGE_TILES;
@@ -710,7 +712,9 @@ const pick = <T>(list: T[]): T | undefined => list[Math.floor(Math.random() * li
 // quest giver (the "herald" worker), who stays on that slot (work tile = home).
 export function spawnSiteWorkers(s: SiteState) {
   despawnSiteWorkers(s);
-  const roles = SITE_TEMPLATES[s.template].workers;
+  const baseRoles = SITE_TEMPLATES[s.template].workers;
+  const residents = s.layout?.startsWith("region-city-") ? Math.min(32, Math.max(8, s.homes?.villagers.length ?? 0)) : 0;
+  const roles = residents ? { ...baseRoles, farm: Math.ceil(residents*.65), mine: Math.floor(residents*.25), priest: 1 } : baseRoles;
   if (!roles || s.cleared || s.captured || s.posts.length === 0) return;
   const spots = workSpots(s);
   const quest = s.homes?.quest;

@@ -1,4 +1,4 @@
-import { generatedRegionPlan, restoreRegionPlan } from "./regionWorld.js";
+import { generatedRegionPlan, restoreRegionPlan, populateExistingRegionTowns } from "./regionWorld.js";
 import {expandKeepFootprints} from './keepFootprints.js';
 import {migrateNeutralSpriteHomes} from './settlementMigration.js';
 // saves.ts: Save files: snapshot/apply world, migrations, slots, autosave, restart.
@@ -579,6 +579,7 @@ function applyWorldInner(s: WorldState) {
   // Stardew phase 5c: interior chests (optional).
   restoreInteriorChests(s.interiorChests);
   restoreHomeDesigns(s.homeDesigns);
+  populateExistingRegionTowns();
   // Deep mines (optional). A world from before them (none of a deposit kind anywhere: no deposit, no mine on one) gets
   // those veins now (industry extras: limestone / gold / lead in a deep-mines world).
   restoreMines(s.mines);

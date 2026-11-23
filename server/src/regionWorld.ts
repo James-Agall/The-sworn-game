@@ -2,7 +2,7 @@ import { Biome, TILE_SIZE, TileType } from '@colony/shared/protocol';
 import { planRegions, regionCityTemplate, REGION_SIZE, type RegionPlan } from '@colony/shared/regions';
 import { state, sites, gates } from './state.js';
 import { setTile } from './chunks.js';
-import { tileIndex, inBounds, ownerAt } from './tiles.js';
+import { tileIndex, inBounds, ownerAt, setOwner } from './tiles.js';
 import { stampSettlement } from './settlementTemplates.js';
 import { campPool, stampCamp } from './camps.js';
 import { campRadius } from '@colony/shared/camps';
@@ -11,9 +11,9 @@ import { seedHomeDesign } from './interiors.js';
 
 export let generatedRegionPlan: RegionPlan | null = null;
 export function restoreRegionPlan(plan: RegionPlan | undefined) { generatedRegionPlan=plan?.version===1?plan:null; }
-export function generateRegionWorld() {
+export function generateRegionWorld(version = 13) {
  const width=state.WORLD_TILES_X,height=state.WORLD_TILES_Y;
- const plan=planRegions(width,height,state.worldNoiseSalt);
+ const plan=planRegions(width,height,state.worldNoiseSalt,version);
  generatedRegionPlan=plan;
  const landmarks: {x:number;y:number}[]=[];
  placeAbbey(landmarks);placeCastleRuin(landmarks);
@@ -26,21 +26,30 @@ export function generateRegionWorld() {
  for(const r of plan.regions){
   const x=r.x*32+16,y=r.y*32+16;
   road(x,y);
-  if(r.east)for(let dx=0;dx<=32;dx++)road(x+dx,y);
-  if(r.south)for(let dy=0;dy<=32;dy++)road(x,y+dy);
+  const winding=(horizontal:boolean)=>{
+   let last=0;
+   for(let step=0;step<=32;step++){
+    // Flat at both endpoints so adjacent regions keep their agreed road sockets.
+    const offset=version>=13&&r.city===undefined?Math.round(Math.sin(step*Math.PI/16)*3*Math.sin(step*Math.PI/32)):0;
+    for(let cross=Math.min(last,offset);cross<=Math.max(last,offset);cross++)road(x+(horizontal?step:cross),y+(horizontal?cross:step));
+    last=offset;
+   }
+  };
+  if(r.east)winding(true);
+  if(r.south)winding(false);
  }
  // Join the hero's starting square to the regional network.
  for(let y=Math.min(centre.y,Math.floor(centre.y/32)*32+16);y<=Math.max(centre.y,Math.floor(centre.y/32)*32+16);y++)road(centre.x,y);
  for(let x=Math.min(centre.x,Math.floor(centre.x/32)*32+16);x<=Math.max(centre.x,Math.floor(centre.x/32)*32+16);x++)road(x,Math.floor(centre.y/32)*32+16);
  for(const r of plan.regions){
-  if(r.kind==='city')continue;
+  if(r.city!==undefined)continue;
   const x0=r.x*32,y0=r.y*32;
   for(let y=y0;y<Math.min(y0+32,height);y++)for(let x=x0;x<Math.min(x0+32,width);x++){
    if(safe(x,y)||roads.has(tileIndex(x,y)))continue;
    const roll=Math.random();
    state.biomes[tileIndex(x,y)]=r.kind==='marsh'?Biome.Swamp:r.kind==='cave'?Biome.Hills:Biome.Plains;
    if(r.kind==='forest'&&roll<.25+r.variant*.025)write(x,y,TileType.Tree);
-   else if(r.kind==='marsh'&&roll<.16)write(x,y,TileType.Water);
+   else if(r.kind==='marsh'&& (version<13?roll<.16:Math.hypot(x%32-(9+r.variant),y%32-10)<4||Math.hypot(x%32-22,y%32-(22-r.variant))<3))write(x,y,TileType.Water);
    else if(r.kind==='countryside'&&x%32>=5&&x%32<=9&&y%32>=5&&y%32<=9)write(x,y,TileType.FarmPlot);
    else if(roll<.06)write(x,y,TileType.Tree);
    else if(roll<.072)write(x,y,TileType.Rock);
@@ -49,12 +58,18 @@ export function generateRegionWorld() {
  }
  // A continuous river occupies one column, avoiding the initial settlement and city footprints.
  const riverX=width>192?Math.floor(width*.22):Math.floor(width*.12);
+ let previousRiverX=riverX;
  for(let y=1;y<height-1;y++){
-  const r=plan.regions[Math.floor(y/32)*plan.columns+Math.floor(riverX/32)];
-  if(r?.kind!=='city')write(riverX,y,TileType.Water);
+  const centreX=version>=13?riverX+Math.round(Math.sin(y/23)*5):riverX;
+  for(let x=Math.min(previousRiverX,centreX);x<=Math.max(previousRiverX,centreX);x++){
+   const r=plan.regions[Math.floor(y/32)*plan.columns+Math.floor(x/32)];
+   if(r?.city===undefined)write(x,y,TileType.Water);
+  }
+  previousRiverX=centreX;
  }
+
  for(const city of plan.cities){
-  const id=`region-city-${city.w}-${city.h}-${city.variant}`;
+  const id=`region-city-${city.w}-${city.h}-${city.variant}${version>=13?"-dense":""}`;
   const template=regionCityTemplate(id)!;
   const x0=city.x*32+1,y0=city.y*32+1;
   let reserved=false;
@@ -81,10 +96,12 @@ export function generateRegionWorld() {
  for(const r of plan.regions){
   const x=r.x*32+16,y=r.y*32+16;
   if(landmarks.some(p=>Math.abs(p.x-x)<40&&Math.abs(p.y-y)<40))continue;
+  if(r.city!==undefined)continue;
   if(x<14||y<14||x>=width-14||y>=height-14||safe(x,y)||r.kind==='city')continue;
   // Keep all encounters away from the shared road hub. Their approach is a short branch.
   const at={x:x-7,y:y-7};
   if(r.kind==='fort'){
+   if(r.city!==undefined)continue;
    if(r.x===0||r.y===0||r.x>=plan.columns-1||r.y>=plan.rows-1||Math.hypot(x-centre.x,y-centre.y)<64)continue;
    const template=regionCityTemplate(`region-city-1-1-${r.variant}`)!;
    stampSettlement({...template,name:'Border fort'},r.x*32+1,r.y*32+1);
@@ -123,4 +140,25 @@ export function generateRegionWorld() {
  // Ensure the centre of every external city connector is open all the way to its street.
  console.log(`[regions] ${plan.regions.length} regions, ${sites.size} settlements, 32-cell chunks`);
  return plan;
+}
+
+// Populate older neutral region towns using only vacant plots. Player-owned sites are excluded.
+export function populateExistingRegionTowns() {
+ const styles=['cottage','townhouse','farmhouse','longhouse','hunting-lodge','hill-burrow'];
+ for(const site of sites.values()){
+  if(!site.layout?.startsWith('region-city-')||site.layout.endsWith('-dense')||site.captured||site.cleared)continue;
+  let count=0;
+  for(let y=site.y0;y<=site.y1;y++)for(let x=site.x0;x<=site.x1;x++)if([TileType.House,TileType.BigHouse,TileType.HouseLevel2].includes(state.tiles[tileIndex(x,y)]))count++;
+  const target=Math.min(40,Math.floor((site.x1-site.x0)*(site.y1-site.y0)/45));
+  for(let y=site.y0+3;y<site.y1-3&&count<target;y+=4)for(let x=site.x0+3;x<site.x1-3&&count<target;x+=4){
+   if(Math.hypot(x-site.keepX,y-site.keepY)<7)continue;
+   let free=true;
+   for(let yy=y-1;yy<=y+1;yy++)for(let xx=x-1;xx<=x+1;xx++)if(state.tiles[tileIndex(xx,yy)]!==TileType.Empty||ownerAt(tileIndex(xx,yy))!==0)free=false;
+   if(!free)continue;
+   setTile(tileIndex(x,y),TileType.House);setOwner(tileIndex(x,y),site.num);
+   seedHomeDesign(x,y,styles[count%styles.length]);
+   if(site.homes)site.homes.villagers.push(tileIndex(x,y+1));
+   count++;
+  }
+ }
 }

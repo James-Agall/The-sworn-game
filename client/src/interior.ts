@@ -471,7 +471,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           const sp = new Sprite(art.idle);
           sp.anchor.set(0.5, 0.85);
           sp.scale.set(art.scale);
-          if (art.tint !== undefined) sp.tint = art.tint;
+          if (art.tint !== undefined) sp.tint = 0xffffff;
           body = sp;
         } else body = new Graphics().circle(0, -6, 6).fill(0x2a2028);
         const bar = new Graphics();
@@ -524,7 +524,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         }
         if (b.texture !== tex) b.texture = tex;
         b.scale.set(k * (m.face === "l" ? -1 : 1), k);
-        b.tint = now < mv.flashUntil ? 0xff5040 : a.tint ?? 0xffffff;
+        b.tint = 0xffffff;
       }
       b.alpha = m.act === "sleep" ? 0.7 : 1;
       b.position.set(x, y + (m.act === "sleep" ? 0 : Math.sin(t / 220) * (m.kind === "caveBat" ? 3 : 0.6)));
@@ -767,7 +767,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           s = new Sprite(deps.playerTexture);
           s.anchor.set(0.5, 0.85);
           s.scale.set(heroK(deps.playerTexture));
-          s.tint = p.color;
+          s.tint = 0xffffff;
           others.set(p.id, s);
           room.addChild(s);
         }

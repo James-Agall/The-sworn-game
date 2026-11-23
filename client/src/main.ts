@@ -1,3 +1,4 @@
+import { naturalRoad, roundedWater } from "./terrainTextures";
 import { treeAt } from "@colony/shared/trees";
 import { updateVitals } from "./vitals";
 import {npcVariantFrame} from "./npcVariants";
@@ -1484,8 +1485,8 @@ async function main() {
     if (season === shownSeason) return;
     shownSeason = season;
     const name = SEASONS[season] ?? "summer";
-    floorSpriteLayer.tint = SEASON_GROUND_TINT[name];
-    decorSpriteLayer.tint = SEASON_GROUND_TINT[name];
+    floorSpriteLayer.tint = 0xffffff;
+    decorSpriteLayer.tint = 0xffffff;
     seasonTreeTint = SEASON_TREE_TINT[name];
     for (const index of tileSprites.keys()) {
       const t = tiles[index];
@@ -1574,17 +1575,8 @@ async function main() {
     }
     sprite.rotation = 0;
     sprite.alpha = tile === TileType.ConstructionSite && !scaffold && !moatArt ? CONSTRUCTION_ALPHA : 1;
-    sprite.tint =
-      tile === TileType.ConstructionSite && !scaffold && !moatArt
-        ? CONSTRUCTION_TINT
-        : siteArt || stageTexture || levelTexture || moatArt
-          ? 0xffffff
-          : (TILE_TINT.get(tile) ?? 0xffffff);
-    if (fireTier(damagedBuildings.get(index) ?? 1000) > 0 && tile !== TileType.PropCampfire) sprite.tint = SOOT_TINT;
-    else if (siteOwners.has(index) && tile !== TileType.ConstructionSite) sprite.tint = humanSiteNums.has(siteOwners.get(index)!) ? HUMAN_SITE_TINT : FOREIGN_TINT;
-    else if (isForeignClanIndex(index) && tile !== TileType.ConstructionSite) sprite.tint = clanTint(clanTiles.get(index)!);
-    // Stardew phase 5b: trees take the season's tint.
-    else if (SEASON_TREE_TILES.has(tile)) sprite.tint = mulTint(sprite.tint as number, seasonTreeTint);
+    sprite.tint = 0xffffff;
+
     if([TileType.Keep,TileType.SiteKeep,TileType.RuinedKeep,TileType.KnightPost,TileType.CastleLevel2,TileType.CastleLevel3].includes(artTile)){
       const fp=placedFootprintClient(tx,ty),box=opaqueBox(texture);
       const width=tileSize*(fp.w>=5?4.5:fp.w===3?3:1.9);
@@ -1599,7 +1591,7 @@ async function main() {
       sprite.anchor.set(.5,1);sprite.rotation=0;sprite.scale.set(tileSize/64);
       if(artTile===TileType.Rampart)sprite.height=tileSize*1.5;
       sprite.position.set((tx+w/2)*tileSize,(ty+h)*tileSize);sprite.zIndex=(ty+h-1)*worldTilesX+tx+w-1;
-      if(!site&&(damagedBuildings.get(index)??1000)<500)sprite.tint=0xa99988;
+      sprite.tint=0xffffff;
       return;
     }
     if (structArt) {
@@ -1654,6 +1646,12 @@ async function main() {
       sprite.position.set(tx * tileSize + tileSize / 2, ty * tileSize + tileSize / 2);
       sprite.zIndex = -1;
       return;
+    }
+    if(tile === TileType.Water) {
+      const joins=(x:number,y:number)=>tileAt(x,y)===TileType.Water||tileAt(x,y)===TileType.Drawbridge;
+      const mask=(joins(tx,ty-1)?1:0)|(joins(tx+1,ty)?2:0)|(joins(tx,ty+1)?4:0)|(joins(tx-1,ty)?8:0);
+      sprite.texture=roundedWater(texture,mask,app.renderer);
+      sprite.anchor.set(0,0);sprite.scale.set(tileSize/32);sprite.position.set(tx*tileSize,ty*tileSize);sprite.zIndex=-1;return;
     }
     sprite.anchor.set(0.5, 1);
     const fitTile = scaffold ? TileType.RuinedKeep : artTile;
@@ -1771,6 +1769,7 @@ async function main() {
   function roadArtFor(tx: number, ty: number, tile: number): [Texture, number] {
     const mask =
       (isRoadAt(tx, ty - 1) ? 1 : 0) | (isRoadAt(tx + 1, ty) ? 2 : 0) | (isRoadAt(tx, ty + 1) ? 4 : 0) | (isRoadAt(tx - 1, ty) ? 8 : 0);
+    if(tile === TileType.Road) return [naturalRoad(mask),0];
     const autumnRoad = autumnFrame("terrain-connections", (tile === TileType.CobbleRoad ? 2 : 0) + Math.floor(mask / 8), mask % 8);
     if (autumnRoad) return [autumnRoad, 0];
     if (tile === TileType.CobbleRoad) {
@@ -2096,7 +2095,7 @@ async function main() {
         const body = new Sprite(tex);
         body.anchor.set(0.5, 1);
         body.scale.set(COLONIST_SPRITE_HEIGHT / tex.height);
-        body.tint = waiting ? 0xd8d0c0 : CAPTIVE_TINT;
+        body.tint = 0xffffff;
         box.addChild(body);
         if (!waiting) {
           const rope = new Graphics();
@@ -2132,7 +2131,7 @@ async function main() {
         const sprite = new Sprite(set.walk[0]);
         sprite.anchor.set(0.5, 1);
         sprite.scale.set(WILDLIFE_ART[kind].size / set.walk[0].width);
-        sprite.tint = set.tint;
+        sprite.tint = 0xffffff;
         tileSpriteLayer.addChild(sprite);
         entry = { sprite, kind, lastX: x, phase: Math.floor(Math.random() * 4) };
         wildlifeSprites.set(id, entry);
@@ -2225,7 +2224,7 @@ async function main() {
     // Neighbouring roads re-pick their autotile piece (this tile may have become / stopped being road),
     // and neighbouring walls / gates their connector piece / orientation.
     for (const [nx, ny] of [[tx, ty - 1], [tx + 1, ty], [tx, ty + 1], [tx - 1, ty]]) {
-      if (isRoadAt(nx, ny) || fenceJoins(tileAt(nx, ny)) || isMoatTile(tileAt(nx, ny))) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
+      if (tileAt(nx,ny)===TileType.Water || isRoadAt(nx, ny) || fenceJoins(tileAt(nx, ny)) || isMoatTile(tileAt(nx, ny))) setTileSprite(nx, ny, tiles[ny * worldTilesX + nx]);
     }
     // A part tile appearing / going away re-fits the multi-tile art of the anchors up / left of it.
     for(let dy=0;dy<FOOTPRINT_MAX_SIDE;dy++)for(let dx=0;dx<FOOTPRINT_MAX_SIDE;dx++){
@@ -2717,7 +2716,7 @@ async function main() {
       if (charging && mode === "walk" && !hidden) spawnChargeDust(c.id, c.x, c.y + (set.refHeight * set.scale) / 2, stepX);
       const battered = BATTERED_TINT_KINDS.has(vk) && c.hp < c.maxHp * BATTERED_HP_FRACTION;
       const posed = battered && !frame && !tierSet && showBatteredPose(entry.sprite, set, vk, COLONIST_SPRITE_HEIGHT);
-      entry.sprite.tint = battered && !posed ? BATTERED_TINT : c.kind === "hero" && !ownFrame ? HERO_TINT : c.summoned ? SUMMON_TINT : (COLONIST_TINT.get(vk) ?? 0xffffff);
+      entry.sprite.tint = 0xffffff;
     }
     if (entry.sprite instanceof Sprite) {
       const right = getFacing(colonistFacing, c.id, c.x);
@@ -2751,7 +2750,7 @@ async function main() {
       entry.sprite.texture = texture;
       entry.sprite.anchor.set(0.5);
       entry.sprite.scale.set(WAGON_HEIGHT[lv - 1] / texture.height);
-      entry.sprite.tint = hit ? 0xff8080 : art ? 0xffffff : WAGON_STANDIN_TINT[lv - 1];
+      entry.sprite.tint = 0xffffff;
       if (!art && moved) entry.sprite.position.y += Math.sin(now / 90) * 1.2;
       applyFacing(entry.sprite, getFacing(colonistFacing, c.id, c.x));
     }
@@ -2937,7 +2936,7 @@ async function main() {
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5);
       sprite.scale.set(scale * mobRenderScale(m));
-      sprite.tint = MOB_TINT[m.kind] ?? 0xffffff;
+      sprite.tint = 0xffffff;
       return sprite;
     });
     entry.sprite.position.set(m.x,m.y-wallWalkLift(tileAt(Math.floor(m.x/TILE_SIZE),Math.floor(m.y/TILE_SIZE))));
@@ -3072,7 +3071,7 @@ async function main() {
     const battered = BATTERED_TINT_KINDS.has(m.kind) && m.hp < m.maxHp * BATTERED_HP_FRACTION;
     const posed =
       battered && !frame && showBatteredPose(sprite, set, m.kind, (MOB_VISUALS[m.kind] ?? MOB_VISUALS.goblin).radius * MOB_SPRITE_SIZE_PER_RADIUS);
-    sprite.tint = battered && !posed ? BATTERED_TINT : MOB_OWN_ART.has(m.kind) ? 0xffffff : (MOB_TINT[m.kind] ?? 0xffffff);
+    sprite.tint = 0xffffff;
     const renderScale = mobRenderScale(m);
     if (renderScale !== 1) sprite.scale.set(sprite.scale.x * renderScale, sprite.scale.y * renderScale);
     // showAnimFrame resets scale.x to a positive magnitude, so re-apply the flip after it.

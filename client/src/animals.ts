@@ -81,7 +81,7 @@ export function createLivestock(deps: LivestockDeps) {
         e?.icon?.destroy();
         const body = new Sprite(t);
         body.anchor.set(0.5, 1);
-        if (key === "standin") body.tint = STANDIN_TINT[species] ?? 0xffffff;
+        if (key === "standin") body.tint = 0xffffff;
         deps.layer.addChild(body);
         e = { body, icon: null, lastX: x, lastY: y, facing: "e", phase: Math.random() * 1000, key };
         sprites.set(id, e);

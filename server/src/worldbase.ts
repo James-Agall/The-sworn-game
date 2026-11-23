@@ -17,7 +17,7 @@ import { state } from "./state.js";
 // turned / mirrored, quest slots, 6 more settlement templates). 8: gap closure G8 (town-citadel: a keep building).
 // 10: deep mines (coal / copper / tin veins, scattered last: worldgen.ts scatterDeposits). 11: industry extras
 // (limestone / gold / lead veins after those).
-export const WORLDGEN_VERSION = 12;
+export const WORLDGEN_VERSION = 13;
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 // A chunk with more changed tiles than this is stored whole (1024 bytes) instead of as (u16 pos, u8 tile).

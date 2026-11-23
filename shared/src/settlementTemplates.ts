@@ -16,7 +16,7 @@ export type SettlementGuard = "townGuard" | "townArcher" | "townKnight";
 export const SETTLEMENT_GUARDS: SettlementGuard[] = ["townGuard", "townArcher", "townKnight"];
 export const SETTLEMENT_TIER_LABEL = ["", "Hamlet", "Village", "Town"];
 // Buildings per tier (inclusive): hamlet 3-5, village 8-12, town 15+.
-export const SETTLEMENT_BUILDINGS_BY_TIER: [number, number][] = [[0, 0], [3, 5], [8, 12], [15, 40]];
+export const SETTLEMENT_BUILDINGS_BY_TIER: [number, number][] = [[0, 0], [3, 5], [8, 12], [15, 128]];
 
 export interface SettlementBuildingRef {
   // A building template id.

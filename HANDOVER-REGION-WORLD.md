@@ -17,3 +17,14 @@ Basic validation commands, from repository root with Node on PATH:
 - cd client && ../node_modules/.bin/vite build
 
 Validated 24 city template combinations, deterministic connected region graphs at four sizes and three seeds, real entity generation, and actual settlement entrance reachability from the player's start. All 35 smoke checks passed, including save/load and registry/entity audits. Production build and TypeScript checks passed. The visual sheets remain concept references, rather than an exact asset-by-asset reproduction. Runtime browser visual review remains follow-up work.
+
+
+## Follow-up — natural terrain and settlement density
+
+Generator 13 adds winding inter-region road segments, a meandering river and grouped marsh pools. Client terrainTextures.ts provides cached rounded water masks and muted dirt-road connectors. The decorative yellow road border is replaced for dirt roads. Ownership, season, damage and character recolouring were removed from artwork. Separate combat/spell effect layers remain.
+
+New cities use versioned -dense template IDs, with 15/31/63 buildings for one/two/four-region footprints. Existing IDs keep their layouts for save compatibility. New city house plots include storage decorations. Actual settlement workers scale with homes, capped at 32 requested residents. Region settlements activate within 12 cells of their bounds, replacing their previous 96-cell keep radius. Forts reserve regions through the same city planner, with a full-region buffer between settlement identities. Generated template stamping does not clear an apron into another chunk.
+
+Older neutral region towns gain houses only on vacant unowned 3×3 plots when loaded, capped by area. Captured and cleared towns are excluded. Existing street geometry and settlement spacing are retained in those saves. Save loading explicitly retains generator 12 for regeneration. New spacing, denser composed layouts and winding terrain require a new world.
+
+Checked both 24 legacy and 24 denser city templates, deterministic plans, actual entrance reachability and one settlement identity per chunk. Generated a 1024-cell world successfully. TypeScript and production build passed. Smoke suite passed all 35 checks on retry, after one first-run family-dialogue failure. Browser screenshot automation encountered environment/Chrome issues, so live visual review of rounded water remains necessary.

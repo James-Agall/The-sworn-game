@@ -749,7 +749,7 @@ export async function worldgenProgress(stage: LoadStageId, frac: number) {
 
 // World streaming phase 4: seeded (worldbase.ts), so a streamed save can store the seed + tile diffs.
 // `wrap` runs each (synchronous) stage, e.g. under clan 0 (resetWorld): other code may run between stages.
-export async function generateWorld(seed?: number, wrap: (fn: () => void) => void = (fn) => fn(), version = 12) {
+export async function generateWorld(seed?: number, wrap: (fn: () => void) => void = (fn) => fn(), version = 13) {
   await withWorldSeed(seed, () => generateWorldInner(wrap, version), version);
 }
 
@@ -781,7 +781,7 @@ async function generateWorldInner(wrap: (fn: () => void) => void, version: numbe
   });
   if(version >= 12 && state.WORLD_TILES_X >= 128) {
     await worldgenProgress("settlements",0);
-    wrap(() => generateRegionWorld());
+    wrap(() => generateRegionWorld(version));
     expandKeepFootprints();
     await worldgenProgress("resources",0);
     wrap(() => { generateForage(); scatterDeposits(); });
