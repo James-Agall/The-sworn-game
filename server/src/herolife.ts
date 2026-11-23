@@ -1,3 +1,4 @@
+import { holdTownSpeaker, releaseTownSpeaker } from "./townLife.js";
 import { treeAt } from "@colony/shared/trees";
 // herolife.ts: Solo hero phases 1-3 (docs PLAN-solo-hero.md; ROADMAP "Solo hero — landed"). The playable hero as a
 // participant: E-interact (talk to NPCs: settlement elders, traders, villagers, priests, your own people; gather from
@@ -501,6 +502,8 @@ function sendTalk(p: Player, t: Talk, text: string) {
 }
 
 export function closeTalk(p: Player, extra: { openStockpile?: boolean; openTrade?: { tileX: number; tileY: number } } = {}) {
+  const previous=busyOf(p).talk?.mobId;
+  if(previous){const speaker=mobs.get(previous);if(speaker)releaseTownSpeaker(speaker);}
   busyOf(p).talk = undefined;
   sendTo(p, { type: "dialogue", close: true, ...extra });
 }
@@ -512,6 +515,7 @@ function sayThen(p: Player, t: Talk, text: string, more: ChoiceRt[] = []) {
 }
 
 export function startTalk(p: Player, target: Target) {
+  if(target.mob)holdTownSpeaker(target.mob);
   const t: Talk = {
     role: target.role, name: target.name, siteId: target.site?.id, mobId: target.mob?.id, colonistId: target.colonist?.id,
     color: talkColorFor(target.name), choices: [], ...(target.inside ? { inside: target.inside } : {}),
@@ -605,6 +609,17 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
       adjustRelation(p.clan, s.id, g);
       gainSkill(p, "speech", 10);
       return sayThen(p, t, `"Most generous." (relation +${g.toFixed(1)}, now ${Math.round(relationOf(p.clan, s.id))})`);
+    }
+    case "directions": {
+      if(!s)return closeTalk(p);
+      const labels=new Map<number,string>([[TileType.Market,'market'],[TileType.Bakery,'bakery'],[TileType.Blacksmith,'blacksmith'],[TileType.Bloomery,'bloomery'],[TileType.TailorShop,'tailor'],[TileType.BuildersGuild,'carpentry yard'],[TileType.Stables,'stables']]);
+      const found=new Map<string,{x:number;y:number}>();
+      for(let y=s.y0;y<=s.y1;y++)for(let x=s.x0;x<=s.x1;x++){const label=labels.get(state.tiles[tileIndex(x,y)]);if(label&&!found.has(label))found.set(label,{x,y});}
+      const directions=[...found].map(([label,at])=>`${label}: ${Math.round(Math.hypot(at.x-p.x/TILE_SIZE,at.y-p.y/TILE_SIZE))} paces ${bearing(at.x-p.x/TILE_SIZE,at.y-p.y/TILE_SIZE)}`);
+      for(const[,at]of found)revealAround(at.x,at.y,circleOffsets(2));
+      const key=`directions:${s.id}:${gameDay()}`;
+      if(!life.flags[key]){gainSkill(p,'speech',1);life.flags[key]=1;}
+      return sayThen(p,t,directions.length?`"Of course. Here is your way around ${s.name}."\n`+directions.join('\n'):'"Ask the trader at the square; we have few shops here."');
     }
     case "rumour":
       if (s) life.flags[`rumour:${s.id}`] = day;
@@ -1059,6 +1074,12 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
   if(!isMounted(p)&&tryWorldChest(p,m.tx,m.ty))return;
   const b = busyOf(p);
   const near = talkTargets(p);
+  if(typeof m.npcId==='string'){
+    const target=near.find(t=>t.mob?.id===m.npcId||t.colonist?.id===m.npcId);
+    if(!target)return toast(p,'Walk closer to talk to them');
+    if(target.mob)holdTownSpeaker(target.mob);
+    return startTalk(p,target);
+  }
   if (near.length) {
     b.gather = undefined;
     b.tool = undefined;

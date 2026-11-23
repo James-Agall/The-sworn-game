@@ -1,3 +1,4 @@
+import { updatePeacefulGuard } from "./townLife.js";
 // sim.ts: One simulation tick (stepSimulation: everything the pause freezes); index.ts's tick loop and the fastForward test hook run it.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { updateAnimals } from "./animals.js";
@@ -225,7 +226,7 @@ export function stepSimulation() {
       state.moverOwner = tileOwner.size === 0 ? 0 : siteNumber(mob.siteId);
       // Forts phase C: a human settlement's cosmetic workers walk their loop instead.
       if (mob.siteWorker) updateSiteWorker(mob, dt * stride);
-      else if (!mob.warbandId) updateMob(mob, dt * stride);
+      else if (!mob.warbandId && !updatePeacefulGuard(mob,dt*stride)) updateMob(mob, dt * stride);
     }
     state.moverOwner = 0;
   });

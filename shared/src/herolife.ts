@@ -189,7 +189,7 @@ export const PERSONAL_BUILD_MAX = 6;
 // outdoors, or the barracks inside).
 export type NpcRole = "leader" | "trader" | "villager" | "questGiver" | "folk" | "priest" | "keeper" | "furniture" | "patron" | "herald" | "smith" | "captain";
 export type DialogueAction =
-  | "bye" | "trade" | "sellPack" | "askWork" | "quests" | "gift" | "rumour" | "alliance" | "train" | "fare" | "lodging"
+  | "directions" | "bye" | "trade" | "sellPack" | "askWork" | "quests" | "gift" | "rumour" | "alliance" | "train" | "fare" | "lodging"
   // Family: the Elder's kin (courtship / the in-law levy), courting, proposing, the ceremony, parting.
   | "kin" | "court" | "courtGift" | "propose" | "marry" | "kinLevy" | "part"
   // Stardew phase 5c (interiors): open the building's panel, the bed (sleep to dawn / nap), the chest (store / take).
@@ -269,11 +269,12 @@ export const DIALOGUE: Record<NpcRole, Record<string, DialogueNodeDef>> = {
       },
       choices: [
         { label: "How is the work going?", next: "work", tiers: NOT_HOSTILE },
+        { label: "Where are the shops and workshops?", action: "directions", tiers: NOT_HOSTILE },
         { label: "Tell me about {site}.", next: "place", tiers: NOT_HOSTILE },
         { label: "Heard any gossip?", next: "gossip", tiers: TRADING },
         { label: "Any trouble on the roads?", action: "patronRumour", tiers: TRADING },
         { label: "What do you make of the weather?", next: "sky", tiers: NOT_HOSTILE },
-        { label: "Tell me about yourself.", next: "past", tiers: ["friendly", "allied", "vassal"] },
+        { label: "What brought you to this town?", next: "past", tiers: NOT_HOSTILE },
         { label: "Could I rest here a while?", action: "lodging", tiers: ["friendly", "allied", "vassal"] },
         BYE,
       ],

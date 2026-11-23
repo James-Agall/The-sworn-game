@@ -206,7 +206,7 @@ export function approachGoal(
 export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
   if (attackerKey) recordFightHit(mob, mob.x, mob.y, attackerKey, amount);
   // Forts phase C: hurting a human settlement's guard / worker turns the settlement hostile.
-  if (mob.siteKind === "fort") noteSettlementAttacked(mob.siteId, attackerKey);
+  if (mob.siteKind === "fort" && !mob.siteWorker) noteSettlementAttacked(mob.siteId, attackerKey);
   if (isDormantGuardian(mob)) activateGuardianSite(mob.siteId!);
   if (mob.creativeNeutral) wakeNeutral(mob);
   if (attackerKey && mob.siteKind === "fort") noteSiteHit(mob, attackerKey);
@@ -530,7 +530,7 @@ export function damageBuilding(tx: number, ty: number, amount: number) {
   const t = state.tiles[tileIndex(tx, ty)] as TileType;
   // Forts phase C: damage to a human settlement's building turns it hostile.
   const own0 = ownerAt(tileIndex(tx, ty));
-  if (own0 !== 0) noteSettlementAttacked(ownerSiteIds[own0 - 1]);
+  if (own0 !== 0) noteSettlementAttacked(ownerSiteIds[own0 - 1],undefined,false);
   if (t === TileType.TownCenter) {
     const tc = findTownCenterAt(tx, ty);
     if (tc) damageTownCenter(tc, amount);

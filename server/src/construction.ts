@@ -1792,6 +1792,7 @@ export function buildingInfoFor(tx: number, ty: number, forPlayer?: Player): Bui
     ...(isGateTile(t) ? { gate: (({ open, lock, overrun }) => ({ open, lock, overrun }))(gateAt(tileIndex(tx, ty))) } : {}),
     ...(t === TileType.SiegeWorkshop ? { siege: siegeWorkshopInfo(tx, ty) } : {}),
     ...(t === TileType.Blacksmith ? { forge: blacksmithForgeInfo(tx, ty) } : {}),
+    ...((unitBuildingSlots(tx,ty)||t===TileType.Stables)?{armyStables:tilesOfType(TileType.Stables).filter(k=>ownerAt(tileIndex(k.x,k.y))===0&&clanIdAt(k.x,k.y)===state.clan.id).sort((a,b)=>Math.hypot(a.x-tx,a.y-ty)-Math.hypot(b.x-tx,b.y-ty)).slice(0,8)}:{}),
     ...(unitBuildingSlots(tx, ty) ? { train: trainInfo(tx, ty)! } : {}),
     ...(t === TileType.TownCenter && villageLevyInfo(tx, ty) ? { levy: villageLevyInfo(tx, ty)! } : {}),
     ...(t === TileType.Keep ? { heroes: keepHeroInfo(tx, ty) } : {}),

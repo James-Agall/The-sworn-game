@@ -255,6 +255,7 @@ export type SiteFaction = "bandit" | "orc" | "human";
 // Forts phase B stage 3: snapshot `sites` (sent with `siteTiles`): every fort whose keep has been explored
 // (minimap marker coloured by faction; cleared = razed, captured = rebuilt as a clan's outpost).
 export interface SiteSnapshot {
+  ambientRoad?: number[];
   name: string;
   faction: SiteFaction;
   keepX: number;
@@ -1170,6 +1171,7 @@ export interface BuildingInfo {
   room?: RoomInfo;
   // Gap closure G3: your building's work posts (workers, open slots, free villagers to assign), else absent.
   posts?: BuildingPostsInfo;
+  armyStables?: {x:number;y:number}[];
   // Siege Workshops only: what is being built (null: idle), its progress 0-1, engines alive / cap, and a
   // build button per engine (see queueSiege).
   siege?: {
@@ -1433,7 +1435,7 @@ export type ClientMessage =
   // (held: gatherStop on release), next to an own recipe station works it; dialogue choices by index; hero actions.
   // Stardew phase 5a: `tool` / `tx` / `ty` / `crop`: the hotbar tool in hand and the faced tile (the tool is used there
   // when no NPC is in range); heroTool uses it without talking (Space / left click).
-  | { type: "interact"; tool?: HeroTool; tx?: number; ty?: number; crop?: CropId }
+  | { type: "interact"; npcId?: string; tool?: HeroTool; tx?: number; ty?: number; crop?: CropId }
   | { type: "heroTool"; tool: HeroTool; tx: number; ty: number; crop?: CropId }
   | { type: "gatherStop" }
   | { type: "dialogueChoice"; choice: number }

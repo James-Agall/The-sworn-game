@@ -41,3 +41,20 @@ The existing settlement NPC/production/trade systems remain in use. Industry is 
 Validation completed for 72 city template combinations, connected regional road graphs, actual entrance reachability, non-overlapping settlement identities per chunk and city-size quotas. The 1024-cell test seed creates 1 four-region, 2 double-region and 70 single-region settlements. The 160-cell fallback generates a single town. TypeScript and production builds pass. All 35 smoke checks pass. The smoke dialogue assertion now accepts additional valid Elder choices while still testing gift/work actions.
 
 Layout previews are exported under the Windows workspace outputs/world-regions/town-districts.html and town-districts.png. They use actual template data and game sprite images, with dynamic inhabitants and renderer effects omitted.
+
+
+## Town life — cached traffic, pets, guard posts, dialogue and horses
+
+server/src/townLife.ts builds one adjacent-cell road tour and one road/perimeter patrol tour per settlement, cached by the SiteState object. Ordinary residents follow shared tours with staggered pauses. Individual movement does not run A*. Priests, heralds and the trader retain their dedicated roles. Conversations pause the speaker. Civilian IDs now derive from settlement, role and resident index, preserving names/trades/stories over sleep/wake cycles.
+
+Human garrisons get stationary posts beside gates and by the keep, plus two patrol places. Capacity additions occur once; subsequent casualties use the existing refill rules. Sleeping/unprovoked guards bypass updateMob and target/path selection. They follow their scripted patrol or hold position. A guard hit activates the garrison. Civilian/property damage no longer triggers guard activation under this requested rule. The existing hostility timeout stands the garrison down again. Routes reinitialize after combat so returning actors do not follow stale off-road segments.
+
+Site snapshots optionally provide up to 128 cached road cells for two cosmetic pets per awake town. client/src/townPets.ts reuses native dog/cat artwork and interpolates them locally. Pets have no server entities or per-frame network updates. They are culled with town activity/proximity and hidden during town hostility and interiors/strategic views.
+
+Left-clicking town farmer/miner/priest/herald sprites sends a targeted interact request before tools/combat. The server validates the exact target and talk distance, then opens the existing popup dialogue. Villagers offer actual shop/workshop directions with bearings, map reveals and a daily speech reward. Personal backstories are available from neutral villagers. Existing weather/day/trade/gossip/quest content remains integrated.
+
+Army building panels list nearby owned Stables. Opening Stables exposes the existing actual horse market, with mare/stallion buying, gold costs, capacity checks and mounting. No separate horse inventory or currency was introduced. The animal panel heading identifies riding horses.
+
+Validation: server/town-life-test.ts covers shared route cache reuse, adjacent road segments, patrol movement, fixed posts, held/resumed conversation, targeted villager popup/directions, army-to-Stables links, actual adult horse purchase/payment/ownership/insufficient funds, and whole-garrison activation after a guard hit. Existing animal suite passed (horse buying/riding included). All 35 smoke checks passed. TypeScript and production builds passed. The smoke suite exposed keep-anchor relocation on region save/load; region-world loads now retain generation-resolved footprints, while older non-region saves still receive the legacy footprint migration.
+
+Apply this update to existing worlds by refreshing/reloading the game. New guard posts are prepared once when their town activates, including loaded active towns. Live visual verification was not performed in this task.

@@ -1,0 +1,64 @@
+import assert from 'node:assert/strict';
+import {TileType} from '../shared/src/protocol.js';
+import {state,sites,mobs} from './src/state.js';
+import {generateWorld} from './src/worldgen.js';
+import {loadBuildingTemplates} from './src/buildingTemplates.js';
+import {loadSettlementTemplates} from './src/settlementTemplates.js';
+import {loadCampTemplates} from './src/camps.js';
+import {townRoutes,ensureTownGuardPosts,updatePeacefulGuard,updateTownResident,holdTownSpeaker,releaseTownSpeaker} from './src/townLife.js';
+import {spawnSiteWorkers,updateSiteWorker} from './src/sites.js';
+import {damageMob} from './src/combat.js';
+import {handleInteract,handleDialogueChoice} from './src/herolife.js';
+import {setTile} from './src/chunks.js';
+import {tileIndex,setOwner} from './src/tiles.js';
+import {buildingInfoFor} from './src/construction.js';
+import {animalHouseInfo,handleAnimalAction} from './src/animals.js';
+import type {Player} from './src/types.js';
+loadBuildingTemplates();loadSettlementTemplates();loadCampTemplates();await generateWorld(42);
+const site=[...sites.values()].find(s=>s.layout?.startsWith('region-city-'))!;
+assert(site);site.awake=true;state.moverOwner=site.num;
+const routes=townRoutes(site);assert(routes.road.length>2);assert.equal(townRoutes(site),routes,'route cache reused');
+for(const route of [routes.road,routes.patrol])for(let k=1;k<route.length;k++){
+ const a=route[k-1],b=route[k];assert.equal(Math.abs(a%state.WORLD_TILES_X-b%state.WORLD_TILES_X)+Math.abs(Math.floor(a/state.WORLD_TILES_X)-Math.floor(b/state.WORLD_TILES_X)),1,'every cached route segment joins adjacent cells');
+}
+ensureTownGuardPosts(site);spawnSiteWorkers(site);
+assert(site.garrison.length>=routes.posts.length+2);
+const guard=mobs.get(site.garrison[0])!,patrol=mobs.get(site.garrison.at(-1)!)!;
+const before={x:patrol.x,y:patrol.y};
+for(let i=0;i<80;i++){state.cycleTick++;for(const id of site.garrison){const m=mobs.get(id)!;assert(updatePeacefulGuard(m,.05));assert(!m.guardianActive);}}
+assert(Math.hypot(patrol.x-before.x,patrol.y-before.y)>0,'patrol follows cached route');
+const post=routes.posts[0];assert.equal(guard.x,(post%state.WORLD_TILES_X+.5)*32,'stationary gate guard');
+const resident=site.workers.map(id=>mobs.get(id)!).find(m=>m.siteWorker==='farm'&&m.id!==site.workers[0])!;
+assert(resident);updateTownResident(resident,.05);holdTownSpeaker(resident);const x=resident.x,y=resident.y;
+for(let i=0;i<20;i++){state.cycleTick++;updateSiteWorker(resident,.05);}
+assert.equal(resident.x,x);assert.equal(resident.y,y);releaseTownSpeaker(resident);
+for(let i=0;i<100;i++){state.cycleTick++;updateSiteWorker(resident,.05);}
+assert(Math.hypot(resident.x-x,resident.y-y)>0,'resident resumes walking after conversation');
+const messages:any[]=[];
+const player={id:'town-life-test',profileKey:'town-life-test',clan:0,x:resident.x,y:resident.y,hp:100,dead:false,input:{dx:0,dy:0},socket:{OPEN:1,readyState:1,send:(raw:string)=>messages.push(JSON.parse(raw))}} as unknown as Player;
+handleInteract(player,{npcId:resident.id});
+const dialogue=messages.find(m=>m.type==='dialogue'&&m.dialogue)?.dialogue;
+assert(dialogue&&dialogue.npc.role==='villager','click target opens the selected villager dialogue');
+const choice=dialogue.choices.findIndex((c:any)=>c.label.includes('shops and workshops'));
+assert(choice>=0);handleDialogueChoice(player,choice);
+assert(messages.some(m=>m.dialogue?.text?.includes('blacksmith')),'villager gives directions to real workshops');
+const stable={x:state.WORLD_TILES_X/2+6,y:state.WORLD_TILES_Y/2};
+setTile(tileIndex(stable.x,stable.y),TileType.Stables);setOwner(tileIndex(stable.x,stable.y),0);
+setTile(tileIndex(stable.x+4,stable.y),TileType.MilitiaPost);setOwner(tileIndex(stable.x+4,stable.y),0);state.cycleTick++;
+const army=buildingInfoFor(stable.x+4,stable.y,player);
+assert(army?.armyStables?.some(s=>s.x===stable.x&&s.y===stable.y),'army station links to owned Stables');
+state.creative=false;state.stock.gold=1000;
+const beforeHorse=animalHouseInfo(stable.x,stable.y,player)!;
+const offer=beforeHorse.buy.find(b=>b.species==='horse')!;assert(offer);
+const bought=handleAnimalAction(player,{tileX:stable.x,tileY:stable.y,op:'buy',species:'horse',male:false});
+assert(bought.startsWith('Bought'));assert.equal(state.stock.gold,1000-offer.gold);
+const owned=animalHouseInfo(stable.x,stable.y,player)!;assert(owned.animals.some(a=>a.species==='horse'&&!a.baby),'purchase creates an adult riding horse');
+const gold=state.stock.gold;assert(handleAnimalAction({...player,clan:1},{tileX:stable.x,tileY:stable.y,op:'buy',species:'horse'}).includes('Not your'));assert.equal(state.stock.gold,gold);
+state.stock.gold=0;assert(handleAnimalAction(player,{tileX:stable.x,tileY:stable.y,op:'buy',species:'horse'}).includes('costs'),'insufficient gold refused');
+console.log('PASS targeted villager dialogue, local workshop directions, army Stables links, real horse purchase/payment/ownership');
+damageMob(resident,1);assert(!site.provoked,'a civilian hit does not activate guard combat AI');
+damageMob(guard,1);assert(site.provoked,'a guard hit raises the settlement alarm');
+assert(site.garrison.every(id=>mobs.get(id)?.guardianActive),'all guards activate together');
+assert(!updatePeacefulGuard(guard,.05),'combat guards leave the ambient route system');
+console.log(`PASS cached adjacent-cell road/patrol tours, ${routes.posts.length} fixed posts, sleeping guards, moving residents, conversation pauses, settlement alarm`);
+process.exit(0);

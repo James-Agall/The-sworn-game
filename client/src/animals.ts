@@ -214,7 +214,7 @@ export function createAnimalPanel(deps: AnimalPanelDeps) {
     shownKey = key;
     const head = document.createElement("div");
     head.style.cssText = "font-weight:600;margin-bottom:4px";
-    head.textContent = `Animals ${info.animals.length}/${info.capacity}${info.winter ? " · winter: indoors" : info.grazing ? " · grazing" : ""}`;
+    head.textContent = `${info.kind==="stable"?"Riding horses":"Animals"} ${info.animals.length}/${info.capacity}${info.winter ? " · winter: indoors" : info.grazing ? " · grazing" : ""}`;
     const status = document.createElement("div");
     status.append(
       iconImg(NEED_ICON.hungry, 14, "Feeder"), ` Feed ${info.feed}/${info.feedCap} `,

@@ -566,7 +566,8 @@ function applyWorldInner(s: WorldState) {
   // Forts phase B: stamped forts (saves without them have none). After the owners (site numbers).
   restoreSites(s.sites);
   migrateNeutralSpriteHomes();
-  expandKeepFootprints();
+  // Region worlds already resolved their footprints at generation time.
+  if(!s.regionPlan)expandKeepFootprints();
   // Forts phase G: after the mobs (warband bodies are dropped; warbands come back abstract).
   restoreWarbands(s.warbands);
   // World streaming phase 3: after the mobs / wildlife (saves without it: no COLD records).

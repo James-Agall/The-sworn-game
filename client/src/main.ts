@@ -1,3 +1,4 @@
+import { createTownPets } from "./townPets";
 import { naturalRoad, roundedWater } from "./terrainTextures";
 import { treeAt } from "@colony/shared/trees";
 import { updateVitals } from "./vitals";
@@ -5756,6 +5757,14 @@ async function main() {
       }
     }
     animalPanel.render(info.animals);
+    let stableLinks=document.getElementById('army-stables');
+    if(!stableLinks){stableLinks=document.createElement('section');stableLinks.id='army-stables';buildingPanelEl.append(stableLinks);}
+    stableLinks.replaceChildren();stableLinks.hidden=info.armyStables===undefined||info.tile===TileType.Stables;
+    if(info.armyStables){
+      const heading=document.createElement('h4');heading.textContent='Horses & stables';stableLinks.append(heading);
+      if(!info.armyStables.length)stableLinks.append('Build Stables to buy and keep riding horses.');
+      for(const stable of info.armyStables){const button=document.createElement('button');button.className='cmd-btn';button.textContent=`Buy horses at Stables (${stable.x}, ${stable.y})`;button.onclick=()=>openBuildingInfo(stable.x,stable.y);stableLinks.append(button);}
+    }
     buildingPanelEl.hidden = false;
   }
   const animalPanel = createAnimalPanel({ anchor: bpSpellsRowEl, send: (m) => sendMessage(m as never), tile: () => infoTile, refresh: () => requestBuildingInfo() });
@@ -5976,6 +5985,11 @@ async function main() {
   const timeStatusEl = document.getElementById("time-status")!;
   let currentTimeScale = 1;
   let currentPaused = false;
+  const townPets=createTownPets(worldLayer);
+  app.ticker.add(ticker=>{
+    const me=latestPlayersForSpells.find(p=>p.id===myId);
+    townPets.update(fortMarkers,worldTilesX,tileSize,ticker.deltaMS/1000,currentPaused,!interiorRef.ui?.active()&&!strategyCam.inStrategy,me?.x??0,me?.y??0);
+  });
   function sendTimeScale(scale: number) {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "setTimeScale", scale }));
   }
@@ -8324,6 +8338,11 @@ async function main() {
     if (spellAim && e.button === 2) {
       setSpellAim(null);
       return;
+    }
+    // Direct conversations take priority over tools and combat on peaceful townsfolk.
+    if(e.button===0&&!strategyCam.inStrategy&&buildPanel.classList.contains('collapsed')){
+      const person=findNearest(latestMobs.filter(m=>['townFarmer','townMiner','townPriest','townHerald'].includes(m.kind)),x,y,18);
+      if(person){sendMessage({type:'interact',npcId:person.id});return;}
     }
     // Stardew phase 5a: a left click on a tile next to the hero with a hotbar tool in hand uses it there.
     if (e.button === 0 && !strategyCam.inStrategy && selectedIds.size === 0 && buildPanel.classList.contains("collapsed") && heroToolsRef.ui?.click(x, y)) {

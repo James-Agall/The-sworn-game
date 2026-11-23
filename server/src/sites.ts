@@ -1,3 +1,4 @@
+import { townRoutes, ensureTownGuardPosts, updateTownResident, townSpeakerHeld } from "./townLife.js";
 // sites.ts: Forts phase B (PLAN-forts-diplomacy-moats.md §2, §8): stamped NPC forts. SiteState records, the
 // ASCII template stamper (SITE_TEMPLATES), world-gen placement, the reserved-grounds mask, save / load.
 // Stage 2: sleeping sites (updateSites), the site-guardian leash (siteLeash), anti-kite surge, loot share.
@@ -414,10 +415,11 @@ export function updateSites() {
       if (awake && s.provoked) s.growthTick = Math.min(now, s.growthTick + TICK_RATE);
       else if (awake) catchUpCampGrowth(s, now);
     }
+    if(awake && human)ensureTownGuardPosts(s);
     if (awake && !s.awake) {
       catchUpSite(s, now);
-      if (human) spawnSiteWorkers(s);
-    } else if (!awake && s.awake && human) despawnSiteWorkers(s);
+      if (human) { ensureTownGuardPosts(s); spawnSiteWorkers(s); state.ownerVersion++; }
+    } else if (!awake && s.awake && human) { despawnSiteWorkers(s); state.ownerVersion++; }
     s.awake = awake;
     if (awake) s.lastSimTick = now;
     const garrison = s.garrison.flatMap((id) => mobs.get(id) ?? []);
@@ -583,6 +585,7 @@ export function sitesForSnapshot(): SiteSnapshot[] {
       name: s.name, faction: s.faction, keepX: s.keepX, keepY: s.keepY, cleared: s.cleared, captured: s.captured,
       ...(s.capturedBy !== undefined ? { capturedBy: s.capturedBy } : {}),
       num: s.num, ...(s.faction === "human" ? { hostile: s.provoked } : {}),
+      ...(s.awake && s.faction==="human" && !s.cleared && !s.captured ? { ambientRoad:townRoutes(s).road.slice(0,128) } : {}),
       ...(s.vassalOf != null ? { vassalOf: s.vassalOf } : {}),
     });
   }
@@ -641,7 +644,8 @@ export function attackerClan(attackerKey?: string): number {
 // Any colony damage to a human settlement's folk, buildings or keep (damageMob / damageBuilding /
 // damageHearth): it turns hostile for SETTLEMENT_HOSTILE_TICKS (renewed by every hit), its whole garrison
 // wakes, and the attacker's clan loses RELATION_ATTACK_PENALTY once per hostile spell.
-export function noteSettlementAttacked(siteId: string | null | undefined, attackerKey?: string) {
+export function noteSettlementAttacked(siteId: string | null | undefined, attackerKey?: string, guardAttack=true) {
+  if(!guardAttack)return;
   const s = siteId ? sites.get(siteId) : undefined;
   if (!s || s.faction !== "human" || s.cleared || s.captured) return;
   // Forts phase F: a vassal never takes up arms against its liege (relation pays instead).
@@ -724,6 +728,10 @@ export function spawnSiteWorkers(s: SiteState) {
       const home = (h && (s.workers.length === 0 ? h.trader : role === "priest" ? h.priest : undefined)) ?? pick(h?.villagers.length ? h.villagers : s.posts)!;
       const work = pick(spots[role]) ?? pick(s.posts)!;
       const m = spawnGuardian(WORKER_KIND[role], { x: home % state.WORLD_TILES_X, y: Math.floor(home / state.WORLD_TILES_X) }, s.id, "fort");
+      // Stable identities keep names, trades and personal stories consistent across sleep/wake.
+      mobs.delete(m.id);
+      m.id=`${s.id}:resident:${role}:${k}`;
+      mobs.set(m.id,m);
       m.siteWorker = role;
       m.workA = work;
       m.workB = home;
@@ -753,6 +761,7 @@ export function despawnSiteWorkers(s: SiteState) {
 // shelter post, pause, again (a farmer picks another plot each trip). Everyone stays in at night and while
 // the settlement is hostile. An asleep site's leftover workers (after a load) do nothing.
 export function updateSiteWorker(mob: Mob, dt: number) {
+  if(townSpeakerHeld(mob)||updateTownResident(mob,dt))return;
   const s = mob.siteId ? sites.get(mob.siteId) : undefined;
   if (!s || !s.awake || mob.workB === undefined || mob.tactic === "rout" || mob.tactic === "leave") return;
   const now = state.cycleTick;
