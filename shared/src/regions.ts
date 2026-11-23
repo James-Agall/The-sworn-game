@@ -1,10 +1,12 @@
+import { limitCitySizes, districtCityTemplate } from "./cityDistricts.js";
 import { type SettlementTemplate } from './settlementTemplates.js';
 export const REGION_SIZE = 32;
 export type RegionKind = 'countryside'|'forest'|'marsh'|'camp'|'ruin'|'cave'|'city'|'fort';
 export interface Region { x:number; y:number; kind:RegionKind; variant:number; east:boolean; south:boolean; city?:number }
 export interface RegionCity { x:number; y:number; w:number; h:number; variant:number; fort?:boolean }
 export interface RegionPlan { version:1; columns:number; rows:number; regions:Region[]; cities:RegionCity[] }
-export function planRegions(width:number,height:number,seed:number,version=13):RegionPlan {
+export function planRegions(width:number,height:number,seed:number,version=14):RegionPlan {
+ if(version>=14)return limitCitySizes(planRegions(width,height,seed,13),seed,width,height);
  let salt=seed>>>0;
  const random=()=>{salt=(Math.imul(salt,1664525)+1013904223)>>>0;return salt/4294967296;};
  const columns=Math.ceil(width/REGION_SIZE),rows=Math.ceil(height/REGION_SIZE);
@@ -46,6 +48,7 @@ export function planRegions(width:number,height:number,seed:number,version=13):R
 
 // A composed city has one keep, one faction and uninterrupted streets at internal region seams.
 export function regionCityTemplate(id:string):SettlementTemplate|undefined {
+ if(id.endsWith("-district"))return districtCityTemplate(id);
  const match=/^region-city-(1|2)-(1|2)-([0-5])(-dense)?$/.exec(id);if(!match)return;
  const dense=!!match[4];
  const cw=Number(match[1]),ch=Number(match[2]),variant=Number(match[3]);

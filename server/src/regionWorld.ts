@@ -11,12 +11,22 @@ import { seedHomeDesign } from './interiors.js';
 
 export let generatedRegionPlan: RegionPlan | null = null;
 export function restoreRegionPlan(plan: RegionPlan | undefined) { generatedRegionPlan=plan?.version===1?plan:null; }
-export function generateRegionWorld(version = 13) {
+export function generateRegionWorld(version = 14) {
  const width=state.WORLD_TILES_X,height=state.WORLD_TILES_Y;
  const plan=planRegions(width,height,state.worldNoiseSalt,version);
  generatedRegionPlan=plan;
  const landmarks: {x:number;y:number}[]=[];
+ // Landmark rejection sampling must respect the scarce preallocated city footprints.
+ const reserved:number[]=[];
+ if(version>=14)for(const city of plan.cities){
+  for(let y=city.y*32-6;y<(city.y+city.h)*32+6;y++)for(let x=city.x*32-6;x<(city.x+city.w)*32+6;x++){
+   if(!inBounds(x,y))continue;
+   const i=tileIndex(x,y);
+   if(state.tiles[i]===TileType.Empty){setTile(i,TileType.Water);reserved.push(i);}
+  }
+ }
  placeAbbey(landmarks);placeCastleRuin(landmarks);
+ for(const i of reserved)if(state.tiles[i]===TileType.Water)setTile(i,TileType.Empty);
  const landmarkAt=(x:number,y:number)=>isInAbbeyGrounds(x,y)||isInCastleRuinGrounds(x,y);
  const centre=state.townCenters[0];
  const safe=(x:number,y:number)=>Math.hypot(x-centre.x,y-centre.y)<20||landmarkAt(x,y);
@@ -69,7 +79,7 @@ export function generateRegionWorld(version = 13) {
  }
 
  for(const city of plan.cities){
-  const id=`region-city-${city.w}-${city.h}-${city.variant}${version>=13?"-dense":""}`;
+  const id=`region-city-${city.w}-${city.h}-${city.variant}${version>=14?"-district":version>=13?"-dense":""}`;
   const template=regionCityTemplate(id)!;
   const x0=city.x*32+1,y0=city.y*32+1;
   let reserved=false;
@@ -146,7 +156,7 @@ export function generateRegionWorld(version = 13) {
 export function populateExistingRegionTowns() {
  const styles=['cottage','townhouse','farmhouse','longhouse','hunting-lodge','hill-burrow'];
  for(const site of sites.values()){
-  if(!site.layout?.startsWith('region-city-')||site.layout.endsWith('-dense')||site.captured||site.cleared)continue;
+  if(!site.layout?.startsWith('region-city-')||(site.layout.endsWith('-dense')||site.layout.endsWith('-district'))||site.captured||site.cleared)continue;
   let count=0;
   for(let y=site.y0;y<=site.y1;y++)for(let x=site.x0;x<=site.x1;x++)if([TileType.House,TileType.BigHouse,TileType.HouseLevel2].includes(state.tiles[tileIndex(x,y)]))count++;
   const target=Math.min(40,Math.floor((site.x1-site.x0)*(site.y1-site.y0)/45));

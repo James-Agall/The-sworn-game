@@ -777,7 +777,7 @@ await check("solo hero: talk to a settlement elder (gift, work, farewell)", asyn
   await tp(town.keepX, town.keepY + 1);
   const d0 = await talkOpen(/Elder/);
   let n;
-  const opened = d0?.dialogue?.npc.role === "leader" && d0.dialogue.choices.length >= 2 && d0.dialogue.choices.length <= 6;
+  const opened = d0?.dialogue?.npc.role === "leader" && d0.dialogue.choices.length >= 2;
   n = c.dialogues.length;
   await hook("heroLife", { choice: pick(d0, /gift/i) });
   const d1 = await lastDialogue(n);

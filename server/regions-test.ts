@@ -9,7 +9,7 @@ import { generateWorld } from './src/worldgen.js';
 import { state,sites,mobs } from './src/state.js';
 import { generatedRegionPlan } from './src/regionWorld.js';
 loadBuildingTemplates();loadSettlementTemplates();loadCampTemplates();
-for(const suffix of ["","-dense"])for(const w of [1,2])for(const h of [1,2])for(let v=0;v<6;v++){
+for(const suffix of ["","-dense","-district"])for(const w of [1,2])for(const h of [1,2])for(let v=0;v<6;v++){
  const t=regionCityTemplate(`region-city-${w}-${h}-${v}${suffix}`)!;
  const errors=validateSettlementTemplate(t,buildingTemplateById);
  assert.deepEqual(errors,[],t.id+': '+errors.join(', '));
@@ -44,6 +44,24 @@ for(const site of sites.values())for(let y=Math.floor(site.y0/32);y<=Math.floor(
  const chunk=y*Math.ceil(state.WORLD_TILES_X/32)+x;
  assert(!owners.has(chunk),`two settlement identities in chunk ${x},${y}`);owners.set(chunk,site.id);
 }
+const planned=generatedRegionPlan!.cities;
+assert(planned.filter(c=>c.w===2&&c.h===2).length<=1,'at most one 2x2 city');
+assert(planned.filter(c=>c.w*c.h===2).length<=3,'at most three double-region cities');
+assert(planned.filter(c=>c.w===2&&c.h===1).length===0,'double-region cities are 1x2');
+for(const city of planned)assert(city.w*city.h===1||city.w===1&&city.h===2||city.w===2&&city.h===2);
+if(state.WORLD_TILES_X>=512){
+ assert.equal(planned.filter(c=>c.w===2&&c.h===2).length,1);
+ assert(planned.filter(c=>c.w===1&&c.h===2).length>=1);
+ assert.equal([...sites.values()].filter(s=>s.layout?.startsWith('region-city-2-2-')).length,1,'large city actually stamped');
+}
+const district=regionCityTemplate('region-city-1-1-0-district')!;
+const dense=regionCityTemplate('region-city-1-1-0-dense')!;
+const houses=(t:typeof district)=>t.buildings.filter(b=>b.ref.startsWith('house-')||b.ref==='longhouse').length;
+console.log(`Housing count ${houses(dense)} -> ${houses(district)}`);
+assert(houses(district)>houses(dense),"more houses than the previous layout");
+assert(district.rows.some(r=>r.includes('i'))&&district.rows.some(r=>r.includes('j')),'metal production chain');
+assert(district.rows.some(r=>r.includes('P'))&&district.rows.some(r=>r.includes('O')),'pasture and orchard');
+console.log(`City sizes: ${planned.filter(c=>c.w*c.h===4).length} large, ${planned.filter(c=>c.w*c.h===2).length} double, ${planned.filter(c=>c.w*c.h===1).length} single`);
 console.log('PASS one settlement identity per chunk and actual entrances reachable from player start');
 console.log('PASS 24 composed city templates, deterministic connected plans, real generated settlements and entities');
 process.exit(0);
