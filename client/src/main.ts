@@ -1593,6 +1593,7 @@ async function main() {
       sprite.position.set((tx+fp.w/2)*tileSize,(ty+fp.h)*tileSize);
       sprite.zIndex=(ty+fp.h-1)*worldTilesX+tx+fp.w-1;return;
     }
+    if(townHome){const box=opaqueBox(townHome),width=tileSize*(townStyle==='hearthmoor'?2:2.35);sprite.anchor.set((box.x+box.w/2)/townHome.width,(box.y+box.h)/townHome.height);sprite.scale.set(width/box.w);sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
     if(homeTexture){sprite.anchor.set(.5,1);sprite.scale.set(tileSize*2/homeTexture.width);sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
     if(fortTexture){
       const p=fortPartner(artTile),w=p?.dx===1?2:1,h=p?.dy===1?2:1;

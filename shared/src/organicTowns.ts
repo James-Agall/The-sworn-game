@@ -7,9 +7,10 @@ export const TOWN_HOME_BASES=[['cottage','farmhouse','cottage','longhouse'],['co
 const templates=new Map<string,SettlementTemplate>();
 export function organicTownTemplate(id:string):SettlementTemplate|undefined {
  const cached=templates.get(id);if(cached)return cached;
- const m=/^region-city-(1|2)-(1|2)-(\d{1,2})-organic$/.exec(id);if(!m||+m[3]>=30)return;
+ const m=/^region-city-(1|2)-(1|2)-(\d{1,2})-(organic2?)$/.exec(id);if(!m||+m[3]>=30)return;
+ const revised=m[4]==='organic2';
  const cw=+m[1],ch=+m[2],v=+m[3],style=Math.floor(v/10),layout=v%10;
- const w=cw*32-2,h=ch*32-2,top=6,bottom=h-5;
+ const w=cw*32-2,h=ch*32-2,top=6,bottom=h-(revised?4:5);
  const grid=Array.from({length:h},()=>Array<string>(w).fill('.'));
  const buildings:SettlementTemplate['buildings']=[],blocked=new Uint8Array(w*h),occupied=new Uint8Array(w*h);
  const at=(x:number,y:number)=>grid[y]?.[x];
@@ -56,6 +57,10 @@ export function organicTownTemplate(id:string):SettlementTemplate|undefined {
  poly([[14,15],[14,17],[...market]],true);
  const civic=(x:number,y:number)=>{for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)if(!blocked[(y+dy)*w+x+dx]&&at(x+dx,y+dy)==='.')road(x+dx,y+dy,style!==0);};
  civic(...market);
+ // A reserved, fully paved 5x3 town square cannot be consumed by later infill.
+ if(revised)for(let y=market[1]-1;y<=market[1]+1;y++)for(let x=market[0]-2;x<=market[0]+2;x++){
+  road(x,y,true);occupied[y*w+x]=1;
+ }
  // Ten street grammars: greens, crooked rows, closes, forks, yards and offset secondary centres.
  const extra:[number,number][][]=[
   [[7,11],[7,20],[22,20],[22,11],[19,11]],
@@ -88,7 +93,7 @@ export function organicTownTemplate(id:string):SettlementTemplate|undefined {
  for(let y=1;y<=3;y++)for(let x=19+(layout+y)%3;x<=Math.min(w-3,26-(layout+y)%2);x++)if(at(x,y)==='.')put(x,y,'f');
  if(cw>1)for(let x=34;x<w-4;x++)for(let y=1;y<=3;y++)if(at(x,y)==='.')put(x,y,(x+layout)%11===0?'O':'f');
  for(const [x,y]of [[2,2],[3,2],[4,2],[5,2],[5,3],[5,4]] as const)if(at(x,y)==='.')put(x,y,'p');
- for(const [x,c]of [[7,'i'],[10,'j'],[13,'d']] as const){put(x,h-3,c);road(x,h-2);}
+ for(const [x,c]of revised?[]:([[7,'i'],[10,'j'],[13,'d']] as const)){put(x,h-3,c);road(x,h-2);}
  const isRoad=(c:string|undefined)=>c==='_'||c==='='||c==='G';
  // Join any branches that skirt the keep's reserved footprint before plots occupy the ground.
  const connected=new Uint8Array(w*h);
@@ -127,7 +132,8 @@ export function organicTownTemplate(id:string):SettlementTemplate|undefined {
   }
   return true;
  };
- add('blacksmith-small',2,h-4);add('tailor-small',18,h-4);add('barn-small',24,h-4);
+ if(!revised){add('blacksmith-small',2,h-4);add('tailor-small',18,h-4);}
+ if(revised){for(let y=1;y<=3;y++)for(let x=24;x<=26;x++)put(x,y,'.');add('barn-small',24,1);}else add('barn-small',24,h-4);
  const plots:{x:number;y:number;rank:number}[]=[];
  for(let y=top+2;y<=bottom-3;y++)for(let x=3;x<w-5;x++){
   if(!inside(x,y)||!inside(x+2,y+2)||!canBuild(x,y))continue;
@@ -144,7 +150,21 @@ export function organicTownTemplate(id:string):SettlementTemplate|undefined {
   occupied[y*w+x]=1;greenCells.push(y*w+x);
  }}
  if(layout===7)for(let y=20;y<=21;y++)for(let x=22;x<=24;x++)if(inside(x,y)&&at(x,y)==='.'&&!blocked[y*w+x]){occupied[y*w+x]=1;greenCells.push(y*w+x);}
- const services=['market-hall','bakery-small','tavern-small','church-chapel','brewery-small'];
+ // Workshops are placed first into a shared inner-wall working quarter.
+ if(revised){
+  let smith:{x:number;y:number}|undefined;
+  for(const ref of ['blacksmith-small','tailor-small']){
+   const ordered=[...plots].sort((a,b)=>(Math.abs(a.x-5)+Math.abs(a.y-(bottom-4)))-(Math.abs(b.x-5)+Math.abs(b.y-(bottom-4))));
+   for(const p of ordered)if(add(ref,p.x,p.y)){if(ref==='blacksmith-small')smith=p;break;}
+  }
+  for(const c of ['i','j','d']){
+   const pockets:{x:number;y:number;rank:number}[]=[];
+   for(let y=top+1;y<bottom;y++)for(let x=2;x<w-2;x++)if(inside(x,y)&&at(x,y)==='.'&&!occupied[y*w+x]&&!blocked[y*w+x])pockets.push({x,y,rank:Math.abs(x-(smith?.x??5))+Math.abs(y-(smith?.y??bottom-4))});
+   pockets.sort((a,b)=>a.rank-b.rank);
+   for(const p of pockets){const i=p.y*w+p.x;if(blocked[i+w]||!['.','_','='].includes(at(p.x,p.y+1)!))continue;blocked[i]=1;if(!connect(p.x,p.y+1)){blocked[i]=0;continue;}put(p.x,p.y,c);occupied[i]=1;break;}
+  }
+ }
+ const services=['market-hall' ,'bakery-small','tavern-small','church-chapel','brewery-small'];
  const homes=['house-cottage','house-townhouse','house-hut','house-two-room','longhouse'];
  const servicePlaces=[[market[0]+3,market[1]-2],[w-8,top+3],[19,bottom-3],[layout===2?w-9:5,top+3],[5,bottom-3]];
  for(let k=0;k<services.length;k++){
@@ -169,6 +189,18 @@ export function organicTownTemplate(id:string):SettlementTemplate|undefined {
  for(let y=top+2;y<bottom-1;y++)for(let x=3;x<w-3;x++){
   if(at(x,y)!=='.'||occupied[y*w+x]||blocked[y*w+x]||!inside(x,y)||hash(x,y)%31!==0)continue;
   if([[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>isRoad(at(x+dx,y+dy))))put(x,y,hash(x,y)%2?'b':'l');
+ }
+ if(revised){
+  for(let y=market[1]-1;y<=market[1]+1;y++)for(let x=market[0]-2;x<=market[0]+2;x++)put(x,y,'=');
+  for(let y=0;y<h;y++)for(let x=1;x<w-1;x++){
+   if(at(x,y)!=='.'||occupied[y*w+x]||blocked[y*w+x]||y>=top&&y<=bottom)continue;
+   // Small fields and pasture/orchard pockets along both rural approach lanes.
+   if(y>=1&&y<=4||y>=h-4&&y<h-1){
+    const n=hash(Math.floor(x/4),Math.floor(y/2));
+    if(n%7===0&&x%4===2&&y%2===1)put(x,y,n%2?'O':'P');
+    else if(n%7!==0)put(x,y,'f');
+   }
+  }
  }
  const template:SettlementTemplate={id,name:`${TOWN_STYLES[style]} ${TOWN_LAYOUTS[layout]}`,tier:3,weight:0,minStartDist:0,profile:TOWN_STYLES[style] as SettlementProfile,garrison:{townGuard:4,townArcher:2},rows:grid.map(r=>r.join('')),buildings,spriteBuildings:true,rotate:false,mirror:false};
  templates.set(id,template);return template;

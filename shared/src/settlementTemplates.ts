@@ -162,7 +162,7 @@ export function settlementLayout(t: Pick<SettlementTemplate, "rows" | "buildings
     for (let y = b.y; y < b.y + bh; y++) for (let x = b.x; x < b.x + bw; x++) {
       const i = y * w + x;
       if (buildingOf[i] >= 0) errs.push(`building ${k + 1} (${b.ref}) overlaps building ${buildingOf[i] + 1} at ${x},${y}`);
-      else if (t.rows[y][x] !== "." && !("id" in t && (String(t.id).endsWith("-district")||String(t.id).endsWith("-organic")) && y === b.y+2 && ["_","="].includes(t.rows[y][x]))) errs.push(`building ${k + 1} (${b.ref}) covers "${t.rows[y][x]}" at ${x},${y}`);
+      else if (t.rows[y][x] !== "." && !("id" in t && (String(t.id).endsWith("-district")||/\-organic2?$/.test(String(t.id))) && y === b.y+2 && ["_","="].includes(t.rows[y][x]))) errs.push(`building ${k + 1} (${b.ref}) covers "${t.rows[y][x]}" at ${x},${y}`);
       buildingOf[i] = k;
     }
     if(t.spriteBuildings && ['house','longhouse','hall'].includes(bt.buildingType))npcSlots.push({x:b.x+1,y:b.y+2});
@@ -308,7 +308,7 @@ export function validateSettlementTemplate(t: unknown, lookup: BuildingLookup): 
   const l = settlementLayout(tt, lookup);
   errs.push(...l.errs);
   if (errs.length > 0) return errs;
-  const [bMin, bMax] = (tt.id.endsWith("-district")||tt.id.endsWith("-organic")) ? [6,160] : SETTLEMENT_BUILDINGS_BY_TIER[tt.tier];
+  const [bMin, bMax] = (tt.id.endsWith("-district")||/\-organic2?$/.test(tt.id)) ? [6,160] : SETTLEMENT_BUILDINGS_BY_TIER[tt.tier];
   if (tt.buildings.length < bMin || tt.buildings.length > bMax) errs.push(`a ${SETTLEMENT_TIER_LABEL[tt.tier].toLowerCase()} has ${bMin}-${bMax} buildings (has ${tt.buildings.length})`);
   const st = settlementStats(tt, lookup);
   if (st.slots.trader < 1) errs.push("at least one trader slot t");

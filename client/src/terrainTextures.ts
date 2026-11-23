@@ -30,6 +30,7 @@ export function naturalRoad(mask:number,width=19,surface?:Texture,renderer?:Rend
   for(const [bit,x,y] of [[1,16,-2],[2,34,16],[4,16,34],[8,-2,16]])if(mask&bit){ctx.beginPath();ctx.moveTo(16,16);ctx.lineTo(x,y);ctx.stroke();}
  };
  draw(width+2,'#716447');draw(width,'#9c8861');
+ if(width>=24&&mask===15){ctx.fillStyle='#9c8861';ctx.fillRect(0,0,32,32);}
  if(surface&&renderer){
   let source=surfaces.get(surface.uid);
   if(!source){const sprite=new Sprite(surface);source=renderer.extract.canvas({target:sprite}) as HTMLCanvasElement;surfaces.set(surface.uid,source);sprite.destroy();}

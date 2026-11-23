@@ -72,3 +72,6 @@ SiteSnapshot.townStyle derives from the existing saved behaviour profile. It sel
 
 
 See docs/medieval-towns-v15.md for historical sources and verification details.
+
+
+Generator 16: -organic2 templates move industry inside walls, reserve a paved 5x3 town square and increase outside farming. Tile/slate houses scale to visible bounds at 2.35 tile widths. Existing organic IDs are preserved for saved worlds. See docs/medieval-towns-v15.md.
