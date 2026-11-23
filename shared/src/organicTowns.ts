@@ -1,3 +1,4 @@
+import {compactTown} from './compactTowns.js';
 import type { SettlementTemplate, SettlementProfile } from './settlementTemplates.js';
 export const TOWN_STYLES = ['hearthmoor','ironhold','riverwatch'] as const;
 export const TOWN_LAYOUTS = ['Market green','Bending high street','Church close','Forked lanes','Burgage rows','Courtyard clusters','Crescent ward','Twin greens','Gate market','Winding commons'] as const;
@@ -7,6 +8,7 @@ export const TOWN_HOME_BASES=[['cottage','farmhouse','cottage','longhouse'],['co
 const templates=new Map<string,SettlementTemplate>();
 export function organicTownTemplate(id:string):SettlementTemplate|undefined {
  const cached=templates.get(id);if(cached)return cached;
+ if(id.endsWith('-organic4')){const base=organicTownTemplate(id.replace(/organic4$/,'organic3'));if(!base)return;const result=compactTown(id,base);templates.set(id,result);return result;}
  if(id.endsWith('-organic3')){const base=organicTownTemplate(id.replace(/organic3$/,'organic2'));if(!base)return;const result=livingTown({...base,id});templates.set(id,result);return result;}
  const m=/^region-city-(1|2)-(1|2)-(\d{1,2})-(organic2?)$/.exec(id);if(!m||+m[3]>=30)return;
  const revised=m[4]==='organic2';

@@ -78,3 +78,6 @@ Generator 16: -organic2 templates move industry inside walls, reserve a paved 5x
 
 
 Generator 17: organic3 adds grouped fields, orchard rows, a separate fenced real NPC animal zone, trees, lights, square stalls and an interactable town quest board. New stone/slate smithy and charcoal clamp sprites replace stand-ins. See docs/medieval-towns-v15.md.
+
+
+Generator 18: organic4 compacts the core with identical house/service inventories, larger crop fields, movable civic/industrial/agricultural districts, offset/variable gate plans and spread-out decoration. Old templates remain for save compatibility. See docs/medieval-towns-v15.md and server/compact-towns-test.ts.

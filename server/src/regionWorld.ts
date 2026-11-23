@@ -12,7 +12,7 @@ import { seedHomeDesign } from './interiors.js';
 
 export let generatedRegionPlan: RegionPlan | null = null;
 export function restoreRegionPlan(plan: RegionPlan | undefined) { generatedRegionPlan=plan?.version===1?plan:null; }
-export function generateRegionWorld(version = 17) {
+export function generateRegionWorld(version = 18) {
  const width=state.WORLD_TILES_X,height=state.WORLD_TILES_Y;
  const plan=planRegions(width,height,state.worldNoiseSalt,version);
  generatedRegionPlan=plan;
@@ -80,7 +80,7 @@ export function generateRegionWorld(version = 17) {
  }
 
  for(const city of plan.cities){
-  const id=`region-city-${city.w}-${city.h}-${city.variant}${version>=17?"-organic3":version>=16?"-organic2":version>=15?"-organic":version>=14?"-district":version>=13?"-dense":""}`;
+  const id=`region-city-${city.w}-${city.h}-${city.variant}${version>=18?"-organic4":version>=17?"-organic3":version>=16?"-organic2":version>=15?"-organic":version>=14?"-district":version>=13?"-dense":""}`;
   const template=regionCityTemplate(id)!;
   const x0=city.x*32+1,y0=city.y*32+1;
   let reserved=false;
@@ -145,6 +145,7 @@ export function generateRegionWorld(version = 17) {
  // Roads are stamped last and never overwrite settlement buildings, gates or encounter props.
  for(const i of roads){
   const x=i%width,y=Math.floor(i/width);
+  if(version>=18){const region=plan.regions[Math.floor(y/32)*plan.columns+Math.floor(x/32)],city=region?.city===undefined?undefined:plan.cities[region.city];if(city&&x>=city.x*32+1&&x<(city.x+city.w)*32-1&&y>=city.y*32+1&&y<(city.y+city.h)*32-1)continue;}
   if(landmarkAt(x,y)||ownerAt(i)!==0||state.tiles[i]===TileType.TownCenter)continue;
   const tile=state.tiles[i];
   if([TileType.Empty,TileType.Tree,TileType.Rock,TileType.IronOre,TileType.Water].includes(tile)){
@@ -161,7 +162,7 @@ export function generateRegionWorld(version = 17) {
 export function populateExistingRegionTowns() {
  const styles=['cottage','townhouse','farmhouse','longhouse','hunting-lodge','hill-burrow'];
  for(const site of sites.values()){
-  if(!site.layout?.startsWith('region-city-')||(site.layout.endsWith('-dense')||site.layout.endsWith('-district')||/\-organic[23]?$/.test(site.layout))||site.captured||site.cleared)continue;
+  if(!site.layout?.startsWith('region-city-')||(site.layout.endsWith('-dense')||site.layout.endsWith('-district')||/\-organic[234]?$/.test(site.layout))||site.captured||site.cleared)continue;
   let count=0;
   for(let y=site.y0;y<=site.y1;y++)for(let x=site.x0;x<=site.x1;x++)if([TileType.House,TileType.BigHouse,TileType.HouseLevel2].includes(state.tiles[tileIndex(x,y)]))count++;
   const target=Math.min(40,Math.floor((site.x1-site.x0)*(site.y1-site.y0)/45));
