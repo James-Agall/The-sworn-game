@@ -1,3 +1,4 @@
+import { generatedRegionPlan, restoreRegionPlan } from "./regionWorld.js";
 import {expandKeepFootprints} from './keepFootprints.js';
 import {migrateNeutralSpriteHomes} from './settlementMigration.js';
 // saves.ts: Save files: snapshot/apply world, migrations, slots, autosave, restart.
@@ -294,6 +295,7 @@ function snapshotWorldInner() {
     tileDiffs: undefined as TileDiffs["tileDiffs"] | undefined,
     // Raw-deflated explored bitset, base64.
     exploredZ: undefined as string | undefined,
+    regionPlan: generatedRegionPlan ?? undefined,
     worldNoiseSalt: state.worldNoiseSalt,
     abbeyCenter: state.abbeyCenter,
     castleRuinCenter: state.castleRuinCenter,
@@ -461,6 +463,7 @@ function applyWorldInner(s: WorldState) {
   state.biomes.set(Buffer.from(s.biomes!, "base64"));
   const bits = s.exploredZ ? Buffer.from(inflateBase64(s.exploredZ)) : Buffer.from(s.explored!, "base64");
   for (let i = 0; i < state.explored.length; i++) state.explored[i] = (bits[i >> 3] >> (i & 7)) & 1;
+  restoreRegionPlan(s.regionPlan);
   state.worldNoiseSalt = s.worldNoiseSalt;
   state.abbeyCenter = s.abbeyCenter;
   // `?? null` / missing `goals`: saves from before Phase 5 have no Castle Ruin, and their goal track
@@ -793,7 +796,7 @@ async function expandStreamedSave(file: SaveFile): Promise<string | null> {
     colonists.clear();
     mobs.clear();
     wildlife.clear();
-    await generateWorld(s.seed);
+    await generateWorld(s.seed, fn => fn(), s.worldgenVersion ?? 11);
     if (!regeneratedBaseMatches(s.seed, s.baseSum)) return "Save's base world could not be rebuilt (its cache file is missing and worldgen has changed)";
     console.log(`[load] base world regenerated from seed ${s.seed} in ${(performance.now() - t0).toFixed(0)} ms`);
     await worldgenProgress("cache", 0);

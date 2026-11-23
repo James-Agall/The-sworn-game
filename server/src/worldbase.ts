@@ -17,7 +17,7 @@ import { state } from "./state.js";
 // turned / mirrored, quest slots, 6 more settlement templates). 8: gap closure G8 (town-citadel: a keep building).
 // 10: deep mines (coal / copper / tin veins, scattered last: worldgen.ts scatterDeposits). 11: industry extras
 // (limestone / gold / lead veins after those).
-export const WORLDGEN_VERSION = 11;
+export const WORLDGEN_VERSION = 12;
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 // A chunk with more changed tiles than this is stored whole (1024 bytes) instead of as (u16 pos, u8 tile).
@@ -51,7 +51,7 @@ let realRandom: () => number = Math.random;
 
 // Runs fn (generateWorld's body) on a seeded Math.random, then captures the base layer. COLONY_WORLD_SEED (tests):
 // every new world uses that seed (a fixed map layout). fn may await yieldWorldgen() between stages.
-export async function withWorldSeed(seed: number | undefined, fn: () => Promise<void>) {
+export async function withWorldSeed(seed: number | undefined, fn: () => Promise<void>, version = WORLDGEN_VERSION) {
   const fixed = process.env.COLONY_WORLD_SEED ? Number(process.env.COLONY_WORLD_SEED) : NaN;
   const s = seed ?? (Number.isFinite(fixed) ? fixed >>> 0 : Math.floor(Math.random() * 0x7fffffff));
   realRandom = Math.random;
@@ -64,7 +64,7 @@ export async function withWorldSeed(seed: number | undefined, fn: () => Promise<
     seededRandom = null;
   }
   worldSeed = s;
-  base = { seed: s, size: state.WORLD_TILES_X, tiles: state.tiles.slice(), biomes: state.biomes.slice(), sum: 0, version: WORLDGEN_VERSION };
+  base = { seed: s, size: state.WORLD_TILES_X, tiles: state.tiles.slice(), biomes: state.biomes.slice(), sum: 0, version };
   base.sum = checksum(base.tiles, base.biomes);
 }
 

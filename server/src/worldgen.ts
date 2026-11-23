@@ -1,3 +1,4 @@
+import { restoreRegionPlan, generateRegionWorld } from "./regionWorld.js";
 import {expandKeepFootprints} from './keepFootprints.js';
 // worldgen.ts: World size, world generation (biomes, ponds, resources, POI sites), the Abbey, the Castle Ruin and its bosses.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
@@ -748,11 +749,11 @@ export async function worldgenProgress(stage: LoadStageId, frac: number) {
 
 // World streaming phase 4: seeded (worldbase.ts), so a streamed save can store the seed + tile diffs.
 // `wrap` runs each (synchronous) stage, e.g. under clan 0 (resetWorld): other code may run between stages.
-export async function generateWorld(seed?: number, wrap: (fn: () => void) => void = (fn) => fn()) {
-  await withWorldSeed(seed, () => generateWorldInner(wrap));
+export async function generateWorld(seed?: number, wrap: (fn: () => void) => void = (fn) => fn(), version = 12) {
+  await withWorldSeed(seed, () => generateWorldInner(wrap, version), version);
 }
 
-async function generateWorldInner(wrap: (fn: () => void) => void) {
+async function generateWorldInner(wrap: (fn: () => void) => void, version: number) {
   const genStart = performance.now();
   let lap = genStart;
   const laps: string[] = [];
@@ -764,6 +765,7 @@ async function generateWorldInner(wrap: (fn: () => void) => void) {
   const placedSites: TileCoord[] = [];
   await worldgenProgress("terrain", 0);
   wrap(() => {
+    restoreRegionPlan(undefined);
     state.tiles.fill(TileType.Empty);
     markTileRegistryStale();
     state.biomes.fill(Biome.Plains);
@@ -777,6 +779,17 @@ async function generateWorldInner(wrap: (fn: () => void) => void) {
     setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
     state.townCenters = [{ x: TOWN_CENTER_TILE.x, y: TOWN_CENTER_TILE.y, level: 1, hp: townCenterMaxHp(1) }];
   });
+  if(version >= 12 && state.WORLD_TILES_X >= 128) {
+    await worldgenProgress("settlements",0);
+    wrap(() => generateRegionWorld());
+    expandKeepFootprints();
+    await worldgenProgress("resources",0);
+    wrap(() => { generateForage(); scatterDeposits(); });
+    await worldgenProgress("wildlife",0);
+    wrap(() => { spawnInitialWildlife(); resetExplored(); spawnStartingPeople(state.townCenters[0]); });
+    console.log(`[world] region generation finished in ${(performance.now()-genStart).toFixed(0)} ms`);
+    return;
+  }
   await generateBiomes((f) => worldgenProgress("terrain", f * 0.8));
   timed("biomes");
   await worldgenProgress("terrain", 0.8);

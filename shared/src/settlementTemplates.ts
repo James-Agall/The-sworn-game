@@ -88,7 +88,7 @@ export const SETTLEMENT_LEGEND: Record<string, SettlementSymbol> = {
 };
 
 export const SETTLEMENT_SIZE_MIN = 9;
-export const SETTLEMENT_SIZE_MAX = 31;
+export const SETTLEMENT_SIZE_MAX = 126;
 export const SETTLEMENT_GARRISON_MAX = 24;
 
 

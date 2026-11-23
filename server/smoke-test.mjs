@@ -1061,9 +1061,9 @@ await check("world streaming: registry audit + path cache", async () => {
 });
 
 // 11. world streaming phase 2: a 160 map keeps every chunk ACTIVE (nothing freezes below 768 tiles)
-await check("world streaming: chunk manager off on small maps", async () => {
+await check("world streaming: chunk manager follows world size", async () => {
   const r = await hook("chunkState", { force: true, x: 2 * TILE, y: 2 * TILE });
-  return [r?.on === false && r?.cold === 0 && r?.warm === 0 && r?.active === r?.chunksX * r?.chunksY && r?.at === 2, `on ${r?.on}, ${r?.chunksX}x${r?.chunksY} chunks: ${r?.active} active / ${r?.warm} warm / ${r?.cold} cold`];
+  return [r?.on === (c.welcome.worldTilesX >= 128) && r?.cold === 0 && r?.warm === 0 && r?.active === r?.chunksX * r?.chunksY && r?.at === 2, `on ${r?.on}, ${r?.chunksX}x${r?.chunksY} chunks: ${r?.active} active / ${r?.warm} warm / ${r?.cold} cold`];
 });
 
 // 12. world streaming phase 3: every entity is in exactly one form (live or abstract record) after everything above

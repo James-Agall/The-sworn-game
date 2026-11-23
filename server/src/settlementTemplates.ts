@@ -1,3 +1,4 @@
+import { regionCityTemplate } from "@colony/shared/regions";
 // settlementTemplates.ts: neutral human settlement templates (shared/src/settlementTemplates.ts has the format, legend,
 // composition with building templates and validation). The store (templateStore.ts: server/data/settlements/*.json +
 // the editor's user folder), the stamper (world-gen and the creative editor's "Stamp here") and world-gen's
@@ -46,7 +47,7 @@ export function loadSettlementTemplates() {
   console.log(`[settlements] ${n.builtins} built-in + ${n.users} user settlement templates`);
 }
 export const settlementTemplates = () => store.all();
-export const settlementTemplateById = (id: string) => store.byId(id);
+export const settlementTemplateById = (id: string) => store.byId(id) ?? regionCityTemplate(id);
 export const saveUserSettlement = (raw: unknown) => store.save(raw);
 export const deleteUserSettlement = (id: string) => store.remove(id);
 export const userSettlementDir = () => store.userDir();

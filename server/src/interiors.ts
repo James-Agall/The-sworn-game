@@ -1042,3 +1042,9 @@ export function interiorWorkstation(p:Player){
  const I=p.interior;
  return I&&STATION_SKILL[I.tile as TileType]&&ownInteriorNear(p,WORK_PROPS)?{tx:I.tx,ty:I.ty,tile:I.tile as TileType}:null;
 }
+
+// World generation assigns existing house styles through the persisted home-design system.
+export function seedHomeDesign(x:number,y:number,base:string) {
+ if(!PLAYER_BASES.some(b=>b.id===base))return;
+ homeDesigns.set(`${x},${y}`,{base});homeSent.clear();
+}

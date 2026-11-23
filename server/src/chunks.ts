@@ -263,7 +263,7 @@ export const CHUNK_ACTIVATE = 3;
 export const CHUNK_DEACTIVATE = 5;
 export const CHUNK_WARM = 5;
 export const CHUNK_GRACE_TICKS = 20 * 10;
-export const STREAMING_MIN_WORLD_TILES = 768;
+export const STREAMING_MIN_WORLD_TILES = 128;
 const STREAMING_FORCED = process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_STREAMING === "1";
 let chunkState = new Uint8Array(0);
 // Tick each chunk last qualified for its current state (grace timer start).
