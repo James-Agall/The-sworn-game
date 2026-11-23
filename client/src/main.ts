@@ -326,6 +326,7 @@ async function main() {
     ...STRUCTURE_ART_URLS,
     ...Array.from({length:16},(_,i)=>`/sprites/fortifications/rampart_${String(i).padStart(2,"0")}.png`),
     ...TOWN_HOUSE_URLS, ...TOWN_ROAD_URLS,
+    ...["blacksmith-v3","charcoal-v3","quest-board"].map(n=>`/sprites/towns-v2/${n}.png`),
     ...PLAYER_BASES.map(b=>`/sprites/player-bases/${b.id}.png`),
     ...["bed","chair","chest","table","hearth","shelf","wardrobe"].flatMap(p=>["n","e","s","w"].map(f=>`/sprites/interiors-v2/${p}_${f}.png`)),
     ...["gate_h_closed","gate_h_open","gate_v_closed","gate_v_open","bridge_h_closed","bridge_h_open","bridge_v_closed","bridge_v_open","ladder_h","ladder_v","fence_h","fence_v"].map(n=>`/sprites/fortifications/${n}.png`),
@@ -1538,8 +1539,11 @@ async function main() {
     const townHome=townStyle&&[TileType.House,TileType.BigHouse,TileType.HouseLevel2].includes(artTile)&&!site&&(damagedBuildings.get(index)??1000)>=750?optionalTextures[`/sprites/towns-v2/${townStyle}-${Math.abs(tx*7+ty*11)%4}.png`]:undefined;
     const homeTexture=townHome??(homeStyle&&!site&&(damagedBuildings.get(index)??1000)>=750?optionalTextures[`/sprites/player-bases/${homeStyle}.png`]:undefined);
     const fortTexture=fortArtFor(tx,ty,artTile);
+    const civicName=artTile===TileType.Blacksmith?'blacksmith-v3':artTile===TileType.CharcoalBurner?'charcoal-v3':artTile===TileType.TownQuestBoard?'quest-board':undefined;
+    const civicTexture=!site&&civicName?optionalTextures[`/sprites/towns-v2/${civicName}.png`]:undefined;
     const texture = tile === TileType.BuildingPart || isFortPart(tile)
       ? undefined
+      : civicTexture ? civicTexture
       : homeTexture ? homeTexture
       : fortTexture ? fortTexture
       : structArt
@@ -1593,7 +1597,8 @@ async function main() {
       sprite.position.set((tx+fp.w/2)*tileSize,(ty+fp.h)*tileSize);
       sprite.zIndex=(ty+fp.h-1)*worldTilesX+tx+fp.w-1;return;
     }
-    if(townHome){const box=opaqueBox(townHome),width=tileSize*(townStyle==='hearthmoor'?2:2.35);sprite.anchor.set((box.x+box.w/2)/townHome.width,(box.y+box.h)/townHome.height);sprite.scale.set(width/box.w);sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
+    if(civicTexture){const box=opaqueBox(civicTexture),width=tileSize*(artTile===TileType.Blacksmith?2.35:artTile===TileType.CharcoalBurner?1.25:1);sprite.anchor.set((box.x+box.w/2)/civicTexture.width,(box.y+box.h)/civicTexture.height);sprite.scale.set(Math.min(width/box.w,tileSize*2.7/box.h));sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
+    if(townHome){const box=opaqueBox(townHome),width=tileSize*(townStyle==='hearthmoor'?2:2.35);sprite.anchor.set((box.x+box.w/2)/townHome.width,(box.y+box.h)/townHome.height);sprite.scale.set(Math.min(width/box.w,tileSize*2.7/box.h));sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
     if(homeTexture){sprite.anchor.set(.5,1);sprite.scale.set(tileSize*2/homeTexture.width);sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
     if(fortTexture){
       const p=fortPartner(artTile),w=p?.dx===1?2:1,h=p?.dy===1?2:1;
@@ -8354,6 +8359,8 @@ async function main() {
     }
     // Direct conversations take priority over tools and combat on peaceful townsfolk.
     if(e.button===0&&!strategyCam.inStrategy&&buildPanel.classList.contains('collapsed')){
+      const bx=Math.floor(x/tileSize),by=Math.floor(y/tileSize);
+      if(tiles[by*worldTilesX+bx]===TileType.TownQuestBoard){sendMessage({type:'interact',tx:bx,ty:by});return;}
       const person=findNearest(latestMobs.filter(m=>['townFarmer','townMiner','townPriest','townHerald'].includes(m.kind)),x,y,18);
       if(person){sendMessage({type:'interact',npcId:person.id});return;}
     }

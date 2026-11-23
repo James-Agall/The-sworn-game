@@ -579,6 +579,7 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
     case "bye":
       return closeTalk(p);
     case "back":
+      if(t.inside?.key==='town-board'){const s=siteOf(t);if(s)return showQuests(p,t,s,'Town notices');return;}
       return renderTalk(p, t, "start");
     case "pick": {
       const x = t.picks?.[Number(c.arg)];
@@ -1072,7 +1073,20 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
   // Stardew phase 5c: inside an interior E talks / uses the bed or chest / leaves.
   if (p.interior) return interiorInteract(p);
   if(!isMounted(p)&&tryWorldChest(p,m.tx,m.ty))return;
+  if(!Number.isInteger(m.tx)&&!Number.isInteger(m.ty)){
+   const px=Math.floor(p.x/TILE_SIZE),py=Math.floor(p.y/TILE_SIZE);
+   for(let y=py-2;y<=py+2;y++)for(let x=px-2;x<=px+2;x++)if(inBounds(x,y)&&state.tiles[tileIndex(x,y)]===TileType.TownQuestBoard&&tileCenterDist(p,x,y)<=TALK_RANGE_TILES)return handleInteract(p,{tx:x,ty:y});
+  }
   const b = busyOf(p);
+  if(Number.isInteger(m.tx)&&Number.isInteger(m.ty)&&inBounds(m.tx as number,m.ty as number)){
+   const x=m.tx as number,y=m.ty as number,i=tileIndex(x,y);
+   if(state.tiles[i]===TileType.TownQuestBoard){
+    if(tileCenterDist(p,x,y)>TALK_RANGE_TILES)return toast(p,'Move closer to read the noticeboard');
+    const s=[...sites.values()].find(s=>s.num===ownerAt(i)&&standingTown(s));if(!s)return;
+    const t:Talk={role:'leader',name:s.name+' noticeboard',siteId:s.id,color:0x98744d,choices:[],inside:{world:true,x:(x+.5)*TILE_SIZE,y:(y+.5)*TILE_SIZE,key:'town-board',anchor:{x,y}}};
+    b.talk=t;return showQuests(p,t,s,'Town notices');
+   }
+  }
   const near = talkTargets(p);
   if(typeof m.npcId==='string'){
     const target=near.find(t=>t.mob?.id===m.npcId||t.colonist?.id===m.npcId);

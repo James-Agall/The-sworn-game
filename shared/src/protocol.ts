@@ -230,6 +230,7 @@ export enum TileType {
   Mint = 166,
   LeadOre = 167,
   LeadMine = 168,
+  TownQuestBoard = 169,
 
 }
 
@@ -438,6 +439,7 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.AbbeyHall ||
     tile === TileType.PropCross ||
     tile === TileType.PropLanternPost ||
+    tile === TileType.TownQuestBoard ||
     tile === TileType.WardStone ||
     tile === TileType.HunterHut ||
     tile === TileType.ForagerHut ||

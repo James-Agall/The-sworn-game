@@ -1,0 +1,10 @@
+{
+  "tool": "built-in image_gen",
+  "prompt": "Production transparent sprite sheet, exactly THREE isolated assets side by side with generous transparent gaps. Match the supplied cottage reference's front-facing hand-painted pixel art, dark outline, earthy colours and readable simple detail, not photoreal. Ground bases horizontal, upright walls vertical, south-facing fronts, visible roof slope as reference, never isometric. LEFT: realistic medieval blacksmith workshop, grey stone walls, dark slate roof (NO thatch), tall stout masonry chimney, open front forge bay, dull orange forge glow, bellows, modest anvil in front, plain tools, no people or signage text. CENTRE: realistic medieval charcoal burning clamp, low earth-and-turf-covered dome over stacked wood with one small vent releasing a little grey smoke, dark charcoal at opening, split logs at side, NOT a campfire or bonfire, no roof or building. RIGHT: medieval town quest noticeboard on two upright timber posts, small weathered wooden shingle canopy, a few pinned parchment notices with abstract marks, no legible text, front-facing. All three complete uncut assets, equal usable visual scale in separate cells, true transparent background, no scenery or people, crisp pixel silhouettes, suited to display at 64-80px wide.",
+  "sheet": "workshops-board-sheet.png",
+  "assets": [
+    "assets/blacksmith-v3.png",
+    "assets/charcoal-v3.png",
+    "assets/quest-board.png"
+  ]
+}

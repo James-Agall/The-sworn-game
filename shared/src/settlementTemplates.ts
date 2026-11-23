@@ -56,6 +56,10 @@ export interface SettlementSymbol {
 
 // "." open ground (cleared, left unowned). Every other cell is stamped and owned by the settlement.
 export const SETTLEMENT_LEGEND: Record<string, SettlementSymbol> = {
+  B: {label:'Town quest board',tile:TileType.TownQuestBoard,color:'#98744d'},
+  A: {label:'Orchard fruit tree',tile:TileType.FruitTree,color:'#658344'},
+  F: {label:'Pasture gate',tile:TileType.FenceGate,color:'#98744d'},
+  u: {label:'Animal zone ground',color:'#7f9858'},
   i: {label:"Bloomery",tile:TileType.Bloomery,color:"#706b65"},
   j: {label:"Charcoal burner",tile:TileType.CharcoalBurner,color:"#58514a"},
   d: {label:"Carpentry yard",tile:TileType.BuildersGuild,color:"#98744d"},
@@ -162,7 +166,7 @@ export function settlementLayout(t: Pick<SettlementTemplate, "rows" | "buildings
     for (let y = b.y; y < b.y + bh; y++) for (let x = b.x; x < b.x + bw; x++) {
       const i = y * w + x;
       if (buildingOf[i] >= 0) errs.push(`building ${k + 1} (${b.ref}) overlaps building ${buildingOf[i] + 1} at ${x},${y}`);
-      else if (t.rows[y][x] !== "." && !("id" in t && (String(t.id).endsWith("-district")||/\-organic2?$/.test(String(t.id))) && y === b.y+2 && ["_","="].includes(t.rows[y][x]))) errs.push(`building ${k + 1} (${b.ref}) covers "${t.rows[y][x]}" at ${x},${y}`);
+      else if (t.rows[y][x] !== "." && !("id" in t && (String(t.id).endsWith("-district")||/\-organic[23]?$/.test(String(t.id))) && y === b.y+2 && ["_","="].includes(t.rows[y][x]))) errs.push(`building ${k + 1} (${b.ref}) covers "${t.rows[y][x]}" at ${x},${y}`);
       buildingOf[i] = k;
     }
     if(t.spriteBuildings && ['house','longhouse','hall'].includes(bt.buildingType))npcSlots.push({x:b.x+1,y:b.y+2});
@@ -308,7 +312,7 @@ export function validateSettlementTemplate(t: unknown, lookup: BuildingLookup): 
   const l = settlementLayout(tt, lookup);
   errs.push(...l.errs);
   if (errs.length > 0) return errs;
-  const [bMin, bMax] = (tt.id.endsWith("-district")||/\-organic2?$/.test(tt.id)) ? [6,160] : SETTLEMENT_BUILDINGS_BY_TIER[tt.tier];
+  const [bMin, bMax] = (tt.id.endsWith("-district")||/\-organic[23]?$/.test(tt.id)) ? [6,160] : SETTLEMENT_BUILDINGS_BY_TIER[tt.tier];
   if (tt.buildings.length < bMin || tt.buildings.length > bMax) errs.push(`a ${SETTLEMENT_TIER_LABEL[tt.tier].toLowerCase()} has ${bMin}-${bMax} buildings (has ${tt.buildings.length})`);
   const st = settlementStats(tt, lookup);
   if (st.slots.trader < 1) errs.push("at least one trader slot t");

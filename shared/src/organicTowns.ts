@@ -7,6 +7,7 @@ export const TOWN_HOME_BASES=[['cottage','farmhouse','cottage','longhouse'],['co
 const templates=new Map<string,SettlementTemplate>();
 export function organicTownTemplate(id:string):SettlementTemplate|undefined {
  const cached=templates.get(id);if(cached)return cached;
+ if(id.endsWith('-organic3')){const base=organicTownTemplate(id.replace(/organic3$/,'organic2'));if(!base)return;const result=livingTown({...base,id});templates.set(id,result);return result;}
  const m=/^region-city-(1|2)-(1|2)-(\d{1,2})-(organic2?)$/.exec(id);if(!m||+m[3]>=30)return;
  const revised=m[4]==='organic2';
  const cw=+m[1],ch=+m[2],v=+m[3],style=Math.floor(v/10),layout=v%10;
@@ -204,4 +205,46 @@ export function organicTownTemplate(id:string):SettlementTemplate|undefined {
  }
  const template:SettlementTemplate={id,name:`${TOWN_STYLES[style]} ${TOWN_LAYOUTS[layout]}`,tier:3,weight:0,minStartDist:0,profile:TOWN_STYLES[style] as SettlementProfile,garrison:{townGuard:4,townArcher:2},rows:grid.map(r=>r.join('')),buildings,spriteBuildings:true,rotate:false,mirror:false};
  templates.set(id,template);return template;
+}
+
+// Layer civic amenities onto a versioned layout without altering existing saved templates.
+function livingTown(t:SettlementTemplate):SettlementTemplate {
+ const grid=t.rows.map(r=>r.split('')),w=grid[0].length,h=grid.length,v=Number(t.id.split('-')[4]),cx=15+v%10%5-2;
+ const at=(x:number,y:number)=>grid[y]?.[x];
+ const put=(x:number,y:number,c:string)=>{grid[y][x]=c;};
+ const plots=new Set<number>();
+ for(const b of t.buildings)for(let y=b.y;y<b.y+3;y++)for(let x=b.x;x<b.x+3;x++)plots.add(y*w+x);
+ // One northern agricultural district: fenced livestock west, orchard rows centre, fields east.
+ for(let y=0;y<6;y++)for(let x=0;x<w;x++)if(!plots.has(y*w+x)&&!['_','=','G'].includes(at(x,y)!))put(x,y,'.');
+ for(let y=h-3;y<h-1;y++)for(let x=0;x<w;x++)if(['f','P','O','p'].includes(at(x,y)!))put(x,y,'.');
+ for(let y=0;y<=4;y++)for(let x=1;x<=6;x++)put(x,y,x===1||x===6||y===0||y===4?'p':'u');
+ put(3,2,'P');put(4,4,'F');
+ for(const y of [1,3])for(let k=0;k<3+v%3;k++){const x=8+k*2;if(at(x,y)==='.')put(x,y,'A');}
+ for(let y=1;y<=4;y++)for(let x=18;x<w-2;x++)if(at(x,y)==='.'&&!plots.has(y*w+x))put(x,y,'f');
+ // Stalls and the board occupy the rear edge; the two front rows remain a clear crossing.
+ put(cx-2,18,'$');put(cx,18,'B');put(cx+2,18,'$');
+ // Bypass occupied rear-square cells so every existing approach still joins the plaza.
+ const roof=new Set<number>();for(const b of t.buildings)for(let y=b.y;y<b.y+2;y++)for(let x=b.x;x<b.x+3;x++)roof.add(y*w+x);
+ const roadChars=['_','=','G','F'];const linked=new Set<number>();
+ const flood=(root:number)=>{const q=[root];linked.add(root);for(let k=0;k<q.length;k++){const i=q[k],x=i%w,y=Math.floor(i/w);for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]]){const xx=x+dx,yy=y+dy,n=yy*w+xx;if(roadChars.includes(at(xx,yy)!)&&!linked.has(n)){linked.add(n);q.push(n);}}}};
+ flood(19*w+cx);
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(roadChars.includes(at(x,y)!)&&!linked.has(y*w+x)){
+  const start=y*w+x,prev=new Map<number,number>([[start,start]]),q=[start];let end=-1;
+  for(let k=0;k<q.length;k++){const i=q[k],xx=i%w,yy=Math.floor(i/w);if(linked.has(i)){end=i;break;}for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=xx+dx,ny=yy+dy,n=ny*w+nx;if(nx<0||ny<0||nx>=w||ny>=h||prev.has(n)||roof.has(n)||!['.','_','=','G','F'].includes(at(nx,ny)!))continue;prev.set(n,i);q.push(n);}}
+  if(end>=0){for(let i=end;i!==start;i=prev.get(i)!)if(at(i%w,Math.floor(i/w))==='.')put(i%w,Math.floor(i/w),'_');flood(start);}
+ }
+ let trees=grid.flat().filter(c=>c==='a').length,lights=grid.flat().filter(c=>c==='l').length;
+ const inTown=(x:number,y:number)=>{const row=grid[y];let left=-1,right=-1;for(let i=0;i<row.length;i++)if('#%G'.includes(row[i])){if(left<0)left=i;right=i;}return x>left&&x<right;};
+ const clear=(x:number,y:number)=>inTown(x,y)&&at(x,y)==='.'&&!plots.has(y*w+x)&&Math.hypot(x-14,y-14)>4;
+ for(let y=8;y<h-6;y++)for(let x=3;x<w-3;x++){
+  if(!clear(x,y))continue;
+  const farHome=t.buildings.every(b=>Math.abs(x-(b.x+1))>=2.5||Math.abs(y-(b.y+1))>=2.5);
+  const farTree=grid.every((row,yy)=>row.every((c,xx)=>c!=='a'||Math.hypot(xx-x,yy-y)>=3));
+  if(trees<6&&farHome&&farTree){put(x,y,'a');trees++;}
+ }
+ for(let y=7;y<h-4;y++)for(let x=2;x<w-2;x++){
+  if(!clear(x,y)||lights>=12)continue;
+  if([[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>['_','='].includes(at(x+dx,y+dy)!))&&grid.every((row,yy)=>row.every((c,xx)=>c!=='l'||Math.hypot(xx-x,yy-y)>=3))){put(x,y,'l');lights++;}
+ }
+ return {...t,rows:grid.map(r=>r.join(''))};
 }

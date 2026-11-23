@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import {animalZones,zonesForSave,restoreZones,zonesSnapshotFor,zonesPayloadFor} from './src/zones.js';
+import {ensurePaddocks,paddockById} from './src/paddocks.js';
+import {forcePostQuest} from './src/quests.js';
 import {TileType} from '../shared/src/protocol.js';
 import {state,sites,mobs} from './src/state.js';
 import {generateWorld} from './src/worldgen.js';
@@ -42,6 +45,19 @@ assert(dialogue&&dialogue.npc.role==='villager','click target opens the selected
 const choice=dialogue.choices.findIndex((c:any)=>c.label.includes('shops and workshops'));
 assert(choice>=0);handleDialogueChoice(player,choice);
 assert(messages.some(m=>m.dialogue?.text?.includes('blacksmith')),'villager gives directions to real workshops');
+const pasture=animalZones().find(z=>z.siteNum===site.num)!;assert(pasture,'town has an actual animal zone');
+ensurePaddocks(true);assert(paddockById(pasture.id)?.fenced,'pasture has a closed enclosure');
+const savedZones=zonesForSave();restoreZones(savedZones);ensurePaddocks(true);assert(animalZones().some(z=>z.siteNum===site.num),'NPC pasture saved and restored');
+site.sighted=false;zonesPayloadFor(player);site.sighted=true;assert(zonesPayloadFor(player),'newly discovered town zones force a snapshot');assert(zonesSnapshotFor(0).zones.some(z=>z.id===pasture.id&&z.paddock?.fenced),'visible town pasture has a real paddock snapshot');
+let board=-1;for(let yy=site.y0;yy<=site.y1;yy++)for(let xx=site.x0;xx<=site.x1;xx++)if(state.tiles[tileIndex(xx,yy)]===TileType.TownQuestBoard)board=tileIndex(xx,yy);
+assert(board>=0);const bx=board%state.WORLD_TILES_X,by=Math.floor(board/state.WORLD_TILES_X);
+player.x=(bx+.5)*32;player.y=(by+1.5)*32;messages.length=0;
+forcePostQuest(site.id,0,'deliver');handleInteract(player,{tx:bx,ty:by});
+const boardTalk=messages.findLast(m=>m.dialogue)?.dialogue;assert(boardTalk?.text.includes('Town notices'),'board opens real settlement quests');
+const accept=boardTalk.choices.findIndex((c:any)=>c.label.includes("I'll do it"));assert(accept>=0,'board offers a real quest');handleDialogueChoice(player,accept);
+assert(messages.some(m=>m.dialogue?.text?.includes('accepted')),'quests can be accepted from the board');
+player.x+=1000;messages.length=0;handleInteract(player,{tx:bx,ty:by});assert(!messages.some(m=>m.dialogue),'remote noticeboard access is refused');
+console.log('PASS fenced NPC pasture zones, save/load, zone snapshot, real quest-board acceptance and distance checks');
 const stable={x:state.WORLD_TILES_X/2+6,y:state.WORLD_TILES_Y/2};
 setTile(tileIndex(stable.x,stable.y),TileType.Stables);setOwner(tileIndex(stable.x,stable.y),0);
 setTile(tileIndex(stable.x+4,stable.y),TileType.MilitiaPost);setOwner(tileIndex(stable.x+4,stable.y),0);state.cycleTick++;

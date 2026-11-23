@@ -15,7 +15,7 @@ import {
   type ZonesSnapshot,
 } from "@colony/shared/zones";
 import type { Colonist, Player, ResourceKey, TileCoord } from "./types.js";
-import { clans, colonists, state } from "./state.js";
+import { clans, colonists, sites, state } from "./state.js";
 import {
   COLONIST_SPEED, ZONE_CROP_GROW_TICKS, ZONE_CROP_YIELD, ZONE_HARVEST_TICKS, ZONE_HAUL_CARRY, ZONE_HAUL_TICKS, ZONE_JOB_RANGE_TILES,
   ZONE_JOB_RETRY_TICKS, ZONE_JOB_ROUTE_CANDIDATES, ZONE_SOW_TICKS, ZONE_TEND_TICKS, ZONE_TILL_TICKS, ZONE_UNTENDED_GROWTH,
@@ -34,6 +34,7 @@ import { plowGrowthMult, plowYieldMult } from "./agri.js";
 
 export interface ZoneRec {
   id: number;
+  siteNum?:number;
   clan: number;
   kind: ZoneKind;
   name: string;
@@ -82,6 +83,7 @@ let version = 1;
 // Per player: the version last sent and when (wall clock: the game may be paused while zones are painted).
 const sent = new WeakMap<Player, { v: number; at: number }>();
 const ZONES_RESEND_MS = 500;
+const townZoneSight=new WeakMap<Player,string>();
 // Jobs and reservations are not saved: a load restarts every job (zonesForSave puts carried goods back down first).
 const jobs = new Map<string, ZoneJob>();
 const reserved = new Map<number, string>();
@@ -102,6 +104,12 @@ export function bumpZones() {
   bump();
 }
 
+// NPC animal zones stay separate from every player's clan and use the existing paddock records.
+export function createTownAnimalZone(siteNum:number,name:string,list:number[]){
+ const z=createZone(-siteNum,'animal');z.siteNum=siteNum;z.name=name;
+ for(const i of list)if(!zoneOfTile.has(i)&&state.tiles[i]===TileType.Empty){z.tiles.add(i);zoneOfTile.set(i,z.id);}
+ bump();return z;
+}
 // ---- painting ----
 function tileOk(kind: ZoneKind, i: number, clan: number): boolean {
   const x = i % W();
@@ -713,10 +721,12 @@ function addHay(clan: number, crop: CropId) {
 
 // ---- snapshot / saves ----
 export function zonesSnapshotFor(clan: number): ZonesSnapshot {
+  for(const z of zones.values())if(z.siteNum){const site=[...sites.values()].find(s=>s.num===z.siteNum);if(site?.captured&&site.capturedBy!==undefined&&z.clan!==site.capturedBy){z.clan=site.capturedBy;bump();}}
   const stock = clanById(clan).stock as Record<string, number>;
   const out: ZonesSnapshot = { zones: [], crops: [], piles: [] };
   for (const z of zones.values()) {
-    if (z.clan !== clan) continue;
+    if(z.siteNum){const site=[...sites.values()].find(s=>s.num===z.siteNum);if(!site?.sighted)continue;}
+    if (z.clan !== clan&&!z.siteNum) continue;
     const stored: Record<string, number> = {};
     for (const [k, v] of Object.entries(z.stored)) if ((v ?? 0) >= 1) stored[k] = Math.floor(Math.min(v ?? 0, stock[k] ?? 0));
     out.zones.push({
@@ -738,6 +748,8 @@ export function zonesSnapshotFor(clan: number): ZonesSnapshot {
 
 // The snapshot field for this player, or null when nothing changed (at most every half second).
 export function zonesPayloadFor(player: Player): string | null {
+  const sight=[...sites.values()].filter(s=>s.sighted).map(s=>`${s.num}:${s.captured}:${s.capturedBy}`).join('|');
+  if(townZoneSight.get(player)!==sight){townZoneSight.set(player,sight);sent.delete(player);}
   const s = sent.get(player);
   if (s && s.v === version) return null;
   const now = Date.now();
@@ -766,7 +778,7 @@ export function zonesForSave() {
   return {
     nextId: nextZoneId,
     zones: Array.from(zones.values()).map((z) => ({
-      id: z.id, clan: z.clan, kind: z.kind, name: z.name, crop: z.crop, filters: z.filters, stored: z.stored,
+      id: z.id, clan: z.clan, ...(z.siteNum?{siteNum:z.siteNum}:{}), kind: z.kind, name: z.name, crop: z.crop, filters: z.filters, stored: z.stored,
       tiles: rleEncode(Array.from(z.tiles).sort((a, b) => a - b)),
     })),
     // Hero plots add [plot clan, crop index or -1] (older saves: 4-tuples, zone tiles only).
@@ -794,7 +806,7 @@ export function restoreZones(s: ZonesSave | undefined) {
   deliveredSince.clear();
   nextZoneId = s?.nextId ?? 1;
   for (const z of s?.zones ?? []) {
-    const rec: ZoneRec = { id: z.id, clan: z.clan, kind: z.kind, name: z.name, tiles: new Set(), stored: { ...(z.stored ?? {}) } };
+    const rec: ZoneRec = { id: z.id, clan: z.clan, ...(z.siteNum?{siteNum:z.siteNum}:{}), kind: z.kind, name: z.name, tiles: new Set(), stored: { ...(z.stored ?? {}) } };
     if (z.crop) rec.crop = z.crop;
     if (z.filters) rec.filters = [...z.filters];
     for (const i of rleDecode(z.tiles)) {

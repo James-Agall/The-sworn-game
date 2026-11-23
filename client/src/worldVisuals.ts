@@ -43,7 +43,7 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.IronMinePost]: "ironMine",
   [TileType.RockMinePost]: "quarry",
   [TileType.TailorShop]: "tailorShop",
-  [TileType.Blacksmith]: "blacksmith",
+  [TileType.Blacksmith]: "towns-v2/blacksmith-v3",
   [TileType.LuxuryWorkshop]: "jewelersWorkshop",
   [TileType.Brewery]: "brewery",
   [TileType.Market]: "bazaar",
@@ -93,7 +93,8 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.Stables]: "castleLv2",
   [TileType.SiegeWorkshop]: "blacksmith",
   // Progression tree phase 3 stand-ins (tinted; SPRITES.md "Progression tree").
-  [TileType.CharcoalBurner]: "campfire",
+  [TileType.CharcoalBurner]: "towns-v2/charcoal-v3",
+  [TileType.TownQuestBoard]: "towns-v2/quest-board",
   [TileType.Bloomery]: "blacksmith",
   [TileType.Mill]: "barn",
   [TileType.Bakery]: "tavern",
