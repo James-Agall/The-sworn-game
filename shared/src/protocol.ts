@@ -255,6 +255,7 @@ export type SiteFaction = "bandit" | "orc" | "human";
 // Forts phase B stage 3: snapshot `sites` (sent with `siteTiles`): every fort whose keep has been explored
 // (minimap marker coloured by faction; cleared = razed, captured = rebuilt as a clan's outpost).
 export interface SiteSnapshot {
+  townStyle?: "hearthmoor" | "ironhold" | "riverwatch";
   ambientRoad?: number[];
   name: string;
   faction: SiteFaction;

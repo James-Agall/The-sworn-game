@@ -58,3 +58,17 @@ Army building panels list nearby owned Stables. Opening Stables exposes the exis
 Validation: server/town-life-test.ts covers shared route cache reuse, adjacent road segments, patrol movement, fixed posts, held/resumed conversation, targeted villager popup/directions, army-to-Stables links, actual adult horse purchase/payment/ownership/insufficient funds, and whole-garrison activation after a guard hit. Existing animal suite passed (horse buying/riding included). All 35 smoke checks passed. TypeScript and production builds passed. The smoke suite exposed keep-anchor relocation on region save/load; region-world loads now retain generation-resolved footprints, while older non-region saves still receive the legacy footprint migration.
 
 Apply this update to existing worlds by refreshing/reloading the game. New guard posts are prepared once when their town activates, including loaded active towns. Live visual verification was not performed in this task.
+
+
+## Generator 15 — researched town variation and new artwork
+
+shared/src/organicTowns.ts caches deterministic composed templates by ID: region-city-W-H-V-organic, V 0-29 (culture=floor(V/10), grammar=V%10). Fixed regional sockets join bent internal streets. Closed cardinal wall chains vary their curvature and bulges. The five civic services, blacksmith, tailor and barn are real building references; bloomery/charcoal/carpentry, farm plots, orchard and pasture use existing entities. Houses use nonuniform seed-ranked plots. Each doorway gets a connected road at template creation; there is no added per-resident routing cost. Commons reserve space from infill; civic services prefer market, farm, gate or church-close positions.
+
+Generator 15 preserves generator 12/13/14 IDs and regeneration paths. Saves retain their original layouts and base versions. Fresh world plans select 30 organic choices without changing the previously requested city-size quota or chunk separation. Do not restamp existing towns automatically: player state and saved layouts are preserved.
+
+Twelve new house PNGs (four per culture) and four road surface PNGs live under client/public/sprites/towns-v2. They were produced with the built-in image generation tool, sliced to aligned transparent 192x192 house frames, with four 128x128 road materials. Sources, slicing manifest and complete prompts are saved in the Windows workspace outputs/town-variations. Assets are included by the existing atlas packer and optional art loader.
+
+SiteSnapshot.townStyle derives from the existing saved behaviour profile. It selects artwork for uncaptured neutral town houses; captured/custom player homes retain their existing design system. Damage artwork remains in use when buildings are damaged. Road textures preserve source colours and use cached rounded cardinal masks, varying surface orientation by a stable five-cell patch. Dirt, gravel, cobble and limestone-sett surfaces share proper gate connectivity. No extra live entities or AI were introduced.
+
+
+See docs/medieval-towns-v15.md for historical sources and verification details.

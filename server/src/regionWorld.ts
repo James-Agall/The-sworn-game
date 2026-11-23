@@ -7,11 +7,12 @@ import { stampSettlement } from './settlementTemplates.js';
 import { campPool, stampCamp } from './camps.js';
 import { campRadius } from '@colony/shared/camps';
 import { placeAbbey, placeCastleRuin, isInAbbeyGrounds, isInCastleRuinGrounds, placePoiSite, spawnGuardian } from './worldgen.js';
+import { TOWN_HOME_BASES } from '@colony/shared/organicTowns';
 import { seedHomeDesign } from './interiors.js';
 
 export let generatedRegionPlan: RegionPlan | null = null;
 export function restoreRegionPlan(plan: RegionPlan | undefined) { generatedRegionPlan=plan?.version===1?plan:null; }
-export function generateRegionWorld(version = 14) {
+export function generateRegionWorld(version = 15) {
  const width=state.WORLD_TILES_X,height=state.WORLD_TILES_Y;
  const plan=planRegions(width,height,state.worldNoiseSalt,version);
  generatedRegionPlan=plan;
@@ -79,7 +80,7 @@ export function generateRegionWorld(version = 14) {
  }
 
  for(const city of plan.cities){
-  const id=`region-city-${city.w}-${city.h}-${city.variant}${version>=14?"-district":version>=13?"-dense":""}`;
+  const id=`region-city-${city.w}-${city.h}-${city.variant}${version>=15?"-organic":version>=14?"-district":version>=13?"-dense":""}`;
   const template=regionCityTemplate(id)!;
   const x0=city.x*32+1,y0=city.y*32+1;
   let reserved=false;
@@ -88,7 +89,11 @@ export function generateRegionWorld(version = 14) {
   if(x0+template.rows[0].length>=width-2||y0+template.rows.length>=height-2)continue;
   stampSettlement(template,x0,y0);
   const styles=['cottage','townhouse','farmhouse','longhouse','hunting-lodge','hill-burrow','manor'];
-  for(const b of template.buildings)if(b.ref.startsWith('house-'))seedHomeDesign(x0+b.x+1,y0+b.y+1,styles[(b.x+b.y+city.variant)%styles.length]);
+  for(const b of template.buildings)if(b.ref.startsWith('house-')||version>=15&&b.ref==='longhouse'){
+   const x=x0+b.x+1,y=y0+b.y+1;
+   const base=version>=15?TOWN_HOME_BASES[Math.floor(city.variant/10)][Math.abs(x*7+y*11)%4]:styles[(b.x+b.y+city.variant)%styles.length];
+   seedHomeDesign(x,y,base);
+  }
   // All exterior gates reach the centre of their neighbouring region.
   for(let dx=0;dx<city.w;dx++){
    const x=city.x*32+16+dx*32;
@@ -156,7 +161,7 @@ export function generateRegionWorld(version = 14) {
 export function populateExistingRegionTowns() {
  const styles=['cottage','townhouse','farmhouse','longhouse','hunting-lodge','hill-burrow'];
  for(const site of sites.values()){
-  if(!site.layout?.startsWith('region-city-')||(site.layout.endsWith('-dense')||site.layout.endsWith('-district'))||site.captured||site.cleared)continue;
+  if(!site.layout?.startsWith('region-city-')||(site.layout.endsWith('-dense')||site.layout.endsWith('-district')||site.layout.endsWith('-organic'))||site.captured||site.cleared)continue;
   let count=0;
   for(let y=site.y0;y<=site.y1;y++)for(let x=site.x0;x<=site.x1;x++)if([TileType.House,TileType.BigHouse,TileType.HouseLevel2].includes(state.tiles[tileIndex(x,y)]))count++;
   const target=Math.min(40,Math.floor((site.x1-site.x0)*(site.y1-site.y0)/45));

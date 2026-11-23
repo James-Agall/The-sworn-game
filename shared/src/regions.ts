@@ -1,3 +1,4 @@
+import { organicTownTemplate } from "./organicTowns.js";
 import { limitCitySizes, districtCityTemplate } from "./cityDistricts.js";
 import { type SettlementTemplate } from './settlementTemplates.js';
 export const REGION_SIZE = 32;
@@ -5,7 +6,13 @@ export type RegionKind = 'countryside'|'forest'|'marsh'|'camp'|'ruin'|'cave'|'ci
 export interface Region { x:number; y:number; kind:RegionKind; variant:number; east:boolean; south:boolean; city?:number }
 export interface RegionCity { x:number; y:number; w:number; h:number; variant:number; fort?:boolean }
 export interface RegionPlan { version:1; columns:number; rows:number; regions:Region[]; cities:RegionCity[] }
-export function planRegions(width:number,height:number,seed:number,version=14):RegionPlan {
+export function planRegions(width:number,height:number,seed:number,version=15):RegionPlan {
+ if(version>=15){
+  const p=planRegions(width,height,seed,14);
+  // Style and street grammar are independent of footprint allocation and the scarce-city quotas.
+  p.cities.forEach((c,i)=>{c.variant=(((Math.imul(c.x+1,73856093)^Math.imul(c.y+1,19349663)^seed)>>>0)%3)*10+(((Math.imul(i+1,83492791)^seed)>>>0)%10);});
+  return p;
+ }
  if(version>=14)return limitCitySizes(planRegions(width,height,seed,13),seed,width,height);
  let salt=seed>>>0;
  const random=()=>{salt=(Math.imul(salt,1664525)+1013904223)>>>0;return salt/4294967296;};
@@ -48,6 +55,7 @@ export function planRegions(width:number,height:number,seed:number,version=14):R
 
 // A composed city has one keep, one faction and uninterrupted streets at internal region seams.
 export function regionCityTemplate(id:string):SettlementTemplate|undefined {
+ if(id.endsWith("-organic"))return organicTownTemplate(id);
  if(id.endsWith("-district"))return districtCityTemplate(id);
  const match=/^region-city-(1|2)-(1|2)-([0-5])(-dense)?$/.exec(id);if(!match)return;
  const dense=!!match[4];

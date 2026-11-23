@@ -584,6 +584,7 @@ export function sitesForSnapshot(): SiteSnapshot[] {
     out.push({
       name: s.name, faction: s.faction, keepX: s.keepX, keepY: s.keepY, cleared: s.cleared, captured: s.captured,
       ...(s.capturedBy !== undefined ? { capturedBy: s.capturedBy } : {}),
+      ...(s.faction === "human" ? {townStyle:s.template as "hearthmoor" | "ironhold" | "riverwatch"} : {}),
       num: s.num, ...(s.faction === "human" ? { hostile: s.provoked } : {}),
       ...(s.awake && s.faction==="human" && !s.cleared && !s.captured ? { ambientRoad:townRoutes(s).road.slice(0,128) } : {}),
       ...(s.vassalOf != null ? { vassalOf: s.vassalOf } : {}),

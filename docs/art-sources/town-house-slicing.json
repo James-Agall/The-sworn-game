@@ -1,0 +1,146 @@
+[
+  {
+    "file": "hearthmoor-0.png",
+    "sourceBox": [
+      9,
+      57,
+      343,
+      355
+    ],
+    "width": 188,
+    "height": 168,
+    "baseline": 190
+  },
+  {
+    "file": "hearthmoor-1.png",
+    "sourceBox": [
+      354,
+      73,
+      740,
+      355
+    ],
+    "width": 188,
+    "height": 137,
+    "baseline": 190
+  },
+  {
+    "file": "hearthmoor-2.png",
+    "sourceBox": [
+      766,
+      70,
+      1051,
+      355
+    ],
+    "width": 188,
+    "height": 188,
+    "baseline": 190
+  },
+  {
+    "file": "hearthmoor-3.png",
+    "sourceBox": [
+      1087,
+      55,
+      1442,
+      355
+    ],
+    "width": 188,
+    "height": 159,
+    "baseline": 190
+  },
+  {
+    "file": "ironhold-0.png",
+    "sourceBox": [
+      20,
+      439,
+      326,
+      718
+    ],
+    "width": 188,
+    "height": 171,
+    "baseline": 190
+  },
+  {
+    "file": "ironhold-1.png",
+    "sourceBox": [
+      386,
+      391,
+      637,
+      718
+    ],
+    "width": 144,
+    "height": 188,
+    "baseline": 190
+  },
+  {
+    "file": "ironhold-2.png",
+    "sourceBox": [
+      679,
+      420,
+      1058,
+      718
+    ],
+    "width": 188,
+    "height": 148,
+    "baseline": 190
+  },
+  {
+    "file": "ironhold-3.png",
+    "sourceBox": [
+      1087,
+      417,
+      1432,
+      718
+    ],
+    "width": 188,
+    "height": 164,
+    "baseline": 190
+  },
+  {
+    "file": "riverwatch-0.png",
+    "sourceBox": [
+      39,
+      741,
+      278,
+      1067
+    ],
+    "width": 138,
+    "height": 188,
+    "baseline": 190
+  },
+  {
+    "file": "riverwatch-1.png",
+    "sourceBox": [
+      345,
+      764,
+      708,
+      1067
+    ],
+    "width": 188,
+    "height": 157,
+    "baseline": 190
+  },
+  {
+    "file": "riverwatch-2.png",
+    "sourceBox": [
+      739,
+      773,
+      1042,
+      1067
+    ],
+    "width": 188,
+    "height": 182,
+    "baseline": 190
+  },
+  {
+    "file": "riverwatch-3.png",
+    "sourceBox": [
+      1090,
+      763,
+      1432,
+      1067
+    ],
+    "width": 188,
+    "height": 167,
+    "baseline": 190
+  }
+]

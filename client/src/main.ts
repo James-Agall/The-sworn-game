@@ -1,4 +1,5 @@
 import { createTownPets } from "./townPets";
+import { TOWN_HOUSE_URLS, TOWN_ROAD_URLS } from "@colony/shared/organicTowns";
 import { naturalRoad, roundedWater } from "./terrainTextures";
 import { treeAt } from "@colony/shared/trees";
 import { updateVitals } from "./vitals";
@@ -324,6 +325,7 @@ async function main() {
     ...MOAT_ART_URLS,
     ...STRUCTURE_ART_URLS,
     ...Array.from({length:16},(_,i)=>`/sprites/fortifications/rampart_${String(i).padStart(2,"0")}.png`),
+    ...TOWN_HOUSE_URLS, ...TOWN_ROAD_URLS,
     ...PLAYER_BASES.map(b=>`/sprites/player-bases/${b.id}.png`),
     ...["bed","chair","chest","table","hearth","shelf","wardrobe"].flatMap(p=>["n","e","s","w"].map(f=>`/sprites/interiors-v2/${p}_${f}.png`)),
     ...["gate_h_closed","gate_h_open","gate_v_closed","gate_v_open","bridge_h_closed","bridge_h_open","bridge_v_closed","bridge_v_open","ladder_h","ladder_v","fence_h","fence_v"].map(n=>`/sprites/fortifications/${n}.png`),
@@ -1021,6 +1023,7 @@ async function main() {
   const FOREIGN_TINT = 0xffa090;
   // Forts phase B: explored forts (snapshot `sites`, sent with siteTiles): minimap flags by faction.
   let fortMarkers: SiteSnapshot[] = [];
+  const townArtStyles=new Map<number,string>();
   // Forts phase C: owner-map numbers of sighted human settlements, and their (pale, friendlier) tile tint.
   const humanSiteNums = new Set<number>();
   const HUMAN_SITE_TINT = 0xdfe6f5;
@@ -1174,15 +1177,17 @@ async function main() {
   let fortMarkersKey = "";
   function syncFortMarkers(list: SiteSnapshot[]) {
     fortMarkers = list;
+    townArtStyles.clear();
+    for(const f of list)if(f.num!==undefined&&f.townStyle&&!f.captured&&!f.cleared)townArtStyles.set(f.num,f.townStyle);
     // Batch 2: faction-dependent fort art (siteVariantTexture) redraws once the site list is known / changes.
-    const key = list.map((f) => `${f.num}:${f.faction}:${f.keepX},${f.keepY}`).join("|");
+    const key = list.map((f) => `${f.num}:${f.faction}:${f.keepX},${f.keepY}:${f.townStyle}:${f.captured}:${f.cleared}`).join("|");
     if (key !== fortMarkersKey) {
       fortMarkersKey = key;
       if (tiles.length > 0) {
         for (const f of list) setTileSprite(f.keepX, f.keepY, tiles[f.keepY * worldTilesX + f.keepX]);
         for (const index of siteOwners.keys()) {
           const t = tiles[index];
-          if (t === TileType.Tent || t === TileType.Rubble || t === TileType.RuinedKeep) {
+          if ([TileType.Tent,TileType.Rubble,TileType.RuinedKeep,TileType.House,TileType.HouseLevel2,TileType.BigHouse,TileType.Road,TileType.CobbleRoad].includes(t)) {
             const { tx, ty } = indexToTile(index);
             setTileSprite(tx, ty, t);
           }
@@ -1529,7 +1534,9 @@ async function main() {
     const structArt = structureArtFor(tx, ty, artTile, !!site);
     const autumnDamage = autumnBuildingDamage(artTile, level, damagedBuildings.get(index) ?? 1000, !!site, index);
     const homeStyle=playerHomeDesigns.get(index)??([TileType.House,TileType.BigHouse,TileType.HouseLevel2].includes(artTile)?['cottage','farmhouse','townhouse','hill-burrow'][(tx*7+ty*11)%4]:undefined);
-    const homeTexture=homeStyle&&!site&&(damagedBuildings.get(index)??1000)>=750?optionalTextures[`/sprites/player-bases/${homeStyle}.png`]:undefined;
+    const townStyle=townArtStyles.get(siteOwners.get(index)??0);
+    const townHome=townStyle&&[TileType.House,TileType.BigHouse,TileType.HouseLevel2].includes(artTile)&&!site&&(damagedBuildings.get(index)??1000)>=750?optionalTextures[`/sprites/towns-v2/${townStyle}-${Math.abs(tx*7+ty*11)%4}.png`]:undefined;
+    const homeTexture=townHome??(homeStyle&&!site&&(damagedBuildings.get(index)??1000)>=750?optionalTextures[`/sprites/player-bases/${homeStyle}.png`]:undefined);
     const fortTexture=fortArtFor(tx,ty,artTile);
     const texture = tile === TileType.BuildingPart || isFortPart(tile)
       ? undefined
@@ -1763,13 +1770,18 @@ async function main() {
 
   function isRoadAt(tx: number, ty: number): boolean {
     if (tx < 0 || ty < 0 || tx >= worldTilesX || ty >= worldTilesY) return false;
-    return isRoadTile(tiles[ty * worldTilesX + tx] as TileType);
+    const t=tiles[ty * worldTilesX + tx] as TileType;
+    return isRoadTile(t)||t===TileType.Gate||t===TileType.Drawbridge||t===TileType.FenceGate;
   }
 
   // [texture, clockwise quarter turns] for the road at (tx, ty) from its orthogonal road neighbours.
   function roadArtFor(tx: number, ty: number, tile: number): [Texture, number] {
     const mask =
       (isRoadAt(tx, ty - 1) ? 1 : 0) | (isRoadAt(tx + 1, ty) ? 2 : 0) | (isRoadAt(tx, ty + 1) ? 4 : 0) | (isRoadAt(tx - 1, ty) ? 8 : 0);
+    const style=townArtStyles.get(siteOwners.get(ty*worldTilesX+tx)??0);
+    const material=tile===TileType.CobbleRoad?(style==='riverwatch'?'setts':'cobble'):(style==='ironhold'?'gravel':'earth');
+    const surface=optionalTextures[`/sprites/towns-v2/road-${material}.png`];
+    if(surface)return [naturalRoad(mask,tile===TileType.CobbleRoad?24:19,surface,app.renderer,(Math.floor(tx/5)+Math.floor(ty/5))%3),0];
     if(tile === TileType.Road) return [naturalRoad(mask),0];
     const autumnRoad = autumnFrame("terrain-connections", (tile === TileType.CobbleRoad ? 2 : 0) + Math.floor(mask / 8), mask % 8);
     if (autumnRoad) return [autumnRoad, 0];
