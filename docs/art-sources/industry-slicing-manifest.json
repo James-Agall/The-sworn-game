@@ -1,0 +1,182 @@
+[
+  {
+    "file": "hearthmoor-blacksmith.png",
+    "sourceBox": [
+      7,
+      35,
+      300,
+      291
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "hearthmoor-bloomery.png",
+    "sourceBox": [
+      314,
+      35,
+      593,
+      291
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "hearthmoor-carpenter.png",
+    "sourceBox": [
+      610,
+      45,
+      885,
+      292
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "hearthmoor-tailor.png",
+    "sourceBox": [
+      897,
+      46,
+      1172,
+      292
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "hearthmoor-brewery.png",
+    "sourceBox": [
+      1187,
+      41,
+      1475,
+      291
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "hearthmoor-barn.png",
+    "sourceBox": [
+      1489,
+      43,
+      1772,
+      290
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "ironhold-blacksmith.png",
+    "sourceBox": [
+      9,
+      324,
+      299,
+      579
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "ironhold-bloomery.png",
+    "sourceBox": [
+      311,
+      324,
+      594,
+      579
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "ironhold-carpenter.png",
+    "sourceBox": [
+      609,
+      331,
+      884,
+      579
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "ironhold-tailor.png",
+    "sourceBox": [
+      895,
+      332,
+      1174,
+      579
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "ironhold-brewery.png",
+    "sourceBox": [
+      1187,
+      325,
+      1474,
+      579
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "ironhold-barn.png",
+    "sourceBox": [
+      1490,
+      331,
+      1771,
+      579
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "riverwatch-blacksmith.png",
+    "sourceBox": [
+      10,
+      611,
+      298,
+      875
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "riverwatch-bloomery.png",
+    "sourceBox": [
+      312,
+      614,
+      593,
+      875
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "riverwatch-carpenter.png",
+    "sourceBox": [
+      608,
+      621,
+      883,
+      875
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "riverwatch-tailor.png",
+    "sourceBox": [
+      895,
+      618,
+      1173,
+      874
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "riverwatch-brewery.png",
+    "sourceBox": [
+      1185,
+      621,
+      1475,
+      875
+    ],
+    "baseline": 254
+  },
+  {
+    "file": "riverwatch-barn.png",
+    "sourceBox": [
+      1488,
+      621,
+      1772,
+      875
+    ],
+    "baseline": 254
+  }
+]

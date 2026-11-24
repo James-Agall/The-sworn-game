@@ -1,4 +1,5 @@
 import { createTownPets } from "./townPets";
+import { TOWN_INDUSTRY_URLS,townIndustryUrl } from "@colony/shared/townIndustry";
 import { TOWN_HOUSE_URLS, TOWN_ROAD_URLS } from "@colony/shared/organicTowns";
 import { naturalRoad, roundedWater } from "./terrainTextures";
 import { treeAt } from "@colony/shared/trees";
@@ -325,7 +326,7 @@ async function main() {
     ...MOAT_ART_URLS,
     ...STRUCTURE_ART_URLS,
     ...Array.from({length:16},(_,i)=>`/sprites/fortifications/rampart_${String(i).padStart(2,"0")}.png`),
-    ...TOWN_HOUSE_URLS, ...TOWN_ROAD_URLS,
+    ...TOWN_HOUSE_URLS, ...TOWN_ROAD_URLS, ...TOWN_INDUSTRY_URLS,
     ...["blacksmith-v3","charcoal-v3","quest-board"].map(n=>`/sprites/towns-v2/${n}.png`),
     ...PLAYER_BASES.map(b=>`/sprites/player-bases/${b.id}.png`),
     ...["bed","chair","chest","table","hearth","shelf","wardrobe"].flatMap(p=>["n","e","s","w"].map(f=>`/sprites/interiors-v2/${p}_${f}.png`)),
@@ -1188,7 +1189,7 @@ async function main() {
         for (const f of list) setTileSprite(f.keepX, f.keepY, tiles[f.keepY * worldTilesX + f.keepX]);
         for (const index of siteOwners.keys()) {
           const t = tiles[index];
-          if ([TileType.Tent,TileType.Rubble,TileType.RuinedKeep,TileType.House,TileType.HouseLevel2,TileType.BigHouse,TileType.Road,TileType.CobbleRoad].includes(t)) {
+          if ([TileType.Tent,TileType.Rubble,TileType.RuinedKeep,TileType.House,TileType.HouseLevel2,TileType.BigHouse,TileType.Road,TileType.CobbleRoad,TileType.Blacksmith,TileType.Bloomery,TileType.BuildersGuild,TileType.TailorShop,TileType.Bakery,TileType.Brewery,TileType.BarnPost].includes(t)) {
             const { tx, ty } = indexToTile(index);
             setTileSprite(tx, ty, t);
           }
@@ -1540,7 +1541,8 @@ async function main() {
     const homeTexture=townHome??(homeStyle&&!site&&(damagedBuildings.get(index)??1000)>=750?optionalTextures[`/sprites/player-bases/${homeStyle}.png`]:undefined);
     const fortTexture=fortArtFor(tx,ty,artTile);
     const civicName=artTile===TileType.Blacksmith?'blacksmith-v3':artTile===TileType.CharcoalBurner?'charcoal-v3':artTile===TileType.TownQuestBoard?'quest-board':undefined;
-    const civicTexture=!site&&civicName?optionalTextures[`/sprites/towns-v2/${civicName}.png`]:undefined;
+    const industryUrl=townIndustryUrl(artTile,townStyle);
+    const civicTexture=!site?((industryUrl?optionalTextures[industryUrl]:undefined)??(civicName?optionalTextures[`/sprites/towns-v2/${civicName}.png`]:undefined)):undefined;
     const texture = tile === TileType.BuildingPart || isFortPart(tile)
       ? undefined
       : civicTexture ? civicTexture
@@ -1597,7 +1599,7 @@ async function main() {
       sprite.position.set((tx+fp.w/2)*tileSize,(ty+fp.h)*tileSize);
       sprite.zIndex=(ty+fp.h-1)*worldTilesX+tx+fp.w-1;return;
     }
-    if(civicTexture){const box=opaqueBox(civicTexture),width=tileSize*(artTile===TileType.Blacksmith?2.35:artTile===TileType.CharcoalBurner?1.25:1);sprite.anchor.set((box.x+box.w/2)/civicTexture.width,(box.y+box.h)/civicTexture.height);sprite.scale.set(Math.min(width/box.w,tileSize*2.7/box.h));sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
+    if(civicTexture){const box=opaqueBox(civicTexture),width=tileSize*(industryUrl?([TileType.Bloomery,TileType.BuildersGuild].includes(artTile)?1.55:townStyle==='hearthmoor'?2:2.35):artTile===TileType.Blacksmith?2.35:artTile===TileType.CharcoalBurner?1.25:1);sprite.anchor.set((box.x+box.w/2)/civicTexture.width,(box.y+box.h)/civicTexture.height);sprite.scale.set(Math.min(width/box.w,tileSize*2.7/box.h));sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
     if(townHome){const box=opaqueBox(townHome),width=tileSize*(townStyle==='hearthmoor'?2:2.35);sprite.anchor.set((box.x+box.w/2)/townHome.width,(box.y+box.h)/townHome.height);sprite.scale.set(Math.min(width/box.w,tileSize*2.7/box.h));sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
     if(homeTexture){sprite.anchor.set(.5,1);sprite.scale.set(tileSize*2/homeTexture.width);sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
     if(fortTexture){

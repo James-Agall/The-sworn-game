@@ -78,7 +78,7 @@ export function stampSettlement(t: SettlementTemplate, x0: number, y0: number, o
   const broadcast = opts.broadcast ?? false;
   const id = `settlement:${randomUUID()}`;
   const num = siteNumber(id, true);
-  const a = (t.id.endsWith("-dense") || t.id.endsWith("-district") || /\-organic[234]?$/.test(t.id)) ? 0 : SITE_APRON_TILES;
+  const a = (t.id.endsWith("-dense") || t.id.endsWith("-district") || /\-organic[2345]?$/.test(t.id)) ? 0 : SITE_APRON_TILES;
   for (let y = y0 - a; y <= y0 + l.h - 1 + a; y++) {
     for (let x = x0 - a; x <= x0 + l.w - 1 + a; x++) {
       setOwner(tileIndex(x, y), 0);
@@ -137,7 +137,7 @@ export function stampSettlement(t: SettlementTemplate, x0: number, y0: number, o
     },
   };
   sites.set(id, site);
-  if(/-organic[34]$/.test(t.id)){
+  if(/-organic[345]$/.test(t.id)){
    const pasture:number[]=[];t.rows.forEach((row,y)=>[...row].forEach((c,x)=>{if(c==='u')pasture.push(tileIndex(x0+x,y0+y));}));
    if(pasture.length)createTownAnimalZone(site.num,site.name+' pasture',pasture);
   }

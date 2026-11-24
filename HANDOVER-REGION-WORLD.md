@@ -81,3 +81,6 @@ Generator 17: organic3 adds grouped fields, orchard rows, a separate fenced real
 
 
 Generator 18: organic4 compacts the core with identical house/service inventories, larger crop fields, movable civic/industrial/agricultural districts, offset/variable gate plans and spread-out decoration. Old templates remain for save compatibility. See docs/medieval-towns-v15.md and server/compact-towns-test.ts.
+
+
+Generator 19: organic5 relocates barns beside crop fields, preserving crop counts and houses. New industry sprite sets match each culture’s house materials. Other-region previews use actual generated seed-42 tiles/entities. See docs/medieval-towns-v15.md.

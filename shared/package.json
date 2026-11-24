@@ -9,6 +9,7 @@
     "./buildings": "./src/buildings.ts",
     "./progression": "./src/progression.ts",
     "./herolife": "./src/herolife.ts",
+    "./townIndustry": "./src/townIndustry.ts",
     "./organicTowns": "./src/organicTowns.ts",
     "./regions": "./src/regions.ts",
     "./streaming": "./src/streaming.ts",
