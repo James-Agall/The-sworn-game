@@ -8,7 +8,8 @@ export const RUIN_TITLES=['Ruined sanctuary','Forgotten crypt','Fallen keep','Ru
 export function ruinFloorUrl(m:InteriorMap,x:number,y:number){const s=m.ruin?.surfaces[y*m.w+x];return s==='g'?root+'courtyard.png':s==='p'?root+'paving.png':RUIN_FLOOR_URL;}
 export function ruinPropArt(prop:string){
  const all:Record<string,{url:string;w:number;h:number}>={
-  statue:{url:old+'broken-statue.png',w:1.4,h:2.2},ruinRubble:{url:old+'column-rubble.png',w:1.5,h:1},ruinColumn:{url:old+'column-rubble.png',w:1.25,h:1.65},sarcophagus:{url:old+'sarcophagus.png',w:1.65,h:1.15},
+  crates:{url:'/sprites/structure/extra/crates_barrels_stack.png',w:1,h:.85},barrel:{url:'/sprites/structure/extra/barrel.png',w:.55,h:.65},
+  statue:{url:old+'broken-statue.png',w:1.35,h:1.9},ruinRubble:{url:old+'column-rubble.png',w:1.5,h:1},ruinColumn:{url:old+'column-rubble.png',w:1.25,h:1.65},sarcophagus:{url:old+'sarcophagus.png',w:1.2,h:.78},
   skullBones:{url:'/sprites/regions-v4/skulls.png',w:.7,h:.5},fallenSkeleton:{url:'/sprites/regions-v4/skeleton.png',w:1.2,h:.65},
   cobweb:{url:'/sprites/regions-v4/web.png',w:1.1,h:.8},overgrowth:{url:'/sprites/regions-v4/brambles.png',w:1.2,h:.9},
  };return all[prop];

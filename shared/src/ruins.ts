@@ -1,3 +1,4 @@
+import {scatterHostileInterior} from './hostileScatter.js';
 import {interiorSolidGrid,interiorLayoutAccessible,type InteriorMap,type InteriorProp} from './interiors.js';
 export interface RuinArea {id:string;role:string;label:string;type:'room'|'courtyard';x:number;y:number;w:number;h:number}
 export interface RuinDoor {x:number;y:number;width:number;axis:'x'|'y'}
@@ -47,5 +48,6 @@ export function buildRuin(variant=0){
  for(const [x,y]of [[17,4],[23,4],[17,6],[23,6],[16,14],[24,14],[16,24],[24,25]])place('overgrowth',x,y);
  // Variants mirror the footprint, retaining clear room/courtyard identities.
  if(v%2){const mirror=(x:number)=>w-1-x,reverseRows=(s:string)=>Array.from({length:h},(_,y)=>s.slice(y*w,(y+1)*w).split('').reverse().join('')).join('');map.cells=reverseRows(map.cells);map.ruin!.surfaces=reverseRows(map.ruin!.surfaces);for(const p of [...map.props,...lairs,map.spawn,map.exit])p.x=mirror(p.x);for(const a of areas)a.x=w-a.x-a.w;for(const d of doors)d.x=d.axis==='y'?w-d.x-d.width:mirror(d.x);}
+ scatterHostileInterior(map,'ruin',v*7919+6103);
  const result={map,solid:interiorSolidGrid(map)};cache.set(v,result);return result;
 }

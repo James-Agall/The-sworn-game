@@ -1,3 +1,4 @@
+import {HOSTILE_CONTENT_VERSION} from '@colony/shared/hostileScatter';
 // mines.ts: Deep mines (docs/colony2d/PLAN-agri-industry-winter-mines.md phase 3; ROADMAP "Deep mines — landed";
 // numbers in shared/src/mines.ts). One record per own mine tile (Quarry, Iron / Coal / Copper / Tin Mine): clear,
 // infested or cleared, its encounter monsters (they live only inside the mine's interior, in interior tiles), its
@@ -81,6 +82,7 @@ interface MineRec {
   layoutSeed?:number;
   layoutVersion?:2;
   ruinLayoutVersion?:2;
+  encounterContentVersion?:1;
   encounter?:EncounterKind;
   variant?:number;
   tx: number;
@@ -860,6 +862,7 @@ interface MineSave {
   layoutSeed?:number;
   layoutVersion?:2;
   ruinLayoutVersion?:2;
+  encounterContentVersion?:1;
   encounter?:EncounterKind;
   variant?:number;
   key: string;
@@ -874,7 +877,7 @@ interface MineSave {
 }
 export function minesForSave(): MineSave[] {
   return Array.from(mines.entries(), ([key, r]) => ({
-    key, level: r.level, layered: r.layered,...(r.layoutSeed!==undefined?{layoutSeed:r.layoutSeed,layoutVersion:2 as const}:{}), ...(r.encounter?{encounter:r.encounter,variant:r.variant,...(r.encounter==='ruin'?{ruinLayoutVersion:2 as const}:{})}:{}),
+    key, level: r.level, layered: r.layered,...(r.layoutSeed!==undefined?{layoutSeed:r.layoutSeed,layoutVersion:2 as const}:{}), ...(r.encounter?{encounter:r.encounter,variant:r.variant,...(r.encounter==='cave'||r.encounter==='ruin'?{encounterContentVersion:HOSTILE_CONTENT_VERSION}:{}),...(r.encounter==='ruin'?{ruinLayoutVersion:2 as const}:{})}:{}),
     layers: r.layers.map((L) => ({ status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
     propsDay: r.propsDay, closedDay: r.closedDay, closedWhy: r.closedWhy, unpropped: r.unpropped, turn: r.turn,
   }));
@@ -895,6 +898,8 @@ export function restoreMines(data: unknown) {
     r.layoutSeed=typeof e.layoutSeed==='number'&&Number.isInteger(e.layoutSeed)&&e.layoutSeed>=0&&e.layoutSeed<=0xffffffff?e.layoutSeed:undefined;
     if(['camp','cave','ruin'].includes(e.encounter??'')){r.encounter=e.encounter;r.variant=Math.max(0,Math.min(3,num(e.variant,0)));}
     const migrate=((!r.encounter||r.encounter==='cave')&&e.layoutVersion!==2)||(r.encounter==='ruin'&&e.ruinLayoutVersion!==2);
+    const contentUpdate=(r.encounter==='cave'||r.encounter==='ruin')&&e.encounterContentVersion!==HOSTILE_CONTENT_VERSION;
+    if(r.encounter==='cave'||r.encounter==='ruin')r.encounterContentVersion=HOSTILE_CONTENT_VERSION;
     if(r.encounter==='ruin')r.ruinLayoutVersion=2;
     if(!r.encounter||r.encounter==='cave'){r.layoutSeed??=undergroundSeed(state.worldNoiseSalt,tx,ty);r.layoutVersion=2;}
     Object.assign(r, { propsDay: num(e.propsDay, r.propsDay), closedDay: num(e.closedDay, -1), closedWhy: typeof e.closedWhy === "string" ? e.closedWhy : "", unpropped: e.unpropped === true, turn: num(e.turn, 0) });
@@ -908,9 +913,10 @@ export function restoreMines(data: unknown) {
         if (mob) L.mobs.push(mob);
       }
       if (L.status === "infested" && L.mobs.length === 0) L.status = "cleared";
+      if(contentUpdate&&L.status==='infested'){for(const kind of encounterEnemies(r.encounter!).slice(5)){const mob=newMob(kind,multOf(r,li),1,1);if(mob)L.mobs.push(mob);}}
       return L;
     });
-    if(migrate)for(let li=0;li<r.layers.length;li++){const map=layerMap(r,li).map;for(const [i,m] of r.layers[li].mobs.entries()){const at=map.lairs?.[i%(map.lairs.length)]??map.spawn;m.x=at.x;m.y=at.y;}}
+    if(migrate||contentUpdate)for(let li=0;li<r.layers.length;li++){const map=layerMap(r,li).map;for(const [i,m] of r.layers[li].mobs.entries()){const at=map.lairs?.[i%(map.lairs.length)]??map.spawn;m.x=at.x;m.y=at.y;}}
     if (r.layers.length === 0) r.layers.push(newLayer());
     mines.set(e.key, r);
   }
@@ -980,7 +986,7 @@ export function mineDebug(msg: Record<string, unknown>) {
 export function ensureEnteredEncounter(tx:number,ty:number){
  const kind=encounterKind(state.tiles[tileIndex(tx,ty)]);if(!kind)return;
  const a=encounterAnchor(tx,ty,state.tiles[tileIndex(tx,ty)]),key=keyOf(a.x,a.y);let r=mines.get(key);if(r)return r;
- r=newRec(a.x,a.y,1,false);r.encounter=kind;if(kind==='ruin')r.ruinLayoutVersion=2;if(kind!=='cave')r.layoutSeed=undefined;r.variant=encounterVariant(a.x,a.y);mines.set(key,r);r.layers[0].status='infested';spawnEncounter(r,0,encounterEnemies(kind));return r;
+ r=newRec(a.x,a.y,1,false);r.encounter=kind;if(kind==='cave'||kind==='ruin')r.encounterContentVersion=HOSTILE_CONTENT_VERSION;if(kind==='ruin')r.ruinLayoutVersion=2;if(kind!=='cave')r.layoutSeed=undefined;r.variant=encounterVariant(a.x,a.y);mines.set(key,r);r.layers[0].status='infested';spawnEncounter(r,0,encounterEnemies(kind));return r;
 }
 export function landmarkHearth(x:number,y:number,destroyed=false):HearthState{return {siteId:`landmark:${x},${y}`,siteKind:'encampment',x,y,hp:destroyed?0:100,maxHp:100,destroyed,faction:'bandit',garrison:6,prisoners:2};}
 export function encounterInteract(p:Player){

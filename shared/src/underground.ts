@@ -1,3 +1,4 @@
+import {scatterHostileInterior} from './hostileScatter.js';
 import {interiorSolidGrid,type InteriorMap,type InteriorProp} from './interiors.js';
 export type UndergroundKind='mine'|'cave';
 export interface UndergroundOptions{seed:number;kind:UndergroundKind;depth:number;levels?:number;layered?:boolean}
@@ -51,5 +52,6 @@ export function buildUnderground(o:UndergroundOptions){
   add('lamp');if(s.id>0){add('rockBlock');add(o.kind==='cave'?'fallenSkeleton':'mineralNode');}
  }
  if(o.kind==='mine'&&o.layered&&depth<levels)place('mineShaft',shaft.x,shaft.y,true);
+ if(o.kind==='cave')scatterHostileInterior(map,'cave',o.seed>>>0);
  const result={map,solid:interiorSolidGrid(map)};cache.set(key,result);if(cache.size>256)cache.delete(cache.keys().next().value!);return result;
 }

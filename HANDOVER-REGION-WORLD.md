@@ -231,3 +231,18 @@ The built-in image tool generated six quieter architectural/material assets and 
 Validation: four-variant room/courtyard connectivity, full door widths, two-cell walls, real furniture collision, distinct surfaces, uncluttered paths and one-time progress-preserving migration; updated ruin art checks; region21 native combat, true-partition line-of-sight, aliases, dormancy, saves and clear rewards; client/server type checks, production build, native mine gameplay and the 35-check basic gameplay suite. Deployment backs up saves and the previous live copy before stopping it.
 
 Current static previews: Windows `outputs/ruin-rooms/rooms-and-courtyards.html`, `ruins-overview.png`, `ruin-0.png` through `ruin-3.png`. They use actual generated geometry, materials, props and native actor positions. Older ruin preview links point here.
+
+
+## 24 November: scattered boxes, monster populations and size audit
+
+Added `shared/src/hostileScatter.ts`, executed once during cached cave/ruin generation. Native colliding crate piles are scattered in gallery edges, rooms and courtyard edges (14 additional cave piles; up to 10 additional ruin piles). Placement avoids spawn/exit buffers, door approaches, working slots and ruin paved paths; each placement preserves full navigation and prop access. Approved room/courtyard and cave floor geometry remains unchanged. Working mine and bandit-camp populations are unchanged.
+
+Each cave/ruin now has 12 distinct native monster spawn points spread across its galleries or rooms/courts. Caves use spiders, bats and a giant spider in the deep gallery; ruins use skeletons and spiders. Spawn points avoid entrances, doors, props and each other. Native combat, animations, rewards and occupied-interior-only AI remain in use; empty locations stay dormant.
+
+`encounterContentVersion:1` upgrades previously visited but uncleared caves/ruins once. The old five-monster encounter's surviving enemies retain their kinds and health, prior kills stay counted, and seven additional guards are added for the new population. All surviving guards move onto safe new spawn points during that upgrade. Cleared locations stay cleared with no new monsters/rewards. Current-version saves preserve positions/HP and do not repeat the upgrade. Both ruin doors share the same record as before.
+
+Checked local scene sizes against the existing 25px hero. Interior skeletons now match that height; smaller cave spiders and larger giant spiders have distinct widths, consistently across idle/walk/attack animation scales. Crate stacks and barrels were undersized and now use shared cave/ruin dimensions. Sarcophagi and the courtyard statue were reduced to more believable scales. Entrances, walls, rooms, mineral formations and ordinary human workers were reviewed at the same grid scale and retain their established proportions. Existing transparent sprite assets are reused; no image generation was needed.
+
+Validation: 28 cave/ruin layouts cover full-area spawn distribution, 12 separate clear lairs, crate collision, open routes, safe entrances, hero-relative size ratios, prior-kill/HP-preserving population upgrade, cleared-state preservation and dormant AI. Existing 144 underground cases, ruin room/save checks, region21 combat/LOS/aliases/reward checks, client/server type checks, native mine suite, production build and the 35-check basic gameplay suite pass before deployment.
+
+Current static previews: Windows `outputs/hostile-scatter/populated-hostiles.html`, `size-check.png`, `ruins-overview.png`, `cave-0.png` and `ruin-0.png` through `ruin-3.png`. All show actual game placements and sprite scales. The size comparison uses the renderer's width/height bounds. Earlier preview pages link here.

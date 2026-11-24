@@ -45,6 +45,7 @@
     "./caveWalls": "./src/caveWalls.ts",
     "./caveRails": "./src/caveRails.ts",
     "./ruinArt": "./src/ruinArt.ts",
-    "./ruins": "./src/ruins.ts"
+    "./ruins": "./src/ruins.ts",
+    "./hostileScatter": "./src/hostileScatter.ts"
   }
 }

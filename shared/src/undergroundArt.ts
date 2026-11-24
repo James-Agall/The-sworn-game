@@ -11,11 +11,11 @@ export function undergroundMineralUrl(m:InteriorMap,x:number,y:number){
  const nodes=m.props.filter(p=>p.prop==='oreFace'||p.prop==='mineralNode'),index=nodes.findIndex(p=>p.x===x&&p.y===y),choice=resources[(index<0?Math.abs(x*7+y*11):index)%resources.length];return root+choice+'.png';
 }
 export function undergroundPropUrl(m:InteriorMap,prop:string,tile?:number,x=0,y=0){
- return prop==='oreFace'||prop==='mineralNode'?(tile===TileType.RockMinePost?'/sprites/regions-v3/rock-block.png':undergroundMineralUrl(m,x,y))
+ return prop==='crates'?'/sprites/structure/extra/crates_barrels_stack.png':prop==='barrel'?'/sprites/structure/extra/barrel.png':prop==='oreFace'||prop==='mineralNode'?(tile===TileType.RockMinePost?'/sprites/regions-v3/rock-block.png':undergroundMineralUrl(m,x,y))
  :prop==='stalagmite'?old+'stalagmites.png':prop==='rockBlock'?old+'rock-column.png'
  :prop==='timberProp'?'/sprites/autumn/frames/cave-props/supports-stairs-01.png':prop==='mineShaft'?'/sprites/autumn/frames/cave-props/supports-stairs-07.png':undefined;
 }
-export function undergroundPropSize(prop:string){return prop==='rockBlock'?{w:1.5,h:2.5}:prop==='stalagmite'?{w:1.6,h:1.9}:prop==='mineralNode'?{w:1.3,h:1.3}:prop==='timberProp'?{w:1.1,h:1.5}:prop==='mineShaft'?{w:1,h:1}:{w:1.2,h:1.3};}
+export function undergroundPropSize(prop:string){return prop==='crates'?{w:1,h:.85}:prop==='barrel'?{w:.55,h:.65}:prop==='rockBlock'?{w:1.5,h:2.5}:prop==='stalagmite'?{w:1.6,h:1.9}:prop==='mineralNode'?{w:1.3,h:1.3}:prop==='timberProp'?{w:1.1,h:1.5}:prop==='mineShaft'?{w:1,h:1}:{w:1.2,h:1.3};}
 
 // Ground-level adit in the side wall, with a supported roof above the tunnel.
 // The threshold stays on the existing exit cell for saved maps and transitions.

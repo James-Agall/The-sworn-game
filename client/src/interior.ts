@@ -1,3 +1,4 @@
+import {interiorMonsterScale} from '@colony/shared/hostileScatter';
 import {RUIN_FLOOR_URL,RUIN_WALL_ART,RUIN_TITLES,ruinFloorUrl,ruinWallPieces,ruinDoorFrames,ruinPropArt,ruinScenery,ruinEntrance} from '@colony/shared/ruinArt';
 import {caveWallPieces} from '@colony/shared/caveWalls';
 import {caveScenery} from '@colony/shared/caveScenery';
@@ -504,7 +505,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         if (art) {
           const sp = new Sprite(art.idle);
           sp.anchor.set(0.5, 0.85);
-          sp.scale.set(art.scale);
+          sp.scale.set(art.scale*interiorMonsterScale(m.kind));
           if (art.tint !== undefined) sp.tint = 0xffffff;
           body = sp;
         } else body = new Graphics().circle(0, -6, 6).fill(0x2a2028);
@@ -557,7 +558,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           k = a.walkScale;
         }
         if (b.texture !== tex) b.texture = tex;
-        b.scale.set(k * (m.face === "l" ? -1 : 1), k);
+        k*=interiorMonsterScale(m.kind);b.scale.set(k * (m.face === "l" ? -1 : 1), k);
         b.tint = 0xffffff;
       }
       b.alpha = m.act === "sleep" ? 0.7 : 1;

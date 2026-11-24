@@ -1,3 +1,4 @@
+import {scatterHostileInterior} from './hostileScatter.js';
 import {buildRuin} from './ruins.js';
 import {TileType,type MobKind} from './protocol.js';
 import {interiorSolidGrid,type InteriorMap,type InteriorProp} from './interiors.js';
@@ -7,7 +8,7 @@ export const encounterKind=(tile:number):EncounterKind|undefined=>(tile===TileTy
 export const encounterAnchor=(x:number,y:number,tile:number)=>tile===TileType.CampSideEntrance?{x:Math.floor(x/32)*32+16,y:Math.floor(y/32)*32+26}:tile===TileType.RuinSideEntrance?{x:Math.floor(x/32)*32+16,y:Math.floor(y/32)*32+27}:{x,y};
 export const encounterVariant=(x:number,y:number)=>Math.abs(x*7+y*11)%4;
 export const ENCOUNTER_LABEL:Record<EncounterKind,string>={camp:'Bandit camp',cave:'Cavern',ruin:'Ancient ruins'};
-export const encounterEnemies=(kind:EncounterKind):MobKind[]=>kind==='camp'?['banditClubman','banditArcher','banditClubman','banditArcher','banditClubman','banditClubman']:kind==='cave'?['caveSpider','caveBat','giantSpider','caveSpider','caveBat']:['skeleton','skeleton','giantSpider','skeleton','skeleton'];
+export const encounterEnemies=(kind:EncounterKind):MobKind[]=>kind==='camp'?['banditClubman','banditArcher','banditClubman','banditArcher','banditClubman','banditClubman']:kind==='cave'?['caveSpider','caveBat','giantSpider','caveSpider','caveBat','caveSpider','caveBat','caveSpider','caveBat','caveSpider','caveBat','caveSpider']:['skeleton','skeleton','giantSpider','skeleton','skeleton','caveSpider','skeleton','skeleton','caveSpider','skeleton','skeleton','skeleton'];
 const cache=new Map<string,{map:InteriorMap;solid:Uint8Array}>();
 // Separate maps use the proven mine interior wire format and combat, without creating overworld mobs.
 export function encounterMap(kind:EncounterKind,variant=0){
@@ -42,5 +43,6 @@ export function encounterMap(kind:EncounterKind,variant=0){
  }
  const lairs=(kind==='camp'?[[6,9],[22,9],[7,21],[21,21],[12,8],[17,8]]:kind==='cave'?[[7,9],[22,10],[14,17],[10,6],[20,6]]:[[5,7],[24,7],[14,10],[5,21],[24,21]]).map(([x,y])=>({x,y}));
  const map:InteriorMap={templateId:'mine',label:ENCOUNTER_LABEL[kind],level:1,variant,storey:0,w,h,floor:'dirt',wall:kind==='camp'?'wood':'stone',cells:cells.join(''),props,slots:[],exit,spawn,stairs:null,lairs};
+ if(kind==='cave')scatterHostileInterior(map,'cave',variant*7919+911);
  const result={map,solid:interiorSolidGrid(map)};cache.set(key,result);return result;
 }
