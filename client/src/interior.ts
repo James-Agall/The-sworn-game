@@ -1,5 +1,6 @@
+import {caveWallPieces} from '@colony/shared/caveWalls';
 import {caveScenery} from '@colony/shared/caveScenery';
-import {stoneFloorCell,cliffStripCell} from './caveTextures';
+import {stoneFloorCell,cliffStripCell,caveRailHalf} from './caveTextures';
 import {undergroundFloorUrl,CAVE_WALL_ART,undergroundPropUrl,undergroundPropSize} from '@colony/shared/undergroundArt';
 import {npcVariantFrame} from "./npcVariants";
 import {PLAYER_BASES,HOME_PROPS} from "@colony/shared/playerBases";
@@ -295,7 +296,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       return g;
     }
     if(view&&(view.map.underground||view.map.templateId==='mine'&&(!view.mine?.encounter||view.mine.encounter==='cave'))){
-      const url=undergroundPropUrl(view.map,prop,view.mine?.tile),t=url?extraTexture(url):undefined;
+      const url=undergroundPropUrl(view.map,prop,view.mine?.tile,x,y),t=url?extraTexture(url):undefined;
       if(t){const s=new Sprite(t),b=opaqueBox(t),size=undergroundPropSize(prop),k=Math.min(T*size.h/b.h,T*size.w/b.w);s.anchor.set((b.x+b.w/2)/t.width,(b.y+b.h)/t.height);s.scale.set(k);s.position.set((x+.5)*T,(y+1)*T-1);s.zIndex=(y+1)*T;return s;}
     }
     if (prop === "oreFace" || prop === "timberProp") {
@@ -395,18 +396,16 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     const walls = new Graphics();
     walls.zIndex = -5;
     room.addChild(walls);
+    if(rockInterior)for(const p of caveWallPieces(m)){
+      const tex=extraTexture(CAVE_WALL_ART[p.kind]);if(!tex)continue;
+      const frame=p.kind==='body'?stoneFloorCell(tex,Math.floor(p.x),Math.floor(p.y)):p.strip!==undefined?cliffStripCell(tex,p.strip):tex,sp=new Sprite(frame);
+      sp.width=p.w*T;sp.height=p.h*T;sp.position.set(p.x*T,p.y*T);if(p.flip){sp.scale.x=-Math.abs(sp.scale.x);sp.x+=p.w*T;}sp.zIndex=-5;room.addChild(sp);
+    }
     const solidAt = (x: number, y: number) => x < 0 || y < 0 || x >= m.w || y >= m.h || m.cells[y * m.w + x] === "#";
     for (let y = 0; y < m.h; y++) {
       for (let x = 0; x < m.w; x++) {
         if (m.cells[y * m.w + x] !== "#") continue;
-        if(rockInterior){
-          const open=(xx:number,yy:number)=>xx>=0&&yy>=0&&xx<m.w&&yy<m.h&&!['#',' '].includes(m.cells[yy*m.w+xx]);
-          const south=open(x,y+1),north=open(x,y-1),east=open(x+1,y),west=open(x-1,y);
-          if(!south&&!north&&!east&&!west)continue;
-          const url=south?CAVE_WALL_ART.face:north?CAVE_WALL_ART.rim:east||west?CAVE_WALL_ART.side:CAVE_WALL_ART.rim,tex=extraTexture(url);
-          if(tex){const frame=south||north||!east&&!west?cliffStripCell(tex,x):tex,sp=new Sprite(frame);sp.width=T+1;sp.height=south?T*1.8:north?T*.48:east||west?T*1.3:T*.65;sp.position.set(x*T,north&&!south?y*T-T*.08:(y+1)*T-sp.height);if(!south&&!north&&east&&!west){sp.scale.x=-Math.abs(sp.scale.x);sp.x+=T+1;}sp.zIndex=-5;room.addChild(sp);}else walls.rect(x*T,y*T,T,T).fill(0x45474a);
-          continue;
-        }
+        if(rockInterior)continue;
         {
           const south=!solidAt(x,y+1),north=!solidAt(x,y-1),east=!solidAt(x+1,y),west=!solidAt(x-1,y);
           const draw=(name:string,px:number,py:number,w:number,h:number)=>{const tex=extraTexture('/sprites/cozy-walls/'+(m.wall==='stone'?'stone-':'')+name+'.png');if(!tex)return false;const sp=new Sprite(tex);sp.position.set(px,py);sp.width=w;sp.height=h;sp.zIndex=-5;room.addChild(sp);return true;};
@@ -428,7 +427,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       }
     }
     if(rockInterior)for(const d of caveScenery(m)){
-      const tex=extraTexture(d.url);if(!tex)continue;if(d.floor){const sp=new Sprite(tex);sp.anchor.set(.5);sp.width=d.w*T;sp.height=d.h*T;sp.position.set((d.x+.5)*T,(d.y+.5)*T);sp.rotation=(d.rotation??0)*Math.PI/2;sp.zIndex=-7;room.addChild(sp);continue;}const b=opaqueBox(tex),sp=new Sprite(tex),k=Math.min(d.w*T/b.w,d.h*T/b.h);sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((d.x+.5)*T,(d.y+1)*T-1);sp.zIndex=(d.y+1)*T-2;room.addChild(sp);
+      const tex=extraTexture(d.url);if(!tex)continue;if(d.floor){const sp=new Sprite(d.frame==='top'?caveRailHalf(tex):tex);sp.anchor.set(.5);sp.width=d.w*T;sp.height=d.h*T;sp.position.set((d.x+.5+(d.offsetX??0))*T,(d.y+.5+(d.offsetY??0))*T);sp.rotation=(d.rotation??0)*Math.PI/2;sp.zIndex=-7;room.addChild(sp);continue;}const b=opaqueBox(tex),sp=new Sprite(tex),k=Math.min(d.w*T/b.w,d.h*T/b.h);sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((d.x+.5)*T,(d.y+1)*T-1);sp.zIndex=d.wall?-4:(d.y+1)*T-2;room.addChild(sp);
     }
     for (const p of m.props) room.addChild(propSprite(p.prop, p.x, p.y,p.facing));
     const old = new Map(npcViews);

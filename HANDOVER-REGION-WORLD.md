@@ -168,3 +168,18 @@ Save records carry `layoutVersion:2`. On loading either a compact legacy or prev
 Validation: 144 cave/mine combinations with navigation, shafts, ore/work slots, shared runtime views and save migration; cave artwork/dressing checks across 40 combinations; native mine gameplay suite; region21 combat/dormancy/save/reward/entry suite; region22 exterior suite; client/server type checks and production build. See current task report for deployment result.
 
 Preview: Windows workspace `outputs/organic-cave/continuous-cavern.html`, `cave-0.png`, `mine-1.png` through `mine-3.png`, and `cave-mine-closeup.png`. These are static compositions of actual game geometry, artwork and native actor positions, not gameplay screenshots.
+
+
+## 24 November: cave corner repairs, wall detail and depth-specific mine art
+
+Fixed the reported black seams: `shared/src/caveWalls.ts` fills every boundary cell, including diagonal corners, with opaque rock backing and independently draws each exposed front/rim/side. Thin islands no longer lose a face to renderer priority. A shared piece list feeds both the real game renderer and static previews.
+
+One new original 16-asset sheet is sliced into `client/public/sprites/underground-v4`: stratified cracked front/rim/side rock, an opaque rock core, seven actual mineral deposits, workbench, tool rack, wheelbarrow and connected rail straights/curves. No tinting. Source and extracted assets live in the Windows workspace `outputs/cave-detail`; prompt and slicing manifest are mirrored in `docs/art-sources/underground-v4`. The built-in image tool produced the artwork. Slice processing removes near-zero alpha encoding noise in empty gutters and aligns rail endpoints.
+
+Mineral art follows `MINE_LAYER_YIELDS`: depth 1 copper/tin/limestone; depth 2 iron/coal; depth 3 gold/lead. Ore faces, mineral nodes, loose deposits and exposed wall deposits share that selection. The quarry retains ordinary rock. Caves retain natural crystal dressing. The existing ore gathering and production rules are preserved.
+
+`shared/src/caveRails.ts` adds cached branches to upper/central/east workings using the existing solid grid after props are placed. Existing track, ore faces, worker slots, exits, saved geometry and enemy positions are unchanged. Rail masks support curves, T junctions, crossings and endpoints. Props and wall ore are scenery; carts/railways remain decorative. Nothing is added to ongoing enemy AI.
+
+Validation: cave-detail regression across 48 seed/kind/depth combinations checks all boundary backing, thin islands, correct and complete resource palettes, quarry rock, walkable rail branches and junctions, props, no map mutation and accessible interiors. Cave artwork checks cover 40 additional combinations. Native mine gameplay, client/server compilation, production build and the basic gameplay smoke suite are run before deployment.
+
+Updated static previews: Windows workspace `outputs/cave-detail/detailed-cavern.html`, `cave-mine-closeup.png`, `cave-0.png`, `mine-1.png` through `mine-3.png` and `mine-levels.png`. They use actual game geometry/art and native entity placements, without gameplay movement/camera.

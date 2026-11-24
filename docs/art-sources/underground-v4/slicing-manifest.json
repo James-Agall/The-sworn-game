@@ -1,0 +1,306 @@
+[
+  {
+    "name": "cliff-face",
+    "sourceCell": [
+      0,
+      0,
+      314,
+      314
+    ],
+    "alphaBounds": [
+      10,
+      80,
+      305,
+      253
+    ],
+    "size": [
+      384,
+      225
+    ]
+  },
+  {
+    "name": "rock-rim",
+    "sourceCell": [
+      314,
+      0,
+      627,
+      314
+    ],
+    "alphaBounds": [
+      9,
+      130,
+      304,
+      215
+    ],
+    "size": [
+      384,
+      111
+    ]
+  },
+  {
+    "name": "side-wall",
+    "sourceCell": [
+      627,
+      0,
+      940,
+      314
+    ],
+    "alphaBounds": [
+      100,
+      11,
+      211,
+      305
+    ],
+    "size": [
+      111,
+      294
+    ]
+  },
+  {
+    "name": "rock-body",
+    "sourceCell": [
+      940,
+      0,
+      1254,
+      314
+    ],
+    "alphaBounds": [
+      21,
+      20,
+      295,
+      295
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "copperOre",
+    "sourceCell": [
+      0,
+      314,
+      314,
+      627
+    ],
+    "alphaBounds": [
+      32,
+      54,
+      287,
+      266
+    ],
+    "size": [
+      255,
+      212
+    ]
+  },
+  {
+    "name": "tinOre",
+    "sourceCell": [
+      314,
+      314,
+      627,
+      627
+    ],
+    "alphaBounds": [
+      27,
+      52,
+      288,
+      263
+    ],
+    "size": [
+      261,
+      211
+    ]
+  },
+  {
+    "name": "limestone",
+    "sourceCell": [
+      627,
+      314,
+      940,
+      627
+    ],
+    "alphaBounds": [
+      30,
+      56,
+      285,
+      266
+    ],
+    "size": [
+      255,
+      210
+    ]
+  },
+  {
+    "name": "iron",
+    "sourceCell": [
+      940,
+      314,
+      1254,
+      627
+    ],
+    "alphaBounds": [
+      21,
+      57,
+      295,
+      263
+    ],
+    "size": [
+      274,
+      206
+    ]
+  },
+  {
+    "name": "coal",
+    "sourceCell": [
+      0,
+      627,
+      314,
+      940
+    ],
+    "alphaBounds": [
+      27,
+      50,
+      288,
+      265
+    ],
+    "size": [
+      261,
+      215
+    ]
+  },
+  {
+    "name": "goldOre",
+    "sourceCell": [
+      314,
+      627,
+      627,
+      940
+    ],
+    "alphaBounds": [
+      21,
+      58,
+      291,
+      262
+    ],
+    "size": [
+      270,
+      204
+    ]
+  },
+  {
+    "name": "leadOre",
+    "sourceCell": [
+      627,
+      627,
+      940,
+      940
+    ],
+    "alphaBounds": [
+      19,
+      50,
+      294,
+      262
+    ],
+    "size": [
+      275,
+      212
+    ]
+  },
+  {
+    "name": "workbench",
+    "sourceCell": [
+      940,
+      627,
+      1254,
+      940
+    ],
+    "alphaBounds": [
+      11,
+      51,
+      304,
+      260
+    ],
+    "size": [
+      293,
+      209
+    ]
+  },
+  {
+    "name": "tool-rack",
+    "sourceCell": [
+      0,
+      940,
+      314,
+      1254
+    ],
+    "alphaBounds": [
+      18,
+      51,
+      299,
+      273
+    ],
+    "size": [
+      281,
+      222
+    ]
+  },
+  {
+    "name": "wheelbarrow",
+    "sourceCell": [
+      314,
+      940,
+      627,
+      1254
+    ],
+    "alphaBounds": [
+      12,
+      80,
+      303,
+      265
+    ],
+    "size": [
+      291,
+      185
+    ]
+  },
+  {
+    "name": "rail-ns",
+    "sourceCell": [
+      627,
+      940,
+      940,
+      1254
+    ],
+    "alphaBounds": [
+      50,
+      8,
+      261,
+      309
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "rail-ne",
+    "sourceCell": [
+      940,
+      940,
+      1254,
+      1254
+    ],
+    "alphaBounds": [
+      16,
+      8,
+      310,
+      289
+    ],
+    "size": [
+      512,
+      512
+    ]
+  }
+]
