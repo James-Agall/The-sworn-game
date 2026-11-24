@@ -1,0 +1,173 @@
+[
+  {
+    "name": "stone-floor",
+    "sourceCell": [
+      0,
+      0,
+      418,
+      418
+    ],
+    "alphaBounds": [
+      34,
+      35,
+      385,
+      391
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "cliff-face",
+    "sourceCell": [
+      418,
+      0,
+      836,
+      418
+    ],
+    "alphaBounds": [
+      23,
+      116,
+      393,
+      313
+    ],
+    "size": [
+      384,
+      204
+    ]
+  },
+  {
+    "name": "rock-rim",
+    "sourceCell": [
+      836,
+      0,
+      1254,
+      418
+    ],
+    "alphaBounds": [
+      28,
+      188,
+      386,
+      264
+    ],
+    "size": [
+      384,
+      82
+    ]
+  },
+  {
+    "name": "side-wall",
+    "sourceCell": [
+      0,
+      418,
+      418,
+      836
+    ],
+    "alphaBounds": [
+      160,
+      26,
+      260,
+      400
+    ],
+    "size": [
+      100,
+      374
+    ]
+  },
+  {
+    "name": "rail-ns",
+    "sourceCell": [
+      418,
+      418,
+      836,
+      836
+    ],
+    "alphaBounds": [
+      148,
+      26,
+      269,
+      402
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "rail-ew",
+    "sourceCell": [
+      836,
+      418,
+      1254,
+      836
+    ],
+    "alphaBounds": [
+      27,
+      152,
+      387,
+      269
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "rail-ne",
+    "sourceCell": [
+      0,
+      836,
+      418,
+      1254
+    ],
+    "alphaBounds": [
+      65,
+      40,
+      385,
+      369
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "platform",
+    "sourceCell": [
+      418,
+      836,
+      836,
+      1254
+    ],
+    "alphaBounds": [
+      39,
+      35,
+      378,
+      378
+    ],
+    "size": [
+      339,
+      343
+    ]
+  },
+  {
+    "name": "minecart",
+    "sourceCell": [
+      836,
+      836,
+      1254,
+      1254
+    ],
+    "alphaBounds": [
+      70,
+      89,
+      341,
+      342
+    ],
+    "size": [
+      271,
+      253
+    ]
+  }
+]

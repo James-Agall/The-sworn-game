@@ -79,6 +79,7 @@ interface LayerRec {
 }
 interface MineRec {
   layoutSeed?:number;
+  layoutVersion?:2;
   encounter?:EncounterKind;
   variant?:number;
   tx: number;
@@ -288,7 +289,7 @@ function rollDepth(r: MineRec, level: number) {
 function newRec(tx: number, ty: number, level: number, layered: boolean): MineRec {
   const d = today();
   const layers = Array.from({ length: layered ? Math.max(0, level) : 1 }, newLayer);
-  return { tx, ty, level, layered, layers, ...(!seedExisting?{layoutSeed:undergroundSeed(state.worldNoiseSalt,tx,ty)}:{}), propsDay: d, closedDay: -1, closedWhy: "", unpropped: false, turn: 0 };
+  return { tx, ty, level, layered, layers, layoutSeed:undergroundSeed(state.worldNoiseSalt,tx,ty),layoutVersion:2, propsDay: d, closedDay: -1, closedWhy: "", unpropped: false, turn: 0 };
 }
 
 // Once a second: a record per own mine (new mines and deeper shafts roll), gone mines dropped.
@@ -856,6 +857,7 @@ interface LayerSave {
 }
 interface MineSave {
   layoutSeed?:number;
+  layoutVersion?:2;
   encounter?:EncounterKind;
   variant?:number;
   key: string;
@@ -870,7 +872,7 @@ interface MineSave {
 }
 export function minesForSave(): MineSave[] {
   return Array.from(mines.entries(), ([key, r]) => ({
-    key, level: r.level, layered: r.layered,...(r.layoutSeed!==undefined?{layoutSeed:r.layoutSeed}:{}), ...(r.encounter?{encounter:r.encounter,variant:r.variant}:{}),
+    key, level: r.level, layered: r.layered,...(r.layoutSeed!==undefined?{layoutSeed:r.layoutSeed,layoutVersion:2 as const}:{}), ...(r.encounter?{encounter:r.encounter,variant:r.variant}:{}),
     layers: r.layers.map((L) => ({ status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
     propsDay: r.propsDay, closedDay: r.closedDay, closedWhy: r.closedWhy, unpropped: r.unpropped, turn: r.turn,
   }));
@@ -890,6 +892,8 @@ export function restoreMines(data: unknown) {
     const r = newRec(tx, ty, Math.max(0, Math.min(3, num(e.level, 1))), layered);
     r.layoutSeed=typeof e.layoutSeed==='number'&&Number.isInteger(e.layoutSeed)&&e.layoutSeed>=0&&e.layoutSeed<=0xffffffff?e.layoutSeed:undefined;
     if(['camp','cave','ruin'].includes(e.encounter??'')){r.encounter=e.encounter;r.variant=Math.max(0,Math.min(3,num(e.variant,0)));}
+    const migrate=(!r.encounter||r.encounter==='cave')&&e.layoutVersion!==2;
+    if(!r.encounter||r.encounter==='cave'){r.layoutSeed??=undergroundSeed(state.worldNoiseSalt,tx,ty);r.layoutVersion=2;}
     Object.assign(r, { propsDay: num(e.propsDay, r.propsDay), closedDay: num(e.closedDay, -1), closedWhy: typeof e.closedWhy === "string" ? e.closedWhy : "", unpropped: e.unpropped === true, turn: num(e.turn, 0) });
     r.layers = e.layers.slice(0, 3).map((s, li) => {
       const L = newLayer();
@@ -903,6 +907,7 @@ export function restoreMines(data: unknown) {
       if (L.status === "infested" && L.mobs.length === 0) L.status = "cleared";
       return L;
     });
+    if(migrate)for(let li=0;li<r.layers.length;li++){const map=layerMap(r,li).map;for(const [i,m] of r.layers[li].mobs.entries()){const at=map.lairs?.[i%(map.lairs.length)]??map.spawn;m.x=at.x;m.y=at.y;}}
     if (r.layers.length === 0) r.layers.push(newLayer());
     mines.set(e.key, r);
   }

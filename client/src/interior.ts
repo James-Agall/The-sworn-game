@@ -402,8 +402,9 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         if(rockInterior){
           const open=(xx:number,yy:number)=>xx>=0&&yy>=0&&xx<m.w&&yy<m.h&&!['#',' '].includes(m.cells[yy*m.w+xx]);
           const south=open(x,y+1),north=open(x,y-1),east=open(x+1,y),west=open(x-1,y);
+          if(!south&&!north&&!east&&!west)continue;
           const url=south?CAVE_WALL_ART.face:north?CAVE_WALL_ART.rim:east||west?CAVE_WALL_ART.side:CAVE_WALL_ART.rim,tex=extraTexture(url);
-          if(tex){const frame=south||north||!east&&!west?cliffStripCell(tex,x):tex,sp=new Sprite(frame);sp.width=T+1;sp.height=south?T*1.8:north?T*.48:east||west?T*1.3:T*.65;sp.position.set(x*T,(y+1)*T-sp.height);if(!south&&!north&&east&&!west){sp.scale.x=-Math.abs(sp.scale.x);sp.x+=T+1;}sp.zIndex=-5;room.addChild(sp);}else walls.rect(x*T,y*T,T,T).fill(0x45474a);
+          if(tex){const frame=south||north||!east&&!west?cliffStripCell(tex,x):tex,sp=new Sprite(frame);sp.width=T+1;sp.height=south?T*1.8:north?T*.48:east||west?T*1.3:T*.65;sp.position.set(x*T,north&&!south?y*T-T*.08:(y+1)*T-sp.height);if(!south&&!north&&east&&!west){sp.scale.x=-Math.abs(sp.scale.x);sp.x+=T+1;}sp.zIndex=-5;room.addChild(sp);}else walls.rect(x*T,y*T,T,T).fill(0x45474a);
           continue;
         }
         {
@@ -427,7 +428,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       }
     }
     if(rockInterior)for(const d of caveScenery(m)){
-      const tex=extraTexture(d.url);if(!tex)continue;const b=opaqueBox(tex),sp=new Sprite(tex),k=Math.min(d.w*T/b.w,d.h*T/b.h);sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((d.x+.5)*T,(d.y+1)*T-1);sp.zIndex=(d.y+1)*T-2;room.addChild(sp);
+      const tex=extraTexture(d.url);if(!tex)continue;if(d.floor){const sp=new Sprite(tex);sp.anchor.set(.5);sp.width=d.w*T;sp.height=d.h*T;sp.position.set((d.x+.5)*T,(d.y+.5)*T);sp.rotation=(d.rotation??0)*Math.PI/2;sp.zIndex=-7;room.addChild(sp);continue;}const b=opaqueBox(tex),sp=new Sprite(tex),k=Math.min(d.w*T/b.w,d.h*T/b.h);sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((d.x+.5)*T,(d.y+1)*T-1);sp.zIndex=(d.y+1)*T-2;room.addChild(sp);
     }
     for (const p of m.props) room.addChild(propSprite(p.prop, p.x, p.y,p.facing));
     const old = new Map(npcViews);

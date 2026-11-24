@@ -1,8 +1,8 @@
 import {TileType} from './protocol.js';
 import type {InteriorMap} from './interiors.js';
 const root='/sprites/underground-v2/';
-export const undergroundFloorUrl=(_m:InteriorMap)=>root+'stone-floor.png';
-export const CAVE_WALL_ART={face:root+'cliff-face.png',rim:root+'rock-rim.png',side:root+'side-wall.png'};
+export const undergroundFloorUrl=(_m:InteriorMap)=>'/sprites/underground-v3/stone-floor.png';
+export const CAVE_WALL_ART={face:'/sprites/underground-v3/cliff-face.png',rim:'/sprites/underground-v3/rock-rim.png',side:'/sprites/underground-v3/side-wall.png'};
 // Retained for exports and older callers; faces are selected from exposed floor edges by the renderer.
 export function undergroundWallUrl(_m:InteriorMap,_mask:number){return CAVE_WALL_ART.face;}
 export function undergroundPropUrl(m:InteriorMap,prop:string,tile?:number){

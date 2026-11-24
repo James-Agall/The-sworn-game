@@ -153,3 +153,18 @@ Ten assets live under client/public/sprites/underground-v2: an opaque stone-floo
 shared/src/caveScenery.ts adds cached deterministic cosmetic dressing to suitable chamber corners: fungi, small rocks/ore, bones and webs. Working mines bias toward rocks rather than bones. Dressing avoids entrances, existing props, workers and the protected central routes; it does not enter the collision, enemy or saved-progress state. Existing solid rock/ore/stalagmite nodes receive the new larger formation art while retaining their existing collision roots. This is a visual update that also applies to existing saves after refreshing; no world reset is needed.
 
 Validation: server/cave-art-test.ts verifies assets, deterministic richer dressing, clear entrances and unchanged collision across 40 layouts. All 144 underground layout cases, indoor combat/save regression, native mine gameplay suite, TypeScript, production build and all 35 core smoke checks passed. Updated actual-layout previews are outputs/underground/modular-underground.html/.png; cave-art-closeups.png shows the art at a closer scale. These are static previews, not live screenshots.
+
+
+## 24 November: continuous cave and mine interiors
+
+Replaced the rejected shuffled 3x3 chamber graph with one authored 65x49 cavern. Winding upper/middle/lower galleries wrap solid rock islands; lower mining depths deliberately open additional passages. Location seeds now vary dressing, not the cave outline. Exterior regions and world generation version remain unchanged.
+
+New original artwork in `client/public/sprites/underground-v3`: dark fractured stone floor, chunky natural front/side/rim rock faces, railway straights/curve, timber platform and ore cart. Generated in one transparent sheet using the built-in image tool, sliced with original alpha. Source sheet is saved in the Windows workspace `outputs/organic-cave`; prompt and crop manifest are also in `docs/art-sources/underground-v3`. Existing formation/ore/remains/web/fungi sprites are reused without tints. Floor material now spans two tiles; lower cliff lips meet the floor edge.
+
+The rail route is computed once per cached layout and reserved against blocking props. Rails, platforms and the cart are scenery, not a new trolley simulation. Native ore work slots, mining resources, level shafts, mining hazards, cave enemies, equipment combat, clear rewards and dormant AI still use the same authoritative interior map. All floors/props/work slots remain reachable; spawn/exit and lairs are reserved.
+
+Save records carry `layoutVersion:2`. On loading either a compact legacy or previous modular mine/cave, old alive enemies move onto new lairs once, preserving their health, clear status, rewards and mining/hazard dates. Subsequent saves retain actual enemy positions. Camps and ruins keep their approved interiors. Save backups are taken before deployment.
+
+Validation: 144 cave/mine combinations with navigation, shafts, ore/work slots, shared runtime views and save migration; cave artwork/dressing checks across 40 combinations; native mine gameplay suite; region21 combat/dormancy/save/reward/entry suite; region22 exterior suite; client/server type checks and production build. See current task report for deployment result.
+
+Preview: Windows workspace `outputs/organic-cave/continuous-cavern.html`, `cave-0.png`, `mine-1.png` through `mine-3.png`, and `cave-mine-closeup.png`. These are static compositions of actual game geometry, artwork and native actor positions, not gameplay screenshots.

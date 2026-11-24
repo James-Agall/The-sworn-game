@@ -694,7 +694,7 @@ export const INTERIOR_SLEEP_TEMPLATES: ReadonlySet<InteriorTemplateId> = new Set
 // ---- the built map ----
 // cells: one char per tile, row-major ("#" wall, "." floor, "E" exit, " " nothing).
 export interface InteriorMap {
-  underground?:{version:1;kind:'mine'|'cave';seed:number;depth:number;rockOnly?:boolean;sections:{id:number;shape:string;role:string;x:number;y:number;rotation:number}[];connections:[number,number][]};
+  underground?:{version:2;kind:'mine'|'cave';seed:number;depth:number;rockOnly?:boolean;landmarks:{id:number;role:string;x:number;y:number}[];tracks:{x:number;y:number;mask:number}[]};
   templateId: InteriorTemplateId;
   label: string;
   level: number;
