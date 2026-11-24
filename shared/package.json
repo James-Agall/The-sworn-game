@@ -11,6 +11,7 @@
     "./herolife": "./src/herolife.ts",
     "./townIndustry": "./src/townIndustry.ts",
     "./organicTowns": "./src/organicTowns.ts",
+    "./landmarkArt": "./src/landmarkArt.ts",
     "./encounters": "./src/encounters.ts",
     "./regionNature": "./src/regionNature.ts",
     "./regions": "./src/regions.ts",

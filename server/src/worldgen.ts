@@ -1,3 +1,4 @@
+import {isInOvergrownLandmark} from './overgrownLandmarks.js';
 import { restoreRegionPlan, generateRegionWorld } from "./regionWorld.js";
 import {expandKeepFootprints} from './keepFootprints.js';
 // worldgen.ts: World size, world generation (biomes, ponds, resources, POI sites), the Abbey, the Castle Ruin and its bosses.
@@ -116,7 +117,7 @@ export function isInAbbeyGrounds(tx: number, ty: number): boolean {
 // World-gen grounds that resource scatter, forage, wildlife and tree regrowth keep off: the Abbey's,
 // the Castle Ruin's and every standing fort's (forts phase B).
 export function isInReservedGrounds(tx: number, ty: number): boolean {
-  return isInAbbeyGrounds(tx, ty) || isInCastleRuinGrounds(tx, ty) || isInSiteGrounds(tx, ty);
+  return isInAbbeyGrounds(tx, ty) || isInCastleRuinGrounds(tx, ty) || isInSiteGrounds(tx, ty) || isInOvergrownLandmark(tx,ty);
 }
 
 // Ruins / encampments / mini-boss packs: the usual clear footprint, and off the forts' grounds.
@@ -749,7 +750,7 @@ export async function worldgenProgress(stage: LoadStageId, frac: number) {
 
 // World streaming phase 4: seeded (worldbase.ts), so a streamed save can store the seed + tile diffs.
 // `wrap` runs each (synchronous) stage, e.g. under clan 0 (resetWorld): other code may run between stages.
-export async function generateWorld(seed?: number, wrap: (fn: () => void) => void = (fn) => fn(), version = 21) {
+export async function generateWorld(seed?: number, wrap: (fn: () => void) => void = (fn) => fn(), version = 22) {
   await withWorldSeed(seed, () => generateWorldInner(wrap, version), version);
 }
 

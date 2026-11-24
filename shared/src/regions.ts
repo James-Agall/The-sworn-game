@@ -6,7 +6,7 @@ export type RegionKind = 'countryside'|'forest'|'marsh'|'camp'|'ruin'|'cave'|'ci
 export interface Region { x:number; y:number; kind:RegionKind; variant:number; east:boolean; south:boolean; city?:number }
 export interface RegionCity { x:number; y:number; w:number; h:number; variant:number; fort?:boolean }
 export interface RegionPlan { version:1; columns:number; rows:number; regions:Region[]; cities:RegionCity[] }
-export function planRegions(width:number,height:number,seed:number,version=21):RegionPlan {
+export function planRegions(width:number,height:number,seed:number,version=22):RegionPlan {
  if(version>=15){
   const p=planRegions(width,height,seed,14);
   // Style and street grammar are independent of footprint allocation and the scarce-city quotas.

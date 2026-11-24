@@ -86,7 +86,7 @@ export type InteriorProp =
   // Deep mines: the ore face the miners work and the timber props holding the roof.
   | "oreFace" | "timberProp"
   // Layered mines: the way down to the Mine's next layer (walked onto; drawn with the Mine's own sprite for now).
-  | "mineShaft" | "campTent" | "prisonCage" | "rockBlock" | "ruinRubble";
+  | "mineShaft" | "campTent" | "prisonCage" | "rockBlock" | "ruinRubble" | "skullBones" | "fallenSkeleton" | "cobweb" | "overgrowth" | "banditTower";
 // NPC slots: "1" the building's keeper (smith, baker, trader, priest, elder), "2" a second (a hall's trader),
 // "v" residents / patrons / soldiers (beside the beds and tables).
 export type InteriorNpcSlot = "1" | "2" | "v";
@@ -146,7 +146,7 @@ export const INTERIOR_LEGEND: Record<string, InteriorSymbol> = {
   N: { label: "Way down to level 2", prop: "mineShaft", minLevel: 2 },
   M: { label: "Way down to level 3", prop: "mineShaft", minLevel: 3 },
 };
-export const INTERIOR_WALKABLE_PROPS: ReadonlySet<InteriorProp> = new Set(["rug", "chair", "stairsUp", "stairsDown", "mineShaft"]);
+export const INTERIOR_WALKABLE_PROPS: ReadonlySet<InteriorProp> = new Set(["skullBones", "fallenSkeleton", "cobweb", "overgrowth", "rug", "chair", "stairsUp", "stairsDown", "mineShaft"]);
 
 export interface InteriorTemplate {
   id: InteriorTemplateId;

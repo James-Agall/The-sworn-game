@@ -2,8 +2,8 @@ import {TileType,type MobKind} from './protocol.js';
 import {interiorSolidGrid,type InteriorMap,type InteriorProp} from './interiors.js';
 export type EncounterKind='camp'|'cave'|'ruin';
 export const ENCOUNTER_TILES=[TileType.CampEntrance,TileType.CaveEntrance,TileType.RuinEntrance] as const;
-export const encounterKind=(tile:number):EncounterKind|undefined=>tile===TileType.CampEntrance?'camp':tile===TileType.CaveEntrance?'cave':(tile===TileType.RuinEntrance||tile===TileType.RuinSideEntrance)?'ruin':undefined;
-export const encounterAnchor=(x:number,y:number,tile:number)=>tile===TileType.RuinSideEntrance?{x:Math.floor(x/32)*32+16,y:Math.floor(y/32)*32+27}:{x,y};
+export const encounterKind=(tile:number):EncounterKind|undefined=>(tile===TileType.CampEntrance||tile===TileType.CampSideEntrance)?'camp':tile===TileType.CaveEntrance?'cave':(tile===TileType.RuinEntrance||tile===TileType.RuinSideEntrance)?'ruin':undefined;
+export const encounterAnchor=(x:number,y:number,tile:number)=>tile===TileType.CampSideEntrance?{x:Math.floor(x/32)*32+16,y:Math.floor(y/32)*32+26}:tile===TileType.RuinSideEntrance?{x:Math.floor(x/32)*32+16,y:Math.floor(y/32)*32+27}:{x,y};
 export const encounterVariant=(x:number,y:number)=>Math.abs(x*7+y*11)%4;
 export const ENCOUNTER_LABEL:Record<EncounterKind,string>={camp:'Bandit camp',cave:'Cavern',ruin:'Ancient ruins'};
 export const encounterEnemies=(kind:EncounterKind):MobKind[]=>kind==='camp'?['banditClubman','banditArcher','banditClubman','banditArcher','banditClubman','banditClubman']:kind==='cave'?['caveSpider','caveBat','giantSpider','caveSpider','caveBat']:['skeleton','skeleton','giantSpider','skeleton','skeleton'];
@@ -35,6 +35,12 @@ export function encounterMap(kind:EncounterKind,variant=0){
   prop('chest',22,4);
  }else{
   prop('statue',14,5);prop('chest',25,4);for(const [x,y]of [[4,5],[6,20],[24,20],[17,10]])prop('ruinRubble',x,y);
+ }
+ if(kind==='camp'){
+  prop('banditTower',2,3);prop('banditTower',26,3);prop('crates',4,12);prop('barrel',24,21);
+ }else{
+  for(const [x,y]of [[4,8],[7,12],[23,12],[8,21],[21,22],[17,6],[13,16],[18,19]])prop((x+y)%3===0?'skullBones':(x+y)%3===1?'fallenSkeleton':'cobweb',x,y);
+  for(const [x,y]of [[3,6],[24,6],[6,18],[23,20]])prop('overgrowth',x,y);
  }
  const lairs=(kind==='camp'?[[6,9],[22,9],[7,21],[21,21],[12,8],[17,8]]:kind==='cave'?[[7,9],[22,10],[14,17],[10,6],[20,6]]:[[5,7],[24,7],[14,10],[5,21],[24,21]]).map(([x,y])=>({x,y}));
  const map:InteriorMap={templateId:'mine',label:ENCOUNTER_LABEL[kind],level:1,variant,storey:0,w,h,floor:kind==='ruin'?'stone':'dirt',wall:kind==='camp'?'wood':'stone',cells:cells.join(''),props,slots:[],exit,spawn,stairs:null,lairs};

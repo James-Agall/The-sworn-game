@@ -240,6 +240,17 @@ export enum TileType {
   RuinEntrance = 176,
   CaveRock = 177,
   RuinSideEntrance = 178,
+  CampSideEntrance = 179,
+  RuinTower = 180,
+  RuinMasonry = 181,
+  SkullBones = 182,
+  FallenSkeleton = 183,
+  Cobweb = 184,
+  Overgrowth = 185,
+  BanditTower = 186,
+  BanditTent = 187,
+  BanditHall = 188,
+  CaveCliff = 189,
 
 }
 
@@ -449,6 +460,9 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.PropCross ||
     tile === TileType.PropLanternPost ||
     tile === TileType.TownQuestBoard ||
+    tile === TileType.CaveCliff ||
+    tile === TileType.BanditTent || tile === TileType.BanditHall ||
+    tile === TileType.CampSideEntrance || tile === TileType.RuinTower || tile === TileType.RuinMasonry || tile === TileType.BanditTower ||
     tile === TileType.PrisonCage || tile === TileType.CampEntrance || tile === TileType.CaveEntrance || tile === TileType.RuinEntrance || tile === TileType.RuinSideEntrance || tile === TileType.CaveRock ||
     tile === TileType.WardStone ||
     tile === TileType.HunterHut ||

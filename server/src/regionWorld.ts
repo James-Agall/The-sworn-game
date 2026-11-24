@@ -1,3 +1,4 @@
+import {overgrownLandmark} from './overgrownLandmarks.js';
 import {enteredLandmark} from './regionLandmarks.js';
 import {ruralHomestead,banditRegion,expandRuins,marshTile} from './regionDetails.js';
 import { Biome, TILE_SIZE, TileType } from '@colony/shared/protocol';
@@ -14,7 +15,7 @@ import { seedHomeDesign } from './interiors.js';
 
 export let generatedRegionPlan: RegionPlan | null = null;
 export function restoreRegionPlan(plan: RegionPlan | undefined) { generatedRegionPlan=plan?.version===1?plan:null; }
-export function generateRegionWorld(version = 21) {
+export function generateRegionWorld(version = 22) {
  const width=state.WORLD_TILES_X,height=state.WORLD_TILES_Y;
  const plan=planRegions(width,height,state.worldNoiseSalt,version);
  generatedRegionPlan=plan;
@@ -32,6 +33,7 @@ export function generateRegionWorld(version = 21) {
  if(version>=21&&state.castleRuinCenter){const c=state.castleRuinCenter;
   for(const [id,m]of mobs)if(m.siteKind==='castleRuin')mobs.delete(id);
   setTile(tileIndex(c.x,c.y+5),TileType.RuinEntrance);setTile(tileIndex(c.x,c.y+6),TileType.Empty);
+  if(version>=22)for(const [dx,dy,t]of [[-3,-2,TileType.Overgrowth],[3,-2,TileType.Overgrowth],[-2,2,TileType.SkullBones],[2,2,TileType.FallenSkeleton],[-2,-2,TileType.Cobweb],[2,-3,TileType.Cobweb]])if(state.tiles[tileIndex(c.x+dx,c.y+dy)]===TileType.Empty)setTile(tileIndex(c.x+dx,c.y+dy),t);
  }
 
  for(const i of reserved)if(state.tiles[i]===TileType.Water)setTile(i,TileType.Empty);
@@ -126,6 +128,7 @@ export function generateRegionWorld(version = 21) {
   const at={x:x-7,y:y-7};
   const detail={r,roads,road,safe};
   if(version>=20&&r.kind==='countryside'){ruralHomestead(detail,version>=21);continue;}
+  if(version>=22&&['camp','cave','ruin'].includes(r.kind)){overgrownLandmark(r,r.kind as 'camp'|'cave'|'ruin',roads,road,safe);continue;}
   if(version>=21&&['camp','cave','ruin'].includes(r.kind)){enteredLandmark(r,r.kind as 'camp'|'cave'|'ruin',roads,road,safe);continue;}
   if(version>=20&&r.kind==='camp'){banditRegion(detail);continue;}
   if(r.kind==='fort'){
