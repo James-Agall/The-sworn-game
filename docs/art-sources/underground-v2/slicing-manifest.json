@@ -1,0 +1,119 @@
+[
+  {
+    "name": "cliff-face",
+    "sourceBox": [
+      38,
+      140,
+      459,
+      325
+    ],
+    "size": [
+      384,
+      169
+    ]
+  },
+  {
+    "name": "rock-rim",
+    "sourceBox": [
+      504,
+      268,
+      888,
+      323
+    ],
+    "size": [
+      384,
+      55
+    ]
+  },
+  {
+    "name": "side-wall",
+    "sourceBox": [
+      994,
+      47,
+      1121,
+      393
+    ],
+    "size": [
+      127,
+      346
+    ]
+  },
+  {
+    "name": "stalagmites",
+    "sourceBox": [
+      54,
+      532,
+      384,
+      805
+    ],
+    "size": [
+      330,
+      273
+    ]
+  },
+  {
+    "name": "rock-column",
+    "sourceBox": [
+      503,
+      487,
+      756,
+      806
+    ],
+    "size": [
+      253,
+      319
+    ]
+  },
+  {
+    "name": "crystals",
+    "sourceBox": [
+      911,
+      580,
+      1208,
+      805
+    ],
+    "size": [
+      297,
+      225
+    ]
+  },
+  {
+    "name": "fungus",
+    "sourceBox": [
+      29,
+      979,
+      386,
+      1190
+    ],
+    "size": [
+      357,
+      211
+    ]
+  },
+  {
+    "name": "bone-rock",
+    "sourceBox": [
+      441,
+      955,
+      815,
+      1190
+    ],
+    "size": [
+      374,
+      235
+    ]
+  },
+  {
+    "name": "ore-rock",
+    "sourceBox": [
+      878,
+      975,
+      1226,
+      1190
+    ],
+    "size": [
+      348,
+      215
+    ]
+  }
+]

@@ -1,4 +1,6 @@
-import {undergroundFloorUrl,undergroundWallUrl,undergroundPropUrl} from '@colony/shared/undergroundArt';
+import {caveScenery} from '@colony/shared/caveScenery';
+import {stoneFloorCell,cliffStripCell} from './caveTextures';
+import {undergroundFloorUrl,CAVE_WALL_ART,undergroundPropUrl,undergroundPropSize} from '@colony/shared/undergroundArt';
 import {npcVariantFrame} from "./npcVariants";
 import {PLAYER_BASES,HOME_PROPS} from "@colony/shared/playerBases";
 // interior.ts: Stardew phase 5c (2026-11-09; server/src/interiors.ts, shared/src/interiors.ts). The building interior
@@ -294,7 +296,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     }
     if(view&&(view.map.underground||view.map.templateId==='mine'&&(!view.mine?.encounter||view.mine.encounter==='cave'))){
       const url=undergroundPropUrl(view.map,prop,view.mine?.tile),t=url?extraTexture(url):undefined;
-      if(t){const s=new Sprite(t),b=opaqueBox(t),height=prop==='mineShaft'?30:prop==='timberProp'?40:prop==='stalagmite'?30:26,k=Math.min(height/b.h,32/b.w);s.anchor.set((b.x+b.w/2)/t.width,(b.y+b.h)/t.height);s.scale.set(k);s.position.set((x+.5)*T,(y+1)*T-1);s.zIndex=(y+1)*T;return s;}
+      if(t){const s=new Sprite(t),b=opaqueBox(t),size=undergroundPropSize(prop),k=Math.min(T*size.h/b.h,T*size.w/b.w);s.anchor.set((b.x+b.w/2)/t.width,(b.y+b.h)/t.height);s.scale.set(k);s.position.set((x+.5)*T,(y+1)*T-1);s.zIndex=(y+1)*T;return s;}
     }
     if (prop === "oreFace" || prop === "timberProp") {
       // Deep mines stand-ins (SPRITES.md #111): a rock face flecked with its ore; a timber prop (two posts, a cap beam).
@@ -363,8 +365,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         const ch = m.cells[y * m.w + x];
         if (ch === " ") continue;
         if (ch === "#") continue;
-        const dirtTexture = m.floor === "dirt" ? extraTexture(rockInterior?undergroundFloorUrl(m):"floor_dirt_1") : undefined;
-        const floorTile = m.floor === "dirt" ? (dirtTexture ? { texture: dirtTexture } : undefined) : deps.structure.floor(m.floor === "stone" ? TileType.StoneFloor : TileType.WoodFloor, 0);
+        const dirtTexture = rockInterior?extraTexture(undergroundFloorUrl(m)):m.floor === "dirt"?extraTexture("floor_dirt_1"):undefined;
+        const floorTile = rockInterior?(dirtTexture?{texture:stoneFloorCell(dirtTexture,x,y)}:undefined):m.floor === "dirt" ? (dirtTexture ? { texture: dirtTexture } : undefined) : deps.structure.floor(m.floor === "stone" ? TileType.StoneFloor : TileType.WoodFloor, 0);
         if (floorTile) {
           const s = new Sprite(floorTile.texture);
           s.scale.set(T / floorTile.texture.width);
@@ -398,9 +400,10 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       for (let x = 0; x < m.w; x++) {
         if (m.cells[y * m.w + x] !== "#") continue;
         if(rockInterior){
-          const rock=(xx:number,yy:number)=>xx>=0&&yy>=0&&xx<m.w&&yy<m.h&&m.cells[yy*m.w+xx]==='#';
-          const mask=(rock(x,y-1)?1:0)|(rock(x+1,y)?2:0)|(rock(x,y+1)?4:0)|(rock(x-1,y)?8:0),tex=extraTexture(undergroundWallUrl(m,mask));
-          if(tex){const b=opaqueBox(tex),sp=new Sprite(tex),k=Math.min(T*1.08/b.w,T*1.5/b.h);sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((x+.5)*T,(y+1)*T);sp.zIndex=-5;room.addChild(sp);}else walls.rect(x*T,y*T,T,T).fill(0x51483b);
+          const open=(xx:number,yy:number)=>xx>=0&&yy>=0&&xx<m.w&&yy<m.h&&!['#',' '].includes(m.cells[yy*m.w+xx]);
+          const south=open(x,y+1),north=open(x,y-1),east=open(x+1,y),west=open(x-1,y);
+          const url=south?CAVE_WALL_ART.face:north?CAVE_WALL_ART.rim:east||west?CAVE_WALL_ART.side:CAVE_WALL_ART.rim,tex=extraTexture(url);
+          if(tex){const frame=south||north||!east&&!west?cliffStripCell(tex,x):tex,sp=new Sprite(frame);sp.width=T+1;sp.height=south?T*1.8:north?T*.48:east||west?T*1.3:T*.65;sp.position.set(x*T,(y+1)*T-sp.height);if(!south&&!north&&east&&!west){sp.scale.x=-Math.abs(sp.scale.x);sp.x+=T+1;}sp.zIndex=-5;room.addChild(sp);}else walls.rect(x*T,y*T,T,T).fill(0x45474a);
           continue;
         }
         {
@@ -422,6 +425,9 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         }
 
       }
+    }
+    if(rockInterior)for(const d of caveScenery(m)){
+      const tex=extraTexture(d.url);if(!tex)continue;const b=opaqueBox(tex),sp=new Sprite(tex),k=Math.min(d.w*T/b.w,d.h*T/b.h);sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((d.x+.5)*T,(d.y+1)*T-1);sp.zIndex=(d.y+1)*T-2;room.addChild(sp);
     }
     for (const p of m.props) room.addChild(propSprite(p.prop, p.x, p.y,p.facing));
     const old = new Map(npcViews);

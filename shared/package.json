@@ -13,6 +13,7 @@
     "./organicTowns": "./src/organicTowns.ts",
     "./landmarkArt": "./src/landmarkArt.ts",
     "./underground": "./src/underground.ts",
+    "./caveScenery": "./src/caveScenery.ts",
     "./undergroundArt": "./src/undergroundArt.ts",
     "./encounters": "./src/encounters.ts",
     "./regionNature": "./src/regionNature.ts",

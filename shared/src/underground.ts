@@ -47,7 +47,7 @@ export function buildUnderground(o:UndergroundOptions){
  // Keep only the exposed rock boundary. Everything beyond is unrendered solid darkness.
  const open=cells.slice();for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++)if(open[y*w+x]===' '&&[[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]].some(([dx,dy])=>open[(y+dy)*w+x+dx]==='.'||open[(y+dy)*w+x+dx]==='E'))cells[y*w+x]='#';
  const lairs=sections.filter(s=>s.id!==7).map(s=>({x:s.x,y:s.y}));
- const map:InteriorMap={templateId:'mine',label:o.kind==='cave'?'Cavern':'Mine',level:o.kind==='cave'?1:levels,variant:depth-1,storey:0,w,h,floor:'dirt',wall:'stone',cells:cells.join(''),props:[],slots:[],exit,spawn,stairs:null,lairs,underground:{version:1,kind:o.kind,seed:o.seed>>>0,depth,...(o.kind==='mine'&&!o.layered?{rockOnly:true}:{}),sections,connections:edges}};
+ const map:InteriorMap={templateId:'mine',label:o.kind==='cave'?'Cavern':'Mine',level:o.kind==='cave'?1:levels,variant:depth-1,storey:0,w,h,floor:'stone',wall:'stone',cells:cells.join(''),props:[],slots:[],exit,spawn,stairs:null,lairs,underground:{version:1,kind:o.kind,seed:o.seed>>>0,depth,...(o.kind==='mine'&&!o.layered?{rockOnly:true}:{}),sections,connections:edges}};
  const reached=()=>{const solid=interiorSolidGrid(map),start=spawn.y*w+spawn.x,seen=new Set([start]),queue=[start];for(let k=0;k<queue.length;k++){const i=queue[k],x=i%w,y=Math.floor(i/w);for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]]){const xx=x+dx,yy=y+dy,j=yy*w+xx;if(xx<0||yy<0||xx>=w||yy>=h||solid[j]||seen.has(j))continue;seen.add(j);queue.push(j);}}return{solid,seen};};
  const place=(prop:InteriorProp,x:number,y:number,force=false)=>{
   const i=y*w+x;if(cells[i]!=='.'||map.props.some(p=>p.x===x&&p.y===y)||!force&&reserved.has(i))return false;
