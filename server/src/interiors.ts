@@ -1,3 +1,5 @@
+import {specialAt} from './specialCast.js';
+import {SPECIAL_BY_ID} from '@colony/shared/specialCast';
 import {encounterKind,encounterMap,encounterAnchor,encounterVariant} from '@colony/shared/encounters';
 import {ensureEnteredEncounter,encounterInteract,mineInteriorMap} from './mines.js';
 import {PLAYER_BASES,HOME_PROPS,playerBaseMap,validHomeMap,type HomeDesign} from "@colony/shared/playerBases";
@@ -128,6 +130,7 @@ interface Binding {
   role: NpcRole;
   name: string;
   colonistId?: string;
+  specialId?: string;
   site?: SiteState;
   // Gap closure G5: the tile it belongs to (station / slot), its seat (patrons, residents at dusk), its bed.
   home: { x: number; y: number };
@@ -163,7 +166,7 @@ function bindNpcs(p: Player, key: string, tx: number, ty: number, map: InteriorM
     out.push({
       ...b,
       home: { x: slot.x, y: slot.y },
-      snap: { id: nid, name: b.name, roleLabel: NPC_ROLE_LABEL[b.role], x: slot.x, y: slot.y, color: talkColorFor(b.name), kind, act },
+      snap: { id: nid, ...(b.specialId?{specialId:b.specialId}:{}), name: b.name, roleLabel: NPC_ROLE_LABEL[b.role], x: slot.x, y: slot.y, color: talkColorFor(b.name), kind, act },
     });
   };
   if (acc.kind === "site") {
@@ -236,6 +239,17 @@ function bindNpcs(p: Player, key: string, tx: number, ty: number, map: InteriorM
     }
   }
   patronPool = [];
+  if(storey===0){
+    const solid=interiorSolidGrid(map),occupied=new Set(out.map(b=>`${b.home.x},${b.home.y}`));
+    const free:{x:number;y:number}[]=[];
+    for(let y=2;y<map.h-2;y++)for(let x=2;x<map.w-2;x++)if(!solid[y*map.w+x]&&!occupied.has(`${x},${y}`)&&Math.hypot(x-map.spawn.x,y-map.spawn.y)>2&&Math.hypot(x-map.exit.x,y-map.exit.y)>2)free.push({x,y});
+    const cast=specialAt(tx,ty);for(const [i,c]of cast.entries()){
+      const at=free[Math.floor((i+.5)*free.length/Math.max(1,cast.length))];if(!at)continue;
+      const role:NpcRole=c.group==='masters'?'smith':c.group==='faith'?'priest':c.group==='watch'?'captain':c.group==='court'&&!c.child?'leader':c.group==='commons'?'trader':'villager';
+      put(at,{role,name:c.name,specialId:c.id,...(acc.kind==='site'?{site:acc.site}:{})},'villager',c.group==='masters'&&map.templateId==='smithy'?'keeper':'resident');
+      out[out.length-1].snap.roleLabel=c.title;
+    }
+  }
   if (storey === 0) {
     // At night the hall's / barracks' keeper is upstairs in bed.
     if (phase === "night" && KEEPER_SLEEPS_UP.has(id) && INTERIOR_UPPER_TEMPLATES[id]) {
@@ -378,6 +392,7 @@ const GREETS: Record<string, string[]> = {
   patron: ["Cheers!", "Another round!", "Evening, stranger.", "Sit, sit!"],
 };
 function greetingFor(b: Binding, room: InteriorTemplateId): string {
+  if(b.specialId)return SPECIAL_BY_ID.get(b.specialId)?.hook??"Good day.";
   const list = b.role === "patron" ? GREETS.patron : b.snap.act === "keeper" ? GREETS[room] : ["Good day to you.", "Hello there."];
   return list[hashOf(b.snap.id) % list.length];
 }
@@ -812,7 +827,7 @@ export function interiorInteract(p: Player) {
     const d = dist(nx, ny);
     if (d > TALK_RANGE_TILES) continue;
     const c = b.colonistId ? colonists.get(b.colonistId) : undefined;
-    offer(d, () => startTalk(p, { role: b.role, name: b.name, d, site: b.site, colonist: c, inside: inside(nx, ny) }));
+    offer(d, () => startTalk(p, { role: b.role, specialId:b.specialId, name: b.name, d, site: b.site, colonist: c, inside: inside(nx, ny) }));
   }
   for (const q of map.props) {
     const d = dist(q.x, q.y);

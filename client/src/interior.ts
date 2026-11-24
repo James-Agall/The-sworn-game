@@ -1,3 +1,5 @@
+import {loadSpecialArt,specialTexture,specialAnchor,specialScale} from './specialCastArt';
+import {SPECIAL_BY_ID} from '@colony/shared/specialCast';
 import {interiorMonsterScale} from '@colony/shared/hostileScatter';
 import {RUIN_FLOOR_URL,RUIN_WALL_ART,RUIN_TITLES,ruinFloorUrl,ruinWallPieces,ruinDoorFrames,ruinPropArt,ruinScenery,ruinEntrance} from '@colony/shared/ruinArt';
 import {caveWallPieces} from '@colony/shared/caveWalls';
@@ -239,6 +241,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
 
   // Gap closure G5: the NPCs drawn (by id): body, name, bubble, eased position, the last live state.
   interface NpcView {
+    specialId?:string;
     body: Container;
     label: Text;
     bubble: Container;
@@ -260,6 +263,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   interface MobView {
     body: Sprite | Graphics;
     bar: Graphics;
+    label:Text;
     zzz: Text;
     art?: MobArt;
     sx: number;
@@ -445,14 +449,16 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     const old = new Map(npcViews);
     npcViews.clear();
     for (const n of v.npcs) {
+      if(n.specialId)loadSpecialArt(n.specialId,()=>{rebuildPending=true;});
       const anim = deps.npcAnim?.(n.kind);
-      const tex = anim?.walk[0] ?? deps.npcTexture(n.kind);
+      const special=n.specialId?specialTexture(n.specialId,"idle",0):undefined;
+      const tex = special??anim?.walk[0] ?? deps.npcTexture(n.kind);
       let body: Container;
       let k = 1;
       if (tex) {
         const s = new Sprite(tex);
-        s.anchor.set(0.5, 0.85);
-        k = anim ? anim.scale : deps.humanScale?.(tex) ?? deps.npcHeight / tex.height;
+        s.anchor.set(special?specialAnchor.x:.5,special?specialAnchor.y:.85);
+        k = special?specialScale(n.specialId!):anim ? anim.scale : deps.humanScale?.(tex) ?? deps.npcHeight / tex.height;
         s.scale.set(k);
         body = s;
       } else body = new Graphics().circle(0, -8, 8).fill(n.color);
@@ -480,7 +486,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       const prev = old.get(n.id);
       const live: InteriorNpcLive = prev?.live ?? { id: n.id, x: n.x, y: n.y, face: "d", pose: "idle" };
       npcViews.set(n.id, {
-        variant:["villager","farmer","trader","elder"].includes(n.kind)||n.act==="resident"||n.act==="patron",
+        specialId:n.specialId,
+        variant:!n.specialId&&(["villager","farmer","trader","elder"].includes(n.kind)||n.act==="resident"||n.act==="patron"),
         body, label, bubble, bubbleText, zzz, anim, still: tex, k, right: prev?.right ?? true,
         sx: prev?.sx ?? live.x, sy: prev?.sy ?? live.y, live, phase: (n.id.length * 97) % 1000,
       });
@@ -500,6 +507,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       seen.add(m.id);
       let mv = mobViews.get(m.id);
       if (!mv) {
+        if(m.specialId)loadSpecialArt(m.specialId);
         const art = deps.mobArt?.(m.kind);
         let body: Sprite | Graphics;
         if (art) {
@@ -515,8 +523,9 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         zzz.anchor.set(0.5, 1);
         zzz.resolution = 3;
         zzz.zIndex = 1e6;
-        room.addChild(body, bar, zzz);
-        mv = { body, bar, zzz, art, sx: m.x, sy: m.y, live: m, lastHp: m.hp, flashUntil: 0, phase: (m.id.length * 131) % 1000 };
+        const label=new Text({text:m.name??"",style:{fontSize:9,fill:0xffd4b1,fontFamily:"serif",stroke:{color:0x000000,width:3}}});label.anchor.set(.5,1);label.zIndex=1e6;
+        room.addChild(body, bar, zzz,label);
+        mv = { body, bar, zzz, label, art, sx: m.x, sy: m.y, live: m, lastHp: m.hp, flashUntil: 0, phase: (m.id.length * 131) % 1000 };
         mobViews.set(m.id, mv);
       }
       if (m.hp < mv.lastHp) mv.flashUntil = performance.now() + 180;
@@ -531,6 +540,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       if (seen.has(id)) continue;
       mv.body.destroy();
       mv.bar.destroy();
+      mv.label.destroy();
       mv.zzz.destroy();
       mobViews.delete(id);
     }
@@ -561,14 +571,17 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         k*=interiorMonsterScale(m.kind);b.scale.set(k * (m.face === "l" ? -1 : 1), k);
         b.tint = 0xffffff;
       }
+      const custom=m.specialId?specialTexture(m.specialId,now<mv.flashUntil?'hurt':m.act==='walk'?'walk':m.act==='attack'?'action':'idle',t):undefined;
+      if(custom&&b instanceof Sprite){b.texture=custom;b.anchor.set(specialAnchor.x,specialAnchor.y);const k=specialScale(m.specialId!);b.scale.set(k*(m.face==='l'?-1:1),k);b.tint=0xffffff;}
       b.alpha = m.act === "sleep" ? 0.7 : 1;
       b.position.set(x, y + (m.act === "sleep" ? 0 : Math.sin(t / 220) * (m.kind === "caveBat" ? 3 : 0.6)));
       b.zIndex = y;
       const g = mv.bar;
       g.clear();
+      const bh=m.specialId?(SPECIAL_BY_ID.get(m.specialId)?.height??25):25;mv.label.position.set(x,y-bh-8);
       const w = 20;
-      g.rect(x - w / 2, y - 26, w, 3).fill(0x2a0a0a);
-      g.rect(x - w / 2, y - 26, (w * Math.max(0, m.hp)) / Math.max(1, m.maxHp), 3).fill(0xd83a2a);
+      g.rect(x - w / 2, y - bh - 4, w, 3).fill(0x2a0a0a);
+      g.rect(x - w / 2, y - bh - 4, (w * Math.max(0, m.hp)) / Math.max(1, m.maxHp), 3).fill(0xd83a2a);
       mv.zzz.visible = m.act === "sleep";
       mv.zzz.position.set(x + 6, y - 14 - (Math.floor(t / 600) % 3));
     }
@@ -633,16 +646,18 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         y -= 4;
         x += 2;
       } else dy = Math.sin((t / INTERIOR_BOB_MS) * Math.PI * 2) * INTERIOR_BOB_PX;
+      const custom=nv.specialId?specialTexture(nv.specialId,n.pose==='walk'?'walk':n.pose==='work'||n.pose==='idle'&&Math.floor(t/7000)%3===2?'action':'idle',t):undefined;
+      if(custom){tex=custom;dy=0;rot=n.pose==='sleep'?-Math.PI/2:0;sy=n.pose==='sit'?.88:1;if(nv.body instanceof Sprite)nv.body.anchor.set(specialAnchor.x,specialAnchor.y);}
       const varied=nv.variant&&['idle','walk'].includes(n.pose)?npcVariantFrame(n.id,n.face==='u'?'n':n.face==='d'?'s':n.face==='l'?'w':'e',n.pose==='walk'?Math.floor(t/160):1):undefined;
       if(varied)tex=varied;
       const b = nv.body;
       if (b instanceof Sprite && tex && b.texture !== tex) b.texture = tex;
       const sxSign = varied?1:nv.right ? 1 : -1;
-      b.scale.set((varied?25/72:nv.k)*sxSign,(varied?25/72:nv.k)*sy);
+      b.scale.set((custom?specialScale(nv.specialId!):varied?25/72:nv.k)*sxSign,(custom?specialScale(nv.specialId!):varied?25/72:nv.k)*sy);
       b.rotation = rot;
       b.position.set(x, y + dy);
       b.zIndex = n.pose === "sleep" ? (nv.sy + 0.5) * T - 8 : y;
-      nv.label.position.set(x, n.pose === "sleep" ? y - 14 : y - 22 + dy);
+      nv.label.position.set(x, n.pose === "sleep" ? y - 14 : y - (nv.specialId?(SPECIAL_BY_ID.get(nv.specialId)?.height??25)+5:22) + dy);
       nv.label.visible = n.pose !== "sleep";
       nv.zzz.visible = n.pose === "sleep";
       nv.zzz.position.set(x + 6, y - 12 - (Math.floor(t / 600) % 3));

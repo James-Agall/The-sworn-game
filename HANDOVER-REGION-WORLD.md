@@ -246,3 +246,14 @@ Checked local scene sizes against the existing 25px hero. Interior skeletons now
 Validation: 28 cave/ruin layouts cover full-area spawn distribution, 12 separate clear lairs, crate collision, open routes, safe entrances, hero-relative size ratios, prior-kill/HP-preserving population upgrade, cleared-state preservation and dormant AI. Existing 144 underground cases, ruin room/save checks, region21 combat/LOS/aliases/reward checks, client/server type checks, native mine suite, production build and the 35-check basic gameplay suite pass before deployment.
 
 Current static previews: Windows `outputs/hostile-scatter/populated-hostiles.html`, `size-check.png`, `ruins-overview.png`, `cave-0.png` and `ruin-0.png` through `ruin-3.png`. All show actual game placements and sprite scales. The size comparison uses the renderer's width/height bounds. Earlier preview pages link here.
+
+
+## Special cast and ruin gate — 2026-11-24
+- 100 authored identities: 80 residents and 20 named enemies. Shared `specialCast` data holds biography, appearance, venue preferences, connections and favour definitions.
+- Ten 960×960 transparent atlases; each row is one character, ten 96×96 frames. Idle 0–1, walk 2–5, action 6–8, hurt 9. Pivot (48,84), nominal body height 48. Human world height 25, children 18; monsters vary. Client `specialCastArt.ts` slices packed-atlas textures correctly and loads sheets only when needed.
+- `server/src/specialCast.ts` assigns residences once per generated world, only in standing friendly towns/abbey and real hostile landmarks. Camps cap at 6 named enemies, caves/ruins at 12. No new overworld actors. Interior residents use existing movement, work, seats and beds.
+- Conversations include individual story, connected person and live address. One-time supply/meeting/hunt favours pay gold and speech XP; adult lessons train native skills, clergy also treat needs/health. Children bypass adult relationship dialogue. Progress uses the existing saved hero life flags.
+- Villains replace native encounter guards rather than adding extra AI. IDs, boss health and defeated IDs persist in mine saves. Current named encounters never rebind defeated bosses. Cleared encounters remain clear.
+- Original artwork, prompts, layouts and targeted grip-correction prompts are in `art-sources/special-cast`; runtime art is in `client/public/sprites/special-cast`.
+- The bottom ruin exit uses the new open timber gate with visible iron hinges; internal room arches and the approved mining entrance remain separate assets.
+- `server/special-cast-test.ts` exercises all 100 homes, actual door access, conversation, child dialogue, resource costs, rewards/lessons and boss save/death persistence at world sizes 160 and 512. Existing cave/ruin tests, mines integration and all 35 smoke checks passed.

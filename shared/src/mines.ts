@@ -192,6 +192,8 @@ export const MINE_ASSAULT_MAX_ROUNDS = 60;
 // ---- wire ----
 // One encounter monster inside the mine (message interiorMobs): interior tiles (fractional), facing, what it does.
 export interface MineMobLive {
+  specialId?:string;
+  name?:string;
   id: string;
   kind: MobKind;
   x: number;

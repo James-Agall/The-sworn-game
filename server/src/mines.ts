@@ -1,3 +1,5 @@
+import {specialAt} from './specialCast.js';
+import {SPECIAL_BY_ID} from '@colony/shared/specialCast';
 import {HOSTILE_CONTENT_VERSION} from '@colony/shared/hostileScatter';
 // mines.ts: Deep mines (docs/colony2d/PLAN-agri-industry-winter-mines.md phase 3; ROADMAP "Deep mines — landed";
 // numbers in shared/src/mines.ts). One record per own mine tile (Quarry, Iron / Coal / Copper / Tin Mine): clear,
@@ -54,6 +56,7 @@ import { addItem, bronzeToolMult, itemCount, takeItem, workerLevel } from "./pro
 import { exitInterior } from "./interiors.js";
 
 interface MineMob {
+  specialId?: string;
   id: string;
   kind: MobKind;
   // Interior tiles (fractional; a whole number is a tile's centre, like the interior NPCs).
@@ -79,6 +82,8 @@ interface LayerRec {
   rollDay: number;
 }
 interface MineRec {
+  specialCastVersion?:1;
+  defeatedSpecials?:string[];
   layoutSeed?:number;
   layoutVersion?:2;
   ruinLayoutVersion?:2;
@@ -507,10 +512,11 @@ function lootFor(r: MineRec, li: number, m: MineMob): string[] {
 // A monster dies (by the hero `p`, or soldiers): loot to the mine's clan; the last one clears the layer.
 function killMob(r: MineRec, li: number, m: MineMob, p: Player | null) {
   m.hp = 0;
+  if(m.specialId){r.defeatedSpecials??=[];if(!r.defeatedSpecials.includes(m.specialId))r.defeatedSpecials.push(m.specialId);}
   const got = withClan(r.encounter?clanById(p?.clan??0):clanAt(r), () => lootFor(r, li, m));
   if (p) {
     heroRewardsForKill({ kind: m.kind, mark: HungerMark.None, isDeserter: false, maxHp: m.maxHp, damage: m.damage } as unknown as Mob, "p:" + p.id);
-    sendTo(p, { type: "event", category: "build", text: `${m.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase())} slain: ${got.join(", ")}` });
+    sendTo(p, { type: "event", category: "build", text: `${(m.specialId?SPECIAL_BY_ID.get(m.specialId)?.name:undefined)??m.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase())} slain: ${got.join(", ")}` });
   }
   const L = r.layers[li];
   L.mobs = L.mobs.filter((q) => q.hp > 0);
@@ -656,7 +662,7 @@ function biteHero(p: Player, damage: number) {
 }
 
 const liveOf = (L: LayerRec | undefined): MineMobLive[] =>
-  aliveIn(L).map((m) => ({ id: m.id, kind: m.kind, x: Math.round(m.x * 100) / 100, y: Math.round(m.y * 100) / 100, hp: Math.ceil(m.hp), maxHp: m.maxHp, face: m.face, act: m.act }));
+  aliveIn(L).map((m) => ({ id: m.id, kind: m.kind, ...(m.specialId?{specialId:m.specialId,name:SPECIAL_BY_ID.get(m.specialId)?.name}:{}), x: Math.round(m.x * 100) / 100, y: Math.round(m.y * 100) / 100, hp: Math.ceil(m.hp), maxHp: m.maxHp, face: m.face, act: m.act }));
 
 // sim.ts, once a tick: records (once a second), the monsters of every mine layer a hero is in, their positions out.
 export function updateMines() {
@@ -854,11 +860,13 @@ export function handleMineAssault(p: Player, tx: unknown, ty: unknown) {
 // ---- saves / reset / tests ----
 interface LayerSave {
   status: MineStatus;
-  mobs: { kind: MobKind; x: number; y: number; hp: number }[];
+  mobs: { kind: MobKind; x: number; y: number; hp: number; specialId?:string }[];
   clearedDay: number;
   rollDay: number;
 }
 interface MineSave {
+  specialCastVersion?:1;
+  defeatedSpecials?:string[];
   layoutSeed?:number;
   layoutVersion?:2;
   ruinLayoutVersion?:2;
@@ -877,8 +885,8 @@ interface MineSave {
 }
 export function minesForSave(): MineSave[] {
   return Array.from(mines.entries(), ([key, r]) => ({
-    key, level: r.level, layered: r.layered,...(r.layoutSeed!==undefined?{layoutSeed:r.layoutSeed,layoutVersion:2 as const}:{}), ...(r.encounter?{encounter:r.encounter,variant:r.variant,...(r.encounter==='cave'||r.encounter==='ruin'?{encounterContentVersion:HOSTILE_CONTENT_VERSION}:{}),...(r.encounter==='ruin'?{ruinLayoutVersion:2 as const}:{})}:{}),
-    layers: r.layers.map((L) => ({ status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
+    key, specialCastVersion:r.specialCastVersion, defeatedSpecials:r.defeatedSpecials??[], level: r.level, layered: r.layered,...(r.layoutSeed!==undefined?{layoutSeed:r.layoutSeed,layoutVersion:2 as const}:{}), ...(r.encounter?{encounter:r.encounter,variant:r.variant,...(r.encounter==='cave'||r.encounter==='ruin'?{encounterContentVersion:HOSTILE_CONTENT_VERSION}:{}),...(r.encounter==='ruin'?{ruinLayoutVersion:2 as const}:{})}:{}),
+    layers: r.layers.map((L) => ({ status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, ...(m.specialId?{specialId:m.specialId}:{}), x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
     propsDay: r.propsDay, closedDay: r.closedDay, closedWhy: r.closedWhy, unpropped: r.unpropped, turn: r.turn,
   }));
 }
@@ -895,6 +903,7 @@ export function restoreMines(data: unknown) {
     const [tx, ty] = e.key.split(",").map(Number);
     const layered = e.layered === true;
     const r = newRec(tx, ty, Math.max(0, Math.min(3, num(e.level, 1))), layered);
+    r.specialCastVersion=e.specialCastVersion===1?1:undefined;r.defeatedSpecials=Array.isArray(e.defeatedSpecials)?e.defeatedSpecials.filter(id=>typeof id==='string'&&SPECIAL_BY_ID.get(id)?.hostile):[];
     r.layoutSeed=typeof e.layoutSeed==='number'&&Number.isInteger(e.layoutSeed)&&e.layoutSeed>=0&&e.layoutSeed<=0xffffffff?e.layoutSeed:undefined;
     if(['camp','cave','ruin'].includes(e.encounter??'')){r.encounter=e.encounter;r.variant=Math.max(0,Math.min(3,num(e.variant,0)));}
     const migrate=((!r.encounter||r.encounter==='cave')&&e.layoutVersion!==2)||(r.encounter==='ruin'&&e.ruinLayoutVersion!==2);
@@ -910,6 +919,7 @@ export function restoreMines(data: unknown) {
       L.rollDay = num(s?.rollDay, L.rollDay);
       for (const m of Array.isArray(s?.mobs) ? s.mobs : []) {
         const mob = newMob(m?.kind as MobKind, multOf(r, li), num(m?.x, 1), num(m?.y, 1), num(m?.hp, 1e9));
+        if(mob&&typeof m.specialId==='string'&&SPECIAL_BY_ID.get(m.specialId)?.hostile){const ratio=mob.hp/mob.maxHp;applySpecialMob(mob,m.specialId);mob.hp=Math.min(mob.maxHp,Math.max(1,num(m.hp,ratio*mob.maxHp)));}
         if (mob) L.mobs.push(mob);
       }
       if (L.status === "infested" && L.mobs.length === 0) L.status = "cleared";
@@ -983,10 +993,23 @@ export function mineDebug(msg: Record<string, unknown>) {
 
 
 // Encounter records are allocated only when entered; dormant rooms never run AI.
+function applySpecialMob(m:MineMob,id:string){
+ const c=SPECIAL_BY_ID.get(id);if(!c?.hostile)return;const ratio=m.hp/m.maxHp;
+ const base=newMob(c.kind as MobKind,1,m.x,m.y);if(!base)return;
+ Object.assign(m,{specialId:id,kind:base.kind,maxHp:Math.round(base.maxHp*1.65),damage:Math.round(base.damage*1.15),speed:base.speed*(id==='old-granite'?.65:1),cdTicks:base.cdTicks});
+ m.hp=Math.max(1,Math.round(m.maxHp*ratio));
+}
+function bindSpecialEncounter(r:MineRec){
+ if(!r.encounter||r.specialCastVersion===1)return;r.specialCastVersion=1;r.defeatedSpecials??=[];
+ const cast=specialAt(r.tx,r.ty,true),L=r.layers[0];
+ if(L.status!=='infested'){for(const c of cast)if(!r.defeatedSpecials.includes(c.id))r.defeatedSpecials.push(c.id);return;}
+ const alive=aliveIn(L);for(const [i,c]of cast.entries()){const m=alive[alive.length-1-i];if(m)applySpecialMob(m,c.id);}
+}
+export function specialCharacterDefeated(id:string){for(const r of mines.values())if(r.defeatedSpecials?.includes(id))return true;return false;}
 export function ensureEnteredEncounter(tx:number,ty:number){
  const kind=encounterKind(state.tiles[tileIndex(tx,ty)]);if(!kind)return;
- const a=encounterAnchor(tx,ty,state.tiles[tileIndex(tx,ty)]),key=keyOf(a.x,a.y);let r=mines.get(key);if(r)return r;
- r=newRec(a.x,a.y,1,false);r.encounter=kind;if(kind==='cave'||kind==='ruin')r.encounterContentVersion=HOSTILE_CONTENT_VERSION;if(kind==='ruin')r.ruinLayoutVersion=2;if(kind!=='cave')r.layoutSeed=undefined;r.variant=encounterVariant(a.x,a.y);mines.set(key,r);r.layers[0].status='infested';spawnEncounter(r,0,encounterEnemies(kind));return r;
+ const a=encounterAnchor(tx,ty,state.tiles[tileIndex(tx,ty)]),key=keyOf(a.x,a.y);let r=mines.get(key);if(r){bindSpecialEncounter(r);return r;}
+ r=newRec(a.x,a.y,1,false);r.encounter=kind;if(kind==='cave'||kind==='ruin')r.encounterContentVersion=HOSTILE_CONTENT_VERSION;if(kind==='ruin')r.ruinLayoutVersion=2;if(kind!=='cave')r.layoutSeed=undefined;r.variant=encounterVariant(a.x,a.y);mines.set(key,r);r.layers[0].status='infested';spawnEncounter(r,0,encounterEnemies(kind));bindSpecialEncounter(r);return r;
 }
 export function landmarkHearth(x:number,y:number,destroyed=false):HearthState{return {siteId:`landmark:${x},${y}`,siteKind:'encampment',x,y,hp:destroyed?0:100,maxHp:100,destroyed,faction:'bandit',garrison:6,prisoners:2};}
 export function encounterInteract(p:Player){

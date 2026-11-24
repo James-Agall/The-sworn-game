@@ -830,6 +830,7 @@ export function interiorSolidGrid(m: InteriorMap): Uint8Array {
 // One NPC drawn inside (bound by the server to a colonist / a settlement's role). x / y: where it starts (tiles);
 // it moves by `interiorNpcs` (InteriorNpcLive).
 export interface InteriorNpcSnapshot {
+  specialId?: string;
   id: string;
   name: string;
   roleLabel: string;

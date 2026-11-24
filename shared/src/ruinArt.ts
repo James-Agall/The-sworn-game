@@ -14,7 +14,7 @@ export function ruinPropArt(prop:string){
   cobweb:{url:'/sprites/regions-v4/web.png',w:1.1,h:.8},overgrowth:{url:'/sprites/regions-v4/brambles.png',w:1.2,h:.9},
  };return all[prop];
 }
-export function ruinEntrance(m:InteriorMap){const {x,y}=m.exit;return{opening:{x:x-.2,y:y-.7,w:1.4,h:1.6},sprites:[{url:root+'door-arch.png',x:x-.9,y:y-1.8,w:2.8,h:2.8}]};}
+export function ruinEntrance(m:InteriorMap){const {x,y}=m.exit;return{opening:{x:x-.2,y:y-.7,w:1.4,h:1.6},sprites:[{url:'/sprites/special-cast/ruin-open-gate.png',x:x-.9,y:y-1.8,w:2.8,h:2.8}]};}
 export function ruinDoorFrames(m:InteriorMap){return(m.ruin?.doors??[]).filter(d=>d.axis==='y').map(d=>({url:root+'door-arch.png',x:d.x-.2,y:d.y-1.8,w:d.width+.4,h:2.8}));}
 const wallCache=new WeakMap<InteriorMap,ReturnType<typeof caveWallPieces>>();
 export function ruinWallPieces(m:InteriorMap){

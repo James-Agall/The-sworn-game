@@ -1,0 +1,1392 @@
+[
+  {
+    "sheet": "wayfarers",
+    "source": "wayfarers-source.png",
+    "sourceSize": [
+      1254,
+      1254
+    ],
+    "size": [
+      960,
+      960
+    ],
+    "cell": [
+      96,
+      96
+    ],
+    "baseline": 84,
+    "rows": [
+      {
+        "id": "ysra-thorn",
+        "row": 0,
+        "idleHeight": 48,
+        "scale": 0.4266666666666667,
+        "sourceCuts": [
+          0,
+          134
+        ]
+      },
+      {
+        "id": "garran-reed",
+        "row": 1,
+        "idleHeight": 48,
+        "scale": 0.4085106382978723,
+        "sourceCuts": [
+          134,
+          267
+        ]
+      },
+      {
+        "id": "mirel-ash",
+        "row": 2,
+        "idleHeight": 48,
+        "scale": 0.41201716738197425,
+        "sourceCuts": [
+          267,
+          397
+        ]
+      },
+      {
+        "id": "orric-vale",
+        "row": 3,
+        "idleHeight": 48,
+        "scale": 0.3983402489626556,
+        "sourceCuts": [
+          397,
+          536
+        ]
+      },
+      {
+        "id": "sabine-flint",
+        "row": 4,
+        "idleHeight": 48,
+        "scale": 0.42290748898678415,
+        "sourceCuts": [
+          536,
+          664
+        ]
+      },
+      {
+        "id": "tomas-grey",
+        "row": 5,
+        "idleHeight": 48,
+        "scale": 0.4247787610619469,
+        "sourceCuts": [
+          664,
+          794
+        ]
+      },
+      {
+        "id": "nessa-pike",
+        "row": 6,
+        "idleHeight": 48,
+        "scale": 0.4507042253521127,
+        "sourceCuts": [
+          794,
+          913
+        ]
+      },
+      {
+        "id": "bran-alder",
+        "row": 7,
+        "idleHeight": 48,
+        "scale": 0.4485981308411215,
+        "sourceCuts": [
+          913,
+          1033
+        ]
+      },
+      {
+        "id": "elowen-rook",
+        "row": 8,
+        "idleHeight": 48,
+        "scale": 0.4549763033175355,
+        "sourceCuts": [
+          1033,
+          1152
+        ]
+      },
+      {
+        "id": "hadrik-moss",
+        "row": 9,
+        "idleHeight": 48,
+        "scale": 0.5079365079365079,
+        "sourceCuts": [
+          1152,
+          1254
+        ]
+      }
+    ],
+    "frames": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "action": [
+        6,
+        7,
+        8
+      ],
+      "hurt": [
+        9
+      ]
+    }
+  },
+  {
+    "sheet": "masters",
+    "source": "masters-source.png",
+    "sourceSize": [
+      1254,
+      1254
+    ],
+    "size": [
+      960,
+      960
+    ],
+    "cell": [
+      96,
+      96
+    ],
+    "baseline": 84,
+    "rows": [
+      {
+        "id": "hesta-ironroot",
+        "row": 0,
+        "idleHeight": 48,
+        "scale": 0.42105263157894735,
+        "sourceCuts": [
+          0,
+          129
+        ]
+      },
+      {
+        "id": "osmund-bell",
+        "row": 1,
+        "idleHeight": 48,
+        "scale": 0.43243243243243246,
+        "sourceCuts": [
+          129,
+          257
+        ]
+      },
+      {
+        "id": "tilda-wren",
+        "row": 2,
+        "idleHeight": 48,
+        "scale": 0.4067796610169492,
+        "sourceCuts": [
+          257,
+          392
+        ]
+      },
+      {
+        "id": "perrin-oak",
+        "row": 3,
+        "idleHeight": 48,
+        "scale": 0.4155844155844156,
+        "sourceCuts": [
+          392,
+          525
+        ]
+      },
+      {
+        "id": "jori-clay",
+        "row": 4,
+        "idleHeight": 48,
+        "scale": 0.42105263157894735,
+        "sourceCuts": [
+          525,
+          655
+        ]
+      },
+      {
+        "id": "ansel-quill",
+        "row": 5,
+        "idleHeight": 48,
+        "scale": 0.4247787610619469,
+        "sourceCuts": [
+          655,
+          784
+        ]
+      },
+      {
+        "id": "mara-loaf",
+        "row": 6,
+        "idleHeight": 48,
+        "scale": 0.4266666666666667,
+        "sourceCuts": [
+          784,
+          911
+        ]
+      },
+      {
+        "id": "dain-copper",
+        "row": 7,
+        "idleHeight": 48,
+        "scale": 0.4444444444444444,
+        "sourceCuts": [
+          911,
+          1034
+        ]
+      },
+      {
+        "id": "sella-knot",
+        "row": 8,
+        "idleHeight": 48,
+        "scale": 0.48484848484848486,
+        "sourceCuts": [
+          1034,
+          1147
+        ]
+      },
+      {
+        "id": "wystan-gear",
+        "row": 9,
+        "idleHeight": 48,
+        "scale": 0.4897959183673469,
+        "sourceCuts": [
+          1147,
+          1254
+        ]
+      }
+    ],
+    "frames": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "action": [
+        6,
+        7,
+        8
+      ],
+      "hurt": [
+        9
+      ]
+    }
+  },
+  {
+    "sheet": "faith",
+    "source": "faith-source.png",
+    "sourceSize": [
+      1254,
+      1254
+    ],
+    "size": [
+      960,
+      960
+    ],
+    "cell": [
+      96,
+      96
+    ],
+    "baseline": 84,
+    "rows": [
+      {
+        "id": "mother-aveline",
+        "row": 0,
+        "idleHeight": 48,
+        "scale": 0.42857142857142855,
+        "sourceCuts": [
+          0,
+          143
+        ]
+      },
+      {
+        "id": "sister-linnet",
+        "row": 1,
+        "idleHeight": 48,
+        "scale": 0.4192139737991266,
+        "sourceCuts": [
+          143,
+          275
+        ]
+      },
+      {
+        "id": "brother-corin",
+        "row": 2,
+        "idleHeight": 48,
+        "scale": 0.41025641025641024,
+        "sourceCuts": [
+          275,
+          407
+        ]
+      },
+      {
+        "id": "father-edric",
+        "row": 3,
+        "idleHeight": 48,
+        "scale": 0.3735408560311284,
+        "sourceCuts": [
+          407,
+          551
+        ]
+      },
+      {
+        "id": "sister-maud",
+        "row": 4,
+        "idleHeight": 48,
+        "scale": 0.4192139737991266,
+        "sourceCuts": [
+          551,
+          680
+        ]
+      },
+      {
+        "id": "brother-fen",
+        "row": 5,
+        "idleHeight": 48,
+        "scale": 0.42857142857142855,
+        "sourceCuts": [
+          680,
+          807
+        ]
+      },
+      {
+        "id": "deacon-sol",
+        "row": 6,
+        "idleHeight": 48,
+        "scale": 0.4485981308411215,
+        "sourceCuts": [
+          807,
+          931
+        ]
+      },
+      {
+        "id": "sister-ysabel",
+        "row": 7,
+        "idleHeight": 48,
+        "scale": 0.4729064039408867,
+        "sourceCuts": [
+          931,
+          1045
+        ]
+      },
+      {
+        "id": "prior-rowan",
+        "row": 8,
+        "idleHeight": 48,
+        "scale": 0.47058823529411764,
+        "sourceCuts": [
+          1045,
+          1158
+        ]
+      },
+      {
+        "id": "alba-dawn",
+        "row": 9,
+        "idleHeight": 48,
+        "scale": 0.5303867403314917,
+        "sourceCuts": [
+          1158,
+          1254
+        ]
+      }
+    ],
+    "frames": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "action": [
+        6,
+        7,
+        8
+      ],
+      "hurt": [
+        9
+      ]
+    }
+  },
+  {
+    "sheet": "court",
+    "source": "court-source.png",
+    "sourceSize": [
+      1254,
+      1254
+    ],
+    "size": [
+      960,
+      960
+    ],
+    "cell": [
+      96,
+      96
+    ],
+    "baseline": 84,
+    "rows": [
+      {
+        "id": "king-halven",
+        "row": 0,
+        "idleHeight": 48,
+        "scale": 0.3950617283950617,
+        "sourceCuts": [
+          0,
+          144
+        ]
+      },
+      {
+        "id": "queen-mereth",
+        "row": 1,
+        "idleHeight": 48,
+        "scale": 0.401673640167364,
+        "sourceCuts": [
+          144,
+          278
+        ]
+      },
+      {
+        "id": "prince-oren",
+        "row": 2,
+        "idleHeight": 48,
+        "scale": 0.384,
+        "sourceCuts": [
+          278,
+          421
+        ]
+      },
+      {
+        "id": "princess-carys",
+        "row": 3,
+        "idleHeight": 48,
+        "scale": 0.4192139737991266,
+        "sourceCuts": [
+          421,
+          551
+        ]
+      },
+      {
+        "id": "lady-iona",
+        "row": 4,
+        "idleHeight": 48,
+        "scale": 0.41025641025641024,
+        "sourceCuts": [
+          551,
+          681
+        ]
+      },
+      {
+        "id": "lord-beran",
+        "row": 5,
+        "idleHeight": 48,
+        "scale": 0.41025641025641024,
+        "sourceCuts": [
+          681,
+          810
+        ]
+      },
+      {
+        "id": "runa-seal",
+        "row": 6,
+        "idleHeight": 48,
+        "scale": 0.44651162790697674,
+        "sourceCuts": [
+          810,
+          929
+        ]
+      },
+      {
+        "id": "master-fel",
+        "row": 7,
+        "idleHeight": 48,
+        "scale": 0.4444444444444444,
+        "sourceCuts": [
+          929,
+          1050
+        ]
+      },
+      {
+        "id": "odo-page",
+        "row": 8,
+        "idleHeight": 48,
+        "scale": 0.5026178010471204,
+        "sourceCuts": [
+          1050,
+          1156
+        ]
+      },
+      {
+        "id": "nell-rose",
+        "row": 9,
+        "idleHeight": 48,
+        "scale": 0.5333333333333333,
+        "sourceCuts": [
+          1156,
+          1254
+        ]
+      }
+    ],
+    "frames": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "action": [
+        6,
+        7,
+        8
+      ],
+      "hurt": [
+        9
+      ]
+    }
+  },
+  {
+    "sheet": "commons",
+    "source": "commons-source.png",
+    "sourceSize": [
+      1254,
+      1254
+    ],
+    "size": [
+      960,
+      960
+    ],
+    "cell": [
+      96,
+      96
+    ],
+    "baseline": 84,
+    "rows": [
+      {
+        "id": "bessa-barley",
+        "row": 0,
+        "idleHeight": 48,
+        "scale": 0.4247787610619469,
+        "sourceCuts": [
+          0,
+          131
+        ]
+      },
+      {
+        "id": "hobb-cask",
+        "row": 1,
+        "idleHeight": 48,
+        "scale": 0.41379310344827586,
+        "sourceCuts": [
+          131,
+          265
+        ]
+      },
+      {
+        "id": "liora-string",
+        "row": 2,
+        "idleHeight": 48,
+        "scale": 0.4266666666666667,
+        "sourceCuts": [
+          265,
+          396
+        ]
+      },
+      {
+        "id": "rafi-saffron",
+        "row": 3,
+        "idleHeight": 48,
+        "scale": 0.4,
+        "sourceCuts": [
+          396,
+          531
+        ]
+      },
+      {
+        "id": "clem-tallow",
+        "row": 4,
+        "idleHeight": 48,
+        "scale": 0.463768115942029,
+        "sourceCuts": [
+          531,
+          657
+        ]
+      },
+      {
+        "id": "ada-penn",
+        "row": 5,
+        "idleHeight": 48,
+        "scale": 0.4085106382978723,
+        "sourceCuts": [
+          657,
+          790
+        ]
+      },
+      {
+        "id": "eben-salt",
+        "row": 6,
+        "idleHeight": 48,
+        "scale": 0.4304932735426009,
+        "sourceCuts": [
+          790,
+          915
+        ]
+      },
+      {
+        "id": "suri-glass",
+        "row": 7,
+        "idleHeight": 48,
+        "scale": 0.4423963133640553,
+        "sourceCuts": [
+          915,
+          1037
+        ]
+      },
+      {
+        "id": "milo-bellows",
+        "row": 8,
+        "idleHeight": 48,
+        "scale": 0.46601941747572817,
+        "sourceCuts": [
+          1037,
+          1152
+        ]
+      },
+      {
+        "id": "tess-ledger",
+        "row": 9,
+        "idleHeight": 48,
+        "scale": 0.5026178010471204,
+        "sourceCuts": [
+          1152,
+          1254
+        ]
+      }
+    ],
+    "frames": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "action": [
+        6,
+        7,
+        8
+      ],
+      "hurt": [
+        9
+      ]
+    }
+  },
+  {
+    "sheet": "youngfolk",
+    "source": "youngfolk-source.png",
+    "sourceSize": [
+      1254,
+      1254
+    ],
+    "size": [
+      960,
+      960
+    ],
+    "cell": [
+      96,
+      96
+    ],
+    "baseline": 84,
+    "rows": [
+      {
+        "id": "pip-reed",
+        "row": 0,
+        "idleHeight": 48,
+        "scale": 0.4155844155844156,
+        "sourceCuts": [
+          0,
+          131
+        ]
+      },
+      {
+        "id": "wren-ironroot",
+        "row": 1,
+        "idleHeight": 48,
+        "scale": 0.41379310344827586,
+        "sourceCuts": [
+          131,
+          263
+        ]
+      },
+      {
+        "id": "ash-oak",
+        "row": 2,
+        "idleHeight": 48,
+        "scale": 0.41379310344827586,
+        "sourceCuts": [
+          263,
+          394
+        ]
+      },
+      {
+        "id": "mina-loaf",
+        "row": 3,
+        "idleHeight": 48,
+        "scale": 0.42290748898678415,
+        "sourceCuts": [
+          394,
+          526
+        ]
+      },
+      {
+        "id": "fenn-pike",
+        "row": 4,
+        "idleHeight": 48,
+        "scale": 0.4343891402714932,
+        "sourceCuts": [
+          526,
+          652
+        ]
+      },
+      {
+        "id": "tavi-knot",
+        "row": 5,
+        "idleHeight": 48,
+        "scale": 0.41201716738197425,
+        "sourceCuts": [
+          652,
+          784
+        ]
+      },
+      {
+        "id": "elsie-moss",
+        "row": 6,
+        "idleHeight": 48,
+        "scale": 0.4247787610619469,
+        "sourceCuts": [
+          784,
+          911
+        ]
+      },
+      {
+        "id": "rob-clay",
+        "row": 7,
+        "idleHeight": 48,
+        "scale": 0.4247787610619469,
+        "sourceCuts": [
+          911,
+          1039
+        ]
+      },
+      {
+        "id": "nia-dawn",
+        "row": 8,
+        "idleHeight": 48,
+        "scale": 0.46601941747572817,
+        "sourceCuts": [
+          1039,
+          1155
+        ]
+      },
+      {
+        "id": "kit-cask",
+        "row": 9,
+        "idleHeight": 48,
+        "scale": 0.5245901639344263,
+        "sourceCuts": [
+          1155,
+          1254
+        ]
+      }
+    ],
+    "frames": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "action": [
+        6,
+        7,
+        8
+      ],
+      "hurt": [
+        9
+      ]
+    }
+  },
+  {
+    "sheet": "rural",
+    "source": "rural-source.png",
+    "sourceSize": [
+      1254,
+      1254
+    ],
+    "size": [
+      960,
+      960
+    ],
+    "cell": [
+      96,
+      96
+    ],
+    "baseline": 84,
+    "rows": [
+      {
+        "id": "old-edda",
+        "row": 0,
+        "idleHeight": 48,
+        "scale": 0.41739130434782606,
+        "sourceCuts": [
+          0,
+          136
+        ]
+      },
+      {
+        "id": "joss-bramble",
+        "row": 1,
+        "idleHeight": 48,
+        "scale": 0.4247787610619469,
+        "sourceCuts": [
+          136,
+          266
+        ]
+      },
+      {
+        "id": "willa-brook",
+        "row": 2,
+        "idleHeight": 48,
+        "scale": 0.41025641025641024,
+        "sourceCuts": [
+          266,
+          401
+        ]
+      },
+      {
+        "id": "soren-pine",
+        "row": 3,
+        "idleHeight": 48,
+        "scale": 0.41379310344827586,
+        "sourceCuts": [
+          401,
+          534
+        ]
+      },
+      {
+        "id": "iris-mire",
+        "row": 4,
+        "idleHeight": 48,
+        "scale": 0.42857142857142855,
+        "sourceCuts": [
+          534,
+          661
+        ]
+      },
+      {
+        "id": "viggo-coal",
+        "row": 5,
+        "idleHeight": 48,
+        "scale": 0.41739130434782606,
+        "sourceCuts": [
+          661,
+          791
+        ]
+      },
+      {
+        "id": "una-stone",
+        "row": 6,
+        "idleHeight": 48,
+        "scale": 0.4266666666666667,
+        "sourceCuts": [
+          791,
+          917
+        ]
+      },
+      {
+        "id": "faro-root",
+        "row": 7,
+        "idleHeight": 48,
+        "scale": 0.463768115942029,
+        "sourceCuts": [
+          917,
+          1034
+        ]
+      },
+      {
+        "id": "greta-fox",
+        "row": 8,
+        "idleHeight": 48,
+        "scale": 0.48,
+        "sourceCuts": [
+          1034,
+          1147
+        ]
+      },
+      {
+        "id": "leif-rain",
+        "row": 9,
+        "idleHeight": 48,
+        "scale": 0.47761194029850745,
+        "sourceCuts": [
+          1147,
+          1254
+        ]
+      }
+    ],
+    "frames": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "action": [
+        6,
+        7,
+        8
+      ],
+      "hurt": [
+        9
+      ]
+    }
+  },
+  {
+    "sheet": "watch",
+    "source": "watch-source.png",
+    "sourceSize": [
+      1254,
+      1254
+    ],
+    "size": [
+      960,
+      960
+    ],
+    "cell": [
+      96,
+      96
+    ],
+    "baseline": 84,
+    "rows": [
+      {
+        "id": "captain-vessa",
+        "row": 0,
+        "idleHeight": 48,
+        "scale": 0.4067796610169492,
+        "sourceCuts": [
+          0,
+          134
+        ]
+      },
+      {
+        "id": "ser-alden",
+        "row": 1,
+        "idleHeight": 48,
+        "scale": 0.4155844155844156,
+        "sourceCuts": [
+          134,
+          262
+        ]
+      },
+      {
+        "id": "marta-colt",
+        "row": 2,
+        "idleHeight": 48,
+        "scale": 0.4050632911392405,
+        "sourceCuts": [
+          262,
+          394
+        ]
+      },
+      {
+        "id": "rolf-spur",
+        "row": 3,
+        "idleHeight": 48,
+        "scale": 0.41025641025641024,
+        "sourceCuts": [
+          394,
+          527
+        ]
+      },
+      {
+        "id": "neri-bow",
+        "row": 4,
+        "idleHeight": 48,
+        "scale": 0.42857142857142855,
+        "sourceCuts": [
+          527,
+          654
+        ]
+      },
+      {
+        "id": "dara-march",
+        "row": 5,
+        "idleHeight": 48,
+        "scale": 0.41025641025641024,
+        "sourceCuts": [
+          654,
+          783
+        ]
+      },
+      {
+        "id": "oskar-key",
+        "row": 6,
+        "idleHeight": 48,
+        "scale": 0.4085106382978723,
+        "sourceCuts": [
+          783,
+          909
+        ]
+      },
+      {
+        "id": "yara-night",
+        "row": 7,
+        "idleHeight": 48,
+        "scale": 0.4343891402714932,
+        "sourceCuts": [
+          909,
+          1033
+        ]
+      },
+      {
+        "id": "bram-tower",
+        "row": 8,
+        "idleHeight": 48,
+        "scale": 0.4423963133640553,
+        "sourceCuts": [
+          1033,
+          1153
+        ]
+      },
+      {
+        "id": "pella-banner",
+        "row": 9,
+        "idleHeight": 48,
+        "scale": 0.49740932642487046,
+        "sourceCuts": [
+          1153,
+          1254
+        ]
+      }
+    ],
+    "frames": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "action": [
+        6,
+        7,
+        8
+      ],
+      "hurt": [
+        9
+      ]
+    }
+  },
+  {
+    "sheet": "outlaws",
+    "source": "outlaws-source.png",
+    "sourceSize": [
+      1254,
+      1254
+    ],
+    "size": [
+      960,
+      960
+    ],
+    "cell": [
+      96,
+      96
+    ],
+    "baseline": 84,
+    "rows": [
+      {
+        "id": "king-rusk",
+        "row": 0,
+        "idleHeight": 48,
+        "scale": 0.42105263157894735,
+        "sourceCuts": [
+          0,
+          131
+        ]
+      },
+      {
+        "id": "veyla-red",
+        "row": 1,
+        "idleHeight": 48,
+        "scale": 0.45714285714285713,
+        "sourceCuts": [
+          131,
+          255
+        ]
+      },
+      {
+        "id": "harrow-pike",
+        "row": 2,
+        "idleHeight": 48,
+        "scale": 0.43243243243243246,
+        "sourceCuts": [
+          255,
+          388
+        ]
+      },
+      {
+        "id": "moth-black",
+        "row": 3,
+        "idleHeight": 48,
+        "scale": 0.42857142857142855,
+        "sourceCuts": [
+          388,
+          518
+        ]
+      },
+      {
+        "id": "ulric-cinder",
+        "row": 4,
+        "idleHeight": 48,
+        "scale": 0.4343891402714932,
+        "sourceCuts": [
+          518,
+          649
+        ]
+      },
+      {
+        "id": "bela-crow",
+        "row": 5,
+        "idleHeight": 48,
+        "scale": 0.4528301886792453,
+        "sourceCuts": [
+          649,
+          773
+        ]
+      },
+      {
+        "id": "sable-venn",
+        "row": 6,
+        "idleHeight": 48,
+        "scale": 0.4528301886792453,
+        "sourceCuts": [
+          773,
+          893
+        ]
+      },
+      {
+        "id": "grent-hook",
+        "row": 7,
+        "idleHeight": 48,
+        "scale": 0.4304932735426009,
+        "sourceCuts": [
+          893,
+          1019
+        ]
+      },
+      {
+        "id": "sister-thorn",
+        "row": 8,
+        "idleHeight": 48,
+        "scale": 0.46153846153846156,
+        "sourceCuts": [
+          1019,
+          1139
+        ]
+      },
+      {
+        "id": "marrow-jack",
+        "row": 9,
+        "idleHeight": 48,
+        "scale": 0.46153846153846156,
+        "sourceCuts": [
+          1139,
+          1254
+        ]
+      }
+    ],
+    "frames": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "action": [
+        6,
+        7,
+        8
+      ],
+      "hurt": [
+        9
+      ]
+    }
+  },
+  {
+    "sheet": "beasts",
+    "source": "beasts-source.png",
+    "sourceSize": [
+      1254,
+      1254
+    ],
+    "size": [
+      960,
+      960
+    ],
+    "cell": [
+      96,
+      96
+    ],
+    "baseline": 84,
+    "rows": [
+      {
+        "id": "widow-of-the-well",
+        "row": 0,
+        "idleHeight": 48,
+        "scale": 0.5714285714285714,
+        "sourceCuts": [
+          0,
+          126
+        ]
+      },
+      {
+        "id": "crownless-weeper",
+        "row": 1,
+        "idleHeight": 48,
+        "scale": 0.41739130434782606,
+        "sourceCuts": [
+          126,
+          265
+        ]
+      },
+      {
+        "id": "the-ash-abbot",
+        "row": 2,
+        "idleHeight": 48,
+        "scale": 0.44036697247706424,
+        "sourceCuts": [
+          265,
+          391
+        ]
+      },
+      {
+        "id": "old-granite",
+        "row": 3,
+        "idleHeight": 48,
+        "scale": 0.4485981308411215,
+        "sourceCuts": [
+          391,
+          528
+        ]
+      },
+      {
+        "id": "pale-mother",
+        "row": 4,
+        "idleHeight": 48,
+        "scale": 0.6037735849056604,
+        "sourceCuts": [
+          528,
+          632
+        ]
+      },
+      {
+        "id": "rattlethane",
+        "row": 5,
+        "idleHeight": 48,
+        "scale": 0.43243243243243246,
+        "sourceCuts": [
+          632,
+          773
+        ]
+      },
+      {
+        "id": "bellwing",
+        "row": 6,
+        "idleHeight": 48,
+        "scale": 0.5748502994011976,
+        "sourceCuts": [
+          773,
+          903
+        ]
+      },
+      {
+        "id": "mirejaw",
+        "row": 7,
+        "idleHeight": 41,
+        "scale": 0.6821705426356589,
+        "sourceCuts": [
+          903,
+          994
+        ]
+      },
+      {
+        "id": "the-hollow-bride",
+        "row": 8,
+        "idleHeight": 48,
+        "scale": 0.4192139737991266,
+        "sourceCuts": [
+          994,
+          1133
+        ]
+      },
+      {
+        "id": "coalheart",
+        "row": 9,
+        "idleHeight": 48,
+        "scale": 0.5423728813559322,
+        "sourceCuts": [
+          1133,
+          1254
+        ]
+      }
+    ],
+    "frames": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "action": [
+        6,
+        7,
+        8
+      ],
+      "hurt": [
+        9
+      ]
+    }
+  }
+]

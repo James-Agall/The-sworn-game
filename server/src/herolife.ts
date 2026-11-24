@@ -25,6 +25,9 @@ import { CROPS, CropStage, type CropId } from "@colony/shared/zones";
 import { heroCropStage, heroFarmApply, heroFarmCheck, heroFertilise, heroZoneCrop } from "./zones.js";
 import { type ItemId, type Recipe, PROGRESSION, PROFESSION_LABEL, levelForXp, outputCap, smithLevelForGearTier, stationRecipes, xpToNext } from "@colony/shared/progression";
 import { MINE_HERO_DIG_AMOUNT, MINE_HERO_DIG_SECONDS, isLayeredMine } from "@colony/shared/mines";
+import {specialCharacterDefeated} from "./mines.js";
+import {SPECIAL_BY_ID} from "@colony/shared/specialCast";
+import {specialAddress} from "./specialCast.js";
 import { mineDigBlock, mineDigRows, mineHeroCaveIn, mineHeroDigSpeed } from "./mines.js";
 import type { ResourceKey, Colonist, HeroLife, Mob, Player, SiteState } from "./types.js";
 import { CRAFT_RECIPES, FORGE_TICKS, FORAGE_RIPE_TO_PICKED, FORAGE_REGROW_TICKS, QUEST_MAX_PER_SITE, RELATION_ALLIED_MIN } from "./constants.js";
@@ -158,6 +161,7 @@ export interface TalkInside {
   tavern?: boolean;
 }
 interface Talk {
+  specialId?: string;
   role: NpcRole;
   name: string;
   siteId?: string;
@@ -199,6 +203,7 @@ export const talkColorFor = (name: string) => [0xc9a227, 0x6aa84f, 0x8e7cc3, 0xe
 
 // ---- talk ----
 export interface Target {
+  specialId?: string;
   role: NpcRole;
   name: string;
   d: number;
@@ -466,7 +471,52 @@ function actionBlock(p: Player, t: Talk, a: DialogueAction): string {
   return "";
 }
 
+// Personal stories and one-time favours use the hero's existing saved life flags.
+function renderSpecialTalk(p:Player,t:Talk,node:string,prefix=''){
+ const c=SPECIAL_BY_ID.get(t.specialId!);if(!c)return false;
+ const life=lifeOf(p),flags=life.flags,link=SPECIAL_BY_ID.get(c.connection)!,key=`cast:${c.id}`;let done=!!flags[`${key}:done`];
+ const address=specialAddress(c.id),linkAddress=specialAddress(c.connection),stockGood=c.good==='hide'?'wool':c.good;
+ let text=prefix;
+ const ready=()=>c.questKind==='hunt'?specialCharacterDefeated(c.connection):c.questKind==='meet'?!!flags[`cast:met:${c.connection}`]:withClan(clanOf(p),()=>{
+  const pack=life.pack as Partial<Record<string,number>>;return c.good==='hide'?itemCount('hide')>=c.count:(pack[c.good]??0)+(state.stock[stockGood]??0)>=c.count;
+ });
+ const favour=c.questKind==='hunt'?`Defeat ${link.name}, ${link.title}, at ${linkAddress}.`:c.questKind==='meet'?`Speak with ${link.name}, ${link.title}, at ${linkAddress}.`:`Bring ${c.count} ${c.good} from your carried resources or Stockpile.`;
+ if(node==='cast:accept'&&!done){flags[`${key}:accepted`]=1;text='I will remember your help. '+favour;}
+ if(node==='cast:claim'){
+  if(done)text='You have already helped me. I have not forgotten.';
+  else if(!flags[`${key}:accepted`]||!ready())text='There is still something to do. '+favour;
+  else{
+   withClan(clanOf(p),()=>{
+    if(c.questKind==='supply'&&c.good==='hide')takeItem('hide',c.count);
+    else if(c.questKind==='supply'){const pack=life.pack as Partial<Record<string,number>>,take=Math.min(pack[c.good]??0,c.count);if(take)pack[c.good]=(pack[c.good]??0)-take;state.stock[stockGood]=Math.max(0,(state.stock[stockGood]??0)-(c.count-take));}
+    state.stock.gold=(state.stock.gold??0)+c.reward;
+   });
+   flags[`${key}:done`]=1;done=true;gainSkill(p,'speech',12);text=`You kept your word. ${c.hook} Your help has made that possible. (+${c.reward} gold; speech experience)`;
+  }
+ }
+ if(node==='cast:lesson'){
+  if(c.child||c.hostile)text='We can still learn from one another.';
+  else if(flags[`${key}:lesson`])text='You remember what I taught you. Put it to use.';
+  else if(!done)text='Help me with my work first; then I can spare time to teach you.';
+  else{
+   const skills:Record<string,HeroSkill>={masters:'smithing',faith:'spellcasting',court:'speech',commons:'trading',rural:'farming',watch:'building',wayfarers:'hunting'};
+   const skill:HeroSkill=c.id==='mara-loaf'?'baking':c.id==='jori-clay'?'pottery':c.id==='wystan-gear'?'milling':c.id==='perrin-oak'?'building':c.id==='viggo-coal'?'charcoal':skills[c.group]??'speech';
+   flags[`${key}:lesson`]=1;gainSkill(p,skill,25);text=`${c.name} shows you a practical lesson in ${HERO_SKILL_LABEL[skill].toLowerCase()}. (+25 experience)`;
+   if(c.group==='faith'){life.food=Math.min(NEED_MAX,life.food+15);life.rest=Math.min(NEED_MAX,life.rest+20);p.hp=Math.min(playerMaxHp(p),p.hp+20);text+=' You also receive food, rest and treatment.';}
+  }
+ }
+ if(!text)text=node==='cast:story'?`${c.bio}\n\n${c.hook}`:node==='cast:connection'?`${link.name}, ${link.title}. ${link.bio}\n\nYou can find ${link.child?'the child':'them'} at ${linkAddress}.`:`${c.name} — ${c.title}\n${c.bio}\n\nHome: ${address}`;
+ t.choices=[{label:'Tell me your story.',next:'cast:story'},{label:`What do you know about ${link.name}?`,next:'cast:connection'}];
+ if(done)t.choices.push({label:'Our favour is complete.',next:'cast:claim'});
+ else if(!flags[`${key}:accepted`])t.choices.push({label:`Can I help? ${favour} (${c.reward} gold)`,next:'cast:accept'});
+ else t.choices.push({label:`${favour} Claim ${c.reward} gold.`,next:'cast:claim',disabled:ready()?undefined:'The favour is not finished yet'});
+ if(!c.child&&!c.hostile)t.choices.push({label:'Teach me something.',next:'cast:lesson'});
+ t.choices.push({label:'Farewell.',action:'bye'});sendTalk(p,t,text);return true;
+}
+
+
 function renderTalk(p: Player, t: Talk, nodeId: string, prefix = "") {
+  if(t.specialId&&renderSpecialTalk(p,t,nodeId,prefix))return;
   const s = siteOf(t);
   const tier = s ? tierOf(p.clan, s) : undefined;
   const node = DIALOGUE[t.role][nodeId] ?? DIALOGUE[t.role].start;
@@ -494,7 +544,7 @@ function renderTalk(p: Player, t: Talk, nodeId: string, prefix = "") {
 function sendTalk(p: Player, t: Talk, text: string) {
   const s = siteOf(t);
   const dialogue: DialogueSnapshot = {
-    npc: { name: t.name, role: t.role, roleLabel: NPC_ROLE_LABEL[t.role], ...(s ? { site: s.name, tier: tierOf(p.clan, s) } : {}), color: t.color },
+    npc: { name: t.name, role: t.role, roleLabel: (t.specialId?SPECIAL_BY_ID.get(t.specialId)?.title:undefined)??NPC_ROLE_LABEL[t.role], ...(s ? { site: s.name, tier: tierOf(p.clan, s) } : {}), color: t.color },
     text,
     choices: t.choices.map((c) => ({ label: c.label, ...(c.disabled ? { disabled: c.disabled } : {}) })),
   };
@@ -517,11 +567,12 @@ function sayThen(p: Player, t: Talk, text: string, more: ChoiceRt[] = []) {
 export function startTalk(p: Player, target: Target) {
   if(target.mob)holdTownSpeaker(target.mob);
   const t: Talk = {
-    role: target.role, name: target.name, siteId: target.site?.id, mobId: target.mob?.id, colonistId: target.colonist?.id,
+    specialId:target.specialId, role: target.role, name: target.name, siteId: target.site?.id, mobId: target.mob?.id, colonistId: target.colonist?.id,
     color: talkColorFor(target.name), choices: [], ...(target.inside ? { inside: target.inside } : {}),
   };
   busyOf(p).talk = t;
   const life = lifeOf(p);
+  if(target.specialId)life.flags[`cast:met:${target.specialId}`]=1;
   if (target.site) life.flags[`met:${target.site.id}`] = gameDay();
   renderTalk(p, t, "start");
 }
