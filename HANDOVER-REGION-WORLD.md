@@ -192,3 +192,12 @@ Replaced cave/mine exit mats with an upward ladder ending in a dark timber-frame
 Underground HUD and distant-exit prompts now refer to the ladder, including returning up one mine level versus outside. Existing walk-on-exit and Esc behavior is retained. Client/server type checks, 144 cave/mine navigation/save/transition checks and the native mine gameplay suite validate the change. Deployment backs up the saves first.
 
 Static previews are in the Windows workspace `outputs/cave-entrance/cave-entrances.html` and `ladder-entrances.png`. Existing cave gallery/image links are updated to the new version.
+
+
+## 24 November: side-wall mining adit with wooden pit props
+
+User clarified “pits above it” means wooden pit props. Replaced the upward-ladder entrance artwork with a horizontal mining tunnel in the cave wall, a dark receding passage, timber roof supports above the mouth, diagonal bracing and a short track at ground level. New original transparent sprite: `client/public/sprites/underground-v5/mining-adit.png`; generated once using the built-in image tool with the existing cracked rock face as a style reference. Source and usable asset are saved in Windows `outputs/mine-adit`, with the prompt and slicing manifest also in `docs/art-sources/underground-v5`.
+
+The shared `undergroundEntrance()` composition still aligns the threshold to the existing exit cell. Updated HUD/distant-exit text refers to entering the tunnel. Saved geometry, collision, native exit/Esc behavior and deeper-layer transitions are preserved; the separate down-shaft prop remains in the working mine. Client/server type checks, 144 shared navigation/save/transition cases and the native mine gameplay suite validate the change. Deployment backs up saves before stopping the live copy.
+
+Current preview: Windows `outputs/mine-adit/mining-entrances.html` and `mining-entrances.png`. Older cave preview links/images are updated to this version.

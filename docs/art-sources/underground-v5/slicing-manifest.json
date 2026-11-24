@@ -1,0 +1,14 @@
+{
+  "source": "mining-adit-source.png",
+  "alphaBounds": [
+    16,
+    38,
+    1241,
+    1226
+  ],
+  "size": [
+    512,
+    497
+  ],
+  "alignment": "threshold at original exit cell"
+}

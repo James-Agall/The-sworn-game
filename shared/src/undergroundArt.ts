@@ -17,12 +17,11 @@ export function undergroundPropUrl(m:InteriorMap,prop:string,tile?:number,x=0,y=
 }
 export function undergroundPropSize(prop:string){return prop==='rockBlock'?{w:1.5,h:2.5}:prop==='stalagmite'?{w:1.6,h:1.9}:prop==='mineralNode'?{w:1.3,h:1.3}:prop==='timberProp'?{w:1.1,h:1.5}:prop==='mineShaft'?{w:1,h:1}:{w:1.2,h:1.3};}
 
-// One shared composition for the game and preview. The ladder's foot sits on
-// the existing exit cell; its head disappears into a framed opening above it.
+// Ground-level adit in the side wall, with a supported roof above the tunnel.
+// The threshold stays on the existing exit cell for saved maps and transitions.
 export function undergroundEntrance(m:InteriorMap){
  const {x,y}=m.exit;
- return {opening:{x:x+.04,y:y-1.3,w:.92,h:1.2},sprites:[
-  {url:'/sprites/autumn/frames/cave-props/supports-stairs-01.png',x:x-.15,y:y-1.5,w:1.3,h:1.4},
-  {url:'/sprites/autumn/frames/cave-props/supports-stairs-07.png',x:x+.17,y:y-.65,w:.66,h:1.65},
+ return {opening:{x:x-.1,y:y-.8,w:1.2,h:1.6},sprites:[
+  {url:'/sprites/underground-v5/mining-adit.png',x:x-.9,y:y-1.8,w:2.8,h:2.8},
  ]};
 }

@@ -713,7 +713,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     vignette.height = scr.height;
     exitEl.hidden = !nearExit();
     const rockExit=!!m.underground||m.templateId==='mine'&&(!view.mine?.encounter||view.mine.encounter==='cave');
-    exitEl.textContent=rockExit?(view.mine?.layer&&view.mine.layer>1?'Climb the ladder or press Esc to go up a level':'Climb the ladder or press Esc to return outside'):'Walk onto the mat or press Esc to leave';
+    exitEl.textContent=rockExit?(view.mine?.layer&&view.mine.layer>1?'Enter the tunnel or press Esc to go up a level':'Enter the tunnel or press Esc to return outside'):'Walk onto the mat or press Esc to leave';
   });
 
   // Deep mines: Space swings (main.ts sends the attack); a slash arc shows on the hero's facing side.
