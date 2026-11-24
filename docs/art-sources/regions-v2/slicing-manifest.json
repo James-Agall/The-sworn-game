@@ -1,0 +1,102 @@
+[
+  {
+    "name": "pine",
+    "source": "nature-sheet.png",
+    "box": [
+      114,
+      14,
+      412,
+      504
+    ]
+  },
+  {
+    "name": "oak",
+    "source": "nature-sheet.png",
+    "box": [
+      520,
+      20,
+      1013,
+      504
+    ]
+  },
+  {
+    "name": "birch",
+    "source": "nature-sheet.png",
+    "box": [
+      1113,
+      11,
+      1424,
+      504
+    ]
+  },
+  {
+    "name": "willow",
+    "source": "nature-sheet.png",
+    "box": [
+      54,
+      540,
+      483,
+      958
+    ]
+  },
+  {
+    "name": "reeds",
+    "source": "nature-sheet.png",
+    "box": [
+      578,
+      592,
+      941,
+      951
+    ]
+  },
+  {
+    "name": "marsh",
+    "source": "nature-sheet.png",
+    "box": [
+      1055,
+      562,
+      1473,
+      955
+    ]
+  },
+  {
+    "name": "bridge-h",
+    "source": "props-sheet.png",
+    "box": [
+      43,
+      208,
+      609,
+      447
+    ]
+  },
+  {
+    "name": "bridge-v",
+    "source": "props-sheet.png",
+    "box": [
+      849,
+      40,
+      1096,
+      576
+    ]
+  },
+  {
+    "name": "cage",
+    "source": "props-sheet.png",
+    "box": [
+      54,
+      706,
+      591,
+      1146
+    ]
+  },
+  {
+    "name": "tent",
+    "source": "props-sheet.png",
+    "box": [
+      668,
+      677,
+      1255,
+      1140
+    ]
+  }
+]

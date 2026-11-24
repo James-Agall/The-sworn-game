@@ -35,6 +35,8 @@ import { plowGrowthMult, plowYieldMult } from "./agri.js";
 export interface ZoneRec {
   id: number;
   siteNum?:number;
+  ruralKey?:string;
+  worldAnchor?:number;
   clan: number;
   kind: ZoneKind;
   name: string;
@@ -109,6 +111,10 @@ export function createTownAnimalZone(siteNum:number,name:string,list:number[]){
  const z=createZone(-siteNum,'animal');z.siteNum=siteNum;z.name=name;
  for(const i of list)if(!zoneOfTile.has(i)&&state.tiles[i]===TileType.Empty){z.tiles.add(i);zoneOfTile.set(i,z.id);}
  bump();return z;
+}
+export function createRuralAnimalZone(key:string,name:string,list:number[]){
+ const z=createZone(-100000-zones.size,'animal');z.ruralKey=key;z.worldAnchor=list[0];z.name=name;
+ for(const i of list)if(!zoneOfTile.has(i)&&state.tiles[i]===TileType.Empty){z.tiles.add(i);zoneOfTile.set(i,z.id);}bump();return z;
 }
 // ---- painting ----
 function tileOk(kind: ZoneKind, i: number, clan: number): boolean {
@@ -726,7 +732,8 @@ export function zonesSnapshotFor(clan: number): ZonesSnapshot {
   const out: ZonesSnapshot = { zones: [], crops: [], piles: [] };
   for (const z of zones.values()) {
     if(z.siteNum){const site=[...sites.values()].find(s=>s.num===z.siteNum);if(!site?.sighted)continue;}
-    if (z.clan !== clan&&!z.siteNum) continue;
+    if(z.ruralKey&&(z.worldAnchor===undefined||!state.explored[z.worldAnchor]))continue;
+    if (z.clan !== clan&&!z.siteNum&&!z.ruralKey) continue;
     const stored: Record<string, number> = {};
     for (const [k, v] of Object.entries(z.stored)) if ((v ?? 0) >= 1) stored[k] = Math.floor(Math.min(v ?? 0, stock[k] ?? 0));
     out.zones.push({
@@ -748,7 +755,8 @@ export function zonesSnapshotFor(clan: number): ZonesSnapshot {
 
 // The snapshot field for this player, or null when nothing changed (at most every half second).
 export function zonesPayloadFor(player: Player): string | null {
-  const sight=[...sites.values()].filter(s=>s.sighted).map(s=>`${s.num}:${s.captured}:${s.capturedBy}`).join('|');
+  const ruralSight=[...zones.values()].filter(z=>z.ruralKey&&z.worldAnchor!==undefined&&state.explored[z.worldAnchor]).map(z=>z.id).join(',');
+  const sight=ruralSight+'|'+[...sites.values()].filter(s=>s.sighted).map(s=>`${s.num}:${s.captured}:${s.capturedBy}`).join('|');
   if(townZoneSight.get(player)!==sight){townZoneSight.set(player,sight);sent.delete(player);}
   const s = sent.get(player);
   if (s && s.v === version) return null;
@@ -778,7 +786,7 @@ export function zonesForSave() {
   return {
     nextId: nextZoneId,
     zones: Array.from(zones.values()).map((z) => ({
-      id: z.id, clan: z.clan, ...(z.siteNum?{siteNum:z.siteNum}:{}), kind: z.kind, name: z.name, crop: z.crop, filters: z.filters, stored: z.stored,
+      id: z.id, clan: z.clan, ...(z.siteNum?{siteNum:z.siteNum}:{}),...(z.ruralKey?{ruralKey:z.ruralKey,worldAnchor:z.worldAnchor}:{}), kind: z.kind, name: z.name, crop: z.crop, filters: z.filters, stored: z.stored,
       tiles: rleEncode(Array.from(z.tiles).sort((a, b) => a - b)),
     })),
     // Hero plots add [plot clan, crop index or -1] (older saves: 4-tuples, zone tiles only).
@@ -806,7 +814,7 @@ export function restoreZones(s: ZonesSave | undefined) {
   deliveredSince.clear();
   nextZoneId = s?.nextId ?? 1;
   for (const z of s?.zones ?? []) {
-    const rec: ZoneRec = { id: z.id, clan: z.clan, ...(z.siteNum?{siteNum:z.siteNum}:{}), kind: z.kind, name: z.name, tiles: new Set(), stored: { ...(z.stored ?? {}) } };
+    const rec: ZoneRec = { id: z.id, clan: z.clan, ...(z.siteNum?{siteNum:z.siteNum}:{}),...(z.ruralKey?{ruralKey:z.ruralKey,worldAnchor:z.worldAnchor}:{}), kind: z.kind, name: z.name, tiles: new Set(), stored: { ...(z.stored ?? {}) } };
     if (z.crop) rec.crop = z.crop;
     if (z.filters) rec.filters = [...z.filters];
     for (const i of rleDecode(z.tiles)) {

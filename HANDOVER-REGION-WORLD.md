@@ -84,3 +84,18 @@ Generator 18: organic4 compacts the core with identical house/service inventorie
 
 
 Generator 19: organic5 relocates barns beside crop fields, preserving crop counts and houses. New industry sprite sets match each culture’s house materials. Other-region previews use actual generated seed-42 tiles/entities. See docs/medieval-towns-v15.md.
+
+
+## Generator 20 - detailed countryside and wilderness (2026-11-24)
+
+New worlds use generator 20. Versioned legacy terrain generation and city template IDs are retained. Existing saved worlds retain their terrain; start a new world to see the new regional layouts. All city size quotas, spacing and chunk activation rules remain unchanged.
+
+server/src/regionDetails.ts stamps dry-ground countryside homesteads with at least 100 crop cells (previously 25), a BarnPost, farmhouse and cottage, a separate closed and gated livestock enclosure, and a complete orchard of 3-4 rows with 5-6 trees each. Orchards can swap sides to avoid rivers; unsuitable river/landmark plots are left natural rather than partially stamped. Crop cells lost to access lanes are replenished. Rural animal zones use the existing paddock validation, grazing metadata, save/load and exploration discovery. Rural ownership keeps these buildings out of the player's census/economy; no new settlement identity or livestock simulation is created.
+
+Forests render stable mixtures of pine, oak and birch, with willow in marsh biomes. Existing tree size classes, chopping time and wood yields are preserved. Marsh regions have large grouped pools, walkable mud and reeds. Ruins spread across four broken building courts while retaining native hostile guards and loot.
+
+Six zero-weight regional bandit camp templates preserve the legacy random camp pool. They use four canvas tents, real guards, loot, prisoners and a cage, with open and timber-walled variations. Defeating guards and approaching the cage runs the native rescue path and removes the cage. Distant cage proximity checks are skipped. Rivers meander with 3-9-cell widths and use cached composited wooden bridge segments over water. RiverBridge is a permanent walkable road, not a closable drawbridge. Cross-river regional roads are straight across the deck; surrounding roads stay wavy.
+
+Ten transparent PNG assets live in client/public/sprites/regions-v2. They were created with the built-in image generator, sliced/aligned and included in the game atlas. Full prompts and slicing metadata are in docs/art-sources/regions-v2. Windows source sheets/assets are under outputs/regions20. Updated previews under outputs/world-regions/current-other-regions.html and .png export actual seed-42 terrain/entities, including open and walled camps; they are static previews, not live screenshots. Cave regions remain outdoor encounters.
+
+Validation: server/regions20-test.ts passed at 512 and 1024 cells, checking every homestead's crop/house/orchard counts, closed paddocks, zone persistence/discovery, forest species, marsh coverage, camp definitions and actual prisoner rescue, ruins and bridge/river width. The 1024-cell region regression passed actual entrance reachability, one settlement identity per chunk and city quotas (1 large, 2 double, 70 single). The town-life regression passed at 256 cells. Server/client TypeScript, production build and all 35 smoke checks passed.

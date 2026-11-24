@@ -13,6 +13,8 @@ import {
 } from "./constants.js";
 import { chargeRuns, colonists, hearths, players, respawnQueue, sites, state } from "./state.js";
 import { getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileToPixelCenter } from "./tiles.js";
+import {setTile} from "./chunks.js";
+import {broadcastTileUpdate} from "./net.js";
 import { tileIndicesOfAny } from "./chunks.js";
 import { chapelReviveMult, usableBedIndices } from "./structures.js";
 import {
@@ -47,7 +49,7 @@ export function assignHomes() {
   for (const i of tileIndicesOfAny([TileType.House, TileType.BigHouse, TileType.HouseLevel2, TileType.Keep])) {
     const x = i % state.WORLD_TILES_X;
     const y = Math.floor(i / state.WORLD_TILES_X);
-    if (clanIdAt(x, y) !== state.clan.id) continue;
+    if (ownerAt(i)!==0||clanIdAt(x, y) !== state.clan.id) continue;
     const t = state.tiles[i] as TileType;
     beds.set(resourceKey(x, y), { x, y, free: isHouseTile(t) ? houseCapacity(t) : KEEP_POPULATION_PER_LEVEL * getBuildingLevel(x, y) });
   }
@@ -226,6 +228,7 @@ export function rescuePrisoners(h: HearthState, attackerKey?: string) {
   const n = h.prisoners ?? rollPrisoners(h);
   if (n <= 0) return;
   h.prisoners = 0;
+  if(h.campTemplate?.startsWith('region-bandit-')){const r=h.campRadius??9;for(let y=h.y-r;y<=h.y+r;y++)for(let x=h.x-r;x<=h.x+r;x++)if(inBounds(x,y)&&state.tiles[tileIndex(x,y)]===TileType.PrisonCage){setTile(tileIndex(x,y),TileType.Empty);broadcastTileUpdate(x,y,TileType.Empty);}}
   const p = tileToPixelCenter(h);
   withClan(clanById(clanId), () => {
     const { names, where } = admitPrisoners(n, p.x, p.y);

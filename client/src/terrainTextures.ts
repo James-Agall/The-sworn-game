@@ -42,3 +42,11 @@ export function naturalRoad(mask:number,width=19,surface?:Texture,renderer?:Rend
  if(!surface)for(let i=0;i<65;i++){const x=(i*17+3)%32,y=(i*11+7)%32;ctx.fillStyle=i%2?'#8f7e5b55':'#c0ac8255';ctx.fillRect(x,y,1,1);}
  const texture=Texture.from(c);roads.set(key,texture);return texture;
 }
+
+const bridges=new Map<string,Texture>();
+export function riverBridgeTexture(deck:Texture,base:Texture,renderer:Renderer):Texture{
+ const key=deck.uid+':'+base.uid,cached=bridges.get(key);if(cached)return cached;
+ const c=canvas(),ctx=c.getContext('2d')!;
+ for(const texture of [base,deck]){const s=new Sprite(texture);s.width=s.height=32;const source=renderer.extract.canvas({target:s});ctx.drawImage(source as HTMLCanvasElement,0,0,32,32);s.destroy();}
+ const result=Texture.from(c);bridges.set(key,result);return result;
+}

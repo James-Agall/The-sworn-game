@@ -1,7 +1,8 @@
+import {REGION_NATURE_URLS,treeSpeciesAt} from "@colony/shared/regionNature";
 import { createTownPets } from "./townPets";
 import { TOWN_INDUSTRY_URLS,townIndustryUrl } from "@colony/shared/townIndustry";
 import { TOWN_HOUSE_URLS, TOWN_ROAD_URLS } from "@colony/shared/organicTowns";
-import { naturalRoad, roundedWater } from "./terrainTextures";
+import { naturalRoad, roundedWater,riverBridgeTexture } from "./terrainTextures";
 import { treeAt } from "@colony/shared/trees";
 import { updateVitals } from "./vitals";
 import {npcVariantFrame} from "./npcVariants";
@@ -326,7 +327,7 @@ async function main() {
     ...MOAT_ART_URLS,
     ...STRUCTURE_ART_URLS,
     ...Array.from({length:16},(_,i)=>`/sprites/fortifications/rampart_${String(i).padStart(2,"0")}.png`),
-    ...TOWN_HOUSE_URLS, ...TOWN_ROAD_URLS, ...TOWN_INDUSTRY_URLS,
+    ...TOWN_HOUSE_URLS, ...TOWN_ROAD_URLS, ...TOWN_INDUSTRY_URLS, ...REGION_NATURE_URLS,
     ...["blacksmith-v3","charcoal-v3","quest-board"].map(n=>`/sprites/towns-v2/${n}.png`),
     ...PLAYER_BASES.map(b=>`/sprites/player-bases/${b.id}.png`),
     ...["bed","chair","chest","table","hearth","shelf","wardrobe"].flatMap(p=>["n","e","s","w"].map(f=>`/sprites/interiors-v2/${p}_${f}.png`)),
@@ -1543,8 +1544,12 @@ async function main() {
     const civicName=artTile===TileType.Blacksmith?'blacksmith-v3':artTile===TileType.CharcoalBurner?'charcoal-v3':artTile===TileType.TownQuestBoard?'quest-board':undefined;
     const industryUrl=townIndustryUrl(artTile,townStyle);
     const civicTexture=!site?((industryUrl?optionalTextures[industryUrl]:undefined)??(civicName?optionalTextures[`/sprites/towns-v2/${civicName}.png`]:undefined)):undefined;
+    const natureName=artTile===TileType.Tree?treeSpeciesAt(tx,ty,biomes[index]===Biome.Swamp):artTile===TileType.MarshGround?'marsh':artTile===TileType.MarshReeds?'reeds':artTile===TileType.PrisonCage?'cage':artTile===TileType.Tent?'tent':artTile===TileType.RiverBridge?(isRoadAt(tx-1,ty)||isRoadAt(tx+1,ty)?'bridge-h':'bridge-v'):undefined;
+    let natureTexture=!site&&natureName?optionalTextures[`/sprites/regions-v2/${natureName}.png`]:undefined;
+    if(artTile===TileType.RiverBridge&&natureTexture&&TILE_TEXTURES.get(TileType.Water))natureTexture=riverBridgeTexture(natureTexture,TILE_TEXTURES.get(TileType.Water)!,app.renderer);
     const texture = tile === TileType.BuildingPart || isFortPart(tile)
       ? undefined
+      : natureTexture ? natureTexture
       : civicTexture ? civicTexture
       : homeTexture ? homeTexture
       : fortTexture ? fortTexture
@@ -1598,6 +1603,11 @@ async function main() {
       sprite.scale.set(width/box.w);sprite.rotation=0;
       sprite.position.set((tx+fp.w/2)*tileSize,(ty+fp.h)*tileSize);
       sprite.zIndex=(ty+fp.h-1)*worldTilesX+tx+fp.w-1;return;
+    }
+    if(natureTexture){
+      if(artTile===TileType.MarshGround||artTile===TileType.RiverBridge){sprite.anchor.set(0,0);sprite.scale.set(tileSize/natureTexture.width,tileSize/natureTexture.height);sprite.position.set(tx*tileSize,ty*tileSize);sprite.zIndex=-1;return;}
+      const box=opaqueBox(natureTexture),width=tileSize*(artTile===TileType.Tree?1.4:artTile===TileType.MarshReeds?.75:artTile===TileType.PrisonCage?1.8:1.85),scale=Math.min(width/box.w,tileSize*(artTile===TileType.Tree?2:1.85)/box.h)*(artTile===TileType.Tree?treeAt(tx,ty).scale:1);
+      sprite.anchor.set((box.x+box.w/2)/natureTexture.width,(box.y+box.h)/natureTexture.height);sprite.scale.set(scale);sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;
     }
     if(civicTexture){const box=opaqueBox(civicTexture),width=tileSize*(industryUrl?([TileType.Bloomery,TileType.BuildersGuild].includes(artTile)?1.55:townStyle==='hearthmoor'?2:2.35):artTile===TileType.Blacksmith?2.35:artTile===TileType.CharcoalBurner?1.25:1);sprite.anchor.set((box.x+box.w/2)/civicTexture.width,(box.y+box.h)/civicTexture.height);sprite.scale.set(Math.min(width/box.w,tileSize*2.7/box.h));sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
     if(townHome){const box=opaqueBox(townHome),width=tileSize*(townStyle==='hearthmoor'?2:2.35);sprite.anchor.set((box.x+box.w/2)/townHome.width,(box.y+box.h)/townHome.height);sprite.scale.set(Math.min(width/box.w,tileSize*2.7/box.h));sprite.position.set((tx+.5)*tileSize,(ty+1)*tileSize);sprite.zIndex=index;return;}
@@ -1664,7 +1674,7 @@ async function main() {
       return;
     }
     if(tile === TileType.Water) {
-      const joins=(x:number,y:number)=>tileAt(x,y)===TileType.Water||tileAt(x,y)===TileType.Drawbridge;
+      const joins=(x:number,y:number)=>tileAt(x,y)===TileType.Water||tileAt(x,y)===TileType.Drawbridge||tileAt(x,y)===TileType.RiverBridge;
       const mask=(joins(tx,ty-1)?1:0)|(joins(tx+1,ty)?2:0)|(joins(tx,ty+1)?4:0)|(joins(tx-1,ty)?8:0);
       sprite.texture=roundedWater(texture,mask,app.renderer);
       sprite.anchor.set(0,0);sprite.scale.set(tileSize/32);sprite.position.set(tx*tileSize,ty*tileSize);sprite.zIndex=-1;return;
@@ -3774,6 +3784,7 @@ async function main() {
       case TileType.StoneWall:
       case TileType.Gate:
       case TileType.FenceGate:
+      case TileType.RiverBridge:
       case TileType.Drawbridge:
         return MINIMAP_WALL;
       case TileType.Moat:

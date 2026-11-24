@@ -1,0 +1,14 @@
+{
+  "tool": "Built-in image generator",
+  "created": "2026-11-24",
+  "nature": {
+    "prompt": "Production 2D medieval game sprite sheet, SIX isolated assets in exact 3-column 2-row grid. Reference tree ONLY for pixel-art rendering: crisp dark outlines, simple painterly shading and earthy colours. True transparent background, no labels or grid lines, generous transparent gaps. Top row left: tall evergreen pine with visible trunk and tiered dark green needles; top middle: broad mature oak with irregular leafy olive-green crown; top right: slender silver birch with white bark and golden-green leaves. Bottom left: drooping marsh willow with grey-green foliage; bottom middle: small clump of cattail reeds and marsh grasses with muddy roots; bottom right: one flat square overhead tile of wet mud, moss, shallow puddles and sedges, soft ragged transparent edges to blend with grass, no large rocks. Trees front elevation with horizontal ground baseline and vertical trunk, slight visible crown top as reference, not isometric. Each tree fully contained, same scale relative to one another, readable at 40-60px high. No people, animals, scenery or ground patches under trees. Terrain tile is flat x/y overhead. Avoid photorealism, elaborate detail and recolouring the reference.",
+    "reference": "Existing game tree sprite",
+    "source": "nature-sheet.png"
+  },
+  "props": {
+    "prompt": "Production sprite sheet FOUR separated game assets in exact 2x2 grid, true transparent background, generous transparent gaps, no labels or text. Match the existing medieval 2D hand-painted pixel-art tree reference: bold readable dark outlines, earthy colour, simple practical construction, not photorealistic. TOP LEFT: a wooden river bridge SEGMENT running exactly horizontally left to right on the flat x/y plane, directly overhead deck of weathered planks with low side rails along top and bottom edges, open flush ends so multiple copies join end-to-end across a wide river. TOP RIGHT: corresponding bridge segment running exactly vertically top to bottom, overhead plank deck, side rails on left and right edges, open flush ends for tiling. No perspective or isometric ground, no stone islands, no towers, no water included in either bridge; low rail posts only. BOTTOM LEFT: front-facing rectangular timber-and-iron prisoner cage, barred walls, closed barred door with visible latch, empty interior, horizontal ground base, no prisoners drawn; not a wagon or animal carrier. BOTTOM RIGHT: simple front-facing medieval bandit canvas tent, worn tan-grey cloth over poles, triangular silhouette, dark open flap entrance, ropes and pegs, no building walls, no roof tiles/thatch, no flags. Entire assets fully visible within cells, no surrounding scenery or people, low pixel detail suited to 32px bridge tiles and 48px props.",
+    "reference": "Existing game tree sprite",
+    "source": "props-sheet.png"
+  }
+}

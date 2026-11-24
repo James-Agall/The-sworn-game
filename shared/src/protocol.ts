@@ -231,6 +231,10 @@ export enum TileType {
   LeadOre = 167,
   LeadMine = 168,
   TownQuestBoard = 169,
+  MarshGround = 170,
+  MarshReeds = 171,
+  RiverBridge = 172,
+  PrisonCage = 173,
 
 }
 
@@ -347,7 +351,7 @@ export interface ClanSnapshot {
 }
 
 export function isRoadTile(tile: TileType): boolean {
-  return tile === TileType.Road || tile === TileType.CobbleRoad;
+  return tile === TileType.Road || tile === TileType.CobbleRoad || tile === TileType.RiverBridge;
 }
 
 // Ground biome per tile, a separate layer from TileType (sent once in `welcome`, never changes
@@ -440,6 +444,7 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.PropCross ||
     tile === TileType.PropLanternPost ||
     tile === TileType.TownQuestBoard ||
+    tile === TileType.PrisonCage ||
     tile === TileType.WardStone ||
     tile === TileType.HunterHut ||
     tile === TileType.ForagerHut ||

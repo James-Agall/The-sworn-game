@@ -39,6 +39,8 @@ export interface CampSymbol {
 // "." open ground (must be clear at stamp time). Solid: H # T W x b c L r +; walkable: . g m a e p.
 // W "watch post": a lantern lookout (decor; a firing tower would need site ownership + its own art).
 export const CAMP_LEGEND: Record<string, CampSymbol> = {
+  C: {label:'Prisoner cage',tile:TileType.PrisonCage,color:'#675748'},
+  w: {label:'Timber camp wall',tile:TileType.Wall,color:'#7a5230'},
   ".": { label: "Open ground", color: "#c9d6a0" },
   H: { label: "Hearth (camp fire)", tile: TileType.PropCampfire, color: "#e2572b" },
   "#": { label: "Palisade (fence)", tile: TileType.PropFence, color: "#7a5230" },

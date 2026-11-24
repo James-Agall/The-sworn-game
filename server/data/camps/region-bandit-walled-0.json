@@ -1,0 +1,35 @@
+{
+  "id": "region-bandit-walled-0",
+  "name": "Regional bandit camp",
+  "tier": 1,
+  "weight": 0,
+  "minStartDist": 0,
+  "guards": [
+    3,
+    4
+  ],
+  "entrance": "S",
+  "rotate": false,
+  "mirror": false,
+  "rows": [
+    "wwwwwwwwwwwwwwwwwww",
+    "w.................w",
+    "w.................w",
+    "w........C........w",
+    "w..T....p.p...T...w",
+    "w.................w",
+    "w....x.......x....w",
+    "w.................w",
+    "w......m...a......w",
+    "w...L....H.....b..w",
+    "w.................w",
+    "w......m...a......w",
+    "w.................w",
+    "w.................w",
+    "w...T.........T...w",
+    "w.................w",
+    "w.W...............w",
+    "w.................w",
+    "wwwwwwww...wwwwwwww"
+  ]
+}

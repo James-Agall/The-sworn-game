@@ -62,7 +62,7 @@ export function registerHearth(
 
 // What a fallen camp's fire spreads to: the old camp's props (8 neighbours), or a templated camp's props, tents
 // and watch posts within its radius.
-const CAMP_BURNABLE = new Set<number>([...ENCAMPMENT_EXTRAS, TileType.Tent, TileType.PropLanternPost]);
+const CAMP_BURNABLE = new Set<number>([...ENCAMPMENT_EXTRAS, TileType.Tent, TileType.PrisonCage, TileType.PropLanternPost]);
 const CAMP_BURN_EFFECTS_MAX = 12;
 
 export function standingHearthAt(tx: number, ty: number): HearthState | undefined {
@@ -292,7 +292,9 @@ export function updatePrisonerWalkUp() {
     for (const h of hearths.values()) {
       if (h.destroyed || !h.prisoners) continue;
       const c = tileToPixelCenter(h);
-      if (Math.hypot(player.x - c.x, player.y - c.y) > (PRISONER_WALKUP_TILES + 0.5) * TILE_SIZE || hearthGuarded(h)) continue;
+      let near=Math.hypot(player.x-c.x,player.y-c.y)<=(PRISONER_WALKUP_TILES+.5)*TILE_SIZE;
+      if(!near&&h.campTemplate?.startsWith('region-bandit-')&&Math.max(Math.abs(player.x/TILE_SIZE-h.x),Math.abs(player.y/TILE_SIZE-h.y))<=(h.campRadius??9)+PRISONER_WALKUP_TILES+1){const r=h.campRadius??9;for(let y=h.y-r;y<=h.y+r;y++)for(let x=h.x-r;x<=h.x+r;x++)if(state.tiles[tileIndex(x,y)]===TileType.PrisonCage&&Math.hypot(player.x-(x+.5)*TILE_SIZE,player.y-(y+.5)*TILE_SIZE)<=(PRISONER_WALKUP_TILES+.5)*TILE_SIZE)near=true;}
+      if(!near||hearthGuarded(h))continue;
       rescuePrisoners(h, "p:" + player.id);
     }
   }

@@ -1,3 +1,4 @@
+import {ruralHomestead,banditRegion,expandRuins,marshTile} from './regionDetails.js';
 import { Biome, TILE_SIZE, TileType } from '@colony/shared/protocol';
 import { planRegions, regionCityTemplate, REGION_SIZE, type RegionPlan } from '@colony/shared/regions';
 import { state, sites, gates } from './state.js';
@@ -12,7 +13,7 @@ import { seedHomeDesign } from './interiors.js';
 
 export let generatedRegionPlan: RegionPlan | null = null;
 export function restoreRegionPlan(plan: RegionPlan | undefined) { generatedRegionPlan=plan?.version===1?plan:null; }
-export function generateRegionWorld(version = 19) {
+export function generateRegionWorld(version = 20) {
  const width=state.WORLD_TILES_X,height=state.WORLD_TILES_Y;
  const plan=planRegions(width,height,state.worldNoiseSalt,version);
  generatedRegionPlan=plan;
@@ -32,6 +33,7 @@ export function generateRegionWorld(version = 19) {
  const centre=state.townCenters[0];
  const safe=(x:number,y:number)=>Math.hypot(x-centre.x,y-centre.y)<20||landmarkAt(x,y);
  const write=(x:number,y:number,tile:TileType)=>{if(inBounds(x,y)&&!safe(x,y))setTile(tileIndex(x,y),tile);};
+ const riverX=width>192?Math.floor(width*.22):Math.floor(width*.12);
  const roads=new Set<number>();
  const road=(x:number,y:number)=>{if(inBounds(x,y))roads.add(tileIndex(x,y));};
  for(const r of plan.regions){
@@ -41,7 +43,7 @@ export function generateRegionWorld(version = 19) {
    let last=0;
    for(let step=0;step<=32;step++){
     // Flat at both endpoints so adjacent regions keep their agreed road sockets.
-    const offset=version>=13&&r.city===undefined?Math.round(Math.sin(step*Math.PI/16)*3*Math.sin(step*Math.PI/32)):0;
+    const offset=version>=20&&horizontal&&x<=riverX+10&&x+32>=riverX-10?0:version>=13&&r.city===undefined?Math.round(Math.sin(step*Math.PI/16)*3*Math.sin(step*Math.PI/32)):0;
     for(let cross=Math.min(last,offset);cross<=Math.max(last,offset);cross++)road(x+(horizontal?step:cross),y+(horizontal?cross:step));
     last=offset;
    }
@@ -59,20 +61,21 @@ export function generateRegionWorld(version = 19) {
    if(safe(x,y)||roads.has(tileIndex(x,y)))continue;
    const roll=Math.random();
    state.biomes[tileIndex(x,y)]=r.kind==='marsh'?Biome.Swamp:r.kind==='cave'?Biome.Hills:Biome.Plains;
+   if(version>=20&&r.kind==='marsh'){write(x,y,marshTile(x%32,y%32,r.variant,roll));continue;}
    if(r.kind==='forest'&&roll<.25+r.variant*.025)write(x,y,TileType.Tree);
    else if(r.kind==='marsh'&& (version<13?roll<.16:Math.hypot(x%32-(9+r.variant),y%32-10)<4||Math.hypot(x%32-22,y%32-(22-r.variant))<3))write(x,y,TileType.Water);
-   else if(r.kind==='countryside'&&x%32>=5&&x%32<=9&&y%32>=5&&y%32<=9)write(x,y,TileType.FarmPlot);
+   else if(version<20&&r.kind==='countryside'&&x%32>=5&&x%32<=9&&y%32>=5&&y%32<=9)write(x,y,TileType.FarmPlot);
    else if(roll<.06)write(x,y,TileType.Tree);
    else if(roll<.072)write(x,y,TileType.Rock);
    else if(roll<.077)write(x,y,TileType.IronOre);
   }
  }
  // A continuous river occupies one column, avoiding the initial settlement and city footprints.
- const riverX=width>192?Math.floor(width*.22):Math.floor(width*.12);
  let previousRiverX=riverX;
  for(let y=1;y<height-1;y++){
   const centreX=version>=13?riverX+Math.round(Math.sin(y/23)*5):riverX;
-  for(let x=Math.min(previousRiverX,centreX);x<=Math.max(previousRiverX,centreX);x++){
+  const radius=version>=20?1+Math.round((1+Math.sin(y/31))*1.5):0;
+  for(let x=Math.min(previousRiverX,centreX)-radius;x<=Math.max(previousRiverX,centreX)+radius;x++){
    const r=plan.regions[Math.floor(y/32)*plan.columns+Math.floor(x/32)];
    if(r?.city===undefined)write(x,y,TileType.Water);
   }
@@ -115,6 +118,9 @@ export function generateRegionWorld(version = 19) {
   if(x<14||y<14||x>=width-14||y>=height-14||safe(x,y)||r.kind==='city')continue;
   // Keep all encounters away from the shared road hub. Their approach is a short branch.
   const at={x:x-7,y:y-7};
+  const detail={r,roads,road,safe};
+  if(version>=20&&r.kind==='countryside'){ruralHomestead(detail);continue;}
+  if(version>=20&&r.kind==='camp'){banditRegion(detail);continue;}
   if(r.kind==='fort'){
    if(r.city!==undefined)continue;
    if(r.x===0||r.y===0||r.x>=plan.columns-1||r.y>=plan.rows-1||Math.hypot(x-centre.x,y-centre.y)<64)continue;
@@ -133,7 +139,7 @@ export function generateRegionWorld(version = 19) {
    }
   }else if(r.kind==='ruin'){
    for(let yy=at.y-4;yy<=at.y+4;yy++)for(let xx=at.x-4;xx<=at.x+4;xx++)write(xx,yy,TileType.Empty);
-   placePoiSite('ruin',at);
+   placePoiSite('ruin',at);if(version>=20)expandRuins(detail,at);
   }else if(r.kind==='cave'){
    // An outdoor rocky cave encounter uses existing rock and cave-creature entities.
    for(let dx=-4;dx<=4;dx++)for(let dy=-4;dy<=0;dy++)write(at.x+dx,at.y+dy,TileType.Rock);
@@ -149,8 +155,8 @@ export function generateRegionWorld(version = 19) {
   if(landmarkAt(x,y)||ownerAt(i)!==0||state.tiles[i]===TileType.TownCenter)continue;
   const tile=state.tiles[i];
   if([TileType.Empty,TileType.Tree,TileType.Rock,TileType.IronOre,TileType.Water].includes(tile)){
-   setTile(i,tile===TileType.Water?TileType.Drawbridge:TileType.Road);
-   if(tile===TileType.Water)gates.set(i,{open:true,lock:'auto',clearTicks:0,overrun:false});
+   setTile(i,tile===TileType.Water?(version>=20?TileType.RiverBridge:TileType.Drawbridge):TileType.Road);
+   if(tile===TileType.Water&&version<20)gates.set(i,{open:true,lock:'auto',clearTicks:0,overrun:false});
   }
  }
  // Ensure the centre of every external city connector is open all the way to its street.
