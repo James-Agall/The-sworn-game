@@ -203,6 +203,7 @@ export interface MineMobLive {
 }
 // The mine's line in the interior view (status, monsters left, hazards now).
 export interface MineView {
+  encounter?: "camp"|"cave"|"ruin";
   // The mine's tile (its ore face is drawn in its colours).
   tile: number;
   // Layered Mine: the layer the hero is on (1-3), the layers open, what this layer yields.

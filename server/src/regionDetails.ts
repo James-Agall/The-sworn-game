@@ -11,11 +11,13 @@ export function marshTile(x:number,y:number,variant:number,roll:number):TileType
  return wet?TileType.Water:roll<.6?TileType.MarshGround:roll<.84?TileType.MarshReeds:roll<.9?TileType.Tree:TileType.Empty;
 }
 interface Context {r:Region;roads:Set<number>;road:(x:number,y:number)=>void;safe:(x:number,y:number)=>boolean}
-export function ruralHomestead({r,roads,road,safe}:Context){
+export function ruralHomestead({r,roads,road,safe}:Context,varied=false){
  const x0=r.x*32,y0=r.y*32;
+ const pos=(x:number,y:number)=>({x:x0+(varied&&r.variant%2?31-x:x),y:y0+y});
+ const idx=(x:number,y:number)=>{const p=pos(x,y);return tileIndex(p.x,p.y);};
  // Do not partly stamp a farm over a landmark or the player's starting settlement.
  for(let y=1;y<31;y++)for(let x=1;x<31;x++)if(safe(x0+x,y0+y))return;
- const free=(x:number,y:number)=>!roads.has(tileIndex(x0+x,y0+y))&&state.tiles[tileIndex(x0+x,y0+y)]!==TileType.Water;
+ const free=(x:number,y:number)=>!roads.has(idx(x,y))&&state.tiles[idx(x,y)]!==TileType.Water;
  const cols=5+r.variant%2,rows=3+r.variant%2;
  // Keep complete orchard rows on dry ground. Water-side farms can swap their southern plots.
  const orchard=[[20,20,4,23,10,27],[2,20,22,23,28,27]].find(([ox,oy,hx,hy,cx,cy])=>{
@@ -26,33 +28,33 @@ export function ruralHomestead({r,roads,road,safe}:Context){
  for(let y=3;y<=10;y++)for(let x=21;x<=29;x++)if(!free(x,y))return;
  const [ox,oy,hx,hy,cx,cy]=orchard;
  const owner=siteNumber(`rural:${r.x}:${r.y}`,true);
- const put=(x:number,y:number,t:TileType)=>{const xx=x0+x,yy=y0+y,i=tileIndex(xx,yy);if(!inBounds(xx,yy)||roads.has(i)||state.tiles[i]===TileType.Water)return false;setTile(i,t);if(t===TileType.FenceGate)gates.set(i,{open:false,lock:'auto',clearTicks:0,overrun:false});if(t!==TileType.Empty)setOwner(i,owner);return true;};
- for(let y=1;y<31;y++)for(let x=1;x<31;x++)if([TileType.Tree,TileType.Rock,TileType.IronOre,TileType.FarmPlot].includes(state.tiles[tileIndex(x0+x,y0+y)]))put(x,y,TileType.Empty);
+ const put=(x:number,y:number,t:TileType)=>{const {x:xx,y:yy}=pos(x,y),i=tileIndex(xx,yy);if(!inBounds(xx,yy)||roads.has(i)||state.tiles[i]===TileType.Water)return false;setTile(i,t);if(t===TileType.FenceGate)gates.set(i,{open:false,lock:'auto',clearTicks:0,overrun:false});if(t!==TileType.Empty)setOwner(i,owner);return true;};
+ for(let y=1;y<31;y++)for(let x=1;x<31;x++)if([TileType.Tree,TileType.Rock,TileType.IronOre,TileType.FarmPlot].includes(state.tiles[idx(x,y)]))put(x,y,TileType.Empty);
  let fields=0;
- for(let y=2;y<=11;y++)for(let x=2;x<=11;x++)if(put(x,y,TileType.FarmPlot))fields++;
- for(let y=2;y<14&&fields<100;y++)for(let x=2;x<14&&fields<100;x++)if(state.tiles[tileIndex(x0+x,y0+y)]===TileType.Empty&&put(x,y,TileType.FarmPlot))fields++;
+ for(let y=2;y<2+(varied&&r.variant%4>=2?9:10);y++)for(let x=2;x<2+(varied&&r.variant%4>=2?12:10);x++)if(put(x,y,TileType.FarmPlot))fields++;
+ for(let y=2;y<14&&fields<100;y++)for(let x=2;x<14&&fields<100;x++)if(state.tiles[idx(x,y)]===TileType.Empty&&put(x,y,TileType.FarmPlot))fields++;
  // A separate fenced, gated livestock enclosure to the north-east.
  const pen:number[]=[];
  for(let y=3;y<=10;y++)for(let x=21;x<=29;x++){
   const edge=x===21||x===29||y===3||y===10;
   put(x,y,edge?(x===25&&y===10?TileType.FenceGate:TileType.PropFence):TileType.Empty);
-  if(!edge&&state.tiles[tileIndex(x0+x,y0+y)]===TileType.Empty)pen.push(tileIndex(x0+x,y0+y));
+  if(!edge&&state.tiles[idx(x,y)]===TileType.Empty)pen.push(idx(x,y));
  }
  // Register gates just as player paddock gates, but do not attach them to a settlement AI.
  put(23,5,TileType.Pasture);
  if(pen.length)createRuralAnimalZone(`rural:${r.x}:${r.y}`,'Countryside livestock pen',pen);
  put(13,5,TileType.BarnPost);
- for(const [x,y,base]of [[hx,hy,'farmhouse'],[cx,cy,'cottage']] as const){put(x,y,TileType.House);seedHomeDesign(x0+x,y0+y,base);}
+ for(const [x,y,base]of [[hx,hy,'farmhouse'],[cx,cy,'cottage']] as const){put(x,y,TileType.House);const q=pos(x,y);seedHomeDesign(q.x,q.y,base);}
  for(let row=0;row<rows;row++)for(let k=0;k<cols;k++)put(ox+k*2,oy+row*2,TileType.FruitTree);
  // Make up any crop cells lost to a river on this farm's western field belt.
- const fillFields=()=>{fields=0;for(let y=1;y<31;y++)for(let x=1;x<31;x++)if(state.tiles[tileIndex(x0+x,y0+y)]===TileType.FarmPlot)fields++;
+ const fillFields=()=>{fields=0;for(let y=1;y<31;y++)for(let x=1;x<31;x++)if(state.tiles[idx(x,y)]===TileType.FarmPlot)fields++;
  for(let y=2;y<30&&fields<100;y++)for(let x=2;x<14&&fields<100;x++){
   if((x>=ox&&x<=ox+(cols-1)*2&&y>=oy&&y<=oy+(rows-1)*2)||(Math.abs(x-hx)<=1&&Math.abs(y-hy)<=2)||(Math.abs(x-cx)<=1&&Math.abs(y-cy)<=2)||(Math.abs(x-13)<=1&&Math.abs(y-5)<=2))continue;
-  if(state.tiles[tileIndex(x0+x,y0+y)]===TileType.Empty&&put(x,y,TileType.FarmPlot))fields++;
+  if(state.tiles[idx(x,y)]===TileType.Empty&&put(x,y,TileType.FarmPlot))fields++;
  }
  };fillFields();
  const connect=(sx:number,sy:number)=>{
-  const start=tileIndex(x0+sx,y0+sy),q=[start],prev=new Map<number,number>([[start,start]]);let end=-1;
+  const p=pos(sx,sy),start=tileIndex(p.x,p.y),q=[start],prev=new Map<number,number>([[start,start]]);let end=-1;
   for(let k=0;k<q.length;k++){const i=q[k],x=i%state.WORLD_TILES_X,y=Math.floor(i/state.WORLD_TILES_X);if(roads.has(i)){end=i;break;}
    for(const [dx,dy]of [[0,1],[1,0],[-1,0],[0,-1]]){const xx=x+dx,yy=y+dy,j=tileIndex(xx,yy);if(xx<=x0||xx>=x0+31||yy<=y0||yy>=y0+31||prev.has(j)||isSolidTile(state.tiles[j])||isGateTile(state.tiles[j]))continue;prev.set(j,i);q.push(j);}
   }
@@ -60,6 +62,7 @@ export function ruralHomestead({r,roads,road,safe}:Context){
  };
  for(const [x,y]of [[13,6],[hx,hy+1],[cx,cy+1],[25,11]])connect(x,y);
  fillFields();
+ if(varied){let planted=0;for(let n=0;n<100&&planted<14;n++){const x=2+(n*7+r.variant*3)%28,y=2+(n*11+r.variant*5)%28;if(state.tiles[idx(x,y)]!==TileType.Empty||roads.has(idx(x,y))||(x>=20&&y<=11)||(x>=ox-1&&x<=ox+(cols-1)*2+1&&y>=oy-1&&y<=oy+(rows-1)*2+1))continue;let near=false;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)if(state.tiles[idx(x+dx,y+dy)]!==TileType.Empty)near=true;if(!near&&put(x,y,TileType.Tree)){setOwner(idx(x,y),0);planted++;}}}
 }
 export function banditRegion({r,roads,road}:Context){
  const x=r.x*32+16,y=r.y*32+16,variant=r.variant%3,walled=r.variant>=3;

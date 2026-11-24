@@ -17,7 +17,7 @@ for(const url of REGION_NATURE_URLS)assert(existsSync('client/public'+url),url);
 assert(isRoadTile(TileType.RiverBridge)&&!isSolidTile(TileType.RiverBridge));
 loadBuildingTemplates();loadSettlementTemplates();loadCampTemplates();
 for(const kind of ['open','walled'])for(let v=0;v<3;v++)assert.deepEqual(validateCampTemplate(campTemplateById(`region-bandit-${kind}-${v}`)),[]);
-await generateWorld(42);
+await generateWorld(42,fn=>fn(),20);
 assert(generatedRegionPlan);
 const byKind=new Map<string,number[]>();
 for(const r of generatedRegionPlan.regions){if(r.city!==undefined)continue;const tiles:number[]=[];for(let y=r.y*32;y<r.y*32+32;y++)for(let x=r.x*32;x<r.x*32+32;x++)tiles.push(state.tiles[y*state.WORLD_TILES_X+x]);byKind.set(r.kind,[...(byKind.get(r.kind)??[]),...tiles]);}

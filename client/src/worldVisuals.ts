@@ -8,6 +8,11 @@ import { artUrl, frameUrls } from "./unitVisuals";
 
 // Sprite art per tile type. Empty (bare floor) is deliberately absent.
 export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
+  [TileType.CampEntrance]: "regions-v2/tent",
+  [TileType.CaveEntrance]: "regions-v3/cave-entrance",
+  [TileType.RuinEntrance]: "regions-v3/ruin-entrance",
+  [TileType.RuinSideEntrance]: "regions-v3/ruin-entrance",
+  [TileType.CaveRock]: "regions-v3/rock-block",
   [TileType.MarshGround]: "regions-v2/marsh",
   [TileType.MarshReeds]: "regions-v2/reeds",
   [TileType.RiverBridge]: "regions-v2/bridge-h",

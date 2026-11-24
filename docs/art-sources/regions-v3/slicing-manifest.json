@@ -1,0 +1,42 @@
+[
+  {
+    "name": "cave-entrance",
+    "cell": 0,
+    "crop": [
+      0,
+      17,
+      656,
+      599
+    ]
+  },
+  {
+    "name": "rock-block",
+    "cell": 1,
+    "crop": [
+      5,
+      33,
+      638,
+      598
+    ]
+  },
+  {
+    "name": "rock-ridge",
+    "cell": 2,
+    "crop": [
+      0,
+      0,
+      618,
+      519
+    ]
+  },
+  {
+    "name": "ruin-entrance",
+    "cell": 3,
+    "crop": [
+      14,
+      10,
+      622,
+      562
+    ]
+  }
+]

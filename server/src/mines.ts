@@ -15,6 +15,11 @@
 // every layer has its own status / monsters (danger by layer: MINE_LAYER_*), a new layer breaks into a nest, and the
 // miners dig the resources of every clear / cleared open layer in turn (mineBatch). Under COLONY_UNLOCK_ALL a Mine digs
 // iron ore like the old Iron Mine.
+import {encounterKind,encounterMap,encounterAnchor,encounterVariant,encounterEnemies,ENCOUNTER_LABEL,type EncounterKind} from '@colony/shared/encounters';
+import {hearths} from './state.js';
+import {rescuePrisoners} from './people.js';
+import {noteQuestCampCleared} from './quests.js';
+import type {HearthState} from './types.js';
 import { TICK_RATE, TILE_SIZE, TileType, HungerMark, type MobKind } from "@colony/shared/protocol";
 import { buildInteriorMap, interiorSolidGrid, type InteriorMap } from "@colony/shared/interiors";
 import {
@@ -72,6 +77,8 @@ interface LayerRec {
   rollDay: number;
 }
 interface MineRec {
+  encounter?:EncounterKind;
+  variant?:number;
   tx: number;
   ty: number;
   // The depth the record has seen (rolled up to).
@@ -133,11 +140,11 @@ function mineMap(level: number, variant: number) {
   }
   return m;
 }
-const layerMap = (r: MineRec, li: number) => mineMap(Math.max(1, r.level), variantOf(r, li));
+const layerMap = (r: MineRec, li: number) => r.encounter?encounterMap(r.encounter,r.variant):mineMap(Math.max(1, r.level), variantOf(r, li));
 
 // ---- records ----
 export function mineRecAt(tx: number, ty: number): MineRec | undefined {
-  return mines.get(keyOf(tx, ty));
+  const a=encounterAnchor(tx,ty,state.tiles[tileIndex(tx,ty)]);return mines.get(keyOf(a.x,a.y));
 }
 // Any layer infested (the Quarry: infested).
 export function isMineInfested(tx: number, ty: number): boolean {
@@ -179,7 +186,7 @@ function pickKind(r: MineRec, li: number): MobKind {
 }
 
 function newMob(kind: MobKind, mult: number, x: number, y: number, hp?: number): MineMob | null {
-  const st = MINE_MOB_STATS[kind];
+  const st = MINE_MOB_STATS[kind]??(kind==='banditClubman'?{hp:30,damage:7,speed:2.1,cooldownTicks:24}:kind==='banditArcher'?{hp:25,damage:5,speed:1.8,cooldownTicks:32}:undefined);
   if (!st) return null;
   const maxHp = Math.round(st.hp * mult);
   return {
@@ -231,12 +238,19 @@ function infest(r: MineRec, li: number, why: "dug" | "returned" | "forced", kind
   withClan(clanAt(r), () => broadcastEvent("raid", text));
 }
 
-function clearLayer(r: MineRec, li: number, by: string) {
+function clearLayer(r: MineRec, li: number, by: string, p?:Player|null) {
   const L = r.layers[li];
   L.status = "cleared";
   L.mobs = [];
   L.clearedDay = today();
   L.rollDay = today();
+  if(r.encounter){
+    const gold=r.encounter==='camp'?40:r.encounter==='ruin'?60:30;
+    withClan(clanById(p?.clan??0),()=>{state.stock.gold+=gold;broadcastEvent('milestone',`${ENCOUNTER_LABEL[r.encounter!]} cleared (+${gold} gold).`);});
+    const h=landmarkHearth(r.tx,r.ty,true);noteQuestCampCleared(h,p?'p:'+p.id:undefined);
+    if(r.encounter==='camp'){state.campsDestroyed++;hearths.set(h.siteId,h);rescuePrisoners(h,p?'p:'+p.id:undefined);}
+    return;
+  }
   withClan(clanAt(r), () => {
     state.stock.gold += MINE_CLEAR_GOLD;
     broadcastEvent("milestone", `The ${layerLabel(r, li)} is cleared${by ? ` by ${by}` : ""} (+${MINE_CLEAR_GOLD} gold): the miners ${r.layered ? `dig ${mineLayerResourcesText(li + 1)} there` : "go back to work"}`);
@@ -300,7 +314,7 @@ function syncMines() {
     }
   }
   seedExisting = false;
-  for (const k of mines.keys()) if (!seen.has(k)) mines.delete(k);
+  for (const [k,r] of mines) if (!seen.has(k)&&(!r.encounter||encounterKind(state.tiles[tileIndex(r.tx,r.ty)])!==r.encounter)) mines.delete(k);
 }
 
 // ---- production (colonists.ts / progression.ts) ----
@@ -409,6 +423,7 @@ export function minesDawn() {
   if (gatesOff()) return;
   const d = today();
   for (const r of mines.values()) {
+    if(r.encounter)continue;
     const clan = clanAt(r);
     const label = labelOf(r);
     withClan(clan, () => {
@@ -455,6 +470,7 @@ function reinfestChance(r: MineRec, clan: Clan, li: number): number {
 // ---- loot ----
 function lootFor(r: MineRec, li: number, m: MineMob): string[] {
   const got: string[] = [];
+  if(r.encounter){state.stock.gold+=2;return ['2 gold'];}
   const tile = state.tiles[tileIndex(r.tx, r.ty)];
   if (r.layered) {
     // A Mine: one of the layer's own resources.
@@ -483,14 +499,14 @@ function lootFor(r: MineRec, li: number, m: MineMob): string[] {
 // A monster dies (by the hero `p`, or soldiers): loot to the mine's clan; the last one clears the layer.
 function killMob(r: MineRec, li: number, m: MineMob, p: Player | null) {
   m.hp = 0;
-  const got = withClan(clanAt(r), () => lootFor(r, li, m));
+  const got = withClan(r.encounter?clanById(p?.clan??0):clanAt(r), () => lootFor(r, li, m));
   if (p) {
     heroRewardsForKill({ kind: m.kind, mark: HungerMark.None, isDeserter: false, maxHp: m.maxHp, damage: m.damage } as unknown as Mob, "p:" + p.id);
     sendTo(p, { type: "event", category: "build", text: `${m.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase())} slain: ${got.join(", ")}` });
   }
   const L = r.layers[li];
   L.mobs = L.mobs.filter((q) => q.hp > 0);
-  if (L.mobs.length === 0 && L.status === "infested") clearLayer(r, li, p ? "you" : "your soldiers");
+  if (L.mobs.length === 0 && L.status === "infested") clearLayer(r, li, p ? "you" : "your soldiers",p);
 }
 
 // ---- inside: the hero's swing, the monsters' hunt ----
@@ -520,7 +536,7 @@ export function mineHeroAttack(p: Player): boolean {
   let bestD = Infinity;
   for (const m of aliveIn(L)) {
     const d = Math.hypot(m.x - h.x, m.y - h.y);
-    if (d <= reach && d < bestD) {
+    if (d <= reach && d < bestD && clearSight(layerMap(r,li),h,m)) {
       best = m;
       bestD = d;
     }
@@ -585,7 +601,7 @@ function stepMobs(r: MineRec, li: number, inside: Player[]) {
       wake(L, m);
     }
     m.face = near.x < m.x ? "l" : near.x > m.x ? "r" : m.face;
-    if (near.d <= MINE_MOB_REACH_TILES) {
+    if (near.d <= (m.kind==='banditArcher'?3.5:MINE_MOB_REACH_TILES)&&clearSight(layerMap(r,li),m,near)) {
       m.act = "attack";
       m.path = [];
       if (m.cd <= 0) {
@@ -599,6 +615,7 @@ function stepMobs(r: MineRec, li: number, inside: Player[]) {
       m.path = pathOn(layerMap(r, li), m, near);
       m.repathAt = state.cycleTick + 10;
     }
+    if(!m.path.length&&!clearSight(layerMap(r,li),m,near)){m.act='idle';continue;}
     const target = m.path.length > 0 ? m.path[0] : { x: near.x, y: near.y };
     const dx = target.x - m.x;
     const dy = target.y - m.y;
@@ -653,7 +670,7 @@ export function updateMines() {
   for (const { r, li, ps } of inMine.values()) {
     const L = r?.layers[li];
     if (r && L && L.status === "infested") stepMobs(r, li, ps);
-    if (r && state.cycleTick % TICK_RATE === 0) for (const p of ps) heroPresenceHazard(r, li, p);
+    if (r && !r.encounter && state.cycleTick % TICK_RATE === 0) for (const p of ps) heroPresenceHazard(r, li, p);
     if (state.cycleTick % MINE_MOB_SEND_TICKS !== 0) continue;
     const live = liveOf(L);
     const json = `${li}:${JSON.stringify(live)}`;
@@ -684,7 +701,8 @@ export function mineView(tx: number, ty: number, variant = 0): MineView | undefi
   const L = r.layers[li];
   if (!L) return undefined;
   return {
-    tile: state.tiles[tileIndex(tx, ty)], status: L.status, monsters: aliveIn(L).length, hazards: hazardLines(r, clanAt(r)),
+    ...(r.encounter?{encounter:r.encounter}:{}),
+    tile: state.tiles[tileIndex(tx, ty)], status: L.status, monsters: aliveIn(L).length, hazards: r.encounter?[]:hazardLines(r, clanAt(r)),
     ...(r.layered ? { layer: li + 1, layers: r.layers.length, yields: mineLayerResourcesText(li + 1) } : {}),
   };
 }
@@ -833,6 +851,8 @@ interface LayerSave {
   rollDay: number;
 }
 interface MineSave {
+  encounter?:EncounterKind;
+  variant?:number;
   key: string;
   level: number;
   layered: boolean;
@@ -845,7 +865,7 @@ interface MineSave {
 }
 export function minesForSave(): MineSave[] {
   return Array.from(mines.entries(), ([key, r]) => ({
-    key, level: r.level, layered: r.layered,
+    key, level: r.level, layered: r.layered, ...(r.encounter?{encounter:r.encounter,variant:r.variant}:{}),
     layers: r.layers.map((L) => ({ status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
     propsDay: r.propsDay, closedDay: r.closedDay, closedWhy: r.closedWhy, unpropped: r.unpropped, turn: r.turn,
   }));
@@ -863,6 +883,7 @@ export function restoreMines(data: unknown) {
     const [tx, ty] = e.key.split(",").map(Number);
     const layered = e.layered === true;
     const r = newRec(tx, ty, Math.max(0, Math.min(3, num(e.level, 1))), layered);
+    if(['camp','cave','ruin'].includes(e.encounter??'')){r.encounter=e.encounter;r.variant=Math.max(0,Math.min(3,num(e.variant,0)));}
     Object.assign(r, { propsDay: num(e.propsDay, r.propsDay), closedDay: num(e.closedDay, -1), closedWhy: typeof e.closedWhy === "string" ? e.closedWhy : "", unpropped: e.unpropped === true, turn: num(e.turn, 0) });
     r.layers = e.layers.slice(0, 3).map((s, li) => {
       const L = newLayer();
@@ -938,4 +959,23 @@ export function mineDebug(msg: Record<string, unknown>) {
     day: today(),
     forcedRoll,
   };
+}
+
+
+// Encounter records are allocated only when entered; dormant rooms never run AI.
+export function ensureEnteredEncounter(tx:number,ty:number){
+ const kind=encounterKind(state.tiles[tileIndex(tx,ty)]);if(!kind)return;
+ const a=encounterAnchor(tx,ty,state.tiles[tileIndex(tx,ty)]),key=keyOf(a.x,a.y);let r=mines.get(key);if(r)return r;
+ r=newRec(a.x,a.y,1,false);r.encounter=kind;r.variant=encounterVariant(a.x,a.y);mines.set(key,r);r.layers[0].status='infested';spawnEncounter(r,0,encounterEnemies(kind));return r;
+}
+export function landmarkHearth(x:number,y:number,destroyed=false):HearthState{return {siteId:`landmark:${x},${y}`,siteKind:'encampment',x,y,hp:destroyed?0:100,maxHp:100,destroyed,faction:'bandit',garrison:6,prisoners:2};}
+export function encounterInteract(p:Player){
+ const I=p.interior;if(!I||!encounterKind(I.tile))return false;
+ const map=layerMap(mineRecAt(I.tx,I.ty)!,0).map;
+ if(Math.hypot(I.x/TILE_SIZE-.5-map.exit.x,I.y/TILE_SIZE-.5-map.exit.y)<2)return false;
+ const r=mineRecAt(I.tx,I.ty);sendEvent(p,'build',r?.layers[0].status==='cleared'?'This place is cleared. Its spoils have been collected.':'Defeat the inhabitants to secure this place and its spoils.');return true;
+}
+function clearSight(grid:{map:InteriorMap;solid:Uint8Array},a:{x:number;y:number},b:{x:number;y:number}){
+ const steps=Math.ceil(Math.hypot(a.x-b.x,a.y-b.y)*4);
+ for(let n=1;n<steps;n++){const x=Math.round(a.x+(b.x-a.x)*n/steps),y=Math.round(a.y+(b.y-a.y)*n/steps);if(x<0||y<0||x>=grid.map.w||y>=grid.map.h||grid.solid[y*grid.map.w+x])return false;}return true;
 }

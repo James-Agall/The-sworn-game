@@ -1,7 +1,8 @@
+import {enteredLandmark} from './regionLandmarks.js';
 import {ruralHomestead,banditRegion,expandRuins,marshTile} from './regionDetails.js';
 import { Biome, TILE_SIZE, TileType } from '@colony/shared/protocol';
 import { planRegions, regionCityTemplate, REGION_SIZE, type RegionPlan } from '@colony/shared/regions';
-import { state, sites, gates } from './state.js';
+import { state, sites, gates,mobs } from './state.js';
 import { setTile } from './chunks.js';
 import { tileIndex, inBounds, ownerAt, setOwner } from './tiles.js';
 import { stampSettlement } from './settlementTemplates.js';
@@ -13,7 +14,7 @@ import { seedHomeDesign } from './interiors.js';
 
 export let generatedRegionPlan: RegionPlan | null = null;
 export function restoreRegionPlan(plan: RegionPlan | undefined) { generatedRegionPlan=plan?.version===1?plan:null; }
-export function generateRegionWorld(version = 20) {
+export function generateRegionWorld(version = 21) {
  const width=state.WORLD_TILES_X,height=state.WORLD_TILES_Y;
  const plan=planRegions(width,height,state.worldNoiseSalt,version);
  generatedRegionPlan=plan;
@@ -28,6 +29,11 @@ export function generateRegionWorld(version = 20) {
   }
  }
  placeAbbey(landmarks);placeCastleRuin(landmarks);
+ if(version>=21&&state.castleRuinCenter){const c=state.castleRuinCenter;
+  for(const [id,m]of mobs)if(m.siteKind==='castleRuin')mobs.delete(id);
+  setTile(tileIndex(c.x,c.y+5),TileType.RuinEntrance);setTile(tileIndex(c.x,c.y+6),TileType.Empty);
+ }
+
  for(const i of reserved)if(state.tiles[i]===TileType.Water)setTile(i,TileType.Empty);
  const landmarkAt=(x:number,y:number)=>isInAbbeyGrounds(x,y)||isInCastleRuinGrounds(x,y);
  const centre=state.townCenters[0];
@@ -119,7 +125,8 @@ export function generateRegionWorld(version = 20) {
   // Keep all encounters away from the shared road hub. Their approach is a short branch.
   const at={x:x-7,y:y-7};
   const detail={r,roads,road,safe};
-  if(version>=20&&r.kind==='countryside'){ruralHomestead(detail);continue;}
+  if(version>=20&&r.kind==='countryside'){ruralHomestead(detail,version>=21);continue;}
+  if(version>=21&&['camp','cave','ruin'].includes(r.kind)){enteredLandmark(r,r.kind as 'camp'|'cave'|'ruin',roads,road,safe);continue;}
   if(version>=20&&r.kind==='camp'){banditRegion(detail);continue;}
   if(r.kind==='fort'){
    if(r.city!==undefined)continue;

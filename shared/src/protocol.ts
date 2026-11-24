@@ -235,6 +235,11 @@ export enum TileType {
   MarshReeds = 171,
   RiverBridge = 172,
   PrisonCage = 173,
+  CampEntrance = 174,
+  CaveEntrance = 175,
+  RuinEntrance = 176,
+  CaveRock = 177,
+  RuinSideEntrance = 178,
 
 }
 
@@ -444,7 +449,7 @@ export function isSolidTile(tile: TileType): boolean {
     tile === TileType.PropCross ||
     tile === TileType.PropLanternPost ||
     tile === TileType.TownQuestBoard ||
-    tile === TileType.PrisonCage ||
+    tile === TileType.PrisonCage || tile === TileType.CampEntrance || tile === TileType.CaveEntrance || tile === TileType.RuinEntrance || tile === TileType.RuinSideEntrance || tile === TileType.CaveRock ||
     tile === TileType.WardStone ||
     tile === TileType.HunterHut ||
     tile === TileType.ForagerHut ||

@@ -1,3 +1,4 @@
+import {registerHearth} from './hearths.js';
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { livestockDebug } from "./animals.js";
@@ -885,6 +886,11 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     const ids = Array.isArray(msg.ids) ? (msg.ids as string[]) : [];
     reply({ active: Object.fromEntries(ids.map((id) => [id, mobs.get(id)?.guardianActive ?? null])) });
   } else if (msg.op === "hearthState") {
+    // Explicit legacy fixture: current regional worlds no longer create outdoor camp guards.
+    if(msg.createLegacy===true&&Number.isInteger(msg.tx)&&Number.isInteger(msg.ty)&&inBounds(msg.tx as number,msg.ty as number)){
+      const x=msg.tx as number,y=msg.ty as number,id='legacy-test-camp';setTile(tileIndex(x,y),TileType.PropCampfire);registerHearth(id,'encampment',{x,y},['banditClubman']);hearths.get(id)!.prisoners=2;
+    }
+
     // Camp hearths: every hearth with its site's living guardians, the counter and recent events.
     reply({
       campsDestroyed: state.campsDestroyed,

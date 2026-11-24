@@ -86,7 +86,7 @@ export type InteriorProp =
   // Deep mines: the ore face the miners work and the timber props holding the roof.
   | "oreFace" | "timberProp"
   // Layered mines: the way down to the Mine's next layer (walked onto; drawn with the Mine's own sprite for now).
-  | "mineShaft";
+  | "mineShaft" | "campTent" | "prisonCage" | "rockBlock" | "ruinRubble";
 // NPC slots: "1" the building's keeper (smith, baker, trader, priest, elder), "2" a second (a hall's trader),
 // "v" residents / patrons / soldiers (beside the beds and tables).
 export type InteriorNpcSlot = "1" | "2" | "v";

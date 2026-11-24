@@ -1,3 +1,5 @@
+import {encounterKind,encounterMap,encounterAnchor,encounterVariant} from '@colony/shared/encounters';
+import {ensureEnteredEncounter,encounterInteract} from './mines.js';
 import {PLAYER_BASES,HOME_PROPS,playerBaseMap,validHomeMap,type HomeDesign} from "@colony/shared/playerBases";
 // interiors.ts: Stardew phase 5c (docs PLAN-rimworld-stardew.md 5c; ROADMAP "Stardew layer — phase 5c"). The hero
 // enters a prefab building through its door (E on / walking north into it from the tile below it) and walks a small
@@ -62,6 +64,8 @@ function mapFor(id: InteriorTemplateId, level: number, variant = 0, storey = 0) 
   return m;
 }
 function designedMap(key:string, id:InteriorTemplateId,level:number,variant:number,storey=0){
+ const [ex,ey]=key.split(',').map(Number),kind=encounterKind(state.tiles[tileIndex(ex,ey)]);if(kind)return encounterMap(kind,variant);
+
  const design=homeDesigns.get(key);if(!design&&id==='house'&&storey===0&&forcedVariant===null){const [x,y]=key.split(',').map(Number);const base=['cottage','farmhouse','townhouse','hill-burrow'][(x*7+y*11)%4];const cacheKey='home-default:'+base+':'+level;let hit=maps.get(cacheKey);if(!hit){const map=playerBaseMap({base},level);const solid=interiorSolidGrid(map);const free=[];for(let yy=2;yy<map.h-2;yy++)for(let xx=2;xx<map.w-2;xx++)if(!solid[yy*map.w+xx])free.push({x:xx,y:yy,slot:'v' as const});map.slots=free.slice(0,3);hit={map,solid};maps.set(cacheKey,hit);}return hit;}if(!design||storey>0||!['house','hall'].includes(id))return mapFor(id,level,variant,storey);
  let hit=homeCache.get(design);if(!hit||hit.map.level!==level){const map=playerBaseMap(design,level);hit={map,solid:interiorSolidGrid(map)};homeCache.set(design,hit);}return hit;
 }
@@ -74,6 +78,7 @@ let forcedVariant: number | null = null;
 export function interiorTemplateAt(tx: number, ty: number): { id: InteriorTemplateId; tile: TileType; level: number; variant: number } | null {
   if (!inBounds(tx, ty)) return null;
   const tile = state.tiles[tileIndex(tx, ty)] as TileType;
+  const kind=encounterKind(tile);const a=encounterAnchor(tx,ty,tile);if(kind)return {id:'mine',tile,level:1,variant:encounterVariant(a.x,a.y)};
   const id = INTERIOR_TEMPLATE_BY_TILE[tile];
   if (!id) return null;
   const level = Math.max(1, Math.min(3, INTERIOR_FIXED_LEVEL[tile] ?? getBuildingLevel(tx, ty)));
@@ -86,6 +91,7 @@ export function interiorTemplateAt(tx: number, ty: number): { id: InteriorTempla
 // Who may go in: your own clan's buildings, a friendly human settlement's buildings, the Abbey.
 type Access = { kind: "own" } | { kind: "abbey" } | { kind: "site"; site: SiteState } | { refuse: string };
 function accessFor(p: Player, tx: number, ty: number, tile: TileType): Access {
+  if(encounterKind(tile))return {kind:'own'};
   if (tile === TileType.AbbeyHall) return { kind: "abbey" };
   const owner = ownerAt(tileIndex(tx, ty));
   if (owner !== 0) {
@@ -143,6 +149,7 @@ const bedsOf = (m: InteriorMap) => m.props.filter((q) => q.prop === "bed" || q.p
 // The people inside: bound per storey, time of day and (own buildings) the clan's real people.
 function bindNpcs(p: Player, key: string, tx: number, ty: number, map: InteriorMap, acc: Access, storey = 0): Binding[] {
   const out: Binding[] = [];
+  if(encounterKind(state.tiles[tileIndex(tx,ty)]))return out;
   if ("refuse" in acc) return out;
   const id = map.templateId;
   const phase = dayPhase();
@@ -467,6 +474,7 @@ const liveOf = (r: LiveRoom): InteriorNpcLive[] =>
 
 // ---- view ----
 function titleFor(map: InteriorMap, acc: Access, tile = 0): string {
+  if(encounterKind(tile))return map.label;
   if ("refuse" in acc) return map.label;
   if (acc.kind === "abbey") return "Saint Wren's Abbey";
   if (acc.kind === "site") return `${map.label}, ${acc.site.name}`;
@@ -575,11 +583,13 @@ export function enterInterior(p: Player, tx: number, ty: number): string {
   const near = hostilesNearDoor(tx, ty, INTERIOR_ENEMY_BLOCK_TILES);
   if (near > 0) return `Enemies are too close (${near} within ${INTERIOR_ENEMY_BLOCK_TILES} tiles): you cannot get inside`;
   stopHeroBusy(p);
-  const { map } = designedMap(`${tx},${ty}`,t.id,t.level,t.variant);
+  const a=encounterAnchor(tx,ty,t.tile),key=`${a.x},${a.y}`;
+  if(encounterKind(t.tile))ensureEnteredEncounter(tx,ty);
+  const { map } = designedMap(key,t.id,t.level,t.variant);
   // The world body waits at the door.
   const door=exteriorDoor(tx,ty);p.x=px(door.x);p.y=px(door.y);
   p.interior = {
-    key: `${tx},${ty}`, tx, ty, tile: t.tile, level: t.level, templateId: t.id, variant: t.variant, storey: 0,
+    key, tx, ty, tile: t.tile, level: t.level, templateId: t.id, variant: t.variant, storey: 0,
     x: px(map.spawn.x), y: px(map.spawn.y), sent: "", nextRefresh: state.cycleTick + INTERIOR_REFRESH_TICKS,
   };
   sendView(p, true);
@@ -782,6 +792,7 @@ export function updateInteriors() {
 
 // ---- E inside ----
 export function interiorInteract(p: Player) {
+  if(encounterInteract(p))return;
   const I = p.interior;
   const v = viewFor(p);
   if (!I || !v) return;
@@ -890,6 +901,7 @@ function move(from: Partial<Record<PackGood, number>>, to: Partial<Record<PackGo
 
 // herolife.ts handleDialogueChoice: a bed / chest choice.
 export function interiorFurnitureChoice(p: Player, action: string, arg: unknown) {
+  if(encounterInteract(p))return;
   const I = p.interior;
   const v = viewFor(p);
   if (!I || !v) return closeTalk(p);
@@ -998,6 +1010,7 @@ export function handleInteriorEdit(p:Player,m:{op:string;base?:string;floor?:str
  for(const other of players.values())if(other.interior?.key===I.key){const x=Math.floor(other.interior.x/TILE_SIZE),y=Math.floor(other.interior.y/TILE_SIZE);if(m.op==='base'||x<0||y<0||x>=map.w||y>=map.h||interiorSolidGrid(map)[y*map.w+x]){other.interior.x=px(map.spawn.x);other.interior.y=px(map.spawn.y);}other.interior.storey=0;sendView(other,true);}
 }
 export function handleInteriorUse(p:Player,x:number,y:number){
+ if(p.interior&&encounterKind(p.interior.tile)){encounterInteract(p);return;}
  const I=p.interior,v=viewFor(p);if(!I||!v||!Number.isInteger(x)||!Number.isInteger(y))return;
  if(Math.hypot(px(x)-I.x,px(y)-I.y)>INTERIOR_USE_RANGE_TILES*TILE_SIZE){toast(p,'Walk closer to use that furniture');return;}
  const q=v.view.map.props.find(q=>q.x===x&&q.y===y);if(!q)return;
@@ -1028,13 +1041,13 @@ export function worldChestChoice(p:Player,at:TalkInside,action:string,arg:unknow
 // Deep mines: the ore face of a coal / copper / tin mine is its workstation (the hero digs there).
 const WORK_PROPS=new Set(['anvil','forge','oven','workbench','counter','barrel','oreFace']);
 function ownInteriorNear(p:Player,props:Set<string>){
- const I=p.interior;if(!I||p.dead||state.tiles[tileIndex(I.tx,I.ty)]!==I.tile)return false;
+ const I=p.interior;if(!I||p.dead||encounterKind(I.tile)||state.tiles[tileIndex(I.tx,I.ty)]!==I.tile)return false;
  const acc=accessFor(p,I.tx,I.ty,I.tile as TileType);
  if(!('kind' in acc)||acc.kind!=='own')return false;
  return mapOf(I).map.props.some(q=>props.has(q.prop)&&Math.hypot(px(q.x)-I.x,px(q.y)-I.y)<=INTERIOR_USE_RANGE_TILES*TILE_SIZE);
 }
 export function ownInterior(p:Player):boolean{
- const I=p.interior;if(!I||p.dead||state.tiles[tileIndex(I.tx,I.ty)]!==I.tile)return false;
+ const I=p.interior;if(!I||p.dead||encounterKind(I.tile)||state.tiles[tileIndex(I.tx,I.ty)]!==I.tile)return false;
  const acc=accessFor(p,I.tx,I.ty,I.tile as TileType);return 'kind' in acc&&acc.kind==='own';
 }
 export function sharedStockAccess(p:Player):boolean{return ownInteriorNear(p,new Set(['chest']));}

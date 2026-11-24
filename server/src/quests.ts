@@ -5,6 +5,9 @@
 // clan, at most QUEST_MAX_PER_SITE open per settlement per clan, with a per-settlement cooldown. Completion pays
 // gold (from nowhere: the settlement's purse pays what it can) and gains relation under the daily quest cap;
 // failure / abandoning / ignoring it costs relation. Saved (additive `quests`).
+import {mineRecAt,landmarkHearth} from './mines.js';
+import {tileIndicesOf} from './chunks.js';
+import {TileType} from '@colony/shared/protocol';
 import { TILE_SIZE, TRADE_GOODS, type QuestKind, type QuestSnapshot, type TradeGood } from "@colony/shared/protocol";
 import type { HearthState, Mob, Player, SiteState } from "./types.js";
 import {
@@ -89,7 +92,8 @@ function hostileMobsNear(s: SiteState, range: number): Mob[] {
 export function campNear(s: SiteState, clanId: number): HearthState | undefined {
   let best: HearthState | undefined;
   let bestD = Infinity;
-  for (const h of hearths.values()) {
+  const landmarks=[...tileIndicesOf(TileType.CampEntrance)].filter(i=>mineRecAt(i%state.WORLD_TILES_X,Math.floor(i/state.WORLD_TILES_X))?.layers[0].status!=='cleared').map(i=>landmarkHearth(i%state.WORLD_TILES_X,Math.floor(i/state.WORLD_TILES_X)));
+  for (const h of [...hearths.values(),...landmarks]) {
     if (h.destroyed || sites.get(h.siteId)?.faction === "human") continue;
     if (quests.some((q) => q.clan === clanId && q.targetId === h.siteId)) continue;
     const d = Math.hypot(h.x - s.keepX, h.y - s.keepY);
@@ -158,6 +162,7 @@ function boardTitle(q: Quest, s: SiteState): string {
 function questText(q: Quest, s: SiteState): string {
   if (q.kind === "defend") return `Raiders prowl near ${s.name}. Kill ${q.need} hostile creatures within ${QUEST_DEFEND_RANGE_TILES} tiles of its walls before dawn, and keep its keep standing.`;
   if (q.kind === "clearCamp") {
+    if(q.targetId?.startsWith('landmark:')){const [x,y]=q.targetId.slice(9).split(',').map(Number);return `A bandit camp lies ${Math.round(Math.hypot(x-s.keepX,y-s.keepY))} tiles from ${s.name}. Enter it through its southern entrance and defeat the bandits inside.`;}
     const h = q.targetId ? hearths.get(q.targetId) : undefined;
     const d = h ? Math.round(Math.hypot(h.x - s.keepX, h.y - s.keepY)) : 0;
     if (q.help) return `${s.name} is besieged by raiders from a ${h?.faction ?? "bandit"} ${h?.siteKind === "fort" ? "fort" : "camp"} ${d} tiles away and may fall by day ${Math.floor(q.expiresTick / (DAY_TICKS + NIGHT_TICKS)) + 1}. Destroy its ${h?.siteKind === "fort" ? "keep" : "hearth"} with your own folk.`;
@@ -278,7 +283,7 @@ export function updateQuests() {
       failQuest(q, s, "its keep fell", QUEST_FAIL_PENALTY);
       continue;
     }
-    if (q.kind === "clearCamp" && (!q.targetId || hearths.get(q.targetId)?.destroyed !== false)) {
+    if (q.kind === "clearCamp" && (!q.targetId || (q.targetId.startsWith('landmark:')?(()=>{const [x,y]=q.targetId!.slice(9).split(',').map(Number);return state.tiles[y*state.WORLD_TILES_X+x]!==TileType.CampEntrance||mineRecAt(x,y)?.layers[0].status==='cleared';})():hearths.get(q.targetId)?.destroyed !== false))) {
       closeQuest(q);
       toClan(q.clan, "build", `${questTitle(q, s)}: the camp is gone`);
       continue;

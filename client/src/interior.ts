@@ -31,6 +31,7 @@ const PROP_TILE: Partial<Record<InteriorProp, TileType>> = {
   shelf: TileType.Shelf, statue: TileType.Statue, weaponRack: TileType.WeaponRack, workbench: TileType.Workbench,
 };
 const PROP_EXTRA: Partial<Record<InteriorProp, string>> = {
+ campTent:'/sprites/regions-v2/tent.png',prisonCage:'/sprites/regions-v2/cage.png',rockBlock:'/sprites/regions-v3/rock-block.png',ruinRubble:'/sprites/ruinRubble.png',
   bedFine: "bed_blue_double", hearth: "fireplace_lit_b", wardrobe: "wardrobe", altar: "altar_candles", pew: "bench", oven: "oven_round",
   barrel: "barrel", crates: "crates_barrels_stack", sacks: "sacks_pile", hay: "hay_pile_crate", armourStand: "armor_stand",
   banner: "banner_red", forge: "forge", counter: "counter", anvil: "anvil", throne: "throne", stall: "stall_market_red", candelabra: "candelabra_b",
@@ -48,6 +49,7 @@ const PROP_COLOR: Partial<Record<InteriorProp, number>> = {
 // DRAWN pixels (transparent padding ignored) to these heights, so a chair comes up to a person's thigh, a table to the
 // waist, a wardrobe over their head; whatever the art's canvas size. Width is capped at about a tile (long pieces).
 const PROP_HEIGHT_PX: Partial<Record<InteriorProp, number>> = {
+  campTent:48,prisonCage:40,rockBlock:40,ruinRubble:16,
   chair: 18, pew: 16, table: 20, bed: 31, bedFine: 31, chest: 16, shelf: 30, wardrobe: 32, hearth: 28, lamp: 22, statue: 30,
   weaponRack: 24, workbench: 16, altar: 18, oven: 22, barrel: 14, crates: 14, sacks: 11, hay: 13, armourStand: 26, banner: 28,
   forge: 24, stall: 26, candelabra: 20, counter: 14, anvil: 10, throne: 22, oreFace: 30, timberProp: 30, mineShaft: 30,
@@ -729,7 +731,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       if (v.mine) {
         const mi = v.mine;
         mineEl.className = mi.status === "infested" ? "infested" : "";
-        const head = mi.status === "infested"
+        const head = mi.encounter?(mi.status==='cleared'?'Cleared - spoils collected':`${mi.monsters} enemies inside. Space to fight.`):mi.status === "infested"
           ? `Infested: ${mi.monsters} monster${mi.monsters === 1 ? "" : "s"} left. Space to fight; the miners come back once it is clear`
           : MINE_STATUS_LABEL[mi.status];
         // Layered mines: the level the hero is on, what it yields and whether a way down is open.

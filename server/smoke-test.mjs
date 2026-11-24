@@ -593,7 +593,8 @@ await check("training: batch queue (x N / max), 2 at a time, waiting + cancel", 
 await check("camp hearth: guarded until the guards fall, walk-up frees the prisoners", async () => {
   // (Earlier checks clear the map's mobs: post a fresh guard of the site next to its fire.)
   let h = (await hook("hearthState")).hearths.find((x) => !x.destroyed && x.siteKind === "encampment" && x.prisoners > 0);
-  if (!h) return "no encampment with prisoners";
+  if (!h) {const x=tc.x+14,y=tc.y+14;await clearBox(x,y,3);h=(await hook("hearthState",{createLegacy:true,tx:x,ty:y})).hearths.find(x=>x.siteId==='legacy-test-camp');}
+  if (!h) return "legacy fixture not created";
   await hook("spawnMob", { kind: "banditClubman", tx: h.x + 2, ty: h.y, siteId: h.siteId });
   h = (await hook("hearthState")).hearths.find((x) => x.siteId === h.siteId);
   const ev0 = c.events.length;
