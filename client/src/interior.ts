@@ -1,3 +1,4 @@
+import {RUIN_FLOOR_URL,RUIN_WALL_ART,RUIN_TITLES,ruinPropArt,ruinScenery,ruinEntrance} from '@colony/shared/ruinArt';
 import {caveWallPieces} from '@colony/shared/caveWalls';
 import {caveScenery} from '@colony/shared/caveScenery';
 import {stoneFloorCell,cliffStripCell,caveRailHalf} from './caveTextures';
@@ -295,6 +296,9 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       g.zIndex = -1;
       return g;
     }
+    if(view?.mine?.encounter==='ruin'){
+      const a=ruinPropArt(prop),t=a?extraTexture(a.url):undefined;if(a&&t){const b=opaqueBox(t),sp=new Sprite(t),k=Math.min(T*a.w/b.w,T*a.h/b.h);sp.anchor.set((b.x+b.w/2)/t.width,(b.y+b.h)/t.height);sp.scale.set(k);sp.position.set((x+.5)*T,(y+1)*T-1);sp.zIndex=(y+1)*T;return sp;}
+    }
     if(view&&(view.map.underground||view.map.templateId==='mine'&&(!view.mine?.encounter||view.mine.encounter==='cave'))){
       const url=undergroundPropUrl(view.map,prop,view.mine?.tile,x,y),t=url?extraTexture(url):undefined;
       if(t){const s=new Sprite(t),b=opaqueBox(t),size=undergroundPropSize(prop),k=Math.min(T*size.h/b.h,T*size.w/b.w);s.anchor.set((b.x+b.w/2)/t.width,(b.y+b.h)/t.height);s.scale.set(k);s.position.set((x+.5)*T,(y+1)*T-1);s.zIndex=(y+1)*T;return s;}
@@ -358,6 +362,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     for (const c of room.removeChildren()) if (!keep.has(c)) c.destroy();
     const m: InteriorMap = v.map;
     const rockInterior=!!m.underground||m.templateId==='mine'&&(!v.mine?.encounter||v.mine.encounter==='cave');
+    const ruinInterior=v.mine?.encounter==='ruin',stoneInterior=rockInterior||ruinInterior;
     const ground = new Graphics();
     ground.zIndex = -10;
     room.addChild(ground);
@@ -366,8 +371,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         const ch = m.cells[y * m.w + x];
         if (ch === " ") continue;
         if (ch === "#") continue;
-        const dirtTexture = rockInterior?extraTexture(undergroundFloorUrl(m)):m.floor === "dirt"?extraTexture("floor_dirt_1"):undefined;
-        const floorTile = rockInterior?(dirtTexture?{texture:stoneFloorCell(dirtTexture,x,y)}:undefined):m.floor === "dirt" ? (dirtTexture ? { texture: dirtTexture } : undefined) : deps.structure.floor(m.floor === "stone" ? TileType.StoneFloor : TileType.WoodFloor, 0);
+        const dirtTexture = stoneInterior?extraTexture(ruinInterior?RUIN_FLOOR_URL:undergroundFloorUrl(m)):m.floor === "dirt"?extraTexture("floor_dirt_1"):undefined;
+        const floorTile = stoneInterior?(dirtTexture?{texture:stoneFloorCell(dirtTexture,x,y)}:undefined):m.floor === "dirt" ? (dirtTexture ? { texture: dirtTexture } : undefined) : deps.structure.floor(m.floor === "stone" ? TileType.StoneFloor : TileType.WoodFloor, 0);
         if (floorTile) {
           const s = new Sprite(floorTile.texture);
           s.scale.set(T / floorTile.texture.width);
@@ -379,7 +384,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           ground.rect(x * T, y * T, T, T).fill(FLOOR_COLOR[m.floor]);
           ground.rect(x * T + ((x * 11 + y * 5) % 20) + 4, y * T + ((x * 3 + y * 17) % 20) + 4, 3, 2).fill({ color: 0x000000, alpha: 0.15 });
         }
-        if (ch === "E" && !rockInterior) {
+        if (ch === "E" && !stoneInterior) {
           const mat = extraTexture("exit_mat");
           if (mat) {
             const sprite = new Sprite(mat); sprite.width = T; sprite.height = T;
@@ -396,8 +401,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     const walls = new Graphics();
     walls.zIndex = -5;
     room.addChild(walls);
-    if(rockInterior)for(const p of caveWallPieces(m)){
-      const tex=extraTexture(CAVE_WALL_ART[p.kind]);if(!tex)continue;
+    if(stoneInterior)for(const p of caveWallPieces(m)){
+      const tex=extraTexture((ruinInterior?RUIN_WALL_ART:CAVE_WALL_ART)[p.kind]);if(!tex)continue;
       const frame=p.kind==='body'?stoneFloorCell(tex,Math.floor(p.x),Math.floor(p.y)):p.strip!==undefined?cliffStripCell(tex,p.strip):tex,sp=new Sprite(frame);
       sp.width=p.w*T;sp.height=p.h*T;sp.position.set(p.x*T,p.y*T);if(p.flip){sp.scale.x=-Math.abs(sp.scale.x);sp.x+=p.w*T;}sp.zIndex=-5;room.addChild(sp);
     }
@@ -405,7 +410,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     for (let y = 0; y < m.h; y++) {
       for (let x = 0; x < m.w; x++) {
         if (m.cells[y * m.w + x] !== "#") continue;
-        if(rockInterior)continue;
+        if(stoneInterior)continue;
         {
           const south=!solidAt(x,y+1),north=!solidAt(x,y-1),east=!solidAt(x+1,y),west=!solidAt(x-1,y);
           const draw=(name:string,px:number,py:number,w:number,h:number)=>{const tex=extraTexture('/sprites/cozy-walls/'+(m.wall==='stone'?'stone-':'')+name+'.png');if(!tex)return false;const sp=new Sprite(tex);sp.position.set(px,py);sp.width=w;sp.height=h;sp.zIndex=-5;room.addChild(sp);return true;};
@@ -426,11 +431,11 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
 
       }
     }
-    if(rockInterior)for(const d of caveScenery(m)){
+    if(stoneInterior)for(const d of (ruinInterior?ruinScenery(m):caveScenery(m))){
       const tex=extraTexture(d.url);if(!tex)continue;if(d.floor){const sp=new Sprite(d.frame==='top'?caveRailHalf(tex):tex);sp.anchor.set(.5);sp.width=d.w*T;sp.height=d.h*T;sp.position.set((d.x+.5+(d.offsetX??0))*T,(d.y+.5+(d.offsetY??0))*T);sp.rotation=(d.rotation??0)*Math.PI/2;sp.zIndex=-7;room.addChild(sp);continue;}const b=opaqueBox(tex),sp=new Sprite(tex),k=Math.min(d.w*T/b.w,d.h*T/b.h);sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((d.x+.5)*T,(d.y+1)*T-1);sp.zIndex=d.wall?-4:(d.y+1)*T-2;room.addChild(sp);
     }
-    if(rockInterior){
-      const entrance=undergroundEntrance(m),p=entrance.opening,opening=new Graphics();
+    if(stoneInterior){
+      const entrance=ruinInterior?ruinEntrance(m):undergroundEntrance(m),p=entrance.opening,opening=new Graphics();
       opening.roundRect(p.x*T,p.y*T,p.w*T,p.h*T,T*.15).fill(0x080705);opening.zIndex=-3;room.addChild(opening);
       for(const part of entrance.sprites){const tex=extraTexture(part.url);if(!tex)continue;const b=opaqueBox(tex),sp=new Sprite(tex);sp.anchor.set(b.x/tex.width,b.y/tex.height);sp.scale.set(part.w*T/b.w,part.h*T/b.h);sp.position.set(part.x*T,part.y*T);sp.zIndex=-3;room.addChild(sp);}
     }
@@ -713,7 +718,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     vignette.height = scr.height;
     exitEl.hidden = !nearExit();
     const rockExit=!!m.underground||m.templateId==='mine'&&(!view.mine?.encounter||view.mine.encounter==='cave');
-    exitEl.textContent=rockExit?(view.mine?.layer&&view.mine.layer>1?'Enter the tunnel or press Esc to go up a level':'Enter the tunnel or press Esc to return outside'):'Walk onto the mat or press Esc to leave';
+    exitEl.textContent=view.mine?.encounter==='ruin'?'Walk through the arch or press Esc to return outside':rockExit?(view.mine?.layer&&view.mine.layer>1?'Enter the tunnel or press Esc to go up a level':'Enter the tunnel or press Esc to return outside'):'Walk onto the mat or press Esc to leave';
   });
 
   // Deep mines: Space swings (main.ts sends the attack); a slash arc shows on the hero's facing side.
@@ -753,7 +758,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       // Layered mines: another layer of the same Mine is a fresh room too.
       const fresh = !view || view.key !== v.key || view.map.storey !== v.map.storey || view.map.variant !== v.map.variant;
       view = v;
-      titleEl.textContent = v.title;
+      titleEl.textContent = v.mine?.encounter==='ruin'?RUIN_TITLES[v.map.variant%4]:v.title;
       // Deep mines: status, monsters left (Space fights), hazards.
       mineEl.hidden = !v.mine;
       if (v.mine) {

@@ -1,0 +1,173 @@
+[
+  {
+    "name": "cave-opening",
+    "sourceCell": [
+      0,
+      0,
+      418,
+      418
+    ],
+    "alphaBounds": [
+      14,
+      19,
+      402,
+      395
+    ],
+    "size": [
+      388,
+      376
+    ]
+  },
+  {
+    "name": "wall-face",
+    "sourceCell": [
+      418,
+      0,
+      836,
+      418
+    ],
+    "alphaBounds": [
+      13,
+      132,
+      403,
+      319
+    ],
+    "size": [
+      384,
+      184
+    ]
+  },
+  {
+    "name": "wall-rim",
+    "sourceCell": [
+      836,
+      0,
+      1254,
+      418
+    ],
+    "alphaBounds": [
+      14,
+      196,
+      403,
+      296
+    ],
+    "size": [
+      384,
+      99
+    ]
+  },
+  {
+    "name": "wall-side",
+    "sourceCell": [
+      0,
+      418,
+      418,
+      836
+    ],
+    "alphaBounds": [
+      163,
+      22,
+      279,
+      390
+    ],
+    "size": [
+      116,
+      368
+    ]
+  },
+  {
+    "name": "wall-core",
+    "sourceCell": [
+      418,
+      418,
+      836,
+      836
+    ],
+    "alphaBounds": [
+      33,
+      27,
+      384,
+      385
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "flagstone",
+    "sourceCell": [
+      836,
+      418,
+      1254,
+      836
+    ],
+    "alphaBounds": [
+      34,
+      27,
+      384,
+      384
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "broken-statue",
+    "sourceCell": [
+      0,
+      836,
+      418,
+      1254
+    ],
+    "alphaBounds": [
+      90,
+      21,
+      324,
+      403
+    ],
+    "size": [
+      234,
+      382
+    ]
+  },
+  {
+    "name": "sarcophagus",
+    "sourceCell": [
+      418,
+      836,
+      836,
+      1254
+    ],
+    "alphaBounds": [
+      28,
+      114,
+      387,
+      330
+    ],
+    "size": [
+      359,
+      216
+    ]
+  },
+  {
+    "name": "column-rubble",
+    "sourceCell": [
+      836,
+      836,
+      1254,
+      1254
+    ],
+    "alphaBounds": [
+      26,
+      84,
+      392,
+      351
+    ],
+    "size": [
+      366,
+      267
+    ]
+  }
+]

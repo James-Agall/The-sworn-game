@@ -43,6 +43,7 @@
     "./agri": "./src/agri.ts",
     "./industry": "./src/industry.ts",
     "./caveWalls": "./src/caveWalls.ts",
-    "./caveRails": "./src/caveRails.ts"
+    "./caveRails": "./src/caveRails.ts",
+    "./ruinArt": "./src/ruinArt.ts"
   }
 }

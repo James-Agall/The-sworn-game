@@ -22,6 +22,6 @@ export function undergroundPropSize(prop:string){return prop==='rockBlock'?{w:1.
 export function undergroundEntrance(m:InteriorMap){
  const {x,y}=m.exit;
  return {opening:{x:x-.1,y:y-.8,w:1.2,h:1.6},sprites:[
-  {url:'/sprites/underground-v5/mining-adit.png',x:x-.9,y:y-1.8,w:2.8,h:2.8},
+  {url:m.underground?.kind==='cave'||m.label==='Cavern'?'/sprites/ruins-v1/cave-opening.png':'/sprites/underground-v5/mining-adit.png',x:x-.9,y:y-1.8,w:2.8,h:2.8},
  ]};
 }

@@ -7,7 +7,7 @@ const cache=new WeakMap<InteriorMap,CaveDressing[]>();
 export function caveScenery(map:InteriorMap):CaveDressing[]{
  const old=cache.get(map);if(old)return old;
  const solid=interiorSolidGrid(map),used=new Set(map.props.map(p=>p.y*map.w+p.x)),seed=map.underground?.seed??map.w*739+map.h*31;
- const landmarks=map.underground?.landmarks??[{id:0,x:Math.floor(map.w/2),y:Math.floor(map.h/2)}],out:CaveDressing[]=[],tracks=caveRails(map),railCells=new Set(tracks.map(p=>p.y*map.w+p.x));
+ const landmarks=map.underground?.landmarks??[{id:0,x:Math.floor(map.w/2),y:Math.floor(map.h/2)}],out:CaveDressing[]=[],tracks=map.underground?.kind==='cave'?[]:caveRails(map),railCells=new Set(tracks.map(p=>p.y*map.w+p.x));
  if(tracks.length){
   const start=tracks[0];out.push({x:start.x,y:start.y,url:'/sprites/underground-v3/platform.png',w:2,h:2,floor:true});
   for(const t of tracks){

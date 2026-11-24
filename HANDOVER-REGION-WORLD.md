@@ -201,3 +201,16 @@ User clarified “pits above it” means wooden pit props. Replaced the upward-l
 The shared `undergroundEntrance()` composition still aligns the threshold to the existing exit cell. Updated HUD/distant-exit text refers to entering the tunnel. Saved geometry, collision, native exit/Esc behavior and deeper-layer transitions are preserved; the separate down-shaft prop remains in the working mine. Client/server type checks, 144 shared navigation/save/transition cases and the native mine gameplay suite validate the change. Deployment backs up saves before stopping the live copy.
 
 Current preview: Windows `outputs/mine-adit/mining-entrances.html` and `mining-entrances.png`. Older cave preview links/images are updated to this version.
+
+
+## 24 November: distinct cave entrance and first ruin interior art pass
+
+The approved timber adit (`underground-v5/mining-adit.png`) is now selected only for working mines/quarries. Natural caves use the new rough rock mouth (`ruins-v1/cave-opening.png`) with roots, stalactites and moss. Cave scenery omits the previous mining platform and track spur; mine tracks, resources and props retain their existing behavior. The current save geometry/exit cells are unchanged.
+
+Started the ruins with a dedicated art renderer instead of domestic stone walls/windows: cracked mossy masonry fronts/rims/sides/solid core, worn flagstone floors, broken statues and fallen columns. Added scenery groups for tomb chambers, a shrine and fallen halls, with sarcophagi, old benches, ivy, bones and cobwebs. Four existing variants receive sanctuary/crypt/keep/cloister titles and some dressing variation. This is an art/dressing first pass on the existing connected room layout; it does not introduce four new room geometries, loot systems or a new generator. Existing colliding props, native chest, enemy spawn/AI, line-of-sight, both exterior ruin doors, saved HP/clear state and rewards are preserved. Exit mat artwork becomes a ruined stone arch, with matching prompts.
+
+One original nine-asset transparent sheet supplies the cave opening and ruin materials/props in `client/public/sprites/ruins-v1`. Opaque wall-core/floor tiles are separated from alpha cutouts. Built-in image generation used the existing cracked cave rock as a style reference. Windows `outputs/ruins-first` retains the source, extracted assets, prompt, manifest and populated previews. Prompt/manifest are also in `docs/art-sources/ruins-v1`.
+
+Validation: new entrance/ruin art checks cover mine-only adit selection, natural cave selection, four dressed ruin variants, assets, complete wall backing and unchanged map/collision/encounter state. Existing 40-layout cave art and 48-layout cave/mineral/rail checks pass. Region21 checks cover native hostile combat, wall line-of-sight, shared ruin doors, dormancy, saved health and one-time clear rewards. Client/server type checks, production build and the 35-check basic gameplay suite pass before deployment.
+
+Current previews: Windows `outputs/ruins-first/caves-and-ruins.html`, `distinct-entrances.png`, `ruin-0.png` through `ruin-3.png`, `ruins-first-pass.png`. These are static compositions of actual game layouts/art and native actor placements. No world regeneration is required.

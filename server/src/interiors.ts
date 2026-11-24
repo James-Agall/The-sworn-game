@@ -632,7 +632,7 @@ export function handleInteriorExit(p: Player) {
   if (!I) return;
   const { map } = mapOf(I);
   if (I.storey > 0) return toast(p, "Take the stairs down first");
-  if (Math.hypot(px(map.exit.x) - I.x, px(map.exit.y) - I.y) / TILE_SIZE > INTERIOR_ESC_EXIT_TILES) return toast(p, map.underground?"Walk to the tunnel entrance to leave":"Walk to the door mat to leave");
+  if (Math.hypot(px(map.exit.x) - I.x, px(map.exit.y) - I.y) / TILE_SIZE > INTERIOR_ESC_EXIT_TILES) return toast(p, map.underground?"Walk to the tunnel entrance to leave":encounterKind(I.tile)==='ruin'?"Walk to the ruined arch to leave":"Walk to the door mat to leave");
   // Layered mines: from a deeper level the mat is the way back up.
   if (I.templateId === "mine" && isLayeredMine(I.tile) && I.variant > 0) return changeMineLayer(p, I.variant - 1);
   exitInterior(p);
