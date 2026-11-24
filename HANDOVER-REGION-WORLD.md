@@ -183,3 +183,12 @@ Mineral art follows `MINE_LAYER_YIELDS`: depth 1 copper/tin/limestone; depth 2 i
 Validation: cave-detail regression across 48 seed/kind/depth combinations checks all boundary backing, thin islands, correct and complete resource palettes, quarry rock, walkable rail branches and junctions, props, no map mutation and accessible interiors. Cave artwork checks cover 40 additional combinations. Native mine gameplay, client/server compilation, production build and the basic gameplay smoke suite are run before deployment.
 
 Updated static previews: Windows workspace `outputs/cave-detail/detailed-cavern.html`, `cave-mine-closeup.png`, `cave-0.png`, `mine-1.png` through `mine-3.png` and `mine-levels.png`. They use actual game geometry/art and native entity placements, without gameplay movement/camera.
+
+
+## 24 November: believable underground ladder entrances
+
+Replaced cave/mine exit mats with an upward ladder ending in a dark timber-framed opening. `undergroundEntrance()` in shared undergroundArt defines the composition for both the actual renderer and static previews. It reuses cave-props supports-stairs-01 (timber frame) and supports-stairs-07 (ladder); no new generated image was needed. The foot remains aligned to the existing exit cell, keeping saved maps, collision, enemy positions and layer transitions intact.
+
+Underground HUD and distant-exit prompts now refer to the ladder, including returning up one mine level versus outside. Existing walk-on-exit and Esc behavior is retained. Client/server type checks, 144 cave/mine navigation/save/transition checks and the native mine gameplay suite validate the change. Deployment backs up the saves first.
+
+Static previews are in the Windows workspace `outputs/cave-entrance/cave-entrances.html` and `ladder-entrances.png`. Existing cave gallery/image links are updated to the new version.

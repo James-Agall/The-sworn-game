@@ -1,7 +1,7 @@
 import {caveWallPieces} from '@colony/shared/caveWalls';
 import {caveScenery} from '@colony/shared/caveScenery';
 import {stoneFloorCell,cliffStripCell,caveRailHalf} from './caveTextures';
-import {undergroundFloorUrl,CAVE_WALL_ART,undergroundPropUrl,undergroundPropSize} from '@colony/shared/undergroundArt';
+import {undergroundFloorUrl,CAVE_WALL_ART,undergroundPropUrl,undergroundPropSize,undergroundEntrance} from '@colony/shared/undergroundArt';
 import {npcVariantFrame} from "./npcVariants";
 import {PLAYER_BASES,HOME_PROPS} from "@colony/shared/playerBases";
 // interior.ts: Stardew phase 5c (2026-11-09; server/src/interiors.ts, shared/src/interiors.ts). The building interior
@@ -379,7 +379,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           ground.rect(x * T, y * T, T, T).fill(FLOOR_COLOR[m.floor]);
           ground.rect(x * T + ((x * 11 + y * 5) % 20) + 4, y * T + ((x * 3 + y * 17) % 20) + 4, 3, 2).fill({ color: 0x000000, alpha: 0.15 });
         }
-        if (ch === "E") {
+        if (ch === "E" && !rockInterior) {
           const mat = extraTexture("exit_mat");
           if (mat) {
             const sprite = new Sprite(mat); sprite.width = T; sprite.height = T;
@@ -428,6 +428,11 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     }
     if(rockInterior)for(const d of caveScenery(m)){
       const tex=extraTexture(d.url);if(!tex)continue;if(d.floor){const sp=new Sprite(d.frame==='top'?caveRailHalf(tex):tex);sp.anchor.set(.5);sp.width=d.w*T;sp.height=d.h*T;sp.position.set((d.x+.5+(d.offsetX??0))*T,(d.y+.5+(d.offsetY??0))*T);sp.rotation=(d.rotation??0)*Math.PI/2;sp.zIndex=-7;room.addChild(sp);continue;}const b=opaqueBox(tex),sp=new Sprite(tex),k=Math.min(d.w*T/b.w,d.h*T/b.h);sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((d.x+.5)*T,(d.y+1)*T-1);sp.zIndex=d.wall?-4:(d.y+1)*T-2;room.addChild(sp);
+    }
+    if(rockInterior){
+      const entrance=undergroundEntrance(m),p=entrance.opening,opening=new Graphics();
+      opening.roundRect(p.x*T,p.y*T,p.w*T,p.h*T,T*.15).fill(0x080705);opening.zIndex=-3;room.addChild(opening);
+      for(const part of entrance.sprites){const tex=extraTexture(part.url);if(!tex)continue;const b=opaqueBox(tex),sp=new Sprite(tex);sp.anchor.set(b.x/tex.width,b.y/tex.height);sp.scale.set(part.w*T/b.w,part.h*T/b.h);sp.position.set(part.x*T,part.y*T);sp.zIndex=-3;room.addChild(sp);}
     }
     for (const p of m.props) room.addChild(propSprite(p.prop, p.x, p.y,p.facing));
     const old = new Map(npcViews);
@@ -707,6 +712,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     vignette.width = scr.width;
     vignette.height = scr.height;
     exitEl.hidden = !nearExit();
+    const rockExit=!!m.underground||m.templateId==='mine'&&(!view.mine?.encounter||view.mine.encounter==='cave');
+    exitEl.textContent=rockExit?(view.mine?.layer&&view.mine.layer>1?'Climb the ladder or press Esc to go up a level':'Climb the ladder or press Esc to return outside'):'Walk onto the mat or press Esc to leave';
   });
 
   // Deep mines: Space swings (main.ts sends the attack); a slash arc shows on the hero's facing side.
