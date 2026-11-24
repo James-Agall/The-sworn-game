@@ -214,3 +214,20 @@ One original nine-asset transparent sheet supplies the cave opening and ruin mat
 Validation: new entrance/ruin art checks cover mine-only adit selection, natural cave selection, four dressed ruin variants, assets, complete wall backing and unchanged map/collision/encounter state. Existing 40-layout cave art and 48-layout cave/mineral/rail checks pass. Region21 checks cover native hostile combat, wall line-of-sight, shared ruin doors, dormancy, saved health and one-time clear rewards. Client/server type checks, production build and the 35-check basic gameplay suite pass before deployment.
 
 Current previews: Windows `outputs/ruins-first/caves-and-ruins.html`, `distinct-entrances.png`, `ruin-0.png` through `ruin-3.png`, `ruins-first-pass.png`. These are static compositions of actual game layouts/art and native actor placements. No world regeneration is required.
+
+
+## 24 November: readable ruin rooms and courtyards
+
+Replaced the hard-to-read 29x27 continuous tiled hall with an authored 41x37 complex: five enclosed rooms around a main open courtyard, with a separate small garden court. Enclosed wings have two-cell-thick walls; clear two/three-cell doorways and paved passages connect the crypt/treasury/storage/chapel/gatehouse areas. Four variants retain their titles, with room-role variation and mirrored footprints. `shared/src/ruins.ts` is the authoritative collision/layout generator used by the existing encounter/combat pipeline.
+
+`InteriorMap.ruin` carries version 2, room/courtyard rectangles, doorway orientation/width and per-cell floor materials. Quiet pale room slabs, olive earth/grass courts, distinct paved paths, dark wall caps and stronger masonry faces use new artwork in `sprites/ruins-v2`. Door arches face the north/south plane; east/west passages stay aligned with their wall openings. Courtyard boundary walls are cut lower; room walls are stronger. The HUD identifies the current room/court/passage. No sprite tinting is used.
+
+Clutter is reduced to at most three edge decorations per area and excluded from paths. Large sarcophagi and columns are actual blocking interior props; all props, lairs, floors and doors are checked for reachability. Room furnishing reflects its purpose instead of placing coffins throughout the complex. The main courtyard keeps a central monument and wide clear routes. Existing cave and mine designs and their distinct entrances stay intact.
+
+Ruin saves now include `ruinLayoutVersion:2`. When restoring older visited ruins, only surviving enemies are relocated once to the new valid lairs; their health, kinds, prior kills, clear state, clear dates and rewards are preserved. New-version saves keep actual enemy positions. Both exterior ruin doors still share the same encounter. Player interiors are transient on load, so heroes re-enter via the normal spawn. World generation version is unchanged; no world reset is required.
+
+The built-in image tool generated six quieter architectural/material assets and fixed their cutout transparency. Source, selected assets, both prompts and slicing manifest are retained in Windows `outputs/ruin-rooms`; prompts and manifest are mirrored in `docs/art-sources/ruins-v2`.
+
+Validation: four-variant room/courtyard connectivity, full door widths, two-cell walls, real furniture collision, distinct surfaces, uncluttered paths and one-time progress-preserving migration; updated ruin art checks; region21 native combat, true-partition line-of-sight, aliases, dormancy, saves and clear rewards; client/server type checks, production build, native mine gameplay and the 35-check basic gameplay suite. Deployment backs up saves and the previous live copy before stopping it.
+
+Current static previews: Windows `outputs/ruin-rooms/rooms-and-courtyards.html`, `ruins-overview.png`, `ruin-0.png` through `ruin-3.png`. They use actual generated geometry, materials, props and native actor positions. Older ruin preview links point here.

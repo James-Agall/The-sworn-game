@@ -1,0 +1,116 @@
+[
+  {
+    "name": "room-floor",
+    "sourceCell": [
+      0,
+      0,
+      512,
+      512
+    ],
+    "alphaBounds": [
+      46,
+      45,
+      467,
+      467
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "courtyard",
+    "sourceCell": [
+      512,
+      0,
+      1024,
+      512
+    ],
+    "alphaBounds": [
+      45,
+      45,
+      467,
+      467
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "paving",
+    "sourceCell": [
+      1024,
+      0,
+      1536,
+      512
+    ],
+    "alphaBounds": [
+      45,
+      45,
+      467,
+      466
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "wall-core",
+    "sourceCell": [
+      0,
+      512,
+      512,
+      1024
+    ],
+    "alphaBounds": [
+      46,
+      44,
+      467,
+      466
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  {
+    "name": "wall-face",
+    "sourceCell": [
+      512,
+      512,
+      1024,
+      1024
+    ],
+    "alphaBounds": [
+      19,
+      124,
+      494,
+      384
+    ],
+    "size": [
+      384,
+      210
+    ]
+  },
+  {
+    "name": "door-arch",
+    "sourceCell": [
+      1024,
+      512,
+      1536,
+      1024
+    ],
+    "alphaBounds": [
+      72,
+      43,
+      441,
+      462
+    ],
+    "size": [
+      369,
+      419
+    ]
+  }
+]

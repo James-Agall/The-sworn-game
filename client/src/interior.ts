@@ -1,4 +1,4 @@
-import {RUIN_FLOOR_URL,RUIN_WALL_ART,RUIN_TITLES,ruinPropArt,ruinScenery,ruinEntrance} from '@colony/shared/ruinArt';
+import {RUIN_FLOOR_URL,RUIN_WALL_ART,RUIN_TITLES,ruinFloorUrl,ruinWallPieces,ruinDoorFrames,ruinPropArt,ruinScenery,ruinEntrance} from '@colony/shared/ruinArt';
 import {caveWallPieces} from '@colony/shared/caveWalls';
 import {caveScenery} from '@colony/shared/caveScenery';
 import {stoneFloorCell,cliffStripCell,caveRailHalf} from './caveTextures';
@@ -371,7 +371,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         const ch = m.cells[y * m.w + x];
         if (ch === " ") continue;
         if (ch === "#") continue;
-        const dirtTexture = stoneInterior?extraTexture(ruinInterior?RUIN_FLOOR_URL:undergroundFloorUrl(m)):m.floor === "dirt"?extraTexture("floor_dirt_1"):undefined;
+        const dirtTexture = stoneInterior?extraTexture(ruinInterior?ruinFloorUrl(m,x,y):undergroundFloorUrl(m)):m.floor === "dirt"?extraTexture("floor_dirt_1"):undefined;
         const floorTile = stoneInterior?(dirtTexture?{texture:stoneFloorCell(dirtTexture,x,y)}:undefined):m.floor === "dirt" ? (dirtTexture ? { texture: dirtTexture } : undefined) : deps.structure.floor(m.floor === "stone" ? TileType.StoneFloor : TileType.WoodFloor, 0);
         if (floorTile) {
           const s = new Sprite(floorTile.texture);
@@ -401,7 +401,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     const walls = new Graphics();
     walls.zIndex = -5;
     room.addChild(walls);
-    if(stoneInterior)for(const p of caveWallPieces(m)){
+    if(stoneInterior)for(const p of (ruinInterior?ruinWallPieces(m):caveWallPieces(m))){
       const tex=extraTexture((ruinInterior?RUIN_WALL_ART:CAVE_WALL_ART)[p.kind]);if(!tex)continue;
       const frame=p.kind==='body'?stoneFloorCell(tex,Math.floor(p.x),Math.floor(p.y)):p.strip!==undefined?cliffStripCell(tex,p.strip):tex,sp=new Sprite(frame);
       sp.width=p.w*T;sp.height=p.h*T;sp.position.set(p.x*T,p.y*T);if(p.flip){sp.scale.x=-Math.abs(sp.scale.x);sp.x+=p.w*T;}sp.zIndex=-5;room.addChild(sp);
@@ -434,6 +434,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     if(stoneInterior)for(const d of (ruinInterior?ruinScenery(m):caveScenery(m))){
       const tex=extraTexture(d.url);if(!tex)continue;if(d.floor){const sp=new Sprite(d.frame==='top'?caveRailHalf(tex):tex);sp.anchor.set(.5);sp.width=d.w*T;sp.height=d.h*T;sp.position.set((d.x+.5+(d.offsetX??0))*T,(d.y+.5+(d.offsetY??0))*T);sp.rotation=(d.rotation??0)*Math.PI/2;sp.zIndex=-7;room.addChild(sp);continue;}const b=opaqueBox(tex),sp=new Sprite(tex),k=Math.min(d.w*T/b.w,d.h*T/b.h);sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((d.x+.5)*T,(d.y+1)*T-1);sp.zIndex=d.wall?-4:(d.y+1)*T-2;room.addChild(sp);
     }
+    if(ruinInterior)for(const p of ruinDoorFrames(m)){const tex=extraTexture(p.url);if(!tex)continue;const b=opaqueBox(tex),sp=new Sprite(tex);sp.anchor.set(b.x/tex.width,b.y/tex.height);sp.scale.set(p.w*T/b.w,p.h*T/b.h);sp.position.set(p.x*T,p.y*T);sp.zIndex=-3;room.addChild(sp);}
     if(stoneInterior){
       const entrance=ruinInterior?ruinEntrance(m):undergroundEntrance(m),p=entrance.opening,opening=new Graphics();
       opening.roundRect(p.x*T,p.y*T,p.w*T,p.h*T,T*.15).fill(0x080705);opening.zIndex=-3;room.addChild(opening);
@@ -716,6 +717,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     room.position.set(Math.round(cx), Math.round(cy));
     vignette.width = scr.width;
     vignette.height = scr.height;
+    if(view.mine?.encounter==='ruin'&&m.ruin){const x=shown.x/T,y=shown.y/T,a=m.ruin.areas.find(a=>x>=a.x&&y>=a.y&&x<a.x+a.w&&y<a.y+a.h),title=RUIN_TITLES[m.variant%4]+' — '+(a?.label??'Passage');if(titleEl.textContent!==title)titleEl.textContent=title;}
     exitEl.hidden = !nearExit();
     const rockExit=!!m.underground||m.templateId==='mine'&&(!view.mine?.encounter||view.mine.encounter==='cave');
     exitEl.textContent=view.mine?.encounter==='ruin'?'Walk through the arch or press Esc to return outside':rockExit?(view.mine?.layer&&view.mine.layer>1?'Enter the tunnel or press Esc to go up a level':'Enter the tunnel or press Esc to return outside'):'Walk onto the mat or press Esc to leave';

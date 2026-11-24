@@ -1,3 +1,4 @@
+import type {RuinPlan} from './ruins.js';
 // interiors.ts: Stardew phase 5c (docs PLAN-rimworld-stardew.md 5c; ROADMAP "Stardew layer — phase 5c"). Building
 // interiors: the hero steps through the door of a PREFAB building (house, tavern, church, smithy, bakery, shop,
 // barracks, hall, barn) into a small separate tile map built from a per-building-type TEMPLATE below (an ASCII grid
@@ -86,7 +87,7 @@ export type InteriorProp =
   // Deep mines: the ore face the miners work and the timber props holding the roof.
   | "oreFace" | "timberProp"
   // Layered mines: the way down to the Mine's next layer (walked onto; drawn with the Mine's own sprite for now).
-  | "mineShaft" | "campTent" | "prisonCage" | "rockBlock" | "ruinRubble" | "skullBones" | "fallenSkeleton" | "cobweb" | "overgrowth" | "banditTower" | "mineralNode" | "stalagmite";
+  | "mineShaft" | "campTent" | "prisonCage" | "rockBlock" | "ruinRubble" | "skullBones" | "fallenSkeleton" | "cobweb" | "overgrowth" | "banditTower" | "mineralNode" | "stalagmite" | "sarcophagus" | "ruinColumn";
 // NPC slots: "1" the building's keeper (smith, baker, trader, priest, elder), "2" a second (a hall's trader),
 // "v" residents / patrons / soldiers (beside the beds and tables).
 export type InteriorNpcSlot = "1" | "2" | "v";
@@ -694,6 +695,7 @@ export const INTERIOR_SLEEP_TEMPLATES: ReadonlySet<InteriorTemplateId> = new Set
 // ---- the built map ----
 // cells: one char per tile, row-major ("#" wall, "." floor, "E" exit, " " nothing).
 export interface InteriorMap {
+  ruin?:RuinPlan;
   underground?:{version:2;kind:'mine'|'cave';seed:number;depth:number;rockOnly?:boolean;landmarks:{id:number;role:string;x:number;y:number}[];tracks:{x:number;y:number;mask:number}[]};
   templateId: InteriorTemplateId;
   label: string;

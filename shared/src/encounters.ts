@@ -1,3 +1,4 @@
+import {buildRuin} from './ruins.js';
 import {TileType,type MobKind} from './protocol.js';
 import {interiorSolidGrid,type InteriorMap,type InteriorProp} from './interiors.js';
 export type EncounterKind='camp'|'cave'|'ruin';
@@ -10,6 +11,7 @@ export const encounterEnemies=(kind:EncounterKind):MobKind[]=>kind==='camp'?['ba
 const cache=new Map<string,{map:InteriorMap;solid:Uint8Array}>();
 // Separate maps use the proven mine interior wire format and combat, without creating overworld mobs.
 export function encounterMap(kind:EncounterKind,variant=0){
+ if(kind==='ruin')return buildRuin(variant);
  const key=kind+':'+variant;const hit=cache.get(key);if(hit)return hit;
  const w=29,h=27,cells=Array<string>(w*h).fill('#');
  const set=(x:number,y:number,t='.')=>{cells[y*w+x]=t;};
@@ -18,11 +20,7 @@ export function encounterMap(kind:EncounterKind,variant=0){
   for(let y=8;y<26;y++)for(let x=12;x<=16;x++)set(x,y);
  }else{
   for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++)set(x,y);
-  if(kind==='ruin'){
-   // One connected ruined complex with several rooms and open doorways.
-   for(let y=2;y<23;y++)if(![7,8,18,19].includes(y)){set(9,y,'#');set(20,y,'#');}
-   for(let x=1;x<w-1;x++)if(![4,5,13,14,15,24,25].includes(x))set(x,14,'#');
-  }
+
  }
  const exit={x:14,y:26},spawn={x:14,y:24};set(exit.x,exit.y,'E');set(14,25);set(14,24);
  const props:InteriorMap['props']=[];
@@ -43,6 +41,6 @@ export function encounterMap(kind:EncounterKind,variant=0){
   for(const [x,y]of [[3,6],[24,6],[6,18],[23,20]])prop('overgrowth',x,y);
  }
  const lairs=(kind==='camp'?[[6,9],[22,9],[7,21],[21,21],[12,8],[17,8]]:kind==='cave'?[[7,9],[22,10],[14,17],[10,6],[20,6]]:[[5,7],[24,7],[14,10],[5,21],[24,21]]).map(([x,y])=>({x,y}));
- const map:InteriorMap={templateId:'mine',label:ENCOUNTER_LABEL[kind],level:1,variant,storey:0,w,h,floor:kind==='ruin'?'stone':'dirt',wall:kind==='camp'?'wood':'stone',cells:cells.join(''),props,slots:[],exit,spawn,stairs:null,lairs};
+ const map:InteriorMap={templateId:'mine',label:ENCOUNTER_LABEL[kind],level:1,variant,storey:0,w,h,floor:'dirt',wall:kind==='camp'?'wood':'stone',cells:cells.join(''),props,slots:[],exit,spawn,stairs:null,lairs};
  const result={map,solid:interiorSolidGrid(map)};cache.set(key,result);return result;
 }

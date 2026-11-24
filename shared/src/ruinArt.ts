@@ -1,38 +1,37 @@
 import type {CaveDressing} from './caveScenery.js';
 import {interiorSolidGrid,type InteriorMap} from './interiors.js';
-const root='/sprites/ruins-v1/';
-export const RUIN_FLOOR_URL=root+'flagstone.png';
-export const RUIN_WALL_ART={face:root+'wall-face.png',rim:root+'wall-rim.png',side:root+'wall-side.png',body:root+'wall-core.png'};
+import {caveWallPieces} from './caveWalls.js';
+const old='/sprites/ruins-v1/',root='/sprites/ruins-v2/';
+export const RUIN_FLOOR_URL=root+'room-floor.png';
+export const RUIN_WALL_ART={face:root+'wall-face.png',rim:old+'wall-rim.png',side:old+'wall-side.png',body:root+'wall-core.png'};
 export const RUIN_TITLES=['Ruined sanctuary','Forgotten crypt','Fallen keep','Ruined cloister'];
+export function ruinFloorUrl(m:InteriorMap,x:number,y:number){const s=m.ruin?.surfaces[y*m.w+x];return s==='g'?root+'courtyard.png':s==='p'?root+'paving.png':RUIN_FLOOR_URL;}
 export function ruinPropArt(prop:string){
  const all:Record<string,{url:string;w:number;h:number}>={
-  statue:{url:root+'broken-statue.png',w:1.4,h:2.2},ruinRubble:{url:root+'column-rubble.png',w:1.5,h:1},
-  skullBones:{url:'/sprites/regions-v4/skulls.png',w:.85,h:.6},fallenSkeleton:{url:'/sprites/regions-v4/skeleton.png',w:1.3,h:.7},
-  cobweb:{url:'/sprites/regions-v4/web.png',w:1.3,h:.9},overgrowth:{url:'/sprites/regions-v4/brambles.png',w:1.3,h:1},
+  statue:{url:old+'broken-statue.png',w:1.4,h:2.2},ruinRubble:{url:old+'column-rubble.png',w:1.5,h:1},ruinColumn:{url:old+'column-rubble.png',w:1.25,h:1.65},sarcophagus:{url:old+'sarcophagus.png',w:1.65,h:1.15},
+  skullBones:{url:'/sprites/regions-v4/skulls.png',w:.7,h:.5},fallenSkeleton:{url:'/sprites/regions-v4/skeleton.png',w:1.2,h:.65},
+  cobweb:{url:'/sprites/regions-v4/web.png',w:1.1,h:.8},overgrowth:{url:'/sprites/regions-v4/brambles.png',w:1.2,h:.9},
  };return all[prop];
 }
-export function ruinEntrance(m:InteriorMap){const {x,y}=m.exit;return{opening:{x:x-.15,y:y-.6,w:1.3,h:1.5},sprites:[{url:'/sprites/regions-v3/ruin-entrance.png',x:x-.75,y:y-1.7,w:2.5,h:2.7}]};}
+export function ruinEntrance(m:InteriorMap){const {x,y}=m.exit;return{opening:{x:x-.2,y:y-.7,w:1.4,h:1.6},sprites:[{url:root+'door-arch.png',x:x-.9,y:y-1.8,w:2.8,h:2.8}]};}
+export function ruinDoorFrames(m:InteriorMap){return(m.ruin?.doors??[]).filter(d=>d.axis==='y').map(d=>({url:root+'door-arch.png',x:d.x-.2,y:d.y-1.8,w:d.width+.4,h:2.8}));}
+const wallCache=new WeakMap<InteriorMap,ReturnType<typeof caveWallPieces>>();
+export function ruinWallPieces(m:InteriorMap){
+ const cached=wallCache.get(m);if(cached)return cached;
+ const outside=(x:number,y:number)=>m.ruin?.areas.some(a=>a.type==='courtyard'&&x>=a.x&&y>=a.y&&x<a.x+a.w&&y<a.y+a.h)??false;
+ const pieces=caveWallPieces(m).map(p=>{const q={...p},x=Math.round(p.x),y=Math.round(p.kind==='face'?p.y+p.h-1:p.y),low=[[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>outside(x+dx,y+dy));if(q.kind==='face'){const height=low?1:Math.min(2.1,q.h===1?1:2.1);q.y=q.y+q.h-height;q.h=height;}else if(q.kind==='side'&&!low){q.y-=.3;q.h+=.3;}return q;});wallCache.set(m,pieces);return pieces;
+}
 export interface RuinDressing extends CaveDressing {}
 const cache=new WeakMap<InteriorMap,RuinDressing[]>();
-// Scenery-only dressing preserves existing encounters, doors, saved enemy
-// positions and line-of-sight. Larger set pieces stay clear of combat lanes.
+// Decoration is sparse and edge-bound. Large furnishings are real blocking
+// props in the authored layout, with navigation validated by the generator.
 export function ruinScenery(m:InteriorMap){
- const old=cache.get(m);if(old)return old;const solid=interiorSolidGrid(m),used=new Set(m.props.map(p=>p.y*m.w+p.x)),out:RuinDressing[]=[],variant=m.variant%4;
- const safe=(x:number,y:number)=>x>0&&y>0&&x<m.w-1&&y<m.h-1&&!solid[y*m.w+x]&&!used.has(y*m.w+x)&&Math.hypot(x-m.spawn.x,y-m.spawn.y)>3&&Math.hypot(x-m.exit.x,y-m.exit.y)>3&&!m.lairs?.some(p=>Math.hypot(p.x-x,p.y-y)<2)&&!m.props.some(p=>Math.abs(p.x-x)+Math.abs(p.y-y)<=1);
- const add=(x:number,y:number,url:string,w:number,h:number)=>{if(!safe(x,y))return;out.push({x,y,url,w,h});used.add(y*m.w+x);};
- // Crypt, memorial/shrine and collapsed hall areas within the existing complex.
- for(const [x,y]of [[3,3],[6,3],[3,10],[6,10]])add(x,y,root+'sarcophagus.png',1.45,1.05);
- for(const [x,y]of [[11,3],[18,3],[11,11],[18,11],[11,17],[18,17],[11,22],[18,22]])add(x,y,root+'column-rubble.png',1.35,1);
- for(const [x,y]of [[3,17],[7,17],[22,17],[26,17]])add(x,y,variant===2?'/sprites/structure/extra/crates_barrels_stack.png':root+'sarcophagus.png',1.4,1.05);
- add(14,3,'/sprites/structure/extra/altar_candles.png',1.6,1.25);
- for(const [x,y]of [[12,18],[17,18],[12,21],[17,21]])add(x,y,'/sprites/structure/extra/bench.png',1.4,.65);
- for(const [x,y]of [[22,3],[26,10],[3,22],[26,23]])add(x,y,variant===1?root+'sarcophagus.png':root+'broken-statue.png',1.2,1.6);
- // Smaller remains, ivy and fallen stone cluster against walls and door sides.
- const small=[{url:'/sprites/regions-v4/skulls.png',w:.65,h:.45},{url:'/sprites/regions-v4/skeleton.png',w:1.2,h:.65},{url:'/sprites/regions-v4/web.png',w:1.3,h:.9},{url:'/sprites/regions-v4/brambles.png',w:1.15,h:.8},{url:root+'column-rubble.png',w:.9,h:.65}];
- for(let y=2;y<m.h-2;y++)for(let x=2;x<m.w-2;x++){
-  const hash=(x*73+y*137+variant*37)>>>0;if(hash%7!==0||!safe(x,y))continue;
-  const closeWall=[[0,-1],[1,0],[0,1],[-1,0]].some(([dx,dy])=>m.cells[(y+dy)*m.w+x+dx]==='#');
-  if(!closeWall&&hash%3!==0)continue;const a=small[hash%small.length];out.push({x,y,...a});used.add(y*m.w+x);
+ const cached=cache.get(m);if(cached)return cached;const solid=interiorSolidGrid(m),used=new Set(m.props.map(p=>p.y*m.w+p.x)),out:RuinDressing[]=[];
+ const safe=(x:number,y:number)=>x>0&&y>0&&x<m.w-1&&y<m.h-1&&!solid[y*m.w+x]&&!used.has(y*m.w+x)&&m.ruin?.surfaces[y*m.w+x]!=='p'&&Math.hypot(x-m.spawn.x,y-m.spawn.y)>3&&Math.hypot(x-m.exit.x,y-m.exit.y)>3&&!m.lairs?.some(p=>Math.hypot(p.x-x,p.y-y)<2)&&!m.props.some(p=>Math.abs(p.x-x)+Math.abs(p.y-y)<=1);
+ for(const a of m.ruin?.areas??[]){
+  let count=0;for(const [dx,dy]of [[0,0],[a.w-1,0],[0,a.h-1],[a.w-1,a.h-1],[1,Math.floor(a.h/2)],[a.w-2,a.h-2]]){
+   if(count>=3)break;const x=a.x+dx,y=a.y+dy;if(!safe(x,y))continue;const n=(count+m.variant)%3,art=a.type==='courtyard'?{url:'/sprites/regions-v4/brambles.png',w:1.1,h:.8}:n===0?{url:'/sprites/regions-v4/web.png',w:1.1,h:.8}:n===1?{url:'/sprites/regions-v4/skeleton.png',w:1.1,h:.6}:{url:old+'column-rubble.png',w:.85,h:.7};out.push({x,y,...art});used.add(y*m.w+x);count++;
+  }
  }
  cache.set(m,out);return out;
 }
