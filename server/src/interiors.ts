@@ -1,5 +1,5 @@
 import {encounterKind,encounterMap,encounterAnchor,encounterVariant} from '@colony/shared/encounters';
-import {ensureEnteredEncounter,encounterInteract} from './mines.js';
+import {ensureEnteredEncounter,encounterInteract,mineInteriorMap} from './mines.js';
 import {PLAYER_BASES,HOME_PROPS,playerBaseMap,validHomeMap,type HomeDesign} from "@colony/shared/playerBases";
 // interiors.ts: Stardew phase 5c (docs PLAN-rimworld-stardew.md 5c; ROADMAP "Stardew layer — phase 5c"). The hero
 // enters a prefab building through its door (E on / walking north into it from the tile below it) and walks a small
@@ -64,7 +64,7 @@ function mapFor(id: InteriorTemplateId, level: number, variant = 0, storey = 0) 
   return m;
 }
 function designedMap(key:string, id:InteriorTemplateId,level:number,variant:number,storey=0){
- const [ex,ey]=key.split(',').map(Number),kind=encounterKind(state.tiles[tileIndex(ex,ey)]);if(kind)return encounterMap(kind,variant);
+ const [ex,ey]=key.split(',').map(Number),kind=encounterKind(state.tiles[tileIndex(ex,ey)]);if(kind==='cave'||!kind&&id==='mine')return mineInteriorMap(ex,ey,level,variant);if(kind)return encounterMap(kind,variant);
 
  const design=homeDesigns.get(key);if(!design&&id==='house'&&storey===0&&forcedVariant===null){const [x,y]=key.split(',').map(Number);const base=['cottage','farmhouse','townhouse','hill-burrow'][(x*7+y*11)%4];const cacheKey='home-default:'+base+':'+level;let hit=maps.get(cacheKey);if(!hit){const map=playerBaseMap({base},level);const solid=interiorSolidGrid(map);const free=[];for(let yy=2;yy<map.h-2;yy++)for(let xx=2;xx<map.w-2;xx++)if(!solid[yy*map.w+xx])free.push({x:xx,y:yy,slot:'v' as const});map.slots=free.slice(0,3);hit={map,solid};maps.set(cacheKey,hit);}return hit;}if(!design||storey>0||!['house','hall'].includes(id))return mapFor(id,level,variant,storey);
  let hit=homeCache.get(design);if(!hit||hit.map.level!==level){const map=playerBaseMap(design,level);hit={map,solid:interiorSolidGrid(map)};homeCache.set(design,hit);}return hit;

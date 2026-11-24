@@ -86,7 +86,7 @@ export type InteriorProp =
   // Deep mines: the ore face the miners work and the timber props holding the roof.
   | "oreFace" | "timberProp"
   // Layered mines: the way down to the Mine's next layer (walked onto; drawn with the Mine's own sprite for now).
-  | "mineShaft" | "campTent" | "prisonCage" | "rockBlock" | "ruinRubble" | "skullBones" | "fallenSkeleton" | "cobweb" | "overgrowth" | "banditTower";
+  | "mineShaft" | "campTent" | "prisonCage" | "rockBlock" | "ruinRubble" | "skullBones" | "fallenSkeleton" | "cobweb" | "overgrowth" | "banditTower" | "mineralNode" | "stalagmite";
 // NPC slots: "1" the building's keeper (smith, baker, trader, priest, elder), "2" a second (a hall's trader),
 // "v" residents / patrons / soldiers (beside the beds and tables).
 export type InteriorNpcSlot = "1" | "2" | "v";
@@ -694,6 +694,7 @@ export const INTERIOR_SLEEP_TEMPLATES: ReadonlySet<InteriorTemplateId> = new Set
 // ---- the built map ----
 // cells: one char per tile, row-major ("#" wall, "." floor, "E" exit, " " nothing).
 export interface InteriorMap {
+  underground?:{version:1;kind:'mine'|'cave';seed:number;depth:number;rockOnly?:boolean;sections:{id:number;shape:string;role:string;x:number;y:number;rotation:number}[];connections:[number,number][]};
   templateId: InteriorTemplateId;
   label: string;
   level: number;

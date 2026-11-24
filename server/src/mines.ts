@@ -15,6 +15,7 @@
 // every layer has its own status / monsters (danger by layer: MINE_LAYER_*), a new layer breaks into a nest, and the
 // miners dig the resources of every clear / cleared open layer in turn (mineBatch). Under COLONY_UNLOCK_ALL a Mine digs
 // iron ore like the old Iron Mine.
+import {buildUnderground,undergroundSeed} from '@colony/shared/underground';
 import {encounterKind,encounterMap,encounterAnchor,encounterVariant,encounterEnemies,ENCOUNTER_LABEL,type EncounterKind} from '@colony/shared/encounters';
 import {hearths} from './state.js';
 import {rescuePrisoners} from './people.js';
@@ -77,6 +78,7 @@ interface LayerRec {
   rollDay: number;
 }
 interface MineRec {
+  layoutSeed?:number;
   encounter?:EncounterKind;
   variant?:number;
   tx: number;
@@ -140,7 +142,9 @@ function mineMap(level: number, variant: number) {
   }
   return m;
 }
-const layerMap = (r: MineRec, li: number) => r.encounter?encounterMap(r.encounter,r.variant):mineMap(Math.max(1, r.level), variantOf(r, li));
+const layerMap = (r: MineRec, li: number) => r.layoutSeed!==undefined&&(!r.encounter||r.encounter==='cave')
+ ?buildUnderground({seed:r.layoutSeed,kind:r.encounter==='cave'?'cave':'mine',depth:r.encounter?1:depthOf(r,li),levels:r.encounter?1:Math.max(1,r.level),layered:r.layered})
+ :r.encounter?encounterMap(r.encounter,r.variant):mineMap(Math.max(1, r.level), variantOf(r, li));
 
 // ---- records ----
 export function mineRecAt(tx: number, ty: number): MineRec | undefined {
@@ -284,7 +288,7 @@ function rollDepth(r: MineRec, level: number) {
 function newRec(tx: number, ty: number, level: number, layered: boolean): MineRec {
   const d = today();
   const layers = Array.from({ length: layered ? Math.max(0, level) : 1 }, newLayer);
-  return { tx, ty, level, layered, layers, propsDay: d, closedDay: -1, closedWhy: "", unpropped: false, turn: 0 };
+  return { tx, ty, level, layered, layers, ...(!seedExisting?{layoutSeed:undergroundSeed(state.worldNoiseSalt,tx,ty)}:{}), propsDay: d, closedDay: -1, closedWhy: "", unpropped: false, turn: 0 };
 }
 
 // Once a second: a record per own mine (new mines and deeper shafts roll), gone mines dropped.
@@ -851,6 +855,7 @@ interface LayerSave {
   rollDay: number;
 }
 interface MineSave {
+  layoutSeed?:number;
   encounter?:EncounterKind;
   variant?:number;
   key: string;
@@ -865,7 +870,7 @@ interface MineSave {
 }
 export function minesForSave(): MineSave[] {
   return Array.from(mines.entries(), ([key, r]) => ({
-    key, level: r.level, layered: r.layered, ...(r.encounter?{encounter:r.encounter,variant:r.variant}:{}),
+    key, level: r.level, layered: r.layered,...(r.layoutSeed!==undefined?{layoutSeed:r.layoutSeed}:{}), ...(r.encounter?{encounter:r.encounter,variant:r.variant}:{}),
     layers: r.layers.map((L) => ({ status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
     propsDay: r.propsDay, closedDay: r.closedDay, closedWhy: r.closedWhy, unpropped: r.unpropped, turn: r.turn,
   }));
@@ -883,6 +888,7 @@ export function restoreMines(data: unknown) {
     const [tx, ty] = e.key.split(",").map(Number);
     const layered = e.layered === true;
     const r = newRec(tx, ty, Math.max(0, Math.min(3, num(e.level, 1))), layered);
+    r.layoutSeed=typeof e.layoutSeed==='number'&&Number.isInteger(e.layoutSeed)&&e.layoutSeed>=0&&e.layoutSeed<=0xffffffff?e.layoutSeed:undefined;
     if(['camp','cave','ruin'].includes(e.encounter??'')){r.encounter=e.encounter;r.variant=Math.max(0,Math.min(3,num(e.variant,0)));}
     Object.assign(r, { propsDay: num(e.propsDay, r.propsDay), closedDay: num(e.closedDay, -1), closedWhy: typeof e.closedWhy === "string" ? e.closedWhy : "", unpropped: e.unpropped === true, turn: num(e.turn, 0) });
     r.layers = e.layers.slice(0, 3).map((s, li) => {
@@ -966,7 +972,7 @@ export function mineDebug(msg: Record<string, unknown>) {
 export function ensureEnteredEncounter(tx:number,ty:number){
  const kind=encounterKind(state.tiles[tileIndex(tx,ty)]);if(!kind)return;
  const a=encounterAnchor(tx,ty,state.tiles[tileIndex(tx,ty)]),key=keyOf(a.x,a.y);let r=mines.get(key);if(r)return r;
- r=newRec(a.x,a.y,1,false);r.encounter=kind;r.variant=encounterVariant(a.x,a.y);mines.set(key,r);r.layers[0].status='infested';spawnEncounter(r,0,encounterEnemies(kind));return r;
+ r=newRec(a.x,a.y,1,false);r.encounter=kind;if(kind!=='cave')r.layoutSeed=undefined;r.variant=encounterVariant(a.x,a.y);mines.set(key,r);r.layers[0].status='infested';spawnEncounter(r,0,encounterEnemies(kind));return r;
 }
 export function landmarkHearth(x:number,y:number,destroyed=false):HearthState{return {siteId:`landmark:${x},${y}`,siteKind:'encampment',x,y,hp:destroyed?0:100,maxHp:100,destroyed,faction:'bandit',garrison:6,prisoners:2};}
 export function encounterInteract(p:Player){
@@ -978,4 +984,13 @@ export function encounterInteract(p:Player){
 function clearSight(grid:{map:InteriorMap;solid:Uint8Array},a:{x:number;y:number},b:{x:number;y:number}){
  const steps=Math.ceil(Math.hypot(a.x-b.x,a.y-b.y)*4);
  for(let n=1;n<steps;n++){const x=Math.round(a.x+(b.x-a.x)*n/steps),y=Math.round(a.y+(b.y-a.y)*n/steps);if(x<0||y<0||x>=grid.map.w||y>=grid.map.h||grid.solid[y*grid.map.w+x])return false;}return true;
+}
+
+
+// One authoritative layout for interior movement, NPCs, combat, ore work and rendering.
+export function mineInteriorMap(tx:number,ty:number,level:number,variant:number){
+ let r=mineRecAt(tx,ty);
+ if(!r&&isMineTile(state.tiles[tileIndex(tx,ty)])&&ownerAt(tileIndex(tx,ty))===0){syncMines();r=mineRecAt(tx,ty);}
+ if(r)return layerMap(r,r.layered?Math.max(0,Math.min(r.layers.length-1,variant)):0);
+ return mineMap(level,variant);
 }

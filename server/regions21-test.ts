@@ -8,7 +8,7 @@ import {loadBuildingTemplates} from './src/buildingTemplates.js';
 import {loadSettlementTemplates} from './src/settlementTemplates.js';
 import {loadCampTemplates} from './src/camps.js';
 import {tryEnterAtDoor,exitInterior,handleInteriorExit,stepInteriorMovement} from './src/interiors.js';
-import {minesForSave,restoreMines,mineRecAt,mineHeroAttack,updateMines,minesDawn} from './src/mines.js';
+import {minesForSave,restoreMines,mineRecAt,mineInteriorMap,mineHeroAttack,updateMines,minesDawn} from './src/mines.js';
 import {heroProfileOf} from './src/heroes.js';
 import {quests} from './src/quests.js';
 import {sites} from './src/state.js';
@@ -31,7 +31,7 @@ for(const tile of [TileType.CampEntrance,TileType.CaveEntrance,TileType.RuinEntr
  const i=state.tiles.indexOf(tile),x=i%state.WORLD_TILES_X,y=Math.floor(i/state.WORLD_TILES_X);assert(i>=0);p.x=(x+.5)*32;p.y=(y+1.5)*32;p.interior=undefined;p.dead=false;p.hp=100;
  assert(tryEnterAtDoor(p,false),'normal door interaction');assert(p.interior);assert(messages.some(m=>m.type==='interior'&&m.view?.map.label));
  let r=mineRecAt(x,y)!;assert(r?.encounter===encounterKind(tile));assert(r.layers[0].mobs.length>=5);const first=r.layers[0].mobs[0],hp=first.hp;
- const grid=encounterMap(r.encounter!,r.variant);const floorNear=(x:number,y:number)=>[[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dy])=>({x:x+dx,y:y+dy})).find(q=>!grid.solid[q.y*grid.map.w+q.x])!;
+ const grid=mineInteriorMap(x,y,1,0);const floorNear=(x:number,y:number)=>[[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dy])=>({x:x+dx,y:y+dy})).find(q=>!grid.solid[q.y*grid.map.w+q.x])!;
  let near=floorNear(first.x,first.y);p.interior!.x=(near.x+.5)*32;p.interior!.y=(near.y+.5)*32;p.attackCooldownTicks=0;mineHeroAttack(p);assert(first.hp<hp,'hero attack hits inside');
  const snapshot=minesForSave();exitInterior(p);const savedHp=first.hp,savedX=first.x;for(let n=0;n<60;n++){state.cycleTick++;updateMines();}assert.equal(first.x,savedX,'unoccupied encounter freezes');restoreMines(snapshot);assert.equal(mineRecAt(x,y)!.layers[0].mobs[0].hp,Math.ceil(savedHp));
  p.x=(x+.5)*32;p.y=(y+1.5)*32;assert(tryEnterAtDoor(p,false));r=mineRecAt(x,y)!;

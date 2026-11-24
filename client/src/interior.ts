@@ -1,3 +1,4 @@
+import {undergroundFloorUrl,undergroundWallUrl,undergroundPropUrl} from '@colony/shared/undergroundArt';
 import {npcVariantFrame} from "./npcVariants";
 import {PLAYER_BASES,HOME_PROPS} from "@colony/shared/playerBases";
 // interior.ts: Stardew phase 5c (2026-11-09; server/src/interiors.ts, shared/src/interiors.ts). The building interior
@@ -50,6 +51,7 @@ const PROP_COLOR: Partial<Record<InteriorProp, number>> = {
 // DRAWN pixels (transparent padding ignored) to these heights, so a chair comes up to a person's thigh, a table to the
 // waist, a wardrobe over their head; whatever the art's canvas size. Width is capped at about a tile (long pieces).
 const PROP_HEIGHT_PX: Partial<Record<InteriorProp, number>> = {
+  mineralNode:26,stalagmite:30,
   skullBones:14,fallenSkeleton:14,cobweb:22,overgrowth:22,banditTower:54,
   campTent:48,prisonCage:40,rockBlock:40,ruinRubble:16,
   chair: 18, pew: 16, table: 20, bed: 31, bedFine: 31, chest: 16, shelf: 30, wardrobe: 32, hearth: 28, lamp: 22, statue: 30,
@@ -290,6 +292,10 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       g.zIndex = -1;
       return g;
     }
+    if(view&&(view.map.underground||view.map.templateId==='mine'&&(!view.mine?.encounter||view.mine.encounter==='cave'))){
+      const url=undergroundPropUrl(view.map,prop,view.mine?.tile),t=url?extraTexture(url):undefined;
+      if(t){const s=new Sprite(t),b=opaqueBox(t),height=prop==='mineShaft'?30:prop==='timberProp'?40:prop==='stalagmite'?30:26,k=Math.min(height/b.h,32/b.w);s.anchor.set((b.x+b.w/2)/t.width,(b.y+b.h)/t.height);s.scale.set(k);s.position.set((x+.5)*T,(y+1)*T-1);s.zIndex=(y+1)*T;return s;}
+    }
     if (prop === "oreFace" || prop === "timberProp") {
       // Deep mines stand-ins (SPRITES.md #111): a rock face flecked with its ore; a timber prop (two posts, a cap beam).
       const g = new Graphics();
@@ -348,6 +354,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     mobViews.clear();
     for (const c of room.removeChildren()) if (!keep.has(c)) c.destroy();
     const m: InteriorMap = v.map;
+    const rockInterior=!!m.underground||m.templateId==='mine'&&(!v.mine?.encounter||v.mine.encounter==='cave');
     const ground = new Graphics();
     ground.zIndex = -10;
     room.addChild(ground);
@@ -356,7 +363,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         const ch = m.cells[y * m.w + x];
         if (ch === " ") continue;
         if (ch === "#") continue;
-        const dirtTexture = m.floor === "dirt" ? extraTexture("floor_dirt_1") : undefined;
+        const dirtTexture = m.floor === "dirt" ? extraTexture(rockInterior?undergroundFloorUrl(m):"floor_dirt_1") : undefined;
         const floorTile = m.floor === "dirt" ? (dirtTexture ? { texture: dirtTexture } : undefined) : deps.structure.floor(m.floor === "stone" ? TileType.StoneFloor : TileType.WoodFloor, 0);
         if (floorTile) {
           const s = new Sprite(floorTile.texture);
@@ -390,6 +397,12 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     for (let y = 0; y < m.h; y++) {
       for (let x = 0; x < m.w; x++) {
         if (m.cells[y * m.w + x] !== "#") continue;
+        if(rockInterior){
+          const rock=(xx:number,yy:number)=>xx>=0&&yy>=0&&xx<m.w&&yy<m.h&&m.cells[yy*m.w+xx]==='#';
+          const mask=(rock(x,y-1)?1:0)|(rock(x+1,y)?2:0)|(rock(x,y+1)?4:0)|(rock(x-1,y)?8:0),tex=extraTexture(undergroundWallUrl(m,mask));
+          if(tex){const b=opaqueBox(tex),sp=new Sprite(tex),k=Math.min(T*1.08/b.w,T*1.5/b.h);sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((x+.5)*T,(y+1)*T);sp.zIndex=-5;room.addChild(sp);}else walls.rect(x*T,y*T,T,T).fill(0x51483b);
+          continue;
+        }
         {
           const south=!solidAt(x,y+1),north=!solidAt(x,y-1),east=!solidAt(x+1,y),west=!solidAt(x-1,y);
           const draw=(name:string,px:number,py:number,w:number,h:number)=>{const tex=extraTexture('/sprites/cozy-walls/'+(m.wall==='stone'?'stone-':'')+name+'.png');if(!tex)return false;const sp=new Sprite(tex);sp.position.set(px,py);sp.width=w;sp.height=h;sp.zIndex=-5;room.addChild(sp);return true;};
