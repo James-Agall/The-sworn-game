@@ -1,3 +1,4 @@
+import {strikeContains,type CombatStrike} from '@colony/shared/combatRules';
 import {explorationPlan,adventureHash,EXPLORATION_REACH,BOSS_PROFILES,type ExplorationKind,type ExplorationPlan,type ExplorationObject,type ExplorationView} from '@colony/shared/adventure';
 import {interiorSolidGrid,type InteriorMap} from '@colony/shared/interiors';
 import {PACK_CAP,PACK_WEIGHT,PACK_LABEL,type PackGood} from '@colony/shared/herolife';
@@ -108,7 +109,7 @@ export function explorationRescued(key:string){const id=roomKey(key,0),r=rooms.g
 export function explorationClear(key:string,p?:Player|null){
  const r=rooms.get(roomKey(key,0));if(!r)return;if(!p){if(r.kind==='camp'){for(const o of r.plan.objects.filter(o=>o.kind==='cage'))stateOf(r,o).opened=true;change(r);}return;}for(const o of r.plan.objects.filter(o=>o.kind==='cage'))freeCage(p,r,o,stateOf(r,o),r.kind==='camp');
 }
-export function explorationAttack(p:Player,reachTiles:number){const r=current(p);if(!r||p.dead)return false;const o=r.plan.objects.filter(o=>['crate','barrel','pot'].includes(o.kind)&&!stateOf(r,o).opened&&reach(p,r,o,reachTiles)).sort((a,b)=>Math.hypot(a.x+.5-p.interior!.x/TILE_SIZE,a.y+.5-p.interior!.y/TILE_SIZE)-Math.hypot(b.x+.5-p.interior!.x/TILE_SIZE,b.y+.5-p.interior!.y/TILE_SIZE))[0];if(!o)return false;const s=stateOf(r,o);s.hp=Math.max(0,(s.hp??o.maxHp??1)-playerDamage(p));if(s.hp<=0){s.opened=true;collect(p,r,o,s);}else change(r);return true;}
+export function explorationAttack(p:Player,reachTiles:number,strike?:CombatStrike,damageMult=1){const r=current(p);if(!r||p.dead)return false;const o=r.plan.objects.filter(o=>['crate','barrel','pot'].includes(o.kind)&&!stateOf(r,o).opened&&reach(p,r,o,reachTiles)&&(!strike||strikeContains(strike,p.interior!,{x:(o.x+.5)*TILE_SIZE,y:(o.y+.5)*TILE_SIZE},8))).sort((a,b)=>Math.hypot(a.x+.5-p.interior!.x/TILE_SIZE,a.y+.5-p.interior!.y/TILE_SIZE)-Math.hypot(b.x+.5-p.interior!.x/TILE_SIZE,b.y+.5-p.interior!.y/TILE_SIZE))[0];if(!o)return false;const s=stateOf(r,o);s.hp=Math.max(0,(s.hp??o.maxHp??1)-playerDamage(p)*damageMult);if(s.hp<=0){s.opened=true;collect(p,r,o,s);}else change(r);return true;}
 export function explorationSave(key:string,li:number):ExplorationSave|undefined{const id=roomKey(key,li),r=rooms.get(id);return r?{version:1,objects:Object.fromEntries(Object.entries(r.states).map(([id,s])=>[id,{opened:!!s.opened,...(typeof s.hp==='number'?{hp:s.hp}:{}),...(s.loot?{loot:structuredClone(s.loot)}:{})}]))}:saved.get(id);}
 export function restoreExploration(key:string,li:number,raw:unknown){
  if(!raw||typeof raw!=='object')return;const d=raw as ExplorationSave;if(d.version!==1||!d.objects||typeof d.objects!=='object')return;

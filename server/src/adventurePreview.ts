@@ -1,9 +1,10 @@
 import {setTile} from './chunks.js';
 import {broadcastTileUpdate} from './net.js';
-import {heroProfileOf} from './heroes.js';
+import {spawnMobAt} from './creative.js';
+import {grantFoundEquipment,handleEquipItem,heroProfileOf} from './heroes.js';
 import {TileType} from '@colony/shared/protocol';
 // Only called by the existing COLONY_TEST_HOOKS gate. No live-game endpoint.
-import {players,state} from './state.js';
+import {players,mobs,state} from './state.js';
 import type {Player} from './types.js';
 import {specialResidences} from './specialCast.js';
 import {STORIES} from '@colony/shared/stories';
@@ -17,7 +18,17 @@ export function adventurePreview(caller:Player,msg:Record<string,unknown>){
  if(!p)return{error:'No player'};
  if(typeof msg.mode==='string'){
   if(p.interior)exitInterior(p);p.dead=false;p.hp=1000;p.attackCooldownTicks=0;p.input={dx:0,dy:0};const f=lifeOf(p).flags;
-  if(['render','render-front','render-house','render-house-front'].includes(msg.mode)){
+  if(msg.mode==='combat'){
+    const x=Math.min(state.WORLD_TILES_X-14,Math.max(14,Math.floor(p.x/32))),y=Math.min(state.WORLD_TILES_Y-14,Math.max(14,Math.floor(p.y/32)));
+    for(const [id,m]of mobs)if(Math.hypot(m.x-p.x,m.y-p.y)<900)mobs.delete(id);
+    for(let yy=y-9;yy<=y+9;yy++)for(let xx=x-12;xx<=x+12;xx++){setTile(yy*state.WORLD_TILES_X+xx,TileType.Empty);broadcastTileUpdate(xx,yy,TileType.Empty);}
+    p.x=(x+.5)*32;p.y=(y+.5)*32;
+    const prof=heroProfileOf(p);prof.inventory=[];for(const slot of Object.keys(prof.equipment) as (keyof typeof prof.equipment)[])prof.equipment[slot]=null;
+    for(const kind of ['sword','axe','spear','bow']){const item=grantFoundEquipment(p,'weapon',2,kind);if(kind==='sword'&&item)handleEquipItem(p,item.id,'weapon');}
+    for(const slot of ['head','chest','offhand'] as const){const item=grantFoundEquipment(p,slot,2);if(item)handleEquipItem(p,item.id,slot);}
+    for(const [kind,dx,dy]of [['banditClubman',1.1,0],['armoredOrc',3,-1],['skeleton',3,2],['banditArcher',5,-3]] as const){const m=spawnMobAt(kind,x,y);if(m){m.x=p.x+dx*32;m.y=p.y+dy*32;m.hp=m.maxHp=500;m.damage=1;m.speed=0;m.targetType='player';m.targetId=p.id;m.range=kind==='banditArcher'?180:kind==='banditClubman'?45:60;m.attackCooldownTicks=0;}}
+    state.testPlayersIgnored=false;state.isPaused=false;
+   }else if(['render','render-front','render-house','render-house-front'].includes(msg.mode)){
    const x=44,y=47,w=state.WORLD_TILES_X;
    if(msg.mode==='render')for(let yy=y-8;yy<=y+8;yy++)for(let xx=x-9;xx<=x+12;xx++){const tile=xx===x&&yy===y?TileType.Tree:xx===x+7&&yy===y?TileType.House:TileType.Empty;setTile(yy*w+xx,tile);broadcastTileUpdate(xx,yy,tile);}
    const house=msg.mode.includes('house'),front=msg.mode.endsWith('front');p.x=(x+(house?7:0)+.5)*32;p.y=(y+(front?1.6:.35))*32;state.isPaused=false;state.cycleTick=200;

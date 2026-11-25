@@ -192,6 +192,7 @@ export const MINE_ASSAULT_MAX_ROUNDS = 60;
 // ---- wire ----
 // One encounter monster inside the mine (message interiorMobs): interior tiles (fractional), facing, what it does.
 export interface MineMobLive {
+  duel?: import('./combatRules.js').DuelLive;
   burning?:boolean;slowed?:boolean;cursed?:boolean;
   bossAttack?:import("./adventure.js").BossAttackLive;
   hazard?:{x:number;y:number;radius:number;remaining:number};

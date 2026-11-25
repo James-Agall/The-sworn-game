@@ -49,6 +49,7 @@ export interface HeroToolsUi {
   interactFields: () => object;
   // Space: true if a tool took it (else Space attacks).
   useKey: () => boolean;
+  combatReady: () => boolean;
   // A left click at world (x, y): true if it used a tool (main then skips its own click handling).
   click: (wx: number, wy: number) => boolean;
   mouse: (wx: number, wy: number) => void;
@@ -318,6 +319,7 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
       const t = tool();
       return { tx: tg.tx, ty: tg.ty, ...(t ? { tool: t } : {}), ...(t === "seeds" ? { crop } : {}) };
     },
+    combatReady:()=>!tool(),
     useKey() {
       return deps.active() && send("heroTool");
     },

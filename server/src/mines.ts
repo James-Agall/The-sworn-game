@@ -1,3 +1,6 @@
+import { attackSpec, combatWeapon, strikeContains, type CombatStrike } from "@colony/shared/combatRules";
+import { stepDuel, duelLive, enemyGuardMultiplier, clearDuel } from "./duelCombat.js";
+import type { CombatDamageSource } from "./playerCombat.js";
 import {explorationMap,explorationView,explorationInteract,explorationAttack,explorationSave,restoreExploration,resetExploration,explorationRescued,explorationClear,type ExplorationSave} from './adventureLoot.js';
 import {bossHit,stepBoss,bossLive,stepBossStatuses,resetBossEffects,type BossAgent} from './bossCombat.js';
 import {furnitureRoomMap} from './furniture.js';
@@ -546,32 +549,22 @@ function wake(L: LayerRec, m: MineMob) {
 }
 
 // index.ts: `attack` inside a mine. True when it was handled here (the hero is in a mine).
-export function mineHeroAttack(p: Player): boolean {
-  const I = p.interior;
-  if (!I || I.templateId !== "mine") return false;
-  if (p.dead || p.attackCooldownTicks > 0) return true;
-  p.attackCooldownTicks = playerAttackCooldownTicks(p);
-  const r = mineRecAt(I.tx, I.ty);
-  if (!r) return true;
-  const li = layerOfPlayer(r, p);
-  const L = r.layers[li];
-  if (!L) return true;
-  const weapon = heroProfileOf(p).equipment.weapon?.kind;
-  const reach = weapon === "bow" ? MINE_HERO_BOW_REACH_TILES : weapon === "spear" ? MINE_HERO_SPEAR_REACH_TILES : MINE_HERO_REACH_TILES;
-  const h = heroTile(p);
-  let best: MineMob | null = null;
-  let bestD = Infinity;
-  for (const m of aliveIn(L)) {
-    const d = Math.hypot(m.x - h.x, m.y - h.y);
-    if (d <= reach && d < bestD && clearSight(layerMap(r,li),h,m)) {
-      best = m;
-      bestD = d;
-    }
-  }
-  if (!best) {explorationAttack(p,reach);return true;}
-  best.hp -= bossHit(best,playerDamage(p),h)*interiorCurse(best);
-  wake(L, best);
-  if (best.hp <= 0) killMob(r, li, best, p);
+export function legacyMineAttackAim(p:Player):number|undefined {
+  const I=p.interior;if(!I||I.templateId!=="mine")return;
+  const r=mineRecAt(I.tx,I.ty);if(!r)return;const L=r.layers[layerOfPlayer(r,p)];if(!L)return;
+  const h=heroTile(p),m=aliveIn(L).sort((a,b)=>Math.hypot(a.x-h.x,a.y-h.y)-Math.hypot(b.x-h.x,b.y-h.y))[0];
+  return m?Math.atan2(m.y-h.y,m.x-h.x):undefined;
+}
+export function mineHeroAttack(p: Player, strike?:CombatStrike, damageMult=1): boolean {
+  const I=p.interior;if(!I||I.templateId!=="mine")return false;
+  if(p.dead)return true;
+  const r=mineRecAt(I.tx,I.ty);if(!r)return true;
+  const li=layerOfPlayer(r,p),L=r.layers[li];if(!L)return true;
+  const h=heroTile(p),origin={x:I.x,y:I.y},spec=strike??attackSpec(combatWeapon(heroProfileOf(p).equipment.weapon?.kind));
+  const hits=aliveIn(L).filter(m=>strikeContains(spec,origin,{x:(m.x+.5)*TILE_SIZE,y:(m.y+.5)*TILE_SIZE},9)&&clearSight(layerMap(r,li),h,m))
+    .sort((a,b)=>Math.hypot(a.x-h.x,a.y-h.y)-Math.hypot(b.x-h.x,b.y-h.y)).slice(0,spec.maxTargets);
+  if(!hits.length){explorationAttack(p,spec.reach/TILE_SIZE,spec,damageMult);return true;}
+  for(const m of hits){m.hp-=bossHit(m,playerDamage(p)*damageMult,h)*interiorCurse(m)*enemyGuardMultiplier(m,{x:h.x*TILE_SIZE,y:h.y*TILE_SIZE},spec);wake(L,m);if(m.hp<=0)killMob(r,li,m,p);}
   return true;
 }
 
@@ -607,7 +600,7 @@ function pathOn(grid: { map: InteriorMap; solid: Uint8Array }, from: { x: number
 
 function stepMobs(r: MineRec, li: number, inside: Player[]) {
   const L = r.layers[li];
-  if(L.lastActiveTick!==state.cycleTick-1)for(const m of L.mobs){m.bossState=undefined;m.hazard=undefined;if((m.spell?.appliedTick??-Infinity)<state.cycleTick-1)m.spell=undefined;if(m.specialId)m.cd=Math.max(m.cd,12);}
+  if(L.lastActiveTick!==state.cycleTick-1)for(const m of L.mobs){clearDuel(m);m.bossState=undefined;m.hazard=undefined;if((m.spell?.appliedTick??-Infinity)<state.cycleTick-1)m.spell=undefined;if(m.specialId)m.cd=Math.max(m.cd,12);}
   L.lastActiveTick=state.cycleTick;stepBossStatuses(inside,biteHero);
   for(const m of aliveIn(L)){
     const s=m.spell;if(!s)continue;
@@ -640,11 +633,20 @@ function stepMobs(r: MineRec, li: number, inside: Player[]) {
     }
     if(!m.bossState)m.face = near.x < m.x ? "l" : near.x > m.x ? "r" : m.face;
     if(m.specialId&&BOSS_PROFILES[m.specialId]){
-      const speed=m.speed;m.speed*=interiorSlow(m);const handled=stepBoss(m,near,{grid,players:inside,damage:biteHero,clearSight:(a,b)=>clearSight(grid,a,b),spawn:(kind,x,y)=>{
+      const speed=m.speed;m.speed*=interiorSlow(m);const handled=stepBoss(m,near,{grid,players:inside,damage:(p,n)=>biteHero(p,n,{x:((m.bossState?.fromX??m.x)+.5)*TILE_SIZE,y:((m.bossState?.fromY??m.y)+.5)*TILE_SIZE,heavy:['guardian','captain'].includes(BOSS_PROFILES[m.specialId!].style),unblockable:BOSS_PROFILES[m.specialId!].style==='spider'}),clearSight:(a,b)=>clearSight(grid,a,b),spawn:(kind,x,y)=>{
         if((L.summonsSpawned??0)>=4||L.mobs.some(m=>m.hp>0&&Math.hypot(m.x-x,m.y-y)<.8))return false;
         const spawned=newMob(kind,.65,x,y);if(!spawned)return false;spawned.awake=true;spawned.summon=true;L.mobs.push(spawned);L.summonsSpawned=(L.summonsSpawned??0)+1;return true;
       }});m.speed=speed;if(handled)continue;
       if(near.d<=BOSS_PROFILES[m.specialId].range&&clearSight(grid,m,near)){m.act='idle';m.path=[];continue;}
+    }
+    if(!m.specialId){
+      const range=m.kind==='banditArcher'?3.5:m.kind==='skeleton'?Math.max(1.7,MINE_MOB_REACH_TILES):MINE_MOB_REACH_TILES;
+      const handled=stepDuel(m,{id:near.p.id,target:near,range,ranged:m.kind==='banditArcher',ready:m.cd<=0,scale:TILE_SIZE,
+        clear:(a,b)=>clearSight(grid,a,b),cooldown:()=>{m.cd=m.cdTicks;},
+        hit:source=>biteHero(near!.p,m.damage,{...source,x:source.x+TILE_SIZE/2,y:source.y+TILE_SIZE/2}),
+        retreat:()=>{const d=Math.max(.01,near!.d),x=m.x+(m.x-near!.x)/d*m.speed*dt,y=m.y+(m.y-near!.y)/d*m.speed*dt;if(clearSight(grid,m,{x,y})){const ix=Math.round(x),iy=Math.round(y);if(ix>=0&&iy>=0&&ix<grid.map.w&&iy<grid.map.h&&!grid.solid[iy*grid.map.w+ix]){m.x=x;m.y=y;}}}});
+      if(handled){m.act=duelLive(m)?.phase==='windup'?'attack':'idle';continue;}
+      if(near.d<=range){m.act='idle';continue;}
     }
     if (near.d <= (m.kind==='banditArcher'?3.5:MINE_MOB_REACH_TILES)&&clearSight(layerMap(r,li),m,near)) {
       m.act = "attack";
@@ -680,10 +682,10 @@ function stepMobs(r: MineRec, li: number, inside: Player[]) {
 
 // A bite indoors. A hero who falls is put back in the world (the legacy instant respawn moves it to a Town Center;
 // otherwise the heir rule marks it dead and updateInteriors puts it out at the door).
-function biteHero(p: Player, damage: number) {
+function biteHero(p: Player, damage: number, source?:CombatDamageSource) {
   const x = p.x;
   const y = p.y;
-  damagePlayer(p, damage, true);
+  damagePlayer(p, damage, true, source);
   if (p.interior && !p.dead && (p.x !== x || p.y !== y)) {
     const at = { x: p.x, y: p.y };
     exitInterior(p, "You fell in the mine and woke at a Town Center");
@@ -693,7 +695,7 @@ function biteHero(p: Player, damage: number) {
 }
 
 const liveOf = (L: LayerRec | undefined): MineMobLive[] =>
-  aliveIn(L).map((m) => ({ id: m.id, kind: m.kind,burning:(m.spell?.burnUntil??0)>state.spellTick,slowed:interiorSlow(m)<1,cursed:interiorCurse(m)>1, bossAttack:bossLive(m),...(m.hazard?{hazard:{x:m.hazard.x,y:m.hazard.y,radius:m.hazard.radius,remaining:Math.max(0,m.hazard.until-state.cycleTick)}}:{}), ...(m.specialId?{specialId:m.specialId,name:SPECIAL_BY_ID.get(m.specialId)?.name}:{}), x: Math.round(m.x * 100) / 100, y: Math.round(m.y * 100) / 100, hp: Math.ceil(m.hp), maxHp: m.maxHp, face: m.face, act: m.act }));
+  aliveIn(L).map((m) => ({ id: m.id, kind: m.kind,...(duelLive(m)?{duel:duelLive(m)}:{}),burning:(m.spell?.burnUntil??0)>state.spellTick,slowed:interiorSlow(m)<1,cursed:interiorCurse(m)>1, bossAttack:bossLive(m),...(m.hazard?{hazard:{x:m.hazard.x,y:m.hazard.y,radius:m.hazard.radius,remaining:Math.max(0,m.hazard.until-state.cycleTick)}}:{}), ...(m.specialId?{specialId:m.specialId,name:SPECIAL_BY_ID.get(m.specialId)?.name}:{}), x: Math.round(m.x * 100) / 100, y: Math.round(m.y * 100) / 100, hp: Math.ceil(m.hp), maxHp: m.maxHp, face: m.face, act: m.act }));
 
 // sim.ts, once a tick: records (once a second), the monsters of every mine layer a hero is in, their positions out.
 export function updateMines() {

@@ -1,3 +1,5 @@
+import { legacyMineAttackAim } from "./mines.js";
+import { queuePlayerAttack, defendPlayer, type CombatDamageSource } from "./playerCombat.js";
 import {advanceGroundApproach} from "./groundNavigation.js";
 import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
 import { PADDOCK_FENCE_HP, PADDOCK_GATE_HP } from "@colony/shared/animals";
@@ -248,10 +250,12 @@ export function damageMob(mob: Mob, amount: number, attackerKey?: string) {
 
 // A killed player respawns at the standing Town Center nearest where they fell. With none standing
 // they stay dead (game over for them) until someone builds one: see respawnDeadPlayers.
-export function damagePlayer(player: Player, amount: number, indoors = false) {
+export function damagePlayer(player: Player, amount: number, indoors = false, source?: CombatDamageSource) {
   // Stardew phase 5c: nothing reaches a hero inside a building interior (deep mines: except a mine's own monsters,
   // mines.ts, which pass `indoors`).
   if (player.dead || player.creativeGod || (player.interior && !indoors)) return;
+  amount=defendPlayer(player,amount,source);
+  if(amount<=0)return;
   // Hero gear: every blow / poison tick the player takes is scaled (equipment survives death).
   const mult = heroProfileOf(player).stats.damageTakenMult;
   if (mult !== 1) heroEvent({ type: "taken", key: player.profileKey, amount: amount * mult, detail: String(amount) });
@@ -344,99 +348,15 @@ export function damageColonist(colonist: Colonist, amount: number) {
 }
 
 export function handlePlayerAttack(attacker: Player) {
-  if (attacker.dead || attacker.interior || attacker.attackCooldownTicks > 0) return;
-  attacker.attackCooldownTicks = playerAttackCooldownTicks(attacker);
-  const damage = playerDamage(attacker);
-  const weapon = heroProfileOf(attacker).equipment.weapon?.kind;
-  const ranged = weapon === "bow";
-  const reach = ranged ? TILE_SIZE * 5 : weapon === "spear" ? PLAYER_ATTACK_RANGE * 1.5 : PLAYER_ATTACK_RANGE;
-  // A ranged weapon cannot fire through intact walls or closed gates.
-  const clear = (x: number,y: number) => {
-    const steps=Math.ceil(Math.hypot(x-attacker.x,y-attacker.y)/(TILE_SIZE/3));
-    for(let i=1;i<steps;i++) {
-      const t=tileOfPixel(attacker.x+(x-attacker.x)*i/steps,attacker.y+(y-attacker.y)*i/steps);
-      if(!inBounds(t.x,t.y)) return false;
-      const tile=state.tiles[tileIndex(t.x,t.y)];
-      if(isWallTile(tile) || (tile===TileType.Gate && !gates.get(tileIndex(t.x,t.y))?.open)) return false;
-    }
-    return true;
-  };
-
-  let bestType: "player" | "mob" | null = null;
-  let bestId: string | null = null;
-  let bestDist = Infinity;
-
-  for (const p of players.values()) {
-    if (p.id === attacker.id || p.dead || p.interior) continue;
-    const d = Math.hypot(p.x - attacker.x, p.y - attacker.y);
-    if (d <= reach && d < bestDist && clear(p.x, p.y) ) {
-      bestDist = d;
-      bestType = "player";
-      bestId = p.id;
-    }
+  // Compatibility for old clients. New clients send press/release and an explicit aim angle.
+  const at=attacker.interior??attacker;
+  let angle=Math.atan2(attacker.input.dy,attacker.input.dx),best=Infinity;
+  if(attacker.interior)angle=legacyMineAttackAim(attacker)??angle;
+  else if(!attacker.input.dx&&!attacker.input.dy)for(const m of [...mobs.values(),...wildlife.values(),...players.values()]){
+    if(m===attacker)continue;
+    const d=Math.hypot(m.x-at.x,m.y-at.y);if(d<best){best=d;angle=Math.atan2(m.y-at.y,m.x-at.x);}
   }
-  for (const m of mobs.values()) {
-    const d = Math.hypot(m.x - attacker.x, m.y - attacker.y);
-    if (d <= reach && d < bestDist && clear(m.x, m.y)) {
-      bestDist = d;
-      bestType = "mob";
-      bestId = m.id;
-    }
-  }
-
-  let bestAnimal: Wildlife | null = null;
-  for (const a of wildlife.values()) {
-    const d = Math.hypot(a.x - attacker.x, a.y - attacker.y);
-    if (d <= reach && d < bestDist && clear(a.x, a.y)) {
-      bestDist = d;
-      bestAnimal = a;
-    }
-  }
-  // Creative mode: with "allow attacking neutrals" on, a hostile clan's unit nearer than anything else.
-  const hostile = hostileColonistInReach(attacker, bestDist, reach);
-  if (hostile && clear(hostile.x, hostile.y)) {
-    state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: hostile.x, toY: hostile.y, melee: !ranged });
-    damageColonist(hostile, damage);
-    return;
-  }
-  if (bestAnimal) {
-    // A player's kill is dressed on the spot: the meat goes straight to the stockpile.
-    state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: bestAnimal.x, toY: bestAnimal.y, melee: !ranged });
-    const meat = WILDLIFE_CONFIG[bestAnimal.kind].meat;
-    if (damageWildlife(bestAnimal, damage, attacker.x, attacker.y, null)) {
-      state.stock.meat += meat;
-      addItem("hide", 1);
-      noteHeroHunt(attacker);
-    }
-    return;
-  }
-
-  if (!bestType || !bestId) {
-    // Camp hearths: with nothing else in reach, the player can strike a hearth next to them.
-    for (const h of hearths.values()) {
-      if (h.destroyed) continue;
-      const p = footprintHitPoint(h.x,h.y,attacker.x,attacker.y);
-      if (Math.hypot(p.x - attacker.x, p.y - attacker.y) > PLAYER_ATTACK_RANGE + TILE_SIZE / 2) continue;
-      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: p.x, toY: p.y, melee: !ranged });
-      damageHearth(h, damage, "p:" + attacker.id);
-      return;
-    }
-    return;
-  }
-  if (bestType === "player") {
-    const target = players.get(bestId);
-    if (target) {
-      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: !ranged });
-      damagePlayer(target, damage);
-    }
-  } else {
-    const target = mobs.get(bestId);
-    if (target) {
-      state.pendingEffects.push({ fromX: attacker.x, fromY: attacker.y, toX: target.x, toY: target.y, melee: !ranged });
-      heroEvent({ type: "hit", key: attacker.profileKey, amount: damage, detail: target.id });
-      damageMob(target, damage, "p:" + attacker.id);
-    }
-  }
+  queuePlayerAttack(attacker,false,angle);
 }
 
 export function damageTownCenter(tc: TownCenter, amount: number) {

@@ -1,3 +1,5 @@
+import { handleCombatInput, playerCombatLive } from "./playerCombat.js";
+import { duelLive } from "./duelCombat.js";
 import { handlePersonalCraft, handleStockWithdraw } from "./herolife.js";
 import { handleHeroAppearance, playerVisual } from "./heroes.js";
 // index.ts: boot and wiring. Imports every server module in evaluation order (types, constants and state
@@ -246,8 +248,11 @@ function handleMessage(player: Player, message: ClientMessage) {
   // Interior melee uses room actors. Spells continue through the normal dispatcher,
   // whose target validation selects this same room and layer.
   if (player.interior && message.type === "attack") {
-    mineHeroAttack(player);
+    handlePlayerAttack(player);
     return;
+  }
+  if (message.type === "combat") {
+    handleCombatInput(player,message);return;
   }
   if (message.type === "input") {
     const dx = clamp(message.dx, -1, 1);
@@ -503,6 +508,7 @@ setInterval(() => {
     hp: p.hp,
     maxHp: playerMaxHp(p),
     visual: playerVisual(p),
+    ...(playerCombatLive(p)?{combat:playerCombatLive(p)}:{}),
     dead: p.dead,
     ...(p.clan ? { clan: p.clan } : {}),
     ...(p.dead && p.heirPending ? { heirs: heirChoicesFor(p) } : {}),
@@ -547,6 +553,7 @@ setInterval(() => {
   const mobsNow = Array.from(mobs.values(), (m): MobSnapshot => ({
       id: m.id,
       kind: m.kind,
+      ...(duelLive(m)?{duel:duelLive(m)}:{}),
       x: q(m.x),
       y: q(m.y),
       hp: q(m.hp),

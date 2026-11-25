@@ -1,3 +1,5 @@
+import { stepDuel, duelLive, clearDuel } from "./duelCombat.js";
+import { worldCombatSight } from "./worldPlayerStrike.js";
 import {isWideBridge} from "@colony/shared/fortifications";
 // mobs.ts: Mob kinds, sizes, hunger marks, difficulty, targeting, building routing and the mob tick.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
@@ -656,7 +658,9 @@ export function updateMob(mob: Mob, dt: number) {
     }
   }
 
+  if(mob.targetType!=="player")clearDuel(mob);
   if (!targetPos) {
+    clearDuel(mob);
     if (leash && Math.hypot(leash.px - mob.x, leash.py - mob.y) > TILE_SIZE * 0.5) walkMobTo(mob, leash.px, leash.py, mob.speed * SITE_RETURN_SPEED_MULT, dt);
     return;
   }
@@ -703,6 +707,25 @@ export function updateMob(mob: Mob, dt: number) {
   }
 
   const dist = Math.hypot(targetPos.x - mob.x, targetPos.y - mob.y);
+  if(mob.targetType==='player'&&mob.targetId){
+    const p=players.get(mob.targetId);
+    if(p&&!p.dead&&!p.interior){
+      const duel=duelLive(mob);
+      // Preserve the engagement ring while enemies wait. Only the committed swing/recovery holds still.
+      if(slot&&(!duel||duel.phase==='guard')&&Math.hypot(slot.x-mob.x,slot.y-mob.y)>2)stepRaidMobToward(mob,slot.x,slot.y,mob.speed,dt);
+      if(mob.attackCooldownTicks>0)mob.attackCooldownTicks--;
+      if(stepDuel(mob,{id:p.id,target:p,range:["skeleton","townGuard"].includes(mob.kind)?Math.max(mob.range,TILE_SIZE*1.8):mob.range,ranged:!mob.melee,ready:mob.attackCooldownTicks<=0,scale:1,
+        clear:worldCombatSight,cooldown:()=>{mob.attackCooldownTicks=MOB_ATTACK_COOLDOWN_TICKS;},
+        retreat:()=>stepMobAwayFrom(mob,p.x,p.y,dt),hit:source=>{state.pendingEffects.push({fromX:mob.x,fromY:mob.y,toX:p.x,toY:p.y,melee:mob.melee});let blow=mob.damage*fatigueDamageMultOnMob(mob);
+          if(mob.kind==='goblinRider'){const bonus=takeChargeBonus(mob);blow*=bonus;if(bonus>1){mob.withdrawUntilTick=state.cycleTick+GOBLIN_RIDER_WITHDRAW_TICKS;mob.withdrawFromX=p.x;mob.withdrawFromY=p.y;}}
+          const before=p.hp;damagePlayer(p,blow,false,{...source,heavy:source.heavy||mob.kind==='ogre'||mob.kind==='troll'});
+          if(mob.kind==='giantSpider'&&p.hp<before){p.poisonTicksRemaining=POISON_DURATION_TICKS;p.poisonDamagePerTick=POISON_DAMAGE_PER_TICK;}
+          if(mob.mark===HungerMark.Vhorrun&&!p.dead&&p.hp<playerMaxHp(p)*VHORRUN_WITHDRAW_TARGET_HP)startVhorrunWithdraw(mob,p);
+        }}))return;
+      // A missed or completed duel never falls through to the old immediate-damage branch.
+      if(dist<=mob.range)return;
+    }
+  }
   if (hold && dist > mob.range) return;
   // Queue: a melee mob with no slot on its unit target stands off behind the fighters instead of
   // shoving into the scrum (it re-picks a target with room once a second, see above).

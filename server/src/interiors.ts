@@ -1,3 +1,4 @@
+import { combatMotion } from "./playerCombat.js";
 import {explorationView} from './adventureLoot.js';
 import {storyRoomMap} from './story.js';
 import {furnitureView,useFurniture,furnitureRoomMap,resetFurniture} from './furniture.js';
@@ -674,14 +675,15 @@ export function stepInteriorMovement(p: Player) {
   const I = p.interior;
   if (!I) return;
   const { map, solid } = mapOf(I);
-  const { dx, dy } = p.input;
+  const { dx, dy, mult:combatSpeed } = combatMotion(p);
   const len = Math.hypot(dx, dy) || 1;
-  const speed = PLAYER_SPEED * INTERIOR_SPEED_MULT * heroProfileOf(p).stats.moveSpeedMult * heroSpeedMult(p) * bossMoveSpeed(p);
+  const speed = PLAYER_SPEED * INTERIOR_SPEED_MULT * heroProfileOf(p).stats.moveSpeedMult * heroSpeedMult(p) * bossMoveSpeed(p) * combatSpeed;
   const blocked = (x: number, y: number) => {
-    for (const ox of [-PLAYER_HALF_SIZE, PLAYER_HALF_SIZE]) {
+    const steps=Math.max(1,Math.ceil(Math.hypot(x-I.x,y-I.y)/4));
+    for(let n=1;n<=steps;n++)for (const ox of [-PLAYER_HALF_SIZE, PLAYER_HALF_SIZE]) {
       for (const oy of [-PLAYER_HALF_SIZE, PLAYER_HALF_SIZE]) {
-        const cx = Math.floor((x + ox) / TILE_SIZE);
-        const cy = Math.floor((y + oy) / TILE_SIZE);
+        const cx = Math.floor((I.x+(x-I.x)*n/steps + ox) / TILE_SIZE);
+        const cy = Math.floor((I.y+(y-I.y)*n/steps + oy) / TILE_SIZE);
         if (cx < 0 || cy < 0 || cx >= map.w || cy >= map.h || solid[cy * map.w + cx]) return true;
       }
     }

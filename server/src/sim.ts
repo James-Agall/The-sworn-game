@@ -1,3 +1,4 @@
+import { stepPlayerCombat, combatMotion } from "./playerCombat.js";
 import { updatePeacefulGuard } from "./townLife.js";
 // sim.ts: One simulation tick (stepSimulation: everything the pause freezes); index.ts's tick loop and the fastForward test hook run it.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
@@ -158,11 +159,11 @@ export function stepSimulation() {
       stepInteriorMovement(player);
       continue;
     }
-    const { dx, dy } = player.input;
+    const { dx, dy, mult:combatSpeed } = combatMotion(player);
     const length = Math.hypot(dx, dy) || 1;
     const normDx = dx / length;
     const normDy = dy / length;
-    const playerSpeed = PLAYER_SPEED * heroProfileOf(player).stats.moveSpeedMult * spellBuffSpeedMult("p:" + player.id) * biomeSpeedMultiplier(player.x, player.y) * roadSpeedMultiplier(player.x, player.y) * heroSpeedMult(player);
+    const playerSpeed = PLAYER_SPEED * heroProfileOf(player).stats.moveSpeedMult * spellBuffSpeedMult("p:" + player.id) * biomeSpeedMultiplier(player.x, player.y) * roadSpeedMultiplier(player.x, player.y) * heroSpeedMult(player) * combatSpeed;
 
     const nextX = clamp(
       player.x + normDx * playerSpeed * dt,
@@ -208,6 +209,7 @@ export function stepSimulation() {
   updateGearPickup();
   updateHeroRecruits();
   updateSpellStatuses();
+  for(const player of players.values())stepPlayerCombat(player);
 
   lap("misc");
   // Walls & gates: mobs and wildlife move and path from the hostile side of every gate.

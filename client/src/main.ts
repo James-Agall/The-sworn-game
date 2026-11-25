@@ -1,3 +1,4 @@
+import { setupPlayerCombat, combatPose, drawPlayerCombat, drawDuelCue } from "./playerCombat";
 import {ChunkInbox} from './chunkInbox';
 import {SceneryIndex,staticDepth,groundDepth,orderUnit,createHiddenHeroOutline} from './sceneDepth';
 import {LANDMARK_ART,LANDMARK_ART_URLS} from '@colony/shared/landmarkArt';
@@ -75,6 +76,7 @@ const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
 // Stardew phase 5c: the building interior view (interior.ts), set up after the world layer.
 const interiorRef: { ui: InteriorUi | null } = { ui: null };
+let combatControls: ReturnType<typeof setupPlayerCombat> | undefined;
 import type {
   ClientMessage,
   SiteFaction,
@@ -2589,7 +2591,9 @@ async function main() {
     // Just above the (taller) sprite's top edge instead of the old fixed -20.
     entry.hpBar.position.set(p.x, p.y - (p.mounted ? 50 / 2 + MOUNTED_LIFT_PX : PLAYER_SPRITE_HEIGHT / 2) - 4);
     if (!(entry.sprite instanceof Sprite)) return;
-    const facingRight = getFacing(playerFacing, p.id, p.x);
+    let facingRight=getFacing(playerFacing,p.id,p.x);
+    const lastPose=playerAnim.get(p.id),riderMoving=p.mounted&&lastPose&&Math.hypot(p.x-lastPose.lastX,p.y-lastPose.lastY)>.5;
+    if(p.combat&&!riderMoving){facingRight=Math.cos(p.combat.angle)>=0;playerFacing.set(p.id,{lastX:p.x,facingRight});}
     if (PLAYER_ANIM) {
       let anim = playerAnim.get(p.id);
       if (!anim) {
@@ -2601,13 +2605,15 @@ async function main() {
       rigTravel.set(p.id, (rigTravel.get(p.id) ?? 0) + Math.min(distance, 12) / (p.mounted ? 36 : 11));
       anim.lastX = p.x;
       anim.lastY = p.y;
-      const mode = anim.attackTicks > 0 ? "action" : moved ? "walk" : null;
+      const combat= combatPose(p.combat);
+      if(p.combat)anim.attackTicks=0;
+      const mode = combat?.state==="attack" || anim.attackTicks > 0 ? "action" : moved ? "walk" : null;
       if (anim.attackTicks > 0) anim.attackTicks--;
       // The recolor Filter stays on the sprite; swapping its texture keeps the per-player hue.
       const baseFrame = stepAnim(anim, PLAYER_ANIM, mode) ?? PLAYER_ANIM.walk[0];
       const mountedFrame = p.mounted ? autumnFrame("mounted-units-v2", 3, mode === "action" ? 4 + anim.frame % 3 : mode === "walk" ? anim.frame % 4 : 0) : undefined;
       const visual = p.visual ?? heroVisuals.get(p.id);
-      const rig = visual ? heroFrame(visual, { state: (entry.hitSplashUntil ?? 0) > performance.now() ? "hurt" : mode === "action" ? "attack" : mode === "walk" ? "walk" : "idle", phase: (entry.hitSplashUntil ?? 0) > performance.now() ? 1 - ((entry.hitSplashUntil ?? 0) - performance.now()) / 220 : mode === "action" ? (anim.attackDuration-anim.attackTicks-1)/Math.max(1,anim.attackDuration-1) : mode === "walk" ? rigTravel.get(p.id) ?? 0 : performance.now()/3000 }, !!p.mounted) : undefined;
+      const rig = visual ? heroFrame(visual, { state: (entry.hitSplashUntil ?? 0) > performance.now() ? "hurt" : mode === "action" ? "attack" : mode === "walk" ? "walk" : "idle", phase: (entry.hitSplashUntil ?? 0) > performance.now() ? 1 - ((entry.hitSplashUntil ?? 0) - performance.now()) / 220 : mode === "action" ? combat?.phase ?? (anim.attackDuration-anim.attackTicks-1)/Math.max(1,anim.attackDuration-1) : mode === "walk" ? rigTravel.get(p.id) ?? 0 : performance.now()/3000 }, !!p.mounted) : undefined;
       const art = rig ?? (visual ? heroArt(visual, !!p.mounted, mode === "action" ? Math.floor((PLAYER_ATTACK_ANIM_TICKS - anim.attackTicks - 1) / ANIM_TICKS_PER_FRAME) : mode ? anim.frame : 0, mode === "action") : undefined);
       // One scale per look (measured on its standing walk frame), so swings and steps do not resize the hero.
       const stand = art && !rig && !p.mounted ? heroArt(visual!, false, 0, false) : undefined;
@@ -3084,7 +3090,8 @@ async function main() {
     entry.hpBar.position.set(m.x, m.y - (variant.idle.height * variant.idleScale * mobRenderScale(m)) / 2 - 4);
     if (m.boss) drawHpBar(entry.hpBar, m.hp, m.maxHp, 0xe03020);
     const sprite = entry.sprite instanceof Sprite ? entry.sprite : null;
-    const facingRight = sprite ? getFacing(mobFacing, m.id, m.x) : true;
+    const facingRight = m.duel?Math.cos(m.duel.angle)>=0:sprite ? getFacing(mobFacing, m.id, m.x) : true;
+    if(m.duel)mobFacing.set(m.id,{lastX:m.x,facingRight});
     if (sprite) applyFacing(sprite, facingRight);
 
     const set = variant.anim;
@@ -3097,12 +3104,13 @@ async function main() {
     const moved = Math.hypot(m.x - anim.lastX, m.y - anim.lastY) > 0.5;
     anim.lastX = m.x;
     anim.lastY = m.y;
-    const mode = moved
+    const mode = m.duel ? (m.duel.phase==="windup"||m.duel.phase==="recovery"?"action":null) : moved
       ? "walk"
       : nearestFriendlyDistance(m.x, m.y) <= (MOB_ATTACK_ANIM_RANGE_OVERRIDES_PX[m.kind] ?? MOB_ATTACK_ANIM_RANGE_PX)
         ? "action"
         : null;
-    const frame = stepAnim(anim, set, mode);
+    const pose=m.duel?(m.duel.phase==="windup"?.1+m.duel.progress*.3:m.duel.phase==="recovery"?.5+m.duel.progress*.5:0):undefined;
+    const frame = pose!==undefined&&set.action.length?set.action[Math.min(set.action.length-1,Math.floor(pose*set.action.length))]:stepAnim(anim, set, mode);
     // Same fix as the colonist idle fallback above: use the walk cycle's own first frame instead
     // of `variant.idle` (a separately-extracted static texture) so idle<->animated transitions
     // don't pop in size. The Warlord's idle pose shares its walk canvas, so it doesn't pop either.
@@ -7355,19 +7363,14 @@ async function main() {
     if (e.key === " " && !e.repeat && !e.shiftKey) {
       e.preventDefault();
       // The rider stands idle in strategy mode.
-      if (strategyCam.inStrategy) return;
+      if (strategyCam.inStrategy || !heroModal.hidden || e.target instanceof HTMLElement && !!e.target.closest("input,textarea,select,[contenteditable=true]")) return;
       // Stardew phase 5a: with a hotbar tool in hand, Space uses it on the faced tile (the swing stands in for the
       // tool animations, SPRITES.md).
       if (heroToolsRef.ui?.useKey()) {
         if (myId) triggerPlayerAttackAnim(myId);
         return;
       }
-      if (socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify({ type: "attack" }));
-        // Immediate feedback even when the swing hits nothing (no server effect then).
-        if (myId) triggerPlayerAttackAnim(myId);
-        sound.play("sword_swing");
-      }
+      combatControls?.press();
     }
   });
 
@@ -7727,9 +7730,15 @@ async function main() {
     spellAim:()=>spellAim,
     castSpell:target=>{if(spellAim)castSlot(spellAim.slot,target);},
     cancelSpell:()=>setSpellAim(null),
+    combatAim:(x,y)=>combatControls?.aim(x,y),
     notice:text=>adventureUi.onEvent(text),
     playerTexture: PLAYER_TEXTURE,
-    heroTexture: (id, moving, distance=0) => { const v=heroVisuals.get(id); rigInteriorTravel.set(id,(rigInteriorTravel.get(id)??0)+Math.min(distance,12)/11); return v ? (heroFrame(v,{state:moving?"walk":"idle",phase:moving?rigInteriorTravel.get(id)!:performance.now()/3000}) ?? heroArt(v,false,moving ? Math.floor(performance.now()/150)%4 : 0))?.texture : undefined; },
+    heroTexture: (id, moving, distance=0) => {
+      const v=heroVisuals.get(id),now=performance.now(),c=combatPose(latestPlayersForSpells.find(p=>p.id===id)?.combat),hurt=playerSprites.get(id)?.hitSplashUntil??0;
+      rigInteriorTravel.set(id,(rigInteriorTravel.get(id)??0)+Math.min(distance,12)/11);
+      const pose=hurt>now?{state:"hurt" as const,phase:1-(hurt-now)/220}:c??{state:moving?"walk" as const:"idle" as const,phase:moving?rigInteriorTravel.get(id)!:now/3000};
+      return v?(heroFrame(v,pose)??heroArt(v,false,moving?Math.floor(now/150)%4:0))?.texture:undefined;
+    },
     playerHeight: PLAYER_SPRITE_HEIGHT,
     humanScale: (tex) => rigTextureScale(tex) ?? HUMAN_CHAR_PX / charHeightPx(tex),
     npcTexture: (kind) => COLONIST_TEXTURES[kind as ColonistKind],
@@ -7767,6 +7776,17 @@ async function main() {
     useInterior:()=>interiorRef.ui?.useHighlighted()??false,
   });
   heroToolsRef.ui = heroTools;
+  combatControls=setupPlayerCombat({send:sendMessage,swing:()=>sound.play("sword_swing"),context:()=>{
+    const me=latestPlayersForSpells.find(p=>p.id===myId),inside=!!interiorRef.ui?.active();
+    const menu=document.getElementById("main-menu"),talk=document.getElementById("hl-dialogue");
+    return{me,inside,enabled:!!me&&!me.dead&&!strategyCam.inStrategy&&!currentPaused&&heroModal.hidden&&!!menu?.hidden&&(talk?.hidden??true)&&!spellAim&&(inside||buildPanel.classList.contains("collapsed")&&selectedIds.size===0&&(heroToolsRef.ui?.combatReady()??true))};
+  }});
+  const combatCues=new Graphics();combatCues.zIndex=1e7;worldLayer.addChild(combatCues);
+  app.ticker.add(()=>{
+    combatControls?.update();combatCues.clear();if(interiorRef.ui?.active()||strategyCam.inStrategy)return;
+    for(const p of latestPlayersForSpells)if(!p.dead&&!p.inside)drawPlayerCombat(combatCues,p,p.combat);
+    for(const m of latestMobs)if(m.duel)drawDuelCue(combatCues,m.duel);
+  });
   function partyCommand(cmd: "followMe" | "hold" | "shape") {
     if (!partyCommandsOn() || !myId) return;
     if (cmd === "followMe") sendRegimentOrder({ kind: "follow", targetId: `p:${myId}` }, false);
@@ -7783,9 +7803,7 @@ async function main() {
   document.getElementById("hb-attack")!.addEventListener("click", (e) => {
     (e.currentTarget as HTMLButtonElement).blur();
     if (strategyCam.inStrategy || socket.readyState !== socket.OPEN) return;
-    socket.send(JSON.stringify({ type: "attack" }));
-    if (myId) triggerPlayerAttackAnim(myId);
-    sound.play("sword_swing");
+    combatControls?.press();combatControls?.release();
   });
   document.getElementById("hb-interact")!.addEventListener("click", (e) => {
     (e.currentTarget as HTMLButtonElement).blur();
@@ -8806,6 +8824,7 @@ async function main() {
     const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
     const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
     heroToolsRef.ui?.mouse(x, y);
+    if(!interiorRef.ui?.active())combatControls?.aim(x,y);
     if (moatDrag && e.pointerId === moatDrag.pointerId) extendMoatDrag(x, y);
     if (orderPress && e.pointerId === orderPress.pointerId) {
       if (

@@ -1,3 +1,4 @@
+import type { CombatLive, DuelLive } from './combatRules.js';
 import type { AnimalHouseInfo, LivestockSnapshot, Species } from "./animals.js";
 import type { CalendarSnapshot } from "./calendar.js";
 import type { RaidForecast } from "./raidForecast.js";
@@ -966,6 +967,7 @@ export enum HungerMark {
 export const HUNGER_MARK_NAMES = ["", "gorrath", "nemri", "rux", "morvain", "gunne", "vhorrun"];
 
 export interface MobSnapshot {
+  duel?: DuelLive;
   id: string;
   kind: MobKind;
   x: number;
@@ -1339,6 +1341,7 @@ export type ClientMessage =
   | { type: "unassignWorker"; id: string }
   | { type: "workPosts"; id: string }
   | { type: "attack" }
+  | { type: "combat"; action: "press" | "release" | "guard" | "dodge" | "aim" | "cancel"; angle?: number; on?: boolean }
   // paused (strategy mode phase 5, optional): set it instead of toggling. Global: applies to everyone.
   | { type: "pause"; paused?: boolean }
   // Strategy mode phase 5: global sim speed (TIME_SCALES); like pause, any player's choice applies to all.
@@ -1670,6 +1673,7 @@ export type ServerMessage =
   | { type: "workPosts"; id: string; posts: WorkPostOption[] };
 
 export interface PlayerSnapshot {
+  combat?: CombatLive;
   visual?: HeroVisual;
   id: string;
   x: number;

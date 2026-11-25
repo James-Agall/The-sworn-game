@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./combatRules": "./src/combatRules.ts",
     "./protocol": "./src/protocol.ts",
     "./formation": "./src/formation.ts",
     "./buildings": "./src/buildings.ts",

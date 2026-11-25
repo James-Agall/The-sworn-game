@@ -1,3 +1,4 @@
+import { preparePlayerSpell } from "./playerCombat.js";
 // spells.ts: Hero spells: spell book, status effects, casting, auto-cast.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { randomUUID } from "node:crypto";
@@ -471,6 +472,7 @@ export function heroCaster(c: Colonist): SpellCaster {
 }
 
 export function handleCastSpell(player: Player, msg: Record<string, unknown>) {
+  if(!msg.heroId&&!preparePlayerSpell(player))return refuseSpell(player,"Finish your attack or sidestep before casting");
   const slot = msg.slot;
   if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0 || slot >= SPELL_SLOT_COUNT) return;
   let caster: SpellCaster;

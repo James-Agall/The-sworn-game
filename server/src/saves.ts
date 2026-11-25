@@ -1,3 +1,5 @@
+import { resetPlayerCombat } from "./playerCombat.js";
+import { resetDuels } from "./duelCombat.js";
 import { generatedRegionPlan, restoreRegionPlan, populateExistingRegionTowns } from "./regionWorld.js";
 import {expandKeepFootprints} from './keepFootprints.js';
 import {migrateNeutralSpriteHomes} from './settlementMigration.js';
@@ -122,6 +124,7 @@ async function resetWorldOnce(nextDifficulty: unknown, nextSize: unknown, creati
 }
 
 function resetWorldBefore(nextDifficulty?: unknown, nextSize?: unknown) {
+  resetPlayerCombat();resetDuels();
   // A restart reopens the difficulty claim; a value sent with the restart claims it straight away.
   state.difficultyClaimed = false;
   if (isDifficulty(nextDifficulty)) {
@@ -140,6 +143,7 @@ function resetWorldBefore(nextDifficulty?: unknown, nextSize?: unknown) {
 }
 
 function resetWorldAfter() {
+  resetPlayerCombat();resetDuels();
   respawnQueue.length = 0;
   farmPlots.clear();
   minesPlacedOnOre.clear();
@@ -424,6 +428,7 @@ export function refill<K, V>(map: Map<K, V>, entries: [K, V][]) {
 }
 
 export function applyWorld(s: WorldState) {
+  resetPlayerCombat();resetDuels();
   resetClans();
   withClan(clans[0], () => applyWorldInner(s));
   // Clans 1+ (saves from before clans have none: everything is clan 0's).

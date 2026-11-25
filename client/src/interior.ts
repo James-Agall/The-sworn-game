@@ -1,3 +1,5 @@
+import { drawPlayerCombat, drawDuelCue } from "./playerCombat";
+import type { CombatLive } from "@colony/shared/combatRules";
 import {EXPLORATION_REACH} from "@colony/shared/adventure";
 import {loadSpecialArt,specialTexture,specialAnchor,specialScale} from './specialCastArt';
 import {SPECIAL_BY_ID} from '@colony/shared/specialCast';
@@ -124,6 +126,7 @@ export interface InteriorDeps {
   spellAim?:()=>{slot:number;spell:SpellId}|null;
   castSpell?:(target:{targetId?:string;x?:number;y?:number})=>void;
   cancelSpell?:()=>void;
+  combatAim?:(x:number,y:number)=>void;
   notice?:(text:string)=>void;
   myId: () => string | null;
   // Entering / leaving (main.ts: weather, strategy toggle, selection).
@@ -229,7 +232,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   const interactionOutline=new Graphics();interactionOutline.zIndex=1e7;
   const interactionHint=document.createElement('div');interactionHint.id='interior-use-hint';interactionHint.hidden=true;document.body.append(interactionHint);
   const hintStyle=document.createElement('style');hintStyle.textContent='#interior-use-hint{position:fixed;left:50%;bottom:115px;transform:translateX(-50%);max-width:calc(100vw - 30px);padding:9px 14px;background:#eadbb7ee;color:#352916;border:1px solid #967c4f;border-radius:4px;z-index:18;font:14px Georgia;pointer-events:none;text-align:center}#interior-use-hint[hidden]{display:none}#hl-dialogue{max-height:min(65vh,620px);overflow-y:auto}#hl-choices button{padding:7px 9px;min-height:31px}';document.head.append(hintStyle);
-  window.addEventListener('pointermove',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)){hover=null;return;}const p=localPoint(e);hover={x:Math.floor(p.x/T),y:Math.floor(p.y/T)};});
+  window.addEventListener('pointermove',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)){hover=null;return;}const p=localPoint(e);hover={x:Math.floor(p.x/T),y:Math.floor(p.y/T)};if(!decorating)deps.combatAim?.(p.x,p.y);});
   const editor=document.createElement('section');editor.id='home-editor';editor.hidden=true;
   editor.innerHTML=`<h3>Make yourself at home</h3><label>Base style <select id="home-base">${PLAYER_BASES.map(b=>`<option value="${b.id}">${b.label}</option>`).join('')}</select></label><button id="home-base-apply">Use this base</button><label>Floor <select id="home-floor"><option value="wood">Wood planks</option><option value="stone">Stone tiles</option><option value="dirt">Packed earth</option></select></label><label>Walls <select id="home-wall"><option value="wood">Timber</option><option value="stone">Stone</option></select></label><label>Furnishing <select id="home-prop"><option value="remove">Remove furnishing</option>${HOME_PROPS.map(p=>`<option value="${p}">${p.replace(/([A-Z])/g,' $1')}</option>`).join('')}</select></label><label>Facing <select id="home-facing"><option value="n">North</option><option value="e">East</option><option value="s" selected>South</option><option value="w">West</option></select></label><img id="home-preview" alt="Selected furnishing"/><p>Click a floor tile to place or remove furniture. Paths and the doorway must stay clear. Furniture changes are free.</p><button id="home-done">Done decorating</button>`;
   document.body.append(editor);
@@ -317,7 +320,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   // The hero's swing in a mine (Space): a short slash arc beside the hero.
   const slash = new Graphics();
   slash.zIndex = 1e6 - 1;
-  let slashUntil = 0;
+  let heroCombat:CombatLive|undefined;
   let pendingLive: { key: string; storey: number; npcs: InteriorNpcLive[] } | null = null;
 
   function propSprite(prop: InteriorProp, x: number, y: number, facing="s"): Container {
@@ -615,7 +618,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           tex = a.walk[Math.floor(t / INTERIOR_WALK_FRAME_MS) % a.walk.length];
           k = a.walkScale;
         } else if (m.act === "attack" && a.action.length) {
-          tex = a.action[Math.floor(t / 160) % a.action.length];
+          const pose=m.duel?.phase==="windup"?.1+m.duel.progress*.3:m.duel?.phase==="recovery"?.5+m.duel.progress*.5:undefined;
+          tex = a.action[pose===undefined?Math.floor(t / 160) % a.action.length:Math.min(a.action.length-1,Math.floor(pose*a.action.length))];
           k = a.walkScale;
         }
         if (b.texture !== tex) b.texture = tex;
@@ -625,6 +629,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       const attack=m.bossAttack,custom=m.specialId?specialTexture(m.specialId,now<mv.flashUntil?'hurt':attack?'action':m.act==='walk'?'walk':m.act==='attack'?'action':'idle',attack?(attack.phase==='windup'?0:attack.progress<.2?160:320):t):undefined;
       if(custom&&b instanceof Sprite){b.texture=custom;b.anchor.set(specialAnchor.x,specialAnchor.y);const k=specialScale(m.specialId!);b.scale.set(k*(m.face==='l'?-1:1),k);b.tint=0xffffff;}
       const cue=mv.cue;cue.clear();
+      drawDuelCue(cue,m.duel,T/2);
       if(attack){const ax=(attack.x+.5)*T,ay=(attack.y+.5)*T,ox=(attack.fromX+.5)*T,oy=(attack.fromY+.5)*T,line=['archer','assassin','beast','swoop'].includes(attack.style),active=attack.phase==='windup',color=active?0xe8b24f:0xd05439;
         if(active||attack.progress<.2){if(line)cue.moveTo(ox,oy).lineTo(ax,ay).stroke({width:Math.max(3,attack.radius*2*T),color,alpha:active?.13:.3});else cue.circle(ax,ay,attack.radius*T).fill({color,alpha:active?.12:.28});cue.circle(ax,ay,(line?.35:attack.radius)*T).stroke({width:2,color,alpha:active?.7:1});}
         mv.label.text=(m.name??'')+' · '+attack.name;
@@ -645,7 +650,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       mv.zzz.visible = m.act === "sleep";
       mv.zzz.position.set(x + 6, y - 14 - (Math.floor(t / 600) % 3));
     }
-    slash.visible = now < slashUntil;
+    slash.visible = !!heroCombat;slash.clear();drawPlayerCombat(slash,shown,heroCombat);
   }
   const keyOf = (v: InteriorView) => `${v.key}:${v.map.templateId}:${v.map.level}:${v.map.variant}:${v.map.storey}:${JSON.stringify(v.npcs)}:${JSON.stringify(v.map)}:${JSON.stringify(v.furniture)}`;
 
@@ -779,7 +784,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     }
     const moving = Math.hypot(target.x-shown.x,target.y-shown.y)>.3;
     const heroArt=deps.heroTexture?.(deps.myId() ?? "",moving,Math.hypot(shown.x-hero.x,shown.y-hero.y));
-    if(heroArt) { hero.anchor.set(rigTextureScale(heroArt) ? 120/256 : .5,rigTextureScale(heroArt) ? 163/192 : .85); hero.texture=heroArt; const sign=target.x<shown.x? -1:target.x>shown.x?1:Math.sign(hero.scale.x)||1; const k=heroK(heroArt); hero.scale.set(sign*k,k); }
+    if(heroArt) { hero.anchor.set(rigTextureScale(heroArt) ? 120/256 : .5,rigTextureScale(heroArt) ? 163/192 : .85); hero.texture=heroArt; const sign=heroCombat?(Math.cos(heroCombat.angle)>=0?1:-1):target.x<shown.x? -1:target.x>shown.x?1:Math.sign(hero.scale.x)||1; const k=heroK(heroArt); hero.scale.set(sign*k,k); }
     hero.position.set(shown.x, shown.y);
     hero.zIndex = shown.y;
     interactionOutline.clear();interactionHint.hidden=true;highlighted=undefined;
@@ -810,16 +815,6 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     exitEl.textContent=view.mine?.encounter==='ruin'?'Walk through the arch or press Esc to return outside':rockExit?(view.mine?.layer&&view.mine.layer>1?'Enter the tunnel or press Esc to go up a level':'Enter the tunnel or press Esc to return outside'):'Walk onto the mat or press Esc to leave';
   });
 
-  // Deep mines: Space swings (main.ts sends the attack); a slash arc shows on the hero's facing side.
-  window.addEventListener("keydown", (e) => {
-    if (e.key !== " " || e.repeat || !view || view.map.templateId !== "mine") return;
-    if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select")) return;
-    const dir = hero.scale.x < 0 ? -1 : 1;
-    slash.clear();
-    slash.arc(shown.x + dir * 6, shown.y - 10, 14, dir > 0 ? -1.1 : Math.PI - 0.9, dir > 0 ? 0.9 : Math.PI + 1.1).stroke({ width: 2, color: 0xfff2d0, alpha: 0.9 });
-    slashUntil = performance.now() + 140;
-  });
-
   // Esc near the exit mat leaves (the server re-checks the distance).
   window.addEventListener(
     "keydown",
@@ -840,7 +835,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       if(v&&decorating){select("floor").value=v.map.floor;select("wall").value=v.map.wall;}
       decorButton.hidden=!v?.editable;if(!v?.editable)closeEditor();
       if (!v) {
-        view = null;
+        view = null;heroCombat=undefined;
         builtKey = "";
         clearRoom();
         setInside(false);
@@ -883,7 +878,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       for (const p of players) {
         if (!p.inside || p.inside.key !== view.key) continue;
         if (p.id === id) {
-          target = { x: p.inside.x, y: p.inside.y };
+          target = { x: p.inside.x, y: p.inside.y };heroCombat=p.combat;
           continue;
         }
         // Another hero in the same building.
@@ -898,7 +893,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           room.addChild(s);
         }
         const art=deps.heroTexture?.(p.id,Math.hypot(p.inside.x-s.x,p.inside.y-s.y)>.3,Math.hypot(p.inside.x-s.x,p.inside.y-s.y));
-        if(art) {s.anchor.set(rigTextureScale(art) ? 120/256 : .5,rigTextureScale(art) ? 163/192 : .85);s.texture=art;s.tint=0xffffff;const k=heroK(art);s.scale.set((p.inside.x<s.x?-1:1)*k,k);}
+        if(art) {s.anchor.set(rigTextureScale(art) ? 120/256 : .5,rigTextureScale(art) ? 163/192 : .85);s.texture=art;s.tint=0xffffff;const k=heroK(art);s.scale.set((p.combat?(Math.cos(p.combat.angle)>=0?1:-1):(p.inside.x<s.x?-1:1))*k,k);}
         s.position.set(p.inside.x, p.inside.y);
         s.zIndex = p.inside.y;
       }
