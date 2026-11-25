@@ -16,6 +16,7 @@ import { loadTexture, loadTextures } from "./atlas";
 import "./characterCreator.css";
 import { initPerfOverlay } from "./perfOverlay";
 import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
+import {ADVENTURE_GEAR,adventureTrait} from "@colony/shared/expeditions";
 import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS } from "@colony/shared/protocol";
 import { menuPrefs, setupMainMenu, setActiveDifficulty, renderSaveRows, describeSave, SAVE_SLOT_NAMES, clanParam } from "./menu";
 import { setupChronicle } from "./chronicle";
@@ -6235,6 +6236,7 @@ async function main() {
     tier.className = "tier";
     tier.textContent = item.tier === "relic" ? `Relic · ${SLOT_LABEL[gearSlotFor(item, heroProfile!) ?? "head"]}` : `Tier ${item.tier} · ${SLOT_LABEL[gearSlotFor(item, heroProfile!) ?? "head"]}`;
     hsTip.append(name, tier);
+    const trait=adventureTrait(item);if(trait){const d=ADVENTURE_GEAR[trait],line=document.createElement("p");line.textContent=d.benefit+" Tradeoff: "+d.cost;hsTip.append(line);}
     for (const line of STAT_LINES) {
       const v = item.stats[line.key] ?? 0;
       const old = compare?.stats[line.key] ?? 0;
@@ -6377,7 +6379,7 @@ async function main() {
     heroRenderKey = key;
     heroHpText = hpText;
     hideItemTip();
-    hsTitle.textContent = hero ? `${hero.name} · ${HERO_CLASS_LABEL[hero.heroClass]}` : prof.appearance?.name ?? "Character";
+    hsTitle.textContent = hero ? `${hero.name} · ${HERO_CLASS_LABEL[hero.heroClass]}` : (prof.appearance?.name ?? "Character")+(prof.title?" · "+prof.title:"");
     document.getElementById("hero-appearance")!.hidden = true;
     hsTabs.replaceChildren();
     if (heroSheets.length > 0) {
@@ -6395,7 +6397,7 @@ async function main() {
       for (const h of heroSheets.slice(0, 9)) tab(h.id, `${h.name} Lv ${h.profile.level}`, h.status === "alive" ? "" : "fallen");
     }
     // Paper-doll: trinket / head / trinket, weapon / chest / off-hand, - / legs / -, then 4 spell slots.
-    const layout: (GearSlot | null)[] = hero ? ["trinket1", "head", "trinket2", "weapon", "chest", "offhand", null, "legs", null] : ["head", "chest", "weapon", "offhand"];
+    const layout: (GearSlot | null)[] = hero ? ["trinket1", "head", "trinket2", "weapon", "chest", "offhand", null, "legs", null] : ["head", "chest", "weapon", "offhand", "legs"];
     hsDoll.classList.toggle("player-gear", !hero);
     hsDoll.replaceChildren();
     const stand=document.createElement('img');stand.src='/sprites/hero-hud/armour-stand.png';stand.className='armour-stand';stand.alt='Armour stand';hsDoll.append(stand);

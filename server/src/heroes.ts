@@ -1,3 +1,4 @@
+import {restoreCompanion} from "./companions.js";
 import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS } from "@colony/shared/protocol";
 import { sanitizeHeroAppearance, HERO_WEAPON_KINDS, heroVisualFromEquipment } from "@colony/shared/protocol";
 // heroes.ts: Hero phases 1-4 support: equipment, hero profiles, items, relics, recruitable heroes, Blacksmith forging.
@@ -279,7 +280,9 @@ export function playerAttackCooldownTicks(p: Player): number {
 }
 
 export function heroProfileSnapshot(prof: HeroProfile): HeroProfileSnapshot {
+  const completed=Object.keys(prof.life?.flags??{}).filter(k=>k.startsWith('adv:')&&k.endsWith(':done')&&prof.life!.flags[k]).length;
   return {
+    ...(completed?{title:completed>=6?'Friend of the roads':completed>=3?'Proven wayfarer':"Apprentice’s ally"}:{}),
     appearance: sanitizeHeroAppearance(prof.appearance),
     equipment: prof.equipment,
     inventory: prof.inventory,
@@ -411,7 +414,7 @@ export function handleEquipItem(player: Player, itemId: unknown, slot: unknown, 
   const gs = slot as GearSlot;
   if (gearSlotKind(gs) !== item.slot) return refuseGear(player, `${item.name} doesn't go in the ${gs} slot`);
   if (prof === pack) {
-    if (!PLAYER_GEAR_SLOTS.includes(gs)) return refuseGear(player, "Your character equips head armour, body armour, a weapon and a shield only");
+    if (!PLAYER_GEAR_SLOTS.includes(gs)) return refuseGear(player, "Your character equips head armour, body armour, boots, a weapon and a shield");
     if (gs === "weapon" && !PLAYER_WEAPON_KINDS.includes(item.kind as any)) return refuseGear(player, "Choose a sword, axe, spear or bow");
     if (gs === "offhand" && item.kind !== "shield") return refuseGear(player, "Only a shield fits your off-hand slot");
     if ((gs === "weapon" && item.kind === "bow" && prof.equipment.offhand) || (gs === "offhand" && prof.equipment.weapon?.kind === "bow"))
@@ -477,6 +480,7 @@ export function handleTakeFromArmoury(player: Player, slot: unknown, tier: unkno
 // Save / load: profiles as plain data; anything malformed is dropped (old saves: none).
 export function serializeHeroProfiles() {
   return Array.from(heroProfiles.values(), (p) => ({
+    companion:p.companion,
     appearance: sanitizeHeroAppearance(p.appearance),
     key: p.key, equipment: p.equipment, inventory: p.inventory, xp: p.xp,
     ...(p.heroClass ? { heroClass: p.heroClass, heroName: p.heroName } : {}),
@@ -508,6 +512,7 @@ export function restoreHeroProfiles(saved: unknown) {
     restoreSpellBook(prof, raw);
     const life = sanitizeHeroLife(raw.life);
     if (life) prof.life = life;
+    restoreCompanion(raw.companion,prof);
     heroProfiles.set(raw.key, prof);
   }
 }

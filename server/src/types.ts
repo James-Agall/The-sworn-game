@@ -60,6 +60,8 @@ export interface Player {
   delta?: import("./snapshotDelta.js").PlayerDeltaState;
   // Stardew phase 5c (interiors.ts): inside a prefab building's interior (transient, never saved). x / y are
   // interior px; the world x / y stay at the door. Not set = in the world.
+  adventureAllyId?:string;
+  adventureSneak?:boolean;
   interior?: PlayerInterior;
   // Interiors: the tick of the last bump-enter attempt / exit (INTERIOR_BUMP_COOLDOWN_TICKS).
   interiorBumpTick?: number;
@@ -136,6 +138,8 @@ export interface Training {
   waiting?: boolean;
 }
 export interface Colonist {
+  adventureOwner?:string;
+  adventureRetreat?:boolean;
   id: string;
   kind: ColonistKind;
   person?: Person;
@@ -960,6 +964,7 @@ export interface SiegeWorkshopState {
 // (`heroProfiles`), never touched by death / respawn. Heroes (phase 3) can own one each: nothing here is
 // player-specific except heroProfileOf / playerMaxHp / playerDamage / playerAttackCooldownTicks.
 export interface HeroProfile {
+  companion?:import("./companions.js").CompanionRecord;
   appearance?: import("@colony/shared/protocol").HeroAppearance;
   key: string;
   equipment: Equipment;

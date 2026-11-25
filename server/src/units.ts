@@ -284,7 +284,7 @@ export function armyRegimentsNow(): ArmyRegimentSnapshot[] {
 
   for (const c of colonists.values()) {
     const cls = REGIMENT_CLASS_OF[c.kind];
-    if (!cls || !isCommandable(c) || !inClan(c)) continue;
+    if (c.adventureOwner || !cls || !isCommandable(c) || !inClan(c)) continue;
     const slot = inTaskForce.get(c.id);
     let d: Draft;
     if (slot !== undefined) {
@@ -822,6 +822,7 @@ export function updateSquadMarch() {
 // skips enemies that already have their share of attackers (meleeAttackerCap), so a line spreads over
 // the enemies in front of it; with none left it holds its slot (the queue).
 export function pickGuardTarget(c: Colonist, stats: { range: number; melee: boolean; speed: number }): Mob | null {
+  if(c.adventureRetreat)return null;
   // Phase 4, hold fire: a ranged unit / catapult only shoots a commanded target; a catapult on a bombard
   // order only its point.
   if (!stats.melee && (c.holdFire || (c.kind === "catapult" && bombardPoint(c)))) return null;

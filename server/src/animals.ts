@@ -19,6 +19,7 @@
 // panel's choice) lets its animals out at the paddock tile nearest the house; they wander only inside and go back in
 // from there; grazing there covers up to PADDOCK_GRAZE_FEED_SHARE of the feed by the paddock's grass; a mob outside the
 // fence cannot reach them. Houses without one keep the open-area behaviour above.
+import {lifeOf} from "./herolife.js";
 import { TICK_RATE, TILE_SIZE, TileType } from "@colony/shared/protocol";
 import {
   ADULT_AGE_DAYS, ANIMAL_AREA_RANGE_TILES, ANIMAL_CATCHUP_MAX_DAYS, ANIMAL_CHORE_SECONDS, ANIMAL_HERO_RANGE_TILES,
@@ -57,6 +58,7 @@ import {
 } from "./paddocks.js";
 
 interface AnimalRec {
+  training?:'steady';
   id: number;
   species: Species;
   male: boolean;
@@ -852,7 +854,7 @@ function updateRiders() {
       if (p && !a) sendText(p, "Your horse is gone");
       continue;
     }
-    a.happiness = Math.max(0, a.happiness - RIDE_HAPPINESS_PER_S);
+    a.happiness = Math.max(0, a.happiness - RIDE_HAPPINESS_PER_S*(a.training==='steady'?.85:1));
   }
 }
 // wagons.ts: x CART_HORSE_SPEED_MULT for a clan with a Stables holding an adult horse nobody rides (cached a second).
@@ -1334,3 +1336,10 @@ export function livestockDebug(set?: Record<string, unknown>) {
   };
 }
 
+
+// One modest, persistent horse trait; no second mount or experience system.
+export function horseAdventureEntries(p:Player):import('@colony/shared/adventure').JournalEntry[]{
+ if(!lifeOf(p).flags['adv:rescue-0:done'])return [];ensureSynced();const horses=[...animals.values()].filter(a=>a.species==='horse'&&houses.get(a.house)?.clan===p.clan).slice(0,8);if(!horses.length)return [];
+ return horses.map(a=>{const h=houses.get(a.house)!;return{id:'horse:'+a.id,title:(a.name??'Horse '+a.id)+(a.training?' — steady':''),status:a.training?'complete':'available',text:'A steady horse loses riding happiness 15% more slowly. Each horse can learn one trait.',objective:`Dismount beside its stable (${h.x}, ${h.y}) to train.`,reward:'A calmer travelling horse',marker:{x:h.x,y:h.y,label:'Horse stable'},choices:a.training?[]:[{id:'horse:train:'+a.id,label:'Train steady (20 gold, 5 grain)'}]};});
+}
+export function trainAdventureHorse(p:Player,raw:string){if(!raw.startsWith('horse:'))return false;if(p.dead||state.isPaused)return true;const[,op,id]=raw.split(':');if(op!=='train'||!/^\d+$/.test(id))return true;ensureSynced();const a=animals.get(Number(id)),h=a?houses.get(a.house):undefined;if(!a||!h||a.species!=='horse'||a.training||h.clan!==p.clan)return true;if(!lifeOf(p).flags['adv:rescue-0:done']||p.interior||isMounted(p)||Math.hypot(p.x/32-.5-h.x,p.y/32-.5-h.y)>3){sendText(p,'Dismount beside this horse’s stable to train it.');return true;}withClan(clanById(p.clan),()=>{if(state.stock.gold<20||state.stock.grain<5){sendText(p,'Training needs 20 gold and 5 grain. Nothing was spent.');return;}state.stock.gold-=20;state.stock.grain-=5;a.training='steady';sendText(p,'Your horse is now steady: riding happiness falls 15% more slowly.');});return true;}

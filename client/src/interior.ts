@@ -488,7 +488,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       for(const part of entrance.sprites){const tex=extraTexture(part.url);if(!tex)continue;const b=opaqueBox(tex),sp=new Sprite(tex);sp.anchor.set(b.x/tex.width,b.y/tex.height);sp.scale.set(part.w*T/b.w,part.h*T/b.h);sp.position.set(part.x*T,part.y*T);sp.zIndex=-3;room.addChild(sp);}
     }
     for (const p of m.props){const f=v.furniture?.find(f=>f.x===p.x&&f.y===p.y);if(f?.cleared)continue;
-      if(f?.empty&&['weaponRack','armourStand'].includes(p.prop)||f?.off){
+      if(f?.empty&&['weaponRack','armourStand'].includes(p.prop)||f?.off||v.exploration?.objects.some(o=>o.kind==='lamp'&&o.opened&&o.x===p.x&&o.y===p.y)){
         const g=new Graphics(),x=p.x*T,y=p.y*T,wood=0x785237,edge=0x38261d,hi=0xa77b4a;
         if(p.prop==='weaponRack'){g.rect(x+4,y+9,3,22).rect(x+25,y+9,3,22).rect(x+3,y+12,26,4).rect(x+3,y+24,26,3).fill(wood);g.rect(x+4,y+9,1,22).rect(x+25,y+9,1,22).rect(x+3,y+12,26,1).fill(hi);}
         else if(p.prop==='armourStand'){g.rect(x+14,y+5,4,24).rect(x+7,y+12,18,3).rect(x+7,y+28,18,3).fill(wood);g.circle(x+16,y+5,3).fill(hi);}
@@ -652,7 +652,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     }
     slash.visible = !!heroCombat;slash.clear();drawPlayerCombat(slash,shown,heroCombat);
   }
-  const keyOf = (v: InteriorView) => `${v.key}:${v.map.templateId}:${v.map.level}:${v.map.variant}:${v.map.storey}:${JSON.stringify(v.npcs)}:${JSON.stringify(v.map)}:${JSON.stringify(v.furniture)}`;
+  const keyOf = (v: InteriorView) => `${v.key}:${v.map.templateId}:${v.map.level}:${v.map.variant}:${v.map.storey}:${JSON.stringify(v.npcs)}:${JSON.stringify(v.map)}:${JSON.stringify(v.furniture)}:${JSON.stringify(v.exploration?.objects.filter(o=>o.kind==='lamp'))}`;
 
   function applyLive(npcs: InteriorNpcLive[]) {
     for (const n of npcs) {
@@ -793,6 +793,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     if(use&&!decorating){highlighted={x:use.x,y:use.y};const near=Math.hypot(use.x-hx,use.y-hy)<=EXPLORATION_REACH;interactionOutline.roundRect(use.x*T+2,use.y*T+2,T-4,T-4,3).stroke({width:2,color:near?0xf4db95:0xc0b69a,alpha:.8});interactionHint.textContent=near?`E · ${use.prompt} ${use.label}`:`${use.label} · Walk closer to ${use.prompt.toLowerCase()}`;interactionHint.hidden=false;}
     animateNpcs(performance.now());
     animateMobs(performance.now());
+    if(!use&&view.exploration&&!decorating){interactionHint.textContent=(view.exploration.pattern??'')+' · '+(view.exploration.stealth??'')+' · J: journal';interactionHint.hidden=false;}
     const aim=deps.spellAim?.();if(aim&&!decorating){interactionHint.textContent=`${SPELLS[aim.spell].name} · Click a target; right click or Esc cancels`;interactionHint.hidden=false;highlighted=undefined;interactionOutline.circle(target.x,target.y,SPELLS[aim.spell].range*T).stroke({width:1.5,color:0xf2c94c,alpha:.5});}
     for(let n=spellFx.length-1;n>=0;n--){const fx=spellFx[n],age=(performance.now()-fx.started)/700,g=fx.g,e=fx.effect;if(age>=1||g.destroyed||view.key!==e.key){if(!g.destroyed)g.destroy();spellFx.splice(n,1);continue;}g.clear();const color=e.spell==='fireBolt'?0xf19432:e.spell==='frost'?0x9bdbec:e.spell==='thunder'?0xf8edb6:e.spell==='heal'?0x8fd07e:e.spell==='curse'?0xc895d2:0xe8d38a;
       if(e.spell==='fireBolt'&&age<.55){const t=age/.55,x=e.fromX+(e.x-e.fromX)*t,y=e.fromY+(e.y-e.fromY)*t;g.moveTo(x-(e.x-e.fromX)*.08,y-(e.y-e.fromY)*.08).lineTo(x,y).stroke({width:4,color,alpha:.7});g.circle(x,y,5).fill(color);g.circle(x,y,2).fill(0xffedab);}

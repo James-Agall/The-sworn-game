@@ -1,4 +1,6 @@
 import { attackSpec, combatWeapon, strikeContains, type CombatStrike } from "@colony/shared/combatRules";
+import {companionTargets,hurtCompanionProxy} from "./companions.js";
+import {explorationDetection,stepExplorationAlarms} from "./adventureLoot.js";
 import { stepDuel, duelLive, enemyGuardMultiplier, clearDuel } from "./duelCombat.js";
 import type { CombatDamageSource } from "./playerCombat.js";
 import {explorationMap,explorationView,explorationInteract,explorationAttack,explorationSave,restoreExploration,resetExploration,explorationRescued,explorationClear,type ExplorationSave} from './adventureLoot.js';
@@ -267,6 +269,7 @@ function infest(r: MineRec, li: number, why: "dug" | "returned" | "forced", kind
 
 function clearLayer(r: MineRec, li: number, by: string, p?:Player|null) {
   const L = r.layers[li];
+  if(p)storyEvent(p,'clear',keyOf(r.tx,r.ty));
   L.status = "cleared";
   L.mobs = [];
   L.clearedDay = today();
@@ -625,7 +628,7 @@ function stepMobs(r: MineRec, li: number, inside: Player[]) {
       continue;
     }
     if (!m.awake) {
-      if (near.d > MINE_MOB_AGGRO_TILES) {
+      if (near.d > (near.p.adventureSneak&&!explorationDetection(near.p)&&!m.specialId?2.25:MINE_MOB_AGGRO_TILES)||!clearSight(grid,m,near)) {
         m.act = "sleep";
         continue;
       }
@@ -683,6 +686,7 @@ function stepMobs(r: MineRec, li: number, inside: Player[]) {
 // A bite indoors. A hero who falls is put back in the world (the legacy instant respawn moves it to a Town Center;
 // otherwise the heir rule marks it dead and updateInteriors puts it out at the door).
 function biteHero(p: Player, damage: number, source?:CombatDamageSource) {
+  if(hurtCompanionProxy(p,damage))return;
   const x = p.x;
   const y = p.y;
   damagePlayer(p, damage, true, source);
@@ -700,6 +704,7 @@ const liveOf = (L: LayerRec | undefined): MineMobLive[] =>
 // sim.ts, once a tick: records (once a second), the monsters of every mine layer a hero is in, their positions out.
 export function updateMines() {
   if (state.cycleTick % TICK_RATE === 0) syncMines();
+  for(const p of players.values())if(p.interior&&!p.dead)stepExplorationAlarms(p);
   const inMine = new Map<string, { r: MineRec | undefined; li: number; ps: Player[] }>();
   for (const p of players.values()) {
     const I = p.interior;
@@ -716,7 +721,7 @@ export function updateMines() {
   }
   for (const { r, li, ps } of inMine.values()) {
     const L = r?.layers[li];
-    if (r && L && L.status === "infested") stepMobs(r, li, ps);
+    if (r && L && L.status === "infested") stepMobs(r, li, companionTargets(ps));
     if (r && !r.encounter && state.cycleTick % TICK_RATE === 0) for (const p of ps) heroPresenceHazard(r, li, p);
     if (state.cycleTick % MINE_MOB_SEND_TICKS !== 0) continue;
     const live = liveOf(L);
@@ -1100,3 +1105,9 @@ export function castInteriorAttack(p:Player,id:string,target:{targetId?:string;x
  for(const m of L?aliveIn(L):[]){if(Math.hypot(m.x-at.x,m.y-at.y)*TILE_SIZE>spec.radius||!clearSight(grid,at,m))continue;damage(m);if(m.hp>0&&id==='frost'){const s=status(m);s.slowUntil=state.spellTick+spec.duration;s.slow=spec.slow;}}
  return{x:target.x!,y:target.y!};
 }
+
+// Small, bounded interior-only hazards; no spreading fire or whole-world scans.
+export function interiorBlast(p:Player,x:number,y:number,radius:number,power:number){const I=p.interior;if(!I)return;const r=mineRecAt(I.tx,I.ty);if(!r)return;const li=layerOfPlayer(r,p),L=r.layers[li],grid=layerMap(r,li),origin={x,y};for(const m of [...aliveIn(L)])if(Math.hypot(m.x-x,m.y-y)<=radius&&clearSight(grid,origin,m)){m.hp-=power;wake(L,m);const s=m.spell??={};s.appliedTick=state.cycleTick;s.burnUntil=state.spellTick+60;s.burnNext=state.spellTick+20;s.burnPower=3;s.burnPlayer=p.id;if(m.hp<=0)killMob(r,li,m,p);}for(const q of players.values())if(q.interior?.key===I.key&&q.interior.variant===I.variant&&Math.hypot(heroTile(q).x-x,heroTile(q).y-y)<=radius&&clearSight(grid,origin,heroTile(q)))biteHero(q,power,{x:(x+.5)*32,y:(y+.5)*32,unblockable:true});}
+export function interiorAlarm(p:Player,x:number,y:number){const I=p.interior;if(!I)return;const r=mineRecAt(I.tx,I.ty);if(!r)return;const li=layerOfPlayer(r,p),L=r.layers[li],grid=layerMap(r,li);if(L.status==='cleared'||(L.summonsSpawned??0)>=2)return;for(const[dx,dy]of [[1,0],[-1,0],[0,1],[0,-1],[2,0],[-2,0]]){if((L.summonsSpawned??0)>=2)break;const xx=x+dx,yy=y+dy;if(xx<1||yy<1||xx>=grid.map.w-1||yy>=grid.map.h-1||grid.solid[yy*grid.map.w+xx])continue;const m=newMob('banditClubman',.65,xx,yy);if(m){m.awake=true;m.summon=true;L.mobs.push(m);L.summonsSpawned=(L.summonsSpawned??0)+1;L.status='infested';}}}
+
+export function companionInteriorAttack(p:Player,x:number,y:number,reach:number,damage:number){const I=p.interior;if(!I)return false;const r=mineRecAt(I.tx,I.ty);if(!r)return false;const li=layerOfPlayer(r,p),L=r.layers[li],grid=layerMap(r,li),at={x,y};const m=aliveIn(L).filter(m=>Math.hypot(m.x-x,m.y-y)<=reach&&clearSight(grid,at,m)).sort((a,b)=>Math.hypot(a.x-x,a.y-y)-Math.hypot(b.x-x,b.y-y))[0];if(!m)return false;m.hp-=bossHit(m,damage,at)*interiorCurse(m);wake(L,m);if(m.hp<=0)killMob(r,li,m,p);return true;}

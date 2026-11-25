@@ -743,6 +743,7 @@ export interface ItemStats {
   spellPowerPct?: number;
 }
 export interface GearItem {
+  adventureTrait?:import("./expeditions.js").AdventureGearId;
   // Unique per instance.
   id: string;
   slot: ItemSlotKind;
@@ -770,6 +771,7 @@ export interface HeroStats {
 }
 // Snapshot `profile`: sent only to its own player, and only when it changed (keep the last one).
 export interface HeroProfileSnapshot {
+  title?:string;
   appearance?: HeroAppearance;
   equipment: Equipment;
   inventory: GearItem[];
@@ -1472,7 +1474,7 @@ export type ClientMessage =
   | { type: "heroAction"; action: HeroActionKind; build?: PersonalBuild }
   // Stardew phase 5c: leave the interior (Esc near the exit mat; walking onto the mat leaves by itself).
   | { type: "interiorEdit"; op: "base"|"floor"|"wall"|"place"|"remove"; base?:string; floor?:string; wall?:string; prop?:string; x?:number; y?:number; facing?:string }
-  | { type:"adventureJournal"; op:"get"|"track"; id?:string }
+  | { type:"adventureJournal"; op:"get"|"track"|"act"; id?:string }
   | { type:"interiorTalk"; id:string }
   | { type: "interiorUse"; x:number; y:number }
   | { type: "interiorExit" }
@@ -1800,4 +1802,4 @@ export function heroVisualFromEquipment(equipment: Equipment, appearance?: HeroA
 export const HERO_WEAPON_KINDS = ["sword", "axe", "spear", "club", "bow", "staff"] as const;
 
 export const PLAYER_WEAPON_KINDS = ["sword", "axe", "spear", "bow"] as const;
-export const PLAYER_GEAR_SLOTS: readonly GearSlot[] = ["head", "chest", "weapon", "offhand"];
+export const PLAYER_GEAR_SLOTS: readonly GearSlot[] = ["head", "chest", "legs", "weapon", "offhand"];

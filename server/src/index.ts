@@ -449,7 +449,7 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if(message.type==="interiorEdit"){
     handleInteriorEdit(player,message);
   } else if(message.type==="adventureJournal"){
-    if(message.op==='get'||message.op==='track')handleJournal(player,message.op,message.id);
+    if(message.op==='get'||message.op==='track'||message.op==='act')handleJournal(player,message.op,message.id);
   } else if(message.type==="interiorTalk"){
     handleInteriorTalk(player,message.id);
   } else if(message.type==="interiorUse"){

@@ -52,6 +52,7 @@
     "./specialCast": "./src/specialCast.ts",
     "./adventure": "./src/adventure.ts",
     "./stories": "./src/stories.ts",
-    "./interactables": "./src/interactables.ts"
+    "./interactables": "./src/interactables.ts",
+    "./expeditions": "./src/expeditions.ts"
   }
 }

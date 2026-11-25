@@ -1,3 +1,4 @@
+import {stepCompanions} from "./companions.js";
 import { stepPlayerCombat, combatMotion } from "./playerCombat.js";
 import { updatePeacefulGuard } from "./townLife.js";
 // sim.ts: One simulation tick (stepSimulation: everything the pause freezes); index.ts's tick loop and the fastForward test hook run it.
@@ -193,6 +194,7 @@ export function stepSimulation() {
   updateBattleBrains();
   lap("brain");
   // Clans: each colonist works for (and pays from / delivers to) its own clan.
+  stepCompanions();
   for (const colonist of colonists.values()) {
     // World streaming phase 3: a far wagon convoy's units are moved by wagons.ts.
     if (colonist.ghost) continue;

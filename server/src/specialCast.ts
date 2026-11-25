@@ -5,11 +5,13 @@ import {TileType} from '@colony/shared/protocol';
 import {state,sites} from './state.js';
 import {ownerAt,tileIndex} from './tiles.js';
 export interface SpecialResidence {id:string;tx:number;ty:number;venue:string;place:string;hostile:boolean}
+import {companionResidences} from "./companions.js";
+import {expeditionResidences} from './expeditions.js';
 let tileBuffer:Uint8Array|undefined,salt=-1,homes:SpecialResidence[]=[];
 const normalize=(v:string)=>({tailor:'shop',market:'shop',workshop:'smithy',mill:'bakery',farmhouse:'house',stables:'barn'}[v]??v);
 // Scan once per loaded world. Residents have no overworld bodies or off-screen AI.
 export function specialResidences():SpecialResidence[]{
- if(tileBuffer===state.tiles&&salt===state.worldNoiseSalt)return homes;
+ if(tileBuffer===state.tiles&&salt===state.worldNoiseSalt)return companionResidences(expeditionResidences(homes));
  tileBuffer=state.tiles;salt=state.worldNoiseSalt;homes=[];
  const venues:{tx:number;ty:number;venue:string;place:string;load:number}[]=[],keys=new Set<string>();
  for(let ty=0;ty<state.WORLD_TILES_Y;ty++)for(let tx=0;tx<state.WORLD_TILES_X;tx++){
@@ -30,7 +32,7 @@ export function specialResidences():SpecialResidence[]{
   });
   const v=pool[0];if(!v)continue;v.load++;homes.push({id:c.id,tx:v.tx,ty:v.ty,venue:v.venue,place:v.place,hostile:c.hostile});
  }
- return homes;
+  return companionResidences(expeditionResidences(homes));
 }
 export function specialAt(tx:number,ty:number,hostile=false):SpecialCharacter[]{return specialResidences().filter(h=>h.tx===tx&&h.ty===ty&&h.hostile===hostile).map(h=>SPECIAL_BY_ID.get(h.id)!);}
 export function specialAddress(id:string){return specialResidences().find(h=>h.id===id)?.place??'not present in this small world';}

@@ -21,6 +21,9 @@ import {playerMaxHp} from './heroes.js';
 import {adjustRelation} from './sites.js';
 import {revealAround,circleOffsets} from './net.js';
 import {refreshInteriorView} from './interiors.js';
+import {companionAction} from "./companions.js";
+import {trainAdventureHorse} from "./animals.js";
+import {expeditionEvent,expeditionEntries,expeditionAction,expeditionRoomMap} from "./expeditions.js";
 const masterSkills:Record<string,HeroSkill>={'hesta-ironroot':'smithing','osmund-bell':'smithing','liora-thread':'building','perrin-ash':'building','maeve-clay':'pottery','viggo-coal':'charcoal','una-stone':'mining','rob-copper':'smithing','nia-flint':'speech','wystan-gear':'milling'};
 const stepKey=(s:StoryDefinition)=>`story:${s.id}:step`,doneKey=(s:StoryDefinition)=>`story:${s.id}:done`;
 const home=(id:string)=>specialResidences().find(h=>h.id===id);
@@ -44,6 +47,7 @@ export function storyOnMeet(p:Player,id:string){
 
 export function storyEvent(p:Player,type:string,key:string,_id=''){
  const f=lifeOf(p).flags;
+ expeditionEvent(p,type,key,_id);
  if(type==='craft')f[`crafted:${key}`]=(f[`crafted:${key}`]??0)+1;
  for(const s of STORIES){if(s.steps.some(st=>st.target&&targetKey(st)===key))f[`story:${s.id}:heard`]=1;if(f[stepKey(s)])settleProof(p,s);}sendJournal(p);
 }
@@ -59,12 +63,17 @@ function supplies(p:Player,step:StoryStep,consume=false){
 export interface StoryResponse {text:string;choices:{label:string;next:string;disabled?:string}[]}
 export function storyOffers(p:Player,id:string){
  const f=lifeOf(p).flags,c=SPECIAL_BY_ID.get(id)!,offers:{label:string;next:string;disabled?:string}[]=[];
+ if(id==='hesta-ironroot')for(const e of expeditionEntries(p).filter(e=>e.id.startsWith('exp:')&&e.id!=='exp:stealth'))offers.push({label:'Expedition: '+e.title,next:'expedition:'+e.id.slice(4)});
  for(const s of STORIES.filter(s=>s.members.includes(id))){offers.push({label:`Story: ${s.title}${f[doneKey(s)]?' (complete)':''}`,next:`story:${s.id}`});
   if(!f[doneKey(s)]||c.child)continue;const service=c.group==='faith'?{op:'treatment',label:'Sanctuary treatment (free, once a day)',cost:0}:c.group==='commons'?{op:'lodging',label:'Meal and a full rest (8 gold, once a day)',cost:8}:c.group==='masters'?{op:'training',label:'Masters practical lesson (12 gold, once a day)',cost:12}:undefined;
   if(service)offers.push({label:service.label,next:`story:${s.id}:${service.op}`,disabled:f[`service:${s.id}:${service.op}`]===gameDay()+1?'Available again tomorrow':withClan(clanOf(p),()=>state.stock.gold)<service.cost?'Not enough gold':undefined});
  }return offers;
 }
 export function storyDialogue(p:Player,actor:string,node:string):StoryResponse|undefined{
+ if(node.startsWith('expedition:')&&actor==='hesta-ironroot'){
+  const id=node.slice('expedition:'.length).split('/')[0],action=node.includes('/')?node.slice(node.indexOf('/')+1):undefined;if(action)expeditionAction(p,action);const e=expeditionEntries(p).find(e=>e.id==='exp:'+id);if(!e)return;
+  sendJournal(p);return{text:e.title+'\n\n'+e.text+'\n\n'+e.objective+'\n'+e.progress+'\nReward: '+e.reward,choices:[...(e.choices??[]).map(c=>({label:c.label,next:'expedition:'+id+'/'+c.id})),{label:'Back to our conversation.',next:'start'}]};
+ }
  if(!node.startsWith('story:'))return;const [,id,op,arg]=node.split(':'),s=STORIES.find(s=>s.id===id);if(!s||!s.members.includes(actor))return;
  const f=lifeOf(p).flags;f[`story:${s.id}:heard`]=1;let extra='';
  if(['treatment','lodging','training'].includes(op??'')){
@@ -104,7 +113,7 @@ export function storyDialogue(p:Player,actor:string,node:string):StoryResponse|u
 }
 function objective(p:Player,s:StoryDefinition){const step=currentStep(p,s);if(!step)return s.project;const id=step.actor??step.target,c=id?SPECIAL_BY_ID.get(id):undefined;return `${step.text}${c?`\n${c.name} — ${specialAddress(id!)}`:''}${step.kind==='supply'?`\nRequired: ${step.count} ${step.good}.`:step.kind==='craft'?`\nPrepare ${step.count} ${step.item} at a workstation, or obtain them through trade.`:''}`;}
 export function journalSnapshot(p:Player):JournalView{
- const f=lifeOf(p).flags,entries:JournalEntry[]=[];
+ const f=lifeOf(p).flags,entries:JournalEntry[]=expeditionEntries(p);
  for(const s of STORIES){if(!f[`story:${s.id}:heard`]&&!f[stepKey(s)])continue;settleProof(p,s);const step=currentStep(p,s),id=step?.actor??step?.target,h=id?home(id):undefined,known=!!id&&(!!f[`known:${id}`]||!!f[`cast:met:${id}`]),done=!!f[doneKey(s)];entries.push({id:s.id,title:s.title,status:done?'complete':f[stepKey(s)]?'active':'available',text:s.intro,objective:done?s.project:objective(p,s),progress:done?'Complete':`Stage ${f[stepKey(s)]??1} of ${s.steps.length}`,reward:`${s.gold} gold; ${STORY_RECIPES.find(r=>r.id===s.recipe)?.label}`,blocked:!done&&id&&!locationAvailable(id)?'This contact or location is unavailable. Report it to another participant.':!done&&step&&['supply','craft'].includes(step.kind)&&!supplies(p,step)?'You need the listed supplies.':undefined,...(!done&&known&&h?{marker:{x:h.tx,y:h.ty,label:SPECIAL_BY_ID.get(id!)!.name}}:{})});}
  for(const c of SPECIAL_CAST.filter(c=>!c.hostile&&f[`cast:${c.id}:accepted`])){const done=!!f[`cast:${c.id}:done`],ready=c.questKind==='hunt'?specialCharacterDefeated(c.connection):c.questKind==='meet'?!!f[`cast:met:${c.connection}`]:false,target=c.questKind==='supply'||done||ready?c.id:c.connection,h=home(target);entries.push({id:`favor:${c.id}`,title:`${c.name}: a personal favour`,status:done?'complete':'active',text:c.hook,objective:done?'Favour completed.':ready?`Return to ${c.name} to report your success.`:c.questKind==='supply'?`Bring ${c.count} ${c.good} to ${c.name}.`:`${c.questKind==='hunt'?'Defeat':'Speak with'} ${SPECIAL_BY_ID.get(c.connection)!.name}, then return to ${c.name}.`,reward:`${c.reward} gold and a practical lesson`,...(h?{marker:{x:h.tx,y:h.ty,label:SPECIAL_BY_ID.get(target)!.name}}:{})});}
  const tracked=Object.keys(f).find(k=>k.startsWith('journal:track:')&&f[k])?.slice('journal:track:'.length),trackedEntry=entries.find(e=>e.id===tracked);
@@ -113,7 +122,7 @@ export function journalSnapshot(p:Player):JournalView{
 }
 const lastSent=new WeakMap<Player,string>();
 export function sendJournal(p:Player,force=false){const journal=journalSnapshot(p),json=JSON.stringify(journal);if(!force&&lastSent.get(p)===json)return;lastSent.set(p,json);sendTo(p,{type:'adventureJournal',journal});}
-export function handleJournal(p:Player,op:string,id?:string){if(p.dead&&op!=='get')return;if(op==='track'){const entry=journalSnapshot(p).entries.find(e=>e.id===id);if(id&&!entry)return;const f=lifeOf(p).flags;for(const k of Object.keys(f))if(k.startsWith('journal:track:'))delete f[k];if(entry)f[`journal:track:${entry.id}`]=1;}sendJournal(p,true);}
+export function handleJournal(p:Player,op:string,id?:string){if(p.dead&&op!=='get')return;if(op==='act'&&typeof id==='string'&&id.length<150){if(!companionAction(p,id)&&!trainAdventureHorse(p,id))expeditionAction(p,id);}if(op==='track'){const entry=journalSnapshot(p).entries.find(e=>e.id===id);if(id&&!entry)return;const f=lifeOf(p).flags;for(const k of Object.keys(f))if(k.startsWith('journal:track:'))delete f[k];if(entry)f[`journal:track:${entry.id}`]=1;}sendJournal(p,true);}
 // Visible, persistent room improvements are derived from saved completed stories.
 const roomCache=new WeakMap<InteriorMap,Map<string,InteriorMap>>();
 function occupiedImprovement(tx:number,ty:number,base:InteriorMap,next:InteriorMap){
@@ -121,9 +130,9 @@ function occupiedImprovement(tx:number,ty:number,base:InteriorMap,next:InteriorM
  return [...players.values()].some(p=>p.interior?.tx===tx&&p.interior.ty===ty&&added.some(q=>Math.hypot(p.interior!.x/32-.5-q.x,p.interior!.y/32-.5-q.y)<.9));
 }
 export function storyRoomMap(tx:number,ty:number,map:InteriorMap){
- const finished=STORIES.filter(s=>[...heroProfiles.values()].some(p=>p.life?.flags[doneKey(s)])&&s.members.some(id=>{const h=home(id);return h&&!h.hostile&&h.tx===tx&&h.ty===ty;}));if(!finished.length)return map;
- const key=finished.map(s=>s.id).join(','),cache=roomCache.get(map)??new Map<string,InteriorMap>();roomCache.set(map,cache);const hit=cache.get(key);if(hit)return occupiedImprovement(tx,ty,map,hit)?map:hit;
+ const finished=STORIES.filter(s=>[...heroProfiles.values()].some(p=>p.life?.flags[doneKey(s)])&&s.members.some(id=>{const h=home(id);return h&&!h.hostile&&h.tx===tx&&h.ty===ty;}));if(!finished.length)return expeditionRoomMap(tx,ty,map);
+ const key=finished.map(s=>s.id).join(','),cache=roomCache.get(map)??new Map<string,InteriorMap>();roomCache.set(map,cache);const hit=cache.get(key);if(hit)return expeditionRoomMap(tx,ty,occupiedImprovement(tx,ty,map,hit)?map:hit);
  const next={...map,props:map.props.map(p=>({...p}))};const props:InteriorProp[]=['weaponRack','lamp','sacks','workbench','candelabra','shelf','table','armourStand','banner','timberProp'];
  for(const s of finished){const prop=props[STORIES.indexOf(s)];outer:for(let y=1;y<map.h-1;y++)for(let x=1;x<map.w-1;x++)if(map.cells[y*map.w+x]==='.'&&map.cells[(y-1)*map.w+x]==='#'&&!next.props.some(p=>Math.hypot(p.x-x,p.y-y)<1.5)&&!map.slots.some(p=>p.x===x&&p.y===y)&&Math.hypot(x-map.exit.x,y-map.exit.y)>3&&Math.hypot(x-map.spawn.x,y-map.spawn.y)>2){next.props.push({prop,x,y,facing:'s'});if(interiorLayoutAccessible(next))break outer;next.props.pop();}}
- cache.set(key,next);return occupiedImprovement(tx,ty,map,next)?map:next;
+ cache.set(key,next);return expeditionRoomMap(tx,ty,occupiedImprovement(tx,ty,map,next)?map:next);
 }

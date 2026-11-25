@@ -16,6 +16,8 @@ import {refreshInteriorView} from './interiors.js';
 import {specialAt} from './specialCast.js';
 import {storyEvent,sendJournal} from './story.js';
 import {rescuePrisoners} from './people.js';
+import {interiorBlast,interiorAlarm} from "./mines.js";
+import {hasAdventureTrait} from "@colony/shared/expeditions";
 import {landmarkHearth} from './mines.js';
 interface Loot {goods:Partial<Record<PackGood,number>>;items:Partial<Record<ItemId,number>>;gold:number;relic:boolean}
 interface ObjectState {hp?:number;opened?:boolean;loot?:Loot}
@@ -25,7 +27,7 @@ const rooms=new Map<string,Room>(),saved=new Map<string,ExplorationSave>();
 const roomKey=(key:string,li:number)=>`${key}#${li}`;
 function change(r:Room){r.version++;for(const p of players.values())if(p.interior?.key===r.key){p.interior.sent='';p.interior.nextRefresh=0;}refreshInteriorView(r.key);}
 function stateOf(r:Room,o:ExplorationObject):ObjectState{return r.states[o.id]??={hp:o.maxHp};}
-function empty(s:ObjectState){return !!s.opened&&(!s.loot||(!s.loot.relic&&!s.loot.gold&&!Object.values(s.loot.goods).some(n=>n!>0)&&!Object.values(s.loot.items).some(n=>n!>0)));}
+function empty(s:ObjectState){return !!s.opened&&!!s.loot&&((!s.loot.relic&&!s.loot.gold&&!Object.values(s.loot.goods).some(n=>n!>0)&&!Object.values(s.loot.items).some(n=>n!>0)));}
 export function explorationMap(key:string,li:number,base:{map:InteriorMap;solid:Uint8Array},kind?:ExplorationKind){
  if(!kind)return base;const id=roomKey(key,li);let r=rooms.get(id);
  if(!r){const plan=explorationPlan(base.map,kind,adventureHash(`${state.worldNoiseSalt}:${id}`));r={key,li,kind,base:base.map,plan,states:saved.get(id)?.objects??{},version:0};rooms.set(id,r);}
@@ -39,16 +41,16 @@ export function explorationMap(key:string,li:number,base:{map:InteriorMap;solid:
  if(r.cache?.version===r.version)return r.cache;
  const props=r.plan.map.props.filter(p=>{
   const o=r!.plan.objects.find(o=>o.x===p.x&&o.y===p.y);if(!o)return true;const s=r!.states[o.id];
-  return !(s?.opened&&(o.kind==='gate'||o.kind==='cage'||['crate','barrel','pot'].includes(o.kind))||o.kind==='cache'&&s&&empty(s));
+  return !(s?.opened&&(o.kind==='gate'||o.kind==='cage'||['crate','barrel','pot','barricade','oil','alarm'].includes(o.kind))||o.kind==='cache'&&s&&empty(s));
  });
  const map={...r.plan.map,props};return r.cache={version:r.version,map,solid:interiorSolidGrid(map)};
 }
 function current(p:Player){const I=p.interior;return I?rooms.get(roomKey(I.key,encounterKind(I.tile)?0:I.variant)):undefined;}
 function flag(r:Room,o:ExplorationObject){return `explore:${r.key}:${r.li}:${o.id}`;}
-function prompt(p:Player,r:Room,o:ExplorationObject){const s=stateOf(r,o),flags=lifeOf(p).flags;if(o.kind==='note')return flags[flag(r,o)]?'Read again':'Read';if(o.kind==='key')return flags[`keys:${r.key}`]?'Keys collected':'Take keys';if(o.kind==='gate')return s.opened?'Open':'Unlock';if(o.kind==='cage')return s.opened?'Prisoners freed':'Free prisoners';if(empty(s))return 'Empty';if(['crate','barrel','pot'].includes(o.kind)&&!s.opened)return 'Break';if(o.kind==='cache'&&!s.opened)return 'Search';return o.locked&&!s.opened?'Unlock':'Loot';}
+function prompt(p:Player,r:Room,o:ExplorationObject){const s=stateOf(r,o),flags=lifeOf(p).flags;if(o.kind==='lamp')return s.opened?'Light':'Extinguish';if(o.kind==='lever')return s.opened?'Passage open':'Use';if(o.kind==='alarm')return s.opened?'Silenced':'Destroy';if(o.kind==='oil')return s.opened?'Spent':'Break';if(o.kind==='barricade')return s.opened?'Passage open':'Break';if(o.kind==='note')return flags[flag(r,o)]?'Read again':'Read';if(o.kind==='key')return flags[`keys:${r.key}`]?'Keys collected':'Take keys';if(o.kind==='gate')return s.opened?'Open':'Unlock';if(o.kind==='cage')return s.opened?'Prisoners freed':'Free prisoners';if(empty(s))return 'Empty';if(['crate','barrel','pot','barricade','oil','alarm'].includes(o.kind)&&!s.opened)return 'Break';if(o.kind==='cache'&&!s.opened)return 'Search';return o.locked&&!s.opened?'Unlock':'Loot';}
 export function explorationView(p:Player,cleared:boolean):ExplorationView|undefined{
  const r=current(p);if(!r)return;const flags=lifeOf(p).flags;
- return{keys:flags[`keys:${r.key}`]?1:0,cleared,objects:r.plan.objects.map(o=>{const s=stateOf(r,o);return{...o,hp:s.hp,opened:!!s.opened,empty:empty(s),read:!!flags[flag(r,o)],available:!(empty(s)||['gate','cage'].includes(o.kind)&&s.opened||o.kind==='key'&&flags[`keys:${r.key}`]),prompt:prompt(p,r,o)};})};
+ return{pattern:['Guarded doorway','Crossfire','Alarm position','Occupied courtyard'][Math.floor(adventureHash(`${state.worldNoiseSalt}:${roomKey(r.key,r.li)}`)/3)%4]+' '+(adventureHash(`${state.worldNoiseSalt}:${roomKey(r.key,r.li)}`)%3+1),stealth:explorationStealth(p),keys:flags[`keys:${r.key}`]?1:0,cleared,objects:r.plan.objects.map(o=>{const s=stateOf(r,o);return{...o,hp:s.hp,opened:!!s.opened,empty:empty(s),read:!!flags[flag(r,o)],available:!(empty(s)||['gate','cage','oil','alarm','barricade','lever'].includes(o.kind)&&s.opened||o.kind==='key'&&flags[`keys:${r.key}`]),prompt:prompt(p,r,o)};})};
 }
 function reach(p:Player,r:Room,o:ExplorationObject,max=EXPLORATION_REACH){
  const I=p.interior!,hx=I.x/TILE_SIZE-.5,hy=I.y/TILE_SIZE-.5,d=Math.hypot(hx-o.x,hy-o.y);if(d>max)return false;
@@ -71,7 +73,7 @@ function collect(p:Player,r:Room,o:ExplorationObject,s:ObjectState){
   if(loot.relic){const prof=heroProfileOf(p);if(grantRelic(prof,`exploration:${r.key}:${o.id}`)){loot.relic=false;got.push('a relic');}else if(prof.inventory.length<40){loot.relic=false;state.stock.gold+=25;got.push('25 gold for a duplicate curio');}}
  });
  const remains=!empty(s);toast(p,got.length?`Found ${got.join(', ')}.${remains?' More remains here: make room and return.':''}`:remains?'Inventory full. The remaining loot is safe here.':'This container is empty.');
- storyEvent(p,'loot',r.key,o.id);change(r);sendJournal(p);
+ if(got.length)storyEvent(p,'loot',r.key,o.id);change(r);sendJournal(p);
 }
 export interface ExplorationHooks {hostileNear:(x:number,y:number)=>boolean}
 export function explorationInteract(p:Player,x?:number,y?:number,hooks?:ExplorationHooks){
@@ -82,6 +84,9 @@ export function explorationInteract(p:Player,x?:number,y?:number,hooks?:Explorat
  else o=r.plan.objects.filter(o=>reach(p,r,o)&&!(['gate','cage'].includes(o.kind)&&stateOf(r,o).opened)&&!(o.kind==='key'&&lifeOf(p).flags[`keys:${r.key}`])&&!empty(stateOf(r,o))).sort((a,b)=>Math.hypot(a.x+.5-I.x/TILE_SIZE,a.y+.5-I.y/TILE_SIZE)-Math.hypot(b.x+.5-I.x/TILE_SIZE,b.y+.5-I.y/TILE_SIZE))[0];
  if(!o)return false;if(!reach(p,r,o)){toast(p,'Walk closer, with a clear path, to use that.');return true;}
  const s=stateOf(r,o),life=lifeOf(p);
+  if(o.kind==='lamp'){s.opened=!s.opened;toast(p,s.opened?'Lantern extinguished. Sneak outside the remaining pools of light.':'Lantern lit.');change(r);return true;}
+  if(o.kind==='lever'){if(!s.opened){s.opened=true;for(const gate of r.plan.objects.filter(q=>['gate','barricade'].includes(q.kind)))stateOf(r,gate).opened=true;storyEvent(p,'unlock',r.key,o.id);toast(p,'The winch opens the side passage.');change(r);}return true;}
+
  if(o.kind==='note'){
   life.flags[flag(r,o)]=1;life.flags[`clue:${r.key}`]=1;storyEvent(p,'clue',r.key,o.id);
   const [tx,ty]=r.key.split(',').map(Number),cast=specialAt(tx,ty,true);for(const c of cast){life.flags[`known:${c.id}`]=1;life.flags[`lore:${c.id}`]=1;}const hint=cast.map(c=>`${c.name}: ${BOSS_PROFILES[c.id]?.hint??c.hook}`).join('\n\n');
@@ -97,7 +102,7 @@ export function explorationInteract(p:Player,x?:number,y?:number,hooks?:Explorat
  }
  if(['crate','barrel','pot'].includes(o.kind)&&!s.opened){if(p.attackCooldownTicks>0)return true;p.attackCooldownTicks=playerAttackCooldownTicks(p);s.hp=Math.max(0,(s.hp??o.maxHp??1)-playerDamage(p));if(s.hp>0){toast(p,`${o.label}: ${Math.ceil(s.hp)} strength remaining`);change(r);return true;}s.opened=true;}
  else if(!s.opened){if(hooks?.hostileNear(o.x,o.y)){toast(p,'Enemies are too close to search safely.');return true;}s.opened=true;}
- collect(p,r,o,s);return true;
+  if(['barricade','oil','alarm'].includes(o.kind)){destroySpecial(p,r,o,s);return true;}collect(p,r,o,s);return true;
 }
 function freeCage(p:Player,r:Room,o:ExplorationObject,s:ObjectState,alreadyRescued=false){
  if(s.opened)return;s.opened=true;lifeOf(p).flags[`rescue:${r.key}`]=1;
@@ -109,7 +114,7 @@ export function explorationRescued(key:string){const id=roomKey(key,0),r=rooms.g
 export function explorationClear(key:string,p?:Player|null){
  const r=rooms.get(roomKey(key,0));if(!r)return;if(!p){if(r.kind==='camp'){for(const o of r.plan.objects.filter(o=>o.kind==='cage'))stateOf(r,o).opened=true;change(r);}return;}for(const o of r.plan.objects.filter(o=>o.kind==='cage'))freeCage(p,r,o,stateOf(r,o),r.kind==='camp');
 }
-export function explorationAttack(p:Player,reachTiles:number,strike?:CombatStrike,damageMult=1){const r=current(p);if(!r||p.dead)return false;const o=r.plan.objects.filter(o=>['crate','barrel','pot'].includes(o.kind)&&!stateOf(r,o).opened&&reach(p,r,o,reachTiles)&&(!strike||strikeContains(strike,p.interior!,{x:(o.x+.5)*TILE_SIZE,y:(o.y+.5)*TILE_SIZE},8))).sort((a,b)=>Math.hypot(a.x+.5-p.interior!.x/TILE_SIZE,a.y+.5-p.interior!.y/TILE_SIZE)-Math.hypot(b.x+.5-p.interior!.x/TILE_SIZE,b.y+.5-p.interior!.y/TILE_SIZE))[0];if(!o)return false;const s=stateOf(r,o);s.hp=Math.max(0,(s.hp??o.maxHp??1)-playerDamage(p)*damageMult);if(s.hp<=0){s.opened=true;collect(p,r,o,s);}else change(r);return true;}
+export function explorationAttack(p:Player,reachTiles:number,strike?:CombatStrike,damageMult=1){const r=current(p);if(!r||p.dead)return false;const o=r.plan.objects.filter(o=>['crate','barrel','pot','barricade','oil','alarm'].includes(o.kind)&&!stateOf(r,o).opened&&reach(p,r,o,reachTiles)&&(!strike||strikeContains(strike,p.interior!,{x:(o.x+.5)*TILE_SIZE,y:(o.y+.5)*TILE_SIZE},8))).sort((a,b)=>Math.hypot(a.x+.5-p.interior!.x/TILE_SIZE,a.y+.5-p.interior!.y/TILE_SIZE)-Math.hypot(b.x+.5-p.interior!.x/TILE_SIZE,b.y+.5-p.interior!.y/TILE_SIZE))[0];if(!o)return false;const s=stateOf(r,o);s.hp=Math.max(0,(s.hp??o.maxHp??1)-playerDamage(p)*damageMult*(strike?.heavy&&hasAdventureTrait(heroProfileOf(p).equipment,'breach')?2:1));if(s.hp<=0){s.opened=true;if(['barricade','oil','alarm'].includes(o.kind))destroySpecial(p,r,o,s);else collect(p,r,o,s);}else change(r);return true;}
 export function explorationSave(key:string,li:number):ExplorationSave|undefined{const id=roomKey(key,li),r=rooms.get(id);return r?{version:1,objects:Object.fromEntries(Object.entries(r.states).map(([id,s])=>[id,{opened:!!s.opened,...(typeof s.hp==='number'?{hp:s.hp}:{}),...(s.loot?{loot:structuredClone(s.loot)}:{})}]))}:saved.get(id);}
 export function restoreExploration(key:string,li:number,raw:unknown){
  if(!raw||typeof raw!=='object')return;const d=raw as ExplorationSave;if(d.version!==1||!d.objects||typeof d.objects!=='object')return;
@@ -117,3 +122,14 @@ export function restoreExploration(key:string,li:number,raw:unknown){
  saved.set(roomKey(key,li),{version:1,objects});
 }
 export function resetExploration(){rooms.clear();saved.clear();}
+
+function destroySpecial(p:Player,r:Room,o:ExplorationObject,s:ObjectState){
+ s.opened=true;
+ if(o.kind==='oil'){change(r);interiorBlast(p,o.x,o.y,2.5,18);toast(p,'The pitch flashes! Nearby creatures burn; stone walls stop the blast.');}
+ if(o.kind==='alarm'){storyEvent(p,'sabotage',r.key,o.id);toast(p,'The signal brazier is destroyed.');}
+ if(o.kind==='barricade'){storyEvent(p,'unlock',r.key,o.id);toast(p,'The barricade falls. The side passage is open.');}
+ change(r);
+}
+export function explorationDetection(p:Player){const r=current(p);if(!r||!p.interior)return 0;const h={x:p.interior.x/32-.5,y:p.interior.y/32-.5};return r.plan.objects.some(o=>o.kind==='lamp'&&!stateOf(r,o).opened&&Math.hypot(o.x-h.x,o.y-h.y)<4&&reach(p,r,o,4))?1:0;}
+export function explorationStealth(p:Player){return p.adventureSneak?(explorationDetection(p)?'Sneaking — in light':'Sneaking — in shadow'):'Visible — use Sneak in your journal';}
+export function stepExplorationAlarms(p:Player){const r=current(p);if(!r||r.kind!=='camp'||!p.interior)return;for(const o of r.plan.objects){if(o.kind!=='alarm'||stateOf(r,o).opened)continue;const s=stateOf(r,o),h={x:p.interior.x/32-.5,y:p.interior.y/32-.5};if(Math.hypot(h.x-o.x,h.y-o.y)>5||p.adventureSneak&&!explorationDetection(p)||!reach(p,r,o,5))continue;if((s.hp??10)===1)continue;s.hp=1;interiorAlarm(p,o.x,o.y);storyEvent(p,'alarm',r.key,o.id);toast(p,'The signal sounds: two guards answer. Destroy it to silence it.');change(r);}}

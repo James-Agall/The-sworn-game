@@ -1700,7 +1700,8 @@ function stepWork(p: Player, b: Busy, w: WorkJob) {
   // Pay and produce together: interrupted work never destroys inputs, simultaneous crafters cannot double-spend.
   if(!state.creative)for(const[k,n]of Object.entries(r.stock??{}))state.stock[k as ResourceKey]-=n??0;
   for(const[id,n]of Object.entries(r.items??{}))takeItem(id as ItemId,n??0);
-  if(r.questGear)grantStoryShield(p,r.id==='hesta-shield'?'Hestas Riveted Shield':'Dains Watch Shield');
+  if(r.adventureGear)grantAdventureGear(p,r.adventureGear);
+   if(r.questGear)grantStoryShield(p,r.id==='hesta-shield'?'Hestas Riveted Shield':'Dains Watch Shield');
   if(r.item)produceItem(r.item,r.amount,Math.min(3,tier+(r.gradeBonus??0)));
   if(r.stockOutput)state.stock[r.stockOutput]+=r.amount;
   // Industry extras: Fine steel in store forges each piece a tier better (forgedTier).
@@ -1856,7 +1857,9 @@ export function heroLifeDebug(p: Player) {
 }
 
 // Player crafting uses the existing progression, artisan and forge definitions.
+import {adventureRecipes,grantAdventureGear} from './expeditions.js';
 interface PersonalRecipe {
+ adventureGear?:import('@colony/shared/expeditions').AdventureGearId;
  id:string; label:string; amount:number; seconds:number; level?:number; tier?:number; stationLevel?:number;
  stock?:Partial<Record<ResourceKey,number>>; stockReserve?:Partial<Record<ResourceKey,number>>; items?:Partial<Record<ItemId,number>>; needs?:Partial<Record<ItemId,number>>;
  questGear?:'shield'; item?:ItemId; stockOutput?:ResourceKey; gear?:'armour'|'weapon'; gradeBonus?:number;
@@ -1868,7 +1871,7 @@ interface PersonalRecipe {
 }
 // The batches the hero can make at a station: a layered Mine's ore face (inside only) digs the layer the hero is on.
 function personalRecipes(p:Player,st:{tx:number;ty:number;tile:TileType}):PersonalRecipe[] {
- if(!isLayeredMine(st.tile))return [...playerStationRecipes(st.tile),...STORY_RECIPES.filter(r=>r.station===st.tile&&lifeOf(p).flags[`recipe:${r.id}`])];
+ if(!isLayeredMine(st.tile))return [...playerStationRecipes(st.tile),...adventureRecipes(p,st.tile),...STORY_RECIPES.filter(r=>r.station===st.tile&&lifeOf(p).flags[`recipe:${r.id}`])];
  const layer=(p.interior?.variant??0)+1;
  return p.interior?mineDigRows(st.tx,st.ty,layer).map(d=>({id:`mine:${layer}:${d.res}`,label:`Dig ${d.label}`,amount:MINE_HERO_DIG_AMOUNT,seconds:MINE_HERO_DIG_SECONDS,
   needs:gatesOpen()?undefined:{[d.pick]:1},item:d.res==='iron'?undefined:d.res,stockOutput:d.res==='iron'?'iron':undefined,cap:d.cap,mineLayer:layer})):[];
@@ -1886,7 +1889,7 @@ export function playerStationRecipes(tile:TileType):PersonalRecipe[] {
  return rows;
 }
 function personalRecipeBlock(p:Player,r:PersonalRecipe,st:{tx:number;ty:number;tile:TileType}):string {
- if(r.questGear&&heroProfileOf(p).inventory.length>=40)return "Your equipment inventory is full; no materials have been taken";
+ if((r.questGear||r.adventureGear)&&heroProfileOf(p).inventory.length>=40)return "Your equipment inventory is full; no materials have been taken";
  if(r.tier && getBuildingLevel(st.tx,st.ty)<r.tier)return `Upgrade the blacksmith to level ${r.tier}`;
  if(r.stationLevel && getBuildingLevel(st.tx,st.ty)<r.stationLevel)return `Upgrade the station to level ${r.stationLevel}`;
  if(skillLevel(lifeOf(p),STATION_SKILL[st.tile]!)<(r.level??1))return `Needs skill level ${r.level}`;

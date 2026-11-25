@@ -1,3 +1,4 @@
+import {companionDowned} from "./companions.js";
 import { legacyMineAttackAim } from "./mines.js";
 import { queuePlayerAttack, defendPlayer, type CombatDamageSource } from "./playerCombat.js";
 import {advanceGroundApproach} from "./groundNavigation.js";
@@ -323,6 +324,7 @@ export function damageColonist(colonist: Colonist, amount: number) {
     }
     return;
   }
+  if(colonist.hp<=0&&companionDowned(colonist))return;
   if (colonist.hp <= 0 && isSummoned(colonist)) {
     // A summoned skeleton crumbles: no grave, toast or respawn.
     summonedUntil.delete(colonist.id);

@@ -9,6 +9,7 @@ import { resolvePlayerStrike } from './worldPlayerStrike.js';
 import { mineHeroAttack } from './mines.js';
 import { withClan, clanOf } from './clans.js';
 
+import {adventureStrike,hasAdventureTrait} from "@colony/shared/expeditions";
 interface Attack { spec:CombatStrike; start:number; contact:number; end:number; hit:boolean; weaponId:string; damageMult:number }
 interface Runtime {
   context:string; angle:number; aimAt:number; chargeAt?:number; chargeWeapon?:string; attack?:Attack;
@@ -23,14 +24,14 @@ const position=(p:Player)=>p.interior??p;
 const weaponId=(p:Player)=>heroProfileOf(p).equipment.weapon?.id??'unarmed';
 function get(p:Player):Runtime {
   const key=context(p);let s=runtime.get(p);
-  if(!s||s.context!==key){const at=position(p);s={context:key,angle:0,aimAt:-100,guard:false,guardAt:-100,parryReady:0,dodgeUntil:0,dodgeReady:0,dodgeX:0,dodgeY:0,counterUntil:0,feedbackUntil:0,lastX:at.x,lastY:at.y,velocityX:0,velocityY:0};runtime.set(p,s);}
+  if(!s||s.context!==key){p.adventureSneak=false;const at=position(p);s={context:key,angle:0,aimAt:-100,guard:false,guardAt:-100,parryReady:0,dodgeUntil:0,dodgeReady:0,dodgeX:0,dodgeY:0,counterUntil:0,feedbackUntil:0,lastX:at.x,lastY:at.y,velocityX:0,velocityY:0};runtime.set(p,s);}
   return s;
 }
 export function resetPlayerCombat(){runtime=new WeakMap();}
 export function combatAim(p:Player,angle:unknown){if(typeof angle==='number'&&Number.isFinite(angle)){const s=get(p);s.angle=Math.atan2(Math.sin(angle),Math.cos(angle));s.aimAt=clock();}}
 export function queuePlayerAttack(p:Player,heavy=false,angle?:number):boolean {
   if(p.dead)return false;
-  const s=get(p),now=clock();if(angle!==undefined)combatAim(p,angle);
+  p.adventureSneak=false;const s=get(p),now=clock();if(angle!==undefined)combatAim(p,angle);
   if(s.dodgeUntil>now)return false;
   if(s.attack||p.attackCooldownTicks>0){
     const left=s.attack?s.attack.end-now:p.attackCooldownTicks;
@@ -42,7 +43,7 @@ export function queuePlayerAttack(p:Player,heavy=false,angle?:number):boolean {
     const heading=Math.atan2(s.velocityY,s.velocityX),delta=Math.atan2(Math.sin(s.angle-heading),Math.cos(s.angle-heading));
     const limit=weapon==='spear'?.6:1.4;s.angle=heading+Math.max(-limit,Math.min(limit,delta));
   }
-  const spec=attackSpec(weapon,heavy,mounted,s.angle,prof.stats.attackSpeedMult);
+  const spec=adventureStrike(prof.equipment,attackSpec(weapon,heavy,mounted,s.angle,prof.stats.attackSpeedMult));
   const forward=s.velocityX*Math.cos(s.angle)+s.velocityY*Math.sin(s.angle);
   const bonus=mounted&&weapon!=='bow'?1+Math.min(.25,Math.max(0,forward-PLAYER_SPEED*.5)/(PLAYER_SPEED*4)):1;
   const counter=s.counterUntil>now?1.25:1;s.counterUntil=0;s.guard=false;s.chargeAt=undefined;
@@ -70,7 +71,7 @@ export function handleCombatInput(p:Player,msg:Extract<ClientMessage,{type:'comb
   }else if(msg.action==='dodge'){
     if(!p.interior&&isMounted(p)||s.dodgeReady>now||s.attack||s.chargeAt!==undefined)return;
     const d=Math.hypot(p.input.dx,p.input.dy),a=d?Math.atan2(p.input.dy,p.input.dx):s.angle+Math.PI/2;
-    s.dodgeX=Math.cos(a);s.dodgeY=Math.sin(a);s.dodgeUntil=now+COMBAT_DODGE_TICKS;s.dodgeReady=now+COMBAT_DODGE_COOLDOWN;s.guard=false;
+    s.dodgeX=Math.cos(a);s.dodgeY=Math.sin(a);s.dodgeUntil=now+COMBAT_DODGE_TICKS;s.dodgeReady=now+COMBAT_DODGE_COOLDOWN-(hasAdventureTrait(heroProfileOf(p).equipment,"wayfarer")?4:0);s.guard=false;
   }
 }
 export function stepPlayerCombat(p:Player){
@@ -92,7 +93,7 @@ export function stepPlayerCombat(p:Player){
 }
 export function combatMotion(p:Player):{dx:number;dy:number;mult:number}{
   const s=get(p);if(s.dodgeUntil>clock())return{dx:s.dodgeX,dy:s.dodgeY,mult:2.5};
-  return{...p.input,mult:s.guard?.48:s.chargeAt!==undefined?.65:s.attack?(s.attack.spec.mounted?.88:.72):1};
+  return{...p.input,mult:(p.adventureSneak&&p.interior?.templateId==='mine'?.55:1)*(s.guard?.48:s.chargeAt!==undefined?.65:s.attack?(s.attack.spec.mounted?.88:.72):1)};
 }
 export interface CombatDamageSource {x:number;y:number;heavy?:boolean;parry?:()=>void;unblockable?:boolean}
 export function defendPlayer(p:Player,amount:number,source?:CombatDamageSource):number {
@@ -101,7 +102,7 @@ export function defendPlayer(p:Player,amount:number,source?:CombatDamageSource):
   if(!s.guard||heroProfileOf(p).equipment.offhand?.kind!=='shield'||!facingPoint(s.angle,position(p),source,1.15))return amount;
   s.feedbackUntil=now+6;
   if(source.heavy){s.guard=false;s.feedback='guardBreak';p.attackCooldownTicks=Math.max(p.attackCooldownTicks,6);return amount*.8;}
-  if(now-s.guardAt<=4){s.feedback='parry';s.counterUntil=now+18;source.parry?.();return 0;}
+  if(now-s.guardAt<=4+(hasAdventureTrait(heroProfileOf(p).equipment,"steady")?1:0)){s.feedback='parry';s.counterUntil=now+(hasAdventureTrait(heroProfileOf(p).equipment,'counter')?26:18);source.parry?.();return 0;}
   s.feedback='block';return amount*.4;
 }
 export function playerCombatLive(p:Player):CombatLive|undefined {

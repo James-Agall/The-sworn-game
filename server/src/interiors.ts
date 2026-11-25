@@ -3,6 +3,7 @@ import {explorationView} from './adventureLoot.js';
 import {storyRoomMap} from './story.js';
 import {furnitureView,useFurniture,furnitureRoomMap,resetFurniture} from './furniture.js';
 import {bossMoveSpeed} from './bossCombat.js';
+import {companionSnapshots,companionLive} from "./companions.js";
 import {specialAt} from './specialCast.js';
 import {SPECIAL_BY_ID} from '@colony/shared/specialCast';
 import {encounterKind,encounterMap,encounterAnchor,encounterVariant} from '@colony/shared/encounters';
@@ -522,7 +523,7 @@ function viewFor(p: Player): { view: InteriorView; npcs: Binding[]; acc: Access 
     tx: I.tx,
     ty: I.ty,
     map,
-    npcs: npcs.map((b) => b.snap),
+    npcs: [...npcs.map((b) => b.snap),...companionSnapshots(p)],
     chest: own && hasProp(map, "chest") ? { ...(chests.get(I.key) ?? {}) } : null,
     chestCap: chestCapFor(map.templateId),
     editable:own && ["house","hall"].includes(I.templateId) && I.storey===0,
@@ -544,6 +545,7 @@ function sendView(p: Player, force = false) {
   sendTo(p, { type: "interior", view: v.view });
 }
 
+export function companionRoomGrid(p:Player){return p.interior?mapOf(p.interior):undefined;}
 export function refreshInteriorView(key?:string){for(const p of players.values())if(p.interior&&(!key||p.interior.key===key))sendView(p,true);}
 export function handleInteriorTalk(p:Player,id:unknown){
  if(typeof id!=='string'||id.length>200||p.dead||!p.interior)return;const v=viewFor(p);if(!v)return;
@@ -785,7 +787,7 @@ export function updateInteriors() {
     r.tick = state.cycleTick;
     stepRoom(r, ps.map((q) => ({ x: q.interior!.x / TILE_SIZE - 0.5, y: q.interior!.y / TILE_SIZE - 0.5 })));
     if (state.cycleTick % INTERIOR_NPC_SEND_TICKS !== 0) continue;
-    const npcs = liveOf(r);
+    const npcs = [...liveOf(r),...companionLive(ps[0])];
     const json = JSON.stringify(npcs);
     for (const q of ps) {
       if (q.interior!.npcSent === json) continue;

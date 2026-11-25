@@ -1,9 +1,9 @@
 import {interiorSolidGrid,interiorLayoutAccessible,type InteriorMap,type InteriorProp} from './interiors.js';
 export type ExplorationKind='camp'|'cave'|'ruin'|'mine';
-export type ExplorationObjectKind='crate'|'barrel'|'pot'|'chest'|'cache'|'note'|'key'|'gate'|'cage';
+export type ExplorationObjectKind='crate'|'barrel'|'pot'|'chest'|'cache'|'note'|'key'|'gate'|'cage'|'barricade'|'oil'|'alarm'|'lever'|'lamp';
 export interface ExplorationObject {id:string;kind:ExplorationObjectKind;x:number;y:number;prop:InteriorProp;label:string;locked?:boolean;secret?:boolean;maxHp?:number}
 export interface ExplorationObjectLive extends ExplorationObject {hp?:number;opened?:boolean;empty?:boolean;read?:boolean;available:boolean;prompt:string}
-export interface ExplorationView {objects:ExplorationObjectLive[];keys:number;cleared:boolean}
+export interface ExplorationView {objects:ExplorationObjectLive[];keys:number;cleared:boolean;pattern?:string;stealth?:string}
 export interface ExplorationPlan {map:InteriorMap;objects:ExplorationObject[];lockedRoom:boolean}
 export const EXPLORATION_REACH=1.65;
 export function adventureHash(s:string){let n=2166136261;for(const c of s)n=Math.imul(n^c.charCodeAt(0),16777619);return n>>>0;}
@@ -14,7 +14,11 @@ export function explorationPlan(base:InteriorMap,kind:ExplorationKind,seed:numbe
  const empty=(x:number,y:number)=>x>1&&y>1&&x<map.w-2&&y<map.h-2&&map.cells[y*map.w+x]==='.'&&!map.props.some(p=>Math.hypot(p.x-x,p.y-y)<1.5)&&!map.lairs?.some(p=>Math.hypot(p.x-x,p.y-y)<2)&&Math.hypot(x-map.spawn.x,y-map.spawn.y)>3;
  const spots:{x:number;y:number;rank:number}[]=[];for(let y=2;y<map.h-2;y++)for(let x=2;x<map.w-2;x++)if(empty(x,y))spots.push({x,y,rank:adventureHash(`${seed}:${x},${y}`)});spots.sort((a,b)=>a.rank-b.rank);
  const put=(kind:ExplorationObjectKind,prop:InteriorProp,label:string,extra:Partial<ExplorationObject>={})=>{const at=spots.find(p=>empty(p.x,p.y));if(!at)return;map.props.push({prop,x:at.x,y:at.y,facing:'s'});if(!interiorLayoutAccessible(map)){map.props.pop();return;}return add(kind,at.x,at.y,prop,label,extra);};
- put('note','adventureNote',kind==='camp'?'Stolen dispatch':kind==='ruin'?'Weathered inscription':kind==='mine'?'Foremans survey':'Lost expedition journal');
+ // Functional props reuse the shipped art; every placement preserves the main route.
+  put('oil','barrel','Pitch barrel — explosive',{maxHp:8});
+  put('lamp','lamp','Lantern — toggle light');
+  if(kind==='camp')put('alarm','candelabra','Signal brazier — destroy to silence',{maxHp:10});
+  put('note','adventureNote',kind==='camp'?'Stolen dispatch':kind==='ruin'?'Weathered inscription':kind==='mine'?'Foremans survey':'Lost expedition journal');
  put('key','adventureKey','Iron ring of keys');
  put('cache','adventureCache',kind==='cave'?'Loose stones':'Concealed cache',{secret:true});
  for(let n=0;n<3;n++)put('pot','adventurePot',kind==='ruin'?'Ancient pot':'Storage jar',{maxHp:4});
@@ -39,11 +43,23 @@ export function explorationPlan(base:InteriorMap,kind:ExplorationKind,seed:numbe
    const chest={x:cx,y:cy};map.props.push({prop:'chest',...chest,facing:'s'});if(!interiorLayoutAccessible(map)){map.props.pop();map.cells=old;continue;}
    add('chest',cx,cy,'chest',kind==='ruin'?'Sealed reliquary':kind==='cave'?'Expedition strongbox':'Locked pay chest',{locked:true});
    map.props.push({prop:'adventureGate',x:cx,y:dy,facing:'s'});add('gate',cx,dy,'adventureGate','Locked storeroom door',{locked:true});
+    // A separately breakable alternative, when the surrounding floor can really reach it.
+    for(const side of [-1,1]){const bx=cx+side*2,by=cy,outside=bx+side;if(map.cells[by*map.w+outside]!=='.')continue;const before=map.cells,c=before.split('');c[by*map.w+bx]='.';map.cells=c.join('');map.props.push({prop:'crates',x:bx,y:by,facing:'s'});const open={...map,props:map.props.filter(q=>q.prop!=='adventureGate')};if(interiorLayoutAccessible(open)){add('barricade',bx,by,'crates','Barricaded side passage',{maxHp:18});break;}map.props.pop();map.cells=before;}
+    put('lever','workbench','Storeroom winch — opens the side passage');
    if(map.ruin){const s=map.ruin.surfaces.split('');for(const i of ring)s[i]='s';s[dy*map.w+cx]='p';map.ruin={...map.ruin,surfaces:s.join('')};}
    lockedRoom=true;break outer;
   }
  }
- return{map,objects,lockedRoom};
+ // Four encounter shapes, each with three seeded arrangements. Native enemy spawning uses these lairs.
+  const pattern=Math.floor(seed/3)%4,variant=seed%3,grid=interiorSolidGrid(map);
+  const reachable=new Set<number>(),queue=[map.spawn.y*map.w+map.spawn.x];reachable.add(queue[0]);for(let n=0;n<queue.length;n++){const i=queue[n],x=i%map.w,y=Math.floor(i/map.w);for(const[dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]]){const xx=x+dx,yy=y+dy,j=yy*map.w+xx;if(xx<0||yy<0||xx>=map.w||yy>=map.h||grid[j]||reachable.has(j))continue;reachable.add(j);queue.push(j);}}
+  const candidates=spots.filter(p=>reachable.has(p.y*map.w+p.x)&&!grid[p.y*map.w+p.x]&&Math.hypot(p.x-map.spawn.x,p.y-map.spawn.y)>5);
+  const center={x:map.w/2,y:map.h/2};
+  if(candidates.length&&map.lairs?.length){const chosen:{x:number;y:number}[]=[];for(let i=0;i<map.lairs.length;i++){
+   const target=pattern===0?{x:map.spawn.x+(i%3-1)*(2+variant),y:map.spawn.y-6-variant-i}:pattern===1?{x:i%2?map.w-4-variant:3+variant,y:4+(i*5)%(map.h-8)}:pattern===2?(objects.find(o=>o.kind==='alarm')??center):{x:center.x+(i%3-1)*(3+variant),y:center.y+(Math.floor(i/3)%3-1)*4};
+   const at=candidates.filter(p=>!chosen.some(q=>Math.hypot(p.x-q.x,p.y-q.y)<2)).sort((a,b)=>Math.hypot(a.x-target.x,a.y-target.y)-Math.hypot(b.x-target.x,b.y-target.y))[0];if(at)chosen.push({x:at.x,y:at.y});
+  }if(chosen.length)map.lairs=chosen;}
+  return{map,objects,lockedRoom};
 }
 export type BossStyle='captain'|'archer'|'assassin'|'spider'|'champion'|'guardian'|'beast'|'swoop';
 export interface BossProfile {style:BossStyle;attack:string;windup:number;recovery:number;range:number;radius:number;cooldown:number;damage:number;hint:string;summon?:boolean}
