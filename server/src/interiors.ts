@@ -1,3 +1,6 @@
+import {explorationView} from './adventureLoot.js';
+import {storyRoomMap} from './story.js';
+import {bossMoveSpeed} from './bossCombat.js';
 import {specialAt} from './specialCast.js';
 import {SPECIAL_BY_ID} from '@colony/shared/specialCast';
 import {encounterKind,encounterMap,encounterAnchor,encounterVariant} from '@colony/shared/encounters';
@@ -66,12 +69,12 @@ function mapFor(id: InteriorTemplateId, level: number, variant = 0, storey = 0) 
   return m;
 }
 function designedMap(key:string, id:InteriorTemplateId,level:number,variant:number,storey=0){
- const [ex,ey]=key.split(',').map(Number),kind=encounterKind(state.tiles[tileIndex(ex,ey)]);if(kind==='cave'||!kind&&id==='mine')return mineInteriorMap(ex,ey,level,variant);if(kind)return encounterMap(kind,variant);
+ const [ex,ey]=key.split(',').map(Number),kind=encounterKind(state.tiles[tileIndex(ex,ey)]);if(kind||id==='mine')return mineInteriorMap(ex,ey,level,variant);
 
  const design=homeDesigns.get(key);if(!design&&id==='house'&&storey===0&&forcedVariant===null){const [x,y]=key.split(',').map(Number);const base=['cottage','farmhouse','townhouse','hill-burrow'][(x*7+y*11)%4];const cacheKey='home-default:'+base+':'+level;let hit=maps.get(cacheKey);if(!hit){const map=playerBaseMap({base},level);const solid=interiorSolidGrid(map);const free=[];for(let yy=2;yy<map.h-2;yy++)for(let xx=2;xx<map.w-2;xx++)if(!solid[yy*map.w+xx])free.push({x:xx,y:yy,slot:'v' as const});map.slots=free.slice(0,3);hit={map,solid};maps.set(cacheKey,hit);}return hit;}if(!design||storey>0||!['house','hall'].includes(id))return mapFor(id,level,variant,storey);
  let hit=homeCache.get(design);if(!hit||hit.map.level!==level){const map=playerBaseMap(design,level);hit={map,solid:interiorSolidGrid(map)};homeCache.set(design,hit);}return hit;
 }
-const mapOf=(I:NonNullable<Player['interior']>)=>designedMap(I.key,I.templateId as InteriorTemplateId,I.level,I.variant,I.storey);
+const mapOf=(I:NonNullable<Player['interior']>)=>{const base=designedMap(I.key,I.templateId as InteriorTemplateId,I.level,I.variant,I.storey);const map=storyRoomMap(I.tx,I.ty,base.map);return map===base.map?base:{map,solid:interiorSolidGrid(map)};};
 
 // Test hook `interior {variant}`: every building uses this layout (null: the deterministic pick).
 let forcedVariant: number | null = null;
@@ -510,6 +513,7 @@ function viewFor(p: Player): { view: InteriorView; npcs: Binding[]; acc: Access 
   syncRoom(roomKeyOf(I), map, solid, npcs);
   const own = "kind" in acc && acc.kind === "own";
   const view: InteriorView = {
+    exploration:explorationView(p,mineView(I.tx,I.ty,I.variant)?.status==='cleared'),
     key: I.key,
     tx: I.tx,
     ty: I.ty,
@@ -536,6 +540,14 @@ function sendView(p: Player, force = false) {
   sendTo(p, { type: "interior", view: v.view });
 }
 
+export function refreshInteriorView(key?:string){for(const p of players.values())if(p.interior&&(!key||p.interior.key===key))sendView(p,true);}
+export function handleInteriorTalk(p:Player,id:unknown){
+ if(typeof id!=='string'||id.length>200||p.dead||!p.interior)return;const v=viewFor(p);if(!v)return;
+ const b=v.npcs.find(b=>b.snap.id===id),n=rooms.get(roomKeyOf(p.interior))?.npcs.get(id);if(!b)return;
+ const x=n?.x??b.snap.x,y=n?.y??b.snap.y,I=p.interior;if(Math.hypot(px(x)-I.x,px(y)-I.y)>TALK_RANGE_TILES*TILE_SIZE)return toast(p,'Walk closer to speak.');
+ const map=v.view.map,solid=interiorSolidGrid(map),hx=I.x/TILE_SIZE-.5,hy=I.y/TILE_SIZE-.5,steps=Math.ceil(Math.hypot(x-hx,y-hy)*6);for(let i=1;i<steps;i++)if(solid[Math.round(hy+(y-hy)*i/steps)*map.w+Math.round(hx+(x-hx)*i/steps)])return toast(p,'Walk around the wall to speak.');
+ startTalk(p,{role:b.role,specialId:b.specialId,name:b.name,d:0,site:b.site,colonist:b.colonistId?colonists.get(b.colonistId):undefined,inside:{key:I.key,x:px(x),y:px(y),anchor:{x:I.tx,y:I.ty},tavern:I.templateId==='tavern'}});
+}
 // ---- enter / exit ----
 function exteriorDoor(tx:number,ty:number){const fp=placedFootprint(tx,ty);return{x:tx+Math.floor(fp.w/2),y:ty+fp.h};}
 
@@ -661,7 +673,7 @@ export function stepInteriorMovement(p: Player) {
   const { map, solid } = mapOf(I);
   const { dx, dy } = p.input;
   const len = Math.hypot(dx, dy) || 1;
-  const speed = PLAYER_SPEED * INTERIOR_SPEED_MULT * heroProfileOf(p).stats.moveSpeedMult * heroSpeedMult(p);
+  const speed = PLAYER_SPEED * INTERIOR_SPEED_MULT * heroProfileOf(p).stats.moveSpeedMult * heroSpeedMult(p) * bossMoveSpeed(p);
   const blocked = (x: number, y: number) => {
     for (const ox of [-PLAYER_HALF_SIZE, PLAYER_HALF_SIZE]) {
       for (const oy of [-PLAYER_HALF_SIZE, PLAYER_HALF_SIZE]) {
@@ -829,7 +841,9 @@ export function interiorInteract(p: Player) {
     const c = b.colonistId ? colonists.get(b.colonistId) : undefined;
     offer(d, () => startTalk(p, { role: b.role, specialId:b.specialId, name: b.name, d, site: b.site, colonist: c, inside: inside(nx, ny) }));
   }
+  for(const o of v.view.exploration?.objects??[]){const d=dist(o.x,o.y);if(o.available&&d<=1.65)offer(d,()=>encounterInteract(p,o.x,o.y));}
   for (const q of map.props) {
+    if(v.view.exploration?.objects.some(o=>o.x===q.x&&o.y===q.y))continue;
     const d = dist(q.x, q.y);
     if (d > INTERIOR_USE_RANGE_TILES) continue;
     if (q.prop === "bed" || q.prop === "bedFine") offer(d, () => bedTalk(p, v.view.canSleep, v.view.threat, inside(q.x, q.y)));
@@ -1025,9 +1039,10 @@ export function handleInteriorEdit(p:Player,m:{op:string;base?:string;floor?:str
  for(const other of players.values())if(other.interior?.key===I.key){const x=Math.floor(other.interior.x/TILE_SIZE),y=Math.floor(other.interior.y/TILE_SIZE);if(m.op==='base'||x<0||y<0||x>=map.w||y>=map.h||interiorSolidGrid(map)[y*map.w+x]){other.interior.x=px(map.spawn.x);other.interior.y=px(map.spawn.y);}other.interior.storey=0;sendView(other,true);}
 }
 export function handleInteriorUse(p:Player,x:number,y:number){
- if(p.interior&&encounterKind(p.interior.tile)){encounterInteract(p);return;}
+ if(p.interior&&encounterKind(p.interior.tile)){if(Number.isInteger(x)&&Number.isInteger(y))encounterInteract(p,x,y);return;}
  const I=p.interior,v=viewFor(p);if(!I||!v||!Number.isInteger(x)||!Number.isInteger(y))return;
  if(Math.hypot(px(x)-I.x,px(y)-I.y)>INTERIOR_USE_RANGE_TILES*TILE_SIZE){toast(p,'Walk closer to use that furniture');return;}
+ if(v.view.exploration?.objects.some(o=>o.x===x&&o.y===y)){encounterInteract(p,x,y);return;}
  const q=v.view.map.props.find(q=>q.x===x&&q.y===y);if(!q)return;
  const at={key:I.key,x:px(x),y:px(y),anchor:{x:I.tx,y:I.ty}};
  if(q.prop==='chest'){if(v.view.chest)chestTalk(p,'',at);else toast(p,'This chest is not yours');}
@@ -1068,7 +1083,7 @@ export function ownInterior(p:Player):boolean{
 export function sharedStockAccess(p:Player):boolean{return ownInteriorNear(p,new Set(['chest']));}
 export function interiorWorkstation(p:Player){
  const I=p.interior;
- return I&&STATION_SKILL[I.tile as TileType]&&ownInteriorNear(p,WORK_PROPS)?{tx:I.tx,ty:I.ty,tile:I.tile as TileType}:null;
+ if(!I||p.dead||encounterKind(I.tile)||!STATION_SKILL[I.tile as TileType]||state.tiles[tileIndex(I.tx,I.ty)]!==I.tile)return null;const acc=accessFor(p,I.tx,I.ty,I.tile as TileType);if(!('kind'in acc))return null;return mapOf(I).map.props.some(q=>WORK_PROPS.has(q.prop)&&Math.hypot(px(q.x)-I.x,px(q.y)-I.y)<=INTERIOR_USE_RANGE_TILES*TILE_SIZE)?{tx:I.tx,ty:I.ty,tile:I.tile as TileType}:null;
 }
 
 // World generation assigns existing house styles through the persisted home-design system.

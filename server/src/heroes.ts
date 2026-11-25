@@ -917,3 +917,9 @@ export function playerVisual(player: Player) {
   const prof=heroProfileOf(player);
   return heroVisualFromEquipment(prof.equipment,prof.appearance);
 }
+
+export function grantStoryShield(player:Player,name:string){
+ const prof=heroProfileOf(player);if(prof.inventory.length>=HERO_INVENTORY_CAP)return false;
+ const item:GearItem={id:randomUUID(),slot:'offhand',name,tier:1,kind:'shield',stats:{damageTakenPct:-6},icon:'icon-armourT1'};
+ prof.inventory.push(item);recomputeHeroProfile(prof);return true;
+}

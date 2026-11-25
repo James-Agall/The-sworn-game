@@ -1,3 +1,7 @@
+import {explorationMap,explorationView,explorationInteract,explorationAttack,explorationSave,restoreExploration,resetExploration,explorationRescued,explorationClear,type ExplorationSave} from './adventureLoot.js';
+import {bossHit,stepBoss,bossLive,stepBossStatuses,resetBossEffects,type BossAgent} from './bossCombat.js';
+import {BOSS_PROFILES} from '@colony/shared/adventure';
+import {storyEvent} from './story.js';
 import {specialAt} from './specialCast.js';
 import {SPECIAL_BY_ID} from '@colony/shared/specialCast';
 import {HOSTILE_CONTENT_VERSION} from '@colony/shared/hostileScatter';
@@ -55,7 +59,8 @@ import { isSoldierKind, unitStats } from "./units.js";
 import { addItem, bronzeToolMult, itemCount, takeItem, workerLevel } from "./progression.js";
 import { exitInterior } from "./interiors.js";
 
-interface MineMob {
+interface MineMob extends BossAgent {
+  summon?:boolean;
   specialId?: string;
   id: string;
   kind: MobKind;
@@ -76,6 +81,8 @@ interface MineMob {
 }
 // One layer (the Quarry has one; a Mine one per open level). Game days: cleared on, last re-infestation roll.
 interface LayerRec {
+  summonsSpawned?:number;
+  lastActiveTick?:number;
   status: MineStatus;
   mobs: MineMob[];
   clearedDay: number;
@@ -151,9 +158,11 @@ function mineMap(level: number, variant: number) {
   }
   return m;
 }
-const layerMap = (r: MineRec, li: number) => r.layoutSeed!==undefined&&(!r.encounter||r.encounter==='cave')
+const baseLayerMap = (r: MineRec, li: number) => r.layoutSeed!==undefined&&(!r.encounter||r.encounter==='cave')
  ?buildUnderground({seed:r.layoutSeed,kind:r.encounter==='cave'?'cave':'mine',depth:r.encounter?1:depthOf(r,li),levels:r.encounter?1:Math.max(1,r.level),layered:r.layered})
  :r.encounter?encounterMap(r.encounter,r.variant):mineMap(Math.max(1, r.level), variantOf(r, li));
+
+const layerMap=(r:MineRec,li:number)=>explorationMap(keyOf(r.tx,r.ty),li,baseLayerMap(r,li),r.encounter??'mine');
 
 // ---- records ----
 export function mineRecAt(tx: number, ty: number): MineRec | undefined {
@@ -261,7 +270,8 @@ function clearLayer(r: MineRec, li: number, by: string, p?:Player|null) {
     const gold=r.encounter==='camp'?40:r.encounter==='ruin'?60:30;
     withClan(clanById(p?.clan??0),()=>{state.stock.gold+=gold;broadcastEvent('milestone',`${ENCOUNTER_LABEL[r.encounter!]} cleared (+${gold} gold).`);});
     const h=landmarkHearth(r.tx,r.ty,true);noteQuestCampCleared(h,p?'p:'+p.id:undefined);
-    if(r.encounter==='camp'){state.campsDestroyed++;hearths.set(h.siteId,h);rescuePrisoners(h,p?'p:'+p.id:undefined);}
+    if(r.encounter==='camp'){state.campsDestroyed++;if(!explorationRescued(keyOf(r.tx,r.ty))){hearths.set(h.siteId,h);rescuePrisoners(h,p?'p:'+p.id:undefined);}}
+    explorationClear(keyOf(r.tx,r.ty),p);
     return;
   }
   withClan(clanAt(r), () => {
@@ -513,6 +523,7 @@ function lootFor(r: MineRec, li: number, m: MineMob): string[] {
 function killMob(r: MineRec, li: number, m: MineMob, p: Player | null) {
   m.hp = 0;
   if(m.specialId){r.defeatedSpecials??=[];if(!r.defeatedSpecials.includes(m.specialId))r.defeatedSpecials.push(m.specialId);}
+  if(p&&m.specialId)storyEvent(p,'defeat',keyOf(r.tx,r.ty),m.specialId);
   const got = withClan(r.encounter?clanById(p?.clan??0):clanAt(r), () => lootFor(r, li, m));
   if (p) {
     heroRewardsForKill({ kind: m.kind, mark: HungerMark.None, isDeserter: false, maxHp: m.maxHp, damage: m.damage } as unknown as Mob, "p:" + p.id);
@@ -542,7 +553,7 @@ export function mineHeroAttack(p: Player): boolean {
   if (!r) return true;
   const li = layerOfPlayer(r, p);
   const L = r.layers[li];
-  if (!L || L.status !== "infested") return true;
+  if (!L) return true;
   const weapon = heroProfileOf(p).equipment.weapon?.kind;
   const reach = weapon === "bow" ? MINE_HERO_BOW_REACH_TILES : weapon === "spear" ? MINE_HERO_SPEAR_REACH_TILES : MINE_HERO_REACH_TILES;
   const h = heroTile(p);
@@ -555,8 +566,8 @@ export function mineHeroAttack(p: Player): boolean {
       bestD = d;
     }
   }
-  if (!best) return true;
-  best.hp -= playerDamage(p);
+  if (!best) {explorationAttack(p,reach);return true;}
+  best.hp -= bossHit(best,playerDamage(p),h);
   wake(L, best);
   if (best.hp <= 0) killMob(r, li, best, p);
   return true;
@@ -594,6 +605,9 @@ function pathOn(grid: { map: InteriorMap; solid: Uint8Array }, from: { x: number
 
 function stepMobs(r: MineRec, li: number, inside: Player[]) {
   const L = r.layers[li];
+  if(L.lastActiveTick!==state.cycleTick-1)for(const m of L.mobs){m.bossState=undefined;m.hazard=undefined;if(m.specialId)m.cd=Math.max(m.cd,12);}
+  L.lastActiveTick=state.cycleTick;stepBossStatuses(inside,biteHero);
+  const grid=layerMap(r,li);
   for (const m of aliveIn(L)) {
     let near: { p: Player; x: number; y: number; d: number } | null = null;
     for (const p of inside) {
@@ -614,7 +628,14 @@ function stepMobs(r: MineRec, li: number, inside: Player[]) {
       }
       wake(L, m);
     }
-    m.face = near.x < m.x ? "l" : near.x > m.x ? "r" : m.face;
+    if(!m.bossState)m.face = near.x < m.x ? "l" : near.x > m.x ? "r" : m.face;
+    if(m.specialId&&BOSS_PROFILES[m.specialId]){
+      const handled=stepBoss(m,near,{grid,players:inside,damage:biteHero,clearSight:(a,b)=>clearSight(grid,a,b),spawn:(kind,x,y)=>{
+        if((L.summonsSpawned??0)>=4||L.mobs.some(m=>m.hp>0&&Math.hypot(m.x-x,m.y-y)<.8))return false;
+        const spawned=newMob(kind,.65,x,y);if(!spawned)return false;spawned.awake=true;spawned.summon=true;L.mobs.push(spawned);L.summonsSpawned=(L.summonsSpawned??0)+1;return true;
+      }});if(handled)continue;
+      if(near.d<=BOSS_PROFILES[m.specialId].range&&clearSight(grid,m,near)){m.act='idle';m.path=[];continue;}
+    }
     if (near.d <= (m.kind==='banditArcher'?3.5:MINE_MOB_REACH_TILES)&&clearSight(layerMap(r,li),m,near)) {
       m.act = "attack";
       m.path = [];
@@ -662,7 +683,7 @@ function biteHero(p: Player, damage: number) {
 }
 
 const liveOf = (L: LayerRec | undefined): MineMobLive[] =>
-  aliveIn(L).map((m) => ({ id: m.id, kind: m.kind, ...(m.specialId?{specialId:m.specialId,name:SPECIAL_BY_ID.get(m.specialId)?.name}:{}), x: Math.round(m.x * 100) / 100, y: Math.round(m.y * 100) / 100, hp: Math.ceil(m.hp), maxHp: m.maxHp, face: m.face, act: m.act }));
+  aliveIn(L).map((m) => ({ id: m.id, kind: m.kind, bossAttack:bossLive(m),...(m.hazard?{hazard:{x:m.hazard.x,y:m.hazard.y,radius:m.hazard.radius,remaining:Math.max(0,m.hazard.until-state.cycleTick)}}:{}), ...(m.specialId?{specialId:m.specialId,name:SPECIAL_BY_ID.get(m.specialId)?.name}:{}), x: Math.round(m.x * 100) / 100, y: Math.round(m.y * 100) / 100, hp: Math.ceil(m.hp), maxHp: m.maxHp, face: m.face, act: m.act }));
 
 // sim.ts, once a tick: records (once a second), the monsters of every mine layer a hero is in, their positions out.
 export function updateMines() {
@@ -859,8 +880,10 @@ export function handleMineAssault(p: Player, tx: unknown, ty: unknown) {
 
 // ---- saves / reset / tests ----
 interface LayerSave {
+  exploration?:ExplorationSave;
+  summonsSpawned?:number;
   status: MineStatus;
-  mobs: { kind: MobKind; x: number; y: number; hp: number; specialId?:string }[];
+  mobs: { kind: MobKind; x: number; y: number; hp: number; specialId?:string; rallyUsed?:boolean; summon?:boolean }[];
   clearedDay: number;
   rollDay: number;
 }
@@ -886,7 +909,7 @@ interface MineSave {
 export function minesForSave(): MineSave[] {
   return Array.from(mines.entries(), ([key, r]) => ({
     key, specialCastVersion:r.specialCastVersion, defeatedSpecials:r.defeatedSpecials??[], level: r.level, layered: r.layered,...(r.layoutSeed!==undefined?{layoutSeed:r.layoutSeed,layoutVersion:2 as const}:{}), ...(r.encounter?{encounter:r.encounter,variant:r.variant,...(r.encounter==='cave'||r.encounter==='ruin'?{encounterContentVersion:HOSTILE_CONTENT_VERSION}:{}),...(r.encounter==='ruin'?{ruinLayoutVersion:2 as const}:{})}:{}),
-    layers: r.layers.map((L) => ({ status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, ...(m.specialId?{specialId:m.specialId}:{}), x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
+    layers: r.layers.map((L,li) => ({ exploration:explorationSave(key,li),summonsSpawned:L.summonsSpawned??0, status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, rallyUsed:m.rallyUsed===true,summon:m.summon===true, ...(m.specialId?{specialId:m.specialId}:{}), x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
     propsDay: r.propsDay, closedDay: r.closedDay, closedWhy: r.closedWhy, unpropped: r.unpropped, turn: r.turn,
   }));
 }
@@ -913,12 +936,13 @@ export function restoreMines(data: unknown) {
     if(!r.encounter||r.encounter==='cave'){r.layoutSeed??=undergroundSeed(state.worldNoiseSalt,tx,ty);r.layoutVersion=2;}
     Object.assign(r, { propsDay: num(e.propsDay, r.propsDay), closedDay: num(e.closedDay, -1), closedWhy: typeof e.closedWhy === "string" ? e.closedWhy : "", unpropped: e.unpropped === true, turn: num(e.turn, 0) });
     r.layers = e.layers.slice(0, 3).map((s, li) => {
-      const L = newLayer();
+      const L = newLayer();L.summonsSpawned=Math.max(0,Math.min(4,num(s?.summonsSpawned,0)));restoreExploration(e.key!,li,s?.exploration);
       L.status = s?.status === "infested" || s?.status === "cleared" ? s.status : "clear";
       L.clearedDay = num(s?.clearedDay, -1e9);
       L.rollDay = num(s?.rollDay, L.rollDay);
       for (const m of Array.isArray(s?.mobs) ? s.mobs : []) {
-        const mob = newMob(m?.kind as MobKind, multOf(r, li), num(m?.x, 1), num(m?.y, 1), num(m?.hp, 1e9));
+        const mob = newMob(m?.kind as MobKind, multOf(r, li)*(m.summon===true ? .65 : 1), num(m?.x, 1), num(m?.y, 1), num(m?.hp, 1e9));
+        if(mob){mob.rallyUsed=m.rallyUsed===true;mob.summon=m.summon===true;}
         if(mob&&typeof m.specialId==='string'&&SPECIAL_BY_ID.get(m.specialId)?.hostile){const ratio=mob.hp/mob.maxHp;applySpecialMob(mob,m.specialId);mob.hp=Math.min(mob.maxHp,Math.max(1,num(m.hp,ratio*mob.maxHp)));}
         if (mob) L.mobs.push(mob);
       }
@@ -932,6 +956,7 @@ export function restoreMines(data: unknown) {
   }
 }
 export function resetMines() {
+  resetExploration();resetBossEffects();
   mines.clear();
   mobsSent.clear();
   presenceDay.clear();
@@ -1012,15 +1037,18 @@ export function ensureEnteredEncounter(tx:number,ty:number){
  r=newRec(a.x,a.y,1,false);r.encounter=kind;if(kind==='cave'||kind==='ruin')r.encounterContentVersion=HOSTILE_CONTENT_VERSION;if(kind==='ruin')r.ruinLayoutVersion=2;if(kind!=='cave')r.layoutSeed=undefined;r.variant=encounterVariant(a.x,a.y);mines.set(key,r);r.layers[0].status='infested';spawnEncounter(r,0,encounterEnemies(kind));bindSpecialEncounter(r);return r;
 }
 export function landmarkHearth(x:number,y:number,destroyed=false):HearthState{return {siteId:`landmark:${x},${y}`,siteKind:'encampment',x,y,hp:destroyed?0:100,maxHp:100,destroyed,faction:'bandit',garrison:6,prisoners:2};}
-export function encounterInteract(p:Player){
- const I=p.interior;if(!I||!encounterKind(I.tile))return false;
- const map=layerMap(mineRecAt(I.tx,I.ty)!,0).map;
- if(Math.hypot(I.x/TILE_SIZE-.5-map.exit.x,I.y/TILE_SIZE-.5-map.exit.y)<2)return false;
- const r=mineRecAt(I.tx,I.ty);sendEvent(p,'build',r?.layers[0].status==='cleared'?'This place is cleared. Its spoils have been collected.':'Defeat the inhabitants to secure this place and its spoils.');return true;
+export function encounterInteract(p:Player,x?:number,y?:number){
+ const I=p.interior;if(!I||I.templateId!=='mine')return false;
+ const r=mineRecAt(I.tx,I.ty);if(!r)return false;const li=layerOfPlayer(r,p),grid=layerMap(r,li);if(!r.encounter&&x===undefined)return false;
+ if(explorationInteract(p,x,y,{hostileNear:(x,y)=>aliveIn(r.layers[li]).some(m=>Math.hypot(m.x-x,m.y-y)<3&&clearSight(grid,m,{x,y}))}))return true;
+ if(x!==undefined)return true;
+ if(Math.hypot(I.x/TILE_SIZE-.5-grid.map.exit.x,I.y/TILE_SIZE-.5-grid.map.exit.y)<2)return false;
+ sendEvent(p,'build','Walk up to a container, note, key ring or prisoner cage; Space fights or breaks nearby containers.');return true;
 }
+
 function clearSight(grid:{map:InteriorMap;solid:Uint8Array},a:{x:number;y:number},b:{x:number;y:number}){
  const steps=Math.ceil(Math.hypot(a.x-b.x,a.y-b.y)*4);
- for(let n=1;n<steps;n++){const x=Math.round(a.x+(b.x-a.x)*n/steps),y=Math.round(a.y+(b.y-a.y)*n/steps);if(x<0||y<0||x>=grid.map.w||y>=grid.map.h||grid.solid[y*grid.map.w+x])return false;}return true;
+ let px=Math.round(a.x),py=Math.round(a.y);for(let n=1;n<steps;n++){const x=Math.round(a.x+(b.x-a.x)*n/steps),y=Math.round(a.y+(b.y-a.y)*n/steps);if(x<0||y<0||x>=grid.map.w||y>=grid.map.h||grid.solid[y*grid.map.w+x]||x!==px&&y!==py&&(grid.solid[py*grid.map.w+x]||grid.solid[y*grid.map.w+px]))return false;px=x;py=y;}return true;
 }
 
 

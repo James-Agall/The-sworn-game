@@ -1,5 +1,7 @@
 # colony2d / "The Sworn Game" — handover for Codex (2026-11-10)
 
+> Current adventure update: see [HANDOVER-ADVENTURE.md](HANDOVER-ADVENTURE.md) (25 November 2026).
+
 Owner: James. Repo: `/home/james/projects/the-sworn-game`, remote `git@github.com:James-Agall/The-sworn-game.git`, branch `main`.
 Up to now the work was done by Claude Code agents, one feature per agent. This document is everything a new agent needs to
 (1) finish the remaining work and testing, and (2) recreate ALL sprites in one consistent style.

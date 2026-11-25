@@ -25,6 +25,9 @@ import { CROPS, CropStage, type CropId } from "@colony/shared/zones";
 import { heroCropStage, heroFarmApply, heroFarmCheck, heroFertilise, heroZoneCrop } from "./zones.js";
 import { type ItemId, type Recipe, PROGRESSION, PROFESSION_LABEL, levelForXp, outputCap, smithLevelForGearTier, stationRecipes, xpToNext } from "@colony/shared/progression";
 import { MINE_HERO_DIG_AMOUNT, MINE_HERO_DIG_SECONDS, isLayeredMine } from "@colony/shared/mines";
+import {storyOnMeet,storyOffers,storyDialogue,storyEvent,sendJournal} from './story.js';
+import {STORY_RECIPES} from '@colony/shared/stories';
+import {grantStoryShield} from './heroes.js';
 import {specialCharacterDefeated} from "./mines.js";
 import {SPECIAL_BY_ID} from "@colony/shared/specialCast";
 import {specialAddress} from "./specialCast.js";
@@ -474,6 +477,7 @@ function actionBlock(p: Player, t: Talk, a: DialogueAction): string {
 // Personal stories and one-time favours use the hero's existing saved life flags.
 function renderSpecialTalk(p:Player,t:Talk,node:string,prefix=''){
  const c=SPECIAL_BY_ID.get(t.specialId!);if(!c)return false;
+ const story=storyDialogue(p,c.id,node);if(story){t.choices=story.choices;sendTalk(p,t,story.text);return true;}
  const life=lifeOf(p),flags=life.flags,link=SPECIAL_BY_ID.get(c.connection)!,key=`cast:${c.id}`;let done=!!flags[`${key}:done`];
  const address=specialAddress(c.id),linkAddress=specialAddress(c.connection),stockGood=c.good==='hide'?'wool':c.good;
  let text=prefix;
@@ -506,12 +510,12 @@ function renderSpecialTalk(p:Player,t:Talk,node:string,prefix=''){
   }
  }
  if(!text)text=node==='cast:story'?`${c.bio}\n\n${c.hook}`:node==='cast:connection'?`${link.name}, ${link.title}. ${link.bio}\n\nYou can find ${link.child?'the child':'them'} at ${linkAddress}.`:`${c.name} — ${c.title}\n${c.bio}\n\nHome: ${address}`;
- t.choices=[{label:'Tell me your story.',next:'cast:story'},{label:`What do you know about ${link.name}?`,next:'cast:connection'}];
+ t.choices=[...storyOffers(p,c.id),{label:'Tell me your story.',next:'cast:story'},{label:`What do you know about ${link.name}?`,next:'cast:connection'}];
  if(done)t.choices.push({label:'Our favour is complete.',next:'cast:claim'});
  else if(!flags[`${key}:accepted`])t.choices.push({label:`Can I help? ${favour} (${c.reward} gold)`,next:'cast:accept'});
  else t.choices.push({label:`${favour} Claim ${c.reward} gold.`,next:'cast:claim',disabled:ready()?undefined:'The favour is not finished yet'});
  if(!c.child&&!c.hostile)t.choices.push({label:'Teach me something.',next:'cast:lesson'});
- t.choices.push({label:'Farewell.',action:'bye'});sendTalk(p,t,text);return true;
+ t.choices.push({label:'Farewell.',action:'bye'});sendTalk(p,t,text);sendJournal(p);return true;
 }
 
 
@@ -572,9 +576,9 @@ export function startTalk(p: Player, target: Target) {
   };
   busyOf(p).talk = t;
   const life = lifeOf(p);
-  if(target.specialId)life.flags[`cast:met:${target.specialId}`]=1;
+  const storyLine=target.specialId?storyOnMeet(p,target.specialId):'';
   if (target.site) life.flags[`met:${target.site.id}`] = gameDay();
-  renderTalk(p, t, "start");
+  renderTalk(p, t, "start",storyLine);
 }
 
 // Stardew phase 5c: a bed / chest inside an interior, spoken to like an NPC (choices built by interiors.ts).
@@ -1693,13 +1697,15 @@ function stepWork(p: Player, b: Busy, w: WorkJob) {
   // Pay and produce together: interrupted work never destroys inputs, simultaneous crafters cannot double-spend.
   if(!state.creative)for(const[k,n]of Object.entries(r.stock??{}))state.stock[k as ResourceKey]-=n??0;
   for(const[id,n]of Object.entries(r.items??{}))takeItem(id as ItemId,n??0);
+  if(r.questGear)grantStoryShield(p,r.id==='hesta-shield'?'Hestas Riveted Shield':'Dains Watch Shield');
   if(r.item)produceItem(r.item,r.amount,Math.min(3,tier+(r.gradeBonus??0)));
   if(r.stockOutput)state.stock[r.stockOutput]+=r.amount;
   // Industry extras: Fine steel in store forges each piece a tier better (forgedTier).
   if(r.gear)for(let i=0;i<r.amount;i++)state.equipment[r.gear][forgedTier(r.tier!)-1]++;
   gainSkill(p,w.skill,Math.max(1,Math.round(w.job.total/TICK_RATE)));
   spendEnergy(life,2);
-  toast(p,`${r.label} complete. Added to your stockpile.`);
+  storyEvent(p,'craft',r.item??r.stockOutput??r.id);
+  toast(p,`${r.label} complete. Added to your ${r.questGear?'equipment inventory':'stockpile'}.`);
 }
 
 function stepNeeds(p: Player, b: Busy) {
@@ -1849,7 +1855,7 @@ export function heroLifeDebug(p: Player) {
 interface PersonalRecipe {
  id:string; label:string; amount:number; seconds:number; level?:number; tier?:number; stationLevel?:number;
  stock?:Partial<Record<ResourceKey,number>>; stockReserve?:Partial<Record<ResourceKey,number>>; items?:Partial<Record<ItemId,number>>; needs?:Partial<Record<ItemId,number>>;
- item?:ItemId; stockOutput?:ResourceKey; gear?:'armour'|'weapon'; gradeBonus?:number;
+ questGear?:'shield'; item?:ItemId; stockOutput?:ResourceKey; gear?:'armour'|'weapon'; gradeBonus?:number;
  // The station's production cap on the output (items: the recipe's cap; stock: the artisan's stockCap). The hero's own
  // batch stops there too: no uncapped fallback (2026-11-20).
  cap?:number;
@@ -1858,7 +1864,7 @@ interface PersonalRecipe {
 }
 // The batches the hero can make at a station: a layered Mine's ore face (inside only) digs the layer the hero is on.
 function personalRecipes(p:Player,st:{tx:number;ty:number;tile:TileType}):PersonalRecipe[] {
- if(!isLayeredMine(st.tile))return playerStationRecipes(st.tile);
+ if(!isLayeredMine(st.tile))return [...playerStationRecipes(st.tile),...STORY_RECIPES.filter(r=>r.station===st.tile&&lifeOf(p).flags[`recipe:${r.id}`])];
  const layer=(p.interior?.variant??0)+1;
  return p.interior?mineDigRows(st.tx,st.ty,layer).map(d=>({id:`mine:${layer}:${d.res}`,label:`Dig ${d.label}`,amount:MINE_HERO_DIG_AMOUNT,seconds:MINE_HERO_DIG_SECONDS,
   needs:gatesOpen()?undefined:{[d.pick]:1},item:d.res==='iron'?undefined:d.res,stockOutput:d.res==='iron'?'iron':undefined,cap:d.cap,mineLayer:layer})):[];
@@ -1876,6 +1882,7 @@ export function playerStationRecipes(tile:TileType):PersonalRecipe[] {
  return rows;
 }
 function personalRecipeBlock(p:Player,r:PersonalRecipe,st:{tx:number;ty:number;tile:TileType}):string {
+ if(r.questGear&&heroProfileOf(p).inventory.length>=40)return "Your equipment inventory is full; no materials have been taken";
  if(r.tier && getBuildingLevel(st.tx,st.ty)<r.tier)return `Upgrade the blacksmith to level ${r.tier}`;
  if(r.stationLevel && getBuildingLevel(st.tx,st.ty)<r.stationLevel)return `Upgrade the station to level ${r.stationLevel}`;
  if(skillLevel(lifeOf(p),STATION_SKILL[st.tile]!)<(r.level??1))return `Needs skill level ${r.level}`;

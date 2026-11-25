@@ -1523,3 +1523,8 @@ red line stays under the top bar until the raiders make contact; it shows a size
 where the raiders gather. Solo hero without a camp: no forecast. Hunger-marked elites stay a surprise.
 
 - Heir epitaph: kill the hero (a family helps) and open the Chronicle: an epitaph line (name, gen, days, spouse, children, top deed) appears; pick an heir and a "The House" section lists "Gen 2, House <name>: ..." at the top of the panel. Run server/heir-epitaph-test.mjs for the server side.
+
+
+## Adventure update — 25 November 2026
+
+See the short play checklist in [HANDOVER-ADVENTURE.md](HANDOVER-ADVENTURE.md). Automated checks: `npm test -- adventure`.

@@ -1469,12 +1469,15 @@ export type ClientMessage =
   | { type: "heroAction"; action: HeroActionKind; build?: PersonalBuild }
   // Stardew phase 5c: leave the interior (Esc near the exit mat; walking onto the mat leaves by itself).
   | { type: "interiorEdit"; op: "base"|"floor"|"wall"|"place"|"remove"; base?:string; floor?:string; wall?:string; prop?:string; x?:number; y?:number; facing?:string }
+  | { type:"adventureJournal"; op:"get"|"track"; id?:string }
+  | { type:"interiorTalk"; id:string }
   | { type: "interiorUse"; x:number; y:number }
   | { type: "interiorExit" }
   // Deep mines: send the clan's soldiers near this mine in to clear it (resolved at once, shared/src/mines.ts).
   | { type: "mineAssault"; tileX: number; tileY: number };
 
 export type ServerMessage =
+  | {type:"adventureJournal";journal:import("./adventure.js").JournalView}
   | { type:"homeDesigns"; homes:[number,string][] }
   | {
       type: "welcome";

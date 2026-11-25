@@ -1,3 +1,4 @@
+import {EXPLORATION_REACH} from "@colony/shared/adventure";
 import {loadSpecialArt,specialTexture,specialAnchor,specialScale} from './specialCastArt';
 import {SPECIAL_BY_ID} from '@colony/shared/specialCast';
 import {interiorMonsterScale} from '@colony/shared/hostileScatter';
@@ -39,6 +40,7 @@ const PROP_TILE: Partial<Record<InteriorProp, TileType>> = {
   shelf: TileType.Shelf, statue: TileType.Statue, weaponRack: TileType.WeaponRack, workbench: TileType.Workbench,
 };
 const PROP_EXTRA: Partial<Record<InteriorProp, string>> = {
+ adventureNote:"/sprites/adventure/note.png",adventureKey:"/sprites/adventure/keys.png",adventurePot:"/sprites/adventure/pot.png",adventureCache:"/sprites/regions-v4/brambles.png",adventureGate:"/sprites/structure/extra/door_wood_arched_closed.png",
  skullBones:'/sprites/regions-v4/skulls.png',fallenSkeleton:'/sprites/regions-v4/skeleton.png',cobweb:'/sprites/regions-v4/web.png',overgrowth:'/sprites/regions-v4/brambles.png',banditTower:'/sprites/regions-v4/watchtower.png',
  campTent:'/sprites/regions-v2/tent.png',prisonCage:'/sprites/regions-v2/cage.png',rockBlock:'/sprites/regions-v3/rock-block.png',ruinRubble:'/sprites/ruinRubble.png',
   bedFine: "bed_blue_double", hearth: "fireplace_lit_b", wardrobe: "wardrobe", altar: "altar_candles", pew: "bench", oven: "oven_round",
@@ -58,6 +60,7 @@ const PROP_COLOR: Partial<Record<InteriorProp, number>> = {
 // DRAWN pixels (transparent padding ignored) to these heights, so a chair comes up to a person's thigh, a table to the
 // waist, a wardrobe over their head; whatever the art's canvas size. Width is capped at about a tile (long pieces).
 const PROP_HEIGHT_PX: Partial<Record<InteriorProp, number>> = {
+ adventureNote:12,adventureKey:10,adventurePot:15,adventureCache:14,adventureGate:45,
   mineralNode:26,stalagmite:30,
   skullBones:14,fallenSkeleton:14,cobweb:22,overgrowth:22,banditTower:54,
   campTent:48,prisonCage:40,rockBlock:40,ruinRubble:16,
@@ -125,6 +128,7 @@ export interface InteriorDeps {
 
 export interface InteriorUi {
   active: () => boolean;
+  useHighlighted: () => boolean;
   onMessage: (view: InteriorView | null) => void;
   // Gap closure G5: message `interiorNpcs`.
   onNpcs: (key: string, storey: number, npcs: InteriorNpcLive[]) => void;
@@ -215,6 +219,11 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   let builtKey = "";
   let decorating=false;
   let openChest:{x:number;y:number;until:number}|null=null;
+  let hover:{x:number;y:number}|null=null;
+  const interactionOutline=new Graphics();interactionOutline.zIndex=1e7;
+  const interactionHint=document.createElement('div');interactionHint.id='interior-use-hint';interactionHint.hidden=true;document.body.append(interactionHint);
+  const hintStyle=document.createElement('style');hintStyle.textContent='#interior-use-hint{position:fixed;left:50%;bottom:115px;transform:translateX(-50%);max-width:calc(100vw - 30px);padding:9px 14px;background:#eadbb7ee;color:#352916;border:1px solid #967c4f;border-radius:4px;z-index:18;font:14px Georgia;pointer-events:none;text-align:center}#interior-use-hint[hidden]{display:none}#hl-dialogue{max-height:min(65vh,620px);overflow-y:auto}#hl-choices button{padding:7px 9px;min-height:31px}';document.head.append(hintStyle);
+  window.addEventListener('pointermove',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)){hover=null;return;}const p=room.toLocal({x:e.clientX,y:e.clientY});hover={x:Math.floor(p.x/T),y:Math.floor(p.y/T)};});
   const editor=document.createElement('section');editor.id='home-editor';editor.hidden=true;
   editor.innerHTML=`<h3>Make yourself at home</h3><label>Base style <select id="home-base">${PLAYER_BASES.map(b=>`<option value="${b.id}">${b.label}</option>`).join('')}</select></label><button id="home-base-apply">Use this base</button><label>Floor <select id="home-floor"><option value="wood">Wood planks</option><option value="stone">Stone tiles</option><option value="dirt">Packed earth</option></select></label><label>Walls <select id="home-wall"><option value="wood">Timber</option><option value="stone">Stone</option></select></label><label>Furnishing <select id="home-prop"><option value="remove">Remove furnishing</option>${HOME_PROPS.map(p=>`<option value="${p}">${p.replace(/([A-Z])/g,' $1')}</option>`).join('')}</select></label><label>Facing <select id="home-facing"><option value="n">North</option><option value="e">East</option><option value="s" selected>South</option><option value="w">West</option></select></label><img id="home-preview" alt="Selected furnishing"/><p>Click a floor tile to place or remove furniture. Paths and the doorway must stay clear. Furniture changes are free.</p><button id="home-done">Done decorating</button>`;
   document.body.append(editor);
@@ -227,7 +236,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   editor.querySelector<HTMLButtonElement>('#home-base-apply')!.onclick=()=>{if(window.confirm('Use this base and its furnished layout? Stored chest contents will be kept.'))edit({op:'base',base:select('base').value});};
   select('floor').onchange=()=>edit({op:'floor',floor:select('floor').value});select('wall').onchange=()=>edit({op:'wall',wall:select('wall').value});
   const preview=()=>{const p=select('prop').value,img=editor.querySelector<HTMLImageElement>('#home-preview')!;img.hidden=!['bed','chair','chest','table','hearth','shelf','wardrobe'].includes(p);if(!img.hidden)img.src=`/sprites/interiors-v2/${p}_${select('facing').value}.png`;};select('prop').onchange=preview;select('facing').onchange=preview;preview();
-  window.addEventListener('pointerdown',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)||e.button!==0)return;const point=room.toLocal({x:e.clientX,y:e.clientY});const x=Math.floor(point.x/T),y=Math.floor(point.y/T);if(decorating){e.preventDefault();e.stopImmediatePropagation();const prop=select('prop').value;edit({op:prop==='remove'?'remove':'place',prop,x,y,facing:select('facing').value});}else if(view.map.props.some(p=>p.x===x&&p.y===y&&['chest','bed','bedFine','anvil','forge','oven','workbench','counter','barrel','oreFace'].includes(p.prop))){e.preventDefault();e.stopImmediatePropagation();openChest={x,y,until:performance.now()+5000};rebuildPending=true;window.setTimeout(()=>{openChest=null;rebuildPending=true;},5000);deps.send({type:'interiorUse',x,y});}},true);
+  window.addEventListener('pointerdown',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)||e.button!==0)return;const point=room.toLocal({x:e.clientX,y:e.clientY});const x=Math.floor(point.x/T),y=Math.floor(point.y/T);if(decorating){e.preventDefault();e.stopImmediatePropagation();const prop=select('prop').value;edit({op:prop==='remove'?'remove':'place',prop,x,y,facing:select('facing').value});}else if(view.exploration?.objects.some(o=>o.x===x&&o.y===y&&(!o.secret||Math.hypot((x+.5)*T-target.x,(y+.5)*T-target.y)<T*1.8))){e.preventDefault();e.stopImmediatePropagation();deps.send({type:'interiorUse',x,y});}else if([...npcViews].some(([,n])=>Math.hypot((n.sx+.5)*T-point.x,(n.sy+.25)*T-point.y)<T*.55)){const found=[...npcViews].sort(([,a],[,b])=>Math.hypot((a.sx+.5)*T-point.x,(a.sy+.25)*T-point.y)-Math.hypot((b.sx+.5)*T-point.x,(b.sy+.25)*T-point.y))[0];if(found){e.preventDefault();e.stopImmediatePropagation();deps.send({type:'interiorTalk',id:found[0]});}}else if(view.map.props.some(p=>p.x===x&&p.y===y&&['chest','bed','bedFine','anvil','forge','oven','workbench','counter','barrel','oreFace'].includes(p.prop))){e.preventDefault();e.stopImmediatePropagation();openChest={x,y,until:performance.now()+5000};rebuildPending=true;window.setTimeout(()=>{openChest=null;rebuildPending=true;},5000);deps.send({type:'interiorUse',x,y});}},true);
   const homeStyle=document.createElement('style');homeStyle.textContent=`#home-editor{position:fixed;right:18px;top:140px;width:240px;max-height:75vh;overflow:auto;padding:18px;background:#242c26f5;color:#eee2c6;border:1px solid #a48c59;border-radius:10px;z-index:40;font:14px Georgia}#home-editor[hidden]{display:none}#home-editor label{display:block;margin:12px 0}#home-editor select,#home-editor button{display:block;box-sizing:border-box;width:100%;padding:8px;margin-top:5px;background:#3c4737;color:#fff0cf;border:1px solid #8a7954;border-radius:5px}#home-preview{width:52px;height:52px;object-fit:contain;image-rendering:pixelated}#home-editor p{font-size:12px;line-height:1.5;color:#c1c4ae}#home-decorate{padding:7px 12px;background:#344733;color:#f4e3bc;border:1px solid #b09562;border-radius:5px}#home-decorate[hidden]{display:none}`;homeStyle.textContent+=`body.interior-mode #next-bar,body.interior-mode #event-feed,body.interior-mode #goal-tracker,body.interior-mode #economy-panel,body.interior-mode #economy-panel-toggle,body.interior-mode #build-panel,body.interior-mode #build-panel-toggle,body.interior-mode #minimap-frame,body.interior-mode #hero-hotbar{display:none!important}body.interior-mode.interior-stockpile #economy-panel:not(.collapsed){display:block!important}body.interior-mode #int-hud{top:100px}body.interior-mode #player-bar{top:58px!important}`;document.head.append(homeStyle);
 
   const hero = new Sprite(deps.playerTexture);
@@ -261,6 +270,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   // Deep mines: the mine's monsters drawn (by id): body, hp bar, "z z" asleep, eased position, a red flash when hit.
   type MobArt = NonNullable<ReturnType<NonNullable<InteriorDeps["mobArt"]>>>;
   interface MobView {
+    cue:Graphics;
     body: Sprite | Graphics;
     bar: Graphics;
     label:Text;
@@ -329,7 +339,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     }
     const tile = PROP_TILE[prop];
     const art = tile !== undefined ? deps.structure.furniture(tile) : undefined;
-    const oriented=['bed','chair','chest','table','hearth','shelf','wardrobe'].includes(prop)?extraTexture(`/sprites/interiors-v2/${prop==='chest'&&openChest?.x===x&&openChest?.y===y&&performance.now()<openChest.until?'chest_open':prop}_${facing}.png`):undefined;
+    const oriented=['bed','chair','chest','table','hearth','shelf','wardrobe'].includes(prop)?extraTexture(`/sprites/interiors-v2/${prop==='chest'&&(view?.exploration?.objects.some(o=>o.x===x&&o.y===y&&o.opened)||openChest?.x===x&&openChest?.y===y&&performance.now()<openChest.until)?'chest_open':prop}_${facing}.png`):undefined;
     const tex = (prop==='rug'?extraTexture('/sprites/autumn/frames/square-terrain/cobble-rugs-07.png'):undefined) ?? oriented ?? art?.texture ?? (PROP_EXTRA[prop] ? extraTexture(PROP_EXTRA[prop]!) : undefined);
     if (!tex) {
       // Stand-in block (3/4: a lit top over a darker front).
@@ -361,7 +371,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   }
 
   function build(v: InteriorView) {
-    const keep = new Set<Container>([hero, slash, ...others.values()]);
+    const keep = new Set<Container>([hero, slash, interactionOutline, ...others.values()]);
     // Deep mines: the monsters' sprites go with the room; syncMobs() below draws them again.
     mobViews.clear();
     for (const c of room.removeChildren()) if (!keep.has(c)) c.destroy();
@@ -445,7 +455,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       opening.roundRect(p.x*T,p.y*T,p.w*T,p.h*T,T*.15).fill(0x080705);opening.zIndex=-3;room.addChild(opening);
       for(const part of entrance.sprites){const tex=extraTexture(part.url);if(!tex)continue;const b=opaqueBox(tex),sp=new Sprite(tex);sp.anchor.set(b.x/tex.width,b.y/tex.height);sp.scale.set(part.w*T/b.w,part.h*T/b.h);sp.position.set(part.x*T,part.y*T);sp.zIndex=-3;room.addChild(sp);}
     }
-    for (const p of m.props) room.addChild(propSprite(p.prop, p.x, p.y,p.facing));
+    for (const p of m.props){const o=v.exploration?.objects.find(o=>o.x===p.x&&o.y===p.y);if(o?.kind==='key'&&!o.available)continue;room.addChild(propSprite(p.prop,p.x,p.y,p.facing));}
+    for(const o of v.exploration?.objects??[]){if(o.opened&&!o.empty&&['crate','barrel','pot','cache'].includes(o.kind)){const tex=extraTexture('/sprites/adventure/pouch.png');if(tex){const b=opaqueBox(tex),sp=new Sprite(tex),k=12/b.h;sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((o.x+.5)*T,(o.y+1)*T);sp.zIndex=(o.y+1)*T;room.addChild(sp);}}if(o.kind==='gate'&&o.opened){const tex=extraTexture('/sprites/structure/extra/door_wood_stonearch_open_b.png');if(tex){const sp=new Sprite(tex);sp.anchor.set(.5,1);sp.width=1.3*T;sp.height=1.4*T;sp.position.set((o.x+.5)*T,(o.y+1)*T);sp.zIndex=(o.y+1)*T;room.addChild(sp);}}}
     const old = new Map(npcViews);
     npcViews.clear();
     for (const n of v.npcs) {
@@ -493,7 +504,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       });
     }
     if (pendingLive && pendingLive.key === v.key && pendingLive.storey === m.storey) applyLive(pendingLive.npcs);
-    room.addChild(hero, slash);
+    room.addChild(hero, slash, interactionOutline);
     for (const o of others.values()) room.addChild(o);
     builtKey = keyOf(v);
     syncMobs();
@@ -517,6 +528,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
           if (art.tint !== undefined) sp.tint = 0xffffff;
           body = sp;
         } else body = new Graphics().circle(0, -6, 6).fill(0x2a2028);
+        const cue=new Graphics();cue.zIndex=-1;
         const bar = new Graphics();
         bar.zIndex = 1e6;
         const zzz = new Text({ text: "z z", style: { fontSize: 8, fill: 0xdfe8ff, fontFamily: "serif", stroke: { color: 0x000000, width: 2 } } });
@@ -524,8 +536,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         zzz.resolution = 3;
         zzz.zIndex = 1e6;
         const label=new Text({text:m.name??"",style:{fontSize:9,fill:0xffd4b1,fontFamily:"serif",stroke:{color:0x000000,width:3}}});label.anchor.set(.5,1);label.zIndex=1e6;
-        room.addChild(body, bar, zzz,label);
-        mv = { body, bar, zzz, label, art, sx: m.x, sy: m.y, live: m, lastHp: m.hp, flashUntil: 0, phase: (m.id.length * 131) % 1000 };
+        room.addChild(body, bar, zzz,label,cue);
+        mv = { cue,body, bar, zzz, label, art, sx: m.x, sy: m.y, live: m, lastHp: m.hp, flashUntil: 0, phase: (m.id.length * 131) % 1000 };
         mobViews.set(m.id, mv);
       }
       if (m.hp < mv.lastHp) mv.flashUntil = performance.now() + 180;
@@ -540,6 +552,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       if (seen.has(id)) continue;
       mv.body.destroy();
       mv.bar.destroy();
+      mv.cue.destroy();
       mv.label.destroy();
       mv.zzz.destroy();
       mobViews.delete(id);
@@ -571,8 +584,14 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         k*=interiorMonsterScale(m.kind);b.scale.set(k * (m.face === "l" ? -1 : 1), k);
         b.tint = 0xffffff;
       }
-      const custom=m.specialId?specialTexture(m.specialId,now<mv.flashUntil?'hurt':m.act==='walk'?'walk':m.act==='attack'?'action':'idle',t):undefined;
+      const attack=m.bossAttack,custom=m.specialId?specialTexture(m.specialId,now<mv.flashUntil?'hurt':attack?'action':m.act==='walk'?'walk':m.act==='attack'?'action':'idle',attack?(attack.phase==='windup'?0:attack.progress<.2?160:320):t):undefined;
       if(custom&&b instanceof Sprite){b.texture=custom;b.anchor.set(specialAnchor.x,specialAnchor.y);const k=specialScale(m.specialId!);b.scale.set(k*(m.face==='l'?-1:1),k);b.tint=0xffffff;}
+      const cue=mv.cue;cue.clear();
+      if(attack){const ax=(attack.x+.5)*T,ay=(attack.y+.5)*T,ox=(attack.fromX+.5)*T,oy=(attack.fromY+.5)*T,line=['archer','assassin','beast','swoop'].includes(attack.style),active=attack.phase==='windup',color=active?0xe8b24f:0xd05439;
+        if(active||attack.progress<.2){if(line)cue.moveTo(ox,oy).lineTo(ax,ay).stroke({width:Math.max(3,attack.radius*2*T),color,alpha:active?.13:.3});else cue.circle(ax,ay,attack.radius*T).fill({color,alpha:active?.12:.28});cue.circle(ax,ay,(line?.35:attack.radius)*T).stroke({width:2,color,alpha:active?.7:1});}
+        mv.label.text=(m.name??'')+' · '+attack.name;
+      }else mv.label.text=m.name??'';
+      if(m.hazard?.remaining){const hx=(m.hazard.x+.5)*T,hy=(m.hazard.y+.5)*T,hr=m.hazard.radius*T;cue.circle(hx,hy,hr).fill({color:0xb5b4a6,alpha:.15}).stroke({width:1,color:0xddd8bb,alpha:.6});for(let n=0;n<8;n++){const a=n*Math.PI/4;cue.moveTo(hx,hy).lineTo(hx+Math.cos(a)*hr,hy+Math.sin(a)*hr).stroke({width:1,color:0xddd8bb,alpha:.45});}}
       b.alpha = m.act === "sleep" ? 0.7 : 1;
       b.position.set(x, y + (m.act === "sleep" ? 0 : Math.sin(t / 220) * (m.kind === "caveBat" ? 3 : 0.6)));
       b.zIndex = y;
@@ -666,6 +685,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     }
   }
 
+  let highlighted:{x:number;y:number}|undefined;
   let inside = false;
   function setInside(on: boolean) {
     if (inside === on) return;
@@ -677,11 +697,12 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     deps.worldLayer.visible = !on;
     document.body.classList.toggle("interior-mode",on);
     hud.hidden = !on;
+    interactionHint.hidden=!on;
     fadeT = performance.now();
     deps.onChange?.(on);
   }
   function clearRoom() {
-    for (const c of room.removeChildren()) if (c !== hero && c !== slash) c.destroy();
+    for (const c of room.removeChildren()) if (c !== hero && c !== slash && c!==interactionOutline) c.destroy();
     others.clear();
     npcViews.clear();
     mobViews.clear();
@@ -720,6 +741,10 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     if(heroArt) { hero.anchor.set(rigTextureScale(heroArt) ? 120/256 : .5,rigTextureScale(heroArt) ? 163/192 : .85); hero.texture=heroArt; const sign=target.x<shown.x? -1:target.x>shown.x?1:Math.sign(hero.scale.x)||1; const k=heroK(heroArt); hero.scale.set(sign*k,k); }
     hero.position.set(shown.x, shown.y);
     hero.zIndex = shown.y;
+    interactionOutline.clear();interactionHint.hidden=true;highlighted=undefined;
+    const hx=target.x/T-.5,hy=target.y/T-.5,objects=view.exploration?.objects??[],hovered=hover?objects.find(o=>o.available&&o.x===hover!.x&&o.y===hover!.y&&(!o.secret||Math.hypot(o.x-hx,o.y-hy)<1.8)):undefined;
+    const nearby=objects.filter(o=>o.available&&Math.hypot(o.x-hx,o.y-hy)<=EXPLORATION_REACH).sort((a,b)=>Math.hypot(a.x-hx,a.y-hy)-Math.hypot(b.x-hx,b.y-hy))[0],use=hovered??nearby;
+    if(use&&!decorating){highlighted={x:use.x,y:use.y};const near=Math.hypot(use.x-hx,use.y-hy)<=EXPLORATION_REACH;interactionOutline.roundRect(use.x*T+2,use.y*T+2,T-4,T-4,3).stroke({width:2,color:near?0xf4db95:0xc0b69a,alpha:.8});interactionHint.textContent=near?`E · ${use.prompt} ${use.label}`:`${use.label} · Walk closer to ${use.prompt.toLowerCase()}`;interactionHint.hidden=false;}
     animateNpcs(performance.now());
     animateMobs(performance.now());
     const m=view.map;
@@ -763,6 +788,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
 
   return {
     active: () => !!view,
+    useHighlighted:()=>{if(!view||!highlighted||decorating)return false;deps.send({type:'interiorUse',...highlighted});return true;},
     onMessage(v) {
       if(v&&decorating){select("floor").value=v.map.floor;select("wall").value=v.map.wall;}
       decorButton.hidden=!v?.editable;if(!v?.editable)closeEditor();
@@ -782,7 +808,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       if (v.mine) {
         const mi = v.mine;
         mineEl.className = mi.status === "infested" ? "infested" : "";
-        const head = mi.encounter?(mi.status==='cleared'?'Cleared - spoils collected':`${mi.monsters} enemies inside. Space to fight.`):mi.status === "infested"
+        const head = mi.encounter?(mi.status==='cleared'?'Cleared — search for remaining treasure':`${mi.monsters} enemies inside. Space to fight.`):mi.status === "infested"
           ? `Infested: ${mi.monsters} monster${mi.monsters === 1 ? "" : "s"} left. Space to fight; the miners come back once it is clear`
           : MINE_STATUS_LABEL[mi.status];
         // Layered mines: the level the hero is on, what it yields and whether a way down is open.

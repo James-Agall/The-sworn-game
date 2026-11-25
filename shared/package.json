@@ -47,6 +47,8 @@
     "./ruinArt": "./src/ruinArt.ts",
     "./ruins": "./src/ruins.ts",
     "./hostileScatter": "./src/hostileScatter.ts",
-    "./specialCast": "./src/specialCast.ts"
+    "./specialCast": "./src/specialCast.ts",
+    "./adventure": "./src/adventure.ts",
+    "./stories": "./src/stories.ts"
   }
 }

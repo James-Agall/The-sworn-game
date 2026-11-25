@@ -60,6 +60,7 @@ import {
 import { type HeroLifeUi, setupHeroLife } from "./herolife";
 import { setupHeroTools } from "./herotools";
 import { setupWeatherOverlay } from "./weather";
+import {setupAdventureJournal,adventureMapMarker} from "./adventureJournal";
 import { opaqueBox, type InteriorUi, setupInterior } from "./interior";
 import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
 import { raidForecastText, type RaidForecast } from "@colony/shared/raidForecast";
@@ -215,7 +216,7 @@ import {
   HORSE_WHINNY_CHANCE, AMBIENT_SCAN_MS, AMBIENT_TILE_LOOPS, DAWN_BELL_DELAY_S, PLACEMENT_CONFIRM_MS, workSoundKey,
 } from "./soundTriggers";
 
-const SERVER_URL = "ws://localhost:8080";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
 // Main menu Continue / Load Game: the slot to load right after the first welcome (else null).
 // Creative mode: the menu's game mode (Creative button / ?mode=creative), enforced on the first welcome after
@@ -4013,6 +4014,8 @@ async function main() {
       ctx.fill();
     }
 
+    const adventureMarker=adventureMapMarker();if(adventureMarker){const x=(adventureMarker.x+.5)*s,y=(adventureMarker.y+.5)*s;ctx.beginPath();ctx.arc(x,y,5*u,0,Math.PI*2);ctx.fillStyle='#8a448b';ctx.fill();ctx.lineWidth=2*u;ctx.strokeStyle='#fff1b8';ctx.stroke();}
+
     // Camp hearths, once explored: a small ember dot with a dark rim on the camp's centre.
     for (const index of latestHearths) {
       if (!explored[index]) continue;
@@ -5391,6 +5394,12 @@ async function main() {
   const questListEl = document.getElementById("qp-list")!;
   const questEmptyEl = document.getElementById("qp-empty")!;
   const questsBtn = document.getElementById("quests-btn") as HTMLButtonElement;
+  const adventureUi=setupAdventureJournal({send:sendMessage,focus:(x,y)=>{
+    if(interiorRef.ui?.active())return pushEventToast('build','Leave the interior to view the world map.');
+    fightPeek={x:(x+.5)*tileSize,y:(y+.5)*tileSize,until:performance.now()+6000};
+  }});
+  const adventureBeacon=new Graphics();adventureBeacon.zIndex=1e8;worldLayer.addChild(adventureBeacon);
+  app.ticker.add(()=>{const m=adventureMapMarker();adventureBeacon.clear();if(!m||interiorRef.ui?.active())return;const x=(m.x+.5)*tileSize,y=(m.y+.5)*tileSize,r=8+Math.sin(performance.now()/230)*2;adventureBeacon.poly([x,y-r-16,x+r,y-16,x,y+r-16,x-r,y-16]).stroke({width:2,color:0xffe5a3});adventureBeacon.moveTo(x,y-7).lineTo(x,y+4).stroke({width:2,color:0xffe5a3});});
   function questTimeLeft(ticks: number): string {
     if (ticks >= questCycleTicks / 2) return `${(ticks / questCycleTicks).toFixed(1)} days left`;
     const secs = Math.ceil(ticks / TICK_RATE);
@@ -6875,6 +6884,7 @@ async function main() {
     }
     if (message.type === "welcome") {
       myId = message.id;
+      adventureUi.onWelcome();
       // A new / loaded world: everyone starts outside.
       interiorRef.ui?.reset();
       if (menuPrefs.pendingLoadSlot) {
@@ -7091,6 +7101,7 @@ async function main() {
       for (const effect of message.effects) spawnEffect(effect);
       syncFights(message.fights);
       drawMinimap(message.players, message.colonists, message.mobs);
+      const journalMe=message.players.find(p=>p.id===myId);if(journalMe)adventureUi.onPlayer(journalMe.x,journalMe.y,tileSize);
       strategyOnSnapshot(message.players, message.armyRegiments, message.orderGroups, message.enemyRegiments);
       syncTimeControls(message.isPaused, message.pausedBy, message.timeScale ?? 1, message.timeScaleBy, message.players);
       syncGoal(message.goal);
@@ -7116,6 +7127,7 @@ async function main() {
       setTileLocal(message.tileX, message.tileY, message.tile);
       paintMinimapTile(message.tileY * worldTilesX + message.tileX);
     } else if (message.type === "event") {
+      adventureUi.onEvent(message.text);
       pushEventToast(message.category, message.text);
       if (message.category === "upgrade") fxOnUpgradeEvent();
       soundOnEvent(message.category, message.text);
@@ -7131,6 +7143,8 @@ async function main() {
       workUi.onTab(message.tab);
     } else if (message.type === "workPosts") {
       workUi.onPosts(message.id, message.posts);
+    } else if(message.type==='adventureJournal'){
+      adventureUi.onJournal(message.journal);
     } else if (message.type === "interior") {
       interiorRef.ui?.onMessage(message.view);
     } else if (message.type === "interiorNpcs") {
@@ -7716,6 +7730,7 @@ async function main() {
     blocked: () => strategyCam.inStrategy || !myId || !heroModal.hidden,
     openSheet: () => setHeroSheetOpen(true),
     interactFields: () => heroTools.interactFields(),
+    useInterior:()=>interiorRef.ui?.useHighlighted()??false,
   });
   heroToolsRef.ui = heroTools;
   function partyCommand(cmd: "followMe" | "hold" | "shape") {

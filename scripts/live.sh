@@ -28,6 +28,7 @@ alive() { [ -f "$PIDS/$1" ] && kill -0 "$(cat "$PIDS/$1")" 2>/dev/null; }
 running() { alive server && alive client; }
 
 open_browser() {
+  [ "${COLONY_OPEN_BROWSER:-1}" = "0" ] && { echo "Open $URL in your browser."; return 0; }
   for _ in $(seq 1 30); do listening "$CP" && break; sleep 1; done
   if command -v cmd.exe >/dev/null 2>&1; then cmd.exe /c start "" "$URL" >/dev/null 2>&1
   elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1

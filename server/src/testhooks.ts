@@ -1,3 +1,4 @@
+import {adventurePreview} from './adventurePreview.js';
 import {registerHearth} from './hearths.js';
 // testhooks.ts: COLONY_TEST_HOOKS handlers (scripted tests only).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
@@ -103,6 +104,7 @@ import { mineDebug } from "./mines.js";
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
   const reply = (data: Record<string, unknown>) =>
     player.socket.send(JSON.stringify({ type: "testHookResult", op: msg.op, ...data }));
+  if(msg.op==='adventure'){reply(adventurePreview(player,msg));return;}
   if (msg.op === "setCycleTick" && typeof msg.tick === "number") {
     state.cycleTick = Math.max(0, Math.floor(msg.tick));
     state.wasNight = isNightNow();

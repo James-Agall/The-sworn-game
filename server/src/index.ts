@@ -48,6 +48,8 @@ import { handleCommandAttackHearth, hearthsForSnapshot } from "./hearths.js";
 import { siteByNum, sitesForSnapshot } from "./sites.js";
 import { handleTradeWithSite, relationsForSnapshot } from "./diplomacy.js";
 import { handleCallToArms, handleSetTax } from "./vassals.js";
+import {handleJournal} from './story.js';
+import {handleInteriorTalk} from './interiors.js';
 import { handleQuestMessage, hasQuestsFor, questsForSnapshot, questsVersion } from "./quests.js";
 import { handleZoneEdit, zoneCarryOf, zonesPayloadFor } from "./zones.js";
 import { handleAssignWorker, handleUnassignWorker, handleWorkMode, handleWorkPosts, handleWorkSet, sendWorkTab } from "./work.js";
@@ -88,7 +90,7 @@ loadCampTemplates();
 loadBuildingTemplates();
 loadSettlementTemplates();
 await generateWorld();
-httpServer.listen(PORT);
+httpServer.listen(PORT,process.env.COLONY_HOST??'0.0.0.0');
 console.log(`colony2d server listening on ws://localhost:${PORT}`);
 process.on("SIGINT", () => saveOnShutdown("SIGINT"));
 process.on("SIGTERM", () => saveOnShutdown("SIGTERM"));
@@ -441,6 +443,10 @@ function handleMessage(player: Player, message: ClientMessage) {
     handleHeroAction(player, message.action, message.build);
   } else if(message.type==="interiorEdit"){
     handleInteriorEdit(player,message);
+  } else if(message.type==="adventureJournal"){
+    if(message.op==='get'||message.op==='track')handleJournal(player,message.op,message.id);
+  } else if(message.type==="interiorTalk"){
+    handleInteriorTalk(player,message.id);
   } else if(message.type==="interiorUse"){
     handleInteriorUse(player,message.x,message.y);
   } else if (message.type === "interiorExit") {

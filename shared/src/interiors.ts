@@ -79,6 +79,7 @@ export type InteriorTemplateId = "house" | "tavern" | "church" | "smithy" | "bak
   | "mine";
 export type InteriorFloor = "wood" | "stone" | "dirt";
 export type InteriorProp =
+  | "adventureNote" | "adventureKey" | "adventurePot" | "adventureCache" | "adventureGate"
   | "bed" | "bedFine" | "chest" | "table" | "chair" | "hearth" | "lamp" | "rug" | "shelf" | "wardrobe" | "counter"
   | "altar" | "pew" | "anvil" | "oven" | "barrel" | "crates" | "sacks" | "hay" | "weaponRack" | "armourStand" | "banner"
   | "statue" | "throne" | "forge" | "stall" | "workbench" | "candelabra"
@@ -147,7 +148,7 @@ export const INTERIOR_LEGEND: Record<string, InteriorSymbol> = {
   N: { label: "Way down to level 2", prop: "mineShaft", minLevel: 2 },
   M: { label: "Way down to level 3", prop: "mineShaft", minLevel: 3 },
 };
-export const INTERIOR_WALKABLE_PROPS: ReadonlySet<InteriorProp> = new Set(["skullBones", "fallenSkeleton", "cobweb", "overgrowth", "rug", "chair", "stairsUp", "stairsDown", "mineShaft"]);
+export const INTERIOR_WALKABLE_PROPS: ReadonlySet<InteriorProp> = new Set(["adventureNote", "adventureKey", "adventureCache", "skullBones", "fallenSkeleton", "cobweb", "overgrowth", "rug", "chair", "stairsUp", "stairsDown", "mineShaft"]);
 
 export interface InteriorTemplate {
   id: InteriorTemplateId;
@@ -661,6 +662,7 @@ export const INTERIOR_TEMPLATE_BY_TILE: Partial<Record<TileType, InteriorTemplat
   [TileType.AbbeyHall]: "church",
   [TileType.Blacksmith]: "smithy",
   [TileType.Bakery]: "bakery",
+  [TileType.TailorShop]: "shop",
   [TileType.Market]: "shop",
   [TileType.GoldShop]: "shop",
   [TileType.MilitiaPost]: "barracks",
@@ -860,6 +862,7 @@ export interface InteriorNpcLive {
 // Message `interior` view: the map (tiles), its NPCs, the chest (own buildings: contents; null: not yours / none),
 // whether the bed is yours to sleep in, and how many hostiles are near the door.
 export interface InteriorView {
+  exploration?:import("./adventure.js").ExplorationView;
   key: string;
   tx: number;
   ty: number;

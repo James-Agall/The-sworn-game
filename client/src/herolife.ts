@@ -20,6 +20,7 @@ export interface HeroLifeDeps {
   openSheet: () => void;
   // Stardew phase 5a (herotools.ts): the hotbar tool in hand and the faced tile, sent with E.
   interactFields?: () => object;
+  useInterior?: () => boolean;
 }
 
 export interface HeroLifeUi {
@@ -295,7 +296,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
       if (deps.blocked()) return;
       e.preventDefault();
       eDown = true;
-      deps.send({ type: "interact", ...(deps.interactFields?.() ?? {}) });
+      if(!deps.useInterior?.())deps.send({ type: "interact", ...(deps.interactFields?.() ?? {}) });
     },
     true,
   );
