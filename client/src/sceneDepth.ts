@@ -8,20 +8,20 @@ export const groundDepth=(x:number,y:number,width:number,size=32)=>(y/size-1)*wi
 export const staticDepth=(old:number,width:number)=>old<0?old:Math.floor(old/width)*width+(old%width)/width;
 export function spriteRect(s:Sprite):WorldRect {
  const w=s.texture.width,h=s.texture.height,x0=-s.anchor.x*w,x1=x0+w,y0=-s.anchor.y*h,y1=y0+h;
- const c=Math.cos(s.rotation),n=Math.sin(s.rotation);let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
- for(const x of [x0,x1])for(const y of [y0,y1]){const px=s.x+x*s.scale.x*c-y*s.scale.y*n,py=s.y+x*s.scale.x*n+y*s.scale.y*c;left=Math.min(left,px);right=Math.max(right,px);top=Math.min(top,py);bottom=Math.max(bottom,py);}
- return{left,right,top,bottom};
+ const c=Math.cos(s.rotation),n=Math.sin(s.rotation),xa=x0*s.scale.x,xb=x1*s.scale.x,ya=y0*s.scale.y,yb=y1*s.scale.y;
+ return{left:s.x+Math.min(xa*c,xb*c)+Math.min(-ya*n,-yb*n),right:s.x+Math.max(xa*c,xb*c)+Math.max(-ya*n,-yb*n),top:s.y+Math.min(xa*n,xb*n)+Math.min(ya*c,yb*c),bottom:s.y+Math.max(xa*n,xb*n)+Math.max(ya*c,yb*c)};
 }
 export function bucketKeys(r:WorldRect,span=256):number[]{
  const keys:number[]=[];for(let y=Math.floor(r.top/span);y<=Math.floor((r.bottom-.001)/span);y++)for(let x=Math.floor(r.left/span);x<=Math.floor((r.right-.001)/span);x++)keys.push(y*65536+x);return keys;
 }
-type Scenery={sprite:Sprite;parent:Container;rect:WorldRect;keys:number[];occluder:boolean};
+type Scenery={sprite:Sprite;parent:Container;rect:WorldRect;keys:number[];occluder:boolean;query:number};
 // Offscreen scenery is parked outside the stage. Sorting and transform traversal see only the viewport.
 export class SceneryIndex {
  private entries=new Map<string,Scenery>();private buckets=new Map<number,Set<string>>();private active=new Set<string>();
+ private query=0;private covers:Sprite[]=[];
  private visibleKeys=new Set<number>();private parked=new Container();private camera='';
  track(id:string,sprite:Sprite,parent:Container,occluder:boolean){
-  this.remove(id);const rect=spriteRect(sprite),keys=bucketKeys(rect),e={sprite,parent,rect,keys,occluder};this.entries.set(id,e);
+  this.remove(id);const rect=spriteRect(sprite),keys=bucketKeys(rect),e={sprite,parent,rect,keys,occluder,query:0};this.entries.set(id,e);
   for(const key of keys){let b=this.buckets.get(key);if(!b)this.buckets.set(key,b=new Set());b.add(id);}
   if(keys.some(k=>this.visibleKeys.has(k))){parent.addChild(sprite);this.active.add(id);}else this.parked.addChild(sprite);
  }
@@ -35,11 +35,14 @@ export class SceneryIndex {
   this.active=want;
  }
  occluders(body:Sprite,depth:number):Sprite[]{
-  const rect=spriteRect(body),seen=new Set<string>(),out:Sprite[]=[];
-  for(const k of bucketKeys(rect))for(const id of this.buckets.get(k)??[]){if(seen.has(id))continue;seen.add(id);const e=this.entries.get(id)!;
-   if(e.occluder&&this.active.has(id)&&e.sprite.visible&&!e.sprite.destroyed&&e.sprite.zIndex>depth+.00001&&overlaps(rect,e.rect))out.push(e.sprite);
+  const rect=spriteRect(body),out=this.covers;out.length=0;const query=++this.query;
+  for(let y=Math.floor(rect.top/256);y<=Math.floor((rect.bottom-.001)/256);y++)for(let x=Math.floor(rect.left/256);x<=Math.floor((rect.right-.001)/256);x++)for(const id of this.buckets.get(y*65536+x)??[]){
+   const e=this.entries.get(id)!;if(e.query===query)continue;e.query=query;
+   if(!e.occluder||!this.active.has(id)||!e.sprite.visible||e.sprite.destroyed||e.sprite.zIndex<=depth+.00001||!overlaps(rect,e.rect))continue;
+   let at=out.length;while(at>0&&out[at-1].zIndex<e.sprite.zIndex)at--;
+   if(at<4){out.splice(at,0,e.sprite);if(out.length>4)out.pop();}
   }
-  return out.sort((a,b)=>b.zIndex-a.zIndex).slice(0,4);
+  return out;
  }
  clear(){this.entries.clear();this.buckets.clear();this.active.clear();this.visibleKeys.clear();this.camera='';}
  get count(){return this.entries.size;}get visibleCount(){return this.active.size;}
@@ -75,5 +78,5 @@ function shadowTexture(sprite:Sprite):Texture {
 export function createHiddenHeroOutline(layer:Container){
  const slots=Array.from({length:4},()=>{const group=new Container(),ghost=new Sprite(),mask=new Sprite();group.addChild(ghost,mask);ghost.setMask({mask,channel:'alpha'});group.visible=false;layer.addChild(group);return{group,ghost,mask};});
  const copy=(to:Sprite,from:Sprite)=>{to.position.copyFrom(from.position);to.anchor.copyFrom(from.anchor);to.scale.copyFrom(from.scale);to.rotation=from.rotation;};
- return{update(hero:Container|undefined,occluders:Sprite[],on:boolean){for(let i=0;i<slots.length;i++){const s=slots[i],cover=occluders[i];s.group.visible=on&&hero instanceof Sprite&&hero.visible&&!!cover;if(!s.group.visible)continue;copy(s.ghost,hero as Sprite);s.ghost.texture=shadowTexture(hero as Sprite);copy(s.mask,cover);s.mask.texture=cover.texture;}},clear(){for(const s of slots)s.group.visible=false;}};
+ return{update(hero:Container|undefined,occluders:Sprite[],on:boolean){const shadow=on&&hero instanceof Sprite&&hero.visible&&occluders.length?shadowTexture(hero):undefined;for(let i=0;i<slots.length;i++){const s=slots[i],cover=occluders[i];s.group.visible=on&&hero instanceof Sprite&&hero.visible&&!!cover;if(!s.group.visible)continue;copy(s.ghost,hero as Sprite);s.ghost.texture=shadow!;copy(s.mask,cover);s.mask.texture=cover.texture;}},clear(){for(const s of slots)s.group.visible=false;}};
 }

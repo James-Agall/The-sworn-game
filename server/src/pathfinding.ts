@@ -1,5 +1,5 @@
 import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
-// pathfinding.ts: Walkability, A* paths, path following, and body separation (spatial hash).
+// pathfinding.ts: Walkability, breadth-first paths, path following, and body separation (spatial hash).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { coldSpeedMult } from "./winter.js";
 import { TileType, isGateTile, isSolidTile, TILE_SIZE } from "@colony/shared/protocol";
@@ -13,13 +13,15 @@ import {
   biomeSpeedMultiplier, inBounds, roadSpeedMultiplier, siteNumber, tileIndex, tileToPixelCenter,
 } from "./tiles.js";
 import { isWalkablePixel } from "./wildlife.js";
-import { cachedPath, pathCacheKey, pathCacheStats, storePath } from "./chunks.js";
+import { cachedPath, pathCacheKey, pathCacheStats, storePathChunks, pathDependencyChunks, CHUNK_TILES } from "./chunks.js";
 
 const VERIFY_PATH_CACHE = process.env.COLONY_TEST_HOOKS === "1" && process.env.COLONY_PATH_CACHE_VERIFY === "1";
 import { isWardPriest } from "./colonists.js";
 import { isGuardOrMilitiaKind } from "./units.js";
 import { gatePassable } from "./combat.js";
 import { isDormantGuardian, mobBodyRadius } from "./mobs.js";
+
+const WALKABLE = Uint8Array.from({ length: 256 }, (_, t) => t === TileType.Rampart || !isSolidTile(t as TileType) ? 1 : 0);
 
 export function isWalkableTile(tx: number, ty: number): boolean {
   if (!inBounds(tx, ty)) return false;
@@ -29,7 +31,7 @@ export function isWalkableTile(tx: number, ty: number): boolean {
     sawGate = true;
     return gatePassable(tileIndex(tx, ty), state.hostileMover);
   }
-  return t===TileType.Rampart || !isSolidTile(t);
+  return t === undefined ? !isSolidTile(t) : WALKABLE[t] === 1;
 }
 export function canStepTile(fx:number,fy:number,tx:number,ty:number):boolean {
  if(!inBounds(fx,fy)||!inBounds(tx,ty))return false;
@@ -97,12 +99,95 @@ export function findPath(start: TileCoord, goal: TileCoord, blocked?: (x: number
   const prevSawGate = sawGate;
   sawGate = false;
   const result = searchPath(start, goal, blocked);
-  if (cacheable && !sawGate) storePath(ck, result.path, result.visited);
+  if (cacheable && !sawGate) storePathChunks(ck, result.path, result.chunks);
   sawGate = prevSawGate || sawGate;
   return result.path;
 }
 
-function searchPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: number) => boolean): { path: TileCoord[] | null; visited: Set<number> } {
+interface SearchWorkspace {
+  width: number; height: number; generation: number; columns: number;
+  seen: Uint32Array; parents: Int32Array; queue: Int32Array;
+  chunkSeen: Uint32Array; chunks: Int32Array; chunkCount: number;
+}
+// Searches are synchronous. A small pool also protects the workspace if a blocked callback starts
+// another search. Returned paths own their coordinates; only cache dependency scratch is borrowed.
+const searchWorkspaces: SearchWorkspace[] = [];
+let searchDepth = 0;
+const PROFILE_PATHS = process.env.COLONY_TEST_HOOKS === "1" || process.env.COLONY_PERF === "1";
+export const pathSearchStats = { searches: 0, visited: 0, maxVisited: 0, totalMs: 0, maxMs: 0, budgetExceeded: 0 };
+function searchChunk(w: SearchWorkspace, c: number) {
+  if (w.chunkSeen[c] === w.generation) return;
+  w.chunkSeen[c] = w.generation;
+  w.chunks[w.chunkCount++] = c;
+}
+function searchDependencies(w: SearchWorkspace, x: number, y: number) {
+  const cx = x >>> 5, cy = y >>> 5, c = cy * w.columns + cx;
+  searchChunk(w, c);
+  // Match the old cache's visited tile AND its four neighbours, including unexpanded nodes.
+  if ((x & 31) === 0 && x > 0) searchChunk(w, c - 1);
+  if ((x & 31) === 31 && x < w.width - 1) searchChunk(w, c + 1);
+  if ((y & 31) === 0 && y > 0) searchChunk(w, c - w.columns);
+  if ((y & 31) === 31 && y < w.height - 1) searchChunk(w, c + w.columns);
+}
+function searchPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: number) => boolean): { path: TileCoord[] | null; chunks: Int32Array } {
+  const width = state.WORLD_TILES_X, height = state.WORLD_TILES_Y, size = width * height;
+  // Normal game coordinates are integral. Retain the old behaviour for unusual diagnostic callers.
+  if (!Number.isInteger(start.x) || !Number.isInteger(start.y) || !Number.isInteger(goal.x) || !Number.isInteger(goal.y)) {
+    const old = legacySearchPath(start, goal, blocked);
+    return { path: old.path, chunks: pathDependencyChunks(old.visited) };
+  }
+  if (!inBounds(start.x, start.y)) return { path: null, chunks: new Int32Array() };
+  const slot = searchDepth++;
+  let w = searchWorkspaces[slot];
+  if (!w || w.width !== width || w.height !== height) {
+    const columns = Math.ceil(width / CHUNK_TILES), count = columns * Math.ceil(height / CHUNK_TILES);
+    w = { width, height, columns, generation: 0, seen: new Uint32Array(size), parents: new Int32Array(size), queue: new Int32Array(size), chunkSeen: new Uint32Array(count), chunks: new Int32Array(count), chunkCount: 0 };
+    searchWorkspaces[slot] = w;
+  }
+  w.generation = (w.generation + 1) >>> 0;
+  if (!w.generation) { w.seen.fill(0); w.chunkSeen.fill(0); w.generation = 1; }
+  w.chunkCount = 0;
+  const began = PROFILE_PATHS ? performance.now() : 0;
+  let tail = 1;
+  const first = start.y * width + start.x, target = goal.y * width + goal.x;
+  w.queue[0] = first; w.seen[first] = w.generation;
+  searchDependencies(w, start.x, start.y);
+  try {
+    for (let head = 0; head < tail; head++) {
+      if (head > PATH_NODE_BUDGET) { if (PROFILE_PATHS) pathSearchStats.budgetExceeded++; break; }
+      const current = w.queue[head], x = current % width, y = (current - x) / width;
+      // East, west, south, north: preserve the original BFS's exact tie-breaking and node budget.
+      for (let direction = 0; direction < 4; direction++) {
+        const nx = x + (direction === 0 ? 1 : direction === 1 ? -1 : 0);
+        const ny = y + (direction === 2 ? 1 : direction === 3 ? -1 : 0);
+        if (!canStepTile(x, y, nx, ny)) continue;
+        if (blocked && blocked(nx, ny) && !(nx === goal.x && ny === goal.y)) continue;
+        const next = ny * width + nx;
+        if (w.seen[next] === w.generation) continue;
+        w.seen[next] = w.generation; w.parents[next] = current;
+        searchDependencies(w, nx, ny);
+        w.queue[tail++] = next;
+        if (next === target && nx === goal.x && ny === goal.y) {
+          const path: TileCoord[] = [];
+          for (let back = next; back !== first; back = w.parents[back]) path.push({ x: back % width, y: Math.floor(back / width) });
+          path.reverse();
+          return { path, chunks: w.chunks.subarray(0, w.chunkCount) };
+        }
+      }
+    }
+    return { path: null, chunks: w.chunks.subarray(0, w.chunkCount) };
+  } finally {
+    searchDepth--;
+    if (PROFILE_PATHS) {
+      const ms = performance.now() - began;
+      pathSearchStats.searches++; pathSearchStats.visited += tail;
+      pathSearchStats.maxVisited = Math.max(pathSearchStats.maxVisited, tail);
+      pathSearchStats.totalMs += ms; pathSearchStats.maxMs = Math.max(pathSearchStats.maxMs, ms);
+    }
+  }
+}
+
+function legacySearchPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: number) => boolean): { path: TileCoord[] | null; visited: Set<number> } {
   const key = (t: TileCoord) => t.y * state.WORLD_TILES_X + t.x;
   const visited = new Set<number>([key(start)]);
   const parent = new Map<number, TileCoord>();
@@ -130,9 +215,10 @@ function searchPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: 
         const path: TileCoord[] = [n];
         let back = current;
         while (!(back.x === start.x && back.y === start.y)) {
-          path.unshift(back);
+          path.push(back);
           back = parent.get(key(back))!;
         }
+        path.reverse();
         return { path, visited };
       }
       queue.push(n);

@@ -15,6 +15,7 @@ import {
 } from "@colony/shared/animals";
 import { rleEncode, type PaddockSnapshot } from "@colony/shared/zones";
 import type { TileCoord } from "./types.js";
+import { tileMutationVersion } from "./chunks.js";
 import { state } from "./state.js";
 import { inBounds, ownerAt, tileIndex, tileOfPixel } from "./tiles.js";
 import { animalZones, bumpZones, zonesVersion } from "./zones.js";
@@ -97,12 +98,22 @@ function enclose(zoneTiles: Set<number>): Enclosure {
 }
 const sameList = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((v, k) => v === b[k]);
 
-function recompute() {
+const enclosureCache = new WeakMap<Set<number>, { version: number; inputs: number[]; result: Enclosure }>();
+function sameZoneOrder(inputs: number[], tiles: Set<number>): boolean {
+  if (inputs.length !== tiles.size) return false;
+  let n = 0; for (const i of tiles) if (i !== inputs[n++]) return false;
+  return true;
+}
+function recompute(force = false) {
+  const layoutVersion = tileMutationVersion();
   const live = new Set<number>();
   let changed = false;
   for (const z of animalZones()) {
     live.add(z.id);
-    const e = enclose(z.tiles);
+    const cached = enclosureCache.get(z.tiles);
+    const unchanged = !force && cached?.version === layoutVersion && sameZoneOrder(cached.inputs, z.tiles);
+    const e = unchanged ? cached.result : enclose(z.tiles);
+    if (!unchanged) enclosureCache.set(z.tiles, { version: layoutVersion, inputs: Array.from(z.tiles), result: e });
     const old = paddocks.get(z.id);
     if (old && old.fenced === e.fenced && old.why === e.why && old.water === e.water && sameList(old.list, e.list) && sameList(old.fences, e.fences)) {
       old.name = z.name;
@@ -138,7 +149,7 @@ export function ensurePaddocks(force = false) {
   const sec = Math.floor(state.cycleTick / TICK_RATE);
   if (!force && sec === builtSecond && zonesVersion() === builtZones) return;
   builtSecond = sec;
-  recompute();
+  recompute(force);
   builtZones = zonesVersion();
 }
 

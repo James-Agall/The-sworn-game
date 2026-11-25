@@ -10,6 +10,7 @@ const routes=new WeakMap<SiteState,Route>();
 const progress=new WeakMap<Mob,{route:number[];index:number;wait:number}>();
 const holds=new WeakMap<Mob,number>();
 const prepared=new WeakSet<SiteState>();
+const guardSlots=new WeakMap<Mob,{site:SiteState;index:number}>();
 export function releaseTownSpeaker(mob:Mob) { holds.delete(mob); }
 export function townSpeakerHeld(mob:Mob) { return (holds.get(mob)??0)>state.cycleTick; }
 export function holdTownSpeaker(mob:Mob) { holds.set(mob,state.cycleTick+20*60); }
@@ -93,7 +94,9 @@ export function updatePeacefulGuard(mob:Mob,dt:number):boolean {
  if(s?.provoked||mob.guardianActive)progress.delete(mob);
  if(!s||s.faction!=='human'||s.captured||s.cleared||s.provoked||mob.guardianActive||mob.siteWorker)return false;
  if(!s.awake)return true;
- const r=townRoutes(s),index=s.garrison.indexOf(mob.id);
+ const r=townRoutes(s),cached=guardSlots.get(mob);
+ const index=cached?.site===s&&s.garrison[cached.index]===mob.id?cached.index:s.garrison.indexOf(mob.id);
+ if(index>=0&&(s!==cached?.site||index!==cached?.index))guardSlots.set(mob,{site:s,index});
  if(index<0)return false;
  if(index<r.posts.length){
   const i=r.posts[index];mob.x=(i%state.WORLD_TILES_X+.5)*TILE_SIZE;mob.y=(Math.floor(i/state.WORLD_TILES_X)+.5)*TILE_SIZE;

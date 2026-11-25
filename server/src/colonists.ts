@@ -27,7 +27,7 @@ import {
   buildingHp, colonists, constructionSites, farmPlots, mobs, repairPaid, repairQueue, reservedResourceTiles,
   clans, respawnQueue, state, summonedUntil, tileClan, wardStoneLastTended, wardStonesActiveLastTick,
 } from "./state.js";
-import { byColumn, tileCountOf, tileIndicesOf, tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
+import { tileMutationVersion, byColumn, tileCountOf, tileIndicesOf, tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import {
   biomeSpeedMultiplier, getBuildingLevel, inBounds, isNightNow, levelBonus, ownerAt, resourceKey,
   roadSpeedMultiplier, tileIndex, tileOfPixel, tileToPixelCenter, dayTicksAt,
@@ -469,9 +469,12 @@ export function settlementStatsAll(): Map<number, SettlementStat[]> {
   }
   if (stats.length === 0) return byClan;
   const statOf = new Map(stats.map((s) => [s.tc, s]));
+  const centersByClan = new Map(Array.from(byClan, ([id, group]) => [id, group.map(s => s.tc)]));
+  const centersByKey = new Map<string, TownCenter>();
+  for (const tc of state.townCenters) { const key = resourceKey(tc.x, tc.y); if (!centersByKey.has(key)) centersByKey.set(key, tc); }
   const statNear = (tx: number, ty: number, clanId = clanIdAt(tx, ty)): SettlementStat | undefined => {
     const p = tileToPixelCenter({ x: tx, y: ty });
-    const tc = nearestTownCenter(p.x, p.y, townCentersOfClan(clanId));
+    const tc = nearestTownCenter(p.x, p.y, clans.length === 1 ? state.townCenters : centersByClan.get(clanId) ?? []);
     return tc ? statOf.get(tc) : undefined;
   };
   STAT_TILES ??= tileTypesWhere((t) => isHouseTile(t) || t === TileType.Keep || isMilitaryTile(t));
@@ -519,7 +522,11 @@ export function settlementStatsAll(): Map<number, SettlementStat[]> {
     const soldier = isSoldierKind(c.kind) && !summonedUntil.has(c.id);
     const cost = populationCostOf(c);
     if (!cost && !soldier) continue;
-    const tc = settlementOf(c);
+    let tc = c.settlementId ? centersByKey.get(c.settlementId) : undefined;
+    if (!tc) {
+      c.settlementId = settlementKeyNear(c.postX, c.postY, c.clan ?? 0);
+      tc = centersByKey.get(c.settlementId);
+    }
     const s = tc ? statOf.get(tc) : undefined;
     if (!s) continue;
     s.used += cost;
@@ -592,7 +599,14 @@ export function isSynergyBuilding(t: TileType): boolean {
 // Neighbourhood synergy: +1 population for every adjacent (8-neighbour) pair of (house, house) or
 // (house, any other staffed/unit building). Houses clustered with workplaces and barracks grow
 // the colony faster, so neighbourhoods are worth building.
+let neighbourhoodCache: { tiles: number; clans: number; bonuses: number[] } | undefined;
 export function neighbourhoodPopulationBonus(onBonus?: (tx: number, ty: number) => void): number {
+  const tiles = tileMutationVersion(), clanVersion = state.clanTilesVersion;
+  if (neighbourhoodCache?.tiles === tiles && neighbourhoodCache.clans === clanVersion) {
+    if (onBonus) for (const i of neighbourhoodCache.bonuses) onBonus(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X));
+    return neighbourhoodCache.bonuses.length;
+  }
+  const bonuses: number[] = [];
   let bonus = 0;
   for (const i of tileIndicesOfAny(HOUSE_TILES)) {
     const tx = i % state.WORLD_TILES_X;
@@ -607,15 +621,17 @@ export function neighbourhoodPopulationBonus(onBonus?: (tx: number, ty: number) 
       // Village life: military buildings no longer add housing (houses + Town Centers + Keeps only).
       if (isSynergyBuilding(n) && !isMilitaryTile(n)) {
         bonus++;
-        onBonus?.(tx, ty);
+        bonuses.push(i);
       }
       // House-house pairs are seen from both ends; count each once (the "later" tile in scan order).
       else if (isHouseTile(n) && (dy > 0 || (dy === 0 && dx > 0))) {
         bonus++;
-        onBonus?.(tx, ty);
+        bonuses.push(i);
       }
     }
   }
+  neighbourhoodCache = { tiles, clans: clanVersion, bonuses };
+  if (onBonus) for (const i of bonuses) onBonus(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X));
   return bonus;
 }
 

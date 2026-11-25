@@ -1765,16 +1765,17 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
   const life = lifeOf(p);
   const b = busy.get(p.id);
   const slow: string[] = [];
+  const weight = packWeight(life), family = cachedFamilySnapshot(p);
   if (needsOn() && life.food < NEED_LOW) slow.push("Hungry");
   if (needsOn() && life.rest < NEED_LOW) slow.push("Tired");
-  if (packWeight(life) / PACK_CAP > 0.5) slow.push("Heavy load");
+  if (weight / PACK_CAP > 0.5) slow.push("Heavy load");
   if (needsOn() && energyOf(life) <= 0) slow.push("Exhausted (half-speed work)");
   // Winter: out in the cold without warm clothes (a coat, or a tunic and boots from the Tailor).
   if (heroCold(p)) slow.push("Freezing: no warm clothes (slower work and walking)");
   const questMarks = questMarksFor(p.clan ?? 0);
   return {
     pack: life.pack,
-    weight: packWeight(life),
+    weight,
     cap: PACK_CAP,
     food: Math.round(life.food),
     rest: Math.round(life.rest),
@@ -1792,7 +1793,7 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
     ...(slow.length ? { slow } : {}),
     builds: life.builds.length,
     ...(clanTownCentersOf(p).length === 0 ? { canFound: true } : {}),
-    ...(cachedFamilySnapshot(p) ? { family: cachedFamilySnapshot(p) } : {}),
+    ...(family ? { family } : {}),
     ...(questMarks.length ? { questMarks } : {}),
   };
 }

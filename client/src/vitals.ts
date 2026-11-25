@@ -14,8 +14,12 @@ export function vitalMeter(kind: VitalKind, label: string, value: number): HTMLE
   setVital(el,kind==='health'?healthState.value:value,kind==='health'?healthState.text:undefined);
   return el;
 }
+const lastValues=new WeakMap<HTMLElement,{amount:number;text:string}>();
 export function setVital(el: HTMLElement, value: number, text?: string) {
   const amount=Math.max(0,Math.min(100,Number.isFinite(value)?value:0));
+  const label=text??`${Math.round(amount)}%`,previous=lastValues.get(el);
+  if(previous?.amount===amount&&previous.text===label)return;
+  lastValues.set(el,{amount,text:label});
   el.style.setProperty('--empty',`${100-amount}%`);
   el.setAttribute('aria-valuenow',String(Math.round(amount)));
   el.setAttribute('aria-valuetext',text??`${Math.round(amount)}%`);
@@ -25,5 +29,6 @@ export function setVital(el: HTMLElement, value: number, text?: string) {
 }
 export function updateVitals(kind: VitalKind, value: number, text?: string) {
   if(kind==='health')healthState={value,text};
-  for(const el of Array.from(document.querySelectorAll<HTMLElement>(`[data-vital="${kind}"]`))) setVital(el,value,text);
+  const nodes=document.querySelectorAll<HTMLElement>(`[data-vital="${kind}"]`);
+  for(let i=0;i<nodes.length;i++)setVital(nodes[i],value,text);
 }

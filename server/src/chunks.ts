@@ -11,6 +11,7 @@ import { colonists, mobs, players, raidGroups, state } from "./state.js";
 export const CHUNK_TILES = 32;
 
 // Terrain too common to index (queries for these fall back to a full scan).
+const ROOM_RELEVANT = Uint8Array.from({ length: 256 }, (_, t) => isRoomBoundaryTile(t) || isRoomInteriorTile(t) ? 1 : 0);
 const UNINDEXED = new Uint8Array(256);
 UNINDEXED[TileType.Empty] = 1;
 UNINDEXED[TileType.Water] = 1;
@@ -30,6 +31,9 @@ let regionVersion = new Uint32Array(0);
 let chunkStructures = new Uint32Array(0);
 // Bumped by every rebuild: cached paths from before it are dropped.
 let epoch = 0;
+let mutationVersion = 0;
+// Includes bulk rebuilds as well as individual writes; derived geometry must survive neither.
+export function tileMutationVersion(): number { ensureTileRegistry(); return mutationVersion; }
 // Modular building phase 1: bumped when a tile write can make or break a room (a boundary piece, or a tile going
 // between room interior and anything else); server structures.ts recomputes its rooms on a change.
 let roomVersion = 0;
@@ -64,6 +68,7 @@ export function ensureTileRegistry() {
   tilesRef = tiles;
   stale = false;
   epoch++;
+  mutationVersion++;
   for (const s of byType) s.clear();
   sortedCache.fill(null);
   counts.fill(0);
@@ -86,6 +91,7 @@ export function setTile(i: number, t: TileType) {
   const old = state.tiles[i];
   if (old === t) return;
   state.tiles[i] = t;
+  mutationVersion++;
   counts[old]--;
   counts[t]++;
   if (!UNINDEXED[old]) {
@@ -99,7 +105,7 @@ export function setTile(i: number, t: TileType) {
   const c = chunkOfIndex(i);
   regionVersion[c]++;
   // Phase 2: any write touching a room tile (furniture in / out changes its contents and stats too).
-  if (isRoomBoundaryTile(old) || isRoomBoundaryTile(t) || isRoomInteriorTile(old) || isRoomInteriorTile(t)) {
+  if (ROOM_RELEVANT[old] || ROOM_RELEVANT[t]) {
     roomVersion++;
     if (roomDirty.length < ROOM_DIRTY_MAX) roomDirty.push(i);
     else roomDirtyOverflow = true;
@@ -210,7 +216,7 @@ export function pathCacheKey(start: number, goal: number, hostile: boolean): num
 // The cached path as fresh coords, undefined on a miss (null = cached "no path").
 export function cachedPath(key: number): { x: number; y: number }[] | null | undefined {
   const e = pathCache.get(key);
-  if (!e) return undefined;
+  if (!e) { pathCacheStats.misses++; return undefined; }
   let ok = e.epoch === tileRegistryEpoch();
   for (let k = 0; ok && k < e.chunks.length; k++) if (regionVersion[e.chunks[k]] !== e.versions[k]) ok = false;
   pathCache.delete(key);
@@ -225,7 +231,8 @@ export function cachedPath(key: number): { x: number; y: number }[] | null | und
   return Array.from(e.path, (i) => ({ x: i % W, y: Math.floor(i / W) }));
 }
 
-export function storePath(key: number, path: readonly { x: number; y: number }[] | null, visited: Iterable<number>) {
+export function pathDependencyChunks(visited: Iterable<number>): Int32Array {
+  ensureTileRegistry();
   const W = state.WORLD_TILES_X;
   const H = state.WORLD_TILES_Y;
   const seen = new Set<number>();
@@ -243,10 +250,20 @@ export function storePath(key: number, path: readonly { x: number; y: number }[]
     if (ly === 0 && y > 0) seen.add((cy - 1) * chunksX + cx);
     if (ly === CHUNK_TILES - 1 && y < H - 1) seen.add((cy + 1) * chunksX + cx);
   }
-  const chunks = Int32Array.from(seen);
+  return Int32Array.from(seen);
+}
+
+export function storePath(key: number, path: readonly { x: number; y: number }[] | null, visited: Iterable<number>) {
+  storePathChunks(key, path, pathDependencyChunks(visited));
+}
+
+// Search workspaces lend dependency buffers: the cache owns its copy.
+export function storePathChunks(key: number, path: readonly { x: number; y: number }[] | null, dependencies: Int32Array) {
+  const epochNow = tileRegistryEpoch(), W = state.WORLD_TILES_X;
+  const chunks = dependencies.slice();
   const versions = Uint32Array.from(chunks, (c) => regionVersion[c]);
   pathCache.delete(key);
-  pathCache.set(key, { epoch: tileRegistryEpoch(), path: path ? Int32Array.from(path, (p) => p.y * W + p.x) : null, chunks, versions });
+  pathCache.set(key, { epoch: epochNow, path: path ? Int32Array.from(path, (p) => p.y * W + p.x) : null, chunks, versions });
   if (pathCache.size > PATH_CACHE_MAX) pathCache.delete(pathCache.keys().next().value!);
 }
 

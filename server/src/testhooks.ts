@@ -13,6 +13,7 @@ import { type ItemId, PROGRESSION } from "@colony/shared/progression";
 import { recallWagon, refreshTradingPost, scanTradingPosts, sendWagon, setWagonAbstractRadius, wagonDebugState } from "./wagons.js";
 import { buildingLevel, newClanProgress, tradingPosts } from "./state.js";
 import { tileIndicesOf } from "./chunks.js";
+import { pathSearchStats } from "./pathfinding.js";
 import { auditTileRegistry, chunkStateAtPixel, chunkStateOf, chunkStateSummary, pathCacheStats, resetChunkStates, setTile, updateChunkStates } from "./chunks.js";
 import { clanById, clanIdAt, clanOf, withClan } from "./clans.js";
 import { auditWorld } from "./abstract.js";
@@ -690,6 +691,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     reply({
       samples: sorted.length,
       avgMs: avg,
+      p50Ms: sorted[Math.floor(sorted.length * 0.5)] ?? 0,
+      p99Ms: sorted[Math.floor(sorted.length * 0.99)] ?? 0,
+      paths: { ...pathSearchStats, ...pathCacheStats },
       p95Ms: sorted[Math.floor(sorted.length * 0.95)] ?? 0,
       maxMs: sorted[sorted.length - 1] ?? 0,
       mobs: mobs.size,
@@ -701,6 +705,7 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       systems: Object.fromEntries(Array.from(systemMs, ([k, v]) => [k, Math.round((v / Math.max(1, sorted.length)) * 100) / 100])),
     });
     if (msg.reset) {
+      for (const key of Object.keys(pathSearchStats) as (keyof typeof pathSearchStats)[]) pathSearchStats[key] = 0;
       tickDurationsMs.length = 0;
       systemMs.clear();
     }

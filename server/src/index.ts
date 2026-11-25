@@ -495,7 +495,7 @@ setInterval(() => {
   // Clans: the world part of the snapshot is built once; the clan part (stock, population, army, goals,
   // ...) once per clan, under that clan's context. One clan: one snapshot, as before.
   const statsByClan = settlementStatsAll();
-  const playersNow = Array.from(players.values()).map((p): PlayerSnapshot => ({
+  const playersNow = Array.from(players.values(), (p): PlayerSnapshot => ({
     id: p.id,
     x: p.x,
     y: p.y,
@@ -514,7 +514,9 @@ setInterval(() => {
   // 1000 vs 1000 snapshot); smaller games are sent exactly as before.
   const big = colonists.size + mobs.size > BIG_BATTLE_SNAPSHOT_UNITS;
   const q = big ? (v: number) => Math.round(v * 10) / 10 : (v: number) => v;
-  const colonistsNow = Array.from(colonists.values()).map((c): ColonistSnapshot => ({
+  const colonistsNow = Array.from(colonists.values(), (c): ColonistSnapshot => {
+    const haul = zoneCarryOf(c);
+    return {
       id: c.id,
       kind: c.kind,
       x: q(c.x),
@@ -539,9 +541,10 @@ setInterval(() => {
       ...(c.person ? { name: c.person.name } : {}),
       ...(c.person?.child ? { child: true } : {}),
       ...(c.training ? { training: 1 - c.training.ticksLeft / c.training.ticksTotal } : {}),
-      ...(zoneCarryOf(c) ? { haul: zoneCarryOf(c) } : {}),
-    }));
-  const mobsNow = Array.from(mobs.values()).map((m): MobSnapshot => ({
+      ...(haul ? { haul } : {}),
+    };
+  });
+  const mobsNow = Array.from(mobs.values(), (m): MobSnapshot => ({
       id: m.id,
       kind: m.kind,
       x: q(m.x),
@@ -568,6 +571,7 @@ setInterval(() => {
   const clanSnapshot = (): ServerMessage => {
     const settlementStatsNow = statsByClan.get(state.clan.id) ?? [];
     const ownTownCenters = clanTownCenters();
+    const raidForecast = raidForecastNow();
     return {
       type: "snapshot",
       players: playersNow,
@@ -596,7 +600,7 @@ setInterval(() => {
       calendar: calendarNowSnap,
       foodDays: foodSnapshot(),
       ...(winterNow ? { winter: winterSnapshot(), agri: agriSnapshot() } : {}),
-      ...(raidForecastNow() ? { raidForecast: raidForecastNow() } : {}),
+      ...(raidForecast ? { raidForecast } : {}),
       isPaused: state.isPaused,
       ...(state.pausedBy ? { pausedBy: state.pausedBy } : {}),
       timeScale: state.timeScale,

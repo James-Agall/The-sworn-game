@@ -1,3 +1,4 @@
+import { ABBEY_GROUNDS_RADIUS, CASTLE_RUIN_GROUNDS_RADIUS } from './constants.js';
 import {overgrownLandmark} from './overgrownLandmarks.js';
 import {enteredLandmark} from './regionLandmarks.js';
 import {ruralHomestead,banditRegion,expandRuins,marshTile} from './regionDetails.js';
@@ -39,11 +40,19 @@ export function generateRegionWorld(version = 22) {
  for(const i of reserved)if(state.tiles[i]===TileType.Water)setTile(i,TileType.Empty);
  const landmarkAt=(x:number,y:number)=>isInAbbeyGrounds(x,y)||isInCastleRuinGrounds(x,y);
  const centre=state.townCenters[0];
- const safe=(x:number,y:number)=>Math.hypot(x-centre.x,y-centre.y)<20||landmarkAt(x,y);
+ // Static exclusion geometry: compute once without consuming any random numbers. The fallback
+ // retains the original predicate for callers testing a coordinate outside the map.
+ const protectedTiles=new Uint8Array(width*height);
+ for(let y=Math.max(0,centre.y-19);y<=Math.min(height-1,centre.y+19);y++)for(let x=Math.max(0,centre.x-19);x<=Math.min(width-1,centre.x+19);x++)if(Math.hypot(x-centre.x,y-centre.y)<20)protectedTiles[y*width+x]=1;
+ for(const [point,radius]of [[state.abbeyCenter,ABBEY_GROUNDS_RADIUS],[state.castleRuinCenter,CASTLE_RUIN_GROUNDS_RADIUS]] as const){
+  if(!point)continue;
+  for(let y=Math.max(0,point.y-radius);y<=Math.min(height-1,point.y+radius);y++)for(let x=Math.max(0,point.x-radius);x<=Math.min(width-1,point.x+radius);x++)protectedTiles[y*width+x]=1;
+ }
+ const safe=(x:number,y:number)=>inBounds(x,y)?protectedTiles[y*width+x]===1:Math.hypot(x-centre.x,y-centre.y)<20||landmarkAt(x,y);
  const write=(x:number,y:number,tile:TileType)=>{if(inBounds(x,y)&&!safe(x,y))setTile(tileIndex(x,y),tile);};
  const riverX=width>192?Math.floor(width*.22):Math.floor(width*.12);
- const roads=new Set<number>();
- const road=(x:number,y:number)=>{if(inBounds(x,y))roads.add(tileIndex(x,y));};
+ const roads=new Set<number>(),roadTiles=new Uint8Array(width*height);
+ const road=(x:number,y:number)=>{if(inBounds(x,y)){const i=tileIndex(x,y);roads.add(i);roadTiles[i]=1;}};
  for(const r of plan.regions){
   const x=r.x*32+16,y=r.y*32+16;
   road(x,y);
@@ -66,16 +75,17 @@ export function generateRegionWorld(version = 22) {
   if(r.city!==undefined)continue;
   const x0=r.x*32,y0=r.y*32;
   for(let y=y0;y<Math.min(y0+32,height);y++)for(let x=x0;x<Math.min(x0+32,width);x++){
-   if(safe(x,y)||roads.has(tileIndex(x,y)))continue;
+   const i=y*width+x;
+   if(protectedTiles[i]||roadTiles[i])continue;
    const roll=Math.random();
-   state.biomes[tileIndex(x,y)]=r.kind==='marsh'?Biome.Swamp:r.kind==='cave'?Biome.Hills:Biome.Plains;
-   if(version>=20&&r.kind==='marsh'){write(x,y,marshTile(x%32,y%32,r.variant,roll));continue;}
-   if(r.kind==='forest'&&roll<.25+r.variant*.025)write(x,y,TileType.Tree);
-   else if(r.kind==='marsh'&& (version<13?roll<.16:Math.hypot(x%32-(9+r.variant),y%32-10)<4||Math.hypot(x%32-22,y%32-(22-r.variant))<3))write(x,y,TileType.Water);
-   else if(version<20&&r.kind==='countryside'&&x%32>=5&&x%32<=9&&y%32>=5&&y%32<=9)write(x,y,TileType.FarmPlot);
-   else if(roll<.06)write(x,y,TileType.Tree);
-   else if(roll<.072)write(x,y,TileType.Rock);
-   else if(roll<.077)write(x,y,TileType.IronOre);
+   state.biomes[i]=r.kind==='marsh'?Biome.Swamp:r.kind==='cave'?Biome.Hills:Biome.Plains;
+   if(version>=20&&r.kind==='marsh'){setTile(i,marshTile(x%32,y%32,r.variant,roll));continue;}
+   if(r.kind==='forest'&&roll<.25+r.variant*.025)setTile(i,TileType.Tree);
+   else if(r.kind==='marsh'&& (version<13?roll<.16:Math.hypot(x%32-(9+r.variant),y%32-10)<4||Math.hypot(x%32-22,y%32-(22-r.variant))<3))setTile(i,TileType.Water);
+   else if(version<20&&r.kind==='countryside'&&x%32>=5&&x%32<=9&&y%32>=5&&y%32<=9)setTile(i,TileType.FarmPlot);
+   else if(roll<.06)setTile(i,TileType.Tree);
+   else if(roll<.072)setTile(i,TileType.Rock);
+   else if(roll<.077)setTile(i,TileType.IronOre);
   }
  }
  // A continuous river occupies one column, avoiding the initial settlement and city footprints.

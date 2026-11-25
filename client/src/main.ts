@@ -1891,13 +1891,13 @@ async function main() {
     // Visit the camera's bounded chunk range, not every possible chunk of a 1024-square world.
     for(const [key,chunk]of floorChunks){const cx=key%chunksX,cy=Math.floor(key/chunksX),visible=cx>=left&&cx<=right&&cy>=top&&cy<=bottom;
       chunk.visible=visible;if(!visible&&floorChunks.size>FLOOR_CHUNK_KEEP){chunk.texture.source.unload();chunk.destroy({texture:true,textureSource:true});floorChunks.delete(key);}}
-    let built=0;
+    let built=0;const deadline=performance.now()+2;
     for(let cy=Math.max(0,top);cy<=Math.min(chunksY-1,bottom);cy++)for(let cx=Math.max(0,left);cx<=Math.min(chunksX-1,right);cx++){
       const key=cy*chunksX+cx;if(floorChunks.has(key))continue;
       if(streamed&&!chunkLoaded[chunkOfTile(cx*FLOOR_CHUNK_TILES,cy*FLOOR_CHUNK_TILES)])continue;
       // Budget new GPU textures while travelling. Prefer the actual viewport before its one-chunk apron.
       const inside=cx>left&&cx<right&&cy>top&&cy<bottom;if(built>=2&&!inside)continue;
-      if(built>=4)continue;floorChunks.set(key,buildFloorChunk(cx,cy));built++;
+      if(built>=4||(built>0&&performance.now()>=deadline))continue;floorChunks.set(key,buildFloorChunk(cx,cy));built++;
     }
   }
 
@@ -3491,6 +3491,7 @@ async function main() {
       pendingStartStrategy = false;
       toggleStrategy();
     }
+    const cameraStart=perf.now();
     strategyCam.homeZoom = homeZoom();
     const sv = strategyCameraView(mine.sprite.position.x, mine.sprite.position.y);
     const now = performance.now();
@@ -3512,9 +3513,11 @@ async function main() {
     scenery.updateVisible(bounds);
     for(const map of interpMaps)for(const e of map.values())if(!culledUnits.has(e)&&e.sprite.visible)orderUnit(e,tileSpriteLayer,worldTilesX,tileSize);
     const body=mine.sprite,canOutline=body instanceof Sprite&&body.visible&&!interiorRef.ui?.active()&&strategyBand==='tactical';
+    perf.phase('camera/depth',cameraStart);const outlineStart=perf.now();
     const covers=canOutline?scenery.occluders(body as Sprite,body.zIndex):[];
     hiddenHero.update(body,covers,!!canOutline);perf.setRenderStats(scenery.count,scenery.visibleCount,floorChunks.size,covers.length);
-    updateFloorChunks();
+    perf.phase('outline',outlineStart);const floorStart=perf.now();
+    updateFloorChunks();perf.phase('floor',floorStart);
     requestStreamChunks();
     if (loadingUi.active()) reportMapProgress(mine.sprite.position.x, mine.sprite.position.y);
   });
@@ -3582,7 +3585,7 @@ async function main() {
       for (let cy = Math.max(0, y0); cy <= Math.min(sm.chunksY - 1, y1); cy++) {
         for (let cx = Math.max(0, x0); cx <= Math.min(sm.chunksX - 1, x1); cx++) {
           const c = cy * sm.chunksX + cx;
-          if (chunkLoaded[c] || now - (chunkRequestedAt.get(c) ?? -Infinity) < 3000 || want.includes(c)) continue;
+          if (chunkLoaded[c] || chunkInbox.has(c) || now - (chunkRequestedAt.get(c) ?? -Infinity) < 3000 || want.includes(c)) continue;
           want.push(c);
         }
       }
@@ -3608,8 +3611,9 @@ async function main() {
   }
 
   function applyStreamChunks(list:{c:number;tiles:string;biomes:string}[]){chunkInbox.push(list);}
-  app.ticker.add(()=>{if(!streamed){chunkInbox.clear();return;}const next=chunkInbox.take();if(next)installStreamChunks([next.chunk],next.overrides);});
-  function installStreamChunks(list: { c: number; tiles: string; biomes: string }[],overrides?:Map<number,number>) {
+  const streamChunkJob=(chunk:{c:number;tiles:string;biomes:string},overrides?:Map<number,number>)=>installStreamChunks([chunk],overrides);
+  app.ticker.add(()=>{if(!streamed){chunkInbox.clear();return;}const start=perf.now();chunkInbox.drain(2,streamChunkJob);perf.phase('chunk art',start);perf.setQueue(chunkInbox.size);});
+  function* installStreamChunks(list: { c: number; tiles: string; biomes: string }[],overrides?:Map<number,number>) {
     const sm = streamed;
     if (!sm) return;
     for (const { c, tiles: t64, biomes: b64 } of list) {
@@ -3627,9 +3631,8 @@ async function main() {
           biomes[i] = b.charCodeAt(y * w + x);
         }
       }
-      chunkLoaded[c] = 1;
-      chunkRequestedAt.delete(c);
-      if(roomBoundary)roofDirty=true;
+      // Publish readiness only after this chunk's art is complete.
+      let artSteps=0;
       // The chunk's sprites, plus a 3-tile band up / left and 1 tile right / down (autotiled roads / walls and
       // multi-tile art reaching across the chunk edge).
       for (let y = Math.max(0, y0 - 3); y < Math.min(worldTilesY, y0 + h + 1); y++) {
@@ -3637,9 +3640,10 @@ async function main() {
           const inside = x >= x0 && x < x0 + w && y >= y0 && y < y0 + h;
           if (!inside && !chunkLoaded[chunkOfTile(x, y)]) continue;
           setTileSprite(x, y, tiles[y * worldTilesX + x]);
+          if((++artSteps&15)===0)yield;
         }
       }
-      addDecorIn(x0, y0, w, h);
+      for(let x=x0;x<x0+w;x++){addDecorIn(x,y0,1,h);yield;}
       // Floor chunks under it rebuild with the real biomes (built lazily by updateFloorChunks).
       const fcx = Math.ceil(worldTilesX / FLOOR_CHUNK_TILES);
       for (let fy = Math.floor(y0 / FLOOR_CHUNK_TILES); fy * FLOOR_CHUNK_TILES < y0 + h; fy++) {
@@ -3649,6 +3653,7 @@ async function main() {
           floorChunks.delete(key);
         }
       }
+      chunkLoaded[c]=1;chunkRequestedAt.delete(c);if(roomBoundary)roofDirty=true;
       for (let y = y0; y < y0 + h; y += sm.f) for (let x = x0; x < x0 + w; x += sm.f) paintMinimapTile(y * worldTilesX + x);
     }
   }
@@ -6658,8 +6663,10 @@ async function main() {
       const cd = spellBtns[i].querySelector<HTMLElement>(".spell-cd");
       if (!cd) return;
       const left = id ? spellCooldownMs(id) : 0;
-      cd.style.height = id && left > 0 ? `${Math.min(100, (left / (spellCooldownSeconds(id, book.castLevel ?? 1) * 1000)) * 100)}%` : "0";
-      cd.textContent = left > 0 ? String(Math.ceil(left / 1000)) : "";
+      const height=id && left > 0 ? `${Math.min(100, (left / (spellCooldownSeconds(id, book.castLevel ?? 1) * 1000)) * 100)}%` : "0%";
+      const text=left > 0 ? String(Math.ceil(left / 1000)) : "";
+      if(cd.style.height!==height)cd.style.height=height;
+      if(cd.textContent!==text)cd.textContent=text;
     });
   }
   window.setInterval(renderSpellBar, 100);
@@ -6885,6 +6892,8 @@ async function main() {
   socket.addEventListener("message", (event) => {
     const parseStart = performance.now();
     const message: ServerMessage = JSON.parse(event.data);
+    const snapshotStart=message.type==="snapshot"?perf.now():0;
+    try {
     // Rebuild a delta snapshot into a full one before anything reads it; on a sequence gap ask for a keyframe
     // (meanwhile it carries the last known units).
     if(message.type==='homeDesigns'){const changed=new Set([...playerHomeDesigns.keys(),...message.homes.map(h=>h[0])]);playerHomeDesigns.clear();for(const [i,b]of message.homes)playerHomeDesigns.set(i,b);for(const i of changed)if(tiles[i]!==undefined)setTileSprite(i%worldTilesX,Math.floor(i/worldTilesX),tiles[i]);return;}
@@ -7186,6 +7195,7 @@ async function main() {
       if (message.ok && message.action === "save") pushEventToast("build", `Game saved to ${name}`);
       else if (!message.ok) pushEventToast("death", message.error ?? `Could not ${message.action} ${name}`);
     }
+    } finally { if(message.type==="snapshot")perf.phase("snapshot apply",snapshotStart); }
   });
 
   // Quick-save button: saves to the slot you last saved to (Slot 1 the first time), no dialog.
@@ -7646,21 +7656,23 @@ async function main() {
     return adventurePrefs.on && !strategyCam.active && !document.body.classList.contains("party-large") && selectedCommandable().length > 0;
   }
   function refreshAdventureHud() {
+    const hudStart=perf.now();
     const units = selectedCommandable();
     const large = units.length > PARTY_COMMAND_MAX || units.some((u) => regimentOfUnit.get(u.id)?.id.startsWith("tf"));
     if (document.body.classList.contains("party-large") !== large) document.body.classList.toggle("party-large", large);
     const me = latestPlayersForSpells.find((p) => p.id === myId);
     if (!me) return;
     const hpFrac = me.maxHp > 0 ? Math.max(0, Math.min(1, me.hp / me.maxHp)) : 0;
-    heroBarHp.style.width = `${hpFrac * 100}%`;
+    const hpWidth=`${hpFrac * 100}%`;if(heroBarHp.style.width!==hpWidth)heroBarHp.style.width=hpWidth;
     updateVitals("health",hpFrac*100,me.dead?"Fallen":`${Math.ceil(me.hp)} / ${me.maxHp}`);
-    heroBarHpText.textContent = me.dead ? "Fallen" : `${Math.ceil(me.hp)} / ${me.maxHp}`;
+    const hpText=me.dead ? "Fallen" : `${Math.ceil(me.hp)} / ${me.maxHp}`;if(heroBarHpText.textContent!==hpText)heroBarHpText.textContent=hpText;
     const prof = heroProfile;
     const next = prof?.nextLevelXp ?? null;
     const xpFrac = prof && next !== null && next > prof.levelXp ? (prof.xp - prof.levelXp) / (next - prof.levelXp) : 1;
-    heroBarXp.style.width = `${Math.max(0, Math.min(1, xpFrac)) * 100}%`;
+    const xpWidth=`${Math.max(0, Math.min(1, xpFrac)) * 100}%`;if(heroBarXp.style.width!==xpWidth)heroBarXp.style.width=xpWidth;
     const name = `Hero, level ${prof?.level ?? 1}`;
     if (heroBarName.textContent !== name) heroBarName.textContent = name;
+    perf.phase("HUD",hudStart);
   }
   window.setInterval(refreshAdventureHud, 150);
   function adventureInteract() {
