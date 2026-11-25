@@ -1,0 +1,12 @@
+import WebSocket from 'ws';
+import assert from 'node:assert/strict';
+const ws=new WebSocket(`ws://127.0.0.1:${process.env.PORT??18080}`),messages=[],pending=new Map();let welcome;
+ws.on('message',raw=>{const m=JSON.parse(raw);messages.push(m);if(m.type==='welcome')welcome=m;if(m.type==='testHookResult'){const fn=pending.get(m.op);pending.delete(m.op);fn?.(m);}});
+const until=async fn=>{for(let i=0;i<200;i++){if(fn())return;await new Promise(r=>setTimeout(r,25));}assert(fn(),'timed out waiting for server message');};
+await new Promise((resolve,reject)=>{ws.once('open',resolve);ws.once('error',reject);});await until(()=>welcome);
+const send=m=>ws.send(JSON.stringify(m));const hook=args=>new Promise(resolve=>{pending.set('adventure',resolve);send({type:'testHook',op:'adventure',...args});});
+const stage=await hook({mode:'fire'});assert(stage.inside&&stage.mobs.length===1);const mob=stage.mobs[0];messages.length=0;send({type:'castSpell',slot:0,targetId:mob.id});await until(()=>messages.some(m=>m.type==='interiorSpell'));const after=await hook({});assert(after.mobs[0].hp<mob.hp,'real WebSocket spell command damages interior actor');assert(messages.find(m=>m.type==='interiorSpell').effect.key===stage.inside.key);
+const effectCount=messages.filter(m=>m.type==='interiorSpell').length;send({type:'castSpell',slot:0,targetId:mob.id});await until(()=>messages.some(m=>m.type==='event'&&m.text.includes('cooldown')));assert.equal(messages.filter(m=>m.type==='interiorSpell').length,effectCount);
+const rack=await hook({mode:'rack'});await until(()=>messages.some(m=>m.type==='interior'&&m.view?.furniture?.some(q=>q.prop==='weaponRack')));const view=messages.filter(m=>m.type==='interior'&&m.view?.key===rack.inside.key).at(-1).view,q=view.furniture.find(q=>q.prop==='weaponRack');assert(q);send({type:'interiorUse',x:q.x,y:q.y});await until(()=>messages.some(m=>m.type==='dialogue'&&m.dialogue?.npc?.name==='Weapon rack'));const dialogue=messages.filter(m=>m.type==='dialogue'&&m.dialogue?.npc?.name==='Weapon rack').at(-1).dialogue,n=dialogue.choices.findIndex(c=>c.label.includes('sword'));assert(n>=0);send({type:'dialogueChoice',choice:n});
+await until(()=>messages.some(m=>m.type==='event'&&m.text.includes('Collected')&&m.text.includes('sword')));
+console.log('PASS real WebSocket indoor spell dispatch, scoped effect, cooldown refusal and rack pickup dialogue');ws.close();process.exit(0);

@@ -1,5 +1,6 @@
 import {explorationView} from './adventureLoot.js';
 import {storyRoomMap} from './story.js';
+import {furnitureView,useFurniture,furnitureRoomMap,resetFurniture} from './furniture.js';
 import {bossMoveSpeed} from './bossCombat.js';
 import {specialAt} from './specialCast.js';
 import {SPECIAL_BY_ID} from '@colony/shared/specialCast';
@@ -74,7 +75,7 @@ function designedMap(key:string, id:InteriorTemplateId,level:number,variant:numb
  const design=homeDesigns.get(key);if(!design&&id==='house'&&storey===0&&forcedVariant===null){const [x,y]=key.split(',').map(Number);const base=['cottage','farmhouse','townhouse','hill-burrow'][(x*7+y*11)%4];const cacheKey='home-default:'+base+':'+level;let hit=maps.get(cacheKey);if(!hit){const map=playerBaseMap({base},level);const solid=interiorSolidGrid(map);const free=[];for(let yy=2;yy<map.h-2;yy++)for(let xx=2;xx<map.w-2;xx++)if(!solid[yy*map.w+xx])free.push({x:xx,y:yy,slot:'v' as const});map.slots=free.slice(0,3);hit={map,solid};maps.set(cacheKey,hit);}return hit;}if(!design||storey>0||!['house','hall'].includes(id))return mapFor(id,level,variant,storey);
  let hit=homeCache.get(design);if(!hit||hit.map.level!==level){const map=playerBaseMap(design,level);hit={map,solid:interiorSolidGrid(map)};homeCache.set(design,hit);}return hit;
 }
-const mapOf=(I:NonNullable<Player['interior']>)=>{const base=designedMap(I.key,I.templateId as InteriorTemplateId,I.level,I.variant,I.storey);const map=storyRoomMap(I.tx,I.ty,base.map);return map===base.map?base:{map,solid:interiorSolidGrid(map)};};
+const mapOf=(I:NonNullable<Player['interior']>)=>{const base=designedMap(I.key,I.templateId as InteriorTemplateId,I.level,I.variant,I.storey);const map=storyRoomMap(I.tx,I.ty,base.map);return furnitureRoomMap(I.key,I.variant,I.storey,map===base.map?base:{map,solid:interiorSolidGrid(map)});};
 
 // Test hook `interior {variant}`: every building uses this layout (null: the deterministic pick).
 let forcedVariant: number | null = null;
@@ -513,6 +514,8 @@ function viewFor(p: Player): { view: InteriorView; npcs: Binding[]; acc: Access 
   syncRoom(roomKeyOf(I), map, solid, npcs);
   const own = "kind" in acc && acc.kind === "own";
   const view: InteriorView = {
+    instanceVariant:I.variant,
+    furniture:furnitureView(p,map,own&&!encounterKind(I.tile),explorationView(p,false)?.objects??[]),
     exploration:explorationView(p,mineView(I.tx,I.ty,I.variant)?.status==='cleared'),
     key: I.key,
     tx: I.tx,
@@ -819,7 +822,6 @@ export function updateInteriors() {
 
 // ---- E inside ----
 export function interiorInteract(p: Player) {
-  if(encounterInteract(p))return;
   const I = p.interior;
   const v = viewFor(p);
   if (!I || !v) return;
@@ -839,7 +841,7 @@ export function interiorInteract(p: Player) {
     const d = dist(nx, ny);
     if (d > TALK_RANGE_TILES) continue;
     const c = b.colonistId ? colonists.get(b.colonistId) : undefined;
-    offer(d, () => startTalk(p, { role: b.role, specialId:b.specialId, name: b.name, d, site: b.site, colonist: c, inside: inside(nx, ny) }));
+    offer(d - TALK_RANGE_TILES, () => startTalk(p, { role: b.role, specialId:b.specialId, name: b.name, d, site: b.site, colonist: c, inside: inside(nx, ny) }));
   }
   for(const o of v.view.exploration?.objects??[]){const d=dist(o.x,o.y);if(o.available&&d<=1.65)offer(d,()=>encounterInteract(p,o.x,o.y));}
   for (const q of map.props) {
@@ -848,6 +850,7 @@ export function interiorInteract(p: Player) {
     if (d > INTERIOR_USE_RANGE_TILES) continue;
     if (q.prop === "bed" || q.prop === "bedFine") offer(d, () => bedTalk(p, v.view.canSleep, v.view.threat, inside(q.x, q.y)));
     else if (WORK_PROPS.has(q.prop) && interiorWorkstation(p)) offer(d + 1, () => handlePersonalCraft(p));
+    else if(v.view.furniture?.some(f=>f.x===q.x&&f.y===q.y))offer(d,()=>handleInteriorUse(p,q.x,q.y));
     else if (q.prop === "chest") offer(d, () => (v.view.chest ? chestTalk(p, "", inside(q.x, q.y)) : toast(p, "This chest is not yours")));
   }
   const de = dist(map.exit.x, map.exit.y);
@@ -995,7 +998,7 @@ export function restoreInteriorChests(data: unknown) {
   }
 }
 export function resetInteriors() {
-  homeDesigns.clear();homeSent.clear();
+  resetFurniture();homeDesigns.clear();homeSent.clear();
   chests.clear();
   rooms.clear();
 }
@@ -1038,7 +1041,10 @@ export function handleInteriorEdit(p:Player,m:{op:string;base?:string;floor?:str
  for(const k of rooms.keys())if(k.startsWith(I.key+':'))rooms.delete(k);
  for(const other of players.values())if(other.interior?.key===I.key){const x=Math.floor(other.interior.x/TILE_SIZE),y=Math.floor(other.interior.y/TILE_SIZE);if(m.op==='base'||x<0||y<0||x>=map.w||y>=map.h||interiorSolidGrid(map)[y*map.w+x]){other.interior.x=px(map.spawn.x);other.interior.y=px(map.spawn.y);}other.interior.storey=0;sendView(other,true);}
 }
+function objectContext(p:Player,v:NonNullable<ReturnType<typeof viewFor>>){const own='kind'in v.acc&&v.acc.kind==='own';return{map:v.view.map,own:own&&!encounterKind(p.interior!.tile),hostile:!!encounterKind(p.interior!.tile),siteId:'site'in v.acc?v.acc.site.id:undefined,refresh:()=>refreshInteriorView(p.interior!.key),work:()=>{if(!interiorWorkstation(p))return false;handlePersonalCraft(p);return true;}};}
+export function handleInteriorObjectChoice(p:Player,raw:string){let data:{x:number;y:number;op:string;arg?:string};try{data=JSON.parse(raw);}catch{return;}if(!Number.isInteger(data.x)||!Number.isInteger(data.y)||typeof data.op!=='string')return;const v=viewFor(p);if(!v||p.dead)return;const q=v.view.map.props.find(q=>q.x===data.x&&q.y===data.y);if(q)useFurniture(p,q,objectContext(p,v),data.op,typeof data.arg==='string'?data.arg:'');}
 export function handleInteriorUse(p:Player,x:number,y:number){
+ const fv=p.interior?viewFor(p):null;if(fv&&!p.dead&&Number.isInteger(x)&&Number.isInteger(y)&&!fv.view.exploration?.objects.some(o=>o.x===x&&o.y===y)){const q=fv.view.map.props.find(q=>q.x===x&&q.y===y);if(q&&useFurniture(p,q,objectContext(p,fv)))return;}
  if(p.interior&&encounterKind(p.interior.tile)){if(Number.isInteger(x)&&Number.isInteger(y))encounterInteract(p,x,y);return;}
  const I=p.interior,v=viewFor(p);if(!I||!v||!Number.isInteger(x)||!Number.isInteger(y))return;
  if(Math.hypot(px(x)-I.x,px(y)-I.y)>INTERIOR_USE_RANGE_TILES*TILE_SIZE){toast(p,'Walk closer to use that furniture');return;}

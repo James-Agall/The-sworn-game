@@ -862,7 +862,9 @@ export interface InteriorNpcLive {
 // Message `interior` view: the map (tiles), its NPCs, the chest (own buildings: contents; null: not yours / none),
 // whether the bed is yours to sleep in, and how many hostiles are near the door.
 export interface InteriorView {
+  instanceVariant?:number;
   exploration?:import("./adventure.js").ExplorationView;
+  furniture?:import("./interactables.js").FurnitureLive[];
   key: string;
   tx: number;
   ty: number;

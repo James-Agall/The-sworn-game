@@ -995,7 +995,10 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
 
   const tileCenter = tileToPixelCenter({ x: tx, y: ty });
   const dist = Math.hypot(player.x - tileCenter.x, player.y - tileCenter.y);
-  if (!skipReach && dist > REACH) return;
+  if (!skipReach && dist > REACH) {
+    if(tile===TileType.RockMinePost||tile===TileType.IronMinePost)sendEvent(player,"build","Walk within 2 tiles of the deposit, then right-click it to place this building");
+    return;
+  }
   // Multi-tile buildings: a part tile stands for its anchor (demolish / upgrade / build-over all act there).
   if (state.tiles[tileIndex(tx, ty)] === TileType.BuildingPart) {
     const anchor = anchorOfTile(tx, ty);
@@ -1031,12 +1034,12 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   const siteKey = resourceKey(tx, ty);
   // Forts phase A: an NPC site's tile can be neither demolished nor built on / upgraded.
   if (ownerAt(tileIndex(tx, ty)) !== 0) {
-    sendEvent(player, "build", "That belongs to an enemy fort");
+    sendEvent(player, "build", "That land belongs to another settlement");
     return;
   }
   // Forts phase B: nothing is built inside a fort's reserved grounds (template rectangle + apron).
   if (tile !== TileType.Empty && isInSiteGrounds(tx, ty)) {
-    sendEvent(player, "build", "Too close to an enemy fort");
+    sendEvent(player, "build", "This ground is reserved by another settlement; choose unclaimed land outside it");
     return;
   }
   // Clans: another clan's buildings are theirs alone.
@@ -1068,7 +1071,10 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
       return;
     }
   } else if (tile === TileType.RockMinePost) {
-    if (current !== TileType.Rock) return;
+    if (current !== TileType.Rock) {
+      sendEvent(player,"build","A Quarry needs a stone outcrop (grey rock), not ore or empty ground. Select Quarry, approach the rock, then right-click its ground tile");
+      return;
+    }
   } else if (depositMineFor(tile)?.mine === tile) {
     // Deep mines: a coal / copper / tin mine only on its own deposit.
     const d = depositMineFor(tile)!;

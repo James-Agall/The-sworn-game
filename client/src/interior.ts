@@ -22,7 +22,7 @@ import {PLAYER_BASES,HOME_PROPS} from "@colony/shared/playerBases";
 // and show a speech bubble when they greet. Stairs ("U" / "D") are drawn in code; upstairs has no exit hint.
 import { loadTexture } from "./atlas";
 import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
-import { TileType, type PlayerSnapshot } from "@colony/shared/protocol";
+import { TileType, SPELLS, type SpellId, type InteriorSpellEffect, type PlayerSnapshot } from "@colony/shared/protocol";
 import {
   INTERIOR_BOB_MS, INTERIOR_BOB_PX, INTERIOR_ESC_EXIT_TILES, INTERIOR_FADE_MS, INTERIOR_TILE_PX, INTERIOR_VIGNETTE_ALPHA,
   INTERIOR_WALK_FRAME_MS, INTERIOR_WORK_MS, INTERIOR_ZOOM, type InteriorMap, type InteriorNpcLive, type InteriorProp, type InteriorView,
@@ -121,6 +121,10 @@ export interface InteriorDeps {
   // Deep mines: a cave monster's art (idle texture and scale, walk / attack frames and their scale, stand-in tint).
   mobArt?: (kind: string) => { idle: Texture; scale: number; walk: Texture[]; action: Texture[]; walkScale: number; tint?: number } | undefined;
   send: (msg: object) => void;
+  spellAim?:()=>{slot:number;spell:SpellId}|null;
+  castSpell?:(target:{targetId?:string;x?:number;y?:number})=>void;
+  cancelSpell?:()=>void;
+  notice?:(text:string)=>void;
   myId: () => string | null;
   // Entering / leaving (main.ts: weather, strategy toggle, selection).
   onChange?: (inside: boolean) => void;
@@ -129,6 +133,7 @@ export interface InteriorDeps {
 export interface InteriorUi {
   active: () => boolean;
   useHighlighted: () => boolean;
+  onSpell:(effect:InteriorSpellEffect)=>void;
   onMessage: (view: InteriorView | null) => void;
   // Gap closure G5: message `interiorNpcs`.
   onNpcs: (key: string, storey: number, npcs: InteriorNpcLive[]) => void;
@@ -156,6 +161,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   const layer = new Container();
   layer.visible = false;
   const room = new Container();
+  const spellFx:{effect:InteriorSpellEffect;started:number;g:Graphics}[]=[];
   room.sortableChildren = true;
   const vignette = new Sprite(vignetteTexture());
   vignette.alpha = INTERIOR_VIGNETTE_ALPHA;
@@ -223,7 +229,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   const interactionOutline=new Graphics();interactionOutline.zIndex=1e7;
   const interactionHint=document.createElement('div');interactionHint.id='interior-use-hint';interactionHint.hidden=true;document.body.append(interactionHint);
   const hintStyle=document.createElement('style');hintStyle.textContent='#interior-use-hint{position:fixed;left:50%;bottom:115px;transform:translateX(-50%);max-width:calc(100vw - 30px);padding:9px 14px;background:#eadbb7ee;color:#352916;border:1px solid #967c4f;border-radius:4px;z-index:18;font:14px Georgia;pointer-events:none;text-align:center}#interior-use-hint[hidden]{display:none}#hl-dialogue{max-height:min(65vh,620px);overflow-y:auto}#hl-choices button{padding:7px 9px;min-height:31px}';document.head.append(hintStyle);
-  window.addEventListener('pointermove',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)){hover=null;return;}const p=room.toLocal({x:e.clientX,y:e.clientY});hover={x:Math.floor(p.x/T),y:Math.floor(p.y/T)};});
+  window.addEventListener('pointermove',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)){hover=null;return;}const p=localPoint(e);hover={x:Math.floor(p.x/T),y:Math.floor(p.y/T)};});
   const editor=document.createElement('section');editor.id='home-editor';editor.hidden=true;
   editor.innerHTML=`<h3>Make yourself at home</h3><label>Base style <select id="home-base">${PLAYER_BASES.map(b=>`<option value="${b.id}">${b.label}</option>`).join('')}</select></label><button id="home-base-apply">Use this base</button><label>Floor <select id="home-floor"><option value="wood">Wood planks</option><option value="stone">Stone tiles</option><option value="dirt">Packed earth</option></select></label><label>Walls <select id="home-wall"><option value="wood">Timber</option><option value="stone">Stone</option></select></label><label>Furnishing <select id="home-prop"><option value="remove">Remove furnishing</option>${HOME_PROPS.map(p=>`<option value="${p}">${p.replace(/([A-Z])/g,' $1')}</option>`).join('')}</select></label><label>Facing <select id="home-facing"><option value="n">North</option><option value="e">East</option><option value="s" selected>South</option><option value="w">West</option></select></label><img id="home-preview" alt="Selected furnishing"/><p>Click a floor tile to place or remove furniture. Paths and the doorway must stay clear. Furniture changes are free.</p><button id="home-done">Done decorating</button>`;
   document.body.append(editor);
@@ -236,7 +242,30 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   editor.querySelector<HTMLButtonElement>('#home-base-apply')!.onclick=()=>{if(window.confirm('Use this base and its furnished layout? Stored chest contents will be kept.'))edit({op:'base',base:select('base').value});};
   select('floor').onchange=()=>edit({op:'floor',floor:select('floor').value});select('wall').onchange=()=>edit({op:'wall',wall:select('wall').value});
   const preview=()=>{const p=select('prop').value,img=editor.querySelector<HTMLImageElement>('#home-preview')!;img.hidden=!['bed','chair','chest','table','hearth','shelf','wardrobe'].includes(p);if(!img.hidden)img.src=`/sprites/interiors-v2/${p}_${select('facing').value}.png`;};select('prop').onchange=preview;select('facing').onchange=preview;preview();
-  window.addEventListener('pointerdown',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)||e.button!==0)return;const point=room.toLocal({x:e.clientX,y:e.clientY});const x=Math.floor(point.x/T),y=Math.floor(point.y/T);if(decorating){e.preventDefault();e.stopImmediatePropagation();const prop=select('prop').value;edit({op:prop==='remove'?'remove':'place',prop,x,y,facing:select('facing').value});}else if(view.exploration?.objects.some(o=>o.x===x&&o.y===y&&(!o.secret||Math.hypot((x+.5)*T-target.x,(y+.5)*T-target.y)<T*1.8))){e.preventDefault();e.stopImmediatePropagation();deps.send({type:'interiorUse',x,y});}else if([...npcViews].some(([,n])=>Math.hypot((n.sx+.5)*T-point.x,(n.sy+.25)*T-point.y)<T*.55)){const found=[...npcViews].sort(([,a],[,b])=>Math.hypot((a.sx+.5)*T-point.x,(a.sy+.25)*T-point.y)-Math.hypot((b.sx+.5)*T-point.x,(b.sy+.25)*T-point.y))[0];if(found){e.preventDefault();e.stopImmediatePropagation();deps.send({type:'interiorTalk',id:found[0]});}}else if(view.map.props.some(p=>p.x===x&&p.y===y&&['chest','bed','bedFine','anvil','forge','oven','workbench','counter','barrel','oreFace'].includes(p.prop))){e.preventDefault();e.stopImmediatePropagation();openChest={x,y,until:performance.now()+5000};rebuildPending=true;window.setTimeout(()=>{openChest=null;rebuildPending=true;},5000);deps.send({type:'interiorUse',x,y});}},true);
+  const localPoint=(e:PointerEvent)=>{const rect=(e.target as HTMLCanvasElement).getBoundingClientRect();return room.toLocal({x:(e.clientX-rect.left)*deps.app.screen.width/rect.width,y:(e.clientY-rect.top)*deps.app.screen.height/rect.height});};
+  window.addEventListener('pointerdown',e=>{
+    if(!view||!(e.target instanceof HTMLCanvasElement))return;
+    const point=localPoint(e),x=Math.floor(point.x/T),y=Math.floor(point.y/T),aim=deps.spellAim?.();
+    if(aim&&!decorating){
+      if(e.button!==0&&e.button!==2)return;e.preventDefault();e.stopImmediatePropagation();
+      if(e.button===2){deps.cancelSpell?.();return;}
+      const def=SPELLS[aim.spell];
+      if(def.targeting==='enemy'){
+        const mob=mobsLive?.mobs.filter(m=>m.hp>0&&Math.hypot((m.x+.5)*T-point.x,(m.y+.25)*T-point.y)<T*.9).sort((a,b)=>Math.hypot((a.x+.5)*T-point.x,(a.y+.25)*T-point.y)-Math.hypot((b.x+.5)*T-point.x,(b.y+.25)*T-point.y))[0];
+        if(mob)deps.castSpell?.({targetId:mob.id});else deps.notice?.(`${def.name}: click an enemy in this room. Right click cancels.`);
+      }else if(def.targeting==='ally'){
+        const ally=[...others].filter(([,s])=>Math.hypot(s.x-point.x,s.y-point.y)<T).sort(([,a],[,b])=>Math.hypot(a.x-point.x,a.y-point.y)-Math.hypot(b.x-point.x,b.y-point.y))[0];deps.castSpell?.(ally?{targetId:ally[0]}:{});
+      }else deps.castSpell?.({x:point.x,y:point.y});
+      return;
+    }
+    if(e.button!==0)return;
+    if(decorating){e.preventDefault();e.stopImmediatePropagation();const prop=select('prop').value;edit({op:prop==='remove'?'remove':'place',prop,x,y,facing:select('facing').value});return;}
+    const object=view.exploration?.objects.some(o=>o.x===x&&o.y===y&&(!o.secret||Math.hypot((x+.5)*T-target.x,(y+.5)*T-target.y)<T*1.8))||view.furniture?.some(o=>o.x===x&&o.y===y&&!o.cleared);
+    if(object){e.preventDefault();e.stopImmediatePropagation();deps.send({type:'interiorUse',x,y});return;}
+    const npc=[...npcViews].filter(([,n])=>Math.hypot((n.sx+.5)*T-point.x,(n.sy+.25)*T-point.y)<T*.55).sort(([,a],[,b])=>Math.hypot((a.sx+.5)*T-point.x,(a.sy+.25)*T-point.y)-Math.hypot((b.sx+.5)*T-point.x,(b.sy+.25)*T-point.y))[0];
+    if(npc){e.preventDefault();e.stopImmediatePropagation();deps.send({type:'interiorTalk',id:npc[0]});return;}
+    if(view.map.props.some(p=>p.x===x&&p.y===y&&['chest','bed','bedFine'].includes(p.prop))){e.preventDefault();e.stopImmediatePropagation();openChest={x,y,until:performance.now()+5000};rebuildPending=true;window.setTimeout(()=>{openChest=null;rebuildPending=true;},5000);deps.send({type:'interiorUse',x,y});}
+  },true);
   const homeStyle=document.createElement('style');homeStyle.textContent=`#home-editor{position:fixed;right:18px;top:140px;width:240px;max-height:75vh;overflow:auto;padding:18px;background:#242c26f5;color:#eee2c6;border:1px solid #a48c59;border-radius:10px;z-index:40;font:14px Georgia}#home-editor[hidden]{display:none}#home-editor label{display:block;margin:12px 0}#home-editor select,#home-editor button{display:block;box-sizing:border-box;width:100%;padding:8px;margin-top:5px;background:#3c4737;color:#fff0cf;border:1px solid #8a7954;border-radius:5px}#home-preview{width:52px;height:52px;object-fit:contain;image-rendering:pixelated}#home-editor p{font-size:12px;line-height:1.5;color:#c1c4ae}#home-decorate{padding:7px 12px;background:#344733;color:#f4e3bc;border:1px solid #b09562;border-radius:5px}#home-decorate[hidden]{display:none}`;homeStyle.textContent+=`body.interior-mode #next-bar,body.interior-mode #event-feed,body.interior-mode #goal-tracker,body.interior-mode #economy-panel,body.interior-mode #economy-panel-toggle,body.interior-mode #build-panel,body.interior-mode #build-panel-toggle,body.interior-mode #minimap-frame,body.interior-mode #hero-hotbar{display:none!important}body.interior-mode.interior-stockpile #economy-panel:not(.collapsed){display:block!important}body.interior-mode #int-hud{top:100px}body.interior-mode #player-bar{top:58px!important}`;document.head.append(homeStyle);
 
   const hero = new Sprite(deps.playerTexture);
@@ -455,7 +484,16 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       opening.roundRect(p.x*T,p.y*T,p.w*T,p.h*T,T*.15).fill(0x080705);opening.zIndex=-3;room.addChild(opening);
       for(const part of entrance.sprites){const tex=extraTexture(part.url);if(!tex)continue;const b=opaqueBox(tex),sp=new Sprite(tex);sp.anchor.set(b.x/tex.width,b.y/tex.height);sp.scale.set(part.w*T/b.w,part.h*T/b.h);sp.position.set(part.x*T,part.y*T);sp.zIndex=-3;room.addChild(sp);}
     }
-    for (const p of m.props){const o=v.exploration?.objects.find(o=>o.x===p.x&&o.y===p.y);if(o?.kind==='key'&&!o.available)continue;room.addChild(propSprite(p.prop,p.x,p.y,p.facing));}
+    for (const p of m.props){const f=v.furniture?.find(f=>f.x===p.x&&f.y===p.y);if(f?.cleared)continue;
+      if(f?.empty&&['weaponRack','armourStand'].includes(p.prop)||f?.off){
+        const g=new Graphics(),x=p.x*T,y=p.y*T,wood=0x785237,edge=0x38261d,hi=0xa77b4a;
+        if(p.prop==='weaponRack'){g.rect(x+4,y+9,3,22).rect(x+25,y+9,3,22).rect(x+3,y+12,26,4).rect(x+3,y+24,26,3).fill(wood);g.rect(x+4,y+9,1,22).rect(x+25,y+9,1,22).rect(x+3,y+12,26,1).fill(hi);}
+        else if(p.prop==='armourStand'){g.rect(x+14,y+5,4,24).rect(x+7,y+12,18,3).rect(x+7,y+28,18,3).fill(wood);g.circle(x+16,y+5,3).fill(hi);}
+        else if(p.prop==='hearth'){g.rect(x+3,y+6,26,25).fill(0x716259);g.rect(x+9,y+16,14,15).fill(0x211a17);g.rect(x+5,y+28,22,3).fill(0x918071);g.rect(x+11,y+27,10,2).fill(wood);}
+        else{g.rect(x+14,y+10,3,21).rect(x+9,y+29,14,2).fill(edge);g.rect(x+11,y+8,10,12).fill(0x6f6859);g.rect(x+14,y+10,4,8).fill(0x292824);}
+        g.zIndex=(p.y+1)*T;room.addChild(g);continue;
+      }
+      const o=v.exploration?.objects.find(o=>o.x===p.x&&o.y===p.y);if(o?.kind==='key'&&!o.available)continue;room.addChild(propSprite(p.prop,p.x,p.y,p.facing));}
     for(const o of v.exploration?.objects??[]){if(o.opened&&!o.empty&&['crate','barrel','pot','cache'].includes(o.kind)){const tex=extraTexture('/sprites/adventure/pouch.png');if(tex){const b=opaqueBox(tex),sp=new Sprite(tex),k=12/b.h;sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((o.x+.5)*T,(o.y+1)*T);sp.zIndex=(o.y+1)*T;room.addChild(sp);}}if(o.kind==='gate'&&o.opened){const tex=extraTexture('/sprites/structure/extra/door_wood_stonearch_open_b.png');if(tex){const sp=new Sprite(tex);sp.anchor.set(.5,1);sp.width=1.3*T;sp.height=1.4*T;sp.position.set((o.x+.5)*T,(o.y+1)*T);sp.zIndex=(o.y+1)*T;room.addChild(sp);}}}
     const old = new Map(npcViews);
     npcViews.clear();
@@ -592,6 +630,9 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         mv.label.text=(m.name??'')+' · '+attack.name;
       }else mv.label.text=m.name??'';
       if(m.hazard?.remaining){const hx=(m.hazard.x+.5)*T,hy=(m.hazard.y+.5)*T,hr=m.hazard.radius*T;cue.circle(hx,hy,hr).fill({color:0xb5b4a6,alpha:.15}).stroke({width:1,color:0xddd8bb,alpha:.6});for(let n=0;n<8;n++){const a=n*Math.PI/4;cue.moveTo(hx,hy).lineTo(hx+Math.cos(a)*hr,hy+Math.sin(a)*hr).stroke({width:1,color:0xddd8bb,alpha:.45});}}
+      if(m.burning)for(let f=0;f<3;f++)cue.circle(x-5+f*5,y-8-(t/65+f*3)%12,2).fill({color:f%2?0xffdc86:0xf18b38,alpha:.85});
+      if(m.slowed)cue.circle(x,y+1,7).stroke({width:1.5,color:0x8ed4ed,alpha:.8});
+      if(m.cursed)cue.circle(x,y-24,3).stroke({width:1.5,color:0xc591d9,alpha:.85});
       b.alpha = m.act === "sleep" ? 0.7 : 1;
       b.position.set(x, y + (m.act === "sleep" ? 0 : Math.sin(t / 220) * (m.kind === "caveBat" ? 3 : 0.6)));
       b.zIndex = y;
@@ -606,7 +647,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     }
     slash.visible = now < slashUntil;
   }
-  const keyOf = (v: InteriorView) => `${v.key}:${v.map.templateId}:${v.map.level}:${v.map.variant}:${v.map.storey}:${JSON.stringify(v.npcs)}:${JSON.stringify(v.map)}`;
+  const keyOf = (v: InteriorView) => `${v.key}:${v.map.templateId}:${v.map.level}:${v.map.variant}:${v.map.storey}:${JSON.stringify(v.npcs)}:${JSON.stringify(v.map)}:${JSON.stringify(v.furniture)}`;
 
   function applyLive(npcs: InteriorNpcLive[]) {
     for (const n of npcs) {
@@ -742,11 +783,16 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     hero.position.set(shown.x, shown.y);
     hero.zIndex = shown.y;
     interactionOutline.clear();interactionHint.hidden=true;highlighted=undefined;
-    const hx=target.x/T-.5,hy=target.y/T-.5,objects=view.exploration?.objects??[],hovered=hover?objects.find(o=>o.available&&o.x===hover!.x&&o.y===hover!.y&&(!o.secret||Math.hypot(o.x-hx,o.y-hy)<1.8)):undefined;
+    const hx=target.x/T-.5,hy=target.y/T-.5,objects=[...(view.exploration?.objects??[]),...(view.furniture??[]).filter(o=>!o.cleared).map(o=>({...o,available:true,secret:false}))],hovered=hover?objects.find(o=>o.available&&o.x===hover!.x&&o.y===hover!.y&&(!o.secret||Math.hypot(o.x-hx,o.y-hy)<1.8)):undefined;
     const nearby=objects.filter(o=>o.available&&Math.hypot(o.x-hx,o.y-hy)<=EXPLORATION_REACH).sort((a,b)=>Math.hypot(a.x-hx,a.y-hy)-Math.hypot(b.x-hx,b.y-hy))[0],use=hovered??nearby;
     if(use&&!decorating){highlighted={x:use.x,y:use.y};const near=Math.hypot(use.x-hx,use.y-hy)<=EXPLORATION_REACH;interactionOutline.roundRect(use.x*T+2,use.y*T+2,T-4,T-4,3).stroke({width:2,color:near?0xf4db95:0xc0b69a,alpha:.8});interactionHint.textContent=near?`E · ${use.prompt} ${use.label}`:`${use.label} · Walk closer to ${use.prompt.toLowerCase()}`;interactionHint.hidden=false;}
     animateNpcs(performance.now());
     animateMobs(performance.now());
+    const aim=deps.spellAim?.();if(aim&&!decorating){interactionHint.textContent=`${SPELLS[aim.spell].name} · Click a target; right click or Esc cancels`;interactionHint.hidden=false;highlighted=undefined;interactionOutline.circle(target.x,target.y,SPELLS[aim.spell].range*T).stroke({width:1.5,color:0xf2c94c,alpha:.5});}
+    for(let n=spellFx.length-1;n>=0;n--){const fx=spellFx[n],age=(performance.now()-fx.started)/700,g=fx.g,e=fx.effect;if(age>=1||g.destroyed||view.key!==e.key){if(!g.destroyed)g.destroy();spellFx.splice(n,1);continue;}g.clear();const color=e.spell==='fireBolt'?0xf19432:e.spell==='frost'?0x9bdbec:e.spell==='thunder'?0xf8edb6:e.spell==='heal'?0x8fd07e:e.spell==='curse'?0xc895d2:0xe8d38a;
+      if(e.spell==='fireBolt'&&age<.55){const t=age/.55,x=e.fromX+(e.x-e.fromX)*t,y=e.fromY+(e.y-e.fromY)*t;g.moveTo(x-(e.x-e.fromX)*.08,y-(e.y-e.fromY)*.08).lineTo(x,y).stroke({width:4,color,alpha:.7});g.circle(x,y,5).fill(color);g.circle(x,y,2).fill(0xffedab);}
+      else{const radius=(e.radius||15)*Math.min(1,(age+.2)*1.4);g.circle(e.x,e.y,radius).stroke({width:3,color,alpha:1-age});g.circle(e.x,e.y,radius*.45).fill({color,alpha:(1-age)*.2});}
+    }
     const m=view.map;
     const viewportW=scr.width-(decorating?300:0);
     const zoom=decorating?Math.min(INTERIOR_ZOOM,viewportW/(m.w*T),(scr.height-200)/(m.h*T)):INTERIOR_ZOOM;
@@ -788,6 +834,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
 
   return {
     active: () => !!view,
+    onSpell(effect){if(!view||view.key!==effect.key||(view.instanceVariant??view.map.variant)!==effect.variant)return;const g=new Graphics();g.zIndex=1e6;room.addChild(g);spellFx.push({effect,started:performance.now(),g});},
     useHighlighted:()=>{if(!view||!highlighted||decorating)return false;deps.send({type:'interiorUse',...highlighted});return true;},
     onMessage(v) {
       if(v&&decorating){select("floor").value=v.map.floor;select("wall").value=v.map.wall;}

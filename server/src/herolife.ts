@@ -27,6 +27,7 @@ import { type ItemId, type Recipe, PROGRESSION, PROFESSION_LABEL, levelForXp, ou
 import { MINE_HERO_DIG_AMOUNT, MINE_HERO_DIG_SECONDS, isLayeredMine } from "@colony/shared/mines";
 import {storyOnMeet,storyOffers,storyDialogue,storyEvent,sendJournal} from './story.js';
 import {STORY_RECIPES} from '@colony/shared/stories';
+import {handleInteriorObjectChoice} from "./interiors.js";
 import {grantStoryShield} from './heroes.js';
 import {specialCharacterDefeated} from "./mines.js";
 import {SPECIAL_BY_ID} from "@colony/shared/specialCast";
@@ -763,6 +764,8 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
     case "part":
       return sayThen(p, t, partWays(p));
     // Stardew phase 5c (interiors): the building's own panel (shop, forge, ...), the bed and the chest.
+    case "interiorObject":
+      return handleInteriorObjectChoice(p,String(c.arg??""));
     case "craftRecipe":
       return handlePersonalCraft(p, String(c.arg ?? ""), t.inside ? { tx: t.inside.anchor.x, ty: t.inside.anchor.y } : undefined);
     case "openStockpile":

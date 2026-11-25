@@ -1,6 +1,7 @@
 // spells.ts: Hero spells: spell book, status effects, casting, auto-cast.
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { randomUUID } from "node:crypto";
+import {castInteriorAttack,mineInteriorMap,clearSight} from "./mines.js";
 import {
   type HeroClass, type SpellId, SPELL_IDS, type SpellBookSnapshot, SPELLS, SPELL_SLOT_COUNT, type GearItem,
   type BuildingInfo, TileType, TICK_RATE, TILE_SIZE, unitRole, type Stance,
@@ -314,7 +315,7 @@ export function isSummoned(c: Colonist): boolean {
 }
 
 export function friendlyPos(f: FriendlyUnit) {
-  return f.type === "player" ? { x: f.p.x, y: f.p.y } : { x: f.c.x, y: f.c.y };
+  return f.type === "player" ? { x: f.p.interior?.x??f.p.x, y: f.p.interior?.y??f.p.y } : { x: f.c.x, y: f.c.y };
 }
 export function friendlyKey(f: FriendlyUnit) {
   return f.type === "player" ? "p:" + f.p.id : "c:" + f.c.id;
@@ -326,7 +327,9 @@ export function friendlyHp(f: FriendlyUnit) {
 export function resolveFriendly(caster: SpellCaster, targetId: string | undefined): FriendlyUnit | null {
   if (!targetId) return caster.self;
   const p = players.get(targetId);
-  if (p) return p.dead ? null : { type: "player", p };
+  const inside=caster.self.type==='player'?caster.self.p.interior:undefined;
+  if(p){if(p.dead||!!inside!==!!p.interior||inside&&(inside.key!==p.interior?.key||inside.variant!==p.interior?.variant))return null;return {type:'player',p};}
+  if(inside)return null;
   const c = colonists.get(targetId);
   return c && !isAbbeyClergy(c) ? { type: "colonist", c } : null;
 }
@@ -354,7 +357,19 @@ export function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarg
   const ticks = (s?: number) => Math.round((s ?? 0) * TICK_RATE);
   const durTicks = (s?: number) => ticks((s ?? 0) * fxMult);
   let fx: { x: number; y: number };
-  if (def.targeting === "enemy") {
+  const indoor=caster.self.type==='player'?caster.self.p.interior:undefined;
+  if(indoor&&def.targeting!=='ally'&&def.targeting!=='self'){
+    if(id==='rallyBanner'){
+      if(!Number.isFinite(target.x)||!Number.isFinite(target.y)||!inRange(target.x!,target.y!))return 'Choose a nearby spot inside this room';
+      const grid=mineInteriorMap(indoor.tx,indoor.ty,indoor.level,indoor.variant),point={x:target.x!/TILE_SIZE-.5,y:target.y!/TILE_SIZE-.5},tx=Math.round(point.x),ty=Math.round(point.y);
+      if(tx<0||ty<0||tx>=grid.map.w||ty>=grid.map.h||grid.solid[ty*grid.map.w+tx]||!clearSight(grid,{x:caster.x/TILE_SIZE-.5,y:caster.y/TILE_SIZE-.5},point))return 'A wall blocks that spot';
+      fx={x:target.x!,y:target.y!};
+      for(const p of players.values())if(!p.dead&&p.interior?.key===indoor.key&&p.interior.variant===indoor.variant&&Math.hypot(p.interior.x-fx.x,p.interior.y-fx.y)<=(def.radius??0)*TILE_SIZE*fxMult){const s=statusAt('p:'+p.id);s.buffUntil=state.spellTick+durTicks(def.duration);s.buffDamage=def.buffDamage??0;s.buffSpeed=def.buffSpeed??0;}
+    }else{
+      const result=castInteriorAttack(caster.self.type==='player'?caster.self.p:null!,id,target,{power:def.power*sp,range:rangePx,radius:(def.radius??0)*TILE_SIZE*fxMult,duration:durTicks(def.duration),burn:(def.burnPerSec??0)*sp,slow:def.slow??0,curse:def.damageTakenBonus??0});
+      if(typeof result==='string')return result;fx=result;
+    }
+  } else if (def.targeting === "enemy") {
     const mob = target.targetId ? mobs.get(target.targetId) : undefined;
     if (!mob) return "No enemy targeted";
     if (!inRange(mob.x, mob.y)) return `Out of range (${def.range} tiles)`;
@@ -378,6 +393,7 @@ export function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarg
     if (!ally) return "No friendly target";
     const pos = friendlyPos(ally);
     if (!inRange(pos.x, pos.y)) return `Out of range (${def.range} tiles)`;
+    if(indoor){const grid=mineInteriorMap(indoor.tx,indoor.ty,indoor.level,indoor.variant);if(!clearSight(grid,{x:caster.x/TILE_SIZE-.5,y:caster.y/TILE_SIZE-.5},{x:pos.x/TILE_SIZE-.5,y:pos.y/TILE_SIZE-.5}))return 'A wall blocks your ally';}
     fx = pos;
     if (id === "heal") {
       const amount = def.power * sp;
@@ -414,7 +430,7 @@ export function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarg
         n++;
       }
       for (const p of players.values()) {
-        if (p.dead || Math.hypot(p.x - fx.x, p.y - fx.y) > radiusPx) continue;
+        if (p.dead || p.interior || Math.hypot(p.x - fx.x, p.y - fx.y) > radiusPx) continue;
         buff("p:" + p.id);
         n++;
       }
@@ -440,13 +456,14 @@ export function castSpellNow(caster: SpellCaster, id: SpellId, target: SpellTarg
   cd[id] = state.spellTick + ticks(spellCooldownSeconds(id, castLevel));
   touchSpellProfile(caster.prof);
   gainSpellcasting(caster.prof, def.cooldown);
-  state.pendingEffects.push({ fromX: caster.x, fromY: caster.y, toX: fx.x, toY: fx.y, spell: id });
+  if(indoor){for(const p of players.values())if(p.interior?.key===indoor.key&&p.interior.variant===indoor.variant)sendTo(p,{type:'interiorSpell',effect:{key:indoor.key,variant:indoor.variant,fromX:caster.x,fromY:caster.y,x:fx.x,y:fx.y,spell:id,radius:(def.radius??0)*TILE_SIZE*fxMult}});}
+  else state.pendingEffects.push({ fromX: caster.x, fromY: caster.y, toX: fx.x, toY: fx.y, spell: id });
   spellEvent({ type: "cast", key: caster.prof.key, spell: id, amount: def.power * sp, detail: target.targetId ?? (target.x !== undefined ? `${Math.round(target.x)},${Math.round(target.y ?? 0)}` : "self") });
   return "";
 }
 
 export function playerCaster(p: Player): SpellCaster {
-  return { prof: heroProfileOf(p), x: p.x, y: p.y, attackerKey: "p:" + p.id, self: { type: "player", p } };
+  return { prof: heroProfileOf(p), x: p.interior?.x??p.x, y: p.interior?.y??p.y, attackerKey: "p:" + p.id, self: { type: "player", p } };
 }
 
 export function heroCaster(c: Colonist): SpellCaster {

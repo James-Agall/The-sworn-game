@@ -243,10 +243,10 @@ function handleMessage(player: Player, message: ClientMessage) {
     return;
   }
 
-  // Stardew phase 5c: inside a building interior there is nothing to swing at or cast on. Deep mines: inside a mine
-  // the hero's swing hits the mine's monsters (mines.ts); spells stay outside.
-  if (player.interior && (message.type === "attack" || message.type === "castSpell")) {
-    if (message.type === "attack") mineHeroAttack(player);
+  // Interior melee uses room actors. Spells continue through the normal dispatcher,
+  // whose target validation selects this same room and layer.
+  if (player.interior && message.type === "attack") {
+    mineHeroAttack(player);
     return;
   }
   if (message.type === "input") {

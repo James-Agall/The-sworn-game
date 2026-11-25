@@ -6,6 +6,7 @@ import {migrateNeutralSpriteHomes} from './settlementMigration.js';
 import { type LivestockSave, livestockForSave, restoreLivestock } from "./animals.js";
 import { applySoloStart, resetHeroLifeSessions } from "./herolife.js";
 import { homeDesignsForSave,restoreHomeDesigns,type InteriorChestsSave, interiorChestsForSave, resetInteriors, restoreInteriorChests } from "./interiors.js";
+import {furnitureSave,restoreFurniture} from "./furniture.js";
 import { minesForSave, resetMines, restoreMines } from "./mines.js";
 import { DEPOSIT_MINES } from "@colony/shared/mines";
 import { orchardsForSave, resetAgri, restoreOrchards } from "./agri.js";
@@ -325,6 +326,7 @@ function snapshotWorldInner() {
     // Modular building phase 3 (optional).
     zones: zonesForSave() as ZonesSave | undefined,
     // Stardew phase 5c: [building anchor "x,y", goods] per non-empty interior chest (optional: older saves have none).
+    furniture:furnitureSave(),
     homeDesigns:homeDesignsForSave(),
     interiorChests: interiorChestsForSave() as InteriorChestsSave | undefined,
     // Deep mines: every own mine's status, monsters and hazards (optional: older saves have none; their mines start
@@ -580,6 +582,7 @@ function applyWorldInner(s: WorldState) {
   // Stardew phase 5c: interior chests (optional).
   restoreInteriorChests(s.interiorChests);
   restoreHomeDesigns(s.homeDesigns);
+  restoreFurniture(s.furniture);
   populateExistingRegionTowns();
   // Deep mines (optional). A world from before them (none of a deposit kind anywhere: no deposit, no mine on one) gets
   // those veins now (industry extras: limestone / gold / lead in a deep-mines world).

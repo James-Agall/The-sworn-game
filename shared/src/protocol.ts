@@ -1476,7 +1476,11 @@ export type ClientMessage =
   // Deep mines: send the clan's soldiers near this mine in to clear it (resolved at once, shared/src/mines.ts).
   | { type: "mineAssault"; tileX: number; tileY: number };
 
+export interface InteriorSpellEffect {key:string;variant:number;fromX:number;fromY:number;x:number;y:number;spell:SpellId;radius?:number}
+
 export type ServerMessage =
+  | {type:"interiorSpell";effect:InteriorSpellEffect}
+  | {type:"interiorPanel";panel:"inventory"|"stockpile"}
   | {type:"adventureJournal";journal:import("./adventure.js").JournalView}
   | { type:"homeDesigns"; homes:[number,string][] }
   | {

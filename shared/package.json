@@ -49,6 +49,7 @@
     "./hostileScatter": "./src/hostileScatter.ts",
     "./specialCast": "./src/specialCast.ts",
     "./adventure": "./src/adventure.ts",
-    "./stories": "./src/stories.ts"
+    "./stories": "./src/stories.ts",
+    "./interactables": "./src/interactables.ts"
   }
 }

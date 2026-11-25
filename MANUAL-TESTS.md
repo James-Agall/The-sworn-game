@@ -1528,3 +1528,15 @@ where the raiders gather. Solo hero without a camp: no forecast. Hunger-marked e
 ## Adventure update — 25 November 2026
 
 See the short play checklist in [HANDOVER-ADVENTURE.md](HANDOVER-ADVENTURE.md). Automated checks: `npm test -- adventure`.
+
+
+## Indoor spells, furniture and mine placement (25 November 2026)
+
+1. Enter a ruin, cave or occupied mine. Select Fire Bolt (spell button or Shift+1–4), left-click a visible enemy. Check projectile, damage, burning and cooldown; a wall, another layer or an invalid target must not be hit. Frost/Thunder/Curse and Heal/Ward/Rally use the same room boundaries. Summon explains that it needs outdoors.
+2. Approach a camp weapon rack, click it or use the highlighted E action. Take a weapon, open inventory and equip it. Exhaust the finite rack and check its empty art. A full inventory must leave the weapon behind. Nearby enemies block pickup.
+3. At friendly household equipment stands, pay the stated price; an owned stand withdraws existing armoury stock. Decorating a home must never produce free gear.
+4. Use seats/tables/hearths, lamps, shelves/altars, abandoned supplies and loose rubble/outcrops. Check the contextual action, appropriate ownership rules, pickaxe requirement, capacity and saved changes. Clearing loose props must unblock both hero and monsters. Do not remove structural cave walls or supports.
+5. Read a world account and find it in the journal. Save/reload with a depleted rack, an extinguished light and cleared rubble; check all three persist.
+6. Have a stone pickaxe in Stockpile. Select Quarry, walk within 2 tiles of unclaimed grey rock and right-click its ground tile. Then select Mine and right-click a mineral deposit. Wrong ground, reserved settlement land and excessive distance must explain the refusal; the resource placement preview warns on invalid ground/range.
+
+Automated: `node server/interactions-test.mjs`; `COLONY_WORLD_SEED=42 npm test -- interior-interactions-wire mines spells interiors player-workstations save-load`.

@@ -39,7 +39,7 @@ function startServer(port, size, saveDir) {
   const s = { proc, log: "", exited: false };
   proc.stdout.on("data", (d) => (s.log += d));
   proc.stderr.on("data", (d) => (s.log += d));
-  proc.on("exit", () => (s.exited = true));
+  proc.on("close", () => (s.exited = true));
   return s;
 }
 

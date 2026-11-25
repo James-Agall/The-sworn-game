@@ -67,7 +67,7 @@ import { raidForecastText, type RaidForecast } from "@colony/shared/raidForecast
 import { FUEL_LOW_DAYS, type WinterSnapshot } from "@colony/shared/winter";
 import { foodLevel, type FoodSnapshot } from "@colony/shared/food";
 import type { AgriSnapshot } from "@colony/shared/agri";
-import { MINE_RISK_LABEL } from "@colony/shared/mines";
+import { MINE_RISK_LABEL,isOreGround } from "@colony/shared/mines";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
@@ -6696,6 +6696,7 @@ async function main() {
   let latestPlayersForSpells: PlayerSnapshot[] = [];
   app.ticker.add(() => {
     if (!spellAim || !myId) return;
+    if(interiorRef.ui?.active()){spellRangeRing.clear();return;}
     const me = latestPlayersForSpells.find((p) => p.id === myId);
     spellRangeRing.clear();
     if (!me) return;
@@ -7145,6 +7146,10 @@ async function main() {
       workUi.onPosts(message.id, message.posts);
     } else if(message.type==='adventureJournal'){
       adventureUi.onJournal(message.journal);
+    } else if(message.type==='interiorSpell'){
+      interiorRef.ui?.onSpell(message.effect);
+    } else if(message.type==='interiorPanel'){
+      if(message.panel==='inventory')setHeroSheetOpen(true);else{document.body.classList.add('interior-stockpile');const panel=document.getElementById('economy-panel')!;if(panel.classList.contains('collapsed'))document.getElementById('economy-panel-toggle')?.click();}
     } else if (message.type === "interior") {
       interiorRef.ui?.onMessage(message.view);
     } else if (message.type === "interiorNpcs") {
@@ -7694,6 +7699,10 @@ async function main() {
     app,
     worldLayer,
     structure: STRUCTURE_TEXTURES,
+    spellAim:()=>spellAim,
+    castSpell:target=>{if(spellAim)castSlot(spellAim.slot,target);},
+    cancelSpell:()=>setSpellAim(null),
+    notice:text=>adventureUi.onEvent(text),
     playerTexture: PLAYER_TEXTURE,
     heroTexture: (id, moving, distance=0) => { const v=heroVisuals.get(id); rigInteriorTravel.set(id,(rigInteriorTravel.get(id)??0)+Math.min(distance,12)/11); return v ? (heroFrame(v,{state:moving?"walk":"idle",phase:moving?rigInteriorTravel.get(id)!:performance.now()/3000}) ?? heroArt(v,false,moving ? Math.floor(performance.now()/150)%4 : 0))?.texture : undefined; },
     playerHeight: PLAYER_SPRITE_HEIGHT,
@@ -8853,11 +8862,16 @@ async function main() {
       const a = anchorOfClient(tile.tileX, tile.tileY);
       return tiles[a.y * worldTilesX + a.x] === currentTool;
     })());
-    const blocked = !upgrading && (fp.w > 1 || fp.h > 1) &&
+    const blockedFootprint = !upgrading && (fp.w > 1 || fp.h > 1) &&
       footprintPartOffsets(fp).some(([dx, dy]) => {
         const t = footTile(tile.tileX + dx, tile.tileY + dy);
         return isWideBridge(currentTool) ? t!==TileType.Moat : t !== TileType.Empty && !(FURNITURE_FOOTPRINT[currentTool] && isFloorTile(t));
       });
+    const resourceTool=currentTool===TileType.RockMinePost||currentTool===TileType.IronMinePost;
+    const validDeposit=currentTool===TileType.RockMinePost?hovered===TileType.Rock:isOreGround(hovered);
+    const hero=latestPlayersForSpells.find(p=>p.id===myId);
+    const tooFar=resourceTool&&!!hero&&Math.hypot(hero.x-(tile.tileX+.5)*tileSize,hero.y-(tile.tileY+.5)*tileSize)>2.5*tileSize;
+    const blocked=blockedFootprint||(resourceTool&&!upgrading&&(!validDeposit||tooFar));
     const ghost = upgrading ? { w: 1, h: 1 } : fp;
     cursorHighlight
       .rect(tile.tileX * tileSize, tile.tileY * tileSize, ghost.w * tileSize, ghost.h * tileSize)

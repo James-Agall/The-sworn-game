@@ -923,3 +923,12 @@ export function grantStoryShield(player:Player,name:string){
  const item:GearItem={id:randomUUID(),slot:'offhand',name,tier:1,kind:'shield',stats:{damageTakenPct:-6},icon:'icon-armourT1'};
  prof.inventory.push(item);recomputeHeroProfile(prof);return true;
 }
+
+// Finite equipment displayed in an actual rack; capacity is checked before the source is consumed.
+export function grantFoundEquipment(player:Player,slot:'weapon'|'head'|'chest'|'offhand',tier:1|2|3,weaponKind?:string):GearItem|null{
+ const prof=heroProfileOf(player);if(prof.inventory.length>=HERO_INVENTORY_CAP)return null;
+ const base=PLAIN_GEAR[slot==='weapon'?'weapon':'armour'],kind=slot==='weapon'?(weaponKind??'sword'):slot==='head'?'helm':slot==='offhand'?'shield':'cuirass';
+ const stats={...base.stats(tier)};if(slot==='head'||slot==='offhand')stats.damageTakenPct=Math.round((stats.damageTakenPct??0)*.4);
+ const item:GearItem={id:randomUUID(),slot,name:`${['Iron','Steel','Tempered steel'][tier-1]} ${kind==='cuirass'?'body armour':kind==='helm'?'helmet':kind}`,tier,kind,stats,icon:slot==='weapon'?`icon-weaponT${tier}`:`icon-armourT${tier}`};
+ prof.inventory.push(item);recomputeHeroProfile(prof);return item;
+}

@@ -1,5 +1,6 @@
 import {explorationMap,explorationView,explorationInteract,explorationAttack,explorationSave,restoreExploration,resetExploration,explorationRescued,explorationClear,type ExplorationSave} from './adventureLoot.js';
 import {bossHit,stepBoss,bossLive,stepBossStatuses,resetBossEffects,type BossAgent} from './bossCombat.js';
+import {furnitureRoomMap} from './furniture.js';
 import {BOSS_PROFILES} from '@colony/shared/adventure';
 import {storyEvent} from './story.js';
 import {specialAt} from './specialCast.js';
@@ -60,6 +61,7 @@ import { addItem, bronzeToolMult, itemCount, takeItem, workerLevel } from "./pro
 import { exitInterior } from "./interiors.js";
 
 interface MineMob extends BossAgent {
+  spell?:{appliedTick?:number;burnUntil?:number;burnNext?:number;burnPower?:number;burnPlayer?:string;slowUntil?:number;slow?:number;curseUntil?:number;curse?:number};
   summon?:boolean;
   specialId?: string;
   id: string;
@@ -162,7 +164,7 @@ const baseLayerMap = (r: MineRec, li: number) => r.layoutSeed!==undefined&&(!r.e
  ?buildUnderground({seed:r.layoutSeed,kind:r.encounter==='cave'?'cave':'mine',depth:r.encounter?1:depthOf(r,li),levels:r.encounter?1:Math.max(1,r.level),layered:r.layered})
  :r.encounter?encounterMap(r.encounter,r.variant):mineMap(Math.max(1, r.level), variantOf(r, li));
 
-const layerMap=(r:MineRec,li:number)=>explorationMap(keyOf(r.tx,r.ty),li,baseLayerMap(r,li),r.encounter??'mine');
+const layerMap=(r:MineRec,li:number)=>furnitureRoomMap(keyOf(r.tx,r.ty),r.layered?li:r.encounter?r.variant??0:Math.max(0,r.level-1),0,explorationMap(keyOf(r.tx,r.ty),li,baseLayerMap(r,li),r.encounter??'mine'));
 
 // ---- records ----
 export function mineRecAt(tx: number, ty: number): MineRec | undefined {
@@ -567,7 +569,7 @@ export function mineHeroAttack(p: Player): boolean {
     }
   }
   if (!best) {explorationAttack(p,reach);return true;}
-  best.hp -= bossHit(best,playerDamage(p),h);
+  best.hp -= bossHit(best,playerDamage(p),h)*interiorCurse(best);
   wake(L, best);
   if (best.hp <= 0) killMob(r, li, best, p);
   return true;
@@ -605,8 +607,16 @@ function pathOn(grid: { map: InteriorMap; solid: Uint8Array }, from: { x: number
 
 function stepMobs(r: MineRec, li: number, inside: Player[]) {
   const L = r.layers[li];
-  if(L.lastActiveTick!==state.cycleTick-1)for(const m of L.mobs){m.bossState=undefined;m.hazard=undefined;if(m.specialId)m.cd=Math.max(m.cd,12);}
+  if(L.lastActiveTick!==state.cycleTick-1)for(const m of L.mobs){m.bossState=undefined;m.hazard=undefined;if((m.spell?.appliedTick??-Infinity)<state.cycleTick-1)m.spell=undefined;if(m.specialId)m.cd=Math.max(m.cd,12);}
   L.lastActiveTick=state.cycleTick;stepBossStatuses(inside,biteHero);
+  for(const m of aliveIn(L)){
+    const s=m.spell;if(!s)continue;
+    const owner=s.burnPlayer?inside.find(p=>p.id===s.burnPlayer&&!p.dead):undefined;
+    if(!owner||state.spellTick>(s.burnUntil??0)){s.burnUntil=s.burnNext=s.burnPower=undefined;s.burnPlayer=undefined;}
+    else if(state.spellTick>=(s.burnNext??Infinity)){s.burnNext=state.spellTick+TICK_RATE;m.hp-=(s.burnPower??0)*interiorCurse(m);wake(L,m);if(m.hp<=0)killMob(r,li,m,owner);}
+    if(state.spellTick>=(s.slowUntil??Infinity))s.slowUntil=s.slow=undefined;
+    if(state.spellTick>=(s.curseUntil??Infinity))s.curseUntil=s.curse=undefined;
+  }
   const grid=layerMap(r,li);
   for (const m of aliveIn(L)) {
     let near: { p: Player; x: number; y: number; d: number } | null = null;
@@ -630,10 +640,10 @@ function stepMobs(r: MineRec, li: number, inside: Player[]) {
     }
     if(!m.bossState)m.face = near.x < m.x ? "l" : near.x > m.x ? "r" : m.face;
     if(m.specialId&&BOSS_PROFILES[m.specialId]){
-      const handled=stepBoss(m,near,{grid,players:inside,damage:biteHero,clearSight:(a,b)=>clearSight(grid,a,b),spawn:(kind,x,y)=>{
+      const speed=m.speed;m.speed*=interiorSlow(m);const handled=stepBoss(m,near,{grid,players:inside,damage:biteHero,clearSight:(a,b)=>clearSight(grid,a,b),spawn:(kind,x,y)=>{
         if((L.summonsSpawned??0)>=4||L.mobs.some(m=>m.hp>0&&Math.hypot(m.x-x,m.y-y)<.8))return false;
         const spawned=newMob(kind,.65,x,y);if(!spawned)return false;spawned.awake=true;spawned.summon=true;L.mobs.push(spawned);L.summonsSpawned=(L.summonsSpawned??0)+1;return true;
-      }});if(handled)continue;
+      }});m.speed=speed;if(handled)continue;
       if(near.d<=BOSS_PROFILES[m.specialId].range&&clearSight(grid,m,near)){m.act='idle';m.path=[];continue;}
     }
     if (near.d <= (m.kind==='banditArcher'?3.5:MINE_MOB_REACH_TILES)&&clearSight(layerMap(r,li),m,near)) {
@@ -655,7 +665,7 @@ function stepMobs(r: MineRec, li: number, inside: Player[]) {
     const dx = target.x - m.x;
     const dy = target.y - m.y;
     const d = Math.hypot(dx, dy);
-    const step = m.speed * dt;
+    const step = m.speed * dt * interiorSlow(m);
     if (d <= step) {
       m.x = target.x;
       m.y = target.y;
@@ -683,7 +693,7 @@ function biteHero(p: Player, damage: number) {
 }
 
 const liveOf = (L: LayerRec | undefined): MineMobLive[] =>
-  aliveIn(L).map((m) => ({ id: m.id, kind: m.kind, bossAttack:bossLive(m),...(m.hazard?{hazard:{x:m.hazard.x,y:m.hazard.y,radius:m.hazard.radius,remaining:Math.max(0,m.hazard.until-state.cycleTick)}}:{}), ...(m.specialId?{specialId:m.specialId,name:SPECIAL_BY_ID.get(m.specialId)?.name}:{}), x: Math.round(m.x * 100) / 100, y: Math.round(m.y * 100) / 100, hp: Math.ceil(m.hp), maxHp: m.maxHp, face: m.face, act: m.act }));
+  aliveIn(L).map((m) => ({ id: m.id, kind: m.kind,burning:(m.spell?.burnUntil??0)>state.spellTick,slowed:interiorSlow(m)<1,cursed:interiorCurse(m)>1, bossAttack:bossLive(m),...(m.hazard?{hazard:{x:m.hazard.x,y:m.hazard.y,radius:m.hazard.radius,remaining:Math.max(0,m.hazard.until-state.cycleTick)}}:{}), ...(m.specialId?{specialId:m.specialId,name:SPECIAL_BY_ID.get(m.specialId)?.name}:{}), x: Math.round(m.x * 100) / 100, y: Math.round(m.y * 100) / 100, hp: Math.ceil(m.hp), maxHp: m.maxHp, face: m.face, act: m.act }));
 
 // sim.ts, once a tick: records (once a second), the monsters of every mine layer a hero is in, their positions out.
 export function updateMines() {
@@ -1046,7 +1056,7 @@ export function encounterInteract(p:Player,x?:number,y?:number){
  sendEvent(p,'build','Walk up to a container, note, key ring or prisoner cage; Space fights or breaks nearby containers.');return true;
 }
 
-function clearSight(grid:{map:InteriorMap;solid:Uint8Array},a:{x:number;y:number},b:{x:number;y:number}){
+export function clearSight(grid:{map:InteriorMap;solid:Uint8Array},a:{x:number;y:number},b:{x:number;y:number}){
  const steps=Math.ceil(Math.hypot(a.x-b.x,a.y-b.y)*4);
  let px=Math.round(a.x),py=Math.round(a.y);for(let n=1;n<steps;n++){const x=Math.round(a.x+(b.x-a.x)*n/steps),y=Math.round(a.y+(b.y-a.y)*n/steps);if(x<0||y<0||x>=grid.map.w||y>=grid.map.h||grid.solid[y*grid.map.w+x]||x!==px&&y!==py&&(grid.solid[py*grid.map.w+x]||grid.solid[y*grid.map.w+px]))return false;px=x;py=y;}return true;
 }
@@ -1058,4 +1068,33 @@ export function mineInteriorMap(tx:number,ty:number,level:number,variant:number)
  if(!r&&isMineTile(state.tiles[tileIndex(tx,ty)])&&ownerAt(tileIndex(tx,ty))===0){syncMines();r=mineRecAt(tx,ty);}
  if(r)return layerMap(r,r.layered?Math.max(0,Math.min(r.layers.length-1,variant)):0);
  return mineMap(level,variant);
+}
+
+
+function interiorCurse(m:MineMob){return (m.spell?.curseUntil??0)>state.spellTick?1+(m.spell?.curse??0):1;}
+function interiorSlow(m:MineMob){return (m.spell?.slowUntil??0)>state.spellTick?1-(m.spell?.slow??0):1;}
+export function interiorEnemiesNear(p:Player,x:number,y:number,radius=3){const I=p.interior;if(!I)return false;const r=mineRecAt(I.tx,I.ty);if(!r)return false;const li=layerOfPlayer(r,p);return aliveIn(r.layers[li]).some(m=>Math.hypot(m.x-x,m.y-y)<=radius&&clearSight(layerMap(r,li),m,{x,y}));}
+// Spell targets are the native interior actors, never overworld mobs or another layer.
+export function castInteriorAttack(p:Player,id:string,target:{targetId?:string;x?:number;y?:number},spec:{power:number;range:number;radius:number;duration:number;burn:number;slow:number;curse:number}):{x:number;y:number}|string{
+ const I=p.interior;if(!I||p.dead)return 'You cannot cast here';
+ const r=mineRecAt(I.tx,I.ty),li=r?layerOfPlayer(r,p):0,L=r?.layers[li],grid=mineInteriorMap(I.tx,I.ty,I.level,I.variant),h=heroTile(p);
+ const inRange=(x:number,y:number)=>Math.hypot((x+.5)*TILE_SIZE-I.x,(y+.5)*TILE_SIZE-I.y)<=spec.range;
+ const status=(m:MineMob)=>{const s=m.spell??={};s.appliedTick=state.cycleTick;return s;};
+ const damage=(m:MineMob)=>{m.hp-=bossHit(m,spec.power,h)*interiorCurse(m);wake(L!,m);if(m.hp<=0)killMob(r!,li,m,p);};
+ if(id==='fireBolt'||id==='curse'){
+  const m=L?.mobs.find(m=>m.id===target.targetId&&m.hp>0);if(!m)return 'Click an enemy in this room';
+  if(!inRange(m.x,m.y))return 'That enemy is out of spell range';
+  if(!clearSight(grid,h,m))return 'A wall or solid object blocks your spell';
+  if(id==='fireBolt'){damage(m);if(m.hp>0){const s=status(m);s.burnUntil=state.spellTick+spec.duration;s.burnNext=state.spellTick+TICK_RATE;s.burnPower=spec.burn;s.burnPlayer=p.id;}}
+  else{const s=status(m);s.curseUntil=state.spellTick+spec.duration;s.curse=spec.curse;wake(L!,m);}
+  return{x:(m.x+.5)*TILE_SIZE,y:(m.y+.5)*TILE_SIZE};
+ }
+ if(id!=='thunder'&&id!=='frost')return 'That spell needs open ground outside';
+ if(!Number.isFinite(target.x)||!Number.isFinite(target.y))return 'Choose a spot inside this room';
+ const at={x:target.x!/TILE_SIZE-.5,y:target.y!/TILE_SIZE-.5},tx=Math.round(at.x),ty=Math.round(at.y);
+ if(tx<0||ty<0||tx>=grid.map.w||ty>=grid.map.h||grid.solid[ty*grid.map.w+tx])return 'Aim at open floor';
+ if(!inRange(at.x,at.y))return 'That spot is out of spell range';
+ if(!clearSight(grid,h,at))return 'A wall or solid object blocks your spell';
+ for(const m of L?aliveIn(L):[]){if(Math.hypot(m.x-at.x,m.y-at.y)*TILE_SIZE>spec.radius||!clearSight(grid,at,m))continue;damage(m);if(m.hp>0&&id==='frost'){const s=status(m);s.slowUntil=state.spellTick+spec.duration;s.slow=spec.slow;}}
+ return{x:target.x!,y:target.y!};
 }
