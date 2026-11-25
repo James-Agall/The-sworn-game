@@ -1,3 +1,5 @@
+import {ChunkInbox} from './chunkInbox';
+import {SceneryIndex,staticDepth,groundDepth,orderUnit,createHiddenHeroOutline} from './sceneDepth';
 import {LANDMARK_ART,LANDMARK_ART_URLS} from '@colony/shared/landmarkArt';
 import {REGION_NATURE_URLS,treeSpeciesAt} from "@colony/shared/regionNature";
 import { createTownPets } from "./townPets";
@@ -892,6 +894,7 @@ async function main() {
   let streamed: { chunkTiles: number; chunksX: number; chunksY: number; f: number; cw: number; ch: number; cells: Uint8Array; cellSeen: Uint8Array } | null = null;
   let chunkLoaded = new Uint8Array(0);
   const chunkRequestedAt = new Map<number, number>();
+  const chunkInbox=new ChunkInbox();
   let chunkRequestAt = 0;
   const chunkOfTile = (tx: number, ty: number) =>
     streamed ? Math.floor(ty / streamed.chunkTiles) * streamed.chunksX + Math.floor(tx / streamed.chunkTiles) : 0;
@@ -988,6 +991,9 @@ async function main() {
   tileSpriteLayer.sortableChildren = true;
   worldLayer.addChild(tileSpriteLayer);
   const tileSprites = new Map<number, Sprite>();
+  const scenery=new SceneryIndex();
+  const hiddenHeroLayer=new Container();worldLayer.addChild(hiddenHeroLayer);
+  const hiddenHero=createHiddenHeroOutline(hiddenHeroLayer);
   // Tile index -> tile type, for slots currently showing a looping TILE_ANIM.
   const animatedTiles = new Map<number, number>();
   function tileAnimTexture(index: number, tile: number, now: number): Texture | undefined {
@@ -1295,7 +1301,7 @@ async function main() {
         o.flame.visible = tier > 0 && tiles[index] !== TileType.PropCampfire;
         o.flame.scale.set(FIRE_FLAME_WIDTH[tier] / FIRE_FRAMES[0].width);
         o.flame.position.set(tx * tileSize + tileSize / 2, (ty + 1) * tileSize - tileSize * 0.3);
-        o.flame.zIndex = index + 0.5;
+        o.flame.zIndex = staticDepth(index + 0.5,worldTilesX);
         // Soot tint on (or off) the building art.
         setTileSprite(tx, ty, tiles[index]);
       }
@@ -1327,8 +1333,9 @@ async function main() {
     for (const c of roofRooms) c.destroy({ children: true });
     roofRooms = [];
     roofTileRoom = new Map();
-    const boundary: number[] = [];
-    for (let i = 0; i < tiles.length; i++) if (isRoomBoundaryTile(tiles[i])) boundary.push(i);
+    const boundary:number[]=[];
+    // Loaded art is already indexed. A sparse streamed world need not scan a million empty cells.
+    for(const i of tileSprites.keys())if((siteOwners.get(i)??0)===0&&isRoomBoundaryTile(tiles[i]))boundary.push(i);
     const rooms: Room[] = findRooms(worldTilesX, worldTilesY, (i) => tiles[i] ?? TileType.Empty, boundary);
     rooms.forEach((room, n) => {
       const c = new Container();
@@ -1517,7 +1524,13 @@ async function main() {
     else if(isLargeGate(t)||isWideBridge(t)){const horizontal=t===TileType.LargeGateH||t===TileType.WideBridgeH;const open=((gateFlags.get(y*worldTilesX+x)??0)&(GATE_FLAG_OPEN|GATE_FLAG_OVERRUN))!==0;name=`${isLargeGate(t)?'gate':'bridge'}_${horizontal?'h':'v'}_${open?'open':'closed'}`;}
     return name?optionalTextures[`/sprites/fortifications/${name}.png`]:undefined;
   }
-  function setTileSprite(tx: number, ty: number, tile: number) {
+  function setTileSprite(tx:number,ty:number,tile:number){
+    fitTileSprite(tx,ty,tile);const index=ty*worldTilesX+tx,sprite=tileSprites.get(index);
+    if(!sprite){scenery.remove('t:'+index);return;}
+    sprite.zIndex=staticDepth(sprite.zIndex,worldTilesX);
+    scenery.track('t:'+index,sprite,tileSpriteLayer,sprite.zIndex>=0);
+  }
+  function fitTileSprite(tx: number, ty: number, tile: number) {
     const index = ty * worldTilesX + tx;
     const site = tile === TileType.ConstructionSite ? constructionSites.get(index) : undefined;
     // Rebuilding a razed fort keep (rebuildKeep: a Town Center site on the keep tile) shows the scaffold.
@@ -1829,15 +1842,15 @@ async function main() {
   // A 512 map has 262k floor tiles, so sprites are built per 16x16-tile chunk, lazily the first time
   // the camera sees it (updateFloorChunks, every frame), and chunks off screen are hidden.
   const FLOOR_CHUNK_TILES = 16;
-  const FLOOR_CHUNK_KEEP = 256;
-  const floorChunks = new Map<number, Container>();
+  const FLOOR_CHUNK_KEEP = 64;
+  const floorChunks = new Map<number, Sprite>();
   function setFloorSprites() {
     for (const s of floorSprites) s.destroy();
     floorSprites.length = 0;
-    for (const c of floorChunks.values()) c.destroy({ children: true });
+    for (const c of floorChunks.values()){c.texture.source.unload();c.destroy({texture:true,textureSource:true});}
     floorChunks.clear();
   }
-  function buildFloorChunk(cx: number, cy: number): Container {
+  function buildFloorChunk(cx: number, cy: number): Sprite {
     const chunk = new Container();
     const x0 = cx * FLOOR_CHUNK_TILES;
     const y0 = cy * FLOOR_CHUNK_TILES;
@@ -1858,8 +1871,10 @@ async function main() {
         chunk.addChild(sprite);
       }
     }
-    floorSpriteLayer.addChild(chunk);
-    return chunk;
+    // Bake the unchanged 16x16 floor once. Shared atlas textures stay owned by the atlas.
+    const texture=app.renderer.generateTexture({target:chunk,resolution:1});
+    texture.source.scaleMode='nearest';chunk.destroy({children:true});
+    const baked=new Sprite(texture);baked.position.set(x0*tileSize,y0*tileSize);floorSpriteLayer.addChild(baked);return baked;
   }
   function updateFloorChunks() {
     // Map band: the strategic map sprite replaces the floor (building every chunk of a 512 map would
@@ -1873,34 +1888,23 @@ async function main() {
     const bottom = Math.floor((app.screen.height - worldLayer.position.y) / camZoom / span) + 1;
     const chunksX = Math.ceil(worldTilesX / FLOOR_CHUNK_TILES);
     const chunksY = Math.ceil(worldTilesY / FLOOR_CHUNK_TILES);
-    for (let cy = 0; cy < chunksY; cy++) {
-      for (let cx = 0; cx < chunksX; cx++) {
-        const key = cy * chunksX + cx;
-        const visible = cx >= left && cx <= right && cy >= top && cy <= bottom;
-        let chunk = floorChunks.get(key);
-        if (!chunk) {
-          if (!visible) continue;
-          // World streaming phase 4: not before its stream chunk's biomes have arrived.
-          if (streamed && !chunkLoaded[chunkOfTile(cx * FLOOR_CHUNK_TILES, cy * FLOOR_CHUNK_TILES)]) continue;
-          chunk = buildFloorChunk(cx, cy);
-          floorChunks.set(key, chunk);
-        }
-        // Strategy panning can visit the whole map: past FLOOR_CHUNK_KEEP built chunks, off-screen ones
-        // are freed (rebuilt if seen again) so a 512 map never holds all ~262k floor sprites.
-        if (!visible && floorChunks.size > FLOOR_CHUNK_KEEP) {
-          chunk.destroy({ children: true });
-          floorChunks.delete(key);
-          continue;
-        }
-        chunk.visible = visible;
-      }
+    // Visit the camera's bounded chunk range, not every possible chunk of a 1024-square world.
+    for(const [key,chunk]of floorChunks){const cx=key%chunksX,cy=Math.floor(key/chunksX),visible=cx>=left&&cx<=right&&cy>=top&&cy<=bottom;
+      chunk.visible=visible;if(!visible&&floorChunks.size>FLOOR_CHUNK_KEEP){chunk.texture.source.unload();chunk.destroy({texture:true,textureSource:true});floorChunks.delete(key);}}
+    let built=0;
+    for(let cy=Math.max(0,top);cy<=Math.min(chunksY-1,bottom);cy++)for(let cx=Math.max(0,left);cx<=Math.min(chunksX-1,right);cx++){
+      const key=cy*chunksX+cx;if(floorChunks.has(key))continue;
+      if(streamed&&!chunkLoaded[chunkOfTile(cx*FLOOR_CHUNK_TILES,cy*FLOOR_CHUNK_TILES)])continue;
+      // Budget new GPU textures while travelling. Prefer the actual viewport before its one-chunk apron.
+      const inside=cx>left&&cx<right&&cy>top&&cy<bottom;if(built>=2&&!inside)continue;
+      if(built>=4)continue;floorChunks.set(key,buildFloorChunk(cx,cy));built++;
     }
   }
 
   // Like the floor, only rebuilt on a full map (re)load; per-tile edits just toggle visibility
   // (setTileLocal) so a decoration never shows through a building, water, ruin or prop.
   function setDecorSprites() {
-    for (const s of decorSprites.values()) s.destroy();
+    for (const [index,s] of decorSprites){scenery.remove("d:"+index);s.destroy();}
     decorSprites.clear();
     // World streaming phase 4: chunked worlds add decor per arriving chunk (addDecorIn).
     if (!streamed) addDecorIn(0, 0, worldTilesX, worldTilesY);
@@ -1922,7 +1926,7 @@ async function main() {
         sprite.position.set(x * tileSize + tileSize / 2 + offsetX, (y + 0.85) * tileSize + offsetY);
         sprite.visible = (tiles[index] ?? TileType.Empty) === TileType.Empty;
         decorSpriteLayer.addChild(sprite);
-        decorSprites.set(index, sprite);
+        decorSprites.set(index, sprite);scenery.track("d:"+index,sprite,decorSpriteLayer,false);
       }
     }
   }
@@ -1977,8 +1981,7 @@ async function main() {
     }
     return null;
   }
-  const critterZ = (x: number, y: number) =>
-    Math.floor(y / tileSize) * worldTilesX + Math.floor(x / tileSize) + 0.5;
+  const critterZ = (x:number,y:number)=>groundDepth(x,y,worldTilesX,tileSize);
   const livestock = createLivestock({ layer: tileSpriteLayer, tileSize: () => tileSize, worldTilesX: () => worldTilesX, zOf: critterZ });
   function spawnWildlife() {
     for (const c of critters) c.sprite.destroy();
@@ -2252,8 +2255,8 @@ async function main() {
 
   function setTileLocal(tx: number, ty: number, tile: number) {
     const index = ty * worldTilesX + tx;
-    tiles[index] = tile;
-    roofDirty = true;
+    const previous=tiles[index];tiles[index] = tile;chunkInbox.patch(chunkOfTile(tx,ty),index,tile);
+    if(isRoomBoundaryTile(previous)||isRoomBoundaryTile(tile))roofDirty=true;
     setTileSprite(tx, ty, tile);
     const decor = decorSprites.get(index);
     if (decor) decor.visible = tile === TileType.Empty;
@@ -2297,8 +2300,8 @@ async function main() {
     if (!entry) {
       const sprite = create();
       const hpBar = new Graphics();
-      worldLayer.addChild(sprite);
-      worldLayer.addChild(hpBar);
+      tileSpriteLayer.addChild(sprite);
+      tileSpriteLayer.addChild(hpBar);
       entry = { sprite, hpBar };
       map.set(id, entry);
     }
@@ -2571,7 +2574,7 @@ async function main() {
     if (p.id === myId && !entry.marker) {
       const marker = new Graphics().ellipse(0, 0, 14, 5).stroke({ width: 2, color: 0xffffff });
       // Under the sprite so it reads as a ground ring.
-      worldLayer.addChildAt(marker, worldLayer.getChildIndex(entry.sprite));
+      tileSpriteLayer.addChild(marker);
       entry.marker = marker;
     }
     // Gap closure G6: a mounted hero sits up on its horse (livestock draws the horse under it).
@@ -2637,7 +2640,7 @@ async function main() {
     for (const id of Array.from(playerAnim.keys())) {
       if (!seenIds.has(id)) playerAnim.delete(id);
     }
-    for (const p of snapshot) upsertPlayer(p);
+    for (const p of snapshot){upsertPlayer(p);const e=playerSprites.get(p.id)!;e.groundX=p.x;e.groundY=wallWalkLift(tileAt(Math.floor(p.x/tileSize),Math.floor(p.y/tileSize)))>0?(Math.floor(p.y/tileSize)+1)*tileSize+.1:p.y+PLAYER_SPRITE_HEIGHT*.4;}
   }
 
   function upsertColonist(c: ColonistSnapshot, isNight: boolean) {
@@ -2927,7 +2930,7 @@ async function main() {
     }
     const now = performance.now();
     for (const c of snapshot) {
-      upsertColonist(c, isNight);
+      upsertColonist(c, isNight);const e=colonistSprites.get(c.id)!;e.groundX=c.x;e.groundY=wallWalkLift(tileAt(Math.floor(c.x/tileSize),Math.floor(c.y/tileSize)))>0?(Math.floor(c.y/tileSize)+1)*tileSize+.1:c.y+COLONIST_SPRITE_HEIGHT*.4;
       stateFx(c, now);
     }
   }
@@ -3145,7 +3148,7 @@ async function main() {
     }
     for (const m of snapshot) if (SIEGE_WRECK_URLS.mob[m.kind]) siegeIds.mob.set(m.id, m.kind);
     pruneFacing(mobFacing, seenIds);
-    for (const m of snapshot) upsertMob(m);
+    for (const m of snapshot){upsertMob(m);const e=mobSprites.get(m.id)!;e.groundX=m.x;e.groundY=m.y+(MOB_VISUALS[m.kind]??MOB_VISUALS.goblin).radius;}
   }
 
   // Client-only, short-lived combat VFX. `update` gets progress 0..1 each frame; `onEnd` can chain
@@ -3465,7 +3468,7 @@ async function main() {
     for (const [index, tile] of animatedTiles) {
       const sprite = tileSprites.get(index);
       const texture = tileAnimTexture(index, tile, now);
-      if (sprite && texture && sprite.texture !== texture) sprite.texture = texture;
+      if (sprite && sprite.parent===tileSpriteLayer && texture && sprite.texture !== texture) sprite.texture = texture;
     }
     // Building fires share the campfire loop's clock; tier 2+ also puffs smoke now and then.
     const fireFrame = Math.floor(now / FIRE_FRAME_MS);
@@ -3483,6 +3486,7 @@ async function main() {
     if (!myId) return;
     const mine = playerSprites.get(myId);
     if (!mine) return;
+    if(interiorRef.ui?.active()){hiddenHero.clear();return;}
     if (pendingStartStrategy && !strategyCam.active) {
       pendingStartStrategy = false;
       toggleStrategy();
@@ -3504,6 +3508,12 @@ async function main() {
     if (adventurePrefs.on && !sv) worldLayer.position.set(Math.round(camX), Math.round(camY));
     else worldLayer.position.set(camX, camY);
     strategyAfterCamera();
+    const bounds={left:-camX/camZoom,top:-camY/camZoom,right:(app.screen.width-camX)/camZoom,bottom:(app.screen.height-camY)/camZoom};
+    scenery.updateVisible(bounds);
+    for(const map of interpMaps)for(const e of map.values())if(!culledUnits.has(e)&&e.sprite.visible)orderUnit(e,tileSpriteLayer,worldTilesX,tileSize);
+    const body=mine.sprite,canOutline=body instanceof Sprite&&body.visible&&!interiorRef.ui?.active()&&strategyBand==='tactical';
+    const covers=canOutline?scenery.occluders(body as Sprite,body.zIndex):[];
+    hiddenHero.update(body,covers,!!canOutline);perf.setRenderStats(scenery.count,scenery.visibleCount,floorChunks.size,covers.length);
     updateFloorChunks();
     requestStreamChunks();
     if (loadingUi.active()) reportMapProgress(mine.sprite.position.x, mine.sprite.position.y);
@@ -3597,7 +3607,9 @@ async function main() {
     sendMessage({ type: "requestChunks", chunks: batch });
   }
 
-  function applyStreamChunks(list: { c: number; tiles: string; biomes: string }[]) {
+  function applyStreamChunks(list:{c:number;tiles:string;biomes:string}[]){chunkInbox.push(list);}
+  app.ticker.add(()=>{if(!streamed){chunkInbox.clear();return;}const next=chunkInbox.take();if(next)installStreamChunks([next.chunk],next.overrides);});
+  function installStreamChunks(list: { c: number; tiles: string; biomes: string }[],overrides?:Map<number,number>) {
     const sm = streamed;
     if (!sm) return;
     for (const { c, tiles: t64, biomes: b64 } of list) {
@@ -3607,17 +3619,17 @@ async function main() {
       const w = Math.min(sm.chunkTiles, worldTilesX - x0);
       const h = Math.min(sm.chunkTiles, worldTilesY - y0);
       const t = atob(t64);
-      const b = atob(b64);
+      const b = atob(b64);let roomBoundary=false;
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const i = (y0 + y) * worldTilesX + x0 + x;
-          tiles[i] = t.charCodeAt(y * w + x);
+          tiles[i] = overrides?.get(i)??t.charCodeAt(y * w + x);if((siteOwners.get(i)??0)===0&&isRoomBoundaryTile(tiles[i]))roomBoundary=true;
           biomes[i] = b.charCodeAt(y * w + x);
         }
       }
       chunkLoaded[c] = 1;
       chunkRequestedAt.delete(c);
-      roofDirty = true;
+      if(roomBoundary)roofDirty=true;
       // The chunk's sprites, plus a 3-tile band up / left and 1 tile right / down (autotiled roads / walls and
       // multi-tile art reaching across the chunk edge).
       for (let y = Math.max(0, y0 - 3); y < Math.min(worldTilesY, y0 + h + 1); y++) {
@@ -3633,7 +3645,7 @@ async function main() {
       for (let fy = Math.floor(y0 / FLOOR_CHUNK_TILES); fy * FLOOR_CHUNK_TILES < y0 + h; fy++) {
         for (let fx = Math.floor(x0 / FLOOR_CHUNK_TILES); fx * FLOOR_CHUNK_TILES < x0 + w; fx++) {
           const key = fy * fcx + fx;
-          floorChunks.get(key)?.destroy({ children: true });
+          const floor=floorChunks.get(key);if(floor){floor.texture.source.unload();floor.destroy({texture:true,textureSource:true});}
           floorChunks.delete(key);
         }
       }
@@ -6029,7 +6041,7 @@ async function main() {
   const timeStatusEl = document.getElementById("time-status")!;
   let currentTimeScale = 1;
   let currentPaused = false;
-  const townPets=createTownPets(worldLayer);
+  const townPets=createTownPets(tileSpriteLayer,(x,y)=>groundDepth(x,y,worldTilesX,tileSize));
   app.ticker.add(ticker=>{
     const me=latestPlayersForSpells.find(p=>p.id===myId);
     townPets.update(fortMarkers,worldTilesX,tileSize,ticker.deltaMS/1000,currentPaused,!interiorRef.ui?.active()&&!strategyCam.inStrategy,me?.x??0,me?.y??0);
@@ -6881,9 +6893,10 @@ async function main() {
     }
     if (message.type === "snapshot") {
       perf.onSnapshot(typeof event.data === "string" ? event.data.length : 0, performance.now() - parseStart);
-      perf.setScene(colonistSprites.size + mobSprites.size, worldLayer.children.length);
+      perf.setScene(colonistSprites.size+mobSprites.size+playerSprites.size,tileSpriteLayer.children.length+decorSpriteLayer.children.length+floorChunks.size);
     }
     if (message.type === "welcome") {
+      scenery.clear();hiddenHero.clear();chunkInbox.clear();
       myId = message.id;
       adventureUi.onWelcome();
       // A new / loaded world: everyone starts outside.

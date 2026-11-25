@@ -3,7 +3,7 @@ import { loadTexture } from './atlas';
 import type { SiteSnapshot } from '@colony/shared/protocol';
 
 // Cosmetic pets reuse the town's road tour and require no server entities, AI or snapshots per frame.
-export function createTownPets(layer:Container) {
+export function createTownPets(layer:Container,zOf:(x:number,y:number)=>number=(_x,y)=>y) {
  const textures:Texture[]=[];
  const pets=new Map<string,{sprite:Sprite;phase:number;route:number[]}>();
  for(const [index,name] of ['animal_dog_brown','animal_cat_orange'].entries())void loadTexture(`/sprites/animals/${name}.png`).then(t=>{textures[index]=t;}).catch(()=>{});
@@ -26,7 +26,7 @@ export function createTownPets(layer:Container) {
     const y=(Math.floor(a/width)*(1-f)+Math.floor(b/width)*f+.5)*size;
     const direction=(b%width-a%width)*(phase<=length?1:-1);
     pet.sprite.scale.x=Math.abs(pet.sprite.scale.y)*(direction<0?-1:1);
-    pet.sprite.position.set(x,y+Math.sin(time*8+pet.phase)*.5);pet.sprite.visible=visible;
+    pet.sprite.position.set(x,y+Math.sin(time*8+pet.phase)*.5);pet.sprite.zIndex=zOf(x,y);pet.sprite.visible=visible;
    }
   }
   for(const[key,pet]of pets)if(!keep.has(key)){pet.sprite.destroy();pets.delete(key);}

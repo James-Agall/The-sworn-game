@@ -1540,3 +1540,14 @@ See the short play checklist in [HANDOVER-ADVENTURE.md](HANDOVER-ADVENTURE.md). 
 6. Have a stone pickaxe in Stockpile. Select Quarry, walk within 2 tiles of unclaimed grey rock and right-click its ground tile. Then select Mine and right-click a mineral deposit. Wrong ground, reserved settlement land and excessive distance must explain the refusal; the resource placement preview warns on invalid ground/range.
 
 Automated: `node server/interactions-test.mjs`; `COLONY_WORLD_SEED=42 npm test -- interior-interactions-wire mines spells interiors player-workstations save-load`.
+
+
+## Scenery depth and performance (25 November 2026)
+
+1. Walk behind and in front of a tall tree and a house. Behind: scenery covers the real hero and shows only a shadow contour over its opaque pixels. In front: ordinary hero art, no ghost. Check standing/walking/attack, equipment changes and mounting; the contour must match the current pose. Other units and pets should also sort naturally with scenery.
+2. Walk along a wall deck. The unit must remain above the wall face. Check modular house roofs still fade when the hero is inside their room.
+3. Cross camera/chunk boundaries and teleport/pan between distant settlements. Large trees/keeps reaching over a bucket boundary must not disappear. Edits arriving while a chunk loads must win over the older chunk snapshot.
+4. Enter an interior, exit, zoom to strategy/map views and return; restart and load a differently sized world. No stale scenery, outlines or queued chunks should survive a reset.
+5. Optional `?perf=1`: compare warm frame time and snapshot gaps. Inspect scenery active/total, bounded floor cache and occluder count (zero in front, positive behind). First-time asset/geometry loading can still cause transient hitches.
+
+Automated: `node client/render-depth-test.mjs`; `npm test -- scale-rider strategy-view interior-refresh`; `COLONY_WORLD_SEED=7 npm test -- tile-sprites-roundtrip`.

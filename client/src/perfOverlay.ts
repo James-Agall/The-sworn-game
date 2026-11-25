@@ -11,9 +11,10 @@ import type { Application } from "pixi.js";
 export interface PerfProbe {
   onSnapshot(bytes: number, parseMs: number): void;
   setScene(units: number, children: number): void;
+  setRenderStats(total:number,visible:number,floors:number,covers:number):void;
 }
 
-const NOOP: PerfProbe = { onSnapshot() {}, setScene() {} };
+const NOOP: PerfProbe = { onSnapshot() {}, setScene() {},setRenderStats() {} };
 
 export function initPerfOverlay(app: Application): PerfProbe {
   if (new URLSearchParams(location.search).get("perf") !== "1") return NOOP;
@@ -33,7 +34,7 @@ export function initPerfOverlay(app: Application): PerfProbe {
   const sizes: number[] = [];
   let lastSnapAt = 0;
   let units = 0;
-  let children = 0;
+  let children = 0;let renderStats="";
   const longTasks: { at: number; ms: number }[] = [];
 
   try {
@@ -51,7 +52,7 @@ export function initPerfOverlay(app: Application): PerfProbe {
   const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
   const max = (a: number[]) => (a.length ? Math.max(...a) : 0);
 
-  app.ticker.add((ticker) => push(frames, ticker.deltaMS, 120));
+  app.ticker.add((ticker) => push(frames, ticker.elapsedMS, 120));
 
   setInterval(() => {
     const now = performance.now();
@@ -62,7 +63,7 @@ export function initPerfOverlay(app: Application): PerfProbe {
       `snap  gap ${avg(gaps).toFixed(0)} ms avg  worst ${max(gaps).toFixed(0)} ms  (server tick 50)\n` +
       `parse ${avg(parses).toFixed(1)} ms avg  worst ${max(parses).toFixed(1)}  size ${(avg(sizes) / 1024).toFixed(0)} KB\n` +
       `long  ${longTasks.length} tasks >50 ms / 10 s  worst ${max(longTasks.map((t) => t.ms)).toFixed(0)} ms\n` +
-      `scene ${units} units  ${children} display objects`;
+      `scene ${units} units  ${children} active display objects\n${renderStats}`;
   }, 500);
 
   return {
@@ -73,6 +74,7 @@ export function initPerfOverlay(app: Application): PerfProbe {
       push(parses, parseMs, 60);
       push(sizes, bytes, 60);
     },
+    setRenderStats(total,visible,floors,covers){renderStats=`scenery ${visible}/${total} active  floor ${floors} cached chunks  hero occluders ${covers}`;},
     setScene(u, c) {
       units = u;
       children = c;

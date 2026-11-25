@@ -571,6 +571,7 @@ export const TOWN_CENTER_WIDTH_TILES = 3.5;
 export const TOWN_CENTER_ANCHOR = { x: 0.51, y: 0.67 };
 
 export interface EntityVisual {
+  groundX?:number;groundY?:number;
   sprite: Container;
   hpBar: Graphics;
   // "This is me" ground ring, only present on the local player's entry.

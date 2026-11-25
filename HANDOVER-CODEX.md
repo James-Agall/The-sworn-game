@@ -1,3 +1,5 @@
+> Latest performance/depth update: [HANDOVER-RENDERING.md](HANDOVER-RENDERING.md) (25 November 2026).
+
 > Latest interaction and mining fixes: [HANDOVER-INTERACTIONS.md](HANDOVER-INTERACTIONS.md) (25 November 2026).
 
 # colony2d / "The Sworn Game" — handover for Codex (2026-11-10)

@@ -5,6 +5,15 @@ const water = new Map<string,Texture>();
 const roads = new Map<string,Texture>();
 const surfaces=new Map<number,HTMLCanvasElement>();
 function canvas() { const c=document.createElement('canvas');c.width=c.height=32;return c; }
+const extracted=new WeakMap<Texture,HTMLCanvasElement>();
+function textureCanvas(texture:Texture,renderer:Renderer):HTMLCanvasElement {
+ const hit=extracted.get(texture);if(hit)return hit;
+ const c=document.createElement('canvas');c.width=texture.orig.width;c.height=texture.orig.height;
+ const g=c.getContext('2d')!,source=texture.source.resource as CanvasImageSource|undefined,f=texture.frame,t=texture.trim;
+ if(source&&!texture.rotate){try{g.drawImage(source,f.x,f.y,f.width,f.height,t?.x??0,t?.y??0,t?.width??f.width,t?.height??f.height);extracted.set(texture,c);return c;}catch{/* Unusual GPU-only textures use the existing fallback. */}}
+ const sprite=new Sprite(texture),fallback=renderer.extract.canvas({target:sprite}) as HTMLCanvasElement;sprite.destroy();extracted.set(texture,fallback);return fallback;
+}
+
 export function roundedWater(base:Texture,mask:number,renderer:Renderer):Texture {
  const key=`${base.uid}:${mask}`;
  const cached=water.get(key);if(cached)return cached;
@@ -15,9 +24,7 @@ export function roundedWater(base:Texture,mask:number,renderer:Renderer):Texture
  if(mask&4)ctx.fillRect(0,16,32,16);
  if(mask&8)ctx.fillRect(0,0,16,32);
  ctx.globalCompositeOperation='source-in';
- const source=new Sprite(base);source.width=source.height=32;
- const image=renderer.extract.canvas({target:source});
- ctx.drawImage(image as HTMLCanvasElement,0,0,32,32);source.destroy();
+ ctx.drawImage(textureCanvas(base,renderer),0,0,32,32);
  const texture=Texture.from(c);water.set(key,texture);return texture;
 }
 export function naturalRoad(mask:number,width=19,surface?:Texture,renderer?:Renderer,variation=0):Texture {
@@ -33,7 +40,7 @@ export function naturalRoad(mask:number,width=19,surface?:Texture,renderer?:Rend
  if(width>=24&&mask===15){ctx.fillStyle='#9c8861';ctx.fillRect(0,0,32,32);}
  if(surface&&renderer){
   let source=surfaces.get(surface.uid);
-  if(!source){const sprite=new Sprite(surface);source=renderer.extract.canvas({target:sprite}) as HTMLCanvasElement;surfaces.set(surface.uid,source);sprite.destroy();}
+  if(!source){source=textureCanvas(surface,renderer);surfaces.set(surface.uid,source);}
   // Original material colour, rounded cardinal connectors, cached once per combination.
   ctx.globalCompositeOperation='source-atop';
   ctx.save();ctx.translate(16,16);ctx.rotate(variation*Math.PI/2);ctx.drawImage(source,-16,-16,32,32);ctx.restore();
@@ -47,6 +54,6 @@ const bridges=new Map<string,Texture>();
 export function riverBridgeTexture(deck:Texture,base:Texture,renderer:Renderer):Texture{
  const key=deck.uid+':'+base.uid,cached=bridges.get(key);if(cached)return cached;
  const c=canvas(),ctx=c.getContext('2d')!;
- for(const texture of [base,deck]){const s=new Sprite(texture);s.width=s.height=32;const source=renderer.extract.canvas({target:s});ctx.drawImage(source as HTMLCanvasElement,0,0,32,32);s.destroy();}
+ for(const texture of [base,deck])ctx.drawImage(textureCanvas(texture,renderer),0,0,32,32);
  const result=Texture.from(c);bridges.set(key,result);return result;
 }

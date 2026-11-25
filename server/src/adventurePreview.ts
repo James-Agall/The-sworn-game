@@ -1,3 +1,5 @@
+import {setTile} from './chunks.js';
+import {broadcastTileUpdate} from './net.js';
 import {heroProfileOf} from './heroes.js';
 import {TileType} from '@colony/shared/protocol';
 // Only called by the existing COLONY_TEST_HOOKS gate. No live-game endpoint.
@@ -15,7 +17,11 @@ export function adventurePreview(caller:Player,msg:Record<string,unknown>){
  if(!p)return{error:'No player'};
  if(typeof msg.mode==='string'){
   if(p.interior)exitInterior(p);p.dead=false;p.hp=1000;p.attackCooldownTicks=0;p.input={dx:0,dy:0};const f=lifeOf(p).flags;
-  if(msg.mode==='journal'||msg.mode==='story'){
+  if(['render','render-front','render-house','render-house-front'].includes(msg.mode)){
+   const x=44,y=47,w=state.WORLD_TILES_X;
+   if(msg.mode==='render')for(let yy=y-8;yy<=y+8;yy++)for(let xx=x-9;xx<=x+12;xx++){const tile=xx===x&&yy===y?TileType.Tree:xx===x+7&&yy===y?TileType.House:TileType.Empty;setTile(yy*w+xx,tile);broadcastTileUpdate(xx,yy,tile);}
+   const house=msg.mode.includes('house'),front=msg.mode.endsWith('front');p.x=(x+(house?7:0)+.5)*32;p.y=(y+(front?1.6:.35))*32;state.isPaused=false;state.cycleTick=200;
+  }else if(msg.mode==='journal'||msg.mode==='story'){
    for(const s of STORIES)f[`story:${s.id}:heard`]=1;
    f['story:iron-and-oaths:step']=1;f['journal:track:iron-and-oaths']=1;
    f['story:the-unrung-bell:step']=3;f['story:cloth-for-the-living:step']=2;
