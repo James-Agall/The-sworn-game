@@ -21,7 +21,7 @@ import {
   biomeAt, biomeSpeedMultiplier, clamp, getBuildingLevel, inBounds, levelBonus, resourceKey, tileIndex, tileOfPixel,
   tileToPixelCenter,
 } from "./tiles.js";
-import { canStepPixel, advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
+import { bodyFitsPixel, canStepPixel, advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { industrialSynergyMultiplier, releaseResourceReservation } from "./economy.js";
 import { isInReservedGrounds, randInt } from "./worldgen.js";
 import { TOWN_CENTER_TILE, productionSpeedMultiplier } from "./colonists.js";
@@ -161,8 +161,7 @@ export function updateWildlifeRespawn() {
 }
 
 export function isWalkablePixel(px: number, py: number): boolean {
-  const t = tileOfPixel(px, py);
-  return isWalkableTile(t.x, t.y);
+  return bodyFitsPixel(px,py);
 }
 
 // Straight-line step toward (tx, ty), never onto a solid tile (slides along one axis if blocked).

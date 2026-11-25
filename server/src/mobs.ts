@@ -27,6 +27,7 @@ import {
 } from "./state.js";
 import { tileIndicesOfAny, tileTypesWhere } from "./chunks.js";
 import { inBounds, isHostileOwner, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter, dayTicksFor } from "./tiles.js";
+import {advanceGroundApproach,groundApproachFailed} from "./groundNavigation.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { activeWardSources, isWarded } from "./colonists.js";
 import { isGuardOrMilitiaKind, isRearColonist, isRearMob, isSiegeKind, nearestMeleeSoldier } from "./units.js";
@@ -789,6 +790,10 @@ export function updateMob(mob: Mob, dt: number) {
   } else if (slot) {
     approachGoal(mob, dist > mob.range + SLOT_CLOSE_IN_PX ? slot : targetPos, targetPos, mob.speed, dt);
   } else {
+    if(advanceGroundApproach(mob,targetPos,mob.speed,dt)){
+      if(groundApproachFailed(mob))mobsWithoutRoute.add(mob.id);else mobsWithoutRoute.delete(mob.id);
+      return;
+    }
     if (mob.path.length === 0 && mob.repathCooldown <= 0) {
       const start = tileOfPixel(mob.x, mob.y);
       const goalTile = tileOfPixel(targetPos.x, targetPos.y);
@@ -819,6 +824,7 @@ export function walkMobTo(mob: Mob, x: number, y: number, speed: number, dt: num
     stepRaidMobToward(mob, x, y, speed, dt);
     return;
   }
+  if(advanceGroundApproach(mob,{x,y},speed,dt))return;
   if (mob.path.length === 0 && mob.repathCooldown <= 0) {
     mob.path = findPath(tileOfPixel(mob.x, mob.y), tileOfPixel(x, y)) ?? [];
     mob.repathCooldown = MOB_REPATH_TICKS;

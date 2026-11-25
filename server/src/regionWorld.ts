@@ -33,8 +33,8 @@ export function generateRegionWorld(version = 22) {
  placeAbbey(landmarks);placeCastleRuin(landmarks);
  if(version>=21&&state.castleRuinCenter){const c=state.castleRuinCenter;
   for(const [id,m]of mobs)if(m.siteKind==='castleRuin')mobs.delete(id);
-  setTile(tileIndex(c.x,c.y+5),TileType.RuinEntrance);setTile(tileIndex(c.x,c.y+6),TileType.Empty);
-  if(version>=22)for(const [dx,dy,t]of [[-3,-2,TileType.Overgrowth],[3,-2,TileType.Overgrowth],[-2,2,TileType.SkullBones],[2,2,TileType.FallenSkeleton],[-2,-2,TileType.Cobweb],[2,-3,TileType.Cobweb]])if(state.tiles[tileIndex(c.x+dx,c.y+dy)]===TileType.Empty)setTile(tileIndex(c.x+dx,c.y+dy),t);
+  if(inBounds(c.x,c.y+5))setTile(tileIndex(c.x,c.y+5),TileType.RuinEntrance);if(inBounds(c.x,c.y+6))setTile(tileIndex(c.x,c.y+6),TileType.Empty);
+  if(version>=22)for(const [dx,dy,t]of [[-3,-2,TileType.Overgrowth],[3,-2,TileType.Overgrowth],[-2,2,TileType.SkullBones],[2,2,TileType.FallenSkeleton],[-2,-2,TileType.Cobweb],[2,-3,TileType.Cobweb]])if(inBounds(c.x+dx,c.y+dy)&&state.tiles[tileIndex(c.x+dx,c.y+dy)]===TileType.Empty)setTile(tileIndex(c.x+dx,c.y+dy),t);
  }
 
  for(const i of reserved)if(state.tiles[i]===TileType.Water)setTile(i,TileType.Empty);

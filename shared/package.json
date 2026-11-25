@@ -35,6 +35,7 @@
     "./snapshotDelta": "./src/snapshotDelta.ts",
     "./fortifications": "./src/fortifications.ts",
     "./trees": "./src/trees.ts",
+    "./sceneryCollision": "./src/sceneryCollision.ts",
     "./playerBases": "./src/playerBases.ts",
     "./mines": "./src/mines.ts",
     "./endgame": "./src/endgame.ts",

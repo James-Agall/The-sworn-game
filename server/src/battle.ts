@@ -6,6 +6,8 @@
 // order is copied in when it starts, see noteRegimentOrder) and the morale models, and keeps the regiment's
 // anchor, facing, strength, morale, STATE (the state machine of the plan, derived from what the existing
 // per-unit code is doing) and nearest hostile regiment. Later phases move decisions up into this tick.
+import {findGroundRoute,groundLineClear,needsTravelColumn} from './groundNavigation.js';
+import {createTravelColumn,rememberTrail,followTrail,stepTravelColumn,clearColumnDetour,type ColumnSteer} from './travelColumn.js';
 import { TICK_RATE, TILE_SIZE, type ArmyOrder } from "@colony/shared/protocol";
 import type { BattleRegiment, BattleRegimentState, Colonist, FormationMarch, Mob, OrderGroup } from "./types.js";
 import { COLONIST_BODY_RADIUS, MORALE_MAX, RETREAT_SPEED_FACTOR, SKIRMISH_DRIFT_TILES, SKIRMISH_KITE_TILES, dt } from "./constants.js";
@@ -15,7 +17,7 @@ import {
 } from "./state.js";
 import { regimentKey, startRout, tacticsEvent } from "./tactics.js";
 import { engageRaidGroup } from "./raids.js";
-import { canStepPixel, advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
+import { bodyFitsPixel, canStepPixel, advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { clamp, tileOfPixel, tileToPixelCenter } from "./tiles.js";
 import { unitStats } from "./units.js";
 import { formGroupAt, rallyUnit } from "./orders.js";
@@ -353,7 +355,7 @@ const MARCH_FORM_MAX_TICKS = TICK_RATE * 5;
 // Units steering in a march this tick -> their moving slot (returnToRally steers them straight at it; their rally
 // point stays the final slot, so everything reading rallyX / rallyY sees the destination as before), and their
 // per-unit repath throttle.
-export const marchSteer = new Map<string, { x: number; y: number }>();
+export const marchSteer = new Map<string, { x: number; y: number } | ColumnSteer>();
 const marchRepathAt = new Map<string, number>();
 
 const angleDiff = (a: number, b: number) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -362,10 +364,7 @@ function walkablePx(x: number, y: number): boolean {
   return isWalkableTile(Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE));
 }
 function lineWalkable(ax: number, ay: number, bx: number, by: number): boolean {
-  const d = Math.hypot(bx - ax, by - ay);
-  const n = Math.ceil(d / (TILE_SIZE / 3));
-  for(let i=1;i<=n;i++)if(!canStepPixel(ax+(bx-ax)*(i-1)/n,ay+(by-ay)*(i-1)/n,ax+(bx-ax)*i/n,ay+(by-ay)*i/n))return false;
-  return true;
+  return groundLineClear({x:ax,y:ay},{x:bx,y:by});
 }
 
 // Local offsets of the slots: ox across (left of the facing), oy along it (forward), relative to (x, y).
@@ -416,9 +415,10 @@ export function startFormationMarch(g: OrderGroup, members: Colonist[], targets:
   if (Math.hypot(x - s0.x, y - s0.y) < MARCH_MIN_TILES * TILE_SIZE) return false;
   // One route for the anchor (from a walkable tile near the centre), string-pulled to its corners.
   const startTile = walkablePx(s0.x, s0.y) ? tileOfPixel(s0.x, s0.y) : walkablePx(cx, cy) ? tileOfPixel(cx, cy) : tileOfPixel(members[0].x, members[0].y);
-  const route = findPath(startTile, tileOfPixel(x, y));
-  const pts: { x: number; y: number }[] = route ? route.map((t) => tileToPixelCenter(t)) : [];
-  pts.push({ x, y });
+  const groundRoute=findGroundRoute({x:s0.x,y:s0.y},{x,y});
+  const route = groundRoute ? null : findPath(startTile, tileOfPixel(x, y));
+  const pts: { x: number; y: number }[] = groundRoute ? groundRoute.slice(1) : route ? route.map((t) => tileToPixelCenter(t)) : [];
+  if(!groundRoute)pts.push({ x, y });
   const path: { x: number; y: number }[] = [];
   let from = { x: s0.x, y: s0.y };
   for (let i = 0; i < pts.length; i++) {
@@ -434,7 +434,53 @@ export function startFormationMarch(g: OrderGroup, members: Colonist[], targets:
     lagSince: new Map(), halfWidth: Math.max(TILE_SIZE, ...Array.from(offsets.values(), (o) => Math.abs(o.ox))),
     depth: Math.max(TILE_SIZE, ...Array.from(offsets.values(), (o) => Math.abs(o.oy - moy) * 2)),
   };
+  if(needsTravelColumn([{x:s0.x,y:s0.y},...path],g.march.halfWidth))beginColumn(g.march,members);
   return true;
+}
+
+function beginColumn(m:FormationMarch,members:Colonist[]):boolean {
+ const goal=m.path[m.path.length-1];if(!goal)return false;
+ let leader=members[0],best=Infinity;
+ for(const c of members){const d=(c.x-m.ax)**2+(c.y-m.ay)**2;if(d<best&&bodyFitsPixel(c.x,c.y,COLONIST_BODY_RADIUS)){best=d;leader=c;}}
+ const route=findGroundRoute({x:leader.x,y:leader.y},goal);
+ if(!route)return false;
+ m.column=createTravelColumn(members,route);m.path=route.slice(1);m.fold=Math.max(2,m.fold);m.formed=true;
+ return true;
+}
+function updateColumnMarch(g:OrderGroup,m:FormationMarch,members:Colonist[]) {
+ const column=m.column!,byId=new Map(members.map(c=>[c.id,c]));
+ // Fighting and new orders use the existing order/combat rules, without keeping a forced file.
+ if(g.engaged||members.some(c=>c.targetMobId||c.targetHearthId)){g.march=undefined;return;}
+ column.ids=column.ids.filter(id=>byId.has(id));
+ for(const c of members)rememberTrail(column,c);
+ let leader=byId.get(column.ids[0]);
+ if(!leader){g.march=undefined;return;}
+ const end=column.route[column.route.length-1];
+ // The head leaves the file for its original final slot. The next soldier then leads the remaining
+ // few metres; this drains the whole column instead of leaving its tail permanently short of goal.
+ if(Math.hypot(leader.x-end.x,leader.y-end.y)<5){
+  const final=m.finals.get(leader.id);m.offsets.delete(leader.id);clearColumnDetour(leader);if(final)rallyUnit(leader,final.x,final.y,g.id);
+  column.ids.shift();column.trails.delete(leader.id);leader=byId.get(column.ids[0]);
+  if(!leader){g.march=undefined;return;}
+ }
+ while(column.cursor<column.route.length-1&&Math.hypot(leader.x-column.route[column.cursor].x,leader.y-column.route[column.cursor].y)<5)column.cursor++;
+ if(column.lastLeader!==leader.id){column.lastLeader=leader.id;column.blockedSince=undefined;}
+ else if(Math.hypot(leader.x-(column.lastX??leader.x),leader.y-(column.lastY??leader.y))<.1){
+  column.blockedSince??=state.cycleTick;
+  if(state.cycleTick-column.blockedSince>TICK_RATE&&state.cycleTick>=column.repathAt){
+   column.repathAt=state.cycleTick+TICK_RATE;const route=findGroundRoute({x:leader.x,y:leader.y},end);
+   if(route){column.route=route;column.cursor=1;m.path=route.slice(1);column.blockedSince=undefined;}
+  }
+ }else column.blockedSince=undefined;
+ column.lastX=leader.x;column.lastY=leader.y;
+ m.ax=leader.x;m.ay=leader.y;m.waiting=false;m.lagging=0;
+ const next=column.route[column.cursor]??end;m.heading=Math.atan2(next.y-leader.y,next.x-leader.x);
+ marchSteer.set(leader.id,{...next,column});squadMarchSpeed.set(leader.id,m.speed);
+ for(let n=1;n<column.ids.length;n++){
+  const c=byId.get(column.ids[n])!,previous=byId.get(column.ids[n-1])!;
+  const target=followTrail(column,previous);marchSteer.set(c.id,{...target,column,previous});c.squadId=null;
+  squadMarchSpeed.set(c.id,m.speed*Math.min(1.25,Math.max(.8,Math.hypot(c.x-previous.x,c.y-previous.y)/(COLONIST_BODY_RADIUS*2+3))));
+ }
 }
 
 // The corridor half-width (px) across the heading at the anchor, up to `max`: out to the first run of
@@ -480,6 +526,11 @@ export function updateFormationMarch() {
     if (members.length === 0) {
       g.march = undefined;
       continue;
+    }
+    if(m.column){updateColumnMarch(g,m,members);continue;}
+    if(state.cycleTick>=(m.columnCheckAt??0)){
+      m.columnCheckAt=state.cycleTick+TICK_RATE/2;
+      if(needsTravelColumn([{x:m.ax,y:m.ay},...m.path],m.halfWidth)&&beginColumn(m,members)){updateColumnMarch(g,m,members);continue;}
     }
     if (m.settleSince !== undefined) {
       settleMarch(g, m, members);
@@ -605,7 +656,8 @@ function settleMarch(g: OrderGroup, m: FormationMarch, members: Colonist[]) {
 // back to the member's own path (re-planned at most every MARCH_REPATH_TICKS).
 export function marchSteerStep(c: Colonist, dt: number, speed: number): boolean {
   const t = marchSteer.get(c.id);
-  if (!t) return false;
+  if (!t) {clearColumnDetour(c,true);return false;}
+  if("column" in t){stepTravelColumn(c,t,dt,speed);return true;}
   const dx = t.x - c.x, dy = t.y - c.y;
   const dist = Math.hypot(dx, dy);
   const step = speed * dt;

@@ -1,3 +1,4 @@
+import {advanceGroundApproach} from "./groundNavigation.js";
 import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
 import { PADDOCK_FENCE_HP, PADDOCK_GATE_HP } from "@colony/shared/animals";
 // combat.ts: Damage (mobs, players, colonists, buildings), engagement slots, attack effects, player attacks, walls & gates, towers.
@@ -191,6 +192,7 @@ export function approachGoal(
     if (stepRaidMobToward(e, goal.x, goal.y, speed, dt)) return;
     goal = fallback;
   }
+  if(advanceGroundApproach(e,goal,speed,dt))return;
   if (e.path.length === 0 && e.repathCooldown <= 0) {
     const goalTile = isWalkablePixel(goal.x, goal.y) ? tileOfPixel(goal.x, goal.y) : tileOfPixel(fallback.x, fallback.y);
     e.path = findPath(tileOfPixel(e.x, e.y), goalTile) ?? [];

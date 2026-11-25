@@ -19,6 +19,7 @@ import {
 import { colonists, mobs, players, raidGroups, state } from "./state.js";
 import { raidForecastBand, type RaidForecast, type RaidForecastEdge } from "@colony/shared/raidForecast";
 import { biomeSpeedMultiplier, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter, dayIndexAt, dayTicksFor, nightTicksFor } from "./tiles.js";
+import {advanceGroundApproach} from "./groundNavigation.js";
 import { canStepPixel, advanceAlongPath, findPath, isWalkableTile } from "./pathfinding.js";
 import { randInt, randRange } from "./worldgen.js";
 import { TOWN_CENTER_TILE, activeWardSources, civilianPopulationUsed, highestTownCenterLevel, isWarded, nearestTownCenter } from "./colonists.js";
@@ -625,6 +626,7 @@ export function moveRaidFollower(group: RaidGroup, m: Mob, leader: Mob, offset: 
   const slot = formationPoint(group, leader.x, leader.y, offset);
   if (stepRaidMobToward(m, slot.x, slot.y, speed, dt)) return;
   if (stepRaidMobToward(m, leader.x, leader.y, speed, dt)) return;
+  if(advanceGroundApproach(m,leader,speed,dt))return;
   if (m.repathCooldown <= 0) {
     m.path = findPath(tileOfPixel(m.x, m.y), tileOfPixel(leader.x, leader.y)) ?? [];
     m.repathCooldown = MOB_REPATH_TICKS;

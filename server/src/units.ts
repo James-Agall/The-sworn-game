@@ -28,7 +28,9 @@ import {
   biomeSpeedMultiplier, getBuildingLevel, levelBonus, resourceKey, roadSpeedMultiplier, tileIndex, tileOfPixel,
   tileToPixelCenter,
 } from "./tiles.js";
-import { canStepPixel, advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
+import {compactObstacle} from "@colony/shared/sceneryCollision";
+import {steerGroundRally} from "./travelColumn.js";
+import { bodyFitsPixel, canStepPixel, advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";
 import { armyDamageMultiplier } from "./economy.js";
 import {
   castleLevelForTile, guardCountForLevel, isMilitaryTile, settlementKeyNear, settlementOf,
@@ -384,6 +386,8 @@ export function returnToRally(c: Colonist, dt: number, speed: number) {
   if (marchSteerStep(c, dt, speed)) return;
   const rallyTile = { x: c.rallyTileX, y: c.rallyTileY };
   const here = tileOfPixel(c.x, c.y);
+  const groundGoal=compactObstacle(state.tiles[tileIndex(rallyTile.x,rallyTile.y)])&&bodyFitsPixel(c.rallyX,c.rallyY,COLONIST_BODY_RADIUS);
+  if(groundGoal){steerGroundRally(c,c.rallyX,c.rallyY,dt,speed);return;}
 
   if (!isWalkableTile(rallyTile.x, rallyTile.y)) {
     const rallyCenter = tileToPixelCenter(rallyTile);
@@ -428,7 +432,7 @@ export function returnToRally(c: Colonist, dt: number, speed: number) {
   if (c.path.length === 0 && !nextToRally) {
     c.path = findPath(here, rallyTile) ?? [];
     if (c.path.length === 0) {
-      c.state = "idle";
+      steerGroundRally(c,c.rallyX,c.rallyY,dt,speed);
       return;
     }
   }

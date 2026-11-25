@@ -98,6 +98,15 @@ try {
   await hook("killColonists", { kind: "builder" });
   const tc = (await hook("constructionState")).townCenters[0];
 
+  // Keep this ownership/siege fixture independent of random generated guardians. Freer forest
+  // movement lets those otherwise-unrelated mobs reach the ram before it can finish its breach.
+  // The two ownership-probe mobs below are still spawned and tested normally.
+  for(let pass=0;pass<3;pass++){
+    const worldMobs=(await hook("buildingState")).mobs;
+    if(!worldMobs.length)break;
+    for(const m of worldMobs)await hook("damageMob",{mobId:m.id,amount:1e6});
+  }
+
   // ---- A: stamp the fort east of the Town Center ----
   const S = { x: tc.x + 16, y: tc.y };
   for (let y = S.y - 7; y <= S.y + 7; y++) for (let x = S.x - 8; x <= S.x + 7; x++) await setTile(x, y, T.Empty);

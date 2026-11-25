@@ -28,7 +28,8 @@ import { armyRegimentsNow, colonistRole, dropGuardTarget, isGuardOrMilitiaKind, 
 import { releaseSlot } from "./combat.js";
 import { catapultImpact } from "./siege.js";
 import { isDormantGuardian } from "./mobs.js";
-import { isWalkableTile } from "./pathfinding.js";
+import {compactObstacle} from "@colony/shared/sceneryCollision";
+import { bodyFitsPixel, isWalkableTile } from "./pathfinding.js";
 import { isRoutedUnit, moraleDamageMult, regimentKey } from "./tactics.js";
 import { attackObjectiveAt, damageHearth, nearestHostileStructure, sendAgainstHearth } from "./hearths.js";
 import { weaponDamageMult } from "./heroes.js";
@@ -414,7 +415,10 @@ export function startGroupOrder(units: Colonist[], order: ArmyOrder) {
 // a slot with no such tile keeps its spot (the unit stops at the nearest point it can reach).
 const SLOT_SNAP_TILES = 3;
 function snapSlotsToBank(targets: Map<string, { x: number; y: number }>, members: Colonist[]) {
-  const bad = Array.from(targets.values()).filter((s) => !isWalkableTile(Math.floor(s.x / TILE_SIZE), Math.floor(s.y / TILE_SIZE)));
+  const bad = Array.from(targets.values()).filter((s) => {
+    const tx=Math.floor(s.x/TILE_SIZE),ty=Math.floor(s.y/TILE_SIZE);
+    return !isWalkableTile(tx,ty)&&!(compactObstacle(state.tiles[tileIndex(tx,ty)])&&bodyFitsPixel(s.x,s.y,7));
+  });
   if (bad.length === 0) return;
   const c = centroidOf(members);
   const a = tileOfPixel(c.x, c.y);
@@ -440,6 +444,11 @@ function snapSlotsToBank(targets: Map<string, { x: number; y: number }>, members
   }
   for (const s of bad) {
     const st = tileOfPixel(s.x, s.y);
+    if(compactObstacle(state.tiles[tileIndex(st.x,st.y)])){
+      let best:{x:number;y:number}|undefined,d=Infinity;
+      for(let dy=-24;dy<=24;dy+=8)for(let dx=-24;dx<=24;dx+=8){const score=dx*dx+dy*dy;if(score<d&&bodyFitsPixel(s.x+dx,s.y+dy,7)){d=score;best={x:s.x+dx,y:s.y+dy};}}
+      if(best){s.x=best.x;s.y=best.y;continue;}
+    }
     const near: { c: { x: number; y: number }; w: number }[] = [];
     for (let dy = -SLOT_SNAP_TILES; dy <= SLOT_SNAP_TILES; dy++) {
       for (let dx = -SLOT_SNAP_TILES; dx <= SLOT_SNAP_TILES; dx++) {

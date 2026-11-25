@@ -718,6 +718,8 @@ export interface OrderGroup {
   rallyTable?: { offsets: Map<string, { ox: number; oy: number }>; width?: number; shape: string };
 }
 export interface FormationMarch {
+  column?: import("./travelColumn.js").TravelColumn;
+  columnCheckAt?: number;
   offsets: Map<string, { ox: number; oy: number }>;
   finals: Map<string, { x: number; y: number }>;
   // Anchor route corners (pixels), the anchor, its heading and the final facing (radians).

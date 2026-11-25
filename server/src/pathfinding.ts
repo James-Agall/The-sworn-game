@@ -1,3 +1,4 @@
+import {compactObstacle,sceneryRadius} from "@colony/shared/sceneryCollision";
 import { FORT_BUILDABLE, FORT_GATES, isFortification, isFortPart, isLargeGate, isWideBridge, fortPartner, fortAnchor, rampartTransition } from "@colony/shared/fortifications";
 // pathfinding.ts: Walkability, breadth-first paths, path following, and body separation (spatial hash).
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
@@ -33,7 +34,7 @@ export function isWalkableTile(tx: number, ty: number): boolean {
   }
   return t === undefined ? !isSolidTile(t) : WALKABLE[t] === 1;
 }
-export function canStepTile(fx:number,fy:number,tx:number,ty:number):boolean {
+export function canStepTile(fx:number,fy:number,tx:number,ty:number,allowCompact=false):boolean {
  if(!inBounds(fx,fy)||!inBounds(tx,ty))return false;
  const from=state.tiles[tileIndex(fx,fy)],to=state.tiles[tileIndex(tx,ty)];
  if(!rampartTransition(from,to))return false;
@@ -46,14 +47,51 @@ export function canStepTile(fx:number,fy:number,tx:number,ty:number):boolean {
 
  // Both halves remain blocked while their anchor is unfinished.
  if(isFortPart(to)){const a=fortAnchor((x,y)=>inBounds(x,y)?state.tiles[tileIndex(x,y)]:-1,tx,ty);if(state.tiles[tileIndex(a.x,a.y)]===TileType.ConstructionSite)return false;}
- return isWalkableTile(tx,ty);
+ return allowCompact&&compactObstacle(to)||isWalkableTile(tx,ty);
 }
-export function canStepPixel(fx:number,fy:number,tx:number,ty:number):boolean {
+// True ground collision, independent of the canopy or the tile reserved for construction.
+// `box` retains the hero's existing square body against buildings. Soldiers use circular clearance.
+export function bodyFitsPixel(px:number,py:number,radius=0,box=false,deck=false):boolean {
+ if(px-radius<0||py-radius<0||px+radius>=state.WORLD_TILES_X*TILE_SIZE||py+radius>=state.WORLD_TILES_Y*TILE_SIZE)return false;
+ const minX=Math.floor((px-radius)/TILE_SIZE),maxX=Math.floor((px+radius)/TILE_SIZE);
+ const minY=Math.floor((py-radius)/TILE_SIZE),maxY=Math.floor((py+radius)/TILE_SIZE);
+ for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){
+  const tile=state.tiles[tileIndex(x,y)],small=sceneryRadius(tile,x,y);
+  if(small>0){
+   const dx=Math.abs(px-(x+.5)*TILE_SIZE),dy=Math.abs(py-(y+.5)*TILE_SIZE);
+   if(box){const ax=Math.max(0,dx-radius),ay=Math.max(0,dy-radius);if(ax*ax+ay*ay<small*small-1e-6)return false;}
+   else if(dx*dx+dy*dy<(small+radius)*(small+radius)-1e-6)return false;
+   continue;
+  }
+  if(deck&&isLargeGate(tile)&&!state.hostileMover)continue;
+  if(isWalkableTile(x,y))continue;
+  if(radius===0||box)return false;
+  const dx=px-Math.max(x*TILE_SIZE,Math.min((x+1)*TILE_SIZE,px));
+  const dy=py-Math.max(y*TILE_SIZE,Math.min((y+1)*TILE_SIZE,py));
+  if(dx*dx+dy*dy<radius*radius-1e-6)return false;
+ }
+ return true;
+}
+export function canStepPixel(fx:number,fy:number,tx:number,ty:number,radius=0,box=false):boolean {
  const x=Math.floor(fx/TILE_SIZE),y=Math.floor(fy/TILE_SIZE),nx=Math.floor(tx/TILE_SIZE),ny=Math.floor(ty/TILE_SIZE);
  if(Math.abs(nx-x)>1||Math.abs(ny-y)>1)return false;
- if(x!==nx&&y!==ny)return (canStepTile(x,y,nx,y)&&canStepTile(nx,y,nx,ny))||(canStepTile(x,y,x,ny)&&canStepTile(x,ny,nx,ny));
- return canStepTile(x,y,nx,ny);
+ if(!inBounds(x,y)||!inBounds(nx,ny))return false;
+ const diagonal=x!==nx&&y!==ny;
+ const topology=diagonal?(canStepTile(x,y,nx,y,true)&&canStepTile(nx,y,nx,ny,true))||(canStepTile(x,y,x,ny,true)&&canStepTile(x,ny,nx,ny,true)):canStepTile(x,y,nx,ny,true);
+ if(!topology)return false;
+ const from=state.tiles[tileIndex(x,y)],to=state.tiles[tileIndex(nx,ny)];
+ // Keep the common point-body/open-ground case as cheap as the original check.
+ if(radius===0&&!compactObstacle(from)&&!compactObstacle(to)&&!diagonal)return true;
+ const deck=(from===TileType.Rampart||isLargeGate(from))&&!state.hostileMover;
+ const steps=Math.max(1,Math.ceil(Math.hypot(tx-fx,ty-fy)/4));
+ for(let k=1;k<=steps;k++)if(!bodyFitsPixel(fx+(tx-fx)*k/steps,fy+(ty-fy)*k/steps,radius,box,deck))return false;
+ // A hero's whole body must remain on a wall deck, just as in the old four-corner check.
+ if(box&&(from===TileType.Rampart||isLargeGate(from)||to===TileType.Rampart||isLargeGate(to))){
+  for(const ox of [-radius,radius])for(const oy of [-radius,radius])if(!canStepTile(x,y,Math.floor((tx+ox)/TILE_SIZE),Math.floor((ty+oy)/TILE_SIZE),true))return false;
+ }
+ return true;
 }
+
 // Set when isWalkableTile looked at a gate: findPath does not cache that search.
 let sawGate = false;
 
@@ -82,6 +120,12 @@ export function adjacentTilesOfType(tx: number, ty: number, type: TileType): Til
 // blocked (optional, forts phase E wagon detours): extra tiles this search treats as unwalkable.
 export function findPath(start: TileCoord, goal: TileCoord, blocked?: (x: number, y: number) => boolean): TileCoord[] | null {
   if (start.x === goal.x && start.y === goal.y) return [];
+  // A tile-centre search cannot end inside a static solid. Compact scenery now has usable edges,
+  // but those require a pixel route; do not flood the whole map looking for its blocked centre.
+  if(Number.isInteger(goal.x)&&Number.isInteger(goal.y)&&inBounds(goal.x,goal.y)){
+    const tile=state.tiles[tileIndex(goal.x,goal.y)];
+    if(!WALKABLE[tile]&&!isGateTile(tile)&&!isFortPart(tile))return null;
+  }
   // World streaming phase 1: an unchanged region gives the same answer as last time (see chunks.ts).
   const cacheable = !blocked && inBounds(start.x, start.y) && inBounds(goal.x, goal.y);
   const ck = cacheable ? pathCacheKey(tileIndex(start.x, start.y), tileIndex(goal.x, goal.y), state.hostileMover) : 0;
